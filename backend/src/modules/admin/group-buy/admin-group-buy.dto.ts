@@ -25,7 +25,7 @@ export class GroupBuyTierConfigDto {
   sequence: number;
 
   @Type(() => Number)
-  @IsInt({ message: '返还比例必须为整数基点' })
+  @IsInt({ message: '返还比例格式不正确' })
   @Min(1, { message: '返还比例必须大于 0' })
   basisPoints: number;
 
@@ -101,7 +101,6 @@ export class CreateGroupBuyActivityDto {
   @IsDate({ message: '开始时间格式不正确' })
   startAt?: Date;
 
-  @IsOptional()
   @Type(() => Date)
   @IsDate({ message: '结束时间格式不正确' })
   endAt?: Date;

@@ -35,7 +35,7 @@ export const GroupBuyPurchaseGuardSheet = ({
     : `${currentTitle} 正在分享中。同一时间只能保留一个团购推荐码，需要先结束本次分享，才可以购买 ${targetTitle}。`;
   const ruleCopy = isPending
     ? '放弃后，本次资格不会再生成推荐码，也不会产生新的返还记录。'
-    : '已经产生的有效推荐订单，仍按确认收货且无退换货后的规则处理。';
+    : '结束后，已到账返还保留；未确认的推荐名额会失效，不再产生返还。';
   const endLabel = isPending ? '放弃本次资格并购买' : '结束本次分享并购买';
 
   return (

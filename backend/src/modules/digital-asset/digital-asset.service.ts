@@ -81,7 +81,7 @@ export class DigitalAssetService {
         include: { items: true },
       });
       if (!order) throw new NotFoundException('订单不存在');
-      if ((order as any).bizType === 'VIP_PACKAGE') return;
+      if (this.isExcludedOrderBizType((order as any).bizType)) return;
       if (['CANCELED', 'REFUNDED'].includes(order.status)) return;
       if (Boolean((order as any).receivedAt) || order.status === 'RECEIVED') return;
 
@@ -201,7 +201,7 @@ export class DigitalAssetService {
         throw new BadRequestException('订单尚未确认收货，不能累计数字资产');
       }
 
-      if ((order as any).bizType === 'VIP_PACKAGE') return;
+      if (this.isExcludedOrderBizType((order as any).bizType)) return;
 
       const cumulativeSpendAmount = calculateOrderAssetAmount(order as any);
       if (cumulativeSpendAmount <= 0) return;
@@ -1359,6 +1359,10 @@ export class DigitalAssetService {
       },
     });
     return true;
+  }
+
+  private isExcludedOrderBizType(bizType: unknown): boolean {
+    return bizType === 'VIP_PACKAGE' || bizType === 'GROUP_BUY';
   }
 
   private async writeFrozenCreditVoid(tx: any, params: {

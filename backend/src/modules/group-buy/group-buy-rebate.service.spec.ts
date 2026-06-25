@@ -19,6 +19,8 @@ describe('GroupBuyRebateService', () => {
     status: 'CANDIDATE',
     instanceId: 'instance_1',
     referredOrderId: 'order_1',
+    candidateSequence: 1,
+    effectiveSequence: null,
     referredOrder: {
       id: 'order_1',
       status: 'RECEIVED',
@@ -30,6 +32,12 @@ describe('GroupBuyRebateService', () => {
       id: 'instance_1',
       userId: 'initiator_1',
       status: 'SHARING',
+      activity: {
+        id: 'activity_1',
+        status: 'ACTIVE',
+        endAt: new Date('2026-07-01T00:00:00.000Z'),
+        deletedAt: null,
+      },
       priceSnapshot: 1000,
       tierSnapshot,
       validReferralCount: 0,
@@ -152,7 +160,9 @@ describe('GroupBuyRebateService', () => {
 
   it('releases tier 2 rebate for the second valid direct purchase', async () => {
     const { tx, service } = buildPrisma({
-      validCount: 1,
+      referral: {
+        candidateSequence: 2,
+      },
       account: { id: 'account_1', userId: 'initiator_1', balance: 100 },
     });
 
@@ -175,6 +185,9 @@ describe('GroupBuyRebateService', () => {
   it('releases tier 3 rebate and completes active sharing when the last tier is valid', async () => {
     const { tx, service } = buildPrisma({
       validCount: 2,
+      referral: {
+        candidateSequence: 3,
+      },
       account: { id: 'account_1', userId: 'initiator_1', balance: 300 },
     });
 
@@ -232,6 +245,84 @@ describe('GroupBuyRebateService', () => {
       where: { id: 'instance_1' },
       data: { candidateCount: { decrement: 1 } },
     }));
+    expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an unfinished candidate when the activity has ended before rebate release', async () => {
+    const { tx, service } = buildPrisma({
+      referral: {
+        instance: {
+          id: 'instance_1',
+          userId: 'initiator_1',
+          status: 'SHARING',
+          activity: {
+            id: 'activity_1',
+            status: 'ENDED',
+            endAt: new Date('2026-06-22T11:59:00.000Z'),
+            deletedAt: null,
+          },
+          priceSnapshot: 1000,
+          tierSnapshot,
+          validReferralCount: 0,
+          code: { id: 'code_1', status: 'EXPIRED' },
+        },
+      },
+    });
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({
+      status: 'INVALIDATED',
+      reason: 'ACTIVITY_ENDED',
+    });
+    expect(tx.groupBuyReferral.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referral_1' },
+      data: expect.objectContaining({
+        status: 'INVALID',
+        invalidReason: 'ACTIVITY_ENDED',
+        invalidatedAt: now,
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'instance_1' },
+      data: { candidateCount: { decrement: 1 } },
+    }));
+    expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
+    expect(tx.groupBuyRebateAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps an already valid released rebate after the activity has ended', async () => {
+    const { tx, service } = buildPrisma({
+      referral: {
+        status: 'VALID',
+        effectiveSequence: 1,
+        amountSnapshot: 100,
+        instance: {
+          id: 'instance_1',
+          userId: 'initiator_1',
+          status: 'EXPIRED',
+          activity: {
+            id: 'activity_1',
+            status: 'ENDED',
+            endAt: new Date('2026-06-22T11:59:00.000Z'),
+            deletedAt: null,
+          },
+          priceSnapshot: 1000,
+          tierSnapshot,
+          validReferralCount: 1,
+          code: { id: 'code_1', status: 'EXPIRED' },
+        },
+      },
+    });
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({
+      status: 'ALREADY_VALID',
+      effectiveSequence: 1,
+      amount: 100,
+    });
+    expect(tx.groupBuyReferral.update).not.toHaveBeenCalled();
     expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
   });
 
@@ -326,13 +417,19 @@ describe('GroupBuyRebateService', () => {
     }));
   });
 
-  it('keeps a terminated instance terminated but releases already paid candidate purchases', async () => {
+  it('invalidates unfinished candidate purchases after the initiator actively terminates sharing', async () => {
     const { tx, service } = buildPrisma({
       referral: {
         instance: {
           id: 'instance_1',
           userId: 'initiator_1',
           status: 'TERMINATED',
+          activity: {
+            id: 'activity_1',
+            status: 'ACTIVE',
+            endAt: new Date('2026-07-01T00:00:00.000Z'),
+            deletedAt: null,
+          },
           priceSnapshot: 1000,
           tierSnapshot,
           validReferralCount: 0,
@@ -343,17 +440,23 @@ describe('GroupBuyRebateService', () => {
 
     const result = await service.releaseReferralIfValid('referral_1', now);
 
-    expect(result.status).toBe('RELEASED');
+    expect(result).toEqual({
+      status: 'INVALIDATED',
+      reason: 'USER_TERMINATED',
+    });
+    expect(tx.groupBuyReferral.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referral_1' },
+      data: expect.objectContaining({
+        status: 'INVALID',
+        invalidReason: 'USER_TERMINATED',
+        invalidatedAt: now,
+      }),
+    }));
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
-      data: {
-        validReferralCount: { increment: 1 },
-        candidateCount: 0,
-      },
+      data: { candidateCount: { decrement: 1 } },
     }));
-    expect(tx.groupBuyInstance.update).not.toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'COMPLETED' }),
-    }));
+    expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
     expect(tx.groupBuyCode.update).not.toHaveBeenCalled();
   });
 

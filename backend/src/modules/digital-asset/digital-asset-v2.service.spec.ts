@@ -656,6 +656,33 @@ describe('DigitalAssetService V2 semantics', () => {
     expect(data.ledgers).toHaveLength(0);
   });
 
+  it('GROUP_BUY order is ignored by paid and received-order digital asset accounting', async () => {
+    const { data, service } = makeHarness({
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-group-buy',
+        userId: 'vip-user',
+        bizType: 'GROUP_BUY',
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        goodsAmount: 1000,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-group-buy', quantity: 1, unitPrice: 1000, isPrize: false, createdAt: new Date('2026-06-04') },
+        ],
+      }],
+    });
+
+    await service.recordOrderPaid('order-group-buy');
+    await service.recordOrderReceived('order-group-buy', 'ORDER_RECEIVED');
+
+    expect(data.accounts).toHaveLength(0);
+    expect(data.ledgers).toHaveLength(0);
+  });
+
   it('refund reverses cumulative spend and credit assets from original ledger snapshot', async () => {
     const { data, service } = makeHarness({
       memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],

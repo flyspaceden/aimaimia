@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -240,7 +240,27 @@ export class GroupBuyRebateService {
     }
 
     const instance = referral.instance as any;
-    if (!['SHARING', 'TERMINATED'].includes(instance.status)) {
+    if (this.hasActivityEnded(instance.activity, now)) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'ACTIVITY_ENDED',
+        now,
+      );
+    }
+
+    if (instance.status === 'TERMINATED') {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'USER_TERMINATED',
+        now,
+      );
+    }
+
+    if (instance.status !== 'SHARING') {
       return this.invalidateCandidate(
         tx,
         referral.id,
@@ -269,13 +289,23 @@ export class GroupBuyRebateService {
     }
 
     const tiers = this.normalizeTierSnapshot(instance.tierSnapshot);
-    const validCount = await tx.groupBuyReferral.count({
+    const effectiveSequence = Number((referral as any).candidateSequence);
+    if (!Number.isInteger(effectiveSequence) || effectiveSequence <= 0) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'REFERRAL_SEQUENCE_INVALID',
+        now,
+      );
+    }
+
+    const validCountBefore = await tx.groupBuyReferral.count({
       where: {
         instanceId: instance.id,
         status: 'VALID',
       },
     });
-    const effectiveSequence = validCount + 1;
     const tier = tiers.find((item) => item.sequence === effectiveSequence);
     if (!tier) {
       return this.invalidateCandidate(
@@ -366,7 +396,12 @@ export class GroupBuyRebateService {
       },
     });
 
-    if (instance.status === 'SHARING' && effectiveSequence >= tiers.length) {
+    const validCountAfter = validCountBefore + 1;
+    if (
+      instance.status === 'SHARING'
+      && validCountAfter >= tiers.length
+      && pendingCandidateCount === 0
+    ) {
       await tx.groupBuyInstance.update({
         where: { id: instance.id },
         data: {
@@ -397,6 +432,14 @@ export class GroupBuyRebateService {
       instance: {
         include: {
           code: true,
+          activity: {
+            select: {
+              id: true,
+              status: true,
+              endAt: true,
+              deletedAt: true,
+            },
+          },
         },
       },
       referredOrder: {
@@ -496,6 +539,14 @@ export class GroupBuyRebateService {
       throw new InternalServerErrorException('团购档位快照异常');
     }
     return tiers;
+  }
+
+  private hasActivityEnded(activity: any, now: Date) {
+    if (!activity) return true;
+    return activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
   }
 
   private roundMoney(value: number) {

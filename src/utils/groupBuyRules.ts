@@ -6,6 +6,6 @@ export function buildGroupBuyActivityRules(tierCount: number): string[] {
     '团购无法使用红包，消费积分抵扣等优惠活动。',
     `最多推荐${safeTierCount}人，每次推荐都会获得相应奖励。`,
     '同一时间只能有1个团购推荐码。',
-    '可以随时终止团购，终止后未推荐的奖励即刻失效。',
+    '可以随时终止团购，终止后未确认或未释放的返还将失效。',
   ];
 }

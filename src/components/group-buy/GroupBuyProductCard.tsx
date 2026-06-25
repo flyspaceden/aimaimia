@@ -1,16 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { compactActionTextProps, fitTextProps, priceTextProps, useTheme } from '../../theme';
 import type { GroupBuyActivity } from '../../types';
+import { getGroupBuyCountdownState } from '../../utils/groupBuyCountdown';
+import { Countdown } from '../ui/Countdown';
 import { GROUP_BUY_COLORS } from './constants';
 
 type GroupBuyProductCardProps = {
   activity: GroupBuyActivity;
   onPress?: () => void;
   onPurchase?: () => void;
+  onExpire?: () => void;
   featured?: boolean;
 };
 
@@ -20,12 +23,32 @@ export const GroupBuyProductCard = ({
   activity,
   onPress,
   onPurchase,
+  onExpire,
   featured = false,
 }: GroupBuyProductCardProps) => {
   const { colors, radius, shadow, spacing, typography } = useTheme();
-  const availableStock = activity.availableStock ?? activity.sku.stock;
-  const stockLabel = availableStock > 0 ? `可购 ${availableStock} 份` : '暂时无货';
+  const [clockState, setClockState] = useState(() => getGroupBuyCountdownState(activity.endAt));
+  const activityEnded = activity.status === 'ENDED' || clockState.expired;
+  const countdownUrgent = !activityEnded && clockState.urgent;
+  const availableStock = activityEnded ? 0 : activity.availableStock ?? activity.sku.stock;
+  const stockLabel = activityEnded ? '活动已结束' : availableStock > 0 ? `可购 ${availableStock} 份` : '暂时无货';
   const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
+
+  useEffect(() => {
+    setClockState(getGroupBuyCountdownState(activity.endAt));
+  }, [activity.id, activity.endAt]);
+
+  const handleExpire = () => {
+    setClockState({ expired: true, urgent: false });
+    onExpire?.();
+  };
+
+  const handleCountdownTick = (remainingMs: number) => {
+    setClockState({
+      expired: remainingMs <= 0,
+      urgent: remainingMs > 0 && remainingMs < 24 * 60 * 60 * 1000,
+    });
+  };
 
   return (
     <Pressable
@@ -95,6 +118,45 @@ export const GroupBuyProductCard = ({
           {itemSummary}
         </Text>
 
+        {activity.endAt ? (
+          <View
+            style={[
+              styles.countdownStrip,
+              {
+                backgroundColor: countdownUrgent ? '#FFF1EC' : GROUP_BUY_COLORS.porcelain,
+                borderColor: countdownUrgent ? `${GROUP_BUY_COLORS.coral}66` : GROUP_BUY_COLORS.mist,
+                marginTop: spacing.sm,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={countdownUrgent ? 'timer-alert-outline' : 'clock-outline'}
+              size={14}
+              color={activityEnded ? GROUP_BUY_COLORS.inkSoft : countdownUrgent ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.tide}
+            />
+            {activityEnded ? (
+              <Text {...compactActionTextProps} style={[typography.caption, styles.countdownText, { color: GROUP_BUY_COLORS.inkSoft }]}>
+                活动已结束
+              </Text>
+            ) : (
+              <Countdown
+                expiresAt={activity.endAt}
+                format="days-hours-minutes"
+                prefix={countdownUrgent ? '活动即将结束' : '剩余'}
+                onExpire={handleExpire}
+                onTick={handleCountdownTick}
+                {...compactActionTextProps}
+                style={[
+                  typography.caption,
+                  styles.countdownText,
+                  countdownUrgent && styles.countdownTextUrgent,
+                  { color: countdownUrgent ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.tide },
+                ]}
+              />
+            )}
+          </View>
+        ) : null}
+
         <View style={[styles.infoRow, { marginTop: spacing.md }]}>
           <View style={styles.priceBlock}>
             <Text {...priceTextProps} style={[typography.headingMd, styles.priceText, { color: GROUP_BUY_COLORS.coral }]}>
@@ -136,7 +198,7 @@ export const GroupBuyProductCard = ({
               {...compactActionTextProps}
               style={[typography.bodyStrong, { color: availableStock > 0 ? '#FFFFFF' : colors.muted }]}
             >
-              购买
+              {activityEnded ? '已结束' : '购买'}
             </Text>
           </Pressable>
         </View>
@@ -199,6 +261,23 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
+  },
+  countdownStrip: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    maxWidth: '100%',
+    borderWidth: 1,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  countdownText: {
+    marginLeft: 5,
+  },
+  countdownTextUrgent: {
+    fontWeight: '800',
   },
   footerRow: {
     flexDirection: 'row',

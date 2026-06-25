@@ -33,7 +33,7 @@ export class GroupBuyService {
         deletedAt: null,
         AND: [
           { OR: [{ startAt: null }, { startAt: { lte: now } }] },
-          { OR: [{ endAt: null }, { endAt: { gt: now } }] },
+          { endAt: { gt: now } },
         ],
       },
       orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
@@ -45,7 +45,7 @@ export class GroupBuyService {
     };
   }
 
-  async getCurrentState(userId: string) {
+  async getCurrentState(userId: string, now = new Date()) {
     const include: Prisma.GroupBuyInstanceInclude = {
       activity: {
         include: this.activityInclude(),
@@ -85,35 +85,47 @@ export class GroupBuyService {
       },
       orderBy: { updatedAt: 'desc' },
       include,
+    }) ?? await this.prisma.groupBuyInstance.findFirst({
+      where: {
+        userId,
+        status: GroupBuyInstanceStatus.EXPIRED,
+      },
+      orderBy: { updatedAt: 'desc' },
+      include,
     });
 
     if (!instance) {
       return this.emptyCurrentState();
     }
 
+    const isEndedByActivityWindow = this.hasActivityEnded(instance.activity, now);
+    const effectiveStatus = isEndedByActivityWindow
+      ? GroupBuyInstanceStatus.EXPIRED
+      : instance.status;
     const occupyingStatuses = new Set<GroupBuyInstanceStatus>([
       GroupBuyInstanceStatus.QUALIFICATION_PENDING,
       GroupBuyInstanceStatus.SHARING,
     ]);
-    const occupiesSlot = occupyingStatuses.has(instance.status);
+    const occupiesSlot = occupyingStatuses.has(effectiveStatus);
     const hasPendingTerminatedReferral =
-      instance.status === GroupBuyInstanceStatus.TERMINATED
+      effectiveStatus === GroupBuyInstanceStatus.TERMINATED
       && instance.candidateCount > 0;
+    const isExpiredInstance = effectiveStatus === GroupBuyInstanceStatus.EXPIRED;
 
-    if (!occupiesSlot && !hasPendingTerminatedReferral) {
+    if (!occupiesSlot && !hasPendingTerminatedReferral && !isExpiredInstance) {
       return this.emptyCurrentState();
     }
 
     return {
       current: {
         id: instance.id,
-        status: instance.status,
+        status: effectiveStatus,
         validReferralCount: instance.validReferralCount,
         candidateCount: instance.candidateCount,
         code: instance.code
           ? {
               code: instance.code.code,
-              status: instance.code.status,
+              status: isEndedByActivityWindow ? GroupBuyCodeStatus.EXPIRED : instance.code.status,
             }
           : null,
         activity: this.mapActivityForBuyer(instance.activity),
@@ -220,7 +232,15 @@ export class GroupBuyService {
     return activity.status === GroupBuyActivityStatus.ACTIVE
       && !activity.deletedAt
       && (!activity.startAt || activity.startAt <= now)
-      && (!activity.endAt || activity.endAt > now);
+      && Boolean(activity.endAt)
+      && activity.endAt > now;
+  }
+
+  private hasActivityEnded(activity: any, now: Date) {
+    return activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
   }
 
   private resolveTierSnapshotCount(raw: unknown) {
@@ -297,6 +317,9 @@ export class GroupBuyService {
 
     return {
       id: activity.id,
+      status: activity.status,
+      startAt: activity.startAt ? activity.startAt.toISOString() : null,
+      endAt: activity.endAt ? activity.endAt.toISOString() : null,
       title: activity.title,
       description: activity.description ?? null,
       price: activity.price,

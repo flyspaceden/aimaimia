@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
@@ -2472,12 +2472,31 @@ export class CheckoutService {
       throw new InternalServerErrorException('团购支付会话元数据不完整');
     }
 
+    const now = new Date();
+    const activity = await tx.groupBuyActivity.findUnique({
+      where: { id: bizMeta.groupBuyActivityId },
+      select: {
+        id: true,
+        status: true,
+        startAt: true,
+        endAt: true,
+        deletedAt: true,
+      },
+    });
+    const activityEnded = this.isGroupBuyActivityEnded(activity, now);
+
     const ownInstance = await tx.groupBuyInstance.create({
       data: {
         userId: session.userId,
         activityId: bizMeta.groupBuyActivityId,
         initiatorOrderId: orderId,
-        status: 'QUALIFICATION_PENDING',
+        status: activityEnded ? 'EXPIRED' : 'QUALIFICATION_PENDING',
+        ...(activityEnded
+          ? {
+              expiredAt: now,
+              invalidReason: 'ACTIVITY_ENDED',
+            }
+          : {}),
         priceSnapshot: Number(bizMeta.groupBuyPriceSnapshot ?? session.goodsAmount),
         shippingFeeSnapshot: Number(bizMeta.shippingFeeSnapshot ?? session.shippingFee ?? 0),
         freeShippingSnapshot: Boolean(bizMeta.freeShippingSnapshot),
@@ -2490,21 +2509,54 @@ export class CheckoutService {
       return;
     }
 
+    if (activityEnded) {
+      await this.createInvalidGroupBuyReferralAfterPayment(
+        tx,
+        session,
+        orderId,
+        ownInstance.id,
+        'ACTIVITY_ENDED_AFTER_PAYMENT',
+        now,
+      );
+      this.logger.warn(
+        `团购活动付款后已结束，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; activityId=${bizMeta.groupBuyActivityId}`,
+      );
+      return;
+    }
+
     const referrerInstance = await tx.groupBuyInstance.findUnique({
       where: { id: bizMeta.referredByInstanceId },
       select: {
         id: true,
         status: true,
         tierSnapshot: true,
+        activity: {
+          select: {
+            id: true,
+            status: true,
+            startAt: true,
+            endAt: true,
+            deletedAt: true,
+          },
+        },
       },
     });
-    if (!referrerInstance || referrerInstance.status !== 'SHARING') {
+    if (
+      !referrerInstance
+      || referrerInstance.status !== 'SHARING'
+      || this.isGroupBuyActivityEnded(referrerInstance.activity, now)
+    ) {
+      const invalidReason = referrerInstance?.status === 'SHARING'
+        && this.isGroupBuyActivityEnded(referrerInstance.activity, now)
+        ? 'ACTIVITY_ENDED_AFTER_PAYMENT'
+        : 'REFERRER_NOT_SHARING_AFTER_PAYMENT';
       await this.createInvalidGroupBuyReferralAfterPayment(
         tx,
         session,
         orderId,
         ownInstance.id,
-        'REFERRER_NOT_SHARING_AFTER_PAYMENT',
+        invalidReason,
+        now,
       );
       this.logger.warn(
         `团购推荐码付款后推荐实例不可用，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2520,6 +2572,7 @@ export class CheckoutService {
         orderId,
         ownInstance.id,
         'REFERRER_TIER_SNAPSHOT_INVALID_AFTER_PAYMENT',
+        now,
       );
       this.logger.warn(
         `团购推荐码付款后推荐实例档位快照异常，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2542,6 +2595,7 @@ export class CheckoutService {
           attempt === 0
             ? 'SLOT_FULL_AFTER_PAYMENT'
             : 'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+          now,
         );
         this.logger.warn(
           `团购推荐码付款后名额已满，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2580,6 +2634,7 @@ export class CheckoutService {
       orderId,
       ownInstance.id,
       'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+      now,
     );
     this.logger.warn(
       `团购推荐记录唯一约束冲突，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2641,6 +2696,7 @@ export class CheckoutService {
     orderId: string,
     ownInstanceId: string,
     reason: string,
+    now = new Date(),
   ) {
     const bizMeta = session.bizMeta;
     if (!bizMeta?.groupBuyCodeId || !bizMeta.referredByInstanceId) return;
@@ -2657,7 +2713,7 @@ export class CheckoutService {
           candidateSequence: null,
           effectiveSequence: null,
           invalidReason: reason,
-          invalidatedAt: new Date(),
+          invalidatedAt: now,
         },
       });
     } catch (error: any) {
@@ -2669,6 +2725,22 @@ export class CheckoutService {
       }
       throw error;
     }
+  }
+
+  private isGroupBuyActivityEnded(
+    activity: {
+      status: GroupBuyActivityStatus;
+      startAt: Date | null;
+      endAt: Date | null;
+      deletedAt: Date | null;
+    } | null,
+    now: Date,
+  ) {
+    return !activity
+      || activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
   }
 
   private getExcludedPrizeCleanupItems(session: {

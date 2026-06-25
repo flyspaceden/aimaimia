@@ -1,6 +1,13 @@
 import { ConflictException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { OrderStatus, Prisma } from '@prisma/client';
+import {
+  GroupBuyActivityStatus,
+  GroupBuyCodeStatus,
+  GroupBuyInstanceStatus,
+  GroupBuyReferralStatus,
+  OrderStatus,
+  Prisma,
+} from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { generateGroupBuyCode } from './group-buy-code.util';
@@ -30,6 +37,15 @@ export class GroupBuyLifecycleService {
       const instance = await tx.groupBuyInstance.findUnique({
         where: { initiatorOrderId: orderId },
         include: {
+          activity: {
+            select: {
+              id: true,
+              status: true,
+              startAt: true,
+              endAt: true,
+              deletedAt: true,
+            },
+          },
           code: true,
           initiatorOrder: {
             select: {
@@ -47,6 +63,30 @@ export class GroupBuyLifecycleService {
       }
       if (instance.status !== 'QUALIFICATION_PENDING') {
         return { status: 'SKIPPED' };
+      }
+
+      if (this.hasActivityEnded(instance.activity, now)) {
+        await tx.groupBuyInstance.update({
+          where: { id: instance.id },
+          data: {
+            status: GroupBuyInstanceStatus.EXPIRED,
+            expiredAt: now,
+            invalidReason: 'ACTIVITY_ENDED',
+          },
+        });
+        if (instance.code?.status === GroupBuyCodeStatus.ACTIVE) {
+          await tx.groupBuyCode.update({
+            where: { id: instance.code.id },
+            data: {
+              status: GroupBuyCodeStatus.EXPIRED,
+              expiredAt: now,
+            },
+          });
+        }
+        return { status: 'EXPIRED' };
+      }
+      if (!this.isActivityActive(instance.activity, now)) {
+        return { status: 'WAITING_ACTIVITY_ACTIVE' };
       }
 
       const order = instance.initiatorOrder;
@@ -94,6 +134,57 @@ export class GroupBuyLifecycleService {
 
       return { status: 'ACTIVATED', code };
     }, this.serializableTransactionOptions);
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async expireEndedActivities(now = new Date(), limit = 200) {
+    return this.prisma.$transaction(async (tx) => {
+      const activities = await tx.groupBuyActivity.findMany({
+        where: {
+          status: {
+            in: [
+              GroupBuyActivityStatus.ACTIVE,
+              GroupBuyActivityStatus.PAUSED,
+            ],
+          },
+          deletedAt: null,
+          endAt: { lte: now },
+        },
+        select: { id: true },
+        orderBy: { endAt: 'asc' },
+        take: limit,
+      });
+      const activityIds = activities.map((activity) => activity.id);
+      if (activityIds.length === 0) {
+        return this.emptyExpiryResult();
+      }
+
+      return this.expireActivitiesInTransaction(tx, activityIds, now, {
+        markActivityEnded: true,
+        onlyActiveActivities: false,
+      });
+    }, this.serializableTransactionOptions);
+  }
+
+  async expireActivitiesByIds(
+    activityIds: string[],
+    now = new Date(),
+    options: {
+      markActivityEnded?: boolean;
+      onlyActiveActivities?: boolean;
+    } = {},
+  ) {
+    const uniqueActivityIds = Array.from(new Set(activityIds.filter(Boolean)));
+    if (uniqueActivityIds.length === 0) {
+      return this.emptyExpiryResult();
+    }
+    return this.prisma.$transaction(
+      (tx) => this.expireActivitiesInTransaction(tx, uniqueActivityIds, now, {
+        markActivityEnded: options.markActivityEnded ?? true,
+        onlyActiveActivities: options.onlyActiveActivities ?? false,
+      }),
+      this.serializableTransactionOptions,
+    );
   }
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -197,11 +288,35 @@ export class GroupBuyLifecycleService {
         throw new ConflictException('当前没有进行中的团购分享，请刷新后重试');
       }
 
+      const candidateReferrals = await tx.groupBuyReferral.findMany({
+        where: {
+          instanceId: instance.id,
+          status: GroupBuyReferralStatus.CANDIDATE,
+        },
+        select: { id: true },
+      });
+      let referralsInvalidated = 0;
+      if (candidateReferrals.length > 0) {
+        const referralResult = await tx.groupBuyReferral.updateMany({
+          where: {
+            id: { in: candidateReferrals.map((referral) => referral.id) },
+            status: GroupBuyReferralStatus.CANDIDATE,
+          },
+          data: {
+            status: GroupBuyReferralStatus.INVALID,
+            invalidReason: 'USER_TERMINATED',
+            invalidatedAt: now,
+          },
+        });
+        referralsInvalidated = referralResult.count;
+      }
+
       await tx.groupBuyInstance.update({
         where: { id: instance.id },
         data: {
           status: 'TERMINATED',
           terminatedAt: now,
+          candidateCount: 0,
         },
       });
       if (instance.code && instance.code.status === 'ACTIVE') {
@@ -214,8 +329,119 @@ export class GroupBuyLifecycleService {
         });
       }
 
-      return { status: 'TERMINATED' };
+      return { status: 'TERMINATED', referralsInvalidated };
     }, this.serializableTransactionOptions);
+  }
+
+  async expireActivitiesInTransaction(
+    tx: Prisma.TransactionClient,
+    activityIds: string[],
+    now: Date,
+    options: {
+      markActivityEnded: boolean;
+      onlyActiveActivities: boolean;
+    },
+  ) {
+    if (activityIds.length === 0) {
+      return this.emptyExpiryResult();
+    }
+
+    const candidateReferrals = await tx.groupBuyReferral.findMany({
+      where: {
+        status: GroupBuyReferralStatus.CANDIDATE,
+        instance: { activityId: { in: activityIds } },
+      },
+      select: {
+        id: true,
+        instanceId: true,
+      },
+    });
+    const referralIds = candidateReferrals.map((referral) => referral.id);
+
+    const activityResult = options.markActivityEnded
+      ? await tx.groupBuyActivity.updateMany({
+        where: {
+          id: { in: activityIds },
+          ...(options.onlyActiveActivities ? { status: GroupBuyActivityStatus.ACTIVE } : {}),
+        },
+        data: {
+          status: GroupBuyActivityStatus.ENDED,
+          updatedAt: now,
+        },
+      })
+      : { count: 0 };
+    const codeResult = await tx.groupBuyCode.updateMany({
+      where: {
+        status: GroupBuyCodeStatus.ACTIVE,
+        instance: { activityId: { in: activityIds } },
+      },
+      data: {
+        status: GroupBuyCodeStatus.EXPIRED,
+        expiredAt: now,
+      },
+    });
+    const instanceResult = await tx.groupBuyInstance.updateMany({
+      where: {
+        activityId: { in: activityIds },
+        status: {
+          in: [
+            GroupBuyInstanceStatus.QUALIFICATION_PENDING,
+            GroupBuyInstanceStatus.SHARING,
+          ],
+        },
+      },
+      data: {
+        status: GroupBuyInstanceStatus.EXPIRED,
+        expiredAt: now,
+        invalidReason: 'ACTIVITY_ENDED',
+      },
+    });
+
+    let referralsInvalidated = 0;
+    if (referralIds.length > 0) {
+      const referralResult = await tx.groupBuyReferral.updateMany({
+        where: {
+          id: { in: referralIds },
+          status: GroupBuyReferralStatus.CANDIDATE,
+        },
+        data: {
+          status: GroupBuyReferralStatus.INVALID,
+          invalidReason: 'ACTIVITY_ENDED',
+          invalidatedAt: now,
+        },
+      });
+      referralsInvalidated = referralResult.count;
+
+      const decrementByInstance = new Map<string, number>();
+      for (const referral of candidateReferrals) {
+        decrementByInstance.set(
+          referral.instanceId,
+          (decrementByInstance.get(referral.instanceId) ?? 0) + 1,
+        );
+      }
+      for (const [instanceId, count] of decrementByInstance) {
+        await tx.groupBuyInstance.update({
+          where: { id: instanceId },
+          data: { candidateCount: { decrement: count } },
+        });
+      }
+    }
+
+    return {
+      activitiesExpired: activityResult.count,
+      codesExpired: codeResult.count,
+      instancesExpired: instanceResult.count,
+      referralsInvalidated,
+    };
+  }
+
+  private emptyExpiryResult() {
+    return {
+      activitiesExpired: 0,
+      codesExpired: 0,
+      instancesExpired: 0,
+      referralsInvalidated: 0,
+    };
   }
 
   private async generateUniqueCode(tx: Prisma.TransactionClient) {
@@ -228,5 +454,35 @@ export class GroupBuyLifecycleService {
       if (!existing) return code;
     }
     throw new InternalServerErrorException('团购推荐码生成失败');
+  }
+
+  private hasActivityEnded(
+    activity: {
+      status: GroupBuyActivityStatus;
+      startAt: Date | null;
+      endAt: Date | null;
+      deletedAt: Date | null;
+    },
+    now: Date,
+  ) {
+    return activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
+  }
+
+  private isActivityActive(
+    activity: {
+      status: GroupBuyActivityStatus;
+      startAt: Date | null;
+      endAt: Date | null;
+      deletedAt: Date | null;
+    },
+    now: Date,
+  ) {
+    return activity.status === GroupBuyActivityStatus.ACTIVE
+      && !activity.deletedAt
+      && (!activity.startAt || activity.startAt <= now)
+      && !this.hasActivityEnded(activity, now);
   }
 }

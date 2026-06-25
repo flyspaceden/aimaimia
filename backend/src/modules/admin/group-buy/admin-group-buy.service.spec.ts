@@ -17,6 +17,8 @@ describe('AdminGroupBuyService', () => {
     price: 1000,
     freeShipping: true,
     status: 'ACTIVE',
+    startAt: new Date('2026-06-22T12:00:00.000Z'),
+    endAt: new Date('2026-08-28T12:00:00.000Z'),
     displayOrder: 10,
     items: [
       { productId: 'product_1', skuId: 'sku_1', quantity: 1, sortOrder: 0 },
@@ -52,8 +54,8 @@ describe('AdminGroupBuyService', () => {
           id: 'activity_1',
           productId: 'product_1',
           skuId: 'sku_1',
-          startAt: null,
-          endAt: null,
+          startAt: new Date('2026-06-22T12:00:00.000Z'),
+          endAt: new Date('2026-08-28T12:00:00.000Z'),
           deletedAt: null,
           tiers: [],
         }),
@@ -136,7 +138,27 @@ describe('AdminGroupBuyService', () => {
       },
     };
 
-    return { prisma, tx, service: new AdminGroupBuyService(prisma as any) };
+    const lifecycleService = {
+      expireActivitiesByIds: jest.fn().mockResolvedValue({
+        activitiesExpired: 1,
+        codesExpired: 0,
+        instancesExpired: 0,
+        referralsInvalidated: 0,
+      }),
+      expireActivitiesInTransaction: jest.fn().mockResolvedValue({
+        activitiesExpired: 1,
+        codesExpired: 0,
+        instancesExpired: 0,
+        referralsInvalidated: 0,
+      }),
+    };
+
+    return {
+      prisma,
+      tx,
+      lifecycleService,
+      service: new AdminGroupBuyService(prisma as any, lifecycleService as any),
+    };
   };
 
   it('creates an activity with tiers inside a Serializable transaction', async () => {
@@ -154,6 +176,7 @@ describe('AdminGroupBuyService', () => {
         price: 1000,
         freeShipping: true,
         status: 'ACTIVE',
+        endAt: createDto.endAt,
         tiers: expect.objectContaining({
           create: expect.arrayContaining([
             expect.objectContaining({ sequence: 1, basisPoints: 1000 }),
@@ -201,6 +224,16 @@ describe('AdminGroupBuyService', () => {
     expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
   });
 
+  it('rejects creating a group-buy activity without an end time', async () => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.create({
+      ...createDto,
+      endAt: null,
+    } as any)).rejects.toThrow('团购活动必须设置结束时间');
+    expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
+  });
+
   it('rejects an item whose sku does not belong to the selected product', async () => {
     const { tx, service } = buildPrisma();
     tx.productSKU.findUnique.mockResolvedValueOnce({
@@ -239,6 +272,19 @@ describe('AdminGroupBuyService', () => {
     }));
   });
 
+  it('rejects non-contiguous tier sequences to keep locked payment slots aligned with rebate tiers', async () => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.create({
+      ...createDto,
+      tiers: [
+        { sequence: 1, basisPoints: 1000 },
+        { sequence: 3, basisPoints: 7000 },
+      ],
+    } as any)).rejects.toThrow('返还档位序号必须从 1 连续递增');
+    expect(tx.groupBuyActivity.create).not.toHaveBeenCalled();
+  });
+
   it('updates activity price and tiers without mutating existing instances', async () => {
     const { tx, service } = buildPrisma();
 
@@ -265,8 +311,13 @@ describe('AdminGroupBuyService', () => {
     expect(tx.groupBuyInstance.updateMany).not.toHaveBeenCalled();
   });
 
-  it('can pause and end an activity without deleting it', async () => {
-    const { tx, service } = buildPrisma();
+  it('can pause an activity without deleting it, and expires related records in the same transaction when ending it', async () => {
+    const { prisma, tx, service, lifecycleService } = buildPrisma();
+    prisma.groupBuyActivity.findUnique.mockResolvedValueOnce({
+      id: 'activity_1',
+      title: '大龙虾团购',
+      deletedAt: null,
+    });
 
     await service.updateStatus('activity_1', 'PAUSED' as any);
     await service.updateStatus('activity_1', 'ENDED' as any);
@@ -275,10 +326,34 @@ describe('AdminGroupBuyService', () => {
       where: { id: 'activity_1' },
       data: expect.objectContaining({ status: 'PAUSED' }),
     }));
-    expect(tx.groupBuyActivity.update).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(lifecycleService.expireActivitiesInTransaction).toHaveBeenCalledWith(
+      tx,
+      ['activity_1'],
+      expect.any(Date),
+      { markActivityEnded: true, onlyActiveActivities: false },
+    );
+    expect(lifecycleService.expireActivitiesByIds).not.toHaveBeenCalled();
+  });
+
+  it('soft deletes an activity and expires related records in the same transaction', async () => {
+    const { tx, service, lifecycleService } = buildPrisma();
+
+    await service.softDelete('activity_1');
+
+    expect(tx.groupBuyActivity.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'activity_1' },
-      data: expect.objectContaining({ status: 'ENDED' }),
+      data: expect.objectContaining({
+        status: 'ENDED',
+        deletedAt: expect.any(Date),
+      }),
     }));
+    expect(lifecycleService.expireActivitiesInTransaction).toHaveBeenCalledWith(
+      tx,
+      ['activity_1'],
+      expect.any(Date),
+      { markActivityEnded: false, onlyActiveActivities: false },
+    );
+    expect(lifecycleService.expireActivitiesByIds).not.toHaveBeenCalled();
   });
 
   it('lists group-buy instances with share code and direct referral counters', async () => {

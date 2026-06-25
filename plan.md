@@ -200,6 +200,15 @@
   - **实际做了**: 新增 `GroupBuyActivityItem` 活动组合明细表并回填旧活动；管理后台团购活动新建/编辑支持多商品 SKU + 数量组合，列表展示组合摘要；买家活动接口返回 `items/itemSummary/availableStock/totalWeightGram`；团购 checkout 按组合明细生成多行 `itemsSnapshot`，运费按组合总重量计算，商品行金额分摊后合计等于团购价；奖励商品引用保护同步检查组合明细，避免被使用的非首件商品被下架/删除。
   - **验证**: `backend npx jest src/modules/admin/group-buy/admin-group-buy.service.spec.ts src/modules/admin/reward-product/reward-product.service.spec.ts src/modules/group-buy/group-buy.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts --runInBand`、`backend npx prisma validate && npx prisma generate`、`admin npx tsc --noEmit`、`npx tsc --noEmit` 通过。
 
+- [x] **团购活动倒计时与到期失效**（2026-06-24 新增并完成）
+  - **来源**: 用户确认团购活动时间结束后，该商品活动下所有未完成推荐码直接失效；已释放到账的返还保留，未到账、冻结/待确认、未推荐名额直接失效；商品位置和当前团购推荐码页面需要展示剩余时间。
+  - **实际做了**: 后端新增每分钟团购活动到期扫描，将到期活动置为结束、ACTIVE 推荐码置为 EXPIRED、QUALIFICATION_PENDING/SHARING 实例置为 EXPIRED、CANDIDATE 推荐置为 INVALID；手动结束/删除活动复用同一套失效收口；后台不允许新建/编辑无结束时间的团购活动；付款回调发生在活动结束后时保留订单但不生成占用资格；推荐返还按付款时锁定的 `candidateSequence` 档位释放，主动结束分享后未确认候选推荐立即失效；VALID 已到账返还不受活动到期影响；当前状态接口按活动时间即时返回过期且不占用用户槽位；买家 App 活动货架卡片、团购详情页和我的团购推荐码面板展示天/小时/分钟倒计时，少于 24 小时时切换为更醒目的“活动即将结束”紧急态，第三位好友付款锁满后停止复制/分享入口但保留结束按钮。
+  - **验证**: `backend npm test -- --runTestsByPath src/modules/group-buy/group-buy-rebate.service.spec.ts src/modules/group-buy/group-buy-lifecycle.service.spec.ts src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/group-buy/group-buy.service.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts`、`backend npm test -- --runTestsByPath src/modules/group-buy/group-buy-referral-index.spec.ts`、`backend npm run build`、`backend DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nongmai npx prisma validate`、`npx tsc --noEmit`、`npx jest src/utils/__tests__/groupBuyCountdown.test.ts src/utils/__tests__/groupBuyProgress.test.ts --runInBand` 通过；`admin npx tsc -b --pretty false` 因当前 worktree 未安装 admin 侧 `vite` / `@vitejs/plugin-react` 类型依赖而无法完成。
+
+- [x] **团购订单排除数字资产累计**（2026-06-25 新增并完成）
+  - **来源**: 用户确认团购不能再按普通消费叠加数字资产累计/消费资产，避免团购返还和数字资产双重激励。
+  - **实际做了**: `DigitalAssetService.recordOrderPaid` 与 `recordOrderReceived` 同时排除 `GROUP_BUY`，团购订单不再生成付款冻结消费资产，也不在确认收货后增加累计消费金额或消费资产余额；保留普通商品数字资产逻辑和 VIP_PACKAGE 原排除逻辑。
+  - **验证**: `backend npm test -- --runTestsByPath src/modules/digital-asset/digital-asset-v2.service.spec.ts` 通过。
 - [x] **我的页身份卡排版调整**（2026-06-15 新增并完成）
   - **来源**: 真机截图反馈，身份卡顶部“下午好...”问候语与昵称重复，用户编号需要显示 `ID:` 前缀
   - **实际做了**: 买家 App 我的页身份卡移除时段问候语；昵称作为主标题；买家编号展示为 `ID: AIMM...` 并保留复制按钮；推荐码入口下移为独立 chip；右侧“扫一扫/编辑”按钮固定宽度和间距

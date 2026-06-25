@@ -15,6 +15,7 @@ import {
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { GroupBuyService } from '../../group-buy/group-buy.service';
+import { GroupBuyLifecycleService } from '../../group-buy/group-buy-lifecycle.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import {
   CreateGroupBuyActivityDto,
@@ -37,7 +38,10 @@ const DEFAULT_GROUP_BUY_SETTINGS = {
 
 @Injectable()
 export class AdminGroupBuyService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly groupBuyLifecycleService: GroupBuyLifecycleService,
+  ) {}
 
   private readonly serializableTransactionOptions = {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -170,7 +174,7 @@ export class AdminGroupBuyService {
           freeShipping: dto.freeShipping ?? false,
           status: dto.status ?? GroupBuyActivityStatus.DRAFT,
           startAt: dto.startAt ?? null,
-          endAt: dto.endAt ?? null,
+          endAt: dto.endAt,
           displayOrder: dto.displayOrder ?? 0,
           tiers: {
             create: tiers,
@@ -193,7 +197,7 @@ export class AdminGroupBuyService {
   }
 
   async update(id: string, dto: UpdateGroupBuyActivityDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.groupBuyActivity.findUnique({
         where: { id },
         include: { tiers: true, items: true },
@@ -234,7 +238,7 @@ export class AdminGroupBuyService {
         });
       }
 
-      return tx.groupBuyActivity.update({
+      const updated = await tx.groupBuyActivity.update({
         where: { id },
         data: {
           title: dto.title,
@@ -252,10 +256,45 @@ export class AdminGroupBuyService {
         },
         include: this.activityInclude,
       });
+      if (dto.status === GroupBuyActivityStatus.ENDED) {
+        await this.groupBuyLifecycleService.expireActivitiesInTransaction(
+          tx,
+          [id],
+          new Date(),
+          { markActivityEnded: false, onlyActiveActivities: false },
+        );
+      }
+      return updated;
     }, this.serializableTransactionOptions);
+    return updated;
   }
 
   async updateStatus(id: string, status: GroupBuyActivityStatus) {
+    if (status === GroupBuyActivityStatus.ENDED) {
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await tx.groupBuyActivity.findUnique({
+          where: { id },
+          select: { id: true, deletedAt: true },
+        });
+        if (!existing || existing.deletedAt) {
+          throw new NotFoundException('团购活动不存在');
+        }
+        await this.groupBuyLifecycleService.expireActivitiesInTransaction(
+          tx,
+          [id],
+          new Date(),
+          { markActivityEnded: true, onlyActiveActivities: false },
+        );
+        const activity = await tx.groupBuyActivity.findUnique({
+          where: { id },
+          include: this.activityInclude,
+        });
+        if (!activity) {
+          throw new NotFoundException('团购活动不存在');
+        }
+        return activity;
+      }, this.serializableTransactionOptions);
+    }
     return this.update(id, { status });
   }
 
@@ -336,20 +375,29 @@ export class AdminGroupBuyService {
   }
 
   async softDelete(id: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.groupBuyActivity.findUnique({ where: { id } });
       if (!existing || existing.deletedAt) {
         throw new NotFoundException('团购活动不存在');
       }
 
-      return tx.groupBuyActivity.update({
+      const deleted = await tx.groupBuyActivity.update({
         where: { id },
         data: {
           status: GroupBuyActivityStatus.ENDED,
-          deletedAt: new Date(),
+          deletedAt: now,
         },
       });
+      await this.groupBuyLifecycleService.expireActivitiesInTransaction(
+        tx,
+        [id],
+        now,
+        { markActivityEnded: false, onlyActiveActivities: false },
+      );
+      return deleted;
     }, this.serializableTransactionOptions);
+    return result;
   }
 
   async findInstances(options: {
@@ -562,6 +610,11 @@ export class AdminGroupBuyService {
       }
       seenSequences.add(tier.sequence);
     }
+    normalized.forEach((tier, index) => {
+      if (tier.sequence !== index + 1) {
+        throw new BadRequestException('返还档位序号必须从 1 连续递增');
+      }
+    });
 
     GroupBuyService.assertTierBasisPointsTotal(
       normalized.map((tier) => tier.basisPoints),
@@ -788,6 +841,9 @@ export class AdminGroupBuyService {
   }
 
   private assertActivityWindow(startAt?: Date | null, endAt?: Date | null) {
+    if (!endAt) {
+      throw new BadRequestException('团购活动必须设置结束时间');
+    }
     if (startAt && endAt && startAt.getTime() >= endAt.getTime()) {
       throw new BadRequestException('活动开始时间必须早于结束时间');
     }

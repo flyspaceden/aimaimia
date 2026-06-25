@@ -29,7 +29,7 @@ describe('GroupBuyService', () => {
               freeShipping: true,
               status: 'ACTIVE',
               startAt: null,
-              endAt: null,
+              endAt: new Date('2099-06-01T00:00:00.000Z'),
               deletedAt: null,
               ruleSummary: '仅限直接推荐全新用户购买同款商品',
               product: {
@@ -95,7 +95,7 @@ describe('GroupBuyService', () => {
         freeShipping: true,
         status: 'ACTIVE',
         startAt: null,
-        endAt: null,
+        endAt: new Date('2099-06-01T00:00:00.000Z'),
         deletedAt: null,
         ruleSummary: '仅限直接推荐全新用户购买同款商品',
         product: {
@@ -140,6 +140,25 @@ describe('GroupBuyService', () => {
         ],
       }));
       expect(result.items[0].tiers[0]).not.toHaveProperty('basisPoints');
+    });
+
+    it('returns activity status and time window for buyer countdown display', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyActivity.findMany.mockResolvedValueOnce([
+        {
+          ...buildInstance('SHARING').activity,
+          startAt: new Date('2026-06-22T12:00:00.000Z'),
+          endAt: new Date('2026-08-28T12:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.findActiveActivities();
+
+      expect(result.items[0]).toEqual(expect.objectContaining({
+        status: 'ACTIVE',
+        startAt: '2026-06-22T12:00:00.000Z',
+        endAt: '2026-08-28T12:00:00.000Z',
+      }));
     });
 
     it('returns normalized group-buy item summaries and availability for multi-item activities', async () => {
@@ -233,21 +252,83 @@ describe('GroupBuyService', () => {
       }));
     });
 
-    it('keeps a terminated instance visible when referrals are still pending but frees the slot', async () => {
+    it('does not keep a terminated instance visible after unfinished referrals are invalidated', async () => {
       const { prisma, service } = buildPrisma();
       prisma.groupBuyInstance.findFirst
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(buildInstance('TERMINATED', { candidateCount: 1, validReferralCount: 1 }));
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
 
       const result = await service.getCurrentState('user_1');
 
-      expect(prisma.groupBuyInstance.findFirst).toHaveBeenCalledTimes(2);
+      expect(prisma.groupBuyInstance.findFirst).toHaveBeenCalledTimes(3);
+      expect(result).toEqual({
+        current: null,
+        occupiesSlot: false,
+        defaultTab: 'PRODUCTS',
+        canBuyNew: true,
+      });
+    });
+
+    it('keeps the latest expired instance visible without occupying the user slot', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyInstance.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(buildInstance('EXPIRED', {
+          candidateCount: 2,
+          validReferralCount: 1,
+          expiredAt: new Date('2026-08-28T12:00:00.000Z'),
+          code: { code: 'GB123456', status: 'EXPIRED' },
+          activity: {
+            ...buildInstance('SHARING').activity,
+            status: 'ENDED',
+            endAt: new Date('2026-08-28T12:00:00.000Z'),
+          },
+        }));
+
+      const result = await service.getCurrentState('user_1');
+
+      expect(prisma.groupBuyInstance.findFirst).toHaveBeenCalledTimes(3);
       expect(result.occupiesSlot).toBe(false);
       expect(result.canBuyNew).toBe(true);
       expect(result.defaultTab).toBe('CURRENT');
       expect(result.current).toEqual(expect.objectContaining({
-        status: 'TERMINATED',
-        candidateCount: 1,
+        status: 'EXPIRED',
+        validReferralCount: 1,
+        candidateCount: 2,
+        code: { code: 'GB123456', status: 'EXPIRED' },
+      }));
+      expect(result.current?.activity).toEqual(expect.objectContaining({
+        status: 'ENDED',
+        endAt: '2026-08-28T12:00:00.000Z',
+      }));
+    });
+
+    it('treats an otherwise sharing instance as expired when the activity time has passed', async () => {
+      const { prisma, service } = buildPrisma();
+      prisma.groupBuyInstance.findFirst.mockResolvedValueOnce(
+        buildInstance('SHARING', {
+          activity: {
+            ...buildInstance('SHARING').activity,
+            endAt: new Date('2026-06-21T12:00:00.000Z'),
+          },
+          code: { code: 'GB123456', status: 'ACTIVE' },
+        }),
+      );
+
+      const result = await service.getCurrentState('user_1');
+
+      expect(result.occupiesSlot).toBe(false);
+      expect(result.canBuyNew).toBe(true);
+      expect(result.defaultTab).toBe('CURRENT');
+      expect(result.current).toEqual(expect.objectContaining({
+        status: 'EXPIRED',
+        code: { code: 'GB123456', status: 'EXPIRED' },
+      }));
+      expect(result.current?.activity).toEqual(expect.objectContaining({
+        status: 'ACTIVE',
+        endAt: '2026-06-21T12:00:00.000Z',
       }));
     });
 
