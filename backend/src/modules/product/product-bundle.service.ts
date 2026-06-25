@@ -71,6 +71,16 @@ type ProductBundleValidationTx = {
 
 @Injectable()
 export class ProductBundleService {
+  private componentLabel(sku: {
+    id: string;
+    title?: string | null;
+    product: { title?: string | null };
+  }) {
+    const productTitle = sku.product.title?.trim() || '未命名商品';
+    const skuTitle = sku.title?.trim() || '默认规格';
+    return `${productTitle} / ${skuTitle}`;
+  }
+
   mergeBundleItems(items: BundleItemInput[]): NormalizedBundleItem[] {
     const merged = new Map<string, NormalizedBundleItem>();
 
@@ -221,19 +231,19 @@ export class ProductBundleService {
         throw new BadRequestException('组合商品仅支持同商户商品');
       }
       if (sku.status !== SkuStatus.ACTIVE) {
-        throw new BadRequestException('组合商品组件规格已下架');
+        throw new BadRequestException(`组合内容中「${this.componentLabel(sku)}」规格已下架，请移除后重新选择`);
       }
       if (!options.allowDraft && sku.product.status !== ProductStatus.ACTIVE) {
-        throw new BadRequestException('提交或上架前，组合商品组件必须来自启用中的商品');
+        throw new BadRequestException(`组合内容中「${this.componentLabel(sku)}」尚未启用，请先上架该商品后再用于组合商品`);
       }
       if (!options.allowDraft && sku.product.auditStatus !== ProductAuditStatus.APPROVED) {
-        throw new BadRequestException('提交或上架前，组合商品组件必须来自审核通过商品');
+        throw new BadRequestException(`组合内容中「${this.componentLabel(sku)}」尚未审核通过，请先等待该商品审核通过后再用于组合商品`);
       }
       if (sku.product.type === ProductType.BUNDLE) {
-        throw new BadRequestException('组合商品组件不能引用其他组合商品');
+        throw new BadRequestException(`组合内容中「${this.componentLabel(sku)}」是组合商品，不能作为另一个组合商品的组件`);
       }
       if (!Number.isInteger(sku.weightGram) || sku.weightGram <= 0) {
-        throw new BadRequestException('组合商品组件重量必须大于 0');
+        throw new BadRequestException(`组合内容中「${this.componentLabel(sku)}」缺少有效重量，请先补全重量`);
       }
 
       return {
