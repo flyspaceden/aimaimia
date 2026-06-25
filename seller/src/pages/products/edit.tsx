@@ -336,8 +336,10 @@ function BundleItemsEditor({
   onCatalogSearch?: (keyword: string) => void;
 }) {
   const [skuSearchValue, setSkuSearchValue] = useState('');
+  const [skuPickerResetKey, setSkuPickerResetKey] = useState(0);
   const [sourceSearchValue, setSourceSearchValue] = useState('');
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const ignoreNextSkuSearchRef = useRef(false);
 
   const simpleSkuOptions = useMemo(() => {
     return simpleProducts
@@ -415,6 +417,15 @@ function BundleItemsEditor({
     onCatalogSearch?.('');
   };
 
+  const resetSkuPickerAfterAdd = () => {
+    ignoreNextSkuSearchRef.current = true;
+    resetCatalogSearch();
+    setSkuPickerResetKey((key) => key + 1);
+    setTimeout(() => {
+      ignoreNextSkuSearchRef.current = false;
+    }, 0);
+  };
+
   const updateQuantity = (skuId: string, quantity: number | null) => {
     commitItems(
       items.map((item) =>
@@ -437,6 +448,7 @@ function BundleItemsEditor({
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <Space wrap>
         <Select
+          key={skuPickerResetKey}
           showSearch
           allowClear
           placeholder="搜索并添加单品规格"
@@ -445,6 +457,11 @@ function BundleItemsEditor({
           filterOption={false}
           searchValue={skuSearchValue}
           onSearch={(value) => {
+            if (ignoreNextSkuSearchRef.current) {
+              setSkuSearchValue('');
+              onCatalogSearch?.('');
+              return;
+            }
             setSkuSearchValue(value);
             onCatalogSearch?.(value);
           }}
@@ -452,7 +469,7 @@ function BundleItemsEditor({
           onChange={(value) => {
             if (value) {
               addSku(value);
-              resetCatalogSearch();
+              resetSkuPickerAfterAdd();
             }
           }}
           value={undefined}
