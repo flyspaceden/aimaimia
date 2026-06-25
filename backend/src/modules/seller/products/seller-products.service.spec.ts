@@ -461,6 +461,21 @@ describe('SellerProductsService SKU weight validation', () => {
     expect(skuCreates[1].weightGram).toBe(1000);
   });
 
+  it('createDraft persists unit from the seller draft form', async () => {
+    const { service, tx } = buildDraftService();
+
+    await service.createDraft('company_1', {
+      title: '组合草稿',
+      unit: '盒',
+    } as any);
+
+    expect(tx.product.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        unit: '盒',
+      }),
+    }));
+  });
+
   it('submitDraft rejects SKU with placeholder skuCode prefix', async () => {
     const { service, tx } = buildDraftService();
     tx.product.findUnique.mockResolvedValueOnce({
@@ -566,6 +581,21 @@ describe('SellerProductsService SKU weight validation', () => {
     const createManyArg = tx.productSKU.createMany.mock.calls[0][0];
     expect(createManyArg.data[0].weightGram).toBe(750);
     expect(createManyArg.data[0].skuCode).toBeUndefined();
+  });
+
+  it('updateDraft persists unit changes from the seller draft form', async () => {
+    const { service, tx } = buildDraftService();
+
+    await service.updateDraft('company_1', 'draft_1', {
+      unit: '箱',
+    } as any);
+
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 'draft_1' },
+      data: expect.objectContaining({
+        unit: '箱',
+      }),
+    });
   });
 
   it('updateDraft rejects non-DRAFT from the Serializable transaction snapshot without writing', async () => {

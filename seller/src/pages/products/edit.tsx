@@ -5,13 +5,13 @@ import {
   App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
   Breadcrumb, Select, Collapse, Switch, Row, Col,
-  Modal, Image, Segmented, Table, Tooltip,
+  Modal, Image, Segmented, Table, Tooltip, Popover,
 } from 'antd';
 import type { FormInstance } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
   SaveOutlined, CloudUploadOutlined, DownloadOutlined,
-  DeleteOutlined,
+  DeleteOutlined, CopyOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -335,6 +335,10 @@ function BundleItemsEditor({
   onChange: (items: ProductBundleItem[]) => void;
   onCatalogSearch?: (keyword: string) => void;
 }) {
+  const [skuSearchValue, setSkuSearchValue] = useState('');
+  const [sourceSearchValue, setSourceSearchValue] = useState('');
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+
   const simpleSkuOptions = useMemo(() => {
     return simpleProducts
       .filter((product) => product.id !== currentProductId)
@@ -345,7 +349,10 @@ function BundleItemsEditor({
           .filter((sku) => sku.status === 'ACTIVE')
           .map((sku) => ({
             value: sku.id,
-            label: `${product.title} / ${sku.title || '默认规格'}`,
+            label: product.auditStatus === 'APPROVED'
+              ? `${product.title} / ${sku.title || '默认规格'}`
+              : `${product.title} / ${sku.title || '默认规格'}（未审核通过）`,
+            disabled: product.auditStatus !== 'APPROVED',
             product,
             sku,
           })),
@@ -380,7 +387,7 @@ function BundleItemsEditor({
 
   const addSku = (skuId: string) => {
     const option = skuMap.get(skuId);
-    if (!option) return;
+    if (!option || option.disabled) return;
     commitItems([
       ...items,
       {
@@ -400,6 +407,12 @@ function BundleItemsEditor({
     const source = productMap.get(productId);
     if (!source || productTypeOf(source) !== 'BUNDLE') return;
     commitItems([...(items || []), ...toBundleEditorItems(source.bundleItems)]);
+  };
+
+  const resetCatalogSearch = () => {
+    setSkuSearchValue('');
+    setSourceSearchValue('');
+    onCatalogSearch?.('');
   };
 
   const updateQuantity = (skuId: string, quantity: number | null) => {
@@ -426,42 +439,65 @@ function BundleItemsEditor({
         <Select
           showSearch
           allowClear
-          placeholder="添加商品规格"
+          placeholder="搜索并添加单品规格"
           optionFilterProp="label"
-          options={simpleSkuOptions.map(({ value, label }) => ({ value, label }))}
+          options={simpleSkuOptions.map(({ value, label, disabled }) => ({ value, label, disabled }))}
           filterOption={false}
-          onSearch={onCatalogSearch}
-          onClear={() => onCatalogSearch?.('')}
+          searchValue={skuSearchValue}
+          onSearch={(value) => {
+            setSkuSearchValue(value);
+            onCatalogSearch?.(value);
+          }}
+          onClear={resetCatalogSearch}
           onChange={(value) => {
             if (value) {
               addSku(value);
-              onCatalogSearch?.('');
+              resetCatalogSearch();
             }
           }}
           value={undefined}
           style={{ width: 320 }}
         />
-        <Select
-          showSearch
-          allowClear
-          placeholder="从已有组合复制"
-          optionFilterProp="label"
-          options={bundleSourceOptions}
-          filterOption={false}
-          onSearch={onCatalogSearch}
-          onClear={() => onCatalogSearch?.('')}
-          onChange={(value) => {
-            if (value) {
-              expandBundleSource(value);
-              onCatalogSearch?.('');
-            }
+        <Popover
+          trigger="click"
+          open={sourcePickerOpen}
+          onOpenChange={(open) => {
+            setSourcePickerOpen(open);
+            if (!open) resetCatalogSearch();
           }}
-          value={undefined}
-          style={{ width: 240 }}
-        />
+          content={(
+            <Select
+              showSearch
+              allowClear
+              autoFocus
+              placeholder="选择已有组合"
+              optionFilterProp="label"
+              options={bundleSourceOptions}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+              filterOption={false}
+              searchValue={sourceSearchValue}
+              onSearch={(value) => {
+                setSourceSearchValue(value);
+                onCatalogSearch?.(value);
+              }}
+              onClear={resetCatalogSearch}
+              onChange={(value) => {
+                if (value) {
+                  expandBundleSource(value);
+                  setSourcePickerOpen(false);
+                  resetCatalogSearch();
+                }
+              }}
+              value={undefined}
+              style={{ width: 280 }}
+            />
+          )}
+        >
+          <Button icon={<CopyOutlined />}>从已有组合复制</Button>
+        </Popover>
         <Tooltip title="重复规格会自动合并数量">
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {items.length} 项
+            已添加 {items.length} 项
           </Text>
         </Tooltip>
       </Space>
@@ -1367,12 +1403,7 @@ function ProductEditForm({ id }: { id: string }) {
           </Form.Item>
         </Card>
 
-        {/* 3. 商品图片 */}
-        <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={setFileList} token={token} />
-        </Card>
-
-        {/* 4. 价格与库存 */}
+        {/* 3. 价格与库存 */}
         <Card
           title="价格与库存"
           style={{ marginBottom: 16 }}
@@ -1439,6 +1470,22 @@ function ProductEditForm({ id }: { id: string }) {
 
           {productType === 'BUNDLE' ? (
             <>
+              <BundleItemsFormItem form={form}>
+                <BundleItemsEditor
+                  simpleProducts={bundleSimpleCatalog}
+                  bundleProducts={bundleSourceCatalog}
+                  currentProductId={id}
+                  items={bundleItems}
+                  onCatalogSearch={setBundleCatalogKeyword}
+                  onChange={(nextItems) => {
+                    setBundleItems(nextItems);
+                    form.setFieldValue('bundleItems', nextItems);
+                    if (nextItems.length > 0) {
+                      clearBundleItemsFieldError(form);
+                    }
+                  }}
+                />
+              </BundleItemsFormItem>
               <Row gutter={16}>
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item
@@ -1480,22 +1527,6 @@ function ProductEditForm({ id }: { id: string }) {
                   </Form.Item>
                 </Col>
               </Row>
-              <BundleItemsFormItem form={form}>
-                <BundleItemsEditor
-                  simpleProducts={bundleSimpleCatalog}
-                  bundleProducts={bundleSourceCatalog}
-                  currentProductId={id}
-                  items={bundleItems}
-                  onCatalogSearch={setBundleCatalogKeyword}
-                  onChange={(nextItems) => {
-                    setBundleItems(nextItems);
-                    form.setFieldValue('bundleItems', nextItems);
-                    if (nextItems.length > 0) {
-                      clearBundleItemsFieldError(form);
-                    }
-                  }}
-                />
-              </BundleItemsFormItem>
             </>
           ) : !multiSpec ? (
             /* 单规格模式 */
@@ -1564,6 +1595,11 @@ function ProductEditForm({ id }: { id: string }) {
             /* 多规格模式 */
             <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
+        </Card>
+
+        {/* 4. 商品图片 */}
+        <Card title="商品图片" style={{ marginBottom: 16 }}>
+          <ImageUploadSection fileList={fileList} setFileList={setFileList} token={token} />
         </Card>
 
         <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>
@@ -2167,12 +2203,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           </Form.Item>
         </Card>
 
-        {/* 2. 商品图片 */}
-        <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={updateFileList} token={token} />
-        </Card>
-
-        {/* 3. 价格与库存 */}
+        {/* 2. 价格与库存 */}
         <Card
           title="价格与库存"
           style={{ marginBottom: 16 }}
@@ -2238,6 +2269,23 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
 
           {productType === 'BUNDLE' ? (
             <>
+              <BundleItemsFormItem form={form}>
+                <BundleItemsEditor
+                  simpleProducts={bundleSimpleCatalog}
+                  bundleProducts={bundleSourceCatalog}
+                  currentProductId={draftId ?? undefined}
+                  items={bundleItems}
+                  onCatalogSearch={setBundleCatalogKeyword}
+                  onChange={(nextItems) => {
+                    setBundleItems(nextItems);
+                    form.setFieldValue('bundleItems', nextItems);
+                    if (nextItems.length > 0) {
+                      clearBundleItemsFieldError(form);
+                    }
+                    if (!hydratingRef.current) setDirtySinceSave(true);
+                  }}
+                />
+              </BundleItemsFormItem>
               <Row gutter={16}>
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item
@@ -2279,23 +2327,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   </Form.Item>
                 </Col>
               </Row>
-              <BundleItemsFormItem form={form}>
-                <BundleItemsEditor
-                  simpleProducts={bundleSimpleCatalog}
-                  bundleProducts={bundleSourceCatalog}
-                  currentProductId={draftId ?? undefined}
-                  items={bundleItems}
-                  onCatalogSearch={setBundleCatalogKeyword}
-                  onChange={(nextItems) => {
-                    setBundleItems(nextItems);
-                    form.setFieldValue('bundleItems', nextItems);
-                    if (nextItems.length > 0) {
-                      clearBundleItemsFieldError(form);
-                    }
-                    if (!hydratingRef.current) setDirtySinceSave(true);
-                  }}
-                />
-              </BundleItemsFormItem>
             </>
           ) : !multiSpec ? (
             /* 单规格模式 */
@@ -2364,6 +2395,11 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             /* 多规格模式 */
             <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
           )}
+        </Card>
+
+        {/* 3. 商品图片 */}
+        <Card title="商品图片" style={{ marginBottom: 16 }}>
+          <ImageUploadSection fileList={fileList} setFileList={updateFileList} token={token} />
         </Card>
 
         <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>

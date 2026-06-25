@@ -1159,6 +1159,7 @@ export class SellerProductsService {
             basePrice: 0, // 草稿占位，提交审核时按成本重新计算
             cost: null,
             categoryId: dto.categoryId,
+            ...(dto.unit !== undefined && { unit: dto.unit }),
             returnPolicy: (dto.returnPolicy ?? 'INHERIT') as ReturnPolicy,
             origin: (dto.origin as any) ?? undefined,
             attributes: dto.attributes ?? undefined,
@@ -1262,6 +1263,7 @@ export class SellerProductsService {
       if (dto.subtitle !== undefined) updateData.subtitle = dto.subtitle;
       if (dto.description !== undefined) updateData.description = dto.description;
       if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
+      if (dto.unit !== undefined) updateData.unit = dto.unit;
       if (dto.returnPolicy !== undefined) updateData.returnPolicy = dto.returnPolicy as ReturnPolicy;
       if (dto.origin !== undefined) updateData.origin = dto.origin === null ? Prisma.JsonNull : dto.origin;
       if (dto.attributes !== undefined) updateData.attributes = dto.attributes === null ? Prisma.JsonNull : dto.attributes;

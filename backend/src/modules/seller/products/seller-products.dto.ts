@@ -424,6 +424,12 @@ export class CreateDraftDto {
   @IsOptional()
   @IsString()
   originRegion?: string;
+
+  /** 计量单位（如 斤/千克/只/件），草稿保存时允许暂存 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
 }
 
 /** 更新草稿：全部可选（title 若传需非空） */
@@ -511,4 +517,10 @@ export class UpdateDraftDto {
   @IsOptional()
   @IsString()
   originRegion?: string;
+
+  /** 计量单位（如 斤/千克/只/件），草稿保存时允许暂存 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
 }

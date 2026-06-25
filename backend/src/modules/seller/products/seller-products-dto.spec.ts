@@ -149,6 +149,12 @@ describe('CreateDraftDto — 草稿创建校验', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('允许保存计量单位 unit（匹配全局白名单校验）', async () => {
+    const dto = plainToInstance(CreateDraftDto, { title: '测试草稿商品', unit: '斤' });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    expect(errors).toHaveLength(0);
+  });
+
   it('标题为空字符串 → 校验失败（@IsNotEmpty）', async () => {
     const dto = plainToInstance(CreateDraftDto, { title: '' });
     const errors = await validate(dto);
@@ -231,6 +237,12 @@ describe('UpdateDraftDto — 草稿更新校验', () => {
   it('全空对象 → 校验通过（所有字段可选）', async () => {
     const dto = plainToInstance(UpdateDraftDto, {});
     const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('允许更新计量单位 unit（匹配全局白名单校验）', async () => {
+    const dto = plainToInstance(UpdateDraftDto, { unit: '盒' });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
     expect(errors).toHaveLength(0);
   });
 

@@ -75,10 +75,12 @@ describe('ProductBundleService', () => {
         findMany: jest.fn().mockResolvedValue([
           {
             id: 'sku-pending',
+            title: '默认规格',
             status: 'ACTIVE',
             weightGram: 500,
             product: {
               id: 'product-pending',
+              title: '黄花鲷鱼',
               companyId: 'company-self',
               status: 'ACTIVE',
               auditStatus: 'PENDING',
@@ -93,7 +95,11 @@ describe('ProductBundleService', () => {
       tx as any,
       'company-self',
       [{ skuId: 'sku-pending', quantity: 1 }],
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: '组合内容中「黄花鲷鱼 / 默认规格」尚未审核通过，请先等待该商品审核通过后再用于组合商品',
+      }),
+    });
   });
 
   it('rejects inactive component products for submit or sell', async () => {
