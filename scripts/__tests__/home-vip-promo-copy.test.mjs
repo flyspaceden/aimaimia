@@ -13,3 +13,17 @@ test('home VIP promo removes referral header row and high reward suffix', () => 
   assert.equal(promo.includes('，有高额奖励'), false);
   assert.ok(promo.includes("title: '推荐好友开通 VIP'"));
 });
+
+test('home VIP promo keeps package label beside price in a shorter card', () => {
+  const carousel = read('src/components/data/VipHomePromoCarousel.tsx');
+
+  assert.match(
+    carousel,
+    /<View style=\{styles\.priceLine\}>[\s\S]*?<Text \{\.\.\.priceTextProps\}[\s\S]*?>[\s\S]*?<\/Text>[\s\S]*?<Text[\s\S]*styles\.packageLabel[\s\S]*?>\s*VIP 礼包\s*<\/Text>[\s\S]*?<\/View>/,
+  );
+
+  const cardHeights = [...carousel.matchAll(/card(?:Pressable)?: \{[\s\S]*?height: (\d+)/g)]
+    .map((match) => Number(match[1]));
+
+  assert.deepEqual(cardHeights, [132, 132]);
+});

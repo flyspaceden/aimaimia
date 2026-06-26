@@ -23,7 +23,7 @@ const SCROLL_SPEED_DP_PER_SEC = 28;
 
 // 首页非 VIP 礼包广告位：连续顺滑滚动的跑马灯（复制一份卡片实现无缝循环）
 export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' }: VipHomePromoCarouselProps) {
-  const { colors, spacing, radius, typography, shadow } = useTheme();
+  const { colors, spacing, radius, shadow } = useTheme();
   const { width, isLargeText } = useResponsiveLayout();
   const cards = useMemo(() => buildVipHomePromoCards(packages), [packages]);
   const copy = getVipPromoCarouselCopy(mode);
@@ -129,11 +129,14 @@ export function VipHomePromoCarousel({ packages, onPressCard, mode = 'purchase' 
               >
                 <View style={styles.cardGlow} />
                 <View style={styles.cardHeader}>
-                  <View>
+                  <View style={styles.priceLine}>
                     <Text {...priceTextProps} style={styles.priceText}>
                       ¥{Number.isInteger(card.price) ? card.price.toFixed(0) : card.price.toFixed(2)}
                     </Text>
-                    <Text style={[styles.packageLabel, { color: colors.text.secondary }]}>
+                    <Text
+                      style={[styles.packageLabel, { color: colors.text.secondary }]}
+                      numberOfLines={1}
+                    >
                       VIP 礼包
                     </Text>
                   </View>
@@ -190,11 +193,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardPressable: {
-    height: 154,
+    height: 132,
   },
   card: {
-    height: 154,
-    padding: 14,
+    height: 132,
+    padding: 12,
     overflow: 'hidden',
     borderWidth: 1.2,
   },
@@ -202,15 +205,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -38,
     bottom: -42,
-    width: 132,
-    height: 132,
-    borderRadius: 66,
+    width: 118,
+    height: 118,
+    borderRadius: 59,
     backgroundColor: 'rgba(212, 160, 23, 0.10)',
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+  },
+  priceLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    minWidth: 0,
   },
   priceText: {
     fontSize: 22,
@@ -220,12 +228,14 @@ const styles = StyleSheet.create({
   },
   packageLabel: {
     fontSize: 11,
-    marginTop: 2,
+    lineHeight: 14,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   giftIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(46, 125, 50, 0.08)',
@@ -234,7 +244,7 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   giftTitle: {
     flex: 1,
@@ -256,7 +266,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 13,
-    lineHeight: 18,
-    marginTop: 7,
+    lineHeight: 17,
+    marginTop: 5,
   },
 });
