@@ -192,6 +192,11 @@
   - **实际做了**: 后端团购 checkout 从 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 读取月度发起次数上限，缺省为 4；管理端新增 `GET/PUT /admin/group-buy/settings`；管理后台新增“团购设置”页，可配置每个用户每月最多发起次数。
   - **验证**: `backend npx jest src/modules/group-buy/group-buy-checkout.service.spec.ts src/modules/admin/group-buy/admin-group-buy.service.spec.ts --runInBand`、`backend npm run build`、`admin npm run build` 通过。
 
+- [x] **企业详情检测报告前台展示**（2026-06-25 新增并完成）
+  - **来源**: 卖家中心已有“检验检测报告”资质文件上传，但 App 企业详情页检测报告卡片仍显示无来源的占位统计且“查看报告”未接真实文件。
+  - **实际做了**: 后端公开企业详情返回已验证 `INSPECTION` 资质文件列表；买家 App 企业详情将“检测报告”改为报告列表，展示文件名称、签发机构、上传时间和“查看”入口；待验证/驳回报告不对买家公开，不再展示检测批次、合格率、最近检测等后台未维护字段。
+  - **验证**: `backend npm test -- company.service.spec.ts --runInBand`、根目录 `npx tsc --noEmit`、`backend npm run build` 通过。
+
 - [x] **团购补偿扫描、运费和进度口径修正**（2026-06-22 新增并完成）
   - **来源**: 团购代码复审发现售后期满后二次评估缺失、非包邮团购静默 0 运费、候选/有效计数混淆、App 进度固定 3 档、档位合计仍限制 100%。
   - **实际做了**: 新增团购售后期满补偿扫描；扫码落地页按 `GroupBuyReferral` 明细判断名额；候选订单转有效后回算待确认数量；非包邮团购结算接入平台运费规则并锁定运费快照；App 进度按后台档位数动态显示；后台档位合计允许超过 100%。
