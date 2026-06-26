@@ -90,15 +90,21 @@ export class BonusService {
       }
     }
 
-    const vipProgress = await this.prisma.vipProgress.findUnique({ where: { userId } });
-    const inviter = await this.buildInviterSummary(member.inviterUserId);
-    const config = await this.bonusConfig.getConfig();
+    const [vipProgress, inviter, config, inviteeVipCount] = await Promise.all([
+      this.prisma.vipProgress.findUnique({ where: { userId } }),
+      this.buildInviterSummary(member.inviterUserId),
+      this.bonusConfig.getConfig(),
+      this.prisma.memberProfile.count({
+        where: { inviterUserId: userId, tier: 'VIP' },
+      }),
+    ]);
 
     return {
       tier: member.tier,
       referralCode: member.tier === 'VIP' ? member.referralCode : null,
       inviterUserId: member.inviterUserId,
       inviter,
+      inviteeVipCount,
       vipPurchasedAt: member.vipPurchasedAt?.toISOString() || null,
       normalEligible: member.normalEligible,
       vipProgress: vipProgress

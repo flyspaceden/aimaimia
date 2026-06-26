@@ -9,7 +9,7 @@ import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { Skeleton, useToast } from '../../src/components/feedback';
-import { AiBadge, AiDivider } from '../../src/components/ui';
+import { AiDivider } from '../../src/components/ui';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CouponRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
@@ -39,6 +39,7 @@ export default function ReferralScreen() {
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
   const inviterLabel = getReferralInviterLabel(member);
   const hasInviter = hasBoundReferralInviter(member);
+  const inviteeVipCount = member?.inviteeVipCount ?? 0;
 
   // 复制推荐码
   const handleCopy = async () => {
@@ -160,7 +161,6 @@ export default function ReferralScreen() {
               {/* 标题行 */}
               <View style={styles.titleRow}>
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>我的专属推荐码</Text>
-                <AiBadge variant="recommend" />
               </View>
 
               {/* QR 码容器 */}
@@ -186,6 +186,13 @@ export default function ReferralScreen() {
               <Animated.View entering={FadeInDown.duration(400).delay(200)}>
                 <Text style={styles.codeText}>
                   {referralCode.split('').join(' ')}
+                </Text>
+              </Animated.View>
+
+              <Animated.View entering={FadeInDown.duration(400).delay(250)} style={styles.inviteeCountRow}>
+                <MaterialCommunityIcons name="account-star-outline" size={16} color="#FFFFFF" />
+                <Text style={[typography.caption, { color: '#FFFFFF', marginLeft: 6 }]}>
+                  已推荐 {inviteeVipCount} 位 VIP
                 </Text>
               </Animated.View>
 
@@ -320,6 +327,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 20,
     textAlign: 'center',
+    zIndex: 1,
+  },
+  inviteeCountRow: {
+    minHeight: 28,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     zIndex: 1,
   },
   actionRow: {

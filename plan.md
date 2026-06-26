@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-23
+> **最后更新**: 2026-06-26
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **推荐码页显示直邀 VIP 人数**（2026-06-26 新增并完成）
+  - **来源**: 用户截图反馈，希望“我的推荐码”页面展示自己推荐的 VIP 人数，并移除“我的专属推荐码”旁的“AI推荐”徽标。
+  - **实际做了**: `GET /bonus/member` 新增 `inviteeVipCount`，口径为直属推荐且已升级 VIP 的人数（不含下下级），与管理后台“直邀 VIP”一致；买家 App 推荐码卡片在专属码下展示“已推荐 x 位 VIP”，并删除标题旁 `AI推荐` 徽标。
+  - **验证**: `backend npm test -- src/modules/bonus/bonus.service.spec.ts --runInBand`、`node --test scripts/__tests__/referral-page-vip-count.test.mjs`、`backend npx prisma validate`、`backend npm run build`、`npx tsc -b --noEmit --pretty false` 通过。
 
 - [x] **配送管理后台定价规则弹窗溢出修复**（2026-06-21 新增并完成）
   - **来源**: 用户反馈配送管理后台 `/pricing-rules` 新建价格规则时，选择“指定规格规则 - 只影响某一个商品规格”后，规格选择框撑出弹窗范围。

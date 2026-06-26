@@ -81,6 +81,7 @@ const mockMember: MemberProfile = {
   referralCode: 'LQHE2025',
   inviterUserId: 'u-001',
   inviter: { userId: 'u-001', nickname: '周阿姨', maskedPhone: '138****5678' },
+  inviteeVipCount: 3,
   vipPurchasedAt: '2026-01-15T10:30:00Z',
   normalEligible: true,
   vipProgress: { selfPurchaseCount: 6, unlockedLevel: 4 },
