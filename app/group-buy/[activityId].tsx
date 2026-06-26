@@ -20,6 +20,7 @@ import { useAuthStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import { buildGroupBuyActivityRules } from '../../src/utils/groupBuyRules';
+import { getGroupBuyLowStockText } from '../../src/utils/groupBuyStockDisplay';
 import type { GroupBuyActivity, GroupBuyCurrentState } from '../../src/types';
 
 type EndCurrentInput = { mode: 'terminate' | 'abandon'; instanceId?: string };
@@ -283,7 +284,7 @@ export default function GroupBuyActivityDetailScreen() {
                 {activity.shippingSummary}
               </Text>
               <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: 6 }]}>
-                可购 {availableStock} 份 · 下单前请确认收货地址
+                下单前请确认收货地址
               </Text>
             </View>
           </View>
@@ -296,19 +297,25 @@ export default function GroupBuyActivityDetailScreen() {
               </Text>
             </View>
             <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
-              {activityItems.map((item) => (
-                <View key={`${item.productId}-${item.skuId}`} style={styles.itemRow}>
-                  <View style={[styles.itemDot, { backgroundColor: GROUP_BUY_COLORS.porcelain }]} />
-                  <View style={styles.itemCopy}>
-                    <Text {...fitTextProps} style={[typography.bodySm, { color: colors.text.primary }]}>
-                      {item.productTitle} x{item.quantity}
-                    </Text>
-                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                      {item.skuTitle} · 库存 {item.stock}
-                    </Text>
+              {activityItems.map((item) => {
+                const lowStockText = getGroupBuyLowStockText(item.stock);
+
+                return (
+                  <View key={`${item.productId}-${item.skuId}`} style={styles.itemRow}>
+                    <View style={[styles.itemDot, { backgroundColor: GROUP_BUY_COLORS.porcelain }]} />
+                    <View style={styles.itemCopy}>
+                      <Text {...fitTextProps} style={[typography.bodySm, { color: colors.text.primary }]}>
+                        {item.productTitle} x{item.quantity}
+                      </Text>
+                      {lowStockText ? (
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                          {lowStockText}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
 
