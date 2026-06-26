@@ -100,7 +100,7 @@ test('builds VIP referral home prompt only for VIP users with referral code', ()
   assert.deepEqual(
     buildVipReferralHomePrompt({ tier: 'VIP', referralCode: 'LQHE2025' }),
     {
-      title: '推荐好友开通 VIP，有高额奖励',
+      title: '推荐好友开通 VIP',
       actionLabel: '去分享',
       targetPath: '/me/referral',
     },
