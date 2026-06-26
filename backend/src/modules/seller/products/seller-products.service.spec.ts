@@ -144,6 +144,182 @@ describe('SellerProductsService SKU weight validation', () => {
     });
   });
 
+  it('filters product list by effective return policy before pagination', async () => {
+    const prisma = {
+      product: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      category: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'cat_returnable', returnPolicy: 'RETURNABLE', parentId: null },
+          { id: 'cat_non_returnable', returnPolicy: 'NON_RETURNABLE', parentId: null },
+          { id: 'cat_inherit_non_returnable', returnPolicy: 'INHERIT', parentId: 'cat_non_returnable' },
+        ]),
+      },
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn() } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+
+    await (service.findAll as any)(
+      'company_1',
+      1,
+      20,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'NON_RETURNABLE',
+    );
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'company_1',
+        status: { not: 'DRAFT' },
+        AND: [expect.objectContaining({
+          OR: [
+            { returnPolicy: 'NON_RETURNABLE' },
+            {
+              returnPolicy: 'INHERIT',
+              OR: [{ categoryId: { in: ['cat_non_returnable', 'cat_inherit_non_returnable'] } }],
+            },
+          ],
+        })],
+      }),
+    }));
+  });
+
+  it('remove clears cart references and deletes an unused inactive product', async () => {
+    const tx = {
+      cartItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 5 }),
+      },
+      productTraceLink: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      product: {
+        delete: jest.fn().mockResolvedValue({ id: 'product_1' }),
+      },
+    };
+    const prisma = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          skus: [{ id: 'sku_1' }],
+        }),
+      },
+      orderItem: { count: jest.fn().mockResolvedValue(0) },
+      cartItem: { count: jest.fn().mockResolvedValue(5) },
+      lotteryPrize: { findMany: jest.fn().mockResolvedValue([]) },
+      vipGiftItem: { findMany: jest.fn().mockResolvedValue([]) },
+      productBundleItem: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn() } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+
+    await expect(service.remove('company_1', 'product_1')).resolves.toEqual({
+      ok: true,
+      removedCartItems: 5,
+    });
+
+    expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({ where: { skuId: { in: ['sku_1'] } } });
+    expect(tx.product.delete).toHaveBeenCalledWith({ where: { id: 'product_1' } });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it('remove rejects products that already appear in order item history', async () => {
+    const prisma = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          skus: [{ id: 'sku_1' }],
+        }),
+      },
+      orderItem: { count: jest.fn().mockResolvedValue(2) },
+      cartItem: { count: jest.fn().mockResolvedValue(5) },
+      lotteryPrize: { findMany: jest.fn().mockResolvedValue([]) },
+      vipGiftItem: { findMany: jest.fn().mockResolvedValue([]) },
+      productBundleItem: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn(),
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn() } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+
+    await expect(service.remove('company_1', 'product_1')).rejects.toMatchObject({
+      response: { message: expect.stringContaining('已有 2 条订单商品明细') },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('remove rejects products referenced by active checkout sessions or bundle products', async () => {
+    const prisma = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          companyId: 'company_1',
+          status: 'INACTIVE',
+          skus: [{ id: 'sku_1' }],
+        }),
+      },
+      orderItem: { count: jest.fn().mockResolvedValue(0) },
+      cartItem: { count: jest.fn().mockResolvedValue(0) },
+      lotteryPrize: { findMany: jest.fn().mockResolvedValue([]) },
+      vipGiftItem: { findMany: jest.fn().mockResolvedValue([]) },
+      productBundleItem: {
+        findMany: jest.fn().mockResolvedValue([
+          { bundleProduct: { title: '蔬菜组合包' } },
+        ]),
+      },
+      checkoutSession: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'checkout_1', itemsSnapshot: [{ skuId: 'sku_1', quantity: 1 }] },
+        ]),
+      },
+      $transaction: jest.fn(),
+    };
+    const service = new SellerProductsService(
+      prisma as any,
+      { getSystemConfig: jest.fn() } as any,
+      { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
+      new ProductBundleService() as any,
+    );
+
+    await expect(service.remove('company_1', 'product_1')).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining('正在被用户结算中'),
+      },
+    });
+    await expect(service.remove('company_1', 'product_1')).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining('组合商品：蔬菜组合包'),
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   const bundleValidationRows = (overrides: Array<Record<string, any>> = []) => ([
     {
       id: 'component_sku_1',

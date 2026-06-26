@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Prisma, ProductType, ReturnPolicy, SkuStatus } from '@prisma/client';
+import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy, SkuStatus } from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -435,6 +435,59 @@ export class SellerProductsService {
       || skuCode?.startsWith(DRAFT_WEIGHT_PLACEHOLDER_SKU_CODE_PREFIX) === true;
   }
 
+  private isFilterableReturnPolicy(returnPolicy?: string): returnPolicy is Extract<ReturnPolicy, 'RETURNABLE' | 'NON_RETURNABLE'> {
+    return returnPolicy === 'RETURNABLE' || returnPolicy === 'NON_RETURNABLE';
+  }
+
+  private async buildEffectiveReturnPolicyWhere(returnPolicy?: string): Promise<Prisma.ProductWhereInput | undefined> {
+    if (!this.isFilterableReturnPolicy(returnPolicy)) return undefined;
+
+    const categories = await this.prisma.category.findMany({
+      select: { id: true, returnPolicy: true, parentId: true },
+    });
+    const categoryMap = new Map(categories.map((category) => [category.id, category]));
+
+    const resolveCategoryPolicy = (categoryId: string, visited = new Set<string>()): ReturnPolicy => {
+      if (visited.has(categoryId)) return 'RETURNABLE';
+      const category = categoryMap.get(categoryId);
+      if (!category) return 'RETURNABLE';
+      if (category.returnPolicy !== 'INHERIT') return category.returnPolicy;
+      if (!category.parentId) return 'RETURNABLE';
+      visited.add(categoryId);
+      return resolveCategoryPolicy(category.parentId, visited);
+    };
+
+    const inheritedCategoryIds = categories
+      .filter((category) => resolveCategoryPolicy(category.id) === returnPolicy)
+      .map((category) => category.id);
+
+    const inheritedFilters: Prisma.ProductWhereInput[] = [];
+    if (inheritedCategoryIds.length > 0) {
+      inheritedFilters.push({ categoryId: { in: inheritedCategoryIds } });
+    }
+    if (returnPolicy === 'RETURNABLE') {
+      inheritedFilters.push({ categoryId: null });
+    }
+
+    const filters: Prisma.ProductWhereInput[] = [{ returnPolicy }];
+    if (inheritedFilters.length > 0) {
+      filters.push({
+        returnPolicy: 'INHERIT',
+        OR: inheritedFilters,
+      });
+    }
+    return { OR: filters };
+  }
+
+  private itemsSnapshotReferencesSku(itemsSnapshot: unknown, skuIds: Set<string>) {
+    if (!Array.isArray(itemsSnapshot)) return false;
+    return itemsSnapshot.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const skuId = (item as { skuId?: unknown }).skuId;
+      return typeof skuId === 'string' && skuIds.has(skuId);
+    });
+  }
+
   /** 我的商品列表 */
   async findAll(
     companyId: string,
@@ -444,6 +497,7 @@ export class SellerProductsService {
     auditStatus?: string,
     keyword?: string,
     productType?: string,
+    returnPolicy?: string,
   ) {
     const where: any = { companyId };
     if (status) {
@@ -455,6 +509,10 @@ export class SellerProductsService {
     if (auditStatus) where.auditStatus = auditStatus;
     if (productType === ProductType.SIMPLE || productType === ProductType.BUNDLE) {
       where.type = productType;
+    }
+    const returnPolicyWhere = await this.buildEffectiveReturnPolicyWhere(returnPolicy);
+    if (returnPolicyWhere) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), returnPolicyWhere];
     }
     if (keyword) {
       where.OR = [
@@ -946,12 +1004,15 @@ export class SellerProductsService {
     const skuIds = product.skus.map((s) => s.id);
 
     // 预检查 FK 引用，避免违反外键后裸 500
-    const [orderItemCount, cartItemCount, lotteryPrizes, vipGiftItems] = await Promise.all([
+    const [
+      orderItemCount,
+      lotteryPrizes,
+      vipGiftItems,
+      bundleReferences,
+      activeCheckoutSessions,
+    ] = await Promise.all([
       skuIds.length > 0
         ? this.prisma.orderItem.count({ where: { skuId: { in: skuIds } } })
-        : Promise.resolve(0),
-      skuIds.length > 0
-        ? this.prisma.cartItem.count({ where: { skuId: { in: skuIds } } })
         : Promise.resolve(0),
       this.prisma.lotteryPrize.findMany({
         where: {
@@ -970,11 +1031,34 @@ export class SellerProductsService {
             take: 5,
           })
         : Promise.resolve([]),
+      skuIds.length > 0
+        ? this.prisma.productBundleItem.findMany({
+            where: {
+              skuId: { in: skuIds },
+              bundleProduct: { companyId, status: { not: 'DRAFT' } },
+            },
+            select: { bundleProduct: { select: { title: true } } },
+            take: 5,
+          })
+        : Promise.resolve([]),
+      skuIds.length > 0
+        ? this.prisma.checkoutSession.findMany({
+            where: { status: { in: [CheckoutSessionStatus.ACTIVE, CheckoutSessionStatus.PAID] } },
+            select: { id: true, itemsSnapshot: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; itemsSnapshot: unknown }>),
     ]);
+    const skuIdSet = new Set(skuIds);
+    const checkoutReferenceCount = activeCheckoutSessions.filter((session) =>
+      this.itemsSnapshotReferencesSku(session.itemsSnapshot, skuIdSet),
+    ).length;
 
     const blockers: string[] = [];
-    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单记录`);
-    if (cartItemCount > 0) blockers.push(`${cartItemCount} 个用户购物车中`);
+    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单商品明细`);
+    if (checkoutReferenceCount > 0) blockers.push(`正在被用户结算中（${checkoutReferenceCount} 个结算会话）`);
+    if (bundleReferences.length > 0) {
+      blockers.push(`组合商品：${bundleReferences.map((item) => item.bundleProduct.title).join('、')}`);
+    }
     if (lotteryPrizes.length > 0) {
       blockers.push(`抽奖奖品：${lotteryPrizes.map((p) => p.name).join('、')}`);
     }
@@ -982,17 +1066,27 @@ export class SellerProductsService {
       blockers.push(`VIP赠品：${vipGiftItems.map((i) => i.giftOption.title).join('、')}`);
     }
     if (blockers.length > 0) {
-      throw new BadRequestException(`无法删除：${blockers.join('；')}。请先清理相关引用后重试。`);
+      const suffix = orderItemCount > 0
+        ? '订单商品明细需保留交易记录；其他引用请先处理后重试。'
+        : '请先处理相关引用后重试。';
+      throw new BadRequestException(`无法删除：${blockers.join('；')}。${suffix}`);
     }
 
+    let removedCartItems = 0;
     await this.prisma.$transaction(async (tx) => {
+      if (skuIds.length > 0) {
+        const cartDelete = await tx.cartItem.deleteMany({ where: { skuId: { in: skuIds } } });
+        removedCartItems = cartDelete.count;
+      }
       // ProductTraceLink 无 Cascade，手动清理
       await tx.productTraceLink.deleteMany({ where: { productId } });
       // Product 删除时 SKU/Media/Tag 会自动 Cascade
       await tx.product.delete({ where: { id: productId } });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    return { ok: true };
+    return { ok: true, removedCartItems };
   }
 
   /** 管理 SKU 列表 */

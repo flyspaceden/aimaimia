@@ -7,6 +7,7 @@ import {
   Card,
   Image,
   Popconfirm,
+  Segmented,
   Space,
   Statistic,
   Switch,
@@ -71,9 +72,13 @@ export default function ProductListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
-  // 顶部统计卡作为快捷筛选 tab
-  type StatusTabKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
-  const [activeTab, setActiveTab] = useState<StatusTabKey>('ALL');
+  type ProductStatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE' | 'DRAFT';
+  type AuditStatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  type ReturnPolicyFilter = 'ALL' | 'RETURNABLE' | 'NON_RETURNABLE';
+  type SummaryCardKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('ALL');
+  const [auditStatusFilter, setAuditStatusFilter] = useState<AuditStatusFilter>('ALL');
+  const [returnPolicyFilter, setReturnPolicyFilter] = useState<ReturnPolicyFilter>('ALL');
 
   // 复用 analytics 接口获取统计数据
   const { data: overview } = useQuery({
@@ -131,10 +136,10 @@ export default function ProductListPage() {
     };
   }, []);
 
-  // 切换 tab 立即刷新表格
+  // 切换筛选立即刷新表格
   useEffect(() => {
     actionRef.current?.reload();
-  }, [activeTab]);
+  }, [statusFilter, auditStatusFilter, returnPolicyFilter]);
 
   // 加价率（用于展开行计算售价）
   const { data: configData } = useQuery({
@@ -143,6 +148,34 @@ export default function ProductListPage() {
     staleTime: 300_000,
   });
   const markupRate = configData?.markupRate ?? 1.3;
+
+  const activeSummaryKey: SummaryCardKey | null =
+    statusFilter === 'ACTIVE' && auditStatusFilter === 'ALL' ? 'ACTIVE'
+    : statusFilter === 'DRAFT' && auditStatusFilter === 'ALL' ? 'DRAFT'
+    : statusFilter === 'ALL' && auditStatusFilter === 'PENDING' ? 'PENDING'
+    : statusFilter === 'ALL' && auditStatusFilter === 'ALL' && returnPolicyFilter === 'ALL' ? 'ALL'
+    : null;
+
+  const applySummaryFilter = (key: SummaryCardKey) => {
+    if (key === 'ACTIVE') {
+      setStatusFilter('ACTIVE');
+      setAuditStatusFilter('ALL');
+      return;
+    }
+    if (key === 'PENDING') {
+      setStatusFilter('ALL');
+      setAuditStatusFilter('PENDING');
+      return;
+    }
+    if (key === 'DRAFT') {
+      setStatusFilter('DRAFT');
+      setAuditStatusFilter('ALL');
+      return;
+    }
+    setStatusFilter('ALL');
+    setAuditStatusFilter('ALL');
+    setReturnPolicyFilter('ALL');
+  };
 
   const handleToggle = async (id: string, newStatus: 'ACTIVE' | 'INACTIVE') => {
     try {
@@ -158,8 +191,13 @@ export default function ProductListPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteProduct(id);
-      message.success('删除成功');
+      const result = await deleteProduct(id);
+      const removedCartItems = result.removedCartItems ?? 0;
+      message.success(
+        removedCartItems > 0
+          ? `删除成功，已从 ${removedCartItems} 条购物车记录中移除`
+          : '删除成功',
+      );
       queryClient.invalidateQueries({ queryKey: ['seller-product-status-counts'] });
       queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
       actionRef.current?.reload();
@@ -492,7 +530,7 @@ export default function ProductListPage() {
             {r.status === 'INACTIVE' && (
               <Popconfirm
                 title="确认删除该商品？"
-                description="删除后不可恢复，关联的规格、图片将一并移除。"
+                description="删除后不可恢复；若仅在购物车中，会自动从购物车移除。已有订单明细的商品不能删除。"
                 okText="确认删除"
                 cancelText="取消"
                 okButtonProps={{ danger: true }}
@@ -542,13 +580,13 @@ export default function ProductListPage() {
             suffix: <span style={{ fontSize: 14, color: '#bbb' }}>/5</span>,
           },
         ] as const).map((card) => {
-          const isActive = activeTab === card.key;
+          const isActive = activeSummaryKey === card.key;
           return (
             <Card
               key={card.key}
               size="small"
               hoverable
-              onClick={() => setActiveTab(card.key as StatusTabKey)}
+              onClick={() => applySummaryFilter(card.key as SummaryCardKey)}
               style={{
                 cursor: 'pointer',
                 borderColor: isActive ? card.color : undefined,
@@ -577,6 +615,59 @@ export default function ProductListPage() {
             suffix="元"
           />
         </Card>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 16,
+          alignItems: 'center',
+          padding: '12px 16px',
+          marginBottom: 16,
+          background: '#fff',
+          border: '1px solid #f0f0f0',
+          borderRadius: 8,
+        }}
+      >
+        <Space size={8}>
+          <Text type="secondary">商品状态</Text>
+          <Segmented
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value as ProductStatusFilter)}
+            options={[
+              { label: '全部', value: 'ALL' },
+              { label: '已上架', value: 'ACTIVE' },
+              { label: '已下架', value: 'INACTIVE' },
+              { label: '草稿', value: 'DRAFT' },
+            ]}
+          />
+        </Space>
+        <Space size={8}>
+          <Text type="secondary">审核状态</Text>
+          <Segmented
+            value={auditStatusFilter}
+            onChange={(value) => setAuditStatusFilter(value as AuditStatusFilter)}
+            options={[
+              { label: '全部', value: 'ALL' },
+              { label: '待审核', value: 'PENDING' },
+              { label: '已通过', value: 'APPROVED' },
+              { label: '已驳回', value: 'REJECTED' },
+            ]}
+          />
+        </Space>
+        <Space size={8}>
+          <Text type="secondary">退货政策</Text>
+          <Segmented
+            value={returnPolicyFilter}
+            onChange={(value) => setReturnPolicyFilter(value as ReturnPolicyFilter)}
+            options={[
+              { label: '全部', value: 'ALL' },
+              { label: '7天无理由', value: 'RETURNABLE' },
+              { label: '仅质量问题', value: 'NON_RETURNABLE' },
+            ]}
+          />
+        </Space>
       </div>
 
       {/* 商品表格 */}
@@ -662,17 +753,16 @@ export default function ProductListPage() {
           ),
         }}
         request={async (params) => {
-          // 顶部 tab 决定 status / auditStatus，搜索面板的 keyword 仍然生效
-          const tabFilter: { status?: string; auditStatus?: string } =
-            activeTab === 'ACTIVE' ? { status: 'ACTIVE' }
-            : activeTab === 'PENDING' ? { auditStatus: 'PENDING' }
-            : activeTab === 'DRAFT' ? { status: 'DRAFT' }
-            : {}; // ALL：不传过滤，后端默认排除 DRAFT
+          const listFilter = {
+            ...(statusFilter !== 'ALL' ? { status: statusFilter } : {}),
+            ...(auditStatusFilter !== 'ALL' ? { auditStatus: auditStatusFilter } : {}),
+            ...(returnPolicyFilter !== 'ALL' ? { returnPolicy: returnPolicyFilter } : {}),
+          };
           const res = await getProducts({
             page: params.current || 1,
             pageSize: params.pageSize || 20,
             keyword: params.keyword || '',
-            ...tabFilter,
+            ...listFilter,
           });
           return { data: res.items, total: res.total, success: true };
         }}

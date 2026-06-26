@@ -43,6 +43,7 @@ export class SellerProductsController {
     @Query('auditStatus') auditStatus?: string,
     @Query('keyword') keyword?: string,
     @Query('productType') productType?: string,
+    @Query('returnPolicy') returnPolicy?: string,
   ) {
     return this.productsService.findAll(
       companyId,
@@ -52,6 +53,7 @@ export class SellerProductsController {
       auditStatus,
       keyword,
       productType,
+      returnPolicy,
     );
   }
 

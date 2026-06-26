@@ -611,4 +611,89 @@ describe('AdminProductsService bundle review reads and audit', () => {
     }));
     expect(approved).toMatchObject({ id: 'simple_1', auditStatus: 'APPROVED', status: 'ACTIVE' });
   });
+
+  it('remove clears cart references before deleting an unused inactive product', async () => {
+    const tx = {
+      cartItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 3 }),
+      },
+      productTraceLink: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      product: {
+        delete: jest.fn().mockResolvedValue({ id: 'product_1' }),
+      },
+    };
+    const prisma = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          status: 'INACTIVE',
+          skus: [{ id: 'sku_1' }],
+        }),
+      },
+      orderItem: { count: jest.fn().mockResolvedValue(0) },
+      cartItem: { count: jest.fn().mockResolvedValue(3) },
+      lotteryPrize: { findMany: jest.fn().mockResolvedValue([]) },
+      vipGiftItem: { findMany: jest.fn().mockResolvedValue([]) },
+      productBundleItem: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn((fn) => fn(tx)),
+    };
+    const service = new AdminProductsService(prisma as any, new ProductBundleService());
+
+    await expect(service.remove('product_1')).resolves.toEqual({
+      ok: true,
+      removedCartItems: 3,
+    });
+
+    expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({ where: { skuId: { in: ['sku_1'] } } });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it('remove rejects products referenced by order items, active checkouts, or bundle products', async () => {
+    const prisma = {
+      product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          status: 'INACTIVE',
+          skus: [{ id: 'sku_1' }],
+        }),
+      },
+      orderItem: { count: jest.fn().mockResolvedValue(2) },
+      cartItem: { count: jest.fn().mockResolvedValue(0) },
+      lotteryPrize: { findMany: jest.fn().mockResolvedValue([]) },
+      vipGiftItem: { findMany: jest.fn().mockResolvedValue([]) },
+      productBundleItem: {
+        findMany: jest.fn().mockResolvedValue([{ bundleProduct: { title: '产品包' } }]),
+      },
+      checkoutSession: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'checkout_1', itemsSnapshot: [{ skuId: 'sku_1' }] },
+        ]),
+      },
+      $transaction: jest.fn(),
+    };
+    const service = new AdminProductsService(prisma as any, new ProductBundleService());
+
+    await expect(service.remove('product_1')).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining('已有 2 条订单商品明细'),
+      },
+    });
+    await expect(service.remove('product_1')).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining('正在被用户结算中'),
+      },
+    });
+    await expect(service.remove('product_1')).rejects.toMatchObject({
+      response: {
+        message: expect.stringContaining('组合商品：产品包'),
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });

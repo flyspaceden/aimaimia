@@ -151,6 +151,7 @@
   - **验证**: `cd seller && npm run build` 通过
   - **2026-06-25 体验修复**: 创建/编辑页顺序调整为「基本信息 → 价格与库存 → 商品图片」；组合商品先选 `组合内容` 再填 `组合成本价`；添加单品规格选择后强制重置为占位提示，避免选择框继续显示已选商品；已有组合复制改为按钮弹层；未审核通过组件前端置灰、后端错误指出具体商品 / 规格；草稿接口补齐 `unit`，修复保存草稿时报 `property unit should not exist`
   - **2026-06-25 验证**: `npm test -- seller-products-dto.spec.ts seller-products.service.spec.ts product-bundle.service.spec.ts --runInBand`（backend）、`node --test seller/test/productBundleEditorSelect.test.ts`、`npm run build`（seller）
+  - **2026-06-26 列表筛选与删除口径**: 商品列表新增商品状态 / 审核状态 / 退货政策三组紧凑筛选，统计卡点击同步筛选；退货政策按最终生效政策过滤；商品删除允许自动清理未成交购物车引用，仍阻止已有订单商品明细、进行中结算、组合商品、抽奖奖品和 VIP 赠品引用，并返回更准确中文原因
 
 - [x] **团购 App 类型与 Repo 契约**（2026-06-22 新增并完成）
   - **来源**: 团购分享回馈功能 Chunk 6.1，需要先给买家 App 页面准备类型和 API Repo 契约。
