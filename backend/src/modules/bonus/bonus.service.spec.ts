@@ -23,6 +23,7 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           vipPurchasedAt: null,
           normalEligible: false,
         }),
+        count: jest.fn().mockResolvedValue(0),
       },
       vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
     };
@@ -45,6 +46,7 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           vipPurchasedAt: new Date('2026-05-01T00:00:00.000Z'),
           normalEligible: false,
         }),
+        count: jest.fn().mockResolvedValue(0),
       },
       vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
     };
@@ -53,6 +55,31 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
     const result = await service.getMemberProfile('vip-user');
 
     expect(result.referralCode).toBe('VIPCODE1');
+  });
+
+  it('返回当前会员直接推荐并已升级为 VIP 的人数', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'vip-user',
+          tier: 'VIP',
+          referralCode: 'VIPCODE1',
+          inviterUserId: null,
+          vipPurchasedAt: new Date('2026-05-01T00:00:00.000Z'),
+          normalEligible: false,
+        }),
+        count: jest.fn().mockResolvedValue(3),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getMemberProfile('vip-user');
+
+    expect(prismaMock.memberProfile.count).toHaveBeenCalledWith({
+      where: { inviterUserId: 'vip-user', tier: 'VIP' },
+    });
+    expect(result.inviteeVipCount).toBe(3);
   });
 
   it('返回已绑定推荐人的昵称和脱敏手机号', async () => {
@@ -66,6 +93,7 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           vipPurchasedAt: null,
           normalEligible: false,
         }),
+        count: jest.fn().mockResolvedValue(0),
       },
       vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
       user: {
@@ -98,6 +126,7 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           vipPurchasedAt: null,
           normalEligible: false,
         }),
+        count: jest.fn().mockResolvedValue(0),
       },
       vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
       user: {

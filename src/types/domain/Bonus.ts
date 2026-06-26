@@ -14,6 +14,8 @@ export interface MemberProfile {
   referralCode: string | null;
   inviterUserId: string | null;
   inviter: ReferralInviterSummary | null;
+  /** 当前会员直接推荐并已升级为 VIP 的人数（不含下级的下级） */
+  inviteeVipCount: number;
   vipPurchasedAt: string | null;
   normalEligible: boolean;
   vipProgress: {
