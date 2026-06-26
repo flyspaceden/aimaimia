@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma, ProductType, ReturnPolicy } from '@prisma/client';
+import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductBundleService } from '../../product/product-bundle.service';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
@@ -46,6 +46,15 @@ export class AdminProductsService {
     if (typeof weightGram !== 'number' || !Number.isInteger(weightGram) || weightGram <= 0) {
       throw new BadRequestException('SKU 重量必须为正整数克');
     }
+  }
+
+  private itemsSnapshotReferencesSku(itemsSnapshot: unknown, skuIds: Set<string>) {
+    if (!Array.isArray(itemsSnapshot)) return false;
+    return itemsSnapshot.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const skuId = (item as { skuId?: unknown }).skuId;
+      return typeof skuId === 'string' && skuIds.has(skuId);
+    });
   }
 
   private decorateProductForAdmin<T extends Record<string, any>>(product: T): T & {
@@ -319,7 +328,7 @@ export class AdminProductsService {
     });
   }
 
-  /** 硬删除商品（要求已下架 + 无订单/购物车引用） */
+  /** 硬删除商品（要求已下架 + 无交易/业务引用；购物车未成交引用会自动清理） */
   async remove(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -333,12 +342,15 @@ export class AdminProductsService {
 
     const skuIds = product.skus.map((s) => s.id);
 
-    const [orderItemCount, cartItemCount, lotteryPrizes, vipGiftItems] = await Promise.all([
+    const [
+      orderItemCount,
+      lotteryPrizes,
+      vipGiftItems,
+      bundleReferences,
+      activeCheckoutSessions,
+    ] = await Promise.all([
       skuIds.length > 0
         ? this.prisma.orderItem.count({ where: { skuId: { in: skuIds } } })
-        : Promise.resolve(0),
-      skuIds.length > 0
-        ? this.prisma.cartItem.count({ where: { skuId: { in: skuIds } } })
         : Promise.resolve(0),
       this.prisma.lotteryPrize.findMany({
         where: {
@@ -357,11 +369,34 @@ export class AdminProductsService {
             take: 5,
           })
         : Promise.resolve([]),
+      skuIds.length > 0
+        ? this.prisma.productBundleItem.findMany({
+            where: {
+              skuId: { in: skuIds },
+              bundleProduct: { status: { not: 'DRAFT' } },
+            },
+            select: { bundleProduct: { select: { title: true } } },
+            take: 5,
+          })
+        : Promise.resolve([]),
+      skuIds.length > 0
+        ? this.prisma.checkoutSession.findMany({
+            where: { status: { in: [CheckoutSessionStatus.ACTIVE, CheckoutSessionStatus.PAID] } },
+            select: { id: true, itemsSnapshot: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; itemsSnapshot: unknown }>),
     ]);
+    const skuIdSet = new Set(skuIds);
+    const checkoutReferenceCount = activeCheckoutSessions.filter((session) =>
+      this.itemsSnapshotReferencesSku(session.itemsSnapshot, skuIdSet),
+    ).length;
 
     const blockers: string[] = [];
-    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单记录`);
-    if (cartItemCount > 0) blockers.push(`${cartItemCount} 个用户购物车中`);
+    if (orderItemCount > 0) blockers.push(`已有 ${orderItemCount} 条订单商品明细`);
+    if (checkoutReferenceCount > 0) blockers.push(`正在被用户结算中（${checkoutReferenceCount} 个结算会话）`);
+    if (bundleReferences.length > 0) {
+      blockers.push(`组合商品：${bundleReferences.map((item) => item.bundleProduct.title).join('、')}`);
+    }
     if (lotteryPrizes.length > 0) {
       blockers.push(`抽奖奖品：${lotteryPrizes.map((p) => p.name).join('、')}`);
     }
@@ -369,15 +404,25 @@ export class AdminProductsService {
       blockers.push(`VIP赠品：${vipGiftItems.map((i) => i.giftOption.title).join('、')}`);
     }
     if (blockers.length > 0) {
-      throw new BadRequestException(`无法删除：${blockers.join('；')}。请先清理相关引用后重试。`);
+      const suffix = orderItemCount > 0
+        ? '订单商品明细需保留交易记录；其他引用请先处理后重试。'
+        : '请先处理相关引用后重试。';
+      throw new BadRequestException(`无法删除：${blockers.join('；')}。${suffix}`);
     }
 
+    let removedCartItems = 0;
     await this.prisma.$transaction(async (tx) => {
+      if (skuIds.length > 0) {
+        const cartDelete = await tx.cartItem.deleteMany({ where: { skuId: { in: skuIds } } });
+        removedCartItems = cartDelete.count;
+      }
       await tx.productTraceLink.deleteMany({ where: { productId: id } });
       await tx.product.delete({ where: { id } });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    return { ok: true };
+    return { ok: true, removedCartItems };
   }
 
   /** 审核 */
