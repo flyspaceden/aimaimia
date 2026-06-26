@@ -28,12 +28,27 @@ import { bookingStatusLabels, groupStatusLabels, identityOptions, paymentMethods
 import { BookingRepo, CompanyEventRepo, CompanyRepo, FollowRepo, GroupRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
-import type { AppError, CompanyEvent, CompanyProduct, CompanyProductsResponse, Group, PaymentMethod, Product } from '../../src/types';
+import type {
+  AppError,
+  CompanyEvent,
+  CompanyInspectionReport,
+  CompanyProduct,
+  CompanyProductsResponse,
+  Group,
+  PaymentMethod,
+  Product,
+} from '../../src/types';
 import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
 
 // 日期工具函数
 const formatDate = (value: Date) => value.toISOString().slice(0, 10);
 const parseDateTime = (date: string, time: string) => new Date(`${date}T${time}`);
+const formatReportDate = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10) || '—';
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+};
 
 // 四标签页定义（图标 + 文字纵向排列）
 const TABS = [
@@ -255,6 +270,21 @@ export default function CompanyDetailScreen() {
       Linking.openURL(`tel:${company.servicePhone}`);
     }
   }, [company?.servicePhone]);
+
+  const handleOpenInspectionReport = useCallback(
+    async (report: CompanyInspectionReport) => {
+      if (!report.fileUrl) {
+        show({ message: '报告文件地址为空', type: 'error' });
+        return;
+      }
+      try {
+        await Linking.openURL(report.fileUrl);
+      } catch {
+        show({ message: '无法打开报告文件，请稍后重试', type: 'error' });
+      }
+    },
+    [show]
+  );
 
   // CompanyProduct 转 Product（供 ProductCard 使用）
   const toProduct = useCallback(
@@ -783,24 +813,42 @@ export default function CompanyDetailScreen() {
       {/* 卡片 3：检测报告 */}
       <Animated.View entering={FadeInDown.duration(300).delay(100)} style={[styles.panel, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
         <Text style={[typography.title3, { color: colors.text.primary }]}>检测报告</Text>
-        <View style={[styles.testStatsRow, { marginTop: spacing.md }]}>
-          {[
-            { label: '检测批次', value: '—' },
-            { label: '合格率', value: '—' },
-            { label: '最近检测', value: company.latestTestedAt ?? '—' },
-          ].map((stat) => (
-            <View key={stat.label} style={[styles.testStatBox, { backgroundColor: colors.bgSecondary, borderRadius: radius.md }]}>
-              <Text style={[typography.title3, { color: colors.text.primary }]}>{stat.value}</Text>
-              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.xs }]}>{stat.label}</Text>
-            </View>
-          ))}
-        </View>
-        <Pressable
-          onPress={() => show({ message: '检测报告详情即将上线', type: 'info' })}
-          style={{ marginTop: spacing.md, alignSelf: 'flex-end' }}
-        >
-          <Text style={[typography.caption, { color: colors.accent.blue }]}>查看报告 →</Text>
-        </Pressable>
+        {(company.inspectionReports ?? []).length > 0 ? (
+          <View style={{ marginTop: spacing.md }}>
+            {(company.inspectionReports ?? []).map((report) => (
+              <Pressable
+                key={report.id}
+                onPress={() => handleOpenInspectionReport(report)}
+                style={({ pressed }) => [
+                  styles.reportItem,
+                  {
+                    backgroundColor: colors.bgSecondary,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+              >
+                <View style={[styles.reportIcon, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md }]}>
+                  <MaterialCommunityIcons name="file-document-outline" size={18} color={colors.brand.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                    {report.title}
+                  </Text>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]} numberOfLines={1}>
+                    签发机构：{report.issuer || '—'} · 上传时间：{formatReportDate(report.createdAt)}
+                  </Text>
+                </View>
+                <Text style={[typography.caption, { color: colors.accent.blue, marginLeft: spacing.sm }]}>查看</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <View style={[styles.reportEmpty, { backgroundColor: colors.bgSecondary, borderRadius: radius.md }]}>
+            <Text style={[typography.bodySm, { color: colors.text.secondary }]}>暂无已验证检测报告</Text>
+          </View>
+        )}
       </Animated.View>
 
       {/* 卡片 4：企业风采 */}
@@ -1391,15 +1439,26 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginTop: 12,
   },
-  testStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  testStatBox: {
-    flex: 1,
+  reportItem: {
+    minHeight: 64,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginBottom: 8,
+  },
+  reportIcon: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  reportEmpty: {
+    minHeight: 56,
+    marginTop: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   galleryRow: {
     flexDirection: 'row',

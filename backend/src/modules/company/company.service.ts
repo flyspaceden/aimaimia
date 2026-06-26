@@ -126,6 +126,10 @@ export class CompanyService {
           orderBy: { sortOrder: 'asc' },
           include: { tag: { include: { category: { select: { code: true } } } } },
         },
+        documents: {
+          where: { type: 'INSPECTION', verifyStatus: 'VERIFIED' },
+          orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+        },
       },
     });
     if (!company) throw new NotFoundException('企业信息不存在');
@@ -140,6 +144,7 @@ export class CompanyService {
 
     return {
       ...this.mapToFrontend(company),
+      inspectionReports: this.mapInspectionReports(company.documents),
       servicePhone: company.servicePhone ?? null,
       isFollowed,
     };
@@ -291,6 +296,27 @@ export class CompanyService {
     return companyTags
       .filter((ct: any) => ct.tag?.category?.code === categoryCode)
       .map((ct: any) => ct.tag.name);
+  }
+
+  private toIsoString(value: unknown): string | undefined {
+    if (!value) return undefined;
+    if (value instanceof Date) return value.toISOString();
+    const parsed = new Date(String(value));
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    return parsed.toISOString();
+  }
+
+  private mapInspectionReports(documents: any[] = []) {
+    return documents
+      .filter((doc) => doc.type === 'INSPECTION' && doc.verifyStatus === 'VERIFIED')
+      .map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        fileUrl: doc.fileUrl,
+        issuer: doc.issuer || undefined,
+        issuedAt: this.toIsoString(doc.issuedAt),
+        createdAt: this.toIsoString(doc.createdAt),
+      }));
   }
 
   /** 映射新 Schema 到前端期望的 Company 格式 */

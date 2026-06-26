@@ -42,6 +42,7 @@ export type Company = {
   productKeywords?: string[];
   productFeatures?: string[];
   certifications?: string[];
+  inspectionReports?: CompanyInspectionReport[];
   topProducts?: Array<{
     id: string;
     title: string;
@@ -54,6 +55,15 @@ export type Company = {
     defaultSkuId?: string;
   }>;
   isFollowed?: boolean;
+};
+
+export type CompanyInspectionReport = {
+  id: string;
+  title: string;
+  fileUrl: string;
+  issuer?: string;
+  issuedAt?: string;
+  createdAt?: string;
 };
 
 export type CompanyProduct = {
