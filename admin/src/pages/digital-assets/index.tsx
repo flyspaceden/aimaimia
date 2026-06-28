@@ -98,6 +98,17 @@ function formatAsset(value: number) {
   return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
 }
 
+function renderAssetRank(assetRank: number | null) {
+  if (!assetRank) {
+    return <Typography.Text type="secondary">-</Typography.Text>;
+  }
+  if (assetRank <= 3) {
+    const color = assetRank === 1 ? 'gold' : assetRank === 2 ? 'blue' : 'green';
+    return <Tag color={color}>第 {assetRank}</Tag>;
+  }
+  return <Typography.Text strong>#{assetRank}</Typography.Text>;
+}
+
 function formatLedgerAmount(record: DigitalAssetLedger) {
   if (record.subjectType === 'CUMULATIVE_SPEND') {
     return formatCurrency(record.amount);
@@ -319,6 +330,14 @@ export default function DigitalAssetsPage() {
   };
 
   const columns: ProColumns<DigitalAssetAccountRow>[] = [
+    {
+      title: '排名',
+      dataIndex: 'assetRank',
+      search: false,
+      align: 'center',
+      width: 90,
+      render: (_: unknown, record) => renderAssetRank(record.assetRank),
+    },
     {
       title: '用户',
       dataIndex: 'keyword',

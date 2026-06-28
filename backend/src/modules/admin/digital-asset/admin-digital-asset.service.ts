@@ -119,9 +119,10 @@ export class AdminDigitalAssetService {
         this.findAccountsSortedByTotalAssetBalance(query, where, page, pageSize, sort.direction),
         (this.prisma as any).digitalAssetAccount.count({ where }),
       ]);
+      const assetRankByAccountId = await this.getVipAssetRankMap(items);
 
       return {
-        items: items.map((item: any) => this.mapAccount(item)),
+        items: items.map((item: any) => this.mapAccount(item, assetRankByAccountId.get(item.id) ?? null)),
         total,
         page,
         pageSize,
@@ -138,9 +139,10 @@ export class AdminDigitalAssetService {
       }),
       (this.prisma as any).digitalAssetAccount.count({ where }),
     ]);
+    const assetRankByAccountId = await this.getVipAssetRankMap(items);
 
     return {
-      items: items.map((item: any) => this.mapAccount(item)),
+      items: items.map((item: any) => this.mapAccount(item, assetRankByAccountId.get(item.id) ?? null)),
       total,
       page,
       pageSize,
@@ -371,6 +373,36 @@ export class AdminDigitalAssetService {
     return ids.map((id) => byId.get(id)).filter(Boolean);
   }
 
+  private async getVipAssetRankMap(items: any[]) {
+    const ids = items.map((item) => item?.id).filter(Boolean);
+    if (ids.length === 0) return new Map<string, number>();
+
+    const rows: Array<{ id: string; assetRank: number | bigint }> = await (this.prisma as any).$queryRaw(Prisma.sql`
+      WITH ranked AS (
+        SELECT
+          a."id",
+          RANK() OVER (
+            ORDER BY (COALESCE(a."seedAssetBalance", 0) + COALESCE(a."creditAssetBalance", 0)) DESC
+          )::int AS "assetRank"
+        FROM "DigitalAssetAccount" a
+        JOIN "MemberProfile" mp ON mp."userId" = a."userId"
+        WHERE mp."tier"::text = 'VIP'
+      )
+      SELECT "id", "assetRank"
+      FROM ranked
+      WHERE "id" IN (${Prisma.join(ids)})
+    `);
+
+    const rankByAccountId = new Map<string, number>();
+    rows.forEach((row) => {
+      const rank = Number(row.assetRank);
+      if (Number.isFinite(rank)) {
+        rankByAccountId.set(row.id, rank);
+      }
+    });
+    return rankByAccountId;
+  }
+
   private buildAccountRawWhere(query: AdminDigitalAssetAccountQueryDto) {
     const filters: Prisma.Sql[] = [];
     if (query.minAmount !== undefined) {
@@ -423,10 +455,11 @@ export class AdminDigitalAssetService {
     };
   }
 
-  private mapAccount(item: any) {
+  private mapAccount(item: any, assetRank: number | null = null) {
     return {
       id: item.id,
       userId: item.userId,
+      assetRank,
       cumulativeSpendAmount: item.cumulativeSpendAmount,
       seedAssetBalance: item.seedAssetBalance ?? 0,
       creditAssetBalance: item.creditAssetBalance ?? 0,

@@ -56,10 +56,10 @@
   - **实际做了**: `GET /me/digital-assets/summary` 新增 `assetRank`，按有数字资产账户的 VIP 用户已释放数字资产总额（种子资产 + 消费资产，不含冻结资产）从高到低计算；无数字资产账户或非 VIP 返回 `null`。买家 App 我的页身份卡在推荐码同行右侧展示“数字资产排行榜：x / 未上榜”，并可点击进入数字资产页。
   - **验证**: `cd backend && npm test -- digital-asset.service.spec.ts digital-asset-v2.service.spec.ts admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aimaimai_test npx prisma validate`、`npm run build`
 
-- [x] **管理后台数字资产表格排序**（2026-06-28 新增并完成）
-  - **来源**: 用户要求数字资产表点击列名后，可按列内数字从小到大或从大到小排序，并用表头箭头表示排序方向；先不新增单独排行榜页面。
-  - **实际做了**: 管理后台数字资产账户表支持数字资产总额、种子资产、消费资产、冻结资产、累计消费和账户更新时间表头排序；排序参数传给 `GET /admin/digital-assets/accounts`，后端按白名单字段在分页前排序，数字资产总额按种子资产 + 消费资产计算列排序。
-  - **验证**: `node --test scripts/__tests__/admin-digital-assets-sort.test.mjs`、`cd backend && npm test -- admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`cd admin && npm run build` 通过。
+- [x] **管理后台数字资产表格排序与排名**（2026-06-28 新增并完成）
+  - **来源**: 用户要求数字资产表点击列名后，可按列内数字从小到大或从大到小排序，并用表头箭头表示排序方向；随后要求后台能直接看到数字资产排名，先不新增单独排行榜页面。
+  - **实际做了**: 管理后台数字资产账户表支持数字资产总额、种子资产、消费资产、冻结资产、累计消费和账户更新时间表头排序；排序参数传给 `GET /admin/digital-assets/accounts`，后端按白名单字段在分页前排序，数字资产总额按种子资产 + 消费资产计算列排序；列表新增“排名”列，展示账号在所有 VIP 用户中的全局数字资产排名，口径为已释放种子资产 + 消费资产，不含冻结资产，非 VIP / 未上榜显示空排名。
+  - **验证**: `cd backend && npm test -- digital-asset.service.spec.ts digital-asset-v2.service.spec.ts admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`node --test scripts/__tests__/admin-digital-assets-sort.test.mjs`、`cd backend && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aimaimai_test npx prisma validate`、`cd backend && npm run build`、`cd admin && npm run build`、`git diff --check` 通过。
 
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
   - **来源**: 用户要求资产流水里加 Tab 切换不同种类，下面不同类使用不同颜色

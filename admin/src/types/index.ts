@@ -277,6 +277,7 @@ export interface DigitalAssetLedgerQueryParams extends PaginationParams {
 export interface DigitalAssetAccountRow {
   id: string;
   userId: string;
+  assetRank: number | null;
   totalAssetBalance: number;
   seedAssetBalance: number;
   creditAssetBalance: number;
