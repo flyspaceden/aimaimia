@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-26
+> **最后更新**: 2026-06-28
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -45,6 +45,11 @@
   - **来源**: 用户要求普通商品付款后立即在数字资产页看到消费资产记录，但处于冻结状态，并显示“确认收货后释放”；确认收货后再释放为正式消费资产。
   - **实际做了**: 后端新增 `frozenCreditAssetBalance` / `frozenCumulativeSpendAmount` 与冻结、释放、作废三类流水；普通商品支付成功建单后触发冻结消费资产，确认收货优先释放冻结资产，确认前退款/取消作废冻结资产，确认后退款继续扣回已释放资产；数字资产总额仍只统计种子资产 + 已释放消费资产；买家 App 数字资产页和资产流水页展示冻结资产、释放提示和冻结分类；管理后台总览、账户列表、详情、导出和流水来源同步冻结资产口径。
   - **验证**: `cd backend && npm test -- digital-asset-v2.service.spec.ts checkout-digital-asset.spec.ts --runInBand`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npx prisma validate`、`cd backend && DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai?schema=public' npm run build`、`cd admin && npm run build` 通过；根目录目标文件 TypeScript 检查命中既有 `BonusRepo` / `LotteryRepo` / `useAuthStore` 类型问题，资产页自身无新增 TypeScript 报错。
+
+- [x] **我的页数字资产排行榜**（2026-06-28 新增并完成）
+  - **来源**: 用户要求在我的页身份卡推荐码旁展示当前数字资产在所有 VIP 用户中的排名；资产最多从 1 开始，没有数字资产账户显示“未上榜”。
+  - **实际做了**: `GET /me/digital-assets/summary` 新增 `assetRank`，按有数字资产账户的 VIP 用户 `cumulativeSpendAmount` 从高到低计算；无数字资产账户或非 VIP 返回 `null`。买家 App 我的页身份卡在推荐码同行右侧展示“资产排行榜：x / 未上榜”，并可点击进入数字资产页。
+  - **验证**: `cd backend && npm test -- digital-asset.service.spec.ts digital-asset-v2.service.spec.ts admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`node --test scripts/__tests__/me-identity-card-layout.test.mjs`、`npx tsc -p tsconfig.json --noEmit --pretty false`
 
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
   - **来源**: 用户要求资产流水里加 Tab 切换不同种类，下面不同类使用不同颜色

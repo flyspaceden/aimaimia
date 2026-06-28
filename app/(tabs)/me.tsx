@@ -15,7 +15,7 @@ import { AvatarFrame } from '../../src/components/ui';
 import { AiBadge } from '../../src/components/ui/AiBadge';
 import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
-import { BonusRepo, CouponRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
+import { BonusRepo, CouponRepo, DigitalAssetRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
@@ -119,6 +119,11 @@ export default function MeScreen() {
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
+  const { data: digitalAssetSummaryData } = useQuery({
+    queryKey: ['digital-assets-summary'],
+    queryFn: () => DigitalAssetRepo.getSummary(),
+    enabled: isLoggedIn,
+  });
 
   const profile = profileData?.ok ? profileData.data : null;
   // const tasks = taskData?.ok ? taskData.data : [];
@@ -127,6 +132,10 @@ export default function MeScreen() {
   const unreadCount = inboxCountData?.ok ? inboxCountData.data : 0;
   const walletBalance = walletData?.ok ? walletData.data.balance : 0;
   const member = memberData?.ok ? memberData.data : null;
+  const digitalAssetSummary = digitalAssetSummaryData?.ok ? digitalAssetSummaryData.data : null;
+  const assetRankLabel = digitalAssetSummary?.assetRank != null
+    ? String(digitalAssetSummary.assetRank)
+    : '未上榜';
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
@@ -171,6 +180,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+      queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] }),
     ]);
     setRefreshing(false);
   };
@@ -316,16 +326,33 @@ export default function MeScreen() {
                   style={{ marginLeft: 6 }}
                 />
               </Pressable>
-              {/* 推荐码按钮 */}
-              {referralCode ? (
+              <View style={styles.profileMetaBottomRow}>
+                {/* 推荐码按钮 */}
+                {referralCode ? (
+                  <Pressable
+                    onPress={() => setReferralOpen(true)}
+                    style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
+                  >
+                    <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                  </Pressable>
+                ) : <View />}
                 <Pressable
-                  onPress={() => setReferralOpen(true)}
-                  style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
+                  onPress={() => router.push('/me/digital-assets')}
+                  style={[styles.assetRankChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`数字资产排行榜${assetRankLabel}`}
                 >
-                  <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                  <MaterialCommunityIcons name="chart-bar" size={14} color={colors.brand.primary} />
+                  <Text
+                    {...compactActionTextProps}
+                    numberOfLines={1}
+                    style={[styles.assetRankText, { color: colors.brand.primary }]}
+                  >
+                    资产排行榜：{assetRankLabel}
+                  </Text>
                 </Pressable>
-              ) : null}
+              </View>
             </View>
           </LinearGradient>
         ) : (
@@ -832,6 +859,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
+  assetRankChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    minWidth: 0,
+    maxWidth: '68%',
+  },
+  assetRankText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    marginLeft: 3,
+    minWidth: 0,
+    flexShrink: 1,
+  },
   // 推荐码浮层
   referralCloseBtn: {
     position: 'absolute',
@@ -959,6 +1003,13 @@ const styles = StyleSheet.create({
   profileMetaStack: {
     alignSelf: 'stretch',
     marginTop: 12,
+    gap: 8,
+  },
+  profileMetaBottomRow: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
   },
   buyerNoChip: {

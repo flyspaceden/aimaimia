@@ -8,6 +8,7 @@ type DataSet = {
   orders: any[];
   refunds: any[];
   afterSales: any[];
+  memberProfiles: any[];
 };
 
 const makeHarness = (initial?: Partial<DataSet>) => {
@@ -17,7 +18,22 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     orders: initial?.orders ?? [],
     refunds: initial?.refunds ?? [],
     afterSales: initial?.afterSales ?? [],
+    memberProfiles: initial?.memberProfiles ?? [],
   };
+
+  const memberTierOf = (userId: string) =>
+    data.memberProfiles.find((profile) => profile.userId === userId)?.tier ?? null;
+
+  const filterAccounts = (where: any) => data.accounts.filter((account) => {
+    if (where?.userId && account.userId !== where.userId) return false;
+    if (where?.id && account.id !== where.id) return false;
+    if (where?.cumulativeSpendAmount?.gt !== undefined && !(account.cumulativeSpendAmount > where.cumulativeSpendAmount.gt)) {
+      return false;
+    }
+    const requiredTier = where?.user?.memberProfile?.is?.tier;
+    if (requiredTier && memberTierOf(account.userId) !== requiredTier) return false;
+    return true;
+  });
 
   const matchesField = (actual: any, expected: any) => {
     if (expected === undefined) return true;
@@ -41,11 +57,9 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     },
     digitalAssetAccount: {
       findUnique: jest.fn(({ where }: any) =>
-        data.accounts.find((account) =>
-          (where.userId && account.userId === where.userId) ||
-          (where.id && account.id === where.id),
-        ) ?? null,
+        filterAccounts(where)[0] ?? null,
       ),
+      count: jest.fn(({ where }: any) => filterAccounts(where).length),
       create: jest.fn(({ data: createData }: any) => {
         const account = {
           id: `account-${data.accounts.length + 1}`,
@@ -100,10 +114,18 @@ const makeHarness = (initial?: Partial<DataSet>) => {
         data.afterSales.find((request) => request.id === where.id) ?? null,
       ),
     },
+    memberProfile: {
+      findUnique: jest.fn(({ where }: any) =>
+        data.memberProfiles.find((profile) => profile.userId === where.userId) ?? null,
+      ),
+    },
   };
 
   const prisma = {
     $transaction: jest.fn(async (callback: any, options: any) => callback(tx),),
+    digitalAssetAccount: tx.digitalAssetAccount,
+    digitalAssetLedger: tx.digitalAssetLedger,
+    memberProfile: tx.memberProfile,
   };
 
   return { data, prisma, tx, service: new DigitalAssetService(prisma as any) };
@@ -126,6 +148,63 @@ const receivedOrder = {
 };
 
 describe('DigitalAssetService', () => {
+  it('ranks a VIP digital asset account among VIP accounts by cumulative spend amount', async () => {
+    const { service } = makeHarness({
+      accounts: [
+        { id: 'account-current', userId: 'user-current', cumulativeSpendAmount: 80 },
+        { id: 'account-vip-higher', userId: 'user-vip-higher', cumulativeSpendAmount: 120 },
+        { id: 'account-normal-higher', userId: 'user-normal-higher', cumulativeSpendAmount: 500 },
+        { id: 'account-vip-lower', userId: 'user-vip-lower', cumulativeSpendAmount: 10 },
+      ],
+      memberProfiles: [
+        { userId: 'user-current', tier: 'VIP' },
+        { userId: 'user-vip-higher', tier: 'VIP' },
+        { userId: 'user-normal-higher', tier: 'NORMAL' },
+        { userId: 'user-vip-lower', tier: 'VIP' },
+      ],
+    });
+
+    await expect(service.getSummary('user-current')).resolves.toMatchObject({
+      cumulativeSpendAmount: 80,
+      assetRank: 2,
+    });
+  });
+
+  it('does not rank a user without a digital asset account', async () => {
+    const { service } = makeHarness({
+      accounts: [
+        { id: 'account-vip-higher', userId: 'user-vip-higher', cumulativeSpendAmount: 120 },
+      ],
+      memberProfiles: [
+        { userId: 'user-current', tier: 'VIP' },
+        { userId: 'user-vip-higher', tier: 'VIP' },
+      ],
+    });
+
+    await expect(service.getSummary('user-current')).resolves.toMatchObject({
+      cumulativeSpendAmount: 0,
+      assetRank: null,
+    });
+  });
+
+  it('does not rank a non-VIP account in the VIP digital asset leaderboard', async () => {
+    const { service } = makeHarness({
+      accounts: [
+        { id: 'account-current', userId: 'user-current', cumulativeSpendAmount: 500 },
+        { id: 'account-vip-lower', userId: 'user-vip-lower', cumulativeSpendAmount: 10 },
+      ],
+      memberProfiles: [
+        { userId: 'user-current', tier: 'NORMAL' },
+        { userId: 'user-vip-lower', tier: 'VIP' },
+      ],
+    });
+
+    await expect(service.getSummary('user-current')).resolves.toMatchObject({
+      cumulativeSpendAmount: 500,
+      assetRank: null,
+    });
+  });
+
   it('credits a received order once with item allocations and Serializable isolation', async () => {
     const { data, prisma, service } = makeHarness({ orders: [receivedOrder] });
 

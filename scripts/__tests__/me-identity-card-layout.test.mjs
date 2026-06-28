@@ -32,3 +32,18 @@ test('me identity card renders buyer number in a wider meta row with a larger te
   assert.match(source, /buyerNoText:\s*\{[^}]*fontSize:\s*16,[^}]*lineHeight:\s*22,/s);
   assert.match(source, /buyerNoText:\s*\{[^}]*minWidth:\s*0,[^}]*flexShrink:\s*1,/s);
 });
+
+test('me identity card shows digital asset rank next to the referral entry', () => {
+  const source = meTab();
+  const metaStackIndex = source.indexOf('style={styles.profileMetaStack}');
+  const referralIndex = source.indexOf('style={[styles.referralChip');
+  const rankIndex = source.indexOf('资产排行榜：');
+
+  assert.match(source, /DigitalAssetRepo/);
+  assert.match(source, /queryKey:\s*\['digital-assets-summary'\]/);
+  assert.match(source, /const assetRankLabel =/);
+  assert.ok(metaStackIndex > 0, 'profile meta stack should exist');
+  assert.ok(referralIndex > metaStackIndex, 'referral chip should render inside the profile meta area');
+  assert.ok(rankIndex > referralIndex, 'digital asset rank should render next to the referral entry');
+  assert.match(source, /assetRankText:\s*\{[^}]*flexShrink:\s*1,/s);
+});

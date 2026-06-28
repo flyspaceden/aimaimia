@@ -998,6 +998,9 @@ export class DigitalAssetService {
 
     const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
     const isVip = member?.tier === 'VIP';
+    const assetRank = account && isVip
+      ? await this.getVipAssetRank(cumulativeSpendAmount)
+      : null;
     const seedAssetBalance = isVip ? account?.seedAssetBalance ?? 0 : 0;
     const creditAssetBalance = isVip ? account?.creditAssetBalance ?? 0 : 0;
     const frozenCreditAssetBalance = isVip ? account?.frozenCreditAssetBalance ?? 0 : 0;
@@ -1012,6 +1015,7 @@ export class DigitalAssetService {
       creditAssetBalance,
       frozenCreditAssetBalance,
       cumulativeSpendAmount,
+      assetRank,
       activationPrompt: isVip ? undefined : ACTIVATION_PROMPT,
       currentCreditTier,
       nextCreditTier,
@@ -1019,6 +1023,20 @@ export class DigitalAssetService {
       recentRecords: recentRecords.items,
       modules,
     };
+  }
+
+  private async getVipAssetRank(cumulativeSpendAmount: number): Promise<number> {
+    const higherVipAccountCount = await (this.prisma as any).digitalAssetAccount.count({
+      where: {
+        cumulativeSpendAmount: { gt: cumulativeSpendAmount },
+        user: {
+          memberProfile: {
+            is: { tier: 'VIP' },
+          },
+        },
+      },
+    });
+    return higherVipAccountCount + 1;
   }
 
   async listBuyerLedgers(userId: string, query: {
