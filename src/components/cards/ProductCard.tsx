@@ -75,7 +75,7 @@ export const ProductCard = React.memo(({
           transition={200}
           accessibilityLabel={`${product.title}商品图片`}
         />
-        {/* 库存徽章：低库存红色「仅剩 x 件」/ 售罄黑灰「已售罄」 */}
+        {/* 库存徽章：低库存红色「仅剩 x 件」/ 售完黑灰「已售完」 */}
         {isLowStock && (
           <View style={[styles.stockBadge, { backgroundColor: colors.danger }]}>
             <Text style={styles.stockBadgeText}>仅剩 {product.stock} 件</Text>
@@ -83,7 +83,7 @@ export const ProductCard = React.memo(({
         )}
         {isOutOfStock && (
           <View style={[styles.stockBadge, styles.stockBadgeSoldOut]}>
-            <Text style={styles.stockBadgeText}>已售罄</Text>
+            <Text style={styles.stockBadgeText}>已售完</Text>
           </View>
         )}
       </View>
@@ -131,7 +131,7 @@ export const ProductCard = React.memo(({
             <Pressable
               onPress={handleAdd}
               disabled={isOutOfStock}
-              accessibilityLabel={isOutOfStock ? '已售罄，无法加入购物车' : '加入购物车'}
+              accessibilityLabel={isOutOfStock ? '已售完，无法加入购物车' : '加入购物车'}
               accessibilityRole="button"
               accessibilityState={{ disabled: isOutOfStock }}
               style={{

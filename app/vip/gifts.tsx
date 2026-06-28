@@ -246,7 +246,7 @@ function GiftCard({
           {/* 售罄遮罩 */}
           {isSoldOut ? (
             <View style={styles.soldOutOverlay}>
-              <Text style={styles.soldOutText}>已售罄</Text>
+              <Text style={styles.soldOutText}>已售完</Text>
             </View>
           ) : null}
         </Animated.View>
