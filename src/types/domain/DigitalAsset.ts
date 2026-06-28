@@ -56,6 +56,8 @@ export interface DigitalAssetSummary {
   creditAssetBalance: number;
   frozenCreditAssetBalance: number;
   cumulativeSpendAmount: number;
+  /** 当前 VIP 用户的数字资产排名；没有数字资产账户或非 VIP 时为 null */
+  assetRank: number | null;
   activationPrompt?: DigitalAssetActivationPrompt;
   currentCreditTier?: DigitalAssetCreditTierInfo;
   nextCreditTier?: DigitalAssetCreditTierInfo | null;

@@ -73,11 +73,23 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     return true;
   };
 
+  const memberTierOf = (userId: string) =>
+    data.memberProfiles.find((profile) => profile.userId === userId)?.tier ?? null;
+
+  const matchesAccountWhere = (account: any, where: any) => {
+    if (!where) return true;
+    if (where.userId && account.userId !== where.userId) return false;
+    if (where.id && account.id !== where.id) return false;
+    if (where.cumulativeSpendAmount?.gt !== undefined && !(account.cumulativeSpendAmount > where.cumulativeSpendAmount.gt)) {
+      return false;
+    }
+    const requiredTier = where.user?.memberProfile?.is?.tier;
+    if (requiredTier && memberTierOf(account.userId) !== requiredTier) return false;
+    return true;
+  };
+
   const findAccount = (where: any) =>
-    data.accounts.find((account) =>
-      (where.userId && account.userId === where.userId) ||
-      (where.id && account.id === where.id),
-    ) ?? null;
+    data.accounts.find((account) => matchesAccountWhere(account, where)) ?? null;
 
   const tx: any = {
     order: {
@@ -120,6 +132,9 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     },
     digitalAssetAccount: {
       findUnique: jest.fn(({ where }: any) => findAccount(where)),
+      count: jest.fn(({ where }: any) =>
+        data.accounts.filter((account) => matchesAccountWhere(account, where)).length,
+      ),
       create: jest.fn(({ data: createData }: any) => {
         const account = {
           id: `account-${data.accounts.length + 1}`,

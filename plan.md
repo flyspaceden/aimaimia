@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-26
+> **最后更新**: 2026-06-28
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -25,6 +25,11 @@
   - **来源**: 用户截图反馈，希望“我的推荐码”页面展示自己推荐的 VIP 人数，并移除“我的专属推荐码”旁的“AI推荐”徽标。
   - **实际做了**: `GET /bonus/member` 新增 `inviteeVipCount`，口径为直属推荐且已升级 VIP 的人数（不含下下级），与管理后台“直邀 VIP”一致；买家 App 推荐码卡片在专属码下展示“已推荐 x 位 VIP”，并删除标题旁 `AI推荐` 徽标。
   - **验证**: `backend npm test -- src/modules/bonus/bonus.service.spec.ts --runInBand`、`node --test scripts/__tests__/referral-page-vip-count.test.mjs`、`backend npx prisma validate`、`backend npm run build`、`npx tsc -b --noEmit --pretty false` 通过。
+
+- [x] **我的页数字资产排行榜**（2026-06-28 新增并完成）
+  - **来源**: 用户要求在我的页身份卡推荐码旁展示当前数字资产在所有 VIP 用户中的排名；资产最多从 1 开始，没有数字资产账户显示“未上榜”。
+  - **实际做了**: `GET /me/digital-assets/summary` 新增 `assetRank`，按有数字资产账户的 VIP 用户 `cumulativeSpendAmount` 从高到低计算；无数字资产账户或非 VIP 返回 `null`。买家 App 我的页身份卡在推荐码同行右侧展示“资产排行榜：x / 未上榜”，并可点击进入数字资产页。
+  - **验证**: `cd backend && npm test -- digital-asset.service.spec.ts digital-asset-v2.service.spec.ts admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`node --test scripts/__tests__/me-identity-card-layout.test.mjs`、`npx tsc -p tsconfig.json --noEmit --pretty false`
 
 - [x] **组合商品架构文档与安全清单补齐**（2026-06-22 新增并完成）
   - **来源**: `docs/superpowers/plans/2026-06-22-product-bundle.md` Task 15
