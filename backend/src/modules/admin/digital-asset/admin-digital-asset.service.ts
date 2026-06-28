@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { validateCreditTiers } from '../../digital-asset/digital-asset-credit-calculator';
@@ -25,6 +26,16 @@ import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buye
 
 const DIGITAL_ASSET_SETTINGS_KEY = 'DIGITAL_ASSET_MODULE_SETTINGS';
 const DIGITAL_ASSET_CREDIT_TIERS_KEY = 'DIGITAL_ASSET_CREDIT_TIERS';
+const ACCOUNT_SORT_FIELD_MAP = {
+  seedAssetBalance: 'seedAssetBalance',
+  creditAssetBalance: 'creditAssetBalance',
+  frozenCreditAssetBalance: 'frozenCreditAssetBalance',
+  cumulativeSpendAmount: 'cumulativeSpendAmount',
+  updatedAt: 'updatedAt',
+} as const;
+type PersistedAccountSortField = keyof typeof ACCOUNT_SORT_FIELD_MAP;
+type AccountSortField = PersistedAccountSortField | 'totalAssetBalance';
+type AccountSortDirection = 'asc' | 'desc';
 const DEFAULT_CREDIT_TIERS: CreditAssetTier[] = [
   { minAmount: 0, maxAmount: 500, multiplier: 3 },
   { minAmount: 500, maxAmount: 5000, multiplier: 5 },
@@ -101,13 +112,28 @@ export class AdminDigitalAssetService {
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
     const where = this.buildAccountWhere(query);
+    const sort = this.normalizeAccountSort(query);
+
+    if (sort.field === 'totalAssetBalance') {
+      const [items, total] = await Promise.all([
+        this.findAccountsSortedByTotalAssetBalance(query, where, page, pageSize, sort.direction),
+        (this.prisma as any).digitalAssetAccount.count({ where }),
+      ]);
+
+      return {
+        items: items.map((item: any) => this.mapAccount(item)),
+        total,
+        page,
+        pageSize,
+      };
+    }
 
     const [items, total] = await Promise.all([
       (this.prisma as any).digitalAssetAccount.findMany({
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { cumulativeSpendAmount: 'desc' },
+        orderBy: this.buildAccountOrderBy({ field: sort.field, direction: sort.direction }),
         include: this.accountInclude(),
       }),
       (this.prisma as any).digitalAssetAccount.count({ where }),
@@ -192,12 +218,15 @@ export class AdminDigitalAssetService {
 
   async exportAccounts(query: AdminDigitalAssetAccountQueryDto): Promise<string> {
     const where = this.buildAccountWhere(query);
-    const items = await (this.prisma as any).digitalAssetAccount.findMany({
-      where,
-      take: 5000,
-      orderBy: { cumulativeSpendAmount: 'desc' },
-      include: this.accountInclude(),
-    });
+    const sort = this.normalizeAccountSort(query);
+    const items = sort.field === 'totalAssetBalance'
+      ? await this.findAccountsSortedByTotalAssetBalance(query, where, 1, 5000, sort.direction)
+      : await (this.prisma as any).digitalAssetAccount.findMany({
+        where,
+        take: 5000,
+        orderBy: this.buildAccountOrderBy({ field: sort.field, direction: sort.direction }),
+        include: this.accountInclude(),
+      });
     const rows = [
       ['买家编号', '用户ID', '昵称', '手机号', 'VIP状态', '数字资产总额', '种子资产', '消费资产', '冻结资产', '累计消费', '账户更新时间'],
       ...items.map((item: any) => [
@@ -294,6 +323,85 @@ export class AdminDigitalAssetService {
       };
     }
     return where;
+  }
+
+  private normalizeAccountSort(query: AdminDigitalAssetAccountQueryDto): { field: AccountSortField; direction: AccountSortDirection } {
+    const requestedField = query.sortField as AccountSortField | undefined;
+    const field: AccountSortField = requestedField && (
+      requestedField === 'totalAssetBalance'
+      || Object.prototype.hasOwnProperty.call(ACCOUNT_SORT_FIELD_MAP, requestedField)
+    )
+      ? requestedField
+      : 'cumulativeSpendAmount';
+    const direction: AccountSortDirection = query.sortOrder === 'ascend' || query.sortOrder === 'asc' ? 'asc' : 'desc';
+    return { field, direction };
+  }
+
+  private buildAccountOrderBy(sort: { field: PersistedAccountSortField; direction: AccountSortDirection }) {
+    return [{ [ACCOUNT_SORT_FIELD_MAP[sort.field]]: sort.direction }, { id: 'asc' as const }];
+  }
+
+  private async findAccountsSortedByTotalAssetBalance(
+    query: AdminDigitalAssetAccountQueryDto,
+    where: any,
+    page: number,
+    pageSize: number,
+    direction: AccountSortDirection,
+  ) {
+    const skip = (page - 1) * pageSize;
+    const whereSql = this.buildAccountRawWhere(query);
+    const directionSql = direction === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+    const rows: Array<{ id: string }> = await (this.prisma as any).$queryRaw(Prisma.sql`
+      SELECT a."id"
+      FROM "DigitalAssetAccount" a
+      JOIN "User" u ON u."id" = a."userId"
+      LEFT JOIN "UserProfile" p ON p."userId" = u."id"
+      ${whereSql}
+      ORDER BY (COALESCE(a."seedAssetBalance", 0) + COALESCE(a."creditAssetBalance", 0)) ${directionSql}, a."id" ASC
+      OFFSET ${skip}
+      LIMIT ${pageSize}
+    `);
+    const ids = rows.map((row) => row.id);
+    if (ids.length === 0) return [];
+    const items = await (this.prisma as any).digitalAssetAccount.findMany({
+      where: { ...where, id: { in: ids } },
+      include: this.accountInclude(),
+    });
+    const byId = new Map(items.map((item: any) => [item.id, item]));
+    return ids.map((id) => byId.get(id)).filter(Boolean);
+  }
+
+  private buildAccountRawWhere(query: AdminDigitalAssetAccountQueryDto) {
+    const filters: Prisma.Sql[] = [];
+    if (query.minAmount !== undefined) {
+      filters.push(Prisma.sql`a."cumulativeSpendAmount" >= ${query.minAmount}`);
+    }
+    if (query.maxAmount !== undefined) {
+      filters.push(Prisma.sql`a."cumulativeSpendAmount" <= ${query.maxAmount}`);
+    }
+    if (query.startDate) {
+      filters.push(Prisma.sql`a."createdAt" >= ${new Date(query.startDate)}`);
+    }
+    if (query.endDate) {
+      filters.push(Prisma.sql`a."createdAt" <= ${new Date(`${query.endDate}T23:59:59`)}`);
+    }
+    if (query.keyword) {
+      const normalizedKeyword = normalizeBuyerNo(query.keyword);
+      const keywordLike = `%${query.keyword}%`;
+      filters.push(Prisma.sql`(
+        u."id" = ${query.keyword}
+        OR u."buyerNo" = ${normalizedKeyword}
+        OR p."nickname" ILIKE ${keywordLike}
+        OR EXISTS (
+          SELECT 1
+          FROM "AuthIdentity" ai
+          WHERE ai."userId" = u."id"
+            AND ai."provider"::text = 'PHONE'
+            AND ai."identifier" LIKE ${keywordLike}
+        )
+      )`);
+    }
+    return filters.length > 0 ? Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}` : Prisma.empty;
   }
 
   private accountInclude() {

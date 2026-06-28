@@ -47,6 +47,21 @@ export class AdminDigitalAssetAccountQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @IsOptional()
+  @IsIn([
+    'totalAssetBalance',
+    'seedAssetBalance',
+    'creditAssetBalance',
+    'frozenCreditAssetBalance',
+    'cumulativeSpendAmount',
+    'updatedAt',
+  ])
+  sortField?: string;
+
+  @IsOptional()
+  @IsIn(['ascend', 'descend', 'asc', 'desc'])
+  sortOrder?: string;
 }
 
 export class AdminDigitalAssetLedgerQueryDto {

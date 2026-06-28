@@ -252,12 +252,22 @@ export interface DigitalAssetOverview {
   todayAssetDebitAmount: number;
 }
 
+export type DigitalAssetAccountSortField =
+  | 'totalAssetBalance'
+  | 'seedAssetBalance'
+  | 'creditAssetBalance'
+  | 'frozenCreditAssetBalance'
+  | 'cumulativeSpendAmount'
+  | 'updatedAt';
+
 export interface DigitalAssetAccountQueryParams extends PaginationParams {
   keyword?: string;
   minAmount?: number;
   maxAmount?: number;
   startDate?: string;
   endDate?: string;
+  sortField?: DigitalAssetAccountSortField;
+  sortOrder?: 'ascend' | 'descend';
 }
 
 export interface DigitalAssetLedgerQueryParams extends PaginationParams {
