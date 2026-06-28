@@ -1,6 +1,57 @@
 import { CompanyService } from './company.service';
 
 describe('CompanyService', () => {
+  describe('listCompanyProducts bundle stock', () => {
+    it('derives bundle card stock from component SKUs instead of the selling SKU placeholder', async () => {
+      const prisma = {
+        product: {
+          findMany: jest
+            .fn()
+            .mockResolvedValueOnce([
+              {
+                id: 'bundle-product',
+                type: 'BUNDLE',
+                title: '399龙虾7件套装',
+                basePrice: 399.1,
+                media: [{ url: 'https://example.com/lobster.webp' }],
+                skus: [{ id: 'bundle-selling-sku', price: 399.1, stock: 0, maxPerOrder: null }],
+                bundleItems: [
+                  { quantity: 2, sku: { stock: 18 } },
+                  { quantity: 1, sku: { stock: 29 } },
+                ],
+                tags: [],
+                unit: '斤',
+                origin: { text: '印度洋/阳江海陵岛' },
+                originRegion: null,
+                category: { name: '水产' },
+              },
+            ])
+            .mockResolvedValueOnce([{ category: { name: '水产' } }]),
+          count: jest.fn().mockResolvedValue(1),
+        },
+      };
+      const service = new CompanyService(prisma as any);
+
+      const result = await service.listCompanyProducts('company-1', { page: 1, pageSize: 10 });
+
+      expect(prisma.product.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          include: expect.objectContaining({
+            bundleItems: expect.any(Object),
+          }),
+        }),
+      );
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({
+          id: 'bundle-product',
+          stock: 9,
+          defaultSkuId: 'bundle-selling-sku',
+        }),
+      );
+    });
+  });
+
   describe('getById inspectionReports', () => {
     it('returns only verified inspection documents for the public company detail', async () => {
       const issuedAt = new Date('2026-06-01T00:00:00.000Z');
