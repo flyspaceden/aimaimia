@@ -31,3 +31,12 @@ test('admin digital asset table sends selected sort field and order to accounts 
   assert.match(types, /sortField\?:\s*DigitalAssetAccountSortField/, 'query params should expose sortField');
   assert.match(types, /sortOrder\?:\s*'ascend'\s*\|\s*'descend'/, 'query params should expose table sort order');
 });
+
+test('admin digital asset account table displays global asset rank', () => {
+  const columnStart = page.indexOf("dataIndex: 'assetRank'");
+  assert.notEqual(columnStart, -1, 'assetRank column should exist');
+  const columnSnippet = page.slice(columnStart - 120, columnStart + 260);
+  assert.match(columnSnippet, /title:\s*'排名'/, 'rank column should be titled 排名');
+  assert.match(columnSnippet, /renderAssetRank/, 'rank column should use dedicated rank rendering');
+  assert.match(types, /assetRank:\s*number\s*\|\s*null/, 'account row type should expose assetRank');
+});

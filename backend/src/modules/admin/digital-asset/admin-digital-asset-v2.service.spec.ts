@@ -14,7 +14,7 @@ describe('AdminDigitalAssetService V2', () => {
       },
     };
     const prisma = {
-      $queryRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn(async (callback: (innerTx: typeof tx) => Promise<unknown>) => callback(tx)),
       digitalAssetAccount: {
         aggregate: jest.fn(),
@@ -261,6 +261,60 @@ describe('AdminDigitalAssetService V2', () => {
     }));
   });
 
+  it('account list returns global VIP asset rank for each account row', async () => {
+    const { service, prisma } = makeService();
+    prisma.digitalAssetAccount.findMany.mockResolvedValue([
+      {
+        id: 'account-vip',
+        userId: 'user-vip',
+        cumulativeSpendAmount: 0,
+        seedAssetBalance: 7000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 1000,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-vip',
+          buyerNo: 'AIMM20260616000065',
+          status: 'ACTIVE',
+          profile: { nickname: 'VIP 买家', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'VIP' },
+        },
+      },
+      {
+        id: 'account-normal',
+        userId: 'user-normal',
+        cumulativeSpendAmount: 0,
+        seedAssetBalance: 9999,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-normal',
+          buyerNo: 'AIMM20260616000086',
+          status: 'ACTIVE',
+          profile: { nickname: '普通买家', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'NORMAL' },
+        },
+      },
+    ]);
+    prisma.digitalAssetAccount.count.mockResolvedValue(2);
+    prisma.$queryRaw.mockResolvedValueOnce([
+      { id: 'account-vip', assetRank: 4 },
+    ]);
+
+    const result = await service.findAccounts({});
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: 'account-vip', assetRank: 4 }),
+      expect.objectContaining({ id: 'account-normal', assetRank: null }),
+    ]);
+  });
+
   it('account list applies requested numeric sort order on database query', async () => {
     const { service, prisma } = makeService();
     prisma.digitalAssetAccount.findMany.mockResolvedValue([]);
@@ -275,7 +329,12 @@ describe('AdminDigitalAssetService V2', () => {
 
   it('account list sorts digital asset total by computed seed plus credit before pagination', async () => {
     const { service, prisma } = makeService();
-    prisma.$queryRaw.mockResolvedValue([{ id: 'account-2' }, { id: 'account-1' }]);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ id: 'account-2' }, { id: 'account-1' }])
+      .mockResolvedValueOnce([
+        { id: 'account-2', assetRank: 1 },
+        { id: 'account-1', assetRank: 2 },
+      ]);
     prisma.digitalAssetAccount.findMany.mockResolvedValue([
       {
         id: 'account-1',
@@ -318,8 +377,9 @@ describe('AdminDigitalAssetService V2', () => {
 
     const result = await service.findAccounts({ sortField: 'totalAssetBalance', sortOrder: 'descend' } as any);
 
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
     expect(result.items.map((item: any) => item.id)).toEqual(['account-2', 'account-1']);
+    expect(result.items.map((item: any) => item.assetRank)).toEqual([1, 2]);
   });
 
   it('export uses V2 CSV headers and balance columns', async () => {
