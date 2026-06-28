@@ -793,11 +793,10 @@ export default function MeScreen() {
                 </Text>
                 <View style={[styles.vipPerkList, { zIndex: 1 }]}>
                   {[
-                    { icon: 'sale' as const, text: '全场商品享 95 折' },
-                    { icon: 'cash-multiple' as const, text: '多买多补贴' },
-                    { icon: 'gift-outline' as const, text: '惊喜礼包一份' },
-                    { icon: 'truck-fast-outline' as const, text: '运费减免' },
-                    { icon: 'headset' as const, text: '优先客服通道' },
+                    { icon: 'sale' as const, text: '普通商品会员价' },
+                    { icon: 'truck-fast-outline' as const, text: '更低包邮门槛' },
+                    { icon: 'wallet-outline' as const, text: '消费积分抵扣更多' },
+                    { icon: 'account-cash-outline' as const, text: '推荐 VIP 奖励' },
                   ].map((perk) => (
                     <View key={perk.text} style={styles.vipPerkRow}>
                       <MaterialCommunityIcons name={perk.icon} size={18} color="#FFD700" />
