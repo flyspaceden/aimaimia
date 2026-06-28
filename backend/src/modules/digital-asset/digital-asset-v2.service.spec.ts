@@ -75,6 +75,8 @@ const makeHarness = (initial?: Partial<DataSet>) => {
 
   const memberTierOf = (userId: string) =>
     data.memberProfiles.find((profile) => profile.userId === userId)?.tier ?? null;
+  const releasedTotalAssetOf = (account: any) =>
+    (account.seedAssetBalance ?? 0) + (account.creditAssetBalance ?? 0);
 
   const matchesAccountWhere = (account: any, where: any) => {
     if (!where) return true;
@@ -246,6 +248,13 @@ const makeHarness = (initial?: Partial<DataSet>) => {
 
   const prisma: any = {
     ...tx,
+    $queryRaw: jest.fn(async (query: any) => {
+      const totalAssetBalance = Number(query?.values?.[0] ?? 0);
+      const higherCount = data.accounts.filter((account) =>
+        memberTierOf(account.userId) === 'VIP' && releasedTotalAssetOf(account) > totalAssetBalance,
+      ).length;
+      return [{ higherCount }];
+    }),
     $transaction: jest.fn(async (callback: any, options: any) => callback(tx)),
   };
 
