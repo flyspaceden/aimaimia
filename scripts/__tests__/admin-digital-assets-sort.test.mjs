@@ -40,3 +40,19 @@ test('admin digital asset account table displays global asset rank', () => {
   assert.match(columnSnippet, /renderAssetRank/, 'rank column should use dedicated rank rendering');
   assert.match(types, /assetRank:\s*number\s*\|\s*null/, 'account row type should expose assetRank');
 });
+
+test('admin digital asset account table defaults to total asset descending', () => {
+  const totalColumnStart = page.indexOf("dataIndex: 'totalAssetBalance'");
+  assert.notEqual(totalColumnStart, -1, 'totalAssetBalance column should exist');
+  const totalColumnSnippet = page.slice(totalColumnStart, totalColumnStart + 320);
+  assert.match(totalColumnSnippet, /defaultSortOrder:\s*'descend'/, 'total asset column should default to descending');
+
+  const cumulativeColumnStart = page.indexOf("dataIndex: 'cumulativeSpendAmount'");
+  assert.notEqual(cumulativeColumnStart, -1, 'cumulativeSpendAmount column should exist');
+  const cumulativeColumnSnippet = page.slice(cumulativeColumnStart, cumulativeColumnStart + 320);
+  assert.doesNotMatch(
+    cumulativeColumnSnippet,
+    /defaultSortOrder:/,
+    'cumulative spend column should not own the default sort',
+  );
+});
