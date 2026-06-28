@@ -53,7 +53,7 @@
 
 - [x] **我的页数字资产排行榜**（2026-06-28 新增并完成）
   - **来源**: 用户要求在我的页身份卡推荐码旁展示当前数字资产在所有 VIP 用户中的排名；资产最多从 1 开始，没有数字资产账户显示“未上榜”。
-  - **实际做了**: `GET /me/digital-assets/summary` 新增 `assetRank`，按有数字资产账户的 VIP 用户 `cumulativeSpendAmount` 从高到低计算；无数字资产账户或非 VIP 返回 `null`。买家 App 我的页身份卡在推荐码同行右侧展示“资产排行榜：x / 未上榜”，并可点击进入数字资产页。
+  - **实际做了**: `GET /me/digital-assets/summary` 新增 `assetRank`，按有数字资产账户的 VIP 用户 `cumulativeSpendAmount` 从高到低计算；无数字资产账户或非 VIP 返回 `null`。买家 App 我的页身份卡在推荐码同行右侧展示“数字资产排行榜：x / 未上榜”，并可点击进入数字资产页。
   - **验证**: `cd backend && npm test -- digital-asset.service.spec.ts digital-asset-v2.service.spec.ts admin-digital-asset.service.spec.ts admin-digital-asset-v2.service.spec.ts --runInBand`、`node --test scripts/__tests__/me-identity-card-layout.test.mjs`、`npx tsc -p tsconfig.json --noEmit --pretty false`
 
 - [x] **资产流水分类 Tab 与类型配色**（2026-06-19 新增并完成）
