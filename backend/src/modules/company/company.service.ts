@@ -184,6 +184,13 @@ export class CompanyService {
             orderBy: { price: 'asc' },
             select: { id: true, price: true, stock: true, maxPerOrder: true },
           },
+          bundleItems: {
+            orderBy: { sortOrder: 'asc' },
+            select: {
+              quantity: true,
+              sku: { select: { stock: true } },
+            },
+          },
           category: { select: { name: true } },
           tags: { include: { tag: true } },
         },
@@ -211,7 +218,7 @@ export class CompanyService {
       items: items.map((p) => {
         const activeSkus = p.skus || [];
         // 聚合库存 + 单笔限购（口径同 ProductService.mapToListItem）
-        const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+        const stock = this.resolveProductCardStock(p, activeSkus);
         let maxPerOrder: number | null = null;
         if (activeSkus.length > 0) {
           const limits = activeSkus.map((s) =>
@@ -224,7 +231,7 @@ export class CompanyService {
         return {
           id: p.id,
           title: p.title,
-          price: activeSkus[0]?.price ?? 0,
+          price: activeSkus[0]?.price ?? p.basePrice ?? 0,
           image: p.media[0]?.url ?? '',
           defaultSkuId: activeSkus[0]?.id ?? '',
           tags: p.tags.map((pt) => pt.tag.name),
@@ -241,6 +248,28 @@ export class CompanyService {
       nextPage: skip + pageSize < total ? page + 1 : undefined,
       categories,
     };
+  }
+
+  private resolveProductCardStock(product: any, activeSkus: Array<{ stock?: number | null }>) {
+    if (product.type === 'BUNDLE') {
+      return this.calculateBundleAvailableStock(product.bundleItems);
+    }
+    return activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+  }
+
+  private calculateBundleAvailableStock(bundleItems: any[] = []) {
+    if (bundleItems.length === 0) return 0;
+
+    const availability = bundleItems.reduce((minAvailable, item) => {
+      const quantity = Number(item.quantity);
+      const stock = Number(item.sku?.stock);
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(stock) || stock <= 0) {
+        return 0;
+      }
+      return Math.min(minAvailable, Math.floor(stock / quantity));
+    }, Number.POSITIVE_INFINITY);
+
+    return Number.isFinite(availability) ? availability : 0;
   }
 
   /** 企业活动列表 */
