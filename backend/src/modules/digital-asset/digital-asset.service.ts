@@ -998,13 +998,13 @@ export class DigitalAssetService {
 
     const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
     const isVip = member?.tier === 'VIP';
-    const assetRank = account && isVip
-      ? await this.getVipAssetRank(cumulativeSpendAmount)
-      : null;
     const seedAssetBalance = isVip ? account?.seedAssetBalance ?? 0 : 0;
     const creditAssetBalance = isVip ? account?.creditAssetBalance ?? 0 : 0;
     const frozenCreditAssetBalance = isVip ? account?.frozenCreditAssetBalance ?? 0 : 0;
     const totalAssetBalance = seedAssetBalance + creditAssetBalance;
+    const assetRank = account && isVip
+      ? await this.getVipAssetRank(totalAssetBalance)
+      : null;
     const currentCreditTier = this.getCurrentCreditTierInfo(cumulativeSpendAmount, tiers);
     const nextCreditTier = this.getNextCreditTierInfo(cumulativeSpendAmount, tiers);
 
@@ -1025,18 +1025,15 @@ export class DigitalAssetService {
     };
   }
 
-  private async getVipAssetRank(cumulativeSpendAmount: number): Promise<number> {
-    const higherVipAccountCount = await (this.prisma as any).digitalAssetAccount.count({
-      where: {
-        cumulativeSpendAmount: { gt: cumulativeSpendAmount },
-        user: {
-          memberProfile: {
-            is: { tier: 'VIP' },
-          },
-        },
-      },
-    });
-    return higherVipAccountCount + 1;
+  private async getVipAssetRank(totalAssetBalance: number): Promise<number> {
+    const rows = await ((this.prisma as any).$queryRaw(Prisma.sql`
+      SELECT COUNT(*)::int AS "higherCount"
+      FROM "DigitalAssetAccount" a
+      JOIN "MemberProfile" mp ON mp."userId" = a."userId"
+      WHERE mp."tier"::text = 'VIP'
+        AND (COALESCE(a."seedAssetBalance", 0) + COALESCE(a."creditAssetBalance", 0)) > ${totalAssetBalance}
+    `) as Promise<Array<{ higherCount: number | bigint }>>);
+    return Number(rows[0]?.higherCount ?? 0) + 1;
   }
 
   async listBuyerLedgers(userId: string, query: {

@@ -23,6 +23,8 @@ const makeHarness = (initial?: Partial<DataSet>) => {
 
   const memberTierOf = (userId: string) =>
     data.memberProfiles.find((profile) => profile.userId === userId)?.tier ?? null;
+  const releasedTotalAssetOf = (account: any) =>
+    (account.seedAssetBalance ?? 0) + (account.creditAssetBalance ?? 0);
 
   const filterAccounts = (where: any) => data.accounts.filter((account) => {
     if (where?.userId && account.userId !== where.userId) return false;
@@ -122,6 +124,13 @@ const makeHarness = (initial?: Partial<DataSet>) => {
   };
 
   const prisma = {
+    $queryRaw: jest.fn(async (query: any) => {
+      const totalAssetBalance = Number(query?.values?.[0] ?? 0);
+      const higherCount = data.accounts.filter((account) =>
+        memberTierOf(account.userId) === 'VIP' && releasedTotalAssetOf(account) > totalAssetBalance,
+      ).length;
+      return [{ higherCount }];
+    }),
     $transaction: jest.fn(async (callback: any, options: any) => callback(tx),),
     digitalAssetAccount: tx.digitalAssetAccount,
     digitalAssetLedger: tx.digitalAssetLedger,
@@ -148,13 +157,13 @@ const receivedOrder = {
 };
 
 describe('DigitalAssetService', () => {
-  it('ranks a VIP digital asset account among VIP accounts by cumulative spend amount', async () => {
+  it('ranks a VIP digital asset account among VIP accounts by released total asset balance', async () => {
     const { service } = makeHarness({
       accounts: [
-        { id: 'account-current', userId: 'user-current', cumulativeSpendAmount: 80 },
-        { id: 'account-vip-higher', userId: 'user-vip-higher', cumulativeSpendAmount: 120 },
-        { id: 'account-normal-higher', userId: 'user-normal-higher', cumulativeSpendAmount: 500 },
-        { id: 'account-vip-lower', userId: 'user-vip-lower', cumulativeSpendAmount: 10 },
+        { id: 'account-current', userId: 'user-current', cumulativeSpendAmount: 0, seedAssetBalance: 7000, creditAssetBalance: 0 },
+        { id: 'account-vip-higher', userId: 'user-vip-higher', cumulativeSpendAmount: 0, seedAssetBalance: 9000, creditAssetBalance: 0 },
+        { id: 'account-normal-higher', userId: 'user-normal-higher', cumulativeSpendAmount: 0, seedAssetBalance: 20000, creditAssetBalance: 0 },
+        { id: 'account-vip-lower', userId: 'user-vip-lower', cumulativeSpendAmount: 0, seedAssetBalance: 1000, creditAssetBalance: 0 },
       ],
       memberProfiles: [
         { userId: 'user-current', tier: 'VIP' },
@@ -165,7 +174,8 @@ describe('DigitalAssetService', () => {
     });
 
     await expect(service.getSummary('user-current')).resolves.toMatchObject({
-      cumulativeSpendAmount: 80,
+      totalAssetBalance: 7000,
+      cumulativeSpendAmount: 0,
       assetRank: 2,
     });
   });
