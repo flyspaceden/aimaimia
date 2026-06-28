@@ -34,6 +34,12 @@ import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
+import {
+  buildBundleSkuOptionLabel,
+  buildSkuMetaText,
+  hasMeaningfulSingleSkuDraftInput,
+  normalizeSkuTitle,
+} from '@/utils/productSkuDisplay';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
@@ -142,6 +148,7 @@ type BundleEditorItemSource = ProductBundleItem & {
     weightGram?: number | null;
     product?: {
       title?: string | null;
+      unit?: string | null;
       imageUrl?: string | null;
       coverUrl?: string | null;
       media?: Array<{ url?: string | null }>;
@@ -158,6 +165,7 @@ function toBundleEditorItem(item: BundleEditorItemSource): ProductBundleItem {
     sortOrder: item.sortOrder,
     productTitle: item.productTitle ?? product?.title ?? undefined,
     skuTitle: item.skuTitle ?? sku?.title ?? undefined,
+    unit: item.unit ?? product?.unit ?? undefined,
     imageUrl: item.imageUrl ?? product?.imageUrl ?? product?.coverUrl ?? product?.media?.[0]?.url ?? null,
     price: item.price ?? (sku?.price ?? undefined),
     stock: item.stock ?? (sku?.stock ?? undefined),
@@ -215,6 +223,7 @@ function mapBackendFieldToProductForm(path: string, multiSpec: boolean): (string
     // 单规格模式：只有 idx=0 有意义
     if (idx === 0) {
       const map: Record<string, string> = {
+        specName: 'singleSpecName',
         cost: 'singleCost',
         stock: 'singleStock',
         weightGram: 'singleWeightGram',
@@ -349,15 +358,22 @@ function BundleItemsEditor({
       .flatMap((product) =>
         (product.skus || [])
           .filter((sku) => sku.status === 'ACTIVE')
-          .map((sku) => ({
-            value: sku.id,
-            label: product.auditStatus === 'APPROVED'
-              ? `${product.title} / ${sku.title || '默认规格'}`
-              : `${product.title} / ${sku.title || '默认规格'}（未审核通过）`,
-            disabled: product.auditStatus !== 'APPROVED',
-            product,
-            sku,
-          })),
+          .map((sku) => {
+            const approved = product.auditStatus === 'APPROVED';
+            return {
+              value: sku.id,
+              label: buildBundleSkuOptionLabel({
+                productTitle: product.title,
+                skuTitle: sku.title,
+                weightGram: sku.weightGram,
+                unit: product.unit,
+                approved,
+              }),
+              disabled: !approved,
+              product,
+              sku,
+            };
+          }),
       );
   }, [simpleProducts, currentProductId]);
 
@@ -396,7 +412,8 @@ function BundleItemsEditor({
         skuId,
         quantity: 1,
         productTitle: option.product.title,
-        skuTitle: option.sku.title || '默认规格',
+        skuTitle: normalizeSkuTitle(option.sku.title),
+        unit: option.product.unit,
         imageUrl: getProductCover(option.product),
         price: option.sku.price,
         stock: option.sku.stock,
@@ -544,7 +561,11 @@ function BundleItemsEditor({
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 500 }}>{item.productTitle || '-'}</div>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {item.skuTitle || item.skuId}
+                    {buildSkuMetaText({
+                      skuTitle: item.skuTitle || item.skuId,
+                      weightGram: item.weightGram,
+                      unit: item.unit,
+                    })}
                   </Text>
                 </div>
               </Space>
@@ -1005,7 +1026,7 @@ function buildPayload(
 
   const skus = skuList.map((s) => ({
     id: s.id as string | undefined,
-    specName: (s.specName as string) || '默认规格',
+    specName: normalizeSkuTitle(s.specName as string | undefined),
     cost: Number(s.cost),
     stock: Number(s.stock),
     weightGram: s.weightGram === undefined || s.weightGram === null ? undefined : Number(s.weightGram),
@@ -1168,6 +1189,7 @@ function ProductEditForm({ id }: { id: string }) {
       attributes: attrPairs.length > 0 ? attrPairs : [],
       // 单规格字段
       ...(!isMulti && firstSku ? {
+        singleSpecName: firstSku.title,
         singleCost: firstSku.cost,
         singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
         singleWeightGram: nextProductType === 'BUNDLE'
@@ -1232,7 +1254,7 @@ function ProductEditForm({ id }: { id: string }) {
         const firstSkuId = product?.skus?.[0]?.id;
         skuList = [{
           id: firstSkuId,
-          specName: '默认规格',
+          specName: values.singleSpecName || product?.skus?.[0]?.title || '默认规格',
           cost: values.singleCost,
           stock: values.singleStock,
           weightGram: values.singleWeightGram,
@@ -1452,13 +1474,14 @@ function ProductEditForm({ id }: { id: string }) {
                       setMultiSpec(checked);
                       if (checked) {
                         // 切换到多规格：从单规格数据初始化一行
+                        const specName = form.getFieldValue('singleSpecName');
                         const cost = form.getFieldValue('singleCost');
                         const stock = form.getFieldValue('singleStock');
                         const weightGram = form.getFieldValue('singleWeightGram');
                         const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
                         if (cost || stock) {
                           form.setFieldsValue({
-                            skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
+                            skus: [{ specName: specName || '默认规格', cost, stock, weightGram, maxPerOrder }],
                           });
                         }
                       } else {
@@ -1467,6 +1490,7 @@ function ProductEditForm({ id }: { id: string }) {
                         const first = skus?.[0];
                         if (first) {
                           form.setFieldsValue({
+                            singleSpecName: first.specName || '默认规格',
                             singleCost: first.cost,
                             singleStock: first.stock,
                             singleWeightGram: first.weightGram,
@@ -1548,7 +1572,17 @@ function ProductEditForm({ id }: { id: string }) {
           ) : !multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item
+                  label="规格名称"
+                  name="singleSpecName"
+                  initialValue="默认规格"
+                  rules={[{ required: true, message: '请输入规格名称' }]}
+                >
+                  <Input placeholder="如：400g装" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="成本价"
                   name="singleCost"
@@ -1560,7 +1594,7 @@ function ProductEditForm({ id }: { id: string }) {
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={7}>
                 <Form.Item shouldUpdate noStyle>
                   {({ getFieldValue }) => {
                     const cost = getFieldValue('singleCost');
@@ -1572,7 +1606,7 @@ function ProductEditForm({ id }: { id: string }) {
                   }}
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={12} md={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -1589,7 +1623,7 @@ function ProductEditForm({ id }: { id: string }) {
                   )}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item
                   label="包装后重量（克）"
                   name="singleWeightGram"
@@ -1602,7 +1636,7 @@ function ProductEditForm({ id }: { id: string }) {
                   <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
                   <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
@@ -1781,6 +1815,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       aiKeywords: (draftProduct.aiKeywords || []).join(','),
       attributes: attrPairs.length > 0 ? attrPairs : [],
       ...(!isMulti && firstSku ? {
+        singleSpecName: firstSku.title,
         singleCost: firstSku.cost || undefined,
         singleStock: nextProductType === 'BUNDLE' ? 0 : firstSku.stock,
         singleWeightGram: nextProductType === 'BUNDLE'
@@ -1852,15 +1887,17 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     } else if (multiSpec) {
       skuList = (values.skus as Array<Record<string, unknown>>) || [];
     } else {
-      const { singleCost, singleStock, singleWeightGram, singleMaxPerOrder } = values;
-      const hasAnySingle =
-        singleCost !== undefined && singleCost !== null && singleCost !== ''
-        || singleStock !== undefined && singleStock !== null && singleStock !== ''
-        || singleWeightGram !== undefined && singleWeightGram !== null && singleWeightGram !== ''
-        || singleMaxPerOrder !== undefined && singleMaxPerOrder !== null && singleMaxPerOrder !== '';
+      const { singleSpecName, singleCost, singleStock, singleWeightGram, singleMaxPerOrder } = values;
+      const hasAnySingle = hasMeaningfulSingleSkuDraftInput({
+        skuTitle: singleSpecName as string | undefined,
+        cost: singleCost,
+        stock: singleStock,
+        weightGram: singleWeightGram,
+        maxPerOrder: singleMaxPerOrder,
+      });
       if (hasAnySingle) {
         skuList = [{
-          specName: '默认规格',
+          specName: normalizeSkuTitle(singleSpecName as string | undefined),
           cost: singleCost,
           stock: singleStock,
           weightGram: singleWeightGram,
@@ -2054,7 +2091,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           skuList = values.skus as Array<Record<string, unknown>>;
         } else {
           skuList = [{
-            specName: '默认规格',
+            specName: values.singleSpecName || '默认规格',
             cost: values.singleCost,
             stock: values.singleStock,
             weightGram: values.singleWeightGram,
@@ -2253,12 +2290,13 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                       setMultiSpec(checked);
                       if (checked) {
                         // 切换到多规格：从单规格数据初始化一行
+                        const specName = form.getFieldValue('singleSpecName');
                         const cost = form.getFieldValue('singleCost');
                         const stock = form.getFieldValue('singleStock');
                         const weightGram = form.getFieldValue('singleWeightGram');
                         const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
                         form.setFieldsValue({
-                          skus: [{ specName: '默认规格', cost, stock, weightGram, maxPerOrder }],
+                          skus: [{ specName: specName || '默认规格', cost, stock, weightGram, maxPerOrder }],
                         });
                       } else {
                         // 切换到单规格：从第一行多规格数据恢复
@@ -2266,6 +2304,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                         const first = skus?.[0];
                         if (first) {
                           form.setFieldsValue({
+                            singleSpecName: first.specName || '默认规格',
                             singleCost: first.cost,
                             singleStock: first.stock,
                             singleWeightGram: first.weightGram,
@@ -2348,7 +2387,17 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           ) : !multiSpec ? (
             /* 单规格模式 */
             <Row gutter={16}>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item
+                  label="规格名称"
+                  name="singleSpecName"
+                  initialValue="默认规格"
+                  rules={[{ required: true, message: '请输入规格名称' }]}
+                >
+                  <Input placeholder="如：400g装" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item
                   label="成本价"
                   name="singleCost"
@@ -2360,7 +2409,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   <InputNumber placeholder="元" min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={7}>
                 <Form.Item shouldUpdate noStyle>
                   {({ getFieldValue }) => {
                     const cost = getFieldValue('singleCost');
@@ -2372,7 +2421,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   }}
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={12} md={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item
                   label="库存"
                   name="singleStock"
@@ -2389,7 +2438,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   )}
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item
                   label="包装后重量（克）"
                   name="singleWeightGram"
@@ -2402,7 +2451,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
                   <InputNumber placeholder="重量" min={1} precision={0} style={{ width: '100%' }} addonAfter="克" />
                 </Form.Item>
               </Col>
-              <Col span={5}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item label="单笔限购" name="singleMaxPerOrder" rules={[{ type: 'number', min: 1, message: '最少为1' }]}>
                   <InputNumber placeholder="不限" min={1} precision={0} style={{ width: '100%' }} />
                 </Form.Item>
