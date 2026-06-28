@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import type { SortOrder } from 'antd/es/table/interface';
 import {
   DeleteOutlined,
   ExportOutlined,
@@ -46,6 +47,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { usePermission } from '@/hooks/usePermission';
 import { getDigitalAssetLedgerStatusMeta } from './ledgerDisplay';
 import type {
+  DigitalAssetAccountSortField,
   DigitalAssetAccountRow,
   DigitalAssetAdjustPayload,
   DigitalAssetCreditTier,
@@ -58,6 +60,15 @@ const vipStatusMap: Record<'NORMAL' | 'VIP', { text: string; color: string }> = 
   NORMAL: { text: '普通', color: 'default' },
   VIP: { text: 'VIP', color: 'gold' },
 };
+
+const digitalAssetSortableFields: DigitalAssetAccountSortField[] = [
+  'totalAssetBalance',
+  'seedAssetBalance',
+  'creditAssetBalance',
+  'frozenCreditAssetBalance',
+  'cumulativeSpendAmount',
+  'updatedAt',
+];
 
 const subjectMap: Record<DigitalAssetSubjectType, { text: string; color: string }> = {
   CUMULATIVE_SPEND: { text: '累计消费', color: 'blue' },
@@ -166,6 +177,21 @@ function buildDefaultRuleRow(previous?: DigitalAssetCreditTier): DigitalAssetCre
     minAmount: nextMinAmount,
     maxAmount: null,
     multiplier: previous.multiplier,
+  };
+}
+
+function getDigitalAssetSortParams(sort: Record<string, SortOrder | undefined>) {
+  const selectedSort = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+  if (!selectedSort) return {};
+
+  const [field, order] = selectedSort;
+  if (!digitalAssetSortableFields.includes(field as DigitalAssetAccountSortField)) {
+    return {};
+  }
+
+  return {
+    sortField: field as DigitalAssetAccountSortField,
+    sortOrder: order as 'ascend' | 'descend',
   };
 }
 
@@ -329,6 +355,7 @@ export default function DigitalAssetsPage() {
       title: '数字资产总额',
       dataIndex: 'totalAssetBalance',
       search: false,
+      sorter: true,
       width: 140,
       render: (_: unknown, record) => <Typography.Text strong>{formatAsset(record.totalAssetBalance)}</Typography.Text>,
     },
@@ -336,6 +363,7 @@ export default function DigitalAssetsPage() {
       title: '种子资产',
       dataIndex: 'seedAssetBalance',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => formatAsset(record.seedAssetBalance),
     },
@@ -343,6 +371,7 @@ export default function DigitalAssetsPage() {
       title: '消费资产',
       dataIndex: 'creditAssetBalance',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => formatAsset(record.creditAssetBalance),
     },
@@ -350,6 +379,7 @@ export default function DigitalAssetsPage() {
       title: '冻结资产',
       dataIndex: 'frozenCreditAssetBalance',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => formatAsset(record.frozenCreditAssetBalance),
     },
@@ -357,7 +387,8 @@ export default function DigitalAssetsPage() {
       title: '累计消费',
       dataIndex: 'cumulativeSpendAmount',
       search: false,
-      sorter: false,
+      sorter: true,
+      defaultSortOrder: 'descend',
       width: 140,
       render: (_: unknown, record) => <Typography.Text>{formatCurrency(record.cumulativeSpendAmount)}</Typography.Text>,
     },
@@ -377,6 +408,7 @@ export default function DigitalAssetsPage() {
       title: '账户更新时间',
       dataIndex: 'updatedAt',
       search: false,
+      sorter: true,
       width: 170,
       render: (_: unknown, record) => dayjs(record.updatedAt).format('YYYY-MM-DD HH:mm'),
     },
@@ -603,13 +635,16 @@ export default function DigitalAssetsPage() {
           actionRef={actionRef}
           columns={columns}
           rowKey="id"
-          request={async (params) => {
+          request={async (params, sort) => {
+            const sortParams = getDigitalAssetSortParams(sort as Record<string, SortOrder | undefined>);
             const res = await getDigitalAssetAccounts({
               page: params.current,
               pageSize: params.pageSize,
               keyword: params.keyword as string | undefined,
               minAmount: params.minAmount as number | undefined,
               maxAmount: params.maxAmount as number | undefined,
+              sortField: sortParams.sortField,
+              sortOrder: sortParams.sortOrder,
             });
             return { data: res.items, total: res.total, success: true };
           }}

@@ -14,6 +14,7 @@ describe('AdminDigitalAssetService V2', () => {
       },
     };
     const prisma = {
+      $queryRaw: jest.fn(),
       $transaction: jest.fn(async (callback: (innerTx: typeof tx) => Promise<unknown>) => callback(tx)),
       digitalAssetAccount: {
         aggregate: jest.fn(),
@@ -258,6 +259,67 @@ describe('AdminDigitalAssetService V2', () => {
         vipStatus: 'VIP',
       }),
     }));
+  });
+
+  it('account list applies requested numeric sort order on database query', async () => {
+    const { service, prisma } = makeService();
+    prisma.digitalAssetAccount.findMany.mockResolvedValue([]);
+    prisma.digitalAssetAccount.count.mockResolvedValue(0);
+
+    await service.findAccounts({ sortField: 'seedAssetBalance', sortOrder: 'ascend' } as any);
+
+    expect(prisma.digitalAssetAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ seedAssetBalance: 'asc' }, { id: 'asc' }],
+    }));
+  });
+
+  it('account list sorts digital asset total by computed seed plus credit before pagination', async () => {
+    const { service, prisma } = makeService();
+    prisma.$queryRaw.mockResolvedValue([{ id: 'account-2' }, { id: 'account-1' }]);
+    prisma.digitalAssetAccount.findMany.mockResolvedValue([
+      {
+        id: 'account-1',
+        userId: 'user-1',
+        cumulativeSpendAmount: 200,
+        seedAssetBalance: 9000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-1',
+          buyerNo: 'AIMM20260616000001',
+          status: 'ACTIVE',
+          profile: { nickname: '九千', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'VIP' },
+        },
+      },
+      {
+        id: 'account-2',
+        userId: 'user-2',
+        cumulativeSpendAmount: 100,
+        seedAssetBalance: 5000,
+        creditAssetBalance: 5000,
+        frozenCreditAssetBalance: 0,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-2',
+          buyerNo: 'AIMM20260616000002',
+          status: 'ACTIVE',
+          profile: { nickname: '一万', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'VIP' },
+        },
+      },
+    ]);
+    prisma.digitalAssetAccount.count.mockResolvedValue(2);
+
+    const result = await service.findAccounts({ sortField: 'totalAssetBalance', sortOrder: 'descend' } as any);
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(result.items.map((item: any) => item.id)).toEqual(['account-2', 'account-1']);
   });
 
   it('export uses V2 CSV headers and balance columns', async () => {
