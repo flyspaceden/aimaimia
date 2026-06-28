@@ -247,9 +247,9 @@ export const ProductRepo = {
         basePrice: product.price,
         images: product.image ? [{ id: '1', url: product.image }] : [],
         skus: [
-          { id: 'sku-1', title: '500g 装', price: product.price, stock: 100 },
-          { id: 'sku-2', title: '1kg 装', price: product.price * 1.8, stock: 50 },
-          { id: 'sku-3', title: '2.5kg 家庭装', price: product.price * 4, stock: 30 },
+          { id: 'sku-1', title: '500g 装', price: product.price, stock: 100, weightGram: 500 },
+          { id: 'sku-2', title: '1kg 装', price: product.price * 1.8, stock: 50, weightGram: 1000 },
+          { id: 'sku-3', title: '2.5kg 家庭装', price: product.price * 4, stock: 30, weightGram: 2500 },
         ],
         description: `${product.title}，产自${product.origin}，精选优质农产品，品质保证。`,
       } as ProductDetail);

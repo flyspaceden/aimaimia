@@ -64,6 +64,7 @@ export type ProductDetail = Product & {
     title: string;
     price: number;
     stock: number;
+    weightGram?: number | null;
     maxPerOrder?: number | null;
     skuCode?: string;
   }>;

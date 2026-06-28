@@ -1051,6 +1051,7 @@ export class ProductService {
         title: s.title,
         price: s.price,
         stock: s.stock,
+        weightGram: s.weightGram,
         skuCode: s.skuCode,
         maxPerOrder: s.maxPerOrder ?? null,
       })),

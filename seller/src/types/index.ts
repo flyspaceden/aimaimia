@@ -84,6 +84,7 @@ export interface ProductBundleItem {
   sortOrder?: number;
   productTitle?: string;
   skuTitle?: string;
+  unit?: string;
   imageUrl?: string | null;
   price?: number;
   stock?: number;

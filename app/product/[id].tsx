@@ -31,6 +31,7 @@ import { useAuthStore, useCartStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import { resolveBundleAwareStock } from '../../src/utils/bundleSnapshot';
+import { buildProductUnitLabel, buildProductWeightLabel } from '../../src/utils/productDisplay';
 import { getStockStatus, getStockText } from '../../src/utils/stockDisplay';
 
 import type { ProductDetail } from '../../src/types';
@@ -118,6 +119,12 @@ export default function ProductDetailScreen() {
   const activeStock = resolveBundleAwareStock(detail?.type, selectedSku?.stock, detail?.bundleAvailableStock);
   const activeStockStatus = getStockStatus(activeStock, lowStockThreshold);
   const activeStockText = getStockText(activeStock, lowStockThreshold);
+  const showSimpleProductPackaging = detail?.type !== 'BUNDLE';
+  const activeSkuWeightLabel = showSimpleProductPackaging
+    ? buildProductWeightLabel(selectedSku?.weightGram ?? (skus.length === 1 ? skus[0]?.weightGram : undefined))
+    : undefined;
+  const productUnitLabel = showSimpleProductPackaging ? buildProductUnitLabel(product?.unit) : undefined;
+  const priceMetaLabels = [productUnitLabel, activeSkuWeightLabel].filter(Boolean) as string[];
   // 未选规格时不以库存判定按钮置灰（库存随规格而定），由 needsSkuSelection 守门
   const canBuyActiveSku = selectedSku ? activeStockStatus !== 'OUT_OF_STOCK' : true;
   const bundleItems = detail?.type === 'BUNDLE' ? detail.bundleItems ?? [] : [];
@@ -272,19 +279,34 @@ export default function ProductDetailScreen() {
           <Animated.View entering={FadeInDown.duration(300).delay(150)}>
             <View style={[styles.priceSection, { backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.sm }]}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Price value={headlinePriceValue} unit={product!.unit} strikeValue={product!.strikePrice} from={headlinePriceFrom} />
+                <Price value={headlinePriceValue} strikeValue={product!.strikePrice} from={headlinePriceFrom} />
               </View>
+              {priceMetaLabels.length > 0 && (
+                <View style={[styles.priceMetaRow, { marginTop: spacing.sm }]}>
+                  {priceMetaLabels.map((label) => (
+                    <View
+                      key={label}
+                      style={[
+                        styles.priceMetaChip,
+                        { backgroundColor: colors.bgSecondary, borderRadius: radius.pill },
+                      ]}
+                    >
+                      <Text style={[typography.captionSm, { color: colors.text.secondary }]}>{label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               <View style={[styles.statsRow, { marginTop: spacing.sm }]}>
                 {(product!.monthlySales ?? 0) > 0 && (
-                <View style={[styles.statChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}>
-                  <Text style={[typography.captionSm, { color: colors.brand.primary }]}>月销 {product!.monthlySales}</Text>
-                </View>
-              )}
-              {(product!.rating ?? 0) > 0 && (
-                <View style={[styles.statChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill, marginLeft: spacing.sm }]}>
-                  <Text style={[typography.captionSm, { color: colors.brand.primary }]}>好评 {product!.rating}%</Text>
-                </View>
-              )}
+                  <View style={[styles.statChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}>
+                    <Text style={[typography.captionSm, { color: colors.brand.primary }]}>月销 {product!.monthlySales}</Text>
+                  </View>
+                )}
+                {(product!.rating ?? 0) > 0 && (
+                  <View style={[styles.statChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill, marginLeft: spacing.sm }]}>
+                    <Text style={[typography.captionSm, { color: colors.brand.primary }]}>好评 {product!.rating}%</Text>
+                  </View>
+                )}
               </View>
               <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: spacing.sm, fontSize: 11 }]}>
                 {product!.effectiveReturnPolicy === 'NON_RETURNABLE'
@@ -320,6 +342,7 @@ export default function ProductDetailScreen() {
                   const active = activeSkuId === sku.id;
                   const skuStock = resolveBundleAwareStock(detail?.type, sku.stock, detail?.bundleAvailableStock);
                   const stockText = getStockText(skuStock, lowStockThreshold);
+                  const skuWeightLabel = showSimpleProductPackaging ? buildProductWeightLabel(sku.weightGram) : undefined;
                   return (
                     <Pressable
                       key={sku.id}
@@ -345,6 +368,11 @@ export default function ProductDetailScreen() {
                       <Text style={[typography.captionSm, { color: active ? colors.brand.primary : colors.text.tertiary, marginTop: 2 }]}>
                         ¥{sku.price}
                       </Text>
+                      {skuWeightLabel && (
+                        <Text style={[typography.captionSm, { color: active ? colors.brand.primary : colors.text.tertiary, marginTop: 2 }]}>
+                          {skuWeightLabel}
+                        </Text>
+                      )}
                       {stockText && (
                         <Text style={[typography.captionSm, { color: Number(skuStock ?? 0) <= 0 ? colors.danger : colors.warning, marginTop: 2 }]}>
                           {stockText}
@@ -779,6 +807,17 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  priceMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  priceMetaChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: 8,
+    marginBottom: 4,
   },
   statChip: {
     paddingHorizontal: 10,
