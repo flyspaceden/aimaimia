@@ -43,47 +43,47 @@ const VIP_COLORS = {
 // VIP 专属权益数据
 const VIP_BENEFITS = [
   {
-    icon: 'chart-areaspline' as const,
-    title: '消费奖励翻倍',
-    desc: '每笔消费均可获得丰厚奖励返现',
-    highlight: '高额返利',
-    compare: '比普通用户更高',
+    icon: 'tag-minus-outline' as const,
+    title: '普通商品会员价',
+    desc: '部分普通商品结算时享会员价',
+    highlight: '会员价',
+    compare: '以结算页展示为准',
+  },
+  {
+    icon: 'truck-check-outline' as const,
+    title: '更低包邮门槛',
+    desc: '普通商品订单按 VIP 门槛计算运费',
+    highlight: '运费优惠',
+    compare: '不同地区按平台运费规则计算',
+  },
+  {
+    icon: 'wallet-outline' as const,
+    title: '消费积分抵扣更多',
+    desc: '普通商品结算可使用更高比例的消费积分抵扣',
+    highlight: '最高 15%',
+    compare: 'VIP 礼包不可使用消费积分抵扣',
   },
   {
     icon: 'account-cash' as const,
     title: '推荐 VIP 奖励',
-    desc: '每成功推荐一位好友成为 VIP，即得现金奖励',
-    highlight: '推荐有奖',
-    compare: '即时到账',
+    desc: '好友通过你的推荐关系开通 VIP 后，奖励记入钱包',
+    highlight: '推荐奖励',
+    compare: '到账与可提现状态以钱包流水为准',
   },
   {
-    icon: 'tag-minus-outline' as const,
-    title: '专属商品折扣',
-    desc: '全场商品享受 VIP 专属价',
-    highlight: '95折',
-    compare: '普通用户无折扣',
-  },
-  {
-    icon: 'truck-check-outline' as const,
-    title: '超低包邮门槛',
-    desc: 'VIP 专享更低包邮门槛',
-    highlight: '包邮特权',
-    compare: '低于普通用户',
-  },
-  {
-    icon: 'gift-outline' as const,
-    title: '入会专属礼包',
-    desc: '开通 VIP 即可选择一份精选赠品',
-    highlight: '专属赠品',
-    compare: '限 VIP 用户',
+    icon: 'crown' as const,
+    title: 'VIP 身份标识',
+    desc: '可使用 VIP 专属头像框与会员身份展示',
+    highlight: '身份权益',
+    compare: '仅当前 VIP 账号可使用',
   },
 ];
 
 // 奖励机制说明步骤
 const REWARD_STEPS = [
-  { step: '1', title: '您消费', desc: '每次购物产生利润' },
-  { step: '2', title: '奖励分配', desc: '消费产生的利润自动转为您的奖励' },
-  { step: '3', title: '推荐有奖', desc: '推荐好友成为 VIP，即得现金奖励' },
+  { step: '1', title: '普通商品确认收货', desc: 'VIP 礼包订单不参与奖励计算' },
+  { step: '2', title: '系统按规则计算', desc: '奖励金额、冻结和解锁状态以钱包流水为准' },
+  { step: '3', title: '钱包查看与提现', desc: '可用余额满足规则后，可申请提现至支付宝' },
 ];
 
 export default function VipScreen() {
@@ -355,9 +355,9 @@ export default function VipScreen() {
 
         {/* ===== 6. 分润机制说明 ===== */}
         <Animated.View entering={FadeInDown.duration(400).delay(700)} style={styles.section}>
-          <Text style={[styles.sectionTitle, { marginBottom: 6 }]}>奖励机制</Text>
+          <Text style={[styles.sectionTitle, { marginBottom: 6 }]}>奖励规则</Text>
           <Text style={styles.mechanismSubtitle}>
-            消费享奖励，推荐得现金
+            普通商品确认收货后，按平台规则计算奖励
           </Text>
 
           {/* 步骤流程 */}
@@ -386,17 +386,17 @@ export default function VipScreen() {
           <View style={styles.rulesCard}>
             <View style={styles.ruleItem}>
               <MaterialCommunityIcons name="cart-check" size={18} color={VIP_COLORS.goldPrimary} />
-              <Text style={styles.ruleText}>每次消费自动产生奖励，可在钱包中查看</Text>
+              <Text style={styles.ruleText}>VIP 开通后不再参与普通用户奖励树</Text>
             </View>
             <View style={[styles.ruleDivider]} />
             <View style={styles.ruleItem}>
               <MaterialCommunityIcons name="account-cash-outline" size={18} color={VIP_COLORS.goldPrimary} />
-              <Text style={styles.ruleText}>推荐好友开通 VIP，即可获得现金奖励</Text>
+              <Text style={styles.ruleText}>推荐码仅 VIP 用户可展示和分享</Text>
             </View>
             <View style={[styles.ruleDivider]} />
             <View style={styles.ruleItem}>
               <MaterialCommunityIcons name="wallet-outline" size={18} color={VIP_COLORS.goldPrimary} />
-              <Text style={styles.ruleText}>奖励余额可随时申请提现至微信或支付宝</Text>
+              <Text style={styles.ruleText}>商品折扣、包邮门槛、抵扣比例以结算页和平台配置为准</Text>
             </View>
           </View>
         </Animated.View>
