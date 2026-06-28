@@ -248,7 +248,7 @@ describe('AdminDigitalAssetService V2', () => {
     ]);
     prisma.digitalAssetAccount.count.mockResolvedValue(1);
 
-    const result = await service.findAccounts({});
+    const result = await service.findAccounts({ sortField: 'updatedAt' } as any);
 
     expect(result.items[0]).toEqual(expect.objectContaining({
       cumulativeSpendAmount: 880.5,
@@ -306,7 +306,7 @@ describe('AdminDigitalAssetService V2', () => {
       { id: 'account-vip', assetRank: 4 },
     ]);
 
-    const result = await service.findAccounts({});
+    const result = await service.findAccounts({ sortField: 'updatedAt' } as any);
 
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(result.items).toEqual([
@@ -382,6 +382,61 @@ describe('AdminDigitalAssetService V2', () => {
     expect(result.items.map((item: any) => item.assetRank)).toEqual([1, 2]);
   });
 
+  it('account list defaults to digital asset total descending before pagination', async () => {
+    const { service, prisma } = makeService();
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ id: 'account-high' }, { id: 'account-low' }])
+      .mockResolvedValueOnce([
+        { id: 'account-high', assetRank: 1 },
+        { id: 'account-low', assetRank: 2 },
+      ]);
+    prisma.digitalAssetAccount.findMany.mockResolvedValue([
+      {
+        id: 'account-low',
+        userId: 'user-low',
+        cumulativeSpendAmount: 0,
+        seedAssetBalance: 1000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-low',
+          buyerNo: 'AIMM20260616000086',
+          status: 'ACTIVE',
+          profile: { nickname: '一千', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'VIP' },
+        },
+      },
+      {
+        id: 'account-high',
+        userId: 'user-high',
+        cumulativeSpendAmount: 0,
+        seedAssetBalance: 7000,
+        creditAssetBalance: 0,
+        frozenCreditAssetBalance: 0,
+        createdAt: new Date('2026-06-16T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-16T01:00:00.000Z'),
+        user: {
+          id: 'user-high',
+          buyerNo: 'AIMM20260616000065',
+          status: 'ACTIVE',
+          profile: { nickname: '七千', avatarUrl: null },
+          authIdentities: [],
+          memberProfile: { tier: 'VIP' },
+        },
+      },
+    ]);
+    prisma.digitalAssetAccount.count.mockResolvedValue(2);
+
+    const result = await service.findAccounts({});
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(result.items.map((item: any) => item.id)).toEqual(['account-high', 'account-low']);
+    expect(result.items.map((item: any) => item.assetRank)).toEqual([1, 2]);
+  });
+
   it('export uses V2 CSV headers and balance columns', async () => {
     const { service, prisma } = makeService();
     prisma.digitalAssetAccount.findMany.mockResolvedValue([
@@ -402,7 +457,7 @@ describe('AdminDigitalAssetService V2', () => {
       },
     ]);
 
-    const csv = await service.exportAccounts({});
+    const csv = await service.exportAccounts({ sortField: 'updatedAt' } as any);
 
     expect(csv.split('\n')[0]).toBe(
       '买家编号,用户ID,昵称,手机号,VIP状态,数字资产总额,种子资产,消费资产,冻结资产,累计消费,账户更新时间',

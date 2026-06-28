@@ -334,7 +334,7 @@ export class AdminDigitalAssetService {
       || Object.prototype.hasOwnProperty.call(ACCOUNT_SORT_FIELD_MAP, requestedField)
     )
       ? requestedField
-      : 'cumulativeSpendAmount';
+      : 'totalAssetBalance';
     const direction: AccountSortDirection = query.sortOrder === 'ascend' || query.sortOrder === 'asc' ? 'asc' : 'desc';
     return { field, direction };
   }
