@@ -33,11 +33,18 @@ test('me identity card renders buyer number in a wider meta row with a larger te
   assert.match(source, /buyerNoText:\s*\{[^}]*minWidth:\s*0,[^}]*flexShrink:\s*1,/s);
 });
 
+test('me identity card labels the digital asset ranking explicitly', () => {
+  const source = meTab();
+
+  assert.match(source, /数字资产排行榜：\{assetRankLabel\}/);
+  assert.doesNotMatch(source, />\s*资产排行榜：\{assetRankLabel\}/);
+});
+
 test('me identity card shows digital asset rank next to the referral entry', () => {
   const source = meTab();
   const metaStackIndex = source.indexOf('style={styles.profileMetaStack}');
   const referralIndex = source.indexOf('style={[styles.referralChip');
-  const rankIndex = source.indexOf('资产排行榜：');
+  const rankIndex = source.indexOf('数字资产排行榜：');
 
   assert.match(source, /DigitalAssetRepo/);
   assert.match(source, /queryKey:\s*\['digital-assets-summary'\]/);

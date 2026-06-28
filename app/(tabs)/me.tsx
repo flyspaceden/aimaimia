@@ -348,7 +348,7 @@ export default function MeScreen() {
                     numberOfLines={1}
                     style={[styles.assetRankText, { color: colors.brand.primary }]}
                   >
-                    资产排行榜：{assetRankLabel}
+                    数字资产排行榜：{assetRankLabel}
                   </Text>
                 </Pressable>
               </View>
