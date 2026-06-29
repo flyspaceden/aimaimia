@@ -378,6 +378,22 @@ describe('AfterSaleService.apply', () => {
     }
   });
 
+  it('rejects manually posted paid group-buy after-sale requests with group-buy support wording', async () => {
+    const tx = makeApplyTx({
+      status: 'PAID',
+      bizType: 'GROUP_BUY',
+    });
+    const { service } = makeTxService(tx);
+
+    await expect(service.apply('user-1', 'order-1', {
+      orderItemId: 'item-1',
+      afterSaleType: AfterSaleType.QUALITY_RETURN,
+      reasonType: 'QUALITY_ISSUE',
+      photos: ['https://example.com/photo.jpg'],
+    })).rejects.toThrow('团购订单支付后不支持退换货');
+    expect(tx.afterSaleRequest.create).not.toHaveBeenCalled();
+  });
+
   it('creates no-reason exchange against the original sku and buyer return shipping payer', async () => {
     const tx = makeApplyTx();
     const { service } = makeTxService(tx);

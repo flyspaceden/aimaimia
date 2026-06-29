@@ -248,6 +248,32 @@ describe('GroupBuyCheckoutService', () => {
     }));
   });
 
+  it('uses referrer tier snapshot length for share-code capacity before payment', async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyCode.findUnique.mockResolvedValueOnce({
+      id: 'code_1',
+      code: 'GB123456',
+      status: 'ACTIVE',
+      instance: {
+        id: 'instance_referrer',
+        userId: 'user_2',
+        activityId: 'activity_1',
+        status: 'SHARING',
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '推荐人第一档' },
+          { sequence: 2, basisPoints: 2000, label: '推荐人第二档' },
+        ],
+      },
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(2);
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      shareCode: 'GB123456',
+    } as any)).rejects.toThrow('团购推荐码名额已满');
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
   it('creates a cash-only GROUP_BUY checkout session with locked activity snapshots', async () => {
     const { prisma, tx, service } = buildPrisma();
     const wechatPayService = {
@@ -563,6 +589,10 @@ describe('CheckoutService group-buy payment success integration', () => {
       $transaction: jest.fn((fn) => fn(tx)),
     };
     const service = new CheckoutService(prisma as any, {} as any);
+    const groupBuyRebateService = {
+      createPendingReferralAfterPayment: jest.fn().mockResolvedValue({ status: 'PENDING_CREATED' }),
+    };
+    service.setGroupBuyRebateService(groupBuyRebateService as any);
     return { service, tx };
   };
 
@@ -882,5 +912,29 @@ describe('CheckoutService group-buy payment success integration', () => {
       }),
     }));
     expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
+  });
+
+  it('uses referrer tier snapshot length for payment-time referral capacity', async () => {
+    const { service, tx } = buildCheckoutHarness({
+      groupBuyCodeId: 'code_1',
+      referredByInstanceId: 'referrer_instance_1',
+      tierSnapshot: [
+        { sequence: 1, basisPoints: 1000, label: '当前第一档' },
+        { sequence: 2, basisPoints: 2000, label: '当前第二档' },
+        { sequence: 3, basisPoints: 7000, label: '当前第三档' },
+      ],
+    });
+    tx.groupBuyInstance.findUnique.mockResolvedValueOnce({
+      id: 'referrer_instance_1',
+      tierSnapshot: [
+        { sequence: 1, basisPoints: 1000, label: '推荐人第一档' },
+        { sequence: 2, basisPoints: 2000, label: '推荐人第二档' },
+      ],
+    });
+    tx.groupBuyReferral.count.mockResolvedValueOnce(2);
+
+    await expect(service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1'))
+      .rejects.toThrow('团购推荐码名额已满');
+    expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
   });
 });

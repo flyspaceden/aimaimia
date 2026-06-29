@@ -662,30 +662,32 @@ export class GroupBuyCheckoutService {
     if (groupBuyCode.instance.status !== GroupBuyInstanceStatus.SHARING) {
       throw new BadRequestException('团购推荐码当前不可用');
     }
-    const tierCount = this.resolveTierSnapshotCount(groupBuyCode.instance.tierSnapshot);
-    if (tierCount <= 0) {
-      throw new BadRequestException('团购推荐码配置异常');
-    }
     const existingReferralCount = await tx.groupBuyReferral.count({
       where: {
         instanceId: groupBuyCode.instance.id,
         status: { in: ['CANDIDATE', 'VALID'] },
       },
     });
+    const tierCount = this.getSnapshotTierCount(groupBuyCode.instance.tierSnapshot);
     if (existingReferralCount >= tierCount) {
       throw new BadRequestException('团购推荐码名额已满');
     }
     return groupBuyCode;
   }
 
-  private resolveTierSnapshotCount(raw: unknown) {
-    if (!Array.isArray(raw)) return 0;
+  private getSnapshotTierCount(raw: unknown) {
+    if (!Array.isArray(raw)) {
+      throw new BadRequestException('团购推荐码配置异常');
+    }
     const sequences = new Set<number>();
     for (const item of raw) {
       const sequence = Number((item as any)?.sequence);
       if (Number.isInteger(sequence) && sequence > 0) {
         sequences.add(sequence);
       }
+    }
+    if (sequences.size <= 0) {
+      throw new BadRequestException('团购推荐码配置异常');
     }
     return sequences.size;
   }

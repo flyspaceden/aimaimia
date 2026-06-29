@@ -554,6 +554,10 @@ export class AfterSaleService {
           if (!order) throw new NotFoundException('订单不存在');
           if (order.userId !== userId) throw new NotFoundException('订单不存在');
 
+          if ((order as any).bizType === 'GROUP_BUY') {
+            throw new BadRequestException(GROUP_BUY_AFTER_SALE_DISABLED_REASON);
+          }
+
           // 订单状态检查
           if (!AFTER_SALE_ELIGIBLE_STATUSES.includes(order.status)) {
             throw new BadRequestException('该订单状态不支持售后申请');
@@ -562,9 +566,6 @@ export class AfterSaleService {
           // 2. VIP 礼包订单不支持售后
           if ((order as any).bizType === 'VIP_PACKAGE') {
             throw new BadRequestException('VIP 礼包订单不支持退款和换货');
-          }
-          if ((order as any).bizType === 'GROUP_BUY') {
-            throw new BadRequestException(GROUP_BUY_AFTER_SALE_DISABLED_REASON);
           }
 
           // 3. 校验商品项存在且属于此订单

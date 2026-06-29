@@ -29,6 +29,7 @@ import { ProductModule } from '../product/product.module';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
+import { GroupBuyModule } from '../group-buy/group-buy.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
     CartModule,
     DigitalAssetModule,
     ProductModule,
+    GroupBuyModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -138,7 +140,7 @@ export class OrderModule implements OnModuleInit {
     if (groupBuyRebateService) {
       this.checkoutService.setGroupBuyRebateService(groupBuyRebateService);
     } else {
-      console.warn('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用');
+      throw new Error('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用，启动中止');
     }
 
     // C13修复：InboxService 改硬依赖，确保通知功能可用
