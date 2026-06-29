@@ -12,6 +12,7 @@ describe('GroupBuyRebateService concurrency safeguards', () => {
         status: 'CANDIDATE',
         instanceId: 'instance_1',
         referredOrderId: 'order_1',
+        candidateSequence: 2,
         referredOrder: {
           id: 'order_1',
           status: 'RECEIVED',
@@ -23,6 +24,12 @@ describe('GroupBuyRebateService concurrency safeguards', () => {
           id: 'instance_1',
           userId: 'initiator_1',
           status: 'SHARING',
+          activity: {
+            id: 'activity_1',
+            status: 'ACTIVE',
+            endAt: new Date('2026-07-01T00:00:00.000Z'),
+            deletedAt: null,
+          },
           priceSnapshot: 1000,
           tierSnapshot: [
             { sequence: 1, basisPoints: 1000 },

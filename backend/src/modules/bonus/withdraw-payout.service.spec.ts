@@ -148,6 +148,26 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     }, 'same-key')).rejects.toThrow(ConflictException);
   });
 
+  it('rejects repeated idempotency key when the payee real name differs', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-1',
+      userId: 'u1',
+      amount: 100,
+      taxAmount: 20,
+      taxRate: 0.2,
+      netAmount: 80,
+      status: 'PROCESSING',
+      accountSnapshot: { account: 'a@example.com', name: '张三' },
+    });
+
+    await expect(service.requestWithdraw('u1', {
+      amount: 100,
+      alipayAccount: 'a@example.com',
+      alipayName: '李四',
+    }, 'same-key-name-differs')).rejects.toThrow(ConflictException);
+  });
+
   it('returns the existing request for identical idempotency retries', async () => {
     const { service, prisma } = buildService();
     prisma.withdrawRequest.findUnique.mockResolvedValue({

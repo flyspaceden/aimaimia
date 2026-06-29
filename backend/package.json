@@ -19,7 +19,8 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "digital-asset:backfill": "ts-node scripts/backfill-digital-assets.ts",
-    "buyer-no:backfill": "ts-node scripts/backfill-buyer-no.ts"
+    "buyer-no:backfill": "ts-node scripts/backfill-buyer-no.ts",
+    "group-buy:backfill-instant-codes": "ts-node scripts/backfill-group-buy-instant-codes.ts"
   },
   "dependencies": {
     "@alicloud/dysmsapi20170525": "^4.5.0",

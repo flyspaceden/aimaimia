@@ -27,6 +27,10 @@ export function isPendingGroupBuyRebate(entry: WalletLedgerEntry): boolean {
     && (entry.entryType === 'PENDING_REBATE' || entry.type === 'PENDING_REBATE' || entry.status === 'PENDING');
 }
 
+export function isWalletDeductionTitle(title: string): boolean {
+  return title === '消费抵扣' || title === '团购返还抵扣';
+}
+
 export function getWalletLedgerTitle(entry: WalletLedgerEntry): string {
   if (isGroupBuyRebateLedger(entry)) {
     if (isPendingGroupBuyRebate(entry)) {

@@ -794,10 +794,27 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
       groupBuyCode: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      groupBuyActivity: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'activity_1',
+          status: 'ACTIVE',
+          startAt: null,
+          endAt: new Date('2099-06-01T00:00:00.000Z'),
+          deletedAt: null,
+        }),
+      },
       groupBuyInstance: {
         create: jest.fn().mockResolvedValue({ id: 'instance_referred' }),
         findUnique: jest.fn().mockResolvedValue({
           id: 'instance_referrer',
+          status: 'SHARING',
+          activity: {
+            id: 'activity_1',
+            status: 'ACTIVE',
+            startAt: null,
+            endAt: new Date('2099-06-01T00:00:00.000Z'),
+            deletedAt: null,
+          },
           tierSnapshot: [
             { sequence: 1, basisPoints: 1000, label: '第一位好友' },
           ],
@@ -806,6 +823,7 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
       },
       groupBuyReferral: {
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
       },
       cart: { findUnique: jest.fn().mockResolvedValue(null) },
@@ -910,16 +928,34 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
       groupBuyCode: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      groupBuyActivity: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'activity_1',
+          status: 'ACTIVE',
+          startAt: null,
+          endAt: new Date('2099-06-01T00:00:00.000Z'),
+          deletedAt: null,
+        }),
+      },
       groupBuyInstance: {
         create: jest.fn().mockResolvedValue({ id: 'instance_referred' }),
         findUnique: jest.fn().mockResolvedValue({
           id: 'instance_referrer',
+          status: 'SHARING',
+          activity: {
+            id: 'activity_1',
+            status: 'ACTIVE',
+            startAt: null,
+            endAt: new Date('2099-06-01T00:00:00.000Z'),
+            deletedAt: null,
+          },
           tierSnapshot: [{ sequence: 1, basisPoints: 1000, label: '第一位好友' }],
         }),
         update: jest.fn().mockResolvedValue({ id: 'instance_referrer' }),
       },
       groupBuyReferral: {
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
       },
       cart: { findUnique: jest.fn().mockResolvedValue(null) },

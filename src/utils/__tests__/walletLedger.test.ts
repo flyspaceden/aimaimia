@@ -3,7 +3,7 @@ declare const it: (name: string, fn: () => void) => void;
 declare const expect: any;
 
 import type { WalletLedgerEntry } from '../../types/domain/Bonus';
-import { getWalletLedgerTitle } from '../walletLedger';
+import { getWalletLedgerTitle, isWalletDeductionTitle } from '../walletLedger';
 
 function ledger(overrides: Partial<WalletLedgerEntry>): WalletLedgerEntry {
   return {
@@ -66,5 +66,11 @@ describe('wallet ledger display titles', () => {
       source: 'REWARD',
       refType: 'ORDER',
     }))).toBe('产业基金');
+  });
+
+  it('classifies both reward and group-buy deduction titles as consumption deductions', () => {
+    expect(isWalletDeductionTitle('消费抵扣')).toBe(true);
+    expect(isWalletDeductionTitle('团购返还抵扣')).toBe(true);
+    expect(isWalletDeductionTitle('团购返还提现')).toBe(false);
   });
 });

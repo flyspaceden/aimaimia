@@ -703,22 +703,44 @@ export class BonusService {
 
   /** 提现记录 */
   async getWithdrawHistory(userId: string) {
-    const requests = await this.prisma.withdrawRequest.findMany({
-      where: { userId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const pageSize = 100;
+    const limit = 50;
+    const visibleRequests: any[] = [];
+    let skip = 0;
 
-    return requests
-      .filter((r) => !this.isLegacyGroupBuyWithdraw(r))
-      .slice(0, 50)
-      .map((r) => ({
-        id: r.id,
-        amount: r.amount,
-        channel: r.channel,
-        status: r.status,
-        createdAt: r.createdAt.toISOString(),
-      }));
+    while (visibleRequests.length < limit) {
+      const requests = await this.prisma.withdrawRequest.findMany({
+        where: { userId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      });
+      if (requests.length === 0) {
+        break;
+      }
+
+      for (const request of requests) {
+        if (!this.isLegacyGroupBuyWithdraw(request)) {
+          visibleRequests.push(request);
+          if (visibleRequests.length >= limit) {
+            break;
+          }
+        }
+      }
+
+      if (requests.length < pageSize) {
+        break;
+      }
+      skip += pageSize;
+    }
+
+    return visibleRequests.map((r) => ({
+      id: r.id,
+      amount: r.amount,
+      channel: r.channel,
+      status: r.status,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   private isLegacyGroupBuyWithdraw(withdraw: any): boolean {

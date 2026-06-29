@@ -12,7 +12,7 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { WalletLedgerEntry } from '../../src/types';
-import { getWalletLedgerTitle, isPendingGroupBuyRebate } from '../../src/utils/walletLedger';
+import { getWalletLedgerTitle, isPendingGroupBuyRebate, isWalletDeductionTitle } from '../../src/utils/walletLedger';
 
 // 筛选标签
 type FilterKey = 'all' | 'available' | 'frozen' | 'deduct' | 'withdraw';
@@ -233,9 +233,9 @@ export default function WalletScreen() {
       case 'frozen':
         return displayItems.filter((i) => i.type === 'frozen');
       case 'deduct':
-        return displayItems.filter((i) => i.title === '消费抵扣');
+        return displayItems.filter((i) => isWalletDeductionTitle(i.title));
       case 'withdraw':
-        return displayItems.filter((i) => i.type === 'expense' && i.title !== '消费抵扣');
+        return displayItems.filter((i) => i.type === 'expense' && !isWalletDeductionTitle(i.title));
       default:
         return displayItems;
     }

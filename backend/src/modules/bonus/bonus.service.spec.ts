@@ -259,6 +259,7 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
     expect(prismaMock.withdrawRequest.findMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', deletedAt: null },
       orderBy: { createdAt: 'desc' },
+      skip: 0,
       take: 100,
     });
     expect(result).toEqual([
@@ -275,6 +276,65 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         channel: 'ALIPAY',
         status: 'PAID',
         createdAt: rewardCreatedAt.toISOString(),
+      },
+    ]);
+  });
+
+  it('continues scanning when newer legacy group-buy withdrawals fill the first page', async () => {
+    const legacyRows = Array.from({ length: 100 }, (_, index) => ({
+      id: `w-legacy-${index}`,
+      amount: 30,
+      channel: 'ALIPAY',
+      status: 'PROCESSING',
+      accountType: 'GROUP_BUY_REBATE',
+      accountSnapshot: { account: 'legacy@example.com', source: 'GROUP_BUY_REBATE_LEGACY' },
+      createdAt: new Date(`2026-06-22T12:${String(index % 60).padStart(2, '0')}:00.000Z`),
+    }));
+    const unifiedCreatedAt = new Date('2026-06-21T11:00:00.000Z');
+    const prismaMock: any = {
+      withdrawRequest: {
+        findMany: jest.fn().mockImplementation(({ skip }: any) => {
+          if (skip === 0) return Promise.resolve(legacyRows);
+          if (skip === 100) {
+            return Promise.resolve([
+              {
+                id: 'w-unified-after-legacy-page',
+                amount: 25,
+                channel: 'ALIPAY',
+                status: 'PROCESSING',
+                accountType: 'GROUP_BUY_REBATE',
+                accountSnapshot: { account: 'unified@example.com', source: 'UNIFIED_POINTS' },
+                createdAt: unifiedCreatedAt,
+              },
+            ]);
+          }
+          return Promise.resolve([]);
+        }),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getWithdrawHistory('user-1');
+
+    expect(prismaMock.withdrawRequest.findMany).toHaveBeenNthCalledWith(1, {
+      where: { userId: 'user-1', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 100,
+    });
+    expect(prismaMock.withdrawRequest.findMany).toHaveBeenNthCalledWith(2, {
+      where: { userId: 'user-1', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      skip: 100,
+      take: 100,
+    });
+    expect(result).toEqual([
+      {
+        id: 'w-unified-after-legacy-page',
+        amount: 25,
+        channel: 'ALIPAY',
+        status: 'PROCESSING',
+        createdAt: unifiedCreatedAt.toISOString(),
       },
     ]);
   });
