@@ -15,6 +15,9 @@ import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { maskPhone } from '../../common/security/privacy-mask';
 
+const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
+const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD'];
+
 @Injectable()
 export class BonusService {
   private readonly logger = new Logger(BonusService.name);
@@ -622,16 +625,21 @@ export class BonusService {
 
   /** 获取奖励钱包统一流水 */
   async getWalletLedger(userId: string, page = 1, pageSize = 20) {
-    const skip = (page - 1) * pageSize;
-    const take = skip + pageSize;
+    const sanitizedPage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
+    const sanitizedPageSize = Number.isFinite(pageSize)
+      ? Math.min(100, Math.max(1, Math.floor(pageSize)))
+      : 20;
+    const skip = (sanitizedPage - 1) * sanitizedPageSize;
+    const take = skip + sanitizedPageSize;
     const isSellerOwner = await this.isSellerOwner(userId);
+    const allowedRewardAccountTypes = isSellerOwner
+      ? APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES
+      : APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES;
     const rewardWhere: any = {
       userId,
       status: { not: 'RETURN_FROZEN' },
       deletedAt: null,
-      ...(isSellerOwner
-        ? {}
-        : { account: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] } } }),
+      account: { type: { in: allowedRewardAccountTypes } },
     };
     const groupBuyWhere = { userId, deletedAt: null };
 
@@ -686,8 +694,8 @@ export class BonusService {
     const total = rewardTotal + groupBuyTotal;
 
     return {
-      items: items.slice(skip, skip + pageSize),
-      nextPage: skip + pageSize < total ? page + 1 : undefined,
+      items: items.slice(skip, skip + sanitizedPageSize),
+      nextPage: skip + sanitizedPageSize < total ? sanitizedPage + 1 : undefined,
     };
   }
 
