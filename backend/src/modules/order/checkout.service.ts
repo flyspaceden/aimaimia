@@ -2782,13 +2782,6 @@ export class CheckoutService {
       || activity.endAt <= now;
   }
 
-  private getGroupBuyTierSnapshotCount(tierSnapshot: unknown) {
-    if (!Array.isArray(tierSnapshot) || tierSnapshot.length === 0) {
-      throw new InternalServerErrorException('团购推荐码档位快照异常');
-    }
-    return tierSnapshot.length;
-  }
-
   private getExcludedPrizeCleanupItems(session: {
     bizMeta?: unknown;
   }): Array<Pick<ExcludedCheckoutItem, 'cartItemId' | 'skuId' | 'prizeRecordId'>> {

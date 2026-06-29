@@ -176,6 +176,31 @@ describe('RewardDeductionService', () => {
       await expect(service.reserveDeduction(makeTx() as any, 'u1', 200, 0))
         .resolves.toBeNull();
     });
+
+    it('reserveDeductionUpTo reserves only the reward-available portion without rejecting a larger unified request', async () => {
+      const tx = makeTx();
+      tx.rewardAccount.findUnique
+        .mockResolvedValueOnce({ id: 'acc-vip', balance: 10, frozen: 0 })
+        .mockResolvedValueOnce({ id: 'acc-normal', balance: 0, frozen: 0 })
+        .mockResolvedValueOnce({ id: 'acc-vip', balance: 10, frozen: 0 })
+        .mockResolvedValueOnce({ id: 'acc-normal', balance: 0, frozen: 0 });
+      tx.rewardLedger.create.mockResolvedValueOnce({ id: 'ledger-vip' });
+      const service = new RewardDeductionService({} as any);
+
+      const result = await service.reserveDeductionUpTo(tx as any, 'u1', 200, 18);
+
+      expect(result).toMatchObject({
+        primaryLedgerId: 'ledger-vip',
+        ledgerIds: ['ledger-vip'],
+        deductedFromVip: 10,
+        deductedFromNormal: 0,
+        amount: 10,
+      });
+      expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
+        where: { id: 'acc-vip', balance: { gte: 10 } },
+        data: { balance: { decrement: 10 }, frozen: { increment: 10 } },
+      });
+    });
   });
 
   describe('confirmDeduction/releaseDeduction', () => {

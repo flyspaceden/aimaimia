@@ -456,6 +456,154 @@ describe('CheckoutService handlePaymentSuccess bundle inventory deduction', () =
 });
 
 describe('CheckoutService group-buy rebate deduction on ordinary checkout', () => {
+  function buildOrdinaryCheckoutFixture() {
+    const sku = {
+      id: 'sku-gb-deduct',
+      productId: 'product-gb-deduct',
+      title: '普通商品 SKU',
+      price: 200,
+      stock: 20,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1000,
+      product: {
+        id: 'product-gb-deduct',
+        title: '普通商品',
+        status: 'ACTIVE',
+        companyId: 'company-1',
+        media: [],
+      },
+    };
+    let createdSessionData: any;
+    let transactionTx: any;
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([sku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'addr1',
+          userId: 'user1',
+          regionText: '北京市/北京市/朝阳区',
+          regionCode: '110000',
+          recipientName: '张三',
+          phone: '13800000000',
+          detail: '街道一号',
+        }),
+      },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(async (cb: any) => {
+        transactionTx = {
+          checkoutSession: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn(async ({ data }: any) => {
+              createdSessionData = {
+                id: 'sess-unified-deduct',
+                userId: 'user1',
+                status: 'ACTIVE',
+                bizType: 'NORMAL_GOODS',
+                ...data,
+              };
+              return createdSessionData;
+            }),
+          },
+          rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        };
+        return cb(transactionTx);
+      }),
+    };
+    const service = new CheckoutService(prisma, {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        vipDiscountRate: 1,
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 0,
+      }),
+    } as any);
+    service.setShippingRuleService({
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 0 }),
+    });
+    return {
+      service,
+      getCreatedSessionData: () => createdSessionData,
+      getTransactionTx: () => transactionTx,
+    };
+  }
+
+  it('splits one unified consumption-points deduction into reward first and group-buy rebate remainder', async () => {
+    const { service, getCreatedSessionData, getTransactionTx } = buildOrdinaryCheckoutFixture();
+    const rewardDeductionService = {
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 10,
+        pointsRatio: 0.1,
+        maxDeductible: 10,
+      }),
+      reserveDeductionUpTo: jest.fn().mockResolvedValue({
+        groupId: 'DG-1',
+        primaryLedgerId: 'reward-ledger-1',
+        ledgerIds: ['reward-ledger-1'],
+        deductedFromVip: 10,
+        deductedFromNormal: 0,
+        amount: 10,
+      }),
+    };
+    const groupBuyRebateDeductionService = {
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        rebateBalance: 20,
+        rebateRatio: 0.1,
+        maxDeductible: 20,
+      }),
+      reserveDeduction: jest.fn().mockResolvedValue({
+        groupId: 'GBD-1',
+        ledgerId: 'gbdl_1',
+        amount: 8,
+      }),
+    };
+    (service as any).setRewardDeductionService(rewardDeductionService);
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
+
+    const result = await service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      deductionAmount: 18,
+      expectedTotal: 182,
+    } as any);
+
+    expect(rewardDeductionService.calculateMaxDeductible).toHaveBeenCalledWith('user1', 200);
+    expect(groupBuyRebateDeductionService.calculateMaxDeductible).toHaveBeenCalledWith('user1', 200);
+    expect(rewardDeductionService.reserveDeductionUpTo)
+      .toHaveBeenCalledWith(getTransactionTx(), 'user1', 200, 18);
+    expect(groupBuyRebateDeductionService.reserveDeduction)
+      .toHaveBeenCalledWith(getTransactionTx(), 'user1', 200, 8);
+    expect(getCreatedSessionData()).toEqual(expect.objectContaining({
+      expectedTotal: 182,
+      discountAmount: 10,
+      deductionGroupId: 'DG-1',
+      groupBuyRebateDeductionGroupId: 'GBD-1',
+      groupBuyRebateDeductionAmount: 8,
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      expectedTotal: 182,
+      discountAmount: 10,
+      groupBuyRebateDeductionAmount: 8,
+    }));
+  });
+
+  it('rejects sending both unified and legacy group-buy rebate deduction amounts', async () => {
+    const { service } = buildOrdinaryCheckoutFixture();
+
+    await expect(service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      deductionAmount: 10,
+      groupBuyRebateDeductionAmount: 8,
+      expectedTotal: 182,
+    } as any)).rejects.toThrow('请只提交一个消费积分抵扣金额');
+  });
+
   it('reserves group-buy rebate deduction separately from Reward discount', async () => {
     const sku = {
       id: 'sku-gb-deduct',
