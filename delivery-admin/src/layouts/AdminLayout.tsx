@@ -53,6 +53,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/merchants', name: '商家档案', permission: 'delivery:merchants:read' },
         { path: '/merchant-applications', name: '入驻审核', permission: 'delivery:merchants:read' },
         { path: '/products', name: '商品审核', permission: 'delivery:products:read' },
+        { path: '/categories', name: '分类管理', permission: 'delivery:products:read' },
         { path: '/pricing-rules', name: '定价规则', icon: <ShoppingCartOutlined />, permission: 'delivery:config:read' },
       ],
     },

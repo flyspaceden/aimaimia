@@ -31,6 +31,7 @@ test('delivery admin active routes expose only delivery management modules', () 
     'merchants',
     'merchant-applications',
     'products',
+    'categories',
     'pricing-rules',
     'orders',
     'shipping-records',
@@ -86,6 +87,7 @@ test('delivery admin layout uses admin-style grouped operational navigation', ()
     '/merchants',
     '/merchant-applications',
     '/products',
+    '/categories',
     '/pricing-rules',
     '/orders',
     '/shipping-records',
@@ -148,6 +150,34 @@ test('delivery admin active API clients stay in the delivery-admin namespace', (
     assert.doesNotMatch(source, /\/admin\//, `${file} should not call main admin namespace`);
     assert.doesNotMatch(source, /\/delivery-seller\//, `${file} should not call seller namespace`);
   }
+});
+
+test('delivery admin exposes delivery-local category management', () => {
+  const app = read('src/App.tsx');
+  const layout = read('src/layouts/AdminLayout.tsx');
+  const api = read('src/api/delivery-management.ts');
+  const categoriesPagePath = 'src/pages/delivery-admin/categories.tsx';
+
+  assert.equal(existsSync(join(root, categoriesPagePath)), true, 'delivery category page should exist');
+  const categoriesPage = read(categoriesPagePath);
+
+  assert.match(app, /path="categories"/);
+  assert.match(layout, /name:\s*['"]分类管理['"]/);
+  assert.match(layout, /path:\s*['"]\/categories['"]/);
+  assert.match(api, /getDeliveryCategories/);
+  assert.match(api, /createDeliveryCategory/);
+  assert.match(api, /updateDeliveryCategory/);
+  assert.match(api, /deleteDeliveryCategory/);
+  assert.match(api, /toggleDeliveryCategoryStatus/);
+  assert.match(api, /batchSortDeliveryCategories/);
+  assert.match(api, /\/delivery-admin\/categories/);
+  assert.doesNotMatch(api, /\/admin\/categories/, 'delivery categories must not call the main admin category API');
+
+  for (const label of ['商品分类管理', '新增顶级分类', '新增子分类', '启用', '停用']) {
+    assert.match(categoriesPage, new RegExp(label), `categories page should expose ${label}`);
+  }
+  assert.match(categoriesPage, /DndContext/, 'categories page should support same-level drag sorting');
+  assert.match(categoriesPage, /DeliveryCategory/, 'categories page should use delivery category types');
 });
 
 test('delivery admin source tree does not keep inactive main-admin modules', () => {

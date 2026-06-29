@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import {
+  BatchSortDeliveryCategoriesDto,
+  CreateDeliveryCategoryDto,
+  UpdateDeliveryCategoryDto,
+} from './dto/delivery-category.dto';
 import { ReviewDeliveryMerchantApplicationDto } from './dto/review-delivery-merchant-application.dto';
 import { UpdateDeliveryMerchantDto } from './dto/update-delivery-merchant.dto';
 
@@ -213,6 +218,224 @@ export class DeliveryAdminOpsService {
     };
   }
 
+  async listCategories() {
+    return this.deliveryPrisma.deliveryCategory.findMany({
+      orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        _count: { select: { products: true, children: true } },
+      },
+    });
+  }
+
+  async createCategory(dto: CreateDeliveryCategoryDto, deliveryAdminUserId?: string) {
+    const name = this.normalizeCategoryName(dto.name);
+    try {
+      const category = await this.deliveryPrisma.$transaction(
+        async (tx) => {
+          let parentPath = '';
+          let level = 1;
+          let status: 'ACTIVE' | 'INACTIVE' = 'ACTIVE';
+          if (dto.parentId) {
+            const parent = await tx.deliveryCategory.findUnique({
+              where: { id: dto.parentId },
+            });
+            if (!parent) {
+              throw new NotFoundException('父级分类不存在');
+            }
+            parentPath = parent.path;
+            level = parent.level + 1;
+            status = parent.status ?? 'ACTIVE';
+          }
+
+          return tx.deliveryCategory.create({
+            data: {
+              name,
+              parentId: dto.parentId || null,
+              path: parentPath ? `${parentPath}/${name}` : name,
+              level,
+              sortOrder: dto.sortOrder ?? 0,
+              status,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      await this.writeAdminAuditLog(deliveryAdminUserId, {
+        module: 'categories',
+        action: 'CREATE_CATEGORY',
+        targetType: 'DeliveryCategory',
+        targetId: category.id,
+        summary: '新增配送商品分类',
+        before: null,
+        after: category,
+      });
+      return category;
+    } catch (err) {
+      this.handleCategoryUniqueError(err);
+    }
+  }
+
+  async updateCategory(id: string, dto: UpdateDeliveryCategoryDto, deliveryAdminUserId?: string) {
+    try {
+      const result = await this.deliveryPrisma.$transaction(
+        async (tx) => {
+          const before = await tx.deliveryCategory.findUnique({ where: { id } });
+          if (!before) {
+            throw new NotFoundException('分类不存在');
+          }
+          const data: Prisma.DeliveryCategoryUpdateInput = {};
+          if (dto.sortOrder !== undefined) {
+            data.sortOrder = dto.sortOrder;
+          }
+          if (dto.status !== undefined) {
+            data.status = dto.status;
+          }
+
+          if (dto.name !== undefined) {
+            const nextName = this.normalizeCategoryName(dto.name);
+            if (nextName !== before.name) {
+              const nextPath = this.buildRenamedCategoryPath(before.path, nextName);
+              data.name = nextName;
+              data.path = nextPath;
+
+              const children = await tx.deliveryCategory.findMany({
+                where: { path: { startsWith: `${before.path}/` } },
+              });
+              await tx.deliveryCategory.update({ where: { id }, data });
+              for (const child of children) {
+                await tx.deliveryCategory.update({
+                  where: { id: child.id },
+                  data: { path: child.path.replace(before.path, nextPath) },
+                });
+              }
+              const renamed = await tx.deliveryCategory.findUnique({ where: { id } });
+              if (!renamed) {
+                throw new NotFoundException('分类不存在');
+              }
+              return { before, updated: renamed, changed: true };
+            }
+          }
+
+          if (Object.keys(data).length === 0) {
+            return { before, updated: before, changed: false };
+          }
+
+          const updated = await tx.deliveryCategory.update({ where: { id }, data });
+          return { before, updated, changed: true };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      if (!result.changed) {
+        return result.updated;
+      }
+      await this.writeAdminAuditLog(deliveryAdminUserId, {
+        module: 'categories',
+        action: 'UPDATE_CATEGORY',
+        targetType: 'DeliveryCategory',
+        targetId: id,
+        summary: '更新配送商品分类',
+        before: result.before,
+        after: result.updated,
+      });
+      return result.updated;
+    } catch (err) {
+      this.handleCategoryUniqueError(err);
+    }
+  }
+
+  async toggleCategoryStatus(id: string, deliveryAdminUserId?: string) {
+    const result = await this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const before = await tx.deliveryCategory.findUnique({ where: { id } });
+        if (!before) {
+          throw new NotFoundException('分类不存在');
+        }
+        const nextStatus = before.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        await tx.deliveryCategory.update({
+          where: { id },
+          data: { status: nextStatus },
+        });
+        if (nextStatus === 'INACTIVE') {
+          await tx.deliveryCategory.updateMany({
+            where: { path: { startsWith: `${before.path}/` } },
+            data: { status: 'INACTIVE' },
+          });
+        }
+        const row = await tx.deliveryCategory.findUnique({ where: { id } });
+        if (!row) {
+          throw new NotFoundException('分类不存在');
+        }
+        return { before, updated: row };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      module: 'categories',
+      action: 'TOGGLE_CATEGORY_STATUS',
+      targetType: 'DeliveryCategory',
+      targetId: id,
+      summary: '启用或停用配送商品分类',
+      before: result.before,
+      after: result.updated,
+    });
+    return result.updated;
+  }
+
+  async removeCategory(id: string, deliveryAdminUserId?: string) {
+    const before = await this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const before = await tx.deliveryCategory.findUnique({
+          where: { id },
+          include: { _count: { select: { products: true, children: true } } },
+        });
+        if (!before) {
+          throw new NotFoundException('分类不存在');
+        }
+        if (before._count.children > 0) {
+          throw new BadRequestException('请先删除子分类');
+        }
+        if (before._count.products > 0) {
+          throw new BadRequestException('该分类下有商品，无法删除');
+        }
+        await tx.deliveryCategory.delete({ where: { id } });
+        return before;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      module: 'categories',
+      action: 'DELETE_CATEGORY',
+      targetType: 'DeliveryCategory',
+      targetId: id,
+      summary: '删除配送商品分类',
+      before,
+      after: null,
+    });
+    return { ok: true };
+  }
+
+  async batchSortCategories(dto: BatchSortDeliveryCategoriesDto, deliveryAdminUserId?: string) {
+    await this.deliveryPrisma.$transaction(
+      dto.items.map((item) =>
+        this.deliveryPrisma.deliveryCategory.update({
+          where: { id: item.id },
+          data: { sortOrder: item.sortOrder },
+        }),
+      ),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await this.writeAdminAuditLog(deliveryAdminUserId, {
+      module: 'categories',
+      action: 'SORT_CATEGORIES',
+      targetType: 'DeliveryCategory',
+      targetId: 'batch',
+      summary: '调整配送商品分类排序',
+      before: null,
+      after: dto.items,
+    });
+    return { ok: true };
+  }
+
   async reviewMerchantApplication(
     deliveryAdminUserId: string,
     id: string,
@@ -400,5 +623,28 @@ export class DeliveryAdminOpsService {
       ...sanitized
     } = record;
     return sanitized;
+  }
+
+  private normalizeCategoryName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new BadRequestException('分类名称不能为空');
+    }
+    if (trimmed.length > 20) {
+      throw new BadRequestException('分类名称最多 20 个字符');
+    }
+    return trimmed;
+  }
+
+  private buildRenamedCategoryPath(currentPath: string, nextName: string) {
+    const lastSlash = currentPath.lastIndexOf('/');
+    return lastSlash >= 0 ? `${currentPath.substring(0, lastSlash)}/${nextName}` : nextName;
+  }
+
+  private handleCategoryUniqueError(err: unknown): never {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw new BadRequestException('同名分类已存在');
+    }
+    throw err;
   }
 }

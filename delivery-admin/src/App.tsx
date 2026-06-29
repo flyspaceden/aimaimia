@@ -16,6 +16,7 @@ const MerchantDetailPage = lazy(() => import('@/pages/delivery-admin/merchant-de
 const MerchantApplicationsPage = lazy(() => import('@/pages/delivery-admin/merchant-applications'));
 const MerchantApplicationDetailPage = lazy(() => import('@/pages/delivery-admin/merchant-application-detail'));
 const ProductsPage = lazy(() => import('@/pages/delivery-admin/products'));
+const CategoriesPage = lazy(() => import('@/pages/delivery-admin/categories'));
 const PricingRulesPage = lazy(() => import('@/pages/delivery-admin/pricing-rules'));
 const OrdersPage = lazy(() => import('@/pages/delivery-admin/orders'));
 const OrderDetailPage = lazy(() => import('@/pages/delivery-admin/order-detail'));
@@ -88,6 +89,7 @@ export default function App() {
             <Route path="merchant-applications" element={<MerchantApplicationsPage />} />
             <Route path="merchant-applications/:id" element={<MerchantApplicationDetailPage />} />
             <Route path="products" element={<ProductsPage />} />
+            <Route path="categories" element={<CategoriesPage />} />
             <Route path="pricing-rules" element={<PricingRulesPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />

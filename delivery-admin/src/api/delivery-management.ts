@@ -2,6 +2,7 @@ import client from './client';
 import type {
   DeliveryAbnormalPayment,
   DeliveryAuditLog,
+  DeliveryCategory,
   DeliveryConfigItem,
   DeliveryConversation,
   DeliveryManifestCustomization,
@@ -106,6 +107,34 @@ export const getDeliveryProducts = (params?: {
   auditStatus?: string;
   keyword?: string;
 }): Promise<{ items: DeliveryProduct[] }> => client.get(withQuery('/delivery-admin/products', params));
+
+export const getDeliveryCategories = (): Promise<DeliveryCategory[]> =>
+  client.get('/delivery-admin/categories');
+
+export const createDeliveryCategory = (payload: {
+  name: string;
+  parentId?: string;
+  sortOrder?: number;
+}): Promise<DeliveryCategory> => client.post('/delivery-admin/categories', payload);
+
+export const updateDeliveryCategory = (
+  id: string,
+  payload: Partial<{
+    name: string;
+    sortOrder: number;
+    status: 'ACTIVE' | 'INACTIVE';
+  }>,
+): Promise<DeliveryCategory> => client.patch(`/delivery-admin/categories/${id}`, payload);
+
+export const deleteDeliveryCategory = (id: string): Promise<{ ok: boolean }> =>
+  client.delete(`/delivery-admin/categories/${id}`);
+
+export const toggleDeliveryCategoryStatus = (id: string): Promise<DeliveryCategory> =>
+  client.post(`/delivery-admin/categories/${id}/toggle-status`);
+
+export const batchSortDeliveryCategories = (
+  items: { id: string; sortOrder: number }[],
+): Promise<{ ok: boolean }> => client.put('/delivery-admin/categories/batch/sort', { items });
 
 export const approveDeliveryProduct = (id: string, note?: string): Promise<DeliveryProduct> =>
   client.post(`/delivery-admin/products/${id}/approve`, { note });

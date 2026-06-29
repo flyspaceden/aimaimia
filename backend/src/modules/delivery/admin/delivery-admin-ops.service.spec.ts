@@ -19,9 +19,27 @@ describe('DeliveryAdminOpsService', () => {
         count: jest.fn(),
         findMany: jest.fn(),
       },
+      deliveryCategory: {
+        count: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      deliveryProduct: {
+        count: jest.fn(),
+      },
       deliveryAuditLog: {
         create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
       },
+      $transaction: jest.fn(async (input: any) => {
+        if (typeof input === 'function') {
+          return input(deliveryPrisma);
+        }
+        return Promise.all(input);
+      }),
     };
 
     service = new DeliveryAdminOpsService(deliveryPrisma as DeliveryPrismaService);
@@ -184,5 +202,119 @@ describe('DeliveryAdminOpsService', () => {
         after,
       }),
     });
+  });
+
+  it('creates child delivery categories with a delivery-local path and audit log', async () => {
+    deliveryPrisma.deliveryCategory.findUnique.mockResolvedValue({
+      id: 'cat_parent',
+      name: '生鲜食材',
+      path: 'fresh',
+      level: 1,
+    });
+    deliveryPrisma.deliveryCategory.create.mockResolvedValue({
+      id: 'cat_child',
+      name: '蔬菜',
+      parentId: 'cat_parent',
+      path: 'fresh/蔬菜',
+      level: 2,
+      sortOrder: 30,
+      status: 'ACTIVE',
+    });
+
+    const result = await (service as any).createCategory({
+      name: ' 蔬菜 ',
+      parentId: 'cat_parent',
+      sortOrder: 30,
+    }, 'admin_1');
+
+    expect(deliveryPrisma.deliveryCategory.create).toHaveBeenCalledWith({
+      data: {
+        name: '蔬菜',
+        parentId: 'cat_parent',
+        path: 'fresh/蔬菜',
+        level: 2,
+        sortOrder: 30,
+        status: 'ACTIVE',
+      },
+    });
+    expect(deliveryPrisma.deliveryAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin_1',
+        module: 'categories',
+        action: 'CREATE_CATEGORY',
+        targetType: 'DeliveryCategory',
+        targetId: 'cat_child',
+        after: result,
+      }),
+    });
+  });
+
+  it('renames delivery categories and updates descendant paths in one serializable transaction', async () => {
+    deliveryPrisma.deliveryCategory.findUnique.mockResolvedValue({
+      id: 'cat_parent',
+      name: '生鲜食材',
+      path: 'fresh',
+      level: 1,
+      parentId: null,
+    });
+    deliveryPrisma.deliveryCategory.findMany.mockResolvedValue([
+      { id: 'cat_child', path: 'fresh/fruits' },
+    ]);
+    deliveryPrisma.deliveryCategory.update.mockResolvedValue({
+      id: 'cat_parent',
+      name: '新鲜食材',
+      path: '新鲜食材',
+      level: 1,
+      parentId: null,
+      status: 'ACTIVE',
+    });
+
+    await (service as any).updateCategory('cat_parent', { name: ' 新鲜食材 ' }, 'admin_1');
+
+    expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: expect.any(String) },
+    );
+    expect(deliveryPrisma.deliveryCategory.findMany).toHaveBeenCalledWith({
+      where: { path: { startsWith: 'fresh/' } },
+    });
+    expect(deliveryPrisma.deliveryCategory.update).toHaveBeenCalledWith({
+      where: { id: 'cat_parent' },
+      data: { name: '新鲜食材', path: '新鲜食材' },
+    });
+    expect(deliveryPrisma.deliveryCategory.update).toHaveBeenCalledWith({
+      where: { id: 'cat_child' },
+      data: { path: '新鲜食材/fruits' },
+    });
+  });
+
+  it('skips no-op delivery category updates after normalizing the name', async () => {
+    const before = {
+      id: 'cat_1',
+      name: '生鲜食材',
+      path: '生鲜食材',
+      level: 1,
+      parentId: null,
+      sortOrder: 0,
+      status: 'ACTIVE',
+    };
+    deliveryPrisma.deliveryCategory.findUnique.mockResolvedValue(before);
+
+    const result = await (service as any).updateCategory('cat_1', { name: ' 生鲜食材 ' }, 'admin_1');
+
+    expect(result).toEqual(before);
+    expect(deliveryPrisma.deliveryCategory.update).not.toHaveBeenCalled();
+    expect(deliveryPrisma.deliveryAuditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks deleting delivery categories that still contain products', async () => {
+    deliveryPrisma.deliveryCategory.findUnique.mockResolvedValue({
+      id: 'cat_1',
+      _count: { children: 0, products: 2 },
+    });
+
+    await expect((service as any).removeCategory('cat_1', 'admin_1')).rejects.toThrow('该分类下有商品，无法删除');
+    expect(deliveryPrisma.deliveryCategory.delete).not.toHaveBeenCalled();
   });
 });

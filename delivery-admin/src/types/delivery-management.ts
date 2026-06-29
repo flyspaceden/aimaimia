@@ -188,6 +188,22 @@ export type DeliveryProduct = {
   skus: DeliveryProductSku[];
 };
 
+export type DeliveryCategory = {
+  id: string;
+  parentId: string | null;
+  name: string;
+  path: string;
+  level: number;
+  sortOrder: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  _count: {
+    products: number;
+    children: number;
+  };
+};
+
 export type DeliveryPriceRule = {
   id: string;
   scope: string;
