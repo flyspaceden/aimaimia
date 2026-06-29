@@ -248,17 +248,7 @@ export class GroupBuyRebateService {
       };
     }
 
-    let account = await tx.groupBuyRebateAccount.findUnique({
-      where: { userId: instance.userId },
-    });
-    if (!account) {
-      account = await tx.groupBuyRebateAccount.create({
-        data: {
-          userId: instance.userId,
-          balance: 0,
-        },
-      });
-    }
+    const account = await this.getOrCreateAccount(tx, instance.userId);
 
     const balance = this.roundMoney(Number(account.balance ?? 0));
     await tx.groupBuyRebateLedger.create({
@@ -372,7 +362,8 @@ export class GroupBuyRebateService {
     }
 
     const rebateSourceInstance = this.getRebateSourceInstance(referral);
-    const tiers = this.normalizeTierSnapshot(rebateSourceInstance.tierSnapshot);
+    const referrerTiers = this.normalizeTierSnapshot(instance.tierSnapshot);
+    const rebateSourceTiers = this.normalizeTierSnapshot(rebateSourceInstance.tierSnapshot);
     const effectiveSequence = Number((referral as any).candidateSequence);
     if (!Number.isInteger(effectiveSequence) || effectiveSequence <= 0) {
       return this.invalidateCandidate(
@@ -390,7 +381,17 @@ export class GroupBuyRebateService {
         status: 'VALID',
       },
     });
-    const tier = this.findTierByCandidateSequence(tiers, effectiveSequence);
+    const referrerTier = this.findTierByCandidateSequence(referrerTiers, effectiveSequence);
+    if (!referrerTier) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'NO_REMAINING_TIER',
+        now,
+      );
+    }
+    const tier = this.findTierByCandidateSequence(rebateSourceTiers, effectiveSequence);
     if (!tier) {
       return this.invalidateCandidate(
         tx,
@@ -417,17 +418,7 @@ export class GroupBuyRebateService {
       };
     }
 
-    let account = await tx.groupBuyRebateAccount.findUnique({
-      where: { userId: instance.userId },
-    });
-    if (!account) {
-      account = await tx.groupBuyRebateAccount.create({
-        data: {
-          userId: instance.userId,
-          balance: 0,
-        },
-      });
-    }
+    const account = await this.getOrCreateAccount(tx, instance.userId);
 
     const balanceBefore = Number(account.balance ?? 0);
     const balanceAfter = this.roundMoney(balanceBefore + amount);
@@ -438,7 +429,7 @@ export class GroupBuyRebateService {
     if (pendingLedger?.status === 'PENDING') {
       await tx.groupBuyRebateLedger.update({
         where: { idempotencyKey: pendingIdempotencyKey },
-        data: { status: 'AVAILABLE' },
+        data: { status: 'COMPLETED' },
       });
     }
 
@@ -498,7 +489,7 @@ export class GroupBuyRebateService {
     const validCountAfter = validCountBefore + 1;
     if (
       instance.status === 'SHARING'
-      && validCountAfter >= tiers.length
+      && validCountAfter >= referrerTiers.length
       && pendingCandidateCount === 0
     ) {
       await tx.groupBuyInstance.update({
@@ -679,6 +670,17 @@ export class GroupBuyRebateService {
 
   private getRebateSourceInstance(referral: any) {
     return referral.referredInstance ?? referral.instance;
+  }
+
+  private async getOrCreateAccount(tx: Prisma.TransactionClient, userId: string) {
+    return tx.groupBuyRebateAccount.upsert({
+      where: { userId },
+      update: {},
+      create: {
+        userId,
+        balance: 0,
+      },
+    });
   }
 
   private roundMoney(value: number) {

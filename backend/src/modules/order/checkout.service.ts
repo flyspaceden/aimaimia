@@ -2527,6 +2527,9 @@ export class CheckoutService {
     if (!bizMeta.groupBuyCodeId || !bizMeta.referredByInstanceId) {
       return;
     }
+    if (!this.groupBuyRebateService) {
+      throw new InternalServerErrorException('团购推荐返还服务不可用');
+    }
 
     if (activityEnded) {
       await this.createInvalidGroupBuyReferralAfterPayment(
@@ -2640,6 +2643,8 @@ export class CheckoutService {
             referral.id,
             now,
           );
+        } else {
+          throw new InternalServerErrorException('团购推荐返还服务不可用');
         }
         await tx.groupBuyInstance.update({
           where: { id: bizMeta.referredByInstanceId },
@@ -2767,6 +2772,13 @@ export class CheckoutService {
       || Boolean(activity.deletedAt)
       || !activity.endAt
       || activity.endAt <= now;
+  }
+
+  private getGroupBuyTierSnapshotCount(tierSnapshot: unknown) {
+    if (!Array.isArray(tierSnapshot) || tierSnapshot.length === 0) {
+      throw new InternalServerErrorException('团购推荐码档位快照异常');
+    }
+    return tierSnapshot.length;
   }
 
   private getExcludedPrizeCleanupItems(session: {

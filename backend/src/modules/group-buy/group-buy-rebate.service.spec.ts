@@ -67,6 +67,14 @@ describe('GroupBuyRebateService', () => {
       },
       groupBuyRebateAccount: {
         findUnique: jest.fn().mockResolvedValue(overrides.account ?? null),
+        upsert: jest.fn().mockResolvedValue(overrides.account ?? {
+          id: 'account_1',
+          userId: referral.instance?.userId ?? 'initiator_1',
+          balance: 0,
+          reserved: 0,
+          withdrawn: 0,
+          deducted: 0,
+        }),
         create: jest.fn().mockResolvedValue({
           id: 'account_1',
           userId: referral.instance?.userId ?? 'initiator_1',
@@ -169,12 +177,14 @@ describe('GroupBuyRebateService', () => {
 
     await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
 
-    expect(tx.groupBuyRebateAccount.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(tx.groupBuyRebateAccount.upsert).toHaveBeenCalledWith({
+      where: { userId: 'initiator_1' },
+      update: {},
+      create: {
         userId: 'initiator_1',
         balance: 0,
-      }),
-    }));
+      },
+    });
     expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         accountId: 'account_1',
@@ -182,6 +192,22 @@ describe('GroupBuyRebateService', () => {
         balanceAfter: 0,
       }),
     }));
+  });
+
+  it('uses an atomic account upsert when creating a pending rebate ledger', async () => {
+    const { tx, service } = buildPrisma();
+
+    await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
+
+    expect(tx.groupBuyRebateAccount.upsert).toHaveBeenCalledWith({
+      where: { userId: 'initiator_1' },
+      update: {},
+      create: {
+        userId: 'initiator_1',
+        balance: 0,
+      },
+    });
+    expect(tx.groupBuyRebateAccount.create).not.toHaveBeenCalled();
   });
 
   it('calculates pending rebate from referred instance tier snapshot', async () => {
@@ -268,12 +294,14 @@ describe('GroupBuyRebateService', () => {
       effectiveSequence: 1,
       amount: 100,
     });
-    expect(tx.groupBuyRebateAccount.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(tx.groupBuyRebateAccount.upsert).toHaveBeenCalledWith({
+      where: { userId: 'initiator_1' },
+      update: {},
+      create: {
         userId: 'initiator_1',
         balance: 0,
-      }),
-    }));
+      },
+    });
     expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         accountId: 'account_1',
@@ -291,7 +319,7 @@ describe('GroupBuyRebateService', () => {
     }));
     expect(tx.groupBuyRebateLedger.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
-      data: expect.objectContaining({ status: 'AVAILABLE' }),
+      data: expect.objectContaining({ status: 'COMPLETED' }),
     }));
     expect(tx.groupBuyRebateAccount.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'account_1' },
@@ -337,6 +365,71 @@ describe('GroupBuyRebateService', () => {
         balanceBefore: 100,
         balanceAfter: 300,
       }),
+    }));
+  });
+
+  it('uses an atomic account upsert when releasing a referral rebate', async () => {
+    const { tx, service } = buildPrisma();
+
+    await service.releaseReferralIfValid('referral_1', now);
+
+    expect(tx.groupBuyRebateAccount.upsert).toHaveBeenCalledWith({
+      where: { userId: 'initiator_1' },
+      update: {},
+      create: {
+        userId: 'initiator_1',
+        balance: 0,
+      },
+    });
+    expect(tx.groupBuyRebateAccount.create).not.toHaveBeenCalled();
+  });
+
+  it('uses referrer tier snapshot length to complete sharing even when referred snapshot is longer', async () => {
+    const { tx, service } = buildPrisma({
+      validCount: 1,
+      referral: {
+        candidateSequence: 2,
+        instance: {
+          id: 'instance_1',
+          userId: 'initiator_1',
+          status: 'SHARING',
+          priceSnapshot: 1000,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '推荐人第一档' },
+            { sequence: 2, basisPoints: 2000, label: '推荐人第二档' },
+          ],
+          validReferralCount: 1,
+          code: { id: 'code_1', status: 'ACTIVE' },
+        },
+        referredInstance: {
+          id: 'referred_instance_1',
+          priceSnapshot: 500,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '被推荐人第一档' },
+            { sequence: 2, basisPoints: 3000, label: '被推荐人第二档' },
+            { sequence: 3, basisPoints: 6000, label: '被推荐人第三档' },
+          ],
+        },
+      },
+    });
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({
+      status: 'RELEASED',
+      effectiveSequence: 2,
+      amount: 150,
+    });
+    expect(tx.groupBuyInstance.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { id: 'instance_1' },
+      data: expect.objectContaining({
+        status: 'COMPLETED',
+        completedAt: now,
+      }),
+    }));
+    expect(tx.groupBuyCode.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'code_1' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
     }));
   });
 
