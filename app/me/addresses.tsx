@@ -21,6 +21,7 @@ import { AddressRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { Address } from '../../src/types';
+import { isMainlandPhone } from '../../src/utils';
 
 type FormData = {
   receiverName: string;
@@ -91,7 +92,7 @@ export default function AddressesScreen() {
 
   const validate = (): string | null => {
     if (!form.receiverName.trim()) return '请输入收货人姓名';
-    if (!form.phone.trim() || form.phone.trim().length < 11) return '请输入正确的手机号';
+    if (!isMainlandPhone(form.phone)) return '请输入正确的手机号';
     if (!form.region?.regionCode || !form.region?.regionText) return '请选择省/市/区';
     if (!form.detail.trim()) return '请输入详细地址';
     return null;

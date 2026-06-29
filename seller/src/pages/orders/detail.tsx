@@ -62,6 +62,14 @@ function getOrderStep(order: {
   return 0;
 }
 
+const formatWaybillError = (err: unknown) => {
+  const raw = err instanceof Error ? err.message : '';
+  if (/对方.*(电话|手机).*不合法|收(件|方).*(电话|手机).*不合法/.test(raw)) {
+    return '收货手机号无法生成顺丰面单，系统已通知买家修改收货信息。买家修改后可重新生成面单。';
+  }
+  return raw || '面单生成失败';
+};
+
 export default function OrderDetailPage() {
   const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
@@ -101,7 +109,7 @@ export default function OrderDetailPage() {
       message.success(`面单生成成功：${result.waybillNo}`);
       queryClient.invalidateQueries({ queryKey: ['seller-order', id] });
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '面单生成失败');
+      message.error(formatWaybillError(err));
     } finally {
       setGeneratingWaybill(false);
     }

@@ -322,6 +322,20 @@ export type Order = {
     recipientPhone: string;
     fullAddress: string;
   } | null;
+  /** 当前订单是否允许买家修改收货信息（后端按状态/面单计算） */
+  receiverInfoEditable?: boolean;
+  /** 原始地址快照（买家本人订单详情可用于编辑页预填） */
+  addressSnapshot?: {
+    recipientName?: string;
+    receiverName?: string;
+    phone?: string;
+    regionCode?: string;
+    regionText?: string;
+    province?: string;
+    city?: string;
+    district?: string;
+    detail?: string;
+  } | null;
   /** 买家留言（Phase 3 字段） */
   buyerNote?: string;
   createdAt: string;

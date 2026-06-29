@@ -31,7 +31,8 @@ export type InboxType =
   // 卖家通知
   | 'new_order'
   | 'stock_shortage'
-  | 'vip_activated';
+  | 'vip_activated'
+  | 'order_receiver_info_required';
 
 export type InboxTarget = {
   route: string;

@@ -15,6 +15,7 @@
  * - `GET  /api/v1/orders/status-counts` → 状态角标统计
  * - `GET  /api/v1/orders/latest-issue` → 最近异常订单
  * - `GET  /api/v1/orders/{id}` → 订单详情
+ * - `PATCH /api/v1/orders/{id}/receiver-info` → 修改待发货订单收货信息
  * - `POST /api/v1/orders/{id}/repurchase` → 再次购买：可复购商品加入购物车
  * - `POST /api/v1/orders/{id}/receive` → 确认收货
  * - `POST /api/v1/orders/{id}/cancel` → 取消订单
@@ -124,6 +125,14 @@ export interface PreviewOrderGroup {
   shippingFee: number;
   discountAmount: number;
 }
+
+export type UpdateOrderReceiverInfoPayload = {
+  recipientName: string;
+  phone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+};
 
 export interface PreviewOrderResult {
   groups: PreviewOrderGroup[];
@@ -524,6 +533,33 @@ export const OrderRepo = {
     }
 
     return ApiClient.get<Order>(`/orders/${id}`);
+  },
+  /**
+   * 修改当前订单收货信息
+   * - 用途：订单详情 -> 修改收货信息
+   * - 后端接口：`PATCH /api/v1/orders/{id}/receiver-info`
+   */
+  updateReceiverInfo: async (
+    orderId: string,
+    payload: UpdateOrderReceiverInfoPayload,
+  ): Promise<Result<Order>> => {
+    if (USE_MOCK) {
+      const order = orderStore.find((item) => item.id === orderId);
+      if (!order) {
+        return err(createAppError('NOT_FOUND', `订单不存在: ${orderId}`, '订单未找到'));
+      }
+      if (order.status !== 'PAID') {
+        return err(createAppError('INVALID', '当前订单状态不支持修改收货信息', '当前无法修改'));
+      }
+      order.addressSnapshot = {
+        ...(order.addressSnapshot ?? {}),
+        ...payload,
+      } as any;
+      order.receiverInfoEditable = true;
+      return simulateRequest(withMockInvoiceDetail(order), { delay: 260 });
+    }
+
+    return ApiClient.patch<Order>(`/orders/${orderId}/receiver-info`, payload);
   },
   /**
    * 再次购买

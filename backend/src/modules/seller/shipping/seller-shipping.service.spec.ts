@@ -108,6 +108,10 @@ function createMocks() {
     reconcile: jest.fn(),
   };
 
+  const inboxService = {
+    send: jest.fn().mockResolvedValue({ id: 'msg-001' }),
+  };
+
   const service = new (SellerShippingService as any)(
     prisma as any,
     configService as any,
@@ -115,9 +119,10 @@ function createMocks() {
     sfExpress as any,
     uploadService as any,
     shippingCost as any,
+    inboxService as any,
   ) as SellerShippingService;
 
-  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost };
+  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost, inboxService };
 }
 
 /**
@@ -135,6 +140,7 @@ function setupHappyPath(prisma: any, sfExpress: any, overrides?: {
 
   prisma.order.findUnique.mockResolvedValue({
     id: orderId,
+    userId: 'buyer-1',
     status,
     addressSnapshot: ADDRESS_SNAPSHOT,
   });
@@ -433,6 +439,30 @@ describe('generateWaybill — 面单生成', () => {
       'tx:start',
       'tx:end',
     ]);
+  });
+
+  it('顺丰拒绝收件手机号时通知买家修改收货信息', async () => {
+    const { service, prisma, sfExpress, inboxService } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    sfExpress.createOrder.mockRejectedValue(
+      new BadRequestException('顺丰API错误: 对方电话或手机不合法'),
+    );
+
+    await expect(
+      service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
+    ).rejects.toThrow('对方电话或手机不合法');
+
+    expect(inboxService.send).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'buyer-1',
+      category: 'transaction',
+      type: 'order_receiver_info_required',
+      title: '请修改收货信息',
+      target: {
+        route: '/orders/[id]',
+        params: { id: ORDER_PAID },
+      },
+    }));
+    expect(inboxService.send.mock.calls[0][0].content).toContain('手机号');
   });
 
   it('已有面单的订单拒绝重复生成（幂等性）', async () => {

@@ -458,6 +458,12 @@
   - **预估**: 0.25 天
   - **状态**: ✅ | 完成日期: 2026-04-12 — parseAddressSnapshot 兼容 recipientName/receiverName/name 三种字段名，新增 regionText 解析为省市区
 
+- [x] **C24b** — 收件手机号无效时的买家纠错闭环
+  - **修改**: `backend/src/modules/order/order.service.ts`, `backend/src/modules/seller/shipping/seller-shipping.service.ts`, `app/orders/[id].tsx`, `app/orders/receiver-info/[id].tsx`, `seller/src/pages/orders/detail.tsx`
+  - **做什么**: 卖家生成顺丰面单遇到“对方电话或手机不合法”时发送交易消息；买家在普通商品订单 `PAID` 且未生成电子面单前可只修改当前订单的收货人、手机号、省市区和详细地址；地址簿新增/编辑同步校验 11 位大陆手机号
+  - **验收**: 卖家可提示买家修改，买家改完当前订单后卖家重新生成面单
+  - **状态**: ✅ | 完成日期: 2026-06-29
+
 - [x] **C25** — Company.address 结构化改造（⚠️ 第三批前置）
   - **修改**: `backend/prisma/schema.prisma` Company.address + 卖家后台企业信息页 + 管理后台商户页 + 数据迁移脚本
   - **做什么**: 扩展为 `{province, city, district, detail, lng?, lat?, text?}`；卖家后台拆分省市区 Cascader；数据迁移 best-effort 解析现有文本
