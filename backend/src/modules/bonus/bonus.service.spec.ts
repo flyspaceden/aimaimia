@@ -760,18 +760,32 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
 
   function buildLedgerPrisma(isSellerOwner: boolean) {
     const rewardLedgers = [
+      rewardLedger('reward-platform-profit', 'PLATFORM_PROFIT', '2026-06-22T13:00:00.000Z', 900),
+      rewardLedger('reward-charity', 'CHARITY_FUND', '2026-06-22T12:30:00.000Z', 50),
       rewardLedger('reward-industry', 'INDUSTRY_FUND', '2026-06-22T11:00:00.000Z', 300),
       rewardLedger('reward-normal', 'NORMAL_REWARD', '2026-06-22T10:00:00.000Z', 20),
       rewardLedger('reward-vip', 'VIP_REWARD', '2026-06-22T08:00:00.000Z', 10),
-    ].filter((ledger) => isSellerOwner || ledger.account.type !== 'INDUSTRY_FUND');
+    ];
+
+    const filterRewardLedgers = (where: any) => {
+      const allowedTypes = where?.account?.type?.in;
+      const filtered = Array.isArray(allowedTypes)
+        ? rewardLedgers.filter((ledger) => allowedTypes.includes(ledger.account.type))
+        : rewardLedgers;
+      return filtered.filter((ledger) => ledger.status !== where?.status?.not && ledger.userId === where?.userId);
+    };
 
     return {
       companyStaff: {
         findFirst: jest.fn().mockResolvedValue(isSellerOwner ? { id: 'staff-owner' } : null),
       },
       rewardLedger: {
-        findMany: jest.fn().mockResolvedValue(rewardLedgers),
-        count: jest.fn().mockResolvedValue(rewardLedgers.length),
+        findMany: jest.fn().mockImplementation(({ where, take }) =>
+          Promise.resolve(filterRewardLedgers(where).slice(0, take)),
+        ),
+        count: jest.fn().mockImplementation(({ where }) =>
+          Promise.resolve(filterRewardLedgers(where).length),
+        ),
       },
       groupBuyRebateLedger: {
         findMany: jest.fn().mockResolvedValue([
@@ -815,7 +829,6 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
           entryType: 'RELEASE',
           status: 'AVAILABLE',
           amount: 10,
-          balanceAfter: undefined,
           refType: 'ORDER',
           refId: 'order-reward-vip',
           meta: { accountType: 'VIP_REWARD' },
@@ -824,9 +837,22 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
       ],
       nextPage: undefined,
     });
+    const allowedAccountTypes = ['VIP_REWARD', 'NORMAL_REWARD'];
+    expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          account: { type: { in: allowedAccountTypes } },
+        }),
+      }),
+    );
+    expect(prismaMock.rewardLedger.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        account: { type: { in: allowedAccountTypes } },
+      }),
+    });
   });
 
-  it('卖家 OWNER 可以在统一流水中看到产业基金 Reward 流水', async () => {
+  it('卖家 OWNER 只看到允许的 Reward 账户类型，包含产业基金但排除平台内部账户', async () => {
     const prismaMock: any = buildLedgerPrisma(true);
     const service = buildService(prismaMock);
 
@@ -843,6 +869,62 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
       accountType: 'INDUSTRY_FUND',
       amount: 300,
     });
+    expect(result.nextPage).toBe(2);
+    expect(result.items.map((item: any) => item.id)).not.toContain('reward-platform-profit');
+    expect(result.items.map((item: any) => item.id)).not.toContain('reward-charity');
+
+    const allowedAccountTypes = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
+    expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          account: { type: { in: allowedAccountTypes } },
+        }),
+      }),
+    );
+    expect(prismaMock.rewardLedger.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        account: { type: { in: allowedAccountTypes } },
+      }),
+    });
+  });
+
+  it('对非法页码和过大 pageSize 做夹紧后再查询并计算 nextPage', async () => {
+    const prismaMock: any = buildLedgerPrisma(false);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', -5, 200);
+
+    expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 100,
+      }),
+    );
+    expect(prismaMock.groupBuyRebateLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 100,
+      }),
+    );
+    expect(result.items).toHaveLength(4);
+    expect(result.nextPage).toBeUndefined();
+  });
+
+  it('对小于 1 的 pageSize 夹紧为 1', async () => {
+    const prismaMock: any = buildLedgerPrisma(false);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', 0, 0);
+
+    expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 1,
+      }),
+    );
+    expect(prismaMock.groupBuyRebateLedger.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 1,
+      }),
+    );
+    expect(result.items).toHaveLength(1);
     expect(result.nextPage).toBe(2);
   });
 });
