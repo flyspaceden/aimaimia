@@ -670,6 +670,10 @@ export class CheckoutService {
       perCouponAmounts: Array<{ couponInstanceId: string; discountAmount: number }>;
     } | null = null;
 
+    if ((dto.deductionAmount ?? 0) > 0 && (dto.groupBuyRebateDeductionAmount ?? 0) > 0) {
+      throw new BadRequestException('请只提交一个消费积分抵扣金额');
+    }
+
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
       if (!this.couponService) {
         throw new BadRequestException('红包服务不可用，请稍后重试');
@@ -704,16 +708,32 @@ export class CheckoutService {
       }
     }
 
-    // 消费积分抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
+    // 消费积分统一抵扣上限只读校验；事务内 reserveDeduction* 会重新校验并 CAS 扣减。
     if (dto.deductionAmount && dto.deductionAmount > 0) {
       if (!this.rewardDeductionService) {
         throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
       }
-      const maxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
+      const rewardMaxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
         userId,
         totalGoodsAmount,
       );
-      if (dto.deductionAmount > maxDeduction.maxDeductible) {
+      let rebateMaxDeduction: {
+        rebateBalance: number;
+        rebateRatio: number;
+        maxDeductible: number;
+      } | null = null;
+      if (this.groupBuyRebateDeductionService) {
+        rebateMaxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+          userId,
+          totalGoodsAmount,
+        );
+      }
+      const maxDeduction = this.calculateUnifiedMaxDeductible(
+        totalGoodsAmount,
+        rewardMaxDeduction,
+        rebateMaxDeduction,
+      );
+      if (dto.deductionAmount > maxDeduction) {
         throw new BadRequestException('抵扣金额超出上限');
       }
     }
@@ -772,7 +792,7 @@ export class CheckoutService {
             if (!this.rewardDeductionService) {
               throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
             }
-            const reserved = await this.rewardDeductionService.reserveDeduction(
+            const reserved = await this.rewardDeductionService.reserveDeductionUpTo(
               tx,
               userId,
               totalGoodsAmount,
@@ -782,6 +802,24 @@ export class CheckoutService {
               discountAmount = Number((reserved.deductedFromVip + reserved.deductedFromNormal).toFixed(2));
               reservedRewardId = reserved.primaryLedgerId;
               deductionGroupId = reserved.groupId;
+            }
+            const remainingUnifiedDeduction = Number(
+              (dto.deductionAmount - discountAmount).toFixed(2),
+            );
+            if (remainingUnifiedDeduction > 0) {
+              if (!this.groupBuyRebateDeductionService) {
+                throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
+              }
+              const groupReserved = await this.groupBuyRebateDeductionService.reserveDeduction(
+                tx,
+                userId,
+                totalGoodsAmount,
+                remainingUnifiedDeduction,
+              );
+              if (groupReserved) {
+                groupBuyRebateDeductionGroupId = groupReserved.groupId;
+                groupBuyRebateDeductionAmount = Number(groupReserved.amount.toFixed(2));
+              }
             }
           }
 
@@ -2802,6 +2840,26 @@ export class CheckoutService {
         skuId: typeof item.skuId === 'string' ? item.skuId : '',
         prizeRecordId: typeof item.prizeRecordId === 'string' ? item.prizeRecordId : null,
       }));
+  }
+
+  private calculateUnifiedMaxDeductible(
+    goodsAmount: number,
+    rewardInfo: { pointsBalance: number; pointsRatio: number; maxDeductible: number },
+    rebateInfo: { rebateBalance: number; rebateRatio: number; maxDeductible: number } | null,
+  ): number {
+    const toCents = (value: number | null | undefined) => {
+      const normalized = Number(value ?? 0);
+      return Number.isFinite(normalized)
+        ? Math.max(0, Math.round((normalized + Number.EPSILON) * 100))
+        : 0;
+    };
+    const totalBalanceCents = toCents(rewardInfo.pointsBalance) + toCents(rebateInfo?.rebateBalance);
+    const anyDeductionAllowed = toCents(rewardInfo.maxDeductible) > 0
+      || toCents(rebateInfo?.maxDeductible) > 0;
+    const maxByRatioCents = anyDeductionAllowed
+      ? Math.floor(toCents(goodsAmount) * rewardInfo.pointsRatio)
+      : 0;
+    return Math.round(Math.min(totalBalanceCents, maxByRatioCents)) / 100;
   }
 
   /**

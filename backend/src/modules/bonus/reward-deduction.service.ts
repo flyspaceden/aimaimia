@@ -42,6 +42,15 @@ type DeductLedger = {
   meta?: any;
 };
 
+type ReservedDeduction = {
+  groupId: string;
+  primaryLedgerId: string;
+  ledgerIds: string[];
+  deductedFromVip: number;
+  deductedFromNormal: number;
+  amount: number;
+};
+
 @Injectable()
 export class RewardDeductionService {
   private readonly logger = new Logger(RewardDeductionService.name);
@@ -64,19 +73,41 @@ export class RewardDeductionService {
     userId: string,
     goodsAmount: number,
     requestedAmount: number,
-  ): Promise<{
-    groupId: string;
-    primaryLedgerId: string;
-    ledgerIds: string[];
-    deductedFromVip: number;
-    deductedFromNormal: number;
-  } | null> {
+  ): Promise<ReservedDeduction | null> {
     const requestedCents = yuanToCents(requestedAmount);
     if (requestedCents <= 0) return null;
 
     const max = await this.calculateMaxDeductibleWithClient(tx, userId, goodsAmount);
     if (requestedCents > yuanToCents(max.maxDeductible)) {
       throw new BadRequestException('抵扣金额超出上限');
+    }
+
+    return this.reserveDeductionCents(tx, userId, requestedCents);
+  }
+
+  async reserveDeductionUpTo(
+    tx: any,
+    userId: string,
+    goodsAmount: number,
+    requestedAmount: number,
+  ): Promise<ReservedDeduction | null> {
+    const requestedCents = yuanToCents(requestedAmount);
+    if (requestedCents <= 0) return null;
+
+    const max = await this.calculateMaxDeductibleWithClient(tx, userId, goodsAmount);
+    const reservableCents = Math.min(requestedCents, yuanToCents(max.maxDeductible));
+    if (reservableCents <= 0) return null;
+
+    return this.reserveDeductionCents(tx, userId, reservableCents);
+  }
+
+  private async reserveDeductionCents(
+    tx: any,
+    userId: string,
+    requestedCents: number,
+  ): Promise<ReservedDeduction> {
+    if (requestedCents <= 0) {
+      throw new BadRequestException('抵扣预留失败');
     }
 
     const [vip, normal] = await this.getRewardAccounts(tx, userId);
@@ -161,6 +192,7 @@ export class RewardDeductionService {
       ledgerIds,
       deductedFromVip: centsToYuan(fromVipCents),
       deductedFromNormal: centsToYuan(fromNormalCents),
+      amount: centsToYuan(requestedCents),
     };
   }
 

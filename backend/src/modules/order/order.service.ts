@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusAllocationService } from '../bonus/engine/bonus-allocation.service';
@@ -25,6 +25,7 @@ import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constan
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { ProductBundleService } from '../product/product-bundle.service';
+import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -95,6 +96,8 @@ export class OrderService {
   private inboxService: any = null;
   // RewardDeductionService 通过 setter 注入（预览消费积分可抵扣上限）
   private rewardDeductionService: RewardDeductionService | null = null;
+  // GroupBuyRebateDeductionService 通过 setter 注入（preview 合并展示消费积分可用余额）
+  private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   // DigitalAssetService 通过 setter 注入（确认收货后累计消费金额）
   private digitalAssetService: DigitalAssetService | null = null;
   // GroupBuyLifecycleService 通过 setter 注入，确认收货后异步评估团购资格
@@ -107,7 +110,10 @@ export class OrderService {
     private redisCoord: RedisCoordinatorService,
     private cartService: CartService,
     private productBundleService: ProductBundleService = new ProductBundleService(),
-  ) {}
+    @Optional() groupBuyRebateDeductionService?: GroupBuyRebateDeductionService,
+  ) {
+    this.groupBuyRebateDeductionService = groupBuyRebateDeductionService ?? null;
+  }
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
   setShippingRuleService(service: any) {
@@ -141,6 +147,10 @@ export class OrderService {
   /** 注入消费积分抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
+    this.groupBuyRebateDeductionService = service;
   }
 
   /** 注入数字资产服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -365,6 +375,16 @@ export class OrderService {
             })),
           ),
     };
+  }
+
+  private yuanToCents(value: number | null | undefined): number {
+    const normalized = Number(value ?? 0);
+    if (!Number.isFinite(normalized)) return 0;
+    return Math.max(0, Math.round((normalized + Number.EPSILON) * 100));
+  }
+
+  private centsToYuan(cents: number): number {
+    return Math.round(cents) / 100;
   }
 
   /**
@@ -1569,9 +1589,11 @@ export class OrderService {
     const amountToFreeShipping = freeShippingThreshold === 0
       ? 0
       : Math.max(0, Number((freeShippingThreshold - totalGoodsAmount).toFixed(2)));
-    const pointsInfo = this.rewardDeductionService
-      ? await this.rewardDeductionService.calculateMaxDeductible(userId, totalGoodsAmount)
-      : { pointsBalance: 0, pointsRatio: vipNode ? 0.15 : 0.1, maxDeductible: 0 };
+    const pointsInfo = await this.calculatePreviewUnifiedDeductionInfo(
+      userId,
+      totalGoodsAmount,
+      vipNode,
+    );
 
     return {
       groups,
@@ -1591,6 +1613,46 @@ export class OrderService {
       lockedGifts: excludedGifts, // F2: 未解锁的赠品列表（未达消费门槛）
       excludedItems,
     };
+  }
+
+  private async calculatePreviewUnifiedDeductionInfo(
+    userId: string,
+    totalGoodsAmount: number,
+    vipNode: any,
+  ): Promise<{ pointsBalance: number; pointsRatio: number; maxDeductible: number }> {
+    const rewardInfo = this.rewardDeductionService
+      ? await this.rewardDeductionService.calculateMaxDeductible(userId, totalGoodsAmount)
+      : { pointsBalance: 0, pointsRatio: vipNode ? 0.15 : 0.1, maxDeductible: 0 };
+
+    if (!this.groupBuyRebateDeductionService) {
+      return rewardInfo;
+    }
+
+    try {
+      const rebateInfo = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+        userId,
+        totalGoodsAmount,
+      );
+      const rewardBalanceCents = this.yuanToCents(rewardInfo.pointsBalance);
+      const rebateBalanceCents = this.yuanToCents(rebateInfo.rebateBalance);
+      const totalBalanceCents = rewardBalanceCents + rebateBalanceCents;
+      const anyDeductionAllowed = this.yuanToCents(rewardInfo.maxDeductible) > 0
+        || this.yuanToCents(rebateInfo.maxDeductible) > 0;
+      const maxByRatioCents = anyDeductionAllowed
+        ? Math.floor(this.yuanToCents(totalGoodsAmount) * rewardInfo.pointsRatio)
+        : 0;
+      return {
+        pointsBalance: this.centsToYuan(totalBalanceCents),
+        pointsRatio: rewardInfo.pointsRatio,
+        maxDeductible: this.centsToYuan(Math.min(totalBalanceCents, maxByRatioCents)),
+      };
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.warn(
+        `团购返还余额 preview 降级为消费积分余额：${safeErr.message}`,
+      );
+      return rewardInfo;
+    }
   }
 
   // createFromCart 已移除 — 旧流程已废弃，使用 CheckoutService.checkout() + 支付回调代替

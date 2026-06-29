@@ -25,7 +25,7 @@ describe('OrderService.previewOrder prize exclusion', () => {
       id: 'sku-normal',
       productId: 'product-normal',
       title: '普通 SKU',
-      price: 18,
+      price: 100,
       stock: 10,
       status: 'ACTIVE',
       maxPerOrder: null,
@@ -247,6 +247,56 @@ describe('OrderService.previewOrder prize exclusion', () => {
         isPrize: false,
       }),
     ]);
+  });
+
+  it('shows unified consumption-points balance from reward and group-buy rebate only', async () => {
+    const { service } = createService();
+    service.setRewardDeductionService({
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 10,
+        pointsRatio: 0.15,
+        maxDeductible: 10,
+      }),
+    } as any);
+    (service as any).setGroupBuyRebateDeductionService({
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        rebateBalance: 20,
+        rebateRatio: 0.15,
+        maxDeductible: 20,
+      }),
+    });
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'sku-normal', quantity: 1 }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.pointsBalance).toBe(30);
+    expect(result.pointsRatio).toBe(0.15);
+    expect(result.maxDeductible).toBe(15);
+  });
+
+  it('falls back to reward-only preview values when group-buy rebate deduction is unavailable', async () => {
+    const { service } = createService();
+    service.setRewardDeductionService({
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 10,
+        pointsRatio: 0.15,
+        maxDeductible: 10,
+      }),
+    } as any);
+    (service as any).setGroupBuyRebateDeductionService({
+      calculateMaxDeductible: jest.fn().mockRejectedValue(new Error('service unavailable')),
+    });
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'sku-normal', quantity: 1 }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.pointsBalance).toBe(10);
+    expect(result.pointsRatio).toBe(0.15);
+    expect(result.maxDeductible).toBe(10);
   });
 });
 
