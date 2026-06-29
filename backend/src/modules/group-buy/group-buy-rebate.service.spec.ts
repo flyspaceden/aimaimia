@@ -21,6 +21,7 @@ describe('GroupBuyRebateService', () => {
     referredOrderId: 'order_1',
     candidateSequence: 1,
     effectiveSequence: null,
+    referredInstanceId: 'referred_instance_1',
     referredOrder: {
       id: 'order_1',
       status: 'RECEIVED',
@@ -43,14 +44,20 @@ describe('GroupBuyRebateService', () => {
       validReferralCount: 0,
       code: { id: 'code_1', status: 'ACTIVE' },
     },
+    referredInstance: {
+      id: 'referred_instance_1',
+      priceSnapshot: 1000,
+      tierSnapshot,
+    },
     ...overrides,
   });
 
   const buildPrisma = (overrides: Record<string, any> = {}) => {
+    const referral = buildReferral(overrides.referral);
     const tx = {
       groupBuyReferral: {
-        findUnique: jest.fn().mockResolvedValue(buildReferral(overrides.referral)),
-        findFirst: jest.fn().mockResolvedValue(buildReferral(overrides.referral)),
+        findUnique: jest.fn().mockResolvedValue(referral),
+        findFirst: jest.fn().mockResolvedValue(referral),
         count: jest.fn().mockImplementation((args) => {
           if (args?.where?.status === 'VALID') return Promise.resolve(overrides.validCount ?? 0);
           if (args?.where?.status === 'CANDIDATE') return Promise.resolve(overrides.pendingCount ?? 0);
@@ -62,7 +69,7 @@ describe('GroupBuyRebateService', () => {
         findUnique: jest.fn().mockResolvedValue(overrides.account ?? null),
         create: jest.fn().mockResolvedValue({
           id: 'account_1',
-          userId: 'initiator_1',
+          userId: referral.instance?.userId ?? 'initiator_1',
           balance: 0,
           reserved: 0,
           withdrawn: 0,
@@ -71,10 +78,15 @@ describe('GroupBuyRebateService', () => {
         update: jest.fn().mockResolvedValue({ id: 'account_1' }),
       },
       groupBuyRebateLedger: {
-        findUnique: jest.fn().mockResolvedValue(overrides.existingLedger ?? null),
+        findUnique: jest.fn(({ where }: any) => {
+          if (where?.idempotencyKey?.startsWith('GROUP_BUY_PENDING_REBATE:')) {
+            return Promise.resolve(overrides.pendingLedger ?? null);
+          }
+          return Promise.resolve(overrides.existingLedger ?? null);
+        }),
         findFirst: jest.fn().mockResolvedValue(overrides.releaseLedger ?? null),
         create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
-        update: jest.fn().mockResolvedValue({ id: 'release_ledger_1' }),
+        update: jest.fn().mockResolvedValue({ id: 'pending_1' }),
       },
       groupBuyInstance: {
         update: jest.fn().mockResolvedValue({ id: 'instance_1' }),
@@ -103,8 +115,150 @@ describe('GroupBuyRebateService', () => {
     return { prisma, tx, service: new (GroupBuyRebateService as any)(prisma) as GroupBuyRebateService };
   };
 
+  it('creates a pending rebate ledger when referred user pays without increasing available balance', async () => {
+    const { tx, service } = buildPrisma({
+      account: {
+        id: 'account_1',
+        userId: 'initiator_1',
+        balance: 42,
+        reserved: 7,
+        withdrawn: 5,
+        deducted: 3,
+      },
+    });
+
+    const result = await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
+
+    expect(result).toEqual({
+      status: 'PENDING_CREATED',
+      candidateSequence: 1,
+      amount: 100,
+    });
+    expect(tx.groupBuyRebateAccount.create).not.toHaveBeenCalled();
+    expect(tx.groupBuyRebateLedger.findUnique).toHaveBeenCalledWith({
+      where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
+    });
+    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountId: 'account_1',
+        userId: 'initiator_1',
+        instanceId: 'instance_1',
+        referralId: 'referral_1',
+        orderId: 'order_1',
+        type: 'PENDING_REBATE',
+        status: 'PENDING',
+        amount: 100,
+        balanceBefore: 42,
+        balanceAfter: 42,
+        idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1',
+        refType: 'GROUP_BUY_REFERRAL',
+        refId: 'referral_1',
+        meta: expect.objectContaining({
+          candidateSequence: 1,
+          referredOrderId: 'order_1',
+          referredInstanceId: 'referred_instance_1',
+          source: 'REFERRED_PAYMENT',
+        }),
+      }),
+    }));
+    expect(tx.groupBuyRebateAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('creates the rebate account before pending ledger when missing', async () => {
+    const { tx, service } = buildPrisma();
+
+    await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
+
+    expect(tx.groupBuyRebateAccount.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        userId: 'initiator_1',
+        balance: 0,
+      }),
+    }));
+    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountId: 'account_1',
+        balanceBefore: 0,
+        balanceAfter: 0,
+      }),
+    }));
+  });
+
+  it('calculates pending rebate from referred instance tier snapshot', async () => {
+    const { tx, service } = buildPrisma({
+      referral: {
+        candidateSequence: 2,
+        instance: {
+          id: 'instance_1',
+          userId: 'initiator_1',
+          status: 'SHARING',
+          priceSnapshot: 1000,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '推荐人第一档' },
+            { sequence: 2, basisPoints: 2000, label: '推荐人第二档' },
+          ],
+          validReferralCount: 0,
+          code: { id: 'code_1', status: 'ACTIVE' },
+        },
+        referredInstance: {
+          id: 'referred_instance_1',
+          priceSnapshot: 500,
+          tierSnapshot: [
+            { sequence: 1, basisPoints: 1000, label: '被推荐人第一档' },
+            { sequence: 2, basisPoints: 3000, label: '被推荐人第二档' },
+          ],
+        },
+      },
+    });
+
+    const result = await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
+
+    expect(result).toEqual({
+      status: 'PENDING_CREATED',
+      candidateSequence: 2,
+      amount: 150,
+    });
+    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        amount: 150,
+        meta: expect.objectContaining({
+          candidateSequence: 2,
+          tierBasisPoints: 3000,
+          priceSnapshot: 500,
+        }),
+      }),
+    }));
+  });
+
+  it('does not create duplicate pending ledger for repeated payment callback', async () => {
+    const { tx, service } = buildPrisma({
+      pendingLedger: {
+        id: 'pending_1',
+        amount: 100,
+        status: 'PENDING',
+        meta: { candidateSequence: 1 },
+      },
+    });
+
+    const result = await service.createPendingReferralAfterPayment(tx as any, 'referral_1', now);
+
+    expect(result).toEqual({
+      status: 'PENDING_EXISTS',
+      candidateSequence: 1,
+      amount: 100,
+    });
+    expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
+    expect(tx.groupBuyRebateAccount.update).not.toHaveBeenCalled();
+  });
+
   it('releases tier 1 rebate for the first valid direct purchase', async () => {
-    const { prisma, tx, service } = buildPrisma();
+    const { prisma, tx, service } = buildPrisma({
+      pendingLedger: {
+        id: 'pending_1',
+        amount: 100,
+        status: 'PENDING',
+      },
+    });
 
     const result = await service.releaseReferralIfValid('referral_1', now);
 
@@ -132,8 +286,12 @@ describe('GroupBuyRebateService', () => {
         amount: 100,
         balanceBefore: 0,
         balanceAfter: 100,
-        idempotencyKey: 'GROUP_BUY_REBATE:referral_1',
+        idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
       }),
+    }));
+    expect(tx.groupBuyRebateLedger.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
+      data: expect.objectContaining({ status: 'AVAILABLE' }),
     }));
     expect(tx.groupBuyRebateAccount.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'account_1' },
@@ -460,7 +618,7 @@ describe('GroupBuyRebateService', () => {
     expect(tx.groupBuyCode.update).not.toHaveBeenCalled();
   });
 
-  it('waits until referred order is received and return window has expired', async () => {
+  it('releases immediately after receive without waiting for return window expiry', async () => {
     const { tx, service } = buildPrisma({
       referral: {
         referredOrder: {
@@ -475,7 +633,37 @@ describe('GroupBuyRebateService', () => {
 
     const result = await service.releaseReferralIfValid('referral_1', now);
 
-    expect(result).toEqual({ status: 'WAITING_RETURN_WINDOW' });
+    expect(result).toEqual({
+      status: 'RELEASED',
+      effectiveSequence: 1,
+      amount: 100,
+    });
+    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        type: 'RELEASE',
+        status: 'AVAILABLE',
+        amount: 100,
+        idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
+      }),
+    }));
+  });
+
+  it('waits when referred order is not received', async () => {
+    const { tx, service } = buildPrisma({
+      referral: {
+        referredOrder: {
+          id: 'order_1',
+          status: 'PAID',
+          returnWindowExpiresAt: null,
+          afterSaleRequests: [],
+          refunds: [],
+        },
+      },
+    });
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({ status: 'WAITING_RECEIVE' });
     expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalled();
     expect(tx.groupBuyReferral.update).not.toHaveBeenCalled();
   });

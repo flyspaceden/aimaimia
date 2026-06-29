@@ -233,6 +233,33 @@ describe('GroupBuyLifecycleService', () => {
     expect(rebateService.releaseReferralByOrderIfValid).toHaveBeenCalledWith('order_1', expiredAt);
   });
 
+  it('evaluates referred purchase rebate after receive without checking return-window expiry', async () => {
+    const { tx, service, rebateService } = buildPrisma();
+    tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
+      buildInstance({
+        initiatorOrder: {
+          ...buildInstance().initiatorOrder,
+          status: 'RECEIVED',
+          returnWindowExpiresAt: futureAt,
+        },
+      }),
+    );
+    rebateService.releaseReferralByOrderIfValid.mockResolvedValueOnce({
+      status: 'RELEASED',
+      effectiveSequence: 1,
+      amount: 100,
+    });
+
+    const result = await service.evaluateOrderAfterReceive('order_1', futureAt);
+
+    expect(result.referral).toEqual({
+      status: 'RELEASED',
+      effectiveSequence: 1,
+      amount: 100,
+    });
+    expect(rebateService.releaseReferralByOrderIfValid).toHaveBeenCalledWith('order_1', futureAt);
+  });
+
   it('skips abandoned qualifications', async () => {
     const { tx, service } = buildPrisma();
     tx.groupBuyInstance.findUnique.mockResolvedValueOnce(

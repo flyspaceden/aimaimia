@@ -28,6 +28,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { ProductModule } from '../product/product.module';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 
 @Module({
   imports: [
@@ -131,6 +132,13 @@ export class OrderModule implements OnModuleInit {
       );
     } else {
       console.warn('[OrderModule] GroupBuyRebateDeductionService 未注入，团购返还余额抵扣不可用');
+    }
+
+    const groupBuyRebateService = this.moduleRef.get(GroupBuyRebateService, { strict: false });
+    if (groupBuyRebateService) {
+      this.checkoutService.setGroupBuyRebateService(groupBuyRebateService);
+    } else {
+      console.warn('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用');
     }
 
     // C13修复：InboxService 改硬依赖，确保通知功能可用

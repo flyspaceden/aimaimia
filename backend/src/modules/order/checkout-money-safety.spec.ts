@@ -653,6 +653,117 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
     expect(groupBuyRebateDeductionService.confirmDeduction)
       .toHaveBeenCalledWith(tx, 'GBD-1');
   });
+
+  it('团购被推荐人支付成功后在同一事务创建推荐人 pending 返还流水', async () => {
+    const session = {
+      id: 'sess-gb-ref',
+      userId: 'buyer_2',
+      status: 'PAYING',
+      merchantOrderNo: 'M-GB-REF-PAID',
+      paymentChannel: 'ALIPAY',
+      expectedTotal: 100,
+      goodsAmount: 100,
+      shippingFee: 0,
+      discountAmount: 0,
+      rewardDiscountAmount: 0,
+      couponDiscountAmount: 0,
+      groupBuyRebateDeductionAmount: 0,
+      rewardDeductionGroupId: null,
+      groupBuyRebateDeductionGroupId: null,
+      couponInstanceIds: [],
+      addressId: 'addr_1',
+      addressSnapshot: {},
+      bizType: 'GROUP_BUY',
+      bizMeta: {
+        groupBuyActivityId: 'activity_1',
+        groupBuyCodeId: 'code_1',
+        referredByInstanceId: 'instance_referrer',
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+        ],
+        groupBuyPriceSnapshot: 100,
+        shippingFeeSnapshot: 0,
+        freeShippingSnapshot: true,
+      },
+      itemsSnapshot: [
+        {
+          skuId: 'sku1',
+          quantity: 1,
+          unitPrice: 100,
+          companyId: 'company1',
+          productSnapshot: {},
+        },
+      ],
+    };
+    let txRef: any;
+    const tx = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: any) => ({ id: 'order_1', ...data })),
+      },
+      orderStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ stock: 9 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: {
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      rewardLedger: {
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      groupBuyRebateLedger: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      groupBuyCode: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      groupBuyInstance: {
+        create: jest.fn().mockResolvedValue({ id: 'instance_referred' }),
+        update: jest.fn().mockResolvedValue({ id: 'instance_referrer' }),
+      },
+      groupBuyReferral: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 'referral_1' }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue(null) },
+      cartItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      lotteryRecord: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    txRef = tx;
+    const prisma: any = {
+      $transaction: jest.fn(async (cb: any) => cb(txRef)),
+    };
+    const service = new CheckoutService(prisma, {} as any);
+    const groupBuyRebateService = {
+      createPendingReferralAfterPayment: jest.fn().mockResolvedValue({
+        status: 'PENDING_CREATED',
+      }),
+    };
+    (service as any).setGroupBuyRebateService(groupBuyRebateService);
+
+    const result = await service.handlePaymentSuccess('M-GB-REF-PAID', 'trade-1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        instanceId: 'instance_referrer',
+        referredUserId: 'buyer_2',
+        referredOrderId: 'order_1',
+        referredInstanceId: 'instance_referred',
+        candidateSequence: 1,
+      }),
+    }));
+    expect(groupBuyRebateService.createPendingReferralAfterPayment)
+      .toHaveBeenCalledWith(tx, 'referral_1', expect.any(Date));
+  });
 });
 
 describe('CheckoutExpireService expireSession 资金安全', () => {

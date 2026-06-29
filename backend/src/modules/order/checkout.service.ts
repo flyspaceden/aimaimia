@@ -13,6 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
@@ -85,6 +86,7 @@ export class CheckoutService {
   private digitalAssetService: DigitalAssetService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
+  private groupBuyRebateService: GroupBuyRebateService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -140,6 +142,10 @@ export class CheckoutService {
   /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
     this.groupBuyRebateDeductionService = service;
+  }
+
+  setGroupBuyRebateService(service: GroupBuyRebateService) {
+    this.groupBuyRebateService = service;
   }
 
   private extractWechatAmountFen(queryResult: any): number | null {
@@ -2617,7 +2623,7 @@ export class CheckoutService {
       }
 
       try {
-        await tx.groupBuyReferral.create({
+        const referral = await tx.groupBuyReferral.create({
           data: {
             instanceId: bizMeta.referredByInstanceId,
             codeId: bizMeta.groupBuyCodeId,
@@ -2628,6 +2634,13 @@ export class CheckoutService {
             candidateSequence,
           },
         });
+        if (this.groupBuyRebateService) {
+          await this.groupBuyRebateService.createPendingReferralAfterPayment(
+            tx,
+            referral.id,
+            now,
+          );
+        }
         await tx.groupBuyInstance.update({
           where: { id: bizMeta.referredByInstanceId },
           data: { candidateCount: { increment: 1 } },
