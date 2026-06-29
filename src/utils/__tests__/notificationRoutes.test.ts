@@ -20,6 +20,20 @@ describe('resolveBuyerNotificationRoute', () => {
     expect(resolveBuyerNotificationRoute({ routeKey: 'ADMIN_INVOICE_DETAIL', params: { id: 'invoice-1' } })).toBeNull();
   });
 
+  it('allows known legacy concrete buyer routes', () => {
+    expect(resolveBuyerNotificationRoute({ route: '/orders/o-005' })).toEqual({
+      pathname: '/orders/o-005',
+    });
+    expect(resolveBuyerNotificationRoute({ route: '/product/p-005' })).toEqual({
+      pathname: '/product/p-005',
+    });
+  });
+
+  it('rejects unsupported legacy concrete routes', () => {
+    expect(resolveBuyerNotificationRoute({ route: '/seller/orders/o-005' })).toBeNull();
+    expect(resolveBuyerNotificationRoute({ route: '/admin/invoices/i-005' })).toBeNull();
+  });
+
   it('returns null for an empty action', () => {
     expect(resolveBuyerNotificationRoute(undefined)).toBeNull();
     expect(resolveBuyerNotificationRoute(null)).toBeNull();

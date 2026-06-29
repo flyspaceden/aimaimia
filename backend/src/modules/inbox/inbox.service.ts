@@ -49,6 +49,7 @@ export class InboxService {
     content: string;
     target?: Record<string, any>;
   }) {
+    const action = this.toNotificationAction(params);
     const message = await this.prisma.notificationMessage.create({
       data: {
         recipientKind: NotificationRecipientKind.BUYER_USER,
@@ -61,13 +62,21 @@ export class InboxService {
         severity: NotificationSeverity.INFO,
         entityType: 'inbox',
         entityId: params.userId,
-        action: (params.target as Prisma.InputJsonValue | undefined) || undefined,
+        action: (action as Prisma.InputJsonValue | undefined) || undefined,
         metadata: undefined,
         idempotencyKey: `legacy-inbox:${params.userId}:${params.type}:${Date.now()}:${randomUUID()}`,
       },
     });
 
     return this.mapMessage(message);
+  }
+
+  private toNotificationAction(params: { type: string; target?: Record<string, any> }) {
+    if (params.type === 'order_receiver_info_required' && params.target?.params?.id) {
+      return { routeKey: 'ORDER_RECEIVER_INFO', params: { id: String(params.target.params.id) } };
+    }
+
+    return params.target;
   }
 
   /** 映射为前端 InboxMessage 类型 */
