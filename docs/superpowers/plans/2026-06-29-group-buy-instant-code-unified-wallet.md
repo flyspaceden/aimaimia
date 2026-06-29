@@ -246,7 +246,7 @@ Expected: group-buy payment creates active code immediately and checkout still r
 - Modify `backend/src/modules/group-buy/group-buy-rebate.service.spec.ts`
 - Modify `backend/src/modules/order/checkout.service.ts`
 
-- [ ] **Step 1: Add failing pending-ledger tests**
+- [x] **Step 1: Add failing pending-ledger tests**
 
 Add tests for:
 
@@ -255,7 +255,7 @@ Add tests for:
 - 重复支付回调不会重复创建 pending ledger，靠 `idempotencyKey` 幂等。
 - `candidateSequence` 对应 tier 快照金额正确。
 
-- [ ] **Step 2: Add service method**
+- [x] **Step 2: Add service method**
 
 Add a transaction-aware method:
 
@@ -274,13 +274,13 @@ Rules:
 - Amount comes from the referred instance's `tierSnapshot[candidateSequence - 1]`.
 - Store enough `meta` to audit: `candidateSequence`, `referredOrderId`, `referredInstanceId`, `source='REFERRED_PAYMENT'`.
 
-- [ ] **Step 3: Wire payment path**
+- [x] **Step 3: Wire payment path**
 
 In `createGroupBuyRecordsAfterPayment`, after creating `GroupBuyReferral`, call `createPendingReferralAfterPayment(tx, referral.id, now)`.
 
 If service injection would create a cycle, keep the transaction-aware logic in `CheckoutService` but route the pure amount calculation through `GroupBuyRebateService` in a later refactor. Prefer direct service reuse if module dependencies already allow it.
 
-- [ ] **Step 4: Run targeted tests**
+- [x] **Step 4: Run targeted tests**
 
 ```bash
 cd backend
@@ -294,7 +294,7 @@ npm test -- group-buy-rebate.service.spec.ts checkout-money-safety.spec.ts --run
 - Modify `backend/src/modules/group-buy/group-buy-rebate.service.spec.ts`
 - Modify `backend/src/modules/group-buy/group-buy-lifecycle.service.spec.ts`
 
-- [ ] **Step 1: Update release tests**
+- [x] **Step 1: Update release tests**
 
 Change old tests that expected `WAITING_RETURN_WINDOW`. New expected behavior:
 
@@ -305,7 +305,7 @@ Change old tests that expected `WAITING_RETURN_WINDOW`. New expected behavior:
 - `GroupBuyRebateAccount.balance` increases by released amount.
 - Referral becomes `VALID` and `validAt` is set.
 
-- [ ] **Step 2: Update `releaseReferralByOrderIfValid`**
+- [x] **Step 2: Update `releaseReferralByOrderIfValid`**
 
 Required behavior:
 
@@ -317,7 +317,7 @@ Required behavior:
 - Create release ledger with `idempotencyKey=GROUP_BUY_RELEASE_REBATE:<referralId>`.
 - Increment valid count and complete the group/code when tier target is reached.
 
-- [ ] **Step 3: Keep invalidation narrow**
+- [x] **Step 3: Keep invalidation narrow**
 
 Because group-buy cannot be refunded or self-serviced after payment, invalidation should only handle corrupted/admin paths:
 
@@ -327,7 +327,7 @@ Because group-buy cannot be refunded or self-serviced after payment, invalidatio
 
 Do not add a normal user path that lets users escape a paid group-buy order.
 
-- [ ] **Step 4: Run targeted tests**
+- [x] **Step 4: Run targeted tests**
 
 ```bash
 cd backend
@@ -344,7 +344,7 @@ npm test -- group-buy-rebate.service.spec.ts group-buy-lifecycle.service.spec.ts
 - Modify `backend/src/modules/order/order.service.ts`
 - Modify `backend/src/modules/order/order.service.cancel.spec.ts`
 
-- [ ] **Step 1: Add failing cancel test**
+- [x] **Step 1: Add failing cancel test**
 
 Add a test that a `GROUP_BUY` order in a normally cancellable status rejects buyer cancellation with a clear message:
 
@@ -352,11 +352,11 @@ Add a test that a `GROUP_BUY` order in a normally cancellable status rejects buy
 expect(error.message).toContain('团购订单支付后不支持取消或退款');
 ```
 
-- [ ] **Step 2: Implement guard**
+- [x] **Step 2: Implement guard**
 
 Near existing VIP/non-normal order guards, reject `order.bizType === 'GROUP_BUY'`.
 
-- [ ] **Step 3: Run test**
+- [x] **Step 3: Run test**
 
 ```bash
 cd backend
@@ -371,14 +371,14 @@ npm test -- order.service.cancel.spec.ts --runInBand
 - Modify `backend/src/modules/after-sale/after-sale.utils.ts` only if eligibility lives there.
 - Modify `backend/src/modules/after-sale/after-sale.utils.spec.ts` only if helper changed.
 
-- [ ] **Step 1: Add failing eligibility/apply tests**
+- [x] **Step 1: Add failing eligibility/apply tests**
 
 Test both:
 
 - `getEligibility` for group-buy order returns no self-service types and includes support wording.
 - `createAfterSale` rejects group-buy order even if the caller manually posts a quality return/exchange type.
 
-- [ ] **Step 2: Implement eligibility response**
+- [x] **Step 2: Implement eligibility response**
 
 Return a structured reason that the App can render:
 
@@ -392,7 +392,7 @@ Return a structured reason that the App can render:
 
 Keep this separate from standard after-sale windows.
 
-- [ ] **Step 3: Run after-sale tests**
+- [x] **Step 3: Run after-sale tests**
 
 ```bash
 cd backend
