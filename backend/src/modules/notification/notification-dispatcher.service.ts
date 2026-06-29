@@ -64,7 +64,7 @@ export class NotificationDispatcherService {
 
     try {
       const event = row.payload as NotificationEvent;
-      const resolved = this.registry.resolve(event);
+      const resolved = await this.registry.resolve(event);
 
       for (const message of resolved.messages) {
         await this.prisma.notificationMessage.upsert({
