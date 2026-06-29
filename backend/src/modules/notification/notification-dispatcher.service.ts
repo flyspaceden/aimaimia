@@ -40,7 +40,7 @@ export class NotificationDispatcherService {
     const previousAttempts = row.attempts;
     const claimedAt = new Date();
     const claimResult = await this.prisma.notificationOutbox.updateMany({
-      where: { id: row.id, status: 'PENDING' },
+      where: { id: row.id, status: 'PENDING', runAt: { lte: claimedAt } },
       data: {
         status: 'PROCESSING',
         processingAt: claimedAt,
