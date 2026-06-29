@@ -1,7 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { decryptJsonValue } from '../../common/security/encryption';
+
+type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
 @Injectable()
 export class GroupBuyRebateService {
@@ -182,15 +185,13 @@ export class GroupBuyRebateService {
       deletedAt: null,
     };
 
-    const [items, total] = await Promise.all([
-      (this.prisma.withdrawRequest as any).findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: safePageSize,
-      }),
-      (this.prisma.withdrawRequest as any).count({ where }),
-    ]);
+    const candidates = await (this.prisma.withdrawRequest as any).findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+    const legacyWithdrawals = candidates.filter((withdraw: any) => this.isLegacyGroupBuyWithdraw(withdraw));
+    const items = legacyWithdrawals.slice(skip, skip + safePageSize);
+    const total = legacyWithdrawals.length;
 
     return {
       items: items.map((withdraw: any) => ({
@@ -206,6 +207,103 @@ export class GroupBuyRebateService {
       page: safePage,
       pageSize: safePageSize,
       nextPage: skip + safePageSize < total ? safePage + 1 : undefined,
+    };
+  }
+
+  private isLegacyGroupBuyWithdraw(withdraw: any): boolean {
+    const source = this.readWithdrawSnapshotSource(withdraw);
+    if (source === 'GROUP_BUY_REBATE_LEGACY') {
+      return true;
+    }
+    if (source === 'UNIFIED_POINTS') {
+      return false;
+    }
+    return withdraw?.accountType === 'GROUP_BUY_REBATE';
+  }
+
+  private readWithdrawSnapshotSource(withdraw: any): WithdrawSnapshotSource | null {
+    const snapshot = decryptJsonValue<any>(withdraw?.accountSnapshot);
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return null;
+    }
+    return snapshot.source === 'UNIFIED_POINTS' || snapshot.source === 'GROUP_BUY_REBATE_LEGACY'
+      ? snapshot.source
+      : null;
+  }
+
+  async createPendingReferralAfterPayment(
+    tx: Prisma.TransactionClient,
+    referralId: string,
+    now = new Date(),
+  ) {
+    const referral = await tx.groupBuyReferral.findUnique({
+      where: { id: referralId },
+      include: this.referralInclude(),
+    });
+    if (!referral) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    const instance = referral.instance as any;
+    const rebateSourceInstance = this.getRebateSourceInstance(referral);
+    const candidateSequence = Number((referral as any).candidateSequence);
+    const tier = this.findTierByCandidateSequence(
+      this.normalizeTierSnapshot(rebateSourceInstance.tierSnapshot),
+      candidateSequence,
+    );
+    if (!tier) {
+      return { status: 'NO_TIER', candidateSequence };
+    }
+
+    const amount = this.roundMoney(
+      Number(rebateSourceInstance.priceSnapshot) * tier.basisPoints / 10000,
+    );
+    const idempotencyKey = `GROUP_BUY_PENDING_REBATE:${referral.id}`;
+    const existingLedger = await tx.groupBuyRebateLedger.findUnique({
+      where: { idempotencyKey },
+    });
+    if (existingLedger) {
+      return {
+        status: 'PENDING_EXISTS',
+        candidateSequence,
+        amount: Number(existingLedger.amount ?? amount),
+      };
+    }
+
+    const account = await this.getOrCreateAccount(tx, instance.userId);
+
+    const balance = this.roundMoney(Number(account.balance ?? 0));
+    await tx.groupBuyRebateLedger.create({
+      data: {
+        accountId: account.id,
+        userId: instance.userId,
+        instanceId: instance.id,
+        referralId: referral.id,
+        orderId: (referral as any).referredOrderId,
+        type: 'PENDING_REBATE',
+        status: 'PENDING',
+        amount,
+        balanceBefore: balance,
+        balanceAfter: balance,
+        idempotencyKey,
+        refType: 'GROUP_BUY_REFERRAL',
+        refId: referral.id,
+        meta: {
+          candidateSequence,
+          tierBasisPoints: tier.basisPoints,
+          priceSnapshot: Number(rebateSourceInstance.priceSnapshot),
+          referredOrderId: (referral as any).referredOrderId,
+          referredInstanceId: (referral as any).referredInstanceId,
+          source: 'REFERRED_PAYMENT',
+          createdAt: now.toISOString(),
+        },
+      },
+    });
+
+    return {
+      status: 'PENDING_CREATED',
+      candidateSequence,
+      amount,
     };
   }
 
@@ -240,7 +338,27 @@ export class GroupBuyRebateService {
     }
 
     const instance = referral.instance as any;
-    if (!['SHARING', 'TERMINATED'].includes(instance.status)) {
+    if (this.hasActivityEnded(instance.activity, now)) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'ACTIVITY_ENDED',
+        now,
+      );
+    }
+
+    if (instance.status === 'TERMINATED') {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'USER_TERMINATED',
+        now,
+      );
+    }
+
+    if (instance.status !== 'SHARING') {
       return this.invalidateCandidate(
         tx,
         referral.id,
@@ -264,19 +382,38 @@ export class GroupBuyRebateService {
     if (order.status !== 'RECEIVED') {
       return { status: 'WAITING_RECEIVE' };
     }
-    if (!order.returnWindowExpiresAt || order.returnWindowExpiresAt > now) {
-      return { status: 'WAITING_RETURN_WINDOW' };
+
+    const rebateSourceInstance = this.getRebateSourceInstance(referral);
+    const referrerTiers = this.normalizeTierSnapshot(instance.tierSnapshot);
+    const rebateSourceTiers = this.normalizeTierSnapshot(rebateSourceInstance.tierSnapshot);
+    const effectiveSequence = Number((referral as any).candidateSequence);
+    if (!Number.isInteger(effectiveSequence) || effectiveSequence <= 0) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'REFERRAL_SEQUENCE_INVALID',
+        now,
+      );
     }
 
-    const tiers = this.normalizeTierSnapshot(instance.tierSnapshot);
-    const validCount = await tx.groupBuyReferral.count({
+    const validCountBefore = await tx.groupBuyReferral.count({
       where: {
         instanceId: instance.id,
         status: 'VALID',
       },
     });
-    const effectiveSequence = validCount + 1;
-    const tier = tiers.find((item) => item.sequence === effectiveSequence);
+    const referrerTier = this.findTierByCandidateSequence(referrerTiers, effectiveSequence);
+    if (!referrerTier) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'NO_REMAINING_TIER',
+        now,
+      );
+    }
+    const tier = this.findTierByCandidateSequence(rebateSourceTiers, effectiveSequence);
     if (!tier) {
       return this.invalidateCandidate(
         tx,
@@ -287,10 +424,13 @@ export class GroupBuyRebateService {
       );
     }
 
-    const amount = this.roundMoney(Number(instance.priceSnapshot) * tier.basisPoints / 10000);
-    const idempotencyKey = `GROUP_BUY_REBATE:${referral.id}`;
+    const amount = this.roundMoney(
+      Number(rebateSourceInstance.priceSnapshot) * tier.basisPoints / 10000,
+    );
+    const pendingIdempotencyKey = `GROUP_BUY_PENDING_REBATE:${referral.id}`;
+    const releaseIdempotencyKey = `GROUP_BUY_RELEASE_REBATE:${referral.id}`;
     const existingLedger = await tx.groupBuyRebateLedger.findUnique({
-      where: { idempotencyKey },
+      where: { idempotencyKey: releaseIdempotencyKey },
     });
     if (existingLedger) {
       return {
@@ -300,23 +440,17 @@ export class GroupBuyRebateService {
       };
     }
 
-    let account = await tx.groupBuyRebateAccount.findUnique({
-      where: { userId: instance.userId },
-    });
-    if (!account) {
-      account = await tx.groupBuyRebateAccount.create({
-        data: {
-          userId: instance.userId,
-          balance: 0,
-        },
-      });
-    }
+    const account = await this.getOrCreateAccount(tx, instance.userId);
 
     const balanceBefore = Number(account.balance ?? 0);
     const balanceAfter = this.roundMoney(balanceBefore + amount);
 
-    await tx.groupBuyRebateLedger.create({
-      data: {
+    const pendingLedger = await tx.groupBuyRebateLedger.findUnique({
+      where: { idempotencyKey: pendingIdempotencyKey },
+    });
+
+    const releaseLedgerCreate = await tx.groupBuyRebateLedger.createMany({
+      data: [{
         accountId: account.id,
         userId: instance.userId,
         instanceId: instance.id,
@@ -327,16 +461,33 @@ export class GroupBuyRebateService {
         amount,
         balanceBefore,
         balanceAfter,
-        idempotencyKey,
+        idempotencyKey: releaseIdempotencyKey,
         refType: 'GROUP_BUY_REFERRAL',
         refId: referral.id,
         meta: {
+          candidateSequence: effectiveSequence,
           tierSequence: effectiveSequence,
           tierBasisPoints: tier.basisPoints,
-          priceSnapshot: Number(instance.priceSnapshot),
+          priceSnapshot: Number(rebateSourceInstance.priceSnapshot),
+          pendingLedgerId: pendingLedger?.id ?? null,
         },
-      },
+      }],
+      skipDuplicates: true,
     });
+    if (releaseLedgerCreate.count === 0) {
+      return {
+        status: 'ALREADY_RELEASED',
+        effectiveSequence,
+        amount,
+      };
+    }
+
+    if (pendingLedger?.status === 'PENDING') {
+      await tx.groupBuyRebateLedger.update({
+        where: { idempotencyKey: pendingIdempotencyKey },
+        data: { status: 'COMPLETED' },
+      });
+    }
     await tx.groupBuyRebateAccount.update({
       where: { id: account.id },
       data: { balance: { increment: amount } },
@@ -366,7 +517,12 @@ export class GroupBuyRebateService {
       },
     });
 
-    if (instance.status === 'SHARING' && effectiveSequence >= tiers.length) {
+    const validCountAfter = validCountBefore + 1;
+    if (
+      instance.status === 'SHARING'
+      && validCountAfter >= referrerTiers.length
+      && pendingCandidateCount === 0
+    ) {
       await tx.groupBuyInstance.update({
         where: { id: instance.id },
         data: {
@@ -397,6 +553,14 @@ export class GroupBuyRebateService {
       instance: {
         include: {
           code: true,
+          activity: {
+            select: {
+              id: true,
+              status: true,
+              endAt: true,
+              deletedAt: true,
+            },
+          },
         },
       },
       referredOrder: {
@@ -406,6 +570,13 @@ export class GroupBuyRebateService {
           returnWindowExpiresAt: true,
           afterSaleRequests: { select: { id: true }, take: 1 },
           refunds: { select: { id: true }, take: 1 },
+        },
+      },
+      referredInstance: {
+        select: {
+          id: true,
+          priceSnapshot: true,
+          tierSnapshot: true,
         },
       },
     };
@@ -460,6 +631,16 @@ export class GroupBuyRebateService {
     reason: string,
     now: Date,
   ) {
+    const pendingIdempotencyKey = `GROUP_BUY_PENDING_REBATE:${referralId}`;
+    const pendingLedger = await tx.groupBuyRebateLedger.findUnique({
+      where: { idempotencyKey: pendingIdempotencyKey },
+    });
+    if (pendingLedger?.status === 'PENDING') {
+      await tx.groupBuyRebateLedger.update({
+        where: { idempotencyKey: pendingIdempotencyKey },
+        data: { status: 'VOIDED' },
+      });
+    }
     await tx.groupBuyReferral.update({
       where: { id: referralId },
       data: {
@@ -496,6 +677,41 @@ export class GroupBuyRebateService {
       throw new InternalServerErrorException('团购档位快照异常');
     }
     return tiers;
+  }
+
+  private hasActivityEnded(activity: any, now: Date) {
+    if (!activity) return true;
+    return activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
+  }
+
+  private findTierByCandidateSequence(
+    tiers: Array<{ sequence: number; basisPoints: number; label: any }>,
+    candidateSequence: number,
+  ) {
+    if (!Number.isInteger(candidateSequence) || candidateSequence <= 0) {
+      return null;
+    }
+    return tiers[candidateSequence - 1]
+      ?? tiers.find((item) => item.sequence === candidateSequence)
+      ?? null;
+  }
+
+  private getRebateSourceInstance(referral: any) {
+    return referral.referredInstance ?? referral.instance;
+  }
+
+  private async getOrCreateAccount(tx: Prisma.TransactionClient, userId: string) {
+    return tx.groupBuyRebateAccount.upsert({
+      where: { userId },
+      update: {},
+      create: {
+        userId,
+        balance: 0,
+      },
+    });
   }
 
   private roundMoney(value: number) {
