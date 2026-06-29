@@ -103,6 +103,20 @@ function makeOrder(overrides: Partial<any> = {}) {
 }
 
 describe('AfterSaleService.getEligibility', () => {
+  it('returns no self-service options for paid group-buy orders and tells buyer to contact support', async () => {
+    const service = makeService(makeOrder({
+      status: 'RECEIVED',
+      bizType: 'GROUP_BUY',
+    }));
+
+    const result = await service.getEligibility('user-1', 'order-1');
+
+    expect(result.eligible).toBe(false);
+    expect(result.disabledReason).toContain('团购订单支付后不支持退换货');
+    expect(result.disabledReason).toContain('收货后24小时内质量问题请联系客服补货');
+    expect(result.items).toEqual([]);
+  });
+
   it('无理由退货退款不足抵扣退货运费时不扣减退款并要求买家支付运费', async () => {
     const service = makeService(makeOrder());
 
@@ -331,6 +345,24 @@ function makeApplyTx(overrides: Partial<any> = {}) {
 }
 
 describe('AfterSaleService.apply', () => {
+  it('rejects manually posted group-buy quality return or exchange requests', async () => {
+    for (const afterSaleType of [AfterSaleType.QUALITY_RETURN, AfterSaleType.QUALITY_EXCHANGE]) {
+      const tx = makeApplyTx({
+        status: 'RECEIVED',
+        bizType: 'GROUP_BUY',
+      });
+      const { service } = makeTxService(tx);
+
+      await expect(service.apply('user-1', 'order-1', {
+        orderItemId: 'item-1',
+        afterSaleType,
+        reasonType: 'QUALITY_ISSUE',
+        photos: ['https://example.com/photo.jpg'],
+      })).rejects.toThrow('团购订单支付后不支持退换货');
+      expect(tx.afterSaleRequest.create).not.toHaveBeenCalled();
+    }
+  });
+
   it('creates no-reason exchange against the original sku and buyer return shipping payer', async () => {
     const tx = makeApplyTx();
     const { service } = makeTxService(tx);

@@ -424,6 +424,22 @@ describe('OrderService cancel PAID orders', () => {
     await expect(service.cancelOrder('vip-o1', 'u1')).rejects.toThrow('VIP');
   });
 
+  it('GROUP_BUY 支付后不允许买家取消退款', async () => {
+    const { service, prisma } = makeService();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'gb-o1',
+      userId: 'u1',
+      status: 'PAID',
+      bizType: 'GROUP_BUY',
+      items: [],
+    });
+
+    await expect(service.cancelOrder('gb-o1', 'u1'))
+      .rejects.toThrow('团购订单支付后不支持取消或退款');
+    expect(prisma.order.findMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('PAID 但已存在 waybillNo 时取消被拒绝', async () => {
     const { service, prisma } = makeService();
     prisma.order.findUnique.mockResolvedValue({

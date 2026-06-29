@@ -28,6 +28,8 @@ import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constan
 
 // 允许申请售后的订单状态
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
+const GROUP_BUY_AFTER_SALE_DISABLED_REASON =
+  '团购订单支付后不支持退换货；收货后24小时内质量问题请联系客服补货。';
 
 // 标准化理由标签
 const REASON_LABELS: Record<string, string> = {
@@ -323,6 +325,12 @@ export class AfterSaleService {
         disabledReason: 'VIP 礼包订单不支持退款和换货',
       };
     }
+    if (order.bizType === 'GROUP_BUY') {
+      return {
+        ...baseResponse,
+        disabledReason: GROUP_BUY_AFTER_SALE_DISABLED_REASON,
+      };
+    }
 
     const [
       returnWindowDays,
@@ -553,6 +561,9 @@ export class AfterSaleService {
           // 2. VIP 礼包订单不支持售后
           if ((order as any).bizType === 'VIP_PACKAGE') {
             throw new BadRequestException('VIP 礼包订单不支持退款和换货');
+          }
+          if ((order as any).bizType === 'GROUP_BUY') {
+            throw new BadRequestException(GROUP_BUY_AFTER_SALE_DISABLED_REASON);
           }
 
           // 3. 校验商品项存在且属于此订单
