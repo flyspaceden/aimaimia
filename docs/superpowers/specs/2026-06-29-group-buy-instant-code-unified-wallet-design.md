@@ -124,6 +124,8 @@ App 中只保留一个用户理解的账户：`消费积分`。
 
 用户不需要选择“用分润奖励还是团购返还”，也不需要知道提现扣的是哪一类来源。
 
+**不新增真实总余额字段。** “总消费积分”只作为钱包 API / App 的汇总读模型存在，不能在 Prisma 中新增一个持久化的总余额字段作为资金权威来源。资金权威来源仍然是各自账户与流水：`RewardAccount` / `RewardLedger`、`GroupBuyRebateAccount` / `GroupBuyRebateLedger`，以及 OWNER 可见的 `INDUSTRY_FUND`。提现和抵扣接口可以接受用户输入的一个总金额，但后端必须在事务内按来源拆账并写各自流水。
+
 ### 后端账户来源
 
 后台和数据库继续分账：
@@ -143,7 +145,7 @@ App 中只保留一个用户理解的账户：`消费积分`。
 
 ```ts
 type UnifiedWallet = {
-  balance: number;              // App 顶部可用消费积分：reward + group-buy + industry
+  balance: number;              // App 顶部可用消费积分汇总读模型：reward + group-buy + owner industry
   frozen: number;               // 冻结/待释放：reward frozen + pending group-buy + industry frozen
   total: number;                // 累计获得/历史合计
   deductibleBalance: number;    // 普通商品可抵扣余额：VIP_REWARD + NORMAL_REWARD + GROUP_BUY_REBATE，不含产业基金
@@ -157,6 +159,8 @@ type UnifiedWallet = {
   };
 };
 ```
+
+`balance`、`frozen`、`total`、`deductibleBalance`、`withdrawableBalance` 都是查询时汇总得到的 API 字段，不是新的数据库真实余额字段。任何抵扣、提现、释放、冻结失败回滚，都必须更新来源账本，而不是更新一个总余额字段。
 
 `breakdown.industryFund` 只有 `isSellerOwner=true` 时返回或在 App 展示。普通买家即使历史上不存在产业基金账户，也不展示产业基金 tab 或筛选项。
 
