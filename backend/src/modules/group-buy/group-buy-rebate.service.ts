@@ -609,6 +609,16 @@ export class GroupBuyRebateService {
     reason: string,
     now: Date,
   ) {
+    const pendingIdempotencyKey = `GROUP_BUY_PENDING_REBATE:${referralId}`;
+    const pendingLedger = await tx.groupBuyRebateLedger.findUnique({
+      where: { idempotencyKey: pendingIdempotencyKey },
+    });
+    if (pendingLedger?.status === 'PENDING') {
+      await tx.groupBuyRebateLedger.update({
+        where: { idempotencyKey: pendingIdempotencyKey },
+        data: { status: 'VOIDED' },
+      });
+    }
     await tx.groupBuyReferral.update({
       where: { id: referralId },
       data: {

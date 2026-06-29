@@ -575,6 +575,37 @@ describe('GroupBuyRebateService', () => {
     }));
   });
 
+  it('voids pending rebate ledger when invalidating a candidate with refund or after-sale record', async () => {
+    const { tx, service } = buildPrisma({
+      pendingLedger: {
+        id: 'pending_1',
+        status: 'PENDING',
+        amount: 100,
+      },
+      referral: {
+        referredOrder: {
+          id: 'order_1',
+          status: 'RECEIVED',
+          returnWindowExpiresAt: new Date('2026-06-20T00:00:00.000Z'),
+          afterSaleRequests: [],
+          refunds: [{ id: 'refund_1' }],
+        },
+      },
+    });
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({
+      status: 'INVALIDATED',
+      reason: 'REFERRED_ORDER_AFTER_SALE_OR_REFUND',
+    });
+    expect(tx.groupBuyRebateLedger.update).toHaveBeenCalledWith({
+      where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
+      data: { status: 'VOIDED' },
+    });
+    expect(tx.groupBuyRebateAccount.update).not.toHaveBeenCalled();
+  });
+
   it('invalidates unfinished candidate purchases after the initiator actively terminates sharing', async () => {
     const { tx, service } = buildPrisma({
       referral: {

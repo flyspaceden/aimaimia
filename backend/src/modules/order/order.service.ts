@@ -1834,6 +1834,9 @@ export class OrderService {
       if (order.bizType === 'VIP_PACKAGE') {
         throw new BadRequestException('VIP 开通礼包不支持取消退款，请联系客服');
       }
+      if (order.bizType === 'GROUP_BUY') {
+        throw new BadRequestException('团购订单支付后不支持取消或退款');
+      }
       // Bug 90：多商户 CheckoutSession 检测
       // 共享奖励/红包只挂在 primary order（checkout.service.ts:1485-1489, 1730），
       // 单订单取消会导致非 primary 不恢复 / primary 恢复后其他订单仍在用折扣 → 套利。
