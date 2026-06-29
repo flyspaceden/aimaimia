@@ -88,9 +88,9 @@ const mockMember: MemberProfile = {
 };
 
 const mockWallet: Wallet = {
-  balance: 296.80, frozen: 47.60, total: 444.40,
-  deductibleBalance: 236.80,
-  withdrawableBalance: 236.80,
+  balance: 325.20, frozen: 59.60, total: 384.80,
+  deductibleBalance: 265.20,
+  withdrawableBalance: 325.20,
   isSellerOwner: true,
   vip: { balance: 186.30, frozen: 35.60 },
   normal: { balance: 50.50, frozen: 12.00 },
@@ -101,7 +101,7 @@ const mockWallet: Wallet = {
     reserved: 4.00,
     withdrawn: 10.00,
     deducted: 6.50,
-    total: 60.90,
+    total: 48.90,
   },
 };
 
