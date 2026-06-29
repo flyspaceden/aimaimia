@@ -37,16 +37,24 @@ export class NotificationDispatcherService {
   }
 
   private async dispatchOne(row: OutboxRow) {
-    try {
-      await this.prisma.notificationOutbox.update({
-        where: { id: row.id },
-        data: {
-          status: 'PROCESSING',
-          processingAt: new Date(),
-          attempts: { increment: 1 },
-        },
-      });
+    const previousAttempts = row.attempts;
+    const claimedAt = new Date();
+    const claimResult = await this.prisma.notificationOutbox.updateMany({
+      where: { id: row.id, status: 'PENDING' },
+      data: {
+        status: 'PROCESSING',
+        processingAt: claimedAt,
+        attempts: { increment: 1 },
+      },
+    });
 
+    if (claimResult.count === 0) {
+      return;
+    }
+
+    const nextAttempts = previousAttempts + 1;
+
+    try {
       const event = row.payload as NotificationEvent;
       const resolved = this.registry.resolve(event);
 
@@ -77,7 +85,6 @@ export class NotificationDispatcherService {
       });
     } catch (error) {
       const message = String(error instanceof Error ? error.message : error).slice(0, 1000);
-      const nextAttempts = row.attempts + 1;
       this.logger.warn(`通知派发失败: outboxId=${row.id}, error=${message}`);
 
       await this.prisma.notificationOutbox.update({
