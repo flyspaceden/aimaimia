@@ -426,37 +426,54 @@ export class GroupBuyRebateService {
     const pendingLedger = await tx.groupBuyRebateLedger.findUnique({
       where: { idempotencyKey: pendingIdempotencyKey },
     });
+
+    try {
+      await tx.groupBuyRebateLedger.create({
+        data: {
+          accountId: account.id,
+          userId: instance.userId,
+          instanceId: instance.id,
+          referralId: referral.id,
+          orderId: order.id,
+          type: 'RELEASE',
+          status: 'AVAILABLE',
+          amount,
+          balanceBefore,
+          balanceAfter,
+          idempotencyKey: releaseIdempotencyKey,
+          refType: 'GROUP_BUY_REFERRAL',
+          refId: referral.id,
+          meta: {
+            candidateSequence: effectiveSequence,
+            tierSequence: effectiveSequence,
+            tierBasisPoints: tier.basisPoints,
+            priceSnapshot: Number(rebateSourceInstance.priceSnapshot),
+            pendingLedgerId: pendingLedger?.id ?? null,
+          },
+        },
+      });
+    } catch (error) {
+      if (this.isPrismaUniqueConflict(error)) {
+        const duplicateLedger = await tx.groupBuyRebateLedger.findUnique({
+          where: { idempotencyKey: releaseIdempotencyKey },
+        });
+        if (duplicateLedger) {
+          return {
+            status: 'ALREADY_RELEASED',
+            effectiveSequence,
+            amount,
+          };
+        }
+      }
+      throw error;
+    }
+
     if (pendingLedger?.status === 'PENDING') {
       await tx.groupBuyRebateLedger.update({
         where: { idempotencyKey: pendingIdempotencyKey },
         data: { status: 'COMPLETED' },
       });
     }
-
-    await tx.groupBuyRebateLedger.create({
-      data: {
-        accountId: account.id,
-        userId: instance.userId,
-        instanceId: instance.id,
-        referralId: referral.id,
-        orderId: order.id,
-        type: 'RELEASE',
-        status: 'AVAILABLE',
-        amount,
-        balanceBefore,
-        balanceAfter,
-        idempotencyKey: releaseIdempotencyKey,
-        refType: 'GROUP_BUY_REFERRAL',
-        refId: referral.id,
-        meta: {
-          candidateSequence: effectiveSequence,
-          tierSequence: effectiveSequence,
-          tierBasisPoints: tier.basisPoints,
-          priceSnapshot: Number(rebateSourceInstance.priceSnapshot),
-          pendingLedgerId: pendingLedger?.id ?? null,
-        },
-      },
-    });
     await tx.groupBuyRebateAccount.update({
       where: { id: account.id },
       data: { balance: { increment: amount } },
@@ -695,6 +712,15 @@ export class GroupBuyRebateService {
       return { ...(meta as Record<string, unknown>), ...patch } as Prisma.InputJsonObject;
     }
     return patch as Prisma.InputJsonObject;
+  }
+
+  private isPrismaUniqueConflict(error: unknown): boolean {
+    return Boolean(
+      error
+      && typeof error === 'object'
+      && 'code' in error
+      && (error as { code?: unknown }).code === 'P2002',
+    );
   }
 
   private async runSerializableWithRetry<T>(

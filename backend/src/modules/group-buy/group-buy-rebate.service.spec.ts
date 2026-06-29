@@ -54,6 +54,7 @@ describe('GroupBuyRebateService', () => {
 
   const buildPrisma = (overrides: Record<string, any> = {}) => {
     const referral = buildReferral(overrides.referral);
+    const releaseLedgerFindResults = [...(overrides.releaseLedgerFindResults ?? [])];
     const tx = {
       groupBuyReferral: {
         findUnique: jest.fn().mockResolvedValue(referral),
@@ -89,6 +90,9 @@ describe('GroupBuyRebateService', () => {
         findUnique: jest.fn(({ where }: any) => {
           if (where?.idempotencyKey?.startsWith('GROUP_BUY_PENDING_REBATE:')) {
             return Promise.resolve(overrides.pendingLedger ?? null);
+          }
+          if (where?.idempotencyKey?.startsWith('GROUP_BUY_RELEASE_REBATE:') && releaseLedgerFindResults.length > 0) {
+            return Promise.resolve(releaseLedgerFindResults.shift());
           }
           return Promise.resolve(overrides.existingLedger ?? null);
         }),
@@ -321,6 +325,8 @@ describe('GroupBuyRebateService', () => {
       where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
       data: expect.objectContaining({ status: 'COMPLETED' }),
     }));
+    expect(tx.groupBuyRebateLedger.create.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.groupBuyRebateLedger.update.mock.invocationCallOrder[0]);
     expect(tx.groupBuyRebateAccount.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'account_1' },
       data: { balance: { increment: 100 } },
@@ -382,6 +388,51 @@ describe('GroupBuyRebateService', () => {
       },
     });
     expect(tx.groupBuyRebateAccount.create).not.toHaveBeenCalled();
+  });
+
+  it('returns already released without mutating balances when release ledger create loses idempotency race', async () => {
+    const duplicateReleaseLedger = {
+      id: 'release_1',
+      amount: 100,
+      status: 'AVAILABLE',
+      meta: { tierSequence: 1 },
+    };
+    const duplicateError = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed on the fields: (`idempotencyKey`)',
+      {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['idempotencyKey'] },
+      },
+    );
+    const { tx, service } = buildPrisma({
+      pendingLedger: {
+        id: 'pending_1',
+        amount: 100,
+        status: 'PENDING',
+      },
+      releaseLedgerFindResults: [null, duplicateReleaseLedger],
+    });
+    tx.groupBuyRebateLedger.create.mockRejectedValueOnce(duplicateError);
+
+    const result = await service.releaseReferralIfValid('referral_1', now);
+
+    expect(result).toEqual({
+      status: 'ALREADY_RELEASED',
+      effectiveSequence: 1,
+      amount: 100,
+    });
+    expect(tx.groupBuyRebateLedger.findUnique).toHaveBeenCalledWith({
+      where: { idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1' },
+    });
+    expect(tx.groupBuyRebateLedger.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
+    }));
+    expect(tx.groupBuyRebateAccount.update).not.toHaveBeenCalled();
+    expect(tx.groupBuyReferral.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'referral_1' },
+      data: expect.objectContaining({ status: 'VALID' }),
+    }));
   });
 
   it('uses referrer tier snapshot length to complete sharing even when referred snapshot is longer', async () => {
