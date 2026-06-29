@@ -20,7 +20,6 @@ import { GroupBuyRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
-import { buildGroupBuyActivityRules } from '../../src/utils/groupBuyRules';
 import { getGroupBuyCountdownState } from '../../src/utils/groupBuyCountdown';
 import { getGroupBuyLowStockText } from '../../src/utils/groupBuyStockDisplay';
 import type { GroupBuyActivity, GroupBuyCurrentState } from '../../src/types';
@@ -107,10 +106,13 @@ export default function GroupBuyActivityDetailScreen() {
   const activityUnavailable = activityNotStarted || activityPaused || activityEnded;
   const countdownUrgent = Boolean(activity && !activityUnavailable && clockState.urgent);
 
-  const rules = useMemo(
-    () => buildGroupBuyActivityRules(activity?.tiers.length ?? 0),
-    [activity?.tiers.length],
-  );
+  const rules = useMemo(() => [
+    '付款成功后立即生成专属团购推荐码，可直接分享。',
+    '仅统计直接推荐的全新用户购买同款商品，好友付款后返还先冻结，确认收货后释放。',
+    '团购商品不支持退换货或退款；收货后24小时内如有质量问题，请联系客服补发。',
+    '返还货款按活动设定规则处理，运费和任何优惠不计入返还。',
+    '无法保证一定推荐满指定人数，未达标不产生对应返还。',
+  ], []);
 
   useEffect(() => {
     setClockState(getGroupBuyCountdownState(activity?.endAt));

@@ -1675,3 +1675,18 @@
 - [x] **CB08**（2026-06-10）隐私政策补充「剪贴板读取」披露：`src/content/legal/privacyPolicy.ts` + `website/src/content/legal/privacyPolicy.ts` 同步升级至 `v1.0.1`（触发 App 重新同意）；`docs/legal/爱买买法律文本审核稿.docx` 已重新导出；`huahai-corporate-site/privacy.html` / `terms.html` 已加入同版法律文本与页脚入口
 - [x] **CB09**（2026-06-09）商店新装包内嵌 bundle 收口：已重新打出 `apk/正式版/prod-1.0.3-privacy-20260609-221718.apk`（versionName 1.0.3 / versionCode 6 / runtime 1.0.3），内嵌隐私 `v1.0.1` 与「剪贴板读取」披露，可用于商店新用户首启直接看到新版隐私政策；旧 `prod-1.0.3.apk`（versionCode 5）早于 CB08，不再作为对外分发首选。华为商店仍是 1.0.1（runtime 不同收不到 1.0.2/1.0.3 OTA），更新华为包时一并覆盖。
 - [x] **CB10**（2026-06-10）OPPO SDK 公示整改：隐私政策升级至 `v1.0.2`，附录按 OPPO 审核要求精确公示 `APP支付客户端SDK`（开发者：支付宝(杭州)信息技术有限公司）与 `微信OpenSDK Android`（开发者：深圳市腾讯计算机系统有限公司）的 SDK 名称、开发者、收集信息范围、目的和隐私政策链接；App/爱买买官网/华海官网/Word 审核稿已同步，`npm test` 增加硬性防回归断言；已发 runtime 1.0.3 production OTA Group `d605d047-aca2-4018-b8b4-b4c9d93e0754`。
+
+---
+
+## 🛒 团购即时推荐码与统一消费积分（2026-06-29 新增）
+
+> **触发**: 团购规则调整为付款后立即生成团购推荐码；团购订单独立于普通商品，不接受退换货/退款，仅收货后24小时内质量问题联系客服补发；团购返还后端独立记账，但 App 钱包统一显示为消费积分，可抵扣和提现。
+> **权威源**: `docs/superpowers/specs/2026-06-29-group-buy-instant-code-unified-wallet-design.md` + `docs/superpowers/plans/2026-06-29-group-buy-instant-code-unified-wallet.md`
+
+- [x] **GB01** 团购付款后立即生成推荐码：支付回调同一事务内创建 `GroupBuyInstance + ACTIVE GroupBuyCode`，不再等待7天/收货窗口；历史 `QUALIFICATION_PENDING` 可通过回填脚本补码。
+- [x] **GB02** 团购推荐返还冻结/释放：被推荐人付款后推荐人看到冻结返还；被推荐人确认收货后释放到团购返还账户；退款/退货异常路径仅作为防腐恢复，不提供用户自助逃逸。
+- [x] **GB03** 团购禁退换/禁优惠：团购订单支付后不支持取消退款或自助售后；团购 checkout 保持现金支付，拒绝红包、消费积分、团购返还余额、VIP 折扣等任何优惠。
+- [x] **GB04** 钱包统一读模型：`/bonus/wallet` 汇总 Reward 与 GroupBuyRebate 为 App 侧统一消费积分；后台账本仍分开记录；非卖家 OWNER 不展示产业基金分项。
+- [x] **GB05** 普通商品统一抵扣：普通 checkout 只接受一个 `deductionAmount`，后端按 Reward 优先、GroupBuyRebate 补足拆账；退款/取消恢复两套账本。
+- [ ] **GB06** 统一消费积分提现：提现入口需按 Reward / GroupBuyRebate / IndustryFund 规则自动拆账，App 不让用户选择来源。
+- [x] **GB07** App 团购规则文案：团购首页、详情、扫码落地、付款页和当前团购面板统一展示“付款后立即生成推荐码 / 付款冻结返还 / 收货后释放 / 不退换，仅24小时质量问题补发”。

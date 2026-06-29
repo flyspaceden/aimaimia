@@ -131,7 +131,7 @@ export default function GroupBuyLandingScreen() {
             好友分享的团购商品
           </Text>
           <Text style={[typography.bodySm, styles.heroCopy, { color: GROUP_BUY_COLORS.inkSoft }]}>
-            你将购买同款商品，正常享受商品服务；付款页会标记本次推荐来源。
+            你将购买同款商品；付款后分享人会看到冻结返还，确认收货后释放。
           </Text>
         </LinearGradient>
 
@@ -190,6 +190,12 @@ export default function GroupBuyLandingScreen() {
           </View>
         </View>
 
+        <View style={[styles.complianceBox, { borderRadius: 8, borderColor: GROUP_BUY_COLORS.mist, backgroundColor: GROUP_BUY_COLORS.porcelain }]}>
+          <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
+          <Text style={[typography.caption, styles.complianceText, { color: GROUP_BUY_COLORS.inkSoft }]}>
+            活动为品牌购物回馈，仅一级直接推荐；团购不支持退换货或退款，收货后24小时内质量问题联系客服补发。
+          </Text>
+        </View>
       </ScrollView>
 
       <View
@@ -294,6 +300,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
+  },
+  complianceBox: {
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    gap: 8,
+  },
+  complianceText: {
+    flex: 1,
+    minWidth: 0,
   },
   bottomBar: {
     position: 'absolute',

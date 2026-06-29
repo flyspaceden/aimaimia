@@ -31,11 +31,8 @@ export const GroupBuyPurchaseGuardSheet = ({
   const isPending = current?.status === 'QUALIFICATION_PENDING';
   const heading = isPending ? '当前有待确认资格' : '当前有进行中的分享';
   const description = isPending
-    ? `${currentTitle} 正在等待确认收货及售后期结束，暂未生成推荐码。同一时间只能保留一个团购资格，需要先放弃本次资格，才可以购买 ${targetTitle}。`
+    ? `${currentTitle} 正在等待付款确认，确认后会立即生成推荐码。同一时间只能保留一个团购资格，需要先放弃本次资格，才可以购买 ${targetTitle}。`
     : `${currentTitle} 正在分享中。同一时间只能保留一个团购推荐码，需要先结束本次分享，才可以购买 ${targetTitle}。`;
-  const ruleCopy = isPending
-    ? '放弃后，本次资格不会再生成推荐码，也不会产生新的返还记录。'
-    : '结束后，已到账返还保留；未确认的推荐名额会失效，不再产生返还。';
   const endLabel = isPending ? '放弃本次资格并购买' : '结束本次分享并购买';
 
   return (
@@ -58,7 +55,7 @@ export const GroupBuyPurchaseGuardSheet = ({
         <View style={[styles.ruleRow, { borderColor: colors.border }]}>
           <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
           <Text style={[typography.caption, styles.ruleText, { color: colors.text.secondary }]}>
-            {ruleCopy}
+            已经产生的推荐订单，返还仍按付款冻结、确认收货后释放处理；团购订单不支持退换货。
           </Text>
         </View>
 

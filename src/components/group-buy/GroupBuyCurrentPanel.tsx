@@ -29,18 +29,18 @@ const statusCopy: Record<GroupBuyCurrentInstance['status'], {
   tone: 'active' | 'pending' | 'muted' | 'done';
 }> = {
   QUALIFICATION_PENDING: {
-    title: '资格确认中',
-    description: '确认收货且无退换货后，将生成本次分享推荐码。',
+    title: '付款确认中',
+    description: '支付结果确认后，会立即生成本次团购推荐码。',
     tone: 'pending',
   },
   SHARING: {
     title: '本次分享进行中',
-    description: '好友通过本次推荐码购买同款并完成有效订单后计入。',
+    description: '好友付款后返还先冻结，好友确认收货后释放。',
     tone: 'active',
   },
   COMPLETED: {
     title: '本次分享已完成',
-    description: '符合条件的返还会按到账规则处理。',
+    description: '已释放的团购返还会进入消费积分，可抵扣或提现。',
     tone: 'done',
   },
   TERMINATED: {
@@ -55,7 +55,7 @@ const statusCopy: Record<GroupBuyCurrentInstance['status'], {
   },
   QUALIFICATION_INVALID: {
     title: '本次资格未生效',
-    description: '订单发生退换货或未满足条件，未生成分享推荐码。',
+    description: '支付未完成或资格未满足，未生成分享推荐码。',
     tone: 'muted',
   },
   EXPIRED: {
@@ -102,7 +102,7 @@ export const GroupBuyCurrentPanel = ({
     : slotsFull
       ? {
         title: '推荐名额已锁定',
-        description: '已锁定全部推荐名额，等待好友确认收货且无退换货后释放返还。',
+        description: '已锁定全部推荐名额，等待好友确认收货后释放返还。',
         tone: 'pending' as const,
       }
       : baseCopy;
@@ -150,7 +150,7 @@ export const GroupBuyCurrentPanel = ({
       return;
     }
     if (!code) {
-      show({ message: '推荐码生成后可复制', type: 'info' });
+      show({ message: '推荐码生成中', type: 'info' });
       return;
     }
     await Clipboard.setStringAsync(shareUrl || code);
@@ -252,7 +252,7 @@ export const GroupBuyCurrentPanel = ({
               {...fitTextProps}
               style={[styles.codeText, { color: '#FFFFFF', marginTop: 6 }]}
             >
-              {code ? code.split('').join(' ') : '确认中'}
+              {code ? code.split('').join(' ') : '生成中'}
             </Text>
             <Text numberOfLines={3} style={[typography.caption, styles.heroDescription, { color: 'rgba(255,255,255,0.78)', marginTop: spacing.sm }]}>
               {copy.description}
