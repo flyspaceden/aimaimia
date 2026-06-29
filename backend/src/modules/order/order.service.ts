@@ -80,6 +80,11 @@ type DeductionRefundRestoreParams = {
   cumulativeGoodsRefundAmount?: number;
 };
 
+type DeductionRefundRestoreBundle = {
+  reward: DeductionRefundRestoreParams | null;
+  groupBuyRebate: DeductionRefundRestoreParams | null;
+};
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -1628,31 +1633,23 @@ export class OrderService {
       return rewardInfo;
     }
 
-    try {
-      const rebateInfo = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
-        userId,
-        totalGoodsAmount,
-      );
-      const rewardBalanceCents = this.yuanToCents(rewardInfo.pointsBalance);
-      const rebateBalanceCents = this.yuanToCents(rebateInfo.rebateBalance);
-      const totalBalanceCents = rewardBalanceCents + rebateBalanceCents;
-      const anyDeductionAllowed = this.yuanToCents(rewardInfo.maxDeductible) > 0
-        || this.yuanToCents(rebateInfo.maxDeductible) > 0;
-      const maxByRatioCents = anyDeductionAllowed
-        ? Math.floor(this.yuanToCents(totalGoodsAmount) * rewardInfo.pointsRatio)
-        : 0;
-      return {
-        pointsBalance: this.centsToYuan(totalBalanceCents),
-        pointsRatio: rewardInfo.pointsRatio,
-        maxDeductible: this.centsToYuan(Math.min(totalBalanceCents, maxByRatioCents)),
-      };
-    } catch (err: any) {
-      const safeErr = sanitizeErrorForLog(err);
-      this.logger.warn(
-        `团购返还余额 preview 降级为消费积分余额：${safeErr.message}`,
-      );
-      return rewardInfo;
-    }
+    const rebateInfo = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+      userId,
+      totalGoodsAmount,
+    );
+    const rewardBalanceCents = this.yuanToCents(rewardInfo.pointsBalance);
+    const rebateBalanceCents = this.yuanToCents(rebateInfo.rebateBalance);
+    const totalBalanceCents = rewardBalanceCents + rebateBalanceCents;
+    const anyDeductionAllowed = this.yuanToCents(rewardInfo.maxDeductible) > 0
+      || this.yuanToCents(rebateInfo.maxDeductible) > 0;
+    const maxByRatioCents = anyDeductionAllowed
+      ? Math.floor(this.yuanToCents(totalGoodsAmount) * rewardInfo.pointsRatio)
+      : 0;
+    return {
+      pointsBalance: this.centsToYuan(totalBalanceCents),
+      pointsRatio: rewardInfo.pointsRatio,
+      maxDeductible: this.centsToYuan(Math.min(totalBalanceCents, maxByRatioCents)),
+    };
   }
 
   // createFromCart 已移除 — 旧流程已废弃，使用 CheckoutService.checkout() + 支付回调代替
@@ -2344,7 +2341,7 @@ export class OrderService {
         goodsRefundAmount: number;
         merchantRefundNo: string;
         orderId: string;
-        deductionRestore: DeductionRefundRestoreParams | null;
+        deductionRestore: DeductionRefundRestoreBundle | null;
       }> = [];
       for (const o of orders) {
         const refund = await tx.refund.create({
@@ -2457,13 +2454,12 @@ export class OrderService {
               successfulGoodsRefundAmount = Number(
                 (successfulGoodsRefundAmount + Number(r.goodsRefundAmount || 0)).toFixed(2),
               );
-              await this.restoreDeductionForRefund(tx, r.deductionRestore
-                ? {
-                    ...r.deductionRestore,
-                    cumulativeGoodsRefundAmount: successfulGoodsRefundAmount,
-                    isFinalRefund: successfulGoodsRefundAmount >= r.deductionRestore.originalGoodsAmount,
-                  }
-                : null);
+              await this.restoreDeductionForRefund(tx, r.deductionRestore, {
+                cumulativeGoodsRefundAmount: successfulGoodsRefundAmount,
+                isFinalRefund: successfulGoodsRefundAmount >= Number(r.deductionRestore?.reward?.originalGoodsAmount
+                  ?? r.deductionRestore?.groupBuyRebate?.originalGoodsAmount
+                  ?? 0),
+              });
             }, {
               isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
             });
@@ -2532,43 +2528,77 @@ export class OrderService {
       fallbackOrderId: string;
       isFinalRefund?: boolean;
     },
-  ): Promise<DeductionRefundRestoreParams | null> {
-    if (!this.rewardDeductionService || !params.order?.checkoutSessionId) return null;
+  ): Promise<DeductionRefundRestoreBundle | null> {
+    if (!params.order?.checkoutSessionId) return null;
 
     const session = await tx.checkoutSession?.findUnique?.({
       where: { id: params.order.checkoutSessionId },
       select: {
         deductionGroupId: true,
+        groupBuyRebateDeductionGroupId: true,
+        groupBuyRebateDeductionAmount: true,
         goodsAmount: true,
         discountAmount: true,
       },
     });
-    const deductionGroupId = session?.deductionGroupId ?? null;
-    const originalDeductAmount = Number(session?.discountAmount ?? params.order.discountAmount ?? 0);
-    if (!deductionGroupId || originalDeductAmount <= 0) return null;
 
     const originalGoodsAmount = Number(session?.goodsAmount ?? params.order.goodsAmount ?? 0);
     const originalGoodsRefundAmount = Number(params.order.goodsAmount ?? 0);
     if (originalGoodsAmount <= 0 || originalGoodsRefundAmount <= 0) return null;
 
-    return {
+    const common = {
       refundId: params.refundId,
       orderId: params.fallbackOrderId,
       originalGoodsAmount,
       originalGoodsRefundAmount,
-      originalDeductAmount,
-      deductionGroupId,
       isFinalRefund: params.isFinalRefund,
       cumulativeGoodsRefundAmount: params.isFinalRefund ? originalGoodsAmount : undefined,
     };
+
+    const rewardDeductionGroupId = session?.deductionGroupId ?? null;
+    const rewardOriginalDeductAmount = Number(session?.discountAmount ?? params.order.discountAmount ?? 0);
+    const reward = this.rewardDeductionService && rewardDeductionGroupId && rewardOriginalDeductAmount > 0
+      ? {
+          ...common,
+          originalDeductAmount: rewardOriginalDeductAmount,
+          deductionGroupId: rewardDeductionGroupId,
+        }
+      : null;
+
+    const groupBuyRebateDeductionGroupId = session?.groupBuyRebateDeductionGroupId ?? null;
+    const groupBuyRebateOriginalDeductAmount = Number(session?.groupBuyRebateDeductionAmount ?? 0);
+    const groupBuyRebate = this.groupBuyRebateDeductionService
+      && groupBuyRebateDeductionGroupId
+      && groupBuyRebateOriginalDeductAmount > 0
+      ? {
+          ...common,
+          originalDeductAmount: groupBuyRebateOriginalDeductAmount,
+          deductionGroupId: groupBuyRebateDeductionGroupId,
+        }
+      : null;
+
+    if (!reward && !groupBuyRebate) return null;
+    return { reward, groupBuyRebate };
   }
 
   private async restoreDeductionForRefund(
     tx: any,
-    params: DeductionRefundRestoreParams | null,
+    params: DeductionRefundRestoreBundle | null,
+    progress?: Pick<DeductionRefundRestoreParams, 'cumulativeGoodsRefundAmount' | 'isFinalRefund'>,
   ): Promise<void> {
-    if (!params || !this.rewardDeductionService) return;
-    await this.rewardDeductionService.refundDeduction(tx, params);
+    if (!params) return;
+    if (params.reward && this.rewardDeductionService) {
+      await this.rewardDeductionService.refundDeduction(tx, {
+        ...params.reward,
+        ...progress,
+      });
+    }
+    if (params.groupBuyRebate && this.groupBuyRebateDeductionService) {
+      await this.groupBuyRebateDeductionService.refundDeduction(tx, {
+        ...params.groupBuyRebate,
+        ...progress,
+      });
+    }
   }
 
   /** 映射为前端 Order 列表项 */

@@ -285,9 +285,6 @@ describe('OrderService.previewOrder prize exclusion', () => {
         maxDeductible: 10,
       }),
     } as any);
-    (service as any).setGroupBuyRebateDeductionService({
-      calculateMaxDeductible: jest.fn().mockRejectedValue(new Error('service unavailable')),
-    });
 
     const result = await service.previewOrder('user1', {
       items: [{ skuId: 'sku-normal', quantity: 1 }],
@@ -297,6 +294,25 @@ describe('OrderService.previewOrder prize exclusion', () => {
     expect(result.pointsBalance).toBe(10);
     expect(result.pointsRatio).toBe(0.15);
     expect(result.maxDeductible).toBe(10);
+  });
+
+  it('propagates unexpected group-buy rebate deduction preview errors', async () => {
+    const { service } = createService();
+    service.setRewardDeductionService({
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 10,
+        pointsRatio: 0.15,
+        maxDeductible: 10,
+      }),
+    } as any);
+    (service as any).setGroupBuyRebateDeductionService({
+      calculateMaxDeductible: jest.fn().mockRejectedValue(new Error('database offline')),
+    });
+
+    await expect(service.previewOrder('user1', {
+      items: [{ skuId: 'sku-normal', quantity: 1 }],
+      addressId: 'addr1',
+    } as any)).rejects.toThrow('database offline');
   });
 });
 

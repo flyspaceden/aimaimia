@@ -339,6 +339,10 @@ describe('PaymentService.initiateRefund', () => {
       refundDeduction: jest.fn(),
     };
     service.setRewardDeductionService(rewardDeductionService as any);
+    const groupBuyRebateDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
     jest.spyOn(service, 'initiateRefund').mockResolvedValue({
       success: true,
       providerRefundId: 'provider_auto_001',
@@ -395,6 +399,8 @@ describe('PaymentService.initiateRefund', () => {
           deductionGroupId: 'DG-1',
           goodsAmount: 60,
           discountAmount: 8,
+          groupBuyRebateDeductionGroupId: 'GBD-1',
+          groupBuyRebateDeductionAmount: 3,
         }),
       },
       refundStatusHistory: { create: jest.fn() },
@@ -412,6 +418,15 @@ describe('PaymentService.initiateRefund', () => {
       originalGoodsRefundAmount: 60,
       originalDeductAmount: 8,
       deductionGroupId: 'DG-1',
+      isFinalRefund: true,
+    }));
+    expect(groupBuyRebateDeductionService.refundDeduction).toHaveBeenCalledWith(updateTx, expect.objectContaining({
+      refundId: 'r_auto_1',
+      orderId: 'o1',
+      originalGoodsAmount: 60,
+      originalGoodsRefundAmount: 60,
+      originalDeductAmount: 3,
+      deductionGroupId: 'GBD-1',
       isFinalRefund: true,
     }));
     expect(couponService.restoreCouponsForOrder).toHaveBeenCalledWith('o1', updateTx);

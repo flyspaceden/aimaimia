@@ -128,6 +128,7 @@ export class OrderModule implements OnModuleInit {
       { strict: false },
     );
     if (groupBuyRebateDeductionService) {
+      this.orderService.setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
       this.checkoutService.setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
       this.checkoutExpireService.setGroupBuyRebateDeductionService(
         groupBuyRebateDeductionService,
@@ -177,6 +178,9 @@ export class OrderModule implements OnModuleInit {
       this.orderService.setPaymentService(paymentService);
       if (rewardDeductionService && paymentService.setRewardDeductionService) {
         paymentService.setRewardDeductionService(rewardDeductionService);
+      }
+      if (groupBuyRebateDeductionService && paymentService.setGroupBuyRebateDeductionService) {
+        paymentService.setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
       }
     } else {
       console.warn('[OrderModule] PaymentService 未注入，cancel/expire 主动建单后无法通知商家；PAID 取消退款失败');

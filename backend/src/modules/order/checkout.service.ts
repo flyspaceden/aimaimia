@@ -670,8 +670,8 @@ export class CheckoutService {
       perCouponAmounts: Array<{ couponInstanceId: string; discountAmount: number }>;
     } | null = null;
 
-    if ((dto.deductionAmount ?? 0) > 0 && (dto.groupBuyRebateDeductionAmount ?? 0) > 0) {
-      throw new BadRequestException('请只提交一个消费积分抵扣金额');
+    if ((dto.groupBuyRebateDeductionAmount ?? 0) > 0) {
+      throw new BadRequestException('请提交统一消费积分抵扣金额');
     }
 
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
