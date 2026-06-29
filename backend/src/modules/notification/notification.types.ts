@@ -5,6 +5,7 @@ export type NotificationSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'CRITICAL';
 export type NotificationRouteKey =
   | 'ORDER_DETAIL'
   | 'ORDER_TRACK'
+  | 'ORDER_RECEIVER_INFO'
   | 'AFTER_SALE_DETAIL'
   | 'INVOICE_DETAIL'
   | 'WALLET'
