@@ -37,6 +37,7 @@ describe('GroupBuyRebateService concurrency safeguards', () => {
     },
     groupBuyRebateAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 'account_1', balance: 0 }),
+      upsert: jest.fn().mockResolvedValue({ id: 'account_1', userId: 'initiator_1', balance: 0 }),
       create: jest.fn(),
       update: jest.fn().mockResolvedValue({ id: 'account_1' }),
     },
