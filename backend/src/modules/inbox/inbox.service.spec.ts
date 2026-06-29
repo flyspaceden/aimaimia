@@ -91,4 +91,33 @@ describe('InboxService', () => {
       }),
     });
   });
+
+  it('maps legacy receiver info messages to the correction route key', async () => {
+    const { service, prisma } = makeService();
+    prisma.notificationMessage.create.mockResolvedValueOnce({
+      id: 'message-2',
+      category: 'transaction',
+      eventType: 'order_receiver_info_required',
+      title: '请修改收货信息',
+      body: '请修改收货信息',
+      createdAt: new Date('2026-06-29T12:00:00.000Z'),
+      readAt: null,
+      action: { routeKey: 'ORDER_RECEIVER_INFO', params: { id: 'order-1' } },
+    });
+
+    await service.send({
+      userId: 'buyer-1',
+      category: 'transaction',
+      type: 'order_receiver_info_required',
+      title: '请修改收货信息',
+      content: '请修改收货信息',
+      target: { route: '/orders/[id]', params: { id: 'order-1' } },
+    });
+
+    expect(prisma.notificationMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: { routeKey: 'ORDER_RECEIVER_INFO', params: { id: 'order-1' } },
+      }),
+    });
+  });
 });

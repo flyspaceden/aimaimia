@@ -26,6 +26,7 @@ const BUYER_ROUTE_BY_KEY: Record<string, string> = {
 };
 
 const LEGACY_BUYER_ROUTES = new Set([
+  '/orders',
   '/orders/[id]',
   '/orders/track',
   '/orders/after-sale-detail/[id]',
@@ -39,6 +40,16 @@ const LEGACY_BUYER_ROUTES = new Set([
   '/company/[id]',
   '/product/[id]',
 ]);
+
+const LEGACY_CONCRETE_ROUTE_PATTERNS = [
+  /^\/orders\/[^/]+$/,
+  /^\/orders\/after-sale-detail\/[^/]+$/,
+  /^\/invoices\/[^/]+$/,
+  /^\/group-buy\/[^/]+$/,
+  /^\/orders\/receiver-info\/[^/]+$/,
+  /^\/company\/[^/]+$/,
+  /^\/product\/[^/]+$/,
+];
 
 const normalizeParams = (params: Record<string, unknown> | undefined): Record<string, string> | undefined => {
   if (!params) return undefined;
@@ -63,6 +74,10 @@ export const resolveBuyerNotificationRoute = (action: NotificationRouteInput): B
   }
 
   if (action.route && LEGACY_BUYER_ROUTES.has(action.route)) {
+    return { pathname: action.route, ...(params ? { params } : {}) };
+  }
+
+  if (action.route && LEGACY_CONCRETE_ROUTE_PATTERNS.some((pattern) => pattern.test(action.route || ''))) {
     return { pathname: action.route, ...(params ? { params } : {}) };
   }
 

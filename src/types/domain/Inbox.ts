@@ -14,6 +14,10 @@ export type InboxCategory =
   | 'system'
   // NotificationMessage canonical 分类
   | 'order'
+  | 'after_sale'
+  | 'wallet'
+  | 'group_buy'
+  | 'service'
   | 'risk';
 
 export type InboxType =
