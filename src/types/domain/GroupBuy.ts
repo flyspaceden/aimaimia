@@ -45,6 +45,9 @@ export interface GroupBuyActivityItem {
 
 export interface GroupBuyActivity {
   id: string;
+  status: GroupBuyActivityStatus;
+  startAt: string | null;
+  endAt: string | null;
   title: string;
   description: string | null;
   price: number;

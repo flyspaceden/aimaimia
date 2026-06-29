@@ -170,15 +170,7 @@ export class GroupBuyCheckoutService {
       this.assertActivityCanCheckout(activity, activityItems);
 
       const occupying = await tx.groupBuyInstance.findFirst({
-        where: {
-          userId,
-          status: {
-            in: [
-              GroupBuyInstanceStatus.QUALIFICATION_PENDING,
-              GroupBuyInstanceStatus.SHARING,
-            ],
-          },
-        },
+        where: this.activeOccupyingInstanceWhere(userId),
         select: { id: true, status: true },
       });
       if (occupying) {
@@ -361,15 +353,7 @@ export class GroupBuyCheckoutService {
       this.assertActivityCanCheckout(activity, activityItems);
 
       const occupying = await tx.groupBuyInstance.findFirst({
-        where: {
-          userId,
-          status: {
-            in: [
-              GroupBuyInstanceStatus.QUALIFICATION_PENDING,
-              GroupBuyInstanceStatus.SHARING,
-            ],
-          },
-        },
+        where: this.activeOccupyingInstanceWhere(userId),
         select: { id: true, status: true },
       });
       if (occupying) {
@@ -525,6 +509,9 @@ export class GroupBuyCheckoutService {
     }
     if (activity.startAt && activity.startAt > now) {
       throw new BadRequestException('团购活动未开始');
+    }
+    if (!activity.endAt) {
+      throw new BadRequestException('团购活动结束时间配置异常');
     }
     if (activity.endAt && activity.endAt <= now) {
       throw new BadRequestException('团购活动已结束');
@@ -726,6 +713,24 @@ export class GroupBuyCheckoutService {
 
   private getMonthStart(now = new Date()) {
     return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  private activeOccupyingInstanceWhere(userId: string): Prisma.GroupBuyInstanceWhereInput {
+    const now = new Date();
+    return {
+      userId,
+      status: {
+        in: [
+          GroupBuyInstanceStatus.QUALIFICATION_PENDING,
+          GroupBuyInstanceStatus.SHARING,
+        ],
+      },
+      activity: {
+        deletedAt: null,
+        status: { not: GroupBuyActivityStatus.ENDED },
+        endAt: { gt: now },
+      },
+    };
   }
 
   private async getMaxMonthlyLaunches(tx: Prisma.TransactionClient) {

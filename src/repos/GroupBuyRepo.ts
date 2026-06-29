@@ -56,6 +56,9 @@ const createIdempotencyKey = () => {
 const mockActivities: GroupBuyActivity[] = [
   {
     id: 'gb-lobster-001',
+    status: 'ACTIVE',
+    startAt: '2026-06-22T12:00:00.000Z',
+    endAt: '2026-08-28T12:00:00.000Z',
     title: '深海大龙虾团购',
     description: '鲜活大龙虾单只装，冷链配送到家。肉质紧实，适合清蒸、焗烤或家庭聚餐。',
     price: 1000,
@@ -105,6 +108,9 @@ const mockActivities: GroupBuyActivity[] = [
   },
   {
     id: 'gb-melon-001',
+    status: 'ACTIVE',
+    startAt: '2026-06-22T12:00:00.000Z',
+    endAt: '2026-08-28T12:00:00.000Z',
     title: '精品蜜瓜礼盒团购',
     description: '精选当季蜜瓜双果礼盒，果香清甜，适合家庭自用或节日赠礼。',
     price: 268,
@@ -176,7 +182,7 @@ const notFound = (message: string) => err(createAppError('NOT_FOUND', message, m
 export const GroupBuyRepo = {
   listActivities: async (): Promise<Result<GroupBuyActivityPage>> => {
     if (USE_MOCK) return simulateRequest({ items: mockActivities });
-    return ApiClient.get<GroupBuyActivityPage>('/group-buy/activities');
+    return ApiClient.get<GroupBuyActivityPage>('/group-buy/activities', undefined, { noCache: true });
   },
 
   getActivity: async (activityId: string): Promise<Result<GroupBuyActivity>> => {
