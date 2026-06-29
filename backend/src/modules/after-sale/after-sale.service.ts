@@ -312,6 +312,13 @@ export class AfterSaleService {
       items: [] as any[],
     };
 
+    if (order.bizType === 'GROUP_BUY') {
+      return {
+        ...baseResponse,
+        disabledReason: GROUP_BUY_AFTER_SALE_DISABLED_REASON,
+      };
+    }
+
     if (!AFTER_SALE_ELIGIBLE_STATUSES.includes(order.status)) {
       return {
         ...baseResponse,
@@ -323,12 +330,6 @@ export class AfterSaleService {
       return {
         ...baseResponse,
         disabledReason: 'VIP 礼包订单不支持退款和换货',
-      };
-    }
-    if (order.bizType === 'GROUP_BUY') {
-      return {
-        ...baseResponse,
-        disabledReason: GROUP_BUY_AFTER_SALE_DISABLED_REASON,
       };
     }
 

@@ -1824,6 +1824,9 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({ where: { id }, include: { items: true } });
     if (!order) throw new NotFoundException('订单未找到');
     if (order.userId !== userId) throw new NotFoundException('订单未找到');
+    if (order.bizType === 'GROUP_BUY') {
+      throw new BadRequestException('团购订单支付后不支持取消或退款');
+    }
 
     // 旧架构遗留：PENDING_PAYMENT 走原逻辑（创建订单后未付款）
     if (order.status === 'PENDING_PAYMENT') {
@@ -1833,9 +1836,6 @@ export class OrderService {
     if (order.status === 'PAID') {
       if (order.bizType === 'VIP_PACKAGE') {
         throw new BadRequestException('VIP 开通礼包不支持取消退款，请联系客服');
-      }
-      if (order.bizType === 'GROUP_BUY') {
-        throw new BadRequestException('团购订单支付后不支持取消或退款');
       }
       // Bug 90：多商户 CheckoutSession 检测
       // 共享奖励/红包只挂在 primary order（checkout.service.ts:1485-1489, 1730），

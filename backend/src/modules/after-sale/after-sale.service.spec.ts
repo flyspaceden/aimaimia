@@ -117,6 +117,21 @@ describe('AfterSaleService.getEligibility', () => {
     expect(result.items).toEqual([]);
   });
 
+  it('returns group-buy support wording even when group-buy order status is not after-sale eligible', async () => {
+    const service = makeService(makeOrder({
+      status: 'PAID',
+      bizType: 'GROUP_BUY',
+    }));
+
+    const result = await service.getEligibility('user-1', 'order-1');
+
+    expect(result.eligible).toBe(false);
+    expect(result.disabledReason).toBe(
+      '团购订单支付后不支持退换货；收货后24小时内质量问题请联系客服补货。',
+    );
+    expect(result.items).toEqual([]);
+  });
+
   it('无理由退货退款不足抵扣退货运费时不扣减退款并要求买家支付运费', async () => {
     const service = makeService(makeOrder());
 
