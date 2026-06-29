@@ -930,9 +930,14 @@ export class AdminBonusService {
     ]);
     if (!user) throw new NotFoundException('用户不存在');
 
-    // 累计收入
+    // 累计收入只统计奖励入账流水；提现流水是资金转出，不能二次计入收入。
     const earned = await this.prisma.rewardLedger.aggregate({
-      where: { userId: resolvedUserId, status: { in: ['AVAILABLE', 'WITHDRAWN'] } },
+      where: {
+        userId: resolvedUserId,
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
+        account: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
+      },
       _sum: { amount: true },
     });
 
@@ -1296,9 +1301,14 @@ export class AdminBonusService {
       referrerBuyerNo = referrer?.buyerNo ?? null;
     }
 
-    // 计算累计收入（AVAILABLE + WITHDRAWN 的 ledger 总额）
+    // 累计收入只统计奖励入账流水；提现流水是资金转出，不能二次计入收入。
     const earned = await this.prisma.rewardLedger.aggregate({
-      where: { userId, status: { in: ['AVAILABLE', 'WITHDRAWN'] } },
+      where: {
+        userId,
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
+        account: { type: 'VIP_REWARD' },
+      },
       _sum: { amount: true },
     });
 
@@ -1536,7 +1546,8 @@ export class AdminBonusService {
         const reward = await this.prisma.rewardLedger.aggregate({
           where: {
             meta: { path: ['bucketKey'], equals: b.bucketKey },
-            status: { in: ['AVAILABLE', 'WITHDRAWN'] },
+            entryType: 'RELEASE',
+            status: 'AVAILABLE',
           },
           _sum: { amount: true },
         });
@@ -1581,7 +1592,8 @@ export class AdminBonusService {
       where: {
         refId: { in: orderIds },
         meta: { path: ['scheme'], equals: 'NORMAL_BROADCAST' },
-        status: { in: ['AVAILABLE', 'WITHDRAWN'] },
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
       },
       _sum: { amount: true },
     });
@@ -1590,7 +1602,8 @@ export class AdminBonusService {
     const rewardTotal = await this.prisma.rewardLedger.aggregate({
       where: {
         meta: { path: ['bucketKey'], equals: bucketKey },
-        status: { in: ['AVAILABLE', 'WITHDRAWN'] },
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
       },
       _sum: { amount: true },
     });
@@ -1840,7 +1853,8 @@ export class AdminBonusService {
       where: {
         userId,
         account: { type: 'NORMAL_REWARD' },
-        status: { in: ['AVAILABLE', 'WITHDRAWN'] },
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
       },
       _sum: { amount: true },
     });
