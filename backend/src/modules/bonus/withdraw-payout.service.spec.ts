@@ -39,6 +39,9 @@ function buildService(overrides: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      companyStaff: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
       withdrawRequest: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
         count: jest.fn().mockResolvedValue(0),
@@ -172,6 +175,66 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
       status: 'PAID',
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns an existing mixed unified request for identical idempotency retries', async () => {
+    const { service, prisma, paymentService } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-mixed-existing',
+      userId: 'u1',
+      amount: 25,
+      taxAmount: 5,
+      taxRate: 0.2,
+      netAmount: 20,
+      status: 'PROCESSING',
+      accountType: 'VIP_REWARD',
+      accountSnapshot: { account: 'a@example.com', name: '张三' },
+    });
+
+    const result = await service.requestWithdraw('u1', {
+      amount: 25,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'mixed-key');
+
+    expect(result).toMatchObject({
+      withdrawId: 'w-mixed-existing',
+      grossAmount: 25,
+      netAmount: 20,
+      status: 'PROCESSING',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(paymentService.initiateTransfer).not.toHaveBeenCalled();
+  });
+
+  it('returns an existing group-buy-only unified request for identical idempotency retries', async () => {
+    const { service, prisma, paymentService } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-unified-gb-existing',
+      userId: 'u1',
+      amount: 25,
+      taxAmount: 5,
+      taxRate: 0.2,
+      netAmount: 20,
+      status: 'PROCESSING',
+      accountType: 'GROUP_BUY_REBATE',
+      accountSnapshot: { account: 'a@example.com', name: '张三' },
+    });
+
+    const result = await service.requestWithdraw('u1', {
+      amount: 25,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'unified-gb-key');
+
+    expect(result).toMatchObject({
+      withdrawId: 'w-unified-gb-existing',
+      grossAmount: 25,
+      netAmount: 20,
+      status: 'PROCESSING',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(paymentService.initiateTransfer).not.toHaveBeenCalled();
   });
 
   it('returns the existing request when concurrent retries hit the idempotency unique constraint', async () => {
@@ -317,6 +380,194 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
+  });
+
+  it('splits unified consumption-points withdraw across Reward then group-buy rebate ledgers', async () => {
+    const { service, prisma, paymentService } = buildService();
+    prisma.rewardAccount.findUnique
+      .mockResolvedValueOnce({ id: 'acc-vip', userId: 'u1', type: 'VIP_REWARD', balance: 10, frozen: 0 })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue({
+      id: 'gba-1',
+      userId: 'u1',
+      balance: 20,
+      reserved: 0,
+      withdrawn: 0,
+    });
+    prisma.withdrawRequest.create.mockImplementation(async ({ data }: any) => ({
+      ...data,
+      createdAt: new Date('2026-06-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-06-24T00:00:00.000Z'),
+    }));
+    prisma.withdrawRequest.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'w-mixed-1',
+        userId: 'u1',
+        amount: 25,
+        taxAmount: 5,
+        netAmount: 20,
+        taxRate: 0.2,
+        status: 'PAID',
+        accountType: 'VIP_REWARD',
+      });
+    prisma.rewardLedger.findMany.mockResolvedValue([{ accountId: 'acc-vip', amount: 10 }]);
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([{ accountId: 'gba-1', amount: 15 }]);
+
+    const result = await service.requestWithdraw('u1', {
+      amount: 25,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'mixed-idemp-1');
+
+    expect(result).toMatchObject({
+      grossAmount: 25,
+      taxAmount: 5,
+      netAmount: 20,
+      status: 'PAID',
+    });
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'acc-vip', balance: { gte: 10 } },
+      data: { balance: { decrement: 10 }, frozen: { increment: 10 } },
+    }));
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-1', balance: { gte: 15 } },
+      data: {
+        balance: { decrement: 15 },
+        reserved: { increment: 15 },
+      },
+    });
+    expect(prisma.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'acc-vip',
+        amount: 10,
+        status: 'FROZEN',
+        refType: 'WITHDRAW',
+        meta: expect.objectContaining({
+          scheme: 'POINTS_WITHDRAW',
+          groupId: expect.stringMatching(/^WG-/),
+          accountType: 'VIP_REWARD',
+          role: 'PRIMARY',
+        }),
+      }),
+    });
+    expect(prisma.groupBuyRebateLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'gba-1',
+        type: 'WITHDRAW',
+        status: 'RESERVED',
+        amount: 15,
+        balanceBefore: 20,
+        balanceAfter: 5,
+        refType: 'WITHDRAW',
+        meta: expect.objectContaining({
+          scheme: 'POINTS_WITHDRAW',
+          groupId: expect.stringMatching(/^WG-/),
+          accountType: 'GROUP_BUY_REBATE',
+          role: 'SECONDARY',
+        }),
+      }),
+    });
+    expect(prisma.withdrawRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        accountType: 'VIP_REWARD',
+        amount: 25,
+        status: 'PROCESSING',
+        clientIdempotencyKey: 'mixed-idemp-1',
+      }),
+    }));
+    expect(paymentService.initiateTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      remark: '爱买买消费积分提现',
+    }));
+  });
+
+  it('uses seller-owner industry fund only after Reward and group-buy rebate', async () => {
+    const { service, prisma } = buildService();
+    prisma.rewardAccount.findUnique
+      .mockResolvedValueOnce({ id: 'acc-vip', userId: 'owner-1', type: 'VIP_REWARD', balance: 5, frozen: 0 })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'acc-industry', userId: 'owner-1', type: 'INDUSTRY_FUND', balance: 30, frozen: 0 });
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue({
+      id: 'gba-owner',
+      userId: 'owner-1',
+      balance: 10,
+      reserved: 0,
+      withdrawn: 0,
+    });
+    prisma.companyStaff.findFirst.mockResolvedValue({ id: 'staff-owner', userId: 'owner-1', role: 'OWNER', status: 'ACTIVE' });
+    prisma.withdrawRequest.create.mockImplementation(async ({ data }: any) => data);
+    prisma.withdrawRequest.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'w-owner',
+        userId: 'owner-1',
+        amount: 25,
+        taxAmount: 5,
+        netAmount: 20,
+        accountType: 'VIP_REWARD',
+      });
+    prisma.rewardLedger.findMany.mockResolvedValue([
+      { accountId: 'acc-vip', amount: 5 },
+      { accountId: 'acc-industry', amount: 10 },
+    ]);
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([{ accountId: 'gba-owner', amount: 10 }]);
+
+    await service.requestWithdraw('owner-1', {
+      amount: 25,
+      alipayAccount: 'owner@example.com',
+      alipayName: '李四',
+    }, 'owner-mixed');
+
+    expect(prisma.companyStaff.findFirst).toHaveBeenCalledWith({
+      where: { userId: 'owner-1', role: 'OWNER', status: 'ACTIVE' },
+      select: { id: true },
+    });
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'acc-vip', balance: { gte: 5 } },
+      data: { balance: { decrement: 5 }, frozen: { increment: 5 } },
+    }));
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-owner', balance: { gte: 10 } },
+      data: { balance: { decrement: 10 }, reserved: { increment: 10 } },
+    });
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'acc-industry', balance: { gte: 10 } },
+      data: { balance: { decrement: 10 }, frozen: { increment: 10 } },
+    }));
+  });
+
+  it('ignores stale industry fund rows for non-owner unified withdraws', async () => {
+    const { service, prisma } = buildService();
+    prisma.rewardAccount.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'acc-stale-industry', userId: 'u1', type: 'INDUSTRY_FUND', balance: 100, frozen: 0 });
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue(null);
+    prisma.companyStaff.findFirst.mockResolvedValue(null);
+    prisma.withdrawRequest.create.mockImplementation(async ({ data }: any) => data);
+    prisma.withdrawRequest.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        id: 'w-stale-industry',
+        userId: 'u1',
+        amount: 20,
+        taxAmount: 4,
+        netAmount: 16,
+        accountType: 'INDUSTRY_FUND',
+      });
+    prisma.rewardLedger.findMany.mockResolvedValue([
+      { accountId: 'acc-stale-industry', amount: 20 },
+    ]);
+
+    await expect(service.requestWithdraw('u1', {
+      amount: 20,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'non-owner-industry')).rejects.toThrow(BadRequestException);
+
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(prisma.groupBuyRebateAccount.updateMany).not.toHaveBeenCalled();
   });
 
   it('keeps PROCESSING and stores provider info when provider result is uncertain', async () => {
@@ -595,6 +846,50 @@ describe('WithdrawPayoutService.finalize', () => {
     expect(prisma.rewardLedger.updateMany).not.toHaveBeenCalled();
   });
 
+  it('marks a mixed unified withdrawal paid and releases both reward and group-buy balances', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-mixed-1',
+      userId: 'u1',
+      amount: 25,
+      netAmount: 20,
+      taxAmount: 5,
+      accountType: 'VIP_REWARD',
+    });
+    prisma.rewardLedger.findMany.mockResolvedValue([
+      { accountId: 'acc-vip', amount: 10 },
+    ]);
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([
+      { accountId: 'gba-1', amount: 15 },
+    ]);
+
+    await service.finalizeWithdrawalPaid('w-mixed-1', {
+      providerOrderId: 'po-1',
+      providerFundOrderId: 'pf-1',
+      providerStatus: 'SUCCESS',
+    });
+
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'acc-vip', frozen: { gte: 10 } },
+      data: { frozen: { decrement: 10 } },
+    });
+    expect(prisma.rewardLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-mixed-1', status: 'FROZEN' },
+      data: { status: 'WITHDRAWN' },
+    });
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-1', reserved: { gte: 15 } },
+      data: {
+        reserved: { decrement: 15 },
+        withdrawn: { increment: 15 },
+      },
+    });
+    expect(prisma.groupBuyRebateLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-mixed-1', status: 'RESERVED' },
+      data: { status: 'COMPLETED' },
+    });
+  });
+
   it('marks group-buy rebate withdrawal failed and restores reserved balance', async () => {
     const { service, prisma } = buildService();
     prisma.withdrawRequest.findUnique.mockResolvedValue({
@@ -626,6 +921,51 @@ describe('WithdrawPayoutService.finalize', () => {
     });
     expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
     expect(prisma.rewardLedger.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('marks a mixed unified withdrawal failed and restores both reward and group-buy balances', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-mixed-1',
+      userId: 'u1',
+      amount: 25,
+      accountType: 'VIP_REWARD',
+    });
+    prisma.rewardLedger.findMany.mockResolvedValue([
+      { accountId: 'acc-vip', amount: 10 },
+    ]);
+    prisma.groupBuyRebateLedger.findMany.mockResolvedValue([
+      { accountId: 'gba-1', amount: 15 },
+    ]);
+
+    await service.finalizeWithdrawalFailed('w-mixed-1', {
+      errorCode: 'PAYEE_NOT_EXIST',
+      errorMessage: '收款账户不存在',
+      providerStatus: 'FAIL',
+    });
+
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'acc-vip', frozen: { gte: 10 } },
+      data: {
+        frozen: { decrement: 10 },
+        balance: { increment: 10 },
+      },
+    });
+    expect(prisma.rewardLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-mixed-1', status: 'FROZEN' },
+      data: { status: 'VOIDED', entryType: 'VOID' },
+    });
+    expect(prisma.groupBuyRebateAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'gba-1', reserved: { gte: 15 } },
+      data: {
+        reserved: { decrement: 15 },
+        balance: { increment: 15 },
+      },
+    });
+    expect(prisma.groupBuyRebateLedger.updateMany).toHaveBeenCalledWith({
+      where: { refType: 'WITHDRAW', refId: 'w-mixed-1', status: 'RESERVED' },
+      data: { status: 'VOIDED' },
+    });
   });
 
   it('short-circuits repeated finalize calls through PROCESSING CAS', async () => {

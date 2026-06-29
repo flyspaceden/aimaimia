@@ -247,7 +247,7 @@ export class WithdrawPayoutService implements OnModuleInit {
     userId: string,
     amountCents: number,
   ): Promise<WithdrawSplit> {
-    // 优先级：VIP_REWARD → NORMAL_REWARD → INDUSTRY_FUND（产业基金最后扣）
+    // 统一消费积分提现优先级：VIP_REWARD → NORMAL_REWARD → GROUP_BUY_REBATE → OWNER INDUSTRY_FUND
     const vip = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'VIP_REWARD' as any } },
     });
@@ -257,11 +257,17 @@ export class WithdrawPayoutService implements OnModuleInit {
     const industry = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'INDUSTRY_FUND' as any } },
     });
+    const groupBuyRebate = await tx.groupBuyRebateAccount.findUnique({ where: { userId } });
+    const isSellerOwner = !!(await tx.companyStaff.findFirst({
+      where: { userId, role: 'OWNER' as any, status: 'ACTIVE' as any },
+      select: { id: true },
+    }));
 
     const vipBalanceCents = vip ? yuanToCents(vip.balance) : 0;
     const normalBalanceCents = normal ? yuanToCents(normal.balance) : 0;
-    const industryBalanceCents = industry ? yuanToCents(industry.balance) : 0;
-    if (vipBalanceCents + normalBalanceCents + industryBalanceCents < amountCents) {
+    const groupBuyRebateBalanceCents = groupBuyRebate ? yuanToCents(groupBuyRebate.balance) : 0;
+    const industryBalanceCents = industry && isSellerOwner ? yuanToCents(industry.balance) : 0;
+    if (vipBalanceCents + normalBalanceCents + groupBuyRebateBalanceCents + industryBalanceCents < amountCents) {
       throw new BadRequestException('余额不足');
     }
 
@@ -269,6 +275,8 @@ export class WithdrawPayoutService implements OnModuleInit {
     let remaining = amountCents - fromVipCents;
     const fromNormalCents = Math.min(normalBalanceCents, remaining);
     remaining -= fromNormalCents;
+    const fromGroupBuyRebateCents = Math.min(groupBuyRebateBalanceCents, remaining);
+    remaining -= fromGroupBuyRebateCents;
     const fromIndustryFundCents = Math.min(industryBalanceCents, remaining);
 
     if (fromVipCents > 0 && vip) {
@@ -299,6 +307,20 @@ export class WithdrawPayoutService implements OnModuleInit {
       }
     }
 
+    if (fromGroupBuyRebateCents > 0 && groupBuyRebate) {
+      const amount = centsToYuan(fromGroupBuyRebateCents);
+      const cas = await tx.groupBuyRebateAccount.updateMany({
+        where: { id: groupBuyRebate.id, balance: { gte: amount } },
+        data: {
+          balance: { decrement: amount },
+          reserved: { increment: amount },
+        },
+      });
+      if (cas.count !== 1) {
+        throw new BadRequestException('团购返还余额扣减并发失败，请重试');
+      }
+    }
+
     if (fromIndustryFundCents > 0 && industry) {
       const amount = centsToYuan(fromIndustryFundCents);
       const cas = await tx.rewardAccount.updateMany({
@@ -318,10 +340,13 @@ export class WithdrawPayoutService implements OnModuleInit {
       fromVipCents,
       fromNormalCents,
       fromIndustryFundCents,
-      fromGroupBuyRebateCents: 0,
+      fromGroupBuyRebateCents,
       vipAccountId: vip?.id,
       normalAccountId: normal?.id,
-      industryFundAccountId: industry?.id,
+      industryFundAccountId: isSellerOwner ? industry?.id : undefined,
+      groupBuyRebateAccountId: groupBuyRebate?.id,
+      groupBuyRebateBalanceBeforeCents: groupBuyRebateBalanceCents,
+      groupBuyRebateBalanceAfterCents: groupBuyRebateBalanceCents - fromGroupBuyRebateCents,
     };
   }
 
@@ -382,37 +407,11 @@ export class WithdrawPayoutService implements OnModuleInit {
       if (cas.count === 0) return null;
 
       const current = await tx.withdrawRequest.findUnique({ where: { id: withdrawId } });
-      if (this.resolveWithdrawSource(current) === 'GROUP_BUY_REBATE') {
-        const ledgers = await tx.groupBuyRebateLedger.findMany({
-          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
-        });
-
-        for (const ledger of ledgers) {
-          const release = await tx.groupBuyRebateAccount.updateMany({
-            where: { id: ledger.accountId, reserved: { gte: ledger.amount } },
-            data: {
-              reserved: { decrement: ledger.amount },
-              withdrawn: { increment: ledger.amount },
-            },
-          });
-          if (release.count !== 1) {
-            throw new InternalServerErrorException('团购返还余额提现冻结释放失败');
-          }
-        }
-
-        await tx.groupBuyRebateLedger.updateMany({
-          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
-          data: { status: 'COMPLETED' as any },
-        });
-
-        return current;
-      }
-
-      const ledgers = await tx.rewardLedger.findMany({
+      const rewardLedgers = await tx.rewardLedger.findMany({
         where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
       });
 
-      for (const ledger of ledgers) {
+      for (const ledger of rewardLedgers ?? []) {
         const release = await tx.rewardAccount.updateMany({
           where: { id: ledger.accountId, frozen: { gte: ledger.amount } },
           data: { frozen: { decrement: ledger.amount } },
@@ -422,10 +421,36 @@ export class WithdrawPayoutService implements OnModuleInit {
         }
       }
 
-      await tx.rewardLedger.updateMany({
-        where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
-        data: { status: 'WITHDRAWN' as any },
+      if ((rewardLedgers ?? []).length > 0) {
+        await tx.rewardLedger.updateMany({
+          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
+          data: { status: 'WITHDRAWN' as any },
+        });
+      }
+
+      const groupBuyLedgers = await tx.groupBuyRebateLedger.findMany({
+        where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
       });
+
+      for (const ledger of groupBuyLedgers ?? []) {
+        const release = await tx.groupBuyRebateAccount.updateMany({
+          where: { id: ledger.accountId, reserved: { gte: ledger.amount } },
+          data: {
+            reserved: { decrement: ledger.amount },
+            withdrawn: { increment: ledger.amount },
+          },
+        });
+        if (release.count !== 1) {
+          throw new InternalServerErrorException('团购返还余额提现冻结释放失败');
+        }
+      }
+
+      if ((groupBuyLedgers ?? []).length > 0) {
+        await tx.groupBuyRebateLedger.updateMany({
+          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
+          data: { status: 'COMPLETED' as any },
+        });
+      }
 
       return current;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -467,37 +492,11 @@ export class WithdrawPayoutService implements OnModuleInit {
       if (cas.count === 0) return null;
 
       const current = await tx.withdrawRequest.findUnique({ where: { id: withdrawId } });
-      if (this.resolveWithdrawSource(current) === 'GROUP_BUY_REBATE') {
-        const ledgers = await tx.groupBuyRebateLedger.findMany({
-          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
-        });
-
-        for (const ledger of ledgers) {
-          const restore = await tx.groupBuyRebateAccount.updateMany({
-            where: { id: ledger.accountId, reserved: { gte: ledger.amount } },
-            data: {
-              reserved: { decrement: ledger.amount },
-              balance: { increment: ledger.amount },
-            },
-          });
-          if (restore.count !== 1) {
-            throw new InternalServerErrorException('团购返还余额提现失败回滚失败');
-          }
-        }
-
-        await tx.groupBuyRebateLedger.updateMany({
-          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
-          data: { status: 'VOIDED' as any },
-        });
-
-        return current;
-      }
-
-      const ledgers = await tx.rewardLedger.findMany({
+      const rewardLedgers = await tx.rewardLedger.findMany({
         where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
       });
 
-      for (const ledger of ledgers) {
+      for (const ledger of rewardLedgers ?? []) {
         const restore = await tx.rewardAccount.updateMany({
           where: { id: ledger.accountId, frozen: { gte: ledger.amount } },
           data: {
@@ -510,10 +509,36 @@ export class WithdrawPayoutService implements OnModuleInit {
         }
       }
 
-      await tx.rewardLedger.updateMany({
-        where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
-        data: { status: 'VOIDED' as any, entryType: 'VOID' as any },
+      if ((rewardLedgers ?? []).length > 0) {
+        await tx.rewardLedger.updateMany({
+          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
+          data: { status: 'VOIDED' as any, entryType: 'VOID' as any },
+        });
+      }
+
+      const groupBuyLedgers = await tx.groupBuyRebateLedger.findMany({
+        where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
       });
+
+      for (const ledger of groupBuyLedgers ?? []) {
+        const restore = await tx.groupBuyRebateAccount.updateMany({
+          where: { id: ledger.accountId, reserved: { gte: ledger.amount } },
+          data: {
+            reserved: { decrement: ledger.amount },
+            balance: { increment: ledger.amount },
+          },
+        });
+        if (restore.count !== 1) {
+          throw new InternalServerErrorException('团购返还余额提现失败回滚失败');
+        }
+      }
+
+      if ((groupBuyLedgers ?? []).length > 0) {
+        await tx.groupBuyRebateLedger.updateMany({
+          where: { refType: 'WITHDRAW', refId: withdrawId, status: 'RESERVED' as any },
+          data: { status: 'VOIDED' as any },
+        });
+      }
 
       return current;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -724,12 +749,13 @@ export class WithdrawPayoutService implements OnModuleInit {
 
       const id = randomUUID();
       const outBizNo = `WD-${id}`;
-      // 主账户记录在 WithdrawRequest.accountType（用于管理后台筛选展示），优先级 VIP > NORMAL > INDUSTRY
+      // 主账户记录在 WithdrawRequest.accountType（用于管理后台筛选展示），优先级 VIP > NORMAL > GROUP_BUY > INDUSTRY
       const primaryAccountType = source === 'GROUP_BUY_REBATE'
         ? 'GROUP_BUY_REBATE'
         : split.fromVipCents > 0 ? 'VIP_REWARD'
           : split.fromNormalCents > 0 ? 'NORMAL_REWARD'
-            : 'INDUSTRY_FUND';
+            : split.fromGroupBuyRebateCents > 0 ? 'GROUP_BUY_REBATE'
+              : 'INDUSTRY_FUND';
       const created = await tx.withdrawRequest.create({
         data: {
           id,
@@ -800,13 +826,19 @@ export class WithdrawPayoutService implements OnModuleInit {
       return;
     }
 
-    // role 计算：SOLE / PRIMARY / SECONDARY / TERTIARY
-    const sourcesUsed = [
-      params.split.fromVipCents > 0,
-      params.split.fromNormalCents > 0,
-      params.split.fromIndustryFundCents > 0,
-    ].filter(Boolean).length;
+    const usedSources = [
+      params.split.fromVipCents > 0 ? 'VIP_REWARD' : null,
+      params.split.fromNormalCents > 0 ? 'NORMAL_REWARD' : null,
+      params.split.fromGroupBuyRebateCents > 0 ? 'GROUP_BUY_REBATE' : null,
+      params.split.fromIndustryFundCents > 0 ? 'INDUSTRY_FUND' : null,
+    ].filter(Boolean) as string[];
+    const roleFor = (accountType: string) => {
+      if (usedSources.length <= 1) return 'SOLE';
+      const index = usedSources.indexOf(accountType);
+      return ['PRIMARY', 'SECONDARY', 'TERTIARY', 'QUATERNARY'][index] ?? 'SECONDARY';
+    };
 
+    // role 计算：SOLE / PRIMARY / SECONDARY / TERTIARY / QUATERNARY
     if (params.split.fromVipCents > 0 && params.split.vipAccountId) {
       await tx.rewardLedger.create({
         data: {
@@ -822,7 +854,7 @@ export class WithdrawPayoutService implements OnModuleInit {
             groupId,
             outBizNo: params.outBizNo,
             accountType: 'VIP_REWARD',
-            role: sourcesUsed > 1 ? 'PRIMARY' : 'SOLE',
+            role: roleFor('VIP_REWARD'),
           },
         },
       });
@@ -843,7 +875,31 @@ export class WithdrawPayoutService implements OnModuleInit {
             groupId,
             outBizNo: params.outBizNo,
             accountType: 'NORMAL_REWARD',
-            role: params.split.fromVipCents > 0 ? 'SECONDARY' : 'PRIMARY',
+            role: roleFor('NORMAL_REWARD'),
+          },
+        },
+      });
+    }
+
+    if (params.split.fromGroupBuyRebateCents > 0 && params.split.groupBuyRebateAccountId) {
+      await tx.groupBuyRebateLedger.create({
+        data: {
+          accountId: params.split.groupBuyRebateAccountId,
+          userId: params.userId,
+          type: 'WITHDRAW' as any,
+          status: 'RESERVED' as any,
+          amount: centsToYuan(params.split.fromGroupBuyRebateCents),
+          balanceBefore: centsToYuan(params.split.groupBuyRebateBalanceBeforeCents ?? 0),
+          balanceAfter: centsToYuan(params.split.groupBuyRebateBalanceAfterCents ?? 0),
+          refType: 'WITHDRAW',
+          refId: params.withdrawId,
+          idempotencyKey: `POINTS_GROUP_BUY_WITHDRAW:${params.withdrawId}`,
+          meta: {
+            scheme: 'POINTS_WITHDRAW',
+            groupId,
+            outBizNo: params.outBizNo,
+            accountType: 'GROUP_BUY_REBATE',
+            role: roleFor('GROUP_BUY_REBATE'),
           },
         },
       });
@@ -864,7 +920,7 @@ export class WithdrawPayoutService implements OnModuleInit {
             groupId,
             outBizNo: params.outBizNo,
             accountType: 'INDUSTRY_FUND',
-            role: 'TERTIARY',
+            role: roleFor('INDUSTRY_FUND'),
           },
         },
       });
@@ -882,7 +938,10 @@ export class WithdrawPayoutService implements OnModuleInit {
     const sameUser = existing.userId === userId;
     const sameAmount = yuanToCents(existing.amount) === amountCents;
     const sameAccount = snapshot.account === input.alipayAccount;
-    const sameSource = this.resolveWithdrawSource(existing) === source;
+    const existingSource = this.resolveWithdrawSource(existing);
+    const sameSource = source === 'REWARD'
+      ? existingSource === 'REWARD' || existingSource === 'GROUP_BUY_REBATE'
+      : existingSource === source;
     if (!sameUser || !sameAmount || !sameAccount || !sameSource) {
       throw new ConflictException('Idempotency-Key conflict: existing request differs');
     }
