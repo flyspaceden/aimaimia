@@ -34,10 +34,13 @@ export type NotificationAction = {
   params?: Record<string, string>;
 };
 
-export type NotificationMessageDraft = {
+export type NotificationRecipient = {
   recipientKind: NotificationRecipientKind;
   recipientKey: string;
   audience: NotificationAudience;
+};
+
+export type NotificationMessageDraft = NotificationRecipient & {
   category: string;
   eventType: string;
   title: string;
