@@ -14,43 +14,61 @@ describe('GroupBuyRebateService', () => {
     { sequence: 3, basisPoints: 7000, label: '第三位好友' },
   ];
 
-  const buildReferral = (overrides: Record<string, any> = {}) => ({
-    id: 'referral_1',
-    status: 'CANDIDATE',
-    instanceId: 'instance_1',
-    referredOrderId: 'order_1',
-    candidateSequence: 1,
-    effectiveSequence: null,
-    referredInstanceId: 'referred_instance_1',
-    referredOrder: {
-      id: 'order_1',
-      status: 'RECEIVED',
-      returnWindowExpiresAt: new Date('2026-06-20T00:00:00.000Z'),
-      afterSaleRequests: [],
-      refunds: [],
-    },
-    instance: {
-      id: 'instance_1',
-      userId: 'initiator_1',
-      status: 'SHARING',
-      activity: {
-        id: 'activity_1',
-        status: 'ACTIVE',
-        endAt: new Date('2026-07-01T00:00:00.000Z'),
-        deletedAt: null,
+  const buildReferral = (overrides: Record<string, any> = {}) => {
+    const base = {
+      id: 'referral_1',
+      status: 'CANDIDATE',
+      instanceId: 'instance_1',
+      referredOrderId: 'order_1',
+      candidateSequence: 1,
+      effectiveSequence: null,
+      referredInstanceId: 'referred_instance_1',
+      referredOrder: {
+        id: 'order_1',
+        status: 'RECEIVED',
+        returnWindowExpiresAt: new Date('2026-06-20T00:00:00.000Z'),
+        afterSaleRequests: [],
+        refunds: [],
       },
-      priceSnapshot: 1000,
-      tierSnapshot,
-      validReferralCount: 0,
-      code: { id: 'code_1', status: 'ACTIVE' },
-    },
-    referredInstance: {
-      id: 'referred_instance_1',
-      priceSnapshot: 1000,
-      tierSnapshot,
-    },
-    ...overrides,
-  });
+      instance: {
+        id: 'instance_1',
+        userId: 'initiator_1',
+        status: 'SHARING',
+        activity: {
+          id: 'activity_1',
+          status: 'ACTIVE',
+          endAt: new Date('2026-07-01T00:00:00.000Z'),
+          deletedAt: null,
+        },
+        priceSnapshot: 1000,
+        tierSnapshot,
+        validReferralCount: 0,
+        code: { id: 'code_1', status: 'ACTIVE' },
+      },
+      referredInstance: {
+        id: 'referred_instance_1',
+        priceSnapshot: 1000,
+        tierSnapshot,
+      },
+    };
+
+    return {
+      ...base,
+      ...overrides,
+      referredOrder: {
+        ...base.referredOrder,
+        ...(overrides.referredOrder ?? {}),
+      },
+      instance: {
+        ...base.instance,
+        ...(overrides.instance ?? {}),
+      },
+      referredInstance: {
+        ...base.referredInstance,
+        ...(overrides.referredInstance ?? {}),
+      },
+    };
+  };
 
   const buildPrisma = (overrides: Record<string, any> = {}) => {
     const referral = buildReferral(overrides.referral);

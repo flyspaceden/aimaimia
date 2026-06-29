@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -13,10 +14,11 @@ import {
   SkuStatus,
 } from '@prisma/client';
 
-import { encryptJsonValue } from '../../common/security/encryption';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
+import { encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { GroupBuyCheckoutDto } from './dto/group-buy-checkout.dto';
 
@@ -40,11 +42,15 @@ type CheckoutGroupBuyActivityItem = {
 
 @Injectable()
 export class GroupBuyCheckoutService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bonusConfig: BonusConfigService,
+  ) {}
 
   private alipayService: any = null;
   private wechatPayService: any = null;
   private shippingRuleService: any = null;
+  private readonly logger = new Logger(GroupBuyCheckoutService.name);
 
   private readonly serializableTransactionOptions = {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -230,6 +236,25 @@ export class GroupBuyCheckoutService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const activeSession = await tx.checkoutSession.findFirst({
+        where: {
+          userId,
+          bizType: 'GROUP_BUY',
+          status: 'ACTIVE',
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (activeSession) {
+        if (dto.idempotencyKey && activeSession.idempotencyKey === dto.idempotencyKey) {
+          return this.toCheckoutResponse(activeSession);
+        }
+        throw new ConflictException({
+          code: 'PENDING_GROUP_BUY_CHECKOUT_EXISTS',
+          message: '你有未完成的团购付款，请先完成支付或取消',
+        });
+      }
+
       const activity = await tx.groupBuyActivity.findUnique({
         where: { id: dto.activityId },
         include: {
@@ -523,9 +548,6 @@ export class GroupBuyCheckoutService {
     activityItems: CheckoutGroupBuyActivityItem[],
   ) {
     if (activity.freeShipping) return 0;
-    if (!this.shippingRuleService?.calculateShippingDetail) {
-      throw new BadRequestException('团购运费服务暂不可用，请稍后重试');
-    }
 
     const totalWeight = activityItems.reduce((sum, item) => {
       const weightGram = Number(item.sku?.weightGram ?? DEFAULT_SKU_WEIGHT_GRAM);
@@ -534,17 +556,27 @@ export class GroupBuyCheckoutService {
         : DEFAULT_SKU_WEIGHT_GRAM;
       return sum + safeWeight * item.quantity;
     }, 0);
-    const detail = await this.shippingRuleService.calculateShippingDetail(
-      Number(activity.price ?? 0),
-      address.regionCode,
-      totalWeight,
-      tx,
-    );
-    const fee = Number(detail?.fee);
-    if (!Number.isFinite(fee) || fee < 0) {
-      throw new BadRequestException('团购运费计算失败，请稍后重试');
+
+    if (this.shippingRuleService?.calculateShippingDetail) {
+      try {
+        const detail = await this.shippingRuleService.calculateShippingDetail(
+          Number(activity.price ?? 0),
+          address.regionCode,
+          totalWeight,
+          tx,
+        );
+        const fee = Number(detail?.fee);
+        if (Number.isFinite(fee) && fee >= 0) {
+          return Number(fee.toFixed(2));
+        }
+        throw new Error('calculateShippingDetail returned invalid fee');
+      } catch (err: any) {
+        this.logger.warn(`团购运费规则计算失败，降级为默认运费: ${err.message}`);
+      }
     }
-    return Number(fee.toFixed(2));
+
+    const sysConfig = await this.bonusConfig.getSystemConfig();
+    return Number((sysConfig.defaultShippingFee ?? 0).toFixed(2));
   }
 
   private buildItemsSnapshot(

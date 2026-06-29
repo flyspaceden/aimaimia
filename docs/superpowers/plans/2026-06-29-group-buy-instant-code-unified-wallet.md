@@ -872,7 +872,7 @@ Verified: `npx jest src/utils/__tests__/groupBuyOrderRules.test.ts --runInBand` 
 - Add script entry in `backend/package.json` if desired: `"group-buy:backfill-instant-codes": "ts-node scripts/backfill-group-buy-instant-codes.ts"`
 - Create `backend/src/modules/group-buy/backfill-group-buy-instant-codes.spec.ts` if logic is extracted.
 
-- [ ] **Step 1: Build dry-run script**
+- [x] **Step 1: Build dry-run script**
 
 Script must dry-run by default and require `--execute` to write.
 
@@ -883,7 +883,7 @@ Dry-run report:
 - count of received referrals that can release immediately
 - count of skipped invalid/refunded/after-sale records
 
-- [ ] **Step 2: Write mode**
+- [x] **Step 2: Write mode**
 
 In `--execute` mode, in Serializable batches:
 
@@ -892,7 +892,7 @@ In `--execute` mode, in Serializable batches:
 - Release eligible received referrals immediately by calling the same service path as order receive.
 - Never overwrite an existing code.
 
-- [ ] **Step 3: Add script test or documented smoke command**
+- [x] **Step 3: Add script test or documented smoke command**
 
 If extracted helper is practical:
 

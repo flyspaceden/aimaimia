@@ -399,3 +399,7 @@
 | GB05 | 团购返还余额重复入账或抵扣 | 🔴 HIGH | 团购返还账户写入收口到 `GroupBuyRebateService` / `GroupBuyRebateDeductionService`；释放流水使用 `GROUP_BUY_REBATE:<referralId>` 幂等键，抵扣预占/确认/释放/退款走独立 ledger 和 groupId。 | ✅ 已检查 |
 | GB06 | 后台展示形成多层关系或敏感导向 | 🟡 MEDIUM | App 和管理后台只展示本人直接推荐记录、团购记录和流水；不展示二级关系链、排行榜或团队图。文案扫描未发现团购新增文件包含合规禁用词。 | ✅ 已检查 |
 | GB07 | 统一消费积分提现与旧团购提现串线 | 🔴 HIGH | `/bonus/withdraw` 可自动拆 Reward / GroupBuyRebate / IndustryFund，旧团购返还提现入口仍兼容。`WithdrawRequest.accountSnapshot.source` 标记 `UNIFIED_POINTS` 或 `GROUP_BUY_REBATE_LEGACY`，钱包提现历史、旧团购提现历史和 Idempotency-Key 冲突判断均按来源区分；扣款和失败恢复仍在 Serializable 事务内按各自 ledger 回滚。 | ✅ 已检查 |
+| GB08 | ACTIVE 团购待支付会话绕过单团约束 | 🟠 HIGH | 审查发现用户已创建团购支付会话但尚未付款时，还没有 `GroupBuyInstance` 占位，可能再次创建新的团购 checkout。已修：`GroupBuyCheckoutService.createCheckout` 在 Serializable 事务内检查同用户 ACTIVE 且未过期的 `GROUP_BUY` CheckoutSession；同幂等键返回原会话，不同幂等键拒绝。 | ✅ 已修复 |
+| GB09 | 推荐码容量竞态导致已付款订单回滚 | 🔴 CRITICAL | 审查发现被推荐人付款前推荐码仍可能被其他付款占满，原支付回调会在创建 `GroupBuyReferral` 前抛错并回滚已付款订单。已修：支付回调保留买家的团购订单、团购实例和本人分享码；推荐码失效/满额/档位异常时只跳过本次推荐返还并记录日志。 | ✅ 已修复 |
+| GB10 | 非包邮团购运费少收 | 🔴 HIGH | 审查发现后台活动可配置“非包邮/按配置运费”，但真实团购 checkout 无论是否包邮都写 0 运费。已修：包邮活动仍为 0，非包邮团购按地址地区与 SKU 重量调用平台 `ShippingRuleService.calculateShippingDetail`，失败时降级为系统默认运费，并锁定到 checkout/order 快照。 | ✅ 已修复 |
+| GB11 | 历史 `QUALIFICATION_PENDING` 团购实例无法分享 | 🟠 HIGH | 审查发现新订单付款即生成码已满足，但历史已付款待生成码实例缺少上线补偿脚本。已修：新增 `group-buy:backfill-instant-codes`，默认 dry-run，`--execute` 写入；在 Serializable 批次内为合格历史实例生成 ACTIVE 码并切到 `SHARING`，同时补缺失 `PENDING_REBATE` 并对已收货推荐调用现有释放逻辑，重复执行不覆盖现有码或重复记账。 | ✅ 已修复 |

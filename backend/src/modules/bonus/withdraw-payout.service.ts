@@ -948,9 +948,10 @@ export class WithdrawPayoutService implements OnModuleInit {
     const sameUser = existing.userId === userId;
     const sameAmount = yuanToCents(existing.amount) === amountCents;
     const sameAccount = snapshot.account === input.alipayAccount;
+    const sameName = snapshot.name === input.alipayName;
     const existingSource = this.resolveWithdrawSource(existing);
     const sameSource = existingSource === source;
-    if (!sameUser || !sameAmount || !sameAccount || !sameSource) {
+    if (!sameUser || !sameAmount || !sameAccount || !sameName || !sameSource) {
       throw new ConflictException('Idempotency-Key conflict: existing request differs');
     }
   }

@@ -92,7 +92,15 @@ describe('GroupBuyCheckoutService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
       },
     };
-    return { prisma, tx, service: new (GroupBuyCheckoutService as any)(prisma) as GroupBuyCheckoutService };
+    const bonusConfig = {
+      getSystemConfig: jest.fn().mockResolvedValue({ defaultShippingFee: 8 }),
+    };
+    return {
+      prisma,
+      tx,
+      bonusConfig,
+      service: new (GroupBuyCheckoutService as any)(prisma, bonusConfig) as GroupBuyCheckoutService,
+    };
   };
 
   it('rejects reward deduction and coupon fields because group-buy checkout is cash-only', async () => {
@@ -164,6 +172,17 @@ describe('GroupBuyCheckoutService', () => {
 
     await expect(service.createCheckout('user_1', dto as any))
       .rejects.toThrow('团购活动结束时间配置异常');
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects checkout when the user already has an active group-buy checkout session', async () => {
+    const { tx, service } = buildPrisma();
+    tx.checkoutSession.findFirst.mockResolvedValueOnce({
+      id: 'session_existing',
+      idempotencyKey: 'other_idempotency_key',
+    });
+
+    await expect(service.createCheckout('user_1', dto as any)).rejects.toBeInstanceOf(ConflictException);
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });
 
@@ -816,7 +835,7 @@ describe('CheckoutService group-buy payment success integration', () => {
     expect(result.orderIds).toEqual(['order_1']);
     expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        status: 'QUALIFICATION_PENDING',
+        status: 'SHARING',
       }),
     }));
     expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -954,7 +973,7 @@ describe('CheckoutService group-buy payment success integration', () => {
     expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         userId: 'user_1',
-        status: 'QUALIFICATION_PENDING',
+        status: 'SHARING',
       }),
     }));
     expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -1035,7 +1054,7 @@ describe('CheckoutService group-buy payment success integration', () => {
     expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
   });
 
-  it('uses referrer tier snapshot length for payment-time referral capacity', async () => {
+  it('uses referrer tier snapshot length when recording a full-slot referral audit at payment time', async () => {
     const { service, tx } = buildCheckoutHarness({
       groupBuyCodeId: 'code_1',
       referredByInstanceId: 'referrer_instance_1',
@@ -1047,15 +1066,35 @@ describe('CheckoutService group-buy payment success integration', () => {
     });
     tx.groupBuyInstance.findUnique.mockResolvedValueOnce({
       id: 'referrer_instance_1',
+      status: 'SHARING',
+      activity: {
+        id: 'activity_1',
+        status: 'ACTIVE',
+        startAt: null,
+        endAt: new Date('2099-06-01T00:00:00.000Z'),
+        deletedAt: null,
+      },
       tierSnapshot: [
         { sequence: 1, basisPoints: 1000, label: '推荐人第一档' },
         { sequence: 2, basisPoints: 2000, label: '推荐人第二档' },
       ],
     });
-    tx.groupBuyReferral.count.mockResolvedValueOnce(2);
+    tx.groupBuyReferral.findMany.mockResolvedValueOnce([
+      { candidateSequence: 1 },
+      { candidateSequence: 2 },
+    ]);
 
-    await expect(service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1'))
-      .rejects.toThrow('团购推荐码名额已满');
-    expect(tx.groupBuyReferral.create).not.toHaveBeenCalled();
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.groupBuyReferral.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'INVALID',
+        candidateSequence: null,
+        effectiveSequence: null,
+        invalidReason: 'SLOT_FULL_AFTER_PAYMENT',
+      }),
+    }));
+    expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
   });
 });
