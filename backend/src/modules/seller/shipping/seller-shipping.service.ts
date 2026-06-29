@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -16,6 +17,7 @@ import { decryptJsonValue } from '../../../common/security/encryption';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
 import { UploadService } from '../../upload/upload.service';
+import { InboxService } from '../../inbox/inbox.service';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 
@@ -48,6 +50,7 @@ type WaybillGenerationMarker = {
 
 type WaybillGenerationContext = {
   orderId: string;
+  userId: string;
   companyId: string;
   shipmentId: string;
   marker: WaybillGenerationMarker;
@@ -72,6 +75,7 @@ export class SellerShippingService {
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
     private shippingCost: OrderShippingCostService,
+    @Optional() private inboxService?: InboxService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -209,6 +213,7 @@ export class SellerShippingService {
       );
     } catch (error) {
       await this.clearWaybillGenerationMarker(context);
+      await this.notifyBuyerForReceiverInfoError(context, error);
       throw error;
     }
 
@@ -335,6 +340,7 @@ export class SellerShippingService {
 
       return {
         orderId,
+        userId: order.userId,
         companyId,
         shipmentId,
         marker,
@@ -405,6 +411,38 @@ export class SellerShippingService {
     } catch (err: any) {
       this.logger.warn(`面单生成最终持久化失败，且远端取消失败: ${err.message}`);
       await this.markWaybillGenerationFailed(context, waybillResult, err);
+    }
+  }
+
+  private isReceiverContactError(error: any): boolean {
+    const message = String(error?.message || '');
+    if (!message) return false;
+    if (/寄方|寄件|发件|sender|商家|企业/.test(message)) return false;
+    return /对方.*(电话|手机).*不合法|收(件|方).*(电话|手机).*不合法|receiver.*(phone|tel)/i.test(message);
+  }
+
+  private async notifyBuyerForReceiverInfoError(
+    context: WaybillGenerationContext,
+    error: any,
+  ): Promise<void> {
+    if (!this.inboxService?.send || !this.isReceiverContactError(error)) return;
+
+    try {
+      await this.inboxService.send({
+        userId: context.userId,
+        category: 'transaction',
+        type: 'order_receiver_info_required',
+        title: '请修改收货信息',
+        content: '商家发货时发现收货手机号无法生成快递面单，请修改收货信息。修改前商家无法发货。',
+        target: {
+          route: '/orders/[id]',
+          params: { id: context.orderId },
+        },
+      });
+    } catch (notifyError: any) {
+      this.logger.warn(
+        `收货信息纠错通知发送失败: orderId=${context.orderId}, error=${notifyError?.message || notifyError}`,
+      );
     }
   }
 

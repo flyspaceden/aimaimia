@@ -11,7 +11,8 @@ import {
   maskAddressSnapshot,
   maskTrackingNo,
 } from '../../common/security/privacy-mask';
-import { decryptJsonValue } from '../../common/security/encryption';
+import { decryptJsonValue, encryptJsonValue } from '../../common/security/encryption';
+import { parseChineseAddress } from '../../common/utils/parse-region';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import {
@@ -26,6 +27,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { ProductBundleService } from '../product/product-bundle.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -729,6 +731,77 @@ export class OrderService {
       ...order,
       invoiceEligible: this.computeInvoiceEligible(order, allowVipPackage),
     }, companyMap);
+  }
+
+  async updateReceiverInfo(
+    id: string,
+    userId: string,
+    dto: UpdateOrderReceiverInfoDto,
+  ) {
+    const snapshot = this.buildReceiverInfoSnapshot(dto);
+
+    await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id } });
+      if (!order) throw new NotFoundException('订单未找到');
+      if (order.userId !== userId) throw new NotFoundException('订单未找到');
+
+      if ((order.bizType || 'NORMAL_GOODS') !== 'NORMAL_GOODS') {
+        throw new BadRequestException('当前订单类型不支持修改收货信息');
+      }
+      if (order.status !== 'PAID') {
+        throw new BadRequestException('当前订单状态不支持修改收货信息');
+      }
+
+      const shipments = await tx.shipment.findMany({
+        where: { orderId: id },
+        select: { waybillNo: true },
+      });
+      if (shipments.some((shipment) => Boolean(shipment.waybillNo))) {
+        throw new BadRequestException('订单已生成面单，无法修改收货信息');
+      }
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          addressSnapshot: encryptJsonValue(snapshot) as Prisma.InputJsonValue,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    return this.getById(id, userId);
+  }
+
+  private buildReceiverInfoSnapshot(dto: UpdateOrderReceiverInfoDto) {
+    const recipientName = dto.recipientName.trim();
+    const phone = dto.phone.trim();
+    const regionCode = dto.regionCode.trim();
+    const regionText = dto.regionText.trim();
+    const detail = dto.detail.trim();
+
+    if (!recipientName) {
+      throw new BadRequestException('收件人不能为空');
+    }
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      throw new BadRequestException('请输入正确的手机号');
+    }
+    if (!regionCode || !regionText) {
+      throw new BadRequestException('请选择省/市/区');
+    }
+    if (!detail) {
+      throw new BadRequestException('请输入详细地址');
+    }
+
+    const region = parseChineseAddress(regionText);
+    return {
+      recipientName,
+      phone,
+      regionCode,
+      regionText,
+      province: region.province,
+      city: region.city,
+      district: region.district,
+      detail,
+    };
   }
 
   private repurchaseTitle(item: any): string {
@@ -2796,9 +2869,14 @@ export class OrderService {
             .join(' '),
         }
       : null;
+    const receiverInfoEditable =
+      (order.bizType || 'NORMAL_GOODS') === 'NORMAL_GOODS' &&
+      order.status === 'PAID' &&
+      !(order.shipments || []).some((shipment: any) => Boolean(shipment.waybillNo));
 
     return {
       ...base,
+      receiverInfoEditable,
       addressSnapshot,
       addressSnapshotMasked,
       address,

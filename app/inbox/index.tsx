@@ -67,6 +67,7 @@ const iconMap: Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neu
   new_order: { name: 'package-variant', tone: 'brand' },
   stock_shortage: { name: 'alert-circle-outline', tone: 'accent' },
   vip_activated: { name: 'crown-outline', tone: 'brand' },
+  order_receiver_info_required: { name: 'map-marker-alert-outline', tone: 'accent' },
 };
 
 export default function InboxScreen() {

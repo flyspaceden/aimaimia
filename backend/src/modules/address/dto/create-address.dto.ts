@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -17,6 +18,7 @@ export class CreateAddressDto {
   receiverName?: string;
 
   @IsString({ message: 'phone 必须为字符串' })
+  @Matches(/^1[3-9]\d{9}$/, { message: '请输入正确的手机号' })
   @MaxLength(20, { message: 'phone 不能超过 20 个字符' })
   phone: string;
 

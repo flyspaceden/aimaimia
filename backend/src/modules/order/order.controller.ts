@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, GoneException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, GoneException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CheckoutService } from './checkout.service';
 import { PaymentService } from '../payment/payment.service';
@@ -7,6 +7,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { AfterSaleDto } from './dto/after-sale.dto';
+import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 import { AfterSaleService } from '../after-sale/after-sale.service';
 import { Throttle } from '@nestjs/throttler';
 
@@ -144,6 +145,15 @@ export class OrderController {
     @Param('id') id: string,
   ) {
     return this.orderService.repurchase(id, userId);
+  }
+
+  @Patch(':id/receiver-info')
+  updateReceiverInfo(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderReceiverInfoDto,
+  ) {
+    return this.orderService.updateReceiverInfo(id, userId, dto);
   }
 
   @Get(':id')

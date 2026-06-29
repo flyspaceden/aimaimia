@@ -266,6 +266,10 @@ export default function OrderDetailScreen() {
   const addrPhone = addr?.recipientPhone || addr?.phone || '';
   const addrFullText = addr?.fullAddress
     || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
+  const canEditReceiverInfo = Boolean(order.receiverInfoEditable);
+  const openReceiverInfoEditor = () => {
+    router.push({ pathname: '/orders/receiver-info/[id]' as any, params: { id: order.id } });
+  };
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -342,6 +346,34 @@ export default function OrderDetailScreen() {
               recipientPhone={addrPhone}
               fullAddress={addrFullText}
             />
+            {canEditReceiverInfo ? (
+              <Pressable
+                onPress={openReceiverInfoEditor}
+                style={[
+                  styles.receiverInfoAction,
+                  {
+                    borderColor: colors.gold.primary,
+                    backgroundColor: colors.gold.light,
+                    borderRadius: radius.md,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="map-marker-alert-outline"
+                  size={18}
+                  color={colors.gold.primary}
+                />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>
+                    修改收货信息
+                  </Text>
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                    发货前可修正收货人、手机号和地址
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -403,4 +435,12 @@ export default function OrderDetailScreen() {
 const styles = StyleSheet.create({
   section: { padding: 12, marginTop: 8 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', padding: 12, marginTop: 8 },
+  receiverInfoAction: {
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
 });
