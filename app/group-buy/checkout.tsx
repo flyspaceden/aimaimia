@@ -572,6 +572,9 @@ export default function GroupBuyCheckoutScreen() {
           <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.sm }]}>
             团购商品仅支持现金支付，不可使用消费积分、平台红包或团购返还余额抵扣。
           </Text>
+          <Text style={[typography.caption, { color: colors.text.tertiary, marginTop: spacing.xs }]}>
+            支付成功后立即生成团购推荐码；商品不支持退换货，收货后24小时内质量问题可联系客服补发。
+          </Text>
         </View>
       </ScrollView>
 

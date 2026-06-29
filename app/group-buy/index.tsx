@@ -212,7 +212,7 @@ export default function GroupBuyIndexScreen() {
             当前团购商品
           </Text>
           <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-            购买指定商品后，符合条件时可获得专属推荐码。
+            购买指定商品付款后，会立即生成专属推荐码。
           </Text>
         </View>
         <View style={[styles.countPill, { backgroundColor: GROUP_BUY_COLORS.porcelain, borderColor: GROUP_BUY_COLORS.mist }]}>
@@ -289,6 +289,13 @@ export default function GroupBuyIndexScreen() {
             <MaterialCommunityIcons name="ticket-percent-outline" size={34} color={GROUP_BUY_COLORS.tide} />
           </View>
         </LinearGradient>
+
+        <View style={[styles.complianceBar, { borderColor: GROUP_BUY_COLORS.mist, backgroundColor: colors.surface }]}>
+          <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
+          <Text style={[typography.caption, styles.complianceText, { color: colors.text.secondary }]}>
+            仅一级直接推荐；好友付款后返还冻结，确认收货后释放；团购不退换，仅24小时质量问题补发。
+          </Text>
+        </View>
 
         {hasCurrent ? (
           <View style={[styles.segment, { backgroundColor: GROUP_BUY_COLORS.mist }]}>
@@ -394,6 +401,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 14,
+  },
+  complianceBar: {
+    borderWidth: 1,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    gap: 8,
+  },
+  complianceText: {
+    flex: 1,
+    minWidth: 0,
   },
   segment: {
     borderRadius: 8,

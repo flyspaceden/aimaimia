@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -15,11 +15,12 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AuthModal } from '../../src/components/overlay';
 import { GROUP_BUY_COLORS, GroupBuyPurchaseGuardSheet } from '../../src/components/group-buy';
+import { Countdown } from '../../src/components/ui/Countdown';
 import { GroupBuyRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
-import { buildGroupBuyActivityRules } from '../../src/utils/groupBuyRules';
+import { getGroupBuyCountdownState } from '../../src/utils/groupBuyCountdown';
 import { getGroupBuyLowStockText } from '../../src/utils/groupBuyStockDisplay';
 import type { GroupBuyActivity, GroupBuyCurrentState } from '../../src/types';
 
@@ -74,11 +75,16 @@ export default function GroupBuyActivityDetailScreen() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [guardOpen, setGuardOpen] = useState(false);
+  const [clockState, setClockState] = useState(() => getGroupBuyCountdownState(null));
 
   const activityQuery = useQuery({
     queryKey: ['group-buy-activity', activityId],
     queryFn: () => GroupBuyRepo.getActivity(String(activityId)),
     enabled: Boolean(activityId),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const currentQuery = useQuery({
@@ -94,11 +100,23 @@ export default function GroupBuyActivityDetailScreen() {
   const activity = activityQuery.data?.ok ? activityQuery.data.data : null;
   const currentState = currentQuery.data?.ok ? currentQuery.data.data : emptyCurrentState;
   const current = currentState.current;
+  const activityNotStarted = Boolean(activity?.startAt && new Date(activity.startAt).getTime() > Date.now());
+  const activityPaused = activity?.status === 'PAUSED';
+  const activityEnded = activity?.status === 'ENDED' || clockState.expired;
+  const activityUnavailable = activityNotStarted || activityPaused || activityEnded;
+  const countdownUrgent = Boolean(activity && !activityUnavailable && clockState.urgent);
 
-  const rules = useMemo(
-    () => buildGroupBuyActivityRules(activity?.tiers.length ?? 0),
-    [activity?.tiers.length],
-  );
+  const rules = useMemo(() => [
+    '付款成功后立即生成专属团购推荐码，可直接分享。',
+    '仅统计直接推荐的全新用户购买同款商品，好友付款后返还先冻结，确认收货后释放。',
+    '团购商品不支持退换货或退款；收货后24小时内如有质量问题，请联系客服补发。',
+    '返还货款按活动设定规则处理，运费和任何优惠不计入返还。',
+    '无法保证一定推荐满指定人数，未达标不产生对应返还。',
+  ], []);
+
+  useEffect(() => {
+    setClockState(getGroupBuyCountdownState(activity?.endAt));
+  }, [activity?.id, activity?.endAt]);
 
   const endMutation = useMutation({
     mutationFn: async ({ mode, instanceId }: EndCurrentInput) => {
@@ -130,6 +148,18 @@ export default function GroupBuyActivityDetailScreen() {
 
   const handleCheckoutPress = () => {
     if (!activity) return;
+    if (activityPaused) {
+      show({ message: '团购活动已暂停', type: 'info' });
+      return;
+    }
+    if (activityNotStarted) {
+      show({ message: '团购活动未开始', type: 'info' });
+      return;
+    }
+    if (activityEnded) {
+      show({ message: '团购活动已结束', type: 'info' });
+      return;
+    }
     if ((activity.availableStock ?? activity.sku.stock) <= 0) {
       show({ message: '该团购商品暂无库存', type: 'info' });
       return;
@@ -143,6 +173,21 @@ export default function GroupBuyActivityDetailScreen() {
       return;
     }
     navigateToCheckout(activity);
+  };
+
+  const handleActivityExpire = () => {
+    setClockState({ expired: true, urgent: false });
+    void Promise.all([
+      activityQuery.refetch(),
+      isLoggedIn ? currentQuery.refetch() : Promise.resolve(),
+    ]);
+  };
+
+  const handleCountdownTick = (remainingMs: number) => {
+    setClockState({
+      expired: remainingMs <= 0,
+      urgent: remainingMs > 0 && remainingMs < 24 * 60 * 60 * 1000,
+    });
   };
 
   const handleEndAndBuy = async () => {
@@ -215,7 +260,16 @@ export default function GroupBuyActivityDetailScreen() {
   const activityDescription = activity.description?.trim();
   const activityItems = getActivityItems(activity);
   const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
-  const availableStock = activity.availableStock ?? activity.sku.stock;
+  const availableStock = activityUnavailable ? 0 : activity.availableStock ?? activity.sku.stock;
+  const ctaLabel = activityPaused
+    ? '活动已暂停'
+    : activityNotStarted
+      ? '活动未开始'
+      : activityEnded
+        ? '活动已结束'
+        : availableStock > 0
+          ? '去付款'
+          : '暂无库存';
 
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
@@ -279,6 +333,48 @@ export default function GroupBuyActivityDetailScreen() {
                 </Text>
               </View>
             </View>
+            {activity.endAt ? (
+              <View
+                style={[
+                  styles.countdownNotice,
+                  {
+                    backgroundColor: countdownUrgent ? '#FFF1EC' : GROUP_BUY_COLORS.porcelain,
+                    borderColor: countdownUrgent ? `${GROUP_BUY_COLORS.coral}66` : GROUP_BUY_COLORS.mist,
+                    marginTop: spacing.md,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={countdownUrgent ? 'timer-alert-outline' : 'clock-outline'}
+                  size={15}
+                  color={activityUnavailable ? GROUP_BUY_COLORS.inkSoft : countdownUrgent ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.tide}
+                />
+                {activityUnavailable ? (
+                  <Text {...compactActionTextProps} style={[typography.caption, styles.countdownText, { color: GROUP_BUY_COLORS.inkSoft }]}>
+                    {activityPaused
+                      ? '活动已暂停，暂时无法购买本团购商品'
+                      : activityNotStarted
+                        ? '活动未开始，暂时无法购买本团购商品'
+                        : '活动已结束，无法继续购买本团购商品'}
+                  </Text>
+                ) : (
+                  <Countdown
+                    expiresAt={activity.endAt}
+                    format="days-hours-minutes"
+                    prefix={countdownUrgent ? '活动即将结束' : '活动剩余'}
+                    onExpire={handleActivityExpire}
+                    onTick={handleCountdownTick}
+                    {...compactActionTextProps}
+                    style={[
+                      typography.caption,
+                      styles.countdownText,
+                      countdownUrgent && styles.countdownTextUrgent,
+                      { color: countdownUrgent ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.tide },
+                    ]}
+                  />
+                )}
+              </View>
+            ) : null}
             <View style={[styles.metaLine, { borderTopColor: colors.border }]}>
               <Text style={[typography.caption, { color: colors.text.secondary }]}>
                 {activity.shippingSummary}
@@ -382,17 +478,17 @@ export default function GroupBuyActivityDetailScreen() {
         </View>
         <Pressable
           onPress={handleCheckoutPress}
-          disabled={availableStock <= 0}
+          disabled={availableStock <= 0 || activityUnavailable}
           style={[
             styles.cta,
             {
               borderRadius: radius.pill,
-              backgroundColor: availableStock > 0 ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
+              backgroundColor: availableStock > 0 && !activityUnavailable ? GROUP_BUY_COLORS.pine : colors.bgSecondary,
             },
           ]}
         >
-          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: availableStock > 0 ? '#FFFFFF' : colors.muted }]}>
-            {availableStock > 0 ? '去付款' : '暂无库存'}
+          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: availableStock > 0 && !activityUnavailable ? '#FFFFFF' : colors.muted }]}>
+            {ctaLabel}
           </Text>
         </Pressable>
       </View>
@@ -470,6 +566,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
+  },
+  countdownNotice: {
+    minHeight: 32,
+    maxWidth: '100%',
+    borderWidth: 1,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  countdownText: {
+    marginLeft: 5,
+  },
+  countdownTextUrgent: {
+    fontWeight: '800',
   },
   metaLine: {
     borderTopWidth: 1,

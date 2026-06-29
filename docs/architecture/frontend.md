@@ -15,6 +15,94 @@
 - **科技之脉**：AI 的智能，光流、粒子、呼吸的节奏
 - **人心之脉**：用户的需求，温暖、可信、自然的交互
 
+---
+
+## 0. 配送模块（2026-06-19 / Task 13）
+
+### 0.1 定位
+
+- 配送模块是买家 App 内的一个业务模式，不是独立安装包，也不是营销落地页。
+- 入口固定在 `我的 > 常用工具 > 配送`，路由 `/delivery`。
+- delivery 模式只使用 `src/repos/delivery/*` 和 delivery stores；不复用普通商品/购物车/订单/用户状态仓储。
+
+### 0.2 路由门禁
+
+`app/delivery/_layout.tsx` 统一处理三段式门禁：
+
+1. 无 delivery token：跳 `/delivery/login`
+2. 有 token 但无当前单位：跳 `/delivery/unit-select`
+3. 有 token 且有单位：默认进 `/delivery/(tabs)/products`
+
+已登录用户仍可从 delivery 我的页进入 `/delivery/unit-select` / `/delivery/unit-edit` 主动切换或维护单位。
+
+### 0.3 Tab 约束
+
+- delivery tabs 只有两个：`商品`、`我的`
+- delivery 视觉主色使用 `src/theme/delivery.ts` 的橙色 token
+- delivery 我的页常用工具保留业务闭环最小集：
+  - `配送订单`
+  - `配送清单`
+  - `配送单位`
+  - `配送客服`
+  - `返回爱买买平台`
+  - `退出配送账号`
+
+### 0.4 页面状态
+
+| 页面 | 路由 | 状态 | 说明 |
+|---|---|---|---|
+| 配送登录 | `/delivery/login` | ✅ 已接入 | 手机号发码 + 60 秒倒计时 + 微信登录，成功后写入 `useDeliveryAuthStore` |
+| 配送单位选择 | `/delivery/unit-select` | ✅ 已接入 | 支持当前单位切换、跳转编辑 |
+| 配送单位编辑 | `/delivery/unit-edit` | ✅ 已接入 | 支持新增 / 编辑单位基础信息，省市区使用注入配送橙色色板的现有 RegionPicker，并保存 6 位标准省 / 市 / 区编码；后台可配置扩展字段 |
+| 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
+| 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
+| 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；用户核对后第二次确认才通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
+| 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 支付拉起后主动查单并轮询 delivery checkout session 状态，等待支付回调建单完成 |
+| 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用 |
+| 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口 |
+| 配送清单列表 | `/delivery/manifests` | ✅ 已接入 | 打开 buyer manifests 文件 |
+| 配送客服 | `/delivery/cs` | ✅ 已接入 | 我的页入口，买家可按配送订单/子订单上下文创建和查看客服记录 |
+
+### 0.5 当前边界
+
+- delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
+- checkout 已接入 delivery 专属支付发起链路：`createCheckout -> 展示后端锁定金额 -> createPaymentParams -> 原生 Alipay/WeChat SDK -> active-query -> /delivery/payment-success`。App 不再用本地购物车金额直接作为付款前应付合计，避免有配送费时展示金额与实际支付金额不一致。
+- delivery paid order 创建后会在同一 delivery 事务内清理本次 checkout snapshot 对应的 `DeliveryCartItem`，不触碰普通购物车。
+- 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`；App 侧支付完成后会调用 `/delivery/checkout/:id/active-query` 主动查单，降低第三方异步回调延迟导致的长时间未建单风险。真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
+- 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
+
+### 0.6 配送管理后台壳（2026-06-19 / Task 14）
+
+- 已新增独立 `delivery-admin/` 前端包，作为配送管理后台壳。
+- 认证本地存储与持久化键独立为 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth`。
+- 登录认证接口改到 `/api/v1/delivery-admin/auth/*`，登录页与爱买买管理后台登录页已互相增加切换按钮。
+- 配送管理后台已升级为接近现有管理后台的信息架构：侧边栏按“用户与单位 / 商家与商品 / 订单与履约 / 客服中心 / 系统管理”分组，核心列表页使用 `ProTable` 搜索、分页请求、工具栏和固定操作列；VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送模块仍从路由和菜单裁掉。
+- 清单模板页已补逐单自定义列操作区，可按 `BUYER_FULL` / `SELLER_FULFILLMENT` 目标单号维护自定义列名、排序、显示与内容；卖家配货清单由后端限制金额敏感字段。
+
+### 0.7 集成验证记录（2026-06-19 / Task 20）
+
+- 根目录 `npx tsc --noEmit` 已通过。验证中发现根 App `tsconfig.json` 会误扫描新增的 `delivery-admin/` 和 `delivery-seller/`，已按既有 `admin/`、`seller/`、`website/` 模式加入 `exclude`；配送 Web 项目仍由各自 `npm run build` 独立验证。
+- 根目录 `npm test -- --runInBand` 已通过：App Jest 9/9 suites、51/51 tests；legal node tests 22/22 tests。
+- Web 构建已通过：`admin npm run build`、`seller npm run build`、`delivery-admin npm run build`、`delivery-seller npm run build`。Vite 输出的大 chunk warning 是构建体积提示，不影响退出码。
+- 尚未完成 staging 真机 / 浏览器 E2E：`我的 > 常用工具 > 配送` 入口、delivery 手机号登录、单位创建、商品列表、起订量/步长、沙箱支付建单、买家清单、配送中心清单/财务导出、配送管理后台运营页仍需在测试域名和真实配送库配置后逐项验收。
+
+### 0.8 审查修复补充（2026-06-19）
+
+- 配送 checkout 支付后新增主动查单闭环：App 调用 `DeliveryOrderRepo.activeQueryPayment`，后端按支付渠道主动查询支付宝 / 微信订单，确认已支付后进入配送支付回调处理。
+- 配送单位编辑页改为复用现有省市区选择器，并读取 `/delivery/unit-field-config` 的后台配置字段；管理员配置的列名、排序、必填、是否显示会影响 App 表单。
+- 配送单位编辑页省市区选择后统一落库 6 位标准行政区划编码（如 `440000` / `440100` / `440106`），避免保存 2 位省码或 4 位市码；`RegionPicker` 支持传入业务色板，配送页面使用橙色 token，普通 App 地址页继续使用全局绿色主题。
+- 买家配送客服新增 `/delivery/cs` 页面和 Repo，只读写 delivery 客服表，支持从配送 App 我的页进入。
+- 合并前审查修复（2026-06-20）：配送 checkout 改成“锁定费用 -> 核对 -> 支付”两步；新增 `src/utils/deliveryCheckoutSummary.ts` 锁定金额摘要测试；配送中心下载 helper 增加 `delivery/waybills/`、`delivery/manifests/`、`delivery/settlements/` 前缀，清单/面单下载继续走后端商家归属校验。
+- 全面审查补充（2026-06-20）：配送管理后台新增 `deliveryAdminContracts.test.ts`，锁定活跃路由/API 只暴露配送管理模块；配送中心删除未路由的售后/统计页面和 API，并用 `deliveryCenterContracts.test.ts` 锁定不暴露售后、退款、平台售价等非配送内容；配送中心结算文件下载增加 `delivery/settlements/` 回归测试；活跃代码中“采购/团购/配送卖家中心”文案残留已清理。
+- Web 前端重做补充（2026-06-20）：配送管理后台核心运营列表从普通 `Table` 升级到 `ProTable`；配送中心侧边栏调整为“商品管理 / 订单履约 / 经营导出 / 企业与人员 / 客服中心”，工作台、物流、导出、企业资料、员工、客服页面使用 `ProCard` 分区并保持橙色身份；配送中心合同测试继续锁定不出现平台最终售价、加价率、平台利润等字段。
+- 配送 Web 中文显示口径（2026-06-20）：配送管理后台与配送中心用户可见文案不得直接展示后端英文枚举或技术字段名；状态标签、筛选下拉、配置范围、规则类型、清单字段、权限名称、编号列、校验提示统一转换为中文说明。内部 API 字段名和 TypeScript 类型仍可保留英文，以保持接口兼容。
+- 配送设置页 UX 收口（2026-06-20）：配送管理后台 `/config` 从 Tab + Modal 改为左侧分类、右侧设置面板，配置中心只保留配送单位字段、清单导出、平台规则；平台规则以业务卡片展示低库存展示、逐单自定义列等配置，并在页面内直接使用数字输入和开关修改，顶部统一保存，不再暴露内部配置标识、配置范围或 JSON 内容；配送单位字段的下拉选项改为每行一个选项；客服相关配置移入客服中心。配送中心企业资料页改为当前状态、基础资料、联系方式、操作权限分块；员工权限页改为“新增员工 / 分配权限 / 禁用员工”工作区和中文权限分组勾选，账号启用状态使用开关。
+- 配送客服中心补齐（2026-06-20）：配送管理后台客服中心对齐现有爱买买管理后台 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已提供会话列表/详情/更新和客服默认配置，前端先接真实会话数据与默认配置，FAQ/快捷入口独立 CRUD 等待后端配送接口后续补齐。
+- 配送中心登录菜单修复（2026-06-21）：配送中心登录成功后不再先把 `seller=null` 的临时登录态写入 Zustand，改为先把 token 写入 localStorage 供 `getMe` 拉取完整账号资料，拿到完整 `permissionCodes` 后再一次性进入已登录状态，避免 ProLayout 在空权限 profile 下初始化成空侧边栏，导致首次登录只有一个页面、刷新后才出现完整菜单。
+- 配送管理后台定价规则弹窗修复（2026-06-21）：定价规则弹窗在选择“指定规格规则”时，商家 / 商品 / 规格三个选择框改为响应式网格布局，去掉固定 `md` 宽度，选择框按弹窗宽度自动等分或换行，避免规格选择框撑出弹窗范围。
+- 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则
@@ -1408,7 +1496,7 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
-实施状态（2026-05-19）：钱包页面向用户统一命名为"消费积分"，合并展示 VIP/NORMAL 两个 `RewardAccount` 的可用/冻结/累计余额；内部仍保留双账户与来源标签。流水新增 DEDUCT/VOID/ADJUST 等类型映射，筛选支持"可用/冻结/抵扣/已提现"。
+实施状态（2026-06-29）：钱包页面向用户统一命名为"消费积分"，顶部总额合并展示 VIP/NORMAL 分润、团购返还和卖家 OWNER 可见产业基金；可抵扣余额仅包含 VIP/NORMAL 分润与团购返还，产业基金只参与提现。流水统一显示 Reward 与 GroupBuyRebate 两套 ledger，团购返还的冻结、到账、抵扣、提现在同一个钱包列表中展示；非卖家 OWNER 不展示产业基金分项或筛选。审查补强：钱包“消费抵扣”筛选同时包含 Reward 抵扣与团购返还抵扣，“已提现”不再混入团购返还抵扣。
 
 ---
 
@@ -2308,12 +2396,16 @@ src/components/ai/   → 新增目录
 | 会员中心 VIP 权益文案收口 | 会员中心权益卡片改为真实落地能力：普通商品会员价、更低包邮门槛、消费积分更高抵扣比例、推荐 VIP 奖励和 VIP 身份标识；移除“消费奖励翻倍”“高额返利”“入会专属礼包”等不准确承诺，并同步我的页 VIP 权益弹窗 | 2026-06-28 | `app/me/vip.tsx`, `app/(tabs)/me.tsx`, `src/utils/__tests__/vipMembershipCopy.test.ts` |
 | 卖家中心订单打印清单 | Seller 前端订单详情的“打印”改为“打印清单”，打印页只展示订单号、买家匿名信息、地区、电子面单号、父订单商品、商品名旁 `x数量` 和右侧数量；不输出单价、小计、商品金额等卖家平台价格，不附电子面单 iframe，避免第二页空白；打印清单整体大字号，商品名称和数量加大加粗，普通商品不显示“普通”标签；2026-06-23 起不再输出商品行内“详情清单”、组合明细或第二页拣货汇总，避免组合商品上线后重复打印 | 2026-06-18 | `seller/src/pages/orders/detail.tsx`, `seller/src/utils/waybillPrint.ts`, `seller/test/waybillPrint.test.ts` |
 | 卖家中心侧边菜单导航 | SellerLayout 菜单项补真实 `href`，仍保留未保存更改离开确认和 SPA `navigate`，避免测试/正式构建中菜单点击被吞后无法进入订单、商品等页面 | 2026-06-23 | `seller/src/layouts/SellerLayout.tsx`, `seller/test/sellerLayoutNavigation.test.ts` |
+| 测试版订单详情打印入口收口 | staging 订单详情发货操作区和物流信息区的打印按钮统一调用本地拣货单 `printSellerWaybill`，不再直接打开后端 `waybillPrintUrl`，避免未生成电子面单时弹出 JSON 错误页 | 2026-06-23 | `seller/src/pages/orders/detail.tsx`, `seller/test/orderDetailPrint.test.ts` |
 | 团购 App 类型与 Repo 契约 | 新增独立 `GroupBuy` domain types 与 `GroupBuyRepo`，覆盖活动货架、当前团、团购 checkout、扫码落地契约、返还账户/流水和团购返还余额提现入口；`getActivity` 暂基于活动列表筛选，扫码落地后端接口留待页面链路任务接入 | 2026-06-22 | `src/types/domain/GroupBuy.ts`, `src/repos/GroupBuyRepo.ts`, `src/types/domain/index.ts`, `src/repos/index.ts` |
 | 团购精选货架与详情页 | 新增 `/group-buy` 货架页和 `/group-buy/[activityId]` 详情页：无当前团购时展示商品货架；有当前团购时默认进入“我的团购”并可切换商品；当前面板展示推荐码/二维码/进度/结束入口，详情页展示后台配置的团购详情介绍；商品卡和进度不展示返还基数或返还百分比；页面不展示“分享回馈活动”和“仅一级直接推荐”提示 | 2026-06-22 | `app/group-buy/index.tsx`, `app/group-buy/[activityId].tsx`, `src/components/group-buy/*` |
 | 团购扫码落地与现金付款 | 新增 `/gb/[code]` 推荐码落地页和 `/group-buy/checkout` 团购付款页；二维码/系统分享链接使用独立 `/gb/{code}`；落地页展示分享用户和同款商品，未登录先弹登录，登录成功后继续进入付款；付款页复用地址选择和现有支付宝/微信支付确认链路，但不展示消费积分、平台红包、团购返还余额等抵扣入口，并在当前团购占用时返回当前团购处理 | 2026-06-22 | `app/gb/[code].tsx`, `app/group-buy/checkout.tsx`, `src/components/group-buy/constants.ts` |
-| 首页团购入口 | 首页 VIP 推荐区下方新增“精选团购”入口卡，点击进入 `/group-buy`；保持现有三 Tab 不变，避免与独立 `/group-buy` 路由产生重复路径；入口文案使用“指定商品 / 团购活动” | 2026-06-22 | `app/(tabs)/home.tsx` |
+| 首页团购入口 | 首页 VIP 推荐区下方新增“精选团购”入口卡，点击进入 `/group-buy`；保持现有三 Tab 不变，避免与独立 `/group-buy` 路由产生重复路径；入口文案仅使用“指定商品 / 分享回馈”等合规词 | 2026-06-22 | `app/(tabs)/home.tsx` |
 | 团购动态档位与付款校验 | 团购分享进度按后台档位数量动态渲染，不再强制显示 3 段；包邮团购付款时 App 传入页面展示金额作为 `expectedTotal`，后端价格变化时可明确提示用户刷新 | 2026-06-22 | `src/components/group-buy/GroupBuyProgressRail.tsx`, `src/utils/groupBuyProgress.ts`, `app/group-buy/checkout.tsx` |
 | 团购多商品组合展示 | 团购活动类型新增 `items/itemSummary/availableStock/totalWeightGram`；货架卡片、详情页、推荐码落地页和付款页展示组合商品摘要/明细，库存判断按组合可购份数；付款页仍保持现金购买和无抵扣入口 | 2026-06-23 | `src/types/domain/GroupBuy.ts`, `src/repos/GroupBuyRepo.ts`, `src/components/group-buy/GroupBuyProductCard.tsx`, `app/group-buy/[activityId].tsx`, `app/gb/[code].tsx`, `app/group-buy/checkout.tsx` |
+| 团购活动倒计时与到期失效 | 团购活动类型新增 `status/startAt/endAt`；货架商品卡、团购详情页、我的团购推荐码面板展示活动剩余天/小时/分钟，少于 24 小时时切换为“活动即将结束”紧急态；倒计时归零后刷新活动与当前团购状态，并禁用购买、复制和系统分享入口；进度区区分“已锁名额 / 已确认有效 / 待确认订单”，第三位好友付款锁满后不再鼓励继续分享但保留“结束本次分享”入口；当前状态接口返回过期态时不占用用户槽位 | 2026-06-24 | `src/types/domain/GroupBuy.ts`, `src/repos/GroupBuyRepo.ts`, `src/utils/groupBuyCountdown.ts`, `src/components/ui/Countdown.tsx`, `src/components/group-buy/GroupBuyProductCard.tsx`, `src/components/group-buy/GroupBuyCurrentPanel.tsx`, `src/components/group-buy/GroupBuyProgressRail.tsx`, `app/group-buy/index.tsx`, `app/group-buy/[activityId].tsx` |
+| 钱包统一消费积分与团购返还 | `/me/wallet` 顶部统一展示消费积分总额、可抵扣、可提现、冻结中；团购返还流水并入钱包列表，提现入口仍为一个消费积分提现入口；非卖家 OWNER 隐藏产业基金分项/筛选；结算页只提交一个 `deductionAmount`，不让用户选择来源 | 2026-06-29 | `app/me/wallet.tsx`, `app/me/vip.tsx`, `app/checkout.tsx`, `src/types/domain/Bonus.ts`, `src/repos/BonusRepo.ts`, `src/repos/OrderRepo.ts` |
+| 团购即时推荐码与售后规则文案 | 团购首页、详情页、扫码落地页、付款页、当前团购面板和切换团购弹窗统一新规则：付款成功后立即生成团购推荐码；推荐返还付款后冻结、确认收货后释放；团购订单不支持退换货或退款，仅收货后24小时内质量问题联系客服补发；订单详情隐藏取消/售后入口并展示补发说明，直达售后申请页时只显示联系客服补发说明；付款页继续明确团购现金支付且不可使用消费积分、平台红包或团购返还余额抵扣 | 2026-06-29 | `app/group-buy/index.tsx`, `app/group-buy/[activityId].tsx`, `app/group-buy/checkout.tsx`, `app/gb/[code].tsx`, `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/components/group-buy/GroupBuyCurrentPanel.tsx`, `src/components/group-buy/GroupBuyPurchaseGuardSheet.tsx`, `src/utils/groupBuyOrderRules.ts` |
 | 推荐码下载落地页厂商分流 | 官网 `/download` 与 `/r/{code}` Android 点击下载按品牌进入厂商入口：华为短链、vivo/iQOO H5、OPPO/一加/realme/荣耀本机应用市场；小米/红米、识别不到品牌和其他安卓继续走小米 OneLink `https://m.malink.cn/s/6ZFjYj` 兜底，market scheme 打不开时自动回退 OneLink | 2026-06-25 | `website/src/pages/Download.tsx`, `website/src/lib/downloadLinks.ts`, `website/scripts/__tests__/downloadLinks.test.mjs` |
 | 推荐码页直邀 VIP 人数 | `GET /bonus/member` 返回 `inviteeVipCount`，买家 App 推荐码卡片在专属码下展示“已推荐 x 位 VIP”；统计口径与管理后台“直邀 VIP”一致，仅包含直属推荐且已升级 VIP 的用户，不含下下级；标题旁移除“AI推荐”徽标 | 2026-06-26 | `backend/src/modules/bonus/bonus.service.ts`, `src/types/domain/Bonus.ts`, `src/repos/BonusRepo.ts`, `app/me/referral.tsx`, `scripts/__tests__/referral-page-vip-count.test.mjs` |
 | 企业检测报告前台展示 | 企业详情“检测报告”卡片改为读取后端公开企业详情返回的已验证 `INSPECTION` 资质文件列表；App 展示报告名称、签发机构、上传时间和“查看”入口，未验证/待验证/驳回报告不对买家公开，也不再展示后台没有来源的检测批次、合格率、最近检测统计 | 2026-06-25 | `app/company/[id].tsx`, `src/types/domain/Company.ts`, `backend/src/modules/company/company.service.ts` |
