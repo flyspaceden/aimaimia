@@ -241,6 +241,46 @@ describe('NotificationService and dispatcher', () => {
     expect(prisma.state.outbox[0].status).toBe('PENDING');
   });
 
+  it('skips processing when a pending row was deferred after selection', async () => {
+    const prisma = makePrisma();
+    const registry = new NotificationRegistry();
+    const dispatcher = new NotificationDispatcherService(prisma as any, registry);
+
+    await prisma.notificationOutbox.upsert({
+      where: { idempotencyKey: baseEvent.idempotencyKey },
+      create: {
+        eventType: baseEvent.eventType,
+        aggregateType: baseEvent.aggregateType,
+        aggregateId: baseEvent.aggregateId,
+        idempotencyKey: baseEvent.idempotencyKey,
+        payload: baseEvent,
+      },
+    });
+
+    const originalUpdateMany = prisma.notificationOutbox.updateMany.getMockImplementation();
+    prisma.notificationOutbox.updateMany.mockImplementationOnce(async (args) => {
+      if (!originalUpdateMany) {
+        throw new Error('missing updateMany mock implementation');
+      }
+      prisma.state.outbox[0].runAt = new Date(Date.now() + 60_000);
+      return originalUpdateMany(args);
+    });
+
+    await dispatcher.dispatchPending(10);
+
+    expect(prisma.notificationOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'outbox-1',
+          status: 'PENDING',
+          runAt: { lte: expect.any(Date) },
+        }),
+      }),
+    );
+    expect(prisma.state.messages).toHaveLength(0);
+    expect(prisma.state.outbox[0].status).toBe('PENDING');
+  });
+
   it('requeues on a failed attempt and marks FAILED on the fifth attempt', async () => {
     const prisma = makePrisma();
     const registry = { resolve: jest.fn(() => {
