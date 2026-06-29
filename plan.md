@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **管理后台侧边栏选中态可读性优化**（2026-06-29 新增并完成）
+  - **来源**: 真机/电脑拍摄截图反馈，管理后台深色侧边栏选中“商家商品”后呈现深底蓝字，可读性不足。
+  - **实际做了**: 为 `AdminLayout` 增加专用样式作用域，选中菜单项改为高对比蓝底白字，图标/文字/箭头统一白色，增加左侧浅蓝指示条与 hover/focus 可读状态；同步将 ProLayout 选中 token 调亮。
+  - **验证**: `admin node --test test/adminSidebarSelection.test.mjs`、`admin npx eslint src/layouts/AdminLayout.tsx` 通过；`admin npm run build` 在远端当前基线被 `admin/src/pages/group-buy/activities.tsx` 既有隐式 `any` 阻塞，非本次改动引入。
+
 - [x] **发现页商品卡价格去单位后缀**（2026-06-29 新增并完成）
   - **来源**: 用户真机截图反馈，发现页商品卡仍显示 `¥399.1/斤`，容易误解为按斤计价；实际价格是该商品/规格的整件价格。
   - **实际做了**: 买家 App 通用 `ProductCard` 价格不再向 `Price` 传入 `product.unit`，因此发现页、搜索页、分类页、企业页等商品流卡片统一只显示 `¥金额`；单位和包装重量继续保留在商品详情的独立元信息里。
