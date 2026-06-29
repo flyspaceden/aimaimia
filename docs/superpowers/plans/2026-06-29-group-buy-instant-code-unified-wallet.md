@@ -630,7 +630,7 @@ npm test -- checkout-money-safety.spec.ts reward-deduction.service.spec.ts group
 - Modify `backend/src/modules/bonus/withdraw-payout.service.spec.ts`
 - Modify `backend/src/modules/bonus/withdraw-payout.concurrency.spec.ts`
 
-- [ ] **Step 1: Add failing withdrawal tests**
+- [x] **Step 1: Add failing withdrawal tests**
 
 Test `/bonus/withdraw` behavior:
 
@@ -641,7 +641,7 @@ Test `/bonus/withdraw` behavior:
 - Provider failure restores every source correctly.
 - Idempotent retry does not double-deduct any source.
 
-- [ ] **Step 2: Extend split type**
+- [x] **Step 2: Extend split type**
 
 Use the existing `WithdrawSplit` shape but allow source `REWARD` to contain `fromGroupBuyRebateCents > 0`.
 
@@ -654,7 +654,7 @@ Recommended deduction priority:
 
 This preserves the current industry-last behavior while adding group-buy before industry.
 
-- [ ] **Step 3: Create mixed ledgers**
+- [x] **Step 3: Create mixed ledgers**
 
 Update `createWithdrawLedgers` so the non-`GROUP_BUY_REBATE` unified path also writes `groupBuyRebateLedger` when `fromGroupBuyRebateCents > 0`.
 
@@ -670,15 +670,25 @@ Ledger metadata:
 }
 ```
 
-- [ ] **Step 4: Keep old group-buy-only API compatible**
+- [x] **Step 4: Keep old group-buy-only API compatible**
 
 Do not remove `requestGroupBuyRebateWithdraw()` yet. Mark it as legacy/internal in comments if needed, but App wallet should call the unified withdraw endpoint.
 
-- [ ] **Step 5: Run tests**
+Implemented compatibility note: new unified wallet withdrawals write `accountSnapshot.source = 'UNIFIED_POINTS'`; legacy group-buy-only withdrawals write `accountSnapshot.source = 'GROUP_BUY_REBATE_LEGACY'`. This keeps `WithdrawRequest.accountType` available for existing display/filtering while preventing App wallet history and legacy group-buy withdrawal history from mixing.
+
+- [x] **Step 5: Run tests**
 
 ```bash
 cd backend
 npm test -- withdraw-payout.service.spec.ts withdraw-payout.concurrency.spec.ts --runInBand
+```
+
+Verified focused coverage with:
+
+```bash
+npm test -- --runTestsByPath src/modules/bonus/withdraw-payout.service.spec.ts src/modules/bonus/bonus.service.spec.ts src/modules/group-buy/group-buy-rebate.service.spec.ts --runInBand
+npm run build
+DATABASE_URL='postgresql://user:pass@localhost:5432/nongmai' npx prisma validate
 ```
 
 ---
@@ -692,11 +702,11 @@ npm test -- withdraw-payout.service.spec.ts withdraw-payout.concurrency.spec.ts 
 - Modify `src/repos/BonusRepo.ts`
 - Modify `src/repos/OrderRepo.ts`
 
-- [ ] **Step 1: Invoke frontend design guidance**
+- [x] **Step 1: Invoke frontend design guidance**
 
 Before editing UI code, invoke `frontend-design:frontend-design` and follow the existing quiet wallet/dashboard style.
 
-- [ ] **Step 2: Extend wallet types**
+- [x] **Step 2: Extend wallet types**
 
 Add fields matching backend:
 
@@ -721,15 +731,17 @@ export interface WalletSummary {
 }
 ```
 
-- [ ] **Step 3: Keep App checkout one-input**
+- [x] **Step 3: Keep App checkout one-input**
 
 `OrderRepo.createCheckoutSession` should continue to submit `deductionAmount` only. Add no user-visible split fields.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 ```bash
 npx tsc --noEmit
 ```
+
+Verified: `npx tsc --noEmit`.
 
 ### Task 7.2: Update Wallet UI
 
@@ -737,7 +749,7 @@ npx tsc --noEmit
 - Modify `app/me/wallet.tsx`
 - Modify `app/me/vip.tsx`
 
-- [ ] **Step 1: Wallet total**
+- [x] **Step 1: Wallet total**
 
 Show one top-level “消费积分” total from `wallet.balance`. Also show:
 
@@ -747,7 +759,7 @@ Show one top-level “消费积分” total from `wallet.balance`. Also show:
 
 Keep text concise; do not explain backend source splitting in the main UI.
 
-- [ ] **Step 2: Ledger list labels**
+- [x] **Step 2: Ledger list labels**
 
 Map group-buy rows:
 
@@ -758,21 +770,23 @@ Map group-buy rows:
 
 Display them inside the same wallet ledger list.
 
-- [ ] **Step 3: Owner-only industry fund**
+- [x] **Step 3: Owner-only industry fund**
 
 Only show industry fund tab/filter/card when `wallet.isSellerOwner === true`.
 
 Non-owner users must not see an empty “产业基金” tab.
 
-- [ ] **Step 4: VIP page**
+- [x] **Step 4: VIP page**
 
 If `app/me/vip.tsx` shows wallet breakdown, apply the same owner-only industry fund rule there.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 ```bash
 npx tsc --noEmit
 ```
+
+Verified: `npx jest src/utils/__tests__/walletLedger.test.ts --runInBand` and `npx tsc --noEmit`.
 
 ---
 
@@ -789,7 +803,7 @@ npx tsc --noEmit
 - Modify `src/components/group-buy/GroupBuyPurchaseGuardSheet.tsx`
 - Modify `src/types/domain/GroupBuy.ts`
 
-- [ ] **Step 1: Update type shape if backend exposes pending rebate**
+- [x] **Step 1: Update type shape if backend exposes pending rebate**
 
 Add optional fields such as:
 
@@ -799,7 +813,7 @@ availableRebateAmount?: number;
 shareCodeStatus?: 'ACTIVE' | 'COMPLETED' | 'DISABLED' | 'EXPIRED';
 ```
 
-- [ ] **Step 2: Update status wording**
+- [x] **Step 2: Update status wording**
 
 Replace any “收货 7 天后生成/释放” copy with:
 
@@ -807,15 +821,17 @@ Replace any “收货 7 天后生成/释放” copy with:
 - `被推荐人付款后返还奖励进入冻结，确认收货后到账`
 - `团购订单支付后不支持退换货；收货后24小时内质量问题请联系客服补货`
 
-- [ ] **Step 3: Keep checkout cash-only copy**
+- [x] **Step 3: Keep checkout cash-only copy**
 
 `app/group-buy/checkout.tsx` already says group-buy cannot use消费积分、红包、团购返还余额. Keep or tighten this wording; do not add deduction controls.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 ```bash
 npx tsc --noEmit
 ```
+
+Verified: `npx tsc --noEmit`.
 
 ### Task 8.2: Order Detail And After-Sale Pages Hide Self-Service Entry
 
@@ -825,7 +841,7 @@ npx tsc --noEmit
 - Modify `src/types/domain/Order.ts`
 - Modify `src/repos/AfterSaleRepo.ts` only if eligibility DTO changes.
 
-- [ ] **Step 1: Order detail**
+- [x] **Step 1: Order detail**
 
 For `bizType === 'GROUP_BUY'`:
 
@@ -833,15 +849,17 @@ For `bizType === 'GROUP_BUY'`:
 - Show compact rule line: `团购订单支付后不支持退换货；收货后24小时内质量问题请联系客服补货。`
 - If a customer-service route exists, link to it. If not, show the existing support/contact entry used elsewhere in the App.
 
-- [ ] **Step 2: After-sale application page**
+- [x] **Step 2: After-sale application page**
 
 If a user navigates directly to `/orders/after-sale/[id]` for a group-buy order, show the support-only message and no application form.
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 ```bash
 npx tsc --noEmit
 ```
+
+Verified: `npx jest src/utils/__tests__/groupBuyOrderRules.test.ts --runInBand` and `npx tsc --noEmit`.
 
 ---
 

@@ -218,7 +218,7 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
       netAmount: 20,
       status: 'PROCESSING',
       accountType: 'GROUP_BUY_REBATE',
-      accountSnapshot: { account: 'a@example.com', name: '张三' },
+      accountSnapshot: { account: 'a@example.com', name: '张三', source: 'UNIFIED_POINTS' },
     });
 
     const result = await service.requestWithdraw('u1', {
@@ -235,6 +235,48 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(paymentService.initiateTransfer).not.toHaveBeenCalled();
+  });
+
+  it('rejects a unified idempotency retry against a legacy group-buy withdrawal', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-legacy-gb-existing',
+      userId: 'u1',
+      amount: 25,
+      taxAmount: 5,
+      taxRate: 0.2,
+      netAmount: 20,
+      status: 'PROCESSING',
+      accountType: 'GROUP_BUY_REBATE',
+      accountSnapshot: { account: 'a@example.com', name: '张三', source: 'GROUP_BUY_REBATE_LEGACY' },
+    });
+
+    await expect(service.requestWithdraw('u1', {
+      amount: 25,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'same-key-cross-source')).rejects.toThrow(ConflictException);
+  });
+
+  it('rejects a legacy group-buy idempotency retry against a unified withdrawal', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-unified-gb-existing',
+      userId: 'u1',
+      amount: 25,
+      taxAmount: 5,
+      taxRate: 0.2,
+      netAmount: 20,
+      status: 'PROCESSING',
+      accountType: 'GROUP_BUY_REBATE',
+      accountSnapshot: { account: 'a@example.com', name: '张三', source: 'UNIFIED_POINTS' },
+    });
+
+    await expect((service as any).requestGroupBuyRebateWithdraw('u1', {
+      amount: 25,
+      alipayAccount: 'a@example.com',
+      alipayName: '张三',
+    }, 'same-key-cross-source')).rejects.toThrow(ConflictException);
   });
 
   it('returns the existing request when concurrent retries hit the idempotency unique constraint', async () => {
@@ -368,6 +410,7 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
     expect(decryptJsonValue(createData.accountSnapshot)).toEqual({
       account: 'a@example.com',
       name: '张三',
+      source: 'UNIFIED_POINTS',
     });
     expect(paymentService.initiateTransfer).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'ALIPAY',
@@ -477,6 +520,12 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
         clientIdempotencyKey: 'mixed-idemp-1',
       }),
     }));
+    const createData = prisma.withdrawRequest.create.mock.calls[0][0].data;
+    expect(decryptJsonValue(createData.accountSnapshot)).toEqual({
+      account: 'a@example.com',
+      name: '张三',
+      source: 'UNIFIED_POINTS',
+    });
     expect(paymentService.initiateTransfer).toHaveBeenCalledWith(expect.objectContaining({
       remark: '爱买买消费积分提现',
     }));
@@ -703,6 +752,12 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
         clientIdempotencyKey: 'gb-idemp-1',
       }),
     }));
+    const createData = prisma.withdrawRequest.create.mock.calls[0][0].data;
+    expect(decryptJsonValue(createData.accountSnapshot)).toEqual({
+      account: 'a@example.com',
+      name: '张三',
+      source: 'GROUP_BUY_REBATE_LEGACY',
+    });
     expect(paymentService.initiateTransfer).toHaveBeenCalledWith(expect.objectContaining({
       remark: '爱买买团购返还余额提现',
     }));

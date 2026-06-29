@@ -94,7 +94,7 @@ export type ShipmentDetail = {
   }>;
 };
 
-export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE';
+export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE' | 'GROUP_BUY';
 
 export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 

@@ -14,9 +14,11 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { InboxService } from '../inbox/inbox.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { maskPhone } from '../../common/security/privacy-mask';
+import { decryptJsonValue } from '../../common/security/encryption';
 
 const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
 const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD'];
+type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
 @Injectable()
 export class BonusService {
@@ -702,18 +704,43 @@ export class BonusService {
   /** 提现记录 */
   async getWithdrawHistory(userId: string) {
     const requests = await this.prisma.withdrawRequest.findMany({
-      where: { userId, accountType: { not: 'GROUP_BUY_REBATE' } },
+      where: { userId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 100,
     });
 
-    return requests.map((r) => ({
-      id: r.id,
-      amount: r.amount,
-      channel: r.channel,
-      status: r.status,
-      createdAt: r.createdAt.toISOString(),
-    }));
+    return requests
+      .filter((r) => !this.isLegacyGroupBuyWithdraw(r))
+      .slice(0, 50)
+      .map((r) => ({
+        id: r.id,
+        amount: r.amount,
+        channel: r.channel,
+        status: r.status,
+        createdAt: r.createdAt.toISOString(),
+      }));
+  }
+
+  private isLegacyGroupBuyWithdraw(withdraw: any): boolean {
+    const source = this.readWithdrawSnapshotSource(withdraw);
+    if (source === 'GROUP_BUY_REBATE_LEGACY') {
+      return true;
+    }
+    if (source === 'UNIFIED_POINTS') {
+      return false;
+    }
+    return withdraw?.accountType === 'GROUP_BUY_REBATE';
+  }
+
+  private readWithdrawSnapshotSource(withdraw: any): WithdrawSnapshotSource | null {
+    const snapshot = decryptJsonValue<any>(withdraw?.accountSnapshot);
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return null;
+    }
+    return snapshot.source === 'UNIFIED_POINTS'
+      || snapshot.source === 'GROUP_BUY_REBATE_LEGACY'
+      ? snapshot.source
+      : null;
   }
 
   // ========== 奖励抵扣 ==========

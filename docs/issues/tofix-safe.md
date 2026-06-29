@@ -394,7 +394,8 @@
 |------|------|------|------|------|
 | GB01 | 分享码名额超发 | 🔴 HIGH | 团购分享码最多按发起人本次团购锁定的档位快照接收直接推荐订单。已补前置校验：创建团购支付会话前统计 `CANDIDATE/VALID` 记录，名额已满则拒绝创建；支付回调建 `GroupBuyReferral` 时仍二次统计兜底。2026-06-23 补强：名额唯一约束改为仅约束 `CANDIDATE/VALID` 的 partial unique index，`INVALID/VOIDED` 不再占位；支付回调按最小可用序号分配，P2002 并发冲突会重新扫描空位，确实无位才写无效审计。相关写入走 Serializable 事务。 | ✅ 已检查 |
 | GB02 | 发起次数绕过 | 🟠 HIGH | 每人每月最多发起次数不再硬编码，`GroupBuyCheckoutService` 从 `RuleConfig.GROUP_BUY_MAX_MONTHLY_LAUNCHES` 读取，默认 4；检查与支付会话创建在同一 Serializable 事务内完成。 | ✅ 已检查 |
-| GB03 | 返还提前释放或退换货后仍释放 | 🔴 HIGH | 发起人分享码生成和好友订单返还释放均等待订单 `RECEIVED`、`returnWindowExpiresAt < now` 且无售后/退款；任意售后/退款记录会使候选记录无效。终止分享只释放已满足条件的候选记录，不新增名额。2026-06-23 补强：被推荐人先创建付款会话、发起人随后终止分享、被推荐人再付款时，支付回调会重新确认推荐实例仍为 `SHARING`，否则只写 `INVALID` 审计，不计入推荐名额。 | ✅ 已检查 |
+| GB03 | 返还提前释放或异常作废后仍释放 | 🔴 HIGH | 团购付款成功同一 Serializable 事务内立即生成分享码；被推荐人付款后写 `PENDING_REBATE` 冻结流水，确认收货后才释放为可用。被推荐人先创建付款会话、发起人随后终止分享、被推荐人再付款时，支付回调会重新确认推荐实例仍为 `SHARING`，否则只写 `INVALID` 审计，不计入推荐名额。团购用户侧不支持退款/退货/换货，系统异常、风控或管理员作废路径仍通过幂等键和状态 CAS 防止已作废返还释放。 | ✅ 已检查 |
 | GB04 | 团购购买被抵扣导致返还基数失真 | 🔴 HIGH | 团购 checkout 明确拒绝消费积分、平台红包、团购返还余额和旧 `rewardId`；返还金额按后台配置团购价快照计算，不按被抵扣后的实付金额计算。 | ✅ 已检查 |
 | GB05 | 团购返还余额重复入账或抵扣 | 🔴 HIGH | 团购返还账户写入收口到 `GroupBuyRebateService` / `GroupBuyRebateDeductionService`；释放流水使用 `GROUP_BUY_REBATE:<referralId>` 幂等键，抵扣预占/确认/释放/退款走独立 ledger 和 groupId。 | ✅ 已检查 |
 | GB06 | 后台展示形成多层关系或敏感导向 | 🟡 MEDIUM | App 和管理后台只展示本人直接推荐记录、团购记录和流水；不展示二级关系链、排行榜或团队图。文案扫描未发现团购新增文件包含合规禁用词。 | ✅ 已检查 |
+| GB07 | 统一消费积分提现与旧团购提现串线 | 🔴 HIGH | `/bonus/withdraw` 可自动拆 Reward / GroupBuyRebate / IndustryFund，旧团购返还提现入口仍兼容。`WithdrawRequest.accountSnapshot.source` 标记 `UNIFIED_POINTS` 或 `GROUP_BUY_REBATE_LEGACY`，钱包提现历史、旧团购提现历史和 Idempotency-Key 冲突判断均按来源区分；扣款和失败恢复仍在 Serializable 事务内按各自 ledger 回滚。 | ✅ 已检查 |

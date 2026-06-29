@@ -12,6 +12,7 @@ import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { WalletLedgerEntry } from '../../src/types';
+import { getWalletLedgerTitle, isPendingGroupBuyRebate } from '../../src/utils/walletLedger';
 
 // 筛选标签
 type FilterKey = 'all' | 'available' | 'frozen' | 'deduct' | 'withdraw';
@@ -22,26 +23,6 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'deduct', label: '消费抵扣' },
   { key: 'withdraw', label: '已提现' },
 ];
-
-// 来源标签映射 — 对用户友好的名称
-const refTypeLabel: Record<string, string> = {
-  ORDER: '消费返积分',
-  REFERRAL: '推荐返积分',
-  VIP_REFERRAL: '推荐返积分',
-  VIP_TREE: '消费返积分',
-  NORMAL_TREE: '消费返积分',
-  NORMAL_BROADCAST: '消费返积分',
-  WITHDRAW: '提现到支付宝',
-};
-
-// 卖家侧账户类型 → 友好名称（OWNER 在自己 App 里看到的）
-const sellerAccountLabel: Record<string, string> = {
-  INDUSTRY_FUND: '产业基金',
-  CHARITY_FUND: '慈善基金',
-  TECH_FUND: '科技基金',
-  RESERVE_FUND: '备用金',
-  PLATFORM_PROFIT: '平台利润',
-};
 
 // 统一列表项类型
 interface LedgerDisplayItem {
@@ -100,6 +81,9 @@ export default function WalletScreen() {
   const walletError = walletData && !walletData.ok ? walletData.error : null;
   const ledgerItems = ledgerData?.ok ? ledgerData.data.items : [];
   const normalItems = normalData?.ok ? normalData.data.items : [];
+  const deductibleBalance = wallet?.deductibleBalance ?? wallet?.balance ?? 0;
+  const withdrawableBalance = wallet?.withdrawableBalance ?? wallet?.balance ?? 0;
+  const frozenBalance = wallet?.frozen ?? 0;
 
   // 合并流水 + 冻结奖励为统一列表
   const displayItems = useMemo(() => {
@@ -113,21 +97,19 @@ export default function WalletScreen() {
     ledgerItems.forEach((entry) => {
       const isDeduct = entry.entryType === 'DEDUCT';
       const isRefundRestore = entry.refType === 'REFUND_RESTORE';
-      const isIncome = entry.entryType === 'RELEASE' || entry.entryType === 'CREDIT';
-      const isFrozen = entry.status === 'FROZEN' || entry.entryType === 'FREEZE';
+      const isGroupBuyPending = isPendingGroupBuyRebate(entry);
+      const isFrozen = entry.status === 'FROZEN' || entry.entryType === 'FREEZE' || isGroupBuyPending;
       const isWithdraw = entry.entryType === 'WITHDRAW' || entry.refType === 'WITHDRAW';
       const isVoided = entry.status === 'VOIDED' || entry.entryType === 'VOID';
       const isAdjust = entry.entryType === 'ADJUST';
-      // 卖家账户（产业基金等）优先按账户类型命名，避免显示成"消费返积分"
-      const sellerLabel = entry.accountType ? sellerAccountLabel[entry.accountType] : null;
-      const title = sellerLabel ?? refTypeLabel[entry.refType ?? ''] ?? (isIncome ? '消费返积分' : isAdjust ? '系统调整' : '支出');
+      const title = getWalletLedgerTitle(entry);
       const meta = entry.meta as Record<string, unknown> | null;
 
       if (isDeduct) {
         const orderNo = typeof meta?.orderNo === 'string' ? meta.orderNo : null;
         items.push({
           id: entry.id,
-          title: '消费抵扣',
+          title,
           desc: orderNo ? `抵扣订单 ${orderNo}` : '抵扣订单金额',
           amount: -Math.abs(entry.amount),
           date: entry.createdAt,
@@ -160,8 +142,8 @@ export default function WalletScreen() {
         frozenFromLedger.add(entry.id);
         items.push({
           id: entry.id,
-          title: sellerLabel ?? '消费返积分',
-          desc: requiredLevel ? `需消费 ${requiredLevel} 笔解锁` : '冻结中',
+          title,
+          desc: isGroupBuyPending ? '待收货释放' : requiredLevel ? `需消费 ${requiredLevel} 笔解锁` : '冻结中',
           amount: entry.amount,
           date: entry.createdAt,
           type: 'frozen',
@@ -177,7 +159,7 @@ export default function WalletScreen() {
         if (isWithdraw) {
           items.push({
             id: entry.id,
-            title: '提现到支付宝',
+            title,
             desc: '提现失败，款项已退回',
             amount: entry.amount,
             date: entry.createdAt,
@@ -187,7 +169,7 @@ export default function WalletScreen() {
         }
         items.push({
           id: entry.id,
-          title: sellerLabel ?? '消费返积分',
+          title,
           desc: '未在有效期内解锁',
           amount: entry.amount,
           date: entry.createdAt,
@@ -203,8 +185,10 @@ export default function WalletScreen() {
         desc = '平台调整';
       } else if (entry.refType === 'REFERRAL' || entry.refType === 'VIP_REFERRAL') {
         desc = '好友开通 VIP';
-      } else if (sellerLabel) {
-        desc = `订单${sellerLabel}`;
+      } else if (entry.accountType === 'INDUSTRY_FUND') {
+        desc = '订单产业基金';
+      } else if (entry.source === 'GROUP_BUY_REBATE' || entry.accountType === 'GROUP_BUY_REBATE') {
+        desc = '团购返还';
       } else {
         desc = '订单消费返积分';
       }
@@ -442,8 +426,8 @@ export default function WalletScreen() {
                 style={styles.balanceCard}
               >
                 <Animated.View entering={FadeInDown.duration(300)} style={{ paddingHorizontal: spacing.xl }}>
-                  <Text style={styles.balanceLabel}>可用积分（元）</Text>
-                  <Text style={styles.balanceSubLabel}>用于平台商品抵扣 / 可提现至支付宝</Text>
+                  <Text style={styles.balanceLabel}>消费积分（元）</Text>
+                  <Text style={styles.balanceSubLabel}>用于普通商品抵扣 / 可提现至支付宝</Text>
                   <Text {...priceTextProps} style={styles.balanceAmount}>
                     <Text style={styles.balanceSymbol}>¥</Text>
                     {wallet?.balance.toFixed(2) ?? '0.00'}
@@ -452,16 +436,23 @@ export default function WalletScreen() {
                   <View style={styles.balanceStats}>
                     <View style={styles.balanceStat}>
                       <Text style={[typography.bodyStrong, { color: '#fff' }]}>
-                        ¥{wallet?.frozen.toFixed(2) ?? '0.00'}
+                        ¥{deductibleBalance.toFixed(2)}
                       </Text>
-                      <Text style={styles.balanceStatLabel}>冻结积分</Text>
+                      <Text style={styles.balanceStatLabel}>可抵扣</Text>
                     </View>
                     <View style={styles.balanceStatDivider} />
                     <View style={styles.balanceStat}>
                       <Text style={[typography.bodyStrong, { color: '#fff' }]}>
-                        ¥{wallet?.total.toFixed(2) ?? '0.00'}
+                        ¥{withdrawableBalance.toFixed(2)}
                       </Text>
-                      <Text style={styles.balanceStatLabel}>累计获得</Text>
+                      <Text style={styles.balanceStatLabel}>可提现</Text>
+                    </View>
+                    <View style={styles.balanceStatDivider} />
+                    <View style={styles.balanceStat}>
+                      <Text style={[typography.bodyStrong, { color: '#fff' }]}>
+                        ¥{frozenBalance.toFixed(2)}
+                      </Text>
+                      <Text style={styles.balanceStatLabel}>冻结中</Text>
                     </View>
                   </View>
 
@@ -568,7 +559,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginTop: 6,
     marginBottom: 16,
-    letterSpacing: -1,
+    letterSpacing: 0,
   },
   balanceStats: {
     flexDirection: 'row',

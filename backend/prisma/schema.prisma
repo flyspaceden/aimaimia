@@ -2443,7 +2443,7 @@ model WithdrawRequest {
   user             User            @relation(fields: [userId], references: [id])
   amount           Float // grossAmount 申请金额（元，保留旧字段名）
   channel          WithdrawChannel
-  accountSnapshot  Json? // 加密存 { account, name }
+  accountSnapshot  Json? // 加密存 { account, name, source }
   accountType      String          @default("VIP_REWARD")
   status           WithdrawStatus  @default(PROCESSING)
   providerPayoutId String?

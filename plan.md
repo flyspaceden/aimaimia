@@ -1609,5 +1609,5 @@
 - [x] **GB03** 团购禁退换/禁优惠：团购订单支付后不支持取消退款或自助售后；团购 checkout 保持现金支付，拒绝红包、消费积分、团购返还余额、VIP 折扣等任何优惠。
 - [x] **GB04** 钱包统一读模型：`/bonus/wallet` 汇总 Reward 与 GroupBuyRebate 为 App 侧统一消费积分；后台账本仍分开记录；非卖家 OWNER 不展示产业基金分项。
 - [x] **GB05** 普通商品统一抵扣：普通 checkout 只接受一个 `deductionAmount`，后端按 Reward 优先、GroupBuyRebate 补足拆账；退款/取消恢复两套账本。
-- [ ] **GB06** 统一消费积分提现：提现入口需按 Reward / GroupBuyRebate / IndustryFund 规则自动拆账，App 不让用户选择来源。
+- [x] **GB06** 统一消费积分提现：提现入口按 Reward / GroupBuyRebate / IndustryFund 规则自动拆账，App 不让用户选择来源；统一钱包提现与旧团购返还提现通过 `accountSnapshot.source` 区分，避免历史列表和幂等键串线。
 - [x] **GB07** App 团购规则文案：团购首页、详情、扫码落地、付款页和当前团购面板统一展示“付款后立即生成推荐码 / 付款冻结返还 / 收货后释放 / 不退换，仅24小时质量问题补发”。

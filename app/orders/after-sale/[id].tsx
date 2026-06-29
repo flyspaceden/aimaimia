@@ -29,6 +29,7 @@ import { afterSaleTypeLabels } from '../../../src/constants/statuses';
 import { showPermissionRationale } from '../../../src/components/overlay/PermissionRationaleModal';
 import type { AfterSaleType, OrderItem } from '../../../src/types/domain/Order';
 import { BundleSummary } from '../../../src/components/orders/BundleSummary';
+import { GROUP_BUY_AFTER_SALE_NOTICE, isGroupBuyOrderBizType } from '../../../src/utils/groupBuyOrderRules';
 
 // ─── 质量问题原因选项（QUALITY_RETURN / QUALITY_EXCHANGE 必选）─────
 const qualityReasons = [
@@ -442,6 +443,16 @@ export default function AfterSaleScreen() {
             eligibilityQuery.refetch();
           }}
         />
+      </Screen>
+    );
+  }
+
+  // ─── 团购订单仅支持质量问题联系客服补发，不开放自助售后 ───────
+  if (isGroupBuyOrderBizType(data.data.bizType)) {
+    return (
+      <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
+        <AppHeader title="申请售后" />
+        <EmptyState title="团购订单不支持退换" description={GROUP_BUY_AFTER_SALE_NOTICE} />
       </Screen>
     );
   }
