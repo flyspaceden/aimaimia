@@ -101,8 +101,28 @@ describe('GroupBuyCheckoutService', () => {
     await expect(service.createCheckout('user_1', {
       ...dto,
       deductionAmount: 1,
+      rewardId: 'reward_1',
       groupBuyRebateDeductionAmount: 1,
       couponInstanceIds: ['coupon_1'],
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['discountAmount', { discountAmount: 1 }],
+    ['discountAmount=0', { discountAmount: 0 }],
+    ['vipDiscountAmount', { vipDiscountAmount: 1 }],
+    ['vipDiscountAmount=null', { vipDiscountAmount: null }],
+    ['totalCouponDiscount', { totalCouponDiscount: 1 }],
+    ['totalCouponDiscount=0', { totalCouponDiscount: 0 }],
+    ['couponPerAmounts', { couponPerAmounts: [{ couponInstanceId: 'coupon_1', discountAmount: 1 }] }],
+    ['couponPerAmounts=[]', { couponPerAmounts: [] }],
+  ])('rejects dirty %s field because group-buy checkout is cash-only', async (_field, dirtyPayload) => {
+    const { tx, service } = buildPrisma();
+
+    await expect(service.createCheckout('user_1', {
+      ...dto,
+      ...dirtyPayload,
     } as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });
@@ -517,6 +537,9 @@ describe('CheckoutService group-buy payment success integration', () => {
       lotteryRecord: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      groupBuyCode: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       groupBuyInstance: {
         create: jest.fn().mockResolvedValue({ id: 'new_instance_1' }),
         findUnique: jest.fn().mockResolvedValue({
@@ -543,25 +566,118 @@ describe('CheckoutService group-buy payment success integration', () => {
     return { service, tx };
   };
 
-  it('creates a group-buy order and pending own instance after payment success', async () => {
+  it('creates a group-buy order with an active own instance and share code after payment success', async () => {
     const { service, tx } = buildCheckoutHarness();
+    const paidAt = '2026-06-29T08:00:00.000Z';
 
-    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1', paidAt);
 
     expect(result.orderIds).toEqual(['order_1']);
     expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ bizType: 'GROUP_BUY' }),
     }));
+    const sessionPaidAt = tx.checkoutSession.updateMany.mock.calls[0][0].data.paidAt;
+    const orderPaidAt = tx.order.create.mock.calls[0][0].data.paidAt;
+    const instanceCreateData = tx.groupBuyInstance.create.mock.calls[0][0].data;
+    expect(sessionPaidAt.toISOString()).toBe(paidAt);
+    expect(orderPaidAt).toBe(sessionPaidAt);
+    expect(instanceCreateData.activatedAt).toBe(sessionPaidAt);
+    expect(instanceCreateData.code.create.activatedAt).toBe(sessionPaidAt);
     expect(tx.groupBuyInstance.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         userId: 'user_1',
         activityId: 'activity_1',
         initiatorOrderId: 'order_1',
-        status: 'QUALIFICATION_PENDING',
+        status: 'SHARING',
+        activatedAt: expect.any(Date),
         priceSnapshot: 1000,
         freeShippingSnapshot: true,
+        code: {
+          create: expect.objectContaining({
+            code: expect.any(String),
+            status: 'ACTIVE',
+            activatedAt: expect.any(Date),
+          }),
+        },
       }),
     }));
+    expect(tx.groupBuyCode.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { code: expect.any(String) },
+      select: { id: true },
+    }));
+  });
+
+  it('does not create a second group-buy instance or code on payment callback retry', async () => {
+    const { service, tx } = buildCheckoutHarness();
+    let sessionStatus = 'ACTIVE';
+    tx.checkoutSession.findUnique.mockImplementation(async ({ where }: any) => ({
+      id: 'session_1',
+      userId: 'user_1',
+      status: sessionStatus,
+      bizType: 'GROUP_BUY',
+      merchantOrderNo: where?.merchantOrderNo ?? 'GB_ORDER_1',
+      providerTxnId: sessionStatus === 'ACTIVE' ? null : 'provider_txn_1',
+      expectedTotal: 1000,
+      goodsAmount: 1000,
+      shippingFee: 0,
+      discountAmount: 0,
+      vipDiscountAmount: 0,
+      totalCouponDiscount: 0,
+      couponInstanceIds: [],
+      couponPerAmounts: [],
+      rewardId: null,
+      deductionGroupId: null,
+      buyerNote: null,
+      addressSnapshot: { encrypted: true },
+      bizMeta: {
+        groupBuyActivityId: 'activity_1',
+        groupBuyCodeId: null,
+        referredByInstanceId: null,
+        groupBuyPriceSnapshot: 1000,
+        freeShippingSnapshot: true,
+        shippingFeeSnapshot: 0,
+        tierSnapshot: [
+          { sequence: 1, basisPoints: 1000, label: '第一位好友' },
+          { sequence: 2, basisPoints: 2000, label: '第二位好友' },
+          { sequence: 3, basisPoints: 7000, label: '第三位好友' },
+        ],
+      },
+      itemsSnapshot: [
+        {
+          skuId: 'sku_1',
+          quantity: 1,
+          isPrize: false,
+          unitPrice: 1000,
+          companyId: PLATFORM_COMPANY_ID,
+          productSnapshot: {
+            productId: 'product_1',
+            title: '大龙虾',
+            skuTitle: '一只装',
+            image: '',
+            price: 1000,
+            isPrize: false,
+          },
+        },
+      ],
+    }));
+    tx.checkoutSession.updateMany.mockImplementation(async () => {
+      if (sessionStatus !== 'ACTIVE') return { count: 0 };
+      sessionStatus = 'PAID';
+      return { count: 1 };
+    });
+    tx.checkoutSession.update.mockImplementation(async () => {
+      sessionStatus = 'COMPLETED';
+      return { id: 'session_1', status: 'COMPLETED' };
+    });
+    tx.order.findMany.mockResolvedValue([{ id: 'order_1' }]);
+
+    await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+    const retryResult = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(retryResult.orderIds).toEqual(['order_1']);
+    expect(tx.order.create).toHaveBeenCalledTimes(1);
+    expect(tx.groupBuyInstance.create).toHaveBeenCalledTimes(1);
+    expect(tx.groupBuyCode.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('creates a candidate referral when the paid checkout used a share code', async () => {

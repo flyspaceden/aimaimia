@@ -454,6 +454,15 @@ export class GroupBuyCheckoutService {
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
       throw new BadRequestException('团购商品不能使用平台红包');
     }
+    const dirtyDiscountFields = [
+      'discountAmount',
+      'vipDiscountAmount',
+      'totalCouponDiscount',
+      'couponPerAmounts',
+    ];
+    if (dirtyDiscountFields.some((field) => Object.prototype.hasOwnProperty.call(dto, field))) {
+      throw new BadRequestException('团购商品必须现金购买，不能使用优惠或折扣');
+    }
   }
 
   private normalizeActivityItems(activity: any): CheckoutGroupBuyActivityItem[] {

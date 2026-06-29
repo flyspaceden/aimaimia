@@ -7,12 +7,13 @@ import {
   ServiceUnavailableException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
+import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
@@ -27,6 +28,7 @@ import {
 import { WechatPayService } from '../payment/wechat-pay.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { BundleSnapshotItem, ProductBundleService } from '../product/product-bundle.service';
+import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -84,6 +86,7 @@ export class CheckoutService {
   private digitalAssetService: DigitalAssetService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
+  private groupBuyRebateService: GroupBuyRebateService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -139,6 +142,10 @@ export class CheckoutService {
   /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
   setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
     this.groupBuyRebateDeductionService = service;
+  }
+
+  setGroupBuyRebateService(service: GroupBuyRebateService) {
+    this.groupBuyRebateService = service;
   }
 
   private extractWechatAmountFen(queryResult: any): number | null {
@@ -663,6 +670,10 @@ export class CheckoutService {
       perCouponAmounts: Array<{ couponInstanceId: string; discountAmount: number }>;
     } | null = null;
 
+    if ((dto.groupBuyRebateDeductionAmount ?? 0) > 0) {
+      throw new BadRequestException('请提交统一消费积分抵扣金额');
+    }
+
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
       if (!this.couponService) {
         throw new BadRequestException('红包服务不可用，请稍后重试');
@@ -697,31 +708,33 @@ export class CheckoutService {
       }
     }
 
-    // 消费积分抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
+    // 消费积分统一抵扣上限只读校验；事务内 reserveDeduction* 会重新校验并 CAS 扣减。
     if (dto.deductionAmount && dto.deductionAmount > 0) {
       if (!this.rewardDeductionService) {
         throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
       }
-      const maxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
+      const rewardMaxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
         userId,
         totalGoodsAmount,
       );
-      if (dto.deductionAmount > maxDeduction.maxDeductible) {
+      let rebateMaxDeduction: {
+        rebateBalance: number;
+        rebateRatio: number;
+        maxDeductible: number;
+      } | null = null;
+      if (this.groupBuyRebateDeductionService) {
+        rebateMaxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+          userId,
+          totalGoodsAmount,
+        );
+      }
+      const maxDeduction = this.calculateUnifiedMaxDeductible(
+        totalGoodsAmount,
+        rewardMaxDeduction,
+        rebateMaxDeduction,
+      );
+      if (dto.deductionAmount > maxDeduction) {
         throw new BadRequestException('抵扣金额超出上限');
-      }
-    }
-
-    // 团购返还余额抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
-    if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
-      if (!this.groupBuyRebateDeductionService) {
-        throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
-      }
-      const maxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
-        userId,
-        totalGoodsAmount,
-      );
-      if (dto.groupBuyRebateDeductionAmount > maxDeduction.maxDeductible) {
-        throw new BadRequestException('团购返还余额抵扣金额超出上限');
       }
     }
 
@@ -765,7 +778,7 @@ export class CheckoutService {
             if (!this.rewardDeductionService) {
               throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
             }
-            const reserved = await this.rewardDeductionService.reserveDeduction(
+            const reserved = await this.rewardDeductionService.reserveDeductionUpTo(
               tx,
               userId,
               totalGoodsAmount,
@@ -776,21 +789,23 @@ export class CheckoutService {
               reservedRewardId = reserved.primaryLedgerId;
               deductionGroupId = reserved.groupId;
             }
-          }
-
-          if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
-            if (!this.groupBuyRebateDeductionService) {
-              throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
-            }
-            const reserved = await this.groupBuyRebateDeductionService.reserveDeduction(
-              tx,
-              userId,
-              totalGoodsAmount,
-              dto.groupBuyRebateDeductionAmount,
+            const remainingUnifiedDeduction = Number(
+              (dto.deductionAmount - discountAmount).toFixed(2),
             );
-            if (reserved) {
-              groupBuyRebateDeductionGroupId = reserved.groupId;
-              groupBuyRebateDeductionAmount = Number(reserved.amount.toFixed(2));
+            if (remainingUnifiedDeduction > 0) {
+              if (!this.groupBuyRebateDeductionService) {
+                throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
+              }
+              const groupReserved = await this.groupBuyRebateDeductionService.reserveDeduction(
+                tx,
+                userId,
+                totalGoodsAmount,
+                remainingUnifiedDeduction,
+              );
+              if (groupReserved) {
+                groupBuyRebateDeductionGroupId = groupReserved.groupId;
+                groupBuyRebateDeductionAmount = Number(groupReserved.amount.toFixed(2));
+              }
             }
           }
 
@@ -1794,6 +1809,7 @@ export class CheckoutService {
             if (!session) {
               throw new NotFoundException('结算会话不存在');
             }
+            const paymentSuccessAt = paidAt ? new Date(paidAt) : new Date();
 
             // 2. CAS: ACTIVE → PAID
             const casResult = await tx.checkoutSession.updateMany({
@@ -1801,7 +1817,7 @@ export class CheckoutService {
               data: {
                 status: 'PAID',
                 providerTxnId,
-                paidAt: paidAt ? new Date(paidAt) : new Date(),
+                paidAt: paymentSuccessAt,
               },
             });
 
@@ -1951,7 +1967,7 @@ export class CheckoutService {
                   idempotencyKey,
                   buyerNote: (session as any).buyerNote ?? null,
                   addressSnapshot: addressSnapshot as any,
-                  paidAt: paidAt ? new Date(paidAt) : new Date(),
+                  paidAt: paymentSuccessAt,
                   items: {
                     create: group.items.map((oi) => ({
                       skuId: oi.skuId,
@@ -2021,6 +2037,7 @@ export class CheckoutService {
                 tx,
                 session as any,
                 createdOrderIds[0],
+                paymentSuccessAt,
               );
             }
 
@@ -2466,18 +2483,47 @@ export class CheckoutService {
       bizMeta?: any;
     },
     orderId: string,
+    now: Date,
   ) {
     const bizMeta = session.bizMeta;
     if (!bizMeta?.groupBuyActivityId || !Array.isArray(bizMeta.tierSnapshot)) {
       throw new InternalServerErrorException('团购支付会话元数据不完整');
     }
 
+    const activity = await tx.groupBuyActivity.findUnique({
+      where: { id: bizMeta.groupBuyActivityId },
+      select: {
+        id: true,
+        status: true,
+        startAt: true,
+        endAt: true,
+        deletedAt: true,
+      },
+    });
+    const activityEnded = this.isGroupBuyActivityEnded(activity, now);
+    const code = activityEnded ? null : await generateUniqueGroupBuyCode(tx);
+
     const ownInstance = await tx.groupBuyInstance.create({
       data: {
         userId: session.userId,
         activityId: bizMeta.groupBuyActivityId,
         initiatorOrderId: orderId,
-        status: 'QUALIFICATION_PENDING',
+        status: activityEnded ? 'EXPIRED' : 'SHARING',
+        ...(activityEnded
+          ? {
+              expiredAt: now,
+              invalidReason: 'ACTIVITY_ENDED',
+            }
+          : {
+              activatedAt: now,
+              code: {
+                create: {
+                  code: code!,
+                  status: 'ACTIVE',
+                  activatedAt: now,
+                },
+              },
+            }),
         priceSnapshot: Number(bizMeta.groupBuyPriceSnapshot ?? session.goodsAmount),
         shippingFeeSnapshot: Number(bizMeta.shippingFeeSnapshot ?? session.shippingFee ?? 0),
         freeShippingSnapshot: Boolean(bizMeta.freeShippingSnapshot),
@@ -2489,6 +2535,24 @@ export class CheckoutService {
     if (!bizMeta.groupBuyCodeId || !bizMeta.referredByInstanceId) {
       return;
     }
+    if (!this.groupBuyRebateService) {
+      throw new InternalServerErrorException('团购推荐返还服务不可用');
+    }
+
+    if (activityEnded) {
+      await this.createInvalidGroupBuyReferralAfterPayment(
+        tx,
+        session,
+        orderId,
+        ownInstance.id,
+        'ACTIVITY_ENDED_AFTER_PAYMENT',
+        now,
+      );
+      this.logger.warn(
+        `团购活动付款后已结束，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; activityId=${bizMeta.groupBuyActivityId}`,
+      );
+      return;
+    }
 
     const referrerInstance = await tx.groupBuyInstance.findUnique({
       where: { id: bizMeta.referredByInstanceId },
@@ -2496,15 +2560,33 @@ export class CheckoutService {
         id: true,
         status: true,
         tierSnapshot: true,
+        activity: {
+          select: {
+            id: true,
+            status: true,
+            startAt: true,
+            endAt: true,
+            deletedAt: true,
+          },
+        },
       },
     });
-    if (!referrerInstance || referrerInstance.status !== 'SHARING') {
+    if (
+      !referrerInstance
+      || referrerInstance.status !== 'SHARING'
+      || this.isGroupBuyActivityEnded(referrerInstance.activity, now)
+    ) {
+      const invalidReason = referrerInstance?.status === 'SHARING'
+        && this.isGroupBuyActivityEnded(referrerInstance.activity, now)
+        ? 'ACTIVITY_ENDED_AFTER_PAYMENT'
+        : 'REFERRER_NOT_SHARING_AFTER_PAYMENT';
       await this.createInvalidGroupBuyReferralAfterPayment(
         tx,
         session,
         orderId,
         ownInstance.id,
-        'REFERRER_NOT_SHARING_AFTER_PAYMENT',
+        invalidReason,
+        now,
       );
       this.logger.warn(
         `团购推荐码付款后推荐实例不可用，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2520,6 +2602,7 @@ export class CheckoutService {
         orderId,
         ownInstance.id,
         'REFERRER_TIER_SNAPSHOT_INVALID_AFTER_PAYMENT',
+        now,
       );
       this.logger.warn(
         `团购推荐码付款后推荐实例档位快照异常，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2542,6 +2625,7 @@ export class CheckoutService {
           attempt === 0
             ? 'SLOT_FULL_AFTER_PAYMENT'
             : 'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+          now,
         );
         this.logger.warn(
           `团购推荐码付款后名额已满，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2550,7 +2634,7 @@ export class CheckoutService {
       }
 
       try {
-        await tx.groupBuyReferral.create({
+        const referral = await tx.groupBuyReferral.create({
           data: {
             instanceId: bizMeta.referredByInstanceId,
             codeId: bizMeta.groupBuyCodeId,
@@ -2561,6 +2645,15 @@ export class CheckoutService {
             candidateSequence,
           },
         });
+        if (this.groupBuyRebateService) {
+          await this.groupBuyRebateService.createPendingReferralAfterPayment(
+            tx,
+            referral.id,
+            now,
+          );
+        } else {
+          throw new InternalServerErrorException('团购推荐返还服务不可用');
+        }
         await tx.groupBuyInstance.update({
           where: { id: bizMeta.referredByInstanceId },
           data: { candidateCount: { increment: 1 } },
@@ -2580,6 +2673,7 @@ export class CheckoutService {
       orderId,
       ownInstance.id,
       'REFERRAL_SEQUENCE_CONFLICT_AFTER_PAYMENT',
+      now,
     );
     this.logger.warn(
       `团购推荐记录唯一约束冲突，已记录无效推荐并保留已付款订单: sessionId=${session.id}; orderId=${orderId}; instanceId=${bizMeta.referredByInstanceId}`,
@@ -2641,6 +2735,7 @@ export class CheckoutService {
     orderId: string,
     ownInstanceId: string,
     reason: string,
+    now = new Date(),
   ) {
     const bizMeta = session.bizMeta;
     if (!bizMeta?.groupBuyCodeId || !bizMeta.referredByInstanceId) return;
@@ -2657,7 +2752,7 @@ export class CheckoutService {
           candidateSequence: null,
           effectiveSequence: null,
           invalidReason: reason,
-          invalidatedAt: new Date(),
+          invalidatedAt: now,
         },
       });
     } catch (error: any) {
@@ -2669,6 +2764,22 @@ export class CheckoutService {
       }
       throw error;
     }
+  }
+
+  private isGroupBuyActivityEnded(
+    activity: {
+      status: GroupBuyActivityStatus;
+      startAt: Date | null;
+      endAt: Date | null;
+      deletedAt: Date | null;
+    } | null,
+    now: Date,
+  ) {
+    return !activity
+      || activity.status === GroupBuyActivityStatus.ENDED
+      || Boolean(activity.deletedAt)
+      || !activity.endAt
+      || activity.endAt <= now;
   }
 
   private getExcludedPrizeCleanupItems(session: {
@@ -2692,6 +2803,26 @@ export class CheckoutService {
         skuId: typeof item.skuId === 'string' ? item.skuId : '',
         prizeRecordId: typeof item.prizeRecordId === 'string' ? item.prizeRecordId : null,
       }));
+  }
+
+  private calculateUnifiedMaxDeductible(
+    goodsAmount: number,
+    rewardInfo: { pointsBalance: number; pointsRatio: number; maxDeductible: number },
+    rebateInfo: { rebateBalance: number; rebateRatio: number; maxDeductible: number } | null,
+  ): number {
+    const toCents = (value: number | null | undefined) => {
+      const normalized = Number(value ?? 0);
+      return Number.isFinite(normalized)
+        ? Math.max(0, Math.round((normalized + Number.EPSILON) * 100))
+        : 0;
+    };
+    const totalBalanceCents = toCents(rewardInfo.pointsBalance) + toCents(rebateInfo?.rebateBalance);
+    const anyDeductionAllowed = toCents(rewardInfo.maxDeductible) > 0
+      || toCents(rebateInfo?.maxDeductible) > 0;
+    const maxByRatioCents = anyDeductionAllowed
+      ? Math.floor(toCents(goodsAmount) * rewardInfo.pointsRatio)
+      : 0;
+    return Math.round(Math.min(totalBalanceCents, maxByRatioCents)) / 100;
   }
 
   /**
