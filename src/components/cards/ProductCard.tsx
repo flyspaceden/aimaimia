@@ -126,7 +126,7 @@ export const ProductCard = React.memo(({
         ) : null}
 
         <View style={styles.footer}>
-          <Price value={product.price} unit={product.unit} strikeValue={product.strikePrice} from={product.priceFrom} />
+          <Price value={product.price} strikeValue={product.strikePrice} from={product.priceFrom} />
           <Animated.View style={{ transform: [{ scale }] }}>
             <Pressable
               onPress={handleAdd}
