@@ -98,6 +98,7 @@ describe('GroupBuyRebateService', () => {
         }),
         findFirst: jest.fn().mockResolvedValue(overrides.releaseLedger ?? null),
         create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
+        createMany: jest.fn().mockResolvedValue({ count: overrides.releaseLedgerCreateManyCount ?? 1 }),
         update: jest.fn().mockResolvedValue({ id: 'pending_1' }),
       },
       groupBuyInstance: {
@@ -306,8 +307,9 @@ describe('GroupBuyRebateService', () => {
         balance: 0,
       },
     });
-    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(tx.groupBuyRebateLedger.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      skipDuplicates: true,
+      data: [expect.objectContaining({
         accountId: 'account_1',
         userId: 'initiator_1',
         instanceId: 'instance_1',
@@ -319,13 +321,13 @@ describe('GroupBuyRebateService', () => {
         balanceBefore: 0,
         balanceAfter: 100,
         idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
-      }),
+      })],
     }));
     expect(tx.groupBuyRebateLedger.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
       data: expect.objectContaining({ status: 'COMPLETED' }),
     }));
-    expect(tx.groupBuyRebateLedger.create.mock.invocationCallOrder[0])
+    expect(tx.groupBuyRebateLedger.createMany.mock.invocationCallOrder[0])
       .toBeLessThan(tx.groupBuyRebateLedger.update.mock.invocationCallOrder[0]);
     expect(tx.groupBuyRebateAccount.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'account_1' },
@@ -365,12 +367,12 @@ describe('GroupBuyRebateService', () => {
       effectiveSequence: 2,
       amount: 200,
     });
-    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(tx.groupBuyRebateLedger.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({
         amount: 200,
         balanceBefore: 100,
         balanceAfter: 300,
-      }),
+      })],
     }));
   });
 
@@ -390,30 +392,15 @@ describe('GroupBuyRebateService', () => {
     expect(tx.groupBuyRebateAccount.create).not.toHaveBeenCalled();
   });
 
-  it('returns already released without mutating balances when release ledger create loses idempotency race', async () => {
-    const duplicateReleaseLedger = {
-      id: 'release_1',
-      amount: 100,
-      status: 'AVAILABLE',
-      meta: { tierSequence: 1 },
-    };
-    const duplicateError = new Prisma.PrismaClientKnownRequestError(
-      'Unique constraint failed on the fields: (`idempotencyKey`)',
-      {
-        code: 'P2002',
-        clientVersion: 'test',
-        meta: { target: ['idempotencyKey'] },
-      },
-    );
+  it('returns already released without mutating balances when release idempotency marker already exists', async () => {
     const { tx, service } = buildPrisma({
       pendingLedger: {
         id: 'pending_1',
         amount: 100,
         status: 'PENDING',
       },
-      releaseLedgerFindResults: [null, duplicateReleaseLedger],
+      releaseLedgerCreateManyCount: 0,
     });
-    tx.groupBuyRebateLedger.create.mockRejectedValueOnce(duplicateError);
 
     const result = await service.releaseReferralIfValid('referral_1', now);
 
@@ -425,6 +412,19 @@ describe('GroupBuyRebateService', () => {
     expect(tx.groupBuyRebateLedger.findUnique).toHaveBeenCalledWith({
       where: { idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1' },
     });
+    expect(tx.groupBuyRebateLedger.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      skipDuplicates: true,
+      data: [expect.objectContaining({
+        idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
+        type: 'RELEASE',
+      })],
+    }));
+    expect(tx.groupBuyRebateLedger.create).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
+        type: 'RELEASE',
+      }),
+    }));
     expect(tx.groupBuyRebateLedger.update).not.toHaveBeenCalledWith(expect.objectContaining({
       where: { idempotencyKey: 'GROUP_BUY_PENDING_REBATE:referral_1' },
     }));
@@ -813,13 +813,13 @@ describe('GroupBuyRebateService', () => {
       effectiveSequence: 1,
       amount: 100,
     });
-    expect(tx.groupBuyRebateLedger.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(tx.groupBuyRebateLedger.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({
         type: 'RELEASE',
         status: 'AVAILABLE',
         amount: 100,
         idempotencyKey: 'GROUP_BUY_RELEASE_REBATE:referral_1',
-      }),
+      })],
     }));
   });
 
