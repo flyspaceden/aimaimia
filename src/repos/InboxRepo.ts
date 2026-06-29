@@ -10,6 +10,10 @@
  * - `POST /api/v1/inbox/{id}/read` → `Result<InboxMessage[]>`
  * - `POST /api/v1/inbox/read-all` → `Result<InboxMessage[]>`
  * - `GET /api/v1/inbox/unread-count` → `Result<number>`
+ *
+ * 兼容性：
+ * - 旧数据使用 `target.route`
+ * - 新通知使用 `action.routeKey`，页面层统一解析，不在 Repo 层透传任意路由
  */
 import { mockInboxMessages } from '../mocks';
 import { InboxCategory, InboxMessage, Result } from '../types';

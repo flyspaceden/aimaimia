@@ -5,9 +5,16 @@
  * - 承接互动/交易/系统消息；支持未读角标与跳转
  *
  * 后端接入建议：
- * - 每条消息建议携带可跳转目标（route + params），避免前端 hardcode（见 `说明文档/后端接口清单.md#55-消息中心`）
+ * - 新通知统一携带 routeKey + params；旧 route + params 仅做兼容，不应继续扩展
  */
-export type InboxCategory = 'interaction' | 'transaction' | 'system';
+export type InboxCategory =
+  // 旧 Inbox 分类
+  | 'interaction'
+  | 'transaction'
+  | 'system'
+  // NotificationMessage canonical 分类
+  | 'order'
+  | 'risk';
 
 export type InboxType =
   | 'expert_reply'
@@ -32,12 +39,33 @@ export type InboxType =
   | 'new_order'
   | 'stock_shortage'
   | 'vip_activated'
-  | 'order_receiver_info_required';
+  | 'order_receiver_info_required'
+  | string;
 
-export type InboxTarget = {
+export type InboxRouteKey =
+  | 'ORDER_DETAIL'
+  | 'ORDER_TRACK'
+  | 'AFTER_SALE_DETAIL'
+  | 'INVOICE_DETAIL'
+  | 'WALLET'
+  | 'COUPONS'
+  | 'DIGITAL_ASSETS'
+  | 'GROUP_BUY_DETAIL'
+  | 'CS_SESSION'
+  | 'ORDER_RECEIVER_INFO'
+  | string;
+
+export type LegacyInboxTarget = {
   route: string;
   params?: Record<string, string>;
 };
+
+export type InboxAction = {
+  routeKey: InboxRouteKey;
+  params?: Record<string, string>;
+};
+
+export type InboxTarget = LegacyInboxTarget | InboxAction;
 
 export type InboxMessage = {
   id: string;
@@ -48,4 +76,5 @@ export type InboxMessage = {
   createdAt: string;
   unread: boolean;
   target?: InboxTarget;
+  action?: InboxAction;
 };
