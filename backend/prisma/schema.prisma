@@ -2546,6 +2546,78 @@ model InboxMessage {
   @@index([userId])
 }
 
+enum NotificationRecipientKind {
+  BUYER_USER
+  SELLER_STAFF
+  ADMIN_USER
+}
+
+enum NotificationAudience {
+  BUYER_APP
+  SELLER_CENTER
+  ADMIN_CENTER
+}
+
+enum NotificationSeverity {
+  INFO
+  SUCCESS
+  WARNING
+  CRITICAL
+}
+
+enum NotificationOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model NotificationOutbox {
+  id             String                   @id @default(cuid())
+  eventType      String
+  aggregateType  String
+  aggregateId    String
+  idempotencyKey String                   @unique
+  payload        Json
+  status         NotificationOutboxStatus @default(PENDING)
+  attempts       Int                      @default(0)
+  runAt          DateTime                 @default(now())
+  processingAt   DateTime?
+  processedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([status, runAt])
+  @@index([aggregateType, aggregateId])
+}
+
+model NotificationMessage {
+  id             String                    @id @default(cuid())
+  recipientKind  NotificationRecipientKind
+  recipientKey   String
+  audience       NotificationAudience
+  category       String
+  eventType      String
+  title          String
+  body           String
+  severity       NotificationSeverity      @default(INFO)
+  entityType     String
+  entityId       String
+  action         Json?
+  metadata       Json?
+  idempotencyKey String
+  readAt         DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([recipientKey, idempotencyKey])
+  @@index([recipientKey, readAt, createdAt])
+  @@index([audience, category, createdAt])
+  @@index([entityType, entityId])
+}
+
 model Task {
   id           String   @id @default(cuid())
   title        String
