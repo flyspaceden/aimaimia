@@ -44,6 +44,7 @@ describe('GroupBuyRebateService concurrency safeguards', () => {
     groupBuyRebateLedger: {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'ledger_1' }),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     groupBuyInstance: {
       update: jest.fn().mockResolvedValue({ id: 'instance_1' }),
