@@ -22,6 +22,12 @@ import { WithdrawRulesService } from './withdraw-rules.service';
 
 type WithdrawStatusResult = 'PROCESSING' | 'PAID' | 'FAILED';
 type WithdrawSource = 'REWARD' | 'GROUP_BUY_REBATE';
+type WithdrawRequestSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
+type AccountSnapshot = {
+  account?: string;
+  name?: string;
+  source?: WithdrawRequestSource;
+};
 
 type TransferProviderResult = {
   success: boolean;
@@ -756,6 +762,9 @@ export class WithdrawPayoutService implements OnModuleInit {
           : split.fromNormalCents > 0 ? 'NORMAL_REWARD'
             : split.fromGroupBuyRebateCents > 0 ? 'GROUP_BUY_REBATE'
               : 'INDUSTRY_FUND';
+      const requestSource: WithdrawRequestSource = source === 'GROUP_BUY_REBATE'
+        ? 'GROUP_BUY_REBATE_LEGACY'
+        : 'UNIFIED_POINTS';
       const created = await tx.withdrawRequest.create({
         data: {
           id,
@@ -765,6 +774,7 @@ export class WithdrawPayoutService implements OnModuleInit {
           accountSnapshot: encryptJsonValue({
             account: input.alipayAccount,
             name: input.alipayName,
+            source: requestSource,
           }) as any,
           accountType: primaryAccountType,
           status: 'PROCESSING' as any,
@@ -939,15 +949,20 @@ export class WithdrawPayoutService implements OnModuleInit {
     const sameAmount = yuanToCents(existing.amount) === amountCents;
     const sameAccount = snapshot.account === input.alipayAccount;
     const existingSource = this.resolveWithdrawSource(existing);
-    const sameSource = source === 'REWARD'
-      ? existingSource === 'REWARD' || existingSource === 'GROUP_BUY_REBATE'
-      : existingSource === source;
+    const sameSource = existingSource === source;
     if (!sameUser || !sameAmount || !sameAccount || !sameSource) {
       throw new ConflictException('Idempotency-Key conflict: existing request differs');
     }
   }
 
   private resolveWithdrawSource(withdraw: any): WithdrawSource {
+    const snapshot = this.readAccountSnapshot(withdraw?.accountSnapshot);
+    if (snapshot.source === 'UNIFIED_POINTS') {
+      return 'REWARD';
+    }
+    if (snapshot.source === 'GROUP_BUY_REBATE_LEGACY') {
+      return 'GROUP_BUY_REBATE';
+    }
     return withdraw?.accountType === 'GROUP_BUY_REBATE' ? 'GROUP_BUY_REBATE' : 'REWARD';
   }
 
@@ -957,12 +972,16 @@ export class WithdrawPayoutService implements OnModuleInit {
       : '爱买买消费积分提现';
   }
 
-  private readAccountSnapshot(snapshot: unknown): { account?: string; name?: string } {
+  private readAccountSnapshot(snapshot: unknown): AccountSnapshot {
     const decrypted = decryptJsonValue<any>(snapshot);
     if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
+      const source = decrypted.source === 'UNIFIED_POINTS' || decrypted.source === 'GROUP_BUY_REBATE_LEGACY'
+        ? decrypted.source
+        : undefined;
       return {
         account: typeof decrypted.account === 'string' ? decrypted.account : undefined,
         name: typeof decrypted.name === 'string' ? decrypted.name : undefined,
+        source,
       };
     }
     return {};

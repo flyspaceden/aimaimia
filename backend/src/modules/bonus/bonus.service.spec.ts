@@ -205,6 +205,81 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
   });
 });
 
+describe('BonusService.getWithdrawHistory — unified consumption point source filtering', () => {
+  function buildService(prismaMock: any) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      { handleTrigger: jest.fn() } as any,
+      {} as any,
+    );
+  }
+
+  it('keeps unified group-buy funded withdrawals in wallet history and excludes legacy group-buy withdrawals', async () => {
+    const legacyCreatedAt = new Date('2026-06-22T12:00:00.000Z');
+    const unifiedCreatedAt = new Date('2026-06-22T11:00:00.000Z');
+    const rewardCreatedAt = new Date('2026-06-22T10:00:00.000Z');
+    const prismaMock: any = {
+      withdrawRequest: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'w-legacy-gb',
+            amount: 30,
+            channel: 'ALIPAY',
+            status: 'PROCESSING',
+            accountType: 'GROUP_BUY_REBATE',
+            accountSnapshot: { account: 'legacy@example.com', source: 'GROUP_BUY_REBATE_LEGACY' },
+            createdAt: legacyCreatedAt,
+          },
+          {
+            id: 'w-unified-gb',
+            amount: 25,
+            channel: 'ALIPAY',
+            status: 'PROCESSING',
+            accountType: 'GROUP_BUY_REBATE',
+            accountSnapshot: { account: 'unified@example.com', source: 'UNIFIED_POINTS' },
+            createdAt: unifiedCreatedAt,
+          },
+          {
+            id: 'w-reward',
+            amount: 20,
+            channel: 'ALIPAY',
+            status: 'PAID',
+            accountType: 'VIP_REWARD',
+            accountSnapshot: { account: 'reward@example.com' },
+            createdAt: rewardCreatedAt,
+          },
+        ]),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getWithdrawHistory('user-1');
+
+    expect(prismaMock.withdrawRequest.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    expect(result).toEqual([
+      {
+        id: 'w-unified-gb',
+        amount: 25,
+        channel: 'ALIPAY',
+        status: 'PROCESSING',
+        createdAt: unifiedCreatedAt.toISOString(),
+      },
+      {
+        id: 'w-reward',
+        amount: 20,
+        channel: 'ALIPAY',
+        status: 'PAID',
+        createdAt: rewardCreatedAt.toISOString(),
+      },
+    ]);
+  });
+});
+
 /**
  * 回归测试：CRIT-1 — VIP 激活重试路径状态机错位
  *

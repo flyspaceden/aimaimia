@@ -948,6 +948,7 @@ describe('GroupBuyRebateService', () => {
 
   it('lists only group-buy rebate withdrawal history', async () => {
     const createdAt = new Date('2026-06-22T12:30:00.000Z');
+    const unifiedCreatedAt = new Date('2026-06-22T12:00:00.000Z');
     const { prisma, service } = buildPrisma({
       withdrawals: [
         {
@@ -958,10 +959,22 @@ describe('GroupBuyRebateService', () => {
           channel: 'ALIPAY',
           status: 'PROCESSING',
           accountType: 'GROUP_BUY_REBATE',
+          accountSnapshot: { account: 'legacy@example.com', source: 'GROUP_BUY_REBATE_LEGACY' },
           createdAt,
         },
+        {
+          id: 'withdraw_unified',
+          amount: 25,
+          netAmount: 20,
+          taxAmount: 5,
+          channel: 'ALIPAY',
+          status: 'PROCESSING',
+          accountType: 'GROUP_BUY_REBATE',
+          accountSnapshot: { account: 'unified@example.com', source: 'UNIFIED_POINTS' },
+          createdAt: unifiedCreatedAt,
+        },
       ],
-      withdrawalTotal: 1,
+      withdrawalTotal: 2,
     });
 
     const result = await (service as any).listWithdrawals('user_1', 1, 20);
@@ -973,9 +986,8 @@ describe('GroupBuyRebateService', () => {
         deletedAt: null,
       },
       orderBy: { createdAt: 'desc' },
-      skip: 0,
-      take: 20,
     });
+    expect(prisma.withdrawRequest.count).not.toHaveBeenCalled();
     expect(result).toEqual({
       items: [
         {

@@ -18,6 +18,7 @@ import { useAuthStore, useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
+import { GROUP_BUY_AFTER_SALE_NOTICE, isGroupBuyOrderBizType } from '../../src/utils/groupBuyOrderRules';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -81,6 +82,7 @@ export default function OrderDetailScreen() {
 
   const order = data.data;
   const isVip = order.bizType === 'VIP_PACKAGE';
+  const isGroupBuy = isGroupBuyOrderBizType(order.bizType);
   const refund = order.refundSummary;
   const refundTextMap: Record<RefundStatus, (amount: number) => string> = {
     REQUESTED: () => '退款申请已提交，等待审核',
@@ -204,7 +206,7 @@ export default function OrderDetailScreen() {
   switch (order.status) {
     case 'PAID':
       // 已付款待发货 — 仅允许取消（走退款）
-      if (order.bizType !== 'VIP_PACKAGE') {
+      if (!isVip && !isGroupBuy) {
         secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel, disabled: canceling });
       }
       break;
@@ -222,7 +224,7 @@ export default function OrderDetailScreen() {
       break;
   }
 
-  if (order.afterSaleStatus && order.afterSaleStatus !== 'rejected' && order.afterSaleStatus !== 'failed') {
+  if (!isGroupBuy && order.afterSaleStatus && order.afterSaleStatus !== 'rejected' && order.afterSaleStatus !== 'failed') {
     secondary.push({
       label: '查看售后',
       onPress: () => {
@@ -289,6 +291,18 @@ export default function OrderDetailScreen() {
           }
         />
 
+        {isGroupBuy ? (
+          <View style={[styles.sectionRow, { backgroundColor: colors.surface }]}>
+            <MaterialCommunityIcons name="shield-check-outline" size={18} color={colors.brand.primary} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[typography.body, { color: colors.text.primary }]}>团购售后规则</Text>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
+                {GROUP_BUY_AFTER_SALE_NOTICE}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {refund && refundText ? (
           <View style={[styles.sectionRow, { backgroundColor: colors.surface }]}>
             <MaterialCommunityIcons
@@ -338,7 +352,7 @@ export default function OrderDetailScreen() {
               companyName={items[0].companyName || '商家'}
               items={items}
               isVipPackage={isVip}
-              showAfterSaleAction={['DELIVERED', 'RECEIVED'].includes(order.status) && !isVip}
+              showAfterSaleAction={['DELIVERED', 'RECEIVED'].includes(order.status) && !isVip && !isGroupBuy}
               onItemAfterSale={() => router.push({ pathname: '/orders/after-sale/[id]', params: { id: order.id } })}
             />
           </View>

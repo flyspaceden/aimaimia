@@ -2,6 +2,9 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { decryptJsonValue } from '../../common/security/encryption';
+
+type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
 @Injectable()
 export class GroupBuyRebateService {
@@ -182,15 +185,13 @@ export class GroupBuyRebateService {
       deletedAt: null,
     };
 
-    const [items, total] = await Promise.all([
-      (this.prisma.withdrawRequest as any).findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: safePageSize,
-      }),
-      (this.prisma.withdrawRequest as any).count({ where }),
-    ]);
+    const candidates = await (this.prisma.withdrawRequest as any).findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+    const legacyWithdrawals = candidates.filter((withdraw: any) => this.isLegacyGroupBuyWithdraw(withdraw));
+    const items = legacyWithdrawals.slice(skip, skip + safePageSize);
+    const total = legacyWithdrawals.length;
 
     return {
       items: items.map((withdraw: any) => ({
@@ -207,6 +208,27 @@ export class GroupBuyRebateService {
       pageSize: safePageSize,
       nextPage: skip + safePageSize < total ? safePage + 1 : undefined,
     };
+  }
+
+  private isLegacyGroupBuyWithdraw(withdraw: any): boolean {
+    const source = this.readWithdrawSnapshotSource(withdraw);
+    if (source === 'GROUP_BUY_REBATE_LEGACY') {
+      return true;
+    }
+    if (source === 'UNIFIED_POINTS') {
+      return false;
+    }
+    return withdraw?.accountType === 'GROUP_BUY_REBATE';
+  }
+
+  private readWithdrawSnapshotSource(withdraw: any): WithdrawSnapshotSource | null {
+    const snapshot = decryptJsonValue<any>(withdraw?.accountSnapshot);
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return null;
+    }
+    return snapshot.source === 'UNIFIED_POINTS' || snapshot.source === 'GROUP_BUY_REBATE_LEGACY'
+      ? snapshot.source
+      : null;
   }
 
   async createPendingReferralAfterPayment(
