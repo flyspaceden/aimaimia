@@ -738,20 +738,6 @@ export class CheckoutService {
       }
     }
 
-    // 团购返还余额抵扣上限只读校验；事务内 reserveDeduction 会重新校验并 CAS 扣减。
-    if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
-      if (!this.groupBuyRebateDeductionService) {
-        throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
-      }
-      const maxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
-        userId,
-        totalGoodsAmount,
-      );
-      if (dto.groupBuyRebateDeductionAmount > maxDeduction.maxDeductible) {
-        throw new BadRequestException('团购返还余额抵扣金额超出上限');
-      }
-    }
-
     // 10. 生成 merchantOrderNo（在事务外生成，事务内使用）
     const merchantOrderNo = `CS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const paymentChannel = dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] : null;
@@ -820,22 +806,6 @@ export class CheckoutService {
                 groupBuyRebateDeductionGroupId = groupReserved.groupId;
                 groupBuyRebateDeductionAmount = Number(groupReserved.amount.toFixed(2));
               }
-            }
-          }
-
-          if (dto.groupBuyRebateDeductionAmount && dto.groupBuyRebateDeductionAmount > 0) {
-            if (!this.groupBuyRebateDeductionService) {
-              throw new BadRequestException('团购返还余额抵扣服务不可用，请稍后重试');
-            }
-            const reserved = await this.groupBuyRebateDeductionService.reserveDeduction(
-              tx,
-              userId,
-              totalGoodsAmount,
-              dto.groupBuyRebateDeductionAmount,
-            );
-            if (reserved) {
-              groupBuyRebateDeductionGroupId = reserved.groupId;
-              groupBuyRebateDeductionAmount = Number(reserved.amount.toFixed(2));
             }
           }
 

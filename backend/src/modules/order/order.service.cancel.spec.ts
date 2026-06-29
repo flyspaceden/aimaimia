@@ -642,6 +642,8 @@ describe('OrderService cancel PAID orders', () => {
       checkoutSession: {
         findUnique: jest.fn().mockResolvedValue({
           deductionGroupId: 'DG-1',
+          groupBuyRebateDeductionGroupId: 'GBD-1',
+          groupBuyRebateDeductionAmount: 3,
           goodsAmount: 70,
           discountAmount: 8,
         }),
@@ -694,6 +696,10 @@ describe('OrderService cancel PAID orders', () => {
       refundDeduction: jest.fn(),
     };
     service.setRewardDeductionService(rewardDeductionService as any);
+    const groupBuyRebateDeductionService = {
+      refundDeduction: jest.fn(),
+    };
+    (service as any).setGroupBuyRebateDeductionService(groupBuyRebateDeductionService);
     const digitalAssetService = {
       reverseRefund: jest.fn().mockResolvedValue(undefined),
     };
@@ -733,6 +739,14 @@ describe('OrderService cancel PAID orders', () => {
     expect(rewardDeductionService.refundDeduction).toHaveBeenCalledWith(finalTx1, expect.objectContaining({
       refundId: 'r-session-1',
       orderId: 'o-session-1',
+      isFinalRefund: false,
+    }));
+    expect(groupBuyRebateDeductionService.refundDeduction).toHaveBeenCalledTimes(1);
+    expect(groupBuyRebateDeductionService.refundDeduction).toHaveBeenCalledWith(finalTx1, expect.objectContaining({
+      refundId: 'r-session-1',
+      orderId: 'o-session-1',
+      originalDeductAmount: 3,
+      deductionGroupId: 'GBD-1',
       isFinalRefund: false,
     }));
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledTimes(1);
