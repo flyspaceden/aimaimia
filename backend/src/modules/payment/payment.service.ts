@@ -13,6 +13,7 @@ import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.ser
 import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 import type { RewardDeductionService } from '../bonus/reward-deduction.service';
 import type { DigitalAssetService } from '../digital-asset/digital-asset.service';
+import type { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { WechatPayService } from './wechat-pay.service';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class PaymentService {
   private afterSaleRefundService: AfterSaleRefundService | null = null;
   private afterSaleShippingPaymentService: AfterSaleShippingPaymentService | null = null;
   private rewardDeductionService: RewardDeductionService | null = null;
+  private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
 
   constructor(
@@ -50,6 +52,10 @@ export class PaymentService {
 
   setRewardDeductionService(service: RewardDeductionService) {
     this.rewardDeductionService = service;
+  }
+
+  setGroupBuyRebateDeductionService(service: GroupBuyRebateDeductionService) {
+    this.groupBuyRebateDeductionService = service;
   }
 
   setDigitalAssetService(service: DigitalAssetService) {
@@ -1856,18 +1862,22 @@ export class PaymentService {
     if (order?.id && this.couponService?.restoreCouponsForOrder) {
       await this.restoreAutoCancelCoupons(tx, order.id, order.checkoutSessionId);
     }
-    if (!this.rewardDeductionService) return;
     if (!order?.checkoutSessionId) return;
 
     const session = await tx.checkoutSession.findUnique({
       where: { id: order.checkoutSessionId },
       select: {
         deductionGroupId: true,
+        groupBuyRebateDeductionGroupId: true,
+        groupBuyRebateDeductionAmount: true,
         goodsAmount: true,
         discountAmount: true,
       },
     });
-    if (!session?.deductionGroupId || Number(session.discountAmount || 0) <= 0) return;
+    const hasRewardDeduction = !!session?.deductionGroupId && Number(session.discountAmount || 0) > 0;
+    const hasGroupBuyRebateDeduction = !!session?.groupBuyRebateDeductionGroupId
+      && Number(session.groupBuyRebateDeductionAmount || 0) > 0;
+    if (!hasRewardDeduction && !hasGroupBuyRebateDeduction) return;
 
     const refundedSiblings = await tx.refund.findMany({
       where: {
@@ -1885,16 +1895,28 @@ export class PaymentService {
         .toFixed(2),
     );
 
-    await this.rewardDeductionService.refundDeduction(tx, {
+    const common = {
       refundId,
       orderId: order.id,
       originalGoodsAmount: Number(session.goodsAmount || order.goodsAmount || 0),
       originalGoodsRefundAmount: Number(order.goodsAmount || 0),
-      originalDeductAmount: Number(session.discountAmount || order.discountAmount || 0),
-      deductionGroupId: session.deductionGroupId,
       cumulativeGoodsRefundAmount,
       isFinalRefund: cumulativeGoodsRefundAmount >= Number(session.goodsAmount || 0),
-    });
+    };
+    if (hasRewardDeduction && this.rewardDeductionService) {
+      await this.rewardDeductionService.refundDeduction(tx, {
+        ...common,
+        originalDeductAmount: Number(session.discountAmount || order.discountAmount || 0),
+        deductionGroupId: session.deductionGroupId,
+      });
+    }
+    if (hasGroupBuyRebateDeduction && this.groupBuyRebateDeductionService) {
+      await this.groupBuyRebateDeductionService.refundDeduction(tx, {
+        ...common,
+        originalDeductAmount: Number(session.groupBuyRebateDeductionAmount || 0),
+        deductionGroupId: session.groupBuyRebateDeductionGroupId,
+      });
+    }
   }
 
   private async restoreAutoCancelCoupons(
