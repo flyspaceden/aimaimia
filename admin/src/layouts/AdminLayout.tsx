@@ -4,6 +4,7 @@ import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
 import { Dropdown, App } from 'antd';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
+import './AdminLayout.css';
 import {
   DashboardOutlined,
   UserOutlined,
@@ -195,6 +196,7 @@ export default function AdminLayout() {
 
   return (
     <ProLayout
+      className="aimm-admin-layout"
       title="爱买买管理后台"
       logo={null}
       menuHeaderRender={() => (
@@ -217,7 +219,7 @@ export default function AdminLayout() {
           colorMenuBackground: '#001529',
           colorTextMenu: 'rgba(255,255,255,0.75)',
           colorTextMenuSelected: '#fff',
-          colorBgMenuItemSelected: '#1E40AF',
+          colorBgMenuItemSelected: '#2563EB',
           colorTextMenuActive: '#fff',
           colorTextMenuItemHover: '#fff',
           colorBgMenuItemHover: 'rgba(255,255,255,0.08)',
@@ -232,7 +234,6 @@ export default function AdminLayout() {
         <a onClick={() => {
           if (!item.path) return;
           if (isGlobalDirty()) {
-            // eslint-disable-next-line no-restricted-globals
             const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
             if (!confirmed) return;
           }

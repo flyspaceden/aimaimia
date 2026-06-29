@@ -1,0 +1,40 @@
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  position: relative;
+  background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%) !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected:hover,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title:hover {
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: #fff !important;
+}
+
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected a,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected .anticon,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected .ant-menu-title-content,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title .anticon,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: #fff !important;
+}
+
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item-selected::before,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-selected > .ant-menu-submenu-title::before {
+  content: '';
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: #bfdbfe;
+}
+
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-item:focus-visible,
+.aimm-admin-layout .ant-pro-sider .ant-menu.ant-menu-inline .ant-menu-submenu-title:focus-visible {
+  outline: 2px solid #bfdbfe;
+  outline-offset: -2px;
+}
