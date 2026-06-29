@@ -8,6 +8,8 @@ type OutboxRow = {
   id: string;
   payload: unknown;
   attempts: number;
+  runAt: Date;
+  updatedAt: Date;
 };
 
 @Injectable()
@@ -40,7 +42,13 @@ export class NotificationDispatcherService {
     const previousAttempts = row.attempts;
     const claimedAt = new Date();
     const claimResult = await this.prisma.notificationOutbox.updateMany({
-      where: { id: row.id, status: 'PENDING', runAt: { lte: claimedAt } },
+      where: {
+        id: row.id,
+        status: 'PENDING',
+        attempts: previousAttempts,
+        runAt: row.runAt,
+        updatedAt: row.updatedAt,
+      },
       data: {
         status: 'PROCESSING',
         processingAt: claimedAt,

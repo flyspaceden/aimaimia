@@ -54,16 +54,20 @@ describe('NotificationService and dispatcher', () => {
 
   const matchesWhere = (row: Record<string, any>, where: Record<string, any> = {}): boolean =>
     Object.entries(where).every(([key, value]): boolean => {
+      const rowValue = row[key];
       if (value === null) {
-        return row[key] === null;
+        return rowValue === null;
+      }
+      if (value instanceof Date) {
+        return rowValue instanceof Date && rowValue.getTime() === value.getTime();
       }
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         if ('lte' in value) {
-          return row[key] <= value.lte;
+          return rowValue <= value.lte;
         }
-        return matchesWhere(row[key] ?? {}, value);
+        return matchesWhere(rowValue ?? {}, value);
       }
-      return row[key] === value;
+      return rowValue === value;
     });
 
   const makePrisma = () => {
@@ -99,7 +103,7 @@ describe('NotificationService and dispatcher', () => {
         if (typeof take === 'number') {
           rows = rows.slice(0, take);
         }
-        return rows;
+        return rows.map((row) => ({ ...row }));
       }),
       updateMany: jest.fn(async ({ where, data }) => {
         const rows = state.outbox.filter((row) => matchesWhere(row as any, where as any));
@@ -241,7 +245,7 @@ describe('NotificationService and dispatcher', () => {
     expect(prisma.state.outbox[0].status).toBe('PENDING');
   });
 
-  it('skips processing when a pending row was deferred after selection', async () => {
+  it('skips stale workers after a row was retried and becomes due again', async () => {
     const prisma = makePrisma();
     const registry = new NotificationRegistry();
     const dispatcher = new NotificationDispatcherService(prisma as any, registry);
@@ -257,12 +261,16 @@ describe('NotificationService and dispatcher', () => {
       },
     });
 
+    const selectedRunAt = prisma.state.outbox[0].runAt;
+    const selectedUpdatedAt = prisma.state.outbox[0].updatedAt;
     const originalUpdateMany = prisma.notificationOutbox.updateMany.getMockImplementation();
     prisma.notificationOutbox.updateMany.mockImplementationOnce(async (args) => {
       if (!originalUpdateMany) {
         throw new Error('missing updateMany mock implementation');
       }
-      prisma.state.outbox[0].runAt = new Date(Date.now() + 60_000);
+      prisma.state.outbox[0].attempts = 1;
+      prisma.state.outbox[0].runAt = new Date(Date.now() - 1000);
+      prisma.state.outbox[0].updatedAt = new Date(Date.now() + 1000);
       return originalUpdateMany(args);
     });
 
@@ -273,12 +281,15 @@ describe('NotificationService and dispatcher', () => {
         where: expect.objectContaining({
           id: 'outbox-1',
           status: 'PENDING',
-          runAt: { lte: expect.any(Date) },
+          attempts: 0,
+          runAt: selectedRunAt,
+          updatedAt: selectedUpdatedAt,
         }),
       }),
     );
     expect(prisma.state.messages).toHaveLength(0);
     expect(prisma.state.outbox[0].status).toBe('PENDING');
+    expect(prisma.state.outbox[0].attempts).toBe(1);
   });
 
   it('requeues on a failed attempt and marks FAILED on the fifth attempt', async () => {
