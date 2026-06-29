@@ -607,6 +607,246 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
   });
 });
 
+describe('BonusService.getWallet — 团购返利统一读模型', () => {
+  function buildService(prismaMock: any) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+    );
+  }
+
+  function buildWalletPrisma(isSellerOwner: boolean) {
+    return {
+      rewardAccount: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'acct-vip', userId: 'user-1', type: 'VIP_REWARD', balance: 10, frozen: 1 },
+          { id: 'acct-normal', userId: 'user-1', type: 'NORMAL_REWARD', balance: 20, frozen: 2 },
+          { id: 'acct-industry', userId: 'user-1', type: 'INDUSTRY_FUND', balance: 300, frozen: 40 },
+        ]),
+      },
+      companyStaff: {
+        findFirst: jest.fn().mockResolvedValue(isSellerOwner ? { id: 'staff-owner' } : null),
+      },
+      groupBuyRebateAccount: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'user-1',
+          balance: 5,
+          reserved: 2,
+          withdrawn: 7,
+          deducted: 3,
+        }),
+      },
+      groupBuyRebateLedger: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 4 } }),
+      },
+    };
+  }
+
+  it('非卖家 OWNER 的钱包合并 VIP、普通和团购返利，但不暴露产业基金', async () => {
+    const prismaMock: any = buildWalletPrisma(false);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWallet('user-1');
+
+    expect(result).toEqual({
+      balance: 35,
+      frozen: 7,
+      total: 42,
+      deductibleBalance: 35,
+      withdrawableBalance: 35,
+      isSellerOwner: false,
+      vip: { balance: 10, frozen: 1 },
+      normal: { balance: 20, frozen: 2 },
+      industryFund: null,
+      groupBuyRebate: {
+        balance: 5,
+        pending: 4,
+        reserved: 2,
+        withdrawn: 7,
+        deducted: 3,
+        total: 17,
+      },
+    });
+    expect(prismaMock.groupBuyRebateLedger.aggregate).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        type: 'PENDING_REBATE',
+        status: 'PENDING',
+        deletedAt: null,
+      },
+      _sum: { amount: true },
+    });
+  });
+
+  it('卖家 OWNER 的钱包额外合并并展示产业基金，抵扣余额仍排除产业基金', async () => {
+    const prismaMock: any = buildWalletPrisma(true);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWallet('user-1');
+
+    expect(result).toMatchObject({
+      balance: 335,
+      frozen: 47,
+      total: 382,
+      deductibleBalance: 35,
+      withdrawableBalance: 335,
+      isSellerOwner: true,
+      industryFund: { balance: 300, frozen: 40 },
+      groupBuyRebate: {
+        balance: 5,
+        pending: 4,
+        reserved: 2,
+        withdrawn: 7,
+        deducted: 3,
+        total: 17,
+      },
+    });
+    expect(prismaMock.companyStaff.findFirst).toHaveBeenCalledWith({
+      where: { userId: 'user-1', role: 'OWNER', status: 'ACTIVE' },
+      select: { id: true },
+    });
+  });
+});
+
+describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', () => {
+  function buildService(prismaMock: any) {
+    return new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+    );
+  }
+
+  function rewardLedger(
+    id: string,
+    accountType: string,
+    createdAt: string,
+    amount: number,
+  ) {
+    return {
+      id,
+      accountId: `acct-${id}`,
+      userId: 'user-1',
+      entryType: 'RELEASE',
+      amount,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: `order-${id}`,
+      meta: { accountType },
+      createdAt: new Date(createdAt),
+      account: { type: accountType },
+    };
+  }
+
+  function groupBuyLedger(id: string, createdAt: string, amount: number) {
+    return {
+      id,
+      accountId: 'gb-acct',
+      userId: 'user-1',
+      type: 'RELEASE',
+      status: 'AVAILABLE',
+      amount,
+      balanceBefore: 0,
+      balanceAfter: amount,
+      refType: 'GROUP_BUY_REFERRAL',
+      refId: `ref-${id}`,
+      meta: { tierSequence: 1 },
+      createdAt: new Date(createdAt),
+    };
+  }
+
+  function buildLedgerPrisma(isSellerOwner: boolean) {
+    const rewardLedgers = [
+      rewardLedger('reward-industry', 'INDUSTRY_FUND', '2026-06-22T11:00:00.000Z', 300),
+      rewardLedger('reward-normal', 'NORMAL_REWARD', '2026-06-22T10:00:00.000Z', 20),
+      rewardLedger('reward-vip', 'VIP_REWARD', '2026-06-22T08:00:00.000Z', 10),
+    ].filter((ledger) => isSellerOwner || ledger.account.type !== 'INDUSTRY_FUND');
+
+    return {
+      companyStaff: {
+        findFirst: jest.fn().mockResolvedValue(isSellerOwner ? { id: 'staff-owner' } : null),
+      },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue(rewardLedgers),
+        count: jest.fn().mockResolvedValue(rewardLedgers.length),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          groupBuyLedger('gb-new', '2026-06-22T12:00:00.000Z', 5),
+          groupBuyLedger('gb-mid', '2026-06-22T09:00:00.000Z', 4),
+        ]),
+        count: jest.fn().mockResolvedValue(2),
+      },
+    };
+  }
+
+  it('非卖家 OWNER 合并奖励和团购返利后按时间倒序分页，并隐藏产业基金流水', async () => {
+    const prismaMock: any = buildLedgerPrisma(false);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', 2, 2);
+
+    expect(result).toEqual({
+      items: [
+        {
+          id: 'gb-mid',
+          sourceLedgerId: 'gb-mid',
+          source: 'GROUP_BUY_REBATE',
+          accountType: 'GROUP_BUY_REBATE',
+          type: 'RELEASE',
+          entryType: 'RELEASE',
+          status: 'AVAILABLE',
+          amount: 4,
+          balanceAfter: 4,
+          refType: 'GROUP_BUY_REFERRAL',
+          refId: 'ref-gb-mid',
+          meta: { tierSequence: 1 },
+          createdAt: '2026-06-22T09:00:00.000Z',
+        },
+        {
+          id: 'reward-vip',
+          sourceLedgerId: 'reward-vip',
+          source: 'REWARD',
+          accountType: 'VIP_REWARD',
+          type: 'RELEASE',
+          entryType: 'RELEASE',
+          status: 'AVAILABLE',
+          amount: 10,
+          balanceAfter: undefined,
+          refType: 'ORDER',
+          refId: 'order-reward-vip',
+          meta: { accountType: 'VIP_REWARD' },
+          createdAt: '2026-06-22T08:00:00.000Z',
+        },
+      ],
+      nextPage: undefined,
+    });
+  });
+
+  it('卖家 OWNER 可以在统一流水中看到产业基金 Reward 流水', async () => {
+    const prismaMock: any = buildLedgerPrisma(true);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', 1, 3);
+
+    expect(result.items.map((item: any) => item.id)).toEqual([
+      'gb-new',
+      'reward-industry',
+      'reward-normal',
+    ]);
+    expect(result.items[1]).toMatchObject({
+      id: 'reward-industry',
+      source: 'REWARD',
+      accountType: 'INDUSTRY_FUND',
+      amount: 300,
+    });
+    expect(result.nextPage).toBe(2);
+  });
+});
+
 describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
   function buildService(prismaMock: any = {}) {
     return new BonusService(

@@ -550,11 +550,34 @@ export class BonusService {
 
   // ========== 奖励钱包 ==========
 
-  /** 获取奖励钱包（合并 VIP + 普通 + 产业基金账户） */
-  async getWallet(userId: string) {
-    const accounts = await this.prisma.rewardAccount.findMany({
-      where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
+  private async isSellerOwner(userId: string) {
+    const staff = await this.prisma.companyStaff.findFirst({
+      where: { userId, role: 'OWNER', status: 'ACTIVE' },
+      select: { id: true },
     });
+    return !!staff;
+  }
+
+  /** 获取奖励钱包（App 读模型：奖励账户 + 团购返利账户） */
+  async getWallet(userId: string) {
+    const [accounts, isSellerOwner, groupBuyAccount, pendingAggregate] = await Promise.all([
+      this.prisma.rewardAccount.findMany({
+        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
+      }),
+      this.isSellerOwner(userId),
+      this.prisma.groupBuyRebateAccount.findUnique({
+        where: { userId },
+      }),
+      this.prisma.groupBuyRebateLedger.aggregate({
+        where: {
+          userId,
+          type: 'PENDING_REBATE',
+          status: 'PENDING',
+          deletedAt: null,
+        },
+        _sum: { amount: true },
+      }),
+    ]);
 
     const vip = accounts.find((a) => a.type === 'VIP_REWARD');
     const normal = accounts.find((a) => a.type === 'NORMAL_REWARD');
@@ -564,49 +587,106 @@ export class BonusService {
     const vipFrozen = vip?.frozen ?? 0;
     const normalBalance = normal?.balance ?? 0;
     const normalFrozen = normal?.frozen ?? 0;
-    const industryBalance = industry?.balance ?? 0;
-    const industryFrozen = industry?.frozen ?? 0;
+    const industryBalance = isSellerOwner ? industry?.balance ?? 0 : 0;
+    const industryFrozen = isSellerOwner ? industry?.frozen ?? 0 : 0;
+    const groupBuyBalance = groupBuyAccount?.balance ?? 0;
+    const groupBuyReserved = groupBuyAccount?.reserved ?? 0;
+    const groupBuyWithdrawn = groupBuyAccount?.withdrawn ?? 0;
+    const groupBuyDeducted = groupBuyAccount?.deducted ?? 0;
+    const groupBuyPending = pendingAggregate._sum.amount ?? 0;
+    const deductibleBalance = vipBalance + normalBalance + groupBuyBalance;
+    const balance = deductibleBalance + industryBalance;
+    const frozen = vipFrozen + normalFrozen + industryFrozen + groupBuyPending;
 
     return {
-      balance: vipBalance + normalBalance + industryBalance,
-      frozen: vipFrozen + normalFrozen + industryFrozen,
-      total:
-        vipBalance + vipFrozen +
-        normalBalance + normalFrozen +
-        industryBalance + industryFrozen,
+      balance,
+      frozen,
+      total: balance + frozen,
+      deductibleBalance,
+      withdrawableBalance: balance,
+      isSellerOwner,
       // 分账户明细
       vip: { balance: vipBalance, frozen: vipFrozen },
       normal: { balance: normalBalance, frozen: normalFrozen },
-      industryFund: { balance: industryBalance, frozen: industryFrozen },
+      industryFund: isSellerOwner ? { balance: industryBalance, frozen: industryFrozen } : null,
+      groupBuyRebate: {
+        balance: groupBuyBalance,
+        pending: groupBuyPending,
+        reserved: groupBuyReserved,
+        withdrawn: groupBuyWithdrawn,
+        deducted: groupBuyDeducted,
+        total: groupBuyBalance + groupBuyReserved + groupBuyWithdrawn + groupBuyDeducted,
+      },
     };
   }
 
-  /** 获取奖励流水 */
+  /** 获取奖励钱包统一流水 */
   async getWalletLedger(userId: string, page = 1, pageSize = 20) {
     const skip = (page - 1) * pageSize;
+    const take = skip + pageSize;
+    const isSellerOwner = await this.isSellerOwner(userId);
+    const rewardWhere: any = {
+      userId,
+      status: { not: 'RETURN_FROZEN' },
+      deletedAt: null,
+      ...(isSellerOwner
+        ? {}
+        : { account: { type: { in: ['VIP_REWARD', 'NORMAL_REWARD'] } } }),
+    };
+    const groupBuyWhere = { userId, deletedAt: null };
 
-    const [items, total] = await Promise.all([
+    const [rewardItems, rewardTotal, groupBuyItems, groupBuyTotal] = await Promise.all([
       this.prisma.rewardLedger.findMany({
-        where: { userId, status: { not: 'RETURN_FROZEN' } },
+        where: rewardWhere,
         orderBy: { createdAt: 'desc' },
-        skip,
-        take: pageSize,
+        take,
         include: { account: { select: { type: true } } },
       }),
-      this.prisma.rewardLedger.count({ where: { userId, status: { not: 'RETURN_FROZEN' } } }),
+      this.prisma.rewardLedger.count({ where: rewardWhere }),
+      this.prisma.groupBuyRebateLedger.findMany({
+        where: groupBuyWhere,
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.groupBuyRebateLedger.count({ where: groupBuyWhere }),
     ]);
 
-    return {
-      items: items.map((l) => ({
+    const items = [
+      ...rewardItems.map((l) => ({
         id: l.id,
+        sourceLedgerId: l.id,
+        source: 'REWARD',
+        accountType: l.account?.type ?? null,
+        type: l.entryType,
         entryType: l.entryType,
-        amount: l.amount,
         status: l.status,
+        amount: l.amount,
+        balanceAfter: (l as any).balanceAfter,
         refType: l.refType,
+        refId: l.refId,
         meta: l.meta,
         createdAt: l.createdAt.toISOString(),
-        accountType: l.account?.type ?? null,
       })),
+      ...groupBuyItems.map((l) => ({
+        id: l.id,
+        sourceLedgerId: l.id,
+        source: 'GROUP_BUY_REBATE',
+        accountType: 'GROUP_BUY_REBATE',
+        type: l.type,
+        entryType: l.type,
+        status: l.status,
+        amount: l.amount,
+        balanceAfter: l.balanceAfter,
+        refType: l.refType,
+        refId: l.refId,
+        meta: l.meta,
+        createdAt: l.createdAt.toISOString(),
+      })),
+    ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const total = rewardTotal + groupBuyTotal;
+
+    return {
+      items: items.slice(skip, skip + pageSize),
       nextPage: skip + pageSize < total ? page + 1 : undefined,
     };
   }
