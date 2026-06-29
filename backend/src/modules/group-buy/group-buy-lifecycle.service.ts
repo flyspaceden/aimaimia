@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   GroupBuyActivityStatus,
@@ -10,8 +10,15 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { generateGroupBuyCode } from './group-buy-code.util';
+import { generateUniqueGroupBuyCode } from './group-buy-code.util';
 import { GroupBuyRebateService } from './group-buy-rebate.service';
+
+const IMMEDIATE_ACTIVATION_ORDER_STATUSES = new Set<OrderStatus>([
+  OrderStatus.PAID,
+  OrderStatus.SHIPPED,
+  OrderStatus.DELIVERED,
+  OrderStatus.RECEIVED,
+]);
 
 @Injectable()
 export class GroupBuyLifecycleService {
@@ -106,14 +113,11 @@ export class GroupBuyLifecycleService {
         return { status: 'INVALIDATED' };
       }
 
-      if (order.status !== 'RECEIVED') {
-        return { status: 'WAITING_RECEIVE' };
-      }
-      if (!order.returnWindowExpiresAt || order.returnWindowExpiresAt > now) {
-        return { status: 'WAITING_RETURN_WINDOW' };
+      if (!IMMEDIATE_ACTIVATION_ORDER_STATUSES.has(order.status)) {
+        return { status: 'SKIPPED' };
       }
 
-      const code = instance.code?.code ?? await this.generateUniqueCode(tx);
+      const code = instance.code?.code ?? await generateUniqueGroupBuyCode(tx);
       if (!instance.code) {
         await tx.groupBuyCode.create({
           data: {
@@ -332,7 +336,6 @@ export class GroupBuyLifecycleService {
       return { status: 'TERMINATED', referralsInvalidated };
     }, this.serializableTransactionOptions);
   }
-
   async expireActivitiesInTransaction(
     tx: Prisma.TransactionClient,
     activityIds: string[],
@@ -442,18 +445,6 @@ export class GroupBuyLifecycleService {
       instancesExpired: 0,
       referralsInvalidated: 0,
     };
-  }
-
-  private async generateUniqueCode(tx: Prisma.TransactionClient) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const code = generateGroupBuyCode();
-      const existing = await tx.groupBuyCode.findUnique({
-        where: { code },
-        select: { id: true },
-      });
-      if (!existing) return code;
-    }
-    throw new InternalServerErrorException('团购推荐码生成失败');
   }
 
   private hasActivityEnded(

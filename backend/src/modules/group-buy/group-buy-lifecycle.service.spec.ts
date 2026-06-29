@@ -73,12 +73,54 @@ describe('GroupBuyLifecycleService', () => {
     };
   };
 
-  it('does not generate a share code before the return window expires', async () => {
+  it('activates a paid group-buy instance immediately without return-window wait', async () => {
+    const eligibleStatuses = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
+
+    for (const status of eligibleStatuses) {
+      const { tx, service } = buildPrisma();
+      tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
+        buildInstance({
+          id: `instance_${status}`,
+          initiatorOrder: {
+            ...buildInstance().initiatorOrder,
+            status,
+            returnWindowExpiresAt: futureAt,
+          },
+        }),
+      );
+
+      const result = await service.evaluateInitiatorOrder('order_1');
+
+      expect(result).toEqual({ status: 'ACTIVATED', code: expect.any(String) });
+      expect(tx.groupBuyCode.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          instanceId: `instance_${status}`,
+          code: expect.any(String),
+          status: 'ACTIVE',
+        }),
+      }));
+      expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: `instance_${status}` },
+        data: expect.objectContaining({
+          status: 'SHARING',
+          activatedAt: expect.any(Date),
+        }),
+      }));
+    }
+  });
+
+  it('uses an existing active code when a pending paid instance already has one', async () => {
     const { tx, service } = buildPrisma();
     tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
       buildInstance({
+        code: {
+          id: 'code_1',
+          code: 'EXISTING123',
+          status: 'ACTIVE',
+        },
         initiatorOrder: {
           ...buildInstance().initiatorOrder,
+          status: 'PAID',
           returnWindowExpiresAt: futureAt,
         },
       }),
@@ -86,28 +128,13 @@ describe('GroupBuyLifecycleService', () => {
 
     const result = await service.evaluateInitiatorOrder('order_1');
 
-    expect(result).toEqual({ status: 'WAITING_RETURN_WINDOW' });
+    expect(result).toEqual({ status: 'ACTIVATED', code: 'EXISTING123' });
+    expect(tx.groupBuyCode.findUnique).not.toHaveBeenCalled();
     expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
-  });
-
-  it('generates an active share code after the return window expires with no after-sale', async () => {
-    const { tx, service } = buildPrisma();
-
-    const result = await service.evaluateInitiatorOrder('order_1');
-
-    expect(result).toEqual({ status: 'ACTIVATED', code: expect.any(String) });
-    expect(tx.groupBuyCode.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        instanceId: 'instance_1',
-        code: expect.any(String),
-        status: 'ACTIVE',
-      }),
-    }));
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
       data: expect.objectContaining({
         status: 'SHARING',
-        activatedAt: expect.any(Date),
       }),
     }));
   });
@@ -161,28 +188,37 @@ describe('GroupBuyLifecycleService', () => {
     expect(tx.groupBuyInstance.update).not.toHaveBeenCalled();
   });
 
-  it('invalidates qualification when the own order has any after-sale or refund record', async () => {
-    const { tx, service } = buildPrisma();
-    tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
-      buildInstance({
-        initiatorOrder: {
-          ...buildInstance().initiatorOrder,
-          afterSaleRequests: [{ id: 'as_1' }],
-        },
-      }),
-    );
+  it('invalidates only when the paid order has refund or after-sale records', async () => {
+    const invalidCases = [
+      { afterSaleRequests: [{ id: 'as_1' }], refunds: [] },
+      { afterSaleRequests: [], refunds: [{ id: 'refund_1' }] },
+    ];
 
-    const result = await service.evaluateInitiatorOrder('order_1');
+    for (const invalidCase of invalidCases) {
+      const { tx, service } = buildPrisma();
+      tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
+        buildInstance({
+          initiatorOrder: {
+            ...buildInstance().initiatorOrder,
+            status: 'PAID',
+            returnWindowExpiresAt: futureAt,
+            ...invalidCase,
+          },
+        }),
+      );
 
-    expect(result).toEqual({ status: 'INVALIDATED' });
-    expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'instance_1' },
-      data: expect.objectContaining({
-        status: 'QUALIFICATION_INVALID',
-        invalidReason: 'OWN_ORDER_AFTER_SALE_OR_REFUND',
-      }),
-    }));
-    expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
+      const result = await service.evaluateInitiatorOrder('order_1');
+
+      expect(result).toEqual({ status: 'INVALIDATED' });
+      expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'instance_1' },
+        data: expect.objectContaining({
+          status: 'QUALIFICATION_INVALID',
+          invalidReason: 'OWN_ORDER_AFTER_SALE_OR_REFUND',
+        }),
+      }));
+      expect(tx.groupBuyCode.create).not.toHaveBeenCalled();
+    }
   });
 
   it('evaluates both initiator qualification and referred purchase rebate after receive', async () => {
