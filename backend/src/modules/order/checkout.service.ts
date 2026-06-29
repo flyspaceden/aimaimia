@@ -27,6 +27,7 @@ import {
 import { WechatPayService } from '../payment/wechat-pay.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { BundleSnapshotItem, ProductBundleService } from '../product/product-bundle.service';
+import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -1794,6 +1795,7 @@ export class CheckoutService {
             if (!session) {
               throw new NotFoundException('结算会话不存在');
             }
+            const paymentSuccessAt = paidAt ? new Date(paidAt) : new Date();
 
             // 2. CAS: ACTIVE → PAID
             const casResult = await tx.checkoutSession.updateMany({
@@ -1801,7 +1803,7 @@ export class CheckoutService {
               data: {
                 status: 'PAID',
                 providerTxnId,
-                paidAt: paidAt ? new Date(paidAt) : new Date(),
+                paidAt: paymentSuccessAt,
               },
             });
 
@@ -1951,7 +1953,7 @@ export class CheckoutService {
                   idempotencyKey,
                   buyerNote: (session as any).buyerNote ?? null,
                   addressSnapshot: addressSnapshot as any,
-                  paidAt: paidAt ? new Date(paidAt) : new Date(),
+                  paidAt: paymentSuccessAt,
                   items: {
                     create: group.items.map((oi) => ({
                       skuId: oi.skuId,
@@ -2021,6 +2023,7 @@ export class CheckoutService {
                 tx,
                 session as any,
                 createdOrderIds[0],
+                paymentSuccessAt,
               );
             }
 
@@ -2466,13 +2469,13 @@ export class CheckoutService {
       bizMeta?: any;
     },
     orderId: string,
+    now: Date,
   ) {
     const bizMeta = session.bizMeta;
     if (!bizMeta?.groupBuyActivityId || !Array.isArray(bizMeta.tierSnapshot)) {
       throw new InternalServerErrorException('团购支付会话元数据不完整');
     }
 
-    const now = new Date();
     const activity = await tx.groupBuyActivity.findUnique({
       where: { id: bizMeta.groupBuyActivityId },
       select: {
@@ -2484,19 +2487,29 @@ export class CheckoutService {
       },
     });
     const activityEnded = this.isGroupBuyActivityEnded(activity, now);
+    const code = activityEnded ? null : await generateUniqueGroupBuyCode(tx);
 
     const ownInstance = await tx.groupBuyInstance.create({
       data: {
         userId: session.userId,
         activityId: bizMeta.groupBuyActivityId,
         initiatorOrderId: orderId,
-        status: activityEnded ? 'EXPIRED' : 'QUALIFICATION_PENDING',
+        status: activityEnded ? 'EXPIRED' : 'SHARING',
         ...(activityEnded
           ? {
               expiredAt: now,
               invalidReason: 'ACTIVITY_ENDED',
             }
-          : {}),
+          : {
+              activatedAt: now,
+              code: {
+                create: {
+                  code: code!,
+                  status: 'ACTIVE',
+                  activatedAt: now,
+                },
+              },
+            }),
         priceSnapshot: Number(bizMeta.groupBuyPriceSnapshot ?? session.goodsAmount),
         shippingFeeSnapshot: Number(bizMeta.shippingFeeSnapshot ?? session.shippingFee ?? 0),
         freeShippingSnapshot: Boolean(bizMeta.freeShippingSnapshot),
