@@ -36,21 +36,43 @@ export interface Wallet {
   balance: number;
   frozen: number;
   total: number;
+  /** 可用于普通商品结算抵扣的余额，不包含产业基金等非抵扣账户 */
+  deductibleBalance?: number;
+  /** 可发起提现的余额 */
+  withdrawableBalance?: number;
+  /** 当前用户是否为卖家 OWNER，用于统一钱包展示分账户 */
+  isSellerOwner?: boolean;
   /** VIP 奖励分账户 */
   vip?: { balance: number; frozen: number };
   /** 普通奖励分账户 */
   normal?: { balance: number; frozen: number };
-  industryFund?: { balance: number; frozen: number };
+  industryFund?: { balance: number; frozen: number } | null;
+  /** 团购返利分账户 */
+  groupBuyRebate?: {
+    balance: number;
+    pending: number;
+    reserved: number;
+    withdrawn: number;
+    deducted: number;
+    total: number;
+  };
 }
 
 /** 奖励流水条目 */
 export interface WalletLedgerEntry {
   id: string;
   entryType: string;
+  /** 合并流水来源：消费积分或团购返利 */
+  source?: 'REWARD' | 'GROUP_BUY_REBATE';
+  sourceLedgerId?: string;
+  /** 后端合并流水的原始类型字段 */
+  type?: string;
   /** 金额（单位：元，保留 2 位小数精度） */
   amount: number;
   status: string;
+  balanceAfter?: number | null;
   refType: string | null;
+  refId?: string | null;
   meta: Record<string, unknown> | null;
   createdAt: string;
   /** 所属奖励账户类型，用于区分消费积分(VIP_REWARD/NORMAL_REWARD) vs 产业基金(INDUSTRY_FUND) 等 */

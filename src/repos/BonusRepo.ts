@@ -88,9 +88,21 @@ const mockMember: MemberProfile = {
 };
 
 const mockWallet: Wallet = {
-  balance: 236.80, frozen: 47.60, total: 384.40,
+  balance: 296.80, frozen: 47.60, total: 444.40,
+  deductibleBalance: 236.80,
+  withdrawableBalance: 236.80,
+  isSellerOwner: true,
   vip: { balance: 186.30, frozen: 35.60 },
   normal: { balance: 50.50, frozen: 12.00 },
+  industryFund: { balance: 60.00, frozen: 0.00 },
+  groupBuyRebate: {
+    balance: 28.40,
+    pending: 12.00,
+    reserved: 4.00,
+    withdrawn: 10.00,
+    deducted: 6.50,
+    total: 60.90,
+  },
 };
 
 export const BonusRepo = {
@@ -190,7 +202,10 @@ export const BonusRepo = {
   /** 抵扣预览（独立 helper；结算页优先使用 /orders/preview 返回的后端权威字段） */
   getDeductionPreview: async (goodsAmount: number): Promise<Result<DeductionPreview>> => {
     if (USE_MOCK) {
-      return simulateRequest(buildDeductionPreview(goodsAmount, mockWallet.balance, mockMember.tier), { delay: 200 });
+      return simulateRequest(
+        buildDeductionPreview(goodsAmount, mockWallet.deductibleBalance ?? mockWallet.balance, mockMember.tier),
+        { delay: 200 },
+      );
     }
 
     const [walletResult, memberResult] = await Promise.all([
@@ -201,7 +216,11 @@ export const BonusRepo = {
     if (!memberResult.ok) return memberResult;
     return {
       ok: true,
-      data: buildDeductionPreview(goodsAmount, walletResult.data.balance, memberResult.data.tier),
+      data: buildDeductionPreview(
+        goodsAmount,
+        walletResult.data.deductibleBalance ?? walletResult.data.balance,
+        memberResult.data.tier,
+      ),
     };
   },
 
