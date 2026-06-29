@@ -4,47 +4,18 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InboxRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { AppError, InboxCategory, InboxMessage, InboxType } from '../../src/types';
+import { resolveBuyerNotificationRoute } from '../../src/utils/notificationRoutes';
 
 type InboxTab = 'all' | InboxCategory;
 
-/**
- * 买家 App 路由白名单（按 app/ 目录实际存在的根路径列出）
- * 防御层：拦截后端误发的无效路径（如历史 /coupons、/wallet、/seller/* 等），
- * 避免落入 expo-router 的 +not-found 错误页。
- *
- * 增加新页面时记得同步这里（或者改成在 build 时自动生成 app/ 路径列表）。
- */
-const VALID_ROUTE_PREFIXES = [
-  '/(tabs)',
-  // 个人中心子页面
-  '/me',
-  // 业务模块
-  '/orders', '/product', '/company', '/category',
-  '/cs', '/ai', '/vip', '/group', '/invoices', '/user',
-  // 单文件页面
-  '/about', '/account-security', '/cart',
-  '/checkout', '/checkout-address', '/checkout-coupon',
-  '/coupon-center', '/inbox', '/lottery',
-  '/notification-settings', '/privacy', '/referral',
-  '/search', '/settings', '/terms',
-];
-
-const isValidAppRoute = (route: string | undefined): boolean => {
-  if (!route || typeof route !== 'string') return false;
-  if (!route.startsWith('/')) return false;
-  return VALID_ROUTE_PREFIXES.some(
-    (prefix) => route === prefix || route.startsWith(prefix + '/') || route.startsWith(prefix + '?'),
-  );
-};
-
-const iconMap: Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neutral' }> = {
+const iconMap: Partial<Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neutral' }>> = {
   expert_reply: { name: 'comment-question-outline', tone: 'accent' },
   tip_paid: { name: 'gift-outline', tone: 'brand' },
   cooperation_update: { name: 'handshake-outline', tone: 'accent' },
@@ -74,6 +45,7 @@ export default function InboxScreen() {
   const { colors, radius, spacing, typography, shadow } = useTheme();
   const { show } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<InboxTab>('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
@@ -99,29 +71,35 @@ export default function InboxScreen() {
     []
   );
 
+  const invalidateInboxState = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+      queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
+    ]);
+  };
+
   const handleOpenMessage = async (message: InboxMessage) => {
     if (message.unread) {
-      await InboxRepo.markRead(message.id);
-      refetch();
+      const result = await InboxRepo.markRead(message.id);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '操作失败', type: 'error' });
+        return;
+      }
+      await invalidateInboxState();
     }
-    const route = message.target?.route;
-    if (route && isValidAppRoute(route)) {
-      router.push({ pathname: route, params: message.target?.params });
+
+    const route = resolveBuyerNotificationRoute(message.action ?? message.target);
+    if (route) {
+      router.push(route as any);
       return;
     }
-    if (route && !isValidAppRoute(route)) {
-      // 后端误发了无效路径（如历史 /coupons /wallet /seller/* 残留消息）
-      // 不跳转避免落入 +not-found，给用户友好提示
-      show({ message: '该消息暂无可跳转的页面', type: 'info' });
-      return;
-    }
-    // route 未设置：纯信息消息（如卖家通知 41d91c2 改为 info-only）
-    show({ message: '请前往对应业务后台处理', type: 'info' });
+
+    show({ message: '该消息暂无可跳转的页面', type: 'info' });
   };
 
   // 判断单条消息是否可点击跳转，用于 chevron 条件渲染
   const isMessageClickable = (message: InboxMessage): boolean =>
-    isValidAppRoute(message.target?.route);
+    resolveBuyerNotificationRoute(message.action ?? message.target) !== null;
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -187,7 +165,7 @@ export default function InboxScreen() {
                   return;
                 }
                 show({ message: '全部标为已读', type: 'success' });
-                refetch();
+                await invalidateInboxState();
               }}
               disabled={unreadCount === 0}
               style={[

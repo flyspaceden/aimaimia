@@ -104,11 +104,16 @@ export default function MeScreen() {
     refetchInterval: 30_000,
   });
   const pendingSession = pendingData?.ok ? pendingData.data : null;
-  const { data: inboxCountData } = useQuery({
+  const { data: inboxCountData, refetch: refetchInboxUnread } = useQuery({
     queryKey: ['me-inbox-unread'],
     queryFn: () => InboxRepo.getUnreadCount(),
     enabled: isLoggedIn,
   });
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isLoggedIn) refetchInboxUnread();
+    }, [isLoggedIn, refetchInboxUnread]),
+  );
   const { data: walletData } = useQuery({
     queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
