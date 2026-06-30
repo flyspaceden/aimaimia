@@ -865,6 +865,7 @@ model DeliverySubOrder {
   pickupBatches DeliveryPickupBatch[]
   conversations DeliveryCustomerServiceConversation[]
 
+  @@unique([id, orderId, merchantId])
   @@index([merchantId, status, createdAt])
   @@index([orderId])
 }
@@ -902,7 +903,7 @@ model DeliveryPickupBatch {
   orderId                   String
   order                     DeliveryOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   subOrderId                String
-  subOrder                  DeliverySubOrder          @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  subOrder                  DeliverySubOrder          @relation(fields: [subOrderId, orderId, merchantId], references: [id, orderId, merchantId], onDelete: Cascade)
   merchantId                String
   merchant                  DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   batchNo                   Int
