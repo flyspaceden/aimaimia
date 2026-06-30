@@ -552,6 +552,14 @@ export class NotificationRegistry {
   }
 
   private routeParams(event: NotificationEvent): Record<string, string> | undefined {
+    const sessionId = this.payloadString(event, 'sessionId');
+    if (sessionId) return { sessionId };
+
+    if (event.eventType === 'groupBuy.codeActivated') {
+      const activityId = this.payloadString(event, 'activityId');
+      if (activityId) return { activityId };
+    }
+
     const id =
       this.payloadString(
         event,

@@ -15,6 +15,20 @@ describe('resolveBuyerNotificationRoute', () => {
     });
   });
 
+  it('maps CS_SESSION with sessionId so the客服页面 can restore the original conversation', () => {
+    expect(resolveBuyerNotificationRoute({ routeKey: 'CS_SESSION', params: { sessionId: 'cs-1' } })).toEqual({
+      pathname: '/cs',
+      params: { sessionId: 'cs-1' },
+    });
+  });
+
+  it('maps GROUP_BUY_DETAIL with activityId for the dynamic route', () => {
+    expect(resolveBuyerNotificationRoute({ routeKey: 'GROUP_BUY_DETAIL', params: { activityId: 'activity-1' } })).toEqual({
+      pathname: '/group-buy/[activityId]',
+      params: { activityId: 'activity-1' },
+    });
+  });
+
   it('returns null for unsupported seller or admin route keys', () => {
     expect(resolveBuyerNotificationRoute({ routeKey: 'SELLER_ORDER_DETAIL', params: { id: 'order-1' } })).toBeNull();
     expect(resolveBuyerNotificationRoute({ routeKey: 'ADMIN_INVOICE_DETAIL', params: { id: 'invoice-1' } })).toBeNull();

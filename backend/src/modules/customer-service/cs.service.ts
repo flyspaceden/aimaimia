@@ -122,6 +122,7 @@ export class CsService {
     if (!session) throw new NotFoundException('会话不存在');
     if (session.userId !== userId) throw new NotFoundException('会话不存在');
     if (session.status === 'CLOSED') throw new BadRequestException('会话已关闭');
+    this.presenceService.markUserActiveInSession(sessionId, userId);
 
     // Sec1: 写入前对用户消息脱敏（身份证/银行卡/手机号/邮箱）
     const maskedContent = this.maskingService.mask(content);
@@ -390,6 +391,7 @@ export class CsService {
   async getSessionMessages(sessionId: string, userId: string) {
     const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
     if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
+    this.presenceService.markUserActiveInSession(sessionId, userId);
 
     return this.prisma.csMessage.findMany({
       where: { sessionId },

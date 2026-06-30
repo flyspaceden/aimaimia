@@ -34,9 +34,10 @@ export default function CsIndexScreen() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
   const inputBottomPadding = useBottomInset(spacing.xs);
-  const { source, sourceId } = useLocalSearchParams<{
+  const { source, sourceId, sessionId: initialSessionId } = useLocalSearchParams<{
     source?: string;
     sourceId?: string;
+    sessionId?: string;
   }>();
 
   const scrollRef = useRef<ScrollView>(null);
@@ -66,6 +67,22 @@ export default function CsIndexScreen() {
   useEffect(() => {
     let cancelled = false;
     const initSession = async () => {
+      if (initialSessionId) {
+        setSessionId(initialSessionId);
+        const messagesResult = await CsRepo.getMessages(initialSessionId);
+        if (cancelled) return;
+        if (!messagesResult.ok) {
+          show({ message: messagesResult.error.displayMessage ?? '加载客服会话失败', type: 'error' });
+          return;
+        }
+        const sorted = [...messagesResult.data].sort((a, b) => {
+          const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          return dt !== 0 ? dt : a.id.localeCompare(b.id);
+        });
+        setMessages(sorted);
+        return;
+      }
+
       const result = await CsRepo.createSession(source ?? 'MY_PAGE', sourceId);
       if (cancelled) return;
       if (!result.ok) {
@@ -94,7 +111,7 @@ export default function CsIndexScreen() {
     void initSession();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sourceId]);
+  }, [initialSessionId, source, sourceId]);
 
   // HTTP 轮询获取新消息（非 Mock 模式）
   // D1+D8 修复：合并服务器消息时按 createdAt 排序 + 按 id 去重
