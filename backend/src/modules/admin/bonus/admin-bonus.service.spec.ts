@@ -61,12 +61,14 @@ describe('AdminBonusService reward income totals', () => {
         findMany: jest.fn().mockResolvedValue([
           { type: 'VIP_REWARD', balance: 1.87, frozen: 0 },
         ]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       vipTreeNode: {
         findUnique: jest.fn().mockResolvedValue(null),
         count: jest.fn(),
       },
       rewardLedger: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         aggregate: jest.fn(async ({ where }: any) => ({
           _sum: {
             amount: ledgerRows
@@ -77,16 +79,26 @@ describe('AdminBonusService reward income totals', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       withdrawRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'withdraw-1',
+          userId: 'buyer-1',
+          status: 'REQUESTED',
+          amount: 100,
+          accountType: 'VIP_REWARD',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      $transaction: jest.fn(async (callback: (client: any) => unknown) => callback(prisma)),
     };
+    const notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
     const service = new AdminBonusService(
       prisma,
-      { send: jest.fn() } as any,
+      notificationService as any,
       { get: jest.fn() } as any,
       { getConfig: jest.fn() } as any,
     );
-    return { prisma, service };
+    return { prisma, notificationService, service };
   };
 
   it('counts released reward income without counting withdrawal ledgers again', async () => {
@@ -103,5 +115,47 @@ describe('AdminBonusService reward income totals', () => {
       }),
       _sum: { amount: true },
     });
+  });
+
+  it('emits withdraw approved notification inside the review transaction', async () => {
+    const { prisma, notificationService, service } = makeService();
+
+    await service.approveWithdraw('withdraw-1', 'admin-1');
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'withdraw.approved',
+        aggregateType: 'withdrawRequest',
+        aggregateId: 'withdraw-1',
+        idempotencyKey: 'withdraw:withdraw-1:approved',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: {
+          withdrawId: 'withdraw-1',
+          userId: 'buyer-1',
+          amount: 100,
+        },
+      }),
+      prisma,
+    );
+  });
+
+  it('emits withdraw rejected notification without leaking the reject reason', async () => {
+    const { prisma, notificationService, service } = makeService();
+
+    await service.rejectWithdraw('withdraw-1', 'admin-1', '包含敏感备注 13800000000');
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'withdraw.rejected',
+        idempotencyKey: 'withdraw:withdraw-1:rejected',
+        payload: {
+          withdrawId: 'withdraw-1',
+          userId: 'buyer-1',
+          amount: 100,
+        },
+      }),
+      prisma,
+    );
+    expect(JSON.stringify(notificationService.emit.mock.calls[0][0])).not.toContain('13800000000');
   });
 });

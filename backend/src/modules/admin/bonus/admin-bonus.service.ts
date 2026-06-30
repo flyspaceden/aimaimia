@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 import { AlipayService } from '../../payment/alipay.service';
 import { WithdrawPayoutService } from '../../bonus/withdraw-payout.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
@@ -113,7 +113,7 @@ export class AdminBonusService {
 
   constructor(
     private prisma: PrismaService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private moduleRef: ModuleRef,
     private bonusConfig: BonusConfigService,
   ) {}
@@ -889,20 +889,23 @@ export class AdminBonusService {
         data: { status: 'WITHDRAWN' },
       });
 
+      await this.notificationService.emit({
+        eventType: 'withdraw.approved',
+        aggregateType: 'withdrawRequest',
+        aggregateId: id,
+        idempotencyKey: `withdraw:${id}:approved`,
+        actor: { kind: 'admin', id: adminUserId },
+        payload: {
+          withdrawId: id,
+          userId: withdraw.userId,
+          amount: withdraw.amount,
+        },
+      }, tx as any);
+
       return updated;
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
-
-    // C12: 提现通过通知
-    this.inboxService.send({
-      userId: withdraw.userId,
-      category: 'transaction',
-      type: 'withdraw_approved',
-      title: '提现审核通过',
-      content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请已通过，款项将在 1-3 个工作日到账。`,
-      target: { route: '/me/wallet' },
-    }).catch((err) => this.logger.warn(`提现通过通知发送失败: ${err?.message}`));
 
     return result;
   }
@@ -2320,20 +2323,23 @@ export class AdminBonusService {
         data: { status: 'VOIDED', entryType: 'VOID' },
       });
 
+      await this.notificationService.emit({
+        eventType: 'withdraw.rejected',
+        aggregateType: 'withdrawRequest',
+        aggregateId: id,
+        idempotencyKey: `withdraw:${id}:rejected`,
+        actor: { kind: 'admin', id: adminUserId },
+        payload: {
+          withdrawId: id,
+          userId: withdraw.userId,
+          amount: withdraw.amount,
+        },
+      }, tx as any);
+
       return updated;
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
-
-    // C12: 提现拒绝通知
-    this.inboxService.send({
-      userId: withdraw.userId,
-      category: 'transaction',
-      type: 'withdraw_rejected',
-      title: '提现申请被驳回',
-      content: `您的 ${withdraw.amount.toFixed(2)} 元提现申请被驳回${reason ? `，原因：${reason}` : ''}。金额已退回可用余额。`,
-      target: { route: '/me/wallet' },
-    }).catch((err) => this.logger.warn(`提现拒绝通知发送失败: ${err?.message}`));
 
     return result;
   }
