@@ -6,7 +6,7 @@ const detailSource = readFileSync('app/group-buy/[activityId].tsx', 'utf8');
 const checkoutSource = readFileSync('app/group-buy/checkout.tsx', 'utf8');
 const groupBuyIndexSource = readFileSync('app/group-buy/index.tsx', 'utf8');
 const currentPanelSource = readFileSync('src/components/group-buy/GroupBuyCurrentPanel.tsx', 'utf8');
-const groupBuySummaryRule = '仅一级直接推荐;好友付款后返还冻结，确认收货后释放;团购不退换，仅24小时质量问题补发。';
+const groupBuySummaryRule = '团购不退换，仅24小时质量问题补发。';
 
 test('group-buy app rules count direct referrals from other users, not only brand-new users', () => {
   assert.equal(detailSource.includes('全新用户'), false);
@@ -23,6 +23,7 @@ test('group-buy index places summary rules in the hero copy and removes duplicat
   assert.equal(groupBuyIndexSource.includes('当前上架的指定团购商品，购买前可查看价格、运费和活动条件。'), false);
   assert.equal(groupBuyIndexSource.includes('styles.complianceBar'), false);
   assert.equal(groupBuyIndexSource.includes('complianceBar:'), false);
+  assert.equal(groupBuyIndexSource.includes('仅一级直接推荐;好友付款后返还冻结，确认收货后释放;'), false);
   assert.match(groupBuyIndexSource, new RegExp(groupBuySummaryRule));
 
   const heroRuleIndex = groupBuyIndexSource.indexOf(groupBuySummaryRule);

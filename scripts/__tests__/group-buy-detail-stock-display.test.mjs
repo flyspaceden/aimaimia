@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const source = readFileSync('app/group-buy/[activityId].tsx', 'utf8');
+const aiFloatingSource = readFileSync('src/components/effects/AiFloatingCompanion.tsx', 'utf8');
 
 test('group-buy detail removes purchasable-count copy from the price card', () => {
   assert.equal(source.includes('可购 {availableStock} 份'), false);
@@ -18,4 +19,9 @@ test('group-buy detail renders item stock only through low-stock display helper'
 test('group-buy detail keeps the main content scrollable above the fixed pay bar', () => {
   assert.match(source, /<ScrollView[\s\S]*?style=\{styles\.scroll\}[\s\S]*?contentContainerStyle=\{\{ paddingBottom: bottomPadding \}\}/);
   assert.match(source, /scroll:\s*\{\s*flex:\s*1,\s*\}/);
+});
+
+test('group-buy detail suppresses the global AI floating gesture layer', () => {
+  assert.match(aiFloatingSource, /const isGroupBuyDetail = pathname\.startsWith\('\/group-buy\/'\) && pathname !== '\/group-buy\/checkout';/);
+  assert.match(aiFloatingSource, /if \(isHomeTab \|\| isGroupBuyDetail\) return null;/);
 });
