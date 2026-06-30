@@ -20,8 +20,6 @@ import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
-import { InboxModule } from '../inbox/inbox.module';
-import { InboxService } from '../inbox/inbox.service';
 import { NotificationModule } from '../notification/notification.module';
 import { NotificationService } from '../notification/notification.service';
 import { CartModule } from '../cart/cart.module';
@@ -39,7 +37,6 @@ import { GroupBuyModule } from '../group-buy/group-buy.module';
     ShippingRuleModule,
     AfterSaleModule,
     CouponModule,
-    InboxModule,
     NotificationModule,
     CartModule,
     DigitalAssetModule,
@@ -147,18 +144,12 @@ export class OrderModule implements OnModuleInit {
       throw new Error('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用，启动中止');
     }
 
-    // C13修复：InboxService 改硬依赖，确保通知功能可用
-    const inboxService = this.moduleRef.get(InboxService, { strict: false });
-    if (!inboxService) {
-      throw new Error('[OrderModule] InboxService 未注入，站内消息功能不可用，启动中止');
-    }
-    this.checkoutService.setInboxService(inboxService);
-
     const notificationService = this.moduleRef.get(NotificationService, { strict: false });
     if (notificationService) {
+      this.checkoutService.setNotificationService(notificationService);
       this.orderService.setNotificationService(notificationService);
     } else {
-      console.warn('[OrderModule] NotificationService 未注入，订单取消商户通知不可用');
+      throw new Error('[OrderModule] NotificationService 未注入，订单通知功能不可用，启动中止');
     }
 
     // 注入支付宝服务
