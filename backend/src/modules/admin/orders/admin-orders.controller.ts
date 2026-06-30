@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Body,
   Query,
@@ -9,7 +10,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminOrdersService } from './admin-orders.service';
-import { AdminShipDto, AdminOrderQueryDto, CancelOrderDto } from './dto/admin-order.dto';
+import {
+  AdminShipDto,
+  AdminOrderQueryDto,
+  CancelOrderDto,
+  AdminUpdateOrderReceiverInfoDto,
+} from './dto/admin-order.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { CurrentAdmin } from '../common/decorators/current-admin';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -62,6 +68,22 @@ export class AdminOrdersController {
   })
   ship(@Param('id') id: string, @Body() dto: AdminShipDto) {
     return this.ordersService.ship(id, dto);
+  }
+
+  @Patch(':id/receiver-info')
+  @RequirePermission('orders:ship')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'orders',
+    targetType: 'Order',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  updateReceiverInfo(
+    @Param('id') id: string,
+    @Body() dto: AdminUpdateOrderReceiverInfoDto,
+  ) {
+    return this.ordersService.updateReceiverInfo(id, dto);
   }
 
   @Post(':id/cancel')

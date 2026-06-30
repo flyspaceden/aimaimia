@@ -543,6 +543,12 @@
   - **验收**: 卖家可提示买家修改，买家改完当前订单后卖家重新生成面单
   - **状态**: ✅ | 完成日期: 2026-06-29
 
+- [x] **C24c** — 管理后台代改未生成面单订单配送信息
+  - **修改**: `backend/src/modules/admin/orders/admin-orders.service.ts`, `backend/src/modules/admin/orders/admin-orders.controller.ts`, `admin/src/pages/orders/detail.tsx`, `admin/src/api/orders.ts`
+  - **做什么**: 管理后台订单详情新增“修改配送信息”，管理员可在 `PAID` 且未生成电子面单前代改当前订单的收件人、手机号、省市区、地区编码和详细地址；覆盖普通商品、VIP 礼包和团购订单；只更新当前订单 `addressSnapshot`，不同步买家地址簿或账号手机号；后端使用与生成面单相同的 `seller-waybill-order` advisory lock 防并发
+  - **验收**: 后台保存后订单详情刷新，卖家/管理员可继续生成电子面单；已生成面单或非待发货状态拒绝修改
+  - **状态**: ✅ | 完成日期: 2026-06-30
+
 - [x] **C25** — Company.address 结构化改造（⚠️ 第三批前置）
   - **修改**: `backend/prisma/schema.prisma` Company.address + 卖家后台企业信息页 + 管理后台商户页 + 数据迁移脚本
   - **做什么**: 扩展为 `{province, city, district, detail, lng?, lat?, text?}`；卖家后台拆分省市区 Cascader；数据迁移 best-effort 解析现有文本

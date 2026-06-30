@@ -6,14 +6,18 @@ import { PaymentService } from '../../payment/payment.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
 import { OrderShippingCostService } from '../../shipment/order-shipping-cost.service';
 import { UploadService } from '../../upload/upload.service';
-import { AdminShipDto, AdminOrderQueryDto } from './dto/admin-order.dto';
+import {
+  AdminShipDto,
+  AdminOrderQueryDto,
+  AdminUpdateOrderReceiverInfoDto,
+} from './dto/admin-order.dto';
 import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 import {
   maskAddressSnapshot,
   maskPhone,
   maskTrackingNo,
 } from '../../../common/security/privacy-mask';
-import { decryptJsonValue } from '../../../common/security/encryption';
+import { decryptJsonValue, encryptJsonValue } from '../../../common/security/encryption';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
@@ -292,6 +296,7 @@ export class AdminOrdersService {
       address: addressSnapshot,
       addressSnapshot,
       addressMasked: maskAddressSnapshot(addressSnapshot),
+      receiverInfoEditable: this.canUpdateReceiverInfo(order, shipments),
       company,
       paymentMethod,
       transactionId,
@@ -325,6 +330,95 @@ export class AdminOrdersService {
           bundleItems: snapshot?.bundleItems || [],
         };
       }),
+    };
+  }
+
+  async updateReceiverInfo(id: string, dto: AdminUpdateOrderReceiverInfoDto) {
+    const snapshot = this.buildReceiverInfoSnapshot(dto);
+
+    await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id },
+        include: { items: { select: { companyId: true } } },
+      });
+      if (!order) throw new NotFoundException('订单不存在');
+
+      if (!this.isReceiverInfoBizTypeSupported((order.bizType || 'NORMAL_GOODS') as string)) {
+        throw new BadRequestException('当前订单类型不支持修改配送信息');
+      }
+      if (order.status !== 'PAID') {
+        throw new BadRequestException('当前订单状态不支持修改配送信息');
+      }
+      const companyId = this.resolveSingleOrderCompanyId(order);
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtext('seller-waybill-order'),
+          hashtext(${`${companyId}:${id}`})
+        )
+      `;
+
+      const shipments = await tx.shipment.findMany({
+        where: { orderId: id },
+        select: { waybillNo: true },
+      });
+      if (shipments.some((shipment) => Boolean(shipment.waybillNo))) {
+        throw new BadRequestException('订单已生成面单，无法修改配送信息');
+      }
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          addressSnapshot: encryptJsonValue(snapshot) as Prisma.InputJsonValue,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    return this.findById(id);
+  }
+
+  private isReceiverInfoBizTypeSupported(bizType: string): boolean {
+    return ['NORMAL_GOODS', 'VIP_PACKAGE', 'GROUP_BUY'].includes(bizType);
+  }
+
+  private canUpdateReceiverInfo(order: any, shipments: Array<{ waybillNo?: string | null }>): boolean {
+    return this.isReceiverInfoBizTypeSupported(order.bizType || 'NORMAL_GOODS')
+      && order.status === 'PAID'
+      && !shipments.some((shipment) => Boolean(shipment.waybillNo));
+  }
+
+  private resolveSingleOrderCompanyId(order: any): string {
+    const companyIds = [
+      ...new Set((order.items || []).map((item: any) => item.companyId).filter(Boolean)),
+    ];
+    if (companyIds.length !== 1) {
+      throw new BadRequestException('订单商品所属商家异常，无法修改配送信息');
+    }
+    return String(companyIds[0]);
+  }
+
+  private buildReceiverInfoSnapshot(dto: AdminUpdateOrderReceiverInfoDto) {
+    const recipientName = dto.recipientName.trim();
+    const phone = dto.phone.trim();
+    const regionCode = dto.regionCode.trim();
+    const regionText = dto.regionText.trim();
+    const detail = dto.detail.trim();
+
+    if (!recipientName) throw new BadRequestException('收件人不能为空');
+    if (!/^1[3-9]\d{9}$/.test(phone)) throw new BadRequestException('请输入正确的手机号');
+    if (!regionCode || !regionText) throw new BadRequestException('请选择省/市/区');
+    if (!detail) throw new BadRequestException('详细地址不能为空');
+
+    const parsed = parseChineseAddress(regionText);
+    return {
+      recipientName,
+      receiverName: recipientName,
+      phone,
+      regionCode,
+      regionText,
+      province: parsed.province,
+      city: parsed.city,
+      district: parsed.district,
+      detail,
     };
   }
 

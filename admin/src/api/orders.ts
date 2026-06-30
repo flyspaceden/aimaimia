@@ -1,6 +1,14 @@
 import client from './client';
 import type { Order, OrderQueryParams, OrderStatsMap, PaginatedData } from '@/types';
 
+export type UpdateOrderReceiverInfoPayload = {
+  recipientName: string;
+  phone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+};
+
 /** 订单列表 */
 export const getOrders = (params?: OrderQueryParams): Promise<PaginatedData<Order>> =>
   client.get('/admin/orders', { params });
@@ -27,6 +35,13 @@ export const shipOrder = (id: string, data: {
   trackingNo?: string;
 }): Promise<{ ok: boolean; waybillNo?: string; waybillUrl?: string | null }> =>
   client.post(`/admin/orders/${id}/ship`, data);
+
+/** 修改未生成面单订单的配送信息 */
+export const updateOrderReceiverInfo = (
+  id: string,
+  data: UpdateOrderReceiverInfoPayload,
+): Promise<Order> =>
+  client.patch(`/admin/orders/${id}/receiver-info`, data);
 
 /** 取消订单 */
 export const cancelOrder = (id: string, reason: string): Promise<{ ok: boolean }> =>
