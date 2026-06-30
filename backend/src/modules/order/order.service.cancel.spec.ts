@@ -39,10 +39,10 @@ describe('OrderService cancel PAID orders', () => {
     return { service, prisma, bonusAllocation, productBundleService };
   };
 
-  const injectInboxService = (service: OrderService) => {
-    const inboxService = { send: jest.fn() };
-    service.setInboxService(inboxService as any);
-    return inboxService;
+  const injectNotificationService = (service: OrderService) => {
+    const notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
+    service.setNotificationService(notificationService as any);
+    return notificationService;
   };
 
   it('订单取消后 getById 在响应中暴露最新退款摘要', async () => {
@@ -541,7 +541,7 @@ describe('OrderService cancel PAID orders', () => {
 
   it('PAID 未发货取消成功后向卖家发通知', async () => {
     const { service, prisma } = makeService();
-    const inboxService = injectInboxService(service);
+    const notificationService = injectNotificationService(service);
     const order = {
       id: 'o1',
       userId: 'u1',
@@ -574,7 +574,7 @@ describe('OrderService cancel PAID orders', () => {
     prisma.order.findMany.mockResolvedValue([]);
     prisma.shipment.findMany.mockResolvedValue([]);
     prisma.refund.findFirst.mockResolvedValue(null);
-    prisma.companyStaff.findMany.mockResolvedValue([{ userId: 'owner-user-1', companyId: 'c1' }]);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
     service.setPaymentService({
       initiateRefund: jest.fn().mockResolvedValue({
@@ -585,17 +585,19 @@ describe('OrderService cancel PAID orders', () => {
 
     await service.cancelOrder('o1', 'u1');
 
-    expect(inboxService.send).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'owner-user-1',
-      category: 'order',
-      type: 'order.canceled.by.buyer',
-      target: { route: '/orders/[id]', params: { id: 'o1' } },
-    }));
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'order.canceledByBuyerForSeller',
+      aggregateType: 'order',
+      aggregateId: 'o1',
+      idempotencyKey: 'seller-order:c1:o1:buyer-canceled',
+      actor: { kind: 'system' },
+      payload: { companyId: 'c1', orderId: 'o1' },
+    });
   });
 
   it('已生成面单导致取消失败时不发通知', async () => {
     const { service, prisma } = makeService();
-    const inboxService = injectInboxService(service);
+    const notificationService = injectNotificationService(service);
     prisma.order.findUnique.mockResolvedValue({
       id: 'o2',
       userId: 'u1',
@@ -606,7 +608,7 @@ describe('OrderService cancel PAID orders', () => {
     prisma.shipment.findMany.mockResolvedValue([{ id: 's1', status: 'INIT', waybillNo: 'SF1234567' }]);
 
     await expect(service.cancelOrder('o2', 'u1')).rejects.toThrow();
-    expect(inboxService.send).not.toHaveBeenCalled();
+    expect(notificationService.emit).not.toHaveBeenCalled();
   });
 
   it('整 CheckoutSession 部分退款成功部分 pending 时不提前恢复平台红包', async () => {

@@ -22,6 +22,8 @@ import { PaymentService } from '../payment/payment.service';
 import { AfterSaleModule } from '../after-sale/after-sale.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { InboxService } from '../inbox/inbox.service';
+import { NotificationModule } from '../notification/notification.module';
+import { NotificationService } from '../notification/notification.service';
 import { CartModule } from '../cart/cart.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
@@ -38,6 +40,7 @@ import { GroupBuyModule } from '../group-buy/group-buy.module';
     AfterSaleModule,
     CouponModule,
     InboxModule,
+    NotificationModule,
     CartModule,
     DigitalAssetModule,
     ProductModule,
@@ -150,7 +153,13 @@ export class OrderModule implements OnModuleInit {
       throw new Error('[OrderModule] InboxService 未注入，站内消息功能不可用，启动中止');
     }
     this.checkoutService.setInboxService(inboxService);
-    this.orderService.setInboxService(inboxService);
+
+    const notificationService = this.moduleRef.get(NotificationService, { strict: false });
+    if (notificationService) {
+      this.orderService.setNotificationService(notificationService);
+    } else {
+      console.warn('[OrderModule] NotificationService 未注入，订单取消商户通知不可用');
+    }
 
     // 注入支付宝服务
     const alipayService = this.moduleRef.get(AlipayService, { strict: false });

@@ -183,6 +183,15 @@ export class NotificationRegistry {
           entityType: 'order',
           routeKey: 'SELLER_ORDER_DETAIL',
         });
+      case 'order.canceledByBuyerForSeller':
+        return this.seller(event, {
+          category: 'order',
+          title: '买家取消订单',
+          body: '买家已在发货前取消订单，请在订单详情中查看处理结果。',
+          severity: 'INFO',
+          entityType: 'order',
+          routeKey: 'SELLER_ORDER_DETAIL',
+        });
       case 'order.stockShortage':
         return this.seller(event, {
           category: 'order',

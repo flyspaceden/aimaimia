@@ -51,6 +51,7 @@ describe('NotificationRegistry', () => {
       ['withdraw.yearlyAlert', { userId: 'buyer-1', adminUserIds: ['admin-1'], withdrawId: 'withdraw-1' }],
       ['vip.activated', { orderId: 'order-1', userId: 'buyer-1' }],
       ['refund.credited', { refundId: 'refund-1', orderId: 'order-1', userId: 'buyer-1' }],
+      ['order.canceledByBuyerForSeller', { orderId: 'order-1', sellerUserIds: ['seller-1'] }],
     ];
 
     for (const [eventType, payload] of cases) {
@@ -76,6 +77,26 @@ describe('NotificationRegistry', () => {
         recipientKind: 'SELLER_STAFF',
         recipientKey: 'seller:seller-2',
         audience: 'SELLER_CENTER',
+      }),
+    ]);
+  });
+
+  it('routes buyer-canceled order notifications to seller order detail', async () => {
+    const result = await registry.resolve(
+      event('order.canceledByBuyerForSeller', {
+        orderId: 'order-1',
+        sellerUserIds: ['seller-1'],
+      }),
+    );
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        recipientKind: 'SELLER_STAFF',
+        recipientKey: 'seller:seller-1',
+        audience: 'SELLER_CENTER',
+        category: 'order',
+        eventType: 'order.canceledByBuyerForSeller',
+        action: { routeKey: 'SELLER_ORDER_DETAIL', params: { id: 'order-1' } },
       }),
     ]);
   });
