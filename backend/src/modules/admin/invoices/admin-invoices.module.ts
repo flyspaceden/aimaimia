@@ -4,9 +4,10 @@ import { AdminInvoicesService } from './admin-invoices.service';
 import { UploadModule } from '../../upload/upload.module';
 import { InvoiceProviderFactory } from './provider/invoice-provider.factory';
 import { MockInvoiceProvider } from './provider/mock-invoice.provider';
+import { NotificationModule } from '../../notification/notification.module';
 
 @Module({
-  imports: [UploadModule],
+  imports: [UploadModule, NotificationModule],
   controllers: [AdminInvoicesController],
   providers: [AdminInvoicesService, InvoiceProviderFactory, MockInvoiceProvider],
   exports: [AdminInvoicesService],
