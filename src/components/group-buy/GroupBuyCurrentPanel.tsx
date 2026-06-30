@@ -35,7 +35,7 @@ const statusCopy: Record<GroupBuyCurrentInstance['status'], {
   },
   SHARING: {
     title: '本次分享进行中',
-    description: '好友付款后返还先冻结，好友确认收货后释放。',
+    description: '',
     tone: 'active',
   },
   COMPLETED: {
@@ -254,9 +254,11 @@ export const GroupBuyCurrentPanel = ({
             >
               {code ? code.split('').join(' ') : '生成中'}
             </Text>
-            <Text numberOfLines={3} style={[typography.caption, styles.heroDescription, { color: 'rgba(255,255,255,0.78)', marginTop: spacing.sm }]}>
-              {copy.description}
-            </Text>
+            {copy.description ? (
+              <Text numberOfLines={3} style={[typography.caption, styles.heroDescription, { color: 'rgba(255,255,255,0.78)', marginTop: spacing.sm }]}>
+                {copy.description}
+              </Text>
+            ) : null}
           </View>
         </View>
       </LinearGradient>

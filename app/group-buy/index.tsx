@@ -293,20 +293,13 @@ export default function GroupBuyIndexScreen() {
               精选团购
             </Text>
             <Text style={[typography.bodySm, { color: GROUP_BUY_COLORS.inkSoft, marginTop: spacing.xs }]}>
-              当前上架的指定团购商品，购买前可查看价格、运费和活动条件。
+              仅一级直接推荐;好友付款后返还冻结，确认收货后释放;团购不退换，仅24小时质量问题补发。
             </Text>
           </View>
           <View style={[styles.heroMark, { backgroundColor: `${GROUP_BUY_COLORS.tide}12` }]}>
             <MaterialCommunityIcons name="ticket-percent-outline" size={34} color={GROUP_BUY_COLORS.tide} />
           </View>
         </LinearGradient>
-
-        <View style={[styles.complianceBar, { borderColor: GROUP_BUY_COLORS.mist, backgroundColor: colors.surface }]}>
-          <MaterialCommunityIcons name="shield-check-outline" size={18} color={GROUP_BUY_COLORS.brass} />
-          <Text style={[typography.caption, styles.complianceText, { color: colors.text.secondary }]}>
-            仅一级直接推荐；好友付款后返还冻结，确认收货后释放；团购不退换，仅24小时质量问题补发。
-          </Text>
-        </View>
 
         {hasCurrent ? (
           <View style={[styles.segment, { backgroundColor: GROUP_BUY_COLORS.mist }]}>
@@ -413,18 +406,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 14,
-  },
-  complianceBar: {
-    borderWidth: 1,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 12,
-    gap: 8,
-  },
-  complianceText: {
-    flex: 1,
-    minWidth: 0,
   },
   segment: {
     borderRadius: 8,
