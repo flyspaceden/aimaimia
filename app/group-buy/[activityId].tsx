@@ -147,6 +147,14 @@ export default function GroupBuyActivityDetailScreen() {
     });
   };
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/group-buy');
+  };
+
   const handleCheckoutPress = () => {
     if (!activity) return;
     if (activityPaused) {
@@ -221,7 +229,7 @@ export default function GroupBuyActivityDetailScreen() {
   if (activityQuery.isLoading || (isLoggedIn && currentQuery.isLoading)) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="团购详情" />
+        <AppHeader title="团购详情" onBack={handleBack} />
         <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
           <Skeleton height={300} radius={8} />
           <Skeleton height={120} radius={8} />
@@ -234,7 +242,7 @@ export default function GroupBuyActivityDetailScreen() {
   if (!activityQuery.data || !activityQuery.data.ok || !activity) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="团购详情" />
+        <AppHeader title="团购详情" onBack={handleBack} />
         <ErrorState
           title="团购商品加载失败"
           description={activityQuery.data?.ok === false ? activityQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
@@ -247,7 +255,7 @@ export default function GroupBuyActivityDetailScreen() {
   if (isLoggedIn && currentQuery.data && !currentQuery.data.ok) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="团购详情" />
+        <AppHeader title="团购详情" onBack={handleBack} />
         <ErrorState
           title="团购状态加载失败"
           description={currentQuery.data.error.displayMessage ?? '请刷新后重试'}
@@ -274,7 +282,7 @@ export default function GroupBuyActivityDetailScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
-      <AppHeader title="团购详情" subtitle="指定商品活动" />
+      <AppHeader title="团购详情" subtitle="指定商品活动" onBack={handleBack} />
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
