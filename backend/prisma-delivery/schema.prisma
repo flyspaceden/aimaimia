@@ -894,6 +894,7 @@ model DeliveryOrderItem {
 
   pickupBatchItems     DeliveryPickupBatchItem[]
 
+  @@unique([id, subOrderId])
   @@index([orderId])
   @@index([subOrderId])
 }
@@ -932,6 +933,7 @@ model DeliveryPickupBatch {
   carrierOrders DeliveryCarrierOrder[]
   costLedgers   DeliveryShippingCostLedger[]
 
+  @@unique([id, subOrderId])
   @@unique([subOrderId, batchNo])
   @@index([orderId, status, createdAt])
   @@index([merchantId, status, createdAt])
@@ -940,9 +942,10 @@ model DeliveryPickupBatch {
 model DeliveryPickupBatchItem {
   id              String              @id @default(cuid())
   batchId         String
-  batch           DeliveryPickupBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  subOrderId      String
+  batch           DeliveryPickupBatch @relation(fields: [batchId, subOrderId], references: [id, subOrderId], onDelete: Cascade)
   orderItemId     String
-  orderItem       DeliveryOrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  orderItem       DeliveryOrderItem   @relation(fields: [orderItemId, subOrderId], references: [id, subOrderId], onDelete: Restrict)
   skuId           String
   productSnapshot Json
   quantity        Int
@@ -950,7 +953,7 @@ model DeliveryPickupBatchItem {
   createdAt       DateTime            @default(now())
 
   @@unique([batchId, orderItemId])
-  @@index([orderItemId])
+  @@index([orderItemId, subOrderId])
 }
 
 model DeliveryCarrierOrder {
