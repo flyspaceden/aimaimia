@@ -276,6 +276,7 @@ export default function GroupBuyActivityDetailScreen() {
     <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
       <AppHeader title="团购详情" subtitle="指定商品活动" />
       <ScrollView
+        style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomPadding }}
       >
@@ -517,6 +518,9 @@ export default function GroupBuyActivityDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+  },
   coverWrap: {
     height: 310,
     overflow: 'hidden',
