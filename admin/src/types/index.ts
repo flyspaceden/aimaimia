@@ -828,6 +828,7 @@ export interface Order {
   itemsSummary?: string;
   itemCount?: number;
   address: Record<string, unknown> | null;
+  receiverInfoEditable?: boolean;
   shipment?: {
     id?: string;
     companyId?: string;

@@ -1,4 +1,11 @@
+import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AdminOrdersService } from './admin-orders.service';
+
+jest.mock('../../../common/security/encryption', () => ({
+  decryptJsonValue: jest.fn((v: unknown) => v),
+  encryptJsonValue: jest.fn((v: unknown) => v),
+}));
 
 describe('AdminOrdersService order detail bundle snapshot mapping', () => {
   let prisma: any;
@@ -100,5 +107,104 @@ describe('AdminOrdersService order detail bundle snapshot mapping', () => {
         }),
       ]),
     );
+  });
+});
+
+describe('AdminOrdersService.updateReceiverInfo', () => {
+  const payload = {
+    recipientName: '新收件人',
+    phone: '13800000000',
+    regionCode: '450481',
+    regionText: '广西壮族自治区/梧州市/岑溪市',
+    detail: '新地址 2 号',
+  };
+
+  const makeService = (orderOverrides: Record<string, unknown> = {}, shipments: Array<{ waybillNo?: string | null }> = []) => {
+    const order = {
+      id: 'order-admin-receiver',
+      status: 'PAID',
+      bizType: 'NORMAL_GOODS',
+      items: [{ companyId: 'company-1' }],
+      addressSnapshot: {
+        recipientName: '旧收件人',
+        phone: '10086',
+        regionCode: '450481',
+        regionText: '广西壮族自治区/梧州市/岑溪市',
+        detail: '旧地址 1 号',
+      },
+      ...orderOverrides,
+    };
+    const tx = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue(order),
+        update: jest.fn().mockResolvedValue({ ...order, addressSnapshot: payload }),
+      },
+      shipment: {
+        findMany: jest.fn().mockResolvedValue(shipments),
+      },
+      $executeRaw: jest.fn().mockResolvedValue(undefined),
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: any) => callback(tx)),
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...order,
+          addressSnapshot: payload,
+          user: null,
+          items: [],
+          checkoutSession: null,
+          statusHistory: [],
+          payments: [],
+          refunds: [],
+          shipments: [],
+        }),
+      },
+    };
+    const service = new AdminOrdersService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, prisma, tx };
+  };
+
+  it.each(['NORMAL_GOODS', 'VIP_PACKAGE', 'GROUP_BUY'])(
+    'allows admins to update %s receiver info before waybill generation',
+    async (bizType) => {
+      const { service, prisma, tx } = makeService({ bizType });
+
+      await (service as any).updateReceiverInfo('order-admin-receiver', payload);
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(tx.order.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'order-admin-receiver' },
+        data: expect.objectContaining({
+          addressSnapshot: expect.objectContaining({
+            recipientName: '新收件人',
+            phone: '13800000000',
+            province: '广西壮族自治区',
+            city: '梧州市',
+            district: '岑溪市',
+            detail: '新地址 2 号',
+          }),
+        }),
+      }));
+    },
+  );
+
+  it('rejects admin receiver info updates after waybill generation', async () => {
+    const { service, tx } = makeService({}, [{ waybillNo: 'SF1234567890' }]);
+
+    await expect(
+      (service as any).updateReceiverInfo('order-admin-receiver', payload),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.order.update).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
-import { getOrder, retryRefund } from '@/api/orders';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Modal, Form, Input } from 'antd';
+import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
+import { getOrder, retryRefund, updateOrderReceiverInfo } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { OrderItem, Refund } from '@/types';
@@ -28,6 +29,14 @@ const paymentChannelLabel: Record<string, string> = {
 
 const formatDateTime = (value?: string | null) =>
   value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-';
+
+type ReceiverInfoFormValues = {
+  recipientName: string;
+  phone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+};
 
 const itemColumns = [
   {
@@ -80,6 +89,9 @@ export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [receiverInfoForm] = Form.useForm<ReceiverInfoFormValues>();
+  const [receiverInfoModalOpen, setReceiverInfoModalOpen] = useState(false);
+  const [receiverInfoSaving, setReceiverInfoSaving] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
@@ -108,6 +120,40 @@ export default function OrderDetailPage() {
   const legacyRegion = `${String(address.province || '')} ${String(address.city || '')} ${String(address.district || '')}`.trim();
   const detail = String(address.detail || '').trim();
   const fullAddress = `${regionText || legacyRegion} ${detail}`.trim() || '-';
+  const canEditReceiverInfo = Boolean(order.receiverInfoEditable);
+  const openReceiverInfoModal = () => {
+    receiverInfoForm.setFieldsValue({
+      recipientName: recipientName === '-' ? '' : recipientName,
+      phone: phone === '-' ? '' : phone,
+      regionCode: String(address.regionCode || ''),
+      regionText: regionText || legacyRegion,
+      detail,
+    });
+    setReceiverInfoModalOpen(true);
+  };
+  const closeReceiverInfoModal = () => {
+    setReceiverInfoModalOpen(false);
+    receiverInfoForm.resetFields();
+  };
+  const handleUpdateReceiverInfo = async (values: ReceiverInfoFormValues) => {
+    setReceiverInfoSaving(true);
+    try {
+      await updateOrderReceiverInfo(order.id, {
+        recipientName: values.recipientName.trim(),
+        phone: values.phone.trim(),
+        regionCode: values.regionCode.trim(),
+        regionText: values.regionText.trim(),
+        detail: values.detail.trim(),
+      });
+      message.success('配送信息已更新');
+      closeReceiverInfoModal();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '配送信息更新失败');
+    } finally {
+      setReceiverInfoSaving(false);
+    }
+  };
 
   // 状态流转计算
   const currentStepIndex = statusSteps.findIndex(s => s.key === order.status);
@@ -595,16 +641,103 @@ export default function OrderDetailPage() {
         </Card>
       )}
 
-      {/* 收货地址 */}
+      {/* 配送信息 */}
       {order.address && (
-        <Card title="收货地址">
+        <Card
+          title="配送信息"
+          extra={(
+            <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                disabled={!canEditReceiverInfo}
+                title={canEditReceiverInfo ? undefined : '仅已付款且未生成电子面单的配送订单可修改'}
+                onClick={openReceiverInfoModal}
+              >
+                修改配送信息
+              </Button>
+            </PermissionGate>
+          )}
+        >
           <Descriptions bordered column={1}>
             <Descriptions.Item label="收件人">{recipientName}</Descriptions.Item>
             <Descriptions.Item label="电话">{phone}</Descriptions.Item>
             <Descriptions.Item label="地址">{fullAddress}</Descriptions.Item>
+            <Descriptions.Item label="地区编码">{String(address.regionCode || '-')}</Descriptions.Item>
           </Descriptions>
         </Card>
       )}
+
+      <Modal
+        title="修改配送信息"
+        open={receiverInfoModalOpen}
+        onCancel={closeReceiverInfoModal}
+        onOk={() => receiverInfoForm.submit()}
+        confirmLoading={receiverInfoSaving}
+        okText="保存修改"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="只修改当前订单的配送信息，不同步买家地址簿或账号手机号。已生成电子面单后不能修改。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={receiverInfoForm} layout="vertical" onFinish={handleUpdateReceiverInfo}>
+          <Form.Item
+            name="recipientName"
+            label="收件人"
+            rules={[
+              { required: true, message: '请输入收件人' },
+              { max: 50, message: '收件人不能超过 50 个字符' },
+            ]}
+          >
+            <Input placeholder="请输入收件人" maxLength={50} />
+          </Form.Item>
+          <Form.Item
+            name="phone"
+            label="手机号"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的 11 位手机号' },
+            ]}
+          >
+            <Input placeholder="请输入 11 位手机号" maxLength={11} />
+          </Form.Item>
+          <Form.Item
+            name="regionText"
+            label="省市区"
+            rules={[
+              { required: true, message: '请输入省市区' },
+              { max: 120, message: '省市区不能超过 120 个字符' },
+            ]}
+            extra="例如：广西壮族自治区/梧州市/岑溪市"
+          >
+            <Input placeholder="省/市/区" maxLength={120} />
+          </Form.Item>
+          <Form.Item
+            name="regionCode"
+            label="地区编码"
+            rules={[
+              { required: true, message: '请输入地区编码' },
+              { max: 32, message: '地区编码不能超过 32 个字符' },
+            ]}
+            extra="使用订单原地区编码；历史订单没有编码时需补充 6 位行政区划码"
+          >
+            <Input placeholder="如：450481" maxLength={32} />
+          </Form.Item>
+          <Form.Item
+            name="detail"
+            label="详细地址"
+            rules={[
+              { required: true, message: '请输入详细地址' },
+              { max: 200, message: '详细地址不能超过 200 个字符' },
+            ]}
+          >
+            <Input.TextArea placeholder="街道/小区/门牌号" maxLength={200} rows={3} showCount />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
