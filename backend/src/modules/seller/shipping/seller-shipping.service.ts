@@ -17,7 +17,7 @@ import { decryptJsonValue } from '../../../common/security/encryption';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
 import { UploadService } from '../../upload/upload.service';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 
@@ -51,6 +51,7 @@ type WaybillGenerationMarker = {
 type WaybillGenerationContext = {
   orderId: string;
   userId: string;
+  staffId: string;
   companyId: string;
   shipmentId: string;
   marker: WaybillGenerationMarker;
@@ -75,7 +76,7 @@ export class SellerShippingService {
     private sfExpress: SfExpressService,
     private uploadService: UploadService,
     private shippingCost: OrderShippingCostService,
-    @Optional() private inboxService?: InboxService,
+    @Optional() private notificationService?: NotificationService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
@@ -197,6 +198,7 @@ export class SellerShippingService {
 
     const context = await this.reserveWaybillGeneration(
       companyId,
+      staffId,
       orderId,
       carrierCode,
     );
@@ -241,6 +243,7 @@ export class SellerShippingService {
 
   private async reserveWaybillGeneration(
     companyId: string,
+    staffId: string,
     orderId: string,
     carrierCode: string,
   ): Promise<WaybillGenerationContext> {
@@ -341,6 +344,7 @@ export class SellerShippingService {
       return {
         orderId,
         userId: order.userId,
+        staffId,
         companyId,
         shipmentId,
         marker,
@@ -425,18 +429,18 @@ export class SellerShippingService {
     context: WaybillGenerationContext,
     error: any,
   ): Promise<void> {
-    if (!this.inboxService?.send || !this.isReceiverContactError(error)) return;
+    if (!this.notificationService?.emit || !this.isReceiverContactError(error)) return;
 
     try {
-      await this.inboxService.send({
-        userId: context.userId,
-        category: 'transaction',
-        type: 'order_receiver_info_required',
-        title: '请修改收货信息',
-        content: '商家发货时发现收货手机号无法生成快递面单，请修改收货信息。修改前商家无法发货。',
-        target: {
-          route: '/orders/[id]',
-          params: { id: context.orderId },
+      await this.notificationService.emit({
+        eventType: 'order.receiverInfoRequired',
+        aggregateType: 'order',
+        aggregateId: context.orderId,
+        idempotencyKey: `order:${context.orderId}:receiver-info-required`,
+        actor: { kind: 'seller', id: context.staffId },
+        payload: {
+          orderId: context.orderId,
+          buyerUserId: context.userId,
         },
       });
     } catch (notifyError: any) {

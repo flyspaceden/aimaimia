@@ -4,10 +4,10 @@ import { SellerShippingService } from './seller-shipping.service';
 import { SellerRiskControlModule } from '../risk-control/seller-risk-control.module';
 import { ShipmentModule } from '../../shipment/shipment.module';
 import { UploadModule } from '../../upload/upload.module';
-import { InboxModule } from '../../inbox/inbox.module';
+import { NotificationModule } from '../../notification/notification.module';
 
 @Module({
-  imports: [SellerRiskControlModule, ShipmentModule, UploadModule, InboxModule],
+  imports: [SellerRiskControlModule, ShipmentModule, UploadModule, NotificationModule],
   controllers: [SellerShippingController],
   providers: [SellerShippingService],
   exports: [SellerShippingService],

@@ -49,16 +49,16 @@ function createMocks(configOverrides: Record<string, any> = {}) {
     queryRoutes: jest.fn(),
     parsePushPayload: jest.fn(),
   };
-  const inboxService = {
-    send: jest.fn(),
+  const notificationService = {
+    emit: jest.fn(),
   };
   const service = new ShipmentService(
     prisma as any,
     configService as any,
     sfExpress as any,
-    inboxService as any,
+    notificationService as any,
   );
-  return { service, prisma, configService, sfExpress, inboxService };
+  return { service, prisma, configService, sfExpress, notificationService };
 }
 
 // 辅助: 构建 shipment 记录
@@ -127,8 +127,8 @@ describe('handleCallback — 物流回调处理', () => {
     );
   });
 
-  it('收到签收状态，Shipment 更新为 DELIVERED，设置 deliveredAt', async () => {
-    const { service, prisma } = createMocks();
+  it('收到签收状态，Shipment 更新为 DELIVERED，设置 deliveredAt 并在事务内发出签收通知事件', async () => {
+    const { service, prisma, notificationService } = createMocks();
     const shipment = makeShipment({ status: 'IN_TRANSIT' });
     prisma.shipment.findFirst.mockResolvedValue(shipment);
     prisma.shipment.update.mockResolvedValue({ ...shipment, status: 'DELIVERED' });
@@ -139,6 +139,7 @@ describe('handleCallback — 物流回调处理', () => {
     prisma.ruleConfig.findUnique.mockResolvedValue({ key: 'RETURN_WINDOW_DAYS', value: 7 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
+    prisma.order.findUnique.mockResolvedValue({ userId: BUYER_USER_ID });
 
     const result = await service.handleCallback(
       'SF1234567890',
@@ -158,6 +159,49 @@ describe('handleCallback — 物流回调处理', () => {
         }),
       }),
     );
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'order.delivered',
+      aggregateType: 'order',
+      aggregateId: ORDER_SHIPPED,
+      idempotencyKey: `order:${ORDER_SHIPPED}:delivered`,
+      actor: { kind: 'system' },
+      payload: {
+        orderId: ORDER_SHIPPED,
+        buyerUserId: BUYER_USER_ID,
+      },
+    }, prisma);
+  });
+
+  it('物流异常状态即时发出 logistics.exception 通知事件', async () => {
+    const { service, prisma, notificationService } = createMocks();
+    const shipment = makeShipment({ status: 'IN_TRANSIT' });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+    prisma.shipmentTrackingEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.order.findUnique.mockResolvedValue({ userId: BUYER_USER_ID });
+
+    const result = await service.handleCallback(
+      'SF1234567890',
+      'EXCEPTION',
+      [{ time: '2026-04-03T08:00:00Z', message: '派件异常', opCode: '36' } as any],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'logistics.exception',
+      aggregateType: 'shipment',
+      aggregateId: 'shp-001',
+      idempotencyKey: 'shipment:shp-001:exception:36',
+      actor: { kind: 'system' },
+      payload: {
+        shipmentId: 'shp-001',
+        orderId: ORDER_SHIPPED,
+        buyerUserId: BUYER_USER_ID,
+      },
+    });
   });
 
   it('未知状态保持原 Shipment 状态不变', async () => {

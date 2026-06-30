@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ShipmentMonitorService {
@@ -11,7 +11,7 @@ export class ShipmentMonitorService {
 
   constructor(
     private prisma: PrismaService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   /**
@@ -44,13 +44,17 @@ export class ShipmentMonitorService {
       try {
         // 通知买家
         if (shipment.order?.userId) {
-          await this.inboxService.send({
-            userId: shipment.order.userId,
-            category: 'order',
-            type: 'logistics_stale',
-            title: '物流更新异常',
-            content: `您的包裹（顺丰速运）已超过 ${ShipmentMonitorService.STALE_DAYS} 天未更新物流信息，请关注。`,
-            target: { route: '/orders/track', params: { orderId: shipment.orderId } },
+          await this.notificationService.emit({
+            eventType: 'logistics.stale',
+            aggregateType: 'shipment',
+            aggregateId: shipment.id,
+            idempotencyKey: `shipment:${shipment.id}:stale`,
+            actor: { kind: 'system' },
+            payload: {
+              shipmentId: shipment.id,
+              orderId: shipment.orderId,
+              buyerUserId: shipment.order.userId,
+            },
           });
         }
 
