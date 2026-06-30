@@ -194,7 +194,18 @@ const makeHarness = (initial?: Partial<DataSet>) => {
       }),
     },
     refund: {
-      findUnique: jest.fn(({ where }: any) => data.refunds.find((refund) => refund.id === where.id) ?? null),
+      findUnique: jest.fn(({ where, include }: any) => {
+        const refund = data.refunds.find((item) => item.id === where.id);
+        if (!refund) return null;
+        if (include?.order) {
+          const order = data.orders.find((item) => item.id === refund.orderId);
+          return {
+            ...refund,
+            order: order ? { userId: order.userId } : null,
+          };
+        }
+        return refund;
+      }),
     },
     afterSaleRequest: {
       findFirst: jest.fn(({ where }: any) =>
@@ -257,8 +268,17 @@ const makeHarness = (initial?: Partial<DataSet>) => {
     }),
     $transaction: jest.fn(async (callback: any, options: any) => callback(tx)),
   };
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
 
-  return { data, prisma, tx, service: new DigitalAssetService(prisma as any) };
+  return {
+    data,
+    prisma,
+    tx,
+    notificationService,
+    service: new DigitalAssetService(prisma as any, notificationService as any),
+  };
 };
 
 describe('DigitalAssetService V2 semantics', () => {
@@ -414,7 +434,7 @@ describe('DigitalAssetService V2 semantics', () => {
   });
 
   it('received order releases existing frozen credit assets instead of minting twice', async () => {
-    const { data, service } = makeHarness({
+    const { data, service, notificationService, tx } = makeHarness({
       accounts: [{
         id: 'account-1',
         userId: 'vip-user',
@@ -476,6 +496,21 @@ describe('DigitalAssetService V2 semantics', () => {
       frozenCreditAssetBalanceAfter: 0,
       idempotencyKey: 'order:order-release:credit-asset-release',
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'digitalAsset.released',
+        aggregateType: 'order',
+        aggregateId: 'order-release',
+        idempotencyKey: 'digital-asset:order-release:released',
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          orderId: 'order-release',
+          userId: 'vip-user',
+          amount: 460,
+        }),
+      }),
+      tx,
+    );
   });
 
   it('refund before receipt voids frozen assets without touching released balances', async () => {
@@ -681,7 +716,7 @@ describe('DigitalAssetService V2 semantics', () => {
   });
 
   it('refund reverses cumulative spend and credit assets from original ledger snapshot', async () => {
-    const { data, service } = makeHarness({
+    const { data, service, notificationService, tx } = makeHarness({
       memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
       orders: [{
         id: 'order-refund',
@@ -730,10 +765,25 @@ describe('DigitalAssetService V2 semantics', () => {
       creditAssetBalanceAfter: 0,
       balanceAfter: 0,
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'digitalAsset.reversed',
+        aggregateType: 'refund',
+        aggregateId: 'refund-1',
+        idempotencyKey: 'digital-asset:refund-1:reversed',
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          orderId: 'order-refund',
+          userId: 'vip-user',
+          amount: 400,
+        }),
+      }),
+      tx,
+    );
   });
 
   it('admin adjustment can target seed asset or credit asset without touching cumulative spend', async () => {
-    const { data, service } = makeHarness({
+    const { data, service, notificationService, tx } = makeHarness({
       accounts: [{
         id: 'account-1',
         userId: 'vip-user',
@@ -783,6 +833,21 @@ describe('DigitalAssetService V2 semantics', () => {
         creditAssetBalanceAfter: 500,
       }),
     ]));
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'digitalAsset.adjusted',
+        aggregateType: 'digitalAssetAccount',
+        aggregateId: 'account-1',
+        idempotencyKey: 'digital-asset-adjust:admin-adjust-client:credit-adjust:adjusted',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.objectContaining({
+          adjustmentId: 'admin-adjust-client:credit-adjust',
+          userId: 'vip-user',
+          amount: 40,
+        }),
+      }),
+      tx,
+    );
   });
 
   it('records a pending retry row when refund reversal fails after refund success', async () => {
