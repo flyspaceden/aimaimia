@@ -8,6 +8,8 @@
 
 **Tech Stack:** NestJS, Prisma, PostgreSQL, React Native Expo, Vite React, Ant Design, TanStack Query, Jest.
 
+**Post-review correction (2026-06-30):** Seller notification recipient keys must use `seller:{User.id}`, not `seller:{CompanyStaff.id}` from seller JWT `sub`; seller controllers therefore read `CurrentUser.userId`. Admin notifications use `admin:{AdminUser.id}` and registry falls back to ACTIVE admins when an admin-audience event omits explicit `adminUserIds`. Dispatcher must reclaim stale `PROCESSING` outbox rows.
+
 ## Global Constraints
 
 - First implementation phase must not connect real Push, SMS, Enterprise WeChat, or marketing broadcast delivery.

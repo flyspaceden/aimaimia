@@ -8,7 +8,8 @@ test('seller notifications API targets seller notification endpoints', () => {
   const source = read('src/api/notifications.ts');
 
   assert.match(source, /export type NotificationItem/);
-  assert.match(source, /client\.get\('\/seller\/notifications'\)/);
+  assert.match(source, /params\?: NotificationListParams/);
+  assert.match(source, /client\.get\('\/seller\/notifications', \{ params \}\)/);
   assert.match(source, /client\.get\('\/seller\/notifications\/unread-count'\)/);
   assert.match(source, /client\.post\(`\/seller\/notifications\/\$\{id\}\/read`/);
 });

@@ -1716,3 +1716,4 @@
 - [x] **NS04** 卖家/管理后台通知 API：新增 `/seller/notifications`、`/seller/notifications/unread-count`、`/seller/notifications/:id/read` 及管理端等价接口。
 - [x] **NS05** 卖家/管理后台最小 UI：顶栏铃铛未读数、`/notifications` 列表页、标记已读和 routeKey 跳转已接入；seller/admin build 已通过。
 - [x] **NS06** 收口：旧 `InboxMessage` 数据迁移脚本、seed 清理、后端/客服文档同步和最终全量验证。
+- [x] **NS07** 审查修复（2026-06-30）：修复卖家通知 recipientKey 用 `CompanyStaff.id` 导致收不到消息、物流通知 `ORDER_TRACK` 参数错误、通知 outbox `PROCESSING` 崩溃后不再重试、买家交易分类与新分类不匹配、三端通知列表无分页/全局未读数、管理端售后通知无法定位详情、售后仲裁 admin 收件人缺失兜底等问题；新增对应回归测试。

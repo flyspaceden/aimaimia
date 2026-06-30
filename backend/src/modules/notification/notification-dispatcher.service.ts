@@ -7,6 +7,7 @@ import { NotificationEvent } from './notification.types';
 type OutboxRow = {
   id: string;
   payload: unknown;
+  status: 'PENDING' | 'PROCESSING';
   attempts: number;
   runAt: Date;
   updatedAt: Date;
@@ -15,6 +16,7 @@ type OutboxRow = {
 @Injectable()
 export class NotificationDispatcherService {
   private readonly logger = new Logger(NotificationDispatcherService.name);
+  private readonly staleProcessingMs = 5 * 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -27,8 +29,15 @@ export class NotificationDispatcherService {
   }
 
   async dispatchPending(limit = 50) {
+    const now = new Date();
+    const staleProcessingBefore = new Date(now.getTime() - this.staleProcessingMs);
     const rows = await this.prisma.notificationOutbox.findMany({
-      where: { status: 'PENDING', runAt: { lte: new Date() } },
+      where: {
+        OR: [
+          { status: 'PENDING', runAt: { lte: now } },
+          { status: 'PROCESSING', processingAt: { lt: staleProcessingBefore } },
+        ],
+      },
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
@@ -44,7 +53,7 @@ export class NotificationDispatcherService {
     const claimResult = await this.prisma.notificationOutbox.updateMany({
       where: {
         id: row.id,
-        status: 'PENDING',
+        status: row.status,
         attempts: previousAttempts,
         runAt: row.runAt,
         updatedAt: row.updatedAt,

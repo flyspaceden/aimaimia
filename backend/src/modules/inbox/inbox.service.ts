@@ -21,8 +21,8 @@ export class InboxService {
   }
 
   /** 消息列表（筛选） */
-  async list(userId: string, category?: string, unreadOnly?: boolean) {
-    return this.notificationMessages.list(this.recipientKey(userId), category, unreadOnly);
+  async list(userId: string, category?: string, unreadOnly?: boolean, page = 1, pageSize = 20) {
+    return this.notificationMessages.list(this.recipientKey(userId), category, unreadOnly, page, pageSize);
   }
 
   /** 标记单条已读 */

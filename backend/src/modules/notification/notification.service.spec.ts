@@ -54,6 +54,9 @@ describe('NotificationService and dispatcher', () => {
 
   const matchesWhere = (row: Record<string, any>, where: Record<string, any> = {}): boolean =>
     Object.entries(where).every(([key, value]): boolean => {
+      if (key === 'OR' && Array.isArray(value)) {
+        return value.some((candidate) => matchesWhere(row, candidate));
+      }
       const rowValue = row[key];
       if (value === null) {
         return rowValue === null;
@@ -64,6 +67,12 @@ describe('NotificationService and dispatcher', () => {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         if ('lte' in value) {
           return rowValue <= value.lte;
+        }
+        if ('lt' in value) {
+          return rowValue < value.lt;
+        }
+        if ('in' in value && Array.isArray(value.in)) {
+          return value.in.includes(rowValue);
         }
         return matchesWhere(rowValue ?? {}, value);
       }
@@ -292,6 +301,44 @@ describe('NotificationService and dispatcher', () => {
     expect(prisma.state.outbox[0].attempts).toBe(1);
   });
 
+  it('reclaims stale PROCESSING rows so crash-interrupted notifications are dispatched', async () => {
+    const prisma = makePrisma();
+    const registry = new NotificationRegistry();
+    const dispatcher = new NotificationDispatcherService(prisma as any, registry);
+
+    await prisma.notificationOutbox.upsert({
+      where: { idempotencyKey: baseEvent.idempotencyKey },
+      create: {
+        eventType: baseEvent.eventType,
+        aggregateType: baseEvent.aggregateType,
+        aggregateId: baseEvent.aggregateId,
+        idempotencyKey: baseEvent.idempotencyKey,
+        payload: baseEvent,
+        status: 'PROCESSING',
+        attempts: 1,
+        processingAt: new Date(Date.now() - 15 * 60_000),
+      },
+    });
+    prisma.state.outbox[0].status = 'PROCESSING';
+    prisma.state.outbox[0].attempts = 1;
+    prisma.state.outbox[0].processingAt = new Date(Date.now() - 15 * 60_000);
+    prisma.state.outbox[0].runAt = new Date(Date.now() - 15 * 60_000);
+
+    await dispatcher.dispatchPending(10);
+
+    expect(prisma.state.messages).toHaveLength(1);
+    expect(prisma.state.outbox[0].status).toBe('SENT');
+    expect(prisma.notificationOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'outbox-1',
+          status: 'PROCESSING',
+          attempts: 1,
+        }),
+      }),
+    );
+  });
+
   it('requeues on a failed attempt and marks FAILED on the fifth attempt', async () => {
     const prisma = makePrisma();
     const registry = { resolve: jest.fn(() => {
@@ -410,6 +457,46 @@ describe('NotificationService and dispatcher', () => {
     expect(await service.unreadCount('buyer:1')).toBe(0);
     expect(await service.unreadCount('buyer:2')).toBe(1);
     expect(prisma.state.messages.find((item) => item.id === 'message-3')?.readAt).toBeNull();
+  });
+
+  it('maps legacy buyer transaction filters to the new trade-related notification categories', async () => {
+    const prisma = makePrisma();
+    const service = new NotificationMessageService(prisma as any);
+    const now = new Date();
+    const categories = ['transaction', 'order', 'after_sale', 'wallet', 'group_buy', 'service'];
+
+    categories.forEach((category, index) => {
+      prisma.state.messages.push({
+        id: `message-${index + 1}`,
+        recipientKind: 'BUYER_USER',
+        recipientKey: 'buyer:1',
+        audience: 'BUYER_APP',
+        category,
+        eventType: `event.${category}`,
+        title: category,
+        body: category,
+        severity: 'INFO',
+        entityType: 'test',
+        entityId: category,
+        action: null,
+        metadata: null,
+        idempotencyKey: `id-${category}`,
+        readAt: null,
+        expiresAt: null,
+        createdAt: new Date(now.getTime() + index),
+        updatedAt: now,
+      });
+    });
+
+    const listed = await service.list('buyer:1', 'transaction');
+
+    expect(listed.map((item) => item.category)).toEqual([
+      'group_buy',
+      'wallet',
+      'after_sale',
+      'order',
+      'transaction',
+    ]);
   });
 
   it('rejects markRead for another recipients message', async () => {

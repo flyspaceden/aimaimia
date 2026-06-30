@@ -11,7 +11,8 @@ export class NotificationMessageService {
     const where: Prisma.NotificationMessageWhereInput = { recipientKey };
 
     if (category) {
-      where.category = category;
+      const categories = this.resolveCategoryFilter(category);
+      where.category = categories.length === 1 ? categories[0] : { in: categories };
     }
     if (unreadOnly) {
       where.readAt = null;
@@ -54,6 +55,19 @@ export class NotificationMessageService {
     });
 
     return this.list(recipientKey);
+  }
+
+  private resolveCategoryFilter(category: string): string[] {
+    switch (category) {
+      case 'transaction':
+        return ['transaction', 'order', 'after_sale', 'wallet', 'group_buy'];
+      case 'interaction':
+        return ['interaction', 'service'];
+      case 'system':
+        return ['system', 'risk'];
+      default:
+        return [category];
+    }
   }
 
   private map(row: {

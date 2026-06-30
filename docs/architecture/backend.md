@@ -46,9 +46,10 @@
 旧 `InboxMessage` 已收口为统一通知底座，买家、卖家和管理后台共用 `NotificationMessage` 展示消息，`NotificationOutbox` 负责事务内事件落库与异步派发：
 
 - 业务模块只调用 `NotificationService.emit(eventType, payload, options)`，不再直接拼 App 路由或写 `InboxMessage`；模板、分类、收件人、路由动作由 notification registry 统一维护。
-- 支持三类主要收件人：买家 `buyer:{userId}`、卖家企业 `seller:company:{companyId}:owner`、平台管理 `admin:platform`；展示端通过 `audience` 区分 `BUYER_APP`、`SELLER_CENTER`、`ADMIN_CENTER`。
-- 买家 App 现有 `/inbox` API 作为兼容入口保留，但数据源改为 `NotificationMessage`；卖家中心和管理后台新增 `/seller/notifications` 与 `/admin/notifications` 列表、未读数、单条已读、全部已读接口。
-- 路由不再存裸路径为主契约，优先使用 `action.routeKey + params`，例如 `ORDER_DETAIL`、`ORDER_RECEIVER_INFO`、`AFTER_SALE_DETAIL`、`CS_SESSION`、`GROUP_BUY_DETAIL`；前端遇到未知 routeKey 只提示，不跳 unmatched route。
+- 支持三类主要收件人：买家 `buyer:{User.id}`、卖家员工 `seller:{User.id}`、平台管理 `admin:{AdminUser.id}`；展示端通过 `audience` 区分 `BUYER_APP`、`SELLER_CENTER`、`ADMIN_CENTER`。卖家事件按 `companyId` 兜底解析 ACTIVE `CompanyStaff.userId`，管理事件按显式 `adminUserIds` 或 ACTIVE `AdminUser.id` 兜底。
+- 买家 App 现有 `/inbox` API 作为兼容入口保留，但数据源改为 `NotificationMessage`；卖家中心和管理后台新增 `/seller/notifications` 与 `/admin/notifications` 列表、未读数、单条已读、全部已读接口。列表支持 `page/pageSize`，买家旧 `transaction/interaction/system` 分类会兼容映射到新通知分类组。
+- 路由不再存裸路径为主契约，优先使用 `action.routeKey + params`，例如 `ORDER_DETAIL`、`ORDER_TRACK(orderId)`、`ORDER_RECEIVER_INFO`、`AFTER_SALE_DETAIL`、`CS_SESSION`、`GROUP_BUY_DETAIL`；前端遇到未知 routeKey 只提示，不跳 unmatched route。
+- `NotificationDispatcherService` 每 10 秒派发 `PENDING` outbox，并会回收超过 5 分钟未完成的 `PROCESSING` outbox，防止进程重启或崩溃后通知永久卡死。
 - `backend/scripts/migrate-inbox-to-notifications.ts` 用于把历史 `InboxMessage` 迁到 `NotificationMessage`，保留原 id、创建时间、已读状态和幂等键 `legacy-inbox:{id}`；已知失效入口如 `/me/bookings` 不再生成跳转动作。
 - `backend/prisma/seed.ts` 已改为直接 seed `NotificationMessage`，不再写 `InboxMessage` 或旧 `/me/rewards`、`/me/bookings` 路由。
 

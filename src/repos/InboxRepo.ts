@@ -23,13 +23,25 @@ import { ApiClient } from './http/ApiClient';
 
 let messageCache = [...mockInboxMessages];
 
+type InboxListParams = {
+  page?: number;
+  pageSize?: number;
+};
+
 // 消息中心仓储：消息列表与已读状态（复杂业务逻辑需中文注释）
 export const InboxRepo = {
   /**
    * 消息列表
    * - 后端接口：`GET /api/v1/inbox?category=&unreadOnly=`
    */
-  list: async (category?: InboxCategory, unreadOnly?: boolean): Promise<Result<InboxMessage[]>> => {
+  list: async (
+    category?: InboxCategory,
+    unreadOnly?: boolean,
+    params: InboxListParams = {},
+  ): Promise<Result<InboxMessage[]>> => {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.max(1, params.pageSize ?? 20);
+
     if (USE_MOCK) {
       let list = [...messageCache];
       if (category) {
@@ -38,12 +50,15 @@ export const InboxRepo = {
       if (unreadOnly) {
         list = list.filter((item) => item.unread);
       }
-      return simulateRequest(list, { delay: 220 });
+      const start = (page - 1) * pageSize;
+      return simulateRequest(list.slice(start, start + pageSize), { delay: 220 });
     }
 
     return ApiClient.get<InboxMessage[]>('/inbox', {
       category,
       unreadOnly: unreadOnly ? 'true' : undefined,
+      page,
+      pageSize,
     });
   },
   /** 标记单条已读：`POST /api/v1/inbox/{id}/read` */
