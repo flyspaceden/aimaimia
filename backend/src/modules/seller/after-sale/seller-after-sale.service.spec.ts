@@ -26,6 +26,8 @@ const companyAddress = {
 function baseRequest(overrides: Record<string, any> = {}) {
   return {
     id: afterSaleId,
+    userId: 'buyer-1',
+    orderId: 'order-1',
     status: 'APPROVED',
     afterSaleType: 'NO_REASON_EXCHANGE',
     replacementWaybillNo: null,
@@ -116,6 +118,9 @@ function makeService(tx: any) {
     ...tx,
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new SellerAfterSaleService(
     prisma as any,
     {
@@ -125,13 +130,13 @@ function makeService(tx: any) {
     shippingService as any,
     {} as any,
     {} as any,
-    {} as any,
+    notificationService as any,
     { startRefund: jest.fn() } as any,
     { create: jest.fn().mockResolvedValue({ id: 'history-1' }) } as any,
     { queryRoutes: jest.fn().mockResolvedValue(null) } as any,
   );
 
-  return { service, prisma, shippingService };
+  return { service, prisma, shippingService, notificationService };
 }
 
 describe('SellerAfterSaleService exchange waybills', () => {
@@ -349,6 +354,100 @@ describe('SellerAfterSaleService exchange waybills', () => {
   });
 });
 
+describe('SellerAfterSaleService review notifications', () => {
+  it('emits an approval notification after a successful CAS transition', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(baseRequest({ status: 'REQUESTED', requiresReturn: true }))
+          .mockResolvedValueOnce(baseRequest({ status: 'APPROVED' })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, notificationService } = makeService(tx);
+
+    await service.approve(companyId, staffId, afterSaleId);
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.approved',
+        aggregateType: 'afterSale',
+        aggregateId: afterSaleId,
+        idempotencyKey: `after-sale:${afterSaleId}:approved`,
+        actor: { kind: 'seller', id: staffId },
+        payload: expect.objectContaining({
+          afterSaleId,
+          userId: 'buyer-1',
+          orderId: 'order-1',
+          companyId,
+        }),
+      }),
+      tx,
+    );
+  });
+
+  it('emits a rejection notification without leaking the rejection reason', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(baseRequest({ status: 'UNDER_REVIEW' }))
+          .mockResolvedValueOnce(baseRequest({ status: 'REJECTED' })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, notificationService } = makeService(tx);
+
+    await service.reject(companyId, staffId, afterSaleId, '买家手机号 13800138000 不应出现在通知中');
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.rejected',
+        idempotencyKey: `after-sale:${afterSaleId}:rejected`,
+        payload: expect.not.objectContaining({
+          reason: expect.any(String),
+        }),
+      }),
+      tx,
+    );
+  });
+
+  it('emits a received-by-seller notification after confirming return receipt', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(
+            baseRequest({ status: 'RETURN_SHIPPING', afterSaleType: 'QUALITY_EXCHANGE' }),
+          )
+          .mockResolvedValueOnce(baseRequest({ status: 'RECEIVED_BY_SELLER' })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, notificationService } = makeService(tx);
+
+    await service.confirmReceiveReturn(companyId, staffId, afterSaleId);
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.receivedBySeller',
+        aggregateType: 'afterSale',
+        aggregateId: afterSaleId,
+        idempotencyKey: `after-sale:${afterSaleId}:received-by-seller`,
+        actor: { kind: 'seller', id: staffId },
+        payload: expect.objectContaining({
+          afterSaleId,
+          userId: 'buyer-1',
+          orderId: 'order-1',
+          companyId,
+        }),
+      }),
+      tx,
+    );
+  });
+});
+
 describe('SellerAfterSaleService.ship', () => {
   it('accepts NO_REASON_EXCHANGE replacement shipment', async () => {
     const tx = {
@@ -361,7 +460,7 @@ describe('SellerAfterSaleService.ship', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const { service } = makeService(tx);
+    const { service, notificationService } = makeService(tx);
 
     await service.ship(companyId, staffId, afterSaleId);
 
@@ -377,6 +476,21 @@ describe('SellerAfterSaleService.ship', () => {
           replacementShipmentId: 'SF1234567890',
         }),
       }),
+    );
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.replacementShipped',
+        aggregateType: 'afterSale',
+        aggregateId: afterSaleId,
+        idempotencyKey: `after-sale:${afterSaleId}:replacement-shipped`,
+        actor: { kind: 'seller', id: staffId },
+        payload: expect.objectContaining({
+          afterSaleId,
+          userId: expect.any(String),
+          companyId,
+        }),
+      }),
+      tx,
     );
   });
 
@@ -413,7 +527,7 @@ describe('SellerAfterSaleService.rejectReturn', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const { service } = makeService(tx);
+    const { service, notificationService } = makeService(tx);
 
     await service.rejectReturn(
       companyId,
@@ -431,6 +545,21 @@ describe('SellerAfterSaleService.rejectReturn', () => {
         sellerRejectPhotos: ['https://example.com/proof.jpg'],
       },
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.sellerRejectedReturn',
+        aggregateType: 'afterSale',
+        aggregateId: afterSaleId,
+        idempotencyKey: `after-sale:${afterSaleId}:seller-rejected-return`,
+        actor: { kind: 'seller', id: staffId },
+        payload: expect.objectContaining({
+          afterSaleId,
+          userId: expect.any(String),
+          companyId,
+        }),
+      }),
+      tx,
+    );
   });
 
   it('ignores legacy manual seller return waybill input so generated waybill can run later', async () => {

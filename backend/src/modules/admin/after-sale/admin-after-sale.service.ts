@@ -11,7 +11,7 @@ import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.servi
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 import { ArbitrateAfterSaleDto } from './dto/arbitrate-after-sale.dto';
 import { decryptJsonValue } from '../../../common/security/encryption';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
@@ -72,11 +72,41 @@ export class AdminAfterSaleService {
     private prisma: PrismaService,
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
     private sfExpress: SfExpressService,
   ) {}
+
+  private async emitAfterSaleNotification(
+    tx: Prisma.TransactionClient,
+    eventType: string,
+    suffix: string,
+    request: {
+      id: string;
+      userId?: string | null;
+      orderId?: string | null;
+      order?: { items?: Array<{ companyId?: string | null }> } | null;
+    },
+    adminUserId: string,
+  ) {
+    await this.notificationService.emit(
+      {
+        eventType,
+        aggregateType: 'afterSale',
+        aggregateId: request.id,
+        idempotencyKey: `after-sale:${request.id}:${suffix}`,
+        actor: { kind: 'admin', id: adminUserId },
+        payload: {
+          afterSaleId: request.id,
+          userId: request.userId ?? undefined,
+          orderId: request.orderId ?? undefined,
+          companyId: request.order?.items?.find((item) => item.companyId)?.companyId,
+        },
+      },
+      tx as any,
+    );
+  }
 
   // ========== 列表查询 ==========
 
@@ -499,6 +529,13 @@ export class AdminAfterSaleService {
                 operatorType: AfterSaleOperatorType.ADMIN,
                 operatorId: adminUserId,
               });
+              await this.emitAfterSaleNotification(
+                tx,
+                'afterSale.arbitrationResolved',
+                'arbitration-resolved',
+                request,
+                adminUserId,
+              );
               return tx.afterSaleRequest.findUnique({ where: { id } });
             }
 
@@ -540,6 +577,13 @@ export class AdminAfterSaleService {
                   operatorType: AfterSaleOperatorType.ADMIN,
                   operatorId: adminUserId,
                 });
+                await this.emitAfterSaleNotification(
+                  tx,
+                  'afterSale.arbitrationResolved',
+                  'arbitration-resolved',
+                  request,
+                  adminUserId,
+                );
                 shouldStartRefund = true;
               } else if (isExchangeAfterSaleType(request.afterSaleType)) {
                 // 换货：货物已在卖家，恢复到已收货，等卖家生成换货面单/发货
@@ -565,6 +609,13 @@ export class AdminAfterSaleService {
                   operatorType: AfterSaleOperatorType.ADMIN,
                   operatorId: adminUserId,
                 });
+                await this.emitAfterSaleNotification(
+                  tx,
+                  'afterSale.arbitrationResolved',
+                  'arbitration-resolved',
+                  request,
+                  adminUserId,
+                );
               } else {
                 throw new BadRequestException('该售后类型不支持卖家拒收退货仲裁通过');
               }
@@ -592,6 +643,13 @@ export class AdminAfterSaleService {
                 operatorType: AfterSaleOperatorType.ADMIN,
                 operatorId: adminUserId,
               });
+              await this.emitAfterSaleNotification(
+                tx,
+                'afterSale.arbitrationResolved',
+                'arbitration-resolved',
+                request,
+                adminUserId,
+              );
 
               // 无需退回 + 退货退款类型 → 自动触发退款
               if (!request.requiresReturn && isReturnAfterSaleType(request.afterSaleType)) {

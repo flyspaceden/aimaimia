@@ -25,6 +25,7 @@ import { AfterSaleRewardService } from './after-sale-reward.service';
 import { SfExpressService } from '../shipment/sf-express.service';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
+import { NotificationService } from '../notification/notification.service';
 
 // 允许申请售后的订单状态
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
@@ -54,10 +55,42 @@ export class AfterSaleService {
     private prisma: PrismaService,
     private afterSaleRewardService: AfterSaleRewardService,
     private sfExpress: SfExpressService,
+    private notificationService?: NotificationService,
   ) {}
 
   setShippingRuleService(service: any) {
     this.shippingRuleService = service;
+  }
+
+  private async emitAfterSaleNotification(
+    tx: Prisma.TransactionClient,
+    eventType: string,
+    suffix: string,
+    input: {
+      afterSaleId: string;
+      userId?: string | null;
+      orderId?: string | null;
+      companyId?: string | null;
+      actor: { kind: 'buyer' | 'seller' | 'admin' | 'system'; id?: string };
+    },
+  ) {
+    if (!this.notificationService) return;
+    await this.notificationService.emit(
+      {
+        eventType,
+        aggregateType: 'afterSale',
+        aggregateId: input.afterSaleId,
+        idempotencyKey: `after-sale:${input.afterSaleId}:${suffix}`,
+        actor: input.actor,
+        payload: {
+          afterSaleId: input.afterSaleId,
+          userId: input.userId ?? undefined,
+          orderId: input.orderId ?? undefined,
+          companyId: input.companyId ?? undefined,
+        },
+      },
+      tx as any,
+    );
   }
 
   /**
@@ -1087,6 +1120,12 @@ export class AfterSaleService {
               operatorType: AfterSaleOperatorType.BUYER,
               operatorId: userId,
             },
+          });
+          await this.emitAfterSaleNotification(tx, 'afterSale.arbitrationRequested', 'arbitration-requested', {
+            afterSaleId,
+            userId,
+            orderId: request.orderId,
+            actor: { kind: 'buyer', id: userId },
           });
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });

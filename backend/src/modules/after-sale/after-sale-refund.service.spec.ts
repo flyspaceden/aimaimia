@@ -69,8 +69,8 @@ describe('AfterSaleRefundService', () => {
     checkAndMarkOrderRefunded: jest.fn(),
   };
 
-  const inboxService = {
-    send: jest.fn(),
+  const notificationService = {
+    emit: jest.fn(),
   };
 
   const productBundleService = {
@@ -148,14 +148,14 @@ describe('AfterSaleRefundService', () => {
     paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(false);
     rewardService.voidRewardsForOrder.mockResolvedValue(undefined);
     rewardService.checkAndMarkOrderRefunded.mockResolvedValue(undefined);
-    inboxService.send.mockResolvedValue(undefined);
+    notificationService.emit.mockResolvedValue(undefined);
 
     service = new AfterSaleRefundService(
       prisma as any,
       paymentService as any,
       rewardService as any,
       new AfterSaleStatusHistoryService(),
-      inboxService as any,
+      notificationService as any,
       productBundleService as any,
     );
   });
@@ -520,7 +520,21 @@ describe('AfterSaleRefundService', () => {
       reversalError,
       { source: 'AFTER_SALE_REFUND' },
     );
-    expect(inboxService.send).toHaveBeenCalled();
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.refunded',
+        aggregateType: 'afterSale',
+        aggregateId: 'as_001',
+        idempotencyKey: 'after-sale:as_001:refunded',
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          afterSaleId: 'as_001',
+          orderId: 'order_001',
+          userId: 'user_001',
+          amount: 88,
+        }),
+      }),
+    );
   });
 
   it('handleRefundSuccess restores proportional group-buy rebate deduction after ordinary order refund succeeds', async () => {
@@ -890,7 +904,13 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledTimes(1);
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
-    expect(inboxService.send).toHaveBeenCalledTimes(1);
+    expect(notificationService.emit).toHaveBeenCalledTimes(1);
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.refunded',
+        idempotencyKey: 'after-sale:as_001:refunded',
+      }),
+    );
   });
 
   it('does not double-restock bundle components on duplicate refund notifications', async () => {

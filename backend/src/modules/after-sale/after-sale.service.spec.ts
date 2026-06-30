@@ -293,11 +293,20 @@ function makeTxService(tx: any) {
   const afterSaleRewardService = {
     voidRewardsForOrder: jest.fn().mockResolvedValue(undefined),
   };
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     prisma,
     afterSaleRewardService,
-    service: new AfterSaleService(prisma as any, afterSaleRewardService as any, {} as any),
+    notificationService,
+    service: new AfterSaleService(
+      prisma as any,
+      afterSaleRewardService as any,
+      {} as any,
+      notificationService as any,
+    ),
   };
 }
 
@@ -479,7 +488,7 @@ describe('AfterSaleService.escalate', () => {
         create: jest.fn().mockResolvedValue({ id: 'history-1' }),
       },
     };
-    const { service } = makeTxService(tx);
+    const { service, notificationService } = makeTxService(tx);
 
     await service.escalate('user-1', 'after-sale-1');
 
@@ -504,6 +513,20 @@ describe('AfterSaleService.escalate', () => {
         operatorId: 'user-1',
       }),
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.arbitrationRequested',
+        aggregateType: 'afterSale',
+        aggregateId: 'after-sale-1',
+        idempotencyKey: 'after-sale:after-sale-1:arbitration-requested',
+        actor: { kind: 'buyer', id: 'user-1' },
+        payload: expect.objectContaining({
+          afterSaleId: 'after-sale-1',
+          userId: 'user-1',
+        }),
+      }),
+      tx,
+    );
   });
 
   it('preserves seller rejected return as the source status when buyer escalates', async () => {

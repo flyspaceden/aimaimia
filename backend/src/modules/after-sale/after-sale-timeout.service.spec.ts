@@ -28,7 +28,9 @@ function createMocks() {
   const afterSaleRewardService = {
     voidRewardsForOrder: jest.fn(),
   };
-  const inboxService = {};
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
   const afterSaleRefundService = {
     startRefund: jest.fn(),
   };
@@ -45,7 +47,7 @@ function createMocks() {
     prisma as any,
     paymentService as any,
     afterSaleRewardService as any,
-    inboxService as any,
+    notificationService as any,
     afterSaleRefundService as any,
     statusHistory as any,
     returnShippingService as any,
@@ -59,6 +61,7 @@ function createMocks() {
     prisma,
     tx,
     statusHistory,
+    notificationService,
     returnShippingService,
     shippingPaymentService,
   };
@@ -75,7 +78,7 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
   });
 
   it('closes APPROVED no-waybill unpaid requests to CLOSED and writes status history', async () => {
-    const { service, prisma, tx, statusHistory } = createMocks();
+    const { service, prisma, tx, statusHistory, notificationService } = createMocks();
     prisma.afterSaleRequest.findMany.mockResolvedValue([
       { id: AFTER_SALE_ID, orderId: ORDER_ID },
     ]);
@@ -91,6 +94,9 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       returnShippingPaidAt: null,
     });
     tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: AFTER_SALE_ID,
+      orderId: ORDER_ID,
+      userId: 'user-timeout-1',
       status: 'APPROVED',
       manualReviewRequestedAt: null,
       approvedAt: STALE_AT,
@@ -139,6 +145,20 @@ describe('AfterSaleTimeoutService buyer ship timeout', () => {
       reason: '买家寄回超时，系统自动关闭',
       operatorType: 'SYSTEM',
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.closedByTimeout',
+        aggregateType: 'afterSale',
+        aggregateId: AFTER_SALE_ID,
+        idempotencyKey: `after-sale:${AFTER_SALE_ID}:closed-by-timeout`,
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          afterSaleId: AFTER_SALE_ID,
+          orderId: ORDER_ID,
+        }),
+      }),
+      tx,
+    );
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({

@@ -23,7 +23,7 @@ import { AfterSaleRewardService } from '../../after-sale/after-sale-reward.servi
 import { AfterSaleRefundService } from '../../after-sale/after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from '../../after-sale/after-sale-status-history.service';
 import { SfExpressService } from '../../shipment/sf-express.service';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../../common/constants/shipping.constants';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
@@ -48,13 +48,39 @@ export class SellerAfterSaleService {
     private shippingService: SellerShippingService,
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
     private sfExpress: SfExpressService,
   ) {
     this.apiPrefix = this.configService.get<string>('API_PREFIX', '/api/v1');
     this.hmacSecret = this.configService.getOrThrow<string>('SELLER_JWT_SECRET');
+  }
+
+  private async emitAfterSaleNotification(
+    tx: Prisma.TransactionClient,
+    eventType: string,
+    suffix: string,
+    request: { id: string; userId?: string | null; orderId?: string | null },
+    companyId: string,
+    staffId: string,
+  ) {
+    await this.notificationService.emit(
+      {
+        eventType,
+        aggregateType: 'afterSale',
+        aggregateId: request.id,
+        idempotencyKey: `after-sale:${request.id}:${suffix}`,
+        actor: { kind: 'seller', id: staffId },
+        payload: {
+          afterSaleId: request.id,
+          userId: request.userId ?? undefined,
+          orderId: request.orderId ?? undefined,
+          companyId,
+        },
+      },
+      tx as any,
+    );
   }
 
   // ========== 数据隔离 ==========
@@ -589,6 +615,14 @@ export class SellerAfterSaleService {
               operatorType: AfterSaleOperatorType.SELLER_STAFF,
               operatorId: staffId,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.approved',
+              'approved',
+              request,
+              companyId,
+              staffId,
+            );
 
             // 无需退回商品 + 退货退款类型 → 自动触发退款
             if (
@@ -684,6 +718,14 @@ export class SellerAfterSaleService {
               operatorType: AfterSaleOperatorType.SELLER_STAFF,
               operatorId: staffId,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.rejected',
+              'rejected',
+              request,
+              companyId,
+              staffId,
+            );
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
@@ -761,6 +803,14 @@ export class SellerAfterSaleService {
               operatorType: AfterSaleOperatorType.SELLER_STAFF,
               operatorId: staffId,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.receivedBySeller',
+              'received-by-seller',
+              request,
+              companyId,
+              staffId,
+            );
 
             // 退货退款类型 → 自动触发退款
             if (
@@ -851,6 +901,14 @@ export class SellerAfterSaleService {
               operatorType: AfterSaleOperatorType.SELLER_STAFF,
               operatorId: staffId,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.sellerRejectedReturn',
+              'seller-rejected-return',
+              request,
+              companyId,
+              staffId,
+            );
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
@@ -943,6 +1001,14 @@ export class SellerAfterSaleService {
               operatorId: staffId,
               meta: { replacementWaybillNo: request.replacementWaybillNo },
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.replacementShipped',
+              'replacement-shipped',
+              request,
+              companyId,
+              staffId,
+            );
 
             return tx.afterSaleRequest.findUnique({ where: { id } });
           },
