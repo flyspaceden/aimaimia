@@ -18,29 +18,6 @@
 - **分润引擎**：完整的奖励分配系统（普通广播 + VIP 三叉树上溯 + 平台分润）
 - **种子数据**：6 个用户 + 4 家企业 + 6 个商品 + 4 笔订单 + VIP 三叉树 + 分润流水 + 管理员 RBAC
 
-### 配送后端补充（2026-06-19 / Task 20）
-
-配送系统在同一个 NestJS 进程内运行，但数据层和接口命名空间与爱买买主业务隔离：
-
-- 主库仍使用 `backend/prisma/schema.prisma` 和 `DATABASE_URL`；配送库使用 `backend/prisma-delivery/schema.prisma`、`DELIVERY_DATABASE_URL` 和生成到 `backend/src/generated/delivery-client` 的独立 Prisma client。
-- 买家配送接口固定为 `/api/v1/delivery/*`，配送管理后台接口固定为 `/api/v1/delivery-admin/*`，配送中心接口固定为 `/api/v1/delivery-seller/*`。
-- 配送订单、商品、购物车、支付、顺丰发货、PDF/Excel 清单、结算、客服、审计、配置均使用 delivery schema 的模型；不复用普通 App 订单、购物车、VIP、红包、分润、数字资产、退款/退货数据。
-- 本地集成验证已完成：`npm run prisma:generate`、`npm run prisma:delivery:generate`、`npm run build`、`npx jest src/modules/delivery --runInBand` 均通过；delivery Jest 43/43 suites、196/196 tests。
-- 当前环境没有注入真实 `DATABASE_URL` / `DELIVERY_DATABASE_URL`，所以原始 `npx prisma validate` 和 `npx prisma validate --schema prisma-delivery/schema.prisma` 会停在环境变量缺失；已使用本地占位 PostgreSQL URL 复跑 schema validate，主 schema 和配送 schema 均通过，且未连接 staging/production 数据库。
-
-2026-06-19 审查修复补充：
-
-- `/delivery/checkout/:id/active-query` 支持配送买家支付后主动查支付宝 / 微信订单；查到成功后复用 `DeliveryPaymentsService.handlePaymentCallback` 建单、扣库存、生成清单并清理配送购物车。
-- `/delivery/cs` 新增买家配送客服接口，按 `deliveryUserId` 限定会话列表、详情和创建权限，订单 / 子订单上下文全部从配送库校验。
-- `/delivery/unit-field-config` 向买家 App 暴露后台配置的可见单位字段，配送单位动态字段继续存入 delivery schema。
-- 配送中心文件下载增加商家归属校验；顺丰电子面单 PDF 持久化目录改为 `delivery/waybills/`，继续复用现有 OSS/本地上传适配器但保持 delivery 前缀隔离。
-- 配送管理后台新增 `DeliveryAdminPermissionGuard` 与 `@RequireDeliveryAdminPermission`，用户、商家、订单、商品、定价、清单、结算、客服、配置、统计等业务控制器均按 `delivery:<module>:<action>` 校验，兼容现有 `delivery:<module>:*` 和 `delivery:*` 角色权限。
-- 2026-06-20 全面审查补充：顺丰回调 `/shipments/sf/callback/:token` 在主库未命中时尝试配送库 `DeliverySfCallbackService`，按 `waybillNo/trackingNo` 更新 `DeliveryShipment`，签收后推进配送子订单和主订单状态；配送中心新增 `DeliverySellerPermissionGuard` 与 `@RequireDeliverySellerPermission`，履约清单/发货要求 `orders:write`，商品上架编辑要求 `products:write`，库存调整要求 `inventory:write`，客服写入要求 `customer-service:write`，财务导出和结算列表要求 `finance:read`。`DeliverySellerJwtStrategy` 每次请求读取数据库最新 `role` / `permissionCodes`，权限变更后旧 token 不再保留旧权限；OWNER 默认放行并兼容 `delivery:*` / 模块通配 / `manage` 权限。
-- 2026-06-20 清单边界补充：配送配货 PDF 自定义列继续禁止金额相关字段，拦截范围扩展到供货、结算、付款、货款、单价、总价、小计等绕法；后台模板列的 `fixed` 仅表示系统列，不再强制可见，列名、排序、是否显示均可由配送管理后台发布新模板版本。
-- 本轮验证：配送后端大回归 55/55 suites、276/276 tests 通过；`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npm run build` 通过；`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npx prisma validate --schema prisma-delivery/schema.prisma` 通过。
-
-发布前仍需人工完成：配置 staging/production `DELIVERY_DATABASE_URL`、配送 JWT secret、CORS 域名；部署 delivery Prisma migration；在 staging 配送库连续运行两次 seed 验证幂等；完成真实支付/SF 月结链路、staging E2E 和私有 `docs/operations/阿里云部署.md` 同步。
-
 ### 统一通知系统补充（2026-06-29）
 
 旧 `InboxMessage` 已收口为统一通知底座，买家、卖家和管理后台共用 `NotificationMessage` 展示消息，`NotificationOutbox` 负责事务内事件落库与异步派发：

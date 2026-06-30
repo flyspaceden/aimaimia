@@ -24,18 +24,11 @@ import {
   MessageOutlined,
   AppstoreOutlined,
   WalletOutlined,
-  SwapOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
 import { PERMISSIONS } from '@/constants/permissions';
 import { NotificationsApi } from '@/api/notifications';
-
-const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
-const isProduction = appEnv === 'production';
-const switchToDeliveryAdminUrl = isProduction
-  ? 'https://delivery-admin.ai-maimai.com'
-  : 'https://test-delivery-admin.ai-maimai.com';
 
 // 侧边栏菜单配置（6 大分组，见 admin-frontend.md Section 4）
 const menuRoutes: ProLayoutProps['route'] = {
@@ -164,14 +157,6 @@ export default function AdminLayout() {
     navigate('/login', { replace: true });
   };
 
-  const handleSwitchToDeliveryAdmin = () => {
-    if (isGlobalDirty()) {
-      const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
-      if (!confirmed) return;
-    }
-    window.location.href = switchToDeliveryAdminUrl;
-  };
-
   const handleNavigateToNotifications = () => {
     if (isGlobalDirty()) {
       const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
@@ -295,13 +280,6 @@ export default function AdminLayout() {
           <Dropdown
             menu={{
               items: [
-                {
-                  key: 'switch-delivery-admin',
-                  icon: <SwapOutlined />,
-                  label: '切换配送管理后台',
-                  onClick: handleSwitchToDeliveryAdmin,
-                },
-                { type: 'divider' },
                 {
                   key: 'account-security',
                   icon: <SafetyOutlined />,
