@@ -151,6 +151,51 @@ enum DeliveryShipmentStatus {
   EXCEPTION
 }
 
+enum DeliveryPickupMode {
+  SINGLE
+  MULTI_BATCH
+}
+
+enum DeliveryPickupStatus {
+  NOT_STARTED
+  PARTIAL_PICKED
+  ALL_PICKED
+  CANCELED
+}
+
+enum DeliveryPickupBatchStatus {
+  PLANNED
+  READY_TO_CALL
+  CALLING_CARRIER
+  WAITING_DRIVER
+  DRIVER_ASSIGNED
+  ARRIVED
+  LOADED
+  DELIVERING
+  COMPLETED
+  CANCELED
+  EXCEPTION
+}
+
+enum DeliveryCarrierProvider {
+  SF
+  HUOLALA
+  MANUAL
+}
+
+enum DeliveryCarrierPaymentMode {
+  PLATFORM_MONTHLY
+  PLATFORM_WALLET
+  MANUAL_OFFLINE
+}
+
+enum DeliveryShippingCostLedgerType {
+  PREPAID_BY_USER
+  CARRIER_ESTIMATE
+  CARRIER_ACTUAL
+  MANUAL_ADJUSTMENT
+}
+
 enum DeliveryManifestTemplateType {
   USER_FULL
   SELLER_FULFILLMENT
@@ -463,6 +508,7 @@ model DeliveryMerchant {
   priceRules    DeliveryPriceRule[]
   shippingRules DeliveryShippingRule[]
   subOrders     DeliverySubOrder[]
+  pickupBatches DeliveryPickupBatch[]
   settlements   DeliverySettlement[]
   shippingCosts DeliveryShippingCost[]
   shipments     DeliveryShipment[]
@@ -717,6 +763,10 @@ model DeliveryCheckoutSession {
   unitSnapshot     Json
   addressSnapshot  Json
   pricingSnapshot  Json?
+  pickupMode                     DeliveryPickupMode   @default(SINGLE)
+  plannedPickupCount             Int                  @default(1)
+  pickupPlanSnapshot             Json?
+  prepaidPickupShippingFeeCents  Int                  @default(0)
   note             String?
   goodsAmountCents Int
   shippingFeeCents Int
@@ -746,10 +796,16 @@ model DeliveryOrder {
   checkoutSessionId String?
   checkoutSession   DeliveryCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
   status            DeliveryOrderStatus  @default(PENDING_SHIPMENT)
+  pickupMode                     DeliveryPickupMode   @default(SINGLE)
+  plannedPickupCount             Int                  @default(1)
+  pickupStatus                   DeliveryPickupStatus @default(NOT_STARTED)
   unitSnapshot      Json
   addressSnapshot   Json
   itemsSnapshot     Json
   pricingSnapshot   Json?
+  prepaidPickupShippingFeeCents  Int                  @default(0)
+  actualCarrierCostCents         Int                  @default(0)
+  shippingCostDiffCents          Int                  @default(0)
   note              String?
   goodsAmountCents  Int
   shippingFeeCents  Int
@@ -770,6 +826,8 @@ model DeliveryOrder {
   shipments     DeliveryShipment[]
   manifests     DeliveryManifest[]
   shippingCosts DeliveryShippingCost[]
+  shippingCostLedgers DeliveryShippingCostLedger[]
+  pickupBatches DeliveryPickupBatch[]
   conversations DeliveryCustomerServiceConversation[]
 
   @@unique([checkoutSessionId])
@@ -783,6 +841,7 @@ model DeliverySubOrder {
   merchantId         String
   merchant           DeliveryMerchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   status             DeliveryOrderStatus  @default(PENDING_SHIPMENT)
+  pickupStatus       DeliveryPickupStatus @default(NOT_STARTED)
   supplyAmountCents  Int
   shippingFeeShareCents Int               @default(0)
   totalAmountCents   Int
@@ -802,6 +861,8 @@ model DeliverySubOrder {
   manifests     DeliveryManifest[]
   settlements   DeliverySettlement[]
   shippingCosts DeliveryShippingCost[]
+  shippingCostLedgers DeliveryShippingCostLedger[]
+  pickupBatches DeliveryPickupBatch[]
   conversations DeliveryCustomerServiceConversation[]
 
   @@index([merchantId, status, createdAt])
@@ -823,13 +884,122 @@ model DeliveryOrderItem {
   supplyUnitPriceCents Int
   baseUnitPriceCents   Int
   quantity             Int
+  pickedQuantity       Int                  @default(0)
+  reservedPickupQuantity Int                @default(0)
   lineAmountCents      Int
   supplyAmountCents    Int
   shippingFeeShareCents Int             @default(0)
   createdAt            DateTime         @default(now())
 
+  pickupBatchItems     DeliveryPickupBatchItem[]
+
   @@index([orderId])
   @@index([subOrderId])
+}
+
+model DeliveryPickupBatch {
+  id                        String                    @id
+  orderId                   String
+  order                     DeliveryOrder             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId                String
+  subOrder                  DeliverySubOrder          @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  merchantId                String
+  merchant                  DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  batchNo                   Int
+  status                    DeliveryPickupBatchStatus @default(PLANNED)
+  provider                  DeliveryCarrierProvider   @default(HUOLALA)
+  plannedPickupAt           DateTime?
+  readyAt                   DateTime?
+  calledAt                  DateTime?
+  loadedAt                  DateTime?
+  completedAt               DateTime?
+  canceledAt                DateTime?
+  receiverSnapshot          Json?
+  senderSnapshot            Json?
+  cargoSnapshot             Json?
+  estimatedShippingFeeCents Int?
+  actualCarrierCostCents    Int?
+  shippingCostDiffCents     Int?
+  createdByAdminId          String?
+  lastOperatorType          DeliveryAuditActorType?
+  lastOperatorId            String?
+  remark                    String?
+  createdAt                 DateTime                  @default(now())
+  updatedAt                 DateTime                  @updatedAt
+
+  items         DeliveryPickupBatchItem[]
+  carrierOrders DeliveryCarrierOrder[]
+  costLedgers   DeliveryShippingCostLedger[]
+
+  @@unique([subOrderId, batchNo])
+  @@index([orderId, status, createdAt])
+  @@index([merchantId, status, createdAt])
+}
+
+model DeliveryPickupBatchItem {
+  id              String              @id @default(cuid())
+  batchId         String
+  batch           DeliveryPickupBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  orderItemId     String
+  orderItem       DeliveryOrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  skuId           String
+  productSnapshot Json
+  quantity        Int
+  pickedQuantity  Int                 @default(0)
+  createdAt       DateTime            @default(now())
+
+  @@unique([batchId, orderItemId])
+  @@index([orderItemId])
+}
+
+model DeliveryCarrierOrder {
+  id                 String                     @id
+  batchId            String
+  batch              DeliveryPickupBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  provider           DeliveryCarrierProvider
+  outsideOrderId     String                     @unique
+  carrierOrderNo     String?
+  priceCalculateId   String?
+  cityId             String?
+  vehicleId          String?
+  payType            DeliveryCarrierPaymentMode @default(PLATFORM_MONTHLY)
+  status             String
+  driverSnapshot     Json?
+  vehicleSnapshot    Json?
+  estimatePayload    Json?
+  orderPayload       Json?
+  detailPayload      Json?
+  cancelPayload      Json?
+  estimatedFeeCents  Int?
+  actualFeeCents     Int?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([batchId, provider])
+  @@index([carrierOrderNo])
+}
+
+model DeliveryShippingCostLedger {
+  id              String                         @id @default(cuid())
+  orderId         String
+  order           DeliveryOrder                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrderId      String?
+  subOrder        DeliverySubOrder?              @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  batchId         String?
+  batch           DeliveryPickupBatch?           @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  provider        DeliveryCarrierProvider
+  type            DeliveryShippingCostLedgerType
+  amountCents     Int
+  source          String
+  sourceRefId     String?
+  payloadSnapshot Json?
+  createdByType   DeliveryAuditActorType
+  createdById     String?
+  createdAt       DateTime                       @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([batchId, createdAt])
 }
 
 model DeliveryPayment {

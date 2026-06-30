@@ -110,4 +110,13 @@ describe('DeliveryIdService.next', () => {
     await expect(service.next('PSQD')).rejects.toMatchObject({ code: 'P2034' });
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
+
+  it('generates delivery pickup and carrier identifiers', async () => {
+    tx.deliverySequence.upsert
+      .mockResolvedValueOnce({ currentValue: 1n })
+      .mockResolvedValueOnce({ currentValue: 2n });
+
+    await expect(service.next('PSTH')).resolves.toMatch(/^PSTH\d{13}$/);
+    await expect(service.next('PSCY')).resolves.toMatch(/^PSCY\d{13}$/);
+  });
 });

@@ -10,6 +10,8 @@ export const DELIVERY_ID_PREFIXES = [
   'PSZDD',
   'PSZF',
   'PSQD',
+  'PSTH',
+  'PSCY',
 ] as const;
 
 export type DeliveryIdPrefix = (typeof DELIVERY_ID_PREFIXES)[number];
