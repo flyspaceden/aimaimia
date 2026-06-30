@@ -6,6 +6,8 @@ import { CsAgentService } from './cs-agent.service';
 import { CsTicketService } from './cs-ticket.service';
 import { CsMaskingService } from './cs-masking.service';
 import { CsRouteResult, CsAiContext } from './types/cs.types';
+import { NotificationService } from '../notification/notification.service';
+import { CsPresenceService } from './cs-presence.service';
 
 @Injectable()
 export class CsService {
@@ -20,6 +22,8 @@ export class CsService {
     private agentService: CsAgentService,
     private ticketService: CsTicketService,
     private maskingService: CsMaskingService,
+    private notificationService: NotificationService,
+    private presenceService: CsPresenceService,
   ) {}
 
   /** 会话空闲超时（毫秒）：超过此时间无活动，下次进入自动开新会话 */
@@ -263,9 +267,24 @@ export class CsService {
 
     // Sec1: 坐席消息也脱敏（防止坐席误发包含用户敏感信息的内容）
     const maskedContent = this.maskingService.mask(content);
-    return this.prisma.csMessage.create({
+    const message = await this.prisma.csMessage.create({
       data: { sessionId, senderType: 'AGENT', senderId: adminId, contentType, content: maskedContent, metadata, routeLayer: 3 },
     });
+    if (!this.presenceService.isUserInSession(sessionId, session.userId)) {
+      await this.notificationService.emit({
+        eventType: 'cs.agentReplyOffline',
+        aggregateType: 'csSession',
+        aggregateId: sessionId,
+        idempotencyKey: `cs:${sessionId}:${message.id}:agent-reply-offline`,
+        actor: { kind: 'admin', id: adminId },
+        payload: {
+          sessionId,
+          userId: session.userId,
+          messageId: message.id,
+        },
+      });
+    }
+    return message;
   }
 
   /**

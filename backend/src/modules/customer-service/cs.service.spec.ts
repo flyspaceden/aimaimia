@@ -61,9 +61,23 @@ function createMocks() {
     mask: jest.fn((text: string) => text),
     containsSensitive: jest.fn(() => false),
   };
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
+  const presenceService = {
+    isUserInSession: jest.fn(() => false),
+  };
 
-  const service = new CsService(prisma as any, routing as any, agent as any, ticket as any, masking as any);
-  return { service, prisma, routing, agent, ticket, masking };
+  const service = new CsService(
+    prisma as any,
+    routing as any,
+    agent as any,
+    ticket as any,
+    masking as any,
+    notificationService as any,
+    presenceService as any,
+  );
+  return { service, prisma, routing, agent, ticket, masking, notificationService, presenceService };
 }
 
 describe('CsService', () => {
@@ -387,6 +401,68 @@ describe('CsService', () => {
 
       // 验证回退了坐席计数
       expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+    });
+  });
+
+  // ====================================================================
+  // handleAgentMessage
+  // ====================================================================
+
+  describe('handleAgentMessage()', () => {
+    it('坐席回复且买家不在会话时发送离线通知', async () => {
+      const { service, prisma, notificationService, presenceService } = createMocks();
+      presenceService.isUserInSession.mockReturnValue(false);
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        status: 'AGENT_HANDLING',
+        agentId: 'admin-1',
+      });
+      prisma.csMessage.create.mockResolvedValue({
+        id: 'msg-1',
+        sessionId: 's1',
+        senderType: 'AGENT',
+        senderId: 'admin-1',
+        content: '您好',
+      });
+
+      await service.handleAgentMessage('s1', 'admin-1', '您好');
+
+      expect(presenceService.isUserInSession).toHaveBeenCalledWith('s1', 'user-1');
+      expect(notificationService.emit).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'cs.agentReplyOffline',
+        aggregateType: 'csSession',
+        aggregateId: 's1',
+        idempotencyKey: 'cs:s1:msg-1:agent-reply-offline',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.objectContaining({
+          sessionId: 's1',
+          userId: 'user-1',
+          messageId: 'msg-1',
+        }),
+      }));
+    });
+
+    it('坐席回复时买家已在会话内则不发送离线通知', async () => {
+      const { service, prisma, notificationService, presenceService } = createMocks();
+      presenceService.isUserInSession.mockReturnValue(true);
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        status: 'AGENT_HANDLING',
+        agentId: 'admin-1',
+      });
+      prisma.csMessage.create.mockResolvedValue({
+        id: 'msg-1',
+        sessionId: 's1',
+        senderType: 'AGENT',
+        senderId: 'admin-1',
+        content: '您好',
+      });
+
+      await service.handleAgentMessage('s1', 'admin-1', '您好');
+
+      expect(notificationService.emit).not.toHaveBeenCalled();
     });
   });
 

@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { CsService } from './cs.service';
 import { CsAgentService } from './cs-agent.service';
 import { CsSendPayload, CsTypingPayload } from './types/cs.types';
+import { CsPresenceService } from './cs-presence.service';
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -45,6 +46,7 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private agentService: CsAgentService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private presenceService: CsPresenceService,
   ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -105,6 +107,8 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: AuthenticatedSocket) {
+    this.presenceService.markSocketDisconnected(client.id);
+
     if (client.data?.isAgent && client.data.adminId) {
       const adminId = client.data.adminId;
       this.logger.log(`坐席断线: ${adminId}，30秒后标记离线`);
@@ -149,6 +153,7 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         // 校验通过后才加入房间
         client.join(`session:${sessionId}`);
+        this.presenceService.markUserInSession(sessionId, client.data.userId, client.id);
 
         this.server.to(`session:${sessionId}`).emit('cs:message', result.userMessage);
 
@@ -192,6 +197,10 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.error('消息处理失败', error?.message);
       client.emit('cs:error', { message: error?.message || '消息发送失败' });
     }
+  }
+
+  isUserInSession(sessionId: string, userId: string): boolean {
+    return this.presenceService.isUserInSession(sessionId, userId);
   }
 
   /** 坐席领取会话 */
