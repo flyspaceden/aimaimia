@@ -2,10 +2,12 @@ import { useState, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { Dropdown, App } from 'antd';
+import { App, Badge, Button, Dropdown } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import './AdminLayout.css';
 import {
+  BellOutlined,
   DashboardOutlined,
   UserOutlined,
   FileTextOutlined,
@@ -27,6 +29,7 @@ import {
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
 import { PERMISSIONS } from '@/constants/permissions';
+import { NotificationsApi } from '@/api/notifications';
 
 const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
 const isProduction = appEnv === 'production';
@@ -143,6 +146,12 @@ export default function AdminLayout() {
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const [collapsed, setCollapsed] = useState(false);
+  const { data: notificationUnreadCount = 0 } = useQuery({
+    queryKey: ['admin-notification-unread-count'],
+    queryFn: NotificationsApi.unreadCount,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
 
   const handleLogout = async () => {
     try {
@@ -161,6 +170,14 @@ export default function AdminLayout() {
       if (!confirmed) return;
     }
     window.location.href = switchToDeliveryAdminUrl;
+  };
+
+  const handleNavigateToNotifications = () => {
+    if (isGlobalDirty()) {
+      const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
+      if (!confirmed) return;
+    }
+    navigate('/notifications');
   };
 
   // 按权限过滤菜单项（深拷贝，不修改原引用）
@@ -257,6 +274,18 @@ export default function AdminLayout() {
           {dom}
         </a>
       )}
+      actionsRender={() => [
+        <Badge key="notifications" count={notificationUnreadCount} size="small" overflowCount={99}>
+          <Button
+            type="text"
+            shape="circle"
+            icon={<BellOutlined />}
+            aria-label="通知中心"
+            title="通知中心"
+            onClick={handleNavigateToNotifications}
+          />
+        </Badge>,
+      ]}
       avatarProps={{
         src: undefined,
         icon: <UserOutlined />,

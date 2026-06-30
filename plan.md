@@ -1702,3 +1702,17 @@
 - [x] **GB06** 统一消费积分提现：提现入口按 Reward / GroupBuyRebate / IndustryFund 规则自动拆账，App 不让用户选择来源；统一钱包提现与旧团购返还提现通过 `accountSnapshot.source` 区分，避免历史列表和幂等键串线。
 - [x] **GB07** App 团购规则文案：团购首页、详情、扫码落地、付款页和当前团购面板统一展示“付款后立即生成推荐码 / 直接推荐其他用户才计入 / 付款冻结返还 / 收货后释放 / 不退换，仅24小时质量问题补发 / VIP 用户购买团购后会累计消费资产”。
 - [x] **GB08** 审查补强：团购待支付会话后端互斥；付款回调遇到推荐码容量竞态时保留已付款订单和买家团购码、仅跳过推荐返还；钱包筛选把团购返还抵扣归入消费抵扣；统一提现幂等键校验支付宝姓名并跨页过滤旧团购提现；非包邮团购按平台运费规则收取运费；新增历史团购即时码回填脚本。
+
+---
+
+## 🔔 消息/通知系统重构（2026-06-29 新增）
+
+> **触发**: 订单、售后、发票、团购、数字资产、客服等新功能陆续接入后，旧消息模块存在硬编码和覆盖不足，需要统一事件、模板、路由和三端收件人。
+> **权威源**: `docs/superpowers/plans/2026-06-29-notification-system-redesign.md`
+
+- [x] **NS01** 后端通知底座：新增 `NotificationOutbox` / `NotificationMessage`、事件类型、模板/路由 registry、事务内 outbox 写入和 dispatcher 派发。
+- [x] **NS02** 买家消息兼容：现有 `/inbox` 改读新 `NotificationMessage`，App 消息中心支持 typed routeKey 和未知路由兜底。
+- [x] **NS03** 高价值事件迁移：订单/物流、红包/消费积分/提现、售后、发票、团购、数字资产、客服离线回复已迁移到 `NotificationService.emit`。
+- [x] **NS04** 卖家/管理后台通知 API：新增 `/seller/notifications`、`/seller/notifications/unread-count`、`/seller/notifications/:id/read` 及管理端等价接口。
+- [x] **NS05** 卖家/管理后台最小 UI：顶栏铃铛未读数、`/notifications` 列表页、标记已读和 routeKey 跳转已接入；seller/admin build 已通过。
+- [ ] **NS06** 收口：旧 `InboxMessage` 数据迁移脚本、seed 清理、后端/客服文档同步和最终全量验证。

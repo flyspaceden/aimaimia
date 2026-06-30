@@ -520,13 +520,13 @@ export default function GroupBuyActivitiesPage() {
                       <Button
                         danger
                         onClick={() => {
-                          const currentTiers = form.getFieldValue('tiers') || [];
+                          const currentTiers = (form.getFieldValue('tiers') || []) as TierPercentValue[];
                           remove(field.name);
                           form.setFieldValue(
                             'tiers',
                             currentTiers
-                              .filter((_, index) => index !== field.name)
-                              .map((tier, index) => ({ ...tier, sequence: index + 1 })),
+                              .filter((_, index: number) => index !== field.name)
+                              .map((tier: TierPercentValue, index: number) => ({ ...tier, sequence: index + 1 })),
                           );
                         }}
                       >

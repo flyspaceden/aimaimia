@@ -61,6 +61,7 @@ const GroupBuyInstancesPage = lazy(() => import('@/pages/group-buy/instances'));
 const GroupBuyOrdersPage = lazy(() => import('@/pages/group-buy/orders'));
 const GroupBuyRebateLedgersPage = lazy(() => import('@/pages/group-buy/rebate-ledgers'));
 const GroupBuySettingsPage = lazy(() => import('@/pages/group-buy/settings'));
+const NotificationsPage = lazy(() => import('@/pages/notifications/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -164,6 +165,7 @@ export default function App() {
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />
             <Route path="account-security" element={<AccountSecurityPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           {/* 兜底 */}
