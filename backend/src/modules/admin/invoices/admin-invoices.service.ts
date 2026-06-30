@@ -22,6 +22,7 @@ import {
   InvoiceLineItem,
 } from './provider/invoice-provider.interface';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
+import { NotificationService } from '../../notification/notification.service';
 
 type TxClient = Omit<
   PrismaService,
@@ -120,7 +121,40 @@ export class AdminInvoicesService {
     private prisma: PrismaService,
     private providerFactory: InvoiceProviderFactory,
     private config?: ConfigService,
+    private notificationService?: NotificationService,
   ) {}
+
+  private async emitInvoiceNotification(
+    tx: TxClient,
+    eventType: 'invoice.issued' | 'invoice.failed',
+    suffix: 'issued' | 'failed',
+    invoiceId: string,
+    actor: { kind: 'admin' | 'system'; id?: string },
+    invoice?: { id?: string; orderId?: string | null; order?: { id?: string | null; userId?: string | null } | null } | null,
+  ) {
+    if (!this.notificationService) return;
+    const source =
+      invoice ??
+      (await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { order: { select: { id: true, userId: true } } },
+      }));
+    await this.notificationService.emit(
+      {
+        eventType,
+        aggregateType: 'invoice',
+        aggregateId: invoiceId,
+        idempotencyKey: `invoice:${invoiceId}:${suffix}`,
+        actor,
+        payload: {
+          invoiceId,
+          orderId: source?.order?.id ?? source?.orderId ?? undefined,
+          userId: source?.order?.userId ?? undefined,
+        },
+      },
+      tx as any,
+    );
+  }
 
   /** 发票列表（含筛选） */
   async findAll(
@@ -221,6 +255,7 @@ export class AdminInvoicesService {
         order: {
           select: {
             id: true,
+            userId: true,
             totalAmount: true,
             goodsAmount: true,
             shippingFee: true,
@@ -382,6 +417,7 @@ export class AdminInvoicesService {
     return this.runSerializable(async (tx) => {
       const invoice = await tx.invoice.findUnique({
         where: { id: invoiceId },
+        include: { order: { select: { id: true, userId: true } } },
       });
       if (!invoice) throw new NotFoundException('发票不存在');
       if (invoice.status !== 'REQUESTED') {
@@ -409,6 +445,14 @@ export class AdminInvoicesService {
           operatorType: 'ADMIN',
         },
       });
+      await this.emitInvoiceNotification(
+        tx,
+        'invoice.failed',
+        'failed',
+        invoiceId,
+        { kind: 'admin', id: adminId },
+        invoice,
+      );
 
       return { ok: true, reason: dto.reason };
     });
@@ -453,6 +497,14 @@ export class AdminInvoicesService {
           metadata: { mode: 'MANUAL' },
         },
       });
+      await this.emitInvoiceNotification(
+        tx,
+        'invoice.issued',
+        'issued',
+        invoiceId,
+        adminId ? { kind: 'admin', id: adminId } : { kind: 'system' },
+        invoice,
+      );
 
       return { ok: true };
     });
@@ -578,6 +630,13 @@ export class AdminInvoicesService {
           metadata: { provider: data.provider, providerRequestId },
         },
       });
+      await this.emitInvoiceNotification(
+        tx,
+        'invoice.issued',
+        'issued',
+        invoiceId,
+        adminId ? { kind: 'admin', id: adminId } : { kind: 'system' },
+      );
     });
   }
 
@@ -611,6 +670,13 @@ export class AdminInvoicesService {
           metadata: { providerRequestId },
         },
       });
+      await this.emitInvoiceNotification(
+        tx,
+        'invoice.failed',
+        'failed',
+        invoiceId,
+        adminId ? { kind: 'admin', id: adminId } : { kind: 'system' },
+      );
     });
   }
 
@@ -654,7 +720,10 @@ export class AdminInvoicesService {
    */
   async markAutoIssueRetryExhausted(invoiceId: string) {
     return this.runSerializable(async (tx) => {
-      const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { order: { select: { id: true, userId: true } } },
+      });
       if (!invoice || invoice.status !== 'REQUESTED' || invoice.providerRequestId) return { ok: false };
 
       const result = await tx.invoice.updateMany({
@@ -677,6 +746,14 @@ export class AdminInvoicesService {
           metadata: { action: 'AUTO_ISSUE_RETRY_EXHAUSTED', failedAttempts: invoice.failedAttempts },
         },
       });
+      await this.emitInvoiceNotification(
+        tx,
+        'invoice.failed',
+        'failed',
+        invoiceId,
+        { kind: 'system' },
+        invoice,
+      );
 
       return { ok: true };
     });

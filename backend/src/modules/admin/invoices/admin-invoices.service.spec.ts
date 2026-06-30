@@ -7,6 +7,7 @@ describe('AdminInvoicesService invoice closure', () => {
   let prisma: any;
   let provider: any;
   let providerFactory: any;
+  let notificationService: any;
   let service: AdminInvoicesService;
 
   beforeEach(() => {
@@ -44,7 +45,15 @@ describe('AdminInvoicesService invoice closure', () => {
     providerFactory = {
       resolve: jest.fn(() => provider),
     };
-    service = new AdminInvoicesService(prisma, providerFactory);
+    notificationService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new AdminInvoicesService(
+      prisma,
+      providerFactory,
+      { get: jest.fn().mockReturnValue(undefined) } as any,
+      notificationService,
+    );
   });
 
   afterEach(() => {
@@ -70,6 +79,7 @@ describe('AdminInvoicesService invoice closure', () => {
     profileSnapshot: { type: 'COMPANY', title: '深圳某公司', taxNo: '91440300MAEXAMPLE' },
     order: {
       id: 'order-1',
+      userId: 'user-1',
       totalAmount: 100,
       goodsAmount: 92,
       shippingFee: 8,
@@ -239,10 +249,30 @@ describe('AdminInvoicesService invoice closure', () => {
         operatorType: 'ADMIN',
       }),
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'invoice.issued',
+        aggregateType: 'invoice',
+        aggregateId: 'inv-1',
+        idempotencyKey: 'invoice:inv-1:issued',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.objectContaining({
+          invoiceId: 'inv-1',
+          orderId: 'order-1',
+          userId: 'user-1',
+        }),
+      }),
+      tx,
+    );
   });
 
   it('marks invoice failed with failedAt and status history', async () => {
-    tx.invoice.findUnique.mockResolvedValue({ id: 'inv-1', status: 'REQUESTED', providerRequestId: null });
+    tx.invoice.findUnique.mockResolvedValue({
+      id: 'inv-1',
+      status: 'REQUESTED',
+      providerRequestId: null,
+      order: { id: 'order-1', userId: 'user-1' },
+    });
     tx.invoice.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
@@ -263,6 +293,19 @@ describe('AdminInvoicesService invoice closure', () => {
         operatorType: 'ADMIN',
       }),
     });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'invoice.failed',
+        aggregateType: 'invoice',
+        aggregateId: 'inv-1',
+        idempotencyKey: 'invoice:inv-1:failed',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.not.objectContaining({
+          reason: expect.any(String),
+        }),
+      }),
+      tx,
+    );
   });
 
   it('does not mark an invoice failed while provider issue is in progress', async () => {
