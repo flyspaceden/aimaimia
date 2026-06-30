@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -71,9 +74,17 @@ const VIP_BENEFITS = [
   { icon: 'account-plus' as const, label: '邀请收益' },
   { icon: 'gift' as const, label: '专属礼包' },
   { icon: 'headset' as const, label: '优先客服' },
-  { icon: 'truck-fast' as const, label: '包邮特权' },
   { icon: 'star-circle' as const, label: '消费奖励' },
 ];
+
+function collectGiftImages(option: VipGiftOption | null | undefined) {
+  if (!option) return [];
+  const images = [
+    option.coverMode === 'CUSTOM' ? option.coverUrl : null,
+    ...option.items.map((item) => item.productImage),
+  ].filter((uri): uri is string => Boolean(uri));
+  return Array.from(new Set(images));
+}
 
 // ============================================================
 // 金色粒子背景组件
@@ -165,6 +176,7 @@ function GiftCard({
   scrollX,
   isSelected,
   onSelect,
+  onOpenImages,
   cardWidth,
   cardSpacing,
   cardTotalWidth,
@@ -174,6 +186,7 @@ function GiftCard({
   scrollX: SharedValue<number>;
   isSelected: boolean;
   onSelect: () => void;
+  onOpenImages: () => void;
   cardWidth: number;
   cardSpacing: number;
   cardTotalWidth: number;
@@ -205,6 +218,7 @@ function GiftCard({
   });
 
   const isSoldOut = !item.available;
+  const previewImageCount = collectGiftImages(item).length;
 
   return (
     <Animated.View style={[styles.cardWrapper, { width: cardWidth, marginRight: cardSpacing }, animatedStyle]}>
@@ -216,12 +230,27 @@ function GiftCard({
         <Animated.View style={[styles.card, borderStyle]}>
           {/* 赠品封面 */}
           <View style={styles.cardImageBox}>
-            <GiftCoverImage
-              items={item.items}
-              coverMode={item.coverMode}
-              coverUrl={item.coverUrl}
-              style={styles.cardImage}
-            />
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation();
+                onOpenImages();
+              }}
+              disabled={previewImageCount === 0}
+              style={styles.cardImagePressable}
+            >
+              <GiftCoverImage
+                items={item.items}
+                coverMode={item.coverMode}
+                coverUrl={item.coverUrl}
+                style={styles.cardImage}
+              />
+              {previewImageCount > 0 ? (
+                <View style={styles.imagePreviewBadge}>
+                  <MaterialCommunityIcons name="image-multiple" size={14} color="#FFFDF5" />
+                  <Text style={styles.imagePreviewBadgeText}>{previewImageCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
           </View>
 
           {/* 赠品信息 */}
@@ -229,12 +258,6 @@ function GiftCard({
             <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
             {item.subtitle ? (
               <Text style={styles.cardSubtitle} numberOfLines={2}>{item.subtitle}</Text>
-            ) : null}
-            {/* 商品内容摘要 */}
-            {item.items.length > 0 ? (
-              <Text style={styles.cardItemsSummary} numberOfLines={2}>
-                {item.items.map((it) => `${it.productTitle}×${it.quantity}`).join(' + ')}
-              </Text>
             ) : null}
             {item.badge ? (
               <View style={styles.badgeContainer}>
@@ -281,7 +304,11 @@ export default function VipGiftsScreen() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<FlatList>(null);
+  const previewFlatListRef = useRef<FlatList<string>>(null);
   const initialSelectionAppliedRef = useRef(false);
+  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
+  const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const [previewImageIndex, setPreviewImageIndex] = useState(0);
 
   // 获取赠品方案
   const { data: giftData, isLoading } = useQuery({
@@ -315,6 +342,7 @@ export default function VipGiftsScreen() {
   });
 
   const [currentIndex, setCurrentIndex] = useState(0);
+  const selectedGiftOption = giftOptions[selectedIndex ?? currentIndex] ?? null;
 
   useEffect(() => {
     if (!packages.length || initialSelectionAppliedRef.current || !packageIdParam) return;
@@ -362,6 +390,34 @@ export default function VipGiftsScreen() {
       animated: true,
     });
   }, [giftOptions.length, CARD_TOTAL_WIDTH]);
+
+  const openImagePreview = useCallback((option: VipGiftOption, initialIndex = 0) => {
+    const images = collectGiftImages(option);
+    if (images.length === 0) return;
+    const safeIndex = Math.min(Math.max(initialIndex, 0), images.length - 1);
+    setPreviewImages(images);
+    setPreviewImageIndex(safeIndex);
+    setImagePreviewVisible(true);
+    setTimeout(() => {
+      previewFlatListRef.current?.scrollToIndex({ index: safeIndex, animated: false });
+    }, 0);
+  }, []);
+
+  const closeImagePreview = useCallback(() => {
+    setImagePreviewVisible(false);
+  }, []);
+
+  const handlePreviewMomentumEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const width = event.nativeEvent.layoutMeasurement.width;
+    if (width <= 0) return;
+    setPreviewImageIndex(Math.round(event.nativeEvent.contentOffset.x / width));
+  }, []);
+
+  const openGiftItemImage = useCallback((option: VipGiftOption, productImage: string | null) => {
+    const images = collectGiftImages(option);
+    const nextIndex = productImage ? images.findIndex((uri) => uri === productImage) : 0;
+    openImagePreview(option, nextIndex >= 0 ? nextIndex : 0);
+  }, [openImagePreview]);
 
   // 选中赠品并进入结账
   const handleCheckout = useCallback(() => {
@@ -539,6 +595,7 @@ export default function VipGiftsScreen() {
                   scrollX={scrollX}
                   isSelected={selectedIndex === index}
                   onSelect={() => setSelectedIndex(index)}
+                  onOpenImages={() => openImagePreview(item)}
                   cardWidth={CARD_WIDTH}
                   cardSpacing={CARD_SPACING}
                   cardTotalWidth={CARD_TOTAL_WIDTH}
@@ -577,10 +634,59 @@ export default function VipGiftsScreen() {
           ) : null}
         </Animated.View>
 
+        {selectedGiftOption ? (
+          <Animated.View entering={FadeInDown.delay(360).duration(500)} style={styles.giftDetailCard}>
+            <View style={styles.giftDetailHeader}>
+              <View>
+                <Text style={styles.giftDetailEyebrow}>礼包清单</Text>
+                <Text style={styles.giftDetailTitle}>{selectedGiftOption.title}</Text>
+              </View>
+              <Text style={styles.giftDetailCount}>
+                共 {selectedGiftOption.items.reduce((sum, item) => sum + item.quantity, 0)} 件
+              </Text>
+            </View>
+            <View style={styles.giftDetailList}>
+              {selectedGiftOption.items.map((giftItem, itemIndex) => (
+                <View
+                  key={`${giftItem.skuId}-${itemIndex}`}
+                  style={[
+                    styles.giftDetailItem,
+                    itemIndex > 0 && styles.giftDetailItemDivider,
+                  ]}
+                >
+                  {giftItem.productImage ? (
+                    <Pressable
+                      onPress={() => openGiftItemImage(selectedGiftOption, giftItem.productImage)}
+                      style={styles.giftDetailThumbPressable}
+                    >
+                      <Image
+                        source={{ uri: giftItem.productImage }}
+                        style={styles.giftDetailThumb}
+                        contentFit="cover"
+                      />
+                    </Pressable>
+                  ) : (
+                    <View style={[styles.giftDetailThumb, styles.giftDetailThumbFallback]}>
+                      <MaterialCommunityIcons name="image-off-outline" size={18} color={VIP.goldPrimary} />
+                    </View>
+                  )}
+                  <View style={styles.giftDetailInfo}>
+                    <Text style={styles.giftDetailName}>{giftItem.productTitle}</Text>
+                    {giftItem.skuTitle ? (
+                      <Text style={styles.giftDetailSpec}>{giftItem.skuTitle}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.giftDetailQty}>x{giftItem.quantity}</Text>
+                </View>
+              ))}
+            </View>
+          </Animated.View>
+        ) : null}
+
         {/* VIP 权益横排 */}
         <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.benefitsRow}>
           {VIP_BENEFITS.map((b) => (
-            <View key={b.label} style={[styles.benefitItem, { width: SCREEN_WIDTH / 6 - 8 }]}>
+            <View key={b.label} style={[styles.benefitItem, { width: SCREEN_WIDTH / VIP_BENEFITS.length - 8 }]}>
               <MaterialCommunityIcons name={b.icon} size={22} color={VIP.goldPrimary} />
               <Text style={styles.benefitLabel}>{b.label}</Text>
             </View>
@@ -630,7 +736,7 @@ export default function VipGiftsScreen() {
           </Pressable>
         </View>
         <Text style={styles.bottomHint}>
-          {isVip ? '好友支付即开通 VIP · 您可获得推荐奖励' : '包邮 · 支付即开通 VIP'}
+          {isVip ? '好友支付即开通 VIP · 您可获得推荐奖励' : '支付即开通 VIP'}
         </Text>
         {!isVip ? (
           <View style={styles.memberAgreementPrompt}>
@@ -641,6 +747,45 @@ export default function VipGiftsScreen() {
           </View>
         ) : null}
       </View>
+
+      <Modal
+        visible={imagePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeImagePreview}
+      >
+        <View style={styles.previewOverlay}>
+          <Pressable onPress={closeImagePreview} hitSlop={12} style={styles.previewCloseButton}>
+            <MaterialCommunityIcons name="close" size={26} color="#FFFDF5" />
+          </Pressable>
+          <FlatList
+            ref={previewFlatListRef}
+            data={previewImages}
+            keyExtractor={(uri, index) => `${uri}-${index}`}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handlePreviewMomentumEnd}
+            getItemLayout={(_, index) => ({
+              length: SCREEN_WIDTH,
+              offset: SCREEN_WIDTH * index,
+              index,
+            })}
+            renderItem={({ item }) => (
+              <View style={[styles.previewImagePage, { width: SCREEN_WIDTH }]}>
+                <Image source={{ uri: item }} style={styles.previewImage} contentFit="contain" />
+              </View>
+            )}
+          />
+          {previewImages.length > 1 ? (
+            <View style={styles.previewCounter}>
+              <Text style={styles.previewCounterText}>
+                {previewImageIndex + 1} / {previewImages.length}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -798,6 +943,31 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  cardImagePressable: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePreviewBadge: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    minWidth: 42,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(26,18,7,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,253,245,0.35)',
+  },
+  imagePreviewBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFDF5',
+  },
   cardImagePlaceholder: {
     backgroundColor: 'rgba(255,255,255,0.03)',
     justifyContent: 'center',
@@ -817,12 +987,6 @@ const styles = StyleSheet.create({
     color: VIP.warmWhite,
     lineHeight: 20,
     marginBottom: 8,
-  },
-  cardItemsSummary: {
-    fontSize: 12,
-    color: VIP.subtleGray,
-    lineHeight: 18,
-    marginBottom: 6,
   },
   badgeContainer: {
     alignSelf: 'flex-start',
@@ -879,6 +1043,90 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: VIP.warmWhite,
     marginLeft: 4,
+  },
+  giftDetailCard: {
+    marginHorizontal: 24,
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(184,134,11,0.28)',
+    backgroundColor: 'rgba(255,253,245,0.62)',
+  },
+  giftDetailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  giftDetailEyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: VIP.goldPrimary,
+    marginBottom: 4,
+  },
+  giftDetailTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: VIP.warmWhite,
+    lineHeight: 21,
+  },
+  giftDetailCount: {
+    flexShrink: 0,
+    fontSize: 12,
+    color: VIP.subtleGray,
+    marginTop: 2,
+  },
+  giftDetailList: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(184,134,11,0.22)',
+  },
+  giftDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  giftDetailItemDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(184,134,11,0.18)',
+  },
+  giftDetailThumbPressable: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  giftDetailThumb: {
+    width: 54,
+    height: 54,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.42)',
+  },
+  giftDetailThumbFallback: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  giftDetailInfo: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 10,
+  },
+  giftDetailName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: VIP.warmWhite,
+    lineHeight: 20,
+  },
+  giftDetailSpec: {
+    fontSize: 12,
+    color: VIP.subtleGray,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  giftDetailQty: {
+    flexShrink: 0,
+    fontSize: 14,
+    fontWeight: '700',
+    color: VIP.goldPrimary,
   },
   // VIP 权益横排
   benefitsRow: {
@@ -1029,6 +1277,45 @@ const styles = StyleSheet.create({
   },
   checkoutButtonTextDisabled: {
     color: '#888',
+  },
+  previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.94)',
+  },
+  previewCloseButton: {
+    position: 'absolute',
+    top: 52,
+    right: 18,
+    zIndex: 2,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  previewImagePage: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewCounter: {
+    position: 'absolute',
+    bottom: 46,
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  previewCounterText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFDF5',
   },
   // VIP 浏览模式提示条
   vipBrowseBar: {
