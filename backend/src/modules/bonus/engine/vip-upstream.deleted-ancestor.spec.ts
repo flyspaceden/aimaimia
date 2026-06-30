@@ -87,8 +87,13 @@ describe('VipUpstreamService.distribute 已注销祖辈份额归平台', () => {
     return { tx, ledgerCreates, accountUpdates, accountCreates };
   }
 
-  const makeService = () =>
-    new VipUpstreamService({} as any, { send: jest.fn().mockResolvedValue(undefined) } as any);
+  const makeNotificationService = () => ({
+    send: jest.fn().mockResolvedValue(undefined),
+    emit: jest.fn().mockResolvedValue(undefined),
+  });
+
+  const makeService = (notificationService = makeNotificationService()) =>
+    new VipUpstreamService({} as any, notificationService as any);
 
   it('祖先已注销（DELETED）→ 不给祖先入账，份额全额归平台且可审计', async () => {
     const service = makeService();
@@ -135,8 +140,10 @@ describe('VipUpstreamService.distribute 已注销祖辈份额归平台', () => {
   });
 
   it('祖先 ACTIVE 且未注销 → 正常给祖先入账（对照组，确认 helper 不误伤）', async () => {
-    const service = makeService();
+    const notificationService = makeNotificationService();
+    const service = makeService(notificationService);
     const { tx, ledgerCreates } = makeTx({ status: 'ACTIVE', deletionExecutedAt: null });
+    tx.vipProgress.findUnique.mockResolvedValue({ selfPurchaseCount: 1 });
 
     const res = await service.distribute(
       tx as any,
@@ -161,5 +168,51 @@ describe('VipUpstreamService.distribute 已注销祖辈份额归平台', () => {
     // 守恒
     const totalCredited = ledgerCreates.reduce((s, l) => s + l.amount, 0);
     expect(totalCredited).toBe(REWARD_POOL);
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'reward.credited',
+      aggregateType: 'rewardLedger',
+      aggregateId: 'ledger-1',
+      idempotencyKey: 'reward:ledger-1:credited',
+      actor: { kind: 'system' },
+      payload: {
+        ledgerId: 'ledger-1',
+        userId: ANCESTOR_ID,
+        amount: REWARD_POOL,
+      },
+    }, tx);
+  });
+
+  it('释放 VIP 冻结奖励时在事务内发出 reward.unfrozen 通知', async () => {
+    const notificationService = makeNotificationService();
+    const service = makeService(notificationService);
+    const tx: any = {
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'ledger-vip-freeze-1', amount: 9, meta: { scheme: 'VIP_UPSTREAM', requiredLevel: 3 } },
+        ]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      rewardAccount: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'acct-vip' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      vipProgress: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+
+    await service.unlockFrozenRewards(tx, ANCESTOR_ID, 3);
+
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'reward.unfrozen',
+      aggregateType: 'rewardLedger',
+      aggregateId: 'ledger-vip-freeze-1',
+      idempotencyKey: 'reward:ledger-vip-freeze-1:unfrozen',
+      actor: { kind: 'system' },
+      payload: {
+        userId: ANCESTOR_ID,
+        amount: 9,
+      },
+    }, tx);
   });
 });

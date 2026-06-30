@@ -357,12 +357,12 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
   function buildService(prismaMock: any) {
     const bonusConfig = { getConfig: jest.fn().mockResolvedValue({}) } as any;
     const couponEngine = {} as any;
-    const inboxService = {} as any;
+    const notificationService = {} as any;
     return new BonusService(
       prismaMock,
       bonusConfig,
       couponEngine,
-      inboxService,
+      notificationService,
     );
   }
 
@@ -630,6 +630,101 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(prismaMock.memberProfile.findUnique).not.toHaveBeenCalled();
   });
 
+  it('历史推荐人活跃时，VIP 直推奖励在事务内发出 reward.credited 通知', async () => {
+    const ledgerCreateMock = jest.fn().mockResolvedValue({ id: 'ledger-vip-referral-1' });
+    const prismaMock: any = {
+      vipPurchase: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'vp-active-inviter',
+            userId: 'invitee-active-inviter',
+            orderId: 'order-active-inviter',
+            activationStatus: 'ACTIVATING',
+            referralBonusRate: 0.15,
+            amount: 400,
+          }),
+        create: jest.fn().mockResolvedValue({
+          id: 'vp-active-inviter',
+          activationStatus: 'PENDING',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'invitee-active-inviter',
+          tier: 'NORMAL',
+          inviterUserId: 'inviter-active',
+          referralCode: null,
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({
+          userId: 'invitee-active-inviter',
+          tier: 'VIP',
+          inviterUserId: 'inviter-active',
+          referralCode: 'NEWVIP01',
+        }),
+      },
+      vipProgress: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: 'ACTIVE',
+          deletionExecutedAt: null,
+        }),
+      },
+      rewardAccount: {
+        upsert: jest.fn().mockResolvedValue({ id: 'acct-inviter-active' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      rewardLedger: {
+        create: ledgerCreateMock,
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const notificationService = {
+      send: jest.fn().mockResolvedValue(undefined),
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      notificationService as any,
+    );
+    jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+
+    await service.activateVipAfterPayment(
+      'invitee-active-inviter',
+      'order-active-inviter',
+      'gift-1',
+      400,
+      { title: 'VIP 礼包' },
+      'pkg-1',
+      0.15,
+    );
+
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'reward.credited',
+      aggregateType: 'rewardLedger',
+      aggregateId: 'ledger-vip-referral-1',
+      idempotencyKey: 'reward:ledger-vip-referral-1:credited',
+      actor: { kind: 'system' },
+      payload: {
+        ledgerId: 'ledger-vip-referral-1',
+        userId: 'inviter-active',
+        amount: 60,
+      },
+    }, prismaMock);
+  });
+
   it('历史推荐人已注销时，VIP 直推奖励归平台且不写入推荐人账户', async () => {
     const ledgerCreateMock = jest.fn().mockResolvedValue({});
     const accountUpdateMock = jest.fn().mockResolvedValue({});
@@ -692,12 +787,15 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       $transaction: jest.fn(),
     };
     prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
-    const inboxService = { send: jest.fn().mockResolvedValue(undefined) };
+    const notificationService = {
+      send: jest.fn().mockResolvedValue(undefined),
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new BonusService(
       prismaMock,
       { getConfig: jest.fn().mockResolvedValue({}) } as any,
       {} as any,
-      inboxService as any,
+      notificationService as any,
     );
     jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
 
@@ -738,7 +836,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       where: { id: 'acct-platform-profit' },
       data: { balance: { increment: 60 } },
     });
-    expect(inboxService.send).not.toHaveBeenCalled();
+    expect(notificationService.emit).not.toHaveBeenCalled();
   });
 });
 

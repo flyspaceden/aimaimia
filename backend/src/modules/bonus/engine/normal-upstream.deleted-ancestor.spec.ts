@@ -80,8 +80,13 @@ describe('NormalUpstreamService.distribute 已注销祖辈份额归平台', () =
     return { tx, ledgerCreates, accountUpdates };
   }
 
-  const makeService = () =>
-    new NormalUpstreamService({ send: jest.fn().mockResolvedValue(undefined) } as any);
+  const makeNotificationService = () => ({
+    send: jest.fn().mockResolvedValue(undefined),
+    emit: jest.fn().mockResolvedValue(undefined),
+  });
+
+  const makeService = (notificationService = makeNotificationService()) =>
+    new NormalUpstreamService(notificationService as any);
 
   it('祖先已注销（deletionExecutedAt 非空）→ 不给祖先入账，份额全额归平台且可审计', async () => {
     const service = makeService();
@@ -143,8 +148,13 @@ describe('NormalUpstreamService.distribute 已注销祖辈份额归平台', () =
   });
 
   it('祖先 ACTIVE 且未注销 → 正常给祖先入账（对照组）', async () => {
-    const service = makeService();
+    const notificationService = makeNotificationService();
+    const service = makeService(notificationService);
     const { tx, ledgerCreates } = makeTx({ status: 'ACTIVE', deletionExecutedAt: null });
+    tx.normalProgress.findUnique.mockImplementation(({ where }: any) => {
+      if (where?.userId === ANCESTOR_ID) return Promise.resolve({ selfPurchaseCount: 1 });
+      return Promise.resolve({ selfPurchaseCount: 0 });
+    });
 
     const res = await service.distribute(
       tx as any,
@@ -163,5 +173,49 @@ describe('NormalUpstreamService.distribute 已注销祖辈份额归平台', () =
 
     const totalCredited = ledgerCreates.reduce((s, l) => s + l.amount, 0);
     expect(totalCredited).toBe(REWARD_POOL);
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'reward.credited',
+      aggregateType: 'rewardLedger',
+      aggregateId: 'ledger-1',
+      idempotencyKey: 'reward:ledger-1:credited',
+      actor: { kind: 'system' },
+      payload: {
+        ledgerId: 'ledger-1',
+        userId: ANCESTOR_ID,
+        amount: REWARD_POOL,
+      },
+    }, tx);
+  });
+
+  it('释放普通树冻结奖励时在事务内发出 reward.unfrozen 通知', async () => {
+    const notificationService = makeNotificationService();
+    const service = makeService(notificationService);
+    const tx: any = {
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'ledger-freeze-b', amount: 7, meta: { scheme: 'NORMAL_TREE', requiredLevel: 2 } },
+          { id: 'ledger-freeze-a', amount: 5, meta: { scheme: 'NORMAL_TREE', requiredLevel: 2 } },
+        ]),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      rewardAccount: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'acct-normal' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    await service.unlockFrozenRewards(tx, ANCESTOR_ID, 2);
+
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'reward.unfrozen',
+      aggregateType: 'rewardLedger',
+      aggregateId: 'reward-unfreeze:deleted-ancestor:ledger-freeze-a,ledger-freeze-b',
+      idempotencyKey: 'reward:unfrozen:deleted-ancestor:ledger-freeze-a:ledger-freeze-b',
+      actor: { kind: 'system' },
+      payload: {
+        userId: ANCESTOR_ID,
+        amount: 12,
+      },
+    }, tx);
   });
 });

@@ -11,7 +11,7 @@ import {
 } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { maskPhone } from '../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../common/security/encryption';
@@ -28,7 +28,7 @@ export class BonusService {
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private couponEngine: CouponEngineService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private digitalAssetService?: DigitalAssetService,
   ) {}
 
@@ -1160,7 +1160,7 @@ export class BonusService {
     });
 
     // 创建奖励流水：直接可用
-    await tx.rewardLedger.create({
+    const ledger = await tx.rewardLedger.create({
       data: {
         accountId: account.id,
         userId: activeRecipient,
@@ -1187,17 +1187,18 @@ export class BonusService {
       `VIP 推荐奖励：推荐人 ${activeRecipient} 获得 ${amount} 元（被推荐人 ${inviteeUserId} 购买 VIP）`,
     );
 
-    // C12: VIP 邀请奖励通知
-    setImmediate(() => {
-      this.inboxService.send({
+    await this.notificationService.emit({
+      eventType: 'reward.credited',
+      aggregateType: 'rewardLedger',
+      aggregateId: ledger.id,
+      idempotencyKey: `reward:${ledger.id}:credited`,
+      actor: { kind: 'system' },
+      payload: {
+        ledgerId: ledger.id,
         userId: activeRecipient,
-        category: 'transaction',
-        type: 'vip_referral_bonus',
-        title: 'VIP 推荐奖励到账',
-        content: `您推荐的好友购买了 VIP，您获得 ${amount.toFixed(2)} 元推荐奖励。`,
-        target: { route: '/me/wallet' },
-      }).catch(() => {});
-    });
+        amount,
+      },
+    }, tx as any);
   }
 
   private async resolveActiveRewardRecipient(tx: any, userId: string): Promise<string | null> {
