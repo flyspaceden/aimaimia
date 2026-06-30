@@ -13,6 +13,7 @@ import { SellerShippingModule } from './shipping/seller-shipping.module';
 import { SellerAuditAlertModule } from './audit/seller-audit-alert.module';
 import { SellerRiskControlModule } from './risk-control/seller-risk-control.module';
 import { SellerAfterSaleModule } from './after-sale/seller-after-sale.module';
+import { SellerNotificationsModule } from './notifications/seller-notifications.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { SellerAfterSaleModule } from './after-sale/seller-after-sale.module';
     SellerConfigModule,
     VirtualCallModule,
     SellerAuditAlertModule,
+    SellerNotificationsModule,
   ],
 })
 export class SellerModule {}
