@@ -18,6 +18,7 @@ import {
 } from './digital-asset-ledger-calculator';
 import { CreditAssetTier, DigitalAssetSourceType, DigitalAssetSubjectType } from './digital-asset-v2.types';
 import { resolveVipBackfillPackage } from './digital-asset-vip-package.utils';
+import { NotificationService } from '../notification/notification.service';
 
 type LedgerDirection = 'CREDIT' | 'DEBIT';
 type ReceiveSource = 'ORDER_RECEIVED' | 'BACKFILL';
@@ -64,7 +65,10 @@ function filterLegacySourceType(sourceType?: string): string | undefined {
 export class DigitalAssetService {
   private readonly logger = new Logger(DigitalAssetService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService?: NotificationService,
+  ) {}
 
   async creditOrderReceived(orderId: string, source: ReceiveSource): Promise<void> {
     await this.recordOrderReceived(orderId, source);
@@ -318,7 +322,7 @@ export class DigitalAssetService {
     await this.withSerializableRetry(async (tx) => {
       const refund = await tx.refund.findUnique({
         where: { id: refundId },
-        include: { items: true },
+        include: { items: true, order: { select: { userId: true } } },
       });
       if (!refund) throw new NotFoundException('退款单不存在');
 
@@ -340,7 +344,7 @@ export class DigitalAssetService {
         afterSale,
         afterSaleId,
       });
-      await this.writeRefundReversal(tx, {
+      const cumulativeReversedAmount = await this.writeRefundReversal(tx, {
         subjectType: 'CUMULATIVE_SPEND',
         idempotencyKey: `refund:${refundId}:digital-asset-reversal:cumulative`,
         legacyFallbackIdempotencyKey: afterSaleId ? `after-sale:${afterSaleId}:cumulative-spend-reversal` : null,
@@ -349,7 +353,7 @@ export class DigitalAssetService {
         afterSale,
         afterSaleId,
       });
-      await this.writeRefundReversal(tx, {
+      const creditReversedAmount = await this.writeRefundReversal(tx, {
         subjectType: 'CREDIT_ASSET',
         idempotencyKey: `refund:${refundId}:digital-asset-reversal:credit`,
         legacyFallbackIdempotencyKey: afterSaleId ? `after-sale:${afterSaleId}:credit-asset-reversal` : null,
@@ -358,6 +362,26 @@ export class DigitalAssetService {
         afterSale,
         afterSaleId,
       });
+      const reversedAmount = roundMoney(cumulativeReversedAmount + creditReversedAmount);
+      if (reversedAmount > 0) {
+        await this.notificationService?.emit(
+          {
+            eventType: 'digitalAsset.reversed',
+            aggregateType: 'refund',
+            aggregateId: refundId,
+            idempotencyKey: `digital-asset:${refundId}:reversed`,
+            actor: { kind: 'system' },
+            payload: {
+              refundId,
+              afterSaleId: afterSaleId ?? undefined,
+              orderId: refund.orderId,
+              userId: refund.order?.userId,
+              amount: reversedAmount,
+            },
+          },
+          tx as any,
+        );
+      }
     });
   }
 
@@ -847,6 +871,21 @@ export class DigitalAssetService {
           creditAssetBalance: nextCreditAssetBalance,
         },
       });
+      await this.notificationService?.emit(
+        {
+          eventType: 'digitalAsset.adjusted',
+          aggregateType: 'digitalAssetAccount',
+          aggregateId: account.id,
+          idempotencyKey: `digital-asset-adjust:${idempotencyKey}:adjusted`,
+          actor: { kind: 'admin', id: params.adminUserId },
+          payload: {
+            adjustmentId: idempotencyKey,
+            userId: params.targetUserId,
+            amount,
+          },
+        },
+        tx as any,
+      );
     });
   }
 
@@ -1125,11 +1164,11 @@ export class DigitalAssetService {
     refundId: string | null;
     afterSale: any | null;
     afterSaleId: string | null;
-  }) {
+  }): Promise<number> {
     const existing = await tx.digitalAssetLedger.findUnique({
       where: { idempotencyKey: params.idempotencyKey },
     });
-    if (existing) return;
+    if (existing) return 0;
 
     if (params.legacyFallbackIdempotencyKey) {
       const fallbackLedger = await tx.digitalAssetLedger.findUnique({
@@ -1146,20 +1185,20 @@ export class DigitalAssetService {
             },
           },
         });
-        return;
+        return 0;
       }
     }
 
     const orderId = params.refund?.orderId ?? params.afterSale?.orderId;
-    if (!orderId) return;
+    if (!orderId) return 0;
     const order = await tx.order.findUnique({
       where: { id: orderId },
       include: { items: true },
     });
-    if (!order || (order as any).bizType === 'VIP_PACKAGE') return;
+    if (!order || (order as any).bizType === 'VIP_PACKAGE') return 0;
 
     const account = await tx.digitalAssetAccount.findUnique({ where: { userId: order.userId } });
-    if (!account) return;
+    if (!account) return 0;
 
     const creditLedgers = await tx.digitalAssetLedger.findMany({
       where: {
@@ -1170,7 +1209,7 @@ export class DigitalAssetService {
       },
     });
     const itemAllocations = creditLedgers.flatMap((ledger: any) => (ledger.meta?.itemAllocations ?? []) as any[]);
-    if (itemAllocations.length === 0) return;
+    if (itemAllocations.length === 0) return 0;
 
     const spendItemAllocations = creditLedgers.flatMap((ledger: any) => (
       params.subjectType === 'CUMULATIVE_SPEND'
@@ -1200,7 +1239,7 @@ export class DigitalAssetService {
       itemAllocations.reduce((sum: number, item: any) => sum + item.assetAmount, 0)
         - Array.from(alreadyReversedByItem.values()).reduce((sum, value) => sum + value, 0),
     );
-    if (orderRemainingAmount <= 0) return;
+    if (orderRemainingAmount <= 0) return 0;
 
     const reversedItems = this.calculateReversedItems({
       subjectType: params.subjectType,
@@ -1212,7 +1251,7 @@ export class DigitalAssetService {
       orderRemainingAmount,
     });
     const amount = roundMoney(reversedItems.reduce((sum, item) => sum + item.reversedAmount, 0));
-    if (amount <= 0) return;
+    if (amount <= 0) return 0;
 
     const nextCumulativeSpendAmount = params.subjectType === 'CUMULATIVE_SPEND'
       ? roundMoney((account.cumulativeSpendAmount ?? 0) - amount)
@@ -1256,6 +1295,7 @@ export class DigitalAssetService {
         creditAssetBalance: nextCreditAssetBalance,
       },
     });
+    return amount;
   }
 
   private async releaseFrozenOrderCredit(tx: any, orderId: string, source: ReceiveSource): Promise<boolean> {
@@ -1373,6 +1413,21 @@ export class DigitalAssetService {
         frozenCumulativeSpendAmount: nextFrozenCumulativeSpendAmount,
       },
     });
+    await this.notificationService?.emit(
+      {
+        eventType: 'digitalAsset.released',
+        aggregateType: 'order',
+        aggregateId: orderId,
+        idempotencyKey: `digital-asset:${orderId}:released`,
+        actor: { kind: 'system' },
+        payload: {
+          orderId,
+          userId: order.userId,
+          amount: position.remainingCreditAmount,
+        },
+      },
+      tx as any,
+    );
     return true;
   }
 
