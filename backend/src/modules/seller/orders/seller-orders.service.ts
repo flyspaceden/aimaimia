@@ -14,7 +14,7 @@ import {
   extractRegionText,
 } from '../../../common/security/privacy-mask';
 import { SellerShippingService } from '../shipping/seller-shipping.service';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 
 @Injectable()
@@ -25,7 +25,7 @@ export class SellerOrdersService {
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private shippingService: SellerShippingService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   /**
@@ -335,7 +335,7 @@ export class SellerOrdersService {
   }
 
   /** 发货 */
-  async ship(companyId: string, orderId: string, dto: SellerShipDto) {
+  async ship(companyId: string, orderId: string, dto: SellerShipDto, staffId?: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -445,28 +445,20 @@ export class SellerOrdersService {
         },
       });
 
+      await this.notificationService.emit({
+        eventType: 'order.shipped',
+        aggregateType: 'order',
+        aggregateId: orderId,
+        idempotencyKey: `order:${orderId}:shipped`,
+        actor: { kind: 'seller', id: staffId },
+        payload: {
+          orderId,
+          buyerUserId: freshOrder.userId,
+        },
+      }, tx as any);
+
       return { ok: true };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
-    // 发货通知买家
-    try {
-      const orderForNotify = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        select: { userId: true },
-      });
-      if (orderForNotify) {
-        await this.inboxService.send({
-          userId: orderForNotify.userId,
-          category: 'order',
-          type: 'shipped',
-          title: '订单已发货',
-          content: '您的订单已由顺丰速运发出，请注意查收。',
-          target: { route: '/orders/[id]', params: { id: orderId } },
-        });
-      }
-    } catch (notifyErr: any) {
-      this.logger.warn(`发货通知发送失败: ${notifyErr.message}`);
-    }
 
     return result;
   }

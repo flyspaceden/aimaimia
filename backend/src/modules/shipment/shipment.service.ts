@@ -14,7 +14,7 @@ import { maskTrackingNo } from '../../common/security/privacy-mask';
 import { getConfigValue } from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
 import { SfExpressService, SfTrackingEvent } from './sf-express.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ShipmentService {
@@ -24,7 +24,7 @@ export class ShipmentService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private sfExpress: SfExpressService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   private summarizeShipmentStatus(statuses: string[]): string {
@@ -477,14 +477,17 @@ export class ShipmentService {
                     select: { userId: true },
                   });
                   if (orderForNotify) {
-                    await this.inboxService.send({
-                      userId: orderForNotify.userId,
-                      category: 'order',
-                      type: 'delivered',
-                      title: '包裹已送达',
-                      content: '您的包裹已签收，请确认收货。如有问题可申请售后。',
-                      target: { route: '/orders/[id]', params: { id: shipment.orderId } },
-                    });
+                    await this.notificationService.emit({
+                      eventType: 'order.delivered',
+                      aggregateType: 'order',
+                      aggregateId: shipment.orderId,
+                      idempotencyKey: `order:${shipment.orderId}:delivered`,
+                      actor: { kind: 'system' },
+                      payload: {
+                        orderId: shipment.orderId,
+                        buyerUserId: orderForNotify.userId,
+                      },
+                    }, tx as any);
                   }
                 } catch (notifyErr: any) {
                   this.logger.warn(`签收通知发送失败: ${notifyErr.message}`);
@@ -514,13 +517,20 @@ export class ShipmentService {
           select: { userId: true },
         });
         if (orderForNotify) {
-          await this.inboxService.send({
-            userId: orderForNotify.userId,
-            category: 'order',
-            type: 'logistics_exception',
-            title: '物流异常',
-            content: '您的包裹物流出现异常（退签/退回），请联系客服处理。',
-            target: { route: '/orders/[id]', params: { id: shipment.orderId } },
+          const statusOrCode = String(
+            freshEvents.find((event) => event.opCode)?.opCode || status || shipmentStatus,
+          );
+          await this.notificationService.emit({
+            eventType: 'logistics.exception',
+            aggregateType: 'shipment',
+            aggregateId: shipment.id,
+            idempotencyKey: `shipment:${shipment.id}:exception:${statusOrCode}`,
+            actor: { kind: 'system' },
+            payload: {
+              shipmentId: shipment.id,
+              orderId: shipment.orderId,
+              buyerUserId: orderForNotify.userId,
+            },
           });
         }
       } catch (notifyErr: any) {

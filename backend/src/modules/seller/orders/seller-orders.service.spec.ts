@@ -3,6 +3,8 @@ import { SellerOrdersService } from './seller-orders.service';
 
 describe('SellerOrdersService invoice privacy', () => {
   let prisma: any;
+  let bonusConfig: any;
+  let notificationService: any;
   let service: SellerOrdersService;
 
   beforeEach(() => {
@@ -11,15 +13,26 @@ describe('SellerOrdersService invoice privacy', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
       buyerAlias: { findMany: jest.fn() },
       user: { findMany: jest.fn().mockResolvedValue([]) },
+      shipment: { update: jest.fn() },
+      shipmentTrackingEvent: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    bonusConfig = {
+      getSystemConfig: jest.fn().mockResolvedValue({ autoConfirmDays: 7 }),
+    };
+    notificationService = {
+      emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
     };
     service = new SellerOrdersService(
       prisma,
-      {} as any,
+      bonusConfig as any,
       { getWaybillPrintUrl: jest.fn(() => 'http://localhost/waybill.pdf') } as any,
-      {} as any,
+      notificationService as any,
     );
   });
 
@@ -405,5 +418,39 @@ describe('SellerOrdersService invoice privacy', () => {
     });
 
     await expect(service.findById('company-1', 'staff-1', 'order-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('emits order.shipped notification inside the ship transaction', async () => {
+    const order = {
+      id: 'order-ship-1',
+      userId: 'buyer-ship-1',
+      status: 'PAID',
+      autoReceiveAt: null,
+      items: [{ companyId: 'company-1' }],
+      shipments: [{
+        id: 'shipment-1',
+        companyId: 'company-1',
+        status: 'INIT',
+        waybillNo: 'SF1234567890',
+        carrierName: '顺丰速运',
+      }],
+    };
+    prisma.order.findUnique
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(order);
+
+    await (service.ship as any)('company-1', 'order-ship-1', {}, 'staff-1');
+
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'order.shipped',
+      aggregateType: 'order',
+      aggregateId: 'order-ship-1',
+      idempotencyKey: 'order:order-ship-1:shipped',
+      actor: { kind: 'seller', id: 'staff-1' },
+      payload: {
+        orderId: 'order-ship-1',
+        buyerUserId: 'buyer-ship-1',
+      },
+    }, prisma);
   });
 });

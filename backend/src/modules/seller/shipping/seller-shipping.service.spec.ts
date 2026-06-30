@@ -108,8 +108,8 @@ function createMocks() {
     reconcile: jest.fn(),
   };
 
-  const inboxService = {
-    send: jest.fn().mockResolvedValue({ id: 'msg-001' }),
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue({ id: 'outbox-001' }),
   };
 
   const service = new (SellerShippingService as any)(
@@ -119,10 +119,10 @@ function createMocks() {
     sfExpress as any,
     uploadService as any,
     shippingCost as any,
-    inboxService as any,
+    notificationService as any,
   ) as SellerShippingService;
 
-  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost, inboxService };
+  return { service, prisma, sfExpress, sellerRiskControl, configService, uploadService, shippingCost, notificationService };
 }
 
 /**
@@ -441,8 +441,8 @@ describe('generateWaybill — 面单生成', () => {
     ]);
   });
 
-  it('顺丰拒绝收件手机号时通知买家修改收货信息', async () => {
-    const { service, prisma, sfExpress, inboxService } = createMocks();
+  it('顺丰拒绝收件手机号时发出收货信息纠错通知事件且不携带敏感地址信息', async () => {
+    const { service, prisma, sfExpress, notificationService } = createMocks();
     setupHappyPath(prisma, sfExpress);
     sfExpress.createOrder.mockRejectedValue(
       new BadRequestException('顺丰API错误: 对方电话或手机不合法'),
@@ -452,17 +452,20 @@ describe('generateWaybill — 面单生成', () => {
       service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF'),
     ).rejects.toThrow('对方电话或手机不合法');
 
-    expect(inboxService.send).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'buyer-1',
-      category: 'transaction',
-      type: 'order_receiver_info_required',
-      title: '请修改收货信息',
-      target: {
-        route: '/orders/[id]',
-        params: { id: ORDER_PAID },
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'order.receiverInfoRequired',
+      aggregateType: 'order',
+      aggregateId: ORDER_PAID,
+      idempotencyKey: `order:${ORDER_PAID}:receiver-info-required`,
+      actor: { kind: 'seller', id: STAFF_ID },
+      payload: {
+        orderId: ORDER_PAID,
+        buyerUserId: 'buyer-1',
       },
-    }));
-    expect(inboxService.send.mock.calls[0][0].content).toContain('手机号');
+    });
+    const emittedEvent = JSON.stringify(notificationService.emit.mock.calls[0][0]);
+    expect(emittedEvent).not.toContain(ADDRESS_SNAPSHOT.phone);
+    expect(emittedEvent).not.toContain(ADDRESS_SNAPSHOT.detail);
   });
 
   it('已有面单的订单拒绝重复生成（幂等性）', async () => {
