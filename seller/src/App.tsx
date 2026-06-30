@@ -19,6 +19,7 @@ const TracePage = lazy(() => import('@/pages/trace/index'));
 const AfterSaleListPage = lazy(() => import('@/pages/after-sale/index'));
 const AfterSaleDetailPage = lazy(() => import('@/pages/after-sale/detail'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
+const NotificationsPage = lazy(() => import('@/pages/notifications/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -105,6 +106,7 @@ export default function App() {
             <Route path="company/staff" element={<RequireRole roles={['OWNER']}><StaffManagementPage /></RequireRole>} />
             <Route path="trace" element={<TracePage />} />
             <Route path="account-security" element={<AccountSecurityPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           {/* 兜底 */}

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import type { ProLayoutProps } from '@ant-design/pro-components';
-import { App, Dropdown } from 'antd';
+import { App, Badge, Button, Dropdown } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { isGlobalDirty } from '@/hooks/useUnsavedChanges';
 import {
+  BellOutlined,
   DashboardOutlined,
   ShoppingOutlined,
   FileTextOutlined,
@@ -19,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
+import { NotificationsApi } from '@/api/notifications';
 
 // 侧边栏菜单
 const menuRoutes: ProLayoutProps['route'] = {
@@ -77,6 +80,12 @@ export default function SellerLayout() {
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const hasRole = useAuthStore((s) => s.hasRole);
   const [collapsed, setCollapsed] = useState(false);
+  const { data: notificationUnreadCount = 0 } = useQuery({
+    queryKey: ['seller-notification-unread-count'],
+    queryFn: NotificationsApi.unreadCount,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
 
   const handleLogout = async () => {
     try {
@@ -109,6 +118,14 @@ export default function SellerLayout() {
   const filteredRoute = {
     ...menuRoutes,
     routes: filterMenuByRole(menuRoutes?.routes),
+  };
+
+  const handleNavigateToNotifications = () => {
+    if (isGlobalDirty()) {
+      const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
+      if (!confirmed) return;
+    }
+    navigate('/notifications');
   };
 
   return (
@@ -149,6 +166,18 @@ export default function SellerLayout() {
           {dom}
         </a>
       )}
+      actionsRender={() => [
+        <Badge key="notifications" count={notificationUnreadCount} size="small" overflowCount={99}>
+          <Button
+            type="text"
+            shape="circle"
+            icon={<BellOutlined />}
+            aria-label="通知中心"
+            title="通知中心"
+            onClick={handleNavigateToNotifications}
+          />
+        </Badge>,
+      ]}
       avatarProps={{
         icon: <UserOutlined />,
         size: 'small',
