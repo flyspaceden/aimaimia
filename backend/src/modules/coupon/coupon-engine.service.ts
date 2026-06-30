@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 
 /**
  * 红包触发类型（与 Prisma enum CouponTriggerType 保持一致）
@@ -47,7 +47,7 @@ export class CouponEngineService {
 
   constructor(
     private prisma: PrismaService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   // ========== 事件驱动发放 ==========
@@ -261,36 +261,38 @@ export class CouponEngineService {
     try {
       const now = new Date();
 
-      const result = await this.prisma.couponInstance.updateMany({
+      const expiredInstances = await this.prisma.couponInstance.findMany({
         where: {
           status: 'AVAILABLE',
           expiresAt: { lt: now },
         },
-        data: {
-          status: 'EXPIRED',
-        },
+        select: { id: true, userId: true },
+        take: BATCH_SIZE,
       });
 
-      if (result.count > 0) {
-        this.logger.log(`已过期 ${result.count} 张红包`);
+      if (expiredInstances.length > 0) {
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.couponInstance.updateMany({
+              where: { id: { in: expiredInstances.map((item) => item.id) }, status: 'AVAILABLE' },
+              data: { status: 'EXPIRED' },
+            });
 
-        // C12: 红包过期通知（批量查询刚过期的用户，逐个通知）
-        const expiredInstances = await this.prisma.couponInstance.findMany({
-          where: { status: 'EXPIRED', expiresAt: { gte: new Date(now.getTime() - 60 * 60_000) } },
-          select: { userId: true },
-          distinct: ['userId'],
-          take: 100,
-        });
-        for (const instance of expiredInstances) {
-          this.inboxService.send({
-            userId: instance.userId,
-            category: 'transaction',
-            type: 'coupon_expired',
-            title: '红包已过期',
-            content: '您有红包已过期失效，请关注有效期及时使用。',
-            target: { route: '/me/coupons' },
-          }).catch(() => {});
-        }
+            for (const instance of expiredInstances) {
+              await this.notificationService.emit({
+                eventType: 'coupon.expired',
+                aggregateType: 'couponInstance',
+                aggregateId: instance.id,
+                idempotencyKey: `coupon:${instance.id}:expired`,
+                actor: { kind: 'system' },
+                payload: { couponInstanceId: instance.id, userId: instance.userId },
+              }, tx as any);
+            }
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+
+        this.logger.log(`已过期 ${expiredInstances.length} 张红包`);
       } else {
         this.logger.debug('无需过期的红包');
       }
@@ -454,7 +456,7 @@ export class CouponEngineService {
         }
 
         // 6. 创建红包实例（快照数据，避免活动修改后影响已发放红包）
-        await tx.couponInstance.create({
+        const instance = await tx.couponInstance.create({
           data: {
             campaignId,
             userId,
@@ -474,16 +476,18 @@ export class CouponEngineService {
         );
 
         // C12: 红包到账通知
-        setImmediate(() => {
-          this.inboxService.send({
+        await this.notificationService.emit({
+          eventType: 'coupon.granted',
+          aggregateType: 'couponInstance',
+          aggregateId: instance.id,
+          idempotencyKey: `coupon:${instance.id}:granted`,
+          actor: { kind: 'system' },
+          payload: {
+            couponInstanceId: instance.id,
             userId,
-            category: 'transaction',
-            type: 'coupon_granted',
-            title: '红包到账',
-            content: `您收到一张${campaign.discountType === 'FIXED' ? campaign.discountValue.toFixed(2) + '元' : campaign.discountValue + '折'}红包，快去使用吧！`,
-            target: { route: '/me/coupons' },
-          }).catch(() => {});
-        });
+            amount: campaign.discountValue,
+          },
+        }, tx as any);
 
         return true;
       },
