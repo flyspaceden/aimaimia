@@ -61,6 +61,75 @@ describe('NotificationRegistry', () => {
     }
   });
 
+  it('registers high-value after-sale, invoice, group-buy, digital-asset, and customer-service events', async () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['afterSale.approved', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.rejected', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.returnRequired', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.receivedBySeller', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.sellerRejectedReturn', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.replacementShipped', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.arbitrationRequested', { afterSaleId: 'as-1', adminUserIds: ['admin-1'] }],
+      ['afterSale.arbitrationResolved', { afterSaleId: 'as-1', userId: 'buyer-1', sellerUserIds: ['seller-1'] }],
+      ['afterSale.closedByTimeout', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['afterSale.refunded', { afterSaleId: 'as-1', userId: 'buyer-1' }],
+      ['invoice.issued', { invoiceId: 'invoice-1', userId: 'buyer-1' }],
+      ['invoice.failed', { invoiceId: 'invoice-1', userId: 'buyer-1' }],
+      ['groupBuy.codeActivated', { groupBuyInstanceId: 'gb-1', userId: 'buyer-1' }],
+      ['groupBuy.rebateReleased', { groupBuyReferralId: 'ref-1', userId: 'buyer-1', amount: 12.34 }],
+      ['digitalAsset.released', { orderId: 'order-1', userId: 'buyer-1', amount: 12.34 }],
+      ['digitalAsset.reversed', { orderId: 'order-1', userId: 'buyer-1', amount: 12.34 }],
+      ['digitalAsset.adjusted', { adjustmentId: 'adjust-1', userId: 'buyer-1', amount: 12.34 }],
+      ['cs.agentReplyOffline', { sessionId: 'cs-1', userId: 'buyer-1' }],
+    ];
+
+    for (const [eventType, payload] of cases) {
+      const result = await registry.resolve(event(eventType, payload));
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages.every((message) => message.eventType === eventType)).toBe(true);
+    }
+  });
+
+  it('routes after-sale events to each relevant audience without leaking private contact data', async () => {
+    const result = await registry.resolve(
+      event('afterSale.arbitrationResolved', {
+        afterSaleId: 'as-1',
+        userId: 'buyer-1',
+        sellerUserIds: ['seller-1'],
+        adminUserIds: ['admin-1'],
+        phone: '13800138000',
+        address: '广东省深圳市南山区详细地址',
+      }),
+    );
+
+    expect(result.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipientKind: 'BUYER_USER',
+          recipientKey: 'buyer:buyer-1',
+          audience: 'BUYER_APP',
+          category: 'after_sale',
+          action: { routeKey: 'AFTER_SALE_DETAIL', params: { id: 'as-1' } },
+        }),
+        expect.objectContaining({
+          recipientKind: 'SELLER_STAFF',
+          recipientKey: 'seller:seller-1',
+          audience: 'SELLER_CENTER',
+          action: { routeKey: 'SELLER_AFTER_SALE_DETAIL', params: { id: 'as-1' } },
+        }),
+        expect.objectContaining({
+          recipientKind: 'ADMIN_USER',
+          recipientKey: 'admin:admin-1',
+          audience: 'ADMIN_CENTER',
+          action: { routeKey: 'ADMIN_AFTER_SALE_DETAIL', params: { id: 'as-1' } },
+        }),
+      ]),
+    );
+    expect(result.messages.map((message) => `${message.title} ${message.body}`).join('\n')).not.toMatch(
+      /13800138000|南山区详细地址/,
+    );
+  });
+
   it('builds seller center notifications for seller recipients', async () => {
     const result = await registry.resolve(
       event('order.stockShortage', { skuId: 'sku-1', sellerUserIds: ['seller-1', 'seller-2'] }),

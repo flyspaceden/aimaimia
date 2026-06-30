@@ -8,7 +8,7 @@ import { AfterSaleRefundService } from './after-sale-refund.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { AfterSaleReturnShippingService } from './after-sale-return-shipping.service';
 import { AfterSaleShippingPaymentService } from './after-sale-shipping-payment.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 import { getConfigValue } from './after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from './after-sale.constants';
 
@@ -43,12 +43,35 @@ export class AfterSaleTimeoutService {
     private prisma: PrismaService,
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private afterSaleRefundService: AfterSaleRefundService,
     private afterSaleStatusHistory: AfterSaleStatusHistoryService,
     private afterSaleReturnShippingService: AfterSaleReturnShippingService,
     private afterSaleShippingPaymentService: AfterSaleShippingPaymentService,
   ) {}
+
+  private async emitAfterSaleNotification(
+    tx: Prisma.TransactionClient,
+    eventType: string,
+    suffix: string,
+    request: { id: string; userId?: string | null; orderId?: string | null },
+  ) {
+    await this.notificationService.emit(
+      {
+        eventType,
+        aggregateType: 'afterSale',
+        aggregateId: request.id,
+        idempotencyKey: `after-sale:${request.id}:${suffix}`,
+        actor: { kind: 'system' },
+        payload: {
+          afterSaleId: request.id,
+          userId: request.userId ?? undefined,
+          orderId: request.orderId ?? undefined,
+        },
+      },
+      tx as any,
+    );
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleTimeouts(): Promise<void> {
@@ -85,6 +108,7 @@ export class AfterSaleTimeoutService {
         id: true,
         status: true,
         orderId: true,
+        userId: true,
         afterSaleType: true,
         requiresReturn: true,
         refundAmount: true,
@@ -126,6 +150,7 @@ export class AfterSaleTimeoutService {
     id: string;
     status: string;
     orderId: string;
+    userId?: string | null;
     afterSaleType: string;
     requiresReturn: boolean;
     refundAmount: number | null;
@@ -161,6 +186,7 @@ export class AfterSaleTimeoutService {
               reason: '卖家审核超时，系统自动同意',
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
+            await this.emitAfterSaleNotification(tx, 'afterSale.approved', 'approved', request);
 
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
@@ -372,6 +398,9 @@ export class AfterSaleTimeoutService {
             const request = await tx.afterSaleRequest.findUnique({
               where: { id },
               select: {
+                id: true,
+                orderId: true,
+                userId: true,
                 status: true,
                 manualReviewRequestedAt: true,
                 approvedAt: true,
@@ -420,6 +449,12 @@ export class AfterSaleTimeoutService {
               reason: '买家寄回超时，系统自动关闭',
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.closedByTimeout',
+              'closed-by-timeout',
+              request,
+            );
             return true;
           },
           {
@@ -532,6 +567,7 @@ export class AfterSaleTimeoutService {
       select: {
         id: true,
         orderId: true,
+        userId: true,
         afterSaleType: true,
         refundAmount: true,
         reason: true,
@@ -569,6 +605,7 @@ export class AfterSaleTimeoutService {
   private async autoReceiveBySeller(request: {
     id: string;
     orderId: string;
+    userId?: string | null;
     afterSaleType: string;
     refundAmount: number | null;
     reason: string;
@@ -606,6 +643,12 @@ export class AfterSaleTimeoutService {
               reason: '卖家签收超时，系统自动签收',
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
+            await this.emitAfterSaleNotification(
+              tx,
+              'afterSale.receivedBySeller',
+              'received-by-seller',
+              request,
+            );
 
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||

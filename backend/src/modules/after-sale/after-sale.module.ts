@@ -12,7 +12,7 @@ import { AfterSaleReturnShippingService } from './after-sale-return-shipping.ser
 import { PaymentModule } from '../payment/payment.module';
 import { PaymentService } from '../payment/payment.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
-import { InboxModule } from '../inbox/inbox.module';
+import { NotificationModule } from '../notification/notification.module';
 import { SellerShippingModule } from '../seller/shipping/seller-shipping.module';
 import { ShipmentModule } from '../shipment/shipment.module';
 import { ShippingRuleModule } from '../admin/shipping-rule/shipping-rule.module';
@@ -27,7 +27,7 @@ import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 @Module({
   imports: [
     forwardRef(() => PaymentModule),
-    InboxModule,
+    NotificationModule,
     SellerShippingModule,
     ShipmentModule,
     ShippingRuleModule,

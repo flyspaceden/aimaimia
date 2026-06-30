@@ -17,6 +17,9 @@ function makeService(tx: any) {
   const afterSaleStatusHistory = {
     create: jest.fn().mockResolvedValue({ id: 'history-1' }),
   };
+  const notificationService = {
+    emit: jest.fn().mockResolvedValue(undefined),
+  };
   const prisma = {
     ...tx,
     $transaction: jest.fn(async (callback: any) => {
@@ -31,11 +34,12 @@ function makeService(tx: any) {
     prisma,
     afterSaleRefundService,
     afterSaleStatusHistory,
+    notificationService,
     service: new AdminAfterSaleService(
       prisma as any,
       {} as any,
       {} as any,
-      {} as any,
+      notificationService as any,
       afterSaleRefundService as any,
       afterSaleStatusHistory as any,
       { queryRoutes: jest.fn().mockResolvedValue(null) } as any,
@@ -69,7 +73,7 @@ describe('AdminAfterSaleService.arbitrate', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const { service, afterSaleRefundService } = makeService(tx);
+    const { service, afterSaleRefundService, notificationService } = makeService(tx);
 
     await service.arbitrate(
       'after-sale-current-return',
@@ -88,6 +92,19 @@ describe('AdminAfterSaleService.arbitrate', () => {
     expect(afterSaleRefundService.startRefund).toHaveBeenCalledWith(
       'after-sale-current-return',
       { type: 'ADMIN', id: 'admin-1' },
+    );
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.arbitrationResolved',
+        aggregateType: 'afterSale',
+        aggregateId: 'after-sale-current-return',
+        idempotencyKey: 'after-sale:after-sale-current-return:arbitration-resolved',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.objectContaining({
+          afterSaleId: 'after-sale-current-return',
+        }),
+      }),
+      tx,
     );
   });
 

@@ -174,6 +174,148 @@ export class NotificationRegistry {
           entityType: 'refund',
           routeKey: event.payload.orderId ? 'ORDER_DETAIL' : 'WALLET',
         });
+      case 'afterSale.approved':
+        return this.afterSale(event, {
+          title: '售后申请已通过',
+          body: '您的售后申请已通过，请按页面提示继续处理。',
+          severity: 'SUCCESS',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.rejected':
+        return this.afterSale(event, {
+          title: '售后申请未通过',
+          body: '您的售后申请未通过，可查看售后详情或联系客服。',
+          severity: 'WARNING',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.returnRequired':
+        return this.afterSale(event, {
+          title: '请寄回售后商品',
+          body: '售后申请已进入寄回阶段，请按页面提示处理退货物流。',
+          severity: 'INFO',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.receivedBySeller':
+        return this.afterSale(event, {
+          title: '商家已收到退货',
+          body: '商家已确认收到退货商品，平台将继续处理后续流程。',
+          severity: 'SUCCESS',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.sellerRejectedReturn':
+        return this.afterSale(event, {
+          title: '退货验收未通过',
+          body: '商家未通过本次退货验收，可查看售后详情了解处理结果。',
+          severity: 'WARNING',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.replacementShipped':
+        return this.afterSale(event, {
+          title: '换货商品已发出',
+          body: '您的换货商品已发出，可在售后详情查看处理进度。',
+          severity: 'SUCCESS',
+          audiences: ['buyer'],
+        });
+      case 'afterSale.arbitrationRequested':
+        return this.afterSale(event, {
+          title: '售后已提交平台仲裁',
+          body: '该售后已提交平台处理，请等待平台仲裁结果。',
+          severity: 'WARNING',
+          audiences: ['buyer', 'seller', 'admin'],
+        });
+      case 'afterSale.arbitrationResolved':
+        return this.afterSale(event, {
+          title: '平台仲裁已处理',
+          body: '平台已完成该售后的仲裁处理，请查看售后详情。',
+          severity: 'SUCCESS',
+          audiences: ['buyer', 'seller', 'admin'],
+        });
+      case 'afterSale.closedByTimeout':
+        return this.afterSale(event, {
+          title: '售后已超时关闭',
+          body: '该售后因超时未处理已关闭，可查看售后详情。',
+          severity: 'INFO',
+          audiences: ['buyer', 'seller'],
+        });
+      case 'afterSale.refunded':
+        return this.afterSale(event, {
+          title: '售后退款已到账',
+          body: '您的售后退款已处理完成，可查看售后详情或钱包明细。',
+          severity: 'SUCCESS',
+          audiences: ['buyer'],
+        });
+      case 'invoice.issued':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '发票已开具',
+          body: '您的发票已开具，可在发票详情中查看。',
+          severity: 'SUCCESS',
+          entityType: 'invoice',
+          routeKey: 'INVOICE_DETAIL',
+        });
+      case 'invoice.failed':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '发票开具失败',
+          body: '您的发票暂未开具成功，可在发票详情中查看处理状态。',
+          severity: 'WARNING',
+          entityType: 'invoice',
+          routeKey: 'INVOICE_DETAIL',
+        });
+      case 'groupBuy.codeActivated':
+        return this.buyer(event, {
+          category: 'group_buy',
+          title: '团购推荐码已生成',
+          body: '您的团购推荐码已生成，可进入团购详情查看并分享。',
+          severity: 'SUCCESS',
+          entityType: 'groupBuyInstance',
+          routeKey: 'GROUP_BUY_DETAIL',
+        });
+      case 'groupBuy.rebateReleased':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '团购返还已到账',
+          body: `您的${this.amountText(event)}团购返还已到账，可在钱包中查看。`,
+          severity: 'SUCCESS',
+          entityType: 'groupBuyReferral',
+          routeKey: 'WALLET',
+        });
+      case 'digitalAsset.released':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '数字资产已释放',
+          body: `您的${this.amountText(event)}数字资产已确认释放。`,
+          severity: 'SUCCESS',
+          entityType: 'digitalAssetLedger',
+          routeKey: 'DIGITAL_ASSETS',
+        });
+      case 'digitalAsset.reversed':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '数字资产已扣回',
+          body: `您的${this.amountText(event)}数字资产因退款或售后已按规则扣回。`,
+          severity: 'WARNING',
+          entityType: 'digitalAssetLedger',
+          routeKey: 'DIGITAL_ASSETS',
+        });
+      case 'digitalAsset.adjusted':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '数字资产已调整',
+          body: '您的数字资产账户已完成一次平台调整，可查看资产明细。',
+          severity: 'INFO',
+          entityType: 'digitalAssetLedger',
+          routeKey: 'DIGITAL_ASSETS',
+        });
+      case 'cs.agentReplyOffline':
+        return this.buyer(event, {
+          category: 'service',
+          title: '客服回复了您',
+          body: '客服已回复您的咨询，可进入客服会话继续沟通。',
+          severity: 'INFO',
+          entityType: 'csSession',
+          routeKey: 'CS_SESSION',
+        });
       case 'order.newPaidForSeller':
         return this.seller(event, {
           category: 'order',
@@ -204,6 +346,79 @@ export class NotificationRegistry {
       default:
         throw new Error(`未注册的通知事件: ${event.eventType}`);
     }
+  }
+
+  private async afterSale(
+    event: NotificationEvent,
+    template: {
+      title: string;
+      body: string;
+      severity: NotificationSeverity;
+      audiences: Array<'buyer' | 'seller' | 'admin'>;
+    },
+  ): Promise<NotificationResolveResult> {
+    const messages: NotificationMessageDraft[] = [];
+    const entityId = this.entityId(event);
+    if (template.audiences.includes('buyer')) {
+      const userId = this.payloadString(event, 'buyerUserId', 'userId');
+      if (userId) {
+        messages.push(
+          this.buildMessage(event, {
+            recipientKind: 'BUYER_USER',
+            recipientKey: `buyer:${userId}`,
+            audience: 'BUYER_APP',
+            category: 'after_sale',
+            title: template.title,
+            body: template.body,
+            severity: template.severity,
+            entityType: 'afterSale',
+            entityId,
+            action: this.action('AFTER_SALE_DETAIL', this.routeParams(event)),
+          }),
+        );
+      }
+    }
+
+    if (template.audiences.includes('seller')) {
+      const sellerUserIds = await this.resolveSellerUserIds(event);
+      for (const userId of sellerUserIds) {
+        messages.push(
+          this.buildMessage(event, {
+            recipientKind: 'SELLER_STAFF',
+            recipientKey: `seller:${userId}`,
+            audience: 'SELLER_CENTER',
+            category: 'after_sale',
+            title: template.title,
+            body: template.body,
+            severity: template.severity,
+            entityType: 'afterSale',
+            entityId,
+            action: this.action('SELLER_AFTER_SALE_DETAIL', this.routeParams(event)),
+          }),
+        );
+      }
+    }
+
+    if (template.audiences.includes('admin')) {
+      for (const adminUserId of this.payloadStringArray(event, 'adminUserIds')) {
+        messages.push(
+          this.buildMessage(event, {
+            recipientKind: 'ADMIN_USER',
+            recipientKey: `admin:${adminUserId}`,
+            audience: 'ADMIN_CENTER',
+            category: 'after_sale',
+            title: template.title,
+            body: template.body,
+            severity: template.severity,
+            entityType: 'afterSale',
+            entityId,
+            action: this.action('ADMIN_AFTER_SALE_DETAIL', this.routeParams(event)),
+          }),
+        );
+      }
+    }
+
+    return { messages };
   }
 
   private async buyer(
@@ -338,7 +553,21 @@ export class NotificationRegistry {
 
   private routeParams(event: NotificationEvent): Record<string, string> | undefined {
     const id =
-      this.payloadString(event, 'orderId', 'afterSaleId', 'invoiceId', 'couponId', 'couponInstanceId', 'withdrawId', 'skuId', 'productId') ||
+      this.payloadString(
+        event,
+        'orderId',
+        'afterSaleId',
+        'invoiceId',
+        'couponId',
+        'couponInstanceId',
+        'withdrawId',
+        'skuId',
+        'productId',
+        'groupBuyInstanceId',
+        'groupBuyReferralId',
+        'sessionId',
+        'adjustmentId',
+      ) ||
       event.aggregateId;
     return id ? { id } : undefined;
   }
@@ -356,6 +585,12 @@ export class NotificationRegistry {
         'refundId',
         'skuId',
         'productId',
+        'afterSaleId',
+        'invoiceId',
+        'groupBuyInstanceId',
+        'groupBuyReferralId',
+        'sessionId',
+        'adjustmentId',
       ) || event.aggregateId
     );
   }

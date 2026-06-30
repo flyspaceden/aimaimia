@@ -17,7 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
@@ -59,7 +59,7 @@ export class AfterSaleRefundService {
     private paymentService: PaymentService,
     private afterSaleRewardService: AfterSaleRewardService,
     private statusHistory: AfterSaleStatusHistoryService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private productBundleService: ProductBundleService = new ProductBundleService(),
   ) {}
 
@@ -372,6 +372,7 @@ export class AfterSaleRefundService {
           await this.restoreGroupBuyRebateDeductionInTx(tx, refundId, request);
 
           return {
+            afterSaleId: request.id,
             orderId: request.orderId,
             userId: request.userId,
             amount: refund.amount,
@@ -391,13 +392,18 @@ export class AfterSaleRefundService {
     await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
     await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
-    await this.inboxService.send({
-      userId: completed.userId,
-      category: 'transaction',
-      type: 'refund_credited',
-      title: '退款已到账',
-      content: `您的退款 ${completed.amount.toFixed(2)} 元已原路退回${completed.refundDestination}。`,
-      target: { route: '/orders' },
+    await this.notificationService.emit({
+      eventType: 'afterSale.refunded',
+      aggregateType: 'afterSale',
+      aggregateId: completed.afterSaleId,
+      idempotencyKey: `after-sale:${completed.afterSaleId}:refunded`,
+      actor: { kind: 'system' },
+      payload: {
+        afterSaleId: completed.afterSaleId,
+        orderId: completed.orderId,
+        userId: completed.userId,
+        amount: completed.amount,
+      },
     }).catch(() => {});
   }
 
