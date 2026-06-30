@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **VIP 礼包选择页详情展示与图片预览**（2026-06-30 新增并完成）
+  - **来源**: 用户截图反馈 `/vip/gifts` 礼包商品内容只显示一半，图片不能点开查看多图，权益横排仍有“包邮特权”但当前业务不应承诺无条件包邮。
+  - **实际做了**: 礼包卡片下方新增完整“礼包清单”，逐项展示商品、规格和数量；封面图与清单缩略图支持点开全屏图片预览并左右滑动；VIP 权益横排删除“包邮特权”，选择页底部提示、VIP 结算页提示和会员服务协议同步去掉包邮承诺，改为订单页配送费用口径。
+  - **验证**: `node --test scripts/__tests__/vip-gifts-page-display.test.mjs`、`npm run test:legal`、`npx tsc -b --noEmit --pretty false`、`git diff --check` 通过。
+
 - [x] **团购详情页 Android 真机不可交互修复**（2026-06-30 新增并完成）
   - **来源**: production OTA 后用户反馈 `/group-buy/[activityId]` 仍无法滚动，顶部返回和底部“去付款”均无反应；前两轮 `ScrollView flex:1` 与隐藏 AI 浮球未完整解决。
   - **实际做了**: 将通用 `AppBottomSheet` 的关闭态从 native `@gorhom/bottom-sheet index=-1` 改为直接卸载，避免关闭的团购处理抽屉在 Android 真机保留不可见手势层；团购详情页所有加载/错误/正常状态的返回键增加 `router.canGoBack()` fallback，外部链接直达时返回 `/group-buy`。

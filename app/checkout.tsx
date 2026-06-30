@@ -1374,8 +1374,8 @@ export default function CheckoutScreen() {
                   <Text style={[typography.bodySm, { color: colors.text.primary }]}>¥{vipTotal.toFixed(2)}</Text>
                 </View>
                 <View style={styles.priceRow}>
-                  <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费</Text>
-                  <Text style={[typography.bodySm, { color: colors.brand.primary }]}>包邮</Text>
+                  <Text style={[typography.bodySm, { color: colors.text.secondary }]}>运费优惠</Text>
+                  <Text style={[typography.bodySm, { color: colors.brand.primary }]}>¥0.00</Text>
                 </View>
                 <View style={[styles.divider, { backgroundColor: colors.divider }]} />
                 <View style={styles.priceRow}>
@@ -1383,7 +1383,7 @@ export default function CheckoutScreen() {
                   <Text style={[typography.title2, { color: '#C9A96E' }]}>¥{vipTotal.toFixed(2)}</Text>
                 </View>
                 <Text style={[typography.caption, { color: colors.text.tertiary, textAlign: 'right', marginTop: 4 }]}>
-                  包邮 · 支付即开通 VIP · 不支持退款
+                  支付即开通 VIP · 不支持退款
                 </Text>
               </>
             ) : (
