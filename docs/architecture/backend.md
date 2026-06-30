@@ -1,7 +1,7 @@
 # 爱买买后端技术文档
 
-> 版本：v3.0（CheckoutSession 流程重构 + 全系统审查修复）
-> 最后更新：2026-03-01
+> 版本：v3.1（CheckoutSession 流程重构 + 全系统审查修复 + 统一通知系统）
+> 最后更新：2026-06-29
 
 ---
 
@@ -10,9 +10,9 @@
 爱买买后端基于 **NestJS + Prisma + PostgreSQL** 构建，为买家 React Native App 和管理后台 Web Dashboard 提供统一 RESTful API。
 
 **已实现：**
-- **买家端 21 个模块**：Auth / Product / Company / User / Order（含 CheckoutSession）/ Payment / Shipment / Address / Cart / Booking / Group / Follow / Task / CheckIn / Inbox / Trace / AI / Bonus / Upload / Lottery / **Coupon**
-- **管理端 12 个模块**：Auth / Users / App-Users / Roles / Audit / Stats / Products / Orders / Companies / Bonus / Trace / Config / **Coupon**
-- **卖家端 7 个模块**：Auth / Products / Orders / Refunds / Shipments / Company / Analytics
+- **买家端 22 个模块**：Auth / Product / Company / User / Order（含 CheckoutSession）/ Payment / Shipment / Address / Cart / Booking / Group / Follow / Task / CheckIn / Inbox（兼容入口）/ Notification / Trace / AI / Bonus / Upload / Lottery / **Coupon**
+- **管理端 13 个模块**：Auth / Users / App-Users / Roles / Audit / Stats / Products / Orders / Companies / Bonus / Trace / Config / Notification / **Coupon**
+- **卖家端 8 个模块**：Auth / Products / Orders / Refunds / Shipments / Company / Analytics / Notification
 - **Prisma Schema**：70 个模型 + 43 个枚举（新增 CouponCampaign / CouponInstance / CouponUsageRecord + CouponTriggerType / CouponDistributionMode / CouponDiscountType / CouponStatus / CouponInstanceStatus）
 - **平台红包引擎**：CouponEngineService 事件驱动 + 定时任务（生日/复购激励/过期清理），与分润奖励系统完全独立
 - **分润引擎**：完整的奖励分配系统（普通广播 + VIP 三叉树上溯 + 平台分润）
@@ -40,6 +40,17 @@
 - 本轮验证：配送后端大回归 55/55 suites、276/276 tests 通过；`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npm run build` 通过；`cd backend && DELIVERY_DATABASE_URL='postgresql://delivery:delivery@127.0.0.1:5432/delivery?schema=public' npx prisma validate --schema prisma-delivery/schema.prisma` 通过。
 
 发布前仍需人工完成：配置 staging/production `DELIVERY_DATABASE_URL`、配送 JWT secret、CORS 域名；部署 delivery Prisma migration；在 staging 配送库连续运行两次 seed 验证幂等；完成真实支付/SF 月结链路、staging E2E 和私有 `docs/operations/阿里云部署.md` 同步。
+
+### 统一通知系统补充（2026-06-29）
+
+旧 `InboxMessage` 已收口为统一通知底座，买家、卖家和管理后台共用 `NotificationMessage` 展示消息，`NotificationOutbox` 负责事务内事件落库与异步派发：
+
+- 业务模块只调用 `NotificationService.emit(eventType, payload, options)`，不再直接拼 App 路由或写 `InboxMessage`；模板、分类、收件人、路由动作由 notification registry 统一维护。
+- 支持三类主要收件人：买家 `buyer:{userId}`、卖家企业 `seller:company:{companyId}:owner`、平台管理 `admin:platform`；展示端通过 `audience` 区分 `BUYER_APP`、`SELLER_CENTER`、`ADMIN_CENTER`。
+- 买家 App 现有 `/inbox` API 作为兼容入口保留，但数据源改为 `NotificationMessage`；卖家中心和管理后台新增 `/seller/notifications` 与 `/admin/notifications` 列表、未读数、单条已读、全部已读接口。
+- 路由不再存裸路径为主契约，优先使用 `action.routeKey + params`，例如 `ORDER_DETAIL`、`ORDER_RECEIVER_INFO`、`AFTER_SALE_DETAIL`、`CS_SESSION`、`GROUP_BUY_DETAIL`；前端遇到未知 routeKey 只提示，不跳 unmatched route。
+- `backend/scripts/migrate-inbox-to-notifications.ts` 用于把历史 `InboxMessage` 迁到 `NotificationMessage`，保留原 id、创建时间、已读状态和幂等键 `legacy-inbox:{id}`；已知失效入口如 `/me/bookings` 不再生成跳转动作。
+- `backend/prisma/seed.ts` 已改为直接 seed `NotificationMessage`，不再写 `InboxMessage` 或旧 `/me/rewards`、`/me/bookings` 路由。
 
 ### 核心设计理念
 
@@ -112,7 +123,8 @@ backend/
 │       ├── follow/                      # 关注（3 端点）
 │       ├── task/                        # 任务（2 端点）
 │       ├── check-in/                    # 签到（3 端点）
-│       ├── inbox/                       # 消息（4 端点）
+│       ├── inbox/                       # 买家消息兼容 API（读 NotificationMessage）
+│       ├── notification/                # 统一通知 outbox/message/dispatcher
 │       ├── trace/                       # 溯源（2 端点）
 │       ├── ai/                          # AI（3 端点，keyword stub）
 │       ├── bonus/                       # 会员奖励
@@ -147,7 +159,8 @@ backend/
 │           ├── companies/               # 企业审核
 │           ├── bonus/                   # 会员/提现审核
 │           ├── trace/                   # 溯源批次 CRUD
-│           └── config/                  # 系统配置编辑 + 版本历史
+│           ├── config/                  # 系统配置编辑 + 版本历史
+│           └── notifications/           # 管理端通知中心
 │       └── seller/                      # 卖家后台（独立认证体系）
 │           ├── seller.module.ts         # 父模块（导入 7 个子模块）
 │           ├── common/
@@ -161,7 +174,8 @@ backend/
 │           ├── refunds/                 # 售后处理
 │           ├── shipments/               # 物流查询
 │           ├── company/                 # 企业资料 + 员工管理
-│           └── analytics/               # 数据看板
+│           ├── analytics/               # 数据看板
+│           └── notifications/           # 卖家端通知中心
 ├── package.json
 ├── tsconfig.json
 ├── nest-cli.json
@@ -423,7 +437,7 @@ npm run start:dev
 | Follow | 3 | 关注/取消关注 + 作者资料 |
 | Task | 2 | 任务列表 + 完成任务 |
 | CheckIn | 3 | 签到状态 + 执行签到 + 重置（测试） |
-| Inbox | 4 | 消息列表 + 未读数 + 已读 |
+| Inbox / Notification | 4 + outbox | `/inbox` 兼容买家消息列表、未读数、已读；底层统一读写 `NotificationMessage`，业务事件通过 `NotificationService.emit` 写 outbox |
 
 ---
 

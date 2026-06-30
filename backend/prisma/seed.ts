@@ -6,7 +6,13 @@
  *
  * 运行：npx prisma db seed
  */
-import { PrismaClient } from '@prisma/client';
+import {
+  NotificationAudience,
+  NotificationRecipientKind,
+  NotificationSeverity,
+  Prisma,
+  PrismaClient,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -28,6 +34,35 @@ function inferSeedWeightGram(title: string): number {
   }
 
   return 1000;
+}
+
+const notificationAction = (
+  routeKey: string,
+  params?: Record<string, string>,
+): Prisma.InputJsonValue => (params ? { routeKey, params } : { routeKey });
+
+const legacyNotificationRoute = (
+  route: string,
+  params?: Record<string, string>,
+): Prisma.InputJsonValue => (params ? { route, params } : { route });
+
+async function seedNotificationMessages(
+  messages: Prisma.NotificationMessageUncheckedCreateInput[],
+  label: string,
+) {
+  for (const message of messages) {
+    await prisma.notificationMessage.upsert({
+      where: {
+        recipientKey_idempotencyKey: {
+          recipientKey: message.recipientKey,
+          idempotencyKey: message.idempotencyKey,
+        },
+      },
+      update: {},
+      create: message,
+    });
+  }
+  console.log(`✅ ${messages.length} 条${label}已创建`);
 }
 
 // =================== 客服模块种子数据 ===================
@@ -1267,69 +1302,89 @@ async function main() {
   console.log(`✅ ${checkInDates.length} 条签到记录已创建`);
 
   // ============================================================
-  // 消息（InboxMessage — 结构未变）
+  // 通知消息（NotificationMessage）
   // ============================================================
-  const inboxMessages = [
+  const notificationMessages: Prisma.NotificationMessageUncheckedCreateInput[] = [
     {
       id: 'msg-001',
-      userId: 'u-001',
-      category: 'system',
-      type: 'order',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'order',
+      eventType: 'order.shipped',
       title: '订单发货通知',
-      content: '您的订单 o-003 已发货，预计 12-06 送达',
-      unread: true,
-      target: { route: '/orders/o-003' },
+      body: '您的订单 o-003 已发货，预计 12-06 送达',
+      severity: NotificationSeverity.INFO,
+      entityType: 'order',
+      entityId: 'o-003',
+      action: notificationAction('ORDER_DETAIL', { id: 'o-003' }),
+      idempotencyKey: 'seed:notification:msg-001',
     },
     {
       id: 'msg-002',
-      userId: 'u-001',
-      category: 'system',
-      type: 'booking',
-      title: '预约审核通过',
-      content: '您的预约 b-002 已通过审核，请关注后续组团通知',
-      unread: true,
-      target: { route: '/me/bookings' },
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'service',
+      eventType: 'cs.agentReplyOffline',
+      title: '客服回复了您',
+      body: '客服已回复您的咨询，可进入客服会话继续沟通。',
+      severity: NotificationSeverity.INFO,
+      entityType: 'csSession',
+      entityId: 'cs-demo-001',
+      action: notificationAction('CS_SESSION', { sessionId: 'cs-demo-001' }),
+      idempotencyKey: 'seed:notification:msg-002',
     },
     {
       id: 'msg-003',
-      userId: 'u-001',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
       category: 'interaction',
-      type: 'like',
+      eventType: 'comment.like',
       title: '江晴 赞了你的评论',
-      content: '在"高山有机小番茄"商品页的评论获得了一个赞',
-      unread: false,
-      target: { route: '/product/p-001' },
+      body: '在"高山有机小番茄"商品页的评论获得了一个赞',
+      severity: NotificationSeverity.INFO,
+      entityType: 'product',
+      entityId: 'p-001',
+      action: legacyNotificationRoute('/product/p-001'),
+      idempotencyKey: 'seed:notification:msg-003',
+      readAt: addDays(today, -1),
     },
     {
       id: 'msg-004',
-      userId: 'u-001',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
       category: 'interaction',
-      type: 'comment',
+      eventType: 'comment.replied',
       title: '顾予夏 回复了你',
-      content: '"这个蓝莓确实不错，冷链到家还很新鲜！"',
-      unread: true,
-      target: { route: '/product/p-003' },
+      body: '"这个蓝莓确实不错，冷链到家还很新鲜！"',
+      severity: NotificationSeverity.INFO,
+      entityType: 'product',
+      entityId: 'p-003',
+      action: legacyNotificationRoute('/product/p-003'),
+      idempotencyKey: 'seed:notification:msg-004',
     },
     {
       id: 'msg-005',
-      userId: 'u-001',
-      category: 'system',
-      type: 'group',
-      title: '考察团成团通知',
-      content: '北纬蓝莓研学团已达到目标人数，等待确认出发',
-      unread: false,
-      target: { route: '/me/bookings' },
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'group_buy',
+      eventType: 'groupBuy.codeActivated',
+      title: '团购推荐码已生成',
+      body: '团购付款成功，推荐码已生成，可进入团购页继续分享。',
+      severity: NotificationSeverity.INFO,
+      entityType: 'groupBuyActivity',
+      entityId: 'gb-activity-demo',
+      action: notificationAction('GROUP_BUY_DETAIL', { activityId: 'gb-activity-demo' }),
+      idempotencyKey: 'seed:notification:msg-005',
+      readAt: addDays(today, -1),
     },
   ];
 
-  for (const m of inboxMessages) {
-    await prisma.inboxMessage.upsert({
-      where: { id: m.id },
-      update: {},
-      create: m,
-    });
-  }
-  console.log(`✅ ${inboxMessages.length} 条消息已创建`);
+  await seedNotificationMessages(notificationMessages, '通知消息');
 
   // AI 快捷指令已从 Schema 中移除（前端常量/配置管理）
 
@@ -3927,22 +3982,132 @@ async function main() {
   console.log(`✅ ${moreWithdraws.length} 条新提现申请已创建`);
 
   // ============================================================
-  // 更多消息（给不同用户）
+  // 更多通知消息（给不同用户）
   // ============================================================
-  const moreMessages = [
-    { id: 'msg-006', userId: 'u-002', category: 'system', type: 'order', title: '订单取消成功', content: '您的订单 o-005 已取消', unread: false, target: { route: '/orders/o-005' } },
-    { id: 'msg-007', userId: 'u-003', category: 'system', type: 'order', title: '订单已发货', content: '您的订单 o-007 已发货，中通快递 ZTO9876543210', unread: true, target: { route: '/orders/o-007' } },
-    { id: 'msg-008', userId: 'u-004', category: 'system', type: 'order', title: '订单已签收', content: '您的订单 o-008 已签收，请确认收货', unread: true, target: { route: '/orders/o-008' } },
-    { id: 'msg-009', userId: 'u-001', category: 'system', type: 'coupon', title: '您收到一张新红包', content: '签到满7天，获得5元红包！', unread: true, target: { route: '/me/coupons' } },
-    { id: 'msg-010', userId: 'u-008', category: 'system', type: 'reward', title: '分润奖励到账', content: '您收到一笔普通分润奖励 ¥12.50', unread: true, target: { route: '/me/rewards' } },
-    { id: 'msg-011', userId: 'u-007', category: 'system', type: 'lottery', title: '恭喜中奖', content: '您在今日抽奖中获得"满50送胡萝卜"', unread: false, target: { route: '/lottery' } },
-    { id: 'msg-012', userId: 'u-004', category: 'interaction', type: 'comment', title: '新的评价回复', content: '卖家回复了您对"有机绿茶礼盒"的评价', unread: true, target: { route: '/product/p-005' } },
-    { id: 'msg-013', userId: 'u-002', category: 'system', type: 'replacement', title: '换货申请已通过', content: '您的换货申请已通过，卖家将重新发货', unread: true, target: { route: '/orders/o-010' } },
+  const moreNotificationMessages: Prisma.NotificationMessageUncheckedCreateInput[] = [
+    {
+      id: 'msg-006',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-002',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'order',
+      eventType: 'order.canceled',
+      title: '订单取消成功',
+      body: '您的订单 o-005 已取消',
+      severity: NotificationSeverity.INFO,
+      entityType: 'order',
+      entityId: 'o-005',
+      action: notificationAction('ORDER_DETAIL', { id: 'o-005' }),
+      idempotencyKey: 'seed:notification:msg-006',
+      readAt: addDays(today, -1),
+    },
+    {
+      id: 'msg-007',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-003',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'order',
+      eventType: 'order.shipped',
+      title: '订单已发货',
+      body: '您的订单 o-007 已发货，中通快递 ZTO9876543210',
+      severity: NotificationSeverity.INFO,
+      entityType: 'order',
+      entityId: 'o-007',
+      action: notificationAction('ORDER_DETAIL', { id: 'o-007' }),
+      idempotencyKey: 'seed:notification:msg-007',
+    },
+    {
+      id: 'msg-008',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-004',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'order',
+      eventType: 'order.delivered',
+      title: '订单已签收',
+      body: '您的订单 o-008 已签收，请确认收货',
+      severity: NotificationSeverity.INFO,
+      entityType: 'order',
+      entityId: 'o-008',
+      action: notificationAction('ORDER_DETAIL', { id: 'o-008' }),
+      idempotencyKey: 'seed:notification:msg-008',
+    },
+    {
+      id: 'msg-009',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-001',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'wallet',
+      eventType: 'coupon.granted',
+      title: '您收到一张新红包',
+      body: '签到满7天，获得5元红包！',
+      severity: NotificationSeverity.INFO,
+      entityType: 'couponInstance',
+      entityId: 'seed-coupon-msg-009',
+      action: notificationAction('COUPONS'),
+      idempotencyKey: 'seed:notification:msg-009',
+    },
+    {
+      id: 'msg-010',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-008',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'wallet',
+      eventType: 'reward.credited',
+      title: '消费奖励到账',
+      body: '您收到一笔普通消费奖励 ¥12.50',
+      severity: NotificationSeverity.INFO,
+      entityType: 'rewardLedger',
+      entityId: 'seed-reward-msg-010',
+      action: notificationAction('WALLET'),
+      idempotencyKey: 'seed:notification:msg-010',
+    },
+    {
+      id: 'msg-011',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-007',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'wallet',
+      eventType: 'lottery.prizeWon',
+      title: '恭喜中奖',
+      body: '您在今日抽奖中获得"满50送胡萝卜"',
+      severity: NotificationSeverity.INFO,
+      entityType: 'lotteryRecord',
+      entityId: 'seed-lottery-msg-011',
+      idempotencyKey: 'seed:notification:msg-011',
+      readAt: addDays(today, -1),
+    },
+    {
+      id: 'msg-012',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-004',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'interaction',
+      eventType: 'comment.replied',
+      title: '新的评价回复',
+      body: '卖家回复了您对"有机绿茶礼盒"的评价',
+      severity: NotificationSeverity.INFO,
+      entityType: 'product',
+      entityId: 'p-005',
+      action: legacyNotificationRoute('/product/p-005'),
+      idempotencyKey: 'seed:notification:msg-012',
+    },
+    {
+      id: 'msg-013',
+      recipientKind: NotificationRecipientKind.BUYER_USER,
+      recipientKey: 'buyer:u-002',
+      audience: NotificationAudience.BUYER_APP,
+      category: 'after_sale',
+      eventType: 'afterSale.replacementShipped',
+      title: '换货商品已发出',
+      body: '您的换货商品已发出，可在订单详情查看处理进度。',
+      severity: NotificationSeverity.INFO,
+      entityType: 'order',
+      entityId: 'o-010',
+      action: notificationAction('ORDER_DETAIL', { id: 'o-010' }),
+      idempotencyKey: 'seed:notification:msg-013',
+    },
   ];
-  for (const m of moreMessages) {
-    await prisma.inboxMessage.upsert({ where: { id: m.id }, update: {}, create: m });
-  }
-  console.log(`✅ ${moreMessages.length} 条新消息已创建`);
+  await seedNotificationMessages(moreNotificationMessages, '补充通知消息');
 
   // ============================================================
   // 更多签到记录（不同用户）

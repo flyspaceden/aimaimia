@@ -1715,4 +1715,4 @@
 - [x] **NS03** 高价值事件迁移：订单/物流、红包/消费积分/提现、售后、发票、团购、数字资产、客服离线回复已迁移到 `NotificationService.emit`。
 - [x] **NS04** 卖家/管理后台通知 API：新增 `/seller/notifications`、`/seller/notifications/unread-count`、`/seller/notifications/:id/read` 及管理端等价接口。
 - [x] **NS05** 卖家/管理后台最小 UI：顶栏铃铛未读数、`/notifications` 列表页、标记已读和 routeKey 跳转已接入；seller/admin build 已通过。
-- [ ] **NS06** 收口：旧 `InboxMessage` 数据迁移脚本、seed 清理、后端/客服文档同步和最终全量验证。
+- [x] **NS06** 收口：旧 `InboxMessage` 数据迁移脚本、seed 清理、后端/客服文档同步和最终全量验证。
