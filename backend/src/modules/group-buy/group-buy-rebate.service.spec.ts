@@ -143,7 +143,18 @@ describe('GroupBuyRebateService', () => {
         count: jest.fn().mockResolvedValue(overrides.withdrawalTotal ?? 0),
       },
     };
-    return { prisma, tx, service: new (GroupBuyRebateService as any)(prisma) as GroupBuyRebateService };
+    const notificationService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+    return {
+      prisma,
+      tx,
+      notificationService,
+      service: new (GroupBuyRebateService as any)(
+        prisma,
+        notificationService,
+      ) as GroupBuyRebateService,
+    };
   };
 
   it('creates a pending rebate ledger when referred user pays without increasing available balance', async () => {
@@ -301,7 +312,7 @@ describe('GroupBuyRebateService', () => {
   });
 
   it('releases tier 1 rebate for the first valid direct purchase', async () => {
-    const { prisma, tx, service } = buildPrisma({
+    const { prisma, tx, service, notificationService } = buildPrisma({
       pendingLedger: {
         id: 'pending_1',
         amount: 100,
@@ -360,6 +371,21 @@ describe('GroupBuyRebateService', () => {
         validAt: now,
       }),
     }));
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'groupBuy.rebateReleased',
+        aggregateType: 'groupBuyReferral',
+        aggregateId: 'referral_1',
+        idempotencyKey: 'group-buy-referral:referral_1:rebate-released',
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          groupBuyReferralId: 'referral_1',
+          userId: 'initiator_1',
+          amount: 100,
+        }),
+      }),
+      tx,
+    );
     expect(tx.groupBuyInstance.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'instance_1' },
       data: {

@@ -12,9 +12,10 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { BonusModule } from '../bonus/bonus.module';
 import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [BonusModule, ShippingRuleModule],
+  imports: [BonusModule, ShippingRuleModule, NotificationModule],
   controllers: [GroupBuyController],
   providers: [
     GroupBuyService,

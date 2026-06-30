@@ -8,6 +8,7 @@ describe('GroupBuyLifecycleService', () => {
 
   const buildInstance = (overrides: Record<string, any> = {}) => ({
     id: 'instance_1',
+    userId: 'initiator_1',
     status: 'QUALIFICATION_PENDING',
     initiatorOrderId: 'order_1',
     activityId: 'activity_1',
@@ -65,11 +66,19 @@ describe('GroupBuyLifecycleService', () => {
     const rebateService = {
       releaseReferralByOrderIfValid: jest.fn().mockResolvedValue({ status: 'NOT_FOUND' }),
     };
+    const notificationService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
     return {
       prisma,
       tx,
       rebateService,
-      service: new (GroupBuyLifecycleService as any)(prisma, rebateService) as GroupBuyLifecycleService,
+      notificationService,
+      service: new (GroupBuyLifecycleService as any)(
+        prisma,
+        rebateService,
+        notificationService,
+      ) as GroupBuyLifecycleService,
     };
   };
 
@@ -77,7 +86,7 @@ describe('GroupBuyLifecycleService', () => {
     const eligibleStatuses = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
 
     for (const status of eligibleStatuses) {
-      const { tx, service } = buildPrisma();
+      const { tx, service, notificationService } = buildPrisma();
       tx.groupBuyInstance.findUnique.mockResolvedValueOnce(
         buildInstance({
           id: `instance_${status}`,
@@ -106,6 +115,20 @@ describe('GroupBuyLifecycleService', () => {
           activatedAt: expect.any(Date),
         }),
       }));
+      expect(notificationService.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'groupBuy.codeActivated',
+          aggregateType: 'groupBuyInstance',
+          aggregateId: `instance_${status}`,
+          idempotencyKey: `group-buy:instance_${status}:code-activated`,
+          actor: { kind: 'system' },
+          payload: expect.objectContaining({
+            groupBuyInstanceId: `instance_${status}`,
+            userId: 'initiator_1',
+          }),
+        }),
+        tx,
+      );
     }
   });
 
