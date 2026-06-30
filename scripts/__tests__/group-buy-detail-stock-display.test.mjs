@@ -14,3 +14,8 @@ test('group-buy detail renders item stock only through low-stock display helper'
   assert.equal(source.includes('默认规格'), false);
   assert.match(source, /getGroupBuyLowStockText\(item\.stock\)/);
 });
+
+test('group-buy detail keeps the main content scrollable above the fixed pay bar', () => {
+  assert.match(source, /<ScrollView[\s\S]*?style=\{styles\.scroll\}[\s\S]*?contentContainerStyle=\{\{ paddingBottom: bottomPadding \}\}/);
+  assert.match(source, /scroll:\s*\{\s*flex:\s*1,\s*\}/);
+});
