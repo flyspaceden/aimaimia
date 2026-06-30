@@ -67,6 +67,50 @@ function createMocks() {
   };
 }
 
+describe('AfterSaleTimeoutService seller review timeout', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('emits returnRequired when auto-approving a request that requires buyer return shipping', async () => {
+    const { service, tx, notificationService } = createMocks();
+
+    await (service as any).autoApprove({
+      id: AFTER_SALE_ID,
+      status: 'REQUESTED',
+      orderId: ORDER_ID,
+      userId: 'user-timeout-1',
+      afterSaleType: 'QUALITY_RETURN',
+      requiresReturn: true,
+      refundAmount: 100,
+      reason: '质量问题',
+    });
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.approved',
+        idempotencyKey: `after-sale:${AFTER_SALE_ID}:approved`,
+      }),
+      tx,
+    );
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.returnRequired',
+        aggregateType: 'afterSale',
+        aggregateId: AFTER_SALE_ID,
+        idempotencyKey: `after-sale:${AFTER_SALE_ID}:return-required`,
+        actor: { kind: 'system' },
+        payload: expect.objectContaining({
+          afterSaleId: AFTER_SALE_ID,
+          orderId: ORDER_ID,
+          userId: 'user-timeout-1',
+        }),
+      }),
+      tx,
+    );
+  });
+});
+
 describe('AfterSaleTimeoutService buyer ship timeout', () => {
   beforeEach(() => {
     jest.clearAllMocks();

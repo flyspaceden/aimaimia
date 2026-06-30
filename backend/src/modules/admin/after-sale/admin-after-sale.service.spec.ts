@@ -48,6 +48,55 @@ function makeService(tx: any) {
 }
 
 describe('AdminAfterSaleService.arbitrate', () => {
+  it('emits returnRequired when admin approves a request that requires buyer return shipping', async () => {
+    const tx = {
+      afterSaleRequest: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'after-sale-admin-return',
+            status: 'PENDING_ARBITRATION',
+            arbitrationSourceStatus: null,
+            arbitrationSource: null,
+            afterSaleType: 'QUALITY_RETURN',
+            requiresReturn: true,
+            userId: 'buyer-1',
+            orderId: 'order-1',
+            order: { items: [{ companyId: 'company-1' }] },
+          })
+          .mockResolvedValueOnce({
+            id: 'after-sale-admin-return',
+            status: 'APPROVED',
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service, notificationService } = makeService(tx);
+
+    await service.arbitrate(
+      'after-sale-admin-return',
+      { status: 'APPROVED', reason: '平台仲裁支持买家退货' } as any,
+      'admin-1',
+    );
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.returnRequired',
+        aggregateType: 'afterSale',
+        aggregateId: 'after-sale-admin-return',
+        idempotencyKey: 'after-sale:after-sale-admin-return:return-required',
+        actor: { kind: 'admin', id: 'admin-1' },
+        payload: expect.objectContaining({
+          afterSaleId: 'after-sale-admin-return',
+          userId: 'buyer-1',
+          orderId: 'order-1',
+          companyId: 'company-1',
+        }),
+      }),
+      tx,
+    );
+  });
+
   it('actively intervenes on current SELLER_REJECTED_RETURN return type to REFUNDING and starts refund after transaction', async () => {
     const tx = {
       afterSaleRequest: {

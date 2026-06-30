@@ -187,6 +187,14 @@ export class AfterSaleTimeoutService {
               operatorType: AfterSaleOperatorType.SYSTEM,
             });
             await this.emitAfterSaleNotification(tx, 'afterSale.approved', 'approved', request);
+            if (request.requiresReturn) {
+              await this.emitAfterSaleNotification(
+                tx,
+                'afterSale.returnRequired',
+                'return-required',
+                request,
+              );
+            }
 
             const isReturnType =
               request.afterSaleType === 'NO_REASON_RETURN' ||
