@@ -3,12 +3,16 @@ import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { decryptJsonValue } from '../../common/security/encryption';
+import { NotificationService } from '../notification/notification.service';
 
 type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
 @Injectable()
 export class GroupBuyRebateService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService?: NotificationService,
+  ) {}
 
   private readonly serializableTransactionOptions = {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -516,6 +520,22 @@ export class GroupBuyRebateService {
         candidateCount: pendingCandidateCount,
       },
     });
+    await this.notificationService?.emit(
+      {
+        eventType: 'groupBuy.rebateReleased',
+        aggregateType: 'groupBuyReferral',
+        aggregateId: referral.id,
+        idempotencyKey: `group-buy-referral:${referral.id}:rebate-released`,
+        actor: { kind: 'system' },
+        payload: {
+          groupBuyReferralId: referral.id,
+          groupBuyInstanceId: instance.id,
+          userId: instance.userId,
+          amount,
+        },
+      },
+      tx as any,
+    );
 
     const validCountAfter = validCountBefore + 1;
     if (

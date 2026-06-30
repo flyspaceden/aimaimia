@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { generateUniqueGroupBuyCode } from './group-buy-code.util';
 import { GroupBuyRebateService } from './group-buy-rebate.service';
+import { NotificationService } from '../notification/notification.service';
 
 const IMMEDIATE_ACTIVATION_ORDER_STATUSES = new Set<OrderStatus>([
   OrderStatus.PAID,
@@ -27,6 +28,7 @@ export class GroupBuyLifecycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rebateService: GroupBuyRebateService,
+    private readonly notificationService?: NotificationService,
   ) {}
 
   private readonly serializableTransactionOptions = {
@@ -135,6 +137,20 @@ export class GroupBuyLifecycleService {
           activatedAt: now,
         },
       });
+      await this.notificationService?.emit(
+        {
+          eventType: 'groupBuy.codeActivated',
+          aggregateType: 'groupBuyInstance',
+          aggregateId: instance.id,
+          idempotencyKey: `group-buy:${instance.id}:code-activated`,
+          actor: { kind: 'system' },
+          payload: {
+            groupBuyInstanceId: instance.id,
+            userId: instance.userId,
+          },
+        },
+        tx as any,
+      );
 
       return { status: 'ACTIVATED', code };
     }, this.serializableTransactionOptions);
