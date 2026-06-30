@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
@@ -173,6 +173,7 @@ function isAfterSaleRefundPollingActive(record?: AdminAfterSale | null) {
 export default function AfterSaleListPage() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const actionRef = useRef<ActionType>(null);
   const detailRequestRef = useRef(0);
   const [arbitrateModal, setArbitrateModal] = useState<{ visible: boolean; record: AdminAfterSale | null }>({
@@ -276,6 +277,38 @@ export default function AfterSaleListPage() {
       }
     }
   };
+
+  useEffect(() => {
+    const afterSaleId = searchParams.get('afterSaleId');
+    if (!afterSaleId) return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('afterSaleId');
+    setSearchParams(nextParams, { replace: true });
+
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setArbitrateModal({ visible: true, record: { id: afterSaleId } as AdminAfterSale });
+    setArbitrateDetailLoading(true);
+
+    getAfterSale(afterSaleId)
+      .then((detail) => {
+        if (detailRequestRef.current === requestId) {
+          setArbitrateModal({ visible: true, record: detail });
+        }
+      })
+      .catch((err) => {
+        if (detailRequestRef.current === requestId) {
+          setArbitrateModal({ visible: false, record: null });
+          message.error(err instanceof Error ? err.message : '售后详情加载失败');
+        }
+      })
+      .finally(() => {
+        if (detailRequestRef.current === requestId) {
+          setArbitrateDetailLoading(false);
+        }
+      });
+  }, [message, searchParams, setSearchParams]);
 
   const modalRecordId = arbitrateModal.record?.id;
   const modalRefunding = isAfterSaleRefundPollingActive(arbitrateModal.record);

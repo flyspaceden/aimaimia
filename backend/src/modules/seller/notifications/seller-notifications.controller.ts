@@ -7,6 +7,7 @@ import { SellerRoleGuard } from '../common/guards/seller-role.guard';
 
 type NotificationUser = {
   sub: string;
+  userId: string;
 };
 
 @Public()
@@ -48,7 +49,7 @@ export class SellerNotificationsController {
   }
 
   private recipientKey(user: NotificationUser) {
-    return `seller:${user.sub}`;
+    return `seller:${user.userId}`;
   }
 
   private parsePositiveInt(value: string | undefined, fallback: number) {

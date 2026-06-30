@@ -4,7 +4,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { InboxRepo } from '../../src/repos';
@@ -23,17 +23,50 @@ const iconMap: Partial<Record<InboxType, { name: string; tone: 'brand' | 'accent
   comment: { name: 'comment-text-outline', tone: 'brand' },
   follow: { name: 'account-plus-outline', tone: 'accent' },
   order_update: { name: 'truck-delivery-outline', tone: 'brand' },
+  'order.shipped': { name: 'truck-delivery-outline', tone: 'brand' },
+  'order.delivered': { name: 'package-check', tone: 'brand' },
+  'order.receiverInfoRequired': { name: 'map-marker-alert-outline', tone: 'accent' },
+  'logistics.exception': { name: 'truck-alert-outline', tone: 'accent' },
+  'logistics.stale': { name: 'truck-outline', tone: 'accent' },
   booking_update: { name: 'calendar-check-outline', tone: 'accent' },
   // C12: 钱相关事件
   reward_credited: { name: 'cash-plus', tone: 'brand' },
+  'reward.credited': { name: 'cash-plus', tone: 'brand' },
   reward_unfrozen: { name: 'lock-open-outline', tone: 'brand' },
+  'reward.unfrozen': { name: 'lock-open-outline', tone: 'brand' },
   reward_expired: { name: 'clock-alert-outline', tone: 'neutral' },
+  'reward.expired': { name: 'clock-alert-outline', tone: 'neutral' },
   withdraw_approved: { name: 'bank-transfer-out', tone: 'brand' },
+  'withdraw.approved': { name: 'bank-transfer-out', tone: 'brand' },
   withdraw_rejected: { name: 'bank-remove', tone: 'accent' },
+  'withdraw.rejected': { name: 'bank-remove', tone: 'accent' },
+  'withdraw.processing': { name: 'bank-transfer', tone: 'neutral' },
+  'withdraw.paid': { name: 'bank-check', tone: 'brand' },
+  'withdraw.failed': { name: 'bank-remove', tone: 'accent' },
   vip_referral_bonus: { name: 'account-star-outline', tone: 'brand' },
+  'vip.activated': { name: 'crown-outline', tone: 'brand' },
   refund_credited: { name: 'cash-refund', tone: 'accent' },
+  'refund.credited': { name: 'cash-refund', tone: 'accent' },
+  'afterSale.approved': { name: 'check-decagram-outline', tone: 'brand' },
+  'afterSale.rejected': { name: 'close-octagon-outline', tone: 'accent' },
+  'afterSale.returnRequired': { name: 'package-up', tone: 'accent' },
+  'afterSale.receivedBySeller': { name: 'package-down', tone: 'brand' },
+  'afterSale.sellerRejectedReturn': { name: 'alert-circle-outline', tone: 'accent' },
+  'afterSale.replacementShipped': { name: 'truck-delivery-outline', tone: 'brand' },
+  'afterSale.closedByTimeout': { name: 'timer-off-outline', tone: 'neutral' },
+  'afterSale.refunded': { name: 'cash-refund', tone: 'brand' },
   coupon_granted: { name: 'ticket-percent-outline', tone: 'brand' },
+  'coupon.granted': { name: 'ticket-percent-outline', tone: 'brand' },
   coupon_expired: { name: 'ticket-outline', tone: 'neutral' },
+  'coupon.expired': { name: 'ticket-outline', tone: 'neutral' },
+  'invoice.issued': { name: 'file-check-outline', tone: 'brand' },
+  'invoice.failed': { name: 'file-alert-outline', tone: 'accent' },
+  'groupBuy.codeActivated': { name: 'account-group-outline', tone: 'brand' },
+  'groupBuy.rebateReleased': { name: 'cash-plus', tone: 'brand' },
+  'digitalAsset.released': { name: 'chart-timeline-variant', tone: 'brand' },
+  'digitalAsset.reversed': { name: 'chart-timeline-variant-shimmer', tone: 'accent' },
+  'digitalAsset.adjusted': { name: 'tune-variant', tone: 'neutral' },
+  'cs.agentReplyOffline': { name: 'headset', tone: 'accent' },
   // 卖家/系统通知
   new_order: { name: 'package-variant', tone: 'brand' },
   stock_shortage: { name: 'alert-circle-outline', tone: 'accent' },
@@ -49,17 +82,48 @@ export default function InboxScreen() {
   const [activeTab, setActiveTab] = useState<InboxTab>('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const PAGE_SIZE = 20;
 
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['inbox', activeTab, unreadOnly],
-    queryFn: () => InboxRepo.list(activeTab === 'all' ? undefined : activeTab, unreadOnly),
+    queryFn: async ({ pageParam = 1 }) => {
+      const result = await InboxRepo.list(
+        activeTab === 'all' ? undefined : activeTab,
+        unreadOnly,
+        { page: pageParam as number, pageSize: PAGE_SIZE },
+      );
+      if (!result.ok) throw result.error;
+      return result.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => (
+      lastPage.length === PAGE_SIZE ? allPages.length + 1 : undefined
+    ),
     enabled: isLoggedIn,
   });
 
-  const listError = data && !data.ok ? data.error : null;
-  const messages = data?.ok ? data.data : [];
+  const { data: unreadCountResult } = useQuery({
+    queryKey: ['me-inbox-unread'],
+    queryFn: InboxRepo.getUnreadCount,
+    enabled: isLoggedIn,
+  });
+
+  const listError = isError ? (error as unknown as AppError) : null;
+  const messages = data?.pages.flatMap((page) => page) ?? [];
   const hasFilter = activeTab !== 'all' || unreadOnly;
-  const unreadCount = messages.filter((message) => message.unread).length;
+  const unreadCount = unreadCountResult?.ok
+    ? unreadCountResult.data
+    : messages.filter((message) => message.unread).length;
 
   const tabs = useMemo(
     () => [
@@ -274,6 +338,24 @@ export default function InboxScreen() {
                 </Animated.View>
               );
             })}
+            {hasNextPage ? (
+              <Pressable
+                onPress={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                style={[
+                  styles.loadMoreButton,
+                  {
+                    borderColor: colors.border,
+                    borderRadius: radius.pill,
+                    opacity: isFetchingNextPage ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <Text style={[typography.caption, { color: colors.text.secondary }]}>
+                  {isFetchingNextPage ? '加载中...' : '加载更多'}
+                </Text>
+              </Pressable>
+            ) : null}
           </ScrollView>
         )}
       </View>
@@ -341,5 +423,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     marginLeft: 6,
+  },
+  loadMoreButton: {
+    alignItems: 'center',
+    borderWidth: 1,
+    marginTop: 4,
+    marginBottom: 16,
+    paddingVertical: 8,
   },
 });

@@ -28,12 +28,12 @@ describe('InboxService', () => {
     notificationMessages.markRead.mockResolvedValueOnce([{ id: 'message-1', unread: false }]);
     notificationMessages.markAllRead.mockResolvedValueOnce([]);
 
-    await expect(service.list('buyer-1', 'order', true)).resolves.toEqual([{ id: 'message-1' }]);
+    await expect(service.list('buyer-1', 'order', true, 2, 30)).resolves.toEqual([{ id: 'message-1' }]);
     await expect(service.getUnreadCount('buyer-1')).resolves.toBe(2);
     await expect(service.markRead('message-1', 'buyer-1')).resolves.toEqual([{ id: 'message-1', unread: false }]);
     await expect(service.markAllRead('buyer-1')).resolves.toEqual([]);
 
-    expect(notificationMessages.list).toHaveBeenCalledWith('buyer:buyer-1', 'order', true);
+    expect(notificationMessages.list).toHaveBeenCalledWith('buyer:buyer-1', 'order', true, 2, 30);
     expect(notificationMessages.unreadCount).toHaveBeenCalledWith('buyer:buyer-1');
     expect(notificationMessages.markRead).toHaveBeenCalledWith('buyer:buyer-1', 'message-1');
     expect(notificationMessages.markAllRead).toHaveBeenCalledWith('buyer:buyer-1');

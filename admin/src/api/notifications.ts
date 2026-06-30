@@ -17,9 +17,16 @@ export type NotificationItem = {
   target?: NotificationAction;
 };
 
+export type NotificationListParams = {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  unreadOnly?: boolean;
+};
+
 export const NotificationsApi = {
-  list: (): Promise<NotificationItem[]> =>
-    client.get('/admin/notifications'),
+  list: (params?: NotificationListParams): Promise<NotificationItem[]> =>
+    client.get('/admin/notifications', { params }),
   unreadCount: (): Promise<number> =>
     client.get('/admin/notifications/unread-count'),
   markRead: (id: string): Promise<NotificationItem[]> =>

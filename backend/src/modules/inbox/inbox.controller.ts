@@ -12,8 +12,16 @@ export class InboxController {
     @CurrentUser('sub') userId: string,
     @Query('category') category?: string,
     @Query('unreadOnly') unreadOnly?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return this.inboxService.list(userId, category, unreadOnly === 'true');
+    return this.inboxService.list(
+      userId,
+      category,
+      unreadOnly === 'true',
+      this.parsePositiveInt(page, 1),
+      this.parsePositiveInt(pageSize, 20),
+    );
   }
 
   /** 未读数 */
@@ -35,5 +43,10 @@ export class InboxController {
   @Post('read-all')
   markAllRead(@CurrentUser('sub') userId: string) {
     return this.inboxService.markAllRead(userId);
+  }
+
+  private parsePositiveInt(value: string | undefined, fallback: number) {
+    const parsed = Number.parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
 }

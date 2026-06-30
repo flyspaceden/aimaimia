@@ -130,6 +130,38 @@ describe('NotificationRegistry', () => {
     );
   });
 
+  it('falls back to active admin users for after-sale arbitration notifications when adminUserIds are omitted', async () => {
+    const prisma = {
+      companyStaff: {
+        findMany: jest.fn(async () => [{ userId: 'seller-user-1' }]),
+      },
+      adminUser: {
+        findMany: jest.fn(async () => [{ id: 'admin-1' }]),
+      },
+    };
+    const registryWithPrisma = new NotificationRegistry(prisma as any);
+
+    const result = await registryWithPrisma.resolve(
+      event('afterSale.arbitrationRequested', {
+        afterSaleId: 'as-1',
+        userId: 'buyer-1',
+        companyId: 'company-1',
+      }),
+    );
+
+    expect(result.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recipientKey: 'buyer:buyer-1' }),
+        expect.objectContaining({ recipientKey: 'seller:seller-user-1' }),
+        expect.objectContaining({ recipientKey: 'admin:admin-1' }),
+      ]),
+    );
+    expect(prisma.adminUser.findMany).toHaveBeenCalledWith({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+  });
+
   it('builds seller center notifications for seller recipients', async () => {
     const result = await registry.resolve(
       event('order.stockShortage', { skuId: 'sku-1', sellerUserIds: ['seller-1', 'seller-2'] }),
@@ -220,6 +252,21 @@ describe('NotificationRegistry', () => {
     expect(result.messages[0]).toEqual(expect.objectContaining({
       action: { routeKey: 'GROUP_BUY_DETAIL', params: { activityId: 'activity-1' } },
       entityId: 'gb-1',
+    }));
+  });
+
+  it('routes stale logistics notifications with the orderId param required by the App logistics screen', async () => {
+    const result = await registry.resolve(
+      event('logistics.stale', {
+        shipmentId: 'shipment-1',
+        orderId: 'order-1',
+        buyerUserId: 'buyer-1',
+      }),
+    );
+
+    expect(result.messages[0]).toEqual(expect.objectContaining({
+      action: { routeKey: 'ORDER_TRACK', params: { orderId: 'order-1' } },
+      entityId: 'shipment-1',
     }));
   });
 

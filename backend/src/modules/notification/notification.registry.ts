@@ -400,7 +400,8 @@ export class NotificationRegistry {
     }
 
     if (template.audiences.includes('admin')) {
-      for (const adminUserId of this.payloadStringArray(event, 'adminUserIds')) {
+      const adminUserIds = await this.resolveAdminUserIds(event);
+      for (const adminUserId of adminUserIds) {
         messages.push(
           this.buildMessage(event, {
             recipientKind: 'ADMIN_USER',
@@ -539,6 +540,19 @@ export class NotificationRegistry {
     return staff.map((item) => item.userId);
   }
 
+  private async resolveAdminUserIds(event: NotificationEvent): Promise<string[]> {
+    const explicit = this.payloadStringArray(event, 'adminUserIds');
+    if (explicit.length > 0) return explicit;
+
+    if (!this.prisma) return [];
+
+    const admins = await this.prisma.adminUser.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return admins.map((item) => item.id);
+  }
+
   private buildMessage(event: NotificationEvent, input: MessageInput): NotificationMessageDraft {
     return {
       ...input,
@@ -554,6 +568,11 @@ export class NotificationRegistry {
   private routeParams(event: NotificationEvent): Record<string, string> | undefined {
     const sessionId = this.payloadString(event, 'sessionId');
     if (sessionId) return { sessionId };
+
+    if (event.eventType === 'logistics.stale') {
+      const orderId = this.payloadString(event, 'orderId');
+      if (orderId) return { orderId };
+    }
 
     if (event.eventType === 'groupBuy.codeActivated') {
       const activityId = this.payloadString(event, 'activityId');
@@ -581,6 +600,11 @@ export class NotificationRegistry {
   }
 
   private entityId(event: NotificationEvent): string {
+    if (event.eventType.startsWith('logistics.')) {
+      const shipmentId = this.payloadString(event, 'shipmentId');
+      if (shipmentId) return shipmentId;
+    }
+
     return (
       this.payloadString(
         event,

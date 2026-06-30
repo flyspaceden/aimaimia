@@ -8,7 +8,8 @@ test('admin notifications API targets admin notification endpoints', () => {
   const source = read('src/api/notifications.ts');
 
   assert.match(source, /export type NotificationItem/);
-  assert.match(source, /client\.get\('\/admin\/notifications'\)/);
+  assert.match(source, /params\?: NotificationListParams/);
+  assert.match(source, /client\.get\('\/admin\/notifications', \{ params \}\)/);
   assert.match(source, /client\.get\('\/admin\/notifications\/unread-count'\)/);
   assert.match(source, /client\.post\(`\/admin\/notifications\/\$\{id\}\/read`/);
 });
@@ -20,6 +21,7 @@ test('admin notifications page maps known actions and handles unknown routes', (
   assert.match(source, /ADMIN_INVOICE_DETAIL/);
   assert.match(source, /ADMIN_WITHDRAW_DETAIL/);
   assert.match(source, /ADMIN_CS_WORKSTATION/);
+  assert.match(source, /afterSaleId/);
   assert.match(source, /NotificationsApi\.markRead/);
   assert.match(source, /message\.info\('该消息暂无可跳转页面'\)/);
 });
