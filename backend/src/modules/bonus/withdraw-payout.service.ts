@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { decryptJsonValue, encryptJsonValue } from '../../common/security/encryption';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 import { AlipayService } from '../payment/alipay.service';
 import { PaymentService } from '../payment/payment.service';
 import { WithdrawDto } from './dto/withdraw.dto';
@@ -86,7 +86,7 @@ export class WithdrawPayoutService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private rulesService: WithdrawRulesService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
     private moduleRef: ModuleRef,
     private redisCoordinator: RedisCoordinatorService,
   ) {}
@@ -462,14 +462,20 @@ export class WithdrawPayoutService implements OnModuleInit {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (withdraw) {
-      this.inboxService.send({
-        userId: withdraw.userId,
-        category: 'transaction',
-        type: 'withdraw_paid',
-        title: '提现已到账',
-        content: `您的提现 ¥${withdraw.netAmount.toFixed(2)} 已到账支付宝（代扣个税 ¥${withdraw.taxAmount.toFixed(2)}）。`,
-        target: { route: '/me/wallet' },
-      }).catch((err) => this.logger.warn(`提现到账通知发送失败: ${err?.message ?? err}`));
+      await this.notificationService.emit({
+        eventType: 'withdraw.paid',
+        aggregateType: 'withdrawRequest',
+        aggregateId: withdraw.id,
+        idempotencyKey: `withdraw:${withdraw.id}:paid`,
+        actor: { kind: 'system' },
+        payload: {
+          withdrawId: withdraw.id,
+          userId: withdraw.userId,
+          amount: withdraw.amount,
+          netAmount: withdraw.netAmount,
+          taxAmount: withdraw.taxAmount,
+        },
+      });
 
       this.rulesService.getRules()
         .then((rules) => this.checkYearlyAlertAndNotify(withdraw.userId, withdraw.amount, rules))
@@ -550,14 +556,19 @@ export class WithdrawPayoutService implements OnModuleInit {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (withdraw) {
-      this.inboxService.send({
-        userId: withdraw.userId,
-        category: 'transaction',
-        type: 'withdraw_failed',
-        title: '提现失败，金额已退回',
-        content: `提现 ¥${withdraw.amount.toFixed(2)} 失败：${providerResult.errorMessage || '请检查账户信息后重试'}。`,
-        target: { route: '/me/wallet' },
-      }).catch((err) => this.logger.warn(`提现失败通知发送失败: ${err?.message ?? err}`));
+      await this.notificationService.emit({
+        eventType: 'withdraw.failed',
+        aggregateType: 'withdrawRequest',
+        aggregateId: withdraw.id,
+        idempotencyKey: `withdraw:${withdraw.id}:failed`,
+        actor: { kind: 'system' },
+        payload: {
+          withdrawId: withdraw.id,
+          userId: withdraw.userId,
+          amount: withdraw.amount,
+          reason: 'PAYOUT_FAILED',
+        },
+      });
     }
   }
 
@@ -579,14 +590,18 @@ export class WithdrawPayoutService implements OnModuleInit {
     });
 
     if (updated?.userId) {
-      this.inboxService.send({
-        userId: updated.userId,
-        category: 'transaction',
-        type: 'withdraw_processing',
-        title: '提现处理中',
-        content: `您的提现 ¥${updated.amount.toFixed(2)} 已提交渠道处理，请稍后查看。`,
-        target: { route: '/me/wallet' },
-      }).catch((err) => this.logger.warn(`提现处理中通知发送失败: ${err?.message ?? err}`));
+      await this.notificationService.emit({
+        eventType: 'withdraw.processing',
+        aggregateType: 'withdrawRequest',
+        aggregateId: updated.id,
+        idempotencyKey: `withdraw:${updated.id}:processing`,
+        actor: { kind: 'system' },
+        payload: {
+          withdrawId: updated.id,
+          userId: updated.userId,
+          amount: updated.amount,
+        },
+      });
     }
   }
 
@@ -613,14 +628,23 @@ export class WithdrawPayoutService implements OnModuleInit {
     );
     const content =
       `用户 ${userId} 本年累计提现 ¥${total.toFixed(2)}，已达年度上限的 ${(total / rules.withdrawYearlyMaxAmount * 100).toFixed(1)}%。`;
-    await this.inboxService.send({
-      userId,
-      category: 'risk',
-      type: 'withdraw_yearly_alert',
-      title: '提现额度提醒',
-      content: content.replace(`用户 ${userId} `, '您'),
-      target: { route: '/me/wallet' },
-    }).catch((err) => this.logger.warn(`提现额度提醒发送失败: ${err?.message ?? err}`));
+    const admins = await (this.prisma.adminUser as any).findMany({
+      where: { status: 'ACTIVE' as any },
+      select: { id: true },
+    });
+    await this.notificationService.emit({
+      eventType: 'withdraw.yearlyAlert',
+      aggregateType: 'withdrawRisk',
+      aggregateId: `${userId}:${yearStart.getFullYear()}`,
+      idempotencyKey: `withdraw:${userId}:${yearStart.getFullYear()}:yearly-alert`,
+      actor: { kind: 'system' },
+      payload: {
+        userId,
+        amount: total,
+        yearlyLimit: rules.withdrawYearlyMaxAmount,
+        adminUserIds: admins.map((admin: { id: string }) => admin.id),
+      },
+    });
     await this.createAdminYearlyAlertLogs(userId, total, rules.withdrawYearlyMaxAmount, content);
   }
 

@@ -22,7 +22,7 @@ const makeRules = (overrides: Record<string, unknown> = {}) => ({
 function buildService(overrides: {
   prisma?: any;
   rulesService?: any;
-  inboxService?: any;
+  notificationService?: any;
   paymentService?: any;
   alipayService?: any;
   redisCoordinator?: any;
@@ -73,7 +73,8 @@ function buildService(overrides: {
   const rulesService = overrides.rulesService ?? {
     getRules: jest.fn().mockResolvedValue(makeRules()),
   };
-  const inboxService = overrides.inboxService ?? {
+  const notificationService = overrides.notificationService ?? {
+    emit: jest.fn().mockResolvedValue(undefined),
     send: jest.fn().mockResolvedValue(undefined),
   };
   const paymentService = overrides.paymentService ?? {
@@ -101,14 +102,14 @@ function buildService(overrides: {
   const service = new WithdrawPayoutService(
     prisma,
     rulesService,
-    inboxService,
+    notificationService,
     moduleRef as any,
     redisCoordinator,
   );
   (service as any).paymentService = paymentService;
   (service as any).alipayService = alipayService;
   (service as any).redisCoordinator = redisCoordinator;
-  return { service, prisma, rulesService, inboxService, paymentService, alipayService, redisCoordinator };
+  return { service, prisma, rulesService, notificationService, paymentService, alipayService, redisCoordinator };
 }
 
 describe('WithdrawPayoutService.requestWithdraw', () => {
@@ -785,11 +786,11 @@ describe('WithdrawPayoutService.requestWithdraw', () => {
 });
 
 describe('WithdrawPayoutService.finalize', () => {
-  it('marks a processing withdrawal paid, releases frozen balances, and sends inbox notification', async () => {
+  it('marks a processing withdrawal paid, releases frozen balances, and emits notification', async () => {
     const rulesService = {
       getRules: jest.fn().mockResolvedValue(makeRules({ withdrawYearlyAlertThreshold: 0.8 })),
     };
-    const { service, prisma, inboxService } = buildService({ rulesService });
+    const { service, prisma, notificationService } = buildService({ rulesService });
     prisma.withdrawRequest.findUnique.mockResolvedValue({
       id: 'w-1',
       userId: 'u1',
@@ -826,10 +827,20 @@ describe('WithdrawPayoutService.finalize', () => {
       where: { refType: 'WITHDRAW', refId: 'w-1', status: 'FROZEN' },
       data: { status: 'WITHDRAWN' },
     }));
-    expect(inboxService.send).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'u1',
-      type: 'withdraw_paid',
-    }));
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'withdraw.paid',
+      aggregateType: 'withdrawRequest',
+      aggregateId: 'w-1',
+      idempotencyKey: 'withdraw:w-1:paid',
+      actor: { kind: 'system' },
+      payload: {
+        withdrawId: 'w-1',
+        userId: 'u1',
+        amount: 100,
+        netAmount: 64,
+        taxAmount: 16,
+      },
+    });
     await new Promise(process.nextTick);
     expect(rulesService.getRules).toHaveBeenCalled();
     expect(prisma.adminAuditLog.createMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -841,8 +852,8 @@ describe('WithdrawPayoutService.finalize', () => {
     }));
   });
 
-  it('marks a processing withdrawal failed, restores each split balance, voids ledgers, and sends inbox notification', async () => {
-    const { service, prisma, inboxService } = buildService();
+  it('marks a processing withdrawal failed, restores each split balance, voids ledgers, and emits safe notification', async () => {
+    const { service, prisma, notificationService } = buildService();
     prisma.withdrawRequest.findUnique.mockResolvedValue({
       id: 'w-1',
       userId: 'u1',
@@ -880,10 +891,47 @@ describe('WithdrawPayoutService.finalize', () => {
       where: { refType: 'WITHDRAW', refId: 'w-1', status: 'FROZEN' },
       data: { status: 'VOIDED', entryType: 'VOID' },
     }));
-    expect(inboxService.send).toHaveBeenCalledWith(expect.objectContaining({
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'withdraw.failed',
+      aggregateType: 'withdrawRequest',
+      aggregateId: 'w-1',
+      idempotencyKey: 'withdraw:w-1:failed',
+      actor: { kind: 'system' },
+      payload: {
+        withdrawId: 'w-1',
+        userId: 'u1',
+        amount: 80,
+        reason: 'PAYOUT_FAILED',
+      },
+    });
+  });
+
+  it('emits processing notification without provider raw details', async () => {
+    const { service, prisma, notificationService } = buildService();
+    prisma.withdrawRequest.update.mockResolvedValue({
+      id: 'w-processing',
       userId: 'u1',
-      type: 'withdraw_failed',
-    }));
+      amount: 80,
+    });
+
+    await service.markProcessingProviderInfo('w-processing', {
+      errorCode: 'CHANNEL_PENDING_CODE',
+      errorMessage: 'provider raw pending message',
+      providerStatus: 'PROCESSING',
+    });
+
+    expect(notificationService.emit).toHaveBeenCalledWith({
+      eventType: 'withdraw.processing',
+      aggregateType: 'withdrawRequest',
+      aggregateId: 'w-processing',
+      idempotencyKey: 'withdraw:w-processing:processing',
+      actor: { kind: 'system' },
+      payload: {
+        withdrawId: 'w-processing',
+        userId: 'u1',
+        amount: 80,
+      },
+    });
   });
 
   it('marks group-buy rebate withdrawal paid and moves reserved balance to withdrawn', async () => {

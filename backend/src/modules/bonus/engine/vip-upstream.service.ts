@@ -3,7 +3,7 @@ import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 
 @Injectable()
 export class VipUpstreamService {
@@ -11,7 +11,7 @@ export class VipUpstreamService {
 
   constructor(
     private prisma: PrismaService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   /**
@@ -144,7 +144,7 @@ export class VipUpstreamService {
     const account = await this.ensureRewardAccount(tx, ancestorUserId);
 
     // 创建 RewardLedger
-    await tx.rewardLedger.create({
+    const ledger = await tx.rewardLedger.create({
       data: {
         allocationId,
         accountId: account.id,
@@ -178,17 +178,18 @@ export class VipUpstreamService {
         data: { balance: { increment: rewardPool } },
       });
 
-      // C12: 分润到账通知
-      setImmediate(() => {
-        this.inboxService.send({
+      await this.notificationService.emit({
+        eventType: 'reward.credited',
+        aggregateType: 'rewardLedger',
+        aggregateId: ledger.id,
+        idempotencyKey: `reward:${ledger.id}:credited`,
+        actor: { kind: 'system' },
+        payload: {
+          ledgerId: ledger.id,
           userId: ancestorUserId,
-          category: 'transaction',
-          type: 'reward_credited',
-          title: '分润奖励到账',
-          content: `您收到 ${rewardPool.toFixed(2)} 元消费奖励，已到账可提现。`,
-          target: { route: '/me/wallet' },
-        }).catch(() => {});
-      });
+          amount: rewardPool,
+        },
+      }, tx as any);
     }
     // RETURN_FROZEN: 不更新 RewardAccount（对用户完全不可见）
 
@@ -317,17 +318,23 @@ export class VipUpstreamService {
         },
       });
 
-      // C12: 奖励解冻通知
-      setImmediate(() => {
-        this.inboxService.send({
+      const sortedIds = [...ids].sort();
+      const aggregateId = sortedIds.length === 1
+        ? sortedIds[0]
+        : `reward-unfreeze:${ancestorUserId}:${sortedIds.join(',')}`;
+      await this.notificationService.emit({
+        eventType: 'reward.unfrozen',
+        aggregateType: 'rewardLedger',
+        aggregateId,
+        idempotencyKey: sortedIds.length === 1
+          ? `reward:${aggregateId}:unfrozen`
+          : `reward:unfrozen:${ancestorUserId}:${sortedIds.join(':')}`,
+        actor: { kind: 'system' },
+        payload: {
           userId: ancestorUserId,
-          category: 'transaction',
-          type: 'reward_unfrozen',
-          title: '奖励已解锁',
-          content: `您有 ${totalReleased.toFixed(2)} 元奖励已解锁，可提现。`,
-          target: { route: '/me/wallet' },
-        }).catch(() => {});
-      });
+          amount: totalReleased,
+        },
+      }, tx as any);
 
       // P1-6: 更新 VipProgress.unlockedLevel
       await tx.vipProgress.updateMany({

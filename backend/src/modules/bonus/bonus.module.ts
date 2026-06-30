@@ -14,13 +14,13 @@ import { FreezeExpireService } from './engine/freeze-expire.service';
 import { VipActivationRetryService } from './vip-activation-retry.service';
 import { CouponModule } from '../coupon/coupon.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
-import { InboxModule } from '../inbox/inbox.module';
+import { NotificationModule } from '../notification/notification.module';
 import { InfraModule } from '../../common/infra/infra.module';
 import { WithdrawPayoutService } from './withdraw-payout.service';
 import { WithdrawRulesService } from './withdraw-rules.service';
 
 @Module({
-  imports: [CouponModule, InboxModule, InfraModule, DigitalAssetModule],
+  imports: [CouponModule, NotificationModule, InfraModule, DigitalAssetModule],
   controllers: [BonusController],
   providers: [
     BonusService,

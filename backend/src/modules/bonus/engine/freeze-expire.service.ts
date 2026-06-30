@@ -17,7 +17,7 @@ const NO_FURTHER_LOCK_TYPES: ReadonlySet<RewardAccountTypeStr> = new Set([
   'PLATFORM_PROFIT',
 ]);
 import { ACTIVE_STATUSES } from '../../after-sale/after-sale.constants';
-import { InboxService } from '../../inbox/inbox.service';
+import { NotificationService } from '../../notification/notification.service';
 
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
@@ -29,7 +29,7 @@ export class FreezeExpireService {
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
-    private inboxService: InboxService,
+    private notificationService: NotificationService,
   ) {}
 
   /**
@@ -332,19 +332,18 @@ export class FreezeExpireService {
           `冻结奖励过期：ledger ${ledger.id}，${ledger.amount} 元（${scheme}），用户 ${ledger.userId} → 平台`,
         );
 
-        // C12: 奖励过期通知
-        const expiredUserId = ledger.userId;
-        const expiredAmount = ledger.amount;
-        setImmediate(() => {
-          this.inboxService.send({
-            userId: expiredUserId,
-            category: 'transaction',
-            type: 'reward_expired',
-            title: '奖励已过期',
-            content: `您有 ${expiredAmount.toFixed(2)} 元奖励因超过解锁期限已过期。`,
-            target: { route: '/me/wallet' },
-          }).catch(() => {});
-        });
+        await this.notificationService.emit({
+          eventType: 'reward.expired',
+          aggregateType: 'rewardLedger',
+          aggregateId: ledger.id,
+          idempotencyKey: `reward:${ledger.id}:expired`,
+          actor: { kind: 'system' },
+          payload: {
+            ledgerId: ledger.id,
+            userId: ledger.userId,
+            amount: ledger.amount,
+          },
+        }, tx as any);
       },
       {
         timeout: 10000,
