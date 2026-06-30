@@ -97,3 +97,25 @@ feat(delivery): add pickup batch schema
 
 - `backend/prisma-delivery/schema.prisma`
 - `.superpowers/sdd/task-1-report.md`
+
+## Review fix: constrain shipping cost ledger lineage
+
+### What I changed
+
+- Added `@@unique([id, orderId])` to `DeliverySubOrder` so `DeliveryShippingCostLedger.subOrder` can bind through `[subOrderId, orderId]` and reject ledgers that point at a sub-order from another order.
+- Added `@@unique([id, orderId, subOrderId])` to `DeliveryPickupBatch` so `DeliveryShippingCostLedger.batch` can bind through `[batchId, orderId, subOrderId]` and reject ledgers whose batch does not belong to the same order and sub-order lineage.
+- Changed `DeliveryShippingCostLedger.subOrder` from the standalone `subOrderId -> id` relation to the composite optional relation `[subOrderId, orderId] -> DeliverySubOrder[id, orderId]`.
+- Changed `DeliveryShippingCostLedger.batch` from the standalone `batchId -> id` relation to the composite optional relation `[batchId, orderId, subOrderId] -> DeliveryPickupBatch[id, orderId, subOrderId]`.
+- Preserved order-level `PREPAID_BY_USER` rows by keeping both `subOrderId` and `batchId` nullable.
+- Prisma validates this optional-composite layout, but because SQL composite foreign keys do not fire when one member is `NULL`, schema alone still cannot forbid `batchId != null` together with `subOrderId = null`. The ledger lineage is now constrained whenever a sub-order or batch lineage is present; batch-bound writes still need to keep `subOrderId` populated.
+
+### Tests run and results
+
+- `DELIVERY_DATABASE_URL=postgresql://user:pass@localhost:5432/delivery npx prisma validate --schema prisma-delivery/schema.prisma` -> PASS
+- `npm run prisma:delivery:generate` -> PASS
+- `npm test -- delivery-id.service.spec.ts --runInBand` -> PASS
+
+### Files changed
+
+- `backend/prisma-delivery/schema.prisma`
+- `.superpowers/sdd/task-1-report.md`

@@ -865,6 +865,7 @@ model DeliverySubOrder {
   pickupBatches DeliveryPickupBatch[]
   conversations DeliveryCustomerServiceConversation[]
 
+  @@unique([id, orderId])
   @@unique([id, orderId, merchantId])
   @@index([merchantId, status, createdAt])
   @@index([orderId])
@@ -933,6 +934,7 @@ model DeliveryPickupBatch {
   carrierOrders DeliveryCarrierOrder[]
   costLedgers   DeliveryShippingCostLedger[]
 
+  @@unique([id, orderId, subOrderId])
   @@unique([id, subOrderId])
   @@unique([subOrderId, batchNo])
   @@index([orderId, status, createdAt])
@@ -989,9 +991,9 @@ model DeliveryShippingCostLedger {
   orderId         String
   order           DeliveryOrder                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   subOrderId      String?
-  subOrder        DeliverySubOrder?              @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  subOrder        DeliverySubOrder?              @relation(fields: [subOrderId, orderId], references: [id, orderId], onDelete: SetNull)
   batchId         String?
-  batch           DeliveryPickupBatch?           @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  batch           DeliveryPickupBatch?           @relation(fields: [batchId, orderId, subOrderId], references: [id, orderId, subOrderId], onDelete: SetNull)
   provider        DeliveryCarrierProvider
   type            DeliveryShippingCostLedgerType
   amountCents     Int
