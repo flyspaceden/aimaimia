@@ -61,6 +61,7 @@ import { DeliverySellerAuthController } from './seller-auth/delivery-seller-auth
 import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.service';
 import { DeliveryAdminAuthController } from './admin-auth/delivery-admin-auth.controller';
 import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.service';
+import { DeliveryPickupPlanService } from './pickup/delivery-pickup-plan.service';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.servi
     DeliveryInventoryService,
     DeliveryCartService,
     DeliveryCheckoutService,
+    DeliveryPickupPlanService,
     DeliveryOrdersService,
     DeliveryPaymentsService,
     DeliveryShippingService,

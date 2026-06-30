@@ -8,6 +8,7 @@ import {
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
+import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
 
 type PaidCheckoutParams = {
   merchantOrderNo: string;
@@ -141,6 +142,7 @@ export class DeliveryOrdersService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryIdService: DeliveryIdService,
+    private readonly deliveryPickupPlanService: DeliveryPickupPlanService,
   ) {}
 
   async getOrderManifestContextForBuyer(
@@ -517,6 +519,8 @@ export class DeliveryOrdersService {
                 unitId: checkout.unitId,
                 checkoutSessionId: checkout.id,
                 status: 'PENDING_SHIPMENT',
+                pickupMode: checkout.pickupMode,
+                plannedPickupCount: checkout.plannedPickupCount,
                 unitSnapshot: checkout.unitSnapshot as Prisma.InputJsonValue,
                 addressSnapshot: checkout.addressSnapshot as Prisma.InputJsonValue,
                 itemsSnapshot: checkout.itemsSnapshot as Prisma.InputJsonValue,
@@ -524,6 +528,8 @@ export class DeliveryOrdersService {
                   checkout.pricingSnapshot === null
                     ? Prisma.JsonNull
                     : (checkout.pricingSnapshot as Prisma.InputJsonValue),
+                prepaidPickupShippingFeeCents:
+                  checkout.prepaidPickupShippingFeeCents ?? checkout.shippingFeeCents,
                 note: checkout.note,
                 goodsAmountCents: checkout.goodsAmountCents,
                 shippingFeeCents: checkout.shippingFeeCents,
@@ -533,6 +539,7 @@ export class DeliveryOrdersService {
             });
 
             const subOrderIds: string[] = [];
+            const subOrderIdsByMerchantId = new Map<string, string>();
             const itemSnapshotsByMerchant = itemsSnapshot.reduce((map, item) => {
               const existing = map.get(item.merchantId) ?? [];
               existing.push(item);
@@ -543,6 +550,7 @@ export class DeliveryOrdersService {
             for (const pricingGroup of pricingGroups) {
               const subOrderId = await this.deliveryIdService.nextInTransaction(tx, 'PSZDD');
               subOrderIds.push(subOrderId);
+              subOrderIdsByMerchantId.set(pricingGroup.merchantId, subOrderId);
               const merchantItems = itemSnapshotsByMerchant.get(pricingGroup.merchantId) ?? [];
               const supplyAmountCents = merchantItems.reduce((sum, item) => {
                 const sku = skuById.get(item.skuId)!;
@@ -594,6 +602,13 @@ export class DeliveryOrdersService {
                 });
               }
             }
+
+            await this.deliveryPickupPlanService.createBatchesForPaidOrder(tx, {
+              orderId,
+              checkout,
+              subOrderIdsByMerchantId,
+              createdByProviderTxnId: params.providerTxnId,
+            });
 
             const purchasedCartItemIds = Array.from(
               new Set(

@@ -4,12 +4,14 @@ import { join } from 'path';
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
+import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
 import { DeliveryOrdersService } from './delivery-orders.service';
 
 describe('DeliveryOrdersService', () => {
   let tx: any;
   let deliveryPrisma: any;
   let deliveryIdService: { nextInTransaction: jest.Mock };
+  let deliveryPickupPlanService: { createBatchesForPaidOrder: jest.Mock };
   let service: DeliveryOrdersService;
 
   const activeCheckout = {
@@ -98,6 +100,7 @@ describe('DeliveryOrdersService', () => {
       },
       deliveryOrderItem: {
         create: jest.fn(),
+        findMany: jest.fn(),
       },
       deliveryPayment: {
         upsert: jest.fn(),
@@ -125,10 +128,14 @@ describe('DeliveryOrdersService', () => {
         .mockResolvedValueOnce('PSZDD000000000001')
         .mockResolvedValueOnce('PSZDD000000000002'),
     };
+    deliveryPickupPlanService = {
+      createBatchesForPaidOrder: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new DeliveryOrdersService(
       deliveryPrisma as DeliveryPrismaService,
       deliveryIdService as unknown as DeliveryIdService,
+      deliveryPickupPlanService as unknown as DeliveryPickupPlanService,
     );
   });
 
@@ -219,6 +226,16 @@ describe('DeliveryOrdersService', () => {
           orderId: 'PSDD0000000000001',
           status: 'PAID',
         }),
+      }),
+    );
+    expect(deliveryPickupPlanService.createBatchesForPaidOrder).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        orderId: 'PSDD0000000000001',
+        checkout: expect.objectContaining({
+          id: 'checkout_1',
+        }),
+        createdByProviderTxnId: 'ALI_TXN_1',
       }),
     );
     expect(result).toMatchObject({

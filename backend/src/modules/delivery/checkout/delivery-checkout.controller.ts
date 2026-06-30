@@ -19,6 +19,14 @@ export class DeliveryCheckoutController {
     return this.deliveryCheckoutService.createCheckout(deliveryUserId, dto);
   }
 
+  @Post('checkout/estimate-pickups')
+  estimatePickups(
+    @CurrentUser('deliveryUserId') deliveryUserId: string,
+    @Body() dto: CreateDeliveryCheckoutDto,
+  ) {
+    return this.deliveryCheckoutService.estimatePickups(deliveryUserId, dto);
+  }
+
   @Get('checkout/:id')
   getCheckout(
     @CurrentUser('deliveryUserId') deliveryUserId: string,

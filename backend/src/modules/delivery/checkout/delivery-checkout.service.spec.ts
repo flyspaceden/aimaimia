@@ -3,6 +3,7 @@ import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
+import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
 import { DeliveryCheckoutService } from './delivery-checkout.service';
 
 describe('DeliveryCheckoutService', () => {
@@ -10,6 +11,7 @@ describe('DeliveryCheckoutService', () => {
   let deliveryPrisma: any;
   let deliveryIdService: { nextInTransaction: jest.Mock };
   let pricingService: { resolvePrice: jest.Mock };
+  let pickupPlanService: DeliveryPickupPlanService;
   let moduleRef: { get: jest.Mock };
   let service: DeliveryCheckoutService;
   let alipayService: { isAvailable: jest.Mock; createAppPayOrder: jest.Mock; queryOrder: jest.Mock };
@@ -104,10 +106,14 @@ describe('DeliveryCheckoutService', () => {
       if (token?.name === 'WechatPayService') return wechatPayService;
       return null;
     });
+    pickupPlanService = new DeliveryPickupPlanService({
+      nextInTransaction: jest.fn(),
+    } as unknown as DeliveryIdService);
     service = new DeliveryCheckoutService(
       deliveryPrisma as DeliveryPrismaService,
       pricingService as unknown as DeliveryPricingService,
       deliveryIdService as unknown as DeliveryIdService,
+      pickupPlanService,
       moduleRef as any,
       deliveryPaymentsService as any,
     );
@@ -1348,5 +1354,140 @@ describe('DeliveryCheckoutService', () => {
       },
     });
     expect(deliveryPrisma.deliveryCheckoutSession.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('stores pickup snapshot totals on checkout sessions and exposes pickup estimates without persisting', async () => {
+    tx.deliveryUser.findUnique.mockResolvedValue({
+      id: 'PSYH0000000000001',
+      currentUnitId: 'unit_1',
+    });
+    tx.deliveryUnit.findFirst.mockResolvedValue({
+      id: 'unit_1',
+      userId: 'PSYH0000000000001',
+      status: 'ACTIVE',
+      name: '青禾食堂',
+      contactName: '张三',
+      contactPhone: '13800000000',
+      provinceCode: '440000',
+      provinceName: '广东省',
+      cityCode: '440100',
+      cityName: '广州市',
+      districtCode: '440106',
+      districtName: '天河区',
+      detailAddress: '体育西路 1 号',
+      extraFields: {},
+    });
+    tx.deliveryCartItem.findMany.mockResolvedValue([
+      {
+        id: 'cart_1',
+        userId: 'PSYH0000000000001',
+        unitId: 'unit_1',
+        skuId: 'sku_1',
+        quantity: 2,
+        isSelected: true,
+        sku: {
+          id: 'sku_1',
+          title: '5kg/箱',
+          imageUrl: null,
+          basePriceCents: 1000,
+          stock: 20,
+          minOrderQuantity: 1,
+          orderStepQuantity: 1,
+          weightGram: 400,
+          isActive: true,
+          fixedFinalPriceCents: null,
+          priceRules: [],
+          product: {
+            id: 'PSSP0000000000001',
+            title: '冷鲜牛腩',
+            unitName: '箱',
+            minOrderQuantity: 1,
+            orderStepQuantity: 1,
+            status: 'ACTIVE',
+            auditStatus: 'APPROVED',
+            priceRules: [],
+            merchant: {
+              id: 'merchant_1',
+              name: '华南仓',
+              defaultMarkupBps: 1000,
+              status: 'ACTIVE',
+            },
+          },
+        },
+      },
+    ]);
+    tx.deliveryPriceRule.findMany.mockResolvedValue([]);
+    tx.deliveryShippingRule.findMany.mockResolvedValue([
+      {
+        id: 'ship_rule_1',
+        merchantId: null,
+        status: 'ACTIVE',
+        calcType: 'WEIGHT',
+        firstWeightGram: 2000,
+        firstWeightPriceCents: 500,
+        additionalWeightGram: 500,
+        additionalWeightPriceCents: 200,
+        freeShippingThresholdCents: null,
+        minShippingFeeCents: 0,
+        sortOrder: 1,
+      },
+    ]);
+    tx.deliveryCheckoutSession.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'checkout_2',
+        ...data,
+      }),
+    );
+    pricingService.resolvePrice.mockReset();
+    pricingService.resolvePrice.mockReturnValue({
+      finalPriceCents: 1100,
+      matchedSource: 'MERCHANT_DEFAULT_MARKUP',
+      matchedRuleId: null,
+      appliedMarkupBps: 1000,
+    });
+
+    const estimate = await service.estimatePickups('PSYH0000000000001', {
+      cartItemIds: ['cart_1'],
+      paymentChannel: 'ALIPAY',
+      pickupMode: 'MULTI_BATCH' as any,
+      plannedPickupCount: 2,
+    });
+
+    expect(estimate).toMatchObject({
+      goodsAmountCents: 2200,
+      prepaidPickupShippingFeeCents: 1000,
+      totalAmountCents: 3200,
+      plannedPickupCount: 2,
+      perBatchEstimates: [
+        { merchantId: 'merchant_1', batchNo: 1, estimatedShippingFeeCents: 500 },
+        { merchantId: 'merchant_1', batchNo: 2, estimatedShippingFeeCents: 500 },
+      ],
+    });
+    expect(tx.deliveryCheckoutSession.create).not.toHaveBeenCalled();
+
+    await service.createCheckout('PSYH0000000000001', {
+      cartItemIds: ['cart_1'],
+      paymentChannel: 'ALIPAY',
+      pickupMode: 'MULTI_BATCH' as any,
+      plannedPickupCount: 2,
+    });
+
+    expect(tx.deliveryCheckoutSession.create.mock.calls[0][0].data).toMatchObject({
+      pickupMode: 'MULTI_BATCH',
+      plannedPickupCount: 2,
+      prepaidPickupShippingFeeCents: 1000,
+      shippingFeeCents: 1000,
+      totalAmountCents: 3200,
+    });
+    expect(tx.deliveryCheckoutSession.create.mock.calls[0][0].data.pricingSnapshot).toMatchObject({
+      totals: {
+        goodsAmountCents: 2200,
+        shippingFeeCents: 1000,
+        totalAmountCents: 3200,
+        pickupMode: 'MULTI_BATCH',
+        plannedPickupCount: 2,
+        prepaidPickupShippingFeeCents: 1000,
+      },
+    });
   });
 });
