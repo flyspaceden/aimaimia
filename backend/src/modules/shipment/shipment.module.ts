@@ -4,7 +4,6 @@ import { ShipmentService } from './shipment.service';
 import { ShipmentMonitorService } from './shipment-monitor.service';
 import { SfExpressService } from './sf-express.service';
 import { OrderShippingCostService } from './order-shipping-cost.service';
-import { DeliverySfCallbackService } from './delivery-sf-callback.service';
 import { NotificationModule } from '../notification/notification.module';
 
 @Module({
@@ -15,7 +14,6 @@ import { NotificationModule } from '../notification/notification.module';
     ShipmentMonitorService,
     SfExpressService,
     OrderShippingCostService,
-    DeliverySfCallbackService,
   ],
   exports: [SfExpressService, OrderShippingCostService],
 })

@@ -8,7 +8,6 @@ import { OrderModule } from '../order/order.module';
 import { CouponModule } from '../coupon/coupon.module';
 import { NotificationModule } from '../notification/notification.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
-import { DeliveryModule } from '../delivery/delivery.module';
 
 @Module({
   imports: [
@@ -16,7 +15,6 @@ import { DeliveryModule } from '../delivery/delivery.module';
     CouponModule,
     NotificationModule,
     DigitalAssetModule,
-    DeliveryModule,
   ],
   controllers: [PaymentController],
   providers: [PaymentService, AlipayService, WechatPayService, WebhookIpGuard],
