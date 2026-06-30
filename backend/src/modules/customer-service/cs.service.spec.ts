@@ -66,6 +66,7 @@ function createMocks() {
   };
   const presenceService = {
     isUserInSession: jest.fn(() => false),
+    markUserActiveInSession: jest.fn(),
   };
 
   const service = new CsService(
@@ -214,7 +215,7 @@ describe('CsService', () => {
     });
 
     it('AGENT_HANDLING 状态 → 只保存消息，不走路由，aiReply=null', async () => {
-      const { service, prisma, routing } = createMocks();
+      const { service, prisma, routing, presenceService } = createMocks();
       prisma.csSession.findUnique.mockResolvedValue({
         id: 'session-1',
         userId: 'user-1',
@@ -226,6 +227,7 @@ describe('CsService', () => {
       const result = await service.handleUserMessage('session-1', 'user-1', '你好');
 
       expect(prisma.csMessage.create).toHaveBeenCalledTimes(1);
+      expect(presenceService.markUserActiveInSession).toHaveBeenCalledWith('session-1', 'user-1');
       expect(routing.route).not.toHaveBeenCalled();
       expect(result.aiReply).toBeNull();
       expect(result.transferred).toBe(false);
@@ -463,6 +465,30 @@ describe('CsService', () => {
       await service.handleAgentMessage('s1', 'admin-1', '您好');
 
       expect(notificationService.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  // ====================================================================
+  // getSessionMessages
+  // ====================================================================
+
+  describe('getSessionMessages()', () => {
+    it('marks the buyer active for HTTP polling before returning messages', async () => {
+      const { service, prisma, presenceService } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        status: 'AGENT_HANDLING',
+      });
+      prisma.csMessage.findMany.mockResolvedValue([]);
+
+      await service.getSessionMessages('s1', 'u1');
+
+      expect(presenceService.markUserActiveInSession).toHaveBeenCalledWith('s1', 'u1');
+      expect(prisma.csMessage.findMany).toHaveBeenCalledWith({
+        where: { sessionId: 's1' },
+        orderBy: { createdAt: 'asc' },
+      });
     });
   });
 

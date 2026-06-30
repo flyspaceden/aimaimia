@@ -385,6 +385,22 @@ describe('SellerAfterSaleService review notifications', () => {
       }),
       tx,
     );
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'afterSale.returnRequired',
+        aggregateType: 'afterSale',
+        aggregateId: afterSaleId,
+        idempotencyKey: `after-sale:${afterSaleId}:return-required`,
+        actor: { kind: 'seller', id: staffId },
+        payload: expect.objectContaining({
+          afterSaleId,
+          userId: 'buyer-1',
+          orderId: 'order-1',
+          companyId,
+        }),
+      }),
+      tx,
+    );
   });
 
   it('emits a rejection notification without leaking the rejection reason', async () => {

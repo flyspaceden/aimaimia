@@ -197,6 +197,32 @@ describe('NotificationRegistry', () => {
     );
   });
 
+  it('routes customer-service notifications with a sessionId param', async () => {
+    const result = await registry.resolve(
+      event('cs.agentReplyOffline', { sessionId: 'cs-1', userId: 'buyer-1' }),
+    );
+
+    expect(result.messages[0]).toEqual(expect.objectContaining({
+      action: { routeKey: 'CS_SESSION', params: { sessionId: 'cs-1' } },
+      entityId: 'cs-1',
+    }));
+  });
+
+  it('routes group-buy activation notifications with the activityId param required by the App', async () => {
+    const result = await registry.resolve(
+      event('groupBuy.codeActivated', {
+        groupBuyInstanceId: 'gb-1',
+        activityId: 'activity-1',
+        userId: 'buyer-1',
+      }),
+    );
+
+    expect(result.messages[0]).toEqual(expect.objectContaining({
+      action: { routeKey: 'GROUP_BUY_DETAIL', params: { activityId: 'activity-1' } },
+      entityId: 'gb-1',
+    }));
+  });
+
   it('throws for unregistered event types', async () => {
     await expect(
       registry.resolve({

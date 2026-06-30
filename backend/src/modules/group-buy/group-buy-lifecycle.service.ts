@@ -146,6 +146,7 @@ export class GroupBuyLifecycleService {
           actor: { kind: 'system' },
           payload: {
             groupBuyInstanceId: instance.id,
+            activityId: instance.activityId,
             userId: instance.userId,
           },
         },

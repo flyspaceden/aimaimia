@@ -623,6 +623,16 @@ export class SellerAfterSaleService {
               companyId,
               staffId,
             );
+            if (request.requiresReturn) {
+              await this.emitAfterSaleNotification(
+                tx,
+                'afterSale.returnRequired',
+                'return-required',
+                request,
+                companyId,
+                staffId,
+              );
+            }
 
             // 无需退回商品 + 退货退款类型 → 自动触发退款
             if (
