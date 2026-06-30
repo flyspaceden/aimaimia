@@ -293,7 +293,7 @@ export default function GroupBuyIndexScreen() {
               精选团购
             </Text>
             <Text style={[typography.bodySm, { color: GROUP_BUY_COLORS.inkSoft, marginTop: spacing.xs }]}>
-              仅一级直接推荐;好友付款后返还冻结，确认收货后释放;团购不退换，仅24小时质量问题补发。
+              团购不退换，仅24小时质量问题补发。
             </Text>
           </View>
           <View style={[styles.heroMark, { backgroundColor: `${GROUP_BUY_COLORS.tide}12` }]}>
