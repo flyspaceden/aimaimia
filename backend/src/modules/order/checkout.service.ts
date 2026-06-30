@@ -29,6 +29,7 @@ import { WechatPayService } from '../payment/wechat-pay.service';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { BundleSnapshotItem, ProductBundleService } from '../product/product-bundle.service';
 import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
+import { NotificationService } from '../notification/notification.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -74,8 +75,8 @@ export class CheckoutService {
   private couponService: any = null;
   // BonusService 通过可选注入（VIP 激活用）
   private bonusService: any = null;
-  // InboxService 硬依赖（C13修复：确保上线后通知一定能发出去）
-  private inboxService: any = null; // 由 OrderModule.onModuleInit 注入，启动时校验
+  // NotificationService 硬依赖（确保上线后通知一定能发出去）
+  private notificationService: NotificationService | null = null; // 由 OrderModule.onModuleInit 注入，启动时校验
   // AlipayService 通过可选注入（支付宝下单用）
   private alipayService: any = null;
   private wechatPayService: any = null;
@@ -109,9 +110,9 @@ export class CheckoutService {
     this.bonusService = service;
   }
 
-  /** 注入站内消息服务（VIP 开通通知用，由 OrderModule 在 onModuleInit 时调用） */
-  setInboxService(service: any) {
-    this.inboxService = service;
+  /** 注入通知服务（由 OrderModule 在 onModuleInit 时调用） */
+  setNotificationService(service: NotificationService) {
+    this.notificationService = service;
   }
 
   /** 注入支付宝服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -2082,33 +2083,20 @@ export class CheckoutService {
                     `R12 超卖: skuId=${movement.skuId}, currentStock=${updatedSku.stock}`,
                   );
                   // C10修复：超卖通知卖家补货
-                  if (this.inboxService && movement.companyId) {
-                    const ownerStaff = await tx.companyStaff.findFirst({
-                      where: { companyId: movement.companyId, role: 'OWNER', status: 'ACTIVE' },
-                      select: { userId: true },
-                    });
-                    if (ownerStaff) {
-                      const sku = await tx.productSKU.findUnique({
-                        where: { id: movement.skuId },
-                        include: { product: { select: { title: true } } },
-                      });
-                      const skuLabel = sku?.title || sku?.product?.title || movement.skuId;
-                      // setImmediate 避免阻塞事务
-                      const inboxService = this.inboxService;
-                      const userId = ownerStaff.userId;
-                      const oversoldQty = Math.abs(updatedSku.stock);
-                      setImmediate(() => {
-                        inboxService.send({
-                          userId,
-                          category: 'transaction',
-                          type: 'stock_shortage',
-                          title: '商品超卖补货提醒',
-                          content: `商品「${skuLabel}」超卖 ${oversoldQty} 件，当前库存 ${updatedSku.stock}，请尽快补货。`,
-                          // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
-                          // 卖家应在卖家后台 web 处理库存，将来可考虑发独立卖家通知渠道
-                        }).catch(() => {});
-                      });
-                    }
+                  if (this.notificationService && movement.companyId) {
+                    await this.notificationService.emit({
+                      eventType: 'order.stockShortage',
+                      aggregateType: 'sku',
+                      aggregateId: movement.skuId,
+                      idempotencyKey: `inventory.stock_oversold:${refOrderId}:${movement.skuId}`,
+                      actor: { kind: 'system' },
+                      payload: {
+                        companyId: movement.companyId,
+                        orderId: refOrderId,
+                        skuId: movement.skuId,
+                        oversoldQty: Math.abs(updatedSku.stock),
+                      },
+                    }, tx as any);
                   }
                 }
                 await tx.inventoryLedger.create({
@@ -2435,14 +2423,17 @@ export class CheckoutService {
             }
 
             // Phase 6：VIP 开通成功通知（异步，不阻塞主流程）
-            if (vipActivated && this.inboxService) {
-              this.inboxService.send({
-                userId: result.sessionUserId,
-                category: 'system',
-                type: 'vip_activated',
-                title: 'VIP 会员开通成功',
-                content: `恭喜您成为 VIP 会员！您选择的赠品「${bizMeta.giftTitle}」将随订单发货，请留意物流信息。`,
-                target: { route: '/orders/[id]', params: { id: result.orderIds[0] } },
+            if (vipActivated && this.notificationService) {
+              this.notificationService.emit({
+                eventType: 'vip.activated',
+                aggregateType: 'order',
+                aggregateId: result.orderIds[0],
+                idempotencyKey: `vip:${result.orderIds[0]}:activated`,
+                actor: { kind: 'system' },
+                payload: {
+                  orderId: result.orderIds[0],
+                  userId: result.sessionUserId,
+                },
               }).catch((err: any) => {
                 this.logger.warn(`VIP 开通通知发送失败：${err.message}`);
               });
