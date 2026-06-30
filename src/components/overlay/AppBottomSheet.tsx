@@ -40,10 +40,11 @@ export const AppBottomSheet = ({
   const shouldFallback =
     isExpoGo || isWeb || !BottomSheet || !BottomSheetBackdrop || !BottomSheetView || (scrollable && !BottomSheetScrollView);
 
+  if (!open) {
+    return null;
+  }
+
   if (shouldFallback) {
-    if (!open) {
-      return null;
-    }
     // Expo Go 下使用简化版抽屉，避免原生 worklets 版本不匹配
     return (
       <Modal transparent visible={open} animationType="fade" onRequestClose={onClose}>
@@ -96,7 +97,7 @@ export const AppBottomSheet = ({
 
   return (
     <BottomSheet
-      index={open ? 0 : -1}
+      index={0}
       snapPoints={snapPoints}
       enablePanDownToClose
       enableDynamicSizing={mode === 'auto'}

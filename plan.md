@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-06-29
+> **最后更新**: 2026-06-30
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **团购详情页 Android 真机不可交互修复**（2026-06-30 新增并完成）
+  - **来源**: production OTA 后用户反馈 `/group-buy/[activityId]` 仍无法滚动，顶部返回和底部“去付款”均无反应；前两轮 `ScrollView flex:1` 与隐藏 AI 浮球未完整解决。
+  - **实际做了**: 将通用 `AppBottomSheet` 的关闭态从 native `@gorhom/bottom-sheet index=-1` 改为直接卸载，避免关闭的团购处理抽屉在 Android 真机保留不可见手势层；团购详情页所有加载/错误/正常状态的返回键增加 `router.canGoBack()` fallback，外部链接直达时返回 `/group-buy`。
+  - **验证**: 先新增失败回归测试；修复后 `node --test scripts/__tests__/group-buy-detail-stock-display.test.mjs`、`npm run test:legal`、`npx jest --passWithNoTests --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit --pretty false` 均通过。
 
 - [x] **管理后台侧边栏选中态可读性优化**（2026-06-29 新增并完成）
   - **来源**: 真机/电脑拍摄截图反馈，管理后台深色侧边栏选中“商家商品”后呈现深底蓝字，可读性不足。
