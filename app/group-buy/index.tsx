@@ -155,6 +155,15 @@ export default function GroupBuyIndexScreen() {
     setRefreshing(false);
   };
 
+  const handleActivityExpire = () => {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['group-buy-activities'] }),
+      queryClient.invalidateQueries({ queryKey: ['group-buy-current'] }),
+      activitiesQuery.refetch(),
+      isLoggedIn ? currentQuery.refetch() : Promise.resolve(),
+    ]);
+  };
+
   const handleAuthSuccess = async () => {
     await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
     if (pendingActivity) {
@@ -236,6 +245,7 @@ export default function GroupBuyIndexScreen() {
                 featured
                 onPress={() => handleActivityPress(featured)}
                 onPurchase={() => handlePurchasePress(featured)}
+                onExpire={handleActivityExpire}
               />
             </Animated.View>
           ) : null}
@@ -245,6 +255,7 @@ export default function GroupBuyIndexScreen() {
                 activity={activity}
                 onPress={() => handleActivityPress(activity)}
                 onPurchase={() => handlePurchasePress(activity)}
+                onExpire={handleActivityExpire}
               />
             </Animated.View>
           ))}
@@ -341,6 +352,7 @@ export default function GroupBuyIndexScreen() {
             current={current}
             onTerminate={() => endMutation.mutate({ mode: 'terminate', instanceId: current.id })}
             onAbandon={() => endMutation.mutate({ mode: 'abandon', instanceId: current.id })}
+            onActivityExpire={handleActivityExpire}
             terminating={endMutation.isPending}
             abandoning={endMutation.isPending}
           />

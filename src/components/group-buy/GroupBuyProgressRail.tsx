@@ -27,35 +27,39 @@ export const GroupBuyProgressRail = ({ current }: GroupBuyProgressRailProps) => 
     [current.referrals, targetCount],
   );
 
-  const remaining = Math.max(targetCount - current.validReferralCount, 0);
+  const lockedCount = Math.min(
+    targetCount,
+    current.referrals.filter((item) => item.status === 'CANDIDATE' || item.status === 'VALID').length,
+  );
+  const remaining = Math.max(targetCount - lockedCount, 0);
 
   return (
     <View style={[styles.wrap, { gap: spacing.md }]}>
       <View style={styles.summaryRow}>
         <View style={styles.summaryItem}>
           <Text {...compactActionTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.pine }]}>
+            {lockedCount}/{targetCount}
+          </Text>
+          <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>
+            已锁名额
+          </Text>
+        </View>
+        <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
+        <View style={styles.summaryItem}>
+          <Text {...compactActionTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.pine }]}>
             {current.validReferralCount}/{targetCount}
           </Text>
           <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>
-            有效好友
+            已确认有效
           </Text>
         </View>
         <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
         <View style={styles.summaryItem}>
-          <Text {...compactActionTextProps} style={[typography.headingMd, { color: GROUP_BUY_COLORS.tide }]}>
-            {current.candidateCount}
+          <Text {...compactActionTextProps} style={[typography.headingMd, { color: current.candidateCount > 0 ? GROUP_BUY_COLORS.brass : remaining > 0 ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.tide }]}>
+            {current.candidateCount > 0 ? current.candidateCount : remaining}
           </Text>
           <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>
-            待确认订单
-          </Text>
-        </View>
-        <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
-        <View style={styles.summaryItem}>
-          <Text {...compactActionTextProps} style={[typography.headingMd, { color: remaining > 0 ? GROUP_BUY_COLORS.coral : GROUP_BUY_COLORS.brass }]}>
-            {remaining}
-          </Text>
-          <Text {...fitTextProps} style={[typography.caption, { color: colors.text.secondary }]}>
-            还需好友
+            {current.candidateCount > 0 ? '待确认订单' : '剩余名额'}
           </Text>
         </View>
       </View>
