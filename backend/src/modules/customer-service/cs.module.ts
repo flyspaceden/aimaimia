@@ -11,9 +11,11 @@ import { CsFaqService } from './cs-faq.service';
 import { CsTicketService } from './cs-ticket.service';
 import { CsMaskingService } from './cs-masking.service';
 import { CsCleanupService } from './cs-cleanup.service';
+import { CsPresenceService } from './cs-presence.service';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [JwtModule, ConfigModule],
+  imports: [JwtModule, ConfigModule, NotificationModule],
   controllers: [CsController, CsAdminController],
   providers: [
     CsGateway,
@@ -24,6 +26,7 @@ import { CsCleanupService } from './cs-cleanup.service';
     CsTicketService,
     CsMaskingService,
     CsCleanupService,
+    CsPresenceService,
   ],
 })
 export class CustomerServiceModule {}

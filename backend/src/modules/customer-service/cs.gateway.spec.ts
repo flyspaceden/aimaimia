@@ -26,12 +26,18 @@ function createMocks() {
       return null;
     }),
   };
+  const presenceService = {
+    markUserInSession: jest.fn(),
+    markSocketDisconnected: jest.fn(),
+    isUserInSession: jest.fn(() => false),
+  };
 
   const gateway = new CsGateway(
     csService as any,
     agentService as any,
     jwtService as any,
     configService as any,
+    presenceService as any,
   );
 
   // Mock the server (set after construction since @WebSocketServer sets it)
@@ -42,13 +48,14 @@ function createMocks() {
   };
   (gateway as any).server = mockServer;
 
-  return { gateway, csService, agentService, jwtService, configService, mockServer };
+  return { gateway, csService, agentService, jwtService, configService, presenceService, mockServer };
 }
 
 function createMockClient(data?: any): any {
   const toEmit = jest.fn();
   const to = jest.fn().mockReturnValue({ emit: toEmit });
   return {
+    id: data?.socketId ?? 'socket-1',
     handshake: { auth: { token: 'test-token' } },
     data: data || {},
     join: jest.fn(),
@@ -123,7 +130,7 @@ describe('CsGateway', () => {
   // ---- Message Handling ----
 
   it('handleSend — 买家发消息：调用 handleUserMessage，广播 cs:message', async () => {
-    const { gateway, csService, mockServer } = createMocks();
+    const { gateway, csService, presenceService, mockServer } = createMocks();
     const client = createMockClient({ userId: 'user-1', isAgent: false });
 
     const userMsg = { id: 'msg-1', content: '你好', senderType: 'USER' };
@@ -139,8 +146,26 @@ describe('CsGateway', () => {
 
     expect(csService.handleUserMessage).toHaveBeenCalledWith('session-1', 'user-1', '你好', undefined);
     expect(client.join).toHaveBeenCalledWith('session:session-1');
+    expect(presenceService.markUserInSession).toHaveBeenCalledWith('session-1', 'user-1', 'socket-1');
     expect(mockServer.to).toHaveBeenCalledWith('session:session-1');
     expect(mockServer.emit).toHaveBeenCalledWith('cs:message', userMsg);
+  });
+
+  it('isUserInSession — 使用 presence 服务判断买家是否在会话内', () => {
+    const { gateway, presenceService } = createMocks();
+    presenceService.isUserInSession.mockReturnValue(true);
+
+    expect(gateway.isUserInSession('session-1', 'user-1')).toBe(true);
+    expect(presenceService.isUserInSession).toHaveBeenCalledWith('session-1', 'user-1');
+  });
+
+  it('handleDisconnect — 买家断开时清理 presence socket 记录', async () => {
+    const { gateway, presenceService } = createMocks();
+    const client = createMockClient({ userId: 'user-1', isAgent: false, socketId: 'buyer-socket-1' });
+
+    await gateway.handleDisconnect(client);
+
+    expect(presenceService.markSocketDisconnected).toHaveBeenCalledWith('buyer-socket-1');
   });
 
   it('handleSend — 坐席发消息：调用 handleAgentMessage，广播 cs:message', async () => {
