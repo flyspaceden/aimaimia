@@ -8,7 +8,7 @@ import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
-import { InboxService } from '../inbox/inbox.service';
+import { NotificationService } from '../notification/notification.service';
 import type { AfterSaleRefundService } from '../after-sale/after-sale-refund.service';
 import type { AfterSaleShippingPaymentService } from '../after-sale/after-sale-shipping-payment.service';
 import type { RewardDeductionService } from '../bonus/reward-deduction.service';
@@ -35,7 +35,7 @@ export class PaymentService {
     private alipayService: AlipayService,
     @Optional() private checkoutService?: CheckoutService,
     @Optional() private couponService?: CouponService,
-    @Optional() private inboxService?: InboxService,
+    @Optional() private notificationService?: NotificationService,
     @Optional() private wechatPayService?: WechatPayService,
     @Optional() digitalAssetService?: DigitalAssetService,
   ) {
@@ -1971,43 +1971,29 @@ export class PaymentService {
 
   /**
    * 通知相关商家有新订单待发货
-   * 查询订单涉及的所有商家，向每个商家的 OWNER 发送站内消息
+   * 按订单和商户维度写入通知 outbox，由 registry 查找 ACTIVE staff。
    */
   private async notifySellersForOrders(orderIds: string[]): Promise<void> {
-    if (!this.inboxService || orderIds.length === 0) return;
+    if (!this.notificationService || orderIds.length === 0) return;
 
-    // 查询所有订单涉及的去重 companyId
     const orderItems = await this.prisma.orderItem.findMany({
       where: { orderId: { in: orderIds } },
-      select: { companyId: true },
-      distinct: ['companyId'],
+      select: { orderId: true, companyId: true },
+      distinct: ['orderId', 'companyId'],
     });
 
-    const companyIds = orderItems
-      .map((item) => item.companyId)
-      .filter((id): id is string => !!id);
-
-    if (companyIds.length === 0) return;
-
-    // 查每个商家的 OWNER 用户
-    const staffList = await this.prisma.companyStaff.findMany({
-      where: {
-        companyId: { in: companyIds },
-        role: 'OWNER',
-        status: 'ACTIVE',
-      },
-      select: { userId: true, companyId: true },
-    });
-
-    for (const staff of staffList) {
-      await this.inboxService.send({
-        userId: staff.userId,
-        category: 'order',
-        type: 'new_order',
-        title: '新订单待发货',
-        content: '您有新的订单需要处理，请尽快安排发货。',
-        // 卖家路由不在买家 App 路由表中，省略 target 让消息变为纯信息（不可点击跳转）
-        // 卖家应在卖家后台 web 处理订单，将来可考虑发独立卖家通知渠道
+    for (const item of orderItems) {
+      if (!item.companyId) continue;
+      await this.notificationService.emit({
+        eventType: 'order.newPaidForSeller',
+        aggregateType: 'order',
+        aggregateId: item.orderId,
+        idempotencyKey: `seller-order:${item.companyId}:${item.orderId}:paid`,
+        actor: { kind: 'system' },
+        payload: {
+          companyId: item.companyId,
+          orderId: item.orderId,
+        },
       });
     }
   }

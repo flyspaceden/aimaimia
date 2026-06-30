@@ -28,6 +28,7 @@ import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.servi
 import { ProductBundleService } from '../product/product-bundle.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
+import { NotificationService } from '../notification/notification.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -99,8 +100,8 @@ export class OrderService {
   private couponEngineService: any = null;
   // PaymentService 通过 setter 注入（避免与 PaymentModule 循环依赖；PAID 取消用）
   private paymentService: any = null;
-  // InboxService 通过 setter 注入（PAID 取消通知商户用）
-  private inboxService: any = null;
+  // NotificationService 通过 setter 注入（PAID 取消通知商户用）
+  private notificationService: NotificationService | null = null;
   // RewardDeductionService 通过 setter 注入（预览消费积分可抵扣上限）
   private rewardDeductionService: RewardDeductionService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入（preview 合并展示消费积分可用余额）
@@ -142,9 +143,9 @@ export class OrderService {
     this.paymentService = service;
   }
 
-  /** 注入站内信服务（PAID 取消通知商户 OWNER 用） */
-  setInboxService(service: any) {
-    this.inboxService = service;
+  /** 注入通知服务（PAID 取消通知商户员工用） */
+  setNotificationService(service: NotificationService) {
+    this.notificationService = service;
   }
 
   setGroupBuyLifecycleService(service: GroupBuyLifecycleService) {
@@ -2253,26 +2254,11 @@ export class OrderService {
       );
     }
 
-    // Step 5：通知所有受影响商户的 OWNER（多商户订单逐个通知）
-    if (this.inboxService?.send && refundData.affectedCompanyIds.length > 0) {
+    // Step 5：通知所有受影响商户员工（多商户订单逐个通知）
+    if (this.notificationService && refundData.affectedCompanyIds.length > 0) {
       try {
-        const owners = await this.prisma.companyStaff.findMany({
-          where: {
-            companyId: { in: refundData.affectedCompanyIds },
-            role: 'OWNER',
-            status: 'ACTIVE',
-          },
-          select: { userId: true, companyId: true },
-        });
-        for (const owner of owners) {
-          await this.inboxService.send({
-            userId: owner.userId,
-            category: 'order',
-            type: 'order.canceled.by.buyer',
-            title: '买家取消订单',
-            content: `订单 ${id} 已被买家在发货前取消，库存已恢复，款项原路退回`,
-            target: { route: '/orders/[id]', params: { id } },
-          });
+        for (const companyId of refundData.affectedCompanyIds) {
+          await this.emitBuyerCanceledSellerNotification(companyId, id);
         }
       } catch (e: any) {
         this.logger.warn(`通知商户失败（不影响主流程）: ${e?.message ?? e}`);
@@ -2555,30 +2541,14 @@ export class OrderService {
       );
     }
 
-    // Step 6：通知所有受影响商户的 OWNER
-    if (this.inboxService?.send && refundData.affectedCompanyIds.length > 0) {
+    // Step 6：通知所有受影响商户员工
+    if (this.notificationService && refundData.affectedCompanyIds.length > 0) {
       try {
-        const owners = await this.prisma.companyStaff.findMany({
-          where: {
-            companyId: { in: refundData.affectedCompanyIds },
-            role: 'OWNER',
-            status: 'ACTIVE',
-          },
-          select: { userId: true, companyId: true },
-        });
-        for (const owner of owners) {
-          // 找该商户对应的 Order
-          const ownerOrder = orders.find((o) =>
-            o.items.some((i: any) => i.companyId === owner.companyId),
+        for (const companyId of refundData.affectedCompanyIds) {
+          const companyOrder = orders.find((o) =>
+            o.items.some((i: any) => i.companyId === companyId),
           );
-          await this.inboxService.send({
-            userId: owner.userId,
-            category: 'order',
-            type: 'order.canceled.by.buyer',
-            title: '买家取消订单',
-            content: `订单 ${ownerOrder?.id ?? '(未知)'} 已被买家在发货前取消（多商户整单），库存已恢复，款项原路退回`,
-            target: ownerOrder ? { route: '/orders/[id]', params: { id: ownerOrder.id } } : undefined,
-          });
+          await this.emitBuyerCanceledSellerNotification(companyId, companyOrder?.id ?? orders[0].id);
         }
       } catch (e: any) {
         this.logger.warn(`通知商户失败（不影响主流程）: ${e?.message ?? e}`);
@@ -2591,6 +2561,22 @@ export class OrderService {
       include: { items: true },
     });
     return this.mapOrder(primary);
+  }
+
+  private async emitBuyerCanceledSellerNotification(
+    companyId: string,
+    orderId: string,
+  ): Promise<void> {
+    if (!this.notificationService) return;
+
+    await this.notificationService.emit({
+      eventType: 'order.canceledByBuyerForSeller',
+      aggregateType: 'order',
+      aggregateId: orderId,
+      idempotencyKey: `seller-order:${companyId}:${orderId}:buyer-canceled`,
+      actor: { kind: 'system' },
+      payload: { companyId, orderId },
+    });
   }
 
   private async buildDeductionRefundRestoreParams(
