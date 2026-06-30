@@ -1089,12 +1089,12 @@ tabBarStyle: {
 | 服务器 `.env`（ALIPAY_NOTIFY_URL） | ✅ 用户已配置 |
 | OTA 推送 | ✅ 已发（含 EXPO_PUBLIC_ALIPAY_SANDBOX=true） |
 | 真机冷启动两次验证 | ✅ 用户验证通过 |
-| **唯一剩余项**：P5 任务 18 — 服务器执行 SQL 迁移 | ⬜ 待执行（OSS http→https + inbox 路由批量改） |
+| **唯一剩余项**：P5 任务 18 — 服务器执行历史数据迁移 | ⬜ 待执行（OSS http→https；旧 inbox 路由 SQL 已被统一通知迁移脚本替代） |
 
 执行路径：
 1. SSH 进生产服务器 → `psql` 连数据库
 2. 执行 `backend/scripts/2026-04-29-migrate-oss-https.sql`（OSS http→https，含 4 阶段 dry-run + 审计）
-3. 执行 `backend/scripts/2026-04-29-migrate-inbox-routes.sql`（InboxMessage 旧路径修正，含 3 阶段 dry-run + 审计）
+3. 通知系统重构部署后执行 `cd backend && npx ts-node scripts/migrate-inbox-to-notifications.ts`（把历史 `InboxMessage` 迁到 `NotificationMessage`，旧 route 转为 typed action，失效入口不再跳转）
 4. 执行后真机回测 Bug 2（图片可见）+ Bug 8（消息中心点击跳转正确）
 
 ---
