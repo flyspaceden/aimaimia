@@ -930,10 +930,12 @@ model DeliveryPickupBatch {
   createdAt                 DateTime                  @default(now())
   updatedAt                 DateTime                  @updatedAt
 
-  items         DeliveryPickupBatchItem[]
-  carrierOrders DeliveryCarrierOrder[]
-  costLedgers   DeliveryShippingCostLedger[]
+  items                    DeliveryPickupBatchItem[]
+  carrierOrders            DeliveryCarrierOrder[]
+  costLedgers              DeliveryShippingCostLedger[]
+  costLedgersBySubOrder    DeliveryShippingCostLedger[] @relation("DeliveryShippingCostLedgerBatchSubOrder")
 
+  @@unique([id, orderId])
   @@unique([id, orderId, subOrderId])
   @@unique([id, subOrderId])
   @@unique([subOrderId, batchNo])
@@ -993,7 +995,8 @@ model DeliveryShippingCostLedger {
   subOrderId      String?
   subOrder        DeliverySubOrder?              @relation(fields: [subOrderId, orderId], references: [id, orderId], onDelete: SetNull)
   batchId         String?
-  batch           DeliveryPickupBatch?           @relation(fields: [batchId, orderId, subOrderId], references: [id, orderId, subOrderId], onDelete: SetNull)
+  batch           DeliveryPickupBatch?           @relation(fields: [batchId, orderId], references: [id, orderId], onDelete: SetNull)
+  batchSubOrder   DeliveryPickupBatch?           @relation("DeliveryShippingCostLedgerBatchSubOrder", fields: [batchId, subOrderId], references: [id, subOrderId], onDelete: SetNull)
   provider        DeliveryCarrierProvider
   type            DeliveryShippingCostLedgerType
   amountCents     Int

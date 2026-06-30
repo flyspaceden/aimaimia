@@ -119,3 +119,24 @@ feat(delivery): add pickup batch schema
 
 - `backend/prisma-delivery/schema.prisma`
 - `.superpowers/sdd/task-1-report.md`
+
+## Follow-up fix: strengthen shipping cost ledger batch lineage
+
+### What I changed
+
+- Added `@@unique([id, orderId])` to `DeliveryPickupBatch` so a ledger can always bind any non-null `batchId` to the same `orderId`, even when `subOrderId` is null.
+- Changed `DeliveryShippingCostLedger.batch` to the optional composite relation `[batchId, orderId] -> DeliveryPickupBatch[id, orderId]`.
+- Added a second named optional relation `DeliveryShippingCostLedger.batchSubOrder` on `[batchId, subOrderId] -> DeliveryPickupBatch[id, subOrderId]`, with the reverse field `DeliveryPickupBatch.costLedgersBySubOrder`.
+- Kept `DeliveryShippingCostLedger.subOrder` on `[subOrderId, orderId] -> DeliverySubOrder[id, orderId]`.
+- This combination preserves order-level rows with both `subOrderId` and `batchId` null, enforces same-order lineage whenever `batchId` is present, and additionally enforces same-sub-order lineage whenever both `batchId` and `subOrderId` are present.
+
+### Tests run and results
+
+- `DELIVERY_DATABASE_URL=postgresql://user:pass@localhost:5432/delivery npx prisma validate --schema prisma-delivery/schema.prisma` -> PASS
+- `npm run prisma:delivery:generate` -> PASS
+- `npm test -- delivery-id.service.spec.ts --runInBand` -> PASS
+
+### Files changed
+
+- `backend/prisma-delivery/schema.prisma`
+- `.superpowers/sdd/task-1-report.md`
