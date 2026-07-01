@@ -56,7 +56,7 @@ export default function DeliveryCheckoutScreen() {
   const { show } = useToast();
   const { palette, spacing, typography } = useDeliveryTheme();
   const currentUnit = useDeliveryAuthStore((state) => state.currentUnit);
-  const items = useDeliveryCartStore((state) => state.items.filter((item) => item.isSelected));
+  const cartItems = useDeliveryCartStore((state) => state.items);
   const syncCartFromServer = useDeliveryCartStore((state) => state.syncFromServer);
   const [note, setNote] = React.useState('');
   const [paymentChannel, setPaymentChannel] = React.useState<'ALIPAY' | 'WECHAT_PAY'>(
@@ -75,6 +75,10 @@ export default function DeliveryCheckoutScreen() {
   const [submitting, setSubmitting] = React.useState(false);
   const submittingRef = React.useRef(false);
 
+  const items = React.useMemo(
+    () => cartItems.filter((item) => item.isSelected),
+    [cartItems],
+  );
   const total = items.reduce((sum, item) => sum + item.lineAmount, 0);
   const pickupCartItems = React.useMemo(
     () => items.map((item) => ({ cartItemId: item.id, quantity: item.quantity })),
@@ -129,7 +133,7 @@ export default function DeliveryCheckoutScreen() {
 
   React.useEffect(() => {
     setPickupPlanItems(buildDefaultDeliveryPickupPlan(pickupCartItems, plannedPickupCount));
-  }, [pickupCartItems, pickupCartSignature, plannedPickupCount]);
+  }, [pickupCartSignature, plannedPickupCount]);
 
   const applyPickupCount = (
     nextCount: number,
