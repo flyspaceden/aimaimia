@@ -444,7 +444,7 @@ export class CartService {
   }
 
   /** 删除购物车奖品项（按 cartItemId 删除）
-   *  同时将关联的 LotteryRecord 状态从 IN_CART 恢复为 WON */
+   *  锁定赠品视为用户放弃并过期；已解锁有效奖品恢复为 WON */
   async removePrizeItem(userId: string, cartItemId: string) {
     const cart = await this.ensureCart(userId);
 
@@ -475,17 +475,12 @@ export class CartService {
       !item.threshold || selectedNonPrizeTotal < item.threshold
     );
 
-    // F2: 仍锁定且可用的赠品禁止删除；不可用奖品必须允许用户逃出
-    if (!unavailableReason && dynamicallyLocked) {
-      throw new BadRequestException('锁定赠品不可删除，消费满 ¥' + (item.threshold || 0) + ' 后自动解锁');
-    }
-
     // 事务内同时删除购物车项并推进 LotteryRecord 状态
     await this.prisma.$transaction(async (tx) => {
       await tx.cartItem.delete({ where: { id: item.id } });
 
       if (item.prizeRecordId) {
-        if (unavailableReason) {
+        if (unavailableReason || dynamicallyLocked) {
           await tx.lotteryRecord.updateMany({
             where: { id: item.prizeRecordId, status: { in: ['WON', 'IN_CART'] } },
             data: { status: 'EXPIRED' },

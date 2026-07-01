@@ -1118,7 +1118,7 @@ Tab 栏设计：
 - 左滑商品行可删除（swipeable）
 - 免邮差额提示不在购物车展示；进入结算页后使用后端预结算返回的真实运费与免邮差额。
 - 空购物车状态：展示 AI 光球 + 「让脉脉帮你挑点好的？」+ 快捷指令按钮
-- 上下架兜底（2026-05-07）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留；购物车已选/可选计数统一走 `isSelectableCartItem`
+- 上下架兜底（2026-05-07，2026-07-01 更新）：服务端返回 `unavailableReason` 的商品/奖品显示"已下架/已停发"角标，禁勾选和数量调整，仅保留删除入口；仍锁定且可用的门槛赠品继续按锁定态保留但行内显示删除按钮，用户单个删除视为放弃奖品，后端将对应 `LotteryRecord` 转为 `EXPIRED`；`clearCart` 仍保留锁定可用赠品；购物车已选/可选计数统一走 `isSelectableCartItem`
 - 组合商品展示（2026-06-22）：购物车父购买行保持普通商品行为不变，仅在行内追加紧凑“组合内容”只读区，展示组件图片、标题、规格和数量；不暴露组件价格，不新增子项勾选/删除/售后动作。
 
 ---
@@ -2385,6 +2385,7 @@ src/components/ai/   → 新增目录
 | Batch 8 功能补全 | (1)结算页银行卡支付+奖励抵扣(奖励选择页+我的奖励页+价格分解)+用户工具替换装扮为奖励 (2)首页AI光球长按语音意图解析→自动导航(search/product/company/chat) (3)发现页分类芯片→跳转分类页 (4)AuthModal三种方式登录注册(手机号验证码/密码+微信OAuth授权+邮箱验证码)+注册收集昵称密码协议+无滚动自适应高度+后端微信OAuth占位实现+移除Apple登录 | 2026-02-21 | `checkout.tsx`, `checkout-redpack.tsx`, `me/rewards.tsx`, `me.tsx`, `orders/[id].tsx`, `Payment.ts`, `Bonus.ts`, `Order.ts`, `BonusRepo.ts`, `OrderRepo.ts`, `home.tsx`, `Ai.ts`, `AiAssistantRepo.ts`, `museum.tsx`, `AuthModal.tsx`, `AuthRepo.ts`, `Auth.ts`, `auth.service.ts`, `auth.controller.ts`, `send-code.dto.ts` |
 | Batch 10 抽奖转盘 | 抽奖页全面升级：SVG转盘(SpinWheel等分扇区+奖品文字)+指针(WheelPointer摆动动画)+庆祝粒子(Confetti 25粒子爆发重力物理)+5阶段状态机(idle→spinning→decelerating→revealing→result_shown)+快速旋转2s+减速2.5s cubic bezier+中奖AiTypingEffect逐字揭晓+AppBottomSheet结果弹窗+可折叠奖品列表+剩余次数胶囊+金色脉冲按钮+API竞态处理+10s超时保护 | 2026-03-01 | `SpinWheel.tsx`, `WheelPointer.tsx`, `Confetti.tsx`, `effects/index.ts`, `lottery.tsx` |
 | 商品上下架兜底 | 购物车 `unavailableReason` 已下架/已停发角标 + 禁勾选/禁数量调整/仅可删除 + 统一 selectable 计数；结算页补传 `cartItemId`，过滤不可用奖品并提示 `excludedItems[]` | 2026-05-07 | `cart.tsx`, `checkout.tsx`, `useCartStore.ts`, `OrderRepo.ts`, `ServerCart.ts` |
+| 锁定奖品手动删除 | 锁定中的可用门槛赠品在购物车行内显示删除按钮；用户单个删除视为放弃奖品，后端删除 cartItem 并把 `LotteryRecord` 转为 `EXPIRED`，不恢复中奖名额；一键清空仍保留锁定可用赠品 | 2026-07-01 | `app/cart.tsx`, `backend/src/modules/cart/cart.service.ts`, `backend/src/modules/cart/cart-prize-lifecycle.spec.ts` |
 | 购物车奖品计数口径 | 购物车标题、首页/发现/商品详情/搜索/AI 推荐入口角标和语音结算判断统一使用可结算普通商品数量；锁定抽奖奖品继续留在购物车列表，但不再把奖品数量计入 `购物车(n)` 或入口角标 | 2026-07-01 | `app/cart.tsx`, `app/(tabs)/home.tsx`, `app/(tabs)/museum.tsx`, `app/product/[id].tsx`, `app/search.tsx`, `app/ai/recommend.tsx`, `src/hooks/useVoiceRecording.ts`, `src/store/useCartStore.ts`, `src/utils/cartCounts.ts` |
 | 订单退款交互修正 | 订单详情取消订单加二次确认和请求期防重复；申请售后预估退款按奖励抵扣、平台红包、VIP 折扣统一分摊；订单金额明细补充平台红包抵扣展示 | 2026-05-06 | `app/orders/[id].tsx`, `app/orders/after-sale/[id].tsx`, `src/types/domain/Order.ts` |
 | 订单再次购买 | 已完成普通商品订单调用 `POST /orders/:id/repurchase`，后端过滤奖品/下架/停业商户/平台商品/限购项并返回最新购物车；App 列表和详情 hydrate cart 后跳转购物车 | 2026-05-08 | `app/orders/index.tsx`, `app/orders/[id].tsx`, `src/repos/OrderRepo.ts`, `src/store/useCartStore.ts`, `src/components/cards/OrderCard.tsx`, `src/types/domain/Order.ts` |

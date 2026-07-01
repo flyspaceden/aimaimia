@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **锁定奖品手动删除入口**（2026-07-01 新增并完成）
+  - **来源**: 用户反馈锁定/冻结中的抽奖奖品不想要时无法删除，只能等倒计时过期才从购物车消失。
+  - **实际做了**: 购物车奖品行始终显示删除按钮；用户删除仍锁定的可用满额赠时，后端删除购物车项并把对应 `LotteryRecord` 置为 `EXPIRED`，视为用户主动放弃奖品且不恢复中奖名额；`clearCart` 仍保留锁定可用赠品，避免一键清空误删。
+  - **验证**: 先把后端生命周期用例改成失败回归测试；修复后 `npm test -- cart-prize-lifecycle.spec.ts --runInBand`、`npx jest --passWithNoTests --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit`、`DATABASE_URL='postgresql://user:pass@localhost:5432/aimaimai_validate' npx prisma validate`、`npm run prisma:delivery:generate && npx tsc --noEmit`（backend）和 `git diff --check` 通过。
+
 - [x] **购物车奖品计数口径修复**（2026-07-01 新增并完成）
   - **来源**: 用户截图反馈购物车只有 2 个锁定抽奖奖品，却显示 `购物车(31)`，其中一个奖品数量 `x30` 被错误算进购物车总数。
   - **实际做了**: 新增 `getCartDisplayQuantity`，购物车标题、首页/发现/商品详情/搜索/AI 推荐入口角标、语音结算判断和 `useCartStore.count()` 统一只统计可结算普通商品数量；锁定奖品仍保留在购物车列表和倒计时展示，但不污染普通购物车数量。
@@ -1517,7 +1522,7 @@
 
 ### Phase 1 — 逃生与防新增 stuck（代码完成，待 staging 真机验证）
 
-- [✅] **R-ST01** 购物车奖品生命周期修复 — `removePrizeItem` / `clearCart` 改为动态判定，仍锁定且可用赠品保留，不可用奖品允许删除并把 `LotteryRecord` 转 `EXPIRED`
+- [✅] **R-ST01** 购物车奖品生命周期修复 — `removePrizeItem` / `clearCart` 改为动态判定，`clearCart` 仍保留锁定且可用赠品；单个删除锁定赠品视为用户放弃并把 `LotteryRecord` 转 `EXPIRED`，不可用奖品也允许删除并转 `EXPIRED`
 - [✅] **R-ST02** 奖品可用性统一判断 — 抽奖、公开抽奖、奖品列表、claimToken 合并统一校验 `LotteryPrize + SKU + Product`
 - [✅] **R-ST03** 结算链路奖品软排除 — `previewOrder` / `createCheckoutSession` 先按 `cartItemId` 识别奖品；下架奖品进 `excludedItems[]`（含 `isPrize/prizeRecordId`），普通下架商品继续硬拦截
 - [✅] **R-ST04** 支付成功清理兜底 — `handlePaymentSuccess` 按 `cartItemId` + `prizeRecordId` 双路径删除已消费奖品 cartItem，并清理 `bizMeta.excludedPrizeItems` 中的软排除奖品
