@@ -110,8 +110,7 @@ export class HuolalaCarrierService {
       carrier_order_no: input.carrierOrderNo,
       outside_order_id: input.outsideOrderId,
     });
-    const status =
-      this.pickOptionalString(payload, [['data', 'status'], ['status']]) ?? 'UNKNOWN';
+    const status = this.pickString(payload, [['data', 'status'], ['status']]);
 
     return {
       provider: 'HUOLALA',
@@ -151,6 +150,14 @@ export class HuolalaCarrierService {
       cancel_reason: input.reason,
     });
 
+    const status = this.pickOptionalString(payload, [
+      ['data', 'status'],
+      ['status'],
+    ]);
+    if (!status && !this.hasHuolalaSuccessCode(payload)) {
+      throw new ServiceUnavailableException('货拉拉运力返回缺少必要字段');
+    }
+
     return {
       provider: 'HUOLALA',
       carrierOrderNo:
@@ -160,10 +167,7 @@ export class HuolalaCarrierService {
           ['order_no'],
           ['orderNo'],
         ]) ?? input.carrierOrderNo,
-      status: this.pickOptionalString(payload, [
-        ['data', 'status'],
-        ['status'],
-      ]) ?? 'UNKNOWN',
+      status: status ?? 'UNKNOWN',
       rawPayload: payload,
     };
   }
@@ -253,7 +257,10 @@ export class HuolalaCarrierService {
       throw new ServiceUnavailableException('货拉拉运力返回格式无效');
     }
 
-    return data as JsonRecord;
+    const payloadObject = data as JsonRecord;
+    this.assertHuolalaBusinessSuccess(payloadObject);
+
+    return payloadObject;
   }
 
   private buildSignedPayload(payload: JsonRecord, config: HuolalaConfig): JsonRecord {
@@ -406,5 +413,40 @@ export class HuolalaCarrierService {
     }
 
     return undefined;
+  }
+
+  private assertHuolalaBusinessSuccess(payload: JsonRecord) {
+    const code = this.pickOptionalValue(payload, [
+      ['code'],
+      ['errcode'],
+      ['status_code'],
+    ]);
+
+    if (code !== undefined && !this.isHuolalaSuccessCode(code)) {
+      throw new ServiceUnavailableException('货拉拉运力服务暂不可用，请稍后重试');
+    }
+  }
+
+  private hasHuolalaSuccessCode(payload: JsonRecord): boolean {
+    const code = this.pickOptionalValue(payload, [
+      ['code'],
+      ['errcode'],
+      ['status_code'],
+    ]);
+
+    return code !== undefined && this.isHuolalaSuccessCode(code);
+  }
+
+  private isHuolalaSuccessCode(code: unknown): boolean {
+    if (typeof code === 'number') {
+      return code === 0 || code === 200;
+    }
+
+    if (typeof code !== 'string') {
+      return false;
+    }
+
+    const normalized = code.trim().toUpperCase();
+    return normalized === '0' || normalized === '200' || normalized === 'OK' || normalized === 'SUCCESS';
   }
 }

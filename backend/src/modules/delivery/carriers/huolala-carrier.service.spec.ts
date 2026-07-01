@@ -228,4 +228,105 @@ describe('HuolalaCarrierService', () => {
       message: '货拉拉运力返回格式无效',
     });
   });
+
+  it('normalizes non-2xx responses into ServiceUnavailableException', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: jest.fn(),
+    });
+
+    await expect(service.quote(quoteRequest)).rejects.toMatchObject({
+      message: '货拉拉运力服务暂不可用，请稍后重试',
+    });
+  });
+
+  it.each([null, []])(
+    'rejects invalid top-level json payload %p with ServiceUnavailableException',
+    async (payload) => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue(payload),
+      });
+
+      await expect(service.quote(quoteRequest)).rejects.toMatchObject({
+        message: '货拉拉运力返回格式无效',
+      });
+    },
+  );
+
+  it('rejects quote responses missing required fields', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        data: {
+          price_calculate_id: 'price_calc_001',
+        },
+      }),
+    });
+
+    await expect(service.quote(quoteRequest)).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('rejects request-order responses missing required fields', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        data: {
+          status: 'driver_assigned',
+        },
+      }),
+    });
+
+    await expect(service.requestOrder({
+      ...quoteRequest,
+      priceCalculateId: 'price_calc_001',
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('rejects order-detail responses missing required status', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        data: {
+          order_no: 'hl-order-001',
+        },
+      }),
+    });
+
+    await expect(service.getOrderDetail({
+      outsideOrderId: 'pickup_batch_001',
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('rejects cancel 2xx business failure payloads', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        code: 'SIGN_ERROR',
+        message: 'bad sign',
+      }),
+    });
+
+    await expect(service.cancelOrder({
+      carrierOrderNo: 'hl-order-001',
+      reason: 'seller_request',
+    })).rejects.toMatchObject({
+      message: '货拉拉运力服务暂不可用，请稍后重试',
+    });
+  });
+
+  it('rejects cancel 2xx empty-object payloads', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({}),
+    });
+
+    await expect(service.cancelOrder({
+      carrierOrderNo: 'hl-order-001',
+      reason: 'seller_request',
+    })).rejects.toMatchObject({
+      message: '货拉拉运力返回缺少必要字段',
+    });
+  });
 });
