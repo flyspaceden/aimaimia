@@ -8,6 +8,7 @@ import {
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
 import { HuolalaCarrierService } from '../carriers/huolala-carrier.service';
+import { DeliveryAdminPickupController } from './delivery-admin-pickup.controller';
 import { DeliveryPickupService } from './delivery-pickup.service';
 
 describe('DeliveryPickupService admin flows', () => {
@@ -237,6 +238,75 @@ describe('DeliveryPickupService admin flows', () => {
     expect(huolalaCarrier.requestOrder).toHaveBeenCalledTimes(1);
   });
 
+  it('allows retry after Huolala quote failure leaves a carrier row without carrier order number', async () => {
+    huolalaCarrier.quote
+      .mockRejectedValueOnce(new Error('quote unavailable'))
+      .mockResolvedValueOnce({
+        provider: 'HUOLALA',
+        priceCalculateId: 'price_calc_retry',
+        estimatedFeeCents: 330,
+        rawPayload: { quote: 'retry-payload' },
+      });
+    tx.deliveryPickupBatch.findUnique
+      .mockResolvedValueOnce(buildBatch({ carrierOrders: [] }))
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.CALLING_CARRIER,
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: null,
+              priceCalculateId: null,
+              status: 'CALLING_CARRIER',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.CALLING_CARRIER,
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: null,
+              priceCalculateId: null,
+              status: 'CALLING_CARRIER',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValue(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: 'HL001',
+              priceCalculateId: 'price_calc_retry',
+              status: 'driver_assigned',
+            }),
+          ],
+        }),
+      );
+    tx.deliveryCarrierOrder.create.mockResolvedValue(
+      buildCarrierOrder({
+        id: 'PSCY0000000000001',
+        carrierOrderNo: null,
+        priceCalculateId: null,
+        status: 'CALLING_CARRIER',
+      }),
+    );
+    tx.deliveryShippingCostLedger.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.callHuolala('PSTH0000000000001', 'admin_1'),
+    ).rejects.toThrow('quote unavailable');
+
+    const result = await service.callHuolala('PSTH0000000000001', 'admin_1');
+
+    expect(tx.deliveryCarrierOrder.create).toHaveBeenCalledTimes(1);
+    expect(huolalaCarrier.quote).toHaveBeenCalledTimes(2);
+    expect(huolalaCarrier.requestOrder).toHaveBeenCalledTimes(1);
+    expect(result.latestCarrierOrder?.carrierOrderNo).toBe('HL001');
+  });
+
   it('syncs carrier detail and updates actual cost ledger idempotently', async () => {
     tx.deliveryPickupBatch.findUnique
       .mockResolvedValueOnce(
@@ -339,6 +409,18 @@ describe('DeliveryPickupService admin flows', () => {
     expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('rejects non-integer manual cost adjustment strings before writing ledger', async () => {
+    await expect(
+      service.manualAdjustCost('PSTH0000000000001', 'admin_1', '100abc' as any, 'manual fix'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.manualAdjustCost('PSTH0000000000001', 'admin_1', '10.5' as any, 'manual fix'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.deliveryShippingCostLedger.create).not.toHaveBeenCalled();
+  });
+
   it('rejects loaded delivering completed cancellation and accepts cancellable status', async () => {
     for (const status of [
       DeliveryPickupBatchStatus.LOADED,
@@ -366,11 +448,11 @@ describe('DeliveryPickupService admin flows', () => {
       )
       .mockResolvedValueOnce(
         buildBatch({
-          status: DeliveryPickupBatchStatus.CANCELED,
+          status: DeliveryPickupBatchStatus.WAITING_DRIVER,
           carrierOrders: [
             buildCarrierOrder({
               carrierOrderNo: 'HL001',
-              status: 'canceled',
+              status: 'waiting_driver',
             }),
           ],
         }),
@@ -394,6 +476,52 @@ describe('DeliveryPickupService admin flows', () => {
       reason: 'changed',
     });
     expect(result.status).toBe(DeliveryPickupBatchStatus.CANCELED);
+  });
+
+  it('re-checks latest batch status before final cancel write and refuses loaded batches', async () => {
+    tx.deliveryPickupBatch.findUnique
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.WAITING_DRIVER,
+          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.LOADED,
+          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
+        }),
+      );
+
+    await expect(
+      service.cancelCarrier('PSTH0000000000001', 'admin_1', 'changed'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(huolalaCarrier.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(tx.deliveryPickupBatch.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: DeliveryPickupBatchStatus.CANCELED,
+        }),
+      }),
+    );
+    expect(tx.deliveryCarrierOrder.update).not.toHaveBeenCalled();
+  });
+
+  it('passes raw manual adjustment amount strings from controller to strict service validation', async () => {
+    const controllerService = {
+      manualAdjustCost: jest.fn().mockResolvedValue({ ok: true }),
+    };
+    const controller = new DeliveryAdminPickupController(controllerService as any);
+
+    await controller.manualAdjustCost('admin_1', 'PSTH0000000000001', '100abc', 'manual fix');
+
+    expect(controllerService.manualAdjustCost).toHaveBeenCalledWith(
+      'PSTH0000000000001',
+      'admin_1',
+      '100abc',
+      'manual fix',
+    );
   });
 });
 

@@ -69,7 +69,7 @@ export class DeliveryAdminPickupController {
     return this.deliveryPickupService.manualAdjustCost(
       id,
       deliveryAdminUserId,
-      typeof amountCents === 'string' ? parseInt(amountCents, 10) : Number(amountCents),
+      amountCents,
       remark ?? '',
     );
   }

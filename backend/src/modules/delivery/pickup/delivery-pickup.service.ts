@@ -391,14 +391,7 @@ export class DeliveryPickupService {
     }
 
     const batch = await this.loadBatch(this.deliveryPrisma, batchId);
-    const nonCancelableStatuses: DeliveryPickupBatchStatus[] = [
-        DeliveryPickupBatchStatus.LOADED,
-        DeliveryPickupBatchStatus.DELIVERING,
-        DeliveryPickupBatchStatus.COMPLETED,
-    ];
-    if (nonCancelableStatuses.includes(batch.status)) {
-      throw new BadRequestException(`该提货批次当前状态不可取消: ${batch.status}`);
-    }
+    this.assertCancelableBatch(batch);
     const carrierOrder = this.latestCarrierOrder(batch);
     if (!carrierOrder?.carrierOrderNo) {
       throw new BadRequestException('该提货批次尚未叫车，无法取消货拉拉订单');
@@ -412,8 +405,13 @@ export class DeliveryPickupService {
     await this.deliveryPrisma.$transaction(
       async (tx) => {
         const latestBatch = await this.loadBatch(tx, batchId);
+        this.assertCancelableBatch(latestBatch);
+        const latestCarrierOrder = this.latestCarrierOrder(latestBatch);
+        if (!latestCarrierOrder?.carrierOrderNo) {
+          throw new BadRequestException('该提货批次尚未叫车，无法取消货拉拉订单');
+        }
         await tx.deliveryCarrierOrder.update({
-          where: { id: carrierOrder.id },
+          where: { id: latestCarrierOrder.id },
           data: {
             status: cancelResult.status,
             cancelPayload: this.toJson(cancelResult.rawPayload),
@@ -450,14 +448,11 @@ export class DeliveryPickupService {
   async manualAdjustCost(
     batchId: string,
     adminId: string,
-    amountCents: number,
+    amountCents: number | string | undefined,
     remark: string,
   ): Promise<DeliveryPickupBatchView> {
     this.assertAdminActor(adminId);
-    const normalizedAmount = Number(amountCents);
-    if (!Number.isFinite(normalizedAmount) || !Number.isInteger(normalizedAmount) || normalizedAmount === 0) {
-      throw new BadRequestException('调整金额必须是非零整数分');
-    }
+    const normalizedAmount = this.parseManualAdjustmentAmount(amountCents);
     const trimmedRemark = remark?.trim();
     if (!trimmedRemark) {
       throw new BadRequestException('成本调整备注不能为空');
@@ -592,7 +587,6 @@ export class DeliveryPickupService {
       throw new BadRequestException('该提货批次已叫车，请勿重复操作');
     }
     const alreadyCallingOrDispatchedStatuses: DeliveryPickupBatchStatus[] = [
-      DeliveryPickupBatchStatus.CALLING_CARRIER,
       DeliveryPickupBatchStatus.WAITING_DRIVER,
       DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
       DeliveryPickupBatchStatus.ARRIVED,
@@ -601,6 +595,18 @@ export class DeliveryPickupService {
     ];
     if (alreadyCallingOrDispatchedStatuses.includes(batch.status)) {
       throw new BadRequestException(`该提货批次当前状态不可重复叫车: ${batch.status}`);
+    }
+  }
+
+  private assertCancelableBatch(batch: PickupBatchWithAdminInclude) {
+    const nonCancelableStatuses: DeliveryPickupBatchStatus[] = [
+      DeliveryPickupBatchStatus.LOADED,
+      DeliveryPickupBatchStatus.DELIVERING,
+      DeliveryPickupBatchStatus.COMPLETED,
+      DeliveryPickupBatchStatus.CANCELED,
+    ];
+    if (nonCancelableStatuses.includes(batch.status)) {
+      throw new BadRequestException(`该提货批次当前状态不可取消: ${batch.status}`);
     }
   }
 
@@ -998,6 +1004,26 @@ export class DeliveryPickupService {
 
   private cents(value: number | null | undefined) {
     return Number.isFinite(value) ? Math.trunc(value ?? 0) : 0;
+  }
+
+  private parseManualAdjustmentAmount(value: number | string | undefined) {
+    let normalizedAmount: number;
+    if (typeof value === 'number') {
+      normalizedAmount = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!/^-?\d+$/.test(trimmed)) {
+        throw new BadRequestException('调整金额必须是非零整数分');
+      }
+      normalizedAmount = Number(trimmed);
+    } else {
+      throw new BadRequestException('调整金额必须是非零整数分');
+    }
+
+    if (!Number.isSafeInteger(normalizedAmount) || normalizedAmount === 0) {
+      throw new BadRequestException('调整金额必须是非零整数分');
+    }
+    return normalizedAmount;
   }
 
   private getAddressPart(record: Record<string, unknown>, keys: string[]) {
