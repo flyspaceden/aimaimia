@@ -88,6 +88,22 @@ export type DeliveryPickupBatchView = {
   updatedAt: Date;
 };
 
+type DeliverySellerCarrierOrderView = Omit<
+  NonNullable<DeliveryPickupBatchView['latestCarrierOrder']>,
+  'priceCalculateId' | 'estimatedFeeCents' | 'actualFeeCents'
+>;
+
+export type DeliverySellerPickupBatchView = Omit<
+  DeliveryPickupBatchView,
+  | 'prepaidPickupShippingFeeCents'
+  | 'estimatedShippingFeeCents'
+  | 'actualCarrierCostCents'
+  | 'shippingCostDiffCents'
+  | 'latestCarrierOrder'
+> & {
+  latestCarrierOrder: DeliverySellerCarrierOrderView | null;
+};
+
 type DeliveryPrismaTransaction = Prisma.TransactionClient;
 
 const HUOLALA_QUOTE_TTL_MS = 10 * 60 * 1000;
@@ -192,6 +208,172 @@ export class DeliveryPickupService {
       page,
       pageSize,
     };
+  }
+
+  async listSellerPickupBatches(
+    merchantId: string,
+    query: DeliveryPickupAdminQuery,
+  ): Promise<{
+    items: DeliverySellerPickupBatchView[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    this.assertSellerMerchant(merchantId);
+    const page = this.parsePositiveInt(query.page, 1);
+    const pageSize = Math.min(this.parsePositiveInt(query.pageSize, 20), 100);
+    const skip = (page - 1) * pageSize;
+    const where = this.buildBatchWhere({
+      ...query,
+      merchantId: merchantId.trim(),
+    });
+
+    const [total, batches] = await Promise.all([
+      this.deliveryPrisma.deliveryPickupBatch.count({ where }),
+      this.deliveryPrisma.deliveryPickupBatch.findMany({
+        where,
+        include: this.getAdminBatchInclude(),
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+      }),
+    ]);
+
+    return {
+      items: batches.map((batch) => this.mapSellerBatchView(batch)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async getSellerPickupBatch(
+    merchantId: string,
+    batchId: string,
+  ): Promise<DeliverySellerPickupBatchView> {
+    this.assertSellerMerchant(merchantId);
+    const batch = await this.loadSellerBatch(this.deliveryPrisma, merchantId, batchId);
+    return this.mapSellerBatchView(batch);
+  }
+
+  async markReady(
+    merchantId: string,
+    staffId: string,
+    batchId: string,
+  ): Promise<DeliverySellerPickupBatchView> {
+    this.assertSellerActor(merchantId, staffId);
+
+    await this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const batch = await this.loadSellerBatch(tx, merchantId, batchId);
+        this.assertSellerReadyTransition(batch);
+
+        await tx.deliveryPickupBatch.update({
+          where: { id: batch.id },
+          data: {
+            status: DeliveryPickupBatchStatus.READY_TO_CALL,
+            readyAt: batch.readyAt ?? new Date(),
+            lastOperatorType: DeliveryAuditActorType.SELLER,
+            lastOperatorId: staffId,
+          },
+        });
+        await this.refreshPickupStatuses(tx, batch.orderId, batch.subOrderId);
+        await this.writeSellerAuditLog(tx, staffId, {
+          action: 'SELLER_MARK_READY',
+          targetId: batch.id,
+          summary: '配送中心标记提货批次已备货',
+          before: this.toAuditPayload(batch),
+          after: {
+            status: DeliveryPickupBatchStatus.READY_TO_CALL,
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    return this.getSellerPickupBatch(merchantId, batchId);
+  }
+
+  async markLoaded(
+    merchantId: string,
+    staffId: string,
+    batchId: string,
+  ): Promise<DeliverySellerPickupBatchView> {
+    this.assertSellerActor(merchantId, staffId);
+
+    await this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const batch = await this.loadSellerBatch(tx, merchantId, batchId);
+        this.assertSellerLoadedTransition(batch);
+
+        await tx.deliveryPickupBatch.update({
+          where: { id: batch.id },
+          data: {
+            status: DeliveryPickupBatchStatus.LOADED,
+            loadedAt: batch.loadedAt ?? new Date(),
+            lastOperatorType: DeliveryAuditActorType.SELLER,
+            lastOperatorId: staffId,
+          },
+        });
+        await this.refreshPickupStatuses(tx, batch.orderId, batch.subOrderId);
+        await this.writeSellerAuditLog(tx, staffId, {
+          action: 'SELLER_MARK_LOADED',
+          targetId: batch.id,
+          summary: '配送中心标记提货批次已装车',
+          before: this.toAuditPayload(batch),
+          after: {
+            status: DeliveryPickupBatchStatus.LOADED,
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    return this.getSellerPickupBatch(merchantId, batchId);
+  }
+
+  async reportException(
+    merchantId: string,
+    staffId: string,
+    batchId: string,
+    message: string,
+  ): Promise<DeliverySellerPickupBatchView> {
+    this.assertSellerActor(merchantId, staffId);
+    const trimmedMessage = message?.trim();
+    if (!trimmedMessage) {
+      throw new BadRequestException('异常说明不能为空');
+    }
+
+    await this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const batch = await this.loadSellerBatch(tx, merchantId, batchId);
+        this.assertSellerExceptionTransition(batch);
+
+        await tx.deliveryPickupBatch.update({
+          where: { id: batch.id },
+          data: {
+            status: DeliveryPickupBatchStatus.EXCEPTION,
+            remark: trimmedMessage,
+            lastOperatorType: DeliveryAuditActorType.SELLER,
+            lastOperatorId: staffId,
+          },
+        });
+        await this.refreshPickupStatuses(tx, batch.orderId, batch.subOrderId);
+        await this.writeSellerAuditLog(tx, staffId, {
+          action: 'SELLER_REPORT_EXCEPTION',
+          targetId: batch.id,
+          summary: '配送中心上报提货异常',
+          before: this.toAuditPayload(batch),
+          after: {
+            status: DeliveryPickupBatchStatus.EXCEPTION,
+            message: trimmedMessage,
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    return this.getSellerPickupBatch(merchantId, batchId);
   }
 
   async callHuolala(batchId: string, adminId: string): Promise<DeliveryPickupBatchView> {
@@ -525,6 +707,24 @@ export class DeliveryPickupService {
     return batch;
   }
 
+  private async loadSellerBatch(
+    client: Pick<DeliveryPrismaService, 'deliveryPickupBatch'>,
+    merchantId: string,
+    batchId: string,
+  ) {
+    const batch = await client.deliveryPickupBatch.findFirst({
+      where: {
+        id: batchId,
+        merchantId: merchantId.trim(),
+      },
+      include: this.getAdminBatchInclude(),
+    });
+    if (!batch) {
+      throw new NotFoundException('提货批次不存在');
+    }
+    return batch;
+  }
+
   private getAdminBatchInclude() {
     return DELIVERY_PICKUP_ADMIN_BATCH_INCLUDE;
   }
@@ -571,6 +771,49 @@ export class DeliveryPickupService {
   private assertAdminActor(adminId: string) {
     if (!adminId?.trim()) {
       throw new BadRequestException('缺少管理员操作人');
+    }
+  }
+
+  private assertSellerMerchant(merchantId: string) {
+    if (!merchantId?.trim()) {
+      throw new BadRequestException('缺少配送商家');
+    }
+  }
+
+  private assertSellerActor(merchantId: string, staffId: string) {
+    this.assertSellerMerchant(merchantId);
+    if (!staffId?.trim()) {
+      throw new BadRequestException('缺少配送中心操作人');
+    }
+  }
+
+  private assertSellerReadyTransition(batch: PickupBatchWithAdminInclude) {
+    const allowedStatuses: DeliveryPickupBatchStatus[] = [
+      DeliveryPickupBatchStatus.PLANNED,
+      DeliveryPickupBatchStatus.EXCEPTION,
+    ];
+    if (!allowedStatuses.includes(batch.status)) {
+      throw new BadRequestException(`该提货批次当前状态不可标记备货: ${batch.status}`);
+    }
+  }
+
+  private assertSellerLoadedTransition(batch: PickupBatchWithAdminInclude) {
+    const allowedStatuses: DeliveryPickupBatchStatus[] = [
+      DeliveryPickupBatchStatus.ARRIVED,
+      DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
+    ];
+    if (!allowedStatuses.includes(batch.status)) {
+      throw new BadRequestException(`该提货批次当前状态不可标记装车: ${batch.status}`);
+    }
+  }
+
+  private assertSellerExceptionTransition(batch: PickupBatchWithAdminInclude) {
+    const terminalStatuses: DeliveryPickupBatchStatus[] = [
+      DeliveryPickupBatchStatus.COMPLETED,
+      DeliveryPickupBatchStatus.CANCELED,
+    ];
+    if (terminalStatuses.includes(batch.status)) {
+      throw new BadRequestException(`该提货批次当前状态不可上报异常: ${batch.status}`);
     }
   }
 
@@ -920,6 +1163,64 @@ export class DeliveryPickupService {
         after: this.toJson(input.after),
       },
     });
+  }
+
+  private async writeSellerAuditLog(
+    tx: DeliveryPrismaTransaction,
+    staffId: string,
+    input: {
+      action: string;
+      targetId: string;
+      summary: string;
+      before: unknown;
+      after: unknown;
+    },
+  ) {
+    await tx.deliveryAuditLog.create({
+      data: {
+        actorType: DeliveryAuditActorType.SELLER,
+        actorId: staffId,
+        module: 'delivery-pickup',
+        action: input.action,
+        targetType: 'DeliveryPickupBatch',
+        targetId: input.targetId,
+        summary: input.summary,
+        before: this.toJson(input.before),
+        after: this.toJson(input.after),
+      },
+    });
+  }
+
+  private mapSellerBatchView(batch: PickupBatchWithAdminInclude): DeliverySellerPickupBatchView {
+    const view = this.mapBatchView(batch);
+    const {
+      prepaidPickupShippingFeeCents: _prepaidPickupShippingFeeCents,
+      estimatedShippingFeeCents: _estimatedShippingFeeCents,
+      actualCarrierCostCents: _actualCarrierCostCents,
+      shippingCostDiffCents: _shippingCostDiffCents,
+      latestCarrierOrder,
+      ...sellerView
+    } = view;
+
+    return {
+      ...sellerView,
+      latestCarrierOrder: latestCarrierOrder
+        ? {
+            id: latestCarrierOrder.id,
+            provider: latestCarrierOrder.provider,
+            outsideOrderId: latestCarrierOrder.outsideOrderId,
+            carrierOrderNo: latestCarrierOrder.carrierOrderNo,
+            cityId: latestCarrierOrder.cityId,
+            vehicleId: latestCarrierOrder.vehicleId,
+            status: latestCarrierOrder.status,
+            driverSnapshot: latestCarrierOrder.driverSnapshot,
+            vehicleSnapshot: latestCarrierOrder.vehicleSnapshot,
+            lastSyncedAt: latestCarrierOrder.lastSyncedAt,
+            createdAt: latestCarrierOrder.createdAt,
+            updatedAt: latestCarrierOrder.updatedAt,
+          }
+        : null,
+    };
   }
 
   private mapBatchView(batch: PickupBatchWithAdminInclude): DeliveryPickupBatchView {

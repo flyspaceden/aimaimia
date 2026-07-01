@@ -64,6 +64,7 @@ import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.servi
 import { DeliveryPickupPlanService } from './pickup/delivery-pickup-plan.service';
 import { DeliveryPickupService } from './pickup/delivery-pickup.service';
 import { DeliveryAdminPickupController } from './pickup/delivery-admin-pickup.controller';
+import { DeliverySellerPickupController } from './pickup/delivery-seller-pickup.controller';
 import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
 
 @Module({
@@ -112,6 +113,7 @@ import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
     DeliveryAdminStatsController,
     DeliveryAdminOpsController,
     DeliveryAdminPickupController,
+    DeliverySellerPickupController,
     DeliverySellerOpsController,
     DeliverySellerPublicController,
     DeliverySellerUploadController,

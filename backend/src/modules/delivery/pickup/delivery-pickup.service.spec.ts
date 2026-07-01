@@ -1,5 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
+  DeliveryAuditActorType,
   DeliveryCarrierProvider,
   DeliveryPickupBatchStatus,
   DeliveryShippingCostLedgerType,
@@ -523,6 +524,290 @@ describe('DeliveryPickupService admin flows', () => {
       'manual fix',
     );
   });
+
+  describe('DeliveryPickupService seller flows', () => {
+    it('lists only batches for the seller merchantId', async () => {
+      deliveryPrisma.deliveryPickupBatch.count.mockResolvedValue(1);
+      deliveryPrisma.deliveryPickupBatch.findMany.mockResolvedValue([
+        buildBatch({
+          status: DeliveryPickupBatchStatus.PLANNED,
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: 'HL001',
+              priceCalculateId: 'price_calc_001',
+              estimatedFeeCents: 320,
+              actualFeeCents: 380,
+            }),
+          ],
+        }),
+      ]);
+
+      const result = await service.listSellerPickupBatches('merchant_1', {
+        page: '2',
+        pageSize: '5',
+        status: DeliveryPickupBatchStatus.PLANNED,
+      });
+
+      expect(deliveryPrisma.deliveryPickupBatch.count).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          merchantId: 'merchant_1',
+          status: DeliveryPickupBatchStatus.PLANNED,
+        }),
+      });
+      expect(deliveryPrisma.deliveryPickupBatch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            merchantId: 'merchant_1',
+            status: DeliveryPickupBatchStatus.PLANNED,
+          }),
+          skip: 5,
+          take: 5,
+        }),
+      );
+      expect(result).toMatchObject({
+        total: 1,
+        page: 2,
+        pageSize: 5,
+      });
+      expect(result.items).toHaveLength(1);
+      assertSellerPickupBatchHidesCosts(result.items[0]);
+    });
+
+    it('omits prepaid and actual freight fields from seller batch views', async () => {
+      deliveryPrisma.deliveryPickupBatch.findFirst.mockResolvedValue(
+        buildBatch({
+          estimatedShippingFeeCents: 600,
+          actualCarrierCostCents: 760,
+          shippingCostDiffCents: 160,
+          costLedgers: [{ id: 'ledger_estimate_1', amountCents: 600 }],
+          costLedgersBySubOrder: [{ id: 'ledger_actual_1', amountCents: 760 }],
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: 'HL001',
+              priceCalculateId: 'price_calc_001',
+              estimatedFeeCents: 600,
+              actualFeeCents: 760,
+              driverSnapshot: { name: 'driver-a' },
+              vehicleSnapshot: { plateNo: '粤A12345' },
+            }),
+          ],
+        }),
+      );
+
+      const result = await service.getSellerPickupBatch('merchant_1', 'PSTH0000000000001');
+
+      expect(deliveryPrisma.deliveryPickupBatch.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: 'PSTH0000000000001',
+            merchantId: 'merchant_1',
+          },
+        }),
+      );
+      expect(result).toMatchObject({
+        id: 'PSTH0000000000001',
+        merchantId: 'merchant_1',
+        latestCarrierOrder: expect.objectContaining({
+          carrierOrderNo: 'HL001',
+          driverSnapshot: { name: 'driver-a' },
+          vehicleSnapshot: { plateNo: '粤A12345' },
+        }),
+      });
+      assertSellerPickupBatchHidesCosts(result);
+    });
+
+    it('marks a planned batch ready and writes seller audit log', async () => {
+      tx.deliveryPickupBatch.findFirst
+        .mockResolvedValueOnce(buildBatch({ status: DeliveryPickupBatchStatus.PLANNED }))
+        .mockResolvedValueOnce(
+          buildBatch({
+            status: DeliveryPickupBatchStatus.READY_TO_CALL,
+            readyAt: now,
+          }),
+        );
+
+      const result = await service.markReady(
+        'merchant_1',
+        'staff_1',
+        'PSTH0000000000001',
+      );
+
+      expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+        where: { id: 'PSTH0000000000001' },
+        data: expect.objectContaining({
+          status: DeliveryPickupBatchStatus.READY_TO_CALL,
+          readyAt: now,
+          lastOperatorType: DeliveryAuditActorType.SELLER,
+          lastOperatorId: 'staff_1',
+        }),
+      });
+      expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorType: DeliveryAuditActorType.SELLER,
+          actorId: 'staff_1',
+          module: 'delivery-pickup',
+          action: 'SELLER_MARK_READY',
+          targetId: 'PSTH0000000000001',
+        }),
+      });
+      expect(result.status).toBe(DeliveryPickupBatchStatus.READY_TO_CALL);
+      assertSellerPickupBatchHidesCosts(result);
+    });
+
+    it('marks an arrived batch loaded and does not complete quantities until carrier completion sync', async () => {
+      tx.deliveryPickupBatch.findFirst
+        .mockResolvedValueOnce(
+          buildBatch({
+            status: DeliveryPickupBatchStatus.ARRIVED,
+          }),
+        )
+        .mockResolvedValueOnce(
+          buildBatch({
+            status: DeliveryPickupBatchStatus.LOADED,
+            loadedAt: now,
+            items: [
+              {
+                id: 'batch_item_1',
+                batchId: 'PSTH0000000000001',
+                subOrderId: 'PSZDD000000000001',
+                orderItemId: 'order_item_1',
+                skuId: 'sku_1',
+                productSnapshot: {
+                  productTitle: '西红柿',
+                  skuTitle: '5kg/箱',
+                  unitName: '箱',
+                },
+                quantity: 2,
+                pickedQuantity: 0,
+                createdAt: new Date('2026-06-30T10:00:00.000Z'),
+              },
+            ],
+          }),
+        );
+
+      const result = await service.markLoaded(
+        'merchant_1',
+        'staff_1',
+        'PSTH0000000000001',
+      );
+
+      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+        where: { id: 'PSTH0000000000001' },
+        data: expect.objectContaining({
+          status: DeliveryPickupBatchStatus.LOADED,
+          loadedAt: now,
+          lastOperatorType: DeliveryAuditActorType.SELLER,
+          lastOperatorId: 'staff_1',
+        }),
+      });
+      expect(tx.deliveryPickupBatchItem.updateMany).not.toHaveBeenCalled();
+      expect(result.status).toBe(DeliveryPickupBatchStatus.LOADED);
+      expect(result.items[0]).toMatchObject({
+        quantity: 2,
+        pickedQuantity: 0,
+      });
+      assertSellerPickupBatchHidesCosts(result);
+    });
+
+    it('records seller exception reports without exposing cost fields', async () => {
+      tx.deliveryPickupBatch.findFirst
+        .mockResolvedValueOnce(
+          buildBatch({
+            status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
+            estimatedShippingFeeCents: 600,
+            actualCarrierCostCents: 760,
+            shippingCostDiffCents: 160,
+            carrierOrders: [
+              buildCarrierOrder({
+                carrierOrderNo: 'HL001',
+                estimatedFeeCents: 600,
+                actualFeeCents: 760,
+              }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          buildBatch({
+            status: DeliveryPickupBatchStatus.EXCEPTION,
+            remark: '司机联系不上',
+            estimatedShippingFeeCents: 600,
+            actualCarrierCostCents: 760,
+            shippingCostDiffCents: 160,
+            carrierOrders: [
+              buildCarrierOrder({
+                carrierOrderNo: 'HL001',
+                estimatedFeeCents: 600,
+                actualFeeCents: 760,
+              }),
+            ],
+          }),
+        );
+
+      const result = await service.reportException(
+        'merchant_1',
+        'staff_1',
+        'PSTH0000000000001',
+        '  司机联系不上  ',
+      );
+
+      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+        where: { id: 'PSTH0000000000001' },
+        data: expect.objectContaining({
+          status: DeliveryPickupBatchStatus.EXCEPTION,
+          remark: '司机联系不上',
+          lastOperatorType: DeliveryAuditActorType.SELLER,
+          lastOperatorId: 'staff_1',
+        }),
+      });
+      expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorType: DeliveryAuditActorType.SELLER,
+          actorId: 'staff_1',
+          module: 'delivery-pickup',
+          action: 'SELLER_REPORT_EXCEPTION',
+          targetId: 'PSTH0000000000001',
+        }),
+      });
+      expect(result).toMatchObject({
+        status: DeliveryPickupBatchStatus.EXCEPTION,
+      });
+      assertSellerPickupBatchHidesCosts(result);
+    });
+
+    it('rejects operations for wrong merchantId and terminal statuses', async () => {
+      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.markReady('merchant_other', 'staff_1', 'PSTH0000000000001'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
+        buildBatch({ status: DeliveryPickupBatchStatus.COMPLETED }),
+      );
+      await expect(
+        service.markReady('merchant_1', 'staff_1', 'PSTH0000000000001'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
+        buildBatch({ status: DeliveryPickupBatchStatus.PLANNED }),
+      );
+      await expect(
+        service.markLoaded('merchant_1', 'staff_1', 'PSTH0000000000001'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
+        buildBatch({ status: DeliveryPickupBatchStatus.CANCELED }),
+      );
+      await expect(
+        service.reportException('merchant_1', 'staff_1', 'PSTH0000000000001', '异常'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(tx.deliveryPickupBatch.update).not.toHaveBeenCalled();
+      expect(tx.deliveryAuditLog.create).not.toHaveBeenCalled();
+    });
+  });
 });
 
 function createPrismaMock() {
@@ -537,8 +822,12 @@ function createPrismaMock() {
       }),
       count: jest.fn(),
       findMany: jest.fn().mockResolvedValue([{ status: DeliveryPickupBatchStatus.DELIVERING }]),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+    },
+    deliveryPickupBatchItem: {
+      updateMany: jest.fn(),
     },
     deliveryCarrierOrder: {
       create: jest.fn(),
@@ -567,6 +856,25 @@ function createPrismaMock() {
       create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
     },
   };
+}
+
+function assertSellerPickupBatchHidesCosts(batch: Record<string, any>) {
+  for (const field of [
+    'prepaidShippingFeeCents',
+    'prepaidPickupShippingFeeCents',
+    'estimatedShippingFeeCents',
+    'actualCarrierCostCents',
+    'shippingCostDiffCents',
+    'costLedgers',
+    'costLedgersBySubOrder',
+  ]) {
+    expect(batch).not.toHaveProperty(field);
+  }
+  if (batch.latestCarrierOrder) {
+    for (const field of ['priceCalculateId', 'estimatedFeeCents', 'actualFeeCents']) {
+      expect(batch.latestCarrierOrder).not.toHaveProperty(field);
+    }
+  }
 }
 
 function buildBatch(overrides: Record<string, unknown> = {}) {
