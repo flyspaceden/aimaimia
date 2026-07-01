@@ -300,6 +300,11 @@
   - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、配送专属结算与支付状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射；补 delivery 专属 `checkout/:id/pay` 发起支付参数接口，App 走原生支付宝 / 微信 SDK；配送支付回调建单后同事务清理本次 checkout 对应的 `DeliveryCartItem`
   - **验证**: `npx tsc --noEmit --pretty false`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/checkout/delivery-checkout.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build`、`git diff --check`；其中真实支付宝 / 微信 provider 回调仍待实机联调验证，当前仅完成代码链路与单测验证
 
+- [x] **配送一次付款多次提货买家 App 体验（Task 6）**（2026-06-30 新增并完成）
+  - **来源**: isolated worktree `delivery-partial-pickup-huolala` / Task 6 brief
+  - **实际做了**: 配送结算页新增“提货安排”控制区，支持 1 / 2 / 3 / 自定义提货次数，默认按数量均分提货计划并在多批次锁单前调用 `/delivery/checkout/estimate-pickups` 预估预收提货运费；订单列表展示多批次提货状态，订单详情对有 `pickupBatches` 的订单展示商品已购/已提/剩余数量、批次状态、承运单号、司机/车辆和完成时间，无批次老订单保留原物流信息；后端 buyer order 读接口补 pickupBatches / pickedQuantity / remainingQuantity 映射，且不向买家返回平台实际承运成本、成本差额或成本流水。
+  - **验证**: `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand`、`npx tsc --noEmit`、`cd backend && npm test -- delivery-orders.service.spec.ts --runInBand`、`git diff --check`。
+
 - [x] **配送管理后台壳（Task 14）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 14 brief
   - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标

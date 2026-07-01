@@ -16,6 +16,33 @@ import {
   useDeliveryTheme,
 } from '../_components';
 
+const pickupStatusLabels: Record<string, string> = {
+  NOT_STARTED: '待提货',
+  PARTIAL_PICKED: '部分提货中',
+  ALL_PICKED: '已全部提货',
+  CANCELED: '提货已取消',
+};
+
+const pickupBatchStatusLabels: Record<string, string> = {
+  PLANNED: '计划中',
+  READY_TO_CALL: '待叫车',
+  CALLING_CARRIER: '叫车中',
+  WAITING_DRIVER: '等待司机',
+  DRIVER_ASSIGNED: '司机已接单',
+  ARRIVED: '已到达',
+  LOADED: '已装货',
+  DELIVERING: '配送中',
+  COMPLETED: '已完成',
+  CANCELED: '已取消',
+  EXCEPTION: '异常',
+};
+
+const carrierProviderLabels: Record<string, string> = {
+  HUOLALA: '货拉拉',
+  SF: '顺丰',
+  MANUAL: '人工安排',
+};
+
 export default function DeliveryOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { show } = useToast();
@@ -65,6 +92,7 @@ export default function DeliveryOrderDetailScreen() {
   }
 
   const order = query.data.data;
+  const hasPickupBatches = order.pickupBatches.length > 0;
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -129,39 +157,125 @@ export default function DeliveryOrderDetailScreen() {
             金额汇总
           </Text>
           <Row label="商品金额" value={formatDeliveryMoney(order.goodsAmount)} />
-          <Row label="配送运费" value={formatDeliveryMoney(order.shippingFee)} />
+          <Row
+            label={hasPickupBatches || order.pickupMode === 'MULTI_BATCH' ? '预收提货运费' : '配送运费'}
+            value={formatDeliveryMoney(
+              hasPickupBatches || order.pickupMode === 'MULTI_BATCH'
+                ? order.prepaidPickupShippingFee
+                : order.shippingFee,
+            )}
+          />
           <Row label="应付合计" value={formatDeliveryMoney(order.totalAmount)} emphasize />
         </DeliveryPanel>
 
-        <DeliveryPanel style={{ marginBottom: spacing.md }}>
-          <Text style={[typography.headingSm, { color: palette.text.primary, marginBottom: spacing.md }]}>
-            物流信息
-          </Text>
-          {order.shipments.length === 0 ? (
-            <Text style={[typography.bodySm, { color: palette.text.secondary }]}>暂未发货</Text>
-          ) : (
-            <View style={{ gap: spacing.md }}>
-              {order.shipments.map((shipment) => (
-                <View key={shipment.id}>
-                  <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
-                    {shipment.carrierName} · {shipment.waybillNo || '待回填单号'}
+        {hasPickupBatches ? (
+          <DeliveryPanel style={{ marginBottom: spacing.md }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md }}>
+              <Text style={[typography.headingSm, { color: palette.text.primary }]}>
+                提货进度
+              </Text>
+              <Text style={[typography.caption, { color: palette.brand.primaryDark }]} numberOfLines={1}>
+                {pickupStatusLabels[order.pickupStatus] ?? order.pickupStatus}
+              </Text>
+            </View>
+            <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
+              预计 {order.plannedPickupCount} 次提货 · 已预收 {formatDeliveryMoney(order.prepaidPickupShippingFee)}
+            </Text>
+
+            <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+              {order.items.map((item) => (
+                <View key={item.id}>
+                  <Text style={[typography.bodyStrong, { color: palette.text.primary }]} numberOfLines={1}>
+                    {item.productTitle}
                   </Text>
                   <Text style={[typography.caption, { color: palette.text.secondary, marginTop: 2 }]}>
-                    {shipment.status}
-                    {shipment.shippedAt ? ` · 发货于 ${new Date(shipment.shippedAt).toLocaleString()}` : ''}
+                    已购 {item.quantity}{item.unitName} · 已提 {item.pickedQuantity}{item.unitName} · 剩余 {item.remainingQuantity}{item.unitName}
                   </Text>
-                  {shipment.waybillUrl ? (
-                    <Pressable onPress={() => Linking.openURL(shipment.waybillUrl!)}>
-                      <Text style={[typography.caption, { color: palette.brand.primaryDark, marginTop: spacing.xs }]}>
-                        打开面单
-                      </Text>
-                    </Pressable>
-                  ) : null}
                 </View>
               ))}
             </View>
-          )}
-        </DeliveryPanel>
+
+            <View style={{ marginTop: spacing.lg, gap: spacing.md }}>
+              {order.pickupBatches.map((batch) => {
+                const driverName = pickSnapshotText(batch.driverSnapshot, ['name', 'driverName']);
+                const driverPhone = pickSnapshotText(batch.driverSnapshot, ['phone', 'mobile']);
+                const vehicleLabel = pickSnapshotText(batch.vehicleSnapshot, ['plateNo', 'plateNumber', 'vehicleNo']);
+                const vehicleType = pickSnapshotText(batch.vehicleSnapshot, ['vehicleName', 'vehicleType']);
+                return (
+                  <View
+                    key={batch.id}
+                    style={{
+                      borderTopWidth: 1,
+                      borderTopColor: palette.border,
+                      paddingTop: spacing.md,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md }}>
+                      <Text style={[typography.bodyStrong, { color: palette.text.primary, flex: 1 }]} numberOfLines={1}>
+                        第 {batch.batchNo} 次提货
+                      </Text>
+                      <Text style={[typography.caption, { color: palette.brand.primaryDark }]} numberOfLines={1}>
+                        {pickupBatchStatusLabels[batch.status] ?? batch.status}
+                      </Text>
+                    </View>
+                    <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
+                      {carrierProviderLabels[batch.provider] ?? batch.provider} · 承运单号 {batch.carrierOrderNo || '待生成'}
+                    </Text>
+                    <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
+                      司机 {joinSnapshotParts([driverName || '待分配', driverPhone])} · 车辆 {joinSnapshotParts([vehicleLabel || '待分配', vehicleType])}
+                    </Text>
+                    <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
+                      {batch.completedAt
+                        ? `完成时间 ${formatDeliveryDate(batch.completedAt)}`
+                        : `计划时间 ${formatDeliveryDate(batch.plannedPickupAt) || '待安排'}`}
+                    </Text>
+                    <View style={{ marginTop: spacing.sm, gap: 2 }}>
+                      {batch.items.map((item) => (
+                        <Text
+                          key={item.id}
+                          style={[typography.caption, { color: palette.text.tertiary }]}
+                          numberOfLines={1}
+                        >
+                          {item.productTitle || '配送商品'} {item.skuTitle ? `· ${item.skuTitle}` : ''} · 计划 {item.quantity}{item.unitName} · 已提 {item.pickedQuantity}{item.unitName}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </DeliveryPanel>
+        ) : (
+          <DeliveryPanel style={{ marginBottom: spacing.md }}>
+            <Text style={[typography.headingSm, { color: palette.text.primary, marginBottom: spacing.md }]}>
+              物流信息
+            </Text>
+            {order.shipments.length === 0 ? (
+              <Text style={[typography.bodySm, { color: palette.text.secondary }]}>暂未发货</Text>
+            ) : (
+              <View style={{ gap: spacing.md }}>
+                {order.shipments.map((shipment) => (
+                  <View key={shipment.id}>
+                    <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
+                      {shipment.carrierName} · {shipment.waybillNo || '待回填单号'}
+                    </Text>
+                    <Text style={[typography.caption, { color: palette.text.secondary, marginTop: 2 }]}>
+                      {shipment.status}
+                      {shipment.shippedAt ? ` · 发货于 ${new Date(shipment.shippedAt).toLocaleString()}` : ''}
+                    </Text>
+                    {shipment.waybillUrl ? (
+                      <Pressable onPress={() => Linking.openURL(shipment.waybillUrl!)}>
+                        <Text style={[typography.caption, { color: palette.brand.primaryDark, marginTop: spacing.xs }]}>
+                          打开面单
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+          </DeliveryPanel>
+        )}
 
         <DeliveryButton label="打开配送清单" icon="file-document-outline" onPress={openManifest} />
       </ScrollView>
@@ -187,4 +301,32 @@ function Row({
       </Text>
     </View>
   );
+}
+
+function formatDeliveryDate(value: string | null) {
+  if (!value) {
+    return '';
+  }
+  return new Date(value).toLocaleString();
+}
+
+function pickSnapshotText(snapshot: unknown, keys: string[]) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return '';
+  }
+  const record = snapshot as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return '';
+}
+
+function joinSnapshotParts(parts: string[]) {
+  return parts.filter(Boolean).join(' / ');
 }

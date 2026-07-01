@@ -839,6 +839,7 @@ export class DeliveryOrdersService {
           productId: true,
           skuId: true,
           quantity: true,
+          pickedQuantity: true,
           unitPriceCents: true,
           lineAmountCents: true,
           productSnapshot: true,
@@ -858,6 +859,45 @@ export class DeliveryOrdersService {
           },
         },
         orderBy: [{ createdAt: 'asc' as const }],
+      },
+      pickupBatches: {
+        select: {
+          id: true,
+          orderId: true,
+          subOrderId: true,
+          merchantId: true,
+          batchNo: true,
+          status: true,
+          provider: true,
+          plannedPickupAt: true,
+          readyAt: true,
+          calledAt: true,
+          loadedAt: true,
+          completedAt: true,
+          canceledAt: true,
+          items: {
+            select: {
+              id: true,
+              orderItemId: true,
+              skuId: true,
+              productSnapshot: true,
+              quantity: true,
+              pickedQuantity: true,
+            },
+            orderBy: [{ createdAt: 'asc' as const }],
+          },
+          carrierOrders: {
+            select: {
+              carrierOrderNo: true,
+              driverSnapshot: true,
+              vehicleSnapshot: true,
+              createdAt: true,
+            },
+            orderBy: [{ createdAt: 'desc' as const }],
+            take: 1,
+          },
+        },
+        orderBy: [{ batchNo: 'asc' as const }, { createdAt: 'asc' as const }],
       },
       shipments: {
         select: {
@@ -929,6 +969,11 @@ export class DeliveryOrdersService {
     return {
       id: order.id,
       status: order.status,
+      pickupMode: order.pickupMode ?? 'SINGLE',
+      plannedPickupCount: order.plannedPickupCount ?? 1,
+      pickupStatus: order.pickupStatus ?? 'NOT_STARTED',
+      prepaidPickupShippingFeeCents:
+        order.prepaidPickupShippingFeeCents ?? order.shippingFeeCents ?? 0,
       note: order.note ?? null,
       merchantOrderNo: firstPayment?.merchantOrderNo ?? null,
       paymentChannel: firstPayment?.channel ?? null,
@@ -966,6 +1011,8 @@ export class DeliveryOrdersService {
           imageUrl: snapshot.imageUrl || null,
           unitName: snapshot.unitName || '',
           quantity: item.quantity,
+          pickedQuantity: item.pickedQuantity ?? 0,
+          remainingQuantity: Math.max(0, item.quantity - (item.pickedQuantity ?? 0)),
           unitPriceCents: item.unitPriceCents,
           lineAmountCents: item.lineAmountCents,
         };
@@ -980,6 +1027,40 @@ export class DeliveryOrdersService {
         shippedAt: shipment.shippedAt,
         deliveredAt: shipment.deliveredAt,
       })),
+      pickupBatches: (order.pickupBatches ?? []).map((batch: any) => {
+        const latestCarrierOrder = batch.carrierOrders?.[0] ?? null;
+        return {
+          id: batch.id,
+          orderId: batch.orderId,
+          subOrderId: batch.subOrderId,
+          merchantId: batch.merchantId,
+          batchNo: batch.batchNo,
+          status: batch.status,
+          provider: batch.provider,
+          plannedPickupAt: batch.plannedPickupAt,
+          readyAt: batch.readyAt,
+          calledAt: batch.calledAt,
+          loadedAt: batch.loadedAt,
+          completedAt: batch.completedAt,
+          canceledAt: batch.canceledAt,
+          carrierOrderNo: latestCarrierOrder?.carrierOrderNo ?? null,
+          driverSnapshot: latestCarrierOrder?.driverSnapshot ?? null,
+          vehicleSnapshot: latestCarrierOrder?.vehicleSnapshot ?? null,
+          items: (batch.items ?? []).map((item: any) => {
+            const snapshot = this.parseProductSnapshot(item.productSnapshot);
+            return {
+              id: item.id,
+              orderItemId: item.orderItemId,
+              skuId: item.skuId,
+              productTitle: snapshot.productTitle || '',
+              skuTitle: snapshot.skuTitle || '',
+              unitName: snapshot.unitName || '',
+              quantity: item.quantity,
+              pickedQuantity: item.pickedQuantity ?? 0,
+            };
+          }),
+        };
+      }),
     };
   }
 

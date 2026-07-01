@@ -742,11 +742,17 @@ describe('DeliveryOrdersService', () => {
     });
   });
 
-  it('returns one authenticated buyer delivery order detail with shipments', async () => {
+  it('returns one authenticated buyer delivery order detail with shipments and pickup progress', async () => {
     deliveryPrisma.deliveryOrder.findFirst.mockResolvedValue({
       id: 'PSDD0000000000001',
       userId: 'delivery_user_1',
       status: 'SHIPPED',
+      pickupMode: 'MULTI_BATCH',
+      plannedPickupCount: 2,
+      pickupStatus: 'PARTIAL_PICKED',
+      prepaidPickupShippingFeeCents: 800,
+      actualCarrierCostCents: 9999,
+      shippingCostDiffCents: 9199,
       note: '下班前送达',
       goodsAmountCents: 5200,
       shippingFeeCents: 800,
@@ -773,6 +779,7 @@ describe('DeliveryOrdersService', () => {
           productId: 'product_1',
           skuId: 'sku_1',
           quantity: 2,
+          pickedQuantity: 1,
           unitPriceCents: 2600,
           lineAmountCents: 5200,
           productSnapshot: {
@@ -813,6 +820,53 @@ describe('DeliveryOrdersService', () => {
           deliveredAt: null,
         },
       ],
+      pickupBatches: [
+        {
+          id: 'PSTH0000000000001',
+          orderId: 'PSDD0000000000001',
+          subOrderId: 'PSZDD000000000001',
+          merchantId: 'merchant_1',
+          batchNo: 1,
+          status: 'COMPLETED',
+          provider: 'HUOLALA',
+          plannedPickupAt: new Date('2026-06-19T14:00:00.000Z'),
+          readyAt: new Date('2026-06-19T13:30:00.000Z'),
+          calledAt: new Date('2026-06-19T13:40:00.000Z'),
+          loadedAt: new Date('2026-06-19T14:20:00.000Z'),
+          completedAt: new Date('2026-06-19T15:00:00.000Z'),
+          canceledAt: null,
+          estimatedShippingFeeCents: 400,
+          actualCarrierCostCents: 9999,
+          shippingCostDiffCents: 9599,
+          items: [
+            {
+              id: 'batch_item_1',
+              orderItemId: 'item_1',
+              skuId: 'sku_1',
+              productSnapshot: {
+                productTitle: '冷鲜牛腩',
+                skuTitle: '5kg/箱',
+                unitName: '箱',
+              },
+              quantity: 1,
+              pickedQuantity: 1,
+            },
+          ],
+          carrierOrders: [
+            {
+              id: 'PSCY0000000000001',
+              provider: 'HUOLALA',
+              carrierOrderNo: 'HL123',
+              status: 'COMPLETED',
+              driverSnapshot: { name: '王师傅', phone: '13800000001' },
+              vehicleSnapshot: { plateNo: '粤A12345', vehicleName: '小面包' },
+              actualFeeCents: 9999,
+              estimatedFeeCents: 400,
+              createdAt: new Date('2026-06-19T13:40:00.000Z'),
+            },
+          ],
+        },
+      ],
     });
 
     const result = await service.getBuyerOrder(
@@ -831,9 +885,29 @@ describe('DeliveryOrdersService', () => {
     expect(result).toMatchObject({
       id: 'PSDD0000000000001',
       status: 'SHIPPED',
+      pickupMode: 'MULTI_BATCH',
+      plannedPickupCount: 2,
+      pickupStatus: 'PARTIAL_PICKED',
+      prepaidPickupShippingFeeCents: 800,
       shipments: [{ waybillNo: 'SF123' }],
       address: { detailAddress: '体育西路 1 号' },
-      items: [{ skuTitle: '5kg/箱' }],
+      items: [{ skuTitle: '5kg/箱', pickedQuantity: 1, remainingQuantity: 1 }],
+      pickupBatches: [
+        {
+          id: 'PSTH0000000000001',
+          batchNo: 1,
+          status: 'COMPLETED',
+          carrierOrderNo: 'HL123',
+          driverSnapshot: { name: '王师傅', phone: '13800000001' },
+          vehicleSnapshot: { plateNo: '粤A12345', vehicleName: '小面包' },
+          items: [{ productTitle: '冷鲜牛腩', quantity: 1, pickedQuantity: 1 }],
+        },
+      ],
     });
+    expect(result).not.toHaveProperty('actualCarrierCostCents');
+    expect(result).not.toHaveProperty('shippingCostDiffCents');
+    expect(result.pickupBatches[0]).not.toHaveProperty('actualCarrierCostCents');
+    expect(result.pickupBatches[0]).not.toHaveProperty('shippingCostDiffCents');
+    expect(result.pickupBatches[0]).not.toHaveProperty('estimatedShippingFeeCents');
   });
 });

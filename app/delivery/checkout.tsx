@@ -1,17 +1,28 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback/Toast';
 import { paymentMethods } from '../../src/constants/payment';
 import { DeliveryOrderRepo } from '../../src/repos/delivery';
-import type { DeliveryCheckoutSession } from '../../src/repos/delivery';
+import type {
+  DeliveryCheckoutSession,
+  DeliveryCreateCheckoutPayload,
+  DeliveryPickupEstimate,
+  DeliveryPickupMode,
+} from '../../src/repos/delivery';
 import { useDeliveryAuthStore, useDeliveryCartStore } from '../../src/store';
+import { compactActionTextProps, priceTextProps } from '../../src/theme';
 import { payWithAlipay } from '../../src/utils/alipay';
 import { resolveDeliveryCheckoutSummary } from '../../src/utils/deliveryCheckoutSummary';
+import {
+  buildDefaultDeliveryPickupPlan,
+  validateDeliveryPickupPlan,
+} from '../../src/utils/deliveryPickupPlan';
 import { hasCompleteWechatPayPayload, payWithWechat } from '../../src/utils/wechat-pay';
 import {
   DeliveryButton,
+  DeliveryQuantityControl,
   DeliveryPanel,
   DeliveryTextField,
   formatDeliveryMoney,
@@ -33,6 +44,13 @@ const deliveryPaymentMethods = paymentMethods
 const getDefaultDeliveryPaymentChannel = () =>
   deliveryPaymentMethods.find((method) => method.available)?.channel ?? 'ALIPAY';
 
+const pickupCountOptions = [
+  { key: '1', label: '1次', count: 1 },
+  { key: '2', label: '2次', count: 2 },
+  { key: '3', label: '3次', count: 3 },
+  { key: 'custom', label: '自定义', count: 4 },
+] as const;
+
 export default function DeliveryCheckoutScreen() {
   const router = useRouter();
   const { show } = useToast();
@@ -44,11 +62,28 @@ export default function DeliveryCheckoutScreen() {
   const [paymentChannel, setPaymentChannel] = React.useState<'ALIPAY' | 'WECHAT_PAY'>(
     () => getDefaultDeliveryPaymentChannel(),
   );
+  const [pickupMode, setPickupMode] = React.useState<DeliveryPickupMode>('SINGLE');
+  const [pickupCountPreset, setPickupCountPreset] =
+    React.useState<(typeof pickupCountOptions)[number]['key']>('1');
+  const [plannedPickupCount, setPlannedPickupCount] = React.useState(1);
+  const [pickupPlanItems, setPickupPlanItems] = React.useState(
+    buildDefaultDeliveryPickupPlan([], 1),
+  );
+  const [pickupEstimate, setPickupEstimate] = React.useState<DeliveryPickupEstimate | null>(null);
+  const [pickupEstimating, setPickupEstimating] = React.useState(false);
   const [lockedCheckout, setLockedCheckout] = React.useState<DeliveryCheckoutSession | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const submittingRef = React.useRef(false);
 
   const total = items.reduce((sum, item) => sum + item.lineAmount, 0);
+  const pickupCartItems = React.useMemo(
+    () => items.map((item) => ({ cartItemId: item.id, quantity: item.quantity })),
+    [items],
+  );
+  const pickupCartSignature = React.useMemo(
+    () => pickupCartItems.map((item) => `${item.cartItemId}:${item.quantity}`).join('|'),
+    [pickupCartItems],
+  );
   const checkoutSignature = React.useMemo(
     () => JSON.stringify({
       items: items.map((item) => ({
@@ -58,8 +93,11 @@ export default function DeliveryCheckoutScreen() {
       })),
       note: note.trim(),
       paymentChannel,
+      pickupMode,
+      plannedPickupCount,
+      pickupPlanItems,
     }),
-    [items, note, paymentChannel],
+    [items, note, paymentChannel, pickupMode, plannedPickupCount, pickupPlanItems],
   );
   const summary = React.useMemo(
     () => resolveDeliveryCheckoutSummary({
@@ -86,7 +124,53 @@ export default function DeliveryCheckoutScreen() {
 
   React.useEffect(() => {
     setLockedCheckout(null);
+    setPickupEstimate(null);
   }, [checkoutSignature]);
+
+  React.useEffect(() => {
+    setPickupPlanItems(buildDefaultDeliveryPickupPlan(pickupCartItems, plannedPickupCount));
+  }, [pickupCartItems, pickupCartSignature, plannedPickupCount]);
+
+  const applyPickupCount = (
+    nextCount: number,
+    preset: (typeof pickupCountOptions)[number]['key'],
+  ) => {
+    const normalizedCount = Math.min(5, Math.max(1, Math.trunc(nextCount)));
+    setPickupCountPreset(preset);
+    setPlannedPickupCount(normalizedCount);
+    setPickupMode(normalizedCount > 1 ? 'MULTI_BATCH' : 'SINGLE');
+  };
+
+  const buildCheckoutPayload = (): DeliveryCreateCheckoutPayload => ({
+    cartItemIds: items.map((item) => item.id),
+    note: note.trim() || undefined,
+    paymentChannel,
+    pickupMode,
+    plannedPickupCount: pickupMode === 'MULTI_BATCH' ? plannedPickupCount : 1,
+    pickupPlanItems: pickupMode === 'MULTI_BATCH' ? pickupPlanItems : undefined,
+  });
+
+  const pickupPlanSummary = React.useMemo(
+    () =>
+      Array.from({ length: plannedPickupCount }, (_, index) => {
+        const batchNo = index + 1;
+        const quantity = pickupPlanItems
+          .filter((item) => item.batchNo === batchNo)
+          .reduce((sum, item) => sum + item.quantity, 0);
+        return { batchNo, quantity };
+      }).filter((item) => item.quantity > 0),
+    [pickupPlanItems, plannedPickupCount],
+  );
+
+  const displayedGoodsAmount = lockedCheckout
+    ? summary.goodsAmount
+    : pickupEstimate?.goodsAmount ?? total;
+  const displayedPickupShippingFee = lockedCheckout
+    ? summary.shippingFee
+    : pickupEstimate?.prepaidPickupShippingFee ?? null;
+  const displayedTotalAmount = lockedCheckout
+    ? summary.totalAmount
+    : pickupEstimate?.totalAmount ?? total;
 
   const navigateToStatus = (checkoutId: string, merchantOrderNo?: string | null) => {
     router.replace({
@@ -207,11 +291,28 @@ export default function DeliveryCheckoutScreen() {
     try {
       let checkout = lockedCheckout;
       if (!checkout) {
-        const result = await DeliveryOrderRepo.createCheckout({
-          cartItemIds: items.map((item) => item.id),
-          note: note.trim() || undefined,
-          paymentChannel,
-        });
+        const payload = buildCheckoutPayload();
+        if (pickupMode === 'MULTI_BATCH') {
+          const validation = validateDeliveryPickupPlan(pickupCartItems, pickupPlanItems);
+          if (!validation.ok) {
+            show({ message: validation.message, type: 'warning' });
+            return;
+          }
+
+          setPickupEstimating(true);
+          const estimateResult = await DeliveryOrderRepo.estimatePickups(payload);
+          setPickupEstimating(false);
+          if (!estimateResult.ok) {
+            show({
+              message: estimateResult.error.displayMessage ?? '提货运费预估失败，请稍后重试',
+              type: 'error',
+            });
+            return;
+          }
+          setPickupEstimate(estimateResult.data);
+        }
+
+        const result = await DeliveryOrderRepo.createCheckout(payload);
 
         if (!result.ok) {
           show({ message: result.error.displayMessage ?? '创建配送结算单失败', type: 'error' });
@@ -288,6 +389,7 @@ export default function DeliveryCheckoutScreen() {
 
       show({ message: '支付服务暂不可用，请稍后重试或联系客服', type: 'error' });
     } finally {
+      setPickupEstimating(false);
       if (shouldReleaseSubmitLock) {
         submittingRef.current = false;
         setSubmitting(false);
@@ -342,6 +444,91 @@ export default function DeliveryCheckoutScreen() {
           </DeliveryPanel>
 
           <DeliveryPanel style={{ marginBottom: spacing.md }}>
+            <Text style={[typography.headingSm, { color: palette.text.primary }]}>提货安排</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }}>
+              {pickupCountOptions.map((option) => {
+                const selected = pickupCountPreset === option.key;
+                return (
+                  <Pressable
+                    key={option.key}
+                    disabled={submitting}
+                    onPress={() => applyPickupCount(option.count, option.key)}
+                    style={{
+                      minHeight: 40,
+                      minWidth: 72,
+                      flexGrow: 1,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: selected ? palette.brand.primary : palette.border,
+                      backgroundColor: selected ? palette.brand.primary : palette.brand.primarySoft,
+                      paddingHorizontal: spacing.md,
+                      opacity: submitting ? 0.5 : 1,
+                    }}
+                  >
+                    <Text
+                      {...compactActionTextProps}
+                      style={[
+                        typography.bodyStrong,
+                        { color: selected ? palette.text.inverse : palette.brand.primaryDark },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {pickupCountPreset === 'custom' ? (
+              <View
+                style={{
+                  marginTop: spacing.md,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: spacing.md,
+                }}
+              >
+                <Text style={[typography.bodySm, { color: palette.text.secondary, flex: 1 }]}>
+                  自定义提货次数
+                </Text>
+                <DeliveryQuantityControl
+                  value={plannedPickupCount}
+                  min={2}
+                  max={5}
+                  step={1}
+                  onChange={(next) => applyPickupCount(next, 'custom')}
+                />
+              </View>
+            ) : null}
+            <View style={{ marginTop: spacing.md, gap: spacing.xs }}>
+              <Text style={[typography.bodySm, { color: palette.text.secondary }]}>
+                预计提货次数：{plannedPickupCount} 次
+              </Text>
+              {pickupMode === 'MULTI_BATCH' ? (
+                <Text style={[typography.caption, { color: palette.text.tertiary }]}>
+                  {pickupPlanSummary.map((item) => `第${item.batchNo}次 ${item.quantity}件`).join(' · ')}
+                </Text>
+              ) : null}
+              <Text style={[typography.bodySm, { color: palette.text.secondary }]}>
+                预计提货运费：
+                {displayedPickupShippingFee === null
+                  ? pickupMode === 'MULTI_BATCH'
+                    ? '提交后预估'
+                    : '提交后锁定'
+                  : formatDeliveryMoney(displayedPickupShippingFee)}
+              </Text>
+              {pickupMode === 'MULTI_BATCH' ? (
+                <Text style={[typography.caption, { color: palette.brand.primaryDark }]}>
+                  后续叫车由平台安排，用户无需再次支付。
+                </Text>
+              ) : null}
+            </View>
+          </DeliveryPanel>
+
+          <DeliveryPanel style={{ marginBottom: spacing.md }}>
             <Text style={[typography.headingSm, { color: palette.text.primary, marginBottom: spacing.md }]}>
               商品清单
             </Text>
@@ -379,21 +566,33 @@ export default function DeliveryCheckoutScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>商品金额</Text>
               <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
-                {formatDeliveryMoney(summary.goodsAmount)}
+                {formatDeliveryMoney(displayedGoodsAmount)}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
-              <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>配送费</Text>
               <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
-                {summary.shippingFee === null ? '提交后锁定' : formatDeliveryMoney(summary.shippingFee)}
+                {pickupMode === 'MULTI_BATCH' ? '预收提货运费' : '配送费'}
+              </Text>
+              <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
+                {displayedPickupShippingFee === null
+                  ? '提交后锁定'
+                  : formatDeliveryMoney(displayedPickupShippingFee)}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
               <Text style={[typography.headingSm, { color: palette.text.primary }]}>应付合计</Text>
-              <Text style={[typography.headingSm, { color: palette.brand.primaryDark }]}>
-                {formatDeliveryMoney(summary.totalAmount)}
+              <Text
+                {...priceTextProps}
+                style={[typography.headingSm, { color: palette.brand.primaryDark }]}
+              >
+                {formatDeliveryMoney(displayedTotalAmount)}
               </Text>
             </View>
+            {pickupEstimate && !lockedCheckout ? (
+              <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.sm }]}>
+                已按当前提货安排预估费用，提交后以后端锁定金额为准。
+              </Text>
+            ) : null}
             {summary.source === 'LOCKED_CHECKOUT' ? (
               <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.sm }]}>
                 已按平台规则锁定配送费用，确认无误后继续支付。
@@ -402,9 +601,9 @@ export default function DeliveryCheckoutScreen() {
           </DeliveryPanel>
 
           <DeliveryButton
-            label={submitting ? '提交中...' : lockedCheckout ? '确认支付' : '提交配送结算'}
+            label={submitting || pickupEstimating ? '提交中...' : lockedCheckout ? '确认支付' : '提交配送结算'}
             onPress={handleSubmit}
-            disabled={submitting || !items.length}
+            disabled={submitting || pickupEstimating || !items.length}
             style={{ marginTop: spacing.lg }}
           />
         </ScrollView>

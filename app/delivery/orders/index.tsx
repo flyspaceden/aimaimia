@@ -23,6 +23,13 @@ const filters: Array<{ id?: string; label: string }> = [
   { id: 'COMPLETED', label: '已完成' },
 ];
 
+const pickupStatusLabels: Record<string, string> = {
+  NOT_STARTED: '待提货',
+  PARTIAL_PICKED: '部分提货中',
+  ALL_PICKED: '已全部提货',
+  CANCELED: '提货已取消',
+};
+
 export default function DeliveryOrdersScreen() {
   const router = useRouter();
   const { spacing, typography, palette } = useDeliveryTheme();
@@ -95,6 +102,11 @@ export default function DeliveryOrdersScreen() {
                 {item.items[0]?.productTitle || '配送商品'}
                 {item.items.length > 1 ? ` 等 ${item.items.length} 件` : ''}
               </Text>
+              {item.pickupMode === 'MULTI_BATCH' || item.pickupBatches.length > 0 ? (
+                <Text style={[typography.caption, { color: palette.brand.primaryDark, marginTop: spacing.xs }]} numberOfLines={1}>
+                  提货：{pickupStatusLabels[item.pickupStatus] ?? item.pickupStatus} · 预计 {item.plannedPickupCount} 次
+                </Text>
+              ) : null}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
                 <Text style={[typography.headingSm, { color: palette.brand.primaryDark }]}>
                   {formatDeliveryMoney(item.totalAmount)}
