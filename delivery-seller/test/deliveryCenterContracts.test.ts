@@ -152,6 +152,44 @@ test('delivery center uses delivery-seller API namespaces for task 17 modules', 
   }
 });
 
+test('delivery center exposes a cost-redacted pickup batch workbench', () => {
+  const app = read('src/App.tsx');
+  const layout = read('src/layouts/SellerLayout.tsx');
+  const ordersApi = read('src/api/orders.ts');
+  const types = read('src/types/index.ts');
+  const pickupPage = read('src/pages/pickup-batches/index.tsx');
+  const orderDetail = read('src/pages/orders/detail.tsx');
+  const logisticsPage = read('src/pages/orders/logistics.tsx');
+
+  assert.match(types, /interface\s+PickupBatch/);
+  assert.match(ordersApi, /getPickupBatches/);
+  assert.match(ordersApi, /markPickupBatchReady/);
+  assert.match(ordersApi, /markPickupBatchLoaded/);
+  assert.match(ordersApi, /reportPickupBatchException/);
+  assert.match(app, /pickup-batches/);
+  assert.match(app, /RequirePermission permission="orders:read"/);
+  assert.match(layout, /提货批次/);
+
+  for (const label of ['批次号', '订单号', '状态', '商品', '数量', '收货单位', '司机', '车辆', '预计', '已备货', '已交货', '异常反馈']) {
+    assert.ok(pickupPage.includes(label), `pickup batch page should expose ${label}`);
+  }
+
+  assert.match(pickupPage, /Modal\.confirm/);
+  assert.match(orderDetail, /pickupBatches/);
+  assert.match(logisticsPage, /pickupBatches/);
+
+  const forbiddenCostSurface =
+    /prepaidPickupShippingFeeCents|estimatedShippingFeeCents|actualCarrierCostCents|shippingCostDiffCents|estimatedFeeCents|actualFeeCents|平台成本|预收运费|实际承运成本|差额|成本流水/;
+  for (const [file, source] of [
+    ['src/types/index.ts', types],
+    ['src/pages/pickup-batches/index.tsx', pickupPage],
+    ['src/pages/orders/detail.tsx', orderDetail],
+    ['src/pages/orders/logistics.tsx', logisticsPage],
+  ]) {
+    assert.doesNotMatch(source, forbiddenCostSurface, file);
+  }
+});
+
 test('all active delivery center API calls stay in the delivery-seller namespace', () => {
   const apiDir = join(root, 'src/api');
   const apiFiles = readdirSync(apiDir)

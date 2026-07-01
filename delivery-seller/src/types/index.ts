@@ -156,6 +156,8 @@ export interface Order {
   };
   items: OrderItem[];
   shipment?: Shipment | null;
+  shipments?: Shipment[];
+  pickupBatches?: PickupBatch[];
 }
 
 export interface OrderItem {
@@ -188,6 +190,58 @@ export interface TrackingEvent {
   status: string;
   description: string;
   occurredAt: string;
+}
+
+// ============================================================
+// 提货批次
+// ============================================================
+
+export interface PickupBatchCarrierOrder {
+  carrierOrderNo?: string | null;
+  driverSnapshot?: unknown;
+  vehicleSnapshot?: unknown;
+  status?: string | null;
+  lastSyncedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PickupBatchItem {
+  id: string;
+  orderItemId: string;
+  skuId: string;
+  productTitle: string;
+  skuTitle: string;
+  unitName: string;
+  quantity: number;
+  pickedQuantity: number;
+}
+
+export interface PickupBatch {
+  id: string;
+  orderId: string;
+  subOrderId: string;
+  merchantId: string;
+  merchantName?: string | null;
+  unitId?: string | null;
+  unitSnapshot?: unknown;
+  addressSnapshot?: unknown;
+  batchNo: number;
+  status: string;
+  provider: string;
+  plannedPickupAt?: string | null;
+  readyAt?: string | null;
+  calledAt?: string | null;
+  loadedAt?: string | null;
+  completedAt?: string | null;
+  canceledAt?: string | null;
+  carrierOrderNo?: string | null;
+  driverSnapshot?: unknown;
+  vehicleSnapshot?: unknown;
+  latestCarrierOrder?: PickupBatchCarrierOrder | null;
+  items: PickupBatchItem[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ============================================================

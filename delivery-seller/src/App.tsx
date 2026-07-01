@@ -14,6 +14,7 @@ const StockPage = lazy(() => import('@/pages/products/stock'));
 const OrderListPage = lazy(() => import('@/pages/orders/index'));
 const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
 const LogisticsPage = lazy(() => import('@/pages/orders/logistics'));
+const PickupBatchesPage = lazy(() => import('@/pages/pickup-batches/index'));
 const ExportCenterPage = lazy(() => import('@/pages/exports/index'));
 const CompanySettingsPage = lazy(() => import('@/pages/company/index'));
 const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="orders" element={<RequirePermission permission="orders:read"><OrderListPage /></RequirePermission>} />
             <Route path="orders/logistics" element={<RequirePermission permission="orders:read"><LogisticsPage /></RequirePermission>} />
             <Route path="orders/:id" element={<RequirePermission permission="orders:read"><OrderDetailPage /></RequirePermission>} />
+            <Route path="pickup-batches" element={<RequirePermission permission="orders:read"><PickupBatchesPage /></RequirePermission>} />
             <Route path="exports" element={<RequirePermission permission="finance:read"><ExportCenterPage /></RequirePermission>} />
             <Route path="company/settings" element={<RequirePermission permission="company:read"><CompanySettingsPage /></RequirePermission>} />
             <Route path="company/staff" element={<RequirePermission permission="staff:manage"><StaffManagementPage /></RequirePermission>} />

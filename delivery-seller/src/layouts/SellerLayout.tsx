@@ -52,6 +52,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <FileTextOutlined />,
       routes: [
         { path: '/orders', name: '订单列表', icon: <FileTextOutlined />, permission: 'orders:read' },
+        { path: '/pickup-batches', name: '提货批次', icon: <TruckOutlined />, permission: 'orders:read' },
         { path: '/orders/logistics', name: '物流跟踪', icon: <TruckOutlined />, permission: 'orders:read' },
       ],
     },
