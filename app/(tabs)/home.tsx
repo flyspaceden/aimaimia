@@ -75,7 +75,7 @@ export default function HomeScreen() {
   const { colors, spacing, radius, typography, shadow } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
+  const cartCount = useCartStore((state) => state.count());
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const setLoggedIn = useAuthStore((s) => s.setLoggedIn);
   const [refreshing, setRefreshing] = useState(false);

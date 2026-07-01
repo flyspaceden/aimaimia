@@ -51,7 +51,7 @@ export function useVoiceRecording(
   const { show: showToast } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const cartCount = useCartStore((s) => s.items.length);
+  const cartCount = useCartStore((s) => s.count());
   const selectedCartCount = useCartStore((s) => s.selectedCount());
   const addCartItem = useCartStore((s) => s.addItem);
 
