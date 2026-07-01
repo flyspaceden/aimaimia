@@ -225,19 +225,30 @@ export class HuolalaCarrierService {
   private async requestJson(path: string, payload: JsonRecord): Promise<JsonRecord> {
     const config = this.getRequiredConfig();
     const signedPayload = this.buildSignedPayload(payload, config);
-    const response = await fetch(`${HUOLALA_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(signedPayload),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${HUOLALA_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(signedPayload),
+      });
+    } catch {
+      throw new ServiceUnavailableException('货拉拉运力服务暂不可用，请稍后重试');
+    }
 
     if (!response.ok) {
       throw new ServiceUnavailableException('货拉拉运力服务暂不可用，请稍后重试');
     }
 
-    const data = await response.json();
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new ServiceUnavailableException('货拉拉运力返回格式无效');
+    }
+
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new ServiceUnavailableException('货拉拉运力返回格式无效');
     }

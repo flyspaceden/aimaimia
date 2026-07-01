@@ -172,6 +172,8 @@ describe('HuolalaCarrierService', () => {
     });
 
     const result = await service.getOrderDetail({ outsideOrderId: 'pickup_batch_001' });
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
 
     expect(result.carrierOrderNo).toBe('hl-order-001');
     expect(result.mappedStatus).toBe(DeliveryPickupBatchStatus.DELIVERING);
@@ -179,6 +181,8 @@ describe('HuolalaCarrierService', () => {
       name: '张师傅',
       phone: '13900000000',
     });
+    expect(body.outside_order_id).toBe('pickup_batch_001');
+    expect(body.carrier_order_no).toBeUndefined();
   });
 
   it('returns cancellation payload without real credentials', async () => {
@@ -196,9 +200,32 @@ describe('HuolalaCarrierService', () => {
       carrierOrderNo: 'hl-order-001',
       reason: 'seller_request',
     });
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
 
     expect(result.carrierOrderNo).toBe('hl-order-001');
     expect(result.status).toBe('canceled');
     expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(body.carrier_order_no).toBe('hl-order-001');
+    expect(body.cancel_reason).toBe('seller_request');
+  });
+
+  it('normalizes fetch failures into ServiceUnavailableException', async () => {
+    (global.fetch as jest.Mock).mockRejectedValue(new Error('socket hang up'));
+
+    await expect(service.quote(quoteRequest)).rejects.toMatchObject({
+      message: '货拉拉运力服务暂不可用，请稍后重试',
+    });
+  });
+
+  it('normalizes invalid json responses into ServiceUnavailableException', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockRejectedValue(new SyntaxError('Unexpected token <')),
+    });
+
+    await expect(service.quote(quoteRequest)).rejects.toMatchObject({
+      message: '货拉拉运力返回格式无效',
+    });
   });
 });
