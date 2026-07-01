@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { claimTokenHash, generateClaimToken } from '../../common/utils/claim-token.util';
 
@@ -133,7 +132,7 @@ describe('CartService prize lifecycle guards', () => {
     });
   });
 
-  it('keeps locked usable threshold gift when threshold is still unmet', async () => {
+  it('allows manually deleting locked usable threshold gift and expires its lottery record', async () => {
     const { service, prisma } = createService();
     prisma.cartItem.findFirst.mockResolvedValue({
       id: 'ci-prize',
@@ -168,10 +167,13 @@ describe('CartService prize lifecycle guards', () => {
       },
     });
 
-    await expect(service.removePrizeItem('user1', 'ci-prize')).rejects.toThrow(
-      BadRequestException,
-    );
-    expect(prisma.cartItem.delete).not.toHaveBeenCalled();
+    await service.removePrizeItem('user1', 'ci-prize');
+
+    expect(prisma.cartItem.delete).toHaveBeenCalledWith({ where: { id: 'ci-prize' } });
+    expect(prisma.lotteryRecord.updateMany).toHaveBeenCalledWith({
+      where: { id: 'lr1', status: { in: ['WON', 'IN_CART'] } },
+      data: { status: 'EXPIRED' },
+    });
   });
 
   it('clearCart keeps locked usable threshold gift when threshold is unmet', async () => {

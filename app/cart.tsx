@@ -457,23 +457,19 @@ export default function CartScreen() {
                       )}
                     </View>
                   )}
-                  {/* 普通商品和未锁定奖品可以删除 */}
-                  {(!isLocked || isUnavailable) && (
-                    <Pressable
-                      onPress={() => {
-                        if (isPrize && item.id) {
-                          // 奖品项通过 cartItemId 删除
-                          removePrizeItem(item.id);
-                          show({ message: '已移除奖品', type: 'success' });
-                        } else {
-                          removeItem(item.productId, item.skuId);
-                        }
-                      }}
-                      hitSlop={8}
-                    >
-                      <MaterialCommunityIcons name="delete-outline" size={20} color={colors.danger} />
-                    </Pressable>
-                  )}
+                  <Pressable
+                    onPress={() => {
+                      if (isPrize && item.id) {
+                        removePrizeItem(item.id);
+                        show({ message: isLocked ? '已放弃奖品' : '已移除奖品', type: 'success' });
+                      } else {
+                        removeItem(item.productId, item.skuId);
+                      }
+                    }}
+                    hitSlop={8}
+                  >
+                    <MaterialCommunityIcons name="delete-outline" size={20} color={colors.danger} />
+                  </Pressable>
                 </View>
               </View>
             </View>
