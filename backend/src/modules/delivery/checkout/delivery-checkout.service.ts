@@ -772,19 +772,36 @@ export class DeliveryCheckoutService {
     }, new Map<string, number>());
     const merchantGroupsWithShipping = merchantGroups.map((group) => {
       const shippingFeeCents = shippingByMerchantId.get(group.merchantId) ?? 0;
+      const batchEstimates = pickupSnapshot.perBatchEstimates
+        .filter((item) => item.merchantId === group.merchantId)
+        .map((item) => ({
+          batchNo: item.batchNo,
+          estimatedShippingFeeCents: item.estimatedShippingFeeCents,
+        }));
 
       return {
         ...group,
         shippingFeeCents,
         totalAmountCents: group.goodsAmountCents + shippingFeeCents,
-        shippingRuleSnapshot: {
-          ...orderShippingRuleSnapshot,
-          allocationBasis: 'GOODS_AMOUNT',
-          allocationWeightCents: group.goodsAmountCents,
-          allocatedShippingFeeCents: shippingFeeCents,
-          pickupMode,
-          plannedPickupCount,
-        },
+        shippingRuleSnapshot:
+          pickupMode === DeliveryPickupMode.MULTI_BATCH
+            ? {
+                source: 'MULTI_BATCH_PICKUP_PLAN',
+                pickupMode,
+                plannedPickupCount,
+                allocatedShippingFeeCents: shippingFeeCents,
+                shippingFeeCents,
+                batchEstimates,
+                fallbackCheckoutShippingRuleSnapshot: orderShippingRuleSnapshot,
+              }
+            : {
+                ...orderShippingRuleSnapshot,
+                allocationBasis: 'GOODS_AMOUNT',
+                allocationWeightCents: group.goodsAmountCents,
+                allocatedShippingFeeCents: shippingFeeCents,
+                pickupMode,
+                plannedPickupCount,
+              },
       };
     });
 

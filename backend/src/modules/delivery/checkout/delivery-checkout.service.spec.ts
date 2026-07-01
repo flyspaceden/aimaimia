@@ -1499,6 +1499,23 @@ describe('DeliveryCheckoutService', () => {
         plannedPickupCount: 2,
         prepaidPickupShippingFeeCents: 1000,
       },
+      merchantGroups: [
+        {
+          merchantId: 'merchant_1',
+          shippingFeeCents: 1000,
+          totalAmountCents: 3200,
+          shippingRuleSnapshot: {
+            source: 'MULTI_BATCH_PICKUP_PLAN',
+            allocatedShippingFeeCents: 1000,
+            pickupMode: 'MULTI_BATCH',
+            plannedPickupCount: 2,
+            batchEstimates: [
+              { batchNo: 1, estimatedShippingFeeCents: 500 },
+              { batchNo: 2, estimatedShippingFeeCents: 500 },
+            ],
+          },
+        },
+      ],
     });
     const createdSnapshot = tx.deliveryCheckoutSession.create.mock.calls[0][0].data
       .pickupPlanSnapshot as any;
