@@ -34,3 +34,16 @@
 - No real-device checkout/payment/Huolala end-to-end run was performed in this task.
 - Checkout UI currently generates the default pickup plan only; it does not expose per-item manual batch editing.
 - Buyer response intentionally omits platform actual carrier cost, cost diff, cost ledgers, and carrier fee internals.
+
+## Follow-up Review Fix
+
+- Commit: `c6458af4b30f46df222f1d23d22eac349514a438`
+- Fixed checkout render-loop risk by reading stable `cartItems` from `useDeliveryCartStore`, deriving selected checkout items with `useMemo`, and making pickup-plan rebuilding depend on primitive `pickupCartSignature` plus `plannedPickupCount` instead of a fresh derived array.
+- Existing checkout signature still includes selected items, note, payment channel, pickup mode/count, and pickup plan items, so locked checkout and pickup estimate are cleared when pickup state changes.
+
+## Follow-up Tests
+
+- `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand` - passed.
+- `npx tsc --noEmit` - passed.
+- `cd backend && npm test -- delivery-orders.service.spec.ts --runInBand` - passed.
+- `git diff --check` - passed.
