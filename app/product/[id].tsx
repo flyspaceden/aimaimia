@@ -58,7 +58,7 @@ export default function ProductDetailScreen() {
   // 响应式宽度（分屏/旋转/字体放大时实时更新，禁止在模块顶层使用 Dimensions.get）
   const { width: SCREEN_WIDTH } = useWindowDimensions();
   const addItem = useCartStore((state) => state.addItem);
-  const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
+  const cartCount = useCartStore((state) => state.count());
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);

@@ -108,6 +108,7 @@ export default function CartScreen() {
   const selectAll = useCartStore((s) => s.selectAll);
   const deselectAll = useCartStore((s) => s.deselectAll);
   const isAllSelected = useCartStore((s) => s.isAllSelected);
+  const cartCount = useCartStore((s) => s.count());
   const selectedTotal = useCartStore((s) => s.selectedTotal);
   const selectedNonPrizeTotal = useCartStore((s) => s.selectedNonPrizeTotal);
   const selectedCount = useCartStore((s) => s.selectedCount);
@@ -252,7 +253,7 @@ export default function CartScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader
-        title={`购物车(${items.reduce((sum, item) => sum + item.quantity, 0)})`}
+        title={`购物车(${cartCount})`}
         onBack={handleBack}
         rightSlot={
           <Pressable onPress={() => setIsEditing(!isEditing)} hitSlop={10} style={{ padding: 8 }}>

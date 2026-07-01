@@ -328,7 +328,7 @@ export default function AiRecommendScreen() {
   const router = useRouter();
   const { show } = useToast();
   const addItem = useCartStore((state) => state.addItem);
-  const cartItemCount = useCartStore((state) => state.items.length);
+  const cartItemCount = useCartStore((state) => state.count());
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const params = useLocalSearchParams<{
     q?: string;

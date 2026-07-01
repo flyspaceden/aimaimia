@@ -14,6 +14,7 @@ import { showToast } from '../components/feedback';
 import { CartMergeResultItem, Product, ServerCart, ServerCartItem } from '../types';
 import { CartRepo } from '../repos/CartRepo';
 import { useAuthStore } from './useAuthStore';
+import { getCartDisplayQuantity } from '../utils/cartCounts';
 import type { ProductType } from '../types/domain/Product';
 import type { BundleSnapshotItem } from '../types/domain/BundleSnapshot';
 
@@ -525,7 +526,7 @@ export const useCartStore = create<CartState>()(
       },
 
       total: () => get().items.reduce((sum, item) => sum + item.price * item.quantity, 0),
-      count: () => get().items.reduce((sum, item) => sum + item.quantity, 0),
+      count: () => getCartDisplayQuantity(get().items),
 
       toggleSelect: (productId, skuId) => {
         set((state) => {

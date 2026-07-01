@@ -97,9 +97,7 @@ export default function MuseumScreen() {
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addItem = useCartStore((state) => state.addItem);
-  const cartCount = useCartStore((state) =>
-    state.items.reduce((sum, item) => sum + item.quantity, 0),
-  );
+  const cartCount = useCartStore((state) => state.count());
 
   // ==================== 数据查询 ====================
 
