@@ -62,6 +62,8 @@ import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.se
 import { DeliveryAdminAuthController } from './admin-auth/delivery-admin-auth.controller';
 import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.service';
 import { DeliveryPickupPlanService } from './pickup/delivery-pickup-plan.service';
+import { DeliveryPickupService } from './pickup/delivery-pickup.service';
+import { DeliveryAdminPickupController } from './pickup/delivery-admin-pickup.controller';
 import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
 
 @Module({
@@ -109,6 +111,7 @@ import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
     DeliveryAdminConfigController,
     DeliveryAdminStatsController,
     DeliveryAdminOpsController,
+    DeliveryAdminPickupController,
     DeliverySellerOpsController,
     DeliverySellerPublicController,
     DeliverySellerUploadController,
@@ -129,6 +132,7 @@ import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
     DeliveryCartService,
     DeliveryCheckoutService,
     DeliveryPickupPlanService,
+    DeliveryPickupService,
     HuolalaCarrierService,
     DeliveryOrdersService,
     DeliveryPaymentsService,
