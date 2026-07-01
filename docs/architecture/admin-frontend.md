@@ -66,7 +66,7 @@
 - 商家供货、运费分摊优先取后端明确字段，如 `supplyAmountCents`、`shippingFeeShareCents`；缺字段时只展示可得项。
 - 平台差额只在前端能从现有字段确定时显示；不能确定时显示 `-`。
 - 结算页只展示供货额、应结额、已结额，不在该页暴露平台定价策略。
-- 一次付款多次提货的货拉拉成本字段仅在 `delivery-admin` 展示：运费中心、提货批次和订单详情可见 `预收提货运费 / 货拉拉实际成本 / 成本差额 / 成本流水`；配送中心和买家端不得展示平台实际承运成本、成本差额或成本流水。
+- 一次付款多次提货的货拉拉成本字段仅在 `delivery-admin` 展示：运费中心、提货批次和订单详情可见 `预收提货运费 / 货拉拉实际成本 / 成本差额 / 成本流水`；成本差额统一按“预收运费 - 调整后的实际成本”展示，正数为平台结余，负数为平台超支；配送中心和买家端不得展示平台实际承运成本、成本差额或成本流水。
 
 ### 组件风格
 
@@ -94,7 +94,7 @@
 
 ### 一次付款多次提货后台补充（Task 7，2026-06-30）
 
-- `delivery-admin/src/pages/delivery-admin/freight-center.tsx` 新增运费中心，顶部用 `Statistic/Card` 汇总预收提货运费、货拉拉实际成本、成本差额和异常批次，下方列表展示订单号、批次号、商家、状态、预收/报价、实际成本、差额、货拉拉订单号、司机、车辆和更新时间。
+- `delivery-admin/src/pages/delivery-admin/freight-center.tsx` 新增运费中心，顶部用 `Statistic/Card` 汇总预收提货运费、货拉拉实际成本、成本差额和异常批次，下方列表展示订单号、批次号、商家、状态、预收/报价、实际成本、差额、货拉拉订单号、司机、车辆和更新时间；差额颜色与口径一致，正数绿色、负数红色。
 - `delivery-admin/src/pages/delivery-admin/pickup-batches.tsx` 新增提货批次操作页，按订单 / 子单 / 批次展示，支持后端已实现的 `status / merchantId / unitId / from / to` 筛选，不发送未支持的 keyword；行操作支持叫货拉拉、同步、取消和手工调整成本。
 - `delivery-admin/src/pages/delivery-admin/order-detail.tsx` 增加支付拆分、提货计划、批次履约记录和提货成本记录。若后端返回 `shippingCostLedgers` 则展示真实流水；为空时只展示订单聚合成本字段，不伪造流水。
 - `delivery-admin/src/pages/delivery-admin/shipping-records.tsx` 保留原顺丰等传统发货记录，并提示运营跳转到运费中心和提货批次处理货拉拉多批次提货。

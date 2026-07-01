@@ -145,7 +145,7 @@ describe('DeliveryAdminOpsService', () => {
       pickupStatus: 'PARTIAL_PICKED',
       prepaidPickupShippingFeeCents: 600,
       actualCarrierCostCents: 760,
-      shippingCostDiffCents: 160,
+      shippingCostDiffCents: -160,
       pickupBatches: [
         {
           id: 'PSTH0000000000001',
@@ -175,7 +175,7 @@ describe('DeliveryAdminOpsService', () => {
       pickupStatus: 'PARTIAL_PICKED',
       prepaidPickupShippingFeeCents: 600,
       actualCarrierCostCents: 760,
-      shippingCostDiffCents: 160,
+      shippingCostDiffCents: -160,
       pickupBatches: expect.any(Array),
       shippingCostLedgers: expect.any(Array),
     });

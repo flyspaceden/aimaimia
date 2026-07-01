@@ -57,7 +57,7 @@
 | 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
 | 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
 | 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
-| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；支持一次付款多次提货的 1 / 2 / 3 / 自定义次数选择，多批次会先调用 `/delivery/checkout/estimate-pickups` 预估预收提货运费；用户核对后第二次确认才通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；支持一次付款多次提货的 1 / 2 / 3 / 自定义次数选择，提货次数按所选商品总数量和平台 5 次上限动态收紧，多批次会先调用 `/delivery/checkout/estimate-pickups` 预估预收提货运费；用户核对后第二次确认才通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
 | 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 支付拉起后主动查单并轮询 delivery checkout session 状态，等待支付回调建单完成 |
 | 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用；多批次订单展示提货状态和预计提货次数 |
 | 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口；多批次订单改展示“提货进度”，包含商品已购/已提/剩余数量、批次状态、承运单号、司机/车辆和完成时间 |
@@ -68,7 +68,7 @@
 
 - delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
 - checkout 已接入 delivery 专属支付发起链路：`createCheckout -> 展示后端锁定金额 -> createPaymentParams -> 原生 Alipay/WeChat SDK -> active-query -> /delivery/payment-success`。App 不再用本地购物车金额直接作为付款前应付合计，避免有配送费时展示金额与实际支付金额不一致。
-- 一次付款多次提货只影响 delivery 结算和 delivery buyer 订单展示：App 提交 `pickupMode` / `plannedPickupCount` / `pickupPlanItems`，后端锁定 `prepaidPickupShippingFeeCents` 后一次性收款；后续叫车由平台履约，买家端不展示平台实际承运成本、成本差额或成本流水。
+- 一次付款多次提货只影响 delivery 结算和 delivery buyer 订单展示：App 提交 `pickupMode` / `plannedPickupCount` / `pickupPlanItems`，后端锁定 `prepaidPickupShippingFeeCents` 后一次性收款；所选提货次数不能超过所选商品总数量，每个计划批次必须有货；后续叫车由平台履约，买家端不展示平台实际承运成本、成本差额或成本流水。
 - delivery paid order 创建后会在同一 delivery 事务内清理本次 checkout snapshot 对应的 `DeliveryCartItem`，不触碰普通购物车。
 - 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`；App 侧支付完成后会调用 `/delivery/checkout/:id/active-query` 主动查单，降低第三方异步回调延迟导致的长时间未建单风险。真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
 - 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
@@ -102,7 +102,7 @@
 - 配送客服中心补齐（2026-06-20）：配送管理后台客服中心对齐现有爱买买管理后台 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已提供会话列表/详情/更新和客服默认配置，前端先接真实会话数据与默认配置，FAQ/快捷入口独立 CRUD 等待后端配送接口后续补齐。
 - 配送中心登录菜单修复（2026-06-21）：配送中心登录成功后不再先把 `seller=null` 的临时登录态写入 Zustand，改为先把 token 写入 localStorage 供 `getMe` 拉取完整账号资料，拿到完整 `permissionCodes` 后再一次性进入已登录状态，避免 ProLayout 在空权限 profile 下初始化成空侧边栏，导致首次登录只有一个页面、刷新后才出现完整菜单。
 - 配送管理后台定价规则弹窗修复（2026-06-21）：定价规则弹窗在选择“指定规格规则”时，商家 / 商品 / 规格三个选择框改为响应式网格布局，去掉固定 `md` 宽度，选择框按弹窗宽度自动等分或换行，避免规格选择框撑出弹窗范围。
-- 一次付款多次提货 App 接入（2026-06-30）：配送结算页新增紧凑“提货安排”控制区，默认按商品数量均分到多批次且余数进入较早批次；多批次锁单前先预估预收提货运费，金额汇总显示“预收提货运费”和一次付款提示。配送订单列表新增提货状态摘要；订单详情对有 `pickupBatches` 的新订单展示“提货进度”，无批次的老订单继续展示原“物流信息”。后端 buyer order API 只补读取映射，返回预收提货运费、批次状态、司机/车辆和承运单号，不返回平台 actual carrier cost、cost diff 或 cost ledger。
+- 一次付款多次提货 App 接入（2026-06-30）：配送结算页新增紧凑“提货安排”控制区，默认按商品数量均分到多批次且余数进入较早批次；2026-07-01 深审补强为提货次数按所选商品总数量和平台 5 次上限动态收紧，并在 App / 后端同时拒绝空批次计划。多批次锁单前先预估预收提货运费，金额汇总显示“预收提货运费”和一次付款提示。配送订单列表新增提货状态摘要；订单详情对有 `pickupBatches` 的新订单展示“提货进度”，无批次的老订单继续展示原“物流信息”。后端 buyer order API 只补读取映射，返回预收提货运费、批次状态、司机/车辆和承运单号，不返回平台 actual carrier cost、cost diff 或 cost ledger。
 - 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
 
 ### 0.9 Web 管理后台同步记录（2026-07-04）

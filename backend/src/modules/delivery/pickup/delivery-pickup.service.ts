@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
   DeliveryAuditActorType,
@@ -531,16 +536,27 @@ export class DeliveryPickupService {
             ? Math.max(0, Math.trunc(detail.actualFeeCents) + manualAdjustmentCents)
             : this.cents(latestBatch.actualCarrierCostCents);
         const prepaidPickupShippingFeeCents = this.cents(latestBatch.estimatedShippingFeeCents);
+        const batchUpdateData: Prisma.DeliveryPickupBatchUpdateInput = {
+          status: detail.mappedStatus,
+          actualCarrierCostCents,
+          shippingCostDiffCents: this.calculateShippingCostDiffCents(
+            prepaidPickupShippingFeeCents,
+            actualCarrierCostCents,
+          ),
+          lastOperatorType: DeliveryAuditActorType.ADMIN,
+          lastOperatorId: adminId,
+        };
+        if (detail.mappedStatus === DeliveryPickupBatchStatus.COMPLETED) {
+          batchUpdateData.completedAt = latestBatch.completedAt ?? new Date();
+        }
+
         await tx.deliveryPickupBatch.update({
           where: { id: latestBatch.id },
-          data: {
-            status: detail.mappedStatus,
-            actualCarrierCostCents,
-            shippingCostDiffCents: actualCarrierCostCents - prepaidPickupShippingFeeCents,
-            lastOperatorType: DeliveryAuditActorType.ADMIN,
-            lastOperatorId: adminId,
-          },
+          data: batchUpdateData,
         });
+        if (detail.mappedStatus === DeliveryPickupBatchStatus.COMPLETED) {
+          await this.completeBatchItems(tx, latestBatch);
+        }
 
         if (typeof detail.actualFeeCents === 'number') {
           await this.writeActualLedgerIfNeeded(tx, latestBatch, detail, adminId);
@@ -668,7 +684,10 @@ export class DeliveryPickupService {
           where: { id: batch.id },
           data: {
             actualCarrierCostCents: nextActualCarrierCostCents,
-            shippingCostDiffCents: nextActualCarrierCostCents - prepaidPickupShippingFeeCents,
+            shippingCostDiffCents: this.calculateShippingCostDiffCents(
+              prepaidPickupShippingFeeCents,
+              nextActualCarrierCostCents,
+            ),
             lastOperatorType: DeliveryAuditActorType.ADMIN,
             lastOperatorId: adminId,
           },
@@ -1081,9 +1100,55 @@ export class DeliveryPickupService {
       where: { id: orderId },
       data: {
         actualCarrierCostCents,
-        shippingCostDiffCents: actualCarrierCostCents - this.cents(order.prepaidPickupShippingFeeCents),
+        shippingCostDiffCents: this.calculateShippingCostDiffCents(
+          this.cents(order.prepaidPickupShippingFeeCents),
+          actualCarrierCostCents,
+        ),
       },
     });
+  }
+
+  private async completeBatchItems(tx: DeliveryPrismaTransaction, batch: PickupBatchWithAdminInclude) {
+    await Promise.all(
+      batch.items.map(async (item) => {
+        const deltaQuantity = Math.max(
+          0,
+          this.cents(item.quantity) - this.cents(item.pickedQuantity),
+        );
+        if (deltaQuantity <= 0) {
+          return;
+        }
+
+        const batchItemUpdated = await tx.deliveryPickupBatchItem.updateMany({
+          where: {
+            id: item.id,
+            batchId: batch.id,
+            pickedQuantity: item.pickedQuantity,
+          },
+          data: {
+            pickedQuantity: item.quantity,
+          },
+        });
+        if (batchItemUpdated.count !== 1) {
+          throw new ConflictException('提货批次明细已变化，请刷新后重试');
+        }
+
+        const orderItemUpdated = await tx.deliveryOrderItem.updateMany({
+          where: {
+            id: item.orderItemId,
+            subOrderId: item.subOrderId,
+          },
+          data: {
+            pickedQuantity: {
+              increment: deltaQuantity,
+            },
+          },
+        });
+        if (orderItemUpdated.count !== 1) {
+          throw new ConflictException('订单商品提货数量更新失败，请刷新后重试');
+        }
+      }),
+    );
   }
 
   private async refreshPickupStatuses(
@@ -1228,7 +1293,8 @@ export class DeliveryPickupService {
     const prepaidPickupShippingFeeCents = this.cents(batch.estimatedShippingFeeCents);
     const actualCarrierCostCents = this.cents(batch.actualCarrierCostCents);
     const shippingCostDiffCents =
-      batch.shippingCostDiffCents ?? actualCarrierCostCents - prepaidPickupShippingFeeCents;
+      batch.shippingCostDiffCents ??
+      this.calculateShippingCostDiffCents(prepaidPickupShippingFeeCents, actualCarrierCostCents);
 
     return {
       id: batch.id,
@@ -1305,6 +1371,13 @@ export class DeliveryPickupService {
 
   private cents(value: number | null | undefined) {
     return Number.isFinite(value) ? Math.trunc(value ?? 0) : 0;
+  }
+
+  private calculateShippingCostDiffCents(
+    prepaidPickupShippingFeeCents: number,
+    actualCarrierCostCents: number,
+  ) {
+    return this.cents(prepaidPickupShippingFeeCents) - this.cents(actualCarrierCostCents);
   }
 
   private parseManualAdjustmentAmount(value: number | string | undefined) {

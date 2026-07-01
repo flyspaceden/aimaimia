@@ -86,9 +86,10 @@ describe('HuolalaCarrierService', () => {
     await service.quote(quoteRequest);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
     const body = JSON.parse(String(init?.body));
 
+    expect(url).toBe('https://openapi.huolala.cn/api/e-price-calculate');
     expect(body.app_key).toBe(baseConfig.DELIVERY_HUOLALA_APP_KEY);
     expect(body.access_token).toBe(baseConfig.DELIVERY_HUOLALA_ACCESS_TOKEN);
     expect(body.timestamp).toBe('1767225600');
@@ -134,10 +135,12 @@ describe('HuolalaCarrierService', () => {
       priceCalculateId: 'price_calc_001',
     });
 
-    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
     const body = JSON.parse(String(init?.body));
 
+    expect(url).toBe('https://openapi.huolala.cn/api/e-order-request');
     expect(body.outside_order_id).toBe('pickup_batch_001');
+    expect(body.pay_type).toBe('8');
     expect(result.outsideOrderId).toBe('pickup_batch_001');
     expect(result.carrierOrderNo).toBe('hl-order-001');
   });

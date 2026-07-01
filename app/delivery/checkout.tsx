@@ -88,6 +88,14 @@ export default function DeliveryCheckoutScreen() {
     () => pickupCartItems.map((item) => `${item.cartItemId}:${item.quantity}`).join('|'),
     [pickupCartItems],
   );
+  const maxPickupCount = React.useMemo(
+    () =>
+      Math.min(
+        5,
+        Math.max(1, pickupCartItems.reduce((sum, item) => sum + item.quantity, 0)),
+      ),
+    [pickupCartItems],
+  );
   const checkoutSignature = React.useMemo(
     () => JSON.stringify({
       items: items.map((item) => ({
@@ -139,11 +147,23 @@ export default function DeliveryCheckoutScreen() {
     nextCount: number,
     preset: (typeof pickupCountOptions)[number]['key'],
   ) => {
-    const normalizedCount = Math.min(5, Math.max(1, Math.trunc(nextCount)));
+    const normalizedCount = Math.min(maxPickupCount, Math.max(1, Math.trunc(nextCount)));
     setPickupCountPreset(preset);
     setPlannedPickupCount(normalizedCount);
     setPickupMode(normalizedCount > 1 ? 'MULTI_BATCH' : 'SINGLE');
   };
+
+  React.useEffect(() => {
+    if (plannedPickupCount <= maxPickupCount) {
+      return;
+    }
+    const nextCount = maxPickupCount;
+    const nextPreset: (typeof pickupCountOptions)[number]['key'] =
+      nextCount === 1 ? '1' : nextCount === 2 ? '2' : nextCount === 3 ? '3' : 'custom';
+    setPickupCountPreset(nextPreset);
+    setPlannedPickupCount(nextCount);
+    setPickupMode(nextCount > 1 ? 'MULTI_BATCH' : 'SINGLE');
+  }, [maxPickupCount, plannedPickupCount]);
 
   const buildCheckoutPayload = (): DeliveryCreateCheckoutPayload => ({
     cartItemIds: items.map((item) => item.id),
@@ -297,7 +317,11 @@ export default function DeliveryCheckoutScreen() {
       if (!checkout) {
         const payload = buildCheckoutPayload();
         if (pickupMode === 'MULTI_BATCH') {
-          const validation = validateDeliveryPickupPlan(pickupCartItems, pickupPlanItems);
+          const validation = validateDeliveryPickupPlan(
+            pickupCartItems,
+            pickupPlanItems,
+            plannedPickupCount,
+          );
           if (!validation.ok) {
             show({ message: validation.message, type: 'warning' });
             return;
@@ -452,11 +476,17 @@ export default function DeliveryCheckoutScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }}>
               {pickupCountOptions.map((option) => {
                 const selected = pickupCountPreset === option.key;
+                const disabled = submitting || option.count > maxPickupCount;
                 return (
                   <Pressable
                     key={option.key}
-                    disabled={submitting}
-                    onPress={() => applyPickupCount(option.count, option.key)}
+                    disabled={disabled}
+                    onPress={() => {
+                      if (disabled) {
+                        return;
+                      }
+                      applyPickupCount(option.count, option.key);
+                    }}
                     style={{
                       minHeight: 40,
                       minWidth: 72,
@@ -468,14 +498,20 @@ export default function DeliveryCheckoutScreen() {
                       borderColor: selected ? palette.brand.primary : palette.border,
                       backgroundColor: selected ? palette.brand.primary : palette.brand.primarySoft,
                       paddingHorizontal: spacing.md,
-                      opacity: submitting ? 0.5 : 1,
+                      opacity: disabled ? 0.45 : 1,
                     }}
                   >
                     <Text
                       {...compactActionTextProps}
                       style={[
                         typography.bodyStrong,
-                        { color: selected ? palette.text.inverse : palette.brand.primaryDark },
+                        {
+                          color: disabled
+                            ? palette.text.tertiary
+                            : selected
+                              ? palette.text.inverse
+                              : palette.brand.primaryDark,
+                        },
                       ]}
                       numberOfLines={1}
                     >
@@ -501,7 +537,7 @@ export default function DeliveryCheckoutScreen() {
                 <DeliveryQuantityControl
                   value={plannedPickupCount}
                   min={2}
-                  max={5}
+                  max={Math.max(2, maxPickupCount)}
                   step={1}
                   onChange={(next) => applyPickupCount(next, 'custom')}
                 />

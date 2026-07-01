@@ -3,6 +3,7 @@ import {
   DeliveryAuditActorType,
   DeliveryCarrierProvider,
   DeliveryPickupBatchStatus,
+  DeliveryPickupStatus,
   DeliveryShippingCostLedgerType,
   Prisma,
 } from '../../../generated/delivery-client';
@@ -89,16 +90,16 @@ describe('DeliveryPickupService admin flows', () => {
       _sum: {
         estimatedShippingFeeCents: 600,
         actualCarrierCostCents: 760,
-        shippingCostDiffCents: 160,
+        shippingCostDiffCents: -160,
       },
     });
     deliveryPrisma.deliveryPickupBatch.count.mockResolvedValue(1);
     deliveryPrisma.deliveryPickupBatch.findMany.mockResolvedValue([
-      buildBatch({
-        estimatedShippingFeeCents: 600,
-        actualCarrierCostCents: 760,
-        shippingCostDiffCents: 160,
-        status: DeliveryPickupBatchStatus.EXCEPTION,
+        buildBatch({
+          estimatedShippingFeeCents: 600,
+          actualCarrierCostCents: 760,
+          shippingCostDiffCents: -160,
+          status: DeliveryPickupBatchStatus.EXCEPTION,
         carrierOrders: [
           buildCarrierOrder({
             carrierOrderNo: 'HL001',
@@ -133,7 +134,7 @@ describe('DeliveryPickupService admin flows', () => {
     expect(dashboard).toEqual({
       prepaidPickupShippingFeeCents: 600,
       actualCarrierCostCents: 760,
-      shippingCostDiffCents: 160,
+      shippingCostDiffCents: -160,
       exceptionBatchCount: 1,
     });
     expect(list.items[0]).toMatchObject({
@@ -141,7 +142,7 @@ describe('DeliveryPickupService admin flows', () => {
       merchantName: '华南仓',
       prepaidPickupShippingFeeCents: 600,
       actualCarrierCostCents: 760,
-      shippingCostDiffCents: 160,
+      shippingCostDiffCents: -160,
       latestCarrierOrder: expect.objectContaining({
         carrierOrderNo: 'HL001',
         status: 'exception',
@@ -324,7 +325,7 @@ describe('DeliveryPickupService admin flows', () => {
         buildBatch({
           status: DeliveryPickupBatchStatus.DELIVERING,
           actualCarrierCostCents: 380,
-          shippingCostDiffCents: -220,
+          shippingCostDiffCents: 220,
           carrierOrders: [
             buildCarrierOrder({
               carrierOrderNo: 'HL001',
@@ -343,7 +344,7 @@ describe('DeliveryPickupService admin flows', () => {
         buildBatch({
           status: DeliveryPickupBatchStatus.DELIVERING,
           actualCarrierCostCents: 380,
-          shippingCostDiffCents: -220,
+          shippingCostDiffCents: 220,
           carrierOrders: [
             buildCarrierOrder({
               carrierOrderNo: 'HL001',
@@ -357,7 +358,7 @@ describe('DeliveryPickupService admin flows', () => {
         buildBatch({
           status: DeliveryPickupBatchStatus.DELIVERING,
           actualCarrierCostCents: 380,
-          shippingCostDiffCents: -220,
+          shippingCostDiffCents: 220,
           carrierOrders: [
             buildCarrierOrder({
               carrierOrderNo: 'HL001',
@@ -391,12 +392,122 @@ describe('DeliveryPickupService admin flows', () => {
         source: 'HUOLALA_DETAIL',
       }),
     });
+    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+      where: { id: 'PSTH0000000000001' },
+      data: expect.objectContaining({
+        actualCarrierCostCents: 380,
+        shippingCostDiffCents: 220,
+      }),
+    });
     expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
       where: { id: 'PSDD0000000000001' },
       data: expect.objectContaining({
         actualCarrierCostCents: 380,
-        shippingCostDiffCents: -220,
+        shippingCostDiffCents: 220,
       }),
+    });
+  });
+
+  it('completes batch item quantities when carrier sync reaches completed', async () => {
+    huolalaCarrier.getOrderDetail.mockResolvedValueOnce({
+      provider: 'HUOLALA',
+      outsideOrderId: 'PSTH0000000000001',
+      carrierOrderNo: 'HL001',
+      status: 'completed',
+      mappedStatus: DeliveryPickupBatchStatus.COMPLETED,
+      actualFeeCents: 380,
+      driverSnapshot: { name: 'driver-a' },
+      vehicleSnapshot: { plateNo: '粤A12345' },
+      rawPayload: { status: 'completed', version: 1 },
+    });
+    tx.deliveryPickupBatch.findUnique
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.LOADED,
+          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.LOADED,
+          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBatch({
+          status: DeliveryPickupBatchStatus.COMPLETED,
+          completedAt: now,
+          actualCarrierCostCents: 380,
+          shippingCostDiffCents: 220,
+          items: [
+            {
+              id: 'batch_item_1',
+              batchId: 'PSTH0000000000001',
+              subOrderId: 'PSZDD000000000001',
+              orderItemId: 'order_item_1',
+              skuId: 'sku_1',
+              productSnapshot: {
+                productTitle: '西红柿',
+                skuTitle: '5kg/箱',
+                unitName: '箱',
+              },
+              quantity: 2,
+              pickedQuantity: 2,
+              createdAt: new Date('2026-06-30T10:00:00.000Z'),
+            },
+          ],
+          carrierOrders: [
+            buildCarrierOrder({
+              carrierOrderNo: 'HL001',
+              actualFeeCents: 380,
+              status: 'completed',
+            }),
+          ],
+        }),
+      );
+    tx.deliveryPickupBatch.findMany
+      .mockResolvedValueOnce([{ status: DeliveryPickupBatchStatus.COMPLETED }])
+      .mockResolvedValueOnce([{ status: DeliveryPickupBatchStatus.COMPLETED }]);
+
+    const result = await service.syncCarrier('PSTH0000000000001', 'admin_1');
+
+    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+      where: { id: 'PSTH0000000000001' },
+      data: expect.objectContaining({
+        status: DeliveryPickupBatchStatus.COMPLETED,
+        completedAt: now,
+      }),
+    });
+    expect(tx.deliveryPickupBatchItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch_item_1',
+        batchId: 'PSTH0000000000001',
+        pickedQuantity: 0,
+      },
+      data: {
+        pickedQuantity: 2,
+      },
+    });
+    expect(tx.deliveryOrderItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'order_item_1',
+        subOrderId: 'PSZDD000000000001',
+      },
+      data: {
+        pickedQuantity: { increment: 2 },
+      },
+    });
+    expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
+      where: { id: 'PSDD0000000000001' },
+      data: { pickupStatus: DeliveryPickupStatus.ALL_PICKED },
+    });
+    expect(tx.deliverySubOrder.update).toHaveBeenCalledWith({
+      where: { id: 'PSZDD000000000001' },
+      data: { pickupStatus: DeliveryPickupStatus.ALL_PICKED },
+    });
+    expect(result.items[0]).toMatchObject({
+      quantity: 2,
+      pickedQuantity: 2,
     });
   });
 
@@ -420,6 +531,58 @@ describe('DeliveryPickupService admin flows', () => {
 
     expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
     expect(tx.deliveryShippingCostLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps shipping cost difference as prepaid minus actual after manual adjustments', async () => {
+    tx.deliveryPickupBatch.findUnique
+      .mockResolvedValueOnce(
+        buildBatch({
+          actualCarrierCostCents: 380,
+          shippingCostDiffCents: 220,
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBatch({
+          actualCarrierCostCents: 480,
+          shippingCostDiffCents: 120,
+        }),
+      );
+    tx.deliveryPickupBatch.aggregate.mockResolvedValueOnce({
+      _sum: {
+        actualCarrierCostCents: 480,
+      },
+    });
+
+    const result = await service.manualAdjustCost(
+      'PSTH0000000000001',
+      'admin_1',
+      100,
+      '补录等候费',
+    );
+
+    expect(tx.deliveryShippingCostLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        batchId: 'PSTH0000000000001',
+        type: DeliveryShippingCostLedgerType.MANUAL_ADJUSTMENT,
+        amountCents: 100,
+        source: 'ADMIN_MANUAL_ADJUSTMENT',
+      }),
+    });
+    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
+      where: { id: 'PSTH0000000000001' },
+      data: expect.objectContaining({
+        actualCarrierCostCents: 480,
+        shippingCostDiffCents: 120,
+      }),
+    });
+    expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
+      where: { id: 'PSDD0000000000001' },
+      data: expect.objectContaining({
+        actualCarrierCostCents: 480,
+        shippingCostDiffCents: 120,
+      }),
+    });
+    expect(result.shippingCostDiffCents).toBe(120);
   });
 
   it('rejects loaded delivering completed cancellation and accepts cancellable status', async () => {
@@ -578,7 +741,7 @@ describe('DeliveryPickupService admin flows', () => {
         buildBatch({
           estimatedShippingFeeCents: 600,
           actualCarrierCostCents: 760,
-          shippingCostDiffCents: 160,
+          shippingCostDiffCents: -160,
           costLedgers: [{ id: 'ledger_estimate_1', amountCents: 600 }],
           costLedgersBySubOrder: [{ id: 'ledger_actual_1', amountCents: 760 }],
           carrierOrders: [
@@ -719,7 +882,7 @@ describe('DeliveryPickupService admin flows', () => {
             status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
             estimatedShippingFeeCents: 600,
             actualCarrierCostCents: 760,
-            shippingCostDiffCents: 160,
+            shippingCostDiffCents: -160,
             carrierOrders: [
               buildCarrierOrder({
                 carrierOrderNo: 'HL001',
@@ -735,7 +898,7 @@ describe('DeliveryPickupService admin flows', () => {
             remark: '司机联系不上',
             estimatedShippingFeeCents: 600,
             actualCarrierCostCents: 760,
-            shippingCostDiffCents: 160,
+            shippingCostDiffCents: -160,
             carrierOrders: [
               buildCarrierOrder({
                 carrierOrderNo: 'HL001',
@@ -817,7 +980,7 @@ function createPrismaMock() {
         _sum: {
           estimatedShippingFeeCents: 600,
           actualCarrierCostCents: 380,
-          shippingCostDiffCents: -220,
+          shippingCostDiffCents: 220,
         },
       }),
       count: jest.fn(),
@@ -827,7 +990,10 @@ function createPrismaMock() {
       update: jest.fn(),
     },
     deliveryPickupBatchItem: {
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    deliveryOrderItem: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     deliveryCarrierOrder: {
       create: jest.fn(),

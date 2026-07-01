@@ -30,7 +30,7 @@
 
 ### 成本和权限边界
 
-- 配送管理后台可见：预收提货运费、预计承运费、货拉拉实际成本、差额、人工调整、成本流水。
+- 配送管理后台可见：预收提货运费、预计承运费、货拉拉实际成本、差额、人工调整、成本流水。差额统一按“预收运费 - 调整后的实际成本”计算，正数代表平台结余，负数代表平台超支。
 - 配送中心可见：批次商品、数量、收货/提货信息、司机、车辆、货拉拉状态、备货/交货/异常操作。
 - 配送中心不可见：用户预收运费、预计承运费、实际承运成本、差额、成本流水、平台利润或加价规则。
 
@@ -40,14 +40,17 @@
 
 ```bash
 DELIVERY_HUOLALA_ENABLED=true
+DELIVERY_HUOLALA_BASE_URL=https://openapi-pre.huolala.cn
 DELIVERY_HUOLALA_APP_KEY=...
 DELIVERY_HUOLALA_APP_SECRET=...
 DELIVERY_HUOLALA_ACCESS_TOKEN=...
-DELIVERY_HUOLALA_PAY_TYPE=MONTHLY_ACCOUNT
+DELIVERY_HUOLALA_PAY_TYPE=8
 DELIVERY_HUOLALA_MONTHLY_ACCOUNT_ID=...
 ```
 
-当前代码中的货拉拉 adapter 已完成接口封装和异常归一化，但还没有使用真实企业账号做沙箱/生产联调。真实联调时需要确认货拉拉企业版最终开放的 endpoint、签名字段、城市/车型编码、月结参数和回调/账单口径；如官方字段与当前占位映射不同，只改 adapter 层，不改订单/批次/成本主流程。
+`DELIVERY_HUOLALA_BASE_URL` 不配置时默认正式开放平台 `https://openapi.huolala.cn`；staging 联调建议显式配置为预发地址。`DELIVERY_HUOLALA_PAY_TYPE=8` 表示账期/月结支付，代码也兼容旧写法 `MONTHLY_ACCOUNT` 并规范化为 `8`。
+
+当前代码中的货拉拉 adapter 已完成企业版公开 endpoint 封装和异常归一化，但还没有使用真实企业账号做沙箱/生产联调。真实联调时需要确认货拉拉企业版最终开放的签名字段、城市/车型编码、月结参数和回调/账单口径；如官方字段与当前映射不同，只改 adapter 层，不改订单/批次/成本主流程。
 
 ### 本地验证
 

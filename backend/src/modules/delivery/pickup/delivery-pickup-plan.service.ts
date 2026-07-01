@@ -83,6 +83,17 @@ export class DeliveryPickupPlanService {
       throw new BadRequestException('MULTI_BATCH 至少需要 2 批提货');
     }
 
+    const totalQuantity = params.cartItems.reduce(
+      (sum, item) => sum + Math.max(0, Math.trunc(item.quantity)),
+      0,
+    );
+    if (
+      pickupMode === DeliveryPickupMode.MULTI_BATCH &&
+      plannedPickupCount > totalQuantity
+    ) {
+      throw new BadRequestException('提货次数不能超过所选商品总数量');
+    }
+
     const cartItemById = new Map(
       params.cartItems.map((item) => [item.cartItemId, item]),
     );
@@ -113,6 +124,15 @@ export class DeliveryPickupPlanService {
     for (const cartItem of params.cartItems) {
       if ((plannedQuantityByCartItemId.get(cartItem.cartItemId) ?? 0) !== cartItem.quantity) {
         throw new BadRequestException('提货计划数量与购物车数量不一致');
+      }
+    }
+
+    if (pickupMode === DeliveryPickupMode.MULTI_BATCH) {
+      const usedBatchNos = new Set(planAssignments.map((item) => item.batchNo));
+      for (let batchNo = 1; batchNo <= plannedPickupCount; batchNo += 1) {
+        if (!usedBatchNos.has(batchNo)) {
+          throw new BadRequestException('提货计划必须覆盖每个计划批次');
+        }
       }
     }
 

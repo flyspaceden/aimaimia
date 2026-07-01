@@ -143,7 +143,7 @@ function formatDiff(cents?: number | null) {
   if (cents === null || cents === undefined) {
     return '-';
   }
-  const type = cents > 0 ? 'danger' : cents < 0 ? 'success' : undefined;
+  const type = cents > 0 ? 'success' : cents < 0 ? 'danger' : undefined;
   return <Text type={type}>{formatMoney(cents)}</Text>;
 }
 
@@ -354,7 +354,7 @@ export default function DeliveryFreightCenterPage() {
     <div style={{ padding: 24 }}>
       <PageHeader
         title="运费中心"
-        subtitle="查看配送订单预收提货运费、货拉拉实际成本、成本差额和异常批次；差额按“实际成本 - 预收运费”展示。"
+        subtitle="查看配送订单预收提货运费、货拉拉实际成本、成本差额和异常批次；差额按“预收运费 - 实际成本”展示，正数为结余，负数为超支。"
       />
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -374,7 +374,7 @@ export default function DeliveryFreightCenterPage() {
               title="运费差额"
               prefix="¥"
               value={((dashboard?.shippingCostDiffCents ?? 0) / 100).toFixed(2)}
-              valueStyle={{ color: (dashboard?.shippingCostDiffCents ?? 0) > 0 ? '#cf1322' : '#389e0d' }}
+              valueStyle={{ color: (dashboard?.shippingCostDiffCents ?? 0) >= 0 ? '#389e0d' : '#cf1322' }}
             />
           </Card>
         </Col>

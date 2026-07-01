@@ -153,7 +153,7 @@ function formatDiff(cents?: number | null) {
   if (cents === null || cents === undefined) {
     return '-';
   }
-  const type = cents > 0 ? 'danger' : cents < 0 ? 'success' : undefined;
+  const type = cents > 0 ? 'success' : cents < 0 ? 'danger' : undefined;
   return <Text type={type}>{formatMoney(cents)}</Text>;
 }
 

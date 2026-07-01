@@ -11,6 +11,7 @@ import {
 } from './delivery-carrier.types';
 
 type HuolalaConfig = {
+  baseUrl: string;
   appKey: string;
   appSecret: string;
   accessToken: string;
@@ -20,7 +21,13 @@ type HuolalaConfig = {
 
 type JsonRecord = Record<string, unknown>;
 
-const HUOLALA_BASE_URL = 'https://openapi.huolala.cn';
+const HUOLALA_DEFAULT_BASE_URL = 'https://openapi.huolala.cn';
+const HUOLALA_API_PATHS = {
+  quote: '/api/e-price-calculate',
+  requestOrder: '/api/e-order-request',
+  detail: '/api/e-order-detail',
+  cancel: '/api/e-order-cancel',
+} as const;
 
 @Injectable()
 export class HuolalaCarrierService {
@@ -38,7 +45,7 @@ export class HuolalaCarrierService {
   }
 
   async quote(request: DeliveryCarrierQuoteRequest): Promise<DeliveryCarrierQuoteResult> {
-    const payload = await this.requestJson('/v1/order/quote', {
+    const payload = await this.requestJson(HUOLALA_API_PATHS.quote, {
       outside_order_id: request.outsideOrderId,
       city_id: request.cityId,
       vehicle_id: request.vehicleId,
@@ -71,7 +78,7 @@ export class HuolalaCarrierService {
     request: DeliveryCarrierQuoteRequest & { priceCalculateId: string },
   ): Promise<DeliveryCarrierOrderResult> {
     const config = this.getRequiredConfig();
-    const payload = await this.requestJson('/v1/order/create', {
+    const payload = await this.requestJson(HUOLALA_API_PATHS.requestOrder, {
       outside_order_id: request.outsideOrderId,
       city_id: request.cityId,
       vehicle_id: request.vehicleId,
@@ -80,7 +87,7 @@ export class HuolalaCarrierService {
       cargo: this.serializeCargo(request.cargo),
       planned_pickup_at: request.plannedPickupAt?.toISOString(),
       price_calculate_id: request.priceCalculateId,
-      pay_type: config.payType,
+      pay_type: this.normalizePayType(config.payType),
       monthly_account_id: config.monthlyAccountId,
     });
 
@@ -106,7 +113,7 @@ export class HuolalaCarrierService {
     carrierOrderNo?: string;
     outsideOrderId?: string;
   }): Promise<DeliveryCarrierDetailResult> {
-    const payload = await this.requestJson('/v1/order/detail', {
+    const payload = await this.requestJson(HUOLALA_API_PATHS.detail, {
       carrier_order_no: input.carrierOrderNo,
       outside_order_id: input.outsideOrderId,
     });
@@ -145,7 +152,7 @@ export class HuolalaCarrierService {
     carrierOrderNo: string;
     reason: string;
   }): Promise<DeliveryCarrierCancelResult> {
-    const payload = await this.requestJson('/v1/order/cancel', {
+    const payload = await this.requestJson(HUOLALA_API_PATHS.cancel, {
       carrier_order_no: input.carrierOrderNo,
       cancel_reason: input.reason,
     });
@@ -231,7 +238,7 @@ export class HuolalaCarrierService {
     const signedPayload = this.buildSignedPayload(payload, config);
     let response: Response;
     try {
-      response = await fetch(`${HUOLALA_BASE_URL}${path}`, {
+      response = await fetch(`${config.baseUrl}${path}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -330,18 +337,32 @@ export class HuolalaCarrierService {
     const accessToken = this.getConfigValue('DELIVERY_HUOLALA_ACCESS_TOKEN');
     const payType = this.getConfigValue('DELIVERY_HUOLALA_PAY_TYPE');
     const monthlyAccountId = this.getConfigValue('DELIVERY_HUOLALA_MONTHLY_ACCOUNT_ID');
+    const baseUrl =
+      this.getConfigValue('DELIVERY_HUOLALA_BASE_URL') ?? HUOLALA_DEFAULT_BASE_URL;
 
     if (!appKey || !appSecret || !accessToken || !payType || !monthlyAccountId) {
       throw new ServiceUnavailableException('货拉拉运力配置缺失');
     }
 
     return {
+      baseUrl: baseUrl.replace(/\/+$/, ''),
       appKey,
       appSecret,
       accessToken,
       payType,
       monthlyAccountId,
     };
+  }
+
+  private normalizePayType(payType: string) {
+    const normalized = payType.trim().toUpperCase();
+    if (normalized === 'MONTHLY_ACCOUNT' || normalized === 'ACCOUNT_PERIOD') {
+      return '8';
+    }
+    if (normalized === 'BALANCE' || normalized === 'WALLET') {
+      return '3';
+    }
+    return payType.trim();
   }
 
   private getConfigValue(key: string): string | undefined {

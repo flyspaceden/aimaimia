@@ -799,6 +799,7 @@ constructor(private readonly configService: ConfigService) {}
 Required config keys:
 
 - `DELIVERY_HUOLALA_ENABLED`
+- `DELIVERY_HUOLALA_BASE_URL`
 - `DELIVERY_HUOLALA_APP_KEY`
 - `DELIVERY_HUOLALA_APP_SECRET`
 - `DELIVERY_HUOLALA_ACCESS_TOKEN`

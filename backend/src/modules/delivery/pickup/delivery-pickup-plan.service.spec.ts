@@ -73,6 +73,62 @@ describe('DeliveryPickupPlanService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects multi-pickup counts that exceed selected total quantity', async () => {
+    await expect(
+      service.buildCheckoutPickupSnapshot({
+        pickupMode: DeliveryPickupMode.MULTI_BATCH,
+        plannedPickupCount: 3,
+        cartItems: [
+          {
+            cartItemId: 'cart_1',
+            merchantId: 'merchant_1',
+            merchantName: '华南仓',
+            quantity: 2,
+            lineAmountCents: 2200,
+          },
+        ],
+        merchantGroups: [
+          {
+            merchantId: 'merchant_1',
+            merchantName: '华南仓',
+            goodsAmountCents: 2200,
+          },
+        ],
+        fallbackShippingFeeCents: 500,
+      }),
+    ).rejects.toThrow('提货次数不能超过所选商品总数量');
+  });
+
+  it('rejects explicit pickup plans that leave a selected batch empty', async () => {
+    await expect(
+      service.buildCheckoutPickupSnapshot({
+        pickupMode: DeliveryPickupMode.MULTI_BATCH,
+        plannedPickupCount: 3,
+        cartItems: [
+          {
+            cartItemId: 'cart_1',
+            merchantId: 'merchant_1',
+            merchantName: '华南仓',
+            quantity: 3,
+            lineAmountCents: 3300,
+          },
+        ],
+        merchantGroups: [
+          {
+            merchantId: 'merchant_1',
+            merchantName: '华南仓',
+            goodsAmountCents: 3300,
+          },
+        ],
+        pickupPlanItems: [
+          { cartItemId: 'cart_1', batchNo: 1, quantity: 1 },
+          { cartItemId: 'cart_1', batchNo: 3, quantity: 2 },
+        ],
+        fallbackShippingFeeCents: 500,
+      }),
+    ).rejects.toThrow('提货计划必须覆盖每个计划批次');
+  });
+
   it('splits quantities across batches by default when no explicit pickup plan is provided', async () => {
     const result = await service.buildCheckoutPickupSnapshot({
       pickupMode: DeliveryPickupMode.MULTI_BATCH,

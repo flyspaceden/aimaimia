@@ -342,7 +342,7 @@ describe('DeliverySellerOpsService', () => {
             canceledAt: null,
             estimatedShippingFeeCents: 500,
             actualCarrierCostCents: 700,
-            shippingCostDiffCents: 200,
+            shippingCostDiffCents: -200,
             items: [
               {
                 id: 'batch_item_1',
