@@ -100,6 +100,10 @@ export class DeliveryPickupPlanService {
               plannedPickupCount,
             )
           : this.buildDefaultPlanItems(params.cartItems, plannedPickupCount);
+    const batchLineAmountByItemAndBatch = this.buildBatchLineAmountAllocationMap(
+      params.cartItems,
+      planAssignments,
+    );
 
     const plannedQuantityByCartItemId = planAssignments.reduce((map, item) => {
       map.set(item.cartItemId, (map.get(item.cartItemId) ?? 0) + item.quantity);
@@ -147,10 +151,16 @@ export class DeliveryPickupPlanService {
         ([left], [right]) => left - right,
       );
       const fallbackBatchFees = this.allocateByGoodsAmount(
-        sortedBatchEntries.map(([, items]) =>
+        sortedBatchEntries.map(([batchNo, items]) =>
           items.reduce((sum, item) => {
-            const cartItem = cartItemById.get(item.cartItemId)!;
-            return sum + this.resolveBatchLineAmountCents(cartItem, item.quantity);
+            return (
+              sum +
+              this.resolveAllocatedBatchLineAmountCents(
+                batchLineAmountByItemAndBatch,
+                item.cartItemId,
+                batchNo,
+              )
+            );
           }, 0),
         ),
         merchantShippingById.get(group.merchantId) ?? 0,
@@ -165,15 +175,22 @@ export class DeliveryPickupPlanService {
                 return {
                   quantity: item.quantity,
                   weightGram: Math.max(0, Math.trunc(cartItem.weightGram ?? 0)),
-                  lineAmountCents: this.resolveBatchLineAmountCents(
-                    cartItem,
-                    item.quantity,
+                  lineAmountCents: this.resolveAllocatedBatchLineAmountCents(
+                    batchLineAmountByItemAndBatch,
+                    item.cartItemId,
+                    batchNo,
                   ),
                 };
               }),
               items.reduce((sum, item) => {
-                const cartItem = cartItemById.get(item.cartItemId)!;
-                return sum + this.resolveBatchLineAmountCents(cartItem, item.quantity);
+                return (
+                  sum +
+                  this.resolveAllocatedBatchLineAmountCents(
+                    batchLineAmountByItemAndBatch,
+                    item.cartItemId,
+                    batchNo,
+                  )
+                );
               }, 0),
               params.shippingRules,
             ).shippingFeeCents
@@ -414,14 +431,52 @@ export class DeliveryPickupPlanService {
     return planItems;
   }
 
-  private resolveBatchLineAmountCents(
-    cartItem: CheckoutCartItemForPickup,
-    batchQuantity: number,
+  private buildBatchLineAmountAllocationMap(
+    cartItems: CheckoutCartItemForPickup[],
+    planAssignments: DeliveryPickupPlanItemInput[],
   ) {
-    if (cartItem.quantity <= 0) {
-      return 0;
+    const cartItemById = new Map(
+      cartItems.map((item) => [item.cartItemId, item]),
+    );
+    const assignmentsByCartItemId = planAssignments.reduce((map, item) => {
+      const existing = map.get(item.cartItemId) ?? [];
+      existing.push(item);
+      map.set(item.cartItemId, existing);
+      return map;
+    }, new Map<string, DeliveryPickupPlanItemInput[]>());
+
+    const allocated = new Map<string, number>();
+    for (const [cartItemId, assignments] of assignmentsByCartItemId.entries()) {
+      const cartItem = cartItemById.get(cartItemId);
+      if (!cartItem || cartItem.quantity <= 0) {
+        continue;
+      }
+
+      const baseUnitAmountCents = Math.floor(cartItem.lineAmountCents / cartItem.quantity);
+      let remainingRemainderCents =
+        cartItem.lineAmountCents - baseUnitAmountCents * cartItem.quantity;
+      for (const assignment of assignments.sort((left, right) => left.batchNo - right.batchNo)) {
+        const remainderForBatch = Math.min(
+          assignment.quantity,
+          remainingRemainderCents,
+        );
+        allocated.set(
+          `${cartItemId}:${assignment.batchNo}`,
+          baseUnitAmountCents * assignment.quantity + remainderForBatch,
+        );
+        remainingRemainderCents -= remainderForBatch;
+      }
     }
-    return Math.round((cartItem.lineAmountCents * batchQuantity) / cartItem.quantity);
+
+    return allocated;
+  }
+
+  private resolveAllocatedBatchLineAmountCents(
+    allocatedByItemAndBatch: Map<string, number>,
+    cartItemId: string,
+    batchNo: number,
+  ) {
+    return allocatedByItemAndBatch.get(`${cartItemId}:${batchNo}`) ?? 0;
   }
 
   private allocateByGoodsAmount(

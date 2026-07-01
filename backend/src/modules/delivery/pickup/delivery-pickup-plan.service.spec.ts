@@ -160,6 +160,51 @@ describe('DeliveryPickupPlanService', () => {
     expect(result.prepaidPickupShippingFeeCents).toBe(1000);
   });
 
+  it('preserves per-item batch amount allocations so AMOUNT rules do not overcharge after splitting', async () => {
+    const result = await service.buildCheckoutPickupSnapshot({
+      pickupMode: DeliveryPickupMode.MULTI_BATCH,
+      plannedPickupCount: 3,
+      cartItems: [
+        {
+          cartItemId: 'cart_1',
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          quantity: 3,
+          lineAmountCents: 101,
+        },
+      ],
+      merchantGroups: [
+        {
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          goodsAmountCents: 101,
+        },
+      ],
+      fallbackShippingFeeCents: 300,
+      shippingRules: [
+        {
+          id: 'ship_rule_amount',
+          merchantId: null,
+          calcType: 'AMOUNT',
+          firstWeightGram: 33,
+          firstWeightPriceCents: 100,
+          additionalWeightGram: 1,
+          additionalWeightPriceCents: 100,
+          freeShippingThresholdCents: null,
+          minShippingFeeCents: 0,
+          sortOrder: 1,
+        },
+      ],
+    } as any);
+
+    expect(result.perBatchEstimates).toEqual([
+      { merchantId: 'merchant_1', batchNo: 1, estimatedShippingFeeCents: 200 },
+      { merchantId: 'merchant_1', batchNo: 2, estimatedShippingFeeCents: 200 },
+      { merchantId: 'merchant_1', batchNo: 3, estimatedShippingFeeCents: 100 },
+    ]);
+    expect(result.prepaidPickupShippingFeeCents).toBe(500);
+  });
+
   it('splits pickup plans by merchant sub-order and does not cross merchantId boundaries', async () => {
     const checkout = {
       id: 'checkout_1',
