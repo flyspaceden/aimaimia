@@ -43,6 +43,48 @@ const sellerOrderInclude = {
       updatedAt: true,
     },
   },
+  pickupBatches: {
+    orderBy: [{ batchNo: 'asc' as const }, { createdAt: 'asc' as const }],
+    select: {
+      id: true,
+      orderId: true,
+      subOrderId: true,
+      merchantId: true,
+      batchNo: true,
+      status: true,
+      provider: true,
+      plannedPickupAt: true,
+      readyAt: true,
+      calledAt: true,
+      loadedAt: true,
+      completedAt: true,
+      canceledAt: true,
+      items: {
+        orderBy: [{ createdAt: 'asc' as const }],
+        select: {
+          id: true,
+          orderItemId: true,
+          skuId: true,
+          productSnapshot: true,
+          quantity: true,
+          pickedQuantity: true,
+        },
+      },
+      carrierOrders: {
+        orderBy: [{ updatedAt: 'desc' as const }, { createdAt: 'desc' as const }],
+        take: 1,
+        select: {
+          carrierOrderNo: true,
+          status: true,
+          driverSnapshot: true,
+          vehicleSnapshot: true,
+          lastSyncedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.DeliverySubOrderInclude;
 
 type SellerOrderRecord = Prisma.DeliverySubOrderGetPayload<{
@@ -312,6 +354,51 @@ export class DeliverySellerOpsService {
             updatedAt: latestShipment.updatedAt.toISOString(),
           }
         : null,
+      pickupBatches: order.pickupBatches.map((batch) => {
+        const latestCarrierOrder = batch.carrierOrders[0] ?? null;
+        return {
+          id: batch.id,
+          orderId: batch.orderId,
+          subOrderId: batch.subOrderId,
+          merchantId: batch.merchantId,
+          batchNo: batch.batchNo,
+          status: batch.status,
+          provider: batch.provider,
+          plannedPickupAt: this.toIsoString(batch.plannedPickupAt),
+          readyAt: this.toIsoString(batch.readyAt),
+          calledAt: this.toIsoString(batch.calledAt),
+          loadedAt: this.toIsoString(batch.loadedAt),
+          completedAt: this.toIsoString(batch.completedAt),
+          canceledAt: this.toIsoString(batch.canceledAt),
+          carrierOrderNo: latestCarrierOrder?.carrierOrderNo ?? null,
+          driverSnapshot: latestCarrierOrder?.driverSnapshot ?? null,
+          vehicleSnapshot: latestCarrierOrder?.vehicleSnapshot ?? null,
+          latestCarrierOrder: latestCarrierOrder
+            ? {
+                carrierOrderNo: latestCarrierOrder.carrierOrderNo,
+                status: latestCarrierOrder.status,
+                driverSnapshot: latestCarrierOrder.driverSnapshot,
+                vehicleSnapshot: latestCarrierOrder.vehicleSnapshot,
+                lastSyncedAt: this.toIsoString(latestCarrierOrder.lastSyncedAt),
+                createdAt: latestCarrierOrder.createdAt.toISOString(),
+                updatedAt: latestCarrierOrder.updatedAt.toISOString(),
+              }
+            : null,
+          items: batch.items.map((item) => {
+            const snapshot = this.parseProductSnapshot(item.productSnapshot);
+            return {
+              id: item.id,
+              orderItemId: item.orderItemId,
+              skuId: item.skuId,
+              productTitle: snapshot.productTitle || '',
+              skuTitle: snapshot.skuTitle || '',
+              unitName: snapshot.unitName || '',
+              quantity: item.quantity,
+              pickedQuantity: item.pickedQuantity,
+            };
+          }),
+        };
+      }),
     };
   }
 
@@ -348,5 +435,9 @@ export class DeliverySellerOpsService {
 
   private asString(raw: unknown) {
     return typeof raw === 'string' ? raw : '';
+  }
+
+  private toIsoString(value: Date | null) {
+    return value ? value.toISOString() : null;
   }
 }

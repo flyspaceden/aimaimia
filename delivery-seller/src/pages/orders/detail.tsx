@@ -38,6 +38,7 @@ import { exportFulfillmentManifest } from '@/api/manifests';
 import { getStatusDisplay, orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 import type { PickupBatch, PickupBatchCarrierOrder, PickupBatchItem } from '@/types';
+import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -181,6 +182,7 @@ export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const canWriteOrders = useAuthStore((state) => state.hasPermission('orders:write'));
   const [shipping, setShipping] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
@@ -287,6 +289,7 @@ export default function OrderDetailPage() {
   const pickupBatches = order.pickupBatches ?? [];
   const hasPickupBatches = pickupBatches.length > 0;
   const canManageShipment =
+    canWriteOrders &&
     !hasPickupBatches &&
     order.status === 'PENDING_SHIPMENT' &&
     (!order.shipment || order.shipment.status === 'INIT');
@@ -373,7 +376,7 @@ export default function OrderDetailPage() {
         <Space size={4} wrap>
           <Button
             size="small"
-            disabled={!canMarkReady(record)}
+            disabled={!canWriteOrders || !canMarkReady(record)}
             loading={batchActionLoading === `ready:${record.id}`}
             onClick={() => confirmBatchAction(record, 'ready')}
           >
@@ -381,7 +384,7 @@ export default function OrderDetailPage() {
           </Button>
           <Button
             size="small"
-            disabled={!canMarkLoaded(record)}
+            disabled={!canWriteOrders || !canMarkLoaded(record)}
             loading={batchActionLoading === `loaded:${record.id}`}
             onClick={() => confirmBatchAction(record, 'loaded')}
           >
@@ -391,7 +394,7 @@ export default function OrderDetailPage() {
             danger
             size="small"
             icon={<ExclamationCircleOutlined />}
-            disabled={!canReportException(record)}
+            disabled={!canWriteOrders || !canReportException(record)}
             loading={batchActionLoading === `exception:${record.id}`}
             onClick={() => {
               setExceptionTarget(record);

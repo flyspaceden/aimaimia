@@ -160,6 +160,7 @@ test('delivery center exposes a cost-redacted pickup batch workbench', () => {
   const pickupPage = read('src/pages/pickup-batches/index.tsx');
   const orderDetail = read('src/pages/orders/detail.tsx');
   const logisticsPage = read('src/pages/orders/logistics.tsx');
+  const sellerOpsService = read('../backend/src/modules/delivery/seller/delivery-seller-ops.service.ts');
 
   assert.match(types, /interface\s+PickupBatch/);
   assert.match(ordersApi, /getPickupBatches/);
@@ -177,6 +178,10 @@ test('delivery center exposes a cost-redacted pickup batch workbench', () => {
   assert.match(pickupPage, /Modal\.confirm/);
   assert.match(orderDetail, /pickupBatches/);
   assert.match(logisticsPage, /pickupBatches/);
+  assert.match(orderDetail, /hasPermission\('orders:write'\)/);
+  assert.match(sellerOpsService, /pickupBatches:\s*\{/);
+  assert.match(sellerOpsService, /latestCarrierOrder/);
+  assert.match(sellerOpsService, /carrierOrderNo/);
 
   const forbiddenCostSurface =
     /prepaidPickupShippingFeeCents|estimatedShippingFeeCents|actualCarrierCostCents|shippingCostDiffCents|estimatedFeeCents|actualFeeCents|平台成本|预收运费|实际承运成本|差额|成本流水/;
