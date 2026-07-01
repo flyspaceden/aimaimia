@@ -65,6 +65,8 @@ const menuRoutes: ProLayoutProps['route'] = {
       routes: [
         { path: '/orders', name: '订单管理', permission: 'delivery:orders:read' },
         { path: '/shipping-records', name: '发货记录', permission: 'delivery:orders:read' },
+        { path: '/freight-center', name: '运费中心', permission: 'delivery:orders:read' },
+        { path: '/pickup-batches', name: '提货批次', permission: 'delivery:orders:read' },
         { path: '/abnormal-payments', name: '异常支付', permission: 'delivery:orders:read' },
         { path: '/settlements', name: '结算管理', permission: 'delivery:settlements:read' },
         { path: '/manifests', name: '清单模板', permission: 'delivery:manifests:read' },

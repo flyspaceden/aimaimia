@@ -21,6 +21,8 @@ const PricingRulesPage = lazy(() => import('@/pages/delivery-admin/pricing-rules
 const OrdersPage = lazy(() => import('@/pages/delivery-admin/orders'));
 const OrderDetailPage = lazy(() => import('@/pages/delivery-admin/order-detail'));
 const ShippingRecordsPage = lazy(() => import('@/pages/delivery-admin/shipping-records'));
+const FreightCenterPage = lazy(() => import('@/pages/delivery-admin/freight-center'));
+const PickupBatchesPage = lazy(() => import('@/pages/delivery-admin/pickup-batches'));
 const AbnormalPaymentsPage = lazy(() => import('@/pages/delivery-admin/abnormal-payments'));
 const ManifestsPage = lazy(() => import('@/pages/delivery-admin/manifests'));
 const SettlementsPage = lazy(() => import('@/pages/delivery-admin/settlements'));
@@ -94,6 +96,8 @@ export default function App() {
             <Route path="orders" element={<OrdersPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
             <Route path="shipping-records" element={<ShippingRecordsPage />} />
+            <Route path="freight-center" element={<FreightCenterPage />} />
+            <Route path="pickup-batches" element={<PickupBatchesPage />} />
             <Route path="abnormal-payments" element={<AbnormalPaymentsPage />} />
             <Route path="manifests" element={<ManifestsPage />} />
             <Route path="settlements" element={<SettlementsPage />} />

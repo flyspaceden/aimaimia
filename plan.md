@@ -305,6 +305,11 @@
   - **实际做了**: 配送结算页新增“提货安排”控制区，支持 1 / 2 / 3 / 自定义提货次数，默认按数量均分提货计划并在多批次锁单前调用 `/delivery/checkout/estimate-pickups` 预估预收提货运费；订单列表展示多批次提货状态，订单详情对有 `pickupBatches` 的订单展示商品已购/已提/剩余数量、批次状态、承运单号、司机/车辆和完成时间，无批次老订单保留原物流信息；后端 buyer order 读接口补 pickupBatches / pickedQuantity / remainingQuantity 映射，且不向买家返回平台实际承运成本、成本差额或成本流水。
   - **验证**: `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand`、`npx tsc --noEmit`、`cd backend && npm test -- delivery-orders.service.spec.ts --runInBand`、`git diff --check`。
 
+- [x] **配送管理后台运费中心与提货批次（Task 7）**（2026-06-30 新增并完成）
+  - **来源**: isolated worktree `delivery-partial-pickup-huolala` / Task 7 brief
+  - **实际做了**: 配送管理后台新增 `/freight-center` 运费中心和 `/pickup-batches` 提货批次操作页，接入 Task 4 后端 dashboard/list/call/sync/cancel/manual-adjust-cost 接口；运费中心展示预收提货运费、货拉拉实际成本、成本差额、异常批次和批次明细；提货批次页按订单 / 子单 / 批次组织，支持叫货拉拉、同步、取消、调整成本；订单详情新增支付拆分、提货计划、批次履约记录和真实成本流水展示；旧发货记录页增加新页面跳转提示但继续保留顺丰记录。
+  - **验证**: `cd delivery-admin && npm run build`、`git diff --check`。
+
 - [x] **配送管理后台壳（Task 14）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 14 brief
   - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标

@@ -239,11 +239,17 @@ export type DeliveryOrderSummary = {
   unitId: string;
   checkoutSessionId: string | null;
   status: string;
+  pickupMode: string;
+  plannedPickupCount: number;
+  pickupStatus: string;
   unitSnapshot: JsonValue;
   addressSnapshot: JsonValue;
   itemsSnapshot: JsonValue;
   pricingSnapshot: JsonValue | null;
   note: string | null;
+  prepaidPickupShippingFeeCents: number;
+  actualCarrierCostCents: number;
+  shippingCostDiffCents: number;
   goodsAmountCents: number;
   shippingFeeCents: number;
   totalAmountCents: number;
@@ -305,6 +311,100 @@ export type DeliveryShipment = {
   updatedAt: string;
 };
 
+export type DeliveryFreightDashboard = {
+  prepaidPickupShippingFeeCents: number;
+  actualCarrierCostCents: number;
+  shippingCostDiffCents: number;
+  exceptionBatchCount: number;
+};
+
+export type DeliveryPickupBatchItem = {
+  id: string;
+  batchId?: string;
+  subOrderId?: string;
+  orderItemId: string;
+  skuId: string;
+  productSnapshot?: JsonValue;
+  productTitle?: string;
+  skuTitle?: string;
+  unitName?: string;
+  quantity: number;
+  pickedQuantity: number;
+  createdAt?: string;
+};
+
+export type DeliveryCarrierOrder = {
+  id: string;
+  batchId?: string;
+  provider: string;
+  outsideOrderId: string;
+  carrierOrderNo: string | null;
+  priceCalculateId?: string | null;
+  cityId: string | null;
+  vehicleId: string | null;
+  status: string;
+  driverSnapshot: JsonValue | null;
+  vehicleSnapshot: JsonValue | null;
+  estimatedFeeCents?: number | null;
+  actualFeeCents?: number | null;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeliveryPickupBatch = {
+  id: string;
+  orderId: string;
+  subOrderId: string;
+  merchantId: string;
+  merchantName?: string;
+  merchant?: {
+    id: string;
+    name: string;
+  } | null;
+  unitId?: string | null;
+  batchNo: number;
+  status: string;
+  provider: string;
+  plannedPickupAt: string | null;
+  readyAt?: string | null;
+  calledAt?: string | null;
+  loadedAt?: string | null;
+  completedAt?: string | null;
+  canceledAt?: string | null;
+  prepaidPickupShippingFeeCents: number;
+  estimatedShippingFeeCents: number | null;
+  actualCarrierCostCents: number | null;
+  shippingCostDiffCents: number | null;
+  pickupMode?: string | null;
+  plannedPickupCount?: number | null;
+  pickupStatus?: string | null;
+  carrierOrderNo?: string | null;
+  driverSnapshot?: JsonValue | null;
+  vehicleSnapshot?: JsonValue | null;
+  latestCarrierOrder?: DeliveryCarrierOrder | null;
+  carrierOrders?: DeliveryCarrierOrder[];
+  items: DeliveryPickupBatchItem[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeliveryShippingCostLedger = {
+  id: string;
+  orderId: string;
+  subOrderId: string | null;
+  batchId: string | null;
+  provider: string;
+  type: string;
+  amountCents: number;
+  source: string;
+  sourceRefId: string | null;
+  payloadSnapshot: JsonValue | null;
+  createdByType: string;
+  createdById: string | null;
+  createdAt: string;
+};
+
 export type DeliveryOrderDetail = DeliveryOrderSummary & {
   unit?: DeliveryUnitSummary | null;
   user?: DeliveryUserSummary | null;
@@ -327,6 +427,8 @@ export type DeliveryOrderDetail = DeliveryOrderSummary & {
   }>;
   payments: DeliveryPayment[];
   shipments: DeliveryShipment[];
+  pickupBatches?: DeliveryPickupBatch[];
+  shippingCostLedgers?: DeliveryShippingCostLedger[];
 };
 
 export type DeliveryAbnormalPayment = DeliveryPayment & {

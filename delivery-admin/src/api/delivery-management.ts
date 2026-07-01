@@ -12,8 +12,10 @@ import type {
   DeliveryMerchantApplicationSummary,
   DeliveryMerchantDetail,
   DeliveryMerchantSummary,
+  DeliveryFreightDashboard,
   DeliveryOrderDetail,
   DeliveryOrderSummary,
+  DeliveryPickupBatch,
   DeliveryPriceRule,
   DeliveryProduct,
   DeliverySettlement,
@@ -196,6 +198,48 @@ export const getDeliveryShippingRecords = (
   params?: PaginationParams,
 ): Promise<PagedResult<DeliveryShippingRecord>> =>
   client.get(withQuery('/delivery-admin/shipping-records', params));
+
+export const getDeliveryFreightDashboard = (
+  params?: Record<string, QueryValue>,
+): Promise<DeliveryFreightDashboard> =>
+  client.get(withQuery('/delivery-admin/freight/dashboard', params));
+
+export const getDeliveryFreightBatches = (
+  params?: PaginationParams & {
+    status?: string;
+    merchantId?: string;
+    unitId?: string;
+    from?: string;
+    to?: string;
+  },
+): Promise<PagedResult<DeliveryPickupBatch>> =>
+  client.get(withQuery('/delivery-admin/freight/batches', params));
+
+export const getDeliveryPickupBatches = (
+  params?: PaginationParams & {
+    status?: string;
+    merchantId?: string;
+    unitId?: string;
+    from?: string;
+    to?: string;
+  },
+): Promise<PagedResult<DeliveryPickupBatch>> =>
+  client.get(withQuery('/delivery-admin/pickup-batches', params));
+
+export const callDeliveryHuolala = (id: string): Promise<DeliveryPickupBatch> =>
+  client.post(`/delivery-admin/pickup-batches/${id}/call-huolala`);
+
+export const syncDeliveryCarrier = (id: string): Promise<DeliveryPickupBatch> =>
+  client.post(`/delivery-admin/pickup-batches/${id}/sync-carrier`);
+
+export const cancelDeliveryCarrier = (id: string, reason: string): Promise<DeliveryPickupBatch> =>
+  client.post(`/delivery-admin/pickup-batches/${id}/cancel-carrier`, { reason });
+
+export const adjustDeliveryPickupCost = (
+  id: string,
+  payload: { amountCents: number; remark: string },
+): Promise<DeliveryPickupBatch> =>
+  client.post(`/delivery-admin/pickup-batches/${id}/manual-adjust-cost`, payload);
 
 export const getDeliveryAbnormalPayments = (
   params?: PaginationParams,

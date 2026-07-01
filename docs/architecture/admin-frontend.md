@@ -39,6 +39,8 @@
 - `/pricing-rules`
 - `/orders` `/orders/:id`
 - `/shipping-records`
+- `/freight-center`
+- `/pickup-batches`
 - `/abnormal-payments`
 - `/manifests`
 - `/settlements`
@@ -64,6 +66,7 @@
 - 商家供货、运费分摊优先取后端明确字段，如 `supplyAmountCents`、`shippingFeeShareCents`；缺字段时只展示可得项。
 - 平台差额只在前端能从现有字段确定时显示；不能确定时显示 `-`。
 - 结算页只展示供货额、应结额、已结额，不在该页暴露平台定价策略。
+- 一次付款多次提货的货拉拉成本字段仅在 `delivery-admin` 展示：运费中心、提货批次和订单详情可见 `预收提货运费 / 货拉拉实际成本 / 成本差额 / 成本流水`；配送中心和买家端不得展示平台实际承运成本、成本差额或成本流水。
 
 ### 组件风格
 
@@ -88,6 +91,14 @@
 - 配送中心工作台、物流、导出、企业资料、员工和客服页面已使用 `ProCard` 做运营分区；配送中心仍不能展示平台最终售价、加价率、平台利润等字段。
 - `delivery-admin/vite.config.ts` 与 `delivery-seller/vite.config.ts` 的本地 dev proxy 默认指向 `https://test-api.ai-maimai.com`，避免本地未启动后端时验证码和登录请求打到 `localhost:3000`；需要联调本地后端时可设置 `VITE_PROXY_TARGET=http://localhost:3000`。
 - 新增合同测试锁定上述结构，当前验证：`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm test && npm run build` 均通过。
+
+### 一次付款多次提货后台补充（Task 7，2026-06-30）
+
+- `delivery-admin/src/pages/delivery-admin/freight-center.tsx` 新增运费中心，顶部用 `Statistic/Card` 汇总预收提货运费、货拉拉实际成本、成本差额和异常批次，下方列表展示订单号、批次号、商家、状态、预收/报价、实际成本、差额、货拉拉订单号、司机、车辆和更新时间。
+- `delivery-admin/src/pages/delivery-admin/pickup-batches.tsx` 新增提货批次操作页，按订单 / 子单 / 批次展示，支持后端已实现的 `status / merchantId / unitId / from / to` 筛选，不发送未支持的 keyword；行操作支持叫货拉拉、同步、取消和手工调整成本。
+- `delivery-admin/src/pages/delivery-admin/order-detail.tsx` 增加支付拆分、提货计划、批次履约记录和提货成本记录。若后端返回 `shippingCostLedgers` 则展示真实流水；为空时只展示订单聚合成本字段，不伪造流水。
+- `delivery-admin/src/pages/delivery-admin/shipping-records.tsx` 保留原顺丰等传统发货记录，并提示运营跳转到运费中心和提货批次处理货拉拉多批次提货。
+- 新路由 `/freight-center` 与 `/pickup-batches` 挂在“订单与履约”下，权限沿用 `delivery:orders:read`。
 
 ---
 
