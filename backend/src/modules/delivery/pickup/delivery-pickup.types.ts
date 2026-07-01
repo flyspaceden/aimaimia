@@ -5,6 +5,7 @@ export type CheckoutCartItemForPickup = {
   merchantId: string;
   merchantName?: string;
   quantity: number;
+  weightGram?: number;
   lineAmountCents: number;
 };
 

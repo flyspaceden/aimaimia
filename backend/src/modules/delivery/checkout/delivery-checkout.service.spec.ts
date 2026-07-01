@@ -1479,6 +1479,17 @@ describe('DeliveryCheckoutService', () => {
       shippingFeeCents: 1000,
       totalAmountCents: 3200,
     });
+    expect(tx.deliveryCheckoutSession.create.mock.calls[0][0].data.pickupPlanSnapshot).toMatchObject({
+      merchantGroups: [
+        {
+          merchantId: 'merchant_1',
+          batches: [
+            { batchNo: 1, items: [{ cartItemId: 'cart_1', quantity: 1 }] },
+            { batchNo: 2, items: [{ cartItemId: 'cart_1', quantity: 1 }] },
+          ],
+        },
+      ],
+    });
     expect(tx.deliveryCheckoutSession.create.mock.calls[0][0].data.pricingSnapshot).toMatchObject({
       totals: {
         goodsAmountCents: 2200,
@@ -1489,5 +1500,11 @@ describe('DeliveryCheckoutService', () => {
         prepaidPickupShippingFeeCents: 1000,
       },
     });
+    const createdSnapshot = tx.deliveryCheckoutSession.create.mock.calls[0][0].data
+      .pickupPlanSnapshot as any;
+    const storedQuantityTotal = createdSnapshot.merchantGroups[0].batches
+      .flatMap((batch: any) => batch.items)
+      .reduce((sum: number, item: any) => sum + item.quantity, 0);
+    expect(storedQuantityTotal).toBe(2);
   });
 });

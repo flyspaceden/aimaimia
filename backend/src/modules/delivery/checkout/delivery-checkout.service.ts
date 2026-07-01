@@ -9,7 +9,6 @@ import { ModuleRef } from '@nestjs/core';
 import {
   DeliveryPickupMode,
   DeliveryPriceRuleScope,
-  DeliveryShippingCalcType,
   Prisma,
 } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
@@ -20,6 +19,7 @@ import { DeliveryPaymentsService } from '../payments/delivery-payments.service';
 import { parseDeliveryYuanAmountToCents } from '../payments/delivery-payment-routing.util';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
 import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
+import { resolveDeliveryCheckoutShippingFee } from './delivery-shipping-fee.util';
 import { CreateDeliveryCheckoutDto } from './dto/create-delivery-checkout.dto';
 
 const checkoutCartItemInclude = {
@@ -611,168 +611,6 @@ export class DeliveryCheckoutService {
     }, new Map<string, typeof merchantRules>());
   }
 
-  private resolveShippingFee(
-    merchantId: string,
-    items: Array<{ quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-    shippingRules: Array<{
-      id: string;
-      merchantId: string | null;
-      calcType: DeliveryShippingCalcType;
-      firstWeightGram: number;
-      firstWeightPriceCents: number;
-      additionalWeightGram: number | null;
-      additionalWeightPriceCents: number | null;
-      freeShippingThresholdCents: number | null;
-      minShippingFeeCents: number;
-      sortOrder: number;
-    }>,
-  ) {
-    const merchantRule =
-      shippingRules.find((rule) => rule.merchantId === merchantId) ??
-      shippingRules.find((rule) => rule.merchantId === null);
-
-    if (!merchantRule) {
-      return {
-        ruleId: null,
-        calcType: null,
-        metricValue: 0,
-        shippingFeeCents: 0,
-        fallbackReason: 'NO_DELIVERY_SHIPPING_RULE',
-      };
-    }
-
-    const metricValue = this.resolveShippingMetric(merchantRule.calcType, items, goodsAmountCents);
-
-    if (
-      merchantRule.freeShippingThresholdCents !== null &&
-      goodsAmountCents >= merchantRule.freeShippingThresholdCents
-    ) {
-      return {
-        ruleId: merchantRule.id,
-        calcType: merchantRule.calcType,
-        metricValue,
-        shippingFeeCents: 0,
-        freeShippingThresholdCents: merchantRule.freeShippingThresholdCents,
-      };
-    }
-
-    const firstUnit = Math.max(merchantRule.firstWeightGram, 1);
-    const additionalUnit = Math.max(merchantRule.additionalWeightGram ?? firstUnit, 1);
-    const additionalPrice = merchantRule.additionalWeightPriceCents ?? 0;
-    let shippingFeeCents = merchantRule.firstWeightPriceCents;
-
-    if (metricValue > firstUnit) {
-      const additionalSteps = Math.ceil((metricValue - firstUnit) / additionalUnit);
-      shippingFeeCents += additionalSteps * additionalPrice;
-    }
-
-    shippingFeeCents = Math.max(shippingFeeCents, merchantRule.minShippingFeeCents);
-
-    return {
-      ruleId: merchantRule.id,
-      calcType: merchantRule.calcType,
-      metricValue,
-      shippingFeeCents,
-      firstWeightGram: merchantRule.firstWeightGram,
-      firstWeightPriceCents: merchantRule.firstWeightPriceCents,
-      additionalWeightGram: merchantRule.additionalWeightGram,
-      additionalWeightPriceCents: merchantRule.additionalWeightPriceCents,
-      minShippingFeeCents: merchantRule.minShippingFeeCents,
-      freeShippingThresholdCents: merchantRule.freeShippingThresholdCents,
-    };
-  }
-
-  private resolveCheckoutShippingFee(
-    items: Array<{ merchantId: string; quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-    shippingRules: Array<{
-      id: string;
-      merchantId: string | null;
-      calcType: DeliveryShippingCalcType;
-      firstWeightGram: number;
-      firstWeightPriceCents: number;
-      additionalWeightGram: number | null;
-      additionalWeightPriceCents: number | null;
-      freeShippingThresholdCents: number | null;
-      minShippingFeeCents: number;
-      sortOrder: number;
-    }>,
-  ) {
-    const platformRule =
-      shippingRules.find((rule) => rule.merchantId === null) ?? shippingRules[0] ?? null;
-
-    if (!platformRule) {
-      return {
-        ruleId: null,
-        calcType: null,
-        metricValue: 0,
-        shippingFeeCents: 0,
-        fallbackReason: 'NO_DELIVERY_SHIPPING_RULE',
-      };
-    }
-
-    return this.resolveShippingFee(
-      platformRule.merchantId ?? items[0]?.merchantId ?? '',
-      items,
-      goodsAmountCents,
-      [platformRule],
-    );
-  }
-
-  private allocateShippingFeeByGoodsAmount(goodsAmountCentsList: number[], totalShippingFeeCents: number) {
-    if (goodsAmountCentsList.length === 0) {
-      return [];
-    }
-    if (totalShippingFeeCents <= 0) {
-      return goodsAmountCentsList.map(() => 0);
-    }
-
-    const weights = goodsAmountCentsList.map((value) => Math.max(0, Math.trunc(value)));
-    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
-
-    if (totalWeight === 0) {
-      const allocations = goodsAmountCentsList.map(() => 0);
-      allocations[allocations.length - 1] = totalShippingFeeCents;
-      return allocations;
-    }
-
-    const allocations = goodsAmountCentsList.map(() => 0);
-    let allocatedCents = 0;
-    for (let index = 0; index < weights.length; index += 1) {
-      const remainingCents = totalShippingFeeCents - allocatedCents;
-      if (index === weights.length - 1) {
-        allocations[index] = remainingCents;
-        break;
-      }
-
-      const cents = Math.min(
-        remainingCents,
-        Math.round((weights[index] / totalWeight) * totalShippingFeeCents),
-      );
-      allocations[index] = cents;
-      allocatedCents += cents;
-    }
-
-    return allocations;
-  }
-
-  private resolveShippingMetric(
-    calcType: DeliveryShippingCalcType,
-    items: Array<{ quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-  ) {
-    switch (calcType) {
-      case DeliveryShippingCalcType.COUNT:
-        return items.reduce((sum, item) => sum + item.quantity, 0);
-      case DeliveryShippingCalcType.AMOUNT:
-        return goodsAmountCents;
-      case DeliveryShippingCalcType.WEIGHT:
-      default:
-        return items.reduce((sum, item) => sum + item.weightGram * item.quantity, 0);
-    }
-  }
-
   private async prepareCheckout(
     tx: Prisma.TransactionClient,
     deliveryUserId: string,
@@ -899,7 +737,7 @@ export class DeliveryCheckoutService {
     }));
 
     const goodsAmountCents = merchantGroups.reduce((sum, group) => sum + group.goodsAmountCents, 0);
-    const orderShippingRuleSnapshot = this.resolveCheckoutShippingFee(
+    const orderShippingRuleSnapshot = resolveDeliveryCheckoutShippingFee(
       itemSnapshots,
       goodsAmountCents,
       shippingRules,
@@ -915,6 +753,7 @@ export class DeliveryCheckoutService {
         merchantId: item.merchantId,
         merchantName: item.merchantName,
         quantity: item.quantity,
+        weightGram: item.weightGram,
         lineAmountCents: item.lineAmountCents,
       })),
       merchantGroups: merchantGroups.map((group) => ({
@@ -924,6 +763,7 @@ export class DeliveryCheckoutService {
       })),
       pickupPlanItems: dto.pickupPlanItems,
       fallbackShippingFeeCents: orderShippingRuleSnapshot.shippingFeeCents,
+      shippingRules,
     });
 
     const shippingByMerchantId = pickupSnapshot.perBatchEstimates.reduce((map, item) => {

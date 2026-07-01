@@ -73,6 +73,93 @@ describe('DeliveryPickupPlanService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('splits quantities across batches by default when no explicit pickup plan is provided', async () => {
+    const result = await service.buildCheckoutPickupSnapshot({
+      pickupMode: DeliveryPickupMode.MULTI_BATCH,
+      plannedPickupCount: 3,
+      cartItems: [
+        {
+          cartItemId: 'cart_1',
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          quantity: 5,
+          lineAmountCents: 5500,
+        },
+      ],
+      merchantGroups: [
+        {
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          goodsAmountCents: 5500,
+        },
+      ],
+      fallbackShippingFeeCents: 0,
+    });
+
+    const snapshot = result.pickupPlanSnapshot as any;
+    expect(snapshot.merchantGroups[0].batches).toEqual([
+      {
+        batchNo: 1,
+        estimatedShippingFeeCents: 0,
+        items: [{ cartItemId: 'cart_1', quantity: 2 }],
+      },
+      {
+        batchNo: 2,
+        estimatedShippingFeeCents: 0,
+        items: [{ cartItemId: 'cart_1', quantity: 2 }],
+      },
+      {
+        batchNo: 3,
+        estimatedShippingFeeCents: 0,
+        items: [{ cartItemId: 'cart_1', quantity: 1 }],
+      },
+    ]);
+  });
+
+  it('re-rates stepped fallback freight per batch instead of copying the full merchant allocation', async () => {
+    const result = await service.buildCheckoutPickupSnapshot({
+      pickupMode: DeliveryPickupMode.MULTI_BATCH,
+      plannedPickupCount: 2,
+      cartItems: [
+        {
+          cartItemId: 'cart_1',
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          quantity: 4,
+          lineAmountCents: 4400,
+        },
+      ],
+      merchantGroups: [
+        {
+          merchantId: 'merchant_1',
+          merchantName: '华南仓',
+          goodsAmountCents: 4400,
+        },
+      ],
+      fallbackShippingFeeCents: 900,
+      shippingRules: [
+        {
+          id: 'ship_rule_1',
+          merchantId: null,
+          calcType: 'COUNT',
+          firstWeightGram: 2,
+          firstWeightPriceCents: 500,
+          additionalWeightGram: 1,
+          additionalWeightPriceCents: 200,
+          freeShippingThresholdCents: null,
+          minShippingFeeCents: 0,
+          sortOrder: 1,
+        },
+      ],
+    } as any);
+
+    expect(result.perBatchEstimates).toEqual([
+      { merchantId: 'merchant_1', batchNo: 1, estimatedShippingFeeCents: 500 },
+      { merchantId: 'merchant_1', batchNo: 2, estimatedShippingFeeCents: 500 },
+    ]);
+    expect(result.prepaidPickupShippingFeeCents).toBe(1000);
+  });
+
   it('splits pickup plans by merchant sub-order and does not cross merchantId boundaries', async () => {
     const checkout = {
       id: 'checkout_1',
@@ -326,6 +413,16 @@ describe('DeliveryPickupPlanService', () => {
         reservedPickupQuantity: { increment: 1 },
       },
     });
+    expect(tx.deliveryPickupBatchItem.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          batchId: 'PSTH0000000000001',
+          subOrderId: 'sub_1',
+          orderItemId: 'order_item_1',
+        }),
+      }),
+    );
   });
 
   it('writes prepaid freight ledger rows for the paid order', async () => {

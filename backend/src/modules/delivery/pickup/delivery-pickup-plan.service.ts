@@ -17,6 +17,10 @@ import {
   DeliveryPickupPlanSnapshot,
   DeliveryPickupSnapshotResult,
 } from './delivery-pickup.types';
+import {
+  DeliveryShippingRuleForEstimate,
+  resolveDeliveryShippingFee,
+} from '../checkout/delivery-shipping-fee.util';
 
 type MerchantGroupInput = {
   merchantId: string;
@@ -60,6 +64,7 @@ export class DeliveryPickupPlanService {
     merchantGroups: MerchantGroupInput[];
     pickupPlanItems?: DeliveryPickupPlanItemInput[];
     fallbackShippingFeeCents: number;
+    shippingRules?: DeliveryShippingRuleForEstimate[];
   }): Promise<DeliveryPickupSnapshotResult> {
     if (!params.cartItems.length) {
       throw new BadRequestException('配送结算快照缺少商品明细');
@@ -81,17 +86,6 @@ export class DeliveryPickupPlanService {
     const cartItemById = new Map(
       params.cartItems.map((item) => [item.cartItemId, item]),
     );
-    const merchantShippingAllocations = this.allocateByGoodsAmount(
-      params.merchantGroups.map((group) => group.goodsAmountCents),
-      params.fallbackShippingFeeCents,
-    );
-    const merchantShippingById = new Map(
-      params.merchantGroups.map((group, index) => [
-        group.merchantId,
-        merchantShippingAllocations[index] ?? 0,
-      ]),
-    );
-
     const planAssignments =
       pickupMode === DeliveryPickupMode.SINGLE
         ? params.cartItems.map((item) => ({
@@ -139,27 +133,64 @@ export class DeliveryPickupPlanService {
       batchesByMerchantId.set(cartItem.merchantId, merchantBatches);
     }
 
+    const merchantShippingById = this.buildMerchantShippingFallbackMap(
+      params.merchantGroups,
+      params.fallbackShippingFeeCents,
+    );
     const perBatchEstimates: DeliveryPickupSnapshotResult['perBatchEstimates'] = [];
     let prepaidPickupShippingFeeCents = 0;
     const merchantGroupsSnapshot = params.merchantGroups.map((group) => {
-      const merchantBatches = batchesByMerchantId.get(group.merchantId) ?? new Map();
-      const batches = Array.from(merchantBatches.entries())
-        .sort(([left], [right]) => left - right)
-        .map(([batchNo, items]) => {
-          const estimatedShippingFeeCents = merchantShippingById.get(group.merchantId) ?? 0;
-          perBatchEstimates.push({
-            merchantId: group.merchantId,
-            batchNo,
-            estimatedShippingFeeCents,
-          });
-          prepaidPickupShippingFeeCents += estimatedShippingFeeCents;
-
-          return {
-            batchNo,
-            estimatedShippingFeeCents,
-            items,
-          };
+      const merchantBatches =
+        batchesByMerchantId.get(group.merchantId) ??
+        new Map<number, Array<{ cartItemId: string; quantity: number }>>();
+      const sortedBatchEntries = Array.from(merchantBatches.entries()).sort(
+        ([left], [right]) => left - right,
+      );
+      const fallbackBatchFees = this.allocateByGoodsAmount(
+        sortedBatchEntries.map(([, items]) =>
+          items.reduce((sum, item) => {
+            const cartItem = cartItemById.get(item.cartItemId)!;
+            return sum + this.resolveBatchLineAmountCents(cartItem, item.quantity);
+          }, 0),
+        ),
+        merchantShippingById.get(group.merchantId) ?? 0,
+      );
+      const batches = sortedBatchEntries.map(([batchNo, items], batchIndex) => {
+        const estimatedShippingFeeCents =
+          pickupMode === DeliveryPickupMode.MULTI_BATCH && params.shippingRules?.length
+          ? resolveDeliveryShippingFee(
+              group.merchantId,
+              items.map((item) => {
+                const cartItem = cartItemById.get(item.cartItemId)!;
+                return {
+                  quantity: item.quantity,
+                  weightGram: Math.max(0, Math.trunc(cartItem.weightGram ?? 0)),
+                  lineAmountCents: this.resolveBatchLineAmountCents(
+                    cartItem,
+                    item.quantity,
+                  ),
+                };
+              }),
+              items.reduce((sum, item) => {
+                const cartItem = cartItemById.get(item.cartItemId)!;
+                return sum + this.resolveBatchLineAmountCents(cartItem, item.quantity);
+              }, 0),
+              params.shippingRules,
+            ).shippingFeeCents
+          : fallbackBatchFees[batchIndex] ?? 0;
+        perBatchEstimates.push({
+          merchantId: group.merchantId,
+          batchNo,
+          estimatedShippingFeeCents,
         });
+        prepaidPickupShippingFeeCents += estimatedShippingFeeCents;
+
+        return {
+          batchNo,
+          estimatedShippingFeeCents,
+          items,
+        };
+      });
 
       return {
         merchantId: group.merchantId,
@@ -185,6 +216,22 @@ export class DeliveryPickupPlanService {
       prepaidPickupShippingFeeCents,
       perBatchEstimates,
     };
+  }
+
+  private buildMerchantShippingFallbackMap(
+    merchantGroups: MerchantGroupInput[],
+    fallbackShippingFeeCents: number,
+  ) {
+    const merchantShippingAllocations = this.allocateByGoodsAmount(
+      merchantGroups.map((group) => group.goodsAmountCents),
+      fallbackShippingFeeCents,
+    );
+    return new Map(
+      merchantGroups.map((group, index) => [
+        group.merchantId,
+        merchantShippingAllocations[index] ?? 0,
+      ]),
+    );
   }
 
   async createBatchesForPaidOrder(
@@ -365,6 +412,16 @@ export class DeliveryPickupPlanService {
       }
     }
     return planItems;
+  }
+
+  private resolveBatchLineAmountCents(
+    cartItem: CheckoutCartItemForPickup,
+    batchQuantity: number,
+  ) {
+    if (cartItem.quantity <= 0) {
+      return 0;
+    }
+    return Math.round((cartItem.lineAmountCents * batchQuantity) / cartItem.quantity);
   }
 
   private allocateByGoodsAmount(
