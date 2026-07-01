@@ -1,8 +1,69 @@
 # 快递物流链路实施文档
 
-> **状态**: 顺丰丰桥直连已完成，**2026-05-08 沙箱全流程调测追加修复已完成**，待真机重测与生产部署
-> **最后更新**: 2026-05-08
-> **权威范围**: 快递物流链路的开发进度、顺丰直连改造计划、上线前配置清单
+> **状态**: 顺丰丰桥直连已完成，**2026-05-08 沙箱全流程调测追加修复已完成**；配送独立业务线“一次付款，多次提货”与货拉拉企业/月结接入骨架已完成，待真实货拉拉企业账号联调
+> **最后更新**: 2026-07-01
+> **权威范围**: 快递物流链路的开发进度、顺丰直连改造计划、配送提货批次/货拉拉接入、上线前配置清单
+
+---
+
+## 📌 2026-07-01 配送一次付款多次提货 + 货拉拉企业/月结接入 ✅
+
+> 范围仅限独立配送业务线：买家 App `/delivery`、`backend/prisma-delivery/schema.prisma`、`backend/src/modules/delivery/**`、`delivery-admin/**`、`delivery-seller/**`。普通商城订单、普通顺丰发货、普通售后、分润、红包、数字资产不纳入本功能。
+
+### 业务口径
+
+- 买家在配送结算页一次性支付商品金额 + 预收提货运费；付款后不再因为后续批次叫车向买家二次收运费。
+- 买家下单时选择预计提货次数，系统按购物车商品生成分批提货计划；每个商品的各批数量合计必须等于购买数量。
+- 支付成功后创建 `DeliveryOrder` / `DeliverySubOrder` / `DeliveryPickupBatch` / `DeliveryPickupBatchItem`。批次履约边界固定为单个 `DeliverySubOrder` + 单个 `merchantId`，不跨商家合车。
+- 平台通过货拉拉企业账号/月结为每个批次叫车；货拉拉实际费用写入平台成本流水，不自动退款、不自动补收，不展示给配送中心。
+
+### 已落地代码
+
+| 系统 | 已完成内容 |
+|---|---|
+| 配送数据库 | 新增提货模式、提货状态、批次状态、承运商、承运支付方式、成本流水类型；新增 `DeliveryPickupBatch`、`DeliveryPickupBatchItem`、`DeliveryCarrierOrder`、`DeliveryShippingCostLedger`；订单和 checkout 增加提货计划、预收运费、实际成本和差额字段 |
+| 后端 | checkout 锁定提货计划和预收运费；支付成功建单时在 `Serializable` 事务内创建批次并预留数量；买家订单详情返回批次进度；配送管理后台提供运费看板、批次列表、叫车、同步、取消、人工成本调整；配送中心提供批次列表、详情、备货、交货、异常反馈，且返回值脱敏成本字段 |
+| 货拉拉适配 | `HuolalaCarrierService` 封装报价、下单、详情同步、取消和状态映射；下单使用平台月结配置；货拉拉返回的预计/实际费用写入承运订单和成本流水 |
+| 买家 App | 配送结算页新增提货次数和分批计划预览，展示预收提货运费；配送订单列表/详情展示提货状态、剩余数量和批次时间线 |
+| 配送管理后台 | 新增“运费中心”和“提货批次”页面；订单详情展示支付拆分、提货批次、货拉拉单、司机车辆、成本流水；物流记录页可跳转到新页面 |
+| 配送中心 | 新增“提货批次”工作台；订单详情和物流页展示批次、司机、车辆、货拉拉状态；`orders:write` 才能执行备货、交货、异常反馈和旧的确认发货动作 |
+
+### 成本和权限边界
+
+- 配送管理后台可见：预收提货运费、预计承运费、货拉拉实际成本、差额、人工调整、成本流水。
+- 配送中心可见：批次商品、数量、收货/提货信息、司机、车辆、货拉拉状态、备货/交货/异常操作。
+- 配送中心不可见：用户预收运费、预计承运费、实际承运成本、差额、成本流水、平台利润或加价规则。
+
+### 货拉拉环境变量
+
+上线前需要在 staging / production 后端配置：
+
+```bash
+DELIVERY_HUOLALA_ENABLED=true
+DELIVERY_HUOLALA_APP_KEY=...
+DELIVERY_HUOLALA_APP_SECRET=...
+DELIVERY_HUOLALA_ACCESS_TOKEN=...
+DELIVERY_HUOLALA_PAY_TYPE=MONTHLY_ACCOUNT
+DELIVERY_HUOLALA_MONTHLY_ACCOUNT_ID=...
+```
+
+当前代码中的货拉拉 adapter 已完成接口封装和异常归一化，但还没有使用真实企业账号做沙箱/生产联调。真实联调时需要确认货拉拉企业版最终开放的 endpoint、签名字段、城市/车型编码、月结参数和回调/账单口径；如官方字段与当前占位映射不同，只改 adapter 层，不改订单/批次/成本主流程。
+
+### 本地验证
+
+- `cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npx prisma validate --schema prisma-delivery/schema.prisma` 通过；仅保留既有 `SetNull` warning。
+- `cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run prisma:delivery:generate` 通过。
+- `cd backend && npm test -- delivery-pickup-plan.service.spec.ts delivery-pickup.service.spec.ts huolala-carrier.service.spec.ts delivery-checkout.service.spec.ts delivery-orders.service.spec.ts delivery-seller-ops.service.spec.ts --runInBand` 通过，6 suites / 78 tests。
+- 根目录 `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand` 通过，4 tests。
+- 根目录 `npx tsc --noEmit` 通过。
+- `cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、`cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run build` 均通过；Vite 仅输出既有 vendor chunk 体积提示。
+
+### 发布前人工待办
+
+- 在 staging 配置真实或沙箱货拉拉企业账号，并完成报价、叫车、同步、取消、月结成本入账冒烟。
+- 准备一笔多批次配送订单：App 下单付款 → 管理后台叫车/同步 → 配送中心备货/交货/异常反馈 → 买家订单详情查看批次进度。
+- 核对货拉拉实际账单与 `DeliveryShippingCostLedger` 的 `CARRIER_ACTUAL` / `MANUAL_ADJUSTMENT` 口径。
+- 如真实货拉拉接口需要回调，新增受控回调 endpoint 后再把状态同步从“后台主动同步”为主扩展为“回调 + 主动补偿”。
 
 ---
 

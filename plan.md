@@ -198,6 +198,11 @@
   - **实际做了**: 新增 `getCartDisplayQuantity`，购物车标题、首页/发现/商品详情/搜索/AI 推荐入口角标、语音结算判断和 `useCartStore.count()` 统一只统计可结算普通商品数量；锁定奖品仍保留在购物车列表和倒计时展示，但不污染普通购物车数量。
   - **验证**: 先新增失败回归测试；修复后 `npx jest src/utils/__tests__/cartCounts.test.ts --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit` 通过。
 
+- [x] **配送一次付款多次提货与货拉拉企业/月结接入**（2026-07-01 新增并完成）
+  - **来源**: 用户要求配送支持“第一次付款，包括后面每次运费；用户购买时选择分几次提货；后续每次货拉拉运费由平台企业账户/月结承担并记为平台成本”，并要求买家 App、配送管理后台、配送中心都改。
+  - **实际做了**: 基于独立配送业务线新增提货批次履约层：配送 schema 增加 `DeliveryPickupBatch`、`DeliveryPickupBatchItem`、`DeliveryCarrierOrder`、`DeliveryShippingCostLedger` 和提货/承运/成本枚举；配送 checkout 锁定提货计划和预收提货运费，支付成功建单时在 `Serializable` 事务内创建批次并预留数量；后端新增货拉拉 carrier adapter、运费中心、批次叫车/同步/取消/人工成本调整、配送中心批次备货/交货/异常反馈，并确保配送中心 DTO 不返回平台成本字段；买家 App 结算页新增提货次数和分批计划预览，订单详情展示提货进度；配送管理后台新增“运费中心”和“提货批次”页面并增强订单详情；配送中心新增“提货批次”工作台，订单详情/物流页展示货拉拉批次状态，写操作按 `orders:write` 禁用。
+  - **验证**: `cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npx prisma validate --schema prisma-delivery/schema.prisma`、`cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run prisma:delivery:generate`、`cd backend && npm test -- delivery-pickup-plan.service.spec.ts delivery-pickup.service.spec.ts huolala-carrier.service.spec.ts delivery-checkout.service.spec.ts delivery-orders.service.spec.ts delivery-seller-ops.service.spec.ts --runInBand`（6 suites / 78 tests）、根目录 `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand`、根目录 `npx tsc --noEmit`、`cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、`cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run build`、`git diff --check` 均通过；Vite 仅保留既有大 chunk 体积提示。真实货拉拉企业账号/月结仍待 staging 联调。
+
 - [x] **VIP 礼包选择页详情展示与图片预览**（2026-06-30 新增并完成）
   - **来源**: 用户截图反馈 `/vip/gifts` 礼包商品内容只显示一半，图片不能点开查看多图，权益横排仍有“包邮特权”但当前业务不应承诺无条件包邮。
   - **实际做了**: 礼包卡片下方新增完整“礼包清单”，逐项展示商品、规格和数量；封面图与清单缩略图支持点开全屏图片预览并左右滑动；VIP 权益横排删除“包邮特权”，选择页底部提示、VIP 结算页提示和会员服务协议同步去掉包邮承诺，改为订单页配送费用口径。
