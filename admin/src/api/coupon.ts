@@ -153,15 +153,21 @@ export interface CreateCampaignDto {
 export interface UpdateCampaignDto extends Partial<CreateCampaignDto> {}
 
 export interface ManualIssueDto {
-  targetMode?: 'SPECIFIC_USERS' | 'ALL_USERS';
+  targetMode?: 'SPECIFIC_USERS' | 'ALL_USERS' | 'VIP_USERS';
+  scheduleMode?: 'IMMEDIATE' | 'SCHEDULED';
+  scheduledAt?: string;
   userIds?: string[];
 }
 
-export interface ManualIssueResult {
+export type ManualIssueResult = {
   issued: number;
   skipped: number;
   skippedUsers: string[];
-}
+} | {
+  scheduled: true;
+  jobId: string;
+  scheduledAt: string;
+};
 
 // ========== API 方法 ==========
 

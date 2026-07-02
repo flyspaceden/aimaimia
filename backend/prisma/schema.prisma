@@ -672,6 +672,20 @@ enum CouponInstanceStatus {
   REVOKED           // 已撤回（管理员操作）
 }
 
+enum CouponManualIssueTargetMode {
+  SPECIFIC_USERS    // 指定买家编号/用户 ID
+  ALL_USERS         // 发放时所有有效买家
+  VIP_USERS         // 发放时所有有效 VIP 买家
+}
+
+enum CouponManualIssueJobStatus {
+  PENDING           // 等待执行
+  PROCESSING        // 执行中
+  COMPLETED         // 已完成
+  FAILED            // 执行失败
+  CANCELED          // 已取消
+}
+
 // ============================================================
 // A 域 — 认证与用户（8 个 model）
 // ============================================================
@@ -2909,7 +2923,7 @@ model AfterSaleShippingPayment {
 }
 
 // ============================================================
-// K 域 — 平台红包（优惠券）系统（3 个模型）
+// K 域 — 平台红包（优惠券）系统（5 个模型）
 // 独立于 I 域分润奖励系统，严禁混淆
 // ============================================================
 
@@ -2960,6 +2974,7 @@ model CouponCampaign {
 
   // 关联
   instances            CouponInstance[]
+  manualIssueJobs      CouponManualIssueJob[]
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
@@ -3029,6 +3044,39 @@ model CouponUsageRecord {
 
   @@index([orderId])
   @@index([couponInstanceId])
+}
+
+// ==========================================
+// 手动发放定时任务
+// ==========================================
+model CouponManualIssueJob {
+  id                  String                      @id @default(uuid())
+
+  // 关联
+  campaignId          String
+  campaign            CouponCampaign              @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  // 发放对象与时间
+  targetMode          CouponManualIssueTargetMode
+  userIds             String[]                    @default([]) // SPECIFIC_USERS 时存储已解析内部 User.id
+  scheduledAt         DateTime
+  status              CouponManualIssueJobStatus  @default(PENDING)
+
+  // 执行结果
+  issuedCount         Int                         @default(0)
+  skippedCount        Int                         @default(0)
+  skippedUsers        String[]                    @default([])
+  errorMessage        String?
+  processedAt         DateTime?
+
+  // 审计
+  createdBy           String
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([campaignId])
+  @@index([targetMode])
 }
 
 // ==========================================

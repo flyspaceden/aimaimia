@@ -111,7 +111,7 @@
 | 久未下单唤醒 | `WIN_BACK` | 用户超过 N 天未下单时发放 | 自动 |
 | 节日活动 | `HOLIDAY` | 指定日期范围内可领取，适合节假日/周年庆等多天营销周期 | 用户领取 |
 | 限时抢 | `FLASH` | 限量限时，先到先得，适合短时间强名额/强库存约束 | 用户领取 |
-| 手动发放 | `MANUAL` | 管理员手动指定买家或发给全部有效买家 | 手动 |
+| 手动发放 | `MANUAL` | 管理员按指定买家、全部有效买家或 VIP 买家发放；支持立即发放或定时发放 | 手动 |
 
 > `CHECK_IN`（签到）和 `REVIEW`（好评）枚举保留用于未来扩展；当前买家端没有稳定签到入口，评价触发链路也未完整接入，管理后台暂不开放新建。
 
@@ -126,7 +126,8 @@
 
 | 活动类型 | 结束时间规则 |
 |----------|--------------|
-| 注册、首单、生日、邀请、推荐码分享、累计消费、久未下单唤醒、手动发放 | 可选择“不限结束时间”，`endAt = null`，活动长期存在 |
+| 注册、首单、生日、邀请、推荐码分享、累计消费、久未下单唤醒 | 可选择“不限结束时间”，`endAt = null`，活动长期存在 |
+| 手动发放 | 创建活动时不让管理员配置活动开始/截止时间；系统内部按长期规则保存，具体发放时间在手动发放弹窗中选择 |
 | 节日活动、限时抢 | 必须填写结束时间 |
 
 长期活动必须设置 `validDays > 0`，因为 `validDays = 0` 表示单张红包跟随活动结束时间，长期活动没有结束时间可跟随。
@@ -201,6 +202,22 @@ enum CouponInstanceStatus {
   EXPIRED           // 已过期
   REVOKED           // 已撤回（管理员操作）
 }
+
+// 手动发放对象
+enum CouponManualIssueTargetMode {
+  SPECIFIC_USERS    // 指定买家编号/用户 ID
+  ALL_USERS         // 发放时全部有效买家
+  VIP_USERS         // 发放时全部有效 VIP 买家
+}
+
+// 手动定时发放任务状态
+enum CouponManualIssueJobStatus {
+  PENDING           // 待执行
+  PROCESSING        // 执行中
+  COMPLETED         // 已完成
+  FAILED            // 执行失败
+  CANCELED          // 已取消
+}
 ```
 
 ### 3.2 新增模型
@@ -253,9 +270,38 @@ model CouponCampaign {
 
   // 关联
   instances            CouponInstance[]
+  manualIssueJobs      CouponManualIssueJob[]
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
+}
+
+// ==========================================
+// 手动定时发放任务（仅用于 MANUAL 活动）
+// ==========================================
+model CouponManualIssueJob {
+  id                  String                       @id @default(uuid())
+  campaignId          String
+  campaign            CouponCampaign               @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  targetMode          CouponManualIssueTargetMode
+  userIds             String[]                     @default([]) // 指定用户时保存已解析的内部 User.id；全部/VIP 发放时为空，到点再查询
+  scheduledAt         DateTime
+  status              CouponManualIssueJobStatus   @default(PENDING)
+
+  issuedCount         Int                          @default(0)
+  skippedCount        Int                          @default(0)
+  skippedUsers        String[]                     @default([])
+  errorMessage        String?
+  processedAt         DateTime?
+
+  createdBy           String
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([campaignId])
+  @@index([targetMode])
 }
 
 // ==========================================
@@ -428,7 +474,7 @@ interface CheckoutEligibleCoupon extends MyCouponDto {
 | `/admin/coupons/campaigns/:id/status` | PATCH | 上下架（ACTIVE/PAUSED/ENDED） | `coupon:manage` |
 | `/admin/coupons/campaigns/:id/instances` | GET | 活动发放记录（谁领了） | `coupon:read` |
 | `/admin/coupons/campaigns/:id/usage` | GET | 活动使用记录（用在哪笔订单） | `coupon:read` |
-| `/admin/coupons/campaigns/:id/manual-issue` | POST | 手动发放给指定用户 | `coupon:manage` |
+| `/admin/coupons/campaigns/:id/manual-issue` | POST | 手动立即/定时发放给指定买家、全部有效买家或 VIP 买家 | `coupon:manage` |
 | `/admin/coupons/stats` | GET | 红包数据统计总览 | `coupon:read` |
 | `/admin/coupons/stats/:campaignId` | GET | 单个活动统计 | `coupon:read` |
 
@@ -454,7 +500,15 @@ interface CreateCampaignDto {
   maxPerUser?: number;
   validDays?: number;
   startAt: string;
-  endAt: string;
+  endAt?: string | null;
+}
+
+// 手动发放
+interface ManualIssueDto {
+  targetMode?: 'SPECIFIC_USERS' | 'ALL_USERS' | 'VIP_USERS';
+  userIds?: string[]; // targetMode=SPECIFIC_USERS 时填写买家编号或内部用户 ID
+  scheduleMode?: 'IMMEDIATE' | 'SCHEDULED';
+  scheduledAt?: string; // scheduleMode=SCHEDULED 时必填，且必须晚于当前时间
 }
 
 // 红包统计总览
@@ -543,8 +597,8 @@ CheckoutSession 接受 redPackId → 锁定分润奖励 → 支付时抵扣
 - 适用范围：品类多选、店铺多选；管理后台加载启用品类和已审核店铺，保存真实 ID；不选表示不限
 - 叠加设置：是否可叠加 + 叠加分组
 - 发放限制：总量、每人限领、有效天数
-- 活动时间：开始时间必填；长期型活动可勾选“不限结束时间”；节日活动和限时抢必须填写结束时间
-- 手动发放：新建活动仍先进入草稿；表单在选择“手动发放”时提示发放对象入口，上架成功后自动打开手动发放弹窗，按“指定用户”（买家编号或用户 ID）或“全部用户”（全部有效买家）发放
+- 活动时间：非手动活动开始时间必填；长期型活动可勾选“不限结束时间”；节日活动和限时抢必须填写结束时间；手动发放活动不展示活动开始/截止时间
+- 手动发放：新建活动仍先进入草稿；上架成功后自动打开手动发放弹窗，按“指定用户”（买家编号或用户 ID）、“全部用户”（发放时全部有效买家）或“VIP用户”（发放时全部有效 VIP 买家）发放；发放时间支持“立即发放”和“定时发放”，定时任务到点后由系统 cron 执行；单张红包有效期从实际发放成功时开始按 `validDays` 计算
 - 节日活动与限时抢：当前底层发放机制相同，都是用户主动领取，主要差异是运营语义和建议配置。节日活动适合更长营销周期；限时抢应配置更短活动时间、更小总量，并在名称中明确限时/限量规则。
 
 ### 5.2 发放记录页（`/admin/coupons/campaigns/:id/instances`）
@@ -783,6 +837,7 @@ interface MyCouponDto {
 |------|------|------|
 | 生日红包发放 | 每天 0:00 | 查找当天/当月生日用户，发放 BIRTHDAY 活动红包 |
 | 久未下单唤醒 | 每天 1:00 | 查找超过 N 天未下单的用户，发放 WIN_BACK 活动红包 |
+| 手动定时发放 | 每分钟 | 扫描到点的 PENDING 手动发放任务；指定用户按任务保存的 User.id 发放，全部用户/VIP 用户在执行时实时查询 |
 | 红包过期 | 每小时 | 扫描 expiresAt < now() 且 status=AVAILABLE 的实例，改为 EXPIRED |
 | 活动结束 | 每小时 | 扫描 endAt < now() 且 status=ACTIVE 的活动，改为 ENDED |
 
