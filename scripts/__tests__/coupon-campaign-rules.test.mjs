@@ -87,3 +87,15 @@ test('campaign list and detail display evergreen campaign time without invalid d
   assert.match(listPage, /不限结束时间/);
   assert.doesNotMatch(listPage, /dayjs\(r\.endAt\)\.format/);
 });
+
+test('campaign scope selectors load real category and approved company options', () => {
+  assert.match(form, /from '@\/api\/categories'/);
+  assert.match(form, /from '@\/api\/companies'/);
+  assert.match(form, /categoryOptions/);
+  assert.match(form, /companyOptions/);
+  assert.match(form, /getCompanies\(\{\s*pageSize:\s*200,\s*status:\s*'APPROVED'\s*\}\)/);
+  assert.match(form, /name="applicableCategories"[\s\S]*?mode="multiple"/);
+  assert.match(form, /name="applicableCompanyIds"[\s\S]*?mode="multiple"/);
+  assert.doesNotMatch(form, /label="限定品类"[\s\S]{0,180}?mode="tags"/);
+  assert.doesNotMatch(form, /label="限定店铺"[\s\S]{0,180}?mode="tags"/);
+});

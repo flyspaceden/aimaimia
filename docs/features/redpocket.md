@@ -139,8 +139,8 @@
 | 抵扣方式 | 固定金额 / 按比例折扣 | `discountType`: `FIXED`（固定金额）/ `PERCENT`（百分比折扣） |
 | 抵扣金额/比例 | 固定金额或折扣百分比 | `discountValue`（金额或百分比 0-100） |
 | 最高抵扣上限 | 百分比折扣时限制最大抵扣额 | `maxDiscountAmount`（仅 PERCENT 时有效） |
-| 品类限制 | 限定适用的商品分类 | `applicableCategories`（空数组表示不限） |
-| 店铺限制 | 限定适用的店铺（预留，当前平台发放不限店铺） | `applicableCompanyIds`（空数组表示不限） |
+| 品类限制 | 限定适用的商品分类 ID；结算时按商品自身 `categoryId` 精确匹配，父品类不会自动包含子品类 | `applicableCategories`（空数组表示不限） |
+| 店铺限制 | 限定适用的店铺 ID；结算时按商品所属 `companyId` 精确匹配 | `applicableCompanyIds`（空数组表示不限） |
 | 叠加规则 | 是否允许与同类红包叠加使用 | `stackable`: `true`/`false` |
 | 叠加分组 | 同组红包是否可叠加（管理员配置） | `stackGroup`（同组内按 stackable 判断） |
 | 每人限领 | 每个用户最多可领取几张 | `maxPerUser` |
@@ -229,8 +229,8 @@ model CouponCampaign {
   minOrderAmount       Float                 @default(0) // 最低消费门槛（0=无门槛）
 
   // 适用范围
-  applicableCategories String[]              @default([]) // 限定品类（空=不限）
-  applicableCompanyIds String[]              @default([]) // 限定店铺（空=不限，预留扩展）
+  applicableCategories String[]              @default([]) // 限定品类 ID（空=不限，按商品 categoryId 精确匹配）
+  applicableCompanyIds String[]              @default([]) // 限定店铺 ID（空=不限，按商品 companyId 精确匹配）
 
   // 叠加规则
   stackable            Boolean               @default(true) // 是否可与同类叠加
@@ -540,7 +540,7 @@ CheckoutSession 接受 redPackId → 锁定分润奖励 → 支付时抵扣
 - 触发条件：下拉选择触发类型 + 动态表单（累计消费显示消费门槛，久未下单唤醒显示未下单天数）
 - 发放方式：自动/用户领取/手动，由触发类型自动锁定
 - 抵扣规则：固定金额/百分比 + 金额/比例输入 + 最高抵扣 + 最低消费门槛；固定金额红包需先填抵扣金额，最低消费门槛不得低于抵扣金额
-- 适用范围：品类多选、店铺多选（预留）
+- 适用范围：品类多选、店铺多选；管理后台加载启用品类和已审核店铺，保存真实 ID；不选表示不限
 - 叠加设置：是否可叠加 + 叠加分组
 - 发放限制：总量、每人限领、有效天数
 - 活动时间：开始时间必填；长期型活动可勾选“不限结束时间”；节日活动和限时抢必须填写结束时间
