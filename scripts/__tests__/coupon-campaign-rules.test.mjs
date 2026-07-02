@@ -46,6 +46,19 @@ test('manual campaign creation explains the activation before issuing workflow',
   assert.match(form, /onSuccess\(savedCampaign\)/);
 });
 
+test('fixed discount campaigns require threshold after discount amount', () => {
+  assert.match(form, /name=\{\['discountType', 'discountValue'\]\}/);
+  assert.match(form, /disabled:\s*discountType === 'FIXED' && !discountValue/);
+  assert.match(form, /min=\{discountType === 'FIXED' && discountValue \? Number\(discountValue\) : 0\}/);
+  assert.match(form, /最低消费门槛不能低于抵扣金额/);
+  assert.match(form, /先填写抵扣金额，再设置最低消费门槛/);
+});
+
+test('claim-based activity labels explain holiday versus flash usage', () => {
+  assert.match(form, /节日活动适合固定节日或营销周期/);
+  assert.match(form, /限时抢适合短时间、强库存或强名额约束/);
+});
+
 test('manual issue API supports specified buyers or all buyers', () => {
   assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'ALL_USERS'/);
   assert.match(api, /userIds\?:\s*string\[\]/);

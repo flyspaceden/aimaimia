@@ -126,6 +126,26 @@ export class CouponService {
     }
   }
 
+  private assertDiscountRules(dto: {
+    discountType: string;
+    discountValue: number;
+    minOrderAmount?: number | null;
+  }) {
+    if (dto.discountType === 'PERCENT') {
+      if (dto.discountValue <= 0 || dto.discountValue > 100) {
+        throw new BadRequestException('百分比折扣值必须在 0-100 之间');
+      }
+      return;
+    }
+
+    if (dto.discountType === 'FIXED') {
+      const minOrderAmount = dto.minOrderAmount ?? 0;
+      if (minOrderAmount < dto.discountValue) {
+        throw new BadRequestException('最低消费门槛不能低于抵扣金额');
+      }
+    }
+  }
+
   // ========== 买家端方法 ==========
 
   /**
@@ -911,13 +931,11 @@ export class CouponService {
       startAt,
       endAt,
     });
-
-    // 校验百分比折扣值
-    if (dto.discountType === 'PERCENT') {
-      if (dto.discountValue <= 0 || dto.discountValue > 100) {
-        throw new BadRequestException('百分比折扣值必须在 0-100 之间');
-      }
-    }
+    this.assertDiscountRules({
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+      minOrderAmount: dto.minOrderAmount ?? 0,
+    });
 
     const campaign = await this.prisma.couponCampaign.create({
       data: {
@@ -1023,6 +1041,11 @@ export class CouponService {
       validDays: data.validDays ?? campaign.validDays,
       startAt: newStart,
       endAt: newEnd,
+    });
+    this.assertDiscountRules({
+      discountType: data.discountType ?? campaign.discountType,
+      discountValue: data.discountValue ?? campaign.discountValue,
+      minOrderAmount: data.minOrderAmount ?? campaign.minOrderAmount,
     });
 
     return this.prisma.couponCampaign.update({
