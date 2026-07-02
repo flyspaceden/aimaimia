@@ -8,7 +8,7 @@ const baseCreateDto = {
   distributionMode: 'AUTO',
   discountType: 'FIXED',
   discountValue: 8,
-  minOrderAmount: 0,
+  minOrderAmount: 8,
   totalQuota: 100,
   maxPerUser: 1,
   validDays: 7,
@@ -101,6 +101,44 @@ describe('Coupon campaign rule validation', () => {
       ),
     ).rejects.toThrow('签到红包暂未开放创建');
   });
+
+  it('rejects fixed discount campaigns whose minimum order is lower than discount amount', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.createCampaign(
+        {
+          ...baseCreateDto,
+          discountType: 'FIXED',
+          discountValue: 10,
+          minOrderAmount: 5,
+          endAt: null,
+        } as any,
+        'admin-1',
+      ),
+    ).rejects.toThrow('最低消费门槛不能低于抵扣金额');
+  });
+
+  it('rejects fixed discount campaign updates whose minimum order is lower than discount amount', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findUnique.mockResolvedValue({
+      id: 'campaign-1',
+      status: 'DRAFT',
+      triggerType: 'REGISTER',
+      distributionMode: 'AUTO',
+      triggerConfig: null,
+      discountType: 'FIXED',
+      discountValue: 8,
+      minOrderAmount: 8,
+      validDays: 7,
+      startAt: new Date('2026-07-01T00:00:00.000Z'),
+      endAt: null,
+    });
+
+    await expect(
+      service.updateCampaign('campaign-1', { discountValue: 20, minOrderAmount: 10 } as any),
+    ).rejects.toThrow('最低消费门槛不能低于抵扣金额');
+  });
 });
 
 describe('CouponService manual issue rules', () => {
@@ -117,7 +155,7 @@ describe('CouponService manual issue rules', () => {
     discountType: 'FIXED',
     discountValue: 8,
     maxDiscountAmount: null,
-    minOrderAmount: 0,
+    minOrderAmount: 8,
   };
 
   const makeManualIssueService = (campaign = activeManualCampaign) => {

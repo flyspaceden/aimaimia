@@ -316,6 +316,28 @@ export default function CampaignFormDrawer({
                   />
                 );
               }
+              if (triggerType === 'HOLIDAY') {
+                return (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message="节日活动"
+                    description="节日活动适合固定节日或营销周期，例如春节、中秋、周年庆；当前与限时抢都由用户主动领取，主要通过活动名称、活动时间和总发放量区分。"
+                  />
+                );
+              }
+              if (triggerType === 'FLASH') {
+                return (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message="限时抢"
+                    description="限时抢适合短时间、强库存或强名额约束，例如 2 小时限量领取；建议设置更短活动时间、更小总发放量，并在名称里写清限时规则。"
+                  />
+                );
+              }
               return null;
             }}
           </ProFormDependency>
@@ -334,6 +356,16 @@ export default function CampaignFormDrawer({
               width="md"
               options={discountTypeOptions}
               rules={[{ required: true, message: '请选择抵扣类型' }]}
+              fieldProps={{
+                onChange: (value) => {
+                  if (value !== 'FIXED') return;
+                  const discountValue = Number(formRef.current?.getFieldValue('discountValue') ?? 0);
+                  const minOrderAmount = Number(formRef.current?.getFieldValue('minOrderAmount') ?? 0);
+                  if (discountValue > 0 && minOrderAmount < discountValue) {
+                    formRef.current?.setFieldValue('minOrderAmount', discountValue);
+                  }
+                },
+              }}
             />
             <ProFormDependency name={['discountType']}>
               {({ discountType }) => (
@@ -343,7 +375,18 @@ export default function CampaignFormDrawer({
                   width="md"
                   min={0}
                   max={discountType === 'PERCENT' ? 100 : undefined}
-                  fieldProps={{ precision: 2, step: discountType === 'PERCENT' ? 1 : 0.5 }}
+                  fieldProps={{
+                    precision: 2,
+                    step: discountType === 'PERCENT' ? 1 : 0.5,
+                    onChange: (value) => {
+                      if (discountType !== 'FIXED') return;
+                      const nextDiscountValue = Number(value ?? 0);
+                      const minOrderAmount = Number(formRef.current?.getFieldValue('minOrderAmount') ?? 0);
+                      if (nextDiscountValue > 0 && minOrderAmount < nextDiscountValue) {
+                        formRef.current?.setFieldValue('minOrderAmount', nextDiscountValue);
+                      }
+                    },
+                  }}
                   rules={[{ required: true, message: '请输入抵扣值' }]}
                   extra={
                     discountType === 'PERCENT'
@@ -369,14 +412,45 @@ export default function CampaignFormDrawer({
                 ) : null
               }
             </ProFormDependency>
-            <ProFormDigit
-              name="minOrderAmount"
-              label="最低消费门槛（元）"
-              width="md"
-              min={0}
-              fieldProps={{ precision: 2, step: 10 }}
-              extra="0 表示无门槛"
-            />
+            <ProFormDependency name={['discountType', 'discountValue']}>
+              {({ discountType, discountValue }) => (
+                <ProFormDigit
+                  name="minOrderAmount"
+                  label="最低消费门槛（元）"
+                  width="md"
+                  min={discountType === 'FIXED' && discountValue ? Number(discountValue) : 0}
+                  fieldProps={{
+                    precision: 2,
+                    step: 10,
+                    disabled: discountType === 'FIXED' && !discountValue,
+                  }}
+                  rules={[
+                    {
+                      validator(_: unknown, value: unknown) {
+                        const currentDiscountType = formRef.current?.getFieldValue('discountType');
+                        const currentDiscountValue = Number(
+                          formRef.current?.getFieldValue('discountValue') ?? 0,
+                        );
+                        const currentMinOrderAmount = Number(value ?? 0);
+                        if (
+                          currentDiscountType === 'FIXED' &&
+                          currentDiscountValue > 0 &&
+                          currentMinOrderAmount < currentDiscountValue
+                        ) {
+                          return Promise.reject(new Error('最低消费门槛不能低于抵扣金额'));
+                        }
+                        return Promise.resolve();
+                      },
+                    },
+                  ]}
+                  extra={
+                    discountType === 'FIXED'
+                      ? '先填写抵扣金额，再设置最低消费门槛；固定金额红包门槛不能低于抵扣金额'
+                      : '0 表示无门槛'
+                  }
+                />
+              )}
+            </ProFormDependency>
           </ProFormGroup>
         </Card>
 
