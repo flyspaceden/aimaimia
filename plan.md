@@ -21,10 +21,25 @@
 
 ### 近期完成补充
 
+- [x] **领券中心分类 Tab**（2026-07-02 新增并完成）
+  - **来源**: 用户希望红包被领完后从领券中心默认列表消失，用户已领取过的活动不要混在默认可领列表里，同时仍能通过 Tab 查看已领取和进行中的活动。
+  - **实际做了**: 买家端新增 `GET /coupons/center?view=claimable|claimed|active`；App 领券中心内部新增“可领取 / 已领取 / 进行中”Tab；默认“可领取”只展示当前用户还能领的活动，活动被领完或用户已达每人限领后立即消失；“已领取”保留用户领过的活动来源记录，已暂停/已结束也可回看；“进行中”展示活动期内主动领取活动，并用后端 `displayStatus` 明确“立即领取 / 已领取 / 已领完 / 暂不满足 / 已结束”；每人限领大于 1 且未领满时，可继续从“可领取”或“进行中”领取，“已领取”保持只读来源记录。
+  - **验证**: 已按 TDD 先新增失败测试；修复后 `node --test scripts/__tests__/coupon-campaign-rules.test.mjs`、`npx tsc --noEmit`、`(cd backend && npm test -- coupon-campaign-rules.spec.ts --runInBand)` 通过。
+
+- [x] **领券中心新可领红包提醒**（2026-07-02 新增并完成）
+  - **来源**: 用户希望领券中心有新的可领取红包时，消息中心能提示用户，同时在领券中心入口上显示小点或数字提醒。
+  - **实际做了**: 新增 `CouponClaimableSeenState` 记录买家领券中心已看时间；买家端新增 `GET /coupons/claimable-alert` 和 `POST /coupons/claimable-alert/read`，前者返回新可领红包数量并通过 `coupon.claimableAvailable` 写入站内消息，后者在进入领券中心 Tab 后清除角标；App 红包页在“领券中心”主 Tab 展示数字角标，超过 99 显示 `99+`，消息点击可直接进入领券中心；新可领判断覆盖“提前创建、未来才开始”的活动；已避免进入领券中心时重复触发已读请求，标记已读失败时会自动短重试，连续失败后可在本屏切出再进入领券中心时重试。
+  - **验证**: 先新增失败回归测试；修复后 `node --test scripts/__tests__/coupon-campaign-rules.test.mjs`、`cd backend && npm test -- coupon-campaign-rules.spec.ts notification.registry.spec.ts --runInBand`、`cd backend && DATABASE_URL='postgresql://user:pass@localhost:5432/aimaimai_validate' npx prisma validate`、`cd backend && DATABASE_URL='postgresql://user:pass@localhost:5432/aimaimai_validate' npm run build`、`cd admin && npm run build`、`npx tsc --noEmit` 通过。
+
 - [x] **红包活动触发类型与手动发放规则整理**（2026-07-02 新增并完成）
   - **来源**: 用户反馈“复购激励”容易被理解为再次购买同一商品，且不同红包类型不应共用完全相同的配置项；手动发放需要支持搜索选择指定买家、普通有效买家、全部有效买家或 VIP 买家；手动发放只需要配置发放时间，长期规则类活动应允许不填结束时间；累计消费、久未下单唤醒、节日活动和限时抢都需要可选择系统自动发放或用户主动领取。
   - **实际做了**: 将 `WIN_BACK` 管理端展示改为“久未下单唤醒”；隐藏当前未接通的签到/好评新建入口；后端校验触发类型与发放方式的合法组合，并要求累计消费填写消费门槛、久未下单唤醒填写未下单天数；累计消费/久未下单唤醒/节日活动/限时抢支持选择系统自动发放或用户主动领取，领取接口会校验累计消费和久未下单资格，节日活动/限时抢自动发放时必须选择普通用户/VIP用户/全部用户并由定时任务分批发放，且仅向尚未拥有该活动红包实例的用户发放，避免定时任务每分钟重复发给同一人；`CouponCampaign.endAt` 改为可空，长期活动可设置“不限结束时间”；手动发放活动表单不再展示活动开始/截止时间，新建后先进入草稿，创建成功后自动切到草稿 Tab，上架后自动打开发放弹窗；发放弹窗支持“指定用户”“普通用户”“VIP 用户”和“全部用户”，指定用户通过昵称、手机号、买家编号或用户 ID 搜索多选，不再手填逗号分隔 ID；可选择立即发放或定时发放；定时任务到点后按实际发放时间计算单张红包有效期；固定金额红包要求先填抵扣金额，最低消费门槛必须大于等于抵扣金额；限定品类/限定店铺改为加载真实启用品类和启用店铺的多选下拉，保存 ID，不选表示不限；选项加载失败时不再在打开抽屉时弹全局错误。
   - **验证**: 先新增失败回归测试；修复后 `cd backend && npm test -- --runInBand src/modules/coupon/coupon-campaign-rules.spec.ts src/modules/coupon/coupon-engine.service.spec.ts src/modules/coupon/coupon.service.restore.spec.ts`、`node --test scripts/__tests__/coupon-campaign-rules.test.mjs`、`cd admin && npm run build` 通过。
+
+- [x] **红包活动默认不允许叠加**（2026-07-02 新增并完成）
+  - **来源**: 用户反馈新建红包活动时“允许叠加”开关默认打开，期望默认关闭。
+  - **实际做了**: 管理后台新建红包活动默认 `stackable=false`；提交时未显式传值也按不允许叠加处理；后端创建活动和 Prisma 数据库默认值同步改为 `false`，并新增迁移 `20260702051500_coupon_stackable_default_false`。
+  - **验证**: 新增前端静态回归测试和后端创建默认值测试，先红后绿；已运行 `node --test scripts/__tests__/coupon-campaign-rules.test.mjs`、`cd backend && npm test -- coupon-campaign-rules.spec.ts --runInBand`。
 
 - [x] **管理后台红包活动状态 Tab 分组**（2026-07-02 新增并完成）
   - **来源**: 用户截图反馈红包活动列表中“已结束”活动和进行中活动混在同一张表，希望已结束活动放到独立表格/分类里。

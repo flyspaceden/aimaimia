@@ -40,7 +40,7 @@ export type CouponInstanceStatus = 'AVAILABLE' | 'RESERVED' | 'USED' | 'EXPIRED'
 export interface AvailableCampaignDto {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   discountType: CouponDiscountType;
   discountValue: number;
   /** 最大抵扣金额（元），null 表示无上限（仅 PERCENT 类型生效） */
@@ -59,6 +59,39 @@ export interface AvailableCampaignDto {
   endAt: string | null;
   /** 发放方式 */
   distributionMode: CouponDistributionMode;
+}
+
+/** 领券中心新可领红包提醒 */
+export interface ClaimableCouponAlertDto {
+  count: number;
+  campaignIds: string[];
+}
+
+/** 领券中心视图 */
+export type CouponCenterView = 'claimable' | 'claimed' | 'active';
+
+/** 领券中心活动展示状态 */
+export type CouponCenterDisplayStatus = 'CLAIMABLE' | 'CLAIMED' | 'SOLD_OUT' | 'NOT_ELIGIBLE' | 'ENDED';
+
+/** 当前用户对某个活动已领取红包摘要 */
+export interface CouponCenterClaimSummaryDto {
+  total: number;
+  available: number;
+  used: number;
+  expired: number;
+  reserved: number;
+  revoked: number;
+  nearestExpiresAt: string | null;
+}
+
+/** 领券中心活动卡片 */
+export interface CouponCenterCampaignDto extends AvailableCampaignDto {
+  distributionMode: 'CLAIM';
+  canClaim: boolean;
+  displayStatus: CouponCenterDisplayStatus;
+  statusLabel: string;
+  ineligibleReason: string | null;
+  claimedSummary: CouponCenterClaimSummaryDto;
 }
 
 /** 我的红包 */

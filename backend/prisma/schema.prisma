@@ -759,6 +759,7 @@ model User {
   // K 域关系（平台红包）
   couponInstances     CouponInstance[]   @relation("UserCouponInstances")
   couponTriggerEvents CouponTriggerEvent[] @relation("UserCouponTriggerEvents")
+  couponClaimableSeenState CouponClaimableSeenState?
 
   // 卖家域关系
   companyStaffs   CompanyStaff[]   // 一个用户可以是多家企业的员工
@@ -2955,7 +2956,7 @@ model CouponCampaign {
   applicableCompanyIds String[]              @default([]) // 限定店铺（空=不限，预留扩展）
 
   // 叠加规则
-  stackable            Boolean               @default(true) // 是否可与同类叠加
+  stackable            Boolean               @default(false) // 是否可与同类叠加
   stackGroup           String?               // 叠加分组标识
 
   // 发放限制
@@ -2979,6 +2980,20 @@ model CouponCampaign {
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
+}
+
+// ==========================================
+// 领券中心已看状态（用于买家端新可领红包角标）
+// ==========================================
+model CouponClaimableSeenState {
+  id                  String                @id @default(uuid())
+  userId              String                @unique
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt          DateTime
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([lastSeenAt])
 }
 
 // ==========================================

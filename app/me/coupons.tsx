@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, Skeleton, useToast } from '../../src/components/feedback';
@@ -11,6 +12,8 @@ import { useAuthStore } from '../../src/store';
 import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type {
   AvailableCampaignDto,
+  CouponCenterDisplayStatus,
+  CouponCenterView,
   CouponInstanceStatus,
   MyCouponDto,
 } from '../../src/types/domain/Coupon';
@@ -19,6 +22,7 @@ import type {
 
 type MainTab = 'mine' | 'center';
 type SubTabKey = 'all' | 'available' | 'used' | 'expired';
+type CenterTabKey = CouponCenterView;
 
 const MAIN_TABS: Array<{ key: MainTab; label: string }> = [
   { key: 'mine', label: '我的红包' },
@@ -30,6 +34,33 @@ const SUB_TABS: Array<{ key: SubTabKey; label: string; status?: CouponInstanceSt
   { key: 'available', label: '可用', status: 'AVAILABLE' },
   { key: 'used', label: '已使用', status: 'USED' },
   { key: 'expired', label: '已失效', status: 'EXPIRED' },
+];
+
+const CENTER_TABS: Array<{ key: CenterTabKey; label: string }> = [
+  { key: 'claimable', label: '可领取' },
+  { key: 'claimed', label: '已领取' },
+  { key: 'active', label: '进行中' },
+];
+
+const CENTER_EMPTY_STATE: Record<CenterTabKey, { title: string; description: string }> = {
+  claimable: { title: '暂无可领取红包', description: '已领取或已领完的活动可在其他分类查看' },
+  claimed: { title: '暂无已领取红包', description: '领取后的活动记录会显示在这里' },
+  active: { title: '暂无进行中活动', description: '请稍后再来查看活动' },
+};
+
+const KNOWN_CLAIM_STATE_FAILURES = [
+  '红包已领完',
+  '活动不在有效期内',
+  '该活动当前不可领取',
+  '每人限领',
+  '您已领取',
+  '领取上限',
+  '领取冲突，请重试',
+  '已达活动领取上限',
+  '红包活动不存在',
+  '该活动不支持用户自行领取',
+  '活动已结束',
+  '活动已暂停',
 ];
 
 // ==================== 工具函数 ====================
@@ -48,6 +79,49 @@ const formatCampaignDiscount = (campaign: AvailableCampaignDto): string => {
     return `¥${campaign.discountValue.toFixed(campaign.discountValue % 1 === 0 ? 0 : 2)}`;
   }
   return `${((100 - campaign.discountValue) / 10).toFixed(1).replace('.0', '')}折`;
+};
+
+const isKnownClaimStateFailure = (message?: string): boolean => (
+  !!message && KNOWN_CLAIM_STATE_FAILURES.some((pattern) => message.includes(pattern))
+);
+
+const formatClaimedSummary = (campaign: { claimedSummary?: {
+  total: number;
+  available: number;
+  used: number;
+  expired: number;
+  reserved: number;
+  revoked: number;
+  nearestExpiresAt: string | null;
+} }): string | null => {
+  const summary = campaign.claimedSummary;
+  if (!summary || summary.total <= 0) return null;
+  const parts = [
+    `已领 ${summary.total} 张`,
+    `可用 ${summary.available} 张`,
+    `已用 ${summary.used} 张`,
+    `已过期 ${summary.expired} 张`,
+  ];
+  if (summary.reserved > 0) parts.push(`锁定 ${summary.reserved} 张`);
+  if (summary.revoked > 0) parts.push(`已撤回 ${summary.revoked} 张`);
+  if (summary.nearestExpiresAt) {
+    parts.push(`最近 ${new Date(summary.nearestExpiresAt).toLocaleDateString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+    })} 过期`);
+  }
+  return parts.join(' · ');
+};
+
+const getCampaignStatusColor = (
+  status: CouponCenterDisplayStatus,
+  colors: any,
+) => {
+  if (status === 'CLAIMABLE') return colors.brand.primary;
+  if (status === 'CLAIMED') return colors.success;
+  if (status === 'SOLD_OUT') return colors.warning;
+  if (status === 'NOT_ELIGIBLE') return colors.text.secondary;
+  return colors.muted;
 };
 
 // ==================== 我的红包卡片 ====================
@@ -159,13 +233,17 @@ export default function MyCouponsScreen() {
   const { show } = useToast();
   const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const routeParams = useLocalSearchParams<{ tab?: string }>();
+  const lastClaimableReadKeyRef = useRef('');
   // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing.xl);
 
   // 主 Tab 状态：我的红包 / 领券中心
-  const [mainTab, setMainTab] = useState<MainTab>('mine');
+  const [mainTab, setMainTab] = useState<MainTab>(routeParams.tab === 'center' ? 'center' : 'mine');
   // 子 Tab 状态（仅用于「我的红包」）
   const [subTab, setSubTab] = useState<SubTabKey>('all');
+  // 领券中心内层 Tab
+  const [centerTab, setCenterTab] = useState<CenterTabKey>('claimable');
 
   // ==================== 我的红包数据 ====================
   const subStatus = SUB_TABS.find((tab) => tab.key === subTab)?.status;
@@ -181,6 +259,58 @@ export default function MyCouponsScreen() {
     [coupons],
   );
 
+  const { data: claimableAlertData } = useQuery({
+    queryKey: ['coupon-claimable-alert'],
+    queryFn: () => CouponRepo.getClaimableAlert(),
+    enabled: isLoggedIn,
+  });
+  const claimableBadgeCount = claimableAlertData?.ok ? claimableAlertData.data.count : 0;
+  const claimableCampaignKey = claimableAlertData?.ok ? claimableAlertData.data.campaignIds.join(',') : '';
+  const badgeText = claimableBadgeCount > 99 ? '99+' : String(claimableBadgeCount);
+
+  const markClaimableAlertMutation = useMutation({
+    mutationFn: async (_campaignKey: string) => {
+      const result = await CouponRepo.markClaimableAlertRead();
+      if (!result.ok) {
+        throw new Error(result.error.displayMessage ?? '标记领券中心已读失败');
+      }
+      return result.data;
+    },
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['coupon-claimable-alert'] });
+      queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox'] });
+    },
+  });
+
+  useEffect(() => {
+    if (routeParams.tab === 'center') {
+      setMainTab('center');
+    }
+  }, [routeParams.tab]);
+
+  useEffect(() => {
+    if (mainTab !== 'center') {
+      lastClaimableReadKeyRef.current = '';
+    }
+  }, [mainTab]);
+
+  useEffect(() => {
+    if (
+      mainTab !== 'center'
+      || claimableBadgeCount === 0
+      || !claimableCampaignKey
+      || markClaimableAlertMutation.isPending
+      || lastClaimableReadKeyRef.current === claimableCampaignKey
+    ) {
+      return;
+    }
+    lastClaimableReadKeyRef.current = claimableCampaignKey;
+    markClaimableAlertMutation.mutate(claimableCampaignKey);
+  }, [mainTab, claimableBadgeCount, claimableCampaignKey, markClaimableAlertMutation]);
+
   // ==================== 领券中心数据 ====================
   const {
     data: centerData,
@@ -188,24 +318,36 @@ export default function MyCouponsScreen() {
     refetch: centerRefetch,
     isRefetching: centerRefetching,
   } = useQuery({
-    queryKey: ['coupon-center-campaigns'],
-    queryFn: () => CouponRepo.getAvailableCampaigns(),
+    queryKey: ['coupon-center-campaigns', centerTab],
+    queryFn: () => CouponRepo.getCouponCenterCampaigns(centerTab),
     enabled: mainTab === 'center',
   });
 
   const campaigns = centerData?.ok ? centerData.data : [];
+  const centerEmpty = CENTER_EMPTY_STATE[centerTab];
+
+  const refreshCouponCenterQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['coupon-center-campaigns'] });
+    queryClient.invalidateQueries({ queryKey: ['coupon-claimable-alert'] });
+    queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
+    queryClient.invalidateQueries({ queryKey: ['checkout-eligible-coupons'] });
+  };
 
   const claimMutation = useMutation({
     mutationFn: (campaignId: string) => CouponRepo.claimCoupon(campaignId),
     onSuccess: (result) => {
       if (!result.ok) {
-        show({ message: result.error.displayMessage ?? '领取失败', type: 'error' });
+        const message = result.error.code === 'NETWORK'
+          ? '领取失败，请稍后重试'
+          : result.error.displayMessage ?? '领取失败，请稍后重试';
+        show({ message, type: 'error' });
+        if (isKnownClaimStateFailure(message)) {
+          refreshCouponCenterQueries();
+        }
         return;
       }
       show({ message: '领取成功，已放入我的红包', type: 'success' });
-      queryClient.invalidateQueries({ queryKey: ['coupon-center-campaigns'] });
-      queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
-      queryClient.invalidateQueries({ queryKey: ['checkout-eligible-coupons'] });
+      refreshCouponCenterQueries();
     },
     onError: () => {
       show({ message: '领取失败，请稍后重试', type: 'error' });
@@ -227,10 +369,17 @@ export default function MyCouponsScreen() {
       >
         {MAIN_TABS.map((tab) => {
           const active = tab.key === mainTab;
+          const showClaimableBadge = tab.key === 'center' && claimableBadgeCount > 0;
           return (
             <Pressable
               key={tab.key}
-              onPress={() => setMainTab(tab.key)}
+              onPress={() => {
+                if (tab.key === 'center') {
+                  setMainTab('center');
+                  return;
+                }
+                setMainTab(tab.key);
+              }}
               style={[
                 styles.mainTabBtn,
                 {
@@ -239,17 +388,24 @@ export default function MyCouponsScreen() {
                 },
               ]}
             >
-              <Text
-                style={[
-                  typography.body,
-                  {
-                    color: active ? '#FFFFFF' : colors.text.secondary,
-                    fontWeight: active ? '600' : '400',
-                  },
-                ]}
-              >
-                {tab.label}
-              </Text>
+              <View style={styles.mainTabContent}>
+                <Text
+                  style={[
+                    typography.body,
+                    {
+                      color: active ? '#FFFFFF' : colors.text.secondary,
+                      fontWeight: active ? '600' : '400',
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                {showClaimableBadge ? (
+                  <View style={[styles.badge, { backgroundColor: colors.danger }]}>
+                    <Text style={styles.badgeText}>{badgeText}</Text>
+                  </View>
+                ) : null}
+              </View>
             </Pressable>
           );
         })}
@@ -340,6 +496,35 @@ export default function MyCouponsScreen() {
       {/* ===== 领券中心视图 ===== */}
       {mainTab === 'center' && (
         <>
+          <View style={[styles.centerTabs, { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }]}>
+            {CENTER_TABS.map((tab) => {
+              const active = tab.key === centerTab;
+              return (
+                <Pressable
+                  key={tab.key}
+                  onPress={() => setCenterTab(tab.key)}
+                  style={[
+                    styles.centerTabBtn,
+                    {
+                      backgroundColor: active ? colors.brand.primarySoft : colors.surface,
+                      borderColor: active ? colors.brand.primary : colors.border,
+                      borderRadius: radius.pill,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      typography.captionSm,
+                      { color: active ? colors.brand.primary : colors.text.secondary },
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           {centerLoading ? (
             <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
               <Skeleton height={120} radius={radius.lg} />
@@ -347,7 +532,7 @@ export default function MyCouponsScreen() {
               <Skeleton height={120} radius={radius.lg} />
             </View>
           ) : campaigns.length === 0 ? (
-            <EmptyState title="暂无可领取红包" description="请稍后再来查看活动" />
+            <EmptyState title={centerEmpty.title} description={centerEmpty.description} />
           ) : (
             <FlatList
               data={campaigns}
@@ -356,10 +541,10 @@ export default function MyCouponsScreen() {
               refreshing={centerRefetching}
               onRefresh={centerRefetch}
               renderItem={({ item, index }) => {
-                const reachedLimit = item.userClaimedCount >= item.maxPerUser;
-                const depleted = item.remainingQuota <= 0;
-                const disabled = reachedLimit || depleted || claimMutation.isPending;
-                const actionText = reachedLimit ? '已达上限' : depleted ? '已领完' : '立即领取';
+                const actionText = item.displayStatus === 'CLAIMABLE' ? '立即领取' : item.statusLabel;
+                const disabled = !item.canClaim || centerTab === 'claimed' || claimMutation.isPending;
+                const statusColor = getCampaignStatusColor(item.displayStatus, colors);
+                const claimedSummaryText = formatClaimedSummary(item);
 
                 return (
                   <Animated.View entering={FadeInDown.duration(240).delay(index * 30)}>
@@ -383,47 +568,68 @@ export default function MyCouponsScreen() {
                       </LinearGradient>
 
                       <View style={[styles.infoSection, { paddingHorizontal: spacing.md }]}>
-                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
-                          {item.name}
-                        </Text>
+                        <View style={styles.infoHeader}>
+                          <Text style={[typography.bodyStrong, { color: colors.text.primary, flex: 1 }]} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <View style={[styles.statusTag, { backgroundColor: `${statusColor}22` }]}>
+                            <Text style={[typography.captionSm, { color: statusColor }]}>
+                              {item.statusLabel}
+                            </Text>
+                          </View>
+                        </View>
                         <Text
                           style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}
                           numberOfLines={2}
                         >
-                          {item.description}
+                          {item.description || '平台红包活动'}
                         </Text>
                         <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 4 }]}>
-                          剩余 {item.remainingQuota} 张 · 每人限领 {item.maxPerUser} 张
+                          {claimedSummaryText ?? `剩余 ${item.remainingQuota} 张 · 每人限领 ${item.maxPerUser} 张`}
                         </Text>
 
-                        <Pressable
-                          onPress={() => claimMutation.mutate(item.id)}
-                          disabled={disabled}
-                          style={[
-                            styles.claimBtn,
-                            {
-                              backgroundColor: disabled ? colors.bgSecondary : colors.brand.primary,
-                              borderRadius: radius.pill,
-                            },
-                          ]}
-                        >
-                          <MaterialCommunityIcons
-                            name="ticket-percent-outline"
-                            size={14}
-                            color={disabled ? colors.muted : '#FFFFFF'}
-                          />
-                          <Text
+                        <View style={styles.centerActionRow}>
+                          <Pressable
+                            onPress={() => claimMutation.mutate(item.id)}
+                            disabled={disabled}
                             style={[
-                              typography.captionSm,
+                              styles.claimBtn,
                               {
-                                color: disabled ? colors.muted : '#FFFFFF',
-                                marginLeft: 6,
+                                backgroundColor: disabled ? colors.bgSecondary : colors.brand.primary,
+                                borderRadius: radius.pill,
                               },
                             ]}
                           >
-                            {actionText}
-                          </Text>
-                        </Pressable>
+                            <MaterialCommunityIcons
+                              name="ticket-percent-outline"
+                              size={14}
+                              color={disabled ? colors.muted : '#FFFFFF'}
+                            />
+                            <Text
+                              style={[
+                                typography.captionSm,
+                                {
+                                  color: disabled ? colors.muted : '#FFFFFF',
+                                  marginLeft: 6,
+                                },
+                              ]}
+                            >
+                              {actionText}
+                            </Text>
+                          </Pressable>
+
+                          {centerTab === 'claimed' && item.claimedSummary.available > 0 ? (
+                            <Pressable
+                              onPress={() => {
+                                setMainTab('mine');
+                                setSubTab('available');
+                              }}
+                              style={[styles.useCouponLink, { borderColor: colors.brand.primary, borderRadius: radius.pill }]}
+                            >
+                              <Text style={[typography.captionSm, { color: colors.brand.primary }]}>去使用</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
                       </View>
                     </View>
                   </Animated.View>
@@ -451,6 +657,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
   },
+  mainTabContent: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  badge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
+  },
   // 可用数量概览
   summary: {
     flexDirection: 'row',
@@ -465,6 +692,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  centerTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  centerTabBtn: {
+    flex: 1,
+    minHeight: 34,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // 通用卡片
   card: {
@@ -520,5 +760,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  centerActionRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  useCouponLink: {
+    minHeight: 28,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

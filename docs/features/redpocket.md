@@ -143,7 +143,7 @@
 | 最高抵扣上限 | 百分比折扣时限制最大抵扣额 | `maxDiscountAmount`（仅 PERCENT 时有效） |
 | 品类限制 | 限定适用的商品分类 ID；结算时按商品自身 `categoryId` 精确匹配，父品类不会自动包含子品类 | `applicableCategories`（空数组表示不限） |
 | 店铺限制 | 限定适用的店铺 ID；结算时按商品所属 `companyId` 精确匹配 | `applicableCompanyIds`（空数组表示不限） |
-| 叠加规则 | 是否允许与同类红包叠加使用 | `stackable`: `true`/`false` |
+| 叠加规则 | 是否允许与同类红包叠加使用；默认不允许叠加 | `stackable`: `true`/`false`，默认 `false` |
 | 叠加分组 | 同组红包是否可叠加（管理员配置） | `stackGroup`（同组内按 stackable 判断） |
 | 每人限领 | 每个用户最多可领取几张 | `maxPerUser` |
 | 总发放量 | 活动总共可发放多少张 | `totalQuota` |
@@ -252,7 +252,7 @@ model CouponCampaign {
   applicableCompanyIds String[]              @default([]) // 限定店铺 ID（空=不限，按商品 companyId 精确匹配）
 
   // 叠加规则
-  stackable            Boolean               @default(true) // 是否可与同类叠加
+  stackable            Boolean               @default(false) // 是否可与同类叠加；默认不允许叠加
   stackGroup           String?               // 叠加分组标识
 
   // 发放限制
@@ -276,6 +276,20 @@ model CouponCampaign {
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
+}
+
+// ==========================================
+// 买家领券中心已读状态（用于新可领红包提醒）
+// ==========================================
+model CouponClaimableSeenState {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([lastSeenAt])
 }
 
 // ==========================================
@@ -410,6 +424,9 @@ model CheckoutSession {
 | 端点 | Method | 说明 | 认证 |
 |------|--------|------|------|
 | `/coupons/available` | GET | 查询当前可领取的红包活动列表 | 是 |
+| `/coupons/center?view=claimable\|claimed\|active` | GET | 查询领券中心分类活动；`claimable`=可领取，`claimed`=已领取来源记录，`active`=进行中活动墙 | 是 |
+| `/coupons/claimable-alert` | GET | 查询领券中心是否有新的可领取红包；如存在新活动则写入一条站内消息提醒 | 是 |
+| `/coupons/claimable-alert/read` | POST | 标记领券中心新可领红包提醒已读；进入领券中心 Tab 时调用 | 是 |
 | `/coupons/my` | GET | 查询我的红包（支持状态筛选：AVAILABLE/USED/EXPIRED） | 是 |
 | `/coupons/claim/:campaignId` | POST | 领取红包（用户主动领取类型） | 是 |
 | `/coupons/checkout-eligible` | POST | 查询结算时可用的红包列表（传入商品信息，返回符合条件的红包） | 是 |
@@ -430,8 +447,14 @@ interface AvailableCampaignDto {
   userClaimedCount: number;    // 用户已领数量
   maxPerUser: number;
   startAt: string;
-  endAt: string;
+  endAt: string | null;
   distributionMode: 'AUTO' | 'CLAIM' | 'MANUAL';
+}
+
+// 领券中心新可领红包提醒
+interface ClaimableCouponAlertDto {
+  count: number;          // 新可领红包数量
+  campaignIds: string[];  // 新可领活动 ID
 }
 
 // 我的红包
@@ -597,7 +620,7 @@ CheckoutSession 接受 redPackId → 锁定分润奖励 → 支付时抵扣
 - 发放方式：注册、首单、生日、邀请和推荐码分享固定为自动；手动发放固定为手动；累计消费、久未下单唤醒、节日活动和限时抢可选择“系统自动发放”或“用户主动领取”
 - 抵扣规则：固定金额/百分比 + 金额/比例输入 + 最高抵扣 + 最低消费门槛；固定金额红包需先填抵扣金额，最低消费门槛不得低于抵扣金额
 - 适用范围：品类多选、店铺多选；管理后台加载启用品类和启用店铺，保存真实 ID；不选表示不限
-- 叠加设置：是否可叠加 + 叠加分组
+- 叠加设置：是否可叠加 + 叠加分组；新建活动默认关闭叠加
 - 发放限制：总量、每人限领、有效天数
 - 活动时间：非手动活动开始时间必填；长期型活动可勾选“不限结束时间”；节日活动和限时抢必须填写结束时间；手动发放活动不展示活动开始/截止时间
 - 手动发放：新建活动仍先进入草稿；上架成功后自动打开手动发放弹窗，按“指定用户”（搜索昵称、手机号、买家编号或用户 ID 后多选）、“普通用户”（发放时全部有效非 VIP 买家）、“VIP用户”（发放时全部有效 VIP 买家）或“全部用户”（发放时全部有效买家）发放；发放时间支持“立即发放”和“定时发放”，定时任务到点后由系统 cron 执行；单张红包有效期从实际发放成功时开始按 `validDays` 计算
@@ -760,6 +783,12 @@ checkout.tsx [红包 按钮]
 - 弹窗/Banner 提示（如新人红包、节日红包）
 - 领取按钮调用 `CouponRepo.claimCoupon(campaignId)`
 - 领取成功后动画提示 + 跳转到"我的红包"
+- App 打开红包页时调用 `CouponRepo.getClaimableAlert()`，如果领券中心存在新的可领取红包，在"领券中心" Tab 上显示数字角标（超过 99 显示 `99+`）
+- 用户进入"领券中心" Tab 后调用 `CouponRepo.markClaimableAlertRead()` 清除角标，并刷新消息中心未读数
+- 新可领提醒按“活动创建时间或活动开始时间晚于用户上次查看领券中心”判断；提前创建、未来才开始的活动会在真正可领取后提示。标记已读接口失败时，App 会自动短重试；连续失败后可在本屏切出再进入领券中心时重试。
+- 后端通过 `coupon.claimableAvailable` 事件写入一条钱包类站内消息，点击消息直接进入红包页的"领券中心" Tab
+- 领券中心内部再分三类：`可领取` 默认只展示当前用户还能领取的活动；活动被领完或用户已达每人限领后立即从这里消失；`已领取` 展示用户从领券中心领过的活动来源记录，已结束/已暂停活动也保留历史来源；`进行中` 展示当前活动期内的主动领取活动，包含可领取、已领取、暂不满足条件和已领完状态
+- 每人限领大于 1 时，用户未领满的活动可同时出现在"可领取"和"已领取"；"已领取"只读，不作为继续领取入口，继续领取从"可领取"或"进行中"操作
 
 ### 6.6 新增 Repository
 
@@ -768,6 +797,15 @@ checkout.tsx [红包 按钮]
 class CouponRepo {
   // 查询可领取的红包活动
   getAvailableCampaigns(): Promise<Result<AvailableCampaignDto[]>>;
+
+  // 查询领券中心分类活动
+  getCouponCenterCampaigns(view: 'claimable' | 'claimed' | 'active'): Promise<Result<CouponCenterCampaignDto[]>>;
+
+  // 查询领券中心新可领红包提醒
+  getClaimableAlert(): Promise<Result<ClaimableCouponAlertDto>>;
+
+  // 标记领券中心提醒已读
+  markClaimableAlertRead(): Promise<Result<{ ok: boolean }>>;
 
   // 领取红包
   claimCoupon(campaignId: string): Promise<Result<MyCouponDto>>;

@@ -49,6 +49,20 @@ describe('Coupon campaign rule validation', () => {
     );
   });
 
+  it('defaults new campaigns to non-stackable when omitted', async () => {
+    const { service, prisma } = makeService();
+
+    await service.createCampaign({ ...baseCreateDto, endAt: null } as any, 'admin-1');
+
+    expect(prisma.couponCampaign.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          stackable: false,
+        }),
+      }),
+    );
+  });
+
   it('rejects time-bound claim campaigns without endAt', async () => {
     const { service } = makeService();
 
@@ -273,6 +287,482 @@ describe('CouponService claim eligibility rules', () => {
 
     expect(tx.couponCampaign.updateMany).not.toHaveBeenCalled();
     expect(tx.couponInstance.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('CouponService claimable coupon alerts', () => {
+  const claimCampaign = {
+    id: 'claim-1',
+    name: '节日领取红包',
+    description: null,
+    status: 'ACTIVE',
+    issuedCount: 0,
+    totalQuota: 10,
+    maxPerUser: 1,
+    validDays: 7,
+    distributionMode: 'CLAIM',
+    triggerType: 'HOLIDAY',
+    triggerConfig: null,
+    startAt: new Date('2026-07-01T00:00:00.000Z'),
+    endAt: null,
+    createdAt: new Date('2026-07-02T00:00:00.000Z'),
+    discountType: 'FIXED',
+    discountValue: 8,
+    maxDiscountAmount: null,
+    minOrderAmount: 8,
+  };
+
+  const makeAlertService = (
+    lastSeenAt: Date | null = null,
+    campaigns = [claimCampaign],
+  ) => {
+    const prisma = {
+      couponCampaign: {
+        findMany: jest.fn().mockImplementation(({ where } = {}) => {
+          let rows = [...campaigns];
+          if (where?.status) {
+            rows = rows.filter((campaign) => campaign.status === where.status);
+          }
+          if (where?.distributionMode) {
+            rows = rows.filter((campaign) => campaign.distributionMode === where.distributionMode);
+          }
+          if (where?.startAt?.lte) {
+            rows = rows.filter((campaign) => campaign.startAt <= where.startAt.lte);
+          }
+          if (where?.OR) {
+            const endAtFilter = where.OR.find((entry: any) => entry.endAt?.gte);
+            const now = endAtFilter?.endAt?.gte;
+            rows = rows.filter((campaign) => campaign.endAt === null || !now || campaign.endAt >= now);
+          }
+          rows.sort((a, b) => {
+            const createdDelta = b.createdAt.getTime() - a.createdAt.getTime();
+            if (createdDelta !== 0) return createdDelta;
+            return a.id.localeCompare(b.id);
+          });
+          return Promise.resolve(rows);
+        }),
+      },
+      couponInstance: {
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      couponClaimableSeenState: {
+        findUnique: jest.fn().mockResolvedValue(lastSeenAt ? { userId: 'buyer-1', lastSeenAt } : null),
+        upsert: jest.fn().mockResolvedValue({ userId: 'buyer-1', lastSeenAt: new Date() }),
+      },
+      order: {
+        aggregate: jest.fn(),
+        findFirst: jest.fn(),
+      },
+    };
+    const notificationService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+
+    return {
+      prisma,
+      notificationService,
+      service: new (CouponService as any)(prisma, {}, notificationService),
+    };
+  };
+
+  it('returns new claimable coupon count and emits an inbox notification', async () => {
+    const { service, notificationService } = makeAlertService();
+
+    const result = await service.getClaimableAlert('buyer-1');
+
+    expect(result).toEqual({
+      count: 1,
+      campaignIds: ['claim-1'],
+    });
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'coupon.claimableAvailable',
+        aggregateType: 'couponCampaign',
+        aggregateId: 'claim-1',
+        idempotencyKey: expect.stringContaining('coupon-claimable:buyer-1:'),
+        payload: expect.objectContaining({
+          userId: 'buyer-1',
+          campaignIds: ['claim-1'],
+          count: 1,
+        }),
+      }),
+    );
+  });
+
+  it('treats future-start campaigns as new when they become claimable after last seen', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-06T12:00:00.000Z'));
+    try {
+      const futureStartCampaign = {
+        ...claimCampaign,
+        id: 'claim-future',
+        createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        startAt: new Date('2026-07-05T00:00:00.000Z'),
+      };
+      const { service, notificationService, prisma } = makeAlertService(
+        new Date('2026-07-02T00:00:00.000Z'),
+        [futureStartCampaign],
+      );
+
+      const result = await service.getClaimableAlert('buyer-1');
+
+      expect(prisma.couponCampaign.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        }),
+      );
+      expect(result).toEqual({
+        count: 1,
+        campaignIds: ['claim-future'],
+      });
+      expect(notificationService.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          aggregateId: 'claim-future',
+          payload: expect.objectContaining({
+            campaignIds: ['claim-future'],
+            count: 1,
+          }),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('marks claimable coupon alerts as read by updating seen state', async () => {
+    const { service, prisma } = makeAlertService(new Date('2026-07-03T00:00:00.000Z'));
+
+    await service.markClaimableAlertRead('buyer-1');
+    const result = await service.getClaimableAlert('buyer-1');
+
+    expect(prisma.couponClaimableSeenState.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'buyer-1' },
+        update: expect.objectContaining({ lastSeenAt: expect.any(Date) }),
+        create: expect.objectContaining({ userId: 'buyer-1', lastSeenAt: expect.any(Date) }),
+      }),
+    );
+    expect(result).toEqual({
+      count: 0,
+      campaignIds: [],
+    });
+  });
+});
+
+describe('CouponService coupon center views', () => {
+  const now = new Date('2026-07-10T12:00:00.000Z');
+  const baseClaimCampaign = {
+    name: '领取活动',
+    description: null,
+    status: 'ACTIVE',
+    issuedCount: 0,
+    totalQuota: 10,
+    maxPerUser: 1,
+    validDays: 7,
+    distributionMode: 'CLAIM',
+    triggerType: 'HOLIDAY',
+    triggerConfig: null,
+    startAt: new Date('2026-07-01T00:00:00.000Z'),
+    endAt: new Date('2026-07-31T00:00:00.000Z'),
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+    discountType: 'FIXED',
+    discountValue: 8,
+    maxDiscountAmount: null,
+    minOrderAmount: 8,
+  };
+
+  const campaigns = [
+    {
+      ...baseClaimCampaign,
+      id: 'claim-new',
+      name: '新可领活动',
+      createdAt: new Date('2026-07-04T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'claim-old',
+      name: '旧可领活动',
+      createdAt: new Date('2026-07-02T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'sold-out',
+      name: '已领完活动',
+      issuedCount: 10,
+      totalQuota: 10,
+      createdAt: new Date('2026-07-03T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'claimed-limit',
+      name: '已领满活动',
+      createdAt: new Date('2026-07-06T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'partial-claimed',
+      name: '可继续领取活动',
+      maxPerUser: 2,
+      createdAt: new Date('2026-07-05T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'not-eligible',
+      name: '暂不满足活动',
+      triggerType: 'CUMULATIVE_SPEND',
+      triggerConfig: { spendThreshold: 1000 },
+      createdAt: new Date('2026-07-07T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'paused-claimed',
+      name: '已暂停历史活动',
+      status: 'PAUSED',
+      createdAt: new Date('2026-07-08T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'ended-claimed',
+      name: '已结束历史活动',
+      status: 'ENDED',
+      endAt: new Date('2026-07-09T00:00:00.000Z'),
+      createdAt: new Date('2026-07-09T00:00:00.000Z'),
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'auto-campaign',
+      distributionMode: 'AUTO',
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'manual-campaign',
+      distributionMode: 'MANUAL',
+    },
+    {
+      ...baseClaimCampaign,
+      id: 'draft-campaign',
+      status: 'DRAFT',
+    },
+  ];
+
+  const userInstances = [
+    {
+      id: 'ci-claimed-limit-available',
+      campaignId: 'claimed-limit',
+      userId: 'buyer-1',
+      status: 'AVAILABLE',
+      issuedAt: new Date('2026-07-04T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-12T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-partial-available',
+      campaignId: 'partial-claimed',
+      userId: 'buyer-1',
+      status: 'AVAILABLE',
+      issuedAt: new Date('2026-07-05T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-13T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-paused-used',
+      campaignId: 'paused-claimed',
+      userId: 'buyer-1',
+      status: 'USED',
+      issuedAt: new Date('2026-07-07T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-11T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-ended-expired',
+      campaignId: 'ended-claimed',
+      userId: 'buyer-1',
+      status: 'EXPIRED',
+      issuedAt: new Date('2026-07-08T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-09T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-summary-reserved',
+      campaignId: 'claimed-limit',
+      userId: 'buyer-1',
+      status: 'RESERVED',
+      issuedAt: new Date('2026-07-04T11:00:00.000Z'),
+      expiresAt: new Date('2026-07-14T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-summary-used',
+      campaignId: 'claimed-limit',
+      userId: 'buyer-1',
+      status: 'USED',
+      issuedAt: new Date('2026-07-04T12:00:00.000Z'),
+      expiresAt: new Date('2026-07-15T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-summary-expired',
+      campaignId: 'claimed-limit',
+      userId: 'buyer-1',
+      status: 'EXPIRED',
+      issuedAt: new Date('2026-07-04T13:00:00.000Z'),
+      expiresAt: new Date('2026-07-09T00:00:00.000Z'),
+    },
+    {
+      id: 'ci-summary-revoked',
+      campaignId: 'claimed-limit',
+      userId: 'buyer-1',
+      status: 'REVOKED',
+      issuedAt: new Date('2026-07-04T14:00:00.000Z'),
+      expiresAt: new Date('2026-07-16T00:00:00.000Z'),
+    },
+  ];
+
+  const makeCenterService = () => {
+    const findCampaign = (campaignId: string) => campaigns.find((campaign) => campaign.id === campaignId);
+    const prisma = {
+      couponCampaign: {
+        findMany: jest.fn().mockImplementation(({ where } = {}) => {
+          let rows = [...campaigns];
+          if (where?.distributionMode) {
+            rows = rows.filter((campaign) => campaign.distributionMode === where.distributionMode);
+          }
+          if (where?.status) {
+            rows = rows.filter((campaign) => campaign.status === where.status);
+          }
+          if (where?.startAt?.lte) {
+            rows = rows.filter((campaign) => campaign.startAt <= where.startAt.lte);
+          }
+          if (where?.OR) {
+            rows = rows.filter((campaign) => campaign.endAt === null || campaign.endAt >= now);
+          }
+          if (where?.id?.in) {
+            rows = rows.filter((campaign) => where.id.in.includes(campaign.id));
+          }
+          return Promise.resolve(rows);
+        }),
+      },
+      couponInstance: {
+        findMany: jest.fn().mockImplementation(({ where, include, orderBy } = {}) => {
+          let rows = [...userInstances];
+          if (where?.userId) {
+            rows = rows.filter((instance) => instance.userId === where.userId);
+          }
+          if (where?.campaignId?.in) {
+            rows = rows.filter((instance) => where.campaignId.in.includes(instance.campaignId));
+          }
+          if (where?.campaign) {
+            rows = rows.filter((instance) => {
+              const campaign = findCampaign(instance.campaignId);
+              if (!campaign) return false;
+              if (where.campaign.distributionMode && campaign.distributionMode !== where.campaign.distributionMode) {
+                return false;
+              }
+              if (where.campaign.status?.not && campaign.status === where.campaign.status.not) {
+                return false;
+              }
+              return true;
+            });
+          }
+          if (orderBy?.issuedAt === 'desc') {
+            rows.sort((a, b) => b.issuedAt.getTime() - a.issuedAt.getTime());
+          }
+          if (include?.campaign) {
+            return Promise.resolve(rows.map((instance) => ({
+              ...instance,
+              campaign: findCampaign(instance.campaignId),
+            })));
+          }
+          return Promise.resolve(rows);
+        }),
+      },
+      order: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: 100 } }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    return {
+      prisma,
+      service: new CouponService(prisma as any, {} as any),
+    };
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(now);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns only currently claimable campaigns in the default claimable view', async () => {
+    const { service } = makeCenterService();
+
+    const result = await (service as any).getCouponCenterCampaigns('buyer-1');
+
+    expect(result.map((item: any) => item.id)).toEqual([
+      'partial-claimed',
+      'claim-new',
+      'claim-old',
+    ]);
+    expect(result.every((item: any) => item.displayStatus === 'CLAIMABLE')).toBe(true);
+  });
+
+  it('keeps sold out, claimed, and not eligible campaigns visible in the active view with clear statuses', async () => {
+    const { service } = makeCenterService();
+
+    const result = await (service as any).getCouponCenterCampaigns('buyer-1', 'active');
+
+    expect(result.map((item: any) => item.id)).toEqual([
+      'partial-claimed',
+      'claim-new',
+      'claim-old',
+      'claimed-limit',
+      'not-eligible',
+      'sold-out',
+    ]);
+    expect(result.find((item: any) => item.id === 'sold-out')).toEqual(
+      expect.objectContaining({ displayStatus: 'SOLD_OUT', canClaim: false, statusLabel: '已领完' }),
+    );
+    expect(result.find((item: any) => item.id === 'claimed-limit')).toEqual(
+      expect.objectContaining({ displayStatus: 'CLAIMED', canClaim: false, statusLabel: '已领取' }),
+    );
+    expect(result.find((item: any) => item.id === 'not-eligible')).toEqual(
+      expect.objectContaining({
+        displayStatus: 'NOT_ELIGIBLE',
+        canClaim: false,
+        ineligibleReason: '暂不满足累计消费领取条件',
+      }),
+    );
+  });
+
+  it('returns claimed campaign history with status summaries and latest claim ordering', async () => {
+    const { service } = makeCenterService();
+
+    const result = await (service as any).getCouponCenterCampaigns('buyer-1', 'claimed');
+
+    expect(result.map((item: any) => item.id)).toEqual([
+      'ended-claimed',
+      'paused-claimed',
+      'partial-claimed',
+      'claimed-limit',
+    ]);
+    expect(result.find((item: any) => item.id === 'ended-claimed')).toEqual(
+      expect.objectContaining({ displayStatus: 'ENDED', statusLabel: '已结束' }),
+    );
+    expect(result.find((item: any) => item.id === 'paused-claimed')).toEqual(
+      expect.objectContaining({ displayStatus: 'CLAIMED', statusLabel: '已领取' }),
+    );
+    expect(result.find((item: any) => item.id === 'claimed-limit')?.claimedSummary).toEqual({
+      total: 5,
+      available: 1,
+      reserved: 1,
+      used: 1,
+      expired: 1,
+      revoked: 1,
+      nearestExpiresAt: '2026-07-12T00:00:00.000Z',
+    });
+  });
+
+  it('rejects invalid coupon center views', async () => {
+    const { service } = makeCenterService();
+
+    await expect(
+      (service as any).getCouponCenterCampaigns('buyer-1', 'unknown'),
+    ).rejects.toThrow('领券中心分类无效');
   });
 });
 

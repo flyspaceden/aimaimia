@@ -6,6 +6,11 @@ const form = readFileSync('admin/src/pages/coupons/campaign-form.tsx', 'utf8');
 const listPage = readFileSync('admin/src/pages/coupons/campaigns.tsx', 'utf8');
 const api = readFileSync('admin/src/api/coupon.ts', 'utf8');
 const statusMaps = readFileSync('admin/src/constants/statusMaps.ts', 'utf8');
+const appCouponPage = readFileSync('app/me/coupons.tsx', 'utf8');
+const couponRepo = readFileSync('src/repos/CouponRepo.ts', 'utf8');
+const couponTypes = readFileSync('src/types/domain/Coupon.ts', 'utf8');
+const couponController = readFileSync('backend/src/modules/coupon/coupon.controller.ts', 'utf8');
+const couponService = readFileSync('backend/src/modules/coupon/coupon.service.ts', 'utf8');
 
 test('coupon trigger labels use clear supported business terms', () => {
   assert.match(form, /久未下单唤醒/);
@@ -132,6 +137,12 @@ test('holiday and flash auto distribution require an automatic audience selector
   assert.match(form, /全部用户/);
 });
 
+test('new coupon campaigns default to non-stackable', () => {
+  assert.match(form, /stackable:\s*false/);
+  assert.match(form, /stackable:\s*\(values\.stackable as boolean\) \?\? false/);
+  assert.doesNotMatch(form, /stackable:\s*true/);
+});
+
 test('manual issue modal supports normal buyers, vip buyers, and scheduled issue time', () => {
   assert.match(api, /NORMAL_USERS/);
   assert.match(api, /VIP_USERS/);
@@ -144,4 +155,65 @@ test('manual issue modal supports normal buyers, vip buyers, and scheduled issue
   assert.match(listPage, /定时发放/);
   assert.match(listPage, /scheduledAt/);
   assert.match(listPage, /定时发放时间必须晚于当前时间/);
+});
+
+test('buyer coupon center shows and clears new claimable coupon badge', () => {
+  assert.match(couponTypes, /ClaimableCouponAlertDto/);
+  assert.match(couponRepo, /getClaimableAlert/);
+  assert.match(couponRepo, /markClaimableAlertRead/);
+  assert.match(couponRepo, /\/coupons\/claimable-alert/);
+  assert.match(couponRepo, /\/coupons\/claimable-alert\/read/);
+  assert.match(appCouponPage, /claimable-alert/);
+  assert.match(appCouponPage, /claimableBadgeCount/);
+  assert.match(appCouponPage, /badgeText/);
+  assert.match(appCouponPage, /markClaimableAlertRead/);
+  assert.match(appCouponPage, /setMainTab\('center'\)/);
+  assert.match(appCouponPage, /mutate\(claimableCampaignKey\)/);
+  assert.match(appCouponPage, /if \(!result\.ok\)/);
+  assert.match(appCouponPage, /标记领券中心已读失败/);
+  assert.match(appCouponPage, /retry:\s*2/);
+  assert.match(appCouponPage, /retryDelay/);
+  assert.match(appCouponPage, /mainTab !== 'center'/);
+  assert.match(appCouponPage, /lastClaimableReadKeyRef\.current = ''/);
+});
+
+test('buyer coupon center has claimable, claimed, and active tabs backed by server views', () => {
+  assert.match(couponTypes, /CouponCenterView/);
+  assert.match(couponTypes, /CouponCenterCampaignDto/);
+  assert.match(couponTypes, /CouponCenterClaimSummaryDto/);
+  assert.match(couponRepo, /getCouponCenterCampaigns/);
+  assert.match(couponRepo, /\/coupons\/center/);
+  assert.match(couponController, /@Get\('center'\)/);
+  assert.match(couponService, /getCouponCenterCampaigns/);
+  assert.match(appCouponPage, /CENTER_TABS/);
+  assert.match(appCouponPage, /可领取/);
+  assert.match(appCouponPage, /已领取/);
+  assert.match(appCouponPage, /进行中/);
+  assert.match(appCouponPage, /claimable/);
+  assert.match(appCouponPage, /claimed/);
+  assert.match(appCouponPage, /active/);
+});
+
+test('buyer coupon center uses server display status and refreshes stale claim state', () => {
+  assert.match(couponTypes, /CouponCenterDisplayStatus/);
+  assert.match(couponTypes, /displayStatus/);
+  assert.match(couponTypes, /claimedSummary/);
+  assert.match(couponTypes, /nearestExpiresAt/);
+  assert.match(appCouponPage, /displayStatus/);
+  assert.match(appCouponPage, /statusLabel/);
+  assert.match(appCouponPage, /claimedSummary\.available/);
+  assert.match(appCouponPage, /立即领取/);
+  assert.match(appCouponPage, /已领取/);
+  assert.match(appCouponPage, /已领完/);
+  assert.match(appCouponPage, /已结束/);
+  assert.match(appCouponPage, /领取失败，请稍后重试/);
+  assert.match(appCouponPage, /result\.error\.code === 'NETWORK'/);
+  assert.match(appCouponPage, /领取冲突，请重试/);
+  assert.match(appCouponPage, /红包活动不存在/);
+  assert.match(appCouponPage, /该活动不支持用户自行领取/);
+  assert.match(appCouponPage, /coupon-center-campaigns/);
+  assert.match(appCouponPage, /coupon-claimable-alert/);
+  assert.match(appCouponPage, /my-coupons/);
+  assert.match(appCouponPage, /checkout-eligible-coupons/);
+  assert.match(appCouponPage, /已达活动领取上限|每人限领|已领完|活动已结束|活动已暂停/);
 });

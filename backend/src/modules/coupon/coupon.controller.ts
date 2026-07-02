@@ -23,6 +23,27 @@ export class CouponController {
     return this.couponService.getAvailableCampaigns(userId);
   }
 
+  /** 查询领券中心活动（可领取 / 已领取 / 进行中） */
+  @Get('center')
+  getCouponCenterCampaigns(
+    @CurrentUser('sub') userId: string,
+    @Query('view') view?: string,
+  ) {
+    return this.couponService.getCouponCenterCampaigns(userId, view);
+  }
+
+  /** 查询领券中心新可领红包提醒 */
+  @Get('claimable-alert')
+  getClaimableAlert(@CurrentUser('sub') userId: string) {
+    return this.couponService.getClaimableAlert(userId);
+  }
+
+  /** 标记领券中心已查看，清除新可领红包提醒 */
+  @Post('claimable-alert/read')
+  markClaimableAlertRead(@CurrentUser('sub') userId: string) {
+    return this.couponService.markClaimableAlertRead(userId);
+  }
+
   /** 查询我的红包列表（支持状态筛选） */
   @Get('my')
   getMyCoupons(
