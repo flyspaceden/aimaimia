@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Progress, Space, Modal, Descriptions, Card, Statistic, Divider, Typography } from 'antd';
+import { App, Button, Tag, Progress, Space, Modal, Descriptions, Card, Statistic, Divider, Typography, Tabs } from 'antd';
 import {
   PlusOutlined,
   EyeOutlined,
@@ -22,6 +22,12 @@ import {
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import CampaignFormDrawer from './campaign-form';
+import {
+  DEFAULT_CAMPAIGN_STATUS_TAB,
+  campaignStatusTabs,
+  getCampaignStatusQuery,
+} from './campaign-status-tabs';
+import type { CampaignStatusTabKey } from './campaign-status-tabs';
 import dayjs from 'dayjs';
 
 /** 格式化抵扣规则显示 */
@@ -53,6 +59,7 @@ export default function CampaignListPage() {
     campaign: CouponCampaign | null;
   }>({ open: false, campaign: null });
   const [detailCampaign, setDetailCampaign] = useState<CouponCampaign | null>(null);
+  const [activeStatusTab, setActiveStatusTab] = useState<CampaignStatusTabKey>(DEFAULT_CAMPAIGN_STATUS_TAB);
 
   // 状态变更操作
   const handleStatusChange = (record: CouponCampaign, newStatus: CouponCampaignStatus) => {
@@ -147,6 +154,7 @@ export default function CampaignListPage() {
       title: '状态',
       dataIndex: 'status',
       width: 100,
+      search: false,
       valueType: 'select',
       valueEnum: Object.fromEntries(
         Object.entries(couponCampaignStatusMap).map(([k, v]) => [k, { text: v.text }]),
@@ -234,18 +242,28 @@ export default function CampaignListPage() {
 
   return (
     <div>
+      <Tabs
+        activeKey={activeStatusTab}
+        onChange={(key) => setActiveStatusTab(key as CampaignStatusTabKey)}
+        items={campaignStatusTabs.map((tab) => ({
+          key: tab.key,
+          label: tab.label,
+        }))}
+      />
+
       <ProTable<CouponCampaign>
         headerTitle="红包活动管理"
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
         scroll={{ x: 1200 }}
+        params={{ activeStatusTab }}
         request={async (params) => {
-          const { current, pageSize, status, triggerType, name: keyword } = params;
+          const { current, pageSize, triggerType, name: keyword } = params;
           const res = await getCampaigns({
             page: current,
             pageSize,
-            status: status || undefined,
+            status: getCampaignStatusQuery(activeStatusTab),
             triggerType: triggerType || undefined,
             keyword: keyword || undefined,
           });
