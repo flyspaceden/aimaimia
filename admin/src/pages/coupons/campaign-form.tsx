@@ -12,7 +12,7 @@ import {
   ProFormGroup,
 } from '@ant-design/pro-components';
 import type { ProFormInstance } from '@ant-design/pro-components';
-import { App, Drawer, Card, Typography, Space, Button } from 'antd';
+import { Alert, App, Drawer, Card, Typography, Space, Button } from 'antd';
 import {
   GiftOutlined,
   DollarOutlined,
@@ -80,7 +80,7 @@ interface CampaignFormDrawerProps {
   open: boolean;
   campaign: CouponCampaign | null; // null 表示新建
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (campaign?: CouponCampaign) => void;
 }
 
 export default function CampaignFormDrawer({
@@ -177,14 +177,15 @@ export default function CampaignFormDrawer({
           : dayjs(values.endAt as string | number | Date | dayjs.Dayjs).toISOString(),
       };
 
+      let savedCampaign: CouponCampaign;
       if (isEdit) {
-        await updateCampaign(campaign!.id, payload);
+        savedCampaign = await updateCampaign(campaign!.id, payload);
         message.success('活动更新成功');
       } else {
-        await createCampaign(payload);
+        savedCampaign = await createCampaign(payload);
         message.success('活动创建成功');
       }
-      onSuccess();
+      onSuccess(savedCampaign);
       onClose();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败');
@@ -301,6 +302,17 @@ export default function CampaignFormDrawer({
                     placeholder="用户超过此天数未下单后发放"
                     extra="用户最近一次下单距今超过该天数后自动发放红包"
                     rules={[{ required: true, message: '请输入未下单天数' }]}
+                  />
+                );
+              }
+              if (triggerType === 'MANUAL') {
+                return (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message="手动发放对象"
+                    description="创建后先在草稿列表上架；上架后会打开手动发放窗口，可填写买家编号或用户ID，也可以选择全部用户。"
                   />
                 );
               }

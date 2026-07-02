@@ -38,6 +38,14 @@ test('campaign form supports unlimited end time only for evergreen trigger types
   assert.match(form, /长期活动必须设置领取后有效天数/);
 });
 
+test('manual campaign creation explains the activation before issuing workflow', () => {
+  assert.match(form, /手动发放对象/);
+  assert.match(form, /创建后先在草稿列表上架/);
+  assert.match(form, /买家编号或用户ID/);
+  assert.match(form, /全部用户/);
+  assert.match(form, /onSuccess\(savedCampaign\)/);
+});
+
 test('manual issue API supports specified buyers or all buyers', () => {
   assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'ALL_USERS'/);
   assert.match(api, /userIds\?:\s*string\[\]/);
@@ -51,6 +59,13 @@ test('campaign list exposes manual issue modal with all-user mode', () => {
   assert.match(listPage, /全部用户/);
   assert.match(listPage, /targetMode:\s*'ALL_USERS'/);
   assert.match(listPage, /买家编号或用户ID/);
+});
+
+test('new draft campaigns remain discoverable and manual activation opens issue modal', () => {
+  assert.match(listPage, /createdCampaign\?\.status === 'DRAFT'/);
+  assert.match(listPage, /setActiveStatusTab\('DRAFT'\)/);
+  assert.match(listPage, /updatedCampaign\.distributionMode === 'MANUAL'/);
+  assert.match(listPage, /setManualIssueCampaign\(updatedCampaign\)/);
 });
 
 test('campaign list and detail display evergreen campaign time without invalid date', () => {
