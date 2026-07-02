@@ -68,6 +68,19 @@ const TRIGGER_DISTRIBUTION_MODE_MAP: Record<CouponTriggerType, CouponDistributio
   MANUAL: 'MANUAL',
 };
 
+const FLEXIBLE_DISTRIBUTION_TRIGGER_TYPES: CouponTriggerType[] = [
+  'CUMULATIVE_SPEND',
+  'WIN_BACK',
+  'HOLIDAY',
+  'FLASH',
+];
+
+const AUTO_TARGET_MODE_OPTIONS = [
+  { label: '普通用户', value: 'NORMAL_USERS' },
+  { label: 'VIP用户', value: 'VIP_USERS' },
+  { label: '全部用户', value: 'ALL_USERS' },
+];
+
 const EVERGREEN_TRIGGER_TYPES: CouponTriggerType[] = [
   'REGISTER',
   'FIRST_ORDER',
@@ -80,6 +93,22 @@ const EVERGREEN_TRIGGER_TYPES: CouponTriggerType[] = [
 ];
 
 type SelectOption = { label: string; value: string };
+
+const isDistributionModeFlexible = (triggerType?: CouponTriggerType) =>
+  !!triggerType && FLEXIBLE_DISTRIBUTION_TRIGGER_TYPES.includes(triggerType);
+
+const getDefaultDistributionMode = (triggerType?: CouponTriggerType): CouponDistributionMode => {
+  if (!triggerType) return 'AUTO';
+  return TRIGGER_DISTRIBUTION_MODE_MAP[triggerType] ?? 'AUTO';
+};
+
+const getDistributionModeOptions = (triggerType?: CouponTriggerType) => {
+  if (isDistributionModeFlexible(triggerType)) {
+    return distributionModeOptions.filter((option) => option.value === 'AUTO' || option.value === 'CLAIM');
+  }
+  const defaultMode = getDefaultDistributionMode(triggerType);
+  return distributionModeOptions.filter((option) => option.value === defaultMode);
+};
 
 const buildCategoryOptions = (categories: AdminCategory[]): SelectOption[] =>
   categories
@@ -130,7 +159,6 @@ export default function CampaignFormDrawer({
       .catch(() => {
         if (!cancelled) {
           setCategoryOptions([]);
-          message.error('加载品类选项失败');
         }
       })
       .finally(() => {
@@ -139,7 +167,7 @@ export default function CampaignFormDrawer({
         }
       });
 
-    getCompanies({ pageSize: 200, status: 'APPROVED' })
+    getCompanies({ pageSize: 200, status: 'ACTIVE' })
       .then((res) => {
         if (!cancelled) {
           setCompanyOptions(
@@ -153,7 +181,6 @@ export default function CampaignFormDrawer({
       .catch(() => {
         if (!cancelled) {
           setCompanyOptions([]);
-          message.error('加载店铺选项失败');
         }
       })
       .finally(() => {
@@ -165,7 +192,7 @@ export default function CampaignFormDrawer({
     return () => {
       cancelled = true;
     };
-  }, [message, open]);
+  }, [open]);
 
   // 构建初始值
   const getInitialValues = () =>
@@ -196,6 +223,8 @@ export default function CampaignFormDrawer({
             ?.spendThreshold,
           triggerConfig_inactiveDays: (campaign.triggerConfig as Record<string, unknown>)
             ?.inactiveDays,
+          triggerConfig_autoTargetMode: (campaign.triggerConfig as Record<string, unknown>)
+            ?.autoTargetMode,
         }
       : {
           distributionMode: 'AUTO',
@@ -227,7 +256,18 @@ export default function CampaignFormDrawer({
 
       const triggerType = values.triggerType as CouponTriggerType;
       const isManualTrigger = triggerType === 'MANUAL';
-      const expectedMode = TRIGGER_DISTRIBUTION_MODE_MAP[triggerType];
+      const selectedDistributionMode = (
+        isDistributionModeFlexible(triggerType)
+          ? values.distributionMode
+          : getDefaultDistributionMode(triggerType)
+      ) as CouponDistributionMode;
+      if (
+        selectedDistributionMode === 'AUTO' &&
+        (triggerType === 'HOLIDAY' || triggerType === 'FLASH') &&
+        values.triggerConfig_autoTargetMode
+      ) {
+        triggerConfig.autoTargetMode = values.triggerConfig_autoTargetMode;
+      }
       if (isManualTrigger && Number(values.validDays ?? 0) <= 0) {
         message.error('手动发放红包必须设置领取后有效天数');
         return false;
@@ -237,7 +277,7 @@ export default function CampaignFormDrawer({
         name: values.name as string,
         description: values.description as string | undefined,
         triggerType,
-        distributionMode: expectedMode,
+        distributionMode: selectedDistributionMode,
         triggerConfig: Object.keys(triggerConfig).length > 0 ? triggerConfig : undefined,
         discountType: values.discountType as CouponDiscountType,
         discountValue: values.discountValue as number,
@@ -339,27 +379,37 @@ export default function CampaignFormDrawer({
               fieldProps={{
                 onChange: (value) => {
                   const triggerType = value as CouponTriggerType;
-                  const expectedMode = TRIGGER_DISTRIBUTION_MODE_MAP[triggerType];
+                  const nextDistributionMode = getDefaultDistributionMode(triggerType);
                   formRef.current?.setFieldsValue({
-                    distributionMode: expectedMode,
+                    distributionMode: nextDistributionMode,
+                    triggerConfig_autoTargetMode: undefined,
                     ...(!EVERGREEN_TRIGGER_TYPES.includes(triggerType) ? { noEndAt: false } : {}),
                   });
                 },
               }}
             />
-            <ProFormSelect
-              name="distributionMode"
-              label="发放方式"
-              width="md"
-              fieldProps={{ disabled: true }}
-              options={distributionModeOptions}
-              rules={[{ required: true, message: '请选择发放方式' }]}
-            />
+            <ProFormDependency name={['triggerType']}>
+              {({ triggerType }) => {
+                const currentTriggerType = triggerType as CouponTriggerType | undefined;
+                const isDistributionModeFlexible = !!currentTriggerType &&
+                  FLEXIBLE_DISTRIBUTION_TRIGGER_TYPES.includes(currentTriggerType);
+                return (
+                  <ProFormSelect
+                    name="distributionMode"
+                    label="发放方式"
+                    width="md"
+                    fieldProps={{ disabled: !isDistributionModeFlexible }}
+                    options={getDistributionModeOptions(currentTriggerType)}
+                    rules={[{ required: true, message: '请选择发放方式' }]}
+                  />
+                );
+              }}
+            </ProFormDependency>
           </ProFormGroup>
 
           {/* 根据触发类型动态显示额外配置 */}
-          <ProFormDependency name={['triggerType']}>
-            {({ triggerType }) => {
+          <ProFormDependency name={['triggerType', 'distributionMode']}>
+            {({ triggerType, distributionMode }) => {
               if (triggerType === 'CUMULATIVE_SPEND') {
                 return (
                   <ProFormDigit
@@ -395,30 +445,50 @@ export default function CampaignFormDrawer({
                     showIcon
                     style={{ marginTop: 8 }}
                     message="手动发放对象"
-                    description="创建后先在草稿列表上架；上架后会打开手动发放窗口，可填写买家编号或用户ID，也可以选择全部用户。"
+                    description="创建后先在草稿列表上架；上架后会打开手动发放窗口，可搜索选择指定买家，也可以选择普通用户、VIP用户或全部用户。"
                   />
                 );
               }
               if (triggerType === 'HOLIDAY') {
                 return (
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="节日活动"
-                    description="节日活动适合固定节日或营销周期，例如春节、中秋、周年庆；当前与限时抢都由用户主动领取，主要通过活动名称、活动时间和总发放量区分。"
-                  />
+                  <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 8 }}>
+                    {distributionMode === 'AUTO' && (
+                      <ProFormSelect
+                        name="triggerConfig_autoTargetMode"
+                        label="自动发放对象"
+                        width="md"
+                        options={AUTO_TARGET_MODE_OPTIONS}
+                        rules={[{ required: true, message: '请选择自动发放对象' }]}
+                      />
+                    )}
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="节日活动"
+                      description="节日活动适合固定节日或营销周期，例如春节、中秋、周年庆；可选择用户主动领取，也可选择系统按普通用户、VIP用户或全部用户自动发放。"
+                    />
+                  </Space>
                 );
               }
               if (triggerType === 'FLASH') {
                 return (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="限时抢"
-                    description="限时抢适合短时间、强库存或强名额约束，例如 2 小时限量领取；建议设置更短活动时间、更小总发放量，并在名称里写清限时规则。"
-                  />
+                  <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 8 }}>
+                    {distributionMode === 'AUTO' && (
+                      <ProFormSelect
+                        name="triggerConfig_autoTargetMode"
+                        label="自动发放对象"
+                        width="md"
+                        options={AUTO_TARGET_MODE_OPTIONS}
+                        rules={[{ required: true, message: '请选择自动发放对象' }]}
+                      />
+                    )}
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="限时抢"
+                      description="限时抢适合短时间、强库存或强名额约束，例如 2 小时限量领取；可选择用户主动抢领，也可选择系统按普通用户、VIP用户或全部用户自动发放。"
+                    />
+                  </Space>
                 );
               }
               return null;

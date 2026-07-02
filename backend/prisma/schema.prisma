@@ -675,6 +675,7 @@ enum CouponInstanceStatus {
 enum CouponManualIssueTargetMode {
   SPECIFIC_USERS    // 指定买家编号/用户 ID
   ALL_USERS         // 发放时所有有效买家
+  NORMAL_USERS      // 发放时所有有效普通买家
   VIP_USERS         // 发放时所有有效 VIP 买家
 }
 

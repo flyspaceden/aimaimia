@@ -30,7 +30,14 @@ describe('CouponEngineService notifications', () => {
       },
     };
     const prisma = {
+      couponCampaign: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
       couponInstance: {
+        findMany: jest.fn(),
+      },
+      user: {
         findMany: jest.fn(),
       },
       $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -87,5 +94,50 @@ describe('CouponEngineService notifications', () => {
       tx,
     );
     expect(notificationService.emit).toHaveBeenCalledTimes(2);
+  });
+
+  it('automatically issues holiday and flash coupons to configured audiences', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findMany.mockResolvedValueOnce([
+      {
+        ...campaign,
+        id: 'holiday-1',
+        triggerType: 'HOLIDAY',
+        distributionMode: 'AUTO',
+        triggerConfig: { autoTargetMode: 'NORMAL_USERS' },
+      },
+    ]);
+    prisma.couponCampaign.findUnique
+      .mockResolvedValueOnce({ issuedCount: 0, totalQuota: 10, status: 'ACTIVE' })
+      .mockResolvedValueOnce({ issuedCount: 10, totalQuota: 10, status: 'ACTIVE' });
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'buyer-1' }, { id: 'buyer-2' }]);
+    const issueWithRetry = jest
+      .spyOn(service as any, 'issueWithRetry')
+      .mockResolvedValue(true);
+
+    await (service as any).handleAudienceAutoCoupons();
+
+    expect(prisma.couponCampaign.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        triggerType: { in: ['HOLIDAY', 'FLASH'] },
+        distributionMode: 'AUTO',
+        status: 'ACTIVE',
+      }),
+    });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'ACTIVE',
+          buyerNo: { not: null },
+          couponInstances: { none: { campaignId: 'holiday-1' } },
+          OR: [
+            { memberProfile: { is: null } },
+            { memberProfile: { is: { tier: 'NORMAL' } } },
+          ],
+        }),
+      }),
+    );
+    expect(issueWithRetry).toHaveBeenCalledWith('holiday-1', 'buyer-1');
+    expect(issueWithRetry).toHaveBeenCalledWith('holiday-1', 'buyer-2');
   });
 });

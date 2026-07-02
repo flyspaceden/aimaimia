@@ -31,6 +31,9 @@ const MAX_RETRIES = 3;
 /** 业务时区（用于生日类日期匹配） */
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 
+const AUDIENCE_AUTO_TRIGGER_TYPES: CouponTriggerType[] = ['HOLIDAY', 'FLASH'];
+const WIN_BACK_ORDER_STATUSES = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
+
 /**
  * 平台红包自动发放引擎
  *
@@ -247,6 +250,34 @@ export class CouponEngineService {
       }
     } catch (err) {
       this.logger.error(`久未下单唤醒定时任务异常：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 每分钟 — 节日活动 / 限时抢自动发放
+   * 这两类没有用户事件触发源，选择 AUTO 时按 triggerConfig.autoTargetMode 分批发放。
+   */
+  @Cron('30 * * * * *')
+  async handleAudienceAutoCoupons(): Promise<void> {
+    this.logger.log('开始处理节日/限时自动发放红包...');
+
+    try {
+      const now = new Date();
+      const campaigns = await this.prisma.couponCampaign.findMany({
+        where: {
+          triggerType: { in: AUDIENCE_AUTO_TRIGGER_TYPES },
+          distributionMode: 'AUTO',
+          status: 'ACTIVE',
+          startAt: { lte: now },
+          OR: [{ endAt: null }, { endAt: { gt: now } }],
+        },
+      });
+
+      for (const campaign of campaigns.filter((c) => c.issuedCount < c.totalQuota)) {
+        await this.processAudienceAutoCampaign(campaign);
+      }
+    } catch (err) {
+      this.logger.error(`节日/限时自动发放异常：${(err as Error).message}`);
     }
   }
 
@@ -582,7 +613,7 @@ export class CouponEngineService {
         FROM (
           SELECT o."userId", MAX(o."createdAt") AS "lastOrderAt"
           FROM "Order" o
-          WHERE o.status IN ('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED')
+          WHERE o.status IN (${Prisma.join(WIN_BACK_ORDER_STATUSES)})
           GROUP BY o."userId"
           HAVING MAX(o."createdAt") < ${cutoffDate}
         ) sub
@@ -629,6 +660,94 @@ export class CouponEngineService {
     if (successCount > 0 || failCount > 0) {
       this.logger.log(
         `久未下单唤醒活动 ${campaign.id} 处理完成：成功 ${successCount}，失败 ${failCount}`,
+      );
+    }
+  }
+
+  private buildAudienceUserWhere(autoTargetMode: string, campaignId: string) {
+    const baseWhere = {
+      status: 'ACTIVE',
+      buyerNo: { not: null },
+      couponInstances: { none: { campaignId } },
+    };
+
+    if (autoTargetMode === 'ALL_USERS') {
+      return baseWhere;
+    }
+    if (autoTargetMode === 'VIP_USERS') {
+      return {
+        ...baseWhere,
+        memberProfile: { is: { tier: 'VIP' } },
+      };
+    }
+    if (autoTargetMode === 'NORMAL_USERS') {
+      return {
+        ...baseWhere,
+        OR: [
+          { memberProfile: { is: null } },
+          { memberProfile: { is: { tier: 'NORMAL' } } },
+        ],
+      };
+    }
+
+    return null;
+  }
+
+  private async processAudienceAutoCampaign(campaign: any): Promise<void> {
+    const autoTargetMode = String((campaign.triggerConfig as any)?.autoTargetMode ?? '');
+    const where = this.buildAudienceUserWhere(autoTargetMode, campaign.id);
+    if (!where) {
+      this.logger.warn(`自动发放活动 ${campaign.id} 缺少有效发放对象，跳过`);
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    while (true) {
+      const currentCampaign = await this.prisma.couponCampaign.findUnique({
+        where: { id: campaign.id },
+        select: { issuedCount: true, totalQuota: true, status: true },
+      });
+      if (!currentCampaign || currentCampaign.status !== 'ACTIVE') break;
+
+      const remainingQuota = currentCampaign.totalQuota - currentCampaign.issuedCount;
+      if (remainingQuota <= 0) break;
+
+      const users = await this.prisma.user.findMany({
+        where: where as any,
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+        take: BATCH_SIZE,
+      });
+
+      if (users.length === 0) break;
+
+      let issuedInBatch = 0;
+      for (const user of users) {
+        if (issuedInBatch >= remainingQuota) break;
+        try {
+          const issued = await this.issueWithRetry(campaign.id, user.id);
+          if (issued) {
+            successCount++;
+            issuedInBatch++;
+          }
+        } catch (err) {
+          failCount++;
+          this.logger.error(
+            `自动发放失败：活动 ${campaign.id}, userId=${user.id}, error=${(err as Error).message}`,
+          );
+        }
+      }
+
+      if (users.length < BATCH_SIZE || issuedInBatch === 0 || issuedInBatch >= remainingQuota) {
+        break;
+      }
+    }
+
+    if (successCount > 0 || failCount > 0) {
+      this.logger.log(
+        `自动发放活动 ${campaign.id} 处理完成：成功 ${successCount}，失败 ${failCount}`,
       );
     }
   }
