@@ -6,11 +6,13 @@ import {
   App,
   Button,
   Card,
+  DatePicker,
   Descriptions,
   Divider,
   Input,
   Modal,
   Progress,
+  Radio,
   Space,
   Statistic,
   Tabs,
@@ -45,6 +47,9 @@ import {
 } from './campaign-status-tabs';
 import type { CampaignStatusTabKey } from './campaign-status-tabs';
 import dayjs from 'dayjs';
+
+type ManualIssueTargetMode = 'SPECIFIC_USERS' | 'ALL_USERS' | 'VIP_USERS';
+type ManualIssueScheduleMode = 'IMMEDIATE' | 'SCHEDULED';
 
 /** 格式化抵扣规则显示 */
 function formatDiscountRule(record: CouponCampaign): string {
@@ -95,7 +100,9 @@ export default function CampaignListPage() {
   const [detailCampaign, setDetailCampaign] = useState<CouponCampaign | null>(null);
   const [activeStatusTab, setActiveStatusTab] = useState<CampaignStatusTabKey>(DEFAULT_CAMPAIGN_STATUS_TAB);
   const [manualIssueCampaign, setManualIssueCampaign] = useState<CouponCampaign | null>(null);
-  const [manualIssueMode, setManualIssueMode] = useState<'SPECIFIC_USERS' | 'ALL_USERS'>('SPECIFIC_USERS');
+  const [manualIssueMode, setManualIssueMode] = useState<ManualIssueTargetMode>('SPECIFIC_USERS');
+  const [manualIssueScheduleMode, setManualIssueScheduleMode] = useState<ManualIssueScheduleMode>('IMMEDIATE');
+  const [manualIssueScheduledAt, setManualIssueScheduledAt] = useState<dayjs.Dayjs | null>(null);
   const [manualIssueUserText, setManualIssueUserText] = useState('');
   const [manualIssueSubmitting, setManualIssueSubmitting] = useState(false);
 
@@ -130,6 +137,8 @@ export default function CampaignListPage() {
   const closeManualIssueModal = () => {
     setManualIssueCampaign(null);
     setManualIssueMode('SPECIFIC_USERS');
+    setManualIssueScheduleMode('IMMEDIATE');
+    setManualIssueScheduledAt(null);
     setManualIssueUserText('');
   };
 
@@ -141,16 +150,35 @@ export default function CampaignListPage() {
       message.warning('请填写买家编号或用户ID');
       return;
     }
+    if (manualIssueScheduleMode === 'SCHEDULED') {
+      if (!manualIssueScheduledAt) {
+        message.warning('请选择定时发放时间');
+        return;
+      }
+      if (!manualIssueScheduledAt.isAfter(dayjs())) {
+        message.warning('定时发放时间必须晚于当前时间');
+        return;
+      }
+    }
 
     try {
       setManualIssueSubmitting(true);
       const result = await manualIssue(
         manualIssueCampaign.id,
-        manualIssueMode === 'ALL_USERS'
-          ? { targetMode: 'ALL_USERS' }
-          : { targetMode: 'SPECIFIC_USERS', userIds },
+        {
+          targetMode: manualIssueMode,
+          scheduleMode: manualIssueScheduleMode,
+          ...(manualIssueMode === 'SPECIFIC_USERS' ? { userIds } : {}),
+          ...(manualIssueScheduleMode === 'SCHEDULED'
+            ? { scheduledAt: manualIssueScheduledAt!.toISOString() }
+            : {}),
+        },
       );
-      message.success(`已发放 ${result.issued} 张，跳过 ${result.skipped} 个`);
+      if ('scheduled' in result) {
+        message.success(`已创建定时发放任务：${dayjs(result.scheduledAt).format('YYYY-MM-DD HH:mm')}`);
+      } else {
+        message.success(`已发放 ${result.issued} 张，跳过 ${result.skipped} 个`);
+      }
       closeManualIssueModal();
       actionRef.current?.reload();
     } catch (err) {
@@ -398,13 +426,13 @@ export default function CampaignListPage() {
         onCancel={closeManualIssueModal}
         onOk={handleManualIssue}
         confirmLoading={manualIssueSubmitting}
-        okText="确认发放"
+        okText={manualIssueScheduleMode === 'SCHEDULED' ? '创建定时任务' : '确认发放'}
         cancelText="取消"
         width={560}
       >
         <Tabs
           activeKey={manualIssueMode}
-          onChange={(key) => setManualIssueMode(key as 'SPECIFIC_USERS' | 'ALL_USERS')}
+          onChange={(key) => setManualIssueMode(key as ManualIssueTargetMode)}
           items={[
             {
               key: 'SPECIFIC_USERS',
@@ -425,6 +453,18 @@ export default function CampaignListPage() {
               ),
             },
             {
+              key: 'VIP_USERS',
+              label: 'VIP用户',
+              children: (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="将发放给 VIP 用户"
+                  description="立即发放会按当前有效 VIP 买家执行；定时发放会在到点时重新查询有效 VIP 买家。已达每人限领的用户会跳过。"
+                />
+              ),
+            },
+            {
               key: 'ALL_USERS',
               label: '全部用户',
               children: (
@@ -438,6 +478,28 @@ export default function CampaignListPage() {
             },
           ]}
         />
+        <Divider />
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Text strong>发放时间</Typography.Text>
+          <Radio.Group
+            value={manualIssueScheduleMode}
+            onChange={(event) => setManualIssueScheduleMode(event.target.value)}
+            options={[
+              { label: '立即发放', value: 'IMMEDIATE' },
+              { label: '定时发放', value: 'SCHEDULED' },
+            ]}
+          />
+          {manualIssueScheduleMode === 'SCHEDULED' && (
+            <DatePicker
+              showTime
+              style={{ width: '100%' }}
+              value={manualIssueScheduledAt}
+              onChange={(value) => setManualIssueScheduledAt(value)}
+              disabledDate={(current) => !!current && current.isBefore(dayjs().startOf('day'))}
+              placeholder="选择未来某一时刻"
+            />
+          )}
+        </Space>
       </Modal>
 
       {/* 活动详情弹窗 */}

@@ -164,6 +164,12 @@ describe('CouponService manual issue rules', () => {
         findUnique: jest.fn().mockResolvedValue(campaign),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      couponManualIssueJob: {
+        create: jest.fn().mockImplementation(({ data }) => Promise.resolve({
+          id: 'job-1',
+          scheduledAt: data.scheduledAt,
+        })),
+      },
       user: {
         findMany: jest.fn().mockResolvedValue([{ id: 'buyer-1' }, { id: 'buyer-2' }]),
       },
@@ -207,6 +213,74 @@ describe('CouponService manual issue rules', () => {
     expect(result).toEqual({ issued: 2, skipped: 0, skippedUsers: [] });
   });
 
+  it('issues immediately to active VIP buyer users when requested', async () => {
+    const { service, tx } = makeManualIssueService();
+
+    await service.manualIssue(
+      'campaign-1',
+      { targetMode: 'VIP_USERS' } as any,
+      'admin-1',
+    );
+
+    expect(tx.user.findMany).toHaveBeenCalledWith({
+      where: {
+        status: 'ACTIVE',
+        buyerNo: { not: null },
+        memberProfile: { is: { tier: 'VIP' } },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  });
+
+  it('schedules manual issue without creating coupon instances immediately', async () => {
+    const { service, tx } = makeManualIssueService();
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const result = await service.manualIssue(
+      'campaign-1',
+      {
+        targetMode: 'VIP_USERS',
+        scheduleMode: 'SCHEDULED',
+        scheduledAt,
+      } as any,
+      'admin-1',
+    );
+
+    expect(tx.couponManualIssueJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        campaignId: 'campaign-1',
+        targetMode: 'VIP_USERS',
+        userIds: [],
+        scheduledAt: new Date(scheduledAt),
+        status: 'PENDING',
+        createdBy: 'admin-1',
+      }),
+    });
+    expect(tx.couponInstance.createMany).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      scheduled: true,
+      jobId: 'job-1',
+      scheduledAt,
+    });
+  });
+
+  it('rejects scheduled manual issue when scheduledAt is not in the future', async () => {
+    const { service } = makeManualIssueService();
+
+    await expect(
+      service.manualIssue(
+        'campaign-1',
+        {
+          targetMode: 'ALL_USERS',
+          scheduleMode: 'SCHEDULED',
+          scheduledAt: '2020-01-01T00:00:00.000Z',
+        } as any,
+        'admin-1',
+      ),
+    ).rejects.toThrow('定时发放时间必须晚于当前时间');
+  });
+
   it('does not allow manual issuing from draft campaigns', async () => {
     const { service } = makeManualIssueService({
       ...activeManualCampaign,
@@ -229,7 +303,7 @@ describe('CouponService manual issue rules', () => {
     ).rejects.toThrow('只有手动发放类型活动可以手动发放');
   });
 
-  it('does not allow manual issuing outside the campaign time window', async () => {
+  it('does not block manual issuing by campaign start time', async () => {
     const { service } = makeManualIssueService({
       ...activeManualCampaign,
       startAt: new Date(Date.now() + 86_400_000),
@@ -238,7 +312,7 @@ describe('CouponService manual issue rules', () => {
 
     await expect(
       service.manualIssue('campaign-1', { targetMode: 'ALL_USERS' } as any, 'admin-1'),
-    ).rejects.toThrow('该活动不在有效期内');
+    ).resolves.toEqual({ issued: 2, skipped: 0, skippedUsers: [] });
   });
 });
 

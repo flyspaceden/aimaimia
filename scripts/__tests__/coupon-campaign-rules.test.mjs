@@ -34,7 +34,7 @@ test('campaign form supports unlimited end time only for evergreen trigger types
   assert.match(form, /EVERGREEN_TRIGGER_TYPES/);
   assert.match(form, /name="noEndAt"/);
   assert.match(form, /label="不限结束时间"/);
-  assert.match(form, /endAt:\s*values\.noEndAt\s*\?\s*null/);
+  assert.match(form, /endAt:\s*isManualTrigger[\s\S]*?values\.noEndAt\s*\?\s*null/);
   assert.match(form, /长期活动必须设置领取后有效天数/);
 });
 
@@ -59,8 +59,8 @@ test('claim-based activity labels explain holiday versus flash usage', () => {
   assert.match(form, /限时抢适合短时间、强库存或强名额约束/);
 });
 
-test('manual issue API supports specified buyers or all buyers', () => {
-  assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'ALL_USERS'/);
+test('manual issue API supports specified buyers, all buyers, and vip buyers', () => {
+  assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'ALL_USERS'\s*\|\s*'VIP_USERS'/);
   assert.match(api, /userIds\?:\s*string\[\]/);
   assert.match(api, /endAt:\s*string\s*\|\s*null/);
 });
@@ -70,7 +70,7 @@ test('campaign list exposes manual issue modal with all-user mode', () => {
   assert.match(listPage, /手动发放/);
   assert.match(listPage, /指定用户/);
   assert.match(listPage, /全部用户/);
-  assert.match(listPage, /targetMode:\s*'ALL_USERS'/);
+  assert.match(listPage, /targetMode:\s*manualIssueMode/);
   assert.match(listPage, /买家编号或用户ID/);
 });
 
@@ -98,4 +98,23 @@ test('campaign scope selectors load real category and approved company options',
   assert.match(form, /name="applicableCompanyIds"[\s\S]*?mode="multiple"/);
   assert.doesNotMatch(form, /label="限定品类"[\s\S]{0,180}?mode="tags"/);
   assert.doesNotMatch(form, /label="限定店铺"[\s\S]{0,180}?mode="tags"/);
+});
+
+test('manual campaigns hide activity time fields from creation form', () => {
+  assert.match(form, /isManualTrigger/);
+  assert.match(form, /手动发放无需配置活动开始或截止时间/);
+  assert.match(form, /startAt:\s*isManualTrigger\s*\?\s*dayjs\(\)\.toISOString\(\)/);
+  assert.match(form, /endAt:\s*isManualTrigger\s*\?\s*null/);
+  assert.match(form, /triggerType !== 'MANUAL'[\s\S]*?name="startAt"/);
+});
+
+test('manual issue modal supports vip buyers and scheduled issue time', () => {
+  assert.match(api, /VIP_USERS/);
+  assert.match(api, /scheduleMode\?:\s*'IMMEDIATE'\s*\|\s*'SCHEDULED'/);
+  assert.match(api, /scheduledAt\?:\s*string/);
+  assert.match(listPage, /VIP用户/);
+  assert.match(listPage, /立即发放/);
+  assert.match(listPage, /定时发放/);
+  assert.match(listPage, /scheduledAt/);
+  assert.match(listPage, /定时发放时间必须晚于当前时间/);
 });

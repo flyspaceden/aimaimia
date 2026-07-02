@@ -11,7 +11,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from './coupon-engine.service';
 import { TriggerShareDto } from './dto/trigger-share.dto';
 import { TriggerReviewDto } from './dto/trigger-review.dto';
-import { ManualIssueDto, ManualIssueTargetMode } from './dto/manual-issue.dto';
+import {
+  ManualIssueDto,
+  ManualIssueScheduleMode,
+  ManualIssueTargetMode,
+} from './dto/manual-issue.dto';
 import { resolveBuyerUserId } from '../../common/utils/buyer-no.util';
 
 const DISABLED_TRIGGER_TYPES = new Set(['CHECK_IN', 'REVIEW']);
@@ -1370,6 +1374,9 @@ export class CouponService {
     const targetMode = Array.isArray(target)
       ? ManualIssueTargetMode.SPECIFIC_USERS
       : target.targetMode ?? ManualIssueTargetMode.SPECIFIC_USERS;
+    const scheduleMode = Array.isArray(target)
+      ? ManualIssueScheduleMode.IMMEDIATE
+      : target.scheduleMode ?? ManualIssueScheduleMode.IMMEDIATE;
     const userIds = Array.isArray(target) ? target : target.userIds ?? [];
     const resolvedSpecificUserIds =
       targetMode === ManualIssueTargetMode.SPECIFIC_USERS
@@ -1386,6 +1393,81 @@ export class CouponService {
       throw new BadRequestException('请填写要发放的买家编号或用户ID');
     }
 
+    if (scheduleMode === ManualIssueScheduleMode.SCHEDULED) {
+      if (Array.isArray(target) || !target.scheduledAt) {
+        throw new BadRequestException('请选择定时发放时间');
+      }
+      const scheduledAt = new Date(target.scheduledAt);
+      if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+        throw new BadRequestException('定时发放时间必须晚于当前时间');
+      }
+      return this.scheduleManualIssue(
+        campaignId,
+        targetMode,
+        resolvedSpecificUserIds ?? [],
+        scheduledAt,
+        adminId,
+      );
+    }
+
+    return this.issueManualNow(
+      campaignId,
+      targetMode,
+      resolvedSpecificUserIds,
+      adminId,
+    );
+  }
+
+  private async scheduleManualIssue(
+    campaignId: string,
+    targetMode: ManualIssueTargetMode,
+    userIds: string[],
+    scheduledAt: Date,
+    adminId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const campaign = await tx.couponCampaign.findUnique({
+        where: { id: campaignId },
+      });
+      if (!campaign) {
+        throw new NotFoundException('红包活动不存在');
+      }
+      if (campaign.status !== 'ACTIVE') {
+        throw new BadRequestException('只有进行中的活动可以手动发放');
+      }
+      if (campaign.distributionMode !== 'MANUAL') {
+        throw new BadRequestException('只有手动发放类型活动可以手动发放');
+      }
+
+      const job = await (tx as any).couponManualIssueJob.create({
+        data: {
+          campaignId,
+          targetMode,
+          userIds,
+          scheduledAt,
+          status: 'PENDING',
+          createdBy: adminId,
+        },
+      });
+
+      this.logger.log(
+        `管理员 ${adminId} 创建手动红包定时发放任务 ${job.id}: 活动 ${campaignId}, 目标 ${targetMode}, 时间 ${scheduledAt.toISOString()}`,
+      );
+
+      return {
+        scheduled: true,
+        jobId: job.id,
+        scheduledAt: job.scheduledAt.toISOString(),
+      };
+    });
+  }
+
+  private async issueManualNow(
+    campaignId: string,
+    targetMode: ManualIssueTargetMode,
+    resolvedSpecificUserIds: string[] | null,
+    adminId: string,
+  ) {
     return this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
@@ -1403,14 +1485,23 @@ export class CouponService {
         if (campaign.distributionMode !== 'MANUAL') {
           throw new BadRequestException('只有手动发放类型活动可以手动发放');
         }
-        if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
-          throw new BadRequestException('该活动不在有效期内');
-        }
 
         let resolvedUserIds = resolvedSpecificUserIds ?? [];
         if (targetMode === ManualIssueTargetMode.ALL_USERS) {
           const users = await tx.user.findMany({
             where: { status: 'ACTIVE', buyerNo: { not: null } },
+            select: { id: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          resolvedUserIds = users.map((user) => user.id);
+        }
+        if (targetMode === ManualIssueTargetMode.VIP_USERS) {
+          const users = await tx.user.findMany({
+            where: {
+              status: 'ACTIVE',
+              buyerNo: { not: null },
+              memberProfile: { is: { tier: 'VIP' } },
+            },
             select: { id: true },
             orderBy: { createdAt: 'asc' },
           });
@@ -1503,6 +1594,67 @@ export class CouponService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  @Cron('15 * * * * *')
+  async cronProcessScheduledManualIssues() {
+    const now = new Date();
+    const jobs = await (this.prisma as any).couponManualIssueJob.findMany({
+      where: {
+        status: 'PENDING',
+        scheduledAt: { lte: now },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: 20,
+    });
+
+    for (const job of jobs) {
+      const claimed = await (this.prisma as any).couponManualIssueJob.updateMany({
+        where: { id: job.id, status: 'PENDING' },
+        data: { status: 'PROCESSING' },
+      });
+      if (claimed.count === 0) continue;
+
+      try {
+        const result = await this.manualIssue(
+          job.campaignId,
+          {
+            targetMode: job.targetMode,
+            userIds: job.userIds,
+            scheduleMode: ManualIssueScheduleMode.IMMEDIATE,
+          },
+          job.createdBy,
+        );
+        if ('scheduled' in result) {
+          throw new Error('定时任务执行时不应再次创建定时任务');
+        }
+
+        await (this.prisma as any).couponManualIssueJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'COMPLETED',
+            issuedCount: result.issued,
+            skippedCount: result.skipped,
+            skippedUsers: result.skippedUsers,
+            processedAt: new Date(),
+            errorMessage: null,
+          },
+        });
+      } catch (err: any) {
+        await (this.prisma as any).couponManualIssueJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'FAILED',
+            errorMessage: err?.message ?? '定时发放失败',
+            processedAt: new Date(),
+          },
+        });
+        this.logger.error(
+          `手动红包定时发放任务失败: jobId=${job.id}, campaignId=${job.campaignId}, error=${err?.message}`,
+          err?.stack,
+        );
+      }
+    }
   }
 
   /**

@@ -226,7 +226,12 @@ export default function CampaignFormDrawer({
       }
 
       const triggerType = values.triggerType as CouponTriggerType;
+      const isManualTrigger = triggerType === 'MANUAL';
       const expectedMode = TRIGGER_DISTRIBUTION_MODE_MAP[triggerType];
+      if (isManualTrigger && Number(values.validDays ?? 0) <= 0) {
+        message.error('手动发放红包必须设置领取后有效天数');
+        return false;
+      }
 
       const payload = {
         name: values.name as string,
@@ -245,8 +250,12 @@ export default function CampaignFormDrawer({
         totalQuota: values.totalQuota as number,
         maxPerUser: (values.maxPerUser as number) || 1,
         validDays: Number(values.validDays ?? 7),
-        startAt: dayjs(values.startAt as string | number | Date | dayjs.Dayjs).toISOString(),
-        endAt: values.noEndAt
+        startAt: isManualTrigger
+          ? dayjs().toISOString()
+          : dayjs(values.startAt as string | number | Date | dayjs.Dayjs).toISOString(),
+        endAt: isManualTrigger
+          ? null
+          : values.noEndAt
           ? null
           : dayjs(values.endAt as string | number | Date | dayjs.Dayjs).toISOString(),
       };
@@ -614,60 +623,76 @@ export default function CampaignFormDrawer({
         </Card>
 
         {/* ===== 活动时间 ===== */}
-        <Card
-          size="small"
-          title={<SectionTitle icon={<CalendarOutlined />} title="活动时间" />}
-        >
-          <ProFormGroup>
-            <ProFormDateTimePicker
-              name="startAt"
-              label="开始时间"
-              width="md"
-              rules={[{ required: true, message: '请选择开始时间' }]}
-              fieldProps={{ style: { width: '100%' } }}
-            />
-          </ProFormGroup>
-          <ProFormDependency name={['triggerType', 'noEndAt']}>
-            {({ triggerType, noEndAt }) => {
-              const canNoEndAt = EVERGREEN_TRIGGER_TYPES.includes(triggerType as CouponTriggerType);
+        <ProFormDependency name={['triggerType', 'noEndAt']}>
+          {({ triggerType, noEndAt }) => {
+            if (triggerType === 'MANUAL') {
               return (
-                <>
-                  {canNoEndAt && (
-                    <ProFormSwitch
-                      name="noEndAt"
-                      label="不限结束时间"
-                      extra="适用于注册、首单、生日、分享、累计消费、久未下单唤醒和手动发放等长期规则"
-                    />
-                  )}
-                  {!noEndAt ? (
+                <Card
+                  size="small"
+                  title={<SectionTitle icon={<CalendarOutlined />} title="发放时间" />}
+                >
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="手动发放无需配置活动开始或截止时间"
+                    description="具体发放时间在活动上架后的手动发放窗口中选择，默认立即发放，也可以定时发放；单张红包仍按“有效天数”过期。"
+                  />
+                </Card>
+              );
+            }
+
+            const canNoEndAt = EVERGREEN_TRIGGER_TYPES.includes(triggerType as CouponTriggerType);
+            return (
+              <Card
+                size="small"
+                title={<SectionTitle icon={<CalendarOutlined />} title="活动时间" />}
+              >
+                <ProFormGroup>
+                  {triggerType !== 'MANUAL' && (
                     <ProFormDateTimePicker
-                      name="endAt"
-                      label="结束时间"
+                      name="startAt"
+                      label="开始时间"
                       width="md"
-                      dependencies={['startAt']}
-                      rules={[
-                        { required: true, message: '请选择结束时间' },
-                        ({ getFieldValue }) => ({
-                          validator(_, value) {
-                            const startAt = getFieldValue('startAt');
-                            if (!value || !startAt) return Promise.resolve();
-                            if (dayjs(value).isAfter(dayjs(startAt))) return Promise.resolve();
-                            return Promise.reject(new Error('结束时间必须晚于开始时间'));
-                          },
-                        }),
-                      ]}
+                      rules={[{ required: true, message: '请选择开始时间' }]}
                       fieldProps={{ style: { width: '100%' } }}
                     />
-                  ) : (
-                    <Typography.Text type="secondary">
-                      长期有效；单张红包仍按“有效天数”过期。
-                    </Typography.Text>
                   )}
-                </>
-              );
-            }}
-          </ProFormDependency>
-        </Card>
+                </ProFormGroup>
+                {canNoEndAt && (
+                  <ProFormSwitch
+                    name="noEndAt"
+                    label="不限结束时间"
+                    extra="适用于注册、首单、生日、分享、累计消费和久未下单唤醒等长期规则"
+                  />
+                )}
+                {!noEndAt ? (
+                  <ProFormDateTimePicker
+                    name="endAt"
+                    label="结束时间"
+                    width="md"
+                    dependencies={['startAt']}
+                    rules={[
+                      { required: true, message: '请选择结束时间' },
+                      ({ getFieldValue }) => ({
+                        validator(_, value) {
+                          const startAt = getFieldValue('startAt');
+                          if (!value || !startAt) return Promise.resolve();
+                          if (dayjs(value).isAfter(dayjs(startAt))) return Promise.resolve();
+                          return Promise.reject(new Error('结束时间必须晚于开始时间'));
+                        },
+                      }),
+                    ]}
+                    fieldProps={{ style: { width: '100%' } }}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">
+                    长期有效；单张红包仍按“有效天数”过期。
+                  </Typography.Text>
+                )}
+              </Card>
+            );
+          }}
+        </ProFormDependency>
       </ProForm>
     </Drawer>
   );
