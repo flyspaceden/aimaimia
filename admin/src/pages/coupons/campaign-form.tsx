@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   ProForm,
@@ -22,6 +22,9 @@ import {
 } from '@ant-design/icons';
 import { createCampaign, updateCampaign } from '@/api/coupon';
 import type { CouponCampaign, CouponTriggerType, CouponDistributionMode, CouponDiscountType } from '@/api/coupon';
+import { getCategories } from '@/api/categories';
+import type { AdminCategory } from '@/api/categories';
+import { getCompanies } from '@/api/companies';
 
 // 触发类型选项
 const triggerTypeOptions = [
@@ -76,6 +79,20 @@ const EVERGREEN_TRIGGER_TYPES: CouponTriggerType[] = [
   'MANUAL',
 ];
 
+type SelectOption = { label: string; value: string };
+
+const buildCategoryOptions = (categories: AdminCategory[]): SelectOption[] =>
+  categories
+    .filter((category) => category.isActive)
+    .sort((a, b) => {
+      if (a.path !== b.path) return a.path.localeCompare(b.path, 'zh-CN');
+      return a.sortOrder - b.sortOrder;
+    })
+    .map((category) => ({
+      label: category.path.replace(/^\/+/, '') || category.name,
+      value: category.id,
+    }));
+
 interface CampaignFormDrawerProps {
   open: boolean;
   campaign: CouponCampaign | null; // null 表示新建
@@ -92,6 +109,63 @@ export default function CampaignFormDrawer({
   const { message } = App.useApp();
   const isEdit = !!campaign;
   const formRef = useRef<ProFormInstance | undefined>(undefined);
+  const [categoryOptions, setCategoryOptions] = useState<SelectOption[]>([]);
+  const [companyOptions, setCompanyOptions] = useState<SelectOption[]>([]);
+  const [categoryOptionsLoading, setCategoryOptionsLoading] = useState(false);
+  const [companyOptionsLoading, setCompanyOptionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    setCategoryOptionsLoading(true);
+    setCompanyOptionsLoading(true);
+
+    getCategories()
+      .then((categories) => {
+        if (!cancelled) {
+          setCategoryOptions(buildCategoryOptions(categories));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCategoryOptions([]);
+          message.error('加载品类选项失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCategoryOptionsLoading(false);
+        }
+      });
+
+    getCompanies({ pageSize: 200, status: 'APPROVED' })
+      .then((res) => {
+        if (!cancelled) {
+          setCompanyOptions(
+            res.items.map((company) => ({
+              label: company.shortName || company.name,
+              value: company.id,
+            })),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCompanyOptions([]);
+          message.error('加载店铺选项失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCompanyOptionsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [message, open]);
 
   // 构建初始值
   const getInitialValues = () =>
@@ -512,17 +586,29 @@ export default function CampaignFormDrawer({
               name="applicableCategories"
               label="限定品类"
               width="md"
-              mode="tags"
+              mode="multiple"
+              options={categoryOptions}
               placeholder="不选则不限品类"
-              extra="输入品类名称并回车添加"
+              extra="选择后仅商品自身品类 ID 命中时可用；不选则不限品类"
+              fieldProps={{
+                loading: categoryOptionsLoading,
+                showSearch: true,
+                optionFilterProp: 'label',
+              }}
             />
             <ProFormSelect
               name="applicableCompanyIds"
               label="限定店铺"
               width="md"
-              mode="tags"
-              placeholder="预留功能，暂可不设"
-              extra="输入店铺 ID 并回车添加"
+              mode="multiple"
+              options={companyOptions}
+              placeholder="不选则不限店铺"
+              extra="选择后仅这些店铺的商品订单可用；不选则不限店铺"
+              fieldProps={{
+                loading: companyOptionsLoading,
+                showSearch: true,
+                optionFilterProp: 'label',
+              }}
             />
           </ProFormGroup>
         </Card>
