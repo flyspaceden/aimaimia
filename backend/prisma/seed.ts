@@ -3698,7 +3698,7 @@ async function main() {
     {
       id: 'cc-003', name: '签到7天送5元', description: '连续签到7天自动发放5元红包',
       status: 'ACTIVE' as const, triggerType: 'CHECK_IN' as const, distributionMode: 'AUTO' as const,
-      triggerConfig: { consecutiveDays: 7 },
+      triggerConfig: { requiredDays: 7 },
       discountType: 'FIXED' as const, discountValue: 5, minOrderAmount: 20,
       totalQuota: 20000, issuedCount: 340, maxPerUser: 4, validDays: 7,
       startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
@@ -3713,7 +3713,7 @@ async function main() {
     {
       id: 'cc-005', name: '累计消费满500送20', description: '累计消费满500元自动发放20元红包',
       status: 'ACTIVE' as const, triggerType: 'CUMULATIVE_SPEND' as const, distributionMode: 'AUTO' as const,
-      triggerConfig: { thresholdAmount: 500 },
+      triggerConfig: { spendThreshold: 500 },
       discountType: 'FIXED' as const, discountValue: 20, minOrderAmount: 50,
       totalQuota: 3000, issuedCount: 45, maxPerUser: 1, validDays: 30,
       startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
@@ -3786,7 +3786,7 @@ async function main() {
     { userId: 'u-001', triggerType: 'FIRST_ORDER' as const, eventKey: 'FIRST:u-001', context: { orderId: 'o-001' } },
     { userId: 'u-001', triggerType: 'CHECK_IN' as const, eventKey: 'CHECKIN:u-001:2026-02-01', context: { consecutiveDays: 7 } },
     { userId: 'u-004', triggerType: 'CHECK_IN' as const, eventKey: 'CHECKIN:u-004:2026-03-05', context: { consecutiveDays: 7 } },
-    { userId: 'u-008', triggerType: 'CUMULATIVE_SPEND' as const, eventKey: 'SPEND500:u-008', context: { totalSpend: 520 } },
+    { userId: 'u-008', triggerType: 'CUMULATIVE_SPEND' as const, eventKey: 'SPEND500:u-008', context: { totalSpent: 520 } },
   ];
   for (const cte of couponTriggerEvents) {
     await prisma.couponTriggerEvent.upsert({

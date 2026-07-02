@@ -202,7 +202,9 @@ export const CouponRepo = {
         minOrderAmount: campaign.minOrderAmount,
         status: 'AVAILABLE' as const,
         issuedAt: new Date().toISOString(),
-        expiresAt: campaign.endAt,
+        expiresAt:
+          campaign.endAt ??
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         usedAt: null,
         usedOrderId: null,
         usedAmount: null,

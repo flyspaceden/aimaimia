@@ -1,18 +1,34 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Progress, Space, Modal, Descriptions, Card, Statistic, Divider, Typography, Tabs } from 'antd';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Descriptions,
+  Divider,
+  Input,
+  Modal,
+  Progress,
+  Space,
+  Statistic,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   PlusOutlined,
   EyeOutlined,
   EditOutlined,
   PlayCircleOutlined,
   PauseCircleOutlined,
+  SendOutlined,
   StopOutlined,
   CalendarOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
-import { getCampaigns, updateCampaignStatus } from '@/api/coupon';
+import { getCampaigns, manualIssue, updateCampaignStatus } from '@/api/coupon';
 import type { CouponCampaign, CouponCampaignStatus } from '@/api/coupon';
 import {
   couponCampaignStatusMap,
@@ -51,6 +67,24 @@ function formatDiscountRule(record: CouponCampaign): string {
   return rule;
 }
 
+function formatCampaignTime(record: CouponCampaign): { start: string; end: string } {
+  return {
+    start: dayjs(record.startAt).format('YYYY-MM-DD HH:mm'),
+    end: record.endAt ? dayjs(record.endAt).format('YYYY-MM-DD HH:mm') : '长期有效',
+  };
+}
+
+function parseManualIssueUserIds(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(/[\s,，;；]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export default function CampaignListPage() {
   const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
@@ -60,6 +94,10 @@ export default function CampaignListPage() {
   }>({ open: false, campaign: null });
   const [detailCampaign, setDetailCampaign] = useState<CouponCampaign | null>(null);
   const [activeStatusTab, setActiveStatusTab] = useState<CampaignStatusTabKey>(DEFAULT_CAMPAIGN_STATUS_TAB);
+  const [manualIssueCampaign, setManualIssueCampaign] = useState<CouponCampaign | null>(null);
+  const [manualIssueMode, setManualIssueMode] = useState<'SPECIFIC_USERS' | 'ALL_USERS'>('SPECIFIC_USERS');
+  const [manualIssueUserText, setManualIssueUserText] = useState('');
+  const [manualIssueSubmitting, setManualIssueSubmitting] = useState(false);
 
   // 状态变更操作
   const handleStatusChange = (record: CouponCampaign, newStatus: CouponCampaignStatus) => {
@@ -81,6 +119,39 @@ export default function CampaignListPage() {
         }
       },
     });
+  };
+
+  const closeManualIssueModal = () => {
+    setManualIssueCampaign(null);
+    setManualIssueMode('SPECIFIC_USERS');
+    setManualIssueUserText('');
+  };
+
+  const handleManualIssue = async () => {
+    if (!manualIssueCampaign) return;
+
+    const userIds = parseManualIssueUserIds(manualIssueUserText);
+    if (manualIssueMode === 'SPECIFIC_USERS' && userIds.length === 0) {
+      message.warning('请填写买家编号或用户ID');
+      return;
+    }
+
+    try {
+      setManualIssueSubmitting(true);
+      const result = await manualIssue(
+        manualIssueCampaign.id,
+        manualIssueMode === 'ALL_USERS'
+          ? { targetMode: 'ALL_USERS' }
+          : { targetMode: 'SPECIFIC_USERS', userIds },
+      );
+      message.success(`已发放 ${result.issued} 张，跳过 ${result.skipped} 个`);
+      closeManualIssueModal();
+      actionRef.current?.reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '发放失败');
+    } finally {
+      setManualIssueSubmitting(false);
+    }
   };
 
   const columns: ProColumns<CouponCampaign>[] = [
@@ -142,13 +213,16 @@ export default function CampaignListPage() {
       title: '活动时间',
       width: 200,
       search: false,
-      render: (_: unknown, r: CouponCampaign) => (
-        <span style={{ fontSize: 12 }}>
-          {dayjs(r.startAt).format('YYYY-MM-DD HH:mm')}
-          <br />
-          ~ {dayjs(r.endAt).format('YYYY-MM-DD HH:mm')}
-        </span>
-      ),
+      render: (_: unknown, r: CouponCampaign) => {
+        const time = formatCampaignTime(r);
+        return (
+          <span style={{ fontSize: 12 }}>
+            {time.start}
+            <br />
+            ~ {time.end}
+          </span>
+        );
+      },
     },
     {
       title: '状态',
@@ -200,6 +274,20 @@ export default function CampaignListPage() {
               >
                 上架
               </Button>
+            )}
+            {record.status === 'ACTIVE' && (
+              <>
+                {record.distributionMode === 'MANUAL' && (
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<SendOutlined />}
+                    onClick={() => setManualIssueCampaign(record)}
+                  >
+                    手动发放
+                  </Button>
+                )}
+              </>
             )}
             {record.status === 'ACTIVE' && (
               <Button
@@ -295,6 +383,54 @@ export default function CampaignListPage() {
         }}
       />
 
+      <Modal
+        title={`手动发放${manualIssueCampaign ? `：${manualIssueCampaign.name}` : ''}`}
+        open={!!manualIssueCampaign}
+        onCancel={closeManualIssueModal}
+        onOk={handleManualIssue}
+        confirmLoading={manualIssueSubmitting}
+        okText="确认发放"
+        cancelText="取消"
+        width={560}
+      >
+        <Tabs
+          activeKey={manualIssueMode}
+          onChange={(key) => setManualIssueMode(key as 'SPECIFIC_USERS' | 'ALL_USERS')}
+          items={[
+            {
+              key: 'SPECIFIC_USERS',
+              label: '指定用户',
+              children: (
+                <div>
+                  <Typography.Text type="secondary">
+                    支持填写买家编号或用户ID，一行一个，也可以用逗号分隔。
+                  </Typography.Text>
+                  <Input.TextArea
+                    value={manualIssueUserText}
+                    onChange={(event) => setManualIssueUserText(event.target.value)}
+                    rows={6}
+                    style={{ marginTop: 12 }}
+                    placeholder="买家编号或用户ID，例如 AIMM20260701000123"
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'ALL_USERS',
+              label: '全部用户',
+              children: (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="将发放给全部有效买家"
+                  description="后端会按 ACTIVE 且已生成买家编号的用户发放；已达每人限领的用户会跳过。请确认活动剩余配额充足。"
+                />
+              ),
+            },
+          ]}
+        />
+      </Modal>
+
       {/* 活动详情弹窗 */}
       <Modal
         title={null}
@@ -314,9 +450,9 @@ export default function CampaignListPage() {
           const isActive = detailCampaign.status === 'ACTIVE';
           const isEnded = detailCampaign.status === 'ENDED';
           const now = dayjs();
-          const endTime = dayjs(detailCampaign.endAt);
+          const endTime = detailCampaign.endAt ? dayjs(detailCampaign.endAt) : null;
           const startTime = dayjs(detailCampaign.startAt);
-          const daysLeft = isActive ? endTime.diff(now, 'day') : null;
+          const daysLeft = isActive && endTime ? endTime.diff(now, 'day') : null;
 
           return (
             <div>
@@ -381,7 +517,11 @@ export default function CampaignListPage() {
                   { title: '已发放', value: detailCampaign.issuedCount, suffix: `/ ${detailCampaign.totalQuota}` },
                   { title: '每人限领', value: detailCampaign.maxPerUser, suffix: '张' },
                   { title: '有效天数', value: detailCampaign.validDays, suffix: '天' },
-                  { title: daysLeft !== null ? '剩余天数' : '发放进度', value: daysLeft !== null ? daysLeft : issuedPercent, suffix: daysLeft !== null ? '天' : '%' },
+                  {
+                    title: daysLeft !== null ? '剩余天数' : detailCampaign.endAt ? '发放进度' : '活动期限',
+                    value: daysLeft !== null ? daysLeft : detailCampaign.endAt ? issuedPercent : '长期有效',
+                    suffix: daysLeft !== null ? '天' : detailCampaign.endAt ? '%' : '',
+                  },
                 ].map((item) => (
                   <div key={item.title} style={{ background: '#fff', padding: '16px 20px', textAlign: 'center' }}>
                     <Statistic
@@ -458,7 +598,7 @@ export default function CampaignListPage() {
                           {startTime.format('YYYY-MM-DD HH:mm')}
                         </div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>
-                          ~ {endTime.format('YYYY-MM-DD HH:mm')}
+                          ~ {endTime ? endTime.format('YYYY-MM-DD HH:mm') : '长期有效（不限结束时间）'}
                         </div>
                       </div>
                     </div>

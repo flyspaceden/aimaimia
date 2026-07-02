@@ -11,7 +11,34 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from './coupon-engine.service';
 import { TriggerShareDto } from './dto/trigger-share.dto';
 import { TriggerReviewDto } from './dto/trigger-review.dto';
+import { ManualIssueDto, ManualIssueTargetMode } from './dto/manual-issue.dto';
 import { resolveBuyerUserId } from '../../common/utils/buyer-no.util';
+
+const DISABLED_TRIGGER_TYPES = new Set(['CHECK_IN', 'REVIEW']);
+
+const EVERGREEN_TRIGGER_TYPES = new Set([
+  'REGISTER',
+  'FIRST_ORDER',
+  'BIRTHDAY',
+  'INVITE',
+  'SHARE',
+  'CUMULATIVE_SPEND',
+  'WIN_BACK',
+  'MANUAL',
+]);
+
+const TRIGGER_DISTRIBUTION_MODES: Record<string, string> = {
+  REGISTER: 'AUTO',
+  FIRST_ORDER: 'AUTO',
+  BIRTHDAY: 'AUTO',
+  INVITE: 'AUTO',
+  SHARE: 'AUTO',
+  CUMULATIVE_SPEND: 'AUTO',
+  WIN_BACK: 'AUTO',
+  HOLIDAY: 'CLAIM',
+  FLASH: 'CLAIM',
+  MANUAL: 'MANUAL',
+};
 
 /**
  * 平台红包核心服务
@@ -28,6 +55,77 @@ export class CouponService {
     private couponEngine: CouponEngineService,
   ) {}
 
+  private serializeEndAt(endAt: Date | null | undefined): string | null {
+    return endAt ? endAt.toISOString() : null;
+  }
+
+  private resolveCouponExpiresAt(
+    campaign: { validDays: number; endAt: Date | null },
+    now: Date,
+  ): Date {
+    if (campaign.validDays > 0) {
+      return new Date(
+        now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000,
+      );
+    }
+    if (!campaign.endAt) {
+      throw new BadRequestException('长期活动必须设置领取后有效天数');
+    }
+    return campaign.endAt;
+  }
+
+  private assertCampaignRules(dto: {
+    triggerType: string;
+    distributionMode: string;
+    triggerConfig?: Record<string, any> | null;
+    validDays?: number;
+    startAt: Date;
+    endAt: Date | null;
+  }) {
+    if (dto.triggerType === 'CHECK_IN') {
+      throw new BadRequestException('签到红包暂未开放创建');
+    }
+    if (dto.triggerType === 'REVIEW') {
+      throw new BadRequestException('评价红包暂未开放创建');
+    }
+    if (DISABLED_TRIGGER_TYPES.has(dto.triggerType)) {
+      throw new BadRequestException('该触发类型暂未开放创建');
+    }
+
+    const expectedDistributionMode = TRIGGER_DISTRIBUTION_MODES[dto.triggerType];
+    if (!expectedDistributionMode) {
+      throw new BadRequestException('不支持的触发类型');
+    }
+    if (dto.distributionMode !== expectedDistributionMode) {
+      throw new BadRequestException(
+        `触发类型 ${dto.triggerType} 必须使用 ${expectedDistributionMode} 发放方式`,
+      );
+    }
+
+    if (dto.endAt && dto.endAt <= dto.startAt) {
+      throw new BadRequestException('结束时间必须晚于开始时间');
+    }
+    if (!dto.endAt && !EVERGREEN_TRIGGER_TYPES.has(dto.triggerType)) {
+      throw new BadRequestException('该活动类型必须填写结束时间');
+    }
+    if (!dto.endAt && (dto.validDays ?? 7) <= 0) {
+      throw new BadRequestException('长期活动必须设置领取后有效天数');
+    }
+
+    if (dto.triggerType === 'CUMULATIVE_SPEND') {
+      const spendThreshold = Number(dto.triggerConfig?.spendThreshold);
+      if (!Number.isFinite(spendThreshold) || spendThreshold <= 0) {
+        throw new BadRequestException('累计消费红包必须填写消费门槛');
+      }
+    }
+    if (dto.triggerType === 'WIN_BACK') {
+      const inactiveDays = Number(dto.triggerConfig?.inactiveDays);
+      if (!Number.isInteger(inactiveDays) || inactiveDays <= 0) {
+        throw new BadRequestException('久未下单唤醒必须填写未下单天数');
+      }
+    }
+  }
+
   // ========== 买家端方法 ==========
 
   /**
@@ -42,7 +140,7 @@ export class CouponService {
         status: 'ACTIVE',
         distributionMode: 'CLAIM',
         startAt: { lte: now },
-        endAt: { gte: now },
+        OR: [{ endAt: null }, { endAt: { gte: now } }],
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -77,7 +175,7 @@ export class CouponService {
           userClaimedCount,
           maxPerUser: c.maxPerUser,
           startAt: c.startAt.toISOString(),
-          endAt: c.endAt.toISOString(),
+          endAt: this.serializeEndAt(c.endAt),
           distributionMode: c.distributionMode,
           // 是否还能领：配额充足且未超过每人限领数
           canClaim: userClaimedCount < c.maxPerUser,
@@ -256,7 +354,7 @@ export class CouponService {
         if (campaign.distributionMode !== 'CLAIM') {
           throw new BadRequestException('该活动不支持用户自行领取');
         }
-        if (now < campaign.startAt || now > campaign.endAt) {
+        if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
           throw new BadRequestException('该活动不在有效期内');
         }
 
@@ -290,13 +388,7 @@ export class CouponService {
         }
 
         // 6. 计算过期时间
-        let expiresAt: Date;
-        if (campaign.validDays > 0) {
-          expiresAt = new Date(now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000);
-        } else {
-          // validDays=0 时跟随活动结束时间
-          expiresAt = campaign.endAt;
-        }
+        const expiresAt = this.resolveCouponExpiresAt(campaign, now);
 
         // 7. 创建红包实例（冗余快照关键抵扣信息）
         const instance = await tx.couponInstance.create({
@@ -742,7 +834,7 @@ export class CouponService {
       items: items.map((c) => ({
         ...c,
         startAt: c.startAt.toISOString(),
-        endAt: c.endAt.toISOString(),
+        endAt: this.serializeEndAt(c.endAt),
         createdAt: c.createdAt.toISOString(),
         updatedAt: c.updatedAt.toISOString(),
         remainingQuota: c.totalQuota - c.issuedCount,
@@ -776,7 +868,7 @@ export class CouponService {
     return {
       ...campaign,
       startAt: campaign.startAt.toISOString(),
-      endAt: campaign.endAt.toISOString(),
+      endAt: this.serializeEndAt(campaign.endAt),
       createdAt: campaign.createdAt.toISOString(),
       updatedAt: campaign.updatedAt.toISOString(),
       remainingQuota: campaign.totalQuota - campaign.issuedCount,
@@ -804,16 +896,21 @@ export class CouponService {
       maxPerUser?: number;
       validDays?: number;
       startAt: string;
-      endAt: string;
+      endAt?: string | null;
     },
     adminId: string,
   ) {
     // 校验时间逻辑
     const startAt = new Date(dto.startAt);
-    const endAt = new Date(dto.endAt);
-    if (endAt <= startAt) {
-      throw new BadRequestException('结束时间必须晚于开始时间');
-    }
+    const endAt = dto.endAt ? new Date(dto.endAt) : null;
+    this.assertCampaignRules({
+      triggerType: dto.triggerType,
+      distributionMode: dto.distributionMode,
+      triggerConfig: dto.triggerConfig,
+      validDays: dto.validDays,
+      startAt,
+      endAt,
+    });
 
     // 校验百分比折扣值
     if (dto.discountType === 'PERCENT') {
@@ -829,7 +926,7 @@ export class CouponService {
         status: 'DRAFT',
         triggerType: dto.triggerType as any,
         distributionMode: dto.distributionMode as any,
-        triggerConfig: dto.triggerConfig || Prisma.JsonNull,
+        triggerConfig: dto.triggerConfig ?? Prisma.JsonNull,
         discountType: dto.discountType as any,
         discountValue: dto.discountValue,
         maxDiscountAmount: dto.maxDiscountAmount,
@@ -915,14 +1012,18 @@ export class CouponService {
       }
     }
     if (dto.startAt) data.startAt = new Date(dto.startAt);
-    if (dto.endAt) data.endAt = new Date(dto.endAt);
+    if (dto.endAt !== undefined) data.endAt = dto.endAt ? new Date(dto.endAt) : null;
 
-    // 时间校验
-    const newStart = data.startAt || campaign.startAt;
-    const newEnd = data.endAt || campaign.endAt;
-    if (newEnd <= newStart) {
-      throw new BadRequestException('结束时间必须晚于开始时间');
-    }
+    const newStart = data.startAt ?? campaign.startAt;
+    const newEnd = dto.endAt !== undefined ? data.endAt : campaign.endAt;
+    this.assertCampaignRules({
+      triggerType: data.triggerType ?? campaign.triggerType,
+      distributionMode: data.distributionMode ?? campaign.distributionMode,
+      triggerConfig: data.triggerConfig ?? campaign.triggerConfig,
+      validDays: data.validDays ?? campaign.validDays,
+      startAt: newStart,
+      endAt: newEnd,
+    });
 
     return this.prisma.couponCampaign.update({
       where: { id },
@@ -1240,12 +1341,28 @@ export class CouponService {
    */
   async manualIssue(
     campaignId: string,
-    userIds: string[],
+    target: ManualIssueDto | string[],
     adminId: string,
   ) {
-    const resolvedUserIds = Array.from(
-      new Set(await Promise.all(userIds.map((userId) => resolveBuyerUserId(this.prisma, userId)))),
-    );
+    const targetMode = Array.isArray(target)
+      ? ManualIssueTargetMode.SPECIFIC_USERS
+      : target.targetMode ?? ManualIssueTargetMode.SPECIFIC_USERS;
+    const userIds = Array.isArray(target) ? target : target.userIds ?? [];
+    const resolvedSpecificUserIds =
+      targetMode === ManualIssueTargetMode.SPECIFIC_USERS
+        ? Array.from(
+            new Set(
+              await Promise.all(
+                userIds.map((userId) => resolveBuyerUserId(this.prisma, userId)),
+              ),
+            ),
+          )
+        : null;
+
+    if (targetMode === ManualIssueTargetMode.SPECIFIC_USERS && resolvedSpecificUserIds?.length === 0) {
+      throw new BadRequestException('请填写要发放的买家编号或用户ID');
+    }
+
     return this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
@@ -1257,16 +1374,28 @@ export class CouponService {
         if (!campaign) {
           throw new NotFoundException('红包活动不存在');
         }
-        if (campaign.status !== 'ACTIVE' && campaign.status !== 'DRAFT') {
-          throw new BadRequestException('只有草稿或进行中的活动可以手动发放');
+        if (campaign.status !== 'ACTIVE') {
+          throw new BadRequestException('只有进行中的活动可以手动发放');
+        }
+        if (campaign.distributionMode !== 'MANUAL') {
+          throw new BadRequestException('只有手动发放类型活动可以手动发放');
+        }
+        if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
+          throw new BadRequestException('该活动不在有效期内');
         }
 
-        // 校验配额
-        const requiredQuota = resolvedUserIds.length;
-        if (campaign.issuedCount + requiredQuota > campaign.totalQuota) {
-          throw new BadRequestException(
-            `配额不足：剩余 ${campaign.totalQuota - campaign.issuedCount}，需要 ${requiredQuota}`,
-          );
+        let resolvedUserIds = resolvedSpecificUserIds ?? [];
+        if (targetMode === ManualIssueTargetMode.ALL_USERS) {
+          const users = await tx.user.findMany({
+            where: { status: 'ACTIVE', buyerNo: { not: null } },
+            select: { id: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          resolvedUserIds = users.map((user) => user.id);
+        }
+
+        if (resolvedUserIds.length === 0) {
+          throw new BadRequestException('没有符合条件的买家用户');
         }
 
         // 校验用户存在且未超限领
@@ -1298,15 +1427,15 @@ export class CouponService {
           throw new BadRequestException('所有用户均已达到领取上限');
         }
 
-        // 计算过期时间
-        let expiresAt: Date;
-        if (campaign.validDays > 0) {
-          expiresAt = new Date(
-            now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000,
+        // 校验配额
+        const requiredQuota = issuedUsers.length;
+        if (campaign.issuedCount + requiredQuota > campaign.totalQuota) {
+          throw new BadRequestException(
+            `配额不足：剩余 ${campaign.totalQuota - campaign.issuedCount}，需要 ${requiredQuota}`,
           );
-        } else {
-          expiresAt = campaign.endAt;
         }
+
+        const expiresAt = this.resolveCouponExpiresAt(campaign, now);
 
         // 批量创建实例
         await tx.couponInstance.createMany({

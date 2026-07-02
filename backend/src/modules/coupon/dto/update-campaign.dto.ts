@@ -102,7 +102,7 @@ export class UpdateCampaignDto {
 
   @IsOptional()
   @IsDateString()
-  endAt?: string;
+  endAt?: string | null;
 }
 
 /** 更新活动状态 DTO */

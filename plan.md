@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **红包活动触发类型与手动发放规则整理**（2026-07-02 新增并完成）
+  - **来源**: 用户反馈“复购激励”容易被理解为再次购买同一商品，且不同红包类型不应共用完全相同的配置项；手动发放需要支持指定买家编号/用户 ID 或全部有效买家；长期规则类活动应允许不填结束时间。
+  - **实际做了**: 将 `WIN_BACK` 管理端展示改为“久未下单唤醒”；隐藏当前未接通的签到/好评新建入口；后端校验触发类型与发放方式的合法组合，并要求累计消费填写消费门槛、久未下单唤醒填写未下单天数；`CouponCampaign.endAt` 改为可空，长期活动可设置“不限结束时间”；手动发放弹窗支持“指定用户”和“全部用户”，后端按 ACTIVE 且有买家编号的用户发放。
+  - **验证**: 先新增失败回归测试；修复后 `cd backend && npm test -- --runInBand src/modules/coupon/coupon-campaign-rules.spec.ts src/modules/coupon/coupon-engine.service.spec.ts src/modules/coupon/coupon.service.restore.spec.ts`、`node --test scripts/__tests__/coupon-campaign-rules.test.mjs`、`cd admin && npm run build` 通过。
+
 - [x] **管理后台红包活动状态 Tab 分组**（2026-07-02 新增并完成）
   - **来源**: 用户截图反馈红包活动列表中“已结束”活动和进行中活动混在同一张表，希望已结束活动放到独立表格/分类里。
   - **实际做了**: 管理后台红包活动页新增状态子 Tab：进行中、已暂停、草稿、已结束、全部；默认打开显示“进行中”；列表请求按当前 Tab 自动带 `status`，其中“全部”不带状态；状态列保留展示但移出搜索表单，避免 Tab 和搜索条件冲突。
