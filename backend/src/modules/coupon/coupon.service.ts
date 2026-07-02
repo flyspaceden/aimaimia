@@ -31,18 +31,22 @@ const EVERGREEN_TRIGGER_TYPES = new Set([
   'MANUAL',
 ]);
 
-const TRIGGER_DISTRIBUTION_MODES: Record<string, string> = {
-  REGISTER: 'AUTO',
-  FIRST_ORDER: 'AUTO',
-  BIRTHDAY: 'AUTO',
-  INVITE: 'AUTO',
-  SHARE: 'AUTO',
-  CUMULATIVE_SPEND: 'AUTO',
-  WIN_BACK: 'AUTO',
-  HOLIDAY: 'CLAIM',
-  FLASH: 'CLAIM',
-  MANUAL: 'MANUAL',
+const TRIGGER_DISTRIBUTION_MODE_OPTIONS: Record<string, string[]> = {
+  REGISTER: ['AUTO'],
+  FIRST_ORDER: ['AUTO'],
+  BIRTHDAY: ['AUTO'],
+  INVITE: ['AUTO'],
+  SHARE: ['AUTO'],
+  CUMULATIVE_SPEND: ['AUTO', 'CLAIM'],
+  WIN_BACK: ['AUTO', 'CLAIM'],
+  HOLIDAY: ['AUTO', 'CLAIM'],
+  FLASH: ['AUTO', 'CLAIM'],
+  MANUAL: ['MANUAL'],
 };
+
+const AUDIENCE_AUTO_TRIGGER_TYPES = new Set(['HOLIDAY', 'FLASH']);
+const AUTO_TARGET_MODES = new Set(['NORMAL_USERS', 'VIP_USERS', 'ALL_USERS']);
+const WIN_BACK_ORDER_STATUSES = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
 
 /**
  * 平台红包核心服务
@@ -96,14 +100,21 @@ export class CouponService {
       throw new BadRequestException('该触发类型暂未开放创建');
     }
 
-    const expectedDistributionMode = TRIGGER_DISTRIBUTION_MODES[dto.triggerType];
-    if (!expectedDistributionMode) {
+    const allowedDistributionModes = TRIGGER_DISTRIBUTION_MODE_OPTIONS[dto.triggerType];
+    if (!allowedDistributionModes) {
       throw new BadRequestException('不支持的触发类型');
     }
-    if (dto.distributionMode !== expectedDistributionMode) {
+    if (!allowedDistributionModes.includes(dto.distributionMode)) {
       throw new BadRequestException(
-        `触发类型 ${dto.triggerType} 必须使用 ${expectedDistributionMode} 发放方式`,
+        `触发类型 ${dto.triggerType} 不支持 ${dto.distributionMode} 发放方式`,
       );
+    }
+    if (
+      dto.distributionMode === 'AUTO' &&
+      AUDIENCE_AUTO_TRIGGER_TYPES.has(dto.triggerType) &&
+      !AUTO_TARGET_MODES.has(String(dto.triggerConfig?.autoTargetMode ?? ''))
+    ) {
+      throw new BadRequestException('自动发放活动必须选择发放对象');
     }
 
     if (dto.endAt && dto.endAt <= dto.startAt) {
@@ -150,6 +161,52 @@ export class CouponService {
     }
   }
 
+  private async getClaimEligibility(
+    client: any,
+    userId: string,
+    campaign: { triggerType: string; triggerConfig: any },
+    now = new Date(),
+  ): Promise<{ eligible: boolean; reason?: string }> {
+    if (campaign.triggerType === 'CUMULATIVE_SPEND') {
+      const spendThreshold = Number(campaign.triggerConfig?.spendThreshold);
+      if (!Number.isFinite(spendThreshold) || spendThreshold <= 0) {
+        return { eligible: false, reason: '活动缺少累计消费门槛' };
+      }
+      const aggregate = await client.order.aggregate({
+        where: { userId, status: 'RECEIVED' },
+        _sum: { totalAmount: true },
+      });
+      const totalSpent = Number(aggregate._sum?.totalAmount ?? 0);
+      return totalSpent >= spendThreshold
+        ? { eligible: true }
+        : { eligible: false, reason: '未达到累计消费门槛' };
+    }
+
+    if (campaign.triggerType === 'WIN_BACK') {
+      const inactiveDays = Number(campaign.triggerConfig?.inactiveDays);
+      if (!Number.isInteger(inactiveDays) || inactiveDays <= 0) {
+        return { eligible: false, reason: '活动缺少未下单天数' };
+      }
+      const lastOrder = await client.order.findFirst({
+        where: {
+          userId,
+          status: { in: WIN_BACK_ORDER_STATUSES },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (!lastOrder) {
+        return { eligible: false, reason: '暂不满足久未下单领取条件' };
+      }
+      const cutoffDate = new Date(now.getTime() - inactiveDays * 24 * 60 * 60 * 1000);
+      return lastOrder.createdAt < cutoffDate
+        ? { eligible: true }
+        : { eligible: false, reason: '暂不满足久未下单领取条件' };
+    }
+
+    return { eligible: true };
+  }
+
   // ========== 买家端方法 ==========
 
   /**
@@ -183,8 +240,17 @@ export class CouponService {
       userClaimed.map((c) => [c.campaignId, c._count.id]),
     );
 
+    const eligibilityEntries = await Promise.all(
+      campaigns.map(async (campaign) => [
+        campaign.id,
+        await this.getClaimEligibility(this.prisma, userId, campaign, now),
+      ] as const),
+    );
+    const eligibilityMap = new Map(eligibilityEntries);
+
     return campaigns
       .filter((c) => c.issuedCount < c.totalQuota) // 配额未满
+      .filter((c) => eligibilityMap.get(c.id)?.eligible ?? true)
       .map((c) => {
         const userClaimedCount = claimedMap.get(c.id) || 0;
         return {
@@ -380,6 +446,10 @@ export class CouponService {
         }
         if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
           throw new BadRequestException('该活动不在有效期内');
+        }
+        const claimEligibility = await this.getClaimEligibility(tx, userId, campaign, now);
+        if (!claimEligibility.eligible) {
+          throw new BadRequestException(claimEligibility.reason || '暂不满足领取条件');
         }
 
         // 3. 校验总配额
@@ -1363,7 +1433,7 @@ export class CouponService {
   }
 
   /**
-   * 管理员手动发放红包给指定用户
+   * 管理员手动发放红包给指定用户或用户群
    * 使用 Serializable 隔离级别防止超发
    */
   async manualIssue(
@@ -1490,6 +1560,21 @@ export class CouponService {
         if (targetMode === ManualIssueTargetMode.ALL_USERS) {
           const users = await tx.user.findMany({
             where: { status: 'ACTIVE', buyerNo: { not: null } },
+            select: { id: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          resolvedUserIds = users.map((user) => user.id);
+        }
+        if (targetMode === ManualIssueTargetMode.NORMAL_USERS) {
+          const users = await tx.user.findMany({
+            where: {
+              status: 'ACTIVE',
+              buyerNo: { not: null },
+              OR: [
+                { memberProfile: { is: null } },
+                { memberProfile: { is: { tier: 'NORMAL' } } },
+              ],
+            },
             select: { id: true },
             orderBy: { createdAt: 'asc' },
           });

@@ -107,11 +107,11 @@
 | 生日 | `BIRTHDAY` | 用户生日当天/当月发放 | 自动 |
 | 邀请新用户 | `INVITE` | 被邀请用户完成注册后发放给邀请人 | 自动 |
 | 推荐码分享 | `SHARE` | 用户分享推荐码后触发发放 | 自动 |
-| 累计消费 | `CUMULATIVE_SPEND` | 累计消费金额达到阈值 | 自动 |
-| 久未下单唤醒 | `WIN_BACK` | 用户超过 N 天未下单时发放 | 自动 |
-| 节日活动 | `HOLIDAY` | 指定日期范围内可领取，适合节假日/周年庆等多天营销周期 | 用户领取 |
-| 限时抢 | `FLASH` | 限量限时，先到先得，适合短时间强名额/强库存约束 | 用户领取 |
-| 手动发放 | `MANUAL` | 管理员按指定买家、全部有效买家或 VIP 买家发放；支持立即发放或定时发放 | 手动 |
+| 累计消费 | `CUMULATIVE_SPEND` | 累计消费金额达到阈值 | 自动 / 用户领取 |
+| 久未下单唤醒 | `WIN_BACK` | 用户超过 N 天未下单时发放 | 自动 / 用户领取 |
+| 节日活动 | `HOLIDAY` | 指定日期范围内可领取，适合节假日/周年庆等多天营销周期 | 自动 / 用户领取 |
+| 限时抢 | `FLASH` | 限量限时，先到先得，适合短时间强名额/强库存约束 | 自动 / 用户领取 |
+| 手动发放 | `MANUAL` | 管理员按指定买家、普通买家、VIP 买家或全部有效买家发放；支持立即发放或定时发放 | 手动 |
 
 > `CHECK_IN`（签到）和 `REVIEW`（好评）枚举保留用于未来扩展；当前买家端没有稳定签到入口，评价触发链路也未完整接入，管理后台暂不开放新建。
 
@@ -119,8 +119,9 @@
 
 | 触发类型 | 必填配置 | 说明 |
 |----------|----------|------|
-| 累计消费 | `triggerConfig.spendThreshold` | 累计消费达到该金额后自动发放 |
-| 久未下单唤醒 | `triggerConfig.inactiveDays` | 最近一次下单距今超过该天数后自动发放 |
+| 累计消费 | `triggerConfig.spendThreshold` | 自动发放和主动领取都按该累计消费门槛校验 |
+| 久未下单唤醒 | `triggerConfig.inactiveDays` | 自动发放和主动领取都按最近一次下单距今天数校验 |
+| 节日活动 / 限时抢选择自动发放 | `triggerConfig.autoTargetMode` | 必须选择自动发放对象：普通用户、VIP用户或全部用户 |
 
 ### 2.1.2 活动结束时间
 
@@ -207,6 +208,7 @@ enum CouponInstanceStatus {
 enum CouponManualIssueTargetMode {
   SPECIFIC_USERS    // 指定买家编号/用户 ID
   ALL_USERS         // 发放时全部有效买家
+  NORMAL_USERS      // 发放时全部有效普通买家（非 VIP）
   VIP_USERS         // 发放时全部有效 VIP 买家
 }
 
@@ -505,8 +507,8 @@ interface CreateCampaignDto {
 
 // 手动发放
 interface ManualIssueDto {
-  targetMode?: 'SPECIFIC_USERS' | 'ALL_USERS' | 'VIP_USERS';
-  userIds?: string[]; // targetMode=SPECIFIC_USERS 时填写买家编号或内部用户 ID
+  targetMode?: 'SPECIFIC_USERS' | 'NORMAL_USERS' | 'VIP_USERS' | 'ALL_USERS';
+  userIds?: string[]; // targetMode=SPECIFIC_USERS 时由后台搜索选择后提交内部 User.id
   scheduleMode?: 'IMMEDIATE' | 'SCHEDULED';
   scheduledAt?: string; // scheduleMode=SCHEDULED 时必填，且必须晚于当前时间
 }
@@ -592,14 +594,14 @@ CheckoutSession 接受 redPackId → 锁定分润奖励 → 支付时抵扣
 **ProForm 创建/编辑表单**：
 - 基本信息：活动名称、描述
 - 触发条件：下拉选择触发类型 + 动态表单（累计消费显示消费门槛，久未下单唤醒显示未下单天数）
-- 发放方式：自动/用户领取/手动，由触发类型自动锁定
+- 发放方式：注册、首单、生日、邀请和推荐码分享固定为自动；手动发放固定为手动；累计消费、久未下单唤醒、节日活动和限时抢可选择“系统自动发放”或“用户主动领取”
 - 抵扣规则：固定金额/百分比 + 金额/比例输入 + 最高抵扣 + 最低消费门槛；固定金额红包需先填抵扣金额，最低消费门槛不得低于抵扣金额
-- 适用范围：品类多选、店铺多选；管理后台加载启用品类和已审核店铺，保存真实 ID；不选表示不限
+- 适用范围：品类多选、店铺多选；管理后台加载启用品类和启用店铺，保存真实 ID；不选表示不限
 - 叠加设置：是否可叠加 + 叠加分组
 - 发放限制：总量、每人限领、有效天数
 - 活动时间：非手动活动开始时间必填；长期型活动可勾选“不限结束时间”；节日活动和限时抢必须填写结束时间；手动发放活动不展示活动开始/截止时间
-- 手动发放：新建活动仍先进入草稿；上架成功后自动打开手动发放弹窗，按“指定用户”（买家编号或用户 ID）、“全部用户”（发放时全部有效买家）或“VIP用户”（发放时全部有效 VIP 买家）发放；发放时间支持“立即发放”和“定时发放”，定时任务到点后由系统 cron 执行；单张红包有效期从实际发放成功时开始按 `validDays` 计算
-- 节日活动与限时抢：当前底层发放机制相同，都是用户主动领取，主要差异是运营语义和建议配置。节日活动适合更长营销周期；限时抢应配置更短活动时间、更小总量，并在名称中明确限时/限量规则。
+- 手动发放：新建活动仍先进入草稿；上架成功后自动打开手动发放弹窗，按“指定用户”（搜索昵称、手机号、买家编号或用户 ID 后多选）、“普通用户”（发放时全部有效非 VIP 买家）、“VIP用户”（发放时全部有效 VIP 买家）或“全部用户”（发放时全部有效买家）发放；发放时间支持“立即发放”和“定时发放”，定时任务到点后由系统 cron 执行；单张红包有效期从实际发放成功时开始按 `validDays` 计算
+- 节日活动与限时抢：选择用户主动领取时按活动期和配额展示在可领取列表；选择系统自动发放时必须选择发放对象，系统按普通用户、VIP用户或全部用户分批发放。节日活动适合更长营销周期；限时抢应配置更短活动时间、更小总量，并在名称中明确限时/限量规则。
 
 ### 5.2 发放记录页（`/admin/coupons/campaigns/:id/instances`）
 
@@ -829,7 +831,7 @@ interface MyCouponDto {
 | 用户评价 | `ReviewService.createReview()` 完成后 | 查找 REVIEW 类型活动，发放 |
 | 邀请注册 | `AuthService.register()` 有推荐人时 | 查找 INVITE 类型活动，发放给邀请人 |
 | 签到达标 | `CheckInService.checkIn()` 连续天数达标 | 查找 CHECK_IN 类型活动，发放 |
-| 累计消费 | `OrderService.confirmReceive()` 后统计 | 查找 CUMULATIVE_SPEND 类型活动，达标发放 |
+| 累计消费 | `OrderService.confirmReceive()` 后统计 | 自动发放时查找 CUMULATIVE_SPEND 类型活动达标发放；用户主动领取时也校验累计消费门槛 |
 
 ### 7.2 定时任务
 
@@ -837,7 +839,8 @@ interface MyCouponDto {
 |------|------|------|
 | 生日红包发放 | 每天 0:00 | 查找当天/当月生日用户，发放 BIRTHDAY 活动红包 |
 | 久未下单唤醒 | 每天 1:00 | 查找超过 N 天未下单的用户，发放 WIN_BACK 活动红包 |
-| 手动定时发放 | 每分钟 | 扫描到点的 PENDING 手动发放任务；指定用户按任务保存的 User.id 发放，全部用户/VIP 用户在执行时实时查询 |
+| 节日/限时自动发放 | 每分钟 | 扫描 ACTIVE 且到开始时间的 HOLIDAY/FLASH 自动发放活动，按配置的普通用户/VIP用户/全部用户分批发放；仅向尚未拥有该活动红包实例的用户发放 |
+| 手动定时发放 | 每分钟 | 扫描到点的 PENDING 手动发放任务；指定用户按任务保存的 User.id 发放，普通用户/VIP 用户/全部用户在执行时实时查询 |
 | 红包过期 | 每小时 | 扫描 expiresAt < now() 且 status=AVAILABLE 的实例，改为 EXPIRED |
 | 活动结束 | 每小时 | 扫描 endAt < now() 且 status=ACTIVE 的活动，改为 ENDED |
 

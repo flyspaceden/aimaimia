@@ -10,8 +10,9 @@ import {
 
 export enum ManualIssueTargetMode {
   SPECIFIC_USERS = 'SPECIFIC_USERS',
-  ALL_USERS = 'ALL_USERS',
+  NORMAL_USERS = 'NORMAL_USERS',
   VIP_USERS = 'VIP_USERS',
+  ALL_USERS = 'ALL_USERS',
 }
 
 export enum ManualIssueScheduleMode {
@@ -29,7 +30,7 @@ export class ManualIssueDto {
   @IsArray()
   @IsString({ each: true })
   @ArrayMinSize(1)
-  userIds?: string[]; // 目标买家编号或用户 ID 列表
+  userIds?: string[]; // 指定用户列表；前端提交内部 User.id，后端兼容买家编号
 
   @IsOptional()
   @IsEnum(ManualIssueScheduleMode)

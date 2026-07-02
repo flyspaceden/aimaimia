@@ -24,10 +24,15 @@ test('campaign form hides currently unsupported trigger types', () => {
   assert.doesNotMatch(optionsBlock, /好评/);
 });
 
-test('campaign form constrains distribution mode from trigger type', () => {
-  assert.match(form, /TRIGGER_DISTRIBUTION_MODE_MAP/);
-  assert.match(form, /setFieldsValue\(\{\s*distributionMode:\s*expectedMode/);
-  assert.match(form, /disabled:\s*true[\s\S]*?distributionModeOptions/);
+test('campaign form lets selected trigger types choose auto or claim distribution', () => {
+  assert.match(form, /FLEXIBLE_DISTRIBUTION_TRIGGER_TYPES/);
+  assert.match(form, /CUMULATIVE_SPEND/);
+  assert.match(form, /WIN_BACK/);
+  assert.match(form, /HOLIDAY/);
+  assert.match(form, /FLASH/);
+  assert.match(form, /getDistributionModeOptions/);
+  assert.match(form, /disabled:\s*!isDistributionModeFlexible/);
+  assert.doesNotMatch(form, /distributionMode:\s*expectedMode/);
 });
 
 test('campaign form supports unlimited end time only for evergreen trigger types', () => {
@@ -41,7 +46,9 @@ test('campaign form supports unlimited end time only for evergreen trigger types
 test('manual campaign creation explains the activation before issuing workflow', () => {
   assert.match(form, /手动发放对象/);
   assert.match(form, /创建后先在草稿列表上架/);
-  assert.match(form, /买家编号或用户ID/);
+  assert.match(form, /搜索选择指定买家/);
+  assert.match(form, /普通用户/);
+  assert.match(form, /VIP用户/);
   assert.match(form, /全部用户/);
   assert.match(form, /onSuccess\(savedCampaign\)/);
 });
@@ -59,19 +66,25 @@ test('claim-based activity labels explain holiday versus flash usage', () => {
   assert.match(form, /限时抢适合短时间、强库存或强名额约束/);
 });
 
-test('manual issue API supports specified buyers, all buyers, and vip buyers', () => {
-  assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'ALL_USERS'\s*\|\s*'VIP_USERS'/);
+test('manual issue API supports specified, normal, vip, and all buyers', () => {
+  assert.match(api, /targetMode\?:\s*'SPECIFIC_USERS'\s*\|\s*'NORMAL_USERS'\s*\|\s*'VIP_USERS'\s*\|\s*'ALL_USERS'/);
   assert.match(api, /userIds\?:\s*string\[\]/);
   assert.match(api, /endAt:\s*string\s*\|\s*null/);
 });
 
-test('campaign list exposes manual issue modal with all-user mode', () => {
+test('campaign list exposes manual issue modal with searchable selected-user mode', () => {
   assert.match(listPage, /manualIssue/);
   assert.match(listPage, /手动发放/);
   assert.match(listPage, /指定用户/);
+  assert.match(listPage, /普通用户/);
+  assert.match(listPage, /VIP用户/);
   assert.match(listPage, /全部用户/);
+  assert.match(listPage, /getAppUsers/);
+  assert.match(listPage, /mode="multiple"/);
+  assert.match(listPage, /搜索昵称、手机号、买家编号或用户ID/);
   assert.match(listPage, /targetMode:\s*manualIssueMode/);
-  assert.match(listPage, /买家编号或用户ID/);
+  assert.doesNotMatch(listPage, /逗号分隔/);
+  assert.doesNotMatch(listPage, /Input\.TextArea/);
 });
 
 test('new draft campaigns remain discoverable and manual activation opens issue modal', () => {
@@ -88,12 +101,14 @@ test('campaign list and detail display evergreen campaign time without invalid d
   assert.doesNotMatch(listPage, /dayjs\(r\.endAt\)\.format/);
 });
 
-test('campaign scope selectors load real category and approved company options', () => {
+test('campaign scope selectors load real category and active company options without opening-error toast', () => {
   assert.match(form, /from '@\/api\/categories'/);
   assert.match(form, /from '@\/api\/companies'/);
   assert.match(form, /categoryOptions/);
   assert.match(form, /companyOptions/);
-  assert.match(form, /getCompanies\(\{\s*pageSize:\s*200,\s*status:\s*'APPROVED'\s*\}\)/);
+  assert.match(form, /getCompanies\(\{\s*pageSize:\s*200,\s*status:\s*'ACTIVE'\s*\}\)/);
+  assert.doesNotMatch(form, /message\.error\('加载店铺选项失败'\)/);
+  assert.doesNotMatch(form, /message\.error\('加载品类选项失败'\)/);
   assert.match(form, /name="applicableCategories"[\s\S]*?mode="multiple"/);
   assert.match(form, /name="applicableCompanyIds"[\s\S]*?mode="multiple"/);
   assert.doesNotMatch(form, /label="限定品类"[\s\S]{0,180}?mode="tags"/);
@@ -103,15 +118,27 @@ test('campaign scope selectors load real category and approved company options',
 test('manual campaigns hide activity time fields from creation form', () => {
   assert.match(form, /isManualTrigger/);
   assert.match(form, /手动发放无需配置活动开始或截止时间/);
+  assert.match(form, /搜索选择指定买家/);
   assert.match(form, /startAt:\s*isManualTrigger\s*\?\s*dayjs\(\)\.toISOString\(\)/);
   assert.match(form, /endAt:\s*isManualTrigger\s*\?\s*null/);
   assert.match(form, /triggerType !== 'MANUAL'[\s\S]*?name="startAt"/);
 });
 
-test('manual issue modal supports vip buyers and scheduled issue time', () => {
+test('holiday and flash auto distribution require an automatic audience selector', () => {
+  assert.match(form, /triggerConfig_autoTargetMode/);
+  assert.match(form, /自动发放对象/);
+  assert.match(form, /普通用户/);
+  assert.match(form, /VIP用户/);
+  assert.match(form, /全部用户/);
+});
+
+test('manual issue modal supports normal buyers, vip buyers, and scheduled issue time', () => {
+  assert.match(api, /NORMAL_USERS/);
   assert.match(api, /VIP_USERS/);
   assert.match(api, /scheduleMode\?:\s*'IMMEDIATE'\s*\|\s*'SCHEDULED'/);
   assert.match(api, /scheduledAt\?:\s*string/);
+  assert.match(listPage, /NORMAL_USERS/);
+  assert.match(listPage, /普通用户/);
   assert.match(listPage, /VIP用户/);
   assert.match(listPage, /立即发放/);
   assert.match(listPage, /定时发放/);
