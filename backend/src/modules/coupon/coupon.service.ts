@@ -4,11 +4,14 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from './coupon-engine.service';
+import { NotificationService } from '../notification/notification.service';
 import { TriggerShareDto } from './dto/trigger-share.dto';
 import { TriggerReviewDto } from './dto/trigger-review.dto';
 import {
@@ -47,6 +50,26 @@ const TRIGGER_DISTRIBUTION_MODE_OPTIONS: Record<string, string[]> = {
 const AUDIENCE_AUTO_TRIGGER_TYPES = new Set(['HOLIDAY', 'FLASH']);
 const AUTO_TARGET_MODES = new Set(['NORMAL_USERS', 'VIP_USERS', 'ALL_USERS']);
 const WIN_BACK_ORDER_STATUSES = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
+type CouponCenterView = 'claimable' | 'claimed' | 'active';
+type CouponCenterDisplayStatus = 'CLAIMABLE' | 'CLAIMED' | 'SOLD_OUT' | 'NOT_ELIGIBLE' | 'ENDED';
+
+const COUPON_CENTER_VIEWS = new Set<CouponCenterView>(['claimable', 'claimed', 'active']);
+const COUPON_CENTER_STATUS_RANK: Record<CouponCenterDisplayStatus, number> = {
+  CLAIMABLE: 0,
+  CLAIMED: 1,
+  NOT_ELIGIBLE: 2,
+  SOLD_OUT: 3,
+  ENDED: 4,
+};
+
+const compareCampaignCreatedDesc = (
+  a: { campaign: { id: string; createdAt: Date } },
+  b: { campaign: { id: string; createdAt: Date } },
+) => {
+  const createdDelta = b.campaign.createdAt.getTime() - a.campaign.createdAt.getTime();
+  if (createdDelta !== 0) return createdDelta;
+  return a.campaign.id.localeCompare(b.campaign.id);
+};
 
 /**
  * 平台红包核心服务
@@ -61,10 +84,61 @@ export class CouponService {
   constructor(
     private prisma: PrismaService,
     private couponEngine: CouponEngineService,
+    @Optional() private notificationService?: NotificationService,
   ) {}
 
   private serializeEndAt(endAt: Date | null | undefined): string | null {
     return endAt ? endAt.toISOString() : null;
+  }
+
+  private parseCouponCenterView(view?: string): CouponCenterView {
+    const normalized = view || 'claimable';
+    if (!COUPON_CENTER_VIEWS.has(normalized as CouponCenterView)) {
+      throw new BadRequestException('领券中心分类无效');
+    }
+    return normalized as CouponCenterView;
+  }
+
+  private isCampaignInWindow(
+    campaign: { startAt: Date; endAt: Date | null },
+    now: Date,
+  ): boolean {
+    return campaign.startAt <= now && (!campaign.endAt || campaign.endAt >= now);
+  }
+
+  private buildEmptyClaimedSummary() {
+    return {
+      total: 0,
+      available: 0,
+      reserved: 0,
+      used: 0,
+      expired: 0,
+      revoked: 0,
+      nearestExpiresAt: null as string | null,
+    };
+  }
+
+  private buildClaimedSummary(instances: Array<{
+    status: string;
+    expiresAt: Date;
+  }>, now: Date) {
+    const summary = this.buildEmptyClaimedSummary();
+    summary.total = instances.length;
+
+    for (const instance of instances) {
+      if (instance.status === 'AVAILABLE') summary.available += 1;
+      if (instance.status === 'RESERVED') summary.reserved += 1;
+      if (instance.status === 'USED') summary.used += 1;
+      if (instance.status === 'EXPIRED') summary.expired += 1;
+      if (instance.status === 'REVOKED') summary.revoked += 1;
+    }
+
+    const nearestAvailable = instances
+      .filter((instance) => instance.status === 'AVAILABLE' && instance.expiresAt > now)
+      .sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime())[0];
+    summary.nearestExpiresAt = nearestAvailable?.expiresAt.toISOString() ?? null;
+
+    return summary;
   }
 
   private resolveCouponExpiresAt(
@@ -207,15 +281,76 @@ export class CouponService {
     return { eligible: true };
   }
 
+  private normalizeClaimIneligibleReason(reason?: string): string | null {
+    if (!reason) return null;
+    if (reason === '未达到累计消费门槛') {
+      return '暂不满足累计消费领取条件';
+    }
+    return reason;
+  }
+
+  private buildCouponCenterCampaignDto(params: {
+    campaign: any;
+    userClaimedCount: number;
+    claimedSummary: ReturnType<CouponService['buildEmptyClaimedSummary']>;
+    eligibility: { eligible: boolean; reason?: string };
+    view: CouponCenterView;
+    now: Date;
+  }) {
+    const { campaign, userClaimedCount, claimedSummary, eligibility, view, now } = params;
+    const inWindow = this.isCampaignInWindow(campaign, now);
+    let displayStatus: CouponCenterDisplayStatus;
+
+    if (view === 'claimed' && (!inWindow || campaign.status === 'ENDED')) {
+      displayStatus = 'ENDED';
+    } else if (view === 'claimed' && claimedSummary.total > 0) {
+      displayStatus = 'CLAIMED';
+    } else if (!inWindow || campaign.status !== 'ACTIVE') {
+      displayStatus = 'ENDED';
+    } else if (userClaimedCount >= campaign.maxPerUser) {
+      displayStatus = 'CLAIMED';
+    } else if (campaign.issuedCount >= campaign.totalQuota) {
+      displayStatus = 'SOLD_OUT';
+    } else if (!eligibility.eligible) {
+      displayStatus = 'NOT_ELIGIBLE';
+    } else {
+      displayStatus = 'CLAIMABLE';
+    }
+
+    const ineligibleReason = this.normalizeClaimIneligibleReason(eligibility.reason);
+    const statusLabelMap: Record<CouponCenterDisplayStatus, string> = {
+      CLAIMABLE: '立即领取',
+      CLAIMED: '已领取',
+      SOLD_OUT: '已领完',
+      NOT_ELIGIBLE: ineligibleReason || '暂不满足领取条件',
+      ENDED: '已结束',
+    };
+
+    return {
+      id: campaign.id,
+      name: campaign.name,
+      description: campaign.description,
+      discountType: campaign.discountType,
+      discountValue: campaign.discountValue,
+      maxDiscountAmount: campaign.maxDiscountAmount,
+      minOrderAmount: campaign.minOrderAmount,
+      remainingQuota: Math.max(campaign.totalQuota - campaign.issuedCount, 0),
+      userClaimedCount,
+      maxPerUser: campaign.maxPerUser,
+      startAt: campaign.startAt.toISOString(),
+      endAt: this.serializeEndAt(campaign.endAt),
+      distributionMode: 'CLAIM' as const,
+      canClaim: displayStatus === 'CLAIMABLE',
+      displayStatus,
+      statusLabel: statusLabelMap[displayStatus],
+      ineligibleReason: displayStatus === 'NOT_ELIGIBLE' ? statusLabelMap.NOT_ELIGIBLE : null,
+      claimedSummary,
+    };
+  }
+
   // ========== 买家端方法 ==========
 
-  /**
-   * 查询当前可领取的红包活动列表
-   * 条件：状态为 ACTIVE、发放方式为 CLAIM、在有效期内、配额未满
-   */
-  async getAvailableCampaigns(userId: string) {
-    const now = new Date();
-
+  private async getEligibleClaimCampaigns(userId: string, now = new Date()) {
     const campaigns = await this.prisma.couponCampaign.findMany({
       where: {
         status: 'ACTIVE',
@@ -223,19 +358,20 @@ export class CouponService {
         startAt: { lte: now },
         OR: [{ endAt: null }, { endAt: { gte: now } }],
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
 
-    // 查询用户已领取数量（批量查询优化）
     const campaignIds = campaigns.map((c) => c.id);
-    const userClaimed = await this.prisma.couponInstance.groupBy({
-      by: ['campaignId'],
-      where: {
-        userId,
-        campaignId: { in: campaignIds },
-      },
-      _count: { id: true },
-    });
+    const userClaimed = campaignIds.length > 0
+      ? await this.prisma.couponInstance.groupBy({
+          by: ['campaignId'],
+          where: {
+            userId,
+            campaignId: { in: campaignIds },
+          },
+          _count: { id: true },
+        })
+      : [];
     const claimedMap = new Map(
       userClaimed.map((c) => [c.campaignId, c._count.id]),
     );
@@ -249,28 +385,195 @@ export class CouponService {
     const eligibilityMap = new Map(eligibilityEntries);
 
     return campaigns
-      .filter((c) => c.issuedCount < c.totalQuota) // 配额未满
-      .filter((c) => eligibilityMap.get(c.id)?.eligible ?? true)
-      .map((c) => {
-        const userClaimedCount = claimedMap.get(c.id) || 0;
-        return {
-          id: c.id,
-          name: c.name,
-          description: c.description,
-          discountType: c.discountType,
-          discountValue: c.discountValue,
-          maxDiscountAmount: c.maxDiscountAmount,
-          minOrderAmount: c.minOrderAmount,
-          remainingQuota: c.totalQuota - c.issuedCount,
-          userClaimedCount,
-          maxPerUser: c.maxPerUser,
-          startAt: c.startAt.toISOString(),
-          endAt: this.serializeEndAt(c.endAt),
-          distributionMode: c.distributionMode,
-          // 是否还能领：配额充足且未超过每人限领数
-          canClaim: userClaimedCount < c.maxPerUser,
-        };
+      .filter((campaign) => campaign.issuedCount < campaign.totalQuota)
+      .filter((campaign) => eligibilityMap.get(campaign.id)?.eligible ?? true)
+      .map((campaign) => ({
+        campaign,
+        userClaimedCount: claimedMap.get(campaign.id) || 0,
+      }));
+  }
+
+  async getCouponCenterCampaigns(userId: string, view?: string) {
+    const resolvedView = this.parseCouponCenterView(view);
+    const now = new Date();
+
+    let campaigns: any[] = [];
+    let userInstances: any[] = [];
+
+    if (resolvedView === 'claimed') {
+      const claimedInstances = await this.prisma.couponInstance.findMany({
+        where: {
+          userId,
+          campaign: {
+            distributionMode: 'CLAIM',
+            status: { not: 'DRAFT' },
+          },
+        },
+        include: { campaign: true },
+        orderBy: { issuedAt: 'desc' },
       });
+      const campaignMap = new Map<string, any>();
+      for (const instance of claimedInstances as any[]) {
+        if (instance.campaign && instance.campaign.distributionMode === 'CLAIM' && instance.campaign.status !== 'DRAFT') {
+          campaignMap.set(instance.campaignId, instance.campaign);
+        }
+      }
+      campaigns = Array.from(campaignMap.values());
+      userInstances = claimedInstances;
+    } else {
+      campaigns = await this.prisma.couponCampaign.findMany({
+        where: {
+          status: 'ACTIVE',
+          distributionMode: 'CLAIM',
+          startAt: { lte: now },
+          OR: [{ endAt: null }, { endAt: { gte: now } }],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const campaignIds = campaigns.map((campaign) => campaign.id);
+      userInstances = campaignIds.length > 0
+        ? await this.prisma.couponInstance.findMany({
+            where: {
+              userId,
+              campaignId: { in: campaignIds },
+            },
+            orderBy: { issuedAt: 'desc' },
+          })
+        : [];
+    }
+
+    const instancesByCampaignId = new Map<string, any[]>();
+    for (const instance of userInstances) {
+      const current = instancesByCampaignId.get(instance.campaignId) ?? [];
+      current.push(instance);
+      instancesByCampaignId.set(instance.campaignId, current);
+    }
+
+    const eligibilityEntries = await Promise.all(
+      campaigns.map(async (campaign) => [
+        campaign.id,
+        resolvedView === 'claimed'
+          ? { eligible: true }
+          : await this.getClaimEligibility(this.prisma, userId, campaign, now),
+      ] as const),
+    );
+    const eligibilityMap = new Map(eligibilityEntries);
+
+    const rows = campaigns
+      .map((campaign) => {
+        const claimedInstances = instancesByCampaignId.get(campaign.id) ?? [];
+        const latestIssuedAt = claimedInstances
+          .map((instance) => instance.issuedAt)
+          .filter(Boolean)
+          .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+        const dto = this.buildCouponCenterCampaignDto({
+          campaign,
+          userClaimedCount: claimedInstances.length,
+          claimedSummary: this.buildClaimedSummary(claimedInstances, now),
+          eligibility: eligibilityMap.get(campaign.id) ?? { eligible: true },
+          view: resolvedView,
+          now,
+        });
+        return { campaign, dto, latestIssuedAt };
+      })
+      .filter(({ dto }) => {
+        if (resolvedView === 'claimable') return dto.canClaim;
+        if (resolvedView === 'claimed') return dto.claimedSummary.total > 0;
+        return true;
+      });
+
+    rows.sort((a, b) => {
+      if (resolvedView === 'claimed') {
+        const issuedDelta = (b.latestIssuedAt?.getTime() ?? 0) - (a.latestIssuedAt?.getTime() ?? 0);
+        if (issuedDelta !== 0) return issuedDelta;
+        return a.campaign.id.localeCompare(b.campaign.id);
+      }
+      if (resolvedView === 'active') {
+        const rankDelta = COUPON_CENTER_STATUS_RANK[a.dto.displayStatus] - COUPON_CENTER_STATUS_RANK[b.dto.displayStatus];
+        if (rankDelta !== 0) return rankDelta;
+      }
+      return compareCampaignCreatedDesc(a, b);
+    });
+
+    return rows.map(({ dto }) => dto);
+  }
+
+  /**
+   * 查询当前可领取的红包活动列表
+   * 条件：状态为 ACTIVE、发放方式为 CLAIM、在有效期内、配额未满
+   */
+  async getAvailableCampaigns(userId: string) {
+    const campaigns = await this.getCouponCenterCampaigns(userId, 'claimable');
+
+    return campaigns.map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name,
+      description: campaign.description,
+      discountType: campaign.discountType,
+      discountValue: campaign.discountValue,
+      maxDiscountAmount: campaign.maxDiscountAmount,
+      minOrderAmount: campaign.minOrderAmount,
+      remainingQuota: campaign.remainingQuota,
+      userClaimedCount: campaign.userClaimedCount,
+      maxPerUser: campaign.maxPerUser,
+      startAt: campaign.startAt,
+      endAt: campaign.endAt,
+      distributionMode: campaign.distributionMode,
+      canClaim: campaign.canClaim,
+    }));
+  }
+
+  async getClaimableAlert(userId: string) {
+    const now = new Date();
+    const [seenState, eligibleCampaigns] = await Promise.all([
+      (this.prisma as any).couponClaimableSeenState.findUnique({
+        where: { userId },
+      }),
+      this.getEligibleClaimCampaigns(userId, now),
+    ]);
+    const lastSeenAt = seenState?.lastSeenAt ? new Date(seenState.lastSeenAt) : null;
+    const newCampaignIds = eligibleCampaigns
+      .filter(({ campaign, userClaimedCount }) => userClaimedCount < campaign.maxPerUser)
+      .filter(({ campaign }) => (
+        !lastSeenAt
+        || campaign.createdAt > lastSeenAt
+        || campaign.startAt > lastSeenAt
+      ))
+      .map(({ campaign }) => campaign.id)
+      .sort();
+
+    if (newCampaignIds.length > 0 && this.notificationService) {
+      const hash = createHash('sha1')
+        .update(newCampaignIds.join(','))
+        .digest('hex')
+        .slice(0, 16);
+      await this.notificationService.emit({
+        eventType: 'coupon.claimableAvailable',
+        aggregateType: 'couponCampaign',
+        aggregateId: newCampaignIds[0],
+        idempotencyKey: `coupon-claimable:${userId}:${hash}`,
+        actor: { kind: 'system' },
+        payload: {
+          userId,
+          campaignIds: newCampaignIds,
+          count: newCampaignIds.length,
+        },
+      });
+    }
+
+    return {
+      count: newCampaignIds.length,
+      campaignIds: newCampaignIds,
+    };
+  }
+
+  async markClaimableAlertRead(userId: string) {
+    await (this.prisma as any).couponClaimableSeenState.upsert({
+      where: { userId },
+      update: { lastSeenAt: new Date() },
+      create: { userId, lastSeenAt: new Date() },
+    });
+    return { ok: true };
   }
 
   /**
@@ -1025,7 +1328,7 @@ export class CouponService {
         minOrderAmount: dto.minOrderAmount ?? 0,
         applicableCategories: dto.applicableCategories || [],
         applicableCompanyIds: dto.applicableCompanyIds || [],
-        stackable: dto.stackable ?? true,
+        stackable: dto.stackable ?? false,
         stackGroup: dto.stackGroup,
         totalQuota: dto.totalQuota,
         maxPerUser: dto.maxPerUser ?? 1,

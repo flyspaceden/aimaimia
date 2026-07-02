@@ -13,6 +13,9 @@
  */
 import type {
   AvailableCampaignDto,
+  ClaimableCouponAlertDto,
+  CouponCenterCampaignDto,
+  CouponCenterView,
   MyCouponDto,
   CheckoutEligibleCoupon,
   CheckoutEligibleRequest,
@@ -58,6 +61,73 @@ const mockCampaigns: AvailableCampaignDto[] = [
     endAt: '2026-03-31T00:00:00Z',
     distributionMode: 'CLAIM',
   },
+];
+
+let mockClaimableAlertCount = mockCampaigns.length;
+
+const emptyClaimedSummary = {
+  total: 0,
+  available: 0,
+  used: 0,
+  expired: 0,
+  reserved: 0,
+  revoked: 0,
+  nearestExpiresAt: null,
+};
+
+const toCenterCampaign = (
+  campaign: AvailableCampaignDto,
+  overrides: Partial<CouponCenterCampaignDto> = {},
+): CouponCenterCampaignDto => ({
+  ...campaign,
+  distributionMode: 'CLAIM',
+  canClaim: true,
+  displayStatus: 'CLAIMABLE',
+  statusLabel: '立即领取',
+  ineligibleReason: null,
+  claimedSummary: emptyClaimedSummary,
+  ...overrides,
+});
+
+const mockCenterCampaigns: CouponCenterCampaignDto[] = [
+  toCenterCampaign(mockCampaigns[0]),
+  toCenterCampaign(mockCampaigns[1], {
+    userClaimedCount: 1,
+    canClaim: true,
+    displayStatus: 'CLAIMABLE',
+    statusLabel: '立即领取',
+    claimedSummary: {
+      total: 1,
+      available: 1,
+      used: 0,
+      expired: 0,
+      reserved: 0,
+      revoked: 0,
+      nearestExpiresAt: '2026-03-31T00:00:00Z',
+    },
+  }),
+  toCenterCampaign({
+    ...mockCampaigns[0],
+    id: 'camp-sold-out',
+    name: '限时抢红包',
+    remainingQuota: 0,
+    userClaimedCount: 0,
+  }, {
+    canClaim: false,
+    displayStatus: 'SOLD_OUT',
+    statusLabel: '已领完',
+  }),
+  toCenterCampaign({
+    ...mockCampaigns[0],
+    id: 'camp-not-eligible',
+    name: '累计消费红包',
+    userClaimedCount: 0,
+  }, {
+    canClaim: false,
+    displayStatus: 'NOT_ELIGIBLE',
+    statusLabel: '暂不满足累计消费领取条件',
+    ineligibleReason: '暂不满足累计消费领取条件',
+  }),
 ];
 
 // Mock 数据：我的红包
@@ -171,6 +241,41 @@ export const CouponRepo = {
   getAvailableCampaigns: async (): Promise<Result<AvailableCampaignDto[]>> => {
     if (USE_MOCK) return simulateRequest(mockCampaigns);
     return ApiClient.get<AvailableCampaignDto[]>('/coupons/available');
+  },
+
+  /** 查询领券中心活动 */
+  getCouponCenterCampaigns: async (
+    view: CouponCenterView = 'claimable',
+  ): Promise<Result<CouponCenterCampaignDto[]>> => {
+    if (USE_MOCK) {
+      const filtered = mockCenterCampaigns.filter((campaign) => {
+        if (view === 'claimable') return campaign.canClaim;
+        if (view === 'claimed') return campaign.claimedSummary.total > 0;
+        return campaign.displayStatus !== 'ENDED';
+      });
+      return simulateRequest(filtered);
+    }
+    return ApiClient.get<CouponCenterCampaignDto[]>('/coupons/center', { view });
+  },
+
+  /** 查询领券中心新可领红包提醒 */
+  getClaimableAlert: async (): Promise<Result<ClaimableCouponAlertDto>> => {
+    if (USE_MOCK) {
+      return simulateRequest({
+        count: mockClaimableAlertCount,
+        campaignIds: mockCampaigns.slice(0, mockClaimableAlertCount).map((campaign) => campaign.id),
+      });
+    }
+    return ApiClient.get<ClaimableCouponAlertDto>('/coupons/claimable-alert');
+  },
+
+  /** 标记领券中心已查看，清除新可领红包提醒 */
+  markClaimableAlertRead: async (): Promise<Result<{ ok: boolean }>> => {
+    if (USE_MOCK) {
+      mockClaimableAlertCount = 0;
+      return simulateRequest({ ok: true }, { delay: 160 });
+    }
+    return ApiClient.post<{ ok: boolean }>('/coupons/claimable-alert/read');
   },
 
   /** 领取红包 */

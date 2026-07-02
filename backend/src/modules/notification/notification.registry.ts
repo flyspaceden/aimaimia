@@ -82,6 +82,15 @@ export class NotificationRegistry {
           entityType: 'couponInstance',
           routeKey: 'COUPONS',
         });
+      case 'coupon.claimableAvailable':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '有新的红包可领取',
+          body: `领券中心有 ${Number(event.payload.count ?? 0)} 个新红包，先到先得。`,
+          severity: 'SUCCESS',
+          entityType: 'couponCampaign',
+          routeKey: 'COUPONS',
+        });
       case 'reward.credited':
         return this.buyer(event, {
           category: 'wallet',
@@ -577,6 +586,10 @@ export class NotificationRegistry {
     if (event.eventType === 'groupBuy.codeActivated') {
       const activityId = this.payloadString(event, 'activityId');
       if (activityId) return { activityId };
+    }
+
+    if (event.eventType === 'coupon.claimableAvailable') {
+      return { tab: 'center' };
     }
 
     const id =

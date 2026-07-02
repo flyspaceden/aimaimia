@@ -29,6 +29,23 @@ describe('NotificationRegistry', () => {
     ]);
   });
 
+  it('routes claimable coupon notification directly to the coupon center tab', async () => {
+    const result = await registry.resolve(
+      event('coupon.claimableAvailable', { campaignIds: ['campaign-1'], userId: 'buyer-1', count: 1 }),
+    );
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        recipientKind: 'BUYER_USER',
+        recipientKey: 'buyer:buyer-1',
+        audience: 'BUYER_APP',
+        category: 'wallet',
+        eventType: 'coupon.claimableAvailable',
+        action: { routeKey: 'COUPONS', params: { tab: 'center' } },
+      }),
+    ]);
+  });
+
   it('registers every existing migrated event type', async () => {
     const cases: Array<[string, Record<string, unknown>]> = [
       ['order.newPaidForSeller', { orderId: 'order-1', sellerUserIds: ['seller-1'] }],
@@ -40,6 +57,7 @@ describe('NotificationRegistry', () => {
       ['logistics.stale', { shipmentId: 'shipment-1', orderId: 'order-1', buyerUserId: 'buyer-1' }],
       ['coupon.granted', { couponInstanceId: 'coupon-1', userId: 'buyer-1' }],
       ['coupon.expired', { couponInstanceId: 'coupon-1', userId: 'buyer-1' }],
+      ['coupon.claimableAvailable', { campaignIds: ['campaign-1'], userId: 'buyer-1', count: 1 }],
       ['reward.credited', { ledgerId: 'ledger-1', userId: 'buyer-1', amount: 12.34 }],
       ['reward.unfrozen', { ledgerId: 'ledger-1', userId: 'buyer-1', amount: 12.34 }],
       ['reward.expired', { ledgerId: 'ledger-1', userId: 'buyer-1' }],
