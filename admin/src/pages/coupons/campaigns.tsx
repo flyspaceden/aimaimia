@@ -111,8 +111,14 @@ export default function CampaignListPage() {
       content: `活动名称：${record.name}`,
       onOk: async () => {
         try {
-          await updateCampaignStatus(record.id, newStatus);
+          const updatedCampaign = await updateCampaignStatus(record.id, newStatus);
           message.success(`已${statusLabels[newStatus]}活动`);
+          if (newStatus === 'ACTIVE') {
+            setActiveStatusTab('ACTIVE');
+          }
+          if (newStatus === 'ACTIVE' && updatedCampaign.distributionMode === 'MANUAL') {
+            setManualIssueCampaign(updatedCampaign);
+          }
           actionRef.current?.reload();
         } catch (err) {
           message.error(err instanceof Error ? err.message : '操作失败');
@@ -377,8 +383,11 @@ export default function CampaignListPage() {
         open={drawerState.open}
         campaign={drawerState.campaign}
         onClose={() => setDrawerState({ open: false, campaign: null })}
-        onSuccess={() => {
+        onSuccess={(createdCampaign) => {
           setDrawerState({ open: false, campaign: null });
+          if (createdCampaign?.status === 'DRAFT') {
+            setActiveStatusTab('DRAFT');
+          }
           actionRef.current?.reload();
         }}
       />
