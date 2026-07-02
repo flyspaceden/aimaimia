@@ -201,7 +201,7 @@ export class AdminCouponController {
     @Body() dto: ManualIssueDto,
     @CurrentAdmin('sub') adminId: string,
   ) {
-    return this.couponService.manualIssue(campaignId, dto.userIds, adminId);
+    return this.couponService.manualIssue(campaignId, dto, adminId);
   }
 
   /** 撤回红包实例 */

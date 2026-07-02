@@ -92,6 +92,7 @@ export class CreateCampaignDto {
   @IsDateString()
   startAt: string;
 
+  @IsOptional()
   @IsDateString()
-  endAt: string;
+  endAt?: string | null;
 }

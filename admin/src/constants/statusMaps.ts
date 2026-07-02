@@ -95,7 +95,7 @@ export const couponTriggerTypeMap: Record<string, StatusEntry> = {
   REVIEW: { text: '好评', color: 'gold' },
   SHARE: { text: '分享', color: 'lime' },
   CUMULATIVE_SPEND: { text: '累计消费', color: 'orange' },
-  WIN_BACK: { text: '复购激励', color: 'volcano' },
+  WIN_BACK: { text: '久未下单唤醒', color: 'volcano' },
   HOLIDAY: { text: '节日活动', color: 'red' },
   FLASH: { text: '限时抢', color: 'geekblue' },
   MANUAL: { text: '手动发放', color: 'default' },

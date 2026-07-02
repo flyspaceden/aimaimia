@@ -2951,7 +2951,7 @@ model CouponCampaign {
   // 有效期
   validDays            Int                   @default(7)  // 领取后有效天数（0=跟随活动结束时间）
   startAt              DateTime              // 活动开始时间
-  endAt                DateTime              // 活动结束时间
+  endAt                DateTime?             // 活动结束时间（null=长期活动）
 
   // 审计
   createdBy            String                // 创建管理员 ID

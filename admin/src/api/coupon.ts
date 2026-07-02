@@ -42,7 +42,7 @@ export interface CouponCampaign {
   maxPerUser: number;
   validDays: number;
   startAt: string;
-  endAt: string;
+  endAt: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -147,13 +147,14 @@ export interface CreateCampaignDto {
   maxPerUser?: number;
   validDays?: number;
   startAt: string;
-  endAt: string;
+  endAt?: string | null;
 }
 
 export interface UpdateCampaignDto extends Partial<CreateCampaignDto> {}
 
 export interface ManualIssueDto {
-  userIds: string[];
+  targetMode?: 'SPECIFIC_USERS' | 'ALL_USERS';
+  userIds?: string[];
 }
 
 export interface ManualIssueResult {

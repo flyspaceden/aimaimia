@@ -36,7 +36,7 @@ const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
  *
  * 职责：
  * 1. 事件驱动发放 — 由各业务模块调用 handleTrigger()
- * 2. 定时任务 — 生日红包、复购激励、红包过期、活动结束
+ * 2. 定时任务 — 生日红包、久未下单唤醒、红包过期、活动结束
  *
  * 注意：这是平台红包（Coupon）系统，与分润奖励（Reward）系统完全独立。
  * 红包只能在结算时抵扣，不能提现。
@@ -80,7 +80,7 @@ export class CouponEngineService {
           distributionMode: 'AUTO',
           status: 'ACTIVE',
           startAt: { lte: now },
-          endAt: { gt: now },
+          OR: [{ endAt: null }, { endAt: { gt: now } }],
         },
       });
 
@@ -205,12 +205,12 @@ export class CouponEngineService {
   }
 
   /**
-   * 每天 1:00 — 复购激励（WIN_BACK）
+   * 每天 1:00 — 久未下单唤醒（WIN_BACK）
    * 查找 WIN_BACK 类型活动，根据 triggerConfig.inactiveDays 找到沉默用户
    */
   @Cron('0 1 * * *')
   async handleWinBackCoupons(): Promise<void> {
-    this.logger.log('开始处理复购激励红包...');
+    this.logger.log('开始处理久未下单唤醒红包...');
 
     try {
       const now = new Date();
@@ -222,7 +222,7 @@ export class CouponEngineService {
           distributionMode: 'AUTO',
           status: 'ACTIVE',
           startAt: { lte: now },
-          endAt: { gt: now },
+          OR: [{ endAt: null }, { endAt: { gt: now } }],
         },
       });
 
@@ -232,7 +232,7 @@ export class CouponEngineService {
       );
 
       if (eligibleCampaigns.length === 0) {
-        this.logger.log('无活跃的复购激励活动');
+        this.logger.log('无活跃的久未下单唤醒活动');
         return;
       }
 
@@ -241,12 +241,12 @@ export class CouponEngineService {
           await this.processWinBackCampaign(campaign, now);
         } catch (err) {
           this.logger.error(
-            `复购激励活动 ${campaign.id} 处理失败：${(err as Error).message}`,
+            `久未下单唤醒活动 ${campaign.id} 处理失败：${(err as Error).message}`,
           );
         }
       }
     } catch (err) {
-      this.logger.error(`复购激励定时任务异常：${(err as Error).message}`);
+      this.logger.error(`久未下单唤醒定时任务异常：${(err as Error).message}`);
     }
   }
 
@@ -399,7 +399,7 @@ export class CouponEngineService {
           return false;
         }
 
-        if (now < campaign.startAt || now > campaign.endAt) {
+        if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
           this.logger.debug(`活动 ${campaignId} 不在有效期内，跳过`);
           return false;
         }
@@ -451,7 +451,11 @@ export class CouponEngineService {
             now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000,
           );
         } else {
-          // validDays=0 表示跟随活动结束时间
+          // validDays=0 表示跟随活动结束时间，长期活动不允许使用该模式
+          if (!campaign.endAt) {
+            this.logger.warn(`长期活动 ${campaignId} 缺少领取后有效天数，跳过`);
+            return false;
+          }
           expiresAt = campaign.endAt;
         }
 
@@ -521,8 +525,7 @@ export class CouponEngineService {
         if (requiredDays && consecutiveDays != null) {
           return consecutiveDays >= requiredDays;
         }
-        // 无配置要求则默认通过
-        return true;
+        return false;
       }
 
       case 'CUMULATIVE_SPEND': {
@@ -532,7 +535,7 @@ export class CouponEngineService {
         if (spendThreshold && totalSpent != null) {
           return totalSpent >= spendThreshold;
         }
-        return true;
+        return false;
       }
 
       // WIN_BACK 的 inactiveDays 在 processWinBackCampaign 中已处理
@@ -543,7 +546,7 @@ export class CouponEngineService {
   }
 
   /**
-   * 处理单个复购激励活动
+   * 处理单个久未下单唤醒活动
    *
    * 逻辑：
    * 1. 从 triggerConfig 获取 inactiveDays（沉默天数阈值）
@@ -558,7 +561,7 @@ export class CouponEngineService {
     const inactiveDays = (campaign.triggerConfig as any)?.inactiveDays;
     if (!inactiveDays || inactiveDays <= 0) {
       this.logger.warn(
-        `复购激励活动 ${campaign.id} 缺少有效的 inactiveDays 配置，跳过`,
+        `久未下单唤醒活动 ${campaign.id} 缺少有效的 inactiveDays 配置，跳过`,
       );
       return;
     }
@@ -595,7 +598,7 @@ export class CouponEngineService {
       if (inactiveUsers.length === 0) {
         if (offset === 0) {
           this.logger.log(
-            `复购激励活动 ${campaign.id} 无符合条件的沉默用户`,
+            `久未下单唤醒活动 ${campaign.id} 无符合条件的沉默用户`,
           );
         }
         break;
@@ -603,7 +606,7 @@ export class CouponEngineService {
 
       if (offset === 0) {
         this.logger.log(
-          `复购激励活动 ${campaign.id}：开始处理沉默用户（${inactiveDays} 天未下单）`,
+          `久未下单唤醒活动 ${campaign.id}：开始处理沉默用户（${inactiveDays} 天未下单）`,
         );
       }
 
@@ -614,7 +617,7 @@ export class CouponEngineService {
         } catch (err) {
           failCount++;
           this.logger.error(
-            `复购激励发放失败：活动 ${campaign.id}, userId=${userId}, error=${(err as Error).message}`,
+            `久未下单唤醒发放失败：活动 ${campaign.id}, userId=${userId}, error=${(err as Error).message}`,
           );
         }
       }
@@ -625,7 +628,7 @@ export class CouponEngineService {
 
     if (successCount > 0 || failCount > 0) {
       this.logger.log(
-        `复购激励活动 ${campaign.id} 处理完成：成功 ${successCount}，失败 ${failCount}`,
+        `久未下单唤醒活动 ${campaign.id} 处理完成：成功 ${successCount}，失败 ${failCount}`,
       );
     }
   }

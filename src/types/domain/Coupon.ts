@@ -55,8 +55,8 @@ export interface AvailableCampaignDto {
   maxPerUser: number;
   /** 活动开始时间 */
   startAt: string;
-  /** 活动结束时间 */
-  endAt: string;
+  /** 活动结束时间，null 表示长期活动 */
+  endAt: string | null;
   /** 发放方式 */
   distributionMode: CouponDistributionMode;
 }

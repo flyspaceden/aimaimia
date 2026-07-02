@@ -14,7 +14,7 @@
 - **管理端 13 个模块**：Auth / Users / App-Users / Roles / Audit / Stats / Products / Orders / Companies / Bonus / Trace / Config / Notification / **Coupon**
 - **卖家端 8 个模块**：Auth / Products / Orders / Refunds / Shipments / Company / Analytics / Notification
 - **Prisma Schema**：70 个模型 + 43 个枚举（新增 CouponCampaign / CouponInstance / CouponUsageRecord + CouponTriggerType / CouponDistributionMode / CouponDiscountType / CouponStatus / CouponInstanceStatus）
-- **平台红包引擎**：CouponEngineService 事件驱动 + 定时任务（生日/复购激励/过期清理），与分润奖励系统完全独立
+- **平台红包引擎**：CouponEngineService 事件驱动 + 定时任务（生日/久未下单唤醒/过期清理），与分润奖励系统完全独立
 - **分润引擎**：完整的奖励分配系统（普通广播 + VIP 三叉树上溯 + 平台分润）
 - **种子数据**：6 个用户 + 4 家企业 + 6 个商品 + 4 笔订单 + VIP 三叉树 + 分润流水 + 管理员 RBAC
 

@@ -28,12 +28,10 @@ const triggerTypeOptions = [
   { label: '新用户注册', value: 'REGISTER' },
   { label: '首次下单', value: 'FIRST_ORDER' },
   { label: '生日', value: 'BIRTHDAY' },
-  { label: '签到', value: 'CHECK_IN' },
   { label: '邀请新用户', value: 'INVITE' },
-  { label: '好评', value: 'REVIEW' },
-  { label: '分享', value: 'SHARE' },
+  { label: '推荐码分享', value: 'SHARE' },
   { label: '累计消费', value: 'CUMULATIVE_SPEND' },
-  { label: '复购激励', value: 'WIN_BACK' },
+  { label: '久未下单唤醒', value: 'WIN_BACK' },
   { label: '节日活动', value: 'HOLIDAY' },
   { label: '限时抢', value: 'FLASH' },
   { label: '手动发放', value: 'MANUAL' },
@@ -50,6 +48,32 @@ const distributionModeOptions = [
 const discountTypeOptions = [
   { label: '固定金额（如减10元）', value: 'FIXED' },
   { label: '百分比折扣（如打9折）', value: 'PERCENT' },
+];
+
+const TRIGGER_DISTRIBUTION_MODE_MAP: Record<CouponTriggerType, CouponDistributionMode> = {
+  REGISTER: 'AUTO',
+  FIRST_ORDER: 'AUTO',
+  BIRTHDAY: 'AUTO',
+  CHECK_IN: 'AUTO',
+  INVITE: 'AUTO',
+  REVIEW: 'AUTO',
+  SHARE: 'AUTO',
+  CUMULATIVE_SPEND: 'AUTO',
+  WIN_BACK: 'AUTO',
+  HOLIDAY: 'CLAIM',
+  FLASH: 'CLAIM',
+  MANUAL: 'MANUAL',
+};
+
+const EVERGREEN_TRIGGER_TYPES: CouponTriggerType[] = [
+  'REGISTER',
+  'FIRST_ORDER',
+  'BIRTHDAY',
+  'INVITE',
+  'SHARE',
+  'CUMULATIVE_SPEND',
+  'WIN_BACK',
+  'MANUAL',
 ];
 
 interface CampaignFormDrawerProps {
@@ -90,6 +114,7 @@ export default function CampaignFormDrawer({
           validDays: campaign.validDays,
           startAt: campaign.startAt ? dayjs(campaign.startAt) : undefined,
           endAt: campaign.endAt ? dayjs(campaign.endAt) : undefined,
+          noEndAt: !campaign.endAt,
           triggerConfig_requiredDays:
             (campaign.triggerConfig as Record<string, unknown>)?.requiredDays ??
             (campaign.triggerConfig as Record<string, unknown>)?.checkInDays,
@@ -106,6 +131,7 @@ export default function CampaignFormDrawer({
           maxPerUser: 1,
           validDays: 7,
           totalQuota: 100,
+          noEndAt: false,
         };
 
   /** 提交逻辑 */
@@ -113,9 +139,6 @@ export default function CampaignFormDrawer({
     try {
       // 构建触发配置
       const triggerConfig: Record<string, unknown> = {};
-      if (values.triggerType === 'CHECK_IN' && values.triggerConfig_requiredDays) {
-        triggerConfig.requiredDays = values.triggerConfig_requiredDays;
-      }
       if (values.triggerType === 'CUMULATIVE_SPEND' && values.triggerConfig_spendThreshold) {
         triggerConfig.spendThreshold = values.triggerConfig_spendThreshold;
       }
@@ -123,11 +146,19 @@ export default function CampaignFormDrawer({
         triggerConfig.inactiveDays = values.triggerConfig_inactiveDays;
       }
 
+      if (values.noEndAt && Number(values.validDays ?? 0) <= 0) {
+        message.error('长期活动必须设置领取后有效天数');
+        return false;
+      }
+
+      const triggerType = values.triggerType as CouponTriggerType;
+      const expectedMode = TRIGGER_DISTRIBUTION_MODE_MAP[triggerType];
+
       const payload = {
         name: values.name as string,
         description: values.description as string | undefined,
-        triggerType: values.triggerType as CouponTriggerType,
-        distributionMode: values.distributionMode as CouponDistributionMode,
+        triggerType,
+        distributionMode: expectedMode,
         triggerConfig: Object.keys(triggerConfig).length > 0 ? triggerConfig : undefined,
         discountType: values.discountType as CouponDiscountType,
         discountValue: values.discountValue as number,
@@ -139,9 +170,11 @@ export default function CampaignFormDrawer({
         stackGroup: values.stackGroup as string | undefined,
         totalQuota: values.totalQuota as number,
         maxPerUser: (values.maxPerUser as number) || 1,
-        validDays: (values.validDays as number) || 7,
+        validDays: Number(values.validDays ?? 7),
         startAt: dayjs(values.startAt as string | number | Date | dayjs.Dayjs).toISOString(),
-        endAt: dayjs(values.endAt as string | number | Date | dayjs.Dayjs).toISOString(),
+        endAt: values.noEndAt
+          ? null
+          : dayjs(values.endAt as string | number | Date | dayjs.Dayjs).toISOString(),
       };
 
       if (isEdit) {
@@ -219,11 +252,22 @@ export default function CampaignFormDrawer({
               options={triggerTypeOptions}
               rules={[{ required: true, message: '请选择触发类型' }]}
               placeholder="选择触发条件类型"
+              fieldProps={{
+                onChange: (value) => {
+                  const triggerType = value as CouponTriggerType;
+                  const expectedMode = TRIGGER_DISTRIBUTION_MODE_MAP[triggerType];
+                  formRef.current?.setFieldsValue({
+                    distributionMode: expectedMode,
+                    ...(!EVERGREEN_TRIGGER_TYPES.includes(triggerType) ? { noEndAt: false } : {}),
+                  });
+                },
+              }}
             />
             <ProFormSelect
               name="distributionMode"
               label="发放方式"
               width="md"
+              fieldProps={{ disabled: true }}
               options={distributionModeOptions}
               rules={[{ required: true, message: '请选择发放方式' }]}
             />
@@ -232,29 +276,17 @@ export default function CampaignFormDrawer({
           {/* 根据触发类型动态显示额外配置 */}
           <ProFormDependency name={['triggerType']}>
             {({ triggerType }) => {
-              if (triggerType === 'CHECK_IN') {
-                return (
-                  <ProFormDigit
-                    name="triggerConfig_requiredDays"
-                    label="连续签到天数"
-                    width="md"
-                    min={1}
-                    fieldProps={{ precision: 0 }}
-                    placeholder="满足签到天数后发放"
-                    extra="用户连续签到达到该天数后自动发放红包"
-                  />
-                );
-              }
               if (triggerType === 'CUMULATIVE_SPEND') {
                 return (
                   <ProFormDigit
                     name="triggerConfig_spendThreshold"
                     label="累计消费阈值（元）"
                     width="md"
-                    min={0}
+                    min={0.01}
                     fieldProps={{ precision: 2, step: 10 }}
                     placeholder="累计消费达到此金额后发放"
                     extra="用户累计消费达到该金额后自动发放红包"
+                    rules={[{ required: true, message: '请输入累计消费门槛' }]}
                   />
                 );
               }
@@ -262,12 +294,13 @@ export default function CampaignFormDrawer({
                 return (
                   <ProFormDigit
                     name="triggerConfig_inactiveDays"
-                    label="沉默天数"
+                    label="未下单天数"
                     width="md"
                     min={1}
                     fieldProps={{ precision: 0 }}
                     placeholder="用户超过此天数未下单后发放"
                     extra="用户最近一次下单距今超过该天数后自动发放红包"
+                    rules={[{ required: true, message: '请输入未下单天数' }]}
                   />
                 );
               }
@@ -363,7 +396,7 @@ export default function CampaignFormDrawer({
               width="sm"
               min={0}
               fieldProps={{ precision: 0 }}
-              extra="0 = 跟随活动结束"
+              extra="0 = 跟随活动结束；不限结束时间时必须大于 0"
             />
           </ProFormGroup>
 
@@ -421,25 +454,47 @@ export default function CampaignFormDrawer({
               rules={[{ required: true, message: '请选择开始时间' }]}
               fieldProps={{ style: { width: '100%' } }}
             />
-            <ProFormDateTimePicker
-              name="endAt"
-              label="结束时间"
-              width="md"
-              dependencies={['startAt']}
-              rules={[
-                { required: true, message: '请选择结束时间' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const startAt = getFieldValue('startAt');
-                    if (!value || !startAt) return Promise.resolve();
-                    if (dayjs(value).isAfter(dayjs(startAt))) return Promise.resolve();
-                    return Promise.reject(new Error('结束时间必须晚于开始时间'));
-                  },
-                }),
-              ]}
-              fieldProps={{ style: { width: '100%' } }}
-            />
           </ProFormGroup>
+          <ProFormDependency name={['triggerType', 'noEndAt']}>
+            {({ triggerType, noEndAt }) => {
+              const canNoEndAt = EVERGREEN_TRIGGER_TYPES.includes(triggerType as CouponTriggerType);
+              return (
+                <>
+                  {canNoEndAt && (
+                    <ProFormSwitch
+                      name="noEndAt"
+                      label="不限结束时间"
+                      extra="适用于注册、首单、生日、分享、累计消费、久未下单唤醒和手动发放等长期规则"
+                    />
+                  )}
+                  {!noEndAt ? (
+                    <ProFormDateTimePicker
+                      name="endAt"
+                      label="结束时间"
+                      width="md"
+                      dependencies={['startAt']}
+                      rules={[
+                        { required: true, message: '请选择结束时间' },
+                        ({ getFieldValue }) => ({
+                          validator(_, value) {
+                            const startAt = getFieldValue('startAt');
+                            if (!value || !startAt) return Promise.resolve();
+                            if (dayjs(value).isAfter(dayjs(startAt))) return Promise.resolve();
+                            return Promise.reject(new Error('结束时间必须晚于开始时间'));
+                          },
+                        }),
+                      ]}
+                      fieldProps={{ style: { width: '100%' } }}
+                    />
+                  ) : (
+                    <Typography.Text type="secondary">
+                      长期有效；单张红包仍按“有效天数”过期。
+                    </Typography.Text>
+                  )}
+                </>
+              );
+            }}
+          </ProFormDependency>
         </Card>
       </ProForm>
     </Drawer>
