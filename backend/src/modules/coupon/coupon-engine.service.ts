@@ -53,6 +53,19 @@ export class CouponEngineService {
     private notificationService: NotificationService,
   ) {}
 
+  private buildIssueCampaignUpdateData(
+    currentIssuedCount: number,
+    issueCount: number,
+    totalQuota: number,
+  ) {
+    const nextIssuedCount = currentIssuedCount + issueCount;
+
+    return {
+      issuedCount: { increment: issueCount },
+      ...(nextIssuedCount >= totalQuota ? { status: 'ENDED' as const } : {}),
+    };
+  }
+
   // ========== 事件驱动发放 ==========
 
   /**
@@ -343,7 +356,7 @@ export class CouponEngineService {
     try {
       const now = new Date();
 
-      const result = await this.prisma.couponCampaign.updateMany({
+      const endedByTime = await this.prisma.couponCampaign.updateMany({
         where: {
           status: 'ACTIVE',
           endAt: { lt: now },
@@ -353,8 +366,32 @@ export class CouponEngineService {
         },
       });
 
-      if (result.count > 0) {
-        this.logger.log(`已结束 ${result.count} 个活动`);
+      const activeCampaigns = await this.prisma.couponCampaign.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, issuedCount: true, totalQuota: true },
+        take: BATCH_SIZE,
+      });
+      const soldOutCampaignIds = activeCampaigns
+        .filter((campaign) => campaign.issuedCount >= campaign.totalQuota)
+        .map((campaign) => campaign.id);
+      const endedByQuota =
+        soldOutCampaignIds.length > 0
+          ? await this.prisma.couponCampaign.updateMany({
+              where: {
+                id: { in: soldOutCampaignIds },
+                status: 'ACTIVE',
+              },
+              data: {
+                status: 'ENDED',
+              },
+            })
+          : { count: 0 };
+
+      const endedCount = endedByTime.count + endedByQuota.count;
+      if (endedCount > 0) {
+        this.logger.log(
+          `已结束 ${endedCount} 个活动（时间到期 ${endedByTime.count}，额度用完 ${endedByQuota.count}）`,
+        );
       } else {
         this.logger.debug('无需结束的活动');
       }
@@ -460,11 +497,14 @@ export class CouponEngineService {
         const updated = await tx.couponCampaign.updateMany({
           where: {
             id: campaignId,
+            status: 'ACTIVE',
             issuedCount: campaign.issuedCount, // CAS 条件
           },
-          data: {
-            issuedCount: { increment: 1 },
-          },
+          data: this.buildIssueCampaignUpdateData(
+            campaign.issuedCount,
+            1,
+            campaign.totalQuota,
+          ),
         });
 
         if (updated.count === 0) {

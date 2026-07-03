@@ -226,6 +226,64 @@ describe('Coupon campaign rule validation', () => {
   });
 });
 
+describe('CouponService admin campaign list lifecycle', () => {
+  const activeOpenCampaign = {
+    id: 'open-1',
+    name: '仍可发放活动',
+    status: 'ACTIVE',
+    triggerType: 'MANUAL',
+    distributionMode: 'MANUAL',
+    discountType: 'FIXED',
+    discountValue: 10,
+    maxDiscountAmount: null,
+    minOrderAmount: 10,
+    totalQuota: 2,
+    issuedCount: 0,
+    maxPerUser: 1,
+    validDays: 7,
+    startAt: new Date('2026-07-01T00:00:00.000Z'),
+    endAt: null,
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-07-01T00:00:00.000Z'),
+  };
+
+  const makeService = () => {
+    const prisma = {
+      couponCampaign: {
+        findMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+    return {
+      prisma,
+      service: new CouponService(prisma as any, {} as any),
+    };
+  };
+
+  it('ends sold-out active campaigns before listing the active tab', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findMany
+      .mockResolvedValueOnce([
+        { id: 'sold-out-1', issuedCount: 1, totalQuota: 1 },
+        { id: 'still-open', issuedCount: 1, totalQuota: 2 },
+      ])
+      .mockResolvedValueOnce([activeOpenCampaign]);
+
+    const result = await service.getCampaigns({ status: 'ACTIVE' });
+
+    expect(prisma.couponCampaign.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['sold-out-1'] },
+        status: 'ACTIVE',
+      },
+      data: { status: 'ENDED' },
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('open-1');
+  });
+});
+
 describe('CouponService claim eligibility rules', () => {
   const activeClaimCampaign = {
     id: 'campaign-1',
@@ -287,6 +345,30 @@ describe('CouponService claim eligibility rules', () => {
 
     expect(tx.couponCampaign.updateMany).not.toHaveBeenCalled();
     expect(tx.couponInstance.create).not.toHaveBeenCalled();
+  });
+
+  it('ends a claim campaign when the final coupon is claimed', async () => {
+    const finalCouponCampaign = {
+      ...activeClaimCampaign,
+      issuedCount: 9,
+      totalQuota: 10,
+    };
+    const { service, tx } = makeClaimService(finalCouponCampaign, 1000);
+
+    await (service as any)._claimCouponTx('buyer-1', 'campaign-1');
+
+    expect(tx.couponCampaign.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'campaign-1',
+          issuedCount: 9,
+        }),
+        data: expect.objectContaining({
+          issuedCount: { increment: 1 },
+          status: 'ENDED',
+        }),
+      }),
+    );
   });
 });
 
@@ -836,6 +918,33 @@ describe('CouponService manual issue rules', () => {
       }),
     );
     expect(result).toEqual({ issued: 2, skipped: 0, skippedUsers: [] });
+  });
+
+  it('ends a manual campaign when manual issue fills the quota', async () => {
+    const { service, tx } = makeManualIssueService({
+      ...activeManualCampaign,
+      issuedCount: 8,
+      totalQuota: 10,
+    });
+
+    await service.manualIssue(
+      'campaign-1',
+      { targetMode: 'ALL_USERS' } as any,
+      'admin-1',
+    );
+
+    expect(tx.couponCampaign.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'campaign-1',
+          issuedCount: 8,
+        }),
+        data: expect.objectContaining({
+          issuedCount: { increment: 2 },
+          status: 'ENDED',
+        }),
+      }),
+    );
   });
 
   it('issues immediately to active VIP buyer users when requested', async () => {
