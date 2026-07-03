@@ -2,7 +2,7 @@
  * 域模型：平台红包/优惠券（Coupon）
  *
  * 用途：
- * - 平台红包活动列表、领取、我的红包、结算抵扣
+ * - 平台红包活动列表、领取、我的福利、结算抵扣
  *
  * 注意：
  * - 平台红包（Coupon 体系）与分润奖励（Reward 体系）是两套完全独立的系统，严禁混淆
@@ -94,7 +94,7 @@ export interface CouponCenterCampaignDto extends AvailableCampaignDto {
   claimedSummary: CouponCenterClaimSummaryDto;
 }
 
-/** 我的红包 */
+/** 我的福利 */
 export interface MyCouponDto {
   id: string;
   campaignName: string;

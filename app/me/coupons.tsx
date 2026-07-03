@@ -25,7 +25,7 @@ type SubTabKey = 'all' | 'available' | 'used' | 'expired';
 type CenterTabKey = CouponCenterView;
 
 const MAIN_TABS: Array<{ key: MainTab; label: string }> = [
-  { key: 'mine', label: '我的红包' },
+  { key: 'mine', label: '我的福利' },
   { key: 'center', label: '领券中心' },
 ];
 
@@ -43,8 +43,8 @@ const CENTER_TABS: Array<{ key: CenterTabKey; label: string }> = [
 ];
 
 const CENTER_EMPTY_STATE: Record<CenterTabKey, { title: string; description: string }> = {
-  claimable: { title: '暂无可领取红包', description: '已领取或已领完的活动可在其他分类查看' },
-  claimed: { title: '暂无已领取红包', description: '领取后的活动记录会显示在这里' },
+  claimable: { title: '暂无可领取福利', description: '已领取或已领完的活动可在其他分类查看' },
+  claimed: { title: '暂无已领取福利', description: '领取后的活动记录会显示在这里' },
   active: { title: '暂无进行中活动', description: '请稍后再来查看活动' },
 };
 
@@ -65,7 +65,7 @@ const KNOWN_CLAIM_STATE_FAILURES = [
 
 // ==================== 工具函数 ====================
 
-/** 格式化我的红包折扣 */
+/** 格式化我的福利折扣 */
 const formatDiscount = (item: MyCouponDto): string => {
   if (item.discountType === 'FIXED') {
     return `¥${item.discountValue.toFixed(item.discountValue % 1 === 0 ? 0 : 2)}`;
@@ -83,6 +83,10 @@ const formatCampaignDiscount = (campaign: AvailableCampaignDto): string => {
 
 const isKnownClaimStateFailure = (message?: string): boolean => (
   !!message && KNOWN_CLAIM_STATE_FAILURES.some((pattern) => message.includes(pattern))
+);
+
+const normalizeBenefitDisplayMessage = (message: string): string => (
+  message.replace(/红包/g, '福利')
 );
 
 const formatClaimedSummary = (campaign: { claimedSummary?: {
@@ -124,7 +128,7 @@ const getCampaignStatusColor = (
   return colors.muted;
 };
 
-// ==================== 我的红包卡片 ====================
+// ==================== 我的福利卡片 ====================
 
 const CouponCard = React.memo(function CouponCard({
   item,
@@ -238,14 +242,14 @@ export default function MyCouponsScreen() {
   // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing.xl);
 
-  // 主 Tab 状态：我的红包 / 领券中心
+  // 主 Tab 状态：我的福利 / 领券中心
   const [mainTab, setMainTab] = useState<MainTab>(routeParams.tab === 'center' ? 'center' : 'mine');
-  // 子 Tab 状态（仅用于「我的红包」）
+  // 子 Tab 状态（仅用于「我的福利」）
   const [subTab, setSubTab] = useState<SubTabKey>('all');
   // 领券中心内层 Tab
   const [centerTab, setCenterTab] = useState<CenterTabKey>('claimable');
 
-  // ==================== 我的红包数据 ====================
+  // ==================== 我的福利数据 ====================
   const subStatus = SUB_TABS.find((tab) => tab.key === subTab)?.status;
   const { data: myData, isLoading: myLoading } = useQuery({
     queryKey: ['my-coupons', subTab],
@@ -337,16 +341,17 @@ export default function MyCouponsScreen() {
     mutationFn: (campaignId: string) => CouponRepo.claimCoupon(campaignId),
     onSuccess: (result) => {
       if (!result.ok) {
-        const message = result.error.code === 'NETWORK'
+        const rawMessage = result.error.code === 'NETWORK'
           ? '领取失败，请稍后重试'
           : result.error.displayMessage ?? '领取失败，请稍后重试';
+        const message = normalizeBenefitDisplayMessage(rawMessage);
         show({ message, type: 'error' });
-        if (isKnownClaimStateFailure(message)) {
+        if (isKnownClaimStateFailure(rawMessage)) {
           refreshCouponCenterQueries();
         }
         return;
       }
-      show({ message: '领取成功，已放入我的红包', type: 'success' });
+      show({ message: '领取成功，已放入我的福利', type: 'success' });
       refreshCouponCenterQueries();
     },
     onError: () => {
@@ -358,7 +363,7 @@ export default function MyCouponsScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="红包" />
+      <AppHeader title="我的福利" />
 
       {/* ===== 主 Tab 切换（胶囊按钮） ===== */}
       <View
@@ -411,7 +416,7 @@ export default function MyCouponsScreen() {
         })}
       </View>
 
-      {/* ===== 我的红包视图 ===== */}
+      {/* ===== 我的福利视图 ===== */}
       {mainTab === 'mine' && (
         <>
           {/* 可用数量概览 */}
@@ -423,7 +428,7 @@ export default function MyCouponsScreen() {
           >
             <MaterialCommunityIcons name="ticket-percent-outline" size={18} color={colors.brand.primary} />
             <Text style={[typography.bodySm, { color: colors.text.primary, marginLeft: spacing.sm }]}>
-              当前可用 <Text style={{ color: colors.danger, fontWeight: '600' }}>{availableCount}</Text> 张红包
+              当前可用 <Text style={{ color: colors.danger, fontWeight: '600' }}>{availableCount}</Text> 项福利
             </Text>
           </View>
 
@@ -457,7 +462,7 @@ export default function MyCouponsScreen() {
             })}
           </View>
 
-          {/* 红包列表 */}
+          {/* 福利列表 */}
           {myLoading ? (
             <View style={{ paddingHorizontal: spacing.lg }}>
               <Skeleton height={96} radius={radius.lg} />
@@ -466,8 +471,8 @@ export default function MyCouponsScreen() {
             </View>
           ) : coupons.length === 0 ? (
             <EmptyState
-              title="暂无红包"
-              description="去领券中心领取可用红包"
+              title="暂无福利"
+              description="去领券中心领取可用福利"
               actionLabel="去领券中心"
               onAction={() => setMainTab('center')}
             />
@@ -582,7 +587,7 @@ export default function MyCouponsScreen() {
                           style={[typography.captionSm, { color: colors.text.secondary, marginTop: 4 }]}
                           numberOfLines={2}
                         >
-                          {item.description || '平台红包活动'}
+                          {item.description || '平台福利活动'}
                         </Text>
                         <Text style={[typography.captionSm, { color: colors.text.tertiary, marginTop: 4 }]}>
                           {claimedSummaryText ?? `剩余 ${item.remainingQuota} 张 · 每人限领 ${item.maxPerUser} 张`}
@@ -646,7 +651,7 @@ export default function MyCouponsScreen() {
 // ==================== 样式 ====================
 
 const styles = StyleSheet.create({
-  // 主 Tab（我的红包 / 领券中心）
+  // 主 Tab（我的福利 / 领券中心）
   mainTabs: {
     flexDirection: 'row',
     gap: 12,
@@ -712,7 +717,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     overflow: 'hidden',
   },
-  // 我的红包 - 金额区域
+  // 我的福利 - 金额区域
   amountSection: {
     width: 92,
     alignItems: 'center',

@@ -40,7 +40,7 @@ const TOOL_GRID_BASE = [
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
-  { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
+  { label: '我的福利', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
   { label: '数字资产', icon: 'diamond-stone' as const, route: '/me/digital-assets' },
   { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
@@ -431,9 +431,9 @@ export default function MeScreen() {
             </View>
           </Animated.View>
 
-          {/* ===== 5C. 钱包/VIP 双卡片 ===== */}
+          {/* ===== 5C. 我的财库/VIP 双卡片 ===== */}
           <View style={[styles.dualCards, compactMe && styles.dualCardsCompact, { marginBottom: spacing.lg }]}>
-            {/* 钱包卡 */}
+            {/* 我的财库卡 */}
             <Pressable
               onPress={() => requireLogin(() => router.push('/me/wallet'))}
               style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginRight: spacing.sm }]}
@@ -446,7 +446,7 @@ export default function MeScreen() {
               >
                 <MaterialCommunityIcons name="wallet-outline" size={20} color="#FFFFFF" />
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
-                  钱包
+                  我的财库
                 </Text>
                 <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
                   ¥{Number(walletBalance ?? 0).toFixed(2)}
