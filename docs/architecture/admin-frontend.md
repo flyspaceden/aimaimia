@@ -384,7 +384,8 @@
 
 - 从现有 `config/index.tsx` 拆出：
   - `VIP_PLATFORM_PERCENT`（平台利润，默认 50%）
-  - `VIP_REWARD_PERCENT`（奖励池，默认 30%）
+  - `VIP_REWARD_PERCENT`（上溯奖励池，生产兼容默认 30%，推荐模板 25%）
+  - `VIP_DIRECT_REFERRAL_PERCENT`（直推佣金，生产兼容默认 0%，推荐模板 5%）
   - `VIP_INDUSTRY_PERCENT`（产业基金，默认 10%）
   - `VIP_CHARITY_PERCENT`（慈善基金，默认 2%）
   - `VIP_TECH_PERCENT`（科技基金，默认 2%）
