@@ -74,6 +74,8 @@ export interface WalletLedgerEntry {
   refType: string | null;
   refId?: string | null;
   meta: Record<string, unknown> | null;
+  scheme?: string | null;
+  sourceLabel?: string | null;
   createdAt: string;
   /** 所属奖励账户类型，用于区分消费积分(VIP_REWARD/NORMAL_REWARD) vs 产业基金(INDUSTRY_FUND) 等 */
   accountType: string | null;
@@ -141,6 +143,8 @@ export type RewardSourceType =
   | 'ORDER'
   | 'REFERRAL'
   | 'VIP_REFERRAL'
+  | 'VIP_DIRECT_REFERRAL'
+  | 'VIP_UPSTREAM'
   | 'VIP_BONUS'
   | 'BROADCAST'
   | 'NORMAL_TREE'
