@@ -71,6 +71,11 @@
   - **实际做了**: 将通用 `AppBottomSheet` 的关闭态从 native `@gorhom/bottom-sheet index=-1` 改为直接卸载，避免关闭的团购处理抽屉在 Android 真机保留不可见手势层；团购详情页所有加载/错误/正常状态的返回键增加 `router.canGoBack()` fallback，外部链接直达时返回 `/group-buy`。
   - **验证**: 先新增失败回归测试；修复后 `node --test scripts/__tests__/group-buy-detail-stock-display.test.mjs`、`npm run test:legal`、`npx jest --passWithNoTests --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit --pretty false` 均通过。
 
+- [x] **管理后台 VIP 七分比例与钱包直推 scheme 显示**（2026-07-03 新增并完成）
+  - **来源**: Chunk 6 任务简报，要求 VIP 后台配置从六分比例改为七分比例，新增 `VIP_DIRECT_REFERRAL_PERCENT`，并让钱包流水能单独标识 VIP 直推佣金。
+  - **实际做了**: 管理后台 VIP 系统配置页新增直推佣金占比，推荐模板改为 50/25/5/10/2/2/6，页面文案全部改为七项合计；后端钱包流水按 `meta.scheme` 返回 `VIP_DIRECT_REFERRAL` 的专属 `sourceLabel=VIP 直推佣金`。
+  - **验证**: `node --test scripts/__tests__/vip-direct-referral-admin-config.test.mjs`、`cd backend && npm test -- src/modules/bonus/bonus.service.spec.ts --runInBand`、`cd backend && npm run build` 通过；`cd admin && npm run build` 被既有 `admin/src/pages/group-buy/activities.tsx` 隐式 `any` 阻塞，非本次改动文件。
+
 - [x] **管理后台侧边栏选中态可读性优化**（2026-06-29 新增并完成）
   - **来源**: 真机/电脑拍摄截图反馈，管理后台深色侧边栏选中“商家商品”后呈现深底蓝字，可读性不足。
   - **实际做了**: 为 `AdminLayout` 增加专用样式作用域，选中菜单项改为高对比蓝底白字，图标/文字/箭头统一白色，增加左侧浅蓝指示条与 hover/focus 可读状态；同步将 ProLayout 选中 token 调亮。

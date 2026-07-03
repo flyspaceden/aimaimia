@@ -5,7 +5,7 @@ declare const expect: any;
 import type { WalletLedgerEntry } from '../../types/domain/Bonus';
 import { getWalletLedgerTitle, isWalletDeductionTitle } from '../walletLedger';
 
-function ledger(overrides: Partial<WalletLedgerEntry>): WalletLedgerEntry {
+function ledger(overrides: Partial<WalletLedgerEntry> & Record<string, unknown>): WalletLedgerEntry {
   return {
     id: 'ledger-1',
     entryType: 'RELEASE',
@@ -66,6 +66,58 @@ describe('wallet ledger display titles', () => {
       source: 'REWARD',
       refType: 'ORDER',
     }))).toBe('产业基金');
+  });
+
+  it('labels VIP direct referral commission by scheme even when refType is ORDER', () => {
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'ORDER',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL' },
+    }))).toBe('VIP 直推佣金');
+  });
+
+  it('prefers backend reward sourceLabel without overriding group-buy special states', () => {
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'ORDER',
+      sourceLabel: 'VIP 直推佣金',
+    }))).toBe('VIP 直推佣金');
+
+    expect(getWalletLedgerTitle(ledger({
+      source: 'GROUP_BUY_REBATE',
+      entryType: 'PENDING_REBATE',
+      type: 'PENDING_REBATE',
+      status: 'PENDING',
+      accountType: 'GROUP_BUY_REBATE',
+      sourceLabel: 'VIP 直推佣金',
+    }))).toBe('团购返还冻结中');
+  });
+
+  it('keeps VIP upstream and VIP referral titles distinct', () => {
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'ORDER',
+      scheme: 'VIP_UPSTREAM',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL' },
+    }))).toBe('VIP 上溯分润');
+
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'VIP_REFERRAL',
+      meta: { scheme: 'VIP_REFERRAL' },
+    }))).toBe('VIP 推荐奖励');
+  });
+
+  it('falls back to withdraw and deduction titles when unknown schemes have no sourceLabel', () => {
+    expect(getWalletLedgerTitle(ledger({
+      entryType: 'WITHDRAW',
+      type: 'WITHDRAW',
+      refType: 'WITHDRAW',
+      meta: { scheme: 'POINTS_WITHDRAW' },
+    }))).toBe('提现到支付宝');
+
+    expect(getWalletLedgerTitle(ledger({
+      entryType: 'DEDUCT',
+      type: 'DEDUCT',
+      refType: 'ORDER',
+      meta: { scheme: 'POINTS_DEDUCTION' },
+    }))).toBe('消费抵扣');
   });
 
   it('classifies both reward and group-buy deduction titles as consumption deductions', () => {

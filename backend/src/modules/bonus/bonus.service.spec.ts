@@ -958,17 +958,18 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
     accountType: string,
     createdAt: string,
     amount: number,
+    overrides: Record<string, any> = {},
   ) {
     return {
       id,
       accountId: `acct-${id}`,
       userId: 'user-1',
-      entryType: 'RELEASE',
+      entryType: overrides.entryType ?? 'RELEASE',
       amount,
-      status: 'AVAILABLE',
-      refType: 'ORDER',
+      status: overrides.status ?? 'AVAILABLE',
+      refType: overrides.refType ?? 'ORDER',
       refId: `order-${id}`,
-      meta: { accountType },
+      meta: overrides.meta ?? { accountType },
       createdAt: new Date(createdAt),
       account: { type: accountType },
     };
@@ -1119,6 +1120,102 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
         account: { type: { in: allowedAccountTypes } },
       }),
     });
+  });
+
+  it('钱包流水单独展示 VIP 直推佣金 scheme，避免混入 VIP 推荐奖励或上溯分润', async () => {
+    const rewardLedgers = [
+      rewardLedger('reward-direct', 'VIP_REWARD', '2026-06-22T12:20:00.000Z', 12, {
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+      }),
+      rewardLedger('reward-upstream', 'VIP_REWARD', '2026-06-22T12:10:00.000Z', 8, {
+        refType: 'ORDER',
+        meta: { scheme: 'VIP_UPSTREAM', accountType: 'VIP_REWARD' },
+      }),
+      rewardLedger('reward-referral', 'VIP_REWARD', '2026-06-22T12:00:00.000Z', 5, {
+        refType: 'VIP_REFERRAL',
+        meta: { scheme: 'VIP_REFERRAL', accountType: 'VIP_REWARD' },
+      }),
+    ];
+    const prismaMock: any = {
+      companyStaff: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue(rewardLedgers),
+        count: jest.fn().mockResolvedValue(rewardLedgers.length),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', 1, 20);
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'reward-direct',
+        refType: 'ORDER',
+        scheme: 'VIP_DIRECT_REFERRAL',
+        sourceLabel: 'VIP 直推佣金',
+      }),
+      expect.objectContaining({
+        id: 'reward-upstream',
+        refType: 'ORDER',
+        scheme: 'VIP_UPSTREAM',
+        sourceLabel: 'VIP 上溯分润',
+      }),
+      expect.objectContaining({
+        id: 'reward-referral',
+        refType: 'VIP_REFERRAL',
+        scheme: 'VIP_REFERRAL',
+        sourceLabel: 'VIP 推荐奖励',
+      }),
+    ]);
+  });
+
+  it('未知 scheme 钱包流水不输出 sourceLabel，避免覆盖 App 提现或抵扣标题', async () => {
+    const rewardLedgers = [
+      rewardLedger('reward-withdraw', 'VIP_REWARD', '2026-06-22T12:20:00.000Z', -12, {
+        entryType: 'WITHDRAW',
+        refType: 'WITHDRAW',
+        meta: { scheme: 'POINTS_WITHDRAW', accountType: 'VIP_REWARD' },
+      }),
+      rewardLedger('reward-deduct', 'VIP_REWARD', '2026-06-22T12:10:00.000Z', -8, {
+        entryType: 'DEDUCT',
+        refType: 'ORDER',
+        meta: { scheme: 'POINTS_DEDUCTION', accountType: 'VIP_REWARD' },
+      }),
+    ];
+    const prismaMock: any = {
+      companyStaff: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue(rewardLedgers),
+        count: jest.fn().mockResolvedValue(rewardLedgers.length),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getWalletLedger('user-1', 1, 20);
+
+    expect(result.items[0]).toMatchObject({
+      id: 'reward-withdraw',
+      scheme: 'POINTS_WITHDRAW',
+    });
+    expect(result.items[0]).not.toHaveProperty('sourceLabel');
+    expect(result.items[1]).toMatchObject({
+      id: 'reward-deduct',
+      scheme: 'POINTS_DEDUCTION',
+    });
+    expect(result.items[1]).not.toHaveProperty('sourceLabel');
   });
 
   it('对非法页码和过大 pageSize 做夹紧后再查询并计算 nextPage', async () => {

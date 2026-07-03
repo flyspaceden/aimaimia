@@ -18,6 +18,22 @@ const refTypeLabel: Record<string, string> = {
   WITHDRAW: '提现到支付宝',
 };
 
+const schemeLabel: Record<string, string> = {
+  VIP_DIRECT_REFERRAL: 'VIP 直推佣金',
+  VIP_UPSTREAM: 'VIP 上溯分润',
+  VIP_REFERRAL: 'VIP 推荐奖励',
+};
+
+function readMetaScheme(entry: WalletLedgerEntry): string | null {
+  const scheme = entry.scheme ?? entry.meta?.scheme;
+  return typeof scheme === 'string' && scheme.length > 0 ? scheme : null;
+}
+
+function readSourceLabel(entry: WalletLedgerEntry): string | null {
+  const label = entry.sourceLabel;
+  return typeof label === 'string' && label.trim().length > 0 ? label : null;
+}
+
 export function isGroupBuyRebateLedger(entry: WalletLedgerEntry): boolean {
   return entry.source === 'GROUP_BUY_REBATE' || entry.accountType === 'GROUP_BUY_REBATE';
 }
@@ -48,9 +64,27 @@ export function getWalletLedgerTitle(entry: WalletLedgerEntry): string {
     return '团购返还';
   }
 
+  const sourceLabel = readSourceLabel(entry);
+  if (sourceLabel) {
+    return sourceLabel;
+  }
+
+  const sourceScheme = readMetaScheme(entry);
+  if (sourceScheme && schemeLabel[sourceScheme]) {
+    return schemeLabel[sourceScheme];
+  }
+
   const sellerLabel = entry.accountType ? sellerAccountLabel[entry.accountType] : null;
   if (sellerLabel) {
     return sellerLabel;
+  }
+
+  if (entry.entryType === 'DEDUCT' || entry.type === 'DEDUCT') {
+    return '消费抵扣';
+  }
+
+  if (entry.entryType === 'WITHDRAW' || entry.type === 'WITHDRAW' || entry.refType === 'WITHDRAW') {
+    return '提现到支付宝';
   }
 
   const isIncome = entry.entryType === 'RELEASE' || entry.entryType === 'CREDIT';

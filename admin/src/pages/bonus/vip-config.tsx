@@ -1,7 +1,7 @@
 /**
  * VIP 系统参数配置页
  *
- * 三个业务分组：VIP 利润六分比例 / VIP 基础设置 / 奖励有效期
+ * 三个业务分组：VIP 利润七分比例 / VIP 基础设置 / 奖励有效期
  * 支持实时校验、推荐模板、版本历史抽屉、变更说明
  * 增强功能：恢复默认值、变更影响提示
  */
@@ -69,9 +69,10 @@ interface ConfigMeta {
 }
 
 const CONFIG_SCHEMA: ConfigMeta[] = [
-  // 分润比例（六项须合计 = 1.0）
+  // 分润比例（七项须合计 = 1.0）
   { key: 'VIP_PLATFORM_PERCENT', label: 'VIP平台占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归平台的比例', defaultValue: 0.50 },
-  { key: 'VIP_REWARD_PERCENT', label: 'VIP奖励占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中分配给奖励的比例', defaultValue: 0.30 },
+  { key: 'VIP_REWARD_PERCENT', label: 'VIP奖励占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中分配给奖励的比例', defaultValue: 0.25 },
+  { key: 'VIP_DIRECT_REFERRAL_PERCENT', label: 'VIP直推佣金占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中给直系推荐人的持续佣金比例', defaultValue: 0 },
   { key: 'VIP_INDUSTRY_FUND_PERCENT', label: 'VIP产业基金(卖家)占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中划入产业基金（卖家）的比例', defaultValue: 0.10 },
   { key: 'VIP_CHARITY_PERCENT', label: 'VIP慈善占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归慈善的比例', defaultValue: 0.02 },
   { key: 'VIP_TECH_PERCENT', label: 'VIP科技占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归科技的比例', defaultValue: 0.02 },
@@ -117,15 +118,16 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
   },
 ];
 
-// 六分比例 keys（全部须合计 = 1.0）
+// 七分比例 keys（全部须合计 = 1.0）
 const RATIO_KEYS = CONFIG_SCHEMA
   .filter((m) => m.group === 'ratio' && m.type === 'percent')
   .map((m) => m.key);
 
-// 推荐模板：标准六分比例（50/30/10/2/2/6）
+// 推荐模板：标准七分比例（50/25/5/10/2/2/6）
 const RECOMMENDED_RATIO_TEMPLATE: Record<string, number> = {
   VIP_PLATFORM_PERCENT: 0.50,
-  VIP_REWARD_PERCENT: 0.30,
+  VIP_REWARD_PERCENT: 0.25,
+  VIP_DIRECT_REFERRAL_PERCENT: 0.05,
   VIP_INDUSTRY_FUND_PERCENT: 0.10,
   VIP_CHARITY_PERCENT: 0.02,
   VIP_TECH_PERCENT: 0.02,
@@ -134,9 +136,9 @@ const RECOMMENDED_RATIO_TEMPLATE: Record<string, number> = {
 
 // 所有配置项的默认值
 const ALL_DEFAULTS: Record<string, number> = CONFIG_SCHEMA.reduce((acc, meta) => {
-  if (meta.defaultValue !== undefined) {
-    acc[meta.key] = meta.defaultValue;
-  }
+  acc[meta.key] = meta.group === 'ratio'
+    ? RECOMMENDED_RATIO_TEMPLATE[meta.key] ?? meta.defaultValue ?? meta.min ?? 0
+    : meta.defaultValue ?? meta.min ?? 0;
   return acc;
 }, {} as Record<string, number>);
 
@@ -148,8 +150,8 @@ function getVal(configs: RuleConfig[], key: string): unknown {
 }
 
 /** 将后端配置列表解析为表单初始值 */
-function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
-  const values: Record<string, any> = {};
+function configsToFormValues(configs: RuleConfig[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
   for (const meta of CONFIG_SCHEMA) {
     const raw = getVal(configs, meta.key);
     values[meta.key] = raw ?? meta.defaultValue ?? meta.min ?? 0;
@@ -159,6 +161,24 @@ function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
 
 /** 格式化百分比显示 */
 const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
+
+function readFormNumber(values: unknown, key: string): number {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) {
+    return 0;
+  }
+  return Number((values as Record<string, unknown>)[key]) || 0;
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : '保存失败';
+}
+
+function readStoredConfigValue(value: unknown): unknown {
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value) {
+    return (value as { value?: unknown }).value;
+  }
+  return value;
+}
 
 // ============ 组件 ============
 
@@ -207,15 +227,15 @@ export default function VipConfigPage() {
     }
   }, [configs, form]);
 
-  // 实时获取六项比例合计
+  // 实时获取七项比例合计
   const allValues = Form.useWatch([], form);
   const sumValue = useMemo(() => {
     if (!allValues) return 0;
-    return RATIO_KEYS.reduce((s, k) => s + (Number((allValues as any)?.[k]) || 0), 0);
+    return RATIO_KEYS.reduce((s, k) => s + readFormNumber(allValues, k), 0);
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
 
-  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发六分比例总和 ≠ 1.0）
+  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
     const values = form.getFieldsValue(true);
 
@@ -225,7 +245,8 @@ export default function VipConfigPage() {
       const oldVal = getVal(configs, meta.key);
       const newVal = values[meta.key];
       if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
-      const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+      const existing = configs.find((c) => c.key === meta.key);
+      const desc = existing ? extractConfigDescription(existing) : undefined;
       updates.push({
         key: meta.key,
         value: { value: newVal, description: desc || meta.description || meta.label },
@@ -248,8 +269,8 @@ export default function VipConfigPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
       setDirty(false);
       setChangeNote('');
-    } catch (err: any) {
-      message.error(err?.message || '保存失败');
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -265,7 +286,7 @@ export default function VipConfigPage() {
     }
 
     if (!sumValid) {
-      message.error('六项比例合计必须等于 100%，当前合计：' + fmtPercent(sumValue));
+      message.error('七项比例合计必须等于 100%，当前合计：' + fmtPercent(sumValue));
       return;
     }
 
@@ -357,19 +378,19 @@ export default function VipConfigPage() {
       okButtonProps: { style: { background: '#1E40AF' } },
       onOk: doSave,
     });
-  }, [form, configs, sumValid, sumValue, doSave]);
+  }, [form, configs, sumValid, sumValue, doSave, message, modal]);
 
-  // 应用推荐模板（六分比例）
+  // 应用推荐模板（七分比例）
   const handleApplyTemplate = useCallback(() => {
     modal.confirm({
       title: '应用推荐模板',
       icon: <ThunderboltOutlined style={{ color: '#1E40AF' }} />,
       content: (
         <div>
-          <Text>将六分比例设置为推荐值：</Text>
+          <Text>将七分比例设置为推荐值：</Text>
           <div style={{ marginTop: 8, padding: 12, background: '#eff6ff', borderRadius: 8, border: '1px solid #93c5fd' }}>
-            <div>平台 50% / 奖励 30% / 产业基金 10%</div>
-            <div>慈善 2% / 科技 2% / 备用金 6%</div>
+            <div>平台 50% / 奖励 25% / 直推佣金 5%</div>
+            <div>产业基金 10% / 慈善 2% / 科技 2% / 备用金 6%</div>
           </div>
           <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
             此操作仅预填表单，需点击"保存"后才会生效。
@@ -385,7 +406,7 @@ export default function VipConfigPage() {
         message.success('已应用推荐模板，请确认后保存');
       },
     });
-  }, [form]);
+  }, [form, message, modal]);
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
@@ -419,7 +440,7 @@ export default function VipConfigPage() {
         message.success('已恢复默认值，请确认后保存');
       },
     });
-  }, [form]);
+  }, [form, message, modal]);
 
   if (isLoading) {
     return (
@@ -464,7 +485,7 @@ export default function VipConfigPage() {
         requiredMark={false}
       >
         <Row gutter={[16, 16]}>
-          {/* ====== VIP 利润六分比例 ====== */}
+          {/* ====== VIP 利润七分比例 ====== */}
           <Col span={24}>
             <Card
               bordered={false}
@@ -473,7 +494,7 @@ export default function VipConfigPage() {
               title={
                 <Space>
                   <PercentageOutlined style={{ color: '#1E40AF', fontSize: 18 }} />
-                  <Text strong style={{ fontSize: 15 }}>VIP 利润六分比例</Text>
+                  <Text strong style={{ fontSize: 15 }}>VIP 利润七分比例</Text>
                 </Space>
               }
               extra={
@@ -493,18 +514,18 @@ export default function VipConfigPage() {
                     color={sumValid ? 'green' : 'error'}
                     style={{ fontSize: 13, padding: '2px 10px' }}
                   >
-                    六项合计：{fmtPercent(sumValue)}
+                    七项合计：{fmtPercent(sumValue)}
                   </Tag>
                 </Space>
               }
             >
               <Divider style={{ margin: '0 0 12px' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>以下六项须合计 = 100%（50/30/10/2/2/6）</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>以下七项须合计 = 100%（50/25/5/10/2/2/6）</Text>
               </Divider>
 
               {!sumValid && (
                 <Alert
-                  message={`当前六项合计 ${fmtPercent(sumValue)}，需要调整至 100%`}
+                  message={`当前七项合计 ${fmtPercent(sumValue)}，需要调整至 100%`}
                   type="warning"
                   showIcon
                   style={{ marginBottom: 12, borderRadius: 8 }}
@@ -804,8 +825,7 @@ function VersionItem({ version, onRollback }: { version: ConfigVersion; onRollba
             const meta = CONFIG_SCHEMA.find((m) => m.key === key);
             // 仅显示本页相关的 VIP 配置项
             if (!meta) return null;
-            const stored = val as any;
-            const displayVal = stored?.value ?? stored;
+            const displayVal = readStoredConfigValue(val);
             return (
               <div
                 key={key}

@@ -20,6 +20,39 @@ const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD', 'I
 const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD'];
 type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
+const REWARD_SOURCE_LABELS: Record<string, string> = {
+  ORDER: '订单奖励',
+  REFERRAL: '推荐奖励',
+  VIP_REFERRAL: 'VIP 推荐奖励',
+  VIP_DIRECT_REFERRAL: 'VIP 直推佣金',
+  VIP_UPSTREAM: 'VIP 上溯分润',
+  VIP_BONUS: 'VIP 分润',
+  BROADCAST: '广播分润',
+  NORMAL_TREE: '普通树分润',
+  NORMAL_BROADCAST: '普通广播分润',
+};
+
+function getLedgerScheme(meta: unknown): string | null {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+    return null;
+  }
+  const scheme = (meta as { scheme?: unknown }).scheme;
+  return typeof scheme === 'string' && scheme.length > 0 ? scheme : null;
+}
+
+function getRewardSourceType(refType: string | null, meta: unknown): string | null {
+  return getLedgerScheme(meta) ?? refType;
+}
+
+function getKnownRewardSourceLabel(refType: string | null, meta: unknown): string | null {
+  const sourceType = getRewardSourceType(refType, meta);
+  return sourceType ? REWARD_SOURCE_LABELS[sourceType] ?? null : null;
+}
+
+function getRewardSourceLabel(refType: string | null, meta: unknown): string {
+  return getKnownRewardSourceLabel(refType, meta) ?? '平台奖励';
+}
+
 @Injectable()
 export class BonusService {
   private readonly logger = new Logger(BonusService.name);
@@ -662,21 +695,27 @@ export class BonusService {
     ]);
 
     const items = [
-      ...rewardItems.map((l) => ({
-        id: l.id,
-        sourceLedgerId: l.id,
-        source: 'REWARD',
-        accountType: l.account?.type ?? null,
-        type: l.entryType,
-        entryType: l.entryType,
-        status: l.status,
-        amount: l.amount,
-        balanceAfter: (l as any).balanceAfter,
-        refType: l.refType,
-        refId: l.refId,
-        meta: l.meta,
-        createdAt: l.createdAt.toISOString(),
-      })),
+      ...rewardItems.map((l) => {
+        const scheme = getLedgerScheme(l.meta);
+        const sourceLabel = scheme ? getKnownRewardSourceLabel(l.refType, l.meta) : null;
+        return {
+          id: l.id,
+          sourceLedgerId: l.id,
+          source: 'REWARD',
+          accountType: l.account?.type ?? null,
+          type: l.entryType,
+          entryType: l.entryType,
+          status: l.status,
+          amount: l.amount,
+          balanceAfter: (l as any).balanceAfter,
+          refType: l.refType,
+          refId: l.refId,
+          meta: l.meta,
+          ...(scheme ? { scheme } : {}),
+          ...(sourceLabel ? { sourceLabel } : {}),
+          createdAt: l.createdAt.toISOString(),
+        };
+      }),
       ...groupBuyItems.map((l) => ({
         id: l.id,
         sourceLedgerId: l.id,
@@ -799,23 +838,13 @@ export class BonusService {
       return !meta?.usedForOrder;
     });
 
-    // 来源映射
-    const sourceMap: Record<string, string> = {
-      ORDER: '订单奖励',
-      REFERRAL: '推荐奖励',
-      VIP_REFERRAL: 'VIP 推荐奖励',
-      VIP_BONUS: 'VIP 分润',
-      BROADCAST: '广播分润',
-      NORMAL_TREE: '普通树分润',
-      NORMAL_BROADCAST: '普通广播分润',
-    };
-
     return available.map((entry) => {
+      const sourceType = getRewardSourceType(entry.refType, entry.meta);
       return {
         id: entry.id,
         amount: entry.amount,
-        sourceType: entry.refType || null,
-        source: sourceMap[entry.refType || ''] || '平台奖励',
+        sourceType,
+        source: getRewardSourceLabel(entry.refType, entry.meta),
         minOrderAmount: entry.amount >= 10 ? entry.amount * 5 : 0,
         expireAt: null,
         status: 'AVAILABLE' as const,
