@@ -5,6 +5,20 @@ import { PLATFORM_USER_ID, getAccountTypeForLedger } from '../bonus/engine/const
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
+const VIP_DIRECT_REFERRAL_ORIGINAL_SCHEMES = new Set([
+  'VIP_DIRECT_REFERRAL',
+  'VIP_DIRECT_REFERRAL_PLATFORM',
+]);
+const VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
+  'sourceUserId',
+  'directInviterUserId',
+  'profit',
+  'ratio',
+  'directReferralPool',
+  'platformReason',
+  'configSnapshot',
+  'releaseCondition',
+] as const;
 
 /**
  * 售后奖励归平台服务
@@ -44,14 +58,14 @@ export class AfterSaleRewardService {
             });
 
             // 防御性查找：已释放为 AVAILABLE 的奖励（RELEASE 类型）
-            const releasedLedgers = await tx.rewardLedger.findMany({
+            const releasedLedgers = (await tx.rewardLedger.findMany({
               where: {
                 refType: 'ORDER',
                 refId: orderId,
                 entryType: 'RELEASE',
                 status: 'AVAILABLE',
               },
-            });
+            })).filter((ledger) => (ledger.meta as any)?.scheme !== 'VIP_DIRECT_REFERRAL_VOID');
 
             if (releasedLedgers.length > 0) {
               this.logger.warn(
@@ -111,10 +125,11 @@ export class AfterSaleRewardService {
               // 3. 扣减用户账户余额（兼容 INDUSTRY_FUND/CHARITY_FUND 等，meta.accountType 优先）
               const accountType = getAccountTypeForLedger(ledger.meta);
               const scheme = (ledger.meta as any)?.scheme; // 仅用于审计 meta，accountType 走 getAccountTypeForLedger
+              const isVipDirectReferral = VIP_DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
 
               if (originalStatus === 'AVAILABLE') {
                 // 已释放的奖励：扣减 balance
-                await tx.rewardAccount.updateMany({
+                const debit = await tx.rewardAccount.updateMany({
                   where: {
                     userId: ledger.userId,
                     type: accountType,
@@ -122,9 +137,14 @@ export class AfterSaleRewardService {
                   },
                   data: { balance: { decrement: ledger.amount } },
                 });
+                if (debit.count === 0) {
+                  throw new Error(
+                    `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
+                  );
+                }
               } else if (originalStatus === 'FROZEN') {
                 // FROZEN：已计入账户 frozen，需扣减
-                await tx.rewardAccount.updateMany({
+                const debit = await tx.rewardAccount.updateMany({
                   where: {
                     userId: ledger.userId,
                     type: accountType,
@@ -132,6 +152,11 @@ export class AfterSaleRewardService {
                   },
                   data: { frozen: { decrement: ledger.amount } },
                 });
+                if (debit.count === 0) {
+                  throw new Error(
+                    `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
+                  );
+                }
               }
               // RETURN_FROZEN：未计入账户余额，无需扣减
 
@@ -145,14 +170,21 @@ export class AfterSaleRewardService {
                   status: 'AVAILABLE',
                   refType: 'AFTER_SALE',
                   refId: orderId,
-                  meta: {
-                    scheme: 'AFTER_SALE_VOID',
-                    originalUserId: ledger.userId,
-                    originalLedgerId: ledger.id,
-                    originalStatus,
-                    originalScheme: scheme,
-                    reason: '售后成功，奖励归平台',
-                  },
+                  meta: isVipDirectReferral
+                    ? this.buildVipDirectReferralVoidMeta(
+                        ledger,
+                        orderId,
+                        originalStatus,
+                        scheme,
+                      )
+                    : {
+                        scheme: 'AFTER_SALE_VOID',
+                        originalUserId: ledger.userId,
+                        originalLedgerId: ledger.id,
+                        originalStatus,
+                        originalScheme: scheme,
+                        reason: '售后成功，奖励归平台',
+                      },
                 },
               });
 
@@ -188,6 +220,36 @@ export class AfterSaleRewardService {
         throw err;
       }
     }
+  }
+
+  private buildVipDirectReferralVoidMeta(
+    ledger: any,
+    orderId: string,
+    originalStatus: string,
+    originalScheme: string,
+  ) {
+    const sourceMeta = (ledger.meta ?? {}) as Record<string, any>;
+    const meta: Record<string, any> = {
+      scheme: 'VIP_DIRECT_REFERRAL_VOID',
+      originalScheme,
+      accountType: 'PLATFORM_PROFIT',
+      routedToPlatform: true,
+      originalUserId: ledger.userId,
+      originalReceiverUserId: ledger.userId,
+      originalLedgerId: ledger.id,
+      originalStatus,
+      sourceOrderId: sourceMeta.sourceOrderId ?? orderId,
+      voidSource: 'AFTER_SALE_SUCCESS',
+      reason: '售后成功，VIP直推佣金归平台',
+    };
+
+    for (const key of VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
+      if (sourceMeta[key] !== undefined) {
+        meta[key] = sourceMeta[key];
+      }
+    }
+
+    return meta;
   }
 
   /**

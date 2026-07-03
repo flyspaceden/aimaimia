@@ -11,6 +11,7 @@ import { NormalUpstreamService } from './engine/normal-upstream.service';
 import { NormalPlatformSplitService } from './engine/normal-platform-split.service';
 import { VipPlatformSplitService } from './engine/vip-platform-split.service';
 import { FreezeExpireService } from './engine/freeze-expire.service';
+import { VipDirectReferralCommissionService } from './engine/vip-direct-referral-commission.service';
 import { VipActivationRetryService } from './vip-activation-retry.service';
 import { CouponModule } from '../coupon/coupon.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
@@ -33,11 +34,19 @@ import { WithdrawRulesService } from './withdraw-rules.service';
     NormalUpstreamService,
     NormalPlatformSplitService,
     VipPlatformSplitService,
+    VipDirectReferralCommissionService,
     FreezeExpireService,
     VipActivationRetryService,
     WithdrawRulesService,
     WithdrawPayoutService,
   ],
-  exports: [BonusConfigService, BonusAllocationService, BonusService, WithdrawRulesService, WithdrawPayoutService],
+  exports: [
+    BonusConfigService,
+    BonusAllocationService,
+    BonusService,
+    VipDirectReferralCommissionService,
+    WithdrawRulesService,
+    WithdrawPayoutService,
+  ],
 })
 export class BonusModule {}

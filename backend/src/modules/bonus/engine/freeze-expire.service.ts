@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from './bonus-config.service';
 import { PLATFORM_USER_ID, getAccountTypeForLedger, type RewardAccountTypeStr } from './constants';
+import { ACTIVE_STATUSES, SUCCESS_STATUSES } from '../../after-sale/after-sale.constants';
+import { NotificationService } from '../../notification/notification.service';
 
 /**
  * 这些账户类型不走"FROZEN 等解锁"二段冻结，RETURN_FROZEN 一过退货窗口期就直接 AVAILABLE。
@@ -16,8 +18,6 @@ const NO_FURTHER_LOCK_TYPES: ReadonlySet<RewardAccountTypeStr> = new Set([
   'RESERVE_FUND',
   'PLATFORM_PROFIT',
 ]);
-import { ACTIVE_STATUSES } from '../../after-sale/after-sale.constants';
-import { NotificationService } from '../../notification/notification.service';
 
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
@@ -66,6 +66,7 @@ export class FreezeExpireService {
         AND meta IS NOT NULL
         AND (meta->>'expiresAt') IS NOT NULL
         AND (meta->>'expiresAt')::timestamp <= NOW()
+        AND COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'
         AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;
@@ -80,6 +81,7 @@ export class FreezeExpireService {
         AND "entryType" = 'FREEZE'
         AND (meta IS NULL OR (meta->>'expiresAt') IS NULL)
         AND "createdAt" <= NOW() - MAKE_INTERVAL(days => ${maxFreezeDays}::int)
+        AND COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'
         AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;
@@ -190,6 +192,90 @@ export class FreezeExpireService {
 
     this.logger.log(
       `售后保护冻结检查完成：转换 ${successCount}，跳过(有活跃售后) ${skipCount}，失败 ${failCount}`,
+    );
+  }
+
+  /**
+   * 每 10 分钟检查 VIP 直推佣金 FROZEN → AVAILABLE。
+   *
+   * 直推佣金付款后立即冻结，必须等订单确认收货且退货窗口结束后，
+   * 且没有成功售后，才释放给直推人。
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async handleVipDirectReferralRelease(): Promise<void> {
+    this.logger.log('开始检查 VIP 直推佣金冻结释放...');
+
+    const candidates: Array<{
+      id: string;
+      userId: string;
+      accountId: string;
+      amount: number;
+      meta: any;
+      refId: string;
+    }> = await this.prisma.$queryRaw`
+      SELECT rl.id, rl."userId", rl."accountId", rl.amount, rl.meta, rl."refId"
+      FROM "RewardLedger" rl
+      JOIN "Order" o ON rl."refId" = o.id
+      WHERE rl.status = 'FROZEN'
+        AND rl."entryType" = 'FREEZE'
+        AND rl."refType" = 'ORDER'
+        AND rl.meta->>'scheme' = 'VIP_DIRECT_REFERRAL'
+        AND o.status = 'RECEIVED'
+        AND o."returnWindowExpiresAt" IS NOT NULL
+        AND o."returnWindowExpiresAt" < NOW()
+      LIMIT ${BATCH_SIZE}
+    `;
+
+    if (candidates.length === 0) {
+      this.logger.log('无需释放的 VIP 直推佣金');
+      return;
+    }
+
+    const orderIds = [...new Set(candidates.map((candidate) => candidate.refId))];
+    const afterSales = await this.prisma.afterSaleRequest.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { orderId: true, status: true },
+    });
+
+    const statusesByOrder = new Map<string, string[]>();
+    for (const row of afterSales) {
+      const list = statusesByOrder.get(row.orderId) ?? [];
+      list.push(row.status);
+      statusesByOrder.set(row.orderId, list);
+    }
+
+    const activeStatuses = new Set<string>([...ACTIVE_STATUSES]);
+    const successStatuses = new Set<string>([...SUCCESS_STATUSES]);
+    let released = 0;
+    let voided = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const candidate of candidates) {
+      const statuses = statusesByOrder.get(candidate.refId) ?? [];
+      if (statuses.some((status) => activeStatuses.has(status))) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        if (statuses.some((status) => successStatuses.has(status))) {
+          await this.voidVipDirectReferralLedgerToPlatform(candidate);
+          voided++;
+        } else {
+          await this.releaseVipDirectReferralLedger(candidate);
+          released++;
+        }
+      } catch (err) {
+        failed++;
+        this.logger.error(
+          `VIP直推佣金释放处理失败：ledgerId=${candidate.id}, error=${(err as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `VIP直推佣金冻结释放完成：释放 ${released}，作废 ${voided}，跳过 ${skipped}，失败 ${failed}`,
     );
   }
 
@@ -344,6 +430,164 @@ export class FreezeExpireService {
             amount: ledger.amount,
           },
         }, tx as any);
+      },
+      {
+        timeout: 10000,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
+  }
+
+  private async releaseVipDirectReferralLedger(
+    ledger: { id: string; userId: string; accountId: string; amount: number; meta: any; refId: string },
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: ledger.refId },
+          select: { status: true, returnWindowExpiresAt: true },
+        });
+        const now = new Date();
+        if (
+          !order ||
+          order.status !== 'RECEIVED' ||
+          !order.returnWindowExpiresAt ||
+          order.returnWindowExpiresAt >= now
+        ) {
+          this.logger.log(`VIP直推佣金 ${ledger.id} 订单状态或退货窗口未满足释放条件，跳过`);
+          return;
+        }
+
+        const afterSales = await tx.afterSaleRequest.findMany({
+          where: { orderId: ledger.refId },
+          select: { status: true },
+        });
+        const activeStatuses = new Set<string>([...ACTIVE_STATUSES]);
+        const successStatuses = new Set<string>([...SUCCESS_STATUSES]);
+        if (
+          afterSales.some((row) => activeStatuses.has(row.status)) ||
+          afterSales.some((row) => successStatuses.has(row.status))
+        ) {
+          this.logger.log(`VIP直推佣金 ${ledger.id} 事务内发现活跃/成功售后，跳过释放`);
+          return;
+        }
+
+        const nextMeta = {
+          ...(ledger.meta ?? {}),
+          releasedAt: now.toISOString(),
+          releaseReason: 'RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
+        };
+
+        const cas = await tx.rewardLedger.updateMany({
+          where: {
+            id: ledger.id,
+            status: 'FROZEN',
+            entryType: 'FREEZE',
+          },
+          data: {
+            status: 'AVAILABLE',
+            entryType: 'RELEASE',
+            meta: nextMeta,
+          },
+        });
+
+        if (cas.count === 0) {
+          this.logger.log(`VIP直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过释放`);
+          return;
+        }
+
+        const accountCas = await tx.rewardAccount.updateMany({
+          where: { id: ledger.accountId, frozen: { gte: ledger.amount } },
+          data: {
+            frozen: { decrement: ledger.amount },
+            balance: { increment: ledger.amount },
+          },
+        });
+
+        if (accountCas.count === 0) {
+          throw new Error(`VIP直推佣金释放账户冻结余额不足：accountId=${ledger.accountId}`);
+        }
+      },
+      {
+        timeout: 10000,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
+  }
+
+  private async voidVipDirectReferralLedgerToPlatform(
+    ledger: { id: string; userId: string; accountId: string; amount: number; meta: any; refId: string },
+  ): Promise<void> {
+    const nextMeta = {
+      ...(ledger.meta ?? {}),
+      voidedAt: new Date().toISOString(),
+      voidReason: 'SUCCESS_AFTER_SALE_BACKSTOP',
+    };
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        const cas = await tx.rewardLedger.updateMany({
+          where: {
+            id: ledger.id,
+            status: 'FROZEN',
+            entryType: 'FREEZE',
+          },
+          data: {
+            status: 'VOIDED',
+            entryType: 'VOID',
+            meta: nextMeta,
+          },
+        });
+
+        if (cas.count === 0) {
+          this.logger.log(`VIP直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过作废`);
+          return;
+        }
+
+        const accountCas = await tx.rewardAccount.updateMany({
+          where: { id: ledger.accountId, frozen: { gte: ledger.amount } },
+          data: { frozen: { decrement: ledger.amount } },
+        });
+        if (accountCas.count === 0) {
+          throw new Error(`VIP直推佣金作废账户冻结余额不足：accountId=${ledger.accountId}`);
+        }
+
+        let platformAccount = await tx.rewardAccount.findUnique({
+          where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
+        });
+        if (!platformAccount) {
+          platformAccount = await tx.rewardAccount.create({
+            data: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' },
+          });
+        }
+
+        await tx.rewardLedger.create({
+          data: {
+            accountId: platformAccount.id,
+            userId: PLATFORM_USER_ID,
+            entryType: 'RELEASE',
+            amount: ledger.amount,
+            status: 'AVAILABLE',
+            refType: 'AFTER_SALE',
+            refId: ledger.refId,
+            meta: {
+              scheme: 'VIP_DIRECT_REFERRAL_VOID',
+              originalScheme: 'VIP_DIRECT_REFERRAL',
+              accountType: 'PLATFORM_PROFIT',
+              routedToPlatform: true,
+              originalLedgerId: ledger.id,
+              originalReceiverUserId: ledger.userId,
+              sourceOrderId: ledger.refId,
+              voidSource: 'SUCCESS_AFTER_SALE_BACKSTOP',
+              reason: '售后成功兜底作废，VIP直推佣金归平台',
+            },
+          },
+        });
+
+        await tx.rewardAccount.update({
+          where: { id: platformAccount.id },
+          data: { balance: { increment: ledger.amount } },
+        });
       },
       {
         timeout: 10000,
