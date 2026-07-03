@@ -49,7 +49,7 @@
 - 若奖励接收者为系统根节点 → 该奖励归平台
 - 用户成为VIP后，其普通树位置保留但不再接收新奖励，普通树消费计数冻结
 
-**利润分配流（普通用户与VIP用户均使用六分结构，各自独立配比）**：
+**利润分配流（普通用户六分、VIP用户七分，各自独立配比）**：
 ```
 售价 = 成本 × 1.3（自动定价）
 订单利润 = Σ(unitPrice - cost) × quantity（逐商品项计算，利润≤0的不参与）
@@ -61,6 +61,15 @@
 ├── 8%  → 慈善基金
 ├── 8%  → 科技基金
 └── 2%  → 备用金
+
+利润分配（VIP用户，生产兼容默认）：
+├── 50% → 平台利润账户
+├── 30% → 上溯奖励池 → 通过VIP树分配给第k个祖辈（无合格接收者则归平台）
+├── 0%  → 直推佣金 → 支付成功即冻结给直系推荐人（推荐运营模板为5%，同时上溯奖励调为25%）
+├── 10% → 产业基金 → 对应商品的卖家公司
+├── 2%  → 慈善基金
+├── 2%  → 科技基金
+└── 6%  → 备用金
 ```
 
 ---
@@ -79,10 +88,10 @@
 | D8 | 奖励发放时机 | 确认收货时（与现有VIP系统一致） | 无退款风险，确认收货=最终状态 |
 | D9 | 卖家自动定价 | 卖家设SKU成本，系统按 `cost × markupRate`（默认1.3）自动算售价 | 统一利润率，简化卖家操作 |
 | D10 | 运费体系 | 平台统一运费规则（替代原商户独立 ShippingTemplate），按顺丰风格"地区 + 首重 + 续重"公式计价；买家满额包邮，多商户订单整单一次计费；顺丰真实成本写入 `OrderShippingCost` 对账 | 平台统一管控买家侧运费价格，同时保留顺丰月结成本核算 |
-| D11 | VIP利润公式 | **与普通用户统一为六分结构**，VIP默认50/30/10/2/2/6（平台/奖励/产业基金/慈善/科技/备用金） | 100%利润显式分配，消除隐性平台收入，两套系统结构统一但配比独立 |
+| D11 | VIP利润公式 | **VIP使用七分结构**，生产兼容默认50/30/0/10/2/2/6（平台/上溯奖励/直推佣金/产业基金/慈善/科技/备用金），运营推荐模板50/25/5/10/2/2/6 | 100%利润显式分配；直推佣金用于鼓励直接推荐，不是额外补贴，两套系统结构相近但配比独立 |
 | D12 | 卖家收入 | 卖家总收入 = 成本回收 + 利润×16%产业基金 ≈ 成本×1.048 | 产业基金给对应商品的具体卖家，非统一资金池 |
 | D13 | 根节点奖励处理 | 分配到系统根节点的奖励**直接归平台**，不走冻结→过期流程 | 根节点无法消费，走冻结流程无意义 |
-| D14 | VIP冻结过期 | VIP系统**新增冻结过期机制**（VIP_FREEZE_DAYS，独立配置，默认30天） | 现有VIP冻结奖励无过期，需与普通系统对齐，但天数独立 |
+| D14 | VIP上溯冻结过期 | VIP系统**新增上溯冻结过期机制**（VIP_FREEZE_DAYS，独立配置，默认30天） | 现有VIP上溯冻结奖励无过期，需与普通系统对齐；VIP直推佣金不按该天数过期 |
 | D15 | 订单流程 | **付款后才创建订单**：引入 CheckoutSession 中间态，支付回调中原子建单 | 消除 PENDING_PAYMENT 状态，避免库存预扣竞态。详见 `new-features-design.md` §1 |
 | D16 | 赠品锁定 | THRESHOLD_GIFT 入购物车为锁定状态，按勾选非奖品商品总额实时解锁 | CartItem 新增 isLocked/threshold/isSelected 字段。详见 `new-features-design.md` §2 |
 | D17 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，混合清理（访问时+定时任务） | LotteryPrize 新增 expirationHours，CartItem 新增 expiresAt。详见 `new-features-design.md` §3 |
@@ -102,7 +111,7 @@
 | NormalTreeNode / NormalProgress / NormalEligibleOrder 模型 | 全新数据结构，独立于VIP |
 | 轮询平衡插入算法 | VIP用推荐人子树内“层级优先 + 当前层最空节点”落位，普通树用全局轮询平衡（完全不同的算法） |
 | normal-upstream.service.ts | 普通树分配引擎（参考但独立于 vip-upstream） |
-| 利润六分公式 | 普通用户（50/16/16/8/8/2）和VIP用户（50/30/10/2/2/6）均使用六分结构，各自独立配比 |
+| 利润分配公式 | 普通用户使用六分（50/16/16/8/8/2），VIP用户使用七分（生产兼容默认50/30/0/10/2/2/6，运营推荐50/25/5/10/2/2/6），各自独立配比 |
 | NORMAL_RED_PACKET 账户类型 | 新账户类型，VIP继续用 RED_PACKET |
 | NORMAL_* 系列 RuleConfig 配置键 | 独立参数空间 |
 | 管理后台-普通树配置/查看器 | 新增页面 |
@@ -113,9 +122,9 @@
 
 | 改动 | 说明 |
 |------|------|
-| **冻结奖励过期机制** | 现有VIP冻结奖励**无过期**。需新增：VIP_FREEZE_DAYS（独立配置，默认30天），过期后VOID归平台 |
+| **冻结奖励过期机制** | 现有VIP上溯冻结奖励**无过期**。需新增：VIP_FREEZE_DAYS（独立配置，默认30天），过期后VOID归平台；VIP直推佣金不按该天数过期 |
 | **vip-upstream.service.ts** | 创建 FROZEN ledger 时写入 `meta.expiresAt = now + VIP_FREEZE_DAYS` |
-| **FreezeExpireService Cron** | 统一处理两个系统的冻结过期，分别按各自 FREEZE_DAYS 计算 |
+| **FreezeExpireService Cron** | 统一处理普通系统和VIP上溯冻结奖励过期，分别按各自 FREEZE_DAYS 计算；VIP直推佣金走收货+售后期专用释放 |
 | **purchaseVip() 流程** | 新增：冻结用户的 NormalProgress（设 frozenAt），确保后续消费不再走普通树 |
 | **bonus-allocation.service.ts 路由决策** | 新增 NORMAL_TREE 分支，替代 NORMAL_BROADCAST |
 
@@ -359,6 +368,7 @@ enum AllocationRuleType {
   NORMAL_BROADCAST    // 将废弃
   NORMAL_TREE         // 新增：普通用户树分配
   VIP_UPSTREAM
+  VIP_DIRECT_REFERRAL // 新增：VIP直推佣金，支付成功即冻结，售后期结束后释放
   PLATFORM_SPLIT
   ZERO_PROFIT
 }
@@ -759,9 +769,9 @@ enum RewardEntryStatus {
 
 | Cron Job | 频率 | 职责 |
 |----------|------|------|
-| `FreezeExpireService` | 每小时 | 扫描**两个系统**的过期冻结奖励：NORMAL_RED_PACKET 按 NORMAL_FREEZE_DAYS 过期，RED_PACKET（VIP）按 VIP_FREEZE_DAYS 过期。VOID 并转入 PLATFORM_PROFIT |
+| `FreezeExpireService` | 每小时 | 扫描**两个系统**的过期冻结奖励：NORMAL_RED_PACKET 按 NORMAL_FREEZE_DAYS 过期，普通 VIP 上溯冻结奖励按 VIP_FREEZE_DAYS 过期。VOID 并转入 PLATFORM_PROFIT；`VIP_DIRECT_REFERRAL` 不进入通用过期扫描，只由专用“收货+售后期结束”流程释放或作废 |
 
-> **VIP系统变更**：现有VIP冻结奖励无过期机制。此 Cron Job 同时处理VIP冻结奖励的过期，是对VIP系统的新增功能。需修改 `vip-upstream.service.ts` 在创建 FROZEN ledger 时写入 `meta.expiresAt`。
+> **VIP系统变更**：现有VIP上溯冻结奖励无过期机制。此 Cron Job 同时处理VIP上溯冻结奖励的过期，是对VIP系统的新增功能。需修改 `vip-upstream.service.ts` 在创建 FROZEN ledger 时写入 `meta.expiresAt`。VIP直推佣金虽同样先进入冻结钱包，但不是按 VIP_FREEZE_DAYS 过期，而是按订单收货和售后窗口闭环释放。
 
 ### 4.4 废弃服务
 
@@ -967,7 +977,8 @@ enum RewardEntryStatus {
 - **奖励过期处理（两个系统）**：Cron每小时扫描，分别按 NORMAL_FREEZE_DAYS 和 VIP_FREEZE_DAYS 处理过期冻结奖励，VOID 并转入 PLATFORM_PROFIT
 - **VIP冻结新增expiresAt**：修改 vip-upstream.service.ts，FROZEN 状态的 RewardLedger 在 meta 中写入 expiresAt
 - **概率完整性**：管理后台保存奖池时，强制校验所有 isActive 奖品的 probability 总和 = 100
-- **利润公式隔离**：普通用户订单走六分公式（NORMAL_*配置），VIP用户订单也走六分公式（VIP_*配置，默认50/30/10/2/2/6），allocateForOrder 根据用户身份选择对应配比
+- **利润公式隔离**：普通用户订单走六分公式（NORMAL_*配置），VIP用户订单走七分公式（VIP_*配置，生产兼容默认50/30/0/10/2/2/6，运营推荐50/25/5/10/2/2/6），allocateForOrder 根据用户身份选择对应配比
+- **VIP直推佣金生命周期**：普通商品支付成功时写 `VIP_DIRECT_REFERRAL` 冻结流水；确认收货后仍保持冻结；售后期结束且无有效/成功售后后释放；取消、退款、退货或换货成功则作废。该流水必须从通用冻结过期Cron中排除，只能由“收货+售后期结束”逻辑释放。
 
 ### 8.4 审计新增隐患（2026-02-28）更新
 
@@ -1376,9 +1387,9 @@ enum RewardEntryStatus {
 3. ✅ `bonus-allocation.service.ts` — 路由决策增加 NORMAL_TREE
 4. ✅ `reward-calculator.service.ts` — 普通用户利润计算公式
 5. ✅ `bonus.service.ts` — 轮询平衡插入算法、首次收货入树逻辑
-6. ✅ `FreezeExpireService` — 冻结奖励过期定时任务（同时处理普通和VIP两个系统）
-7. ✅ **VIP冻结过期改造** — 修改 `vip-upstream.service.ts`：FROZEN ledger 写入 `meta.expiresAt`
-8. ✅ 单元测试：树插入、分配路由、解锁逻辑、过期处理（含VIP过期新逻辑）
+6. ✅ `FreezeExpireService` — 冻结奖励过期定时任务（处理普通和VIP上溯冻结奖励；VIP直推佣金另走收货+售后期释放）
+7. ✅ **VIP上溯冻结过期改造** — 修改 `vip-upstream.service.ts`：FROZEN ledger 写入 `meta.expiresAt`
+8. ✅ 单元测试：树插入、分配路由、解锁逻辑、过期处理（含VIP上溯过期新逻辑）
 
 ### Phase C：抽奖系统（后端+前端） — 后端 ✅ / 前端 ✅
 
@@ -1569,8 +1580,8 @@ enum RewardEntryStatus {
                                                         ↙            ↘
                                                   [是VIP]         [非VIP]
                                                      ↓                ↓
-                                          [VIP六分公式          [普通六分公式]
-                                           50/30/10/2/2/6]    [50/16/16/8/8/2]
+                                          [VIP七分公式          [普通六分公式]
+                                           50/30/0/10/2/2/6]  [50/16/16/8/8/2]
                                                      ↓                ↓
                                           [VIP树分配]         [普通树分配]
                                           [k→第k祖辈]        [k→第k祖辈]
@@ -1591,7 +1602,7 @@ enum RewardEntryStatus {
 | 奖励钱包双账户 | getWallet/requestWithdraw 仅查 RED_PACKET，遗漏 NORMAL_RED_PACKET | getWallet 返回合并+分账户明细；requestWithdraw 支持 accountType 参数，自动选择余额充足账户 | ✅ |
 | 奖品项利润膨胀 | isPrize=true 的 OrderItem 参与分润计算导致利润池虚增 | bonus-allocation.service.ts 过滤 isPrize=true 项后再计算利润 | ✅ |
 | 订单状态计数遗漏换货 | getStatusCounts 仅计 REFUNDED 为售后，getLatestIssue 仅查退款 | 两个方法均改为联查 ReplacementRequest（活跃状态），换货订单计入 afterSale | ✅ |
-| VIP冻结奖励无过期 | 旧VIP冻结奖励 meta 无 expiresAt，FreezeExpireService SQL 过滤掉 | 新增第二条 SQL 查询：无 expiresAt 的冻结奖励按 createdAt + maxFreezeDays 判断过期 | ✅ |
+| VIP上溯冻结奖励无过期 | 旧VIP上溯冻结奖励 meta 无 expiresAt，FreezeExpireService SQL 过滤掉 | 新增第二条 SQL 查询：无 expiresAt 的上溯冻结奖励按 createdAt + maxFreezeDays 判断过期；VIP_DIRECT_REFERRAL 继续排除 | ✅ |
 | NORMAL_BROADCAST 解锁遗漏 | unlockFrozenRewards 仅匹配 NORMAL_TREE，旧 NORMAL_BROADCAST 冻结奖励永远无法解锁 | 解锁过滤和过期路由统一使用 NORMAL_SCHEMES 常量（含 NORMAL_TREE + NORMAL_BROADCAST） | ✅ |
 | getAvailableRedPacks 缺普通来源 | sourceMap 无 NORMAL_TREE/NORMAL_BROADCAST，查询只从单账户 | 查询改为联查两类账户，sourceMap 新增普通来源映射 | ✅ |
 | 买家购物车双轨 | 后端 `CartItem`（含奖品锁定/过期）与前端本地 Zustand 购物车并存 | 买家端已改为服务端购物车主链路，乐观更新+失败回滚 | ✅ 已修复 |

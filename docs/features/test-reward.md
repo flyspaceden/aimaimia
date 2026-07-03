@@ -65,34 +65,38 @@
 - **最差情况**（奖励全部被提现）：平台可控 = 20.40元（利润的68%）
 - **确定性支出**：卖家产业基金 = 4.80元（利润的16%）
 
-### 2.2 VIP用户订单资金流（新六分结构）
+### 2.2 VIP用户订单资金流（七分结构）
 
 ```
-VIP用户订单资金流（新六分）：
+VIP用户订单资金流（七分）：
 用户支付：cost × markupRate × vipDiscountRate（元）
     │
     ├── 卖家收入：cost（成本回收）+ profit × vipIndustryFundPct（产业基金）
     │
     └── 平台可分配利润（profit = cost × (markupRate × vipDiscountRate - 1)）
-         ├── profit × 50%  → 平台利润      ← 可控
-         ├── profit × 30%  → 奖励池        ← 可能流出（提现）或回流（过期）
-         ├── profit × 10%  → 产业基金(卖家) ← 真实支出
-         ├── profit × 2%   → 慈善基金       ← 可控
-         ├── profit × 2%   → 科技基金       ← 可控
-         └── profit × 6%   → 备用金         ← 可控
+         ├── profit × 50%  → 平台利润        ← 可控
+         ├── profit × 30%  → 上溯奖励池      ← 生产兼容默认；推荐模板调为25%
+         ├── profit × 0%   → 直推佣金        ← 生产兼容默认；推荐模板调为5%，付款即冻结给直系推荐人
+         ├── profit × 10%  → 产业基金(卖家)  ← 真实支出
+         ├── profit × 2%   → 慈善基金         ← 可控
+         ├── profit × 2%   → 科技基金         ← 可控
+         └── profit × 6%   → 备用金           ← 可控
 
-默认配比：50% / 30% / 10% / 2% / 2% / 6%（总和=100%）
+生产兼容默认：50% / 30% / 0% / 10% / 2% / 2% / 6%（总和=100%）
+运营推荐模板：50% / 25% / 5% / 10% / 2% / 2% / 6%（总和=100%）
 ```
 
-> **变更说明**：VIP利润公式已从 rebatePool 两级分割（rebateRatio → 60%/37%/1%/2%）改为与普通用户结构一致的六分公式。
+> **变更说明**：VIP利润公式已从 rebatePool 两级分割（rebateRatio → 60%/37%/1%/2%）改为100%显式分配；2026-07-03 新增直推佣金比例。
 > 关键区别：旧公式下 `profit × (1 - rebateRatio)` 部分为隐性平台收入（未追踪），新公式 100% 利润显式分配。
+> 直推佣金是VIP利润七分中的一项，不是平台额外补贴；付款成功先进入推荐人钱包冻结，售后期结束且无有效/成功售后后才释放。
 
 **VIP订单单笔利润分析（cost=100元，markupRate=1.3，vipDiscountRate=0.95，profit=23.50元）：**
 
 | 池 | 金额 | 比例 | 属性 |
 |----|------|------|------|
 | 平台利润 | 11.75 | 50% | 可控 |
-| 奖励池 | 7.05 | 30% | 可能流出或回流 |
+| 上溯奖励池 | 7.05 | 30% | 可能流出或回流 |
+| 直推佣金 | 0.00 | 0% | 生产兼容默认；推荐模板为1.18元/5%，付款冻结、售后期后释放 |
 | 产业基金(卖家) | 2.35 | 10% | 真实支出 |
 | 慈善基金 | 0.47 | 2% | 可控 |
 | 科技基金 | 0.47 | 2% | 可控 |
@@ -158,6 +162,7 @@ VIP礼包售价：399元
 | 普通-备用金 | `NORMAL_RESERVE_PERCENT` | 0.02 | 0.00 ~ 0.05 | 可控 |
 | VIP-平台分成 | `VIP_PLATFORM_PERCENT` | 0.50 | 0.30 ~ 0.60 | VIP平台确定性收入 |
 | VIP-奖励比例 | `VIP_REWARD_PERCENT` | 0.30 | 0.10 ~ 0.40 | VIP潜在流出量 |
+| VIP-直推佣金 | `VIP_DIRECT_REFERRAL_PERCENT` | 0.00 | 0.00 ~ 0.10 | 直系推荐人持续佣金；推荐模板为0.05，同时将VIP奖励比例调为0.25 |
 | VIP-产业基金 | `VIP_INDUSTRY_FUND_PERCENT` | 0.10 | 0.05 ~ 0.20 | VIP卖家真实支出 |
 | VIP-慈善基金 | `VIP_CHARITY_PERCENT` | 0.02 | 0.00 ~ 0.10 | 可控 |
 | VIP-科技基金 | `VIP_TECH_PERCENT` | 0.02 | 0.00 ~ 0.10 | 可控 |
@@ -173,7 +178,7 @@ VIP礼包售价：399元
 | 普通奖励有效期 | `NORMAL_REWARD_EXPIRY_DAYS` | 30 | 15 ~ 60 | AVAILABLE后的二次过期天数 |
 | 运营成本比例 | 模型参数 | 0.05 | 0.03 ~ 0.15 | 总营收的百分比 |
 
-> **约束**：普通系统和VIP系统的六分比例之和均必须 = 100%
+> **约束**：普通系统六分比例之和必须 = 100%；VIP系统七分比例之和必须 = 100%。
 
 ### 3.2 市场行为参数（不可控，需假设）
 
@@ -205,10 +210,10 @@ VIP礼包售价：399元
 
 | # | 变量 | 说明 | 影响 | 建模方式 |
 |---|------|------|------|---------|
-| M1 | **VIP折扣率** | 代码中 `vipDiscountRate=0.95`，VIP用户购物打95折。VIP售价 = cost × markup × 0.95，利润直接减少 | VIP每单利润缩水5%，六分结构下所有池均按缩减后利润计算 | 第一层纳入：`vip_profit = cost × (markup × discountRate - 1)` |
+| M1 | **VIP折扣率** | 代码中 `vipDiscountRate=0.95`，VIP用户购物打95折。VIP售价 = cost × markup × 0.95，利润直接减少 | VIP每单利润缩水5%，七分结构下所有池均按缩减后利润计算 | 第一层纳入：`vip_profit = cost × (markup × discountRate - 1)` |
 | M2 | **AVAILABLE过期（二次过期）** | 奖励解锁为AVAILABLE后，仍有有效期（`rewardExpiryDays=30`天）。超期未提现/未使用 → 归平台 | **进一步降低实际流出率**。相当于在冻结过期之上再加一层过滤，对平台有利 | 第一层：`实际流出 = 奖励池 × 解锁率 × 可用留存率 × 提现率`。第二层：仿真中AVAILABLE状态也检查过期 |
 | M3 | **用户流失率（churn）** | 用户停止使用平台：不再购买，不再提现。其冻结奖励到期归平台，可用余额到期也归平台 | 流失用户 = 平台的隐性收入来源。流失率越高，奖励流出越低 | 第二层：每月一定比例用户标记为inactive，停止购买和提现 |
-| M4 | **VIP出局后的纯利润效应** | VIP用户k>15后"出局"：后续所有订单的奖励部分全归平台，仍用VIP六分公式（奖励池30%归平台） | 长期运营后，出局VIP越来越多，这部分订单是**零奖励流出的纯利润**。是平台越来越赚钱的结构性因素 | 第二层：仿真中跟踪出局VIP用户数及其贡献 |
+| M4 | **VIP出局后的纯利润效应** | VIP用户k>15后"出局"：后续所有订单的上溯奖励部分全归平台，仍用VIP七分公式（生产兼容默认奖励池30%归平台；运营推荐模板为25%） | 长期运营后，出局VIP越来越多，这部分订单是**零上溯奖励流出的纯利润**。是平台越来越赚钱的结构性因素 | 第二层：仿真中跟踪出局VIP用户数及其贡献 |
 | M5 | **VIP推荐率** | 不是所有VIP都有推荐人。自然流量转化的VIP无推荐奖励支出 | 推荐率50% → 推荐奖励支出减半 | 第一层：`referral_cost = new_vips × referral_bonus × referral_rate` |
 | M6 | **抽奖系统净成本** | 抽奖奖品的经济影响：DISCOUNT_BUY（1元买100元货→平台亏损）、THRESHOLD_GIFT（满X送→额外成本）。且中奖订单进入分润系统时，奖品项被排除（isPrize=true），但非奖品项仍参与分润 | 抽奖是获客工具但有真实成本。高概率/高价值奖品 → 成本高 | 第一层：独立计算 `lottery_net_cost = daily_users × avg_prize_cost × win_rate`。第二层：仿真中模拟抽奖事件 |
 | M7 | **订单完成率** | 不是所有订单都到达RECEIVED状态。部分可能被取消、卡在物流、发起换货。只有RECEIVED的订单才触发分润 | 完成率90% → 实际触发分润的订单只有90% | 第一层：`effective_orders = orders × completion_rate` |
@@ -389,13 +394,14 @@ def calculate_monthly_pnl(params):
         * params.withdrawal_rate)
     reward_return_normal = reward_pool_normal - reward_outflow_normal  # 余下全部回流平台
 
-    # ── VIP系统月度（六分结构，与普通系统对称）──
+    # ── VIP系统月度（七分结构；直推佣金从原奖励池拆出，不是额外补贴）──
     effective_orders_vip = params.N_vip * params.freq * params.completion_rate  # M7
     # M1: VIP折扣率影响利润
     vip_sale_price = params.avg_cost * params.markup * params.vip_discount_rate
     profit_vip = effective_orders_vip * (vip_sale_price - params.avg_cost)
 
-    # VIP六分：50%平台/30%奖励/10%产业基金/2%慈善/2%科技/6%备用金
+    # VIP七分：50%平台/30%上溯奖励/0%直推佣金/10%产业基金/2%慈善/2%科技/6%备用金
+    # 运营推荐模板为 50/25/5/10/2/2/6
     platform_controlled_vip = profit_vip * (
         params.vip_platform_pct       # 50% 平台利润
         + params.vip_charity_pct      # 2% 慈善基金
@@ -404,6 +410,7 @@ def calculate_monthly_pnl(params):
     )
     seller_payout_vip = profit_vip * params.vip_industry_pct  # 10% 产业基金→卖家
     reward_pool_vip = profit_vip * params.vip_reward_pct      # 30% 奖励池
+    direct_commission_vip = profit_vip * params.vip_direct_referral_pct  # 直推佣金，付款冻结，售后期后释放
     available_retain_vip = 1 - (1 - params.withdrawal_rate) ** (params.vip_reward_expiry_days / 30)  # M2
     reward_outflow_vip = (reward_pool_vip
         * params.unlock_rate_vip
@@ -411,6 +418,11 @@ def calculate_monthly_pnl(params):
         * active_rate
         * params.withdrawal_rate)
     reward_return_vip = reward_pool_vip - reward_outflow_vip
+    direct_commission_outflow_vip = (direct_commission_vip
+        * available_retain_vip
+        * active_rate
+        * params.withdrawal_rate)
+    direct_commission_return_vip = direct_commission_vip - direct_commission_outflow_vip
 
     # M4: VIP出局纯利润（长期运营后的结构性利润增长）
     # 估算：每月出局VIP数 ≈ 活跃VIP × (freq/maxLayers)（到达15单的概率）
@@ -446,13 +458,14 @@ def calculate_monthly_pnl(params):
     # ── 月度净利润 ──
     net_profit = (
         platform_controlled_normal + reward_return_normal
-        + platform_controlled_vip + reward_return_vip
+        + platform_controlled_vip + reward_return_vip + direct_commission_return_vip
         + exited_vip_platform                          # M4: 出局VIP纯利润
         + vip_income
         - seller_payout
         - seller_payout_vip                            # VIP产业基金→卖家
         - reward_outflow_normal
         - reward_outflow_vip
+        - direct_commission_outflow_vip                # VIP直推佣金实际流出
         - referral_cost
         - lottery_monthly_cost                         # M6: 抽奖净成本
         - replacement_cost                             # M10: 换货成本
@@ -462,8 +475,10 @@ def calculate_monthly_pnl(params):
     return {
         'net_profit': net_profit,
         'net_margin': net_profit / total_revenue if total_revenue > 0 else 0,
-        'reward_outflow_total': reward_outflow_normal + reward_outflow_vip,
-        'reward_return_total': reward_return_normal + reward_return_vip,
+        'reward_outflow_total': reward_outflow_normal + reward_outflow_vip + direct_commission_outflow_vip,
+        'reward_return_total': reward_return_normal + reward_return_vip + direct_commission_return_vip,
+        'vip_direct_commission_outflow': direct_commission_outflow_vip,
+        'vip_direct_commission_return': direct_commission_return_vip,
         'platform_controlled': platform_controlled_normal + platform_controlled_vip,
         'seller_payout': seller_payout,
         'lottery_cost': lottery_monthly_cost,
@@ -492,9 +507,10 @@ params.completion_rate = 1.0        # 所有订单都完成
 
 此时公式简化为：
 ```python
-# 最坏情况：奖励池 100% 流出
+# 最坏情况：奖励池与直推佣金 100% 流出
 reward_outflow_normal = reward_pool_normal   # = profit_normal × rewardPct
 reward_outflow_vip = reward_pool_vip         # = profit_vip × vipRewardPct（默认30%）
+direct_commission_outflow_vip = direct_commission_vip  # = profit_vip × vipDirectReferralPct（生产默认0%，推荐模板5%）
 reward_return = 0                            # 无回流
 ```
 
@@ -513,6 +529,7 @@ reward_return = 0                            # 无回流
 | 扫描7 | maxLayers (8~20) | rewardPct (5%~30%) | 标准，freq=3 |
 | 扫描8 | branchFactor (2~5) | maxLayers (8~20) | 标准，颜色=奖励流出率 |
 | 扫描9 | 用户总量 (1k~1M) | maxLayers (8~20) | 标准，颜色=净利率 |
+| 扫描10 | VIP直推佣金比例 (0%~10%) | VIP奖励比例 (20%~30%) | 固定七项合计=100%，颜色=净利率/直推实际流出 |
 
 ### 5.3 第二层：时序仿真引擎
 
@@ -670,13 +687,15 @@ class RewardEngine:
         self.try_unlock_self(user)
 
     def process_vip_order(self, order, user, config):
-        """VIP用户订单奖励分配（六分结构，与普通系统对称）"""
+        """VIP用户订单奖励分配（七分结构；直推佣金在支付成功阶段先冻结）"""
         profit = order.price - order.cost
         if profit <= 0:
             return
 
-        # VIP六分：50%平台/30%奖励/10%产业基金/2%慈善/2%科技/6%备用金
+        # VIP七分：50%平台/30%上溯奖励/0%直推佣金/10%产业基金/2%慈善/2%科技/6%备用金
+        # 运营推荐模板：50%平台/25%上溯奖励/5%直推佣金/10%产业基金/2%慈善/2%科技/6%备用金
         reward   = profit * config.vip_reward_pct
+        direct   = profit * config.vip_direct_referral_pct
         platform = profit * config.vip_platform_pct
         industry = profit * config.vip_industry_pct
         charity  = profit * config.vip_charity_pct
@@ -685,6 +704,7 @@ class RewardEngine:
 
         self.ledger.credit('PLATFORM', platform + charity + tech + reserve)
         self.ledger.credit('SELLER_INDUSTRY', industry)
+        # direct 已在支付成功时以 FROZEN 写入直系推荐人钱包；确认收货不释放，售后期结束后单独释放。
 
         user.vip_purchase_count += 1
         k = user.vip_purchase_count
@@ -826,6 +846,7 @@ class WithdrawalProcessor:
 
 卖家产业基金支出         (xxx)       —         (xxx)
 奖励提现支出             (xxx)      (xxx)      (xxx)
+VIP直推佣金支出          —        (xxx)      (xxx)
 VIP礼包收入               —         xxx        xxx
 VIP推荐奖励支出            —        (xxx)      (xxx)
 冻结过期回流             +xxx       +xxx       +xxx
@@ -846,7 +867,7 @@ VIP推荐奖励支出            —        (xxx)      (xxx)
 
 ### 报表2：参数敏感性热力图
 
-6组二维参数扫描，每组输出一张热力图：
+10组二维参数扫描，每组输出一张热力图：
 
 | # | 横轴 | 纵轴 | 颜色 = 净利率 |
 |---|------|------|-------------|
@@ -856,6 +877,10 @@ VIP推荐奖励支出            —        (xxx)      (xxx)
 | 4 | 用户总量 (1k→1M, log) | VIP转化率 (3%→30%) | 同上 |
 | 5 | 冻结天数 (15→60) | 购买频率 (1→15次/月) | 同上 |
 | 6 | 最大层数 (8→20) | 购买频率 (1→15次/月) | 同上 |
+| 7 | 最大层数 (8→20) | 奖励比例 (5%→30%) | 同上 |
+| 8 | 叉数 (2→5) | 最大层数 (8→20) | 颜色=奖励流出率 |
+| 9 | 用户总量 (1k→1M, log) | 最大层数 (8→20) | 同上 |
+| 10 | VIP直推佣金比例 (0%→10%) | VIP奖励比例 (20%→30%) | 颜色=净利率/直推实际流出 |
 
 **每张热力图上叠加盈利边界线（净利润=0的等高线）。**
 

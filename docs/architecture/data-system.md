@@ -19,15 +19,17 @@
 
 ## 1. 奖励与会员体系：最终业务规则（已确认）
 
-### 1.1 利润分配公式（六分结构）
+### 1.1 利润分配公式（普通六分 / VIP七分）
 对每一笔订单：
 - profit = saleAmount - costAmount
 
 **普通用户六分（默认）**：50%平台 / 16%奖励 / 16%产业基金 / 8%慈善 / 8%科技 / 2%备用金
-**VIP用户六分（默认）**：50%平台 / 30%奖励 / 10%产业基金 / 2%慈善 / 2%科技 / 6%备用金
+**VIP用户七分（生产兼容默认）**：50%平台 / 30%上溯奖励 / 0%直推佣金 / 10%产业基金 / 2%慈善 / 2%科技 / 6%备用金
+**VIP用户七分（运营推荐模板）**：50%平台 / 25%上溯奖励 / 5%直推佣金 / 10%产业基金 / 2%慈善 / 2%科技 / 6%备用金
 
-> 必须落库：profit、splitRatios（六分配比快照）、ruleVersion 快照。
-> **历史兼容**：早期VIP订单使用旧公式（rebateRatio → rebatePool → 60%/37%/1%/2%），RewardAllocation.meta 中可能含 rebateRatio/rebatePool/rewardPool 字段，新订单使用 splitRatios 六分格式。
+> VIP直推佣金是从VIP利润七分比例里拆出的一项，不是平台额外补贴；管理后台保存时七项合计必须为100%。
+> 必须落库：profit、splitRatios（普通六分 / VIP七分配比快照）、ruleVersion 快照。
+> **历史兼容**：早期VIP订单使用旧公式（rebateRatio → rebatePool → 60%/37%/1%/2%），RewardAllocation.meta 中可能含 rebateRatio/rebatePool/rewardPool 字段；新订单使用普通六分 / VIP七分的 splitRatios 格式。
 
 ### 1.2 分流规则（关键）
 - VIP树体系：仅对 **VIP 用户且未出局** 生效（所有金额订单均参与）
@@ -920,10 +922,10 @@ Invoice
 - id (uuid, PK)
 - triggerType (enum: ORDER_PAID/ORDER_RECEIVED/REFUND)
 - orderId (uuid nullable FK Order)
-- ruleType (enum: NORMAL_BROADCAST(@deprecated)/NORMAL_TREE/VIP_UPSTREAM/PLATFORM_SPLIT/VIP_PLATFORM_SPLIT/ZERO_PROFIT) — 与 schema.prisma `AllocationRuleType` 严格对齐；2026-05-06 补 migration `20260506010000_add_vip_platform_split_allocation_rule` 修历史 init migration 漏 VIP_PLATFORM_SPLIT 的 bug
+- ruleType (enum: NORMAL_BROADCAST(@deprecated)/NORMAL_TREE/VIP_UPSTREAM/VIP_DIRECT_REFERRAL/PLATFORM_SPLIT/VIP_PLATFORM_SPLIT/ZERO_PROFIT) — 与 schema.prisma `AllocationRuleType` 严格对齐；2026-05-06 补 migration `20260506010000_add_vip_platform_split_allocation_rule` 修历史 init migration 漏 VIP_PLATFORM_SPLIT 的 bug
 - ruleVersion (text)
 - bucketKey (text nullable)
-- meta (jsonb) — 快照：profit/splitRatios/rewardAmount/x/vipIndex/ancestorUserId...（历史记录可能含旧字段 rebateRatio/rebatePool/rewardPool，向后兼容保留）
+- meta (jsonb) — 快照：profit/splitRatios/rewardAmount/directReferralAmount/x/vipIndex/ancestorUserId/directReferrerUserId...（历史记录可能含旧字段 rebateRatio/rebatePool/rewardPool，向后兼容保留）
 - idempotencyKey (text unique) — 强烈建议（比如 `ALLOC:ORDER_PAID:<orderId>:<ruleType>:<version>`)
 - createdAt
 
@@ -1098,7 +1100,7 @@ Invoice
 - VipActivationStatus: PENDING, ACTIVATING, SUCCESS, FAILED, RETRYING
 - RewardAccountType: RED_PACKET, NORMAL_RED_PACKET, POINTS, FUND_POOL, PLATFORM_PROFIT, INDUSTRY_FUND, CHARITY_FUND, TECH_FUND, RESERVE_FUND
 - AllocationTriggerType: ORDER_PAID, ORDER_RECEIVED, REFUND
-- AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, VIP_PLATFORM_SPLIT, PLATFORM_SPLIT, ZERO_PROFIT
+- AllocationRuleType: NORMAL_BROADCAST(@deprecated), NORMAL_TREE, VIP_UPSTREAM, VIP_DIRECT_REFERRAL, VIP_PLATFORM_SPLIT, PLATFORM_SPLIT, ZERO_PROFIT
 - RewardEntryType: FREEZE, RELEASE, WITHDRAW, VOID, ADJUST
 - RewardStatus: FROZEN, AVAILABLE, WITHDRAWN, VOIDED
 - DigitalAssetLedgerType: ORDER_RECEIVED, REFUND_REVERSAL, ADMIN_ADJUSTMENT, BACKFILL, CONSUMPTION_CONFIRMED, SELF_VIP_PURCHASE, REFERRAL_VIP_PURCHASE, HISTORICAL_CONSUMPTION_GRANT
@@ -1205,7 +1207,7 @@ Invoice
 - 微信登录：用 code 换 openId/unionId，查/建 User + 绑定 AuthIdentity(provider=WECHAT)
 - 允许绑定：同一 User 可同时绑定 PHONE + WECHAT
 - 支付/退款/物流回调：落 rawPayload（脱敏），以 providerTxnId/providerRefundId/事件唯一键幂等
-- 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算
+- 奖励发放：写 RewardAllocation（幂等）→ 写 RewardLedger（冻结）→ 签收释放/解锁释放 → 退款作废与重算；VIP直推佣金在普通商品支付成功时先写入直推推荐人钱包冻结，确认收货后仍冻结，售后期结束且无有效/成功售后后释放，取消、退款、退货或换货成功则作废。
 - 数字资产 V2：所有账户写入只通过 DigitalAssetService，在 Serializable 事务内按 idempotencyKey 写 DigitalAssetLedger，并同步 `cumulativeSpendAmount` / `seedAssetBalance` / `creditAssetBalance`；VIP 激活与数字资产发放和会员升阶共事务；确认收货只累计普通商品实付金额，退款/退货成功按快照扣回；退款已成功但扣回失败时写 `DigitalAssetRefundReversalFailure` 并由 cron 重试幂等扣回；历史回填先 dry-run 再执行；后台只允许对具体 subject 做审计可追踪调整，禁止直接改总额。
 - 团购分享回馈：团购购买走 GROUP_BUY CheckoutSession 和 GROUP_BUY Order；支付成功后创建 QUALIFICATION_PENDING 实例，确认收货且售后期结束无退换货后生成分享码；仅一级直接推荐订单成为 CANDIDATE，满足同样收货/售后条件后按档位释放到独立 GroupBuyRebateAccount。分享码名额、月度发起次数、返还释放、抵扣和提现均需幂等与 Serializable 保护。
 

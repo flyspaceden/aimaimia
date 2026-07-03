@@ -506,10 +506,17 @@ npm run start:dev
 ### 10.1 触发流程
 
 ```
+普通商品支付成功（VIP买家） → VipDirectReferralCommissionService.createFrozenForPaidOrder(orderId)
+  ├── 从 VIP 七分利润里的 VIP_DIRECT_REFERRAL_PERCENT 拆出直推佣金
+  ├── 有有效直系推荐人 → 写入推荐人 VIP_REWARD 钱包 FROZEN
+  ├── 无推荐人/推荐人不可收款 → 路由到 PLATFORM_PROFIT
+  ├── 确认收货后仍冻结，售后期结束且无有效/成功售后才释放
+  └── 取消、退款、退货或换货成功 → VOIDED/扣回并路由平台审计
+
 订单确认收货 → BonusAllocationService.allocateForOrder(orderId)
-  ├── RewardCalculator: profit → 六分结构拆分（VIP: 50/30/10/2/2/6 平台/奖励/产业基金/慈善/科技/备用金）
+  ├── RewardCalculator: profit → 普通六分 / VIP七分拆分（VIP生产兼容默认: 50/30/0/10/2/2/6）
   ├── 分流路由: VIP(金额≥100 + 未出局) → VipUpstream, 其他 → NormalBroadcast
-  ├── PlatformSplit: 按六分结构分配（奖励池用于上溯/广播，其余归平台各账户）
+  ├── PlatformSplit: 按利润结构分配（奖励池用于上溯/广播，直推佣金在支付成功阶段冻结，其余归平台各账户）
   └── 全部在 Prisma 事务中执行，幂等键防重复
 ```
 
@@ -532,6 +539,7 @@ npm run start:dev
 |----|--------|------|
 | VIP_PLATFORM_PERCENT | 0.50 | VIP 平台利润占利润比例 |
 | VIP_REWARD_PERCENT | 0.30 | VIP 奖励池占利润比例 |
+| VIP_DIRECT_REFERRAL_PERCENT | 0.00 | VIP 直推佣金占利润比例，生产兼容默认0；运营推荐模板为0.05，同时将 VIP_REWARD_PERCENT 调为0.25 |
 | VIP_INDUSTRY_PERCENT | 0.10 | VIP 产业基金占利润比例 |
 | VIP_CHARITY_PERCENT | 0.02 | VIP 慈善基金占利润比例 |
 | VIP_TECH_PERCENT | 0.02 | VIP 科技基金占利润比例 |
