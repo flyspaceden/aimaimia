@@ -2169,17 +2169,21 @@ export class OrderService {
         },
       });
 
+      const deductionRestore = await this.buildDeductionRefundRestoreParams(tx, {
+        refundId: refund.id,
+        order,
+        fallbackOrderId: id,
+        isFinalRefund: true,
+      });
+
+      await this.bonusAllocation.rollbackForOrder(id, tx);
+
       return {
         refundId: refund.id,
         refundAmount: order.totalAmount,
         merchantRefundNo: refund.merchantRefundNo,
         affectedCompanyIds: companyIds,
-        deductionRestore: await this.buildDeductionRefundRestoreParams(tx, {
-          refundId: refund.id,
-          order,
-          fallbackOrderId: id,
-          isFinalRefund: true,
-        }),
+        deductionRestore,
       };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -2440,6 +2444,10 @@ export class OrderService {
             fallbackOrderId: o.id,
           }),
         });
+      }
+
+      for (const refund of refunds) {
+        await this.bonusAllocation.rollbackForOrder(refund.orderId, tx);
       }
 
       return {

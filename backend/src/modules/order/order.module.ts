@@ -15,6 +15,7 @@ import { ShippingRuleService } from '../admin/shipping-rule/shipping-rule.servic
 import { CouponService } from '../coupon/coupon.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
 import { BonusService } from '../bonus/bonus.service';
+import { VipDirectReferralCommissionService } from '../bonus/engine/vip-direct-referral-commission.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
@@ -97,6 +98,16 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setBonusService(bonusService);
     } else {
       console.warn('[OrderModule] BonusService 未注入，VIP 支付后激活功能不可用');
+    }
+
+    const vipDirectReferralCommissionService = this.moduleRef.get(
+      VipDirectReferralCommissionService,
+      { strict: false },
+    );
+    if (vipDirectReferralCommissionService) {
+      this.checkoutService.setVipDirectReferralCommissionService(vipDirectReferralCommissionService);
+    } else {
+      throw new Error('[OrderModule] VipDirectReferralCommissionService 未注入，直推佣金冻结不可用，启动中止');
     }
 
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });

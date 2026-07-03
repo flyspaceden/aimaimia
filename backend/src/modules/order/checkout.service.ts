@@ -16,6 +16,7 @@ import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-de
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { CheckoutDto } from './checkout.dto';
 import { VipCheckoutDto } from './vip-checkout.dto';
+import { VipDirectReferralCommissionService } from '../bonus/engine/vip-direct-referral-commission.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 import { encryptJsonValue } from '../../common/security/encryption';
@@ -85,6 +86,7 @@ export class CheckoutService {
   // RewardDeductionService 通过 setter 注入，避免扩大构造函数循环依赖面
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
+  private vipDirectReferralCommissionService: VipDirectReferralCommissionService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private groupBuyRebateService: GroupBuyRebateService | null = null;
@@ -138,6 +140,10 @@ export class CheckoutService {
   /** 注入数字资产服务（普通商品付款后冻结消费资产） */
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setVipDirectReferralCommissionService(service: VipDirectReferralCommissionService) {
+    this.vipDirectReferralCommissionService = service;
   }
 
   /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -2028,6 +2034,16 @@ export class CheckoutService {
                   meta: { merchantOrderNo, providerTxnId },
                 },
               });
+
+              if (
+                sessionBizType === 'NORMAL_GOODS' &&
+                this.vipDirectReferralCommissionService
+              ) {
+                await this.vipDirectReferralCommissionService.createFrozenForPaidOrder(
+                  tx,
+                  order.id,
+                );
+              }
 
               createdOrderIds.push(order.id);
               companyOrderIdMap.set(group.companyId, order.id);

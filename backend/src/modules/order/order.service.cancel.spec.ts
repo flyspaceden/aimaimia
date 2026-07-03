@@ -5,6 +5,7 @@ describe('OrderService cancel PAID orders', () => {
   const makeService = () => {
     const bonusAllocation = {
       allocateForOrder: jest.fn(),
+      rollbackForOrder: jest.fn().mockResolvedValue(undefined),
     };
     const prisma = {
       order: {
@@ -232,6 +233,58 @@ describe('OrderService cancel PAID orders', () => {
     }));
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r1');
     expect(bonusAllocation.allocateForOrder).not.toHaveBeenCalled();
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenCalledWith('o1', initialTx);
+    expect(bonusAllocation.rollbackForOrder.mock.invocationCallOrder[0])
+      .toBeLessThan(paymentService.initiateRefund.mock.invocationCallOrder[0]);
+  });
+
+  it('PAID 未发货单订单取消如果分润回滚失败则拒绝且不发起外部退款', async () => {
+    const { service, prisma, bonusAllocation } = makeService();
+    const order = {
+      id: 'o1',
+      userId: 'u1',
+      status: 'PAID',
+      checkoutSessionId: 'cs1',
+      totalAmount: 65,
+      goodsAmount: 60,
+      discountAmount: 0,
+      items: [{ skuId: 'sku1', quantity: 2, companyId: 'c1' }],
+    };
+    const refund = {
+      id: 'r1',
+      merchantRefundNo: 'AUTO-CANCEL-o1',
+    };
+    const initialTx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: {
+        create: jest.fn().mockResolvedValue(refund),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    prisma.order.findUnique.mockResolvedValue(order);
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(initialTx));
+    bonusAllocation.rollbackForOrder.mockRejectedValueOnce(new Error('rollback failed'));
+    const paymentService = {
+      initiateRefund: jest.fn().mockResolvedValue({ success: true }),
+    };
+    service.setPaymentService(paymentService as any);
+
+    await expect(service.cancelOrder('o1', 'u1')).rejects.toThrow('rollback failed');
+
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenCalledWith('o1', initialTx);
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
   });
 
   it('PAID 未发货 bundle 单订单取消会回填组件库存而不是 bundle 售卖 SKU', async () => {
@@ -612,7 +665,7 @@ describe('OrderService cancel PAID orders', () => {
   });
 
   it('整 CheckoutSession 部分退款成功部分 pending 时不提前恢复平台红包', async () => {
-    const { service, prisma } = makeService();
+    const { service, prisma, bonusAllocation } = makeService();
     const orders = [
       {
         id: 'o-session-1',
@@ -709,6 +762,9 @@ describe('OrderService cancel PAID orders', () => {
 
     await (service as any).cancelEntireSessionUnshipped('cs-pending', 'u1');
 
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenCalledTimes(2);
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenNthCalledWith(1, 'o-session-1', initialTx);
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenNthCalledWith(2, 'o-session-2', initialTx);
     expect(finalTx1.refund.update).toHaveBeenCalledWith({
       where: { id: 'r-session-1' },
       data: { status: 'REFUNDED', providerRefundId: 'wx-session-refund-1' },
@@ -753,6 +809,72 @@ describe('OrderService cancel PAID orders', () => {
     }));
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledTimes(1);
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r-session-1');
+  });
+
+  it('整 session 未发货取消如果任一分润回滚失败则拒绝且不发起外部退款', async () => {
+    const { service, prisma, bonusAllocation } = makeService();
+    const orders = [
+      {
+        id: 'o-session-1',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-pending',
+        totalAmount: 30,
+        goodsAmount: 30,
+        discountAmount: 0,
+        items: [{ skuId: 'sku1', quantity: 1, companyId: 'company-1' }],
+      },
+      {
+        id: 'o-session-2',
+        userId: 'u1',
+        status: 'PAID',
+        checkoutSessionId: 'cs-pending',
+        totalAmount: 40,
+        goodsAmount: 40,
+        discountAmount: 0,
+        items: [{ skuId: 'sku2', quantity: 1, companyId: 'company-2' }],
+      },
+    ];
+    const initialTx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: { findUnique: jest.fn().mockResolvedValue(null) },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: {
+        create: jest.fn()
+          .mockResolvedValueOnce({
+            id: 'r-session-1',
+            merchantRefundNo: 'AUTO-CANCEL-o-session-1',
+          })
+          .mockResolvedValueOnce({
+            id: 'r-session-2',
+            merchantRefundNo: 'AUTO-CANCEL-o-session-2',
+          }),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    prisma.order.findMany.mockResolvedValue(orders);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(initialTx));
+    bonusAllocation.rollbackForOrder
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('rollback failed'));
+    const paymentService = {
+      initiateRefund: jest.fn().mockResolvedValue({ success: true }),
+    };
+    service.setPaymentService(paymentService as any);
+
+    await expect((service as any).cancelEntireSessionUnshipped('cs-pending', 'u1'))
+      .rejects.toThrow('rollback failed');
+
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenNthCalledWith(1, 'o-session-1', initialTx);
+    expect(bonusAllocation.rollbackForOrder).toHaveBeenNthCalledWith(2, 'o-session-2', initialTx);
+    expect(paymentService.initiateRefund).not.toHaveBeenCalled();
   });
 
   it('PAID bundle 整 session 取消会回填组件库存而不是 bundle 售卖 SKU', async () => {

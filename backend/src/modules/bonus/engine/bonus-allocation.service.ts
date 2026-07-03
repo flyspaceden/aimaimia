@@ -10,11 +10,21 @@ import { NormalUpstreamService } from './normal-upstream.service';
 import { NormalPlatformSplitService } from './normal-platform-split.service';
 import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderItemForNormalCalc, PoolCalculation, NormalPoolCalculation, VipPoolCalculation } from './reward-calculator.service';
 import { sanitizeErrorForLog } from '../../../common/logging/log-sanitizer';
-import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE } from './constants';
+import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE, PLATFORM_USER_ID } from './constants';
 import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
+const VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
+  'sourceUserId',
+  'directInviterUserId',
+  'profit',
+  'ratio',
+  'directReferralPool',
+  'platformReason',
+  'configSnapshot',
+  'releaseCondition',
+] as const;
 
 @Injectable()
 export class BonusAllocationService {
@@ -258,171 +268,30 @@ export class BonusAllocationService {
   /**
    * 退款回滚：作废该订单的所有分润记录
    */
-  async rollbackForOrder(orderId: string): Promise<void> {
+  async rollbackForOrder(orderId: string, tx?: any): Promise<void> {
     this.logger.log(`开始退款回滚：订单 ${orderId}`);
 
     const refundKey = `ALLOC:REFUND:${orderId}`;
 
+    if (tx) {
+      await this.rollbackForOrderInTransaction(tx, orderId, refundKey);
+      this.logger.log(`[AUDIT] 订单 ${orderId} 退款回滚完成`);
+      return;
+    }
+
     const MAX_ROLLBACK_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_ROLLBACK_RETRIES; attempt++) {
       try {
-        await this.prisma.$transaction(async (tx) => {
-        // C07修复：在事务内查询分配记录，避免 TOCTOU 竞态（事务外快照可能过期）
-        const allocations = await tx.rewardAllocation.findMany({
-          where: { orderId },
-          include: { ledgers: true },
-        });
-
-        if (allocations.length === 0) {
-          this.logger.log(`订单 ${orderId} 无分润记录，跳过回滚`);
-          return;
-        }
-
-        // 创建退款回滚的 RewardAllocation
-        await tx.rewardAllocation.create({
-          data: {
-            triggerType: 'REFUND',
-            orderId,
-            ruleType: 'NORMAL_BROADCAST', // 标识用，实际是回滚
-            ruleVersion: 'rollback',
-            meta: { rollbackAllocations: allocations.map((a) => a.id) },
-            idempotencyKey: refundKey,
+        await this.prisma.$transaction(
+          async (tx) => {
+            await this.rollbackForOrderInTransaction(tx, orderId, refundKey);
           },
-        });
-
-        // 批量作废 Ledger 并按 accountId 聚合回扣余额（替代双重嵌套循环）
-        const nonVoidedLedgers = allocations
-          .flatMap((a) => a.ledgers)
-          .filter((l: any) => l.status !== 'VOIDED');
-
-        if (nonVoidedLedgers.length > 0) {
-          // 仅回滚可逆状态（AVAILABLE/FROZEN/RETURN_FROZEN）。WITHDRAWN 不应出现（退款在奖励可提现之前）。
-          const reversibleLedgers = nonVoidedLedgers.filter((l: any) =>
-            l.status === 'AVAILABLE' || l.status === 'FROZEN' || l.status === 'RETURN_FROZEN',
-          );
-          const withdrawnLedgers = nonVoidedLedgers.filter((l: any) => l.status === 'WITHDRAWN');
-
-          // C09修复：WITHDRAWN 在退款时不应出现（退款 7 天内，奖励 7 天后才可提现），出现说明系统异常
-          if (withdrawnLedgers.length > 0) {
-            this.logger.error(
-              `[CRITICAL] 订单 ${orderId} 存在 ${withdrawnLedgers.length} 条已提现分润流水，系统时序异常！`,
-            );
-            throw new InternalServerErrorException(
-              `订单 ${orderId} 退款回滚发现已提现流水，请联系管理员排查`,
-            );
-          }
-
-          // 1. 批量作废可逆状态的 ledger（N×M → 1 次）
-          if (reversibleLedgers.length > 0) {
-            const ledgerIds = reversibleLedgers.map((l: any) => l.id);
-            await tx.rewardLedger.updateMany({
-              where: {
-                id: { in: ledgerIds },
-                status: { in: ['AVAILABLE', 'FROZEN', 'RETURN_FROZEN'] }, // S18修复：限定来源状态
-              },
-              data: { status: 'VOIDED', entryType: 'VOID' },
-            });
-          }
-
-          // 2. 按 accountId 聚合 AVAILABLE 和 FROZEN 金额
-          // RETURN_FROZEN 未计入 RewardAccount（对用户不可见），无需扣减账户
-          const availableByAccount = new Map<string, number>();
-          const frozenByAccount = new Map<string, number>();
-          for (const ledger of nonVoidedLedgers) {
-            if ((ledger as any).status === 'AVAILABLE') {
-              availableByAccount.set(
-                (ledger as any).accountId,
-                (availableByAccount.get((ledger as any).accountId) ?? 0) + (ledger as any).amount,
-              );
-            } else if ((ledger as any).status === 'FROZEN') {
-              frozenByAccount.set(
-                (ledger as any).accountId,
-                (frozenByAccount.get((ledger as any).accountId) ?? 0) + (ledger as any).amount,
-              );
-            }
-            // RETURN_FROZEN: 已作废但无需扣减账户（分配时未计入 frozen）
-          }
-
-          // 3. 每个 account 一次 balance decrement
-          for (const [accountId, amount] of availableByAccount) {
-            const cas = await tx.rewardAccount.updateMany({
-              where: { id: accountId, balance: { gte: amount } },
-              data: { balance: { decrement: amount } },
-            });
-            if (cas.count === 0) {
-              const account = await tx.rewardAccount.findUnique({
-                where: { id: accountId },
-                select: { balance: true },
-              });
-              this.logger.error(
-                `[M2] 回滚扣减可用余额失败：accountId=${accountId}, amount=${amount}, balance=${account?.balance ?? 'N/A'}`,
-              );
-              throw new InternalServerErrorException('分润回滚账户余额异常，请联系管理员');
-            }
-          }
-
-          // 4. 每个 account 一次 frozen decrement（CAS 守卫，避免并发/脏数据导致负数）
-          for (const [accountId, amount] of frozenByAccount) {
-            const cas = await tx.rewardAccount.updateMany({
-              where: { id: accountId, frozen: { gte: amount } },
-              data: { frozen: { decrement: amount } },
-            });
-            if (cas.count === 0) {
-              const account = await tx.rewardAccount.findUnique({
-                where: { id: accountId },
-                select: { frozen: true },
-              });
-              this.logger.error(
-                `[M2] 回滚扣减冻结余额失败：accountId=${accountId}, amount=${amount}, frozen=${account?.frozen ?? 'N/A'}`,
-              );
-              throw new InternalServerErrorException('分润回滚冻结余额异常，请联系管理员');
-            }
-          }
-        }
-
-        // VIP 有效消费作废 + 回扣 selfPurchaseCount（P0-3A）
-        const vipOrder = await tx.vipEligibleOrder.findUnique({
-          where: { orderId },
-        });
-        if (vipOrder && vipOrder.valid) {
-          await tx.vipEligibleOrder.update({
-            where: { id: vipOrder.id },
-            data: { valid: false, invalidReason: 'REFUND' },
-          });
-          // 回扣 VipProgress.selfPurchaseCount
-          await tx.vipProgress.updateMany({
-            where: { userId: vipOrder.userId, selfPurchaseCount: { gt: 0 } },
-            data: { selfPurchaseCount: { decrement: 1 } },
-          });
-        }
-
-        // 普通广播队列失效（P0-3B）
-        await tx.normalQueueMember.updateMany({
-          where: { orderId },
-          data: { active: false },
-        });
-
-        // 普通树有效消费作废 + 回扣 selfPurchaseCount
-        const normalOrder = await tx.normalEligibleOrder.findUnique({
-          where: { orderId },
-        });
-        if (normalOrder && normalOrder.valid) {
-          await tx.normalEligibleOrder.update({
-            where: { id: normalOrder.id },
-            data: { valid: false },
-          });
-          // 回扣 NormalProgress.selfPurchaseCount（CAS: gt:0 防负数）
-          const normalCas = await tx.normalProgress.updateMany({
-            where: { userId: normalOrder.userId, selfPurchaseCount: { gt: 0 } },
-            data: { selfPurchaseCount: { decrement: 1 } },
-          });
-          if (normalCas.count === 0) {
-            this.logger.warn(
-              `普通树回滚：用户 ${normalOrder.userId} selfPurchaseCount 已为 0，跳过回扣`,
-            );
-          }
-        }
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000, maxWait: 5000 });
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            timeout: 30000,
+            maxWait: 5000,
+          },
+        );
         break;
       } catch (err: any) {
         if (err?.code === 'P2002' && err?.meta?.target?.includes('idempotencyKey')) {
@@ -445,6 +314,245 @@ export class BonusAllocationService {
     }
 
     this.logger.log(`[AUDIT] 订单 ${orderId} 退款回滚完成`);
+  }
+
+  private async rollbackForOrderInTransaction(
+    tx: any,
+    orderId: string,
+    refundKey: string,
+  ): Promise<void> {
+    const existingRollback = await tx.rewardAllocation.findUnique({
+      where: { idempotencyKey: refundKey },
+    });
+    if (existingRollback) {
+      this.logger.warn(`订单 ${orderId} 已存在退款回滚分配记录，跳过`);
+      return;
+    }
+
+    // C07修复：在事务内查询分配记录，避免 TOCTOU 竞态（事务外快照可能过期）
+    const allocations = await tx.rewardAllocation.findMany({
+      where: { orderId },
+      include: { ledgers: true },
+    });
+
+    if (allocations.length === 0) {
+      this.logger.log(`订单 ${orderId} 无分润记录，跳过回滚`);
+      return;
+    }
+
+    // 创建退款回滚的 RewardAllocation
+    await tx.rewardAllocation.create({
+      data: {
+        triggerType: 'REFUND',
+        orderId,
+        ruleType: 'NORMAL_BROADCAST', // 标识用，实际是回滚
+        ruleVersion: 'rollback',
+        meta: { rollbackAllocations: allocations.map((a: any) => a.id) },
+        idempotencyKey: refundKey,
+      },
+    });
+
+    // 批量作废 Ledger 并按 accountId 聚合回扣余额（替代双重嵌套循环）
+    const nonVoidedLedgers = allocations
+      .flatMap((a: any) => a.ledgers)
+      .filter((l: any) => l.status !== 'VOIDED');
+
+    if (nonVoidedLedgers.length > 0) {
+      // 仅回滚可逆状态（AVAILABLE/FROZEN/RETURN_FROZEN）。WITHDRAWN 不应出现（退款在奖励可提现之前）。
+      const reversibleLedgers = nonVoidedLedgers.filter((l: any) =>
+        l.status === 'AVAILABLE' || l.status === 'FROZEN' || l.status === 'RETURN_FROZEN',
+      );
+      const withdrawnLedgers = nonVoidedLedgers.filter((l: any) => l.status === 'WITHDRAWN');
+
+      // C09修复：WITHDRAWN 在退款时不应出现（退款 7 天内，奖励 7 天后才可提现），出现说明系统异常
+      if (withdrawnLedgers.length > 0) {
+        this.logger.error(
+          `[CRITICAL] 订单 ${orderId} 存在 ${withdrawnLedgers.length} 条已提现分润流水，系统时序异常！`,
+        );
+        throw new InternalServerErrorException(
+          `订单 ${orderId} 退款回滚发现已提现流水，请联系管理员排查`,
+        );
+      }
+
+      // 1. 批量作废可逆状态的 ledger（N×M → 1 次）
+      if (reversibleLedgers.length > 0) {
+        const ledgerIds = reversibleLedgers.map((l: any) => l.id);
+        await tx.rewardLedger.updateMany({
+          where: {
+            id: { in: ledgerIds },
+            status: { in: ['AVAILABLE', 'FROZEN', 'RETURN_FROZEN'] }, // S18修复：限定来源状态
+          },
+          data: { status: 'VOIDED', entryType: 'VOID' },
+        });
+
+        const directReferralLedgers = reversibleLedgers.filter(
+          (l: any) => {
+            const scheme = (l.meta as any)?.scheme;
+            return scheme === 'VIP_DIRECT_REFERRAL' || scheme === 'VIP_DIRECT_REFERRAL_PLATFORM';
+          },
+        );
+        if (directReferralLedgers.length > 0) {
+          await this.createVipDirectReferralVoidMirrors(
+            tx,
+            orderId,
+            directReferralLedgers,
+          );
+        }
+      }
+
+      // 2. 按 accountId 聚合 AVAILABLE 和 FROZEN 金额
+      // RETURN_FROZEN 未计入 RewardAccount（对用户不可见），无需扣减账户
+      const availableByAccount = new Map<string, number>();
+      const frozenByAccount = new Map<string, number>();
+      for (const ledger of nonVoidedLedgers) {
+        if ((ledger as any).status === 'AVAILABLE') {
+          availableByAccount.set(
+            (ledger as any).accountId,
+            (availableByAccount.get((ledger as any).accountId) ?? 0) + (ledger as any).amount,
+          );
+        } else if ((ledger as any).status === 'FROZEN') {
+          frozenByAccount.set(
+            (ledger as any).accountId,
+            (frozenByAccount.get((ledger as any).accountId) ?? 0) + (ledger as any).amount,
+          );
+        }
+        // RETURN_FROZEN: 已作废但无需扣减账户（分配时未计入 frozen）
+      }
+
+      // 3. 每个 account 一次 balance decrement
+      for (const [accountId, amount] of availableByAccount) {
+        const cas = await tx.rewardAccount.updateMany({
+          where: { id: accountId, balance: { gte: amount } },
+          data: { balance: { decrement: amount } },
+        });
+        if (cas.count === 0) {
+          const account = await tx.rewardAccount.findUnique({
+            where: { id: accountId },
+            select: { balance: true },
+          });
+          this.logger.error(
+            `[M2] 回滚扣减可用余额失败：accountId=${accountId}, amount=${amount}, balance=${account?.balance ?? 'N/A'}`,
+          );
+          throw new InternalServerErrorException('分润回滚账户余额异常，请联系管理员');
+        }
+      }
+
+      // 4. 每个 account 一次 frozen decrement（CAS 守卫，避免并发/脏数据导致负数）
+      for (const [accountId, amount] of frozenByAccount) {
+        const cas = await tx.rewardAccount.updateMany({
+          where: { id: accountId, frozen: { gte: amount } },
+          data: { frozen: { decrement: amount } },
+        });
+        if (cas.count === 0) {
+          const account = await tx.rewardAccount.findUnique({
+            where: { id: accountId },
+            select: { frozen: true },
+          });
+          this.logger.error(
+            `[M2] 回滚扣减冻结余额失败：accountId=${accountId}, amount=${amount}, frozen=${account?.frozen ?? 'N/A'}`,
+          );
+          throw new InternalServerErrorException('分润回滚冻结余额异常，请联系管理员');
+        }
+      }
+    }
+
+    // VIP 有效消费作废 + 回扣 selfPurchaseCount（P0-3A）
+    const vipOrder = await tx.vipEligibleOrder.findUnique({
+      where: { orderId },
+    });
+    if (vipOrder && vipOrder.valid) {
+      await tx.vipEligibleOrder.update({
+        where: { id: vipOrder.id },
+        data: { valid: false, invalidReason: 'REFUND' },
+      });
+      // 回扣 VipProgress.selfPurchaseCount
+      await tx.vipProgress.updateMany({
+        where: { userId: vipOrder.userId, selfPurchaseCount: { gt: 0 } },
+        data: { selfPurchaseCount: { decrement: 1 } },
+      });
+    }
+
+    // 普通广播队列失效（P0-3B）
+    await tx.normalQueueMember.updateMany({
+      where: { orderId },
+      data: { active: false },
+    });
+
+    // 普通树有效消费作废 + 回扣 selfPurchaseCount
+    const normalOrder = await tx.normalEligibleOrder.findUnique({
+      where: { orderId },
+    });
+    if (normalOrder && normalOrder.valid) {
+      await tx.normalEligibleOrder.update({
+        where: { id: normalOrder.id },
+        data: { valid: false },
+      });
+      // 回扣 NormalProgress.selfPurchaseCount（CAS: gt:0 防负数）
+      const normalCas = await tx.normalProgress.updateMany({
+        where: { userId: normalOrder.userId, selfPurchaseCount: { gt: 0 } },
+        data: { selfPurchaseCount: { decrement: 1 } },
+      });
+      if (normalCas.count === 0) {
+        this.logger.warn(
+          `普通树回滚：用户 ${normalOrder.userId} selfPurchaseCount 已为 0，跳过回扣`,
+        );
+      }
+    }
+  }
+
+  private async createVipDirectReferralVoidMirrors(
+    tx: any,
+    orderId: string,
+    ledgers: any[],
+  ): Promise<void> {
+    let platformAccount = await tx.rewardAccount.findUnique({
+      where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
+    });
+    if (!platformAccount) {
+      platformAccount = await tx.rewardAccount.create({
+        data: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' },
+      });
+    }
+
+    for (const ledger of ledgers) {
+      const sourceMeta = (ledger.meta ?? {}) as Record<string, any>;
+      const mirrorMeta: Record<string, any> = {
+        scheme: 'VIP_DIRECT_REFERRAL_VOID',
+        accountType: 'PLATFORM_PROFIT',
+        routedToPlatform: true,
+        originalLedgerId: ledger.id,
+        originalReceiverUserId: ledger.userId,
+        originalStatus: ledger.status,
+        originalEntryType: ledger.entryType,
+        originalScheme: sourceMeta.scheme ?? 'VIP_DIRECT_REFERRAL',
+        sourceOrderId: sourceMeta.sourceOrderId ?? orderId,
+        voidSource: 'REFUND_ROLLBACK',
+        reason: '退款回滚，VIP直推佣金归平台',
+      };
+      for (const key of VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
+        if (sourceMeta[key] !== undefined) {
+          mirrorMeta[key] = sourceMeta[key];
+        }
+      }
+
+      await tx.rewardLedger.create({
+        data: {
+          accountId: platformAccount.id,
+          userId: PLATFORM_USER_ID,
+          entryType: 'RELEASE',
+          amount: ledger.amount,
+          status: 'AVAILABLE',
+          refType: 'REFUND',
+          refId: orderId,
+          meta: mirrorMeta,
+        },
+      });
+
+      await tx.rewardAccount.update({
+        where: { id: platformAccount.id },
+        data: { balance: { increment: ledger.amount } },
+      });
+    }
   }
 
   /**
