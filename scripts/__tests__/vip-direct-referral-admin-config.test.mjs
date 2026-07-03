@@ -70,6 +70,16 @@ test('VIP restore defaults uses a valid seven-way ratio template', () => {
     'ratio defaults should come from the valid recommended seven-way template',
   );
   assert.match(page, /VIP_DIRECT_REFERRAL_PERCENT:\s*0\.05/);
+  assert.match(
+    page,
+    /function getDefaultDisplayValue\(meta: ConfigMeta\): number \{[\s\S]*?ALL_DEFAULTS\[meta\.key\]/,
+    'restore-defaults modal should display the same values it applies',
+  );
+  assert.match(
+    page,
+    /fmtPercent\(getDefaultDisplayValue\(meta\)\)/,
+    'percent defaults in the modal should render from ALL_DEFAULTS',
+  );
 });
 
 test('VIP config save handles missing config records without non-null find assertions', () => {
