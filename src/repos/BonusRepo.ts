@@ -148,13 +148,13 @@ export const BonusRepo = {
     };
   },
 
-  /** 钱包余额 */
+  /** 财库余额 */
   getWallet: async (): Promise<Result<Wallet>> => {
     if (USE_MOCK) return simulateRequest(mockWallet);
     return ApiClient.get<Wallet>('/bonus/wallet');
   },
 
-  /** 钱包流水 */
+  /** 财库流水 */
   getWalletLedger: async (page = 1, pageSize = 20): Promise<Result<WalletLedgerPage>> => {
     if (USE_MOCK) {
       return simulateRequest({
@@ -273,7 +273,7 @@ export const BonusRepo = {
     return ApiClient.get<VipTree>('/bonus/normal-tree/context');
   },
 
-  /** 普通用户钱包 */
+  /** 普通用户财库 */
   getNormalWallet: async (): Promise<Result<Wallet>> => {
     if (USE_MOCK) return simulateRequest({ balance: 32.5, frozen: 5.0, total: 37.5 });
     return ApiClient.get<Wallet>('/bonus/normal-wallet');
