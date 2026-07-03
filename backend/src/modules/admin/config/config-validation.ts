@@ -126,7 +126,7 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     max: 1,
   },
 
-  // =================== VIP 分润系统（新六分） ===================
+  // =================== VIP 分润系统（新七分） ===================
   VIP_PLATFORM_PERCENT: {
     type: 'number',
     description: 'VIP利润-平台分成比例',
@@ -138,6 +138,12 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     description: 'VIP利润-奖励池比例',
     min: 0,
     max: 1,
+  },
+  VIP_DIRECT_REFERRAL_PERCENT: {
+    type: 'number',
+    min: 0,
+    max: 1,
+    description: 'VIP利润-直推持续佣金比例',
   },
   VIP_INDUSTRY_FUND_PERCENT: {
     type: 'number',
@@ -510,11 +516,12 @@ export const NORMAL_PERCENT_KEYS = [
 ] as const;
 
 /**
- * VIP 分润比例键列表（六项之和必须等于1.0）
+ * VIP 分润比例键列表（七项之和必须等于1.0）
  */
 export const VIP_POOL_PERCENT_KEYS = [
   'VIP_PLATFORM_PERCENT',
   'VIP_REWARD_PERCENT',
+  'VIP_DIRECT_REFERRAL_PERCENT',
   'VIP_INDUSTRY_FUND_PERCENT',
   'VIP_CHARITY_PERCENT',
   'VIP_TECH_PERCENT',

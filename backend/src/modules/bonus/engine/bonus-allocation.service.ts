@@ -100,7 +100,7 @@ export class BonusAllocationService {
       const normalPools = this.calculator.calculateNormal(calcItems, config);
       isZeroProfit = normalPools.profit <= 0;
     } else if (routing === 'VIP_UPSTREAM' || routing === 'VIP_EXITED') {
-      // VIP 路由使用新的六分公式
+      // VIP 路由使用新的七分公式
       vipPools = this.calculator.calculateVip(calcItems, config);
       isZeroProfit = vipPools.profit <= 0;
     } else {
@@ -157,8 +157,8 @@ export class BonusAllocationService {
             // 6. 路由到对应分配服务
             if (routing === 'VIP_UPSTREAM') {
               const resolvedVipPools = vipPools!;
-              vipAncestorUserId = await this.executeVipUpstreamSixWay(tx, orderId, order.userId, order.totalAmount, resolvedVipPools, config);
-              // VIP 平台六分分润（默认50/10/2/2/6，可配置）
+              vipAncestorUserId = await this.executeVipUpstreamSevenWay(tx, orderId, order.userId, order.totalAmount, resolvedVipPools, config);
+              // VIP 平台分润：直推池仅入审计，不在本任务分配
               await this.executeVipPlatformSplit(tx, orderId, resolvedVipPools, config.ruleVersion);
             } else if (routing === 'VIP_EXITED') {
               // VIP 已退出（解锁完毕），仍是VIP身份，奖励归平台（不回普通树）
@@ -176,6 +176,7 @@ export class BonusAllocationService {
                     reason: 'VIP用户已完成全部层级解锁并退出，奖励归平台',
                     profit: resolvedVipPools.profit,
                     rewardPool: resolvedVipPools.rewardPool,
+                    directReferralPool: resolvedVipPools.directReferralPool,
                   },
                   idempotencyKey: exitedKey,
                 },
@@ -531,11 +532,11 @@ export class BonusAllocationService {
   }
 
   /**
-   * 执行 VIP 上溯分配（六分公式版本）
+   * 执行 VIP 上溯分配（七分公式版本）
    * 创建 RewardAllocation 后调用 VipUpstreamService 完成祖先分配
    * 若 k > VIP_MAX_LAYERS 则奖励归平台
    */
-  private async executeVipUpstreamSixWay(
+  private async executeVipUpstreamSevenWay(
     tx: any,
     orderId: string,
     userId: string,
@@ -556,6 +557,7 @@ export class BonusAllocationService {
           userId,
           profit: pools.profit,
           rewardPool: pools.rewardPool,
+          directReferralPool: pools.directReferralPool,
           configSnapshot: pools.configSnapshot,
         },
         idempotencyKey,
@@ -582,13 +584,13 @@ export class BonusAllocationService {
       }
     }
 
-    this.logger.log(`VIP 上溯完成（六分）：${idempotencyKey}，结果=${result}`);
+    this.logger.log(`VIP 上溯完成（七分）：${idempotencyKey}，结果=${result}`);
     return ancestorUserId;
   }
 
   /**
-   * 执行 VIP 平台六分分割
-   * 处理除奖励外的 5 个池（platformProfit / industryFund / charityFund / techFund / reserveFund）
+   * 执行 VIP 平台分割
+   * 处理除奖励和直推外的 5 个池（platformProfit / industryFund / charityFund / techFund / reserveFund）
    */
   private async executeVipPlatformSplit(
     tx: any,
@@ -606,6 +608,7 @@ export class BonusAllocationService {
         ruleVersion,
         meta: {
           platformProfit: pools.platformProfit,
+          directReferralPool: pools.directReferralPool,
           industryFund: pools.industryFund,
           charityFund: pools.charityFund,
           techFund: pools.techFund,
@@ -625,7 +628,7 @@ export class BonusAllocationService {
     }, pools.companyProfitShares);
 
     this.logger.log(
-      `VIP平台六分完成：platform=${pools.platformProfit}，industry=${pools.industryFund}，charity=${pools.charityFund}，tech=${pools.techFund}，reserve=${pools.reserveFund}`,
+      `VIP平台分割完成：platform=${pools.platformProfit}，directReferral=${pools.directReferralPool}（仅审计），industry=${pools.industryFund}，charity=${pools.charityFund}，tech=${pools.techFund}，reserve=${pools.reserveFund}`,
     );
   }
 
@@ -633,7 +636,7 @@ export class BonusAllocationService {
    * 执行 VIP 上溯分配
    * 创建 RewardAllocation 后调用 VipUpstreamService 完成祖先分配
    * 若 k > VIP_MAX_LAYERS 则降级为普通广播
-   * @deprecated 使用 executeVipUpstreamSixWay() 替代
+   * @deprecated 使用 executeVipUpstreamSevenWay() 替代
    */
   private async executeVipUpstream(
     tx: any,

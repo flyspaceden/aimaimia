@@ -42,11 +42,12 @@ export interface NormalPoolCalculation {
   configSnapshot: Record<string, any>;
 }
 
-/** VIP 六分池计算结果 */
+/** VIP 七分池计算结果 */
 export interface VipPoolCalculation {
   profit: number;
   platformProfit: number;     // VIP平台利润
   rewardPool: number;         // VIP奖励分配（上溯祖辈）
+  directReferralPool: number;  // VIP直推持续佣金
   industryFund: number;       // VIP产业基金（返还卖家）
   charityFund: number;        // VIP慈善基金
   techFund: number;           // VIP科技基金
@@ -192,9 +193,9 @@ export class RewardCalculatorService {
   }
 
   /**
-   * VIP 六分利润计算
+   * VIP 七分利润计算
    * profit = Σ (unitPrice - cost) * quantity（与普通利润计算逻辑一致）
-   * 六池按 VIP_* 比例直接分割利润，末池（reserveFund）补差吸收浮点误差
+   * 七池按 VIP_* 比例直接分割利润，末池（reserveFund）补差吸收浮点误差
    */
   calculateVip(items: OrderItemForPoolCalc[], config: BonusConfig): VipPoolCalculation {
     // 计算总利润 + 按公司分组利润
@@ -222,6 +223,7 @@ export class RewardCalculatorService {
         profit: 0,
         platformProfit: 0,
         rewardPool: 0,
+        directReferralPool: 0,
         industryFund: 0,
         charityFund: 0,
         techFund: 0,
@@ -234,13 +236,16 @@ export class RewardCalculatorService {
 
     profit = this.round2(profit);
 
-    // 六分计算：前 5 个池独立计算，第 6 个池（reserveFund）= profit - 前 5 之和
+    // 七分计算：前 6 个池独立计算，第 7 个池（reserveFund）= profit - 前 6 之和
     const platformProfit = this.round2(profit * config.vipPlatformPercent);
     const rewardPool = this.round2(profit * config.vipRewardPercent);
+    const directReferralPool = this.round2(profit * config.vipDirectReferralPercent);
     const industryFund = this.round2(profit * config.vipIndustryFundPercent);
     const charityFund = this.round2(profit * config.vipCharityPercent);
     const techFund = this.round2(profit * config.vipTechPercent);
-    const reserveFund = this.round2(profit - platformProfit - rewardPool - industryFund - charityFund - techFund);
+    const reserveFund = this.round2(
+      profit - platformProfit - rewardPool - directReferralPool - industryFund - charityFund - techFund,
+    );
 
     // 计算各公司利润占比
     const companyProfitShares: Record<string, number> = {};
@@ -252,6 +257,7 @@ export class RewardCalculatorService {
       profit,
       platformProfit,
       rewardPool,
+      directReferralPool,
       industryFund,
       charityFund,
       techFund,
@@ -297,11 +303,12 @@ export class RewardCalculatorService {
     };
   }
 
-  /** VIP 六分法配置快照（用于审计） */
+  /** VIP 七分法配置快照（用于审计） */
   private snapshotVip(config: BonusConfig): Record<string, any> {
     return {
       vipPlatformPercent: config.vipPlatformPercent,
       vipRewardPercent: config.vipRewardPercent,
+      vipDirectReferralPercent: config.vipDirectReferralPercent,
       vipIndustryFundPercent: config.vipIndustryFundPercent,
       vipCharityPercent: config.vipCharityPercent,
       vipTechPercent: config.vipTechPercent,

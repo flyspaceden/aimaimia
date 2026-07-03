@@ -124,9 +124,10 @@ const STAFF_PERMISSIONS = [
 // 3. RuleConfig 初始值（源自 seed.ts:1575-1675）
 // ──────────────────────────────────────────────────────────────
 const RULE_CONFIGS: Array<{ key: string; value: any; desc: string }> = [
-  // VIP 利润六分
+  // VIP 利润七分
   { key: 'VIP_PLATFORM_PERCENT', value: 0.50, desc: 'VIP利润-平台分成比例' },
   { key: 'VIP_REWARD_PERCENT', value: 0.30, desc: 'VIP利润-奖励池比例' },
+  { key: 'VIP_DIRECT_REFERRAL_PERCENT', value: 0, desc: 'VIP利润-直推持续佣金比例' },
   { key: 'VIP_INDUSTRY_FUND_PERCENT', value: 0.10, desc: 'VIP利润-产业基金(卖家)比例' },
   { key: 'VIP_CHARITY_PERCENT', value: 0.02, desc: 'VIP利润-慈善基金比例' },
   { key: 'VIP_TECH_PERCENT', value: 0.02, desc: 'VIP利润-科技基金比例' },
