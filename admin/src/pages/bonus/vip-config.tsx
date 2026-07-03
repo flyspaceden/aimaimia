@@ -180,6 +180,10 @@ function readStoredConfigValue(value: unknown): unknown {
   return value;
 }
 
+function getDefaultDisplayValue(meta: ConfigMeta): number {
+  return ALL_DEFAULTS[meta.key] ?? meta.defaultValue ?? meta.min ?? 0;
+}
+
 // ============ 组件 ============
 
 export default function VipConfigPage() {
@@ -421,7 +425,9 @@ export default function VipConfigPage() {
               <div key={meta.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>{meta.label}</Text>
                 <Text style={{ fontSize: 12, fontFamily: 'monospace' }}>
-                  {meta.type === 'percent' ? fmtPercent(meta.defaultValue ?? 0) : `${meta.defaultValue ?? meta.min ?? 0}${meta.suffix || ''}`}
+                  {meta.type === 'percent'
+                    ? fmtPercent(getDefaultDisplayValue(meta))
+                    : `${getDefaultDisplayValue(meta)}${meta.suffix || ''}`}
                 </Text>
               </div>
             ))}
