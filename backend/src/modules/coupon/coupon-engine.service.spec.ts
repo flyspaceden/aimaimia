@@ -33,6 +33,7 @@ describe('CouponEngineService notifications', () => {
       couponCampaign: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        updateMany: jest.fn(),
       },
       couponInstance: {
         findMany: jest.fn(),
@@ -69,6 +70,56 @@ describe('CouponEngineService notifications', () => {
       }),
       tx,
     );
+  });
+
+  it('ends an automatic campaign when issueSingle sends the final coupon', async () => {
+    const { service, tx } = makeService();
+    tx.couponCampaign.findUnique.mockResolvedValueOnce({
+      ...campaign,
+      issuedCount: 9,
+      totalQuota: 10,
+    });
+
+    await expect((service as any).issueSingle('campaign-1', 'buyer-1')).resolves.toBe(true);
+
+    expect(tx.couponCampaign.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'campaign-1',
+          issuedCount: 9,
+        }),
+        data: expect.objectContaining({
+          issuedCount: { increment: 1 },
+          status: 'ENDED',
+        }),
+      }),
+    );
+  });
+
+  it('periodically ends active campaigns whose quota is already exhausted', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.couponCampaign.findMany.mockResolvedValueOnce([
+      { id: 'sold-out-1', issuedCount: 1, totalQuota: 1 },
+      { id: 'still-open', issuedCount: 1, totalQuota: 2 },
+      { id: 'sold-out-2', issuedCount: 6, totalQuota: 6 },
+    ]);
+    prisma.couponCampaign.updateMany.mockResolvedValueOnce({ count: 2 });
+
+    await service.endCampaigns();
+
+    expect(prisma.couponCampaign.findMany).toHaveBeenCalledWith({
+      where: { status: 'ACTIVE' },
+      select: { id: true, issuedCount: true, totalQuota: true },
+      take: expect.any(Number),
+    });
+    expect(prisma.couponCampaign.updateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: { in: ['sold-out-1', 'sold-out-2'] },
+        status: 'ACTIVE',
+      },
+      data: { status: 'ENDED' },
+    });
   });
 
   it('expires coupons and emits per-instance notifications inside one transaction', async () => {
@@ -140,4 +191,5 @@ describe('CouponEngineService notifications', () => {
     expect(issueWithRetry).toHaveBeenCalledWith('holiday-1', 'buyer-1');
     expect(issueWithRetry).toHaveBeenCalledWith('holiday-1', 'buyer-2');
   });
+
 });

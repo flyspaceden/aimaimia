@@ -50,6 +50,7 @@ const TRIGGER_DISTRIBUTION_MODE_OPTIONS: Record<string, string[]> = {
 const AUDIENCE_AUTO_TRIGGER_TYPES = new Set(['HOLIDAY', 'FLASH']);
 const AUTO_TARGET_MODES = new Set(['NORMAL_USERS', 'VIP_USERS', 'ALL_USERS']);
 const WIN_BACK_ORDER_STATUSES = ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'];
+const CAMPAIGN_LIFECYCLE_BATCH_SIZE = 200;
 type CouponCenterView = 'claimable' | 'claimed' | 'active';
 type CouponCenterDisplayStatus = 'CLAIMABLE' | 'CLAIMED' | 'SOLD_OUT' | 'NOT_ELIGIBLE' | 'ENDED';
 
@@ -86,6 +87,43 @@ export class CouponService {
     private couponEngine: CouponEngineService,
     @Optional() private notificationService?: NotificationService,
   ) {}
+
+  private buildIssueCampaignUpdateData(
+    currentIssuedCount: number,
+    issueCount: number,
+    totalQuota: number,
+  ) {
+    const nextIssuedCount = currentIssuedCount + issueCount;
+
+    return {
+      issuedCount: { increment: issueCount },
+      ...(nextIssuedCount >= totalQuota ? { status: 'ENDED' as const } : {}),
+    };
+  }
+
+  private async endSoldOutActiveCampaigns(): Promise<number> {
+    const activeCampaigns = await this.prisma.couponCampaign.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, issuedCount: true, totalQuota: true },
+      take: CAMPAIGN_LIFECYCLE_BATCH_SIZE,
+    });
+    const soldOutCampaignIds = activeCampaigns
+      .filter((campaign) => campaign.issuedCount >= campaign.totalQuota)
+      .map((campaign) => campaign.id);
+
+    if (soldOutCampaignIds.length === 0) {
+      return 0;
+    }
+
+    const result = await this.prisma.couponCampaign.updateMany({
+      where: {
+        id: { in: soldOutCampaignIds },
+        status: 'ACTIVE',
+      },
+      data: { status: 'ENDED' },
+    });
+    return result.count;
+  }
 
   private serializeEndAt(endAt: Date | null | undefined): string | null {
     return endAt ? endAt.toISOString() : null;
@@ -774,11 +812,14 @@ export class CouponService {
         const updated = await tx.couponCampaign.updateMany({
           where: {
             id: campaignId,
+            status: 'ACTIVE',
             issuedCount: campaign.issuedCount, // CAS：版本号匹配
           },
-          data: {
-            issuedCount: { increment: 1 },
-          },
+          data: this.buildIssueCampaignUpdateData(
+            campaign.issuedCount,
+            1,
+            campaign.totalQuota,
+          ),
         });
         if (updated.count === 0) {
           throw new ConflictException('领取冲突，请重试');
@@ -1207,6 +1248,8 @@ export class CouponService {
     triggerType?: string;
     keyword?: string;
   }) {
+    await this.endSoldOutActiveCampaigns();
+
     const { page = 1, pageSize = 20, status, triggerType, keyword } = filters;
     const skip = (page - 1) * pageSize;
 
@@ -1958,15 +2001,19 @@ export class CouponService {
         const updated = await tx.couponCampaign.updateMany({
           where: {
             id: campaignId,
+            status: 'ACTIVE',
             issuedCount: campaign.issuedCount,
           },
-          data: {
-            issuedCount: { increment: issuedUsers.length },
-          },
+          data: this.buildIssueCampaignUpdateData(
+            campaign.issuedCount,
+            issuedUsers.length,
+            campaign.totalQuota,
+          ),
         });
         if (updated.count === 0) {
           throw new ConflictException('发放冲突，请重试');
         }
+
 
         this.logger.log(
           `管理员 ${adminId} 手动发放活动 ${campaignId} 给 ${issuedUsers.length} 位用户`,
