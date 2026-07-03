@@ -1,10 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 
-/** VIP分润系统配置（六分法） */
+/** VIP分润系统配置（七分法） */
 export interface VipBonusConfig {
   vipPlatformPercent: number;        // VIP平台分成比例 (50%)
   vipRewardPercent: number;          // VIP奖励分成比例 (30%)
+  vipDirectReferralPercent: number;  // VIP直推持续佣金比例
   vipIndustryFundPercent: number;    // VIP产业基金(卖家)比例 (10%)
   vipCharityPercent: number;         // VIP慈善基金比例 (2%)
   vipTechPercent: number;            // VIP科技基金比例 (2%)
@@ -60,9 +61,10 @@ export interface BonusConfig extends VipBonusConfig, NormalBonusConfig, SystemCo
 
 /** 配置键 → BonusConfig 字段映射 */
 const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
-  // VIP系统（六分法）
+  // VIP系统（七分法）
   VIP_PLATFORM_PERCENT: 'vipPlatformPercent',
   VIP_REWARD_PERCENT: 'vipRewardPercent',
+  VIP_DIRECT_REFERRAL_PERCENT: 'vipDirectReferralPercent',
   VIP_INDUSTRY_FUND_PERCENT: 'vipIndustryFundPercent',
   VIP_CHARITY_PERCENT: 'vipCharityPercent',
   VIP_TECH_PERCENT: 'vipTechPercent',
@@ -101,10 +103,11 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   BUCKET_RANGES: 'bucketRanges',
 };
 
-/** VIP利润分配比例配置键集合（六分法） */
+/** VIP利润分配比例配置键集合（七分法） */
 const VIP_RATIO_KEYS = new Set([
   'VIP_PLATFORM_PERCENT',
   'VIP_REWARD_PERCENT',
+  'VIP_DIRECT_REFERRAL_PERCENT',
   'VIP_INDUSTRY_FUND_PERCENT',
   'VIP_CHARITY_PERCENT',
   'VIP_TECH_PERCENT',
@@ -123,9 +126,10 @@ const NORMAL_RATIO_KEYS = new Set([
 
 /** 默认配置（兜底） */
 const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
-  // VIP系统（六分法）
+  // VIP系统（七分法）
   vipPlatformPercent: 0.50,
   vipRewardPercent: 0.30,
+  vipDirectReferralPercent: 0,
   vipIndustryFundPercent: 0.10,
   vipCharityPercent: 0.02,
   vipTechPercent: 0.02,
@@ -202,12 +206,13 @@ export class BonusConfigService {
     };
   }
 
-  /** 仅获取VIP系统配置（六分法） */
+  /** 仅获取VIP系统配置（七分法） */
   async getVipConfig(): Promise<VipBonusConfig> {
     const config = await this.getConfig();
     return {
       vipPlatformPercent: config.vipPlatformPercent,
       vipRewardPercent: config.vipRewardPercent,
+      vipDirectReferralPercent: config.vipDirectReferralPercent,
       vipIndustryFundPercent: config.vipIndustryFundPercent,
       vipCharityPercent: config.vipCharityPercent,
       vipTechPercent: config.vipTechPercent,
@@ -269,17 +274,18 @@ export class BonusConfigService {
     current[key] = parsedNew;
 
     if (isVipRatio) {
-      // 校验VIP利润分配比例（六分法）
+      // 校验VIP利润分配比例（七分法）
       const sum =
         (current['VIP_PLATFORM_PERCENT'] ?? DEFAULTS.vipPlatformPercent) +
         (current['VIP_REWARD_PERCENT'] ?? DEFAULTS.vipRewardPercent) +
+        (current['VIP_DIRECT_REFERRAL_PERCENT'] ?? DEFAULTS.vipDirectReferralPercent) +
         (current['VIP_INDUSTRY_FUND_PERCENT'] ?? DEFAULTS.vipIndustryFundPercent) +
         (current['VIP_CHARITY_PERCENT'] ?? DEFAULTS.vipCharityPercent) +
         (current['VIP_TECH_PERCENT'] ?? DEFAULTS.vipTechPercent) +
         (current['VIP_RESERVE_PERCENT'] ?? DEFAULTS.vipReservePercent);
       if (Math.abs(sum - 1.0) > 0.001) {
         throw new BadRequestException(
-          `VIP利润分配比例总和为 ${sum.toFixed(4)}，应为 1.0（VIP_PLATFORM_PERCENT + VIP_REWARD_PERCENT + VIP_INDUSTRY_FUND_PERCENT + VIP_CHARITY_PERCENT + VIP_TECH_PERCENT + VIP_RESERVE_PERCENT）`,
+          `VIP利润分配比例总和为 ${sum.toFixed(4)}，应为 1.0（VIP_PLATFORM_PERCENT + VIP_REWARD_PERCENT + VIP_DIRECT_REFERRAL_PERCENT + VIP_INDUSTRY_FUND_PERCENT + VIP_CHARITY_PERCENT + VIP_TECH_PERCENT + VIP_RESERVE_PERCENT）`,
         );
       }
     }
@@ -334,17 +340,18 @@ export class BonusConfigService {
         );
       }
     } else {
-      // 新格式快照：6键校验（六分法）
+      // 新格式快照：7键校验（七分法）
       const vipSum =
         getValue('VIP_PLATFORM_PERCENT', DEFAULTS.vipPlatformPercent) +
         getValue('VIP_REWARD_PERCENT', DEFAULTS.vipRewardPercent) +
+        getValue('VIP_DIRECT_REFERRAL_PERCENT', DEFAULTS.vipDirectReferralPercent) +
         getValue('VIP_INDUSTRY_FUND_PERCENT', DEFAULTS.vipIndustryFundPercent) +
         getValue('VIP_CHARITY_PERCENT', DEFAULTS.vipCharityPercent) +
         getValue('VIP_TECH_PERCENT', DEFAULTS.vipTechPercent) +
         getValue('VIP_RESERVE_PERCENT', DEFAULTS.vipReservePercent);
       if (Math.abs(vipSum - 1.0) > 0.001) {
         throw new BadRequestException(
-          `快照中VIP利润分配比例总和为 ${vipSum.toFixed(4)}，应为 1.0`,
+          `快照中VIP利润分配比例总和为 ${vipSum.toFixed(4)}，应为 1.0（VIP_PLATFORM_PERCENT + VIP_REWARD_PERCENT + VIP_DIRECT_REFERRAL_PERCENT + VIP_INDUSTRY_FUND_PERCENT + VIP_CHARITY_PERCENT + VIP_TECH_PERCENT + VIP_RESERVE_PERCENT）`,
         );
       }
     }
@@ -389,20 +396,22 @@ export class BonusConfigService {
 
     result.ruleVersion = latestVersion?.version ?? 'initial';
 
-    // 校验VIP利润分配比例总和 = 1.0（六分法，容差 0.001）
+    // 校验VIP利润分配比例总和 = 1.0（七分法，容差 0.001）
     const vipSum =
       result.vipPlatformPercent +
       result.vipRewardPercent +
+      result.vipDirectReferralPercent +
       result.vipIndustryFundPercent +
       result.vipCharityPercent +
       result.vipTechPercent +
       result.vipReservePercent;
     if (Math.abs(vipSum - 1.0) > 0.001) {
       this.logger.error(
-        `VIP利润分配比例总和异常: ${vipSum}（应为 1.0），使用默认值`,
+        `VIP利润分配比例总和异常: ${vipSum}（应为 1.0：VIP_PLATFORM_PERCENT + VIP_REWARD_PERCENT + VIP_DIRECT_REFERRAL_PERCENT + VIP_INDUSTRY_FUND_PERCENT + VIP_CHARITY_PERCENT + VIP_TECH_PERCENT + VIP_RESERVE_PERCENT），使用默认值`,
       );
       result.vipPlatformPercent = DEFAULTS.vipPlatformPercent;
       result.vipRewardPercent = DEFAULTS.vipRewardPercent;
+      result.vipDirectReferralPercent = DEFAULTS.vipDirectReferralPercent;
       result.vipIndustryFundPercent = DEFAULTS.vipIndustryFundPercent;
       result.vipCharityPercent = DEFAULTS.vipCharityPercent;
       result.vipTechPercent = DEFAULTS.vipTechPercent;

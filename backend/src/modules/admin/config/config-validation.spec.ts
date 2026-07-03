@@ -1,4 +1,4 @@
-import { validateConfigValue } from './config-validation';
+import { validateConfigValue, VIP_POOL_PERCENT_KEYS } from './config-validation';
 
 describe('invoice config validation', () => {
   it('accepts valid invoice provider mode and line mode', () => {
@@ -60,5 +60,12 @@ describe('LOW_STOCK_DISPLAY_THRESHOLD validation', () => {
     expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', -1)).toContain('最小值');
     expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 1000)).toContain('最大值');
     expect(validateConfigValue('LOW_STOCK_DISPLAY_THRESHOLD', 1.5)).toContain('整数');
+  });
+});
+
+describe('VIP direct referral percent validation', () => {
+  it('accepts VIP direct referral percent and includes it in the VIP pool keys', () => {
+    expect(validateConfigValue('VIP_DIRECT_REFERRAL_PERCENT', 0.05)).toBeNull();
+    expect(VIP_POOL_PERCENT_KEYS).toContain('VIP_DIRECT_REFERRAL_PERCENT');
   });
 });
