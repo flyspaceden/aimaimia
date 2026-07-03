@@ -883,15 +883,23 @@ describe('CouponService manual issue rules', () => {
       couponInstance: {
         groupBy: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
+        createManyAndReturn: jest.fn().mockResolvedValue([
+          { id: 'coupon-1', userId: 'buyer-1' },
+          { id: 'coupon-2', userId: 'buyer-2' },
+        ]),
       },
     };
     const prisma = {
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
+    const notificationService = {
+      emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
+    };
     return {
       tx,
       prisma,
-      service: new CouponService(prisma as any, {} as any),
+      notificationService,
+      service: new CouponService(prisma as any, {} as any, notificationService as any),
     };
   };
 
@@ -909,15 +917,52 @@ describe('CouponService manual issue rules', () => {
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
-    expect(tx.couponInstance.createMany).toHaveBeenCalledWith(
+    expect(tx.couponInstance.createManyAndReturn).toHaveBeenCalledWith(
       expect.objectContaining({
         data: [
           expect.objectContaining({ userId: 'buyer-1', expiresAt: expect.any(Date) }),
           expect.objectContaining({ userId: 'buyer-2', expiresAt: expect.any(Date) }),
         ],
+        select: { id: true, userId: true },
       }),
     );
     expect(result).toEqual({ issued: 2, skipped: 0, skippedUsers: [] });
+  });
+
+  it('emits granted notifications for users who receive manually issued coupons', async () => {
+    const { service, notificationService, tx } = makeManualIssueService();
+
+    await service.manualIssue(
+      'campaign-1',
+      { targetMode: 'ALL_USERS' } as any,
+      'admin-1',
+    );
+
+    expect(notificationService.emit).toHaveBeenCalledTimes(2);
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'coupon.granted',
+        aggregateType: 'couponInstance',
+        aggregateId: 'coupon-1',
+        idempotencyKey: 'coupon:coupon-1:granted',
+        payload: expect.objectContaining({
+          couponInstanceId: 'coupon-1',
+          userId: 'buyer-1',
+          amount: 8,
+        }),
+      }),
+      tx,
+    );
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateId: 'coupon-2',
+        payload: expect.objectContaining({
+          couponInstanceId: 'coupon-2',
+          userId: 'buyer-2',
+        }),
+      }),
+      tx,
+    );
   });
 
   it('ends a manual campaign when manual issue fills the quota', async () => {
