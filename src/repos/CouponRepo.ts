@@ -130,7 +130,7 @@ const mockCenterCampaigns: CouponCenterCampaignDto[] = [
   }),
 ];
 
-// Mock 数据：我的红包
+// Mock 数据：我的福利
 const mockMyCoupons: MyCouponDto[] = [
   {
     id: 'ci-1',
@@ -318,7 +318,7 @@ export const CouponRepo = {
     return ApiClient.post<MyCouponDto>(`/coupons/claim/${campaignId}`);
   },
 
-  /** 查询我的红包（按状态筛选） */
+  /** 查询我的福利（按状态筛选） */
   getMyCoupons: async (status?: CouponInstanceStatus): Promise<Result<MyCouponDto[]>> => {
     if (USE_MOCK) {
       const filtered = status

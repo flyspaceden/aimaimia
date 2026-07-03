@@ -66,9 +66,9 @@ const VIP_BENEFITS = [
   {
     icon: 'account-cash' as const,
     title: '推荐 VIP 奖励',
-    desc: '好友通过你的推荐关系开通 VIP 后，奖励记入钱包',
+    desc: '好友通过你的推荐关系开通 VIP 后，奖励记入我的财库',
     highlight: '推荐奖励',
-    compare: '到账与可提现状态以钱包流水为准',
+    compare: '到账与可提现状态以我的财库流水为准',
   },
   {
     icon: 'crown' as const,
@@ -82,8 +82,8 @@ const VIP_BENEFITS = [
 // 奖励机制说明步骤
 const REWARD_STEPS = [
   { step: '1', title: '普通商品确认收货', desc: 'VIP 礼包订单不参与奖励计算' },
-  { step: '2', title: '系统按规则计算', desc: '奖励金额、冻结和解锁状态以钱包流水为准' },
-  { step: '3', title: '钱包查看与提现', desc: '可用余额满足规则后，可申请提现至支付宝' },
+  { step: '2', title: '系统按规则计算', desc: '奖励金额、冻结和解锁状态以我的财库流水为准' },
+  { step: '3', title: '我的财库查看与提现', desc: '可用余额满足规则后，可申请提现至支付宝' },
 ];
 
 export default function VipScreen() {
@@ -111,7 +111,7 @@ export default function VipScreen() {
   const member = memberData?.ok ? memberData.data : null;
   const isVip = member?.tier === 'VIP';
 
-  // VIP 用户额外查询：钱包
+  // VIP 用户额外查询：财库
   const { data: walletData } = useQuery({
     queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
@@ -275,7 +275,7 @@ export default function VipScreen() {
               <View style={styles.earningsHeader}>
                 <Text style={styles.sectionTitle}>收益概览</Text>
                 <View style={styles.earningsMore}>
-                  <Text style={styles.moreText}>钱包详情</Text>
+                  <Text style={styles.moreText}>我的财库详情</Text>
                   <MaterialCommunityIcons name="chevron-right" size={16} color={VIP_COLORS.goldDim} />
                 </View>
               </View>
@@ -694,7 +694,7 @@ const styles = StyleSheet.create({
     backgroundColor: VIP_COLORS.divider,
   },
 
-  // 钱包分项
+  // 财库分项
   walletBreakdown: {
     flexDirection: 'row',
     justifyContent: 'center',

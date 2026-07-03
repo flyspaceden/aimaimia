@@ -868,7 +868,7 @@ Tab 栏设计：
 │  └─────┴─────┴─────┴─────┘ │
 │                             │
 │  ┌──────────┬──────────┐   │
-│  │  💰 钱包  │  🌳 VIP  │   │ ← 钱包和VIP入口卡片
+│  │ 💰 我的财库 │  🌳 VIP  │   │ ← 我的财库和VIP入口卡片
 │  │  ¥68.50  │  等级 3   │   │
 │  │  去提现 > │  查看权益 >│   │ ← 卡片背景用渐变
 │  └──────────┴──────────┘   │
@@ -901,7 +901,7 @@ Tab 栏设计：
 
 - **顶部用户卡片**：背景使用从 primary 到 aiStart 的极浅渐变，深色模式用深绿渐变
 - **订单快捷入口**：4 等分，Lucide 图标 + 文字，未读角标用 danger 色圆点
-- **钱包/VIP 卡片**：左右各 50%，圆角 `xl`，钱包用金色渐变底，VIP 用绿色渐变底
+- **我的财库/VIP 卡片**：左右各 50%，圆角 `xl`，我的财库用金色渐变底，VIP 用绿色渐变底
 - **任务推荐**：标题带 AI 标签，内容由 AI 生成（最重要的 2 个任务）
 - **工具网格**：4 列，每格圆角 `lg`，图标 + 文字，统一高度
 
@@ -1460,11 +1460,11 @@ Tab 栏设计：
 
 ---
 
-### 5.18 消费积分钱包 `/me/wallet` ✅
+### 5.18 我的财库（消费积分） `/me/wallet` ✅
 
 ```
 ┌─────────────────────────────┐
-│  ← 消费积分                  │
+│  ← 我的财库                  │
 │                             │
 │  ┌─────────────────────────┐│
 │  │     ¥ 128.50            ││ ← 余额大字（displayLg）
@@ -1498,7 +1498,9 @@ Tab 栏设计：
 └─────────────────────────────┘
 ```
 
-实施状态（2026-06-29）：钱包页面向用户统一命名为"消费积分"，顶部总额合并展示 VIP/NORMAL 分润、团购返还和卖家 OWNER 可见产业基金；可抵扣余额仅包含 VIP/NORMAL 分润与团购返还，产业基金只参与提现。流水统一显示 Reward 与 GroupBuyRebate 两套 ledger，团购返还的冻结、到账、抵扣、提现在同一个钱包列表中展示；非卖家 OWNER 不展示产业基金分项或筛选。审查补强：钱包“消费抵扣”筛选同时包含 Reward 抵扣与团购返还抵扣，“已提现”不再混入团购返还抵扣。
+实施状态（2026-06-29）：我的财库页面顶部总额合并展示 VIP/NORMAL 分润、团购返还和卖家 OWNER 可见产业基金；可抵扣余额仅包含 VIP/NORMAL 分润与团购返还，产业基金只参与提现。流水统一显示 Reward 与 GroupBuyRebate 两套 ledger，团购返还的冻结、到账、抵扣、提现在同一个财库列表中展示；非卖家 OWNER 不展示产业基金分项或筛选。审查补强：财库“消费抵扣”筛选同时包含 Reward 抵扣与团购返还抵扣，“已提现”不再混入团购返还抵扣。
+
+命名更新（2026-07-03）：买家 App 前台将原“钱包”入口、页标题和相关说明统一显示为“我的财库”；页面内余额类型仍称“消费积分”，便于用户理解可抵扣/可提现资产来源。
 
 ---
 
@@ -2427,6 +2429,7 @@ src/components/ai/   → 新增目录
 | 管理后台红包手动发放 | 手动发放活动不再配置活动开始/截止时间；发放弹窗支持指定买家、全部有效买家、VIP 买家，并可选择立即发放或定时发放 | 2026-07-02 | `admin/src/pages/coupons/campaign-form.tsx`, `admin/src/pages/coupons/campaigns.tsx`, `admin/src/api/coupon.ts`, `scripts/__tests__/coupon-campaign-rules.test.mjs` |
 | 买家 App 领券中心提醒 | 红包页读取 `claimable-alert` 后在“领券中心”Tab 展示新可领红包数字角标；进入领券中心即标记已读并刷新消息未读数；消息中心的 `coupon.claimableAvailable` 可直接跳到领券中心 Tab | 2026-07-02 | `app/me/coupons.tsx`, `src/repos/CouponRepo.ts`, `src/types/domain/Coupon.ts`, `scripts/__tests__/coupon-campaign-rules.test.mjs` |
 | 买家 App 领券中心分类 Tab | 领券中心新增“可领取 / 已领取 / 进行中”内层 Tab；默认可领取只展示还能领的活动，已领完或用户领满后消失；已领取保留来源记录；进行中展示状态墙并用后端 `displayStatus` 控制按钮 | 2026-07-02 | `app/me/coupons.tsx`, `src/repos/CouponRepo.ts`, `src/types/domain/Coupon.ts`, `backend/src/modules/coupon/coupon.service.ts`, `scripts/__tests__/coupon-campaign-rules.test.mjs` |
+| 我的页财库与福利命名 | 买家 App 前台将“钱包”入口、页标题、错误态和提现/VIP/注销相关说明统一为“我的财库”；将“我的红包”工具入口、页面标题、Tab、空态和领取成功提示统一为“我的福利”；结算页“红包抵扣/选择红包”仍保留业务抵扣词 | 2026-07-03 | `app/(tabs)/me.tsx`, `app/me/wallet.tsx`, `app/me/coupons.tsx`, `app/me/vip.tsx`, `app/me/withdraw.tsx`, `app/me/deletion.tsx`, `scripts/__tests__/me-benefit-labels.test.mjs` |
 | 管理后台商品限购配置 | 管理后台普通商品列表展示 SKU 单笔限购；商品详情规格编辑表单支持查看/设置/清空 `maxPerOrder`，与卖家中心限购字段保持一致 | 2026-05-18 | `admin/src/pages/products/index.tsx`, `admin/src/pages/products/edit.tsx`, `admin/src/api/products.ts`, `admin/src/types/index.ts` |
 | 推荐关系展示收口 | 非 VIP 不展示自己的推荐码；推荐码页展示绑定推荐人和扫码入口；我的页常用工具固定提供"推荐关系/我的推荐码"入口；会员中心增加购买前推荐关系确认；扫码成功 toast 显示绑定的推荐人；空摘要但有 `inviterUserId` 时仍按已绑定展示 | 2026-05-15 | `app/(tabs)/me.tsx`, `app/me/referral.tsx`, `app/me/vip.tsx`, `app/me/scanner.tsx`, `src/utils/referralRelation.ts`, `src/types/domain/Bonus.ts`, `src/repos/BonusRepo.ts` |
 | 响应式二轮复核规划 | 真机测试确认大字体 / 显示大小 / Android 虚拟三键 / 手势条不是华为个例；响应式规范扩展为 10 场景矩阵，新增支付成功页 CTA 可达、BackHandler 安全导航、我的页/购物车/结算等高频页大字体降级任务 | 2026-05-18 | `docs/architecture/responsive-design.md`, `docs/issues/tofix-app-frontend.md`, `docs/operations/app-发布与OTA手册.md`, `plan.md` |

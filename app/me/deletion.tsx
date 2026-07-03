@@ -51,7 +51,7 @@ const NOTICE_SECTIONS: Array<{ title: string; paragraphs: string[] }> = [
     title: '三、虚拟资产即时清零作废（含可提现余额）',
     paragraphs: [
       '提交注销的瞬间，下列资产将立即清零作废，不予退还、兑现或补偿：',
-      '1. 消费积分、分润奖励、钱包或余额类权益（含可提现部分）；',
+      '1. 消费积分、分润奖励、我的财库或余额类权益（含可提现部分）；',
       '2. 平台红包与已绑定未使用的优惠券；',
       '3. 抽奖中奖名额、购物车中的奖品权益；',
       '4. VIP 会员权益、推荐码展示与分享权益；',
@@ -105,7 +105,7 @@ const BLOCKER_HINTS: Record<AccountDeletionBlockerCode, string> = {
 
 // ==================== 工具函数 ====================
 
-/** 金额按元展示（Reward / 钱包等为 Float / 元） */
+/** 金额按元展示（Reward / 财库等为 Float / 元） */
 const formatMoney = (v: number): string => `¥${(v ?? 0).toFixed(2)}`;
 
 // ==================== 主页面 ====================
@@ -470,7 +470,7 @@ export default function AccountDeletionScreen() {
   // ---------- Step 1：须知 + 资产 + 同意 ----------
   const { assets, pending } = preview;
   const assetRows: Array<{ label: string; value: string }> = [
-    { label: '钱包 / 可提现余额', value: formatMoney(assets.withdrawableRewards) },
+    { label: '我的财库 / 可提现余额', value: formatMoney(assets.withdrawableRewards) },
     { label: '消费积分', value: `${assets.points}` },
     { label: '平台红包', value: `${assets.coupons} 张` },
     { label: 'VIP 权益', value: '立即终止' },

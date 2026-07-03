@@ -56,7 +56,7 @@ export default function WalletScreen() {
   // R-RS07: FlatList paddingBottom 吃系统 safe-area，避免底部内容贴边。
   const safeBottom = useBottomInset(spacing['3xl']);
 
-  // 钱包余额
+  // 财库余额
   const { data: walletData, isLoading: walletLoading, isFetching, refetch } = useQuery({
     queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
@@ -89,7 +89,7 @@ export default function WalletScreen() {
   const displayItems = useMemo(() => {
     const items: LedgerDisplayItem[] = [];
 
-    // 从钱包流水中提取冻结条目
+    // 从财库流水中提取冻结条目
     const frozenFromLedger = new Set<string>();
 
     // 流水记录
@@ -396,7 +396,7 @@ export default function WalletScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="消费积分" />
+      <AppHeader title="我的财库" />
       {walletLoading ? (
         <View style={{ padding: spacing.xl }}>
           <Skeleton height={200} radius={radius.lg} />
@@ -408,7 +408,7 @@ export default function WalletScreen() {
           <Skeleton height={60} radius={radius.md} />
         </View>
       ) : walletError ? (
-        <ErrorState title="钱包加载失败" description="请稍后重试" onAction={() => refetch()} />
+        <ErrorState title="我的财库加载失败" description="请稍后重试" onAction={() => refetch()} />
       ) : (
         <FlatList
           data={filteredItems}
