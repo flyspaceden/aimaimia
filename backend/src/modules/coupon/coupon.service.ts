@@ -1983,7 +1983,7 @@ export class CouponService {
         const expiresAt = this.resolveCouponExpiresAt(campaign, now);
 
         // 批量创建实例
-        await tx.couponInstance.createMany({
+        const createdInstances = await tx.couponInstance.createManyAndReturn({
           data: issuedUsers.map((userId) => ({
             campaignId,
             userId,
@@ -1995,6 +1995,7 @@ export class CouponService {
             issuedAt: now,
             expiresAt,
           })),
+          select: { id: true, userId: true },
         });
 
         // CAS 更新已发放数量
@@ -2014,6 +2015,20 @@ export class CouponService {
           throw new ConflictException('发放冲突，请重试');
         }
 
+        for (const instance of createdInstances) {
+          await this.notificationService?.emit({
+            eventType: 'coupon.granted',
+            aggregateType: 'couponInstance',
+            aggregateId: instance.id,
+            idempotencyKey: `coupon:${instance.id}:granted`,
+            actor: { kind: 'admin', id: adminId },
+            payload: {
+              couponInstanceId: instance.id,
+              userId: instance.userId,
+              amount: campaign.discountValue,
+            },
+          }, tx as any);
+        }
 
         this.logger.log(
           `管理员 ${adminId} 手动发放活动 ${campaignId} 给 ${issuedUsers.length} 位用户`,

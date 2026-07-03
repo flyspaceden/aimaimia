@@ -192,4 +192,48 @@ describe('CouponEngineService notifications', () => {
     expect(issueWithRetry).toHaveBeenCalledWith('holiday-1', 'buyer-2');
   });
 
+  it('emits granted notifications when audience automatic coupons are actually issued', async () => {
+    const { service, prisma, tx, notificationService } = makeService();
+    prisma.couponCampaign.findMany.mockResolvedValueOnce([
+      {
+        ...campaign,
+        id: 'holiday-1',
+        name: '节日自动红包',
+        triggerType: 'HOLIDAY',
+        distributionMode: 'AUTO',
+        triggerConfig: { autoTargetMode: 'ALL_USERS' },
+      },
+    ]);
+    prisma.couponCampaign.findUnique.mockResolvedValueOnce({
+      issuedCount: 0,
+      totalQuota: 10,
+      status: 'ACTIVE',
+    });
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'buyer-1' }]);
+    tx.couponCampaign.findUnique.mockResolvedValueOnce({
+      ...campaign,
+      id: 'holiday-1',
+      name: '节日自动红包',
+      issuedCount: 0,
+      totalQuota: 10,
+    });
+    tx.couponInstance.create.mockResolvedValueOnce({ id: 'coupon-auto-1' });
+
+    await service.handleAudienceAutoCoupons();
+
+    expect(notificationService.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'coupon.granted',
+        aggregateType: 'couponInstance',
+        aggregateId: 'coupon-auto-1',
+        idempotencyKey: 'coupon:coupon-auto-1:granted',
+        payload: expect.objectContaining({
+          couponInstanceId: 'coupon-auto-1',
+          userId: 'buyer-1',
+          amount: 10,
+        }),
+      }),
+      tx,
+    );
+  });
 });
