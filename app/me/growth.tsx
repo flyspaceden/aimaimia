@@ -12,13 +12,14 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { AiDivider, Tag } from '../../src/components/ui';
-import { CouponRepo, GrowthRepo } from '../../src/repos';
+import { BonusRepo, CouponRepo, GrowthRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { GrowthExchangeItem, GrowthGuideRule, NormalShareRecord } from '../../src/types';
@@ -47,6 +48,30 @@ const grantTimingLabels: Record<string, string> = {
   MANUAL: '人工审核后发放',
 };
 
+type MaterialIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+const vipGrowthGuideItems: Array<{
+  icon: MaterialIconName;
+  title: string;
+  description: string;
+}> = [
+  {
+    icon: 'sprout-outline',
+    title: '会员成长怎么用',
+    description: '会员积分可兑换红包和会员权益；成长值只用于升级，不会因积分兑换而减少。',
+  },
+  {
+    icon: 'qrcode-scan',
+    title: '推荐好友怎么操作',
+    description: '邀请好友开通 VIP 时使用 VIP 推荐码，好友购买 VIP 礼包后按会员推荐规则结算奖励。',
+  },
+  {
+    icon: 'format-list-checks',
+    title: '积分和成长值怎么获得',
+    description: '完成下方已开启的任务，或订单确认收货后，系统会按后台规则自动发放。',
+  },
+];
+
 function formatRewardText(rule: GrowthGuideRule) {
   const rewards = [];
   if (rule.pointsReward) rewards.push(`${rule.pointsReward} 积分`);
@@ -71,6 +96,7 @@ export default function GrowthCenterScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const { show } = useToast();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const bottomInset = useBottomInset(0);
   const [bindCode, setBindCode] = useState('');
@@ -80,20 +106,30 @@ export default function GrowthCenterScreen() {
     queryFn: () => GrowthRepo.getMe(),
     enabled: isLoggedIn,
   });
+  const memberQuery = useQuery({
+    queryKey: ['bonus-member'],
+    queryFn: () => BonusRepo.getMember(),
+    enabled: isLoggedIn,
+  });
+  const member = memberQuery.data?.ok ? memberQuery.data.data : null;
+  const memberLoaded = Boolean(memberQuery.data);
+  const memberLoadFailed = Boolean(memberQuery.data && !memberQuery.data.ok);
+  const isVip = member?.tier === 'VIP';
+  const normalShareEnabled = Boolean(isLoggedIn && memberQuery.data?.ok && !isVip);
   const shareQuery = useQuery({
     queryKey: ['normal-share-me'],
     queryFn: () => GrowthRepo.getNormalShareMe(),
-    enabled: isLoggedIn,
+    enabled: normalShareEnabled,
   });
   const statsQuery = useQuery({
     queryKey: ['normal-share-stats'],
     queryFn: () => GrowthRepo.getNormalShareStats(),
-    enabled: isLoggedIn,
+    enabled: normalShareEnabled,
   });
   const recordsQuery = useQuery({
     queryKey: ['normal-share-records'],
     queryFn: () => GrowthRepo.getNormalShareRecords(),
-    enabled: isLoggedIn,
+    enabled: normalShareEnabled,
   });
   const exchangeItemsQuery = useQuery({
     queryKey: ['growth-exchange-items'],
@@ -148,7 +184,9 @@ export default function GrowthCenterScreen() {
   const inviteRules = guide?.inviteRules ?? [];
   const earningRules = guide?.earningRules ?? [];
   const levels = guide?.levels ?? [];
-  const isLoading = growthQuery.isLoading || shareQuery.isLoading;
+  const isLoading = growthQuery.isLoading || memberQuery.isLoading || (normalShareEnabled && shareQuery.isLoading);
+  const growthTitle = memberLoaded ? (isVip ? '会员成长' : '普通成长') : '成长中心';
+  const pointsLabel = memberQuery.data?.ok ? (isVip ? '会员积分' : '普通积分') : '积分';
   const levelPercent = Math.round((growth?.levelProgress?.ratio ?? 0) * 100);
   const shareUrl = shareProfile?.shareUrl ?? '';
   const shareProfileError = shareQuery.data && !shareQuery.data.ok
@@ -160,7 +198,14 @@ export default function GrowthCenterScreen() {
   const shareHelpText = shareProfileError
     ?? (shareProfile?.status === 'DISABLED'
       ? (shareProfile.disabledReason ? `已停用：${shareProfile.disabledReason}` : '普通分享码已被后台停用，暂不可复制或分享')
-      : '好友注册后绑定关系，首单确认收货后按后台规则发放成长奖励');
+      : '好友注册后立即发放注册奖励，首单确认收货后继续按后台规则发放奖励');
+  const pointsNote = isVip
+    ? '会员积分用于兑换红包和会员权益，兑换时会消耗。'
+    : (guide?.pointsNote ?? '普通积分用于兑换红包和权益，兑换时会消耗');
+  const growthNote = guide?.growthNote ?? '成长值用于升级，不会因为积分兑换而减少';
+  const earningEmptyText = isVip
+    ? '当前暂无开启中的会员成长任务。'
+    : '当前暂无开启中的积分成长任务。';
 
   const nextLevelText = useMemo(() => {
     if (!growth?.nextLevel) return '已达最高等级';
@@ -170,14 +215,20 @@ export default function GrowthCenterScreen() {
   }, [growth]);
 
   const refresh = async () => {
-    await Promise.all([
+    const tasks: Array<Promise<unknown>> = [
       growthQuery.refetch(),
-      shareQuery.refetch(),
-      statsQuery.refetch(),
-      recordsQuery.refetch(),
+      memberQuery.refetch(),
       exchangeItemsQuery.refetch(),
       guideQuery.refetch(),
-    ]);
+    ];
+    if (normalShareEnabled) {
+      tasks.push(
+        shareQuery.refetch(),
+        statsQuery.refetch(),
+        recordsQuery.refetch(),
+      );
+    }
+    await Promise.all(tasks);
   };
 
   const handleCopyShareCode = async () => {
@@ -221,7 +272,7 @@ export default function GrowthCenterScreen() {
   if (!isLoggedIn) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="普通成长" />
+        <AppHeader title={growthTitle} />
         <View style={{ flex: 1, padding: spacing.xl, justifyContent: 'center' }}>
           <EmptyState title="登录后查看成长权益" description="普通积分、成长值和分享码会在登录后自动生成" />
         </View>
@@ -231,10 +282,15 @@ export default function GrowthCenterScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="普通成长" />
+      <AppHeader title={growthTitle} />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] + bottomInset }}
-        refreshControl={<RefreshControl refreshing={growthQuery.isFetching || shareQuery.isFetching} onRefresh={refresh} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={growthQuery.isFetching || memberQuery.isFetching || (normalShareEnabled && shareQuery.isFetching)}
+            onRefresh={refresh}
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
         {isLoading ? (
@@ -249,6 +305,12 @@ export default function GrowthCenterScreen() {
             description={growthQuery.data.error.displayMessage ?? '请稍后重试'}
             onAction={growthQuery.refetch}
           />
+        ) : memberLoadFailed ? (
+          <ErrorState
+            title="会员状态加载失败"
+            description={memberQuery.data && !memberQuery.data.ok ? (memberQuery.data.error.displayMessage ?? '请稍后重试') : '请稍后重试'}
+            onAction={memberQuery.refetch}
+          />
         ) : (
           <>
             <Animated.View entering={FadeInDown.duration(300)}>
@@ -262,7 +324,7 @@ export default function GrowthCenterScreen() {
                   <View>
                     <Text style={[typography.caption, { color: 'rgba(255,255,255,0.75)' }]}>当前等级</Text>
                     <Text style={[typography.title2, { color: '#FFFFFF', marginTop: 4 }]}>
-                      {growth?.level?.name ?? '普通会员'}
+                      {growth?.level?.name ?? (isVip ? 'VIP 会员' : '普通会员')}
                     </Text>
                   </View>
                   <View style={[styles.levelBadge, { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: radius.pill }]}>
@@ -275,7 +337,7 @@ export default function GrowthCenterScreen() {
 
                 <View style={styles.metricRow}>
                   <View style={styles.metricItem}>
-                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>普通积分</Text>
+                    <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.75)' }]}>{pointsLabel}</Text>
                     <Text style={[typography.title3, { color: '#FFFFFF', marginTop: 4 }]}>
                       {Number(growth?.pointsBalance ?? 0).toLocaleString()}
                     </Text>
@@ -298,6 +360,54 @@ export default function GrowthCenterScreen() {
               </LinearGradient>
             </Animated.View>
 
+            {isVip ? (
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(80)}
+                style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+              >
+                <View style={styles.sectionTitleRow}>
+                  <Text style={[typography.headingSm, { color: colors.text.primary }]}>VIP 成长与推荐</Text>
+                  <Tag label="VIP 推荐权益" tone="accent" />
+                </View>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                  会员成长记录你的积分和成长值；推荐好友开通 VIP 请使用 VIP 推荐码。
+                </Text>
+
+                <View style={[styles.vipGuideList, { marginTop: spacing.md }]}>
+                  {vipGrowthGuideItems.map((item) => (
+                    <View key={item.title} style={[styles.vipGuideRow, { borderBottomColor: colors.border }]}>
+                      <View style={[styles.vipGuideIconBox, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md }]}>
+                        <MaterialCommunityIcons name={item.icon} size={18} color={colors.brand.primary} />
+                      </View>
+                      <View style={styles.vipGuideText}>
+                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{item.title}</Text>
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 3 }]}>
+                          {item.description}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={[styles.vipBoundaryBox, { backgroundColor: colors.background, borderRadius: radius.md, marginTop: spacing.md }]}>
+                  <MaterialCommunityIcons name="information-outline" size={16} color={colors.brand.primary} />
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginLeft: 6, flex: 1 }]}>
+                    普通分享码仅普通用户拉新使用，VIP 不需要绑定或展示普通分享码。
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={() => router.push('/me/referral')}
+                  style={[styles.primaryAction, { alignSelf: 'flex-start', backgroundColor: colors.brand.primary, borderRadius: radius.pill, marginTop: spacing.md }]}
+                >
+                  <MaterialCommunityIcons name="qrcode" size={15} color="#FFFFFF" />
+                  <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', marginLeft: 4 }]}>
+                    去分享 VIP 推荐码
+                  </Text>
+                </Pressable>
+              </Animated.View>
+            ) : (
+              <>
             <Animated.View
               entering={FadeInDown.duration(300).delay(80)}
               style={[styles.shareCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
@@ -436,6 +546,8 @@ export default function GrowthCenterScreen() {
                 </Pressable>
               </View>
             </Animated.View>
+              </>
+            )}
 
             <Animated.View
               entering={FadeInDown.duration(300).delay(150)}
@@ -451,7 +563,7 @@ export default function GrowthCenterScreen() {
                 </View>
               ) : earningRules.length === 0 ? (
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
-                  当前暂无开启中的积分成长任务。
+                  {earningEmptyText}
                 </Text>
               ) : (
                 <View style={{ marginTop: spacing.sm }}>
@@ -477,10 +589,10 @@ export default function GrowthCenterScreen() {
               <Text style={[typography.headingSm, { color: colors.text.primary }]}>升级规则</Text>
               <View style={[styles.noteBox, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md, marginTop: spacing.md }]}>
                 <Text style={[typography.caption, { color: colors.text.secondary }]}>
-                  {guide?.growthNote ?? '成长值用于升级，不会因为积分兑换而减少'}
+                  {growthNote}
                 </Text>
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                  {guide?.pointsNote ?? '普通积分用于兑换红包和权益，兑换时会消耗'}
+                  {pointsNote}
                 </Text>
               </View>
               {levels.length === 0 ? (
@@ -560,33 +672,35 @@ export default function GrowthCenterScreen() {
               )}
             </Animated.View>
 
-            <Animated.View
-              entering={FadeInDown.duration(300).delay(240)}
-              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
-            >
-              <Text style={[typography.headingSm, { color: colors.text.primary }]}>最近邀请</Text>
-              {records.length === 0 ? (
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
-                  暂无邀请记录
-                </Text>
-              ) : (
-                <View style={{ marginTop: spacing.sm }}>
-                  {records.slice(0, 5).map((record) => (
-                    <View key={record.id} style={[styles.recordRow, { borderBottomColor: colors.border }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[typography.bodySm, { color: colors.text.primary }]}>
-                          {record.invitee?.profile?.nickname || record.invitee?.buyerNo || '新用户'}
-                        </Text>
-                        <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 2 }]}>
-                          {new Date(record.boundAt).toLocaleDateString()}
-                        </Text>
+            {!isVip ? (
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(240)}
+                style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+              >
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>最近邀请</Text>
+                {records.length === 0 ? (
+                  <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
+                    暂无邀请记录
+                  </Text>
+                ) : (
+                  <View style={{ marginTop: spacing.sm }}>
+                    {records.slice(0, 5).map((record) => (
+                      <View key={record.id} style={[styles.recordRow, { borderBottomColor: colors.border }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[typography.bodySm, { color: colors.text.primary }]}>
+                            {record.invitee?.profile?.nickname || record.invitee?.buyerNo || '新用户'}
+                          </Text>
+                          <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 2 }]}>
+                            {new Date(record.boundAt).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        <Tag label={rewardStatusLabels[record.rewardStatus] ?? record.rewardStatus} tone={record.rewardStatus === 'ISSUED' ? 'brand' : 'neutral'} />
                       </View>
-                      <Tag label={rewardStatusLabels[record.rewardStatus] ?? record.rewardStatus} tone={record.rewardStatus === 'ISSUED' ? 'brand' : 'neutral'} />
-                    </View>
-                  ))}
-                </View>
-              )}
-            </Animated.View>
+                    ))}
+                  </View>
+                )}
+              </Animated.View>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -644,6 +758,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  vipGuideList: {
+    width: '100%',
+  },
+  vipGuideRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  vipGuideIconBox: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  vipGuideText: {
+    flex: 1,
+  },
+  vipBoundaryBox: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   shareBody: {
     flexDirection: 'row',

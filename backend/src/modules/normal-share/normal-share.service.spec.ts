@@ -20,6 +20,7 @@ const activeShareProfile = (overrides: Record<string, unknown> = {}) => ({
 
 const makeHarness = (options: {
   profileByUser?: any;
+  memberProfileByUser?: any;
   profileByCode?: any;
   existingNormalBinding?: any;
   existingVipReferral?: any;
@@ -54,6 +55,9 @@ const makeHarness = (options: {
     referralLink: {
       findUnique: jest.fn().mockResolvedValue(options.existingVipReferral ?? null),
     },
+    memberProfile: {
+      findUnique: jest.fn().mockResolvedValue(options.memberProfileByUser ?? { tier: 'NORMAL' }),
+    },
   };
 
   const prisma: any = {
@@ -65,6 +69,9 @@ const makeHarness = (options: {
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    memberProfile: {
+      findUnique: jest.fn().mockResolvedValue(options.memberProfileByUser ?? { tier: 'NORMAL' }),
     },
   };
 
@@ -112,6 +119,15 @@ describe('NormalShareService', () => {
     const result = await service.getMe('user-1') as any;
 
     expect(result).toMatchObject({ code: 'SABCDEFG' });
+    expect(tx.normalShareProfile.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create an ordinary share code for VIP users', async () => {
+    const { service, tx } = makeHarness({
+      memberProfileByUser: { tier: 'VIP' },
+    });
+
+    await expect(service.getMe('vip-user-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.normalShareProfile.create).not.toHaveBeenCalled();
   });
 
@@ -198,6 +214,25 @@ describe('NormalShareService', () => {
     expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
   });
 
+  it('rejects ordinary share codes owned by VIP inviters', async () => {
+    const { service, tx } = makeHarness({
+      profileByCode: activeShareProfile({
+        user: {
+          id: 'inviter-1',
+          status: 'ACTIVE',
+          deletionExecutedAt: null,
+          profile: { nickname: 'VIP 邀请人' },
+          memberProfile: { tier: 'VIP' },
+        },
+      }),
+    });
+
+    await expect(
+      service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a second normal share binding to a different inviter', async () => {
     const { service, tx } = makeHarness({
       profileByCode: activeShareProfile(),
@@ -251,6 +286,7 @@ describe('NormalShareService', () => {
     });
     const service = new NormalShareService({
       normalShareBinding: { count },
+      memberProfile: { findUnique: jest.fn().mockResolvedValue({ tier: 'NORMAL' }) },
     } as any, { receive: jest.fn() } as any);
 
     await expect(service.getStats('inviter-1')).resolves.toEqual({

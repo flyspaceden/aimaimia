@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Alert,
   App,
   Avatar,
   Button,
@@ -85,6 +86,42 @@ const behaviorCodeLabels: Record<string, string> = {
   VIP_PURCHASE: '购买 VIP',
   TASK_COMPLETE: '任务完成',
   ADMIN_ADJUST: '后台调整',
+};
+
+const wiredBehaviorCodes = new Set([
+  'REGISTER',
+  'CHECK_IN',
+  'FIRST_ORDER_RECEIVED',
+  'REPURCHASE_RECEIVED',
+  'NORMAL_INVITE_REGISTER',
+  'NORMAL_INVITE_FIRST_ORDER',
+  'TASK_COMPLETE',
+  'ADMIN_ADJUST',
+]);
+
+const grantTimingLabels: Record<string, string> = {
+  IMMEDIATE: '立即发放',
+  CONFIRMED_RECEIPT: '确认收货后发放',
+  AFTER_SALE_WINDOW: '售后期结束后发放',
+  MANUAL: '人工审核后发放',
+};
+
+const behaviorUserEffects: Record<string, string> = {
+  REGISTER: '用户注册登录后获得一次新手奖励。',
+  CHECK_IN: '用户签到后获得积分，成长值按配置发放。',
+  FIRST_ORDER_RECEIVED: '用户自己的首单确认收货后发放。',
+  REPURCHASE_RECEIVED: '用户复购订单确认收货后发放。',
+  NORMAL_INVITE_REGISTER: '普通用户邀请新人注册后，邀请人立即获得奖励。',
+  NORMAL_INVITE_FIRST_ORDER: '被邀请人首单确认收货后，邀请人获得首单奖励。',
+  TASK_COMPLETE: '任务系统确认完成后发放。',
+  ADMIN_ADJUST: '管理员手动调整时写入流水。',
+  COMPLETE_PROFILE: '当前还没有前端/后端完成事件，启用也不会自动发放。',
+  BIND_PHONE_OR_WECHAT: '当前还没有绑定事件接入，启用也不会自动发放。',
+  BROWSE_PRODUCTS: '当前还没有浏览计数事件，启用也不会自动发放。',
+  FAVORITE_ITEM: '当前还没有收藏事件接入，启用也不会自动发放。',
+  SHARE_CONTENT: '当前还没有分享内容事件接入，启用也不会自动发放。',
+  REVIEW_ORDER: '当前还没有评价事件接入，启用也不会自动发放。',
+  VIP_PURCHASE: '当前 VIP 购买成长事件未接入，启用也不会自动发放。',
 };
 
 const categoryOptions = [
@@ -503,6 +540,20 @@ export default function GrowthPage() {
       ),
     },
     {
+      title: '发放时机',
+      dataIndex: 'grantTiming',
+      width: 150,
+      render: (value: string) => grantTimingLabels[value] ?? value,
+    },
+    {
+      title: '接入状态',
+      width: 140,
+      render: (_, record) => {
+        const wired = wiredBehaviorCodes.has(record.code);
+        return <Tag color={wired ? 'green' : 'orange'}>{wired ? '已接入' : '未接入'}</Tag>;
+      },
+    },
+    {
       title: '限制',
       width: 220,
       render: (_, record) => (
@@ -528,6 +579,15 @@ export default function GrowthPage() {
       dataIndex: 'enabled',
       width: 90,
       render: (enabled: boolean) => <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用' : '停用'}</Tag>,
+    },
+    {
+      title: '用户看到什么',
+      width: 260,
+      render: (_, record) => (
+        <Typography.Text type="secondary">
+          {behaviorUserEffects[record.code] ?? '用户完成该行为后按本行规则获得积分和成长值。'}
+        </Typography.Text>
+      ),
     },
     {
       title: '操作',
@@ -894,6 +954,28 @@ export default function GrowthPage() {
 
   return (
     <div style={{ padding: 24 }}>
+      <Alert
+        showIcon
+        type="info"
+        message="普通成长配置顺序"
+        description={
+          <Space direction="vertical" size={4}>
+            <Typography.Text>
+              积分=可消耗，可用于兑换红包和权益；成长值=不可消耗，只用于升级和解锁等级权益。
+            </Typography.Text>
+            <Typography.Text>
+              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享码只给普通用户使用，VIP 用户使用 VIP 推荐码。
+            </Typography.Text>
+            <Space wrap>
+              <Tag color="blue">先开全局</Tag>
+              <Tag color="green">再配行为</Tag>
+              <Tag color="purple">接着配等级</Tag>
+              <Tag color="orange">最后配兑换</Tag>
+            </Space>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      />
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} xl={6}>
           <Card>
@@ -947,6 +1029,13 @@ export default function GrowthPage() {
             label: '全局设置',
             children: (
               <Card loading={settingsQuery.isLoading}>
+                <Alert
+                  showIcon
+                  type="warning"
+                  message="全局设置控制成长体系是否运行"
+                  description="这里是总开关和风控上限。修改后通常只影响之后产生的积分、成长值、兑换和邀请奖励，不会重算历史流水。"
+                  style={{ marginBottom: 16 }}
+                />
                 <Form<AdminGrowthSettings>
                   form={settingsForm}
                   layout="vertical"
@@ -954,17 +1043,32 @@ export default function GrowthPage() {
                 >
                   <Row gutter={16}>
                     <Col xs={24} md={8}>
-                      <Form.Item name="growthEnabled" label="普通成长系统" valuePropName="checked">
+                      <Form.Item
+                        name="growthEnabled"
+                        label="成长体系总开关"
+                        valuePropName="checked"
+                        extra="关闭后，用户端不应继续产生新的积分和成长值。"
+                      >
                         <Switch checkedChildren="启用" unCheckedChildren="关闭" />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="refundReversalEnabled" label="退款冲正" valuePropName="checked">
+                      <Form.Item
+                        name="refundReversalEnabled"
+                        label="退款冲正"
+                        valuePropName="checked"
+                        extra="开启后，退款/退货会冲回对应积分和成长值。"
+                      >
                         <Switch checkedChildren="启用" unCheckedChildren="关闭" />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="autoSuspendExchangeRisk" label="异常兑换自动暂停" valuePropName="checked">
+                      <Form.Item
+                        name="autoSuspendExchangeRisk"
+                        label="异常兑换自动暂停"
+                        valuePropName="checked"
+                        extra="用于风控兜底，异常时暂停兑换项，避免积分被集中消耗。"
+                      >
                         <Switch checkedChildren="启用" unCheckedChildren="关闭" />
                       </Form.Item>
                     </Col>
@@ -972,22 +1076,22 @@ export default function GrowthPage() {
                   <Divider />
                   <Row gutter={16}>
                     <Col xs={24} md={8}>
-                      <Form.Item name="pointsExpireDays" label="积分有效期（天）" rules={[{ required: true }]}>
+                      <Form.Item name="pointsExpireDays" label="积分有效期（天）" rules={[{ required: true }]} extra="积分过期会扣减可用积分；成长值不会过期。">
                         <InputNumber min={1} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="pointsExpireRemindDays" label="过期提醒提前（天）" rules={[{ required: true }]}>
+                      <Form.Item name="pointsExpireRemindDays" label="过期提醒提前（天）" rules={[{ required: true }]} extra="用于后续消息提醒，设置 0 表示不提前提醒。">
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="dailyPointsCap" label="每日积分获取上限" rules={[{ required: true }]}>
+                      <Form.Item name="dailyPointsCap" label="每日积分获取上限" rules={[{ required: true }]} extra="限制单个用户每天通过行为规则最多获得多少积分。">
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="monthlyPointsCap" label="每月积分获取上限" rules={[{ required: true }]}>
+                      <Form.Item name="monthlyPointsCap" label="每月积分获取上限" rules={[{ required: true }]} extra="限制单个用户每月通过行为规则最多获得多少积分。">
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
@@ -996,6 +1100,7 @@ export default function GrowthPage() {
                         name="dailyShareRewardUserCap"
                         label="每日邀请注册奖励上限"
                         rules={[{ required: true }]}
+                        extra="限制单个邀请人每天通过邀请注册拿奖励的人数。"
                       >
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
@@ -1005,6 +1110,7 @@ export default function GrowthPage() {
                         name="monthlyInviteFirstOrderCap"
                         label="每月邀请首单奖励上限"
                         rules={[{ required: true }]}
+                        extra="限制单个邀请人每月通过好友首单拿奖励的人数。"
                       >
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
@@ -1024,9 +1130,13 @@ export default function GrowthPage() {
             label: '账户',
             children: (
               <Card>
-                <Typography.Paragraph type="secondary">
-                  这里按所有有效普通买家展示，尚未获得积分或成长值的用户也会以 0 账户显示。
-                </Typography.Paragraph>
+                <Alert
+                  showIcon
+                  type="info"
+                  message="账户页用于看用户当前积分、成长值和分享码状态"
+                  description="这里按所有有效普通买家展示，尚未获得积分或成长值的用户也会以 0 账户显示。手动调整会写入流水，适合客服补偿、异常修正，不适合批量运营发奖。"
+                  style={{ marginBottom: 16 }}
+                />
                 <ProTable<AdminGrowthAccountRow>
                   actionRef={actionRef}
                   rowKey="id"
@@ -1055,13 +1165,20 @@ export default function GrowthPage() {
             label: '行为规则',
             children: (
               <Card>
+                <Alert
+                  showIcon
+                  type="warning"
+                  message="行为规则决定用户做什么能拿积分和成长值"
+                  description="先看“接入状态”：已接入的行为才能真实触发；未接入的行为即使启用，也不会自动发放，需先接入 App/后端事件。"
+                  style={{ marginBottom: 16 }}
+                />
                 <Table<AdminGrowthRule>
                   rowKey="code"
                   loading={rulesQuery.isLoading}
                   columns={ruleColumns}
                   dataSource={rulesQuery.data ?? []}
                   pagination={false}
-                  scroll={{ x: 980 }}
+                  scroll={{ x: 1600 }}
                 />
               </Card>
             ),
@@ -1084,6 +1201,13 @@ export default function GrowthPage() {
                     </Space>
                   }
                 >
+                  <Alert
+                    showIcon
+                    type="info"
+                    message="成长等级只看成长值，不消耗积分"
+                    description="必须保留一个阈值为 0 的起始等级。等级阈值越高，用户需要累计越多成长值；月兑换上限用于控制该等级每月可兑换次数。"
+                    style={{ marginBottom: 16 }}
+                  />
                   <Table<AdminGrowthLevel>
                     rowKey={(record, index) => `${record.code}-${index}`}
                     loading={levelsQuery.isLoading}
@@ -1109,6 +1233,13 @@ export default function GrowthPage() {
                   </PermissionGate>
                 }
               >
+                <Alert
+                  showIcon
+                  type="info"
+                  message="积分兑换负责把积分变成红包或其他权益"
+                  description="红包类兑换项必须绑定一个有效红包活动；等级要求用于限制低等级用户兑换高价值权益；库存和用户限额用于控制成本。"
+                  style={{ marginBottom: 16 }}
+                />
                 <Table<AdminGrowthExchangeItem>
                   rowKey="id"
                   loading={exchangeItemsQuery.isLoading}
@@ -1124,6 +1255,13 @@ export default function GrowthPage() {
             label: '流水',
             children: (
               <Card>
+                <Alert
+                  showIcon
+                  type="info"
+                  message="流水是排查积分和成长值变化的审计记录"
+                  description="所有自动发放、兑换消耗、过期、冲正和后台调整都会记录在这里。用户投诉积分不对时，先按用户编号或行为筛选流水。"
+                  style={{ marginBottom: 16 }}
+                />
                 <ProTable<AdminGrowthLedger>
                   actionRef={ledgerActionRef}
                   rowKey="id"
@@ -1150,6 +1288,13 @@ export default function GrowthPage() {
             label: '普通分享',
             children: (
               <Card>
+                <Alert
+                  showIcon
+                  type="info"
+                  message="普通分享只服务普通用户拉新"
+                  description="普通用户邀请新人注册后可立即获得注册奖励；新人首单确认收货后可继续发首单奖励。VIP 用户不使用普通分享码，改用 VIP 推荐码。"
+                  style={{ marginBottom: 16 }}
+                />
                 <ProTable<AdminNormalShareBinding>
                   actionRef={shareActionRef}
                   rowKey="id"
@@ -1200,17 +1345,17 @@ export default function GrowthPage() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="name" label="规则名称" rules={[{ required: true }]}>
+              <Form.Item name="name" label="规则名称" rules={[{ required: true }]} extra="用户端规则说明会使用这个名称，请写成用户能理解的动作。">
                 <Input />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="categoryCode" label="分类" rules={[{ required: true }]}>
+              <Form.Item name="categoryCode" label="分类" rules={[{ required: true }]} extra="分类用于后台排序和用户端分组展示。">
                 <Select options={categoryOptions} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="applicableUserType" label="适用用户">
+              <Form.Item name="applicableUserType" label="适用用户" extra="普通邀请类规则应选普通用户；VIP 专属任务才选 VIP。">
                 <Select
                   options={[
                     { label: '全部', value: 'ALL' },
@@ -1221,47 +1366,57 @@ export default function GrowthPage() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="pointsReward" label="积分奖励">
+              <Form.Item name="grantTiming" label="发放时机" extra="立即发放适合注册、签到；确认收货后发放适合订单和邀请首单。">
+                <Select
+                  options={Object.entries(grantTimingLabels).map(([value, label]) => ({
+                    label,
+                    value,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="pointsReward" label="积分奖励" extra="积分=可消耗，用户可拿去兑换红包和权益。">
                 <InputNumber precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="growthReward" label="成长值奖励">
+              <Form.Item name="growthReward" label="成长值奖励" extra="成长值=不可消耗，只用于升级和解锁等级权益。">
                 <InputNumber precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="dailyLimit" label="日上限">
+              <Form.Item name="dailyLimit" label="日上限" extra="0 或留空表示不限。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="weeklyLimit" label="周上限">
+              <Form.Item name="weeklyLimit" label="周上限" extra="0 或留空表示不限。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="monthlyLimit" label="月上限">
+              <Form.Item name="monthlyLimit" label="月上限" extra="0 或留空表示不限。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="lifetimeLimit" label="总上限">
+              <Form.Item name="lifetimeLimit" label="总上限" extra="用于首单、注册等一次性奖励。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="vipPointsMultiplier" label="VIP 积分倍率">
+              <Form.Item name="vipPointsMultiplier" label="VIP 积分倍率" extra="仅适用用户包含 VIP 时生效；留空表示不加倍。">
                 <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="留空不加倍" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="vipGrowthMultiplier" label="VIP 成长倍率">
+              <Form.Item name="vipGrowthMultiplier" label="VIP 成长倍率" extra="仅适用用户包含 VIP 时生效；留空表示不加倍。">
                 <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="留空不加倍" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="enabled" label="状态" valuePropName="checked">
+              <Form.Item name="enabled" label="状态" valuePropName="checked" extra="未接入的行为不要启用；已接入行为启用后才会真实发放。">
                 <Switch checkedChildren="启用" unCheckedChildren="停用" />
               </Form.Item>
             </Col>
@@ -1284,24 +1439,24 @@ export default function GrowthPage() {
         >
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+              <Form.Item name="type" label="类型" rules={[{ required: true }]} extra="红包类会发平台红包；装饰权益和抽奖机会用于后续权益扩展。">
                 <Select
                   options={Object.entries(exchangeTypeMap).map(([value, meta]) => ({ label: meta.text, value }))}
                 />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+              <Form.Item name="name" label="名称" rules={[{ required: true }]} extra="用户端会看到这个名称，建议写清面额或权益。">
                 <Input />
               </Form.Item>
             </Col>
             <Col span={24}>
-              <Form.Item name="description" label="说明">
+              <Form.Item name="description" label="说明" extra="说明兑换后的使用范围、有效期或限制。">
                 <Input.TextArea rows={2} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="pointsCost" label="所需积分" rules={[{ required: true }]}>
+              <Form.Item name="pointsCost" label="所需积分" rules={[{ required: true }]} extra="用户兑换时会扣减这些积分；成长值不会被扣减。">
                 <InputNumber min={1} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
@@ -1313,6 +1468,7 @@ export default function GrowthPage() {
                     <Form.Item
                       name="couponCampaignId"
                       label="红包活动"
+                      extra="红包类兑换项必须绑定已启用的红包活动，否则用户兑换后无法拿到红包。"
                       rules={[
                         {
                           required: couponExchangeTypes.has(type),
@@ -1334,34 +1490,34 @@ export default function GrowthPage() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="requiredLevelCode" label="要求等级">
+              <Form.Item name="requiredLevelCode" label="要求等级" extra="限制哪些成长等级可以兑换。留空表示所有等级可兑换。">
                 <Select allowClear options={levelOptions} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="status" label="状态">
+              <Form.Item name="status" label="状态" extra="停用后用户端不可兑换；售罄用于库存耗尽后的展示。">
                 <Select
                   options={Object.entries(exchangeStatusMap).map(([value, meta]) => ({ label: meta.text, value }))}
                 />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="stockTotal" label="总库存">
+              <Form.Item name="stockTotal" label="总库存" extra="控制活动总成本。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="不限" />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="stockDaily" label="日库存">
+              <Form.Item name="stockDaily" label="日库存" extra="控制每天最多兑换多少份。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="不限" />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="perUserDailyLimit" label="用户日限">
+              <Form.Item name="perUserDailyLimit" label="用户日限" extra="控制单个用户每天最多兑换次数。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="不限" />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="perUserMonthlyLimit" label="用户月限">
+              <Form.Item name="perUserMonthlyLimit" label="用户月限" extra="控制单个用户每月最多兑换次数。">
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="不限" />
               </Form.Item>
             </Col>

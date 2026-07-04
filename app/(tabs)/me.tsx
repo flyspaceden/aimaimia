@@ -36,7 +36,6 @@ const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; ic
 
 // 工具网格
 const TOOL_GRID_BASE = [
-  { label: '普通成长', icon: 'sprout-outline' as const, route: '/me/growth' },
   { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
@@ -145,8 +144,16 @@ export default function MeScreen() {
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
   const showNormalShareEntry = Boolean(memberData?.ok && !isVip);
+  const growthToolLabel = memberData?.ok ? (isVip ? '会员成长' : '普通成长') : '成长中心';
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
+  const normalGrowthTool = useMemo(
+    () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
+    [growthToolLabel],
+  );
+  const toolGrid = useMemo(
+    () => [buildMeReferralToolEntry(member), normalGrowthTool, ...TOOL_GRID_BASE],
+    [member, normalGrowthTool],
+  );
 
   // 复制推荐码
   const handleCopyReferral = async () => {
