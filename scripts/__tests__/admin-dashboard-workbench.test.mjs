@@ -32,9 +32,27 @@ test('operations overview uses payment-success time and active-window filters fo
 });
 
 test('admin dashboard displays operator-friendly sections and guidance', () => {
-  for (const text of ['今日经营', '待办中心', '资金与奖励', '活动增长', '经营脉搏', '处理优先级']) {
+  for (const text of [
+    '今日经营',
+    '待办中心',
+    '资金与奖励',
+    '活动增长',
+    '经营脉搏',
+    '处理优先级',
+    '订单结构',
+    '支付渠道分布',
+    '待办分布',
+    '资金结构',
+    '活动转化',
+  ]) {
     assert.match(dashboard, new RegExp(text));
   }
+  assert.match(dashboard, /import \{ Column, Line, Pie \} from '@ant-design\/charts'/);
+  assert.match(dashboard, /orderMixData/);
+  assert.match(dashboard, /paymentChartData/);
+  assert.match(dashboard, /pendingChartData/);
+  assert.match(dashboard, /capitalChartData/);
+  assert.match(dashboard, /activityChartData/);
   assert.match(dashboard, /暂无待办/);
   assert.match(dashboard, /60 秒刷新/);
   assert.match(dashboard, /paymentChannelText/);
