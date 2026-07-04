@@ -109,7 +109,10 @@ export class NormalShareService {
         where: { inviterUserId: userId, rewardStatus: 'ISSUED' },
       }),
       this.prisma.normalShareBinding.count({
-        where: { inviterUserId: userId, rewardStatus: 'PENDING' },
+        where: {
+          inviterUserId: userId,
+          rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
+        },
       }),
     ]);
 

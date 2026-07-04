@@ -186,4 +186,28 @@ describe('NormalShareService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
   });
+
+  it('counts all unissued bindings as pending invitees', async () => {
+    const count = jest.fn(({ where }: any) => {
+      if (!where.rewardStatus) return Promise.resolve(8);
+      if (where.rewardStatus === 'ISSUED') return Promise.resolve(3);
+      if (where.rewardStatus?.in) return Promise.resolve(5);
+      return Promise.resolve(0);
+    });
+    const service = new NormalShareService({
+      normalShareBinding: { count },
+    } as any);
+
+    await expect(service.getStats('inviter-1')).resolves.toEqual({
+      totalInvitees: 8,
+      rewardedInvitees: 3,
+      pendingInvitees: 5,
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        inviterUserId: 'inviter-1',
+        rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
+      },
+    });
+  });
 });

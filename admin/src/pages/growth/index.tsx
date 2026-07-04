@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Drawer,
   Form,
   Input,
@@ -39,15 +40,19 @@ import PermissionGate from '@/components/PermissionGate';
 import {
   adjustGrowthUser,
   createGrowthExchangeItem,
+  disableNormalShareProfile,
+  enableNormalShareProfile,
   getGrowthAccounts,
   getGrowthDashboard,
   getGrowthExchangeItems,
   getGrowthLedgers,
   getGrowthLevels,
   getGrowthRules,
+  getGrowthSettings,
   getNormalShareBindings,
   replaceGrowthLevels,
   updateGrowthExchangeItem,
+  updateGrowthSettings,
   upsertGrowthRule,
 } from '@/api/growth';
 import { getCampaigns } from '@/api/coupon';
@@ -60,6 +65,7 @@ import type {
   AdminGrowthLedger,
   AdminGrowthLevel,
   AdminGrowthRule,
+  AdminGrowthSettings,
   AdminNormalShareBinding,
 } from '@/types';
 
@@ -160,7 +166,7 @@ function getSortParams(sort: Record<string, SortOrder | undefined>): {
 }
 
 export default function GrowthPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
   const ledgerActionRef = useRef<ActionType>(null);
@@ -171,10 +177,15 @@ export default function GrowthPage() {
   const [editingExchange, setEditingExchange] = useState<AdminGrowthExchangeItem | null>(null);
   const [adjustingAccount, setAdjustingAccount] = useState<AdminGrowthAccountRow | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [levelDrafts, setLevelDrafts] = useState<AdminGrowthLevel[]>([]);
+  const [levelDrafts, setLevelDrafts] = useState<AdminGrowthLevel[] | null>(null);
   const [ruleForm] = Form.useForm<AdminGrowthRule>();
   const [exchangeForm] = Form.useForm<AdminGrowthExchangeItemPayload>();
-  const [adjustForm] = Form.useForm<{ pointsDelta: number; growthDelta: number; reason: string }>();
+  const [adjustForm] = Form.useForm<{
+    pointsDelta: number;
+    growthDelta: number;
+    reason: string;
+  }>();
+  const [settingsForm] = Form.useForm<AdminGrowthSettings>();
 
   const dashboardQuery = useQuery({
     queryKey: ['admin', 'growth', 'dashboard'],
@@ -183,6 +194,10 @@ export default function GrowthPage() {
   const rulesQuery = useQuery({
     queryKey: ['admin', 'growth', 'rules'],
     queryFn: getGrowthRules,
+  });
+  const settingsQuery = useQuery({
+    queryKey: ['admin', 'growth', 'settings'],
+    queryFn: getGrowthSettings,
   });
   const levelsQuery = useQuery({
     queryKey: ['admin', 'growth', 'levels'],
@@ -199,13 +214,19 @@ export default function GrowthPage() {
   });
 
   useEffect(() => {
-    if (levelsQuery.data) {
-      setLevelDrafts(levelsQuery.data);
+    if (settingsQuery.data) {
+      settingsForm.setFieldsValue(settingsQuery.data);
     }
-  }, [levelsQuery.data]);
+  }, [settingsForm, settingsQuery.data]);
+
+  const currentLevelDrafts = levelDrafts ?? levelsQuery.data ?? [];
 
   const levelOptions = useMemo(
-    () => (levelsQuery.data ?? []).map((level) => ({ label: `${level.name} (${level.threshold})`, value: level.code })),
+    () =>
+      (levelsQuery.data ?? []).map((level) => ({
+        label: `${level.name} (${level.threshold})`,
+        value: level.code,
+      })),
     [levelsQuery.data],
   );
 
@@ -220,22 +241,31 @@ export default function GrowthPage() {
     onError: (error: Error) => message.error(error.message || '保存失败'),
   });
 
+  const saveSettingsMutation = useMutation({
+    mutationFn: updateGrowthSettings,
+    onSuccess: (settings) => {
+      message.success('成长设置已保存');
+      settingsForm.setFieldsValue(settings);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
+    },
+    onError: (error: Error) => message.error(error.message || '保存失败'),
+  });
+
   const saveLevelsMutation = useMutation({
     mutationFn: replaceGrowthLevels,
     onSuccess: (levels) => {
       message.success('成长等级已保存');
       setLevelDrafts(levels);
-      queryClient.invalidateQueries({ queryKey: ['admin', 'growth', 'levels'] });
+      queryClient.invalidateQueries({
+        queryKey: ['admin', 'growth', 'levels'],
+      });
     },
     onError: (error: Error) => message.error(error.message || '保存失败'),
   });
 
   const saveExchangeMutation = useMutation({
-    mutationFn: (data: AdminGrowthExchangeItemPayload) => (
-      editingExchange
-        ? updateGrowthExchangeItem(editingExchange.id, data)
-        : createGrowthExchangeItem(data)
-    ),
+    mutationFn: (data: AdminGrowthExchangeItemPayload) =>
+      editingExchange ? updateGrowthExchangeItem(editingExchange.id, data) : createGrowthExchangeItem(data),
     onSuccess: () => {
       message.success('兑换项已保存');
       setExchangeModalOpen(false);
@@ -246,8 +276,13 @@ export default function GrowthPage() {
   });
 
   const adjustMutation = useMutation({
-    mutationFn: ({ userId, data }: { userId: string; data: { pointsDelta: number; growthDelta: number; reason: string } }) =>
-      adjustGrowthUser(userId, data),
+    mutationFn: ({
+      userId,
+      data,
+    }: {
+      userId: string;
+      data: { pointsDelta: number; growthDelta: number; reason: string };
+    }) => adjustGrowthUser(userId, data),
     onSuccess: () => {
       message.success('调整已写入流水');
       setAdjustingAccount(null);
@@ -258,31 +293,47 @@ export default function GrowthPage() {
     onError: (error: Error) => message.error(error.message || '调整失败'),
   });
 
+  const shareProfileMutation = useMutation({
+    mutationFn: ({ userId, status }: { userId: string; status: 'ACTIVE' | 'DISABLED' }) =>
+      status === 'ACTIVE' ? disableNormalShareProfile(userId, '管理员停用') : enableNormalShareProfile(userId),
+    onSuccess: () => {
+      message.success('普通分享码状态已更新');
+      actionRef.current?.reload();
+      shareActionRef.current?.reload();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
+    },
+    onError: (error: Error) => message.error(error.message || '操作失败'),
+  });
+
   const openRuleModal = (rule: AdminGrowthRule) => {
     setEditingRule(rule);
     ruleForm.setFieldsValue({
       ...rule,
       startAt: rule.startAt ? dayjs(rule.startAt).format('YYYY-MM-DDTHH:mm') : null,
       endAt: rule.endAt ? dayjs(rule.endAt).format('YYYY-MM-DDTHH:mm') : null,
-    } as any);
+    } as unknown as Parameters<typeof ruleForm.setFieldsValue>[0]);
     setRuleModalOpen(true);
   };
 
   const openExchangeModal = (item?: AdminGrowthExchangeItem) => {
     setEditingExchange(item ?? null);
-    exchangeForm.setFieldsValue(item ? {
-      ...item,
-      startAt: item.startAt ? dayjs(item.startAt).format('YYYY-MM-DDTHH:mm') : null,
-      endAt: item.endAt ? dayjs(item.endAt).format('YYYY-MM-DDTHH:mm') : null,
-    } : {
-      type: 'COUPON',
-      name: '',
-      pointsCost: 100,
-      status: 'ACTIVE',
-      sortOrder: 0,
-      perUserDailyLimit: 1,
-      perUserMonthlyLimit: 5,
-    });
+    exchangeForm.setFieldsValue(
+      item
+        ? {
+            ...item,
+            startAt: item.startAt ? dayjs(item.startAt).format('YYYY-MM-DDTHH:mm') : null,
+            endAt: item.endAt ? dayjs(item.endAt).format('YYYY-MM-DDTHH:mm') : null,
+          }
+        : {
+            type: 'COUPON',
+            name: '',
+            pointsCost: 100,
+            status: 'ACTIVE',
+            sortOrder: 0,
+            perUserDailyLimit: 1,
+            perUserMonthlyLimit: 5,
+          },
+    );
     setExchangeModalOpen(true);
   };
 
@@ -307,11 +358,12 @@ export default function GrowthPage() {
       width: 130,
       valueType: 'select',
       fieldProps: { options: levelOptions },
-      render: (_: unknown, record) => (
-        record.currentLevel
-          ? <Tag color="blue">{record.currentLevel.name}</Tag>
-          : <Typography.Text type="secondary">未定级</Typography.Text>
-      ),
+      render: (_: unknown, record) =>
+        record.currentLevel ? (
+          <Tag color="blue">{record.currentLevel.name}</Tag>
+        ) : (
+          <Typography.Text type="secondary">未定级</Typography.Text>
+        ),
     },
     {
       title: '普通积分',
@@ -349,11 +401,12 @@ export default function GrowthPage() {
       dataIndex: ['user', 'normalShareCode'],
       search: false,
       width: 120,
-      render: (_: unknown, record) => (
-        record.user?.normalShareCode
-          ? <Typography.Text code>{record.user.normalShareCode}</Typography.Text>
-          : <Typography.Text type="secondary">-</Typography.Text>
-      ),
+      render: (_: unknown, record) =>
+        record.user?.normalShareCode ? (
+          <Typography.Text code>{record.user.normalShareCode}</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
     },
     {
       title: '更新时间',
@@ -368,18 +421,52 @@ export default function GrowthPage() {
       valueType: 'option',
       width: 170,
       render: (_: unknown, record) => [
-        <Button key="ledger" type="link" onClick={() => setSelectedUserId(record.userId)}>流水</Button>,
-        <PermissionGate key="adjust" permission={PERMISSIONS.GROWTH_ADJUST}>
+        <Button key="ledger" type="link" onClick={() => setSelectedUserId(record.userId)}>
+          流水
+        </Button>,
+        <PermissionGate key="adjust" permission={PERMISSIONS.GROWTH_ADJUST_USER}>
           <Button
             type="link"
             onClick={() => {
               setAdjustingAccount(record);
-              adjustForm.setFieldsValue({ pointsDelta: 0, growthDelta: 0, reason: '' });
+              adjustForm.setFieldsValue({
+                pointsDelta: 0,
+                growthDelta: 0,
+                reason: '',
+              });
             }}
           >
             调整
           </Button>
         </PermissionGate>,
+        record.user?.normalShareCode ? (
+          <PermissionGate key="share-status" permission={PERMISSIONS.NORMAL_SHARE_MANAGE}>
+            <Button
+              type="link"
+              danger={record.user.normalShareStatus === 'ACTIVE'}
+              loading={shareProfileMutation.isPending}
+              onClick={() => {
+                const status = record.user?.normalShareStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE';
+                modal.confirm({
+                  title: status === 'ACTIVE' ? '停用普通分享码' : '启用普通分享码',
+                  content:
+                    status === 'ACTIVE'
+                      ? '停用后该分享码不能再绑定新用户，已产生的绑定和流水不会删除。'
+                      : '启用后该分享码可以继续绑定新用户。',
+                  okText: '确认',
+                  cancelText: '取消',
+                  onOk: () =>
+                    shareProfileMutation.mutate({
+                      userId: record.userId,
+                      status,
+                    }),
+                });
+              }}
+            >
+              {record.user.normalShareStatus === 'DISABLED' ? '启用分享码' : '停用分享码'}
+            </Button>
+          </PermissionGate>
+        ) : null,
       ],
     },
   ];
@@ -392,7 +479,9 @@ export default function GrowthPage() {
       render: (code: string, record) => (
         <Space direction="vertical" size={0}>
           <Typography.Text strong>{behaviorCodeLabels[code] ?? record.name}</Typography.Text>
-          <Typography.Text type="secondary" code>{code}</Typography.Text>
+          <Typography.Text type="secondary" code>
+            {code}
+          </Typography.Text>
         </Space>
       ),
     },
@@ -444,7 +533,9 @@ export default function GrowthPage() {
       width: 110,
       render: (_, record) => (
         <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
-          <Button type="link" icon={<EditOutlined />} onClick={() => openRuleModal(record)}>编辑</Button>
+          <Button type="link" icon={<EditOutlined />} onClick={() => openRuleModal(record)}>
+            编辑
+          </Button>
         </PermissionGate>
       ),
     },
@@ -456,10 +547,7 @@ export default function GrowthPage() {
       dataIndex: 'code',
       width: 150,
       render: (value: string, _record, index) => (
-        <Input
-          value={value}
-          onChange={(event) => patchLevel(index, { code: event.target.value })}
-        />
+        <Input value={value} onChange={(event) => patchLevel(index, { code: event.target.value })} />
       ),
     },
     {
@@ -467,10 +555,7 @@ export default function GrowthPage() {
       dataIndex: 'name',
       width: 160,
       render: (value: string, _record, index) => (
-        <Input
-          value={value}
-          onChange={(event) => patchLevel(index, { name: event.target.value })}
-        />
+        <Input value={value} onChange={(event) => patchLevel(index, { name: event.target.value })} />
       ),
     },
     {
@@ -509,7 +594,11 @@ export default function GrowthPage() {
           style={{ width: '100%' }}
           value={value ?? undefined}
           placeholder="不限"
-          onChange={(nextValue) => patchLevel(index, { monthlyExchangeLimit: nextValue === null ? null : Number(nextValue) })}
+          onChange={(nextValue) =>
+            patchLevel(index, {
+              monthlyExchangeLimit: nextValue === null ? null : Number(nextValue),
+            })
+          }
         />
       ),
     },
@@ -528,8 +617,12 @@ export default function GrowthPage() {
         <Button
           type="link"
           danger
-          disabled={levelDrafts.length <= 1}
-          onClick={() => setLevelDrafts((current) => current.filter((__, currentIndex) => currentIndex !== index))}
+          disabled={currentLevelDrafts.length <= 1}
+          onClick={() =>
+            setLevelDrafts((current) =>
+              (current ?? levelsQuery.data ?? []).filter((__, currentIndex) => currentIndex !== index),
+            )
+          }
         >
           删除
         </Button>
@@ -568,15 +661,20 @@ export default function GrowthPage() {
       title: '红包活动',
       dataIndex: 'couponCampaignId',
       width: 180,
-      render: (_: unknown, record) => record.couponCampaign?.name ?? <Typography.Text type="secondary">-</Typography.Text>,
+      render: (_: unknown, record) =>
+        record.couponCampaign?.name ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
       title: '库存',
       width: 160,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>总 {record.issuedTotal}/{record.stockTotal ?? '不限'}</Typography.Text>
-          <Typography.Text type="secondary">日 {record.issuedToday}/{record.stockDaily ?? '不限'}</Typography.Text>
+          <Typography.Text>
+            总 {record.issuedTotal}/{record.stockTotal ?? '不限'}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            日 {record.issuedToday}/{record.stockDaily ?? '不限'}
+          </Typography.Text>
         </Space>
       ),
     },
@@ -596,7 +694,10 @@ export default function GrowthPage() {
       dataIndex: 'status',
       width: 90,
       render: (status: string) => {
-        const meta = exchangeStatusMap[status] ?? { text: status, color: 'default' };
+        const meta = exchangeStatusMap[status] ?? {
+          text: status,
+          color: 'default',
+        };
         return <Tag color={meta.color}>{meta.text}</Tag>;
       },
     },
@@ -605,7 +706,9 @@ export default function GrowthPage() {
       width: 110,
       render: (_, record) => (
         <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_EXCHANGE}>
-          <Button type="link" icon={<EditOutlined />} onClick={() => openExchangeModal(record)}>编辑</Button>
+          <Button type="link" icon={<EditOutlined />} onClick={() => openExchangeModal(record)}>
+            编辑
+          </Button>
         </PermissionGate>
       ),
     },
@@ -623,11 +726,17 @@ export default function GrowthPage() {
       dataIndex: 'type',
       valueType: 'select',
       fieldProps: {
-        options: Object.entries(ledgerTypeMap).map(([value, meta]) => ({ label: meta.text, value })),
+        options: Object.entries(ledgerTypeMap).map(([value, meta]) => ({
+          label: meta.text,
+          value,
+        })),
       },
       width: 120,
       render: (_: unknown, record) => {
-        const meta = ledgerTypeMap[record.type] ?? { text: record.type, color: 'default' };
+        const meta = ledgerTypeMap[record.type] ?? {
+          text: record.type,
+          color: 'default',
+        };
         return <Tag color={meta.color}>{meta.text}</Tag>;
       },
     },
@@ -635,11 +744,12 @@ export default function GrowthPage() {
       title: '行为',
       dataIndex: 'behaviorCode',
       width: 180,
-      render: (_: unknown, record) => (
-        record.behaviorCode
-          ? <Typography.Text>{behaviorCodeLabels[record.behaviorCode] ?? record.behaviorCode}</Typography.Text>
-          : <Typography.Text type="secondary">-</Typography.Text>
-      ),
+      render: (_: unknown, record) =>
+        record.behaviorCode ? (
+          <Typography.Text>{behaviorCodeLabels[record.behaviorCode] ?? record.behaviorCode}</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
     },
     {
       title: '积分变动',
@@ -648,7 +758,8 @@ export default function GrowthPage() {
       width: 120,
       render: (_: unknown, record) => (
         <Typography.Text type={record.pointsDelta < 0 ? 'danger' : undefined}>
-          {record.pointsDelta > 0 ? '+' : ''}{record.pointsDelta}
+          {record.pointsDelta > 0 ? '+' : ''}
+          {record.pointsDelta}
         </Typography.Text>
       ),
     },
@@ -659,7 +770,8 @@ export default function GrowthPage() {
       width: 120,
       render: (_: unknown, record) => (
         <Typography.Text type={record.growthDelta < 0 ? 'danger' : undefined}>
-          {record.growthDelta > 0 ? '+' : ''}{record.growthDelta}
+          {record.growthDelta > 0 ? '+' : ''}
+          {record.growthDelta}
         </Typography.Text>
       ),
     },
@@ -704,11 +816,17 @@ export default function GrowthPage() {
       dataIndex: 'rewardStatus',
       valueType: 'select',
       fieldProps: {
-        options: Object.entries(rewardStatusMap).map(([value, meta]) => ({ label: meta.text, value })),
+        options: Object.entries(rewardStatusMap).map(([value, meta]) => ({
+          label: meta.text,
+          value,
+        })),
       },
       width: 130,
       render: (_: unknown, record) => {
-        const meta = rewardStatusMap[record.rewardStatus] ?? { text: record.rewardStatus, color: 'default' };
+        const meta = rewardStatusMap[record.rewardStatus] ?? {
+          text: record.rewardStatus,
+          color: 'default',
+        };
         return <Tag color={meta.color}>{meta.text}</Tag>;
       },
     },
@@ -730,30 +848,32 @@ export default function GrowthPage() {
 
   function patchLevel(index: number, patch: Partial<AdminGrowthLevel>) {
     setLevelDrafts((current) =>
-      current.map((item, currentIndex) => currentIndex === index ? { ...item, ...patch } : item),
+      (current ?? levelsQuery.data ?? []).map((item, currentIndex) =>
+        currentIndex === index ? { ...item, ...patch } : item,
+      ),
     );
   }
 
   function addLevel() {
-    const last = [...levelDrafts].sort((a, b) => a.threshold - b.threshold).at(-1);
+    const last = [...currentLevelDrafts].sort((a, b) => a.threshold - b.threshold).at(-1);
     setLevelDrafts((current) => [
-      ...current,
+      ...(current ?? levelsQuery.data ?? []),
       {
-        code: `L${current.length + 1}`,
-        name: `成长${current.length + 1}`,
+        code: `L${(current ?? levelsQuery.data ?? []).length + 1}`,
+        name: `成长${(current ?? levelsQuery.data ?? []).length + 1}`,
         threshold: last ? last.threshold + 1000 : 0,
         benefits: null,
         avatarFrameType: null,
         titleLabel: null,
         monthlyExchangeLimit: null,
-        sortOrder: current.length,
+        sortOrder: (current ?? levelsQuery.data ?? []).length,
         enabled: true,
       },
     ]);
   }
 
   function saveLevels() {
-    const normalized = levelDrafts
+    const normalized = currentLevelDrafts
       .map((level, index) => ({
         ...level,
         code: level.code.trim(),
@@ -822,6 +942,83 @@ export default function GrowthPage() {
       <Tabs
         items={[
           {
+            key: 'settings',
+            label: '全局设置',
+            children: (
+              <Card loading={settingsQuery.isLoading}>
+                <Form<AdminGrowthSettings>
+                  form={settingsForm}
+                  layout="vertical"
+                  onFinish={(values) => saveSettingsMutation.mutate(values)}
+                >
+                  <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="growthEnabled" label="普通成长系统" valuePropName="checked">
+                        <Switch checkedChildren="启用" unCheckedChildren="关闭" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="refundReversalEnabled" label="退款冲正" valuePropName="checked">
+                        <Switch checkedChildren="启用" unCheckedChildren="关闭" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="autoSuspendExchangeRisk" label="异常兑换自动暂停" valuePropName="checked">
+                        <Switch checkedChildren="启用" unCheckedChildren="关闭" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Divider />
+                  <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="pointsExpireDays" label="积分有效期（天）" rules={[{ required: true }]}>
+                        <InputNumber min={1} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="pointsExpireRemindDays" label="过期提醒提前（天）" rules={[{ required: true }]}>
+                        <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="dailyPointsCap" label="每日积分获取上限" rules={[{ required: true }]}>
+                        <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="monthlyPointsCap" label="每月积分获取上限" rules={[{ required: true }]}>
+                        <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="dailyShareRewardUserCap"
+                        label="每日邀请注册奖励上限"
+                        rules={[{ required: true }]}
+                      >
+                        <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="monthlyInviteFirstOrderCap"
+                        label="每月邀请首单奖励上限"
+                        rules={[{ required: true }]}
+                      >
+                        <InputNumber min={0} precision={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
+                    <Button type="primary" htmlType="submit" loading={saveSettingsMutation.isPending}>
+                      保存设置
+                    </Button>
+                  </PermissionGate>
+                </Form>
+              </Card>
+            ),
+          },
+          {
             key: 'accounts',
             label: '账户',
             children: (
@@ -872,18 +1069,22 @@ export default function GrowthPage() {
               <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
                 <Card
                   title="成长等级"
-                  extra={(
+                  extra={
                     <Space>
-                      <Button icon={<PlusOutlined />} onClick={addLevel}>新增等级</Button>
-                      <Button type="primary" loading={saveLevelsMutation.isPending} onClick={saveLevels}>保存等级</Button>
+                      <Button icon={<PlusOutlined />} onClick={addLevel}>
+                        新增等级
+                      </Button>
+                      <Button type="primary" loading={saveLevelsMutation.isPending} onClick={saveLevels}>
+                        保存等级
+                      </Button>
                     </Space>
-                  )}
+                  }
                 >
                   <Table<AdminGrowthLevel>
                     rowKey={(record, index) => `${record.code}-${index}`}
                     loading={levelsQuery.isLoading}
                     columns={levelColumns}
-                    dataSource={levelDrafts}
+                    dataSource={currentLevelDrafts}
                     pagination={false}
                     scroll={{ x: 940 }}
                   />
@@ -896,13 +1097,13 @@ export default function GrowthPage() {
             label: '积分兑换',
             children: (
               <Card
-                extra={(
+                extra={
                   <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_EXCHANGE}>
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => openExchangeModal()}>
                       新增兑换项
                     </Button>
                   </PermissionGate>
-                )}
+                }
               >
                 <Table<AdminGrowthExchangeItem>
                   rowKey="id"
@@ -969,7 +1170,9 @@ export default function GrowthPage() {
       />
 
       <Modal
-        title={editingRule ? `编辑行为规则：${behaviorCodeLabels[editingRule.code] ?? editingRule.code}` : '编辑行为规则'}
+        title={
+          editingRule ? `编辑行为规则：${behaviorCodeLabels[editingRule.code] ?? editingRule.code}` : '编辑行为规则'
+        }
         open={ruleModalOpen}
         onCancel={() => setRuleModalOpen(false)}
         onOk={() => ruleForm.submit()}
@@ -979,7 +1182,12 @@ export default function GrowthPage() {
         <Form<AdminGrowthRule>
           form={ruleForm}
           layout="vertical"
-          onFinish={(values) => saveRuleMutation.mutate({ ...values, code: editingRule?.code ?? values.code })}
+          onFinish={(values) =>
+            saveRuleMutation.mutate({
+              ...values,
+              code: editingRule?.code ?? values.code,
+            })
+          }
         >
           <Row gutter={16}>
             <Col span={12}>
@@ -1094,17 +1302,19 @@ export default function GrowthPage() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item
-                shouldUpdate={(prev, next) => prev.type !== next.type}
-                noStyle
-              >
+              <Form.Item shouldUpdate={(prev, next) => prev.type !== next.type} noStyle>
                 {({ getFieldValue }) => {
                   const type = getFieldValue('type');
                   return (
                     <Form.Item
                       name="couponCampaignId"
                       label="红包活动"
-                      rules={[{ required: couponExchangeTypes.has(type), message: '红包类兑换项必须绑定红包活动' }]}
+                      rules={[
+                        {
+                          required: couponExchangeTypes.has(type),
+                          message: '红包类兑换项必须绑定红包活动',
+                        },
+                      ]}
                     >
                       <Select
                         allowClear
@@ -1167,7 +1377,10 @@ export default function GrowthPage() {
           layout="vertical"
           onFinish={(values) => {
             if (!adjustingAccount) return;
-            adjustMutation.mutate({ userId: adjustingAccount.userId, data: values });
+            adjustMutation.mutate({
+              userId: adjustingAccount.userId,
+              data: values,
+            });
           }}
         >
           {adjustingAccount ? (
@@ -1187,12 +1400,7 @@ export default function GrowthPage() {
         </Form>
       </Modal>
 
-      <Drawer
-        title="增长流水"
-        width={860}
-        open={!!selectedUserId}
-        onClose={() => setSelectedUserId(null)}
-      >
+      <Drawer title="增长流水" width={860} open={!!selectedUserId} onClose={() => setSelectedUserId(null)}>
         <ProTable<AdminGrowthLedger>
           rowKey="id"
           columns={ledgerColumns.filter((column) => column.dataIndex !== 'userId')}

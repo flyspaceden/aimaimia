@@ -57,6 +57,9 @@ describe('AfterSaleRefundService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
+    normalShareBinding: {
+      updateMany: jest.fn(),
+    },
   };
 
   const paymentService = {
@@ -434,6 +437,15 @@ describe('AfterSaleRefundService', () => {
     }));
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
     expect(growthEvents.reverseByRef).toHaveBeenCalledWith('ORDER', 'order_001');
+    expect(prisma.normalShareBinding.updateMany).toHaveBeenCalledWith({
+      where: {
+        firstOrderId: 'order_001',
+        rewardStatus: 'ISSUED',
+      },
+      data: {
+        rewardStatus: 'REVERSED',
+      },
+    });
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 

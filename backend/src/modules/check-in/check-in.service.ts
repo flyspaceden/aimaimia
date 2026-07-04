@@ -45,8 +45,6 @@ export class CheckInService {
     const nextStreak = Math.min(7, currentStreak + 1);
 
     const reward = REWARD_TABLE.find((r) => r.day === nextStreak);
-    const pointsToAdd = reward?.points ?? 5;
-
     // H10修复：使用 Serializable 隔离级别防止快速双击绕过重复检查
     // CheckIn 表有 @@unique([userId, date])，若并发写入会触发 P2002
     const MAX_RETRIES = 3;
@@ -63,11 +61,6 @@ export class CheckInService {
             data: { userId, date: todayStr },
           });
 
-          await tx.userProfile.upsert({
-            where: { userId },
-            create: { userId, points: pointsToAdd },
-            update: { points: { increment: pointsToAdd } },
-          });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         // Phase F: 签到触发红包发放（fire-and-forget，传递连续签到天数）

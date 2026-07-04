@@ -25,8 +25,10 @@ import {
   AdminGrowthLedgerQueryDto,
   AdminGrowthReplaceLevelsDto,
   AdminGrowthRuleDto,
+  AdminGrowthSettingsDto,
   AdminGrowthUpdateExchangeItemDto,
   AdminNormalShareBindingQueryDto,
+  AdminNormalShareStatusDto,
 } from './dto/admin-growth.dto';
 
 @Public()
@@ -46,6 +48,24 @@ export class AdminGrowthController {
   @RequirePermission('growth:read')
   listRules() {
     return this.growthService.listBehaviorRules();
+  }
+
+  @Get('settings')
+  @RequirePermission('growth:read')
+  getSettings() {
+    return this.growthService.getSettings();
+  }
+
+  @Put('settings')
+  @RequirePermission('growth:manage_rules')
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'growth',
+    targetType: 'RuleConfig',
+    isReversible: true,
+  })
+  updateSettings(@Body() dto: AdminGrowthSettingsDto) {
+    return this.growthService.updateSettings(dto);
   }
 
   @Put('rules/:code')
@@ -126,7 +146,7 @@ export class AdminGrowthController {
   }
 
   @Post('users/:userId/adjust')
-  @RequirePermission('growth:adjust')
+  @RequirePermission('growth:adjust_user')
   @AuditLog({
     action: 'UPDATE',
     module: 'growth',
@@ -143,8 +163,37 @@ export class AdminGrowthController {
   }
 
   @Get('normal-share/bindings')
-  @RequirePermission('growth:read')
+  @RequirePermission('normal_share:read')
   listNormalShareBindings(@Query() query: AdminNormalShareBindingQueryDto) {
     return this.growthService.listNormalShareBindings(query);
+  }
+
+  @Post('normal-share/profiles/:userId/disable')
+  @RequirePermission('normal_share:manage')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'normal_share',
+    targetType: 'NormalShareProfile',
+    targetIdParam: 'params.userId',
+    isReversible: true,
+  })
+  disableNormalShareProfile(
+    @Param('userId') userId: string,
+    @Body() dto: AdminNormalShareStatusDto,
+  ) {
+    return this.growthService.setNormalShareProfileStatus(userId, 'DISABLED', dto.reason);
+  }
+
+  @Post('normal-share/profiles/:userId/enable')
+  @RequirePermission('normal_share:manage')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'normal_share',
+    targetType: 'NormalShareProfile',
+    targetIdParam: 'params.userId',
+    isReversible: true,
+  })
+  enableNormalShareProfile(@Param('userId') userId: string) {
+    return this.growthService.setNormalShareProfileStatus(userId, 'ACTIVE');
   }
 }
