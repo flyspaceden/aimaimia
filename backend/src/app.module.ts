@@ -44,6 +44,7 @@ import { DeliveryModule } from './modules/delivery/delivery.module';
 import { DigitalAssetModule } from './modules/digital-asset/digital-asset.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { GrowthModule } from './modules/growth/growth.module';
+import { NormalShareModule } from './modules/normal-share/normal-share.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { InfraModule } from './common/infra/infra.module';
@@ -107,6 +108,7 @@ import { EmailModule } from './common/email/email.module';
     DigitalAssetModule,
     NotificationModule,
     GrowthModule,
+    NormalShareModule,
   ],
   providers: [
     // 全局 JWT 守卫：所有端点默认需要认证，用 @Public() 装饰器豁免
