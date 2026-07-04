@@ -72,6 +72,16 @@ const compareCampaignCreatedDesc = (
   return a.campaign.id.localeCompare(b.campaign.id);
 };
 
+type IssueSystemCouponParams = {
+  userId: string;
+  campaignId: string;
+  source?: {
+    type?: string;
+    id?: string;
+  };
+  tx?: Prisma.TransactionClient;
+};
+
 /**
  * 平台红包核心服务
  *
@@ -762,6 +772,123 @@ export class CouponService {
         throw err;
       }
     }
+  }
+
+  /**
+   * 系统发券入口：供积分兑换等新系统复用红包发放能力。
+   *
+   * 不暴露给买家主动领取；只允许发放非 CLAIM 活动，并复用现有
+   * CouponCampaign/CouponInstance 配额、快照和有效期模型。
+   */
+  async issueSystemCoupon(params: IssueSystemCouponParams) {
+    if (params.tx) {
+      return this.issueSystemCouponInTx(params.tx, params);
+    }
+
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          (tx) => this.issueSystemCouponInTx(tx, params),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (err: any) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2034' &&
+          attempt < MAX_RETRIES
+        ) {
+          const delay = 50 * attempt + Math.random() * 100;
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  private async issueSystemCouponInTx(
+    tx: Prisma.TransactionClient,
+    params: IssueSystemCouponParams,
+  ) {
+    const now = new Date();
+    const campaign = await tx.couponCampaign.findUnique({
+      where: { id: params.campaignId },
+    });
+    if (!campaign) {
+      throw new NotFoundException('红包活动不存在');
+    }
+    if (campaign.status !== 'ACTIVE') {
+      throw new BadRequestException('该红包活动当前不可发放');
+    }
+    if (campaign.distributionMode === 'CLAIM') {
+      throw new BadRequestException('用户主动领取活动不能由系统直接发放');
+    }
+    if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
+      throw new BadRequestException('该红包活动不在有效期内');
+    }
+    if (campaign.issuedCount >= campaign.totalQuota) {
+      throw new BadRequestException('红包已发完');
+    }
+
+    const userCount = await tx.couponInstance.count({
+      where: {
+        campaignId: params.campaignId,
+        userId: params.userId,
+      },
+    });
+    if (userCount >= campaign.maxPerUser) {
+      throw new BadRequestException(
+        `每人限领 ${campaign.maxPerUser} 张，用户已获得 ${userCount} 张`,
+      );
+    }
+
+    const updated = await tx.couponCampaign.updateMany({
+      where: {
+        id: params.campaignId,
+        issuedCount: campaign.issuedCount,
+      },
+      data: {
+        issuedCount: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) {
+      throw new ConflictException('发放冲突，请重试');
+    }
+
+    const expiresAt = campaign.validDays > 0
+      ? new Date(now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000)
+      : campaign.endAt;
+
+    const instance = await tx.couponInstance.create({
+      data: {
+        campaignId: params.campaignId,
+        userId: params.userId,
+        status: 'AVAILABLE',
+        discountType: campaign.discountType,
+        discountValue: campaign.discountValue,
+        maxDiscountAmount: campaign.maxDiscountAmount,
+        minOrderAmount: campaign.minOrderAmount,
+        issuedAt: now,
+        expiresAt,
+      },
+    });
+
+    this.logger.log(
+      `系统发放红包：campaignId=${params.campaignId}, userId=${params.userId}, instanceId=${instance.id}, source=${JSON.stringify(params.source ?? {})}`,
+    );
+
+    return {
+      id: instance.id,
+      campaignName: campaign.name,
+      discountType: instance.discountType,
+      discountValue: instance.discountValue,
+      maxDiscountAmount: instance.maxDiscountAmount,
+      minOrderAmount: instance.minOrderAmount,
+      expiresAt: instance.expiresAt.toISOString(),
+    };
   }
 
   /** 领取红包事务（内部方法） */
