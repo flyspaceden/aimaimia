@@ -140,6 +140,7 @@ export class OrderModule implements OnModuleInit {
     const growthEventService = this.moduleRef.get(GrowthEventService, { strict: false });
     if (growthEventService) {
       this.orderService.setGrowthEventService(growthEventService);
+      this.orderAutoConfirmService.setGrowthEventService(growthEventService);
     }
 
     const groupBuyRebateDeductionService = this.moduleRef.get(

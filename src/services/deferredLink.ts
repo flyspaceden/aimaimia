@@ -17,6 +17,7 @@ import * as Clipboard from 'expo-clipboard';
 import { ApiClient } from '../repos/http/ApiClient';
 
 const PENDING_REFERRAL_KEY = 'pending_referral_code';
+const PENDING_NORMAL_SHARE_KEY = 'pending_normal_share_code';
 const DDL_FIRST_ATTEMPT_KEY = 'ddl_first_attempt_at';
 const DDL_RESOLVED_KEY = 'ddl_resolved';
 // 与后端 DeferredDeepLink.expiresAt 对齐：超过 48h 服务端记录已被 cron 清理，重试无意义
@@ -35,6 +36,21 @@ export async function setPendingReferralCode(code: string): Promise<void> {
 /** 清除待绑定的推荐码 */
 export async function clearPendingReferralCode(): Promise<void> {
   await AsyncStorage.removeItem(PENDING_REFERRAL_KEY);
+}
+
+/** 获取待绑定的普通分享码 */
+export async function getPendingNormalShareCode(): Promise<string | null> {
+  return AsyncStorage.getItem(PENDING_NORMAL_SHARE_KEY);
+}
+
+/** 保存待绑定的普通分享码 */
+export async function setPendingNormalShareCode(code: string): Promise<void> {
+  await AsyncStorage.setItem(PENDING_NORMAL_SHARE_KEY, code);
+}
+
+/** 清除待绑定的普通分享码 */
+export async function clearPendingNormalShareCode(): Promise<void> {
+  await AsyncStorage.removeItem(PENDING_NORMAL_SHARE_KEY);
 }
 
 /**
@@ -93,6 +109,19 @@ export async function readReferralCodeFromClipboard(): Promise<string | null> {
   }
 }
 
+/** 剪贴板普通分享口令路径：只认 https://app.ai-maimai.com/s/{CODE}。 */
+export async function readNormalShareCodeFromClipboard(): Promise<string | null> {
+  try {
+    const hasString = await Clipboard.hasStringAsync();
+    if (!hasString) return null;
+    const text = await Clipboard.getStringAsync();
+    if (!text) return null;
+    return extractNormalShareCodeFromURL(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 指纹兜底匹配（当剪贴板口令未获取到推荐码时调用）
  */
@@ -127,6 +156,20 @@ export function extractReferralCodeFromURL(url: string): string | null {
   if (match) return match[2].toUpperCase();
 
   const schemeMatch = url.match(/aimaimai:\/\/referral\?code=([A-Za-z0-9]{8})/);
+  if (schemeMatch) return schemeMatch[1].toUpperCase();
+
+  return null;
+}
+
+/**
+ * 从 URL 中提取普通分享码。
+ * 普通分享码独立于 VIP 推荐码，使用 /s/{CODE}，避免误走 VIP 推荐绑定。
+ */
+export function extractNormalShareCodeFromURL(url: string): string | null {
+  const match = url.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/s\/([A-Za-z0-9]{8})/);
+  if (match) return match[2].toUpperCase();
+
+  const schemeMatch = url.match(/aimaimai:\/\/normal-share\?code=([A-Za-z0-9]{8})/);
   if (schemeMatch) return schemeMatch[1].toUpperCase();
 
   return null;

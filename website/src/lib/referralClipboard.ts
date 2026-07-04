@@ -7,6 +7,10 @@ export function buildReferralClipboardText(code: string): string {
   return `https://app.ai-maimai.com/r/${code.toUpperCase()}`
 }
 
+export function buildNormalShareClipboardText(code: string): string {
+  return `https://app.ai-maimai.com/s/${code.toUpperCase()}`
+}
+
 // 写剪贴板：现代 Clipboard API 优先，execCommand 兜底。
 // 必须在用户点击手势内调用，浏览器才放行；微信内置浏览器等环境可能两条路都拒绝，
 // 返回 false 由调用方降级（页面上有大字邀请码 + App 内手动输入兜底）。

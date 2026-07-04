@@ -5,10 +5,17 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     const tx = {
       order: {
         findUnique: jest.fn().mockResolvedValue({
+          id: 'order-1',
+          userId: 'user-1',
           status: 'DELIVERED',
+          bizType: 'NORMAL_GOODS',
+          goodsAmount: 100,
+          totalAmount: 100,
+          items: [{ isPrize: false }],
           afterSaleRequests: [],
         }),
         update: jest.fn(),
+        count: jest.fn().mockResolvedValue(1),
       },
       orderStatusHistory: {
         create: jest.fn(),
