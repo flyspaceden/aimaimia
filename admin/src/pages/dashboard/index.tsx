@@ -56,6 +56,8 @@ const toneMap: Record<Tone, { color: string; soft: string; border: string }> = {
 
 const money = (value?: number | null) => `¥${Number(value ?? 0).toFixed(2)}`;
 
+const assetValue = (value?: number | null) => Number(value ?? 0).toFixed(2);
+
 const orderStatusText: Record<string, string> = {
   PENDING_PAYMENT: '待支付',
   PAID: '已付款',
@@ -87,7 +89,6 @@ const capitalDescriptionMap: Record<string, string> = {
   冻结奖励: '奖励保护期内暂不可用的金额',
   售后冻结: '订单售后处理中被临时冻结的奖励',
   预留奖励: '已占用但尚未完成结算的奖励',
-  数字资产: '按累计消费形成的数字资产余额',
   提现处理中: '已提交提现、等待到账的金额',
 };
 
@@ -395,7 +396,6 @@ export default function DashboardPage() {
     { type: '冻结奖励', value: capital?.rewardFrozenAmount ?? 0 },
     { type: '售后冻结', value: capital?.rewardReturnFrozenAmount ?? 0 },
     { type: '预留奖励', value: capital?.rewardReservedAmount ?? 0 },
-    { type: '数字资产', value: capital?.digitalAssetTotalBalance ?? 0 },
     { type: '提现处理中', value: capital?.withdrawalProcessingAmount ?? 0 },
   ];
   const activityChartData: ChartDatum[] = [
@@ -616,8 +616,8 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={12}>
-          <ShellCard title="资金结构" extra={<Text type="secondary">奖励 · 数字资产 · 提现</Text>}>
-            <ChartContent loading={overviewLoading} data={capitalChartData} emptyText="暂无资金结构数据">
+          <ShellCard title="资金结构" extra={<Text type="secondary">奖励 · 提现</Text>}>
+            <ChartContent loading={overviewLoading} data={capitalChartData} emptyText="暂无奖励/提现资金数据">
               <Pie {...capitalPieConfig} />
               <ChartValueList data={capitalChartData} formatter={money} descriptionMap={capitalDescriptionMap} />
             </ChartContent>
@@ -634,7 +634,7 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={12}>
-          <ShellCard title="资金与奖励">
+          <ShellCard title="奖励资金">
             <Row gutter={[12, 12]}>
               <Col xs={12} sm={8}>
                 <MetricTile title="可用奖励" value={money(capital?.rewardAvailableAmount)} tone="blue" path="/bonus/members" />
@@ -649,7 +649,7 @@ export default function DashboardPage() {
                 <MetricTile title="今日奖励生成" value={money(capital?.rewardTodayCreatedAmount)} tone="red" path="/bonus/members" />
               </Col>
               <Col xs={12} sm={8}>
-                <MetricTile title="数字资产总额" value={money(capital?.digitalAssetTotalBalance)} tone="teal" path="/digital-assets" />
+                <MetricTile title="预留奖励" value={money(capital?.rewardReservedAmount)} tone="gray" path="/bonus/members" />
               </Col>
               <Col xs={12} sm={8}>
                 <MetricTile title="提现处理中" value={money(capital?.withdrawalProcessingAmount)} tone="purple" path="/bonus/withdrawals" />
@@ -689,6 +689,58 @@ export default function DashboardPage() {
         </Col>
       </Row>
 
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24}>
+          <ShellCard title="数字资产概览" extra={<Text type="secondary">虚拟资产 · 不计入资金结构</Text>}>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} sm={12} lg={6}>
+                <MetricTile
+                  title="数字资产值"
+                  value={assetValue(capital?.digitalAssetTotalBalance)}
+                  hint="虚拟资产余额，不等同现金"
+                  icon={<BarChartOutlined />}
+                  tone="teal"
+                  path="/digital-assets"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <MetricTile
+                  title="资产账户数"
+                  value={capital?.digitalAssetAccountCount ?? 0}
+                  hint="已有数字资产记录的用户"
+                  icon={<UserOutlined />}
+                  tone="blue"
+                  path="/digital-assets"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <MetricTile
+                  title="今日新增资产"
+                  value={assetValue(capital?.digitalAssetTodayCreditAmount)}
+                  hint="今日确认收货入账的虚拟资产"
+                  icon={<RiseOutlined />}
+                  tone="green"
+                  path="/digital-assets"
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <MetricTile
+                  title="对应累计消费"
+                  value={money(capital?.digitalAssetCumulativeSpendAmount)}
+                  hint="形成数字资产的消费口径"
+                  icon={<ShoppingCartOutlined />}
+                  tone="purple"
+                  path="/digital-assets"
+                />
+              </Col>
+            </Row>
+            <div style={{ marginTop: 12, color: '#64748b', fontSize: 13, lineHeight: 1.6 }}>
+              数字资产是基于累计消费形成的虚拟权益指标，不参与可用奖励、提现处理中或真实资金占比统计。
+            </div>
+          </ShellCard>
+        </Col>
+      </Row>
+
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={8}>
           <Card style={{ borderRadius: 8 }}>
@@ -697,7 +749,7 @@ export default function DashboardPage() {
         </Col>
         <Col xs={24} sm={8}>
           <Card style={{ borderRadius: 8 }}>
-            <Statistic title="今日数字资产新增" value={capital?.digitalAssetTodayCreditAmount ?? 0} precision={2} prefix={<BarChartOutlined />} loading={overviewLoading} />
+            <Statistic title="有效红包活动" value={activities?.activeCouponCampaigns ?? 0} prefix={<DollarOutlined />} loading={overviewLoading} />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
