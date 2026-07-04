@@ -3,6 +3,7 @@ import { CouponModule } from '../coupon/coupon.module';
 import { GrowthController } from './growth.controller';
 import { GrowthCouponAdapterService } from './growth-coupon-adapter.service';
 import { GrowthEventService } from './growth-event.service';
+import { GrowthExchangeService } from './growth-exchange.service';
 import { GrowthExpireService } from './growth-expire.service';
 import { GrowthLevelService } from './growth-level.service';
 import { GrowthService } from './growth.service';
@@ -16,6 +17,7 @@ import { GrowthService } from './growth.service';
     GrowthEventService,
     GrowthExpireService,
     GrowthCouponAdapterService,
+    GrowthExchangeService,
   ],
   exports: [
     GrowthService,
@@ -23,6 +25,7 @@ import { GrowthService } from './growth.service';
     GrowthEventService,
     GrowthExpireService,
     GrowthCouponAdapterService,
+    GrowthExchangeService,
   ],
 })
 export class GrowthModule {}
