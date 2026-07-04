@@ -4,6 +4,8 @@
 
 **Goal:** 落地 `docs/superpowers/specs/2026-07-03-normal-member-growth-share-design.md`，建立普通分享码、普通积分、成长值、积分兑换、会员等级和管理后台会员成长运营体系，同时复用现有红包系统。
 
+**Status:** 2026-07-04 已在 `codex/normal-member-growth` 实现后端 Growth/NormalShare、管理后台会员成长、买家 App 普通成长中心、官网 `/s/{code}` 普通分享落地页和 App 延迟深链隔离；红包奖励复用现有 Coupon 能力。
+
 **Architecture:** 新增独立 Growth 模块承载普通积分/成长值账户、流水、规则、等级、兑换和事件处理；新增 NormalShare 模块承载普通分享码和归因关系；管理后台新增“会员成长”菜单和配置页面。现有 Coupon/CouponCampaign/CouponInstance 链路只作为发券能力被调用，不重写红包模型、核销、订单抵扣或红包后台主链路。
 
 **Tech Stack:** NestJS + Prisma + PostgreSQL + Jest；React Native + Expo + expo-router + React Query；Vite + React + Ant Design ProTable/ProForm；官网 Vite React。

@@ -7,6 +7,7 @@ import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 /**
  * 自动确认收货定时任务
@@ -17,6 +18,7 @@ export class OrderAutoConfirmService {
   private readonly logger = new Logger(OrderAutoConfirmService.name);
   private digitalAssetService: DigitalAssetService | null = null;
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
+  private growthEventService: GrowthEventService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -29,6 +31,10 @@ export class OrderAutoConfirmService {
 
   setGroupBuyLifecycleService(service: GroupBuyLifecycleService) {
     this.groupBuyLifecycleService = service;
+  }
+
+  setGrowthEventService(service: GrowthEventService) {
+    this.growthEventService = service;
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -74,12 +80,18 @@ export class OrderAutoConfirmService {
 
   /** 单笔订单自动确认收货 */
   private async confirmOrder(orderId: string, fromStatus: string) {
-    const confirmed = await this.prisma.$transaction(async (tx) => {
+    const confirmedOrder = await this.prisma.$transaction(async (tx) => {
       // 事务内再次校验状态，防止与买家手动确认并发冲突
       const current = await tx.order.findUnique({
         where: { id: orderId },
         select: {
+          id: true,
+          userId: true,
           status: true,
+          bizType: true,
+          goodsAmount: true,
+          totalAmount: true,
+          items: { select: { isPrize: true } },
           afterSaleRequests: {
             where: { status: { in: [...ACTIVE_STATUSES] } },
             select: { id: true },
@@ -108,12 +120,16 @@ export class OrderAutoConfirmService {
         },
       });
 
-      return true;
+      const receivedCount = await tx.order.count({
+        where: { userId: current.userId, status: 'RECEIVED' },
+      });
+
+      return { ...current, _isFirstReceived: receivedCount === 1 };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
-    if (!confirmed) {
+    if (!confirmedOrder) {
       this.logger.log(`订单 ${orderId} 状态已变更，跳过自动确认`);
       return;
     }
@@ -136,6 +152,7 @@ export class OrderAutoConfirmService {
     });
     this.creditDigitalAssetAfterReceive(orderId);
     this.evaluateGroupBuyAfterReceive(orderId);
+    this.triggerGrowthAfterReceive(confirmedOrder);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
   }
 
@@ -167,5 +184,80 @@ export class OrderAutoConfirmService {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`团购资格评估失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
     });
+  }
+
+  private triggerGrowthAfterReceive(order: any) {
+    if (!this.growthEventService || !this.isGrowthEligibleNormalOrder(order)) {
+      return;
+    }
+
+    const behaviorCode = order._isFirstReceived
+      ? 'FIRST_ORDER_RECEIVED'
+      : 'REPURCHASE_RECEIVED';
+
+    this.growthEventService.receive({
+      userId: order.userId,
+      behaviorCode,
+      idempotencyKey: `${behaviorCode}:${order.userId}:${order.id}`,
+      refType: 'ORDER',
+      refId: order.id,
+      meta: {
+        orderId: order.id,
+        goodsAmount: order.goodsAmount ?? 0,
+        totalAmount: order.totalAmount ?? 0,
+      },
+    }).catch((err: any) => {
+      this.logger.warn(`订单自动确认成长奖励触发失败: orderId=${order.id}, behavior=${behaviorCode}, error=${err?.message}`);
+    });
+
+    if (order._isFirstReceived) {
+      this.triggerNormalInviteFirstOrderGrowth(order).catch((err: any) => {
+        this.logger.warn(`普通分享自动确认首单奖励触发失败: orderId=${order.id}, userId=${order.userId}, error=${err?.message}`);
+      });
+    }
+  }
+
+  private async triggerNormalInviteFirstOrderGrowth(order: any) {
+    if (!this.growthEventService) return;
+
+    const binding = await this.prisma.normalShareBinding.findUnique({
+      where: { inviteeUserId: order.userId },
+    });
+    if (!binding) return;
+    if (['ISSUED', 'REVERSED', 'VOIDED'].includes(binding.rewardStatus)) return;
+    if (binding.firstOrderId && binding.firstOrderId !== order.id) return;
+
+    const result = await this.growthEventService.receive({
+      userId: binding.inviterUserId,
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+      idempotencyKey: `NORMAL_INVITE_FIRST_ORDER:${order.userId}:${order.id}`,
+      refType: 'ORDER',
+      refId: order.id,
+      meta: {
+        inviteeUserId: order.userId,
+        bindingId: binding.id,
+      },
+    });
+
+    if (result.status === 'GRANTED' || result.status === 'DUPLICATE') {
+      await this.prisma.normalShareBinding.updateMany({
+        where: {
+          id: binding.id,
+          rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
+        },
+        data: {
+          firstOrderId: order.id,
+          rewardStatus: 'ISSUED',
+          rewardIssuedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  private isGrowthEligibleNormalOrder(order: any) {
+    if (!order || order.bizType !== 'NORMAL_GOODS') return false;
+    if ((order.goodsAmount ?? 0) <= 0) return false;
+    if (!Array.isArray(order.items) || order.items.length === 0) return false;
+    return order.items.some((item: any) => !item.isPrize);
   }
 }

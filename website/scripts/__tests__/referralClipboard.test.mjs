@@ -1,12 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildReferralClipboardText } from '../../src/lib/referralClipboard.ts'
+import { buildNormalShareClipboardText, buildReferralClipboardText } from '../../src/lib/referralClipboard.ts'
 
 test('剪贴板口令 = 规范推荐落地链接（统一大写）', () => {
   assert.equal(
     buildReferralClipboardText('abcd2345'),
     'https://app.ai-maimai.com/r/ABCD2345',
+  )
+})
+
+test('普通分享剪贴板口令 = /s 普通分享链接（统一大写）', () => {
+  assert.equal(
+    buildNormalShareClipboardText('s8k6m2q9'),
+    'https://app.ai-maimai.com/s/S8K6M2Q9',
   )
 })
 

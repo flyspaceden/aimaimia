@@ -14,16 +14,21 @@ import { initAlipayEnv } from '../src/utils/alipay';
 import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
 import { useAuthStore } from '../src/store';
-import { BonusRepo } from '../src/repos';
+import { BonusRepo, GrowthRepo } from '../src/repos';
 import {
   extractReferralCodeFromURL,
+  extractNormalShareCodeFromURL,
   setPendingReferralCode,
+  setPendingNormalShareCode,
   clearPendingReferralCode,
+  clearPendingNormalShareCode,
   getPendingReferralCode,
+  getPendingNormalShareCode,
   shouldAttemptDeferredMatch,
   recordDDLAttempt,
   markDDLResolved,
   readReferralCodeFromClipboard,
+  readNormalShareCodeFromClipboard,
   matchByFingerprint,
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
@@ -54,8 +59,27 @@ async function handleReferralCode(code: string) {
   }
 }
 
+async function handleNormalShareCode(code: string) {
+  const { isLoggedIn } = useAuthStore.getState();
+  if (!isLoggedIn) {
+    await setPendingNormalShareCode(code);
+    return;
+  }
+  const result = await GrowthRepo.bindNormalShareCode(code);
+  if (result.ok || !result.error.retryable) {
+    await clearPendingNormalShareCode();
+  } else {
+    await setPendingNormalShareCode(code);
+  }
+}
+
 function handleIncomingURL(url: string | null) {
   if (!url) return;
+  const normalShareCode = extractNormalShareCodeFromURL(url);
+  if (normalShareCode && normalShareCode !== 'none') {
+    handleNormalShareCode(normalShareCode);
+    return;
+  }
   const code = extractReferralCodeFromURL(url);
   if (code && code !== 'none') {
     handleReferralCode(code);
@@ -78,7 +102,16 @@ async function performDeferredLinkCheck() {
       resolved = true;
     }
 
-    // 路径 2（兜底）：设备指纹匹配
+    // 路径 2：普通分享口令。普通分享不走 VIP 推荐码接口，避免关系混淆。
+    if (!resolved) {
+      const normalShareCode = await readNormalShareCodeFromClipboard();
+      if (normalShareCode && normalShareCode !== 'none') {
+        await handleNormalShareCode(normalShareCode);
+        resolved = true;
+      }
+    }
+
+    // 路径 3（兜底）：VIP 设备指纹匹配
     if (!resolved) {
       const code = await matchByFingerprint();
       if (code) {
@@ -171,8 +204,15 @@ export default function RootLayout() {
 
     (async () => {
       const code = await getPendingReferralCode();
-      if (!code) return;
+      const normalShareCode = await getPendingNormalShareCode();
       try {
+        if (normalShareCode) {
+          const normalResult = await GrowthRepo.bindNormalShareCode(normalShareCode);
+          if (normalResult.ok || !normalResult.error.retryable) {
+            await clearPendingNormalShareCode();
+          }
+        }
+        if (!code) return;
         const result = await BonusRepo.useReferralCode(code);
         if (result.ok || !result.error.retryable) {
           // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积

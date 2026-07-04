@@ -13,6 +13,7 @@ const MerchantApply = lazy(() => import('@/pages/MerchantApply'))
 const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
+const NormalShareLanding = lazy(() => import('@/pages/NormalShareLanding'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
 const Privacy = lazy(() => import('@/pages/Privacy'))
 const Terms = lazy(() => import('@/pages/Terms'))
@@ -51,7 +52,7 @@ function PageLoader() {
 
 export default function App() {
   const location = useLocation()
-  const isLandingPage = location.pathname.startsWith('/r/') || location.pathname.startsWith('/gb/') || location.pathname === '/download' || location.pathname === '/resolve'
+  const isLandingPage = location.pathname.startsWith('/r/') || location.pathname.startsWith('/s/') || location.pathname.startsWith('/gb/') || location.pathname === '/download' || location.pathname === '/resolve'
 
   return (
     <>
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/merchants/apply" element={<MerchantApply />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/r/:code" element={<Download />} />
+            <Route path="/s/:code" element={<NormalShareLanding />} />
             <Route path="/gb/:groupBuyCode" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />

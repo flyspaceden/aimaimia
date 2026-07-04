@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **普通成长体系与普通分享码推广链路**（2026-07-04 新增并完成）
+  - **来源**: 用户要求降低 VIP 门槛对推广的阻塞，新增可由后台配置的普通积分 / 成长值体系，并且红包奖励必须复用现有红包能力，不重写已完整的红包功能。
+  - **实际做了**: 新增独立 Growth / NormalShare 后端模块，覆盖普通积分账户、成长值账户、流水、行为规则、等级、兑换商品、普通分享码、普通分享绑定、延迟归因和幂等发放；积分不写入 `RewardAccount`、不提现、不直接抵扣订单现金，成长值只升等级不消耗；红包奖励通过现有 Coupon 发券能力发放。注册、签到、任务、普通商品确认收货、退款冲正、邀请好友首单奖励均已接入，手动确认和自动确认收货都会触发成长事件。管理后台新增“会员成长”运营台，支持配置行为规则、等级、兑换项、账户流水、普通分享码与绑定关系。买家 App 新增 `/me/growth` 普通成长中心和我的页入口，支持普通分享码二维码/复制/系统分享、绑定好友分享码和积分兑换；官网新增 `/s/{code}` 普通分享落地页，App 延迟深链区分普通 `/s`、VIP `/r`、团购 `/gb`。
+  - **验证**: `npx tsc --noEmit`、`cd backend && npm run build`、Growth / NormalShare / Admin Growth / 订单确认收货相关 Jest 通过；`cd website && npm run test:resolve`、`node --test scripts/__tests__/referralClipboard.test.mjs`、`cd website && npm run build` 通过；`cd admin && npm run build` 通过。
+
 - [x] **管理后台运营工作台 V2 审查与优化**（2026-07-04 新增并完成）
   - **来源**: 用户要求全面审查管理后台工作台数据接口、真实可靠性、显示是否正常，并从运营经理视角补齐需要统计的内容。
   - **实际做了**: 新增 `GET /admin/stats/operations-overview` 聚合接口，工作台不再前端散调多个列表接口拼统计；今日订单、GMV、客单价和支付渠道统一按支付成功时间 `paidAt` 与 UTC+8 中国自然日统计；抽奖今日数据改按 `LotteryRecord.drawDate` 中国自然日统计；红包有效活动按状态和起止时间窗口统计；页面重做为待办中心、今日经营、销售趋势、最近订单、资金与奖励、活动增长、经营脉搏和处理优先级，最近订单改为紧凑列表避免表格裁切。
@@ -76,7 +81,6 @@
   - **来源**: production OTA 后用户反馈 `/group-buy/[activityId]` 仍无法滚动，顶部返回和底部“去付款”均无反应；前两轮 `ScrollView flex:1` 与隐藏 AI 浮球未完整解决。
   - **实际做了**: 将通用 `AppBottomSheet` 的关闭态从 native `@gorhom/bottom-sheet index=-1` 改为直接卸载，避免关闭的团购处理抽屉在 Android 真机保留不可见手势层；团购详情页所有加载/错误/正常状态的返回键增加 `router.canGoBack()` fallback，外部链接直达时返回 `/group-buy`。
   - **验证**: 先新增失败回归测试；修复后 `node --test scripts/__tests__/group-buy-detail-stock-display.test.mjs`、`npm run test:legal`、`npx jest --passWithNoTests --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit --pretty false` 均通过。
-
 - [x] **管理后台 VIP 七分比例与钱包直推 scheme 显示**（2026-07-03 新增并完成）
   - **来源**: Chunk 6 任务简报，要求 VIP 后台配置从六分比例改为七分比例，新增 `VIP_DIRECT_REFERRAL_PERCENT`，并让钱包流水能单独标识 VIP 直推佣金。
   - **实际做了**: 管理后台 VIP 系统配置页新增直推佣金占比，推荐模板改为 50/25/5/10/2/2/6，页面文案全部改为七项合计；后端钱包流水按 `meta.scheme` 返回 `VIP_DIRECT_REFERRAL` 的专属 `sourceLabel=VIP 直推佣金`。
