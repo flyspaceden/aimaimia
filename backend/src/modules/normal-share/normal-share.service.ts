@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 import { BindNormalShareDto } from './dto/bind-normal-share.dto';
 import { generateNormalShareCode } from './normal-share-code.util';
 
@@ -8,7 +9,12 @@ const SHARE_BASE_URL = process.env.NORMAL_SHARE_BASE_URL || 'https://app.ai-maim
 
 @Injectable()
 export class NormalShareService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(NormalShareService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly growthEvents: GrowthEventService,
+  ) {}
 
   async getMe(userId: string) {
     return this.prisma.$transaction(async (tx) => {
@@ -37,7 +43,7 @@ export class NormalShareService {
       throw new BadRequestException('普通分享码无效');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const binding = await this.prisma.$transaction(async (tx) => {
       const inviterProfile = await tx.normalShareProfile.findUnique({
         where: { code },
         include: {
@@ -98,6 +104,46 @@ export class NormalShareService {
         },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    await this.grantInviteRegisterGrowth(binding).catch((err: any) => {
+      this.logger.warn(
+        `普通分享注册奖励触发失败: bindingId=${binding?.id}, inviterUserId=${binding?.inviterUserId}, inviteeUserId=${binding?.inviteeUserId}, error=${err?.message}`,
+      );
+    });
+
+    return binding;
+  }
+
+  private async grantInviteRegisterGrowth(binding: any) {
+    if (!binding || binding.rewardStatus !== 'PENDING') return;
+
+    const result = await this.growthEvents.receive({
+      userId: binding.inviterUserId,
+      behaviorCode: 'NORMAL_INVITE_REGISTER',
+      idempotencyKey: `NORMAL_INVITE_REGISTER:${binding.inviterUserId}:${binding.inviteeUserId}`,
+      refType: 'NORMAL_SHARE_BINDING',
+      refId: binding.id,
+      meta: {
+        inviteeUserId: binding.inviteeUserId,
+        bindingId: binding.id,
+        code: binding.code,
+      },
+    });
+
+    await this.prisma.normalShareBinding.updateMany({
+      where: {
+        id: binding.id,
+        rewardStatus: 'PENDING',
+      },
+      data: {
+        rewardStatus: result.status === 'GRANTED' || result.status === 'DUPLICATE'
+          ? 'REGISTER_REWARDED'
+          : 'FIRST_ORDER_PENDING',
+        ...(result.status === 'GRANTED' || result.status === 'DUPLICATE'
+          ? { rewardIssuedAt: new Date() }
+          : {}),
+      },
+    });
   }
 
   async getStats(userId: string) {

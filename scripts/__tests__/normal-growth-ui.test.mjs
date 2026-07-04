@@ -71,7 +71,6 @@ test('unwired growth behavior rules are disabled until their event handlers exis
     'FAVORITE_ITEM',
     'SHARE_CONTENT',
     'REVIEW_ORDER',
-    'NORMAL_INVITE_REGISTER',
     'VIP_PURCHASE',
   ];
 
@@ -90,4 +89,21 @@ test('unwired growth behavior rules are disabled until their event handlers exis
     assert.ok(line, `missing seed rule for ${code}`);
     assert.match(line, /enabled: false/, `${code} should default to disabled`);
   }
+});
+
+test('normal invite register growth rule is re-enabled after its bind handler is wired', () => {
+  const migrationPath =
+    'backend/prisma/migrations/20260704150500_enable_normal_invite_register_growth/migration.sql';
+
+  assert.equal(existsSync(migrationPath), true);
+
+  const migration = read(migrationPath);
+  assert.match(migration, /UPDATE "GrowthBehaviorRule"/);
+  assert.match(migration, /SET "enabled" = true/);
+  assert.match(migration, /'NORMAL_INVITE_REGISTER'/);
+
+  const seed = read('backend/prisma/seed.ts');
+  const line = seed.split('\n').find((item) => item.includes("code: 'NORMAL_INVITE_REGISTER'"));
+  assert.ok(line, 'missing seed rule for NORMAL_INVITE_REGISTER');
+  assert.doesNotMatch(line, /enabled: false/);
 });
