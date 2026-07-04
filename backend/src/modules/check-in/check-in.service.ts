@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 /** 7 天固定奖励表 */
 const REWARD_TABLE = [
@@ -21,6 +22,7 @@ export class CheckInService {
   constructor(
     private prisma: PrismaService,
     private couponEngine: CouponEngineService,
+    private growthEvents: GrowthEventService,
   ) {}
 
   /** 签到状态 */
@@ -73,6 +75,16 @@ export class CheckInService {
           consecutiveDays: nextStreak,
         }).catch((err: any) => {
           this.logger.warn(`CHECK_IN 红包触发失败: userId=${userId}, streakDays=${nextStreak}, error=${err?.message}`);
+        });
+        this.growthEvents.receive({
+          userId,
+          behaviorCode: 'CHECK_IN',
+          idempotencyKey: `CHECK_IN:${userId}:${todayStr}`,
+          refType: 'CHECK_IN',
+          refId: `${userId}:${todayStr}`,
+          meta: { consecutiveDays: nextStreak },
+        }).catch((err: any) => {
+          this.logger.warn(`CHECK_IN 成长奖励触发失败: userId=${userId}, streakDays=${nextStreak}, error=${err?.message}`);
         });
 
         return this.buildStatusResponse(nextStreak, true, reward);

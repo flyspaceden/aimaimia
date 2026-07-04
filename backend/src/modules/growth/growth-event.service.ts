@@ -11,6 +11,12 @@ export type GrowthEvent = {
   meta?: Record<string, unknown>;
 };
 
+export type DirectGrowthGrantEvent = GrowthEvent & {
+  pointsReward?: number | null;
+  growthReward?: number | null;
+  tx?: Prisma.TransactionClient;
+};
+
 type LimitScope = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'LIFETIME';
 
 @Injectable()
@@ -134,6 +140,93 @@ export class GrowthEventService {
         ledger,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async grantDirect(event: DirectGrowthGrantEvent) {
+    if (event.tx) {
+      return this.grantDirectInTx(event.tx, event);
+    }
+
+    return this.prisma.$transaction(
+      (tx) => this.grantDirectInTx(tx, event),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  private async grantDirectInTx(
+    tx: Prisma.TransactionClient,
+    event: DirectGrowthGrantEvent,
+  ) {
+    const existing = await tx.growthLedger.findUnique({
+      where: { idempotencyKey: event.idempotencyKey },
+    });
+    if (existing) {
+      return {
+        status: 'DUPLICATE',
+        ledger: existing,
+      };
+    }
+
+    const pointsDelta = event.pointsReward ?? 0;
+    const growthDelta = event.growthReward ?? 0;
+    if (pointsDelta === 0 && growthDelta === 0) {
+      return {
+        status: 'SKIPPED',
+        reason: 'ZERO_REWARD',
+      };
+    }
+
+    const account = await tx.growthAccount.upsert({
+      where: { userId: event.userId },
+      create: {
+        userId: event.userId,
+        pointsBalance: pointsDelta,
+        pointsTotalEarned: Math.max(0, pointsDelta),
+        pointsTotalSpent: 0,
+        growthValue: growthDelta,
+      },
+      update: {
+        pointsBalance: { increment: pointsDelta },
+        pointsTotalEarned: { increment: Math.max(0, pointsDelta) },
+        growthValue: { increment: growthDelta },
+      },
+    });
+
+    const ledger = await tx.growthLedger.create({
+      data: {
+        userId: event.userId,
+        accountId: account.id,
+        type: pointsDelta !== 0 ? 'POINTS_EARN' : 'GROWTH_EARN',
+        behaviorCode: event.behaviorCode,
+        pointsDelta,
+        growthDelta,
+        status: 'POSTED',
+        idempotencyKey: event.idempotencyKey,
+        refType: event.refType,
+        refId: event.refId,
+        meta: event.meta ? (event.meta as Prisma.InputJsonObject) : Prisma.JsonNull,
+      },
+    });
+
+    await tx.userProfile.upsert({
+      where: { userId: event.userId },
+      create: {
+        userId: event.userId,
+        points: pointsDelta,
+        growthPoints: growthDelta,
+      },
+      update: {
+        points: { increment: pointsDelta },
+        growthPoints: { increment: growthDelta },
+      },
+    });
+
+    return {
+      status: 'GRANTED',
+      pointsDelta,
+      growthDelta,
+      ledger,
+    };
   }
 
   async reverseByRef(refType: string, refId: string) {

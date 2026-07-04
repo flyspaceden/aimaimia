@@ -286,4 +286,50 @@ describe('GrowthEventService', () => {
     expect(tx.growthAccount.update).not.toHaveBeenCalled();
     expect(tx.growthLedger.create).not.toHaveBeenCalled();
   });
+
+  it('grants direct configured rewards without reading behavior rules', async () => {
+    const { tx, service } = makeHarness();
+
+    const { result, transactionOptions } = await service.grantDirect({
+      userId: 'u1',
+      behaviorCode: 'TASK_COMPLETE',
+      pointsReward: 20,
+      growthReward: 30,
+      idempotencyKey: 'TASK:u1:task-1',
+      refType: 'TASK',
+      refId: 'task-1',
+      meta: { taskTitle: '完善资料' },
+    }) as any;
+
+    expect(transactionOptions).toMatchObject({ isolationLevel: 'Serializable' });
+    expect(tx.growthBehaviorRule.findUnique).not.toHaveBeenCalled();
+    expect(tx.growthAccount.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: 'u1' },
+      create: expect.objectContaining({
+        pointsBalance: 20,
+        pointsTotalEarned: 20,
+        growthValue: 30,
+      }),
+      update: expect.objectContaining({
+        pointsBalance: { increment: 20 },
+        pointsTotalEarned: { increment: 20 },
+        growthValue: { increment: 30 },
+      }),
+    }));
+    expect(tx.growthLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        behaviorCode: 'TASK_COMPLETE',
+        pointsDelta: 20,
+        growthDelta: 30,
+        idempotencyKey: 'TASK:u1:task-1',
+        refType: 'TASK',
+        refId: 'task-1',
+      }),
+    });
+    expect(result).toMatchObject({
+      status: 'GRANTED',
+      pointsDelta: 20,
+      growthDelta: 30,
+    });
+  });
 });

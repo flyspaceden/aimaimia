@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 @Injectable()
 export class TaskService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private growthEvents: GrowthEventService,
+  ) {}
 
   /** 任务列表（含当前用户完成状态） */
   async list(userId: string) {
@@ -60,6 +64,18 @@ export class TaskService {
           update: updates,
         });
       }
+
+      await this.growthEvents.grantDirect({
+        tx,
+        userId,
+        behaviorCode: 'TASK_COMPLETE',
+        pointsReward: task.rewardPoints ?? 0,
+        growthReward: task.rewardGrowth ?? 0,
+        idempotencyKey: `TASK:${userId}:${taskId}`,
+        refType: 'TASK',
+        refId: taskId,
+        meta: { taskTitle: task.title },
+      });
     });
 
     return this.list(userId);

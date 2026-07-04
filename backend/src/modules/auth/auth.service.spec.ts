@@ -76,11 +76,21 @@ function makeService(prisma: any) {
     consumeFixedWindow: jest.fn().mockResolvedValue({ allowed: true, count: 1 }),
   } as any;
   const couponEngine = { handleTrigger: jest.fn().mockResolvedValue(undefined) } as any;
+  const growthEvents = { receive: jest.fn().mockResolvedValue({ granted: true }) } as any;
   const aliyunSms = { sendVerificationCode: jest.fn().mockResolvedValue(undefined) } as any;
   const captcha = { verify: jest.fn().mockResolvedValue(true) } as any;
 
-  const service = new AuthService(prisma, jwt, config, redisCoord, couponEngine, aliyunSms, captcha);
-  return { service, jwt, couponEngine };
+  const service = new AuthService(
+    prisma,
+    jwt,
+    config,
+    redisCoord,
+    couponEngine,
+    aliyunSms,
+    captcha,
+    growthEvents,
+  );
+  return { service, jwt, couponEngine, growthEvents };
 }
 
 describe('AuthService — 账号注销护栏（身份变更）', () => {
@@ -172,11 +182,18 @@ describe('AuthService — 释放出的手机号/微信可被新账号复用（to
     prisma.smsOtp.findMany.mockResolvedValue([
       { id: 'otp-1', codeHash, usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
     ]);
-    const { service } = makeService(prisma);
+    const { service, growthEvents } = makeService(prisma);
 
     const res = await service.register({ phone: PHONE, code: '123456', name: '新用户' } as any);
 
     expect(res.userId).toBe('new-user');
+    expect(growthEvents.receive).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'new-user',
+      behaviorCode: 'REGISTER',
+      idempotencyKey: 'REGISTER:new-user',
+      refType: 'USER',
+      refId: 'new-user',
+    }));
     // 用真实手机号查占用，未命中 tombstone
     expect(prisma.authIdentity.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { provider: 'PHONE', identifier: PHONE } }),
