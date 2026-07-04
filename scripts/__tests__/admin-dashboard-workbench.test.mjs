@@ -18,17 +18,25 @@ test('admin dashboard statistics come from one audited operations overview endpo
   assert.doesNotMatch(dashboard, /getProducts|getCompanies|getWithdrawals|getAfterSales|getBonusStats/);
 });
 
-test('operations overview uses payment-success time and active-window filters for reliable data', () => {
+test('operations overview uses effective paid time and active-window filters for reliable data', () => {
   assert.match(service, /const startOfDay = this\.startOfChinaDay\(\)/);
-  assert.match(service, /const paidOrderWhere = \{[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
-  assert.match(service, /this\.prisma\.payment\.groupBy\(\{[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
-  assert.match(service, /SELECT DATE\("paidAt" \+ INTERVAL '8 hours'\) as date, COUNT\(\*\)::bigint as count/);
+  assert.match(service, /const paidOrderDateWhere = \{[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
+  assert.match(service, /const paidPaymentDateWhere = \{[\s\S]*OR:\s*\[[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
+  assert.match(service, /this\.prisma\.payment\.groupBy\(\{[\s\S]*\.\.\.paidPaymentDateWhere/);
+  assert.match(service, /SELECT DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\) as date, COUNT\(\*\)::bigint as count/);
   assert.match(service, /AND status IN \('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'\)/);
   assert.match(service, /const drawDate = this\.todayChinaDate\(\)/);
   assert.match(service, /lotteryRecord\.count\(\{ where: \{ drawDate \} \}\)/);
   assert.match(service, /this\.prisma\.couponCampaign\.count\(\{[\s\S]*status:\s*'ACTIVE'[\s\S]*startAt:\s*\{\s*lte:\s*now\s*\}[\s\S]*endAt:\s*\{[\s\S]*gte:\s*now/);
   assert.match(service, /afterSaleSellerReviews/);
   assert.match(service, /afterSaleReturns/);
+});
+
+test('operations dashboard counts legacy paid orders when paidAt is missing', () => {
+  assert.match(service, /const paidOrderDateWhere = \{[\s\S]*OR:\s*\[[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}[\s\S]*paidAt:\s*null[\s\S]*createdAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
+  assert.match(service, /DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\) as date, COUNT\(\*\)::bigint as count/);
+  assert.match(service, /WHERE COALESCE\("paidAt", "createdAt"\) >= \$\{startDate\}/);
+  assert.doesNotMatch(service, /AND "paidAt" IS NOT NULL/);
 });
 
 test('admin dashboard displays operator-friendly sections and guidance', () => {
@@ -58,6 +66,11 @@ test('admin dashboard displays operator-friendly sections and guidance', () => {
   assert.match(dashboard, /paymentChannelText/);
   assert.match(dashboard, /orderStatusText/);
   assert.doesNotMatch(dashboard, /title:\s*'提现失败'/);
+});
+
+test('admin dashboard keeps dense pie charts readable without outside labels', () => {
+  assert.match(dashboard, /const capitalPieConfig = \{[\s\S]*label:\s*false/);
+  assert.doesNotMatch(dashboard, /const capitalPieConfig = \{[\s\S]*position:\s*'outside'[\s\S]*legend:/);
 });
 
 test('group buy activity tier removal callback keeps explicit types for admin build', () => {

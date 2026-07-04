@@ -133,6 +133,49 @@ function ChartContent({
   return <>{children}</>;
 }
 
+function ChartValueList({
+  data,
+  formatter = (value: number) => String(value),
+}: {
+  data: ChartDatum[];
+  formatter?: (value: number) => string;
+}) {
+  const visibleData = data
+    .map((item, index) => ({ ...item, color: chartPalette[index % chartPalette.length] }))
+    .filter((item) => Number(item.value) > 0);
+  const total = visibleData.reduce((sum, item) => sum + Number(item.value || 0), 0);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginTop: 8 }}>
+      {visibleData.map((item) => {
+        const percent = total > 0 ? `${((Number(item.value) / total) * 100).toFixed(1)}%` : '0%';
+        return (
+          <div
+            key={item.type}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '10px minmax(0, 1fr) auto',
+              gap: 8,
+              alignItems: 'center',
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              padding: '8px 10px',
+              background: '#fff',
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color }} />
+            <Text type="secondary" ellipsis>{item.type}</Text>
+            <Space size={6}>
+              <Text strong>{formatter(Number(item.value))}</Text>
+              <Text type="secondary">{percent}</Text>
+            </Space>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MetricTile({
   title,
   value,
@@ -365,7 +408,7 @@ export default function DashboardPage() {
     radius: 0.82,
     innerRadius: 0.56,
     height: 260,
-    label: { text: 'type', position: 'outside' as const, style: { fontSize: 11 } },
+    label: false,
     legend: { color: { position: 'bottom' as const } },
   };
   const paymentColumnConfig = {
@@ -403,10 +446,10 @@ export default function DashboardPage() {
     colorField: 'type',
     color: chartPalette,
     radius: 0.82,
-    innerRadius: 0.56,
-    height: 260,
-    label: { text: 'type', position: 'outside' as const, style: { fontSize: 11 } },
-    legend: { color: { position: 'bottom' as const } },
+    innerRadius: 0.62,
+    height: 238,
+    label: false,
+    legend: false,
   };
   const activityColumnConfig = {
     data: activityChartData,
@@ -505,7 +548,7 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={14}>
-          <ShellCard title="销售趋势" extra={<Text type="secondary">按支付成功时间统计</Text>}>
+          <ShellCard title="销售趋势" extra={<Text type="secondary">按有效支付时间统计</Text>}>
             {trendLoading ? (
               <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
             ) : (
@@ -549,6 +592,7 @@ export default function DashboardPage() {
           <ShellCard title="资金结构" extra={<Text type="secondary">奖励 · 数字资产 · 提现</Text>}>
             <ChartContent loading={overviewLoading} data={capitalChartData} emptyText="暂无资金结构数据">
               <Pie {...capitalPieConfig} />
+              <ChartValueList data={capitalChartData} formatter={money} />
             </ChartContent>
           </ShellCard>
         </Col>

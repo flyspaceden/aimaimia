@@ -14,6 +14,19 @@ export class AdminStatsService {
     const cached = this.dashboardCache.get('dashboard');
     if (cached) return cached;
 
+    const startOfDay = this.startOfChinaDay();
+    const paidOrderDateWhere = {
+      OR: [
+        { paidAt: { gte: startOfDay } },
+        { paidAt: null, createdAt: { gte: startOfDay } },
+      ],
+    };
+    const paidOrderWhere = {
+      ...paidOrderDateWhere,
+      deletedAt: null,
+      status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as any[] },
+    };
+
     const [
       userCount,
       orderCount,
@@ -29,17 +42,9 @@ export class AdminStatsService {
       // 商品总数排除卖家草稿（运营 dashboard 只关心可上架商品）
       this.prisma.product.count({ where: { status: { not: 'DRAFT' } } }),
       this.prisma.company.count(),
-      this.prisma.order.count({
-        where: {
-          paidAt: { gte: this.startOfChinaDay() },
-          status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
-        },
-      }),
+      this.prisma.order.count({ where: paidOrderWhere }),
       this.prisma.order.aggregate({
-        where: {
-          paidAt: { gte: this.startOfChinaDay() },
-          status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
-        },
+        where: paidOrderWhere,
         _sum: { totalAmount: true },
       }),
       this.prisma.withdrawRequest.count({
@@ -99,10 +104,22 @@ export class AdminStatsService {
     const now = new Date();
     const startOfDay = this.startOfChinaDay();
     const drawDate = this.todayChinaDate();
+    const paidOrderDateWhere = {
+      OR: [
+        { paidAt: { gte: startOfDay } },
+        { paidAt: null, createdAt: { gte: startOfDay } },
+      ],
+    };
     const paidOrderWhere = {
-      paidAt: { gte: startOfDay },
+      ...paidOrderDateWhere,
       deletedAt: null,
       status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as any[] },
+    };
+    const paidPaymentDateWhere = {
+      OR: [
+        { paidAt: { gte: startOfDay } },
+        { paidAt: null, createdAt: { gte: startOfDay } },
+      ],
     };
 
     const [
@@ -155,7 +172,7 @@ export class AdminStatsService {
       this.prisma.payment.groupBy({
         by: ['channel'],
         where: {
-          paidAt: { gte: startOfDay },
+          ...paidPaymentDateWhere,
           status: 'PAID' as any,
           deletedAt: null,
         },
@@ -332,21 +349,19 @@ export class AdminStatsService {
     // 2 次 $queryRaw 替代 7×2 循环查询
     const [orderCounts, orderAmounts] = await Promise.all([
       this.prisma.$queryRaw<{ date: string; count: bigint }[]>`
-        SELECT DATE("paidAt" + INTERVAL '8 hours') as date, COUNT(*)::bigint as count
+        SELECT DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours') as date, COUNT(*)::bigint as count
         FROM "Order"
-        WHERE "paidAt" >= ${startDate}
-          AND "paidAt" IS NOT NULL
+        WHERE COALESCE("paidAt", "createdAt") >= ${startDate}
           AND status IN ('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED')
-        GROUP BY DATE("paidAt" + INTERVAL '8 hours')
+        GROUP BY DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours')
         ORDER BY date ASC
       `,
       this.prisma.$queryRaw<{ date: string; amount: number }[]>`
-        SELECT DATE("paidAt" + INTERVAL '8 hours') as date, COALESCE(SUM("totalAmount"), 0) as amount
+        SELECT DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours') as date, COALESCE(SUM("totalAmount"), 0) as amount
         FROM "Order"
-        WHERE "paidAt" >= ${startDate}
-          AND "paidAt" IS NOT NULL
+        WHERE COALESCE("paidAt", "createdAt") >= ${startDate}
           AND status IN ('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED')
-        GROUP BY DATE("paidAt" + INTERVAL '8 hours')
+        GROUP BY DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours')
         ORDER BY date ASC
       `,
     ]);
