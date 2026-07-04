@@ -38,6 +38,12 @@ export const PERMISSIONS = {
   DIGITAL_ASSETS_EXPORT: 'digital_assets:export',
   DIGITAL_ASSETS_SETTINGS: 'digital_assets:settings',
 
+  // 普通增长体系
+  GROWTH_READ: 'growth:read',
+  GROWTH_MANAGE_RULES: 'growth:manage_rules',
+  GROWTH_MANAGE_EXCHANGE: 'growth:manage_exchange',
+  GROWTH_ADJUST: 'growth:adjust',
+
   // 溯源
   TRACE_READ: 'trace:read',
   TRACE_CREATE: 'trace:create',

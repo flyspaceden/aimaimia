@@ -430,6 +430,186 @@ export interface DigitalAssetRules {
   modules: DigitalAssetModuleInfo[];
 }
 
+// ========== 普通增长体系 ==========
+
+export interface AdminGrowthDashboard {
+  accountCount: number;
+  totalPointsBalance: number;
+  totalPointsEarned: number;
+  totalPointsSpent: number;
+  totalGrowthValue: number;
+  todayPointsDelta: number;
+  todayGrowthDelta: number;
+  exchangeSuccessCount: number;
+  pendingShareRewardCount: number;
+  activeRuleCount: number;
+  activeExchangeItemCount: number;
+}
+
+export interface AdminGrowthUserSummary {
+  id: string;
+  buyerNo: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
+  phone: string | null;
+  status?: string | null;
+  vipStatus?: 'NORMAL' | 'VIP' | null;
+  normalShareCode?: string | null;
+  normalShareStatus?: string | null;
+}
+
+export interface AdminGrowthLevel {
+  id?: string;
+  code: string;
+  name: string;
+  threshold: number;
+  benefits?: Record<string, unknown> | null;
+  avatarFrameType?: string | null;
+  titleLabel?: string | null;
+  monthlyExchangeLimit?: number | null;
+  sortOrder?: number;
+  enabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminGrowthRule {
+  id?: string;
+  code: string;
+  name: string;
+  categoryCode: string;
+  pointsReward?: number;
+  growthReward?: number;
+  grantTiming?: string;
+  dailyLimit?: number | null;
+  weeklyLimit?: number | null;
+  monthlyLimit?: number | null;
+  lifetimeLimit?: number | null;
+  applicableUserType?: 'ALL' | 'NORMAL' | 'VIP';
+  vipPointsMultiplier?: number | null;
+  vipGrowthMultiplier?: number | null;
+  riskPolicy?: Record<string, unknown> | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  enabled?: boolean;
+  sortOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminGrowthAccountQueryParams extends PaginationParams {
+  keyword?: string;
+  levelCode?: string;
+  sortBy?: 'pointsBalance' | 'pointsTotalEarned' | 'growthValue' | 'updatedAt';
+  sortOrder?: 'ascend' | 'descend' | 'asc' | 'desc';
+}
+
+export interface AdminGrowthAccountRow {
+  id: string;
+  userId: string;
+  pointsBalance: number;
+  pointsTotalEarned: number;
+  pointsTotalSpent: number;
+  growthValue: number;
+  currentLevelCode: string | null;
+  currentLevel?: AdminGrowthLevel | null;
+  createdAt: string;
+  updatedAt: string;
+  user: AdminGrowthUserSummary;
+}
+
+export interface AdminGrowthLedgerQueryParams extends PaginationParams {
+  userId?: string;
+  behaviorCode?: string;
+  type?: string;
+}
+
+export interface AdminGrowthLedger {
+  id: string;
+  userId: string;
+  accountId: string;
+  type: string;
+  behaviorCode: string | null;
+  pointsDelta: number;
+  growthDelta: number;
+  status: string;
+  idempotencyKey: string;
+  refType: string | null;
+  refId: string | null;
+  meta?: Record<string, unknown> | null;
+  createdAt: string;
+  user?: AdminGrowthUserSummary | null;
+}
+
+export interface AdminGrowthExchangeItem {
+  id: string;
+  type: 'COUPON' | 'SHIPPING_COUPON' | 'LOTTERY_CHANCE' | 'VIP_DISCOUNT_COUPON' | 'DECORATION';
+  name: string;
+  description: string | null;
+  pointsCost: number;
+  couponCampaignId: string | null;
+  couponCampaign?: { id: string; name: string; status: string; triggerType: string } | null;
+  stockTotal: number | null;
+  stockDaily: number | null;
+  issuedTotal: number;
+  issuedToday: number;
+  issuedTodayDate: string | null;
+  perUserDailyLimit: number | null;
+  perUserMonthlyLimit: number | null;
+  requiredLevelCode: string | null;
+  requiredLevel?: AdminGrowthLevel | null;
+  startAt: string | null;
+  endAt: string | null;
+  status: 'ACTIVE' | 'INACTIVE' | 'SOLD_OUT';
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminGrowthExchangeItemPayload {
+  type: AdminGrowthExchangeItem['type'];
+  name: string;
+  description?: string | null;
+  pointsCost: number;
+  couponCampaignId?: string | null;
+  stockTotal?: number | null;
+  stockDaily?: number | null;
+  perUserDailyLimit?: number | null;
+  perUserMonthlyLimit?: number | null;
+  requiredLevelCode?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  status?: AdminGrowthExchangeItem['status'];
+  sortOrder?: number;
+}
+
+export interface AdminGrowthAdjustPayload {
+  pointsDelta?: number;
+  growthDelta?: number;
+  reason: string;
+}
+
+export interface AdminNormalShareBindingQueryParams extends PaginationParams {
+  keyword?: string;
+  rewardStatus?: string;
+}
+
+export interface AdminNormalShareBinding {
+  id: string;
+  inviterUserId: string;
+  inviteeUserId: string;
+  code: string;
+  source: string;
+  boundAt: string;
+  firstOrderId: string | null;
+  rewardStatus: string;
+  rewardIssuedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  inviter: AdminGrowthUserSummary | null;
+  invitee: AdminGrowthUserSummary | null;
+}
+
 // ========== 商品 ==========
 
 export type ProductStatus = 'ACTIVE' | 'INACTIVE';

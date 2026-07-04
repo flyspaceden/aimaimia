@@ -25,6 +25,7 @@ import {
   AppstoreOutlined,
   WalletOutlined,
   SwapOutlined,
+  RiseOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -51,10 +52,11 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/user-bonus',
       name: '用户与奖励',
       icon: <UserOutlined />,
-      permissionAny: [PERMISSIONS.BONUS_READ, PERMISSIONS.DIGITAL_ASSETS_READ],
+      permissionAny: [PERMISSIONS.BONUS_READ, PERMISSIONS.DIGITAL_ASSETS_READ, PERMISSIONS.GROWTH_READ],
       routes: [
         { path: '/users', name: '用户管理', permission: PERMISSIONS.USERS_READ },
         { path: '/digital-assets', name: '数字资产', icon: <WalletOutlined />, permission: PERMISSIONS.DIGITAL_ASSETS_READ },
+        { path: '/growth', name: '普通成长', icon: <RiseOutlined />, permission: PERMISSIONS.GROWTH_READ },
         { path: '/bonus/members', name: 'VIP 会员', permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/withdrawals', name: '提现审核', permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },

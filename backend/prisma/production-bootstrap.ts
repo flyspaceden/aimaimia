@@ -102,6 +102,18 @@ const PERMISSIONS = [
   { code: 'replacements:arbitrate', module: 'replacements', action: 'arbitrate', description: '换货管理-仲裁' },
   { code: 'categories:read', module: 'categories', action: 'read', description: '分类管理-查看' },
   { code: 'categories:manage', module: 'categories', action: 'manage', description: '分类管理-增删改' },
+  { code: 'digital_assets:read', module: 'digital_assets', action: 'read', description: '数字资产-查看' },
+  { code: 'digital_assets:adjust', module: 'digital_assets', action: 'adjust', description: '数字资产-手动调整' },
+  { code: 'digital_assets:export', module: 'digital_assets', action: 'export', description: '数字资产-导出' },
+  { code: 'digital_assets:settings', module: 'digital_assets', action: 'settings', description: '数字资产-规则占位配置' },
+  { code: 'growth:read', module: 'growth', action: 'read', description: '普通成长体系-查看' },
+  { code: 'growth:manage_rules', module: 'growth', action: 'manage_rules', description: '普通成长体系-管理行为与等级' },
+  { code: 'growth:manage_exchange', module: 'growth', action: 'manage_exchange', description: '普通成长体系-管理积分兑换' },
+  { code: 'growth:adjust', module: 'growth', action: 'adjust', description: '普通成长体系-手动调整积分成长' },
+  { code: 'group_buy:read', module: 'group_buy', action: 'read', description: '团购-查看' },
+  { code: 'group_buy:manage', module: 'group_buy', action: 'manage', description: '团购-管理' },
+  { code: 'group_buy:export', module: 'group_buy', action: 'export', description: '团购-导出' },
+  { code: 'group_buy:settings', module: 'group_buy', action: 'settings', description: '团购-设置' },
 ];
 
 // ──────────────────────────────────────────────────────────────
@@ -115,6 +127,7 @@ const STAFF_PERMISSIONS = [
   'orders:read',
   'companies:read',
   'bonus:read',
+  'growth:read',
   'trace:read',
   'config:read',
   'audit:read',
