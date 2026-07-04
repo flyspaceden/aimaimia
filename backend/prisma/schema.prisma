@@ -36,10 +36,10 @@ enum AuthProvider {
 enum SmsPurpose {
   LOGIN
   BIND
-  RESET          // 保留占位，当前代码未使用
-  BUYER_RESET    // 买家 App 忘记密码专用 scope
-  SELLER_RESET   // 卖家后台忘记密码专用 scope
-  DELETION       // 买家 App 账号注销确认专用 scope
+  RESET // 保留占位，当前代码未使用
+  BUYER_RESET // 买家 App 忘记密码专用 scope
+  SELLER_RESET // 卖家后台忘记密码专用 scope
+  DELETION // 买家 App 账号注销确认专用 scope
 }
 
 enum SessionStatus {
@@ -80,14 +80,14 @@ enum CompanyCreditEventType {
 }
 
 enum CompanyStaffRole {
-  OWNER     // 企业主（创始人，不可移除）
-  MANAGER   // 经理（可管理商品+订单+员工）
-  OPERATOR  // 运营（只能管理商品+订单，不能管员工）
+  OWNER // 企业主（创始人，不可移除）
+  MANAGER // 经理（可管理商品+订单+员工）
+  OPERATOR // 运营（只能管理商品+订单，不能管员工）
 }
 
 enum CompanyStaffStatus {
-  ACTIVE    // 正常
-  DISABLED  // 已禁用
+  ACTIVE // 正常
+  DISABLED // 已禁用
 }
 
 enum DocumentType {
@@ -177,23 +177,23 @@ enum TraceEventType {
 
 // --- G 域：交易 ---
 enum CheckoutSessionStatus {
-  ACTIVE      // 会话创建，等待支付
-  PAID        // 支付确认，正在创建订单
-  COMPLETED   // 订单创建成功
-  EXPIRED     // 会话超时（30分钟）
-  FAILED      // 库存不足等原因失败（已退款）
+  ACTIVE // 会话创建，等待支付
+  PAID // 支付确认，正在创建订单
+  COMPLETED // 订单创建成功
+  EXPIRED // 会话超时（30分钟）
+  FAILED // 库存不足等原因失败（已退款）
 }
 
 enum CheckoutBizType {
-  NORMAL_GOODS  // 普通商品结算
-  VIP_PACKAGE   // VIP 礼包结算
-  GROUP_BUY     // 团购分享回馈结算
+  NORMAL_GOODS // 普通商品结算
+  VIP_PACKAGE // VIP 礼包结算
+  GROUP_BUY // 团购分享回馈结算
 }
 
 enum OrderBizType {
-  NORMAL_GOODS  // 普通商品订单
-  VIP_PACKAGE   // VIP 礼包订单
-  GROUP_BUY     // 团购分享回馈订单
+  NORMAL_GOODS // 普通商品订单
+  VIP_PACKAGE // VIP 礼包订单
+  GROUP_BUY // 团购分享回馈订单
 }
 
 enum OrderStatus {
@@ -375,50 +375,50 @@ enum VipPurchaseStatus {
 }
 
 enum VipGiftOptionStatus {
-  ACTIVE    // 上架，前台可选
-  INACTIVE  // 下架，前台不可选
+  ACTIVE // 上架，前台可选
+  INACTIVE // 下架，前台不可选
 }
 
 model VipPackage {
-  id                String              @id @default(cuid())
-  price             Float               // 档位价格（元），如 399 / 699 / 999
-  referralBonusRate Float               @default(0.15) // 推荐奖励比例，0.15 = 15%
-  selfSeedAssetAmount     Int           @default(0)
-  referralSeedAssetAmount Int           @default(0)
-  sortOrder         Int                 @default(0)
-  status            VipGiftOptionStatus @default(ACTIVE) // 复用 ACTIVE/INACTIVE
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  giftOptions       VipGiftOption[]
+  id                      String              @id @default(cuid())
+  price                   Float // 档位价格（元），如 399 / 699 / 999
+  referralBonusRate       Float               @default(0.15) // 推荐奖励比例，0.15 = 15%
+  selfSeedAssetAmount     Int                 @default(0)
+  referralSeedAssetAmount Int                 @default(0)
+  sortOrder               Int                 @default(0)
+  status                  VipGiftOptionStatus @default(ACTIVE) // 复用 ACTIVE/INACTIVE
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  giftOptions             VipGiftOption[]
 
   @@index([status, sortOrder])
 }
 
 enum CoverMode {
-  AUTO_GRID      // 宫格拼图（默认）
-  AUTO_DIAGONAL  // 对角线分割
-  AUTO_STACKED   // 层叠卡片
-  CUSTOM         // 自定义上传
+  AUTO_GRID // 宫格拼图（默认）
+  AUTO_DIAGONAL // 对角线分割
+  AUTO_STACKED // 层叠卡片
+  CUSTOM // 自定义上传
 }
 
 enum VipActivationStatus {
-  PENDING     // 支付已确认，待进入激活流程
-  ACTIVATING  // 正在执行 VIP 开通事务
-  SUCCESS     // 开通成功
-  FAILED      // 激活失败，等待人工处理或重试
-  RETRYING    // 自动补偿重试中
+  PENDING // 支付已确认，待进入激活流程
+  ACTIVATING // 正在执行 VIP 开通事务
+  SUCCESS // 开通成功
+  FAILED // 激活失败，等待人工处理或重试
+  RETRYING // 自动补偿重试中
 }
 
 enum RewardAccountType {
-  VIP_REWARD          // VIP分润奖励
-  NORMAL_REWARD       // 普通用户分润奖励
+  VIP_REWARD // VIP分润奖励
+  NORMAL_REWARD // 普通用户分润奖励
   POINTS
   FUND_POOL
   PLATFORM_PROFIT
-  INDUSTRY_FUND       // 产业基金（卖家）
-  CHARITY_FUND        // 慈善基金
-  TECH_FUND           // 科技基金
-  RESERVE_FUND        // 备用金
+  INDUSTRY_FUND // 产业基金（卖家）
+  CHARITY_FUND // 慈善基金
+  TECH_FUND // 科技基金
+  RESERVE_FUND // 备用金
 }
 
 enum AllocationTriggerType {
@@ -428,13 +428,13 @@ enum AllocationTriggerType {
 }
 
 enum AllocationRuleType {
-  NORMAL_BROADCAST  // @deprecated 废弃：滑动窗口分配，保留用于历史数据
-  NORMAL_TREE       // 普通用户树分配（替代 NORMAL_BROADCAST）
+  NORMAL_BROADCAST // @deprecated 废弃：滑动窗口分配，保留用于历史数据
+  NORMAL_TREE // 普通用户树分配（替代 NORMAL_BROADCAST）
   VIP_UPSTREAM
   VIP_DIRECT_REFERRAL
   VIP_PLATFORM_SPLIT // VIP 平台分成（百分比与普通 PLATFORM_SPLIT 不同）
   PLATFORM_SPLIT
-  ZERO_PROFIT       // M03: 零利润订单幂等标记
+  ZERO_PROFIT // M03: 零利润订单幂等标记
 }
 
 enum RewardEntryType {
@@ -451,7 +451,7 @@ enum RewardLedgerStatus {
   AVAILABLE
   WITHDRAWN
   VOIDED
-  RESERVED    // F1: 结算会话中预留红包
+  RESERVED // F1: 结算会话中预留红包
   RETURN_FROZEN // 售后退货冻结，待退款完成后释放或扣回
 }
 
@@ -472,9 +472,9 @@ enum WithdrawStatus {
 
 // --- J 域：普通用户系统改造 ---
 enum LotteryPrizeType {
-  DISCOUNT_BUY      // 低价买高价商品（如1元白酒）
-  THRESHOLD_GIFT    // 消费满X送商品
-  NO_PRIZE          // 谢谢参与
+  DISCOUNT_BUY // 低价买高价商品（如1元白酒）
+  THRESHOLD_GIFT // 消费满X送商品
+  NO_PRIZE // 谢谢参与
 }
 
 enum LotteryResult {
@@ -484,44 +484,44 @@ enum LotteryResult {
 
 // 抽奖记录生命周期状态
 enum LotteryRecordStatus {
-  WON        // 已中奖，尚未加入购物车
-  IN_CART    // 已加入购物车
-  EXPIRED    // 已过期（购物车中超时）
-  CONSUMED   // 已消费（订单已创建）
+  WON // 已中奖，尚未加入购物车
+  IN_CART // 已加入购物车
+  EXPIRED // 已过期（购物车中超时）
+  CONSUMED // 已消费（订单已创建）
 }
 
 enum ReplacementStatus {
-  REQUESTED         // 用户提交
-  UNDER_REVIEW      // 审核中
-  APPROVED          // 已批准，待发货
-  SHIPPED           // 已重新发货
-  COMPLETED         // 用户确认收到
-  REJECTED          // 驳回
+  REQUESTED // 用户提交
+  UNDER_REVIEW // 审核中
+  APPROVED // 已批准，待发货
+  SHIPPED // 已重新发货
+  COMPLETED // 用户确认收到
+  REJECTED // 驳回
 }
 
 // --- 统一售后系统枚举 ---
 enum AfterSaleType {
-  NO_REASON_RETURN   // 七天无理由退货退款
+  NO_REASON_RETURN // 七天无理由退货退款
   NO_REASON_EXCHANGE // 七天无理由换货
-  QUALITY_RETURN     // 质量问题退货退款
-  QUALITY_EXCHANGE   // 质量问题换货
+  QUALITY_RETURN // 质量问题退货退款
+  QUALITY_EXCHANGE // 质量问题换货
 }
 
 enum AfterSaleStatus {
-  REQUESTED            // 用户提交申请
-  UNDER_REVIEW         // 卖家审核中
-  APPROVED             // 已批准
-  REJECTED             // 卖家驳回
-  PENDING_ARBITRATION  // 申请平台仲裁
-  RETURN_SHIPPING      // 买家退货寄回中
-  RECEIVED_BY_SELLER   // 卖家已收到退货
+  REQUESTED // 用户提交申请
+  UNDER_REVIEW // 卖家审核中
+  APPROVED // 已批准
+  REJECTED // 卖家驳回
+  PENDING_ARBITRATION // 申请平台仲裁
+  RETURN_SHIPPING // 买家退货寄回中
+  RECEIVED_BY_SELLER // 卖家已收到退货
   SELLER_REJECTED_RETURN // 卖家验收退货不合格
-  REFUNDING            // 退款处理中
-  REFUNDED             // 退款完成
-  REPLACEMENT_SHIPPED  // 换货已发出
-  COMPLETED            // 售后完成
-  CLOSED               // 系统关闭（超时等）
-  CANCELED             // 用户主动取消
+  REFUNDING // 退款处理中
+  REFUNDED // 退款完成
+  REPLACEMENT_SHIPPED // 换货已发出
+  COMPLETED // 售后完成
+  CLOSED // 系统关闭（超时等）
+  CANCELED // 用户主动取消
 }
 
 enum ReturnShippingPayer {
@@ -548,20 +548,20 @@ enum AfterSaleShippingPaymentStatus {
 }
 
 enum ReturnPolicy {
-  RETURNABLE       // 支持七天无理由退货
-  NON_RETURNABLE   // 不支持退货（如生鲜）
-  INHERIT          // 继承上级品类设置
+  RETURNABLE // 支持七天无理由退货
+  NON_RETURNABLE // 不支持退货（如生鲜）
+  INHERIT // 继承上级品类设置
 }
 
 // 换货/退款标准化理由类型（防止买家在自由文本中泄露联系方式）
 enum ReplacementReasonType {
-  QUALITY_ISSUE      // 质量问题
-  WRONG_ITEM         // 发错商品
-  DAMAGED            // 运输损坏
-  NOT_AS_DESCRIBED   // 与描述不符
-  SIZE_ISSUE         // 规格不符
-  EXPIRED            // 临期/过期
-  OTHER              // 其他（允许附加过滤后的文字）
+  QUALITY_ISSUE // 质量问题
+  WRONG_ITEM // 发错商品
+  DAMAGED // 运输损坏
+  NOT_AS_DESCRIBED // 与描述不符
+  SIZE_ISSUE // 规格不符
+  EXPIRED // 临期/过期
+  OTHER // 其他（允许附加过滤后的文字）
 }
 
 // --- B 域：管理后台 ---
@@ -629,48 +629,120 @@ enum FollowType {
 // --- K 域：平台红包（优惠券）系统 ---
 // 红包活动状态
 enum CouponCampaignStatus {
-  DRAFT        // 草稿
-  ACTIVE       // 进行中
-  PAUSED       // 已暂停
-  ENDED        // 已结束
+  DRAFT // 草稿
+  ACTIVE // 进行中
+  PAUSED // 已暂停
+  ENDED // 已结束
 }
 
 // 抵扣类型
 enum CouponDiscountType {
-  FIXED        // 固定金额（如减10元）
-  PERCENT      // 百分比折扣（如打9折）
+  FIXED // 固定金额（如减10元）
+  PERCENT // 百分比折扣（如打9折）
 }
 
 // 触发类型
 enum CouponTriggerType {
-  REGISTER          // 新用户注册
-  FIRST_ORDER       // 首次下单
-  BIRTHDAY          // 生日
-  CHECK_IN          // 签到
-  INVITE            // 邀请新用户
-  REVIEW            // 好评
-  SHARE             // 分享
-  CUMULATIVE_SPEND  // 累计消费
-  WIN_BACK          // 复购激励
-  HOLIDAY           // 节日活动
-  FLASH             // 限时抢
-  MANUAL            // 手动发放
+  REGISTER // 新用户注册
+  FIRST_ORDER // 首次下单
+  BIRTHDAY // 生日
+  CHECK_IN // 签到
+  INVITE // 邀请新用户
+  REVIEW // 好评
+  SHARE // 分享
+  CUMULATIVE_SPEND // 累计消费
+  WIN_BACK // 复购激励
+  HOLIDAY // 节日活动
+  FLASH // 限时抢
+  MANUAL // 手动发放
 }
 
 // 发放方式
 enum CouponDistributionMode {
-  AUTO              // 系统自动发放到用户账户
-  CLAIM             // 用户主动领取
-  MANUAL            // 管理员手动指定发放
+  AUTO // 系统自动发放到用户账户
+  CLAIM // 用户主动领取
+  MANUAL // 管理员手动指定发放
 }
 
 // 红包实例状态
 enum CouponInstanceStatus {
-  AVAILABLE         // 可用
-  RESERVED          // 已锁定（结算中）
-  USED              // 已使用
-  EXPIRED           // 已过期
-  REVOKED           // 已撤回（管理员操作）
+  AVAILABLE // 可用
+  RESERVED // 已锁定（结算中）
+  USED // 已使用
+  EXPIRED // 已过期
+  REVOKED // 已撤回（管理员操作）
+}
+
+// --- L 域：普通会员成长体系 ---
+enum GrowthLedgerType {
+  POINTS_EARN
+  POINTS_SPEND
+  POINTS_EXPIRE
+  POINTS_REVERSE
+  GROWTH_EARN
+  GROWTH_REVERSE
+  ADMIN_ADJUST
+}
+
+enum GrowthLedgerStatus {
+  POSTED
+  REVERSED
+  VOIDED
+}
+
+enum GrowthGrantTiming {
+  IMMEDIATE
+  CONFIRMED_RECEIPT
+  AFTER_SALE_WINDOW
+  MANUAL
+}
+
+enum GrowthApplicableUserType {
+  ALL
+  NORMAL
+  VIP
+}
+
+enum GrowthExchangeType {
+  COUPON
+  SHIPPING_COUPON
+  LOTTERY_CHANCE
+  VIP_DISCOUNT_COUPON
+  DECORATION
+}
+
+enum GrowthExchangeStatus {
+  ACTIVE
+  INACTIVE
+  SOLD_OUT
+}
+
+enum GrowthExchangeRecordStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum NormalShareCodeStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum NormalShareBindingSource {
+  LANDING
+  APP
+  DEFERRED
+  ADMIN
+}
+
+enum NormalShareRewardStatus {
+  PENDING
+  REGISTER_REWARDED
+  FIRST_ORDER_PENDING
+  ISSUED
+  REVERSED
+  VOIDED
 }
 
 enum CouponManualIssueTargetMode {
@@ -693,15 +765,15 @@ enum CouponManualIssueJobStatus {
 // ============================================================
 
 model User {
-  id                     String     @id @default(cuid())
-  buyerNo                String?    @unique
-  status                 UserStatus @default(ACTIVE)
-  hasAgreedReturnPolicy  Boolean    @default(false) // 是否已同意退货政策
-  deletionExecutedAt     DateTime?
-  deletionConfirmMethod  String?
-  deletionMeta           Json?
-  createdAt              DateTime   @default(now())
-  updatedAt              DateTime   @updatedAt
+  id                    String     @id @default(cuid())
+  buyerNo               String?    @unique
+  status                UserStatus @default(ACTIVE)
+  hasAgreedReturnPolicy Boolean    @default(false) // 是否已同意退货政策
+  deletionExecutedAt    DateTime?
+  deletionConfirmMethod String?
+  deletionMeta          Json?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
   // 关系
   profile        UserProfile?
@@ -757,18 +829,26 @@ model User {
   taskCompletions TaskCompletion[]
   checkIns        CheckIn[]
 
+  // L 域关系（普通会员成长体系，独立于 Reward/Coupon/VIP 推荐）
+  growthAccount              GrowthAccount?
+  growthLedgers              GrowthLedger[]
+  growthExchangeRecords      GrowthExchangeRecord[]
+  normalShareProfile         NormalShareProfile?
+  normalShareBindingsMade    NormalShareBinding[]   @relation("NormalShareInviter")
+  normalShareBindingReceived NormalShareBinding?    @relation("NormalShareInvitee")
+
   // K 域关系（平台红包）
-  couponInstances     CouponInstance[]   @relation("UserCouponInstances")
+  couponInstances     CouponInstance[]     @relation("UserCouponInstances")
   couponTriggerEvents CouponTriggerEvent[] @relation("UserCouponTriggerEvents")
   couponClaimableSeenState CouponClaimableSeenState?
 
   // 卖家域关系
-  companyStaffs   CompanyStaff[]   // 一个用户可以是多家企业的员工
-  buyerAliases    BuyerAlias[]     // 在各店铺的匿名编号
+  companyStaffs CompanyStaff[] // 一个用户可以是多家企业的员工
+  buyerAliases  BuyerAlias[] // 在各店铺的匿名编号
 
   // N 域关系（智能客服）
-  csTickets    CsTicket[]
-  csSessions   CsSession[]
+  csTickets  CsTicket[]
+  csSessions CsSession[]
 
   @@index([deletionExecutedAt])
 }
@@ -828,18 +908,18 @@ model SmsOtp {
 }
 
 model Session {
-  id               String        @id @default(cuid())
-  userId           String
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deviceId         String?
-  device           Device?       @relation(fields: [deviceId], references: [id])
-  accessTokenHash  String? // 不存明文
-  refreshTokenHash String // 不存明文
-  status           SessionStatus @default(ACTIVE)
-  expiresAt        DateTime
-  absoluteExpiresAt DateTime?    // Refresh Token 最大续期上限（L1）
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId          String?
+  device            Device?       @relation(fields: [deviceId], references: [id])
+  accessTokenHash   String? // 不存明文
+  refreshTokenHash  String // 不存明文
+  status            SessionStatus @default(ACTIVE)
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime? // Refresh Token 最大续期上限（L1）
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@index([userId, status])
   @@index([expiresAt])
@@ -914,30 +994,30 @@ model RuleVersion {
 // ============================================================
 
 model AdminUser {
-  id             String          @id @default(cuid())
-  username       String          @unique
-  phone          String?         @unique // 新增：管理员手机号（用于短信验证码登录，C18）
-  passwordHash   String
-  realName       String?
-  status         AdminUserStatus @default(ACTIVE)
-  loginFailCount Int             @default(0)
-  lockedUntil    DateTime?
-  lastLoginAt    DateTime?
-  lastLoginIp    String?
+  id               String          @id @default(cuid())
+  username         String          @unique
+  phone            String?         @unique // 新增：管理员手机号（用于短信验证码登录，C18）
+  passwordHash     String
+  realName         String?
+  status           AdminUserStatus @default(ACTIVE)
+  loginFailCount   Int             @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
   createdByAdminId String?
-  createdByAdmin   AdminUser?    @relation("AdminCreator", fields: [createdByAdminId], references: [id])
-  createdAdmins    AdminUser[]   @relation("AdminCreator")
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdByAdmin   AdminUser?      @relation("AdminCreator", fields: [createdByAdminId], references: [id])
+  createdAdmins    AdminUser[]     @relation("AdminCreator")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   // 关系
-  userRoles      AdminUserRole[]
-  sessions       AdminSession[]
-  auditLogs      AdminAuditLog[]   @relation("AuditAuthor")
-  rollbackLogs   AdminAuditLog[]   @relation("RollbackAuthor")
-  ruleVersions   RuleVersion[]
-  reviewedWithdraws WithdrawRequest[]
-  reviewTasks       ReviewTask[]
+  userRoles           AdminUserRole[]
+  sessions            AdminSession[]
+  auditLogs           AdminAuditLog[]      @relation("AuditAuthor")
+  rollbackLogs        AdminAuditLog[]      @relation("RollbackAuthor")
+  ruleVersions        RuleVersion[]
+  reviewedWithdraws   WithdrawRequest[]
+  reviewTasks         ReviewTask[]
   digitalAssetLedgers DigitalAssetLedger[]
 }
 
@@ -955,8 +1035,8 @@ model AdminRole {
 }
 
 model AdminPermission {
-  id          String @id @default(cuid())
-  code        String @unique // 如 orders:read, products:update
+  id          String  @id @default(cuid())
+  code        String  @unique // 如 orders:read, products:update
   module      String // 模块名
   action      String // 操作名
   description String?
@@ -988,26 +1068,26 @@ model AdminRolePermission {
 }
 
 model AdminAuditLog {
-  id              String      @id @default(cuid())
-  adminUserId     String
-  adminUser       AdminUser   @relation("AuditAuthor", fields: [adminUserId], references: [id])
-  action          AuditAction
-  module          String // 模块名：orders, products, users...
-  targetType      String? // 目标实体类型：Order, Product, User...
-  targetId        String? // 目标实体 ID
-  summary         String? // 操作摘要
-  before          Json? // 变更前快照
-  after           Json? // 变更后快照
-  diff            Json? // 字段级变化
-  ip              String?
-  userAgent       String?
-  isReversible    Boolean     @default(true)
-  rolledBackAt    DateTime?
+  id                  String      @id @default(cuid())
+  adminUserId         String
+  adminUser           AdminUser   @relation("AuditAuthor", fields: [adminUserId], references: [id])
+  action              AuditAction
+  module              String // 模块名：orders, products, users...
+  targetType          String? // 目标实体类型：Order, Product, User...
+  targetId            String? // 目标实体 ID
+  summary             String? // 操作摘要
+  before              Json? // 变更前快照
+  after               Json? // 变更后快照
+  diff                Json? // 字段级变化
+  ip                  String?
+  userAgent           String?
+  isReversible        Boolean     @default(true)
+  rolledBackAt        DateTime?
   rolledBackByAdminId String?
-  rolledBackByAdmin   AdminUser? @relation("RollbackAuthor", fields: [rolledBackByAdminId], references: [id])
-  rollbackOfLogId String? // 回滚的原始日志 ID
-  requestId       String?     // 请求追踪 ID（L10）
-  createdAt       DateTime    @default(now())
+  rolledBackByAdmin   AdminUser?  @relation("RollbackAuthor", fields: [rolledBackByAdminId], references: [id])
+  rollbackOfLogId     String? // 回滚的原始日志 ID
+  requestId           String? // 请求追踪 ID（L10）
+  createdAt           DateTime    @default(now())
 
   @@index([adminUserId, createdAt])
   @@index([module, createdAt])
@@ -1016,15 +1096,15 @@ model AdminAuditLog {
 }
 
 model AdminSession {
-  id               String    @id @default(cuid())
-  adminUserId      String
-  adminUser        AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
-  refreshTokenHash String
-  ip               String?
-  userAgent        String?
-  expiresAt        DateTime
+  id                String    @id @default(cuid())
+  adminUserId       String
+  adminUser         AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  refreshTokenHash  String
+  ip                String?
+  userAgent         String?
+  expiresAt         DateTime
   absoluteExpiresAt DateTime? // Refresh Token 最大续期上限（L1）
-  createdAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
 
   @@index([adminUserId])
   @@index([expiresAt])
@@ -1032,15 +1112,15 @@ model AdminSession {
 
 // --- B4. 审核工作流（统一审核：企业/证件/商品/溯源/提现） ---
 model ReviewTask {
-  id               String           @id @default(cuid())
-  targetType       ReviewTargetType // 审核目标类型
-  targetId         String           // 目标实体 ID（Company/Product/WithdrawRequest 等）
-  status           ReviewStatus     @default(PENDING)
-  reviewerAdminId  String?
-  reviewerAdmin    AdminUser?       @relation(fields: [reviewerAdminId], references: [id])
-  reason           String?          // 审核意见/驳回原因
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id              String           @id @default(cuid())
+  targetType      ReviewTargetType // 审核目标类型
+  targetId        String // 目标实体 ID（Company/Product/WithdrawRequest 等）
+  status          ReviewStatus     @default(PENDING)
+  reviewerAdminId String?
+  reviewerAdmin   AdminUser?       @relation(fields: [reviewerAdminId], references: [id])
+  reason          String? // 审核意见/驳回原因
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([status, createdAt])
   @@index([targetType, targetId])
@@ -1077,16 +1157,16 @@ model Company {
   bookings Booking[]
 
   // 卖家域关系
-  staff        CompanyStaff[]   // 企业员工列表
-  buyerAliases BuyerAlias[]     // 买家匿名编号
+  staff               CompanyStaff[] // 企业员工列表
+  buyerAliases        BuyerAlias[] // 买家匿名编号
   virtualCallBindings VirtualCallBinding[] // 虚拟号绑定记录
-  shipments    Shipment[]
+  shipments           Shipment[]
 
-  creditScore  Int          @default(100)  // 企业信用分（初始100，违规扣减）
+  creditScore                Int                  @default(100) // 企业信用分（初始100，违规扣减）
   virtualCallRestrictedUntil DateTime?
-  suspendedUntil DateTime?
-  creditEvents CompanyCreditEvent[]
-  companyTags   CompanyTag[]
+  suspendedUntil             DateTime?
+  creditEvents               CompanyCreditEvent[]
+  companyTags                CompanyTag[]
 }
 
 model CompanyProfile {
@@ -1122,20 +1202,20 @@ enum MerchantApplicationStatus {
 }
 
 model MerchantApplication {
-  id             String                      @id @default(cuid())
+  id             String                    @id @default(cuid())
   companyName    String
   category       String
   contactName    String
   phone          String
   email          String?
   licenseFileUrl String
-  status         MerchantApplicationStatus   @default(PENDING)
+  status         MerchantApplicationStatus @default(PENDING)
   rejectReason   String?
   reviewedAt     DateTime?
   reviewedBy     String?
   companyId      String?
-  createdAt      DateTime                    @default(now())
-  updatedAt      DateTime                    @updatedAt
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
 
   @@index([status])
   @@index([phone])
@@ -1173,16 +1253,16 @@ model CompanyActivity {
 
 // --- 企业员工关联表 ---
 model CompanyStaff {
-  id        String             @id @default(cuid())
-  userId    String
-  companyId String
-  role      CompanyStaffRole   @default(OPERATOR)
-  status    CompanyStaffStatus @default(ACTIVE)
-  passwordHash String?         // 新增：卖家员工密码登录（OWNER 创建员工时设定），C17；nullable 兼容历史仅短信登录员工
-  invitedBy String?            // 邀请人 userId（OWNER/MANAGER）
-  joinedAt  DateTime           @default(now())
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id           String             @id @default(cuid())
+  userId       String
+  companyId    String
+  role         CompanyStaffRole   @default(OPERATOR)
+  status       CompanyStaffStatus @default(ACTIVE)
+  passwordHash String? // 新增：卖家员工密码登录（OWNER 创建员工时设定），C17；nullable 兼容历史仅短信登录员工
+  invitedBy    String? // 邀请人 userId（OWNER/MANAGER）
+  joinedAt     DateTime           @default(now())
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有员工关联的用户
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有员工关联的企业
@@ -1196,15 +1276,15 @@ model CompanyStaff {
 
 // --- 卖家会话管理 ---
 model SellerSession {
-  id               String        @id @default(cuid())
-  staffId          String        // CompanyStaff.id
-  staff            CompanyStaff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  refreshTokenHash String
-  ip               String?
-  userAgent        String?
-  expiresAt        DateTime
-  absoluteExpiresAt DateTime?    // Refresh Token 最大续期上限（L1）
-  createdAt        DateTime      @default(now())
+  id                String       @id @default(cuid())
+  staffId           String // CompanyStaff.id
+  staff             CompanyStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  refreshTokenHash  String
+  ip                String?
+  userAgent         String?
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime? // Refresh Token 最大续期上限（L1）
+  createdAt         DateTime     @default(now())
 
   @@index([staffId])
   @@index([expiresAt])
@@ -1282,11 +1362,11 @@ model Product {
   attributes         Json? // 自定义属性
   aiKeywords         String[]           @default([])
   // 语义匹配字段（AI 辅助填充 + 人工可改）
-  flavorTags      String[]           @default([])
-  seasonalMonths  Int[]              @default([])
-  usageScenarios  String[]           @default([])
-  dietaryTags     String[]           @default([])
-  originRegion    String?
+  flavorTags         String[]           @default([])
+  seasonalMonths     Int[]              @default([])
+  usageScenarios     String[]           @default([])
+  dietaryTags        String[]           @default([])
+  originRegion       String?
   shippingTemplateId String?
   shippingTemplate   ShippingTemplate?  @relation(fields: [shippingTemplateId], references: [id])
   returnPolicy       ReturnPolicy       @default(INHERIT) // 退货政策：继承品类/支持/不支持
@@ -1294,13 +1374,13 @@ model Product {
   updatedAt          DateTime           @updatedAt
 
   // 关系
-  skus               ProductSKU[]
-  bundleItems        ProductBundleItem[] @relation("ProductBundleItems")
-  media              ProductMedia[]
-  tags               ProductTag[]
-  productTraceLinks  ProductTraceLink[]
-  lotteryPrizes      LotteryPrize[]
-  groupBuyActivities GroupBuyActivity[]
+  skus                  ProductSKU[]
+  bundleItems           ProductBundleItem[]    @relation("ProductBundleItems")
+  media                 ProductMedia[]
+  tags                  ProductTag[]
+  productTraceLinks     ProductTraceLink[]
+  lotteryPrizes         LotteryPrize[]
+  groupBuyActivities    GroupBuyActivity[]
   groupBuyActivityItems GroupBuyActivityItem[]
 
   @@index([companyId, status, createdAt]) // 卖家商品列表查询
@@ -1319,29 +1399,29 @@ model ProductUnit {
 }
 
 model ProductSKU {
-  id         String    @id @default(cuid())
-  productId  String
-  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  skuCode    String?   @unique
-  title      String
-  price      Float // 价格（元），卖家商品由系统自动计算 (= cost × markupRate)
-  cost       Float     @default(0) // 成本价（元），卖家商品必填，平台/抽奖商品由后台设置
-  stock        Int       @default(0)
-  maxPerOrder  Int?      // 单笔订单限购数量，null = 不限制
-  weightGram Int
-  barcode    String?
-  status     SkuStatus @default(ACTIVE)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  skuCode     String?   @unique
+  title       String
+  price       Float // 价格（元），卖家商品由系统自动计算 (= cost × markupRate)
+  cost        Float     @default(0) // 成本价（元），卖家商品必填，平台/抽奖商品由后台设置
+  stock       Int       @default(0)
+  maxPerOrder Int? // 单笔订单限购数量，null = 不限制
+  weightGram  Int
+  barcode     String?
+  status      SkuStatus @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // 关系
-  cartItems        CartItem[]
-  orderItems       OrderItem[]
-  bundleItems      ProductBundleItem[]
-  inventoryLedgers InventoryLedger[]
-  lotteryPrizes    LotteryPrize[]
-  vipGiftItems     VipGiftItem[]
-  groupBuyActivities GroupBuyActivity[]
+  cartItems             CartItem[]
+  orderItems            OrderItem[]
+  bundleItems           ProductBundleItem[]
+  inventoryLedgers      InventoryLedger[]
+  lotteryPrizes         LotteryPrize[]
+  vipGiftItems          VipGiftItem[]
+  groupBuyActivities    GroupBuyActivity[]
   groupBuyActivityItems GroupBuyActivityItem[]
 }
 
@@ -1392,11 +1472,11 @@ model InventoryLedger {
   refType   String? // ORDER/ADMIN/IMPORT
   refId     String?
   createdAt DateTime      @default(now())
-
-  @@index([skuId]) // M5: 外键索引，加速库存流水查询
   // 退货退款回填幂等依赖手写部分唯一索引，Prisma schema 暂不能表达：
   // InventoryLedger_after_sale_release_once_idx(refType, refId, skuId)
   // WHERE type='RELEASE' AND refType='AFTER_SALE' AND refId IS NOT NULL
+
+  @@index([skuId]) // M5: 外键索引，加速库存流水查询
 }
 
 // ============================================================
@@ -1465,19 +1545,19 @@ model OrderItemTraceLink {
 // ============================================================
 
 model Address {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   recipientName String
   phone         String
   regionCode    String // 行政区划 code
   regionText    String // "广东省深圳市南山区"
   detail        String
   location      Json? // {lng,lat,provider:AMAP/TENCENT}
-  isDefault     Boolean  @default(false)
+  isDefault     Boolean   @default(false)
   deletedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([userId, deletedAt])
 }
@@ -1498,104 +1578,104 @@ model CartItem {
   skuId         String
   sku           ProductSKU @relation(fields: [skuId], references: [id])
   quantity      Int
-  isPrize       Boolean    @default(false)   // 是否为抽奖奖品
-  prizeRecordId String?    @unique           // 关联 LotteryRecord.id，唯一约束防止同一奖品重复加入购物车
-  isLocked      Boolean    @default(false)   // F2: THRESHOLD_GIFT 未达门槛时锁定
-  threshold     Float?                       // F2: 解锁门槛金额（缓存自 LotteryPrize.threshold）
-  isSelected    Boolean    @default(true)    // F2: 用户是否勾选该商品（用于部分结算）
-  createdAt     DateTime   @default(now())   // F2/F3: 入购物车时间（奖品过期起算点）
-  expiresAt     DateTime?                    // F3: 奖品过期时间，非奖品为 null
+  isPrize       Boolean    @default(false) // 是否为抽奖奖品
+  prizeRecordId String?    @unique // 关联 LotteryRecord.id，唯一约束防止同一奖品重复加入购物车
+  isLocked      Boolean    @default(false) // F2: THRESHOLD_GIFT 未达门槛时锁定
+  threshold     Float? // F2: 解锁门槛金额（缓存自 LotteryPrize.threshold）
+  isSelected    Boolean    @default(true) // F2: 用户是否勾选该商品（用于部分结算）
+  createdAt     DateTime   @default(now()) // F2/F3: 入购物车时间（奖品过期起算点）
+  expiresAt     DateTime? // F3: 奖品过期时间，非奖品为 null
 
   @@index([cartId, skuId]) // 替换 @@unique：奖品项可能与普通项 SKU 相同
   @@index([cartId, isPrize, isSelected])
-  @@index([expiresAt])     // F3: 过期清理查询优化
+  @@index([expiresAt]) // F3: 过期清理查询优化
 }
 
 model CheckoutSession {
-  id              String                @id @default(cuid())
-  userId          String
-  user            User                  @relation(fields: [userId], references: [id])
-  status          CheckoutSessionStatus @default(ACTIVE)
-  bizType         CheckoutBizType       @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
-  bizMeta         Json?                 // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
+  id      String                @id @default(cuid())
+  userId  String
+  user    User                  @relation(fields: [userId], references: [id])
+  status  CheckoutSessionStatus @default(ACTIVE)
+  bizType CheckoutBizType       @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
+  bizMeta Json? // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
 
   // 结算快照（创建时冻结）
-  itemsSnapshot   Json                  // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
-  addressSnapshot Json                  // 完整地址快照
-  rewardId        String?  @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
-  deductionGroupId String?              // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
+  itemsSnapshot                  Json // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
+  addressSnapshot                Json // 完整地址快照
+  rewardId                       String? @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
+  deductionGroupId               String? // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
   groupBuyRebateDeductionGroupId String? // 团购返还余额抵扣组 ID
-  expectedTotal   Float                 // 服务端计算的应付总额
-  goodsAmount     Float                 // 商品金额
-  shippingFee     Float                 // 运费
-  discountAmount  Float    @default(0)  // 分润奖励抵扣
-  groupBuyRebateDeductionAmount Float @default(0) // 团购返还余额抵扣
-  vipDiscountAmount Float  @default(0) // VIP折扣金额（元），平台补贴
+  expectedTotal                  Float // 服务端计算的应付总额
+  goodsAmount                    Float // 商品金额
+  shippingFee                    Float // 运费
+  discountAmount                 Float   @default(0) // 分润奖励抵扣
+  groupBuyRebateDeductionAmount  Float   @default(0) // 团购返还余额抵扣
+  vipDiscountAmount              Float   @default(0) // VIP折扣金额（元），平台补贴
 
   // 支付信息
-  merchantOrderNo String?  @unique      // 预生成的商户订单号
+  merchantOrderNo String?         @unique // 预生成的商户订单号
   paymentChannel  PaymentChannel?
-  providerTxnId   String?  @unique      // 支付渠道返回的交易号
+  providerTxnId   String?         @unique // 支付渠道返回的交易号
 
   // 平台红包
-  couponInstanceIds   String[]  @default([]) // 选中的平台红包实例 ID 列表
-  totalCouponDiscount Float     @default(0)  // 平台红包总抵扣金额
-  couponPerAmounts    Json?                // 逐张红包抵扣金额快照 [{ couponInstanceId, discountAmount }]
+  couponInstanceIds   String[] @default([]) // 选中的平台红包实例 ID 列表
+  totalCouponDiscount Float    @default(0) // 平台红包总抵扣金额
+  couponPerAmounts    Json? // 逐张红包抵扣金额快照 [{ couponInstanceId, discountAmount }]
 
   // 幂等
-  idempotencyKey  String?
+  idempotencyKey String?
 
-  buyerNote       String?  @db.VarChar(200)   // 买家留言（结算页填写，<= 200 字）
+  buyerNote String? @db.VarChar(200) // 买家留言（结算页填写，<= 200 字）
 
-  expiresAt       DateTime              // ACTIVE 会话 30 分钟后过期
-  paidAt          DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  expiresAt DateTime // ACTIVE 会话 30 分钟后过期
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  orders          Order[]               // 支付成功后创建的订单
+  orders Order[] // 支付成功后创建的订单
 
+  @@unique([userId, bizType, idempotencyKey])
   @@index([userId, status])
   @@index([status, createdAt])
-  @@unique([userId, bizType, idempotencyKey])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
 }
 
 model Order {
-  id              String       @id @default(cuid())
-  userId          String
-  user            User         @relation(fields: [userId], references: [id], onDelete: Restrict) // H17: 防止删除有订单的用户
-  status          OrderStatus  @default(PENDING_PAYMENT)
-  bizType         OrderBizType @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
-  bizMeta         Json?        // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
-  addressSnapshot Json? // 下单时地址快照
-  totalAmount     Float // 总金额（元）
-  goodsAmount     Float // 商品金额（元）
-  shippingFee     Float       @default(0) // 运费（元）
-  discountAmount  Float       @default(0) // 优惠金额（元）
-  vipDiscountAmount Float  @default(0) // VIP折扣金额（元），平台补贴
-  checkoutSessionId String?
-  checkoutSession   CheckoutSession? @relation(fields: [checkoutSessionId], references: [id])
-  idempotencyKey  String?     @unique // 幂等键，防止重复创建订单
-  buyerNote       String?     @db.VarChar(200)   // 由 CheckoutSession.buyerNote 在 handlePaymentSuccess 时透传
-  paidAt                  DateTime?
-  receivedAt              DateTime?
-  autoReceiveAt           DateTime?
-  deliveredAt             DateTime?  // 物流签收时间（触发退货窗口计时）
-  returnWindowExpiresAt   DateTime?  // 退货窗口截止时间（deliveredAt + N天）
-  createdAt               DateTime    @default(now())
-  updatedAt               DateTime    @updatedAt
-  deletedAt               DateTime?   // 软删除标记
+  id                    String           @id @default(cuid())
+  userId                String
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Restrict) // H17: 防止删除有订单的用户
+  status                OrderStatus      @default(PENDING_PAYMENT)
+  bizType               OrderBizType     @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
+  bizMeta               Json? // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
+  addressSnapshot       Json? // 下单时地址快照
+  totalAmount           Float // 总金额（元）
+  goodsAmount           Float // 商品金额（元）
+  shippingFee           Float            @default(0) // 运费（元）
+  discountAmount        Float            @default(0) // 优惠金额（元）
+  vipDiscountAmount     Float            @default(0) // VIP折扣金额（元），平台补贴
+  checkoutSessionId     String?
+  checkoutSession       CheckoutSession? @relation(fields: [checkoutSessionId], references: [id])
+  idempotencyKey        String?          @unique // 幂等键，防止重复创建订单
+  buyerNote             String?          @db.VarChar(200) // 由 CheckoutSession.buyerNote 在 handlePaymentSuccess 时透传
+  paidAt                DateTime?
+  receivedAt            DateTime?
+  autoReceiveAt         DateTime?
+  deliveredAt           DateTime? // 物流签收时间（触发退货窗口计时）
+  returnWindowExpiresAt DateTime? // 退货窗口截止时间（deliveredAt + N天）
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime? // 软删除标记
 
   // 关系
-  items         OrderItem[]
-  statusHistory OrderStatusHistory[]
-  payments      Payment[]
-  refunds            Refund[]
-  shipments          Shipment[]
-  invoice            Invoice?
-  paymentGroupItems  PaymentGroupItem[]
-  shippingCosts      OrderShippingCost[]
+  items             OrderItem[]
+  statusHistory     OrderStatusHistory[]
+  payments          Payment[]
+  refunds           Refund[]
+  shipments         Shipment[]
+  invoice           Invoice?
+  paymentGroupItems PaymentGroupItem[]
+  shippingCosts     OrderShippingCost[]
 
   // I 域关系
   vipPurchase        VipPurchase?
@@ -1610,13 +1690,14 @@ model Order {
 
   // K 域关系（平台红包）
   couponUsageRecords  CouponUsageRecord[]  @relation("OrderCouponUsage")
-  totalCouponDiscount Float?               // 平台红包总抵扣金额
+  totalCouponDiscount Float? // 平台红包总抵扣金额
   digitalAssetLedgers DigitalAssetLedger[]
 
   // 团购分享回馈订单关联
   groupBuyInitiatedInstance GroupBuyInstance?      @relation("GroupBuyInitiatorOrder")
   groupBuyReferredPurchase  GroupBuyReferral?      @relation("GroupBuyReferredOrder")
   groupBuyRebateLedgers     GroupBuyRebateLedger[]
+  normalShareBindings       NormalShareBinding[]
 
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
@@ -1637,13 +1718,13 @@ model OrderItem {
   prizeType       String? // DISCOUNT_BUY / THRESHOLD_GIFT
   prizeRecordId   String? // 关联 LotteryRecord
   createdAt       DateTime   @default(now())
-  deletedAt       DateTime?  // 软删除标记
+  deletedAt       DateTime? // 软删除标记
 
   orderItemTraceLinks OrderItemTraceLink[]
   // H02修复：关联退款明细行
-  refundItems          RefundItem[]
-  afterSaleRequests    AfterSaleRequest[]
-  digitalAssetLedgers  DigitalAssetLedger[]
+  refundItems         RefundItem[]
+  afterSaleRequests   AfterSaleRequest[]
+  digitalAssetLedgers DigitalAssetLedger[]
 
   @@index([orderId]) // 订单商品项查询
 }
@@ -1740,9 +1821,9 @@ model GroupBuyInstance {
   validReferralCount Int @default(0)
   candidateCount     Int @default(0)
 
-  sourceReferral GroupBuyReferral?  @relation("GroupBuyReferralCreatedInstance")
+  sourceReferral GroupBuyReferral?      @relation("GroupBuyReferralCreatedInstance")
   code           GroupBuyCode?
-  referrals      GroupBuyReferral[] @relation("GroupBuyInstanceReferrals")
+  referrals      GroupBuyReferral[]     @relation("GroupBuyInstanceReferrals")
   rebateLedgers  GroupBuyRebateLedger[]
 
   activatedAt   DateTime?
@@ -1801,8 +1882,8 @@ model GroupBuyReferral {
   validAt           DateTime?
   invalidatedAt     DateTime?
   voidedAt          DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   ledgers GroupBuyRebateLedger[]
 
@@ -1876,24 +1957,24 @@ model Payment {
   paidAt           DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
-  deletedAt        DateTime?      // 软删除标记
+  deletedAt        DateTime? // 软删除标记
 
   @@index([orderId])
 }
 
 /// N16修复：合并支付组（拆单后一次支付多个订单）
 model PaymentGroup {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  totalAmount     Float         // 合并支付总金额（元）
+  user            User           @relation(fields: [userId], references: [id])
+  totalAmount     Float // 合并支付总金额（元）
   channel         PaymentChannel
-  status          PaymentStatus @default(INIT)
-  merchantGroupNo String        @unique // 合并支付商户单号
-  providerTxnId   String?       @unique
+  status          PaymentStatus  @default(INIT)
+  merchantGroupNo String         @unique // 合并支付商户单号
+  providerTxnId   String?        @unique
   paidAt          DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   items PaymentGroupItem[]
 
@@ -1906,7 +1987,7 @@ model PaymentGroupItem {
   paymentGroup   PaymentGroup @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
   orderId        String
   order          Order        @relation(fields: [orderId], references: [id])
-  amount         Float        // 该订单分摊金额
+  amount         Float // 该订单分摊金额
 
   @@index([paymentGroupId])
   @@index([orderId])
@@ -1927,14 +2008,14 @@ model Refund {
   reason           String
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
-  deletedAt        DateTime?    // 软删除标记
+  deletedAt        DateTime? // 软删除标记
 
   // 退款状态变更历史
-  statusHistory RefundStatusHistory[]
+  statusHistory               RefundStatusHistory[]
   // H02修复：商品行级退款明细
-  items RefundItem[]
-  afterSaleByAfterSaleId     AfterSaleRequest?  @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
-  afterSaleRequestsByRefundId AfterSaleRequest[] @relation("AfterSaleRefundByRefundId")
+  items                       RefundItem[]
+  afterSaleByAfterSaleId      AfterSaleRequest?     @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
+  afterSaleRequestsByRefundId AfterSaleRequest[]    @relation("AfterSaleRefundByRefundId")
   digitalAssetLedgers         DigitalAssetLedger[]
 
   @@index([orderId])
@@ -1945,10 +2026,10 @@ model RefundStatusHistory {
   id         String   @id @default(cuid())
   refundId   String
   refund     Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
-  fromStatus String?  // 原状态（首次创建时为空）
-  toStatus   String   // 目标状态
-  remark     String?  // 备注/原因
-  operatorId String?  // 操作人 ID（管理员/系统）
+  fromStatus String? // 原状态（首次创建时为空）
+  toStatus   String // 目标状态
+  remark     String? // 备注/原因
+  operatorId String? // 操作人 ID（管理员/系统）
   createdAt  DateTime @default(now())
 
   @@index([refundId, createdAt])
@@ -1962,8 +2043,8 @@ model RefundItem {
   orderItemId String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
   skuId       String
-  quantity    Int       // 退款数量
-  amount      Float     // 该行退款金额
+  quantity    Int // 退款数量
+  amount      Float // 该行退款金额
   createdAt   DateTime  @default(now())
 
   @@index([refundId])
@@ -1990,7 +2071,7 @@ model Shipment {
   senderInfoSnapshot   Json?
   receiverInfoSnapshot Json?
   rawCarrierPayload    Json?
-  sfOrderId            String?        // 顺丰订单ID（用于取消/复打）
+  sfOrderId            String? // 顺丰订单ID（用于取消/复打）
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -2034,12 +2115,12 @@ model InvoiceProfile {
   userId    String
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      InvoiceType // 个人/企业
-  title     String      // 发票抬头
-  taxNo     String?     // 税号（企业发票必填）
-  email     String?     // 接收邮箱
-  phone     String?     // 联系电话
-  bankInfo  Json?       // 开户行信息
-  address   String?     // 注册地址
+  title     String // 发票抬头
+  taxNo     String? // 税号（企业发票必填）
+  email     String? // 接收邮箱
+  phone     String? // 联系电话
+  bankInfo  Json? // 开户行信息
+  address   String? // 注册地址
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -2050,11 +2131,11 @@ model Invoice {
   id                     String        @id @default(cuid())
   orderId                String        @unique
   order                  Order         @relation(fields: [orderId], references: [id])
-  profileSnapshot        Json          // 开票时发票抬头快照
+  profileSnapshot        Json // 开票时发票抬头快照
   status                 InvoiceStatus @default(REQUESTED)
-  invoiceNo              String?       // 发票号码
-  pdfUrl                 String?       // 电子发票 PDF 地址
-  failReason             String?       // 开票失败原因
+  invoiceNo              String? // 发票号码
+  pdfUrl                 String? // 电子发票 PDF 地址
+  failReason             String? // 开票失败原因
   provider               String?
   providerRequestId      String?
   providerRaw            Json?
@@ -2063,13 +2144,13 @@ model Invoice {
   failedAttempts         Int           @default(0)
   lastAutoIssueAttemptAt DateTime?
   requestedAt            DateTime      @default(now())
-  issuedAt               DateTime?     // 开票时间
+  issuedAt               DateTime? // 开票时间
   failedAt               DateTime?
   canceledAt             DateTime?
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
-  statusHistory          InvoiceStatusHistory[]
+  statusHistory InvoiceStatusHistory[]
 
   @@index([status])
   @@index([providerRequestId])
@@ -2169,29 +2250,29 @@ model MemberProfile {
 }
 
 model VipPurchase {
-  id               String              @id @default(cuid())
-  userId           String              @unique // 每个用户仅允许一条 VIP 购买记录
-  user             User                @relation(fields: [userId], references: [id])
-  orderId          String?             @unique
-  order            Order?              @relation(fields: [orderId], references: [id])
-  amount           Float               @default(399.00) // VIP 礼包价格（元）
-  status           VipPurchaseStatus   @default(PAID)
+  id      String            @id @default(cuid())
+  userId  String            @unique // 每个用户仅允许一条 VIP 购买记录
+  user    User              @relation(fields: [userId], references: [id])
+  orderId String?           @unique
+  order   Order?            @relation(fields: [orderId], references: [id])
+  amount  Float             @default(399.00) // VIP 礼包价格（元）
+  status  VipPurchaseStatus @default(PAID)
 
   // VIP 赠品快照
-  giftOptionId     String?             // 用户选中的赠品方案 ID
-  giftSkuId        String?             // 赠品 SKU ID
-  giftSnapshot     Json?               // 赠品快照：新格式 {title, coverMode, coverUrl, badge, items: [{skuId, skuTitle, productTitle, productImage, price, quantity}]}；旧格式 {title, coverUrl, marketPrice, badge}
+  giftOptionId String? // 用户选中的赠品方案 ID
+  giftSkuId    String? // 赠品 SKU ID
+  giftSnapshot Json? // 赠品快照：新格式 {title, coverMode, coverUrl, badge, items: [{skuId, skuTitle, productTitle, productImage, price, quantity}]}；旧格式 {title, coverUrl, marketPrice, badge}
 
   // 档位快照
   packageId         String?
-  referralBonusRate Float?             // 购买时快照的推荐奖励比例
+  referralBonusRate Float? // 购买时快照的推荐奖励比例
 
   // 来源与激活状态
-  source           String?             // APP_VIP_PACKAGE / ADMIN_GRANT / ACTIVITY
+  source           String? // APP_VIP_PACKAGE / ADMIN_GRANT / ACTIVITY
   activationStatus VipActivationStatus @default(SUCCESS) // 激活状态机
-  activationError  String?             // 激活失败原因
+  activationError  String? // 激活失败原因
 
-  createdAt        DateTime            @default(now())
+  createdAt           DateTime             @default(now())
   digitalAssetLedgers DigitalAssetLedger[]
 }
 
@@ -2207,17 +2288,17 @@ model ReferralLink {
 }
 
 model DeferredDeepLink {
-  id            String   @id @default(cuid())
-  referralCode  String
-  fingerprint   String
-  ipAddress     String
-  userAgent     String
-  screenInfo    String?
-  language      String?
-  cookieId      String   @unique
-  matched       Boolean  @default(false)
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  referralCode String
+  fingerprint  String
+  ipAddress    String
+  userAgent    String
+  screenInfo   String?
+  language     String?
+  cookieId     String   @unique
+  matched      Boolean  @default(false)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
 
   @@index([fingerprint, matched, expiresAt])
   @@index([ipAddress, matched, expiresAt])
@@ -2307,7 +2388,7 @@ model RewardAllocation {
   meta           Json? // 快照：profit/rebateRatio/rewardPool 等
   idempotencyKey String                @unique
   createdAt      DateTime              @default(now())
-  deletedAt      DateTime?             // 软删除标记
+  deletedAt      DateTime? // 软删除标记
 
   ledgers RewardLedger[]
 
@@ -2329,7 +2410,7 @@ model RewardLedger {
   refId        String?
   meta         Json? // scheme/sourceUserId/bucketKey/vipIndex 等
   createdAt    DateTime           @default(now())
-  deletedAt    DateTime?          // 软删除标记
+  deletedAt    DateTime? // 软删除标记
 
   @@index([userId, status, createdAt])
   @@index([userId, status, entryType]) // VIP 冻结红包释放查询
@@ -2338,18 +2419,18 @@ model RewardLedger {
 
 // 数字资产累计消费账户（第一版仅记录累计消费金额，不定义兑换/股权/期权规则）
 model DigitalAssetAccount {
-  id                           String    @id @default(cuid())
-  userId                       String    @unique
-  user                         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  cumulativeSpendAmount        Float     @default(0)
-  seedAssetBalance             Int       @default(0)
-  creditAssetBalance           Int       @default(0)
-  frozenCreditAssetBalance     Int       @default(0)
-  frozenCumulativeSpendAmount  Float     @default(0)
-  historicalCreditGrantedAt    DateTime?
+  id                            String    @id @default(cuid())
+  userId                        String    @unique
+  user                          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cumulativeSpendAmount         Float     @default(0)
+  seedAssetBalance              Int       @default(0)
+  creditAssetBalance            Int       @default(0)
+  frozenCreditAssetBalance      Int       @default(0)
+  frozenCumulativeSpendAmount   Float     @default(0)
+  historicalCreditGrantedAt     DateTime?
   historicalCreditGrantLedgerId String?
-  createdAt                    DateTime  @default(now())
-  updatedAt                    DateTime  @updatedAt
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
 
   ledgers DigitalAssetLedger[]
 
@@ -2361,39 +2442,39 @@ model DigitalAssetAccount {
 }
 
 model DigitalAssetLedger {
-  id                     String                       @id @default(cuid())
-  accountId              String
-  account                DigitalAssetAccount          @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  userId                 String
-  user                   User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  type                   DigitalAssetLedgerType
-  subjectType            DigitalAssetLedgerSubjectType @default(CUMULATIVE_SPEND)
-  direction              DigitalAssetLedgerDirection
-  amount                 Float
-  assetAmount            Int?
-  balanceAfter           Float
-  cumulativeSpendAfter   Float?
-  seedAssetBalanceAfter  Int?
-  creditAssetBalanceAfter Int?
+  id                            String                        @id @default(cuid())
+  accountId                     String
+  account                       DigitalAssetAccount           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  userId                        String
+  user                          User                          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type                          DigitalAssetLedgerType
+  subjectType                   DigitalAssetLedgerSubjectType @default(CUMULATIVE_SPEND)
+  direction                     DigitalAssetLedgerDirection
+  amount                        Float
+  assetAmount                   Int?
+  balanceAfter                  Float
+  cumulativeSpendAfter          Float?
+  seedAssetBalanceAfter         Int?
+  creditAssetBalanceAfter       Int?
   frozenCreditAssetBalanceAfter Int?
-  frozenCumulativeSpendAfter Float?
-  ruleSnapshot           Json?
-  orderId                String?
-  order                  Order?                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderItemId            String?
-  orderItem              OrderItem?                   @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
-  refundId               String?
-  refund                 Refund?                      @relation(fields: [refundId], references: [id], onDelete: Restrict)
-  afterSaleId            String?
-  afterSale              AfterSaleRequest?            @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
-  vipPurchaseId          String?
-  vipPurchase            VipPurchase?                 @relation(fields: [vipPurchaseId], references: [id], onDelete: Restrict)
-  adminUserId            String?
-  adminUser              AdminUser?                   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
-  reason                 String?
-  idempotencyKey         String                       @unique
-  meta                   Json?
-  createdAt              DateTime                     @default(now())
+  frozenCumulativeSpendAfter    Float?
+  ruleSnapshot                  Json?
+  orderId                       String?
+  order                         Order?                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItemId                   String?
+  orderItem                     OrderItem?                    @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  refundId                      String?
+  refund                        Refund?                       @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  afterSaleId                   String?
+  afterSale                     AfterSaleRequest?             @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
+  vipPurchaseId                 String?
+  vipPurchase                   VipPurchase?                  @relation(fields: [vipPurchaseId], references: [id], onDelete: Restrict)
+  adminUserId                   String?
+  adminUser                     AdminUser?                    @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  reason                        String?
+  idempotencyKey                String                        @unique
+  meta                          Json?
+  createdAt                     DateTime                      @default(now())
 
   @@index([userId, createdAt])
   @@index([accountId, createdAt])
@@ -2407,20 +2488,20 @@ model DigitalAssetLedger {
 }
 
 model DigitalAssetRefundReversalFailure {
-  id            String    @id @default(cuid())
-  refundId      String    @unique
+  id            String                                  @id @default(cuid())
+  refundId      String                                  @unique
   orderId       String?
   afterSaleId   String?
   userId        String?
   source        String
   status        DigitalAssetRefundReversalFailureStatus @default(PENDING)
-  retryCount    Int       @default(0)
-  nextRetryAt   DateTime  @default(now())
+  retryCount    Int                                     @default(0)
+  nextRetryAt   DateTime                                @default(now())
   lastAttemptAt DateTime?
   lastError     String?
   resolvedAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime                                @default(now())
+  updatedAt     DateTime                                @updatedAt
 
   @@index([status, nextRetryAt])
   @@index([userId, createdAt])
@@ -2455,34 +2536,34 @@ model NormalQueueMember {
 }
 
 model WithdrawRequest {
-  id               String          @id @default(cuid())
-  userId           String
-  user             User            @relation(fields: [userId], references: [id])
-  amount           Float // grossAmount 申请金额（元，保留旧字段名）
-  channel          WithdrawChannel
-  accountSnapshot  Json? // 加密存 { account, name, source }
-  accountType      String          @default("VIP_REWARD")
-  status           WithdrawStatus  @default(PROCESSING)
-  providerPayoutId String?
-  taxAmount             Float      @default(0)
-  netAmount             Float      @default(0)
-  taxRate               Float      @default(0.20)
-  providerFeeAmount     Float      @default(0)
-  outBizNo              String?    @unique
-  clientIdempotencyKey  String?    @unique
-  providerFundOrderId   String?
-  providerStatus        String?
-  providerErrorCode     String?
-  providerErrorMessage  String?
-  paidAt                DateTime?
-  lastQueriedAt         DateTime?
-  queryAttempts         Int        @default(0)
-  rejectReason     String?
-  reviewerAdminId  String?
-  reviewerAdmin    AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  deletedAt        DateTime?
+  id                   String          @id @default(cuid())
+  userId               String
+  user                 User            @relation(fields: [userId], references: [id])
+  amount               Float // grossAmount 申请金额（元，保留旧字段名）
+  channel              WithdrawChannel
+  accountSnapshot      Json? // 加密存 { account, name, source }
+  accountType          String          @default("VIP_REWARD")
+  status               WithdrawStatus  @default(PROCESSING)
+  providerPayoutId     String?
+  taxAmount            Float           @default(0)
+  netAmount            Float           @default(0)
+  taxRate              Float           @default(0.20)
+  providerFeeAmount    Float           @default(0)
+  outBizNo             String?         @unique
+  clientIdempotencyKey String?         @unique
+  providerFundOrderId  String?
+  providerStatus       String?
+  providerErrorCode    String?
+  providerErrorMessage String?
+  paidAt               DateTime?
+  lastQueriedAt        DateTime?
+  queryAttempts        Int             @default(0)
+  rejectReason         String?
+  reviewerAdminId      String?
+  reviewerAdmin        AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
 
   @@index([userId, status, createdAt])
   @@index([status, createdAt])
@@ -2670,26 +2751,234 @@ model CheckIn {
 }
 
 // ============================================================
+// L 域 — 普通会员成长体系
+// 普通积分/成长值独立于 RewardAccount，红包仅通过 Coupon 系统复用发放
+// ============================================================
+
+model GrowthAccount {
+  id                String       @id @default(cuid())
+  userId            String       @unique
+  user              User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  pointsBalance     Int          @default(0)
+  pointsTotalEarned Int          @default(0)
+  pointsTotalSpent  Int          @default(0)
+  growthValue       Int          @default(0)
+  currentLevelCode  String?
+  currentLevel      GrowthLevel? @relation(fields: [currentLevelCode], references: [code], onDelete: SetNull)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  ledgers         GrowthLedger[]
+  exchangeRecords GrowthExchangeRecord[]
+
+  @@index([currentLevelCode])
+}
+
+model GrowthLedger {
+  id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  accountId      String
+  account        GrowthAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  type           GrowthLedgerType
+  behaviorCode   String?
+  pointsDelta    Int                @default(0)
+  growthDelta    Int                @default(0)
+  status         GrowthLedgerStatus @default(POSTED)
+  idempotencyKey String             @unique
+  refType        String?
+  refId          String?
+  expiresAt      DateTime?
+  meta           Json?
+  createdAt      DateTime           @default(now())
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([behaviorCode, createdAt])
+  @@index([refType, refId])
+  @@index([expiresAt])
+  @@index([status, createdAt])
+}
+
+model GrowthBehaviorCategory {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  icon      String?
+  color     String?
+  sortOrder Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules GrowthBehaviorRule[]
+
+  @@index([enabled, sortOrder])
+}
+
+model GrowthBehaviorRule {
+  id                  String                   @id @default(cuid())
+  code                String                   @unique
+  name                String
+  categoryCode        String
+  category            GrowthBehaviorCategory   @relation(fields: [categoryCode], references: [code], onDelete: Restrict)
+  pointsReward        Int                      @default(0)
+  growthReward        Int                      @default(0)
+  grantTiming         GrowthGrantTiming        @default(IMMEDIATE)
+  dailyLimit          Int?
+  weeklyLimit         Int?
+  monthlyLimit        Int?
+  lifetimeLimit       Int?
+  applicableUserType  GrowthApplicableUserType @default(ALL)
+  vipPointsMultiplier Float?
+  vipGrowthMultiplier Float?
+  riskPolicy          Json?
+  startAt             DateTime?
+  endAt               DateTime?
+  enabled             Boolean                  @default(true)
+  sortOrder           Int                      @default(0)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  @@index([categoryCode, enabled, sortOrder])
+  @@index([enabled, startAt, endAt])
+}
+
+model GrowthLevel {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  threshold            Int      @unique
+  benefits             Json?
+  avatarFrameType      String?
+  titleLabel           String?
+  monthlyExchangeLimit Int?
+  sortOrder            Int      @default(0)
+  enabled              Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  accounts      GrowthAccount[]
+  exchangeItems GrowthExchangeItem[]
+
+  @@index([enabled, threshold])
+  @@index([sortOrder])
+}
+
+model GrowthExchangeItem {
+  id                  String               @id @default(cuid())
+  type                GrowthExchangeType
+  name                String
+  description         String?
+  pointsCost          Int
+  couponCampaignId    String?
+  couponCampaign      CouponCampaign?      @relation(fields: [couponCampaignId], references: [id], onDelete: Restrict)
+  stockTotal          Int?
+  stockDaily          Int?
+  issuedTotal         Int                  @default(0)
+  issuedToday         Int                  @default(0)
+  issuedTodayDate     String?
+  perUserDailyLimit   Int?
+  perUserMonthlyLimit Int?
+  requiredLevelCode   String?
+  requiredLevel       GrowthLevel?         @relation(fields: [requiredLevelCode], references: [code], onDelete: SetNull)
+  startAt             DateTime?
+  endAt               DateTime?
+  status              GrowthExchangeStatus @default(ACTIVE)
+  sortOrder           Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  records GrowthExchangeRecord[]
+
+  @@index([status, sortOrder])
+  @@index([type, status])
+  @@index([couponCampaignId])
+  @@index([requiredLevelCode])
+  @@index([startAt, endAt])
+}
+
+model GrowthExchangeRecord {
+  id               String                     @id @default(cuid())
+  userId           String
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  accountId        String
+  account          GrowthAccount              @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  itemId           String
+  item             GrowthExchangeItem         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  pointsCost       Int
+  status           GrowthExchangeRecordStatus @default(PENDING)
+  couponInstanceId String?
+  couponInstance   CouponInstance?            @relation(fields: [couponInstanceId], references: [id], onDelete: SetNull)
+  idempotencyKey   String                     @unique
+  failureReason    String?
+  meta             Json?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([itemId, createdAt])
+  @@index([status, createdAt])
+  @@index([couponInstanceId])
+}
+
+model NormalShareProfile {
+  id             String                @id @default(cuid())
+  userId         String                @unique
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  code           String                @unique
+  status         NormalShareCodeStatus @default(ACTIVE)
+  disabledReason String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model NormalShareBinding {
+  id             String                   @id @default(cuid())
+  inviterUserId  String
+  inviter        User                     @relation("NormalShareInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  inviteeUserId  String                   @unique
+  invitee        User                     @relation("NormalShareInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  code           String
+  source         NormalShareBindingSource
+  boundAt        DateTime                 @default(now())
+  firstOrderId   String?
+  firstOrder     Order?                   @relation(fields: [firstOrderId], references: [id], onDelete: SetNull)
+  rewardStatus   NormalShareRewardStatus  @default(PENDING)
+  rewardIssuedAt DateTime?
+  meta           Json?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([inviterUserId, createdAt])
+  @@index([code, createdAt])
+  @@index([rewardStatus, createdAt])
+  @@index([firstOrderId])
+}
+
+// ============================================================
 // J 域 — 普通用户系统改造（7 个新模型）
 // 参照 plan-treeforuser.md 实施
 // ============================================================
 
 // --- J1: 普通用户树节点 ---
 model NormalTreeNode {
-  id            String            @id @default(cuid())
-  rootId        String            // 树标识（单棵树固定为 "ROOT"）
-  userId        String?           @unique // null = 系统根节点（Level 0 平台节点）
+  id            String           @id @default(cuid())
+  rootId        String // 树标识（单棵树固定为 "ROOT"）
+  userId        String?          @unique // null = 系统根节点（Level 0 平台节点）
   parentId      String?
-  parent        NormalTreeNode?   @relation("NormalTree", fields: [parentId], references: [id])
-  children      NormalTreeNode[]  @relation("NormalTree")
-  level         Int               // 0=根节点, 1=第一层用户...
-  position      Int               // 在父节点下的位置 (0, 1, 2)
-  childrenCount Int               @default(0)
-  createdAt     DateTime          @default(now())
+  parent        NormalTreeNode?  @relation("NormalTree", fields: [parentId], references: [id])
+  children      NormalTreeNode[] @relation("NormalTree")
+  level         Int // 0=根节点, 1=第一层用户...
+  position      Int // 在父节点下的位置 (0, 1, 2)
+  childrenCount Int              @default(0)
+  createdAt     DateTime         @default(now())
 
-  @@unique([parentId, position])        // 防并发插入同位置
-  @@index([level, position])            // 层级查询
-  @@index([level, childrenCount])       // 插入时找活跃层有空位的父节点
+  @@unique([parentId, position]) // 防并发插入同位置
+  @@index([level, position]) // 层级查询
+  @@index([level, childrenCount]) // 插入时找活跃层有空位的父节点
 }
 
 // --- J2: 普通用户消费进度 ---
@@ -2698,7 +2987,7 @@ model NormalProgress {
   userId            String    @unique
   user              User      @relation(fields: [userId], references: [id])
   selfPurchaseCount Int       @default(0) // 在普通树中的有效消费次数
-  treeNodeId        String?   // 关联 NormalTreeNode
+  treeNodeId        String? // 关联 NormalTreeNode
   frozenAt          DateTime? // 成为VIP时冻结
   updatedAt         DateTime  @updatedAt
 }
@@ -2710,8 +2999,8 @@ model NormalEligibleOrder {
   user           User     @relation(fields: [userId], references: [id])
   orderId        String   @unique
   order          Order    @relation(fields: [orderId], references: [id])
-  amount         Float    // 订单利润金额（元）
-  effectiveIndex Int?     // k（第几次有效消费）
+  amount         Float // 订单利润金额（元）
+  effectiveIndex Int? // k（第几次有效消费）
   valid          Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -2722,26 +3011,26 @@ model NormalEligibleOrder {
 
 // --- J4: 抽奖奖池配置 ---
 model LotteryPrize {
-  id            String           @id @default(cuid())
-  type          LotteryPrizeType // DISCOUNT_BUY / THRESHOLD_GIFT / NO_PRIZE
-  name          String           // 展示名称，如"1元白酒"
-  productId     String?          // 关联奖励商品（NO_PRIZE 为 null）
-  product       Product?         @relation(fields: [productId], references: [id])
-  skuId         String?          // 关联具体SKU
-  sku           ProductSKU?      @relation(fields: [skuId], references: [id])
-  prizePrice    Float?           // 奖品价格（DISCOUNT_BUY时为特价，THRESHOLD_GIFT时为0）
-  originalPrice Float?           // 奖品原价（管理员配置的展示划线价，如蜂蜜市场价）
-  threshold     Float?           // 消费门槛（仅 THRESHOLD_GIFT 类型）
-  prizeQuantity Int              @default(1) // 奖品数量
-  probability   Float            // 中奖概率 (0-100)，所有奖品概率之和=100
-  dailyLimit    Int?             // 每日最大中奖数（控制成本）
-  totalLimit    Int?             // 总中奖数限制
-  wonCount      Int              @default(0) // 已中奖次数
-  expirationHours Int?                       // F3: 可配置过期时间（小时），null = 不过期
-  isActive      Boolean          @default(true)
-  sortOrder     Int              @default(0) // 转盘上的展示顺序
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id              String           @id @default(cuid())
+  type            LotteryPrizeType // DISCOUNT_BUY / THRESHOLD_GIFT / NO_PRIZE
+  name            String // 展示名称，如"1元白酒"
+  productId       String? // 关联奖励商品（NO_PRIZE 为 null）
+  product         Product?         @relation(fields: [productId], references: [id])
+  skuId           String? // 关联具体SKU
+  sku             ProductSKU?      @relation(fields: [skuId], references: [id])
+  prizePrice      Float? // 奖品价格（DISCOUNT_BUY时为特价，THRESHOLD_GIFT时为0）
+  originalPrice   Float? // 奖品原价（管理员配置的展示划线价，如蜂蜜市场价）
+  threshold       Float? // 消费门槛（仅 THRESHOLD_GIFT 类型）
+  prizeQuantity   Int              @default(1) // 奖品数量
+  probability     Float // 中奖概率 (0-100)，所有奖品概率之和=100
+  dailyLimit      Int? // 每日最大中奖数（控制成本）
+  totalLimit      Int? // 总中奖数限制
+  wonCount        Int              @default(0) // 已中奖次数
+  expirationHours Int? // F3: 可配置过期时间（小时），null = 不过期
+  isActive        Boolean          @default(true)
+  sortOrder       Int              @default(0) // 转盘上的展示顺序
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   records LotteryRecord[]
 }
@@ -2751,28 +3040,28 @@ model LotteryRecord {
   id        String              @id @default(cuid())
   userId    String
   user      User                @relation(fields: [userId], references: [id])
-  prizeId   String?             // 中奖的奖品ID（未中奖为null）
+  prizeId   String? // 中奖的奖品ID（未中奖为null）
   prize     LotteryPrize?       @relation(fields: [prizeId], references: [id])
-  result    LotteryResult       // WON / NO_PRIZE
+  result    LotteryResult // WON / NO_PRIZE
   status    LotteryRecordStatus @default(WON) // 生命周期状态：WON→IN_CART→CONSUMED / WON→EXPIRED / IN_CART→EXPIRED
-  drawDate  String              // "2026-02-27"，用于每日次数限制
-  meta      Json?               // 奖品快照信息
+  drawDate  String // "2026-02-27"，用于每日次数限制
+  meta      Json? // 奖品快照信息
   createdAt DateTime            @default(now())
 
   @@index([userId, drawDate]) // 每用户每天可抽多次（次数由配置 lotteryDailyChances 控制）
   @@index([userId, createdAt])
-  @@index([status])            // 按状态查询（如查未消费的中奖记录）
+  @@index([status]) // 按状态查询（如查未消费的中奖记录）
 }
 
 // --- J6: 平台统一运费规则（替代商户 ShippingTemplate） ---
 model ShippingRule {
   id                 String   @id @default(cuid())
-  name               String   // 规则名称
+  name               String // 规则名称
   regionCodes        String[] // 适用地区行政区划码列表（省级，空=全国）
-  minAmount          Float?   // 订单金额下限（含）
-  maxAmount          Float?   // 订单金额上限（不含，null=无上限）
-  minWeight          Int?     // 商品总重量下限(克)
-  maxWeight          Int?     // 商品总重量上限(克)
+  minAmount          Float? // 订单金额下限（含）
+  maxAmount          Float? // 订单金额上限（不含，null=无上限）
+  minWeight          Int? // 商品总重量下限(克)
+  maxWeight          Int? // 商品总重量上限(克)
   fee                Float    @default(0) // 兼容旧字段：保留一版用于回滚兜底
   firstWeightKg      Float    @default(3)
   firstFee           Float
@@ -2788,18 +3077,18 @@ model ShippingRule {
 }
 
 model OrderShippingCost {
-  id              String   @id @default(cuid())
-  orderId         String
-  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  packageIndex    Int
-  companyId       String?
-  sfOrderId       String   @unique
-  weightGramSent  Int
-  estimatedCost   Float?
-  actualCost      Float?
-  reconciledAt    DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(cuid())
+  orderId        String
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  packageIndex   Int
+  companyId      String?
+  sfOrderId      String    @unique
+  weightGramSent Int
+  estimatedCost  Float?
+  actualCost     Float?
+  reconciledAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([orderId])
   @@index([companyId, createdAt])
@@ -2809,44 +3098,44 @@ model OrderShippingCost {
 
 // --- J7: 换货请求（替代退款 Refund） ---
 model AfterSaleRequest {
-  id                    String            @id @default(cuid())
-  orderId               String
-  order                 Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  userId                String
-  user                  User              @relation(fields: [userId], references: [id], onDelete: Restrict)
-  orderItemId           String?           // 具体商品项（null=整单）
-  orderItem             OrderItem?        @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
-  afterSaleType         AfterSaleType     // 售后类型：无理由退货/质量退货/质量换货
-  reasonType            ReplacementReasonType? // 标准化理由类型
-  reason                String            // 问题描述（OTHER 时的补充说明）
-  photos                String[]          // 照片URL列表（必须上传）
-  status                AfterSaleStatus   @default(REQUESTED)
-  isPostReplacement     Boolean           @default(false) // 换货后二次售后标记
-  arbitrationSource     String?           // 仲裁来源（如"买家申请"/"系统自动"）
-  arbitrationSourceStatus AfterSaleStatus?
-  targetSkuId           String?           // 换货目标 SKU
-  targetQuantity        Int?              // 换货目标数量
-  requiresReturn        Boolean           @default(false) // 是否需要买家退回商品
+  id                         String                    @id @default(cuid())
+  orderId                    String
+  order                      Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  userId                     String
+  user                       User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orderItemId                String? // 具体商品项（null=整单）
+  orderItem                  OrderItem?                @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  afterSaleType              AfterSaleType // 售后类型：无理由退货/质量退货/质量换货
+  reasonType                 ReplacementReasonType? // 标准化理由类型
+  reason                     String // 问题描述（OTHER 时的补充说明）
+  photos                     String[] // 照片URL列表（必须上传）
+  status                     AfterSaleStatus           @default(REQUESTED)
+  isPostReplacement          Boolean                   @default(false) // 换货后二次售后标记
+  arbitrationSource          String? // 仲裁来源（如"买家申请"/"系统自动"）
+  arbitrationSourceStatus    AfterSaleStatus?
+  targetSkuId                String? // 换货目标 SKU
+  targetQuantity             Int? // 换货目标数量
+  requiresReturn             Boolean                   @default(false) // 是否需要买家退回商品
   // 买家退货物流
-  returnCarrierCode     String?           // 退货快递公司编码
-  returnCarrierName     String?           // 退货快递公司
-  returnWaybillNo       String?           // 退货快递单号
-  returnWaybillUrl      String?           // 退货运单查询链接
-  returnSfOrderId       String?           // 退货面单顺丰订单 ID
-  returnLabelUrl        String?           // 退货面单 URL
-  returnShippingFee     Float?            // 退货运费金额
-  returnShippingPayer   ReturnShippingPayer?
-  returnShippingPaidAt  DateTime?
-  returnShippingFeeDeducted Boolean       @default(false)
-  returnShippedAt       DateTime?         // 买家寄出退货时间
+  returnCarrierCode          String? // 退货快递公司编码
+  returnCarrierName          String? // 退货快递公司
+  returnWaybillNo            String? // 退货快递单号
+  returnWaybillUrl           String? // 退货运单查询链接
+  returnSfOrderId            String? // 退货面单顺丰订单 ID
+  returnLabelUrl             String? // 退货面单 URL
+  returnShippingFee          Float? // 退货运费金额
+  returnShippingPayer        ReturnShippingPayer?
+  returnShippingPaidAt       DateTime?
+  returnShippingFeeDeducted  Boolean                   @default(false)
+  returnShippedAt            DateTime? // 买家寄出退货时间
   // 卖家验收退货
-  sellerRejectReason    String?           // 卖家拒收退货理由
-  sellerRejectPhotos    String[]          @default([]) // 卖家拒收退货照片
-  sellerReturnCarrierCode String?         // 卖家回寄快递公司编码
-  sellerReturnCarrierName String?         // 卖家回寄快递公司
-  sellerReturnWaybillNo String?           // 卖家退回快递单号（拒收退货时回寄）
-  sellerReturnWaybillUrl String?          // 卖家回寄运单查询链接
-  sellerReturnSfOrderId String?           // 卖家回寄顺丰订单 ID
+  sellerRejectReason         String? // 卖家拒收退货理由
+  sellerRejectPhotos         String[]                  @default([]) // 卖家拒收退货照片
+  sellerReturnCarrierCode    String? // 卖家回寄快递公司编码
+  sellerReturnCarrierName    String? // 卖家回寄快递公司
+  sellerReturnWaybillNo      String? // 卖家退回快递单号（拒收退货时回寄）
+  sellerReturnWaybillUrl     String? // 卖家回寄运单查询链接
+  sellerReturnSfOrderId      String? // 卖家回寄顺丰订单 ID
   // 顺丰物流轨迹（推送进来时落库；售后单号不在 Shipment 表，所以单独存这里）
   // 结构：[{ time, message, location?, opCode?, statusCode? }, ...] 按 acceptTime 升序
   // 写入：handleSfCallback 收到推送 → 按 trackingNo 命中 returnWaybillNo/replacementWaybillNo
@@ -2856,38 +3145,38 @@ model AfterSaleRequest {
   replacementTrackingEvents  Json?
   sellerReturnTrackingEvents Json?
   // 退款信息
-  refundAmount          Float?            // 退款金额（元）
-  refundId              String?           // 关联退款记录 ID
+  refundAmount               Float? // 退款金额（元）
+  refundId                   String? // 关联退款记录 ID
   // 审核信息
-  reviewerId            String?           // 审核人（卖家staff或管理员）
-  reviewNote            String?
-  reviewedAt            DateTime?
-  approvedAt            DateTime?         // 审批通过时间
-  sellerReceivedAt      DateTime?         // 卖家签收退货时间
-  manualReviewReason    String?
-  manualReviewRequestedAt DateTime?
-  manualReviewResolvedAt  DateTime?
+  reviewerId                 String? // 审核人（卖家staff或管理员）
+  reviewNote                 String?
+  reviewedAt                 DateTime?
+  approvedAt                 DateTime? // 审批通过时间
+  sellerReceivedAt           DateTime? // 卖家签收退货时间
+  manualReviewReason         String?
+  manualReviewRequestedAt    DateTime?
+  manualReviewResolvedAt     DateTime?
   // 换货发货（沿用原字段）
-  replacementCarrierCode String?
-  replacementCarrierName String?
-  replacementWaybillNo  String?
-  replacementWaybillUrl String?
-  replacementSfOrderId String?  // 换货面单顺丰订单ID
-  replacementShipmentId String?           // 换货物流单号
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  virtualCallBindings   VirtualCallBinding[] @relation("ReplacementVirtualCallBindings")
-  statusHistory         AfterSaleStatusHistory[]
-  shippingPayment       AfterSaleShippingPayment?
-  refundByRefundId      Refund?           @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
-  refundByAfterSaleId   Refund?           @relation("AfterSaleRefundByAfterSaleId")
-  digitalAssetLedgers   DigitalAssetLedger[]
+  replacementCarrierCode     String?
+  replacementCarrierName     String?
+  replacementWaybillNo       String?
+  replacementWaybillUrl      String?
+  replacementSfOrderId       String? // 换货面单顺丰订单ID
+  replacementShipmentId      String? // 换货物流单号
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  virtualCallBindings        VirtualCallBinding[]      @relation("ReplacementVirtualCallBindings")
+  statusHistory              AfterSaleStatusHistory[]
+  shippingPayment            AfterSaleShippingPayment?
+  refundByRefundId           Refund?                   @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
+  refundByAfterSaleId        Refund?                   @relation("AfterSaleRefundByAfterSaleId")
+  digitalAssetLedgers        DigitalAssetLedger[]
 
-  @@map("after_sale_request")
   @@index([orderId])
   @@index([refundId])
   @@index([userId, status])
   @@index([status, createdAt])
+  @@map("after_sale_request")
 }
 
 model AfterSaleStatusHistory {
@@ -2934,36 +3223,36 @@ model AfterSaleShippingPayment {
 // 平台红包活动（管理员创建的活动/规则）
 // ==========================================
 model CouponCampaign {
-  id                  String                @id @default(uuid())
+  id String @id @default(uuid())
 
   // 基本信息
-  name                String                // 活动名称（如"2026春节红包"）
-  description         String?               // 活动描述
-  status              CouponCampaignStatus  @default(DRAFT)
+  name        String // 活动名称（如"2026春节红包"）
+  description String? // 活动描述
+  status      CouponCampaignStatus @default(DRAFT)
 
   // 触发与发放
-  triggerType          CouponTriggerType     // 触发条件类型
-  distributionMode     CouponDistributionMode // 发放方式
-  triggerConfig        Json?                 // 触发条件额外配置（如签到天数、消费阈值等）
+  triggerType      CouponTriggerType // 触发条件类型
+  distributionMode CouponDistributionMode // 发放方式
+  triggerConfig    Json? // 触发条件额外配置（如签到天数、消费阈值等）
 
   // 抵扣规则
-  discountType         CouponDiscountType    // FIXED / PERCENT
-  discountValue        Float                 // 金额（元）或百分比（0-100）
-  maxDiscountAmount    Float?                // 百分比折扣时的最高抵扣额
-  minOrderAmount       Float                 @default(0) // 最低消费门槛（0=无门槛）
+  discountType      CouponDiscountType // FIXED / PERCENT
+  discountValue     Float // 金额（元）或百分比（0-100）
+  maxDiscountAmount Float? // 百分比折扣时的最高抵扣额
+  minOrderAmount    Float              @default(0) // 最低消费门槛（0=无门槛）
 
   // 适用范围
-  applicableCategories String[]              @default([]) // 限定品类（空=不限）
-  applicableCompanyIds String[]              @default([]) // 限定店铺（空=不限，预留扩展）
+  applicableCategories String[] @default([]) // 限定品类（空=不限）
+  applicableCompanyIds String[] @default([]) // 限定店铺（空=不限，预留扩展）
 
   // 叠加规则
   stackable            Boolean               @default(false) // 是否可与同类叠加
   stackGroup           String?               // 叠加分组标识
 
   // 发放限制
-  totalQuota           Int                   // 总发放量
-  issuedCount          Int                   @default(0) // 已发放数量
-  maxPerUser           Int                   @default(1) // 每人限领
+  totalQuota  Int // 总发放量
+  issuedCount Int @default(0) // 已发放数量
+  maxPerUser  Int @default(1) // 每人限领
 
   // 有效期
   validDays            Int                   @default(7)  // 领取后有效天数（0=跟随活动结束时间）
@@ -2971,13 +3260,14 @@ model CouponCampaign {
   endAt                DateTime?             // 活动结束时间（null=长期活动）
 
   // 审计
-  createdBy            String                // 创建管理员 ID
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdBy String // 创建管理员 ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 关联
   instances            CouponInstance[]
   manualIssueJobs      CouponManualIssueJob[]
+  growthExchangeItems  GrowthExchangeItem[]
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
@@ -3001,63 +3291,64 @@ model CouponClaimableSeenState {
 // 平台红包实例（用户领取/获得的具体红包）
 // ==========================================
 model CouponInstance {
-  id                  String                @id @default(uuid())
+  id String @id @default(uuid())
 
   // 关联
-  campaignId          String
-  campaign            CouponCampaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  userId              String
-  user                User                  @relation("UserCouponInstances", fields: [userId], references: [id], onDelete: Restrict)
+  campaignId String
+  campaign   CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  userId     String
+  user       User           @relation("UserCouponInstances", fields: [userId], references: [id], onDelete: Restrict)
 
   // 状态
-  status              CouponInstanceStatus  @default(AVAILABLE)
+  status CouponInstanceStatus @default(AVAILABLE)
 
   // 冗余抵扣信息（快照，避免活动修改后影响已发放红包）
-  discountType        CouponDiscountType
-  discountValue       Float
-  maxDiscountAmount   Float?
-  minOrderAmount      Float                 @default(0)
+  discountType      CouponDiscountType
+  discountValue     Float
+  maxDiscountAmount Float?
+  minOrderAmount    Float              @default(0)
 
   // 有效期
-  issuedAt            DateTime              @default(now()) // 发放时间
-  expiresAt           DateTime              // 过期时间
+  issuedAt  DateTime @default(now()) // 发放时间
+  expiresAt DateTime // 过期时间
 
   // 使用记录
-  usedAt              DateTime?             // 使用时间
-  usedOrderId         String?               // 使用的订单 ID
-  usedAmount          Float?                // 实际抵扣金额
+  usedAt      DateTime? // 使用时间
+  usedOrderId String? // 使用的订单 ID
+  usedAmount  Float? // 实际抵扣金额
 
   // 审计
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 使用记录关联
-  usageRecords        CouponUsageRecord[]
+  usageRecords          CouponUsageRecord[]
+  growthExchangeRecords GrowthExchangeRecord[]
 
+  @@unique([campaignId, userId, issuedAt]) // 防止同一活动同一用户同一时刻重复发放
   @@index([userId, status])
   @@index([status, expiresAt])
   @@index([campaignId])
   @@index([expiresAt])
-  @@unique([campaignId, userId, issuedAt]) // 防止同一活动同一用户同一时刻重复发放
 }
 
 // ==========================================
 // 平台红包使用记录（一笔订单可使用多张红包）
 // ==========================================
 model CouponUsageRecord {
-  id                  String                @id @default(uuid())
+  id String @id @default(uuid())
 
   // 关联
-  couponInstanceId    String
-  couponInstance      CouponInstance        @relation(fields: [couponInstanceId], references: [id], onDelete: Restrict)
-  orderId             String
-  order               Order                 @relation("OrderCouponUsage", fields: [orderId], references: [id], onDelete: Restrict)
+  couponInstanceId String
+  couponInstance   CouponInstance @relation(fields: [couponInstanceId], references: [id], onDelete: Restrict)
+  orderId          String
+  order            Order          @relation("OrderCouponUsage", fields: [orderId], references: [id], onDelete: Restrict)
 
   // 抵扣详情
-  discountAmount      Float                 // 本张红包实际抵扣金额
+  discountAmount Float // 本张红包实际抵扣金额
 
   // 审计
-  createdAt           DateTime              @default(now())
+  createdAt DateTime @default(now())
 
   @@index([orderId])
   @@index([couponInstanceId])
@@ -3118,16 +3409,16 @@ model CouponTriggerEvent {
 // =============================================
 model VipGiftOption {
   id        String              @id @default(cuid())
-  title     String              // 方案标题
-  subtitle  String?             // 副标题
+  title     String // 方案标题
+  subtitle  String? // 副标题
   coverMode CoverMode           @default(AUTO_GRID) // 封面拼合样式
-  coverUrl  String?             // 仅 CUSTOM 模式使用
-  badge     String?             // 前台标签
+  coverUrl  String? // 仅 CUSTOM 模式使用
+  badge     String? // 前台标签
   sortOrder Int                 @default(0)
   status    VipGiftOptionStatus @default(ACTIVE)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
-  items     VipGiftItem[]       // 组合商品列表
+  items     VipGiftItem[] // 组合商品列表
 
   // 所属档位
   packageId String?
@@ -3171,19 +3462,19 @@ model BuyerAlias {
 
 // 虚拟号绑定记录（卖家通过虚拟中转号联系买家，双方不知道真实号码）
 model VirtualCallBinding {
-  id              String   @id @default(cuid())
-  orderId         String?  // 订单场景
-  order           Order?   @relation("OrderVirtualCallBindings", fields: [orderId], references: [id], onDelete: SetNull)
-  replacementId   String?  // 售后场景（保留字段名兼容旧数据）
-  replacement     AfterSaleRequest? @relation("ReplacementVirtualCallBindings", fields: [replacementId], references: [id], onDelete: SetNull)
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id])
-  sellerPhone     String   // 卖家客服电话
-  buyerPhone      String   // 买家真实手机号（加密存储）
-  virtualNo       String   // 分配的虚拟号
-  expireAt        DateTime // 过期时间（24小时）
-  staffId         String   // 发起绑定的员工
-  createdAt       DateTime @default(now())
+  id            String            @id @default(cuid())
+  orderId       String? // 订单场景
+  order         Order?            @relation("OrderVirtualCallBindings", fields: [orderId], references: [id], onDelete: SetNull)
+  replacementId String? // 售后场景（保留字段名兼容旧数据）
+  replacement   AfterSaleRequest? @relation("ReplacementVirtualCallBindings", fields: [replacementId], references: [id], onDelete: SetNull)
+  companyId     String
+  company       Company           @relation(fields: [companyId], references: [id])
+  sellerPhone   String // 卖家客服电话
+  buyerPhone    String // 买家真实手机号（加密存储）
+  virtualNo     String // 分配的虚拟号
+  expireAt      DateTime // 过期时间（24小时）
+  staffId       String // 发起绑定的员工
+  createdAt     DateTime          @default(now())
 
   @@index([orderId])
   @@index([replacementId])
@@ -3194,14 +3485,14 @@ model VirtualCallBinding {
 // M 域：卖家审计日志
 model SellerAuditLog {
   id         String   @id @default(cuid())
-  staffId    String   // 操作人（CompanyStaff ID）
-  companyId  String   // 企业 ID
-  action     String   // 操作类型（VIEW_ORDER / SHIP_ORDER / GENERATE_WAYBILL 等）
-  module     String   // 模块名（orders / products / replacements 等）
-  targetType String?  // 目标实体类型
-  targetId   String?  // 目标实体 ID
-  ip         String?  // 请求 IP
-  userAgent  String?  // User-Agent
+  staffId    String // 操作人（CompanyStaff ID）
+  companyId  String // 企业 ID
+  action     String // 操作类型（VIEW_ORDER / SHIP_ORDER / GENERATE_WAYBILL 等）
+  module     String // 模块名（orders / products / replacements 等）
+  targetType String? // 目标实体类型
+  targetId   String? // 目标实体 ID
+  ip         String? // 请求 IP
+  userAgent  String? // User-Agent
   createdAt  DateTime @default(now())
 
   @@index([companyId, createdAt])
@@ -3281,20 +3572,20 @@ enum CsQuickEntryType {
 }
 
 model CsTicket {
-  id                  String            @id @default(cuid())
-  userId              String
-  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
-  category            CsTicketCategory  @default(OTHER)
-  priority            CsTicketPriority  @default(MEDIUM)
-  status              CsTicketStatus    @default(OPEN)
-  summary             String?
-  relatedOrderId      String?
-  relatedAfterSaleId  String?
-  resolvedBy          String?
-  resolvedAt          DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  sessions            CsSession[]
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  category           CsTicketCategory @default(OTHER)
+  priority           CsTicketPriority @default(MEDIUM)
+  status             CsTicketStatus   @default(OPEN)
+  summary            String?
+  relatedOrderId     String?
+  relatedAfterSaleId String?
+  resolvedBy         String?
+  resolvedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  sessions           CsSession[]
 
   @@index([userId, status])
   @@index([status, createdAt])
@@ -3302,18 +3593,18 @@ model CsTicket {
 }
 
 model CsSession {
-  id            String           @id @default(cuid())
+  id            String          @id @default(cuid())
   ticketId      String?
-  ticket        CsTicket?        @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  ticket        CsTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
   userId        String
-  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  status        CsSessionStatus  @default(AI_HANDLING)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status        CsSessionStatus @default(AI_HANDLING)
   source        CsSessionSource
   sourceId      String?
   agentId       String?
   agentJoinedAt DateTime?
   closedAt      DateTime?
-  createdAt     DateTime         @default(now())
+  createdAt     DateTime        @default(now())
   messages      CsMessage[]
   rating        CsRating?
 

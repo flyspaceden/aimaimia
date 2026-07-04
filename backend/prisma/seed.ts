@@ -1280,6 +1280,70 @@ async function main() {
   console.log('✅ 1 条任务完成记录已创建');
 
   // ============================================================
+  // 普通会员成长体系默认配置
+  // ============================================================
+  const growthCategories = [
+    { code: 'NEWBIE', name: '新手任务', icon: 'sprout', color: '#16A34A', sortOrder: 10 },
+    { code: 'DAILY', name: '日常活跃', icon: 'calendar-check', color: '#0EA5E9', sortOrder: 20 },
+    { code: 'SHOPPING', name: '购物成长', icon: 'shopping-bag', color: '#F59E0B', sortOrder: 30 },
+    { code: 'SHARE', name: '分享任务', icon: 'share-2', color: '#8B5CF6', sortOrder: 40 },
+    { code: 'INVITE', name: '邀请好友', icon: 'users', color: '#EC4899', sortOrder: 50 },
+    { code: 'VIP', name: 'VIP 转化', icon: 'crown', color: '#D97706', sortOrder: 60 },
+  ];
+
+  for (const category of growthCategories) {
+    await prisma.growthBehaviorCategory.upsert({
+      where: { code: category.code },
+      update: {},
+      create: category,
+    });
+  }
+  console.log(`✅ ${growthCategories.length} 个成长行为类别已创建`);
+
+  const growthLevels = [
+    { code: 'SPROUT', name: '新芽会员', threshold: 0, titleLabel: '新芽会员', monthlyExchangeLimit: 1, sortOrder: 10, benefits: { copy: '基础签到、基础兑换' } },
+    { code: 'SEEDLING', name: '青苗会员', threshold: 300, titleLabel: '青苗会员', monthlyExchangeLimit: 2, sortOrder: 20, benefits: { copy: '完成新手路径后解锁更多兑换' } },
+    { code: 'EAR', name: '青穗会员', threshold: 1000, titleLabel: '青穗会员', monthlyExchangeLimit: 3, sortOrder: 30, benefits: { copy: '首单与复购用户兑换额度提升' } },
+    { code: 'HARVEST', name: '丰收会员', threshold: 3000, titleLabel: '丰收会员', monthlyExchangeLimit: 4, sortOrder: 40, benefits: { copy: '稳定购买用户可解锁头像框和称号' } },
+    { code: 'GOLDEN_EAR', name: '金穗会员', threshold: 8000, titleLabel: '金穗会员', monthlyExchangeLimit: 5, sortOrder: 50, benefits: { copy: '高活跃用户解锁高阶红包兑换' } },
+    { code: 'STAR_FARMER', name: '星农会员', threshold: 20000, titleLabel: '星农会员', monthlyExchangeLimit: 6, sortOrder: 60, benefits: { copy: '高价值普通用户重点 VIP 转化权益' } },
+  ];
+
+  for (const level of growthLevels) {
+    await prisma.growthLevel.upsert({
+      where: { code: level.code },
+      update: {},
+      create: level,
+    });
+  }
+  console.log(`✅ ${growthLevels.length} 个成长等级已创建`);
+
+  const growthRules = [
+    { code: 'REGISTER', name: '注册成功', categoryCode: 'NEWBIE', pointsReward: 30, growthReward: 50, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 10 },
+    { code: 'COMPLETE_PROFILE', name: '完善资料', categoryCode: 'NEWBIE', pointsReward: 20, growthReward: 30, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 20 },
+    { code: 'BIND_PHONE_OR_WECHAT', name: '绑定微信/手机号', categoryCode: 'NEWBIE', pointsReward: 30, growthReward: 50, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 30 },
+    { code: 'CHECK_IN', name: '每日签到', categoryCode: 'DAILY', pointsReward: 5, growthReward: 0, grantTiming: 'IMMEDIATE' as const, dailyLimit: 1, vipPointsMultiplier: 1.2, sortOrder: 40 },
+    { code: 'BROWSE_PRODUCTS', name: '浏览 3 个商品', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 1, sortOrder: 50 },
+    { code: 'FAVORITE_ITEM', name: '收藏商品/店铺', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 2, sortOrder: 60 },
+    { code: 'SHARE_CONTENT', name: '分享商品/活动', categoryCode: 'SHARE', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 3, sortOrder: 70 },
+    { code: 'FIRST_ORDER_RECEIVED', name: '首单确认收货', categoryCode: 'SHOPPING', pointsReward: 100, growthReward: 200, grantTiming: 'CONFIRMED_RECEIPT' as const, lifetimeLimit: 1, vipGrowthMultiplier: 1.5, sortOrder: 80 },
+    { code: 'REVIEW_ORDER', name: '评价商品', categoryCode: 'SHOPPING', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, sortOrder: 90, riskPolicy: { perOrderLimit: 1 } },
+    { code: 'REPURCHASE_RECEIVED', name: '复购确认收货', categoryCode: 'SHOPPING', pointsReward: 50, growthReward: 100, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 5, vipGrowthMultiplier: 1.5, sortOrder: 100 },
+    { code: 'NORMAL_INVITE_REGISTER', name: '邀请好友注册', categoryCode: 'INVITE', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, dailyLimit: 5, sortOrder: 110 },
+    { code: 'NORMAL_INVITE_FIRST_ORDER', name: '好友首单确认收货', categoryCode: 'INVITE', pointsReward: 200, growthReward: 300, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 20, sortOrder: 120 },
+    { code: 'VIP_PURCHASE', name: '购买 VIP', categoryCode: 'VIP', pointsReward: 0, growthReward: 500, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, applicableUserType: 'VIP' as const, sortOrder: 130 },
+  ];
+
+  for (const rule of growthRules) {
+    await prisma.growthBehaviorRule.upsert({
+      where: { code: rule.code },
+      update: {},
+      create: rule,
+    });
+  }
+  console.log(`✅ ${growthRules.length} 条成长行为规则已创建`);
+
+  // ============================================================
   // 签到记录（模拟连续 3 天签到）
   // ============================================================
   const formatDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -1669,6 +1733,18 @@ async function main() {
     // --- 抽奖系统 ---
     { key: 'LOTTERY_ENABLED', value: true, desc: '抽奖功能开关' },
     { key: 'LOTTERY_DAILY_CHANCES', value: 1, desc: '每日抽奖次数' },
+    // --- 普通会员成长体系 ---
+    { key: 'GROWTH_ENABLED', value: false, desc: '普通会员成长系统总开关' },
+    { key: 'GROWTH_POINTS_EXPIRE_DAYS', value: 365, desc: '普通积分有效期（天）' },
+    { key: 'GROWTH_POINTS_EXPIRE_REMIND_DAYS', value: 30, desc: '普通积分过期提醒提前天数' },
+    { key: 'GROWTH_DAILY_POINTS_CAP', value: 300, desc: '单用户每日普通积分获取上限' },
+    { key: 'GROWTH_MONTHLY_POINTS_CAP', value: 3000, desc: '单用户每月普通积分获取上限' },
+    { key: 'GROWTH_DAILY_SHARE_REWARD_USER_CAP', value: 5, desc: '每日分享奖励人数上限' },
+    { key: 'GROWTH_MONTHLY_INVITE_FIRST_ORDER_CAP', value: 20, desc: '每月好友首单奖励人数上限' },
+    { key: 'GROWTH_VIP_CHECKIN_POINTS_MULTIPLIER', value: 1.2, desc: 'VIP 签到普通积分加成' },
+    { key: 'GROWTH_VIP_SHOPPING_GROWTH_MULTIPLIER', value: 1.5, desc: 'VIP 购物成长值加成' },
+    { key: 'GROWTH_REFUND_REVERSAL_ENABLED', value: true, desc: '成长体系退款冲正开关' },
+    { key: 'GROWTH_AUTO_SUSPEND_EXCHANGE_RISK', value: false, desc: '异常用户自动暂停兑换开关（v1 默认关闭）' },
     // --- 售后系统 ---
     { key: 'RETURN_WINDOW_DAYS', value: 7, desc: '无理由退货窗口（天）' },
     { key: 'NORMAL_RETURN_DAYS', value: 7, desc: '普通退货窗口（天）' },
@@ -3733,6 +3809,41 @@ async function main() {
       totalQuota: 100, issuedCount: 0, maxPerUser: 1, validDays: 60,
       startAt: new Date('2026-04-01'), endAt: new Date('2026-06-30'), createdBy: superAdmin.id,
     },
+    {
+      id: 'cc-growth-002', name: '积分兑换2元红包', description: '普通积分兑换专用，满29元可用',
+      status: 'ACTIVE' as const, triggerType: 'MANUAL' as const, distributionMode: 'MANUAL' as const,
+      discountType: 'FIXED' as const, discountValue: 2, minOrderAmount: 29,
+      totalQuota: 100000, issuedCount: 0, maxPerUser: 99, validDays: 14,
+      startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
+    },
+    {
+      id: 'cc-growth-005', name: '积分兑换5元红包', description: '普通积分兑换专用，满59元可用',
+      status: 'ACTIVE' as const, triggerType: 'MANUAL' as const, distributionMode: 'MANUAL' as const,
+      discountType: 'FIXED' as const, discountValue: 5, minOrderAmount: 59,
+      totalQuota: 100000, issuedCount: 0, maxPerUser: 99, validDays: 14,
+      startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
+    },
+    {
+      id: 'cc-growth-010', name: '积分兑换10元红包', description: '普通积分兑换专用，满99元可用',
+      status: 'ACTIVE' as const, triggerType: 'MANUAL' as const, distributionMode: 'MANUAL' as const,
+      discountType: 'FIXED' as const, discountValue: 10, minOrderAmount: 99,
+      totalQuota: 100000, issuedCount: 0, maxPerUser: 99, validDays: 14,
+      startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
+    },
+    {
+      id: 'cc-growth-shipping', name: '积分兑换运费券', description: '普通积分兑换专用，抵扣平台运费',
+      status: 'ACTIVE' as const, triggerType: 'MANUAL' as const, distributionMode: 'MANUAL' as const,
+      discountType: 'FIXED' as const, discountValue: 8, minOrderAmount: 0,
+      totalQuota: 50000, issuedCount: 0, maxPerUser: 99, validDays: 14,
+      startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
+    },
+    {
+      id: 'cc-growth-vip-020', name: '积分兑换VIP礼包抵扣券20元', description: '普通积分兑换专用，降低VIP升级心理门槛',
+      status: 'ACTIVE' as const, triggerType: 'MANUAL' as const, distributionMode: 'MANUAL' as const,
+      discountType: 'FIXED' as const, discountValue: 20, minOrderAmount: 0,
+      totalQuota: 20000, issuedCount: 0, maxPerUser: 12, validDays: 30,
+      startAt: new Date('2026-01-01'), endAt: new Date('2026-12-31'), createdBy: superAdmin.id,
+    },
   ];
   for (const cc of couponCampaigns) {
     await prisma.couponCampaign.upsert({
@@ -3741,6 +3852,94 @@ async function main() {
       create: cc,
     });
   }
+
+  const growthExchangeItems = [
+    {
+      id: 'growth-exchange-coupon-002',
+      type: 'COUPON' as const,
+      name: '2元红包',
+      description: '满29元可用',
+      pointsCost: 200,
+      couponCampaignId: 'cc-growth-002',
+      perUserMonthlyLimit: 10,
+      requiredLevelCode: 'SPROUT',
+      sortOrder: 10,
+    },
+    {
+      id: 'growth-exchange-coupon-005',
+      type: 'COUPON' as const,
+      name: '5元红包',
+      description: '满59元可用',
+      pointsCost: 500,
+      couponCampaignId: 'cc-growth-005',
+      perUserMonthlyLimit: 5,
+      requiredLevelCode: 'SEEDLING',
+      sortOrder: 20,
+    },
+    {
+      id: 'growth-exchange-coupon-010',
+      type: 'COUPON' as const,
+      name: '10元红包',
+      description: '满99元可用',
+      pointsCost: 1000,
+      couponCampaignId: 'cc-growth-010',
+      perUserMonthlyLimit: 3,
+      requiredLevelCode: 'EAR',
+      sortOrder: 30,
+    },
+    {
+      id: 'growth-exchange-shipping',
+      type: 'SHIPPING_COUPON' as const,
+      name: '运费券',
+      description: '抵扣平台运费',
+      pointsCost: 300,
+      couponCampaignId: 'cc-growth-shipping',
+      perUserMonthlyLimit: 1,
+      requiredLevelCode: 'SPROUT',
+      sortOrder: 40,
+    },
+    {
+      id: 'growth-exchange-lottery',
+      type: 'LOTTERY_CHANCE' as const,
+      name: '抽奖机会',
+      description: '增加一次平台抽奖机会',
+      pointsCost: 100,
+      perUserDailyLimit: 1,
+      perUserMonthlyLimit: 8,
+      requiredLevelCode: 'SPROUT',
+      sortOrder: 50,
+    },
+    {
+      id: 'growth-exchange-vip-020',
+      type: 'VIP_DISCOUNT_COUPON' as const,
+      name: 'VIP礼包抵扣券20元',
+      description: '你在普通会员成长中攒出了升级机会',
+      pointsCost: 2000,
+      couponCampaignId: 'cc-growth-vip-020',
+      perUserMonthlyLimit: 1,
+      requiredLevelCode: 'EAR',
+      sortOrder: 60,
+    },
+    {
+      id: 'growth-exchange-title-frame',
+      type: 'DECORATION' as const,
+      name: '丰收会员头像框',
+      description: '普通会员装饰权益',
+      pointsCost: 800,
+      perUserMonthlyLimit: 1,
+      requiredLevelCode: 'HARVEST',
+      sortOrder: 70,
+    },
+  ];
+
+  for (const item of growthExchangeItems) {
+    await prisma.growthExchangeItem.upsert({
+      where: { id: item.id },
+      update: {},
+      create: item,
+    });
+  }
+  console.log(`✅ ${growthExchangeItems.length} 个成长积分兑换项已创建`);
 
   // 红包实例
   const couponInstances = [
