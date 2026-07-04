@@ -1,5 +1,5 @@
 import client from './client';
-import type { DashboardStats, SalesTrend, BonusStats } from '@/types';
+import type { DashboardStats, SalesTrend, BonusStats, OperationsOverview } from '@/types';
 
 /** Dashboard 统计数据 */
 export const getDashboardStats = (): Promise<DashboardStats> =>
@@ -12,3 +12,7 @@ export const getSalesTrend = (): Promise<SalesTrend[]> =>
 /** 奖励统计 */
 export const getBonusStats = (): Promise<BonusStats> =>
   client.get('/admin/stats/bonus');
+
+/** 运营工作台总览 */
+export const getOperationsOverview = (): Promise<OperationsOverview> =>
+  client.get('/admin/stats/operations-overview');

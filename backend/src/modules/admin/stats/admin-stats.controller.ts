@@ -28,4 +28,10 @@ export class AdminStatsController {
   getBonusStats() {
     return this.statsService.getBonusStats();
   }
+
+  @Get('operations-overview')
+  @RequirePermission('dashboard:read')
+  getOperationsOverview() {
+    return this.statsService.getOperationsOverview();
+  }
 }

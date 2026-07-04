@@ -39,6 +39,8 @@ import type {
 import { StatusTag, activityStatusMap, money } from './common';
 import { toTierFormValues, toTierPayloadValues, type TierPercentValue } from './tierPercent';
 
+type GroupBuyTierConfig = TierPercentValue;
+
 const defaultTiers: TierPercentValue[] = [
   { sequence: 1, percent: 10, label: '第一位好友' },
   { sequence: 2, percent: 20, label: '第二位好友' },
@@ -525,8 +527,8 @@ export default function GroupBuyActivitiesPage() {
                           form.setFieldValue(
                             'tiers',
                             currentTiers
-                              .filter((_, index: number) => index !== field.name)
-                              .map((tier: TierPercentValue, index: number) => ({ ...tier, sequence: index + 1 })),
+                              .filter((_: GroupBuyTierConfig, index: number) => index !== field.name)
+                              .map((tier: GroupBuyTierConfig, index: number) => ({ ...tier, sequence: index + 1 })),
                           );
                         }}
                       >
