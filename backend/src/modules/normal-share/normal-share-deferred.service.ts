@@ -85,6 +85,7 @@ export class NormalShareDeferredService {
           select: {
             status: true,
             deletionExecutedAt: true,
+            memberProfile: { select: { tier: true } },
           },
         },
       },
@@ -93,7 +94,8 @@ export class NormalShareDeferredService {
       profile &&
       profile.status === 'ACTIVE' &&
       profile.user.status === UserStatus.ACTIVE &&
-      !profile.user.deletionExecutedAt,
+      !profile.user.deletionExecutedAt &&
+      profile.user.memberProfile?.tier !== 'VIP',
     );
   }
 

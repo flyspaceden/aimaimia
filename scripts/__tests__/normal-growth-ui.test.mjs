@@ -37,6 +37,38 @@ test('growth center explains invite rewards, earning tasks, and level rules', ()
   assert.match(source, /formatLimitText/);
 });
 
+test('VIP users see member growth instead of ordinary growth and ordinary share modules', () => {
+  const meSource = read('app/(tabs)/me.tsx');
+  const growthSource = read('app/me/growth.tsx');
+
+  assert.match(meSource, /const normalGrowthTool =/);
+  assert.match(meSource, /const growthToolLabel = memberData\?\.ok \? \(isVip \? '会员成长' : '普通成长'\) : '成长中心'/);
+  assert.match(meSource, /label: growthToolLabel/);
+  assert.match(meSource, /\.\.\.TOOL_GRID_BASE/);
+  assert.match(growthSource, /BonusRepo\.getMember/);
+  assert.match(growthSource, /const memberLoadFailed = Boolean\(memberQuery\.data && !memberQuery\.data\.ok\)/);
+  assert.match(growthSource, /const isVip = member\?\.tier === 'VIP'/);
+  assert.match(growthSource, /const normalShareEnabled = Boolean\(isLoggedIn && memberQuery\.data\?\.ok && !isVip\)/);
+  assert.match(growthSource, /const growthTitle = memberLoaded \? \(isVip \? '会员成长' : '普通成长'\) : '成长中心'/);
+  assert.match(growthSource, /会员状态加载失败/);
+  assert.match(growthSource, /\{isVip \? \(/);
+  assert.match(growthSource, /VIP 推荐权益/);
+  assert.match(growthSource, /router\.push\('\/me\/referral'\)/);
+  assert.match(growthSource, /普通分享码/);
+  assert.match(growthSource, /最近邀请/);
+});
+
+test('VIP growth page explains how member growth and VIP referral should be used', () => {
+  const growthSource = read('app/me/growth.tsx');
+
+  assert.match(growthSource, /VIP 成长与推荐/);
+  assert.match(growthSource, /会员成长怎么用/);
+  assert.match(growthSource, /推荐好友怎么操作/);
+  assert.match(growthSource, /积分和成长值怎么获得/);
+  assert.match(growthSource, /普通分享码仅普通用户拉新使用/);
+  assert.match(growthSource, /去分享 VIP 推荐码/);
+});
+
 test('admin growth page labels seeded categories and clarifies ordinary account scope', () => {
   const source = read('admin/src/pages/growth/index.tsx');
 
@@ -44,6 +76,23 @@ test('admin growth page labels seeded categories and clarifies ordinary account 
   assert.match(source, /\{ label: '新手', value: 'NEWBIE' \}/);
   assert.match(source, /\{ label: '邀请', value: 'INVITE' \}/);
   assert.doesNotMatch(source, /\{ label: '新手', value: 'ONBOARDING' \}/);
+});
+
+test('admin growth page explains configuration workflow and rule effects for operators', () => {
+  const source = read('admin/src/pages/growth/index.tsx');
+
+  assert.match(source, /Alert/);
+  assert.match(source, /积分=可消耗/);
+  assert.match(source, /成长值=不可消耗/);
+  assert.match(source, /配置顺序/);
+  assert.match(source, /先开全局/);
+  assert.match(source, /再配行为/);
+  assert.match(source, /最后配兑换/);
+  assert.match(source, /已接入/);
+  assert.match(source, /未接入/);
+  assert.match(source, /发放时机/);
+  assert.match(source, /用户看到什么/);
+  assert.match(source, /scroll=\{\{ x: 1600 \}\}/);
 });
 
 test('growth defaults are shipped in a production migration, not only in seed data', () => {

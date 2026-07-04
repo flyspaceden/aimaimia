@@ -28,7 +28,7 @@ describe('NormalShareDeferredService', () => {
         findUnique: jest.fn().mockResolvedValue(activeProfile({ status: 'DISABLED' })),
       },
       normalShareDeferredLink: {
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({ cookieId: 'nsdl_vip' }),
       },
     };
     const service = new NormalShareDeferredService(prismaMock);
@@ -43,6 +43,66 @@ describe('NormalShareDeferredService', () => {
       }, '127.0.0.1'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prismaMock.normalShareDeferredLink.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects ordinary share deferred links from VIP inviters', async () => {
+    const prismaMock: any = {
+      normalShareProfile: {
+        findUnique: jest.fn().mockResolvedValue(activeProfile({
+          user: {
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+            memberProfile: { tier: 'VIP' },
+          },
+        })),
+      },
+      normalShareDeferredLink: {
+        create: jest.fn().mockResolvedValue({ cookieId: 'nsdl_vip' }),
+      },
+    };
+    const service = new NormalShareDeferredService(prismaMock);
+
+    await expect(
+      service.create({
+        code: 'SABCDEFG',
+        userAgent: 'Mozilla/5.0 iPhone',
+        screenWidth: 390,
+        screenHeight: 844,
+        language: 'zh-CN',
+      }, '127.0.0.1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaMock.normalShareDeferredLink.create).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve ordinary share deferred links after inviter becomes VIP', async () => {
+    const found = {
+      id: 'nsdl-1',
+      cookieId: 'nsdl_abc',
+      code: 'SABCDEFG',
+      matched: false,
+      expiresAt: new Date('2026-07-04T00:00:00.000Z'),
+    };
+    const tx: any = {
+      normalShareDeferredLink: {
+        findUnique: jest.fn().mockResolvedValue(found),
+        update: jest.fn(({ data }: any) => ({ ...found, ...data })),
+      },
+      normalShareProfile: {
+        findUnique: jest.fn().mockResolvedValue(activeProfile({
+          user: {
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+            memberProfile: { tier: 'VIP' },
+          },
+        })),
+      },
+    };
+    const prismaMock: any = {
+      $transaction: jest.fn((callback: any) => callback(tx)),
+    };
+    const service = new NormalShareDeferredService(prismaMock);
+
+    await expect(service.resolve('nsdl_abc')).resolves.toEqual({ code: null });
   });
 
   it('stores a normal-share deferred record without touching VIP deferred links', async () => {

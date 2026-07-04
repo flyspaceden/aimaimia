@@ -18,6 +18,8 @@ export class NormalShareService {
 
   async getMe(userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await this.assertOrdinaryShareUser(tx, userId);
+
       const existing = await tx.normalShareProfile.findUnique({
         where: { userId },
       });
@@ -44,6 +46,8 @@ export class NormalShareService {
     }
 
     const binding = await this.prisma.$transaction(async (tx) => {
+      await this.assertOrdinaryShareUser(tx, inviteeUserId);
+
       const inviterProfile = await tx.normalShareProfile.findUnique({
         where: { code },
         include: {
@@ -53,6 +57,7 @@ export class NormalShareService {
               status: true,
               deletionExecutedAt: true,
               profile: { select: { nickname: true, avatarUrl: true } },
+              memberProfile: { select: { tier: true } },
             },
           },
         },
@@ -68,6 +73,9 @@ export class NormalShareService {
         inviterProfile.user.deletionExecutedAt
       ) {
         throw new BadRequestException('邀请人账号不可用');
+      }
+      if (inviterProfile.user.memberProfile?.tier === 'VIP') {
+        throw new BadRequestException('VIP 用户不使用普通分享码');
       }
       if (inviterProfile.userId === inviteeUserId) {
         throw new BadRequestException('不能绑定自己的普通分享码');
@@ -147,6 +155,8 @@ export class NormalShareService {
   }
 
   async getStats(userId: string) {
+    await this.assertOrdinaryShareUser(this.prisma, userId);
+
     const [total, rewarded, pending] = await Promise.all([
       this.prisma.normalShareBinding.count({
         where: { inviterUserId: userId },
@@ -170,6 +180,8 @@ export class NormalShareService {
   }
 
   async getRecords(userId: string) {
+    await this.assertOrdinaryShareUser(this.prisma, userId);
+
     return this.prisma.normalShareBinding.findMany({
       where: { inviterUserId: userId },
       include: {
@@ -196,6 +208,19 @@ export class NormalShareService {
 
   private normalizeCode(code?: string) {
     return (code || '').trim().toUpperCase();
+  }
+
+  private async assertOrdinaryShareUser(
+    prisma: PrismaService | Prisma.TransactionClient,
+    userId: string,
+  ) {
+    const member = await prisma.memberProfile.findUnique({
+      where: { userId },
+      select: { tier: true },
+    });
+    if (member?.tier === 'VIP') {
+      throw new BadRequestException('VIP 用户不使用普通分享码');
+    }
   }
 
   private toProfileResponse(profile: any) {
