@@ -36,6 +36,7 @@ const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; ic
 
 // 工具网格
 const TOOL_GRID_BASE = [
+  { label: '普通成长', icon: 'sprout-outline' as const, route: '/me/growth' },
   { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
