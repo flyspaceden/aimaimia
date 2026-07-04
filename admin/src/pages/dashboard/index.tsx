@@ -27,7 +27,7 @@ import {
   UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { Line } from '@ant-design/charts';
+import { Column, Line, Pie } from '@ant-design/charts';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +38,11 @@ import dayjs from 'dayjs';
 const { Title, Text } = Typography;
 
 type Tone = 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'teal' | 'gray';
+
+type ChartDatum = {
+  type: string;
+  value: number;
+};
 
 const toneMap: Record<Tone, { color: string; soft: string; border: string }> = {
   blue: { color: '#1d4ed8', soft: '#eff6ff', border: '#bfdbfe' },
@@ -77,6 +82,10 @@ const paymentChannelText: Record<string, string> = {
   AGGREGATOR: '聚合',
 };
 
+const chartPalette = ['#1d4ed8', '#15803d', '#c2410c', '#6d28d9', '#0f766e', '#b91c1c', '#475569'];
+
+const hasChartData = (data: ChartDatum[]) => data.some((item) => Number(item.value) > 0);
+
 function ShellCard({
   title,
   children,
@@ -96,6 +105,32 @@ function ShellCard({
       {children}
     </Card>
   );
+}
+
+function ChartContent({
+  loading,
+  data,
+  emptyText,
+  children,
+}: {
+  loading?: boolean;
+  data: ChartDatum[];
+  emptyText: string;
+  children: ReactNode;
+}) {
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>;
+  }
+  if (!hasChartData(data)) {
+    return (
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description={emptyText}
+        style={{ minHeight: 220, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}
+      />
+    );
+  }
+  return <>{children}</>;
 }
 
 function MetricTile({
@@ -279,6 +314,34 @@ export default function DashboardPage() {
     : '暂无支付通道数据';
 
   const couponUsageRate = activities?.couponUsageRate ?? 0;
+  const orderMixData: ChartDatum[] = [
+    { type: '普通订单', value: today?.normalOrderCount ?? 0 },
+    { type: 'VIP订单', value: today?.vipOrderCount ?? 0 },
+    { type: '团购订单', value: today?.groupBuyOrderCount ?? 0 },
+  ];
+  const paymentChartData: ChartDatum[] = (today?.payments || []).map((item) => ({
+    type: paymentChannelText[item.channel] || item.channel,
+    value: Number(item.amount || 0),
+  }));
+  const pendingChartData: ChartDatum[] = pendingItems
+    .map((item) => ({ type: item.title, value: Number(item.value || 0) }))
+    .filter((item) => item.value > 0);
+  const capitalChartData: ChartDatum[] = [
+    { type: '可用奖励', value: capital?.rewardAvailableAmount ?? 0 },
+    { type: '冻结奖励', value: capital?.rewardFrozenAmount ?? 0 },
+    { type: '售后冻结', value: capital?.rewardReturnFrozenAmount ?? 0 },
+    { type: '预留奖励', value: capital?.rewardReservedAmount ?? 0 },
+    { type: '数字资产', value: capital?.digitalAssetTotalBalance ?? 0 },
+    { type: '提现处理中', value: capital?.withdrawalProcessingAmount ?? 0 },
+  ];
+  const activityChartData: ChartDatum[] = [
+    { type: '红包发放', value: activities?.couponIssuedCount ?? 0 },
+    { type: '红包核销', value: activities?.couponUsedCount ?? 0 },
+    { type: '今日抽奖', value: activities?.todayDraws ?? 0 },
+    { type: '今日中奖', value: activities?.todayWins ?? 0 },
+    { type: '团购分享中', value: activities?.activeGroupBuyInstances ?? 0 },
+    { type: '团购已完成', value: activities?.completedGroupBuyInstances ?? 0 },
+  ];
   const lineConfig = {
     data: trend || [],
     xField: 'date',
@@ -293,6 +356,68 @@ export default function DashboardPage() {
         value: money(datum.amount as number),
       }),
     },
+  };
+  const orderMixConfig = {
+    data: orderMixData,
+    angleField: 'value',
+    colorField: 'type',
+    color: chartPalette,
+    radius: 0.82,
+    innerRadius: 0.56,
+    height: 260,
+    label: { text: 'type', position: 'outside' as const, style: { fontSize: 11 } },
+    legend: { color: { position: 'bottom' as const } },
+  };
+  const paymentColumnConfig = {
+    data: paymentChartData,
+    xField: 'type',
+    yField: 'value',
+    colorField: 'type',
+    color: chartPalette,
+    height: 260,
+    label: {
+      text: (datum: ChartDatum) => money(datum.value),
+      position: 'top' as const,
+      style: { fontSize: 11 },
+    },
+    axis: {
+      y: { labelFormatter: (value: number) => `¥${Number(value).toFixed(0)}` },
+      x: { labelAutoRotate: true, labelAutoHide: true },
+    },
+    legend: { color: { position: 'bottom' as const } },
+  };
+  const pendingColumnConfig = {
+    data: pendingChartData,
+    xField: 'type',
+    yField: 'value',
+    colorField: 'type',
+    color: chartPalette,
+    height: 260,
+    label: { text: 'value', position: 'top' as const, style: { fontSize: 11 } },
+    axis: { x: { labelAutoRotate: true, labelAutoHide: true } },
+    legend: { color: { position: 'bottom' as const } },
+  };
+  const capitalPieConfig = {
+    data: capitalChartData,
+    angleField: 'value',
+    colorField: 'type',
+    color: chartPalette,
+    radius: 0.82,
+    innerRadius: 0.56,
+    height: 260,
+    label: { text: 'type', position: 'outside' as const, style: { fontSize: 11 } },
+    legend: { color: { position: 'bottom' as const } },
+  };
+  const activityColumnConfig = {
+    data: activityChartData,
+    xField: 'type',
+    yField: 'value',
+    colorField: 'type',
+    color: chartPalette,
+    height: 260,
+    label: { text: 'value', position: 'top' as const, style: { fontSize: 11 } },
+    axis: { x: { labelAutoRotate: true, labelAutoHide: true } },
+    legend: { color: { position: 'bottom' as const } },
   };
 
   return (
@@ -391,6 +516,47 @@ export default function DashboardPage() {
         <Col xs={24} xl={10}>
           <ShellCard title="最近订单">
             <RecentOrders orders={stats?.recentOrders} loading={statsLoading} />
+          </ShellCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={8}>
+          <ShellCard title="订单结构" extra={<Text type="secondary">今日成交订单</Text>}>
+            <ChartContent loading={overviewLoading} data={orderMixData} emptyText="今日暂无支付订单">
+              <Pie {...orderMixConfig} />
+            </ChartContent>
+          </ShellCard>
+        </Col>
+        <Col xs={24} lg={8}>
+          <ShellCard title="支付渠道分布" extra={<Text type="secondary">按成交金额</Text>}>
+            <ChartContent loading={overviewLoading} data={paymentChartData} emptyText="暂无支付渠道数据">
+              <Column {...paymentColumnConfig} />
+            </ChartContent>
+          </ShellCard>
+        </Col>
+        <Col xs={24} lg={8}>
+          <ShellCard title="待办分布" extra={<Text type="secondary">不含提现失败</Text>}>
+            <ChartContent loading={overviewLoading} data={pendingChartData} emptyText="暂无待办">
+              <Column {...pendingColumnConfig} />
+            </ChartContent>
+          </ShellCard>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={12}>
+          <ShellCard title="资金结构" extra={<Text type="secondary">奖励 · 数字资产 · 提现</Text>}>
+            <ChartContent loading={overviewLoading} data={capitalChartData} emptyText="暂无资金结构数据">
+              <Pie {...capitalPieConfig} />
+            </ChartContent>
+          </ShellCard>
+        </Col>
+        <Col xs={24} lg={12}>
+          <ShellCard title="活动转化" extra={<Text type="secondary">红包 · 抽奖 · 团购</Text>}>
+            <ChartContent loading={overviewLoading} data={activityChartData} emptyText="暂无活动数据">
+              <Column {...activityColumnConfig} />
+            </ChartContent>
           </ShellCard>
         </Col>
       </Row>
