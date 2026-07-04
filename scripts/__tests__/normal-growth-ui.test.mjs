@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
@@ -44,4 +44,19 @@ test('admin growth page labels seeded categories and clarifies ordinary account 
   assert.match(source, /\{ label: '新手', value: 'NEWBIE' \}/);
   assert.match(source, /\{ label: '邀请', value: 'INVITE' \}/);
   assert.doesNotMatch(source, /\{ label: '新手', value: 'ONBOARDING' \}/);
+});
+
+test('growth defaults are shipped in a production migration, not only in seed data', () => {
+  const migrationPath =
+    'backend/prisma/migrations/20260704133000_seed_growth_defaults/migration.sql';
+
+  assert.equal(existsSync(migrationPath), true);
+
+  const migration = read(migrationPath);
+  assert.match(migration, /INSERT INTO "GrowthBehaviorCategory"/);
+  assert.match(migration, /INSERT INTO "GrowthLevel"/);
+  assert.match(migration, /INSERT INTO "GrowthBehaviorRule"/);
+  assert.match(migration, /NORMAL_INVITE_REGISTER/);
+  assert.match(migration, /NORMAL_INVITE_FIRST_ORDER/);
+  assert.match(migration, /ON CONFLICT DO NOTHING/);
 });
