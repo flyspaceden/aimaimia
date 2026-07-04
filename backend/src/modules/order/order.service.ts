@@ -29,6 +29,7 @@ import { ProductBundleService } from '../product/product-bundle.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 import { NotificationService } from '../notification/notification.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -110,6 +111,8 @@ export class OrderService {
   private digitalAssetService: DigitalAssetService | null = null;
   // GroupBuyLifecycleService 通过 setter 注入，确认收货后异步评估团购资格
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
+  // GrowthEventService 通过 setter 注入，确认收货后异步发普通积分/成长值
+  private growthEventService: GrowthEventService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -164,6 +167,10 @@ export class OrderService {
   /** 注入数字资产服务（由 OrderModule 在 onModuleInit 时调用） */
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setGrowthEventService(service: GrowthEventService) {
+    this.growthEventService = service;
   }
 
   private earliestShippedAt(shipments?: any[]): string | null {
@@ -1860,6 +1867,7 @@ export class OrderService {
 
     this.creditDigitalAssetAfterReceive(orderId);
     this.evaluateGroupBuyAfterReceive(orderId);
+    this.triggerGrowthAfterReceive(updated);
 
     // Phase F: 红包触发事件（fire-and-forget，不阻塞确认收货流程）
     if (this.couponEngineService && updated) {
@@ -1925,6 +1933,81 @@ export class OrderService {
         );
       });
     });
+  }
+
+  private triggerGrowthAfterReceive(order: any) {
+    if (!this.growthEventService || !this.isGrowthEligibleNormalOrder(order)) {
+      return;
+    }
+
+    const behaviorCode = order._isFirstReceived
+      ? 'FIRST_ORDER_RECEIVED'
+      : 'REPURCHASE_RECEIVED';
+
+    this.growthEventService.receive({
+      userId: order.userId,
+      behaviorCode,
+      idempotencyKey: `${behaviorCode}:${order.userId}:${order.id}`,
+      refType: 'ORDER',
+      refId: order.id,
+      meta: {
+        orderId: order.id,
+        goodsAmount: order.goodsAmount ?? 0,
+        totalAmount: order.totalAmount ?? 0,
+      },
+    }).catch((err: any) => {
+      this.logger.warn(`订单确认收货成长奖励触发失败: orderId=${order.id}, behavior=${behaviorCode}, error=${err?.message}`);
+    });
+
+    if (order._isFirstReceived) {
+      this.triggerNormalInviteFirstOrderGrowth(order).catch((err: any) => {
+        this.logger.warn(`普通分享首单奖励触发失败: orderId=${order.id}, userId=${order.userId}, error=${err?.message}`);
+      });
+    }
+  }
+
+  private async triggerNormalInviteFirstOrderGrowth(order: any) {
+    if (!this.growthEventService) return;
+
+    const binding = await this.prisma.normalShareBinding.findUnique({
+      where: { inviteeUserId: order.userId },
+    });
+    if (!binding) return;
+    if (['ISSUED', 'REVERSED', 'VOIDED'].includes(binding.rewardStatus)) return;
+    if (binding.firstOrderId && binding.firstOrderId !== order.id) return;
+
+    const result = await this.growthEventService.receive({
+      userId: binding.inviterUserId,
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+      idempotencyKey: `NORMAL_INVITE_FIRST_ORDER:${order.userId}:${order.id}`,
+      refType: 'ORDER',
+      refId: order.id,
+      meta: {
+        inviteeUserId: order.userId,
+        bindingId: binding.id,
+      },
+    });
+
+    if (result.status === 'GRANTED' || result.status === 'DUPLICATE') {
+      await this.prisma.normalShareBinding.updateMany({
+        where: {
+          id: binding.id,
+          rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
+        },
+        data: {
+          firstOrderId: order.id,
+          rewardStatus: 'ISSUED',
+          rewardIssuedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  private isGrowthEligibleNormalOrder(order: any) {
+    if (!order || order.bizType !== 'NORMAL_GOODS') return false;
+    if ((order.goodsAmount ?? 0) <= 0) return false;
+    if (!Array.isArray(order.items) || order.items.length === 0) return false;
+    return order.items.some((item: any) => !item.isPrize);
   }
 
   private evaluateGroupBuyAfterReceive(orderId: string) {

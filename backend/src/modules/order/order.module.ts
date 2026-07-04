@@ -31,6 +31,8 @@ import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.servi
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { GroupBuyModule } from '../group-buy/group-buy.module';
+import { GrowthModule } from '../growth/growth.module';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 @Module({
   imports: [
@@ -43,6 +45,7 @@ import { GroupBuyModule } from '../group-buy/group-buy.module';
     DigitalAssetModule,
     ProductModule,
     GroupBuyModule,
+    GrowthModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -132,6 +135,11 @@ export class OrderModule implements OnModuleInit {
     if (groupBuyLifecycleService) {
       this.orderService.setGroupBuyLifecycleService(groupBuyLifecycleService);
       this.orderAutoConfirmService.setGroupBuyLifecycleService(groupBuyLifecycleService);
+    }
+
+    const growthEventService = this.moduleRef.get(GrowthEventService, { strict: false });
+    if (growthEventService) {
+      this.orderService.setGrowthEventService(growthEventService);
     }
 
     const groupBuyRebateDeductionService = this.moduleRef.get(

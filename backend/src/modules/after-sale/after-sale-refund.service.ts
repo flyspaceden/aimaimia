@@ -24,6 +24,7 @@ import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-de
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { ProductBundleService } from '../product/product-bundle.service';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
@@ -53,6 +54,7 @@ export class AfterSaleRefundService {
   private digitalAssetService: DigitalAssetService | null = null;
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private groupBuyRebateService: GroupBuyRebateService | null = null;
+  private growthEventService: GrowthEventService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -77,6 +79,10 @@ export class AfterSaleRefundService {
 
   setGroupBuyRebateService(service: GroupBuyRebateService) {
     this.groupBuyRebateService = service;
+  }
+
+  setGrowthEventService(service: GrowthEventService) {
+    this.growthEventService = service;
   }
 
   private buildRestockMovements(orderItem: {
@@ -389,6 +395,7 @@ export class AfterSaleRefundService {
     if (!completed) return;
 
     await this.reverseDigitalAssetAfterRefund(refundId);
+    await this.reverseGrowthAfterRefund(completed.orderId, refundId);
     await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
     await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
@@ -418,6 +425,19 @@ export class AfterSaleRefundService {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(
         `售后退款团购返还冲销失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+    }
+  }
+
+  private async reverseGrowthAfterRefund(orderId: string, refundId: string): Promise<void> {
+    if (!this.growthEventService) return;
+    try {
+      await this.growthEventService.reverseByRef('ORDER', orderId);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `售后退款成长奖励冲正失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
         safeErr.stack,
       );
     }
