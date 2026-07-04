@@ -34,3 +34,4 @@ export * from './CustomerService';
 export * from './Checkout';
 export * from './AccountDeletion';
 export * from './DigitalAsset';
+export * from './Growth';
