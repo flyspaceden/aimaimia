@@ -56,6 +56,7 @@ const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
+const GrowthPage = lazy(() => import('@/pages/growth/index'));
 const GroupBuyActivitiesPage = lazy(() => import('@/pages/group-buy/activities'));
 const GroupBuyInstancesPage = lazy(() => import('@/pages/group-buy/instances'));
 const GroupBuyOrdersPage = lazy(() => import('@/pages/group-buy/orders'));
@@ -122,6 +123,7 @@ export default function App() {
             <Route path="users" element={<UserListPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
             <Route path="digital-assets" element={<DigitalAssetsPage />} />
+            <Route path="growth" element={<GrowthPage />} />
             <Route path="bonus/members" element={<MemberListPage />} />
             <Route path="bonus/members/:userId" element={<MemberDetailPage />} />
             <Route path="bonus/withdrawals" element={<WithdrawalListPage />} />
