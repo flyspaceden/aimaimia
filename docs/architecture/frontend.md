@@ -103,6 +103,10 @@
 - 配送管理后台定价规则弹窗修复（2026-06-21）：定价规则弹窗在选择“指定规格规则”时，商家 / 商品 / 规格三个选择框改为响应式网格布局，去掉固定 `md` 宽度，选择框按弹窗宽度自动等分或换行，避免规格选择框撑出弹窗范围。
 - 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
 
+### 0.9 Web 管理后台同步记录（2026-07-04）
+
+- 管理后台工作台升级为运营工作台 V2：前端接入 `GET /admin/stats/operations-overview` 聚合接口，页面按「待办中心 / 今日经营 / 销售趋势 / 最近订单 / 资金与奖励 / 活动增长」组织信息；统计口径统一以真实订单、支付、红包、抽奖、客服、售后、提现和数字资产表为来源。详细页面规范见 `docs/architecture/admin-frontend.md` 6.2。
+
 这三条脉络交织形成独特的视觉语言：**有机生物形态（Organic Biophilic）+ AI 光效（AI Luminance）**。App 的每一处设计都应让用户感受到——这不是一个普通的电商 App，而是一个有生命感的 AI 农业伙伴。
 
 ### 1.2 设计原则

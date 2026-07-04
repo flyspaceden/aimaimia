@@ -152,6 +152,9 @@ export interface DashboardStats {
   totalOrders: number;
   totalRevenue: number;
   totalProducts: number;
+  totalCompanies: number;
+  todayOrderCount: number;
+  pendingWithdrawals: number;
   recentOrders: Order[];
 }
 
@@ -159,6 +162,65 @@ export interface SalesTrend {
   date: string;
   amount: number;
   count: number;
+}
+
+export interface OperationsOverview {
+  today: {
+    paidOrderCount: number;
+    gmv: number;
+    averageOrderAmount: number;
+    normalOrderCount: number;
+    vipOrderCount: number;
+    groupBuyOrderCount: number;
+    payments: Array<{ channel: string; amount: number; count: number }>;
+  };
+  pending: {
+    productReviews: number;
+    companyReviews: number;
+    withdrawalReviews: number;
+    withdrawalProcessing: number;
+    withdrawalFailed: number;
+    afterSaleRequests: number;
+    afterSaleSellerReviews: number;
+    afterSaleArbitrations: number;
+    afterSaleReturns: number;
+    afterSaleManualReviews: number;
+    afterSaleRefunding: number;
+    invoiceRequests: number;
+    customerServiceQueue: number;
+    openTickets: number;
+  };
+  capital: {
+    rewardAvailableAmount: number;
+    rewardFrozenAmount: number;
+    rewardReturnFrozenAmount: number;
+    rewardReservedAmount: number;
+    rewardTodayCreatedAmount: number;
+    digitalAssetAccountCount: number;
+    digitalAssetTotalBalance: number;
+    digitalAssetFrozenCreditBalance: number;
+    digitalAssetCumulativeSpendAmount: number;
+    digitalAssetTodayCreditAmount: number;
+    withdrawalProcessingAmount: number;
+    withdrawalFailedAmount: number;
+  };
+  activities: {
+    totalCouponCampaigns: number;
+    activeCouponCampaigns: number;
+    couponIssuedCount: number;
+    couponUsedCount: number;
+    couponUsageRate: number;
+    couponDiscountAmount: number;
+    todayDraws: number;
+    todayWins: number;
+    activeLotteryPrizes: number;
+    activeGroupBuyActivities: number;
+    activeGroupBuyInstances: number;
+    completedGroupBuyInstances: number;
+    groupBuyCandidates: number;
+    groupBuyValidReferrals: number;
+    pendingGroupBuyRebateAmount: number;
+  };
 }
 
 // ========== App 用户（买家） ==========

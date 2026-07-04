@@ -1,118 +1,228 @@
-import { Row, Col, Card, Statistic, Table, Spin, Progress, Typography } from 'antd';
 import {
-  UserOutlined,
-  ShoppingCartOutlined,
-  DollarOutlined,
-  ShoppingOutlined,
-  TrophyOutlined,
-  WalletOutlined,
-  CrownOutlined,
+  Badge,
+  Card,
+  Col,
+  Empty,
+  Progress,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
+import {
   AuditOutlined,
-  FileSearchOutlined,
   BankOutlined,
+  BarChartOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  DollarOutlined,
   ExceptionOutlined,
+  FileSearchOutlined,
+  MessageOutlined,
+  RiseOutlined,
+  ShoppingCartOutlined,
+  UserOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
+import { Line } from '@ant-design/charts';
 import { useQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Line, Column } from '@ant-design/charts';
-import { getDashboardStats, getSalesTrend, getBonusStats } from '@/api/stats';
-import { getProducts } from '@/api/products';
-import { getCompanies } from '@/api/companies';
-import { getWithdrawals } from '@/api/bonus';
-import { getAfterSales } from '@/api/after-sale';
-import type { Order, PaginatedData } from '@/types';
+import { getDashboardStats, getOperationsOverview, getSalesTrend } from '@/api/stats';
+import type { Order } from '@/types';
 import dayjs from 'dayjs';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
-// 统计卡片颜色
-const statCards = [
-  { title: '总用户数', key: 'totalUsers' as const, icon: <UserOutlined />, color: '#1E40AF' },
-  { title: '总订单数', key: 'totalOrders' as const, icon: <ShoppingCartOutlined />, color: '#1677ff' },
-  { title: '总销售额', key: 'totalRevenue' as const, icon: <DollarOutlined />, color: '#F97316', prefix: '¥' },
-  { title: '商品总数', key: 'totalProducts' as const, icon: <ShoppingOutlined />, color: '#722ed1' },
-];
+type Tone = 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'teal' | 'gray';
 
-// 待办事项配置
-const pendingItems = [
-  {
-    title: '待审核商品',
-    queryKey: ['admin', 'pending-products'],
-    queryFn: () => getProducts({ page: 1, pageSize: 1, auditStatus: 'PENDING' }),
-    icon: <FileSearchOutlined style={{ fontSize: 20 }} />,
-    path: '/products',
-  },
-  {
-    title: '待审核企业',
-    queryKey: ['admin', 'pending-companies'],
-    queryFn: () => getCompanies({ page: 1, pageSize: 1, status: 'PENDING' }),
-    icon: <BankOutlined style={{ fontSize: 20 }} />,
-    path: '/companies',
-  },
-  {
-    title: '待审核提现',
-    queryKey: ['admin', 'pending-withdrawals'],
-    queryFn: () => getWithdrawals({ page: 1, pageSize: 1, status: 'REQUESTED' }),
-    icon: <DollarOutlined style={{ fontSize: 20 }} />,
-    path: '/bonus/withdrawals',
-  },
-  {
-    title: '待处理售后',
-    queryKey: ['admin', 'pending-after-sales'],
-    queryFn: () => getAfterSales({ page: 1, pageSize: 1, status: 'REQUESTED' }),
-    icon: <ExceptionOutlined style={{ fontSize: 20 }} />,
-    path: '/after-sale',
-  },
-];
+const toneMap: Record<Tone, { color: string; soft: string; border: string }> = {
+  blue: { color: '#1d4ed8', soft: '#eff6ff', border: '#bfdbfe' },
+  green: { color: '#15803d', soft: '#f0fdf4', border: '#bbf7d0' },
+  orange: { color: '#c2410c', soft: '#fff7ed', border: '#fed7aa' },
+  red: { color: '#b91c1c', soft: '#fef2f2', border: '#fecaca' },
+  purple: { color: '#6d28d9', soft: '#f5f3ff', border: '#ddd6fe' },
+  teal: { color: '#0f766e', soft: '#f0fdfa', border: '#99f6e4' },
+  gray: { color: '#475569', soft: '#f8fafc', border: '#e2e8f0' },
+};
 
-// 最近订单列
-const orderColumns = [
-  { title: '订单号', dataIndex: 'orderNo', key: 'orderNo', width: 180 },
-  {
-    title: '金额',
-    dataIndex: 'totalAmount',
-    key: 'totalAmount',
-    render: (v: number) => `¥${v.toFixed(2)}`,
-  },
-  { title: '状态', dataIndex: 'status', key: 'status' },
-  {
-    title: '时间',
-    dataIndex: 'createdAt',
-    key: 'createdAt',
-    render: (v: string) => dayjs(v).format('MM-DD HH:mm'),
-  },
-];
+const money = (value?: number | null) => `¥${Number(value ?? 0).toFixed(2)}`;
 
-/** 待办事项卡片组件 */
-function PendingCard({ title, queryKey, queryFn, icon, path }: typeof pendingItems[number]) {
-  const navigate = useNavigate();
-  const { data, isLoading } = useQuery<PaginatedData<unknown>>({
-    queryKey,
-    queryFn: queryFn as () => Promise<PaginatedData<unknown>>,
-    // 每 60 秒自动刷新待办数量
-    refetchInterval: 60_000,
-  });
+const orderStatusText: Record<string, string> = {
+  PENDING_PAYMENT: '待支付',
+  PAID: '已付款',
+  SHIPPED: '已发货',
+  DELIVERED: '已签收',
+  RECEIVED: '已完成',
+  CANCELED: '已取消',
+  REFUNDED: '已退款',
+};
 
-  const count = data?.total ?? 0;
-  const hasItems = count > 0;
-  // 有待办项时用橙色，否则用绿色
-  const color = hasItems ? '#faad14' : '#52c41a';
+const orderStatusColor: Record<string, string> = {
+  PAID: 'blue',
+  SHIPPED: 'cyan',
+  DELIVERED: 'geekblue',
+  RECEIVED: 'green',
+  CANCELED: 'default',
+  REFUNDED: 'orange',
+};
 
+const paymentChannelText: Record<string, string> = {
+  ALIPAY: '支付宝',
+  WECHAT_PAY: '微信',
+  UNIONPAY: '银联',
+  AGGREGATOR: '聚合',
+};
+
+function ShellCard({
+  title,
+  children,
+  extra,
+}: {
+  title: string;
+  children: ReactNode;
+  extra?: ReactNode;
+}) {
   return (
     <Card
-      hoverable
+      title={<span style={{ fontWeight: 700 }}>{title}</span>}
+      extra={extra}
+      styles={{ body: { padding: 16 } }}
+      style={{ borderRadius: 8 }}
+    >
+      {children}
+    </Card>
+  );
+}
+
+function MetricTile({
+  title,
+  value,
+  hint,
+  icon,
+  tone = 'gray',
+  path,
+}: {
+  title: string;
+  value: number | string;
+  hint?: string;
+  icon?: ReactNode;
+  tone?: Tone;
+  path?: string;
+}) {
+  const navigate = useNavigate();
+  const colors = toneMap[tone];
+  return (
+    <button
+      type="button"
+      aria-disabled={!path}
+      onClick={() => path && navigate(path)}
       style={{
-        cursor: 'pointer',
-        borderLeft: hasItems ? '3px solid #faad14' : '3px solid #52c41a',
+        width: '100%',
+        minHeight: 88,
+        textAlign: 'left',
+        border: `1px solid ${colors.border}`,
+        borderRadius: 8,
+        padding: 14,
+        background: colors.soft,
+        cursor: path ? 'pointer' : 'default',
       }}
-      onClick={() => navigate(path)}
+    >
+      <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <span style={{ color: '#64748b', fontSize: 13, wordBreak: 'keep-all' }}>{title}</span>
+        {icon ? <span style={{ color: colors.color, fontSize: 18 }}>{icon}</span> : null}
+      </Space>
+      <div style={{ color: colors.color, fontSize: 25, lineHeight: 1.2, fontWeight: 750, marginTop: 8 }}>
+        {value}
+      </div>
+      {hint ? <div style={{ color: '#64748b', fontSize: 12, marginTop: 6 }}>{hint}</div> : null}
+    </button>
+  );
+}
+
+function RecentOrders({ orders, loading }: { orders?: Order[]; loading?: boolean }) {
+  const navigate = useNavigate();
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>;
+  }
+  if (!orders || orders.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />;
+  }
+  return (
+    <Space direction="vertical" size={10} style={{ width: '100%' }}>
+      {orders.slice(0, 6).map((order) => (
+        <div
+          key={order.id}
+          role="button"
+          tabIndex={0}
+          onClick={() => navigate(`/orders/${order.id}`)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              navigate(`/orders/${order.id}`);
+            }
+          }}
+          style={{
+            width: '100%',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            background: '#fff',
+            padding: '10px 12px',
+            textAlign: 'left',
+            cursor: 'pointer',
+          }}
+        >
+          <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <Text copyable ellipsis style={{ maxWidth: 180 }}>{order.orderNo}</Text>
+              <div style={{ marginTop: 6 }}>
+                <Tag color={orderStatusColor[order.status] || 'default'} style={{ marginInlineEnd: 6 }}>
+                  {orderStatusText[order.status] || order.status}
+                </Tag>
+                <Text type="secondary">{dayjs(order.createdAt).format('MM-DD HH:mm')}</Text>
+              </div>
+            </div>
+            <Text strong style={{ color: '#0f172a', whiteSpace: 'nowrap' }}>{money(order.totalAmount)}</Text>
+          </Space>
+        </div>
+      ))}
+    </Space>
+  );
+}
+
+function KpiCard({
+  title,
+  value,
+  prefix,
+  tone,
+  path,
+  loading,
+}: {
+  title: string;
+  value: number;
+  prefix?: ReactNode;
+  tone: Tone;
+  path?: string;
+  loading?: boolean;
+}) {
+  const navigate = useNavigate();
+  const colors = toneMap[tone];
+  return (
+    <Card
+      hoverable={Boolean(path)}
+      onClick={() => path && navigate(path)}
+      style={{ borderRadius: 8, borderTop: `3px solid ${colors.color}` }}
+      styles={{ body: { padding: 18 } }}
     >
       <Statistic
         title={title}
-        value={count}
-        prefix={icon}
-        valueStyle={{ color }}
-        loading={isLoading}
+        value={value}
+        precision={title.includes('额') || title.includes('价') ? 2 : 0}
+        prefix={prefix}
+        valueStyle={{ color: colors.color, fontWeight: 750 }}
+        loading={loading}
       />
     </Card>
   );
@@ -129,179 +239,234 @@ export default function DashboardPage() {
     queryFn: getSalesTrend,
   });
 
-  const { data: bonusStats, isLoading: bonusLoading } = useQuery({
-    queryKey: ['admin', 'bonus-stats'],
-    queryFn: getBonusStats,
+  const { data: overview, isLoading: overviewLoading } = useQuery({
+    queryKey: ['admin', 'operations-overview'],
+    queryFn: getOperationsOverview,
+    refetchInterval: 60_000,
   });
 
+  const today = overview?.today;
+  const pending = overview?.pending;
+  const capital = overview?.capital;
+  const activities = overview?.activities;
+
+  const pendingItems = [
+    { title: '商品审核', value: pending?.productReviews ?? 0, tone: 'orange' as Tone, icon: <FileSearchOutlined />, path: '/products' },
+    { title: '企业审核', value: pending?.companyReviews ?? 0, tone: 'orange' as Tone, icon: <BankOutlined />, path: '/companies' },
+    { title: '提现审核', value: pending?.withdrawalReviews ?? 0, tone: 'red' as Tone, icon: <DollarOutlined />, path: '/bonus/withdrawals' },
+    { title: '提现处理中', value: pending?.withdrawalProcessing ?? 0, tone: 'purple' as Tone, icon: <WalletOutlined />, path: '/bonus/withdrawals' },
+    { title: '提现失败', value: pending?.withdrawalFailed ?? 0, tone: 'red' as Tone, icon: <ExceptionOutlined />, path: '/bonus/withdrawals' },
+    { title: '售后申请', value: pending?.afterSaleRequests ?? 0, tone: 'orange' as Tone, icon: <ExceptionOutlined />, path: '/after-sale' },
+    { title: '卖家审核中', value: pending?.afterSaleSellerReviews ?? 0, tone: 'blue' as Tone, icon: <ClockCircleOutlined />, path: '/after-sale' },
+    { title: '退货处理中', value: pending?.afterSaleReturns ?? 0, tone: 'purple' as Tone, icon: <ExceptionOutlined />, path: '/after-sale' },
+    { title: '平台仲裁', value: pending?.afterSaleArbitrations ?? 0, tone: 'red' as Tone, icon: <AuditOutlined />, path: '/after-sale' },
+    { title: '人工复核', value: pending?.afterSaleManualReviews ?? 0, tone: 'red' as Tone, icon: <AuditOutlined />, path: '/after-sale' },
+    { title: '退款处理中', value: pending?.afterSaleRefunding ?? 0, tone: 'purple' as Tone, icon: <ExceptionOutlined />, path: '/after-sale' },
+    { title: '发票申请', value: pending?.invoiceRequests ?? 0, tone: 'blue' as Tone, icon: <FileSearchOutlined />, path: '/invoices' },
+    { title: '客服排队', value: pending?.customerServiceQueue ?? 0, tone: 'red' as Tone, icon: <MessageOutlined />, path: '/cs/workstation' },
+    { title: '未关工单', value: pending?.openTickets ?? 0, tone: 'orange' as Tone, icon: <MessageOutlined />, path: '/cs/tickets' },
+  ];
+
+  const hotPending = pendingItems
+    .filter((item) => Number(item.value) > 0)
+    .sort((a, b) => Number(b.value) - Number(a.value))
+    .slice(0, 5);
+
+  const totalPending = pendingItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const paymentSummary = today?.payments?.length
+    ? today.payments
+        .map((item) => `${paymentChannelText[item.channel] || item.channel} ${money(item.amount)} / ${item.count} 单`)
+        .join('   ')
+    : '暂无支付通道数据';
+
+  const couponUsageRate = activities?.couponUsageRate ?? 0;
   const lineConfig = {
     data: trend || [],
     xField: 'date',
     yField: 'amount',
     smooth: true,
-    color: '#1E40AF',
+    color: '#1d4ed8',
     point: { size: 3, shape: 'circle' },
     yAxis: { label: { formatter: (v: string) => `¥${v}` } },
     tooltip: {
       formatter: (datum: Record<string, unknown>) => ({
         name: '销售额',
-        value: `¥${(datum.amount as number)?.toFixed(2) || 0}`,
+        value: money(datum.amount as number),
       }),
     },
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      {/* 统计卡片 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {statCards.map((card) => (
-          <Col xs={24} sm={12} lg={6} key={card.key}>
-            <Card hoverable>
-              <Statistic
-                title={card.title}
-                value={stats?.[card.key] ?? 0}
-                precision={card.prefix === '¥' ? 2 : 0}
-                prefix={card.prefix || card.icon}
-                valueStyle={{ color: card.color }}
-                loading={statsLoading}
-              />
-            </Card>
-          </Col>
-        ))}
+    <div style={{ padding: 24, background: '#f6f7f9', minHeight: '100%' }}>
+      <div style={{ marginBottom: 18 }}>
+        <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+          <div>
+            <Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>工作台</Title>
+            <Text type="secondary">经营脉搏 · 处理优先级 · 资金活动一屏看清</Text>
+          </div>
+          {totalPending > 0 ? (
+            <Badge count={totalPending} color="#fa541c">
+              <Tag icon={<ClockCircleOutlined />} color="orange">有待处理事项</Tag>
+            </Badge>
+          ) : (
+            <Tag icon={<CheckCircleOutlined />} color="green">暂无待办</Tag>
+          )}
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard title="今日成交额" value={today?.gmv ?? 0} prefix="¥" tone="blue" path="/orders" loading={overviewLoading} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard title="今日支付订单" value={today?.paidOrderCount ?? 0} prefix={<ShoppingCartOutlined />} tone="green" path="/orders" loading={overviewLoading} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard title="客单价" value={today?.averageOrderAmount ?? 0} prefix="¥" tone="orange" loading={overviewLoading} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard title="总用户数" value={stats?.totalUsers ?? 0} prefix={<UserOutlined />} tone="teal" path="/users" loading={statsLoading} />
+        </Col>
       </Row>
 
-      {/* 待办事项 */}
-      <Title level={5} style={{ marginBottom: 12 }}>
-        <AuditOutlined style={{ marginRight: 8 }} />
-        待办事项
-      </Title>
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {pendingItems.map((item) => (
-          <Col xs={12} sm={8} key={item.queryKey[1]}>
-            <PendingCard {...item} />
-          </Col>
-        ))}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} xl={16}>
+          <ShellCard title="待办中心" extra={<Text type="secondary">处理优先级 · 60 秒刷新</Text>}>
+            {overviewLoading ? (
+              <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
+            ) : hotPending.length > 0 ? (
+              <Row gutter={[12, 12]}>
+                {hotPending.map((item) => (
+                  <Col xs={24} sm={12} lg={8} key={item.title}>
+                    <MetricTile
+                      title={item.title}
+                      value={item.value}
+                      icon={item.icon}
+                      tone={item.tone}
+                      path={item.path}
+                      hint="点击进入处理"
+                    />
+                  </Col>
+                ))}
+              </Row>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办" />
+            )}
+          </ShellCard>
+        </Col>
+        <Col xs={24} xl={8}>
+          <ShellCard title="今日经营">
+            <Row gutter={[12, 12]}>
+              <Col span={8}>
+                <MetricTile title="普通订单" value={today?.normalOrderCount ?? 0} tone="blue" path="/orders" />
+              </Col>
+              <Col span={8}>
+                <MetricTile title="VIP订单" value={today?.vipOrderCount ?? 0} tone="orange" path="/orders" />
+              </Col>
+              <Col span={8}>
+                <MetricTile title="团购订单" value={today?.groupBuyOrderCount ?? 0} tone="purple" path="/group-buy/orders" />
+              </Col>
+              <Col span={24}>
+                <Tooltip title={paymentSummary}>
+                  <div style={{ color: '#475569', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, minHeight: 48 }}>
+                    <Text strong>支付通道</Text>
+                    <div style={{ marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{paymentSummary}</div>
+                  </div>
+                </Tooltip>
+              </Col>
+            </Row>
+          </ShellCard>
+        </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
-        {/* 销售趋势图 */}
-        <Col xs={24} lg={14}>
-          <Card title="销售趋势" style={{ marginBottom: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} xl={14}>
+          <ShellCard title="销售趋势" extra={<Text type="secondary">按支付成功时间统计</Text>}>
             {trendLoading ? (
               <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
             ) : (
-              <Line {...lineConfig} height={320} />
+              <Line {...lineConfig} height={300} />
             )}
-          </Card>
+          </ShellCard>
         </Col>
-
-        {/* 最近订单 */}
-        <Col xs={24} lg={10}>
-          <Card title="最近订单">
-            <Table<Order>
-              columns={orderColumns}
-              dataSource={stats?.recentOrders || []}
-              rowKey="id"
-              pagination={false}
-              size="small"
-              loading={statsLoading}
-              scroll={{ y: 280 }}
-            />
-          </Card>
+        <Col xs={24} xl={10}>
+          <ShellCard title="最近订单">
+            <RecentOrders orders={stats?.recentOrders} loading={statsLoading} />
+          </ShellCard>
         </Col>
       </Row>
 
-      {/* 奖励统计区 */}
-      <Row gutter={[16, 16]} style={{ marginTop: 24, marginBottom: 24 }}>
-        <Col xs={24}>
-          <Card title="奖励 / 分润统计" loading={bonusLoading}>
-            <Row gutter={[16, 16]}>
-              <Col xs={12} sm={6}>
-                <Statistic
-                  title="累计分配"
-                  value={bonusStats?.totalDistributed ?? 0}
-                  precision={2}
-                  prefix={<TrophyOutlined />}
-                  suffix="元"
-                  valueStyle={{ color: '#cf1322' }}
-                />
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} xl={12}>
+          <ShellCard title="资金与奖励">
+            <Row gutter={[12, 12]}>
+              <Col xs={12} sm={8}>
+                <MetricTile title="可用奖励" value={money(capital?.rewardAvailableAmount)} tone="blue" path="/bonus/members" />
               </Col>
-              <Col xs={12} sm={6}>
-                <Statistic
-                  title="累计提现"
-                  value={bonusStats?.totalWithdrawn ?? 0}
-                  precision={2}
-                  prefix={<WalletOutlined />}
-                  suffix="元"
-                  valueStyle={{ color: '#1677ff' }}
-                />
+              <Col xs={12} sm={8}>
+                <MetricTile title="冻结奖励" value={money(capital?.rewardFrozenAmount)} tone="orange" path="/bonus/members" />
               </Col>
-              <Col xs={12} sm={6}>
-                <Statistic
-                  title="VIP 会员数"
-                  value={bonusStats?.vipCount ?? 0}
-                  prefix={<CrownOutlined />}
-                  valueStyle={{ color: '#faad14' }}
-                />
+              <Col xs={12} sm={8}>
+                <MetricTile title="售后保护冻结" value={money(capital?.rewardReturnFrozenAmount)} tone="purple" path="/bonus/members" />
               </Col>
-              <Col xs={12} sm={6}>
-                <Statistic
-                  title="待审核提现"
-                  value={bonusStats?.pendingWithdrawals ?? 0}
-                  prefix={<AuditOutlined />}
-                  valueStyle={{ color: '#722ed1' }}
-                />
+              <Col xs={12} sm={8}>
+                <MetricTile title="今日奖励生成" value={money(capital?.rewardTodayCreatedAmount)} tone="red" path="/bonus/members" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="数字资产总额" value={money(capital?.digitalAssetTotalBalance)} tone="teal" path="/digital-assets" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="提现处理中" value={money(capital?.withdrawalProcessingAmount)} tone="purple" path="/bonus/withdrawals" />
               </Col>
             </Row>
-          </Card>
+          </ShellCard>
+        </Col>
+        <Col xs={24} xl={12}>
+          <ShellCard
+            title="活动增长"
+            extra={<Text type="secondary">红包 · 抽奖 · 团购</Text>}
+          >
+            <Row gutter={[12, 12]}>
+              <Col xs={12} sm={8}>
+                <MetricTile title="有效红包活动" value={activities?.activeCouponCampaigns ?? 0} hint={`全部 ${activities?.totalCouponCampaigns ?? 0}`} tone="red" path="/coupons" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <div style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: 14, background: '#fff7ed', minHeight: 88 }}>
+                  <Text type="secondary">红包核销率</Text>
+                  <Progress percent={couponUsageRate} size="small" strokeColor="#f97316" style={{ marginTop: 10 }} />
+                </div>
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="红包抵扣" value={money(activities?.couponDiscountAmount)} tone="orange" path="/coupons" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="今日抽奖" value={activities?.todayDraws ?? 0} hint={`中奖 ${activities?.todayWins ?? 0}`} tone="green" path="/lottery" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="团购分享中" value={activities?.activeGroupBuyInstances ?? 0} hint={`完成 ${activities?.completedGroupBuyInstances ?? 0}`} tone="purple" path="/group-buy/instances" />
+              </Col>
+              <Col xs={12} sm={8}>
+                <MetricTile title="待释放返还" value={money(activities?.pendingGroupBuyRebateAmount)} tone="blue" path="/group-buy/rebate-ledgers" />
+              </Col>
+            </Row>
+          </ShellCard>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
-        {/* 奖励分配趋势 */}
-        <Col xs={24} lg={14}>
-          <Card title="奖励分配趋势（近 7 天）" style={{ marginBottom: 16 }}>
-            {bonusLoading ? (
-              <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
-            ) : (
-              <Column
-                data={bonusStats?.dailyTrend ?? []}
-                xField="date"
-                yField="amount"
-                color="#cf1322"
-                height={280}
-                label={{ position: 'middle' as const }}
-                meta={{
-                  amount: { alias: '分配金额', formatter: (v: number) => `¥${v.toFixed(2)}` },
-                }}
-              />
-            )}
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 8 }}>
+            <Statistic title="企业总数" value={stats?.totalCompanies ?? 0} prefix={<BankOutlined />} loading={statsLoading} />
           </Card>
         </Col>
-
-        {/* 会员概览 */}
-        <Col xs={24} lg={10}>
-          <Card title="会员概览" style={{ marginBottom: 16 }}>
-            {bonusLoading ? (
-              <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                <Statistic
-                  title="总会员数"
-                  value={bonusStats?.totalMembers ?? 0}
-                  style={{ marginBottom: 24 }}
-                />
-                <div style={{ maxWidth: 200, margin: '0 auto' }}>
-                  <Progress
-                    type="dashboard"
-                    percent={bonusStats?.vipRate ?? 0}
-                    format={(pct) => `VIP ${pct}%`}
-                    strokeColor="#faad14"
-                  />
-                </div>
-                <div style={{ color: '#999', marginTop: 12 }}>VIP 会员占比</div>
-              </div>
-            )}
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 8 }}>
+            <Statistic title="今日数字资产新增" value={capital?.digitalAssetTodayCreditAmount ?? 0} precision={2} prefix={<BarChartOutlined />} loading={overviewLoading} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 8 }}>
+            <Statistic title="活跃团购活动" value={activities?.activeGroupBuyActivities ?? 0} prefix={<RiseOutlined />} loading={overviewLoading} />
           </Card>
         </Col>
       </Row>

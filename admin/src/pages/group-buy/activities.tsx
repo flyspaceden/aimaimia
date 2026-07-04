@@ -39,6 +39,8 @@ import type {
 import { StatusTag, activityStatusMap, money } from './common';
 import { toTierFormValues, toTierPayloadValues, type TierPercentValue } from './tierPercent';
 
+type GroupBuyTierConfig = TierPercentValue;
+
 const defaultTiers: TierPercentValue[] = [
   { sequence: 1, percent: 10, label: '第一位好友' },
   { sequence: 2, percent: 20, label: '第二位好友' },
@@ -512,7 +514,23 @@ export default function GroupBuyActivitiesPage() {
                     <Form.Item {...field} name={[field.name, 'label']}>
                       <Input placeholder="展示文案" style={{ width: 180 }} />
                     </Form.Item>
-                    {fields.length > 1 ? <Button danger onClick={() => remove(field.name)}>删除</Button> : null}
+                    {fields.length > 1 ? (
+                      <Button
+                        danger
+                        onClick={() => {
+                          const currentTiers = (form.getFieldValue('tiers') || []) as TierPercentValue[];
+                          remove(field.name);
+                          form.setFieldValue(
+                            'tiers',
+                            currentTiers
+                              .filter((_: GroupBuyTierConfig, index: number) => index !== field.name)
+                              .map((tier: GroupBuyTierConfig, index: number) => ({ ...tier, sequence: index + 1 })),
+                          );
+                        }}
+                      >
+                        删除
+                      </Button>
+                    ) : null}
                   </Space>
                 ))}
                 <Typography.Text type="secondary">
