@@ -73,6 +73,10 @@ describe('AfterSaleRefundService', () => {
     emit: jest.fn(),
   };
 
+  const growthEvents = {
+    reverseByRef: jest.fn(),
+  };
+
   const productBundleService = {
     buildInventoryMovements: jest.fn(),
   };
@@ -149,6 +153,7 @@ describe('AfterSaleRefundService', () => {
     rewardService.voidRewardsForOrder.mockResolvedValue(undefined);
     rewardService.checkAndMarkOrderRefunded.mockResolvedValue(undefined);
     notificationService.emit.mockResolvedValue(undefined);
+    growthEvents.reverseByRef.mockResolvedValue({ reversedCount: 1 });
 
     service = new AfterSaleRefundService(
       prisma as any,
@@ -158,6 +163,7 @@ describe('AfterSaleRefundService', () => {
       notificationService as any,
       productBundleService as any,
     );
+    service.setGrowthEventService(growthEvents as any);
   });
 
   it('startRefund/createOrGetRefund uses stable AS-afterSaleId merchantRefundNo and upserts by merchantRefundNo', async () => {
@@ -427,6 +433,7 @@ describe('AfterSaleRefundService', () => {
       }),
     }));
     expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(growthEvents.reverseByRef).toHaveBeenCalledWith('ORDER', 'order_001');
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 

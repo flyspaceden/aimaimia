@@ -15,11 +15,14 @@ describe('OrderService digital asset hook', () => {
             id: 'order-1',
             userId: 'user-1',
             status: 'RECEIVED',
-            items: [],
-            _isFirstReceived: false,
+            bizType: 'NORMAL_GOODS',
+            goodsAmount: 100,
+            totalAmount: 100,
+            items: [{ isPrize: false }],
+            _isFirstReceived: true,
           }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        count: jest.fn().mockResolvedValue(2),
+        count: jest.fn().mockResolvedValue(1),
       },
       orderStatusHistory: {
         create: jest.fn(),
@@ -28,6 +31,10 @@ describe('OrderService digital asset hook', () => {
     const prisma = {
       $transaction: jest.fn(async (callback: any) => callback(tx)),
       orderStatusHistory: { create: jest.fn() },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
     };
     const bonusAllocation = { allocateForOrder: jest.fn().mockResolvedValue(undefined) };
     const service = new OrderService(
@@ -40,7 +47,8 @@ describe('OrderService digital asset hook', () => {
     (service as any).mapOrder = jest.fn((order) => order);
     const digitalAsset = { creditOrderReceived: jest.fn().mockResolvedValue(undefined) };
     const groupBuyLifecycle = { evaluateOrderAfterReceive: jest.fn().mockResolvedValue(undefined) };
-    return { service, prisma, digitalAsset, groupBuyLifecycle };
+    const growthEvents = { receive: jest.fn().mockResolvedValue({ status: 'GRANTED' }) };
+    return { service, prisma, digitalAsset, groupBuyLifecycle, growthEvents };
   };
 
   it('credits digital asset after manual confirm receive succeeds', async () => {
@@ -67,5 +75,20 @@ describe('OrderService digital asset hook', () => {
     await service.confirmReceive('order-1', 'user-1');
 
     expect(groupBuyLifecycle.evaluateOrderAfterReceive).toHaveBeenCalledWith('order-1');
+  });
+
+  it('triggers first-order growth reward after manual confirm receive succeeds', async () => {
+    const { service, growthEvents } = makeService();
+    service.setGrowthEventService(growthEvents as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+
+    expect(growthEvents.receive).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      behaviorCode: 'FIRST_ORDER_RECEIVED',
+      idempotencyKey: 'FIRST_ORDER_RECEIVED:user-1:order-1',
+      refType: 'ORDER',
+      refId: 'order-1',
+    }));
   });
 });
