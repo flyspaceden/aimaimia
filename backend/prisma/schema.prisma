@@ -2958,6 +2958,25 @@ model NormalShareBinding {
   @@index([firstOrderId])
 }
 
+model NormalShareDeferredLink {
+  id          String   @id @default(cuid())
+  code        String
+  fingerprint String
+  ipAddress   String
+  userAgent   String
+  screenInfo  String
+  language    String?
+  cookieId    String   @unique
+  matched     Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code, createdAt])
+  @@index([fingerprint, matched, expiresAt])
+  @@index([expiresAt])
+}
+
 // ============================================================
 // J 域 — 普通用户系统改造（7 个新模型）
 // 参照 plan-treeforuser.md 实施
