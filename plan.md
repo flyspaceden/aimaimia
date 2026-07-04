@@ -31,7 +31,7 @@
   - **实际做了**: 新增 `GET /admin/stats/operations-overview` 聚合接口，工作台不再前端散调多个列表接口拼统计；今日订单、GMV、客单价和支付渠道统一按有效支付时间与 UTC+8 中国自然日统计，优先 `paidAt`，历史已付款订单缺失 `paidAt` 时回退 `createdAt`；抽奖今日数据改按 `LotteryRecord.drawDate` 中国自然日统计；红包有效活动按状态和起止时间窗口统计；页面重做为待办中心、今日经营、销售趋势、最近订单、资金与奖励、活动增长、经营脉搏和处理优先级，最近订单改为紧凑列表避免表格裁切。
   - **2026-07-04 补充**: 待办中心移除“提现失败”，该状态由系统自动判定，管理员无法在工作台直接处理；失败记录仍保留在提现业务页面追踪。
   - **2026-07-04 图表补充**: 工作台新增订单结构、支付渠道分布、待办分布、资金结构、活动转化 5 张图表，全部使用现有真实统计接口派生数据。
-  - **2026-07-04 报表修复**: 今日经营和销售趋势改为有效支付时间口径，优先 `paidAt`，历史已付款订单缺失 `paidAt` 时回退 `createdAt`；资金结构图取消外置标签并增加金额/占比明细，避免文字堆叠。
+  - **2026-07-04 报表修复**: 今日经营和销售趋势改为有效支付时间口径，优先 `paidAt`，历史已付款订单缺失 `paidAt` 时回退 `createdAt`；销售趋势 SQL 固定输出 `YYYY-MM-DD` 日期字符串，避免 Date 对象与前端日期键不匹配导致趋势全为 0；资金结构图取消外置标签和英文 tooltip，改为中文金额提示 + 完整资金名称、解释、金额和占比明细。
   - **验证**: `node --test scripts/__tests__/admin-dashboard-workbench.test.mjs`、`cd backend && DATABASE_URL='postgresql://user:pass@localhost:5432/aimaimai_validate' npx prisma validate`、`cd backend && npm run build`、`cd admin && npm run build`、`git diff --check` 通过；本地浏览器 1280x720 视口检查工作台无横向溢出。
 
 - [x] **我的页“我的财库 / 我的福利”命名统一**（2026-07-03 新增并完成）
