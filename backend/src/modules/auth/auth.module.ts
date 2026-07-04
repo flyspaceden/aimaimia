@@ -8,6 +8,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { OtpCleanupService } from './otp-cleanup.service';
 import { CouponModule } from '../coupon/coupon.module';
 import { CaptchaModule } from '../captcha/captcha.module';
+import { GrowthModule } from '../growth/growth.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { CaptchaModule } from '../captcha/captcha.module';
     }),
     CouponModule,
     CaptchaModule,
+    GrowthModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, OtpCleanupService],

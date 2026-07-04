@@ -25,6 +25,7 @@ import { AliyunSmsService } from '../../common/sms/aliyun-sms.service';
 import { CaptchaService } from '../captcha/captcha.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { nextBuyerNo } from '../../common/utils/buyer-no.util';
+import { GrowthEventService } from '../growth/growth-event.service';
 
 @Injectable()
 export class AuthService {
@@ -66,6 +67,7 @@ export class AuthService {
     private couponEngine: CouponEngineService,
     private aliyunSms: AliyunSmsService,
     private captcha: CaptchaService,
+    private growthEvents: GrowthEventService,
   ) {}
 
   /** 发送短信验证码 */
@@ -150,6 +152,7 @@ export class AuthService {
     this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
       this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
     });
+    this.triggerRegisterGrowth(user.id);
 
     return result;
   }
@@ -497,6 +500,7 @@ export class AuthService {
     this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
         this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
       });
+    this.triggerRegisterGrowth(user.id);
 
     return this.issueTokens(user.id, 'wechat');
   }
@@ -669,6 +673,7 @@ export class AuthService {
         this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
           this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
         });
+        this.triggerRegisterGrowth(newUser.id);
         return this.issueTokens(newUser.id, 'phone');
       }
       await this.recordLoginAttempt('PHONE', phone, 'code', true, identity.userId);
@@ -692,6 +697,18 @@ export class AuthService {
       await this.ensureBuyerNoForBuyer(identity.userId);
       return this.issueTokens(identity.userId, 'phone');
     }
+  }
+
+  private triggerRegisterGrowth(userId: string) {
+    this.growthEvents.receive({
+      userId,
+      behaviorCode: 'REGISTER',
+      idempotencyKey: `REGISTER:${userId}`,
+      refType: 'USER',
+      refId: userId,
+    }).catch((err: any) => {
+      this.logger.warn(`REGISTER 成长奖励触发失败: userId=${userId}, error=${err?.message}`);
+    });
   }
 
   /**
