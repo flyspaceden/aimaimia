@@ -60,3 +60,34 @@ test('growth defaults are shipped in a production migration, not only in seed da
   assert.match(migration, /NORMAL_INVITE_FIRST_ORDER/);
   assert.match(migration, /ON CONFLICT DO NOTHING/);
 });
+
+test('unwired growth behavior rules are disabled until their event handlers exist', () => {
+  const migrationPath =
+    'backend/prisma/migrations/20260704143000_disable_unwired_growth_rules/migration.sql';
+  const disabledCodes = [
+    'COMPLETE_PROFILE',
+    'BIND_PHONE_OR_WECHAT',
+    'BROWSE_PRODUCTS',
+    'FAVORITE_ITEM',
+    'SHARE_CONTENT',
+    'REVIEW_ORDER',
+    'NORMAL_INVITE_REGISTER',
+    'VIP_PURCHASE',
+  ];
+
+  assert.equal(existsSync(migrationPath), true);
+
+  const migration = read(migrationPath);
+  assert.match(migration, /UPDATE "GrowthBehaviorRule"/);
+  assert.match(migration, /SET "enabled" = false/);
+  for (const code of disabledCodes) {
+    assert.match(migration, new RegExp(`'${code}'`));
+  }
+
+  const seed = read('backend/prisma/seed.ts');
+  for (const code of disabledCodes) {
+    const line = seed.split('\n').find((item) => item.includes(`code: '${code}'`));
+    assert.ok(line, `missing seed rule for ${code}`);
+    assert.match(line, /enabled: false/, `${code} should default to disabled`);
+  }
+});

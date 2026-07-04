@@ -1320,18 +1320,18 @@ async function main() {
 
   const growthRules = [
     { code: 'REGISTER', name: '注册成功', categoryCode: 'NEWBIE', pointsReward: 30, growthReward: 50, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 10 },
-    { code: 'COMPLETE_PROFILE', name: '完善资料', categoryCode: 'NEWBIE', pointsReward: 20, growthReward: 30, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 20 },
-    { code: 'BIND_PHONE_OR_WECHAT', name: '绑定微信/手机号', categoryCode: 'NEWBIE', pointsReward: 30, growthReward: 50, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 30 },
+    { code: 'COMPLETE_PROFILE', name: '完善资料', categoryCode: 'NEWBIE', pointsReward: 20, growthReward: 30, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 20, enabled: false },
+    { code: 'BIND_PHONE_OR_WECHAT', name: '绑定微信/手机号', categoryCode: 'NEWBIE', pointsReward: 30, growthReward: 50, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, sortOrder: 30, enabled: false },
     { code: 'CHECK_IN', name: '每日签到', categoryCode: 'DAILY', pointsReward: 5, growthReward: 0, grantTiming: 'IMMEDIATE' as const, dailyLimit: 1, vipPointsMultiplier: 1.2, sortOrder: 40 },
-    { code: 'BROWSE_PRODUCTS', name: '浏览 3 个商品', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 1, sortOrder: 50 },
-    { code: 'FAVORITE_ITEM', name: '收藏商品/店铺', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 2, sortOrder: 60 },
-    { code: 'SHARE_CONTENT', name: '分享商品/活动', categoryCode: 'SHARE', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 3, sortOrder: 70 },
+    { code: 'BROWSE_PRODUCTS', name: '浏览 3 个商品', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 1, sortOrder: 50, enabled: false },
+    { code: 'FAVORITE_ITEM', name: '收藏商品/店铺', categoryCode: 'DAILY', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 2, sortOrder: 60, enabled: false },
+    { code: 'SHARE_CONTENT', name: '分享商品/活动', categoryCode: 'SHARE', pointsReward: 5, growthReward: 5, grantTiming: 'IMMEDIATE' as const, dailyLimit: 3, sortOrder: 70, enabled: false },
     { code: 'FIRST_ORDER_RECEIVED', name: '首单确认收货', categoryCode: 'SHOPPING', pointsReward: 100, growthReward: 200, grantTiming: 'CONFIRMED_RECEIPT' as const, lifetimeLimit: 1, vipGrowthMultiplier: 1.5, sortOrder: 80 },
-    { code: 'REVIEW_ORDER', name: '评价商品', categoryCode: 'SHOPPING', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, sortOrder: 90, riskPolicy: { perOrderLimit: 1 } },
+    { code: 'REVIEW_ORDER', name: '评价商品', categoryCode: 'SHOPPING', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, sortOrder: 90, riskPolicy: { perOrderLimit: 1 }, enabled: false },
     { code: 'REPURCHASE_RECEIVED', name: '复购确认收货', categoryCode: 'SHOPPING', pointsReward: 50, growthReward: 100, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 5, vipGrowthMultiplier: 1.5, sortOrder: 100 },
-    { code: 'NORMAL_INVITE_REGISTER', name: '邀请好友注册', categoryCode: 'INVITE', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, dailyLimit: 5, sortOrder: 110 },
+    { code: 'NORMAL_INVITE_REGISTER', name: '邀请好友注册', categoryCode: 'INVITE', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, dailyLimit: 5, sortOrder: 110, enabled: false },
     { code: 'NORMAL_INVITE_FIRST_ORDER', name: '好友首单确认收货', categoryCode: 'INVITE', pointsReward: 200, growthReward: 300, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 20, sortOrder: 120 },
-    { code: 'VIP_PURCHASE', name: '购买 VIP', categoryCode: 'VIP', pointsReward: 0, growthReward: 500, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, applicableUserType: 'VIP' as const, sortOrder: 130 },
+    { code: 'VIP_PURCHASE', name: '购买 VIP', categoryCode: 'VIP', pointsReward: 0, growthReward: 500, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, applicableUserType: 'VIP' as const, sortOrder: 130, enabled: false },
   ];
 
   for (const rule of growthRules) {
