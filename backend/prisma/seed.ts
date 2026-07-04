@@ -1329,7 +1329,7 @@ async function main() {
     { code: 'FIRST_ORDER_RECEIVED', name: '首单确认收货', categoryCode: 'SHOPPING', pointsReward: 100, growthReward: 200, grantTiming: 'CONFIRMED_RECEIPT' as const, lifetimeLimit: 1, vipGrowthMultiplier: 1.5, sortOrder: 80 },
     { code: 'REVIEW_ORDER', name: '评价商品', categoryCode: 'SHOPPING', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, sortOrder: 90, riskPolicy: { perOrderLimit: 1 }, enabled: false },
     { code: 'REPURCHASE_RECEIVED', name: '复购确认收货', categoryCode: 'SHOPPING', pointsReward: 50, growthReward: 100, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 5, vipGrowthMultiplier: 1.5, sortOrder: 100 },
-    { code: 'NORMAL_INVITE_REGISTER', name: '邀请好友注册', categoryCode: 'INVITE', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, dailyLimit: 5, sortOrder: 110, enabled: false },
+    { code: 'NORMAL_INVITE_REGISTER', name: '邀请好友注册', categoryCode: 'INVITE', pointsReward: 20, growthReward: 20, grantTiming: 'IMMEDIATE' as const, dailyLimit: 5, sortOrder: 110 },
     { code: 'NORMAL_INVITE_FIRST_ORDER', name: '好友首单确认收货', categoryCode: 'INVITE', pointsReward: 200, growthReward: 300, grantTiming: 'CONFIRMED_RECEIPT' as const, monthlyLimit: 20, sortOrder: 120 },
     { code: 'VIP_PURCHASE', name: '购买 VIP', categoryCode: 'VIP', pointsReward: 0, growthReward: 500, grantTiming: 'IMMEDIATE' as const, lifetimeLimit: 1, applicableUserType: 'VIP' as const, sortOrder: 130, enabled: false },
   ];

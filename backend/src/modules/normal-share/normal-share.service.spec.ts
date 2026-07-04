@@ -25,6 +25,7 @@ const makeHarness = (options: {
   existingVipReferral?: any;
   codeCollision?: any;
 } = {}) => {
+  let lastTransactionOptions: any;
   const tx: any = {
     normalShareProfile: {
       findUnique: jest.fn(({ where }: any) => {
@@ -56,28 +57,40 @@ const makeHarness = (options: {
   };
 
   const prisma: any = {
-    $transaction: jest.fn((callback: any, transactionOptions: any) =>
-      callback(tx).then((result: any) => ({ result, transactionOptions })),
-    ),
+    $transaction: jest.fn((callback: any, transactionOptions: any) => {
+      lastTransactionOptions = transactionOptions;
+      return callback(tx);
+    }),
     normalShareBinding: {
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
 
-  const service = new NormalShareService(prisma);
+  const growthEvents = {
+    receive: jest.fn().mockResolvedValue({ status: 'GRANTED' }),
+  };
+
+  const service = new NormalShareService(prisma, growthEvents as any);
   jest.spyOn(service as any, 'generateCode').mockReturnValue('SABCDEFG');
 
-  return { service, tx, prisma };
+  return {
+    service,
+    tx,
+    prisma,
+    growthEvents,
+    getTransactionOptions: () => lastTransactionOptions,
+  };
 };
 
 describe('NormalShareService', () => {
   it('creates one normal share code per user', async () => {
-    const { service, tx } = makeHarness();
+    const { service, tx, getTransactionOptions } = makeHarness();
 
-    const { result, transactionOptions } = await service.getMe('user-1') as any;
+    const result = await service.getMe('user-1') as any;
 
-    expect(transactionOptions).toMatchObject({ isolationLevel: 'Serializable' });
+    expect(getTransactionOptions()).toMatchObject({ isolationLevel: 'Serializable' });
     expect(tx.normalShareProfile.create).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
@@ -96,18 +109,18 @@ describe('NormalShareService', () => {
       profileByUser: activeShareProfile({ userId: 'user-1' }),
     });
 
-    const { result } = await service.getMe('user-1') as any;
+    const result = await service.getMe('user-1') as any;
 
     expect(result).toMatchObject({ code: 'SABCDEFG' });
     expect(tx.normalShareProfile.create).not.toHaveBeenCalled();
   });
 
   it('binds an invitee to an active normal share code', async () => {
-    const { service, tx } = makeHarness({
+    const { service, tx, prisma, growthEvents } = makeHarness({
       profileByCode: activeShareProfile(),
     });
 
-    const { result } = await service.bind('invitee-1', {
+    const result = await service.bind('invitee-1', {
       code: 'sabcdefg',
       source: 'APP',
     }) as any;
@@ -130,6 +143,48 @@ describe('NormalShareService', () => {
     expect(tx.referralLink.findUnique).toHaveBeenCalledWith({
       where: { inviteeUserId: 'invitee-1' },
     });
+    expect(growthEvents.receive).toHaveBeenCalledWith({
+      userId: 'inviter-1',
+      behaviorCode: 'NORMAL_INVITE_REGISTER',
+      idempotencyKey: 'NORMAL_INVITE_REGISTER:inviter-1:invitee-1',
+      refType: 'NORMAL_SHARE_BINDING',
+      refId: 'binding-created',
+      meta: {
+        inviteeUserId: 'invitee-1',
+        bindingId: 'binding-created',
+        code: 'SABCDEFG',
+      },
+    });
+    expect(prisma.normalShareBinding.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'binding-created',
+        rewardStatus: 'PENDING',
+      },
+      data: {
+        rewardStatus: 'REGISTER_REWARDED',
+        rewardIssuedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('does not grant register growth again for an idempotent normal share bind', async () => {
+    const { service, growthEvents, prisma } = makeHarness({
+      profileByCode: activeShareProfile(),
+      existingNormalBinding: {
+        id: 'binding-existing',
+        inviteeUserId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+        code: 'SABCDEFG',
+        rewardStatus: 'REGISTER_REWARDED',
+      },
+    });
+
+    await expect(service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' })).resolves.toMatchObject({
+      id: 'binding-existing',
+      isIdempotent: true,
+    });
+    expect(growthEvents.receive).not.toHaveBeenCalled();
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
 
   it('cannot bind the invitee to their own normal share code', async () => {
@@ -196,7 +251,7 @@ describe('NormalShareService', () => {
     });
     const service = new NormalShareService({
       normalShareBinding: { count },
-    } as any);
+    } as any, { receive: jest.fn() } as any);
 
     await expect(service.getStats('inviter-1')).resolves.toEqual({
       totalInvitees: 8,
