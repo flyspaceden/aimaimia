@@ -43,7 +43,8 @@ test('admin dashboard displays operator-friendly sections and guidance', () => {
   for (const text of [
     '今日经营',
     '待办中心',
-    '资金与奖励',
+    '奖励资金',
+    '数字资产概览',
     '活动增长',
     '经营脉搏',
     '处理优先级',
@@ -69,10 +70,16 @@ test('admin dashboard displays operator-friendly sections and guidance', () => {
 });
 
 test('admin dashboard keeps dense pie charts readable without outside labels', () => {
+  const capitalChartBlock = dashboard.match(/const capitalChartData: ChartDatum\[\] = \[[\s\S]*?\n  \];/)?.[0] ?? '';
+  const capitalDescriptionBlock = dashboard.match(/const capitalDescriptionMap: Record<string, string> = \{[\s\S]*?\n\};/)?.[0] ?? '';
+
   assert.match(dashboard, /const capitalPieConfig = \{[\s\S]*label:\s*false/);
   assert.match(dashboard, /tooltip:\s*\{[\s\S]*name:\s*'金额'[\s\S]*value:\s*money/);
   assert.match(dashboard, /const capitalDescriptionMap: Record<string, string> = \{/);
   assert.match(dashboard, /descriptionMap=\{capitalDescriptionMap\}/);
+  assert.doesNotMatch(capitalChartBlock, /数字资产/);
+  assert.doesNotMatch(capitalDescriptionBlock, /数字资产/);
+  assert.match(dashboard, /ShellCard title="数字资产概览" extra=\{<Text type="secondary">虚拟资产 · 不计入资金结构<\/Text>\}/);
   assert.doesNotMatch(dashboard, /<Text type="secondary" ellipsis>\{item\.type\}<\/Text>/);
   assert.doesNotMatch(dashboard, /gridTemplateColumns:\s*'repeat\(auto-fit, minmax\(150px, 1fr\)\)'/);
   assert.doesNotMatch(dashboard, /const capitalPieConfig = \{[\s\S]*position:\s*'outside'[\s\S]*legend:/);
