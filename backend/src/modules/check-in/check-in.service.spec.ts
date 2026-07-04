@@ -42,5 +42,6 @@ describe('CheckInService growth integration', () => {
       refId: 'user-1:2026-07-03',
       meta: { consecutiveDays: 1 },
     }));
+    expect(tx.userProfile.upsert).not.toHaveBeenCalled();
   });
 });

@@ -42,7 +42,9 @@ export const PERMISSIONS = {
   GROWTH_READ: 'growth:read',
   GROWTH_MANAGE_RULES: 'growth:manage_rules',
   GROWTH_MANAGE_EXCHANGE: 'growth:manage_exchange',
-  GROWTH_ADJUST: 'growth:adjust',
+  GROWTH_ADJUST_USER: 'growth:adjust_user',
+  NORMAL_SHARE_READ: 'normal_share:read',
+  NORMAL_SHARE_MANAGE: 'normal_share:manage',
 
   // 溯源
   TRACE_READ: 'trace:read',

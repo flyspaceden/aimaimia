@@ -10,6 +10,7 @@ import type {
   AdminGrowthLedgerQueryParams,
   AdminGrowthLevel,
   AdminGrowthRule,
+  AdminGrowthSettings,
   AdminNormalShareBinding,
   AdminNormalShareBindingQueryParams,
   PaginatedData,
@@ -20,6 +21,14 @@ export const getGrowthDashboard = (): Promise<AdminGrowthDashboard> =>
 
 export const getGrowthRules = (): Promise<AdminGrowthRule[]> =>
   client.get('/admin/growth/rules');
+
+export const getGrowthSettings = (): Promise<AdminGrowthSettings> =>
+  client.get('/admin/growth/settings');
+
+export const updateGrowthSettings = (
+  data: Partial<AdminGrowthSettings>,
+): Promise<AdminGrowthSettings> =>
+  client.put('/admin/growth/settings', data);
 
 export const upsertGrowthRule = (
   code: string,
@@ -69,3 +78,11 @@ export const getNormalShareBindings = (
   params?: AdminNormalShareBindingQueryParams,
 ): Promise<PaginatedData<AdminNormalShareBinding>> =>
   client.get('/admin/growth/normal-share/bindings', { params });
+
+export const disableNormalShareProfile = (userId: string, reason?: string): Promise<void> =>
+  client.post(`/admin/growth/normal-share/profiles/${userId}/disable`, {
+    reason,
+  });
+
+export const enableNormalShareProfile = (userId: string): Promise<void> =>
+  client.post(`/admin/growth/normal-share/profiles/${userId}/enable`);

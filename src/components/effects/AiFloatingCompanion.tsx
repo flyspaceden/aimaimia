@@ -477,7 +477,8 @@ export function AiFloatingCompanion() {
   const segArr = segments as string[];
   const isHomeTab = segArr[0] === '(tabs)' && (segArr[1] === 'home' || segArr[1] === undefined);
   const isGroupBuyDetail = pathname.startsWith('/group-buy/') && pathname !== '/group-buy/checkout';
-  if (isHomeTab || isGroupBuyDetail) return null;
+  const shouldHideForPage = pathname === '/me/growth';
+  if (isHomeTab || isGroupBuyDetail || shouldHideForPage) return null;
 
   const bottomOffset = safeBottom + 80 + 16;
 

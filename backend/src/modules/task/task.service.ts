@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GrowthEventService } from '../growth/growth-event.service';
 
@@ -32,7 +33,7 @@ export class TaskService {
     }));
   }
 
-  /** 完成任务：事务内创建完成记录 + 更新用户积分/成长值 */
+  /** 完成任务：事务内创建完成记录 + 成长账本入账 */
   async complete(taskId: string, userId: string) {
     const task = await this.prisma.task.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('任务不存在');
@@ -42,41 +43,27 @@ export class TaskService {
     });
     if (existing) throw new BadRequestException('任务已完成，请勿重复提交');
 
-    // 事务：创建完成记录 + 更新 UserProfile 积分/成长值
-    await this.prisma.$transaction(async (tx) => {
-      await tx.taskCompletion.create({
-        data: { userId, taskId },
-      });
-
-      const updates: any = {};
-      if (task.rewardPoints) {
-        updates.points = { increment: task.rewardPoints };
-      }
-      if (task.rewardGrowth) {
-        updates.growthPoints = { increment: task.rewardGrowth };
-      }
-
-      if (Object.keys(updates).length > 0) {
-        // 确保 UserProfile 存在
-        await tx.userProfile.upsert({
-          where: { userId },
-          create: { userId },
-          update: updates,
+    // 事务：创建完成记录 + GrowthEventService 统一更新成长账户和 UserProfile 缓存
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.taskCompletion.create({
+          data: { userId, taskId },
         });
-      }
 
-      await this.growthEvents.grantDirect({
-        tx,
-        userId,
-        behaviorCode: 'TASK_COMPLETE',
-        pointsReward: task.rewardPoints ?? 0,
-        growthReward: task.rewardGrowth ?? 0,
-        idempotencyKey: `TASK:${userId}:${taskId}`,
-        refType: 'TASK',
-        refId: taskId,
-        meta: { taskTitle: task.title },
-      });
-    });
+        await this.growthEvents.grantDirect({
+          tx,
+          userId,
+          behaviorCode: 'TASK_COMPLETE',
+          pointsReward: task.rewardPoints ?? 0,
+          growthReward: task.rewardGrowth ?? 0,
+          idempotencyKey: `TASK:${userId}:${taskId}`,
+          refType: 'TASK',
+          refId: taskId,
+          meta: { taskTitle: task.title },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return this.list(userId);
   }

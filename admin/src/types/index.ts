@@ -518,6 +518,18 @@ export interface AdminGrowthAccountRow {
   user: AdminGrowthUserSummary;
 }
 
+export interface AdminGrowthSettings {
+  growthEnabled: boolean;
+  pointsExpireDays: number;
+  pointsExpireRemindDays: number;
+  dailyPointsCap: number;
+  monthlyPointsCap: number;
+  dailyShareRewardUserCap: number;
+  monthlyInviteFirstOrderCap: number;
+  refundReversalEnabled: boolean;
+  autoSuspendExchangeRisk: boolean;
+}
+
 export interface AdminGrowthLedgerQueryParams extends PaginationParams {
   userId?: string;
   behaviorCode?: string;
@@ -672,8 +684,8 @@ export interface Product {
   bundleTotalWeightGram?: number | null;
   categoryId: string | null;
   category?: { id: string; name: string; returnPolicy?: string } | null;
-  origin: Record<string, any> | null;
-  attributes: Record<string, any> | null;
+  origin: Record<string, unknown> | null;
+  attributes: Record<string, unknown> | null;
   aiKeywords: string[];
   unit?: string | null;
   status: ProductStatus;
@@ -1160,7 +1172,7 @@ export interface Company {
   logo: string | null;
   servicePhone: string | null;
   serviceWeChat: string | null;
-  address: Record<string, any> | null;
+  address: Record<string, unknown> | null;
   contactName: string | null;
   contactPhone: string | null;
   contact?: Record<string, string>;
@@ -1564,13 +1576,15 @@ export interface RuleConfig {
 
 /** 配置值提取 — RuleConfig.value 可能是 { value, description } 或裸值 */
 export function extractConfigValue(config: RuleConfig): unknown {
-  const v = config.value as any;
-  return v && typeof v === 'object' && 'value' in v ? v.value : v;
+  const v = config.value;
+  return v && typeof v === 'object' && 'value' in v ? (v as { value: unknown }).value : v;
 }
 
 export function extractConfigDescription(config: RuleConfig): string | null {
-  const v = config.value as any;
-  return v && typeof v === 'object' && 'description' in v ? v.description : null;
+  const v = config.value;
+  if (!v || typeof v !== 'object' || !('description' in v)) return null;
+  const description = (v as { description?: unknown }).description;
+  return typeof description === 'string' ? description : null;
 }
 
 export interface ConfigVersion {

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { GrowthEventService } from './growth-event.service';
+import { isGrowthEnabled } from './growth-config.util';
 
 const activeRule = (overrides: Record<string, unknown> = {}) => ({
   code: 'CHECK_IN',
@@ -28,12 +29,25 @@ const makeHarness = (options: {
   existingReverseLedger?: any;
   limitCount?: number;
   memberTier?: 'NORMAL' | 'VIP' | null;
+  configs?: Record<string, unknown>;
+  earnedPoints?: number;
+  currentLevelCode?: string | null;
+  resolvedLevelCode?: string | null;
 } = {}) => {
+  const configs = { GROWTH_ENABLED: true, ...(options.configs ?? {}) };
+  const accountBase = {
+    id: 'account-1',
+    userId: 'u1',
+    pointsBalance: 0,
+    growthValue: 0,
+    currentLevelCode: options.currentLevelCode ?? null,
+  };
   const tx: any = {
     growthLedger: {
       findUnique: jest.fn().mockResolvedValue(options.existingLedger ?? null),
       findMany: jest.fn().mockResolvedValue(options.ledgersToReverse ?? []),
       count: jest.fn().mockResolvedValue(options.limitCount ?? 0),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { pointsDelta: options.earnedPoints ?? 0 } }),
       create: jest.fn(({ data }: any) => ({
         id: 'ledger-1',
         createdAt: new Date('2026-07-03T00:00:00.000Z'),
@@ -51,15 +65,29 @@ const makeHarness = (options: {
     },
     growthAccount: {
       upsert: jest.fn(({ create, update }: any) => ({
-        id: 'account-1',
-        userId: 'u1',
-        pointsBalance: create?.pointsBalance ?? update?.pointsBalance?.increment ?? 0,
-        growthValue: create?.growthValue ?? update?.growthValue?.increment ?? 0,
+        ...accountBase,
+        pointsBalance: create?.pointsBalance ?? accountBase.pointsBalance + (update?.pointsBalance?.increment ?? 0),
+        growthValue: create?.growthValue ?? accountBase.growthValue + (update?.growthValue?.increment ?? 0),
       })),
-      update: jest.fn().mockResolvedValue({ id: 'account-1' }),
+      update: jest.fn(({ data }: any) => ({
+        ...accountBase,
+        currentLevelCode: data.currentLevelCode ?? accountBase.currentLevelCode,
+        growthValue: typeof data.growthValue === 'number' ? data.growthValue : accountBase.growthValue,
+      })),
     },
     userProfile: {
       upsert: jest.fn().mockResolvedValue({ userId: 'u1' }),
+    },
+    ruleConfig: {
+      findUnique: jest.fn(({ where }: any) => {
+        if (!(where.key in configs)) return null;
+        return { key: where.key, value: configs[where.key as keyof typeof configs] };
+      }),
+    },
+    growthLevel: {
+      findFirst: jest.fn().mockResolvedValue(
+        options.resolvedLevelCode ? { code: options.resolvedLevelCode } : null,
+      ),
     },
   };
 
@@ -82,6 +110,43 @@ const makeHarness = (options: {
 };
 
 describe('GrowthEventService', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-03T00:00:00.000Z'));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it('treats a missing growth switch config as disabled', async () => {
+    await expect(
+      isGrowthEnabled({
+        ruleConfig: {
+          findUnique: jest.fn().mockResolvedValue(null),
+        },
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('does not grant when the growth system switch is disabled', async () => {
+    const { tx, service } = makeHarness({
+      configs: { GROWTH_ENABLED: false },
+    });
+
+    const { result } = await service.receive({
+      userId: 'u1',
+      behaviorCode: 'CHECK_IN',
+      idempotencyKey: 'CHECK_IN:u1:2026-07-03',
+    }) as any;
+
+    expect(result).toMatchObject({
+      status: 'SKIPPED',
+      reason: 'SYSTEM_DISABLED',
+    });
+    expect(tx.growthBehaviorRule.findUnique).not.toHaveBeenCalled();
+    expect(tx.growthAccount.upsert).not.toHaveBeenCalled();
+  });
+
   it('does not grant when the behavior rule is disabled', async () => {
     const { tx, service } = makeHarness({
       rule: activeRule({ enabled: false }),
@@ -199,9 +264,53 @@ describe('GrowthEventService', () => {
         idempotencyKey: 'vip-key',
         refType: 'CHECK_IN',
         refId: '2026-07-03',
+        expiresAt: new Date('2027-07-03T00:00:00.000Z'),
       }),
     }));
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses configured point expiry and refreshes current growth level after granting', async () => {
+    const { tx, service } = makeHarness({
+      configs: { GROWTH_POINTS_EXPIRE_DAYS: 30 },
+      resolvedLevelCode: 'SPROUT',
+    });
+
+    const { result } = await service.receive({
+      userId: 'u1',
+      behaviorCode: 'CHECK_IN',
+      idempotencyKey: 'level-key',
+    }) as any;
+
+    expect(result).toMatchObject({ status: 'GRANTED', pointsDelta: 10, growthDelta: 20 });
+    expect(tx.growthLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        expiresAt: new Date('2026-08-02T00:00:00.000Z'),
+      }),
+    }));
+    expect(tx.growthAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-1' },
+      data: { currentLevelCode: 'SPROUT' },
+    });
+  });
+
+  it('clamps point rewards to the configured daily cap while preserving growth rewards', async () => {
+    const { service } = makeHarness({
+      configs: { GROWTH_DAILY_POINTS_CAP: 15 },
+      earnedPoints: 10,
+    });
+
+    const { result } = await service.receive({
+      userId: 'u1',
+      behaviorCode: 'CHECK_IN',
+      idempotencyKey: 'capped-key',
+    }) as any;
+
+    expect(result).toMatchObject({
+      status: 'GRANTED',
+      pointsDelta: 5,
+      growthDelta: 20,
+    });
   });
 
   it('reverses posted ledgers by ref without deleting the original ledger', async () => {
@@ -285,6 +394,32 @@ describe('GrowthEventService', () => {
     });
     expect(tx.growthAccount.update).not.toHaveBeenCalled();
     expect(tx.growthLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('skips reversal when refund reversal config is disabled', async () => {
+    const { tx, service } = makeHarness({
+      configs: { GROWTH_REFUND_REVERSAL_ENABLED: false },
+      ledgersToReverse: [
+        {
+          id: 'ledger-original',
+          userId: 'u1',
+          accountId: 'account-1',
+          pointsDelta: 100,
+          growthDelta: 200,
+          refType: 'ORDER',
+          refId: 'order-1',
+        },
+      ],
+    });
+
+    const { result } = await service.reverseByRef('ORDER', 'order-1') as any;
+
+    expect(result).toMatchObject({
+      reversedCount: 0,
+      skippedReason: 'REVERSAL_DISABLED',
+    });
+    expect(tx.growthLedger.findMany).not.toHaveBeenCalled();
+    expect(tx.growthAccount.update).not.toHaveBeenCalled();
   });
 
   it('grants direct configured rewards without reading behavior rules', async () => {

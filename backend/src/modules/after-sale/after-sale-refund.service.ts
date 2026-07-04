@@ -433,7 +433,18 @@ export class AfterSaleRefundService {
   private async reverseGrowthAfterRefund(orderId: string, refundId: string): Promise<void> {
     if (!this.growthEventService) return;
     try {
-      await this.growthEventService.reverseByRef('ORDER', orderId);
+      const result = await this.growthEventService.reverseByRef('ORDER', orderId);
+      if ((result?.reversedCount ?? 0) > 0) {
+        await this.prisma.normalShareBinding.updateMany({
+          where: {
+            firstOrderId: orderId,
+            rewardStatus: 'ISSUED',
+          },
+          data: {
+            rewardStatus: 'REVERSED',
+          },
+        });
+      }
     } catch (err: any) {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(

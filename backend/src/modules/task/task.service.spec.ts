@@ -1,7 +1,7 @@
 import { TaskService } from './task.service';
 
 describe('TaskService growth integration', () => {
-  it('writes task rewards through GrowthEventService while preserving existing profile cache', async () => {
+  it('writes task rewards only through GrowthEventService to avoid double profile increments', async () => {
     const task = {
       id: 'task-1',
       title: '完善资料',
@@ -36,14 +36,7 @@ describe('TaskService growth integration', () => {
 
     await service.complete('task-1', 'user-1');
 
-    expect(tx.userProfile.upsert).toHaveBeenCalledWith({
-      where: { userId: 'user-1' },
-      create: { userId: 'user-1' },
-      update: {
-        points: { increment: 20 },
-        growthPoints: { increment: 30 },
-      },
-    });
+    expect(tx.userProfile.upsert).not.toHaveBeenCalled();
     expect(growthEvents.grantDirect).toHaveBeenCalledWith(expect.objectContaining({
       tx,
       userId: 'user-1',
@@ -55,5 +48,9 @@ describe('TaskService growth integration', () => {
       refId: 'task-1',
       meta: { taskTitle: '完善资料' },
     }));
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: 'Serializable' },
+    );
   });
 });

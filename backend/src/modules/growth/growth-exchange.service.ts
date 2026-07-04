@@ -6,14 +6,9 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GrowthCouponAdapterService } from './growth-coupon-adapter.service';
+import { isCouponBackedExchangeType, isGrowthEnabled } from './growth-config.util';
 
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
-const COUPON_EXCHANGE_TYPES = new Set([
-  'COUPON',
-  'SHIPPING_COUPON',
-  'VIP_DISCOUNT_COUPON',
-]);
-
 type ExchangeInput = {
   idempotencyKey: string;
 };
@@ -27,7 +22,8 @@ export class GrowthExchangeService {
 
   async listItems(userId: string) {
     const now = new Date();
-    const [account, items] = await Promise.all([
+    const [growthEnabled, account, items] = await Promise.all([
+      isGrowthEnabled(this.prisma as any),
       this.prisma.growthAccount.findUnique({ where: { userId } }),
       this.prisma.growthExchangeItem.findMany({
         where: {
@@ -53,11 +49,12 @@ export class GrowthExchangeService {
     const pointsBalance = account?.pointsBalance ?? 0;
     const growthValue = account?.growthValue ?? 0;
 
-    return items.map((item) => {
+    return items.filter((item) => this.isFulfillable(item)).map((item) => {
       const requiredThreshold = item.requiredLevel?.threshold ?? 0;
       return {
         ...item,
         canExchange:
+          growthEnabled &&
           pointsBalance >= item.pointsCost &&
           growthValue >= requiredThreshold &&
           !this.isSoldOutForDisplay(item),
@@ -78,6 +75,10 @@ export class GrowthExchangeService {
       });
       if (existing) {
         return existing;
+      }
+
+      if (!(await isGrowthEnabled(tx as any))) {
+        throw new BadRequestException('普通成长系统未启用');
       }
 
       const now = new Date();
@@ -207,7 +208,10 @@ export class GrowthExchangeService {
     if (item.stockDaily !== null && issuedToday >= item.stockDaily) {
       throw new BadRequestException('兑换项今日库存不足');
     }
-    if (COUPON_EXCHANGE_TYPES.has(item.type) && !item.couponCampaignId) {
+    if (!this.isFulfillable(item)) {
+      throw new BadRequestException('该兑换类型暂未接入发放通道');
+    }
+    if (isCouponBackedExchangeType(item.type) && !item.couponCampaignId) {
       throw new BadRequestException('红包兑换项缺少红包活动配置');
     }
   }
@@ -255,7 +259,7 @@ export class GrowthExchangeService {
     item: any,
     recordId: string,
   ) {
-    if (!COUPON_EXCHANGE_TYPES.has(item.type)) {
+    if (!isCouponBackedExchangeType(item.type)) {
       return null;
     }
     return this.couponAdapter.issueExchangeCoupon({
@@ -273,6 +277,10 @@ export class GrowthExchangeService {
     const day = this.businessDay(new Date());
     const issuedToday = item.issuedTodayDate === day ? item.issuedToday : 0;
     return item.stockDaily !== null && issuedToday >= item.stockDaily;
+  }
+
+  private isFulfillable(item: { type: string }) {
+    return isCouponBackedExchangeType(item.type);
   }
 
   private businessDay(now: Date) {

@@ -23,8 +23,8 @@
 
 - [x] **普通成长体系与普通分享码推广链路**（2026-07-04 新增并完成）
   - **来源**: 用户要求降低 VIP 门槛对推广的阻塞，新增可由后台配置的普通积分 / 成长值体系，并且红包奖励必须复用现有红包能力，不重写已完整的红包功能。
-  - **实际做了**: 新增独立 Growth / NormalShare 后端模块，覆盖普通积分账户、成长值账户、流水、行为规则、等级、兑换商品、普通分享码、普通分享绑定、延迟归因和幂等发放；积分不写入 `RewardAccount`、不提现、不直接抵扣订单现金，成长值只升等级不消耗；红包奖励通过现有 Coupon 发券能力发放。注册、签到、任务、普通商品确认收货、退款冲正、邀请好友首单奖励均已接入，手动确认和自动确认收货都会触发成长事件。管理后台新增“会员成长”运营台，支持配置行为规则、等级、兑换项、账户流水、普通分享码与绑定关系。买家 App 新增 `/me/growth` 普通成长中心和我的页入口，支持普通分享码二维码/复制/系统分享、绑定好友分享码和积分兑换；官网新增 `/s/{code}` 普通分享落地页，App 延迟深链区分普通 `/s`、VIP `/r`、团购 `/gb`。
-  - **验证**: `npx tsc --noEmit`、`cd backend && npm run build`、Growth / NormalShare / Admin Growth / 订单确认收货相关 Jest 通过；`cd website && npm run test:resolve`、`node --test scripts/__tests__/referralClipboard.test.mjs`、`cd website && npm run build` 通过；`cd admin && npm run build` 通过。
+  - **实际做了**: 新增独立 Growth / NormalShare 后端模块，覆盖普通积分账户、成长值账户、流水、行为规则、等级、兑换商品、普通分享码、普通分享绑定、延迟归因和幂等发放；积分不写入 `RewardAccount`、不提现、不直接抵扣订单现金，成长值只升等级不消耗；红包奖励通过现有 Coupon 发券能力发放。注册、签到、任务、普通商品确认收货、退款冲正、邀请好友首单奖励均已接入，手动确认和自动确认收货都会触发成长事件。管理后台新增“会员成长”运营台，支持配置行为规则、等级、兑换项、账户流水、普通分享码与绑定关系。买家 App 新增 `/me/growth` 普通成长中心和我的页入口，支持普通分享码二维码/复制/系统分享、绑定好友分享码和积分兑换；普通分享码加载失败或后台停用时，App 禁用复制和分享，避免继续传播不可用链接；成长页隐藏全局 AI 浮动入口，避免遮挡绑定、分享、兑换等推广动作；官网新增 `/s/{code}` 普通分享落地页，App 延迟深链区分普通 `/s`、VIP `/r`、团购 `/gb`。
+  - **验证**: `npx tsc --noEmit`、`cd backend && npm run build`、`cd backend && npx prisma validate`、Growth / NormalShare / Admin Growth / 签到 / 任务 / 售后退款冲正相关 targeted Jest 通过；`cd website && npm run test:resolve`、`node --test scripts/__tests__/referralClipboard.test.mjs`、`cd website && npm run build` 通过；`cd admin && npm run build` 通过，原有 `admin/src/pages/group-buy/activities.tsx` 隐式 `any` 构建阻塞已在本轮顺手修复。
 
 - [x] **管理后台运营工作台 V2 审查与优化**（2026-07-04 新增并完成）
   - **来源**: 用户要求全面审查管理后台工作台数据接口、真实可靠性、显示是否正常，并从运营经理视角补齐需要统计的内容。

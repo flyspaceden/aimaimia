@@ -266,6 +266,56 @@ export class AdminGrowthAdjustDto {
   reason!: string;
 }
 
+export class AdminGrowthSettingsDto {
+  @IsOptional()
+  @IsBoolean()
+  growthEnabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  pointsExpireDays?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  pointsExpireRemindDays?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  dailyPointsCap?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  monthlyPointsCap?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  dailyShareRewardUserCap?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  monthlyInviteFirstOrderCap?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  refundReversalEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  autoSuspendExchangeRisk?: boolean;
+}
+
+export class AdminNormalShareStatusDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class AdminGrowthAccountQueryDto {
   @IsOptional()
   @Type(() => Number)

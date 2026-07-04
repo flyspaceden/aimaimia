@@ -39,7 +39,9 @@ const makeHarness = (options: {
   account?: any;
   limitCount?: number;
   couponIssueError?: Error;
+  configs?: Record<string, unknown>;
 } = {}) => {
+  const configs = { GROWTH_ENABLED: true, ...(options.configs ?? {}) };
   const tx: any = {
     growthExchangeRecord: {
       findUnique: jest.fn().mockResolvedValue(options.existingRecord ?? null),
@@ -74,6 +76,12 @@ const makeHarness = (options: {
         id: 'ledger-1',
         ...data,
       })),
+    },
+    ruleConfig: {
+      findUnique: jest.fn(({ where }: any) => {
+        if (!(where.key in configs)) return null;
+        return { key: where.key, value: configs[where.key as keyof typeof configs] };
+      }),
     },
   };
 
@@ -199,6 +207,32 @@ describe('GrowthExchangeService', () => {
     await expect(
       service.exchange('user-1', 'item-1', { idempotencyKey: 'request-1' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(couponAdapter.issueExchangeCoupon).not.toHaveBeenCalled();
+  });
+
+  it('rejects exchange when the growth system switch is disabled before spending points', async () => {
+    const { service, tx, couponAdapter } = makeHarness({
+      configs: { GROWTH_ENABLED: false },
+    });
+
+    await expect(
+      service.exchange('user-1', 'item-1', { idempotencyKey: 'request-1' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.growthExchangeRecord.create).not.toHaveBeenCalled();
+    expect(tx.growthAccount.update).not.toHaveBeenCalled();
+    expect(couponAdapter.issueExchangeCoupon).not.toHaveBeenCalled();
+  });
+
+  it('rejects exchange types that do not have a fulfillment channel', async () => {
+    const { service, tx, couponAdapter } = makeHarness({
+      item: activeItem({ type: 'LOTTERY_CHANCE', couponCampaignId: null }),
+    });
+
+    await expect(
+      service.exchange('user-1', 'item-1', { idempotencyKey: 'request-1' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.growthExchangeRecord.create).not.toHaveBeenCalled();
+    expect(tx.growthAccount.update).not.toHaveBeenCalled();
     expect(couponAdapter.issueExchangeCoupon).not.toHaveBeenCalled();
   });
 

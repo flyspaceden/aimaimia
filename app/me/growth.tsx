@@ -115,6 +115,16 @@ export default function GrowthCenterScreen() {
   const isLoading = growthQuery.isLoading || shareQuery.isLoading;
   const levelPercent = Math.round((growth?.levelProgress?.ratio ?? 0) * 100);
   const shareUrl = shareProfile?.shareUrl ?? '';
+  const shareProfileError = shareQuery.data && !shareQuery.data.ok
+    ? (shareQuery.data.error.displayMessage ?? '普通分享码加载失败，请下拉刷新')
+    : null;
+  const isShareActive = shareProfile?.status === 'ACTIVE';
+  const canUseShareCode = Boolean(isShareActive && shareProfile?.code && shareUrl && !shareProfileError);
+  const shareStatusLabel = shareProfileError ? '加载失败' : isShareActive ? '可分享' : '已停用';
+  const shareHelpText = shareProfileError
+    ?? (shareProfile?.status === 'DISABLED'
+      ? (shareProfile.disabledReason ? `已停用：${shareProfile.disabledReason}` : '普通分享码已被后台停用，暂不可复制或分享')
+      : '好友注册后绑定关系，首单确认收货后按后台规则发放成长奖励');
 
   const nextLevelText = useMemo(() => {
     if (!growth?.nextLevel) return '已达最高等级';
@@ -134,8 +144,8 @@ export default function GrowthCenterScreen() {
   };
 
   const handleCopyShareCode = async () => {
-    if (!shareProfile?.code) {
-      show({ message: '分享码生成中', type: 'info' });
+    if (!canUseShareCode || !shareProfile?.code) {
+      show({ message: shareProfileError ?? '普通分享码暂不可用', type: 'info' });
       return;
     }
     await Clipboard.setStringAsync(shareProfile.code);
@@ -143,8 +153,8 @@ export default function GrowthCenterScreen() {
   };
 
   const handleShare = async () => {
-    if (!shareProfile?.code || !shareUrl) {
-      show({ message: '分享码生成中', type: 'info' });
+    if (!canUseShareCode || !shareProfile?.code || !shareUrl) {
+      show({ message: shareProfileError ?? '普通分享码暂不可用', type: 'info' });
       return;
     }
     try {
@@ -257,39 +267,50 @@ export default function GrowthCenterScreen() {
             >
               <View style={styles.sectionTitleRow}>
                 <Text style={[typography.headingSm, { color: colors.text.primary }]}>普通分享码</Text>
-                <Tag label={shareProfile?.status === 'ACTIVE' ? '可分享' : '已停用'} tone={shareProfile?.status === 'ACTIVE' ? 'brand' : 'neutral'} />
+                <Tag label={shareStatusLabel} tone={canUseShareCode ? 'brand' : 'neutral'} />
               </View>
               <AiDivider style={{ marginVertical: spacing.sm }} />
 
               <View style={styles.shareBody}>
                 <View style={[styles.qrBox, { borderRadius: radius.lg, borderColor: colors.border }]}>
-                  {shareUrl ? (
+                  {canUseShareCode ? (
                     <QRCode value={shareUrl} size={112} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
                   ) : (
-                    <MaterialCommunityIcons name="qrcode" size={48} color={colors.muted} />
+                    <MaterialCommunityIcons name={shareProfileError ? 'wifi-off' : 'link-off'} size={48} color={colors.muted} />
                   )}
                 </View>
                 <View style={styles.shareInfo}>
                   <Text style={[styles.shareCodeText, { color: colors.text.primary }]}>
-                    {shareProfile?.code ?? '生成中'}
+                    {shareProfile?.code ?? (shareProfileError ? '加载失败' : '生成中')}
                   </Text>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
-                    好友注册后绑定关系，首单确认收货后按后台规则发放成长奖励
+                    {shareHelpText}
                   </Text>
                   <View style={styles.shareActions}>
                     <Pressable
                       onPress={handleCopyShareCode}
-                      style={[styles.smallAction, { borderColor: colors.border, borderRadius: radius.pill }]}
+                      disabled={!canUseShareCode}
+                      style={[
+                        styles.smallAction,
+                        { borderColor: colors.border, borderRadius: radius.pill, opacity: canUseShareCode ? 1 : 0.48 },
+                      ]}
                     >
-                      <MaterialCommunityIcons name="content-copy" size={15} color={colors.text.primary} />
-                      <Text style={[typography.caption, { color: colors.text.primary, marginLeft: 4 }]}>复制</Text>
+                      <MaterialCommunityIcons name="content-copy" size={15} color={canUseShareCode ? colors.text.primary : colors.muted} />
+                      <Text style={[typography.caption, { color: canUseShareCode ? colors.text.primary : colors.muted, marginLeft: 4 }]}>复制</Text>
                     </Pressable>
                     <Pressable
                       onPress={handleShare}
-                      style={[styles.primaryAction, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
+                      disabled={!canUseShareCode}
+                      style={[
+                        styles.primaryAction,
+                        {
+                          backgroundColor: canUseShareCode ? colors.brand.primary : colors.border,
+                          borderRadius: radius.pill,
+                        },
+                      ]}
                     >
-                      <MaterialCommunityIcons name="share-variant-outline" size={15} color="#FFFFFF" />
-                      <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', marginLeft: 4 }]}>分享</Text>
+                      <MaterialCommunityIcons name="share-variant-outline" size={15} color={canUseShareCode ? '#FFFFFF' : colors.text.secondary} />
+                      <Text {...compactActionTextProps} style={[typography.caption, { color: canUseShareCode ? '#FFFFFF' : colors.text.secondary, marginLeft: 4 }]}>分享</Text>
                     </Pressable>
                   </View>
                 </View>

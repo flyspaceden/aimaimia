@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
+import { resolveGrowthLevelCode, syncGrowthAccountLevel } from '../../growth/growth-config.util';
 import {
   AdminGrowthAccountQueryDto,
   AdminGrowthAdjustDto,
@@ -15,11 +16,23 @@ import {
   AdminGrowthLedgerQueryDto,
   AdminGrowthLevelDto,
   AdminGrowthRuleDto,
+  AdminGrowthSettingsDto,
   AdminGrowthUpdateExchangeItemDto,
   AdminNormalShareBindingQueryDto,
 } from './dto/admin-growth.dto';
 
 const COUPON_EXCHANGE_TYPES = new Set(['COUPON', 'SHIPPING_COUPON', 'VIP_DISCOUNT_COUPON']);
+const GROWTH_SETTINGS = [
+  { dtoKey: 'growthEnabled', configKey: 'GROWTH_ENABLED', defaultValue: false },
+  { dtoKey: 'pointsExpireDays', configKey: 'GROWTH_POINTS_EXPIRE_DAYS', defaultValue: 365 },
+  { dtoKey: 'pointsExpireRemindDays', configKey: 'GROWTH_POINTS_EXPIRE_REMIND_DAYS', defaultValue: 30 },
+  { dtoKey: 'dailyPointsCap', configKey: 'GROWTH_DAILY_POINTS_CAP', defaultValue: 300 },
+  { dtoKey: 'monthlyPointsCap', configKey: 'GROWTH_MONTHLY_POINTS_CAP', defaultValue: 3000 },
+  { dtoKey: 'dailyShareRewardUserCap', configKey: 'GROWTH_DAILY_SHARE_REWARD_USER_CAP', defaultValue: 5 },
+  { dtoKey: 'monthlyInviteFirstOrderCap', configKey: 'GROWTH_MONTHLY_INVITE_FIRST_ORDER_CAP', defaultValue: 20 },
+  { dtoKey: 'refundReversalEnabled', configKey: 'GROWTH_REFUND_REVERSAL_ENABLED', defaultValue: true },
+  { dtoKey: 'autoSuspendExchangeRisk', configKey: 'GROWTH_AUTO_SUSPEND_EXCHANGE_RISK', defaultValue: false },
+] as const;
 const ALLOWED_BEHAVIOR_CODES = new Set([
   'REGISTER',
   'COMPLETE_PROFILE',
@@ -77,7 +90,9 @@ export class AdminGrowthService {
         where: { status: 'SUCCESS' },
       }),
       (this.prisma as any).normalShareBinding.count({
-        where: { rewardStatus: 'FIRST_ORDER_PENDING' },
+        where: {
+          rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
+        },
       }),
       (this.prisma as any).growthBehaviorRule.count({
         where: { enabled: true },
@@ -107,6 +122,42 @@ export class AdminGrowthService {
       include: { category: true },
       orderBy: [{ categoryCode: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+  }
+
+  async getSettings() {
+    const configs = await (this.prisma as any).ruleConfig.findMany({
+      where: { key: { in: GROWTH_SETTINGS.map((item) => item.configKey) } },
+    });
+    const configMap = new Map(configs.map((item: any) => [item.key, item.value]));
+    return GROWTH_SETTINGS.reduce((acc, item) => {
+      acc[item.dtoKey] = configMap.has(item.configKey) ? configMap.get(item.configKey) : item.defaultValue;
+      return acc;
+    }, {} as Record<string, unknown>);
+  }
+
+  async updateSettings(dto: AdminGrowthSettingsDto) {
+    const updates = GROWTH_SETTINGS
+      .filter((item) => (dto as any)[item.dtoKey] !== undefined)
+      .map((item) => ({
+        key: item.configKey,
+        value: (dto as any)[item.dtoKey],
+      }));
+
+    if (updates.length === 0) {
+      throw new BadRequestException('没有可保存的成长设置');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const update of updates) {
+        await (tx as any).ruleConfig.upsert({
+          where: { key: update.key },
+          create: update,
+          update: { value: update.value },
+        });
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    return this.getSettings();
   }
 
   listLevels() {
@@ -173,6 +224,7 @@ export class AdminGrowthService {
       await (tx as any).growthLevel.createMany({
         data: normalized,
       });
+      await this.refreshAllAccountLevelCodes(tx);
       return (tx as any).growthLevel.findMany({
         orderBy: [{ threshold: 'asc' }, { sortOrder: 'asc' }],
       });
@@ -402,6 +454,7 @@ export class AdminGrowthService {
           growthValue: { increment: growthDelta },
         },
       });
+      await syncGrowthAccountLevel(tx as any, account);
 
       await (tx as any).userProfile.upsert({
         where: { userId: resolvedUserId },
@@ -430,6 +483,30 @@ export class AdminGrowthService {
         },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async setNormalShareProfileStatus(
+    userIdOrBuyerNo: string,
+    status: 'ACTIVE' | 'DISABLED',
+    reason?: string,
+  ) {
+    const resolvedUserId = await resolveBuyerUserId(this.prisma as any, userIdOrBuyerNo);
+    const profile = await (this.prisma as any).normalShareProfile.findUnique({
+      where: { userId: resolvedUserId },
+    });
+    if (!profile) {
+      throw new NotFoundException('普通分享码不存在');
+    }
+
+    return (this.prisma as any).normalShareProfile.update({
+      where: { userId: resolvedUserId },
+      data: {
+        status,
+        disabledReason: status === 'DISABLED'
+          ? (reason?.trim() || '管理员停用')
+          : null,
+      },
+    });
   }
 
   private assertKnownBehaviorCode(code: string) {
@@ -501,6 +578,21 @@ export class AdminGrowthService {
       status: dto.status ?? 'ACTIVE',
       sortOrder: dto.sortOrder ?? 0,
     };
+  }
+
+  private async refreshAllAccountLevelCodes(tx: Prisma.TransactionClient) {
+    const accounts = await (tx as any).growthAccount.findMany({
+      select: { id: true, growthValue: true, currentLevelCode: true },
+    });
+    for (const account of accounts) {
+      const nextLevelCode = await resolveGrowthLevelCode(tx as any, account.growthValue);
+      if ((account.currentLevelCode ?? null) !== nextLevelCode) {
+        await (tx as any).growthAccount.update({
+          where: { id: account.id },
+          data: { currentLevelCode: nextLevelCode },
+        });
+      }
+    }
   }
 
   private normalizeExchangeItemUpdate(existing: any, dto: AdminGrowthUpdateExchangeItemDto) {

@@ -858,9 +858,7 @@ export class CouponService {
       throw new ConflictException('发放冲突，请重试');
     }
 
-    const expiresAt = campaign.validDays > 0
-      ? new Date(now.getTime() + campaign.validDays * 24 * 60 * 60 * 1000)
-      : campaign.endAt;
+    const expiresAt = this.resolveCouponExpiresAt(campaign, now);
 
     const instance = await tx.couponInstance.create({
       data: {

@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  addDays,
+  isGrowthEnabled,
+  isGrowthRefundReversalEnabled,
+  readGrowthConfigInt,
+  syncGrowthAccountLevel,
+} from './growth-config.util';
 
 export type GrowthEvent = {
   userId: string;
@@ -32,6 +39,13 @@ export class GrowthEventService {
         return {
           status: 'DUPLICATE',
           ledger: existing,
+        };
+      }
+
+      if (!(await isGrowthEnabled(tx as any))) {
+        return {
+          status: 'SKIPPED',
+          reason: 'SYSTEM_DISABLED',
         };
       }
 
@@ -73,7 +87,15 @@ export class GrowthEventService {
         };
       }
 
-      const pointsDelta = this.applyMultiplier(
+      const configLimitReason = await this.findConfigLimitReason(tx, event, now);
+      if (configLimitReason) {
+        return {
+          status: 'SKIPPED',
+          reason: configLimitReason,
+        };
+      }
+
+      let pointsDelta = this.applyMultiplier(
         rule.pointsReward,
         userTier === 'VIP' ? rule.vipPointsMultiplier : null,
       );
@@ -81,6 +103,7 @@ export class GrowthEventService {
         rule.growthReward,
         userTier === 'VIP' ? rule.vipGrowthMultiplier : null,
       );
+      pointsDelta = await this.applyGlobalPointCaps(tx, event.userId, pointsDelta, now);
       if (pointsDelta === 0 && growthDelta === 0) {
         return {
           status: 'SKIPPED',
@@ -103,7 +126,9 @@ export class GrowthEventService {
           growthValue: { increment: growthDelta },
         },
       });
+      await syncGrowthAccountLevel(tx as any, account);
 
+      const expiresAt = pointsDelta > 0 ? await this.resolvePointsExpiresAt(tx, now) : null;
       const ledger = await tx.growthLedger.create({
         data: {
           userId: event.userId,
@@ -116,6 +141,7 @@ export class GrowthEventService {
           idempotencyKey: event.idempotencyKey,
           refType: event.refType,
           refId: event.refId,
+          expiresAt,
           meta: event.meta ? (event.meta as Prisma.InputJsonObject) : Prisma.JsonNull,
         },
       });
@@ -167,8 +193,17 @@ export class GrowthEventService {
       };
     }
 
-    const pointsDelta = event.pointsReward ?? 0;
+    if (!(await isGrowthEnabled(tx as any))) {
+      return {
+        status: 'SKIPPED',
+        reason: 'SYSTEM_DISABLED',
+      };
+    }
+
+    const now = new Date();
+    let pointsDelta = event.pointsReward ?? 0;
     const growthDelta = event.growthReward ?? 0;
+    pointsDelta = await this.applyGlobalPointCaps(tx, event.userId, pointsDelta, now);
     if (pointsDelta === 0 && growthDelta === 0) {
       return {
         status: 'SKIPPED',
@@ -191,7 +226,9 @@ export class GrowthEventService {
         growthValue: { increment: growthDelta },
       },
     });
+    await syncGrowthAccountLevel(tx as any, account);
 
+    const expiresAt = pointsDelta > 0 ? await this.resolvePointsExpiresAt(tx, now) : null;
     const ledger = await tx.growthLedger.create({
       data: {
         userId: event.userId,
@@ -204,6 +241,7 @@ export class GrowthEventService {
         idempotencyKey: event.idempotencyKey,
         refType: event.refType,
         refId: event.refId,
+        expiresAt,
         meta: event.meta ? (event.meta as Prisma.InputJsonObject) : Prisma.JsonNull,
       },
     });
@@ -231,6 +269,15 @@ export class GrowthEventService {
 
   async reverseByRef(refType: string, refId: string) {
     return this.prisma.$transaction(async (tx) => {
+      if (!(await isGrowthRefundReversalEnabled(tx as any))) {
+        return {
+          reversedCount: 0,
+          reversedPoints: 0,
+          reversedGrowth: 0,
+          skippedReason: 'REVERSAL_DISABLED',
+        };
+      }
+
       const ledgers = await tx.growthLedger.findMany({
         where: {
           refType,
@@ -256,13 +303,14 @@ export class GrowthEventService {
           continue;
         }
 
-        await tx.growthAccount.update({
+        const account = await tx.growthAccount.update({
           where: { id: ledger.accountId },
           data: {
             pointsBalance: { decrement: ledger.pointsDelta },
             growthValue: { decrement: ledger.growthDelta },
           },
         });
+        await syncGrowthAccountLevel(tx as any, account);
 
         await tx.userProfile.upsert({
           where: { userId: ledger.userId },
@@ -339,6 +387,28 @@ export class GrowthEventService {
     return null;
   }
 
+  private async findConfigLimitReason(
+    tx: Prisma.TransactionClient,
+    event: GrowthEvent,
+    now: Date,
+  ): Promise<string | null> {
+    if (event.behaviorCode === 'NORMAL_INVITE_REGISTER') {
+      const dailyLimit = await readGrowthConfigInt(tx as any, 'GROWTH_DAILY_SHARE_REWARD_USER_CAP', 0);
+      if (await this.isConfigLimitReached(tx, event, dailyLimit, this.startOfDay(now))) {
+        return 'CONFIG_DAILY_SHARE_REWARD_LIMIT';
+      }
+    }
+
+    if (event.behaviorCode === 'NORMAL_INVITE_FIRST_ORDER') {
+      const monthlyLimit = await readGrowthConfigInt(tx as any, 'GROWTH_MONTHLY_INVITE_FIRST_ORDER_CAP', 0);
+      if (await this.isConfigLimitReached(tx, event, monthlyLimit, this.startOfMonth(now))) {
+        return 'CONFIG_MONTHLY_INVITE_FIRST_ORDER_LIMIT';
+      }
+    }
+
+    return null;
+  }
+
   private async isLimitReached(
     tx: Prisma.TransactionClient,
     event: GrowthEvent,
@@ -359,6 +429,70 @@ export class GrowthEventService {
 
     const count = await tx.growthLedger.count({ where });
     return count >= limit;
+  }
+
+  private async isConfigLimitReached(
+    tx: Prisma.TransactionClient,
+    event: GrowthEvent,
+    limit: number,
+    createdAfter: Date,
+  ) {
+    if (!limit || limit <= 0) return false;
+    const count = await tx.growthLedger.count({
+      where: {
+        userId: event.userId,
+        behaviorCode: event.behaviorCode,
+        status: 'POSTED',
+        createdAt: { gte: createdAfter },
+      },
+    });
+    return count >= limit;
+  }
+
+  private async applyGlobalPointCaps(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    pointsDelta: number,
+    now: Date,
+  ) {
+    if (pointsDelta <= 0) return pointsDelta;
+
+    let allowed = pointsDelta;
+    const dailyCap = await readGrowthConfigInt(tx as any, 'GROWTH_DAILY_POINTS_CAP', 0);
+    if (dailyCap > 0) {
+      const usedToday = await this.sumEarnedPoints(tx, userId, this.startOfDay(now));
+      allowed = Math.min(allowed, Math.max(0, dailyCap - usedToday));
+    }
+
+    const monthlyCap = await readGrowthConfigInt(tx as any, 'GROWTH_MONTHLY_POINTS_CAP', 0);
+    if (monthlyCap > 0) {
+      const usedThisMonth = await this.sumEarnedPoints(tx, userId, this.startOfMonth(now));
+      allowed = Math.min(allowed, Math.max(0, monthlyCap - usedThisMonth));
+    }
+
+    return Math.max(0, allowed);
+  }
+
+  private async sumEarnedPoints(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    createdAfter: Date,
+  ) {
+    const result = await tx.growthLedger.aggregate({
+      where: {
+        userId,
+        status: 'POSTED',
+        pointsDelta: { gt: 0 },
+        createdAt: { gte: createdAfter },
+      },
+      _sum: { pointsDelta: true },
+    });
+    return result._sum.pointsDelta ?? 0;
+  }
+
+  private async resolvePointsExpiresAt(tx: Prisma.TransactionClient, now: Date) {
+    const expireDays = await readGrowthConfigInt(tx as any, 'GROWTH_POINTS_EXPIRE_DAYS', 365);
+    return addDays(now, Math.max(1, expireDays));
   }
 
   private applyMultiplier(value: number, multiplier?: number | null) {
