@@ -349,17 +349,19 @@ export class AdminStatsService {
     // 2 次 $queryRaw 替代 7×2 循环查询
     const [orderCounts, orderAmounts] = await Promise.all([
       this.prisma.$queryRaw<{ date: string; count: bigint }[]>`
-        SELECT DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours') as date, COUNT(*)::bigint as count
+        SELECT TO_CHAR(DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours'), 'YYYY-MM-DD') as date, COUNT(*)::bigint as count
         FROM "Order"
         WHERE COALESCE("paidAt", "createdAt") >= ${startDate}
+          AND "deletedAt" IS NULL
           AND status IN ('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED')
         GROUP BY DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours')
         ORDER BY date ASC
       `,
       this.prisma.$queryRaw<{ date: string; amount: number }[]>`
-        SELECT DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours') as date, COALESCE(SUM("totalAmount"), 0) as amount
+        SELECT TO_CHAR(DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours'), 'YYYY-MM-DD') as date, COALESCE(SUM("totalAmount"), 0) as amount
         FROM "Order"
         WHERE COALESCE("paidAt", "createdAt") >= ${startDate}
+          AND "deletedAt" IS NULL
           AND status IN ('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED')
         GROUP BY DATE(COALESCE("paidAt", "createdAt") + INTERVAL '8 hours')
         ORDER BY date ASC

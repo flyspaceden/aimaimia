@@ -82,6 +82,15 @@ const paymentChannelText: Record<string, string> = {
   AGGREGATOR: '聚合',
 };
 
+const capitalDescriptionMap: Record<string, string> = {
+  可用奖励: '可提现或可用于订单抵扣的消费积分',
+  冻结奖励: '奖励保护期内暂不可用的金额',
+  售后冻结: '订单售后处理中被临时冻结的奖励',
+  预留奖励: '已占用但尚未完成结算的奖励',
+  数字资产: '按累计消费形成的数字资产余额',
+  提现处理中: '已提交提现、等待到账的金额',
+};
+
 const chartPalette = ['#1d4ed8', '#15803d', '#c2410c', '#6d28d9', '#0f766e', '#b91c1c', '#475569'];
 
 const hasChartData = (data: ChartDatum[]) => data.some((item) => Number(item.value) > 0);
@@ -136,9 +145,11 @@ function ChartContent({
 function ChartValueList({
   data,
   formatter = (value: number) => String(value),
+  descriptionMap,
 }: {
   data: ChartDatum[];
   formatter?: (value: number) => string;
+  descriptionMap?: Record<string, string>;
 }) {
   const visibleData = data
     .map((item, index) => ({ ...item, color: chartPalette[index % chartPalette.length] }))
@@ -146,27 +157,37 @@ function ChartValueList({
   const total = visibleData.reduce((sum, item) => sum + Number(item.value || 0), 0);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginTop: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
       {visibleData.map((item) => {
         const percent = total > 0 ? `${((Number(item.value) / total) * 100).toFixed(1)}%` : '0%';
         return (
           <div
             key={item.type}
             style={{
-              display: 'grid',
-              gridTemplateColumns: '10px minmax(0, 1fr) auto',
-              gap: 8,
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
               alignItems: 'center',
+              flexWrap: 'wrap',
               border: '1px solid #e2e8f0',
               borderRadius: 8,
-              padding: '8px 10px',
-              background: '#fff',
+              padding: '10px 12px',
+              background: '#f8fafc',
             }}
           >
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color }} />
-            <Text type="secondary" ellipsis>{item.type}</Text>
-            <Space size={6}>
-              <Text strong>{formatter(Number(item.value))}</Text>
+            <Space size={10} align="start" style={{ flex: '1 1 220px', minWidth: 0 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: item.color, marginTop: 5, flex: '0 0 auto' }} />
+              <span>
+                <Text strong style={{ color: '#0f172a' }}>{item.type}</Text>
+                {descriptionMap?.[item.type] ? (
+                  <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>
+                    {descriptionMap[item.type]}
+                  </div>
+                ) : null}
+              </span>
+            </Space>
+            <Space size={10} style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+              <Text strong style={{ fontSize: 15 }}>{formatter(Number(item.value))}</Text>
               <Text type="secondary">{percent}</Text>
             </Space>
           </div>
@@ -450,6 +471,12 @@ export default function DashboardPage() {
     height: 238,
     label: false,
     legend: false,
+    tooltip: {
+      formatter: (datum: ChartDatum) => ({
+        name: '金额',
+        value: money(Number(datum.value)),
+      }),
+    },
   };
   const activityColumnConfig = {
     data: activityChartData,
@@ -592,7 +619,7 @@ export default function DashboardPage() {
           <ShellCard title="资金结构" extra={<Text type="secondary">奖励 · 数字资产 · 提现</Text>}>
             <ChartContent loading={overviewLoading} data={capitalChartData} emptyText="暂无资金结构数据">
               <Pie {...capitalPieConfig} />
-              <ChartValueList data={capitalChartData} formatter={money} />
+              <ChartValueList data={capitalChartData} formatter={money} descriptionMap={capitalDescriptionMap} />
             </ChartContent>
           </ShellCard>
         </Col>

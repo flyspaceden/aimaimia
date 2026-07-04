@@ -23,7 +23,7 @@ test('operations overview uses effective paid time and active-window filters for
   assert.match(service, /const paidOrderDateWhere = \{[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
   assert.match(service, /const paidPaymentDateWhere = \{[\s\S]*OR:\s*\[[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
   assert.match(service, /this\.prisma\.payment\.groupBy\(\{[\s\S]*\.\.\.paidPaymentDateWhere/);
-  assert.match(service, /SELECT DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\) as date, COUNT\(\*\)::bigint as count/);
+  assert.match(service, /SELECT TO_CHAR\(DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\), 'YYYY-MM-DD'\) as date, COUNT\(\*\)::bigint as count/);
   assert.match(service, /AND status IN \('PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'\)/);
   assert.match(service, /const drawDate = this\.todayChinaDate\(\)/);
   assert.match(service, /lotteryRecord\.count\(\{ where: \{ drawDate \} \}\)/);
@@ -34,7 +34,7 @@ test('operations overview uses effective paid time and active-window filters for
 
 test('operations dashboard counts legacy paid orders when paidAt is missing', () => {
   assert.match(service, /const paidOrderDateWhere = \{[\s\S]*OR:\s*\[[\s\S]*paidAt:\s*\{\s*gte:\s*startOfDay\s*\}[\s\S]*paidAt:\s*null[\s\S]*createdAt:\s*\{\s*gte:\s*startOfDay\s*\}/);
-  assert.match(service, /DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\) as date, COUNT\(\*\)::bigint as count/);
+  assert.match(service, /TO_CHAR\(DATE\(COALESCE\("paidAt", "createdAt"\) \+ INTERVAL '8 hours'\), 'YYYY-MM-DD'\) as date, COUNT\(\*\)::bigint as count/);
   assert.match(service, /WHERE COALESCE\("paidAt", "createdAt"\) >= \$\{startDate\}/);
   assert.doesNotMatch(service, /AND "paidAt" IS NOT NULL/);
 });
@@ -70,6 +70,11 @@ test('admin dashboard displays operator-friendly sections and guidance', () => {
 
 test('admin dashboard keeps dense pie charts readable without outside labels', () => {
   assert.match(dashboard, /const capitalPieConfig = \{[\s\S]*label:\s*false/);
+  assert.match(dashboard, /tooltip:\s*\{[\s\S]*name:\s*'金额'[\s\S]*value:\s*money/);
+  assert.match(dashboard, /const capitalDescriptionMap: Record<string, string> = \{/);
+  assert.match(dashboard, /descriptionMap=\{capitalDescriptionMap\}/);
+  assert.doesNotMatch(dashboard, /<Text type="secondary" ellipsis>\{item\.type\}<\/Text>/);
+  assert.doesNotMatch(dashboard, /gridTemplateColumns:\s*'repeat\(auto-fit, minmax\(150px, 1fr\)\)'/);
   assert.doesNotMatch(dashboard, /const capitalPieConfig = \{[\s\S]*position:\s*'outside'[\s\S]*legend:/);
 });
 
