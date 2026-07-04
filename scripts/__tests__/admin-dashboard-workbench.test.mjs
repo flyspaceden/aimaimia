@@ -39,6 +39,7 @@ test('admin dashboard displays operator-friendly sections and guidance', () => {
   assert.match(dashboard, /60 秒刷新/);
   assert.match(dashboard, /paymentChannelText/);
   assert.match(dashboard, /orderStatusText/);
+  assert.doesNotMatch(dashboard, /title:\s*'提现失败'/);
 });
 
 test('group buy activity tier removal callback keeps explicit types for admin build', () => {

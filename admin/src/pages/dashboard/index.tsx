@@ -255,7 +255,6 @@ export default function DashboardPage() {
     { title: '企业审核', value: pending?.companyReviews ?? 0, tone: 'orange' as Tone, icon: <BankOutlined />, path: '/companies' },
     { title: '提现审核', value: pending?.withdrawalReviews ?? 0, tone: 'red' as Tone, icon: <DollarOutlined />, path: '/bonus/withdrawals' },
     { title: '提现处理中', value: pending?.withdrawalProcessing ?? 0, tone: 'purple' as Tone, icon: <WalletOutlined />, path: '/bonus/withdrawals' },
-    { title: '提现失败', value: pending?.withdrawalFailed ?? 0, tone: 'red' as Tone, icon: <ExceptionOutlined />, path: '/bonus/withdrawals' },
     { title: '售后申请', value: pending?.afterSaleRequests ?? 0, tone: 'orange' as Tone, icon: <ExceptionOutlined />, path: '/after-sale' },
     { title: '卖家审核中', value: pending?.afterSaleSellerReviews ?? 0, tone: 'blue' as Tone, icon: <ClockCircleOutlined />, path: '/after-sale' },
     { title: '退货处理中', value: pending?.afterSaleReturns ?? 0, tone: 'purple' as Tone, icon: <ExceptionOutlined />, path: '/after-sale' },
