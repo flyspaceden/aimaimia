@@ -136,6 +136,90 @@ export class GrowthEventService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  async reverseByRef(refType: string, refId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const ledgers = await tx.growthLedger.findMany({
+        where: {
+          refType,
+          refId,
+          status: 'POSTED',
+        },
+      });
+
+      let reversedCount = 0;
+      let reversedPoints = 0;
+      let reversedGrowth = 0;
+
+      for (const ledger of ledgers) {
+        if (ledger.pointsDelta === 0 && ledger.growthDelta === 0) {
+          continue;
+        }
+
+        const idempotencyKey = `GROWTH_REVERSE:${ledger.id}`;
+        const existing = await tx.growthLedger.findUnique({
+          where: { idempotencyKey },
+        });
+        if (existing) {
+          continue;
+        }
+
+        await tx.growthAccount.update({
+          where: { id: ledger.accountId },
+          data: {
+            pointsBalance: { decrement: ledger.pointsDelta },
+            growthValue: { decrement: ledger.growthDelta },
+          },
+        });
+
+        await tx.userProfile.upsert({
+          where: { userId: ledger.userId },
+          create: {
+            userId: ledger.userId,
+            points: -ledger.pointsDelta,
+            growthPoints: -ledger.growthDelta,
+          },
+          update: {
+            points: { decrement: ledger.pointsDelta },
+            growthPoints: { decrement: ledger.growthDelta },
+          },
+        });
+
+        await tx.growthLedger.create({
+          data: {
+            userId: ledger.userId,
+            accountId: ledger.accountId,
+            type: ledger.pointsDelta !== 0 ? 'POINTS_REVERSE' : 'GROWTH_REVERSE',
+            behaviorCode: ledger.behaviorCode,
+            pointsDelta: -ledger.pointsDelta,
+            growthDelta: -ledger.growthDelta,
+            status: 'POSTED',
+            idempotencyKey,
+            refType,
+            refId,
+            meta: {
+              reversedLedgerId: ledger.id,
+            },
+          },
+        });
+
+        await tx.growthLedger.update({
+          where: { id: ledger.id },
+          data: { status: 'REVERSED' },
+        });
+
+        reversedCount += 1;
+        reversedPoints += ledger.pointsDelta;
+        reversedGrowth += ledger.growthDelta;
+      }
+
+      return {
+        reversedCount,
+        reversedPoints,
+        reversedGrowth,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   private async findLimitReason(
     tx: Prisma.TransactionClient,
     event: GrowthEvent,

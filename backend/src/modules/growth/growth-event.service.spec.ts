@@ -24,18 +24,22 @@ const activeRule = (overrides: Record<string, unknown> = {}) => ({
 const makeHarness = (options: {
   rule?: any;
   existingLedger?: any;
+  ledgersToReverse?: any[];
+  existingReverseLedger?: any;
   limitCount?: number;
   memberTier?: 'NORMAL' | 'VIP' | null;
 } = {}) => {
   const tx: any = {
     growthLedger: {
       findUnique: jest.fn().mockResolvedValue(options.existingLedger ?? null),
+      findMany: jest.fn().mockResolvedValue(options.ledgersToReverse ?? []),
       count: jest.fn().mockResolvedValue(options.limitCount ?? 0),
       create: jest.fn(({ data }: any) => ({
         id: 'ledger-1',
         createdAt: new Date('2026-07-03T00:00:00.000Z'),
         ...data,
       })),
+      update: jest.fn(({ data }: any) => ({ id: 'ledger-original', ...data })),
     },
     growthBehaviorRule: {
       findUnique: jest.fn().mockResolvedValue(options.rule ?? activeRule()),
@@ -52,11 +56,21 @@ const makeHarness = (options: {
         pointsBalance: create?.pointsBalance ?? update?.pointsBalance?.increment ?? 0,
         growthValue: create?.growthValue ?? update?.growthValue?.increment ?? 0,
       })),
+      update: jest.fn().mockResolvedValue({ id: 'account-1' }),
     },
     userProfile: {
       upsert: jest.fn().mockResolvedValue({ userId: 'u1' }),
     },
   };
+
+  if (options.existingReverseLedger) {
+    tx.growthLedger.findUnique.mockImplementation(({ where }: any) => {
+      if (where.idempotencyKey === options.existingReverseLedger.idempotencyKey) {
+        return Promise.resolve(options.existingReverseLedger);
+      }
+      return Promise.resolve(options.existingLedger ?? null);
+    });
+  }
 
   const prisma: any = {
     $transaction: jest.fn((callback: any, transactionOptions: any) =>
@@ -188,5 +202,88 @@ describe('GrowthEventService', () => {
       }),
     }));
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverses posted ledgers by ref without deleting the original ledger', async () => {
+    const { tx, service } = makeHarness({
+      ledgersToReverse: [
+        {
+          id: 'ledger-original',
+          userId: 'u1',
+          accountId: 'account-1',
+          type: 'POINTS_EARN',
+          behaviorCode: 'FIRST_ORDER_RECEIVED',
+          pointsDelta: 100,
+          growthDelta: 200,
+          refType: 'ORDER',
+          refId: 'order-1',
+          meta: null,
+        },
+      ],
+    });
+
+    const { result } = await service.reverseByRef('ORDER', 'order-1') as any;
+
+    expect(result).toMatchObject({
+      reversedCount: 1,
+      reversedPoints: 100,
+      reversedGrowth: 200,
+    });
+    expect(tx.growthLedger.findMany).toHaveBeenCalledWith({
+      where: {
+        refType: 'ORDER',
+        refId: 'order-1',
+        status: 'POSTED',
+      },
+    });
+    expect(tx.growthAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-1' },
+      data: {
+        pointsBalance: { decrement: 100 },
+        growthValue: { decrement: 200 },
+      },
+    });
+    expect(tx.growthLedger.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        type: 'POINTS_REVERSE',
+        pointsDelta: -100,
+        growthDelta: -200,
+        idempotencyKey: 'GROWTH_REVERSE:ledger-original',
+      }),
+    }));
+    expect(tx.growthLedger.update).toHaveBeenCalledWith({
+      where: { id: 'ledger-original' },
+      data: { status: 'REVERSED' },
+    });
+  });
+
+  it('does not reverse the same ledger twice', async () => {
+    const { tx, service } = makeHarness({
+      existingReverseLedger: {
+        id: 'reverse-existing',
+        idempotencyKey: 'GROWTH_REVERSE:ledger-original',
+      },
+      ledgersToReverse: [
+        {
+          id: 'ledger-original',
+          userId: 'u1',
+          accountId: 'account-1',
+          pointsDelta: 100,
+          growthDelta: 200,
+          refType: 'ORDER',
+          refId: 'order-1',
+        },
+      ],
+    });
+
+    const { result } = await service.reverseByRef('ORDER', 'order-1') as any;
+
+    expect(result).toMatchObject({
+      reversedCount: 0,
+      reversedPoints: 0,
+      reversedGrowth: 0,
+    });
+    expect(tx.growthAccount.update).not.toHaveBeenCalled();
+    expect(tx.growthLedger.create).not.toHaveBeenCalled();
   });
 });
