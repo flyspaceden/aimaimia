@@ -16,6 +16,11 @@ export class GrowthController {
     return this.growthService.getMe(userId);
   }
 
+  @Get('guide')
+  getGuide(@CurrentUser('sub') userId: string) {
+    return this.growthService.getGuide(userId);
+  }
+
   @Get('exchange/items')
   getExchangeItems(@CurrentUser('sub') userId: string) {
     return this.exchangeService.listItems(userId);

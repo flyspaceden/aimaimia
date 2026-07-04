@@ -2,9 +2,9 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BindNormalShareDto } from './dto/bind-normal-share.dto';
+import { generateNormalShareCode } from './normal-share-code.util';
 
 const SHARE_BASE_URL = process.env.NORMAL_SHARE_BASE_URL || 'https://app.ai-maimai.com';
-const SHARE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 @Injectable()
 export class NormalShareService {
@@ -179,10 +179,6 @@ export class NormalShareService {
   }
 
   private generateCode() {
-    let code = 'S';
-    for (let i = 0; i < 7; i++) {
-      code += SHARE_CODE_ALPHABET.charAt(Math.floor(Math.random() * SHARE_CODE_ALPHABET.length));
-    }
-    return code;
+    return generateNormalShareCode();
   }
 }

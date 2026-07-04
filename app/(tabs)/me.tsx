@@ -144,6 +144,7 @@ export default function MeScreen() {
     : '未上榜';
   const isVip = member?.tier === 'VIP';
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
+  const showNormalShareEntry = Boolean(memberData?.ok && !isVip);
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
   const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
 
@@ -186,6 +187,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
       queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] }),
     ]);
     setRefreshing(false);
@@ -341,6 +343,14 @@ export default function MeScreen() {
                   >
                     <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
                     <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                  </Pressable>
+                ) : showNormalShareEntry ? (
+                  <Pressable
+                    onPress={() => router.push('/me/growth')}
+                    style={[styles.normalShareChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
+                  >
+                    <MaterialCommunityIcons name="sprout-outline" size={15} color={colors.brand.primary} />
+                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.brand.primary, marginLeft: 3 }]}>普通推荐码</Text>
                   </Pressable>
                 ) : <View />}
                 <Pressable
@@ -858,6 +868,13 @@ export default function MeScreen() {
 const styles = StyleSheet.create({
   // 推荐码按钮（用户名旁）
   referralChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  normalShareChip: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',

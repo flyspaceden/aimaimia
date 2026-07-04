@@ -21,7 +21,7 @@ import { AiDivider, Tag } from '../../src/components/ui';
 import { CouponRepo, GrowthRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
-import type { GrowthExchangeItem, NormalShareRecord } from '../../src/types';
+import type { GrowthExchangeItem, GrowthGuideRule, NormalShareRecord } from '../../src/types';
 
 const exchangeTypeLabels: Record<GrowthExchangeItem['type'], string> = {
   COUPON: '平台红包',
@@ -39,6 +39,33 @@ const rewardStatusLabels: Record<NormalShareRecord['rewardStatus'], string> = {
   REVERSED: '已冲正',
   VOIDED: '已作废',
 };
+
+const grantTimingLabels: Record<string, string> = {
+  IMMEDIATE: '达成后立即发放',
+  CONFIRMED_RECEIPT: '确认收货后发放',
+  AFTER_SALE_WINDOW: '售后期结束后发放',
+  MANUAL: '人工审核后发放',
+};
+
+function formatRewardText(rule: GrowthGuideRule) {
+  const rewards = [];
+  if (rule.pointsReward) rewards.push(`${rule.pointsReward} 积分`);
+  if (rule.growthReward) rewards.push(`${rule.growthReward} 成长值`);
+  return rewards.length > 0 ? rewards.join(' + ') : '无奖励';
+}
+
+function formatLimitText(rule: GrowthGuideRule) {
+  const limits = [];
+  if (rule.dailyLimit) limits.push(`每日 ${rule.dailyLimit} 次`);
+  if (rule.weeklyLimit) limits.push(`每周 ${rule.weeklyLimit} 次`);
+  if (rule.monthlyLimit) limits.push(`每月 ${rule.monthlyLimit} 次`);
+  if (rule.lifetimeLimit) limits.push(`共 ${rule.lifetimeLimit} 次`);
+  return limits.length > 0 ? limits.join(' · ') : '不限次数';
+}
+
+function formatTimingText(rule: GrowthGuideRule) {
+  return grantTimingLabels[rule.grantTiming] ?? rule.grantTiming;
+}
 
 export default function GrowthCenterScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
@@ -71,6 +98,11 @@ export default function GrowthCenterScreen() {
   const exchangeItemsQuery = useQuery({
     queryKey: ['growth-exchange-items'],
     queryFn: () => GrowthRepo.getExchangeItems(),
+    enabled: isLoggedIn,
+  });
+  const guideQuery = useQuery({
+    queryKey: ['growth-guide'],
+    queryFn: () => GrowthRepo.getGuide(),
     enabled: isLoggedIn,
   });
 
@@ -112,6 +144,10 @@ export default function GrowthCenterScreen() {
   const stats = statsQuery.data?.ok ? statsQuery.data.data : null;
   const records = recordsQuery.data?.ok ? recordsQuery.data.data : [];
   const exchangeItems = exchangeItemsQuery.data?.ok ? exchangeItemsQuery.data.data : [];
+  const guide = guideQuery.data?.ok ? guideQuery.data.data : null;
+  const inviteRules = guide?.inviteRules ?? [];
+  const earningRules = guide?.earningRules ?? [];
+  const levels = guide?.levels ?? [];
   const isLoading = growthQuery.isLoading || shareQuery.isLoading;
   const levelPercent = Math.round((growth?.levelProgress?.ratio ?? 0) * 100);
   const shareUrl = shareProfile?.shareUrl ?? '';
@@ -140,6 +176,7 @@ export default function GrowthCenterScreen() {
       statsQuery.refetch(),
       recordsQuery.refetch(),
       exchangeItemsQuery.refetch(),
+      guideQuery.refetch(),
     ]);
   };
 
@@ -333,6 +370,42 @@ export default function GrowthCenterScreen() {
             </Animated.View>
 
             <Animated.View
+              entering={FadeInDown.duration(300).delay(100)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>推荐收益</Text>
+                <Tag label="后台规则" tone="brand" />
+              </View>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                好友通过你的普通推荐码注册并完成指定行为后，系统按以下规则自动发放。
+              </Text>
+              {guideQuery.isLoading ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Skeleton height={76} radius={radius.md} />
+                </View>
+              ) : inviteRules.length === 0 ? (
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
+                  当前后台未开启普通推荐奖励。
+                </Text>
+              ) : (
+                <View style={{ marginTop: spacing.sm }}>
+                  {inviteRules.map((rule) => (
+                    <View key={rule.code} style={[styles.ruleRow, { borderColor: colors.border }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{rule.name}</Text>
+                        <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 3 }]}>
+                          {formatTimingText(rule)} · {formatLimitText(rule)}
+                        </Text>
+                      </View>
+                      <Tag label={formatRewardText(rule)} tone="accent" style={styles.rewardTag} />
+                    </View>
+                  ))}
+                </View>
+              )}
+            </Animated.View>
+
+            <Animated.View
               entering={FadeInDown.duration(300).delay(120)}
               style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
             >
@@ -365,7 +438,78 @@ export default function GrowthCenterScreen() {
             </Animated.View>
 
             <Animated.View
-              entering={FadeInDown.duration(300).delay(160)}
+              entering={FadeInDown.duration(300).delay(150)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>赚积分和成长值</Text>
+                <Tag label="任务规则" tone="neutral" />
+              </View>
+              {guideQuery.isLoading ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Skeleton height={96} radius={radius.md} />
+                </View>
+              ) : earningRules.length === 0 ? (
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
+                  当前暂无开启中的积分成长任务。
+                </Text>
+              ) : (
+                <View style={{ marginTop: spacing.sm }}>
+                  {earningRules.map((rule) => (
+                    <View key={rule.code} style={[styles.ruleRow, { borderColor: colors.border }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{rule.name}</Text>
+                        <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 3 }]}>
+                          {formatTimingText(rule)} · {formatLimitText(rule)}
+                        </Text>
+                      </View>
+                      <Tag label={formatRewardText(rule)} tone="brand" style={styles.rewardTag} />
+                    </View>
+                  ))}
+                </View>
+              )}
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(180)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <Text style={[typography.headingSm, { color: colors.text.primary }]}>升级规则</Text>
+              <View style={[styles.noteBox, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md, marginTop: spacing.md }]}>
+                <Text style={[typography.caption, { color: colors.text.secondary }]}>
+                  {guide?.growthNote ?? '成长值用于升级，不会因为积分兑换而减少'}
+                </Text>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
+                  {guide?.pointsNote ?? '普通积分用于兑换红包和权益，兑换时会消耗'}
+                </Text>
+              </View>
+              {levels.length === 0 ? (
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
+                  当前后台未配置成长等级。
+                </Text>
+              ) : (
+                <View style={{ marginTop: spacing.sm }}>
+                  {levels.map((level) => {
+                    const isCurrent = growth?.level?.code === level.code;
+                    const isNext = growth?.nextLevel?.code === level.code;
+                    return (
+                      <View key={level.code} style={[styles.levelRuleRow, { borderColor: colors.border }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{level.name}</Text>
+                          <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 2 }]}>
+                            累计 {Number(level.threshold).toLocaleString()} 成长值
+                          </Text>
+                        </View>
+                        {isCurrent ? <Tag label="当前" tone="brand" /> : isNext ? <Tag label="下一等级" tone="accent" /> : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(210)}
               style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
             >
               <View style={styles.sectionTitleRow}>
@@ -417,7 +561,7 @@ export default function GrowthCenterScreen() {
             </Animated.View>
 
             <Animated.View
-              entering={FadeInDown.duration(300).delay(200)}
+              entering={FadeInDown.duration(300).delay(240)}
               style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
             >
               <Text style={[typography.headingSm, { color: colors.text.primary }]}>最近邀请</Text>
@@ -595,5 +739,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  ruleRow: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rewardTag: {
+    maxWidth: 136,
+    flexShrink: 0,
+  },
+  noteBox: {
+    padding: 12,
+  },
+  levelRuleRow: {
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

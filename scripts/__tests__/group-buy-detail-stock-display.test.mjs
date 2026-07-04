@@ -24,7 +24,7 @@ test('group-buy detail keeps the main content scrollable above the fixed pay bar
 
 test('group-buy detail suppresses the global AI floating gesture layer', () => {
   assert.match(aiFloatingSource, /const isGroupBuyDetail = pathname\.startsWith\('\/group-buy\/'\) && pathname !== '\/group-buy\/checkout';/);
-  assert.match(aiFloatingSource, /if \(isHomeTab \|\| isGroupBuyDetail\) return null;/);
+  assert.match(aiFloatingSource, /if \(isHomeTab \|\| isGroupBuyDetail \|\| shouldHideForPage\) return null;/);
 });
 
 test('closed bottom sheets unmount instead of leaving a native gesture layer on Android', () => {

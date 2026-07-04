@@ -1,6 +1,7 @@
 import type {
   GrowthExchangeItem,
   GrowthExchangeRecord,
+  GrowthGuide,
   GrowthSummary,
   NormalShareProfile,
   NormalShareRecord,
@@ -53,6 +54,72 @@ const mockGrowth: GrowthSummary = {
   updatedAt: new Date().toISOString(),
 };
 
+const mockGuide: GrowthGuide = {
+  inviteRules: [
+    {
+      code: 'NORMAL_INVITE_REGISTER',
+      name: '邀请好友注册',
+      categoryCode: 'INVITE',
+      pointsReward: 20,
+      growthReward: 20,
+      grantTiming: 'IMMEDIATE',
+      dailyLimit: 5,
+      weeklyLimit: null,
+      monthlyLimit: null,
+      lifetimeLimit: null,
+      sortOrder: 110,
+    },
+    {
+      code: 'NORMAL_INVITE_FIRST_ORDER',
+      name: '好友首单确认收货',
+      categoryCode: 'INVITE',
+      pointsReward: 200,
+      growthReward: 300,
+      grantTiming: 'CONFIRMED_RECEIPT',
+      dailyLimit: null,
+      weeklyLimit: null,
+      monthlyLimit: 20,
+      lifetimeLimit: null,
+      sortOrder: 120,
+    },
+  ],
+  earningRules: [
+    {
+      code: 'CHECK_IN',
+      name: '每日签到',
+      categoryCode: 'DAILY',
+      pointsReward: 5,
+      growthReward: 0,
+      grantTiming: 'IMMEDIATE',
+      dailyLimit: 1,
+      weeklyLimit: null,
+      monthlyLimit: null,
+      lifetimeLimit: null,
+      sortOrder: 40,
+    },
+    {
+      code: 'FIRST_ORDER_RECEIVED',
+      name: '首单确认收货',
+      categoryCode: 'SHOPPING',
+      pointsReward: 100,
+      growthReward: 200,
+      grantTiming: 'CONFIRMED_RECEIPT',
+      dailyLimit: null,
+      weeklyLimit: null,
+      monthlyLimit: null,
+      lifetimeLimit: 1,
+      sortOrder: 80,
+    },
+  ],
+  levels: [
+    { code: 'G1', name: '新芽会员', threshold: 0, titleLabel: '新芽' },
+    { code: 'G2', name: '青苗会员', threshold: 500, titleLabel: '青苗' },
+    { code: 'G3', name: '丰收会员', threshold: 2000, titleLabel: '丰收' },
+  ],
+  pointsNote: '普通积分用于兑换红包和权益，兑换时会消耗。',
+  growthNote: '成长值用于升级，不会因为积分兑换而减少。',
+};
+
 const mockShareProfile: NormalShareProfile = {
   id: 'share-1',
   userId: 'user-1',
@@ -92,6 +159,11 @@ export const GrowthRepo = {
   getMe: (): Promise<Result<GrowthSummary>> => {
     if (USE_MOCK) return simulateRequest(mockGrowth);
     return ApiClient.get<GrowthSummary>('/growth/me');
+  },
+
+  getGuide: (): Promise<Result<GrowthGuide>> => {
+    if (USE_MOCK) return simulateRequest(mockGuide);
+    return ApiClient.get<GrowthGuide>('/growth/guide');
   },
 
   getExchangeItems: (): Promise<Result<GrowthExchangeItem[]>> => {

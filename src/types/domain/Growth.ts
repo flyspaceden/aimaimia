@@ -25,6 +25,28 @@ export type GrowthSummary = {
   updatedAt: string | null;
 };
 
+export type GrowthGuideRule = {
+  code: string;
+  name: string;
+  categoryCode: string;
+  pointsReward: number;
+  growthReward: number;
+  grantTiming: 'IMMEDIATE' | 'CONFIRMED_RECEIPT' | 'AFTER_SALE_WINDOW' | 'MANUAL' | string;
+  dailyLimit: number | null;
+  weeklyLimit: number | null;
+  monthlyLimit: number | null;
+  lifetimeLimit: number | null;
+  sortOrder: number;
+};
+
+export type GrowthGuide = {
+  inviteRules: GrowthGuideRule[];
+  earningRules: GrowthGuideRule[];
+  levels: GrowthLevel[];
+  pointsNote: string;
+  growthNote: string;
+};
+
 export type GrowthExchangeType =
   | 'COUPON'
   | 'SHIPPING_COUPON'

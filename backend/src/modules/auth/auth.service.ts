@@ -26,6 +26,7 @@ import { CaptchaService } from '../captcha/captcha.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { nextBuyerNo } from '../../common/utils/buyer-no.util';
 import { GrowthEventService } from '../growth/growth-event.service';
+import { pickUniqueNormalShareCode } from '../normal-share/normal-share-code.util';
 
 @Injectable()
 export class AuthService {
@@ -132,6 +133,20 @@ export class AuthService {
         },
         memberProfile: {
           create: { referralCode: await pickUniqueReferralCode(this.prisma) },
+        },
+        growthAccount: {
+          create: {
+            pointsBalance: 0,
+            pointsTotalEarned: 0,
+            pointsTotalSpent: 0,
+            growthValue: 0,
+          },
+        },
+        normalShareProfile: {
+          create: {
+            code: await pickUniqueNormalShareCode(this.prisma as any),
+            status: 'ACTIVE',
+          },
         },
         authIdentities: {
           create: {
@@ -485,6 +500,20 @@ export class AuthService {
         memberProfile: {
           create: { referralCode: await pickUniqueReferralCode(this.prisma) },
         },
+        growthAccount: {
+          create: {
+            pointsBalance: 0,
+            pointsTotalEarned: 0,
+            pointsTotalSpent: 0,
+            growthValue: 0,
+          },
+        },
+        normalShareProfile: {
+          create: {
+            code: await pickUniqueNormalShareCode(this.prisma as any),
+            status: 'ACTIVE',
+          },
+        },
         authIdentities: {
           create: {
             provider: 'WECHAT',
@@ -663,6 +692,20 @@ export class AuthService {
             buyerNo: await nextBuyerNo(this.prisma),
             profile: { create: { nickname: '新用户' } },
             memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
+            growthAccount: {
+              create: {
+                pointsBalance: 0,
+                pointsTotalEarned: 0,
+                pointsTotalSpent: 0,
+                growthValue: 0,
+              },
+            },
+            normalShareProfile: {
+              create: {
+                code: await pickUniqueNormalShareCode(this.prisma as any),
+                status: 'ACTIVE',
+              },
+            },
             authIdentities: {
               create: { provider: 'PHONE', identifier: phone, verified: true },
             },
