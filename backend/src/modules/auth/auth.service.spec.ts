@@ -37,6 +37,9 @@ function makePrisma(overrides: Record<string, any> = {}) {
     memberProfile: {
       findFirst: jest.fn().mockResolvedValue(null),
     },
+    normalShareProfile: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     smsOtp: {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -311,6 +314,37 @@ describe('AuthService — buyerNo generation', () => {
 
     expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ buyerNo: 'AIMM00000000000001' }),
+    }));
+  });
+
+  it('creates empty normal growth account and normal share profile during phone registration', async () => {
+    const prisma = makePrisma({
+      $queryRaw: jest.fn().mockResolvedValue([{ nextval: BigInt(4) }]),
+    });
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    const { service } = makeService(prisma);
+
+    await service.register({ phone: PHONE, code: '123456', name: '新用户' } as any);
+
+    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        growthAccount: {
+          create: {
+            pointsBalance: 0,
+            pointsTotalEarned: 0,
+            pointsTotalSpent: 0,
+            growthValue: 0,
+          },
+        },
+        normalShareProfile: {
+          create: expect.objectContaining({
+            status: 'ACTIVE',
+          }),
+        },
+      }),
     }));
   });
 

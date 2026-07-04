@@ -8,7 +8,7 @@ import {
   pickAndroidDownloadUrl,
   resolveAndroidFallbackUrl,
 } from '@/lib/downloadLinks'
-import { buildNormalShareClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
+import { buildNormalShareAppScheme, buildNormalShareClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
 
 const API_BASE = getApiBaseUrl()
 
@@ -58,6 +58,7 @@ export default function NormalShareLanding() {
   const wechat = isWechat()
   const normalShareCode = code && isValidNormalShareCode(code) ? code.toUpperCase() : null
   const shareToken = normalShareCode ? buildNormalShareClipboardText(normalShareCode) : ''
+  const appScheme = normalShareCode ? buildNormalShareAppScheme(normalShareCode) : ''
   const [showWechatGuide, setShowWechatGuide] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
 
@@ -116,7 +117,20 @@ export default function NormalShareLanding() {
     if (platform === 'ios') {
       window.alert('iOS 版即将上线，请使用安卓手机扫码下载')
     } else if (platform === 'android') {
-      redirectToAndroidDownload(pickAndroidDownloadUrl(navigator.userAgent))
+      const downloadUrl = pickAndroidDownloadUrl(navigator.userAgent)
+      if (appScheme) {
+        const fallbackTimer = window.setTimeout(() => {
+          redirectToAndroidDownload(downloadUrl)
+        }, 1600)
+        const cancelFallback = () => window.clearTimeout(fallbackTimer)
+        window.addEventListener('pagehide', cancelFallback, { once: true })
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') cancelFallback()
+        }, { once: true })
+        window.location.href = appScheme
+        return
+      }
+      redirectToAndroidDownload(downloadUrl)
     }
   }
 
@@ -215,7 +229,7 @@ export default function NormalShareLanding() {
             boxShadow: '0 10px 28px rgba(37,99,235,0.28)',
           }}
         >
-          {platform === 'ios' ? 'iOS 版即将上线' : '下载安卓版'}
+          {platform === 'ios' ? 'iOS 版即将上线' : '打开 / 下载安卓版'}
         </button>
       ) : (
         <div style={{ marginTop: 24, textAlign: 'center' }}>

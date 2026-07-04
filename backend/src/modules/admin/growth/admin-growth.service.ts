@@ -9,6 +9,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 import { resolveGrowthLevelCode, syncGrowthAccountLevel } from '../../growth/growth-config.util';
+import { GrowthLevelService } from '../../growth/growth-level.service';
 import {
   AdminGrowthAccountQueryDto,
   AdminGrowthAdjustDto,
@@ -53,13 +54,18 @@ const ALLOWED_BEHAVIOR_CODES = new Set([
 
 @Injectable()
 export class AdminGrowthService {
+  private readonly levelService = new GrowthLevelService();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getDashboard() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const ordinaryBuyerWhere = this.buildOrdinaryBuyerWhere();
+    const ordinaryBuyerRelationWhere = { user: { is: ordinaryBuyerWhere } };
 
     const [
+      ordinaryBuyerCount,
       accountAgg,
       todayLedgerAgg,
       exchangeRecordCount,
@@ -67,8 +73,11 @@ export class AdminGrowthService {
       activeRuleCount,
       activeExchangeItemCount,
     ] = await Promise.all([
+      (this.prisma as any).user.count({
+        where: ordinaryBuyerWhere,
+      }),
       (this.prisma as any).growthAccount.aggregate({
-        _count: { _all: true },
+        where: ordinaryBuyerRelationWhere,
         _sum: {
           pointsBalance: true,
           pointsTotalEarned: true,
@@ -78,6 +87,7 @@ export class AdminGrowthService {
       }),
       (this.prisma as any).growthLedger.aggregate({
         where: {
+          ...ordinaryBuyerRelationWhere,
           createdAt: { gte: today },
           status: 'POSTED',
         },
@@ -87,7 +97,10 @@ export class AdminGrowthService {
         },
       }),
       (this.prisma as any).growthExchangeRecord.count({
-        where: { status: 'SUCCESS' },
+        where: {
+          ...ordinaryBuyerRelationWhere,
+          status: 'SUCCESS',
+        },
       }),
       (this.prisma as any).normalShareBinding.count({
         where: {
@@ -103,7 +116,7 @@ export class AdminGrowthService {
     ]);
 
     return {
-      accountCount: accountAgg?._count?._all ?? 0,
+      accountCount: ordinaryBuyerCount ?? 0,
       totalPointsBalance: accountAgg?._sum?.pointsBalance ?? 0,
       totalPointsEarned: accountAgg?._sum?.pointsTotalEarned ?? 0,
       totalPointsSpent: accountAgg?._sum?.pointsTotalSpent ?? 0,
@@ -270,22 +283,26 @@ export class AdminGrowthService {
   async listUserAccounts(query: AdminGrowthAccountQueryDto = {}) {
     const page = this.page(query.page);
     const pageSize = this.pageSize(query.pageSize);
-    const where = this.buildAccountWhere(query);
-    const orderBy = this.buildAccountOrderBy(query);
+    const levels = await (this.prisma as any).growthLevel.findMany({
+      where: { enabled: true },
+      orderBy: [{ threshold: 'asc' }, { sortOrder: 'asc' }],
+    });
+    const where = this.buildUserAccountWhere(query, levels);
+    const orderBy = this.buildUserAccountOrderBy(query);
 
     const [items, total] = await Promise.all([
-      (this.prisma as any).growthAccount.findMany({
+      (this.prisma as any).user.findMany({
         where,
-        include: this.accountInclude(),
+        include: this.userAccountInclude(),
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy,
       }),
-      (this.prisma as any).growthAccount.count({ where }),
+      (this.prisma as any).user.count({ where }),
     ]);
 
     return {
-      items: items.map((item: any) => this.mapAccount(item)),
+      items: items.map((item: any) => this.mapUserAccount(item, levels)),
       total,
       page,
       pageSize,
@@ -665,54 +682,127 @@ export class AdminGrowthService {
     }
   }
 
-  private buildAccountWhere(query: AdminGrowthAccountQueryDto) {
-    const where: any = {};
-    if (query.levelCode) where.currentLevelCode = query.levelCode;
+  private buildOrdinaryBuyerWhere() {
+    return {
+      buyerNo: { not: null },
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      OR: [
+        { memberProfile: { is: null } },
+        { memberProfile: { is: { tier: { not: 'VIP' } } } },
+      ],
+    };
+  }
+
+  private buildUserAccountWhere(query: AdminGrowthAccountQueryDto, levels: any[]) {
+    const where: any = { ...this.buildOrdinaryBuyerWhere() };
+    const clauses: any[] = [];
+    if (query.levelCode) {
+      const levelFilter = this.buildLevelAccountFilter(query.levelCode, levels);
+      if (levelFilter) {
+        clauses.push(levelFilter);
+      }
+    }
     if (query.keyword?.trim()) {
       const keyword = query.keyword.trim();
-      where.user = {
+      clauses.push({
         OR: [
           { id: keyword },
           { buyerNo: { contains: keyword, mode: 'insensitive' } },
-          { profile: { nickname: { contains: keyword, mode: 'insensitive' } } },
+          { profile: { is: { nickname: { contains: keyword, mode: 'insensitive' } } } },
           { authIdentities: { some: { identifier: { contains: keyword } } } },
         ],
-      };
+      });
+    }
+    if (clauses.length > 0) {
+      where.AND = clauses;
     }
     return where;
   }
 
-  private buildAccountOrderBy(query: AdminGrowthAccountQueryDto) {
-    const sortBy = query.sortBy ?? 'updatedAt';
-    const direction = query.sortOrder === 'asc' || query.sortOrder === 'ascend' ? 'asc' : 'desc';
-    return { [sortBy]: direction };
-  }
+  private buildLevelAccountFilter(levelCode: string, levels: any[]) {
+    const sortedLevels = [...levels].sort((a, b) => Number(a.threshold ?? 0) - Number(b.threshold ?? 0));
+    const selectedIndex = sortedLevels.findIndex((level) => level.code === levelCode);
+    if (selectedIndex < 0) {
+      return { growthAccount: { is: { currentLevelCode: levelCode } } };
+    }
 
-  private accountInclude() {
-    return {
-      currentLevel: true,
-      user: {
-        select: {
-          id: true,
-          buyerNo: true,
-          status: true,
-          profile: { select: { nickname: true, avatarUrl: true } },
-          memberProfile: { select: { tier: true } },
-          normalShareProfile: { select: { code: true, status: true } },
-          authIdentities: {
-            where: { provider: 'PHONE' },
-            select: { identifier: true },
-            take: 1,
+    const selectedLevel = sortedLevels[selectedIndex];
+    const nextLevel = sortedLevels[selectedIndex + 1];
+    const growthValueRange: any = { gte: Number(selectedLevel.threshold ?? 0) };
+    if (nextLevel) {
+      growthValueRange.lt = Number(nextLevel.threshold ?? 0);
+    }
+
+    const accountLevelMatches: any[] = [
+      { growthAccount: { is: { currentLevelCode: levelCode } } },
+      {
+        growthAccount: {
+          is: {
+            currentLevelCode: null,
+            growthValue: growthValueRange,
           },
         },
+      },
+    ];
+    if (Number(selectedLevel.threshold ?? 0) === 0) {
+      accountLevelMatches.unshift({ growthAccount: { is: null } });
+    }
+    return { OR: accountLevelMatches };
+  }
+
+  private buildUserAccountOrderBy(query: AdminGrowthAccountQueryDto) {
+    const sortBy = query.sortBy ?? 'updatedAt';
+    const direction = query.sortOrder === 'asc' || query.sortOrder === 'ascend' ? 'asc' : 'desc';
+    if (sortBy === 'updatedAt') {
+      return [
+        { growthAccount: { updatedAt: direction } },
+        { updatedAt: direction },
+        { id: 'asc' },
+      ];
+    }
+    return [
+      { growthAccount: { [sortBy]: direction } },
+      { updatedAt: 'desc' },
+      { id: 'asc' },
+    ];
+  }
+
+  private userAccountInclude() {
+    return {
+      profile: { select: { nickname: true, avatarUrl: true } },
+      memberProfile: { select: { tier: true } },
+      normalShareProfile: { select: { code: true, status: true } },
+      growthAccount: {
+        include: {
+          currentLevel: true,
+        },
+      },
+      authIdentities: {
+        where: { provider: 'PHONE' },
+        select: { identifier: true },
+        take: 1,
       },
     };
   }
 
-  private mapAccount(item: any) {
+  private mapUserAccount(user: any, levels: any[]) {
+    const account = user.growthAccount;
+    const growthValue = account?.growthValue ?? 0;
+    const levelState = this.levelService.resolveLevel(growthValue, levels);
+    const currentLevel = account?.currentLevel ?? levelState.level ?? null;
     return {
-      ...item,
-      user: item.user ? this.mapUser(item.user) : null,
+      id: account?.id ?? `virtual-growth-account:${user.id}`,
+      userId: user.id,
+      pointsBalance: account?.pointsBalance ?? 0,
+      pointsTotalEarned: account?.pointsTotalEarned ?? 0,
+      pointsTotalSpent: account?.pointsTotalSpent ?? 0,
+      growthValue,
+      currentLevelCode: account?.currentLevelCode ?? currentLevel?.code ?? null,
+      currentLevel,
+      createdAt: account?.createdAt ?? user.createdAt,
+      updatedAt: account?.updatedAt ?? user.updatedAt,
+      user: this.mapUser(user),
     };
   }
 

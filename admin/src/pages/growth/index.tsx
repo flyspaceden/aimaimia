@@ -88,10 +88,11 @@ const behaviorCodeLabels: Record<string, string> = {
 };
 
 const categoryOptions = [
-  { label: '新手', value: 'ONBOARDING' },
+  { label: '新手', value: 'NEWBIE' },
   { label: '日常', value: 'DAILY' },
   { label: '购物', value: 'SHOPPING' },
   { label: '分享', value: 'SHARE' },
+  { label: '邀请', value: 'INVITE' },
   { label: '会员', value: 'VIP' },
   { label: '任务', value: 'TASK' },
   { label: '管理', value: 'ADMIN' },
@@ -898,7 +899,7 @@ export default function GrowthPage() {
           <Card>
             <Statistic
               loading={dashboardQuery.isLoading}
-              title="增长账户"
+              title="普通买家账户"
               value={overview?.accountCount ?? 0}
               prefix={<UserOutlined />}
             />
@@ -1023,6 +1024,9 @@ export default function GrowthPage() {
             label: '账户',
             children: (
               <Card>
+                <Typography.Paragraph type="secondary">
+                  这里按所有有效普通买家展示，尚未获得积分或成长值的用户也会以 0 账户显示。
+                </Typography.Paragraph>
                 <ProTable<AdminGrowthAccountRow>
                   actionRef={actionRef}
                   rowKey="id"

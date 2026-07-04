@@ -3,17 +3,42 @@ import { AdminGrowthService } from './admin-growth.service';
 
 const makeHarness = (options: {
   account?: any;
+  accounts?: any[];
   resolvedUser?: any;
+  users?: any[];
+  userCount?: number;
+  levels?: any[];
   levelCode?: string | null;
   settings?: Record<string, unknown>;
   normalShareProfile?: any;
 } = {}) => {
+  const userUpdatedAt = new Date('2026-07-04T08:00:00.000Z');
   const baseAccount = options.account ?? {
     id: 'account-1',
     userId: 'user-1',
     pointsBalance: 100,
+    pointsTotalEarned: 150,
+    pointsTotalSpent: 50,
     growthValue: 200,
     currentLevelCode: null,
+    createdAt: new Date('2026-07-03T08:00:00.000Z'),
+    updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+  };
+  const baseUser = {
+    id: 'user-1',
+    buyerNo: 'AIMM00000000000001',
+    status: 'ACTIVE',
+    deletionExecutedAt: null,
+    createdAt: new Date('2026-07-03T08:00:00.000Z'),
+    updatedAt: userUpdatedAt,
+    profile: { nickname: '普通用户', avatarUrl: null },
+    memberProfile: { tier: 'NORMAL' },
+    growthAccount: baseAccount,
+    normalShareProfile: {
+      code: 'S123456',
+      status: 'ACTIVE',
+    },
+    authIdentities: [{ identifier: '13800001234' }],
   };
   const tx: any = {
     growthAccount: {
@@ -44,6 +69,8 @@ const makeHarness = (options: {
   const prisma: any = {
     user: {
       findUnique: jest.fn().mockResolvedValue(options.resolvedUser ?? { id: 'user-1' }),
+      findMany: jest.fn().mockResolvedValue(options.users ?? [baseUser]),
+      count: jest.fn().mockResolvedValue(options.userCount ?? options.users?.length ?? 1),
     },
     ruleConfig: {
       findMany: jest.fn().mockResolvedValue(
@@ -56,7 +83,7 @@ const makeHarness = (options: {
       upsert: jest.fn(({ create, update }: any) => ({ ...create, ...update })),
     },
     growthLevel: {
-      findMany: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue(options.levels ?? []),
       deleteMany: jest.fn(),
       createMany: jest.fn(),
     },
@@ -76,7 +103,8 @@ const makeHarness = (options: {
           growthValue: 200,
         },
       }),
-      findMany: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue(options.accounts ?? []),
+      count: jest.fn().mockResolvedValue(options.accounts?.length ?? 0),
     },
     growthLedger: {
       aggregate: jest.fn().mockResolvedValue({
@@ -249,6 +277,181 @@ describe('AdminGrowthService', () => {
         rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
       },
     });
+  });
+
+  it('uses active ordinary buyer users, not only growth account rows, for dashboard account count', async () => {
+    const { service, prisma } = makeHarness({ userCount: 9 });
+
+    await expect(service.getDashboard()).resolves.toMatchObject({
+      accountCount: 9,
+      totalPointsBalance: 100,
+      totalGrowthValue: 200,
+    });
+
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        buyerNo: { not: null },
+        status: 'ACTIVE',
+        deletionExecutedAt: null,
+      }),
+    });
+    expect(prisma.growthAccount.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        user: {
+          is: expect.objectContaining({
+            buyerNo: { not: null },
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+          }),
+        },
+      },
+    }));
+    expect(prisma.growthLedger.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        user: {
+          is: expect.objectContaining({
+            buyerNo: { not: null },
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+          }),
+        },
+      }),
+    }));
+    expect(prisma.growthExchangeRecord.count).toHaveBeenCalledWith({
+      where: {
+        user: {
+          is: expect.objectContaining({
+            buyerNo: { not: null },
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+          }),
+        },
+        status: 'SUCCESS',
+      },
+    });
+  });
+
+  it('lists active ordinary buyers even before a GrowthAccount row exists', async () => {
+    const missingAccountUser = {
+      id: 'normal-user-without-account',
+      buyerNo: 'AIMM00000000000088',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: '还没进成长页的普通用户', avatarUrl: null },
+      memberProfile: { tier: 'NORMAL' },
+      growthAccount: null,
+      normalShareProfile: null,
+      authIdentities: [{ identifier: '13800008888' }],
+    };
+    const { service, prisma } = makeHarness({
+      users: [missingAccountUser],
+      levels: [
+        { code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true },
+        { code: 'SEEDLING', name: '青苗会员', threshold: 300, enabled: true },
+      ],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          id: 'virtual-growth-account:normal-user-without-account',
+          userId: 'normal-user-without-account',
+          pointsBalance: 0,
+          pointsTotalEarned: 0,
+          pointsTotalSpent: 0,
+          growthValue: 0,
+          currentLevelCode: 'SPROUT',
+          currentLevel: { code: 'SPROUT', name: '新芽会员', threshold: 0 },
+          user: {
+            buyerNo: 'AIMM00000000000088',
+            nickname: '还没进成长页的普通用户',
+            phone: '138****8888',
+            vipStatus: 'NORMAL',
+            normalShareCode: null,
+          },
+        },
+      ],
+    });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        buyerNo: { not: null },
+        status: 'ACTIVE',
+        deletionExecutedAt: null,
+      }),
+      include: expect.objectContaining({
+        growthAccount: expect.any(Object),
+        normalShareProfile: expect.any(Object),
+      }),
+    }));
+    expect(prisma.growthAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('matches migrated zero-value accounts when filtering by the threshold-zero level', async () => {
+    const migratedAccountUser = {
+      id: 'normal-user-with-null-level',
+      buyerNo: 'AIMM00000000000089',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: '已迁移普通用户', avatarUrl: null },
+      memberProfile: { tier: 'NORMAL' },
+      growthAccount: {
+        id: 'growth-null-level',
+        userId: 'normal-user-with-null-level',
+        pointsBalance: 0,
+        pointsTotalEarned: 0,
+        pointsTotalSpent: 0,
+        growthValue: 0,
+        currentLevelCode: null,
+        currentLevel: null,
+        createdAt: new Date('2026-07-04T08:00:00.000Z'),
+        updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      },
+      normalShareProfile: { code: 'S2233445', status: 'ACTIVE' },
+      authIdentities: [{ identifier: '13800008889' }],
+    };
+    const { service, prisma } = makeHarness({
+      users: [migratedAccountUser],
+      levels: [
+        { code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true },
+        { code: 'SEEDLING', name: '青苗会员', threshold: 300, enabled: true },
+      ],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20, levelCode: 'SPROUT' })).resolves.toMatchObject({
+      items: [
+        {
+          id: 'growth-null-level',
+          currentLevelCode: 'SPROUT',
+          currentLevel: { code: 'SPROUT', name: '新芽会员', threshold: 0 },
+        },
+      ],
+    });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: expect.arrayContaining([
+          {
+            OR: expect.arrayContaining([
+              { growthAccount: { is: null } },
+              {
+                growthAccount: {
+                  is: {
+                    currentLevelCode: null,
+                    growthValue: { gte: 0, lt: 300 },
+                  },
+                },
+              },
+            ]),
+          },
+        ]),
+      }),
+    }));
   });
 
   it('disables and re-enables a normal share profile without deleting bindings', async () => {
