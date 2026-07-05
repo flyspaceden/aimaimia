@@ -16,3 +16,16 @@ test('home search and drawn lottery hint appear below mission copy', () => {
   assert.ok(missionSecondLine < searchBar);
   assert.ok(searchBar < drawnHint);
 });
+
+test('home places the user identity card in the former VIP carousel slot', () => {
+  const home = read('app/(tabs)/home.tsx');
+  const greeting = home.indexOf('styles.greetingRow');
+  const identityCard = home.indexOf('<MeIdentityCard');
+  const vipReferralStrip = home.indexOf('vipReferralPrompt ?');
+  const groupBuyEntry = home.indexOf('styles.groupBuyEntry');
+
+  assert.ok(greeting > 0, 'home greeting should exist');
+  assert.ok(identityCard > greeting, 'identity card should render after the home greeting');
+  assert.ok(vipReferralStrip > identityCard, 'VIP referral strip should remain below the identity card');
+  assert.ok(groupBuyEntry > vipReferralStrip, 'group buy entry should remain below the VIP referral strip');
+});

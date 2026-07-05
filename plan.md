@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-07-04
+> **最后更新**: 2026-07-05
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **首页/我的页用户卡片与 VIP 礼包轮播换位**（2026-07-05 新增并完成）
+  - **来源**: 用户截图红框反馈，希望将首页 VIP 礼包横向轮播放到“我的”页，并将“我的”页顶部用户信息卡片放到首页对应位置。
+  - **实际做了**: 抽出共享 `MeIdentityCard`，保留头像框、用户编号复制、扫一扫/编辑、推荐码入口和数字资产排行榜入口；首页在品牌标语下展示用户卡片，并复用 `me-profile`、`bonus-member`、`digital-assets-summary` 查询；“我的”页顶部改为 `VipHomePromoCarousel`，订单、钱包/VIP 卡和常用工具顺序保持不变。
+  - **验证**: `node --test scripts/__tests__/home-layout-order.test.mjs scripts/__tests__/me-identity-card-layout.test.mjs scripts/__tests__/home-vip-promo-copy.test.mjs`、`npx tsc --noEmit --pretty false`、`git diff --check` 通过。
 
 - [x] **普通成长体系与普通分享码推广链路**（2026-07-04 新增并完成）
   - **来源**: 用户要求降低 VIP 门槛对推广的阻塞，新增可由后台配置的普通积分 / 成长值体系，并且红包奖励必须复用现有红包能力，不重写已完整的红包功能。

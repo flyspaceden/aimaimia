@@ -23,20 +23,22 @@ import Animated, {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Clipboard from 'expo-clipboard';
 import { Screen } from '../../src/components/layout';
 import { GROUP_BUY_COLORS } from '../../src/components/group-buy';
-import { VipHomePromoCarousel } from '../../src/components/data';
+import { MeIdentityCard } from '../../src/components/cards';
 import { AuthModal } from '../../src/components/overlay';
 import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
+import { useToast } from '../../src/components/feedback';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { LotteryRepo } from '../../src/repos/LotteryRepo';
-import { BonusRepo } from '../../src/repos';
+import { BonusRepo, DigitalAssetRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { compactActionTextProps, fitTextProps, useTheme, priceTextProps } from '../../src/theme';
+import { compactActionTextProps, fitTextProps, useResponsiveLayout, useTheme, priceTextProps } from '../../src/theme';
 import { AuthSession } from '../../src/types';
 import { HOME_HERO_STATEMENT, HOME_MISSION_LINES } from '../../src/utils/homeHero';
-import { buildVipReferralHomePrompt, type VipHomePromoCard, type VipPromoMode } from '../../src/utils/vipHomePromo';
+import { buildVipReferralHomePrompt } from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -73,7 +75,10 @@ function getMsUntilNextUtc8Midnight(): number {
 
 export default function HomeScreen() {
   const { colors, spacing, radius, typography, shadow } = useTheme();
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactHome = isCompact || isLargeText;
   const router = useRouter();
+  const { show } = useToast();
   const queryClient = useQueryClient();
   const cartCount = useCartStore((state) => state.count());
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -147,13 +152,23 @@ export default function HomeScreen() {
     enabled: isLoggedIn,
   });
   const member = memberData?.ok ? memberData.data : null;
-  const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipReferralPrompt = buildVipReferralHomePrompt(member);
-  const { data: vipGiftOptionsData } = useQuery({
-    queryKey: ['vip-gift-options'],
-    queryFn: () => BonusRepo.getVipGiftOptions(),
+  const { data: profileData, isLoading: profileLoading, refetch: refetchProfile } = useQuery({
+    queryKey: ['me-profile'],
+    queryFn: () => UserRepo.profile(),
+    enabled: isLoggedIn,
   });
-  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
+  const { data: digitalAssetSummaryData } = useQuery({
+    queryKey: ['digital-assets-summary'],
+    queryFn: () => DigitalAssetRepo.getSummary(),
+    enabled: isLoggedIn,
+  });
+  const profile = profileData?.ok ? profileData.data : null;
+  const digitalAssetSummary = digitalAssetSummaryData?.ok ? digitalAssetSummaryData.data : null;
+  const assetRankLabel = digitalAssetSummary?.assetRank != null
+    ? String(digitalAssetSummary.assetRank)
+    : '未上榜';
+  const referralCode = member?.tier === 'VIP' ? (member.referralCode ?? '') : '';
 
   // 跨零点自动刷新抽奖状态
   useEffect(() => {
@@ -167,6 +182,9 @@ export default function HomeScreen() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
+    queryClient.invalidateQueries({ queryKey: ['me-profile'] });
+    queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
+    queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] });
     setTimeout(() => setRefreshing(false), 600);
   }, [queryClient]);
 
@@ -197,6 +215,8 @@ export default function HomeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-profile'] }),
       queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
+      queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+      queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] }),
     ]);
     voice.retryAfterAuth();
   }, [voice.retryAfterAuth, queryClient, setLoggedIn]);
@@ -233,19 +253,18 @@ export default function HomeScreen() {
     // }
   }, [voice.isRecording, voice.isProcessing, router]);
 
-  const handleVipPromoPress = useCallback((card: VipHomePromoCard) => {
-    router.push({
-      pathname: '/vip/gifts',
-      params: {
-        packageId: card.packageId,
-        giftOptionId: card.giftOptionId,
-      },
-    });
-  }, [router]);
-
   const handleVipReferralPress = useCallback(() => {
     router.push('/me/referral');
   }, [router]);
+
+  const handleCopyBuyerNo = useCallback(async () => {
+    if (!profile?.buyerNo) {
+      show({ message: '用户编号生成中', type: 'info' });
+      return;
+    }
+    await Clipboard.setStringAsync(profile.buyerNo);
+    show({ message: '用户编号已复制', type: 'success' });
+  }, [profile?.buyerNo, show]);
 
   const handleGroupBuyPress = useCallback(() => {
     router.push('/group-buy');
@@ -446,10 +465,22 @@ export default function HomeScreen() {
         </View>
 
         <Animated.View entering={FadeInDown.duration(300).delay(40)}>
-          <VipHomePromoCarousel
-            packages={vipPackages}
-            onPressCard={handleVipPromoPress}
-            mode={vipPromoMode}
+          <MeIdentityCard
+            isLoggedIn={isLoggedIn}
+            profileLoading={profileLoading}
+            profile={profile}
+            compact={compactHome}
+            assetRankLabel={assetRankLabel}
+            referralCode={referralCode}
+            style={{ marginTop: spacing.lg }}
+            onScanPress={() => router.push('/me/scanner')}
+            onLoginPress={() => setAuthModalOpen(true)}
+            onAppearancePress={() => router.push('/me/appearance')}
+            onProfilePress={() => router.push('/me/profile')}
+            onCopyBuyerNo={handleCopyBuyerNo}
+            onReferralPress={() => router.push('/me/referral')}
+            onDigitalAssetsPress={() => router.push('/me/digital-assets')}
+            onRetryProfile={refetchProfile}
           />
         </Animated.View>
 

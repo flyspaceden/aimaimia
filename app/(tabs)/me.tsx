@@ -1,27 +1,23 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as Clipboard from 'expo-clipboard';
-import QRCode from 'react-native-qrcode-svg';
 import { Screen } from '../../src/components/layout';
-import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { useToast } from '../../src/components/feedback';
 import { AuthModal } from '../../src/components/overlay';
-import { AvatarFrame } from '../../src/components/ui';
-import { AiBadge } from '../../src/components/ui/AiBadge';
+import { VipHomePromoCarousel } from '../../src/components/data';
 import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
-import { BonusRepo, CouponRepo, DigitalAssetRepo, InboxRepo, OrderRepo, UserRepo } from '../../src/repos';
+import { BonusRepo, InboxRepo, OrderRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
-import { monoFamily } from '../../src/theme/typography';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
 import { buildMeReferralToolEntry } from '../../src/utils/referralRelation';
+import type { VipHomePromoCard, VipPromoMode } from '../../src/utils/vipHomePromo';
 
 // 订单快捷入口
 // 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
@@ -55,7 +51,7 @@ const TOOL_GRID_BASE = [
 // ];
 
 export default function MeScreen() {
-  const { colors, radius, shadow, spacing, typography, gradients, isDark } = useTheme();
+  const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
   const { isCompact, isLargeText } = useResponsiveLayout();
   const compactMe = isCompact || isLargeText;
   const router = useRouter();
@@ -63,17 +59,11 @@ export default function MeScreen() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
-  const [referralOpen, setReferralOpen] = useState(false);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [vipModalOpen, setVipModalOpen] = useState(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
 
-  const { data: profileData, isLoading: profileLoading, refetch: refetchProfile } = useQuery({
-    queryKey: ['me-profile'],
-    queryFn: () => UserRepo.profile(),
-    enabled: isLoggedIn,
-  });
   // const { data: taskData, isLoading: taskLoading } = useQuery({
   //   queryKey: ['me-tasks'],
   //   queryFn: () => TaskRepo.list(),
@@ -103,16 +93,11 @@ export default function MeScreen() {
     refetchInterval: 30_000,
   });
   const pendingSession = pendingData?.ok ? pendingData.data : null;
-  const { data: inboxCountData, refetch: refetchInboxUnread } = useQuery({
+  const { data: inboxCountData } = useQuery({
     queryKey: ['me-inbox-unread'],
     queryFn: () => InboxRepo.getUnreadCount(),
     enabled: isLoggedIn,
   });
-  useFocusEffect(
-    React.useCallback(() => {
-      if (isLoggedIn) refetchInboxUnread();
-    }, [isLoggedIn, refetchInboxUnread]),
-  );
   const { data: walletData } = useQuery({
     queryKey: ['bonus-wallet'],
     queryFn: () => BonusRepo.getWallet(),
@@ -123,68 +108,20 @@ export default function MeScreen() {
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
-  const { data: digitalAssetSummaryData } = useQuery({
-    queryKey: ['digital-assets-summary'],
-    queryFn: () => DigitalAssetRepo.getSummary(),
-    enabled: isLoggedIn,
+  const { data: vipGiftOptionsData } = useQuery({
+    queryKey: ['vip-gift-options'],
+    queryFn: () => BonusRepo.getVipGiftOptions(),
   });
 
-  const profile = profileData?.ok ? profileData.data : null;
   // const tasks = taskData?.ok ? taskData.data : [];
   // const checkIn = checkInData?.ok ? checkInData.data : null;
   const orderCounts = orderCountData?.ok ? orderCountData.data : null;
   const unreadCount = inboxCountData?.ok ? inboxCountData.data : 0;
   const walletBalance = walletData?.ok ? walletData.data.balance : 0;
   const member = memberData?.ok ? memberData.data : null;
-  const digitalAssetSummary = digitalAssetSummaryData?.ok ? digitalAssetSummaryData.data : null;
-  const assetRankLabel = digitalAssetSummary?.assetRank != null
-    ? String(digitalAssetSummary.assetRank)
-    : '未上榜';
-  const isVip = member?.tier === 'VIP';
-  const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const showNormalShareEntry = Boolean(memberData?.ok && !isVip);
-  const growthToolLabel = memberData?.ok ? (isVip ? '会员成长' : '普通成长') : '成长中心';
-  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const normalGrowthTool = useMemo(
-    () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
-    [growthToolLabel],
-  );
-  const toolGrid = useMemo(
-    () => [buildMeReferralToolEntry(member), normalGrowthTool, ...TOOL_GRID_BASE],
-    [member, normalGrowthTool],
-  );
-
-  // 复制推荐码
-  const handleCopyReferral = async () => {
-    await Clipboard.setStringAsync(referralCode);
-    show({ message: '推荐码已复制', type: 'success' });
-  };
-
-  const handleCopyBuyerNo = async () => {
-    if (!profile?.buyerNo) {
-      show({ message: '用户编号生成中', type: 'info' });
-      return;
-    }
-    await Clipboard.setStringAsync(profile.buyerNo);
-    show({ message: '用户编号已复制', type: 'success' });
-  };
-
-  // 分享推荐码
-  const handleShareReferral = async () => {
-    try {
-      const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
-      });
-      if (result.action === Share.sharedAction) {
-        CouponRepo.reportShareEvent({
-          scene: 'REFERRAL',
-          targetId: referralCode || 'GLOBAL',
-        }).catch(() => {});
-      }
-    } catch {
-      // 用户取消分享
-    }
-  };
+  const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
+  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
+  const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -194,7 +131,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
-      queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] }),
+      queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] }),
     ]);
     setRefreshing(false);
   };
@@ -232,6 +169,15 @@ export default function MeScreen() {
       setVipModalOpen(true);
     }
   };
+  const handleVipPromoPress = (card: VipHomePromoCard) => {
+    router.push({
+      pathname: '/vip/gifts',
+      params: {
+        packageId: card.packageId,
+        giftOptionId: card.giftOptionId,
+      },
+    });
+  };
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -240,148 +186,17 @@ export default function MeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== 5A. 用户卡片 ===== */}
-        {!isLoggedIn ? (
-          /* 未登录态 */
-          <Animated.View
-            entering={FadeInDown.duration(300)}
-            style={[
-              styles.loginCard,
-              compactMe && styles.loginCardCompact,
-              { margin: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg },
-              shadow.sm,
-            ]}
-          >
-            <View style={styles.loginInfo}>
-              <Text style={[typography.title3, { color: colors.text.primary }]}>登录/注册</Text>
-              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]}>
-                登录后解锁会员权益与订单追踪
-              </Text>
-            </View>
-            <View style={[styles.loginActions, compactMe && styles.loginActionsCompact]}>
-              <Pressable
-                onPress={() => router.push('/me/scanner')}
-                hitSlop={10}
-                style={[styles.scanIconBtn, { borderColor: colors.border, marginRight: 10 }]}
-              >
-                <MaterialCommunityIcons name="qrcode-scan" size={20} color={colors.brand.primary} />
-              </Pressable>
-              <Pressable
-                onPress={() => setAuthOpen(true)}
-                style={[styles.loginButton, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
-              >
-                <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>立即登录/注册</Text>
-              </Pressable>
-            </View>
-          </Animated.View>
-        ) : profileLoading ? (
-          <View style={{ margin: spacing.xl }}>
-            <Skeleton height={140} radius={radius.lg} />
-          </View>
-        ) : profile ? (
-          <LinearGradient
-            colors={[`${colors.brand.primary}10`, `${colors.ai.start}08`]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.userCard, { margin: spacing.xl, borderRadius: radius.lg }]}
-          >
-            <View style={[styles.userCardTop, compactMe && styles.userCardTopCompact]}>
-              <Pressable onPress={() => router.push('/me/appearance')}>
-                <AvatarFrame uri={profile.avatar} size={64} frame={profile.avatarFrame} />
-              </Pressable>
-              <View style={styles.userCardInfo}>
-                <View style={styles.profileIdentityStack}>
-                  <Text
-                    {...fitTextProps}
-                    numberOfLines={compactMe ? 2 : 1}
-                    style={[typography.headingSm, styles.profileNameText, { color: colors.text.primary }]}
-                  >
-                    {profile.name}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.userCardActions}>
-                <Pressable
-                  onPress={() => router.push('/me/scanner')}
-                  hitSlop={8}
-                  style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                >
-                  <MaterialCommunityIcons name="qrcode-scan" size={14} color={colors.brand.primary} />
-                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>扫一扫</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => router.push('/me/profile')}
-                  style={[styles.actionChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                >
-                  <MaterialCommunityIcons name="pencil-outline" size={14} color={colors.text.secondary} />
-                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.text.secondary, marginLeft: 4 }]}>编辑</Text>
-                </Pressable>
-              </View>
-            </View>
-            <View style={styles.profileMetaStack}>
-              <Pressable
-                onPress={handleCopyBuyerNo}
-                style={[styles.buyerNoChip, { backgroundColor: colors.gold.light, borderRadius: radius.pill }]}
-                accessibilityRole="button"
-                accessibilityLabel="复制用户编号"
-              >
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.9}
-                  style={[styles.buyerNoText, { color: colors.gold.primary, fontFamily: monoFamily }]}
-                >
-                  {profile.buyerNo ? `ID: ${profile.buyerNo}` : 'ID: 用户编号生成中'}
-                </Text>
-                <MaterialCommunityIcons
-                  name="content-copy"
-                  size={18}
-                  color={colors.gold.primary}
-                  style={{ marginLeft: 6 }}
-                />
-              </Pressable>
-              <View style={styles.profileMetaBottomRow}>
-                {/* 推荐码按钮 */}
-                {referralCode ? (
-                  <Pressable
-                    onPress={() => setReferralOpen(true)}
-                    style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
-                  >
-                    <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
-                  </Pressable>
-                ) : showNormalShareEntry ? (
-                  <Pressable
-                    onPress={() => router.push('/me/growth')}
-                    style={[styles.normalShareChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
-                  >
-                    <MaterialCommunityIcons name="sprout-outline" size={15} color={colors.brand.primary} />
-                    <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.brand.primary, marginLeft: 3 }]}>普通推荐码</Text>
-                  </Pressable>
-                ) : <View />}
-                <Pressable
-                  onPress={() => router.push('/me/digital-assets')}
-                  style={[styles.assetRankChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`数字资产排行榜${assetRankLabel}`}
-                >
-                  <MaterialCommunityIcons name="chart-bar" size={14} color={colors.brand.primary} />
-                  <Text
-                    {...compactActionTextProps}
-                    numberOfLines={1}
-                    style={[styles.assetRankText, { color: colors.brand.primary }]}
-                  >
-                    数字资产排行榜：{assetRankLabel}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </LinearGradient>
-        ) : (
-          <View style={{ margin: spacing.xl }}>
-            <ErrorState title="资料加载失败" description="请稍后重试" onAction={refetchProfile} />
-          </View>
-        )}
+        {/* ===== 5A. VIP 礼包轮播 ===== */}
+        <Animated.View
+          entering={FadeInDown.duration(300)}
+          style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, marginBottom: spacing.lg }}
+        >
+          <VipHomePromoCarousel
+            packages={vipPackages}
+            onPressCard={handleVipPromoPress}
+            mode={vipPromoMode}
+          />
+        </Animated.View>
 
         <View style={{ paddingHorizontal: spacing.xl }}>
           {/* ===== 5B. 订单快捷入口 ===== */}
@@ -449,9 +264,9 @@ export default function MeScreen() {
             </View>
           </Animated.View>
 
-          {/* ===== 5C. 我的财库/VIP 双卡片 ===== */}
+          {/* ===== 5C. 钱包/VIP 双卡片 ===== */}
           <View style={[styles.dualCards, compactMe && styles.dualCardsCompact, { marginBottom: spacing.lg }]}>
-            {/* 我的财库卡 */}
+            {/* 钱包卡 */}
             <Pressable
               onPress={() => requireLogin(() => router.push('/me/wallet'))}
               style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginRight: spacing.sm }]}
@@ -464,7 +279,7 @@ export default function MeScreen() {
               >
                 <MaterialCommunityIcons name="wallet-outline" size={20} color="#FFFFFF" />
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
-                  我的财库
+                  钱包
                 </Text>
                 <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
                   ¥{Number(walletBalance ?? 0).toFixed(2)}
@@ -665,99 +480,6 @@ export default function MeScreen() {
         </View>
       </ScrollView>
 
-      {/* ===== 推荐码浮层（背景虚化）===== */}
-      <Modal transparent visible={referralOpen} animationType="fade" onRequestClose={() => setReferralOpen(false)}>
-        {/* 虚化背景 */}
-        {Platform.OS === 'ios' ? (
-          <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill}>
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
-          </BlurView>
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)' }]} />
-        )}
-
-        {/* 关闭按钮 */}
-        <Pressable
-          onPress={() => setReferralOpen(false)}
-          style={styles.referralCloseBtn}
-          hitSlop={10}
-        >
-          <MaterialCommunityIcons name="close-circle" size={32} color="rgba(255,255,255,0.7)" />
-        </Pressable>
-
-        {/* 推荐码卡片 */}
-        <View style={styles.referralOverlay}>
-          <Animated.View entering={FadeIn.duration(300)}>
-            <LinearGradient
-              colors={[...gradients.aiGradient]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.referralCard, shadow.lg, { borderRadius: radius.xl }]}
-            >
-              {/* 粒子效果 */}
-              <FloatingParticles count={8} color={colors.ai.glow} />
-
-              {/* 标题 */}
-              <View style={styles.referralTitleRow}>
-                <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>我的专属推荐码</Text>
-                <AiBadge variant="recommend" />
-              </View>
-
-              {/* QR 码 */}
-              <View style={[styles.referralQrBox, shadow.lg, { borderRadius: radius.xl, backgroundColor: '#FFFFFF' }]}>
-                {referralCode ? (
-                  <QRCode
-                    value={deepLink}
-                    size={160}
-                    color={colors.brand.primaryDark}
-                    backgroundColor="#FFFFFF"
-                  />
-                ) : (
-                  <View style={{ width: 160, height: 160, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={[typography.caption, { color: colors.muted }]}>暂无推荐码</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* 推荐码文字 */}
-              <Text {...priceTextProps} style={styles.referralCodeText}>
-                {referralCode.split('').join(' ')}
-              </Text>
-
-              {/* 操作按钮 */}
-              <View style={styles.referralActions}>
-                <Pressable
-                  onPress={handleCopyReferral}
-                  style={[styles.referralOutlineBtn, { borderRadius: radius.pill }]}
-                >
-                  <MaterialCommunityIcons name="content-copy" size={16} color="#FFFFFF" />
-                  <Text style={[typography.bodySm, { color: '#FFFFFF', marginLeft: 6 }]}>复制</Text>
-                </Pressable>
-
-                <View style={{ width: spacing.sm }} />
-
-                <Pressable onPress={handleShareReferral} style={{ flex: 1 }}>
-                  <LinearGradient
-                    colors={[...gradients.goldGradient]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.referralShareBtn, { borderRadius: radius.pill }]}
-                  >
-                    <MaterialCommunityIcons name="share-variant-outline" size={16} color="#FFFFFF" />
-                    <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>分享给好友</Text>
-                  </LinearGradient>
-                </Pressable>
-              </View>
-            </LinearGradient>
-          </Animated.View>
-
-          {/* 底部提示 */}
-          <Text style={[typography.caption, { color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: spacing.md }]}>
-            分享推荐码，好友注册后双方获得红包奖励
-          </Text>
-        </View>
-      </Modal>
-
       {/* ===== 登录提示弹窗 ===== */}
       <Modal transparent visible={loginPromptOpen} animationType="fade" onRequestClose={() => setLoginPromptOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setLoginPromptOpen(false)}>
@@ -868,203 +590,6 @@ export default function MeScreen() {
 }
 
 const styles = StyleSheet.create({
-  // 推荐码按钮（用户名旁）
-  referralChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  normalShareChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  assetRankChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    minWidth: 0,
-    maxWidth: '68%',
-  },
-  assetRankText: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
-    marginLeft: 3,
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  // 推荐码浮层
-  referralCloseBtn: {
-    position: 'absolute',
-    top: 54,
-    right: 20,
-    zIndex: 10,
-  },
-  referralOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  referralCard: {
-    padding: 24,
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  referralTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 8,
-    marginBottom: 20,
-    zIndex: 1,
-  },
-  referralQrBox: {
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  referralCodeText: {
-    fontFamily: monoFamily,
-    fontSize: 26,
-    fontWeight: '700',
-    letterSpacing: 4,
-    color: '#FFFFFF',
-    marginTop: 18,
-    textAlign: 'center',
-    zIndex: 1,
-  },
-  referralActions: {
-    flexDirection: 'row',
-    marginTop: 18,
-    width: '100%',
-    zIndex: 1,
-  },
-  referralOutlineBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.6)',
-  },
-  referralShareBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-  },
-  // 登录卡
-  loginCard: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  loginCardCompact: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    gap: 12,
-  },
-  loginInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  loginActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  loginActionsCompact: {
-    alignSelf: 'stretch',
-    justifyContent: 'space-between',
-  },
-  scanIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loginButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  // 用户卡片
-  userCard: {
-    padding: 16,
-    overflow: 'hidden',
-  },
-  userCardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  userCardTopCompact: {
-    alignItems: 'flex-start',
-  },
-  userCardInfo: {
-    flex: 1,
-    marginLeft: 12,
-    marginRight: 10,
-    minWidth: 0,
-  },
-  profileIdentityStack: {
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    gap: 7,
-  },
-  profileNameText: {
-    alignSelf: 'stretch',
-  },
-  profileMetaStack: {
-    alignSelf: 'stretch',
-    marginTop: 12,
-    gap: 8,
-  },
-  profileMetaBottomRow: {
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  buyerNoChip: {
-    alignSelf: 'stretch',
-    minHeight: 36,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  buyerNoText: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '600',
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  userCardActions: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  actionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    minWidth: 86,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
   // 通用
   sectionHeader: {
     flexDirection: 'row',

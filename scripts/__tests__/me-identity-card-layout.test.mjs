@@ -2,23 +2,25 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-const meTab = () => readFileSync('app/(tabs)/me.tsx', 'utf8');
+const read = (path) => readFileSync(path, 'utf8');
+const meTab = () => read('app/(tabs)/me.tsx');
+const identityCard = () => read('src/components/cards/MeIdentityCard.tsx');
 
 test('me identity card removes greeting copy from signed-in profile card', () => {
-  const source = meTab();
+  const source = identityCard();
 
   assert.doesNotMatch(source, /const greeting = useMemo/);
   assert.doesNotMatch(source, /早上好|下午好|晚上好/);
 });
 
 test('me identity card prefixes buyer number with ID label', () => {
-  const source = meTab();
+  const source = identityCard();
 
   assert.match(source, /profile\.buyerNo \? `ID: \$\{profile\.buyerNo\}` : 'ID: 用户编号生成中'/);
 });
 
 test('me identity card renders buyer number in a wider meta row with a larger text style', () => {
-  const source = meTab();
+  const source = identityCard();
   const metaStackIndex = source.indexOf('style={styles.profileMetaStack}');
   const buyerNoChipIndex = source.indexOf('style={[styles.buyerNoChip');
 
@@ -34,23 +36,30 @@ test('me identity card renders buyer number in a wider meta row with a larger te
 });
 
 test('me identity card labels the digital asset ranking explicitly', () => {
-  const source = meTab();
+  const source = identityCard();
 
   assert.match(source, /数字资产排行榜：\{assetRankLabel\}/);
   assert.doesNotMatch(source, />\s*资产排行榜：\{assetRankLabel\}/);
 });
 
 test('me identity card shows digital asset rank next to the referral entry', () => {
-  const source = meTab();
+  const source = identityCard();
   const metaStackIndex = source.indexOf('style={styles.profileMetaStack}');
   const referralIndex = source.indexOf('style={[styles.referralChip');
   const rankIndex = source.indexOf('数字资产排行榜：');
 
-  assert.match(source, /DigitalAssetRepo/);
-  assert.match(source, /queryKey:\s*\['digital-assets-summary'\]/);
-  assert.match(source, /const assetRankLabel =/);
   assert.ok(metaStackIndex > 0, 'profile meta stack should exist');
   assert.ok(referralIndex > metaStackIndex, 'referral chip should render inside the profile meta area');
   assert.ok(rankIndex > referralIndex, 'digital asset rank should render next to the referral entry');
   assert.match(source, /assetRankText:\s*\{[^}]*flexShrink:\s*1,/s);
+});
+
+test('me page places the VIP carousel above order shortcuts after identity card moves to home', () => {
+  const source = meTab();
+  const vipCarousel = source.indexOf('<VipHomePromoCarousel');
+  const ordersSection = source.indexOf('我的订单');
+
+  assert.match(source, /VipHomePromoCarousel/);
+  assert.ok(vipCarousel > 0, 'VIP carousel should render on the me page');
+  assert.ok(ordersSection > vipCarousel, 'order shortcuts should stay below the VIP carousel');
 });
