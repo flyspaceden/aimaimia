@@ -106,8 +106,14 @@ test('admin growth page explains configuration workflow and rule effects for ope
   assert.match(source, /已接入/);
   assert.match(source, /未接入/);
   assert.match(source, /发放时机/);
+  assert.match(source, /生效状态/);
   assert.match(source, /用户看到什么/);
-  assert.match(source, /scroll=\{\{ x: 1600 \}\}/);
+  assert.match(source, /applicableUserTypeLabels/);
+  assert.doesNotMatch(source, /title: '接入状态'/);
+  assert.doesNotMatch(source, /title: '等级编码'/);
+  assert.doesNotMatch(source, /<Typography\.Text type="secondary" code>/);
+  assert.doesNotMatch(source, /value === 'ALL' \? '全部' : value/);
+  assert.match(source, /scroll=\{\{ x: 1320 \}\}/);
 });
 
 test('growth defaults are shipped in a production migration, not only in seed data', () => {
