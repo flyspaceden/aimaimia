@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PLATFORM_USER_ID } from './constants';
 
-/** 普通用户平台分割的 5 个池（奖励由 NormalUpstreamService 处理） */
+/** 普通用户平台分割的 6 个池（奖励由 NormalUpstreamService 处理） */
 interface NormalPlatformPools {
-  platformProfit: number;  // 49% 默认；直推池由后续任务单独处理
+  platformProfit: number;      // 49% 默认
+  directReferralPool: number;  // 1% 默认；Task 6 前暂存平台利润账户
   industryFund: number;    // 16%
   charityFund: number;     // 8%
   techFund: number;        // 8%
@@ -15,9 +16,10 @@ export class NormalPlatformSplitService {
   private readonly logger = new Logger(NormalPlatformSplitService.name);
 
   /**
-   * 普通用户平台分割：处理除奖励外的 5 个池
+   * 普通用户平台分割：处理除奖励外的 6 个池
    *
    * - PLATFORM_PROFIT (49% 默认) → 平台用户账户
+   * - NORMAL_DIRECT_REFERRAL_HOLDING (1% 默认) → PLATFORM_PROFIT 暂存，Task 6 改为直推发放
    * - INDUSTRY_FUND (16%) → 按商品利润占比分给各卖家公司 OWNER
    * - CHARITY_FUND (8%) → 平台账户
    * - TECH_FUND (8%) → 平台账户
@@ -35,22 +37,27 @@ export class NormalPlatformSplitService {
       tx, allocationId, orderId, pools.platformProfit, 'PLATFORM_PROFIT', '普通用户平台利润',
     );
 
-    // 2. INDUSTRY_FUND → 按利润占比分给各卖家公司 OWNER
+    // 2. NORMAL_DIRECT_REFERRAL → Task 6 前暂存到平台利润账户
+    await this.creditDirectReferralHolding(
+      tx, allocationId, orderId, pools.directReferralPool,
+    );
+
+    // 3. INDUSTRY_FUND → 按利润占比分给各卖家公司 OWNER
     await this.distributeIndustryFund(
       tx, allocationId, orderId, pools.industryFund, companyProfitShares,
     );
 
-    // 3. CHARITY_FUND → 平台
+    // 4. CHARITY_FUND → 平台
     await this.creditPlatformAccount(
       tx, allocationId, orderId, pools.charityFund, 'CHARITY_FUND', '慈善基金',
     );
 
-    // 4. TECH_FUND → 平台
+    // 5. TECH_FUND → 平台
     await this.creditPlatformAccount(
       tx, allocationId, orderId, pools.techFund, 'TECH_FUND', '科技基金',
     );
 
-    // 5. RESERVE_FUND → 平台
+    // 6. RESERVE_FUND → 平台
     await this.creditPlatformAccount(
       tx, allocationId, orderId, pools.reserveFund, 'RESERVE_FUND', '备用金',
     );
@@ -173,6 +180,46 @@ export class NormalPlatformSplitService {
     });
 
     this.logger.log(`${label}入账：${amount} 元`);
+  }
+
+  /** 普通直推池暂存：Task 6 前暂入平台利润账户，独立流水便于后续审计/替换 */
+  private async creditDirectReferralHolding(
+    tx: any,
+    allocationId: string,
+    orderId: string,
+    amount: number,
+  ): Promise<void> {
+    if (amount <= 0) return;
+
+    const account = await this.ensureAccount(tx, PLATFORM_USER_ID, 'PLATFORM_PROFIT');
+
+    await tx.rewardLedger.create({
+      data: {
+        allocationId,
+        accountId: account.id,
+        userId: PLATFORM_USER_ID,
+        entryType: 'RELEASE',
+        amount,
+        status: 'AVAILABLE',
+        refType: 'ORDER',
+        refId: orderId,
+        meta: {
+          scheme: 'NORMAL_DIRECT_REFERRAL_HOLDING',
+          originalScheme: 'NORMAL_DIRECT_REFERRAL',
+          accountType: 'PLATFORM_PROFIT',
+          directReferralPool: amount,
+          sourceOrderId: orderId,
+          holdingReason: 'DIRECT_REFERRAL_LEDGER_PENDING_TASK_6',
+        },
+      },
+    });
+
+    await tx.rewardAccount.update({
+      where: { id: account.id },
+      data: { balance: { increment: amount } },
+    });
+
+    this.logger.log(`普通直推池暂存平台利润账户：${amount} 元`);
   }
 
   /** 确保账户存在 */

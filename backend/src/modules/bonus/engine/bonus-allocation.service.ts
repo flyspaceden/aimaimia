@@ -897,11 +897,12 @@ export class BonusAllocationService {
     );
     this.logger.log(`普通树奖励分配完成：${idempotencyKey}，结果=${result}`);
 
-    // 5. 其余 5 池平台分割
+    // 5. 其余 6 池平台分割；普通直推池 Task 6 前暂存平台利润账户
     await this.normalPlatformSplit.split(
       tx, allocation.id, orderId,
       {
         platformProfit: normalPools.platformProfit,
+        directReferralPool: normalPools.directReferralPool,
         industryFund: normalPools.industryFund,
         charityFund: normalPools.charityFund,
         techFund: normalPools.techFund,
