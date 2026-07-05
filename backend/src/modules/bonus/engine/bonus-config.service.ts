@@ -371,10 +371,23 @@ export class BonusConfigService {
     }
 
     // 校验普通用户利润分配比例
+    const hasLegacyNormalRatioSnapshot =
+      snapshot['NORMAL_DIRECT_REFERRAL_PERCENT'] === undefined &&
+      [
+        'NORMAL_PLATFORM_PERCENT',
+        'NORMAL_REWARD_PERCENT',
+        'NORMAL_INDUSTRY_FUND_PERCENT',
+        'NORMAL_CHARITY_PERCENT',
+        'NORMAL_TECH_PERCENT',
+        'NORMAL_RESERVE_PERCENT',
+      ].some((key) => snapshot[key] !== undefined);
+    const normalDirectReferralFallback = hasLegacyNormalRatioSnapshot
+      ? 0
+      : DEFAULTS.normalDirectReferralPercent;
     const normalSum =
       getValue('NORMAL_PLATFORM_PERCENT', DEFAULTS.normalPlatformPercent) +
       getValue('NORMAL_REWARD_PERCENT', DEFAULTS.normalRewardPercent) +
-      getValue('NORMAL_DIRECT_REFERRAL_PERCENT', DEFAULTS.normalDirectReferralPercent) +
+      getValue('NORMAL_DIRECT_REFERRAL_PERCENT', normalDirectReferralFallback) +
       getValue('NORMAL_INDUSTRY_FUND_PERCENT', DEFAULTS.normalIndustryFundPercent) +
       getValue('NORMAL_CHARITY_PERCENT', DEFAULTS.normalCharityPercent) +
       getValue('NORMAL_TECH_PERCENT', DEFAULTS.normalTechPercent) +
