@@ -1175,6 +1175,111 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(grantSpy).not.toHaveBeenCalled();
   });
 
+  it('没有普通绑定但存在 VIP 推荐关系时，VIP 升级仍落在推荐人子树并传递数字资产邀请人', async () => {
+    const digitalAssetService = {
+      grantVipActivationAssets: jest.fn().mockResolvedValue(undefined),
+    };
+    const prismaMock: any = {
+      vipPurchase: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'vp-vip-referral-only',
+            userId: 'invitee-vip-referral-only',
+            orderId: 'order-vip-referral-only',
+            activationStatus: 'ACTIVATING',
+            referralBonusRate: 0.2,
+            amount: 600,
+          }),
+        create: jest.fn().mockResolvedValue({
+          id: 'vp-vip-referral-only',
+          activationStatus: 'PENDING',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      memberProfile: {
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'invitee-vip-referral-only') {
+            return Promise.resolve({
+              userId: 'invitee-vip-referral-only',
+              tier: 'NORMAL',
+              inviterUserId: 'vip-inviter',
+              referralCode: null,
+            });
+          }
+          if (where.userId === 'vip-inviter') {
+            return Promise.resolve({
+              userId: 'vip-inviter',
+              tier: 'VIP',
+              vipNodeId: 'node-vip-inviter',
+            });
+          }
+          return Promise.resolve(null);
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({
+          userId: 'invitee-vip-referral-only',
+          tier: 'VIP',
+          inviterUserId: 'vip-inviter',
+          referralCode: 'NEWVIP03',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      vipProgress: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+      digitalAssetService as any,
+    );
+    const assignSpy = jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
+
+    await service.activateVipAfterPayment(
+      'invitee-vip-referral-only',
+      'order-vip-referral-only',
+      'gift-1',
+      600,
+      { title: 'VIP 礼包' },
+      'pkg-1',
+      0.2,
+    );
+
+    expect(prismaMock.normalShareBinding.updateMany).toHaveBeenCalledWith({
+      where: {
+        inviteeUserId: 'invitee-vip-referral-only',
+        inviterUserId: 'vip-inviter',
+        relationStatus: 'ACTIVE',
+      },
+      data: {
+        relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+      },
+    });
+    expect(prismaMock.memberProfile.updateMany).not.toHaveBeenCalled();
+    expect(assignSpy).toHaveBeenCalledWith(prismaMock, 'invitee-vip-referral-only', 'vip-inviter');
+    expect(digitalAssetService.grantVipActivationAssets).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        inviterUserId: 'vip-inviter',
+      }),
+    );
+    expect(grantSpy).not.toHaveBeenCalled();
+  });
+
   it('VIP 包激活即使 referralBonusRate 大于 0，也不调用一次性 VIP 推荐奖励', async () => {
     const prismaMock: any = {
       vipPurchase: {
