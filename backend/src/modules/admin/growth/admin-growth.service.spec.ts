@@ -11,6 +11,7 @@ const makeHarness = (options: {
   levelCode?: string | null;
   settings?: Record<string, unknown>;
   normalShareProfile?: any;
+  couponCampaign?: any;
 } = {}) => {
   const userUpdatedAt = new Date('2026-07-04T08:00:00.000Z');
   const baseAccount = options.account ?? {
@@ -131,6 +132,18 @@ const makeHarness = (options: {
       }),
       update: jest.fn(({ data }: any) => ({ id: 'share-profile-1', userId: 'user-1', ...data })),
     },
+    couponCampaign: {
+      findUnique: jest.fn().mockResolvedValue(options.couponCampaign ?? {
+        id: 'campaign-1',
+        name: '系统发放红包',
+        status: 'ACTIVE',
+        distributionMode: 'MANUAL',
+        startAt: new Date('2026-07-01T00:00:00.000Z'),
+        endAt: new Date('2026-12-31T23:59:59.000Z'),
+        issuedCount: 0,
+        totalQuota: 100,
+      }),
+    },
     $transaction: jest.fn((callback: any, transactionOptions: any) =>
       callback(tx).then((result: any) => ({ result, transactionOptions })),
     ),
@@ -177,6 +190,31 @@ describe('AdminGrowthService', () => {
         pointsCost: 100,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects coupon exchange items backed by user-claim coupon campaigns', async () => {
+    const { service, prisma } = makeHarness({
+      couponCampaign: {
+        id: 'campaign-claim',
+        name: '领券中心红包',
+        status: 'ACTIVE',
+        distributionMode: 'CLAIM',
+        startAt: new Date('2026-07-01T00:00:00.000Z'),
+        endAt: new Date('2026-12-31T23:59:59.000Z'),
+        issuedCount: 0,
+        totalQuota: 100,
+      },
+    });
+
+    await expect(
+      service.createExchangeItem({
+        type: 'COUPON',
+        name: '5元红包',
+        pointsCost: 100,
+        couponCampaignId: 'campaign-claim',
+      }),
+    ).rejects.toThrow('用户主动领取类红包不能用于积分兑换');
+    expect(prisma.growthExchangeItem.create).not.toHaveBeenCalled();
   });
 
   it('requires reason for manual adjustment', async () => {

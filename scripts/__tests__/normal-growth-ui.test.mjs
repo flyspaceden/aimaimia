@@ -107,13 +107,32 @@ test('admin growth page explains configuration workflow and rule effects for ope
   assert.match(source, /未接入/);
   assert.match(source, /发放时机/);
   assert.match(source, /生效状态/);
+  assert.match(source, /toggleRuleMutation/);
+  assert.match(source, /checkedChildren="生效"/);
+  assert.match(source, /unCheckedChildren="停用"/);
+  assert.match(source, /disabled=\{!wired \|\| toggleRuleMutation\.isPending\}/);
+  assert.match(source, /未接入的行为不能启用/);
+  assert.match(source, /disabled=\{!!editingRule && !wiredBehaviorCodes\.has\(editingRule\.code\)\}/);
   assert.match(source, /用户看到什么/);
   assert.match(source, /applicableUserTypeLabels/);
   assert.doesNotMatch(source, /title: '接入状态'/);
   assert.doesNotMatch(source, /title: '等级编码'/);
   assert.doesNotMatch(source, /<Typography\.Text type="secondary" code>/);
+  assert.doesNotMatch(source, /<Tag color=\{record\.enabled \? 'green' : 'default'\}>/);
   assert.doesNotMatch(source, /value === 'ALL' \? '全部' : value/);
   assert.match(source, /scroll=\{\{ x: 1320 \}\}/);
+});
+
+test('admin growth exchange only offers coupon campaigns that can be system issued', () => {
+  const source = read('admin/src/pages/growth/index.tsx');
+
+  assert.match(source, /exchangeAvailableCouponCampaigns/);
+  assert.match(source, /campaign\.distributionMode !== 'CLAIM'/);
+  assert.match(source, /campaign\.issuedCount < campaign\.totalQuota/);
+  assert.match(source, /label="兑换后发放的红包"/);
+  assert.match(source, /只显示启用中、未发完、可由系统直接发放的红包活动/);
+  assert.match(source, /请先到红包管理创建“系统发放”或“手动发放”的启用红包活动/);
+  assert.match(source, /formatExchangeCampaignOptionLabel/);
 });
 
 test('growth defaults are shipped in a production migration, not only in seed data', () => {
