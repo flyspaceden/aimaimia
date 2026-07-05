@@ -1486,6 +1486,25 @@ describe('BonusService.activateVipByCumulativeSpend — 累计消费自动升级
     expect(prismaMock.vipProgress.upsert).not.toHaveBeenCalled();
   });
 
+  it('并发冲突后重查已是 VIP 时返回 ALREADY_VIP，避免订单侧写入假死信', async () => {
+    const prismaMock = buildAutoVipPrisma();
+    prismaMock.$transaction.mockRejectedValueOnce({ code: 'P2034' });
+    prismaMock.memberProfile.findUnique = jest.fn().mockResolvedValue({
+      userId: 'user-auto',
+      tier: 'VIP',
+    });
+    const service = buildService(prismaMock);
+
+    const result = await service.activateVipByCumulativeSpend('user-auto', 'order-1');
+
+    expect(result).toEqual({ status: 'ALREADY_VIP' });
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(prismaMock.memberProfile.findUnique).toHaveBeenCalledWith({
+      where: { userId: 'user-auto' },
+      select: { tier: true },
+    });
+  });
+
   it('达标普通用户升级为 VIP，不创建 VipPurchase/赠品/一次性推荐奖，并冻结普通树', async () => {
     const prismaMock = buildAutoVipPrisma();
     const service = buildService(prismaMock);

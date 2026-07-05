@@ -18,6 +18,7 @@ import { decryptJsonValue } from '../../common/security/encryption';
 
 const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
 const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD'];
+const AUTO_VIP_MAX_RETRIES = 3;
 type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
 const REWARD_SOURCE_LABELS: Record<string, string> = {
@@ -521,72 +522,105 @@ export class BonusService {
     status: 'DISABLED' | 'ALREADY_VIP' | 'NOT_ELIGIBLE' | 'UPGRADED';
     vipTreeInviterUserId?: string | null;
   }> {
-    return this.prisma.$transaction(async (tx) => {
-      const config = await this.bonusConfig.getConfig();
-      if (!config.autoVipBySpendEnabled) {
-        return { status: 'DISABLED' as const };
-      }
+    for (let attempt = 0; attempt < AUTO_VIP_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const config = await this.bonusConfig.getConfig();
+          if (!config.autoVipBySpendEnabled) {
+            return { status: 'DISABLED' as const };
+          }
 
-      const member = await tx.memberProfile.findUnique({ where: { userId } });
-      if (member?.tier === 'VIP') {
-        return { status: 'ALREADY_VIP' as const };
-      }
+          const member = await tx.memberProfile.findUnique({ where: { userId } });
+          if (member?.tier === 'VIP') {
+            return { status: 'ALREADY_VIP' as const };
+          }
 
-      const account = await tx.digitalAssetAccount.findUnique({ where: { userId } });
-      const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
-      if (cumulativeSpendAmount < config.autoVipCumulativeSpendThreshold) {
-        return { status: 'NOT_ELIGIBLE' as const };
-      }
+          const account = await tx.digitalAssetAccount.findUnique({ where: { userId } });
+          const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
+          if (cumulativeSpendAmount < config.autoVipCumulativeSpendThreshold) {
+            return { status: 'NOT_ELIGIBLE' as const };
+          }
 
-      const now = new Date();
-      const referralContext = await this.resolveVipUpgradeReferralContext(tx, userId);
-      const updateData: Prisma.MemberProfileUpdateInput = {
-        tier: 'VIP',
-        vipPurchasedAt: member?.vipPurchasedAt ?? now,
-      };
-      if (member && !member.referralCode) {
-        updateData.referralCode = await pickUniqueReferralCode(tx);
-      }
+          const now = new Date();
+          const referralContext = await this.resolveVipUpgradeReferralContext(tx, userId);
+          const updateData: Prisma.MemberProfileUpdateInput = {
+            tier: 'VIP',
+            vipPurchasedAt: member?.vipPurchasedAt ?? now,
+          };
+          if (member && !member.referralCode) {
+            updateData.referralCode = await pickUniqueReferralCode(tx);
+          }
 
-      await tx.memberProfile.upsert({
-        where: { userId },
-        create: {
-          userId,
-          tier: 'VIP',
-          vipPurchasedAt: now,
-          referralCode: await pickUniqueReferralCode(tx),
-        },
-        update: updateData,
-      });
+          await tx.memberProfile.upsert({
+            where: { userId },
+            create: {
+              userId,
+              tier: 'VIP',
+              vipPurchasedAt: now,
+              referralCode: await pickUniqueReferralCode(tx),
+            },
+            update: updateData,
+          });
 
-      await tx.vipProgress.upsert({
-        where: { userId },
-        create: { userId },
-        update: {},
-      });
+          await tx.vipProgress.upsert({
+            where: { userId },
+            create: { userId },
+            update: {},
+          });
 
-      await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
+          await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
 
-      const normalProgress = await tx.normalProgress.findUnique({
-        where: { userId },
-      });
-      if (normalProgress && !normalProgress.frozenAt) {
-        await tx.normalProgress.update({
-          where: { userId },
-          data: { frozenAt: now },
+          const normalProgress = await tx.normalProgress.findUnique({
+            where: { userId },
+          });
+          if (normalProgress && !normalProgress.frozenAt) {
+            await tx.normalProgress.update({
+              where: { userId },
+              data: { frozenAt: now },
+            });
+          }
+
+          this.logger.log(
+            `用户 ${userId} 累计消费自动升级 VIP 成功（sourceOrderId=${sourceOrderId}, cumulativeSpend=${cumulativeSpendAmount}）`,
+          );
+          return {
+            status: 'UPGRADED' as const,
+            vipTreeInviterUserId: referralContext.vipTreeInviterUserId,
+          };
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
-      }
+      } catch (err: any) {
+        if (!this.isAutoVipRetryableError(err)) {
+          throw err;
+        }
 
-      this.logger.log(
-        `用户 ${userId} 累计消费自动升级 VIP 成功（sourceOrderId=${sourceOrderId}, cumulativeSpend=${cumulativeSpendAmount}）`,
-      );
-      return {
-        status: 'UPGRADED' as const,
-        vipTreeInviterUserId: referralContext.vipTreeInviterUserId,
-      };
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+        const latestMember = await this.prisma.memberProfile.findUnique({
+          where: { userId },
+          select: { tier: true },
+        });
+        if (latestMember?.tier === 'VIP') {
+          this.logger.warn(
+            `用户 ${userId} 累计消费自动升级遇到并发冲突，但已是 VIP，按幂等成功处理`,
+          );
+          return { status: 'ALREADY_VIP' as const };
+        }
+
+        if (attempt < AUTO_VIP_MAX_RETRIES - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 100));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    return { status: 'NOT_ELIGIBLE' as const };
+  }
+
+  private isAutoVipRetryableError(err: any): boolean {
+    return err instanceof Prisma.PrismaClientKnownRequestError
+      ? err.code === 'P2034' || err.code === 'P2002'
+      : err?.code === 'P2034' || err?.code === 'P2002';
   }
 
   // ========== VIP 赠品方案 ==========
