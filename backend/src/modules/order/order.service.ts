@@ -1916,7 +1916,10 @@ export class OrderService {
     if (!recordOrderReceived) {
       return;
     }
-    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then(() => {
+    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then((result: any) => {
+      if (result?.recorded !== true) {
+        return undefined;
+      }
       return Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId)).catch((err: any) => {
         const safeErr = sanitizeErrorForLog(err);
         this.logger.error(

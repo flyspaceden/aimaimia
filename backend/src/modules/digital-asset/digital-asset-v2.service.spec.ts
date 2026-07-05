@@ -302,12 +302,13 @@ describe('DigitalAssetService V2 semantics', () => {
       }],
     });
 
-    await service.recordOrderReceived('order-normal', 'ORDER_RECEIVED');
+    const result = await service.recordOrderReceived('order-normal', 'ORDER_RECEIVED');
 
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+    expect(result).toEqual({ recorded: true, cumulativeSpendAmount: 100 });
     expect(data.accounts[0]).toMatchObject({
       userId: 'normal-user',
       cumulativeSpendAmount: 100,
@@ -671,11 +672,13 @@ describe('DigitalAssetService V2 semantics', () => {
       }],
     });
 
-    await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
+    const firstResult = await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
     data.memberProfiles[0].tier = 'VIP';
 
-    await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
+    const duplicateResult = await service.recordOrderReceived('order-replay', 'ORDER_RECEIVED');
 
+    expect(firstResult).toEqual({ recorded: true, cumulativeSpendAmount: 100 });
+    expect(duplicateResult).toEqual({ recorded: false, reason: 'DUPLICATE_LEDGER' });
     expect(data.accounts[0]).toMatchObject({
       cumulativeSpendAmount: 100,
       seedAssetBalance: 0,
@@ -709,10 +712,64 @@ describe('DigitalAssetService V2 semantics', () => {
       }],
     });
 
-    await service.recordOrderReceived('order-vip-package', 'ORDER_RECEIVED');
+    const result = await service.recordOrderReceived('order-vip-package', 'ORDER_RECEIVED');
 
+    expect(result).toEqual({ recorded: false, reason: 'VIP_PACKAGE' });
     expect(data.accounts).toHaveLength(0);
     expect(data.ledgers).toHaveLength(0);
+  });
+
+  it('zero effective cumulative spend returns recorded false', async () => {
+    const { data, service } = makeHarness({
+      memberProfiles: [{ userId: 'normal-user', tier: 'NORMAL' }],
+      orders: [{
+        id: 'order-zero',
+        userId: 'normal-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        goodsAmount: 10,
+        shippingFee: 0,
+        discountAmount: 10,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 10,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 10, isPrize: false, createdAt: new Date('2026-06-03') },
+        ],
+      }],
+    });
+
+    const result = await service.recordOrderReceived('order-zero', 'ORDER_RECEIVED');
+
+    expect(result).toEqual({ recorded: false, reason: 'NON_POSITIVE_CUMULATIVE_SPEND' });
+    expect(data.accounts).toHaveLength(0);
+    expect(data.ledgers).toHaveLength(0);
+  });
+
+  it('creditOrderReceived returns the structured record result', async () => {
+    const { service } = makeHarness({
+      memberProfiles: [{ userId: 'normal-user', tier: 'NORMAL' }],
+      orders: [{
+        id: 'order-credit-wrapper',
+        userId: 'normal-user',
+        bizType: 'NORMAL_GOODS',
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        goodsAmount: 120,
+        shippingFee: 8,
+        discountAmount: 10,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 10,
+        items: [
+          { id: 'item-1', skuId: 'sku-1', quantity: 1, unitPrice: 120, isPrize: false, createdAt: new Date('2026-06-03') },
+        ],
+      }],
+    });
+
+    await expect(service.creditOrderReceived('order-credit-wrapper', 'ORDER_RECEIVED')).resolves.toEqual({
+      recorded: true,
+      cumulativeSpendAmount: 100,
+    });
   });
 
   it('refund reverses cumulative spend and credit assets from original ledger snapshot', async () => {
