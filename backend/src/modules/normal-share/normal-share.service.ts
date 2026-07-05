@@ -107,6 +107,8 @@ export class NormalShareService {
           inviteeUserId,
           code,
           source: dto.source ?? 'APP',
+          relationStatus: 'ACTIVE',
+          effectiveInviterUserId: inviterProfile.userId,
           rewardStatus: 'PENDING',
           meta: Prisma.JsonNull,
         },

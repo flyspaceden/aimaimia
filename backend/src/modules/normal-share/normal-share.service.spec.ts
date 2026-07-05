@@ -146,6 +146,8 @@ describe('NormalShareService', () => {
       inviterUserId: 'inviter-1',
       inviteeUserId: 'invitee-1',
       code: 'SABCDEFG',
+      relationStatus: 'ACTIVE',
+      effectiveInviterUserId: 'inviter-1',
       rewardStatus: 'PENDING',
     });
     expect(tx.normalShareBinding.create).toHaveBeenCalledWith({
@@ -154,6 +156,8 @@ describe('NormalShareService', () => {
         inviteeUserId: 'invitee-1',
         code: 'SABCDEFG',
         source: 'APP',
+        relationStatus: 'ACTIVE',
+        effectiveInviterUserId: 'inviter-1',
       }),
     });
     expect(tx.referralLink.findUnique).toHaveBeenCalledWith({
