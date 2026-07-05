@@ -105,22 +105,22 @@ export class NormalShareService {
       const existingNormalBinding = await tx.normalShareBinding.findUnique({
         where: { inviteeUserId },
       });
-      if (existingNormalBinding) {
-        if (
-          existingNormalBinding.inviterUserId === inviterProfile.userId ||
-          existingNormalBinding.effectiveInviterUserId === inviterProfile.userId
-        ) {
-          await ensureMemberInviter();
-          return { ...existingNormalBinding, isIdempotent: true };
-        }
-        throw new BadRequestException('已绑定普通分享关系，不能更换');
-      }
-
       const existingVipReferral = await tx.referralLink.findUnique({
         where: { inviteeUserId },
       });
       if (existingVipReferral && existingVipReferral.inviterUserId !== inviterProfile.userId) {
         throw new BadRequestException('已绑定推荐关系，不能更换');
+      }
+
+      if (existingNormalBinding) {
+        const effectiveNormalInviter =
+          existingNormalBinding.effectiveInviterUserId ?? existingNormalBinding.inviterUserId;
+        if (effectiveNormalInviter !== inviterProfile.userId) {
+          throw new BadRequestException('已绑定普通分享关系，不能更换');
+        }
+
+        await ensureMemberInviter();
+        return { ...existingNormalBinding, isIdempotent: true };
       }
 
       await ensureMemberInviter();
