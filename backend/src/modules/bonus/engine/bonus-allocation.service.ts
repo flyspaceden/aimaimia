@@ -841,9 +841,9 @@ export class BonusAllocationService {
   /**
    * 执行普通树分配
    * 1. 确保用户入树
-   * 2. 六分利润计算
+   * 2. 七分利润计算
    * 3. 奖励 16% 上溯分配
-   * 4. 其余 5 池平台分割
+   * 4. 其余 6 池平台分割（普通直推池 Task 6 前暂存平台）
    */
   private async executeNormalTree(
     tx: any,

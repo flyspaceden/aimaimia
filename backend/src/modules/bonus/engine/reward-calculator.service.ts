@@ -8,7 +8,7 @@ export interface OrderItemForCalc {
   cost: number | null; // product.cost，可能为 null
 }
 
-/** 订单项（含成本信息 + 公司ID，用于六分利润归属） */
+/** 订单项（含成本信息 + 公司ID，用于普通/VIP 七分利润归属） */
 export interface OrderItemForPoolCalc extends OrderItemForCalc {
   companyId: string | null;
 }
