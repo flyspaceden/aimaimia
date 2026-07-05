@@ -85,7 +85,7 @@ export class BonusAllocationService {
     // 2. 读取当前分润配置
     const config = await this.configService.getConfig();
 
-    // 3. 构建订单项（含 companyId，用于普通用户六分计算）
+    // 3. 构建订单项（含 companyId，用于普通用户七分计算）
     //    排除抽奖奖品项（isPrize=true），奖品不产生利润不参与分配
     const calcItems: OrderItemForPoolCalc[] = order.items
       .filter((item) => !item.isPrize)
@@ -106,7 +106,7 @@ export class BonusAllocationService {
     let isZeroProfit = false;
 
     if (routing === 'NORMAL_TREE') {
-      // 普通树使用六分公式判断利润
+      // 普通树使用七分公式判断利润
       const normalPools = this.calculator.calculateNormal(calcItems, config);
       isZeroProfit = normalPools.profit <= 0;
     } else if (routing === 'VIP_UPSTREAM' || routing === 'VIP_EXITED') {
@@ -198,7 +198,7 @@ export class BonusAllocationService {
               }
               await this.executeVipPlatformSplit(tx, orderId, resolvedVipPools, config.ruleVersion);
             } else if (routing === 'NORMAL_TREE') {
-              // 普通树分配：六分计算 + 奖励上溯 + 平台五池分割
+              // 普通树分配：七分计算 + 奖励上溯 + 平台五池分割（直推池仅审计，Task 6 分配）
               await this.executeNormalTree(tx, orderId, order.userId, order.totalAmount, calcItems, config);
             } else {
               // 向后兼容：旧的 NORMAL_BROADCAST
@@ -856,7 +856,7 @@ export class BonusAllocationService {
     // 1. 确保用户入树（首次消费自动加入普通树）
     await this.ensureNormalTreeEnrollment(tx, userId, config);
 
-    // 2. 六分利润计算
+    // 2. 七分利润计算
     const normalPools = this.calculator.calculateNormal(items, config);
 
     if (normalPools.profit <= 0) {
@@ -879,6 +879,7 @@ export class BonusAllocationService {
           pools: {
             platformProfit: normalPools.platformProfit,
             rewardPool: normalPools.rewardPool,
+            directReferralPool: normalPools.directReferralPool,
             industryFund: normalPools.industryFund,
             charityFund: normalPools.charityFund,
             techFund: normalPools.techFund,

@@ -121,7 +121,7 @@ export class AdminConfigService {
       snapshot[u.key] = u.value;
     }
 
-    // 3. 对目标快照做跨项约束校验（VIP + 普通用户六分比例总和 = 1.0）
+    // 3. 对目标快照做跨项约束校验（VIP + 普通用户七分比例总和 = 1.0）
     this.bonusConfig.validateSnapshotRatios(snapshot);
 
     // 4. 事务内批量 upsert + 版本快照

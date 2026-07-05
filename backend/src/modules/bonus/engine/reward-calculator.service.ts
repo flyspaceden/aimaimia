@@ -27,11 +27,12 @@ export interface PoolCalculation {
   configSnapshot: Record<string, any>;
 }
 
-/** 普通用户六分池计算结果 */
+/** 普通用户七分池计算结果 */
 export interface NormalPoolCalculation {
   profit: number;
-  platformProfit: number;     // 50% — 平台利润
+  platformProfit: number;     // 49% — 平台利润（默认）
   rewardPool: number;         // 16% — 奖励分配（上溯祖辈）
+  directReferralPool: number;  // 1%  — 普通直推持续佣金（Task 6 分配）
   industryFund: number;       // 16% — 产业基金（返还卖家）
   charityFund: number;        // 8%  — 慈善基金
   techFund: number;           // 8%  — 科技基金
@@ -122,9 +123,9 @@ export class RewardCalculatorService {
   }
 
   /**
-   * 普通用户六分利润计算
+   * 普通用户七分利润计算
    * profit = Σ (unitPrice - cost) * quantity（与 VIP 利润计算逻辑一致）
-   * 六池按 NORMAL_* 比例直接分割利润，末池（reserveFund）补差吸收浮点误差
+   * 七池按 NORMAL_* 比例直接分割利润，末池（reserveFund）补差吸收浮点误差
    */
   calculateNormal(items: OrderItemForPoolCalc[], config: BonusConfig): NormalPoolCalculation {
     // 计算总利润 + 按公司分组利润
@@ -152,6 +153,7 @@ export class RewardCalculatorService {
         profit: 0,
         platformProfit: 0,
         rewardPool: 0,
+        directReferralPool: 0,
         industryFund: 0,
         charityFund: 0,
         techFund: 0,
@@ -164,13 +166,16 @@ export class RewardCalculatorService {
 
     profit = this.round2(profit);
 
-    // 六分计算：前 5 个池独立计算，第 6 个池（reserveFund）= profit - 前 5 之和
+    // 七分计算：前 6 个池独立计算，第 7 个池（reserveFund）= profit - 前 6 之和
     const platformProfit = this.round2(profit * config.normalPlatformPercent);
     const rewardPool = this.round2(profit * config.normalRewardPercent);
+    const directReferralPool = this.round2(profit * config.normalDirectReferralPercent);
     const industryFund = this.round2(profit * config.normalIndustryFundPercent);
     const charityFund = this.round2(profit * config.normalCharityPercent);
     const techFund = this.round2(profit * config.normalTechPercent);
-    const reserveFund = this.round2(profit - platformProfit - rewardPool - industryFund - charityFund - techFund);
+    const reserveFund = this.round2(
+      profit - platformProfit - rewardPool - directReferralPool - industryFund - charityFund - techFund,
+    );
 
     // 计算各公司利润占比
     const companyProfitShares: Record<string, number> = {};
@@ -182,6 +187,7 @@ export class RewardCalculatorService {
       profit,
       platformProfit,
       rewardPool,
+      directReferralPool,
       industryFund,
       charityFund,
       techFund,
@@ -292,6 +298,7 @@ export class RewardCalculatorService {
     return {
       normalPlatformPercent: config.normalPlatformPercent,
       normalRewardPercent: config.normalRewardPercent,
+      normalDirectReferralPercent: config.normalDirectReferralPercent,
       normalIndustryFundPercent: config.normalIndustryFundPercent,
       normalCharityPercent: config.normalCharityPercent,
       normalTechPercent: config.normalTechPercent,

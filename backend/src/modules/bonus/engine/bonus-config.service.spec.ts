@@ -104,6 +104,29 @@ describe('BonusConfigService VIP direct referral ratio config', () => {
     expect((config as any).autoVipCumulativeSpendThreshold).toBe(399);
   });
 
+  it('loads legacy normal six-way DB rows without defaulting direct referral into the total', async () => {
+    const service = makeService([
+      { key: 'NORMAL_PLATFORM_PERCENT', value: { value: 0.5 } },
+      { key: 'NORMAL_REWARD_PERCENT', value: { value: 0.16 } },
+      { key: 'NORMAL_INDUSTRY_FUND_PERCENT', value: { value: 0.16 } },
+      { key: 'NORMAL_CHARITY_PERCENT', value: { value: 0.08 } },
+      { key: 'NORMAL_TECH_PERCENT', value: { value: 0.08 } },
+      { key: 'NORMAL_RESERVE_PERCENT', value: { value: 0.02 } },
+    ]);
+
+    const config = await service.getConfig();
+    const normalConfig = await service.getNormalConfig();
+
+    expect(config.normalPlatformPercent).toBe(0.5);
+    expect(config.normalRewardPercent).toBe(0.16);
+    expect(config.normalDirectReferralPercent).toBe(0);
+    expect(config.normalIndustryFundPercent).toBe(0.16);
+    expect(config.normalCharityPercent).toBe(0.08);
+    expect(config.normalTechPercent).toBe(0.08);
+    expect(config.normalReservePercent).toBe(0.02);
+    expect(normalConfig.normalDirectReferralPercent).toBe(0);
+  });
+
   it('validates normal seven-way ratio with direct referral percent', async () => {
     const prisma = {
       ruleConfig: {
