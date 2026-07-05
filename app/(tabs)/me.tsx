@@ -120,9 +120,18 @@ export default function MeScreen() {
   const unreadCount = inboxCountData?.ok ? inboxCountData.data : 0;
   const walletBalance = walletData?.ok ? walletData.data.balance : 0;
   const member = memberData?.ok ? memberData.data : null;
+  const isVip = member?.tier === 'VIP';
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
-  const toolGrid = useMemo(() => [buildMeReferralToolEntry(member), ...TOOL_GRID_BASE], [member]);
+  const growthToolLabel = memberData?.ok ? (isVip ? '会员成长' : '普通成长') : '成长中心';
+  const normalGrowthTool = useMemo(
+    () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
+    [growthToolLabel],
+  );
+  const toolGrid = useMemo(
+    () => [buildMeReferralToolEntry(member), normalGrowthTool, ...TOOL_GRID_BASE],
+    [member, normalGrowthTool],
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);

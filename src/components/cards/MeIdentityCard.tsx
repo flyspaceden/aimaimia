@@ -16,6 +16,7 @@ type MeIdentityCardProps = {
   compact: boolean;
   assetRankLabel: string;
   referralCode: string;
+  showNormalShareEntry: boolean;
   style?: StyleProp<ViewStyle>;
   onScanPress: () => void;
   onLoginPress: () => void;
@@ -23,6 +24,7 @@ type MeIdentityCardProps = {
   onProfilePress: () => void;
   onCopyBuyerNo: () => void;
   onReferralPress: () => void;
+  onNormalSharePress: () => void;
   onDigitalAssetsPress: () => void;
   onRetryProfile: () => void;
 };
@@ -34,6 +36,7 @@ export function MeIdentityCard({
   compact,
   assetRankLabel,
   referralCode,
+  showNormalShareEntry,
   style,
   onScanPress,
   onLoginPress,
@@ -41,6 +44,7 @@ export function MeIdentityCard({
   onProfilePress,
   onCopyBuyerNo,
   onReferralPress,
+  onNormalSharePress,
   onDigitalAssetsPress,
   onRetryProfile,
 }: MeIdentityCardProps) {
@@ -172,6 +176,14 @@ export function MeIdentityCard({
                 <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
                 <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
               </Pressable>
+            ) : showNormalShareEntry ? (
+              <Pressable
+                onPress={onNormalSharePress}
+                style={[styles.normalShareChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
+              >
+                <MaterialCommunityIcons name="sprout-outline" size={15} color={colors.brand.primary} />
+                <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.brand.primary, marginLeft: 3 }]}>普通推荐码</Text>
+              </Pressable>
             ) : <View />}
             <Pressable
               onPress={onDigitalAssetsPress}
@@ -197,6 +209,13 @@ export function MeIdentityCard({
 
 const styles = StyleSheet.create({
   referralChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  normalShareChip: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',

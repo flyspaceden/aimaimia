@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **首页/我的页换位后恢复普通成长入口**（2026-07-05 新增并完成）
+  - **来源**: 用户反馈首页/我的页模块换位 OTA 后，常用工具里的“普通成长”和名片里的“普通推荐码”入口消失。
+  - **实际做了**: 将普通用户名片 `普通推荐码` chip 接回共享 `MeIdentityCard`，由首页按会员状态传入；“我的”页常用工具恢复 `普通成长 / 会员成长 / 成长中心` 动态入口，并保留 VIP 与普通分享码边界。
+  - **验证**: `node --test scripts/__tests__/home-layout-order.test.mjs scripts/__tests__/me-identity-card-layout.test.mjs scripts/__tests__/home-vip-promo-copy.test.mjs scripts/__tests__/normal-growth-ui.test.mjs`、`npx tsc --noEmit --pretty false`、`git diff --check` 通过。
+
 - [x] **首页/我的页用户卡片与 VIP 礼包轮播换位**（2026-07-05 新增并完成）
   - **来源**: 用户截图红框反馈，希望将首页 VIP 礼包横向轮播放到“我的”页，并将“我的”页顶部用户信息卡片放到首页对应位置。
   - **实际做了**: 抽出共享 `MeIdentityCard`，保留头像框、用户编号复制、扫一扫/编辑、推荐码入口和数字资产排行榜入口；首页在品牌标语下展示用户卡片，并复用 `me-profile`、`bonus-member`、`digital-assets-summary` 查询；“我的”页顶部改为 `VipHomePromoCarousel`，订单、钱包/VIP 卡和常用工具顺序保持不变。
