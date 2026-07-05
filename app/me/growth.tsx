@@ -398,9 +398,6 @@ export default function GrowthCenterScreen() {
                   <Text style={[typography.headingSm, { color: colors.text.primary }]}>VIP 成长与推荐</Text>
                   <Tag label="VIP 推荐权益" tone="accent" />
                 </View>
-                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                  你推荐的好友成为 VIP 后会进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算。
-                </Text>
 
                 <View style={[styles.vipGuideList, { marginTop: spacing.md }]}>
                   {vipGrowthGuideItems.map((item) => (
