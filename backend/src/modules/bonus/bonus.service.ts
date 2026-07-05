@@ -204,6 +204,18 @@ export class BonusService {
       const existingNormalBinding = await tx.normalShareBinding.findUnique({
         where: { inviteeUserId: userId },
       });
+      const existing = await tx.referralLink.findUnique({
+        where: { inviteeUserId: userId },
+      });
+
+      if (existing && existing.inviterUserId !== inviter.userId) {
+        throw new BadRequestException('已绑定推荐关系，不能更换');
+      }
+
+      if (existing) {
+        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+      }
+
       if (existingNormalBinding?.relationStatus === 'ACTIVE') {
         const effectiveNormalInviter =
           existingNormalBinding.effectiveInviterUserId ?? existingNormalBinding.inviterUserId;
@@ -211,18 +223,6 @@ export class BonusService {
           throw new BadRequestException('已绑定推荐关系，不能更换');
         }
         return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
-      }
-
-      const existing = await tx.referralLink.findUnique({
-        where: { inviteeUserId: userId },
-      });
-
-      if (existing && existing.inviterUserId === inviter.userId) {
-        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
-      }
-
-      if (existing) {
-        throw new BadRequestException('已绑定推荐关系，不能更换');
       }
 
       if (currentMember?.inviterUserId === inviter.userId) {
