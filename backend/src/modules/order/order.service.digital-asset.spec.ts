@@ -1,5 +1,7 @@
 import { OrderService } from './order.service';
 
+const flushAsyncTasks = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 describe('OrderService digital asset hook', () => {
   const makeService = () => {
     const tx = {
@@ -46,9 +48,10 @@ describe('OrderService digital asset hook', () => {
     );
     (service as any).mapOrder = jest.fn((order) => order);
     const digitalAsset = { creditOrderReceived: jest.fn().mockResolvedValue(undefined) };
+    const bonusService = { activateVipByCumulativeSpend: jest.fn().mockResolvedValue({ status: 'UPGRADED' }) };
     const groupBuyLifecycle = { evaluateOrderAfterReceive: jest.fn().mockResolvedValue(undefined) };
     const growthEvents = { receive: jest.fn().mockResolvedValue({ status: 'GRANTED' }) };
-    return { service, prisma, digitalAsset, groupBuyLifecycle, growthEvents };
+    return { service, prisma, digitalAsset, bonusService, groupBuyLifecycle, growthEvents };
   };
 
   it('credits digital asset after manual confirm receive succeeds', async () => {
@@ -60,12 +63,36 @@ describe('OrderService digital asset hook', () => {
     expect(digitalAsset.creditOrderReceived).toHaveBeenCalledWith('order-1', 'ORDER_RECEIVED');
   });
 
+  it('activates auto VIP after manual digital asset credit succeeds', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
+
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledTimes(1);
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
   it('does not fail confirm receive when digital asset credit fails', async () => {
     const { service, digitalAsset } = makeService();
     digitalAsset.creditOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
     service.setDigitalAssetService(digitalAsset as any);
 
     await expect(service.confirmReceive('order-1', 'user-1')).resolves.toMatchObject({ id: 'order-1' });
+  });
+
+  it('does not activate auto VIP when manual digital asset credit fails', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    digitalAsset.creditOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await expect(service.confirmReceive('order-1', 'user-1')).resolves.toMatchObject({ id: 'order-1' });
+    await flushAsyncTasks();
+
+    expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
   });
 
   it('evaluates group-buy qualification and referral rebate after manual confirm receive succeeds', async () => {

@@ -30,8 +30,9 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     };
     const bonusAllocation = { allocateForOrder: jest.fn().mockResolvedValue(undefined) };
     const digitalAsset = { recordOrderReceived: jest.fn().mockResolvedValue(undefined) };
+    const bonusService = { activateVipByCumulativeSpend: jest.fn().mockResolvedValue({ status: 'UPGRADED' }) };
     const service = new OrderAutoConfirmService(prisma as any, bonusAllocation as any);
-    return { service, prisma, digitalAsset };
+    return { service, prisma, digitalAsset, bonusService };
   };
 
   it('calls recordOrderReceived after automatic confirm receive succeeds', async () => {
@@ -41,6 +42,18 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     await (service as any).confirmOrder('order-1', 'DELIVERED');
 
     expect(digitalAsset.recordOrderReceived).toHaveBeenCalledWith('order-1', 'ORDER_RECEIVED');
+  });
+
+  it('activates auto VIP after automatic v2 digital asset credit succeeds', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await (service as any).confirmOrder('order-1', 'DELIVERED');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledTimes(1);
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledWith('user-1', 'order-1');
   });
 
   it('keeps automatic confirm receive successful and writes the same dead-letter record when v2 credit fails', async () => {
@@ -63,5 +76,17 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
         }),
       }),
     });
+  });
+
+  it('does not activate auto VIP when automatic v2 digital asset credit fails', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    digitalAsset.recordOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await expect((service as any).confirmOrder('order-1', 'DELIVERED')).resolves.toBeUndefined();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
   });
 });

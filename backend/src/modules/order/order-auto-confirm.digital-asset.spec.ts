@@ -36,10 +36,11 @@ describe('OrderAutoConfirmService digital asset hook', () => {
     };
     const bonusAllocation = { allocateForOrder: jest.fn().mockResolvedValue(undefined) };
     const digitalAsset = { creditOrderReceived: jest.fn().mockResolvedValue(undefined) };
+    const bonusService = { activateVipByCumulativeSpend: jest.fn().mockResolvedValue({ status: 'UPGRADED' }) };
     const groupBuyLifecycle = { evaluateOrderAfterReceive: jest.fn().mockResolvedValue(undefined) };
     const growthEvents = { receive: jest.fn().mockResolvedValue({ status: 'GRANTED' }) };
     const service = new OrderAutoConfirmService(prisma as any, bonusAllocation as any);
-    return { service, prisma, digitalAsset, groupBuyLifecycle, growthEvents };
+    return { service, prisma, digitalAsset, bonusService, groupBuyLifecycle, growthEvents };
   };
 
   it('credits digital asset after automatic confirm receive succeeds', async () => {
@@ -51,12 +52,36 @@ describe('OrderAutoConfirmService digital asset hook', () => {
     expect(digitalAsset.creditOrderReceived).toHaveBeenCalledWith('order-1', 'ORDER_RECEIVED');
   });
 
+  it('activates auto VIP after automatic digital asset credit succeeds', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await (service as any).confirmOrder('order-1', 'DELIVERED');
+    await flushAsyncTasks();
+
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledTimes(1);
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
   it('does not fail automatic confirm receive when digital asset credit fails', async () => {
     const { service, digitalAsset } = makeService();
     digitalAsset.creditOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
     service.setDigitalAssetService(digitalAsset as any);
 
     await expect((service as any).confirmOrder('order-1', 'DELIVERED')).resolves.toBeUndefined();
+  });
+
+  it('does not activate auto VIP when automatic digital asset credit fails', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    digitalAsset.creditOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await expect((service as any).confirmOrder('order-1', 'DELIVERED')).resolves.toBeUndefined();
+    await flushAsyncTasks();
+
+    expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
   });
 
   it('evaluates group-buy qualification and referral rebate after automatic confirm receive succeeds', async () => {
