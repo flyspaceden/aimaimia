@@ -14,6 +14,12 @@ export interface MemberProfile {
   referralCode: string | null;
   inviterUserId: string | null;
   inviter: ReferralInviterSummary | null;
+  directReferralStatus?: 'ACTIVE' | 'INVALIDATED_BY_INVITEE_VIP_UPGRADE' | 'SUPERSEDED_BY_VIP_TREE' | 'ADMIN_VOIDED' | null;
+  directReferralInviter?: { id: string; nickname: string | null; buyerNo?: string | null } | null;
+  autoVipBySpendEnabled?: boolean;
+  autoVipCumulativeSpendThreshold?: number;
+  autoVipRemainingSpend?: number | null;
+  directReferralPercent?: number | null;
   /** 当前会员直接推荐并已升级为 VIP 的人数（不含下级的下级） */
   inviteeVipCount: number;
   vipPurchasedAt: string | null;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { GrowthLevelService } from './growth-level.service';
 
 @Injectable()
@@ -7,10 +8,11 @@ export class GrowthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly levelService: GrowthLevelService = new GrowthLevelService(),
+    private readonly bonusConfig?: BonusConfigService,
   ) {}
 
   async getMe(userId: string) {
-    const [account, levels] = await Promise.all([
+    const [account, levels, memberProfile, digitalAssetAccount, bonusConfig] = await Promise.all([
       this.prisma.growthAccount.upsert({
         where: { userId },
         create: {
@@ -26,6 +28,15 @@ export class GrowthService {
         where: { enabled: true },
         orderBy: { threshold: 'asc' },
       }),
+      (this.prisma as any).memberProfile?.findUnique?.({
+        where: { userId },
+        select: { tier: true, inviterUserId: true },
+      }),
+      (this.prisma as any).digitalAssetAccount?.findUnique?.({
+        where: { userId },
+        select: { cumulativeSpendAmount: true },
+      }),
+      this.getBonusConfig(),
     ]);
 
     const pointsBalance = account?.pointsBalance ?? 0;
@@ -33,6 +44,14 @@ export class GrowthService {
     const pointsTotalSpent = account?.pointsTotalSpent ?? 0;
     const growthValue = account?.growthValue ?? 0;
     const levelState = this.levelService.resolveLevel(growthValue, levels);
+    const directReferral = await this.getDirectReferralSummary(userId, memberProfile);
+    const cumulativeSpendAmount = Number(digitalAssetAccount?.cumulativeSpendAmount ?? 0);
+    const autoVipCumulativeSpendThreshold = Number(bonusConfig.autoVipCumulativeSpendThreshold ?? 399);
+    const autoVipBySpendEnabled = Boolean(bonusConfig.autoVipBySpendEnabled);
+    const autoVipRemainingSpend =
+      memberProfile?.tier === 'VIP' || !autoVipBySpendEnabled
+        ? null
+        : Number(Math.max(0, autoVipCumulativeSpendThreshold - cumulativeSpendAmount).toFixed(2));
 
     return {
       pointsBalance,
@@ -41,6 +60,15 @@ export class GrowthService {
       growthValue,
       ...levelState,
       updatedAt: account?.updatedAt ?? null,
+      directReferralStatus: directReferral.status,
+      directReferralInviter: directReferral.inviter,
+      autoVipBySpendEnabled,
+      autoVipCumulativeSpendThreshold,
+      autoVipRemainingSpend,
+      directReferralPercent:
+        memberProfile?.tier === 'VIP'
+          ? bonusConfig.vipDirectReferralPercent ?? null
+          : bonusConfig.normalDirectReferralPercent ?? null,
     };
   }
 
@@ -110,6 +138,58 @@ export class GrowthService {
       avatarFrameType: level.avatarFrameType ?? null,
       titleLabel: level.titleLabel ?? null,
       monthlyExchangeLimit: level.monthlyExchangeLimit ?? null,
+    };
+  }
+
+  private async getBonusConfig() {
+    if (this.bonusConfig) {
+      return this.bonusConfig.getConfig();
+    }
+    return {
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+      normalDirectReferralPercent: 0.01,
+      vipDirectReferralPercent: 0.05,
+    };
+  }
+
+  private async getDirectReferralSummary(userId: string, memberProfile: any) {
+    const activeInviterUserId = memberProfile?.inviterUserId ?? null;
+    if (activeInviterUserId) {
+      return {
+        status: 'ACTIVE',
+        inviter: await this.getUserSummary(activeInviterUserId),
+      };
+    }
+
+    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
+      where: { inviteeUserId: userId },
+      select: {
+        relationStatus: true,
+        effectiveInviterUserId: true,
+      },
+    });
+    const effectiveInviterUserId = binding?.effectiveInviterUserId ?? null;
+    return {
+      status: binding?.relationStatus ?? null,
+      inviter: effectiveInviterUserId ? await this.getUserSummary(effectiveInviterUserId) : null,
+    };
+  }
+
+  private async getUserSummary(userId: string) {
+    const user = await (this.prisma as any).user?.findUnique?.({
+      where: { id: userId },
+      select: {
+        id: true,
+        buyerNo: true,
+        profile: { select: { nickname: true } },
+      },
+    });
+    if (!user) return null;
+    return {
+      id: user.id,
+      nickname: user.profile?.nickname ?? null,
+      buyerNo: user.buyerNo ?? null,
     };
   }
 }

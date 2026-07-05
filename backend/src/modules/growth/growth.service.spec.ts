@@ -80,6 +80,121 @@ describe('GrowthService', () => {
     });
   });
 
+  it('returns normal direct referral rate and auto VIP spend progress for app display', async () => {
+    const prisma: any = {
+      growthAccount: {
+        upsert: jest.fn().mockResolvedValue({
+          id: 'ga-1',
+          userId: 'normal-user',
+          pointsBalance: 60,
+          pointsTotalEarned: 80,
+          pointsTotalSpent: 20,
+          growthValue: 120,
+          updatedAt: new Date('2026-07-02T00:00:00.000Z'),
+        }),
+      },
+      growthLevel: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({ tier: 'NORMAL', inviterUserId: null }),
+      },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue({ cumulativeSpendAmount: 120 }),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          relationStatus: 'ACTIVE',
+          effectiveInviterUserId: 'inviter-1',
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'inviter-1',
+          buyerNo: 'AIMM00000000000001',
+          profile: { nickname: '张三' },
+        }),
+      },
+    };
+    const bonusConfig = {
+      getConfig: jest.fn().mockResolvedValue({
+        autoVipBySpendEnabled: true,
+        autoVipCumulativeSpendThreshold: 399,
+        normalDirectReferralPercent: 0.01,
+        vipDirectReferralPercent: 0.05,
+      }),
+    };
+    const service = new GrowthService(prisma, undefined, bonusConfig as any);
+
+    await expect(service.getMe('normal-user')).resolves.toMatchObject({
+      directReferralStatus: 'ACTIVE',
+      directReferralInviter: {
+        id: 'inviter-1',
+        nickname: '张三',
+        buyerNo: 'AIMM00000000000001',
+      },
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+      autoVipRemainingSpend: 279,
+      directReferralPercent: 0.01,
+    });
+  });
+
+  it('returns VIP direct referral rate and no auto VIP remaining spend for VIP users', async () => {
+    const prisma: any = {
+      growthAccount: {
+        upsert: jest.fn().mockResolvedValue({
+          id: 'ga-1',
+          userId: 'vip-user',
+          pointsBalance: 60,
+          pointsTotalEarned: 80,
+          pointsTotalSpent: 20,
+          growthValue: 120,
+          updatedAt: new Date('2026-07-02T00:00:00.000Z'),
+        }),
+      },
+      growthLevel: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({ tier: 'VIP', inviterUserId: 'vip-inviter' }),
+      },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue({ cumulativeSpendAmount: 500 }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'vip-inviter',
+          buyerNo: 'AIMM00000000000002',
+          profile: { nickname: '李四' },
+        }),
+      },
+    };
+    const bonusConfig = {
+      getConfig: jest.fn().mockResolvedValue({
+        autoVipBySpendEnabled: true,
+        autoVipCumulativeSpendThreshold: 399,
+        normalDirectReferralPercent: 0.01,
+        vipDirectReferralPercent: 0.05,
+      }),
+    };
+    const service = new GrowthService(prisma, undefined, bonusConfig as any);
+
+    await expect(service.getMe('vip-user')).resolves.toMatchObject({
+      directReferralStatus: 'ACTIVE',
+      directReferralInviter: {
+        id: 'vip-inviter',
+        nickname: '李四',
+        buyerNo: 'AIMM00000000000002',
+      },
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+      autoVipRemainingSpend: null,
+      directReferralPercent: 0.05,
+    });
+    expect(prisma.normalShareBinding?.findUnique).toBeUndefined();
+  });
+
   it('returns buyer-visible earning rules and levels from admin configuration', async () => {
     const prisma: any = {
       memberProfile: {

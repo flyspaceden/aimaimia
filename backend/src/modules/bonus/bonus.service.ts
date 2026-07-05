@@ -100,6 +100,55 @@ export class BonusService {
     }
   }
 
+  private async buildDirectReferralInviterSummary(userId?: string | null) {
+    if (!userId) return null;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          buyerNo: true,
+          profile: { select: { nickname: true } },
+        },
+      });
+      if (!user) return null;
+
+      return {
+        id: user.id,
+        nickname: user.profile?.nickname ?? null,
+        buyerNo: user.buyerNo ?? null,
+      };
+    } catch (err: any) {
+      this.logger.warn(`查询直推推荐人摘要失败：userId=${userId}, error=${err?.message ?? err}`);
+      return null;
+    }
+  }
+
+  private async buildDirectReferralSummary(userId: string, member: { inviterUserId?: string | null }) {
+    const activeInviterUserId = member.inviterUserId ?? null;
+    if (activeInviterUserId) {
+      return {
+        status: 'ACTIVE',
+        inviter: await this.buildDirectReferralInviterSummary(activeInviterUserId),
+      };
+    }
+
+    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
+      where: { inviteeUserId: userId },
+      select: {
+        relationStatus: true,
+        effectiveInviterUserId: true,
+      },
+    });
+    const effectiveInviterUserId = binding?.effectiveInviterUserId ?? null;
+    return {
+      status: binding?.relationStatus ?? null,
+      inviter: effectiveInviterUserId
+        ? await this.buildDirectReferralInviterSummary(effectiveInviterUserId)
+        : null,
+    };
+  }
+
   /** 获取会员信息 */
   async getMemberProfile(userId: string) {
     let member = await this.prisma.memberProfile.findUnique({ where: { userId } });
@@ -132,20 +181,41 @@ export class BonusService {
       }
     }
 
-    const [vipProgress, inviter, config, inviteeVipCount] = await Promise.all([
+    const [vipProgress, inviter, config, inviteeVipCount, directReferral, digitalAssetAccount] = await Promise.all([
       this.prisma.vipProgress.findUnique({ where: { userId } }),
       this.buildInviterSummary(member.inviterUserId),
       this.bonusConfig.getConfig(),
       this.prisma.memberProfile.count({
         where: { inviterUserId: userId, tier: 'VIP' },
       }),
+      this.buildDirectReferralSummary(userId, member),
+      (this.prisma as any).digitalAssetAccount?.findUnique?.({
+        where: { userId },
+        select: { cumulativeSpendAmount: true },
+      }),
     ]);
+    const autoVipBySpendEnabled = config.autoVipBySpendEnabled ?? true;
+    const autoVipCumulativeSpendThreshold = config.autoVipCumulativeSpendThreshold ?? 399;
+    const cumulativeSpendAmount = Number(digitalAssetAccount?.cumulativeSpendAmount ?? 0);
+    const autoVipRemainingSpend =
+      member.tier === 'VIP' || !autoVipBySpendEnabled
+        ? null
+        : Number(Math.max(0, autoVipCumulativeSpendThreshold - cumulativeSpendAmount).toFixed(2));
 
     return {
       tier: member.tier,
       referralCode: member.tier === 'VIP' ? member.referralCode : null,
       inviterUserId: member.inviterUserId,
       inviter,
+      directReferralStatus: directReferral.status,
+      directReferralInviter: directReferral.inviter,
+      autoVipBySpendEnabled,
+      autoVipCumulativeSpendThreshold,
+      autoVipRemainingSpend,
+      directReferralPercent:
+        member.tier === 'VIP'
+          ? config.vipDirectReferralPercent ?? null
+          : config.normalDirectReferralPercent ?? null,
       inviteeVipCount,
       vipPurchasedAt: member.vipPurchasedAt?.toISOString() || null,
       normalEligible: member.normalEligible,

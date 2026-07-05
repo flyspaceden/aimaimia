@@ -43,6 +43,12 @@ const TOOL_GRID_BASE = [
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
 ];
 
+function formatPercent(value?: number | null) {
+  if (typeof value !== 'number') return '后台配置';
+  const percent = value * 100;
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
 // 【AI 多轮对话已下线 — 过华为审查】「AI 小助手」整块已注释，恢复时取消注释即可
 // AI 小助手 3 格
 // const AI_TOOLS = [
@@ -123,6 +129,7 @@ export default function MeScreen() {
   const isVip = member?.tier === 'VIP';
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
+  const directReferralPercentText = formatPercent(member?.directReferralPercent);
   const growthToolLabel = memberData?.ok ? (isVip ? '会员成长' : '普通成长') : '成长中心';
   const normalGrowthTool = useMemo(
     () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
@@ -550,7 +557,7 @@ export default function MeScreen() {
                     { icon: 'sale' as const, text: '普通商品会员价' },
                     { icon: 'truck-fast-outline' as const, text: '更低包邮门槛' },
                     { icon: 'wallet-outline' as const, text: '消费积分抵扣更多' },
-                    { icon: 'account-cash-outline' as const, text: '推荐 VIP 奖励' },
+                    { icon: 'account-cash-outline' as const, text: `VIP 直推 ${directReferralPercentText}` },
                   ].map((perk) => (
                     <View key={perk.text} style={styles.vipPerkRow}>
                       <MaterialCommunityIcons name={perk.icon} size={18} color="#FFD700" />
