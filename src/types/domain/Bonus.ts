@@ -143,6 +143,7 @@ export type RewardSourceType =
   | 'ORDER'
   | 'REFERRAL'
   | 'VIP_REFERRAL'
+  | 'NORMAL_DIRECT_REFERRAL'
   | 'VIP_DIRECT_REFERRAL'
   | 'VIP_UPSTREAM'
   | 'VIP_BONUS'

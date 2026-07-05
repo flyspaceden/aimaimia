@@ -66,7 +66,7 @@ export class FreezeExpireService {
         AND meta IS NOT NULL
         AND (meta->>'expiresAt') IS NOT NULL
         AND (meta->>'expiresAt')::timestamp <= NOW()
-        AND COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'
+        AND COALESCE(meta->>'scheme', '') NOT IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')
         AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;
@@ -81,7 +81,7 @@ export class FreezeExpireService {
         AND "entryType" = 'FREEZE'
         AND (meta IS NULL OR (meta->>'expiresAt') IS NULL)
         AND "createdAt" <= NOW() - MAKE_INTERVAL(days => ${maxFreezeDays}::int)
-        AND COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'
+        AND COALESCE(meta->>'scheme', '') NOT IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')
         AND COALESCE(meta->>'accountType', '') NOT IN ('INDUSTRY_FUND', 'CHARITY_FUND', 'TECH_FUND', 'RESERVE_FUND', 'PLATFORM_PROFIT')
       LIMIT ${BATCH_SIZE}
     `;

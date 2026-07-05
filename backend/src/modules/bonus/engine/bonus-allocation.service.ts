@@ -843,7 +843,7 @@ export class BonusAllocationService {
    * 1. 确保用户入树
    * 2. 七分利润计算
    * 3. 奖励 16% 上溯分配
-   * 4. 其余 6 池平台分割（普通直推池 Task 6 前暂存平台）
+   * 4. 其余平台/基金池分割（普通直推池已在订单支付时单独处理）
    */
   private async executeNormalTree(
     tx: any,
@@ -897,7 +897,7 @@ export class BonusAllocationService {
     );
     this.logger.log(`普通树奖励分配完成：${idempotencyKey}，结果=${result}`);
 
-    // 5. 其余 6 池平台分割；普通直推池 Task 6 前暂存平台利润账户
+    // 5. 其余平台/基金池分割；普通直推池已在订单支付时单独处理，避免重复入账
     await this.normalPlatformSplit.split(
       tx, allocation.id, orderId,
       {

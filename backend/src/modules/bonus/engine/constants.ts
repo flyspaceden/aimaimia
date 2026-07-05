@@ -41,7 +41,7 @@ export const PLATFORM_COMPANY_ID = 'PLATFORM_COMPANY';
 export const NORMAL_ROOT_ID = 'NORMAL_ROOT';
 
 /** 普通奖励相关 scheme 列表（用于统一判断 accountType 路由） */
-export const NORMAL_SCHEMES = ['NORMAL_TREE', 'NORMAL_BROADCAST'] as const;
+export const NORMAL_SCHEMES = ['NORMAL_TREE', 'NORMAL_BROADCAST', 'NORMAL_DIRECT_REFERRAL'] as const;
 
 /**
  * 分润系统迁移日期：早于此日期的非 VIP 订单走 NORMAL_BROADCAST（旧广播模式），

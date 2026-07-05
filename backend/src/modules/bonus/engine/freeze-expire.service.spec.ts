@@ -128,12 +128,12 @@ describe('FreezeExpireService notifications', () => {
   });
 });
 
-describe('FreezeExpireService VIP direct referral semantics', () => {
-  it('excludes VIP_DIRECT_REFERRAL frozen ledgers from generic freeze expiration', async () => {
+describe('FreezeExpireService direct referral semantics', () => {
+  it('excludes direct referral frozen ledgers from generic freeze expiration', async () => {
     const { service, prisma } = makeService();
     prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) => {
       return Promise.resolve(
-        queryText(strings).includes("COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'")
+        queryText(strings).includes("COALESCE(meta->>'scheme', '') NOT IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')")
           ? []
           : [directLedger],
       );
@@ -144,7 +144,7 @@ describe('FreezeExpireService VIP direct referral semantics', () => {
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
     for (const call of prisma.$queryRaw.mock.calls) {
       expect(queryText(call[0])).toContain(
-        "COALESCE(meta->>'scheme', '') <> 'VIP_DIRECT_REFERRAL'",
+        "COALESCE(meta->>'scheme', '') NOT IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')",
       );
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();

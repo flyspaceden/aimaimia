@@ -7,6 +7,31 @@ import { PLATFORM_USER_ID } from './constants';
 
 export type VipDirectReferralCommissionResult = 'credited' | 'platform' | 'skipped';
 
+type DirectReferralScheme = 'NORMAL_DIRECT_REFERRAL' | 'VIP_DIRECT_REFERRAL';
+type DirectRelationSource = 'MEMBER_PROFILE' | 'NORMAL_SHARE_BINDING' | 'NONE';
+
+interface DirectRelationResolution {
+  inviterUserId: string | null;
+  sourceRelation: DirectRelationSource;
+  normalShareBindingId?: string;
+  relationStatus?: string;
+  platformReason?: string;
+}
+
+interface DirectCommissionContext {
+  scheme: DirectReferralScheme;
+  platformScheme: 'NORMAL_DIRECT_REFERRAL_PLATFORM' | 'VIP_DIRECT_REFERRAL_PLATFORM';
+  accountType: 'NORMAL_REWARD' | 'VIP_REWARD';
+  ruleType: DirectReferralScheme;
+  idempotencyKey: string;
+  ratio: number;
+  pools: {
+    profit: number;
+    directReferralPool: number;
+    configSnapshot: Record<string, any>;
+  };
+}
+
 @Injectable()
 export class VipDirectReferralCommissionService {
   private readonly logger = new Logger(VipDirectReferralCommissionService.name);
@@ -23,16 +48,7 @@ export class VipDirectReferralCommissionService {
   ): Promise<VipDirectReferralCommissionResult> {
     void this.prisma;
 
-    const idempotencyKey = `ALLOC:ORDER_PAID:${orderId}:VIP_DIRECT_REFERRAL`;
-
     try {
-      const existing = await (tx as any).rewardAllocation.findUnique({
-        where: { idempotencyKey },
-      });
-      if (existing) {
-        return 'skipped';
-      }
-
       const order = await (tx as any).order.findUnique({
         where: { id: orderId },
         include: {
@@ -64,15 +80,12 @@ export class VipDirectReferralCommissionService {
       }
 
       const member = order.user?.memberProfile;
-      if (!member || member.tier !== 'VIP') {
+      const inviteeTierAtOrder = member?.tier ?? null;
+      if (!member) {
         return 'skipped';
       }
 
       const config = await this.configService.getConfig();
-      if (config.vipDirectReferralPercent <= 0) {
-        return 'skipped';
-      }
-
       const calcItems = order.items
         .filter((item: any) => !item.isPrize)
         .map((item: any) => ({
@@ -82,63 +95,101 @@ export class VipDirectReferralCommissionService {
           companyId: item.companyId ?? null,
         }));
 
-      const pools = this.calculator.calculateVip(calcItems, config);
-      if (pools.profit <= 0 || pools.directReferralPool <= 0) {
+      const relation = await this.resolveDirectRelation(
+        tx,
+        order.userId,
+        member.inviterUserId ?? null,
+      );
+      const inviter = relation.inviterUserId
+        ? await (tx as any).user.findUnique({
+          where: { id: relation.inviterUserId },
+          select: {
+            status: true,
+            deletionExecutedAt: true,
+            memberProfile: { select: { tier: true } },
+          },
+        })
+        : null;
+
+      const platformReason = this.resolvePlatformReason(relation, inviter);
+      const inviterTierAtOrder = inviter?.memberProfile?.tier ?? null;
+      const fallbackTier = inviteeTierAtOrder === 'VIP' ? 'VIP' : 'NORMAL';
+      const commissionTier = inviterTierAtOrder === 'VIP'
+        ? 'VIP'
+        : inviterTierAtOrder === 'NORMAL'
+          ? 'NORMAL'
+          : fallbackTier;
+      const context = this.buildCommissionContext(
+        orderId,
+        commissionTier,
+        calcItems,
+        config,
+      );
+
+      if (!context || context.pools.profit <= 0 || context.pools.directReferralPool <= 0) {
         return 'skipped';
       }
 
-      const inviterUserId = member.inviterUserId ?? null;
-      let platformReason: string | null = null;
-      if (!inviterUserId) {
-        platformReason = 'NO_DIRECT_INVITER';
-      } else {
-        const inviter = await (tx as any).user.findUnique({
-          where: { id: inviterUserId },
-          select: { status: true, deletionExecutedAt: true },
-        });
-        if (!inviter) {
-          platformReason = 'DIRECT_INVITER_NOT_FOUND';
-        } else if (inviter.status !== UserStatus.ACTIVE || inviter.deletionExecutedAt) {
-          platformReason = 'DIRECT_INVITER_INACTIVE';
-        }
+      const existing = await (tx as any).rewardAllocation.findUnique({
+        where: { idempotencyKey: context.idempotencyKey },
+      });
+      if (existing) {
+        return 'skipped';
+      }
+      const existingDirectAllocation = await (tx as any).rewardAllocation.findFirst({
+        where: {
+          orderId,
+          triggerType: 'ORDER_PAID',
+          ruleType: { in: ['NORMAL_DIRECT_REFERRAL', 'VIP_DIRECT_REFERRAL'] },
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (existingDirectAllocation) {
+        return 'skipped';
       }
 
       if (platformReason) {
         await this.creditToPlatform(
           tx,
           order,
-          idempotencyKey,
-          inviterUserId,
+          context,
+          relation,
+          inviteeTierAtOrder,
+          inviterTierAtOrder,
           platformReason,
-          pools,
           config.ruleVersion,
-          config.vipDirectReferralPercent,
         );
         return 'platform';
       }
 
       const account = await (tx as any).rewardAccount.upsert({
-        where: { userId_type: { userId: inviterUserId, type: 'VIP_REWARD' } },
+        where: { userId_type: { userId: relation.inviterUserId, type: context.accountType } },
         update: {},
-        create: { userId: inviterUserId, type: 'VIP_REWARD' },
+        create: { userId: relation.inviterUserId, type: context.accountType },
       });
 
       const allocation = await (tx as any).rewardAllocation.create({
         data: {
           triggerType: 'ORDER_PAID' as any,
           orderId,
-          ruleType: 'VIP_DIRECT_REFERRAL' as any,
+          ruleType: context.ruleType as any,
           ruleVersion: config.ruleVersion,
-          idempotencyKey,
+          idempotencyKey: context.idempotencyKey,
           meta: {
-            scheme: 'VIP_DIRECT_REFERRAL',
+            scheme: context.scheme,
             sourceOrderId: orderId,
             sourceUserId: order.userId,
-            directInviterUserId: inviterUserId,
-            profit: pools.profit,
-            ratio: config.vipDirectReferralPercent,
-            directReferralPool: pools.directReferralPool,
-            configSnapshot: pools.configSnapshot,
+            directInviterUserId: relation.inviterUserId,
+            inviterTierAtOrder,
+            inviteeTierAtOrder,
+            profit: context.pools.profit,
+            ratio: context.ratio,
+            directReferralPool: context.pools.directReferralPool,
+            sourceRelation: relation.sourceRelation,
+            normalShareBindingId: relation.normalShareBindingId,
+            relationStatus: relation.relationStatus,
+            configSnapshot: context.pools.configSnapshot,
             routedToPlatform: false,
             releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
           },
@@ -149,22 +200,27 @@ export class VipDirectReferralCommissionService {
         data: {
           allocationId: allocation.id,
           accountId: account.id,
-          userId: inviterUserId,
+          userId: relation.inviterUserId,
           entryType: 'FREEZE',
-          amount: pools.directReferralPool,
+          amount: context.pools.directReferralPool,
           status: 'FROZEN',
           refType: 'ORDER',
           refId: orderId,
           meta: {
-            scheme: 'VIP_DIRECT_REFERRAL',
-            accountType: 'VIP_REWARD',
+            scheme: context.scheme,
+            accountType: context.accountType,
             sourceOrderId: orderId,
             sourceUserId: order.userId,
-            directInviterUserId: inviterUserId,
-            profit: pools.profit,
-            ratio: config.vipDirectReferralPercent,
-            directReferralPool: pools.directReferralPool,
-            configSnapshot: pools.configSnapshot,
+            directInviterUserId: relation.inviterUserId,
+            inviterTierAtOrder,
+            inviteeTierAtOrder,
+            profit: context.pools.profit,
+            ratio: context.ratio,
+            directReferralPool: context.pools.directReferralPool,
+            sourceRelation: relation.sourceRelation,
+            normalShareBindingId: relation.normalShareBindingId,
+            relationStatus: relation.relationStatus,
+            configSnapshot: context.pools.configSnapshot,
             releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
           },
         },
@@ -172,7 +228,7 @@ export class VipDirectReferralCommissionService {
 
       await (tx as any).rewardAccount.update({
         where: { id: account.id },
-        data: { frozen: { increment: pools.directReferralPool } },
+        data: { frozen: { increment: context.pools.directReferralPool } },
       });
 
       return 'credited';
@@ -188,16 +244,12 @@ export class VipDirectReferralCommissionService {
   private async creditToPlatform(
     tx: Prisma.TransactionClient,
     order: any,
-    idempotencyKey: string,
-    inviterUserId: string | null,
+    context: DirectCommissionContext,
+    relation: DirectRelationResolution,
+    inviteeTierAtOrder: string | null,
+    inviterTierAtOrder: string | null,
     platformReason: string,
-    pools: {
-      profit: number;
-      directReferralPool: number;
-      configSnapshot: Record<string, any>;
-    },
     ruleVersion: string,
-    ratio: number,
   ) {
     const account = await (tx as any).rewardAccount.upsert({
       where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
@@ -209,18 +261,23 @@ export class VipDirectReferralCommissionService {
       data: {
         triggerType: 'ORDER_PAID' as any,
         orderId: order.id,
-        ruleType: 'VIP_DIRECT_REFERRAL' as any,
+        ruleType: context.ruleType as any,
         ruleVersion,
-        idempotencyKey,
+        idempotencyKey: context.idempotencyKey,
         meta: {
-          scheme: 'VIP_DIRECT_REFERRAL',
+          scheme: context.scheme,
           sourceOrderId: order.id,
           sourceUserId: order.userId,
-          directInviterUserId: inviterUserId,
-          profit: pools.profit,
-          ratio,
-          directReferralPool: pools.directReferralPool,
-          configSnapshot: pools.configSnapshot,
+          directInviterUserId: relation.inviterUserId,
+          inviterTierAtOrder,
+          inviteeTierAtOrder,
+          profit: context.pools.profit,
+          ratio: context.ratio,
+          directReferralPool: context.pools.directReferralPool,
+          sourceRelation: relation.sourceRelation,
+          normalShareBindingId: relation.normalShareBindingId,
+          relationStatus: relation.relationStatus,
+          configSnapshot: context.pools.configSnapshot,
           routedToPlatform: true,
           platformReason,
           releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
@@ -234,23 +291,28 @@ export class VipDirectReferralCommissionService {
         accountId: account.id,
         userId: PLATFORM_USER_ID,
         entryType: 'RELEASE',
-        amount: pools.directReferralPool,
+        amount: context.pools.directReferralPool,
         status: 'AVAILABLE',
         refType: 'ORDER',
         refId: order.id,
         meta: {
-          scheme: 'VIP_DIRECT_REFERRAL_PLATFORM',
-          originalScheme: 'VIP_DIRECT_REFERRAL',
+          scheme: context.platformScheme,
+          originalScheme: context.scheme,
           accountType: 'PLATFORM_PROFIT',
           routedToPlatform: true,
           platformReason,
           sourceOrderId: order.id,
           sourceUserId: order.userId,
-          directInviterUserId: inviterUserId,
-          profit: pools.profit,
-          ratio,
-          directReferralPool: pools.directReferralPool,
-          configSnapshot: pools.configSnapshot,
+          directInviterUserId: relation.inviterUserId,
+          inviterTierAtOrder,
+          inviteeTierAtOrder,
+          profit: context.pools.profit,
+          ratio: context.ratio,
+          directReferralPool: context.pools.directReferralPool,
+          sourceRelation: relation.sourceRelation,
+          normalShareBindingId: relation.normalShareBindingId,
+          relationStatus: relation.relationStatus,
+          configSnapshot: context.pools.configSnapshot,
           releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
         },
       },
@@ -258,8 +320,124 @@ export class VipDirectReferralCommissionService {
 
     await (tx as any).rewardAccount.update({
       where: { id: account.id },
-      data: { balance: { increment: pools.directReferralPool } },
+      data: { balance: { increment: context.pools.directReferralPool } },
     });
+  }
+
+  private async resolveDirectRelation(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+    memberProfileInviterUserId: string | null,
+  ): Promise<DirectRelationResolution> {
+    if (memberProfileInviterUserId) {
+      return {
+        inviterUserId: memberProfileInviterUserId,
+        sourceRelation: 'MEMBER_PROFILE',
+      };
+    }
+
+    const binding = await (tx as any).normalShareBinding.findUnique({
+      where: { inviteeUserId },
+      select: {
+        id: true,
+        relationStatus: true,
+        effectiveInviterUserId: true,
+      },
+    });
+
+    if (!binding) {
+      return {
+        inviterUserId: null,
+        sourceRelation: 'NONE',
+        platformReason: 'NO_DIRECT_INVITER',
+      };
+    }
+
+    if (binding.relationStatus !== 'ACTIVE') {
+      return {
+        inviterUserId: null,
+        sourceRelation: 'NORMAL_SHARE_BINDING',
+        normalShareBindingId: binding.id,
+        relationStatus: binding.relationStatus,
+        platformReason: 'DIRECT_RELATION_NOT_ACTIVE',
+      };
+    }
+
+    if (!binding.effectiveInviterUserId) {
+      return {
+        inviterUserId: null,
+        sourceRelation: 'NORMAL_SHARE_BINDING',
+        normalShareBindingId: binding.id,
+        relationStatus: binding.relationStatus,
+        platformReason: 'DIRECT_RELATION_NO_EFFECTIVE_INVITER',
+      };
+    }
+
+    return {
+      inviterUserId: binding.effectiveInviterUserId,
+      sourceRelation: 'NORMAL_SHARE_BINDING',
+      normalShareBindingId: binding.id,
+      relationStatus: binding.relationStatus,
+    };
+  }
+
+  private resolvePlatformReason(
+    relation: DirectRelationResolution,
+    inviter: any,
+  ): string | null {
+    if (relation.platformReason) {
+      return relation.platformReason;
+    }
+    if (!relation.inviterUserId) {
+      return 'NO_DIRECT_INVITER';
+    }
+    if (!inviter) {
+      return 'DIRECT_INVITER_NOT_FOUND';
+    }
+    if (inviter.status !== UserStatus.ACTIVE || inviter.deletionExecutedAt) {
+      return 'DIRECT_INVITER_INACTIVE';
+    }
+    if (!inviter.memberProfile?.tier) {
+      return 'DIRECT_INVITER_PROFILE_MISSING';
+    }
+    return null;
+  }
+
+  private buildCommissionContext(
+    orderId: string,
+    inviterTier: 'NORMAL' | 'VIP',
+    calcItems: any[],
+    config: any,
+  ): DirectCommissionContext | null {
+    if (inviterTier === 'VIP') {
+      if (config.vipDirectReferralPercent <= 0) {
+        return null;
+      }
+      const pools = this.calculator.calculateVip(calcItems, config);
+      return {
+        scheme: 'VIP_DIRECT_REFERRAL',
+        platformScheme: 'VIP_DIRECT_REFERRAL_PLATFORM',
+        accountType: 'VIP_REWARD',
+        ruleType: 'VIP_DIRECT_REFERRAL',
+        idempotencyKey: `ALLOC:ORDER_PAID:${orderId}:VIP_DIRECT_REFERRAL`,
+        ratio: config.vipDirectReferralPercent,
+        pools,
+      };
+    }
+
+    if (config.normalDirectReferralPercent <= 0) {
+      return null;
+    }
+    const pools = this.calculator.calculateNormal(calcItems, config);
+    return {
+      scheme: 'NORMAL_DIRECT_REFERRAL',
+      platformScheme: 'NORMAL_DIRECT_REFERRAL_PLATFORM',
+      accountType: 'NORMAL_REWARD',
+      ruleType: 'NORMAL_DIRECT_REFERRAL',
+      idempotencyKey: `ALLOC:ORDER_PAID:${orderId}:NORMAL_DIRECT_REFERRAL`,
+      ratio: config.normalDirectReferralPercent,
+      pools,
+    };
   }
 
   private isUniqueConstraintError(err: any): boolean {
