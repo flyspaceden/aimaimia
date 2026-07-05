@@ -37,7 +37,7 @@ const triggerTypeOptions = [
   { label: '久未下单唤醒', value: 'WIN_BACK' },
   { label: '节日活动', value: 'HOLIDAY' },
   { label: '限时抢', value: 'FLASH' },
-  { label: '手动发放', value: 'MANUAL' },
+  { label: '手动发放（积分兑换）', value: 'MANUAL' },
 ];
 
 // 发放方式选项
