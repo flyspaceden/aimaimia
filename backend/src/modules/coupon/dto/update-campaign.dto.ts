@@ -92,6 +92,10 @@ export class UpdateCampaignDto {
   maxPerUser?: number;
 
   @IsOptional()
+  @IsBoolean()
+  growthExchangeEnabled?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(0)
   validDays?: number;

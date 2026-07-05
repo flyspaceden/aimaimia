@@ -40,6 +40,7 @@ export interface CouponCampaign {
   totalQuota: number;
   issuedCount: number;
   maxPerUser: number;
+  growthExchangeEnabled: boolean;
   validDays: number;
   startAt: string;
   endAt: string | null;
@@ -145,6 +146,7 @@ export interface CreateCampaignDto {
   stackGroup?: string;
   totalQuota: number;
   maxPerUser?: number;
+  growthExchangeEnabled: boolean;
   validDays?: number;
   startAt: string;
   endAt?: string | null;

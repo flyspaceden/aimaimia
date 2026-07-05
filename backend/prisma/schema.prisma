@@ -3272,6 +3272,7 @@ model CouponCampaign {
   totalQuota  Int // 总发放量
   issuedCount Int @default(0) // 已发放数量
   maxPerUser  Int @default(1) // 每人限领
+  growthExchangeEnabled Boolean @default(false) // 是否作为积分兑换专用红包池
 
   // 有效期
   validDays            Int                   @default(7)  // 领取后有效天数（0=跟随活动结束时间）

@@ -123,16 +123,20 @@ test('admin growth page explains configuration workflow and rule effects for ope
   assert.match(source, /scroll=\{\{ x: 1320 \}\}/);
 });
 
-test('admin growth exchange only offers coupon campaigns that can be system issued', () => {
+test('admin growth exchange only offers dedicated coupon pools', () => {
   const source = read('admin/src/pages/growth/index.tsx');
 
   assert.match(source, /exchangeAvailableCouponCampaigns/);
-  assert.match(source, /campaign\.distributionMode !== 'CLAIM'/);
+  assert.match(source, /campaign\.distributionMode === 'MANUAL'/);
+  assert.match(source, /campaign\.growthExchangeEnabled === true/);
   assert.match(source, /campaign\.issuedCount < campaign\.totalQuota/);
-  assert.match(source, /label="兑换后发放的红包"/);
-  assert.match(source, /只显示启用中、未发完、可由系统直接发放的红包活动/);
-  assert.match(source, /请先到红包管理创建“系统发放”或“手动发放”的启用红包活动/);
-  assert.match(source, /formatExchangeCampaignOptionLabel/);
+  assert.match(source, /label="积分兑换专用红包池"/);
+  assert.match(source, /只显示红包管理中已标记“积分兑换专用”的手动发放红包池/);
+  assert.match(source, /请先到红包管理创建并标记“积分兑换专用”的手动发放红包活动/);
+  assert.match(source, /renderExchangeCampaignOption/);
+  assert.match(source, /optionLabelProp="title"/);
+  assert.match(source, /whiteSpace: 'normal'/);
+  assert.doesNotMatch(source, /formatExchangeCampaignOptionLabel/);
 });
 
 test('growth defaults are shipped in a production migration, not only in seed data', () => {

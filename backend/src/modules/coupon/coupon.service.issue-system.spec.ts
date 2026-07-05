@@ -6,6 +6,7 @@ const activeCampaign = (overrides: Record<string, unknown> = {}) => ({
   name: '积分兑换红包',
   status: 'ACTIVE',
   distributionMode: 'MANUAL',
+  growthExchangeEnabled: true,
   discountType: 'FIXED',
   discountValue: 5,
   maxDiscountAmount: null,
@@ -110,5 +111,19 @@ describe('CouponService.issueSystemCoupon', () => {
         campaignId: 'campaign-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects regular manual campaigns that are not marked for growth exchange', async () => {
+    const { service } = makeHarness({
+      campaign: activeCampaign({ growthExchangeEnabled: false }),
+    });
+
+    await expect(
+      service.issueSystemCoupon({
+        userId: 'user-1',
+        campaignId: 'campaign-1',
+        source: { type: 'GROWTH_EXCHANGE', id: 'exchange-1' },
+      }),
+    ).rejects.toThrow('该红包活动未标记为积分兑换专用');
   });
 });

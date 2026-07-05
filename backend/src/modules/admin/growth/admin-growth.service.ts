@@ -709,6 +709,7 @@ export class AdminGrowthService {
         id: true,
         status: true,
         distributionMode: true,
+        growthExchangeEnabled: true,
         startAt: true,
         endAt: true,
         issuedCount: true,
@@ -721,8 +722,11 @@ export class AdminGrowthService {
     if (campaign.status !== 'ACTIVE') {
       throw new BadRequestException('只能绑定启用中的红包活动');
     }
-    if (campaign.distributionMode === 'CLAIM') {
-      throw new BadRequestException('用户主动领取类红包不能用于积分兑换');
+    if (campaign.distributionMode !== 'MANUAL') {
+      throw new BadRequestException('积分兑换只能绑定手动发放的积分兑换专用红包池');
+    }
+    if (!campaign.growthExchangeEnabled) {
+      throw new BadRequestException('只能绑定标记为积分兑换专用的红包活动');
     }
 
     const now = new Date();

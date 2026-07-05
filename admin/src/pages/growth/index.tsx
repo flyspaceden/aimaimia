@@ -195,17 +195,34 @@ function isExchangeIssuableCouponCampaign(campaign: CouponCampaign) {
   const endAt = campaign.endAt ? new Date(campaign.endAt).getTime() : null;
   return (
     campaign.status === 'ACTIVE' &&
-    campaign.distributionMode !== 'CLAIM' &&
+    campaign.distributionMode === 'MANUAL' &&
+    campaign.growthExchangeEnabled === true &&
     campaign.issuedCount < campaign.totalQuota &&
     startAt <= now &&
     (endAt === null || endAt >= now)
   );
 }
 
-function formatExchangeCampaignOptionLabel(campaign: CouponCampaign) {
+function getExchangeCampaignOptionMeta(campaign: CouponCampaign) {
   const remaining = Math.max(campaign.totalQuota - campaign.issuedCount, 0);
   const threshold = campaign.minOrderAmount > 0 ? `满 ${campaign.minOrderAmount} 元可用` : '无门槛';
-  return `${campaign.name}｜${couponDistributionModeLabels[campaign.distributionMode] ?? campaign.distributionMode}｜剩余 ${remaining} 张｜${threshold}`;
+  const mode = couponDistributionModeLabels[campaign.distributionMode] ?? campaign.distributionMode;
+  return { mode, remaining, threshold };
+}
+
+function renderExchangeCampaignOption(campaign: CouponCampaign) {
+  const { mode, remaining, threshold } = getExchangeCampaignOptionMeta(campaign);
+  return (
+    <Space direction="vertical" size={2} style={{ width: '100%', whiteSpace: 'normal' }}>
+      <Typography.Text strong>{campaign.name}</Typography.Text>
+      <Space size={6} wrap>
+        <Tag color="geekblue">积分兑换专用</Tag>
+        <Tag color="green">{mode}</Tag>
+        <Typography.Text type="secondary">剩余 {remaining} 张</Typography.Text>
+        <Typography.Text type="secondary">{threshold}</Typography.Text>
+      </Space>
+    </Space>
+  );
 }
 
 function renderUser(user: AdminGrowthAccountRow['user'] | AdminNormalShareBinding['inviter'] | undefined) {
@@ -1348,7 +1365,7 @@ export default function GrowthPage() {
                   showIcon
                   type="info"
                   message="积分兑换负责把积分变成红包或其他权益"
-                  description="红包类兑换项必须绑定一个可由系统直接发放的红包活动；等级要求用于限制低等级用户兑换高价值权益；库存和用户限额用于控制成本。"
+                  description="红包类兑换项必须绑定红包管理里的“积分兑换专用”手动发放红包池；等级要求用于限制低等级用户兑换高价值权益；库存和用户限额用于控制成本。"
                   style={{ marginBottom: 16 }}
                 />
                 <Table<AdminGrowthExchangeItem>
@@ -1585,26 +1602,28 @@ export default function GrowthPage() {
                   return (
                     <Form.Item
                       name="couponCampaignId"
-                      label="兑换后发放的红包"
-                      extra="只显示启用中、未发完、可由系统直接发放的红包活动；用户主动领取类红包不能用于积分兑换。"
+                      label="积分兑换专用红包池"
+                      extra="只显示红包管理中已标记“积分兑换专用”的手动发放红包池。用户兑换成功后，系统会从该红包池发放一张红包。"
                       rules={[
                         {
                           required: couponExchangeTypes.has(type),
-                          message: '红包类兑换项必须绑定兑换后发放的红包',
+                          message: '红包类兑换项必须绑定积分兑换专用红包池',
                         },
                       ]}
                     >
                       <Select
                         allowClear
                         loading={couponCampaignsQuery.isLoading}
-                        placeholder="请选择兑换后发放的红包"
+                        optionLabelProp="title"
+                        placeholder="请选择积分兑换专用红包池"
                         notFoundContent={
                           couponCampaignsQuery.isLoading
                             ? '加载中'
-                            : '请先到红包管理创建“系统发放”或“手动发放”的启用红包活动'
+                            : '请先到红包管理创建并标记“积分兑换专用”的手动发放红包活动'
                         }
                         options={exchangeAvailableCouponCampaigns.map((campaign) => ({
-                          label: formatExchangeCampaignOptionLabel(campaign),
+                          label: renderExchangeCampaignOption(campaign),
+                          title: campaign.name,
                           value: campaign.id,
                         }))}
                       />
