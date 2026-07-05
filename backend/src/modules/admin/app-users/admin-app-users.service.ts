@@ -21,9 +21,12 @@ export class AdminAppUsersService {
     tier?: string,
     startDate?: string,
     endDate?: string,
+    sortField?: string,
+    sortOrder?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
+    const orderBy = this.buildUserOrderBy(sortField, sortOrder);
     if (status) where.status = status;
 
     // 关键词搜索：手机号（AuthIdentity）或昵称（UserProfile）
@@ -60,7 +63,7 @@ export class AdminAppUsersService {
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           profile: {
             select: {
@@ -98,6 +101,35 @@ export class AdminAppUsersService {
       page,
       pageSize,
     };
+  }
+
+  private buildUserOrderBy(sortField?: string, sortOrder?: string) {
+    const direction = sortOrder === 'asc' || sortOrder === 'ascend' ? 'asc' : 'desc';
+    if (sortField === 'memberTier') {
+      return [
+        { memberProfile: { tier: direction } },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    if (sortField === 'status') {
+      return [
+        { status: direction },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    if (sortField === 'orderCount') {
+      return [
+        { orders: { _count: direction } },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    return [
+      { createdAt: direction },
+      { id: 'asc' },
+    ] as any;
   }
 
   /** 用户统计概览 */

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import type { SortOrder } from 'antd/es/table/interface';
 import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
 import {
   UserOutlined,
@@ -15,6 +16,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { useResizableColumns } from '@/components/table/useResizableColumns';
 import type { AppUser } from '@/types';
 import { userStatusMap as statusMap, memberTierColors } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -27,6 +29,17 @@ const statCardConfig = [
   { key: 'todayRegistered' as const, title: '今日注册', icon: <UserAddOutlined />, color: '#059669' },
   { key: 'bannedUsers' as const, title: '已封禁', icon: <StopOutlined />, color: '#DC2626' },
 ];
+
+function getAppUserSortParams(sort: Record<string, SortOrder | undefined>) {
+  const selected = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+  if (!selected) return {};
+  const [field, order] = selected;
+  if (!['memberTier', 'status', 'orderCount', 'createdAt'].includes(field)) return {};
+  return {
+    sortField: field as 'memberTier' | 'status' | 'orderCount' | 'createdAt',
+    sortOrder: order as 'ascend' | 'descend',
+  };
+}
 
 export default function UserListPage() {
   const { message } = App.useApp();
@@ -88,6 +101,7 @@ export default function UserListPage() {
       title: '会员',
       dataIndex: 'memberTier',
       width: 90,
+      sorter: true,
       valueType: 'select',
       valueEnum: {
         VIP: { text: 'VIP' },
@@ -104,6 +118,7 @@ export default function UserListPage() {
       dataIndex: 'orderCount',
       width: 80,
       search: false,
+      sorter: true,
       render: (_: unknown, r: AppUser) => (
         <Button type="link" size="small" onClick={() => navigate(`/orders?userId=${r.id}`)}>
           {r.orderCount}
@@ -114,6 +129,7 @@ export default function UserListPage() {
       title: '状态',
       dataIndex: 'status',
       width: 80,
+      sorter: true,
       valueType: 'select',
       valueEnum: {
         ACTIVE: { text: '正常' },
@@ -128,6 +144,8 @@ export default function UserListPage() {
       title: '注册时间',
       dataIndex: 'createdAt',
       width: 160,
+      sorter: true,
+      defaultSortOrder: 'descend',
       valueType: 'dateRange',
       search: {
         transform: (v: string[]) => ({ startDate: v[0], endDate: v[1] }),
@@ -157,6 +175,10 @@ export default function UserListPage() {
       ),
     },
   ];
+  const resizableTable = useResizableColumns(columns, {
+    storageKey: 'admin:users:columns',
+    defaultWidth: 120,
+  });
 
   return (
     <div style={{ padding: 24 }}>
@@ -184,11 +206,23 @@ export default function UserListPage() {
         headerTitle="用户管理"
         actionRef={actionRef}
         rowKey="id"
-        columns={columns}
-        scroll={{ x: 900 }}
-        request={async (params) => {
+        columns={resizableTable.columns}
+        components={resizableTable.components}
+        scroll={{ x: resizableTable.tableWidth }}
+        request={async (params, sort) => {
+          const sortParams = getAppUserSortParams(sort as Record<string, SortOrder | undefined>);
           const { current, pageSize, status, nickname: keyword, memberTier: tier, startDate, endDate } = params;
-          const res = await getAppUsers({ page: current, pageSize, status, keyword, tier, startDate, endDate });
+          const res = await getAppUsers({
+            page: current,
+            pageSize,
+            status,
+            keyword,
+            tier,
+            startDate,
+            endDate,
+            sortField: sortParams.sortField,
+            sortOrder: sortParams.sortOrder,
+          });
           return { data: res.items, total: res.total, success: true };
         }}
         search={{ labelWidth: 'auto' }}

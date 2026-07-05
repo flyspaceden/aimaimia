@@ -342,6 +342,7 @@ export class AdminGrowthService {
     const page = this.page(query.page);
     const pageSize = this.pageSize(query.pageSize);
     const where: any = {};
+    const orderBy = this.buildLedgerOrderBy(query);
     if (query.userId) {
       where.userId = await resolveBuyerUserId(this.prisma as any, query.userId);
     }
@@ -358,7 +359,7 @@ export class AdminGrowthService {
         },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       (this.prisma as any).growthLedger.count({ where }),
     ]);
@@ -386,10 +387,26 @@ export class AdminGrowthService {
     };
   }
 
+  private buildLedgerOrderBy(query: AdminGrowthLedgerQueryDto) {
+    const direction = query.sortOrder === 'asc' || query.sortOrder === 'ascend' ? 'asc' : 'desc';
+    if (query.sortBy === 'pointsDelta' || query.sortBy === 'growthDelta') {
+      return [
+        { [query.sortBy]: direction },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    return [
+      { createdAt: direction },
+      { id: 'asc' },
+    ] as any;
+  }
+
   async listNormalShareBindings(query: AdminNormalShareBindingQueryDto = {}) {
     const page = this.page(query.page);
     const pageSize = this.pageSize(query.pageSize);
     const where: any = {};
+    const orderBy = this.buildNormalShareOrderBy(query);
     if (query.rewardStatus) where.rewardStatus = query.rewardStatus;
     if (query.keyword?.trim()) {
       const keyword = query.keyword.trim();
@@ -433,7 +450,7 @@ export class AdminGrowthService {
         },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       (this.prisma as any).normalShareBinding.count({ where }),
     ]);
@@ -457,6 +474,28 @@ export class AdminGrowthService {
       page,
       pageSize,
     };
+  }
+
+  private buildNormalShareOrderBy(query: AdminNormalShareBindingQueryDto) {
+    const direction = query.sortOrder === 'asc' || query.sortOrder === 'ascend' ? 'asc' : 'desc';
+    if (query.sortField === 'rewardIssuedAt') {
+      return [
+        { rewardIssuedAt: direction },
+        { boundAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    if (query.sortField === 'updatedAt') {
+      return [
+        { updatedAt: direction },
+        { boundAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    return [
+      { boundAt: direction },
+      { id: 'asc' },
+    ] as any;
   }
 
   async adjustUser(userIdOrBuyerNo: string, dto: AdminGrowthAdjustDto, adminId: string) {

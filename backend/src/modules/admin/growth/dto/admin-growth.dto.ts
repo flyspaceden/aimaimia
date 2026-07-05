@@ -350,7 +350,7 @@ export class AdminGrowthAccountQueryDto {
   userType?: string;
 
   @IsOptional()
-  @IsIn(['pointsBalance', 'pointsTotalEarned', 'growthValue', 'updatedAt'])
+  @IsIn(['pointsBalance', 'pointsTotalEarned', 'pointsTotalSpent', 'growthValue', 'updatedAt'])
   sortBy?: string;
 
   @IsOptional()
@@ -380,6 +380,14 @@ export class AdminGrowthLedgerQueryDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @IsOptional()
+  @IsIn(['createdAt', 'pointsDelta', 'growthDelta'])
+  sortBy?: string;
+
+  @IsOptional()
+  @IsIn(SORT_DIRECTIONS)
+  sortOrder?: string;
 }
 
 export class AdminNormalShareBindingQueryDto {
@@ -400,4 +408,12 @@ export class AdminNormalShareBindingQueryDto {
   @IsOptional()
   @IsString()
   rewardStatus?: string;
+
+  @IsOptional()
+  @IsIn(['boundAt', 'rewardIssuedAt', 'updatedAt'])
+  sortField?: string;
+
+  @IsOptional()
+  @IsIn(SORT_DIRECTIONS)
+  sortOrder?: string;
 }

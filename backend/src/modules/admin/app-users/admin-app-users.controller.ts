@@ -39,6 +39,8 @@ export class AdminAppUsersController {
     @Query('tier') tier?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('sortField') sortField?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
     return this.appUsersService.findAll(
       page ? parseInt(page) : 1,
@@ -48,6 +50,8 @@ export class AdminAppUsersController {
       tier,
       startDate,
       endDate,
+      sortField,
+      sortOrder,
     );
   }
 

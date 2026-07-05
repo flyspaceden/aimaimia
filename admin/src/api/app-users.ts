@@ -1,12 +1,16 @@
 import client from './client';
 import type { AppUser, AppUserDetail, AppUserStats, PaginatedData, PaginationParams } from '@/types';
 
+export type AppUserSortField = 'memberTier' | 'status' | 'orderCount' | 'createdAt';
+
 interface AppUserQueryParams extends PaginationParams {
   status?: string;
   keyword?: string;
   tier?: string;
   startDate?: string;
   endDate?: string;
+  sortField?: AppUserSortField;
+  sortOrder?: 'ascend' | 'descend';
 }
 
 /** App 用户列表（买家） */

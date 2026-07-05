@@ -34,12 +34,16 @@ export class AdminBonusController {
     @Query('pageSize') pageSize?: string,
     @Query('tier') tier?: string,
     @Query('keyword') keyword?: string,
+    @Query('sortField') sortField?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
     return this.bonusService.findMembers(
       page ? parseInt(page) : 1,
       pageSize ? parseInt(pageSize) : 20,
       tier,
       keyword,
+      sortField,
+      sortOrder,
     );
   }
 
