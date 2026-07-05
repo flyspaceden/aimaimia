@@ -1726,12 +1726,15 @@ async function main() {
     { key: 'NORMAL_BRANCH_FACTOR', value: 3, desc: '普通树叉数' },
     { key: 'NORMAL_MAX_LAYERS', value: 15, desc: '普通树最大分配层数' },
     { key: 'NORMAL_FREEZE_DAYS', value: 30, desc: '普通树冻结奖励过期天数' },
-    { key: 'NORMAL_PLATFORM_PERCENT', value: 0.50, desc: '普通用户利润-平台分成比例' },
+    { key: 'NORMAL_PLATFORM_PERCENT', value: 0.49, desc: '普通用户利润-平台分成比例' },
     { key: 'NORMAL_REWARD_PERCENT', value: 0.16, desc: '普通用户利润-奖励分成比例' },
+    { key: 'NORMAL_DIRECT_REFERRAL_PERCENT', value: 0.01, desc: '普通用户利润-直推持续佣金比例' },
     { key: 'NORMAL_INDUSTRY_FUND_PERCENT', value: 0.16, desc: '普通用户利润-产业基金(卖家)比例' },
     { key: 'NORMAL_CHARITY_PERCENT', value: 0.08, desc: '普通用户利润-慈善基金比例' },
     { key: 'NORMAL_TECH_PERCENT', value: 0.08, desc: '普通用户利润-科技基金比例' },
     { key: 'NORMAL_RESERVE_PERCENT', value: 0.02, desc: '普通用户利润-备用金比例' },
+    { key: 'AUTO_VIP_BY_SPEND_ENABLED', value: true, desc: '是否启用累计消费自动成为VIP' },
+    { key: 'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', value: 399, desc: '累计普通商品有效消费达到多少元自动成为VIP' },
     // --- VIP冻结过期（新增，原VIP系统无此机制） ---
     { key: 'VIP_FREEZE_DAYS', value: 30, desc: 'VIP冻结奖励过期天数' },
     // --- 定价系统 ---

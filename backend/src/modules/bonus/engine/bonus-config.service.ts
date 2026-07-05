@@ -21,8 +21,9 @@ export interface NormalBonusConfig {
   normalBranchFactor: number;          // 普通树叉数
   normalMaxLayers: number;             // 最大分配层数
   normalFreezeDays: number;            // 冻结奖励过期天数
-  normalPlatformPercent: number;       // 平台分成比例 (50%)
+  normalPlatformPercent: number;       // 平台分成比例 (49%)
   normalRewardPercent: number;         // 奖励分成比例 (16%)
+  normalDirectReferralPercent: number; // 直推持续佣金比例 (1%)
   normalIndustryFundPercent: number;   // 产业基金(卖家)比例 (16%)
   normalCharityPercent: number;        // 慈善基金比例 (8%)
   normalTechPercent: number;           // 科技基金比例 (8%)
@@ -39,6 +40,8 @@ export interface SystemConfig {
   vipDiscountRate: number;         // VIP用户商品折扣率
   vipFreeShippingThreshold: number;    // VIP用户免运费门槛（元），0=无条件免运费
   normalFreeShippingThreshold: number; // 普通用户免运费门槛（元），0=无条件免运费
+  autoVipBySpendEnabled: boolean;      // 是否启用累计消费自动成为VIP
+  autoVipCumulativeSpendThreshold: number; // 累计普通商品有效消费自动成为VIP门槛（元）
 }
 
 /** 完整分润系统配置（向后兼容） */
@@ -85,6 +88,7 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   NORMAL_FREEZE_DAYS: 'normalFreezeDays',
   NORMAL_PLATFORM_PERCENT: 'normalPlatformPercent',
   NORMAL_REWARD_PERCENT: 'normalRewardPercent',
+  NORMAL_DIRECT_REFERRAL_PERCENT: 'normalDirectReferralPercent',
   NORMAL_INDUSTRY_FUND_PERCENT: 'normalIndustryFundPercent',
   NORMAL_CHARITY_PERCENT: 'normalCharityPercent',
   NORMAL_TECH_PERCENT: 'normalTechPercent',
@@ -98,6 +102,8 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   VIP_DISCOUNT_RATE: 'vipDiscountRate',
   VIP_FREE_SHIPPING_THRESHOLD: 'vipFreeShippingThreshold',
   NORMAL_FREE_SHIPPING_THRESHOLD: 'normalFreeShippingThreshold',
+  AUTO_VIP_BY_SPEND_ENABLED: 'autoVipBySpendEnabled',
+  AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD: 'autoVipCumulativeSpendThreshold',
   // @deprecated 废弃
   NORMAL_BROADCAST_X: 'normalBroadcastX',
   BUCKET_RANGES: 'bucketRanges',
@@ -118,6 +124,7 @@ const VIP_RATIO_KEYS = new Set([
 const NORMAL_RATIO_KEYS = new Set([
   'NORMAL_PLATFORM_PERCENT',
   'NORMAL_REWARD_PERCENT',
+  'NORMAL_DIRECT_REFERRAL_PERCENT',
   'NORMAL_INDUSTRY_FUND_PERCENT',
   'NORMAL_CHARITY_PERCENT',
   'NORMAL_TECH_PERCENT',
@@ -148,8 +155,9 @@ const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   normalBranchFactor: 3,
   normalMaxLayers: 15,
   normalFreezeDays: 30,
-  normalPlatformPercent: 0.50,
+  normalPlatformPercent: 0.49,
   normalRewardPercent: 0.16,
+  normalDirectReferralPercent: 0.01,
   normalIndustryFundPercent: 0.16,
   normalCharityPercent: 0.08,
   normalTechPercent: 0.08,
@@ -163,6 +171,8 @@ const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   vipDiscountRate: 0.95,
   vipFreeShippingThreshold: 49.0,
   normalFreeShippingThreshold: 99.0,
+  autoVipBySpendEnabled: true,
+  autoVipCumulativeSpendThreshold: 399,
   // @deprecated 废弃
   normalBroadcastX: 20,
   bucketRanges: [[0, 10], [10, 50], [50, 100], [100, 500], [500, null]],
@@ -199,6 +209,7 @@ export class BonusConfigService {
       normalFreezeDays: config.normalFreezeDays,
       normalPlatformPercent: config.normalPlatformPercent,
       normalRewardPercent: config.normalRewardPercent,
+      normalDirectReferralPercent: config.normalDirectReferralPercent,
       normalIndustryFundPercent: config.normalIndustryFundPercent,
       normalCharityPercent: config.normalCharityPercent,
       normalTechPercent: config.normalTechPercent,
@@ -236,6 +247,8 @@ export class BonusConfigService {
       vipDiscountRate: config.vipDiscountRate,
       vipFreeShippingThreshold: config.vipFreeShippingThreshold,
       normalFreeShippingThreshold: config.normalFreeShippingThreshold,
+      autoVipBySpendEnabled: config.autoVipBySpendEnabled,
+      autoVipCumulativeSpendThreshold: config.autoVipCumulativeSpendThreshold,
     };
   }
 
@@ -295,13 +308,14 @@ export class BonusConfigService {
       const sum =
         (current['NORMAL_PLATFORM_PERCENT'] ?? DEFAULTS.normalPlatformPercent) +
         (current['NORMAL_REWARD_PERCENT'] ?? DEFAULTS.normalRewardPercent) +
+        (current['NORMAL_DIRECT_REFERRAL_PERCENT'] ?? DEFAULTS.normalDirectReferralPercent) +
         (current['NORMAL_INDUSTRY_FUND_PERCENT'] ?? DEFAULTS.normalIndustryFundPercent) +
         (current['NORMAL_CHARITY_PERCENT'] ?? DEFAULTS.normalCharityPercent) +
         (current['NORMAL_TECH_PERCENT'] ?? DEFAULTS.normalTechPercent) +
         (current['NORMAL_RESERVE_PERCENT'] ?? DEFAULTS.normalReservePercent);
       if (Math.abs(sum - 1.0) > 0.001) {
         throw new BadRequestException(
-          `普通用户利润分配比例总和为 ${sum.toFixed(4)}，应为 1.0`,
+          `普通用户利润分配比例总和为 ${sum.toFixed(4)}，应为 1.0（NORMAL_PLATFORM_PERCENT + NORMAL_REWARD_PERCENT + NORMAL_DIRECT_REFERRAL_PERCENT + NORMAL_INDUSTRY_FUND_PERCENT + NORMAL_CHARITY_PERCENT + NORMAL_TECH_PERCENT + NORMAL_RESERVE_PERCENT）`,
         );
       }
     }
@@ -360,13 +374,14 @@ export class BonusConfigService {
     const normalSum =
       getValue('NORMAL_PLATFORM_PERCENT', DEFAULTS.normalPlatformPercent) +
       getValue('NORMAL_REWARD_PERCENT', DEFAULTS.normalRewardPercent) +
+      getValue('NORMAL_DIRECT_REFERRAL_PERCENT', DEFAULTS.normalDirectReferralPercent) +
       getValue('NORMAL_INDUSTRY_FUND_PERCENT', DEFAULTS.normalIndustryFundPercent) +
       getValue('NORMAL_CHARITY_PERCENT', DEFAULTS.normalCharityPercent) +
       getValue('NORMAL_TECH_PERCENT', DEFAULTS.normalTechPercent) +
       getValue('NORMAL_RESERVE_PERCENT', DEFAULTS.normalReservePercent);
     if (Math.abs(normalSum - 1.0) > 0.001) {
       throw new BadRequestException(
-        `快照中普通用户利润分配比例总和为 ${normalSum.toFixed(4)}，应为 1.0`,
+        `快照中普通用户利润分配比例总和为 ${normalSum.toFixed(4)}，应为 1.0（NORMAL_PLATFORM_PERCENT + NORMAL_REWARD_PERCENT + NORMAL_DIRECT_REFERRAL_PERCENT + NORMAL_INDUSTRY_FUND_PERCENT + NORMAL_CHARITY_PERCENT + NORMAL_TECH_PERCENT + NORMAL_RESERVE_PERCENT）`,
       );
     }
   }
@@ -422,16 +437,18 @@ export class BonusConfigService {
     const normalSum =
       result.normalPlatformPercent +
       result.normalRewardPercent +
+      result.normalDirectReferralPercent +
       result.normalIndustryFundPercent +
       result.normalCharityPercent +
       result.normalTechPercent +
       result.normalReservePercent;
     if (Math.abs(normalSum - 1.0) > 0.001) {
       this.logger.error(
-        `普通用户利润分配比例总和异常: ${normalSum}（应为 1.0），使用默认值`,
+        `普通用户利润分配比例总和异常: ${normalSum}（应为 1.0：NORMAL_PLATFORM_PERCENT + NORMAL_REWARD_PERCENT + NORMAL_DIRECT_REFERRAL_PERCENT + NORMAL_INDUSTRY_FUND_PERCENT + NORMAL_CHARITY_PERCENT + NORMAL_TECH_PERCENT + NORMAL_RESERVE_PERCENT），使用默认值`,
       );
       result.normalPlatformPercent = DEFAULTS.normalPlatformPercent;
       result.normalRewardPercent = DEFAULTS.normalRewardPercent;
+      result.normalDirectReferralPercent = DEFAULTS.normalDirectReferralPercent;
       result.normalIndustryFundPercent = DEFAULTS.normalIndustryFundPercent;
       result.normalCharityPercent = DEFAULTS.normalCharityPercent;
       result.normalTechPercent = DEFAULTS.normalTechPercent;
