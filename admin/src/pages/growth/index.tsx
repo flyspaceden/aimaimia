@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -29,7 +30,6 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import type { SortOrder } from 'antd/es/table/interface';
 import {
   EditOutlined,
-  GiftOutlined,
   PlusOutlined,
   SettingOutlined,
   UserOutlined,
@@ -169,6 +169,11 @@ const rewardStatusMap: Record<string, { text: string; color: string }> = {
 };
 
 const couponExchangeTypes = new Set(['COUPON', 'SHIPPING_COUPON', 'VIP_DISCOUNT_COUPON']);
+const accountUserTypeOptions = [
+  { label: '全部用户', value: 'ALL' },
+  { label: '普通用户', value: 'NORMAL' },
+  { label: 'VIP 用户', value: 'VIP' },
+];
 
 function formatInt(value?: number | null) {
   return Number(value ?? 0).toLocaleString();
@@ -205,6 +210,7 @@ function getSortParams(sort: Record<string, SortOrder | undefined>): {
 
 export default function GrowthPage() {
   const { message, modal } = App.useApp();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
   const ledgerActionRef = useRef<ActionType>(null);
@@ -391,6 +397,20 @@ export default function GrowthPage() {
       ),
     },
     {
+      title: '用户身份',
+      dataIndex: 'userType',
+      width: 120,
+      valueType: 'select',
+      initialValue: 'ALL',
+      fieldProps: { options: accountUserTypeOptions },
+      render: (_: unknown, record) =>
+        record.user?.vipStatus === 'VIP' ? (
+          <Tag color="gold">VIP 用户</Tag>
+        ) : (
+          <Tag color="blue">普通用户</Tag>
+        ),
+    },
+    {
       title: '等级',
       dataIndex: 'levelCode',
       width: 130,
@@ -404,7 +424,7 @@ export default function GrowthPage() {
         ),
     },
     {
-      title: '普通积分',
+      title: '积分余额',
       dataIndex: 'pointsBalance',
       search: false,
       sorter: true,
@@ -435,16 +455,30 @@ export default function GrowthPage() {
       render: (_: unknown, record) => <Typography.Text strong>{formatInt(record.growthValue)}</Typography.Text>,
     },
     {
-      title: '分享码',
+      title: '推荐码',
       dataIndex: ['user', 'normalShareCode'],
       search: false,
-      width: 120,
-      render: (_: unknown, record) =>
-        record.user?.normalShareCode ? (
-          <Typography.Text code>{record.user.normalShareCode}</Typography.Text>
+      width: 170,
+      render: (_: unknown, record) => {
+        if (record.user?.vipStatus === 'VIP') {
+          return record.user?.vipReferralCode ? (
+            <Space size={4} direction="vertical">
+              <Tag color="gold">VIP 推荐码</Tag>
+              <Typography.Text code>{record.user.vipReferralCode}</Typography.Text>
+            </Space>
+          ) : (
+            <Typography.Text type="secondary">VIP 推荐码未生成</Typography.Text>
+          );
+        }
+        return record.user?.normalShareCode ? (
+          <Space size={4} direction="vertical">
+            <Tag color="blue">普通分享码</Tag>
+            <Typography.Text code>{record.user.normalShareCode}</Typography.Text>
+          </Space>
         ) : (
           <Typography.Text type="secondary">-</Typography.Text>
-        ),
+        );
+      },
     },
     {
       title: '更新时间',
@@ -457,7 +491,7 @@ export default function GrowthPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 170,
+      width: 230,
       render: (_: unknown, record) => [
         <Button key="ledger" type="link" onClick={() => setSelectedUserId(record.userId)}>
           流水
@@ -477,7 +511,31 @@ export default function GrowthPage() {
             调整
           </Button>
         </PermissionGate>,
-        record.user?.normalShareCode ? (
+        record.user?.vipStatus === 'VIP' ? (
+          <PermissionGate key="vip-detail" permission={PERMISSIONS.BONUS_READ}>
+            <Button type="link" onClick={() => navigate(`/bonus/members/${record.userId}`)}>
+              查看 VIP 详情
+            </Button>
+          </PermissionGate>
+        ) : null,
+        record.user?.vipStatus === 'VIP' ? (
+          <PermissionGate key="vip-tree" permission={PERMISSIONS.BONUS_READ}>
+            <Button
+              type="link"
+              onClick={() => {
+                const params = new URLSearchParams({
+                  userId: record.userId,
+                  source: 'growth',
+                  sourceLabel: '积分成长',
+                });
+                navigate(`/bonus/vip-tree?${params.toString()}`);
+              }}
+            >
+              查看 VIP 奖励树
+            </Button>
+          </PermissionGate>
+        ) : null,
+        record.user?.vipStatus !== 'VIP' && record.user?.normalShareCode ? (
           <PermissionGate key="share-status" permission={PERMISSIONS.NORMAL_SHARE_MANAGE}>
             <Button
               type="link"
@@ -957,14 +1015,14 @@ export default function GrowthPage() {
       <Alert
         showIcon
         type="info"
-        message="普通成长配置顺序"
+        message="积分成长配置顺序"
         description={
           <Space direction="vertical" size={4}>
             <Typography.Text>
-              积分=可消耗，可用于兑换红包和权益；成长值=不可消耗，只用于升级和解锁等级权益。
+              统一管理普通用户和 VIP 用户的积分、成长值、等级、兑换和流水。积分=可消耗，可用于兑换红包和权益；成长值=不可消耗，只用于升级和解锁等级权益。
             </Typography.Text>
             <Typography.Text>
-              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享码只给普通用户使用，VIP 用户使用 VIP 推荐码。
+              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享码只给普通用户使用，VIP 推荐关系仍在「VIP 会员 / VIP 奖励可视化」里管理。
             </Typography.Text>
             <Space wrap>
               <Tag color="blue">先开全局</Tag>
@@ -981,9 +1039,19 @@ export default function GrowthPage() {
           <Card>
             <Statistic
               loading={dashboardQuery.isLoading}
-              title="普通买家账户"
+              title="成长账户总数"
               value={overview?.accountCount ?? 0}
               prefix={<UserOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <Card>
+            <Statistic
+              loading={dashboardQuery.isLoading}
+              title="普通用户 / VIP 用户"
+              value={`${formatInt(overview?.normalAccountCount ?? 0)} / ${formatInt(overview?.vipAccountCount ?? 0)}`}
+              prefix={<WalletOutlined />}
             />
           </Card>
         </Col>
@@ -1006,17 +1074,6 @@ export default function GrowthPage() {
               value={overview?.totalGrowthValue ?? 0}
               formatter={(value) => formatInt(Number(value ?? 0))}
               prefix={<SettingOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} xl={6}>
-          <Card>
-            <Statistic
-              loading={dashboardQuery.isLoading}
-              title="待首单推荐奖励"
-              value={overview?.pendingShareRewardCount ?? 0}
-              valueStyle={{ color: '#d97706' }}
-              prefix={<GiftOutlined />}
             />
           </Card>
         </Col>
@@ -1127,14 +1184,14 @@ export default function GrowthPage() {
           },
           {
             key: 'accounts',
-            label: '账户',
+            label: '成长账户',
             children: (
               <Card>
                 <Alert
                   showIcon
                   type="info"
-                  message="账户页用于看用户当前积分、成长值和分享码状态"
-                  description="这里按所有有效普通买家展示，尚未获得积分或成长值的用户也会以 0 账户显示。手动调整会写入流水，适合客服补偿、异常修正，不适合批量运营发奖。"
+                  message="成长账户用于查看所有买家的积分、成长值和推荐码入口"
+                  description="这里按所有有效买家展示，包含普通用户和 VIP 用户。普通用户展示普通分享码并可启停；VIP 用户只读展示 VIP 推荐码，并跳转到已有 VIP 会员和 VIP 奖励可视化页面。手动调整会写入流水，适合客服补偿、异常修正，不适合批量运营发奖。"
                   style={{ marginBottom: 16 }}
                 />
                 <ProTable<AdminGrowthAccountRow>
@@ -1148,6 +1205,7 @@ export default function GrowthPage() {
                       pageSize: params.pageSize,
                       keyword: params.keyword as string | undefined,
                       levelCode: params.levelCode as string | undefined,
+                      userType: params.userType as 'ALL' | 'NORMAL' | 'VIP' | undefined,
                       sortBy: sortParams.sortBy,
                       sortOrder: sortParams.sortOrder,
                     });

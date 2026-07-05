@@ -61,11 +61,15 @@ export class AdminGrowthService {
   async getDashboard() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const activeBuyerWhere = this.buildActiveBuyerWhere();
     const ordinaryBuyerWhere = this.buildOrdinaryBuyerWhere();
-    const ordinaryBuyerRelationWhere = { user: { is: ordinaryBuyerWhere } };
+    const vipBuyerWhere = this.buildVipBuyerWhere();
+    const activeBuyerRelationWhere = { user: { is: activeBuyerWhere } };
 
     const [
-      ordinaryBuyerCount,
+      accountCount,
+      normalAccountCount,
+      vipAccountCount,
       accountAgg,
       todayLedgerAgg,
       exchangeRecordCount,
@@ -74,10 +78,16 @@ export class AdminGrowthService {
       activeExchangeItemCount,
     ] = await Promise.all([
       (this.prisma as any).user.count({
+        where: activeBuyerWhere,
+      }),
+      (this.prisma as any).user.count({
         where: ordinaryBuyerWhere,
       }),
+      (this.prisma as any).user.count({
+        where: vipBuyerWhere,
+      }),
       (this.prisma as any).growthAccount.aggregate({
-        where: ordinaryBuyerRelationWhere,
+        where: activeBuyerRelationWhere,
         _sum: {
           pointsBalance: true,
           pointsTotalEarned: true,
@@ -87,7 +97,7 @@ export class AdminGrowthService {
       }),
       (this.prisma as any).growthLedger.aggregate({
         where: {
-          ...ordinaryBuyerRelationWhere,
+          ...activeBuyerRelationWhere,
           createdAt: { gte: today },
           status: 'POSTED',
         },
@@ -98,7 +108,7 @@ export class AdminGrowthService {
       }),
       (this.prisma as any).growthExchangeRecord.count({
         where: {
-          ...ordinaryBuyerRelationWhere,
+          ...activeBuyerRelationWhere,
           status: 'SUCCESS',
         },
       }),
@@ -116,7 +126,9 @@ export class AdminGrowthService {
     ]);
 
     return {
-      accountCount: ordinaryBuyerCount ?? 0,
+      accountCount: accountCount ?? 0,
+      normalAccountCount: normalAccountCount ?? 0,
+      vipAccountCount: vipAccountCount ?? 0,
       totalPointsBalance: accountAgg?._sum?.pointsBalance ?? 0,
       totalPointsEarned: accountAgg?._sum?.pointsTotalEarned ?? 0,
       totalPointsSpent: accountAgg?._sum?.pointsTotalSpent ?? 0,
@@ -447,7 +459,7 @@ export class AdminGrowthService {
         throw new BadRequestException('账户不存在，不能扣减积分或成长值');
       }
       if (existing && existing.pointsBalance + pointsDelta < 0) {
-        throw new BadRequestException('普通积分余额不足，不能扣减');
+        throw new BadRequestException('积分余额不足，不能扣减');
       }
       if (existing && existing.growthValue + growthDelta < 0) {
         throw new BadRequestException('成长值不足，不能扣减');
@@ -682,11 +694,17 @@ export class AdminGrowthService {
     }
   }
 
-  private buildOrdinaryBuyerWhere() {
+  private buildActiveBuyerWhere() {
     return {
       buyerNo: { not: null },
       status: 'ACTIVE',
       deletionExecutedAt: null,
+    };
+  }
+
+  private buildOrdinaryBuyerWhere() {
+    return {
+      ...this.buildActiveBuyerWhere(),
       OR: [
         { memberProfile: { is: null } },
         { memberProfile: { is: { tier: { not: 'VIP' } } } },
@@ -694,8 +712,25 @@ export class AdminGrowthService {
     };
   }
 
+  private buildVipBuyerWhere() {
+    return {
+      ...this.buildActiveBuyerWhere(),
+      memberProfile: { is: { tier: 'VIP' } },
+    };
+  }
+
+  private buildBuyerWhereByUserType(userType?: string | null) {
+    if (userType === 'VIP') {
+      return this.buildVipBuyerWhere();
+    }
+    if (userType === 'NORMAL') {
+      return this.buildOrdinaryBuyerWhere();
+    }
+    return this.buildActiveBuyerWhere();
+  }
+
   private buildUserAccountWhere(query: AdminGrowthAccountQueryDto, levels: any[]) {
-    const where: any = { ...this.buildOrdinaryBuyerWhere() };
+    const where: any = { ...this.buildBuyerWhereByUserType(query.userType) };
     const clauses: any[] = [];
     if (query.levelCode) {
       const levelFilter = this.buildLevelAccountFilter(query.levelCode, levels);
@@ -771,7 +806,7 @@ export class AdminGrowthService {
   private userAccountInclude() {
     return {
       profile: { select: { nickname: true, avatarUrl: true } },
-      memberProfile: { select: { tier: true } },
+      memberProfile: { select: { tier: true, referralCode: true } },
       normalShareProfile: { select: { code: true, status: true } },
       growthAccount: {
         include: {
@@ -807,6 +842,7 @@ export class AdminGrowthService {
   }
 
   private mapUser(user: any) {
+    const isVip = user.memberProfile?.tier === 'VIP';
     return {
       id: user.id,
       buyerNo: user.buyerNo ?? null,
@@ -815,8 +851,9 @@ export class AdminGrowthService {
       phone: maskPhone(user.authIdentities?.[0]?.identifier ?? null),
       status: user.status ?? null,
       vipStatus: user.memberProfile?.tier ?? null,
-      normalShareCode: user.normalShareProfile?.code ?? null,
-      normalShareStatus: user.normalShareProfile?.status ?? null,
+      normalShareCode: isVip ? null : user.normalShareProfile?.code ?? null,
+      normalShareStatus: isVip ? null : user.normalShareProfile?.status ?? null,
+      vipReferralCode: isVip ? user.memberProfile?.referralCode ?? null : null,
     };
   }
 

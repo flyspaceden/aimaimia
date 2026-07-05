@@ -49,7 +49,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       routes: [
         { path: '/users', name: '用户管理', permission: PERMISSIONS.USERS_READ },
         { path: '/digital-assets', name: '数字资产', icon: <WalletOutlined />, permission: PERMISSIONS.DIGITAL_ASSETS_READ },
-        { path: '/growth', name: '普通成长', icon: <RiseOutlined />, permissionAny: [PERMISSIONS.GROWTH_READ, PERMISSIONS.NORMAL_SHARE_READ] },
+        { path: '/growth', name: '积分成长', icon: <RiseOutlined />, permissionAny: [PERMISSIONS.GROWTH_READ, PERMISSIONS.NORMAL_SHARE_READ] },
         { path: '/bonus/members', name: 'VIP 会员', permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/withdrawals', name: '提现审核', permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/withdraw-rules', name: '提现规则', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },

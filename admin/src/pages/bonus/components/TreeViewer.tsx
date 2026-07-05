@@ -114,6 +114,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'member-detail': '会员详情',
   'order-detail': '订单详情',
   'reward-ledger': '奖励流水',
+  growth: '积分成长',
   withdrawal: '提现审核',
 };
 
