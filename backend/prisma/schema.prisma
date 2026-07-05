@@ -736,6 +736,13 @@ enum NormalShareBindingSource {
   ADMIN
 }
 
+enum DirectReferralRelationStatus {
+  ACTIVE
+  INVALIDATED_BY_INVITEE_VIP_UPGRADE
+  SUPERSEDED_BY_VIP_TREE
+  ADMIN_VOIDED
+}
+
 enum NormalShareRewardStatus {
   PENDING
   REGISTER_REWARDED
@@ -2936,24 +2943,30 @@ model NormalShareProfile {
 }
 
 model NormalShareBinding {
-  id             String                   @id @default(cuid())
-  inviterUserId  String
-  inviter        User                     @relation("NormalShareInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
-  inviteeUserId  String                   @unique
-  invitee        User                     @relation("NormalShareInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
-  code           String
-  source         NormalShareBindingSource
-  boundAt        DateTime                 @default(now())
-  firstOrderId   String?
-  firstOrder     Order?                   @relation(fields: [firstOrderId], references: [id], onDelete: SetNull)
-  rewardStatus   NormalShareRewardStatus  @default(PENDING)
-  rewardIssuedAt DateTime?
-  meta           Json?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
+  id                       String                         @id @default(cuid())
+  inviterUserId            String
+  inviter                  User                           @relation("NormalShareInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  inviteeUserId            String                         @unique
+  invitee                  User                           @relation("NormalShareInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  code                     String
+  source                   NormalShareBindingSource
+  relationStatus           DirectReferralRelationStatus   @default(ACTIVE)
+  relationInvalidAt        DateTime?
+  relationInvalidReason    String?
+  effectiveInviterUserId   String?
+  boundAt                  DateTime                       @default(now())
+  firstOrderId             String?
+  firstOrder               Order?                         @relation(fields: [firstOrderId], references: [id], onDelete: SetNull)
+  rewardStatus             NormalShareRewardStatus        @default(PENDING)
+  rewardIssuedAt           DateTime?
+  meta                     Json?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
 
   @@index([inviterUserId, createdAt])
   @@index([code, createdAt])
+  @@index([relationStatus, createdAt])
+  @@index([effectiveInviterUserId, createdAt])
   @@index([rewardStatus, createdAt])
   @@index([firstOrderId])
 }
