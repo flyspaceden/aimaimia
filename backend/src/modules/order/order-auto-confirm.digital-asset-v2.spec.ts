@@ -29,7 +29,7 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
       orderStatusHistory: { create: jest.fn() },
     };
     const bonusAllocation = { allocateForOrder: jest.fn().mockResolvedValue(undefined) };
-    const digitalAsset = { recordOrderReceived: jest.fn().mockResolvedValue(undefined) };
+    const digitalAsset = { recordOrderReceived: jest.fn().mockResolvedValue({ recorded: true, cumulativeSpendAmount: 100 }) };
     const bonusService = { activateVipByCumulativeSpend: jest.fn().mockResolvedValue({ status: 'UPGRADED' }) };
     const service = new OrderAutoConfirmService(prisma as any, bonusAllocation as any);
     return { service, prisma, digitalAsset, bonusService };
@@ -81,6 +81,18 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
   it('does not activate auto VIP when automatic v2 digital asset credit fails', async () => {
     const { service, digitalAsset, bonusService } = makeService();
     digitalAsset.recordOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+
+    await expect((service as any).confirmOrder('order-1', 'DELIVERED')).resolves.toBeUndefined();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
+  });
+
+  it('does not activate auto VIP when automatic v2 digital asset credit resolves without recording spend', async () => {
+    const { service, digitalAsset, bonusService } = makeService();
+    digitalAsset.recordOrderReceived.mockResolvedValueOnce({ recorded: false, reason: 'VIP_PACKAGE' });
     service.setDigitalAssetService(digitalAsset as any);
     service.setBonusService(bonusService as any);
 

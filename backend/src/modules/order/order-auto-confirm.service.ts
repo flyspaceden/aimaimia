@@ -171,7 +171,10 @@ export class OrderAutoConfirmService {
     if (!recordOrderReceived) {
       return;
     }
-    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then(() => {
+    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then((result: any) => {
+      if (result?.recorded !== true) {
+        return undefined;
+      }
       return Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId)).catch((err) => {
         const safeErr = sanitizeErrorForLog(err);
         this.logger.error(`订单 ${orderId} 自动VIP升级失败: ${safeErr.message}`, safeErr.stack);

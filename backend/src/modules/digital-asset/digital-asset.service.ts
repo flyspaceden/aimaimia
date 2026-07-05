@@ -22,6 +22,11 @@ import { NotificationService } from '../notification/notification.service';
 
 type LedgerDirection = 'CREDIT' | 'DEBIT';
 type ReceiveSource = 'ORDER_RECEIVED' | 'BACKFILL';
+type OrderReceivedRecordResult = {
+  recorded: boolean;
+  cumulativeSpendAmount?: number;
+  reason?: string;
+};
 type AdminAdjustSubjectType = DigitalAssetSubjectType;
 type RefundReversalFailureSource = 'AFTER_SALE_REFUND' | 'AUTO_REFUND' | string;
 type AllocationSnapshot = {
@@ -70,8 +75,8 @@ export class DigitalAssetService {
     private readonly notificationService?: NotificationService,
   ) {}
 
-  async creditOrderReceived(orderId: string, source: ReceiveSource): Promise<void> {
-    await this.recordOrderReceived(orderId, source);
+  async creditOrderReceived(orderId: string, source: ReceiveSource): Promise<OrderReceivedRecordResult> {
+    return this.recordOrderReceived(orderId, source);
   }
 
   async recordOrderPaid(orderId: string): Promise<void> {
@@ -174,10 +179,10 @@ export class DigitalAssetService {
     });
   }
 
-  async recordOrderReceived(orderId: string, source: ReceiveSource): Promise<void> {
-    await this.withSerializableRetry(async (tx) => {
+  async recordOrderReceived(orderId: string, source: ReceiveSource): Promise<OrderReceivedRecordResult> {
+    return this.withSerializableRetry(async (tx) => {
       const releasedFrozen = await this.releaseFrozenOrderCredit(tx, orderId, source);
-      if (releasedFrozen) return;
+      if (releasedFrozen) return releasedFrozen;
 
       const cumulativeIdempotencyKey = `order:${orderId}:spend-credit`;
       const legacyCumulativeIdempotencyKey = `order:${orderId}:cumulative-spend-credit`;
@@ -188,7 +193,9 @@ export class DigitalAssetService {
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: legacyCumulativeIdempotencyKey } }),
         tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: creditIdempotencyKey } }),
       ]);
-      if (existingCumulative || existingLegacyCumulative || existingCredit) return;
+      if (existingCumulative || existingLegacyCumulative || existingCredit) {
+        return { recorded: false, reason: 'DUPLICATE_LEDGER' };
+      }
 
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -200,15 +207,19 @@ export class DigitalAssetService {
       if (!hasReceivedFact) {
         if (source === 'BACKFILL') {
           this.logger.warn(`跳过无收货事实订单数字资产回填: orderId=${orderId}`);
-          return;
+          return { recorded: false, reason: 'MISSING_RECEIVED_FACT' };
         }
         throw new BadRequestException('订单尚未确认收货，不能累计数字资产');
       }
 
-      if (this.isExcludedOrderBizType((order as any).bizType)) return;
+      if (this.isExcludedOrderBizType((order as any).bizType)) {
+        return { recorded: false, reason: (order as any).bizType ?? 'EXCLUDED_BIZ_TYPE' };
+      }
 
       const cumulativeSpendAmount = calculateOrderAssetAmount(order as any);
-      if (cumulativeSpendAmount <= 0) return;
+      if (cumulativeSpendAmount <= 0) {
+        return { recorded: false, reason: 'NON_POSITIVE_CUMULATIVE_SPEND' };
+      }
 
       const member = tx.memberProfile?.findUnique
         ? await tx.memberProfile.findUnique({ where: { userId: order.userId } })
@@ -315,6 +326,7 @@ export class DigitalAssetService {
           },
         });
       }
+      return { recorded: true, cumulativeSpendAmount };
     });
   }
 
@@ -1298,9 +1310,13 @@ export class DigitalAssetService {
     return amount;
   }
 
-  private async releaseFrozenOrderCredit(tx: any, orderId: string, source: ReceiveSource): Promise<boolean> {
+  private async releaseFrozenOrderCredit(
+    tx: any,
+    orderId: string,
+    source: ReceiveSource,
+  ): Promise<OrderReceivedRecordResult | null> {
     const position = await this.getFrozenOrderPosition(tx, orderId);
-    if (!position) return false;
+    if (!position) return null;
 
     const order = await tx.order.findUnique({
       where: { id: orderId },
@@ -1312,7 +1328,7 @@ export class DigitalAssetService {
     if (!hasReceivedFact) {
       if (source === 'BACKFILL') {
         this.logger.warn(`跳过无收货事实订单数字资产冻结释放: orderId=${orderId}`);
-        return true;
+        return { recorded: false, reason: 'MISSING_RECEIVED_FACT' };
       }
       throw new BadRequestException('订单尚未确认收货，不能释放冻结数字资产');
     }
@@ -1325,8 +1341,10 @@ export class DigitalAssetService {
       tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: cumulativeIdempotencyKey } }),
       tx.digitalAssetLedger.findUnique({ where: { idempotencyKey: legacyCumulativeIdempotencyKey } }),
     ]);
-    if (existingRelease) return true;
-    if (position.remainingCreditAmount <= 0 && position.remainingSpendAmount <= 0) return true;
+    if (existingRelease) return { recorded: false, reason: 'DUPLICATE_LEDGER' };
+    if (position.remainingCreditAmount <= 0 && position.remainingSpendAmount <= 0) {
+      return { recorded: false, reason: 'NO_FROZEN_REMAINING_AMOUNT' };
+    }
 
     const account = await this.findOrCreateAccount(tx, order.userId);
     const shouldCreditCumulative = !existingCumulative && !existingLegacyCumulative && position.remainingSpendAmount > 0;
@@ -1428,7 +1446,9 @@ export class DigitalAssetService {
       },
       tx as any,
     );
-    return true;
+    return shouldCreditCumulative
+      ? { recorded: true, cumulativeSpendAmount: position.remainingSpendAmount }
+      : { recorded: false, reason: 'DUPLICATE_LEDGER' };
   }
 
   private isExcludedOrderBizType(bizType: unknown): boolean {

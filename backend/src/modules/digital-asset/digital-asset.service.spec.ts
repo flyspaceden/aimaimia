@@ -218,12 +218,13 @@ describe('DigitalAssetService', () => {
   it('credits a received order once with item allocations and Serializable isolation', async () => {
     const { data, prisma, service } = makeHarness({ orders: [receivedOrder] });
 
-    await service.creditOrderReceived('order-1', 'ORDER_RECEIVED');
+    const result = await service.creditOrderReceived('order-1', 'ORDER_RECEIVED');
 
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+    expect(result).toEqual({ recorded: true, cumulativeSpendAmount: 100 });
     expect(data.accounts[0]).toMatchObject({
       userId: 'user-1',
       cumulativeSpendAmount: 100,
@@ -267,10 +268,47 @@ describe('DigitalAssetService', () => {
       }],
     });
 
-    await service.creditOrderReceived('order-1', 'BACKFILL');
+    const result = await service.creditOrderReceived('order-1', 'BACKFILL');
 
+    expect(result).toEqual({ recorded: false, reason: 'DUPLICATE_LEDGER' });
     expect(data.ledgers).toHaveLength(1);
     expect(data.accounts[0].cumulativeSpendAmount).toBe(100);
+  });
+
+  it('returns recorded false for VIP_PACKAGE received order', async () => {
+    const { data, service } = makeHarness({
+      orders: [{
+        ...receivedOrder,
+        id: 'order-vip-package',
+        bizType: 'VIP_PACKAGE',
+      }],
+    });
+
+    const result = await service.recordOrderReceived('order-vip-package', 'ORDER_RECEIVED');
+
+    expect(result).toEqual({ recorded: false, reason: 'VIP_PACKAGE' });
+    expect(data.accounts).toHaveLength(0);
+    expect(data.ledgers).toHaveLength(0);
+  });
+
+  it('returns recorded false for zero effective cumulative spend', async () => {
+    const { data, service } = makeHarness({
+      orders: [{
+        ...receivedOrder,
+        id: 'order-zero',
+        goodsAmount: 10,
+        discountAmount: 10,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 10,
+        shippingFee: 0,
+      }],
+    });
+
+    const result = await service.recordOrderReceived('order-zero', 'ORDER_RECEIVED');
+
+    expect(result).toEqual({ recorded: false, reason: 'NON_POSITIVE_CUMULATIVE_SPEND' });
+    expect(data.accounts).toHaveLength(0);
+    expect(data.ledgers).toHaveLength(0);
   });
 
   it('reverseRefund skips when an after-sale fallback ledger already exists', async () => {
