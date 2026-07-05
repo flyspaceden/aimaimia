@@ -174,6 +174,11 @@ const accountUserTypeOptions = [
   { label: '普通用户', value: 'NORMAL' },
   { label: 'VIP 用户', value: 'VIP' },
 ];
+const applicableUserTypeLabels: Record<string, string> = {
+  ALL: '全部',
+  NORMAL: '普通用户',
+  VIP: 'VIP 用户',
+};
 
 function formatInt(value?: number | null) {
   return Number(value ?? 0).toLocaleString();
@@ -571,25 +576,20 @@ export default function GrowthPage() {
     {
       title: '行为',
       dataIndex: 'code',
-      width: 190,
+      width: 180,
       render: (code: string, record) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text strong>{behaviorCodeLabels[code] ?? record.name}</Typography.Text>
-          <Typography.Text type="secondary" code>
-            {code}
-          </Typography.Text>
-        </Space>
+        <Typography.Text strong>{behaviorCodeLabels[code] ?? record.name}</Typography.Text>
       ),
     },
     {
       title: '分类',
       dataIndex: 'categoryCode',
-      width: 100,
+      width: 90,
       render: (value: string) => categoryOptions.find((item) => item.value === value)?.label ?? value,
     },
     {
       title: '奖励',
-      width: 180,
+      width: 160,
       render: (_, record) => (
         <Space>
           <Tag color="green">积分 {record.pointsReward}</Tag>
@@ -604,16 +604,19 @@ export default function GrowthPage() {
       render: (value: string) => grantTimingLabels[value] ?? value,
     },
     {
-      title: '接入状态',
-      width: 140,
+      title: '生效状态',
+      width: 120,
       render: (_, record) => {
         const wired = wiredBehaviorCodes.has(record.code);
-        return <Tag color={wired ? 'green' : 'orange'}>{wired ? '已接入' : '未接入'}</Tag>;
+        if (!wired) {
+          return <Tag color="orange">未接入</Tag>;
+        }
+        return <Tag color={record.enabled ? 'green' : 'default'}>{record.enabled ? '生效中' : '已停用'}</Tag>;
       },
     },
     {
       title: '限制',
-      width: 220,
+      width: 180,
       render: (_, record) => (
         <Space wrap>
           {record.dailyLimit ? <Tag>日 {record.dailyLimit}</Tag> : null}
@@ -629,18 +632,12 @@ export default function GrowthPage() {
     {
       title: '用户',
       dataIndex: 'applicableUserType',
-      width: 100,
-      render: (value: string) => <Tag>{value === 'ALL' ? '全部' : value}</Tag>,
-    },
-    {
-      title: '状态',
-      dataIndex: 'enabled',
-      width: 90,
-      render: (enabled: boolean) => <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用' : '停用'}</Tag>,
+      width: 110,
+      render: (value: string) => <Tag>{applicableUserTypeLabels[value] ?? '未设置'}</Tag>,
     },
     {
       title: '用户看到什么',
-      width: 260,
+      width: 230,
       render: (_, record) => (
         <Typography.Text type="secondary">
           {behaviorUserEffects[record.code] ?? '用户完成该行为后按本行规则获得积分和成长值。'}
@@ -649,7 +646,7 @@ export default function GrowthPage() {
     },
     {
       title: '操作',
-      width: 110,
+      width: 100,
       render: (_, record) => (
         <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
           <Button type="link" icon={<EditOutlined />} onClick={() => openRuleModal(record)}>
@@ -662,17 +659,9 @@ export default function GrowthPage() {
 
   const levelColumns: ColumnsType<AdminGrowthLevel> = [
     {
-      title: '等级编码',
-      dataIndex: 'code',
-      width: 150,
-      render: (value: string, _record, index) => (
-        <Input value={value} onChange={(event) => patchLevel(index, { code: event.target.value })} />
-      ),
-    },
-    {
       title: '等级名称',
       dataIndex: 'name',
-      width: 160,
+      width: 180,
       render: (value: string, _record, index) => (
         <Input value={value} onChange={(event) => patchLevel(index, { name: event.target.value })} />
       ),
@@ -694,7 +683,7 @@ export default function GrowthPage() {
     {
       title: '展示称号',
       dataIndex: 'titleLabel',
-      width: 160,
+      width: 180,
       render: (value: string | null, _record, index) => (
         <Input
           value={value ?? ''}
@@ -1227,7 +1216,7 @@ export default function GrowthPage() {
                   showIcon
                   type="warning"
                   message="行为规则决定用户做什么能拿积分和成长值"
-                  description="先看“接入状态”：已接入的行为才能真实触发；未接入的行为即使启用，也不会自动发放，需先接入 App/后端事件。"
+                  description="先看“生效状态”：生效中的行为才能真实触发；未接入的行为不会自动发放，需要先接入 App/后端事件。"
                   style={{ marginBottom: 16 }}
                 />
                 <Table<AdminGrowthRule>
@@ -1236,7 +1225,7 @@ export default function GrowthPage() {
                   columns={ruleColumns}
                   dataSource={rulesQuery.data ?? []}
                   pagination={false}
-                  scroll={{ x: 1600 }}
+                  scroll={{ x: 1320 }}
                 />
               </Card>
             ),
@@ -1272,7 +1261,7 @@ export default function GrowthPage() {
                     columns={levelColumns}
                     dataSource={currentLevelDrafts}
                     pagination={false}
-                    scroll={{ x: 940 }}
+                    scroll={{ x: 820 }}
                   />
                 </Card>
               </PermissionGate>
@@ -1378,7 +1367,7 @@ export default function GrowthPage() {
 
       <Modal
         title={
-          editingRule ? `编辑行为规则：${behaviorCodeLabels[editingRule.code] ?? editingRule.code}` : '编辑行为规则'
+          editingRule ? `编辑行为规则：${behaviorCodeLabels[editingRule.code] ?? editingRule.name}` : '编辑行为规则'
         }
         open={ruleModalOpen}
         onCancel={() => setRuleModalOpen(false)}
@@ -1397,12 +1386,10 @@ export default function GrowthPage() {
           }
         >
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="code" label="行为码" rules={[{ required: true }]}>
-                <Input disabled />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
+            <Form.Item name="code" hidden rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Col span={24}>
               <Form.Item name="name" label="规则名称" rules={[{ required: true }]} extra="用户端规则说明会使用这个名称，请写成用户能理解的动作。">
                 <Input />
               </Form.Item>
