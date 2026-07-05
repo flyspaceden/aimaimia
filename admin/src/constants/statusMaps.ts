@@ -98,7 +98,7 @@ export const couponTriggerTypeMap: Record<string, StatusEntry> = {
   WIN_BACK: { text: '久未下单唤醒', color: 'volcano' },
   HOLIDAY: { text: '节日活动', color: 'red' },
   FLASH: { text: '限时抢', color: 'geekblue' },
-  MANUAL: { text: '手动发放', color: 'default' },
+  MANUAL: { text: '手动发放（积分兑换）', color: 'default' },
 };
 
 // 红包发放方式

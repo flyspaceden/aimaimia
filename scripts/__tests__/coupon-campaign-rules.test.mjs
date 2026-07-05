@@ -61,6 +61,8 @@ test('manual campaign creation explains the activation before issuing workflow',
 
 test('coupon campaigns can be marked as growth-exchange dedicated pools', () => {
   assert.match(api, /growthExchangeEnabled:\s*boolean/);
+  assert.match(form, /label:\s*'手动发放（积分兑换）'/);
+  assert.match(statusMaps, /MANUAL:\s*\{\s*text:\s*'手动发放（积分兑换）'/);
   assert.match(form, /name="growthExchangeEnabled"/);
   assert.match(form, /label="积分兑换专用"/);
   assert.match(form, /仅用于积分成长兑换/);
