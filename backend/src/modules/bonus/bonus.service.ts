@@ -428,7 +428,7 @@ export class BonusService {
         if (member && !member.referralCode) {
           updateData.referralCode = await pickUniqueReferralCode(tx);
         }
-        const updatedMember = await tx.memberProfile.upsert({
+        await tx.memberProfile.upsert({
           where: { userId },
           create: {
             userId,
@@ -439,12 +439,14 @@ export class BonusService {
           update: updateData,
         });
 
+        const referralContext = await this.resolveVipUpgradeReferralContext(tx, userId);
+
         await this.digitalAssetService?.grantVipActivationAssets(tx, {
           userId,
           vipPurchaseId: vipPurchase.id,
           packageId: vipPurchase.packageId ?? null,
           vipAmount: vipPurchase.amount,
-          inviterUserId: updatedMember.inviterUserId || member?.inviterUserId || null,
+          inviterUserId: referralContext.directInviterUserId,
         });
 
         // 创建 VIP 进度
@@ -455,15 +457,7 @@ export class BonusService {
         });
 
         // 分配三叉树节点
-        await this.assignVipTreeNode(tx, userId);
-
-        // 推荐人 VIP 推荐奖励（按购买金额 × 推荐奖励比例计算）
-        const inviterUserId = updatedMember.inviterUserId || member?.inviterUserId;
-        const referralBonusRateSnapshot = vipPurchase.referralBonusRate ?? 0;
-        const referralBonus = Math.floor(vipPurchase.amount * referralBonusRateSnapshot * 100) / 100;
-        if (inviterUserId && referralBonus > 0) {
-          await this.grantVipReferralBonus(tx, inviterUserId, userId, referralBonus, vipPurchase.id);
-        }
+        await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
 
         // 冻结普通树进度
         const normalProgress = await tx.normalProgress.findUnique({
@@ -1307,6 +1301,67 @@ export class BonusService {
 
   // ========== 私有方法 ==========
 
+  private async resolveVipUpgradeReferralContext(
+    tx: Prisma.TransactionClient,
+    inviteeUserId: string,
+  ): Promise<{
+    vipTreeInviterUserId: string | null;
+    directInviterUserId: string | null;
+    invalidated: boolean;
+  }> {
+    const member = await tx.memberProfile.findUnique({
+      where: { userId: inviteeUserId },
+    });
+    const inviterUserId = member?.inviterUserId ?? null;
+
+    if (!inviterUserId) {
+      return { vipTreeInviterUserId: null, directInviterUserId: null, invalidated: false };
+    }
+
+    const inviterMember = await tx.memberProfile.findUnique({
+      where: { userId: inviterUserId },
+    });
+    const inviterCanCarryVip = inviterMember?.tier === 'VIP' && !!inviterMember.vipNodeId;
+
+    if (inviterCanCarryVip) {
+      await tx.normalShareBinding.updateMany({
+        where: {
+          inviteeUserId,
+          inviterUserId,
+          relationStatus: 'ACTIVE',
+        },
+        data: {
+          relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+        },
+      });
+      return {
+        vipTreeInviterUserId: inviterUserId,
+        directInviterUserId: inviterUserId,
+        invalidated: false,
+      };
+    }
+
+    await tx.normalShareBinding.updateMany({
+      where: {
+        inviteeUserId,
+        inviterUserId,
+        relationStatus: 'ACTIVE',
+      },
+      data: {
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        relationInvalidAt: new Date(),
+        relationInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+        effectiveInviterUserId: null,
+      },
+    });
+    await tx.memberProfile.updateMany({
+      where: { userId: inviteeUserId, inviterUserId },
+      data: { inviterUserId: null },
+    });
+
+    return { vipTreeInviterUserId: null, directInviterUserId: null, invalidated: true };
+  }
+
   /**
    * VIP 三叉树推荐子树落位
    *
@@ -1315,16 +1370,14 @@ export class BonusService {
    * 无推荐人：从 A1 起依次 找/建 第一个有空位（childrenCount<3）的系统根节点，
    *           连续编号无空洞（A3 满则建 A4，依此类推），上限 10 + MAX_ROOT_NODES。
    */
-  private async assignVipTreeNode(tx: any, userId: string) {
-    const member = await tx.memberProfile.findUnique({ where: { userId } });
-
+  private async assignVipTreeNode(tx: any, userId: string, vipTreeInviterUserId?: string | null) {
     let parentNode: any = null;
     let rootId: string = '';
 
-    if (member?.inviterUserId) {
+    if (vipTreeInviterUserId) {
       // ===== 有推荐人：必须落在推荐人子树内，不允许降级到系统节点 =====
       const inviterMember = await tx.memberProfile.findUnique({
-        where: { userId: member.inviterUserId },
+        where: { userId: vipTreeInviterUserId },
       });
 
       if (!inviterMember?.vipNodeId) {
