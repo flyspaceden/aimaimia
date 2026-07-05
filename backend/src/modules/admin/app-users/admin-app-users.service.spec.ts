@@ -40,7 +40,8 @@ describe('AdminAppUsersService buyer public ids', () => {
     authIdentities: [
       { provider: 'PHONE', identifier: '13800138000', verified: true },
     ],
-    memberProfile: { tier: 'NORMAL' },
+    memberProfile: { tier: 'NORMAL', referralCode: null },
+    normalShareProfile: { code: 'S8K6M2Q9', status: 'ACTIVE' },
     _count: { orders: 2, addresses: 1, followsGiven: 0 },
   };
 
@@ -56,6 +57,54 @@ describe('AdminAppUsersService buyer public ids', () => {
       buyerNo: 'AIMM00000000000001',
       nickname: '测试买家',
     });
+  });
+
+  it('returns the current visible recommendation code for normal and VIP app users', async () => {
+    const { service, prisma } = makeService();
+    prisma.user.findMany.mockResolvedValue([
+      userRow,
+      {
+        ...userRow,
+        id: 'vip-user-1',
+        buyerNo: 'AIMM00000000000002',
+        memberProfile: { tier: 'VIP', referralCode: 'VIPCODE1' },
+        normalShareProfile: { code: 'SOLDNORMAL', status: 'ACTIVE' },
+      },
+      {
+        ...userRow,
+        id: 'normal-without-share-code',
+        buyerNo: 'AIMM00000000000003',
+        memberProfile: { tier: 'NORMAL', referralCode: null },
+        normalShareProfile: null,
+      },
+    ]);
+    prisma.user.count.mockResolvedValue(3);
+
+    const result = await service.findAll();
+
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'user-internal-1',
+        memberTier: 'NORMAL',
+        normalShareCode: 'S8K6M2Q9',
+        normalShareStatus: 'ACTIVE',
+        vipReferralCode: null,
+      }),
+      expect.objectContaining({
+        id: 'vip-user-1',
+        memberTier: 'VIP',
+        normalShareCode: null,
+        normalShareStatus: null,
+        vipReferralCode: 'VIPCODE1',
+      }),
+      expect.objectContaining({
+        id: 'normal-without-share-code',
+        memberTier: 'NORMAL',
+        normalShareCode: null,
+        normalShareStatus: null,
+        vipReferralCode: null,
+      }),
+    ]));
   });
 
   it('returns buyerNo in app user detail', async () => {

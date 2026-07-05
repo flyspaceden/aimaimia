@@ -111,6 +111,24 @@ test('admin user and vip member tables send server-side sort params', () => {
   assert.match(bonusService, /private buildMemberOrderBy/);
 });
 
+test('admin user table shows each user current recommendation code', () => {
+  const usersPage = read('admin/src/pages/users/index.tsx');
+  const usersTypes = read('admin/src/types/index.ts');
+  const usersService = read('backend/src/modules/admin/app-users/admin-app-users.service.ts');
+
+  assert.match(usersPage, /title: '推荐码'/);
+  assert.match(usersPage, /renderRecommendationCode/);
+  assert.match(usersPage, /https:\/\/app\.ai-maimai\.com\/r\/\$\{code\}/);
+  assert.match(usersPage, /https:\/\/app\.ai-maimai\.com\/s\/\$\{code\}/);
+  assert.match(usersPage, /普通分享码已停用/);
+  assert.match(usersTypes, /normalShareCode\?:\s*string \| null/);
+  assert.match(usersTypes, /normalShareStatus\?:\s*string \| null/);
+  assert.match(usersTypes, /vipReferralCode\?:\s*string \| null/);
+  assert.match(usersService, /normalShareProfile:\s*\{\s*select:\s*\{\s*code:\s*true,\s*status:\s*true\s*\},?\s*\}/);
+  assert.match(usersService, /vipReferralCode:\s*user\.memberProfile\?\.tier === 'VIP'/);
+  assert.match(usersService, /normalShareCode:\s*user\.memberProfile\?\.tier === 'VIP' \? null : user\.normalShareProfile\?\.code/);
+});
+
 test('referral page tables support sortable relation and upgrade dates', () => {
   const referrals = read('admin/src/pages/referrals/index.tsx');
   const growthApi = read('admin/src/api/growth.ts');

@@ -2,7 +2,23 @@ import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import type { SortOrder } from 'antd/es/table/interface';
-import { App, Avatar, Tag, Button, Space, Card, Row, Col, Statistic, Modal, Input, Skeleton } from 'antd';
+import {
+  App,
+  Avatar,
+  Button,
+  Card,
+  Col,
+  Input,
+  Modal,
+  Popover,
+  QRCode,
+  Row,
+  Skeleton,
+  Space,
+  Statistic,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   UserOutlined,
   EyeOutlined,
@@ -39,6 +55,52 @@ function getAppUserSortParams(sort: Record<string, SortOrder | undefined>) {
     sortField: field as 'memberTier' | 'status' | 'orderCount' | 'createdAt',
     sortOrder: order as 'ascend' | 'descend',
   };
+}
+
+function renderRecommendationCode(record: AppUser) {
+  const isVip = record.memberTier === 'VIP';
+  const code = isVip ? record.vipReferralCode : record.normalShareCode;
+  if (!code) {
+    return <Typography.Text type="secondary">未生成</Typography.Text>;
+  }
+
+  const inviteUrl = isVip
+    ? `https://app.ai-maimai.com/r/${code}`
+    : `https://app.ai-maimai.com/s/${code}`;
+  const normalCodeDisabled = !isVip && record.normalShareStatus === 'DISABLED';
+
+  return (
+    <Popover
+      placement="right"
+      content={
+        <Space direction="vertical" align="center" size={8} style={{ width: 220 }}>
+          <QRCode value={inviteUrl} size={150} bordered={false} />
+          <Typography.Text copyable={{ text: inviteUrl }} style={{ fontSize: 12, wordBreak: 'break-all' }}>
+            {inviteUrl}
+          </Typography.Text>
+          {normalCodeDisabled ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              普通分享码已停用
+            </Typography.Text>
+          ) : null}
+        </Space>
+      }
+    >
+      <Space size={4}>
+        <Typography.Text copyable={{ text: code }}>
+          <Tag
+            color={normalCodeDisabled ? 'default' : isVip ? 'gold' : 'blue'}
+            style={{ fontFamily: 'monospace', cursor: 'pointer' }}
+          >
+            {code}
+          </Tag>
+        </Typography.Text>
+        <Tag color={isVip ? 'gold' : normalCodeDisabled ? 'default' : 'blue'}>
+          {isVip ? 'VIP' : normalCodeDisabled ? '已停用' : '普通'}
+        </Tag>
+      </Space>
+    </Popover>
+  );
 }
 
 export default function UserListPage() {
@@ -97,6 +159,13 @@ export default function UserListPage() {
       ),
     },
     { title: '手机号', dataIndex: 'phone', width: 140 },
+    {
+      title: '推荐码',
+      dataIndex: 'recommendationCode',
+      width: 180,
+      search: false,
+      render: (_: unknown, r: AppUser) => renderRecommendationCode(r),
+    },
     {
       title: '会员',
       dataIndex: 'memberTier',
