@@ -70,6 +70,8 @@ test('VIP growth page explains how member growth and VIP referral should be used
   assert.match(growthSource, /积分和成长值怎么获得/);
   assert.match(growthSource, /普通分享码仅普通用户拉新使用/);
   assert.match(growthSource, /去分享 VIP 推荐码/);
+  assert.doesNotMatch(growthSource, /你推荐的好友成为 VIP/);
+  assert.doesNotMatch(growthSource, /好友后续普通商品订单按/);
 });
 
 test('admin growth page presents unified points growth accounts without duplicating VIP referral management', () => {
