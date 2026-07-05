@@ -1,4 +1,4 @@
-import { validateConfigValue, VIP_POOL_PERCENT_KEYS } from './config-validation';
+import { NORMAL_PERCENT_KEYS, validateConfigValue, VIP_POOL_PERCENT_KEYS } from './config-validation';
 
 describe('invoice config validation', () => {
   it('accepts valid invoice provider mode and line mode', () => {
@@ -67,5 +67,29 @@ describe('VIP direct referral percent validation', () => {
   it('accepts VIP direct referral percent and includes it in the VIP pool keys', () => {
     expect(validateConfigValue('VIP_DIRECT_REFERRAL_PERCENT', 0.05)).toBeNull();
     expect(VIP_POOL_PERCENT_KEYS).toContain('VIP_DIRECT_REFERRAL_PERCENT');
+  });
+});
+
+describe('normal direct referral and auto VIP config validation', () => {
+  it('validates normal direct referral percent and includes it in normal pool keys', () => {
+    expect(validateConfigValue('NORMAL_DIRECT_REFERRAL_PERCENT', 0.01)).toBeNull();
+    expect(validateConfigValue('NORMAL_DIRECT_REFERRAL_PERCENT', -0.01)).toContain('最小值');
+    expect(validateConfigValue('NORMAL_DIRECT_REFERRAL_PERCENT', 1.01)).toContain('最大值');
+    expect(validateConfigValue('NORMAL_DIRECT_REFERRAL_PERCENT', '0.01')).toContain('必须是数字');
+    expect(NORMAL_PERCENT_KEYS).toContain('NORMAL_DIRECT_REFERRAL_PERCENT');
+  });
+
+  it('validates auto VIP by spend switch', () => {
+    expect(validateConfigValue('AUTO_VIP_BY_SPEND_ENABLED', true)).toBeNull();
+    expect(validateConfigValue('AUTO_VIP_BY_SPEND_ENABLED', false)).toBeNull();
+    expect(validateConfigValue('AUTO_VIP_BY_SPEND_ENABLED', 'true')).toContain('布尔值');
+  });
+
+  it('validates auto VIP cumulative spend threshold', () => {
+    expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 399)).toBeNull();
+    expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 1)).toBeNull();
+    expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 0)).toContain('最小值');
+    expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 100001)).toContain('最大值');
+    expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', '399')).toContain('必须是数字');
   });
 });

@@ -126,4 +126,35 @@ describe('BonusConfigService VIP direct referral ratio config', () => {
     await expect(service.validateRatioUpdate('NORMAL_DIRECT_REFERRAL_PERCENT', 0.01)).resolves.toBeUndefined();
     expect(prisma.ruleConfig.findMany).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts legacy normal six-way snapshots without direct referral percent', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        NORMAL_PLATFORM_PERCENT: { value: 0.5 },
+        NORMAL_REWARD_PERCENT: { value: 0.16 },
+        NORMAL_INDUSTRY_FUND_PERCENT: { value: 0.16 },
+        NORMAL_CHARITY_PERCENT: { value: 0.08 },
+        NORMAL_TECH_PERCENT: { value: 0.08 },
+        NORMAL_RESERVE_PERCENT: { value: 0.02 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects normal seven-way snapshots whose total is greater than 1', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        NORMAL_PLATFORM_PERCENT: { value: 0.5 },
+        NORMAL_REWARD_PERCENT: { value: 0.16 },
+        NORMAL_DIRECT_REFERRAL_PERCENT: { value: 0.01 },
+        NORMAL_INDUSTRY_FUND_PERCENT: { value: 0.16 },
+        NORMAL_CHARITY_PERCENT: { value: 0.08 },
+        NORMAL_TECH_PERCENT: { value: 0.08 },
+        NORMAL_RESERVE_PERCENT: { value: 0.02 },
+      }),
+    ).toThrow(BadRequestException);
+  });
 });

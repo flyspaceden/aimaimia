@@ -225,6 +225,12 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     min: 0,
     max: 1,
   },
+  NORMAL_DIRECT_REFERRAL_PERCENT: {
+    type: 'number',
+    description: '普通用户利润-直推持续佣金比例',
+    min: 0,
+    max: 1,
+  },
   NORMAL_INDUSTRY_FUND_PERCENT: {
     type: 'number',
     description: '普通用户利润-产业基金(卖家)比例',
@@ -314,6 +320,16 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     description: '普通用户免运费门槛（元），0=无条件免运费',
     min: 0,
     max: 10000,
+  },
+  AUTO_VIP_BY_SPEND_ENABLED: {
+    type: 'boolean',
+    description: '是否启用累计消费自动成为VIP',
+  },
+  AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD: {
+    type: 'number',
+    description: '累计普通商品有效消费达到多少元自动成为VIP',
+    min: 1,
+    max: 100000,
   },
 
   // =================== 发票系统配置 ===================
@@ -504,11 +520,12 @@ export function validateConfigValue(key: string, value: any): string | null {
 }
 
 /**
- * 普通用户利润分配比例键列表（六项之和必须等于1.0）
+ * 普通用户利润分配比例键列表（七项之和必须等于1.0）
  */
 export const NORMAL_PERCENT_KEYS = [
   'NORMAL_PLATFORM_PERCENT',
   'NORMAL_REWARD_PERCENT',
+  'NORMAL_DIRECT_REFERRAL_PERCENT',
   'NORMAL_INDUSTRY_FUND_PERCENT',
   'NORMAL_CHARITY_PERCENT',
   'NORMAL_TECH_PERCENT',
