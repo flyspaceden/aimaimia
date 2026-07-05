@@ -234,6 +234,9 @@ export interface AppUser {
   nickname: string | null;
   avatarUrl: string | null;
   memberTier: 'VIP' | 'NORMAL';
+  normalShareCode?: string | null;
+  normalShareStatus?: string | null;
+  vipReferralCode?: string | null;
   status: AppUserStatus;
   orderCount: number;
   createdAt: string;

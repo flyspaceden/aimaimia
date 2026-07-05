@@ -77,7 +77,10 @@ export class AdminAppUsersService {
             take: 1,
           },
           memberProfile: {
-            select: { tier: true },
+            select: { tier: true, referralCode: true },
+          },
+          normalShareProfile: {
+            select: { code: true, status: true },
           },
           _count: { select: { orders: true } },
         },
@@ -93,6 +96,9 @@ export class AdminAppUsersService {
         nickname: user.profile?.nickname || null,
         avatarUrl: user.profile?.avatarUrl || null,
         memberTier: user.memberProfile?.tier || 'NORMAL',
+        normalShareCode: user.memberProfile?.tier === 'VIP' ? null : user.normalShareProfile?.code ?? null,
+        normalShareStatus: user.memberProfile?.tier === 'VIP' ? null : user.normalShareProfile?.status ?? null,
+        vipReferralCode: user.memberProfile?.tier === 'VIP' ? user.memberProfile?.referralCode ?? null : null,
         status: user.status,
         orderCount: user._count.orders,
         createdAt: user.createdAt,
