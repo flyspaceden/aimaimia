@@ -72,7 +72,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
   // 分润比例（七项须合计 = 1.0）
   { key: 'VIP_PLATFORM_PERCENT', label: 'VIP平台占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归平台的比例', defaultValue: 0.50 },
   { key: 'VIP_REWARD_PERCENT', label: 'VIP奖励占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中分配给奖励的比例', defaultValue: 0.25 },
-  { key: 'VIP_DIRECT_REFERRAL_PERCENT', label: 'VIP直推佣金占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中给直系推荐人的持续佣金比例', defaultValue: 0 },
+  { key: 'VIP_DIRECT_REFERRAL_PERCENT', label: 'VIP直推佣金占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP 推荐人从好友后续普通商品订单利润中获得的持续佣金比例；VIP 礼包本身不发放这类直推佣金', defaultValue: 0 },
   { key: 'VIP_INDUSTRY_FUND_PERCENT', label: 'VIP产业基金(卖家)占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中划入产业基金（卖家）的比例', defaultValue: 0.10 },
   { key: 'VIP_CHARITY_PERCENT', label: 'VIP慈善占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归慈善的比例', defaultValue: 0.02 },
   { key: 'VIP_TECH_PERCENT', label: 'VIP科技占比', group: 'ratio', type: 'percent', min: 0, max: 1, step: 0.01, description: 'VIP利润中归科技的比例', defaultValue: 0.02 },

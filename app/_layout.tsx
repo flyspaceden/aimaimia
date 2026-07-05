@@ -41,6 +41,13 @@ import { needsPrivacyConsent } from '../src/services/privacyConsent';
 (Text as any).defaultProps = (Text as any).defaultProps || {};
 (Text as any).defaultProps.maxFontSizeMultiplier = 1.2;
 
+function invalidateInviteBindingQueries() {
+  appQueryClient.invalidateQueries({ queryKey: ['bonus-member'] });
+  appQueryClient.invalidateQueries({ queryKey: ['growth-me'] });
+  appQueryClient.invalidateQueries({ queryKey: ['normal-share-records'] });
+  appQueryClient.invalidateQueries({ queryKey: ['normal-share-stats'] });
+}
+
 async function handleReferralCode(code: string) {
   const { isLoggedIn } = useAuthStore.getState();
   if (!isLoggedIn) {
@@ -49,6 +56,7 @@ async function handleReferralCode(code: string) {
   }
   // BonusRepo 走 Result 模式不 throw，必须看 result.ok 而非 try/catch
   const result = await BonusRepo.useReferralCode(code);
+  if (result.ok) invalidateInviteBindingQueries();
   if (result.ok || !result.error.retryable) {
     // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积
     await clearPendingReferralCode();
@@ -66,6 +74,7 @@ async function handleNormalShareCode(code: string) {
     return;
   }
   const result = await GrowthRepo.bindNormalShareCode(code);
+  if (result.ok) invalidateInviteBindingQueries();
   if (result.ok || !result.error.retryable) {
     await clearPendingNormalShareCode();
   } else {
@@ -208,12 +217,14 @@ export default function RootLayout() {
       try {
         if (normalShareCode) {
           const normalResult = await GrowthRepo.bindNormalShareCode(normalShareCode);
+          if (normalResult.ok) invalidateInviteBindingQueries();
           if (normalResult.ok || !normalResult.error.retryable) {
             await clearPendingNormalShareCode();
           }
         }
         if (!code) return;
         const result = await BonusRepo.useReferralCode(code);
+        if (result.ok) invalidateInviteBindingQueries();
         if (result.ok || !result.error.retryable) {
           // 成功 / 业务错误（已是 VIP / 推荐码无效，retryable=false）→ 清，避免堆积
           await clearPendingReferralCode();

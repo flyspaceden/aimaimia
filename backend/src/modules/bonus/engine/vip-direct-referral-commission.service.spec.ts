@@ -61,7 +61,7 @@ function makeInviter(overrides: any = {}) {
   return {
     status: 'ACTIVE',
     deletionExecutedAt: null,
-    memberProfile: { tier: 'NORMAL' },
+    memberProfile: { tier: 'NORMAL', referralCode: 'INVITE01' },
     ...overrides,
   };
 }
@@ -140,6 +140,8 @@ describe('VipDirectReferralCommissionService', () => {
           ratio: 0.01,
           directReferralPool: 0.4,
           sourceRelation: 'MEMBER_PROFILE',
+          sourceCode: 'INVITE01',
+          sourceCodeType: 'MEMBER_REFERRAL_CODE',
           routedToPlatform: false,
           releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
         }),
@@ -161,6 +163,8 @@ describe('VipDirectReferralCommissionService', () => {
           inviterTierAtOrder: 'NORMAL',
           inviteeTierAtOrder: 'NORMAL',
           sourceRelation: 'MEMBER_PROFILE',
+          sourceCode: 'INVITE01',
+          sourceCodeType: 'MEMBER_REFERRAL_CODE',
           releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
         }),
       }),
@@ -173,7 +177,7 @@ describe('VipDirectReferralCommissionService', () => {
 
   it('preserves VIP direct referral commission for a VIP direct inviter', async () => {
     const { service } = makeService();
-    const tx = makeTx(makeOrder(), makeInviter({ memberProfile: { tier: 'VIP' } }));
+    const tx = makeTx(makeOrder(), makeInviter({ memberProfile: { tier: 'VIP', referralCode: 'VIPCODE1' } }));
 
     const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
 
@@ -190,6 +194,8 @@ describe('VipDirectReferralCommissionService', () => {
           ratio: 0.05,
           directReferralPool: 2,
           sourceRelation: 'MEMBER_PROFILE',
+          sourceCode: 'VIPCODE1',
+          sourceCodeType: 'MEMBER_REFERRAL_CODE',
         }),
       }),
     });
@@ -203,6 +209,8 @@ describe('VipDirectReferralCommissionService', () => {
           accountType: 'VIP_REWARD',
           inviterTierAtOrder: 'VIP',
           inviteeTierAtOrder: 'NORMAL',
+          sourceCode: 'VIPCODE1',
+          sourceCodeType: 'MEMBER_REFERRAL_CODE',
         }),
       }),
     });
@@ -215,6 +223,7 @@ describe('VipDirectReferralCommissionService', () => {
       makeInviter(),
       {
         id: 'binding-1',
+        code: 'SHARE01',
         relationStatus: 'ACTIVE',
         effectiveInviterUserId: 'binding-inviter-1',
       },
@@ -235,6 +244,8 @@ describe('VipDirectReferralCommissionService', () => {
           directInviterUserId: 'binding-inviter-1',
           sourceRelation: 'NORMAL_SHARE_BINDING',
           normalShareBindingId: 'binding-1',
+          sourceCode: 'SHARE01',
+          sourceCodeType: 'NORMAL_SHARE_CODE',
         }),
       }),
     });
@@ -393,6 +404,72 @@ describe('VipDirectReferralCommissionService', () => {
           directInviterUserId: null,
           sourceRelation: 'NORMAL_SHARE_BINDING',
           normalShareBindingId: 'binding-void',
+        }),
+      }),
+    });
+  });
+
+  it('does not pay a stale member-profile inviter when the normal share binding was invalidated', async () => {
+    const { service } = makeService();
+    const tx = makeTx(
+      makeOrder({
+        user: { memberProfile: { tier: 'NORMAL', inviterUserId: 'inviter-1' } },
+      }),
+      makeInviter(),
+      {
+        id: 'binding-invalidated',
+        inviterUserId: 'inviter-1',
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        effectiveInviterUserId: null,
+      },
+    );
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('platform');
+    expect(tx.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: PLATFORM_USER_ID,
+        amount: 0.4,
+        meta: expect.objectContaining({
+          scheme: 'NORMAL_DIRECT_REFERRAL_PLATFORM',
+          platformReason: 'DIRECT_RELATION_NOT_ACTIVE',
+          sourceRelation: 'NORMAL_SHARE_BINDING',
+          normalShareBindingId: 'binding-invalidated',
+          relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        }),
+      }),
+    });
+  });
+
+  it('keeps paying the member-profile inviter when the normal relation has been carried into the VIP tree', async () => {
+    const { service } = makeService();
+    const tx = makeTx(
+      makeOrder({
+        user: { memberProfile: { tier: 'VIP', inviterUserId: 'inviter-1' } },
+      }),
+      makeInviter({ memberProfile: { tier: 'VIP' } }),
+      {
+        id: 'binding-carried',
+        inviterUserId: 'inviter-1',
+        relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+        effectiveInviterUserId: 'inviter-1',
+      },
+    );
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('credited');
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'inviter-1',
+        amount: 2,
+        meta: expect.objectContaining({
+          scheme: 'VIP_DIRECT_REFERRAL',
+          sourceRelation: 'MEMBER_PROFILE',
+          normalShareBindingId: 'binding-carried',
+          relationStatus: 'SUPERSEDED_BY_VIP_TREE',
         }),
       }),
     });

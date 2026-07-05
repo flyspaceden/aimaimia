@@ -1,5 +1,3 @@
-import { Prisma } from '@prisma/client';
-
 export const NORMAL_SHARE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export function generateNormalShareCode(random: () => number = Math.random) {
@@ -10,13 +8,37 @@ export function generateNormalShareCode(random: () => number = Math.random) {
   return code;
 }
 
-export async function pickUniqueNormalShareCode(tx: Prisma.TransactionClient) {
+type NormalShareCodeClient = {
+  normalShareProfile: {
+    findUnique: (args: { where: { code: string } }) => Promise<{ id: string } | null>;
+  };
+  memberProfile?: {
+    findFirst: (args: {
+      where: { referralCode: string };
+      select: { id: true };
+    }) => Promise<{ id: string } | null>;
+  };
+};
+
+async function isNormalShareCodeOccupied(tx: NormalShareCodeClient, code: string) {
+  const existingNormalShareCode = await tx.normalShareProfile.findUnique({
+    where: { code },
+  });
+  if (existingNormalShareCode) return true;
+
+  if (!tx.memberProfile) return false;
+  const existingVipReferralCode = await tx.memberProfile.findFirst({
+    where: { referralCode: code },
+    select: { id: true },
+  });
+  return Boolean(existingVipReferralCode);
+}
+
+export async function pickUniqueNormalShareCode(tx: NormalShareCodeClient) {
   for (let i = 0; i < 10; i += 1) {
     const code = generateNormalShareCode();
-    const existing = await tx.normalShareProfile.findUnique({
-      where: { code },
-    });
-    if (!existing) {
+    const occupied = await isNormalShareCodeOccupied(tx, code);
+    if (!occupied) {
       return code;
     }
   }

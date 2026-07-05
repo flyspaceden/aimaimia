@@ -95,6 +95,34 @@ describe('OrderService digital asset hook', () => {
     expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
   });
 
+  it('does not grant ordinary invite first-order growth when digital asset credit failed before VIP settlement', async () => {
+    const { service, prisma, digitalAsset, growthEvents } = makeService();
+    digitalAsset.creditOrderReceived.mockRejectedValueOnce(new Error('asset failed'));
+    prisma.normalShareBinding.findUnique.mockResolvedValueOnce({
+      id: 'binding-1',
+      inviterUserId: 'inviter-1',
+      inviteeUserId: 'user-1',
+      rewardStatus: 'REGISTER_REWARDED',
+      relationStatus: 'ACTIVE',
+      firstOrderId: null,
+    });
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setGrowthEventService(growthEvents as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
+
+    expect(growthEvents.receive).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      behaviorCode: 'FIRST_ORDER_RECEIVED',
+    }));
+    expect(growthEvents.receive).not.toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'inviter-1',
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+    }));
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
+  });
+
   it('does not activate auto VIP when manual digital asset credit resolves without recording spend', async () => {
     const { service, digitalAsset, bonusService } = makeService();
     digitalAsset.creditOrderReceived.mockResolvedValueOnce({ recorded: false, reason: 'DUPLICATE_LEDGER' });
@@ -104,7 +132,54 @@ describe('OrderService digital asset hook', () => {
     await expect(service.confirmReceive('order-1', 'user-1')).resolves.toMatchObject({ id: 'order-1' });
     await flushAsyncTasks();
 
-    expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
+  it('waits for auto VIP relation settlement before ordinary invite first-order growth', async () => {
+    const { service, prisma, digitalAsset, bonusService, growthEvents } = makeService();
+    let resolveAsset!: (value: any) => void;
+    digitalAsset.creditOrderReceived.mockReturnValueOnce(new Promise((resolve) => {
+      resolveAsset = resolve;
+    }));
+    const binding = {
+      id: 'binding-1',
+      inviterUserId: 'inviter-1',
+      inviteeUserId: 'user-1',
+      rewardStatus: 'REGISTER_REWARDED',
+      relationStatus: 'ACTIVE',
+      firstOrderId: null,
+    };
+    prisma.normalShareBinding.findUnique.mockImplementation(() => Promise.resolve(binding));
+    bonusService.activateVipByCumulativeSpend.mockImplementation(async () => {
+      binding.relationStatus = 'INVALIDATED_BY_INVITEE_VIP_UPGRADE';
+      return { status: 'UPGRADED' };
+    });
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setBonusService(bonusService as any);
+    service.setGrowthEventService(growthEvents as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
+
+    expect(growthEvents.receive).not.toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'inviter-1',
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+    }));
+
+    resolveAsset({ recorded: true, cumulativeSpendAmount: 399 });
+    await flushAsyncTasks();
+    await flushAsyncTasks();
+
+    expect(bonusService.activateVipByCumulativeSpend).toHaveBeenCalledWith('user-1', 'order-1');
+    expect(growthEvents.receive).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      behaviorCode: 'FIRST_ORDER_RECEIVED',
+    }));
+    expect(growthEvents.receive).not.toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'inviter-1',
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+    }));
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
 
   it('evaluates group-buy qualification and referral rebate after manual confirm receive succeeds', async () => {
@@ -129,5 +204,31 @@ describe('OrderService digital asset hook', () => {
       refType: 'ORDER',
       refId: 'order-1',
     }));
+  });
+
+  it('does not grant ordinary invite first-order growth when the direct relation was invalidated by VIP upgrade', async () => {
+    const { service, prisma, growthEvents } = makeService();
+    prisma.normalShareBinding.findUnique.mockResolvedValueOnce({
+      id: 'binding-invalidated',
+      inviterUserId: 'inviter-1',
+      inviteeUserId: 'user-1',
+      rewardStatus: 'REGISTER_REWARDED',
+      relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+      firstOrderId: null,
+    });
+    service.setGrowthEventService(growthEvents as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
+
+    expect(growthEvents.receive).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      behaviorCode: 'FIRST_ORDER_RECEIVED',
+    }));
+    expect(growthEvents.receive).not.toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'inviter-1',
+      behaviorCode: 'NORMAL_INVITE_FIRST_ORDER',
+    }));
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
 });

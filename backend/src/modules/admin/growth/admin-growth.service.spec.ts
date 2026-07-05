@@ -12,6 +12,7 @@ const makeHarness = (options: {
   settings?: Record<string, unknown>;
   normalShareProfile?: any;
   normalShareBindings?: any[];
+  ledgers?: any[];
   summaryUsers?: any[];
   couponCampaign?: any;
 } = {}) => {
@@ -124,7 +125,8 @@ const makeHarness = (options: {
           growthDelta: 20,
         },
       }),
-      findMany: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue(options.ledgers ?? []),
+      count: jest.fn().mockResolvedValue(options.ledgers?.length ?? 0),
     },
     growthExchangeRecord: {
       count: jest.fn().mockResolvedValue(4),
@@ -180,6 +182,41 @@ describe('AdminGrowthService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects enabling behavior rules whose event handlers are not wired', async () => {
+    const { service, prisma } = makeHarness();
+
+    await expect(
+      service.upsertBehaviorRule({
+        code: 'BROWSE_PRODUCTS',
+        name: '浏览商品',
+        categoryCode: 'DAILY',
+        pointsReward: 5,
+        growthReward: 5,
+        enabled: true,
+      }),
+    ).rejects.toThrow('该成长行为暂未接入自动发放，不能启用');
+    expect(prisma.growthBehaviorRule.upsert).not.toHaveBeenCalled();
+  });
+
+  it('allows saving unwired behavior rules only while disabled', async () => {
+    const { service, prisma } = makeHarness();
+
+    await expect(
+      service.upsertBehaviorRule({
+        code: 'BROWSE_PRODUCTS',
+        name: '浏览商品',
+        categoryCode: 'DAILY',
+        pointsReward: 5,
+        growthReward: 5,
+        enabled: false,
+      }),
+    ).resolves.toMatchObject({
+      code: 'BROWSE_PRODUCTS',
+      enabled: false,
+    });
+    expect(prisma.growthBehaviorRule.upsert).toHaveBeenCalled();
+  });
+
   it('requires growth levels to include threshold 0 and increase strictly', async () => {
     const { service } = makeHarness();
 
@@ -201,6 +238,19 @@ describe('AdminGrowthService', () => {
         pointsCost: 100,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects exchange item types without a fulfillment channel from admin API', async () => {
+    const { service, prisma } = makeHarness();
+
+    await expect(
+      service.createExchangeItem({
+        type: 'LOTTERY_CHANCE',
+        name: '抽奖机会',
+        pointsCost: 100,
+      } as any),
+    ).rejects.toThrow('该兑换类型暂未接入发放通道');
+    expect(prisma.growthExchangeItem.create).not.toHaveBeenCalled();
   });
 
   it('rejects coupon exchange items backed by user-claim coupon campaigns', async () => {
@@ -374,7 +424,25 @@ describe('AdminGrowthService', () => {
     });
   });
 
-  it('counts all unissued normal-share rewards in the dashboard pending total', async () => {
+  it('unwraps JSON-style RuleConfig values when reading settings', async () => {
+    const { service } = makeHarness({
+      settings: {
+        GROWTH_ENABLED: { value: true, description: '是否启用成长体系' },
+        GROWTH_DAILY_POINTS_CAP: { value: 300, description: '每日积分上限' },
+        AUTO_VIP_BY_SPEND_ENABLED: { value: false, description: '是否开启自动VIP' },
+        AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD: { value: 699, description: '累计消费门槛' },
+      },
+    });
+
+    await expect(service.getSettings()).resolves.toMatchObject({
+      growthEnabled: true,
+      dailyPointsCap: 300,
+      autoVipBySpendEnabled: false,
+      autoVipCumulativeSpendThreshold: 699,
+    });
+  });
+
+  it('counts active unissued normal-share rewards in the dashboard pending total', async () => {
     const { service, prisma } = makeHarness();
     prisma.normalShareBinding.count.mockResolvedValueOnce(7);
 
@@ -383,9 +451,84 @@ describe('AdminGrowthService', () => {
     });
     expect(prisma.normalShareBinding.count).toHaveBeenCalledWith({
       where: {
+        relationStatus: 'ACTIVE',
         rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
       },
     });
+  });
+
+  it('adds VIP tree inviter summary to automatic VIP upgrade ledgers', async () => {
+    const ledger = {
+      id: 'ledger-auto-vip-1',
+      userId: 'upgraded-user',
+      accountId: 'growth-account-1',
+      type: 'ADMIN_ADJUST',
+      behaviorCode: 'AUTO_VIP_UPGRADE',
+      pointsDelta: 0,
+      growthDelta: 0,
+      status: 'POSTED',
+      idempotencyKey: 'AUTO_VIP_UPGRADE:order-1:upgraded-user',
+      refType: 'ORDER',
+      refId: 'order-1',
+      createdAt: new Date('2026-07-05T10:00:00.000Z'),
+      meta: {
+        event: 'AUTO_VIP_UPGRADE',
+        vipTreeInviterUserId: 'vip-inviter-1',
+      },
+      user: {
+        id: 'upgraded-user',
+        buyerNo: 'AIMM00000000000111',
+        profile: { nickname: '升级用户', avatarUrl: null },
+        memberProfile: { tier: 'VIP', referralCode: 'VIP111' },
+        normalShareProfile: null,
+        authIdentities: [{ identifier: '13800001111' }],
+      },
+    };
+    const inviterUser = {
+      id: 'vip-inviter-1',
+      buyerNo: 'AIMM00000000000100',
+      status: 'ACTIVE',
+      profile: { nickname: 'VIP 上级', avatarUrl: null },
+      memberProfile: { tier: 'VIP', referralCode: 'VIP100' },
+      normalShareProfile: null,
+      authIdentities: [{ identifier: '13900001000' }],
+    };
+    const { service, prisma } = makeHarness({
+      ledgers: [ledger],
+      summaryUsers: [inviterUser],
+    });
+
+    await expect(service.listLedgers({ behaviorCode: 'AUTO_VIP_UPGRADE' })).resolves.toMatchObject({
+      items: [
+        {
+          id: 'ledger-auto-vip-1',
+          autoVipTreeInviter: {
+            id: 'vip-inviter-1',
+            buyerNo: 'AIMM00000000000100',
+            nickname: 'VIP 上级',
+            phone: '139****1000',
+            vipStatus: 'VIP',
+            vipReferralCode: 'VIP100',
+          },
+        },
+      ],
+      total: 1,
+    });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['vip-inviter-1'] } },
+      select: expect.any(Object),
+    }));
+    expect(prisma.growthLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        user: {
+          select: expect.objectContaining({
+            status: true,
+            memberProfile: expect.any(Object),
+            normalShareProfile: expect.any(Object),
+          }),
+        },
+      },
+    }));
   });
 
   it('uses active ordinary buyer users, not only growth account rows, for dashboard account count', async () => {
@@ -595,6 +738,56 @@ describe('AdminGrowthService', () => {
         },
       ],
     });
+  });
+
+  it('uses invalidated normal binding status instead of stale member-profile inviter on growth account rows', async () => {
+    const invalidatedAt = new Date('2026-07-05T10:00:00.000Z');
+    const user = {
+      id: 'stale-member-inviter-user',
+      buyerNo: 'AIMM00000000000103',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: '历史异常用户', avatarUrl: null },
+      memberProfile: {
+        tier: 'VIP',
+        referralCode: 'VIP103',
+        inviterUserId: 'old-normal-inviter',
+      },
+      growthAccount: null,
+      normalShareProfile: null,
+      normalShareBindingReceived: {
+        inviterUserId: 'old-normal-inviter',
+        effectiveInviterUserId: null,
+        source: 'APP',
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        relationInvalidAt: invalidatedAt,
+        relationInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+      },
+      authIdentities: [{ identifier: '13800001030' }],
+    };
+    const { service, prisma } = makeHarness({
+      users: [user],
+      levels: [{ code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true }],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      items: [
+        {
+          userId: 'stale-member-inviter-user',
+          directReferralInviterUserId: null,
+          directReferralStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+          directReferralSource: 'APP',
+          directReferralInvalidAt: invalidatedAt,
+          directReferralInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+          directReferralInviter: null,
+        },
+      ],
+    });
+    expect(prisma.user.findMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['old-normal-inviter'] } },
+    }));
   });
 
   it('can list VIP growth accounts without mixing VIP referral management into normal share', async () => {

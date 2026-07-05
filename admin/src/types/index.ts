@@ -563,6 +563,7 @@ export interface AdminGrowthLedger {
   meta?: Record<string, unknown> | null;
   createdAt: string;
   user?: AdminGrowthUserSummary | null;
+  autoVipTreeInviter?: AdminGrowthUserSummary | null;
 }
 
 export interface AdminGrowthExchangeItem {

@@ -195,6 +195,60 @@ describe('GrowthService', () => {
     expect(prisma.normalShareBinding?.findUnique).toBeUndefined();
   });
 
+  it('does not show a stale member-profile inviter as active when normal binding is invalidated', async () => {
+    const prisma: any = {
+      growthAccount: {
+        upsert: jest.fn().mockResolvedValue({
+          id: 'ga-1',
+          userId: 'vip-upgraded-user',
+          pointsBalance: 60,
+          pointsTotalEarned: 80,
+          pointsTotalSpent: 20,
+          growthValue: 120,
+          updatedAt: new Date('2026-07-02T00:00:00.000Z'),
+        }),
+      },
+      growthLevel: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          tier: 'VIP',
+          inviterUserId: 'old-normal-inviter',
+        }),
+      },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue({ cumulativeSpendAmount: 500 }),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          inviterUserId: 'old-normal-inviter',
+          relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+          effectiveInviterUserId: null,
+        }),
+      },
+      user: {
+        findUnique: jest.fn(),
+      },
+    };
+    const bonusConfig = {
+      getConfig: jest.fn().mockResolvedValue({
+        autoVipBySpendEnabled: true,
+        autoVipCumulativeSpendThreshold: 399,
+        normalDirectReferralPercent: 0.01,
+        vipDirectReferralPercent: 0.05,
+      }),
+    };
+    const service = new GrowthService(prisma, undefined, bonusConfig as any);
+
+    await expect(service.getMe('vip-upgraded-user')).resolves.toMatchObject({
+      directReferralStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+      directReferralInviter: null,
+      directReferralPercent: 0.05,
+    });
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it('returns buyer-visible earning rules and levels from admin configuration', async () => {
     const prisma: any = {
       memberProfile: {
@@ -243,6 +297,20 @@ describe('GrowthService', () => {
             lifetimeLimit: null,
             enabled: true,
             sortOrder: 30,
+          },
+          {
+            code: 'BROWSE_PRODUCTS',
+            name: '浏览商品',
+            categoryCode: 'DAILY',
+            pointsReward: 5,
+            growthReward: 5,
+            grantTiming: 'IMMEDIATE',
+            dailyLimit: 1,
+            weeklyLimit: null,
+            monthlyLimit: null,
+            lifetimeLimit: null,
+            enabled: true,
+            sortOrder: 40,
           },
         ]),
       },

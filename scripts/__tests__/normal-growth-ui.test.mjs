@@ -29,6 +29,7 @@ test('growth repo exposes buyer-visible guide sourced from backend rules', () =>
 
 test('growth center explains invite rewards, earning tasks, and level rules', () => {
   const source = read('app/me/growth.tsx');
+  const types = read('src/types/domain/Growth.ts');
 
   assert.match(source, /queryKey:\s*\['growth-guide'\]/);
   assert.match(source, /推荐收益/);
@@ -38,6 +39,10 @@ test('growth center explains invite rewards, earning tasks, and level rules', ()
   assert.match(source, /普通积分用于兑换红包和权益，兑换时会消耗/);
   assert.match(source, /formatRewardText/);
   assert.match(source, /formatLimitText/);
+  assert.match(types, /relationStatus\?:/);
+  assert.match(source, /relationStatusLabels/);
+  assert.match(source, /转入VIP关系/);
+  assert.match(source, /已因对方升级VIP结束/);
 });
 
 test('VIP users see member growth instead of ordinary growth and ordinary share modules', () => {
@@ -63,6 +68,7 @@ test('VIP users see member growth instead of ordinary growth and ordinary share 
 
 test('VIP growth page explains how member growth and VIP referral should be used', () => {
   const growthSource = read('app/me/growth.tsx');
+  const referralSource = read('app/me/referral.tsx');
 
   assert.match(growthSource, /VIP 成长与推荐/);
   assert.match(growthSource, /会员成长怎么用/);
@@ -70,8 +76,42 @@ test('VIP growth page explains how member growth and VIP referral should be used
   assert.match(growthSource, /积分和成长值怎么获得/);
   assert.match(growthSource, /普通分享码仅普通用户拉新使用/);
   assert.match(growthSource, /去分享 VIP 推荐码/);
+  assert.match(referralSource, /title=\{isVip \? '我的推荐码' : '推荐关系'\}/);
   assert.doesNotMatch(growthSource, /你推荐的好友成为 VIP/);
   assert.doesNotMatch(growthSource, /好友后续普通商品订单按/);
+});
+
+test('scanner separates VIP referral links from ordinary share links', () => {
+  const source = read('app/me/scanner.tsx');
+
+  assert.match(source, /type ScannedInviteCode = \{ type: 'vip' \| 'normal' \| 'auto'; code: string \}/);
+  assert.match(source, /const bindInviteCode = async/);
+  assert.match(source, /shouldTryNormalShareFallback/);
+  assert.match(source, /payload\.type === 'auto' && payload\.code\.startsWith\('S'\)/);
+  assert.match(source, /GrowthRepo\.bindNormalShareCode\(payload\.code\)/);
+  assert.match(source, /BonusRepo\.useReferralCode\(payload\.code\)/);
+  assert.ok(source.includes("com\\/s\\/([A-Za-z0-9]{8})"));
+  assert.ok(source.includes("com\\/r\\/([A-Za-z0-9]{8})"));
+  assert.match(source, /推荐码或普通分享码/);
+  assert.match(source, /手动输入推荐码或普通分享码/);
+  assert.match(source, /bindMutation\.mutate\(\{ type: 'auto', code: trimmed \}\)/);
+  assert.match(source, /const renderManualInputSheet =/);
+  assert.match(source, /没有相机权限也可以手动输入/);
+});
+
+test('invite binding success refreshes member and growth caches across app entry points', () => {
+  const layoutSource = read('app/_layout.tsx');
+  const growthSource = read('app/me/growth.tsx');
+
+  assert.match(layoutSource, /function invalidateInviteBindingQueries\(\)/);
+  assert.match(layoutSource, /\['bonus-member'\]/);
+  assert.match(layoutSource, /\['growth-me'\]/);
+  assert.match(layoutSource, /\['normal-share-records'\]/);
+  assert.match(layoutSource, /\['normal-share-stats'\]/);
+  assert.match(layoutSource, /if \(result\.ok\) invalidateInviteBindingQueries\(\)/);
+  assert.match(layoutSource, /if \(normalResult\.ok\) invalidateInviteBindingQueries\(\)/);
+  assert.match(growthSource, /queryClient\.invalidateQueries\(\{ queryKey: \['bonus-member'\] \}\)/);
+  assert.match(growthSource, /queryClient\.invalidateQueries\(\{ queryKey: \['growth-me'\] \}\)/);
 });
 
 test('admin growth page presents unified points growth accounts without duplicating VIP referral management', () => {
@@ -90,6 +130,10 @@ test('admin growth page presents unified points growth accounts without duplicat
   assert.match(source, /查看 VIP 详情/);
   assert.match(source, /查看 VIP 奖励树/);
   assert.match(source, /普通分享只服务普通用户拉新/);
+  assert.match(source, /label: '自动升级'/);
+  assert.match(source, /AUTO_VIP_UPGRADE/);
+  assert.match(source, /自动升级记录用于核查谁因累计消费达标成为 VIP/);
+  assert.match(source, /进入的 VIP 上级/);
   assert.match(treeViewer, /growth: '积分成长'/);
   assert.doesNotMatch(source, /key: 'vipShare'/);
   assert.doesNotMatch(source, /label: 'VIP 推荐'/);
@@ -132,6 +176,8 @@ test('admin growth exchange only offers dedicated coupon pools', () => {
   const source = read('admin/src/pages/growth/index.tsx');
 
   assert.match(source, /exchangeAvailableCouponCampaigns/);
+  assert.match(source, /exchangeTypeOptions/);
+  assert.match(source, /couponExchangeTypes\.has\(value\)/);
   assert.match(source, /campaign\.distributionMode === 'MANUAL'/);
   assert.match(source, /campaign\.growthExchangeEnabled === true/);
   assert.match(source, /campaign\.issuedCount < campaign\.totalQuota/);
@@ -142,6 +188,7 @@ test('admin growth exchange only offers dedicated coupon pools', () => {
   assert.match(source, /optionLabelProp="title"/);
   assert.match(source, /whiteSpace: 'normal'/);
   assert.doesNotMatch(source, /formatExchangeCampaignOptionLabel/);
+  assert.doesNotMatch(source, /装饰权益和抽奖机会用于后续权益扩展/);
 });
 
 test('growth defaults are shipped in a production migration, not only in seed data', () => {

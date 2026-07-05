@@ -27,7 +27,28 @@ type PrismaLike = {
       select: { id: true };
     }) => Promise<{ id: string } | null>;
   };
+  normalShareProfile?: {
+    findFirst: (args: {
+      where: { code: string };
+      select: { id: true };
+    }) => Promise<{ id: string } | null>;
+  };
 };
+
+async function isReferralCodeOccupied(prisma: PrismaLike, code: string): Promise<boolean> {
+  const existingVipCode = await prisma.memberProfile.findFirst({
+    where: { referralCode: code },
+    select: { id: true },
+  });
+  if (existingVipCode) return true;
+
+  if (!prisma.normalShareProfile) return false;
+  const existingNormalShareCode = await prisma.normalShareProfile.findFirst({
+    where: { code },
+    select: { id: true },
+  });
+  return Boolean(existingNormalShareCode);
+}
 
 /**
  * 预查找一个未占用的推荐码
@@ -52,11 +73,8 @@ export async function pickUniqueReferralCode(
 ): Promise<string> {
   for (let i = 0; i < maxAttempts; i++) {
     const code = generateReferralCode();
-    const existing = await prisma.memberProfile.findFirst({
-      where: { referralCode: code },
-      select: { id: true },
-    });
-    if (!existing) return code;
+    const occupied = await isReferralCodeOccupied(prisma, code);
+    if (!occupied) return code;
   }
   throw new Error(`pickUniqueReferralCode: ${maxAttempts} 次尝试均冲突，数据库异常`);
 }

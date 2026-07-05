@@ -126,20 +126,32 @@ export class BonusService {
 
   private async buildDirectReferralSummary(userId: string, member: { inviterUserId?: string | null }) {
     const activeInviterUserId = member.inviterUserId ?? null;
+    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
+      where: { inviteeUserId: userId },
+      select: {
+        inviterUserId: true,
+        relationStatus: true,
+        effectiveInviterUserId: true,
+      },
+    });
     if (activeInviterUserId) {
+      if (
+        binding?.inviterUserId === activeInviterUserId &&
+        binding.relationStatus &&
+        binding.relationStatus !== 'ACTIVE' &&
+        binding.relationStatus !== 'SUPERSEDED_BY_VIP_TREE'
+      ) {
+        return {
+          status: binding.relationStatus,
+          inviter: null,
+        };
+      }
       return {
         status: 'ACTIVE',
         inviter: await this.buildDirectReferralInviterSummary(activeInviterUserId),
       };
     }
 
-    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
-      where: { inviteeUserId: userId },
-      select: {
-        relationStatus: true,
-        effectiveInviterUserId: true,
-      },
-    });
     const effectiveInviterUserId = binding?.effectiveInviterUserId ?? null;
     return {
       status: binding?.relationStatus ?? null,
@@ -206,7 +218,7 @@ export class BonusService {
       tier: member.tier,
       referralCode: member.tier === 'VIP' ? member.referralCode : null,
       inviterUserId: member.inviterUserId,
-      inviter,
+      inviter: directReferral.status === 'ACTIVE' ? inviter : null,
       directReferralStatus: directReferral.status,
       directReferralInviter: directReferral.inviter,
       autoVipBySpendEnabled,
@@ -603,6 +615,17 @@ export class BonusService {
             return { status: 'DISABLED' as const };
           }
 
+          const user = await tx.user.findUnique({
+            where: { id: userId },
+            select: { status: true, deletionExecutedAt: true },
+          });
+          if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+            this.logger.warn(
+              `用户 ${userId} 状态不允许累计消费自动升级 VIP（sourceOrderId=${sourceOrderId}）`,
+            );
+            return { status: 'NOT_ELIGIBLE' as const };
+          }
+
           const member = await tx.memberProfile.findUnique({ where: { userId } });
           if (member?.tier === 'VIP') {
             return { status: 'ALREADY_VIP' as const };
@@ -642,6 +665,15 @@ export class BonusService {
           });
 
           await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
+
+          await this.recordAutoVipUpgradeLedger(tx, {
+            userId,
+            sourceOrderId,
+            cumulativeSpendAmount,
+            threshold: config.autoVipCumulativeSpendThreshold,
+            vipTreeInviterUserId: referralContext.vipTreeInviterUserId,
+            upgradedAt: now,
+          });
 
           const normalProgress = await tx.normalProgress.findUnique({
             where: { userId },
@@ -694,6 +726,57 @@ export class BonusService {
     return err instanceof Prisma.PrismaClientKnownRequestError
       ? err.code === 'P2034' || err.code === 'P2002'
       : err?.code === 'P2034' || err?.code === 'P2002';
+  }
+
+  private async recordAutoVipUpgradeLedger(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      sourceOrderId: string;
+      cumulativeSpendAmount: number;
+      threshold: number;
+      vipTreeInviterUserId?: string | null;
+      upgradedAt: Date;
+    },
+  ) {
+    const idempotencyKey = `AUTO_VIP_UPGRADE:${params.sourceOrderId}:${params.userId}`;
+    const existing = await tx.growthLedger.findUnique({ where: { idempotencyKey } });
+    if (existing) return existing;
+
+    const account = await tx.growthAccount.upsert({
+      where: { userId: params.userId },
+      create: {
+        userId: params.userId,
+        pointsBalance: 0,
+        pointsTotalEarned: 0,
+        pointsTotalSpent: 0,
+        growthValue: 0,
+      },
+      update: {},
+    });
+
+    return tx.growthLedger.create({
+      data: {
+        userId: params.userId,
+        accountId: account.id,
+        type: 'ADMIN_ADJUST',
+        behaviorCode: 'AUTO_VIP_UPGRADE',
+        pointsDelta: 0,
+        growthDelta: 0,
+        status: 'POSTED',
+        idempotencyKey,
+        refType: 'ORDER',
+        refId: params.sourceOrderId,
+        meta: {
+          event: 'AUTO_VIP_UPGRADE',
+          sourceOrderId: params.sourceOrderId,
+          cumulativeSpendAmount: params.cumulativeSpendAmount,
+          threshold: params.threshold,
+          vipTreeInviterUserId: params.vipTreeInviterUserId ?? null,
+          upgradedAt: params.upgradedAt.toISOString(),
+        },
+      },
+    });
   }
 
   // ========== VIP 赠品方案 ==========
@@ -1506,7 +1589,7 @@ export class BonusService {
     const inviterMember = await tx.memberProfile.findUnique({
       where: { userId: inviterUserId },
     });
-    const inviterCanCarryVip = inviterMember?.tier === 'VIP' && !!inviterMember.vipNodeId;
+    const inviterCanCarryVip = inviterMember?.tier === 'VIP';
 
     if (inviterCanCarryVip) {
       await tx.normalShareBinding.updateMany({

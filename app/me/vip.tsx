@@ -428,7 +428,7 @@ export default function VipScreen() {
                 <View style={styles.inviteContent}>
                   <View>
                     <Text style={styles.inviteTitle}>邀请好友成为 VIP</Text>
-                    <Text style={styles.inviteDesc}>好友成功开通，您即得现金奖励</Text>
+                    <Text style={styles.inviteDesc}>好友后续普通商品订单按规则结算</Text>
                   </View>
                   <MaterialCommunityIcons name="qrcode" size={28} color="rgba(26,18,7,0.4)" />
                 </View>
@@ -508,7 +508,7 @@ export default function VipScreen() {
           </Animated.View>
 
           <Text style={[typography.caption, { color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: spacing.md }]}>
-            好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算
+            好友成为 VIP 后进入你的 VIP 团队；后续普通商品订单按付款时的 {directReferralPercentText} VIP 直推比例结算，售后期结束后释放
           </Text>
         </View>
       </Modal>

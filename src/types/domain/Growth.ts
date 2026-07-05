@@ -128,6 +128,7 @@ export type NormalShareRecord = {
   inviteeUserId: string;
   code: string;
   source: string;
+  relationStatus?: 'ACTIVE' | 'SUPERSEDED_BY_VIP_TREE' | 'INVALIDATED_BY_INVITEE_VIP_UPGRADE' | 'ADMIN_VOIDED';
   boundAt: string;
   firstOrderId: string | null;
   rewardStatus: 'PENDING' | 'REGISTER_REWARDED' | 'FIRST_ORDER_PENDING' | 'ISSUED' | 'REVERSED' | 'VOIDED';

@@ -87,6 +87,7 @@ const behaviorCodeLabels: Record<string, string> = {
   VIP_PURCHASE: '购买 VIP',
   TASK_COMPLETE: '任务完成',
   ADMIN_ADJUST: '后台调整',
+  AUTO_VIP_UPGRADE: '累计消费自动成为 VIP',
 };
 
 const wiredBehaviorCodes = new Set([
@@ -175,6 +176,9 @@ const rewardStatusMap: Record<string, { text: string; color: string }> = {
 };
 
 const couponExchangeTypes = new Set(['COUPON', 'SHIPPING_COUPON', 'VIP_DISCOUNT_COUPON']);
+const exchangeTypeOptions = Object.entries(exchangeTypeMap)
+  .filter(([value]) => couponExchangeTypes.has(value))
+  .map(([value, meta]) => ({ label: meta.text, value }));
 const accountUserTypeOptions = [
   { label: '全部用户', value: 'ALL' },
   { label: '普通用户', value: 'NORMAL' },
@@ -255,6 +259,11 @@ function renderUser(user: AdminGrowthUserSummary | null | undefined) {
       />
     </Space>
   );
+}
+
+function getLedgerMetaNumber(record: AdminGrowthLedger, key: string) {
+  const value = record.meta?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function renderDirectReferralStatus(status?: string | null) {
@@ -1039,6 +1048,57 @@ export default function GrowthPage() {
     },
   ];
 
+  const autoVipUpgradeColumns: ProColumns<AdminGrowthLedger>[] = [
+    {
+      title: '升级用户',
+      dataIndex: 'userId',
+      width: 260,
+      render: (_: unknown, record) => renderUser(record.user),
+    },
+    {
+      title: '触发订单',
+      dataIndex: 'refId',
+      search: false,
+      width: 180,
+      render: (_: unknown, record) => (
+        <Typography.Text copyable={record.refId ? { text: record.refId } : false}>
+          {record.refId ?? '-'}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: '累计消费',
+      search: false,
+      width: 130,
+      render: (_: unknown, record) => {
+        const amount = getLedgerMetaNumber(record, 'cumulativeSpendAmount');
+        return amount === null ? '-' : `¥${amount.toFixed(2)}`;
+      },
+    },
+    {
+      title: '升级门槛',
+      search: false,
+      width: 130,
+      render: (_: unknown, record) => {
+        const threshold = getLedgerMetaNumber(record, 'threshold');
+        return threshold === null ? '-' : `¥${threshold.toFixed(2)}`;
+      },
+    },
+    {
+      title: '进入的 VIP 上级',
+      search: false,
+      width: 260,
+      render: (_: unknown, record) => renderUser(record.autoVipTreeInviter),
+    },
+    {
+      title: '升级时间',
+      dataIndex: 'createdAt',
+      search: false,
+      width: 170,
+      render: (_: unknown, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm'),
+    },
+  ];
+
   const shareColumns: ProColumns<AdminNormalShareBinding>[] = [
     {
       title: '推荐人',
@@ -1539,6 +1599,38 @@ export default function GrowthPage() {
             ),
           },
           {
+            key: 'auto-vip',
+            label: '自动升级',
+            children: (
+              <Card>
+                <Alert
+                  showIcon
+                  type="info"
+                  message="自动升级记录用于核查谁因累计消费达标成为 VIP"
+                  description="用户确认收货后累计有效消费达到后台门槛时，会自动成为 VIP；这里展示触发订单、当时累计消费、门槛和进入的 VIP 上级。购买 VIP 礼包仍走原 VIP 购买记录，不会出现在这里。"
+                  style={{ marginBottom: 16 }}
+                />
+                <ProTable<AdminGrowthLedger>
+                  rowKey="id"
+                  columns={autoVipUpgradeColumns}
+                  request={async (params) => {
+                    const res = await getGrowthLedgers({
+                      page: params.current,
+                      pageSize: params.pageSize,
+                      userId: params.userId as string | undefined,
+                      behaviorCode: 'AUTO_VIP_UPGRADE',
+                    });
+                    return { data: res.items, total: res.total, success: true };
+                  }}
+                  pagination={{ defaultPageSize: 20 }}
+                  options={false}
+                  search={{ labelWidth: 'auto' }}
+                  scroll={{ x: 1200 }}
+                />
+              </Card>
+            ),
+          },
+          {
             key: 'share',
             label: '普通分享',
             children: (
@@ -1702,9 +1794,14 @@ export default function GrowthPage() {
         >
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="type" label="类型" rules={[{ required: true }]} extra="红包类会发平台红包；装饰权益和抽奖机会用于后续权益扩展。">
+              <Form.Item
+                name="type"
+                label="类型"
+                rules={[{ required: true }]}
+                extra="当前只开放红包类兑换。抽奖机会、装饰权益等类型等后端发放通道接入后再开放。"
+              >
                 <Select
-                  options={Object.entries(exchangeTypeMap).map(([value, meta]) => ({ label: meta.text, value }))}
+                  options={exchangeTypeOptions}
                 />
               </Form.Item>
             </Col>

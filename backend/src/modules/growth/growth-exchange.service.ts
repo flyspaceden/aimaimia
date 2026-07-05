@@ -6,7 +6,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GrowthCouponAdapterService } from './growth-coupon-adapter.service';
-import { isCouponBackedExchangeType, isGrowthEnabled } from './growth-config.util';
+import {
+  isCouponBackedExchangeType,
+  isGrowthEnabled,
+  resolveGrowthLevelCode,
+} from './growth-config.util';
 
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 type ExchangeInput = {
@@ -105,6 +109,7 @@ export class GrowthExchangeService {
         throw new BadRequestException(`成长值不足，需达到${item.requiredLevel.name}`);
       }
 
+      await this.assertLevelMonthlyLimit(tx, userId, account, now);
       await this.assertUserLimits(tx, userId, item, now);
 
       const record = await tx.growthExchangeRecord.create({
@@ -250,6 +255,36 @@ export class GrowthExchangeService {
       if (count >= item.perUserMonthlyLimit) {
         throw new BadRequestException('本月兑换次数已达上限');
       }
+    }
+  }
+
+  private async assertLevelMonthlyLimit(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    account: any,
+    now: Date,
+  ) {
+    const currentLevelCode = account.currentLevelCode
+      ?? await resolveGrowthLevelCode(tx as any, account.growthValue ?? 0);
+    if (!currentLevelCode) return;
+
+    const level = await tx.growthLevel.findUnique({
+      where: { code: currentLevelCode },
+      select: { monthlyExchangeLimit: true },
+    });
+    const monthlyExchangeLimit = level?.monthlyExchangeLimit;
+    if (monthlyExchangeLimit === null || monthlyExchangeLimit === undefined) return;
+
+    const range = this.businessMonthRange(now);
+    const count = await tx.growthExchangeRecord.count({
+      where: {
+        userId,
+        status: 'SUCCESS',
+        createdAt: { gte: range.start, lt: range.end },
+      },
+    });
+    if (count >= monthlyExchangeLimit) {
+      throw new BadRequestException('本等级本月兑换次数已达上限');
     }
   }
 

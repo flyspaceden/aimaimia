@@ -213,6 +213,7 @@ export const GrowthRepo = {
         inviteeUserId: 'mock-invitee',
         code: code.trim().toUpperCase(),
         source: 'APP',
+        relationStatus: 'ACTIVE',
         boundAt: new Date().toISOString(),
         firstOrderId: null,
         rewardStatus: 'PENDING',

@@ -93,6 +93,10 @@ type AutoVipBySpendActivator = {
   activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
 };
 
+type PostReceiveAssetSettlement = {
+  autoVipFailed?: boolean;
+};
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -1875,9 +1879,16 @@ export class OrderService {
     };
     attemptBonus(1).catch(() => {});
 
-    this.creditDigitalAssetAfterReceive(orderId, updated.userId);
     this.evaluateGroupBuyAfterReceive(orderId);
-    this.triggerGrowthAfterReceive(updated);
+    this.creditDigitalAssetAfterReceive(orderId, updated.userId)
+      .then((settlement) => {
+        this.triggerGrowthAfterReceive(updated, {
+          skipNormalInviteFirstOrder: settlement.autoVipFailed === true,
+        });
+      })
+      .catch(() => {
+        this.triggerGrowthAfterReceive(updated);
+      });
 
     // Phase F: 红包触发事件（fire-and-forget，不阻塞确认收货流程）
     if (this.couponEngineService && updated) {
@@ -1910,17 +1921,21 @@ export class OrderService {
     return this.mapOrder(updated);
   }
 
-  private creditDigitalAssetAfterReceive(orderId: string, userId: string) {
+  private async creditDigitalAssetAfterReceive(orderId: string, userId: string): Promise<PostReceiveAssetSettlement> {
     const recordOrderReceived = (this.digitalAssetService as any)?.recordOrderReceived
       ?? (this.digitalAssetService as any)?.creditOrderReceived;
     if (!recordOrderReceived) {
-      return;
+      return {};
     }
-    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then((result: any) => {
-      if (result?.recorded !== true) {
-        return undefined;
+    try {
+      const result = await Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED'));
+      if (result?.recorded !== true && result?.reason !== 'DUPLICATE_LEDGER') {
+        return {};
       }
-      return Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId)).catch((err: any) => {
+      try {
+        await Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId));
+        return {};
+      } catch (err: any) {
         const safeErr = sanitizeErrorForLog(err);
         this.logger.error(
           JSON.stringify({
@@ -1950,8 +1965,9 @@ export class OrderService {
             `自动VIP升级死信记录写入失败: orderId=${orderId}; error=${JSON.stringify(sanitizeForLog(dlErr))}`,
           );
         });
-      });
-    }).catch((err: any) => {
+        return { autoVipFailed: true };
+      }
+    } catch (err: any) {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(
         JSON.stringify({
@@ -1980,10 +1996,14 @@ export class OrderService {
           `数字资产死信记录写入失败: orderId=${orderId}; error=${JSON.stringify(sanitizeForLog(dlErr))}`,
         );
       });
-    });
+      return { autoVipFailed: true };
+    }
   }
 
-  private triggerGrowthAfterReceive(order: any) {
+  private triggerGrowthAfterReceive(
+    order: any,
+    options: { skipNormalInviteFirstOrder?: boolean } = {},
+  ) {
     if (!this.growthEventService || !this.isGrowthEligibleNormalOrder(order)) {
       return;
     }
@@ -2007,7 +2027,7 @@ export class OrderService {
       this.logger.warn(`订单确认收货成长奖励触发失败: orderId=${order.id}, behavior=${behaviorCode}, error=${err?.message}`);
     });
 
-    if (order._isFirstReceived) {
+    if (order._isFirstReceived && !options.skipNormalInviteFirstOrder) {
       this.triggerNormalInviteFirstOrderGrowth(order).catch((err: any) => {
         this.logger.warn(`普通分享首单奖励触发失败: orderId=${order.id}, userId=${order.userId}, error=${err?.message}`);
       });
@@ -2021,6 +2041,7 @@ export class OrderService {
       where: { inviteeUserId: order.userId },
     });
     if (!binding) return;
+    if ((binding as any).relationStatus && (binding as any).relationStatus !== 'ACTIVE') return;
     if (['ISSUED', 'REVERSED', 'VOIDED'].includes(binding.rewardStatus)) return;
     if (binding.firstOrderId && binding.firstOrderId !== order.id) return;
 
@@ -2040,6 +2061,7 @@ export class OrderService {
       await this.prisma.normalShareBinding.updateMany({
         where: {
           id: binding.id,
+          relationStatus: 'ACTIVE' as any,
           rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
         },
         data: {

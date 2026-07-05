@@ -89,7 +89,7 @@ export default function ReferralScreen() {
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader
-        title="我的推荐码"
+        title={isVip ? '我的推荐码' : '推荐关系'}
         rightSlot={
           <Pressable onPress={() => router.push('/me/scanner')} hitSlop={10}>
             <MaterialCommunityIcons name="qrcode-scan" size={22} color={colors.text.primary} />
@@ -263,7 +263,7 @@ export default function ReferralScreen() {
             </View>
 
             <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center', marginTop: spacing.md }]}>
-              你推荐的好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算。购买 VIP 礼包本身不单独发放推荐奖。
+              你推荐的好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按付款时的 VIP 直推比例 {directReferralPercentText} 结算。购买 VIP 礼包本身不单独发放推荐奖，普通商品分润会先冻结，确认收货且售后期结束后释放。
             </Text>
           </Animated.View>
         </View>
