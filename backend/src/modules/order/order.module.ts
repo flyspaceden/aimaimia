@@ -99,6 +99,8 @@ export class OrderModule implements OnModuleInit {
     const bonusService = this.moduleRef.get(BonusService, { strict: false });
     if (bonusService) {
       this.checkoutService.setBonusService(bonusService);
+      this.orderService.setBonusService(bonusService);
+      this.orderAutoConfirmService.setBonusService(bonusService);
     } else {
       console.warn('[OrderModule] BonusService 未注入，VIP 支付后激活功能不可用');
     }

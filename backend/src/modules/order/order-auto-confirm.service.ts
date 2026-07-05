@@ -9,6 +9,10 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { GrowthEventService } from '../growth/growth-event.service';
 
+type AutoVipBySpendActivator = {
+  activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
+};
+
 /**
  * 自动确认收货定时任务
  * 每小时扫描 DELIVERED/SHIPPED 状态且 autoReceiveAt <= now 的订单，自动确认收货
@@ -17,6 +21,7 @@ import { GrowthEventService } from '../growth/growth-event.service';
 export class OrderAutoConfirmService {
   private readonly logger = new Logger(OrderAutoConfirmService.name);
   private digitalAssetService: DigitalAssetService | null = null;
+  private bonusService: AutoVipBySpendActivator | null = null;
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
   private growthEventService: GrowthEventService | null = null;
 
@@ -27,6 +32,10 @@ export class OrderAutoConfirmService {
 
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setBonusService(service: AutoVipBySpendActivator) {
+    this.bonusService = service;
   }
 
   setGroupBuyLifecycleService(service: GroupBuyLifecycleService) {
@@ -150,16 +159,38 @@ export class OrderAutoConfirmService {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`订单 ${orderId} 分润分配失败: ${safeErr.message}`, safeErr.stack);
     });
-    this.creditDigitalAssetAfterReceive(orderId);
+    this.creditDigitalAssetAfterReceive(orderId, confirmedOrder.userId);
     this.evaluateGroupBuyAfterReceive(orderId);
     this.triggerGrowthAfterReceive(confirmedOrder);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
   }
 
-  private creditDigitalAssetAfterReceive(orderId: string) {
+  private creditDigitalAssetAfterReceive(orderId: string, userId: string) {
     const recordOrderReceived = (this.digitalAssetService as any)?.recordOrderReceived
       ?? (this.digitalAssetService as any)?.creditOrderReceived;
-    Promise.resolve(recordOrderReceived?.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).catch((err) => {
+    if (!recordOrderReceived) {
+      return;
+    }
+    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then(() => {
+      return Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId)).catch((err) => {
+        const safeErr = sanitizeErrorForLog(err);
+        this.logger.error(`订单 ${orderId} 自动VIP升级失败: ${safeErr.message}`, safeErr.stack);
+        Promise.resolve(this.prisma.orderStatusHistory.create({
+          data: {
+            orderId,
+            fromStatus: 'RECEIVED',
+            toStatus: 'RECEIVED',
+            reason: '自动VIP升级失败',
+            meta: {
+              deadLetter: true,
+              event: 'AUTO_VIP_UPGRADE_DEAD_LETTER',
+              error: safeErr.message,
+              failedAt: new Date().toISOString(),
+            },
+          },
+        })).catch(() => undefined);
+      });
+    }).catch((err) => {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`订单 ${orderId} 数字资产累计失败: ${safeErr.message}`, safeErr.stack);
       Promise.resolve(this.prisma.orderStatusHistory.create({

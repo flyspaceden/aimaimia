@@ -89,6 +89,10 @@ type DeductionRefundRestoreBundle = {
   groupBuyRebate: DeductionRefundRestoreParams | null;
 };
 
+type AutoVipBySpendActivator = {
+  activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
+};
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -109,6 +113,8 @@ export class OrderService {
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   // DigitalAssetService 通过 setter 注入（确认收货后累计消费金额）
   private digitalAssetService: DigitalAssetService | null = null;
+  // BonusService 通过 setter 注入（累计消费自动升级 VIP，避免构造函数循环依赖）
+  private bonusService: AutoVipBySpendActivator | null = null;
   // GroupBuyLifecycleService 通过 setter 注入，确认收货后异步评估团购资格
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
   // GrowthEventService 通过 setter 注入，确认收货后异步发普通积分/成长值
@@ -167,6 +173,10 @@ export class OrderService {
   /** 注入数字资产服务（由 OrderModule 在 onModuleInit 时调用） */
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setBonusService(service: AutoVipBySpendActivator) {
+    this.bonusService = service;
   }
 
   setGrowthEventService(service: GrowthEventService) {
@@ -1865,7 +1875,7 @@ export class OrderService {
     };
     attemptBonus(1).catch(() => {});
 
-    this.creditDigitalAssetAfterReceive(orderId);
+    this.creditDigitalAssetAfterReceive(orderId, updated.userId);
     this.evaluateGroupBuyAfterReceive(orderId);
     this.triggerGrowthAfterReceive(updated);
 
@@ -1900,10 +1910,45 @@ export class OrderService {
     return this.mapOrder(updated);
   }
 
-  private creditDigitalAssetAfterReceive(orderId: string) {
+  private creditDigitalAssetAfterReceive(orderId: string, userId: string) {
     const recordOrderReceived = (this.digitalAssetService as any)?.recordOrderReceived
       ?? (this.digitalAssetService as any)?.creditOrderReceived;
-    Promise.resolve(recordOrderReceived?.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).catch((err: any) => {
+    if (!recordOrderReceived) {
+      return;
+    }
+    Promise.resolve(recordOrderReceived.call(this.digitalAssetService, orderId, 'ORDER_RECEIVED')).then(() => {
+      return Promise.resolve(this.bonusService?.activateVipByCumulativeSpend(userId, orderId)).catch((err: any) => {
+        const safeErr = sanitizeErrorForLog(err);
+        this.logger.error(
+          JSON.stringify({
+            event: 'AUTO_VIP_UPGRADE_DEAD_LETTER',
+            orderId,
+            userId,
+            error: safeErr.message,
+            stack: safeErr.stack,
+            failedAt: new Date().toISOString(),
+          }),
+        );
+        Promise.resolve(this.prisma.orderStatusHistory.create({
+          data: {
+            orderId,
+            fromStatus: 'RECEIVED',
+            toStatus: 'RECEIVED',
+            reason: '自动VIP升级失败',
+            meta: {
+              deadLetter: true,
+              event: 'AUTO_VIP_UPGRADE_DEAD_LETTER',
+              error: safeErr.message,
+              failedAt: new Date().toISOString(),
+            },
+          },
+        })).catch((dlErr: any) => {
+          this.logger.error(
+            `自动VIP升级死信记录写入失败: orderId=${orderId}; error=${JSON.stringify(sanitizeForLog(dlErr))}`,
+          );
+        });
+      });
+    }).catch((err: any) => {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(
         JSON.stringify({

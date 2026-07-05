@@ -1364,6 +1364,169 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
   });
 });
 
+describe('BonusService.activateVipByCumulativeSpend — 累计消费自动升级 VIP', () => {
+  function makeTxRunner(prismaMock: any) {
+    return async (cb: any) => cb(prismaMock);
+  }
+
+  function buildService(prismaMock: any, config: any = {}) {
+    return new BonusService(
+      prismaMock,
+      {
+        getConfig: jest.fn().mockResolvedValue({
+          autoVipBySpendEnabled: true,
+          autoVipCumulativeSpendThreshold: 399,
+          ...config,
+        }),
+      } as any,
+      {} as any,
+      {} as any,
+    );
+  }
+
+  function buildAutoVipPrisma(options: {
+    member?: any;
+    account?: any;
+    inviter?: any;
+    normalProgress?: any;
+  } = {}) {
+    const member = options.member ?? {
+      userId: 'user-auto',
+      tier: 'NORMAL',
+      inviterUserId: 'vip-inviter',
+      referralCode: null,
+      vipPurchasedAt: null,
+    };
+    const inviter = options.inviter ?? {
+      userId: 'vip-inviter',
+      tier: 'VIP',
+      vipNodeId: 'node-vip-inviter',
+    };
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'user-auto') return Promise.resolve(member);
+          if (where.userId === 'vip-inviter') return Promise.resolve(inviter);
+          return Promise.resolve(null);
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({
+          ...member,
+          tier: 'VIP',
+          referralCode: member.referralCode ?? 'NEWVIP01',
+          vipPurchasedAt: member.vipPurchasedAt ?? new Date('2026-07-05T00:00:00.000Z'),
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue(options.account ?? {
+          userId: 'user-auto',
+          cumulativeSpendAmount: 399,
+        }),
+      },
+      vipProgress: {
+        upsert: jest.fn().mockResolvedValue({ userId: 'user-auto' }),
+      },
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue(options.normalProgress ?? {
+          userId: 'user-auto',
+          frozenAt: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      vipPurchase: {
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    return prismaMock;
+  }
+
+  it('配置关闭时直接返回 DISABLED，不升级会员', async () => {
+    const prismaMock = buildAutoVipPrisma();
+    const service = buildService(prismaMock, { autoVipBySpendEnabled: false });
+
+    const result = await service.activateVipByCumulativeSpend('user-auto', 'order-1');
+
+    expect(result).toEqual({ status: 'DISABLED' });
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+  });
+
+  it('累计消费未达到配置门槛时返回 NOT_ELIGIBLE', async () => {
+    const prismaMock = buildAutoVipPrisma({
+      account: { userId: 'user-auto', cumulativeSpendAmount: 398.99 },
+    });
+    const service = buildService(prismaMock, { autoVipCumulativeSpendThreshold: 399 });
+
+    const result = await service.activateVipByCumulativeSpend('user-auto', 'order-1');
+
+    expect(result).toEqual({ status: 'NOT_ELIGIBLE' });
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+  });
+
+  it('用户已是 VIP 时幂等返回 ALREADY_VIP', async () => {
+    const prismaMock = buildAutoVipPrisma({
+      member: {
+        userId: 'user-auto',
+        tier: 'VIP',
+        inviterUserId: 'vip-inviter',
+        referralCode: 'VIPCODE1',
+        vipPurchasedAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    });
+    const service = buildService(prismaMock);
+
+    const result = await service.activateVipByCumulativeSpend('user-auto', 'order-1');
+
+    expect(result).toEqual({ status: 'ALREADY_VIP' });
+    expect(prismaMock.vipProgress.upsert).not.toHaveBeenCalled();
+  });
+
+  it('达标普通用户升级为 VIP，不创建 VipPurchase/赠品/一次性推荐奖，并冻结普通树', async () => {
+    const prismaMock = buildAutoVipPrisma();
+    const service = buildService(prismaMock);
+    const assignSpy = jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
+
+    const result = await service.activateVipByCumulativeSpend('user-auto', 'order-1');
+
+    expect(result).toEqual({
+      status: 'UPGRADED',
+      vipTreeInviterUserId: 'vip-inviter',
+    });
+    expect(prismaMock.memberProfile.upsert).toHaveBeenCalledWith({
+      where: { userId: 'user-auto' },
+      create: expect.objectContaining({
+        userId: 'user-auto',
+        tier: 'VIP',
+        referralCode: expect.any(String),
+        vipPurchasedAt: expect.any(Date),
+      }),
+      update: expect.objectContaining({
+        tier: 'VIP',
+        referralCode: expect.any(String),
+        vipPurchasedAt: expect.any(Date),
+      }),
+    });
+    expect(prismaMock.vipProgress.upsert).toHaveBeenCalledWith({
+      where: { userId: 'user-auto' },
+      create: { userId: 'user-auto' },
+      update: {},
+    });
+    expect(assignSpy).toHaveBeenCalledWith(prismaMock, 'user-auto', 'vip-inviter');
+    expect(prismaMock.normalProgress.update).toHaveBeenCalledWith({
+      where: { userId: 'user-auto' },
+      data: { frozenAt: expect.any(Date) },
+    });
+    expect(prismaMock.vipPurchase.create).not.toHaveBeenCalled();
+    expect(grantSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('BonusService.getWallet — 团购返利统一读模型', () => {
   function buildService(prismaMock: any) {
     return new BonusService(

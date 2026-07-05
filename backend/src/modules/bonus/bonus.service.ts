@@ -511,6 +511,84 @@ export class BonusService {
     }
   }
 
+  /**
+   * 累计普通商品有效消费达标后自动升级 VIP。
+   *
+   * 不创建 VipPurchase、不发 VIP 赠品、不发一次性 VIP 推荐奖；
+   * 只复用推荐关系裁决和 VIP 树落位逻辑。
+   */
+  async activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<{
+    status: 'DISABLED' | 'ALREADY_VIP' | 'NOT_ELIGIBLE' | 'UPGRADED';
+    vipTreeInviterUserId?: string | null;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const config = await this.bonusConfig.getConfig();
+      if (!config.autoVipBySpendEnabled) {
+        return { status: 'DISABLED' as const };
+      }
+
+      const member = await tx.memberProfile.findUnique({ where: { userId } });
+      if (member?.tier === 'VIP') {
+        return { status: 'ALREADY_VIP' as const };
+      }
+
+      const account = await tx.digitalAssetAccount.findUnique({ where: { userId } });
+      const cumulativeSpendAmount = account?.cumulativeSpendAmount ?? 0;
+      if (cumulativeSpendAmount < config.autoVipCumulativeSpendThreshold) {
+        return { status: 'NOT_ELIGIBLE' as const };
+      }
+
+      const now = new Date();
+      const referralContext = await this.resolveVipUpgradeReferralContext(tx, userId);
+      const updateData: Prisma.MemberProfileUpdateInput = {
+        tier: 'VIP',
+        vipPurchasedAt: member?.vipPurchasedAt ?? now,
+      };
+      if (member && !member.referralCode) {
+        updateData.referralCode = await pickUniqueReferralCode(tx);
+      }
+
+      await tx.memberProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          tier: 'VIP',
+          vipPurchasedAt: now,
+          referralCode: await pickUniqueReferralCode(tx),
+        },
+        update: updateData,
+      });
+
+      await tx.vipProgress.upsert({
+        where: { userId },
+        create: { userId },
+        update: {},
+      });
+
+      await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
+
+      const normalProgress = await tx.normalProgress.findUnique({
+        where: { userId },
+      });
+      if (normalProgress && !normalProgress.frozenAt) {
+        await tx.normalProgress.update({
+          where: { userId },
+          data: { frozenAt: now },
+        });
+      }
+
+      this.logger.log(
+        `用户 ${userId} 累计消费自动升级 VIP 成功（sourceOrderId=${sourceOrderId}, cumulativeSpend=${cumulativeSpendAmount}）`,
+      );
+      return {
+        status: 'UPGRADED' as const,
+        vipTreeInviterUserId: referralContext.vipTreeInviterUserId,
+      };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  }
+
   // ========== VIP 赠品方案 ==========
 
   /** 获取 VIP 档位列表及各档位赠品方案（前台） */
