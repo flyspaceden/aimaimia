@@ -293,6 +293,32 @@ describe('VipDirectReferralCommissionService', () => {
     });
   });
 
+  it('routes normal direct pool to platform when buyer member profile is missing', async () => {
+    const { service } = makeService();
+    const tx = makeTx(makeOrder({
+      user: { memberProfile: null },
+    }));
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('platform');
+    expect(tx.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: PLATFORM_USER_ID,
+        amount: 0.4,
+        meta: expect.objectContaining({
+          scheme: 'NORMAL_DIRECT_REFERRAL_PLATFORM',
+          originalScheme: 'NORMAL_DIRECT_REFERRAL',
+          platformReason: 'NO_MEMBER_PROFILE',
+          directInviterUserId: null,
+          inviteeTierAtOrder: null,
+          sourceRelation: 'NONE',
+        }),
+      }),
+    });
+  });
+
   it('routes VIP direct pool to platform when the direct inviter is inactive', async () => {
     const { service } = makeService();
     const tx = makeTx(
