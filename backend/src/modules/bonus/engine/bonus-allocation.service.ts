@@ -15,13 +15,24 @@ import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
-const VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
+const DIRECT_REFERRAL_ORIGINAL_SCHEMES = new Set([
+  'VIP_DIRECT_REFERRAL',
+  'VIP_DIRECT_REFERRAL_PLATFORM',
+  'NORMAL_DIRECT_REFERRAL',
+  'NORMAL_DIRECT_REFERRAL_PLATFORM',
+]);
+const DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
   'sourceUserId',
   'directInviterUserId',
+  'inviterTierAtOrder',
+  'inviteeTierAtOrder',
   'profit',
   'ratio',
   'directReferralPool',
   'platformReason',
+  'sourceRelation',
+  'normalShareBindingId',
+  'relationStatus',
   'configSnapshot',
   'releaseCondition',
 ] as const;
@@ -388,11 +399,11 @@ export class BonusAllocationService {
         const directReferralLedgers = reversibleLedgers.filter(
           (l: any) => {
             const scheme = (l.meta as any)?.scheme;
-            return scheme === 'VIP_DIRECT_REFERRAL' || scheme === 'VIP_DIRECT_REFERRAL_PLATFORM';
+            return DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
           },
         );
         if (directReferralLedgers.length > 0) {
-          await this.createVipDirectReferralVoidMirrors(
+          await this.createDirectReferralVoidMirrors(
             tx,
             orderId,
             directReferralLedgers,
@@ -500,7 +511,7 @@ export class BonusAllocationService {
     }
   }
 
-  private async createVipDirectReferralVoidMirrors(
+  private async createDirectReferralVoidMirrors(
     tx: any,
     orderId: string,
     ledgers: any[],
@@ -516,20 +527,23 @@ export class BonusAllocationService {
 
     for (const ledger of ledgers) {
       const sourceMeta = (ledger.meta ?? {}) as Record<string, any>;
+      const originalScheme = this.readDirectReferralOriginalScheme(sourceMeta);
+      const isNormal = originalScheme === 'NORMAL_DIRECT_REFERRAL' ||
+        originalScheme === 'NORMAL_DIRECT_REFERRAL_PLATFORM';
       const mirrorMeta: Record<string, any> = {
-        scheme: 'VIP_DIRECT_REFERRAL_VOID',
+        scheme: isNormal ? 'NORMAL_DIRECT_REFERRAL_VOID' : 'VIP_DIRECT_REFERRAL_VOID',
         accountType: 'PLATFORM_PROFIT',
         routedToPlatform: true,
         originalLedgerId: ledger.id,
         originalReceiverUserId: ledger.userId,
         originalStatus: ledger.status,
         originalEntryType: ledger.entryType,
-        originalScheme: sourceMeta.scheme ?? 'VIP_DIRECT_REFERRAL',
+        originalScheme,
         sourceOrderId: sourceMeta.sourceOrderId ?? orderId,
         voidSource: 'REFUND_ROLLBACK',
-        reason: '退款回滚，VIP直推佣金归平台',
+        reason: isNormal ? '退款回滚，普通直推佣金归平台' : '退款回滚，VIP直推佣金归平台',
       };
-      for (const key of VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
+      for (const key of DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
         if (sourceMeta[key] !== undefined) {
           mirrorMeta[key] = sourceMeta[key];
         }
@@ -553,6 +567,19 @@ export class BonusAllocationService {
         data: { balance: { increment: ledger.amount } },
       });
     }
+  }
+
+  private readDirectReferralOriginalScheme(
+    sourceMeta: Record<string, any>,
+  ):
+    | 'VIP_DIRECT_REFERRAL'
+    | 'VIP_DIRECT_REFERRAL_PLATFORM'
+    | 'NORMAL_DIRECT_REFERRAL'
+    | 'NORMAL_DIRECT_REFERRAL_PLATFORM' {
+    const scheme = sourceMeta.scheme;
+    return DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme)
+      ? scheme
+      : 'VIP_DIRECT_REFERRAL';
   }
 
   /**

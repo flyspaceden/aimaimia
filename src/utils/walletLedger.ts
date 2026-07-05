@@ -20,7 +20,9 @@ const refTypeLabel: Record<string, string> = {
 
 const schemeLabel: Record<string, string> = {
   NORMAL_DIRECT_REFERRAL: '普通直推佣金',
+  NORMAL_DIRECT_REFERRAL_VOID: '普通直推佣金作废',
   VIP_DIRECT_REFERRAL: 'VIP 直推佣金',
+  VIP_DIRECT_REFERRAL_VOID: 'VIP 直推佣金作废',
   VIP_UPSTREAM: 'VIP 上溯分润',
   VIP_REFERRAL: 'VIP 推荐奖励',
 };

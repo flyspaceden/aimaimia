@@ -22,6 +22,27 @@ const NO_FURTHER_LOCK_TYPES: ReadonlySet<RewardAccountTypeStr> = new Set([
 /** 每批处理的最大数量 */
 const BATCH_SIZE = 100;
 
+const DIRECT_REFERRAL_ORIGINAL_SCHEMES = new Set([
+  'VIP_DIRECT_REFERRAL',
+  'NORMAL_DIRECT_REFERRAL',
+]);
+
+const DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
+  'sourceUserId',
+  'directInviterUserId',
+  'inviterTierAtOrder',
+  'inviteeTierAtOrder',
+  'profit',
+  'ratio',
+  'directReferralPool',
+  'platformReason',
+  'sourceRelation',
+  'normalShareBindingId',
+  'relationStatus',
+  'configSnapshot',
+  'releaseCondition',
+] as const;
+
 @Injectable()
 export class FreezeExpireService {
   private readonly logger = new Logger(FreezeExpireService.name);
@@ -196,14 +217,14 @@ export class FreezeExpireService {
   }
 
   /**
-   * 每 10 分钟检查 VIP 直推佣金 FROZEN → AVAILABLE。
+   * 每 10 分钟检查普通/VIP 直推佣金 FROZEN → AVAILABLE。
    *
    * 直推佣金付款后立即冻结，必须等订单确认收货且退货窗口结束后，
    * 且没有成功售后，才释放给直推人。
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleVipDirectReferralRelease(): Promise<void> {
-    this.logger.log('开始检查 VIP 直推佣金冻结释放...');
+    this.logger.log('开始检查直推佣金冻结释放...');
 
     const candidates: Array<{
       id: string;
@@ -219,7 +240,7 @@ export class FreezeExpireService {
       WHERE rl.status = 'FROZEN'
         AND rl."entryType" = 'FREEZE'
         AND rl."refType" = 'ORDER'
-        AND rl.meta->>'scheme' = 'VIP_DIRECT_REFERRAL'
+        AND rl.meta->>'scheme' IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')
         AND o.status = 'RECEIVED'
         AND o."returnWindowExpiresAt" IS NOT NULL
         AND o."returnWindowExpiresAt" < NOW()
@@ -227,7 +248,7 @@ export class FreezeExpireService {
     `;
 
     if (candidates.length === 0) {
-      this.logger.log('无需释放的 VIP 直推佣金');
+      this.logger.log('无需释放的直推佣金');
       return;
     }
 
@@ -269,13 +290,13 @@ export class FreezeExpireService {
       } catch (err) {
         failed++;
         this.logger.error(
-          `VIP直推佣金释放处理失败：ledgerId=${candidate.id}, error=${(err as Error).message}`,
+          `直推佣金释放处理失败：ledgerId=${candidate.id}, error=${(err as Error).message}`,
         );
       }
     }
 
     this.logger.log(
-      `VIP直推佣金冻结释放完成：释放 ${released}，作废 ${voided}，跳过 ${skipped}，失败 ${failed}`,
+      `直推佣金冻结释放完成：释放 ${released}，作废 ${voided}，跳过 ${skipped}，失败 ${failed}`,
     );
   }
 
@@ -454,7 +475,7 @@ export class FreezeExpireService {
           !order.returnWindowExpiresAt ||
           order.returnWindowExpiresAt >= now
         ) {
-          this.logger.log(`VIP直推佣金 ${ledger.id} 订单状态或退货窗口未满足释放条件，跳过`);
+          this.logger.log(`直推佣金 ${ledger.id} 订单状态或退货窗口未满足释放条件，跳过`);
           return;
         }
 
@@ -468,7 +489,7 @@ export class FreezeExpireService {
           afterSales.some((row) => activeStatuses.has(row.status)) ||
           afterSales.some((row) => successStatuses.has(row.status))
         ) {
-          this.logger.log(`VIP直推佣金 ${ledger.id} 事务内发现活跃/成功售后，跳过释放`);
+          this.logger.log(`直推佣金 ${ledger.id} 事务内发现活跃/成功售后，跳过释放`);
           return;
         }
 
@@ -492,7 +513,7 @@ export class FreezeExpireService {
         });
 
         if (cas.count === 0) {
-          this.logger.log(`VIP直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过释放`);
+          this.logger.log(`直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过释放`);
           return;
         }
 
@@ -505,7 +526,7 @@ export class FreezeExpireService {
         });
 
         if (accountCas.count === 0) {
-          throw new Error(`VIP直推佣金释放账户冻结余额不足：accountId=${ledger.accountId}`);
+          throw new Error(`直推佣金释放账户冻结余额不足：accountId=${ledger.accountId}`);
         }
       },
       {
@@ -518,6 +539,8 @@ export class FreezeExpireService {
   private async voidVipDirectReferralLedgerToPlatform(
     ledger: { id: string; userId: string; accountId: string; amount: number; meta: any; refId: string },
   ): Promise<void> {
+    const originalScheme = this.readDirectReferralOriginalScheme(ledger.meta);
+    const voidScheme = this.getDirectReferralVoidScheme(originalScheme);
     const nextMeta = {
       ...(ledger.meta ?? {}),
       voidedAt: new Date().toISOString(),
@@ -540,7 +563,7 @@ export class FreezeExpireService {
         });
 
         if (cas.count === 0) {
-          this.logger.log(`VIP直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过作废`);
+          this.logger.log(`直推佣金 ${ledger.id} 已非 FROZEN/FREEZE 状态，跳过作废`);
           return;
         }
 
@@ -549,7 +572,7 @@ export class FreezeExpireService {
           data: { frozen: { decrement: ledger.amount } },
         });
         if (accountCas.count === 0) {
-          throw new Error(`VIP直推佣金作废账户冻结余额不足：accountId=${ledger.accountId}`);
+          throw new Error(`直推佣金作废账户冻结余额不足：accountId=${ledger.accountId}`);
         }
 
         let platformAccount = await tx.rewardAccount.findUnique({
@@ -561,6 +584,26 @@ export class FreezeExpireService {
           });
         }
 
+        const sourceMeta = (ledger.meta ?? {}) as Record<string, any>;
+        const mirrorMeta: Record<string, any> = {
+          scheme: voidScheme,
+          originalScheme,
+          accountType: 'PLATFORM_PROFIT',
+          routedToPlatform: true,
+          originalLedgerId: ledger.id,
+          originalReceiverUserId: ledger.userId,
+          sourceOrderId: sourceMeta.sourceOrderId ?? ledger.refId,
+          voidSource: 'SUCCESS_AFTER_SALE_BACKSTOP',
+          reason: originalScheme === 'NORMAL_DIRECT_REFERRAL'
+            ? '售后成功兜底作废，普通直推佣金归平台'
+            : '售后成功兜底作废，VIP直推佣金归平台',
+        };
+        for (const key of DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
+          if (sourceMeta[key] !== undefined) {
+            mirrorMeta[key] = sourceMeta[key];
+          }
+        }
+
         await tx.rewardLedger.create({
           data: {
             accountId: platformAccount.id,
@@ -570,17 +613,7 @@ export class FreezeExpireService {
             status: 'AVAILABLE',
             refType: 'AFTER_SALE',
             refId: ledger.refId,
-            meta: {
-              scheme: 'VIP_DIRECT_REFERRAL_VOID',
-              originalScheme: 'VIP_DIRECT_REFERRAL',
-              accountType: 'PLATFORM_PROFIT',
-              routedToPlatform: true,
-              originalLedgerId: ledger.id,
-              originalReceiverUserId: ledger.userId,
-              sourceOrderId: ledger.refId,
-              voidSource: 'SUCCESS_AFTER_SALE_BACKSTOP',
-              reason: '售后成功兜底作废，VIP直推佣金归平台',
-            },
+            meta: mirrorMeta,
           },
         });
 
@@ -594,5 +627,23 @@ export class FreezeExpireService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  private readDirectReferralOriginalScheme(meta: any): 'VIP_DIRECT_REFERRAL' | 'NORMAL_DIRECT_REFERRAL' {
+    const scheme = meta?.scheme;
+    if (scheme === 'NORMAL_DIRECT_REFERRAL') {
+      return 'NORMAL_DIRECT_REFERRAL';
+    }
+    return DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme)
+      ? scheme
+      : 'VIP_DIRECT_REFERRAL';
+  }
+
+  private getDirectReferralVoidScheme(
+    originalScheme: 'VIP_DIRECT_REFERRAL' | 'NORMAL_DIRECT_REFERRAL',
+  ): 'VIP_DIRECT_REFERRAL_VOID' | 'NORMAL_DIRECT_REFERRAL_VOID' {
+    return originalScheme === 'NORMAL_DIRECT_REFERRAL'
+      ? 'NORMAL_DIRECT_REFERRAL_VOID'
+      : 'VIP_DIRECT_REFERRAL_VOID';
   }
 }
