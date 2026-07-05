@@ -56,7 +56,7 @@ import {
   updateGrowthSettings,
   upsertGrowthRule,
 } from '@/api/growth';
-import { getCampaigns } from '@/api/coupon';
+import { getCampaigns, type CouponCampaign } from '@/api/coupon';
 import { PERMISSIONS } from '@/constants/permissions';
 import type {
   AdminGrowthAccountRow,
@@ -158,6 +158,11 @@ const exchangeStatusMap: Record<string, { text: string; color: string }> = {
   INACTIVE: { text: '停用', color: 'default' },
   SOLD_OUT: { text: '售罄', color: 'red' },
 };
+const couponDistributionModeLabels: Record<string, string> = {
+  AUTO: '系统发放',
+  MANUAL: '手动发放',
+  CLAIM: '用户领取',
+};
 
 const rewardStatusMap: Record<string, { text: string; color: string }> = {
   PENDING: { text: '已绑定', color: 'default' },
@@ -182,6 +187,25 @@ const applicableUserTypeLabels: Record<string, string> = {
 
 function formatInt(value?: number | null) {
   return Number(value ?? 0).toLocaleString();
+}
+
+function isExchangeIssuableCouponCampaign(campaign: CouponCampaign) {
+  const now = Date.now();
+  const startAt = new Date(campaign.startAt).getTime();
+  const endAt = campaign.endAt ? new Date(campaign.endAt).getTime() : null;
+  return (
+    campaign.status === 'ACTIVE' &&
+    campaign.distributionMode !== 'CLAIM' &&
+    campaign.issuedCount < campaign.totalQuota &&
+    startAt <= now &&
+    (endAt === null || endAt >= now)
+  );
+}
+
+function formatExchangeCampaignOptionLabel(campaign: CouponCampaign) {
+  const remaining = Math.max(campaign.totalQuota - campaign.issuedCount, 0);
+  const threshold = campaign.minOrderAmount > 0 ? `满 ${campaign.minOrderAmount} 元可用` : '无门槛';
+  return `${campaign.name}｜${couponDistributionModeLabels[campaign.distributionMode] ?? campaign.distributionMode}｜剩余 ${remaining} 张｜${threshold}`;
 }
 
 function renderUser(user: AdminGrowthAccountRow['user'] | AdminNormalShareBinding['inviter'] | undefined) {
@@ -278,6 +302,10 @@ export default function GrowthPage() {
       })),
     [levelsQuery.data],
   );
+  const exchangeAvailableCouponCampaigns = useMemo(
+    () => (couponCampaignsQuery.data?.items ?? []).filter(isExchangeIssuableCouponCampaign),
+    [couponCampaignsQuery.data?.items],
+  );
 
   const saveRuleMutation = useMutation({
     mutationFn: (data: AdminGrowthRule) => upsertGrowthRule(data.code, data),
@@ -288,6 +316,15 @@ export default function GrowthPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
     },
     onError: (error: Error) => message.error(error.message || '保存失败'),
+  });
+  const toggleRuleMutation = useMutation({
+    mutationFn: ({ rule, enabled }: { rule: AdminGrowthRule; enabled: boolean }) =>
+      upsertGrowthRule(rule.code, { ...rule, enabled }),
+    onSuccess: (_, variables) => {
+      message.success(variables.enabled ? '行为规则已生效' : '行为规则已停用');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
+    },
+    onError: (error: Error) => message.error(error.message || '状态更新失败'),
   });
 
   const saveSettingsMutation = useMutation({
@@ -605,13 +642,40 @@ export default function GrowthPage() {
     },
     {
       title: '生效状态',
-      width: 120,
+      width: 150,
       render: (_, record) => {
         const wired = wiredBehaviorCodes.has(record.code);
-        if (!wired) {
-          return <Tag color="orange">未接入</Tag>;
-        }
-        return <Tag color={record.enabled ? 'green' : 'default'}>{record.enabled ? '生效中' : '已停用'}</Tag>;
+        const updatingThisRule =
+          toggleRuleMutation.isPending && toggleRuleMutation.variables?.rule.code === record.code;
+        const statusSwitch = (
+          <Switch
+            checked={wired && record.enabled}
+            checkedChildren="生效"
+            unCheckedChildren="停用"
+            disabled={!wired || toggleRuleMutation.isPending}
+            loading={updatingThisRule}
+            onChange={(checked) => toggleRuleMutation.mutate({ rule: record, enabled: checked })}
+          />
+        );
+
+        return (
+          <Space>
+            <PermissionGate
+              permission={PERMISSIONS.GROWTH_MANAGE_RULES}
+              fallback={
+                <Switch
+                  checked={wired && record.enabled}
+                  checkedChildren="生效"
+                  unCheckedChildren="停用"
+                  disabled
+                />
+              }
+            >
+              {statusSwitch}
+            </PermissionGate>
+            {!wired ? <Tag color="orange">未接入</Tag> : null}
+          </Space>
+        );
       },
     },
     {
@@ -1284,7 +1348,7 @@ export default function GrowthPage() {
                   showIcon
                   type="info"
                   message="积分兑换负责把积分变成红包或其他权益"
-                  description="红包类兑换项必须绑定一个有效红包活动；等级要求用于限制低等级用户兑换高价值权益；库存和用户限额用于控制成本。"
+                  description="红包类兑换项必须绑定一个可由系统直接发放的红包活动；等级要求用于限制低等级用户兑换高价值权益；库存和用户限额用于控制成本。"
                   style={{ marginBottom: 16 }}
                 />
                 <Table<AdminGrowthExchangeItem>
@@ -1461,8 +1525,17 @@ export default function GrowthPage() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="enabled" label="状态" valuePropName="checked" extra="未接入的行为不要启用；已接入行为启用后才会真实发放。">
-                <Switch checkedChildren="启用" unCheckedChildren="停用" />
+              <Form.Item
+                name="enabled"
+                label="状态"
+                valuePropName="checked"
+                extra="未接入的行为不能启用；已接入行为启用后才会真实发放。"
+              >
+                <Switch
+                  checkedChildren="启用"
+                  unCheckedChildren="停用"
+                  disabled={!!editingRule && !wiredBehaviorCodes.has(editingRule.code)}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -1512,20 +1585,26 @@ export default function GrowthPage() {
                   return (
                     <Form.Item
                       name="couponCampaignId"
-                      label="红包活动"
-                      extra="红包类兑换项必须绑定已启用的红包活动，否则用户兑换后无法拿到红包。"
+                      label="兑换后发放的红包"
+                      extra="只显示启用中、未发完、可由系统直接发放的红包活动；用户主动领取类红包不能用于积分兑换。"
                       rules={[
                         {
                           required: couponExchangeTypes.has(type),
-                          message: '红包类兑换项必须绑定红包活动',
+                          message: '红包类兑换项必须绑定兑换后发放的红包',
                         },
                       ]}
                     >
                       <Select
                         allowClear
                         loading={couponCampaignsQuery.isLoading}
-                        options={(couponCampaignsQuery.data?.items ?? []).map((campaign) => ({
-                          label: campaign.name,
+                        placeholder="请选择兑换后发放的红包"
+                        notFoundContent={
+                          couponCampaignsQuery.isLoading
+                            ? '加载中'
+                            : '请先到红包管理创建“系统发放”或“手动发放”的启用红包活动'
+                        }
+                        options={exchangeAvailableCouponCampaigns.map((campaign) => ({
+                          label: formatExchangeCampaignOptionLabel(campaign),
                           value: campaign.id,
                         }))}
                       />

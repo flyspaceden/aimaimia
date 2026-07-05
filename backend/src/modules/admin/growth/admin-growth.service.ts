@@ -274,6 +274,7 @@ export class AdminGrowthService {
   }
 
   async createExchangeItem(dto: AdminGrowthExchangeItemDto) {
+    await this.assertExchangeCouponCampaignCanBeIssued(dto.type, dto.couponCampaignId, dto.status ?? 'ACTIVE');
     const data = this.normalizeExchangeItem(dto);
     return (this.prisma as any).growthExchangeItem.create({ data });
   }
@@ -285,6 +286,11 @@ export class AdminGrowthService {
     if (!existing) {
       throw new NotFoundException('兑换项不存在');
     }
+    await this.assertExchangeCouponCampaignCanBeIssued(
+      dto.type ?? existing.type,
+      dto.couponCampaignId === undefined ? existing.couponCampaignId : dto.couponCampaignId,
+      dto.status ?? existing.status,
+    );
     const data = this.normalizeExchangeItemUpdate(existing, dto);
     return (this.prisma as any).growthExchangeItem.update({
       where: { id },
@@ -680,6 +686,55 @@ export class AdminGrowthService {
       throw new BadRequestException('红包类兑换项必须绑定红包活动');
     }
     this.assertDateRange(startAt ? new Date(startAt) : null, endAt ? new Date(endAt) : null);
+  }
+
+  private async assertExchangeCouponCampaignCanBeIssued(
+    type: string,
+    couponCampaignId?: string | null,
+    exchangeStatus = 'ACTIVE',
+  ) {
+    if (!COUPON_EXCHANGE_TYPES.has(type)) {
+      return;
+    }
+    if (!couponCampaignId) {
+      throw new BadRequestException('红包类兑换项必须绑定红包活动');
+    }
+    if (exchangeStatus !== 'ACTIVE') {
+      return;
+    }
+
+    const campaign = await (this.prisma as any).couponCampaign.findUnique({
+      where: { id: couponCampaignId },
+      select: {
+        id: true,
+        status: true,
+        distributionMode: true,
+        startAt: true,
+        endAt: true,
+        issuedCount: true,
+        totalQuota: true,
+      },
+    });
+    if (!campaign) {
+      throw new BadRequestException('红包活动不存在');
+    }
+    if (campaign.status !== 'ACTIVE') {
+      throw new BadRequestException('只能绑定启用中的红包活动');
+    }
+    if (campaign.distributionMode === 'CLAIM') {
+      throw new BadRequestException('用户主动领取类红包不能用于积分兑换');
+    }
+
+    const now = new Date();
+    if (campaign.startAt && now < campaign.startAt) {
+      throw new BadRequestException('红包活动尚未开始，不能用于积分兑换');
+    }
+    if (campaign.endAt && now > campaign.endAt) {
+      throw new BadRequestException('红包活动已结束，不能用于积分兑换');
+    }
+    if (campaign.issuedCount >= campaign.totalQuota) {
+      throw new BadRequestException('红包活动已发完，不能用于积分兑换');
+    }
   }
 
   private assertDateRange(startAt?: Date | null, endAt?: Date | null) {
