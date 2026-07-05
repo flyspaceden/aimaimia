@@ -1830,6 +1830,18 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
 
   it('钱包流水单独展示 VIP 直推佣金 scheme，避免混入 VIP 推荐奖励或上溯分润', async () => {
     const rewardLedgers = [
+      rewardLedger('reward-normal-direct', 'NORMAL_REWARD', '2026-06-22T12:40:00.000Z', 3, {
+        refType: 'ORDER',
+        meta: { scheme: 'NORMAL_DIRECT_REFERRAL', accountType: 'NORMAL_REWARD' },
+      }),
+      rewardLedger('reward-normal-direct-void', 'NORMAL_REWARD', '2026-06-22T12:35:00.000Z', 3, {
+        refType: 'AFTER_SALE',
+        meta: { scheme: 'NORMAL_DIRECT_REFERRAL_VOID', accountType: 'NORMAL_REWARD' },
+      }),
+      rewardLedger('reward-vip-direct-void', 'VIP_REWARD', '2026-06-22T12:30:00.000Z', 12, {
+        refType: 'AFTER_SALE',
+        meta: { scheme: 'VIP_DIRECT_REFERRAL_VOID', accountType: 'VIP_REWARD' },
+      }),
       rewardLedger('reward-direct', 'VIP_REWARD', '2026-06-22T12:20:00.000Z', 12, {
         refType: 'ORDER',
         meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
@@ -1861,6 +1873,21 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
     const result = await service.getWalletLedger('user-1', 1, 20);
 
     expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'reward-normal-direct',
+        scheme: 'NORMAL_DIRECT_REFERRAL',
+        sourceLabel: '普通直推佣金',
+      }),
+      expect.objectContaining({
+        id: 'reward-normal-direct-void',
+        scheme: 'NORMAL_DIRECT_REFERRAL_VOID',
+        sourceLabel: '普通直推佣金作废',
+      }),
+      expect.objectContaining({
+        id: 'reward-vip-direct-void',
+        scheme: 'VIP_DIRECT_REFERRAL_VOID',
+        sourceLabel: 'VIP 直推佣金作废',
+      }),
       expect.objectContaining({
         id: 'reward-direct',
         refType: 'ORDER',
