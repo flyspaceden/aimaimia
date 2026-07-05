@@ -46,7 +46,13 @@ export class NormalShareService {
     }
 
     const binding = await this.prisma.$transaction(async (tx) => {
-      await this.assertOrdinaryShareUser(tx, inviteeUserId);
+      const inviteeMember = await tx.memberProfile.findUnique({
+        where: { userId: inviteeUserId },
+        select: { tier: true, inviterUserId: true },
+      });
+      if (inviteeMember?.tier === 'VIP') {
+        throw new BadRequestException('VIP 用户不使用普通分享码');
+      }
 
       const inviterProfile = await tx.normalShareProfile.findUnique({
         where: { code },
@@ -74,12 +80,27 @@ export class NormalShareService {
       ) {
         throw new BadRequestException('邀请人账号不可用');
       }
-      if (inviterProfile.user.memberProfile?.tier === 'VIP') {
-        throw new BadRequestException('VIP 用户不使用普通分享码');
-      }
       if (inviterProfile.userId === inviteeUserId) {
         throw new BadRequestException('不能绑定自己的普通分享码');
       }
+      if (
+        inviteeMember?.inviterUserId &&
+        inviteeMember.inviterUserId !== inviterProfile.userId
+      ) {
+        throw new BadRequestException('已绑定推荐关系，不能更换');
+      }
+
+      const ensureMemberInviter = async () => {
+        if (inviteeMember?.inviterUserId === inviterProfile.userId) return;
+        await tx.memberProfile.upsert({
+          where: { userId: inviteeUserId },
+          create: {
+            userId: inviteeUserId,
+            inviterUserId: inviterProfile.userId,
+          },
+          update: { inviterUserId: inviterProfile.userId },
+        });
+      };
 
       const existingNormalBinding = await tx.normalShareBinding.findUnique({
         where: { inviteeUserId },
@@ -87,8 +108,9 @@ export class NormalShareService {
       if (existingNormalBinding) {
         if (
           existingNormalBinding.inviterUserId === inviterProfile.userId ||
-          existingNormalBinding.code === code
+          existingNormalBinding.effectiveInviterUserId === inviterProfile.userId
         ) {
+          await ensureMemberInviter();
           return { ...existingNormalBinding, isIdempotent: true };
         }
         throw new BadRequestException('已绑定普通分享关系，不能更换');
@@ -97,10 +119,11 @@ export class NormalShareService {
       const existingVipReferral = await tx.referralLink.findUnique({
         where: { inviteeUserId },
       });
-      if (existingVipReferral) {
-        throw new BadRequestException('已存在 VIP 推荐关系，不能绑定普通分享码');
+      if (existingVipReferral && existingVipReferral.inviterUserId !== inviterProfile.userId) {
+        throw new BadRequestException('已绑定推荐关系，不能更换');
       }
 
+      await ensureMemberInviter();
       return tx.normalShareBinding.create({
         data: {
           inviterUserId: inviterProfile.userId,

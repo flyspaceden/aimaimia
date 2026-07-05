@@ -162,7 +162,7 @@ export class BonusService {
     };
   }
 
-  /** 使用推荐码（支持换绑：VIP 前允许更换推荐人） */
+  /** 使用推荐码 */
   async useReferralCode(userId: string, code: string) {
     const inviter = await this.prisma.memberProfile.findUnique({
       where: { referralCode: code },
@@ -181,6 +181,9 @@ export class BonusService {
       if (currentMember?.tier === 'VIP') {
         throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
       }
+      if (currentMember?.inviterUserId && currentMember.inviterUserId !== inviter.userId) {
+        throw new BadRequestException('已绑定推荐关系，不能更换');
+      }
 
       // 已注销 / 非正常状态的推荐人不能再被新用户绑定（账号注销 Task 4）。
       // 历史推荐树/链路保留不动，仅让推荐码对"新绑定"失效。在 Serializable
@@ -198,6 +201,18 @@ export class BonusService {
         throw new BadRequestException('推荐人账号不可用');
       }
 
+      const existingNormalBinding = await tx.normalShareBinding.findUnique({
+        where: { inviteeUserId: userId },
+      });
+      if (existingNormalBinding?.relationStatus === 'ACTIVE') {
+        const effectiveNormalInviter =
+          existingNormalBinding.effectiveInviterUserId ?? existingNormalBinding.inviterUserId;
+        if (effectiveNormalInviter !== inviter.userId) {
+          throw new BadRequestException('已绑定推荐关系，不能更换');
+        }
+        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+      }
+
       const existing = await tx.referralLink.findUnique({
         where: { inviteeUserId: userId },
       });
@@ -207,22 +222,20 @@ export class BonusService {
       }
 
       if (existing) {
-        await tx.referralLink.update({
-          where: { inviteeUserId: userId },
-          data: {
-            inviterUserId: inviter.userId,
-            codeUsed: code,
-          },
-        });
-      } else {
-        await tx.referralLink.create({
-          data: {
-            inviterUserId: inviter.userId,
-            inviteeUserId: userId,
-            codeUsed: code,
-          },
-        });
+        throw new BadRequestException('已绑定推荐关系，不能更换');
       }
+
+      if (currentMember?.inviterUserId === inviter.userId) {
+        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+      }
+
+      await tx.referralLink.create({
+        data: {
+          inviterUserId: inviter.userId,
+          inviteeUserId: userId,
+          codeUsed: code,
+        },
+      });
 
       await tx.memberProfile.upsert({
         where: { userId },

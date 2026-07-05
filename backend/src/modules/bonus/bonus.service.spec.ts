@@ -177,6 +177,9 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           codeUsed: 'VIPCODE1',
         }),
       },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       user: {
         findUnique: jest
           .fn()
@@ -539,6 +542,9 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
       },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       user: {
         findUnique: jest
           .fn()
@@ -587,6 +593,130 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     });
 
     expect(prismaMock.referralLink.create).toHaveBeenCalled();
+  });
+
+  it('VIP 推荐绑定拒绝已存在的不同普通邀请人', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
+          })
+          .mockResolvedValueOnce({
+            userId: 'invitee-y',
+            tier: 'NORMAL',
+            inviterUserId: 'normal-inviter',
+          }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'normal-binding-1',
+          inviteeUserId: 'invitee-y',
+          inviterUserId: 'normal-inviter',
+          effectiveInviterUserId: 'normal-inviter',
+          relationStatus: 'ACTIVE',
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', deletionExecutedAt: null }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const couponEngineMock = {
+      handleTrigger: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      couponEngineMock as any,
+      {} as any,
+    );
+
+    await expect(
+      service.useReferralCode('invitee-y', 'VIPCODE1'),
+    ).rejects.toThrow('已绑定推荐关系，不能更换');
+
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+    expect(prismaMock.referralLink.update).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+    expect(couponEngineMock.handleTrigger).not.toHaveBeenCalled();
+  });
+
+  it('VIP 推荐绑定遇到同一普通邀请人时保持幂等且不触发 INVITE 红包', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
+          })
+          .mockResolvedValueOnce({
+            userId: 'invitee-y',
+            tier: 'NORMAL',
+            inviterUserId: 'vip-user',
+          }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'normal-binding-1',
+          inviteeUserId: 'invitee-y',
+          inviterUserId: 'vip-user',
+          effectiveInviterUserId: 'vip-user',
+          relationStatus: 'ACTIVE',
+        }),
+      },
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ status: 'ACTIVE', deletionExecutedAt: null })
+          .mockResolvedValueOnce({
+            id: 'vip-user',
+            profile: { nickname: '李四' },
+            authIdentities: [{ identifier: '13900001111' }],
+          }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const couponEngineMock = {
+      handleTrigger: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      couponEngineMock as any,
+      {} as any,
+    );
+
+    await expect(
+      service.useReferralCode('invitee-y', 'VIPCODE1'),
+    ).resolves.toMatchObject({
+      success: true,
+      inviterUserId: 'vip-user',
+    });
+
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+    expect(prismaMock.referralLink.update).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+    expect(couponEngineMock.handleTrigger).not.toHaveBeenCalled();
   });
 
   it('CAS 命中 0 行（被其他流程接管）应安全返回，不抛错', async () => {
@@ -1435,6 +1565,9 @@ describe('BonusService.useReferralCode — 已注销推荐人防护', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue(null),
       },
       user: {
         // 事务内校验推荐人 User 状态
