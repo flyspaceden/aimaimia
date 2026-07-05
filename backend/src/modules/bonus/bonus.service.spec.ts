@@ -1,6 +1,5 @@
 import { Prisma } from '@prisma/client';
 import { BonusService } from './bonus.service';
-import { PLATFORM_USER_ID } from './engine/constants';
 
 describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
   function buildService(prismaMock: any) {
@@ -980,17 +979,16 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(prismaMock.memberProfile.findUnique).not.toHaveBeenCalled();
   });
 
-  it('历史推荐人活跃时，VIP 直推奖励在事务内发出 reward.credited 通知', async () => {
-    const ledgerCreateMock = jest.fn().mockResolvedValue({ id: 'ledger-vip-referral-1' });
+  it('普通邀请人在被邀请人升级 VIP 时仍是普通用户：普通绑定失效，VIP 树走系统路径且不发一次性 VIP 推荐奖', async () => {
     const prismaMock: any = {
       vipPurchase: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce(null)
           .mockResolvedValueOnce({
-            id: 'vp-active-inviter',
-            userId: 'invitee-active-inviter',
-            orderId: 'order-active-inviter',
+            id: 'vp-normal-inviter',
+            userId: 'invitee-normal-inviter',
+            orderId: 'order-normal-inviter',
             activationStatus: 'ACTIVATING',
             referralBonusRate: 0.15,
             amount: 400,
@@ -1003,19 +1001,32 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       memberProfile: {
-        findUnique: jest.fn().mockResolvedValue({
-          userId: 'invitee-active-inviter',
-          tier: 'NORMAL',
-          inviterUserId: 'inviter-active',
-          referralCode: null,
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'invitee-normal-inviter') {
+            return Promise.resolve({
+              userId: 'invitee-normal-inviter',
+              tier: 'NORMAL',
+              inviterUserId: 'normal-inviter',
+              referralCode: null,
+            });
+          }
+          if (where.userId === 'normal-inviter') {
+            return Promise.resolve({
+              userId: 'normal-inviter',
+              tier: 'NORMAL',
+              vipNodeId: null,
+            });
+          }
+          return Promise.resolve(null);
         }),
         findFirst: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({
-          userId: 'invitee-active-inviter',
+          userId: 'invitee-normal-inviter',
           tier: 'VIP',
-          inviterUserId: 'inviter-active',
+          inviterUserId: 'normal-inviter',
           referralCode: 'NEWVIP01',
         }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       vipProgress: {
         upsert: jest.fn().mockResolvedValue({}),
@@ -1023,37 +1034,24 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       normalProgress: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
-      user: {
-        findUnique: jest.fn().mockResolvedValue({
-          status: 'ACTIVE',
-          deletionExecutedAt: null,
-        }),
-      },
-      rewardAccount: {
-        upsert: jest.fn().mockResolvedValue({ id: 'acct-inviter-active' }),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      rewardLedger: {
-        create: ledgerCreateMock,
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: jest.fn(),
     };
     prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
-    const notificationService = {
-      send: jest.fn().mockResolvedValue(undefined),
-      emit: jest.fn().mockResolvedValue(undefined),
-    };
     const service = new BonusService(
       prismaMock,
       { getConfig: jest.fn().mockResolvedValue({}) } as any,
       {} as any,
-      notificationService as any,
+      {} as any,
     );
-    jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const assignSpy = jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
 
     await service.activateVipAfterPayment(
-      'invitee-active-inviter',
-      'order-active-inviter',
+      'invitee-normal-inviter',
+      'order-normal-inviter',
       'gift-1',
       400,
       { title: 'VIP 礼包' },
@@ -1061,32 +1059,37 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       0.15,
     );
 
-    expect(notificationService.emit).toHaveBeenCalledWith({
-      eventType: 'reward.credited',
-      aggregateType: 'rewardLedger',
-      aggregateId: 'ledger-vip-referral-1',
-      idempotencyKey: 'reward:ledger-vip-referral-1:credited',
-      actor: { kind: 'system' },
-      payload: {
-        ledgerId: 'ledger-vip-referral-1',
-        userId: 'inviter-active',
-        amount: 60,
+    expect(prismaMock.normalShareBinding.updateMany).toHaveBeenCalledWith({
+      where: {
+        inviteeUserId: 'invitee-normal-inviter',
+        inviterUserId: 'normal-inviter',
+        relationStatus: 'ACTIVE',
       },
-    }, prismaMock);
+      data: {
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        relationInvalidAt: expect.any(Date),
+        relationInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+        effectiveInviterUserId: null,
+      },
+    });
+    expect(prismaMock.memberProfile.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'invitee-normal-inviter', inviterUserId: 'normal-inviter' },
+      data: { inviterUserId: null },
+    });
+    expect(assignSpy).toHaveBeenCalledWith(prismaMock, 'invitee-normal-inviter', null);
+    expect(grantSpy).not.toHaveBeenCalled();
   });
 
-  it('历史推荐人已注销时，VIP 直推奖励归平台且不写入推荐人账户', async () => {
-    const ledgerCreateMock = jest.fn().mockResolvedValue({});
-    const accountUpdateMock = jest.fn().mockResolvedValue({});
+  it('普通邀请人已先成为 VIP 且有 vipNodeId：普通绑定升级为 VIP 树承接关系', async () => {
     const prismaMock: any = {
       vipPurchase: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce(null)
           .mockResolvedValueOnce({
-            id: 'vp-deleted-inviter',
-            userId: 'invitee-deleted-inviter',
-            orderId: 'order-deleted-inviter',
+            id: 'vp-vip-inviter',
+            userId: 'invitee-vip-inviter',
+            orderId: 'order-vip-inviter',
             activationStatus: 'ACTIVATING',
             referralBonusRate: 0.15,
             amount: 400,
@@ -1099,19 +1102,32 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       memberProfile: {
-        findUnique: jest.fn().mockResolvedValue({
-          userId: 'invitee-deleted-inviter',
-          tier: 'NORMAL',
-          inviterUserId: 'inviter-deleted',
-          referralCode: null,
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'invitee-vip-inviter') {
+            return Promise.resolve({
+              userId: 'invitee-vip-inviter',
+              tier: 'NORMAL',
+              inviterUserId: 'vip-inviter',
+              referralCode: null,
+            });
+          }
+          if (where.userId === 'vip-inviter') {
+            return Promise.resolve({
+              userId: 'vip-inviter',
+              tier: 'VIP',
+              vipNodeId: 'node-vip-inviter',
+            });
+          }
+          return Promise.resolve(null);
         }),
         findFirst: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({
-          userId: 'invitee-deleted-inviter',
+          userId: 'invitee-vip-inviter',
           tier: 'VIP',
-          inviterUserId: 'inviter-deleted',
+          inviterUserId: 'vip-inviter',
           referralCode: 'NEWVIP01',
         }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       vipProgress: {
         upsert: jest.fn().mockResolvedValue({}),
@@ -1119,39 +1135,24 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       normalProgress: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
-      user: {
-        findUnique: jest.fn().mockResolvedValue({
-          status: 'DELETED',
-          deletionExecutedAt: new Date('2026-06-01T00:00:00.000Z'),
-        }),
-      },
-      rewardAccount: {
-        upsert: jest.fn().mockResolvedValue({ id: 'acct-inviter-deleted' }),
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({ id: 'acct-platform-profit' }),
-        update: accountUpdateMock,
-      },
-      rewardLedger: {
-        create: ledgerCreateMock,
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: jest.fn(),
     };
     prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
-    const notificationService = {
-      send: jest.fn().mockResolvedValue(undefined),
-      emit: jest.fn().mockResolvedValue(undefined),
-    };
     const service = new BonusService(
       prismaMock,
       { getConfig: jest.fn().mockResolvedValue({}) } as any,
       {} as any,
-      notificationService as any,
+      {} as any,
     );
-    jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const assignSpy = jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
 
     await service.activateVipAfterPayment(
-      'invitee-deleted-inviter',
-      'order-deleted-inviter',
+      'invitee-vip-inviter',
+      'order-vip-inviter',
       'gift-1',
       400,
       { title: 'VIP 礼包' },
@@ -1159,34 +1160,102 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       0.15,
     );
 
-    expect(ledgerCreateMock).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        accountId: 'acct-platform-profit',
-        userId: PLATFORM_USER_ID,
-        entryType: 'RELEASE',
-        amount: 60,
-        status: 'AVAILABLE',
-        refType: 'VIP_REFERRAL',
-        refId: 'vp-deleted-inviter',
-        meta: expect.objectContaining({
-          scheme: 'VIP_REFERRAL_FALLBACK',
-          reason: 'DELETED_DIRECT_REFERRAL_RECIPIENT',
-          sourceUserId: 'invitee-deleted-inviter',
-          skippedInviterUserId: 'inviter-deleted',
+    expect(prismaMock.normalShareBinding.updateMany).toHaveBeenCalledWith({
+      where: {
+        inviteeUserId: 'invitee-vip-inviter',
+        inviterUserId: 'vip-inviter',
+        relationStatus: 'ACTIVE',
+      },
+      data: {
+        relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+      },
+    });
+    expect(prismaMock.memberProfile.updateMany).not.toHaveBeenCalled();
+    expect(assignSpy).toHaveBeenCalledWith(prismaMock, 'invitee-vip-inviter', 'vip-inviter');
+    expect(grantSpy).not.toHaveBeenCalled();
+  });
+
+  it('VIP 包激活即使 referralBonusRate 大于 0，也不调用一次性 VIP 推荐奖励', async () => {
+    const prismaMock: any = {
+      vipPurchase: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'vp-no-onetime-bonus',
+            userId: 'invitee-no-onetime-bonus',
+            orderId: 'order-no-onetime-bonus',
+            activationStatus: 'ACTIVATING',
+            referralBonusRate: 0.25,
+            amount: 800,
+          }),
+        create: jest.fn().mockResolvedValue({
+          id: 'vp-no-onetime-bonus',
+          activationStatus: 'PENDING',
         }),
-      }),
-    });
-    expect(ledgerCreateMock).not.toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 'inviter-deleted',
-        refType: 'VIP_REFERRAL',
-      }),
-    });
-    expect(accountUpdateMock).toHaveBeenCalledWith({
-      where: { id: 'acct-platform-profit' },
-      data: { balance: { increment: 60 } },
-    });
-    expect(notificationService.emit).not.toHaveBeenCalled();
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      memberProfile: {
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'invitee-no-onetime-bonus') {
+            return Promise.resolve({
+              userId: 'invitee-no-onetime-bonus',
+              tier: 'NORMAL',
+              inviterUserId: 'vip-inviter',
+              referralCode: null,
+            });
+          }
+          if (where.userId === 'vip-inviter') {
+            return Promise.resolve({
+              userId: 'vip-inviter',
+              tier: 'VIP',
+              vipNodeId: 'node-vip-inviter',
+            });
+          }
+          return Promise.resolve(null);
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({
+          userId: 'invitee-no-onetime-bonus',
+          tier: 'VIP',
+          inviterUserId: 'vip-inviter',
+          referralCode: 'NEWVIP02',
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      vipProgress: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      {} as any,
+      {} as any,
+    );
+    jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
+
+    await service.activateVipAfterPayment(
+      'invitee-no-onetime-bonus',
+      'order-no-onetime-bonus',
+      'gift-1',
+      800,
+      { title: 'VIP 礼包' },
+      'pkg-1',
+      0.25,
+    );
+
+    expect(grantSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -1691,7 +1760,7 @@ describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
     const tx = makeVipTreeTx(nodes);
     const service = buildService();
 
-    await (service as any).assignVipTreeNode(tx, 'invitee');
+    await (service as any).assignVipTreeNode(tx, 'invitee', 'inviter');
 
     expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -1721,7 +1790,7 @@ describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
     const tx = makeVipTreeTx(nodes);
     const service = buildService();
 
-    await (service as any).assignVipTreeNode(tx, 'invitee');
+    await (service as any).assignVipTreeNode(tx, 'invitee', 'inviter');
 
     expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -1742,13 +1811,44 @@ describe('BonusService.assignVipTreeNode — VIP 推荐人子树落位', () => {
     const tx = makeVipTreeTx(nodes);
     const service = buildService();
 
-    await (service as any).assignVipTreeNode(tx, 'invitee');
+    await (service as any).assignVipTreeNode(tx, 'invitee', 'inviter');
 
     expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'invitee',
         parentId: 'node-c0',
         position: 1,
+      }),
+    });
+  });
+
+  it('显式传入 null 时走系统节点，不读取 MemberProfile.inviterUserId 作为 VIP 推荐人', async () => {
+    const nodes = {
+      'node-system-root': {
+        id: 'node-system-root',
+        rootId: 'A1',
+        userId: null,
+        parentId: null,
+        level: 0,
+        position: 0,
+        childrenCount: 0,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+      },
+    };
+    const tx = makeVipTreeTx(nodes);
+    (tx.vipTreeNode as any).findFirst = jest.fn().mockResolvedValue(nodes['node-system-root']);
+    const service = buildService();
+
+    await (service as any).assignVipTreeNode(tx, 'invitee', null);
+
+    expect(tx.memberProfile.findUnique).not.toHaveBeenCalledWith({
+      where: { userId: 'inviter' },
+    });
+    expect(tx.vipTreeNode.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'invitee',
+        parentId: 'node-system-root',
+        position: 0,
       }),
     });
   });

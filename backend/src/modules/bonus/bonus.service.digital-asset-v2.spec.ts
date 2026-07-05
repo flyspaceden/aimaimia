@@ -6,6 +6,8 @@ describe('BonusService digital asset V2 integration', () => {
   function makeService(options?: {
     existingPurchase?: any;
     inviterUserId?: string | null;
+    inviterTier?: 'NORMAL' | 'VIP';
+    inviterVipNodeId?: string | null;
     digitalAssetError?: Error;
   }) {
     const sequence: string[] = [];
@@ -38,11 +40,23 @@ describe('BonusService digital asset V2 integration', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       memberProfile: {
-        findUnique: jest.fn().mockResolvedValue({
-          userId: 'buyer-1',
-          tier: 'NORMAL',
-          inviterUserId: options?.inviterUserId ?? 'inviter-1',
-          referralCode: null,
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.userId === 'buyer-1') {
+            return Promise.resolve({
+              userId: 'buyer-1',
+              tier: 'NORMAL',
+              inviterUserId: options?.inviterUserId ?? 'inviter-1',
+              referralCode: null,
+            });
+          }
+          if (where.userId === (options?.inviterUserId ?? 'inviter-1')) {
+            return Promise.resolve({
+              userId: options?.inviterUserId ?? 'inviter-1',
+              tier: options?.inviterTier ?? 'NORMAL',
+              vipNodeId: options?.inviterVipNodeId ?? null,
+            });
+          }
+          return Promise.resolve(null);
         }),
         findFirst: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({
@@ -51,6 +65,10 @@ describe('BonusService digital asset V2 integration', () => {
           inviterUserId: options?.inviterUserId ?? 'inviter-1',
           referralCode: 'VIP001',
         }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      normalShareBinding: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       vipProgress: {
         upsert: jest.fn().mockResolvedValue({}),
@@ -111,8 +129,12 @@ describe('BonusService digital asset V2 integration', () => {
     });
   });
 
-  it('passes the direct inviter user id for referral seed asset grants', async () => {
-    const { service, digitalAssetService } = makeService({ inviterUserId: 'direct-inviter' });
+  it('passes the direct inviter user id for referral seed asset grants when the inviter carries the VIP tree relation', async () => {
+    const { service, digitalAssetService } = makeService({
+      inviterUserId: 'direct-inviter',
+      inviterTier: 'VIP',
+      inviterVipNodeId: 'node-direct-inviter',
+    });
 
     await service.activateVipAfterPayment(
       'buyer-1',
@@ -128,6 +150,31 @@ describe('BonusService digital asset V2 integration', () => {
       expect.anything(),
       expect.objectContaining({
         inviterUserId: 'direct-inviter',
+      }),
+    );
+  });
+
+  it('does not pass an ordinary inviter to digital asset referral grants after VIP upgrade invalidates that relation', async () => {
+    const { service, digitalAssetService } = makeService({
+      inviterUserId: 'ordinary-inviter',
+      inviterTier: 'NORMAL',
+      inviterVipNodeId: null,
+    });
+
+    await service.activateVipAfterPayment(
+      'buyer-1',
+      'order-1',
+      'gift-1',
+      699,
+      { title: 'VIP 礼包' },
+      'pkg-699',
+      0,
+    );
+
+    expect(digitalAssetService.grantVipActivationAssets).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        inviterUserId: null,
       }),
     );
   });
