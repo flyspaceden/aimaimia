@@ -123,6 +123,11 @@ export class NormalShareService {
         return { ...existingNormalBinding, isIdempotent: true };
       }
 
+      if (existingVipReferral) {
+        await ensureMemberInviter();
+        return { ...existingVipReferral, isIdempotent: true };
+      }
+
       await ensureMemberInviter();
       return tx.normalShareBinding.create({
         data: {

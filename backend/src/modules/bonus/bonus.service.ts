@@ -181,7 +181,19 @@ export class BonusService {
       if (currentMember?.tier === 'VIP') {
         throw new BadRequestException('已加入 VIP 团队，无法更换推荐人');
       }
-      if (currentMember?.inviterUserId && currentMember.inviterUserId !== inviter.userId) {
+
+      const currentInviter = await tx.memberProfile.findUnique({
+        where: { referralCode: code },
+      });
+      if (
+        !currentInviter ||
+        currentInviter.userId !== inviter.userId ||
+        currentInviter.tier !== 'VIP'
+      ) {
+        throw new BadRequestException('推荐码无效');
+      }
+
+      if (currentMember?.inviterUserId && currentMember.inviterUserId !== currentInviter.userId) {
         throw new BadRequestException('已绑定推荐关系，不能更换');
       }
 
@@ -190,7 +202,7 @@ export class BonusService {
       // 事务内读取，与注销流程（同样 Serializable 写 status/deletionExecutedAt）
       // 串行化，避免"先查到 ACTIVE、绑定时已注销"的 TOCTOU 缝隙。
       const inviterUser = await tx.user.findUnique({
-        where: { id: inviter.userId },
+        where: { id: currentInviter.userId },
         select: { status: true, deletionExecutedAt: true },
       });
       if (
@@ -212,25 +224,25 @@ export class BonusService {
           ? existingNormalBinding.effectiveInviterUserId ?? existingNormalBinding.inviterUserId
           : null;
 
-      if (existing && existing.inviterUserId !== inviter.userId) {
+      if (existing && existing.inviterUserId !== currentInviter.userId) {
         throw new BadRequestException('已绑定推荐关系，不能更换');
       }
 
-      if (activeNormalInviter && activeNormalInviter !== inviter.userId) {
+      if (activeNormalInviter && activeNormalInviter !== currentInviter.userId) {
         throw new BadRequestException('已绑定推荐关系，不能更换');
       }
 
       if (existing || activeNormalInviter) {
-        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+        return { success: true, inviterUserId: currentInviter.userId, isIdempotent: true };
       }
 
-      if (currentMember?.inviterUserId === inviter.userId) {
-        return { success: true, inviterUserId: inviter.userId, isIdempotent: true };
+      if (currentMember?.inviterUserId === currentInviter.userId) {
+        return { success: true, inviterUserId: currentInviter.userId, isIdempotent: true };
       }
 
       await tx.referralLink.create({
         data: {
-          inviterUserId: inviter.userId,
+          inviterUserId: currentInviter.userId,
           inviteeUserId: userId,
           codeUsed: code,
         },
@@ -240,12 +252,12 @@ export class BonusService {
         where: { userId },
         create: {
           userId,
-          inviterUserId: inviter.userId,
+          inviterUserId: currentInviter.userId,
         },
-        update: { inviterUserId: inviter.userId },
+        update: { inviterUserId: currentInviter.userId },
       });
 
-      return { success: true, inviterUserId: inviter.userId, isIdempotent: false };
+      return { success: true, inviterUserId: currentInviter.userId, isIdempotent: false };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
@@ -253,12 +265,12 @@ export class BonusService {
     // 仅非幂等请求时触发 INVITE 红包
     if (!result.isIdempotent) {
       this.couponEngine
-        .handleTrigger(inviter.userId, 'INVITE', {
+        .handleTrigger(result.inviterUserId, 'INVITE', {
           inviteeUserId: userId,
         })
         .catch((err: any) => {
           this.logger.warn(
-            `INVITE 红包触发失败: inviterUserId=${inviter.userId}, inviteeUserId=${userId}, error=${err?.message}`,
+            `INVITE 红包触发失败: inviterUserId=${result.inviterUserId}, inviteeUserId=${userId}, error=${err?.message}`,
           );
         });
     }

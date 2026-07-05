@@ -290,6 +290,44 @@ describe('NormalShareService', () => {
     expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
 
+  it('does not create a normal binding or grant growth when the same VIP referral already exists', async () => {
+    const { service, tx, growthEvents, prisma } = makeHarness({
+      profileByCode: activeShareProfile(),
+      memberProfileByUser: {
+        userId: 'invitee-1',
+        tier: 'NORMAL',
+        inviterUserId: null,
+      },
+      existingVipReferral: {
+        id: 'vip-referral-existing',
+        inviteeUserId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+        codeUsed: 'VIPCODE1',
+      },
+    });
+
+    await expect(
+      service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
+    ).resolves.toMatchObject({
+      id: 'vip-referral-existing',
+      inviteeUserId: 'invitee-1',
+      inviterUserId: 'inviter-1',
+      isIdempotent: true,
+    });
+
+    expect(tx.memberProfile.upsert).toHaveBeenCalledWith({
+      where: { userId: 'invitee-1' },
+      create: {
+        userId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+      },
+      update: { inviterUserId: 'inviter-1' },
+    });
+    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+    expect(growthEvents.receive).not.toHaveBeenCalled();
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
+  });
+
   it('cannot bind the invitee to their own normal share code', async () => {
     const { service, tx } = makeHarness({
       profileByCode: activeShareProfile({ userId: 'invitee-1' }),

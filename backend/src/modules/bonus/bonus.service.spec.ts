@@ -167,6 +167,11 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
           .mockResolvedValueOnce({
             userId: 'invitee-y',
             tier: 'NORMAL',
+          })
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -533,6 +538,12 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
           .mockResolvedValueOnce({
             userId: 'invitee-y',
             tier: 'NORMAL',
+          })
+          // 3. 事务内重新查 inviter（防 TOCTOU）
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         // pickUniqueReferralCode 内部用 findFirst 检查冲突
         findFirst: jest.fn().mockResolvedValue(null),
@@ -595,6 +606,71 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(prismaMock.referralLink.create).toHaveBeenCalled();
   });
 
+  it('VIP 推荐绑定在事务内重新校验推荐码仍属于 VIP 推荐人', async () => {
+    let referralCodeLookupCount = 0;
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn(({ where }: any) => {
+          if (where.referralCode === 'VIPCODE1') {
+            referralCodeLookupCount += 1;
+            return Promise.resolve(
+              referralCodeLookupCount === 1
+                ? {
+                    userId: 'vip-user',
+                    referralCode: 'VIPCODE1',
+                    tier: 'VIP',
+                  }
+                : {
+                    userId: 'vip-user',
+                    referralCode: 'VIPCODE1',
+                    tier: 'NORMAL',
+                  },
+            );
+          }
+          if (where.userId === 'invitee-y') {
+            return Promise.resolve({
+              userId: 'invitee-y',
+              tier: 'NORMAL',
+              inviterUserId: null,
+            });
+          }
+          return Promise.resolve(null);
+        }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', deletionExecutedAt: null }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const couponEngineMock = {
+      handleTrigger: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      couponEngineMock as any,
+      {} as any,
+    );
+
+    await expect(
+      service.useReferralCode('invitee-y', 'VIPCODE1'),
+    ).rejects.toThrow('推荐码无效');
+
+    expect(referralCodeLookupCount).toBe(2);
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+    expect(couponEngineMock.handleTrigger).not.toHaveBeenCalled();
+  });
+
   it('VIP 推荐绑定拒绝已存在的不同普通邀请人', async () => {
     const prismaMock: any = {
       memberProfile: {
@@ -609,6 +685,11 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             userId: 'invitee-y',
             tier: 'NORMAL',
             inviterUserId: 'normal-inviter',
+          })
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -666,6 +747,11 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             userId: 'invitee-y',
             tier: 'NORMAL',
             inviterUserId: 'vip-user',
+          })
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -733,6 +819,11 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             userId: 'invitee-y',
             tier: 'NORMAL',
             inviterUserId: 'vip-user',
+          })
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -795,6 +886,11 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             userId: 'invitee-y',
             tier: 'NORMAL',
             inviterUserId: 'vip-user',
+          })
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -1682,6 +1778,12 @@ describe('BonusService.useReferralCode — 已注销推荐人防护', () => {
           .mockResolvedValueOnce({
             userId: 'invitee-z',
             tier: 'NORMAL',
+          })
+          // 3. 事务内重新查 inviter（防 TOCTOU）
+          .mockResolvedValueOnce({
+            userId: 'vip-inviter',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
           }),
         upsert: jest.fn().mockResolvedValue({}),
       },
