@@ -261,6 +261,35 @@ describe('NormalShareService', () => {
     expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
 
+  it('rejects idempotent normal share bind when an existing VIP referral points to a different inviter', async () => {
+    const { service, tx, growthEvents, prisma } = makeHarness({
+      profileByCode: activeShareProfile(),
+      existingNormalBinding: {
+        id: 'binding-existing',
+        inviteeUserId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+        effectiveInviterUserId: 'inviter-1',
+        code: 'SABCDEFG',
+        rewardStatus: 'REGISTER_REWARDED',
+      },
+      existingVipReferral: {
+        id: 'vip-referral-existing',
+        inviteeUserId: 'invitee-1',
+        inviterUserId: 'other-vip',
+        codeUsed: 'OTHERVIP',
+      },
+    });
+
+    await expect(
+      service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
+    ).rejects.toThrow('已绑定推荐关系，不能更换');
+
+    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+    expect(tx.memberProfile.upsert).not.toHaveBeenCalled();
+    expect(growthEvents.receive).not.toHaveBeenCalled();
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
+  });
+
   it('cannot bind the invitee to their own normal share code', async () => {
     const { service, tx } = makeHarness({
       profileByCode: activeShareProfile({ userId: 'invitee-1' }),
