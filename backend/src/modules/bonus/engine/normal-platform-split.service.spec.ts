@@ -1,7 +1,7 @@
 import { PLATFORM_USER_ID } from './constants';
 import { NormalPlatformSplitService } from './normal-platform-split.service';
 
-describe('NormalPlatformSplitService direct referral holding', () => {
+describe('NormalPlatformSplitService direct referral pool handoff', () => {
   const makeTx = () => {
     const tx = {
       rewardAccount: {
@@ -19,10 +19,11 @@ describe('NormalPlatformSplitService direct referral holding', () => {
     return tx;
   };
 
-  it('credits default normal direct referral holding separately so 100 profit reconciles', async () => {
+  it('does not create temporary normal direct referral holding after direct commission is handled at order paid', async () => {
     const service = new NormalPlatformSplitService();
     const tx = makeTx();
     const normalRewardPoolHandledUpstream = 16;
+    const directReferralPoolHandledAtOrderPaid = 1;
 
     await service.split(
       tx as any,
@@ -57,21 +58,13 @@ describe('NormalPlatformSplitService direct referral holding', () => {
             sourceOrderId: 'order-1',
           }),
         }),
+      ]),
+    );
+    expect(ledgerRows).not.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
-          accountId: `${PLATFORM_USER_ID}-PLATFORM_PROFIT`,
-          userId: PLATFORM_USER_ID,
-          entryType: 'RELEASE',
-          amount: 1,
-          status: 'AVAILABLE',
-          refType: 'ORDER',
-          refId: 'order-1',
           meta: expect.objectContaining({
             scheme: 'NORMAL_DIRECT_REFERRAL_HOLDING',
-            originalScheme: 'NORMAL_DIRECT_REFERRAL',
-            accountType: 'PLATFORM_PROFIT',
-            directReferralPool: 1,
-            sourceOrderId: 'order-1',
-            holdingReason: 'DIRECT_REFERRAL_LEDGER_PENDING_TASK_6',
           }),
         }),
       ]),
@@ -80,12 +73,12 @@ describe('NormalPlatformSplitService direct referral holding', () => {
       where: { id: `${PLATFORM_USER_ID}-PLATFORM_PROFIT` },
       data: { balance: { increment: 49 } },
     });
-    expect(tx.rewardAccount.update).toHaveBeenCalledWith({
-      where: { id: `${PLATFORM_USER_ID}-PLATFORM_PROFIT` },
-      data: { balance: { increment: 1 } },
-    });
     const platformSplitTotal = ledgerRows.reduce((sum, row) => sum + row.amount, 0);
-    expect(platformSplitTotal).toBe(84);
-    expect(normalRewardPoolHandledUpstream + platformSplitTotal).toBe(100);
+    expect(platformSplitTotal).toBe(83);
+    expect(
+      normalRewardPoolHandledUpstream +
+      directReferralPoolHandledAtOrderPaid +
+      platformSplitTotal,
+    ).toBe(100);
   });
 });

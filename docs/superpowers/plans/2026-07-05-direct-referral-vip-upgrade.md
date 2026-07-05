@@ -195,7 +195,7 @@ npx prisma validate
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/bonus/engine/bonus-config.service.ts backend/src/modules/bonus/engine/bonus-config.service.spec.ts backend/prisma/seed.ts backend/prisma/production-bootstrap.ts backend/prisma/migrations/<timestamp>_direct_referral_vip_upgrade/migration.sql
@@ -501,8 +501,13 @@ git commit -m "feat: auto upgrade vip by spend threshold"
 - Modify: `backend/src/modules/order/checkout-vip-direct-referral.spec.ts`
 - Modify: `backend/src/modules/bonus/bonus.module.ts`
 - Modify: `backend/src/modules/order/order.module.ts`
+- Modify: `backend/src/modules/bonus/engine/normal-platform-split.service.ts`
+- Modify: `backend/src/modules/bonus/engine/freeze-expire.service.ts`
+- Modify: `backend/prisma/schema.prisma`
+- Add migration: `backend/prisma/migrations/20260705062000_normal_direct_referral_rule/migration.sql`
+- Modify: `src/utils/walletLedger.ts`
 
-- [ ] **Step 1: Write tests for normal and VIP inviter**
+- [x] **Step 1: Write tests for normal and VIP inviter**
 
 Add cases:
 
@@ -527,7 +532,7 @@ it('skips when ordinary relation was invalidated by invitee VIP upgrade', async 
 });
 ```
 
-- [ ] **Step 2: Implement relation resolution**
+- [x] **Step 2: Implement relation resolution**
 
 Service method should:
 
@@ -550,11 +555,11 @@ const scheme = inviterTier === 'VIP'
 6. Create `RewardAllocation` and `RewardLedger` with `FROZEN`.
 7. Snapshot `inviterTierAtOrder`, `inviteeTierAtOrder`, `ratio`, `profit`, `sourceRelation`.
 
-- [ ] **Step 3: Preserve existing VIP release compatibility**
+- [x] **Step 3: Preserve existing VIP release compatibility**
 
 Keep `VIP_DIRECT_REFERRAL` scheme for VIP inviter ledgers so existing wallet labels do not regress. Add `NORMAL_DIRECT_REFERRAL` to wallet labels.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 

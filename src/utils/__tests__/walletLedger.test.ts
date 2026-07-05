@@ -75,6 +75,13 @@ describe('wallet ledger display titles', () => {
     }))).toBe('VIP 直推佣金');
   });
 
+  it('labels normal direct referral commission by scheme even when refType is ORDER', () => {
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'ORDER',
+      meta: { scheme: 'NORMAL_DIRECT_REFERRAL' },
+    }))).toBe('普通直推佣金');
+  });
+
   it('prefers backend reward sourceLabel without overriding group-buy special states', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',
