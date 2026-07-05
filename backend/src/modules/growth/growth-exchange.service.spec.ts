@@ -64,6 +64,10 @@ const makeHarness = (options: {
         ...data,
       })),
     },
+    growthLevel: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     growthAccount: {
       findUnique: jest.fn().mockResolvedValue(options.account ?? activeAccount()),
       update: jest.fn().mockResolvedValue({ id: 'account-1' }),
@@ -260,6 +264,29 @@ describe('GrowthExchangeService', () => {
     await expect(
       service.exchange('user-1', 'item-1', { idempotencyKey: 'request-1' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(couponAdapter.issueExchangeCoupon).not.toHaveBeenCalled();
+  });
+
+  it('enforces the current growth level monthly exchange limit across exchange items', async () => {
+    const { service, tx, couponAdapter } = makeHarness({
+      account: activeAccount({ currentLevelCode: 'SPROUT' }),
+      limitCount: 3,
+    });
+    tx.growthLevel.findUnique.mockResolvedValueOnce({ monthlyExchangeLimit: 3 });
+
+    await expect(
+      service.exchange('user-1', 'item-1', { idempotencyKey: 'request-1' }),
+    ).rejects.toThrow('本等级本月兑换次数已达上限');
+    expect(tx.growthExchangeRecord.count).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        status: 'SUCCESS',
+        createdAt: {
+          gte: new Date('2026-06-30T16:00:00.000Z'),
+          lt: new Date('2026-07-31T16:00:00.000Z'),
+        },
+      },
+    });
     expect(couponAdapter.issueExchangeCoupon).not.toHaveBeenCalled();
   });
 

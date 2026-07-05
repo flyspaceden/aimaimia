@@ -9,12 +9,15 @@ export type VipDirectReferralCommissionResult = 'credited' | 'platform' | 'skipp
 
 type DirectReferralScheme = 'NORMAL_DIRECT_REFERRAL' | 'VIP_DIRECT_REFERRAL';
 type DirectRelationSource = 'MEMBER_PROFILE' | 'NORMAL_SHARE_BINDING' | 'NONE';
+type DirectRelationSourceCodeType = 'NORMAL_SHARE_CODE' | 'MEMBER_REFERRAL_CODE';
 
 interface DirectRelationResolution {
   inviterUserId: string | null;
   sourceRelation: DirectRelationSource;
   normalShareBindingId?: string;
   relationStatus?: string;
+  sourceCode?: string | null;
+  sourceCodeType?: DirectRelationSourceCodeType | null;
   platformReason?: string;
 }
 
@@ -104,12 +107,13 @@ export class VipDirectReferralCommissionService {
           select: {
             status: true,
             deletionExecutedAt: true,
-            memberProfile: { select: { tier: true } },
+            memberProfile: { select: { tier: true, referralCode: true } },
           },
         })
         : null;
 
       const platformReason = this.resolvePlatformReason(relation, inviter);
+      const sourceCodeAudit = this.resolveSourceCodeAudit(relation, inviter);
       const inviterTierAtOrder = inviter?.memberProfile?.tier ?? null;
       const fallbackTier = inviteeTierAtOrder === 'VIP' ? 'VIP' : 'NORMAL';
       const commissionTier = inviterTierAtOrder === 'VIP'
@@ -157,6 +161,7 @@ export class VipDirectReferralCommissionService {
           inviterTierAtOrder,
           platformReason,
           config.ruleVersion,
+          sourceCodeAudit,
         );
         return 'platform';
       }
@@ -187,6 +192,8 @@ export class VipDirectReferralCommissionService {
             sourceRelation: relation.sourceRelation,
             normalShareBindingId: relation.normalShareBindingId,
             relationStatus: relation.relationStatus,
+            sourceCode: sourceCodeAudit.sourceCode,
+            sourceCodeType: sourceCodeAudit.sourceCodeType,
             configSnapshot: context.pools.configSnapshot,
             routedToPlatform: false,
             releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
@@ -218,6 +225,8 @@ export class VipDirectReferralCommissionService {
             sourceRelation: relation.sourceRelation,
             normalShareBindingId: relation.normalShareBindingId,
             relationStatus: relation.relationStatus,
+            sourceCode: sourceCodeAudit.sourceCode,
+            sourceCodeType: sourceCodeAudit.sourceCodeType,
             configSnapshot: context.pools.configSnapshot,
             releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
           },
@@ -248,6 +257,7 @@ export class VipDirectReferralCommissionService {
     inviterTierAtOrder: string | null,
     platformReason: string,
     ruleVersion: string,
+    sourceCodeAudit: { sourceCode: string | null; sourceCodeType: DirectRelationSourceCodeType | null },
   ) {
     const account = await (tx as any).rewardAccount.upsert({
       where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
@@ -275,6 +285,8 @@ export class VipDirectReferralCommissionService {
           sourceRelation: relation.sourceRelation,
           normalShareBindingId: relation.normalShareBindingId,
           relationStatus: relation.relationStatus,
+          sourceCode: sourceCodeAudit.sourceCode,
+          sourceCodeType: sourceCodeAudit.sourceCodeType,
           configSnapshot: context.pools.configSnapshot,
           routedToPlatform: true,
           platformReason,
@@ -310,6 +322,8 @@ export class VipDirectReferralCommissionService {
           sourceRelation: relation.sourceRelation,
           normalShareBindingId: relation.normalShareBindingId,
           relationStatus: relation.relationStatus,
+          sourceCode: sourceCodeAudit.sourceCode,
+          sourceCodeType: sourceCodeAudit.sourceCodeType,
           configSnapshot: context.pools.configSnapshot,
           releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
         },
@@ -336,21 +350,44 @@ export class VipDirectReferralCommissionService {
       };
     }
 
-    if (memberProfileInviterUserId) {
-      return {
-        inviterUserId: memberProfileInviterUserId,
-        sourceRelation: 'MEMBER_PROFILE',
-      };
-    }
-
     const binding = await (tx as any).normalShareBinding.findUnique({
       where: { inviteeUserId },
       select: {
         id: true,
+        code: true,
+        inviterUserId: true,
         relationStatus: true,
         effectiveInviterUserId: true,
       },
     });
+
+    if (memberProfileInviterUserId) {
+      if (
+        binding &&
+        binding.inviterUserId === memberProfileInviterUserId &&
+        binding.relationStatus !== 'ACTIVE' &&
+        binding.relationStatus !== 'SUPERSEDED_BY_VIP_TREE'
+      ) {
+        return {
+          inviterUserId: null,
+          sourceRelation: 'NORMAL_SHARE_BINDING',
+          normalShareBindingId: binding.id,
+          relationStatus: binding.relationStatus,
+          sourceCode: binding.code,
+          sourceCodeType: 'NORMAL_SHARE_CODE',
+          platformReason: 'DIRECT_RELATION_NOT_ACTIVE',
+        };
+      }
+
+      return {
+        inviterUserId: memberProfileInviterUserId,
+        sourceRelation: 'MEMBER_PROFILE',
+        normalShareBindingId: binding?.id,
+        relationStatus: binding?.relationStatus,
+        sourceCode: binding?.code ?? null,
+        sourceCodeType: binding?.code ? 'NORMAL_SHARE_CODE' : null,
+      };
+    }
 
     if (!binding) {
       return {
@@ -366,6 +403,8 @@ export class VipDirectReferralCommissionService {
         sourceRelation: 'NORMAL_SHARE_BINDING',
         normalShareBindingId: binding.id,
         relationStatus: binding.relationStatus,
+        sourceCode: binding.code,
+        sourceCodeType: 'NORMAL_SHARE_CODE',
         platformReason: 'DIRECT_RELATION_NOT_ACTIVE',
       };
     }
@@ -376,6 +415,8 @@ export class VipDirectReferralCommissionService {
         sourceRelation: 'NORMAL_SHARE_BINDING',
         normalShareBindingId: binding.id,
         relationStatus: binding.relationStatus,
+        sourceCode: binding.code,
+        sourceCodeType: 'NORMAL_SHARE_CODE',
         platformReason: 'DIRECT_RELATION_NO_EFFECTIVE_INVITER',
       };
     }
@@ -385,7 +426,31 @@ export class VipDirectReferralCommissionService {
       sourceRelation: 'NORMAL_SHARE_BINDING',
       normalShareBindingId: binding.id,
       relationStatus: binding.relationStatus,
+      sourceCode: binding.code,
+      sourceCodeType: 'NORMAL_SHARE_CODE',
     };
+  }
+
+  private resolveSourceCodeAudit(
+    relation: DirectRelationResolution,
+    inviter: any,
+  ): { sourceCode: string | null; sourceCodeType: DirectRelationSourceCodeType | null } {
+    if (relation.sourceCode) {
+      return {
+        sourceCode: relation.sourceCode,
+        sourceCodeType: relation.sourceCodeType ?? 'NORMAL_SHARE_CODE',
+      };
+    }
+
+    const referralCode = inviter?.memberProfile?.referralCode;
+    if (typeof referralCode === 'string' && referralCode.length > 0) {
+      return {
+        sourceCode: referralCode,
+        sourceCodeType: 'MEMBER_REFERRAL_CODE',
+      };
+    }
+
+    return { sourceCode: null, sourceCodeType: null };
   }
 
   private resolvePlatformReason(

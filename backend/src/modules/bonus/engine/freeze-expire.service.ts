@@ -39,6 +39,8 @@ const DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
   'sourceRelation',
   'normalShareBindingId',
   'relationStatus',
+  'sourceCode',
+  'sourceCodeType',
   'configSnapshot',
   'releaseCondition',
 ] as const;

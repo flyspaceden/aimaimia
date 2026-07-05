@@ -25,6 +25,7 @@ const makeHarness = (options: {
   existingNormalBinding?: any;
   existingVipReferral?: any;
   codeCollision?: any;
+  vipReferralCodeCollision?: any;
 } = {}) => {
   let lastTransactionOptions: any;
   const tx: any = {
@@ -57,6 +58,10 @@ const makeHarness = (options: {
     },
     memberProfile: {
       findUnique: jest.fn().mockResolvedValue(options.memberProfileByUser ?? { tier: 'NORMAL' }),
+      findFirst: jest.fn(({ where }: any) => {
+        if (where.referralCode) return Promise.resolve(options.vipReferralCodeCollision ?? null);
+        return Promise.resolve(null);
+      }),
       upsert: jest.fn(({ create, update }: any) => ({
         id: 'member-profile-1',
         userId: create.userId,
@@ -129,6 +134,33 @@ describe('NormalShareService', () => {
     expect(tx.normalShareProfile.create).not.toHaveBeenCalled();
   });
 
+  it('does not create a normal share code that is already used as a VIP referral code', async () => {
+    const { service, tx } = makeHarness();
+    jest.spyOn(service as any, 'generateCode')
+      .mockReturnValueOnce('SABCDEFG')
+      .mockReturnValueOnce('SBCDEFGH');
+    tx.memberProfile.findFirst.mockImplementation(({ where }: any) => {
+      if (where.referralCode === 'SABCDEFG') {
+        return Promise.resolve({ id: 'vip-member-profile-1' });
+      }
+      return Promise.resolve(null);
+    });
+
+    await service.getMe('user-1') as any;
+
+    expect(tx.memberProfile.findFirst).toHaveBeenCalledWith({
+      where: { referralCode: 'SABCDEFG' },
+      select: { id: true },
+    });
+    expect(tx.normalShareProfile.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        code: 'SBCDEFGH',
+        status: 'ACTIVE',
+      },
+    });
+  });
+
   it('does not create an ordinary share code for VIP users', async () => {
     const { service, tx } = makeHarness({
       memberProfileByUser: { tier: 'VIP' },
@@ -193,6 +225,7 @@ describe('NormalShareService', () => {
     expect(prisma.normalShareBinding.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'binding-created',
+        relationStatus: 'ACTIVE',
         rewardStatus: 'PENDING',
       },
       data: {
@@ -257,6 +290,33 @@ describe('NormalShareService', () => {
       id: 'binding-existing',
       isIdempotent: true,
     });
+    expect(growthEvents.receive).not.toHaveBeenCalled();
+    expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not revive an inactive normal share relation on repeat bind', async () => {
+    const { service, tx, growthEvents, prisma } = makeHarness({
+      profileByCode: activeShareProfile(),
+      memberProfileByUser: {
+        userId: 'invitee-1',
+        tier: 'NORMAL',
+        inviterUserId: null,
+      },
+      existingNormalBinding: {
+        id: 'binding-existing',
+        inviteeUserId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+        effectiveInviterUserId: null,
+        code: 'SABCDEFG',
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        rewardStatus: 'PENDING',
+      },
+    });
+
+    await expect(
+      service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
+    ).rejects.toThrow('普通分享关系已失效，不能重新绑定');
+    expect(tx.memberProfile.upsert).not.toHaveBeenCalled();
     expect(growthEvents.receive).not.toHaveBeenCalled();
     expect(prisma.normalShareBinding.updateMany).not.toHaveBeenCalled();
   });
@@ -339,8 +399,8 @@ describe('NormalShareService', () => {
     expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
   });
 
-  it('keeps historical ordinary share codes usable when the inviter later becomes VIP', async () => {
-    const { service, tx } = makeHarness({
+  it('rejects historical ordinary share codes after the inviter becomes VIP', async () => {
+    const { service, tx, growthEvents } = makeHarness({
       profileByCode: activeShareProfile({
         user: {
           id: 'inviter-1',
@@ -354,13 +414,9 @@ describe('NormalShareService', () => {
 
     await expect(
       service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
-    ).resolves.toMatchObject({
-      inviterUserId: 'inviter-1',
-      inviteeUserId: 'invitee-1',
-      relationStatus: 'ACTIVE',
-      effectiveInviterUserId: 'inviter-1',
-    });
-    expect(tx.normalShareBinding.create).toHaveBeenCalled();
+    ).rejects.toThrow('VIP 用户请使用 VIP 推荐码邀请');
+    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+    expect(growthEvents.receive).not.toHaveBeenCalled();
   });
 
   it('rejects a second normal share binding to a different inviter', async () => {
@@ -407,11 +463,11 @@ describe('NormalShareService', () => {
     expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
   });
 
-  it('counts all unissued bindings as pending invitees', async () => {
+  it('counts bindings with any granted invite reward as rewarded invitees', async () => {
     const count = jest.fn(({ where }: any) => {
       if (!where.rewardStatus) return Promise.resolve(8);
-      if (where.rewardStatus === 'ISSUED') return Promise.resolve(3);
-      if (where.rewardStatus?.in) return Promise.resolve(5);
+      if (where.rewardStatus?.in?.includes('ISSUED')) return Promise.resolve(4);
+      if (where.rewardStatus?.in?.includes('PENDING')) return Promise.resolve(5);
       return Promise.resolve(0);
     });
     const service = new NormalShareService({
@@ -421,12 +477,26 @@ describe('NormalShareService', () => {
 
     await expect(service.getStats('inviter-1')).resolves.toEqual({
       totalInvitees: 8,
-      rewardedInvitees: 3,
+      rewardedInvitees: 4,
       pendingInvitees: 5,
     });
     expect(count).toHaveBeenCalledWith({
       where: {
         inviterUserId: 'inviter-1',
+        relationStatus: 'ACTIVE',
+      },
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        inviterUserId: 'inviter-1',
+        relationStatus: 'ACTIVE',
+        rewardStatus: { in: ['REGISTER_REWARDED', 'ISSUED'] },
+      },
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        inviterUserId: 'inviter-1',
+        relationStatus: 'ACTIVE',
         rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
       },
     });

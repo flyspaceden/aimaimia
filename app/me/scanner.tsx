@@ -15,13 +15,38 @@ import { Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AppBottomSheet } from '../../src/components/overlay';
 import { showPermissionRationale } from '../../src/components/overlay/PermissionRationaleModal';
-import { BonusRepo } from '../../src/repos';
+import { BonusRepo, GrowthRepo } from '../../src/repos';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { getReferralInviterLabel } from '../../src/utils/referralRelation';
 
 const SCAN_BOX_SIZE = 250;
 const CORNER_SIZE = 24;
 const CORNER_WIDTH = 3;
+type ScannedInviteCode = { type: 'vip' | 'normal' | 'auto'; code: string };
+type ResolvedInviteCodeType = 'vip' | 'normal';
+type BindInviteCodeResult = {
+  ok: boolean;
+  data?: unknown;
+  error?: { displayMessage?: string; message?: string; retryable?: boolean };
+  resolvedType: ResolvedInviteCodeType;
+};
+
+const withResolvedType = (result: any, resolvedType: ResolvedInviteCodeType): BindInviteCodeResult => ({
+  ...result,
+  resolvedType,
+});
+
+const shouldTryNormalShareFallback = (result: any) => {
+  if (result?.ok || result?.error?.retryable) return false;
+  const message = `${result?.error?.displayMessage ?? ''}${result?.error?.message ?? ''}`;
+  return message.includes('推荐码无效');
+};
+
+const shouldTryVipReferralFallback = (result: any) => {
+  if (result?.ok || result?.error?.retryable) return false;
+  const message = `${result?.error?.displayMessage ?? ''}${result?.error?.message ?? ''}`;
+  return message.includes('普通分享码无效');
+};
 
 // 二维码扫描页
 export default function ScannerScreen() {
@@ -63,20 +88,51 @@ export default function ScannerScreen() {
     transform: [{ translateY: scanLineY.value }],
   }));
 
-  // 绑定推荐码
-  const bindMutation = useMutation({
-    mutationFn: (code: string) => BonusRepo.useReferralCode(code),
-    onSuccess: (result) => {
+  // 绑定推荐码/普通分享码
+  const bindInviteCode = async (payload: ScannedInviteCode): Promise<BindInviteCodeResult> => {
+    if (payload.type === 'normal') {
+      const result = await GrowthRepo.bindNormalShareCode(payload.code);
+      return withResolvedType(result, 'normal');
+    }
+    if (payload.type === 'auto' && payload.code.startsWith('S')) {
+      const normalResult = await GrowthRepo.bindNormalShareCode(payload.code);
+      if (normalResult.ok || !shouldTryVipReferralFallback(normalResult)) {
+        return withResolvedType(normalResult, 'normal');
+      }
+      const vipResult = await BonusRepo.useReferralCode(payload.code);
+      return withResolvedType(vipResult, 'vip');
+    }
+    const vipResult = await BonusRepo.useReferralCode(payload.code);
+    if (payload.type === 'auto' && shouldTryNormalShareFallback(vipResult)) {
+      const normalResult = await GrowthRepo.bindNormalShareCode(payload.code);
+      return withResolvedType(normalResult, 'normal');
+    }
+    return withResolvedType(vipResult, 'vip');
+  };
+
+  const bindMutation = useMutation<BindInviteCodeResult, Error, ScannedInviteCode>({
+    mutationFn: bindInviteCode,
+    onSuccess: (result, payload) => {
       if (result.ok) {
-        const inviterName = getReferralInviterLabel(result.data);
+        const resolvedType = result.resolvedType ?? (payload.type === 'normal' ? 'normal' : 'vip');
+        const inviterName = resolvedType === 'vip'
+          ? getReferralInviterLabel(result.data as any)
+          : null;
         show({
-          message: inviterName ? `已绑定推荐人：${inviterName}` : '推荐码绑定成功！',
+          message: inviterName
+            ? `已绑定推荐人：${inviterName}`
+            : resolvedType === 'normal'
+              ? '普通分享码绑定成功'
+              : '推荐码绑定成功！',
           type: 'success',
         });
         queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
+        queryClient.invalidateQueries({ queryKey: ['growth-me'] });
+        queryClient.invalidateQueries({ queryKey: ['normal-share-records'] });
+        queryClient.invalidateQueries({ queryKey: ['normal-share-stats'] });
         router.back();
       } else {
-        show({ message: result.error.displayMessage ?? '绑定失败，请稍后重试', type: 'error' });
+        show({ message: result.error?.displayMessage ?? '绑定失败，请稍后重试', type: 'error' });
         setScanned(false);
       }
     },
@@ -87,13 +143,15 @@ export default function ScannerScreen() {
   });
 
   // 从扫描结果中解析推荐码
-  const parseReferralCode = (data: string): string | null => {
+  const parseInviteCode = (data: string): ScannedInviteCode | null => {
     // 支持 URL 格式: https://app.ai-maimai.com/r/CODE（兼容旧域名 app.xn--ckqa175y.com）
-    const urlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
-    if (urlMatch) return urlMatch[2].toUpperCase();
-    // 纯文本 8 位码
+    const vipUrlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
+    if (vipUrlMatch) return { type: 'vip', code: vipUrlMatch[2].toUpperCase() };
+    const normalUrlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/s\/([A-Za-z0-9]{8})/);
+    if (normalUrlMatch) return { type: 'normal', code: normalUrlMatch[2].toUpperCase() };
+    // 纯文本 8 位码无法从格式判断类型，S 开头优先普通分享码，否则优先 VIP 推荐码。
     const codeMatch = data.match(/^[A-Za-z0-9]{8}$/);
-    if (codeMatch) return data.toUpperCase();
+    if (codeMatch) return { type: 'auto', code: data.toUpperCase() };
     return null;
   };
 
@@ -113,13 +171,13 @@ export default function ScannerScreen() {
         router.push({ pathname: '/gb/[code]' as any, params: { code: groupBuyCode } });
         return;
       }
-      const code = parseReferralCode(data);
-      if (!code) {
-        show({ message: '未识别到有效推荐码', type: 'info' });
+      const inviteCode = parseInviteCode(data);
+      if (!inviteCode) {
+        show({ message: '未识别到有效推荐码或普通分享码', type: 'info' });
         return;
       }
       setScanned(true);
-      bindMutation.mutate(code);
+      bindMutation.mutate(inviteCode);
     },
     [scanned, bindMutation, show],
   );
@@ -128,13 +186,58 @@ export default function ScannerScreen() {
   const handleManualSubmit = () => {
     const trimmed = manualCode.trim().toUpperCase();
     if (trimmed.length !== 8) {
-      show({ message: '请输入 8 位推荐码', type: 'info' });
+      show({ message: '请输入 8 位推荐码或普通分享码', type: 'info' });
       return;
     }
     setSheetOpen(false);
     setScanned(true);
-    bindMutation.mutate(trimmed);
+    bindMutation.mutate({ type: 'auto', code: trimmed });
   };
+
+  const renderManualInputSheet = () => (
+    <AppBottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="手动输入推荐码或普通分享码">
+      <TextInput
+        ref={inputRef}
+        value={manualCode}
+        onChangeText={(text) => setManualCode(text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+        placeholder="请输入 8 位推荐码或普通分享码"
+        placeholderTextColor={colors.muted}
+        maxLength={8}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        style={[
+          styles.manualInput,
+          {
+            backgroundColor: colors.background,
+            borderColor: colors.border,
+            borderRadius: radius.lg,
+            color: colors.text.primary,
+            fontSize: 18,
+            letterSpacing: 4,
+          },
+        ]}
+      />
+      <Pressable
+        onPress={handleManualSubmit}
+        disabled={bindMutation.isPending}
+      >
+        <View
+          style={[
+            styles.submitBtn,
+            {
+              backgroundColor: colors.brand.primary,
+              borderRadius: radius.pill,
+              opacity: bindMutation.isPending ? 0.6 : 1,
+            },
+          ]}
+        >
+          <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>
+            {bindMutation.isPending ? '绑定中...' : '确认绑定'}
+          </Text>
+        </View>
+      </Pressable>
+    </AppBottomSheet>
+  );
 
   // 权限未授予 — 显示说明页
   if (!permission?.granted) {
@@ -146,7 +249,7 @@ export default function ScannerScreen() {
             需要相机权限
           </Text>
           <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: spacing.sm, textAlign: 'center' }]}>
-            扫描推荐码二维码需要使用相机，请授权相机访问权限
+            扫描推荐码或普通分享码二维码需要使用相机，请授权相机访问权限
           </Text>
           <Pressable
             onPress={handleRequestCameraPermission}
@@ -154,10 +257,19 @@ export default function ScannerScreen() {
           >
             <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>授权相机</Text>
           </Pressable>
+          <Pressable
+            onPress={() => setSheetOpen(true)}
+            style={[styles.permissionBtn, { borderColor: colors.border, borderRadius: radius.pill, borderWidth: 1, marginTop: spacing.md }]}
+          >
+            <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+              没有相机权限也可以手动输入
+            </Text>
+          </Pressable>
           <Pressable onPress={() => router.back()} style={{ marginTop: spacing.lg }}>
             <Text style={[typography.bodySm, { color: colors.muted }]}>返回</Text>
           </Pressable>
         </View>
+        {renderManualInputSheet()}
       </Screen>
     );
   }
@@ -180,7 +292,7 @@ export default function ScannerScreen() {
           <Pressable onPress={() => router.back()} hitSlop={10} style={styles.navBtn}>
             <MaterialCommunityIcons name="chevron-left" size={28} color="#FFFFFF" />
           </Pressable>
-          <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>扫描推荐码</Text>
+          <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>扫码绑定</Text>
           <Pressable onPress={() => setTorchOn(!torchOn)} hitSlop={10} style={styles.navBtn}>
             <MaterialCommunityIcons
               name={torchOn ? 'flashlight' : 'flashlight-off'}
@@ -222,59 +334,18 @@ export default function ScannerScreen() {
         {/* 底部提示 */}
         <View style={[styles.bottomArea, { paddingBottom: bottomAreaPadding }]}>
           <Text style={[typography.bodySm, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
-            将推荐码二维码放入框内
+            将推荐码或普通分享码二维码放入框内
           </Text>
           <Pressable onPress={() => setSheetOpen(true)} style={{ marginTop: spacing.md }}>
             <Text style={[typography.bodySm, { color: colors.ai.end, textAlign: 'center' }]}>
-              手动输入推荐码
+              手动输入推荐码或普通分享码
             </Text>
           </Pressable>
         </View>
       </View>
 
       {/* 手动输入抽屉 */}
-      <AppBottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="手动输入推荐码">
-        <TextInput
-          ref={inputRef}
-          value={manualCode}
-          onChangeText={(text) => setManualCode(text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-          placeholder="请输入 8 位推荐码"
-          placeholderTextColor={colors.muted}
-          maxLength={8}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          style={[
-            styles.manualInput,
-            {
-              backgroundColor: colors.background,
-              borderColor: colors.border,
-              borderRadius: radius.lg,
-              color: colors.text.primary,
-              fontSize: 18,
-              letterSpacing: 4,
-            },
-          ]}
-        />
-        <Pressable
-          onPress={handleManualSubmit}
-          disabled={bindMutation.isPending}
-        >
-          <View
-            style={[
-              styles.submitBtn,
-              {
-                backgroundColor: colors.brand.primary,
-                borderRadius: radius.pill,
-                opacity: bindMutation.isPending ? 0.6 : 1,
-              },
-            ]}
-          >
-            <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>
-              {bindMutation.isPending ? '绑定中...' : '确认绑定'}
-            </Text>
-          </View>
-        </Pressable>
-      </AppBottomSheet>
+      {renderManualInputSheet()}
     </Screen>
   );
 }

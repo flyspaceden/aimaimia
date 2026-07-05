@@ -1556,6 +1556,7 @@ export class CouponService {
         'minOrderAmount',
         'triggerType',
         'distributionMode',
+        'growthExchangeEnabled',
       ];
       for (const field of restrictedFields) {
         if (dto[field] !== undefined) {

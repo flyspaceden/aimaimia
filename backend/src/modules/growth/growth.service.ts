@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
+import { isWiredGrowthBehaviorCode } from './growth-config.util';
 import { GrowthLevelService } from './growth-level.service';
 
 @Injectable()
@@ -100,6 +101,7 @@ export class GrowthService {
 
     const publicRules = rules
       .filter((rule: any) => rule.code !== 'ADMIN_ADJUST')
+      .filter((rule: any) => isWiredGrowthBehaviorCode(rule.code))
       .filter((rule: any) => Number(rule.pointsReward ?? 0) !== 0 || Number(rule.growthReward ?? 0) !== 0)
       .map((rule: any) => this.toPublicRule(rule));
     const inviteCodes = new Set(['NORMAL_INVITE_REGISTER', 'NORMAL_INVITE_FIRST_ORDER']);
@@ -155,20 +157,32 @@ export class GrowthService {
 
   private async getDirectReferralSummary(userId: string, memberProfile: any) {
     const activeInviterUserId = memberProfile?.inviterUserId ?? null;
+    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
+      where: { inviteeUserId: userId },
+      select: {
+        inviterUserId: true,
+        relationStatus: true,
+        effectiveInviterUserId: true,
+      },
+    });
     if (activeInviterUserId) {
+      if (
+        binding?.inviterUserId === activeInviterUserId &&
+        binding.relationStatus &&
+        binding.relationStatus !== 'ACTIVE' &&
+        binding.relationStatus !== 'SUPERSEDED_BY_VIP_TREE'
+      ) {
+        return {
+          status: binding.relationStatus,
+          inviter: null,
+        };
+      }
       return {
         status: 'ACTIVE',
         inviter: await this.getUserSummary(activeInviterUserId),
       };
     }
 
-    const binding = await (this.prisma as any).normalShareBinding?.findUnique?.({
-      where: { inviteeUserId: userId },
-      select: {
-        relationStatus: true,
-        effectiveInviterUserId: true,
-      },
-    });
     const effectiveInviterUserId = binding?.effectiveInviterUserId ?? null;
     return {
       status: binding?.relationStatus ?? null,

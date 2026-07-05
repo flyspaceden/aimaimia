@@ -16,7 +16,7 @@ import { Type } from 'class-transformer';
 const GRANT_TIMINGS = ['IMMEDIATE', 'CONFIRMED_RECEIPT', 'AFTER_SALE_WINDOW', 'MANUAL'] as const;
 const APPLICABLE_USER_TYPES = ['ALL', 'NORMAL', 'VIP'] as const;
 const ACCOUNT_USER_TYPES = ['ALL', 'NORMAL', 'VIP'] as const;
-const EXCHANGE_TYPES = ['COUPON', 'SHIPPING_COUPON', 'LOTTERY_CHANCE', 'VIP_DISCOUNT_COUPON', 'DECORATION'] as const;
+const EXCHANGE_TYPES = ['COUPON', 'SHIPPING_COUPON', 'VIP_DISCOUNT_COUPON'] as const;
 const EXCHANGE_STATUSES = ['ACTIVE', 'INACTIVE', 'SOLD_OUT'] as const;
 const SORT_DIRECTIONS = ['asc', 'desc', 'ascend', 'descend'] as const;
 

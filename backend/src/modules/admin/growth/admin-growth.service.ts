@@ -8,7 +8,12 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
-import { resolveGrowthLevelCode, syncGrowthAccountLevel } from '../../growth/growth-config.util';
+import {
+  isWiredGrowthBehaviorCode,
+  resolveGrowthLevelCode,
+  syncGrowthAccountLevel,
+  unwrapGrowthConfigValue,
+} from '../../growth/growth-config.util';
 import { GrowthLevelService } from '../../growth/growth-level.service';
 import {
   AdminGrowthAccountQueryDto,
@@ -116,6 +121,7 @@ export class AdminGrowthService {
       }),
       (this.prisma as any).normalShareBinding.count({
         where: {
+          relationStatus: 'ACTIVE',
           rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
         },
       }),
@@ -155,7 +161,7 @@ export class AdminGrowthService {
     const configs = await (this.prisma as any).ruleConfig.findMany({
       where: { key: { in: GROWTH_SETTINGS.map((item) => item.configKey) } },
     });
-    const configMap = new Map(configs.map((item: any) => [item.key, item.value]));
+    const configMap = new Map(configs.map((item: any) => [item.key, unwrapGrowthConfigValue(item.value)]));
     return GROWTH_SETTINGS.reduce((acc, item) => {
       acc[item.dtoKey] = configMap.has(item.configKey) ? configMap.get(item.configKey) : item.defaultValue;
       return acc;
@@ -217,6 +223,7 @@ export class AdminGrowthService {
       sortOrder: dto.sortOrder ?? 0,
     };
     this.assertDateRange(data.startAt, data.endAt);
+    this.assertBehaviorCanBeEnabled(data.code, data.enabled);
 
     return (this.prisma as any).growthBehaviorRule.upsert({
       where: { code: data.code },
@@ -346,16 +353,7 @@ export class AdminGrowthService {
         where,
         include: {
           user: {
-            select: {
-              id: true,
-              buyerNo: true,
-              profile: { select: { nickname: true, avatarUrl: true } },
-              authIdentities: {
-                where: { provider: 'PHONE' },
-                select: { identifier: true },
-                take: 1,
-              },
-            },
+            select: this.userSummarySelect(),
           },
         },
         skip: (page - 1) * pageSize,
@@ -365,11 +363,23 @@ export class AdminGrowthService {
       (this.prisma as any).growthLedger.count({ where }),
     ]);
 
+    const autoVipTreeInviterMap = await this.loadUserSummaryMap(
+      items
+        .map((item: any) => this.getAutoVipTreeInviterUserId(item))
+        .filter(Boolean),
+    );
+
     return {
-      items: items.map((item: any) => ({
-        ...item,
-        user: item.user ? this.mapUser(item.user) : null,
-      })),
+      items: items.map((item: any) => {
+        const autoVipTreeInviterUserId = this.getAutoVipTreeInviterUserId(item);
+        return {
+          ...item,
+          user: item.user ? this.mapUser(item.user) : null,
+          autoVipTreeInviter: autoVipTreeInviterUserId
+            ? autoVipTreeInviterMap.get(autoVipTreeInviterUserId) ?? null
+            : null,
+        };
+      }),
       total,
       page,
       pageSize,
@@ -563,6 +573,12 @@ export class AdminGrowthService {
     }
   }
 
+  private assertBehaviorCanBeEnabled(code: string, enabled: boolean) {
+    if (enabled && !isWiredGrowthBehaviorCode(code)) {
+      throw new BadRequestException('该成长行为暂未接入自动发放，不能启用');
+    }
+  }
+
   private normalizeLevels(levels: AdminGrowthLevelDto[]) {
     if (!Array.isArray(levels) || levels.length === 0) {
       throw new BadRequestException('成长等级不能为空');
@@ -692,6 +708,9 @@ export class AdminGrowthService {
     startAt?: string | null,
     endAt?: string | null,
   ) {
+    if (!COUPON_EXCHANGE_TYPES.has(type)) {
+      throw new BadRequestException('该兑换类型暂未接入发放通道');
+    }
     if (pointsCost <= 0) {
       throw new BadRequestException('兑换积分必须大于 0');
     }
@@ -938,11 +957,19 @@ export class AdminGrowthService {
 
   private resolveDirectReferralInviterUserId(user: any) {
     const memberProfileInviterUserId = user.memberProfile?.inviterUserId ?? null;
+    const binding = user.normalShareBindingReceived;
     if (memberProfileInviterUserId) {
+      if (
+        binding?.inviterUserId === memberProfileInviterUserId &&
+        binding.relationStatus &&
+        binding.relationStatus !== 'ACTIVE' &&
+        binding.relationStatus !== 'SUPERSEDED_BY_VIP_TREE'
+      ) {
+        return null;
+      }
       return memberProfileInviterUserId;
     }
 
-    const binding = user.normalShareBindingReceived;
     if (!binding) {
       return null;
     }
@@ -957,6 +984,21 @@ export class AdminGrowthService {
     const binding = user.normalShareBindingReceived ?? null;
     const inviterUserId = this.resolveDirectReferralInviterUserId(user);
     if (memberProfileInviterUserId) {
+      if (
+        binding?.inviterUserId === memberProfileInviterUserId &&
+        binding.relationStatus &&
+        binding.relationStatus !== 'ACTIVE' &&
+        binding.relationStatus !== 'SUPERSEDED_BY_VIP_TREE'
+      ) {
+        return {
+          directReferralInviterUserId: null,
+          directReferralStatus: binding.relationStatus,
+          directReferralSource: binding.source ?? null,
+          directReferralInvalidAt: binding.relationInvalidAt ?? null,
+          directReferralInvalidReason: binding.relationInvalidReason ?? null,
+          directReferralInviter: null,
+        };
+      }
       return {
         directReferralInviterUserId: memberProfileInviterUserId,
         directReferralStatus: 'ACTIVE',
@@ -975,6 +1017,14 @@ export class AdminGrowthService {
       directReferralInvalidReason: binding?.relationInvalidReason ?? null,
       directReferralInviter: inviterUserId ? directInviterMap.get(inviterUserId) ?? null : null,
     };
+  }
+
+  private getAutoVipTreeInviterUserId(ledger: any): string | null {
+    if (ledger?.behaviorCode !== 'AUTO_VIP_UPGRADE') return null;
+    const meta = ledger.meta;
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+    const userId = (meta as Record<string, unknown>).vipTreeInviterUserId;
+    return typeof userId === 'string' && userId.length > 0 ? userId : null;
   }
 
   private async loadUserSummaryMap(userIds: string[]) {

@@ -224,6 +224,31 @@ describe('Coupon campaign rule validation', () => {
       service.updateCampaign('campaign-1', { discountValue: 20, minOrderAmount: 10 } as any),
     ).rejects.toThrow('最低消费门槛不能低于抵扣金额');
   });
+
+  it('rejects changing growth exchange purpose while a campaign is active', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findUnique.mockResolvedValue({
+      id: 'campaign-1',
+      status: 'ACTIVE',
+      triggerType: 'MANUAL',
+      distributionMode: 'MANUAL',
+      triggerConfig: null,
+      discountType: 'FIXED',
+      discountValue: 8,
+      minOrderAmount: 8,
+      issuedCount: 0,
+      totalQuota: 100,
+      growthExchangeEnabled: false,
+      validDays: 7,
+      startAt: new Date('2026-07-01T00:00:00.000Z'),
+      endAt: null,
+    });
+
+    await expect(
+      service.updateCampaign('campaign-1', { growthExchangeEnabled: true } as any),
+    ).rejects.toThrow('活动进行中不允许修改 growthExchangeEnabled，请先暂停活动');
+    expect(prisma.couponCampaign.update).not.toHaveBeenCalled();
+  });
 });
 
 describe('CouponService admin campaign list lifecycle', () => {

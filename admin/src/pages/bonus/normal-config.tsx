@@ -143,7 +143,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     min: 0,
     max: 1,
     step: 0.01,
-    description: '普通用户推荐好友后，从好友后续普通商品订单利润中获得的持续佣金比例',
+    description: '普通用户推荐好友后，从好友后续普通商品订单利润中获得的持续佣金比例；VIP 礼包本身不发放这类直推佣金',
     defaultValue: 0.01,
   },
   {

@@ -13,6 +13,21 @@ type GrowthLevelClient = {
   };
 };
 
+export const WIRED_GROWTH_BEHAVIOR_CODES = new Set([
+  'REGISTER',
+  'CHECK_IN',
+  'FIRST_ORDER_RECEIVED',
+  'REPURCHASE_RECEIVED',
+  'NORMAL_INVITE_REGISTER',
+  'NORMAL_INVITE_FIRST_ORDER',
+  'TASK_COMPLETE',
+  'ADMIN_ADJUST',
+]);
+
+export function isWiredGrowthBehaviorCode(code: string): boolean {
+  return WIRED_GROWTH_BEHAVIOR_CODES.has(code);
+}
+
 export async function readGrowthConfigValue(
   client: RuleConfigClient,
   key: string,
@@ -21,7 +36,19 @@ export async function readGrowthConfigValue(
     return undefined;
   }
   const config = await client.ruleConfig.findUnique({ where: { key } });
-  return config?.value;
+  return unwrapGrowthConfigValue(config?.value);
+}
+
+export function unwrapGrowthConfigValue(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'value')
+  ) {
+    return (value as { value?: unknown }).value;
+  }
+  return value;
 }
 
 export async function readGrowthConfigBoolean(

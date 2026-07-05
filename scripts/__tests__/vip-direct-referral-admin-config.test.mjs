@@ -18,7 +18,7 @@ function extractRecommendedRatios(source) {
 test('VIP config schema includes the direct referral ratio item', () => {
   assert.match(page, /key:\s*'VIP_DIRECT_REFERRAL_PERCENT'/);
   assert.match(page, /label:\s*'VIP直推佣金占比'/);
-  assert.match(page, /description:\s*'VIP利润中给直系推荐人的持续佣金比例'/);
+  assert.match(page, /description:\s*'VIP 推荐人从好友后续普通商品订单利润中获得的持续佣金比例；VIP 礼包本身不发放这类直推佣金'/);
   assert.match(page, /defaultValue:\s*0/);
 });
 

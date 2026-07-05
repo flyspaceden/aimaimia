@@ -80,6 +80,9 @@ export class NormalShareService {
       ) {
         throw new BadRequestException('邀请人账号不可用');
       }
+      if (inviterProfile.user.memberProfile?.tier === 'VIP') {
+        throw new BadRequestException('VIP 用户请使用 VIP 推荐码邀请');
+      }
       if (inviterProfile.userId === inviteeUserId) {
         throw new BadRequestException('不能绑定自己的普通分享码');
       }
@@ -113,6 +116,13 @@ export class NormalShareService {
       }
 
       if (existingNormalBinding) {
+        if (
+          (existingNormalBinding as any).relationStatus &&
+          (existingNormalBinding as any).relationStatus !== 'ACTIVE'
+        ) {
+          throw new BadRequestException('普通分享关系已失效，不能重新绑定');
+        }
+
         const effectiveNormalInviter =
           existingNormalBinding.effectiveInviterUserId ?? existingNormalBinding.inviterUserId;
         if (effectiveNormalInviter !== inviterProfile.userId) {
@@ -154,6 +164,7 @@ export class NormalShareService {
 
   private async grantInviteRegisterGrowth(binding: any) {
     if (!binding || binding.rewardStatus !== 'PENDING') return;
+    if (binding.relationStatus && binding.relationStatus !== 'ACTIVE') return;
 
     const result = await this.growthEvents.receive({
       userId: binding.inviterUserId,
@@ -171,6 +182,7 @@ export class NormalShareService {
     await this.prisma.normalShareBinding.updateMany({
       where: {
         id: binding.id,
+        relationStatus: 'ACTIVE' as any,
         rewardStatus: 'PENDING',
       },
       data: {
@@ -186,17 +198,24 @@ export class NormalShareService {
 
   async getStats(userId: string) {
     await this.assertOrdinaryShareUser(this.prisma, userId);
+    const activeRelationWhere = {
+      inviterUserId: userId,
+      relationStatus: 'ACTIVE' as any,
+    };
 
     const [total, rewarded, pending] = await Promise.all([
       this.prisma.normalShareBinding.count({
-        where: { inviterUserId: userId },
-      }),
-      this.prisma.normalShareBinding.count({
-        where: { inviterUserId: userId, rewardStatus: 'ISSUED' },
+        where: activeRelationWhere,
       }),
       this.prisma.normalShareBinding.count({
         where: {
-          inviterUserId: userId,
+          ...activeRelationWhere,
+          rewardStatus: { in: ['REGISTER_REWARDED', 'ISSUED'] },
+        },
+      }),
+      this.prisma.normalShareBinding.count({
+        where: {
+          ...activeRelationWhere,
           rewardStatus: { in: ['PENDING', 'REGISTER_REWARDED', 'FIRST_ORDER_PENDING'] },
         },
       }),
@@ -269,10 +288,17 @@ export class NormalShareService {
   private async pickUniqueCode(tx: Prisma.TransactionClient) {
     for (let i = 0; i < 10; i++) {
       const code = this.generateCode();
-      const existing = await tx.normalShareProfile.findUnique({
+      const existingNormalShareCode = await tx.normalShareProfile.findUnique({
         where: { code },
       });
-      if (!existing) {
+      if (existingNormalShareCode) {
+        continue;
+      }
+      const existingVipReferralCode = await tx.memberProfile.findFirst({
+        where: { referralCode: code },
+        select: { id: true },
+      });
+      if (!existingVipReferralCode) {
         return code;
       }
     }

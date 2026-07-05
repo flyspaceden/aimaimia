@@ -41,6 +41,13 @@ const rewardStatusLabels: Record<NormalShareRecord['rewardStatus'], string> = {
   VOIDED: '已作废',
 };
 
+const relationStatusLabels: Record<NonNullable<NormalShareRecord['relationStatus']>, string> = {
+  ACTIVE: '关系有效',
+  SUPERSEDED_BY_VIP_TREE: '转入VIP关系',
+  INVALIDATED_BY_INVITEE_VIP_UPGRADE: '已因对方升级VIP结束',
+  ADMIN_VOIDED: '已作废',
+};
+
 const grantTimingLabels: Record<string, string> = {
   IMMEDIATE: '达成后立即发放',
   CONFIRMED_RECEIPT: '确认收货后发放',
@@ -182,6 +189,8 @@ export default function GrowthCenterScreen() {
       show({ message: '普通分享关系已绑定', type: 'success' });
       setBindCode('');
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+        queryClient.invalidateQueries({ queryKey: ['growth-me'] }),
         queryClient.invalidateQueries({ queryKey: ['normal-share-records'] }),
         queryClient.invalidateQueries({ queryKey: ['normal-share-stats'] }),
       ]);
@@ -542,7 +551,10 @@ export default function GrowthCenterScreen() {
                 <Tag label="后台规则" tone="brand" />
               </View>
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                邀请好友后，可按后台规则获得好友普通商品订单利润的 {directReferralPercentText}。好友成为 VIP 时，如果你还不是 VIP，普通推荐关系会结束；如果你已是 VIP，好友会进入你的 VIP 团队。
+                邀请好友后，可按后台规则获得好友后续普通商品订单利润的 {directReferralPercentText}。比例按订单付款时你的身份计算，先冻结，确认收货且售后期结束后再释放；购买 VIP 礼包本身不单独发放推荐奖。
+              </Text>
+              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.xs }]}>
+                好友成为 VIP 时，如果你还不是 VIP，普通推荐关系会结束；如果你已是 VIP，好友会进入你的 VIP 团队。
               </Text>
               {guideQuery.isLoading ? (
                 <View style={{ marginTop: spacing.md }}>
@@ -748,7 +760,12 @@ export default function GrowthCenterScreen() {
                             {new Date(record.boundAt).toLocaleDateString()}
                           </Text>
                         </View>
-                        <Tag label={rewardStatusLabels[record.rewardStatus] ?? record.rewardStatus} tone={record.rewardStatus === 'ISSUED' ? 'brand' : 'neutral'} />
+                        <View style={styles.recordTags}>
+                          <Tag label={rewardStatusLabels[record.rewardStatus] ?? record.rewardStatus} tone={record.rewardStatus === 'ISSUED' ? 'brand' : 'neutral'} />
+                          {record.relationStatus && record.relationStatus !== 'ACTIVE' ? (
+                            <Tag label={relationStatusLabels[record.relationStatus]} tone="accent" />
+                          ) : null}
+                        </View>
                       </View>
                     ))}
                   </View>
@@ -955,6 +972,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  recordTags: {
+    alignItems: 'flex-end',
+    gap: 4,
+    marginLeft: 8,
   },
   ruleRow: {
     paddingVertical: 12,
