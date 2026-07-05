@@ -28,8 +28,8 @@ export class BatchUpdateConfigItem {
 
 /**
  * 批量更新配置 DTO
- * 用于需要原子性校验的场景（如 VIP/普通用户利润六分比例同时调整）
- * 全部 updates 在单个事务内 upsert，最后一次性校验约束（例如 6 项比例之和 = 1.0）
+ * 用于需要原子性校验的场景（如 VIP/普通用户利润七分比例同时调整）
+ * 全部 updates 在单个事务内 upsert，最后一次性校验约束（例如比例之和 = 1.0）
  */
 export class BatchUpdateConfigDto {
   @IsArray({ message: 'updates 必须为数组' })

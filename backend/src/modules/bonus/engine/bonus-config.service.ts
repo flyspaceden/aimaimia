@@ -131,6 +131,15 @@ const NORMAL_RATIO_KEYS = new Set([
   'NORMAL_RESERVE_PERCENT',
 ]);
 
+const LEGACY_NORMAL_RATIO_KEYS = [
+  'NORMAL_PLATFORM_PERCENT',
+  'NORMAL_REWARD_PERCENT',
+  'NORMAL_INDUSTRY_FUND_PERCENT',
+  'NORMAL_CHARITY_PERCENT',
+  'NORMAL_TECH_PERCENT',
+  'NORMAL_RESERVE_PERCENT',
+] as const;
+
 /** 默认配置（兜底） */
 const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   // VIP系统（七分法）
@@ -408,10 +417,12 @@ export class BonusConfigService {
 
     // 以默认值为基础
     const result: any = { ...DEFAULTS };
+    const loadedKeys = new Set<string>();
 
     for (const row of rows) {
       const field = KEY_MAP[row.key];
       if (!field) continue;
+      loadedKeys.add(row.key);
 
       // RuleConfig.value 存储为 { value: xxx, description: xxx }
       const stored = row.value as any;
@@ -423,6 +434,22 @@ export class BonusConfigService {
     }
 
     result.ruleVersion = latestVersion?.version ?? 'initial';
+
+    const hasLegacyNormalRatios =
+      !loadedKeys.has('NORMAL_DIRECT_REFERRAL_PERCENT') &&
+      LEGACY_NORMAL_RATIO_KEYS.some((key) => loadedKeys.has(key));
+    if (hasLegacyNormalRatios) {
+      const legacyNormalSum =
+        Number(result.normalPlatformPercent) +
+        Number(result.normalRewardPercent) +
+        Number(result.normalIndustryFundPercent) +
+        Number(result.normalCharityPercent) +
+        Number(result.normalTechPercent) +
+        Number(result.normalReservePercent);
+      if (Math.abs(legacyNormalSum - 1.0) <= 0.001) {
+        result.normalDirectReferralPercent = 0;
+      }
+    }
 
     // 校验VIP利润分配比例总和 = 1.0（七分法，容差 0.001）
     const vipSum =

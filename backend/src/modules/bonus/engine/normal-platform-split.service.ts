@@ -3,7 +3,7 @@ import { PLATFORM_USER_ID } from './constants';
 
 /** 普通用户平台分割的 5 个池（奖励由 NormalUpstreamService 处理） */
 interface NormalPlatformPools {
-  platformProfit: number;  // 50%
+  platformProfit: number;  // 49% 默认；直推池由后续任务单独处理
   industryFund: number;    // 16%
   charityFund: number;     // 8%
   techFund: number;        // 8%
@@ -17,7 +17,7 @@ export class NormalPlatformSplitService {
   /**
    * 普通用户平台分割：处理除奖励外的 5 个池
    *
-   * - PLATFORM_PROFIT (50%) → 平台用户账户
+   * - PLATFORM_PROFIT (49% 默认) → 平台用户账户
    * - INDUSTRY_FUND (16%) → 按商品利润占比分给各卖家公司 OWNER
    * - CHARITY_FUND (8%) → 平台账户
    * - TECH_FUND (8%) → 平台账户

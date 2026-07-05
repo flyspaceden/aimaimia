@@ -15,8 +15,9 @@ describe('RewardCalculatorService.calculateVip direct referral pool', () => {
       vipMaxLayers: 15,
       vipBranchFactor: 3,
       vipFreezeDays: 30,
-      normalPlatformPercent: 0.5,
+      normalPlatformPercent: 0.49,
       normalRewardPercent: 0.16,
+      normalDirectReferralPercent: 0.01,
       normalIndustryFundPercent: 0.16,
       normalCharityPercent: 0.08,
       normalTechPercent: 0.08,
@@ -39,6 +40,8 @@ describe('RewardCalculatorService.calculateVip direct referral pool', () => {
       vipDiscountRate: 0.95,
       vipFreeShippingThreshold: 49,
       normalFreeShippingThreshold: 99,
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
       ruleVersion: 'test-version',
       ...overrides,
     }) as BonusConfig;
@@ -94,5 +97,20 @@ describe('RewardCalculatorService.calculateVip direct referral pool', () => {
     expect(result.charityFund).toBe(2);
     expect(result.techFund).toBe(2);
     expect(result.reserveFund).toBe(6);
+  });
+
+  it('splits profit 100 into 49/16/1/16/8/8/2 normal pools', () => {
+    const result = calculator.calculateNormal(
+      [{ unitPrice: 120, cost: 20, quantity: 1, companyId: 'company-1' }],
+      makeConfig(),
+    );
+
+    expect(result.platformProfit).toBe(49);
+    expect(result.rewardPool).toBe(16);
+    expect((result as any).directReferralPool).toBe(1);
+    expect(result.industryFund).toBe(16);
+    expect(result.charityFund).toBe(8);
+    expect(result.techFund).toBe(8);
+    expect(result.reserveFund).toBe(2);
   });
 });
