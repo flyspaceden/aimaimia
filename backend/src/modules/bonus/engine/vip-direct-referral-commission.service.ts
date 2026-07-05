@@ -81,9 +81,6 @@ export class VipDirectReferralCommissionService {
 
       const member = order.user?.memberProfile;
       const inviteeTierAtOrder = member?.tier ?? null;
-      if (!member) {
-        return 'skipped';
-      }
 
       const config = await this.configService.getConfig();
       const calcItems = order.items
@@ -98,7 +95,8 @@ export class VipDirectReferralCommissionService {
       const relation = await this.resolveDirectRelation(
         tx,
         order.userId,
-        member.inviterUserId ?? null,
+        member?.inviterUserId ?? null,
+        !member,
       );
       const inviter = relation.inviterUserId
         ? await (tx as any).user.findUnique({
@@ -328,7 +326,16 @@ export class VipDirectReferralCommissionService {
     tx: Prisma.TransactionClient,
     inviteeUserId: string,
     memberProfileInviterUserId: string | null,
+    memberProfileMissing = false,
   ): Promise<DirectRelationResolution> {
+    if (memberProfileMissing) {
+      return {
+        inviterUserId: null,
+        sourceRelation: 'NONE',
+        platformReason: 'NO_MEMBER_PROFILE',
+      };
+    }
+
     if (memberProfileInviterUserId) {
       return {
         inviterUserId: memberProfileInviterUserId,
