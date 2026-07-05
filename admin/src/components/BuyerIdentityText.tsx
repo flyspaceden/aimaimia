@@ -8,6 +8,7 @@ type BuyerIdentityTextProps = {
   phone?: ReactNode;
   compact?: boolean;
   showInternalId?: boolean;
+  copyable?: boolean;
 };
 
 export default function BuyerIdentityText({
@@ -17,6 +18,7 @@ export default function BuyerIdentityText({
   phone,
   compact = false,
   showInternalId = true,
+  copyable = true,
 }: BuyerIdentityTextProps) {
   const displayName = nickname || phone || null;
   const primaryId = buyerNo || '非买家账号';
@@ -30,7 +32,7 @@ export default function BuyerIdentityText({
         </Typography.Text>
       ) : null}
       <Typography.Text
-        copyable={buyerNo ? { text: buyerNo } : false}
+        copyable={copyable && buyerNo ? { text: buyerNo } : false}
         style={{ fontSize: compact ? 12 : 13, fontFamily: buyerNo ? 'monospace' : undefined }}
         type={buyerNo ? undefined : 'secondary'}
       >
@@ -40,7 +42,7 @@ export default function BuyerIdentityText({
         <Tooltip title={internalId}>
           <Typography.Text
             type="secondary"
-            copyable={{ text: internalId }}
+            copyable={copyable ? { text: internalId } : false}
             style={{ fontSize: 12, fontFamily: 'monospace' }}
           >
             内部ID: {compact ? `…${internalId.slice(-8)}` : internalId}

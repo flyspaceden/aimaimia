@@ -20,7 +20,11 @@ import type {
 interface MemberQueryParams extends PaginationParams {
   tier?: string;
   keyword?: string;
+  sortField?: BonusMemberSortField;
+  sortOrder?: 'ascend' | 'descend';
 }
+
+export type BonusMemberSortField = 'vipPurchasedAt' | 'selfPurchaseCount' | 'createdAt';
 
 interface WithdrawQueryParams extends PaginationParams {
   status?: string;

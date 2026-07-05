@@ -45,8 +45,12 @@ describe('AdminBonusService reward income totals', () => {
           profile: { nickname: '刘义连', avatarUrl: null },
           authIdentities: [{ identifier: '13622383188' }],
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       memberProfile: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn().mockResolvedValue({
           tier: 'VIP',
           referralCode: 'VBHJ7PZT',
@@ -65,6 +69,7 @@ describe('AdminBonusService reward income totals', () => {
       },
       vipTreeNode: {
         findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn(),
       },
       rewardLedger: {
@@ -96,7 +101,7 @@ describe('AdminBonusService reward income totals', () => {
       prisma,
       notificationService as any,
       { get: jest.fn() } as any,
-      { getConfig: jest.fn() } as any,
+      { getConfig: jest.fn().mockResolvedValue({ vipMaxLayers: 6 }) } as any,
     );
     return { prisma, notificationService, service };
   };
@@ -157,5 +162,19 @@ describe('AdminBonusService reward income totals', () => {
       prisma,
     );
     expect(JSON.stringify(notificationService.emit.mock.calls[0][0])).not.toContain('13800000000');
+  });
+
+  it('orders VIP members by self purchase count when table sorting requests it', async () => {
+    const { prisma, service } = makeService();
+
+    await service.findMembers(1, 20, 'VIP', undefined, 'selfPurchaseCount', 'ascend');
+
+    expect(prisma.memberProfile.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [
+        { user: { vipProgress: { selfPurchaseCount: 'asc' } } },
+        { vipPurchasedAt: 'desc' },
+        { id: 'asc' },
+      ],
+    }));
   });
 });

@@ -504,7 +504,7 @@ export interface AdminGrowthAccountQueryParams extends PaginationParams {
   keyword?: string;
   levelCode?: string;
   userType?: 'ALL' | 'NORMAL' | 'VIP';
-  sortBy?: 'pointsBalance' | 'pointsTotalEarned' | 'growthValue' | 'updatedAt';
+  sortBy?: 'pointsBalance' | 'pointsTotalEarned' | 'pointsTotalSpent' | 'growthValue' | 'updatedAt';
   sortOrder?: 'ascend' | 'descend' | 'asc' | 'desc';
 }
 
@@ -546,6 +546,8 @@ export interface AdminGrowthLedgerQueryParams extends PaginationParams {
   userId?: string;
   behaviorCode?: string;
   type?: string;
+  sortBy?: 'createdAt' | 'pointsDelta' | 'growthDelta';
+  sortOrder?: 'ascend' | 'descend' | 'asc' | 'desc';
 }
 
 export interface AdminGrowthLedger {
@@ -617,6 +619,8 @@ export interface AdminGrowthAdjustPayload {
 export interface AdminNormalShareBindingQueryParams extends PaginationParams {
   keyword?: string;
   rewardStatus?: string;
+  sortField?: 'boundAt' | 'rewardIssuedAt' | 'updatedAt';
+  sortOrder?: 'ascend' | 'descend' | 'asc' | 'desc';
 }
 
 export interface AdminNormalShareBinding {

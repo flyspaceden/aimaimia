@@ -41,8 +41,6 @@ import PermissionGate from '@/components/PermissionGate';
 import {
   adjustGrowthUser,
   createGrowthExchangeItem,
-  disableNormalShareProfile,
-  enableNormalShareProfile,
   getGrowthAccounts,
   getGrowthDashboard,
   getGrowthExchangeItems,
@@ -50,7 +48,6 @@ import {
   getGrowthLevels,
   getGrowthRules,
   getGrowthSettings,
-  getNormalShareBindings,
   replaceGrowthLevels,
   updateGrowthExchangeItem,
   updateGrowthSettings,
@@ -58,17 +55,18 @@ import {
 } from '@/api/growth';
 import { getCampaigns, type CouponCampaign } from '@/api/coupon';
 import { PERMISSIONS } from '@/constants/permissions';
+import { useResizableColumns } from '@/components/table/useResizableColumns';
 import type {
   AdminGrowthAccountRow,
   AdminGrowthAccountQueryParams,
   AdminGrowthExchangeItem,
   AdminGrowthExchangeItemPayload,
   AdminGrowthLedger,
+  AdminGrowthLedgerQueryParams,
   AdminGrowthLevel,
   AdminGrowthRule,
   AdminGrowthSettings,
   AdminGrowthUserSummary,
-  AdminNormalShareBinding,
 } from '@/types';
 
 const behaviorCodeLabels: Record<string, string> = {
@@ -166,15 +164,6 @@ const couponDistributionModeLabels: Record<string, string> = {
   CLAIM: '用户领取',
 };
 
-const rewardStatusMap: Record<string, { text: string; color: string }> = {
-  PENDING: { text: '已绑定', color: 'default' },
-  REGISTER_REWARDED: { text: '注册已奖', color: 'blue' },
-  FIRST_ORDER_PENDING: { text: '待首单', color: 'orange' },
-  ISSUED: { text: '首单已奖', color: 'green' },
-  REVERSED: { text: '已冲正', color: 'red' },
-  VOIDED: { text: '已作废', color: 'default' },
-};
-
 const couponExchangeTypes = new Set(['COUPON', 'SHIPPING_COUPON', 'VIP_DISCOUNT_COUPON']);
 const exchangeTypeOptions = Object.entries(exchangeTypeMap)
   .filter(([value]) => couponExchangeTypes.has(value))
@@ -189,22 +178,11 @@ const applicableUserTypeLabels: Record<string, string> = {
   NORMAL: '普通用户',
   VIP: 'VIP 用户',
 };
-const directReferralStatusMap: Record<string, { text: string; color: string }> = {
-  ACTIVE: { text: '生效中', color: 'green' },
-  SUPERSEDED_BY_VIP_TREE: { text: '转入 VIP 关系', color: 'gold' },
-  INVALIDATED_BY_INVITEE_VIP_UPGRADE: { text: '已解绑', color: 'orange' },
-  ADMIN_VOIDED: { text: '管理员作废', color: 'red' },
-};
-const directReferralSourceLabels: Record<string, string> = {
-  MEMBER_PROFILE: '会员推荐关系',
-  NORMAL_SHARE_BINDING: '普通分享绑定',
-  APP_SHARE: 'App 分享',
-  H5_SHARE: 'H5 分享',
-  QR_CODE: '二维码',
-};
-const directReferralInvalidReasonLabels: Record<string, string> = {
-  INVITER_NOT_VIP_AT_INVITEE_UPGRADE: '被推荐人成为 VIP 时，原推荐人仍是普通用户',
-};
+
+type GrowthSettingsForm = Omit<
+  AdminGrowthSettings,
+  'autoVipBySpendEnabled' | 'autoVipCumulativeSpendThreshold'
+>;
 
 function formatInt(value?: number | null) {
   return Number(value ?? 0).toLocaleString();
@@ -246,7 +224,7 @@ function renderExchangeCampaignOption(campaign: CouponCampaign) {
   );
 }
 
-function renderUser(user: AdminGrowthUserSummary | null | undefined) {
+function renderUser(user: AdminGrowthUserSummary | null | undefined, options?: { copyable?: boolean }) {
   if (!user) return <Typography.Text type="secondary">-</Typography.Text>;
   return (
     <Space>
@@ -256,54 +234,8 @@ function renderUser(user: AdminGrowthUserSummary | null | undefined) {
         userId={user.id}
         nickname={user.nickname || user.phone || '-'}
         compact
+        copyable={options?.copyable}
       />
-    </Space>
-  );
-}
-
-function getLedgerMetaNumber(record: AdminGrowthLedger, key: string) {
-  const value = record.meta?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function renderDirectReferralStatus(status?: string | null) {
-  if (!status) return <Typography.Text type="secondary">无绑定</Typography.Text>;
-  const meta = directReferralStatusMap[status] ?? { text: status, color: 'default' };
-  return <Tag color={meta.color}>{meta.text}</Tag>;
-}
-
-function renderDirectReferralSource(source?: string | null) {
-  if (!source) return null;
-  return <Tag>{directReferralSourceLabels[source] ?? source}</Tag>;
-}
-
-function renderInvalidReason(reason?: string | null) {
-  if (!reason) return <Typography.Text type="secondary">-</Typography.Text>;
-  return directReferralInvalidReasonLabels[reason] ?? reason;
-}
-
-function renderDirectReferralSummary(record: AdminGrowthAccountRow) {
-  if (!record.directReferralStatus && !record.directReferralInviterUserId) {
-    return <Typography.Text type="secondary">未绑定</Typography.Text>;
-  }
-  return (
-    <Space direction="vertical" size={4}>
-      <Space size={4} wrap>
-        {renderDirectReferralStatus(record.directReferralStatus)}
-        {renderDirectReferralSource(record.directReferralSource)}
-      </Space>
-      {record.directReferralInviter ? (
-        renderUser(record.directReferralInviter)
-      ) : record.directReferralInviterUserId ? (
-        <Typography.Text code>{record.directReferralInviterUserId}</Typography.Text>
-      ) : (
-        <Typography.Text type="secondary">无有效推荐人</Typography.Text>
-      )}
-      {record.directReferralInvalidReason && (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {renderInvalidReason(record.directReferralInvalidReason)}
-        </Typography.Text>
-      )}
     </Space>
   );
 }
@@ -315,20 +247,47 @@ function getSortParams(sort: Record<string, SortOrder | undefined>): {
   const selected = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
   if (!selected) return {};
   const [field, order] = selected;
-  if (!['pointsBalance', 'pointsTotalEarned', 'growthValue', 'updatedAt'].includes(field)) return {};
+  if (!['pointsBalance', 'pointsTotalEarned', 'pointsTotalSpent', 'growthValue', 'updatedAt'].includes(field)) return {};
   return {
     sortBy: field as AdminGrowthAccountQueryParams['sortBy'],
     sortOrder: order as AdminGrowthAccountQueryParams['sortOrder'],
   };
 }
 
+function getLedgerSortParams(sort: Record<string, SortOrder | undefined>): {
+  sortBy?: AdminGrowthLedgerQueryParams['sortBy'];
+  sortOrder?: AdminGrowthLedgerQueryParams['sortOrder'];
+} {
+  const selected = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+  if (!selected) return {};
+  const [field, order] = selected;
+  if (!['createdAt', 'pointsDelta', 'growthDelta'].includes(field)) return {};
+  return {
+    sortBy: field as AdminGrowthLedgerQueryParams['sortBy'],
+    sortOrder: order as AdminGrowthLedgerQueryParams['sortOrder'],
+  };
+}
+
+function pickGrowthSettings(settings: AdminGrowthSettings): GrowthSettingsForm {
+  return {
+    growthEnabled: settings.growthEnabled,
+    pointsExpireDays: settings.pointsExpireDays,
+    pointsExpireRemindDays: settings.pointsExpireRemindDays,
+    dailyPointsCap: settings.dailyPointsCap,
+    monthlyPointsCap: settings.monthlyPointsCap,
+    dailyShareRewardUserCap: settings.dailyShareRewardUserCap,
+    monthlyInviteFirstOrderCap: settings.monthlyInviteFirstOrderCap,
+    refundReversalEnabled: settings.refundReversalEnabled,
+    autoSuspendExchangeRisk: settings.autoSuspendExchangeRisk,
+  };
+}
+
 export default function GrowthPage() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType>(null);
   const ledgerActionRef = useRef<ActionType>(null);
-  const shareActionRef = useRef<ActionType>(null);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AdminGrowthRule | null>(null);
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
@@ -343,7 +302,7 @@ export default function GrowthPage() {
     growthDelta: number;
     reason: string;
   }>();
-  const [settingsForm] = Form.useForm<AdminGrowthSettings>();
+  const [settingsForm] = Form.useForm<GrowthSettingsForm>();
 
   const dashboardQuery = useQuery({
     queryKey: ['admin', 'growth', 'dashboard'],
@@ -373,7 +332,7 @@ export default function GrowthPage() {
 
   useEffect(() => {
     if (settingsQuery.data) {
-      settingsForm.setFieldsValue(settingsQuery.data);
+      settingsForm.setFieldsValue(pickGrowthSettings(settingsQuery.data));
     }
   }, [settingsForm, settingsQuery.data]);
 
@@ -416,7 +375,7 @@ export default function GrowthPage() {
     mutationFn: updateGrowthSettings,
     onSuccess: (settings) => {
       message.success('成长设置已保存');
-      settingsForm.setFieldsValue(settings);
+      settingsForm.setFieldsValue(pickGrowthSettings(settings));
       queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
     },
     onError: (error: Error) => message.error(error.message || '保存失败'),
@@ -464,18 +423,6 @@ export default function GrowthPage() {
     onError: (error: Error) => message.error(error.message || '调整失败'),
   });
 
-  const shareProfileMutation = useMutation({
-    mutationFn: ({ userId, status }: { userId: string; status: 'ACTIVE' | 'DISABLED' }) =>
-      status === 'ACTIVE' ? disableNormalShareProfile(userId, '管理员停用') : enableNormalShareProfile(userId),
-    onSuccess: () => {
-      message.success('普通分享码状态已更新');
-      actionRef.current?.reload();
-      shareActionRef.current?.reload();
-      queryClient.invalidateQueries({ queryKey: ['admin', 'growth'] });
-    },
-    onError: (error: Error) => message.error(error.message || '操作失败'),
-  });
-
   const openRuleModal = (rule: AdminGrowthRule) => {
     setEditingRule(rule);
     ruleForm.setFieldsValue({
@@ -519,7 +466,7 @@ export default function GrowthPage() {
           style={{ padding: 0, height: 'auto', textAlign: 'left' }}
           onClick={() => setSelectedUserId(record.userId)}
         >
-          {renderUser(record.user)}
+          {renderUser(record.user, { copyable: false })}
         </Button>
       ),
     },
@@ -570,6 +517,7 @@ export default function GrowthPage() {
       title: '累计消耗',
       dataIndex: 'pointsTotalSpent',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => formatInt(record.pointsTotalSpent),
     },
@@ -582,39 +530,6 @@ export default function GrowthPage() {
       render: (_: unknown, record) => <Typography.Text strong>{formatInt(record.growthValue)}</Typography.Text>,
     },
     {
-      title: '推荐码',
-      dataIndex: ['user', 'normalShareCode'],
-      search: false,
-      width: 170,
-      render: (_: unknown, record) => {
-        if (record.user?.vipStatus === 'VIP') {
-          return record.user?.vipReferralCode ? (
-            <Space size={4} direction="vertical">
-              <Tag color="gold">VIP 推荐码</Tag>
-              <Typography.Text code>{record.user.vipReferralCode}</Typography.Text>
-            </Space>
-          ) : (
-            <Typography.Text type="secondary">VIP 推荐码未生成</Typography.Text>
-          );
-        }
-        return record.user?.normalShareCode ? (
-          <Space size={4} direction="vertical">
-            <Tag color="blue">普通分享码</Tag>
-            <Typography.Text code>{record.user.normalShareCode}</Typography.Text>
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">-</Typography.Text>
-        );
-      },
-    },
-    {
-      title: '直推关系',
-      dataIndex: 'directReferralStatus',
-      search: false,
-      width: 300,
-      render: (_: unknown, record) => renderDirectReferralSummary(record),
-    },
-    {
       title: '更新时间',
       dataIndex: 'updatedAt',
       search: false,
@@ -625,7 +540,7 @@ export default function GrowthPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 230,
+      width: 180,
       render: (_: unknown, record) => [
         <Button key="ledger" type="link" onClick={() => setSelectedUserId(record.userId)}>
           流水
@@ -645,61 +560,16 @@ export default function GrowthPage() {
             调整
           </Button>
         </PermissionGate>,
-        record.user?.vipStatus === 'VIP' ? (
-          <PermissionGate key="vip-detail" permission={PERMISSIONS.BONUS_READ}>
-            <Button type="link" onClick={() => navigate(`/bonus/members/${record.userId}`)}>
-              查看 VIP 详情
-            </Button>
-          </PermissionGate>
-        ) : null,
-        record.user?.vipStatus === 'VIP' ? (
-          <PermissionGate key="vip-tree" permission={PERMISSIONS.BONUS_READ}>
-            <Button
-              type="link"
-              onClick={() => {
-                const params = new URLSearchParams({
-                  userId: record.userId,
-                  source: 'growth',
-                  sourceLabel: '积分成长',
-                });
-                navigate(`/bonus/vip-tree?${params.toString()}`);
-              }}
-            >
-              查看 VIP 奖励树
-            </Button>
-          </PermissionGate>
-        ) : null,
-        record.user?.vipStatus !== 'VIP' && record.user?.normalShareCode ? (
-          <PermissionGate key="share-status" permission={PERMISSIONS.NORMAL_SHARE_MANAGE}>
-            <Button
-              type="link"
-              danger={record.user.normalShareStatus === 'ACTIVE'}
-              loading={shareProfileMutation.isPending}
-              onClick={() => {
-                const status = record.user?.normalShareStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE';
-                modal.confirm({
-                  title: status === 'ACTIVE' ? '停用普通分享码' : '启用普通分享码',
-                  content:
-                    status === 'ACTIVE'
-                      ? '停用后该分享码不能再绑定新用户，已产生的绑定和流水不会删除。'
-                      : '启用后该分享码可以继续绑定新用户。',
-                  okText: '确认',
-                  cancelText: '取消',
-                  onOk: () =>
-                    shareProfileMutation.mutate({
-                      userId: record.userId,
-                      status,
-                    }),
-                });
-              }}
-            >
-              {record.user.normalShareStatus === 'DISABLED' ? '启用分享码' : '停用分享码'}
-            </Button>
-          </PermissionGate>
-        ) : null,
+        <Button key="user-detail" type="link" onClick={() => navigate(`/users/${record.userId}`)}>
+          用户详情
+        </Button>,
       ],
     },
   ];
+  const resizableTable = useResizableColumns(accountColumns, {
+    storageKey: 'admin:growth:accounts:columns',
+    defaultWidth: 130,
+  });
 
   const ruleColumns: ColumnsType<AdminGrowthRule> = [
     {
@@ -1019,6 +889,7 @@ export default function GrowthPage() {
       title: '积分变动',
       dataIndex: 'pointsDelta',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => (
         <Typography.Text type={record.pointsDelta < 0 ? 'danger' : undefined}>
@@ -1031,6 +902,7 @@ export default function GrowthPage() {
       title: '成长变动',
       dataIndex: 'growthDelta',
       search: false,
+      sorter: true,
       width: 120,
       render: (_: unknown, record) => (
         <Typography.Text type={record.growthDelta < 0 ? 'danger' : undefined}>
@@ -1043,163 +915,35 @@ export default function GrowthPage() {
       title: '时间',
       dataIndex: 'createdAt',
       search: false,
+      sorter: true,
+      defaultSortOrder: 'descend',
       width: 170,
       render: (_: unknown, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm'),
     },
   ];
-
-  const autoVipUpgradeColumns: ProColumns<AdminGrowthLedger>[] = [
+  const ruleResizableTable = useResizableColumns(ruleColumns, {
+    storageKey: 'admin:growth:rules:columns',
+    defaultWidth: 130,
+  });
+  const levelResizableTable = useResizableColumns(levelColumns, {
+    storageKey: 'admin:growth:levels:columns',
+    defaultWidth: 130,
+  });
+  const exchangeResizableTable = useResizableColumns(exchangeColumns, {
+    storageKey: 'admin:growth:exchange:columns',
+    defaultWidth: 130,
+  });
+  const ledgerResizableTable = useResizableColumns(ledgerColumns, {
+    storageKey: 'admin:growth:ledgers:columns',
+    defaultWidth: 130,
+  });
+  const drawerLedgerResizableTable = useResizableColumns(
+    ledgerColumns.filter((column) => column.dataIndex !== 'userId'),
     {
-      title: '升级用户',
-      dataIndex: 'userId',
-      width: 260,
-      render: (_: unknown, record) => renderUser(record.user),
+      storageKey: 'admin:growth:drawer-ledgers:columns',
+      defaultWidth: 130,
     },
-    {
-      title: '触发订单',
-      dataIndex: 'refId',
-      search: false,
-      width: 180,
-      render: (_: unknown, record) => (
-        <Typography.Text copyable={record.refId ? { text: record.refId } : false}>
-          {record.refId ?? '-'}
-        </Typography.Text>
-      ),
-    },
-    {
-      title: '累计消费',
-      search: false,
-      width: 130,
-      render: (_: unknown, record) => {
-        const amount = getLedgerMetaNumber(record, 'cumulativeSpendAmount');
-        return amount === null ? '-' : `¥${amount.toFixed(2)}`;
-      },
-    },
-    {
-      title: '升级门槛',
-      search: false,
-      width: 130,
-      render: (_: unknown, record) => {
-        const threshold = getLedgerMetaNumber(record, 'threshold');
-        return threshold === null ? '-' : `¥${threshold.toFixed(2)}`;
-      },
-    },
-    {
-      title: '进入的 VIP 上级',
-      search: false,
-      width: 260,
-      render: (_: unknown, record) => renderUser(record.autoVipTreeInviter),
-    },
-    {
-      title: '升级时间',
-      dataIndex: 'createdAt',
-      search: false,
-      width: 170,
-      render: (_: unknown, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm'),
-    },
-  ];
-
-  const shareColumns: ProColumns<AdminNormalShareBinding>[] = [
-    {
-      title: '推荐人',
-      dataIndex: 'keyword',
-      width: 260,
-      render: (_: unknown, record) => renderUser(record.inviter),
-    },
-    {
-      title: '被推荐人',
-      dataIndex: 'inviteeUserId',
-      search: false,
-      width: 260,
-      render: (_: unknown, record) => renderUser(record.invitee),
-    },
-    {
-      title: '分享码',
-      dataIndex: 'code',
-      width: 120,
-      render: (_: unknown, record) => <Typography.Text code>{record.code}</Typography.Text>,
-    },
-    {
-      title: '来源',
-      dataIndex: 'source',
-      search: false,
-      width: 100,
-      render: (_: unknown, record) => <Tag>{record.source}</Tag>,
-    },
-    {
-      title: '奖励状态',
-      dataIndex: 'rewardStatus',
-      valueType: 'select',
-      fieldProps: {
-        options: Object.entries(rewardStatusMap).map(([value, meta]) => ({
-          label: meta.text,
-          value,
-        })),
-      },
-      width: 130,
-      render: (_: unknown, record) => {
-        const meta = rewardStatusMap[record.rewardStatus] ?? {
-          text: record.rewardStatus,
-          color: 'default',
-        };
-        return <Tag color={meta.color}>{meta.text}</Tag>;
-      },
-    },
-    {
-      title: '推荐关系状态',
-      dataIndex: 'relationStatus',
-      search: false,
-      width: 150,
-      render: (_: unknown, record) => renderDirectReferralStatus(record.relationStatus),
-    },
-    {
-      title: '有效推荐人',
-      dataIndex: 'effectiveInviterUserId',
-      search: false,
-      width: 240,
-      render: (_: unknown, record) =>
-        record.effectiveInviter ? (
-          renderUser(record.effectiveInviter)
-        ) : record.effectiveInviterUserId ? (
-          <Typography.Text code>{record.effectiveInviterUserId}</Typography.Text>
-        ) : (
-          <Typography.Text type="secondary">无有效推荐人</Typography.Text>
-        ),
-    },
-    {
-      title: '失效原因',
-      dataIndex: 'relationInvalidReason',
-      search: false,
-      width: 260,
-      render: (_: unknown, record) => renderInvalidReason(record.relationInvalidReason),
-    },
-    {
-      title: '失效时间',
-      dataIndex: 'relationInvalidAt',
-      search: false,
-      width: 170,
-      render: (_: unknown, record) =>
-        record.relationInvalidAt ? (
-          dayjs(record.relationInvalidAt).format('YYYY-MM-DD HH:mm')
-        ) : (
-          <Typography.Text type="secondary">-</Typography.Text>
-        ),
-    },
-    {
-      title: '首单',
-      dataIndex: 'firstOrderId',
-      search: false,
-      width: 170,
-      render: (_: unknown, record) => record.firstOrderId ?? <Typography.Text type="secondary">-</Typography.Text>,
-    },
-    {
-      title: '绑定时间',
-      dataIndex: 'boundAt',
-      search: false,
-      width: 170,
-      render: (_: unknown, record) => dayjs(record.boundAt).format('YYYY-MM-DD HH:mm'),
-    },
-  ];
+  );
 
   function patchLevel(index: number, patch: Partial<AdminGrowthLevel>) {
     setLevelDrafts((current) =>
@@ -1251,14 +995,14 @@ export default function GrowthPage() {
       <Alert
         showIcon
         type="info"
-        message="积分成长配置顺序"
+        message="积分成长只管理积分、成长值、等级、兑换和流水"
         description={
           <Space direction="vertical" size={4}>
             <Typography.Text>
               统一管理普通用户和 VIP 用户的积分、成长值、等级、兑换和流水。积分=可消耗，可用于兑换红包和权益；成长值=不可消耗，只用于升级和解锁等级权益。
             </Typography.Text>
             <Typography.Text>
-              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享和 VIP 推荐都会沉淀为直推关系；这里查看积分成长账户、推荐码入口和普通分享绑定状态，VIP 树仍在 VIP 页面管理。
+              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。推荐关系、普通分享码、VIP 推荐码和自动升级 VIP 统一到“推荐与拉新”页面查看。
             </Typography.Text>
             <Space wrap>
               <Tag color="blue">先开全局</Tag>
@@ -1329,7 +1073,7 @@ export default function GrowthPage() {
                   description="这里是总开关和风控上限。修改后通常只影响之后产生的积分、成长值、兑换和邀请奖励，不会重算历史流水。"
                   style={{ marginBottom: 16 }}
                 />
-                <Form<AdminGrowthSettings>
+                <Form<GrowthSettingsForm>
                   form={settingsForm}
                   layout="vertical"
                   onFinish={(values) => saveSettingsMutation.mutate(values)}
@@ -1408,26 +1152,6 @@ export default function GrowthPage() {
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item
-                        name="autoVipBySpendEnabled"
-                        label="累计消费自动成为 VIP"
-                        valuePropName="checked"
-                        extra="累计普通商品有效消费达到门槛后自动成为 VIP。VIP 礼包购买流程不受影响。"
-                      >
-                        <Switch checkedChildren="启用" unCheckedChildren="关闭" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item
-                        name="autoVipCumulativeSpendThreshold"
-                        label="自动成为 VIP 门槛（元）"
-                        rules={[{ required: true }]}
-                        extra="只统计普通商品有效消费，确认收货后入账；达到后按 VIP 入树规则处理。"
-                      >
-                        <InputNumber min={1} precision={2} style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
                   </Row>
                   <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
                     <Button type="primary" htmlType="submit" loading={saveSettingsMutation.isPending}>
@@ -1446,14 +1170,15 @@ export default function GrowthPage() {
                 <Alert
                   showIcon
                   type="info"
-                  message="成长账户用于查看所有买家的积分、成长值和推荐码入口"
-                  description="这里按所有有效买家展示，包含普通用户和 VIP 用户。普通用户展示普通分享码并可启停；VIP 用户只读展示 VIP 推荐码，并跳转到已有 VIP 会员和 VIP 奖励可视化页面。手动调整会写入流水，适合客服补偿、异常修正，不适合批量运营发奖。"
+                  message="成长账户用于查看所有买家的积分、成长值和成长等级"
+                  description="这里按所有有效买家展示，包含普通用户和 VIP 用户。手动调整会写入流水，适合客服补偿、异常修正，不适合批量运营发奖。推荐关系和推荐码请到“推荐与拉新”页面查看。"
                   style={{ marginBottom: 16 }}
                 />
                 <ProTable<AdminGrowthAccountRow>
                   actionRef={actionRef}
                   rowKey="id"
-                  columns={accountColumns}
+                  columns={resizableTable.columns}
+                  components={resizableTable.components}
                   request={async (params, sort) => {
                     const sortParams = getSortParams(sort as Record<string, SortOrder | undefined>);
                     const res = await getGrowthAccounts({
@@ -1470,7 +1195,7 @@ export default function GrowthPage() {
                   pagination={{ defaultPageSize: 20 }}
                   options={false}
                   search={{ labelWidth: 'auto' }}
-                  scroll={{ x: 1600 }}
+                  scroll={{ x: resizableTable.tableWidth }}
                 />
               </Card>
             ),
@@ -1490,10 +1215,11 @@ export default function GrowthPage() {
                 <Table<AdminGrowthRule>
                   rowKey="code"
                   loading={rulesQuery.isLoading}
-                  columns={ruleColumns}
+                  columns={ruleResizableTable.columns}
+                  components={ruleResizableTable.components}
                   dataSource={rulesQuery.data ?? []}
                   pagination={false}
-                  scroll={{ x: 1320 }}
+                  scroll={{ x: ruleResizableTable.tableWidth }}
                 />
               </Card>
             ),
@@ -1526,10 +1252,11 @@ export default function GrowthPage() {
                   <Table<AdminGrowthLevel>
                     rowKey={(record, index) => `${record.code}-${index}`}
                     loading={levelsQuery.isLoading}
-                    columns={levelColumns}
+                    columns={levelResizableTable.columns}
+                    components={levelResizableTable.components}
                     dataSource={currentLevelDrafts}
                     pagination={false}
-                    scroll={{ x: 820 }}
+                    scroll={{ x: levelResizableTable.tableWidth }}
                   />
                 </Card>
               </PermissionGate>
@@ -1558,9 +1285,10 @@ export default function GrowthPage() {
                 <Table<AdminGrowthExchangeItem>
                   rowKey="id"
                   loading={exchangeItemsQuery.isLoading}
-                  columns={exchangeColumns}
+                  columns={exchangeResizableTable.columns}
+                  components={exchangeResizableTable.components}
                   dataSource={exchangeItemsQuery.data ?? []}
-                  scroll={{ x: 1120 }}
+                  scroll={{ x: exchangeResizableTable.tableWidth }}
                 />
               </Card>
             ),
@@ -1580,85 +1308,25 @@ export default function GrowthPage() {
                 <ProTable<AdminGrowthLedger>
                   actionRef={ledgerActionRef}
                   rowKey="id"
-                  columns={ledgerColumns}
-                  request={async (params) => {
+                  columns={ledgerResizableTable.columns}
+                  components={ledgerResizableTable.components}
+                  request={async (params, sort) => {
+                    const sortParams = getLedgerSortParams(sort as Record<string, SortOrder | undefined>);
                     const res = await getGrowthLedgers({
                       page: params.current,
                       pageSize: params.pageSize,
                       userId: params.userId as string | undefined,
                       behaviorCode: params.behaviorCode as string | undefined,
                       type: params.type as string | undefined,
+                      sortBy: sortParams.sortBy,
+                      sortOrder: sortParams.sortOrder,
                     });
                     return { data: res.items, total: res.total, success: true };
                   }}
                   pagination={{ defaultPageSize: 20 }}
                   options={false}
                   search={{ labelWidth: 'auto' }}
-                />
-              </Card>
-            ),
-          },
-          {
-            key: 'auto-vip',
-            label: '自动升级',
-            children: (
-              <Card>
-                <Alert
-                  showIcon
-                  type="info"
-                  message="自动升级记录用于核查谁因累计消费达标成为 VIP"
-                  description="用户确认收货后累计有效消费达到后台门槛时，会自动成为 VIP；这里展示触发订单、当时累计消费、门槛和进入的 VIP 上级。购买 VIP 礼包仍走原 VIP 购买记录，不会出现在这里。"
-                  style={{ marginBottom: 16 }}
-                />
-                <ProTable<AdminGrowthLedger>
-                  rowKey="id"
-                  columns={autoVipUpgradeColumns}
-                  request={async (params) => {
-                    const res = await getGrowthLedgers({
-                      page: params.current,
-                      pageSize: params.pageSize,
-                      userId: params.userId as string | undefined,
-                      behaviorCode: 'AUTO_VIP_UPGRADE',
-                    });
-                    return { data: res.items, total: res.total, success: true };
-                  }}
-                  pagination={{ defaultPageSize: 20 }}
-                  options={false}
-                  search={{ labelWidth: 'auto' }}
-                  scroll={{ x: 1200 }}
-                />
-              </Card>
-            ),
-          },
-          {
-            key: 'share',
-            label: '普通分享',
-            children: (
-              <Card>
-                <Alert
-                  showIcon
-                  type="info"
-                  message="普通分享只服务普通用户拉新"
-                  description="普通分享关系一旦绑定不能更换。普通用户邀请新人注册后可立即获得注册奖励；新人首单确认收货后可继续发首单奖励。若被推荐人成为 VIP 且推荐人仍是普通用户，这条普通关系会解绑；若推荐人已经是 VIP，则转入 VIP 推荐关系。"
-                  style={{ marginBottom: 16 }}
-                />
-                <ProTable<AdminNormalShareBinding>
-                  actionRef={shareActionRef}
-                  rowKey="id"
-                  columns={shareColumns}
-                  request={async (params) => {
-                    const res = await getNormalShareBindings({
-                      page: params.current,
-                      pageSize: params.pageSize,
-                      keyword: params.keyword as string | undefined,
-                      rewardStatus: params.rewardStatus as string | undefined,
-                    });
-                    return { data: res.items, total: res.total, success: true };
-                  }}
-                  pagination={{ defaultPageSize: 20 }}
-                  options={false}
-                  search={{ labelWidth: 'auto' }}
-                  scroll={{ x: 1700 }}
+                  scroll={{ x: ledgerResizableTable.tableWidth }}
                 />
               </Card>
             ),
@@ -1931,19 +1599,24 @@ export default function GrowthPage() {
       <Drawer title="增长流水" width={860} open={!!selectedUserId} onClose={() => setSelectedUserId(null)}>
         <ProTable<AdminGrowthLedger>
           rowKey="id"
-          columns={ledgerColumns.filter((column) => column.dataIndex !== 'userId')}
-          request={async (params) => {
+          columns={drawerLedgerResizableTable.columns}
+          components={drawerLedgerResizableTable.components}
+          request={async (params, sort) => {
+            const sortParams = getLedgerSortParams(sort as Record<string, SortOrder | undefined>);
             const res = await getGrowthLedgers({
               page: params.current,
               pageSize: params.pageSize,
               userId: selectedUserId ?? undefined,
               type: params.type as string | undefined,
+              sortBy: sortParams.sortBy,
+              sortOrder: sortParams.sortOrder,
             });
             return { data: res.items, total: res.total, success: true };
           }}
           pagination={{ defaultPageSize: 20 }}
           options={false}
           search={{ labelWidth: 'auto' }}
+          scroll={{ x: drawerLedgerResizableTable.tableWidth }}
         />
       </Drawer>
     </div>

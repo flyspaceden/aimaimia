@@ -87,6 +87,22 @@ describe('AdminAppUsersService buyer public ids', () => {
     }));
   });
 
+  it('orders app users by order count when table sorting requests it', async () => {
+    const { service, prisma } = makeService();
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.user.count.mockResolvedValue(0);
+
+    await service.findAll(1, 20, undefined, undefined, undefined, undefined, undefined, 'orderCount', 'ascend');
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [
+        { orders: { _count: 'asc' } },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ],
+    }));
+  });
+
   it('resolves AIMM detail input to the internal user id', async () => {
     const { service, prisma } = makeService();
     prisma.user.findUnique

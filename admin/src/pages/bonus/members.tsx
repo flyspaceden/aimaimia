@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import type { SortOrder } from 'antd/es/table/interface';
 import { Button, Card, Col, Popover, QRCode, Row, Skeleton, Space, Statistic, Tag, Tooltip, Typography } from 'antd';
 import { CrownOutlined, EyeOutlined, RiseOutlined, CalendarOutlined, ClockCircleOutlined, WechatOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getMembers, getVipMembersStats } from '@/api/bonus';
 import type { BonusMember } from '@/types';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { useResizableColumns } from '@/components/table/useResizableColumns';
 import dayjs from 'dayjs';
 
 const STAT_CARDS = [
@@ -16,6 +18,17 @@ const STAT_CARDS = [
   { key: 'newThisWeek' as const, title: '本周新增', icon: <RiseOutlined />, color: '#1E40AF' },
   { key: 'newThisMonth' as const, title: '本月新增', icon: <CalendarOutlined />, color: '#7C3AED' },
 ];
+
+function getBonusMemberSortParams(sort: Record<string, SortOrder | undefined>) {
+  const selected = Object.entries(sort ?? {}).find(([, order]) => order === 'ascend' || order === 'descend');
+  if (!selected) return {};
+  const [field, order] = selected;
+  if (!['vipPurchasedAt', 'selfPurchaseCount', 'createdAt'].includes(field)) return {};
+  return {
+    sortField: field as 'vipPurchasedAt' | 'selfPurchaseCount' | 'createdAt',
+    sortOrder: order as 'ascend' | 'descend',
+  };
+}
 
 export default function MemberListPage() {
   const actionRef = useRef<ActionType>(null);
@@ -180,6 +193,7 @@ export default function MemberListPage() {
       width: 110,
       hideInSearch: true,
       align: 'center',
+      sorter: true,
       render: (_, r) => (
         <Tooltip title={`自购 ${r.selfPurchaseCount} 次 → 已解锁前 ${r.unlockedLevel} 层奖励`}>
           <span>
@@ -228,14 +242,24 @@ export default function MemberListPage() {
       dataIndex: 'vipPurchasedAt',
       width: 160,
       hideInSearch: true,
+      sorter: true,
+      defaultSortOrder: 'descend',
       render: (_, r) =>
         r.vipPurchasedAt ? dayjs(r.vipPurchasedAt).format('YYYY-MM-DD HH:mm') : '-',
+    },
+    {
+      title: '入库时间',
+      dataIndex: 'createdAt',
+      width: 160,
+      hideInSearch: true,
+      sorter: true,
+      render: (_, r) => dayjs(r.createdAt).format('YYYY-MM-DD HH:mm'),
     },
     {
       title: '搜索',
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '昵称 / 手机号 / 微信 / 推荐码' },
+      fieldProps: { placeholder: '买家编号 / 昵称 / 手机号 / 微信 / 推荐码' },
     },
     {
       title: '操作',
@@ -255,6 +279,10 @@ export default function MemberListPage() {
       ),
     },
   ];
+  const resizableTable = useResizableColumns(columns, {
+    storageKey: 'admin:bonus-members:columns',
+    defaultWidth: 120,
+  });
 
   return (
     <div style={{ padding: 24 }}>
@@ -279,18 +307,22 @@ export default function MemberListPage() {
         headerTitle="VIP 会员"
         actionRef={actionRef}
         rowKey="id"
-        columns={columns}
-        request={async (params) => {
+        columns={resizableTable.columns}
+        components={resizableTable.components}
+        request={async (params, sort) => {
+          const sortParams = getBonusMemberSortParams(sort as Record<string, SortOrder | undefined>);
           const { current, pageSize, keyword } = params;
           const res = await getMembers({
             page: current,
             pageSize,
             tier: 'VIP',
             keyword: keyword ? String(keyword).trim() : undefined,
+            sortField: sortParams.sortField,
+            sortOrder: sortParams.sortOrder,
           });
           return { data: res.items, total: res.total, success: true };
         }}
-        scroll={{ x: 1500 }}
+        scroll={{ x: resizableTable.tableWidth }}
         search={{ labelWidth: 'auto', defaultCollapsed: false }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
       />

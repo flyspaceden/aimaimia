@@ -531,6 +531,23 @@ describe('AdminGrowthService', () => {
     }));
   });
 
+  it('orders growth ledgers by sortable ledger fields when requested', async () => {
+    const { service, prisma } = makeHarness();
+
+    await service.listLedgers({
+      sortBy: 'pointsDelta',
+      sortOrder: 'ascend',
+    });
+
+    expect(prisma.growthLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [
+        { pointsDelta: 'asc' },
+        { createdAt: 'desc' },
+        { id: 'asc' },
+      ],
+    }));
+  });
+
   it('uses active ordinary buyer users, not only growth account rows, for dashboard account count', async () => {
     const { service, prisma } = makeHarness({ userCount: 9 });
 
@@ -1012,5 +1029,22 @@ describe('AdminGrowthService', () => {
         },
       ],
     });
+  });
+
+  it('orders normal share bindings by reward issue time when requested', async () => {
+    const { service, prisma } = makeHarness();
+
+    await service.listNormalShareBindings({
+      sortField: 'rewardIssuedAt',
+      sortOrder: 'ascend',
+    });
+
+    expect(prisma.normalShareBinding.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [
+        { rewardIssuedAt: 'asc' },
+        { boundAt: 'desc' },
+        { id: 'asc' },
+      ],
+    }));
   });
 });

@@ -116,24 +116,26 @@ test('invite binding success refreshes member and growth caches across app entry
 
 test('admin growth page presents unified points growth accounts without duplicating VIP referral management', () => {
   const source = read('admin/src/pages/growth/index.tsx');
+  const referrals = read('admin/src/pages/referrals/index.tsx');
   const layout = read('admin/src/layouts/AdminLayout.tsx');
   const treeViewer = read('admin/src/pages/bonus/components/TreeViewer.tsx');
 
   assert.match(layout, /name: '积分成长'/);
-  assert.match(source, /积分成长配置顺序/);
+  assert.match(layout, /name: '推荐与拉新'/);
+  assert.match(source, /积分成长只管理积分、成长值、等级、兑换和流水/);
   assert.match(source, /成长账户总数/);
   assert.match(source, /普通用户 \/ VIP 用户/);
   assert.match(source, /积分余额/);
   assert.match(source, /成长账户/);
   assert.match(source, /用户身份/);
-  assert.match(source, /VIP 推荐码/);
-  assert.match(source, /查看 VIP 详情/);
-  assert.match(source, /查看 VIP 奖励树/);
-  assert.match(source, /普通分享只服务普通用户拉新/);
-  assert.match(source, /label: '自动升级'/);
-  assert.match(source, /AUTO_VIP_UPGRADE/);
-  assert.match(source, /自动升级记录用于核查谁因累计消费达标成为 VIP/);
-  assert.match(source, /进入的 VIP 上级/);
+  assert.doesNotMatch(source, /title: '推荐码'/);
+  assert.doesNotMatch(source, /title: '直推关系'/);
+  assert.doesNotMatch(source, /普通分享只服务普通用户拉新/);
+  assert.doesNotMatch(source, /label: '自动升级'/);
+  assert.match(referrals, /普通推荐关系/);
+  assert.match(referrals, /VIP 推荐码/);
+  assert.match(referrals, /自动升级 VIP/);
+  assert.match(referrals, /进入的 VIP 上级/);
   assert.match(treeViewer, /growth: '积分成长'/);
   assert.doesNotMatch(source, /key: 'vipShare'/);
   assert.doesNotMatch(source, /label: 'VIP 推荐'/);
@@ -169,7 +171,8 @@ test('admin growth page explains configuration workflow and rule effects for ope
   assert.doesNotMatch(source, /<Typography\.Text type="secondary" code>/);
   assert.doesNotMatch(source, /<Tag color=\{record\.enabled \? 'green' : 'default'\}>/);
   assert.doesNotMatch(source, /value === 'ALL' \? '全部' : value/);
-  assert.match(source, /scroll=\{\{ x: 1320 \}\}/);
+  assert.match(source, /ruleResizableTable/);
+  assert.match(source, /components=\{ruleResizableTable\.components\}/);
 });
 
 test('admin growth exchange only offers dedicated coupon pools', () => {

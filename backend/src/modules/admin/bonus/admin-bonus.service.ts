@@ -180,10 +180,13 @@ export class AdminBonusService {
     pageSize = 20,
     tier?: string,
     keyword?: string,
+    sortField?: string,
+    sortOrder?: string,
   ) {
     const skip = (page - 1) * pageSize;
     const where: Prisma.MemberProfileWhereInput = {};
     if (tier) where.tier = tier as any;
+    const orderBy = this.buildMemberOrderBy(sortField, sortOrder);
 
     const trimmedKeyword = keyword?.trim();
     if (trimmedKeyword) {
@@ -218,7 +221,7 @@ export class AdminBonusService {
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           user: {
             select: {
@@ -374,6 +377,28 @@ export class AdminBonusService {
     });
 
     return { items, total, page, pageSize };
+  }
+
+  private buildMemberOrderBy(sortField?: string, sortOrder?: string) {
+    const direction = sortOrder === 'asc' || sortOrder === 'ascend' ? 'asc' : 'desc';
+    if (sortField === 'selfPurchaseCount') {
+      return [
+        { user: { vipProgress: { selfPurchaseCount: direction } } },
+        { vipPurchasedAt: 'desc' },
+        { id: 'asc' },
+      ] as any;
+    }
+    if (sortField === 'createdAt') {
+      return [
+        { createdAt: direction },
+        { id: 'asc' },
+      ] as any;
+    }
+    return [
+      { vipPurchasedAt: direction },
+      { createdAt: direction },
+      { id: 'asc' },
+    ] as any;
   }
 
   /** 提现审核列表 */
