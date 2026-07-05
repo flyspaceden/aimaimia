@@ -52,6 +52,12 @@ const mockGrowth: GrowthSummary = {
   nextLevel: { code: 'G3', name: '丰收会员', threshold: 2000, titleLabel: '丰收' },
   levelProgress: { current: 860, required: 1500, ratio: 0.5733 },
   updatedAt: new Date().toISOString(),
+  directReferralStatus: 'ACTIVE',
+  directReferralInviter: { id: 'u-inviter', nickname: '周阿姨', buyerNo: 'AIMM00000000000123' },
+  autoVipBySpendEnabled: true,
+  autoVipCumulativeSpendThreshold: 399,
+  autoVipRemainingSpend: 128,
+  directReferralPercent: 0.01,
 };
 
 const mockGuide: GrowthGuide = {

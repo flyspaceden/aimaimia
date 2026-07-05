@@ -14,6 +14,18 @@ export type GrowthProgress = {
   ratio: number;
 };
 
+export type DirectReferralStatus =
+  | 'ACTIVE'
+  | 'INVALIDATED_BY_INVITEE_VIP_UPGRADE'
+  | 'SUPERSEDED_BY_VIP_TREE'
+  | 'ADMIN_VOIDED';
+
+export type DirectReferralInviterSummary = {
+  id: string;
+  nickname: string | null;
+  buyerNo?: string | null;
+};
+
 export type GrowthSummary = {
   pointsBalance: number;
   pointsTotalEarned: number;
@@ -23,6 +35,12 @@ export type GrowthSummary = {
   nextLevel: GrowthLevel | null;
   levelProgress: GrowthProgress;
   updatedAt: string | null;
+  directReferralStatus?: DirectReferralStatus | null;
+  directReferralInviter?: DirectReferralInviterSummary | null;
+  autoVipBySpendEnabled?: boolean;
+  autoVipCumulativeSpendThreshold?: number;
+  autoVipRemainingSpend?: number | null;
+  directReferralPercent?: number | null;
 };
 
 export type GrowthGuideRule = {

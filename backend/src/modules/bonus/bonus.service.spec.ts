@@ -2,10 +2,10 @@ import { Prisma } from '@prisma/client';
 import { BonusService } from './bonus.service';
 
 describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
-  function buildService(prismaMock: any) {
+  function buildService(prismaMock: any, config: Record<string, unknown> = {}) {
     return new BonusService(
       prismaMock,
-      { getConfig: jest.fn().mockResolvedValue({}) } as any,
+      { getConfig: jest.fn().mockResolvedValue(config) } as any,
       {} as any,
       {} as any,
     );
@@ -111,6 +111,112 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
       userId: 'vip-inviter',
       nickname: '张三',
       maskedPhone: '138****5678',
+    });
+  });
+
+  it('为普通会员返回直推关系、普通直推比例和自动 VIP 进度', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'normal-user',
+          tier: 'NORMAL',
+          referralCode: null,
+          inviterUserId: null,
+          vipPurchasedAt: null,
+          normalEligible: false,
+        }),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          relationStatus: 'ACTIVE',
+          effectiveInviterUserId: 'normal-inviter',
+        }),
+      },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue({ cumulativeSpendAmount: 120 }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'normal-inviter',
+          buyerNo: 'AIMM00000000000001',
+          profile: { nickname: '普通推荐人' },
+        }),
+      },
+    };
+    const service = buildService(prismaMock, {
+      normalDirectReferralPercent: 0.01,
+      vipDirectReferralPercent: 0.05,
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+    });
+
+    const result = await service.getMemberProfile('normal-user');
+
+    expect(result).toMatchObject({
+      directReferralStatus: 'ACTIVE',
+      directReferralInviter: {
+        id: 'normal-inviter',
+        nickname: '普通推荐人',
+        buyerNo: 'AIMM00000000000001',
+      },
+      directReferralPercent: 0.01,
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+      autoVipRemainingSpend: 279,
+    });
+  });
+
+  it('为 VIP 会员返回 VIP 直推比例且不展示自动 VIP 剩余消费', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'vip-user',
+          tier: 'VIP',
+          referralCode: 'VIPCODE1',
+          inviterUserId: 'vip-inviter',
+          vipPurchasedAt: new Date('2026-05-01T00:00:00.000Z'),
+          normalEligible: false,
+        }),
+        count: jest.fn().mockResolvedValue(2),
+      },
+      vipProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+      digitalAssetAccount: {
+        findUnique: jest.fn().mockResolvedValue({ cumulativeSpendAmount: 500 }),
+      },
+      user: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({
+            id: 'vip-inviter',
+            profile: { nickname: 'VIP 推荐人' },
+            authIdentities: [{ identifier: '13812345678' }],
+          })
+          .mockResolvedValueOnce({
+            id: 'vip-inviter',
+            buyerNo: 'AIMM00000000000002',
+            profile: { nickname: 'VIP 推荐人' },
+          }),
+      },
+    };
+    const service = buildService(prismaMock, {
+      normalDirectReferralPercent: 0.01,
+      vipDirectReferralPercent: 0.05,
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
+    });
+
+    const result = await service.getMemberProfile('vip-user');
+
+    expect(result).toMatchObject({
+      directReferralStatus: 'ACTIVE',
+      directReferralInviter: {
+        id: 'vip-inviter',
+        nickname: 'VIP 推荐人',
+        buyerNo: 'AIMM00000000000002',
+      },
+      directReferralPercent: 0.05,
+      autoVipRemainingSpend: null,
     });
   });
 

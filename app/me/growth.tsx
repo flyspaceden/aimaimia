@@ -63,7 +63,7 @@ const vipGrowthGuideItems: Array<{
   {
     icon: 'qrcode-scan',
     title: '推荐好友怎么操作',
-    description: '邀请好友开通 VIP 时使用 VIP 推荐码，好友购买 VIP 礼包后按会员推荐规则结算奖励。',
+    description: '邀请好友时使用 VIP 推荐码，好友成为 VIP 后进入你的 VIP 团队。',
   },
   {
     icon: 'format-list-checks',
@@ -90,6 +90,17 @@ function formatLimitText(rule: GrowthGuideRule) {
 
 function formatTimingText(rule: GrowthGuideRule) {
   return grantTimingLabels[rule.grantTiming] ?? rule.grantTiming;
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== 'number') return '后台配置';
+  const percent = value * 100;
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
+function formatCurrency(value: number) {
+  const safeValue = Math.max(0, value);
+  return `¥${Number.isInteger(safeValue) ? safeValue.toFixed(0) : safeValue.toFixed(2)}`;
 }
 
 export default function GrowthCenterScreen() {
@@ -184,6 +195,22 @@ export default function GrowthCenterScreen() {
   const inviteRules = guide?.inviteRules ?? [];
   const earningRules = guide?.earningRules ?? [];
   const levels = guide?.levels ?? [];
+  const directReferralPercent = growth?.directReferralPercent ?? member?.directReferralPercent ?? null;
+  const directReferralPercentText = formatPercent(directReferralPercent);
+  const autoVipEnabled = Boolean(growth?.autoVipBySpendEnabled ?? member?.autoVipBySpendEnabled);
+  const autoVipThreshold =
+    growth?.autoVipCumulativeSpendThreshold ?? member?.autoVipCumulativeSpendThreshold ?? null;
+  const autoVipRemaining = growth?.autoVipRemainingSpend ?? member?.autoVipRemainingSpend ?? null;
+  const autoVipSpent =
+    typeof autoVipThreshold === 'number' && typeof autoVipRemaining === 'number'
+      ? Math.max(0, autoVipThreshold - autoVipRemaining)
+      : null;
+  const autoVipProgressPercent =
+    typeof autoVipThreshold === 'number' && autoVipThreshold > 0 && typeof autoVipSpent === 'number'
+      ? Math.min(100, Math.round((autoVipSpent / autoVipThreshold) * 100))
+      : autoVipRemaining === 0
+        ? 100
+        : 0;
   const isLoading = growthQuery.isLoading || memberQuery.isLoading || (normalShareEnabled && shareQuery.isLoading);
   const growthTitle = memberLoaded ? (isVip ? '会员成长' : '普通成长') : '成长中心';
   const pointsLabel = memberQuery.data?.ok ? (isVip ? '会员积分' : '普通积分') : '积分';
@@ -370,7 +397,7 @@ export default function GrowthCenterScreen() {
                   <Tag label="VIP 推荐权益" tone="accent" />
                 </View>
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                  会员成长记录你的积分和成长值；推荐好友开通 VIP 请使用 VIP 推荐码。
+                  你推荐的好友成为 VIP 后会进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算。
                 </Text>
 
                 <View style={[styles.vipGuideList, { marginTop: spacing.md }]}>
@@ -392,7 +419,7 @@ export default function GrowthCenterScreen() {
                 <View style={[styles.vipBoundaryBox, { backgroundColor: colors.background, borderRadius: radius.md, marginTop: spacing.md }]}>
                   <MaterialCommunityIcons name="information-outline" size={16} color={colors.brand.primary} />
                   <Text style={[typography.caption, { color: colors.text.secondary, marginLeft: 6, flex: 1 }]}>
-                    普通分享码仅普通用户拉新使用，VIP 不需要绑定或展示普通分享码。
+                    普通分享码仅普通用户拉新使用；VIP 使用推荐码，积分和成长值仍可继续获得。
                   </Text>
                 </View>
 
@@ -479,6 +506,34 @@ export default function GrowthCenterScreen() {
               </View>
             </Animated.View>
 
+            {autoVipEnabled && typeof autoVipThreshold === 'number' ? (
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(90)}
+                style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+              >
+                <View style={styles.sectionTitleRow}>
+                  <Text style={[typography.headingSm, { color: colors.text.primary }]}>自动成为 VIP</Text>
+                  <Tag label={`${autoVipProgressPercent}%`} tone={autoVipRemaining === 0 ? 'brand' : 'accent'} />
+                </View>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                  累计普通商品有效消费满 {formatCurrency(autoVipThreshold)} 可自动成为 VIP。
+                </Text>
+                <View style={[styles.autoVipTrack, { backgroundColor: colors.border, marginTop: spacing.md }]}>
+                  <View
+                    style={[
+                      styles.autoVipFill,
+                      { width: `${autoVipProgressPercent}%`, backgroundColor: colors.brand.primary },
+                    ]}
+                  />
+                </View>
+                <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                  {typeof autoVipRemaining === 'number' && autoVipRemaining <= 0
+                    ? '已达到门槛，订单确认收货入账后会自动升级。'
+                    : `还差 ${formatCurrency(autoVipRemaining ?? autoVipThreshold)}。购买 VIP 礼包仍按原流程立即开通。`}
+                </Text>
+              </Animated.View>
+            ) : null}
+
             <Animated.View
               entering={FadeInDown.duration(300).delay(100)}
               style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
@@ -488,7 +543,7 @@ export default function GrowthCenterScreen() {
                 <Tag label="后台规则" tone="brand" />
               </View>
               <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                好友通过你的普通推荐码注册并完成指定行为后，系统按以下规则自动发放。
+                邀请好友后，可按后台规则获得好友普通商品订单利润的 {directReferralPercentText}。好友成为 VIP 时，如果你还不是 VIP，普通推荐关系会结束；如果你已是 VIP，好友会进入你的 VIP 团队。
               </Text>
               {guideQuery.isLoading ? (
                 <View style={{ marginTop: spacing.md }}>
@@ -745,6 +800,15 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   progressFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  autoVipTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  autoVipFill: {
     height: '100%',
     borderRadius: 999,
   },

@@ -22,6 +22,12 @@ import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
+function formatPercent(value?: number | null) {
+  if (typeof value !== 'number') return '后台配置';
+  const percent = value * 100;
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
 // VIP 专属空间色彩 · 轻金 v1（与 gifts 页一致）
 // 背景从深墨绿黑换成暖香槟金，文字翻转为深棕，金色加深为深金 #B8860B + 亮金 #FFD700
 // warmWhite 语义已变为"文字主色"（金底上视觉为深棕），key 名保留避免大范围改动
@@ -65,9 +71,9 @@ const VIP_BENEFITS = [
   },
   {
     icon: 'account-cash' as const,
-    title: '推荐 VIP 奖励',
-    desc: '好友通过你的推荐关系开通 VIP 后，奖励记入我的财库',
-    highlight: '推荐奖励',
+    title: 'VIP 直推佣金',
+    desc: '好友成为 VIP 后，后续普通商品订单按 VIP 直推比例结算',
+    highlight: '持续佣金',
     compare: '到账与可提现状态以我的财库流水为准',
   },
   {
@@ -125,6 +131,7 @@ export default function VipScreen() {
   const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
   const inviterLabel = getReferralInviterLabel(member);
   const hasInviter = hasBoundReferralInviter(member);
+  const directReferralPercentText = formatPercent(member?.directReferralPercent);
 
   const handleCopyReferral = async () => {
     if (!referralCode) {
@@ -142,7 +149,7 @@ export default function VipScreen() {
     }
     try {
       await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
+        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队。${deepLink}`,
       });
     } catch {
       // 用户取消分享
@@ -254,8 +261,10 @@ export default function VipScreen() {
                   <Text style={styles.relationTitle}>推荐关系</Text>
                   <Text style={styles.relationDesc}>
                     {hasInviter
-                      ? `${isVip ? '已加入' : '购买 VIP 后将加入'} ${inviterLabel} 的 VIP 团队`
-                      : '尚未绑定推荐人，购买后将由系统分配'}
+                      ? isVip
+                        ? `已加入 ${inviterLabel} 的 VIP 团队`
+                        : `如果 ${inviterLabel} 在你成为 VIP 时已经是 VIP，你将进入 TA 的 VIP 团队；如果 TA 仍是普通用户，普通推荐关系会结束`
+                      : '尚未绑定推荐人，成为 VIP 时按系统节点分配'}
                   </Text>
                 </View>
                 {!isVip ? (
@@ -499,7 +508,7 @@ export default function VipScreen() {
           </Animated.View>
 
           <Text style={[typography.caption, { color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: spacing.md }]}>
-            分享推荐码，好友注册后双方获得红包奖励
+            好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算
           </Text>
         </View>
       </Modal>

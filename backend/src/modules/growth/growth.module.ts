@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BonusModule } from '../bonus/bonus.module';
 import { CouponModule } from '../coupon/coupon.module';
 import { GrowthController } from './growth.controller';
 import { GrowthCouponAdapterService } from './growth-coupon-adapter.service';
@@ -9,7 +10,7 @@ import { GrowthLevelService } from './growth-level.service';
 import { GrowthService } from './growth.service';
 
 @Module({
-  imports: [CouponModule],
+  imports: [CouponModule, BonusModule],
   controllers: [GrowthController],
   providers: [
     GrowthService,

@@ -17,6 +17,12 @@ import { compactActionTextProps, useBottomInset, useTheme } from '../../src/them
 import { monoFamily } from '../../src/theme/typography';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
+function formatPercent(value?: number | null) {
+  if (typeof value !== 'number') return '后台配置';
+  const percent = value * 100;
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
 // 推荐码展示页
 export default function ReferralScreen() {
   const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
@@ -40,6 +46,7 @@ export default function ReferralScreen() {
   const inviterLabel = getReferralInviterLabel(member);
   const hasInviter = hasBoundReferralInviter(member);
   const inviteeVipCount = member?.inviteeVipCount ?? 0;
+  const directReferralPercentText = formatPercent(member?.directReferralPercent);
 
   // 复制推荐码
   const handleCopy = async () => {
@@ -59,7 +66,7 @@ export default function ReferralScreen() {
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册，双方都能获得红包奖励！${deepLink}`,
+        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队。${deepLink}`,
       });
       if (result.action === Share.sharedAction) {
         CouponRepo.reportShareEvent({
@@ -75,8 +82,8 @@ export default function ReferralScreen() {
   // 推荐步骤数据
   const steps = [
     { icon: 'share-variant-outline' as const, label: '分享' },
-    { icon: 'account-plus-outline' as const, label: '好友注册' },
-    { icon: 'gift-outline' as const, label: '双方获红包' },
+    { icon: 'account-plus-outline' as const, label: '好友成为 VIP' },
+    { icon: 'cash-multiple' as const, label: '后续订单结算' },
   ];
 
   return (
@@ -118,7 +125,7 @@ export default function ReferralScreen() {
                   {inviterLabel}
                 </Text>
                 <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: spacing.xs, textAlign: 'center' }]}>
-                  购买 VIP 后将加入该推荐人的 VIP 团队
+                  如果推荐人在你成为 VIP 时已经是 VIP，你将进入 TA 的 VIP 团队；如果 TA 仍是普通用户，普通推荐关系会结束。
                 </Text>
               </>
             ) : null}
@@ -256,7 +263,7 @@ export default function ReferralScreen() {
             </View>
 
             <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center', marginTop: spacing.md }]}>
-              分享推荐码，好友注册后双方获得红包奖励
+              你推荐的好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按 {directReferralPercentText} 的 VIP 直推比例结算。购买 VIP 礼包本身不单独发放推荐奖。
             </Text>
           </Animated.View>
         </View>
