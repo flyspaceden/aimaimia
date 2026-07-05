@@ -283,6 +283,19 @@ export class CouponService {
     }
   }
 
+  private assertGrowthExchangeCampaignRules(dto: {
+    triggerType: string;
+    distributionMode: string;
+    growthExchangeEnabled?: boolean | null;
+  }) {
+    if (!dto.growthExchangeEnabled) {
+      return;
+    }
+    if (dto.triggerType !== 'MANUAL' || dto.distributionMode !== 'MANUAL') {
+      throw new BadRequestException('积分兑换专用红包必须是手动发放活动');
+    }
+  }
+
   private async getClaimEligibility(
     client: any,
     userId: string,
@@ -775,10 +788,10 @@ export class CouponService {
   }
 
   /**
-   * 系统发券入口：供积分兑换等新系统复用红包发放能力。
+   * 系统发券入口：供积分兑换系统复用红包发放能力。
    *
-   * 不暴露给买家主动领取；只允许发放非 CLAIM 活动，并复用现有
-   * CouponCampaign/CouponInstance 配额、快照和有效期模型。
+   * 不暴露给买家主动领取；只允许发放标记为积分兑换专用的 MANUAL
+   * 红包池，并复用现有 CouponCampaign/CouponInstance 配额、快照和有效期模型。
    */
   async issueSystemCoupon(params: IssueSystemCouponParams) {
     if (params.tx) {
@@ -823,8 +836,11 @@ export class CouponService {
     if (campaign.status !== 'ACTIVE') {
       throw new BadRequestException('该红包活动当前不可发放');
     }
-    if (campaign.distributionMode === 'CLAIM') {
-      throw new BadRequestException('用户主动领取活动不能由系统直接发放');
+    if (campaign.distributionMode !== 'MANUAL') {
+      throw new BadRequestException('系统发券只支持手动发放红包池');
+    }
+    if (!campaign.growthExchangeEnabled) {
+      throw new BadRequestException('该红包活动未标记为积分兑换专用');
     }
     if (now < campaign.startAt || (campaign.endAt && now > campaign.endAt)) {
       throw new BadRequestException('该红包活动不在有效期内');
@@ -1459,6 +1475,7 @@ export class CouponService {
       stackGroup?: string;
       totalQuota: number;
       maxPerUser?: number;
+      growthExchangeEnabled?: boolean;
       validDays?: number;
       startAt: string;
       endAt?: string | null;
@@ -1481,6 +1498,11 @@ export class CouponService {
       discountValue: dto.discountValue,
       minOrderAmount: dto.minOrderAmount ?? 0,
     });
+    this.assertGrowthExchangeCampaignRules({
+      triggerType: dto.triggerType,
+      distributionMode: dto.distributionMode,
+      growthExchangeEnabled: dto.growthExchangeEnabled,
+    });
 
     const campaign = await this.prisma.couponCampaign.create({
       data: {
@@ -1500,6 +1522,7 @@ export class CouponService {
         stackGroup: dto.stackGroup,
         totalQuota: dto.totalQuota,
         maxPerUser: dto.maxPerUser ?? 1,
+        growthExchangeEnabled: dto.growthExchangeEnabled ?? false,
         validDays: dto.validDays ?? 7,
         startAt,
         endAt,
@@ -1567,6 +1590,7 @@ export class CouponService {
       'stackGroup',
       'totalQuota',
       'maxPerUser',
+      'growthExchangeEnabled',
       'validDays',
     ];
     for (const field of allowedFields) {
@@ -1591,6 +1615,11 @@ export class CouponService {
       discountType: data.discountType ?? campaign.discountType,
       discountValue: data.discountValue ?? campaign.discountValue,
       minOrderAmount: data.minOrderAmount ?? campaign.minOrderAmount,
+    });
+    this.assertGrowthExchangeCampaignRules({
+      triggerType: data.triggerType ?? campaign.triggerType,
+      distributionMode: data.distributionMode ?? campaign.distributionMode,
+      growthExchangeEnabled: data.growthExchangeEnabled ?? campaign.growthExchangeEnabled,
     });
 
     return this.prisma.couponCampaign.update({
@@ -1979,6 +2008,9 @@ export class CouponService {
       if (campaign.distributionMode !== 'MANUAL') {
         throw new BadRequestException('只有手动发放类型活动可以手动发放');
       }
+      if (campaign.growthExchangeEnabled) {
+        throw new BadRequestException('积分兑换专用红包池不能通过手动发放入口发放');
+      }
 
       const job = await (tx as any).couponManualIssueJob.create({
         data: {
@@ -2025,6 +2057,9 @@ export class CouponService {
         }
         if (campaign.distributionMode !== 'MANUAL') {
           throw new BadRequestException('只有手动发放类型活动可以手动发放');
+        }
+        if (campaign.growthExchangeEnabled) {
+          throw new BadRequestException('积分兑换专用红包池不能通过手动发放入口发放');
         }
 
         let resolvedUserIds = resolvedSpecificUserIds ?? [];

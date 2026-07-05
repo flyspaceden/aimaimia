@@ -138,6 +138,7 @@ const makeHarness = (options: {
         name: '系统发放红包',
         status: 'ACTIVE',
         distributionMode: 'MANUAL',
+        growthExchangeEnabled: true,
         startAt: new Date('2026-07-01T00:00:00.000Z'),
         endAt: new Date('2026-12-31T23:59:59.000Z'),
         issuedCount: 0,
@@ -199,6 +200,7 @@ describe('AdminGrowthService', () => {
         name: '领券中心红包',
         status: 'ACTIVE',
         distributionMode: 'CLAIM',
+        growthExchangeEnabled: false,
         startAt: new Date('2026-07-01T00:00:00.000Z'),
         endAt: new Date('2026-12-31T23:59:59.000Z'),
         issuedCount: 0,
@@ -213,7 +215,33 @@ describe('AdminGrowthService', () => {
         pointsCost: 100,
         couponCampaignId: 'campaign-claim',
       }),
-    ).rejects.toThrow('用户主动领取类红包不能用于积分兑换');
+    ).rejects.toThrow('积分兑换只能绑定手动发放的积分兑换专用红包池');
+    expect(prisma.growthExchangeItem.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects coupon exchange items backed by regular manual coupon campaigns', async () => {
+    const { service, prisma } = makeHarness({
+      couponCampaign: {
+        id: 'campaign-manual',
+        name: '普通手动红包',
+        status: 'ACTIVE',
+        distributionMode: 'MANUAL',
+        growthExchangeEnabled: false,
+        startAt: new Date('2026-07-01T00:00:00.000Z'),
+        endAt: new Date('2026-12-31T23:59:59.000Z'),
+        issuedCount: 0,
+        totalQuota: 100,
+      },
+    });
+
+    await expect(
+      service.createExchangeItem({
+        type: 'COUPON',
+        name: '5元红包',
+        pointsCost: 100,
+        couponCampaignId: 'campaign-manual',
+      }),
+    ).rejects.toThrow('只能绑定标记为积分兑换专用的红包活动');
     expect(prisma.growthExchangeItem.create).not.toHaveBeenCalled();
   });
 

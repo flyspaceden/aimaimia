@@ -212,6 +212,7 @@ export default function CampaignFormDrawer({
           stackGroup: campaign.stackGroup,
           totalQuota: campaign.totalQuota,
           maxPerUser: campaign.maxPerUser,
+          growthExchangeEnabled: campaign.growthExchangeEnabled,
           validDays: campaign.validDays,
           startAt: campaign.startAt ? dayjs(campaign.startAt) : undefined,
           endAt: campaign.endAt ? dayjs(campaign.endAt) : undefined,
@@ -232,6 +233,7 @@ export default function CampaignFormDrawer({
           minOrderAmount: 0,
           stackable: false,
           maxPerUser: 1,
+          growthExchangeEnabled: false,
           validDays: 7,
           totalQuota: 100,
           noEndAt: false,
@@ -289,6 +291,7 @@ export default function CampaignFormDrawer({
         stackGroup: values.stackGroup as string | undefined,
         totalQuota: values.totalQuota as number,
         maxPerUser: (values.maxPerUser as number) || 1,
+        growthExchangeEnabled: isManualTrigger ? Boolean(values.growthExchangeEnabled) : false,
         validDays: Number(values.validDays ?? 7),
         startAt: isManualTrigger
           ? dayjs().toISOString()
@@ -382,6 +385,9 @@ export default function CampaignFormDrawer({
                   const nextDistributionMode = getDefaultDistributionMode(triggerType);
                   formRef.current?.setFieldsValue({
                     distributionMode: nextDistributionMode,
+                    growthExchangeEnabled: triggerType === 'MANUAL'
+                      ? formRef.current?.getFieldValue('growthExchangeEnabled')
+                      : false,
                     triggerConfig_autoTargetMode: undefined,
                     ...(!EVERGREEN_TRIGGER_TYPES.includes(triggerType) ? { noEndAt: false } : {}),
                   });
@@ -440,13 +446,19 @@ export default function CampaignFormDrawer({
               }
               if (triggerType === 'MANUAL') {
                 return (
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="手动发放对象"
-                    description="创建后先在草稿列表上架；上架后会打开手动发放窗口，可搜索选择指定买家，也可以选择普通用户、VIP用户或全部用户。"
-                  />
+                  <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 8 }}>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="手动发放对象"
+                      description="普通手动红包上架后会打开手动发放窗口，可搜索选择指定买家、普通用户、VIP用户或全部用户；勾选“积分兑换专用”后不会走普通手动发放入口，只作为积分成长兑换红包池。"
+                    />
+                    <ProFormSwitch
+                      name="growthExchangeEnabled"
+                      label="积分兑换专用"
+                      extra="仅用于积分成长兑换。勾选后，该红包活动不会走普通手动发放入口，只能作为积分兑换专用红包池。"
+                    />
+                  </Space>
                 );
               }
               if (triggerType === 'HOLIDAY') {
@@ -705,7 +717,7 @@ export default function CampaignFormDrawer({
                     type="info"
                     showIcon
                     message="手动发放无需配置活动开始或截止时间"
-                    description="具体发放时间在活动上架后的手动发放窗口中选择，默认立即发放，也可以定时发放；单张红包仍按“有效天数”过期。"
+                    description="普通手动红包的发放时间在上架后的手动发放窗口中选择；积分兑换专用池由用户兑换成功时发放。单张红包仍按“有效天数”过期。"
                   />
                 </Card>
               );

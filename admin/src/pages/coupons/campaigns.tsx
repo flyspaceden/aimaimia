@@ -178,7 +178,11 @@ export default function CampaignListPage() {
           if (newStatus === 'ACTIVE') {
             setActiveStatusTab('ACTIVE');
           }
-          if (newStatus === 'ACTIVE' && updatedCampaign.distributionMode === 'MANUAL') {
+          if (
+            newStatus === 'ACTIVE' &&
+            updatedCampaign.distributionMode === 'MANUAL' &&
+            !updatedCampaign.growthExchangeEnabled
+          ) {
             setManualIssueCampaign(updatedCampaign);
           }
           actionRef.current?.reload();
@@ -282,7 +286,10 @@ export default function CampaignListPage() {
       width: 180,
       ellipsis: true,
       render: (_: unknown, r: CouponCampaign) => (
-        <a onClick={() => setDetailCampaign(r)}>{r.name}</a>
+        <Space direction="vertical" size={2}>
+          <a onClick={() => setDetailCampaign(r)}>{r.name}</a>
+          {r.growthExchangeEnabled && <Tag color="geekblue">积分兑换专用</Tag>}
+        </Space>
       ),
     },
     {
@@ -398,7 +405,7 @@ export default function CampaignListPage() {
             )}
             {record.status === 'ACTIVE' && (
               <>
-                {record.distributionMode === 'MANUAL' && (
+                {record.distributionMode === 'MANUAL' && !record.growthExchangeEnabled && (
                   <Button
                     type="link"
                     size="small"
@@ -761,6 +768,11 @@ export default function CampaignListPage() {
                   <Descriptions.Item label="发放方式">
                     <Tag color={distInfo?.color}>{distInfo?.text || detailCampaign.distributionMode}</Tag>
                   </Descriptions.Item>
+                  {detailCampaign.growthExchangeEnabled && (
+                    <Descriptions.Item label="运营用途">
+                      <Tag color="geekblue">积分兑换专用</Tag>
+                    </Descriptions.Item>
+                  )}
                   <Descriptions.Item label="叠加规则">
                     {detailCampaign.stackable ? '可叠加' : '不可叠加'}
                     {detailCampaign.stackGroup ? <Tag style={{ marginLeft: 6 }}>{detailCampaign.stackGroup}</Tag> : ''}

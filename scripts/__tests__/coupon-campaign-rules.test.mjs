@@ -50,12 +50,24 @@ test('campaign form supports unlimited end time only for evergreen trigger types
 
 test('manual campaign creation explains the activation before issuing workflow', () => {
   assert.match(form, /手动发放对象/);
-  assert.match(form, /创建后先在草稿列表上架/);
+  assert.match(form, /普通手动红包上架后会打开手动发放窗口/);
   assert.match(form, /搜索选择指定买家/);
   assert.match(form, /普通用户/);
   assert.match(form, /VIP用户/);
   assert.match(form, /全部用户/);
+  assert.match(form, /勾选“积分兑换专用”后不会走普通手动发放入口/);
   assert.match(form, /onSuccess\(savedCampaign\)/);
+});
+
+test('coupon campaigns can be marked as growth-exchange dedicated pools', () => {
+  assert.match(api, /growthExchangeEnabled:\s*boolean/);
+  assert.match(form, /name="growthExchangeEnabled"/);
+  assert.match(form, /label="积分兑换专用"/);
+  assert.match(form, /仅用于积分成长兑换/);
+  assert.match(form, /growthExchangeEnabled:\s*isManualTrigger\s*\?\s*Boolean\(values\.growthExchangeEnabled\)\s*:\s*false/);
+  assert.match(listPage, /growthExchangeEnabled/);
+  assert.match(listPage, /积分兑换专用/);
+  assert.match(listPage, /record\.distributionMode === 'MANUAL' && !record\.growthExchangeEnabled/);
 });
 
 test('fixed discount campaigns require threshold after discount amount', () => {
@@ -96,6 +108,7 @@ test('new draft campaigns remain discoverable and manual activation opens issue 
   assert.match(listPage, /createdCampaign\?\.status === 'DRAFT'/);
   assert.match(listPage, /setActiveStatusTab\('DRAFT'\)/);
   assert.match(listPage, /updatedCampaign\.distributionMode === 'MANUAL'/);
+  assert.match(listPage, /!updatedCampaign\.growthExchangeEnabled/);
   assert.match(listPage, /setManualIssueCampaign\(updatedCampaign\)/);
 });
 
