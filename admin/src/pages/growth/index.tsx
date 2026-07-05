@@ -67,6 +67,7 @@ import type {
   AdminGrowthLevel,
   AdminGrowthRule,
   AdminGrowthSettings,
+  AdminGrowthUserSummary,
   AdminNormalShareBinding,
 } from '@/types';
 
@@ -184,6 +185,22 @@ const applicableUserTypeLabels: Record<string, string> = {
   NORMAL: '普通用户',
   VIP: 'VIP 用户',
 };
+const directReferralStatusMap: Record<string, { text: string; color: string }> = {
+  ACTIVE: { text: '生效中', color: 'green' },
+  SUPERSEDED_BY_VIP_TREE: { text: '转入 VIP 关系', color: 'gold' },
+  INVALIDATED_BY_INVITEE_VIP_UPGRADE: { text: '已解绑', color: 'orange' },
+  ADMIN_VOIDED: { text: '管理员作废', color: 'red' },
+};
+const directReferralSourceLabels: Record<string, string> = {
+  MEMBER_PROFILE: '会员推荐关系',
+  NORMAL_SHARE_BINDING: '普通分享绑定',
+  APP_SHARE: 'App 分享',
+  H5_SHARE: 'H5 分享',
+  QR_CODE: '二维码',
+};
+const directReferralInvalidReasonLabels: Record<string, string> = {
+  INVITER_NOT_VIP_AT_INVITEE_UPGRADE: '被推荐人成为 VIP 时，原推荐人仍是普通用户',
+};
 
 function formatInt(value?: number | null) {
   return Number(value ?? 0).toLocaleString();
@@ -225,7 +242,7 @@ function renderExchangeCampaignOption(campaign: CouponCampaign) {
   );
 }
 
-function renderUser(user: AdminGrowthAccountRow['user'] | AdminNormalShareBinding['inviter'] | undefined) {
+function renderUser(user: AdminGrowthUserSummary | null | undefined) {
   if (!user) return <Typography.Text type="secondary">-</Typography.Text>;
   return (
     <Space>
@@ -236,6 +253,48 @@ function renderUser(user: AdminGrowthAccountRow['user'] | AdminNormalShareBindin
         nickname={user.nickname || user.phone || '-'}
         compact
       />
+    </Space>
+  );
+}
+
+function renderDirectReferralStatus(status?: string | null) {
+  if (!status) return <Typography.Text type="secondary">无绑定</Typography.Text>;
+  const meta = directReferralStatusMap[status] ?? { text: status, color: 'default' };
+  return <Tag color={meta.color}>{meta.text}</Tag>;
+}
+
+function renderDirectReferralSource(source?: string | null) {
+  if (!source) return null;
+  return <Tag>{directReferralSourceLabels[source] ?? source}</Tag>;
+}
+
+function renderInvalidReason(reason?: string | null) {
+  if (!reason) return <Typography.Text type="secondary">-</Typography.Text>;
+  return directReferralInvalidReasonLabels[reason] ?? reason;
+}
+
+function renderDirectReferralSummary(record: AdminGrowthAccountRow) {
+  if (!record.directReferralStatus && !record.directReferralInviterUserId) {
+    return <Typography.Text type="secondary">未绑定</Typography.Text>;
+  }
+  return (
+    <Space direction="vertical" size={4}>
+      <Space size={4} wrap>
+        {renderDirectReferralStatus(record.directReferralStatus)}
+        {renderDirectReferralSource(record.directReferralSource)}
+      </Space>
+      {record.directReferralInviter ? (
+        renderUser(record.directReferralInviter)
+      ) : record.directReferralInviterUserId ? (
+        <Typography.Text code>{record.directReferralInviterUserId}</Typography.Text>
+      ) : (
+        <Typography.Text type="secondary">无有效推荐人</Typography.Text>
+      )}
+      {record.directReferralInvalidReason && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {renderInvalidReason(record.directReferralInvalidReason)}
+        </Typography.Text>
+      )}
     </Space>
   );
 }
@@ -538,6 +597,13 @@ export default function GrowthPage() {
           <Typography.Text type="secondary">-</Typography.Text>
         );
       },
+    },
+    {
+      title: '直推关系',
+      dataIndex: 'directReferralStatus',
+      search: false,
+      width: 300,
+      render: (_: unknown, record) => renderDirectReferralSummary(record),
     },
     {
       title: '更新时间',
@@ -1020,6 +1086,46 @@ export default function GrowthPage() {
       },
     },
     {
+      title: '推荐关系状态',
+      dataIndex: 'relationStatus',
+      search: false,
+      width: 150,
+      render: (_: unknown, record) => renderDirectReferralStatus(record.relationStatus),
+    },
+    {
+      title: '有效推荐人',
+      dataIndex: 'effectiveInviterUserId',
+      search: false,
+      width: 240,
+      render: (_: unknown, record) =>
+        record.effectiveInviter ? (
+          renderUser(record.effectiveInviter)
+        ) : record.effectiveInviterUserId ? (
+          <Typography.Text code>{record.effectiveInviterUserId}</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">无有效推荐人</Typography.Text>
+        ),
+    },
+    {
+      title: '失效原因',
+      dataIndex: 'relationInvalidReason',
+      search: false,
+      width: 260,
+      render: (_: unknown, record) => renderInvalidReason(record.relationInvalidReason),
+    },
+    {
+      title: '失效时间',
+      dataIndex: 'relationInvalidAt',
+      search: false,
+      width: 170,
+      render: (_: unknown, record) =>
+        record.relationInvalidAt ? (
+          dayjs(record.relationInvalidAt).format('YYYY-MM-DD HH:mm')
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
+    },
+    {
       title: '首单',
       dataIndex: 'firstOrderId',
       search: false,
@@ -1092,7 +1198,7 @@ export default function GrowthPage() {
               统一管理普通用户和 VIP 用户的积分、成长值、等级、兑换和流水。积分=可消耗，可用于兑换红包和权益；成长值=不可消耗，只用于升级和解锁等级权益。
             </Typography.Text>
             <Typography.Text>
-              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享码只给普通用户使用，VIP 推荐关系仍在「VIP 会员 / VIP 奖励可视化」里管理。
+              配置顺序：先开全局，再配行为，接着配等级，最后配兑换。普通分享和 VIP 推荐都会沉淀为直推关系；这里查看积分成长账户、推荐码入口和普通分享绑定状态，VIP 树仍在 VIP 页面管理。
             </Typography.Text>
             <Space wrap>
               <Tag color="blue">先开全局</Tag>
@@ -1242,6 +1348,26 @@ export default function GrowthPage() {
                         <InputNumber min={0} precision={0} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="autoVipBySpendEnabled"
+                        label="累计消费自动成为 VIP"
+                        valuePropName="checked"
+                        extra="累计普通商品有效消费达到门槛后自动成为 VIP。VIP 礼包购买流程不受影响。"
+                      >
+                        <Switch checkedChildren="启用" unCheckedChildren="关闭" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="autoVipCumulativeSpendThreshold"
+                        label="自动成为 VIP 门槛（元）"
+                        rules={[{ required: true }]}
+                        extra="只统计普通商品有效消费，确认收货后入账；达到后按 VIP 入树规则处理。"
+                      >
+                        <InputNumber min={1} precision={2} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
                   </Row>
                   <PermissionGate permission={PERMISSIONS.GROWTH_MANAGE_RULES}>
                     <Button type="primary" htmlType="submit" loading={saveSettingsMutation.isPending}>
@@ -1284,6 +1410,7 @@ export default function GrowthPage() {
                   pagination={{ defaultPageSize: 20 }}
                   options={false}
                   search={{ labelWidth: 'auto' }}
+                  scroll={{ x: 1600 }}
                 />
               </Card>
             ),
@@ -1420,7 +1547,7 @@ export default function GrowthPage() {
                   showIcon
                   type="info"
                   message="普通分享只服务普通用户拉新"
-                  description="普通用户邀请新人注册后可立即获得注册奖励；新人首单确认收货后可继续发首单奖励。VIP 用户不使用普通分享码，改用 VIP 推荐码。"
+                  description="普通分享关系一旦绑定不能更换。普通用户邀请新人注册后可立即获得注册奖励；新人首单确认收货后可继续发首单奖励。若被推荐人成为 VIP 且推荐人仍是普通用户，这条普通关系会解绑；若推荐人已经是 VIP，则转入 VIP 推荐关系。"
                   style={{ marginBottom: 16 }}
                 />
                 <ProTable<AdminNormalShareBinding>
@@ -1439,6 +1566,7 @@ export default function GrowthPage() {
                   pagination={{ defaultPageSize: 20 }}
                   options={false}
                   search={{ labelWidth: 'auto' }}
+                  scroll={{ x: 1700 }}
                 />
               </Card>
             ),

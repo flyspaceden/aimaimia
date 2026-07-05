@@ -520,6 +520,12 @@ export interface AdminGrowthAccountRow {
   createdAt: string;
   updatedAt: string;
   user: AdminGrowthUserSummary;
+  directReferralInviterUserId?: string | null;
+  directReferralStatus?: string | null;
+  directReferralSource?: string | null;
+  directReferralInvalidAt?: string | null;
+  directReferralInvalidReason?: string | null;
+  directReferralInviter?: AdminGrowthUserSummary | null;
 }
 
 export interface AdminGrowthSettings {
@@ -532,6 +538,8 @@ export interface AdminGrowthSettings {
   monthlyInviteFirstOrderCap: number;
   refundReversalEnabled: boolean;
   autoSuspendExchangeRisk: boolean;
+  autoVipBySpendEnabled: boolean;
+  autoVipCumulativeSpendThreshold: number;
 }
 
 export interface AdminGrowthLedgerQueryParams extends PaginationParams {
@@ -620,10 +628,15 @@ export interface AdminNormalShareBinding {
   firstOrderId: string | null;
   rewardStatus: string;
   rewardIssuedAt: string | null;
+  relationStatus?: string | null;
+  relationInvalidAt?: string | null;
+  relationInvalidReason?: string | null;
+  effectiveInviterUserId?: string | null;
   createdAt: string;
   updatedAt: string;
   inviter: AdminGrowthUserSummary | null;
   invitee: AdminGrowthUserSummary | null;
+  effectiveInviter?: AdminGrowthUserSummary | null;
 }
 
 // ========== 商品 ==========

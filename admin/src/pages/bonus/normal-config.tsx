@@ -1,7 +1,7 @@
 /**
  * 普通用户系统参数配置页
  *
- * 三个业务分组：普通结构 / 奖励设置 / 利润六分比例
+ * 三个业务分组：普通结构 / 奖励设置 / 利润七分比例
  * 支持实时校验、版本历史抽屉、变更说明
  * 增强功能：推荐模板、恢复默认值、变更影响提示
  */
@@ -112,7 +112,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     defaultValue: 30,
   },
 
-  // 利润六分比例（须合计 = 1.0）
+  // 利润七分比例（须合计 = 1.0）
   {
     key: 'NORMAL_PLATFORM_PERCENT',
     label: '平台占比',
@@ -122,7 +122,7 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     max: 1,
     step: 0.01,
     description: '普通利润中归平台的比例',
-    defaultValue: 0.50,
+    defaultValue: 0.49,
   },
   {
     key: 'NORMAL_REWARD_PERCENT',
@@ -134,6 +134,17 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
     step: 0.01,
     description: '普通利润中分配给奖励的比例',
     defaultValue: 0.16,
+  },
+  {
+    key: 'NORMAL_DIRECT_REFERRAL_PERCENT',
+    label: '普通直推佣金占比',
+    group: 'ratio',
+    type: 'percent',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    description: '普通用户推荐好友后，从好友后续普通商品订单利润中获得的持续佣金比例',
+    defaultValue: 0.01,
   },
   {
     key: 'NORMAL_INDUSTRY_FUND_PERCENT',
@@ -181,15 +192,16 @@ const CONFIG_SCHEMA: ConfigMeta[] = [
   },
 ];
 
-// 六分比例 keys（全部须合计 = 1.0）
+// 七分比例 keys（全部须合计 = 1.0）
 const RATIO_KEYS = CONFIG_SCHEMA
   .filter((m) => m.group === 'ratio' && m.type === 'percent')
   .map((m) => m.key);
 
-// 推荐模板：标准六分比例（50/16/16/8/8/2）
+// 推荐模板：标准七分比例（49/16/1/16/8/8/2）
 const RECOMMENDED_RATIO_TEMPLATE: Record<string, number> = {
-  NORMAL_PLATFORM_PERCENT: 0.50,
+  NORMAL_PLATFORM_PERCENT: 0.49,
   NORMAL_REWARD_PERCENT: 0.16,
+  NORMAL_DIRECT_REFERRAL_PERCENT: 0.01,
   NORMAL_INDUSTRY_FUND_PERCENT: 0.16,
   NORMAL_CHARITY_PERCENT: 0.08,
   NORMAL_TECH_PERCENT: 0.08,
@@ -271,7 +283,7 @@ export default function NormalConfigPage() {
     }
   }, [configs, form]);
 
-  // 实时获取六分比例合计
+  // 实时获取七分比例合计
   const allValues = Form.useWatch([], form);
   const sumValue = useMemo(() => {
     if (!allValues) return 0;
@@ -279,7 +291,7 @@ export default function NormalConfigPage() {
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
 
-  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发六分比例总和 ≠ 1.0）
+  // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
     const values = form.getFieldsValue(true);
 
@@ -289,7 +301,8 @@ export default function NormalConfigPage() {
       const oldVal = getVal(configs, meta.key);
       const newVal = values[meta.key];
       if (JSON.stringify(oldVal) === JSON.stringify(newVal)) continue;
-      const desc = extractConfigDescription(configs.find((c) => c.key === meta.key)!);
+      const existing = configs.find((c) => c.key === meta.key);
+      const desc = existing ? extractConfigDescription(existing) : undefined;
       updates.push({
         key: meta.key,
         value: { value: newVal, description: desc || meta.description || meta.label },
@@ -329,7 +342,7 @@ export default function NormalConfigPage() {
     }
 
     if (!sumValid) {
-      message.error('六分比例合计必须等于 100%，当前合计：' + fmtPercent(sumValue));
+      message.error('七分比例合计必须等于 100%，当前合计：' + fmtPercent(sumValue));
       return;
     }
 
@@ -423,16 +436,16 @@ export default function NormalConfigPage() {
     });
   }, [form, configs, sumValid, sumValue, doSave]);
 
-  // 应用推荐模板（六分比例）
+  // 应用推荐模板（七分比例）
   const handleApplyTemplate = useCallback(() => {
     modal.confirm({
       title: '应用推荐模板',
       icon: <ThunderboltOutlined style={{ color: '#2E7D32' }} />,
       content: (
         <div>
-          <Text>将六分比例设置为推荐值：</Text>
+          <Text>将七分比例设置为推荐值：</Text>
           <div style={{ marginTop: 8, padding: 12, background: '#f6ffed', borderRadius: 8, border: '1px solid #b7eb8f' }}>
-            <div>平台 50% / 奖励 16% / 产业基金 16%</div>
+            <div>平台 49% / 奖励 16% / 普通直推 1% / 产业基金 16%</div>
             <div>慈善 8% / 科技 8% / 备用金 2%</div>
           </div>
           <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
@@ -500,7 +513,7 @@ export default function NormalConfigPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>普通系统配置</Title>
           <Text type="secondary" style={{ fontSize: 13 }}>
-            管理普通用户奖励结构、冻结/过期参数与利润六分比例（独立于 VIP 体系）
+            管理普通用户奖励结构、冻结/过期参数与利润七分比例（独立于 VIP 体系）
           </Text>
         </div>
         <Space>
@@ -566,7 +579,7 @@ export default function NormalConfigPage() {
             </Card>
           </Col>
 
-          {/* ====== 利润六分比例 ====== */}
+          {/* ====== 利润七分比例 ====== */}
           <Col span={24}>
             <Card
               bordered={false}
@@ -575,7 +588,7 @@ export default function NormalConfigPage() {
               title={
                 <Space>
                   <PercentageOutlined style={{ color: '#1E40AF', fontSize: 18 }} />
-                  <Text strong style={{ fontSize: 15 }}>利润六分比例</Text>
+                  <Text strong style={{ fontSize: 15 }}>利润七分比例</Text>
                 </Space>
               }
               extra={
@@ -601,7 +614,7 @@ export default function NormalConfigPage() {
               }
             >
               <Divider style={{ margin: '0 0 12px' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>以下六项须合计 = 100%（50/16/16/8/8/2）</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>以下七项须合计 = 100%（49/16/1/16/8/8/2）</Text>
               </Divider>
 
               {!sumValid && (
