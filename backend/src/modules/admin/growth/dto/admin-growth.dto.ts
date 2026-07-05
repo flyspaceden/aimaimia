@@ -309,6 +309,15 @@ export class AdminGrowthSettingsDto {
   @IsOptional()
   @IsBoolean()
   autoSuspendExchangeRisk?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  autoVipBySpendEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  autoVipCumulativeSpendThreshold?: number;
 }
 
 export class AdminNormalShareStatusDto {

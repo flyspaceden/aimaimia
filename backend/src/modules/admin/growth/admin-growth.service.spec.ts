@@ -11,6 +11,8 @@ const makeHarness = (options: {
   levelCode?: string | null;
   settings?: Record<string, unknown>;
   normalShareProfile?: any;
+  normalShareBindings?: any[];
+  summaryUsers?: any[];
   couponCampaign?: any;
 } = {}) => {
   const userUpdatedAt = new Date('2026-07-04T08:00:00.000Z');
@@ -33,7 +35,7 @@ const makeHarness = (options: {
     createdAt: new Date('2026-07-03T08:00:00.000Z'),
     updatedAt: userUpdatedAt,
     profile: { nickname: '普通用户', avatarUrl: null },
-    memberProfile: { tier: 'NORMAL' },
+    memberProfile: { tier: 'NORMAL', inviterUserId: null },
     growthAccount: baseAccount,
     normalShareProfile: {
       code: 'S123456',
@@ -67,10 +69,18 @@ const makeHarness = (options: {
       upsert: jest.fn(({ create, update }: any) => ({ ...create, ...update })),
     },
   };
+  const accountUsers = options.users ?? [baseUser];
+  const summaryUsers = options.summaryUsers ?? [];
   const prisma: any = {
     user: {
       findUnique: jest.fn().mockResolvedValue(options.resolvedUser ?? { id: 'user-1' }),
-      findMany: jest.fn().mockResolvedValue(options.users ?? [baseUser]),
+      findMany: jest.fn((args: any) => {
+        const ids = args?.where?.id?.in;
+        if (Array.isArray(ids)) {
+          return Promise.resolve(summaryUsers.filter((user) => ids.includes(user.id)));
+        }
+        return Promise.resolve(accountUsers);
+      }),
       count: jest.fn().mockResolvedValue(options.userCount ?? options.users?.length ?? 1),
     },
     ruleConfig: {
@@ -120,8 +130,8 @@ const makeHarness = (options: {
       count: jest.fn().mockResolvedValue(4),
     },
     normalShareBinding: {
-      findMany: jest.fn().mockResolvedValue([]),
-      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue(options.normalShareBindings ?? []),
+      count: jest.fn().mockResolvedValue(options.normalShareBindings?.length ?? 0),
     },
     normalShareProfile: {
       findUnique: jest.fn().mockResolvedValue(options.normalShareProfile ?? {
@@ -308,18 +318,27 @@ describe('AdminGrowthService', () => {
 
   it('reads and saves configurable growth settings through RuleConfig', async () => {
     const { service, prisma, tx } = makeHarness({
-      settings: { GROWTH_ENABLED: true, GROWTH_POINTS_EXPIRE_DAYS: 180 },
+      settings: {
+        GROWTH_ENABLED: true,
+        GROWTH_POINTS_EXPIRE_DAYS: 180,
+        AUTO_VIP_BY_SPEND_ENABLED: false,
+        AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD: 699,
+      },
     });
 
     await expect(service.getSettings()).resolves.toMatchObject({
       growthEnabled: true,
       pointsExpireDays: 180,
       dailyPointsCap: 300,
+      autoVipBySpendEnabled: false,
+      autoVipCumulativeSpendThreshold: 699,
     });
 
     const result = await service.updateSettings({
       growthEnabled: false,
       dailyPointsCap: 200,
+      autoVipBySpendEnabled: true,
+      autoVipCumulativeSpendThreshold: 399,
     }) as any;
 
     expect(prisma.$transaction).toHaveBeenCalledWith(
@@ -336,10 +355,22 @@ describe('AdminGrowthService', () => {
       create: { key: 'GROWTH_DAILY_POINTS_CAP', value: 200 },
       update: { value: 200 },
     });
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
+      where: { key: 'AUTO_VIP_BY_SPEND_ENABLED' },
+      create: { key: 'AUTO_VIP_BY_SPEND_ENABLED', value: true },
+      update: { value: true },
+    });
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
+      where: { key: 'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD' },
+      create: { key: 'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', value: 399 },
+      update: { value: 399 },
+    });
     expect(prisma.ruleConfig.findMany).toHaveBeenCalled();
     expect(result).toMatchObject({
       growthEnabled: true,
       pointsExpireDays: 180,
+      autoVipBySpendEnabled: false,
+      autoVipCumulativeSpendThreshold: 699,
     });
   });
 
@@ -468,6 +499,104 @@ describe('AdminGrowthService', () => {
     expect(prisma.growthAccount.findMany).not.toHaveBeenCalled();
   });
 
+  it('adds direct referral summary from member profile to growth account rows', async () => {
+    const referredUser = {
+      id: 'normal-user-with-inviter',
+      buyerNo: 'AIMM00000000000101',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: '被邀请用户', avatarUrl: null },
+      memberProfile: { tier: 'NORMAL', inviterUserId: 'inviter-user-1' },
+      growthAccount: null,
+      normalShareProfile: null,
+      normalShareBindingReceived: null,
+      authIdentities: [{ identifier: '13800001010' }],
+    };
+    const inviterUser = {
+      id: 'inviter-user-1',
+      buyerNo: 'AIMM00000000000100',
+      status: 'ACTIVE',
+      profile: { nickname: '邀请人', avatarUrl: 'https://example.test/avatar.png' },
+      memberProfile: { tier: 'VIP', referralCode: 'VIP100' },
+      normalShareProfile: { code: 'S100001', status: 'ACTIVE' },
+      authIdentities: [{ identifier: '13900001000' }],
+    };
+    const { service, prisma } = makeHarness({
+      users: [referredUser],
+      summaryUsers: [inviterUser],
+      levels: [{ code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true }],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      items: [
+        {
+          userId: 'normal-user-with-inviter',
+          directReferralInviterUserId: 'inviter-user-1',
+          directReferralStatus: 'ACTIVE',
+          directReferralSource: 'MEMBER_PROFILE',
+          directReferralInviter: {
+            id: 'inviter-user-1',
+            buyerNo: 'AIMM00000000000100',
+            nickname: '邀请人',
+            phone: '139****1000',
+            vipStatus: 'VIP',
+            vipReferralCode: 'VIP100',
+          },
+        },
+      ],
+    });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['inviter-user-1'] } },
+      select: expect.any(Object),
+    }));
+  });
+
+  it('shows invalidated normal binding status on growth account rows when no member inviter exists', async () => {
+    const invalidatedAt = new Date('2026-07-05T09:00:00.000Z');
+    const user = {
+      id: 'vip-upgraded-user',
+      buyerNo: 'AIMM00000000000102',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: '已升级用户', avatarUrl: null },
+      memberProfile: { tier: 'VIP', referralCode: 'VIP102', inviterUserId: null },
+      growthAccount: null,
+      normalShareProfile: null,
+      normalShareBindingReceived: {
+        inviterUserId: 'old-normal-inviter',
+        effectiveInviterUserId: null,
+        source: 'APP',
+        relationStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+        relationInvalidAt: invalidatedAt,
+        relationInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+      },
+      authIdentities: [{ identifier: '13800001020' }],
+    };
+    const { service } = makeHarness({
+      users: [user],
+      levels: [{ code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true }],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      items: [
+        {
+          userId: 'vip-upgraded-user',
+          directReferralInviterUserId: null,
+          directReferralStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+          directReferralSource: 'APP',
+          directReferralInvalidAt: invalidatedAt,
+          directReferralInvalidReason: 'INVITER_NOT_VIP_AT_INVITEE_UPGRADE',
+          directReferralInviter: null,
+        },
+      ],
+    });
+  });
+
   it('can list VIP growth accounts without mixing VIP referral management into normal share', async () => {
     const vipUser = {
       id: 'vip-user-1',
@@ -526,7 +655,7 @@ describe('AdminGrowthService', () => {
         memberProfile: { is: { tier: 'VIP' } },
       }),
       include: expect.objectContaining({
-        memberProfile: { select: { tier: true, referralCode: true } },
+        memberProfile: { select: expect.objectContaining({ tier: true, referralCode: true, inviterUserId: true }) },
         normalShareProfile: expect.any(Object),
       }),
     }));
@@ -618,6 +747,77 @@ describe('AdminGrowthService', () => {
         status: 'ACTIVE',
         disabledReason: null,
       },
+    });
+  });
+
+  it('lists normal share bindings with relation audit fields and effective inviter summary', async () => {
+    const invalidatedAt = new Date('2026-07-05T09:00:00.000Z');
+    const binding = {
+      id: 'binding-1',
+      inviterUserId: 'original-inviter',
+      inviteeUserId: 'invitee-1',
+      code: 'S123456',
+      source: 'APP',
+      relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+      relationInvalidAt: invalidatedAt,
+      relationInvalidReason: 'INVITER_UPGRADED_BEFORE_INVITEE',
+      effectiveInviterUserId: 'effective-vip-inviter',
+      rewardStatus: 'REGISTER_REWARDED',
+      createdAt: new Date('2026-07-04T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-05T09:00:00.000Z'),
+      inviter: {
+        id: 'original-inviter',
+        buyerNo: 'AIMM00000000000111',
+        status: 'ACTIVE',
+        profile: { nickname: '原普通邀请人', avatarUrl: null },
+        memberProfile: { tier: 'NORMAL' },
+        normalShareProfile: { code: 'S111111', status: 'ACTIVE' },
+        authIdentities: [{ identifier: '13800001111' }],
+      },
+      invitee: {
+        id: 'invitee-1',
+        buyerNo: 'AIMM00000000000112',
+        status: 'ACTIVE',
+        profile: { nickname: '被邀请人', avatarUrl: null },
+        memberProfile: { tier: 'VIP', referralCode: 'VIP112' },
+        normalShareProfile: null,
+        authIdentities: [{ identifier: '13800001112' }],
+      },
+    };
+    const effectiveInviter = {
+      id: 'effective-vip-inviter',
+      buyerNo: 'AIMM00000000000113',
+      status: 'ACTIVE',
+      profile: { nickname: '有效VIP邀请人', avatarUrl: null },
+      memberProfile: { tier: 'VIP', referralCode: 'VIP113' },
+      normalShareProfile: null,
+      authIdentities: [{ identifier: '13800001113' }],
+    };
+    const { service } = makeHarness({
+      normalShareBindings: [binding],
+      summaryUsers: [effectiveInviter],
+    });
+
+    await expect(service.listNormalShareBindings({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          id: 'binding-1',
+          relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+          relationInvalidAt: invalidatedAt,
+          relationInvalidReason: 'INVITER_UPGRADED_BEFORE_INVITEE',
+          effectiveInviterUserId: 'effective-vip-inviter',
+          inviter: { nickname: '原普通邀请人', phone: '138****1111' },
+          invitee: { nickname: '被邀请人', phone: '138****1112' },
+          effectiveInviter: {
+            id: 'effective-vip-inviter',
+            nickname: '有效VIP邀请人',
+            phone: '138****1113',
+            vipStatus: 'VIP',
+            vipReferralCode: 'VIP113',
+          },
+        },
+      ],
     });
   });
 });

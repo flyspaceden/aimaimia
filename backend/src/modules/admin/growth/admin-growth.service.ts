@@ -33,6 +33,8 @@ const GROWTH_SETTINGS = [
   { dtoKey: 'monthlyInviteFirstOrderCap', configKey: 'GROWTH_MONTHLY_INVITE_FIRST_ORDER_CAP', defaultValue: 20 },
   { dtoKey: 'refundReversalEnabled', configKey: 'GROWTH_REFUND_REVERSAL_ENABLED', defaultValue: true },
   { dtoKey: 'autoSuspendExchangeRisk', configKey: 'GROWTH_AUTO_SUSPEND_EXCHANGE_RISK', defaultValue: false },
+  { dtoKey: 'autoVipBySpendEnabled', configKey: 'AUTO_VIP_BY_SPEND_ENABLED', defaultValue: true },
+  { dtoKey: 'autoVipCumulativeSpendThreshold', configKey: 'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', defaultValue: 399 },
 ] as const;
 const ALLOWED_BEHAVIOR_CODES = new Set([
   'REGISTER',
@@ -319,8 +321,10 @@ export class AdminGrowthService {
       (this.prisma as any).user.count({ where }),
     ]);
 
+    const directInviterMap = await this.loadUserSummaryMap(this.collectDirectReferralInviterIds(items));
+
     return {
-      items: items.map((item: any) => this.mapUserAccount(item, levels)),
+      items: items.map((item: any) => this.mapUserAccount(item, levels, directInviterMap)),
       total,
       page,
       pageSize,
@@ -424,11 +428,20 @@ export class AdminGrowthService {
       (this.prisma as any).normalShareBinding.count({ where }),
     ]);
 
+    const effectiveInviterMap = await this.loadUserSummaryMap(
+      items
+        .map((item: any) => item.effectiveInviterUserId)
+        .filter((userId: unknown): userId is string => typeof userId === 'string' && userId.length > 0),
+    );
+
     return {
       items: items.map((item: any) => ({
         ...item,
         inviter: item.inviter ? this.mapUser(item.inviter) : null,
         invitee: item.invitee ? this.mapUser(item.invitee) : null,
+        effectiveInviter: item.effectiveInviterUserId
+          ? effectiveInviterMap.get(item.effectiveInviterUserId) ?? null
+          : null,
       })),
       total,
       page,
@@ -865,8 +878,18 @@ export class AdminGrowthService {
   private userAccountInclude() {
     return {
       profile: { select: { nickname: true, avatarUrl: true } },
-      memberProfile: { select: { tier: true, referralCode: true } },
+      memberProfile: { select: { tier: true, referralCode: true, inviterUserId: true } },
       normalShareProfile: { select: { code: true, status: true } },
+      normalShareBindingReceived: {
+        select: {
+          inviterUserId: true,
+          source: true,
+          relationStatus: true,
+          relationInvalidAt: true,
+          relationInvalidReason: true,
+          effectiveInviterUserId: true,
+        },
+      },
       growthAccount: {
         include: {
           currentLevel: true,
@@ -880,11 +903,12 @@ export class AdminGrowthService {
     };
   }
 
-  private mapUserAccount(user: any, levels: any[]) {
+  private mapUserAccount(user: any, levels: any[], directInviterMap = new Map<string, any>()) {
     const account = user.growthAccount;
     const growthValue = account?.growthValue ?? 0;
     const levelState = this.levelService.resolveLevel(growthValue, levels);
     const currentLevel = account?.currentLevel ?? levelState.level ?? null;
+    const directReferral = this.mapDirectReferralSummary(user, directInviterMap);
     return {
       id: account?.id ?? `virtual-growth-account:${user.id}`,
       userId: user.id,
@@ -897,6 +921,87 @@ export class AdminGrowthService {
       createdAt: account?.createdAt ?? user.createdAt,
       updatedAt: account?.updatedAt ?? user.updatedAt,
       user: this.mapUser(user),
+      ...directReferral,
+    };
+  }
+
+  private collectDirectReferralInviterIds(users: any[]) {
+    const ids = new Set<string>();
+    for (const user of users) {
+      const userId = this.resolveDirectReferralInviterUserId(user);
+      if (userId) {
+        ids.add(userId);
+      }
+    }
+    return [...ids];
+  }
+
+  private resolveDirectReferralInviterUserId(user: any) {
+    const memberProfileInviterUserId = user.memberProfile?.inviterUserId ?? null;
+    if (memberProfileInviterUserId) {
+      return memberProfileInviterUserId;
+    }
+
+    const binding = user.normalShareBindingReceived;
+    if (!binding) {
+      return null;
+    }
+    if (binding.relationStatus === 'ACTIVE') {
+      return binding.effectiveInviterUserId ?? binding.inviterUserId ?? null;
+    }
+    return binding.effectiveInviterUserId ?? null;
+  }
+
+  private mapDirectReferralSummary(user: any, directInviterMap: Map<string, any>) {
+    const memberProfileInviterUserId = user.memberProfile?.inviterUserId ?? null;
+    const binding = user.normalShareBindingReceived ?? null;
+    const inviterUserId = this.resolveDirectReferralInviterUserId(user);
+    if (memberProfileInviterUserId) {
+      return {
+        directReferralInviterUserId: memberProfileInviterUserId,
+        directReferralStatus: 'ACTIVE',
+        directReferralSource: binding?.source ?? 'MEMBER_PROFILE',
+        directReferralInvalidAt: null,
+        directReferralInvalidReason: null,
+        directReferralInviter: directInviterMap.get(memberProfileInviterUserId) ?? null,
+      };
+    }
+
+    return {
+      directReferralInviterUserId: inviterUserId,
+      directReferralStatus: binding?.relationStatus ?? null,
+      directReferralSource: binding?.source ?? null,
+      directReferralInvalidAt: binding?.relationInvalidAt ?? null,
+      directReferralInvalidReason: binding?.relationInvalidReason ?? null,
+      directReferralInviter: inviterUserId ? directInviterMap.get(inviterUserId) ?? null : null,
+    };
+  }
+
+  private async loadUserSummaryMap(userIds: string[]) {
+    const uniqueIds = [...new Set(userIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return new Map<string, any>();
+    }
+    const users = await (this.prisma as any).user.findMany({
+      where: { id: { in: uniqueIds } },
+      select: this.userSummarySelect(),
+    });
+    return new Map<string, any>(users.map((user: any) => [user.id, this.mapUser(user)]));
+  }
+
+  private userSummarySelect() {
+    return {
+      id: true,
+      buyerNo: true,
+      status: true,
+      profile: { select: { nickname: true, avatarUrl: true } },
+      memberProfile: { select: { tier: true, referralCode: true } },
+      normalShareProfile: { select: { code: true, status: true } },
+      authIdentities: {
+        where: { provider: 'PHONE' },
+        select: { identifier: true },
+        take: 1,
+      },
     };
   }
 
