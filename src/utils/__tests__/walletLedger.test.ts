@@ -82,6 +82,18 @@ describe('wallet ledger display titles', () => {
     }))).toBe('普通直推佣金');
   });
 
+  it('labels direct referral void mirrors by scheme', () => {
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'AFTER_SALE',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL_VOID' },
+    }))).toBe('VIP 直推佣金作废');
+
+    expect(getWalletLedgerTitle(ledger({
+      refType: 'AFTER_SALE',
+      meta: { scheme: 'NORMAL_DIRECT_REFERRAL_VOID' },
+    }))).toBe('普通直推佣金作废');
+  });
+
   it('prefers backend reward sourceLabel without overriding group-buy special states', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',

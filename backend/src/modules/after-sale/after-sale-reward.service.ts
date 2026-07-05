@@ -5,17 +5,28 @@ import { PLATFORM_USER_ID, getAccountTypeForLedger } from '../bonus/engine/const
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
-const VIP_DIRECT_REFERRAL_ORIGINAL_SCHEMES = new Set([
+const DIRECT_REFERRAL_ORIGINAL_SCHEMES = new Set([
   'VIP_DIRECT_REFERRAL',
   'VIP_DIRECT_REFERRAL_PLATFORM',
+  'NORMAL_DIRECT_REFERRAL',
+  'NORMAL_DIRECT_REFERRAL_PLATFORM',
 ]);
-const VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
+const DIRECT_REFERRAL_VOID_SCHEMES = new Set([
+  'VIP_DIRECT_REFERRAL_VOID',
+  'NORMAL_DIRECT_REFERRAL_VOID',
+]);
+const DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
   'sourceUserId',
   'directInviterUserId',
+  'inviterTierAtOrder',
+  'inviteeTierAtOrder',
   'profit',
   'ratio',
   'directReferralPool',
   'platformReason',
+  'sourceRelation',
+  'normalShareBindingId',
+  'relationStatus',
   'configSnapshot',
   'releaseCondition',
 ] as const;
@@ -65,7 +76,7 @@ export class AfterSaleRewardService {
                 entryType: 'RELEASE',
                 status: 'AVAILABLE',
               },
-            })).filter((ledger) => (ledger.meta as any)?.scheme !== 'VIP_DIRECT_REFERRAL_VOID');
+            })).filter((ledger) => !DIRECT_REFERRAL_VOID_SCHEMES.has((ledger.meta as any)?.scheme));
 
             if (releasedLedgers.length > 0) {
               this.logger.warn(
@@ -125,7 +136,7 @@ export class AfterSaleRewardService {
               // 3. 扣减用户账户余额（兼容 INDUSTRY_FUND/CHARITY_FUND 等，meta.accountType 优先）
               const accountType = getAccountTypeForLedger(ledger.meta);
               const scheme = (ledger.meta as any)?.scheme; // 仅用于审计 meta，accountType 走 getAccountTypeForLedger
-              const isVipDirectReferral = VIP_DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
+              const isDirectReferral = DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
 
               if (originalStatus === 'AVAILABLE') {
                 // 已释放的奖励：扣减 balance
@@ -170,8 +181,8 @@ export class AfterSaleRewardService {
                   status: 'AVAILABLE',
                   refType: 'AFTER_SALE',
                   refId: orderId,
-                  meta: isVipDirectReferral
-                    ? this.buildVipDirectReferralVoidMeta(
+                  meta: isDirectReferral
+                    ? this.buildDirectReferralVoidMeta(
                         ledger,
                         orderId,
                         originalStatus,
@@ -222,15 +233,17 @@ export class AfterSaleRewardService {
     }
   }
 
-  private buildVipDirectReferralVoidMeta(
+  private buildDirectReferralVoidMeta(
     ledger: any,
     orderId: string,
     originalStatus: string,
     originalScheme: string,
   ) {
     const sourceMeta = (ledger.meta ?? {}) as Record<string, any>;
+    const isNormal = originalScheme === 'NORMAL_DIRECT_REFERRAL' ||
+      originalScheme === 'NORMAL_DIRECT_REFERRAL_PLATFORM';
     const meta: Record<string, any> = {
-      scheme: 'VIP_DIRECT_REFERRAL_VOID',
+      scheme: isNormal ? 'NORMAL_DIRECT_REFERRAL_VOID' : 'VIP_DIRECT_REFERRAL_VOID',
       originalScheme,
       accountType: 'PLATFORM_PROFIT',
       routedToPlatform: true,
@@ -240,10 +253,10 @@ export class AfterSaleRewardService {
       originalStatus,
       sourceOrderId: sourceMeta.sourceOrderId ?? orderId,
       voidSource: 'AFTER_SALE_SUCCESS',
-      reason: '售后成功，VIP直推佣金归平台',
+      reason: isNormal ? '售后成功，普通直推佣金归平台' : '售后成功，VIP直推佣金归平台',
     };
 
-    for (const key of VIP_DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
+    for (const key of DIRECT_REFERRAL_AUDIT_COPY_KEYS) {
       if (sourceMeta[key] !== undefined) {
         meta[key] = sourceMeta[key];
       }

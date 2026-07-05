@@ -16,6 +16,31 @@ const directLedger = {
   },
 };
 
+const normalDirectLedger = {
+  id: 'ledger-normal-direct-1',
+  userId: 'normal-inviter-1',
+  accountId: 'normal-account-1',
+  amount: 1,
+  refId: 'order-1',
+  meta: {
+    scheme: 'NORMAL_DIRECT_REFERRAL',
+    accountType: 'NORMAL_REWARD',
+    sourceOrderId: 'order-1',
+    sourceUserId: 'buyer-1',
+    directInviterUserId: 'normal-inviter-1',
+    inviterTierAtOrder: 'NORMAL',
+    inviteeTierAtOrder: 'NORMAL',
+    profit: 100,
+    ratio: 0.01,
+    directReferralPool: 1,
+    normalShareBindingId: 'normal-share-binding-1',
+    relationStatus: 'ACTIVE',
+    sourceRelation: 'NORMAL_SHARE_BINDING',
+    configSnapshot: { NORMAL_DIRECT_REFERRAL_PERCENT: 0.01 },
+    releaseCondition: 'ORDER_RECEIVED_RETURN_WINDOW_EXPIRED',
+  },
+};
+
 function queryText(strings: TemplateStringsArray | string[]) {
   return Array.from(strings as any).join('');
 }
@@ -157,6 +182,9 @@ describe('FreezeExpireService direct referral semantics', () => {
     await service.handleVipDirectReferralRelease();
 
     expect(queryText(prisma.$queryRaw.mock.calls[0][0])).toContain(
+      "rl.meta->>'scheme' IN ('VIP_DIRECT_REFERRAL', 'NORMAL_DIRECT_REFERRAL')",
+    );
+    expect(queryText(prisma.$queryRaw.mock.calls[0][0])).toContain(
       'o."returnWindowExpiresAt" < NOW()',
     );
     expect(prisma.afterSaleRequest.findMany).not.toHaveBeenCalled();
@@ -189,6 +217,45 @@ describe('FreezeExpireService direct referral semantics', () => {
     expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
       where: { id: 'vip-account-1', frozen: { gte: 2 } },
       data: { frozen: { decrement: 2 }, balance: { increment: 2 } },
+    });
+  });
+
+  it('releases NORMAL_DIRECT_REFERRAL commission after return window expiry when no after-sale exists', async () => {
+    const { service, prisma, tx } = makeService();
+    prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        queryText(strings).includes("'NORMAL_DIRECT_REFERRAL'")
+          ? [normalDirectLedger]
+          : [],
+      ),
+    );
+    prisma.afterSaleRequest.findMany.mockResolvedValue([]);
+
+    await service.handleVipDirectReferralRelease();
+
+    expect(tx.rewardLedger.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ledger-normal-direct-1',
+        status: 'FROZEN',
+        entryType: 'FREEZE',
+      },
+      data: {
+        status: 'AVAILABLE',
+        entryType: 'RELEASE',
+        meta: expect.objectContaining({
+          scheme: 'NORMAL_DIRECT_REFERRAL',
+          releasedAt: expect.any(String),
+          releaseReason: 'RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
+          normalShareBindingId: 'normal-share-binding-1',
+          relationStatus: 'ACTIVE',
+          configSnapshot: { NORMAL_DIRECT_REFERRAL_PERCENT: 0.01 },
+          releaseCondition: 'ORDER_RECEIVED_RETURN_WINDOW_EXPIRED',
+        }),
+      },
+    });
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: 'normal-account-1', frozen: { gte: 1 } },
+      data: { frozen: { decrement: 1 }, balance: { increment: 1 } },
     });
   });
 
@@ -264,6 +331,68 @@ describe('FreezeExpireService direct referral semantics', () => {
     expect(tx.rewardAccount.update).toHaveBeenCalledWith({
       where: { id: 'platform-account-1' },
       data: { balance: { increment: 2 } },
+    });
+  });
+
+  it('voids NORMAL_DIRECT_REFERRAL commission to platform with normal void scheme when a successful after-sale is found', async () => {
+    const { service, prisma, tx } = makeService();
+    prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        queryText(strings).includes("'NORMAL_DIRECT_REFERRAL'")
+          ? [normalDirectLedger]
+          : [],
+      ),
+    );
+    prisma.afterSaleRequest.findMany.mockResolvedValue([
+      { orderId: 'order-1', status: 'REFUNDED' },
+    ]);
+
+    await service.handleVipDirectReferralRelease();
+
+    expect(tx.rewardLedger.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ledger-normal-direct-1',
+        status: 'FROZEN',
+        entryType: 'FREEZE',
+      },
+      data: {
+        status: 'VOIDED',
+        entryType: 'VOID',
+        meta: expect.objectContaining({
+          scheme: 'NORMAL_DIRECT_REFERRAL',
+          voidReason: 'SUCCESS_AFTER_SALE_BACKSTOP',
+        }),
+      },
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'platform-account-1',
+        userId: 'PLATFORM',
+        entryType: 'RELEASE',
+        amount: 1,
+        status: 'AVAILABLE',
+        refType: 'AFTER_SALE',
+        refId: 'order-1',
+        meta: expect.objectContaining({
+          scheme: 'NORMAL_DIRECT_REFERRAL_VOID',
+          originalScheme: 'NORMAL_DIRECT_REFERRAL',
+          originalLedgerId: 'ledger-normal-direct-1',
+          originalReceiverUserId: 'normal-inviter-1',
+          sourceOrderId: 'order-1',
+          sourceUserId: 'buyer-1',
+          directInviterUserId: 'normal-inviter-1',
+          inviterTierAtOrder: 'NORMAL',
+          inviteeTierAtOrder: 'NORMAL',
+          profit: 100,
+          ratio: 0.01,
+          directReferralPool: 1,
+          sourceRelation: 'NORMAL_SHARE_BINDING',
+          normalShareBindingId: 'normal-share-binding-1',
+          relationStatus: 'ACTIVE',
+          configSnapshot: { NORMAL_DIRECT_REFERRAL_PERCENT: 0.01 },
+          releaseCondition: 'ORDER_RECEIVED_RETURN_WINDOW_EXPIRED',
+        }),
+      }),
     });
   });
 
