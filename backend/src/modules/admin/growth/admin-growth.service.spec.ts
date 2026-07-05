@@ -191,6 +191,18 @@ describe('AdminGrowthService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('uses a unified points balance error for manual deduction', async () => {
+    const { service } = makeHarness();
+
+    await expect(
+      service.adjustUser('user-1', {
+        pointsDelta: -101,
+        growthDelta: 0,
+        reason: '异常扣减',
+      }, 'admin-1'),
+    ).rejects.toThrow('积分余额不足，不能扣减');
+  });
+
   it('writes account, profile cache, and ledger for manual adjustment', async () => {
     const { service, tx } = makeHarness({ levelCode: 'SPROUT' });
 
@@ -388,6 +400,70 @@ describe('AdminGrowthService', () => {
       }),
     }));
     expect(prisma.growthAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('can list VIP growth accounts without mixing VIP referral management into normal share', async () => {
+    const vipUser = {
+      id: 'vip-user-1',
+      buyerNo: 'AIMM00000000000090',
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+      createdAt: new Date('2026-07-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      profile: { nickname: 'VIP 用户', avatarUrl: null },
+      memberProfile: { tier: 'VIP', referralCode: 'VIPCODE1' },
+      growthAccount: {
+        id: 'growth-vip',
+        userId: 'vip-user-1',
+        pointsBalance: 260,
+        pointsTotalEarned: 300,
+        pointsTotalSpent: 40,
+        growthValue: 800,
+        currentLevelCode: 'SEEDLING',
+        currentLevel: { code: 'SEEDLING', name: '青苗会员', threshold: 300 },
+        createdAt: new Date('2026-07-04T08:00:00.000Z'),
+        updatedAt: new Date('2026-07-04T08:00:00.000Z'),
+      },
+      normalShareProfile: { code: 'SLEGACY1', status: 'ACTIVE' },
+      authIdentities: [{ identifier: '13900009999' }],
+    };
+    const { service, prisma } = makeHarness({
+      users: [vipUser],
+      levels: [
+        { code: 'SPROUT', name: '新芽会员', threshold: 0, enabled: true },
+        { code: 'SEEDLING', name: '青苗会员', threshold: 300, enabled: true },
+      ],
+    });
+
+    await expect(service.listUserAccounts({ page: 1, pageSize: 20, userType: 'VIP' } as any)).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          id: 'growth-vip',
+          userId: 'vip-user-1',
+          pointsBalance: 260,
+          growthValue: 800,
+          currentLevelCode: 'SEEDLING',
+          user: {
+            buyerNo: 'AIMM00000000000090',
+            nickname: 'VIP 用户',
+            vipStatus: 'VIP',
+            vipReferralCode: 'VIPCODE1',
+            normalShareCode: null,
+          },
+        },
+      ],
+    });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        memberProfile: { is: { tier: 'VIP' } },
+      }),
+      include: expect.objectContaining({
+        memberProfile: { select: { tier: true, referralCode: true } },
+        normalShareProfile: expect.any(Object),
+      }),
+    }));
   });
 
   it('matches migrated zero-value accounts when filtering by the threshold-zero level', async () => {

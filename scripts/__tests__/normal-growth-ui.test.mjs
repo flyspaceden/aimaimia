@@ -69,10 +69,25 @@ test('VIP growth page explains how member growth and VIP referral should be used
   assert.match(growthSource, /去分享 VIP 推荐码/);
 });
 
-test('admin growth page labels seeded categories and clarifies ordinary account scope', () => {
+test('admin growth page presents unified points growth accounts without duplicating VIP referral management', () => {
   const source = read('admin/src/pages/growth/index.tsx');
+  const layout = read('admin/src/layouts/AdminLayout.tsx');
+  const treeViewer = read('admin/src/pages/bonus/components/TreeViewer.tsx');
 
-  assert.match(source, /普通买家账户/);
+  assert.match(layout, /name: '积分成长'/);
+  assert.match(source, /积分成长配置顺序/);
+  assert.match(source, /成长账户总数/);
+  assert.match(source, /普通用户 \/ VIP 用户/);
+  assert.match(source, /积分余额/);
+  assert.match(source, /成长账户/);
+  assert.match(source, /用户身份/);
+  assert.match(source, /VIP 推荐码/);
+  assert.match(source, /查看 VIP 详情/);
+  assert.match(source, /查看 VIP 奖励树/);
+  assert.match(source, /普通分享只服务普通用户拉新/);
+  assert.match(treeViewer, /growth: '积分成长'/);
+  assert.doesNotMatch(source, /key: 'vipShare'/);
+  assert.doesNotMatch(source, /label: 'VIP 推荐'/);
   assert.match(source, /\{ label: '新手', value: 'NEWBIE' \}/);
   assert.match(source, /\{ label: '邀请', value: 'INVITE' \}/);
   assert.doesNotMatch(source, /\{ label: '新手', value: 'ONBOARDING' \}/);

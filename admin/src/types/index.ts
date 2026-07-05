@@ -430,10 +430,12 @@ export interface DigitalAssetRules {
   modules: DigitalAssetModuleInfo[];
 }
 
-// ========== 普通增长体系 ==========
+// ========== 积分成长体系 ==========
 
 export interface AdminGrowthDashboard {
   accountCount: number;
+  normalAccountCount?: number;
+  vipAccountCount?: number;
   totalPointsBalance: number;
   totalPointsEarned: number;
   totalPointsSpent: number;
@@ -456,6 +458,7 @@ export interface AdminGrowthUserSummary {
   vipStatus?: 'NORMAL' | 'VIP' | null;
   normalShareCode?: string | null;
   normalShareStatus?: string | null;
+  vipReferralCode?: string | null;
 }
 
 export interface AdminGrowthLevel {
@@ -500,6 +503,7 @@ export interface AdminGrowthRule {
 export interface AdminGrowthAccountQueryParams extends PaginationParams {
   keyword?: string;
   levelCode?: string;
+  userType?: 'ALL' | 'NORMAL' | 'VIP';
   sortBy?: 'pointsBalance' | 'pointsTotalEarned' | 'growthValue' | 'updatedAt';
   sortOrder?: 'ascend' | 'descend' | 'asc' | 'desc';
 }
