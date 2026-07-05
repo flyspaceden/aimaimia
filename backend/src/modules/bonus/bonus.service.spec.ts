@@ -781,6 +781,68 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     expect(couponEngineMock.handleTrigger).not.toHaveBeenCalled();
   });
 
+  it('VIP 推荐绑定即使现有 VIP 推荐链路相同，也拒绝不同的有效普通邀请人', async () => {
+    const prismaMock: any = {
+      memberProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            userId: 'vip-user',
+            referralCode: 'VIPCODE1',
+            tier: 'VIP',
+          })
+          .mockResolvedValueOnce({
+            userId: 'invitee-y',
+            tier: 'NORMAL',
+            inviterUserId: 'vip-user',
+          }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      referralLink: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'vip-referral-existing',
+          inviteeUserId: 'invitee-y',
+          inviterUserId: 'vip-user',
+          codeUsed: 'VIPCODE1',
+        }),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      normalShareBinding: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'normal-binding-1',
+          inviteeUserId: 'invitee-y',
+          inviterUserId: 'normal-inviter',
+          effectiveInviterUserId: 'normal-inviter',
+          relationStatus: 'ACTIVE',
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', deletionExecutedAt: null }),
+      },
+      $transaction: jest.fn(),
+    };
+    prismaMock.$transaction.mockImplementation(makeTxRunner(prismaMock));
+    const couponEngineMock = {
+      handleTrigger: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      { getConfig: jest.fn() } as any,
+      couponEngineMock as any,
+      {} as any,
+    );
+
+    await expect(
+      service.useReferralCode('invitee-y', 'VIPCODE1'),
+    ).rejects.toThrow('已绑定推荐关系，不能更换');
+
+    expect(prismaMock.referralLink.create).not.toHaveBeenCalled();
+    expect(prismaMock.referralLink.update).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+    expect(couponEngineMock.handleTrigger).not.toHaveBeenCalled();
+  });
+
   it('CAS 命中 0 行（被其他流程接管）应安全返回，不抛错', async () => {
     const updateManyMock = jest.fn().mockResolvedValue({ count: 0 });
 
