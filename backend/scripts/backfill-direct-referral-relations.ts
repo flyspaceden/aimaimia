@@ -89,6 +89,7 @@ export async function backfillDirectReferralRelationCandidates(
   for (const binding of candidates) {
     result.scanned += 1;
     try {
+      let hasMemberInviterConflict = false;
       const member = await db.memberProfile.findUnique({
         where: { userId: binding.inviteeUserId },
         select: { userId: true, inviterUserId: true },
@@ -115,6 +116,7 @@ export async function backfillDirectReferralRelationCandidates(
         }
         result.memberInvitersBackfilled += 1;
       } else if (member.inviterUserId !== binding.inviterUserId) {
+        hasMemberInviterConflict = true;
         result.memberInviterConflicts += 1;
         result.conflicts.push({
           bindingId: binding.id,
@@ -124,7 +126,7 @@ export async function backfillDirectReferralRelationCandidates(
         });
       }
 
-      if (binding.relationStatus === 'ACTIVE' && !binding.effectiveInviterUserId) {
+      if (binding.relationStatus === 'ACTIVE' && !binding.effectiveInviterUserId && !hasMemberInviterConflict) {
         if (execute) {
           await db.normalShareBinding.update({
             where: { id: binding.id },

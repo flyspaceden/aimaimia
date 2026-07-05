@@ -162,4 +162,35 @@ describe('backfill-direct-referral-relations script', () => {
     expect(db.memberProfile.update).not.toHaveBeenCalled();
     expect(db.normalShareBinding.update).not.toHaveBeenCalled();
   });
+
+  it('does not backfill effective inviter when member inviter conflicts and effective inviter is empty', async () => {
+    const db = {
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({ userId: 'invitee-1', inviterUserId: 'other-inviter' }),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+      normalShareBinding: {
+        update: jest.fn(),
+      },
+    };
+
+    await expect(
+      backfillDirectReferralRelationCandidates(db as any, [
+        {
+          id: 'binding-1',
+          inviterUserId: 'binding-inviter',
+          inviteeUserId: 'invitee-1',
+          relationStatus: 'ACTIVE',
+          effectiveInviterUserId: null,
+        },
+      ], { execute: true }),
+    ).resolves.toMatchObject({
+      scanned: 1,
+      memberInviterConflicts: 1,
+      effectiveInvitersBackfilled: 0,
+    });
+    expect(db.memberProfile.update).not.toHaveBeenCalled();
+    expect(db.normalShareBinding.update).not.toHaveBeenCalled();
+  });
 });
