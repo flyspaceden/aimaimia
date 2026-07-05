@@ -37,7 +37,7 @@ const TOOL_GRID_BASE = [
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
   { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
   { label: '配送', icon: 'truck-delivery-outline' as const, route: '/delivery' },
-  { label: '我的红包', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
+  { label: '我的福利', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
   { label: '数字资产', icon: 'diamond-stone' as const, route: '/me/digital-assets' },
   { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
   { label: '联系客服', icon: 'headset' as const, route: '/cs?source=MY_PAGE' },
@@ -296,7 +296,7 @@ export default function MeScreen() {
               >
                 <MaterialCommunityIcons name="wallet-outline" size={20} color="#FFFFFF" />
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
-                  钱包
+                  我的财库
                 </Text>
                 <Text {...priceTextProps} style={[typography.headingMd, { color: '#FFFFFF', marginTop: 2 }]}>
                   ¥{Number(walletBalance ?? 0).toFixed(2)}
@@ -557,7 +557,7 @@ export default function MeScreen() {
                     { icon: 'sale' as const, text: '普通商品会员价' },
                     { icon: 'truck-fast-outline' as const, text: '更低包邮门槛' },
                     { icon: 'wallet-outline' as const, text: '消费积分抵扣更多' },
-                    { icon: 'account-cash-outline' as const, text: `VIP 直推 ${directReferralPercentText}` },
+                    { icon: 'account-cash-outline' as const, text: `推荐 VIP 奖励 / 直推 ${directReferralPercentText}` },
                   ].map((perk) => (
                     <View key={perk.text} style={styles.vipPerkRow}>
                       <MaterialCommunityIcons name={perk.icon} size={18} color="#FFD700" />
