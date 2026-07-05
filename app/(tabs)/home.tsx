@@ -168,7 +168,9 @@ export default function HomeScreen() {
   const assetRankLabel = digitalAssetSummary?.assetRank != null
     ? String(digitalAssetSummary.assetRank)
     : '未上榜';
-  const referralCode = member?.tier === 'VIP' ? (member.referralCode ?? '') : '';
+  const isVip = member?.tier === 'VIP';
+  const referralCode = isVip ? (member.referralCode ?? '') : '';
+  const showNormalShareEntry = Boolean(memberData?.ok && !isVip);
 
   // 跨零点自动刷新抽奖状态
   useEffect(() => {
@@ -472,6 +474,7 @@ export default function HomeScreen() {
             compact={compactHome}
             assetRankLabel={assetRankLabel}
             referralCode={referralCode}
+            showNormalShareEntry={showNormalShareEntry}
             style={{ marginTop: spacing.lg }}
             onScanPress={() => router.push('/me/scanner')}
             onLoginPress={() => setAuthModalOpen(true)}
@@ -479,6 +482,7 @@ export default function HomeScreen() {
             onProfilePress={() => router.push('/me/profile')}
             onCopyBuyerNo={handleCopyBuyerNo}
             onReferralPress={() => router.push('/me/referral')}
+            onNormalSharePress={() => router.push('/me/growth')}
             onDigitalAssetsPress={() => router.push('/me/digital-assets')}
             onRetryProfile={refetchProfile}
           />

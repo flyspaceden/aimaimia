@@ -5,13 +5,16 @@ import test from 'node:test';
 const read = (path) => readFileSync(path, 'utf8');
 
 test('me profile card shows ordinary share code entry only for non-VIP users', () => {
-  const source = read('app/(tabs)/me.tsx');
+  const homeSource = read('app/(tabs)/home.tsx');
+  const identityCardSource = read('src/components/cards/MeIdentityCard.tsx');
 
-  assert.match(source, /const showNormalShareEntry =/);
-  assert.match(source, /showNormalShareEntry \? \(/);
-  assert.match(source, /普通推荐码/);
-  assert.match(source, /router\.push\('\/me\/growth'\)/);
-  assert.match(source, /const isVip = member\?\.tier === 'VIP'/);
+  assert.match(homeSource, /const showNormalShareEntry =/);
+  assert.match(homeSource, /showNormalShareEntry=\{showNormalShareEntry\}/);
+  assert.match(homeSource, /onNormalSharePress=\{\(\) => router\.push\('\/me\/growth'\)\}/);
+  assert.match(homeSource, /const isVip = member\?\.tier === 'VIP'/);
+  assert.match(identityCardSource, /showNormalShareEntry \? \(/);
+  assert.match(identityCardSource, /普通推荐码/);
+  assert.match(identityCardSource, /onNormalSharePress/);
 });
 
 test('growth repo exposes buyer-visible guide sourced from backend rules', () => {
