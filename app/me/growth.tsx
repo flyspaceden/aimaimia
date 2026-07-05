@@ -21,7 +21,7 @@ import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components
 import { AiDivider, Tag } from '../../src/components/ui';
 import { BonusRepo, CouponRepo, GrowthRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
+import { compactActionTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import type { GrowthExchangeItem, GrowthGuideRule, NormalShareRecord } from '../../src/types';
 
 const exchangeTypeLabels: Record<GrowthExchangeItem['type'], string> = {
@@ -110,6 +110,8 @@ export default function GrowthCenterScreen() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const bottomInset = useBottomInset(0);
+  const { isCompact, isLargeText } = useResponsiveLayout();
+  const compactShareLayout = isCompact || isLargeText;
   const [bindCode, setBindCode] = useState('');
 
   const growthQuery = useQuery({
@@ -445,7 +447,7 @@ export default function GrowthCenterScreen() {
               </View>
               <AiDivider style={{ marginVertical: spacing.sm }} />
 
-              <View style={styles.shareBody}>
+              <View style={[styles.shareBody, compactShareLayout && styles.shareBodyCompact]}>
                 <View style={[styles.qrBox, { borderRadius: radius.lg, borderColor: colors.border }]}>
                   {canUseShareCode ? (
                     <QRCode value={shareUrl} size={112} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
@@ -453,14 +455,14 @@ export default function GrowthCenterScreen() {
                     <MaterialCommunityIcons name={shareProfileError ? 'wifi-off' : 'link-off'} size={48} color={colors.muted} />
                   )}
                 </View>
-                <View style={styles.shareInfo}>
+                <View style={[styles.shareInfo, compactShareLayout && styles.shareInfoCompact]}>
                   <Text style={[styles.shareCodeText, { color: colors.text.primary }]}>
                     {shareProfile?.code ?? (shareProfileError ? '加载失败' : '生成中')}
                   </Text>
                   <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
                     {shareHelpText}
                   </Text>
-                  <View style={styles.shareActions}>
+                  <View style={[styles.shareActions, compactShareLayout && styles.shareActionsCompact]}>
                     <Pressable
                       onPress={handleCopyShareCode}
                       disabled={!canUseShareCode}
@@ -852,6 +854,10 @@ const styles = StyleSheet.create({
   shareBody: {
     flexDirection: 'row',
   },
+  shareBodyCompact: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   qrBox: {
     width: 128,
     height: 128,
@@ -864,6 +870,11 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 14,
   },
+  shareInfoCompact: {
+    width: '100%',
+    marginLeft: 0,
+    marginTop: 14,
+  },
   shareCodeText: {
     fontSize: 24,
     fontWeight: '800',
@@ -873,6 +884,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 14,
+  },
+  shareActionsCompact: {
+    flexWrap: 'wrap',
+    rowGap: 8,
   },
   smallAction: {
     height: 34,
