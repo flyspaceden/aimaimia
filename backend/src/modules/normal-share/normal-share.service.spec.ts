@@ -57,6 +57,13 @@ const makeHarness = (options: {
     },
     memberProfile: {
       findUnique: jest.fn().mockResolvedValue(options.memberProfileByUser ?? { tier: 'NORMAL' }),
+      upsert: jest.fn(({ create, update }: any) => ({
+        id: 'member-profile-1',
+        userId: create.userId,
+        tier: 'NORMAL',
+        ...create,
+        ...update,
+      })),
     },
   };
 
@@ -163,6 +170,14 @@ describe('NormalShareService', () => {
     expect(tx.referralLink.findUnique).toHaveBeenCalledWith({
       where: { inviteeUserId: 'invitee-1' },
     });
+    expect(tx.memberProfile.upsert).toHaveBeenCalledWith({
+      where: { userId: 'invitee-1' },
+      create: {
+        userId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+      },
+      update: { inviterUserId: 'inviter-1' },
+    });
     expect(growthEvents.receive).toHaveBeenCalledWith({
       userId: 'inviter-1',
       behaviorCode: 'NORMAL_INVITE_REGISTER',
@@ -185,6 +200,45 @@ describe('NormalShareService', () => {
         rewardIssuedAt: expect.any(Date),
       },
     });
+  });
+
+  it('writes MemberProfile.inviterUserId when binding an invitee without an inviter', async () => {
+    const { service, tx } = makeHarness({
+      profileByCode: activeShareProfile(),
+      memberProfileByUser: {
+        userId: 'invitee-1',
+        tier: 'NORMAL',
+        inviterUserId: null,
+      },
+    });
+
+    await service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' });
+
+    expect(tx.memberProfile.upsert).toHaveBeenCalledWith({
+      where: { userId: 'invitee-1' },
+      create: {
+        userId: 'invitee-1',
+        inviterUserId: 'inviter-1',
+      },
+      update: { inviterUserId: 'inviter-1' },
+    });
+  });
+
+  it('rejects normal share bind when MemberProfile.inviterUserId points to a different inviter', async () => {
+    const { service, tx } = makeHarness({
+      profileByCode: activeShareProfile(),
+      memberProfileByUser: {
+        userId: 'invitee-1',
+        tier: 'NORMAL',
+        inviterUserId: 'another-inviter',
+      },
+    });
+
+    await expect(
+      service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
+    ).rejects.toThrow('已绑定推荐关系，不能更换');
+    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+    expect(tx.memberProfile.upsert).not.toHaveBeenCalled();
   });
 
   it('does not grant register growth again for an idempotent normal share bind', async () => {
@@ -218,7 +272,7 @@ describe('NormalShareService', () => {
     expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
   });
 
-  it('rejects ordinary share codes owned by VIP inviters', async () => {
+  it('keeps historical ordinary share codes usable when the inviter later becomes VIP', async () => {
     const { service, tx } = makeHarness({
       profileByCode: activeShareProfile({
         user: {
@@ -233,8 +287,13 @@ describe('NormalShareService', () => {
 
     await expect(
       service.bind('invitee-1', { code: 'SABCDEFG', source: 'APP' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(tx.normalShareBinding.create).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      inviterUserId: 'inviter-1',
+      inviteeUserId: 'invitee-1',
+      relationStatus: 'ACTIVE',
+      effectiveInviterUserId: 'inviter-1',
+    });
+    expect(tx.normalShareBinding.create).toHaveBeenCalled();
   });
 
   it('rejects a second normal share binding to a different inviter', async () => {
