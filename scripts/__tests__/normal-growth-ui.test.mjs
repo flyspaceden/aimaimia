@@ -4,16 +4,16 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 
-test('me profile card shows ordinary share code entry only for non-VIP users', () => {
+test('me profile card routes ordinary share entry to the referral center', () => {
   const homeSource = read('app/(tabs)/home.tsx');
   const identityCardSource = read('src/components/cards/MeIdentityCard.tsx');
 
   assert.match(homeSource, /const showNormalShareEntry =/);
   assert.match(homeSource, /showNormalShareEntry=\{showNormalShareEntry\}/);
-  assert.match(homeSource, /onNormalSharePress=\{\(\) => router\.push\('\/me\/growth'\)\}/);
+  assert.match(homeSource, /onNormalSharePress=\{\(\) => router\.push\('\/me\/referral'\)\}/);
   assert.match(homeSource, /const isVip = member\?\.tier === 'VIP'/);
   assert.match(identityCardSource, /showNormalShareEntry \? \(/);
-  assert.match(identityCardSource, /普通推荐码/);
+  assert.match(identityCardSource, /推荐中心/);
   assert.match(identityCardSource, /onNormalSharePress/);
 });
 
@@ -27,56 +27,55 @@ test('growth repo exposes buyer-visible guide sourced from backend rules', () =>
   assert.match(repo, /ApiClient\.get<GrowthGuide>\('\/growth\/guide'\)/);
 });
 
-test('growth center explains invite rewards, earning tasks, and level rules', () => {
+test('growth center explains earning tasks, level rules, and exchange without referral acquisition modules', () => {
   const source = read('app/me/growth.tsx');
   const types = read('src/types/domain/Growth.ts');
 
   assert.match(source, /queryKey:\s*\['growth-guide'\]/);
-  assert.match(source, /推荐收益/);
   assert.match(source, /赚积分和成长值/);
   assert.match(source, /升级规则/);
   assert.match(source, /成长值用于升级，不会因为积分兑换而减少/);
-  assert.match(source, /普通积分用于兑换红包和权益，兑换时会消耗/);
+  assert.match(source, /积分用于兑换红包和权益，兑换时会消耗/);
+  assert.match(source, /积分兑换/);
   assert.match(source, /formatRewardText/);
   assert.match(source, /formatLimitText/);
   assert.match(types, /relationStatus\?:/);
-  assert.match(source, /relationStatusLabels/);
-  assert.match(source, /转入VIP关系/);
-  assert.match(source, /已因对方升级VIP结束/);
+  assert.doesNotMatch(source, /relationStatusLabels/);
+  assert.doesNotMatch(source, /推荐收益/);
+  assert.doesNotMatch(source, /普通分享码/);
+  assert.doesNotMatch(source, /最近邀请/);
 });
 
-test('VIP users see member growth instead of ordinary growth and ordinary share modules', () => {
+test('me page separates referral center from points growth', () => {
   const meSource = read('app/(tabs)/me.tsx');
   const growthSource = read('app/me/growth.tsx');
 
   assert.match(meSource, /const normalGrowthTool =/);
-  assert.match(meSource, /const growthToolLabel = memberData\?\.ok \? \(isVip \? '会员成长' : '普通成长'\) : '成长中心'/);
+  assert.match(meSource, /const growthToolLabel = '积分成长'/);
   assert.match(meSource, /label: growthToolLabel/);
+  assert.match(meSource, /buildMeReferralToolEntry\(member\)/);
   assert.match(meSource, /\.\.\.TOOL_GRID_BASE/);
   assert.match(growthSource, /BonusRepo\.getMember/);
-  assert.match(growthSource, /const memberLoadFailed = Boolean\(memberQuery\.data && !memberQuery\.data\.ok\)/);
   assert.match(growthSource, /const isVip = member\?\.tier === 'VIP'/);
-  assert.match(growthSource, /const normalShareEnabled = Boolean\(isLoggedIn && memberQuery\.data\?\.ok && !isVip\)/);
-  assert.match(growthSource, /const growthTitle = memberLoaded \? \(isVip \? '会员成长' : '普通成长'\) : '成长中心'/);
   assert.match(growthSource, /会员状态加载失败/);
-  assert.match(growthSource, /\{isVip \? \(/);
-  assert.match(growthSource, /VIP 推荐权益/);
-  assert.match(growthSource, /router\.push\('\/me\/referral'\)/);
-  assert.match(growthSource, /普通分享码/);
-  assert.match(growthSource, /最近邀请/);
+  assert.match(growthSource, /AppHeader title="积分成长"/);
+  assert.doesNotMatch(growthSource, /normalShareEnabled/);
+  assert.doesNotMatch(growthSource, /getNormalShareMe/);
+  assert.doesNotMatch(growthSource, /getNormalShareRecords/);
 });
 
-test('VIP growth page explains how member growth and VIP referral should be used', () => {
+test('referral center explains normal and VIP referral separately', () => {
   const growthSource = read('app/me/growth.tsx');
   const referralSource = read('app/me/referral.tsx');
 
-  assert.match(growthSource, /VIP 成长与推荐/);
-  assert.match(growthSource, /会员成长怎么用/);
-  assert.match(growthSource, /推荐好友怎么操作/);
-  assert.match(growthSource, /积分和成长值怎么获得/);
-  assert.match(growthSource, /普通分享码仅普通用户拉新使用/);
-  assert.match(growthSource, /去分享 VIP 推荐码/);
-  assert.match(referralSource, /title=\{isVip \? '我的推荐码' : '推荐关系'\}/);
+  assert.match(referralSource, /AppHeader\s+title="推荐中心"/);
+  assert.match(referralSource, /普通分享码/);
+  assert.match(referralSource, /VIP 推荐码/);
+  assert.match(referralSource, /我的推荐人/);
+  assert.match(referralSource, /推荐奖励/);
+  assert.match(referralSource, /最近推荐用户/);
+  assert.match(referralSource, /查看全部推荐用户/);
+  assert.match(referralSource, /router\.push\('\/me\/referral-users'\)/);
   assert.doesNotMatch(growthSource, /你推荐的好友成为 VIP/);
   assert.doesNotMatch(growthSource, /好友后续普通商品订单按/);
 });
@@ -101,7 +100,7 @@ test('scanner separates VIP referral links from ordinary share links', () => {
 
 test('invite binding success refreshes member and growth caches across app entry points', () => {
   const layoutSource = read('app/_layout.tsx');
-  const growthSource = read('app/me/growth.tsx');
+  const referralSource = read('app/me/referral.tsx');
 
   assert.match(layoutSource, /function invalidateInviteBindingQueries\(\)/);
   assert.match(layoutSource, /\['bonus-member'\]/);
@@ -110,8 +109,8 @@ test('invite binding success refreshes member and growth caches across app entry
   assert.match(layoutSource, /\['normal-share-stats'\]/);
   assert.match(layoutSource, /if \(result\.ok\) invalidateInviteBindingQueries\(\)/);
   assert.match(layoutSource, /if \(normalResult\.ok\) invalidateInviteBindingQueries\(\)/);
-  assert.match(growthSource, /queryClient\.invalidateQueries\(\{ queryKey: \['bonus-member'\] \}\)/);
-  assert.match(growthSource, /queryClient\.invalidateQueries\(\{ queryKey: \['growth-me'\] \}\)/);
+  assert.match(referralSource, /queryClient\.invalidateQueries\(\{ queryKey: \['bonus-member'\] \}\)/);
+  assert.match(referralSource, /queryClient\.invalidateQueries\(\{ queryKey: \['growth-me'\] \}\)/);
 });
 
 test('admin growth page presents unified points growth accounts without duplicating VIP referral management', () => {

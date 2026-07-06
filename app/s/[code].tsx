@@ -16,7 +16,7 @@ export default function NormalShareLinkLanding() {
       message: isLoggedIn ? '正在绑定普通分享关系' : '登录后自动绑定普通分享关系',
       type: 'info',
     });
-    router.replace('/me/growth');
+    router.replace('/me/referral');
   }, [isLoggedIn, router, show]);
 
   return null;

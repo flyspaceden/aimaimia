@@ -482,7 +482,7 @@ export default function HomeScreen() {
             onProfilePress={() => router.push('/me/profile')}
             onCopyBuyerNo={handleCopyBuyerNo}
             onReferralPress={() => router.push('/me/referral')}
-            onNormalSharePress={() => router.push('/me/growth')}
+            onNormalSharePress={() => router.push('/me/referral')}
             onDigitalAssetsPress={() => router.push('/me/digital-assets')}
             onRetryProfile={refetchProfile}
           />

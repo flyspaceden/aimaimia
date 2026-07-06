@@ -174,7 +174,7 @@ export function MeIdentityCard({
                 style={[styles.referralChip, { backgroundColor: colors.ai.soft, borderRadius: radius.pill }]}
               >
                 <MaterialCommunityIcons name="qrcode" size={15} color={colors.ai.start} />
-                <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐码</Text>
+                <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.ai.start, marginLeft: 3 }]}>推荐中心</Text>
               </Pressable>
             ) : showNormalShareEntry ? (
               <Pressable
@@ -182,7 +182,7 @@ export function MeIdentityCard({
                 style={[styles.normalShareChip, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.pill }]}
               >
                 <MaterialCommunityIcons name="sprout-outline" size={15} color={colors.brand.primary} />
-                <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.brand.primary, marginLeft: 3 }]}>普通推荐码</Text>
+                <Text {...compactActionTextProps} style={[typography.captionSm, { color: colors.brand.primary, marginLeft: 3 }]}>推荐中心</Text>
               </Pressable>
             ) : <View />}
             <Pressable

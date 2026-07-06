@@ -37,6 +37,27 @@ export interface ReferralBindingResult {
   inviter: ReferralInviterSummary | null;
 }
 
+/** VIP 推荐中心：当前用户直接推荐的会员明细 */
+export interface VipReferralRecord {
+  id: string;
+  userId: string;
+  buyerNo: string | null;
+  nickname: string | null;
+  maskedPhone: string | null;
+  invitee: {
+    id: string;
+    buyerNo: string | null;
+    profile?: {
+      nickname: string | null;
+      avatarUrl?: string | null;
+    } | null;
+  } | null;
+  tier: MemberTier;
+  referralCode: string | null;
+  vipPurchasedAt: string | null;
+  boundAt: string;
+}
+
 /** 奖励钱包 */
 export interface Wallet {
   balance: number;

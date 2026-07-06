@@ -248,6 +248,53 @@ export class BonusService {
     };
   }
 
+  /** 获取当前用户直接推荐的会员明细 */
+  async getReferralRecords(userId: string) {
+    const rows = await this.prisma.memberProfile.findMany({
+      where: { inviterUserId: userId },
+      orderBy: [{ vipPurchasedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+      select: {
+        userId: true,
+        tier: true,
+        referralCode: true,
+        vipPurchasedAt: true,
+        createdAt: true,
+        user: {
+          select: {
+            buyerNo: true,
+            profile: { select: { nickname: true } },
+            authIdentities: {
+              where: { provider: 'PHONE', verified: true },
+              select: { identifier: true },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.userId,
+      userId: row.userId,
+      buyerNo: row.user?.buyerNo ?? null,
+      nickname: row.user?.profile?.nickname ?? null,
+      maskedPhone: maskPhone(row.user?.authIdentities?.[0]?.identifier ?? null),
+      invitee: {
+        id: row.userId,
+        buyerNo: row.user?.buyerNo ?? null,
+        profile: {
+          nickname: row.user?.profile?.nickname ?? null,
+        },
+      },
+      tier: row.tier,
+      referralCode: row.referralCode ?? null,
+      vipPurchasedAt: row.vipPurchasedAt?.toISOString() ?? null,
+      boundAt: row.createdAt.toISOString(),
+    }));
+  }
+
   /** 使用推荐码 */
   async useReferralCode(userId: string, code: string) {
     const inviter = await this.prisma.memberProfile.findUnique({
