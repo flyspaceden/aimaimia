@@ -30,6 +30,12 @@ export class BonusController {
     return this.bonusService.useReferralCode(userId, dto.code);
   }
 
+  /** 当前用户直接推荐的用户明细 */
+  @Get('referral/records')
+  getReferralRecords(@CurrentUser('sub') userId: string) {
+    return this.bonusService.getReferralRecords(userId);
+  }
+
   /** @deprecated 旧 VIP 直购入口已停用，统一走 VIP 礼包下单流程 */
   @Post('vip/purchase')
   purchaseVip() {

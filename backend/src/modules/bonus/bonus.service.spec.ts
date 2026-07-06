@@ -308,6 +308,75 @@ describe('BonusService.getMemberProfile — 推荐关系展示口径', () => {
     });
   });
 
+  it('返回当前会员直接推荐的用户明细', async () => {
+    const boundAt = new Date('2026-07-05T06:00:00.000Z');
+    const vipPurchasedAt = new Date('2026-07-05T08:00:00.000Z');
+    const prismaMock: any = {
+      memberProfile: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            userId: 'invitee-1',
+            tier: 'VIP',
+            referralCode: 'VIP20001',
+            vipPurchasedAt,
+            createdAt: boundAt,
+            user: {
+              buyerNo: 'AIMM00000000000088',
+              profile: { nickname: '被推荐人' },
+              authIdentities: [{ identifier: '13912345678' }],
+            },
+          },
+        ]),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    const result = await service.getReferralRecords('vip-user');
+
+    expect(prismaMock.memberProfile.findMany).toHaveBeenCalledWith({
+      where: { inviterUserId: 'vip-user' },
+      orderBy: [{ vipPurchasedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+      select: {
+        userId: true,
+        tier: true,
+        referralCode: true,
+        vipPurchasedAt: true,
+        createdAt: true,
+        user: {
+          select: {
+            buyerNo: true,
+            profile: { select: { nickname: true } },
+            authIdentities: {
+              where: { provider: 'PHONE', verified: true },
+              select: { identifier: true },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    expect(result).toEqual([
+      {
+        id: 'invitee-1',
+        userId: 'invitee-1',
+        buyerNo: 'AIMM00000000000088',
+        nickname: '被推荐人',
+        maskedPhone: '139****5678',
+        invitee: {
+          id: 'invitee-1',
+          buyerNo: 'AIMM00000000000088',
+          profile: { nickname: '被推荐人' },
+        },
+        tier: 'VIP',
+        referralCode: 'VIP20001',
+        vipPurchasedAt: vipPurchasedAt.toISOString(),
+        boundAt: boundAt.toISOString(),
+      },
+    ]);
+  });
+
   it('绑定已写入后，推荐人摘要查询失败也应返回绑定成功', async () => {
     const prismaMock: any = {
       memberProfile: {

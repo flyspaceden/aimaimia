@@ -129,7 +129,7 @@ export default function MeScreen() {
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
   const directReferralPercentText = formatPercent(member?.directReferralPercent);
-  const growthToolLabel = memberData?.ok ? (isVip ? '会员成长' : '普通成长') : '成长中心';
+  const growthToolLabel = '积分成长';
   const normalGrowthTool = useMemo(
     () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
     [growthToolLabel],

@@ -1,21 +1,46 @@
-import React from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { AppHeader, Screen } from '../../src/components/layout';
-import { Skeleton, useToast } from '../../src/components/feedback';
-import { AiDivider } from '../../src/components/ui';
-import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
-import { BonusRepo, CouponRepo } from '../../src/repos';
+import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { Tag } from '../../src/components/ui';
+import { BonusRepo, CouponRepo, GrowthRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import type { NormalShareRecord, VipReferralRecord } from '../../src/types';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
+
+const rewardStatusLabels: Record<NormalShareRecord['rewardStatus'], string> = {
+  PENDING: '已绑定',
+  REGISTER_REWARDED: '注册已奖',
+  FIRST_ORDER_PENDING: '待首单',
+  ISSUED: '首单已奖',
+  REVERSED: '已冲正',
+  VOIDED: '已作废',
+};
+
+const relationStatusLabels: Record<NonNullable<NormalShareRecord['relationStatus']>, string> = {
+  ACTIVE: '关系有效',
+  SUPERSEDED_BY_VIP_TREE: '转入 VIP 关系',
+  INVALIDATED_BY_INVITEE_VIP_UPGRADE: '已因对方升级 VIP 结束',
+  ADMIN_VOIDED: '已作废',
+};
 
 function formatPercent(value?: number | null) {
   if (typeof value !== 'number') return '后台配置';
@@ -23,370 +48,621 @@ function formatPercent(value?: number | null) {
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
 }
 
-// 推荐码展示页
+function formatCurrency(value?: number | null) {
+  const amount = Math.max(0, Number(value ?? 0));
+  return `¥${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '暂无时间';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '暂无时间';
+  return date.toLocaleDateString();
+}
+
+function getNormalRecordName(record: NormalShareRecord) {
+  return record.invitee?.profile?.nickname || record.invitee?.buyerNo || '新用户';
+}
+
+function getVipRecordName(record: VipReferralRecord) {
+  return record.nickname || record.invitee?.profile?.nickname || record.buyerNo || record.maskedPhone || '新用户';
+}
+
+// 推荐中心：普通用户和 VIP 共用入口，但展示不同的推荐动作和收益说明。
 export default function ReferralScreen() {
-  const { colors, radius, shadow, spacing, typography, gradients } = useTheme();
+  const { colors, radius, shadow, spacing, typography } = useTheme();
   const router = useRouter();
   const { show } = useToast();
+  const queryClient = useQueryClient();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-  // 非 VIP 分支底部双按钮（"扫描推荐码" / "了解 VIP"）需要吃 safe area，
-  // 否则在华为/Honor/小米 3 键虚拟键设备上会被系统按钮挡住
   const bottomPadding = useBottomInset(0);
+  const [bindCode, setBindCode] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const memberQuery = useQuery({
     queryKey: ['bonus-member'],
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
 
-  const member = data?.ok ? data.data : null;
+  const member = memberQuery.data?.ok ? memberQuery.data.data : null;
   const isVip = member?.tier === 'VIP';
-  const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const inviterLabel = getReferralInviterLabel(member);
-  const hasInviter = hasBoundReferralInviter(member);
-  const inviteeVipCount = member?.inviteeVipCount ?? 0;
-  const directReferralPercentText = formatPercent(member?.directReferralPercent);
+  const normalShareEnabled = Boolean(isLoggedIn && memberQuery.data?.ok && !isVip);
+  const vipReferralEnabled = Boolean(isLoggedIn && memberQuery.data?.ok && isVip);
 
-  // 复制推荐码
-  const handleCopy = async () => {
-    if (!referralCode) {
-      show({ message: '暂无可复制的推荐码', type: 'info' });
-      return;
+  const shareQuery = useQuery({
+    queryKey: ['normal-share-me'],
+    queryFn: () => GrowthRepo.getNormalShareMe(),
+    enabled: normalShareEnabled,
+  });
+  const statsQuery = useQuery({
+    queryKey: ['normal-share-stats'],
+    queryFn: () => GrowthRepo.getNormalShareStats(),
+    enabled: normalShareEnabled,
+  });
+  const normalRecordsQuery = useQuery({
+    queryKey: ['normal-share-records'],
+    queryFn: () => GrowthRepo.getNormalShareRecords(),
+    enabled: normalShareEnabled,
+  });
+  const vipRecordsQuery = useQuery({
+    queryKey: ['vip-referral-records'],
+    queryFn: () => BonusRepo.getReferralRecords(),
+    enabled: vipReferralEnabled,
+  });
+
+  const bindMutation = useMutation({
+    mutationFn: (code: string) => GrowthRepo.bindNormalShareCode(code),
+    onSuccess: async (result) => {
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '绑定失败', type: 'error' });
+        return;
+      }
+      setBindCode('');
+      show({ message: '推荐关系已绑定', type: 'success' });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+        queryClient.invalidateQueries({ queryKey: ['growth-me'] }),
+        queryClient.invalidateQueries({ queryKey: ['normal-share-records'] }),
+        queryClient.invalidateQueries({ queryKey: ['normal-share-stats'] }),
+      ]);
+    },
+  });
+
+  const shareProfile = shareQuery.data?.ok ? shareQuery.data.data : null;
+  const normalStats = statsQuery.data?.ok ? statsQuery.data.data : null;
+  const normalRecords = normalRecordsQuery.data?.ok ? normalRecordsQuery.data.data : [];
+  const vipRecords = vipRecordsQuery.data?.ok ? vipRecordsQuery.data.data : [];
+  const referralCode = isVip ? (member?.referralCode ?? '') : '';
+  const vipDeepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const shareUrl = shareProfile?.shareUrl ?? '';
+  const shareProfileError = shareQuery.data && !shareQuery.data.ok
+    ? (shareQuery.data.error.displayMessage ?? '普通分享码加载失败，请下拉刷新')
+    : null;
+  const shareActive = !shareProfileError && shareProfile?.status === 'ACTIVE';
+  const hasInviter = hasBoundReferralInviter(member);
+  const canBindReferrer = !isVip && !hasInviter;
+  const inviterLabel = getReferralInviterLabel(member);
+  const directReferralPercentText = formatPercent(member?.directReferralPercent);
+  const autoVipRemaining = member?.autoVipRemainingSpend ?? null;
+  const autoVipThreshold = member?.autoVipCumulativeSpendThreshold ?? null;
+  const autoVipProgress = useMemo(() => {
+    if (typeof autoVipThreshold !== 'number' || typeof autoVipRemaining !== 'number') return 0;
+    if (autoVipThreshold <= 0) return 100;
+    const ratio = (autoVipThreshold - autoVipRemaining) / autoVipThreshold;
+    return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+  }, [autoVipRemaining, autoVipThreshold]);
+  const recentNormalRecords = normalRecords.slice(0, 5);
+  const recentVipRecords = vipRecords.slice(0, 5);
+  const recentCount = isVip ? recentVipRecords.length : recentNormalRecords.length;
+  const inviteeVipCount = member?.inviteeVipCount ?? 0;
+
+  const loading =
+    memberQuery.isLoading ||
+    (normalShareEnabled && (shareQuery.isLoading || statsQuery.isLoading || normalRecordsQuery.isLoading)) ||
+    (vipReferralEnabled && vipRecordsQuery.isLoading);
+  const refreshing =
+    memberQuery.isFetching ||
+    shareQuery.isFetching ||
+    statsQuery.isFetching ||
+    normalRecordsQuery.isFetching ||
+    vipRecordsQuery.isFetching;
+
+  const refresh = async () => {
+    const tasks: Array<Promise<unknown>> = [memberQuery.refetch()];
+    if (normalShareEnabled) {
+      tasks.push(shareQuery.refetch(), statsQuery.refetch(), normalRecordsQuery.refetch());
     }
-    await Clipboard.setStringAsync(referralCode);
-    show({ message: '推荐码已复制', type: 'success' });
+    if (vipReferralEnabled) {
+      tasks.push(vipRecordsQuery.refetch());
+    }
+    await Promise.all(tasks);
   };
 
-  // 分享推荐码
-  const handleShare = async () => {
-    if (!referralCode) {
-      show({ message: '暂无可分享的推荐码', type: 'info' });
+  const handleCopyNormalCode = async () => {
+    if (!shareActive || !shareProfile?.code) {
+      show({ message: shareProfileError ?? '普通分享码暂不可用', type: 'info' });
+      return;
+    }
+    await Clipboard.setStringAsync(shareProfile.code);
+    show({ message: '普通分享码已复制', type: 'success' });
+  };
+
+  const handleShareNormal = async () => {
+    if (!shareActive || !shareProfile?.code || !shareUrl) {
+      show({ message: shareProfileError ?? '普通分享码暂不可用', type: 'info' });
       return;
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队。${deepLink}`,
+        message: `我在爱买买发现了优质农产品，用我的普通分享码 ${shareProfile.code} 注册登录：${shareUrl}`,
       });
       if (result.action === Share.sharedAction) {
-        CouponRepo.reportShareEvent({
-          scene: 'REFERRAL',
-          targetId: referralCode || 'GLOBAL',
-        }).catch(() => {});
+        CouponRepo.reportShareEvent({ scene: 'NORMAL_SHARE', targetId: shareProfile.code }).catch(() => {});
       }
     } catch {
-      // 用户取消分享，不需处理
+      // 用户取消分享，不需要提示。
     }
   };
 
-  // 推荐步骤数据
-  const steps = [
-    { icon: 'share-variant-outline' as const, label: '分享' },
-    { icon: 'account-plus-outline' as const, label: '好友成为 VIP' },
-    { icon: 'cash-multiple' as const, label: '后续订单结算' },
-  ];
+  const handleCopyVipCode = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可复制的 VIP 推荐码', type: 'info' });
+      return;
+    }
+    await Clipboard.setStringAsync(referralCode);
+    show({ message: 'VIP 推荐码已复制', type: 'success' });
+  };
+
+  const handleShareVip = async () => {
+    if (!referralCode) {
+      show({ message: '暂无可分享的 VIP 推荐码', type: 'info' });
+      return;
+    }
+    try {
+      const result = await Share.share({
+        message: `我在爱买买发现了优质农产品，使用我的 VIP 推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队：${vipDeepLink}`,
+      });
+      if (result.action === Share.sharedAction) {
+        CouponRepo.reportShareEvent({ scene: 'REFERRAL', targetId: referralCode }).catch(() => {});
+      }
+    } catch {
+      // 用户取消分享，不需要提示。
+    }
+  };
+
+  const handleBind = () => {
+    const normalized = bindCode.trim().toUpperCase();
+    if (!normalized) {
+      show({ message: '请输入分享码', type: 'info' });
+      return;
+    }
+    bindMutation.mutate(normalized);
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="推荐中心" />
+        <View style={{ flex: 1, justifyContent: 'center', padding: spacing.xl }}>
+          <EmptyState title="登录后查看推荐中心" description="登录后可以查看自己的推荐码、推荐人和被推荐用户" />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader
-        title={isVip ? '我的推荐码' : '推荐关系'}
-        rightSlot={
+        title="推荐中心"
+        rightSlot={canBindReferrer ? (
           <Pressable onPress={() => router.push('/me/scanner')} hitSlop={10}>
             <MaterialCommunityIcons name="qrcode-scan" size={22} color={colors.text.primary} />
           </Pressable>
-        }
+        ) : undefined}
       />
 
-      {isLoading ? (
-        <View style={{ padding: spacing.xl }}>
-          <Skeleton height={400} radius={radius.xl} />
-          <View style={{ height: spacing.lg }} />
-          <Skeleton height={140} radius={radius.lg} />
-        </View>
-      ) : !isVip ? (
-        <View style={[styles.nonVipContainer, { padding: spacing.xl, paddingBottom: spacing.xl + bottomPadding }]}>
-          <Animated.View
-            entering={FadeInDown.duration(400)}
-            style={[styles.bindingCard, shadow.sm, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}
-          >
-            <View style={[styles.bindingIcon, { backgroundColor: hasInviter ? colors.brand.primarySoft : colors.background }]}>
-              <MaterialCommunityIcons
-                name={hasInviter ? 'account-heart-outline' : 'qrcode-scan'}
-                size={30}
-                color={hasInviter ? colors.brand.primary : colors.muted}
-              />
-            </View>
-            <Text style={[typography.headingSm, { color: colors.text.primary, marginTop: spacing.md, textAlign: 'center' }]}>
-              {hasInviter ? '已绑定推荐人' : '尚未绑定推荐人'}
-            </Text>
-            {hasInviter ? (
-              <>
-                <Text style={[typography.bodyStrong, { color: colors.brand.primary, marginTop: spacing.sm, textAlign: 'center' }]}>
-                  {inviterLabel}
-                </Text>
-                <Text style={[typography.bodySm, { color: colors.text.secondary, marginTop: spacing.xs, textAlign: 'center' }]}>
-                  如果推荐人在你成为 VIP 时已经是 VIP，你将进入 TA 的 VIP 团队；如果 TA 仍是普通用户，普通推荐关系会结束。
-                </Text>
-              </>
-            ) : null}
-          </Animated.View>
-
-          <View style={styles.nonVipActions}>
-            <Pressable
-              onPress={() => router.push('/me/scanner')}
-              style={[styles.primaryBtn, { backgroundColor: colors.brand.primary, borderRadius: radius.pill }]}
-            >
-              <MaterialCommunityIcons name="qrcode-scan" size={17} color="#FFFFFF" />
-              <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>
-                扫描推荐码
-              </Text>
-            </Pressable>
-          </View>
-
-          <Pressable
-            onPress={() => router.push('/me/vip')}
-            style={[styles.secondaryBtn, { borderColor: colors.border, borderRadius: radius.pill }]}
-          >
-            <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>
-              了解 VIP
-            </Text>
-          </Pressable>
-        </View>
-      ) : (
-        <View style={{ flex: 1, padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
-          {/* 渐变英雄卡 */}
-          <Animated.View entering={FadeInDown.duration(400)}>
-            <LinearGradient
-              colors={[...gradients.aiGradient]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.heroCard, shadow.lg, { borderRadius: radius.xl }]}
-            >
-              {/* 粒子效果 */}
-              <FloatingParticles count={8} color={colors.ai.glow} />
-
-              {/* 标题行 */}
-              <View style={styles.titleRow}>
-                <Text style={[typography.bodyStrong, { color: '#FFFFFF' }]}>我的专属推荐码</Text>
-              </View>
-
-              {/* QR 码容器 */}
-              <Animated.View
-                entering={FadeInDown.duration(400).delay(100)}
-                style={[styles.qrContainer, shadow.lg, { borderRadius: radius.xl, backgroundColor: '#FFFFFF' }]}
-              >
-                {referralCode ? (
-                  <QRCode
-                    value={deepLink}
-                    size={180}
-                    color={colors.brand.primaryDark}
-                    backgroundColor="#FFFFFF"
-                  />
-                ) : (
-                  <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={[typography.caption, { color: colors.muted }]}>暂无推荐码</Text>
-                  </View>
-                )}
-              </Animated.View>
-
-              {/* 推荐码文字 */}
-              <Animated.View entering={FadeInDown.duration(400).delay(200)}>
-                <Text style={styles.codeText}>
-                  {referralCode.split('').join(' ')}
-                </Text>
-              </Animated.View>
-
-              <Animated.View entering={FadeInDown.duration(400).delay(250)} style={styles.inviteeCountRow}>
-                <MaterialCommunityIcons name="account-star-outline" size={16} color="#FFFFFF" />
-                <Text style={[typography.caption, { color: '#FFFFFF', marginLeft: 6 }]}>
-                  已推荐 {inviteeVipCount} 位 VIP
-                </Text>
-              </Animated.View>
-
-              {/* 操作按钮 */}
-              <Animated.View entering={FadeInDown.duration(400).delay(300)} style={styles.actionRow}>
-                <Pressable
-                  onPress={handleCopy}
-                  style={[styles.outlineBtn, { borderRadius: radius.pill }]}
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] + bottomPadding }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {loading ? (
+          <>
+            <Skeleton height={280} radius={radius.xl} />
+            <View style={{ height: spacing.lg }} />
+            <Skeleton height={150} radius={radius.lg} />
+          </>
+        ) : memberQuery.data && !memberQuery.data.ok ? (
+          <ErrorState
+            title="推荐中心加载失败"
+            description={memberQuery.data.error.displayMessage ?? '请稍后重试'}
+            onAction={memberQuery.refetch}
+          />
+        ) : (
+          <>
+            <Animated.View entering={FadeInDown.duration(300)}>
+              {isVip ? (
+                <LinearGradient
+                  colors={[colors.brand.primary, colors.ai.start, colors.ai.end]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.heroCard, { borderRadius: radius.xl }, shadow.lg]}
                 >
-                  <MaterialCommunityIcons name="content-copy" size={16} color="#FFFFFF" />
-                  <Text style={[typography.bodySm, { color: '#FFFFFF', marginLeft: 6 }]}>复制推荐码</Text>
-                </Pressable>
-
-                <View style={{ width: spacing.md }} />
-
-                <Pressable onPress={handleShare} style={{ flex: 1 }}>
-                  <LinearGradient
-                    colors={[...gradients.goldGradient]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.shareBtn, { borderRadius: radius.pill }]}
-                  >
-                    <MaterialCommunityIcons name="shimmer" size={16} color="#FFFFFF" />
-                    <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginLeft: 6 }]}>分享给好友</Text>
-                  </LinearGradient>
-                </Pressable>
-              </Animated.View>
-            </LinearGradient>
-          </Animated.View>
-
-          {/* 推荐奖励说明卡片 */}
-          <Animated.View
-            entering={FadeInDown.duration(400).delay(400)}
-            style={[styles.rewardCard, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }]}
-          >
-            <Text style={[typography.headingSm, { color: colors.text.primary }]}>推荐奖励</Text>
-            <AiDivider style={{ marginVertical: spacing.sm }} />
-
-            {/* 3步图示 */}
-            <View style={styles.stepsRow}>
-              {steps.map((step, index) => (
-                <React.Fragment key={step.label}>
-                  <View style={styles.stepItem}>
-                    <View style={[styles.stepIcon, { backgroundColor: colors.brand.primarySoft }]}>
-                      <MaterialCommunityIcons name={step.icon} size={24} color={colors.brand.primary} />
+                  <View style={styles.heroTopRow}>
+                    <View style={styles.heroCodeInfo}>
+                      <Text style={[typography.caption, { color: 'rgba(255,255,255,0.75)' }]}>VIP 推荐码</Text>
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.68}
+                        style={[styles.codeText, { color: '#FFFFFF' }]}
+                      >
+                        {referralCode ? referralCode.split('').join(' ') : '暂无推荐码'}
+                      </Text>
                     </View>
-                    <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 6 }]}>
-                      {step.label}
-                    </Text>
+                    <View style={[styles.qrBox, { backgroundColor: '#FFFFFF', borderColor: 'rgba(255,255,255,0.35)', borderRadius: radius.lg }]}>
+                      {referralCode ? (
+                        <QRCode value={vipDeepLink} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
+                      ) : (
+                        <MaterialCommunityIcons name="qrcode-remove" size={44} color={colors.muted} />
+                      )}
+                    </View>
                   </View>
-                  {index < steps.length - 1 && (
-                    <MaterialCommunityIcons
-                      name="chevron-right"
-                      size={18}
-                      color={colors.muted}
-                      style={{ marginTop: -10 }}
-                    />
-                  )}
-                </React.Fragment>
-              ))}
-            </View>
+                  <View style={styles.actionRow}>
+                    <Pressable onPress={handleCopyVipCode} style={[styles.ghostButton, { borderRadius: radius.pill }]}>
+                      <MaterialCommunityIcons name="content-copy" size={15} color="#FFFFFF" />
+                      <Text style={[typography.caption, { color: '#FFFFFF', marginLeft: 4 }]}>复制</Text>
+                    </Pressable>
+                    <Pressable onPress={handleShareVip} style={[styles.goldButton, { borderRadius: radius.pill }]}>
+                      <MaterialCommunityIcons name="share-variant-outline" size={15} color="#FFFFFF" />
+                      <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', marginLeft: 4 }]}>分享</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={[typography.caption, { color: 'rgba(255,255,255,0.82)', marginTop: spacing.md }]}>
+                    已推荐 {inviteeVipCount} 位 VIP。好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按付款时的 VIP 直推比例 {directReferralPercentText} 结算。
+                  </Text>
+                </LinearGradient>
+              ) : (
+                <View style={[styles.heroCard, { backgroundColor: colors.surface, borderRadius: radius.xl }, shadow.sm]}>
+                  <View style={styles.heroTopRow}>
+                    <View style={styles.heroCodeInfo}>
+                      <Text style={[typography.caption, { color: colors.text.secondary }]}>普通分享码</Text>
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.68}
+                        style={[styles.codeText, { color: colors.text.primary }]}
+                      >
+                        {shareProfileError ? '加载失败' : (shareProfile?.code ?? '生成中')}
+                      </Text>
+                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
+                        {shareProfileError ?? '好友注册后立即记录普通推荐关系，后续首单和订单奖励按后台规则发放。'}
+                      </Text>
+                    </View>
+                    <View style={[styles.qrBox, { backgroundColor: '#FFFFFF', borderColor: colors.border, borderRadius: radius.lg }]}>
+                      {shareActive && shareUrl ? (
+                        <QRCode value={shareUrl} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
+                      ) : (
+                        <MaterialCommunityIcons name="qrcode-remove" size={44} color={colors.muted} />
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.actionRow}>
+                    <Pressable
+                      onPress={handleCopyNormalCode}
+                      disabled={!shareActive}
+                      style={[styles.secondaryButton, { borderColor: colors.border, borderRadius: radius.pill, opacity: shareActive ? 1 : 0.5 }]}
+                    >
+                      <MaterialCommunityIcons name="content-copy" size={15} color={colors.text.primary} />
+                      <Text style={[typography.caption, { color: colors.text.primary, marginLeft: 4 }]}>复制</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleShareNormal}
+                      disabled={!shareActive}
+                      style={[styles.primaryButton, { backgroundColor: shareActive ? colors.brand.primary : colors.border, borderRadius: radius.pill }]}
+                    >
+                      <MaterialCommunityIcons name="share-variant-outline" size={15} color="#FFFFFF" />
+                      <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', marginLeft: 4 }]}>分享</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </Animated.View>
 
-            <Text style={[typography.caption, { color: colors.text.secondary, textAlign: 'center', marginTop: spacing.md }]}>
-              你推荐的好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按付款时的 VIP 直推比例 {directReferralPercentText} 结算。购买 VIP 礼包本身不单独发放推荐奖，普通商品分润会先冻结，确认收货且售后期结束后释放。
-            </Text>
-          </Animated.View>
-        </View>
-      )}
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(80)}
+              style={[styles.statsCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              {isVip ? (
+                <>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已推荐 VIP</Text>
+                    <Text style={[typography.title3, { color: colors.text.primary }]}>{inviteeVipCount}</Text>
+                  </View>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推用户</Text>
+                    <Text style={[typography.title3, { color: colors.text.primary }]}>{vipRecords.length}</Text>
+                  </View>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推比例</Text>
+                    <Text style={[typography.title3, { color: colors.success }]}>{directReferralPercentText}</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已邀请</Text>
+                    <Text style={[typography.title3, { color: colors.text.primary }]}>{normalStats?.totalInvitees ?? 0}</Text>
+                  </View>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已奖励</Text>
+                    <Text style={[typography.title3, { color: colors.success }]}>{normalStats?.rewardedInvitees ?? 0}</Text>
+                  </View>
+                  <View style={styles.statCell}>
+                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推比例</Text>
+                    <Text style={[typography.title3, { color: colors.success }]}>{directReferralPercentText}</Text>
+                  </View>
+                </>
+              )}
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(110)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>我的推荐人</Text>
+                <Tag label={hasInviter ? '已绑定' : '未绑定'} tone={hasInviter ? 'brand' : 'neutral'} />
+              </View>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                {hasInviter
+                  ? `${inviterLabel ?? '已绑定用户'} 是你的推荐人，推荐关系一旦绑定后不能自行更换。`
+                  : isVip
+                    ? '你当前没有有效推荐人。成为 VIP 后推荐关系不能自行补绑或更换。'
+                    : '你还没有绑定推荐人。可以扫描好友推荐码，或输入好友普通分享码完成绑定。'}
+              </Text>
+              {canBindReferrer ? (
+                <View style={[styles.bindRow, { marginTop: spacing.md }]}>
+                  <TextInput
+                    value={bindCode}
+                    onChangeText={(value) => setBindCode(value.toUpperCase())}
+                    autoCapitalize="characters"
+                    placeholder="输入好友分享码"
+                    placeholderTextColor={colors.muted}
+                    style={[
+                      styles.bindInput,
+                      {
+                        borderColor: colors.border,
+                        color: colors.text.primary,
+                        backgroundColor: colors.background,
+                        borderRadius: radius.md,
+                      },
+                    ]}
+                  />
+                  <Pressable
+                    onPress={handleBind}
+                    disabled={bindMutation.isPending}
+                    style={[styles.bindButton, { backgroundColor: colors.brand.primary, borderRadius: radius.md }]}
+                  >
+                    <Text style={[typography.bodySm, { color: '#FFFFFF' }]}>{bindMutation.isPending ? '绑定中' : '绑定'}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </Animated.View>
+
+            {!isVip && member?.autoVipBySpendEnabled && typeof autoVipThreshold === 'number' ? (
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(130)}
+                style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+              >
+                <View style={styles.sectionTitleRow}>
+                  <Text style={[typography.headingSm, { color: colors.text.primary }]}>自动成为 VIP</Text>
+                  <Tag label={`${autoVipProgress}%`} tone={autoVipRemaining === 0 ? 'brand' : 'accent'} />
+                </View>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                  累计有效消费满 {formatCurrency(autoVipThreshold)} 后自动升级为 VIP。升级时如果推荐人已经是 VIP，会进入推荐人的 VIP 团队；如果推荐人仍是普通用户，普通推荐关系会结束。
+                </Text>
+                <View style={[styles.progressTrack, { backgroundColor: colors.border, marginTop: spacing.md }]}>
+                  <View style={[styles.progressFill, { width: `${autoVipProgress}%`, backgroundColor: colors.brand.primary }]} />
+                </View>
+                <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                  {typeof autoVipRemaining === 'number' && autoVipRemaining <= 0
+                    ? '已达到自动升级门槛，确认收货入账后会自动处理。'
+                    : `还差 ${formatCurrency(autoVipRemaining ?? autoVipThreshold)}。你也可以继续按原流程购买 VIP。`}
+                </Text>
+              </Animated.View>
+            ) : null}
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(150)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>推荐奖励</Text>
+                <Tag label={isVip ? 'VIP 推荐' : '普通推荐'} tone="accent" />
+              </View>
+              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                {isVip
+                  ? `你推荐的用户后续普通商品订单，会按付款时的 VIP 直推比例 ${directReferralPercentText} 计算推荐奖励。`
+                  : `你推荐的用户后续普通商品订单，会按付款时的普通直推比例 ${directReferralPercentText} 计算推荐奖励。`}
+              </Text>
+              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.xs }]}>
+                购买 VIP 礼包本身不单独给推荐人发推荐奖；普通商品订单奖励会先冻结，确认收货且售后期结束后释放。
+              </Text>
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(180)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>最近推荐用户</Text>
+                <Pressable onPress={() => router.push('/me/referral-users')} hitSlop={8}>
+                  <Text {...compactActionTextProps} style={[typography.caption, { color: colors.brand.primary }]}>
+                    查看全部推荐用户
+                  </Text>
+                </Pressable>
+              </View>
+              {recentCount === 0 ? (
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
+                  暂无推荐用户
+                </Text>
+              ) : (
+                <View style={{ marginTop: spacing.sm }}>
+                  {isVip
+                    ? recentVipRecords.map((record) => (
+                        <View key={record.id} style={[styles.recordRow, { borderBottomColor: colors.border }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[typography.bodySm, { color: colors.text.primary }]}>{getVipRecordName(record)}</Text>
+                            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 2 }]}>
+                              {record.tier === 'VIP' ? '已成为 VIP' : '普通用户'} · {formatDate(record.vipPurchasedAt ?? record.boundAt)}
+                            </Text>
+                          </View>
+                          <Tag label="VIP 推荐" tone={record.tier === 'VIP' ? 'brand' : 'neutral'} />
+                        </View>
+                      ))
+                    : recentNormalRecords.map((record) => (
+                        <View key={record.id} style={[styles.recordRow, { borderBottomColor: colors.border }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[typography.bodySm, { color: colors.text.primary }]}>{getNormalRecordName(record)}</Text>
+                            <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 2 }]}>
+                              {(record.relationStatus && relationStatusLabels[record.relationStatus]) || '关系有效'} · {formatDate(record.boundAt)}
+                            </Text>
+                          </View>
+                          <Tag label={rewardStatusLabels[record.rewardStatus]} tone={record.rewardStatus === 'ISSUED' ? 'brand' : 'accent'} />
+                        </View>
+                      ))}
+                </View>
+              )}
+            </Animated.View>
+          </>
+        )}
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  nonVipContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  bindingCard: {
-    borderWidth: 1,
-    padding: 22,
-    alignItems: 'center',
-  },
-  bindingIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nonVipActions: {
-    marginTop: 18,
-  },
-  primaryBtn: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-  secondaryBtn: {
-    minHeight: 48,
-    marginTop: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
   heroCard: {
-    padding: 24,
-    alignItems: 'center',
-    overflow: 'hidden',
+    padding: 20,
   },
-  titleRow: {
+  heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 8,
-    marginBottom: 20,
-    zIndex: 1,
+    justifyContent: 'space-between',
+    gap: 14,
   },
-  qrContainer: {
-    padding: 16,
+  heroCodeInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  qrBox: {
+    width: 136,
+    height: 136,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   codeText: {
     fontFamily: monoFamily,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
-    letterSpacing: 4,
-    color: '#FFFFFF',
-    marginTop: 20,
-    textAlign: 'center',
-    zIndex: 1,
-  },
-  inviteeCountRow: {
-    minHeight: 28,
-    marginTop: 8,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    zIndex: 1,
+    letterSpacing: 2,
+    marginTop: 4,
   },
   actionRow: {
     flexDirection: 'row',
-    marginTop: 20,
-    width: '100%',
-    zIndex: 1,
+    gap: 10,
+    marginTop: 18,
   },
-  outlineBtn: {
+  ghostButton: {
+    minHeight: 42,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.65)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  goldButton: {
+    minHeight: 42,
+    flex: 1,
+    backgroundColor: '#D4A017',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  primaryButton: {
+    minHeight: 42,
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.6)',
+    paddingHorizontal: 14,
   },
-  shareBtn: {
+  secondaryButton: {
+    minHeight: 42,
+    flex: 1,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
-  rewardCard: {
+  statsCard: {
+    flexDirection: 'row',
     padding: 16,
   },
-  stepsRow: {
+  statCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionCard: {
+    padding: 16,
+  },
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  stepItem: {
-    alignItems: 'center',
-    paddingHorizontal: 16,
+  bindRow: {
+    flexDirection: 'row',
+    gap: 10,
   },
-  stepIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  bindInput: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    fontSize: 15,
+  },
+  bindButton: {
+    minHeight: 44,
+    minWidth: 74,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: 4,
+  },
+  recordRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 10,
   },
 });

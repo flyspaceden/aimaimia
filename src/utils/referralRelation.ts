@@ -11,11 +11,12 @@ type ReferralRelationLike = {
   referralCode?: string | null;
   inviterUserId?: string | null;
   inviter?: ReferralInviterLike | null;
+  directReferralStatus?: string | null;
   directReferralInviter?: ReferralInviterLike | null;
 };
 
 export type MeReferralToolEntry = {
-  label: '我的推荐码' | '推荐关系';
+  label: '推荐中心';
   icon: 'qrcode' | 'account-heart-outline';
   route: '/me/referral';
 };
@@ -25,25 +26,36 @@ function nonEmpty(value?: string | null) {
   return text ? text : null;
 }
 
-export function hasBoundReferralInviter(member?: ReferralRelationLike | null) {
+function isInactiveRelationStatus(status?: string | null) {
+  return status === 'INVALIDATED_BY_INVITEE_VIP_UPGRADE' || status === 'ADMIN_VOIDED';
+}
+
+function hasInviterObject(inviter?: ReferralInviterLike | null) {
   return Boolean(
-    nonEmpty(member?.inviterUserId) ||
-      nonEmpty(member?.inviter?.userId) ||
-      nonEmpty(member?.inviter?.id) ||
-      member?.inviter ||
-      nonEmpty(member?.directReferralInviter?.userId) ||
-      nonEmpty(member?.directReferralInviter?.id) ||
-      member?.directReferralInviter,
+    nonEmpty(inviter?.userId) ||
+      nonEmpty(inviter?.id) ||
+      nonEmpty(inviter?.nickname) ||
+      nonEmpty(inviter?.maskedPhone) ||
+      nonEmpty(inviter?.buyerNo),
+  );
+}
+
+export function hasBoundReferralInviter(member?: ReferralRelationLike | null) {
+  if (isInactiveRelationStatus(member?.directReferralStatus)) return false;
+  return Boolean(
+    hasInviterObject(member?.directReferralInviter) ||
+      hasInviterObject(member?.inviter) ||
+      nonEmpty(member?.inviterUserId),
   );
 }
 
 export function getReferralInviterLabel(member?: ReferralRelationLike | null) {
   if (!hasBoundReferralInviter(member)) return null;
   return (
-    nonEmpty(member?.inviter?.nickname) ||
-    nonEmpty(member?.inviter?.maskedPhone) ||
     nonEmpty(member?.directReferralInviter?.nickname) ||
     nonEmpty(member?.directReferralInviter?.buyerNo) ||
+    nonEmpty(member?.inviter?.nickname) ||
+    nonEmpty(member?.inviter?.maskedPhone) ||
     '已绑定用户'
   );
 }
@@ -51,7 +63,7 @@ export function getReferralInviterLabel(member?: ReferralRelationLike | null) {
 export function buildMeReferralToolEntry(member?: ReferralRelationLike | null): MeReferralToolEntry {
   const hasVipReferralCode = member?.tier === 'VIP' && Boolean(nonEmpty(member.referralCode));
   return {
-    label: hasVipReferralCode ? '我的推荐码' : '推荐关系',
+    label: '推荐中心',
     icon: hasVipReferralCode ? 'qrcode' : 'account-heart-outline',
     route: '/me/referral',
   };

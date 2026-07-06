@@ -20,6 +20,7 @@ import {
   DeductionPreview,
   WithdrawRequestInput,
   WithdrawResult,
+  VipReferralRecord,
 } from '../types';
 import { ApiClient } from './http/ApiClient';
 import { simulateRequest } from './helpers';
@@ -111,6 +112,41 @@ const mockWallet: Wallet = {
   },
 };
 
+const mockVipReferralRecords: VipReferralRecord[] = [
+  {
+    id: 'u-vip-ref-1',
+    userId: 'u-vip-ref-1',
+    buyerNo: 'AIMM00000000000901',
+    nickname: '陈小禾',
+    maskedPhone: '136****2301',
+    invitee: {
+      id: 'u-vip-ref-1',
+      buyerNo: 'AIMM00000000000901',
+      profile: { nickname: '陈小禾' },
+    },
+    tier: 'VIP',
+    referralCode: 'CXHE2026',
+    vipPurchasedAt: '2026-06-18T08:00:00Z',
+    boundAt: '2026-06-17T08:00:00Z',
+  },
+  {
+    id: 'u-vip-ref-2',
+    userId: 'u-vip-ref-2',
+    buyerNo: 'AIMM00000000000902',
+    nickname: '刘青',
+    maskedPhone: '137****9182',
+    invitee: {
+      id: 'u-vip-ref-2',
+      buyerNo: 'AIMM00000000000902',
+      profile: { nickname: '刘青' },
+    },
+    tier: 'NORMAL',
+    referralCode: null,
+    vipPurchasedAt: null,
+    boundAt: '2026-06-12T08:00:00Z',
+  },
+];
+
 export const BonusRepo = {
   /** 会员信息 */
   getMember: async (): Promise<Result<MemberProfile>> => {
@@ -128,6 +164,12 @@ export const BonusRepo = {
       }, { delay: 400 });
     }
     return ApiClient.post('/bonus/referral', { code });
+  },
+
+  /** 当前用户直接推荐的用户明细（VIP 推荐关系） */
+  getReferralRecords: async (): Promise<Result<VipReferralRecord[]>> => {
+    if (USE_MOCK) return simulateRequest(mockVipReferralRecords);
+    return ApiClient.get<VipReferralRecord[]>('/bonus/referral/records');
   },
 
   /** @deprecated 旧 VIP 直购接口已停用，前端应改走 VIP 礼包结算 */
