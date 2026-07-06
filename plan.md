@@ -1836,7 +1836,7 @@
 > **权威源**: `docs/superpowers/specs/2026-07-06-admin-announcement-and-outreach-design.md` + `docs/superpowers/plans/2026-07-06-admin-announcement-and-outreach.md`
 
 - [x] **AA01** 新增 `Announcement` 发布记录表、`ADMIN_OUTREACH` 客服来源、`announcements:read/create` 和 `cs:outreach` 权限。
-- [x] **AA02** 新增管理后台“消息公告”页，支持全部买家/VIP/普通/指定买家编号受众预览、发布公告和发送历史。
+- [x] **AA02** 新增管理后台“消息公告”页并归入“客服中心”，支持全部买家/VIP/普通/指定买家编号受众预览、发布公告和发送历史。
 - [x] **AA03** 公告复用买家 `InboxMessage` 展示，买家 App 消息中心新增 `platform_announcement` / `platform_notice` 图标和类型。
 - [x] **AA04** 新增 `POST /admin/cs/outreach`，管理员可在用户详情页主动发起一对一客服会话，并给买家发送 `cs_outreach_invite` 站内信。
 - [x] **AA05** 客服工作台和买家客服页均支持 `sessionId` 参数，主动联系后两端能进入同一会话。
@@ -1844,4 +1844,4 @@
 - [x] **AA07** 消息公告“跳转页面”从路由文本框改为中文页面选择器，管理员不再填写 `/product/xxx`、`/orders/xxx` 等页面代码。
 - [x] **AA08** 消息公告页“发布公告”和“发送历史”两栏之间新增可拖拽分隔条，桌面端可左右调整宽度，小屏保持上下排列。
 - [x] **AA09** 客服工作台新增“联系买家”入口，支持按买家编号/手机号/昵称搜索买家并发起一对一会话；后端复用或接管同一买家的活跃会话，避免重复创建。
-- [x] **AA10** “联系买家”弹窗改为自动候选：打开即展示最近可联系买家，输入关键词后自动刷新候选，不再要求管理员点击搜索按钮。
+- [x] **AA10** “联系买家”弹窗改为输入框下拉候选：点击/聚焦买家输入框后在下方展示最近可联系买家，输入关键词后自动刷新候选，不再要求管理员点击搜索按钮。

@@ -26,6 +26,16 @@ test('admin announcements page is routed and permission-gated in menu', () => {
   assert.match(permissions, /ANNOUNCEMENTS_CREATE/);
 });
 
+test('admin announcements menu item is grouped under customer service', () => {
+  const operationsBlock = layout.match(/name:\s*'运营活动'[\s\S]*?name:\s*'客服中心'/)?.[0] ?? '';
+  const customerServiceBlock = layout.match(/name:\s*'客服中心'[\s\S]*?name:\s*'系统管理'/)?.[0] ?? '';
+  assert.doesNotMatch(operationsBlock, /\/announcements/);
+  assert.match(customerServiceBlock, /\/announcements/);
+  assert.match(customerServiceBlock, /PERMISSIONS\.ANNOUNCEMENTS_READ/);
+  assert.match(customerServiceBlock, /permissionAny:\s*\[PERMISSIONS\.CS_READ,\s*PERMISSIONS\.ANNOUNCEMENTS_READ\]/);
+  assert.match(customerServiceBlock, /path:\s*'\/cs\/workstation'[\s\S]*permission:\s*PERMISSIONS\.CS_READ/);
+});
+
 test('admin announcements page supports audience preview publish and history', () => {
   assert.equal(existsSync(pagePath), true, 'announcements page should exist');
   const page = readFileSync(pagePath, 'utf8');
