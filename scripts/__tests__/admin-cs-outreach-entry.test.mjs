@@ -37,6 +37,8 @@ test('admin cs workstation clears URL sessionId when the active socket session e
 
 test('admin cs workstation labels proactive outreach sessions in Chinese', () => {
   assert.match(workstation, /ADMIN_OUTREACH:\s*'客服主动联系'/);
+  assert.match(workstation, /MY_PAGE:\s*'我的咨询'/);
+  assert.match(workstation, /AFTERSALE_DETAIL:\s*'售后详情页'/);
 });
 
 test('admin cs workstation can start proactive buyer chat directly', () => {
@@ -45,6 +47,11 @@ test('admin cs workstation can start proactive buyer chat directly', () => {
   assert.match(workstation, /searchCsOutreachBuyers/);
   assert.match(workstation, /PERMISSIONS\.CS_OUTREACH/);
   assert.match(workstation, /输入买家编号、手机号或昵称/);
+});
+
+test('admin cs workstation joins the selected handling session room for realtime buyer replies', () => {
+  assert.match(workstation, /socket\.emit\('cs:join_session',\s*\{\s*sessionId:\s*activeSessionId\s*\}\)/);
+  assert.match(workstation, /activeSession\?\.status !== 'AGENT_HANDLING'/);
 });
 
 test('admin cs workstation outreach buyer picker suggests buyers without pressing search', () => {

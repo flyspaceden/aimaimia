@@ -132,16 +132,22 @@ export class CsService {
     const sessions = await this.prisma.csSession.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
       include: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
         ticket: { select: { id: true, category: true, priority: true } },
       },
     });
 
+    const sortedSessions = [...sessions].sort((a: any, b: any) => {
+      const bTime = new Date(b.messages?.[0]?.createdAt ?? b.createdAt).getTime();
+      const aTime = new Date(a.messages?.[0]?.createdAt ?? a.createdAt).getTime();
+      return bTime - aTime;
+    });
+    const pageStart = (page - 1) * pageSize;
+    const pagedSessions = sortedSessions.slice(pageStart, pageStart + pageSize);
+
     const items = await Promise.all(
-      sessions.map(async (session: any) => {
+      pagedSessions.map(async (session: any) => {
         const unreadWhere: any = {
           sessionId: session.id,
           senderType: { in: BUYER_UNREAD_SENDERS },
@@ -160,12 +166,6 @@ export class CsService {
         };
       }),
     );
-
-    items.sort((a: any, b: any) => {
-      const bTime = new Date(b.lastMessage?.createdAt ?? b.createdAt).getTime();
-      const aTime = new Date(a.lastMessage?.createdAt ?? a.createdAt).getTime();
-      return bTime - aTime;
-    });
 
     return { items, page, pageSize };
   }
@@ -472,16 +472,22 @@ export class CsService {
     const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
     if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
     this.presenceService.markUserActiveInSession(sessionId, userId);
-    await this.prisma.csSession.update({
-      where: { id: sessionId },
-      data: { buyerLastReadAt: new Date() },
-      select: { id: true },
-    });
 
-    return this.prisma.csMessage.findMany({
+    const messages = await this.prisma.csMessage.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
     });
+
+    const lastReadAt = messages[messages.length - 1]?.createdAt;
+    if (lastReadAt) {
+      await this.prisma.csSession.update({
+        where: { id: sessionId },
+        data: { buyerLastReadAt: lastReadAt },
+        select: { id: true },
+      });
+    }
+
+    return messages;
   }
 
   /** 获取快捷入口配置（买家端） */

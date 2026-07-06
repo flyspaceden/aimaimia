@@ -134,7 +134,6 @@ describe('CsGateway', () => {
     const client = createMockClient({ userId: 'user-1', isAgent: false });
 
     const userMsg = { id: 'msg-1', content: '你好', senderType: 'USER' };
-    csService.getActiveSession.mockResolvedValue({ id: 'session-1', userId: 'user-1' });
     csService.handleUserMessage.mockResolvedValue({
       userMessage: userMsg,
       aiReply: null,
@@ -144,6 +143,7 @@ describe('CsGateway', () => {
 
     await gateway.handleSend(client, { sessionId: 'session-1', content: '你好' });
 
+    expect(csService.getActiveSession).not.toHaveBeenCalled();
     expect(csService.handleUserMessage).toHaveBeenCalledWith('session-1', 'user-1', '你好', undefined);
     expect(client.join).toHaveBeenCalledWith('session:session-1');
     expect(presenceService.markUserInSession).toHaveBeenCalledWith('session-1', 'user-1', 'socket-1');

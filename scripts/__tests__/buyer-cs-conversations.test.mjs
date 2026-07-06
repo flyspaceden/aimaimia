@@ -56,6 +56,11 @@ test('buyer App shows a customer-service conversation list before opening a chat
   assert.doesNotMatch(mePage, /route:\s*'\/cs\?source=MY_PAGE'/);
 });
 
+test('buyer App opens historical closed sessions in read-only closed mode', () => {
+  assert.match(csPage, /params:\s*\{\s*sessionId:\s*item\.id,\s*sessionStatus:\s*item\.status\s*\}/);
+  assert.match(csPage, /routeSessionStatus === 'CLOSED'/);
+});
+
 test('buyer App chat page joins the session socket and keeps polling as fallback', () => {
   assert.match(csPage, /from 'socket\.io-client'/);
   assert.match(csPage, /io\(`\$\{WS_BASE_URL\}\/cs`/);

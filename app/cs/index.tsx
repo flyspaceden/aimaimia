@@ -65,10 +65,11 @@ export default function CsIndexScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const inputBottomPadding = useBottomInset(spacing.xs);
-  const { source, sourceId, sessionId: routeSessionId } = useLocalSearchParams<{
+  const { source, sourceId, sessionId: routeSessionId, sessionStatus: routeSessionStatus } = useLocalSearchParams<{
     source?: string;
     sourceId?: string;
     sessionId?: string;
+    sessionStatus?: CsSessionSummary['status'];
   }>();
   const showConversationList = !routeSessionId && !source && !sourceId;
 
@@ -116,7 +117,7 @@ export default function CsIndexScreen() {
       if (routeSessionId) {
         setMessages([]);
         setSessionId(routeSessionId);
-        setSessionClosed(false);
+        setSessionClosed(routeSessionStatus === 'CLOSED');
         const messagesResult = await CsRepo.getMessages(routeSessionId);
         if (!cancelled && messagesResult.ok) {
           setMessages(sortMessages(messagesResult.data));
@@ -149,7 +150,7 @@ export default function CsIndexScreen() {
 
     void initSession();
     return () => { cancelled = true; };
-  }, [routeSessionId, show, source, sourceId]);
+  }, [routeSessionId, routeSessionStatus, show, source, sourceId]);
 
   const mergeIncomingMessage = useCallback((incoming: CsMessage) => {
     setMessages((prev) => {
@@ -413,7 +414,7 @@ export default function CsIndexScreen() {
   }, [isLoggedIn, router, show]);
 
   const handleOpenSession = useCallback((item: CsSessionSummary) => {
-    router.push({ pathname: '/cs', params: { sessionId: item.id } });
+    router.push({ pathname: '/cs', params: { sessionId: item.id, sessionStatus: item.status } });
   }, [router]);
 
   const renderSessionCard = (item: CsSessionSummary) => {
