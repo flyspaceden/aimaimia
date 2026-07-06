@@ -9,10 +9,21 @@
  *   - `GET /api/v1/cs/quick-entries` → `Result<CsQuickEntry[]>`
  *   - `POST /api/v1/cs/sessions` → `Result<CsSessionInfo>`
  *   - `GET /api/v1/cs/sessions/active` → `Result<any>`
+ *   - `GET /api/v1/cs/sessions` → `Result<CsSessionListResult>`
+ *   - `POST /api/v1/cs/sessions/:id/read` → `Result<{ id, buyerLastReadAt }>`
  *   - `GET /api/v1/cs/sessions/:id/messages` → `Result<CsMessage[]>`
  *   - `POST /api/v1/cs/sessions/:id/rating` → `Result<any>`
  */
-import { CsMessage, CsQuickEntry, CsSessionInfo, CsSendMessageResult, Result } from '../types';
+import {
+  CsMessage,
+  CsQuickEntry,
+  CsSendMessageResult,
+  CsSessionInfo,
+  CsSessionListResult,
+  CsSessionListScope,
+  CsSessionSummary,
+  Result,
+} from '../types';
 import { simulateRequest } from './helpers';
 import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
@@ -30,6 +41,53 @@ const MOCK_QUICK_ENTRIES: CsQuickEntry[] = [
   { id: '9', type: 'HOT_QUESTION', label: 'VIP会员有什么权益？', message: 'VIP会员有什么权益？' },
   { id: '10', type: 'HOT_QUESTION', label: '优惠券怎么用？', message: '优惠券怎么用？' },
 ];
+
+const MOCK_NOW = new Date().toISOString();
+
+const MOCK_ACTIVE_SESSION: CsSessionSummary = {
+  id: 'mock-cs-active',
+  status: 'AGENT_HANDLING',
+  source: 'ADMIN_OUTREACH',
+  sourceId: null,
+  agentId: 'mock-agent',
+  agentJoinedAt: MOCK_NOW,
+  buyerLastReadAt: null,
+  closedAt: null,
+  createdAt: MOCK_NOW,
+  ticket: { id: 'mock-ticket', category: 'OTHER', priority: 'MEDIUM' },
+  unreadCount: 1,
+  lastMessage: {
+    id: 'mock-agent-message',
+    sessionId: 'mock-cs-active',
+    senderType: 'AGENT',
+    senderId: 'mock-agent',
+    contentType: 'TEXT',
+    content: '您好，我是平台客服，有问题可以直接在这里回复。',
+    createdAt: MOCK_NOW,
+  },
+};
+
+const MOCK_HISTORY_SESSION: CsSessionSummary = {
+  id: 'mock-cs-history',
+  status: 'CLOSED',
+  source: 'MY_PAGE',
+  sourceId: null,
+  agentId: null,
+  agentJoinedAt: null,
+  buyerLastReadAt: MOCK_NOW,
+  closedAt: MOCK_NOW,
+  createdAt: MOCK_NOW,
+  ticket: null,
+  unreadCount: 0,
+  lastMessage: {
+    id: 'mock-history-message',
+    sessionId: 'mock-cs-history',
+    senderType: 'SYSTEM',
+    contentType: 'TEXT',
+    content: '本次服务已结束',
+    createdAt: MOCK_NOW,
+  },
+};
 
 // 客服系统仓储：会话管理与消息交互
 export const CsRepo = {
@@ -68,6 +126,26 @@ export const CsRepo = {
   },
 
   /**
+   * 获取买家客服会话列表
+   * - 用途：客服中心首页展示进行中/历史对话
+   * - 后端接口：`GET /api/v1/cs/sessions`
+   */
+  listSessions: async (
+    scope: CsSessionListScope = 'active',
+    params?: { page?: number; pageSize?: number },
+  ): Promise<Result<CsSessionListResult>> => {
+    if (USE_MOCK) {
+      const items = scope === 'history' ? [MOCK_HISTORY_SESSION] : [MOCK_ACTIVE_SESSION];
+      return simulateRequest({ items, page: params?.page ?? 1, pageSize: params?.pageSize ?? 20 }, { delay: 200 });
+    }
+    return ApiClient.get<CsSessionListResult>('/cs/sessions', {
+      scope,
+      page: params?.page ?? 1,
+      pageSize: params?.pageSize ?? 20,
+    });
+  },
+
+  /**
    * 获取会话消息列表
    * - 用途：加载客服会话的历史消息
    * - 后端接口：`GET /api/v1/cs/sessions/:id/messages`
@@ -75,6 +153,14 @@ export const CsRepo = {
   getMessages: async (sessionId: string): Promise<Result<CsMessage[]>> => {
     if (USE_MOCK) return simulateRequest([], { delay: 200 });
     return ApiClient.get<CsMessage[]>(`/cs/sessions/${sessionId}/messages`);
+  },
+
+  /** 标记客服会话为当前买家已读 */
+  markSessionRead: async (sessionId: string): Promise<Result<{ id: string; buyerLastReadAt: string }>> => {
+    if (USE_MOCK) {
+      return simulateRequest({ id: sessionId, buyerLastReadAt: new Date().toISOString() }, { delay: 80 });
+    }
+    return ApiClient.post<{ id: string; buyerLastReadAt: string }>(`/cs/sessions/${sessionId}/read`);
   },
 
   /**

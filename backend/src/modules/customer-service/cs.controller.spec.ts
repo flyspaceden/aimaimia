@@ -6,6 +6,8 @@ function createMocks() {
     getActiveSession: jest.fn(),
     getSessionMessages: jest.fn(),
     handleUserMessage: jest.fn(),
+    getBuyerSessionList: jest.fn(),
+    markBuyerSessionRead: jest.fn(),
     getAdminSessionDetail: jest.fn(),
     submitRating: jest.fn(),
     getQuickEntries: jest.fn(),
@@ -31,6 +33,37 @@ describe('CsController', () => {
 
     expect(csService.createSession).toHaveBeenCalledWith('user-1', 'GENERAL', undefined);
     expect(result).toEqual({ sessionId: 'sess-1', isExisting: false });
+  });
+
+  it('getBuyerSessions — 返回当前买家的客服会话列表', async () => {
+    const { controller, csService } = createMocks();
+    csService.getBuyerSessionList.mockResolvedValue({
+      items: [{ id: 's1', unreadCount: 2 }],
+      page: 1,
+      pageSize: 20,
+    });
+
+    const result = await controller.getBuyerSessions('user-1', 'active', '1', '20');
+
+    expect(csService.getBuyerSessionList).toHaveBeenCalledWith('user-1', {
+      scope: 'active',
+      page: 1,
+      pageSize: 20,
+    });
+    expect(result).toEqual({ items: [{ id: 's1', unreadCount: 2 }], page: 1, pageSize: 20 });
+  });
+
+  it('markBuyerSessionRead — 标记当前买家的客服会话已读', async () => {
+    const { controller, csService } = createMocks();
+    csService.markBuyerSessionRead.mockResolvedValue({
+      id: 's1',
+      buyerLastReadAt: new Date('2026-07-06T12:00:00.000Z'),
+    });
+
+    const result = await controller.markBuyerSessionRead('user-1', 's1');
+
+    expect(csService.markBuyerSessionRead).toHaveBeenCalledWith('s1', 'user-1');
+    expect(result).toEqual({ id: 's1', buyerLastReadAt: new Date('2026-07-06T12:00:00.000Z') });
   });
 
   it('sendMessage — 调用 handleUserMessage + 广播到 Socket.IO', async () => {

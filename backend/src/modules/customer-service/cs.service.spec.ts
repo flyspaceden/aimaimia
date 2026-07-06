@@ -23,6 +23,7 @@ function createMocks() {
     csMessage: {
       create: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
     csTicket: {
       update: jest.fn(),
@@ -169,6 +170,108 @@ describe('CsService', () => {
           }),
         }),
       );
+    });
+  });
+
+  // ====================================================================
+  // getBuyerSessionList / markBuyerSessionRead
+  // ====================================================================
+
+  describe('getBuyerSessionList()', () => {
+    it('返回买家进行中会话列表并按 buyerLastReadAt 计算客服未读数', async () => {
+      const { service, prisma } = createMocks();
+      const buyerLastReadAt = new Date('2026-07-06T10:00:00.000Z');
+      const lastMessage = {
+        id: 'msg-agent',
+        sessionId: 's1',
+        senderType: 'AGENT',
+        senderId: 'admin-1',
+        contentType: 'TEXT',
+        content: '您好，有什么可以帮您？',
+        createdAt: new Date('2026-07-06T10:05:00.000Z'),
+      };
+      prisma.csSession.findMany.mockResolvedValue([
+        {
+          id: 's1',
+          userId: 'u1',
+          status: 'AGENT_HANDLING',
+          source: 'ADMIN_OUTREACH',
+          sourceId: null,
+          agentId: 'admin-1',
+          agentJoinedAt: new Date('2026-07-06T09:30:00.000Z'),
+          closedAt: null,
+          createdAt: new Date('2026-07-06T09:00:00.000Z'),
+          buyerLastReadAt,
+          messages: [lastMessage],
+          ticket: { id: 't1', category: 'OTHER', priority: 'MEDIUM' },
+        },
+      ]);
+      prisma.csMessage.count.mockResolvedValue(2);
+
+      const result = await service.getBuyerSessionList('u1', {
+        scope: 'active',
+        page: 1,
+        pageSize: 20,
+      });
+
+      expect(prisma.csSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'u1',
+            status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: 0,
+          take: 20,
+          include: expect.objectContaining({
+            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+            ticket: { select: { id: true, category: true, priority: true } },
+          }),
+        }),
+      );
+      expect(prisma.csMessage.count).toHaveBeenCalledWith({
+        where: {
+          sessionId: 's1',
+          senderType: { in: ['AGENT', 'SYSTEM'] },
+          createdAt: { gt: buyerLastReadAt },
+        },
+      });
+      expect(result.items[0]).toEqual(expect.objectContaining({
+        id: 's1',
+        unreadCount: 2,
+        lastMessage,
+        ticket: { id: 't1', category: 'OTHER', priority: 'MEDIUM' },
+      }));
+    });
+  });
+
+  describe('markBuyerSessionRead()', () => {
+    it('只允许会话持有人更新买家已读游标', async () => {
+      const { service, prisma } = createMocks();
+      const readAt = new Date('2026-07-06T12:00:00.000Z');
+      prisma.csSession.findUnique.mockResolvedValue({ id: 's1', userId: 'u1' });
+      prisma.csSession.update.mockResolvedValue({ id: 's1', buyerLastReadAt: readAt });
+
+      const result = await service.markBuyerSessionRead('s1', 'u1');
+
+      expect(prisma.csSession.findUnique).toHaveBeenCalledWith({
+        where: { id: 's1' },
+        select: { id: true, userId: true },
+      });
+      expect(prisma.csSession.update).toHaveBeenCalledWith({
+        where: { id: 's1' },
+        data: { buyerLastReadAt: expect.any(Date) },
+        select: { id: true, buyerLastReadAt: true },
+      });
+      expect(result).toEqual({ id: 's1', buyerLastReadAt: readAt });
+    });
+
+    it('非会话持有人标记已读时返回会话不存在', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({ id: 's1', userId: 'other-user' });
+
+      await expect(service.markBuyerSessionRead('s1', 'u1')).rejects.toThrow(NotFoundException);
+      expect(prisma.csSession.update).not.toHaveBeenCalled();
     });
   });
 

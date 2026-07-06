@@ -10,6 +10,9 @@ export const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK !== 'false';
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000/api/v1';
 
+export const WS_BASE_URL =
+  process.env.EXPO_PUBLIC_WS_BASE_URL || API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+
 // 当前构建环境标记（由 eas.json 各 profile 注入）
 // development = 开发机 / preview build / staging = 测试包（test-api.ai-maimai.com）
 // production = 商店生产包（api.ai-maimai.com）

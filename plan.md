@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-07-05
+> **最后更新**: 2026-07-06
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -20,6 +20,11 @@
 | 时间 | 无硬 deadline，质量优先 |
 
 ### 近期完成补充
+
+- [x] **买家 App 客服中心会话列表与实时主动客服消息**（2026-07-06 新增并完成）
+  - **来源**: 用户确认管理后台公告与主动客服后，进一步要求买家 App 侧也能清楚管理正在进行和历史客服对话，并确认管理员主动联系买家后消息是否实时可见。
+  - **实际做了**: `/cs` 默认改为客服中心会话列表，支持“进行中 / 历史对话”、最后消息、状态、未读数和手动刷新；“我的”页“联系客服”入口进入列表，订单/售后来源仍直接创建/恢复上下文会话；后端新增买家会话列表接口、买家已读游标 `buyerLastReadAt` 和标记已读接口；聊天页接入 Socket.IO `cs:join_session`，打开指定会话后加入 `session:{sessionId}` 房间，管理后台客服主动发来的消息可实时到达 App，同时保留 5 秒 HTTP 轮询兜底。
+  - **验证**: 已按 TDD 先新增失败回归测试；修复后 `node --test scripts/__tests__/buyer-cs-conversations.test.mjs`、`node --test scripts/__tests__/admin-announcements-page.test.mjs scripts/__tests__/admin-cs-outreach-entry.test.mjs scripts/__tests__/cs-outreach-entry.test.mjs scripts/__tests__/inbox-announcement-types.test.mjs scripts/__tests__/buyer-cs-conversations.test.mjs`、`npm exec tsc -- --noEmit`、`cd backend && DATABASE_URL='postgresql://user:password@localhost:5432/nongmai_validate' ./node_modules/.bin/prisma validate --schema prisma/schema.prisma`、`cd backend && ./node_modules/.bin/jest src/modules/customer-service/cs.controller.spec.ts src/modules/customer-service/cs.service.spec.ts --runInBand`、`cd backend && DATABASE_URL='postgresql://user:password@localhost:5432/nongmai_validate' npm run build`、`npm test -- --runInBand`、`git diff --check` 通过。
 
 - [x] **首页/我的页换位后推荐中心与积分成长入口收口**（2026-07-05 新增并完成）
   - **来源**: 用户反馈首页/我的页模块换位 OTA 后，常用工具里的“普通成长”和名片里的“普通推荐码”入口消失。
