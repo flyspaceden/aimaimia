@@ -1748,3 +1748,17 @@
 - [x] **DR06** 买家 App：推荐中心 `/me/referral` 展示普通/VIP 直推收益、自动 VIP 门槛、VIP 关系切换边界、VIP 礼包购买不发直推奖和最近推荐用户；`/me/referral-users` 展示全部直接推荐用户；积分成长页 `/me/growth` 只保留积分、成长值、等级和兑换。
 - [x] **DR07** 历史回填：新增 `npm run direct-referral:backfill`，默认 dry-run；`--execute` 才补齐缺失会员推荐人和普通分享生效推荐人；冲突只报告不覆盖。
 - [x] **DR08** 管理后台表格交互：用户管理、VIP 会员、积分成长和推荐与拉新的核心表格接入服务端白名单排序；成长账户支持积分余额、累计获得、累计消耗、成长值、更新时间排序，成长流水支持积分变动、成长变动、时间排序，用户管理支持身份、状态、订单数、注册时间排序，VIP 会员支持自购次数、VIP 开通时间、创建时间排序，普通推荐关系支持绑定时间、奖励发放时间、更新时间排序，自动升级 VIP 记录支持升级时间排序；上述宽表支持列宽拖拽并本地记忆列宽。
+
+---
+
+## 📣 管理后台公告与主动客服（2026-07-06 新增）
+
+> **触发**: 管理后台只有买家主动发起的售后/客服会话，缺少平台主动发布公告和主动联系买家的能力。
+> **权威源**: `docs/superpowers/specs/2026-07-06-admin-announcement-and-outreach-design.md` + `docs/superpowers/plans/2026-07-06-admin-announcement-and-outreach.md`
+
+- [x] **AA01** 新增 `Announcement` 发布记录表、`ADMIN_OUTREACH` 客服来源、`announcements:read/create` 和 `cs:outreach` 权限。
+- [x] **AA02** 新增管理后台“消息公告”页，支持全部买家/VIP/普通/指定买家编号受众预览、发布公告和发送历史。
+- [x] **AA03** 公告复用买家 `InboxMessage` 展示，买家 App 消息中心新增 `platform_announcement` / `platform_notice` 图标和类型。
+- [x] **AA04** 新增 `POST /admin/cs/outreach`，管理员可在用户详情页主动发起一对一客服会话，并给买家发送 `cs_outreach_invite` 站内信。
+- [x] **AA05** 客服工作台和买家客服页均支持 `sessionId` 参数，主动联系后两端能进入同一会话。
+- [x] **AA06** 验证通过：Prisma validate/generate、后端聚焦 Jest 28/28、静态合同测试 16/16、管理端 build、后端 build、App TypeScript check。

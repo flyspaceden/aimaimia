@@ -10,9 +10,10 @@ import type { ProColumns } from '@ant-design/pro-components';
 import {
   ArrowLeftOutlined, UserOutlined,
   ShoppingCartOutlined, EnvironmentOutlined, HeartOutlined, StarOutlined,
-  WalletOutlined, LockOutlined, RiseOutlined,
+  WalletOutlined, LockOutlined, RiseOutlined, MessageOutlined,
 } from '@ant-design/icons';
 import { getAppUser, toggleAppUserBan } from '@/api/app-users';
+import { createCsOutreach } from '@/api/cs';
 import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
@@ -90,6 +91,12 @@ export default function UserDetailPage() {
 
   // 封禁弹窗
   const [banModal, setBanModal] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' });
+  const [outreachModal, setOutreachModal] = useState({
+    open: false,
+    initialMessage: '',
+    inviteTitle: '',
+  });
+  const [outreachSubmitting, setOutreachSubmitting] = useState(false);
   // 当前激活的 Tab
   const [activeTab, setActiveTab] = useState('info');
 
@@ -129,6 +136,37 @@ export default function UserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'app-user-stats'] });
     } catch {
       message.error('操作失败，请重试');
+    }
+  };
+
+  const handleCreateOutreach = async () => {
+    if (!user?.buyerNo) {
+      message.warning('该用户没有买家编号，无法发起客服会话');
+      return;
+    }
+    if (user.status !== 'ACTIVE') {
+      message.warning('只能联系 ACTIVE 状态的买家');
+      return;
+    }
+    if (!outreachModal.initialMessage.trim()) {
+      message.warning('请输入初始消息');
+      return;
+    }
+
+    setOutreachSubmitting(true);
+    try {
+      const result = await createCsOutreach({
+        buyerNo: user.buyerNo,
+        initialMessage: outreachModal.initialMessage.trim(),
+        inviteTitle: outreachModal.inviteTitle.trim() || undefined,
+      });
+      message.success('已发起客服会话');
+      setOutreachModal({ open: false, initialMessage: '', inviteTitle: '' });
+      navigate(`/cs/workstation?sessionId=${encodeURIComponent(result.sessionId)}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '发起失败');
+    } finally {
+      setOutreachSubmitting(false);
     }
   };
 
@@ -648,17 +686,28 @@ export default function UserDetailPage() {
 
       {/* 操作区 */}
       <Card style={{ marginTop: 16 }}>
-        <PermissionGate permission={PERMISSIONS.USERS_BAN}>
-          {user.status !== 'DELETED' && (
+        <Space wrap>
+          <PermissionGate permission={PERMISSIONS.CS_OUTREACH}>
             <Button
-              danger={user.status === 'ACTIVE'}
-              type={user.status === 'ACTIVE' ? 'primary' : 'default'}
-              onClick={() => setBanModal({ open: true, reason: '' })}
+              icon={<MessageOutlined />}
+              disabled={!user.buyerNo || user.status !== 'ACTIVE'}
+              onClick={() => setOutreachModal({ open: true, initialMessage: '', inviteTitle: '' })}
             >
-              {user.status === 'ACTIVE' ? '封禁用户' : '解封用户'}
+              联系买家
             </Button>
-          )}
-        </PermissionGate>
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.USERS_BAN}>
+            {user.status !== 'DELETED' && (
+              <Button
+                danger={user.status === 'ACTIVE'}
+                type={user.status === 'ACTIVE' ? 'primary' : 'default'}
+                onClick={() => setBanModal({ open: true, reason: '' })}
+              >
+                {user.status === 'ACTIVE' ? '封禁用户' : '解封用户'}
+              </Button>
+            )}
+          </PermissionGate>
+        </Space>
       </Card>
 
       {/* 封禁/解封弹窗 */}
@@ -693,6 +742,42 @@ export default function UserDetailPage() {
             />
           </>
         )}
+      </Modal>
+
+      <Modal
+        title="联系买家"
+        open={outreachModal.open}
+        onCancel={() => setOutreachModal({ open: false, initialMessage: '', inviteTitle: '' })}
+        onOk={handleCreateOutreach}
+        okText="发起对话"
+        confirmLoading={outreachSubmitting}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <div>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>买家编号</div>
+            <Input value={user.buyerNo || ''} disabled />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>邀请标题</div>
+            <Input
+              maxLength={80}
+              placeholder="选填，默认：平台客服邀请沟通"
+              value={outreachModal.inviteTitle}
+              onChange={(e) => setOutreachModal((prev) => ({ ...prev, inviteTitle: e.target.value }))}
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>初始消息</div>
+            <Input.TextArea
+              rows={5}
+              maxLength={5000}
+              showCount
+              placeholder="输入客服要发给买家的第一条消息"
+              value={outreachModal.initialMessage}
+              onChange={(e) => setOutreachModal((prev) => ({ ...prev, initialMessage: e.target.value }))}
+            />
+          </div>
+        </Space>
       </Modal>
     </div>
   );

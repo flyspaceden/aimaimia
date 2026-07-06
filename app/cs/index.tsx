@@ -34,7 +34,7 @@ export default function CsIndexScreen() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
   const inputBottomPadding = useBottomInset(spacing.xs);
-  const { source, sourceId, sessionId: initialSessionId } = useLocalSearchParams<{
+  const { source, sourceId, sessionId: routeSessionId } = useLocalSearchParams<{
     source?: string;
     sourceId?: string;
     sessionId?: string;
@@ -67,22 +67,25 @@ export default function CsIndexScreen() {
   useEffect(() => {
     let cancelled = false;
     const initSession = async () => {
-      if (initialSessionId) {
-        setSessionId(initialSessionId);
-        const messagesResult = await CsRepo.getMessages(initialSessionId);
-        if (cancelled) return;
-        if (!messagesResult.ok) {
-          show({ message: messagesResult.error.displayMessage ?? '加载客服会话失败', type: 'error' });
-          return;
+      if (routeSessionId) {
+        setMessages([]);
+        setSessionId(routeSessionId);
+        setSessionClosed(false);
+        const messagesResult = await CsRepo.getMessages(routeSessionId);
+        if (!cancelled && messagesResult.ok) {
+          const sorted = [...messagesResult.data].sort((a, b) => {
+            const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+            return dt !== 0 ? dt : a.id.localeCompare(b.id);
+          });
+          setMessages(sorted);
         }
-        const sorted = [...messagesResult.data].sort((a, b) => {
-          const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-          return dt !== 0 ? dt : a.id.localeCompare(b.id);
-        });
-        setMessages(sorted);
+        if (!cancelled && !messagesResult.ok) {
+          show({ message: messagesResult.error.displayMessage ?? '加载客服会话失败', type: 'error' });
+        }
         return;
       }
 
+      setMessages([]);
       const result = await CsRepo.createSession(source ?? 'MY_PAGE', sourceId);
       if (cancelled) return;
       if (!result.ok) {
@@ -91,6 +94,7 @@ export default function CsIndexScreen() {
       }
 
       setSessionId(result.data.sessionId);
+      setSessionClosed(false);
 
       // 如果是已有会话，加载历史消息（按 createdAt 排序）
       if (result.data.isExisting) {
@@ -110,8 +114,7 @@ export default function CsIndexScreen() {
 
     void initSession();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSessionId, source, sourceId]);
+  }, [routeSessionId, show, source, sourceId]);
 
   // HTTP 轮询获取新消息（非 Mock 模式）
   // D1+D8 修复：合并服务器消息时按 createdAt 排序 + 按 id 去重
@@ -324,7 +327,8 @@ export default function CsIndexScreen() {
   };
 
   // 是否展示初始内容（欢迎 + 快捷操作 + 热门问题）
-  const showInitialContent = messages.length === 0;
+  const showInitialContent = messages.length === 0 && !routeSessionId;
+  const showWelcomeMessage = !routeSessionId;
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -351,8 +355,9 @@ export default function CsIndexScreen() {
           }
           keyboardShouldPersistTaps="handled"
         >
-          {/* 欢迎消息（始终展示） */}
-          <CsMessageBubble message={welcomeMessage} />
+          {showWelcomeMessage ? (
+            <CsMessageBubble message={welcomeMessage} />
+          ) : null}
 
           {/* 初始内容：快捷操作 + 热门问题 */}
           {showInitialContent && (

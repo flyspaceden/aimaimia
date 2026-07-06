@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Input,
   Button,
@@ -132,6 +133,7 @@ function formatSource(source: string, sourceId: string | null): string {
     PRODUCT_DETAIL: '商品详情页',
     PROFILE: '个人中心',
     VOICE: '语音助手',
+    ADMIN_OUTREACH: '客服主动联系',
   };
   const label = sourceMap[source] || source;
   if (sourceId) return `来源：${label} · #${sourceId.slice(0, 16)}`;
@@ -541,8 +543,11 @@ function TypingIndicator() {
 
 export default function CsWorkstationPage() {
   const { message } = App.useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialSessionId = searchParams.get('sessionId');
   // 状态
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSessionId);
+  const activeSessionIdRef = useRef<string | null>(initialSessionId);
   const [localMessages, setLocalMessages] = useState<Map<string, CsMessage[]>>(new Map());
   const [inputValue, setInputValue] = useState('');
   const [typingSessionId, setTypingSessionId] = useState<string | null>(null);
@@ -551,6 +556,24 @@ export default function CsWorkstationPage() {
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+
+  const selectSession = useCallback((sessionId: string | null) => {
+    setActiveSessionId(sessionId);
+    if (sessionId) {
+      setSearchParams({ sessionId });
+      return;
+    }
+    setSearchParams({});
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    const sessionId = searchParams.get('sessionId');
+    setActiveSessionId((prev) => (prev === sessionId ? prev : sessionId));
+  }, [searchParams]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   // 查询：会话列表
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
@@ -638,7 +661,9 @@ export default function CsWorkstationPage() {
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
       // 如果当前正在查看该会话，自动取消选中
-      setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
+      if (activeSessionIdRef.current === data.sessionId) {
+        selectSession(null);
+      }
     });
 
     // 坐席完成处理（柔性脱身：会话退回 AI_HANDLING）
@@ -648,7 +673,9 @@ export default function CsWorkstationPage() {
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
       // 如果当前正在查看该会话，自动取消选中（其他坐席视角）
-      setActiveSessionId((prev) => (prev === data.sessionId ? null : prev));
+      if (activeSessionIdRef.current === data.sessionId) {
+        selectSession(null);
+      }
     });
 
     // 服务端错误反馈
@@ -670,7 +697,7 @@ export default function CsWorkstationPage() {
     return () => {
       socket.disconnect();
     };
-  }, [queryClient]);
+  }, [message, queryClient, selectSession]);
 
   // 当 sessionDetail 返回时，用 server 消息覆盖 local
   useEffect(() => {
@@ -783,11 +810,11 @@ export default function CsWorkstationPage() {
   const handleAccept = useCallback(
     (sessionId: string) => {
       socketRef.current?.emit('cs:accept_ticket', { sessionId });
-      setActiveSessionId(sessionId);
+      selectSession(sessionId);
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
       message.success('已接入会话');
     },
-    [queryClient],
+    [message, queryClient, selectSession],
   );
 
   // 完成处理（柔性脱身）：仅释放自己，会话保留供用户继续咨询
@@ -795,7 +822,7 @@ export default function CsWorkstationPage() {
     if (!activeSessionId) return;
     socketRef.current?.emit('cs:release_session', { sessionId: activeSessionId });
     // 清除当前选中 + 刷新列表
-    setActiveSessionId(null);
+    selectSession(null);
     setLocalMessages((prev) => {
       const next = new Map(prev);
       next.delete(activeSessionId);
@@ -803,14 +830,14 @@ export default function CsWorkstationPage() {
     });
     queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
     message.success('已完成处理');
-  }, [activeSessionId, queryClient]);
+  }, [activeSessionId, message, queryClient, selectSession]);
 
   // 强制关闭（特殊情况：恶意/违规，需要二次确认）
   const handleForceClose = useCallback(() => {
     if (!activeSessionId) return;
     if (!window.confirm('强制结束会话会立即关闭对话，用户将无法继续。仅在异常情况（违规/恶意）使用。确定继续吗？')) return;
     socketRef.current?.emit('cs:close_session', { sessionId: activeSessionId });
-    setActiveSessionId(null);
+    selectSession(null);
     setLocalMessages((prev) => {
       const next = new Map(prev);
       next.delete(activeSessionId);
@@ -818,7 +845,7 @@ export default function CsWorkstationPage() {
     });
     queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
     message.success('会话已强制关闭');
-  }, [activeSessionId, queryClient]);
+  }, [activeSessionId, message, queryClient, selectSession]);
 
   // 转接
   const handleTransfer = useCallback(() => {
@@ -966,7 +993,7 @@ export default function CsWorkstationPage() {
                     key={s.id}
                     session={s}
                     isActive={activeSessionId === s.id}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => selectSession(s.id)}
                     onAccept={() => handleAccept(s.id)}
                   />
                 ))
@@ -1003,7 +1030,7 @@ export default function CsWorkstationPage() {
                     key={s.id}
                     session={s}
                     isActive={activeSessionId === s.id}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => selectSession(s.id)}
                   />
                 ))
               )}
@@ -1039,7 +1066,7 @@ export default function CsWorkstationPage() {
                     key={s.id}
                     session={s}
                     isActive={activeSessionId === s.id}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => selectSession(s.id)}
                   />
                 ))
               )}
@@ -1075,7 +1102,7 @@ export default function CsWorkstationPage() {
                     key={s.id}
                     session={s}
                     isActive={activeSessionId === s.id}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => selectSession(s.id)}
                   />
                 ))
               )}
@@ -1266,6 +1293,7 @@ export default function CsWorkstationPage() {
                     type="primary"
                     onClick={() => {
                       socketRef.current?.emit('cs:accept_ticket', { sessionId: activeSession.id });
+                      selectSession(activeSession.id);
                       message.success('已接入');
                     }}
                     style={{

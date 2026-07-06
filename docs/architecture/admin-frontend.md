@@ -1154,3 +1154,10 @@
 | 返还流水 | 新增返还流水页，展示团购返还账户相关流水、金额变化、活动商品、直接推荐记录和关联订单 | `admin/src/pages/group-buy/rebate-ledgers.tsx` |
 | 团购设置 | 新增团购设置页，支持配置每个用户每月最多发起团购次数；该设置只影响新创建的团购支付会话 | `admin/src/pages/group-buy/settings.tsx` |
 | 菜单/路由 | 在“运营活动”下新增“团购活动 / 团购记录 / 团购订单 / 返还流水 / 团购设置”，新增对应路由并按 `group_buy:read/settings` 控制 | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx` |
+
+### 2026-07-06 消息公告与主动客服
+
+| 页面 | 完成内容 | 文件 |
+|------|----------|------|
+| 消息公告 | 在“运营活动”下新增 `/announcements`，支持公告标题/内容、类型、重要性、系统/交易/互动分类、全部买家/VIP/普通/指定买家编号受众、可选 App 跳转路由、受众预览和发送历史；权限使用 `announcements:read/create` | `admin/src/pages/announcements/index.tsx`, `admin/src/api/announcements.ts`, `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
+| 主动客服 | 用户详情页新增“联系买家”，提交初始消息后调用 `POST /admin/cs/outreach` 并跳转 `/cs/workstation?sessionId=...`；客服工作台支持从 URL 选中会话 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |

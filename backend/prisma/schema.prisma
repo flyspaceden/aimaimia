@@ -2724,6 +2724,29 @@ model NotificationMessage {
   @@index([entityType, entityId])
 }
 
+model Announcement {
+  id             String   @id @default(cuid())
+  title          String
+  content        String
+  category       String   @default("system")
+  type           String   @default("platform_announcement")
+  priority       String   @default("NORMAL")
+  target         Json?
+  audienceType   String
+  audienceFilter Json?
+  status         String   @default("SENDING")
+  recipientCount Int      @default(0)
+  successCount   Int      @default(0)
+  failedCount    Int      @default(0)
+  createdBy      String
+  sentAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, sentAt])
+  @@index([createdBy, sentAt])
+}
+
 model Task {
   id           String   @id @default(cuid())
   title        String
@@ -3572,6 +3595,7 @@ enum CsSessionSource {
   MY_PAGE
   ORDER_DETAIL
   AFTERSALE_DETAIL
+  ADMIN_OUTREACH
 }
 
 enum CsMessageSender {

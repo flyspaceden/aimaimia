@@ -84,6 +84,18 @@ export interface CsStats {
   queueCount: number;
 }
 
+export interface CreateCsOutreachPayload {
+  buyerNo: string;
+  initialMessage: string;
+  inviteTitle?: string;
+}
+
+export interface CreateCsOutreachResult {
+  sessionId: string;
+  inboxMessageId: string;
+  messageId: string;
+}
+
 // --- API Functions ---
 export const getCsSessions = (params?: { status?: string; page?: number }): Promise<CsSession[]> =>
   client.get('/admin/cs/sessions', { params });
@@ -144,3 +156,6 @@ export const getCsStats = (): Promise<CsStats> =>
 
 export const getCsAgentStatus = (): Promise<any[]> =>
   client.get('/admin/cs/agent-status');
+
+export const createCsOutreach = (data: CreateCsOutreachPayload): Promise<CreateCsOutreachResult> =>
+  client.post('/admin/cs/outreach', data);

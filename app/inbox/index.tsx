@@ -67,6 +67,10 @@ const iconMap: Partial<Record<InboxType, { name: string; tone: 'brand' | 'accent
   'digitalAsset.reversed': { name: 'chart-timeline-variant-shimmer', tone: 'accent' },
   'digitalAsset.adjusted': { name: 'tune-variant', tone: 'neutral' },
   'cs.agentReplyOffline': { name: 'headset', tone: 'accent' },
+  // 平台运营消息
+  platform_announcement: { name: 'bullhorn-outline', tone: 'accent' },
+  platform_notice: { name: 'bell-outline', tone: 'neutral' },
+  cs_outreach_invite: { name: 'face-agent', tone: 'brand' },
   // 卖家/系统通知
   new_order: { name: 'package-variant', tone: 'brand' },
   stock_shortage: { name: 'alert-circle-outline', tone: 'accent' },

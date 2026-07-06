@@ -10,12 +10,14 @@ import { CsService } from './cs.service';
 import { CsFaqService } from './cs-faq.service';
 import { CsTicketService } from './cs-ticket.service';
 import { CsAgentService } from './cs-agent.service';
+import { CsOutreachService } from './cs-outreach.service';
 import {
   CreateCsFaqDto, UpdateCsFaqDto, TestCsFaqDto,
   CreateCsQuickEntryDto, UpdateCsQuickEntryDto, BatchSortDto,
   CreateCsQuickReplyDto, UpdateCsQuickReplyDto,
   UpdateCsTicketDto,
 } from './dto/cs-admin.dto';
+import { CreateCsOutreachDto } from './dto/cs-outreach.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Public()
@@ -28,6 +30,7 @@ export class CsAdminController {
     private faqService: CsFaqService,
     private ticketService: CsTicketService,
     private agentService: CsAgentService,
+    private outreachService: CsOutreachService,
     private prisma: PrismaService,
   ) {}
 
@@ -147,4 +150,11 @@ export class CsAdminController {
   @Get('agent-status')
   @RequirePermission('cs:read')
   getAgentStatus() { return this.agentService.getAllAgentStatus(); }
+
+  @Post('outreach')
+  @RequirePermission('cs:outreach')
+  @AuditLog({ action: 'CREATE', module: 'cs-outreach', targetType: 'CsSession' })
+  createOutreach(@Body() dto: CreateCsOutreachDto, @CurrentAdmin('sub') adminId: string) {
+    return this.outreachService.create(adminId, dto);
+  }
 }
