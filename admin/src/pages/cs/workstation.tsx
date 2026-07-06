@@ -559,7 +559,8 @@ export default function CsWorkstationPage() {
   const [typingSessionId, setTypingSessionId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [outreachOpen, setOutreachOpen] = useState(false);
-  const [buyerSearchKeyword, setBuyerSearchKeyword] = useState('');
+  const [buyerSearchText, setBuyerSearchText] = useState('');
+  const [debouncedBuyerSearchText, setDebouncedBuyerSearchText] = useState('');
   const [selectedBuyer, setSelectedBuyer] = useState<CsOutreachBuyer | null>(null);
   const [outreachInitialMessage, setOutreachInitialMessage] = useState('');
   const [outreachInviteTitle, setOutreachInviteTitle] = useState('');
@@ -607,10 +608,21 @@ export default function CsWorkstationPage() {
     queryFn: () => getCsQuickReplies(),
   });
 
+  useEffect(() => {
+    if (!outreachOpen) {
+      setDebouncedBuyerSearchText('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedBuyerSearchText(buyerSearchText.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [buyerSearchText, outreachOpen]);
+
   const { data: outreachBuyers = [], isFetching: outreachBuyerSearching } = useQuery({
-    queryKey: ['admin', 'cs', 'outreach-buyers', buyerSearchKeyword],
-    queryFn: () => searchCsOutreachBuyers(buyerSearchKeyword),
-    enabled: outreachOpen && !!buyerSearchKeyword.trim(),
+    queryKey: ['admin', 'cs', 'outreach-buyers', debouncedBuyerSearchText],
+    queryFn: () => searchCsOutreachBuyers(debouncedBuyerSearchText),
+    enabled: outreachOpen,
   });
 
   // Socket.IO 连接
@@ -838,7 +850,8 @@ export default function CsWorkstationPage() {
   );
 
   const resetOutreachForm = useCallback(() => {
-    setBuyerSearchKeyword('');
+    setBuyerSearchText('');
+    setDebouncedBuyerSearchText('');
     setSelectedBuyer(null);
     setOutreachInitialMessage('');
     setOutreachInviteTitle('');
@@ -1025,13 +1038,15 @@ export default function CsWorkstationPage() {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 8 }}>
               选择买家
             </div>
-            <Input.Search
+            <Input
               placeholder="输入买家编号、手机号或昵称"
               allowClear
-              enterButton="搜索"
-              loading={outreachBuyerSearching}
-              onSearch={(value) => {
-                setBuyerSearchKeyword(value.trim());
+              autoFocus
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              suffix={outreachBuyerSearching ? <Spin size="small" /> : null}
+              value={buyerSearchText}
+              onChange={(e) => {
+                setBuyerSearchText(e.target.value);
                 setSelectedBuyer(null);
               }}
             />
@@ -1047,17 +1062,13 @@ export default function CsWorkstationPage() {
               backgroundColor: '#f8fafc',
             }}
           >
-            {!buyerSearchKeyword ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
-                请输入买家编号、手机号或昵称后搜索
-              </div>
-            ) : outreachBuyerSearching ? (
+            {outreachBuyerSearching ? (
               <div style={{ padding: 32, textAlign: 'center' }}>
                 <Spin />
               </div>
             ) : outreachBuyers.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
-                未找到可联系的 ACTIVE 买家
+                {buyerSearchText.trim() ? '未找到可联系的 ACTIVE 买家' : '暂无可联系的 ACTIVE 买家'}
               </div>
             ) : (
               outreachBuyers.map((buyer) => {

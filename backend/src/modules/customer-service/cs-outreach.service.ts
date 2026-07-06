@@ -15,13 +15,14 @@ export class CsOutreachService {
 
   async searchBuyers(keyword?: string) {
     const text = keyword?.trim();
-    if (!text) return [];
-
-    const normalizedBuyerNo = normalizeBuyerNo(text);
     const where: any = {
       status: 'ACTIVE',
       buyerNo: { not: null },
-      OR: [
+    };
+
+    if (text) {
+      const normalizedBuyerNo = normalizeBuyerNo(text);
+      where.OR = [
         { buyerNo: normalizedBuyerNo },
         { id: text },
         {
@@ -34,8 +35,8 @@ export class CsOutreachService {
             some: { provider: 'PHONE', identifier: { contains: text } },
           },
         },
-      ],
-    };
+      ];
+    }
 
     const users = await (this.prisma as any).user.findMany({
       where,

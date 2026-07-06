@@ -47,6 +47,15 @@ test('admin cs workstation can start proactive buyer chat directly', () => {
   assert.match(workstation, /输入买家编号、手机号或昵称/);
 });
 
+test('admin cs workstation outreach buyer picker suggests buyers without pressing search', () => {
+  assert.match(workstation, /buyerSearchText/);
+  assert.match(workstation, /debouncedBuyerSearchText/);
+  assert.match(workstation, /setTimeout\(\(\) => \{/);
+  assert.match(workstation, /enabled:\s*outreachOpen/);
+  assert.match(workstation, /onChange=\{\(e\) => \{/);
+  assert.doesNotMatch(workstation, /enterButton="搜索"/);
+});
+
 test('admin cs workstation session search includes buyerNo', () => {
   assert.match(workstation, /buyerNo/);
   assert.match(workstation, /buyerNo\.toLowerCase\(\)\.includes/);
