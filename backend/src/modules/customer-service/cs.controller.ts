@@ -13,6 +13,20 @@ export class CsController {
     private csGateway: CsGateway,
   ) {}
 
+  @Get('sessions')
+  getBuyerSessions(
+    @CurrentUser('sub') userId: string,
+    @Query('scope') scope: string = 'active',
+    @Query('page') page: string = '1',
+    @Query('pageSize') pageSize: string = '20',
+  ) {
+    return this.csService.getBuyerSessionList(userId, {
+      scope,
+      page: Number(page) || 1,
+      pageSize: Number(pageSize) || 20,
+    });
+  }
+
   @Post('sessions')
   async createSession(@CurrentUser('sub') userId: string, @Body() dto: CreateCsSessionDto) {
     const result = await this.csService.createSession(userId, dto.source, dto.sourceId);
@@ -37,6 +51,11 @@ export class CsController {
   @Get('sessions/:id/messages')
   getMessages(@CurrentUser('sub') userId: string, @Param('id') sessionId: string) {
     return this.csService.getSessionMessages(sessionId, userId);
+  }
+
+  @Post('sessions/:id/read')
+  markBuyerSessionRead(@CurrentUser('sub') userId: string, @Param('id') sessionId: string) {
+    return this.csService.markBuyerSessionRead(sessionId, userId);
   }
 
   /** 买家通过 HTTP 发送消息（同时广播到 Socket.IO 供坐席接收） */

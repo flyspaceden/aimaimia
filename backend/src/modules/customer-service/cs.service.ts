@@ -9,6 +9,11 @@ import { CsRouteResult, CsAiContext } from './types/cs.types';
 import { NotificationService } from '../notification/notification.service';
 import { CsPresenceService } from './cs-presence.service';
 
+type BuyerSessionScope = 'active' | 'history' | 'all';
+
+const BUYER_ACTIVE_SESSION_STATUSES: CsSessionStatus[] = ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'];
+const BUYER_UNREAD_SENDERS: CsMessageSender[] = ['AGENT', 'SYSTEM'];
+
 @Injectable()
 export class CsService {
   private readonly logger = new Logger(CsService.name);
@@ -102,6 +107,81 @@ export class CsService {
         messages: { orderBy: { createdAt: 'asc' } },
         ticket: true,
       },
+    });
+  }
+
+  /** 获取买家客服会话列表（进行中/历史），用于 App 客服中心入口 */
+  async getBuyerSessionList(
+    userId: string,
+    params: { scope?: BuyerSessionScope | string; page?: number; pageSize?: number },
+  ) {
+    const scope: BuyerSessionScope =
+      params.scope === 'history' ? 'history' : params.scope === 'all' ? 'all' : 'active';
+    const page = Number.isFinite(params.page) && Number(params.page) > 0 ? Number(params.page) : 1;
+    const pageSize = Number.isFinite(params.pageSize) && Number(params.pageSize) > 0
+      ? Math.min(Number(params.pageSize), 50)
+      : 20;
+
+    const where: any = { userId };
+    if (scope === 'active') {
+      where.status = { in: BUYER_ACTIVE_SESSION_STATUSES };
+    } else if (scope === 'history') {
+      where.status = 'CLOSED';
+    }
+
+    const sessions = await this.prisma.csSession.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+        ticket: { select: { id: true, category: true, priority: true } },
+      },
+    });
+
+    const items = await Promise.all(
+      sessions.map(async (session: any) => {
+        const unreadWhere: any = {
+          sessionId: session.id,
+          senderType: { in: BUYER_UNREAD_SENDERS },
+        };
+        if (session.buyerLastReadAt) {
+          unreadWhere.createdAt = { gt: session.buyerLastReadAt };
+        }
+
+        const unreadCount = await this.prisma.csMessage.count({ where: unreadWhere });
+        const { messages, ...summary } = session;
+
+        return {
+          ...summary,
+          lastMessage: messages[0] ?? null,
+          unreadCount,
+        };
+      }),
+    );
+
+    items.sort((a: any, b: any) => {
+      const bTime = new Date(b.lastMessage?.createdAt ?? b.createdAt).getTime();
+      const aTime = new Date(a.lastMessage?.createdAt ?? a.createdAt).getTime();
+      return bTime - aTime;
+    });
+
+    return { items, page, pageSize };
+  }
+
+  /** 标记买家已读到当前时间，只允许会话持有人调用 */
+  async markBuyerSessionRead(sessionId: string, userId: string) {
+    const session = await this.prisma.csSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, userId: true },
+    });
+    if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
+
+    return this.prisma.csSession.update({
+      where: { id: sessionId },
+      data: { buyerLastReadAt: new Date() },
+      select: { id: true, buyerLastReadAt: true },
     });
   }
 
@@ -392,6 +472,11 @@ export class CsService {
     const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
     if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
     this.presenceService.markUserActiveInSession(sessionId, userId);
+    await this.prisma.csSession.update({
+      where: { id: sessionId },
+      data: { buyerLastReadAt: new Date() },
+      select: { id: true },
+    });
 
     return this.prisma.csMessage.findMany({
       where: { sessionId },

@@ -3661,12 +3661,14 @@ model CsSession {
   sourceId      String?
   agentId       String?
   agentJoinedAt DateTime?
+  buyerLastReadAt DateTime?
   closedAt      DateTime?
   createdAt     DateTime        @default(now())
   messages      CsMessage[]
   rating        CsRating?
 
   @@index([userId, status])
+  @@index([userId, buyerLastReadAt])
   @@index([userId, source, sourceId])
   @@index([agentId, status])
   @@index([status, createdAt])

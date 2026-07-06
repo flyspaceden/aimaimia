@@ -129,6 +129,42 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /** 买家打开指定会话后加入房间，用于接收坐席主动回复 */
+  @SubscribeMessage('cs:join_session')
+  async handleJoinSession(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: { sessionId: string }) {
+    try {
+      const sessionId = data?.sessionId;
+      if (!sessionId) {
+        client.emit('cs:error', { message: '会话参数缺失' });
+        return;
+      }
+
+      if (client.data.isAgent) {
+        const session = await this.csService.getAdminSessionDetail(sessionId);
+        if (session.agentId !== client.data.adminId) {
+          client.emit('cs:error', { message: '无权加入此会话' });
+          return;
+        }
+        client.join(`session:${sessionId}`);
+        client.emit('cs:joined', { sessionId });
+        return;
+      }
+
+      if (!client.data.userId) {
+        client.emit('cs:error', { message: '未登录' });
+        return;
+      }
+
+      await this.csService.getSessionMessages(sessionId, client.data.userId);
+      client.join(`session:${sessionId}`);
+      this.presenceService.markUserInSession(sessionId, client.data.userId, client.id);
+      client.emit('cs:joined', { sessionId });
+    } catch (error: any) {
+      this.logger.error('加入客服会话失败', error?.message);
+      client.emit('cs:error', { message: error?.message || '加入会话失败' });
+    }
+  }
+
   /** 用户/坐席发送消息 */
   @SubscribeMessage('cs:send')
   async handleSend(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() data: CsSendPayload) {

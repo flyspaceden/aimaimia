@@ -33,6 +33,40 @@ export interface CsMessage {
   createdAt: string;
 }
 
+export type CsSessionStatus = 'AI_HANDLING' | 'QUEUING' | 'AGENT_HANDLING' | 'CLOSED';
+
+export type CsSessionSource = 'MY_PAGE' | 'ORDER_DETAIL' | 'AFTERSALE_DETAIL' | 'ADMIN_OUTREACH';
+
+export type CsSessionListScope = 'active' | 'history' | 'all';
+
+export interface CsSessionTicketSummary {
+  id: string;
+  category?: string;
+  priority?: string;
+}
+
+/** 买家客服会话列表项 */
+export interface CsSessionSummary {
+  id: string;
+  status: CsSessionStatus;
+  source: CsSessionSource;
+  sourceId?: string | null;
+  agentId?: string | null;
+  agentJoinedAt?: string | null;
+  buyerLastReadAt?: string | null;
+  closedAt?: string | null;
+  createdAt: string;
+  ticket?: CsSessionTicketSummary | null;
+  lastMessage: CsMessage | null;
+  unreadCount: number;
+}
+
+export interface CsSessionListResult {
+  items: CsSessionSummary[];
+  page: number;
+  pageSize: number;
+}
+
 /** 发送消息后端返回结构 */
 export interface CsSendMessageResult {
   userMessage: CsMessage;

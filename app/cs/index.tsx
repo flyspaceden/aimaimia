@@ -13,39 +13,73 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { io, type Socket } from 'socket.io-client';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { useAuthStore } from '../../src/store';
 import { CsRepo } from '../../src/repos';
-import { CsMessage, CsQuickEntry } from '../../src/types';
+import { CsMessage, CsQuickEntry, CsSessionListScope, CsSessionSummary } from '../../src/types';
 import { CsMessageBubble } from '../../src/components/cs/CsMessageBubble';
 import { CsQuickActions } from '../../src/components/cs/CsQuickActions';
 import { CsHotQuestions } from '../../src/components/cs/CsHotQuestions';
 import { CsTypingIndicator } from '../../src/components/cs/CsTypingIndicator';
 import { useToast } from '../../src/components/feedback';
-import { USE_MOCK } from '../../src/repos/http/config';
+import { USE_MOCK, WS_BASE_URL } from '../../src/repos/http/config';
 
 // 轮询间隔（毫秒）
 const POLL_INTERVAL = 5000;
 
+const SESSION_SOURCE_LABEL: Record<string, string> = {
+  ADMIN_OUTREACH: '平台客服',
+  MY_PAGE: '我的咨询',
+  ORDER_DETAIL: '订单咨询',
+  AFTERSALE_DETAIL: '售后咨询',
+};
+
+const SESSION_STATUS_LABEL: Record<string, string> = {
+  AI_HANDLING: 'AI 接待中',
+  QUEUING: '排队中',
+  AGENT_HANDLING: '客服处理中',
+  CLOSED: '已结束',
+};
+
+function sortMessages(messages: CsMessage[]) {
+  return [...messages].sort((a, b) => {
+    const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return dt !== 0 ? dt : a.id.localeCompare(b.id);
+  });
+}
+
+function formatSessionTime(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 export default function CsIndexScreen() {
   const { colors, radius, spacing, typography, isDark } = useTheme();
   const { show } = useToast();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const inputBottomPadding = useBottomInset(spacing.xs);
   const { source, sourceId, sessionId: routeSessionId } = useLocalSearchParams<{
     source?: string;
     sourceId?: string;
     sessionId?: string;
   }>();
+  const showConversationList = !routeSessionId && !source && !sourceId;
 
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
   // 同步锁：防止快速连点发送时 useState 异步导致的重复发送
   const sendingRef = useRef(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  const accessToken = useAuthStore((state) => state.accessToken);
 
   // 页面状态
   const [messages, setMessages] = useState<CsMessage[]>([]);
@@ -54,6 +88,16 @@ export default function CsIndexScreen() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionClosed, setSessionClosed] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [sessionScope, setSessionScope] = useState<CsSessionListScope>('active');
+
+  const { data: sessionListData, isLoading: sessionListLoading, refetch: refetchSessionList } = useQuery({
+    queryKey: ['cs-sessions', sessionScope],
+    queryFn: () => CsRepo.listSessions(sessionScope, { page: 1, pageSize: 30 }),
+    enabled: isLoggedIn && showConversationList,
+    refetchInterval: showConversationList && sessionScope === 'active' ? POLL_INTERVAL : false,
+  });
+
+  const sessionList: CsSessionSummary[] = sessionListData?.ok ? sessionListData.data.items : [];
 
   // 获取快捷入口
   const { data: quickEntriesData } = useQuery({
@@ -65,6 +109,8 @@ export default function CsIndexScreen() {
 
   // 创建/恢复会话
   useEffect(() => {
+    if (showConversationList) return;
+
     let cancelled = false;
     const initSession = async () => {
       if (routeSessionId) {
@@ -73,11 +119,7 @@ export default function CsIndexScreen() {
         setSessionClosed(false);
         const messagesResult = await CsRepo.getMessages(routeSessionId);
         if (!cancelled && messagesResult.ok) {
-          const sorted = [...messagesResult.data].sort((a, b) => {
-            const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-            return dt !== 0 ? dt : a.id.localeCompare(b.id);
-          });
-          setMessages(sorted);
+          setMessages(sortMessages(messagesResult.data));
         }
         if (!cancelled && !messagesResult.ok) {
           show({ message: messagesResult.error.displayMessage ?? '加载客服会话失败', type: 'error' });
@@ -100,14 +142,7 @@ export default function CsIndexScreen() {
       if (result.data.isExisting) {
         const messagesResult = await CsRepo.getMessages(result.data.sessionId);
         if (!cancelled && messagesResult.ok) {
-          const sorted = [...messagesResult.data].sort(
-            (a, b) => {
-              // D9: 复合排序 (createdAt, id)，避免同毫秒消息顺序不稳定
-              const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-              return dt !== 0 ? dt : a.id.localeCompare(b.id);
-            },
-          );
-          setMessages(sorted);
+          setMessages(sortMessages(messagesResult.data));
         }
       }
     };
@@ -116,10 +151,70 @@ export default function CsIndexScreen() {
     return () => { cancelled = true; };
   }, [routeSessionId, show, source, sourceId]);
 
+  const mergeIncomingMessage = useCallback((incoming: CsMessage) => {
+    setMessages((prev) => {
+      const mergedMap = new Map<string, CsMessage>();
+      for (const message of prev) mergedMap.set(message.id, message);
+      mergedMap.set(incoming.id, incoming);
+      return sortMessages(Array.from(mergedMap.values()));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (showConversationList || USE_MOCK || !sessionId || !accessToken || sessionClosed) return;
+
+    const socket = io(`${WS_BASE_URL}/cs`, {
+      auth: { token: accessToken },
+      transports: ['websocket'],
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('cs:join_session', { sessionId });
+    });
+
+    socket.on('cs:message', (message: CsMessage) => {
+      if (message.sessionId && message.sessionId !== sessionId) return;
+      const normalizedMessage: CsMessage = {
+        ...message,
+        id: (message as any).id ?? `socket-${Date.now()}`,
+        sessionId: message.sessionId ?? sessionId,
+        createdAt: message.createdAt ?? new Date().toISOString(),
+      };
+      mergeIncomingMessage(normalizedMessage);
+      if (message.senderType !== 'USER') {
+        void CsRepo.markSessionRead(sessionId);
+        void queryClient.invalidateQueries({ queryKey: ['cs-sessions'] });
+      }
+    });
+
+    socket.on('cs:agent_released', (payload: { sessionId: string; systemMessage?: CsMessage | null }) => {
+      if (payload.sessionId !== sessionId || !payload.systemMessage) return;
+      mergeIncomingMessage(payload.systemMessage);
+      void CsRepo.markSessionRead(sessionId);
+      void queryClient.invalidateQueries({ queryKey: ['cs-sessions'] });
+    });
+
+    socket.on('cs:session_closed', (payload: { sessionId: string }) => {
+      if (payload.sessionId !== sessionId) return;
+      setSessionClosed(true);
+      void queryClient.invalidateQueries({ queryKey: ['cs-sessions'] });
+    });
+
+    socket.on('cs:error', (payload: { message?: string }) => {
+      if (payload?.message) show({ message: payload.message, type: 'error' });
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [accessToken, mergeIncomingMessage, queryClient, sessionClosed, sessionId, show, showConversationList]);
+
   // HTTP 轮询获取新消息（非 Mock 模式）
   // D1+D8 修复：合并服务器消息时按 createdAt 排序 + 按 id 去重
   useEffect(() => {
-    if (USE_MOCK || !sessionId || sessionClosed) return;
+    if (showConversationList || USE_MOCK || !sessionId || sessionClosed) return;
 
     pollTimerRef.current = setInterval(async () => {
       // 修复竞态：发送中时跳过轮询，让 HTTP 响应独占状态更新
@@ -150,11 +245,7 @@ export default function CsIndexScreen() {
           for (const m of localPending) {
             if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
           }
-          // 按 (createdAt, id) 复合排序
-          return Array.from(mergedMap.values()).sort((a, b) => {
-            const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-            return dt !== 0 ? dt : a.id.localeCompare(b.id);
-          });
+          return sortMessages(Array.from(mergedMap.values()));
         });
       }
     }, POLL_INTERVAL);
@@ -165,7 +256,7 @@ export default function CsIndexScreen() {
         pollTimerRef.current = null;
       }
     };
-  }, [sessionId, sessionClosed]);
+  }, [sessionId, sessionClosed, showConversationList]);
 
   // 监听键盘高度（跟 ai/chat.tsx 保持一致）
   useEffect(() => {
@@ -260,11 +351,7 @@ export default function CsIndexScreen() {
       if (aiReply && !deduped.some((m) => m.id === aiReply.id)) {
         deduped.push(aiReply);
       }
-      // 按 (createdAt, id) 复合排序（D1 + D9 防乱序）
-      return deduped.sort((a, b) => {
-        const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        return dt !== 0 ? dt : a.id.localeCompare(b.id);
-      });
+      return sortMessages(deduped);
     });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd({ animated: true });
@@ -298,6 +385,7 @@ export default function CsIndexScreen() {
     // 通知后端关闭会话（释放坐席计数）
     if (sessionId) {
       await CsRepo.closeSession(sessionId).catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: ['cs-sessions'] });
     }
     // 添加系统消息
     const systemMsg: CsMessage = {
@@ -314,7 +402,99 @@ export default function CsIndexScreen() {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-  }, [sessionId]);
+  }, [queryClient, sessionId]);
+
+  const handleStartConversation = useCallback(() => {
+    if (!isLoggedIn) {
+      show({ message: '请先登录后再联系客服', type: 'info' });
+      return;
+    }
+    router.push('/cs?source=MY_PAGE');
+  }, [isLoggedIn, router, show]);
+
+  const handleOpenSession = useCallback((item: CsSessionSummary) => {
+    router.push({ pathname: '/cs', params: { sessionId: item.id } });
+  }, [router]);
+
+  const renderSessionCard = (item: CsSessionSummary) => {
+    const sourceLabel = SESSION_SOURCE_LABEL[item.source] ?? '客服对话';
+    const statusLabel = SESSION_STATUS_LABEL[item.status] ?? '处理中';
+    const lastContent = item.lastMessage?.content ?? '暂无消息';
+    const lastTime = formatSessionTime(item.lastMessage?.createdAt ?? item.createdAt);
+    const isClosed = item.status === 'CLOSED';
+
+    return (
+      <Pressable
+        key={item.id}
+        onPress={() => handleOpenSession(item)}
+        style={({ pressed }) => [
+          styles.sessionCard,
+          {
+            backgroundColor: colors.surfaceElevated,
+            borderColor: colors.border,
+            opacity: pressed ? 0.82 : 1,
+          },
+        ]}
+      >
+        <View style={styles.sessionIconWrap}>
+          <View
+            style={[
+              styles.sessionIcon,
+              { backgroundColor: item.source === 'ADMIN_OUTREACH' ? '#EEF2FF' : '#E8F5E9' },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={item.source === 'ADMIN_OUTREACH' ? 'account-tie-voice-outline' : 'headset'}
+              size={22}
+              color={item.source === 'ADMIN_OUTREACH' ? '#1D4ED8' : '#2E7D32'}
+            />
+          </View>
+          {item.unreadCount > 0 ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>
+                {item.unreadCount > 99 ? '99+' : item.unreadCount}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.sessionBody}>
+          <View style={styles.sessionTitleRow}>
+            <Text
+              numberOfLines={1}
+              style={[typography.body, styles.sessionTitle, { color: colors.text.primary }]}
+            >
+              {sourceLabel}
+            </Text>
+            <Text style={[typography.caption, { color: colors.text.tertiary }]}>{lastTime}</Text>
+          </View>
+
+          <Text numberOfLines={1} style={[typography.caption, { color: colors.text.secondary }]}>
+            {lastContent}
+          </Text>
+
+          <View style={styles.sessionMetaRow}>
+            <View
+              style={[
+                styles.statusPill,
+                { backgroundColor: isClosed ? colors.bgSecondary : '#FFF7ED' },
+              ]}
+            >
+              <Text
+                style={[
+                  typography.caption,
+                  { color: isClosed ? colors.text.secondary : '#C2410C', fontWeight: '600' },
+                ]}
+              >
+                {statusLabel}
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text.tertiary} />
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
 
   // AI 欢迎消息
   const welcomeMessage: CsMessage = {
@@ -329,6 +509,106 @@ export default function CsIndexScreen() {
   // 是否展示初始内容（欢迎 + 快捷操作 + 热门问题）
   const showInitialContent = messages.length === 0 && !routeSessionId;
   const showWelcomeMessage = !routeSessionId;
+
+  if (showConversationList) {
+    const emptyTitle = isLoggedIn
+      ? sessionScope === 'active' ? '暂无进行中的对话' : '暂无历史对话'
+      : '登录后查看客服对话';
+
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader
+          title="客服中心"
+          rightSlot={
+            <Pressable onPress={handleStartConversation} style={styles.startHeaderButton}>
+              <MaterialCommunityIcons name="plus-circle-outline" size={22} color={colors.brand.primary} />
+            </Pressable>
+          }
+        />
+
+        <View style={[styles.listContainer, { padding: spacing.lg }]}>
+          <View style={styles.segmentRow}>
+            {(['active', 'history'] as CsSessionListScope[]).map((scope) => {
+              const selected = sessionScope === scope;
+              return (
+                <Pressable
+                  key={scope}
+                  onPress={() => setSessionScope(scope)}
+                  style={[
+                    styles.segmentButton,
+                    {
+                      backgroundColor: selected ? colors.brand.primary : colors.bgSecondary,
+                      borderColor: selected ? colors.brand.primary : colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      typography.body,
+                      { color: selected ? colors.text.inverse : colors.text.secondary, fontWeight: '700' },
+                    ]}
+                  >
+                    {scope === 'active' ? '进行中' : '历史对话'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <ScrollView
+            style={styles.sessionList}
+            contentContainerStyle={styles.sessionListContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {sessionListLoading ? (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons name="progress-clock" size={34} color={colors.text.tertiary} />
+                <Text style={[typography.body, { color: colors.text.secondary }]}>正在加载</Text>
+              </View>
+            ) : sessionList.length > 0 ? (
+              sessionList.map(renderSessionCard)
+            ) : (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons name="message-text-outline" size={38} color={colors.text.tertiary} />
+                <Text style={[typography.body, { color: colors.text.secondary, fontWeight: '600' }]}>
+                  {emptyTitle}
+                </Text>
+                {sessionScope === 'active' ? (
+                  <Pressable
+                    onPress={handleStartConversation}
+                    style={({ pressed }) => [
+                      styles.primaryAction,
+                      { backgroundColor: colors.brand.primary, opacity: pressed ? 0.86 : 1 },
+                    ]}
+                  >
+                    <MaterialCommunityIcons name="headset" size={18} color={colors.text.inverse} />
+                    <Text style={[typography.body, { color: colors.text.inverse, fontWeight: '700' }]}>
+                      发起咨询
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            )}
+          </ScrollView>
+
+          <Pressable
+            onPress={() => refetchSessionList()}
+            style={({ pressed }) => [
+              styles.refreshButton,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceElevated,
+                opacity: pressed ? 0.76 : 1,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="refresh" size={18} color={colors.text.secondary} />
+            <Text style={[typography.caption, { color: colors.text.secondary, fontWeight: '600' }]}>刷新</Text>
+          </Pressable>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -524,6 +804,128 @@ export default function CsIndexScreen() {
 }
 
 const styles = StyleSheet.create({
+  startHeaderButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listContainer: {
+    flex: 1,
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  segmentButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sessionList: {
+    flex: 1,
+  },
+  sessionListContent: {
+    paddingBottom: 88,
+    gap: 10,
+  },
+  sessionCard: {
+    minHeight: 92,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sessionIconWrap: {
+    width: 52,
+    height: 52,
+    marginRight: 12,
+  },
+  sessionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadge: {
+    position: 'absolute',
+    right: 0,
+    top: -2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  sessionBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sessionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 6,
+  },
+  sessionTitle: {
+    flex: 1,
+    fontWeight: '800',
+  },
+  sessionMetaRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusPill: {
+    minHeight: 24,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyState: {
+    minHeight: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  primaryAction: {
+    minHeight: 42,
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  refreshButton: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   endButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
