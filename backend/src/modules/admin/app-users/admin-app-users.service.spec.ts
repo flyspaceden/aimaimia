@@ -10,6 +10,9 @@ describe('AdminAppUsersService buyer public ids', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      memberProfile: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const digitalAssetService = {
       clearAccountAssets: jest.fn(),
@@ -117,6 +120,157 @@ describe('AdminAppUsersService buyer public ids', () => {
       id: 'user-internal-1',
       buyerNo: 'AIMM00000000000001',
       nickname: '测试买家',
+    });
+  });
+
+  it('returns recommendation relationship summary in app user detail', async () => {
+    const { service, prisma } = makeService();
+    const boundAt = new Date('2026-07-05T01:00:00.000Z');
+    const vipCreatedAt = new Date('2026-07-05T02:00:00.000Z');
+    prisma.user.findUnique.mockResolvedValue({
+      ...userRow,
+      memberProfile: {
+        tier: 'VIP',
+        referralCode: 'VIPCODE1',
+        inviterUserId: 'vip-inviter-1',
+        vipPurchasedAt: vipCreatedAt,
+      },
+      normalShareProfile: {
+        id: 'share-profile-1',
+        userId: 'user-internal-1',
+        code: 'S8K6M2Q9',
+        status: 'ACTIVE',
+        disabledReason: null,
+        createdAt: boundAt,
+        updatedAt: boundAt,
+      },
+      normalShareBindingReceived: {
+        id: 'binding-received-1',
+        inviterUserId: 'normal-inviter-1',
+        inviteeUserId: 'user-internal-1',
+        code: 'S1111111',
+        source: 'APP',
+        relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+        relationInvalidAt: vipCreatedAt,
+        relationInvalidReason: '推荐人已是 VIP，关系转入 VIP 树',
+        effectiveInviterUserId: 'vip-inviter-1',
+        boundAt,
+        firstOrderId: null,
+        rewardStatus: 'REGISTER_REWARDED',
+        rewardIssuedAt: boundAt,
+        createdAt: boundAt,
+        updatedAt: vipCreatedAt,
+        inviter: {
+          id: 'normal-inviter-1',
+          buyerNo: 'AIMM00000000001001',
+          profile: { nickname: '普通推荐人', avatarUrl: null },
+          authIdentities: [{ identifier: '13900000001' }],
+        },
+        firstOrder: null,
+      },
+      normalShareBindingsMade: [
+        {
+          id: 'binding-made-1',
+          inviterUserId: 'user-internal-1',
+          inviteeUserId: 'normal-invitee-1',
+          code: 'S8K6M2Q9',
+          source: 'APP',
+          relationStatus: 'ACTIVE',
+          relationInvalidAt: null,
+          relationInvalidReason: null,
+          effectiveInviterUserId: 'user-internal-1',
+          boundAt,
+          firstOrderId: 'order-1',
+          rewardStatus: 'ISSUED',
+          rewardIssuedAt: vipCreatedAt,
+          createdAt: boundAt,
+          updatedAt: vipCreatedAt,
+          invitee: {
+            id: 'normal-invitee-1',
+            buyerNo: 'AIMM00000000002001',
+            profile: { nickname: '普通被推荐人', avatarUrl: null },
+            authIdentities: [{ identifier: '13900000002' }],
+            memberProfile: { tier: 'NORMAL' },
+          },
+          firstOrder: { id: 'order-1', orderNo: 'NO1', totalAmount: 128, status: 'RECEIVED', createdAt: vipCreatedAt },
+        },
+      ],
+      referralReceived: {
+        id: 'vip-ref-received-1',
+        inviterUserId: 'vip-inviter-1',
+        inviteeUserId: 'user-internal-1',
+        codeUsed: 'VIPIN001',
+        channel: 'APP',
+        createdAt: vipCreatedAt,
+        inviter: {
+          id: 'vip-inviter-1',
+          buyerNo: 'AIMM00000000003001',
+          profile: { nickname: 'VIP推荐人', avatarUrl: null },
+          authIdentities: [{ identifier: '13900000003' }],
+        },
+      },
+    });
+    prisma.memberProfile.findMany.mockResolvedValue([
+      {
+        userId: 'vip-invitee-1',
+        tier: 'VIP',
+        referralCode: 'VIPCHILD',
+        vipPurchasedAt: vipCreatedAt,
+        user: {
+          id: 'vip-invitee-1',
+          buyerNo: 'AIMM00000000004001',
+          profile: { nickname: 'VIP被推荐人', avatarUrl: null },
+          authIdentities: [{ identifier: '13900000004' }],
+        },
+      },
+    ]);
+
+    const result = await service.findById('user-internal-1');
+
+    expect(result.recommendation).toMatchObject({
+      visibleCode: {
+        type: 'VIP_REFERRAL',
+        code: 'VIPCODE1',
+        url: 'https://app.ai-maimai.com/r/VIPCODE1',
+      },
+      currentInviter: {
+        id: 'vip-inviter-1',
+        buyerNo: 'AIMM00000000003001',
+        nickname: 'VIP推荐人',
+      },
+      counts: {
+        directNormalInvitees: 1,
+        activeNormalInvitees: 1,
+        directVipInvitees: 1,
+      },
+      normalShareProfile: {
+        code: 'S8K6M2Q9',
+        shareUrl: 'https://app.ai-maimai.com/s/S8K6M2Q9',
+      },
+      normalBindingReceived: {
+        id: 'binding-received-1',
+        relationStatus: 'SUPERSEDED_BY_VIP_TREE',
+        inviter: { nickname: '普通推荐人' },
+      },
+      vipReferralReceived: {
+        id: 'vip-ref-received-1',
+        codeUsed: 'VIPIN001',
+        inviter: { nickname: 'VIP推荐人' },
+      },
+      directNormalInvitees: [
+        {
+          id: 'binding-made-1',
+          invitee: { nickname: '普通被推荐人' },
+          firstOrder: { orderNo: 'order-1' },
+        },
+      ],
+      directVipInvitees: [
+        {
+          userId: 'vip-invitee-1',
+          referralCode: 'VIPCHILD',
+          user: { nickname: 'VIP被推荐人' },
+        },
+      ],
     });
   });
 

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App, Breadcrumb, Card, Row, Col, Statistic, Descriptions, Tabs, Tag, Avatar,
-  Button, Space, Table, Spin, Result, Empty, Modal, Input,
+  Button, Space, Table, Spin, Result, Empty, Modal, Input, Alert, Typography,
 } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -17,7 +17,7 @@ import { getOrders } from '@/api/orders';
 import { getMemberDetail } from '@/api/bonus';
 import { getInstances } from '@/api/coupon';
 import { getDigitalAssetAccount } from '@/api/digital-assets';
-import type { AppUserDetail, Order, BonusMemberDetail } from '@/types';
+import type { AppUserDetail, AppUserRecommendationUser, Order, BonusMemberDetail } from '@/types';
 import { userStatusMap as statusMap, memberTierColors, orderStatusMap, couponInstanceStatusMap, rewardEntryTypeMap, rewardLedgerStatusMap, rewardRefTypeMap, rewardAccountTypeMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
@@ -38,6 +38,48 @@ const genderMap: Record<string, string> = {
   MALE: '男',
   FEMALE: '女',
 };
+
+const recommendationCodeTypeMap: Record<string, { text: string; color: string }> = {
+  NORMAL_SHARE: { text: '普通分享码', color: 'green' },
+  VIP_REFERRAL: { text: 'VIP 推荐码', color: 'gold' },
+};
+
+const normalShareCodeStatusMap: Record<string, { text: string; color: string }> = {
+  ACTIVE: { text: '可分享', color: 'green' },
+  DISABLED: { text: '已停用', color: 'default' },
+};
+
+const directRelationStatusMap: Record<string, { text: string; color: string }> = {
+  ACTIVE: { text: '关系有效', color: 'green' },
+  SUPERSEDED_BY_VIP_TREE: { text: '已转入 VIP 关系', color: 'blue' },
+  INVALIDATED_BY_INVITEE_VIP_UPGRADE: { text: '因对方升级 VIP 结束', color: 'orange' },
+  ADMIN_VOIDED: { text: '已作废', color: 'default' },
+};
+
+const normalShareRewardStatusMap: Record<string, { text: string; color: string }> = {
+  PENDING: { text: '待奖励', color: 'default' },
+  REGISTER_REWARDED: { text: '注册已奖', color: 'green' },
+  FIRST_ORDER_PENDING: { text: '待首单', color: 'orange' },
+  ISSUED: { text: '首单已奖', color: 'green' },
+  REVERSED: { text: '已冲正', color: 'red' },
+  VOIDED: { text: '已作废', color: 'default' },
+};
+
+const normalShareSourceMap: Record<string, string> = {
+  APP: 'App',
+  DEFERRED_LINK: '延迟链接',
+  ADMIN: '后台',
+};
+
+function renderMappedTag(value: string | null | undefined, map: Record<string, { text: string; color: string }>) {
+  if (!value) return <Typography.Text type="secondary">-</Typography.Text>;
+  const item = map[value];
+  return <Tag color={item?.color || 'default'}>{item?.text || value}</Tag>;
+}
+
+function formatDateTime(value?: string | null) {
+  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
+}
 
 export default function UserDetailPage() {
   const { message } = App.useApp();
@@ -122,6 +164,58 @@ export default function UserDetailPage() {
     },
   ];
 
+  const renderRecommendationUser = (summary?: AppUserRecommendationUser | null) => {
+    if (!summary) return <Typography.Text type="secondary">无</Typography.Text>;
+    return (
+      <Space direction="vertical" size={0}>
+        <BuyerIdentityText
+          buyerNo={summary.buyerNo}
+          userId={summary.id}
+          nickname={summary.nickname || summary.phoneMasked || '-'}
+          compact
+        />
+        <Space size={4} wrap>
+          <Tag color={summary.memberTier === 'VIP' ? 'gold' : 'default'}>
+            {summary.memberTier === 'VIP' ? 'VIP' : '普通'}
+          </Tag>
+          {summary.phoneMasked ? <Typography.Text type="secondary">{summary.phoneMasked}</Typography.Text> : null}
+        </Space>
+      </Space>
+    );
+  };
+
+  const renderCurrentRecommendationCode = () => {
+    const visibleCode = user.recommendation.visibleCode;
+    if (!visibleCode) return <Typography.Text type="secondary">未生成</Typography.Text>;
+    const type = recommendationCodeTypeMap[visibleCode.type];
+    return (
+      <Space direction="vertical" size={4}>
+        <Space wrap>
+          <Tag color={type?.color || 'default'}>{type?.text || visibleCode.type}</Tag>
+          <Typography.Text code copyable={{ text: visibleCode.code }}>{visibleCode.code}</Typography.Text>
+          {renderMappedTag(visibleCode.status, normalShareCodeStatusMap)}
+        </Space>
+        <Typography.Text copyable={{ text: visibleCode.url }} style={{ wordBreak: 'break-all' }}>
+          {visibleCode.url}
+        </Typography.Text>
+      </Space>
+    );
+  };
+
+  const renderFirstOrder = (order: AppUserDetail['recommendation']['directNormalInvitees'][number]['firstOrder']) => {
+    if (!order) return <Typography.Text type="secondary">未首单</Typography.Text>;
+    return (
+      <Space direction="vertical" size={0}>
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/orders/${order.id}`)}>
+          {order.orderNo || order.id}
+        </Button>
+        <Typography.Text type="secondary">¥{Number(order.totalAmount || 0).toFixed(2)}</Typography.Text>
+      </Space>
+    );
+  };
+
+  const recommendation = user.recommendation;
+
   // ====== Tab 内容 ======
   const tabItems = [
     {
@@ -161,6 +255,193 @@ export default function UserDetailPage() {
             </Space>
           </Descriptions.Item>
         </Descriptions>
+      ),
+    },
+    {
+      key: 'recommendation',
+      label: '推荐关系',
+      children: (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            showIcon
+            type="info"
+            message="用户详情里的推荐关系用于核查单个用户的上下级"
+            description="这里展示当前有效推荐人、当前可展示推荐码、收到的普通/VIP 推荐关系，以及该用户直接邀请的普通用户和 VIP 用户。规则配置仍在“推荐与拉新”和 VIP/普通系统配置中管理。"
+          />
+
+          <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="当前推荐码" span={2}>
+              {renderCurrentRecommendationCode()}
+            </Descriptions.Item>
+            <Descriptions.Item label="当前有效推荐人">
+              {renderRecommendationUser(recommendation.currentInviter)}
+            </Descriptions.Item>
+            <Descriptions.Item label="普通分享码">
+              {recommendation.normalShareProfile ? (
+                <Space direction="vertical" size={4}>
+                  <Space wrap>
+                    <Typography.Text code copyable={{ text: recommendation.normalShareProfile.code }}>
+                      {recommendation.normalShareProfile.code}
+                    </Typography.Text>
+                    {renderMappedTag(recommendation.normalShareProfile.status, normalShareCodeStatusMap)}
+                  </Space>
+                  {recommendation.normalShareProfile.disabledReason ? (
+                    <Typography.Text type="secondary">{recommendation.normalShareProfile.disabledReason}</Typography.Text>
+                  ) : null}
+                </Space>
+              ) : (
+                <Typography.Text type="secondary">未生成</Typography.Text>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="直接普通邀请">
+              {recommendation.counts.directNormalInvitees} 人（有效 {recommendation.counts.activeNormalInvitees} 人）
+            </Descriptions.Item>
+            <Descriptions.Item label="直接 VIP 邀请">
+              {recommendation.counts.directVipInvitees} 人
+            </Descriptions.Item>
+          </Descriptions>
+
+          <Row gutter={16}>
+            <Col xs={24} lg={12}>
+              <Card size="small" title="收到的普通分享关系">
+                {recommendation.normalBindingReceived ? (
+                  <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="推荐人">
+                      {renderRecommendationUser(recommendation.normalBindingReceived.inviter)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="分享码">
+                      <Typography.Text code>{recommendation.normalBindingReceived.code}</Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="来源">
+                      {normalShareSourceMap[recommendation.normalBindingReceived.source] || recommendation.normalBindingReceived.source}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="关系状态">
+                      {renderMappedTag(recommendation.normalBindingReceived.relationStatus, directRelationStatusMap)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="有效推荐人">
+                      {renderRecommendationUser(recommendation.normalBindingReceived.effectiveInviter)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="绑定时间">
+                      {formatDateTime(recommendation.normalBindingReceived.boundAt)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="奖励状态">
+                      {renderMappedTag(recommendation.normalBindingReceived.rewardStatus, normalShareRewardStatusMap)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="失效原因">
+                      {recommendation.normalBindingReceived.relationInvalidReason || '-'}
+                    </Descriptions.Item>
+                  </Descriptions>
+                ) : (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有收到普通分享关系" />
+                )}
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card size="small" title="收到的 VIP 推荐关系">
+                {recommendation.vipReferralReceived ? (
+                  <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="推荐人">
+                      {renderRecommendationUser(recommendation.vipReferralReceived.inviter)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="使用的 VIP 推荐码">
+                      <Typography.Text code>{recommendation.vipReferralReceived.codeUsed}</Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="渠道">
+                      {recommendation.vipReferralReceived.channel || '-'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="绑定时间">
+                      {formatDateTime(recommendation.vipReferralReceived.createdAt)}
+                    </Descriptions.Item>
+                  </Descriptions>
+                ) : (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有收到 VIP 推荐关系" />
+                )}
+              </Card>
+            </Col>
+          </Row>
+
+          <Card size="small" title="直接邀请的普通用户">
+            <Table
+              rowKey="id"
+              size="small"
+              dataSource={recommendation.directNormalInvitees}
+              pagination={recommendation.directNormalInvitees.length > 5 ? { pageSize: 5 } : false}
+              columns={[
+                {
+                  title: '被推荐人',
+                  dataIndex: 'invitee',
+                  width: 240,
+                  render: (value) => renderRecommendationUser(value),
+                },
+                {
+                  title: '分享码',
+                  dataIndex: 'code',
+                  width: 120,
+                  render: (value) => <Typography.Text code>{value}</Typography.Text>,
+                },
+                {
+                  title: '关系状态',
+                  dataIndex: 'relationStatus',
+                  width: 130,
+                  render: (value) => renderMappedTag(value, directRelationStatusMap),
+                },
+                {
+                  title: '奖励状态',
+                  dataIndex: 'rewardStatus',
+                  width: 120,
+                  render: (value) => renderMappedTag(value, normalShareRewardStatusMap),
+                },
+                {
+                  title: '首单',
+                  dataIndex: 'firstOrder',
+                  width: 150,
+                  render: (value) => renderFirstOrder(value),
+                },
+                {
+                  title: '绑定时间',
+                  dataIndex: 'boundAt',
+                  width: 160,
+                  render: (value) => formatDateTime(value),
+                },
+              ]}
+            />
+          </Card>
+
+          <Card size="small" title="直接邀请的 VIP 用户">
+            <Table
+              rowKey="userId"
+              size="small"
+              dataSource={recommendation.directVipInvitees}
+              pagination={recommendation.directVipInvitees.length > 5 ? { pageSize: 5 } : false}
+              columns={[
+                {
+                  title: 'VIP 用户',
+                  dataIndex: 'user',
+                  width: 260,
+                  render: (value) => renderRecommendationUser(value),
+                },
+                {
+                  title: 'TA 的推荐码',
+                  dataIndex: 'referralCode',
+                  width: 150,
+                  render: (value) => value ? <Typography.Text code>{value}</Typography.Text> : '-',
+                },
+                {
+                  title: 'VIP 开通时间',
+                  dataIndex: 'vipPurchasedAt',
+                  width: 170,
+                  render: (value) => formatDateTime(value),
+                },
+                {
+                  title: '更新时间',
+                  dataIndex: 'updatedAt',
+                  width: 170,
+                  render: (value) => formatDateTime(value),
+                },
+              ]}
+            />
+          </Card>
+        </Space>
       ),
     },
     {
