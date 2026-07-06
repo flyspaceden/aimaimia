@@ -1,4 +1,11 @@
-import { useState } from 'react';
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useRef,
+  useState,
+} from 'react';
 import {
   Alert,
   App,
@@ -39,9 +46,13 @@ import {
 } from '@/api/announcements';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import './index.css';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+const DEFAULT_ANNOUNCEMENT_FORM_PANE_WIDTH = 36;
+const MIN_ANNOUNCEMENT_FORM_PANE_WIDTH = 28;
+const MAX_ANNOUNCEMENT_FORM_PANE_WIDTH = 58;
 
 type AnnouncementFormValues = {
   title: string;
@@ -110,6 +121,9 @@ const getTargetPageLabel = (target?: AnnouncementRecord['target'] | null) => {
   return targetLabelByRoute[target.route] ?? '历史跳转页面';
 };
 
+const clampPaneWidth = (value: number) =>
+  Math.min(MAX_ANNOUNCEMENT_FORM_PANE_WIDTH, Math.max(MIN_ANNOUNCEMENT_FORM_PANE_WIDTH, value));
+
 const parseBuyerNos = (value?: string) =>
   Array.from(new Set((value ?? '')
     .split(/[\s,，;；]+/)
@@ -126,11 +140,67 @@ export default function AnnouncementsPage() {
   const [publishing, setPublishing] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [announcementFormPaneWidth, setAnnouncementFormPaneWidth] = useState(DEFAULT_ANNOUNCEMENT_FORM_PANE_WIDTH);
+  const splitLayoutRef = useRef<HTMLDivElement | null>(null);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['admin', 'announcements', page, pageSize],
     queryFn: () => getAnnouncements({ page, pageSize }),
   });
+
+  const splitLayoutStyle = {
+    '--announcement-form-pane-width': `${announcementFormPaneWidth}%`,
+  } as CSSProperties;
+
+  const updatePaneWidthFromClientX = useCallback((clientX: number) => {
+    const rect = splitLayoutRef.current?.getBoundingClientRect();
+    if (!rect?.width) return;
+    const nextWidth = ((clientX - rect.left) / rect.width) * 100;
+    setAnnouncementFormPaneWidth(clampPaneWidth(nextWidth));
+  }, []);
+
+  const handlePaneResizeStart = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    updatePaneWidthFromClientX(event.clientX);
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      updatePaneWidthFromClientX(moveEvent.clientX);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp, { once: true });
+  }, [updatePaneWidthFromClientX]);
+
+  const handlePaneResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowLeft' ? -3 : 3;
+      setAnnouncementFormPaneWidth((current) => clampPaneWidth(current + delta));
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setAnnouncementFormPaneWidth(MIN_ANNOUNCEMENT_FORM_PANE_WIDTH);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setAnnouncementFormPaneWidth(MAX_ANNOUNCEMENT_FORM_PANE_WIDTH);
+    }
+  }, []);
 
   const buildPayload = (values: AnnouncementFormValues): CreateAnnouncementPayload => {
     const selectedRoute = values.targetPage && values.targetPage !== 'NONE'
@@ -261,8 +331,8 @@ export default function AnnouncementsPage() {
         <Text type="secondary">向买家消息中心发布平台公告，也可以按 VIP、普通买家或买家编号定向发送</Text>
       </div>
 
-      <Row gutter={16} align="top">
-        <Col xs={24} xl={9}>
+      <div ref={splitLayoutRef} className="announcement-split-layout" style={splitLayoutStyle}>
+        <div className="announcement-split-pane announcement-form-pane">
           <Card
             title={<Space><BellOutlined />发布公告</Space>}
             size="small"
@@ -374,9 +444,25 @@ export default function AnnouncementsPage() {
               </Space>
             </Form>
           </Card>
-        </Col>
+        </div>
 
-        <Col xs={24} xl={15}>
+        <div
+          role="separator"
+          aria-label="调整发布公告和发送历史宽度"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_ANNOUNCEMENT_FORM_PANE_WIDTH}
+          aria-valuemax={MAX_ANNOUNCEMENT_FORM_PANE_WIDTH}
+          aria-valuenow={Math.round(announcementFormPaneWidth)}
+          className="announcement-pane-resizer"
+          onMouseDown={handlePaneResizeStart}
+          onKeyDown={handlePaneResizeKeyDown}
+          onDoubleClick={() => setAnnouncementFormPaneWidth(DEFAULT_ANNOUNCEMENT_FORM_PANE_WIDTH)}
+          style={{ cursor: 'col-resize' }}
+          tabIndex={0}
+          title="拖动调整宽度"
+        />
+
+        <div className="announcement-split-pane announcement-history-pane">
           <Card
             title="发送历史"
             size="small"
@@ -421,8 +507,8 @@ export default function AnnouncementsPage() {
               }}
             />
           </Card>
-        </Col>
-      </Row>
+        </div>
+      </div>
     </div>
   );
 }
