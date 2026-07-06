@@ -9,6 +9,7 @@ import {
   Spin,
   App,
   Popover,
+  Modal,
 } from 'antd';
 import {
   SendOutlined,
@@ -28,10 +29,15 @@ import {
   getCsSessions,
   getCsSessionDetail,
   getCsQuickReplies,
+  createCsOutreach,
+  searchCsOutreachBuyers,
   type CsSession,
   type CsMessage,
+  type CsOutreachBuyer,
 } from '@/api/cs';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import PermissionGate from '@/components/PermissionGate';
+import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -552,6 +558,12 @@ export default function CsWorkstationPage() {
   const [inputValue, setInputValue] = useState('');
   const [typingSessionId, setTypingSessionId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [buyerSearchKeyword, setBuyerSearchKeyword] = useState('');
+  const [selectedBuyer, setSelectedBuyer] = useState<CsOutreachBuyer | null>(null);
+  const [outreachInitialMessage, setOutreachInitialMessage] = useState('');
+  const [outreachInviteTitle, setOutreachInviteTitle] = useState('');
+  const [outreachSubmitting, setOutreachSubmitting] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -593,6 +605,12 @@ export default function CsWorkstationPage() {
   const { data: quickReplies = [] } = useQuery({
     queryKey: ['admin', 'cs', 'quick-replies'],
     queryFn: () => getCsQuickReplies(),
+  });
+
+  const { data: outreachBuyers = [], isFetching: outreachBuyerSearching } = useQuery({
+    queryKey: ['admin', 'cs', 'outreach-buyers', buyerSearchKeyword],
+    queryFn: () => searchCsOutreachBuyers(buyerSearchKeyword),
+    enabled: outreachOpen && !!buyerSearchKeyword.trim(),
   });
 
   // Socket.IO 连接
@@ -746,10 +764,12 @@ export default function CsWorkstationPage() {
 
   // 按状态分组的会话列表
   const groupedSessions = useMemo(() => {
-    const filtered = searchText
+    const keyword = searchText.trim().toLowerCase();
+    const filtered = keyword
       ? sessions.filter((s) => {
           const name = s.user?.profile?.nickname || '';
-          return name.includes(searchText);
+          const buyerNo = s.user?.buyerNo || '';
+          return name.includes(searchText) || buyerNo.toLowerCase().includes(keyword);
         })
       : sessions;
 
@@ -816,6 +836,69 @@ export default function CsWorkstationPage() {
     },
     [message, queryClient, selectSession],
   );
+
+  const resetOutreachForm = useCallback(() => {
+    setBuyerSearchKeyword('');
+    setSelectedBuyer(null);
+    setOutreachInitialMessage('');
+    setOutreachInviteTitle('');
+  }, []);
+
+  const openOutreachModal = useCallback(() => {
+    resetOutreachForm();
+    setOutreachOpen(true);
+  }, [resetOutreachForm]);
+
+  const closeOutreachModal = useCallback(() => {
+    if (outreachSubmitting) return;
+    setOutreachOpen(false);
+    resetOutreachForm();
+  }, [outreachSubmitting, resetOutreachForm]);
+
+  const handleCreateOutreach = useCallback(async () => {
+    if (!selectedBuyer?.buyerNo) {
+      message.warning('请先选择买家');
+      return;
+    }
+    const initialMessage = outreachInitialMessage.trim();
+    if (!initialMessage) {
+      message.warning('请输入首条消息');
+      return;
+    }
+
+    setOutreachSubmitting(true);
+    try {
+      const result = await createCsOutreach({
+        buyerNo: selectedBuyer.buyerNo,
+        initialMessage,
+        inviteTitle: outreachInviteTitle.trim() || undefined,
+      });
+      if (result.reused) {
+        message.success('已打开该买家的现有会话');
+      } else if (result.claimed) {
+        message.success('已接管该买家的现有会话');
+      } else {
+        message.success('已联系买家');
+      }
+      setOutreachOpen(false);
+      resetOutreachForm();
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'session', result.sessionId] });
+      selectSession(result.sessionId);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '联系买家失败');
+    } finally {
+      setOutreachSubmitting(false);
+    }
+  }, [
+    message,
+    outreachInitialMessage,
+    outreachInviteTitle,
+    queryClient,
+    resetOutreachForm,
+    selectSession,
+    selectedBuyer,
+  ]);
 
   // 完成处理（柔性脱身）：仅释放自己，会话保留供用户继续咨询
   const handleRelease = useCallback(() => {
@@ -925,6 +1008,124 @@ export default function CsWorkstationPage() {
         }
       `}</style>
 
+      <Modal
+        title="联系买家"
+        open={outreachOpen}
+        onCancel={closeOutreachModal}
+        onOk={handleCreateOutreach}
+        okText="发送并打开会话"
+        cancelText="取消"
+        confirmLoading={outreachSubmitting}
+        okButtonProps={{ disabled: !selectedBuyer || !outreachInitialMessage.trim() }}
+        width={560}
+        destroyOnClose
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 8 }}>
+              选择买家
+            </div>
+            <Input.Search
+              placeholder="输入买家编号、手机号或昵称"
+              allowClear
+              enterButton="搜索"
+              loading={outreachBuyerSearching}
+              onSearch={(value) => {
+                setBuyerSearchKeyword(value.trim());
+                setSelectedBuyer(null);
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              minHeight: 132,
+              maxHeight: 220,
+              overflow: 'auto',
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              backgroundColor: '#f8fafc',
+            }}
+          >
+            {!buyerSearchKeyword ? (
+              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
+                请输入买家编号、手机号或昵称后搜索
+              </div>
+            ) : outreachBuyerSearching ? (
+              <div style={{ padding: 32, textAlign: 'center' }}>
+                <Spin />
+              </div>
+            ) : outreachBuyers.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
+                未找到可联系的 ACTIVE 买家
+              </div>
+            ) : (
+              outreachBuyers.map((buyer) => {
+                const active = selectedBuyer?.id === buyer.id;
+                return (
+                  <button
+                    key={buyer.id}
+                    type="button"
+                    onClick={() => setSelectedBuyer(buyer)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: 0,
+                      borderBottom: '1px solid #e2e8f0',
+                      backgroundColor: active ? BRAND_BG : '#fff',
+                      borderLeft: active ? `3px solid ${BRAND_COLOR}` : '3px solid transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <BuyerIdentityText
+                        buyerNo={buyer.buyerNo}
+                        userId={buyer.id}
+                        nickname={buyer.nickname || '未设置昵称'}
+                        phone={buyer.phone || undefined}
+                        compact
+                        showInternalId={false}
+                      />
+                      <Tag color={buyer.memberTier === 'VIP' ? 'gold' : 'default'}>
+                        {buyer.memberTier === 'VIP' ? 'VIP' : '普通'}
+                      </Tag>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 8 }}>
+              消息标题
+            </div>
+            <Input
+              value={outreachInviteTitle}
+              onChange={(e) => setOutreachInviteTitle(e.target.value)}
+              maxLength={80}
+              placeholder="可选，例如：平台客服邀请沟通"
+              showCount
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 8 }}>
+              首条消息
+            </div>
+            <TextArea
+              value={outreachInitialMessage}
+              onChange={(e) => setOutreachInitialMessage(e.target.value)}
+              placeholder="请输入要发送给买家的消息"
+              maxLength={5000}
+              showCount
+              autoSize={{ minRows: 4, maxRows: 7 }}
+            />
+          </div>
+        </div>
+      </Modal>
+
       {/* ===== 左列：会话列表 ===== */}
       <div
         style={{
@@ -940,18 +1141,32 @@ export default function CsWorkstationPage() {
       >
         {/* 搜索 */}
         <div style={{ padding: 12, borderBottom: '1px solid #f1f5f9' }}>
-          <Input
-            placeholder="搜索用户..."
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            style={{
-              backgroundColor: '#f8fafc',
-              borderColor: '#e2e8f0',
-              borderRadius: 8,
-            }}
-            allowClear
-          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Input
+              placeholder="搜索用户或买家编号..."
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                backgroundColor: '#f8fafc',
+                borderColor: '#e2e8f0',
+                borderRadius: 8,
+              }}
+              allowClear
+            />
+            <PermissionGate permission={PERMISSIONS.CS_OUTREACH}>
+              <Button
+                type="primary"
+                icon={<MessageOutlined />}
+                onClick={openOutreachModal}
+                style={{ backgroundColor: BRAND_COLOR, borderColor: BRAND_COLOR }}
+              >
+                联系买家
+              </Button>
+            </PermissionGate>
+          </div>
         </div>
 
         {/* 会话列表 */}

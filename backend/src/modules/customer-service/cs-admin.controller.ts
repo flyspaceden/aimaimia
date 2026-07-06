@@ -151,6 +151,12 @@ export class CsAdminController {
   @RequirePermission('cs:read')
   getAgentStatus() { return this.agentService.getAllAgentStatus(); }
 
+  @Get('buyers/search')
+  @RequirePermission('cs:outreach')
+  searchOutreachBuyers(@Query('keyword') keyword?: string) {
+    return this.outreachService.searchBuyers(keyword);
+  }
+
   @Post('outreach')
   @RequirePermission('cs:outreach')
   @AuditLog({ action: 'CREATE', module: 'cs-outreach', targetType: 'CsSession' })

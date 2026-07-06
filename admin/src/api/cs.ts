@@ -92,8 +92,20 @@ export interface CreateCsOutreachPayload {
 
 export interface CreateCsOutreachResult {
   sessionId: string;
-  inboxMessageId: string;
-  messageId: string;
+  inboxMessageId?: string;
+  messageId?: string;
+  reused?: boolean;
+  claimed?: boolean;
+}
+
+export interface CsOutreachBuyer {
+  id: string;
+  buyerNo: string;
+  nickname: string | null;
+  avatarUrl: string | null;
+  phone: string | null;
+  memberTier: string;
+  status: string;
 }
 
 // --- API Functions ---
@@ -156,6 +168,9 @@ export const getCsStats = (): Promise<CsStats> =>
 
 export const getCsAgentStatus = (): Promise<any[]> =>
   client.get('/admin/cs/agent-status');
+
+export const searchCsOutreachBuyers = (keyword: string): Promise<CsOutreachBuyer[]> =>
+  client.get('/admin/cs/buyers/search', { params: { keyword } });
 
 export const createCsOutreach = (data: CreateCsOutreachPayload): Promise<CreateCsOutreachResult> =>
   client.post('/admin/cs/outreach', data);
