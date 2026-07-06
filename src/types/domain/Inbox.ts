@@ -39,6 +39,10 @@ export type InboxType =
   | 'refund_credited'
   | 'coupon_granted'
   | 'coupon_expired'
+  // 平台运营消息
+  | 'platform_announcement'
+  | 'platform_notice'
+  | 'cs_outreach_invite'
   // 卖家通知
   | 'new_order'
   | 'stock_shortage'

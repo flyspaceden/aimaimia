@@ -29,6 +29,7 @@ import { AdminDigitalAssetModule } from './digital-asset/admin-digital-asset.mod
 import { AdminGroupBuyModule } from './group-buy/admin-group-buy.module';
 import { AdminNotificationsModule } from './notifications/admin-notifications.module';
 import { AdminGrowthModule } from './growth/admin-growth.module';
+import { AdminAnnouncementsModule } from './announcements/admin-announcements.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { AdminGrowthModule } from './growth/admin-growth.module';
     AdminGroupBuyModule,
     AdminNotificationsModule,
     AdminGrowthModule,
+    AdminAnnouncementsModule,
   ],
 })
 export class AdminModule {}

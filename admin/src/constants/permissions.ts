@@ -103,6 +103,10 @@ export const PERMISSIONS = {
   COUPON_READ: 'coupon:read',
   COUPON_MANAGE: 'coupon:manage',
 
+  // 消息公告
+  ANNOUNCEMENTS_READ: 'announcements:read',
+  ANNOUNCEMENTS_CREATE: 'announcements:create',
+
   // 分类
   CATEGORIES_READ: 'categories:read',
   CATEGORIES_MANAGE: 'categories:manage',
@@ -124,4 +128,5 @@ export const PERMISSIONS = {
   // 客服中心
   CS_READ: 'cs:read',
   CS_MANAGE: 'cs:manage',
+  CS_OUTREACH: 'cs:outreach',
 } as const;

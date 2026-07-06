@@ -1,0 +1,374 @@
+import { useState } from 'react';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Col,
+  Form,
+  Input,
+  Radio,
+  Row,
+  Select,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import {
+  BellOutlined,
+  EyeOutlined,
+  ReloadOutlined,
+  SendOutlined,
+} from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
+import {
+  createAnnouncement,
+  getAnnouncements,
+  previewAnnouncement,
+  type AnnouncementAudienceType,
+  type AnnouncementCategory,
+  type AnnouncementPreviewResult,
+  type AnnouncementPriority,
+  type AnnouncementRecord,
+  type AnnouncementType,
+  type CreateAnnouncementPayload,
+} from '@/api/announcements';
+import PermissionGate from '@/components/PermissionGate';
+import { PERMISSIONS } from '@/constants/permissions';
+
+const { Text, Title } = Typography;
+const { TextArea } = Input;
+
+type AnnouncementFormValues = {
+  title: string;
+  content: string;
+  category: AnnouncementCategory;
+  type: AnnouncementType;
+  priority: AnnouncementPriority;
+  audienceType: AnnouncementAudienceType;
+  buyerNoText?: string;
+  targetRoute?: string;
+};
+
+const audienceLabels: Record<AnnouncementAudienceType, string> = {
+  ALL: '全部买家',
+  VIP: 'VIP 买家',
+  NORMAL: '普通买家',
+  BUYER_NOS: '指定买家',
+};
+
+const statusMap: Record<AnnouncementRecord['status'], { text: string; color: string }> = {
+  SENDING: { text: '发送中', color: 'processing' },
+  SENT: { text: '已发送', color: 'success' },
+  PARTIAL_FAILED: { text: '部分失败', color: 'warning' },
+  FAILED: { text: '发送失败', color: 'error' },
+};
+
+const parseBuyerNos = (value?: string) =>
+  Array.from(new Set((value ?? '')
+    .split(/[\s,，;；]+/)
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)));
+
+export default function AnnouncementsPage() {
+  const { message, modal } = App.useApp();
+  const queryClient = useQueryClient();
+  const [form] = Form.useForm<AnnouncementFormValues>();
+  const [audienceType, setAudienceType] = useState<AnnouncementAudienceType>('ALL');
+  const [previewResult, setPreviewResult] = useState<AnnouncementPreviewResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ['admin', 'announcements', page, pageSize],
+    queryFn: () => getAnnouncements({ page, pageSize }),
+  });
+
+  const buildPayload = (values: AnnouncementFormValues): CreateAnnouncementPayload => {
+    const targetRoute = values.targetRoute?.trim();
+    return {
+      title: values.title.trim(),
+      content: values.content.trim(),
+      category: values.category,
+      type: values.type,
+      priority: values.priority,
+      target: targetRoute ? { route: targetRoute } : undefined,
+      audience: values.audienceType === 'BUYER_NOS'
+        ? { type: values.audienceType, buyerNos: parseBuyerNos(values.buyerNoText) }
+        : { type: values.audienceType },
+    };
+  };
+
+  const handlePreview = async () => {
+    const values = await form.validateFields();
+    const payload = buildPayload(values);
+    setPreviewing(true);
+    try {
+      const result = await previewAnnouncement(payload);
+      setPreviewResult(result);
+      if (result.invalidBuyerNos.length > 0) {
+        message.warning('有买家编号不可发送，请检查后再发布');
+      } else {
+        message.success(`可发送 ${result.count} 位买家`);
+      }
+    } catch (err) {
+      setPreviewResult(null);
+      message.error(err instanceof Error ? err.message : '预览失败');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    const values = await form.validateFields();
+    const payload = buildPayload(values);
+    modal.confirm({
+      title: '确认发布公告',
+      content: previewResult
+        ? `最近一次预览可发送 ${previewResult.count} 位买家。发布后会写入买家消息中心，不能撤回。`
+        : '发布后会写入买家消息中心，不能撤回。建议先预览受众人数。',
+      okText: '发布公告',
+      cancelText: '取消',
+      onOk: async () => {
+        setPublishing(true);
+        try {
+          await createAnnouncement(payload);
+          message.success('公告已发布');
+          form.resetFields();
+          setAudienceType('ALL');
+          setPreviewResult(null);
+          queryClient.invalidateQueries({ queryKey: ['admin', 'announcements'] });
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '发布失败');
+          throw err;
+        } finally {
+          setPublishing(false);
+        }
+      },
+    });
+  };
+
+  const columns: ColumnsType<AnnouncementRecord> = [
+    {
+      title: '公告',
+      dataIndex: 'title',
+      width: 260,
+      render: (_: unknown, record) => (
+        <Space direction="vertical" size={2}>
+          <Text strong>{record.title}</Text>
+          <Text type="secondary" ellipsis style={{ maxWidth: 320 }}>{record.content}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '受众',
+      dataIndex: 'audienceType',
+      width: 110,
+      render: (value: AnnouncementAudienceType) => audienceLabels[value] ?? value,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 110,
+      render: (value: AnnouncementRecord['status']) => {
+        const status = statusMap[value] ?? { text: value, color: 'default' };
+        return <Tag color={status.color}>{status.text}</Tag>;
+      },
+    },
+    {
+      title: '发送结果',
+      key: 'counts',
+      width: 180,
+      render: (_: unknown, record) => (
+        <Text>
+          成功 {record.successCount} / 目标 {record.recipientCount}
+          {record.failedCount > 0 ? `，失败 ${record.failedCount}` : ''}
+        </Text>
+      ),
+    },
+    {
+      title: '跳转',
+      dataIndex: 'target',
+      width: 180,
+      render: (target: AnnouncementRecord['target']) => (
+        target?.route ? <Text code>{target.route}</Text> : <Text type="secondary">无</Text>
+      ),
+    },
+    {
+      title: '发送时间',
+      dataIndex: 'sentAt',
+      width: 170,
+      render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
+    },
+  ];
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>消息公告</Title>
+        <Text type="secondary">向买家消息中心发布平台公告，也可以按 VIP、普通买家或买家编号定向发送</Text>
+      </div>
+
+      <Row gutter={16} align="top">
+        <Col xs={24} xl={9}>
+          <Card
+            title={<Space><BellOutlined />发布公告</Space>}
+            size="small"
+            style={{ marginBottom: 16 }}
+          >
+            <Form<AnnouncementFormValues>
+              form={form}
+              layout="vertical"
+              initialValues={{
+                category: 'system',
+                type: 'platform_announcement',
+                priority: 'NORMAL',
+                audienceType: 'ALL',
+              }}
+              onValuesChange={(changedValues) => {
+                if (changedValues.audienceType) {
+                  setAudienceType(changedValues.audienceType);
+                }
+                setPreviewResult(null);
+              }}
+            >
+              <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入公告标题' }]}>
+                <Input maxLength={80} showCount placeholder="例如：本周五晚 8 点平台活动提醒" />
+              </Form.Item>
+              <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入公告内容' }]}>
+                <TextArea rows={5} maxLength={5000} showCount placeholder="公告会作为消息正文展示在买家 App 消息中心" />
+              </Form.Item>
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item name="type" label="消息类型">
+                    <Select
+                      options={[
+                        { value: 'platform_announcement', label: '平台公告' },
+                        { value: 'platform_notice', label: '平台通知' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="priority" label="重要性">
+                    <Radio.Group buttonStyle="solid">
+                      <Radio.Button value="NORMAL">普通</Radio.Button>
+                      <Radio.Button value="IMPORTANT">重要</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name="category" label="消息分类">
+                <Select
+                  options={[
+                    { value: 'system', label: '系统' },
+                    { value: 'transaction', label: '交易' },
+                    { value: 'interaction', label: '互动' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="audienceType" label="发送范围">
+                <Select
+                  options={[
+                    { value: 'ALL', label: '全部买家' },
+                    { value: 'VIP', label: 'VIP 买家' },
+                    { value: 'NORMAL', label: '普通买家' },
+                    { value: 'BUYER_NOS', label: '指定买家编号' },
+                  ]}
+                />
+              </Form.Item>
+              {audienceType === 'BUYER_NOS' ? (
+                <Form.Item
+                  name="buyerNoText"
+                  label="买家编号"
+                  rules={[{ required: true, message: '请输入至少一个买家编号' }]}
+                >
+                  <TextArea rows={4} placeholder="每行一个或用逗号分隔，例如 AIMM202607060001" />
+                </Form.Item>
+              ) : null}
+              <Form.Item name="targetRoute" label="跳转页面">
+                <Input placeholder="选填，例如 /product/xxx、/orders/xxx、/coupon-center" />
+              </Form.Item>
+
+              {previewResult ? (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type={previewResult.invalidBuyerNos.length > 0 ? 'warning' : 'success'}
+                  showIcon
+                  message={`预览受众：${previewResult.count} 位可发送买家`}
+                  description={previewResult.invalidBuyerNos.length > 0
+                    ? `不可发送编号：${previewResult.invalidBuyerNos.join('、')}`
+                    : undefined}
+                />
+              ) : null}
+
+              <Space>
+                <Button icon={<EyeOutlined />} loading={previewing} onClick={handlePreview}>
+                  预览受众
+                </Button>
+                <PermissionGate permission={PERMISSIONS.ANNOUNCEMENTS_CREATE}>
+                  <Button type="primary" icon={<SendOutlined />} loading={publishing} onClick={handlePublish}>
+                    发布公告
+                  </Button>
+                </PermissionGate>
+              </Space>
+            </Form>
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={15}>
+          <Card
+            title="发送历史"
+            size="small"
+            extra={
+              <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
+                刷新
+              </Button>
+            }
+          >
+            <Row gutter={12} style={{ marginBottom: 16 }}>
+              <Col span={8}>
+                <Statistic title="历史公告" value={data?.total ?? 0} />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title="本页成功发送"
+                  value={(data?.items ?? []).reduce((sum, item) => sum + item.successCount, 0)}
+                />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title="本页失败"
+                  value={(data?.items ?? []).reduce((sum, item) => sum + item.failedCount, 0)}
+                />
+              </Col>
+            </Row>
+            <Table<AnnouncementRecord>
+              rowKey="id"
+              loading={isLoading}
+              columns={columns}
+              dataSource={data?.items ?? []}
+              scroll={{ x: 980 }}
+              pagination={{
+                current: page,
+                pageSize,
+                total: data?.total ?? 0,
+                showSizeChanger: true,
+              }}
+              onChange={(nextPagination) => {
+                setPage(nextPagination.current ?? 1);
+                setPageSize(nextPagination.pageSize ?? 20);
+              }}
+            />
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+}

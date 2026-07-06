@@ -23,6 +23,9 @@ function createMocks() {
   const agentService = {
     getAllAgentStatus: jest.fn().mockResolvedValue([]),
   };
+  const outreachService = {
+    create: jest.fn(),
+  };
   const prisma = {
     csQuickEntry: {
       findMany: jest.fn().mockResolvedValue([
@@ -45,9 +48,14 @@ function createMocks() {
   };
 
   const controller = new CsAdminController(
-    csService as any, faqService as any, ticketService as any, agentService as any, prisma as any,
+    csService as any,
+    faqService as any,
+    ticketService as any,
+    agentService as any,
+    outreachService as any,
+    prisma as any,
   );
-  return { controller, csService, faqService, ticketService, agentService, prisma };
+  return { controller, csService, faqService, ticketService, agentService, outreachService, prisma };
 }
 
 describe('CsAdminController', () => {

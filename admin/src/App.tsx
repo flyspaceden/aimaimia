@@ -54,6 +54,7 @@ const CsFaqPage = lazy(() => import('@/pages/cs/faq'));
 const CsQuickEntriesPage = lazy(() => import('@/pages/cs/quick-entries'));
 const CsQuickRepliesPage = lazy(() => import('@/pages/cs/quick-replies'));
 const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
+const AnnouncementsPage = lazy(() => import('@/pages/announcements/index'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
 const GrowthPage = lazy(() => import('@/pages/growth/index'));
@@ -165,6 +166,7 @@ export default function App() {
             <Route path="cs/quick-entries" element={<CsQuickEntriesPage />} />
             <Route path="cs/quick-replies" element={<CsQuickRepliesPage />} />
             <Route path="cs/dashboard" element={<CsDashboardPage />} />
+            <Route path="announcements" element={<AnnouncementsPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/roles" element={<RolesPage />} />
