@@ -51,9 +51,19 @@ test('admin cs workstation outreach buyer picker suggests buyers without pressin
   assert.match(workstation, /buyerSearchText/);
   assert.match(workstation, /debouncedBuyerSearchText/);
   assert.match(workstation, /setTimeout\(\(\) => \{/);
-  assert.match(workstation, /enabled:\s*outreachOpen/);
+  assert.match(workstation, /enabled:\s*outreachOpen && buyerPickerOpen/);
   assert.match(workstation, /onChange=\{\(e\) => \{/);
   assert.doesNotMatch(workstation, /enterButton="搜索"/);
+});
+
+test('admin cs workstation outreach buyer picker opens as an input dropdown', () => {
+  assert.match(workstation, /buyerPickerOpen/);
+  assert.match(workstation, /onFocus=\{\(\) => setBuyerPickerOpen\(true\)\}/);
+  assert.match(workstation, /\{buyerPickerOpen && \(/);
+  assert.match(workstation, /position:\s*'absolute'/);
+  assert.match(workstation, /setBuyerPickerOpen\(false\)/);
+  assert.doesNotMatch(workstation, /minHeight:\s*132/);
+  assert.doesNotMatch(workstation, /autoFocus/);
 });
 
 test('admin cs workstation session search includes buyerNo', () => {

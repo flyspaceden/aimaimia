@@ -34,7 +34,8 @@
 - 用户奖励：用户、会员、提现、奖励树、奖励配置
 - 商家商品：企业、商家商品、奖励商品、溯源
 - 交易售后：订单、换货、退款、运费
-- 运营活动：红包、抽奖
+- 运营活动：红包、抽奖、团购
+- 客服中心：消息公告、客服对话、工单、FAQ、快捷入口、快捷回复、数据看板
 - 系统管理：配置、管理员、角色、审计
 
 现在的问题不是页面数量多，而是页面职责边界不统一。
@@ -129,6 +130,11 @@
   红包管理          ← 单入口，内部 Tab 切换（活动/发放/使用/统计）
   抽奖管理
 
+客服中心
+  消息公告
+  对话工作台
+  工单管理
+
 系统管理
   平台设置
   管理员账号
@@ -185,6 +191,7 @@
 | 运费规则 | `/shipping-rules` | 交易与售后 / 运费规则 | 配置页 |
 | 红包管理 | `/coupons` | 运营活动 / 红包管理 | 单入口，内部 Tab 切换（活动/发放/使用/统计） |
 | 抽奖管理 | `/lottery` | 运营活动 / 抽奖管理 | 后续可再拆 |
+| 消息公告 | `/announcements` | 客服中心 / 消息公告 | 平台主动向买家消息中心发布公告 |
 | 平台设置 | `/config` | 系统管理 / 平台设置 | 仅保留平台级参数 |
 | 管理员账号 | `/admin/users` | 系统管理 / 管理员账号 | 后台账号 |
 | 角色权限 | `/admin/roles` | 系统管理 / 角色权限 | 权限矩阵 |
@@ -1159,5 +1166,5 @@
 
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
-| 消息公告 | 在“运营活动”下新增 `/announcements`，支持公告标题/内容、类型、重要性、系统/交易/互动分类、全部买家/VIP/普通/指定买家编号受众、可选 App 跳转页面选择器、受众预览和发送历史；管理员不填写路由代码，前端按中文页面选项映射实际 App 路由；发布公告/发送历史两栏在桌面端可拖拽调整宽度，小屏保持上下排列；权限使用 `announcements:read/create` | `admin/src/pages/announcements/index.tsx`, `admin/src/pages/announcements/index.css`, `admin/src/api/announcements.ts`, `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
-| 主动客服 | 用户详情页和客服工作台均支持“联系买家”；工作台弹窗打开即展示最近可联系买家，输入买家编号、手机号或昵称时自动刷新候选，选择买家后填写首条消息，调用 `POST /admin/cs/outreach` 并打开 `/cs/workstation?sessionId=...`；工作台列表支持按昵称和买家编号搜索，后端会复用/接管同一买家的活跃会话，避免重复创建 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |
+| 消息公告 | 在“客服中心”下新增 `/announcements`，支持公告标题/内容、类型、重要性、系统/交易/互动分类、全部买家/VIP/普通/指定买家编号受众、可选 App 跳转页面选择器、受众预览和发送历史；管理员不填写路由代码，前端按中文页面选项映射实际 App 路由；发布公告/发送历史两栏在桌面端可拖拽调整宽度，小屏保持上下排列；权限使用 `announcements:read/create`，客服中心父级按 `cs:read` 或 `announcements:read` 展示，客服子页仍单独要求 `cs:read` | `admin/src/pages/announcements/index.tsx`, `admin/src/pages/announcements/index.css`, `admin/src/api/announcements.ts`, `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
+| 主动客服 | 用户详情页和客服工作台均支持“联系买家”；工作台弹窗在点击/聚焦买家输入框时从输入框下方展示候选下拉层，输入买家编号、手机号或昵称时自动刷新候选，选择买家后收起下拉并保留已选买家摘要，再填写首条消息，调用 `POST /admin/cs/outreach` 并打开 `/cs/workstation?sessionId=...`；工作台列表支持按昵称和买家编号搜索，后端会复用/接管同一买家的活跃会话，避免重复创建 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |

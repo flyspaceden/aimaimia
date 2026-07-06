@@ -561,6 +561,7 @@ export default function CsWorkstationPage() {
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [buyerSearchText, setBuyerSearchText] = useState('');
   const [debouncedBuyerSearchText, setDebouncedBuyerSearchText] = useState('');
+  const [buyerPickerOpen, setBuyerPickerOpen] = useState(false);
   const [selectedBuyer, setSelectedBuyer] = useState<CsOutreachBuyer | null>(null);
   const [outreachInitialMessage, setOutreachInitialMessage] = useState('');
   const [outreachInviteTitle, setOutreachInviteTitle] = useState('');
@@ -622,7 +623,7 @@ export default function CsWorkstationPage() {
   const { data: outreachBuyers = [], isFetching: outreachBuyerSearching } = useQuery({
     queryKey: ['admin', 'cs', 'outreach-buyers', debouncedBuyerSearchText],
     queryFn: () => searchCsOutreachBuyers(debouncedBuyerSearchText),
-    enabled: outreachOpen,
+    enabled: outreachOpen && buyerPickerOpen,
   });
 
   // Socket.IO 连接
@@ -852,6 +853,7 @@ export default function CsWorkstationPage() {
   const resetOutreachForm = useCallback(() => {
     setBuyerSearchText('');
     setDebouncedBuyerSearchText('');
+    setBuyerPickerOpen(false);
     setSelectedBuyer(null);
     setOutreachInitialMessage('');
     setOutreachInviteTitle('');
@@ -1038,73 +1040,120 @@ export default function CsWorkstationPage() {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 8 }}>
               选择买家
             </div>
-            <Input
-              placeholder="输入买家编号、手机号或昵称"
-              allowClear
-              autoFocus
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              suffix={outreachBuyerSearching ? <Spin size="small" /> : null}
-              value={buyerSearchText}
-              onChange={(e) => {
-                setBuyerSearchText(e.target.value);
-                setSelectedBuyer(null);
-              }}
-            />
-          </div>
+            <div style={{ position: 'relative' }}>
+              <Input
+                placeholder="输入买家编号、手机号或昵称"
+                allowClear
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                suffix={outreachBuyerSearching ? <Spin size="small" /> : null}
+                value={buyerSearchText}
+                onFocus={() => setBuyerPickerOpen(true)}
+                onClick={() => setBuyerPickerOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setBuyerPickerOpen(false), 160);
+                }}
+                onChange={(e) => {
+                  setBuyerSearchText(e.target.value);
+                  setSelectedBuyer(null);
+                  setBuyerPickerOpen(true);
+                }}
+              />
 
-          <div
-            style={{
-              minHeight: 132,
-              maxHeight: 220,
-              overflow: 'auto',
-              border: '1px solid #e2e8f0',
-              borderRadius: 8,
-              backgroundColor: '#f8fafc',
-            }}
-          >
-            {outreachBuyerSearching ? (
-              <div style={{ padding: 32, textAlign: 'center' }}>
-                <Spin />
-              </div>
-            ) : outreachBuyers.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
-                {buyerSearchText.trim() ? '未找到可联系的 ACTIVE 买家' : '暂无可联系的 ACTIVE 买家'}
-              </div>
-            ) : (
-              outreachBuyers.map((buyer) => {
-                const active = selectedBuyer?.id === buyer.id;
-                return (
-                  <button
-                    key={buyer.id}
-                    type="button"
-                    onClick={() => setSelectedBuyer(buyer)}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      border: 0,
-                      borderBottom: '1px solid #e2e8f0',
-                      backgroundColor: active ? BRAND_BG : '#fff',
-                      borderLeft: active ? `3px solid ${BRAND_COLOR}` : '3px solid transparent',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                      <BuyerIdentityText
-                        buyerNo={buyer.buyerNo}
-                        userId={buyer.id}
-                        nickname={buyer.nickname || '未设置昵称'}
-                        phone={buyer.phone || undefined}
-                        compact
-                        showInternalId={false}
-                      />
-                      <Tag color={buyer.memberTier === 'VIP' ? 'gold' : 'default'}>
-                        {buyer.memberTier === 'VIP' ? 'VIP' : '普通'}
-                      </Tag>
+              {buyerPickerOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 30,
+                    maxHeight: 220,
+                    overflow: 'auto',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: 8,
+                    backgroundColor: '#fff',
+                    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.16)',
+                  }}
+                >
+                  {outreachBuyerSearching ? (
+                    <div style={{ padding: 24, textAlign: 'center' }}>
+                      <Spin />
                     </div>
-                  </button>
-                );
-              })
+                  ) : outreachBuyers.length === 0 ? (
+                    <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>
+                      {buyerSearchText.trim() ? '未找到可联系的 ACTIVE 买家' : '暂无可联系的 ACTIVE 买家'}
+                    </div>
+                  ) : (
+                    outreachBuyers.map((buyer) => {
+                      const active = selectedBuyer?.id === buyer.id;
+                      return (
+                        <button
+                          key={buyer.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setSelectedBuyer(buyer);
+                            setBuyerSearchText(buyer.nickname || buyer.buyerNo);
+                            setBuyerPickerOpen(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: 0,
+                            borderBottom: '1px solid #e2e8f0',
+                            backgroundColor: active ? BRAND_BG : '#fff',
+                            borderLeft: active ? `3px solid ${BRAND_COLOR}` : '3px solid transparent',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                            <BuyerIdentityText
+                              buyerNo={buyer.buyerNo}
+                              userId={buyer.id}
+                              nickname={buyer.nickname || '未设置昵称'}
+                              phone={buyer.phone || undefined}
+                              compact
+                              showInternalId={false}
+                            />
+                            <Tag color={buyer.memberTier === 'VIP' ? 'gold' : 'default'}>
+                              {buyer.memberTier === 'VIP' ? 'VIP' : '普通'}
+                            </Tag>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+            {selectedBuyer && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '8px 10px',
+                  border: `1px solid ${BRAND_LIGHT}`,
+                  borderRadius: 8,
+                  backgroundColor: BRAND_BG,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  alignItems: 'center',
+                }}
+              >
+                <BuyerIdentityText
+                  buyerNo={selectedBuyer.buyerNo}
+                  userId={selectedBuyer.id}
+                  nickname={selectedBuyer.nickname || '未设置昵称'}
+                  phone={selectedBuyer.phone || undefined}
+                  compact
+                  showInternalId={false}
+                />
+                <Tag color={selectedBuyer.memberTier === 'VIP' ? 'gold' : 'green'}>
+                  已选择 · {selectedBuyer.memberTier === 'VIP' ? 'VIP' : '普通'}
+                </Tag>
+              </div>
             )}
           </div>
 
