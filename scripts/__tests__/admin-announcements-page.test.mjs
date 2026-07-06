@@ -35,3 +35,15 @@ test('admin announcements page supports audience preview publish and history', (
   assert.match(page, /previewAnnouncement/);
   assert.match(page, /createAnnouncement/);
 });
+
+test('admin announcements page uses friendly target page choices instead of route input', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.match(page, /targetPageOptions/);
+  assert.match(page, /领券中心/);
+  assert.match(page, /团购首页/);
+  assert.match(page, /我的财库/);
+  assert.match(page, /推荐中心/);
+  assert.doesNotMatch(page, /targetRoute/);
+  assert.doesNotMatch(page, /\/product\/xxx/);
+  assert.doesNotMatch(page, /\/orders\/xxx/);
+});
