@@ -1246,4 +1246,4 @@
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
 | 消息公告 | 在“运营活动”下新增 `/announcements`，支持公告标题/内容、类型、重要性、系统/交易/互动分类、全部买家/VIP/普通/指定买家编号受众、可选 App 跳转页面选择器、受众预览和发送历史；管理员不填写路由代码，前端按中文页面选项映射实际 App 路由；发布公告/发送历史两栏在桌面端可拖拽调整宽度，小屏保持上下排列；权限使用 `announcements:read/create` | `admin/src/pages/announcements/index.tsx`, `admin/src/pages/announcements/index.css`, `admin/src/api/announcements.ts`, `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
-| 主动客服 | 用户详情页新增“联系买家”，提交初始消息后调用 `POST /admin/cs/outreach` 并跳转 `/cs/workstation?sessionId=...`；客服工作台支持从 URL 选中会话 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |
+| 主动客服 | 用户详情页和客服工作台均支持“联系买家”；工作台内可按买家编号、手机号或昵称搜索买家后填写首条消息，调用 `POST /admin/cs/outreach` 并打开 `/cs/workstation?sessionId=...`；工作台列表支持按昵称和买家编号搜索，后端会复用/接管同一买家的活跃会话，避免重复创建 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |

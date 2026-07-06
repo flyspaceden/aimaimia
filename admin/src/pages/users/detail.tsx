@@ -160,7 +160,13 @@ export default function UserDetailPage() {
         initialMessage: outreachModal.initialMessage.trim(),
         inviteTitle: outreachModal.inviteTitle.trim() || undefined,
       });
-      message.success('已发起客服会话');
+      if (result.reused) {
+        message.success('已打开该买家的现有会话');
+      } else if (result.claimed) {
+        message.success('已接管该买家的现有会话');
+      } else {
+        message.success('已发起客服会话');
+      }
       setOutreachModal({ open: false, initialMessage: '', inviteTitle: '' });
       navigate(`/cs/workstation?sessionId=${encodeURIComponent(result.sessionId)}`);
     } catch (err) {

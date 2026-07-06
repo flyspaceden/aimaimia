@@ -11,6 +11,12 @@ test('admin cs API exposes proactive outreach creation', () => {
   assert.match(csApi, /\/admin\/cs\/outreach/);
 });
 
+test('admin cs API exposes minimal buyer search for outreach', () => {
+  assert.match(csApi, /searchCsOutreachBuyers/);
+  assert.match(csApi, /\/admin\/cs\/buyers\/search/);
+  assert.match(csApi, /CsOutreachBuyer/);
+});
+
 test('admin user detail can start a proactive buyer chat and navigate to session', () => {
   assert.match(userDetail, /联系买家/);
   assert.match(userDetail, /createCsOutreach/);
@@ -31,4 +37,17 @@ test('admin cs workstation clears URL sessionId when the active socket session e
 
 test('admin cs workstation labels proactive outreach sessions in Chinese', () => {
   assert.match(workstation, /ADMIN_OUTREACH:\s*'客服主动联系'/);
+});
+
+test('admin cs workstation can start proactive buyer chat directly', () => {
+  assert.match(workstation, /联系买家/);
+  assert.match(workstation, /createCsOutreach/);
+  assert.match(workstation, /searchCsOutreachBuyers/);
+  assert.match(workstation, /PERMISSIONS\.CS_OUTREACH/);
+  assert.match(workstation, /输入买家编号、手机号或昵称/);
+});
+
+test('admin cs workstation session search includes buyerNo', () => {
+  assert.match(workstation, /buyerNo/);
+  assert.match(workstation, /buyerNo\.toLowerCase\(\)\.includes/);
 });

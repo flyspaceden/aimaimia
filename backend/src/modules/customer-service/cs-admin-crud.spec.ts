@@ -25,6 +25,9 @@ function createMocks() {
   };
   const outreachService = {
     create: jest.fn(),
+    searchBuyers: jest.fn().mockResolvedValue([
+      { id: 'user-1', buyerNo: 'AIMM20260706000001', nickname: '张三', phone: '138****1234' },
+    ]),
   };
   const prisma = {
     csQuickEntry: {
@@ -59,6 +62,19 @@ function createMocks() {
 }
 
 describe('CsAdminController', () => {
+  describe('Outreach', () => {
+    it('searchBuyers — 调用 outreachService.searchBuyers', async () => {
+      const { controller, outreachService } = createMocks();
+
+      const result = await controller.searchOutreachBuyers('AIMM20260706000001');
+
+      expect(outreachService.searchBuyers).toHaveBeenCalledWith('AIMM20260706000001');
+      expect(result).toEqual([
+        { id: 'user-1', buyerNo: 'AIMM20260706000001', nickname: '张三', phone: '138****1234' },
+      ]);
+    });
+  });
+
   // ====================================================================
   // FAQ CRUD
   // ====================================================================
