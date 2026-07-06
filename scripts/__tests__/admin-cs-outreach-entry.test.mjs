@@ -77,3 +77,12 @@ test('admin cs workstation session search includes buyerNo', () => {
   assert.match(workstation, /buyerNo/);
   assert.match(workstation, /buyerNo\.toLowerCase\(\)\.includes/);
 });
+
+test('admin cs workstation top search suggests outreach buyers on focus', () => {
+  assert.match(workstation, /sessionSearchBuyerPickerOpen/);
+  assert.match(workstation, /debouncedSessionBuyerSearchText/);
+  assert.match(workstation, /queryKey:\s*\['admin', 'cs', 'session-search-buyers'/);
+  assert.match(workstation, /enabled:\s*canOutreach && sessionSearchBuyerPickerOpen/);
+  assert.match(workstation, /onFocus=\{\(\) => setSessionSearchBuyerPickerOpen\(true\)\}/);
+  assert.match(workstation, /openOutreachModal\(buyer\)/);
+});
