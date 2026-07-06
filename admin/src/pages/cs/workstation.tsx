@@ -38,6 +38,7 @@ import {
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -134,7 +135,9 @@ function formatRelativeTime(dateStr: string): string {
 function formatSource(source: string, sourceId: string | null): string {
   const sourceMap: Record<string, string> = {
     HOME: '首页',
+    MY_PAGE: '我的咨询',
     ORDER_DETAIL: '订单详情页',
+    AFTERSALE_DETAIL: '售后详情页',
     ORDER_LIST: '订单列表',
     PRODUCT_DETAIL: '商品详情页',
     PROFILE: '个人中心',
@@ -549,6 +552,7 @@ function TypingIndicator() {
 
 export default function CsWorkstationPage() {
   const { message } = App.useApp();
+  const currentAdmin = useAuthStore((state) => state.admin);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSessionId = searchParams.get('sessionId');
   // 状态
@@ -774,6 +778,21 @@ export default function CsWorkstationPage() {
     if (!activeSessionId) return null;
     return sessions.find((s) => s.id === activeSessionId) || sessionDetail || null;
   }, [sessions, activeSessionId, sessionDetail]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (
+      !socket?.connected ||
+      !activeSessionId ||
+      !currentAdmin?.id ||
+      activeSession?.status !== 'AGENT_HANDLING' ||
+      activeSession.agentId !== currentAdmin.id
+    ) {
+      return;
+    }
+
+    socket.emit('cs:join_session', { sessionId: activeSessionId });
+  }, [activeSession?.agentId, activeSession?.status, activeSessionId, currentAdmin?.id, socketConnected]);
 
   // 按状态分组的会话列表
   const groupedSessions = useMemo(() => {

@@ -182,8 +182,6 @@ export class CsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const msg = await this.csService.handleAgentMessage(sessionId, client.data.adminId, content, contentType as any);
         client.to(`session:${sessionId}`).emit('cs:message', msg);
       } else if (client.data.userId) {
-        // 先验证归属再加入房间
-        const session = await this.csService.getActiveSession(client.data.userId, '', undefined);
         // 通过 handleUserMessage 的内部校验确认归属
         const result = await this.csService.handleUserMessage(sessionId, client.data.userId, content, contentType as any);
 

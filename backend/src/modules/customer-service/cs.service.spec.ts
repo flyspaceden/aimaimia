@@ -190,6 +190,15 @@ describe('CsService', () => {
         content: '您好，有什么可以帮您？',
         createdAt: new Date('2026-07-06T10:05:00.000Z'),
       };
+      const olderMessage = {
+        id: 'msg-old',
+        sessionId: 's2',
+        senderType: 'USER',
+        senderId: 'u1',
+        contentType: 'TEXT',
+        content: '旧会话',
+        createdAt: new Date('2026-07-06T09:10:00.000Z'),
+      };
       prisma.csSession.findMany.mockResolvedValue([
         {
           id: 's1',
@@ -205,13 +214,27 @@ describe('CsService', () => {
           messages: [lastMessage],
           ticket: { id: 't1', category: 'OTHER', priority: 'MEDIUM' },
         },
+        {
+          id: 's2',
+          userId: 'u1',
+          status: 'AGENT_HANDLING',
+          source: 'MY_PAGE',
+          sourceId: null,
+          agentId: 'admin-1',
+          agentJoinedAt: new Date('2026-07-06T10:10:00.000Z'),
+          closedAt: null,
+          createdAt: new Date('2026-07-06T10:10:00.000Z'),
+          buyerLastReadAt,
+          messages: [olderMessage],
+          ticket: null,
+        },
       ]);
       prisma.csMessage.count.mockResolvedValue(2);
 
       const result = await service.getBuyerSessionList('u1', {
         scope: 'active',
         page: 1,
-        pageSize: 20,
+        pageSize: 1,
       });
 
       expect(prisma.csSession.findMany).toHaveBeenCalledWith(
@@ -221,8 +244,6 @@ describe('CsService', () => {
             status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
           },
           orderBy: { createdAt: 'desc' },
-          skip: 0,
-          take: 20,
           include: expect.objectContaining({
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
             ticket: { select: { id: true, category: true, priority: true } },
@@ -236,6 +257,8 @@ describe('CsService', () => {
           createdAt: { gt: buyerLastReadAt },
         },
       });
+      expect(prisma.csMessage.count).toHaveBeenCalledTimes(1);
+      expect(result.items).toHaveLength(1);
       expect(result.items[0]).toEqual(expect.objectContaining({
         id: 's1',
         unreadCount: 2,
@@ -576,8 +599,45 @@ describe('CsService', () => {
   // ====================================================================
 
   describe('getSessionMessages()', () => {
-    it('marks the buyer active for HTTP polling before returning messages', async () => {
+    it('marks the buyer active for HTTP polling and advances read cursor only to the last returned message', async () => {
       const { service, prisma, presenceService } = createMocks();
+      const firstMessage = {
+        id: 'm1',
+        sessionId: 's1',
+        senderType: 'USER',
+        content: '你好',
+        createdAt: new Date('2026-07-06T10:00:00.000Z'),
+      };
+      const lastMessage = {
+        id: 'm2',
+        sessionId: 's1',
+        senderType: 'AGENT',
+        content: '您好',
+        createdAt: new Date('2026-07-06T10:00:03.000Z'),
+      };
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        status: 'AGENT_HANDLING',
+      });
+      prisma.csMessage.findMany.mockResolvedValue([firstMessage, lastMessage]);
+
+      await service.getSessionMessages('s1', 'u1');
+
+      expect(presenceService.markUserActiveInSession).toHaveBeenCalledWith('s1', 'u1');
+      expect(prisma.csMessage.findMany).toHaveBeenCalledWith({
+        where: { sessionId: 's1' },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(prisma.csSession.update).toHaveBeenCalledWith({
+        where: { id: 's1' },
+        data: { buyerLastReadAt: lastMessage.createdAt },
+        select: { id: true },
+      });
+    });
+
+    it('does not advance the buyer read cursor when no messages were returned', async () => {
+      const { service, prisma } = createMocks();
       prisma.csSession.findUnique.mockResolvedValue({
         id: 's1',
         userId: 'u1',
@@ -587,11 +647,7 @@ describe('CsService', () => {
 
       await service.getSessionMessages('s1', 'u1');
 
-      expect(presenceService.markUserActiveInSession).toHaveBeenCalledWith('s1', 'u1');
-      expect(prisma.csMessage.findMany).toHaveBeenCalledWith({
-        where: { sessionId: 's1' },
-        orderBy: { createdAt: 'asc' },
-      });
+      expect(prisma.csSession.update).not.toHaveBeenCalled();
     });
   });
 

@@ -8,12 +8,12 @@ test('buyer cs page can enter an existing outreach session from sessionId param'
   assert.match(csPage, /sessionId:\s*routeSessionId/);
   assert.match(csPage, /routeSessionId/);
   assert.match(csPage, /CsRepo\.getMessages\(routeSessionId\)/);
-  assert.match(csPage, /setSessionClosed\(false\)/);
+  assert.match(csPage, /setSessionClosed\(routeSessionStatus === 'CLOSED'\)/);
 });
 
 test('buyer cs page reloads when the routed outreach session changes', () => {
   assert.doesNotMatch(csPage, /eslint-disable-next-line react-hooks\/exhaustive-deps/);
-  assert.match(csPage, /\}, \[routeSessionId, show, source, sourceId\]\);/);
+  assert.match(csPage, /\}, \[routeSessionId, routeSessionStatus, show, source, sourceId\]\);/);
 });
 
 test('buyer cs page hides the AI welcome bubble for routed outreach sessions', () => {
