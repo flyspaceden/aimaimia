@@ -42,12 +42,6 @@ const relationStatusLabels: Record<NonNullable<NormalShareRecord['relationStatus
   ADMIN_VOIDED: '已作废',
 };
 
-function formatPercent(value?: number | null) {
-  if (typeof value !== 'number') return '后台配置';
-  const percent = value * 100;
-  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
-}
-
 function formatCurrency(value?: number | null) {
   const amount = Math.max(0, Number(value ?? 0));
   return `¥${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
@@ -142,7 +136,6 @@ export default function ReferralScreen() {
   const hasInviter = hasBoundReferralInviter(member);
   const canBindReferrer = !isVip && !hasInviter;
   const inviterLabel = getReferralInviterLabel(member);
-  const directReferralPercentText = formatPercent(member?.directReferralPercent);
   const autoVipRemaining = member?.autoVipRemainingSpend ?? null;
   const autoVipThreshold = member?.autoVipCumulativeSpendThreshold ?? null;
   const autoVipProgress = useMemo(() => {
@@ -319,7 +312,7 @@ export default function ReferralScreen() {
                     </Pressable>
                   </View>
                   <Text style={[typography.caption, { color: 'rgba(255,255,255,0.82)', marginTop: spacing.md }]}>
-                    已推荐 {inviteeVipCount} 位 VIP。好友成为 VIP 后进入你的 VIP 团队；好友后续普通商品订单按付款时的 VIP 直推比例 {directReferralPercentText} 结算。
+                    已推荐 {inviteeVipCount} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。
                   </Text>
                 </LinearGradient>
               ) : (
@@ -383,10 +376,6 @@ export default function ReferralScreen() {
                     <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推用户</Text>
                     <Text style={[typography.title3, { color: colors.text.primary }]}>{vipRecords.length}</Text>
                   </View>
-                  <View style={styles.statCell}>
-                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推比例</Text>
-                    <Text style={[typography.title3, { color: colors.success }]}>{directReferralPercentText}</Text>
-                  </View>
                 </>
               ) : (
                 <>
@@ -397,10 +386,6 @@ export default function ReferralScreen() {
                   <View style={styles.statCell}>
                     <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已奖励</Text>
                     <Text style={[typography.title3, { color: colors.success }]}>{normalStats?.rewardedInvitees ?? 0}</Text>
-                  </View>
-                  <View style={styles.statCell}>
-                    <Text style={[typography.captionSm, { color: colors.text.secondary }]}>直推比例</Text>
-                    <Text style={[typography.title3, { color: colors.success }]}>{directReferralPercentText}</Text>
                   </View>
                 </>
               )}
@@ -481,13 +466,8 @@ export default function ReferralScreen() {
                 <Text style={[typography.headingSm, { color: colors.text.primary }]}>推荐奖励</Text>
                 <Tag label={isVip ? 'VIP 推荐' : '普通推荐'} tone="accent" />
               </View>
-              <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.sm }]}>
-                {isVip
-                  ? `你推荐的用户后续普通商品订单，会按付款时的 VIP 直推比例 ${directReferralPercentText} 计算推荐奖励。`
-                  : `你推荐的用户后续普通商品订单，会按付款时的普通直推比例 ${directReferralPercentText} 计算推荐奖励。`}
-              </Text>
-              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.xs }]}>
-                购买 VIP 礼包本身不单独给推荐人发推荐奖；普通商品订单奖励会先冻结，确认收货且售后期结束后释放。
+              <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: spacing.sm }]}>
+                商品订单奖励会先冻结，确认收货且售后期结束后释放。
               </Text>
             </Animated.View>
 

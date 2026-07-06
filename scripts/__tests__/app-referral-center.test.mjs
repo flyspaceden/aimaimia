@@ -68,6 +68,18 @@ test('buyer app has a full recommended-user list page for normal and VIP users',
   assert.match(bonusTypes, /invitee:\s*\{/);
 });
 
+test('referral center does not expose configurable direct-ratio copy on the app page', () => {
+  const referral = read('app/me/referral.tsx');
+
+  assert.doesNotMatch(referral, /直推比例/);
+  assert.doesNotMatch(referral, /directReferralPercentText/);
+  assert.doesNotMatch(referral, /formatPercent/);
+  assert.doesNotMatch(referral, /付款时的 VIP 直推比例/);
+  assert.doesNotMatch(referral, /付款时的普通直推比例/);
+  assert.doesNotMatch(referral, /购买 VIP 礼包本身不单独给推荐人发推荐奖/);
+  assert.match(referral, /商品订单奖励会先冻结，确认收货且售后期结束后释放。/);
+});
+
 test('backend exposes VIP referral records for the buyer app', () => {
   const controller = read('backend/src/modules/bonus/bonus.controller.ts');
   const service = read('backend/src/modules/bonus/bonus.service.ts');
