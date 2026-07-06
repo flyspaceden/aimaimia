@@ -129,6 +129,32 @@ test('admin user table shows each user current recommendation code', () => {
   assert.match(usersService, /normalShareCode:\s*user\.memberProfile\?\.tier === 'VIP' \? null : user\.normalShareProfile\?\.code/);
 });
 
+test('admin user detail shows referral relationship tab', () => {
+  const detailPage = read('admin/src/pages/users/detail.tsx');
+  const usersTypes = read('admin/src/types/index.ts');
+  const usersService = read('backend/src/modules/admin/app-users/admin-app-users.service.ts');
+
+  assert.match(detailPage, /key: 'recommendation'/);
+  assert.match(detailPage, /label: '推荐关系'/);
+  assert.match(detailPage, /当前推荐码/);
+  assert.match(detailPage, /当前有效推荐人/);
+  assert.match(detailPage, /收到的普通分享关系/);
+  assert.match(detailPage, /收到的 VIP 推荐关系/);
+  assert.match(detailPage, /直接邀请的普通用户/);
+  assert.match(detailPage, /直接邀请的 VIP 用户/);
+  assert.match(detailPage, /directNormalInvitees/);
+  assert.match(detailPage, /directVipInvitees/);
+  assert.match(usersTypes, /recommendation:\s*AppUserRecommendation/);
+  assert.match(usersTypes, /export interface AppUserRecommendation/);
+  assert.match(usersTypes, /visibleCode:\s*AppUserRecommendationCode \| null/);
+  assert.match(usersTypes, /directNormalInvitees:\s*AppUserNormalInvitee\[\]/);
+  assert.match(usersTypes, /directVipInvitees:\s*AppUserVipInvitee\[\]/);
+  assert.match(usersService, /normalShareBindingReceived/);
+  assert.match(usersService, /normalShareBindingsMade/);
+  assert.match(usersService, /referralReceived/);
+  assert.match(usersService, /directVipInvitees/);
+});
+
 test('referral page tables support sortable relation and upgrade dates', () => {
   const referrals = read('admin/src/pages/referrals/index.tsx');
   const growthApi = read('admin/src/api/growth.ts');

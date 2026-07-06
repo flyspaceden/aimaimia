@@ -249,6 +249,101 @@ export interface AppUserStats {
   bannedUsers: number;
 }
 
+export interface AppUserRecommendationUser {
+  id: string;
+  buyerNo: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
+  phoneMasked: string | null;
+  memberTier: 'VIP' | 'NORMAL' | string | null;
+}
+
+export interface AppUserRecommendationCode {
+  type: 'NORMAL_SHARE' | 'VIP_REFERRAL';
+  code: string;
+  status: string | null;
+  url: string;
+}
+
+export interface AppUserNormalShareProfile {
+  id: string;
+  userId: string;
+  code: string;
+  status: string;
+  disabledReason: string | null;
+  shareUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppUserOrderSummary {
+  id: string;
+  orderNo: string | null;
+  totalAmount: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface AppUserNormalInvitee {
+  id: string;
+  inviterUserId: string;
+  inviteeUserId: string;
+  code: string;
+  source: string;
+  relationStatus: string | null;
+  relationInvalidAt: string | null;
+  relationInvalidReason: string | null;
+  effectiveInviterUserId: string | null;
+  boundAt: string;
+  firstOrderId: string | null;
+  rewardStatus: string;
+  rewardIssuedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  inviter: AppUserRecommendationUser | null;
+  invitee: AppUserRecommendationUser | null;
+  effectiveInviter: AppUserRecommendationUser | null;
+  firstOrder: AppUserOrderSummary | null;
+}
+
+export interface AppUserVipReferralLink {
+  id: string;
+  inviterUserId: string;
+  inviteeUserId: string;
+  codeUsed: string;
+  channel: string | null;
+  createdAt: string;
+  inviter: AppUserRecommendationUser | null;
+  invitee: AppUserRecommendationUser | null;
+  direction: 'received' | 'made';
+}
+
+export interface AppUserVipInvitee {
+  userId: string;
+  tier: 'VIP' | string;
+  referralCode: string | null;
+  vipPurchasedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: AppUserRecommendationUser | null;
+}
+
+export interface AppUserRecommendation {
+  visibleCode: AppUserRecommendationCode | null;
+  normalShareProfile: AppUserNormalShareProfile | null;
+  vipReferralCode: string | null;
+  currentInviter: AppUserRecommendationUser | null;
+  normalBindingReceived: AppUserNormalInvitee | null;
+  vipReferralReceived: AppUserVipReferralLink | null;
+  directNormalInvitees: AppUserNormalInvitee[];
+  directVipInvitees: AppUserVipInvitee[];
+  counts: {
+    directNormalInvitees: number;
+    activeNormalInvitees: number;
+    directVipInvitees: number;
+  };
+}
+
 export interface AppUserDetail {
   id: string;
   buyerNo: string | null;
@@ -272,6 +367,7 @@ export interface AppUserDetail {
     identifierMasked: string;
     verified: boolean;
   }>;
+  recommendation: AppUserRecommendation;
   createdAt: string;
   updatedAt: string;
 }
