@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const apiPath = 'admin/src/api/announcements.ts';
 const pagePath = 'admin/src/pages/announcements/index.tsx';
+const pageStylePath = 'admin/src/pages/announcements/index.css';
 const app = readFileSync('admin/src/App.tsx', 'utf8');
 const layout = readFileSync('admin/src/layouts/AdminLayout.tsx', 'utf8');
 const permissions = readFileSync('admin/src/constants/permissions.ts', 'utf8');
@@ -46,4 +47,18 @@ test('admin announcements page uses friendly target page choices instead of rout
   assert.doesNotMatch(page, /targetRoute/);
   assert.doesNotMatch(page, /\/product\/xxx/);
   assert.doesNotMatch(page, /\/orders\/xxx/);
+});
+
+test('admin announcements page lets operators resize publish and history panes', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.equal(existsSync(pageStylePath), true, 'announcements page split pane styles should exist');
+  const styles = readFileSync(pageStylePath, 'utf8');
+  assert.match(page, /announcementFormPaneWidth/);
+  assert.match(page, /role="separator"/);
+  assert.match(page, /aria-label="调整发布公告和发送历史宽度"/);
+  assert.match(page, /onMouseDown=\{handlePaneResizeStart\}/);
+  assert.match(page, /cursor: 'col-resize'/);
+  assert.match(styles, /\.announcement-pane-resizer/);
+  assert.match(styles, /@media \(max-width: 1199px\)/);
+  assert.doesNotMatch(page, /<Row gutter=\{16\} align="top">/);
 });
