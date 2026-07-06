@@ -1841,3 +1841,4 @@
 - [x] **AA04** 新增 `POST /admin/cs/outreach`，管理员可在用户详情页主动发起一对一客服会话，并给买家发送 `cs_outreach_invite` 站内信。
 - [x] **AA05** 客服工作台和买家客服页均支持 `sessionId` 参数，主动联系后两端能进入同一会话。
 - [x] **AA06** 验证通过：Prisma validate/generate、后端聚焦 Jest 28/28、静态合同测试 16/16、管理端 build、后端 build、App TypeScript check。
+- [x] **AA07** 消息公告“跳转页面”从路由文本框改为中文页面选择器，管理员不再填写 `/product/xxx`、`/orders/xxx` 等页面代码。

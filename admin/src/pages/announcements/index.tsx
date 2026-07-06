@@ -51,8 +51,21 @@ type AnnouncementFormValues = {
   priority: AnnouncementPriority;
   audienceType: AnnouncementAudienceType;
   buyerNoText?: string;
-  targetRoute?: string;
+  targetPage?: AnnouncementTargetPage;
 };
+
+type AnnouncementTargetPage =
+  | 'NONE'
+  | 'COUPON_CENTER'
+  | 'GROUP_BUY'
+  | 'ORDER_LIST'
+  | 'CUSTOMER_SERVICE'
+  | 'INBOX'
+  | 'WALLET'
+  | 'COUPONS'
+  | 'DIGITAL_ASSETS'
+  | 'GROWTH'
+  | 'REFERRAL';
 
 const audienceLabels: Record<AnnouncementAudienceType, string> = {
   ALL: '全部买家',
@@ -66,6 +79,35 @@ const statusMap: Record<AnnouncementRecord['status'], { text: string; color: str
   SENT: { text: '已发送', color: 'success' },
   PARTIAL_FAILED: { text: '部分失败', color: 'warning' },
   FAILED: { text: '发送失败', color: 'error' },
+};
+
+const targetPageOptions: Array<{ value: AnnouncementTargetPage; label: string; route?: string }> = [
+  { value: 'NONE', label: '不跳转' },
+  { value: 'COUPON_CENTER', label: '领券中心', route: '/coupon-center' },
+  { value: 'GROUP_BUY', label: '团购首页', route: '/group-buy' },
+  { value: 'ORDER_LIST', label: '订单列表', route: '/orders' },
+  { value: 'CUSTOMER_SERVICE', label: '在线客服', route: '/cs' },
+  { value: 'INBOX', label: '消息中心', route: '/inbox' },
+  { value: 'WALLET', label: '我的财库', route: '/me/wallet' },
+  { value: 'COUPONS', label: '我的福利', route: '/me/coupons' },
+  { value: 'DIGITAL_ASSETS', label: '数字资产', route: '/me/digital-assets' },
+  { value: 'GROWTH', label: '积分成长', route: '/me/growth' },
+  { value: 'REFERRAL', label: '推荐中心', route: '/me/referral' },
+];
+
+const routeByTargetPage = targetPageOptions.reduce((acc, option) => {
+  if (option.route) acc[option.value] = option.route;
+  return acc;
+}, {} as Partial<Record<AnnouncementTargetPage, string>>);
+
+const targetLabelByRoute = targetPageOptions.reduce((acc, option) => {
+  if (option.route) acc[option.route] = option.label;
+  return acc;
+}, {} as Record<string, string>);
+
+const getTargetPageLabel = (target?: AnnouncementRecord['target'] | null) => {
+  if (!target?.route) return '不跳转';
+  return targetLabelByRoute[target.route] ?? '历史跳转页面';
 };
 
 const parseBuyerNos = (value?: string) =>
@@ -91,14 +133,16 @@ export default function AnnouncementsPage() {
   });
 
   const buildPayload = (values: AnnouncementFormValues): CreateAnnouncementPayload => {
-    const targetRoute = values.targetRoute?.trim();
+    const selectedRoute = values.targetPage && values.targetPage !== 'NONE'
+      ? routeByTargetPage[values.targetPage]
+      : undefined;
     return {
       title: values.title.trim(),
       content: values.content.trim(),
       category: values.category,
       type: values.type,
       priority: values.priority,
-      target: targetRoute ? { route: targetRoute } : undefined,
+      target: selectedRoute ? { route: selectedRoute } : undefined,
       audience: values.audienceType === 'BUYER_NOS'
         ? { type: values.audienceType, buyerNos: parseBuyerNos(values.buyerNoText) }
         : { type: values.audienceType },
@@ -197,7 +241,9 @@ export default function AnnouncementsPage() {
       dataIndex: 'target',
       width: 180,
       render: (target: AnnouncementRecord['target']) => (
-        target?.route ? <Text code>{target.route}</Text> : <Text type="secondary">无</Text>
+        <Text type={target?.route ? undefined : 'secondary'}>
+          {getTargetPageLabel(target)}
+        </Text>
       ),
     },
     {
@@ -230,6 +276,7 @@ export default function AnnouncementsPage() {
                 type: 'platform_announcement',
                 priority: 'NORMAL',
                 audienceType: 'ALL',
+                targetPage: 'NONE',
               }}
               onValuesChange={(changedValues) => {
                 if (changedValues.audienceType) {
@@ -292,8 +339,15 @@ export default function AnnouncementsPage() {
                   <TextArea rows={4} placeholder="每行一个或用逗号分隔，例如 AIMM202607060001" />
                 </Form.Item>
               ) : null}
-              <Form.Item name="targetRoute" label="跳转页面">
-                <Input placeholder="选填，例如 /product/xxx、/orders/xxx、/coupon-center" />
+              <Form.Item name="targetPage" label="跳转页面" tooltip="买家点击消息后打开的页面">
+                <Select
+                  optionFilterProp="label"
+                  showSearch
+                  options={targetPageOptions.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
               </Form.Item>
 
               {previewResult ? (
