@@ -553,6 +553,7 @@ function TypingIndicator() {
 export default function CsWorkstationPage() {
   const { message } = App.useApp();
   const currentAdmin = useAuthStore((state) => state.admin);
+  const canOutreach = useAuthStore((state) => state.hasPermission(PERMISSIONS.CS_OUTREACH));
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSessionId = searchParams.get('sessionId');
   // 状态
@@ -562,6 +563,8 @@ export default function CsWorkstationPage() {
   const [inputValue, setInputValue] = useState('');
   const [typingSessionId, setTypingSessionId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [sessionSearchBuyerPickerOpen, setSessionSearchBuyerPickerOpen] = useState(false);
+  const [debouncedSessionBuyerSearchText, setDebouncedSessionBuyerSearchText] = useState('');
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [buyerSearchText, setBuyerSearchText] = useState('');
   const [debouncedBuyerSearchText, setDebouncedBuyerSearchText] = useState('');
@@ -611,6 +614,23 @@ export default function CsWorkstationPage() {
   const { data: quickReplies = [] } = useQuery({
     queryKey: ['admin', 'cs', 'quick-replies'],
     queryFn: () => getCsQuickReplies(),
+  });
+
+  useEffect(() => {
+    if (!sessionSearchBuyerPickerOpen) {
+      setDebouncedSessionBuyerSearchText('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedSessionBuyerSearchText(searchText.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchText, sessionSearchBuyerPickerOpen]);
+
+  const { data: sessionSearchBuyers = [], isFetching: sessionSearchBuyerSearching } = useQuery({
+    queryKey: ['admin', 'cs', 'session-search-buyers', debouncedSessionBuyerSearchText],
+    queryFn: () => searchCsOutreachBuyers(debouncedSessionBuyerSearchText),
+    enabled: canOutreach && sessionSearchBuyerPickerOpen,
   });
 
   useEffect(() => {
@@ -878,8 +898,12 @@ export default function CsWorkstationPage() {
     setOutreachInviteTitle('');
   }, []);
 
-  const openOutreachModal = useCallback(() => {
+  const openOutreachModal = useCallback((buyer?: CsOutreachBuyer | null) => {
     resetOutreachForm();
+    if (buyer) {
+      setSelectedBuyer(buyer);
+      setBuyerSearchText(buyer.nickname || buyer.buyerNo);
+    }
     setOutreachOpen(true);
   }, [resetOutreachForm]);
 
@@ -1221,25 +1245,99 @@ export default function CsWorkstationPage() {
         {/* 搜索 */}
         <div style={{ padding: 12, borderBottom: '1px solid #f1f5f9' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Input
-              placeholder="搜索用户或买家编号..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                backgroundColor: '#f8fafc',
-                borderColor: '#e2e8f0',
-                borderRadius: 8,
-              }}
-              allowClear
-            />
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Input
+                placeholder="搜索用户或买家编号..."
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                suffix={sessionSearchBuyerSearching ? <Spin size="small" /> : null}
+                value={searchText}
+                onFocus={() => setSessionSearchBuyerPickerOpen(true)}
+                onClick={() => setSessionSearchBuyerPickerOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setSessionSearchBuyerPickerOpen(false), 160);
+                }}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setSessionSearchBuyerPickerOpen(true);
+                }}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#f8fafc',
+                  borderColor: '#e2e8f0',
+                  borderRadius: 8,
+                }}
+                allowClear
+              />
+
+              {canOutreach && sessionSearchBuyerPickerOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 35,
+                    maxHeight: 260,
+                    overflow: 'auto',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: 8,
+                    backgroundColor: '#fff',
+                    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.16)',
+                  }}
+                >
+                  {sessionSearchBuyerSearching ? (
+                    <div style={{ padding: 24, textAlign: 'center' }}>
+                      <Spin />
+                    </div>
+                  ) : sessionSearchBuyers.length === 0 ? (
+                    <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>
+                      {searchText.trim() ? '未找到可联系的 ACTIVE 买家' : '暂无可联系的 ACTIVE 买家'}
+                    </div>
+                  ) : (
+                    sessionSearchBuyers.map((buyer) => (
+                      <button
+                        key={buyer.id}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setSearchText(buyer.nickname || buyer.buyerNo);
+                          setSessionSearchBuyerPickerOpen(false);
+                          openOutreachModal(buyer);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: 0,
+                          borderBottom: '1px solid #e2e8f0',
+                          backgroundColor: '#fff',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                          <BuyerIdentityText
+                            buyerNo={buyer.buyerNo}
+                            userId={buyer.id}
+                            nickname={buyer.nickname || '未设置昵称'}
+                            phone={buyer.phone || undefined}
+                            compact
+                            showInternalId={false}
+                          />
+                          <Tag color={buyer.memberTier === 'VIP' ? 'gold' : 'default'}>
+                            {buyer.memberTier === 'VIP' ? 'VIP' : '普通'}
+                          </Tag>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             <PermissionGate permission={PERMISSIONS.CS_OUTREACH}>
               <Button
                 type="primary"
                 icon={<MessageOutlined />}
-                onClick={openOutreachModal}
+                onClick={() => openOutreachModal()}
                 style={{ backgroundColor: BRAND_COLOR, borderColor: BRAND_COLOR }}
               >
                 联系买家
