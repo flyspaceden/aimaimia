@@ -85,6 +85,22 @@ describe('CsOutreachService', () => {
     ]);
   });
 
+  it('returns recent active buyers when outreach search keyword is empty', async () => {
+    const { service, prisma } = makeService();
+
+    const result = await service.searchBuyers('');
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        status: 'ACTIVE',
+        buyerNo: { not: null },
+      },
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+    }));
+    expect(result).toHaveLength(1);
+  });
+
   it('rejects invalid buyerNo without opening a transaction', async () => {
     const { service, prisma } = makeService();
 
