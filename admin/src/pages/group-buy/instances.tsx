@@ -5,6 +5,7 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { Button, Card, Descriptions, Drawer, Space, Table, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { getGroupBuyInstance, getGroupBuyInstances } from '@/api/group-buy';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import type {
   AdminGroupBuyInstance,
   AdminGroupBuyReferral,
@@ -40,9 +41,25 @@ export default function GroupBuyInstancesPage() {
   const columns: ProColumns<AdminGroupBuyInstance>[] = [
     {
       title: '分享用户',
-      dataIndex: 'keyword',
+      search: false,
       width: 260,
       render: (_: unknown, record) => <GroupBuyUser user={record.user} />,
+    },
+    {
+      title: '买家',
+      dataIndex: 'userId',
+      hideInTable: true,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索并选择买家编号、手机号或昵称" />
+      ),
+    },
+    {
+      title: '关键词',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: {
+        placeholder: '团购记录、活动、分享码或订单号',
+      },
     },
     {
       title: '活动商品',
@@ -131,6 +148,7 @@ export default function GroupBuyInstancesPage() {
             pageSize: params.pageSize,
             keyword: params.keyword as string | undefined,
             status: params.status as GroupBuyInstanceStatus | undefined,
+            userId: params.userId as string | undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}

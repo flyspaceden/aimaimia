@@ -3,6 +3,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import { Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { getGroupBuyOrders } from '@/api/group-buy';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import type { AdminGroupBuyOrder, OrderStatus } from '@/types';
 import {
   GroupBuyUser,
@@ -39,6 +40,14 @@ export default function GroupBuyOrdersPage() {
       search: false,
       width: 260,
       render: (_: unknown, record) => <GroupBuyUser user={record.user} />,
+    },
+    {
+      title: '买家',
+      dataIndex: 'userId',
+      hideInTable: true,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索并选择买家编号、手机号或昵称" />
+      ),
     },
     {
       title: '订单角色',
@@ -154,6 +163,7 @@ export default function GroupBuyOrdersPage() {
             pageSize: params.pageSize,
             keyword: params.keyword as string | undefined,
             status: params.status as OrderStatus | undefined,
+            userId: params.userId as string | undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
