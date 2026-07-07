@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **管理后台买家候选搜索统一接入**（2026-07-06 新增并完成）
+  - **来源**: 用户反馈管理后台还有很多搜索框没有“点击显示候选、输入实时联想、滚动继续加载更多”的体验。
+  - **实际做了**: 新增通用 `BuyerSuggestInput` 和 `BuyerNoMultiSelect`，基于 `/admin/app-users` 分页搜索买家；点击输入框展示候选，输入买家编号、手机号或昵称自动刷新，滚动到底继续加载下一页。首批接入用户管理、数字资产、积分成长、VIP 会员、推荐与拉新、消息公告指定买家编号。
+  - **验证**: 已按 TDD 先新增失败回归测试；修复后 `node --test scripts/__tests__/admin-buyer-suggest-input.test.mjs`、`node --test scripts/__tests__/admin-buyer-suggest-input.test.mjs scripts/__tests__/admin-announcements-page.test.mjs scripts/__tests__/admin-cs-outreach-entry.test.mjs`、`cd admin && npm run build`、`git diff --check` 通过。
+
 - [x] **买家 App 客服中心会话列表与实时主动客服消息**（2026-07-06 新增并完成）
   - **来源**: 用户确认管理后台公告与主动客服后，进一步要求买家 App 侧也能清楚管理正在进行和历史客服对话，并确认管理员主动联系买家后消息是否实时可见。
   - **实际做了**: `/cs` 默认改为客服中心会话列表，支持“进行中 / 历史对话”、最后消息、状态、未读数和手动刷新；“我的”页“联系客服”入口进入列表，订单/售后来源仍直接创建/恢复上下文会话；后端新增买家会话列表接口、买家已读游标 `buyerLastReadAt` 和标记已读接口；聊天页接入 Socket.IO `cs:join_session`，打开指定会话后加入 `session:{sessionId}` 房间，管理后台客服主动发来的消息可实时到达 App，同时保留 5 秒 HTTP 轮询兜底。

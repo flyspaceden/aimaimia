@@ -45,6 +45,7 @@ import {
   type CreateAnnouncementPayload,
 } from '@/api/announcements';
 import PermissionGate from '@/components/PermissionGate';
+import { BuyerNoMultiSelect } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
 import './index.css';
 
@@ -406,7 +407,7 @@ export default function AnnouncementsPage() {
                   label="买家编号"
                   rules={[{ required: true, message: '请输入至少一个买家编号' }]}
                 >
-                  <TextArea rows={4} placeholder="每行一个或用逗号分隔，例如 AIMM202607060001" />
+                  <BuyerNoMultiSelect placeholder="搜索并选择买家编号、手机号或昵称" />
                 </Form.Item>
               ) : null}
               <Form.Item name="targetPage" label="跳转页面" tooltip="买家点击消息后打开的页面">

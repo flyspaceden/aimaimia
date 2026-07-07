@@ -86,3 +86,10 @@ test('admin cs workstation top search suggests outreach buyers on focus', () => 
   assert.match(workstation, /onFocus=\{\(\) => setSessionSearchBuyerPickerOpen\(true\)\}/);
   assert.match(workstation, /openOutreachModal\(buyer\)/);
 });
+
+test('admin cs workstation top buyer suggestion popup is wider than the search input', () => {
+  assert.match(workstation, /SESSION_BUYER_SUGGESTION_POPUP_WIDTH\s*=\s*360/);
+  assert.match(workstation, /width:\s*SESSION_BUYER_SUGGESTION_POPUP_WIDTH/);
+  assert.match(workstation, /gridTemplateColumns:\s*'minmax\(0, 1fr\) auto'/);
+  assert.doesNotMatch(workstation, /right:\s*0,\s*\n\s*zIndex:\s*35/);
+});

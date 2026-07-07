@@ -52,6 +52,7 @@ const { TextArea } = Input;
 const BRAND_COLOR = '#2E7D32';
 const BRAND_BG = '#f0fdf4';
 const BRAND_LIGHT = '#dcfce7';
+const SESSION_BUYER_SUGGESTION_POPUP_WIDTH = 360;
 
 // 类别标签颜色
 const categoryColorMap: Record<string, { bg: string; text: string; border?: string }> = {
@@ -1239,7 +1240,7 @@ export default function CsWorkstationPage() {
           border: '1px solid #e2e8f0',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}
       >
         {/* 搜索 */}
@@ -1275,7 +1276,8 @@ export default function CsWorkstationPage() {
                     position: 'absolute',
                     top: 'calc(100% + 6px)',
                     left: 0,
-                    right: 0,
+                    width: SESSION_BUYER_SUGGESTION_POPUP_WIDTH,
+                    maxWidth: 'calc(100vw - 48px)',
                     zIndex: 35,
                     maxHeight: 260,
                     overflow: 'auto',
@@ -1314,15 +1316,17 @@ export default function CsWorkstationPage() {
                           cursor: 'pointer',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                          <BuyerIdentityText
-                            buyerNo={buyer.buyerNo}
-                            userId={buyer.id}
-                            nickname={buyer.nickname || '未设置昵称'}
-                            phone={buyer.phone || undefined}
-                            compact
-                            showInternalId={false}
-                          />
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <BuyerIdentityText
+                              buyerNo={buyer.buyerNo}
+                              userId={buyer.id}
+                              nickname={buyer.nickname || '未设置昵称'}
+                              phone={buyer.phone || undefined}
+                              compact
+                              showInternalId={false}
+                            />
+                          </div>
                           <Tag color={buyer.memberTier === 'VIP' ? 'gold' : 'default'}>
                             {buyer.memberTier === 'VIP' ? 'VIP' : '普通'}
                           </Tag>
