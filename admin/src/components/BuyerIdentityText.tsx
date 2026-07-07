@@ -23,17 +23,25 @@ export default function BuyerIdentityText({
   const displayName = nickname || phone || null;
   const primaryId = buyerNo || '非买家账号';
   const internalId = userId || null;
+  const primaryIdMaxWidth = compact ? 220 : 280;
 
   return (
-    <Space direction="vertical" size={0} style={{ maxWidth: '100%' }}>
+    <Space direction="vertical" size={0} style={{ maxWidth: '100%', minWidth: 0 }}>
       {displayName ? (
         <Typography.Text ellipsis style={{ maxWidth: compact ? 140 : 220 }}>
           {displayName}
         </Typography.Text>
       ) : null}
       <Typography.Text
+        ellipsis
         copyable={copyable && buyerNo ? { text: buyerNo } : false}
-        style={{ fontSize: compact ? 12 : 13, fontFamily: buyerNo ? 'monospace' : undefined }}
+        style={{
+          display: 'inline-block',
+          maxWidth: primaryIdMaxWidth,
+          whiteSpace: 'nowrap',
+          fontSize: compact ? 12 : 13,
+          fontFamily: buyerNo ? 'monospace' : undefined,
+        }}
         type={buyerNo ? undefined : 'secondary'}
       >
         {primaryId}

@@ -34,6 +34,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import PermissionGate from '@/components/PermissionGate';
 import { useResizableColumns } from '@/components/table/useResizableColumns';
 import { usePermission } from '@/hooks/usePermission';
@@ -201,6 +202,9 @@ export default function ReferralsPage() {
       title: '推荐人',
       dataIndex: 'keyword',
       width: 260,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索买家编号、手机号或昵称" />
+      ),
       render: (_: unknown, record) => renderUser(record.inviter),
     },
     {
@@ -307,6 +311,9 @@ export default function ReferralsPage() {
       title: 'VIP 用户',
       dataIndex: 'keyword',
       width: 240,
+      renderFormItem: () => (
+        <BuyerSuggestInput tier="VIP" placeholder="搜索 VIP 买家编号、手机号或昵称" />
+      ),
       render: (_: unknown, record) => (
         <BuyerIdentityText
           buyerNo={record.buyerNo || record.user?.buyerNo}

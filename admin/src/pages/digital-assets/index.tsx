@@ -43,6 +43,7 @@ import {
 } from '@/api/digital-assets';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
 import { usePermission } from '@/hooks/usePermission';
 import { getDigitalAssetLedgerStatusMeta } from './ledgerDisplay';
@@ -342,6 +343,9 @@ export default function DigitalAssetsPage() {
       title: '用户',
       dataIndex: 'keyword',
       width: 260,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索买家编号、手机号或昵称" />
+      ),
       render: (_: unknown, record) => (
         <Space>
           <Avatar src={record.user.avatarUrl} icon={<UserOutlined />} />

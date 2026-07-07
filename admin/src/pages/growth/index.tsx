@@ -37,6 +37,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import PermissionGate from '@/components/PermissionGate';
 import {
   adjustGrowthUser,
@@ -460,6 +461,9 @@ export default function GrowthPage() {
       title: '用户',
       dataIndex: 'keyword',
       width: 280,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索买家编号、手机号或昵称" />
+      ),
       render: (_: unknown, record) => (
         <Button
           type="link"

@@ -32,6 +32,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { useResizableColumns } from '@/components/table/useResizableColumns';
 import type { AppUser } from '@/types';
 import { userStatusMap as statusMap, memberTierColors } from '@/constants/statusMaps';
@@ -146,6 +147,9 @@ export default function UserListPage() {
       title: '用户',
       dataIndex: 'nickname',
       width: 220,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索买家编号、手机号或昵称" />
+      ),
       render: (_: unknown, r: AppUser) => (
         <Space>
           <Avatar src={r.avatarUrl} icon={<UserOutlined />} size="small" />

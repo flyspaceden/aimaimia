@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getMembers, getVipMembersStats } from '@/api/bonus';
 import type { BonusMember } from '@/types';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { useResizableColumns } from '@/components/table/useResizableColumns';
 import dayjs from 'dayjs';
 
@@ -260,6 +261,9 @@ export default function MemberListPage() {
       dataIndex: 'keyword',
       hideInTable: true,
       fieldProps: { placeholder: '买家编号 / 昵称 / 手机号 / 微信 / 推荐码' },
+      renderFormItem: () => (
+        <BuyerSuggestInput tier="VIP" placeholder="搜索 VIP 买家编号、手机号或昵称" />
+      ),
     },
     {
       title: '操作',
