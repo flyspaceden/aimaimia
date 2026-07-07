@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
@@ -13,7 +12,6 @@ import {
   Modal,
   Progress,
   Radio,
-  Select,
   Space,
   Statistic,
   Tabs,
@@ -33,13 +31,12 @@ import {
 } from '@ant-design/icons';
 import { getCampaigns, manualIssue, updateCampaignStatus } from '@/api/coupon';
 import type { CouponCampaign, CouponCampaignStatus } from '@/api/coupon';
-import { getAppUsers } from '@/api/app-users';
-import type { AppUser } from '@/types';
 import {
   couponCampaignStatusMap,
   couponTriggerTypeMap,
   couponDistributionModeMap,
 } from '@/constants/statusMaps';
+import { BuyerNoMultiSelect } from '@/components/BuyerSuggestInput';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import CampaignFormDrawer from './campaign-form';
@@ -53,12 +50,6 @@ import dayjs from 'dayjs';
 
 type ManualIssueTargetMode = 'SPECIFIC_USERS' | 'NORMAL_USERS' | 'VIP_USERS' | 'ALL_USERS';
 type ManualIssueScheduleMode = 'IMMEDIATE' | 'SCHEDULED';
-type ManualIssueUserOption = {
-  value: string;
-  title: string;
-  label: ReactNode;
-  user: AppUser;
-};
 
 /** 格式化抵扣规则显示 */
 function formatDiscountRule(record: CouponCampaign): string {
@@ -88,57 +79,11 @@ function formatCampaignTime(record: CouponCampaign): { start: string; end: strin
   };
 }
 
-function buildManualIssueUserOption(user: AppUser): ManualIssueUserOption {
-  const primary = user.nickname || user.buyerNo || user.phone || `用户 ${user.id.slice(-8)}`;
-  const secondary = [user.buyerNo, user.phone, `ID ${user.id.slice(-8)}`].filter(Boolean).join(' · ');
-
-  return {
-    value: user.id,
-    title: primary,
-    user,
-    label: (
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {primary}
-          </div>
-          <div style={{ fontSize: 12, color: '#8c8c8c', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {secondary || '暂无买家编号'}
-          </div>
-        </div>
-        <Tag color={user.memberTier === 'VIP' ? 'gold' : 'blue'} style={{ marginInlineEnd: 0 }}>
-          {user.memberTier === 'VIP' ? 'VIP' : '普通'}
-        </Tag>
-      </div>
-    ),
-  };
-}
-
-function mergeManualIssueUserOptions(
-  options: ManualIssueUserOption[],
-  selectedOptions: ManualIssueUserOption[],
-): ManualIssueUserOption[] {
-  const optionMap = new Map(options.map((option) => [option.value, option]));
-  selectedOptions.forEach((option) => {
-    if (!optionMap.has(option.value)) {
-      optionMap.set(option.value, option);
-    }
-  });
-  return Array.from(optionMap.values());
-}
-
-function pickManualIssueUserOptions(
-  values: string[],
-  options: ManualIssueUserOption[],
-  selectedOptions: ManualIssueUserOption[],
-): ManualIssueUserOption[] {
-  return values
-    .map(
-      (value) =>
-        options.find((option) => option.value === value) ||
-        selectedOptions.find((option) => option.value === value),
-    )
-    .filter((option): option is ManualIssueUserOption => Boolean(option));
+function splitManualIssueBuyerNos(value: string): string[] {
+  return value
+    .split(/[\n,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export default function CampaignListPage() {
@@ -154,12 +99,8 @@ export default function CampaignListPage() {
   const [manualIssueMode, setManualIssueMode] = useState<ManualIssueTargetMode>('SPECIFIC_USERS');
   const [manualIssueScheduleMode, setManualIssueScheduleMode] = useState<ManualIssueScheduleMode>('IMMEDIATE');
   const [manualIssueScheduledAt, setManualIssueScheduledAt] = useState<dayjs.Dayjs | null>(null);
-  const [manualIssueSelectedUsers, setManualIssueSelectedUsers] = useState<ManualIssueUserOption[]>([]);
-  const [manualIssueUserOptions, setManualIssueUserOptions] = useState<ManualIssueUserOption[]>([]);
-  const [manualIssueUserLoading, setManualIssueUserLoading] = useState(false);
+  const [manualIssueBuyerNosText, setManualIssueBuyerNosText] = useState('');
   const [manualIssueSubmitting, setManualIssueSubmitting] = useState(false);
-  const manualIssueUserRequestRef = useRef(0);
-  const manualIssueSelectedUsersRef = useRef<ManualIssueUserOption[]>([]);
 
   // 状态变更操作
   const handleStatusChange = (record: CouponCampaign, newStatus: CouponCampaignStatus) => {
@@ -194,49 +135,17 @@ export default function CampaignListPage() {
   };
 
   const closeManualIssueModal = () => {
-    manualIssueUserRequestRef.current += 1;
-    manualIssueSelectedUsersRef.current = [];
     setManualIssueCampaign(null);
     setManualIssueMode('SPECIFIC_USERS');
     setManualIssueScheduleMode('IMMEDIATE');
     setManualIssueScheduledAt(null);
-    setManualIssueSelectedUsers([]);
-    setManualIssueUserOptions([]);
-    setManualIssueUserLoading(false);
-  };
-
-  const loadManualIssueUsers = async (keyword = '') => {
-    const requestId = manualIssueUserRequestRef.current + 1;
-    manualIssueUserRequestRef.current = requestId;
-    setManualIssueUserLoading(true);
-    try {
-      const trimmedKeyword = keyword.trim();
-      const res = await getAppUsers({
-        page: 1,
-        pageSize: 20,
-        status: 'ACTIVE',
-        keyword: trimmedKeyword || undefined,
-      });
-      if (manualIssueUserRequestRef.current !== requestId) return;
-      const options = res.items.map(buildManualIssueUserOption);
-      setManualIssueUserOptions(
-        mergeManualIssueUserOptions(options, manualIssueSelectedUsersRef.current),
-      );
-    } catch (err) {
-      if (manualIssueUserRequestRef.current === requestId) {
-        message.error(err instanceof Error ? err.message : '搜索用户失败');
-      }
-    } finally {
-      if (manualIssueUserRequestRef.current === requestId) {
-        setManualIssueUserLoading(false);
-      }
-    }
+    setManualIssueBuyerNosText('');
   };
 
   const handleManualIssue = async () => {
     if (!manualIssueCampaign) return;
 
-    const userIds = manualIssueSelectedUsers.map((option) => option.value);
+    const userIds = splitManualIssueBuyerNos(manualIssueBuyerNosText);
     if (manualIssueMode === 'SPECIFIC_USERS' && userIds.length === 0) {
       message.warning('请选择要发放的用户');
       return;
@@ -536,41 +445,15 @@ export default function CampaignListPage() {
                   <Typography.Text type="secondary">
                     搜索昵称、手机号、买家编号或用户ID，选择一个或多个用户。
                   </Typography.Text>
-                  <Select
-                    mode="multiple"
-                    showSearch
-                    filterOption={false}
-                    value={manualIssueSelectedUsers.map((option) => option.value)}
-                    options={manualIssueUserOptions}
-                    loading={manualIssueUserLoading}
-                    optionLabelProp="title"
-                    maxTagCount="responsive"
-                    style={{ width: '100%', marginTop: 12 }}
-                    placeholder="搜索昵称、手机号、买家编号或用户ID"
-                    notFoundContent={manualIssueUserLoading ? '搜索中...' : '暂无用户'}
-                    onFocus={() => {
-                      if (manualIssueUserOptions.length === 0) {
-                        void loadManualIssueUsers();
-                      }
-                    }}
-                    onSearch={(value) => {
-                      void loadManualIssueUsers(value);
-                    }}
-                    onChange={(values) => {
-                      const selectedOptions = pickManualIssueUserOptions(
-                        values,
-                        manualIssueUserOptions,
-                        manualIssueSelectedUsers,
-                      );
-                      manualIssueSelectedUsersRef.current = selectedOptions;
-                      setManualIssueSelectedUsers(selectedOptions);
-                      setManualIssueUserOptions((options) =>
-                        mergeManualIssueUserOptions(options, selectedOptions),
-                      );
-                    }}
-                  />
+                  <div style={{ marginTop: 12 }}>
+                    <BuyerNoMultiSelect
+                      value={manualIssueBuyerNosText}
+                      onChange={setManualIssueBuyerNosText}
+                      placeholder="搜索并选择买家编号、手机号或昵称"
+                    />
+                  </div>
                   <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                    已选择 {manualIssueSelectedUsers.length} 位用户；发放时会自动跳过已达限领的用户。
+                    已选择 {splitManualIssueBuyerNos(manualIssueBuyerNosText).length} 位用户；发放时会自动跳过已达限领的用户。
                   </Typography.Text>
                 </div>
               ),

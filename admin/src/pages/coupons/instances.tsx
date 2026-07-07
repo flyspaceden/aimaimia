@@ -8,6 +8,7 @@ import type { CouponInstance } from '@/api/coupon';
 import { couponInstanceStatusMap } from '@/constants/statusMaps';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
 import dayjs from 'dayjs';
 
@@ -44,6 +45,14 @@ export default function InstanceListPage() {
           nickname={r.user?.profile?.nickname || '-'}
           compact
         />
+      ),
+    },
+    {
+      title: '买家',
+      dataIndex: 'userId',
+      hideInTable: true,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索并选择买家编号、手机号或昵称" />
       ),
     },
     {

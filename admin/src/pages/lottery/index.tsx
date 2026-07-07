@@ -58,6 +58,7 @@ import type { Prize, DrawRecord, LotteryStats, LotteryPrizeType } from '@/api/lo
 import PermissionGate from '@/components/PermissionGate';
 import RewardProductPicker from '@/components/RewardProductPicker';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -1093,6 +1094,14 @@ function DrawRecordsTab() {
           nickname={r.user?.profile?.nickname || '-'}
           compact
         />
+      ),
+    },
+    {
+      title: '买家',
+      dataIndex: 'userId',
+      hideInTable: true,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索并选择买家编号、手机号或昵称" />
       ),
     },
     {

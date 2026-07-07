@@ -17,6 +17,7 @@ import { getOrders, getOrderStats, shipOrder } from '@/api/orders';
 import { getCompanies } from '@/api/companies';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
+import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import type { Order, OrderStatsMap } from '@/types';
 import {
   orderStatusMap as statusMap,
@@ -192,6 +193,14 @@ export default function OrderListPage() {
           nickname={r.user?.nickname || r.user?.phone || '-'}
           compact
         />
+      ),
+    },
+    {
+      title: '买家',
+      dataIndex: 'userId',
+      hideInTable: true,
+      renderFormItem: () => (
+        <BuyerSuggestInput placeholder="搜索并选择买家编号、手机号或昵称" />
       ),
     },
     {
@@ -406,6 +415,7 @@ export default function OrderListPage() {
             orderNo: keyword,
             paymentMethod: paymentChannel,
             companyId,
+            userId,
           } = params as any;
           const statusFilter = activeTab !== 'ALL' ? activeTab : undefined;
           const res = await getOrders({
@@ -416,6 +426,7 @@ export default function OrderListPage() {
             startDate,
             endDate,
             companyId: companyId || undefined,
+            userId: userId || undefined,
             paymentChannel: paymentChannel || undefined,
           });
           return { data: res.items, total: res.total, success: true };

@@ -17,6 +17,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { GroupBuyService } from '../../group-buy/group-buy.service';
 import { GroupBuyLifecycleService } from '../../group-buy/group-buy-lifecycle.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
+import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 import {
   CreateGroupBuyActivityDto,
   GroupBuyActivityItemInputDto,
@@ -418,7 +419,7 @@ export class AdminGroupBuyService {
       where.activityId = options.activityId;
     }
     if (options.userId) {
-      where.userId = options.userId;
+      where.userId = await resolveBuyerUserId(this.prisma, options.userId);
     }
     if (options.keyword) {
       const keyword = options.keyword.trim();
@@ -472,7 +473,7 @@ export class AdminGroupBuyService {
       where.status = options.status as any;
     }
     if (options.userId) {
-      where.userId = options.userId;
+      where.userId = await resolveBuyerUserId(this.prisma, options.userId);
     }
     if (options.activityId) {
       where.OR = [
@@ -526,7 +527,7 @@ export class AdminGroupBuyService {
       where.status = options.status as GroupBuyRebateLedgerStatus;
     }
     if (options.userId) {
-      where.userId = options.userId;
+      where.userId = await resolveBuyerUserId(this.prisma, options.userId);
     }
     if (options.instanceId) {
       where.instanceId = options.instanceId;
