@@ -1,7 +1,3 @@
-jest.mock('../delivery/payments/delivery-payments.service', () => ({
-  DeliveryPaymentsService: class DeliveryPaymentsService {},
-}));
-
 import { PaymentService } from './payment.service';
 
 describe('PaymentService captain auto-refund hook', () => {
@@ -41,7 +37,6 @@ describe('PaymentService captain auto-refund hook', () => {
       prisma,
       {} as any,
       {} as any,
-      undefined,
       undefined,
       undefined,
       undefined,
