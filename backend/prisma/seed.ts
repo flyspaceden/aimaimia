@@ -14,6 +14,10 @@ import {
   PrismaClient,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import {
+  CAPTAIN_SEAFOOD_CONFIG_KEY,
+  DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+} from '../src/modules/captain/captain.constants';
 
 const prisma = new PrismaClient();
 
@@ -1535,6 +1539,10 @@ async function main() {
     { code: 'group_buy:manage', module: 'group_buy', action: 'manage', description: '团购-管理' },
     { code: 'group_buy:export', module: 'group_buy', action: 'export', description: '团购-导出' },
     { code: 'group_buy:settings', module: 'group_buy', action: 'settings', description: '团购-设置' },
+    { code: 'captain:read', module: 'captain', action: 'read', description: '团长经营-查看' },
+    { code: 'captain:manage', module: 'captain', action: 'manage', description: '团长经营-管理' },
+    { code: 'captain:settlement', module: 'captain', action: 'settlement', description: '团长经营-结算' },
+    { code: 'captain:settings', module: 'captain', action: 'settings', description: '团长经营-配置' },
   ];
 
   const permissionRecords: Record<string, string> = {};
@@ -1817,12 +1825,17 @@ async function main() {
       },
       desc: '数字资产 V2 消费资产倍率档位',
     },
+    {
+      key: CAPTAIN_SEAFOOD_CONFIG_KEY,
+      value: DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+      desc: '预包装海鲜团长经营激励配置',
+    },
   ];
 
   for (const rc of ruleConfigs) {
     await prisma.ruleConfig.upsert({
       where: { key: rc.key },
-      update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS'
+      update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS' || rc.key === CAPTAIN_SEAFOOD_CONFIG_KEY
         ? { value: { value: rc.value, description: rc.desc } }
         : {},
       create: { key: rc.key, value: { value: rc.value, description: rc.desc } },

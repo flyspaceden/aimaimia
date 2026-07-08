@@ -5,6 +5,11 @@
  * 防止管理员设置无效或危险的配置值。
  */
 
+import {
+  CAPTAIN_SEAFOOD_CONFIG_KEY,
+  validateCaptainSeafoodConfig,
+} from '../../captain/captain.constants';
+
 export type ConfigValueType = 'number' | 'integer' | 'boolean' | 'json' | 'string';
 
 export interface ConfigValidationRule {
@@ -409,6 +414,18 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
         if (!item.icon || typeof item.icon !== 'string') return `[${i}].icon 必须是非空字符串`;
       }
       return null;
+    },
+  },
+  [CAPTAIN_SEAFOOD_CONFIG_KEY]: {
+    type: 'json',
+    description: '预包装海鲜团长经营激励配置',
+    custom: (value: any) => {
+      try {
+        validateCaptainSeafoodConfig(value);
+        return null;
+      } catch (err: any) {
+        return err?.message || 'CAPTAIN_SEAFOOD_CONFIG 配置无效';
+      }
     },
   },
 
