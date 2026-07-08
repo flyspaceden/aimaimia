@@ -14,6 +14,38 @@ export function normalizeInviteCode(code?: string | null): string | null {
   return /^[A-Z0-9]{8}$/.test(normalized) ? normalized : null
 }
 
+export function getWechatCallbackParams(search: string): {
+  wechatCode: string | null
+  state: string | null
+} {
+  const params = new URLSearchParams(search)
+  return {
+    wechatCode: params.get('wechatCode') || params.get('code'),
+    state: params.get('state'),
+  }
+}
+
+export function removeWechatCallbackParamsFromSearch(search: string): string {
+  const params = new URLSearchParams(search)
+  params.delete('wechatCode')
+  params.delete('code')
+  params.delete('state')
+  const next = params.toString()
+  return next ? `?${next}` : ''
+}
+
+export function buildH5WechatStartUrl(
+  apiBase: string,
+  input: { inviteCode: string; landingSessionId?: string },
+): string {
+  const url = new URL(`${apiBase.replace(/\/+$/, '')}/auth/h5-wechat/start`)
+  url.searchParams.set('inviteCode', input.inviteCode)
+  if (input.landingSessionId) {
+    url.searchParams.set('landingSessionId', input.landingSessionId)
+  }
+  return url.toString()
+}
+
 export function unwrapApiData<T>(payload: { data?: T } | T | null): T | null {
   if (!payload || typeof payload !== 'object') return payload as T | null
   if ('data' in payload) return payload.data ?? null

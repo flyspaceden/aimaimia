@@ -18,7 +18,7 @@ import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
-import { randomBytes, createHash, randomInt } from 'crypto';
+import { randomBytes, createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
@@ -29,6 +29,24 @@ import { nextBuyerNo } from '../../common/utils/buyer-no.util';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { pickUniqueNormalShareCode } from '../normal-share/normal-share-code.util';
 import { InviteH5Service } from '../invite-h5/invite-h5.service';
+import { H5WechatInviteLoginDto, H5WechatStartQueryDto } from './dto/send-code.dto';
+
+type WechatOAuthSource = 'mobile' | 'h5';
+
+type WechatLoginProfile = {
+  openId: string;
+  unionId: string;
+  appId: string;
+  appType: 'MOBILE_APP' | 'H5_SERVICE_ACCOUNT';
+  accessToken: string | null;
+};
+
+type H5WechatStatePayload = {
+  inviteCode: string;
+  landingSessionId?: string;
+  nonce: string;
+  iat: number;
+};
 
 @Injectable()
 export class AuthService {
@@ -442,11 +460,83 @@ export class AuthService {
   /** 微信登录 */
   // B02修复：增加 WECHAT_MOCK 环境变量控制，生产环境必须关闭
   async loginWithWeChat(code: string) {
+    const profile = await this.exchangeWechatOAuthCode(code, 'mobile');
+    return this.loginOrCreateWechatUser(profile);
+  }
+
+  buildH5WechatAuthUrl(input: H5WechatStartQueryDto) {
+    const inviteCode = this.normalizeH5InviteCode(input.inviteCode);
+    const appId = this.config.getOrThrow<string>('WECHAT_H5_APP_ID');
+    const redirectBase = this.config.get<string>(
+      'WECHAT_H5_AUTH_REDIRECT_BASE',
+      'https://app.ai-maimai.com/invite',
+    );
+    const redirectUri = `${redirectBase.replace(/\/+$/, '')}/${encodeURIComponent(inviteCode)}`;
+    const state = this.signH5WechatState({
+      inviteCode,
+      landingSessionId: input.landingSessionId,
+    });
+
+    const url = new URL('https://open.weixin.qq.com/connect/oauth2/authorize');
+    url.searchParams.set('appid', appId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', 'snsapi_userinfo');
+    url.searchParams.set('state', state);
+    url.hash = 'wechat_redirect';
+    return url.toString();
+  }
+
+  async h5WechatInviteLogin(dto: H5WechatInviteLoginDto) {
+    const inviteCode = this.normalizeH5InviteCode(dto.inviteCode);
+    const state = this.verifyH5WechatState(dto.state);
+    if (state.inviteCode !== inviteCode) {
+      throw new BadRequestException('微信授权状态不匹配，请重新扫码');
+    }
+
+    const profile = await this.exchangeWechatOAuthCode(dto.wechatCode, 'h5');
+    const session = await this.loginOrCreateWechatUser(profile);
+    const landingSessionId = state.landingSessionId ?? dto.landingSessionId;
+    const inviteBinding = await this.inviteH5.bindAfterAuth({
+      userId: session.userId,
+      inviteCode,
+      landingSessionId,
+    });
+
+    return {
+      ...session,
+      user: { id: session.userId },
+      inviteBinding,
+    };
+  }
+
+  /**
+   * 用 wechat code 换取微信用户公开资料（openId + headimgurl + nickname）
+   * 不创建用户、不签 Token。给"绑定微信后回填头像"等已登录态场景用
+   *
+   * @returns 失败抛 BadRequestException；mock 模式下返回稳定的派生 openId 但 avatarUrl 为 undefined
+   */
+  async exchangeCodeForWechatProfile(code: string): Promise<{
+    openId: string;
+    unionId: string;
+    nickname: string;
+    avatarUrl?: string;
+  }> {
+    const { openId, unionId, accessToken } = await this.exchangeWechatOAuthCode(code, 'mobile');
+    const profile = await this.fetchWechatUserProfile(accessToken, openId);
+    return { openId, unionId, nickname: profile.nickname, avatarUrl: profile.avatarUrl };
+  }
+
+  private async exchangeWechatOAuthCode(
+    code: string,
+    source: WechatOAuthSource,
+  ): Promise<WechatLoginProfile> {
     const wechatMock = this.config.get('WECHAT_MOCK', 'true');
     const nodeEnv = this.config.get('NODE_ENV', 'development');
-    let openId: string;
-    let unionId: string;
-    let accessToken: string | null = null;
+    const appId = source === 'h5'
+      ? this.config.get<string>('WECHAT_H5_APP_ID', 'mock-h5-service-account')
+      : this.config.get<string>('WECHAT_APP_ID', 'mock-mobile-app');
+    const appType = source === 'h5' ? 'H5_SERVICE_ACCOUNT' : 'MOBILE_APP';
 
     if (wechatMock === 'true') {
       if (nodeEnv === 'production') {
@@ -454,62 +544,56 @@ export class AuthService {
           '[WeChat] 生产环境仍使用 Mock 微信登录，请设置 WECHAT_MOCK=false 并配置微信开放平台',
         );
       }
-      // Mock：根据 code 生成固定的 openId 和 unionId
-      openId = createHash('sha256').update(`wx_openid_${code}`).digest('hex').slice(0, 28);
-      unionId = createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28);
+      const openIdPrefix = source === 'h5' ? 'wx_h5_openid' : 'wx_openid';
+      const openId = createHash('sha256').update(`${openIdPrefix}_${code}`).digest('hex').slice(0, 28);
+      const unionId = createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28);
       this.logger.log(
-        `[WeChat Mock] 已生成测试身份（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
+        `[WeChat Mock] 已生成测试身份（source=${source}, openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
       );
+      return { openId, unionId, appId, appType, accessToken: null };
     } else {
-      // 真实微信登录：用 code 换 access_token + openId
-      const appId = this.config.getOrThrow<string>('WECHAT_APP_ID');
-      const appSecret = this.config.getOrThrow<string>('WECHAT_APP_SECRET');
-      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${appId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
-
+      const realAppId = source === 'h5'
+        ? this.config.getOrThrow<string>('WECHAT_H5_APP_ID')
+        : this.config.getOrThrow<string>('WECHAT_APP_ID');
+      const appSecret = source === 'h5'
+        ? this.config.getOrThrow<string>('WECHAT_H5_APP_SECRET')
+        : this.config.getOrThrow<string>('WECHAT_APP_SECRET');
+      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${realAppId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
       const tokenRes = await fetch(tokenUrl);
-      const tokenData = await tokenRes.json() as {
+      const tokenData = (await tokenRes.json()) as {
         access_token?: string;
         openid?: string;
         unionid?: string;
         errcode?: number;
         errmsg?: string;
       };
-
       if (tokenData.errcode || !tokenData.openid) {
         this.logger.error(`[WeChat] token 换取失败: errcode=${tokenData.errcode}, errmsg=${tokenData.errmsg}`);
         throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
       }
-
-      openId = tokenData.openid;
-      unionId = tokenData.unionid || '';
-      accessToken = tokenData.access_token || null;
-
+      const openId = tokenData.openid;
+      const unionId = tokenData.unionid || '';
+      const accessToken = tokenData.access_token || null;
       this.logger.log(
-        `[WeChat] 授权成功（openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
+        `[WeChat] 授权成功（source=${source}, openId=${this.maskOpaqueId(openId)}, unionId=${this.maskOpaqueId(unionId)}）`,
       );
+      return { openId, unionId, appId: realAppId, appType, accessToken };
     }
+  }
 
-    // 查找是否已有微信绑定的身份
-    const identity = await this.prisma.authIdentity.findFirst({
-      where: { provider: 'WECHAT', identifier: openId },
-      include: { user: { select: { status: true } } },
-    });
+  private async loginOrCreateWechatUser(profile: WechatLoginProfile) {
+    const identity = await this.findWechatIdentity(profile);
 
     if (identity) {
-      // 账号注销护栏：非 ACTIVE 账号不签发 Session（DELETED 正常已 tombstone 不会命中，防御性兜底）
       if (identity.user.status !== UserStatus.ACTIVE) {
         throw new ForbiddenException('账号不可用');
       }
-      // 已绑定用户，直接签发 Token
       await this.ensureBuyerNoForBuyer(identity.userId);
+      await this.ensureWechatIdentityForProfile(identity, profile);
       return this.issueTokens(identity.userId, 'wechat');
     }
 
-    // 首次微信登录：尽量用 snsapi_userinfo 拿真实昵称/头像/性别/城市；失败
-    // 则 fallback 到 "微信" + openId 尾段（6 位），保证有辨识度
-    const profileData = await this.fetchWechatUserProfile(accessToken, openId);
-
-    // 首次微信登录，自动创建用户 + UserProfile + AuthIdentity + MemberProfile
+    const profileData = await this.fetchWechatUserProfile(profile.accessToken, profile.openId);
     const user = await this.prisma.user.create({
       data: {
         buyerNo: await nextBuyerNo(this.prisma),
@@ -536,66 +620,233 @@ export class AuthService {
         authIdentities: {
           create: {
             provider: 'WECHAT',
-            identifier: openId,
+            identifier: profile.openId,
+            unionId: profile.unionId || null,
+            appId: profile.appId,
             verified: true,
-            meta: { unionId },
+            meta: {
+              unionId: profile.unionId,
+              appId: profile.appId,
+              appType: profile.appType,
+              nickname: profileData.nickname,
+              avatarUrl: profileData.avatarUrl,
+            },
           },
         },
       },
     });
 
-    // Phase F: 微信首次登录自动注册触发 REGISTER 红包
     this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
-        this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
-      });
+      this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
+    });
     this.triggerRegisterGrowth(user.id);
 
     return this.issueTokens(user.id, 'wechat');
   }
 
-  /**
-   * 用 wechat code 换取微信用户公开资料（openId + headimgurl + nickname）
-   * 不创建用户、不签 Token。给"绑定微信后回填头像"等已登录态场景用
-   *
-   * @returns 失败抛 BadRequestException；mock 模式下返回稳定的派生 openId 但 avatarUrl 为 undefined
-   */
-  async exchangeCodeForWechatProfile(code: string): Promise<{
-    openId: string;
-    unionId: string;
-    nickname: string;
-    avatarUrl?: string;
-  }> {
-    const wechatMock = this.config.get('WECHAT_MOCK', 'true');
-    let openId: string;
-    let unionId: string;
-    let accessToken: string | null = null;
+  private async findWechatIdentity(profile: WechatLoginProfile) {
+    if (profile.unionId) {
+      const byUnion = await this.prisma.authIdentity.findFirst({
+        where: { provider: 'WECHAT', unionId: profile.unionId },
+        include: { user: { select: { status: true } } },
+      });
+      if (byUnion) return byUnion;
 
-    if (wechatMock === 'true') {
-      openId = createHash('sha256').update(`wx_openid_${code}`).digest('hex').slice(0, 28);
-      unionId = createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28);
-    } else {
-      const appId = this.config.getOrThrow<string>('WECHAT_APP_ID');
-      const appSecret = this.config.getOrThrow<string>('WECHAT_APP_SECRET');
-      const tokenUrl = `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${appId}&secret=${appSecret}&code=${code}&grant_type=authorization_code`;
-      const tokenRes = await fetch(tokenUrl);
-      const tokenData = (await tokenRes.json()) as {
-        access_token?: string;
-        openid?: string;
-        unionid?: string;
-        errcode?: number;
-        errmsg?: string;
-      };
-      if (tokenData.errcode || !tokenData.openid) {
-        this.logger.error(`[WeChat] token 换取失败: errcode=${tokenData.errcode}, errmsg=${tokenData.errmsg}`);
-        throw new BadRequestException(`微信授权失败：${tokenData.errmsg || '未知错误'}`);
-      }
-      openId = tokenData.openid;
-      unionId = tokenData.unionid || '';
-      accessToken = tokenData.access_token || null;
+      const byLegacyMetaUnion = await this.prisma.authIdentity.findFirst({
+        where: {
+          provider: 'WECHAT',
+          meta: { path: ['unionId'], equals: profile.unionId },
+        },
+        include: { user: { select: { status: true } } },
+      });
+      if (byLegacyMetaUnion) return byLegacyMetaUnion;
     }
 
-    const profile = await this.fetchWechatUserProfile(accessToken, openId);
-    return { openId, unionId, nickname: profile.nickname, avatarUrl: profile.avatarUrl };
+    return this.prisma.authIdentity.findFirst({
+      where: {
+        provider: 'WECHAT',
+        identifier: profile.openId,
+        OR: [
+          { appId: profile.appId },
+          { appId: null },
+        ],
+      },
+      include: { user: { select: { status: true } } },
+    });
+  }
+
+  private async ensureWechatIdentityForProfile(
+    identity: {
+      id: string;
+      userId: string;
+      identifier: string;
+      unionId?: string | null;
+      appId?: string | null;
+      meta?: Prisma.JsonValue | null;
+    },
+    profile: WechatLoginProfile,
+  ) {
+    const sameOpenId = identity.identifier === profile.openId;
+    const updateData: Prisma.AuthIdentityUpdateInput = {};
+    if (!identity.unionId && profile.unionId) {
+      updateData.unionId = profile.unionId;
+    }
+    if (sameOpenId && !identity.appId) {
+      updateData.appId = profile.appId;
+    }
+    if (Object.keys(updateData).length > 0) {
+      updateData.meta = this.mergeWechatIdentityMeta(identity.meta, profile);
+      await this.prisma.authIdentity.update({
+        where: { id: identity.id },
+        data: updateData,
+      });
+    }
+
+    if (sameOpenId) return;
+
+    const currentOpenIdIdentity = await this.prisma.authIdentity.findFirst({
+      where: {
+        provider: 'WECHAT',
+        identifier: profile.openId,
+        OR: [
+          { appId: profile.appId },
+          { appId: null },
+        ],
+      },
+    });
+    if (currentOpenIdIdentity) {
+      if (currentOpenIdIdentity.userId !== identity.userId) {
+        throw new BadRequestException('微信身份已绑定其他账号');
+      }
+
+      const currentUpdate: Prisma.AuthIdentityUpdateInput = {};
+      if (!currentOpenIdIdentity.unionId && profile.unionId) {
+        currentUpdate.unionId = profile.unionId;
+      }
+      if (!currentOpenIdIdentity.appId) {
+        currentUpdate.appId = profile.appId;
+      }
+      if (Object.keys(currentUpdate).length > 0) {
+        currentUpdate.meta = this.mergeWechatIdentityMeta(currentOpenIdIdentity.meta, profile);
+        await this.prisma.authIdentity.update({
+          where: { id: currentOpenIdIdentity.id },
+          data: currentUpdate,
+        });
+      }
+      return;
+    }
+
+    await this.prisma.authIdentity.create({
+      data: {
+        userId: identity.userId,
+        provider: 'WECHAT',
+        identifier: profile.openId,
+        unionId: profile.unionId || null,
+        appId: profile.appId,
+        verified: true,
+        meta: this.mergeWechatIdentityMeta(null, profile),
+      },
+    });
+  }
+
+  private mergeWechatIdentityMeta(
+    meta: Prisma.JsonValue | null | undefined,
+    profile: WechatLoginProfile,
+  ): Prisma.JsonObject {
+    const existing = meta && typeof meta === 'object' && !Array.isArray(meta)
+      ? meta as Prisma.JsonObject
+      : {};
+    return {
+      ...existing,
+      unionId: profile.unionId,
+      appId: profile.appId,
+      appType: profile.appType,
+    };
+  }
+
+  private signH5WechatState(input: {
+    inviteCode: string;
+    landingSessionId?: string;
+  }): string {
+    const payload: H5WechatStatePayload = {
+      inviteCode: this.normalizeH5InviteCode(input.inviteCode),
+      landingSessionId: input.landingSessionId,
+      nonce: randomBytes(8).toString('hex'),
+      iat: Date.now(),
+    };
+    const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+    const signature = this.signH5WechatStateBody(body);
+    return `${body}.${signature}`;
+  }
+
+  private verifyH5WechatState(state: string | null | undefined): H5WechatStatePayload {
+    if (!state || !state.includes('.')) {
+      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    }
+    const parts = state.split('.');
+    if (parts.length !== 2) {
+      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    }
+    const [body, signature] = parts;
+    const expected = this.signH5WechatStateBody(body);
+    if (!this.safeEqual(signature, expected)) {
+      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    }
+
+    let payload: H5WechatStatePayload;
+    try {
+      payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    } catch {
+      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    }
+
+    if (
+      !payload ||
+      typeof payload.inviteCode !== 'string' ||
+      typeof payload.iat !== 'number' ||
+      typeof payload.nonce !== 'string'
+    ) {
+      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    }
+    if (Date.now() - payload.iat > 10 * 60_000) {
+      throw new BadRequestException('微信授权已过期，请重新扫码');
+    }
+
+    return {
+      inviteCode: this.normalizeH5InviteCode(payload.inviteCode),
+      landingSessionId: payload.landingSessionId,
+      nonce: payload.nonce,
+      iat: payload.iat,
+    };
+  }
+
+  private signH5WechatStateBody(body: string): string {
+    return createHmac('sha256', this.getH5WechatStateSecret())
+      .update(body)
+      .digest('base64url');
+  }
+
+  private getH5WechatStateSecret(): string {
+    const explicit = this.config.get<string>('WECHAT_H5_AUTH_STATE_SECRET');
+    if (explicit) return explicit;
+    if (this.config.get('NODE_ENV', 'development') !== 'production') {
+      return this.config.get<string>('JWT_SECRET', 'dev-h5-wechat-state-secret');
+    }
+    throw new Error('缺少 WECHAT_H5_AUTH_STATE_SECRET');
+  }
+
+  private safeEqual(a: string, b: string): boolean {
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    return left.length === right.length && timingSafeEqual(left, right);
+  }
+
+  private normalizeH5InviteCode(code: string): string {
+    const normalized = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{8}$/.test(normalized)) {
+      throw new BadRequestException('邀请链接不可用');
+    }
+    return normalized;
   }
 
   /** Apple 登录（占位） */

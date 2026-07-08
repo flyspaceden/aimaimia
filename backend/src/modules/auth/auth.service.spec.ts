@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserStatus } from '@prisma/client';
+import { createHash } from 'crypto';
 
 // CaptchaService 顶层 import 了 ESM-only 的 @paralleldrive/cuid2 / svg-captcha，
 // ts-jest（commonjs）无法转译。本单测只手工注入 captcha mock，不需要真实实现，
@@ -17,6 +18,10 @@ import { AuthService } from './auth.service';
 const PHONE = '13800001234';
 const OPENID = 'wx-openid-1234567890';
 
+function mockWechatOpenId(prefix: string, code: string) {
+  return createHash('sha256').update(`${prefix}_${code}`).digest('hex').slice(0, 28);
+}
+
 /** 构造一个可链式调用的 prisma mock，默认行为可被各用例覆写 */
 function makePrisma(overrides: Record<string, any> = {}) {
   const base: any = {
@@ -32,6 +37,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
       // 默认无任何身份命中（注册/登录的"号码未占用"基线）
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'identity-new' }),
+      update: jest.fn().mockResolvedValue({ id: 'identity-updated' }),
     },
     // pickUniqueReferralCode 预查空闲推荐码：默认无冲突
     memberProfile: {
@@ -543,6 +549,169 @@ describe('AuthService — H5 invite login', () => {
         success: false,
         meta: { mode: 'code' },
       }),
+    });
+  });
+});
+
+describe('AuthService — H5 invite WeChat login', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('builds H5 WeChat auth URL with signed state containing invite context', () => {
+    const prisma = makePrisma();
+    const { service } = makeService(prisma);
+
+    const url = (service as any).buildH5WechatAuthUrl({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+    const parsed = new URL(url);
+
+    expect(`${parsed.origin}${parsed.pathname}`).toBe('https://open.weixin.qq.com/connect/oauth2/authorize');
+    expect(parsed.searchParams.get('appid')).toBe('stub-WECHAT_H5_APP_ID');
+    expect(parsed.searchParams.get('response_type')).toBe('code');
+    expect(parsed.searchParams.get('scope')).toBe('snsapi_userinfo');
+    expect(parsed.searchParams.get('redirect_uri')).toBe(
+      'https://app.ai-maimai.com/invite/SABC1234',
+    );
+
+    const state = parsed.searchParams.get('state');
+    expect(state).toEqual(expect.any(String));
+    const verified = (service as any).verifyH5WechatState(state);
+    expect(verified).toMatchObject({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+  });
+
+  it('H5 WeChat invite login reuses unionId identity and binds after auth', async () => {
+    const prisma = makePrisma();
+    const { service, inviteH5 } = makeService(prisma);
+    const wechatCode = 'conference-wechat-code';
+    const unionId = mockWechatOpenId('wx_unionid', wechatCode);
+    const h5OpenId = mockWechatOpenId('wx_h5_openid', wechatCode);
+    const existingIdentity = {
+      id: 'identity-existing-wx',
+      userId: 'existing-wechat-user',
+      provider: 'WECHAT',
+      identifier: 'app-open-id',
+      unionId,
+      appId: 'mobile-app-id',
+      user: { status: UserStatus.ACTIVE },
+    };
+    prisma.authIdentity.findFirst.mockImplementation((args: any) => {
+      if (args?.where?.provider === 'WECHAT' && args?.where?.unionId === unionId) {
+        return Promise.resolve(existingIdentity);
+      }
+      return Promise.resolve(null);
+    });
+    const state = (service as any).signH5WechatState({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+
+    const result = await (service as any).h5WechatInviteLogin({
+      wechatCode,
+      state,
+      inviteCode: 'SABC1234',
+    });
+
+    expect(prisma.authIdentity.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        provider: 'WECHAT',
+        unionId,
+      }),
+      include: { user: { select: { status: true } } },
+    }));
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
+      userId: 'existing-wechat-user',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+    expect(result).toMatchObject({
+      userId: 'existing-wechat-user',
+      loginMethod: 'wechat',
+      user: { id: 'existing-wechat-user' },
+      inviteBinding: {
+        status: 'BOUND',
+        type: 'NORMAL_SHARE',
+      },
+    });
+    expect(h5OpenId).not.toBe(existingIdentity.identifier);
+  });
+
+  it('H5 WeChat invite login reuses legacy meta.unionId identity before creating a user', async () => {
+    const prisma = makePrisma();
+    const { service, inviteH5 } = makeService(prisma);
+    const wechatCode = 'legacy-app-wechat-code';
+    const unionId = mockWechatOpenId('wx_unionid', wechatCode);
+    const h5OpenId = mockWechatOpenId('wx_h5_openid', wechatCode);
+    const legacyIdentity = {
+      id: 'identity-legacy-wx',
+      userId: 'legacy-wechat-user',
+      provider: 'WECHAT',
+      identifier: 'legacy-app-open-id',
+      unionId: null,
+      appId: null,
+      meta: { unionId },
+      user: { status: UserStatus.ACTIVE },
+    };
+    prisma.authIdentity.findFirst.mockImplementation((args: any) => {
+      if (args?.where?.provider === 'WECHAT' && args?.where?.unionId === unionId) {
+        return Promise.resolve(null);
+      }
+      if (
+        args?.where?.provider === 'WECHAT' &&
+        args?.where?.meta?.path?.[0] === 'unionId' &&
+        args?.where?.meta?.equals === unionId
+      ) {
+        return Promise.resolve(legacyIdentity);
+      }
+      if (args?.where?.provider === 'WECHAT' && args?.where?.identifier === h5OpenId) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(null);
+    });
+    const state = (service as any).signH5WechatState({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_legacy',
+    });
+
+    const result = await (service as any).h5WechatInviteLogin({
+      wechatCode,
+      state,
+      inviteCode: 'SABC1234',
+    });
+
+    expect(prisma.authIdentity.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        provider: 'WECHAT',
+        meta: { path: ['unionId'], equals: unionId },
+      }),
+      include: { user: { select: { status: true } } },
+    }));
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.authIdentity.update).toHaveBeenCalledWith({
+      where: { id: 'identity-legacy-wx' },
+      data: expect.objectContaining({ unionId }),
+    });
+    expect(prisma.authIdentity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'legacy-wechat-user',
+        provider: 'WECHAT',
+        identifier: h5OpenId,
+        unionId,
+        appId: 'mock-h5-service-account',
+      }),
+    });
+    expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
+      userId: 'legacy-wechat-user',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_legacy',
+    });
+    expect(result).toMatchObject({
+      userId: 'legacy-wechat-user',
+      loginMethod: 'wechat',
     });
   });
 });
