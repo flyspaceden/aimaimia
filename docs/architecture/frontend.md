@@ -1714,10 +1714,10 @@ Tab 栏设计：
 推荐关系展示规则：
 - `GET /bonus/member` 返回 `inviter` 摘要后，`/me/vip` 在购买前显示"将加入谁的 VIP 团队"；未绑定时显示"购买后将由系统分配"，并提供扫码绑定入口。
 - `我的`Tab 的"常用工具"第一项固定进入 `/me/referral`，文案统一为"推荐中心"；第二项为独立的"积分成长"，进入 `/me/growth`。
-- `/me/referral` 是统一推荐中心：普通用户展示普通分享码、绑定推荐人、自动成为 VIP 进度、普通推荐收益说明和最近推荐用户；VIP 用户展示 VIP 推荐码、VIP 直推比例、直邀 VIP 人数、绑定推荐人和最近推荐用户。若推荐人摘要缺失但已有关系，前端仍按已绑定展示，名称兜底为"已绑定用户"。
+- `/me/referral` 是统一推荐中心：普通用户展示普通分享码、绑定推荐人、自动成为 VIP 进度、普通推荐收益说明和最近推荐用户；VIP 用户展示 VIP 推荐码、VIP 直邀 VIP 人数、绑定推荐人和最近推荐用户。普通和 VIP 的新二维码/分享链接统一指向官网 H5 `https://app.ai-maimai.com/invite/{code}`，被推荐人可先在 H5 用手机号验证码登录/自动注册并绑定关系；页面同时展示 H5 邀请漏斗统计（扫码打开、已登录、已绑定）。若推荐人摘要缺失但已有关系，前端仍按已绑定展示，名称兜底为"已绑定用户"。
 - `/me/referral-users` 展示当前用户直接推荐的全部用户：普通用户读取 `GET /normal-share/records`，VIP 用户读取 `GET /bonus/referral/records`。
 - `/me/growth` 只展示积分余额、成长值、成长任务、等级规则和积分兑换，不再承载普通分享码、绑定分享码或推荐收益模块。
-- 扫码成功后 `/me/scanner` 使用绑定结果中的 `inviter.nickname / maskedPhone` 提示"已绑定推荐人：xxx"，并刷新 `bonus-member` 缓存。
+- 扫码成功后 `/me/scanner` 使用绑定结果中的 `inviter.nickname / maskedPhone` 提示"已绑定推荐人：xxx"，并刷新 `bonus-member` 缓存；扫码器兼容旧 `/r/{code}`、`/s/{code}` 和新 `/invite/{code}`，其中 `/invite/{code}` 按 auto 类型交给后端绑定规则判断。
 
 ---
 
