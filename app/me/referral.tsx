@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AppState,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -110,6 +111,18 @@ export default function ReferralScreen() {
     enabled: isLoggedIn,
   });
 
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !isLoggedIn) return;
+      queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
+      queryClient.invalidateQueries({ queryKey: ['normal-share-records'] });
+      queryClient.invalidateQueries({ queryKey: ['normal-share-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['vip-referral-records'] });
+      queryClient.invalidateQueries({ queryKey: ['invite-h5-stats'] });
+    });
+    return () => subscription.remove();
+  }, [isLoggedIn, queryClient]);
+
   const bindMutation = useMutation({
     mutationFn: (code: string) => GrowthRepo.bindNormalShareCode(code),
     onSuccess: async (result) => {
@@ -131,6 +144,9 @@ export default function ReferralScreen() {
   const shareProfile = shareQuery.data?.ok ? shareQuery.data.data : null;
   const normalStats = statsQuery.data?.ok ? statsQuery.data.data : null;
   const inviteH5Stats = inviteH5StatsQuery.data?.ok ? inviteH5StatsQuery.data.data : null;
+  const inviteH5StatsError = inviteH5StatsQuery.data && !inviteH5StatsQuery.data.ok
+    ? (inviteH5StatsQuery.data.error.displayMessage ?? 'H5 邀请数据加载失败')
+    : null;
   const normalRecords = normalRecordsQuery.data?.ok ? normalRecordsQuery.data.data : [];
   const vipRecords = vipRecordsQuery.data?.ok ? vipRecordsQuery.data.data : [];
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
@@ -155,6 +171,7 @@ export default function ReferralScreen() {
   const recentVipRecords = vipRecords.slice(0, 5);
   const recentCount = isVip ? recentVipRecords.length : recentNormalRecords.length;
   const inviteeVipCount = member?.inviteeVipCount ?? 0;
+  const formatH5StatValue = (value?: number | null) => inviteH5StatsError ? '--' : String(value ?? 0);
 
   const loading =
     memberQuery.isLoading ||
@@ -382,17 +399,22 @@ export default function ReferralScreen() {
               <View style={[styles.h5StatsRow, { marginTop: spacing.md }]}>
                 <View style={styles.statCell}>
                   <Text style={[typography.captionSm, { color: colors.text.secondary }]}>扫码打开</Text>
-                  <Text style={[typography.title3, { color: colors.text.primary }]}>{inviteH5Stats?.openCount ?? 0}</Text>
+                  <Text style={[typography.title3, { color: colors.text.primary }]}>{formatH5StatValue(inviteH5Stats?.openCount)}</Text>
                 </View>
                 <View style={styles.statCell}>
                   <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已登录</Text>
-                  <Text style={[typography.title3, { color: colors.brand.primary }]}>{inviteH5Stats?.authedCount ?? 0}</Text>
+                  <Text style={[typography.title3, { color: colors.brand.primary }]}>{formatH5StatValue(inviteH5Stats?.authedCount)}</Text>
                 </View>
                 <View style={styles.statCell}>
                   <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已绑定</Text>
-                  <Text style={[typography.title3, { color: colors.success }]}>{inviteH5Stats?.boundCount ?? 0}</Text>
+                  <Text style={[typography.title3, { color: colors.success }]}>{formatH5StatValue(inviteH5Stats?.boundCount)}</Text>
                 </View>
               </View>
+              {inviteH5StatsError ? (
+                <Text style={[typography.captionSm, { color: colors.danger, marginTop: spacing.sm }]}>
+                  {inviteH5StatsError}
+                </Text>
+              ) : null}
             </Animated.View>
 
             <Animated.View

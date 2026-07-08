@@ -7,6 +7,8 @@ export type InviteBindingStatus =
   | 'NOT_ELIGIBLE'
   | 'ERROR'
 
+export type InviteSubmitState = 'success' | 'warning' | 'error'
+
 export function normalizeInviteCode(code?: string | null): string | null {
   const normalized = code?.trim().toUpperCase() ?? ''
   return /^[A-Z0-9]{8}$/.test(normalized) ? normalized : null
@@ -38,11 +40,31 @@ export function bindingStatusText(status?: InviteBindingStatus | string | null):
   }
 }
 
+export function canContinueAfterLandingCodeStatus(status?: string | null): boolean {
+  return Boolean(status);
+}
+
+export function submitStateForBindingStatus(
+  status?: InviteBindingStatus | string | null,
+): InviteSubmitState {
+  if (status === 'BOUND' || status === 'ALREADY_BOUND_SAME') return 'success'
+  if (status === 'ERROR') return 'error'
+  return 'warning'
+}
+
 export function apiErrorMessage(payload: unknown, fallback = '请求失败'): string {
   if (!payload || typeof payload !== 'object') return fallback
   const message = (payload as { message?: unknown }).message
   if (Array.isArray(message) && message.length > 0) return String(message[0])
   if (typeof message === 'string' && message.trim()) return message
   const error = (payload as { error?: unknown }).error
-  return typeof error === 'string' && error.trim() ? error : fallback
+  if (typeof error === 'string' && error.trim()) return error
+  if (error && typeof error === 'object') {
+    const displayMessage = (error as { displayMessage?: unknown }).displayMessage
+    if (typeof displayMessage === 'string' && displayMessage.trim()) return displayMessage
+    const nestedMessage = (error as { message?: unknown }).message
+    if (Array.isArray(nestedMessage) && nestedMessage.length > 0) return String(nestedMessage[0])
+    if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage
+  }
+  return fallback
 }

@@ -5,7 +5,9 @@ import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
 import {
   apiErrorMessage,
   bindingStatusText,
+  canContinueAfterLandingCodeStatus,
   normalizeInviteCode,
+  submitStateForBindingStatus,
   unwrapApiData,
   type InviteBindingStatus,
 } from '@/lib/inviteH5'
@@ -96,10 +98,12 @@ export default function InviteAuthLanding() {
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState('')
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
+  const [loginCompleted, setLoginCompleted] = useState(false)
   const [showWechatGuide, setShowWechatGuide] = useState(false)
   const platform = detectPlatform()
   const wechat = isWechat()
-  const formDisabled = !inviteCode || landingState === 'invalid'
+  const authCompleted = loginCompleted
+  const formDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted
 
   useEffect(() => {
     if (!inviteCode) {
@@ -121,9 +125,12 @@ export default function InviteAuthLanding() {
     }).then((res) => {
       if (!active) return
       setLandingSessionId(res.landingSessionId)
-      if (res.codeStatus === 'INVALID' || res.codeStatus === 'CONFLICT') {
+      if (!canContinueAfterLandingCodeStatus(res.codeStatus)) {
         setLandingState('invalid')
         setNotice('邀请链接不可用')
+      } else if (res.codeStatus === 'INVALID' || res.codeStatus === 'CONFLICT') {
+        setLandingState('unverified')
+        setNotice('邀请链接暂不可用，登录后不会绑定推荐关系')
       } else {
         setLandingState('ready')
       }
@@ -144,10 +151,6 @@ export default function InviteAuthLanding() {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [countdown])
-
-  useEffect(() => {
-    if (wechat) setShowWechatGuide(true)
-  }, [wechat])
 
   const handleSendCode = async () => {
     if (!isValidPhone(phone)) {
@@ -172,6 +175,7 @@ export default function InviteAuthLanding() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (authCompleted) return
     if (!inviteCode) {
       setSubmitState('error')
       setNotice('邀请链接不可用')
@@ -201,10 +205,11 @@ export default function InviteAuthLanding() {
       })
       if (res.accessToken) sessionStorage.setItem('invite_h5_access_token', res.accessToken)
       if (res.refreshToken) sessionStorage.setItem('invite_h5_refresh_token', res.refreshToken)
+      setLoginCompleted(true)
 
       const bindingStatus = res.inviteBinding?.status
       const message = res.inviteBinding?.message || bindingStatusText(bindingStatus)
-      setSubmitState(bindingStatus === 'ALREADY_BOUND_OTHER' || bindingStatus === 'INVALID_CODE' ? 'warning' : 'success')
+      setSubmitState(submitStateForBindingStatus(bindingStatus))
       setNotice(message)
     } catch (err) {
       setSubmitState('error')
@@ -259,7 +264,13 @@ export default function InviteAuthLanding() {
         >
           <div className="mb-5 flex items-center justify-between gap-3 border-b border-[#e6eee3] pb-4">
             <span className="text-sm font-medium text-[#4e6652]">
-              {landingState === 'checking' ? '正在识别邀请通道' : landingState === 'invalid' ? '邀请通道不可用' : '邀请通道已识别'}
+              {landingState === 'checking'
+                ? '正在识别邀请通道'
+                : landingState === 'invalid'
+                  ? '邀请通道不可用'
+                  : landingState === 'unverified'
+                    ? '邀请通道待确认'
+                    : '邀请通道已识别'}
             </span>
             <span className={`h-2.5 w-2.5 rounded-full ${landingState === 'invalid' ? 'bg-[#dc2626]' : landingState === 'checking' ? 'bg-[#d79b28]' : 'bg-[#247a3e]'}`} />
           </div>
@@ -325,7 +336,7 @@ export default function InviteAuthLanding() {
             disabled={formDisabled || submitting}
             className="h-12 w-full rounded-md bg-[#247a3e] text-[16px] font-bold text-white shadow-[0_10px_24px_rgba(36,122,62,0.24)] transition hover:bg-[#1f6f35] disabled:cursor-not-allowed disabled:bg-[#9eb5a1] disabled:shadow-none"
           >
-            {submitting ? '登录中' : '登录并绑定'}
+            {authCompleted ? '已登录' : submitting ? '登录中' : '登录并绑定'}
           </button>
 
           {submitState === 'success' || submitState === 'warning' ? (

@@ -935,9 +935,9 @@ Invalidate `invite-h5-stats` where recommendation records are refreshed.
 
 Display v1 totals:
 
-- `扫码打开`: `openCount`
-- `H5 登录`: `authedCount`
-- `已绑定`: `boundCount`
+- `扫码打开`: `openCount`（H5 打开事件数）
+- `H5 登录`: `authedCount`（H5 已登录用户去重）
+- `已绑定`: `boundCount`（H5 绑定状态为 `BOUND` / `ALREADY_BOUND_SAME` 的用户去重，不混入 App 内或历史绑定）
 
 Keep cells compact and responsive; text must not overflow at large font or small screen width.
 

@@ -5,6 +5,8 @@ import test from 'node:test';
 import {
   buildInviteH5Url,
   extractUnifiedInviteCodeFromURL,
+  shouldTryNormalShareAfterVipResult,
+  shouldTryVipReferralAfterNormalResult,
 } from '../../src/utils/inviteLink.ts';
 
 const read = (path) => readFileSync(path, 'utf8');
@@ -22,6 +24,30 @@ test('app can parse the unified H5 invite URL without assuming code type', () =>
   assert.equal(
     extractUnifiedInviteCodeFromURL('https://app.xn--ckqa175y.com/invite/vipcode1'),
     'VIPCODE1',
+  );
+});
+
+test('app unified invite binding can fallback between normal and VIP code paths', () => {
+  assert.equal(
+    shouldTryVipReferralAfterNormalResult({
+      ok: false,
+      error: { displayMessage: '普通分享码无效' },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldTryNormalShareAfterVipResult({
+      ok: false,
+      error: { displayMessage: '推荐码无效' },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldTryVipReferralAfterNormalResult({
+      ok: false,
+      error: { retryable: true, displayMessage: '网络异常' },
+    }),
+    false,
   );
 });
 
@@ -63,4 +89,7 @@ test('referral center reads and displays H5 invite funnel stats', () => {
   assert.match(referral, /扫码打开/);
   assert.match(referral, /已登录/);
   assert.match(referral, /已绑定/);
+  assert.match(referral, /inviteH5StatsError/);
+  assert.match(referral, /H5 邀请数据加载失败/);
+  assert.match(referral, /AppState\.addEventListener\('change'/);
 });

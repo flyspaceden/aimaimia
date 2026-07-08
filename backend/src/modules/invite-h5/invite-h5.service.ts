@@ -55,7 +55,8 @@ export class InviteH5Service {
   }
 
   async bindAfterAuth(input: BindAfterAuthInput): Promise<InviteBindingResult> {
-    const resolved = await this.resolver.resolve(input.inviteCode);
+    const inviteCode = await this.inviteCodeForBinding(input);
+    const resolved = await this.resolver.resolve(inviteCode);
 
     if (resolved.status === 'INVALID' || resolved.status === 'CONFLICT') {
       return this.finishBinding(input, {
@@ -112,22 +113,40 @@ export class InviteH5Service {
   }
 
   async getStatsForInviter(inviterUserId: string) {
-    const [openCount, authedCount, boundCount] = await Promise.all([
+    const [openCount, authedUsers, boundUsers] = await Promise.all([
       this.prisma.inviteH5LandingEvent.count({
         where: { inviterUserId },
       }),
-      this.prisma.inviteH5LandingEvent.count({
+      this.prisma.inviteH5LandingEvent.findMany({
         where: { inviterUserId, authedUserId: { not: null } },
+        distinct: ['authedUserId'],
+        select: { authedUserId: true },
       }),
-      this.prisma.inviteH5LandingEvent.count({
+      this.prisma.inviteH5LandingEvent.findMany({
         where: {
           inviterUserId,
+          authedUserId: { not: null },
           bindingStatus: { in: ['BOUND', 'ALREADY_BOUND_SAME'] },
         },
+        distinct: ['authedUserId'],
+        select: { authedUserId: true },
       }),
     ]);
 
-    return { openCount, authedCount, boundCount };
+    return {
+      openCount,
+      authedCount: authedUsers.length,
+      boundCount: boundUsers.length,
+    };
+  }
+
+  private async inviteCodeForBinding(input: BindAfterAuthInput): Promise<string> {
+    if (!input.landingSessionId) return input.inviteCode;
+    const landing = await this.prisma.inviteH5LandingEvent.findUnique({
+      where: { landingSessionId: input.landingSessionId },
+      select: { inviteCode: true },
+    });
+    return landing?.inviteCode ?? input.inviteCode;
   }
 
   private async findExistingInviterUserId(userId: string): Promise<string | null> {
