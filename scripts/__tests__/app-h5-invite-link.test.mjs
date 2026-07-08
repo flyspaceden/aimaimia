@@ -42,6 +42,15 @@ test('scanner accepts the unified H5 invite URL and resolves it as auto type', (
   assert.match(source, /return \{ type: 'auto', code: unifiedUrlMatch\[2\]\.toUpperCase\(\) \}/);
 });
 
+test('app URL intake recognizes the unified H5 invite URL before legacy links', () => {
+  const layout = read('app/_layout.tsx');
+
+  assert.match(layout, /extractUnifiedInviteCodeFromURL/);
+  assert.match(layout, /handleUnifiedInviteCode\(unifiedInviteCode\)/);
+  assert.match(layout, /const normalShareCode = extractNormalShareCodeFromURL\(url\)/);
+  assert.match(layout, /const code = extractReferralCodeFromURL\(url\)/);
+});
+
 test('referral center reads and displays H5 invite funnel stats', () => {
   const referral = read('app/me/referral.tsx');
   const repo = read('src/repos/InviteH5Repo.ts');
