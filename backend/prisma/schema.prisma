@@ -257,6 +257,44 @@ enum GroupBuyRebateLedgerStatus {
   FAILED
 }
 
+enum CaptainProfileStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+enum CaptainRelationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CaptainLedgerType {
+  DIRECT_ORDER
+  INDIRECT_ORDER
+  MANAGEMENT_ALLOWANCE
+  GROWTH_BONUS
+  CULTIVATION_BONUS
+  TEAM_POOL
+  VOID
+  ADJUSTMENT
+}
+
+enum CaptainLedgerStatus {
+  FROZEN
+  AVAILABLE
+  VOIDED
+  WITHDRAWN
+  CLAWBACK_PENDING
+}
+
+enum CaptainSettlementStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  PAID
+  REJECTED
+}
+
 enum PaymentChannel {
   WECHAT_PAY
   ALIPAY
@@ -822,6 +860,19 @@ model User {
   groupBuyReferrals     GroupBuyReferral[]     @relation("GroupBuyReferredUser")
   groupBuyRebateAccount GroupBuyRebateAccount?
   groupBuyRebateLedgers GroupBuyRebateLedger[]
+
+  // 预包装海鲜团长经营激励（独立于 VIP/普通树/Reward/Coupon）
+  captainProfile                    CaptainProfile?
+  captainAccounts                   CaptainAccount[]
+  captainRelationsAsBuyer           CaptainRelation[]        @relation("CaptainRelationBuyer")
+  captainRelationsAsDirectCaptain   CaptainRelation[]        @relation("CaptainRelationDirectCaptain")
+  captainRelationsAsIndirectCaptain CaptainRelation[]        @relation("CaptainRelationIndirectCaptain")
+  captainOrdersAsBuyer              CaptainOrderAttribution[] @relation("CaptainOrderBuyer")
+  captainOrdersAsDirectCaptain      CaptainOrderAttribution[] @relation("CaptainOrderDirectCaptain")
+  captainOrdersAsIndirectCaptain    CaptainOrderAttribution[] @relation("CaptainOrderIndirectCaptain")
+  captainCommissionLedgers          CaptainCommissionLedger[] @relation("CaptainLedgerUser")
+  captainMonthlyMetrics             CaptainMonthlyMetric[]    @relation("CaptainMonthlyMetricUser")
+  captainMonthlySettlements         CaptainMonthlySettlement[] @relation("CaptainMonthlySettlementUser")
 
   // J 域关系（普通用户系统改造）
   normalProgress       NormalProgress?
@@ -1706,6 +1757,8 @@ model Order {
   groupBuyReferredPurchase  GroupBuyReferral?      @relation("GroupBuyReferredOrder")
   groupBuyRebateLedgers     GroupBuyRebateLedger[]
   normalShareBindings       NormalShareBinding[]
+  captainAttributions       CaptainOrderAttribution[]
+  captainCommissionLedgers  CaptainCommissionLedger[]
 
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
@@ -1947,6 +2000,201 @@ model GroupBuyRebateLedger {
   @@index([instanceId])
   @@index([referralId])
   @@index([orderId])
+}
+
+// ============================================================
+// 预包装海鲜团长经营激励（独立于 VIP/普通树/Reward/Coupon）
+// ============================================================
+
+model CaptainProfile {
+  id               String               @id @default(cuid())
+  userId           String               @unique
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  captainCode      String               @unique
+  programCode      String               @default("SEAFOOD_PREPACKAGED")
+  displayName      String?
+  status           CaptainProfileStatus @default(ACTIVE)
+  approvedAt       DateTime?
+  pausedAt         DateTime?
+  disabledAt       DateTime?
+  createdByAdminId String?
+  statusReason     String?
+  meta             Json?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@index([programCode, status])
+}
+
+model CaptainRelation {
+  id                    String                @id @default(cuid())
+  buyerUserId           String
+  buyer                 User                  @relation("CaptainRelationBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  directCaptainUserId   String
+  directCaptain         User                  @relation("CaptainRelationDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
+  indirectCaptainUserId String?
+  indirectCaptain       User?                 @relation("CaptainRelationIndirectCaptain", fields: [indirectCaptainUserId], references: [id], onDelete: Restrict)
+  programCode           String                @default("SEAFOOD_PREPACKAGED")
+  codeUsed              String
+  source                String?
+  status                CaptainRelationStatus @default(ACTIVE)
+  boundAt               DateTime              @default(now())
+  endedAt               DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@unique([buyerUserId, programCode])
+  @@index([directCaptainUserId, status, createdAt])
+  @@index([indirectCaptainUserId, status, createdAt])
+  @@index([codeUsed])
+}
+
+model CaptainOrderAttribution {
+  id                    String                     @id @default(cuid())
+  orderId               String
+  order                 Order                      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  buyerUserId           String
+  buyer                 User                       @relation("CaptainOrderBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  directCaptainUserId   String
+  directCaptain         User                       @relation("CaptainOrderDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
+  indirectCaptainUserId String?
+  indirectCaptain       User?                      @relation("CaptainOrderIndirectCaptain", fields: [indirectCaptainUserId], references: [id], onDelete: Restrict)
+  programCode           String                     @default("SEAFOOD_PREPACKAGED")
+  commissionBase        Float
+  eligibleGoodsAmount   Float
+  couponDiscountAmount  Float                      @default(0)
+  rewardDeductionAmount Float                      @default(0)
+  refundAmount          Float                      @default(0)
+  directRate            Float
+  indirectRate          Float
+  status                String                     @default("FROZEN")
+  configSnapshot        Json
+  meta                  Json?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  ledgers CaptainCommissionLedger[]
+
+  @@unique([orderId, programCode])
+  @@index([buyerUserId, createdAt])
+  @@index([directCaptainUserId, status, createdAt])
+  @@index([indirectCaptainUserId, status, createdAt])
+}
+
+model CaptainAccount {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  programCode String    @default("SEAFOOD_PREPACKAGED")
+  balance     Float     @default(0)
+  frozen      Float     @default(0)
+  withdrawn   Float     @default(0)
+  clawback    Float     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  ledgers CaptainCommissionLedger[]
+
+  @@unique([userId, programCode])
+  @@index([balance])
+  @@index([frozen])
+  @@index([updatedAt])
+}
+
+model CaptainCommissionLedger {
+  id                 String                     @id @default(cuid())
+  accountId          String
+  account            CaptainAccount             @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  userId             String
+  user               User                       @relation("CaptainLedgerUser", fields: [userId], references: [id], onDelete: Restrict)
+  orderAttributionId String?
+  orderAttribution   CaptainOrderAttribution?   @relation(fields: [orderAttributionId], references: [id], onDelete: Restrict)
+  orderId            String?
+  order              Order?                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  settlementId       String?
+  settlement         CaptainMonthlySettlement?  @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  programCode        String                     @default("SEAFOOD_PREPACKAGED")
+  type               CaptainLedgerType
+  status             CaptainLedgerStatus
+  amount             Float
+  commissionBase     Float?
+  rate               Float?
+  balanceAfter       Float?
+  frozenAfter        Float?
+  idempotencyKey     String                     @unique
+  refType            String?
+  refId              String?
+  configSnapshot     Json?
+  meta               Json?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  deletedAt          DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([accountId, createdAt])
+  @@index([orderAttributionId])
+  @@index([orderId])
+  @@index([settlementId])
+  @@index([type, status])
+}
+
+model CaptainMonthlyMetric {
+  id                    String                    @id @default(cuid())
+  captainUserId         String
+  captain               User                      @relation("CaptainMonthlyMetricUser", fields: [captainUserId], references: [id], onDelete: Restrict)
+  month                 String
+  programCode           String                    @default("SEAFOOD_PREPACKAGED")
+  personalGmv           Float                     @default(0)
+  teamGmv               Float                     @default(0)
+  directEffectiveBuyers Int                       @default(0)
+  teamEffectiveMembers  Int                       @default(0)
+  newEffectiveMembers   Int                       @default(0)
+  refundRate            Float                     @default(0)
+  qualified             Boolean                   @default(false)
+  qualifiedTier         String?
+  configSnapshot        Json
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  settlement CaptainMonthlySettlement?
+
+  @@unique([captainUserId, month, programCode])
+  @@index([month, qualified])
+  @@index([programCode, month])
+}
+
+model CaptainMonthlySettlement {
+  id                       String                  @id @default(cuid())
+  captainUserId            String
+  captain                  User                    @relation("CaptainMonthlySettlementUser", fields: [captainUserId], references: [id], onDelete: Restrict)
+  metricId                 String?                 @unique
+  metric                   CaptainMonthlyMetric?   @relation(fields: [metricId], references: [id], onDelete: Restrict)
+  month                    String
+  programCode              String                  @default("SEAFOOD_PREPACKAGED")
+  status                   CaptainSettlementStatus @default(DRAFT)
+  baseManagementAmount     Float                   @default(0)
+  growthBonusAmount        Float                   @default(0)
+  cultivationBonusAmount   Float                   @default(0)
+  teamPoolAmount           Float                   @default(0)
+  totalAmount              Float                   @default(0)
+  taxAmount                Float                   @default(0)
+  netAmount                Float                   @default(0)
+  reviewedByAdminId        String?
+  paidByAdminId            String?
+  reviewedAt               DateTime?
+  paidAt                   DateTime?
+  rejectReason             String?
+  configSnapshot           Json
+  meta                     Json?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  ledgers CaptainCommissionLedger[]
+
+  @@unique([captainUserId, month, programCode])
+  @@index([month, status])
+  @@index([programCode, month])
 }
 
 model Payment {
