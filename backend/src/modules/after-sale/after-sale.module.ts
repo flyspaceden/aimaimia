@@ -25,6 +25,8 @@ import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-de
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
+import { CaptainModule } from '../captain/captain.module';
+import { CaptainCommissionService } from '../captain/captain-commission.service';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { GrowthEventService } from '../growth/growth-event.service';
     DigitalAssetModule,
     ProductModule,
     GrowthModule,
+    CaptainModule,
   ],
   controllers: [AfterSaleController],
   providers: [
@@ -103,6 +106,10 @@ export class AfterSaleModule implements OnModuleInit {
     const growthEventService = this.moduleRef.get(GrowthEventService, { strict: false });
     if (growthEventService) {
       this.afterSaleRefundService.setGrowthEventService(growthEventService);
+    }
+    const captainCommissionService = this.moduleRef.get(CaptainCommissionService, { strict: false });
+    if (captainCommissionService) {
+      this.afterSaleRefundService.setCaptainCommissionService(captainCommissionService);
     }
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {

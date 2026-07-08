@@ -30,6 +30,10 @@ import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-de
 import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 import { NotificationService } from '../notification/notification.service';
 import { GrowthEventService } from '../growth/growth-event.service';
+import {
+  CaptainCommissionService,
+  CaptainReleaseReason,
+} from '../captain/captain-commission.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -123,6 +127,7 @@ export class OrderService {
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
   // GrowthEventService 通过 setter 注入，确认收货后异步发普通积分/成长值
   private growthEventService: GrowthEventService | null = null;
+  private captainCommissionService: CaptainCommissionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -185,6 +190,10 @@ export class OrderService {
 
   setGrowthEventService(service: GrowthEventService) {
     this.growthEventService = service;
+  }
+
+  setCaptainCommissionService(service: CaptainCommissionService) {
+    this.captainCommissionService = service;
   }
 
   private earliestShippedAt(shipments?: any[]): string | null {
@@ -1889,6 +1898,7 @@ export class OrderService {
       .catch(() => {
         this.triggerGrowthAfterReceive(updated);
       });
+    await this.releaseCaptainCommissionAfterReceive(orderId, 'BUYER_RECEIVED');
 
     // Phase F: 红包触发事件（fire-and-forget，不阻塞确认收货流程）
     if (this.couponEngineService && updated) {
@@ -2085,6 +2095,46 @@ export class OrderService {
       const safeErr = sanitizeErrorForLog(err);
       this.logger.error(`团购资格评估失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
     });
+  }
+
+  private async releaseCaptainCommissionAfterReceive(
+    orderId: string,
+    reason: CaptainReleaseReason,
+  ) {
+    if (!this.captainCommissionService) return;
+    try {
+      await this.captainCommissionService.releaseForReceivedOrder(orderId, reason);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`团长佣金释放失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
+      await (this.captainCommissionService as any).writeDeadLetter?.(
+        orderId,
+        'CAPTAIN_RELEASE_DEAD_LETTER',
+        err,
+      ).catch(() => undefined);
+    }
+  }
+
+  private async voidCaptainCommissionAfterRefund(
+    orderId: string,
+    refundId: string,
+    refundAmount: number,
+  ): Promise<void> {
+    if (!this.captainCommissionService) return;
+    try {
+      await this.captainCommissionService.voidForRefund(orderId, refundId, refundAmount);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `订单退款团长佣金冲回失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+      await (this.captainCommissionService as any).writeDeadLetter?.(
+        orderId,
+        'CAPTAIN_ORDER_REFUND_VOID_DEAD_LETTER',
+        err,
+      ).catch(() => undefined);
+    }
   }
 
   private async reverseDigitalAssetAfterRefund(refundId: string): Promise<void> {
@@ -2397,6 +2447,11 @@ export class OrderService {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           });
           await this.reverseDigitalAssetAfterRefund(refundData.refundId);
+          await this.voidCaptainCommissionAfterRefund(
+            id,
+            refundData.refundId,
+            refundData.refundAmount,
+          );
         } else {
           this.logger.warn(
             `退款发起失败，cron 将重试: refundId=${refundData.refundId}, msg=${result?.message ?? 'unknown'}`,
@@ -2684,6 +2739,11 @@ export class OrderService {
               isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
             });
             await this.reverseDigitalAssetAfterRefund(r.refundId);
+            await this.voidCaptainCommissionAfterRefund(
+              r.orderId,
+              r.refundId,
+              r.refundAmount,
+            );
             successfulRefundOrderIds.add(r.orderId);
           } else {
             this.logger.warn(

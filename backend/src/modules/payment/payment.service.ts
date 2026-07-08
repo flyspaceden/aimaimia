@@ -4,7 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
+import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { AlipayService } from './alipay.service';
 import { CheckoutService } from '../order/checkout.service';
 import { CouponService } from '../coupon/coupon.service';
@@ -15,6 +15,7 @@ import type { RewardDeductionService } from '../bonus/reward-deduction.service';
 import type { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import type { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { WechatPayService } from './wechat-pay.service';
+import { CaptainCommissionService } from '../captain/captain-commission.service';
 
 @Injectable()
 export class PaymentService {
@@ -28,6 +29,7 @@ export class PaymentService {
   private rewardDeductionService: RewardDeductionService | null = null;
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
+  private captainCommissionService: CaptainCommissionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -38,8 +40,10 @@ export class PaymentService {
     @Optional() private notificationService?: NotificationService,
     @Optional() private wechatPayService?: WechatPayService,
     @Optional() digitalAssetService?: DigitalAssetService,
+    @Optional() captainCommissionService?: CaptainCommissionService,
   ) {
     this.digitalAssetService = digitalAssetService ?? null;
+    this.captainCommissionService = captainCommissionService ?? null;
   }
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
@@ -60,6 +64,10 @@ export class PaymentService {
 
   setDigitalAssetService(service: DigitalAssetService) {
     this.digitalAssetService = service;
+  }
+
+  setCaptainCommissionService(service: CaptainCommissionService) {
+    this.captainCommissionService = service;
   }
 
   /**
@@ -1763,7 +1771,7 @@ export class PaymentService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await tx.refund.findUnique({
         where: { id: refundId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, orderId: true, amount: true },
       });
       if (!current || !fromStatuses.includes(current.status)) return false;
 
@@ -1788,13 +1796,18 @@ export class PaymentService {
       if (toStatus === 'REFUNDED') {
         await this.restoreAutoCancelDeduction(tx, refundId);
       }
-      return true;
+      return { orderId: current.orderId, amount: current.amount };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (updated && toStatus === 'REFUNDED') {
       await this.reverseDigitalAssetAfterAutoRefund(refundId);
+      await this.voidCaptainCommissionAfterAutoRefund(
+        updated.orderId,
+        refundId,
+        updated.amount,
+      );
     }
-    return updated;
+    return Boolean(updated);
   }
 
   private async reverseDigitalAssetAfterAutoRefund(refundId: string): Promise<void> {
@@ -1812,6 +1825,28 @@ export class PaymentService {
         const recordMsg = sanitizeStringForLog(recordErr?.message || 'UNKNOWN', { maxStringLength: 256 });
         this.logger.error(`自动退款数字资产扣减失败记录写入失败: refundId=${refundId}, error=${recordMsg}`);
       }
+    }
+  }
+
+  private async voidCaptainCommissionAfterAutoRefund(
+    orderId: string,
+    refundId: string,
+    refundAmount: number,
+  ): Promise<void> {
+    if (!this.captainCommissionService) return;
+    try {
+      await this.captainCommissionService.voidForRefund(orderId, refundId, refundAmount);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `自动退款团长佣金冲回失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+      await (this.captainCommissionService as any).writeDeadLetter?.(
+        orderId,
+        'CAPTAIN_AUTO_REFUND_VOID_DEAD_LETTER',
+        err,
+      ).catch(() => undefined);
     }
   }
 
