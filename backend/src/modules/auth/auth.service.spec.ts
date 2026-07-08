@@ -39,6 +39,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
     },
     normalShareProfile: {
       findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     smsOtp: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -82,6 +83,13 @@ function makeService(prisma: any) {
   const growthEvents = { receive: jest.fn().mockResolvedValue({ granted: true }) } as any;
   const aliyunSms = { sendVerificationCode: jest.fn().mockResolvedValue(undefined) } as any;
   const captcha = { verify: jest.fn().mockResolvedValue(true) } as any;
+  const inviteH5 = {
+    bindAfterAuth: jest.fn().mockResolvedValue({
+      status: 'BOUND',
+      type: 'NORMAL_SHARE',
+      message: '推荐关系已记录',
+    }),
+  } as any;
 
   const service = new AuthService(
     prisma,
@@ -92,8 +100,9 @@ function makeService(prisma: any) {
     aliyunSms,
     captcha,
     growthEvents,
+    inviteH5,
   );
-  return { service, jwt, couponEngine, growthEvents };
+  return { service, jwt, couponEngine, growthEvents, inviteH5 };
 }
 
 describe('AuthService — 账号注销护栏（身份变更）', () => {
@@ -394,6 +403,146 @@ describe('AuthService — buyerNo generation', () => {
     expect(prisma.user.updateMany).toHaveBeenCalledWith({
       where: { id: 'seller-then-buyer', buyerNo: null },
       data: { buyerNo: 'AIMM00000000000003' },
+    });
+  });
+});
+
+describe('AuthService — H5 invite login', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('inviteLogin logs in an existing phone user and binds after auth', async () => {
+    const prisma = makePrisma();
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    prisma.authIdentity.findFirst.mockResolvedValue({
+      id: 'identity-phone',
+      userId: 'existing-user',
+      provider: 'PHONE',
+      identifier: PHONE,
+      user: { status: UserStatus.ACTIVE },
+    });
+    const { service, inviteH5 } = makeService(prisma);
+
+    const result = await (service as any).inviteLogin({
+      phone: PHONE,
+      code: '123456',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+
+    expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
+      userId: 'existing-user',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+    expect(result).toMatchObject({
+      userId: 'existing-user',
+      user: { id: 'existing-user' },
+      inviteBinding: {
+        status: 'BOUND',
+        type: 'NORMAL_SHARE',
+      },
+    });
+  });
+
+  it('inviteLogin auto-registers a new phone user with provided nickname', async () => {
+    const prisma = makePrisma();
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    const { service, inviteH5 } = makeService(prisma);
+
+    const result = await (service as any).inviteLogin({
+      phone: PHONE,
+      code: '123456',
+      name: '会议用户',
+      inviteCode: 'VIPCODE1',
+    });
+
+    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        profile: { create: { nickname: '会议用户' } },
+      }),
+    }));
+    expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
+      userId: 'new-user',
+      inviteCode: 'VIPCODE1',
+      landingSessionId: undefined,
+    });
+    expect(result.userId).toBe('new-user');
+  });
+
+  it('inviteLogin succeeds when binding returns ALREADY_BOUND_OTHER', async () => {
+    const prisma = makePrisma();
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    prisma.authIdentity.findFirst.mockResolvedValue({
+      id: 'identity-phone',
+      userId: 'existing-user',
+      provider: 'PHONE',
+      identifier: PHONE,
+      user: { status: UserStatus.ACTIVE },
+    });
+    const { service, inviteH5 } = makeService(prisma);
+    inviteH5.bindAfterAuth.mockResolvedValue({
+      status: 'ALREADY_BOUND_OTHER',
+      type: 'VIP_REFERRAL',
+      message: '已绑定推荐关系，无法覆盖',
+    });
+
+    const result = await (service as any).inviteLogin({
+      phone: PHONE,
+      code: '123456',
+      inviteCode: 'VIPCODE1',
+    });
+
+    expect(result).toMatchObject({
+      userId: 'existing-user',
+      inviteBinding: {
+        status: 'ALREADY_BOUND_OTHER',
+        message: '已绑定推荐关系，无法覆盖',
+      },
+    });
+  });
+
+  it('inviteLogin rejects invalid sms code before creating a user or binding', async () => {
+    const prisma = makePrisma();
+    prisma.smsOtp.findMany.mockResolvedValue([]);
+    const { service, inviteH5 } = makeService(prisma);
+
+    await expect((service as any).inviteLogin({
+      phone: PHONE,
+      code: '000000',
+      inviteCode: 'SABC1234',
+    })).rejects.toThrow('验证码无效或已过期');
+
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(inviteH5.bindAfterAuth).not.toHaveBeenCalled();
+  });
+
+  it('inviteLogin records login attempt failure when otp validation fails', async () => {
+    const prisma = makePrisma();
+    prisma.smsOtp.findMany.mockResolvedValue([]);
+    const { service } = makeService(prisma);
+
+    await expect((service as any).inviteLogin({
+      phone: PHONE,
+      code: '000000',
+      inviteCode: 'SABC1234',
+    })).rejects.toThrow('验证码无效或已过期');
+
+    expect(prisma.loginEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        provider: 'PHONE',
+        phone: PHONE,
+        success: false,
+        meta: { mode: 'code' },
+      }),
     });
   });
 });

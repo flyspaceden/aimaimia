@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SendSmsCodeDto, WeChatOAuthDto } from './dto/send-code.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -19,6 +20,13 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Post('invite-login')
+  inviteLogin(@Body() dto: InviteLoginDto) {
+    return this.authService.inviteLogin(dto);
   }
 
   @Public()
