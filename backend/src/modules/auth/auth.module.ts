@@ -9,6 +9,7 @@ import { OtpCleanupService } from './otp-cleanup.service';
 import { CouponModule } from '../coupon/coupon.module';
 import { CaptchaModule } from '../captcha/captcha.module';
 import { GrowthModule } from '../growth/growth.module';
+import { InviteH5Module } from '../invite-h5/invite-h5.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { GrowthModule } from '../growth/growth.module';
     CouponModule,
     CaptchaModule,
     GrowthModule,
+    InviteH5Module,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, OtpCleanupService],

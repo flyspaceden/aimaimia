@@ -14,6 +14,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, SmsPurpose, UserStatus } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
+import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
@@ -27,6 +28,7 @@ import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { nextBuyerNo } from '../../common/utils/buyer-no.util';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { pickUniqueNormalShareCode } from '../normal-share/normal-share-code.util';
+import { InviteH5Service } from '../invite-h5/invite-h5.service';
 
 @Injectable()
 export class AuthService {
@@ -69,6 +71,7 @@ export class AuthService {
     private aliyunSms: AliyunSmsService,
     private captcha: CaptchaService,
     private growthEvents: GrowthEventService,
+    private inviteH5: InviteH5Service,
   ) {}
 
   /** 发送短信验证码 */
@@ -111,6 +114,22 @@ export class AuthService {
   async login(dto: LoginDto) {
     await this.enforceLoginAttemptRateLimit('PHONE', dto.phone);
     return this.loginByPhone(dto.phone, dto.mode, dto.code, dto.password);
+  }
+
+  async inviteLogin(dto: InviteLoginDto) {
+    await this.enforceLoginAttemptRateLimit('PHONE', dto.phone);
+    const session = await this.loginByPhoneCode(dto.phone, dto.code, dto.name);
+    const inviteBinding = await this.inviteH5.bindAfterAuth({
+      userId: session.userId,
+      inviteCode: dto.inviteCode,
+      landingSessionId: dto.landingSessionId,
+    });
+
+    return {
+      ...session,
+      user: { id: session.userId },
+      inviteBinding,
+    };
   }
 
   /** 注册 */
@@ -679,49 +698,7 @@ export class AuthService {
     }
 
     if (mode === 'code') {
-      // 验证码模式：如果用户不存在，自动注册
-      try {
-        await this.verifyCode(phone, code, SmsPurpose.LOGIN);
-      } catch (err) {
-        await this.recordLoginAttempt('PHONE', phone, 'code', false, identity?.userId);
-        throw err;
-      }
-      if (!identity) {
-        const newUser = await this.prisma.user.create({
-          data: {
-            buyerNo: await nextBuyerNo(this.prisma),
-            profile: { create: { nickname: '新用户' } },
-            memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
-            growthAccount: {
-              create: {
-                pointsBalance: 0,
-                pointsTotalEarned: 0,
-                pointsTotalSpent: 0,
-                growthValue: 0,
-              },
-            },
-            normalShareProfile: {
-              create: {
-                code: await pickUniqueNormalShareCode(this.prisma as any),
-                status: 'ACTIVE',
-              },
-            },
-            authIdentities: {
-              create: { provider: 'PHONE', identifier: phone, verified: true },
-            },
-          },
-        });
-        await this.recordLoginAttempt('PHONE', phone, 'code', true, newUser.id);
-        // Phase F: 验证码登录自动注册也触发 REGISTER 红包
-        this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
-          this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
-        });
-        this.triggerRegisterGrowth(newUser.id);
-        return this.issueTokens(newUser.id, 'phone');
-      }
-      await this.recordLoginAttempt('PHONE', phone, 'code', true, identity.userId);
-      await this.ensureBuyerNoForBuyer(identity.userId);
-      return this.issueTokens(identity.userId, 'phone');
+      return this.loginByPhoneCode(phone, code);
     } else {
       // 密码模式
       await this.enforcePasswordLoginLock('PHONE', phone);
@@ -740,6 +717,62 @@ export class AuthService {
       await this.ensureBuyerNoForBuyer(identity.userId);
       return this.issueTokens(identity.userId, 'phone');
     }
+  }
+
+  private async loginByPhoneCode(phone: string, code?: string, nickname?: string) {
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: { provider: 'PHONE', identifier: phone },
+      include: { user: { select: { status: true } } },
+    });
+
+    if (identity && identity.user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('账号不可用');
+    }
+
+    try {
+      await this.verifyCode(phone, code, SmsPurpose.LOGIN);
+    } catch (err) {
+      await this.recordLoginAttempt('PHONE', phone, 'code', false, identity?.userId);
+      throw err;
+    }
+
+    if (!identity) {
+      const newUser = await this.prisma.user.create({
+        data: {
+          buyerNo: await nextBuyerNo(this.prisma),
+          profile: { create: { nickname: nickname?.trim() || '新用户' } },
+          memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
+          growthAccount: {
+            create: {
+              pointsBalance: 0,
+              pointsTotalEarned: 0,
+              pointsTotalSpent: 0,
+              growthValue: 0,
+            },
+          },
+          normalShareProfile: {
+            create: {
+              code: await pickUniqueNormalShareCode(this.prisma as any),
+              status: 'ACTIVE',
+            },
+          },
+          authIdentities: {
+            create: { provider: 'PHONE', identifier: phone, verified: true },
+          },
+        },
+      });
+      await this.recordLoginAttempt('PHONE', phone, 'code', true, newUser.id);
+      // Phase F: 验证码登录自动注册也触发 REGISTER 红包
+      this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
+        this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
+      });
+      this.triggerRegisterGrowth(newUser.id);
+      return this.issueTokens(newUser.id, 'phone');
+    }
+
+    await this.recordLoginAttempt('PHONE', phone, 'code', true, identity.userId);
+    await this.ensureBuyerNoForBuyer(identity.userId);
+    return this.issueTokens(identity.userId, 'phone');
   }
 
   private triggerRegisterGrowth(userId: string) {
