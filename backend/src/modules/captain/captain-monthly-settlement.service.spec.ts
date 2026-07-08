@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from './captain.constants';
 import { CaptainMonthlySettlementService } from './captain-monthly-settlement.service';
 
@@ -41,34 +42,47 @@ function makeAttribution(
 
 function createHarness(options: {
   config?: any;
+  captains?: string[];
   attributions?: any[];
   relations?: any[];
+  existingSettlements?: Record<string, any>;
 } = {}) {
   const config = options.config ?? makeConfig();
+  const captains = options.captains ?? ['captain-1'];
   const attributions = options.attributions ?? [];
   const relations = options.relations ?? [];
+  const existingSettlements = options.existingSettlements ?? {};
   const savedMetrics: any[] = [];
   const savedSettlements: any[] = [];
   const createdLedgers: any[] = [];
+  const settlementKey = (captainUserId: string, month = '2026-06', programCode = config.programCode) => (
+    `${captainUserId}|${month}|${programCode}`
+  );
 
   const tx: any = {
     captainProfile: {
-      findMany: jest.fn().mockResolvedValue([
-        { userId: 'captain-1' },
-      ]),
+      findMany: jest.fn().mockResolvedValue(captains.map((userId) => ({ userId }))),
     },
     captainOrderAttribution: {
       findMany: jest.fn().mockImplementation(({ where }: any) => {
-        if (where.indirectCaptainUserId === 'captain-1') {
+        if (where.indirectCaptainUserId) {
           return Promise.resolve(attributions.filter((item) => (
-            item.indirectCaptainUserId === 'captain-1'
+            item.indirectCaptainUserId === where.indirectCaptainUserId
           )));
         }
-        const direct = where.OR?.some((item: any) => item.directCaptainUserId === 'captain-1');
-        const indirect = where.OR?.some((item: any) => item.indirectCaptainUserId === 'captain-1');
+        const directIds = new Set(
+          (where.OR ?? [])
+            .map((item: any) => item.directCaptainUserId)
+            .filter(Boolean),
+        );
+        const indirectIds = new Set(
+          (where.OR ?? [])
+            .map((item: any) => item.indirectCaptainUserId)
+            .filter(Boolean),
+        );
         return Promise.resolve(attributions.filter((item) => (
-          (direct && item.directCaptainUserId === 'captain-1') ||
-          (indirect && item.indirectCaptainUserId === 'captain-1')
+          directIds.has(item.directCaptainUserId) ||
+          indirectIds.has(item.indirectCaptainUserId)
         )));
       }),
     },
@@ -89,8 +103,38 @@ function createHarness(options: {
         savedSettlements.push(settlement);
         return settlement;
       }),
-      findUnique: jest.fn(),
-      update: jest.fn(),
+      create: jest.fn(async ({ data }: any) => {
+        const settlement = { id: `settlement-${savedSettlements.length + 1}`, ...data };
+        savedSettlements.push(settlement);
+        return settlement;
+      }),
+      findUnique: jest.fn(async ({ where }: any) => {
+        if (where?.id) {
+          return Object.values(existingSettlements).find((item: any) => item.id === where.id) ?? null;
+        }
+        const unique = where?.captainUserId_month_programCode;
+        if (unique) {
+          return existingSettlements[settlementKey(
+            unique.captainUserId,
+            unique.month,
+            unique.programCode,
+          )] ?? null;
+        }
+        return null;
+      }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const unique = where?.captainUserId_month_programCode;
+        const existing = unique
+          ? existingSettlements[settlementKey(unique.captainUserId, unique.month, unique.programCode)]
+          : Object.values(existingSettlements).find((item: any) => item.id === where?.id);
+        const settlement = {
+          id: existing?.id ?? `settlement-${savedSettlements.length + 1}`,
+          ...existing,
+          ...data,
+        };
+        savedSettlements.push(settlement);
+        return settlement;
+      }),
     },
     captainAccount: {
       upsert: jest.fn(async ({ where }: any) => ({
@@ -112,6 +156,7 @@ function createHarness(options: {
   };
   const prisma: any = {
     $transaction: jest.fn(async (callback: any) => callback(tx)),
+    captainMonthlySettlement: tx.captainMonthlySettlement,
   };
   const configService = {
     getSnapshot: jest.fn().mockResolvedValue(config),
@@ -124,6 +169,7 @@ function createHarness(options: {
     savedMetrics,
     savedSettlements,
     createdLedgers,
+    settlementKey,
     service: new CaptainMonthlySettlementService(prisma, configService as any),
   };
 }
@@ -206,7 +252,17 @@ describe('CaptainMonthlySettlementService', () => {
 
     await service.createDraftSettlements('2026-06');
 
-    expect(savedSettlements[0].teamPoolAmount).toBe(400);
+    expect(savedSettlements[0]).toMatchObject({
+      teamPoolAmount: 1000,
+      totalAmount: 3900,
+      meta: {
+        teamPoolSummary: {
+          theoreticalAmount: 1000,
+          captainAmount: 400,
+          memberAmount: 600,
+        },
+      },
+    });
     expect(savedSettlements[0].meta.teamPoolDistribution).toEqual([
       { userId: 'member-1', personalGmv: 30000, amount: 180 },
       { userId: 'member-2', personalGmv: 70000, amount: 420 },
@@ -249,10 +305,15 @@ describe('CaptainMonthlySettlementService', () => {
       baseManagementAmount: 550,
       growthBonusAmount: 175,
       cultivationBonusAmount: 0,
-      teamPoolAmount: 100,
-      totalAmount: 825,
+      teamPoolAmount: 280,
+      totalAmount: 1005,
       configSnapshot: makeConfig(),
       meta: {
+        teamPoolSummary: {
+          theoreticalAmount: 280,
+          captainAmount: 100,
+          memberAmount: 180,
+        },
         teamPoolDistribution: [
           { userId: 'member-1', personalGmv: 30000, amount: 180 },
         ],
@@ -274,6 +335,12 @@ describe('CaptainMonthlySettlementService', () => {
       'captain:month:2026-06:captain-1:team-pool',
       'captain:month:2026-06:member-1:team-pool:captain-1',
     ]);
+    expect(createdLedgers.map((item) => item.amount)).toEqual([
+      550,
+      175,
+      100,
+      180,
+    ]);
   });
 
   it('marks approved settlement paid and moves available ledger amounts from balance to withdrawn', async () => {
@@ -281,6 +348,7 @@ describe('CaptainMonthlySettlementService', () => {
     tx.captainMonthlySettlement.findUnique.mockResolvedValue({
       id: 'settlement-1',
       status: 'APPROVED',
+      totalAmount: 650,
     });
     tx.captainCommissionLedger.findMany.mockResolvedValue([
       { accountId: 'account-captain-1', amount: 550 },
@@ -305,5 +373,73 @@ describe('CaptainMonthlySettlementService', () => {
       },
       data: { status: 'WITHDRAWN' },
     });
+  });
+
+  it('rejects marking paid when available ledger total does not match settlement total', async () => {
+    const { service, tx } = createHarness();
+    tx.captainMonthlySettlement.findUnique.mockResolvedValue({
+      id: 'settlement-1',
+      status: 'APPROVED',
+      totalAmount: 650,
+    });
+    tx.captainCommissionLedger.findMany.mockResolvedValue([
+      { accountId: 'account-captain-1', amount: 550 },
+    ]);
+
+    await expect(service.markPaid('settlement-1', 'admin-1')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.captainAccount.update).not.toHaveBeenCalled();
+    expect(tx.captainCommissionLedger.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('recalculates only the requested captain settlement', async () => {
+    const { service } = createHarness({
+      captains: ['captain-1', 'captain-2'],
+      attributions: [
+        makeAttribution('order-1', 'captain-1', 25000),
+        makeAttribution('order-2', 'captain-2', 70000),
+      ],
+      existingSettlements: {
+        'captain-2|2026-06|SEAFOOD_PREPACKAGED': {
+          id: 'settlement-2',
+          captainUserId: 'captain-2',
+          month: '2026-06',
+          programCode: 'SEAFOOD_PREPACKAGED',
+          status: 'DRAFT',
+        },
+      },
+    });
+
+    const draft = await service.recalculateSettlement('settlement-2', 'admin-1');
+
+    expect(draft).toMatchObject({
+      captainUserId: 'captain-2',
+      totalAmount: 2310,
+    });
+  });
+
+  it('does not downgrade approved settlements during scheduled draft generation', async () => {
+    const approvedSettlement = {
+      id: 'settlement-1',
+      captainUserId: 'captain-1',
+      month: '2026-06',
+      programCode: 'SEAFOOD_PREPACKAGED',
+      status: 'APPROVED',
+      totalAmount: 650,
+    };
+    const { service, tx } = createHarness({
+      attributions: [
+        makeAttribution('order-1', 'captain-1', 25000),
+      ],
+      existingSettlements: {
+        'captain-1|2026-06|SEAFOOD_PREPACKAGED': approvedSettlement,
+      },
+    });
+
+    const settlements = await service.createDraftSettlements('2026-06');
+
+    expect(settlements[0]).toBe(approvedSettlement);
+    expect(tx.captainMonthlySettlement.upsert).not.toHaveBeenCalled();
+    expect(tx.captainMonthlySettlement.update).not.toHaveBeenCalled();
   });
 });

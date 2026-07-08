@@ -28,6 +28,11 @@ type TeamPoolDistribution = Array<{
   personalGmv: number;
   amount: number;
 }>;
+type TeamPoolSummary = {
+  theoreticalAmount: number;
+  captainAmount: number;
+  memberAmount: number;
+};
 
 const SERIALIZABLE_MAX_RETRIES = 3;
 
@@ -64,22 +69,47 @@ export class CaptainMonthlySettlementService {
     });
   }
 
-  async createDraftSettlements(month: string): Promise<any[]> {
+  async createDraftSettlements(
+    month: string,
+    captainUserId?: string,
+    forceRecalculate = false,
+  ): Promise<any[]> {
     const config = await this.configService.getSnapshot();
     if (!config.enabled) return [];
 
     return this.withSerializableRetry(async (tx) => {
-      const captains = await (tx as any).captainProfile.findMany({
-        where: {
-          programCode: config.programCode,
-          status: 'ACTIVE',
-        },
-        select: { userId: true },
-        orderBy: { createdAt: 'asc' },
-      });
+      const captains = captainUserId
+        ? [{ userId: captainUserId }]
+        : await (tx as any).captainProfile.findMany({
+            where: {
+              programCode: config.programCode,
+              status: 'ACTIVE',
+            },
+            select: { userId: true },
+            orderBy: { createdAt: 'asc' },
+          });
 
       const settlements: any[] = [];
       for (const captain of captains) {
+        const settlementWhere = {
+          captainUserId_month_programCode: {
+            captainUserId: captain.userId,
+            month,
+            programCode: config.programCode,
+          },
+        };
+        const existingSettlement = await (tx as any).captainMonthlySettlement.findUnique({
+          where: settlementWhere,
+        });
+        if (
+          existingSettlement &&
+          !forceRecalculate &&
+          ['APPROVED', 'PAID'].includes(existingSettlement.status)
+        ) {
+          settlements.push(existingSettlement);
+          continue;
+        }
+
         const metricInput = await this.calculateMetricInTx(tx, month, captain.userId, config);
         const metric = await this.upsertMetric(tx, metricInput);
         const teamPoolDistribution = await this.calculateTeamPoolDistributionInTx(
@@ -89,38 +119,40 @@ export class CaptainMonthlySettlementService {
           metricInput,
           config,
         );
-        const amounts = this.calculateSettlementAmounts(metricInput, config, teamPoolDistribution);
-        const settlement = await (tx as any).captainMonthlySettlement.upsert({
-          where: {
-            captainUserId_month_programCode: {
-              captainUserId: captain.userId,
-              month,
-              programCode: config.programCode,
-            },
-          },
-          update: {
-            metricId: metric.id,
-            status: 'DRAFT',
-            ...amounts,
-            reviewedByAdminId: null,
-            paidByAdminId: null,
-            reviewedAt: null,
-            paidAt: null,
-            rejectReason: null,
-            configSnapshot: this.snapshot(config),
-            meta: { teamPoolDistribution },
-          },
-          create: {
-            captainUserId: captain.userId,
-            metricId: metric.id,
-            month,
-            programCode: config.programCode,
-            status: 'DRAFT',
-            ...amounts,
-            configSnapshot: this.snapshot(config),
-            meta: { teamPoolDistribution },
-          },
-        });
+        const { teamPoolSummary, ...amounts } = this.calculateSettlementAmounts(
+          metricInput,
+          config,
+          teamPoolDistribution,
+        );
+        const updateData = {
+          metricId: metric.id,
+          status: 'DRAFT',
+          ...amounts,
+          reviewedByAdminId: null,
+          paidByAdminId: null,
+          reviewedAt: null,
+          paidAt: null,
+          rejectReason: null,
+          configSnapshot: this.snapshot(config),
+          meta: { teamPoolDistribution, teamPoolSummary },
+        };
+        const settlement = existingSettlement
+          ? await (tx as any).captainMonthlySettlement.update({
+              where: settlementWhere,
+              data: updateData,
+            })
+          : await (tx as any).captainMonthlySettlement.create({
+              data: {
+                captainUserId: captain.userId,
+                metricId: metric.id,
+                month,
+                programCode: config.programCode,
+                status: 'DRAFT',
+                ...amounts,
+                configSnapshot: this.snapshot(config),
+                meta: { teamPoolDistribution, teamPoolSummary },
+              },
+            });
         settlements.push(settlement);
       }
 
@@ -178,13 +210,19 @@ export class CaptainMonthlySettlementService {
         },
       });
       const payoutByAccount = new Map<string, number>();
+      let payoutTotal = 0;
       for (const ledger of ledgers ?? []) {
         const amount = this.roundMoney(Number(ledger.amount || 0));
         if (amount <= 0) continue;
+        payoutTotal = this.roundMoney(payoutTotal + amount);
         payoutByAccount.set(
           ledger.accountId,
           this.roundMoney((payoutByAccount.get(ledger.accountId) ?? 0) + amount),
         );
+      }
+      const settlementTotal = this.roundMoney(Number(settlement.totalAmount || 0));
+      if (Math.abs(payoutTotal - settlementTotal) > 0.01) {
+        throw new BadRequestException('结算流水合计与结算金额不一致，不能标记已支付');
       }
 
       for (const [accountId, amount] of payoutByAccount.entries()) {
@@ -229,11 +267,15 @@ export class CaptainMonthlySettlementService {
       where: { id: settlementId },
     });
     if (!settlement) throw new NotFoundException('团长月度结算不存在');
-    if (settlement.status === 'PAID') {
-      throw new BadRequestException('已支付结算不可重算');
+    if (settlement.status === 'APPROVED' || settlement.status === 'PAID') {
+      throw new BadRequestException('已审核或已支付结算不可重算');
     }
 
-    const [draft] = await this.createDraftSettlements(settlement.month);
+    const [draft] = await this.createDraftSettlements(
+      settlement.month,
+      settlement.captainUserId,
+      true,
+    );
     if (!draft || draft.captainUserId !== settlement.captainUserId) {
       this.logger.warn(`团长结算重算未返回目标结算: settlementId=${settlementId}, adminUserId=${adminUserId}`);
     }
@@ -383,16 +425,41 @@ export class CaptainMonthlySettlementService {
     metric: MetricInput,
     config: CaptainSeafoodConfig,
     teamPoolDistribution: TeamPoolDistribution,
-  ) {
+  ): {
+    baseManagementAmount: number;
+    growthBonusAmount: number;
+    cultivationBonusAmount: number;
+    teamPoolAmount: number;
+    totalAmount: number;
+    taxAmount: number;
+    netAmount: number;
+    teamPoolSummary: TeamPoolSummary;
+  } {
     let baseManagementAmount = 0;
     let growthBonusAmount = 0;
     let cultivationBonusAmount = 0;
     let teamPoolAmount = 0;
+    let teamPoolSummary: TeamPoolSummary = {
+      theoreticalAmount: 0,
+      captainAmount: 0,
+      memberAmount: 0,
+    };
 
     if (metric.qualified && metric.teamGmv >= config.monthlyRewards.baseTierGmv) {
       baseManagementAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.baseManagementRate);
       const teamPoolTotal = this.roundMoney(metric.teamGmv * config.monthlyRewards.teamPoolRate);
-      teamPoolAmount = this.roundMoney(teamPoolTotal * config.monthlyRewards.captainTeamPoolWeight);
+      const captainTeamPoolAmount = this.roundMoney(
+        teamPoolTotal * config.monthlyRewards.captainTeamPoolWeight,
+      );
+      const memberTeamPoolAmount = this.roundMoney(
+        teamPoolDistribution.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+      );
+      teamPoolAmount = this.roundMoney(captainTeamPoolAmount + memberTeamPoolAmount);
+      teamPoolSummary = {
+        theoreticalAmount: teamPoolTotal,
+        captainAmount: captainTeamPoolAmount,
+        memberAmount: memberTeamPoolAmount,
+      };
     }
     if (metric.qualified && metric.teamGmv >= config.monthlyRewards.growthTierGmv) {
       growthBonusAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.growthBonusRate);
@@ -420,6 +487,7 @@ export class CaptainMonthlySettlementService {
       totalAmount,
       taxAmount,
       netAmount,
+      teamPoolSummary,
     };
   }
 
@@ -496,7 +564,7 @@ export class CaptainMonthlySettlementService {
       {
         userId: settlement.captainUserId,
         type: 'TEAM_POOL',
-        amount: settlement.teamPoolAmount,
+        amount: this.getCaptainTeamPoolAmount(settlement),
         keySuffix: 'team-pool',
       },
       ...((settlement.meta?.teamPoolDistribution ?? []) as TeamPoolDistribution).map((item) => ({
@@ -515,6 +583,14 @@ export class CaptainMonthlySettlementService {
         amount,
       });
     }
+  }
+
+  private getCaptainTeamPoolAmount(settlement: any): number {
+    const captainAmount = Number(settlement.meta?.teamPoolSummary?.captainAmount);
+    if (Number.isFinite(captainAmount)) {
+      return captainAmount;
+    }
+    return Number(settlement.teamPoolAmount || 0);
   }
 
   private async createMonthlyLedger(
