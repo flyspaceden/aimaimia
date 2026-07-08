@@ -1,0 +1,617 @@
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  CAPTAIN_SEAFOOD_PROGRAM_CODE,
+  DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+} from './captain.constants';
+import { CaptainConfigService } from './captain-config.service';
+import type { CaptainSeafoodConfig } from './captain.types';
+
+type Tx = Prisma.TransactionClient;
+type MetricInput = {
+  captainUserId: string;
+  month: string;
+  programCode: string;
+  personalGmv: number;
+  teamGmv: number;
+  directEffectiveBuyers: number;
+  teamEffectiveMembers: number;
+  newEffectiveMembers: number;
+  refundRate: number;
+  qualified: boolean;
+  qualifiedTier: string | null;
+  configSnapshot: CaptainSeafoodConfig;
+};
+type TeamPoolDistribution = Array<{
+  userId: string;
+  personalGmv: number;
+  amount: number;
+}>;
+
+const SERIALIZABLE_MAX_RETRIES = 3;
+
+@Injectable()
+export class CaptainMonthlySettlementService {
+  private readonly logger = new Logger(CaptainMonthlySettlementService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: CaptainConfigService,
+  ) {}
+
+  async calculateMetrics(month: string, captainUserId?: string): Promise<MetricInput[]> {
+    const config = await this.configService.getSnapshot();
+    if (!config.enabled) return [];
+
+    return this.withSerializableRetry(async (tx) => {
+      const captains = captainUserId
+        ? [{ userId: captainUserId }]
+        : await (tx as any).captainProfile.findMany({
+            where: {
+              programCode: config.programCode,
+              status: 'ACTIVE',
+            },
+            select: { userId: true },
+            orderBy: { createdAt: 'asc' },
+          });
+
+      const metrics: MetricInput[] = [];
+      for (const captain of captains) {
+        metrics.push(await this.calculateMetricInTx(tx, month, captain.userId, config));
+      }
+      return metrics;
+    });
+  }
+
+  async createDraftSettlements(month: string): Promise<any[]> {
+    const config = await this.configService.getSnapshot();
+    if (!config.enabled) return [];
+
+    return this.withSerializableRetry(async (tx) => {
+      const captains = await (tx as any).captainProfile.findMany({
+        where: {
+          programCode: config.programCode,
+          status: 'ACTIVE',
+        },
+        select: { userId: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const settlements: any[] = [];
+      for (const captain of captains) {
+        const metricInput = await this.calculateMetricInTx(tx, month, captain.userId, config);
+        const metric = await this.upsertMetric(tx, metricInput);
+        const teamPoolDistribution = await this.calculateTeamPoolDistributionInTx(
+          tx,
+          month,
+          captain.userId,
+          metricInput,
+          config,
+        );
+        const amounts = this.calculateSettlementAmounts(metricInput, config, teamPoolDistribution);
+        const settlement = await (tx as any).captainMonthlySettlement.upsert({
+          where: {
+            captainUserId_month_programCode: {
+              captainUserId: captain.userId,
+              month,
+              programCode: config.programCode,
+            },
+          },
+          update: {
+            metricId: metric.id,
+            status: 'DRAFT',
+            ...amounts,
+            reviewedByAdminId: null,
+            paidByAdminId: null,
+            reviewedAt: null,
+            paidAt: null,
+            rejectReason: null,
+            configSnapshot: this.snapshot(config),
+            meta: { teamPoolDistribution },
+          },
+          create: {
+            captainUserId: captain.userId,
+            metricId: metric.id,
+            month,
+            programCode: config.programCode,
+            status: 'DRAFT',
+            ...amounts,
+            configSnapshot: this.snapshot(config),
+            meta: { teamPoolDistribution },
+          },
+        });
+        settlements.push(settlement);
+      }
+
+      return settlements;
+    });
+  }
+
+  async approveSettlement(settlementId: string, adminUserId: string): Promise<any> {
+    return this.withSerializableRetry(async (tx) => {
+      const settlement = await (tx as any).captainMonthlySettlement.findUnique({
+        where: { id: settlementId },
+      });
+      if (!settlement) throw new NotFoundException('团长月度结算不存在');
+      if (!['DRAFT', 'PENDING_REVIEW'].includes(settlement.status)) {
+        if (settlement.status === 'APPROVED' || settlement.status === 'PAID') {
+          return settlement;
+        }
+        throw new BadRequestException('当前结算状态无法审核通过');
+      }
+
+      const updated = await (tx as any).captainMonthlySettlement.update({
+        where: { id: settlementId },
+        data: {
+          status: 'APPROVED',
+          reviewedByAdminId: adminUserId,
+          reviewedAt: new Date(),
+        },
+      });
+
+      await this.createMonthlyRewardLedgers(tx, settlement);
+      return updated;
+    });
+  }
+
+  async markPaid(settlementId: string, adminUserId: string): Promise<any> {
+    return this.withSerializableRetry(async (tx) => {
+      const settlement = await (tx as any).captainMonthlySettlement.findUnique({
+        where: { id: settlementId },
+      });
+      if (!settlement) throw new NotFoundException('团长月度结算不存在');
+      if (settlement.status !== 'APPROVED') {
+        if (settlement.status === 'PAID') return settlement;
+        throw new BadRequestException('仅已审核结算可标记已支付');
+      }
+
+      await (tx as any).captainCommissionLedger.updateMany({
+        where: {
+          settlementId,
+          status: 'AVAILABLE',
+          deletedAt: null,
+        },
+        data: { status: 'WITHDRAWN' },
+      });
+
+      return (tx as any).captainMonthlySettlement.update({
+        where: { id: settlementId },
+        data: {
+          status: 'PAID',
+          paidByAdminId: adminUserId,
+          paidAt: new Date(),
+        },
+      });
+    });
+  }
+
+  async recalculateSettlement(settlementId: string, adminUserId: string): Promise<any> {
+    const settlement = await (this.prisma as any).captainMonthlySettlement.findUnique({
+      where: { id: settlementId },
+    });
+    if (!settlement) throw new NotFoundException('团长月度结算不存在');
+    if (settlement.status === 'PAID') {
+      throw new BadRequestException('已支付结算不可重算');
+    }
+
+    const [draft] = await this.createDraftSettlements(settlement.month);
+    if (!draft || draft.captainUserId !== settlement.captainUserId) {
+      this.logger.warn(`团长结算重算未返回目标结算: settlementId=${settlementId}, adminUserId=${adminUserId}`);
+    }
+    return draft;
+  }
+
+  private async calculateMetricInTx(
+    tx: Tx,
+    month: string,
+    captainUserId: string,
+    config: CaptainSeafoodConfig,
+  ): Promise<MetricInput> {
+    const { start, end } = this.monthRange(month);
+    const attributions = await (tx as any).captainOrderAttribution.findMany({
+      where: {
+        programCode: config.programCode,
+        createdAt: { gte: start, lt: end },
+        status: { not: 'VOIDED' },
+        OR: [
+          { directCaptainUserId: captainUserId },
+          { indirectCaptainUserId: captainUserId },
+        ],
+      },
+      select: {
+        id: true,
+        buyerUserId: true,
+        directCaptainUserId: true,
+        indirectCaptainUserId: true,
+        commissionBase: true,
+        refundAmount: true,
+        createdAt: true,
+      },
+    });
+    const directAttributions = attributions.filter(
+      (item: any) => item.directCaptainUserId === captainUserId,
+    );
+    const personalGmv = this.sumNetGmv(directAttributions);
+    const teamGmv = this.sumNetGmv(attributions);
+    const grossTeamGmv = attributions.reduce(
+      (sum: number, item: any) => sum + Number(item.commissionBase || 0),
+      0,
+    );
+    const refundAmount = attributions.reduce(
+      (sum: number, item: any) => sum + Number(item.refundAmount || 0),
+      0,
+    );
+    const directEffectiveBuyers = new Set(
+      directAttributions
+        .filter((item: any) => this.netGmv(item) > 0)
+        .map((item: any) => item.buyerUserId),
+    ).size;
+
+    const relations = await (tx as any).captainRelation.findMany({
+      where: {
+        programCode: config.programCode,
+        status: 'ACTIVE',
+        OR: [
+          { directCaptainUserId: captainUserId },
+          { indirectCaptainUserId: captainUserId },
+        ],
+      },
+      select: {
+        buyerUserId: true,
+        directCaptainUserId: true,
+        indirectCaptainUserId: true,
+        boundAt: true,
+      },
+    });
+    const effectiveTeamBuyerIds = new Set(
+      attributions
+        .filter((item: any) => this.netGmv(item) > 0)
+        .map((item: any) => item.buyerUserId),
+    );
+    const teamEffectiveMembers = new Set(
+      relations
+        .filter((relation: any) => !effectiveTeamBuyerIds.size || effectiveTeamBuyerIds.has(relation.buyerUserId))
+        .map((relation: any) => relation.buyerUserId),
+    ).size;
+    const newEffectiveMembers = new Set(
+      relations
+        .filter((relation: any) => {
+          if (relation.boundAt && (relation.boundAt < start || relation.boundAt >= end)) {
+            return false;
+          }
+          return !effectiveTeamBuyerIds.size || effectiveTeamBuyerIds.has(relation.buyerUserId);
+        })
+        .map((relation: any) => relation.buyerUserId),
+    ).size;
+    const refundRate = grossTeamGmv > 0 ? this.roundMoney(refundAmount / grossTeamGmv) : 0;
+    const qualified = this.isQualified({
+      personalGmv,
+      teamGmv,
+      directEffectiveBuyers,
+      teamEffectiveMembers,
+      newEffectiveMembers,
+      refundRate,
+    }, config);
+
+    return {
+      captainUserId,
+      month,
+      programCode: config.programCode,
+      personalGmv,
+      teamGmv,
+      directEffectiveBuyers,
+      teamEffectiveMembers,
+      newEffectiveMembers,
+      refundRate,
+      qualified,
+      qualifiedTier: qualified ? this.resolveTier(teamGmv, config) : null,
+      configSnapshot: this.snapshot(config),
+    };
+  }
+
+  private async upsertMetric(tx: Tx, input: MetricInput): Promise<any> {
+    const data = {
+      personalGmv: input.personalGmv,
+      teamGmv: input.teamGmv,
+      directEffectiveBuyers: input.directEffectiveBuyers,
+      teamEffectiveMembers: input.teamEffectiveMembers,
+      newEffectiveMembers: input.newEffectiveMembers,
+      refundRate: input.refundRate,
+      qualified: input.qualified,
+      qualifiedTier: input.qualifiedTier,
+      configSnapshot: input.configSnapshot,
+    };
+
+    return (tx as any).captainMonthlyMetric.upsert({
+      where: {
+        captainUserId_month_programCode: {
+          captainUserId: input.captainUserId,
+          month: input.month,
+          programCode: input.programCode,
+        },
+      },
+      update: data,
+      create: {
+        captainUserId: input.captainUserId,
+        month: input.month,
+        programCode: input.programCode,
+        ...data,
+      },
+    });
+  }
+
+  private calculateSettlementAmounts(
+    metric: MetricInput,
+    config: CaptainSeafoodConfig,
+    teamPoolDistribution: TeamPoolDistribution,
+  ) {
+    let baseManagementAmount = 0;
+    let growthBonusAmount = 0;
+    let cultivationBonusAmount = 0;
+    let teamPoolAmount = 0;
+
+    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.baseTierGmv) {
+      baseManagementAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.baseManagementRate);
+      const teamPoolTotal = this.roundMoney(metric.teamGmv * config.monthlyRewards.teamPoolRate);
+      teamPoolAmount = this.roundMoney(teamPoolTotal * config.monthlyRewards.captainTeamPoolWeight);
+    }
+    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.growthTierGmv) {
+      growthBonusAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.growthBonusRate);
+    }
+    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.excellentTierGmv) {
+      cultivationBonusAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.cultivationBonusRate);
+    }
+
+    const totalAmount = this.roundMoney(
+      baseManagementAmount +
+      growthBonusAmount +
+      cultivationBonusAmount +
+      teamPoolAmount,
+    );
+    const taxAmount = config.tax.enabled
+      ? this.roundMoney(totalAmount * config.tax.withholdingRate)
+      : 0;
+    const netAmount = this.roundMoney(totalAmount - taxAmount);
+
+    return {
+      baseManagementAmount,
+      growthBonusAmount,
+      cultivationBonusAmount,
+      teamPoolAmount,
+      totalAmount,
+      taxAmount,
+      netAmount,
+    };
+  }
+
+  private async calculateTeamPoolDistributionInTx(
+    tx: Tx,
+    month: string,
+    captainUserId: string,
+    metric: MetricInput,
+    config: CaptainSeafoodConfig,
+  ): Promise<TeamPoolDistribution> {
+    if (!metric.qualified || metric.teamGmv < config.monthlyRewards.baseTierGmv) {
+      return [];
+    }
+    const { start, end } = this.monthRange(month);
+    const teamPoolTotal = this.roundMoney(metric.teamGmv * config.monthlyRewards.teamPoolRate);
+    const memberPoolAmount = this.roundMoney(
+      teamPoolTotal * (1 - config.monthlyRewards.captainTeamPoolWeight),
+    );
+    if (memberPoolAmount <= 0) return [];
+
+    const memberAttributions = await (tx as any).captainOrderAttribution.findMany({
+      where: {
+        programCode: config.programCode,
+        createdAt: { gte: start, lt: end },
+        status: { not: 'VOIDED' },
+        indirectCaptainUserId: captainUserId,
+      },
+      select: {
+        directCaptainUserId: true,
+        commissionBase: true,
+        refundAmount: true,
+      },
+    });
+    const memberGmvMap = new Map<string, number>();
+    for (const item of memberAttributions) {
+      if (!item.directCaptainUserId || item.directCaptainUserId === captainUserId) continue;
+      const current = memberGmvMap.get(item.directCaptainUserId) ?? 0;
+      memberGmvMap.set(item.directCaptainUserId, this.roundMoney(current + this.netGmv(item)));
+    }
+    const totalMemberGmv = [...memberGmvMap.values()].reduce((sum, value) => sum + value, 0);
+    if (totalMemberGmv <= 0) return [];
+
+    let allocated = 0;
+    const entries = [...memberGmvMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return entries.map(([userId, personalGmv], index) => {
+      const amount = index === entries.length - 1
+        ? this.roundMoney(memberPoolAmount - allocated)
+        : this.roundMoney(memberPoolAmount * (personalGmv / totalMemberGmv));
+      allocated = this.roundMoney(allocated + amount);
+      return { userId, personalGmv, amount };
+    });
+  }
+
+  private async createMonthlyRewardLedgers(tx: Tx, settlement: any): Promise<void> {
+    const entries = [
+      {
+        userId: settlement.captainUserId,
+        type: 'MANAGEMENT_ALLOWANCE',
+        amount: settlement.baseManagementAmount,
+        keySuffix: 'management',
+      },
+      {
+        userId: settlement.captainUserId,
+        type: 'GROWTH_BONUS',
+        amount: settlement.growthBonusAmount,
+        keySuffix: 'growth',
+      },
+      {
+        userId: settlement.captainUserId,
+        type: 'CULTIVATION_BONUS',
+        amount: settlement.cultivationBonusAmount,
+        keySuffix: 'cultivation',
+      },
+      {
+        userId: settlement.captainUserId,
+        type: 'TEAM_POOL',
+        amount: settlement.teamPoolAmount,
+        keySuffix: 'team-pool',
+      },
+      ...((settlement.meta?.teamPoolDistribution ?? []) as TeamPoolDistribution).map((item) => ({
+        userId: item.userId,
+        type: 'TEAM_POOL',
+        amount: item.amount,
+        keySuffix: `team-pool:${settlement.captainUserId}`,
+      })),
+    ];
+
+    for (const entry of entries) {
+      const amount = this.roundMoney(Number(entry.amount || 0));
+      if (amount <= 0) continue;
+      await this.createMonthlyLedger(tx, settlement, {
+        ...entry,
+        amount,
+      });
+    }
+  }
+
+  private async createMonthlyLedger(
+    tx: Tx,
+    settlement: any,
+    entry: {
+      userId: string;
+      type: string;
+      amount: number;
+      keySuffix: string;
+    },
+  ): Promise<void> {
+    const account = await (tx as any).captainAccount.upsert({
+      where: {
+        userId_programCode: {
+          userId: entry.userId,
+          programCode: settlement.programCode,
+        },
+      },
+      update: {},
+      create: {
+        userId: entry.userId,
+        programCode: settlement.programCode,
+      },
+    });
+    const balanceAfter = this.roundMoney(Number(account.balance || 0) + entry.amount);
+    const idempotencyKey = `captain:month:${settlement.month}:${entry.userId}:${entry.keySuffix}`;
+
+    try {
+      await (tx as any).captainCommissionLedger.create({
+        data: {
+          accountId: account.id,
+          userId: entry.userId,
+          settlementId: settlement.id,
+          programCode: settlement.programCode,
+          type: entry.type,
+          status: 'AVAILABLE',
+          amount: entry.amount,
+          balanceAfter,
+          idempotencyKey,
+          refType: 'MONTHLY_SETTLEMENT',
+          refId: settlement.id,
+          configSnapshot: settlement.configSnapshot,
+          meta: {
+            month: settlement.month,
+            sourceCaptainUserId: settlement.captainUserId,
+          },
+        },
+      });
+      await (tx as any).captainAccount.update({
+        where: { id: account.id },
+        data: { balance: { increment: entry.amount } },
+      });
+    } catch (err: any) {
+      if (err?.code !== 'P2002') throw err;
+    }
+  }
+
+  private isQualified(
+    metric: {
+      personalGmv: number;
+      teamGmv: number;
+      directEffectiveBuyers: number;
+      teamEffectiveMembers: number;
+      newEffectiveMembers: number;
+      refundRate: number;
+    },
+    config: CaptainSeafoodConfig,
+  ): boolean {
+    const qualification = config.monthlyQualification;
+    if (metric.directEffectiveBuyers < qualification.minDirectEffectiveBuyers) return false;
+    if (metric.personalGmv < qualification.minPersonalMonthlyGmv) return false;
+    if (metric.teamEffectiveMembers < qualification.minTeamEffectiveMembers) return false;
+    if (metric.teamGmv < qualification.minTeamMonthlyGmv) return false;
+    if (metric.newEffectiveMembers < qualification.minNewEffectiveMembers) return false;
+    if (
+      config.risk.holdSettlementOnRisk &&
+      metric.refundRate > config.risk.maxMonthlyRefundRate
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private resolveTier(teamGmv: number, config: CaptainSeafoodConfig): string {
+    if (teamGmv >= config.monthlyRewards.excellentTierGmv) return 'EXCELLENT';
+    if (teamGmv >= config.monthlyRewards.growthTierGmv) return 'GROWTH';
+    if (teamGmv >= config.monthlyRewards.baseTierGmv) return 'BASE';
+    return 'QUALIFIED';
+  }
+
+  private sumNetGmv(items: any[]): number {
+    return this.roundMoney(items.reduce((sum, item) => sum + this.netGmv(item), 0));
+  }
+
+  private netGmv(item: any): number {
+    return this.roundMoney(Math.max(
+      0,
+      Number(item.commissionBase || 0) - Number(item.refundAmount || 0),
+    ));
+  }
+
+  private monthRange(month: string): { start: Date; end: Date } {
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month 必须是 YYYY-MM');
+    }
+    const start = new Date(`${month}-01T00:00:00.000Z`);
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    return { start, end };
+  }
+
+  private snapshot(config: CaptainSeafoodConfig): CaptainSeafoodConfig {
+    return JSON.parse(JSON.stringify(config ?? DEFAULT_CAPTAIN_SEAFOOD_CONFIG));
+  }
+
+  private async withSerializableRetry<T>(
+    work: (tx: Tx) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 0; attempt < SERIALIZABLE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(work, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          this.logger.warn(`团长月度结算 Serializable 冲突，重试 ${attempt + 1}/${SERIALIZABLE_MAX_RETRIES}`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('团长月度结算 Serializable 重试耗尽');
+  }
+
+  private roundMoney(value: number): number {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+}
