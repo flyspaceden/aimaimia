@@ -4,6 +4,8 @@
 
 **Goal:** Build an H5 scan flow where an invitee can use phone + SMS code to login or auto-register, bind to the inviter immediately if no existing relation exists, and later see the same relation in the App by logging in with the same phone.
 
+**Status (2026-07-08):** Code implemented on branch `codex/h5-invite-auth-design`; backend/unit tests, website build, App TypeScript, and referral-link script tests pass. Remaining: staging deployment and normal/VIP真机链路验收.
+
 **Architecture:** Add a backend `invite-h5` module for invite-code resolution, landing statistics, and post-auth binding orchestration. Auth owns phone/SMS login and token issuance, then delegates invite binding to the existing normal-share and VIP referral services so current business rules remain authoritative. The website adds `/invite/:code`, and the buyer App changes newly generated invite QR/share links to that H5 route while preserving old `/s/:code` and `/r/:code` compatibility.
 
 **Tech Stack:** NestJS + Prisma + PostgreSQL, Jest, React/Vite website, React Native/Expo buyer App, TanStack Query, existing Result API envelope.

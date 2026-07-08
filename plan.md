@@ -1793,6 +1793,20 @@
 
 ---
 
+## 🔗 H5 邀请注册登录绑定（2026-07-08 新增）
+
+> **触发**: 会议/线下推广时，被推荐人现场下载 App 慢且容易放弃；需要扫码后先进入 H5，用手机号验证码注册或登录，后台立即绑定现有普通分享码或 VIP 推荐码，之后同手机号登录 App 直接看到关系。
+> **权威源**: `docs/superpowers/specs/2026-07-08-h5-invite-auth-binding-design.md` + `docs/superpowers/plans/2026-07-08-h5-invite-auth-binding.md`
+
+- [x] **H5-INV01** 后端新增 `InviteH5LandingEvent`、邀请码解析器、`POST /invite-h5/landing`、`GET /invite-h5/stats`，普通码/VIP 码按现有 `NormalShareService.bind()` / `BonusService.useReferralCode()` 绑定规则执行，不新增第二套邀请码。
+- [x] **H5-INV02** 后端新增 `POST /auth/invite-login`，复用手机号短信验证码登录/自动注册；登录成功后绑定推荐关系，已有不同推荐关系时返回“已绑定推荐关系，无法覆盖”且不覆盖。
+- [x] **H5-INV03** 官网新增 `/invite/{code}` H5 登录页，并让旧 `/r/{code}`、`/s/{code}` 兼容进入同页；页面不展示推荐人信息，只展示正常手机号验证码登录/注册表单和绑定结果。
+- [x] **H5-INV04** 买家 App 推荐中心和 VIP 页的新二维码/分享链接统一指向 `https://app.ai-maimai.com/invite/{code}`；扫码器和 App Link intake 兼容新 `/invite/{code}`，旧 `/r`、`/s` 继续可解析。
+- [x] **H5-INV05** 买家 App 推荐中心展示 H5 邀请漏斗统计：扫码打开、已登录、已绑定。
+- [ ] **H5-INV06** Staging 联调/真机验收：普通用户码和 VIP 码各跑一遍“扫码 H5 → 获取短信 → 新手机号自动注册绑定 → 已绑定账号不覆盖 → App 同手机号登录查看关系 → 推荐中心统计增长”。
+
+---
+
 ## 🛒 团购即时推荐码与统一消费积分（2026-06-29 新增）
 
 > **触发**: 团购规则调整为付款后立即生成团购推荐码；团购订单独立于普通商品，不接受退换货/退款，仅收货后24小时内质量问题联系客服补发；团购返还后端独立记账，但 App 钱包统一显示为消费积分，可抵扣和提现。
