@@ -154,6 +154,7 @@ async function handleUnifiedInviteCodeWithVipFirst(code: string) {
 
 function handleIncomingURL(url: string | null) {
   if (!url) return;
+  if (isCaptainLandingURL(url)) return;
   const unifiedInviteCode = extractUnifiedInviteCodeFromURL(url);
   if (unifiedInviteCode && unifiedInviteCode !== 'none') {
     handleUnifiedInviteCode(unifiedInviteCode);
@@ -168,6 +169,11 @@ function handleIncomingURL(url: string | null) {
   if (code && code !== 'none') {
     handleReferralCode(code);
   }
+}
+
+function isCaptainLandingURL(url: string) {
+  return /app\.(ai-maimai|xn--ckqa175y)\.com\/c\/[A-Za-z0-9]+/.test(url) ||
+    /aimaimai:\/\/captain\?code=[A-Za-z0-9]+/.test(url);
 }
 
 async function performDeferredLinkCheck() {

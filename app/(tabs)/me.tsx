@@ -11,7 +11,7 @@ import { AuthModal } from '../../src/components/overlay';
 import { VipHomePromoCarousel } from '../../src/components/data';
 import { Countdown } from '../../src/components/ui/Countdown';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
-import { BonusRepo, InboxRepo, OrderRepo } from '../../src/repos';
+import { BonusRepo, CaptainRepo, InboxRepo, OrderRepo } from '../../src/repos';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
 import { OrderStatus } from '../../src/types';
@@ -115,6 +115,11 @@ export default function MeScreen() {
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
+  const { data: captainProfileData } = useQuery({
+    queryKey: ['captain-me'],
+    queryFn: () => CaptainRepo.getMyCaptainProfile(),
+    enabled: isLoggedIn,
+  });
   const { data: vipGiftOptionsData } = useQuery({
     queryKey: ['vip-gift-options'],
     queryFn: () => BonusRepo.getVipGiftOptions(),
@@ -126,6 +131,7 @@ export default function MeScreen() {
   const unreadCount = inboxCountData?.ok ? inboxCountData.data : 0;
   const walletBalance = walletData?.ok ? walletData.data.balance : 0;
   const member = memberData?.ok ? memberData.data : null;
+  const captainProfile = captainProfileData?.ok ? captainProfileData.data : null;
   const isVip = member?.tier === 'VIP';
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
@@ -136,8 +142,14 @@ export default function MeScreen() {
     [growthToolLabel],
   );
   const toolGrid = useMemo(
-    () => [buildMeReferralToolEntry(member), normalGrowthTool, ...TOOL_GRID_BASE],
-    [member, normalGrowthTool],
+    () => {
+      const entries = [buildMeReferralToolEntry(member), normalGrowthTool];
+      if (captainProfile?.isCaptain) {
+        entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
+      }
+      return [...entries, ...TOOL_GRID_BASE];
+    },
+    [member, normalGrowthTool, captainProfile?.isCaptain],
   );
 
   const handleRefresh = async () => {
@@ -148,6 +160,7 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['me-inbox-unread'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
+      queryClient.invalidateQueries({ queryKey: ['captain-me'] }),
       queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] }),
     ]);
     setRefreshing(false);

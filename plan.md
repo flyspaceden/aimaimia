@@ -26,6 +26,11 @@
   - **实际做了**: 新增独立“团长经营”菜单和 `/captain/*` 路由；补齐团长列表、详情、订单归因、佣金流水、月度结算和团长配置页；`CAPTAIN_SEAFOOD_CONFIG` 完整暴露启用、范围、逐单佣金、月度门槛、阶梯奖励、封顶、税务和风控参数，并实时展示总激励率、预估净利和风险预留后净利；操作权限独立为 `captain:read/manage/settlement/settings`，不混入 VIP 树、普通奖励、消费积分或平台红包。
   - **验证**: `cd admin && npm run build` 通过；构建仅保留 Vite vendor chunk 体积提示。
 
+- [x] **预包装海鲜团长经营买家端入口**（2026-07-08 新增并完成）
+  - **来源**: 同上，要求不改 VIP 树，新增独立团长路径，解决团长分享和用户增长链路。
+  - **实际做了**: 后端新增 `/captain/landing/:code`、`/captain/bind`、`/captain/me`、`/captain/me/ledgers`、`/captain/me/orders`；买家 App 新增 `CaptainRepo`、`/c/[code]` 团长码落地页、`/me/captain` 团长经营中心，并在我的页仅对 ACTIVE 团长展示“团长经营”入口；`/c/*` 加入 Android App Links、iOS Universal Links 和官网下载路由，App 根布局明确区分 `/c` 与 VIP `/r`，避免误触发 VIP 推荐绑定。
+  - **验证**: `backend npx jest src/modules/captain/captain-buyer.service.spec.ts --runInBand`、`npx jest src/repos/__tests__/CaptainRepo.test.ts --runInBand`、`npx jest src/utils/__tests__/captainShare.test.ts --runInBand`、`npx tsc -b --noEmit --pretty false` 通过。
+
 - [x] **管理后台买家候选搜索统一接入**（2026-07-06 新增并完成）
   - **来源**: 用户反馈管理后台还有很多搜索框没有“点击显示候选、输入实时联想、滚动继续加载更多”的体验。
   - **实际做了**: 新增通用 `BuyerSuggestInput` 和 `BuyerNoMultiSelect`，基于 `/admin/app-users` 分页搜索买家；点击输入框展示候选，输入买家编号、手机号或昵称自动刷新，滚动到底继续加载下一页。首批接入用户管理、数字资产、积分成长、VIP 会员、推荐与拉新、消息公告指定买家编号。

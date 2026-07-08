@@ -32,6 +32,7 @@ export * from './LotteryRepo';
 export * from './ReplacementRepo';
 export * from './CouponRepo';
 export * from './CategoryRepo';
+export * from './CaptainRepo';
 export * from './InvoiceRepo';
 export * from './AfterSaleRepo';
 export * from './CsRepo';

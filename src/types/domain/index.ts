@@ -29,6 +29,7 @@ export * from './Trace';
 export * from './Bonus';
 export * from './Coupon';
 export * from './Category';
+export * from './Captain';
 export * from './Invoice';
 export * from './CustomerService';
 export * from './Checkout';
