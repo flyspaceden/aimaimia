@@ -33,6 +33,8 @@ import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { GroupBuyModule } from '../group-buy/group-buy.module';
 import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
+import { CaptainModule } from '../captain/captain.module';
+import { CaptainAttributionService } from '../captain/captain-attribution.service';
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { GrowthEventService } from '../growth/growth-event.service';
     ProductModule,
     GroupBuyModule,
     GrowthModule,
+    CaptainModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -113,6 +116,13 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setVipDirectReferralCommissionService(vipDirectReferralCommissionService);
     } else {
       throw new Error('[OrderModule] VipDirectReferralCommissionService 未注入，直推佣金冻结不可用，启动中止');
+    }
+
+    const captainAttributionService = this.moduleRef.get(CaptainAttributionService, { strict: false });
+    if (captainAttributionService) {
+      this.checkoutService.setCaptainAttributionService(captainAttributionService);
+    } else {
+      console.warn('[OrderModule] CaptainAttributionService 未注入，团长订单归因不可用');
     }
 
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
