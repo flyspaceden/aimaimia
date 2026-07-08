@@ -20,19 +20,21 @@ export class InviteCodeResolverService {
       }),
     ]);
 
-    if (normal && vip?.tier === 'VIP') {
+    const activeNormal = normal?.status === 'ACTIVE' ? normal : null;
+
+    if (activeNormal && vip?.tier === 'VIP') {
       return { status: 'CONFLICT', code };
     }
 
-    if (normal?.status === 'ACTIVE') {
+    if (activeNormal) {
       return {
         status: 'NORMAL_SHARE',
         code,
-        inviterUserId: normal.userId,
+        inviterUserId: activeNormal.userId,
       };
     }
 
-    if (!normal && vip?.tier === 'VIP') {
+    if (!activeNormal && vip?.tier === 'VIP') {
       return {
         status: 'VIP_REFERRAL',
         code,
