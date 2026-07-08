@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CaptainApplicationService } from './captain-application.service';
 import { CaptainAttributionService } from './captain-attribution.service';
 import { CaptainBuyerService } from './captain-buyer.service';
 import { CaptainController } from './captain.controller';
@@ -11,6 +12,7 @@ import { CaptainRelationService } from './captain-relation.service';
   controllers: [CaptainController],
   providers: [
     CaptainAttributionService,
+    CaptainApplicationService,
     CaptainBuyerService,
     CaptainCommissionService,
     CaptainMonthlySettlementService,
@@ -19,6 +21,7 @@ import { CaptainRelationService } from './captain-relation.service';
   ],
   exports: [
     CaptainAttributionService,
+    CaptainApplicationService,
     CaptainBuyerService,
     CaptainCommissionService,
     CaptainMonthlySettlementService,

@@ -18,7 +18,12 @@ import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
 import { AuditLogInterceptor } from '../common/interceptors/audit-log.interceptor';
 import {
+  ApproveCaptainApplicationDto,
+  RejectCaptainApplicationDto,
+} from '../../captain/dto/captain-application.dto';
+import {
   CreateCaptainProfileDto,
+  ListCaptainApplicationsQueryDto,
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
   ListCaptainProfilesQueryDto,
@@ -34,6 +39,52 @@ import { AdminCaptainService } from './admin-captain.service';
 @Controller('admin/captain')
 export class AdminCaptainController {
   constructor(private readonly captainService: AdminCaptainService) {}
+
+  @Get('applications')
+  @RequirePermission('captain:read')
+  listApplications(@Query() query: ListCaptainApplicationsQueryDto) {
+    return this.captainService.listApplications(query);
+  }
+
+  @Get('applications/:id')
+  @RequirePermission('captain:read')
+  getApplication(@Param('id') id: string) {
+    return this.captainService.getApplication(id);
+  }
+
+  @Post('applications/:id/approve')
+  @RequirePermission('captain:manage')
+  @AuditLog({
+    action: 'STATUS_CHANGE',
+    module: 'captain',
+    targetType: 'CaptainApplication',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  approveApplication(
+    @Param('id') id: string,
+    @Body() dto: ApproveCaptainApplicationDto,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.captainService.approveApplication(id, adminUserId, dto);
+  }
+
+  @Post('applications/:id/reject')
+  @RequirePermission('captain:manage')
+  @AuditLog({
+    action: 'STATUS_CHANGE',
+    module: 'captain',
+    targetType: 'CaptainApplication',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  rejectApplication(
+    @Param('id') id: string,
+    @Body() dto: RejectCaptainApplicationDto,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.captainService.rejectApplication(id, adminUserId, dto);
+  }
 
   @Get('profiles')
   @RequirePermission('captain:read')

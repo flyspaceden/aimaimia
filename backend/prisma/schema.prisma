@@ -295,6 +295,13 @@ enum CaptainSettlementStatus {
   REJECTED
 }
 
+enum CaptainApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
 enum PaymentChannel {
   WECHAT_PAY
   ALIPAY
@@ -873,6 +880,7 @@ model User {
   captainCommissionLedgers          CaptainCommissionLedger[] @relation("CaptainLedgerUser")
   captainMonthlyMetrics             CaptainMonthlyMetric[]    @relation("CaptainMonthlyMetricUser")
   captainMonthlySettlements         CaptainMonthlySettlement[] @relation("CaptainMonthlySettlementUser")
+  captainApplications               CaptainApplication[]       @relation("CaptainApplicationUser")
 
   // J 域关系（普通用户系统改造）
   normalProgress       NormalProgress?
@@ -2025,6 +2033,35 @@ model CaptainProfile {
 
   @@index([status, createdAt])
   @@index([programCode, status])
+}
+
+model CaptainApplication {
+  id                   String                   @id @default(cuid())
+  userId               String
+  user                 User                     @relation("CaptainApplicationUser", fields: [userId], references: [id], onDelete: Restrict)
+  programCode          String                   @default("SEAFOOD_PREPACKAGED")
+  status               CaptainApplicationStatus @default(PENDING)
+  realName             String
+  contact              String
+  city                 String
+  communityScale       String
+  expectedMonthlyGmv   String
+  resourceTypes        Json
+  promotionPlan        String
+  seafoodExperience    String
+  complianceAccepted   Boolean                  @default(false)
+  systemSnapshot       Json
+  reviewedByAdminId    String?
+  reviewedAt           DateTime?
+  rejectReason         String?
+  captainProfileUserId String?
+  meta                 Json?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@index([status, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([programCode, status, createdAt])
 }
 
 model CaptainRelation {

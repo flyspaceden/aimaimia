@@ -21,59 +21,66 @@ export class CaptainRelationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createCaptainProfile(input: CreateCaptainProfileInput) {
+    return this.prisma.$transaction(async (tx) => {
+      return this.createCaptainProfileInTx(tx, input);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async createCaptainProfileInTx(
+    tx: Prisma.TransactionClient,
+    input: CreateCaptainProfileInput,
+  ) {
     const captainCode = this.normalizeCaptainCode(input.captainCode || this.generateCaptainCode());
 
-    return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({
-        where: { id: input.userId },
-        select: { id: true },
-      });
-      if (!user) {
-        throw new NotFoundException('用户不存在，无法开通团长');
-      }
+    const user = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new NotFoundException('用户不存在，无法开通团长');
+    }
 
-      const existingByUser = await tx.captainProfile.findUnique({
-        where: { userId: input.userId },
-      });
-      if (existingByUser) {
-        throw new BadRequestException('该用户已是团长');
-      }
+    const existingByUser = await tx.captainProfile.findUnique({
+      where: { userId: input.userId },
+    });
+    if (existingByUser) {
+      throw new BadRequestException('该用户已是团长');
+    }
 
-      const existingByCode = await tx.captainProfile.findUnique({
-        where: { captainCode },
-      });
-      if (existingByCode) {
-        throw new BadRequestException('团长码已存在');
-      }
+    const existingByCode = await tx.captainProfile.findUnique({
+      where: { captainCode },
+    });
+    if (existingByCode) {
+      throw new BadRequestException('团长码已存在');
+    }
 
-      const profile = await tx.captainProfile.create({
-        data: {
-          userId: input.userId,
-          captainCode,
-          programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
-          displayName: input.displayName || null,
-          status: 'ACTIVE',
-          approvedAt: new Date(),
-          createdByAdminId: input.adminUserId || null,
-        },
-      });
+    const profile = await tx.captainProfile.create({
+      data: {
+        userId: input.userId,
+        captainCode,
+        programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
+        displayName: input.displayName || null,
+        status: 'ACTIVE',
+        approvedAt: new Date(),
+        createdByAdminId: input.adminUserId || null,
+      },
+    });
 
-      await tx.captainAccount.upsert({
-        where: {
-          userId_programCode: {
-            userId: input.userId,
-            programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
-          },
-        },
-        update: {},
-        create: {
+    await tx.captainAccount.upsert({
+      where: {
+        userId_programCode: {
           userId: input.userId,
           programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
         },
-      });
+      },
+      update: {},
+      create: {
+        userId: input.userId,
+        programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
+      },
+    });
 
-      return profile;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return profile;
   }
 
   async bindBuyerToCaptainCode(input: BindBuyerToCaptainCodeInput) {

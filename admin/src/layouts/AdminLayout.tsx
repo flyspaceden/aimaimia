@@ -136,6 +136,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         PERMISSIONS.CAPTAIN_SETTINGS,
       ],
       routes: [
+        { path: '/captain/applications', name: '团长申请', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/profiles', name: '团长列表', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/orders', name: '订单归因', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/ledgers', name: '佣金流水', permission: PERMISSIONS.CAPTAIN_READ },

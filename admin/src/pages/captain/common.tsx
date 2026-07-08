@@ -2,6 +2,7 @@ import { Avatar, Space, Tag, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type {
+  CaptainApplicationStatus,
   CaptainLedgerStatus,
   CaptainLedgerType,
   CaptainProfileStatus,
@@ -43,6 +44,13 @@ export const captainSettlementStatusMap: Record<CaptainSettlementStatus, { text:
   APPROVED: { text: '已审核', color: 'green' },
   PAID: { text: '已支付', color: 'blue' },
   REJECTED: { text: '已驳回', color: 'red' },
+};
+
+export const captainApplicationStatusMap: Record<CaptainApplicationStatus, { text: string; color: string }> = {
+  PENDING: { text: '待审核', color: 'gold' },
+  APPROVED: { text: '已通过', color: 'green' },
+  REJECTED: { text: '已驳回', color: 'red' },
+  WITHDRAWN: { text: '已撤回', color: 'default' },
 };
 
 export function StatusTag<T extends string>({

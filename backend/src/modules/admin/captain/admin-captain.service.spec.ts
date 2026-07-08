@@ -48,17 +48,25 @@ function createHarness() {
     markPaid: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'PAID' }),
     recalculateSettlement: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'DRAFT' }),
   };
+  const applicationService = {
+    listAdmin: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
+    getAdmin: jest.fn().mockResolvedValue({ id: 'application-1', status: 'PENDING' }),
+    approve: jest.fn().mockResolvedValue({ id: 'application-1', status: 'APPROVED' }),
+    reject: jest.fn().mockResolvedValue({ id: 'application-1', status: 'REJECTED' }),
+  };
 
   return {
     prisma,
     relationService,
     configService,
     monthlySettlementService,
+    applicationService,
     service: new AdminCaptainService(
       prisma,
       relationService as any,
       configService as any,
       monthlySettlementService as any,
+      applicationService as any,
     ),
   };
 }
@@ -187,6 +195,20 @@ describe('AdminCaptainService', () => {
     expect(monthlySettlementService.approveSettlement).toHaveBeenCalledWith('settlement-1', 'admin-1');
     expect(monthlySettlementService.markPaid).toHaveBeenCalledWith('settlement-1', 'admin-1');
     expect(monthlySettlementService.recalculateSettlement).toHaveBeenCalledWith('settlement-1', 'admin-1');
+  });
+
+  it('delegates captain application list and review operations to application service', async () => {
+    const { service, applicationService } = createHarness();
+
+    await service.listApplications({ status: 'PENDING', keyword: 'AIMM' });
+    await service.getApplication('application-1');
+    await service.approveApplication('application-1', 'admin-1', { captainCode: 'SEA001' });
+    await service.rejectApplication('application-1', 'admin-1', { reason: '资料不足' });
+
+    expect(applicationService.listAdmin).toHaveBeenCalledWith({ status: 'PENDING', keyword: 'AIMM' });
+    expect(applicationService.getAdmin).toHaveBeenCalledWith('application-1');
+    expect(applicationService.approve).toHaveBeenCalledWith('application-1', 'admin-1', { captainCode: 'SEA001' });
+    expect(applicationService.reject).toHaveBeenCalledWith('application-1', 'admin-1', { reason: '资料不足' });
   });
 
   it('reads and updates captain config with strict validation', async () => {

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsObject,
@@ -11,6 +12,10 @@ import {
   Min,
 } from 'class-validator';
 import { CaptainProfileStatus } from '@prisma/client';
+import {
+  CAPTAIN_APPLICATION_STATUSES,
+  CaptainApplicationStatusValue,
+} from '../../captain/dto/captain-application.dto';
 
 export class CaptainPaginationQueryDto {
   @IsOptional()
@@ -40,6 +45,12 @@ export class ListCaptainProfilesQueryDto extends CaptainPaginationQueryDto {
   @IsOptional()
   @IsString()
   month?: string;
+}
+
+export class ListCaptainApplicationsQueryDto extends CaptainPaginationQueryDto {
+  @IsOptional()
+  @IsIn(CAPTAIN_APPLICATION_STATUSES)
+  status?: CaptainApplicationStatusValue;
 }
 
 export class CreateCaptainProfileDto {

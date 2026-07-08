@@ -1,6 +1,7 @@
 import type { PaginationResult } from '../Pagination';
 
 export type CaptainProfileStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
+export type CaptainApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
 export type CaptainLedgerType =
   | 'DIRECT_ORDER'
   | 'INDIRECT_ORDER'
@@ -102,6 +103,68 @@ export interface CaptainMyProfile {
   account: CaptainAccount | null;
   metric: CaptainMonthlyMetric | null;
   boundRelation: CaptainRelation | null;
+}
+
+export interface CaptainApplicationSnapshot {
+  capturedAt?: string;
+  buyerNo?: string | null;
+  nickname?: string | null;
+  phone?: string | null;
+  phoneVerified?: boolean;
+  userStatus?: string;
+  isVip?: boolean;
+  memberTier?: string | null;
+  orderCount?: number;
+  paidAmount?: number;
+  refundCount?: number;
+  refundAmount?: number;
+  refundRate?: number;
+  boundCaptain?: {
+    userId: string;
+    buyerNo: string | null;
+    nickname: string | null;
+  } | null;
+}
+
+export interface CaptainApplication {
+  id: string;
+  userId: string;
+  programCode: string;
+  status: CaptainApplicationStatus;
+  realName: string;
+  contact: string;
+  city: string;
+  communityScale: string;
+  expectedMonthlyGmv: string;
+  resourceTypes: string[];
+  promotionPlan: string;
+  seafoodExperience: string;
+  complianceAccepted: boolean;
+  systemSnapshot?: CaptainApplicationSnapshot | null;
+  reviewedAt?: string | null;
+  rejectReason?: string | null;
+  captainProfileUserId?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CaptainMyApplication {
+  isCaptain: boolean;
+  profile: CaptainProfile | null;
+  application: CaptainApplication | null;
+  canSubmit: boolean;
+}
+
+export interface SubmitCaptainApplicationInput {
+  realName: string;
+  contact: string;
+  city: string;
+  communityScale: string;
+  expectedMonthlyGmv: string;
+  resourceTypes: string[];
+  promotionPlan: string;
+  seafoodExperience: string;
+  complianceAccepted: boolean;
 }
 
 export interface CaptainLedger {

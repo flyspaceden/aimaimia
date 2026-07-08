@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  CaptainApplication,
   CaptainCommissionLedger,
   CaptainMonthlySettlement,
   CaptainOrderAttribution,
@@ -10,6 +11,28 @@ import type {
   CaptainSeafoodConfig,
   PaginatedData,
 } from '@/types';
+
+export const getCaptainApplications = (
+  params?: CaptainQueryParams,
+): Promise<PaginatedData<CaptainApplication>> =>
+  client.get('/admin/captain/applications', { params });
+
+export const getCaptainApplication = (
+  id: string,
+): Promise<CaptainApplication> =>
+  client.get(`/admin/captain/applications/${id}`);
+
+export const approveCaptainApplication = (
+  id: string,
+  data: { captainCode?: string; displayName?: string | null },
+): Promise<CaptainApplication> =>
+  client.post(`/admin/captain/applications/${id}/approve`, data);
+
+export const rejectCaptainApplication = (
+  id: string,
+  data: { reason: string },
+): Promise<CaptainApplication> =>
+  client.post(`/admin/captain/applications/${id}/reject`, data);
 
 export const getCaptainProfiles = (
   params?: CaptainQueryParams,
