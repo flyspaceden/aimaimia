@@ -30,8 +30,14 @@ const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; ic
   { id: 'RECEIVED', label: '已完成', icon: 'check-circle-outline' },
 ];
 
+type ToolEntry = {
+  label: string;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  route: string;
+};
+
 // 工具网格
-const TOOL_GRID_BASE = [
+const TOOL_GRID_BASE: ToolEntry[] = [
   { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
   { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
   { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
@@ -143,19 +149,19 @@ export default function MeScreen() {
   );
   const toolGrid = useMemo(
     () => {
-      const entries = [buildMeReferralToolEntry(member), normalGrowthTool];
+      const entries: ToolEntry[] = [buildMeReferralToolEntry(member), normalGrowthTool];
       if (captainProfile?.isCaptain) {
         entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
       } else {
         entries.push({
-          label: captainProfile?.application ? '团长申请' : '申请团长',
+          label: '申请团长',
           icon: 'clipboard-edit-outline' as const,
           route: '/me/captain-application',
         });
       }
       return [...entries, ...TOOL_GRID_BASE];
     },
-    [member, normalGrowthTool, captainProfile?.isCaptain, captainProfile?.application],
+    [member, normalGrowthTool, captainProfile?.isCaptain],
   );
 
   const handleRefresh = async () => {

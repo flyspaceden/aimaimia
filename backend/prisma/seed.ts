@@ -21,6 +21,10 @@ import {
 
 const prisma = new PrismaClient();
 
+function toRuleConfigJson(value: unknown, description: string): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify({ value, description })) as Prisma.InputJsonValue;
+}
+
 function inferSeedWeightGram(title: string): number {
   const kgMatch = title.match(/(\d+(?:\.\d+)?)\s*kg/i);
   if (kgMatch) {
@@ -1836,9 +1840,9 @@ async function main() {
     await prisma.ruleConfig.upsert({
       where: { key: rc.key },
       update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS' || rc.key === CAPTAIN_SEAFOOD_CONFIG_KEY
-        ? { value: { value: rc.value, description: rc.desc } }
+        ? { value: toRuleConfigJson(rc.value, rc.desc) }
         : {},
-      create: { key: rc.key, value: { value: rc.value, description: rc.desc } },
+      create: { key: rc.key, value: toRuleConfigJson(rc.value, rc.desc) },
     });
   }
   console.log(`✅ ${ruleConfigs.length} 条分润配置已创建`);
