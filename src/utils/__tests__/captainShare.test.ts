@@ -30,11 +30,19 @@ describe('captain share link', () => {
   it('routes /c share links separately from VIP referral links', () => {
     const repoRoot = path.resolve(__dirname, '../../..');
     const websiteSource = fs.readFileSync(path.join(repoRoot, 'website/src/App.tsx'), 'utf8');
+    const downloadSource = fs.readFileSync(path.join(repoRoot, 'website/src/pages/Download.tsx'), 'utf8');
     const appLayoutSource = fs.readFileSync(path.join(repoRoot, 'app/_layout.tsx'), 'utf8');
+    const deferredLinkSource = fs.readFileSync(path.join(repoRoot, 'src/services/deferredLink.ts'), 'utf8');
+    const authStoreSource = fs.readFileSync(path.join(repoRoot, 'src/store/useAuthStore.ts'), 'utf8');
 
     expect(websiteSource).toContain("location.pathname.startsWith('/c/')");
     expect(websiteSource).toContain('path="/c/:code"');
-    expect(appLayoutSource).toContain('isCaptainLandingURL');
-    expect(appLayoutSource).toContain("\\/c\\/");
+    expect(downloadSource).toContain('buildCaptainClipboardText');
+    expect(downloadSource).toContain('isCaptainLanding');
+    expect(appLayoutSource).toContain('extractCaptainCodeFromURL');
+    expect(appLayoutSource).toContain('readCaptainCodeFromClipboard');
+    expect(deferredLinkSource).toContain('pending_captain_code');
+    expect(deferredLinkSource).toContain('export function extractCaptainCodeFromURL');
+    expect(authStoreSource).toContain('CaptainRepo.bindByCode');
   });
 });

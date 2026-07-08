@@ -84,6 +84,18 @@ export const useAuthStore = create<AuthState>()(
             });
           });
         }).catch(() => {});
+        import('../services/deferredLink').then(({ getPendingCaptainCode, clearPendingCaptainCode }) => {
+          getPendingCaptainCode().then((code) => {
+            if (!code) return;
+            import('../repos').then(({ CaptainRepo }) => {
+              CaptainRepo.bindByCode(code).then((result) => {
+                if (result.ok || !result.error.retryable) {
+                  clearPendingCaptainCode();
+                }
+              });
+            });
+          });
+        }).catch(() => {});
       },
       logout: () => {
         const wasLoggedIn = get().isLoggedIn;

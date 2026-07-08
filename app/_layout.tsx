@@ -19,19 +19,24 @@ import {
 import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
 import { useAuthStore } from '../src/store';
-import { BonusRepo, GrowthRepo } from '../src/repos';
+import { BonusRepo, CaptainRepo, GrowthRepo } from '../src/repos';
 import {
+  extractCaptainCodeFromURL,
   extractReferralCodeFromURL,
   extractNormalShareCodeFromURL,
+  setPendingCaptainCode,
   setPendingReferralCode,
   setPendingNormalShareCode,
+  clearPendingCaptainCode,
   clearPendingReferralCode,
   clearPendingNormalShareCode,
+  getPendingCaptainCode,
   getPendingReferralCode,
   getPendingNormalShareCode,
   shouldAttemptDeferredMatch,
   recordDDLAttempt,
   markDDLResolved,
+  readCaptainCodeFromClipboard,
   readReferralCodeFromClipboard,
   readNormalShareCodeFromClipboard,
   matchByFingerprint,
@@ -84,6 +89,20 @@ async function handleNormalShareCode(code: string) {
     await clearPendingNormalShareCode();
   } else {
     await setPendingNormalShareCode(code);
+  }
+}
+
+async function handleCaptainCode(code: string) {
+  const { isLoggedIn } = useAuthStore.getState();
+  if (!isLoggedIn) {
+    await setPendingCaptainCode(code);
+    return;
+  }
+  const result = await CaptainRepo.bindByCode(code);
+  if (result.ok || !result.error.retryable) {
+    await clearPendingCaptainCode();
+  } else {
+    await setPendingCaptainCode(code);
   }
 }
 
@@ -154,7 +173,11 @@ async function handleUnifiedInviteCodeWithVipFirst(code: string) {
 
 function handleIncomingURL(url: string | null) {
   if (!url) return;
-  if (isCaptainLandingURL(url)) return;
+  const captainCode = extractCaptainCodeFromURL(url);
+  if (captainCode) {
+    handleCaptainCode(captainCode);
+    return;
+  }
   const unifiedInviteCode = extractUnifiedInviteCodeFromURL(url);
   if (unifiedInviteCode && unifiedInviteCode !== 'none') {
     handleUnifiedInviteCode(unifiedInviteCode);
@@ -169,11 +192,6 @@ function handleIncomingURL(url: string | null) {
   if (code && code !== 'none') {
     handleReferralCode(code);
   }
-}
-
-function isCaptainLandingURL(url: string) {
-  return /app\.(ai-maimai|xn--ckqa175y)\.com\/c\/[A-Za-z0-9]+/.test(url) ||
-    /aimaimai:\/\/captain\?code=[A-Za-z0-9]+/.test(url);
 }
 
 async function performDeferredLinkCheck() {
@@ -201,7 +219,16 @@ async function performDeferredLinkCheck() {
       }
     }
 
-    // 路径 3（兜底）：VIP 设备指纹匹配
+    // 路径 3：团长口令。团长码独立于 VIP / 普通分享关系。
+    if (!resolved) {
+      const captainCode = await readCaptainCodeFromClipboard();
+      if (captainCode) {
+        await handleCaptainCode(captainCode);
+        resolved = true;
+      }
+    }
+
+    // 路径 4（兜底）：VIP 设备指纹匹配
     if (!resolved) {
       const code = await matchByFingerprint();
       if (code) {
@@ -313,6 +340,24 @@ export default function RootLayout() {
         // 可重试错误（NETWORK / 5xx / 限流）：保留 pending 供下次启动重试
       } catch {
         // 兜底：未知异常保留 pending
+      }
+    })();
+  }, [consentState, isLoggedIn]);
+
+  useEffect(() => {
+    if (consentState !== 'granted') return;
+    if (!isLoggedIn) return;
+
+    (async () => {
+      const code = await getPendingCaptainCode();
+      if (!code) return;
+      try {
+        const result = await CaptainRepo.bindByCode(code);
+        if (result.ok || !result.error.retryable) {
+          await clearPendingCaptainCode();
+        }
+      } catch {
+        // 未知异常保留 pending，后续启动重试
       }
     })();
   }, [consentState, isLoggedIn]);
