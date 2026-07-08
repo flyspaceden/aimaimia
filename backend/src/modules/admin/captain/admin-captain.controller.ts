@@ -23,6 +23,7 @@ import {
 } from '../../captain/dto/captain-application.dto';
 import {
   CreateCaptainProfileDto,
+  GenerateCaptainSettlementsDto,
   ListCaptainApplicationsQueryDto,
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
@@ -144,6 +145,18 @@ export class AdminCaptainController {
   @RequirePermission('captain:read')
   listSettlements(@Query() query: ListCaptainSettlementsQueryDto) {
     return this.captainService.listSettlements(query);
+  }
+
+  @Post('settlements/generate')
+  @RequirePermission('captain:settlement')
+  @AuditLog({
+    action: 'CREATE',
+    module: 'captain',
+    targetType: 'CaptainMonthlySettlement',
+    isReversible: true,
+  })
+  generateSettlements(@Body() dto: GenerateCaptainSettlementsDto) {
+    return this.captainService.generateSettlements(dto.month);
   }
 
   @Post('settlements/:id/approve')

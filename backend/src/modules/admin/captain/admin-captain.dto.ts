@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -131,6 +132,12 @@ export class ListCaptainSettlementsQueryDto extends CaptainPaginationQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+}
+
+export class GenerateCaptainSettlementsDto {
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/)
+  month: string;
 }
 
 export class UpdateCaptainSettingsDto {

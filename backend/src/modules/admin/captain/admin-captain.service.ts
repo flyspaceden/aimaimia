@@ -17,6 +17,7 @@ import {
 } from '../../captain/dto/captain-application.dto';
 import {
   CreateCaptainProfileDto,
+  GenerateCaptainSettlementsDto,
   ListCaptainApplicationsQueryDto,
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
@@ -294,6 +295,13 @@ export class AdminCaptainService {
     ]);
 
     return { items, total, page, pageSize };
+  }
+
+  generateSettlements(month: GenerateCaptainSettlementsDto['month']) {
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month 必须是 YYYY-MM');
+    }
+    return this.monthlySettlementService.createDraftSettlements(month);
   }
 
   approveSettlement(id: string, adminUserId: string) {

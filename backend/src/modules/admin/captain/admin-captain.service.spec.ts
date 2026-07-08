@@ -44,6 +44,7 @@ function createHarness() {
     getSnapshot: jest.fn().mockResolvedValue(DEFAULT_CAPTAIN_SEAFOOD_CONFIG),
   };
   const monthlySettlementService = {
+    createDraftSettlements: jest.fn().mockResolvedValue([{ id: 'settlement-1', status: 'DRAFT' }]),
     approveSettlement: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'APPROVED' }),
     markPaid: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'PAID' }),
     recalculateSettlement: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'DRAFT' }),
@@ -188,13 +189,23 @@ describe('AdminCaptainService', () => {
   it('delegates settlement approval operations to monthly settlement service', async () => {
     const { service, monthlySettlementService } = createHarness();
 
+    await service.generateSettlements('2026-06');
     await service.approveSettlement('settlement-1', 'admin-1');
     await service.markSettlementPaid('settlement-1', 'admin-1');
     await service.recalculateSettlement('settlement-1', 'admin-1');
 
+    expect(monthlySettlementService.createDraftSettlements).toHaveBeenCalledWith('2026-06');
     expect(monthlySettlementService.approveSettlement).toHaveBeenCalledWith('settlement-1', 'admin-1');
     expect(monthlySettlementService.markPaid).toHaveBeenCalledWith('settlement-1', 'admin-1');
     expect(monthlySettlementService.recalculateSettlement).toHaveBeenCalledWith('settlement-1', 'admin-1');
+  });
+
+  it('rejects invalid month when generating settlements', async () => {
+    const { service, monthlySettlementService } = createHarness();
+
+    expect(() => service.generateSettlements('2026-6')).toThrow(BadRequestException);
+
+    expect(monthlySettlementService.createDraftSettlements).not.toHaveBeenCalled();
   });
 
   it('delegates captain application list and review operations to application service', async () => {

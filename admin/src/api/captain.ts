@@ -76,6 +76,11 @@ export const getCaptainSettlements = (
 ): Promise<PaginatedData<CaptainMonthlySettlement>> =>
   client.get('/admin/captain/settlements', { params });
 
+export const generateCaptainSettlements = (
+  month: string,
+): Promise<CaptainMonthlySettlement[]> =>
+  client.post('/admin/captain/settlements/generate', { month });
+
 export const approveCaptainSettlement = (id: string): Promise<CaptainMonthlySettlement> =>
   client.post(`/admin/captain/settlements/${id}/approve`);
 
