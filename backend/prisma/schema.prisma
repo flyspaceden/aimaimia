@@ -2313,6 +2313,31 @@ model DeferredDeepLink {
   @@index([expiresAt])
 }
 
+model InviteH5LandingEvent {
+  id               String   @id @default(cuid())
+  inviteCode       String
+  inviteType       String?
+  inviterUserId    String?
+  landingSessionId String   @unique
+  ipAddress        String
+  userAgent        String
+  screenInfo       String?
+  language         String?
+  openedAt         DateTime @default(now())
+  authedUserId     String?
+  authedAt         DateTime?
+  bindingStatus    String?
+  bindingType      String?
+  boundAt          DateTime?
+  errorCode        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([inviteCode, openedAt])
+  @@index([inviterUserId, openedAt])
+  @@index([authedUserId])
+}
+
 model VipTreeNode {
   id            String        @id @default(cuid())
   rootId        String // A1..A10
