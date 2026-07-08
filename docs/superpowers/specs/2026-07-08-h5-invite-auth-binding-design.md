@@ -409,8 +409,8 @@ model InviteH5LandingEvent {
 | 指标 | 来源 |
 |---|---|
 | 扫码打开人数 | `InviteH5LandingEvent` 按 `inviterUserId` 去重或计数 |
-| H5 登录/注册人数 | `InviteH5LandingEvent.authedUserId is not null` |
-| 成功绑定人数 | 普通用户用 `NormalShareBinding`，VIP 用 `ReferralLink` |
+| H5 登录/注册人数 | `InviteH5LandingEvent.authedUserId is not null`，按 H5 登录用户去重 |
+| H5 已绑定人数 | `InviteH5LandingEvent.bindingStatus in (BOUND, ALREADY_BOUND_SAME)`，按 H5 登录用户去重；正式关系仍以 `NormalShareBinding` / `ReferralLink` 为准，但此漏斗不混入 App 内绑定、后台绑定或历史绑定 |
 
 第一版可先做总数，不做复杂漏斗图。
 

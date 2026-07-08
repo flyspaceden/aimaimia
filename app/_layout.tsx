@@ -11,7 +11,11 @@ import { ToastProvider, EnvBanner } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
 import { PrivacyConsentModal, PermissionRationaleModal } from '../src/components/overlay';
 import { initAlipayEnv } from '../src/utils/alipay';
-import { extractUnifiedInviteCodeFromURL } from '../src/utils/inviteLink';
+import {
+  extractUnifiedInviteCodeFromURL,
+  shouldTryNormalShareAfterVipResult,
+  shouldTryVipReferralAfterNormalResult,
+} from '../src/utils/inviteLink';
 import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
 import { useAuthStore } from '../src/store';
@@ -85,10 +89,67 @@ async function handleNormalShareCode(code: string) {
 
 async function handleUnifiedInviteCode(code: string) {
   if (code.startsWith('S')) {
-    await handleNormalShareCode(code);
+    await handleUnifiedInviteCodeWithNormalFirst(code);
     return;
   }
-  await handleReferralCode(code);
+  await handleUnifiedInviteCodeWithVipFirst(code);
+}
+
+async function setPendingUnifiedInviteCode(code: string) {
+  await Promise.all([
+    setPendingNormalShareCode(code),
+    setPendingReferralCode(code),
+  ]);
+}
+
+async function clearPendingUnifiedInviteCode() {
+  await Promise.all([
+    clearPendingNormalShareCode(),
+    clearPendingReferralCode(),
+  ]);
+}
+
+async function settleUnifiedInviteResult(code: string, result: any) {
+  if (result.ok) invalidateInviteBindingQueries();
+  if (result.ok || !result.error?.retryable) {
+    await clearPendingUnifiedInviteCode();
+  } else {
+    await setPendingUnifiedInviteCode(code);
+  }
+}
+
+async function handleUnifiedInviteCodeWithNormalFirst(code: string) {
+  const { isLoggedIn } = useAuthStore.getState();
+  if (!isLoggedIn) {
+    await setPendingUnifiedInviteCode(code);
+    return;
+  }
+
+  const normalResult = await GrowthRepo.bindNormalShareCode(code);
+  if (normalResult.ok || !shouldTryVipReferralAfterNormalResult(normalResult)) {
+    await settleUnifiedInviteResult(code, normalResult);
+    return;
+  }
+
+  const vipResult = await BonusRepo.useReferralCode(code);
+  await settleUnifiedInviteResult(code, vipResult);
+}
+
+async function handleUnifiedInviteCodeWithVipFirst(code: string) {
+  const { isLoggedIn } = useAuthStore.getState();
+  if (!isLoggedIn) {
+    await setPendingUnifiedInviteCode(code);
+    return;
+  }
+
+  const vipResult = await BonusRepo.useReferralCode(code);
+  if (vipResult.ok || !shouldTryNormalShareAfterVipResult(vipResult)) {
+    await settleUnifiedInviteResult(code, vipResult);
+    return;
+  }
+
+  const normalResult = await GrowthRepo.bindNormalShareCode(code);
+  await settleUnifiedInviteResult(code, normalResult);
 }
 
 function handleIncomingURL(url: string | null) {
