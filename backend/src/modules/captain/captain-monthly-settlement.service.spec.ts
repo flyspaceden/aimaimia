@@ -98,9 +98,11 @@ function createHarness(options: {
         userId: where.userId_programCode.userId,
         balance: 0,
       })),
+      findUnique: jest.fn().mockResolvedValue({ id: 'account-captain-1', balance: 1000 }),
       update: jest.fn(),
     },
     captainCommissionLedger: {
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(async ({ data }: any) => {
         createdLedgers.push(data);
         return { id: `ledger-${createdLedgers.length}`, ...data };
@@ -272,5 +274,36 @@ describe('CaptainMonthlySettlementService', () => {
       'captain:month:2026-06:captain-1:team-pool',
       'captain:month:2026-06:member-1:team-pool:captain-1',
     ]);
+  });
+
+  it('marks approved settlement paid and moves available ledger amounts from balance to withdrawn', async () => {
+    const { service, tx } = createHarness();
+    tx.captainMonthlySettlement.findUnique.mockResolvedValue({
+      id: 'settlement-1',
+      status: 'APPROVED',
+    });
+    tx.captainCommissionLedger.findMany.mockResolvedValue([
+      { accountId: 'account-captain-1', amount: 550 },
+      { accountId: 'account-captain-1', amount: 100 },
+    ]);
+    tx.captainMonthlySettlement.update.mockResolvedValue({ id: 'settlement-1', status: 'PAID' });
+
+    await service.markPaid('settlement-1', 'admin-1');
+
+    expect(tx.captainAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-captain-1' },
+      data: {
+        balance: { decrement: 650 },
+        withdrawn: { increment: 650 },
+      },
+    });
+    expect(tx.captainCommissionLedger.updateMany).toHaveBeenCalledWith({
+      where: {
+        settlementId: 'settlement-1',
+        status: 'AVAILABLE',
+        deletedAt: null,
+      },
+      data: { status: 'WITHDRAWN' },
+    });
   });
 });

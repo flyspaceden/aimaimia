@@ -53,7 +53,7 @@ function PageLoader() {
 
 export default function App() {
   const location = useLocation()
-  const isLandingPage = location.pathname.startsWith('/invite/') || location.pathname.startsWith('/r/') || location.pathname.startsWith('/s/') || location.pathname.startsWith('/gb/') || location.pathname === '/download' || location.pathname === '/resolve'
+  const isLandingPage = location.pathname.startsWith('/invite/') || location.pathname.startsWith('/r/') || location.pathname.startsWith('/s/') || location.pathname.startsWith('/gb/') || location.pathname.startsWith('/c/') || location.pathname === '/download' || location.pathname === '/resolve'
 
   return (
     <>
@@ -73,6 +73,7 @@ export default function App() {
             <Route path="/r/:code" element={<Download />} />
             <Route path="/s/:code" element={<NormalShareLanding />} />
             <Route path="/gb/:groupBuyCode" element={<Download />} />
+            <Route path="/c/:code" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
             <Route path="/privacy" element={<Privacy />} />

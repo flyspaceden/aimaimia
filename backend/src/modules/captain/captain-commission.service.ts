@@ -170,13 +170,17 @@ export class CaptainCommissionService {
       if (refundRatio <= 0) return 'skipped';
 
       const ledgers = attribution.ledgers ?? [];
+      const priorVoidAmounts = await this.loadPriorVoidAmounts(tx, orderId);
       let touched = false;
       for (const ledger of ledgers) {
         const currentAmount = this.roundMoney(Number(ledger.amount || 0));
         if (currentAmount <= 0) continue;
         const originalAmount = this.roundMoney(Number(ledger.meta?.originalAmount ?? currentAmount));
         const requestedVoidAmount = this.roundMoney(originalAmount * refundRatio);
-        const voidAmount = this.roundMoney(Math.min(currentAmount, requestedVoidAmount));
+        const remainingVoidable = this.roundMoney(
+          Math.max(0, originalAmount - (priorVoidAmounts.get(ledger.id) ?? 0)),
+        );
+        const voidAmount = this.roundMoney(Math.min(currentAmount, requestedVoidAmount, remainingVoidable));
         if (voidAmount <= 0) continue;
 
         if (ledger.status === 'FROZEN') {
@@ -221,6 +225,34 @@ export class CaptainCommissionService {
 
       return 'voided';
     });
+  }
+
+  private async loadPriorVoidAmounts(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<Map<string, number>> {
+    const voidLedgers = await (tx as any).captainCommissionLedger.findMany({
+      where: {
+        orderId,
+        programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
+        type: 'VOID',
+        refType: 'REFUND',
+        deletedAt: null,
+      },
+      select: {
+        amount: true,
+        meta: true,
+      },
+    });
+
+    const result = new Map<string, number>();
+    for (const ledger of voidLedgers ?? []) {
+      const originalLedgerId = ledger.meta?.originalLedgerId;
+      if (!originalLedgerId) continue;
+      const current = result.get(originalLedgerId) ?? 0;
+      result.set(originalLedgerId, this.roundMoney(current + Math.abs(Number(ledger.amount || 0))));
+    }
+    return result;
   }
 
   async writeDeadLetter(

@@ -413,3 +413,11 @@
 | GB09 | 推荐码容量竞态导致已付款订单回滚 | 🔴 CRITICAL | 审查发现被推荐人付款前推荐码仍可能被其他付款占满，原支付回调会在创建 `GroupBuyReferral` 前抛错并回滚已付款订单。已修：支付回调保留买家的团购订单、团购实例和本人分享码；推荐码失效/满额/档位异常时只跳过本次推荐返还并记录日志。 | ✅ 已修复 |
 | GB10 | 非包邮团购运费少收 | 🔴 HIGH | 审查发现后台活动可配置“非包邮/按配置运费”，但真实团购 checkout 无论是否包邮都写 0 运费。已修：包邮活动仍为 0，非包邮团购按地址地区与 SKU 重量调用平台 `ShippingRuleService.calculateShippingDetail`，失败时降级为系统默认运费，并锁定到 checkout/order 快照。 | ✅ 已修复 |
 | GB11 | 历史 `QUALIFICATION_PENDING` 团购实例无法分享 | 🟠 HIGH | 审查发现新订单付款即生成码已满足，但历史已付款待生成码实例缺少上线补偿脚本。已修：新增 `group-buy:backfill-instant-codes`，默认 dry-run，`--execute` 写入；在 Serializable 批次内为合格历史实例生成 ACTIVE 码并切到 `SHARING`，同时补缺失 `PENDING_REBATE` 并对已收货推荐调用现有释放逻辑，重复执行不覆盖现有码或重复记账。 | ✅ 已修复 |
+
+## 2026-07-08 预包装海鲜团长经营资金安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| CAP01 | 团长配置关闭仍可绑定关系 | 🟠 HIGH | 审查发现 `CAPTAIN_SEAFOOD_CONFIG.enabled=false` 时，订单归因会跳过，但买家仍可通过 `/c/{code}` 绑定团长关系，可能在默认关闭或回滚期间沉淀新关系。已修：`CaptainBuyerService.bindByCode()` 后端读取配置并在关闭时拒绝绑定；App `/c/[code]` 同步展示“团长经营暂未开放”。 | ✅ 已修复 |
+| CAP02 | 已到账佣金多次退款冲回可能超过原佣金 | 🔴 HIGH | 审查发现 `AVAILABLE` 佣金遇到多笔部分退款时，原佣金流水金额不会像 `FROZEN` 流水一样递减，若不累计历史 `VOID` 流水，后续退款可能按同一原金额再次冲回并超过原佣金。已修：`CaptainCommissionService.voidForRefund()` 按 `meta.originalLedgerId` 汇总历史 VOID 金额，按剩余可冲回金额封顶；新增回归测试覆盖。 | ✅ 已修复 |
+| CAP03 | 月度结算标记已支付未同步账户余额 | 🔴 HIGH | 审查发现 `markPaid()` 只把结算流水状态改为 `WITHDRAWN`，没有把 `CaptainAccount.balance` 转入 `withdrawn`，会造成可用余额虚高并带来重复支付风险。已修：标记支付在 Serializable 事务内按账户汇总本结算 AVAILABLE 流水，校验余额后扣减 `balance`、递增 `withdrawn`，再置流水为 `WITHDRAWN`；新增回归测试覆盖。 | ✅ 已修复 |

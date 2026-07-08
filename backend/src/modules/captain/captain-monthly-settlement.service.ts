@@ -166,6 +166,44 @@ export class CaptainMonthlySettlementService {
         throw new BadRequestException('仅已审核结算可标记已支付');
       }
 
+      const ledgers = await (tx as any).captainCommissionLedger.findMany({
+        where: {
+          settlementId,
+          status: 'AVAILABLE',
+          deletedAt: null,
+        },
+        select: {
+          accountId: true,
+          amount: true,
+        },
+      });
+      const payoutByAccount = new Map<string, number>();
+      for (const ledger of ledgers ?? []) {
+        const amount = this.roundMoney(Number(ledger.amount || 0));
+        if (amount <= 0) continue;
+        payoutByAccount.set(
+          ledger.accountId,
+          this.roundMoney((payoutByAccount.get(ledger.accountId) ?? 0) + amount),
+        );
+      }
+
+      for (const [accountId, amount] of payoutByAccount.entries()) {
+        const account = await (tx as any).captainAccount.findUnique({
+          where: { id: accountId },
+          select: { id: true, balance: true },
+        });
+        if (!account || this.roundMoney(Number(account.balance || 0)) < amount) {
+          throw new BadRequestException('团长账户余额不足，无法标记已支付');
+        }
+        await (tx as any).captainAccount.update({
+          where: { id: accountId },
+          data: {
+            balance: { decrement: amount },
+            withdrawn: { increment: amount },
+          },
+        });
+      }
+
       await (tx as any).captainCommissionLedger.updateMany({
         where: {
           settlementId,

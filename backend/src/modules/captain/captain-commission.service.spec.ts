@@ -63,14 +63,14 @@ function makeAttribution(overrides: any = {}) {
   };
 }
 
-function createHarness(attribution: any = makeAttribution()) {
+function createHarness(attribution: any = makeAttribution(), priorVoidLedgers: any[] = []) {
   const tx: any = {
     captainOrderAttribution: {
       findUnique: jest.fn().mockResolvedValue(attribution),
       update: jest.fn().mockResolvedValue({}),
     },
     captainCommissionLedger: {
-      findMany: jest.fn().mockResolvedValue(attribution?.ledgers ?? []),
+      findMany: jest.fn().mockResolvedValue(priorVoidLedgers),
       findFirst: jest.fn().mockResolvedValue(null),
       update: jest.fn().mockResolvedValue({}),
       create: jest.fn().mockResolvedValue({}),
@@ -229,5 +229,46 @@ describe('CaptainCommissionService', () => {
 
     expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
     expect(tx.captainAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('caps repeated refund voids at the original available ledger amount', async () => {
+    const attribution = makeAttribution({
+      status: 'AVAILABLE',
+      ledgers: [
+        {
+          ...makeAttribution().ledgers[0],
+          status: 'AVAILABLE',
+          amount: 9,
+        },
+      ],
+    });
+    const { service, tx } = createHarness(attribution, [
+      {
+        amount: -6.3,
+        meta: { originalLedgerId: 'ledger-direct' },
+      },
+    ]);
+    tx.captainAccount.findUnique.mockResolvedValueOnce({
+      id: 'account-direct',
+      frozen: 0,
+      balance: 20,
+      clawback: 0,
+    });
+
+    await expect(service.voidForRefund('order-1', 'refund-3', 50)).resolves.toBe('voided');
+
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'VOID',
+        amount: -2.7,
+        idempotencyKey: 'captain:void:order-1:refund-3:ledger-direct',
+      }),
+    });
+    expect(tx.captainAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-direct' },
+      data: {
+        balance: { decrement: 2.7 },
+      },
+    });
   });
 });

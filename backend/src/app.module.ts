@@ -30,6 +30,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { SellerModule } from './modules/seller/seller.module';
 import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { LotteryModule } from './modules/lottery/lottery.module';
+import { CaptainModule } from './modules/captain/captain.module';
 
 import { CouponModule } from './modules/coupon/coupon.module';
 import { BuyerAliasModule } from './modules/buyer-alias/buyer-alias.module';
@@ -94,6 +95,7 @@ import { EmailModule } from './common/email/email.module';
     SellerModule,
     RecommendationModule,
     LotteryModule,
+    CaptainModule,
 
     CouponModule,
     BuyerAliasModule,
