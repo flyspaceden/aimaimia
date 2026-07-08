@@ -21,6 +21,15 @@ export interface PaginationParams {
   pageSize?: number;
 }
 
+export interface UserLite {
+  id: string;
+  buyerNo: string | null;
+  profile?: {
+    nickname: string | null;
+    avatarUrl?: string | null;
+  } | null;
+}
+
 // ========== 管理员 ==========
 
 export type AdminUserStatus = 'ACTIVE' | 'DISABLED';
@@ -370,6 +379,231 @@ export interface AppUserDetail {
   recommendation: AppUserRecommendation;
   createdAt: string;
   updatedAt: string;
+}
+
+// ========== 预包装海鲜团长经营 ==========
+
+export type CaptainProfileStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
+export type CaptainRelationStatus = 'ACTIVE' | 'INACTIVE';
+export type CaptainLedgerType =
+  | 'DIRECT_ORDER'
+  | 'INDIRECT_ORDER'
+  | 'MANAGEMENT_ALLOWANCE'
+  | 'GROWTH_BONUS'
+  | 'CULTIVATION_BONUS'
+  | 'TEAM_POOL'
+  | 'VOID'
+  | 'ADJUSTMENT';
+export type CaptainLedgerStatus =
+  | 'FROZEN'
+  | 'AVAILABLE'
+  | 'VOIDED'
+  | 'WITHDRAWN'
+  | 'CLAWBACK_PENDING';
+export type CaptainSettlementStatus =
+  | 'DRAFT'
+  | 'PENDING_REVIEW'
+  | 'APPROVED'
+  | 'PAID'
+  | 'REJECTED';
+
+export interface CaptainAccount {
+  id: string;
+  userId: string;
+  programCode: string;
+  balance: number;
+  frozen: number;
+  withdrawn: number;
+  clawback: number;
+}
+
+export interface CaptainMonthlyMetric {
+  id: string;
+  captainUserId: string;
+  month: string;
+  programCode: string;
+  personalGmv: number;
+  teamGmv: number;
+  directEffectiveBuyers: number;
+  teamEffectiveMembers: number;
+  newEffectiveMembers: number;
+  refundRate: number;
+  qualified: boolean;
+  qualifiedTier: string | null;
+}
+
+export interface CaptainProfile {
+  id: string;
+  userId: string;
+  captainCode: string;
+  programCode: string;
+  displayName: string | null;
+  status: CaptainProfileStatus;
+  approvedAt: string | null;
+  pausedAt: string | null;
+  disabledAt: string | null;
+  statusReason: string | null;
+  createdAt: string;
+  user?: UserLite & {
+    captainAccounts?: CaptainAccount[];
+    captainMonthlyMetrics?: CaptainMonthlyMetric[];
+  };
+  account?: CaptainAccount | null;
+}
+
+export interface CaptainRelation {
+  id: string;
+  buyerUserId: string;
+  directCaptainUserId: string;
+  indirectCaptainUserId: string | null;
+  programCode: string;
+  codeUsed: string;
+  source: string | null;
+  status: CaptainRelationStatus;
+  boundAt: string;
+  level?: 1 | 2;
+  buyer?: UserLite;
+  directCaptain?: UserLite;
+}
+
+export interface CaptainOrderAttribution {
+  id: string;
+  orderId: string;
+  buyerUserId: string;
+  directCaptainUserId: string;
+  indirectCaptainUserId: string | null;
+  programCode: string;
+  commissionBase: number;
+  eligibleGoodsAmount: number;
+  couponDiscountAmount: number;
+  rewardDeductionAmount: number;
+  refundAmount: number;
+  directRate: number;
+  indirectRate: number;
+  status: string;
+  createdAt: string;
+  order?: { id: string; status: string; totalAmount: number; createdAt: string };
+  buyer?: UserLite;
+  directCaptain?: UserLite;
+  indirectCaptain?: UserLite | null;
+}
+
+export interface CaptainCommissionLedger {
+  id: string;
+  userId: string;
+  orderId: string | null;
+  settlementId: string | null;
+  programCode: string;
+  type: CaptainLedgerType;
+  status: CaptainLedgerStatus;
+  amount: number;
+  commissionBase: number | null;
+  rate: number | null;
+  balanceAfter: number | null;
+  frozenAfter: number | null;
+  refType: string | null;
+  refId: string | null;
+  createdAt: string;
+  user?: UserLite;
+  settlement?: { id: string; month: string; status: CaptainSettlementStatus };
+}
+
+export interface CaptainMonthlySettlement {
+  id: string;
+  captainUserId: string;
+  metricId: string | null;
+  month: string;
+  programCode: string;
+  status: CaptainSettlementStatus;
+  baseManagementAmount: number;
+  growthBonusAmount: number;
+  cultivationBonusAmount: number;
+  teamPoolAmount: number;
+  totalAmount: number;
+  taxAmount: number;
+  netAmount: number;
+  reviewedByAdminId: string | null;
+  paidByAdminId: string | null;
+  reviewedAt: string | null;
+  paidAt: string | null;
+  rejectReason: string | null;
+  meta?: Record<string, any> | null;
+  createdAt: string;
+  captain?: UserLite;
+  metric?: CaptainMonthlyMetric | null;
+}
+
+export interface CaptainSeafoodConfig {
+  enabled: boolean;
+  programCode: 'SEAFOOD_PREPACKAGED';
+  programName: string;
+  effectiveFrom: string | null;
+  scope: {
+    categoryIds: string[];
+    productIds: string[];
+    companyIds: string[];
+    excludedProductIds: string[];
+    includeVipPackage: false;
+    includeGroupBuy: false;
+    includePrize: false;
+  };
+  orderRules: {
+    freezeDaysAfterReceived: number;
+    minCommissionBase: number;
+    includeShippingFee: false;
+    includeCouponDiscount: false;
+    includeRewardDeduction: false;
+  };
+  perOrderCommission: {
+    directRate: number;
+    indirectRate: number;
+    maxLevels: 2;
+  };
+  monthlyQualification: {
+    minDirectEffectiveBuyers: number;
+    minPersonalMonthlyGmv: number;
+    minTeamEffectiveMembers: number;
+    minTeamMonthlyGmv: number;
+    minNewEffectiveMembers: number;
+  };
+  monthlyRewards: {
+    baseTierGmv: number;
+    baseManagementRate: number;
+    growthTierGmv: number;
+    growthBonusRate: number;
+    excellentTierGmv: number;
+    cultivationBonusRate: number;
+    teamPoolRate: number;
+    captainTeamPoolWeight: number;
+  };
+  caps: {
+    maxTotalIncentiveRate: number;
+    targetNetProfitRate: number;
+    coldChainRiskReserveRate: number;
+  };
+  tax: {
+    enabled: boolean;
+    withholdingRate: number;
+    incomeType: 'LABOR_SERVICE';
+  };
+  risk: {
+    maxMonthlyRefundRate: number;
+    maxSameDeviceEffectiveBuyers: number;
+    maxSameAddressEffectiveBuyers: number;
+    holdSettlementOnRisk: boolean;
+  };
+}
+
+export interface CaptainQueryParams extends PaginationParams {
+  keyword?: string;
+  status?: string;
+  month?: string;
+  userId?: string;
+  captainUserId?: string;
+  buyerUserId?: string;
+  orderId?: string;
+  settlementId?: string;
+  type?: string;
 }
 
 // ========== 数字资产 ==========

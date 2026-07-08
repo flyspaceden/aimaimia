@@ -89,6 +89,12 @@ export const PERMISSIONS = {
   GROUP_BUY_MANAGE: 'group_buy:manage',
   GROUP_BUY_SETTINGS: 'group_buy:settings',
 
+  // 团长经营
+  CAPTAIN_READ: 'captain:read',
+  CAPTAIN_MANAGE: 'captain:manage',
+  CAPTAIN_SETTLEMENT: 'captain:settlement',
+  CAPTAIN_SETTINGS: 'captain:settings',
+
   // 运费规则
   SHIPPING_READ: 'shipping:read',
   SHIPPING_CREATE: 'shipping:create',

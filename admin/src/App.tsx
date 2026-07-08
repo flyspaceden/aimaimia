@@ -65,6 +65,12 @@ const GroupBuyOrdersPage = lazy(() => import('@/pages/group-buy/orders'));
 const GroupBuyRebateLedgersPage = lazy(() => import('@/pages/group-buy/rebate-ledgers'));
 const GroupBuySettingsPage = lazy(() => import('@/pages/group-buy/settings'));
 const NotificationsPage = lazy(() => import('@/pages/notifications/index'));
+const CaptainProfilesPage = lazy(() => import('@/pages/captain/index'));
+const CaptainDetailPage = lazy(() => import('@/pages/captain/detail'));
+const CaptainOrdersPage = lazy(() => import('@/pages/captain/orders'));
+const CaptainLedgersPage = lazy(() => import('@/pages/captain/ledgers'));
+const CaptainSettlementsPage = lazy(() => import('@/pages/captain/settlements'));
+const CaptainSettingsPage = lazy(() => import('@/pages/captain/settings'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -153,6 +159,12 @@ export default function App() {
             <Route path="group-buy/orders" element={<GroupBuyOrdersPage />} />
             <Route path="group-buy/rebate-ledgers" element={<GroupBuyRebateLedgersPage />} />
             <Route path="group-buy/settings" element={<GroupBuySettingsPage />} />
+            <Route path="captain/profiles" element={<CaptainProfilesPage />} />
+            <Route path="captain/profiles/:userId" element={<CaptainDetailPage />} />
+            <Route path="captain/orders" element={<CaptainOrdersPage />} />
+            <Route path="captain/ledgers" element={<CaptainLedgersPage />} />
+            <Route path="captain/settlements" element={<CaptainSettlementsPage />} />
+            <Route path="captain/settings" element={<CaptainSettingsPage />} />
             <Route path="reward-products" element={<RewardProductsPage />} />
             <Route path="reward-products/:id/edit" element={<RewardProductEditPage />} />
             <Route path="shipping-rules" element={<ShippingRulesPage />} />

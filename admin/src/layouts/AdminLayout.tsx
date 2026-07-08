@@ -26,6 +26,7 @@ import {
   WalletOutlined,
   SwapOutlined,
   RiseOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -122,6 +123,24 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/group-buy/orders', name: '团购订单', permission: PERMISSIONS.GROUP_BUY_READ },
         { path: '/group-buy/rebate-ledgers', name: '返还流水', permission: PERMISSIONS.GROUP_BUY_READ },
         { path: '/group-buy/settings', name: '团购设置', permission: PERMISSIONS.GROUP_BUY_SETTINGS },
+      ],
+    },
+    {
+      path: '/captain',
+      name: '团长经营',
+      icon: <CrownOutlined />,
+      permissionAny: [
+        PERMISSIONS.CAPTAIN_READ,
+        PERMISSIONS.CAPTAIN_MANAGE,
+        PERMISSIONS.CAPTAIN_SETTLEMENT,
+        PERMISSIONS.CAPTAIN_SETTINGS,
+      ],
+      routes: [
+        { path: '/captain/profiles', name: '团长列表', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/orders', name: '订单归因', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/ledgers', name: '佣金流水', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/settlements', name: '月度结算', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/settings', name: '团长配置', permission: PERMISSIONS.CAPTAIN_SETTINGS },
       ],
     },
     {

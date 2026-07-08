@@ -1256,3 +1256,12 @@
 | 主动客服 | 用户详情页和客服工作台均支持“联系买家”；工作台弹窗在点击/聚焦买家输入框时从输入框下方展示候选下拉层，输入买家编号、手机号或昵称时自动刷新候选，选择买家后收起下拉并保留已选买家摘要，再填写首条消息，调用 `POST /admin/cs/outreach` 并打开 `/cs/workstation?sessionId=...`；工作台列表支持按昵称和买家编号搜索，后端会复用/接管同一买家的活跃会话，避免重复创建 | `admin/src/pages/users/detail.tsx`, `admin/src/api/cs.ts`, `admin/src/pages/cs/workstation.tsx` |
 | 买家候选搜索 | 管理后台新增通用 `BuyerSuggestInput` / `BuyerNoMultiSelect`，基于 `/admin/app-users` 分页搜索买家；点击输入框先展示候选，输入买家编号、手机号或昵称时自动刷新，滚动到底且仍有数据时继续加载下一页。首批接入用户管理、数字资产、积分成长、VIP 会员、推荐与拉新、消息公告指定买家编号。 | `admin/src/components/BuyerSuggestInput.tsx`, `admin/src/pages/users/index.tsx`, `admin/src/pages/digital-assets/index.tsx`, `admin/src/pages/growth/index.tsx`, `admin/src/pages/bonus/members.tsx`, `admin/src/pages/referrals/index.tsx`, `admin/src/pages/announcements/index.tsx` |
 | 买家候选搜索第二批 | 第二批接入订单管理、红包发放记录、红包手动发放、抽奖记录、团购记录、团购订单和返还流水；这些页面的买家筛选点击即展示候选，输入昵称、手机号或买家编号时自动刷新，下拉滚动到底继续加载更多；团购后端 `userId` 筛选兼容 `AIMM` 买家编号。 | `admin/src/pages/orders/index.tsx`, `admin/src/pages/coupons/instances.tsx`, `admin/src/pages/coupons/campaigns.tsx`, `admin/src/pages/lottery/index.tsx`, `admin/src/pages/group-buy/instances.tsx`, `admin/src/pages/group-buy/orders.tsx`, `admin/src/pages/group-buy/rebate-ledgers.tsx`, `backend/src/modules/admin/group-buy/admin-group-buy.service.ts` |
+
+### 2026-07-08 预包装海鲜团长经营
+
+| 页面 | 完成内容 | 文件 |
+|------|----------|------|
+| 团长经营入口 | 新增独立一级菜单“团长经营”，不归入 VIP、普通奖励、消费积分或平台红包；菜单包含团长列表、订单归因、佣金流水、月度结算、团长配置，权限使用 `captain:read/manage/settlement/settings` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
+| 团长列表与详情 | 支持按关键词、状态、月份查询团长；可开通团长、启用/暂停/禁用；详情页展示团长码、账户余额、冻结金额、团队 GMV、个人 GMV 和一级/二级团队成员，不展示三级链路 | `admin/src/pages/captain/index.tsx`, `admin/src/pages/captain/detail.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
+| 归因、流水、结算 | 订单归因页展示买家、一级/二级团长、佣金基数、退款和费率；佣金流水页按类型/状态/用户/订单/结算筛选；月度结算页支持审核、标记支付和重算，操作分别受 `captain:settlement` 与 `captain:manage` 控制 | `admin/src/pages/captain/orders.tsx`, `admin/src/pages/captain/ledgers.tsx`, `admin/src/pages/captain/settlements.tsx` |
+| 团长配置 | 新增 `CAPTAIN_SEAFOOD_CONFIG` 专用配置页，完整暴露启用开关、适用范围、逐单佣金、团长资格、月度阶梯激励、封顶利润、税务和风控参数；页面实时展示总激励率、封顶比例、预估净利和扣风险预留后的净利 | `admin/src/pages/captain/settings.tsx` |
