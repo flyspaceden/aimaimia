@@ -24,6 +24,7 @@ import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
 import type { NormalShareRecord, VipReferralRecord } from '../../src/types';
+import { buildInviteH5Url } from '../../src/utils/inviteLink';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
 const rewardStatusLabels: Record<NormalShareRecord['rewardStatus'], string> = {
@@ -127,8 +128,8 @@ export default function ReferralScreen() {
   const normalRecords = normalRecordsQuery.data?.ok ? normalRecordsQuery.data.data : [];
   const vipRecords = vipRecordsQuery.data?.ok ? vipRecordsQuery.data.data : [];
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const vipDeepLink = `https://app.ai-maimai.com/r/${referralCode}`;
-  const shareUrl = shareProfile?.shareUrl ?? '';
+  const vipInviteUrl = referralCode ? buildInviteH5Url(referralCode) : '';
+  const normalInviteUrl = shareProfile?.code ? buildInviteH5Url(shareProfile.code) : '';
   const shareProfileError = shareQuery.data && !shareQuery.data.ok
     ? (shareQuery.data.error.displayMessage ?? '普通分享码加载失败，请下拉刷新')
     : null;
@@ -181,13 +182,13 @@ export default function ReferralScreen() {
   };
 
   const handleShareNormal = async () => {
-    if (!shareActive || !shareProfile?.code || !shareUrl) {
+    if (!shareActive || !shareProfile?.code || !normalInviteUrl) {
       show({ message: shareProfileError ?? '普通分享码暂不可用', type: 'info' });
       return;
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，用我的普通分享码 ${shareProfile.code} 注册登录：${shareUrl}`,
+        message: `我在爱买买发现了优质农产品，用我的普通分享码 ${shareProfile.code} 注册登录：${normalInviteUrl}`,
       });
       if (result.action === Share.sharedAction) {
         CouponRepo.reportShareEvent({ scene: 'NORMAL_SHARE', targetId: shareProfile.code }).catch(() => {});
@@ -213,7 +214,7 @@ export default function ReferralScreen() {
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的 VIP 推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队：${vipDeepLink}`,
+        message: `我在爱买买发现了优质农产品，使用我的 VIP 推荐码 ${referralCode} 注册：${vipInviteUrl}`,
       });
       if (result.action === Share.sharedAction) {
         CouponRepo.reportShareEvent({ scene: 'REFERRAL', targetId: referralCode }).catch(() => {});
@@ -293,9 +294,9 @@ export default function ReferralScreen() {
                         {referralCode ? referralCode.split('').join(' ') : '暂无推荐码'}
                       </Text>
                     </View>
-                    <View style={[styles.qrBox, { backgroundColor: '#FFFFFF', borderColor: 'rgba(255,255,255,0.35)', borderRadius: radius.lg }]}>
-                      {referralCode ? (
-                        <QRCode value={vipDeepLink} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
+                      <View style={[styles.qrBox, { backgroundColor: '#FFFFFF', borderColor: 'rgba(255,255,255,0.35)', borderRadius: radius.lg }]}>
+                      {vipInviteUrl ? (
+                        <QRCode value={vipInviteUrl} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
                       ) : (
                         <MaterialCommunityIcons name="qrcode-remove" size={44} color={colors.muted} />
                       )}
@@ -333,8 +334,8 @@ export default function ReferralScreen() {
                       </Text>
                     </View>
                     <View style={[styles.qrBox, { backgroundColor: '#FFFFFF', borderColor: colors.border, borderRadius: radius.lg }]}>
-                      {shareActive && shareUrl ? (
-                        <QRCode value={shareUrl} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
+                      {shareActive && normalInviteUrl ? (
+                        <QRCode value={normalInviteUrl} size={116} color={colors.brand.primaryDark} backgroundColor="#FFFFFF" />
                       ) : (
                         <MaterialCommunityIcons name="qrcode-remove" size={44} color={colors.muted} />
                       )}
