@@ -18,6 +18,7 @@ import { ApiClient } from '../repos/http/ApiClient';
 
 const PENDING_REFERRAL_KEY = 'pending_referral_code';
 const PENDING_NORMAL_SHARE_KEY = 'pending_normal_share_code';
+const PENDING_CAPTAIN_KEY = 'pending_captain_code';
 const DDL_FIRST_ATTEMPT_KEY = 'ddl_first_attempt_at';
 const DDL_RESOLVED_KEY = 'ddl_resolved';
 // 与后端 DeferredDeepLink.expiresAt 对齐：超过 48h 服务端记录已被 cron 清理，重试无意义
@@ -51,6 +52,21 @@ export async function setPendingNormalShareCode(code: string): Promise<void> {
 /** 清除待绑定的普通分享码 */
 export async function clearPendingNormalShareCode(): Promise<void> {
   await AsyncStorage.removeItem(PENDING_NORMAL_SHARE_KEY);
+}
+
+/** 获取待绑定的团长码 */
+export async function getPendingCaptainCode(): Promise<string | null> {
+  return AsyncStorage.getItem(PENDING_CAPTAIN_KEY);
+}
+
+/** 保存待绑定的团长码 */
+export async function setPendingCaptainCode(code: string): Promise<void> {
+  await AsyncStorage.setItem(PENDING_CAPTAIN_KEY, code);
+}
+
+/** 清除待绑定的团长码 */
+export async function clearPendingCaptainCode(): Promise<void> {
+  await AsyncStorage.removeItem(PENDING_CAPTAIN_KEY);
 }
 
 /**
@@ -122,6 +138,19 @@ export async function readNormalShareCodeFromClipboard(): Promise<string | null>
   }
 }
 
+/** 剪贴板团长口令路径：只认 https://app.ai-maimai.com/c/{CODE}。 */
+export async function readCaptainCodeFromClipboard(): Promise<string | null> {
+  try {
+    const hasString = await Clipboard.hasStringAsync();
+    if (!hasString) return null;
+    const text = await Clipboard.getStringAsync();
+    if (!text) return null;
+    return extractCaptainCodeFromURL(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 指纹兜底匹配（当剪贴板口令未获取到推荐码时调用）
  */
@@ -173,4 +202,27 @@ export function extractNormalShareCodeFromURL(url: string): string | null {
   if (schemeMatch) return schemeMatch[1].toUpperCase();
 
   return null;
+}
+
+/**
+ * 从 URL 中提取团长码
+ * 支持格式：https://app.ai-maimai.com/c/{CODE} 和 aimaimai://captain?code={CODE}
+ */
+export function extractCaptainCodeFromURL(url: string): string | null {
+  const match = url.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/c\/([^/?#\s]{1,40})/);
+  if (match) return decodeUrlCode(match[2]);
+
+  const schemeMatch = url.match(/aimaimai:\/\/captain\?code=([^&#\s]{1,40})/);
+  if (schemeMatch) return decodeUrlCode(schemeMatch[1]);
+
+  return null;
+}
+
+function decodeUrlCode(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value).trim().toUpperCase();
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
 }

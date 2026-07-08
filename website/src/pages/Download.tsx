@@ -8,7 +8,7 @@ import {
   pickAndroidDownloadUrl,
   resolveAndroidFallbackUrl,
 } from '@/lib/downloadLinks'
-import { buildReferralClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
+import { buildCaptainClipboardText, buildReferralClipboardText, copyTextToClipboard } from '@/lib/referralClipboard'
 
 const API_BASE = getApiBaseUrl()
 
@@ -35,6 +35,10 @@ function setCookie(name: string, value: string, days: number) {
 
 function isValidReferralCode(code?: string): boolean {
   return !!code && /^[A-Za-z0-9]{8}$/.test(code)
+}
+
+function isValidCaptainCode(code?: string): boolean {
+  return !!code && code.trim().length > 0 && code.trim().length <= 40 && !/[/?#]/.test(code)
 }
 
 function redirectToAndroidDownload(downloadUrl: string) {
@@ -84,8 +88,10 @@ export default function Download() {
   const platform = detectPlatform()
   const wechat = isWechat()
   const isReferralLanding = location.pathname.startsWith('/r/')
+  const isCaptainLanding = location.pathname.startsWith('/c/')
   // 合法的 8 位推荐码（统一大写）；非推荐落地（/download）为 null
   const referralCode = isReferralLanding && code && isValidReferralCode(code) ? code.toUpperCase() : null
+  const captainCode = isCaptainLanding && code && isValidCaptainCode(code) ? code.trim().toUpperCase() : null
 
   useEffect(() => {
     if (!isReferralLanding || !code || !isValidReferralCode(code)) return
@@ -132,10 +138,25 @@ export default function Download() {
     return ok
   }
 
+  const copyCaptainToken = async (): Promise<boolean> => {
+    if (!captainCode) return false
+    const ok = await copyTextToClipboard(buildCaptainClipboardText(captainCode))
+    if (ok) setCodeCopied(true)
+    return ok
+  }
+
+  const copyLandingToken = async (): Promise<boolean> => {
+    if (captainCode) return copyCaptainToken()
+    return copyReferralToken()
+  }
+
   const handleCopyCode = async () => {
-    const ok = await copyReferralToken()
+    const ok = await copyLandingToken()
     if (!ok && referralCode) {
       window.alert(`复制失败，请记下邀请码：${referralCode}，下载后在 App 内手动输入`)
+    }
+    if (!ok && captainCode) {
+      window.alert(`复制失败，请记下团长码：${captainCode}，下载后在 App 内打开团长链接或手动绑定`)
     }
   }
 
@@ -145,7 +166,7 @@ export default function Download() {
       return
     }
     // 跳走前抢先复制推荐口令（失败也不拦下载，还有指纹匹配 + 手动输入兜底）
-    await copyReferralToken()
+    await copyLandingToken()
     if (platform === 'ios') {
       // iOS 版尚未上架 App Store，给提示而非跳死链
       window.alert('iOS 版即将上线，请使用安卓手机扫码下载')
@@ -225,7 +246,7 @@ export default function Download() {
       )}
 
       {/* 邀请码卡片：剪贴板被禁（微信内置浏览器等）或被覆盖时的可见兜底 */}
-      {referralCode && platform !== 'desktop' && (
+      {(referralCode || captainCode) && platform !== 'desktop' && (
         <div
           onClick={handleCopyCode}
           style={{
@@ -239,13 +260,13 @@ export default function Download() {
           }}
         >
           <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
-            我的邀请码
+            {captainCode ? '团长码' : '我的邀请码'}
           </p>
           <p style={{
             margin: '6px 0 0 0', fontSize: 26, fontWeight: 700,
             letterSpacing: 6, color: '#fff', fontFamily: 'monospace',
           }}>
-            {referralCode}
+            {captainCode ?? referralCode}
           </p>
           <p style={{
             margin: '8px 0 0 0', fontSize: 12,
@@ -272,9 +293,15 @@ export default function Download() {
             boxShadow: '0 8px 28px rgba(0,0,0,0.28)',
           }}>
             {/* 有推荐码：二维码必须指向推荐链接本身，朋友扫屏幕也能把推荐关系带走；
-                无推荐码（/download）：直接指向 OneLink 下载 */}
+                有团长码：二维码指向团长链接；无落地码（/download）：直接指向 OneLink 下载 */}
             <QRCodeSVG
-              value={referralCode ? buildReferralClipboardText(referralCode) : ANDROID_TEST_DOWNLOAD_URL}
+              value={
+                captainCode
+                  ? buildCaptainClipboardText(captainCode)
+                  : referralCode
+                    ? buildReferralClipboardText(referralCode)
+                    : ANDROID_TEST_DOWNLOAD_URL
+              }
               size={132}
               fgColor="#36404a"
               bgColor="#ffffff"
@@ -286,7 +313,11 @@ export default function Download() {
             margin: '12px 0 0 0',
             textAlign: 'center',
           }}>
-            {referralCode ? '朋友扫这个码，推荐关系自动跟随' : '扫码或点击按钮下载安卓版'}
+            {captainCode
+              ? '朋友扫这个码，团长关系自动跟随'
+              : referralCode
+                ? '朋友扫这个码，推荐关系自动跟随'
+                : '扫码或点击按钮下载安卓版'}
           </p>
         </div>
       )}

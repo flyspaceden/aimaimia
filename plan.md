@@ -33,8 +33,8 @@
 
 - [x] **预包装海鲜团长经营买家端入口**（2026-07-08 新增并完成）
   - **来源**: 同上，要求不改 VIP 树，新增独立团长路径，解决团长分享和用户增长链路。
-  - **实际做了**: 后端新增 `/captain/landing/:code`、`/captain/bind`、`/captain/me`、`/captain/me/ledgers`、`/captain/me/orders`；买家 App 新增 `CaptainRepo`、`/c/[code]` 团长码落地页、`/me/captain` 团长经营中心，并在我的页仅对 ACTIVE 团长展示“团长经营”入口；`/c/*` 加入 Android App Links、iOS Universal Links 和官网下载路由，App 根布局明确区分 `/c` 与 VIP `/r`，避免误触发 VIP 推荐绑定。
-  - **验证**: `backend npx jest src/modules/captain/captain-buyer.service.spec.ts --runInBand`、`npx jest src/repos/__tests__/CaptainRepo.test.ts --runInBand`、`npx jest src/utils/__tests__/captainShare.test.ts --runInBand`、`npx tsc -b --noEmit --pretty false` 通过。
+  - **实际做了**: 后端新增 `/captain/landing/:code`、`/captain/bind`、`/captain/me`、`/captain/me/ledgers`、`/captain/me/orders`；买家 App 新增 `CaptainRepo`、`/c/[code]` 团长码落地页、`/me/captain` 团长经营中心，并在我的页仅对 ACTIVE 团长展示“团长经营”入口；`/c/*` 加入 Android App Links、iOS Universal Links 和官网下载路由，App 根布局明确区分 `/c` 与 VIP `/r`，避免误触发 VIP 推荐绑定；官网 `/c/{团长码}` 下载页会在点击下载时写入团长链接，App 首启读取剪贴板后保存 `pending_captain_code`，登录后调用独立 `CaptainRepo.bindByCode` 绑定，覆盖“未安装 App 后下载再打开”的增长路径。
+  - **验证**: `backend npx jest src/modules/captain/captain-buyer.service.spec.ts --runInBand`、`npx jest src/repos/__tests__/CaptainRepo.test.ts src/utils/__tests__/captainShare.test.ts --runInBand`、`npx tsc -b --noEmit --pretty false`、`cd website && npm run build` 通过。
 
 - [x] **管理后台买家候选搜索统一接入**（2026-07-06 新增并完成）
   - **来源**: 用户反馈管理后台还有很多搜索框没有“点击显示候选、输入实时联想、滚动继续加载更多”的体验。
