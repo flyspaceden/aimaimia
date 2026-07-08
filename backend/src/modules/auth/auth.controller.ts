@@ -87,12 +87,14 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Get('h5-wechat/start')
-  startH5WechatLogin(@Query() dto: H5WechatStartQueryDto, @Res() res: Response) {
-    return res.redirect(this.authService.buildH5WechatAuthUrl(dto));
+  async startH5WechatLogin(@Query() dto: H5WechatStartQueryDto, @Res() res: Response) {
+    return res.redirect(await this.authService.buildH5WechatAuthUrl(dto));
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('h5-wechat/invite-login')
   h5WechatInviteLogin(@Body() dto: H5WechatInviteLoginDto) {
     return this.authService.h5WechatInviteLogin(dto);

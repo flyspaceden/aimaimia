@@ -18,7 +18,7 @@ import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
-import { randomBytes, createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
+import { randomBytes, createHash, randomInt } from 'crypto';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
@@ -47,6 +47,12 @@ type H5WechatStatePayload = {
   nonce: string;
   iat: number;
 };
+
+const PHONE_AUTH_APP_ID = 'PHONE';
+const H5_WECHAT_STATE_TTL_MS = 10 * 60_000;
+const H5_WECHAT_STATE_KEY_PREFIX = 'auth:h5-wechat:state';
+const WECHAT_UNION_LOCK_TTL_MS = 10_000;
+const h5WechatStateMemoryStore = new Map<string, { value: string; expiresAt: number }>();
 
 @Injectable()
 export class AuthService {
@@ -189,6 +195,7 @@ export class AuthService {
           create: {
             provider: 'PHONE',
             identifier: dto.phone,
+            appId: PHONE_AUTH_APP_ID,
             verified: true,
             meta: dto.password
               ? { passwordHash: await bcrypt.hash(dto.password, 10) }
@@ -464,15 +471,16 @@ export class AuthService {
     return this.loginOrCreateWechatUser(profile);
   }
 
-  buildH5WechatAuthUrl(input: H5WechatStartQueryDto) {
+  async buildH5WechatAuthUrl(input: H5WechatStartQueryDto) {
     const inviteCode = this.normalizeH5InviteCode(input.inviteCode);
+    await this.assertH5LandingSessionMatchesInviteCode(input.landingSessionId, inviteCode);
     const appId = this.config.getOrThrow<string>('WECHAT_H5_APP_ID');
     const redirectBase = this.config.get<string>(
       'WECHAT_H5_AUTH_REDIRECT_BASE',
       'https://app.ai-maimai.com/invite',
     );
     const redirectUri = `${redirectBase.replace(/\/+$/, '')}/${encodeURIComponent(inviteCode)}`;
-    const state = this.signH5WechatState({
+    const state = await this.createH5WechatState({
       inviteCode,
       landingSessionId: input.landingSessionId,
     });
@@ -489,14 +497,18 @@ export class AuthService {
 
   async h5WechatInviteLogin(dto: H5WechatInviteLoginDto) {
     const inviteCode = this.normalizeH5InviteCode(dto.inviteCode);
-    const state = this.verifyH5WechatState(dto.state);
+    const state = await this.consumeH5WechatState(dto.state);
     if (state.inviteCode !== inviteCode) {
       throw new BadRequestException('微信授权状态不匹配，请重新扫码');
     }
+    const landingSessionId = state.landingSessionId ?? dto.landingSessionId;
+    await this.assertH5LandingSessionMatchesInviteCode(landingSessionId, inviteCode);
 
     const profile = await this.exchangeWechatOAuthCode(dto.wechatCode, 'h5');
+    if (!profile.unionId) {
+      throw new BadRequestException('微信授权未返回 unionId，请确认公众号已绑定微信开放平台后重新登录');
+    }
     const session = await this.loginOrCreateWechatUser(profile);
-    const landingSessionId = state.landingSessionId ?? dto.landingSessionId;
     const inviteBinding = await this.inviteH5.bindAfterAuth({
       userId: session.userId,
       inviteCode,
@@ -582,6 +594,30 @@ export class AuthService {
   }
 
   private async loginOrCreateWechatUser(profile: WechatLoginProfile) {
+    if (!profile.unionId) {
+      return this.loginOrCreateWechatUserUnlocked(profile);
+    }
+
+    const lockKey = `auth:wechat-union:${this.hashKey(profile.unionId)}`;
+    const lockOwner = randomBytes(16).toString('hex');
+    const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
+    if (locked === false) {
+      throw new BadRequestException('微信登录处理中，请稍后重试');
+    }
+    if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
+      throw new BadRequestException('微信登录服务繁忙，请稍后重试');
+    }
+
+    try {
+      return await this.loginOrCreateWechatUserUnlocked(profile);
+    } finally {
+      if (locked) {
+        await this.redisCoord.releaseLock(lockKey, lockOwner);
+      }
+    }
+  }
+
+  private async loginOrCreateWechatUserUnlocked(profile: WechatLoginProfile) {
     const identity = await this.findWechatIdentity(profile);
 
     if (identity) {
@@ -642,6 +678,23 @@ export class AuthService {
     this.triggerRegisterGrowth(user.id);
 
     return this.issueTokens(user.id, 'wechat');
+  }
+
+  private async assertH5LandingSessionMatchesInviteCode(
+    landingSessionId: string | undefined,
+    inviteCode: string,
+  ) {
+    if (!landingSessionId) return;
+    const landing = await this.prisma.inviteH5LandingEvent.findUnique({
+      where: { landingSessionId },
+      select: { inviteCode: true },
+    });
+    if (!landing) {
+      throw new BadRequestException('邀请会话已失效，请重新扫码');
+    }
+    if (this.normalizeH5InviteCode(landing.inviteCode) !== inviteCode) {
+      throw new BadRequestException('微信授权状态不匹配，请重新扫码');
+    }
   }
 
   private async findWechatIdentity(profile: WechatLoginProfile) {
@@ -764,38 +817,59 @@ export class AuthService {
     };
   }
 
-  private signH5WechatState(input: {
+  private async createH5WechatState(input: {
     inviteCode: string;
     landingSessionId?: string;
-  }): string {
+  }): Promise<string> {
+    const nonce = randomBytes(16).toString('hex');
     const payload: H5WechatStatePayload = {
       inviteCode: this.normalizeH5InviteCode(input.inviteCode),
       landingSessionId: input.landingSessionId,
-      nonce: randomBytes(8).toString('hex'),
+      nonce,
       iat: Date.now(),
     };
-    const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-    const signature = this.signH5WechatStateBody(body);
-    return `${body}.${signature}`;
+    const value = JSON.stringify(payload);
+    const stored = await this.redisCoord.set(
+      this.h5WechatStateKey(nonce),
+      value,
+      H5_WECHAT_STATE_TTL_MS,
+    );
+
+    if (!stored) {
+      if (this.config.get('NODE_ENV', 'development') === 'production') {
+        throw new BadRequestException('微信授权状态暂不可用，请稍后重试');
+      }
+      h5WechatStateMemoryStore.set(nonce, {
+        value,
+        expiresAt: Date.now() + H5_WECHAT_STATE_TTL_MS,
+      });
+    }
+
+    return nonce;
   }
 
-  private verifyH5WechatState(state: string | null | undefined): H5WechatStatePayload {
-    if (!state || !state.includes('.')) {
+  private async consumeH5WechatState(state: string | null | undefined): Promise<H5WechatStatePayload> {
+    if (!state || !/^[a-f0-9]{32}$/i.test(state)) {
       throw new BadRequestException('微信授权状态无效，请重新扫码');
     }
-    const parts = state.split('.');
-    if (parts.length !== 2) {
-      throw new BadRequestException('微信授权状态无效，请重新扫码');
+    const nonce = state.toLowerCase();
+    let value = await this.redisCoord.getdel(this.h5WechatStateKey(nonce));
+
+    if (!value) {
+      const memoryValue = h5WechatStateMemoryStore.get(nonce);
+      if (memoryValue && memoryValue.expiresAt > Date.now()) {
+        value = memoryValue.value;
+      }
+      h5WechatStateMemoryStore.delete(nonce);
     }
-    const [body, signature] = parts;
-    const expected = this.signH5WechatStateBody(body);
-    if (!this.safeEqual(signature, expected)) {
+
+    if (!value) {
       throw new BadRequestException('微信授权状态无效，请重新扫码');
     }
 
     let payload: H5WechatStatePayload;
     try {
-      payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+      payload = JSON.parse(value);
     } catch {
       throw new BadRequestException('微信授权状态无效，请重新扫码');
     }
@@ -804,7 +878,7 @@ export class AuthService {
       !payload ||
       typeof payload.inviteCode !== 'string' ||
       typeof payload.iat !== 'number' ||
-      typeof payload.nonce !== 'string'
+      payload.nonce !== nonce
     ) {
       throw new BadRequestException('微信授权状态无效，请重新扫码');
     }
@@ -820,25 +894,8 @@ export class AuthService {
     };
   }
 
-  private signH5WechatStateBody(body: string): string {
-    return createHmac('sha256', this.getH5WechatStateSecret())
-      .update(body)
-      .digest('base64url');
-  }
-
-  private getH5WechatStateSecret(): string {
-    const explicit = this.config.get<string>('WECHAT_H5_AUTH_STATE_SECRET');
-    if (explicit) return explicit;
-    if (this.config.get('NODE_ENV', 'development') !== 'production') {
-      return this.config.get<string>('JWT_SECRET', 'dev-h5-wechat-state-secret');
-    }
-    throw new Error('缺少 WECHAT_H5_AUTH_STATE_SECRET');
-  }
-
-  private safeEqual(a: string, b: string): boolean {
-    const left = Buffer.from(a);
-    const right = Buffer.from(b);
-    return left.length === right.length && timingSafeEqual(left, right);
+  private h5WechatStateKey(nonce: string): string {
+    return `${H5_WECHAT_STATE_KEY_PREFIX}:${nonce}`;
   }
 
   private normalizeH5InviteCode(code: string): string {
@@ -988,37 +1045,60 @@ export class AuthService {
     }
 
     if (!identity) {
-      const newUser = await this.prisma.user.create({
-        data: {
-          buyerNo: await nextBuyerNo(this.prisma),
-          profile: { create: { nickname: nickname?.trim() || '新用户' } },
-          memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
-          growthAccount: {
-            create: {
-              pointsBalance: 0,
-              pointsTotalEarned: 0,
-              pointsTotalSpent: 0,
-              growthValue: 0,
+      try {
+        const newUser = await this.prisma.user.create({
+          data: {
+            buyerNo: await nextBuyerNo(this.prisma),
+            profile: { create: { nickname: nickname?.trim() || '新用户' } },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(this.prisma) } },
+            growthAccount: {
+              create: {
+                pointsBalance: 0,
+                pointsTotalEarned: 0,
+                pointsTotalSpent: 0,
+                growthValue: 0,
+              },
+            },
+            normalShareProfile: {
+              create: {
+                code: await pickUniqueNormalShareCode(this.prisma as any),
+                status: 'ACTIVE',
+              },
+            },
+            authIdentities: {
+              create: {
+                provider: 'PHONE',
+                identifier: phone,
+                appId: PHONE_AUTH_APP_ID,
+                verified: true,
+              },
             },
           },
-          normalShareProfile: {
-            create: {
-              code: await pickUniqueNormalShareCode(this.prisma as any),
-              status: 'ACTIVE',
-            },
-          },
-          authIdentities: {
-            create: { provider: 'PHONE', identifier: phone, verified: true },
-          },
-        },
-      });
-      await this.recordLoginAttempt('PHONE', phone, 'code', true, newUser.id);
-      // Phase F: 验证码登录自动注册也触发 REGISTER 红包
-      this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
-        this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
-      });
-      this.triggerRegisterGrowth(newUser.id);
-      return this.issueTokens(newUser.id, 'phone');
+        });
+        await this.recordLoginAttempt('PHONE', phone, 'code', true, newUser.id);
+        // Phase F: 验证码登录自动注册也触发 REGISTER 红包
+        this.couponEngine.handleTrigger(newUser.id, 'REGISTER').catch((err: any) => {
+          this.logger.warn(`REGISTER 红包触发失败: userId=${newUser.id}, error=${err?.message}`);
+        });
+        this.triggerRegisterGrowth(newUser.id);
+        return this.issueTokens(newUser.id, 'phone');
+      } catch (err: any) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          const racedIdentity = await this.prisma.authIdentity.findFirst({
+            where: { provider: 'PHONE', identifier: phone },
+            include: { user: { select: { status: true } } },
+          });
+          if (racedIdentity) {
+            if (racedIdentity.user.status !== UserStatus.ACTIVE) {
+              throw new ForbiddenException('账号不可用');
+            }
+            await this.recordLoginAttempt('PHONE', phone, 'code', true, racedIdentity.userId);
+            await this.ensureBuyerNoForBuyer(racedIdentity.userId);
+            return this.issueTokens(racedIdentity.userId, 'phone');
+          }
+        }
+        throw err;
+      }
     }
 
     await this.recordLoginAttempt('PHONE', phone, 'code', true, identity.userId);
@@ -1529,7 +1609,13 @@ export class AuthService {
             throw new BadRequestException('该手机号已被其他账号绑定，请使用该手机号直接登录');
           }
           await tx.authIdentity.create({
-            data: { userId, provider: 'PHONE', identifier: phone, verified: true },
+            data: {
+              userId,
+              provider: 'PHONE',
+              identifier: phone,
+              appId: PHONE_AUTH_APP_ID,
+              verified: true,
+            },
           });
         }, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

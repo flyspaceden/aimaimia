@@ -266,7 +266,12 @@ DELIVERY_SELLER_JWT_SECRET=<配送中心随机密钥>
 DELIVERY_SEED_PASSWORD=<配送 seed 初始账号强密码>
 
 # CORS（允许的前端域名）
-CORS_ORIGINS=https://ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com,https://delivery-admin.ai-maimai.com,https://delivery-seller.ai-maimai.com
+CORS_ORIGINS=https://ai-maimai.com,https://www.ai-maimai.com,https://app.ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com,https://delivery-admin.ai-maimai.com,https://delivery-seller.ai-maimai.com
+
+# H5 微信登录（扫码后 /invite/:code 网页授权）
+WECHAT_H5_APP_ID=<WECHAT_SERVICE_ACCOUNT_APP_ID>
+WECHAT_H5_APP_SECRET=<WECHAT_SERVICE_ACCOUNT_APP_SECRET>
+WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 
 # 文件上传
 UPLOAD_LOCAL_PRIVATE=false
@@ -294,7 +299,10 @@ DELIVERY_USER_JWT_SECRET=<STAGING_DELIVERY_USER_JWT_SECRET>
 DELIVERY_ADMIN_JWT_SECRET=<STAGING_DELIVERY_ADMIN_JWT_SECRET>
 DELIVERY_SELLER_JWT_SECRET=<STAGING_DELIVERY_SELLER_JWT_SECRET>
 DELIVERY_SEED_PASSWORD=<STAGING_DELIVERY_SEED_PASSWORD>
-CORS_ORIGINS=https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com,https://test-delivery-admin.ai-maimai.com,https://test-delivery-seller.ai-maimai.com,https://test-api.ai-maimai.com
+CORS_ORIGINS=https://app.ai-maimai.com,https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com,https://test-delivery-admin.ai-maimai.com,https://test-delivery-seller.ai-maimai.com,https://test-api.ai-maimai.com
+WECHAT_H5_APP_ID=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_ID>
+WECHAT_H5_APP_SECRET=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_SECRET>
+WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 ```
 
 ### 2.2 GitHub Actions / 服务器后端发布顺序

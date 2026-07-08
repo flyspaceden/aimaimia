@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { getApiBaseUrl } from '@/lib/apiBase'
 import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
@@ -8,7 +8,9 @@ import {
   buildH5WechatStartUrl,
   canContinueAfterLandingCodeStatus,
   getWechatCallbackParams,
+  inviteLandingSessionStorageKey,
   normalizeInviteCode,
+  removeWechatCallbackHash,
   removeWechatCallbackParamsFromSearch,
   submitStateForBindingStatus,
   unwrapApiData,
@@ -91,7 +93,17 @@ export default function InviteAuthLanding() {
 
   const { code } = useParams<{ code?: string }>()
   const inviteCode = useMemo(() => normalizeInviteCode(code), [code])
-  const [landingSessionId, setLandingSessionId] = useState<string>()
+  const landingSessionStorageKey = useMemo(
+    () => (inviteCode ? inviteLandingSessionStorageKey(inviteCode) : null),
+    [inviteCode],
+  )
+  const [wechatCallbackParams] = useState(() => getWechatCallbackParams(window.location.search))
+  const hasWechatCallback = Boolean(wechatCallbackParams.wechatCode && wechatCallbackParams.state)
+  const [landingSessionId, setLandingSessionId] = useState<string | undefined>(() => {
+    const initialInviteCode = normalizeInviteCode(code)
+    if (!initialInviteCode) return undefined
+    return sessionStorage.getItem(inviteLandingSessionStorageKey(initialInviteCode)) || undefined
+  })
   const [landingState, setLandingState] = useState<LandingState>(() => (inviteCode ? 'checking' : 'invalid'))
   const [phone, setPhone] = useState('')
   const [smsCode, setSmsCode] = useState('')
@@ -103,6 +115,8 @@ export default function InviteAuthLanding() {
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [loginCompleted, setLoginCompleted] = useState(false)
   const [showWechatGuide, setShowWechatGuide] = useState(false)
+  const landingRequestRef = useRef<{ key: string; promise: Promise<LandingResponse> } | null>(null)
+  const wechatCallbackRequestRef = useRef<{ key: string; promise: Promise<InviteLoginResponse> } | null>(null)
   const platform = detectPlatform()
   const wechat = isWechat()
   const authCompleted = loginCompleted
@@ -126,20 +140,34 @@ export default function InviteAuthLanding() {
       setNotice('邀请链接不可用')
       return
     }
+    if (hasWechatCallback) {
+      setLandingState('ready')
+      return
+    }
 
     let active = true
     setLandingState('checking')
     setNotice('')
 
-    postJson<LandingResponse>('/invite-h5/landing', {
-      inviteCode,
-      userAgent: navigator.userAgent,
-      screenWidth: window.screen.width,
-      screenHeight: window.screen.height,
-      language: navigator.language,
-    }).then((res) => {
+    if (landingRequestRef.current?.key !== inviteCode) {
+      landingRequestRef.current = {
+        key: inviteCode,
+        promise: postJson<LandingResponse>('/invite-h5/landing', {
+          inviteCode,
+          userAgent: navigator.userAgent,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+          language: navigator.language,
+        }),
+      }
+    }
+
+    landingRequestRef.current.promise.then((res) => {
       if (!active) return
       setLandingSessionId(res.landingSessionId)
+      if (landingSessionStorageKey) {
+        sessionStorage.setItem(landingSessionStorageKey, res.landingSessionId)
+      }
       if (!canContinueAfterLandingCodeStatus(res.codeStatus)) {
         setLandingState('invalid')
         setNotice('邀请链接不可用')
@@ -157,7 +185,7 @@ export default function InviteAuthLanding() {
     return () => {
       active = false
     }
-  }, [inviteCode])
+  }, [inviteCode, hasWechatCallback, landingSessionStorageKey])
 
   useEffect(() => {
     if (countdown <= 0) return
@@ -169,7 +197,7 @@ export default function InviteAuthLanding() {
 
   useEffect(() => {
     if (!inviteCode || authCompleted) return
-    const { wechatCode, state } = getWechatCallbackParams(window.location.search)
+    const { wechatCode, state } = wechatCallbackParams
     if (!wechatCode || !state) return
 
     let active = true
@@ -177,11 +205,20 @@ export default function InviteAuthLanding() {
     setSubmitState('idle')
     setNotice('微信登录中')
 
-    postJson<InviteLoginResponse>('/auth/h5-wechat/invite-login', {
-      wechatCode,
-      state,
-      inviteCode,
-    }).then((res) => {
+    const callbackKey = `${inviteCode}:${wechatCode}:${state}`
+    if (wechatCallbackRequestRef.current?.key !== callbackKey) {
+      wechatCallbackRequestRef.current = {
+        key: callbackKey,
+        promise: postJson<InviteLoginResponse>('/auth/h5-wechat/invite-login', {
+          wechatCode,
+          state,
+          inviteCode,
+          landingSessionId,
+        }),
+      }
+    }
+
+    wechatCallbackRequestRef.current.promise.then((res) => {
       if (!active) return
       completeInviteAuth(res)
     }).catch((err) => {
@@ -192,13 +229,14 @@ export default function InviteAuthLanding() {
       if (!active) return
       setSubmitting(false)
       const nextSearch = removeWechatCallbackParamsFromSearch(window.location.search)
-      window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}${window.location.hash}`)
+      const nextHash = removeWechatCallbackHash(window.location.hash)
+      window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}${nextHash}`)
     })
 
     return () => {
       active = false
     }
-  }, [inviteCode, authCompleted])
+  }, [inviteCode, authCompleted, wechatCallbackParams, landingSessionId])
 
   const handleSendCode = async () => {
     if (!isValidPhone(phone)) {
@@ -270,6 +308,9 @@ export default function InviteAuthLanding() {
       setSubmitState('error')
       setNotice('请在微信中打开，或使用手机号登录')
       return
+    }
+    if (landingSessionId && landingSessionStorageKey) {
+      sessionStorage.setItem(landingSessionStorageKey, landingSessionId)
     }
     window.location.href = buildH5WechatStartUrl(API_BASE, {
       inviteCode,

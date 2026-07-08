@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const form = readFileSync('admin/src/pages/coupons/campaign-form.tsx', 'utf8');
 const listPage = readFileSync('admin/src/pages/coupons/campaigns.tsx', 'utf8');
+const buyerSuggestInput = readFileSync('admin/src/components/BuyerSuggestInput.tsx', 'utf8');
 const api = readFileSync('admin/src/api/coupon.ts', 'utf8');
 const statusMaps = readFileSync('admin/src/constants/statusMaps.ts', 'utf8');
 const appCouponPage = readFileSync('app/me/coupons.tsx', 'utf8');
@@ -98,8 +99,9 @@ test('campaign list exposes manual issue modal with searchable selected-user mod
   assert.match(listPage, /普通用户/);
   assert.match(listPage, /VIP用户/);
   assert.match(listPage, /全部用户/);
-  assert.match(listPage, /getAppUsers/);
-  assert.match(listPage, /mode="multiple"/);
+  assert.match(listPage, /BuyerNoMultiSelect/);
+  assert.match(buyerSuggestInput, /getAppUsers/);
+  assert.match(buyerSuggestInput, /mode="multiple"/);
   assert.match(listPage, /搜索昵称、手机号、买家编号或用户ID/);
   assert.match(listPage, /targetMode:\s*manualIssueMode/);
   assert.doesNotMatch(listPage, /逗号分隔/);

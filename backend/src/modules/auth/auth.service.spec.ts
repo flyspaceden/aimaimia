@@ -1,5 +1,5 @@
-import { ForbiddenException } from '@nestjs/common';
-import { UserStatus } from '@prisma/client';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma, UserStatus } from '@prisma/client';
 import { createHash } from 'crypto';
 
 // 本单测只手工注入 captcha mock，不需要真实验证码实现，
@@ -38,6 +38,9 @@ function makePrisma(overrides: Record<string, any> = {}) {
       create: jest.fn().mockResolvedValue({ id: 'identity-new' }),
       update: jest.fn().mockResolvedValue({ id: 'identity-updated' }),
     },
+    inviteH5LandingEvent: {
+      findUnique: jest.fn().mockResolvedValue({ inviteCode: 'SABC1234' }),
+    },
     // pickUniqueReferralCode 预查空闲推荐码：默认无冲突
     memberProfile: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -70,6 +73,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 }
 
 function makeService(prisma: any) {
+  const h5WechatStateStore = new Map<string, string>();
   const jwt = { sign: jest.fn().mockReturnValue('signed.jwt.token') } as any;
   const config = {
     get: jest.fn((key: string, fallback?: string) => {
@@ -83,6 +87,18 @@ function makeService(prisma: any) {
   } as any;
   const redisCoord = {
     consumeFixedWindow: jest.fn().mockResolvedValue({ allowed: true, count: 1 }),
+    set: jest.fn(async (key: string, value: string) => {
+      h5WechatStateStore.set(key, value);
+      return true;
+    }),
+    getdel: jest.fn(async (key: string) => {
+      const value = h5WechatStateStore.get(key) ?? null;
+      h5WechatStateStore.delete(key);
+      return value;
+    }),
+    del: jest.fn().mockResolvedValue(undefined),
+    acquireLock: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
   } as any;
   const couponEngine = { handleTrigger: jest.fn().mockResolvedValue(undefined) } as any;
   const growthEvents = { receive: jest.fn().mockResolvedValue({ granted: true }) } as any;
@@ -107,7 +123,7 @@ function makeService(prisma: any) {
     growthEvents,
     inviteH5,
   );
-  return { service, jwt, couponEngine, growthEvents, inviteH5 };
+  return { service, jwt, couponEngine, growthEvents, inviteH5, redisCoord };
 }
 
 describe('AuthService — 账号注销护栏（身份变更）', () => {
@@ -222,12 +238,23 @@ describe('AuthService — 释放出的手机号/微信可被新账号复用（to
   it('释放出的微信身份可被新用户注册（旧 tombstone openId 不命中）', async () => {
     const prisma = makePrisma();
     prisma.authIdentity.findFirst.mockResolvedValue(null); // 真实 openId 未占用
-    const { service } = makeService(prisma);
+    const { service, redisCoord } = makeService(prisma);
 
     const res = await service.loginWithWeChat('wx-fresh-code');
 
     expect(res.userId).toBe('new-user');
     expect(prisma.user.create).toHaveBeenCalledTimes(1);
+    const unionId = mockWechatOpenId('wx_unionid', 'wx-fresh-code');
+    const unionKey = createHash('sha256').update(unionId).digest('hex').slice(0, 24);
+    expect(redisCoord.acquireLock).toHaveBeenCalledWith(
+      `auth:wechat-union:${unionKey}`,
+      expect.any(String),
+      10000,
+    );
+    expect(redisCoord.releaseLock).toHaveBeenCalledWith(
+      `auth:wechat-union:${unionKey}`,
+      expect.any(String),
+    );
   });
 });
 
@@ -470,6 +497,13 @@ describe('AuthService — H5 invite login', () => {
     expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         profile: { create: { nickname: '会议用户' } },
+        authIdentities: {
+          create: expect.objectContaining({
+            provider: 'PHONE',
+            identifier: PHONE,
+            appId: 'PHONE',
+          }),
+        },
       }),
     }));
     expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
@@ -478,6 +512,48 @@ describe('AuthService — H5 invite login', () => {
       landingSessionId: undefined,
     });
     expect(result.userId).toBe('new-user');
+  });
+
+  it('inviteLogin recovers from first phone auto-registration race by reusing the winning identity', async () => {
+    const prisma = makePrisma();
+    const bcrypt = require('bcrypt');
+    prisma.smsOtp.findMany.mockResolvedValue([
+      { id: 'otp-1', codeHash: bcrypt.hashSync('123456', 4), usedAt: null, expiresAt: new Date(Date.now() + 60_000) },
+    ]);
+    prisma.authIdentity.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'identity-raced-phone',
+        userId: 'raced-user',
+        provider: 'PHONE',
+        identifier: PHONE,
+        appId: 'PHONE',
+        user: { status: UserStatus.ACTIVE },
+      });
+    prisma.user.create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed on the fields: (`provider`,`identifier`,`appId`)',
+      {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['provider', 'identifier', 'appId'] },
+      },
+    ));
+    const { service, inviteH5 } = makeService(prisma);
+
+    const result = await (service as any).inviteLogin({
+      phone: PHONE,
+      code: '123456',
+      name: '会议用户',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
+
+    expect(result.userId).toBe('raced-user');
+    expect(inviteH5.bindAfterAuth).toHaveBeenCalledWith({
+      userId: 'raced-user',
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_1',
+    });
   });
 
   it('inviteLogin succeeds when binding returns ALREADY_BOUND_OTHER', async () => {
@@ -555,11 +631,11 @@ describe('AuthService — H5 invite login', () => {
 describe('AuthService — H5 invite WeChat login', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('builds H5 WeChat auth URL with signed state containing invite context', () => {
+  it('builds H5 WeChat auth URL with short server-side state containing invite context', async () => {
     const prisma = makePrisma();
-    const { service } = makeService(prisma);
+    const { service, redisCoord } = makeService(prisma);
 
-    const url = (service as any).buildH5WechatAuthUrl({
+    const url = await (service as any).buildH5WechatAuthUrl({
       inviteCode: 'SABC1234',
       landingSessionId: 'ih5_session_1',
     });
@@ -575,11 +651,41 @@ describe('AuthService — H5 invite WeChat login', () => {
 
     const state = parsed.searchParams.get('state');
     expect(state).toEqual(expect.any(String));
-    const verified = (service as any).verifyH5WechatState(state);
+    expect(state).toMatch(/^[a-f0-9]{32}$/);
+    expect(state!.length).toBeLessThanOrEqual(128);
+    expect(redisCoord.set).toHaveBeenCalledWith(
+      `auth:h5-wechat:state:${state}`,
+      expect.any(String),
+      600000,
+    );
+    const verified = await (service as any).consumeH5WechatState(state);
     expect(verified).toMatchObject({
       inviteCode: 'SABC1234',
       landingSessionId: 'ih5_session_1',
     });
+  });
+
+  it('rejects H5 WeChat callback when landing session belongs to another invite code', async () => {
+    const prisma = makePrisma();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'BCODE999' });
+    const { service, inviteH5 } = makeService(prisma);
+    const state = await (service as any).createH5WechatState({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_b_code',
+    });
+
+    await expect((service as any).h5WechatInviteLogin({
+      wechatCode: 'conference-wechat-code',
+      state,
+      inviteCode: 'SABC1234',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.inviteH5LandingEvent.findUnique).toHaveBeenCalledWith({
+      where: { landingSessionId: 'ih5_session_b_code' },
+      select: { inviteCode: true },
+    });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(inviteH5.bindAfterAuth).not.toHaveBeenCalled();
   });
 
   it('H5 WeChat invite login reuses unionId identity and binds after auth', async () => {
@@ -603,7 +709,7 @@ describe('AuthService — H5 invite WeChat login', () => {
       }
       return Promise.resolve(null);
     });
-    const state = (service as any).signH5WechatState({
+    const state = await (service as any).createH5WechatState({
       inviteCode: 'SABC1234',
       landingSessionId: 'ih5_session_1',
     });
@@ -671,7 +777,7 @@ describe('AuthService — H5 invite WeChat login', () => {
       }
       return Promise.resolve(null);
     });
-    const state = (service as any).signH5WechatState({
+    const state = await (service as any).createH5WechatState({
       inviteCode: 'SABC1234',
       landingSessionId: 'ih5_session_legacy',
     });
@@ -712,5 +818,30 @@ describe('AuthService — H5 invite WeChat login', () => {
       userId: 'legacy-wechat-user',
       loginMethod: 'wechat',
     });
+  });
+
+  it('rejects real H5 WeChat login without unionId to avoid duplicate App and H5 accounts', async () => {
+    const prisma = makePrisma();
+    const { service, inviteH5 } = makeService(prisma);
+    jest.spyOn(service as any, 'exchangeWechatOAuthCode').mockResolvedValue({
+      openId: 'h5-openid-without-union',
+      unionId: '',
+      appId: 'real-h5-service-account',
+      appType: 'H5_SERVICE_ACCOUNT',
+      accessToken: 'h5-access-token',
+    });
+    const state = await (service as any).createH5WechatState({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_session_no_union',
+    });
+
+    await expect((service as any).h5WechatInviteLogin({
+      wechatCode: 'real-code-without-union',
+      state,
+      inviteCode: 'SABC1234',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(inviteH5.bindAfterAuth).not.toHaveBeenCalled();
   });
 });

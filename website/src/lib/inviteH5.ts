@@ -34,6 +34,14 @@ export function removeWechatCallbackParamsFromSearch(search: string): string {
   return next ? `?${next}` : ''
 }
 
+export function removeWechatCallbackHash(hash: string): string {
+  return hash === '#wechat_redirect' ? '' : hash
+}
+
+export function inviteLandingSessionStorageKey(inviteCode: string): string {
+  return `invite_h5_landing_session:${inviteCode}`
+}
+
 export function buildH5WechatStartUrl(
   apiBase: string,
   input: { inviteCode: string; landingSessionId?: string },
