@@ -21,6 +21,11 @@
 
 ### 近期完成补充
 
+- [x] **预包装海鲜团长申请审核链路**（2026-07-08 新增并完成）
+  - **来源**: 用户确认需要在 App 里补“申请成为团长”入口，审核通过后成为团长；要求不改 VIP 树，只在现有系统上加入团长功能，后台参数和审核路径可配置/可管理。
+  - **实际做了**: 新增 `CaptainApplication` 申请模型和迁移；买家端新增 `/captain/applications/me`、`/captain/applications` 接口和 `/me/captain-application` 页面，普通用户可填写申请资料、查看审核中/驳回/通过状态，驳回后可重新提交；管理后台新增“团长经营 > 团长申请”列表和详情抽屉，管理员可通过并自动开通团长资料/账户，也可填写原因驳回；审核通过在 Serializable 事务内完成申请状态和团长开通，申请链路不写 VIP 树、普通树、消费积分或平台红包。
+  - **验证**: `backend npx jest src/modules/captain src/modules/admin/captain --runInBand`、`npx jest src/repos/__tests__/CaptainRepo.test.ts --runInBand`、`cd admin && npm run build`、`npx tsc -b --noEmit --pretty false` 通过。
+
 - [x] **预包装海鲜团长经营管理后台**（2026-07-08 新增并完成）
   - **来源**: 团长收益不足、VIP 推荐增长慢的商业模式讨论，要求不改 VIP 树，在现有系统上新增独立团长功能，并且参数可在管理后台配置。
   - **实际做了**: 新增独立“团长经营”菜单和 `/captain/*` 路由；补齐团长列表、详情、订单归因、佣金流水、月度结算和团长配置页；`CAPTAIN_SEAFOOD_CONFIG` 完整暴露启用、范围、逐单佣金、月度门槛、阶梯奖励、封顶、税务和风控参数，并实时展示总激励率、预估净利和风险预留后净利；操作权限独立为 `captain:read/manage/settlement/settings`，不混入 VIP 树、普通奖励、消费积分或平台红包。

@@ -406,6 +406,28 @@ export type CaptainSettlementStatus =
   | 'APPROVED'
   | 'PAID'
   | 'REJECTED';
+export type CaptainApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+
+export interface CaptainApplicationSnapshot {
+  capturedAt?: string;
+  buyerNo?: string | null;
+  nickname?: string | null;
+  phone?: string | null;
+  phoneVerified?: boolean;
+  userStatus?: string;
+  isVip?: boolean;
+  memberTier?: string | null;
+  orderCount?: number;
+  paidAmount?: number;
+  refundCount?: number;
+  refundAmount?: number;
+  refundRate?: number;
+  boundCaptain?: {
+    userId: string;
+    buyerNo: string | null;
+    nickname: string | null;
+  } | null;
+}
 
 export interface CaptainAccount {
   id: string;
@@ -449,6 +471,35 @@ export interface CaptainProfile {
     captainMonthlyMetrics?: CaptainMonthlyMetric[];
   };
   account?: CaptainAccount | null;
+}
+
+export interface CaptainApplication {
+  id: string;
+  userId: string;
+  programCode: string;
+  status: CaptainApplicationStatus;
+  realName: string;
+  contact: string;
+  city: string;
+  communityScale: string;
+  expectedMonthlyGmv: string;
+  resourceTypes: string[];
+  promotionPlan: string;
+  seafoodExperience: string;
+  complianceAccepted: boolean;
+  systemSnapshot: CaptainApplicationSnapshot;
+  reviewedByAdminId: string | null;
+  reviewedAt: string | null;
+  rejectReason: string | null;
+  captainProfileUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: UserLite & {
+    authIdentities?: Array<{
+      identifier: string;
+      verified: boolean;
+    }>;
+  };
 }
 
 export interface CaptainRelation {

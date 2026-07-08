@@ -1,12 +1,17 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { CaptainApplicationService } from './captain-application.service';
 import { CaptainBuyerService } from './captain-buyer.service';
+import { SubmitCaptainApplicationDto } from './dto/captain-application.dto';
 import { BindCaptainCodeDto } from './dto/captain-buyer.dto';
 
 @Controller('captain')
 export class CaptainController {
-  constructor(private readonly buyerService: CaptainBuyerService) {}
+  constructor(
+    private readonly buyerService: CaptainBuyerService,
+    private readonly applicationService: CaptainApplicationService,
+  ) {}
 
   @Public()
   @Get('landing/:code')
@@ -25,6 +30,19 @@ export class CaptainController {
   @Get('me')
   getMyCaptainProfile(@CurrentUser('sub') userId: string) {
     return this.buyerService.getMyCaptainProfile(userId);
+  }
+
+  @Get('applications/me')
+  getMyApplication(@CurrentUser('sub') userId: string) {
+    return this.applicationService.getMyApplication(userId);
+  }
+
+  @Post('applications')
+  submitApplication(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: SubmitCaptainApplicationDto,
+  ) {
+    return this.applicationService.submit(userId, dto);
   }
 
   @Get('me/ledgers')

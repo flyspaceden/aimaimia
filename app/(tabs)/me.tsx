@@ -145,10 +145,16 @@ export default function MeScreen() {
       const entries = [buildMeReferralToolEntry(member), normalGrowthTool];
       if (captainProfile?.isCaptain) {
         entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
+      } else {
+        entries.push({
+          label: captainProfile?.application ? '团长申请' : '申请团长',
+          icon: 'clipboard-edit-outline' as const,
+          route: '/me/captain-application',
+        });
       }
       return [...entries, ...TOOL_GRID_BASE];
     },
-    [member, normalGrowthTool, captainProfile?.isCaptain],
+    [member, normalGrowthTool, captainProfile?.isCaptain, captainProfile?.application],
   );
 
   const handleRefresh = async () => {

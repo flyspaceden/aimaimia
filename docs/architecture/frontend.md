@@ -912,6 +912,7 @@ Tab 栏设计：
 - **我的财库/VIP 卡片**：左右各 50%，圆角 `xl`，我的财库用金色渐变底，VIP 用绿色渐变底
 - **任务推荐**：标题带 AI 标签，内容由 AI 生成（最重要的 2 个任务）
 - **工具网格**：4 列，每格圆角 `lg`，图标 + 文字，统一高度
+- **团长入口**：`我的 > 常用工具` 中，ACTIVE 团长展示「团长经营」进入 `/me/captain`；非团长展示「申请团长」进入 `/me/captain-application`。申请页只走独立 `CaptainRepo`，不写入 VIP 树、普通树、消费积分或平台红包。
 
 ---
 
@@ -2422,6 +2423,7 @@ src/components/ai/   → 新增目录
 | 团购精选货架与详情页 | 新增 `/group-buy` 货架页和 `/group-buy/[activityId]` 详情页：无当前团购时展示商品货架；有当前团购时默认进入“我的团购”并可切换商品；当前面板展示推荐码/二维码/进度/结束入口，详情页展示后台配置的团购详情介绍；商品卡和进度不展示返还基数或返还百分比；页面不展示“分享回馈活动”和“仅一级直接推荐”提示；2026-06-30 起团购首页顶部“精选团购”小字仅承载“团购不退换，仅24小时质量问题补发。”，不再单独展示规则提示条；2026-06-30 起详情页保留底部付款栏滚动留白，并在详情路由隐藏全局 AI 浮球，避免 Android 真机上高层手势浮层拦截页面滚动 | 2026-06-22 | `app/group-buy/index.tsx`, `app/group-buy/[activityId].tsx`, `src/components/group-buy/*`, `src/components/effects/AiFloatingCompanion.tsx` |
 | 团购扫码落地与现金付款 | 新增 `/gb/[code]` 推荐码落地页和 `/group-buy/checkout` 团购付款页；二维码/系统分享链接使用独立 `/gb/{code}`；落地页展示分享用户和同款商品，未登录先弹登录，登录成功后继续进入付款；付款页复用地址选择和现有支付宝/微信支付确认链路，但不展示消费积分、平台红包、团购返还余额等抵扣入口，并在当前团购占用时返回当前团购处理 | 2026-06-22 | `app/gb/[code].tsx`, `app/group-buy/checkout.tsx`, `src/components/group-buy/constants.ts` |
 | 团长经营扫码绑定与团长中心 | 新增独立 `Captain` domain types 与 `CaptainRepo`，调用 `/captain/landing/:code`、`/captain/bind`、`/captain/me`、`/captain/me/ledgers`、`/captain/me/orders`；新增 `/c/[code]` 团长码落地页和 `/me/captain` 团长经营中心；我的页仅对 ACTIVE 团长展示“团长经营”入口；`/c/*` 已加入 Android App Links、iOS Universal Links 和官网下载路由，且 App 根布局识别 `/c` 链接时不走 VIP `/r` 推荐绑定逻辑；页面文案使用“团长经营奖励 / 推广奖励 / 到账”，不展示三级及以下关系 | 2026-07-08 | `src/types/domain/Captain.ts`, `src/repos/CaptainRepo.ts`, `app/c/[code].tsx`, `app/me/captain.tsx`, `app/(tabs)/me.tsx`, `app/_layout.tsx`, `app.json`, `website/src/App.tsx`, `website/public/.well-known/apple-app-site-association`, `src/repos/__tests__/CaptainRepo.test.ts`, `src/utils/__tests__/captainShare.test.ts` |
+| 团长申请入口 | 新增 `/me/captain-application`，普通用户可提交真实姓名、联系方式、区域、社群规模、预计月 GMV、资源类型、推广计划、海鲜经验和合规承诺；页面按未申请、审核中、已驳回、已通过、已是团长分流；驳回后展示原因并允许重新提交；`CaptainRepo` 新增 `/captain/applications/me` 与 `/captain/applications`，申请链路独立于 VIP 推荐码和团长码绑定 | 2026-07-08 | `app/me/captain-application.tsx`, `app/(tabs)/me.tsx`, `src/types/domain/Captain.ts`, `src/repos/CaptainRepo.ts`, `src/repos/__tests__/CaptainRepo.test.ts` |
 | 首页团购入口 | 首页 VIP 推荐区下方新增“精选团购”入口卡，点击进入 `/group-buy`；保持现有三 Tab 不变，避免与独立 `/group-buy` 路由产生重复路径；入口文案仅使用“指定商品 / 分享回馈”等合规词 | 2026-06-22 | `app/(tabs)/home.tsx` |
 | 团购动态档位与付款校验 | 团购分享进度按后台档位数量动态渲染，不再强制显示 3 段；包邮团购付款时 App 传入页面展示金额作为 `expectedTotal`，后端价格变化时可明确提示用户刷新 | 2026-06-22 | `src/components/group-buy/GroupBuyProgressRail.tsx`, `src/utils/groupBuyProgress.ts`, `app/group-buy/checkout.tsx` |
 | 团购多商品组合展示 | 团购活动类型新增 `items/itemSummary/availableStock/totalWeightGram`；货架卡片、详情页、推荐码落地页和付款页展示组合商品摘要/明细，库存判断按组合可购份数；付款页仍保持现金购买和无抵扣入口 | 2026-06-23 | `src/types/domain/GroupBuy.ts`, `src/repos/GroupBuyRepo.ts`, `src/components/group-buy/GroupBuyProductCard.tsx`, `app/group-buy/[activityId].tsx`, `app/gb/[code].tsx`, `app/group-buy/checkout.tsx` |

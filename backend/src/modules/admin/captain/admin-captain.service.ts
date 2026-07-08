@@ -7,11 +7,17 @@ import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
   validateCaptainSeafoodConfig,
 } from '../../captain/captain.constants';
+import { CaptainApplicationService } from '../../captain/captain-application.service';
 import { CaptainConfigService } from '../../captain/captain-config.service';
 import { CaptainMonthlySettlementService } from '../../captain/captain-monthly-settlement.service';
 import { CaptainRelationService } from '../../captain/captain-relation.service';
 import {
+  ApproveCaptainApplicationDto,
+  RejectCaptainApplicationDto,
+} from '../../captain/dto/captain-application.dto';
+import {
   CreateCaptainProfileDto,
+  ListCaptainApplicationsQueryDto,
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
   ListCaptainProfilesQueryDto,
@@ -26,6 +32,7 @@ export class AdminCaptainService {
     private readonly relationService: CaptainRelationService,
     private readonly configService: CaptainConfigService,
     private readonly monthlySettlementService: CaptainMonthlySettlementService,
+    private readonly applicationService: CaptainApplicationService,
   ) {}
 
   async listProfiles(query: ListCaptainProfilesQueryDto = {}) {
@@ -59,6 +66,22 @@ export class AdminCaptainService {
       displayName: dto.displayName,
       adminUserId,
     });
+  }
+
+  listApplications(query: ListCaptainApplicationsQueryDto = {}) {
+    return this.applicationService.listAdmin(query);
+  }
+
+  getApplication(id: string) {
+    return this.applicationService.getAdmin(id);
+  }
+
+  approveApplication(id: string, adminUserId: string, dto: ApproveCaptainApplicationDto) {
+    return this.applicationService.approve(id, adminUserId, dto);
+  }
+
+  rejectApplication(id: string, adminUserId: string, dto: RejectCaptainApplicationDto) {
+    return this.applicationService.reject(id, adminUserId, dto);
   }
 
   async getProfile(userId: string, month?: string) {

@@ -1,10 +1,13 @@
 import type {
+  CaptainApplication,
   CaptainBindResult,
   CaptainLandingInfo,
   CaptainLedgerPage,
+  CaptainMyApplication,
   CaptainMyProfile,
   CaptainOrderPage,
   Result,
+  SubmitCaptainApplicationInput,
 } from '../types';
 import { simulateRequest } from './helpers';
 import { ApiClient } from './http/ApiClient';
@@ -95,6 +98,13 @@ const mockOrders: CaptainOrderPage = {
   pageSize: 20,
 };
 
+const mockApplication: CaptainMyApplication = {
+  isCaptain: false,
+  profile: null,
+  canSubmit: true,
+  application: null,
+};
+
 export const CaptainRepo = {
   getLanding: async (code: string): Promise<Result<CaptainLandingInfo>> => {
     const normalizedCode = code.trim().toUpperCase();
@@ -142,6 +152,38 @@ export const CaptainRepo = {
   getMyCaptainProfile: async (): Promise<Result<CaptainMyProfile>> => {
     if (USE_MOCK) return simulateRequest(mockProfile);
     return ApiClient.get<CaptainMyProfile>('/captain/me', undefined, { noCache: true });
+  },
+
+  getMyApplication: async (): Promise<Result<CaptainMyApplication>> => {
+    if (USE_MOCK) return simulateRequest(mockApplication);
+    return ApiClient.get<CaptainMyApplication>('/captain/applications/me', undefined, { noCache: true });
+  },
+
+  submitApplication: async (
+    data: SubmitCaptainApplicationInput,
+  ): Promise<Result<CaptainApplication>> => {
+    if (USE_MOCK) {
+      return simulateRequest({
+        id: 'captain-application-1',
+        userId: 'buyer-1',
+        programCode: 'SEAFOOD_PREPACKAGED',
+        status: 'PENDING',
+        ...data,
+        systemSnapshot: {
+          capturedAt: new Date().toISOString(),
+          orderCount: 0,
+          paidAmount: 0,
+          refundCount: 0,
+          refundAmount: 0,
+          refundRate: 0,
+        },
+        reviewedAt: null,
+        rejectReason: null,
+        captainProfileUserId: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return ApiClient.post<CaptainApplication>('/captain/applications', data);
   },
 
   getMyLedgers: async (page = 1, pageSize = 20): Promise<Result<CaptainLedgerPage>> => {

@@ -65,6 +65,7 @@ const GroupBuyOrdersPage = lazy(() => import('@/pages/group-buy/orders'));
 const GroupBuyRebateLedgersPage = lazy(() => import('@/pages/group-buy/rebate-ledgers'));
 const GroupBuySettingsPage = lazy(() => import('@/pages/group-buy/settings'));
 const NotificationsPage = lazy(() => import('@/pages/notifications/index'));
+const CaptainApplicationsPage = lazy(() => import('@/pages/captain/applications'));
 const CaptainProfilesPage = lazy(() => import('@/pages/captain/index'));
 const CaptainDetailPage = lazy(() => import('@/pages/captain/detail'));
 const CaptainOrdersPage = lazy(() => import('@/pages/captain/orders'));
@@ -159,6 +160,7 @@ export default function App() {
             <Route path="group-buy/orders" element={<GroupBuyOrdersPage />} />
             <Route path="group-buy/rebate-ledgers" element={<GroupBuyRebateLedgersPage />} />
             <Route path="group-buy/settings" element={<GroupBuySettingsPage />} />
+            <Route path="captain/applications" element={<CaptainApplicationsPage />} />
             <Route path="captain/profiles" element={<CaptainProfilesPage />} />
             <Route path="captain/profiles/:userId" element={<CaptainDetailPage />} />
             <Route path="captain/orders" element={<CaptainOrdersPage />} />

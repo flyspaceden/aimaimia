@@ -64,4 +64,36 @@ describe('CaptainRepo', () => {
       body: JSON.stringify({ code: 'SEA001' }),
     }));
   });
+
+  it('calls the dedicated captain application status endpoint', async () => {
+    const fetchMock = mockFetch({ isCaptain: false, application: null, canSubmit: true });
+
+    const result = await CaptainRepo.getMyApplication();
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/captain/applications/me');
+  });
+
+  it('submits captain application through the independent captain application endpoint', async () => {
+    const fetchMock = mockFetch({ id: 'application-1', status: 'PENDING' });
+    const payload = {
+      realName: '林小海',
+      contact: 'wx:linxiaohai',
+      city: '杭州',
+      communityScale: 'BETWEEN_50_200',
+      expectedMonthlyGmv: 'BETWEEN_10000_30000',
+      resourceTypes: ['WECHAT_GROUP'],
+      promotionPlan: '小区团购',
+      seafoodExperience: 'SOLD_BEFORE',
+      complianceAccepted: true,
+    };
+
+    await CaptainRepo.submitApplication(payload);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/captain/applications');
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }));
+  });
 });
