@@ -133,10 +133,11 @@ Implement:
 
 ```ts
 buildH5WechatAuthUrl(input)
-verifyH5WechatState(state)
+createH5WechatState(input)
+consumeH5WechatState(state)
 ```
 
-Use HMAC SHA-256 with `WECHAT_H5_AUTH_STATE_SECRET`, fallback to `JWT_SECRET` in non-production tests only. State payload contains `inviteCode`, optional `landingSessionId`, `nonce`, and `iat`; reject malformed, mismatched, or older than 10 minutes.
+Use a short 32-character nonce as WeChat OAuth `state`. Store the payload in Redis with a 10-minute TTL and consume it with atomic get-and-delete on callback. The stored payload contains `inviteCode`, optional `landingSessionId`, `nonce`, and `iat`; reject malformed, mismatched, replayed, or expired state. In production, fail authorization start if Redis is unavailable.
 
 - [ ] **Step 4: Add H5 invite login**
 

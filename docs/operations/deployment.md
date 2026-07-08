@@ -190,7 +190,12 @@ ADMIN_JWT_SECRET=<管理端随机密钥>
 SELLER_JWT_SECRET=<卖家端随机密钥>
 
 # CORS（允许的前端域名）
-CORS_ORIGINS=https://ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com
+CORS_ORIGINS=https://ai-maimai.com,https://www.ai-maimai.com,https://app.ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com
+
+# H5 微信登录（扫码后 /invite/:code 网页授权）
+WECHAT_H5_APP_ID=<WECHAT_SERVICE_ACCOUNT_APP_ID>
+WECHAT_H5_APP_SECRET=<WECHAT_SERVICE_ACCOUNT_APP_SECRET>
+WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 
 # 文件上传
 UPLOAD_LOCAL_PRIVATE=false
@@ -201,6 +206,17 @@ UPLOAD_LOCAL_PRIVATE=false
 cd backend
 npx prisma migrate deploy    # 执行所有迁移
 npx prisma db seed           # 写入种子数据（管理员账号等）
+```
+
+### 2.1 测试环境 `.env` 追加项
+
+测试环境在 `/www/wwwroot/aimaimai-staging-src/backend/.env` 中同样需要补齐以下占位，并把 `CORS_ORIGINS` 扩到测试子域名：
+
+```env
+CORS_ORIGINS=https://app.ai-maimai.com,https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com,https://test-api.ai-maimai.com
+WECHAT_H5_APP_ID=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_ID>
+WECHAT_H5_APP_SECRET=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_SECRET>
+WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 ```
 
 ### 3. 构建并启动

@@ -250,7 +250,6 @@ InviteH5Service.bindAfterAuth({
 WECHAT_H5_APP_ID=
 WECHAT_H5_APP_SECRET=
 WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
-WECHAT_H5_AUTH_STATE_SECRET=
 ```
 
 后端发起授权时按当前邀请码拼出完整回跳地址：
@@ -258,6 +257,8 @@ WECHAT_H5_AUTH_STATE_SECRET=
 ```text
 https://app.ai-maimai.com/invite/{inviteCode}
 ```
+
+微信 OAuth `state` 使用 32 位短 nonce。真实 `inviteCode`、`landingSessionId`、`nonce`、`iat` 存入 Redis，10 分钟过期，回调时原子读取并删除；生产环境必须保证 `REDIS_URL` 可用，否则不发起 H5 微信授权。
 
 部署前要求：
 

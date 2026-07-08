@@ -142,6 +142,9 @@
 | `WECHAT_MOCK` | `false` | `false` |
 | `WECHAT_APP_ID` | `wxeb8e8dc219da02dd`（当前两环境共用同一应用）| 同左 + 在微信开放平台后台**确认 release keystore 签名 MD5 已注册**（详见密码本 §11.1）|
 | `WECHAT_APP_SECRET` | `<TEST_WECHAT_SECRET>` | 同左 |
+| `WECHAT_H5_APP_ID` | `<TEST_WECHAT_H5_APP_ID>`（公众号网页授权 AppID） | `<PROD_WECHAT_H5_APP_ID>` |
+| `WECHAT_H5_APP_SECRET` | `<TEST_WECHAT_H5_APP_SECRET>` | `<PROD_WECHAT_H5_APP_SECRET>` |
+| `WECHAT_H5_AUTH_REDIRECT_BASE` | `https://app.ai-maimai.com/invite`（公众号后台网页授权域名需包含 `app.ai-maimai.com`；H5 OAuth state 使用 Redis 一次性 nonce，必须确保 `REDIS_URL` 可用） | 同左 |
 | `SMS_MOCK` | `false`（2026-04-19 起 staging 也真实发） | `false` |
 | `SMS_ACCESS_KEY_ID` / `SMS_ACCESS_KEY_SECRET` | 共用阿里云 RAM 账号 | 同左 |
 | `SMS_SIGN_NAME` | `深圳华海农业科技集团` | 同左 |

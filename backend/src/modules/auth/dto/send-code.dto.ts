@@ -28,7 +28,7 @@ export class H5WechatInviteLoginDto {
   wechatCode: string;
 
   @IsString()
-  @Length(16, 2048)
+  @Length(16, 128)
   state: string;
 
   @IsString()

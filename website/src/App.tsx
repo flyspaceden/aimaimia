@@ -14,6 +14,7 @@ const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
 const InviteAuthLanding = lazy(() => import('@/pages/InviteAuthLanding'))
+const NormalShareLanding = lazy(() => import('@/pages/NormalShareLanding'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
 const Privacy = lazy(() => import('@/pages/Privacy'))
 const Terms = lazy(() => import('@/pages/Terms'))
@@ -69,8 +70,8 @@ export default function App() {
             <Route path="/merchants/apply" element={<MerchantApply />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/invite/:code" element={<InviteAuthLanding />} />
-            <Route path="/r/:code" element={<InviteAuthLanding />} />
-            <Route path="/s/:code" element={<InviteAuthLanding />} />
+            <Route path="/r/:code" element={<Download />} />
+            <Route path="/s/:code" element={<NormalShareLanding />} />
             <Route path="/gb/:groupBuyCode" element={<Download />} />
             <Route path="/download" element={<Download />} />
             <Route path="/resolve" element={<Resolve />} />
