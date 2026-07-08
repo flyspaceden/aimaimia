@@ -19,7 +19,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { Tag } from '../../src/components/ui';
-import { BonusRepo, CouponRepo, GrowthRepo } from '../../src/repos';
+import { BonusRepo, CouponRepo, GrowthRepo, InviteH5Repo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
@@ -104,6 +104,11 @@ export default function ReferralScreen() {
     queryFn: () => BonusRepo.getReferralRecords(),
     enabled: vipReferralEnabled,
   });
+  const inviteH5StatsQuery = useQuery({
+    queryKey: ['invite-h5-stats'],
+    queryFn: () => InviteH5Repo.getStats(),
+    enabled: isLoggedIn,
+  });
 
   const bindMutation = useMutation({
     mutationFn: (code: string) => GrowthRepo.bindNormalShareCode(code),
@@ -125,6 +130,7 @@ export default function ReferralScreen() {
 
   const shareProfile = shareQuery.data?.ok ? shareQuery.data.data : null;
   const normalStats = statsQuery.data?.ok ? statsQuery.data.data : null;
+  const inviteH5Stats = inviteH5StatsQuery.data?.ok ? inviteH5StatsQuery.data.data : null;
   const normalRecords = normalRecordsQuery.data?.ok ? normalRecordsQuery.data.data : [];
   const vipRecords = vipRecordsQuery.data?.ok ? vipRecordsQuery.data.data : [];
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
@@ -159,7 +165,8 @@ export default function ReferralScreen() {
     shareQuery.isFetching ||
     statsQuery.isFetching ||
     normalRecordsQuery.isFetching ||
-    vipRecordsQuery.isFetching;
+    vipRecordsQuery.isFetching ||
+    inviteH5StatsQuery.isFetching;
 
   const refresh = async () => {
     const tasks: Array<Promise<unknown>> = [memberQuery.refetch()];
@@ -169,6 +176,7 @@ export default function ReferralScreen() {
     if (vipReferralEnabled) {
       tasks.push(vipRecordsQuery.refetch());
     }
+    tasks.push(inviteH5StatsQuery.refetch());
     await Promise.all(tasks);
   };
 
@@ -361,6 +369,30 @@ export default function ReferralScreen() {
                   </View>
                 </View>
               )}
+            </Animated.View>
+
+            <Animated.View
+              entering={FadeInDown.duration(300).delay(60)}
+              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>H5 邀请数据</Text>
+                <Tag label="扫码页" tone="accent" />
+              </View>
+              <View style={[styles.h5StatsRow, { marginTop: spacing.md }]}>
+                <View style={styles.statCell}>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>扫码打开</Text>
+                  <Text style={[typography.title3, { color: colors.text.primary }]}>{inviteH5Stats?.openCount ?? 0}</Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已登录</Text>
+                  <Text style={[typography.title3, { color: colors.brand.primary }]}>{inviteH5Stats?.authedCount ?? 0}</Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已绑定</Text>
+                  <Text style={[typography.title3, { color: colors.success }]}>{inviteH5Stats?.boundCount ?? 0}</Text>
+                </View>
+              </View>
             </Animated.View>
 
             <Animated.View
@@ -596,6 +628,9 @@ const styles = StyleSheet.create({
   statsCard: {
     flexDirection: 'row',
     padding: 16,
+  },
+  h5StatsRow: {
+    flexDirection: 'row',
   },
   statCell: {
     flex: 1,

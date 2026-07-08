@@ -41,3 +41,17 @@ test('scanner accepts the unified H5 invite URL and resolves it as auto type', (
   assert.ok(source.includes("com\\/invite\\/([A-Za-z0-9]{8})"));
   assert.match(source, /return \{ type: 'auto', code: unifiedUrlMatch\[2\]\.toUpperCase\(\) \}/);
 });
+
+test('referral center reads and displays H5 invite funnel stats', () => {
+  const referral = read('app/me/referral.tsx');
+  const repo = read('src/repos/InviteH5Repo.ts');
+  const repoIndex = read('src/repos/index.ts');
+
+  assert.match(repo, /getStats:\s*async \(\)/);
+  assert.match(repo, /ApiClient\.get<InviteH5Stats>\('\/invite-h5\/stats'\)/);
+  assert.match(repoIndex, /InviteH5Repo/);
+  assert.match(referral, /\['invite-h5-stats'\]/);
+  assert.match(referral, /扫码打开/);
+  assert.match(referral, /已登录/);
+  assert.match(referral, /已绑定/);
+});

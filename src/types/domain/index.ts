@@ -35,3 +35,4 @@ export * from './Checkout';
 export * from './AccountDeletion';
 export * from './DigitalAsset';
 export * from './Growth';
+export * from './InviteH5';
