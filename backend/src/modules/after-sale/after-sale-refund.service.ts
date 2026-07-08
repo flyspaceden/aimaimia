@@ -25,6 +25,7 @@ import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { ProductBundleService } from '../product/product-bundle.service';
 import { GrowthEventService } from '../growth/growth-event.service';
+import { CaptainCommissionService } from '../captain/captain-commission.service';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
@@ -55,6 +56,7 @@ export class AfterSaleRefundService {
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private groupBuyRebateService: GroupBuyRebateService | null = null;
   private growthEventService: GrowthEventService | null = null;
+  private captainCommissionService: CaptainCommissionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -83,6 +85,10 @@ export class AfterSaleRefundService {
 
   setGrowthEventService(service: GrowthEventService) {
     this.growthEventService = service;
+  }
+
+  setCaptainCommissionService(service: CaptainCommissionService) {
+    this.captainCommissionService = service;
   }
 
   private buildRestockMovements(orderItem: {
@@ -398,6 +404,7 @@ export class AfterSaleRefundService {
     await this.reverseGrowthAfterRefund(completed.orderId, refundId);
     await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
     await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
+    await this.voidCaptainCommissionAfterRefund(completed.orderId, refundId, completed.amount);
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
     await this.notificationService.emit({
       eventType: 'afterSale.refunded',
@@ -451,6 +458,28 @@ export class AfterSaleRefundService {
         `售后退款成长奖励冲正失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
         safeErr.stack,
       );
+    }
+  }
+
+  private async voidCaptainCommissionAfterRefund(
+    orderId: string,
+    refundId: string,
+    refundAmount: number,
+  ): Promise<void> {
+    if (!this.captainCommissionService) return;
+    try {
+      await this.captainCommissionService.voidForRefund(orderId, refundId, refundAmount);
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(
+        `售后退款团长佣金冲回失败: orderId=${orderId}, refundId=${refundId}, error=${safeErr.message}`,
+        safeErr.stack,
+      );
+      await (this.captainCommissionService as any).writeDeadLetter?.(
+        orderId,
+        'CAPTAIN_REFUND_VOID_DEAD_LETTER',
+        err,
+      ).catch(() => undefined);
     }
   }
 

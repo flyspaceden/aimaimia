@@ -8,6 +8,7 @@ import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { GrowthEventService } from '../growth/growth-event.service';
+import { CaptainCommissionService } from '../captain/captain-commission.service';
 
 type AutoVipBySpendActivator = {
   activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
@@ -28,6 +29,7 @@ export class OrderAutoConfirmService {
   private bonusService: AutoVipBySpendActivator | null = null;
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
   private growthEventService: GrowthEventService | null = null;
+  private captainCommissionService: CaptainCommissionService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -48,6 +50,10 @@ export class OrderAutoConfirmService {
 
   setGrowthEventService(service: GrowthEventService) {
     this.growthEventService = service;
+  }
+
+  setCaptainCommissionService(service: CaptainCommissionService) {
+    this.captainCommissionService = service;
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -173,6 +179,7 @@ export class OrderAutoConfirmService {
       .catch(() => {
         this.triggerGrowthAfterReceive(confirmedOrder);
       });
+    await this.releaseCaptainCommissionAfterReceive(orderId);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
   }
 
@@ -315,5 +322,20 @@ export class OrderAutoConfirmService {
     if ((order.goodsAmount ?? 0) <= 0) return false;
     if (!Array.isArray(order.items) || order.items.length === 0) return false;
     return order.items.some((item: any) => !item.isPrize);
+  }
+
+  private async releaseCaptainCommissionAfterReceive(orderId: string) {
+    if (!this.captainCommissionService) return;
+    try {
+      await this.captainCommissionService.releaseForReceivedOrder(orderId, 'AUTO_RECEIVED');
+    } catch (err: any) {
+      const safeErr = sanitizeErrorForLog(err);
+      this.logger.error(`自动确认后团长佣金释放失败: orderId=${orderId}; error=${safeErr.message}`, safeErr.stack);
+      await (this.captainCommissionService as any).writeDeadLetter?.(
+        orderId,
+        'CAPTAIN_AUTO_RELEASE_DEAD_LETTER',
+        err,
+      ).catch(() => undefined);
+    }
   }
 }

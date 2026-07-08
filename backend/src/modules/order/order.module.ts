@@ -35,6 +35,7 @@ import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainModule } from '../captain/captain.module';
 import { CaptainAttributionService } from '../captain/captain-attribution.service';
+import { CaptainCommissionService } from '../captain/captain-commission.service';
 
 @Module({
   imports: [
@@ -123,6 +124,14 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setCaptainAttributionService(captainAttributionService);
     } else {
       console.warn('[OrderModule] CaptainAttributionService 未注入，团长订单归因不可用');
+    }
+
+    const captainCommissionService = this.moduleRef.get(CaptainCommissionService, { strict: false });
+    if (captainCommissionService) {
+      this.orderService.setCaptainCommissionService(captainCommissionService);
+      this.orderAutoConfirmService.setCaptainCommissionService(captainCommissionService);
+    } else {
+      console.warn('[OrderModule] CaptainCommissionService 未注入，团长佣金释放不可用');
     }
 
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });
