@@ -11,6 +11,7 @@ import { ToastProvider, EnvBanner } from '../src/components/feedback';
 import { AiFloatingCompanion } from '../src/components/effects';
 import { PrivacyConsentModal, PermissionRationaleModal } from '../src/components/overlay';
 import { initAlipayEnv } from '../src/utils/alipay';
+import { extractUnifiedInviteCodeFromURL } from '../src/utils/inviteLink';
 import { initWechat } from '../src/services/wechat';
 import { appQueryClient } from '../src/queryClient';
 import { useAuthStore } from '../src/store';
@@ -82,8 +83,21 @@ async function handleNormalShareCode(code: string) {
   }
 }
 
+async function handleUnifiedInviteCode(code: string) {
+  if (code.startsWith('S')) {
+    await handleNormalShareCode(code);
+    return;
+  }
+  await handleReferralCode(code);
+}
+
 function handleIncomingURL(url: string | null) {
   if (!url) return;
+  const unifiedInviteCode = extractUnifiedInviteCodeFromURL(url);
+  if (unifiedInviteCode && unifiedInviteCode !== 'none') {
+    handleUnifiedInviteCode(unifiedInviteCode);
+    return;
+  }
   const normalShareCode = extractNormalShareCodeFromURL(url);
   if (normalShareCode && normalShareCode !== 'none') {
     handleNormalShareCode(normalShareCode);
