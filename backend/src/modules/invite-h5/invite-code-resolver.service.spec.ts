@@ -107,4 +107,22 @@ describe('InviteCodeResolverService', () => {
       code: 'SAMECODE',
     });
   });
+
+  it('resolves VIP referral when matching normal share code is disabled', async () => {
+    const { prisma, service } = makeHarness();
+    prisma.normalShareProfile.findUnique.mockResolvedValue({
+      userId: 'normal-inviter-1',
+      status: 'DISABLED',
+    });
+    prisma.memberProfile.findUnique.mockResolvedValue({
+      userId: 'vip-inviter-1',
+      tier: 'VIP',
+    });
+
+    await expect(service.resolve('samecode')).resolves.toEqual({
+      status: 'VIP_REFERRAL',
+      code: 'SAMECODE',
+      inviterUserId: 'vip-inviter-1',
+    });
+  });
 });
