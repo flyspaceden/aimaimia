@@ -31,6 +31,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { BundleSnapshotItem, ProductBundleService } from '../product/product-bundle.service';
 import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
 import { NotificationService } from '../notification/notification.service';
+import { CaptainAttributionService } from '../captain/captain-attribution.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -87,6 +88,7 @@ export class CheckoutService {
   private rewardDeductionService: RewardDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
   private vipDirectReferralCommissionService: VipDirectReferralCommissionService | null = null;
+  private captainAttributionService: CaptainAttributionService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private groupBuyRebateService: GroupBuyRebateService | null = null;
@@ -144,6 +146,10 @@ export class CheckoutService {
 
   setVipDirectReferralCommissionService(service: VipDirectReferralCommissionService) {
     this.vipDirectReferralCommissionService = service;
+  }
+
+  setCaptainAttributionService(service: CaptainAttributionService) {
+    this.captainAttributionService = service;
   }
 
   /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -2040,6 +2046,15 @@ export class CheckoutService {
                 this.vipDirectReferralCommissionService
               ) {
                 await this.vipDirectReferralCommissionService.createFrozenForPaidOrder(
+                  tx,
+                  order.id,
+                );
+              }
+              if (
+                sessionBizType === 'NORMAL_GOODS' &&
+                this.captainAttributionService
+              ) {
+                await this.captainAttributionService.createFrozenForPaidOrder(
                   tx,
                   order.id,
                 );
