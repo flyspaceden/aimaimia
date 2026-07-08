@@ -12,29 +12,60 @@ export class InviteCodeResolverService {
     const [normal, vip] = await Promise.all([
       this.prisma.normalShareProfile.findUnique({
         where: { code },
-        select: { userId: true, status: true },
+        select: {
+          userId: true,
+          status: true,
+          user: {
+            select: {
+              status: true,
+              deletionExecutedAt: true,
+              memberProfile: { select: { tier: true } },
+            },
+          },
+        },
       }),
       this.prisma.memberProfile.findUnique({
         where: { referralCode: code },
-        select: { userId: true, tier: true },
+        select: {
+          userId: true,
+          tier: true,
+          user: {
+            select: {
+              status: true,
+              deletionExecutedAt: true,
+            },
+          },
+        },
       }),
     ]);
 
-    const activeNormal = normal?.status === 'ACTIVE' ? normal : null;
+    const normalBindable = Boolean(
+      normal &&
+      normal.status === 'ACTIVE' &&
+      normal.user.status === 'ACTIVE' &&
+      !normal.user.deletionExecutedAt &&
+      normal.user.memberProfile?.tier !== 'VIP',
+    );
+    const vipBindable = Boolean(
+      vip &&
+      vip.tier === 'VIP' &&
+      vip.user.status === 'ACTIVE' &&
+      !vip.user.deletionExecutedAt,
+    );
 
-    if (activeNormal && vip?.tier === 'VIP') {
+    if (normalBindable && vipBindable) {
       return { status: 'CONFLICT', code };
     }
 
-    if (activeNormal) {
+    if (normalBindable && normal) {
       return {
         status: 'NORMAL_SHARE',
         code,
-        inviterUserId: activeNormal.userId,
+        inviterUserId: normal.userId,
       };
     }
 
-    if (!activeNormal && vip?.tier === 'VIP') {
+    if (vipBindable && vip) {
       return {
         status: 'VIP_REFERRAL',
         code,
