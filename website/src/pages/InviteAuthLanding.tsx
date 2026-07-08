@@ -5,8 +5,11 @@ import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
 import {
   apiErrorMessage,
   bindingStatusText,
+  buildH5WechatStartUrl,
   canContinueAfterLandingCodeStatus,
+  getWechatCallbackParams,
   normalizeInviteCode,
+  removeWechatCallbackParamsFromSearch,
   submitStateForBindingStatus,
   unwrapApiData,
   type InviteBindingStatus,
@@ -104,6 +107,18 @@ export default function InviteAuthLanding() {
   const wechat = isWechat()
   const authCompleted = loginCompleted
   const formDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted
+  const wechatAuthDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted || submitting
+
+  const completeInviteAuth = (res: InviteLoginResponse) => {
+    if (res.accessToken) sessionStorage.setItem('invite_h5_access_token', res.accessToken)
+    if (res.refreshToken) sessionStorage.setItem('invite_h5_refresh_token', res.refreshToken)
+    setLoginCompleted(true)
+
+    const bindingStatus = res.inviteBinding?.status
+    const message = res.inviteBinding?.message || bindingStatusText(bindingStatus)
+    setSubmitState(submitStateForBindingStatus(bindingStatus))
+    setNotice(message)
+  }
 
   useEffect(() => {
     if (!inviteCode) {
@@ -151,6 +166,39 @@ export default function InviteAuthLanding() {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [countdown])
+
+  useEffect(() => {
+    if (!inviteCode || authCompleted) return
+    const { wechatCode, state } = getWechatCallbackParams(window.location.search)
+    if (!wechatCode || !state) return
+
+    let active = true
+    setSubmitting(true)
+    setSubmitState('idle')
+    setNotice('微信登录中')
+
+    postJson<InviteLoginResponse>('/auth/h5-wechat/invite-login', {
+      wechatCode,
+      state,
+      inviteCode,
+    }).then((res) => {
+      if (!active) return
+      completeInviteAuth(res)
+    }).catch((err) => {
+      if (!active) return
+      setSubmitState('error')
+      setNotice(err instanceof Error ? err.message : '微信授权失败，请使用手机号登录')
+    }).finally(() => {
+      if (!active) return
+      setSubmitting(false)
+      const nextSearch = removeWechatCallbackParamsFromSearch(window.location.search)
+      window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}${window.location.hash}`)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [inviteCode, authCompleted])
 
   const handleSendCode = async () => {
     if (!isValidPhone(phone)) {
@@ -203,20 +251,30 @@ export default function InviteAuthLanding() {
         inviteCode,
         landingSessionId,
       })
-      if (res.accessToken) sessionStorage.setItem('invite_h5_access_token', res.accessToken)
-      if (res.refreshToken) sessionStorage.setItem('invite_h5_refresh_token', res.refreshToken)
-      setLoginCompleted(true)
-
-      const bindingStatus = res.inviteBinding?.status
-      const message = res.inviteBinding?.message || bindingStatusText(bindingStatus)
-      setSubmitState(submitStateForBindingStatus(bindingStatus))
-      setNotice(message)
+      completeInviteAuth(res)
     } catch (err) {
       setSubmitState('error')
       setNotice(err instanceof Error ? err.message : '登录失败，请稍后重试')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleWechatLogin = () => {
+    if (!inviteCode) {
+      setSubmitState('error')
+      setNotice('邀请链接不可用')
+      return
+    }
+    if (!wechat) {
+      setSubmitState('error')
+      setNotice('请在微信中打开，或使用手机号登录')
+      return
+    }
+    window.location.href = buildH5WechatStartUrl(API_BASE, {
+      inviteCode,
+      landingSessionId,
+    })
   }
 
   const handleDownload = () => {
@@ -304,7 +362,7 @@ export default function InviteAuthLanding() {
 
           <label className="mb-5 block">
             <span className="mb-2 block text-sm font-semibold text-[#263a2b]">验证码</span>
-            <div className="grid grid-cols-[1fr_112px] gap-2">
+            <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-[1fr_112px]">
               <input
                 value={smsCode}
                 onChange={(event) => setSmsCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
@@ -339,6 +397,19 @@ export default function InviteAuthLanding() {
             {authCompleted ? '已登录' : submitting ? '登录中' : '登录并绑定'}
           </button>
 
+          <div className="my-4 flex items-center gap-3 text-xs text-[#829086] before:h-px before:flex-1 before:bg-[#e1eadf] after:h-px after:flex-1 after:bg-[#e1eadf]">
+            也可以使用
+          </div>
+
+          <button
+            type="button"
+            onClick={handleWechatLogin}
+            disabled={wechatAuthDisabled}
+            className="h-12 w-full rounded-md border border-[#1aad19] bg-[#f8fff8] text-[16px] font-bold text-[#168b18] transition hover:bg-[#eefbea] disabled:cursor-not-allowed disabled:border-[#b9cbbb] disabled:bg-[#f3f7f2] disabled:text-[#8aa08d]"
+          >
+            微信登录
+          </button>
+
           {submitState === 'success' || submitState === 'warning' ? (
             <button
               type="button"
@@ -351,7 +422,7 @@ export default function InviteAuthLanding() {
         </form>
 
         <p className="mt-5 text-center text-xs leading-6 text-[#6b7f6d]">
-          未注册手机号会自动创建账号。之后用同一手机号登录 App。
+          未注册手机号会自动创建账号。之后可下载 App 登录。
         </p>
       </div>
 

@@ -1,11 +1,16 @@
-import { Controller, Post, Body, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { SendSmsCodeDto, WeChatOAuthDto } from './dto/send-code.dto';
+import {
+  H5WechatInviteLoginDto,
+  H5WechatStartQueryDto,
+  SendSmsCodeDto,
+  WeChatOAuthDto,
+} from './dto/send-code.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
@@ -79,6 +84,18 @@ export class AuthController {
   @Post('oauth/wechat')
   loginWithWeChat(@Body() dto: WeChatOAuthDto) {
     return this.authService.loginWithWeChat(dto.code);
+  }
+
+  @Public()
+  @Get('h5-wechat/start')
+  startH5WechatLogin(@Query() dto: H5WechatStartQueryDto, @Res() res: Response) {
+    return res.redirect(this.authService.buildH5WechatAuthUrl(dto));
+  }
+
+  @Public()
+  @Post('h5-wechat/invite-login')
+  h5WechatInviteLogin(@Body() dto: H5WechatInviteLoginDto) {
+    return this.authService.h5WechatInviteLogin(dto);
   }
 
   @Public()
