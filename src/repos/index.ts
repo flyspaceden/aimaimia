@@ -38,3 +38,4 @@ export * from './CsRepo';
 export * from './AccountDeletionRepo';
 export * from './DigitalAssetRepo';
 export * from './GrowthRepo';
+export * from './InviteH5Repo';
