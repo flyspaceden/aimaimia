@@ -144,7 +144,10 @@ export default function ScannerScreen() {
 
   // 从扫描结果中解析推荐码
   const parseInviteCode = (data: string): ScannedInviteCode | null => {
-    // 支持 URL 格式: https://app.ai-maimai.com/r/CODE（兼容旧域名 app.xn--ckqa175y.com）
+    // 新 H5 邀请页不区分普通码/VIP 码，交给 auto fallback 判断。
+    const unifiedUrlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/invite\/([A-Za-z0-9]{8})/);
+    if (unifiedUrlMatch) return { type: 'auto', code: unifiedUrlMatch[2].toUpperCase() };
+    // 兼容旧 URL 格式: https://app.ai-maimai.com/r/CODE（兼容旧域名 app.xn--ckqa175y.com）
     const vipUrlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/r\/([A-Za-z0-9]{8})/);
     if (vipUrlMatch) return { type: 'vip', code: vipUrlMatch[2].toUpperCase() };
     const normalUrlMatch = data.match(/app\.(ai-maimai|xn--ckqa175y)\.com\/s\/([A-Za-z0-9]{8})/);

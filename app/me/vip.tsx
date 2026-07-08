@@ -20,6 +20,7 @@ import { BonusRepo, UserRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
+import { buildInviteH5Url } from '../../src/utils/inviteLink';
 import { getReferralInviterLabel, hasBoundReferralInviter } from '../../src/utils/referralRelation';
 
 function formatPercent(value?: number | null) {
@@ -128,7 +129,7 @@ export default function VipScreen() {
 
   // 推荐码 & 深度链接
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
-  const deepLink = `https://app.ai-maimai.com/r/${referralCode}`;
+  const inviteUrl = referralCode ? buildInviteH5Url(referralCode) : '';
   const inviterLabel = getReferralInviterLabel(member);
   const hasInviter = hasBoundReferralInviter(member);
   const directReferralPercentText = formatPercent(member?.directReferralPercent);
@@ -149,7 +150,7 @@ export default function VipScreen() {
     }
     try {
       await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册；你成为 VIP 后会进入我的 VIP 团队。${deepLink}`,
+        message: `我在爱买买发现了优质农产品，使用我的推荐码 ${referralCode} 注册：${inviteUrl}`,
       });
     } catch {
       // 用户取消分享
@@ -470,7 +471,7 @@ export default function VipScreen() {
               <View style={[styles.qrCodeBox, shadow.lg, { borderRadius: radius.xl, backgroundColor: '#FFFFFF' }]}>
                 {referralCode ? (
                   <QRCode
-                    value={deepLink}
+                    value={inviteUrl}
                     size={160}
                     color={colors.brand.primaryDark}
                     backgroundColor="#FFFFFF"
