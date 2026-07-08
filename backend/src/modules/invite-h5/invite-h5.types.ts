@@ -15,3 +15,11 @@ export type InviteBindingStatus =
   | 'INVALID_CODE'
   | 'NOT_ELIGIBLE'
   | 'ERROR';
+
+export type InviteBindingType = InviteCodeType | null;
+
+export type InviteBindingResult = {
+  status: InviteBindingStatus;
+  type: InviteBindingType;
+  message: string;
+};
