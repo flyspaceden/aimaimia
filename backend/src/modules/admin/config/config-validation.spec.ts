@@ -1,4 +1,8 @@
 import { NORMAL_PERCENT_KEYS, validateConfigValue, VIP_POOL_PERCENT_KEYS } from './config-validation';
+import {
+  CAPTAIN_SEAFOOD_CONFIG_KEY,
+  DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+} from '../../captain/captain.constants';
 
 describe('invoice config validation', () => {
   it('accepts valid invoice provider mode and line mode', () => {
@@ -91,5 +95,37 @@ describe('normal direct referral and auto VIP config validation', () => {
     expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 0)).toContain('最小值');
     expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', 100001)).toContain('最大值');
     expect(validateConfigValue('AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', '399')).toContain('必须是数字');
+  });
+});
+
+describe('CAPTAIN_SEAFOOD_CONFIG validation', () => {
+  it('accepts the default disabled captain seafood config', () => {
+    expect(
+      validateConfigValue(CAPTAIN_SEAFOOD_CONFIG_KEY, DEFAULT_CAPTAIN_SEAFOOD_CONFIG),
+    ).toBeNull();
+  });
+
+  it('rejects captain config that enables third-level per-order commission', () => {
+    expect(
+      validateConfigValue(CAPTAIN_SEAFOOD_CONFIG_KEY, {
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+        perOrderCommission: {
+          ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.perOrderCommission,
+          maxLevels: 3,
+        },
+      }),
+    ).toContain('maxLevels');
+  });
+
+  it('rejects captain config that exceeds the incentive cap', () => {
+    expect(
+      validateConfigValue(CAPTAIN_SEAFOOD_CONFIG_KEY, {
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+        monthlyRewards: {
+          ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyRewards,
+          growthBonusRate: 0.02,
+        },
+      }),
+    ).toContain('总激励率');
   });
 });
