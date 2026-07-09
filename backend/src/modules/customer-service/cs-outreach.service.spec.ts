@@ -33,6 +33,9 @@ describe('CsOutreachService', () => {
       inboxMessage: {
         create: jest.fn().mockResolvedValue({ id: 'inbox-1' }),
       },
+      notificationMessage: {
+        create: jest.fn().mockResolvedValue({ id: 'notification-1' }),
+      },
     };
     const prisma = {
       $transaction: jest.fn(async (callback: (innerTx: typeof tx) => Promise<unknown>) => callback(tx)),
@@ -134,9 +137,10 @@ describe('CsOutreachService', () => {
 
     expect(tx.csSession.create).not.toHaveBeenCalled();
     expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).not.toHaveBeenCalled();
   });
 
-  it('creates outreach session first agent message and inbox invite in one Serializable transaction', async () => {
+  it('creates outreach session first agent message and notification invite in one Serializable transaction', async () => {
     const { service, prisma, tx, maskingService } = makeService();
 
     const result = await service.create('admin-1', {
@@ -180,16 +184,24 @@ describe('CsOutreachService', () => {
         routeLayer: 3,
       }),
     });
-    expect(tx.inboxMessage.create).toHaveBeenCalledWith({
+    expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        userId: 'user-1',
+        recipientKind: 'BUYER_USER',
+        recipientKey: 'buyer:user-1',
+        audience: 'BUYER_APP',
         category: 'system',
-        type: 'cs_outreach_invite',
+        eventType: 'cs_outreach_invite',
         title: '平台客服邀请沟通',
-        target: { route: '/cs', params: { sessionId: 'session-1' } },
+        body: '平台客服已发起一对一沟通，点击进入客服对话。',
+        severity: 'INFO',
+        entityType: 'csSession',
+        entityId: 'session-1',
+        action: { route: '/cs', params: { sessionId: 'session-1' } },
+        idempotencyKey: 'cs-outreach:session-1:message-1',
       }),
     });
-    expect(result).toEqual({ sessionId: 'session-1', inboxMessageId: 'inbox-1', messageId: 'message-1' });
+    expect(result).toEqual({ sessionId: 'session-1', inboxMessageId: 'notification-1', messageId: 'message-1' });
   });
 
   it('reuses an active outreach session already handled by the current admin', async () => {
@@ -209,6 +221,7 @@ describe('CsOutreachService', () => {
     expect(tx.csSession.create).not.toHaveBeenCalled();
     expect(tx.csMessage.create).not.toHaveBeenCalled();
     expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).not.toHaveBeenCalled();
     expect(result).toEqual({ sessionId: 'session-existing', reused: true });
   });
 
@@ -229,6 +242,7 @@ describe('CsOutreachService', () => {
     expect(tx.csSession.create).not.toHaveBeenCalled();
     expect(tx.csMessage.create).not.toHaveBeenCalled();
     expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).not.toHaveBeenCalled();
   });
 
   it('claims an existing queued buyer session before sending the outreach message', async () => {
@@ -261,14 +275,18 @@ describe('CsOutreachService', () => {
         content: '您好，平台客服现在接入',
       }),
     });
-    expect(tx.inboxMessage.create).toHaveBeenCalledWith({
+    expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        target: { route: '/cs', params: { sessionId: 'session-queued' } },
+        entityType: 'csSession',
+        entityId: 'session-queued',
+        action: { route: '/cs', params: { sessionId: 'session-queued' } },
+        idempotencyKey: 'cs-outreach:session-queued:message-1',
       }),
     });
     expect(result).toEqual({
       sessionId: 'session-queued',
-      inboxMessageId: 'inbox-1',
+      inboxMessageId: 'notification-1',
       messageId: 'message-1',
       claimed: true,
     });
@@ -321,5 +339,6 @@ describe('CsOutreachService', () => {
 
     expect(tx.csSession.create).not.toHaveBeenCalled();
     expect(tx.inboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.notificationMessage.create).not.toHaveBeenCalled();
   });
 });

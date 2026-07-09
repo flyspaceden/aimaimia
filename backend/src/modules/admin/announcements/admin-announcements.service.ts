@@ -1,4 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  NotificationAudience,
+  NotificationRecipientKind,
+  NotificationSeverity,
+} from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AnnouncementAudienceDto,
@@ -105,14 +110,25 @@ export class AdminAnnouncementsService {
     let failedCount = 0;
     for (const batch of this.chunk(recipients, BATCH_SIZE)) {
       try {
-        const result = await (this.prisma as any).inboxMessage.createMany({
+        const result = await (this.prisma as any).notificationMessage.createMany({
           data: batch.map((recipient) => ({
-            userId: recipient.id,
+            recipientKind: NotificationRecipientKind.BUYER_USER,
+            recipientKey: this.recipientKey(recipient.id),
+            audience: NotificationAudience.BUYER_APP,
             category: dto.category ?? 'system',
-            type: dto.type ?? 'platform_announcement',
+            eventType: dto.type ?? 'platform_announcement',
             title: dto.title,
-            content: dto.content,
-            target,
+            body: dto.content,
+            severity: NotificationSeverity.INFO,
+            entityType: 'announcement',
+            entityId: announcement.id,
+            action: target,
+            metadata: {
+              announcementId: announcement.id,
+              priority: dto.priority ?? 'NORMAL',
+              audienceType: dto.audience.type,
+            },
+            idempotencyKey: `announcement:${announcement.id}:${recipient.id}`,
           })),
           skipDuplicates: true,
         });
@@ -240,6 +256,10 @@ export class AdminAnnouncementsService {
       ...target,
       route: target.route.trim(),
     };
+  }
+
+  private recipientKey(userId: string) {
+    return `buyer:${userId}`;
   }
 
   private normalizeBuyerNos(buyerNos?: string[]) {

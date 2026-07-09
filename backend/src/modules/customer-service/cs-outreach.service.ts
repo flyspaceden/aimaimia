@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  NotificationAudience,
+  NotificationRecipientKind,
+  NotificationSeverity,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { maskPhone } from '../../common/security/privacy-mask';
 import { isBuyerNo, normalizeBuyerNo } from '../../common/utils/buyer-no.util';
@@ -194,21 +199,36 @@ export class CsOutreachService {
       },
     });
 
-    const inboxMessage = await tx.inboxMessage.create({
+    const action = { route: '/cs', params: { sessionId } };
+    const notificationMessage = await tx.notificationMessage.create({
       data: {
-        userId,
+        recipientKind: NotificationRecipientKind.BUYER_USER,
+        recipientKey: this.recipientKey(userId),
+        audience: NotificationAudience.BUYER_APP,
         category: 'system',
-        type: 'cs_outreach_invite',
+        eventType: 'cs_outreach_invite',
         title: inviteTitle?.trim() || '平台客服邀请沟通',
-        content: '平台客服已发起一对一沟通，点击进入客服对话。',
-        target: { route: '/cs', params: { sessionId } },
+        body: '平台客服已发起一对一沟通，点击进入客服对话。',
+        severity: NotificationSeverity.INFO,
+        entityType: 'csSession',
+        entityId: sessionId,
+        action,
+        metadata: {
+          ...metadata,
+          csMessageId: message.id,
+        },
+        idempotencyKey: `cs-outreach:${sessionId}:${message.id}`,
       },
     });
 
     return {
-      inboxMessageId: inboxMessage.id,
+      inboxMessageId: notificationMessage.id,
       messageId: message.id,
     };
+  }
+
+  private recipientKey(userId: string) {
+    return `buyer:${userId}`;
   }
 
   private async reserveAgentSlot(tx: any, adminId: string) {

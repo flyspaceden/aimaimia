@@ -18,6 +18,9 @@ describe('AdminAnnouncementsService', () => {
       inboxMessage: {
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      notificationMessage: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
     };
 
     return {
@@ -85,15 +88,16 @@ describe('AdminAnnouncementsService', () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.inboxMessage.createMany).not.toHaveBeenCalled();
+    expect(prisma.notificationMessage.createMany).not.toHaveBeenCalled();
   });
 
-  it('creates announcement and inbox messages for buyerNo list without a long batch transaction', async () => {
+  it('creates announcement and buyer notification messages for buyerNo list without a long batch transaction', async () => {
     const { service, prisma } = makeService();
     prisma.user.findMany.mockResolvedValue([
       { id: 'user-1', buyerNo: 'AIMM202607060001' },
       { id: 'user-2', buyerNo: 'AIMM202607060002' },
     ]);
-    prisma.inboxMessage.createMany.mockResolvedValue({ count: 2 });
+    prisma.notificationMessage.createMany.mockResolvedValue({ count: 2 });
     prisma.announcement.update.mockResolvedValue({
       id: 'announcement-1',
       status: 'SENT',
@@ -121,10 +125,31 @@ describe('AdminAnnouncementsService', () => {
         target: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
       }),
     }));
-    expect(prisma.inboxMessage.createMany).toHaveBeenCalledWith({
+    expect(prisma.inboxMessage.createMany).not.toHaveBeenCalled();
+    expect(prisma.notificationMessage.createMany).toHaveBeenCalledWith({
       data: [
-        expect.objectContaining({ userId: 'user-1', type: 'platform_announcement', target: { route: '/product/sku-1', params: { skuId: 'sku-1' } } }),
-        expect.objectContaining({ userId: 'user-2', type: 'platform_announcement', target: { route: '/product/sku-1', params: { skuId: 'sku-1' } } }),
+        expect.objectContaining({
+          recipientKind: 'BUYER_USER',
+          recipientKey: 'buyer:user-1',
+          audience: 'BUYER_APP',
+          category: 'system',
+          eventType: 'platform_announcement',
+          title: '平台公告',
+          body: '本周五 20:00 有平台活动',
+          severity: 'INFO',
+          entityType: 'announcement',
+          entityId: 'announcement-1',
+          action: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
+          idempotencyKey: 'announcement:announcement-1:user-1',
+        }),
+        expect.objectContaining({
+          recipientKind: 'BUYER_USER',
+          recipientKey: 'buyer:user-2',
+          eventType: 'platform_announcement',
+          entityId: 'announcement-1',
+          action: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
+          idempotencyKey: 'announcement:announcement-1:user-2',
+        }),
       ],
       skipDuplicates: true,
     });
@@ -143,7 +168,7 @@ describe('AdminAnnouncementsService', () => {
       buyerNo: `AIMM20260706${String(index + 1).padStart(4, '0')}`,
     }));
     prisma.user.findMany.mockResolvedValue(recipients);
-    prisma.inboxMessage.createMany
+    prisma.notificationMessage.createMany
       .mockResolvedValueOnce({ count: 1000 })
       .mockRejectedValueOnce(new Error('db batch failed'));
     prisma.announcement.update.mockResolvedValue({
