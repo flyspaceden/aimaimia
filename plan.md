@@ -1797,7 +1797,7 @@
 
 - [x] **AA01** 新增 `Announcement` 发布记录表、`ADMIN_OUTREACH` 客服来源、`announcements:read/create` 和 `cs:outreach` 权限。
 - [x] **AA02** 新增管理后台“消息公告”页并归入“客服中心”，支持全部买家/VIP/普通/指定买家编号受众预览、发布公告和发送历史。
-- [x] **AA03** 公告复用买家 `InboxMessage` 展示，买家 App 消息中心新增 `platform_announcement` / `platform_notice` 图标和类型。
+- [x] **AA03** 公告写入买家 App 当前读取的 `NotificationMessage` 展示，买家 App 消息中心新增 `platform_announcement` / `platform_notice` 图标和类型。
 - [x] **AA04** 新增 `POST /admin/cs/outreach`，管理员可在用户详情页主动发起一对一客服会话，并给买家发送 `cs_outreach_invite` 站内信。
 - [x] **AA05** 客服工作台和买家客服页均支持 `sessionId` 参数，主动联系后两端能进入同一会话。
 - [x] **AA06** 验证通过：Prisma validate/generate、后端聚焦 Jest 28/28、静态合同测试 16/16、管理端 build、后端 build、App TypeScript check。
@@ -1806,3 +1806,4 @@
 - [x] **AA09** 客服工作台新增“联系买家”入口，支持按买家编号/手机号/昵称搜索买家并发起一对一会话；后端复用或接管同一买家的活跃会话，避免重复创建。
 - [x] **AA10** “联系买家”弹窗改为输入框下拉候选：点击/聚焦买家输入框后在下方展示最近可联系买家，输入关键词后自动刷新候选，不再要求管理员点击搜索按钮。
 - [x] **AA11** 管理后台买家联想搜索第二批：订单管理、红包发放记录、红包手动发放、抽奖记录、团购记录、团购订单和返还流水接入共享买家候选控件；买家输入框点击即展示候选，输入自动刷新，滚动到底加载更多；团购 `userId` 筛选兼容 `AIMM` 买家编号。
+- [x] **AA12** 修复后台主动发给买家的站内信落表不一致：消息公告发布和客服工作台“联系买家”邀请统一写入 `NotificationMessage(recipientKey=buyer:{userId})`，与 App `/inbox` 读取链路一致；旧的 `InboxMessage` 不再作为这两个新入口的写入目标。
