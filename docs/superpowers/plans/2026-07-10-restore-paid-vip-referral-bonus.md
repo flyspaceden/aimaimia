@@ -149,4 +149,3 @@ Re-read 32, 119, the `VipPurchase`, and existing ledgers. Abort unless all preco
 - [ ] **Step 5: Verify production state**
 
 Confirm exactly one ledger references the affected `VipPurchase.id`, its amount is 51.87 and status is AVAILABLE, account balance increased once, the referral/tree relation is unchanged, and a second dry run reports skip.
-
