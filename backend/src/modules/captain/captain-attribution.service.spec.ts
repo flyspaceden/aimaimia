@@ -24,6 +24,14 @@ function makeSnapshot(overrides: any = {}) {
     status: 'READY',
     distributableProfitAmount: 50,
     captainEligibleProfitAmount: 35,
+    itemBreakdown: [
+      {
+        orderItemId: 'item-1',
+        captainEligible: true,
+        netGoodsRevenueCents: 11_325,
+        distributableProfitShareCents: 3_500,
+      },
+    ],
     couponDiscountAmount: 4,
     rewardDeductionAmount: 3,
     ruleSnapshot: {
@@ -145,7 +153,7 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
         directCaptainUserId: 'captain-1',
         legacyIndirectCaptainUserId: null,
         commissionBase: 35,
-        eligibleGoodsAmount: 35,
+        eligibleGoodsAmount: 113.25,
         directRate: 0.11,
         legacyIndirectRate: 0,
         calculationModel: 'PROFIT_V3',
@@ -340,6 +348,21 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
       distributableProfitAmount: 8,
       captainEligibleProfitAmount: 8.01,
     });
+    const { service, tx } = createHarness(snapshot);
+
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
+    expect(tx.orderProfitReconciliationTask.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          errorCode: 'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
+        }),
+      }),
+    );
+    expectNoRewardWrites(tx);
+  });
+
+  it('requires item-level captain-eligible net GMV before creating attribution', async () => {
+    const snapshot = makeSnapshot({ itemBreakdown: null });
     const { service, tx } = createHarness(snapshot);
 
     await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
