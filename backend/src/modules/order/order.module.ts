@@ -36,6 +36,8 @@ import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainModule } from '../captain/captain.module';
 import { CaptainAttributionService } from '../captain/captain-attribution.service';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
+import { ProfitModule } from '../profit/profit.module';
+import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
 
 @Module({
   imports: [
@@ -50,6 +52,7 @@ import { CaptainCommissionService } from '../captain/captain-commission.service'
     GroupBuyModule,
     GrowthModule,
     CaptainModule,
+    ProfitModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -124,6 +127,15 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setCaptainAttributionService(captainAttributionService);
     } else {
       console.warn('[OrderModule] CaptainAttributionService 未注入，团长订单归因不可用');
+    }
+
+    const orderProfitSnapshotService = this.moduleRef.get(OrderProfitSnapshotService, {
+      strict: false,
+    });
+    if (orderProfitSnapshotService) {
+      this.checkoutService.setOrderProfitSnapshotService(orderProfitSnapshotService);
+    } else {
+      throw new Error('[OrderModule] OrderProfitSnapshotService 未注入，支付利润快照不可用，启动中止');
     }
 
     const captainCommissionService = this.moduleRef.get(CaptainCommissionService, { strict: false });

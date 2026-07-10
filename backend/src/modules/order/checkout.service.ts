@@ -32,6 +32,7 @@ import { BundleSnapshotItem, ProductBundleService } from '../product/product-bun
 import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
 import { NotificationService } from '../notification/notification.service';
 import { CaptainAttributionService } from '../captain/captain-attribution.service';
+import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -89,6 +90,7 @@ export class CheckoutService {
   private digitalAssetService: DigitalAssetService | null = null;
   private vipDirectReferralCommissionService: VipDirectReferralCommissionService | null = null;
   private captainAttributionService: CaptainAttributionService | null = null;
+  private orderProfitSnapshotService: OrderProfitSnapshotService | null = null;
   // GroupBuyRebateDeductionService 通过 setter 注入，保持与消费积分账户隔离
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private groupBuyRebateService: GroupBuyRebateService | null = null;
@@ -150,6 +152,10 @@ export class CheckoutService {
 
   setCaptainAttributionService(service: CaptainAttributionService) {
     this.captainAttributionService = service;
+  }
+
+  setOrderProfitSnapshotService(service: OrderProfitSnapshotService) {
+    this.orderProfitSnapshotService = service;
   }
 
   /** 注入团购返还余额抵扣服务（由 OrderModule 在 onModuleInit 时调用） */
@@ -1919,12 +1925,19 @@ export class CheckoutService {
             const sessionGroupBuyRebateDeduction = Number(
               (session as any).groupBuyRebateDeductionAmount ?? 0,
             );
-            const rewardDiscountAllocations = this.allocateDiscountByCapacities(
+            const vipDiscountAllocations = this.allocateDiscountByCapacities(
               companyGroups.map((group) => group.goodsAmount),
+              sessionVipDiscount,
+            );
+            const remainingAfterVip = companyGroups.map((group, idx) =>
+              Math.max(0, group.goodsAmount - vipDiscountAllocations[idx]),
+            );
+            const rewardDiscountAllocations = this.allocateDiscountByCapacities(
+              remainingAfterVip,
               session.discountAmount,
             );
-            const remainingAfterReward = companyGroups.map((group, idx) =>
-              Math.max(0, group.goodsAmount - rewardDiscountAllocations[idx]),
+            const remainingAfterReward = remainingAfterVip.map((value, idx) =>
+              Math.max(0, value - rewardDiscountAllocations[idx]),
             );
             const groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
               remainingAfterReward,
@@ -1937,13 +1950,6 @@ export class CheckoutService {
               remainingCapacities,
               sessionCouponDiscount,
             );
-
-            // VIP折扣按商户商品金额比例分摊
-            const vipDiscountAllocations = this.allocateDiscountByCapacities(
-              companyGroups.map((group) => group.goodsAmount),
-              sessionVipDiscount,
-            );
-
             for (let idx = 0; idx < companyGroups.length; idx++) {
               const group = companyGroups[idx];
               const isPrimary = idx === 0;
@@ -1974,6 +1980,8 @@ export class CheckoutService {
                   goodsAmount: group.goodsAmount,
                   shippingFee: groupShippingFee,
                   discountAmount: groupRewardDiscount > 0 ? groupRewardDiscount : 0,
+                  groupBuyRebateDeductionAmount:
+                    groupBuyRebateDiscount > 0 ? groupBuyRebateDiscount : 0,
                   vipDiscountAmount: vipDiscountAllocations[idx] || 0,
                   // 平台红包抵扣金额记录到商户订单
                   totalCouponDiscount: groupCouponDiscount > 0 ? groupCouponDiscount : null,
@@ -1993,6 +2001,24 @@ export class CheckoutService {
                       prizeRecordId: oi.prizeRecordId || null,
                     })),
                   },
+                },
+              });
+
+              const profitSnapshot = (
+                sessionBizType === 'NORMAL_GOODS'
+                && this.orderProfitSnapshotService
+              )
+                ? await this.orderProfitSnapshotService.createForPaidOrder(tx, order.id)
+                : null;
+
+              // 记录订单状态历史
+              await tx.orderStatusHistory.create({
+                data: {
+                  orderId: order.id,
+                  fromStatus: 'PENDING_PAYMENT',
+                  toStatus: 'PAID',
+                  reason: 'CheckoutSession 支付回调建单',
+                  meta: { merchantOrderNo, providerTxnId },
                 },
               });
 
@@ -2030,19 +2056,9 @@ export class CheckoutService {
                 }
               }
 
-              // 记录订单状态历史
-              await tx.orderStatusHistory.create({
-                data: {
-                  orderId: order.id,
-                  fromStatus: 'PENDING_PAYMENT',
-                  toStatus: 'PAID',
-                  reason: 'CheckoutSession 支付回调建单',
-                  meta: { merchantOrderNo, providerTxnId },
-                },
-              });
-
               if (
                 sessionBizType === 'NORMAL_GOODS' &&
+                profitSnapshot?.status !== 'RECONCILIATION_REQUIRED' &&
                 this.vipDirectReferralCommissionService
               ) {
                 await this.vipDirectReferralCommissionService.createFrozenForPaidOrder(
@@ -2052,6 +2068,7 @@ export class CheckoutService {
               }
               if (
                 sessionBizType === 'NORMAL_GOODS' &&
+                profitSnapshot?.status !== 'RECONCILIATION_REQUIRED' &&
                 this.captainAttributionService
               ) {
                 await this.captainAttributionService.createFrozenForPaidOrder(
