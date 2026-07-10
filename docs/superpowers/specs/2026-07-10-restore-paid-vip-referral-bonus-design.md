@@ -28,4 +28,3 @@
 - 验证重复 `VipPurchase.id` 不重复增加余额。
 - 运行 BonusService 聚焦测试、后端 TypeScript 构建、Prisma validate、`git diff --check`。
 - 发布后核对生产部署提交，再执行单用户补发并复核流水数量与余额增量。
-
