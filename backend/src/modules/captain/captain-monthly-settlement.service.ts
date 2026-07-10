@@ -40,26 +40,10 @@ export class CaptainMonthlySettlementService {
 
   async calculateMetrics(month: string, captainUserId?: string): Promise<MetricInput[]> {
     const config = await this.configService.getSnapshot();
-    if (!config.enabled || config.schemaVersion !== 2) return [];
-
-    return this.withSerializableRetry(async (tx) => {
-      const captains = captainUserId
-        ? [{ userId: captainUserId }]
-        : await (tx as any).captainProfile.findMany({
-            where: {
-              programCode: config.programCode,
-              status: 'ACTIVE',
-            },
-            select: { userId: true },
-            orderBy: { createdAt: 'asc' },
-          });
-
-      const metrics: MetricInput[] = [];
-      for (const captain of captains) {
-        metrics.push(await this.calculateMetricInTx(tx, month, captain.userId, config));
-      }
-      return metrics;
-    });
+    void month;
+    void captainUserId;
+    void config;
+    return [];
   }
 
   async createDraftSettlements(
@@ -68,81 +52,11 @@ export class CaptainMonthlySettlementService {
     forceRecalculate = false,
   ): Promise<any[]> {
     const config = await this.configService.getSnapshot();
-    if (!config.enabled || config.schemaVersion !== 2) return [];
-
-    return this.withSerializableRetry(async (tx) => {
-      const captains = captainUserId
-        ? [{ userId: captainUserId }]
-        : await (tx as any).captainProfile.findMany({
-            where: {
-              programCode: config.programCode,
-              status: 'ACTIVE',
-            },
-            select: { userId: true },
-            orderBy: { createdAt: 'asc' },
-          });
-
-      const settlements: any[] = [];
-      for (const captain of captains) {
-        const settlementWhere = {
-          captainUserId_month_programCode: {
-            captainUserId: captain.userId,
-            month,
-            programCode: config.programCode,
-          },
-        };
-        const existingSettlement = await (tx as any).captainMonthlySettlement.findUnique({
-          where: settlementWhere,
-        });
-        if (
-          existingSettlement &&
-          !forceRecalculate &&
-          ['APPROVED', 'PAID'].includes(existingSettlement.status)
-        ) {
-          settlements.push(existingSettlement);
-          continue;
-        }
-
-        const metricInput = await this.calculateMetricInTx(tx, month, captain.userId, config);
-        const metric = await this.upsertMetric(tx, metricInput);
-        const { performanceBonusSummary, ...amounts } = this.calculateSettlementAmounts(
-          metricInput,
-          config,
-        );
-        const updateData = {
-          metricId: metric.id,
-          status: 'DRAFT',
-          ...amounts,
-          reviewedByAdminId: null,
-          paidByAdminId: null,
-          reviewedAt: null,
-          paidAt: null,
-          rejectReason: null,
-          configSnapshot: this.snapshot(config),
-          meta: { performanceBonusSummary },
-        };
-        const settlement = existingSettlement
-          ? await (tx as any).captainMonthlySettlement.update({
-              where: settlementWhere,
-              data: updateData,
-            })
-          : await (tx as any).captainMonthlySettlement.create({
-              data: {
-                captainUserId: captain.userId,
-                metricId: metric.id,
-                month,
-                programCode: config.programCode,
-                status: 'DRAFT',
-                ...amounts,
-                configSnapshot: this.snapshot(config),
-                meta: { performanceBonusSummary },
-              },
-            });
-        settlements.push(settlement);
-      }
-
-      return settlements;
-    });
+    void month;
+    void captainUserId;
+    void forceRecalculate;
+    void config;
+    return [];
   }
 
   async approveSettlement(settlementId: string, adminUserId: string): Promise<any> {
@@ -254,6 +168,11 @@ export class CaptainMonthlySettlementService {
     if (!settlement) throw new NotFoundException('团长月度结算不存在');
     if (settlement.status === 'APPROVED' || settlement.status === 'PAID') {
       throw new BadRequestException('已审核或已支付结算不可重算');
+    }
+
+    const config = await this.configService.getSnapshot();
+    if (config.schemaVersion === 2) {
+      throw new BadRequestException('历史 V2 结算仅可审核或支付，不可重新计算');
     }
 
     const [draft] = await this.createDraftSettlements(

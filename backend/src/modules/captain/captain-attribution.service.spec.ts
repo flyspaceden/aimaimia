@@ -1,264 +1,58 @@
 import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from './captain.constants';
 import { CaptainAttributionService } from './captain-attribution.service';
 
-function makeConfig(overrides: any = {}) {
+function makeV2Config(enabled = true) {
   return {
     schemaVersion: 2,
-    enabled: true,
+    enabled,
     programCode: 'SEAFOOD_PREPACKAGED',
-    programName: '预包装海鲜团长经营激励',
-    effectiveFrom: null,
-    scope: {
-      categoryIds: [],
-      productIds: ['product-1'],
-      companyIds: [],
-      excludedProductIds: [],
-      includeVipPackage: false,
-      includeGroupBuy: false,
-      includePrize: false,
-    },
-    orderRules: {
-      freezeDaysAfterReceived: 7,
-      minCommissionBase: 0,
-      includeShippingFee: false,
-      includeCouponDiscount: false,
-      includeRewardDeduction: false,
-    },
-    perOrderCommission: { directRate: 0.11 },
-    monthlyQualification: {
-      minDirectEffectiveBuyers: 12,
-      minDirectMonthlyGmv: 8000,
-      minNewEffectiveBuyers: 1,
-    },
-    monthlyRewards: {
-      baseTierGmv: 25000,
-      baseManagementRate: 0.022,
-      growthTierGmv: 70000,
-      growthBonusRate: 0.007,
-      excellentTierGmv: 140000,
-      cultivationBonusRate: 0.006,
-      performanceBonusRate: 0.01,
-    },
-    caps: {
-      maxTotalIncentiveRate: 0.155,
-      targetNetProfitRate: 0.09,
-      coldChainRiskReserveRate: 0.02,
-    },
-    tax: {
-      enabled: true,
-      withholdingRate: 0.2,
-      incomeType: 'LABOR_SERVICE',
-    },
-    risk: {
-      maxMonthlyRefundRate: 0.15,
-      holdSettlementOnRisk: true,
-    },
-    ...overrides,
   };
 }
 
-function makeV3Config(overrides: any = {}) {
+function makeV3Config(enabled = true) {
   return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
-    enabled: true,
-    scope: {
-      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.scope,
-      productIds: ['product-1'],
-    },
-    ...overrides,
+    enabled,
   };
 }
 
-function makeOrder(overrides: any = {}) {
-  return {
-    id: 'order-1',
-    userId: 'buyer-1',
-    bizType: 'NORMAL_GOODS',
-    goodsAmount: 100,
-    totalAmount: 80,
-    shippingFee: 0,
-    discountAmount: 10,
-    vipDiscountAmount: 5,
-    totalCouponDiscount: 5,
-    items: [
-      {
-        id: 'item-1',
-        unitPrice: 100,
-        quantity: 1,
-        isPrize: false,
-        companyId: 'company-1',
-        sku: {
-          productId: 'product-1',
-          product: {
-            id: 'product-1',
-            categoryId: 'category-1',
-            companyId: 'company-1',
-          },
-        },
-      },
-    ],
-    ...overrides,
-  };
-}
-
-function createHarness(options: {
-  config?: any;
-  order?: any;
-  existingAttribution?: any;
-  relation?: any;
-} = {}) {
+function createHarness(config: any) {
   const configService = {
-    getSnapshot: jest.fn().mockResolvedValue(options.config ?? makeConfig()),
+    getSnapshot: jest.fn().mockResolvedValue(config),
   };
   const tx: any = {
     captainOrderAttribution: {
-      findUnique: jest.fn().mockResolvedValue(options.existingAttribution ?? null),
-      create: jest.fn().mockResolvedValue({ id: 'attr-1' }),
+      findUnique: jest.fn(),
+      create: jest.fn(),
     },
-    order: {
-      findUnique: jest.fn().mockResolvedValue(options.order ?? makeOrder()),
-    },
-    captainRelation: {
-      findUnique: jest.fn().mockResolvedValue(
-        options.relation ?? {
-          buyerUserId: 'buyer-1',
-          directCaptainUserId: 'captain-1',
-          legacyIndirectCaptainUserId: 'captain-0',
-          status: 'ACTIVE',
-        },
-      ),
-    },
-    captainProfile: {
-      findMany: jest.fn().mockResolvedValue([
-        { userId: 'captain-1', status: 'ACTIVE' },
-        { userId: 'captain-0', status: 'ACTIVE' },
-      ]),
-    },
-    captainAccount: {
-      upsert: jest
-        .fn()
-        .mockResolvedValueOnce({ id: 'account-direct', userId: 'captain-1' })
-        .mockResolvedValueOnce({ id: 'account-indirect', userId: 'captain-0' }),
-      update: jest.fn().mockResolvedValue({}),
-    },
-    captainCommissionLedger: {
-      create: jest.fn().mockResolvedValue({}),
-    },
+    order: { findUnique: jest.fn() },
+    captainRelation: { findUnique: jest.fn() },
+    captainProfile: { findMany: jest.fn() },
+    captainCommissionLedger: { create: jest.fn() },
   };
 
   return {
     tx,
-    configService,
     service: new CaptainAttributionService(configService as any),
   };
 }
 
-describe('CaptainAttributionService', () => {
-  it('skips enabled V3 before any legacy sales-rate read', async () => {
-    const { service, tx } = createHarness({
-      config: makeV3Config(),
-      order: makeOrder({ paidAt: new Date('2026-08-02T00:00:00.000Z') }),
-    });
+describe('CaptainAttributionService activation boundary', () => {
+  it.each([
+    ['enabled persisted V2', makeV2Config(true)],
+    ['disabled persisted V2', makeV2Config(false)],
+    ['enabled V3 before the V3 attribution path is installed', makeV3Config(true)],
+    ['disabled V3', makeV3Config(false)],
+  ])('creates no new legacy sales attribution for %s', async (_label, config) => {
+    const { service, tx } = createHarness(config);
 
     await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
+
     expect(tx.captainOrderAttribution.findUnique).not.toHaveBeenCalled();
     expect(tx.order.findUnique).not.toHaveBeenCalled();
+    expect(tx.captainRelation.findUnique).not.toHaveBeenCalled();
+    expect(tx.captainProfile.findMany).not.toHaveBeenCalled();
     expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
-    expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
-  });
-
-  it('does nothing when captain config is disabled', async () => {
-    const { service, tx } = createHarness({
-      config: { ...makeConfig(), enabled: false },
-    });
-
-    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
-    expect(tx.order.findUnique).not.toHaveBeenCalled();
-    expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
-  });
-
-  it('does nothing for non-normal-good orders', async () => {
-    const { service, tx } = createHarness({
-      order: makeOrder({ bizType: 'VIP_PACKAGE' }),
-    });
-
-    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
-    expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
-  });
-
-  it('skips an order paid before the configured activation time', async () => {
-    const { service, tx } = createHarness({
-      config: makeConfig({ effectiveFrom: '2026-07-11T00:00:00.000Z' }),
-      order: makeOrder({ paidAt: new Date('2026-07-10T23:59:59.000Z') }),
-    });
-
-    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
-    expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
-    expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
-  });
-
-  it('creates only one direct frozen ledger from net eligible goods GMV', async () => {
-    const { service, tx } = createHarness();
-
-    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('credited');
-
-    expect(tx.captainOrderAttribution.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        orderId: 'order-1',
-        buyerUserId: 'buyer-1',
-        directCaptainUserId: 'captain-1',
-        legacyIndirectCaptainUserId: null,
-        commissionBase: 80,
-        eligibleGoodsAmount: 100,
-        couponDiscountAmount: 5,
-        rewardDeductionAmount: 10,
-        directRate: 0.11,
-        legacyIndirectRate: 0,
-        status: 'FROZEN',
-      }),
-    });
-    expect(tx.captainOrderAttribution.create.mock.calls[0][0].data).not.toHaveProperty('indirectCaptainUserId');
-    expect(tx.captainOrderAttribution.create.mock.calls[0][0].data).not.toHaveProperty('indirectRate');
-    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
-    expect(tx.captainCommissionLedger.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 'captain-1',
-        type: 'DIRECT_ORDER',
-        status: 'FROZEN',
-        amount: 8.8,
-        commissionBase: 80,
-        rate: 0.11,
-        idempotencyKey: 'captain:order:order-1:direct',
-      }),
-    });
-    expect(tx.captainAccount.update).toHaveBeenCalledTimes(1);
-  });
-
-  it('never creates an indirect ledger when a legacy relation has an upstream captain', async () => {
-    const { service, tx } = createHarness({
-      relation: {
-        buyerUserId: 'buyer-1',
-        directCaptainUserId: 'captain-1',
-        legacyIndirectCaptainUserId: 'captain-0',
-        ignoredThirdCaptainUserId: 'captain-third',
-        status: 'ACTIVE',
-      },
-    });
-
-    await service.createFrozenForPaidOrder(tx, 'order-1');
-
-    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(tx.captainCommissionLedger.create.mock.calls)).not.toContain('captain-0');
-    expect(JSON.stringify(tx.captainCommissionLedger.create.mock.calls)).not.toContain('captain-third');
-  });
-
-  it('skips duplicate attribution by order and program', async () => {
-    const { service, tx } = createHarness({
-      existingAttribution: { id: 'attr-existing' },
-    });
-
-    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
-    expect(tx.order.findUnique).not.toHaveBeenCalled();
     expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
   });
 });
