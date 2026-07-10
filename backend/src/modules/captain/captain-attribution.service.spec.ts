@@ -232,8 +232,6 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
 
   it.each([
     ['reconciliation snapshot', makeSnapshot({ status: 'RECONCILIATION_REQUIRED' })],
-    ['zero distributable profit', makeSnapshot({ distributableProfitAmount: 0 })],
-    ['zero captain-eligible profit', makeSnapshot({ captainEligibleProfitAmount: 0 })],
     ['non-V3 captain snapshot', makeSnapshot({
       ruleSnapshot: {
         captain: {
@@ -296,6 +294,40 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
     expect(tx.orderProfitReconciliationTask.upsert).not.toHaveBeenCalled();
   });
 
+  it('creates a monthly-GMV attribution for a valid zero-profit snapshot without financial writes', async () => {
+    const snapshot = makeSnapshot({
+      distributableProfitAmount: 0,
+      captainEligibleProfitAmount: 0,
+      itemBreakdown: [
+        {
+          orderItemId: 'item-1',
+          captainEligible: true,
+          netGoodsRevenueCents: 11_325,
+          distributableProfitShareCents: 0,
+        },
+      ],
+    });
+    const { service, tx } = createHarness(snapshot);
+
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('credited');
+
+    expect(tx.captainOrderAttribution.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        commissionBase: 0,
+        eligibleGoodsAmount: 113.25,
+        calculationModel: 'PROFIT_V3',
+        profitBaseAmount: 0,
+        status: 'FROZEN',
+        meta: expect.objectContaining({ monthlyGmvOnly: true }),
+      }),
+    });
+    expect(tx.captainAccount.upsert).not.toHaveBeenCalled();
+    expect(tx.captainAccount.update).not.toHaveBeenCalled();
+    expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
+    expect(tx.orderProfitFundingLedger.create).not.toHaveBeenCalled();
+    expect(tx.orderProfitReconciliationTask.upsert).not.toHaveBeenCalled();
+  });
+
   it('creates a reconciliation task and no reward when configured holds exceed R', async () => {
     const overfundedConfig = {
       ...captainConfig,
@@ -343,11 +375,55 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
     expectNoRewardWrites(tx);
   });
 
-  it('marks a snapshot with C greater than D as invalid and creates no reward', async () => {
-    const snapshot = makeSnapshot({
-      distributableProfitAmount: 8,
-      captainEligibleProfitAmount: 8.01,
-    });
+  it.each([
+    ['missing breakdown', null],
+    ['empty breakdown', []],
+    ['non-object item', [null]],
+    ['non-boolean eligibility', [{
+      orderItemId: 'item-1',
+      captainEligible: 'true',
+      netGoodsRevenueCents: 11_325,
+      distributableProfitShareCents: 3_500,
+    }]],
+    ['non-integer net GMV', [{
+      orderItemId: 'item-1',
+      captainEligible: true,
+      netGoodsRevenueCents: '11325',
+      distributableProfitShareCents: 3_500,
+    }]],
+    ['missing order item id', [{
+      captainEligible: true,
+      netGoodsRevenueCents: 11_325,
+      distributableProfitShareCents: 3_500,
+    }]],
+    ['non-integer profit share', [{
+      orderItemId: 'item-1',
+      captainEligible: true,
+      netGoodsRevenueCents: 11_325,
+      distributableProfitShareCents: '3500',
+    }]],
+    ['duplicate order item ids', [
+      {
+        orderItemId: 'item-1',
+        captainEligible: true,
+        netGoodsRevenueCents: 6_000,
+        distributableProfitShareCents: 1_750,
+      },
+      {
+        orderItemId: 'item-1',
+        captainEligible: true,
+        netGoodsRevenueCents: 6_000,
+        distributableProfitShareCents: 1_750,
+      },
+    ]],
+    ['C exceeds eligible net GMV', [{
+      orderItemId: 'item-1',
+      captainEligible: true,
+      netGoodsRevenueCents: 3_499,
+      distributableProfitShareCents: 3_500,
+    }]],
+  ])('reconciles %s instead of creating attribution or rewards', async (_label, itemBreakdown) => {
+    const snapshot = makeSnapshot({ itemBreakdown });
     const { service, tx } = createHarness(snapshot);
 
     await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
@@ -361,8 +437,98 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
     expectNoRewardWrites(tx);
   });
 
-  it('requires item-level captain-eligible net GMV before creating attribution', async () => {
-    const snapshot = makeSnapshot({ itemBreakdown: null });
+  it.each([
+    ['unknown buyer path', makeSnapshot({
+      ruleSnapshot: { buyerPath: 'UNKNOWN' },
+    })],
+    ['missing member rates', makeSnapshot({
+      ruleSnapshot: { rates: null },
+    })],
+    ['missing direct rate', makeSnapshot({
+      ruleSnapshot: { directInviter: { eligibleUserId: null } },
+    })],
+    ['string member rate', makeSnapshot({
+      ruleSnapshot: {
+        rates: {
+          ...makeSnapshot().ruleSnapshot.rates,
+          vip: {
+            ...makeSnapshot().ruleSnapshot.rates.vip,
+            reward: '0.2',
+          },
+        },
+      },
+    })],
+    ['string captain rate', makeSnapshot({
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: {
+            ...captainConfig,
+            perOrderCommission: { directProfitRate: '0.11' },
+          },
+        },
+      },
+    })],
+    ['member rates above 100 percent on a zero-profit order', makeSnapshot({
+      distributableProfitAmount: 0,
+      captainEligibleProfitAmount: 0,
+      ruleSnapshot: {
+        rates: {
+          ...makeSnapshot().ruleSnapshot.rates,
+          vip: {
+            ...makeSnapshot().ruleSnapshot.rates.vip,
+            platform: 0.9,
+          },
+        },
+      },
+    })],
+    ['captain rates above 100 percent on a zero-profit order', makeSnapshot({
+      distributableProfitAmount: 0,
+      captainEligibleProfitAmount: 0,
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: {
+            ...captainConfig,
+            perOrderCommission: { directProfitRate: 0.5 },
+            monthlyRewards: {
+              ...captainConfig.monthlyRewards,
+              baseManagementProfitRate: 0.2,
+              growthBonusProfitRate: 0.2,
+              cultivationBonusProfitRate: 0.1,
+              performanceBonusProfitRate: 0.1,
+            },
+          },
+        },
+      },
+    })],
+    ['missing captain config version', makeSnapshot({
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          configVersion: null,
+        },
+      },
+    })],
+    ['unknown disabled captain schema', makeSnapshot({
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: { schemaVersion: 99, enabled: false },
+        },
+      },
+    })],
+    ['non-number C', makeSnapshot({ captainEligibleProfitAmount: '35' })],
+    ['negative C', makeSnapshot({ captainEligibleProfitAmount: -1 })],
+    ['sub-cent C', makeSnapshot({ captainEligibleProfitAmount: 35.001 })],
+    ['non-number D', makeSnapshot({ distributableProfitAmount: '50' })],
+    ['negative D', makeSnapshot({ distributableProfitAmount: -1 })],
+    ['sub-cent D', makeSnapshot({ distributableProfitAmount: 50.001 })],
+    ['C greater than D', makeSnapshot({
+      distributableProfitAmount: 8,
+      captainEligibleProfitAmount: 8.01,
+    })],
+  ])('reconciles READY snapshot with %s', async (_label, snapshot) => {
     const { service, tx } = createHarness(snapshot);
 
     await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
