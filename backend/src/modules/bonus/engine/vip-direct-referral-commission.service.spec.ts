@@ -178,6 +178,57 @@ function makeService(configOverrides: any = {}) {
 }
 
 describe('VipDirectReferralCommissionService', () => {
+  it.each([
+    ['NORMAL', 'NORMAL', 0.01, 'NORMAL_DIRECT_REFERRAL', 'NORMAL_REWARD', 0.13],
+    ['NORMAL', 'VIP', 0.15, 'VIP_DIRECT_REFERRAL', 'VIP_REWARD', 1.99],
+    ['VIP', 'NORMAL', 0.01, 'NORMAL_DIRECT_REFERRAL', 'NORMAL_REWARD', 0.13],
+    ['VIP', 'VIP', 0.15, 'VIP_DIRECT_REFERRAL', 'VIP_REWARD', 1.99],
+  ] as const)(
+    'uses %s buyer path with %s inviter tier from the payment snapshot',
+    async (buyerPath, inviterTier, directRate, scheme, accountType, expectedAmount) => {
+      const { service, configService } = makeService();
+      const order = makeSnapshotOrder();
+      const rule = order.profitSnapshots[0].ruleSnapshot;
+      rule.buyerPath = buyerPath;
+      rule.buyerTierAtPayment = buyerPath;
+      rule.directInviter = {
+        ...rule.directInviter,
+        tier: inviterTier,
+        path: inviterTier,
+        effectiveDirectRate: directRate,
+      };
+      const tx = makeTx(order);
+
+      const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+      expect(result).toBe('credited');
+      expect(configService.getConfig).not.toHaveBeenCalled();
+      expect(tx.rewardAccount.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_type: {
+            userId: 'snapshot-inviter',
+            type: accountType,
+          },
+        },
+        update: {},
+        create: { userId: 'snapshot-inviter', type: accountType },
+      });
+      expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'snapshot-inviter',
+          amount: expectedAmount,
+          meta: expect.objectContaining({
+            scheme,
+            accountType,
+            inviterTierAtOrder: inviterTier,
+            inviteeTierAtOrder: buyerPath,
+            configSnapshot: expect.objectContaining({ buyerPath }),
+          }),
+        }),
+      });
+    },
+  );
+
   it('uses snapshot D and inviter tier/rate without reading current cost, config, or relationship', async () => {
     const { service, configService } = makeService({ vipDirectReferralPercent: 0.99 });
     const tx = makeTx(makeSnapshotOrder());

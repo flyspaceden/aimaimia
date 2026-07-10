@@ -210,15 +210,42 @@ describe('NormalUpstreamService.distribute 已注销祖辈份额归平台', () =
 
     expect(res).toEqual({ result: 'distributed', ancestorUserId: ANCESTOR_ID });
     expect(tx.$queryRaw).not.toHaveBeenCalled();
-    expect(tx.memberProfile.findUnique).toHaveBeenCalledTimes(1);
-    expect(tx.memberProfile.findUnique).toHaveBeenCalledWith({
-      where: { userId: ANCESTOR_ID },
-      select: { tier: true },
-    });
+    expect(tx.memberProfile.findUnique).not.toHaveBeenCalled();
     expect(ledgerCreates[0]).toEqual(expect.objectContaining({
       userId: ANCESTOR_ID,
       meta: expect.objectContaining({ ancestorNodeId: 'snapshot-normal-node', ancestorLevel: 8 }),
     }));
+  });
+
+  it('快照普通树祖先收货前升级 VIP 后仍按支付时路径收款', async () => {
+    const service = makeService();
+    const { tx, ledgerCreates } = makeTx({ status: 'ACTIVE', deletionExecutedAt: null });
+    tx.memberProfile.findUnique.mockResolvedValue({ tier: 'VIP' });
+    tx.normalProgress.findUnique.mockResolvedValue({ selfPurchaseCount: 1 });
+
+    const res = await service.distribute(
+      tx as any,
+      ALLOCATION_ID,
+      ORDER_ID,
+      BUYER_ID,
+      ORDER_AMOUNT,
+      REWARD_POOL,
+      null,
+      {
+        buyerPath: 'NORMAL',
+        ancestors: [{ depth: 1, nodeId: 'snapshot-normal-node', userId: ANCESTOR_ID, level: 8 }],
+      },
+    );
+
+    expect(res).toEqual({ result: 'distributed', ancestorUserId: ANCESTOR_ID });
+    expect(tx.memberProfile.findUnique).not.toHaveBeenCalled();
+    expect(ledgerCreates).toEqual([
+      expect.objectContaining({
+        userId: ANCESTOR_ID,
+        amount: REWARD_POOL,
+        meta: expect.objectContaining({ scheme: 'NORMAL_TREE' }),
+      }),
+    ]);
   });
 
   it('释放普通树冻结奖励时在事务内发出 reward.unfrozen 通知', async () => {
