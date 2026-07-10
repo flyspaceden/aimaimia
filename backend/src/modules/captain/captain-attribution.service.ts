@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { calculateCaptainProfitFunding } from '../profit/captain-profit-funding';
+import { centsToYuan, checkedSafeIntegerSum } from '../profit/money-allocation';
 import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
 } from './captain.constants';
@@ -69,6 +70,16 @@ export class CaptainAttributionService {
       return 'skipped';
     }
 
+    const eligibleGoodsAmount = this.captainEligibleNetGmv(snapshot.itemBreakdown);
+    if (eligibleGoodsAmount === null) {
+      await this.createReconciliationTask(
+        tx,
+        snapshot,
+        'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
+      );
+      return 'skipped';
+    }
+
     const buyerPath = ruleSnapshot?.buyerPath === 'VIP' ? 'vip' : 'normal';
     const rates = this.asRecord(
       this.asRecord(ruleSnapshot?.rates)?.[buyerPath],
@@ -125,7 +136,7 @@ export class CaptainAttributionService {
         legacyIndirectCaptainUserId: null,
         programCode: config.programCode,
         commissionBase,
-        eligibleGoodsAmount: commissionBase,
+        eligibleGoodsAmount,
         couponDiscountAmount: Number(snapshot.couponDiscountAmount ?? 0),
         rewardDeductionAmount: Number(snapshot.rewardDeductionAmount ?? 0),
         directRate: config.perOrderCommission.directProfitRate,
@@ -301,6 +312,19 @@ export class CaptainAttributionService {
     const effectiveAt = Date.parse(effectiveFrom);
     const paidAtMs = paidAt instanceof Date ? paidAt.getTime() : Date.parse(String(paidAt ?? ''));
     return Number.isFinite(effectiveAt) && Number.isFinite(paidAtMs) && paidAtMs >= effectiveAt;
+  }
+
+  private captainEligibleNetGmv(itemBreakdown: unknown): number | null {
+    if (!Array.isArray(itemBreakdown)) return null;
+    const eligibleCents: number[] = [];
+    for (const item of itemBreakdown) {
+      if (!item || typeof item !== 'object' || !(item as any).captainEligible) continue;
+      const cents = Number((item as any).netGoodsRevenueCents);
+      if (!Number.isSafeInteger(cents) || cents < 0) return null;
+      eligibleCents.push(cents);
+    }
+    const totalCents = checkedSafeIntegerSum(eligibleCents);
+    return totalCents === null ? null : centsToYuan(totalCents);
   }
 
   private asRecord(value: unknown): Record<string, any> | null {
