@@ -3,6 +3,7 @@ import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from './bonus-config.service';
 import { RewardCalculatorService } from './reward-calculator.service';
+import type { SnapshotProfitRateSet } from './reward-calculator.service';
 import { PLATFORM_USER_ID } from './constants';
 import {
   DirectRelationResolution,
@@ -44,7 +45,27 @@ export class VipDirectReferralCommissionService {
     void this.prisma;
 
     try {
-      const order = await (tx as any).order.findUnique({
+      let order = await (tx as any).order.findUnique({
+        where: { id: orderId },
+        include: {
+          profitSnapshots: {
+            where: { isCurrent: true },
+            orderBy: { revision: 'desc' },
+            take: 1,
+          },
+        },
+      });
+
+      if (!order || order.bizType !== 'NORMAL_GOODS') {
+        return 'skipped';
+      }
+
+      const currentSnapshot = order.profitSnapshots?.[0];
+      if (currentSnapshot) {
+        return this.createFromPaymentSnapshot(tx, order, currentSnapshot);
+      }
+
+      order = await (tx as any).order.findUnique({
         where: { id: orderId },
         include: {
           user: {
@@ -238,6 +259,194 @@ export class VipDirectReferralCommissionService {
       }
       throw err;
     }
+  }
+
+  private async createFromPaymentSnapshot(
+    tx: Prisma.TransactionClient,
+    order: any,
+    snapshot: any,
+  ): Promise<VipDirectReferralCommissionResult> {
+    if (snapshot.status !== 'READY' || Number(snapshot.distributableProfitAmount) <= 0) {
+      return 'skipped';
+    }
+
+    const rule = snapshot.ruleSnapshot as any;
+    const buyerPath = rule?.buyerPath;
+    const direct = rule?.directInviter;
+    const rates = rule?.rates as SnapshotProfitRateSet | undefined;
+    if (
+      (buyerPath !== 'VIP' && buyerPath !== 'NORMAL')
+      || !rates?.vip
+      || !rates?.normal
+      || !direct
+      || !Number.isFinite(Number(direct.effectiveDirectRate))
+    ) {
+      this.logger.warn(`订单 ${order.id} 支付利润快照规则不完整，关闭直推分润`);
+      return 'skipped';
+    }
+
+    const directPath = direct.path === 'VIP' || direct.tier === 'VIP' ? 'VIP' : 'NORMAL';
+    const eligibleUserId = typeof direct.eligibleUserId === 'string'
+      ? direct.eligibleUserId
+      : null;
+    const platformReason = eligibleUserId
+      ? null
+      : direct.platformReason ?? 'NO_DIRECT_INVITER';
+    const ruleVersion = typeof rule.vipNormalConfigVersion === 'string'
+      ? rule.vipNormalConfigVersion
+      : `snapshot:${snapshot.id}`;
+    const pools = this.calculator.calculateFromProfit(
+      Number(snapshot.distributableProfitAmount),
+      buyerPath,
+      rates,
+      Number(direct.effectiveDirectRate),
+      {},
+      Boolean(eligibleUserId),
+      ruleVersion,
+    );
+    if (pools.directReferralPool <= 0) return 'skipped';
+
+    const context = this.buildSnapshotCommissionContext(
+      order.id,
+      directPath,
+      Number(direct.effectiveDirectRate),
+      pools,
+    );
+    const existing = await (tx as any).rewardAllocation.findUnique({
+      where: { idempotencyKey: context.idempotencyKey },
+    });
+    if (existing) return 'skipped';
+
+    const existingDirectAllocation = await (tx as any).rewardAllocation.findFirst({
+      where: {
+        orderId: order.id,
+        triggerType: 'ORDER_PAID',
+        ruleType: { in: ['NORMAL_DIRECT_REFERRAL', 'VIP_DIRECT_REFERRAL'] },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existingDirectAllocation) return 'skipped';
+
+    const relation: DirectRelationResolution = {
+      inviterUserId: direct.userId ?? eligibleUserId,
+      sourceRelation: direct.sourceRelation ?? 'NONE',
+      normalShareBindingId: direct.normalShareBindingId ?? undefined,
+      relationStatus: direct.relationStatus ?? undefined,
+      sourceCode: direct.sourceCode ?? null,
+      sourceCodeType: direct.sourceCodeType ?? null,
+      platformReason: platformReason ?? undefined,
+    };
+    const sourceCodeAudit = {
+      sourceCode: direct.sourceCode ?? null,
+      sourceCodeType: direct.sourceCodeType ?? null,
+    } as { sourceCode: string | null; sourceCodeType: DirectRelationSourceCodeType | null };
+    const inviteeTierAtOrder = rule.buyerTierAtPayment ?? buyerPath;
+    const inviterTierAtOrder = direct.tier ?? directPath;
+
+    if (platformReason) {
+      await this.creditToPlatform(
+        tx,
+        order,
+        context,
+        relation,
+        inviteeTierAtOrder,
+        inviterTierAtOrder,
+        platformReason,
+        ruleVersion,
+        sourceCodeAudit,
+      );
+      return 'platform';
+    }
+
+    const account = await (tx as any).rewardAccount.upsert({
+      where: { userId_type: { userId: eligibleUserId, type: context.accountType } },
+      update: {},
+      create: { userId: eligibleUserId, type: context.accountType },
+    });
+    const allocation = await (tx as any).rewardAllocation.create({
+      data: {
+        triggerType: 'ORDER_PAID' as any,
+        orderId: order.id,
+        ruleType: context.ruleType as any,
+        ruleVersion,
+        idempotencyKey: context.idempotencyKey,
+        meta: {
+          scheme: context.scheme,
+          sourceOrderId: order.id,
+          sourceUserId: order.userId,
+          directInviterUserId: eligibleUserId,
+          inviterTierAtOrder,
+          inviteeTierAtOrder,
+          profit: context.pools.profit,
+          ratio: context.ratio,
+          directReferralPool: context.pools.directReferralPool,
+          sourceRelation: relation.sourceRelation,
+          normalShareBindingId: relation.normalShareBindingId,
+          relationStatus: relation.relationStatus,
+          sourceCode: sourceCodeAudit.sourceCode,
+          sourceCodeType: sourceCodeAudit.sourceCodeType,
+          configSnapshot: context.pools.configSnapshot,
+          routedToPlatform: false,
+          releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
+        },
+      },
+    });
+    await (tx as any).rewardLedger.create({
+      data: {
+        allocationId: allocation.id,
+        accountId: account.id,
+        userId: eligibleUserId,
+        entryType: 'FREEZE',
+        amount: context.pools.directReferralPool,
+        status: 'FROZEN',
+        refType: 'ORDER',
+        refId: order.id,
+        meta: {
+          scheme: context.scheme,
+          accountType: context.accountType,
+          sourceOrderId: order.id,
+          sourceUserId: order.userId,
+          directInviterUserId: eligibleUserId,
+          inviterTierAtOrder,
+          inviteeTierAtOrder,
+          profit: context.pools.profit,
+          ratio: context.ratio,
+          directReferralPool: context.pools.directReferralPool,
+          sourceRelation: relation.sourceRelation,
+          normalShareBindingId: relation.normalShareBindingId,
+          relationStatus: relation.relationStatus,
+          sourceCode: sourceCodeAudit.sourceCode,
+          sourceCodeType: sourceCodeAudit.sourceCodeType,
+          configSnapshot: context.pools.configSnapshot,
+          releaseCondition: 'RECEIVED_AND_RETURN_WINDOW_EXPIRED_NO_SUCCESS_AFTER_SALE',
+        },
+      },
+    });
+    await (tx as any).rewardAccount.update({
+      where: { id: account.id },
+      data: { frozen: { increment: context.pools.directReferralPool } },
+    });
+    return 'credited';
+  }
+
+  private buildSnapshotCommissionContext(
+    orderId: string,
+    inviterTier: 'NORMAL' | 'VIP',
+    ratio: number,
+    pools: DirectCommissionContext['pools'],
+  ): DirectCommissionContext {
+    const vip = inviterTier === 'VIP';
+    const scheme = vip ? 'VIP_DIRECT_REFERRAL' : 'NORMAL_DIRECT_REFERRAL';
+    return {
+      scheme,
+      platformScheme: vip ? 'VIP_DIRECT_REFERRAL_PLATFORM' : 'NORMAL_DIRECT_REFERRAL_PLATFORM',
+      accountType: vip ? 'VIP_REWARD' : 'NORMAL_REWARD',
+      ruleType: scheme,
+      idempotencyKey: `ALLOC:ORDER_PAID:${orderId}:${scheme}`,
+      ratio,
+      pools,
+    };
   }
 
   private async creditToPlatform(

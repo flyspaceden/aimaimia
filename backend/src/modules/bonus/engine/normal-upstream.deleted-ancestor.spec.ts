@@ -187,6 +187,40 @@ describe('NormalUpstreamService.distribute 已注销祖辈份额归平台', () =
     }, tx);
   });
 
+  it('快照路径使用支付时普通树祖先且不查询当前树', async () => {
+    const service = makeService();
+    const { tx, ledgerCreates } = makeTx({ status: 'ACTIVE', deletionExecutedAt: null });
+    tx.normalProgress.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve({ selfPurchaseCount: where?.userId === ANCESTOR_ID ? 1 : 0 }),
+    );
+
+    const res = await service.distribute(
+      tx as any,
+      ALLOCATION_ID,
+      ORDER_ID,
+      BUYER_ID,
+      ORDER_AMOUNT,
+      REWARD_POOL,
+      null,
+      {
+        buyerPath: 'NORMAL',
+        ancestors: [{ depth: 1, nodeId: 'snapshot-normal-node', userId: ANCESTOR_ID, level: 8 }],
+      },
+    );
+
+    expect(res).toEqual({ result: 'distributed', ancestorUserId: ANCESTOR_ID });
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.memberProfile.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.memberProfile.findUnique).toHaveBeenCalledWith({
+      where: { userId: ANCESTOR_ID },
+      select: { tier: true },
+    });
+    expect(ledgerCreates[0]).toEqual(expect.objectContaining({
+      userId: ANCESTOR_ID,
+      meta: expect.objectContaining({ ancestorNodeId: 'snapshot-normal-node', ancestorLevel: 8 }),
+    }));
+  });
+
   it('释放普通树冻结奖励时在事务内发出 reward.unfrozen 通知', async () => {
     const notificationService = makeNotificationService();
     const service = makeService(notificationService);

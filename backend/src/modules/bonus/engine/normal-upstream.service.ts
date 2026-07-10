@@ -3,6 +3,7 @@ import { UserStatus } from '@prisma/client';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID, NORMAL_SCHEMES } from './constants';
 import { NotificationService } from '../../notification/notification.service';
+import type { SnapshotTreeRoute } from './reward-calculator.service';
 
 @Injectable()
 export class NormalUpstreamService {
@@ -33,7 +34,8 @@ export class NormalUpstreamService {
     userId: string,
     orderAmount: number,
     rewardPool: number,
-    config: BonusConfig,
+    config: BonusConfig | null,
+    snapshotRoute?: SnapshotTreeRoute,
   ): Promise<{ result: 'distributed' | 'no_ancestor' | 'over_max_layers' | 'vip_excluded'; ancestorUserId: string | null }> {
     // 1. 查历史有效消费数
     const prevCount = await tx.normalEligibleOrder.count({
@@ -42,9 +44,9 @@ export class NormalUpstreamService {
     const k = prevCount + 1;
 
     // 2. k > normalMaxLayers → 奖励归平台
-    if (k > config.normalMaxLayers) {
+    if (!snapshotRoute && k > config!.normalMaxLayers) {
       this.logger.log(
-        `k=${k} > NORMAL_MAX_LAYERS=${config.normalMaxLayers}，奖励 ${rewardPool} 元归平台`,
+        `k=${k} > NORMAL_MAX_LAYERS=${config!.normalMaxLayers}，奖励 ${rewardPool} 元归平台`,
       );
       await this.creditToPlatform(tx, allocationId, orderId, rewardPool, 'over_max_layers');
       // 仍做解锁检查（selfPurchaseCount 不递增）
@@ -76,7 +78,10 @@ export class NormalUpstreamService {
     });
 
     // 5. 找第 k 个祖先
-    const ancestor = await this.findKthAncestor(tx, userId, k);
+    const snapshotAncestor = snapshotRoute?.ancestors[k - 1];
+    const ancestor = snapshotRoute
+      ? snapshotAncestor ? { ...snapshotAncestor, id: snapshotAncestor.nodeId } : null
+      : await this.findKthAncestor(tx, userId, k);
 
     if (!ancestor) {
       this.logger.log(`用户 ${userId} 第 ${k} 个普通树祖先不存在，奖励归平台`);
@@ -159,9 +164,9 @@ export class NormalUpstreamService {
           ancestorNodeId: ancestor.id,
           locked: !isUnlocked,
           requiredLevel: isUnlocked ? undefined : k,
-          expiresAt: isUnlocked
+          expiresAt: isUnlocked || snapshotRoute
             ? undefined
-            : new Date(Date.now() + config.normalFreezeDays * 86400000).toISOString(),
+            : new Date(Date.now() + config!.normalFreezeDays * 86400000).toISOString(),
         },
       },
     });
