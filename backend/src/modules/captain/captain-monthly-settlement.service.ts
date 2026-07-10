@@ -327,7 +327,7 @@ export class CaptainMonthlySettlementService {
     );
     const teamEffectiveMembers = new Set(
       relations
-        .filter((relation: any) => !effectiveDirectBuyerIds.size || effectiveDirectBuyerIds.has(relation.buyerUserId))
+        .filter((relation: any) => effectiveDirectBuyerIds.has(relation.buyerUserId))
         .map((relation: any) => relation.buyerUserId),
     ).size;
     const newEffectiveMembers = new Set(
@@ -336,7 +336,7 @@ export class CaptainMonthlySettlementService {
           if (relation.boundAt && (relation.boundAt < start || relation.boundAt >= end)) {
             return false;
           }
-          return !effectiveDirectBuyerIds.size || effectiveDirectBuyerIds.has(relation.buyerUserId);
+          return effectiveDirectBuyerIds.has(relation.buyerUserId);
         })
         .map((relation: any) => relation.buyerUserId),
     ).size;

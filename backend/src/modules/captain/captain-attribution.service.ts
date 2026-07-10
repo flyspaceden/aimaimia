@@ -59,6 +59,9 @@ export class CaptainAttributionService {
     if (!order || order.bizType !== 'NORMAL_GOODS') {
       return 'skipped';
     }
+    if (!this.isPaidOnOrAfterEffectiveFrom(order.paidAt, config.effectiveFrom)) {
+      return 'skipped';
+    }
 
     const relation = await (tx as any).captainRelation.findUnique({
       where: {
@@ -220,6 +223,13 @@ export class CaptainAttributionService {
     return this.roundMoney(items
       .filter((item) => this.isEligibleItem(item, config))
       .reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0), 0));
+  }
+
+  private isPaidOnOrAfterEffectiveFrom(paidAt: unknown, effectiveFrom: string | null): boolean {
+    if (!effectiveFrom) return true;
+    const effectiveAt = Date.parse(effectiveFrom);
+    const paidAtMs = paidAt instanceof Date ? paidAt.getTime() : Date.parse(String(paidAt ?? ''));
+    return Number.isFinite(effectiveAt) && Number.isFinite(paidAtMs) && paidAtMs >= effectiveAt;
   }
 
   private isEligibleItem(item: any, config: CaptainSeafoodConfig) {

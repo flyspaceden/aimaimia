@@ -94,6 +94,32 @@ describe('CaptainConfigService', () => {
     });
   });
 
+  it('removes retired device and address thresholds from a persisted V2 config', async () => {
+    const storedConfig = {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+      risk: {
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.risk,
+        maxSameDeviceEffectiveBuyers: 3,
+        maxSameAddressEffectiveBuyers: 5,
+      },
+    };
+    const { service } = createService({ value: storedConfig });
+
+    const config = await service.getConfig();
+
+    expect(config.risk).not.toHaveProperty('maxSameDeviceEffectiveBuyers');
+    expect(config.risk).not.toHaveProperty('maxSameAddressEffectiveBuyers');
+  });
+
+  it('rejects a non-ISO activation timestamp', () => {
+    expect(() =>
+      validateCaptainSeafoodConfig({
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+        effectiveFrom: 'tomorrow morning',
+      }),
+    ).toThrow('effectiveFrom');
+  });
+
   it('rejects any config where total incentive exceeds maxTotalIncentiveRate', () => {
     expect(() =>
       validateCaptainSeafoodConfig({
