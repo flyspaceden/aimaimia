@@ -1,6 +1,7 @@
 import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from '../captain/captain.constants';
 import {
   ProfitSafetyCandidate,
+  ProfitSafetyViolationError,
   ProfitSafetyValidator,
 } from './profit-safety-validator';
 
@@ -80,7 +81,7 @@ describe('ProfitSafetyValidator', () => {
       });
   });
 
-  it('uses cost 100, markup 1.35 and the VIP discount to calculate mandatory margin', () => {
+  it('uses discounted revenue as the denominator for the mandatory VIP margin', () => {
     const summary = validator.evaluate(candidate({
       skus: [{
         id: 'sku-markup',
@@ -95,8 +96,48 @@ describe('ProfitSafetyValidator', () => {
       }],
     }));
     const vipScenario = summary.scenarios[0];
+    const normalScenario = summary.scenarios.find(
+      (scenario) => scenario.key === 'NORMAL_BUYER_NORMAL_INVITER',
+    )!;
 
-    expect(vipScenario.limitingGrossMarginRate).toBeCloseTo((135 * 0.95 - 100) / 135, 8);
+    expect(vipScenario.limitingGrossMarginRate).toBeCloseTo(
+      (135 * 0.95 - 100) / (135 * 0.95),
+      8,
+    );
+    expect(normalScenario.limitingGrossMarginRate).toBeCloseTo(
+      (1.35 - 1) / 1.35,
+      8,
+    );
+  });
+
+  it('uses the lower automatic-markup baseline even when the current SKU price has more margin', () => {
+    const input = candidate({
+      captainConfig: {
+        ...candidate().captainConfig,
+        unitEconomics: { fulfillmentCostRate: 0.06 },
+        caps: {
+          ...candidate().captainConfig.caps,
+          targetNetProfitRate: 0.05,
+          coldChainRiskReserveRate: 0.01,
+        },
+      } as any,
+      skus: [{
+        ...candidate().skus[0],
+        price: 200,
+        cost: 100,
+      }],
+    });
+
+    const summary = new ProfitSafetyValidator().evaluate(input);
+    const vipScenario = summary.scenarios.find(
+      (scenario) => scenario.key === 'VIP_BUYER_VIP_INVITER',
+    )!;
+    const automaticMargin = (1.35 * 0.95 - 1) / (1.35 * 0.95);
+
+    expect(vipScenario.limitingGrossMarginRate).toBeCloseTo(automaticMargin, 8);
+    expect(vipScenario.platformRetainedRevenueRate).toBeCloseTo(automaticMargin * 0.5, 8);
+    expect(vipScenario.platformRetainedRevenueRate).toBeLessThan(0.12);
+    expect(summary.safe).toBe(false);
   });
 
   it.each([
@@ -148,6 +189,25 @@ describe('ProfitSafetyValidator', () => {
     expect(() => validator.assertSafe(input)).toThrow('CAPTAIN_PROFIT_SAFETY_VIOLATION');
   });
 
+  it.each([
+    ['string V2 schema', { schemaVersion: '2', enabled: true }],
+    ['unknown schema', { schemaVersion: 4, enabled: true }],
+    ['incomplete V3', { schemaVersion: 3, enabled: true }],
+  ])('fails closed with the unified safety error for %s', (_label, captainConfig) => {
+    const input = candidate({ captainConfig: captainConfig as any });
+
+    try {
+      validator.assertSafe(input);
+      throw new Error('expected safety violation');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProfitSafetyViolationError);
+      expect((error as ProfitSafetyViolationError).code)
+        .toBe('CAPTAIN_PROFIT_SAFETY_VIOLATION');
+      expect((error as ProfitSafetyViolationError).summary.errors)
+        .toContain('INVALID_CAPTAIN_CONFIG');
+    }
+  });
+
   it('reports limiting SKUs and shortfall when platform retained revenue is insufficient', () => {
     const input = candidate();
     input.captainConfig = {
@@ -178,5 +238,45 @@ describe('ProfitSafetyValidator', () => {
 
     expect(summary.safe).toBe(true);
     expect(summary.evaluatedSkuCount).toBe(0);
+  });
+
+  it('chooses the SKU with the lowest retained revenue when all SKUs have zero shortfall', () => {
+    const summary = validator.evaluate(candidate({
+      captainConfig: {
+        ...candidate().captainConfig,
+        unitEconomics: { fulfillmentCostRate: 0.01 },
+        caps: {
+          ...candidate().captainConfig.caps,
+          targetNetProfitRate: 0.01,
+          coldChainRiskReserveRate: 0.01,
+        },
+      } as any,
+      skus: [
+        {
+          ...candidate().skus[0],
+          id: 'a-outside-scope',
+          productId: 'product-outside',
+          price: 200,
+          cost: 100,
+        },
+        {
+          ...candidate().skus[0],
+          id: 'z-inside-scope',
+          productId: 'product-in-scope',
+          price: 135,
+          cost: 100,
+        },
+      ],
+    }));
+
+    const vipScenario = summary.scenarios.find(
+      (scenario) => scenario.key === 'VIP_BUYER_VIP_INVITER',
+    );
+    expect(summary.safe).toBe(true);
+    expect(vipScenario).toMatchObject({
+      limitingSkuId: 'z-inside-scope',
+      captainProfitRate: 0.1,
+      externalProfitRate: 0.5,
+    });
   });
 });
