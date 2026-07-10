@@ -154,6 +154,13 @@ CREATE UNIQUE INDEX "OrderProfitSnapshot_one_current_per_order"
 
 CREATE UNIQUE INDEX "OrderProfitFundingLedger_idempotencyKey_key"
   ON "OrderProfitFundingLedger"("idempotencyKey");
+ALTER TABLE "OrderProfitFundingLedger"
+  ADD CONSTRAINT "OrderProfitFundingLedger_amount_direction_check"
+  CHECK (
+    ("type" IN ('PLATFORM_RETAINED_CREDIT', 'CAPTAIN_MONTHLY_RELEASE') AND "amount" >= 0)
+    OR ("type" IN ('CAPTAIN_DIRECT_HOLD', 'CAPTAIN_MONTHLY_HOLD') AND "amount" <= 0)
+    OR "type" = 'REFUND_ADJUSTMENT'
+  );
 CREATE INDEX "OrderProfitFundingLedger_orderId_type_idx"
   ON "OrderProfitFundingLedger"("orderId", "type");
 CREATE INDEX "OrderProfitFundingLedger_snapshotId_createdAt_idx"

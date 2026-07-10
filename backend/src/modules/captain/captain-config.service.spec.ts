@@ -1,6 +1,7 @@
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+  normalizeCaptainSeafoodConfig,
   validateCaptainSeafoodConfig,
 } from './captain.constants';
 import { CaptainConfigService } from './captain-config.service';
@@ -19,8 +20,56 @@ function createService(ruleConfigFindUniqueResult: unknown) {
 
 describe('CaptainConfigService', () => {
   const v2Config = {
-    ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
     schemaVersion: 2,
+    enabled: false,
+    programCode: 'SEAFOOD_PREPACKAGED',
+    programName: '预包装海鲜团长经营激励',
+    effectiveFrom: null,
+    scope: {
+      categoryIds: [],
+      productIds: [],
+      companyIds: [],
+      excludedProductIds: [],
+      includeVipPackage: false,
+      includeGroupBuy: false,
+      includePrize: false,
+    },
+    orderRules: {
+      freezeDaysAfterReceived: 7,
+      minCommissionBase: 0,
+      includeShippingFee: false,
+      includeCouponDiscount: false,
+      includeRewardDeduction: false,
+    },
+    perOrderCommission: { directRate: 0.11 },
+    monthlyQualification: {
+      minDirectEffectiveBuyers: 12,
+      minDirectMonthlyGmv: 8000,
+      minNewEffectiveBuyers: 1,
+    },
+    monthlyRewards: {
+      baseTierGmv: 25000,
+      baseManagementRate: 0.022,
+      growthTierGmv: 70000,
+      growthBonusRate: 0.007,
+      excellentTierGmv: 140000,
+      cultivationBonusRate: 0.006,
+      performanceBonusRate: 0.01,
+    },
+    caps: {
+      maxTotalIncentiveRate: 0.155,
+      targetNetProfitRate: 0.09,
+      coldChainRiskReserveRate: 0.02,
+    },
+    tax: {
+      enabled: true,
+      withholdingRate: 0.2,
+      incomeType: 'LABOR_SERVICE',
+    },
+    risk: {
+      maxMonthlyRefundRate: 0.15,
+      holdSettlementOnRisk: true,
+    },
   };
   const v3Config = {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
@@ -66,6 +115,24 @@ describe('CaptainConfigService', () => {
         effectiveFrom: '2026-08-01T00:00:00.000Z',
       }),
     ).toThrow('Asia/Shanghai');
+  });
+
+  it('canonicalizes an equivalent V3 timezone input to UTC across normalize and validate', async () => {
+    const persistedConfig = {
+      ...v3Config,
+      effectiveFrom: '2026-08-01T00:00:00.000+08:00',
+    };
+    const { service } = createService({ value: persistedConfig });
+
+    expect(normalizeCaptainSeafoodConfig(persistedConfig)).toMatchObject({
+      effectiveFrom: '2026-07-31T16:00:00.000Z',
+    });
+    expect(validateCaptainSeafoodConfig(persistedConfig)).toMatchObject({
+      effectiveFrom: '2026-07-31T16:00:00.000Z',
+    });
+    await expect(service.getConfig()).resolves.toMatchObject({
+      effectiveFrom: '2026-07-31T16:00:00.000Z',
+    });
   });
 
   it('returns disabled default config when RuleConfig is absent', async () => {
@@ -146,9 +213,9 @@ describe('CaptainConfigService', () => {
 
   it('removes retired device and address thresholds from a persisted V2 config', async () => {
     const storedConfig = {
-      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+      ...v2Config,
       risk: {
-        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.risk,
+        ...v2Config.risk,
         maxSameDeviceEffectiveBuyers: 3,
         maxSameAddressEffectiveBuyers: 5,
       },
@@ -159,6 +226,17 @@ describe('CaptainConfigService', () => {
 
     expect(config.risk).not.toHaveProperty('maxSameDeviceEffectiveBuyers');
     expect(config.risk).not.toHaveProperty('maxSameAddressEffectiveBuyers');
+  });
+
+  it('returns a complete disabled persisted V2 fixture for legacy lifecycle reads', async () => {
+    const { service } = createService({ value: v2Config });
+
+    await expect(service.getConfig()).resolves.toMatchObject({
+      schemaVersion: 2,
+      enabled: false,
+      perOrderCommission: { directRate: 0.11 },
+      monthlyRewards: { baseManagementRate: 0.022 },
+    });
   });
 
   it('rejects a non-ISO activation timestamp', () => {

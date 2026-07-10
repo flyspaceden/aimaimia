@@ -4,17 +4,67 @@ import { CaptainMonthlySettlementService } from './captain-monthly-settlement.se
 
 function makeConfig(overrides: any = {}) {
   return {
+    schemaVersion: 2,
+    enabled: true,
+    programCode: 'SEAFOOD_PREPACKAGED',
+    programName: '预包装海鲜团长经营激励',
+    effectiveFrom: null,
+    scope: {
+      categoryIds: [],
+      productIds: ['product-1'],
+      companyIds: [],
+      excludedProductIds: [],
+      includeVipPackage: false,
+      includeGroupBuy: false,
+      includePrize: false,
+    },
+    orderRules: {
+      freezeDaysAfterReceived: 7,
+      minCommissionBase: 0,
+      includeShippingFee: false,
+      includeCouponDiscount: false,
+      includeRewardDeduction: false,
+    },
+    perOrderCommission: { directRate: 0.11 },
+    monthlyRewards: {
+      baseTierGmv: 25000,
+      baseManagementRate: 0.022,
+      growthTierGmv: 70000,
+      growthBonusRate: 0.007,
+      excellentTierGmv: 140000,
+      cultivationBonusRate: 0.006,
+      performanceBonusRate: 0.01,
+    },
+    monthlyQualification: {
+      minDirectEffectiveBuyers: 0,
+      minDirectMonthlyGmv: 8000,
+      minNewEffectiveBuyers: 0,
+    },
+    caps: {
+      maxTotalIncentiveRate: 0.155,
+      targetNetProfitRate: 0.09,
+      coldChainRiskReserveRate: 0.02,
+    },
+    tax: {
+      enabled: true,
+      withholdingRate: 0.2,
+      incomeType: 'LABOR_SERVICE',
+    },
+    risk: {
+      maxMonthlyRefundRate: 0.15,
+      holdSettlementOnRisk: true,
+    },
+    ...overrides,
+  };
+}
+
+function makeV3Config(overrides: any = {}) {
+  return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
     enabled: true,
     scope: {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.scope,
       productIds: ['product-1'],
-    },
-    monthlyQualification: {
-      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyQualification,
-      minDirectEffectiveBuyers: 0,
-      minDirectMonthlyGmv: 8000,
-      minNewEffectiveBuyers: 0,
     },
     ...overrides,
   };
@@ -161,6 +211,17 @@ function createHarness(options: {
 }
 
 describe('CaptainMonthlySettlementService', () => {
+  it('skips enabled V3 in both legacy monthly entry points before starting a transaction', async () => {
+    const { service, prisma, tx } = createHarness({ config: makeV3Config() });
+
+    await expect(service.calculateMetrics('2026-06')).resolves.toEqual([]);
+    await expect(service.createDraftSettlements('2026-06')).resolves.toEqual([]);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.captainOrderAttribution.findMany).not.toHaveBeenCalled();
+    expect(tx.captainMonthlySettlement.create).not.toHaveBeenCalled();
+  });
+
   it('grants qualification at 8000 direct GMV but creates no high-value monthly reward', async () => {
     const { service, tx, savedMetrics, savedSettlements } = createHarness({
       attributions: [

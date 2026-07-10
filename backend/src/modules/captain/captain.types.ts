@@ -76,8 +76,6 @@ export interface CaptainSeafoodConfigV3 {
   monthlyQualification: CaptainMonthlyQualification;
   perOrderCommission: {
     directProfitRate: number;
-    // Allows the untouched V2 services to compile until their V3 task replaces sales-rate reads.
-    [legacyRate: string]: number;
   };
   monthlyRewards: {
     baseTierGmv: number;
@@ -87,8 +85,6 @@ export interface CaptainSeafoodConfigV3 {
     excellentTierGmv: number;
     cultivationBonusProfitRate: number;
     performanceBonusProfitRate: number;
-    // Allows the untouched V2 services to compile until their V3 task replaces sales-rate reads.
-    [legacyRate: string]: number;
   };
   unitEconomics: {
     fulfillmentCostRate: number;
@@ -97,8 +93,6 @@ export interface CaptainSeafoodConfigV3 {
     maxTotalIncentiveProfitRate: number;
     targetNetProfitRate: number;
     coldChainRiskReserveRate: number;
-    // Allows the untouched V2 services to compile until their V3 task replaces sales-rate reads.
-    [legacyRate: string]: number;
   };
   tax: CaptainTaxConfig;
   risk: CaptainRiskConfig;

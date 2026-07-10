@@ -4,7 +4,7 @@ import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
 } from './captain.constants';
 import { CaptainConfigService } from './captain-config.service';
-import type { CaptainSeafoodConfig } from './captain.types';
+import type { CaptainSeafoodConfigV2 } from './captain.types';
 
 export type CaptainAttributionResult = 'credited' | 'skipped';
 
@@ -19,7 +19,7 @@ export class CaptainAttributionService {
     orderId: string,
   ): Promise<CaptainAttributionResult> {
     const config = await this.configService.getSnapshot();
-    if (!config.enabled) {
+    if (!config.enabled || config.schemaVersion !== 2) {
       return 'skipped';
     }
 
@@ -170,7 +170,7 @@ export class CaptainAttributionService {
       type: 'DIRECT_ORDER';
       rate: number;
       commissionBase: number;
-      configSnapshot: CaptainSeafoodConfig;
+      configSnapshot: CaptainSeafoodConfigV2;
     },
   ) {
     const amount = this.roundMoney(params.commissionBase * params.rate);
@@ -219,7 +219,7 @@ export class CaptainAttributionService {
     });
   }
 
-  private calculateEligibleGoodsAmount(items: any[], config: CaptainSeafoodConfig) {
+  private calculateEligibleGoodsAmount(items: any[], config: CaptainSeafoodConfigV2) {
     return this.roundMoney(items
       .filter((item) => this.isEligibleItem(item, config))
       .reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0), 0));
@@ -232,7 +232,7 @@ export class CaptainAttributionService {
     return Number.isFinite(effectiveAt) && Number.isFinite(paidAtMs) && paidAtMs >= effectiveAt;
   }
 
-  private isEligibleItem(item: any, config: CaptainSeafoodConfig) {
+  private isEligibleItem(item: any, config: CaptainSeafoodConfigV2) {
     if (!item || item.isPrize) return false;
 
     const productId = item.sku?.productId || item.sku?.product?.id || null;

@@ -3,6 +3,62 @@ import { CaptainAttributionService } from './captain-attribution.service';
 
 function makeConfig(overrides: any = {}) {
   return {
+    schemaVersion: 2,
+    enabled: true,
+    programCode: 'SEAFOOD_PREPACKAGED',
+    programName: '预包装海鲜团长经营激励',
+    effectiveFrom: null,
+    scope: {
+      categoryIds: [],
+      productIds: ['product-1'],
+      companyIds: [],
+      excludedProductIds: [],
+      includeVipPackage: false,
+      includeGroupBuy: false,
+      includePrize: false,
+    },
+    orderRules: {
+      freezeDaysAfterReceived: 7,
+      minCommissionBase: 0,
+      includeShippingFee: false,
+      includeCouponDiscount: false,
+      includeRewardDeduction: false,
+    },
+    perOrderCommission: { directRate: 0.11 },
+    monthlyQualification: {
+      minDirectEffectiveBuyers: 12,
+      minDirectMonthlyGmv: 8000,
+      minNewEffectiveBuyers: 1,
+    },
+    monthlyRewards: {
+      baseTierGmv: 25000,
+      baseManagementRate: 0.022,
+      growthTierGmv: 70000,
+      growthBonusRate: 0.007,
+      excellentTierGmv: 140000,
+      cultivationBonusRate: 0.006,
+      performanceBonusRate: 0.01,
+    },
+    caps: {
+      maxTotalIncentiveRate: 0.155,
+      targetNetProfitRate: 0.09,
+      coldChainRiskReserveRate: 0.02,
+    },
+    tax: {
+      enabled: true,
+      withholdingRate: 0.2,
+      incomeType: 'LABOR_SERVICE',
+    },
+    risk: {
+      maxMonthlyRefundRate: 0.15,
+      holdSettlementOnRisk: true,
+    },
+    ...overrides,
+  };
+}
+
+function makeV3Config(overrides: any = {}) {
+  return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
     enabled: true,
     scope: {
@@ -98,6 +154,19 @@ function createHarness(options: {
 }
 
 describe('CaptainAttributionService', () => {
+  it('skips enabled V3 before any legacy sales-rate read', async () => {
+    const { service, tx } = createHarness({
+      config: makeV3Config(),
+      order: makeOrder({ paidAt: new Date('2026-08-02T00:00:00.000Z') }),
+    });
+
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
+    expect(tx.captainOrderAttribution.findUnique).not.toHaveBeenCalled();
+    expect(tx.order.findUnique).not.toHaveBeenCalled();
+    expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
+    expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
+  });
+
   it('does nothing when captain config is disabled', async () => {
     const { service, tx } = createHarness({
       config: { ...makeConfig(), enabled: false },
