@@ -9,13 +9,43 @@ export interface MoneyAllocationResult {
   unallocatedCents: number;
 }
 
-export const yuanToCents = (value: number): number =>
-  Math.round((value + Number.EPSILON) * 100);
+export const yuanToCents = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    throw new Error('yuan value must be finite');
+  }
+  const sign = value < 0 ? -1n : 1n;
+  const [whole, fraction = ''] = Math.abs(value).toFixed(10).split('.');
+  const paddedFraction = `${fraction}000`;
+  let cents = BigInt(whole) * 100n + BigInt(paddedFraction.slice(0, 2));
+  if (paddedFraction[2] >= '5') cents += 1n;
+  cents *= sign;
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (cents > max || cents < -max) {
+    throw new Error('yuan value exceeds the safe cent range');
+  }
+  return Number(cents);
+};
 
-export const centsToYuan = (value: number): number => Math.round(value) / 100;
+export const centsToYuan = (value: number): number => {
+  if (!Number.isSafeInteger(value)) {
+    throw new Error('cent value must be a safe integer');
+  }
+  return value / 100;
+};
 
 export const isNonNegativeIntegerCents = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0;
+
+export function checkedSafeIntegerSum(values: number[]): number | null {
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  let total = 0n;
+  for (const value of values) {
+    if (!Number.isSafeInteger(value)) return null;
+    total += BigInt(value);
+    if (total > max || total < -max) return null;
+  }
+  return Number(total);
+}
 
 export function allocateCentsByLargestRemainder(
   totalCents: number,
@@ -42,11 +72,10 @@ export function allocateCentsByLargestRemainder(
   const allocations = Object.fromEntries(
     sortedTargets.map((target) => [target.id, 0]),
   ) as Record<string, number>;
-  const capacityTotal = sortedTargets.reduce(
-    (sum, target) => sum + target.capacityCents,
-    0,
+  const capacityTotal = checkedSafeIntegerSum(
+    sortedTargets.map((target) => target.capacityCents),
   );
-  if (!Number.isSafeInteger(capacityTotal)) {
+  if (capacityTotal === null) {
     throw new Error('allocation capacity exceeds the safe integer range');
   }
 

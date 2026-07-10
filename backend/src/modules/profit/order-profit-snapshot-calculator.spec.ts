@@ -1,4 +1,5 @@
 import { OrderProfitSnapshotCalculator } from './order-profit-snapshot-calculator';
+import { allocateCentsByLargestRemainder, yuanToCents } from './money-allocation';
 
 describe('OrderProfitSnapshotCalculator', () => {
   const calculator = new OrderProfitSnapshotCalculator();
@@ -346,5 +347,175 @@ describe('OrderProfitSnapshotCalculator', () => {
 
     expect(result.netGoodsRevenueCents).toBe(9_000);
     expect(result.distributableProfitCents).toBe(2_000);
+  });
+
+  it('applies the complete discount sequence against each stage remaining capacity', () => {
+    const result = calculator.calculate({
+      grossGoodsAmountCents: 200,
+      otherGoodsDiscountCents: 90,
+      vipDiscountCents: 20,
+      rewardDeductionCents: 20,
+      groupBuyRebateDeductionCents: 30,
+      couponDiscountCents: 40,
+      items: [
+        {
+          id: 'item-a',
+          unitPriceCents: 100,
+          quantity: 1,
+          unitCostCents: 1,
+          explicitDiscountCents: 90,
+          isPrize: false,
+          captainEligible: false,
+        },
+        {
+          id: 'item-b',
+          unitPriceCents: 100,
+          quantity: 1,
+          unitCostCents: 1,
+          isPrize: false,
+          captainEligible: false,
+        },
+      ],
+    });
+
+    expect(result.status).toBe('READY');
+    expect(result.itemBreakdown).toEqual([
+      expect.objectContaining({
+        orderItemId: 'item-a',
+        explicitDiscountCents: 90,
+        vipDiscountCents: 2,
+        rewardDeductionCents: 2,
+        groupBuyRebateDeductionCents: 3,
+        couponDiscountCents: 3,
+        netGoodsRevenueCents: 0,
+      }),
+      expect.objectContaining({
+        orderItemId: 'item-b',
+        explicitDiscountCents: 0,
+        vipDiscountCents: 18,
+        rewardDeductionCents: 18,
+        groupBuyRebateDeductionCents: 27,
+        couponDiscountCents: 37,
+        netGoodsRevenueCents: 0,
+      }),
+    ]);
+  });
+
+  it('redistributes all remaining cents after a high-weight target reaches capacity', () => {
+    expect(allocateCentsByLargestRemainder(50, [
+      { id: 'item-a', weightCents: 100, capacityCents: 1 },
+      { id: 'item-b', weightCents: 1, capacityCents: 100 },
+    ])).toEqual({
+      allocations: { 'item-a': 1, 'item-b': 49 },
+      unallocatedCents: 0,
+    });
+  });
+
+  it('fails closed instead of throwing when aggregate item amounts exceed safe integers', () => {
+    expect(() => calculator.calculate({
+      grossGoodsAmountCents: 2,
+      vipDiscountCents: 1,
+      items: [
+        {
+          id: 'item-a',
+          unitPriceCents: 1,
+          quantity: 1,
+          unitCostCents: Number.MAX_SAFE_INTEGER,
+          isPrize: false,
+          captainEligible: true,
+        },
+        {
+          id: 'item-b',
+          unitPriceCents: 1,
+          quantity: 1,
+          unitCostCents: Number.MAX_SAFE_INTEGER,
+          isPrize: false,
+          captainEligible: false,
+        },
+      ],
+    })).not.toThrow();
+
+    expect(calculator.calculate({
+      grossGoodsAmountCents: 2,
+      vipDiscountCents: 1,
+      items: [
+        {
+          id: 'item-a',
+          unitPriceCents: 1,
+          quantity: 1,
+          unitCostCents: Number.MAX_SAFE_INTEGER,
+          isPrize: false,
+          captainEligible: true,
+        },
+        {
+          id: 'item-b',
+          unitPriceCents: 1,
+          quantity: 1,
+          unitCostCents: Number.MAX_SAFE_INTEGER,
+          isPrize: false,
+          captainEligible: false,
+        },
+      ],
+    })).toMatchObject({
+      status: 'RECONCILIATION_REQUIRED',
+      errorCode: 'ORDER_PROFIT_CONSERVATION_FAILED',
+      distributableProfitCents: 0,
+      captainEligibleProfitCents: 0,
+    });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'sanitizes non-finite cost %s in the reconciliation breakdown',
+    (unitCostCents) => {
+      const result = calculator.calculate({
+        grossGoodsAmountCents: 100,
+        items: [{
+          id: 'item-a',
+          unitPriceCents: 100,
+          quantity: 1,
+          unitCostCents,
+          isPrize: false,
+          captainEligible: true,
+        }],
+      });
+
+      expect(result.status).toBe('RECONCILIATION_REQUIRED');
+      expect(result.itemBreakdown[0].unitCostCents).toBe(0);
+      expect(Number.isFinite(result.itemBreakdown[0].unitCostCents)).toBe(true);
+    },
+  );
+
+  it('keeps C at zero when captain-eligible items lose money and only other items profit', () => {
+    const result = calculator.calculate({
+      grossGoodsAmountCents: 3_000,
+      items: [
+        {
+          id: 'captain-loss',
+          unitPriceCents: 1_000,
+          quantity: 1,
+          unitCostCents: 1_500,
+          isPrize: false,
+          captainEligible: true,
+        },
+        {
+          id: 'other-profit',
+          unitPriceCents: 2_000,
+          quantity: 1,
+          unitCostCents: 1_000,
+          isPrize: false,
+          captainEligible: false,
+        },
+      ],
+    });
+
+    expect(result.distributableProfitCents).toBe(500);
+    expect(result.captainEligibleProfitCents).toBe(0);
+  });
+
+  it('rounds yuan to cents half-up and rejects unsafe or non-finite conversions', () => {
+    expect(yuanToCents(10.075)).toBe(1_008);
+    expect(yuanToCents(0.1 + 0.2)).toBe(30);
+    expect(() => yuanToCents(Number.NaN)).toThrow();
+    expect(() => yuanToCents(Number.MAX_SAFE_INTEGER)).toThrow();
   });
 });
