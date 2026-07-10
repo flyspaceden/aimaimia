@@ -50,7 +50,7 @@ function makeAttribution(overrides: any = {}) {
         orderId: 'order-1',
         orderAttributionId: 'attr-1',
         programCode: DEFAULT_CAPTAIN_SEAFOOD_CONFIG.programCode,
-        type: 'INDIRECT_ORDER',
+        type: 'LEGACY_INDIRECT_ORDER',
         status: 'FROZEN',
         amount: 2,
         commissionBase: 100,
@@ -115,6 +115,15 @@ describe('CaptainCommissionService', () => {
 
     await expect(service.releaseForReceivedOrder('order-1', 'BUYER_RECEIVED')).resolves.toBe('released');
 
+    expect(tx.captainOrderAttribution.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({
+        ledgers: expect.objectContaining({
+          where: expect.objectContaining({
+            type: { in: ['DIRECT_ORDER', 'LEGACY_INDIRECT_ORDER'] },
+          }),
+        }),
+      }),
+    }));
     expect(tx.captainCommissionLedger.update).toHaveBeenCalledTimes(2);
     expect(tx.captainCommissionLedger.update).toHaveBeenNthCalledWith(1, {
       where: { id: 'ledger-direct' },

@@ -21,11 +21,12 @@ export const captainProfileStatusMap: Record<CaptainProfileStatus, { text: strin
 
 export const captainLedgerTypeMap: Record<CaptainLedgerType, { text: string; color: string }> = {
   DIRECT_ORDER: { text: '一级逐单', color: 'green' },
-  INDIRECT_ORDER: { text: '二级逐单', color: 'cyan' },
+  LEGACY_INDIRECT_ORDER: { text: '历史二级佣金', color: 'default' },
   MANAGEMENT_ALLOWANCE: { text: '管理津贴', color: 'blue' },
   GROWTH_BONUS: { text: '增长奖', color: 'purple' },
   CULTIVATION_BONUS: { text: '辅导奖', color: 'magenta' },
-  TEAM_POOL: { text: '团队池', color: 'geekblue' },
+  PERFORMANCE_BONUS: { text: '经营绩效奖', color: 'geekblue' },
+  TEAM_POOL: { text: '历史团队池奖励', color: 'default' },
   VOID: { text: '冲回', color: 'red' },
   ADJUSTMENT: { text: '调整', color: 'orange' },
 };

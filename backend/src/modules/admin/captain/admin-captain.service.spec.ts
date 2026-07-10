@@ -140,11 +140,10 @@ describe('AdminCaptainService', () => {
     }));
   });
 
-  it('queries team members with direct and indirect levels only', async () => {
+  it('queries direct customers only and does not return operational levels', async () => {
     const { service, prisma } = createHarness();
     prisma.captainRelation.findMany.mockResolvedValue([
-      { buyerUserId: 'buyer-1', directCaptainUserId: 'captain-1', indirectCaptainUserId: null },
-      { buyerUserId: 'buyer-2', directCaptainUserId: 'member-1', indirectCaptainUserId: 'captain-1' },
+      { buyerUserId: 'buyer-1', directCaptainUserId: 'captain-1', legacyIndirectCaptainUserId: null },
     ]);
 
     const result = await service.getTeam('captain-1');
@@ -153,14 +152,14 @@ describe('AdminCaptainService', () => {
       where: {
         programCode: 'SEAFOOD_PREPACKAGED',
         status: 'ACTIVE',
-        OR: [
-          { directCaptainUserId: 'captain-1' },
-          { indirectCaptainUserId: 'captain-1' },
-        ],
+        directCaptainUserId: 'captain-1',
       },
     }));
-    expect(result.items.map((item: any) => item.level)).toEqual([1, 2]);
-    expect(JSON.stringify(result)).not.toContain('level":3');
+    expect(result.items).toEqual([
+      expect.objectContaining({ buyerUserId: 'buyer-1', directCaptainUserId: 'captain-1' }),
+    ]);
+    expect(result.items[0]).not.toHaveProperty('legacyIndirectCaptainUserId');
+    expect(JSON.stringify(result)).not.toContain('level');
   });
 
   it('queries order attributions, commission ledgers and monthly settlements', async () => {
@@ -172,10 +171,7 @@ describe('AdminCaptainService', () => {
 
     expect(prisma.captainOrderAttribution.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        OR: [
-          { directCaptainUserId: 'captain-1' },
-          { indirectCaptainUserId: 'captain-1' },
-        ],
+        directCaptainUserId: 'captain-1',
       }),
     }));
     expect(prisma.captainCommissionLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -248,7 +244,7 @@ describe('AdminCaptainService', () => {
     });
     await expect(service.updateSettings({
       ...enabledConfig,
-      perOrderCommission: { ...enabledConfig.perOrderCommission, maxLevels: 3 },
+      perOrderCommission: { ...enabledConfig.perOrderCommission, indirectRate: 0.02 },
     }, 'admin-1')).rejects.toBeInstanceOf(BadRequestException);
   });
 });

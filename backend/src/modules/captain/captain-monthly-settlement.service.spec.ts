@@ -13,10 +13,8 @@ function makeConfig(overrides: any = {}) {
     monthlyQualification: {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyQualification,
       minDirectEffectiveBuyers: 0,
-      minPersonalMonthlyGmv: 0,
-      minTeamEffectiveMembers: 0,
-      minTeamMonthlyGmv: 8000,
-      minNewEffectiveMembers: 0,
+      minDirectMonthlyGmv: 8000,
+      minNewEffectiveBuyers: 0,
     },
     ...overrides,
   };
@@ -32,7 +30,7 @@ function makeAttribution(
     id,
     buyerUserId: `${id}-buyer`,
     directCaptainUserId,
-    indirectCaptainUserId: null,
+    legacyIndirectCaptainUserId: null,
     commissionBase,
     refundAmount: 0,
     createdAt: new Date('2026-06-15T00:00:00.000Z'),
@@ -65,24 +63,12 @@ function createHarness(options: {
     },
     captainOrderAttribution: {
       findMany: jest.fn().mockImplementation(({ where }: any) => {
-        if (where.indirectCaptainUserId) {
-          return Promise.resolve(attributions.filter((item) => (
-            item.indirectCaptainUserId === where.indirectCaptainUserId
-          )));
-        }
-        const directIds = new Set(
-          (where.OR ?? [])
-            .map((item: any) => item.directCaptainUserId)
-            .filter(Boolean),
-        );
-        const indirectIds = new Set(
-          (where.OR ?? [])
-            .map((item: any) => item.indirectCaptainUserId)
-            .filter(Boolean),
-        );
+        const directIds = new Set([
+          where.directCaptainUserId,
+          ...(where.OR ?? []).map((item: any) => item.directCaptainUserId),
+        ].filter(Boolean));
         return Promise.resolve(attributions.filter((item) => (
-          directIds.has(item.directCaptainUserId) ||
-          indirectIds.has(item.indirectCaptainUserId)
+          directIds.has(item.directCaptainUserId)
         )));
       }),
     },
@@ -175,8 +161,8 @@ function createHarness(options: {
 }
 
 describe('CaptainMonthlySettlementService', () => {
-  it('grants qualification at 8000 team GMV but creates no high-value monthly reward', async () => {
-    const { service, savedMetrics, savedSettlements } = createHarness({
+  it('grants qualification at 8000 direct GMV but creates no high-value monthly reward', async () => {
+    const { service, tx, savedMetrics, savedSettlements } = createHarness({
       attributions: [
         makeAttribution('order-1', 'captain-1', 8000),
       ],
@@ -184,6 +170,9 @@ describe('CaptainMonthlySettlementService', () => {
 
     await service.createDraftSettlements('2026-06');
 
+    const attributionQuery = tx.captainOrderAttribution.findMany.mock.calls[0][0];
+    expect(attributionQuery.where).toMatchObject({ directCaptainUserId: 'captain-1' });
+    expect(attributionQuery.select).not.toHaveProperty('indirectCaptainUserId');
     expect(savedMetrics[0]).toMatchObject({
       month: '2026-06',
       teamGmv: 8000,
@@ -200,7 +189,7 @@ describe('CaptainMonthlySettlementService', () => {
     });
   });
 
-  it('creates management allowance and team pool at base tier', async () => {
+  it('creates management allowance and direct-operation performance award at base tier', async () => {
     const { service, savedSettlements } = createHarness({
       attributions: [
         makeAttribution('order-1', 'captain-1', 25000),
@@ -213,10 +202,10 @@ describe('CaptainMonthlySettlementService', () => {
       baseManagementAmount: 550,
       growthBonusAmount: 0,
       cultivationBonusAmount: 0,
-      teamPoolAmount: 100,
-      totalAmount: 650,
-      taxAmount: 130,
-      netAmount: 520,
+      teamPoolAmount: 250,
+      totalAmount: 800,
+      taxAmount: 160,
+      netAmount: 640,
     });
   });
 
@@ -233,48 +222,39 @@ describe('CaptainMonthlySettlementService', () => {
       baseManagementAmount: 3080,
       growthBonusAmount: 980,
       cultivationBonusAmount: 840,
-      teamPoolAmount: 560,
-      totalAmount: 5460,
+      teamPoolAmount: 1400,
+      totalAmount: 6300,
     });
   });
 
-  it('splits team pool with captain 40 percent and members 60 percent by personal GMV', async () => {
+  it('does not count legacy indirect sales or distribute a performance award to another captain', async () => {
     const { service, savedSettlements } = createHarness({
       attributions: [
-        makeAttribution('order-1', 'member-1', 30000, { indirectCaptainUserId: 'captain-1' }),
-        makeAttribution('order-2', 'member-2', 70000, { indirectCaptainUserId: 'captain-1' }),
-      ],
-      relations: [
-        { buyerUserId: 'member-1', directCaptainUserId: 'captain-1', status: 'ACTIVE' },
-        { buyerUserId: 'member-2', directCaptainUserId: 'captain-1', status: 'ACTIVE' },
+        makeAttribution('order-1', 'captain-1', 25000),
+        makeAttribution('order-2', 'member-1', 70000, { legacyIndirectCaptainUserId: 'captain-1' }),
       ],
     });
 
     await service.createDraftSettlements('2026-06');
 
     expect(savedSettlements[0]).toMatchObject({
-      teamPoolAmount: 1000,
-      totalAmount: 3900,
+      teamPoolAmount: 250,
+      totalAmount: 800,
       meta: {
-        teamPoolSummary: {
-          theoreticalAmount: 1000,
-          captainAmount: 400,
-          memberAmount: 600,
+        performanceBonusSummary: {
+          amount: 250,
+          recipientUserId: 'captain-1',
         },
       },
     });
-    expect(savedSettlements[0].meta.teamPoolDistribution).toEqual([
-      { userId: 'member-1', personalGmv: 30000, amount: 180 },
-      { userId: 'member-2', personalGmv: 70000, amount: 420 },
-    ]);
   });
 
   it('creates zero monthly rewards when monthly assessment fails', async () => {
     const { service, savedMetrics, savedSettlements } = createHarness({
       config: makeConfig({
-        monthlyQualification: {
-          ...makeConfig().monthlyQualification,
-          minDirectEffectiveBuyers: 2,
+      monthlyQualification: {
+        ...makeConfig().monthlyQualification,
+        minDirectEffectiveBuyers: 2,
         },
       }),
       attributions: [
@@ -309,14 +289,7 @@ describe('CaptainMonthlySettlementService', () => {
       totalAmount: 1005,
       configSnapshot: makeConfig(),
       meta: {
-        teamPoolSummary: {
-          theoreticalAmount: 280,
-          captainAmount: 100,
-          memberAmount: 180,
-        },
-        teamPoolDistribution: [
-          { userId: 'member-1', personalGmv: 30000, amount: 180 },
-        ],
+        performanceBonusSummary: { amount: 280, recipientUserId: 'captain-1' },
       },
     });
 
@@ -332,14 +305,17 @@ describe('CaptainMonthlySettlementService', () => {
     expect(createdLedgers.map((item) => item.idempotencyKey)).toEqual([
       'captain:month:2026-06:captain-1:management',
       'captain:month:2026-06:captain-1:growth',
-      'captain:month:2026-06:captain-1:team-pool',
-      'captain:month:2026-06:member-1:team-pool:captain-1',
+      'captain:month:2026-06:captain-1:performance',
     ]);
     expect(createdLedgers.map((item) => item.amount)).toEqual([
       550,
       175,
-      100,
-      180,
+      280,
+    ]);
+    expect(createdLedgers.map((item) => item.type)).toEqual([
+      'MANAGEMENT_ALLOWANCE',
+      'GROWTH_BONUS',
+      'PERFORMANCE_BONUS',
     ]);
   });
 
@@ -414,7 +390,7 @@ describe('CaptainMonthlySettlementService', () => {
 
     expect(draft).toMatchObject({
       captainUserId: 'captain-2',
-      totalAmount: 2310,
+      totalAmount: 2730,
     });
   });
 

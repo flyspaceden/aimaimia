@@ -23,15 +23,9 @@ type MetricInput = {
   qualifiedTier: string | null;
   configSnapshot: CaptainSeafoodConfig;
 };
-type TeamPoolDistribution = Array<{
-  userId: string;
-  personalGmv: number;
+type PerformanceBonusSummary = {
   amount: number;
-}>;
-type TeamPoolSummary = {
-  theoreticalAmount: number;
-  captainAmount: number;
-  memberAmount: number;
+  recipientUserId: string;
 };
 
 const SERIALIZABLE_MAX_RETRIES = 3;
@@ -112,17 +106,9 @@ export class CaptainMonthlySettlementService {
 
         const metricInput = await this.calculateMetricInTx(tx, month, captain.userId, config);
         const metric = await this.upsertMetric(tx, metricInput);
-        const teamPoolDistribution = await this.calculateTeamPoolDistributionInTx(
-          tx,
-          month,
-          captain.userId,
+        const { performanceBonusSummary, ...amounts } = this.calculateSettlementAmounts(
           metricInput,
           config,
-        );
-        const { teamPoolSummary, ...amounts } = this.calculateSettlementAmounts(
-          metricInput,
-          config,
-          teamPoolDistribution,
         );
         const updateData = {
           metricId: metric.id,
@@ -134,7 +120,7 @@ export class CaptainMonthlySettlementService {
           paidAt: null,
           rejectReason: null,
           configSnapshot: this.snapshot(config),
-          meta: { teamPoolDistribution, teamPoolSummary },
+          meta: { performanceBonusSummary },
         };
         const settlement = existingSettlement
           ? await (tx as any).captainMonthlySettlement.update({
@@ -150,7 +136,7 @@ export class CaptainMonthlySettlementService {
                 status: 'DRAFT',
                 ...amounts,
                 configSnapshot: this.snapshot(config),
-                meta: { teamPoolDistribution, teamPoolSummary },
+                meta: { performanceBonusSummary },
               },
             });
         settlements.push(settlement);
@@ -294,26 +280,20 @@ export class CaptainMonthlySettlementService {
         programCode: config.programCode,
         createdAt: { gte: start, lt: end },
         status: { not: 'VOIDED' },
-        OR: [
-          { directCaptainUserId: captainUserId },
-          { indirectCaptainUserId: captainUserId },
-        ],
+        directCaptainUserId: captainUserId,
       },
       select: {
         id: true,
         buyerUserId: true,
         directCaptainUserId: true,
-        indirectCaptainUserId: true,
         commissionBase: true,
         refundAmount: true,
         createdAt: true,
       },
     });
-    const directAttributions = attributions.filter(
-      (item: any) => item.directCaptainUserId === captainUserId,
-    );
-    const personalGmv = this.sumNetGmv(directAttributions);
-    const teamGmv = this.sumNetGmv(attributions);
+    const personalGmv = this.sumNetGmv(attributions);
+    // Keep legacy metric fields synchronized for audit compatibility; new data is direct-only.
+    const teamGmv = personalGmv;
     const grossTeamGmv = attributions.reduce(
       (sum: number, item: any) => sum + Number(item.commissionBase || 0),
       0,
@@ -323,7 +303,7 @@ export class CaptainMonthlySettlementService {
       0,
     );
     const directEffectiveBuyers = new Set(
-      directAttributions
+      attributions
         .filter((item: any) => this.netGmv(item) > 0)
         .map((item: any) => item.buyerUserId),
     ).size;
@@ -332,26 +312,22 @@ export class CaptainMonthlySettlementService {
       where: {
         programCode: config.programCode,
         status: 'ACTIVE',
-        OR: [
-          { directCaptainUserId: captainUserId },
-          { indirectCaptainUserId: captainUserId },
-        ],
+        directCaptainUserId: captainUserId,
       },
       select: {
         buyerUserId: true,
         directCaptainUserId: true,
-        indirectCaptainUserId: true,
         boundAt: true,
       },
     });
-    const effectiveTeamBuyerIds = new Set(
+    const effectiveDirectBuyerIds = new Set(
       attributions
         .filter((item: any) => this.netGmv(item) > 0)
         .map((item: any) => item.buyerUserId),
     );
     const teamEffectiveMembers = new Set(
       relations
-        .filter((relation: any) => !effectiveTeamBuyerIds.size || effectiveTeamBuyerIds.has(relation.buyerUserId))
+        .filter((relation: any) => !effectiveDirectBuyerIds.size || effectiveDirectBuyerIds.has(relation.buyerUserId))
         .map((relation: any) => relation.buyerUserId),
     ).size;
     const newEffectiveMembers = new Set(
@@ -360,7 +336,7 @@ export class CaptainMonthlySettlementService {
           if (relation.boundAt && (relation.boundAt < start || relation.boundAt >= end)) {
             return false;
           }
-          return !effectiveTeamBuyerIds.size || effectiveTeamBuyerIds.has(relation.buyerUserId);
+          return !effectiveDirectBuyerIds.size || effectiveDirectBuyerIds.has(relation.buyerUserId);
         })
         .map((relation: any) => relation.buyerUserId),
     ).size;
@@ -424,7 +400,6 @@ export class CaptainMonthlySettlementService {
   private calculateSettlementAmounts(
     metric: MetricInput,
     config: CaptainSeafoodConfig,
-    teamPoolDistribution: TeamPoolDistribution,
   ): {
     baseManagementAmount: number;
     growthBonusAmount: number;
@@ -433,39 +408,32 @@ export class CaptainMonthlySettlementService {
     totalAmount: number;
     taxAmount: number;
     netAmount: number;
-    teamPoolSummary: TeamPoolSummary;
+    performanceBonusSummary: PerformanceBonusSummary;
   } {
     let baseManagementAmount = 0;
     let growthBonusAmount = 0;
     let cultivationBonusAmount = 0;
     let teamPoolAmount = 0;
-    let teamPoolSummary: TeamPoolSummary = {
-      theoreticalAmount: 0,
-      captainAmount: 0,
-      memberAmount: 0,
+    let performanceBonusSummary: PerformanceBonusSummary = {
+      amount: 0,
+      recipientUserId: metric.captainUserId,
     };
 
-    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.baseTierGmv) {
-      baseManagementAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.baseManagementRate);
-      const teamPoolTotal = this.roundMoney(metric.teamGmv * config.monthlyRewards.teamPoolRate);
-      const captainTeamPoolAmount = this.roundMoney(
-        teamPoolTotal * config.monthlyRewards.captainTeamPoolWeight,
+    if (metric.qualified && metric.personalGmv >= config.monthlyRewards.baseTierGmv) {
+      baseManagementAmount = this.roundMoney(metric.personalGmv * config.monthlyRewards.baseManagementRate);
+      teamPoolAmount = this.roundMoney(
+        metric.personalGmv * config.monthlyRewards.performanceBonusRate,
       );
-      const memberTeamPoolAmount = this.roundMoney(
-        teamPoolDistribution.reduce((sum, item) => sum + Number(item.amount || 0), 0),
-      );
-      teamPoolAmount = this.roundMoney(captainTeamPoolAmount + memberTeamPoolAmount);
-      teamPoolSummary = {
-        theoreticalAmount: teamPoolTotal,
-        captainAmount: captainTeamPoolAmount,
-        memberAmount: memberTeamPoolAmount,
+      performanceBonusSummary = {
+        amount: teamPoolAmount,
+        recipientUserId: metric.captainUserId,
       };
     }
-    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.growthTierGmv) {
-      growthBonusAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.growthBonusRate);
+    if (metric.qualified && metric.personalGmv >= config.monthlyRewards.growthTierGmv) {
+      growthBonusAmount = this.roundMoney(metric.personalGmv * config.monthlyRewards.growthBonusRate);
     }
-    if (metric.qualified && metric.teamGmv >= config.monthlyRewards.excellentTierGmv) {
-      cultivationBonusAmount = this.roundMoney(metric.teamGmv * config.monthlyRewards.cultivationBonusRate);
+    if (metric.qualified && metric.personalGmv >= config.monthlyRewards.excellentTierGmv) {
+      cultivationBonusAmount = this.roundMoney(metric.personalGmv * config.monthlyRewards.cultivationBonusRate);
     }
 
     const totalAmount = this.roundMoney(
@@ -487,58 +455,8 @@ export class CaptainMonthlySettlementService {
       totalAmount,
       taxAmount,
       netAmount,
-      teamPoolSummary,
+      performanceBonusSummary,
     };
-  }
-
-  private async calculateTeamPoolDistributionInTx(
-    tx: Tx,
-    month: string,
-    captainUserId: string,
-    metric: MetricInput,
-    config: CaptainSeafoodConfig,
-  ): Promise<TeamPoolDistribution> {
-    if (!metric.qualified || metric.teamGmv < config.monthlyRewards.baseTierGmv) {
-      return [];
-    }
-    const { start, end } = this.monthRange(month);
-    const teamPoolTotal = this.roundMoney(metric.teamGmv * config.monthlyRewards.teamPoolRate);
-    const memberPoolAmount = this.roundMoney(
-      teamPoolTotal * (1 - config.monthlyRewards.captainTeamPoolWeight),
-    );
-    if (memberPoolAmount <= 0) return [];
-
-    const memberAttributions = await (tx as any).captainOrderAttribution.findMany({
-      where: {
-        programCode: config.programCode,
-        createdAt: { gte: start, lt: end },
-        status: { not: 'VOIDED' },
-        indirectCaptainUserId: captainUserId,
-      },
-      select: {
-        directCaptainUserId: true,
-        commissionBase: true,
-        refundAmount: true,
-      },
-    });
-    const memberGmvMap = new Map<string, number>();
-    for (const item of memberAttributions) {
-      if (!item.directCaptainUserId || item.directCaptainUserId === captainUserId) continue;
-      const current = memberGmvMap.get(item.directCaptainUserId) ?? 0;
-      memberGmvMap.set(item.directCaptainUserId, this.roundMoney(current + this.netGmv(item)));
-    }
-    const totalMemberGmv = [...memberGmvMap.values()].reduce((sum, value) => sum + value, 0);
-    if (totalMemberGmv <= 0) return [];
-
-    let allocated = 0;
-    const entries = [...memberGmvMap.entries()].sort(([a], [b]) => a.localeCompare(b));
-    return entries.map(([userId, personalGmv], index) => {
-      const amount = index === entries.length - 1
-        ? this.roundMoney(memberPoolAmount - allocated)
-        : this.roundMoney(memberPoolAmount * (personalGmv / totalMemberGmv));
-      allocated = this.roundMoney(allocated + amount);
-      return { userId, personalGmv, amount };
-    });
   }
 
   private async createMonthlyRewardLedgers(tx: Tx, settlement: any): Promise<void> {
@@ -563,16 +481,10 @@ export class CaptainMonthlySettlementService {
       },
       {
         userId: settlement.captainUserId,
-        type: 'TEAM_POOL',
-        amount: this.getCaptainTeamPoolAmount(settlement),
-        keySuffix: 'team-pool',
+        type: 'PERFORMANCE_BONUS',
+        amount: settlement.teamPoolAmount,
+        keySuffix: 'performance',
       },
-      ...((settlement.meta?.teamPoolDistribution ?? []) as TeamPoolDistribution).map((item) => ({
-        userId: item.userId,
-        type: 'TEAM_POOL',
-        amount: item.amount,
-        keySuffix: `team-pool:${settlement.captainUserId}`,
-      })),
     ];
 
     for (const entry of entries) {
@@ -583,14 +495,6 @@ export class CaptainMonthlySettlementService {
         amount,
       });
     }
-  }
-
-  private getCaptainTeamPoolAmount(settlement: any): number {
-    const captainAmount = Number(settlement.meta?.teamPoolSummary?.captainAmount);
-    if (Number.isFinite(captainAmount)) {
-      return captainAmount;
-    }
-    return Number(settlement.teamPoolAmount || 0);
   }
 
   private async createMonthlyLedger(
@@ -662,10 +566,8 @@ export class CaptainMonthlySettlementService {
   ): boolean {
     const qualification = config.monthlyQualification;
     if (metric.directEffectiveBuyers < qualification.minDirectEffectiveBuyers) return false;
-    if (metric.personalGmv < qualification.minPersonalMonthlyGmv) return false;
-    if (metric.teamEffectiveMembers < qualification.minTeamEffectiveMembers) return false;
-    if (metric.teamGmv < qualification.minTeamMonthlyGmv) return false;
-    if (metric.newEffectiveMembers < qualification.minNewEffectiveMembers) return false;
+    if (metric.personalGmv < qualification.minDirectMonthlyGmv) return false;
+    if (metric.newEffectiveMembers < qualification.minNewEffectiveBuyers) return false;
     if (
       config.risk.holdSettlementOnRisk &&
       metric.refundRate > config.risk.maxMonthlyRefundRate

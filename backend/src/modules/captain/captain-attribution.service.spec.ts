@@ -67,7 +67,7 @@ function createHarness(options: {
         options.relation ?? {
           buyerUserId: 'buyer-1',
           directCaptainUserId: 'captain-1',
-          indirectCaptainUserId: 'captain-0',
+          legacyIndirectCaptainUserId: 'captain-0',
           status: 'ACTIVE',
         },
       ),
@@ -117,7 +117,7 @@ describe('CaptainAttributionService', () => {
     expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
   });
 
-  it('creates direct and indirect frozen ledgers from net eligible goods GMV', async () => {
+  it('creates only one direct frozen ledger from net eligible goods GMV', async () => {
     const { service, tx } = createHarness();
 
     await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('credited');
@@ -127,48 +127,39 @@ describe('CaptainAttributionService', () => {
         orderId: 'order-1',
         buyerUserId: 'buyer-1',
         directCaptainUserId: 'captain-1',
-        indirectCaptainUserId: 'captain-0',
+        legacyIndirectCaptainUserId: null,
         commissionBase: 80,
         eligibleGoodsAmount: 100,
         couponDiscountAmount: 5,
         rewardDeductionAmount: 10,
-        directRate: 0.09,
-        indirectRate: 0.02,
+        directRate: 0.11,
+        legacyIndirectRate: 0,
         status: 'FROZEN',
       }),
     });
-    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(2);
-    expect(tx.captainCommissionLedger.create).toHaveBeenNthCalledWith(1, {
+    expect(tx.captainOrderAttribution.create.mock.calls[0][0].data).not.toHaveProperty('indirectCaptainUserId');
+    expect(tx.captainOrderAttribution.create.mock.calls[0][0].data).not.toHaveProperty('indirectRate');
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'captain-1',
         type: 'DIRECT_ORDER',
         status: 'FROZEN',
-        amount: 7.2,
+        amount: 8.8,
         commissionBase: 80,
-        rate: 0.09,
+        rate: 0.11,
         idempotencyKey: 'captain:order:order-1:direct',
       }),
     });
-    expect(tx.captainCommissionLedger.create).toHaveBeenNthCalledWith(2, {
-      data: expect.objectContaining({
-        userId: 'captain-0',
-        type: 'INDIRECT_ORDER',
-        status: 'FROZEN',
-        amount: 1.6,
-        commissionBase: 80,
-        rate: 0.02,
-        idempotencyKey: 'captain:order:order-1:indirect',
-      }),
-    });
-    expect(tx.captainAccount.update).toHaveBeenCalledTimes(2);
+    expect(tx.captainAccount.update).toHaveBeenCalledTimes(1);
   });
 
-  it('never creates third-level commission records', async () => {
+  it('never creates an indirect ledger when a legacy relation has an upstream captain', async () => {
     const { service, tx } = createHarness({
       relation: {
         buyerUserId: 'buyer-1',
         directCaptainUserId: 'captain-1',
-        indirectCaptainUserId: 'captain-0',
+        legacyIndirectCaptainUserId: 'captain-0',
         ignoredThirdCaptainUserId: 'captain-third',
         status: 'ACTIVE',
       },
@@ -176,7 +167,8 @@ describe('CaptainAttributionService', () => {
 
     await service.createFrozenForPaidOrder(tx, 'order-1');
 
-    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(2);
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(tx.captainCommissionLedger.create.mock.calls)).not.toContain('captain-0');
     expect(JSON.stringify(tx.captainCommissionLedger.create.mock.calls)).not.toContain('captain-third');
   });
 

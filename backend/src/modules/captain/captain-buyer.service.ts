@@ -123,7 +123,7 @@ export class CaptainBuyerService {
       profile,
       account,
       metric,
-      boundRelation,
+      boundRelation: this.stripLegacySecondLevel(boundRelation),
     };
   }
 
@@ -149,7 +149,7 @@ export class CaptainBuyerService {
     ]);
 
     return {
-      items,
+      items: items.map((item: any) => this.stripLegacySecondLevel(item)),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
@@ -160,10 +160,7 @@ export class CaptainBuyerService {
     const pagination = this.pagination(page, pageSize);
     const where = {
       programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
-      OR: [
-        { directCaptainUserId: userId },
-        { indirectCaptainUserId: userId },
-      ],
+      directCaptainUserId: userId,
     };
     const [items, total] = await Promise.all([
       (this.prisma as any).captainOrderAttribution.findMany({
@@ -180,7 +177,7 @@ export class CaptainBuyerService {
     ]);
 
     return {
-      items,
+      items: items.map((item: any) => this.stripLegacySecondLevel(item)),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
@@ -196,6 +193,17 @@ export class CaptainBuyerService {
       nickname: profile.user?.profile?.nickname ?? null,
       avatarUrl: profile.user?.profile?.avatarUrl ?? null,
     };
+  }
+
+  private stripLegacySecondLevel<T extends Record<string, any> | null>(record: T): T {
+    if (!record) return record;
+    const {
+      legacyIndirectCaptainUserId: _legacyIndirectCaptainUserId,
+      legacyIndirectCaptain: _legacyIndirectCaptain,
+      legacyIndirectRate: _legacyIndirectRate,
+      ...directOnly
+    } = record;
+    return directOnly as T;
   }
 
   private normalizeCode(code: string) {

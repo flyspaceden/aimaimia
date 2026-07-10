@@ -40,8 +40,8 @@ export default function CaptainDetailPage() {
         <Descriptions.Item label="可用余额">{money(account?.balance)}</Descriptions.Item>
         <Descriptions.Item label="冻结余额">{money(account?.frozen)}</Descriptions.Item>
         <Descriptions.Item label="待追扣">{money(account?.clawback)}</Descriptions.Item>
-        <Descriptions.Item label="团队 GMV">{money(metric?.teamGmv)}</Descriptions.Item>
-        <Descriptions.Item label="个人 GMV">{money(metric?.personalGmv)}</Descriptions.Item>
+        <Descriptions.Item label="直接客户有效 GMV">{money(metric?.personalGmv)}</Descriptions.Item>
+        <Descriptions.Item label="有效直接客户">{metric?.directEffectiveBuyers ?? 0} 人</Descriptions.Item>
         <Descriptions.Item label="开通时间">
           {profile.createdAt ? dayjs(profile.createdAt).format('YYYY-MM-DD HH:mm') : '-'}
         </Descriptions.Item>
@@ -49,14 +49,12 @@ export default function CaptainDetailPage() {
 
       <Table<CaptainRelation>
         style={{ marginTop: 16 }}
-        title={() => '团队成员'}
+        title={() => '直接客户'}
         rowKey="id"
         dataSource={team}
         pagination={{ pageSize: 20 }}
         columns={[
-          { title: '层级', dataIndex: 'level', width: 100, render: (value) => value === 1 ? '一级' : '二级' },
-          { title: '成员', render: (_, record) => <CaptainUser user={record.buyer} /> },
-          { title: '直接上级', render: (_, record) => <CaptainUser user={record.directCaptain} /> },
+          { title: '客户', render: (_, record) => <CaptainUser user={record.buyer} /> },
           { title: '绑定来源', dataIndex: 'source', width: 140, render: (value) => value || '-' },
           { title: '绑定时间', dataIndex: 'boundAt', width: 180, render: (value) => dayjs(value).format('YYYY-MM-DD HH:mm') },
         ]}

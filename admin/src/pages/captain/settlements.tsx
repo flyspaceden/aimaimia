@@ -59,7 +59,7 @@ export default function CaptainSettlementsPage() {
     { title: '管理津贴', search: false, width: 120, render: (_, record) => money(record.baseManagementAmount) },
     { title: '增长奖', search: false, width: 120, render: (_, record) => money(record.growthBonusAmount) },
     { title: '辅导奖', search: false, width: 120, render: (_, record) => money(record.cultivationBonusAmount) },
-    { title: '团队池总额', search: false, width: 120, render: (_, record) => money(record.teamPoolAmount) },
+    { title: '经营绩效奖', search: false, width: 120, render: (_, record) => money(record.teamPoolAmount) },
     { title: '税前合计', search: false, width: 120, render: (_, record) => <Typography.Text strong>{money(record.totalAmount)}</Typography.Text> },
     { title: '税后', search: false, width: 120, render: (_, record) => money(record.netAmount) },
     { title: '创建时间', search: false, width: 170, render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') },

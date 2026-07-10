@@ -1,6 +1,7 @@
 export type CaptainProgramCode = 'SEAFOOD_PREPACKAGED';
 
 export interface CaptainSeafoodConfig {
+  schemaVersion: 2;
   enabled: boolean;
   programCode: CaptainProgramCode;
   programName: string;
@@ -23,15 +24,11 @@ export interface CaptainSeafoodConfig {
   };
   perOrderCommission: {
     directRate: number;
-    indirectRate: number;
-    maxLevels: 2;
   };
   monthlyQualification: {
     minDirectEffectiveBuyers: number;
-    minPersonalMonthlyGmv: number;
-    minTeamEffectiveMembers: number;
-    minTeamMonthlyGmv: number;
-    minNewEffectiveMembers: number;
+    minDirectMonthlyGmv: number;
+    minNewEffectiveBuyers: number;
   };
   monthlyRewards: {
     baseTierGmv: number;
@@ -40,8 +37,7 @@ export interface CaptainSeafoodConfig {
     growthBonusRate: number;
     excellentTierGmv: number;
     cultivationBonusRate: number;
-    teamPoolRate: number;
-    captainTeamPoolWeight: number;
+    performanceBonusRate: number;
   };
   caps: {
     maxTotalIncentiveRate: number;

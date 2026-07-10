@@ -145,10 +145,7 @@ export class AdminCaptainService {
       where: {
         programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
         status: 'ACTIVE',
-        OR: [
-          { directCaptainUserId: userId },
-          { indirectCaptainUserId: userId },
-        ],
+        directCaptainUserId: userId,
       },
       orderBy: { boundAt: 'desc' },
       include: {
@@ -169,12 +166,7 @@ export class AdminCaptainService {
       },
     });
 
-    return {
-      items: items.map((item: any) => ({
-        ...item,
-        level: item.directCaptainUserId === userId ? 1 : 2,
-      })),
-    };
+    return { items: items.map((item: any) => this.stripLegacySecondLevel(item)) };
   }
 
   async listOrders(query: ListCaptainOrdersQueryDto = {}) {
@@ -183,14 +175,7 @@ export class AdminCaptainService {
       programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
     };
     const and: any[] = [];
-    if (query.captainUserId) {
-      and.push({
-        OR: [
-          { directCaptainUserId: query.captainUserId },
-          { indirectCaptainUserId: query.captainUserId },
-        ],
-      });
-    }
+    if (query.captainUserId) where.directCaptainUserId = query.captainUserId;
     if (query.buyerUserId) where.buyerUserId = query.buyerUserId;
     if (query.status) where.status = query.status;
     if (query.month) where.createdAt = this.monthDateWhere(query.month);
@@ -202,9 +187,7 @@ export class AdminCaptainService {
         ],
       });
     }
-    if (and.length === 1 && query.captainUserId && !query.keyword) {
-      where.OR = and[0].OR;
-    } else if (and.length > 0) {
+    if (and.length > 0) {
       where.AND = and;
     }
 
@@ -218,13 +201,17 @@ export class AdminCaptainService {
           order: { select: { id: true, status: true, totalAmount: true, createdAt: true } },
           buyer: { select: { id: true, buyerNo: true, profile: { select: { nickname: true } } } },
           directCaptain: { select: { id: true, buyerNo: true, profile: { select: { nickname: true } } } },
-          indirectCaptain: { select: { id: true, buyerNo: true, profile: { select: { nickname: true } } } },
         },
       }),
       (this.prisma as any).captainOrderAttribution.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    return {
+      items: items.map((item: any) => this.stripLegacySecondLevel(item)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async listLedgers(query: ListCaptainLedgersQueryDto = {}) {
@@ -359,6 +346,16 @@ export class AdminCaptainService {
     const page = Math.max(query.page ?? 1, 1);
     const pageSize = Math.min(Math.max(query.pageSize ?? 20, 1), 100);
     return { page, pageSize, skip: (page - 1) * pageSize };
+  }
+
+  private stripLegacySecondLevel<T extends Record<string, any>>(record: T): T {
+    const {
+      legacyIndirectCaptainUserId: _legacyIndirectCaptainUserId,
+      legacyIndirectCaptain: _legacyIndirectCaptain,
+      legacyIndirectRate: _legacyIndirectRate,
+      ...directOnly
+    } = record;
+    return directOnly as T;
   }
 
   private profileInclude(month?: string) {

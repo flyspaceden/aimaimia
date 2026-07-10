@@ -387,10 +387,11 @@ export type CaptainProfileStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
 export type CaptainRelationStatus = 'ACTIVE' | 'INACTIVE';
 export type CaptainLedgerType =
   | 'DIRECT_ORDER'
-  | 'INDIRECT_ORDER'
+  | 'LEGACY_INDIRECT_ORDER'
   | 'MANAGEMENT_ALLOWANCE'
   | 'GROWTH_BONUS'
   | 'CULTIVATION_BONUS'
+  | 'PERFORMANCE_BONUS'
   | 'TEAM_POOL'
   | 'VOID'
   | 'ADJUSTMENT';
@@ -506,13 +507,11 @@ export interface CaptainRelation {
   id: string;
   buyerUserId: string;
   directCaptainUserId: string;
-  indirectCaptainUserId: string | null;
   programCode: string;
   codeUsed: string;
   source: string | null;
   status: CaptainRelationStatus;
   boundAt: string;
-  level?: 1 | 2;
   buyer?: UserLite;
   directCaptain?: UserLite;
 }
@@ -522,7 +521,6 @@ export interface CaptainOrderAttribution {
   orderId: string;
   buyerUserId: string;
   directCaptainUserId: string;
-  indirectCaptainUserId: string | null;
   programCode: string;
   commissionBase: number;
   eligibleGoodsAmount: number;
@@ -530,13 +528,11 @@ export interface CaptainOrderAttribution {
   rewardDeductionAmount: number;
   refundAmount: number;
   directRate: number;
-  indirectRate: number;
   status: string;
   createdAt: string;
   order?: { id: string; status: string; totalAmount: number; createdAt: string };
   buyer?: UserLite;
   directCaptain?: UserLite;
-  indirectCaptain?: UserLite | null;
 }
 
 export interface CaptainCommissionLedger {
@@ -585,6 +581,7 @@ export interface CaptainMonthlySettlement {
 }
 
 export interface CaptainSeafoodConfig {
+  schemaVersion: 2;
   enabled: boolean;
   programCode: 'SEAFOOD_PREPACKAGED';
   programName: string;
@@ -607,15 +604,11 @@ export interface CaptainSeafoodConfig {
   };
   perOrderCommission: {
     directRate: number;
-    indirectRate: number;
-    maxLevels: 2;
   };
   monthlyQualification: {
     minDirectEffectiveBuyers: number;
-    minPersonalMonthlyGmv: number;
-    minTeamEffectiveMembers: number;
-    minTeamMonthlyGmv: number;
-    minNewEffectiveMembers: number;
+    minDirectMonthlyGmv: number;
+    minNewEffectiveBuyers: number;
   };
   monthlyRewards: {
     baseTierGmv: number;
@@ -624,8 +617,7 @@ export interface CaptainSeafoodConfig {
     growthBonusRate: number;
     excellentTierGmv: number;
     cultivationBonusRate: number;
-    teamPoolRate: number;
-    captainTeamPoolWeight: number;
+    performanceBonusRate: number;
   };
   caps: {
     maxTotalIncentiveRate: number;

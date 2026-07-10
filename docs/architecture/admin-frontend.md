@@ -1180,6 +1180,6 @@
 |------|----------|------|
 | 团长经营入口 | 新增独立一级菜单“团长经营”，不归入 VIP、普通奖励、消费积分或平台红包；菜单包含团长申请、团长列表、订单归因、佣金流水、月度结算、团长配置，权限使用 `captain:read/manage/settlement/settings` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
 | 团长申请 | 新增 `/captain/applications`，支持按关键词和状态查询申请；列表展示申请人、城市、社群规模、预计月 GMV、资源类型、历史消费、退款率和申请时间；详情抽屉展示申请内容和系统快照；通过申请可填团长码/展示名并自动开通团长，驳回必须填写原因 | `admin/src/pages/captain/applications.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
-| 团长列表与详情 | 支持按关键词、状态、月份查询团长；可开通团长、启用/暂停/禁用；详情页展示团长码、账户余额、冻结金额、团队 GMV、个人 GMV 和一级/二级团队成员，不展示三级链路 | `admin/src/pages/captain/index.tsx`, `admin/src/pages/captain/detail.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
-| 归因、流水、结算 | 订单归因页展示买家、一级/二级团长、佣金基数、退款和费率；佣金流水页按类型/状态/用户/订单/结算筛选；月度结算页支持按月份生成月结草稿、审核、标记支付和重算；批量生成不会改动已审核/已支付结算，重算仅开放草稿/待审核/已驳回状态，操作分别受 `captain:settlement` 与 `captain:manage` 控制 | `admin/src/pages/captain/orders.tsx`, `admin/src/pages/captain/ledgers.tsx`, `admin/src/pages/captain/settlements.tsx` |
-| 团长配置 | 新增 `CAPTAIN_SEAFOOD_CONFIG` 专用配置页，完整暴露启用开关、适用范围、逐单佣金、团长资格、月度阶梯激励、封顶利润、税务和风控参数；页面实时展示总激励率、封顶比例、预估净利和扣风险预留后的净利 | `admin/src/pages/captain/settings.tsx` |
+| 团长列表与详情 | 支持按关键词、状态、月份查询团长；可开通团长、启用/暂停/禁用；详情页展示团长码、账户余额、冻结金额、直接客户有效 GMV、有效直接客户和直接客户列表，不展示团长层级 | `admin/src/pages/captain/index.tsx`, `admin/src/pages/captain/detail.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
+| 归因、流水、结算 | 订单归因页只展示买家、直接团长、佣金基数、退款和直接佣金率；佣金流水页仍可审计“历史二级佣金”；月度结算页将原团队池显示为经营绩效奖，支持按月份生成月结草稿、审核、标记支付和重算 | `admin/src/pages/captain/orders.tsx`, `admin/src/pages/captain/ledgers.tsx`, `admin/src/pages/captain/settlements.tsx` |
+| 团长配置 | `CAPTAIN_SEAFOOD_CONFIG` 专用配置页只暴露直接推广成交佣金、有效直接客户、直接客户 GMV、新增有效直接客户和经营绩效奖；默认直接佣金 11%，满配激励封顶 15.5%，实时展示净利与风险预留 | `admin/src/pages/captain/settings.tsx` |
