@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { BonusAllocationService } from './bonus-allocation.service';
 import { RewardCalculatorService } from './reward-calculator.service';
 
@@ -86,10 +87,12 @@ function makeSnapshotAllocationService(order: any) {
     rewardAllocation: { findFirst: jest.fn(), create: jest.fn() },
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
-  const configService = { getConfig: jest.fn(() => { throw new Error('current config must not be read'); }) };
+  const exitConfig = { vipMaxLayers: 15, vipBranchFactor: 3 };
+  const configService = { getConfig: jest.fn().mockResolvedValue(exitConfig) };
   const calculator = new RewardCalculatorService();
   const vipUpstream = {
     distribute: jest.fn().mockResolvedValue({ result: 'distributed', ancestorUserId: 'vip-old-ancestor' }),
+    checkExit: jest.fn().mockResolvedValue(undefined),
   };
   const vipPlatformSplit = { split: jest.fn().mockResolvedValue(undefined) };
   const normalUpstream = {
@@ -117,6 +120,7 @@ function makeSnapshotAllocationService(order: any) {
     vipPlatformSplit,
     normalUpstream,
     normalPlatformSplit,
+    exitConfig,
   };
 }
 
@@ -126,7 +130,7 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
 
     await harness.service.allocateForOrder('snapshot-order');
 
-    expect(harness.configService.getConfig).not.toHaveBeenCalled();
+    expect(harness.configService.getConfig).toHaveBeenCalledTimes(1);
     expect(harness.vipUpstream.distribute).toHaveBeenCalledWith(
       harness.tx,
       'allocation-1',
@@ -150,6 +154,12 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
       }),
       { 'company-1': 1 },
     );
+    expect(harness.vipUpstream.checkExit).toHaveBeenCalledWith(
+      'vip-old-ancestor',
+      harness.exitConfig,
+    );
+    expect(harness.vipPlatformSplit.split.mock.invocationCallOrder[0])
+      .toBeLessThan(harness.configService.getConfig.mock.invocationCallOrder[0]);
   });
 
   it('uses normal buyer rates with VIP inviter direct rate and the snapshotted normal ancestor', async () => {
@@ -181,6 +191,37 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
       { 'company-1': 1 },
     );
     expect(harness.vipUpstream.distribute).not.toHaveBeenCalled();
+    expect(harness.configService.getConfig).not.toHaveBeenCalled();
+  });
+
+  it('retries a snapshot allocation after a Serializable transaction conflict', async () => {
+    const harness = makeSnapshotAllocationService(makeSnapshotOrder('NORMAL'));
+    const conflict = new Prisma.PrismaClientKnownRequestError('serialization conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    harness.prisma.$transaction
+      .mockRejectedValueOnce(conflict)
+      .mockImplementationOnce(async (callback: any) => callback(harness.tx));
+
+    await expect(harness.service.allocateForOrder('snapshot-order')).resolves.toBeUndefined();
+
+    expect(harness.prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(harness.normalUpstream.distribute).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a snapshot allocation idempotency conflict as an already completed receipt', async () => {
+    const harness = makeSnapshotAllocationService(makeSnapshotOrder('NORMAL'));
+    const duplicate = new Prisma.PrismaClientKnownRequestError('duplicate allocation', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: { target: ['idempotencyKey'] },
+    });
+    harness.prisma.$transaction.mockRejectedValueOnce(duplicate);
+
+    await expect(harness.service.allocateForOrder('snapshot-order')).resolves.toBeUndefined();
+
+    expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it.each([

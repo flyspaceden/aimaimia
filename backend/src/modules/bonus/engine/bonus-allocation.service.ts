@@ -351,37 +351,79 @@ export class BonusAllocationService {
     );
     const route: SnapshotTreeRoute = { buyerPath, ancestors };
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        if (buyerPath === 'VIP') {
-          await this.executeVipUpstreamSevenWay(
-            tx,
-            order.id,
-            order.userId,
-            order.totalAmount,
-            pools,
-            null,
-            route,
-          );
-          await this.executeVipPlatformSplit(tx, order.id, pools, ruleVersion);
+    let vipAncestorUserId: string | null = null;
+    const maxRetries = 1;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            if (buyerPath === 'VIP') {
+              vipAncestorUserId = await this.executeVipUpstreamSevenWay(
+                tx,
+                order.id,
+                order.userId,
+                order.totalAmount,
+                pools,
+                null,
+                route,
+              );
+              await this.executeVipPlatformSplit(tx, order.id, pools, ruleVersion);
+              return;
+            }
+
+            await this.executeNormalTreeFromSnapshot(
+              tx,
+              order.id,
+              order.userId,
+              order.totalAmount,
+              pools,
+              route,
+            );
+          },
+          {
+            timeout: 30000,
+            maxWait: 5000,
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        const target = err?.meta?.target;
+        const idempotencyConflict = isPrismaError
+          && err.code === 'P2002'
+          && (Array.isArray(target) ? target.includes('idempotencyKey') : target === 'idempotencyKey');
+        if (idempotencyConflict) {
+          this.logger.warn(`订单 ${order.id} 快照分润已存在，跳过重复分配`);
           return;
         }
+        if (isPrismaError && err.code === 'P2034') {
+          if (attempt < maxRetries) {
+            this.logger.warn(`订单 ${order.id} 快照分润事务冲突，重试第 ${attempt + 1} 次`);
+            await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+            continue;
+          }
+          throw new InternalServerErrorException('分润分配暂时繁忙，请稍后重试');
+        }
+        if (isPrismaError && err.code === 'P2028') {
+          throw new InternalServerErrorException('分润分配服务异常，请联系管理员');
+        }
+        throw err;
+      }
+    }
 
-        await this.executeNormalTreeFromSnapshot(
-          tx,
-          order.id,
-          order.userId,
-          order.totalAmount,
-          pools,
-          route,
-        );
-      },
-      {
-        timeout: 30000,
-        maxWait: 5000,
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+    if (vipAncestorUserId) {
+      try {
+        const exitConfig = await this.configService.getConfig();
+        this.vipUpstream.checkExit(vipAncestorUserId, exitConfig).catch((err) => {
+          const safeErr = sanitizeErrorForLog(err);
+          this.logger.error(`出局判定失败: ${safeErr.message}`, safeErr.stack);
+        });
+      } catch (err) {
+        const safeErr = sanitizeErrorForLog(err);
+        this.logger.error(`读取出局规则失败: ${safeErr.message}`, safeErr.stack);
+      }
+    }
     this.logger.log(`订单 ${order.id} 分润分配完成（SNAPSHOT_${buyerPath}）`);
   }
 

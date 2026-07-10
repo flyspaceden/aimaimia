@@ -101,16 +101,19 @@ export class NormalUpstreamService {
       return { result: 'no_ancestor', ancestorUserId: null };
     }
 
-    // 6b. 祖先是 VIP → 归平台（VIP/Normal 隔离）
-    const ancestorMember = await tx.memberProfile.findUnique({
-      where: { userId: ancestorUserId },
-      select: { tier: true },
-    });
-    if (ancestorMember?.tier === 'VIP') {
-      this.logger.log(`第 ${k} 个祖先 ${ancestorUserId} 是 VIP，奖励归平台`);
-      await this.creditToPlatform(tx, allocationId, orderId, rewardPool, 'vip_excluded');
-      await this.unlockFrozenRewards(tx, userId, newSelfPurchaseCount);
-      return { result: 'vip_excluded', ancestorUserId: null };
+    // 6b. Legacy orders still enforce the recipient's current tier. Snapshot
+    // orders keep the payment-time normal path even if the ancestor later upgrades.
+    if (!snapshotRoute) {
+      const ancestorMember = await tx.memberProfile.findUnique({
+        where: { userId: ancestorUserId },
+        select: { tier: true },
+      });
+      if (ancestorMember?.tier === 'VIP') {
+        this.logger.log(`第 ${k} 个祖先 ${ancestorUserId} 是 VIP，奖励归平台`);
+        await this.creditToPlatform(tx, allocationId, orderId, rewardPool, 'vip_excluded');
+        await this.unlockFrozenRewards(tx, userId, newSelfPurchaseCount);
+        return { result: 'vip_excluded', ancestorUserId: null };
+      }
     }
 
     // 6c. 账号注销保护：祖先 User 已注销（status≠ACTIVE 或 deletionExecutedAt≠null）→
