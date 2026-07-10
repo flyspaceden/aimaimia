@@ -10,14 +10,10 @@ export interface NormalTreeNodeSnapshot {
   position: number;
 }
 
-export async function resolveOrCreateNormalTreeNode(
+async function findExistingNode(
   tx: Prisma.TransactionClient,
   userId: string,
-  branchFactor: number,
-): Promise<NormalTreeNodeSnapshot> {
-  // The lock must precede every first-payment create. Lock waiters re-read state below.
-  await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(2026022801)');
-
+): Promise<NormalTreeNodeSnapshot | null> {
   const progress = await tx.normalProgress.findUnique({ where: { userId } });
   if (progress?.treeNodeId) {
     const progressNode = await tx.normalTreeNode.findUnique({
@@ -27,21 +23,36 @@ export async function resolveOrCreateNormalTreeNode(
   }
 
   const existingNode = await tx.normalTreeNode.findUnique({ where: { userId } });
-  if (existingNode) {
-    await tx.normalProgress.upsert({
-      where: { userId },
-      create: { userId, treeNodeId: existingNode.id },
-      update: { treeNodeId: existingNode.id },
-    });
-    await tx.memberProfile.updateMany({
-      where: { userId },
-      data: {
-        normalTreeNodeId: existingNode.id,
-        normalJoinedAt: new Date(),
-      },
-    });
-    return existingNode;
-  }
+  if (!existingNode) return null;
+
+  await tx.normalProgress.upsert({
+    where: { userId },
+    create: { userId, treeNodeId: existingNode.id },
+    update: { treeNodeId: existingNode.id },
+  });
+  await tx.memberProfile.updateMany({
+    where: { userId },
+    data: {
+      normalTreeNodeId: existingNode.id,
+      normalJoinedAt: new Date(),
+    },
+  });
+  return existingNode;
+}
+
+export async function resolveOrCreateNormalTreeNode(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  branchFactor: number,
+): Promise<NormalTreeNodeSnapshot> {
+  const fastPathNode = await findExistingNode(tx, userId);
+  if (fastPathNode) return fastPathNode;
+
+  // Only first enrollment takes the global placement lock. Lock waiters must
+  // re-read because another transaction may have inserted this user's node.
+  await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(2026022801)');
+  const lockedNode = await findExistingNode(tx, userId);
+  if (lockedNode) return lockedNode;
 
   await tx.normalProgress.upsert({
     where: { userId },
