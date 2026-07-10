@@ -8,7 +8,7 @@ import { PlatformSplitService } from './platform-split.service';
 import { VipPlatformSplitService } from './vip-platform-split.service';
 import { NormalUpstreamService } from './normal-upstream.service';
 import { NormalPlatformSplitService } from './normal-platform-split.service';
-import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderItemForNormalCalc, PoolCalculation, NormalPoolCalculation, VipPoolCalculation } from './reward-calculator.service';
+import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderItemForNormalCalc, PoolCalculation, NormalPoolCalculation, VipPoolCalculation, SnapshotPoolCalculation, SnapshotProfitRateSet, SnapshotTreeAncestor, SnapshotTreeRoute } from './reward-calculator.service';
 import { sanitizeErrorForLog } from '../../../common/logging/log-sanitizer';
 import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE, PLATFORM_USER_ID } from './constants';
 import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
@@ -62,19 +62,24 @@ export class BonusAllocationService {
   async allocateForOrder(orderId: string): Promise<void> {
     this.logger.log(`开始分润分配：订单 ${orderId}`);
 
-    // 1. 查询订单（含商品成本）
-    const order = await this.prisma.order.findUnique({
+    // 1. First load immutable receipt facts. Current SKU cost is loaded only
+    // for pre-snapshot legacy orders below.
+    let order: any = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         items: {
-          include: {
-            sku: {
-              select: {
-                cost: true, // SKU 自身的成本字段优先
-                product: { select: { cost: true } },
-              },
-            },
+          select: {
+            id: true,
+            unitPrice: true,
+            quantity: true,
+            companyId: true,
+            isPrize: true,
           },
+        },
+        profitSnapshots: {
+          where: { isCurrent: true },
+          orderBy: { revision: 'desc' },
+          take: 1,
         },
       },
     });
@@ -95,14 +100,38 @@ export class BonusAllocationService {
       return;
     }
 
+    const currentSnapshot = (order as any).profitSnapshots?.[0];
+    if (currentSnapshot) {
+      await this.allocateFromPaymentSnapshot(order, currentSnapshot);
+      return;
+    }
+
+    // Pre-deployment paid order: preserve the legacy cost/config/tree path.
+    order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            sku: {
+              select: {
+                cost: true,
+                product: { select: { cost: true } },
+              },
+            },
+          },
+        },
+      },
+    }) as any;
+    if (!order) return;
+
     // 2. 读取当前分润配置
     const config = await this.configService.getConfig();
 
     // 3. 构建订单项（含 companyId，用于普通用户七分计算）
     //    排除抽奖奖品项（isPrize=true），奖品不产生利润不参与分配
     const calcItems: OrderItemForPoolCalc[] = order.items
-      .filter((item) => !item.isPrize)
-      .map((item) => ({
+      .filter((item: any) => !item.isPrize)
+      .map((item: any) => ({
         unitPrice: item.unitPrice,
         quantity: item.quantity,
         cost: item.sku?.cost ?? item.sku?.product?.cost ?? null,
@@ -276,6 +305,116 @@ export class BonusAllocationService {
     }
 
     this.logger.log(`订单 ${orderId} 分润分配完成（${routing}）`);
+  }
+
+  private async allocateFromPaymentSnapshot(order: any, snapshot: any): Promise<void> {
+    if (snapshot.status !== 'READY' || Number(snapshot.distributableProfitAmount) <= 0) {
+      this.logger.log(`订单 ${order.id} 支付利润快照不可分配，跳过收货分润`);
+      return;
+    }
+
+    const rule = snapshot.ruleSnapshot as any;
+    const buyerPath = rule?.buyerPath;
+    const rates = rule?.rates as SnapshotProfitRateSet | undefined;
+    const directRate = Number(rule?.directInviter?.effectiveDirectRate ?? 0);
+    if (
+      (buyerPath !== 'VIP' && buyerPath !== 'NORMAL')
+      || !rates?.vip
+      || !rates?.normal
+      || !Number.isFinite(directRate)
+    ) {
+      this.logger.warn(`订单 ${order.id} 支付利润快照规则不完整，关闭收货分润`);
+      return;
+    }
+
+    const ruleVersion = typeof rule.vipNormalConfigVersion === 'string'
+      ? rule.vipNormalConfigVersion
+      : `snapshot:${snapshot.id}`;
+    const companyProfitShares = this.companyProfitSharesFromSnapshot(
+      order.items,
+      snapshot.itemBreakdown,
+      Number(snapshot.distributableProfitAmount),
+    );
+    const pools = this.calculator.calculateFromProfit(
+      Number(snapshot.distributableProfitAmount),
+      buyerPath,
+      rates,
+      directRate,
+      companyProfitShares,
+      Boolean(rule?.directInviter?.eligibleUserId),
+      ruleVersion,
+    );
+    const ancestors = this.readSnapshotAncestors(
+      buyerPath === 'VIP'
+        ? rule.vipTreeAncestorPathAtPayment
+        : rule.normalTreeAncestorPathAtPayment,
+    );
+    const route: SnapshotTreeRoute = { buyerPath, ancestors };
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (buyerPath === 'VIP') {
+          await this.executeVipUpstreamSevenWay(
+            tx,
+            order.id,
+            order.userId,
+            order.totalAmount,
+            pools,
+            null,
+            route,
+          );
+          await this.executeVipPlatformSplit(tx, order.id, pools, ruleVersion);
+          return;
+        }
+
+        await this.executeNormalTreeFromSnapshot(
+          tx,
+          order.id,
+          order.userId,
+          order.totalAmount,
+          pools,
+          route,
+        );
+      },
+      {
+        timeout: 30000,
+        maxWait: 5000,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
+    this.logger.log(`订单 ${order.id} 分润分配完成（SNAPSHOT_${buyerPath}）`);
+  }
+
+  private companyProfitSharesFromSnapshot(
+    items: Array<{ id: string; companyId: string | null }>,
+    rawBreakdown: unknown,
+    profit: number,
+  ): Record<string, number> {
+    const profitCents = Math.round(profit * 100);
+    if (!Array.isArray(rawBreakdown) || profitCents <= 0) return {};
+    const companyByItem = new Map(items.map((item) => [item.id, item.companyId]));
+    const companyCents = new Map<string, number>();
+    for (const entry of rawBreakdown as any[]) {
+      const companyId = companyByItem.get(entry?.orderItemId);
+      const cents = Number(entry?.distributableProfitShareCents);
+      if (!companyId || !Number.isSafeInteger(cents) || cents <= 0) continue;
+      companyCents.set(companyId, (companyCents.get(companyId) ?? 0) + cents);
+    }
+    return Object.fromEntries(
+      [...companyCents.entries()].map(([companyId, cents]) => [companyId, cents / profitCents]),
+    );
+  }
+
+  private readSnapshotAncestors(raw: unknown): SnapshotTreeAncestor[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((entry: any) => entry && typeof entry.nodeId === 'string')
+      .map((entry: any, index: number) => ({
+        depth: Number.isSafeInteger(entry.depth) ? entry.depth : index + 1,
+        nodeId: entry.nodeId,
+        userId: typeof entry.userId === 'string' ? entry.userId : null,
+        level: Number.isSafeInteger(entry.level) ? entry.level : 0,
+      }));
   }
 
   /**
@@ -679,7 +818,8 @@ export class BonusAllocationService {
     userId: string,
     orderAmount: number,
     pools: VipPoolCalculation,
-    config: import('./bonus-config.service').BonusConfig,
+    config: import('./bonus-config.service').BonusConfig | null,
+    snapshotRoute?: SnapshotTreeRoute,
   ): Promise<string | null> {
     const idempotencyKey = `ALLOC:ORDER_RECEIVED:${orderId}:VIP_UPSTREAM`;
 
@@ -688,7 +828,7 @@ export class BonusAllocationService {
         triggerType: 'ORDER_RECEIVED',
         orderId,
         ruleType: 'VIP_UPSTREAM',
-        ruleVersion: config.ruleVersion,
+        ruleVersion: config?.ruleVersion ?? pools.ruleVersion,
         meta: {
           routing: 'VIP_UPSTREAM',
           userId,
@@ -709,6 +849,7 @@ export class BonusAllocationService {
       orderAmount,
       pools.rewardPool,
       config,
+      snapshotRoute,
     );
 
     // VIP k > maxLayers：奖励归平台（不降级到普通广播，VIP/Normal 完全隔离）
@@ -723,6 +864,67 @@ export class BonusAllocationService {
 
     this.logger.log(`VIP 上溯完成（七分）：${idempotencyKey}，结果=${result}`);
     return ancestorUserId;
+  }
+
+  private async executeNormalTreeFromSnapshot(
+    tx: any,
+    orderId: string,
+    userId: string,
+    orderAmount: number,
+    pools: SnapshotPoolCalculation,
+    snapshotRoute: SnapshotTreeRoute,
+  ): Promise<void> {
+    const idempotencyKey = `ALLOC:ORDER_RECEIVED:${orderId}:NORMAL_TREE`;
+    const allocation = await tx.rewardAllocation.create({
+      data: {
+        triggerType: 'ORDER_RECEIVED',
+        orderId,
+        ruleType: 'NORMAL_TREE',
+        ruleVersion: pools.ruleVersion,
+        meta: {
+          routing: 'NORMAL_TREE',
+          source: 'PAYMENT_PROFIT_SNAPSHOT',
+          userId,
+          profit: pools.profit,
+          pools: {
+            platformProfit: pools.platformProfit,
+            rewardPool: pools.rewardPool,
+            directReferralPool: pools.directReferralPool,
+            industryFund: pools.industryFund,
+            charityFund: pools.charityFund,
+            techFund: pools.techFund,
+            reserveFund: pools.reserveFund,
+          },
+          configSnapshot: pools.configSnapshot,
+        },
+        idempotencyKey,
+      },
+    });
+
+    await this.normalUpstream.distribute(
+      tx,
+      allocation.id,
+      orderId,
+      userId,
+      orderAmount,
+      pools.rewardPool,
+      null,
+      snapshotRoute,
+    );
+    await this.normalPlatformSplit.split(
+      tx,
+      allocation.id,
+      orderId,
+      {
+        platformProfit: pools.platformProfit,
+        directReferralPool: pools.directReferralPool,
+        industryFund: pools.industryFund,
+        charityFund: pools.charityFund,
+        techFund: pools.techFund,
+        reserveFund: pools.reserveFund,
+      },
+      pools.companyProfitShares,
+    );
   }
 
   /**

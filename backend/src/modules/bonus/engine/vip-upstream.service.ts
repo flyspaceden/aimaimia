@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfig } from './bonus-config.service';
 import { PLATFORM_USER_ID } from './constants';
 import { NotificationService } from '../../notification/notification.service';
+import type { SnapshotTreeRoute } from './reward-calculator.service';
 
 @Injectable()
 export class VipUpstreamService {
@@ -34,7 +35,8 @@ export class VipUpstreamService {
     userId: string,
     orderAmount: number,
     rewardPool: number,
-    config: BonusConfig,
+    config: BonusConfig | null,
+    snapshotRoute?: SnapshotTreeRoute,
   ): Promise<{ result: 'distributed' | 'no_ancestor' | 'downgrade_normal'; ancestorUserId: string | null }> {
     // 1. 记录有效消费
     const prevCount = await tx.vipEligibleOrder.count({
@@ -54,9 +56,9 @@ export class VipUpstreamService {
     });
 
     // 2. 检查 k 是否超过 VIP_MAX_LAYERS（在递增 selfPurchaseCount 之前判定）
-    if (effectiveIndex > config.vipMaxLayers) {
+    if (!snapshotRoute && effectiveIndex > config!.vipMaxLayers) {
       this.logger.log(
-        `k=${effectiveIndex} > VIP_MAX_LAYERS=${config.vipMaxLayers}，降级为普通广播`,
+        `k=${effectiveIndex} > VIP_MAX_LAYERS=${config!.vipMaxLayers}，降级为普通广播`,
       );
       // 降级路径不递增 selfPurchaseCount，用当前值做解锁检查
       const currentProgress = await tx.vipProgress.findUnique({ where: { userId } });
@@ -76,7 +78,10 @@ export class VipUpstreamService {
     );
 
     // 4. 找第 k 个祖先
-    const ancestor = await this.findKthAncestor(tx, userId, effectiveIndex);
+    const snapshotAncestor = snapshotRoute?.ancestors[effectiveIndex - 1];
+    const ancestor = snapshotRoute
+      ? snapshotAncestor ? { ...snapshotAncestor, id: snapshotAncestor.nodeId } : null
+      : await this.findKthAncestor(tx, userId, effectiveIndex);
 
     if (!ancestor) {
       this.logger.log(
@@ -163,9 +168,9 @@ export class VipUpstreamService {
           ancestorNodeId: ancestor.id,
           locked: !isUnlocked,
           requiredLevel: isUnlocked ? undefined : effectiveIndex,
-          expiresAt: isUnlocked
+          expiresAt: isUnlocked || snapshotRoute
             ? undefined
-            : new Date(Date.now() + config.vipFreezeDays * 86400000).toISOString(),
+            : new Date(Date.now() + config!.vipFreezeDays * 86400000).toISOString(),
         },
       },
     });

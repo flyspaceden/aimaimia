@@ -58,6 +58,38 @@ export interface VipPoolCalculation {
   configSnapshot: Record<string, any>;
 }
 
+export interface SnapshotProfitRates {
+  platform: number;
+  reward: number;
+  directReferral: number;
+  industryFund: number;
+  charity: number;
+  tech: number;
+  reserve: number;
+}
+
+export type SnapshotProfitRateSet = {
+  vip: SnapshotProfitRates;
+  normal: SnapshotProfitRates;
+};
+
+export interface SnapshotPoolCalculation extends VipPoolCalculation {
+  platformRetained: number;
+  externalNet: number;
+}
+
+export interface SnapshotTreeAncestor {
+  depth: number;
+  nodeId: string;
+  userId: string | null;
+  level: number;
+}
+
+export interface SnapshotTreeRoute {
+  buyerPath: 'VIP' | 'NORMAL';
+  ancestors: SnapshotTreeAncestor[];
+}
+
 @Injectable()
 export class RewardCalculatorService {
   private readonly logger = new Logger(RewardCalculatorService.name);
@@ -272,6 +304,87 @@ export class RewardCalculatorService {
       ruleVersion: config.ruleVersion,
       configSnapshot: this.snapshotVip(config),
     };
+  }
+
+  /**
+   * V3 snapshot allocation. The immutable distributable profit is the only
+   * monetary base; every bucket is calculated in cents and the explicit
+   * platform bucket absorbs all rounding remainder.
+   */
+  calculateFromProfit(
+    profit: number,
+    path: 'VIP' | 'NORMAL',
+    rates: SnapshotProfitRateSet,
+    directRate: number,
+    companyProfitShares: Record<string, number> = {},
+    directClaimed = true,
+    ruleVersion = 'snapshot',
+  ): SnapshotPoolCalculation {
+    const profitCents = Math.round(profit * 100);
+    const selected = path === 'VIP' ? rates.vip : rates.normal;
+    const appliedRates = {
+      reward: selected.reward,
+      directReferral: directRate,
+      industryFund: selected.industryFund,
+      charity: selected.charity,
+      tech: selected.tech,
+      reserve: selected.reserve,
+    };
+
+    if (
+      !Number.isSafeInteger(profitCents)
+      || profitCents < 0
+      || Object.values(appliedRates).some((rate) => !Number.isFinite(rate) || rate < 0 || rate > 1)
+    ) {
+      throw new Error('Invalid payment profit snapshot allocation input');
+    }
+
+    const rewardCents = this.rateCents(profitCents, appliedRates.reward);
+    const directCents = this.rateCents(profitCents, appliedRates.directReferral);
+    const industryCents = this.rateCents(profitCents, appliedRates.industryFund);
+    const charityCents = this.rateCents(profitCents, appliedRates.charity);
+    const techCents = this.rateCents(profitCents, appliedRates.tech);
+    const reserveCents = this.rateCents(profitCents, appliedRates.reserve);
+    const nonPlatformCents = rewardCents
+      + directCents
+      + industryCents
+      + charityCents
+      + techCents
+      + reserveCents;
+    const platformCents = profitCents - nonPlatformCents;
+    if (platformCents < 0) {
+      throw new Error('Payment profit snapshot allocation exceeds distributable profit');
+    }
+
+    const externalNetCents = rewardCents + industryCents + (directClaimed ? directCents : 0);
+    const platformRetainedCents = profitCents - externalNetCents;
+    const toYuan = (cents: number) => cents / 100;
+
+    return {
+      profit: toYuan(profitCents),
+      platformProfit: toYuan(platformCents),
+      rewardPool: toYuan(rewardCents),
+      directReferralPool: toYuan(directCents),
+      industryFund: toYuan(industryCents),
+      charityFund: toYuan(charityCents),
+      techFund: toYuan(techCents),
+      reserveFund: toYuan(reserveCents),
+      platformRetained: toYuan(platformRetainedCents),
+      externalNet: toYuan(externalNetCents),
+      companyProfitShares,
+      ruleVersion,
+      configSnapshot: {
+        buyerPath: path,
+        rates,
+        effectiveDirectRate: directRate,
+        directClaimed,
+        ruleVersion,
+      },
+    };
+  }
+
+  private rateCents(profitCents: number, rate: number): number {
+    return Math.round(profitCents * rate);
   }
 
   /** 截断到分（2 位小数，舍弃后续位数） */

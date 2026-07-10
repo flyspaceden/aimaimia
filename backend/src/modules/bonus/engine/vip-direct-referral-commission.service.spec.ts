@@ -57,6 +57,69 @@ function makeOrder(overrides: any = {}) {
   };
 }
 
+function makeSnapshotOrder(overrides: any = {}) {
+  return makeOrder({
+    items: [
+      {
+        unitPrice: 1,
+        quantity: 99,
+        isPrize: false,
+        companyId: 'company-1',
+        sku: { cost: 9999, product: { cost: 8888 } },
+      },
+    ],
+    profitSnapshots: [
+      {
+        id: 'snapshot-1',
+        status: 'READY',
+        isCurrent: true,
+        distributableProfitAmount: 13.25,
+        ruleSnapshot: {
+          buyerPath: 'NORMAL',
+          buyerTierAtPayment: 'NORMAL',
+          vipNormalConfigVersion: 'snapshot-v3',
+          directInviter: {
+            userId: 'snapshot-inviter',
+            eligibleUserId: 'snapshot-inviter',
+            tier: 'VIP',
+            path: 'VIP',
+            status: 'ACTIVE',
+            deletionExecutedAt: null,
+            sourceRelation: 'MEMBER_PROFILE',
+            normalShareBindingId: null,
+            relationStatus: 'ACTIVE',
+            sourceCode: 'SNAPVIP1',
+            sourceCodeType: 'MEMBER_REFERRAL_CODE',
+            effectiveDirectRate: 0.15,
+            platformReason: null,
+          },
+          rates: {
+            vip: {
+              platform: 0.4,
+              reward: 0.2,
+              directReferral: 0.15,
+              industryFund: 0.1,
+              charity: 0.1,
+              tech: 0.05,
+              reserve: 0,
+            },
+            normal: {
+              platform: 0.35,
+              reward: 0.2,
+              directReferral: 0.01,
+              industryFund: 0.15,
+              charity: 0.1,
+              tech: 0.1,
+              reserve: 0.09,
+            },
+          },
+        },
+      },
+    ],
+    ...overrides,
+  });
+}
+
 function makeInviter(overrides: any = {}) {
   return {
     status: 'ACTIVE',
@@ -115,6 +178,86 @@ function makeService(configOverrides: any = {}) {
 }
 
 describe('VipDirectReferralCommissionService', () => {
+  it('uses snapshot D and inviter tier/rate without reading current cost, config, or relationship', async () => {
+    const { service, configService } = makeService({ vipDirectReferralPercent: 0.99 });
+    const tx = makeTx(makeSnapshotOrder());
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('credited');
+    expect(configService.getConfig).not.toHaveBeenCalled();
+    expect(tx.order.findUnique.mock.calls[0][0]).toEqual({
+      where: { id: 'order-1' },
+      include: {
+        profitSnapshots: {
+          where: { isCurrent: true },
+          orderBy: { revision: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    expect(tx.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.normalShareBinding.findUnique).not.toHaveBeenCalled();
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'snapshot-inviter',
+        amount: 1.99,
+        meta: expect.objectContaining({
+          scheme: 'VIP_DIRECT_REFERRAL',
+          profit: 13.25,
+          ratio: 0.15,
+          directReferralPool: 1.99,
+          inviterTierAtOrder: 'VIP',
+          inviteeTierAtOrder: 'NORMAL',
+          configSnapshot: expect.objectContaining({ ruleVersion: 'snapshot-v3' }),
+        }),
+      }),
+    });
+  });
+
+  it.each([
+    ['zero D', { distributableProfitAmount: 0, status: 'READY' }],
+    ['reconciliation', { distributableProfitAmount: 13.25, status: 'RECONCILIATION_REQUIRED' }],
+  ])('creates no external direct ledger for a %s snapshot', async (_label, snapshotOverride) => {
+    const { service, configService } = makeService();
+    const order = makeSnapshotOrder();
+    order.profitSnapshots[0] = { ...order.profitSnapshots[0], ...snapshotOverride };
+    const tx = makeTx(order);
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('skipped');
+    expect(configService.getConfig).not.toHaveBeenCalled();
+    expect(tx.rewardAllocation.create).not.toHaveBeenCalled();
+    expect(tx.rewardLedger.create).not.toHaveBeenCalled();
+  });
+
+  it('routes the snapshotted invalid inviter share to platform', async () => {
+    const { service } = makeService();
+    const order = makeSnapshotOrder();
+    order.profitSnapshots[0].ruleSnapshot.directInviter = {
+      ...order.profitSnapshots[0].ruleSnapshot.directInviter,
+      eligibleUserId: null,
+      status: 'BANNED',
+      platformReason: 'DIRECT_INVITER_INACTIVE',
+    };
+    const tx = makeTx(order);
+
+    const result = await service.createFrozenForPaidOrder(tx as any, 'order-1');
+
+    expect(result).toBe('platform');
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: PLATFORM_USER_ID,
+        amount: 1.99,
+        meta: expect.objectContaining({
+          scheme: 'VIP_DIRECT_REFERRAL_PLATFORM',
+          platformReason: 'DIRECT_INVITER_INACTIVE',
+        }),
+      }),
+    });
+  });
+
   it('creates frozen normal direct referral commission for a normal direct inviter', async () => {
     const { service } = makeService();
     const tx = makeTx();

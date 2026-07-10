@@ -182,6 +182,34 @@ describe('VipUpstreamService.distribute 已注销祖辈份额归平台', () => {
     }, tx);
   });
 
+  it('快照路径使用支付时 VIP 祖先且不查询当前树', async () => {
+    const service = makeService();
+    const { tx, ledgerCreates } = makeTx({ status: 'ACTIVE', deletionExecutedAt: null });
+    tx.vipProgress.findUnique.mockResolvedValue({ selfPurchaseCount: 1 });
+
+    const res = await service.distribute(
+      tx as any,
+      ALLOCATION_ID,
+      ORDER_ID,
+      BUYER_ID,
+      ORDER_AMOUNT,
+      REWARD_POOL,
+      null,
+      {
+        buyerPath: 'VIP',
+        ancestors: [{ depth: 1, nodeId: 'snapshot-vip-node', userId: ANCESTOR_ID, level: 9 }],
+      },
+    );
+
+    expect(res).toEqual({ result: 'distributed', ancestorUserId: ANCESTOR_ID });
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.memberProfile.findUnique).not.toHaveBeenCalled();
+    expect(ledgerCreates[0]).toEqual(expect.objectContaining({
+      userId: ANCESTOR_ID,
+      meta: expect.objectContaining({ ancestorNodeId: 'snapshot-vip-node', ancestorLevel: 9 }),
+    }));
+  });
+
   it('释放 VIP 冻结奖励时在事务内发出 reward.unfrozen 通知', async () => {
     const notificationService = makeNotificationService();
     const service = makeService(notificationService);

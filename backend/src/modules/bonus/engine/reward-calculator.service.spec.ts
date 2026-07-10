@@ -114,3 +114,100 @@ describe('RewardCalculatorService.calculateVip direct referral pool', () => {
     expect(result.reserveFund).toBe(2);
   });
 });
+
+describe('RewardCalculatorService.calculateFromProfit', () => {
+  const calculator = new RewardCalculatorService();
+  const rates = {
+    vip: {
+      platform: 0.4,
+      reward: 0.2,
+      directReferral: 0.05,
+      industryFund: 0.1,
+      charity: 0.1,
+      tech: 0.05,
+      reserve: 0.1,
+    },
+    normal: {
+      platform: 0.35,
+      reward: 0.2,
+      directReferral: 0.01,
+      industryFund: 0.15,
+      charity: 0.1,
+      tech: 0.1,
+      reserve: 0.09,
+    },
+  };
+
+  it('uses D as the only base and rounds a 15% direct share of 13.25 to 1.99', () => {
+    const result = calculator.calculateFromProfit(
+      13.25,
+      'NORMAL',
+      rates,
+      0.15,
+      { 'company-1': 1 },
+      true,
+      'snapshot-v3',
+    );
+
+    expect(result.profit).toBe(13.25);
+    expect(result.directReferralPool).toBe(1.99);
+    expect(result.rewardPool).toBe(2.65);
+    expect(result.industryFund).toBe(1.99);
+  });
+
+  it.each([
+    ['NORMAL', 0.15, 2.65, 1.99],
+    ['VIP', 0.01, 2.65, 1.33],
+  ] as const)(
+    'uses %s buyer rates while keeping the inviter direct rate independent',
+    (buyerPath, directRate, expectedReward, expectedIndustry) => {
+      const result = calculator.calculateFromProfit(
+        13.25,
+        buyerPath,
+        rates,
+        directRate,
+        {},
+        true,
+        'snapshot-v3',
+      );
+
+      expect(result.rewardPool).toBe(expectedReward);
+      expect(result.industryFund).toBe(expectedIndustry);
+      expect(result.directReferralPool).toBe(Math.round(13.25 * directRate * 100) / 100);
+    },
+  );
+
+  it('conserves integer cents exactly and lets the explicit platform bucket absorb rounding', () => {
+    const result = calculator.calculateFromProfit(
+      13.25,
+      'NORMAL',
+      rates,
+      0.15,
+      {},
+      true,
+      'snapshot-v3',
+    );
+    const total = [
+      result.platformProfit,
+      result.rewardPool,
+      result.directReferralPool,
+      result.industryFund,
+      result.charityFund,
+      result.techFund,
+      result.reserveFund,
+    ].reduce((sum, amount) => sum + Math.round(amount * 100), 0);
+
+    expect(total).toBe(1325);
+    expect(result.platformRetained).toBe(
+      Math.round((result.platformProfit + result.charityFund + result.techFund + result.reserveFund) * 100) / 100,
+    );
+  });
+
+  it('counts an unclaimed direct share as platform retained without changing D', () => {
+    const claimed = calculator.calculateFromProfit(13.25, 'NORMAL', rates, 0.15, {}, true, 'snapshot-v3');
+    const unclaimed = calculator.calculateFromProfit(13.25, 'NORMAL', rates, 0.15, {}, false, 'snapshot-v3');
+
+    expect(Math.round((unclaimed.platformRetained - claimed.platformRetained) * 100)).toBe(199);
+    expect(Math.round((unclaimed.externalNet + unclaimed.platformRetained) * 100)).toBe(1325);
+  });
+});
