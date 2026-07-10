@@ -1396,7 +1396,13 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
     });
     expect(prismaMock.memberProfile.updateMany).not.toHaveBeenCalled();
     expect(assignSpy).toHaveBeenCalledWith(prismaMock, 'invitee-vip-inviter', 'vip-inviter');
-    expect(grantSpy).not.toHaveBeenCalled();
+    expect(grantSpy).toHaveBeenCalledWith(
+      prismaMock,
+      'vip-inviter',
+      'invitee-vip-inviter',
+      60,
+      'vp-vip-inviter',
+    );
   });
 
   it('普通邀请人已是 VIP 但缺少 vipNodeId 时不应断开关系，应交给入树逻辑暴露数据异常', async () => {
@@ -1467,6 +1473,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       {} as any,
     );
     const assignSpy = jest.spyOn(service as any, 'assignVipTreeNode').mockResolvedValue(undefined);
+    const grantSpy = jest.spyOn(service as any, 'grantVipReferralBonus').mockResolvedValue(undefined);
 
     await service.activateVipAfterPayment(
       'invitee-vip-inviter-missing-node',
@@ -1493,6 +1500,13 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       prismaMock,
       'invitee-vip-inviter-missing-node',
       'vip-inviter',
+    );
+    expect(grantSpy).toHaveBeenCalledWith(
+      prismaMock,
+      'vip-inviter',
+      'invitee-vip-inviter-missing-node',
+      60,
+      'vp-vip-inviter-missing-node',
     );
   });
 
@@ -1598,10 +1612,16 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
         inviterUserId: 'vip-inviter',
       }),
     );
-    expect(grantSpy).not.toHaveBeenCalled();
+    expect(grantSpy).toHaveBeenCalledWith(
+      prismaMock,
+      'vip-inviter',
+      'invitee-vip-referral-only',
+      120,
+      'vp-vip-referral-only',
+    );
   });
 
-  it('VIP 包激活即使 referralBonusRate 大于 0，也不调用一次性 VIP 推荐奖励', async () => {
+  it('付费 VIP 包激活按购买快照发放一次性 VIP 推荐奖励', async () => {
     const prismaMock: any = {
       vipPurchase: {
         findUnique: jest
@@ -1612,8 +1632,8 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
             userId: 'invitee-no-onetime-bonus',
             orderId: 'order-no-onetime-bonus',
             activationStatus: 'ACTIVATING',
-            referralBonusRate: 0.25,
-            amount: 800,
+            referralBonusRate: 0.13,
+            amount: 399,
           }),
         create: jest.fn().mockResolvedValue({
           id: 'vp-no-onetime-bonus',
@@ -1675,13 +1695,72 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
       'invitee-no-onetime-bonus',
       'order-no-onetime-bonus',
       'gift-1',
-      800,
+      399,
       { title: 'VIP 礼包' },
       'pkg-1',
-      0.25,
+      0.13,
     );
 
-    expect(grantSpy).not.toHaveBeenCalled();
+    expect(grantSpy).toHaveBeenCalledTimes(1);
+    expect(grantSpy).toHaveBeenCalledWith(
+      prismaMock,
+      'vip-inviter',
+      'invitee-no-onetime-bonus',
+      51.87,
+      'vp-no-onetime-bonus',
+    );
+  });
+});
+
+describe('BonusService.grantVipReferralBonus — 授奖幂等', () => {
+  it('同一 VipPurchase 已有有效推荐奖流水时不重复增加余额', async () => {
+    const prismaMock: any = {
+      rewardLedger: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'ledger-existing' }),
+        create: jest.fn().mockResolvedValue({ id: 'ledger-duplicate' }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: 'ACTIVE',
+          deletionExecutedAt: null,
+        }),
+      },
+      rewardAccount: {
+        upsert: jest.fn().mockResolvedValue({ id: 'account-vip-inviter' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const notificationService = {
+      emit: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new BonusService(
+      prismaMock,
+      {} as any,
+      {} as any,
+      notificationService as any,
+    );
+
+    await (service as any).grantVipReferralBonus(
+      prismaMock,
+      'vip-inviter',
+      'vip-invitee',
+      51.87,
+      'vip-purchase-1',
+    );
+
+    expect(prismaMock.rewardLedger.findFirst).toHaveBeenCalledWith({
+      where: {
+        refType: 'VIP_REFERRAL',
+        refId: 'vip-purchase-1',
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.rewardAccount.upsert).not.toHaveBeenCalled();
+    expect(prismaMock.rewardLedger.create).not.toHaveBeenCalled();
+    expect(prismaMock.rewardAccount.update).not.toHaveBeenCalled();
+    expect(notificationService.emit).not.toHaveBeenCalled();
   });
 });
 
