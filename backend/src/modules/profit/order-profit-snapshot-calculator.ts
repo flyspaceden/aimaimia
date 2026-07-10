@@ -1,5 +1,6 @@
 import {
   allocateCentsByLargestRemainder,
+  checkedSafeIntegerSum,
   isNonNegativeIntegerCents,
 } from './money-allocation';
 import {
@@ -18,8 +19,6 @@ type DiscountField =
 interface WorkingItem extends ProfitItemBreakdown {
   costMissing: boolean;
 }
-
-const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
 
 export class OrderProfitSnapshotCalculator {
   calculate(input: ProfitCalculationInput): ProfitCalculationResult {
@@ -78,9 +77,11 @@ export class OrderProfitSnapshotCalculator {
     }
 
     const workingItems: WorkingItem[] = nonPrizeItems.map((item) => {
-      const unitCostCents = item.unitCostCents ?? 0;
+      const validUnitCost = Number.isSafeInteger(item.unitCostCents)
+        && Number(item.unitCostCents) > 0;
+      const unitCostCents = validUnitCost ? Number(item.unitCostCents) : 0;
       const grossGoodsAmountCents = item.unitPriceCents * item.quantity;
-      const productCostCents = isNonNegativeIntegerCents(unitCostCents)
+      const productCostCents = validUnitCost
         && Number.isSafeInteger(unitCostCents * item.quantity)
         ? unitCostCents * item.quantity
         : 0;
@@ -102,20 +103,33 @@ export class OrderProfitSnapshotCalculator {
         grossProfitCents: grossGoodsAmountCents - productCostCents,
         distributableProfitShareCents: 0,
         captainEligible: item.captainEligible,
-        costMissing: !Number.isSafeInteger(item.unitCostCents)
-          || Number(item.unitCostCents) <= 0
+        costMissing: !validUnitCost
           || !Number.isSafeInteger(Number(item.unitCostCents) * item.quantity),
       };
     });
 
-    const calculatedGross = sum(workingItems.map((item) => item.grossGoodsAmountCents));
-    const declaredExplicitDiscount = sum(
+    const calculatedGross = checkedSafeIntegerSum(
+      workingItems.map((item) => item.grossGoodsAmountCents),
+    );
+    const declaredExplicitDiscount = checkedSafeIntegerSum(
       nonPrizeItems.map((item) => item.explicitDiscountCents ?? 0),
     );
-    const explicitDiscountAllocated = sum(
+    const explicitDiscountAllocated = checkedSafeIntegerSum(
       workingItems.map((item) => item.explicitDiscountCents),
     );
-    const explicitDiscountConserved = declaredExplicitDiscount === explicitDiscountAllocated
+    const totalDiscountCents = checkedSafeIntegerSum([
+      amounts.otherGoodsDiscountCents,
+      amounts.vipDiscountCents,
+      amounts.rewardDeductionCents,
+      amounts.groupBuyRebateDeductionCents,
+      amounts.couponDiscountCents,
+    ]);
+    const aggregateOverflow = calculatedGross === null
+      || declaredExplicitDiscount === null
+      || explicitDiscountAllocated === null
+      || totalDiscountCents === null;
+    const explicitDiscountConserved = !aggregateOverflow
+      && declaredExplicitDiscount === explicitDiscountAllocated
       && amounts.otherGoodsDiscountCents === declaredExplicitDiscount;
 
     for (const item of workingItems) {
@@ -131,14 +145,24 @@ export class OrderProfitSnapshotCalculator {
     ];
 
     for (const discount of orderedDiscounts) {
-      const allocation = allocateCentsByLargestRemainder(
-        discount.amount,
-        workingItems.map((item) => ({
-          id: item.orderItemId,
-          weightCents: item.netGoodsRevenueCents,
-          capacityCents: item.netGoodsRevenueCents,
-        })),
-      );
+      let allocation;
+      try {
+        allocation = allocateCentsByLargestRemainder(
+          discount.amount,
+          workingItems.map((item) => ({
+            id: item.orderItemId,
+            weightCents: item.netGoodsRevenueCents,
+            capacityCents: item.netGoodsRevenueCents,
+          })),
+        );
+      } catch (error) {
+        return this.reconciliationResult(
+          amounts,
+          workingItems,
+          'ORDER_PROFIT_CONSERVATION_FAILED',
+          { reason: 'UNSAFE_DISCOUNT_ALLOCATION' },
+        );
+      }
 
       if (allocation.unallocatedCents !== 0) discountAllocationFailed = true;
       for (const item of workingItems) {
@@ -147,19 +171,24 @@ export class OrderProfitSnapshotCalculator {
       }
     }
 
-    const totalDiscountCents = amounts.otherGoodsDiscountCents
-      + amounts.vipDiscountCents
-      + amounts.rewardDeductionCents
-      + amounts.groupBuyRebateDeductionCents
-      + amounts.couponDiscountCents;
-    const allocatedDiscountCents = sum(workingItems.map((item) => item.totalDiscountCents));
-    const netGoodsRevenueCents = sum(workingItems.map((item) => item.netGoodsRevenueCents));
-    const productCostCents = sum(workingItems.map((item) => item.productCostCents));
-    const conservationFailed = calculatedGross !== amounts.grossGoodsAmountCents
+    const allocatedDiscountCents = checkedSafeIntegerSum(
+      workingItems.map((item) => item.totalDiscountCents),
+    );
+    const netGoodsRevenueCents = checkedSafeIntegerSum(
+      workingItems.map((item) => item.netGoodsRevenueCents),
+    );
+    const productCostCents = checkedSafeIntegerSum(
+      workingItems.map((item) => item.productCostCents),
+    );
+    const conservationFailed = aggregateOverflow
+      || allocatedDiscountCents === null
+      || netGoodsRevenueCents === null
+      || productCostCents === null
+      || calculatedGross !== amounts.grossGoodsAmountCents
       || !explicitDiscountConserved
       || discountAllocationFailed
       || allocatedDiscountCents !== totalDiscountCents
-      || netGoodsRevenueCents !== amounts.grossGoodsAmountCents - totalDiscountCents
+      || netGoodsRevenueCents !== amounts.grossGoodsAmountCents - (totalDiscountCents ?? 0)
       || workingItems.some((item) => item.netGoodsRevenueCents < 0);
 
     if (conservationFailed) {
@@ -188,27 +217,47 @@ export class OrderProfitSnapshotCalculator {
       );
     }
 
-    const orderMarginCents = sum(workingItems.map((item) => item.grossProfitCents));
-    const distributableProfitCents = Math.max(0, orderMarginCents);
-    const profitAllocation = allocateCentsByLargestRemainder(
-      distributableProfitCents,
-      workingItems.map((item) => {
-        const positiveMargin = Math.max(0, item.grossProfitCents);
-        return {
-          id: item.orderItemId,
-          weightCents: positiveMargin,
-          capacityCents: positiveMargin,
-        };
-      }),
+    const orderMarginCents = checkedSafeIntegerSum(
+      workingItems.map((item) => item.grossProfitCents),
     );
+    if (orderMarginCents === null) {
+      return this.reconciliationResult(
+        amounts,
+        workingItems,
+        'ORDER_PROFIT_CONSERVATION_FAILED',
+        { reason: 'UNSAFE_PROFIT_AGGREGATE' },
+      );
+    }
+    const distributableProfitCents = Math.max(0, orderMarginCents);
+    let profitAllocation;
+    try {
+      profitAllocation = allocateCentsByLargestRemainder(
+        distributableProfitCents,
+        workingItems.map((item) => {
+          const positiveMargin = Math.max(0, item.grossProfitCents);
+          return {
+            id: item.orderItemId,
+            weightCents: positiveMargin,
+            capacityCents: positiveMargin,
+          };
+        }),
+      );
+    } catch (error) {
+      return this.reconciliationResult(
+        amounts,
+        workingItems,
+        'ORDER_PROFIT_CONSERVATION_FAILED',
+        { reason: 'UNSAFE_PROFIT_ALLOCATION' },
+      );
+    }
 
     for (const item of workingItems) {
       item.distributableProfitShareCents = profitAllocation.allocations[item.orderItemId] ?? 0;
     }
-    const allocatedProfitCents = sum(
+    const allocatedProfitCents = checkedSafeIntegerSum(
       workingItems.map((item) => item.distributableProfitShareCents),
     );
-    const captainEligibleProfitCents = sum(
+    const captainEligibleProfitCents = checkedSafeIntegerSum(
       workingItems
         .filter((item) => item.captainEligible)
         .map((item) => item.distributableProfitShareCents),
@@ -216,6 +265,8 @@ export class OrderProfitSnapshotCalculator {
 
     if (
       profitAllocation.unallocatedCents !== 0
+      || allocatedProfitCents === null
+      || captainEligibleProfitCents === null
       || allocatedProfitCents !== distributableProfitCents
       || captainEligibleProfitCents < 0
       || captainEligibleProfitCents > distributableProfitCents
@@ -231,11 +282,11 @@ export class OrderProfitSnapshotCalculator {
     return {
       status: 'READY',
       ...amounts,
-      totalDiscountCents,
-      netGoodsRevenueCents,
-      productCostCents,
+      totalDiscountCents: totalDiscountCents as number,
+      netGoodsRevenueCents: netGoodsRevenueCents as number,
+      productCostCents: productCostCents as number,
       distributableProfitCents,
-      captainEligibleProfitCents,
+      captainEligibleProfitCents: captainEligibleProfitCents as number,
       itemBreakdown: this.publicBreakdown(workingItems),
     };
   }
@@ -270,18 +321,24 @@ export class OrderProfitSnapshotCalculator {
     for (const item of items) {
       item.distributableProfitShareCents = 0;
     }
-    const totalDiscountCents = amounts.otherGoodsDiscountCents
-      + amounts.vipDiscountCents
-      + amounts.rewardDeductionCents
-      + amounts.groupBuyRebateDeductionCents
-      + amounts.couponDiscountCents;
+    const totalDiscountCents = checkedSafeIntegerSum([
+      amounts.otherGoodsDiscountCents,
+      amounts.vipDiscountCents,
+      amounts.rewardDeductionCents,
+      amounts.groupBuyRebateDeductionCents,
+      amounts.couponDiscountCents,
+    ]) ?? 0;
 
     return {
       status: 'RECONCILIATION_REQUIRED',
       ...amounts,
       totalDiscountCents,
-      netGoodsRevenueCents: sum(items.map((item) => item.netGoodsRevenueCents)),
-      productCostCents: sum(items.map((item) => item.productCostCents)),
+      netGoodsRevenueCents: checkedSafeIntegerSum(
+        items.map((item) => item.netGoodsRevenueCents),
+      ) ?? 0,
+      productCostCents: checkedSafeIntegerSum(
+        items.map((item) => item.productCostCents),
+      ) ?? 0,
       distributableProfitCents: 0,
       captainEligibleProfitCents: 0,
       itemBreakdown: this.publicBreakdown(items),
