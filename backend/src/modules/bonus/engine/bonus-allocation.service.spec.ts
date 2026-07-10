@@ -145,7 +145,7 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
       expect.any(String),
       'snapshot-order',
       expect.objectContaining({
-        platformProfit: 5.29,
+        platformProfit: 5.3,
         industryFund: 1.33,
       }),
       { 'company-1': 1 },

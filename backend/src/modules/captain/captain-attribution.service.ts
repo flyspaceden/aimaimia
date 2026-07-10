@@ -11,6 +11,9 @@ export type CaptainAttributionResult = 'credited' | 'skipped';
 interface ProfitRateSnapshot {
   reward: number;
   industryFund: number;
+  charity: number;
+  tech: number;
+  reserve: number;
 }
 
 @Injectable()
@@ -78,11 +81,15 @@ export class CaptainAttributionService {
       funding = calculateCaptainProfitFunding({
         distributableProfitAmount,
         captainEligibleProfitAmount: commissionBase,
-        treeRewardProfitRate: Number(rates.reward),
-        industryFundProfitRate: Number(rates.industryFund),
-        actualDirectReferralProfitRate: directInviter?.eligibleUserId
-          ? Number(directInviter.effectiveDirectRate)
-          : 0,
+        memberProfitRates: {
+          reward: Number(rates.reward),
+          directReferral: Number(directInviter?.effectiveDirectRate),
+          industryFund: Number(rates.industryFund),
+          charity: Number(rates.charity),
+          tech: Number(rates.tech),
+          reserve: Number(rates.reserve),
+        },
+        directReferralClaimed: Boolean(directInviter?.eligibleUserId),
         captainDirectProfitRate: Number(config.perOrderCommission.directProfitRate),
         monthlyProfitRates: [
           Number(config.monthlyRewards.baseManagementProfitRate),

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { allocateProfitRateBuckets } from '../../profit/profit-rate-allocation';
 import { BonusConfig } from './bonus-config.service';
 
 /** 订单项（含成本信息） */
@@ -339,12 +340,13 @@ export class RewardCalculatorService {
       throw new Error('Invalid payment profit snapshot allocation input');
     }
 
-    const rewardCents = this.rateCents(profitCents, appliedRates.reward);
-    const directCents = this.rateCents(profitCents, appliedRates.directReferral);
-    const industryCents = this.rateCents(profitCents, appliedRates.industryFund);
-    const charityCents = this.rateCents(profitCents, appliedRates.charity);
-    const techCents = this.rateCents(profitCents, appliedRates.tech);
-    const reserveCents = this.rateCents(profitCents, appliedRates.reserve);
+    const allocated = allocateProfitRateBuckets(profitCents, appliedRates);
+    const rewardCents = allocated.reward;
+    const directCents = allocated.directReferral;
+    const industryCents = allocated.industryFund;
+    const charityCents = allocated.charity;
+    const techCents = allocated.tech;
+    const reserveCents = allocated.reserve;
     const nonPlatformCents = rewardCents
       + directCents
       + industryCents
@@ -381,10 +383,6 @@ export class RewardCalculatorService {
         ruleVersion,
       },
     };
-  }
-
-  private rateCents(profitCents: number, rate: number): number {
-    return Math.round(profitCents * rate);
   }
 
   /** 截断到分（2 位小数，舍弃后续位数） */

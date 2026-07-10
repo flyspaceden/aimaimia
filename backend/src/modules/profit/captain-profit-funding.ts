@@ -1,11 +1,14 @@
 import { centsToYuan, yuanToCents } from './money-allocation';
+import {
+  allocateProfitRateBuckets,
+  ProfitRateBuckets,
+} from './profit-rate-allocation';
 
 export interface CaptainProfitFundingInput {
   distributableProfitAmount: number;
   captainEligibleProfitAmount: number;
-  treeRewardProfitRate: number;
-  industryFundProfitRate: number;
-  actualDirectReferralProfitRate: number;
+  memberProfitRates: ProfitRateBuckets;
+  directReferralClaimed: boolean;
   captainDirectProfitRate: number;
   monthlyProfitRates: number[];
 }
@@ -40,29 +43,21 @@ export function calculateCaptainProfitFunding(
   if (distributableProfitCents < 0 || captainEligibleProfitCents < 0) {
     throw new Error('captain funding profit amounts must be non-negative');
   }
+  if (captainEligibleProfitCents > distributableProfitCents) {
+    throw new Error('captain eligible profit cannot exceed distributable profit');
+  }
 
-  assertRate(input.treeRewardProfitRate, 'treeRewardProfitRate');
-  assertRate(input.industryFundProfitRate, 'industryFundProfitRate');
-  assertRate(input.actualDirectReferralProfitRate, 'actualDirectReferralProfitRate');
   assertRate(input.captainDirectProfitRate, 'captainDirectProfitRate');
   input.monthlyProfitRates.forEach((rate, index) => assertRate(rate, `monthlyProfitRates[${index}]`));
 
-  const treeRewardCents = multiplyCentsByRate(
+  const memberBuckets = allocateProfitRateBuckets(
     distributableProfitCents,
-    input.treeRewardProfitRate,
-  );
-  const industryFundCents = multiplyCentsByRate(
-    distributableProfitCents,
-    input.industryFundProfitRate,
-  );
-  const directReferralCents = multiplyCentsByRate(
-    distributableProfitCents,
-    input.actualDirectReferralProfitRate,
+    input.memberProfitRates,
   );
   const platformRetainedCents = distributableProfitCents
-    - treeRewardCents
-    - industryFundCents
-    - directReferralCents;
+    - memberBuckets.reward
+    - memberBuckets.industryFund
+    - (input.directReferralClaimed ? memberBuckets.directReferral : 0);
 
   const directCents = multiplyCentsByRate(
     captainEligibleProfitCents,
