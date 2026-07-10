@@ -16,6 +16,7 @@ import type { DigitalAssetService } from '../digital-asset/digital-asset.service
 import type { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { WechatPayService } from './wechat-pay.service';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
+import { OrderProfitRefundService, type ProfitRefundFinalizeResult } from '../profit/order-profit-refund.service';
 
 @Injectable()
 export class PaymentService {
@@ -30,6 +31,7 @@ export class PaymentService {
   private groupBuyRebateDeductionService: GroupBuyRebateDeductionService | null = null;
   private digitalAssetService: DigitalAssetService | null = null;
   private captainCommissionService: CaptainCommissionService | null = null;
+  private orderProfitRefundService: OrderProfitRefundService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -41,9 +43,11 @@ export class PaymentService {
     @Optional() private wechatPayService?: WechatPayService,
     @Optional() digitalAssetService?: DigitalAssetService,
     @Optional() captainCommissionService?: CaptainCommissionService,
+    @Optional() orderProfitRefundService?: OrderProfitRefundService,
   ) {
     this.digitalAssetService = digitalAssetService ?? null;
     this.captainCommissionService = captainCommissionService ?? null;
+    this.orderProfitRefundService = orderProfitRefundService ?? null;
   }
 
   setAfterSaleRefundService(service: AfterSaleRefundService) {
@@ -68,6 +72,10 @@ export class PaymentService {
 
   setCaptainCommissionService(service: CaptainCommissionService) {
     this.captainCommissionService = service;
+  }
+
+  setOrderProfitRefundService(service: OrderProfitRefundService) {
+    this.orderProfitRefundService = service;
   }
 
   /**
@@ -1775,14 +1783,15 @@ export class PaymentService {
       });
       if (!current || !fromStatuses.includes(current.status)) return false;
 
-      await tx.refund.update({
-        where: { id: refundId },
+      const cas = await tx.refund.updateMany({
+        where: { id: refundId, status: current.status as any },
         data: {
           status: toStatus,
           providerRefundId: providerRefundId ?? undefined,
           rawNotifyPayload: rawNotifyPayload ?? undefined,
         },
       });
+      if (cas.count === 0) return false;
 
       await tx.refundStatusHistory.create({
         data: {
@@ -1793,19 +1802,25 @@ export class PaymentService {
           operatorId: operatorId ?? this.autoRefundOperator,
         },
       });
+      let profitRefund: ProfitRefundFinalizeResult | null = null;
       if (toStatus === 'REFUNDED') {
         await this.restoreAutoCancelDeduction(tx, refundId);
+        profitRefund = this.orderProfitRefundService
+          ? await this.orderProfitRefundService.finalizeSuccessfulRefund(tx, refundId)
+          : { mode: 'LEGACY', orderId: current.orderId };
       }
-      return { orderId: current.orderId, amount: current.amount };
+      return { orderId: current.orderId, amount: current.amount, profitRefund };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (updated && toStatus === 'REFUNDED') {
       await this.reverseDigitalAssetAfterAutoRefund(refundId);
-      await this.voidCaptainCommissionAfterAutoRefund(
-        updated.orderId,
-        refundId,
-        updated.amount,
-      );
+      if (updated.profitRefund?.mode !== 'V3') {
+        await this.voidCaptainCommissionAfterAutoRefund(
+          updated.orderId,
+          refundId,
+          updated.amount,
+        );
+      }
     }
     return Boolean(updated);
   }

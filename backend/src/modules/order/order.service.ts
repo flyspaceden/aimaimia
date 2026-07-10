@@ -34,6 +34,7 @@ import {
   CaptainCommissionService,
   CaptainReleaseReason,
 } from '../captain/captain-commission.service';
+import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -2352,6 +2353,7 @@ export class OrderService {
           reason: '买家未发货取消订单',
         },
       });
+      const profitSnapshot = await this.createFullRefundItemsInTx(tx, refund.id, order);
 
       // 写 RefundStatusHistory（首次创建，fromStatus=null）
       await tx.refundStatusHistory.create({
@@ -2379,7 +2381,9 @@ export class OrderService {
         isFinalRefund: true,
       });
 
-      await this.bonusAllocation.rollbackForOrder(id, tx);
+      if (!profitSnapshot) {
+        await this.bonusAllocation.rollbackForOrder(id, tx);
+      }
 
       return {
         refundId: refund.id,
@@ -2422,7 +2426,17 @@ export class OrderService {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           });
         } else if (result?.success) {
-          await this.prisma.$transaction(async (tx) => {
+          if (this.paymentService?.finalizeAutoRefundRecord) {
+            await this.paymentService.finalizeAutoRefundRecord({
+              refundId: refundData.refundId,
+              fromStatuses: ['REFUNDING'],
+              toStatus: 'REFUNDED',
+              remark: '渠道退款成功',
+              providerRefundId: result.providerRefundId,
+              operatorId: userId,
+            });
+          } else {
+            await this.prisma.$transaction(async (tx) => {
             await tx.refund.update({
               where: { id: refundData.refundId },
               data: {
@@ -2443,15 +2457,16 @@ export class OrderService {
               await this.couponService.restoreCouponsForOrder(id, tx);
             }
             await this.restoreDeductionForRefund(tx, refundData.deductionRestore);
-          }, {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          });
-          await this.reverseDigitalAssetAfterRefund(refundData.refundId);
-          await this.voidCaptainCommissionAfterRefund(
-            id,
-            refundData.refundId,
-            refundData.refundAmount,
-          );
+            }, {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            });
+            await this.reverseDigitalAssetAfterRefund(refundData.refundId);
+            await this.voidCaptainCommissionAfterRefund(
+              id,
+              refundData.refundId,
+              refundData.refundAmount,
+            );
+          }
         } else {
           this.logger.warn(
             `退款发起失败，cron 将重试: refundId=${refundData.refundId}, msg=${result?.message ?? 'unknown'}`,
@@ -2613,6 +2628,7 @@ export class OrderService {
         merchantRefundNo: string;
         orderId: string;
         deductionRestore: DeductionRefundRestoreBundle | null;
+        profitSnapshotId: string | null;
       }> = [];
       for (const o of orders) {
         const refund = await tx.refund.create({
@@ -2624,6 +2640,7 @@ export class OrderService {
             reason: '买家整 session 未发货取消订单',
           },
         });
+        const profitSnapshot = await this.createFullRefundItemsInTx(tx, refund.id, o);
         await tx.refundStatusHistory.create({
           data: {
             refundId: refund.id,
@@ -2651,11 +2668,14 @@ export class OrderService {
             order: o,
             fallbackOrderId: o.id,
           }),
+          profitSnapshotId: profitSnapshot?.id ?? null,
         });
       }
 
       for (const refund of refunds) {
-        await this.bonusAllocation.rollbackForOrder(refund.orderId, tx);
+        if (!refund.profitSnapshotId) {
+          await this.bonusAllocation.rollbackForOrder(refund.orderId, tx);
+        }
       }
 
       return {
@@ -2701,7 +2721,20 @@ export class OrderService {
           } else if (result?.success) {
             const nextSuccessfulRefundOrderIds = new Set(successfulRefundOrderIds);
             nextSuccessfulRefundOrderIds.add(r.orderId);
-            await this.prisma.$transaction(async (tx) => {
+            if (this.paymentService?.finalizeAutoRefundRecord) {
+              await this.paymentService.finalizeAutoRefundRecord({
+                refundId: r.refundId,
+                fromStatuses: ['REFUNDING'],
+                toStatus: 'REFUNDED',
+                remark: '渠道退款成功',
+                providerRefundId: result.providerRefundId,
+                operatorId: userId,
+              });
+              successfulGoodsRefundAmount = Number(
+                (successfulGoodsRefundAmount + Number(r.goodsRefundAmount || 0)).toFixed(2),
+              );
+            } else {
+              await this.prisma.$transaction(async (tx) => {
               await tx.refund.update({
                 where: { id: r.refundId },
                 data: {
@@ -2735,15 +2768,16 @@ export class OrderService {
                   ?? r.deductionRestore?.groupBuyRebate?.originalGoodsAmount
                   ?? 0),
               });
-            }, {
-              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-            });
-            await this.reverseDigitalAssetAfterRefund(r.refundId);
-            await this.voidCaptainCommissionAfterRefund(
-              r.orderId,
-              r.refundId,
-              r.refundAmount,
-            );
+              }, {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+              });
+              await this.reverseDigitalAssetAfterRefund(r.refundId);
+              await this.voidCaptainCommissionAfterRefund(
+                r.orderId,
+                r.refundId,
+                r.refundAmount,
+              );
+            }
             successfulRefundOrderIds.add(r.orderId);
           } else {
             this.logger.warn(
@@ -2782,6 +2816,50 @@ export class OrderService {
       include: { items: true },
     });
     return this.mapOrder(primary);
+  }
+
+  private async createFullRefundItemsInTx(
+    tx: any,
+    refundId: string,
+    order: any,
+  ): Promise<{ id: string; itemBreakdown: unknown } | null> {
+    const snapshot = tx.orderProfitSnapshot?.findFirst
+      ? await tx.orderProfitSnapshot.findFirst({
+          where: { orderId: order.id, isCurrent: true, status: 'READY' },
+          orderBy: { revision: 'desc' },
+          select: { id: true, itemBreakdown: true },
+        })
+      : null;
+    if (!tx.refundItem?.createMany) return snapshot;
+
+    const breakdownByItem = new Map<string, number>();
+    if (Array.isArray(snapshot?.itemBreakdown)) {
+      for (const row of snapshot.itemBreakdown as any[]) {
+        if (
+          typeof row?.orderItemId === 'string'
+          && Number.isSafeInteger(row.netGoodsRevenueCents)
+          && row.netGoodsRevenueCents >= 0
+        ) {
+          breakdownByItem.set(row.orderItemId, row.netGoodsRevenueCents);
+        }
+      }
+    }
+    const rows = (order.items ?? [])
+      .filter((item: any) => !item.isPrize && item.id && item.skuId && item.quantity > 0)
+      .map((item: any) => ({
+        refundId,
+        orderItemId: item.id,
+        skuId: item.skuId,
+        quantity: item.quantity,
+        amount: centsToYuan(
+          breakdownByItem.get(item.id)
+          ?? yuanToCents(Number(item.unitPrice || 0) * Number(item.quantity || 0)),
+        ),
+      }));
+    if (rows.length > 0) {
+      await tx.refundItem.createMany({ data: rows, skipDuplicates: true });
+    }
+    return snapshot;
   }
 
   private async emitBuyerCanceledSellerNotification(

@@ -257,6 +257,7 @@ describe('PaymentService.initiateRefund', () => {
       refund: {
         findUnique: jest.fn().mockResolvedValue({ id: 'r1', status: 'REFUNDING' }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       refundStatusHistory: { create: jest.fn() },
     };
@@ -387,6 +388,7 @@ describe('PaymentService.initiateRefund', () => {
             },
           }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([
           { order: { goodsAmount: 60 } },
         ]),
@@ -449,6 +451,7 @@ describe('PaymentService.initiateRefund', () => {
             },
           }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([
           { orderId: 'o1', status: 'REFUNDED' },
         ]),
@@ -470,8 +473,8 @@ describe('PaymentService.initiateRefund', () => {
     });
 
     expect(result).toBe(true);
-    expect(updateTx.refund.update).toHaveBeenCalledWith({
-      where: { id: 'r_auto_1' },
+    expect(updateTx.refund.updateMany).toHaveBeenCalledWith({
+      where: { id: 'r_auto_1', status: 'REFUNDING' },
       data: {
         status: 'REFUNDED',
         providerRefundId: 'provider_auto_001',
@@ -502,6 +505,7 @@ describe('PaymentService.initiateRefund', () => {
             },
           }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([
           { orderId: 'o1', status: 'REFUNDED' },
         ]),
@@ -549,6 +553,7 @@ describe('PaymentService.initiateRefund', () => {
             },
           }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([
           { orderId: 'o1', status: 'REFUNDED' },
         ]),
@@ -595,6 +600,7 @@ describe('PaymentService.initiateRefund', () => {
             },
           }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([
           { orderId: 'o1', status: 'REFUNDED' },
           { orderId: 'o2', status: 'REFUNDING' },

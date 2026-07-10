@@ -27,6 +27,8 @@ import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainModule } from '../captain/captain.module';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
+import { ProfitModule } from '../profit/profit.module';
+import { OrderProfitRefundService } from '../profit/order-profit-refund.service';
 
 @Module({
   imports: [
@@ -39,6 +41,7 @@ import { CaptainCommissionService } from '../captain/captain-commission.service'
     ProductModule,
     GrowthModule,
     CaptainModule,
+    ProfitModule,
   ],
   controllers: [AfterSaleController],
   providers: [
@@ -110,6 +113,10 @@ export class AfterSaleModule implements OnModuleInit {
     const captainCommissionService = this.moduleRef.get(CaptainCommissionService, { strict: false });
     if (captainCommissionService) {
       this.afterSaleRefundService.setCaptainCommissionService(captainCommissionService);
+    }
+    const orderProfitRefundService = this.moduleRef.get(OrderProfitRefundService, { strict: false });
+    if (orderProfitRefundService) {
+      this.afterSaleRefundService.setOrderProfitRefundService(orderProfitRefundService);
     }
     const wechatPayService = this.moduleRef.get(WechatPayService, { strict: false });
     if (wechatPayService) {
