@@ -145,10 +145,26 @@ function normalizeRisk(risk: unknown) {
   return supportedRisk;
 }
 
-const ISO_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const ISO_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function hasRealIsoCalendarDate(value: string): boolean {
+  const match = ISO_TIME_PATTERN.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
 
 function isValidIsoTime(value: unknown): value is string {
-  return typeof value === 'string' && ISO_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+  return typeof value === 'string'
+    && hasRealIsoCalendarDate(value)
+    && !Number.isNaN(Date.parse(value));
 }
 
 function normalizeV3EffectiveFrom(value: unknown): unknown {
@@ -342,8 +358,11 @@ function assertShanghaiNaturalMonthStart(value: unknown) {
   }
 }
 
-function validateV2Config(value: Record<string, unknown>): CaptainSeafoodConfigV2 {
-  if (value.enabled === true) {
+function validateV2Config(
+  value: Record<string, unknown>,
+  allowEnabledForHistoricalRead = false,
+): CaptainSeafoodConfigV2 {
+  if (value.enabled === true && !allowEnabledForHistoricalRead) {
     throw new Error('V2 团长销售额配置必须迁移到 V3 后才能启用新归因');
   }
   validateCommonConfig(value);
@@ -442,4 +461,12 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
     return validateV3Config(value);
   }
   throw new Error('schemaVersion 必须是 2 或 3');
+}
+
+export function readCaptainSeafoodConfig(value: unknown): CaptainSeafoodConfig {
+  assertObject(value, CAPTAIN_SEAFOOD_CONFIG_KEY);
+  if (value.schemaVersion === 2) {
+    return validateV2Config(value, true);
+  }
+  return validateCaptainSeafoodConfig(value);
 }

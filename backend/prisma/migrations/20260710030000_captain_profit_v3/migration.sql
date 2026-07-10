@@ -157,9 +157,14 @@ CREATE UNIQUE INDEX "OrderProfitFundingLedger_idempotencyKey_key"
 ALTER TABLE "OrderProfitFundingLedger"
   ADD CONSTRAINT "OrderProfitFundingLedger_amount_direction_check"
   CHECK (
-    ("type" IN ('PLATFORM_RETAINED_CREDIT', 'CAPTAIN_MONTHLY_RELEASE') AND "amount" >= 0)
-    OR ("type" IN ('CAPTAIN_DIRECT_HOLD', 'CAPTAIN_MONTHLY_HOLD') AND "amount" <= 0)
-    OR "type" = 'REFUND_ADJUSTMENT'
+    "amount" <> 'NaN'::double precision
+    AND "amount" <> 'Infinity'::double precision
+    AND "amount" <> '-Infinity'::double precision
+    AND (
+      ("type" IN ('PLATFORM_RETAINED_CREDIT', 'CAPTAIN_MONTHLY_RELEASE') AND "amount" >= 0)
+      OR ("type" IN ('CAPTAIN_DIRECT_HOLD', 'CAPTAIN_MONTHLY_HOLD') AND "amount" <= 0)
+      OR "type" = 'REFUND_ADJUSTMENT'
+    )
   );
 CREATE INDEX "OrderProfitFundingLedger_orderId_type_idx"
   ON "OrderProfitFundingLedger"("orderId", "type");
