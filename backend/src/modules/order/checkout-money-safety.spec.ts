@@ -570,6 +570,71 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
     }));
   });
 
+  it('rejects a unified deduction that exceeds the goods capacity left after VIP discount', async () => {
+    const { service, getTransactionTx } = buildOrdinaryCheckoutFixture({
+      price: 50,
+      vip: true,
+      vipDiscountRate: 0.5,
+      shippingFee: 8,
+    });
+    const rewardDeductionService = {
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 50,
+        pointsRatio: 1,
+        maxDeductible: 50,
+      }),
+      reserveDeductionUpTo: jest.fn(),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
+
+    await expect(service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      deductionAmount: 50,
+    } as any)).rejects.toThrow('抵扣金额超出上限');
+
+    expect(rewardDeductionService.reserveDeductionUpTo).not.toHaveBeenCalled();
+    expect(getTransactionTx()).toBeUndefined();
+  });
+
+  it('reserves exactly the deduction capacity left after VIP discount', async () => {
+    const { service, getCreatedSessionData, getTransactionTx } = buildOrdinaryCheckoutFixture({
+      price: 50,
+      vip: true,
+      vipDiscountRate: 0.5,
+      shippingFee: 8,
+    });
+    const rewardDeductionService = {
+      calculateMaxDeductible: jest.fn().mockResolvedValue({
+        pointsBalance: 50,
+        pointsRatio: 1,
+        maxDeductible: 50,
+      }),
+      reserveDeductionUpTo: jest.fn().mockResolvedValue({
+        groupId: 'DG-VIP-CAP',
+        primaryLedgerId: 'reward-ledger-vip-cap',
+        deductedFromVip: 25,
+        deductedFromNormal: 0,
+      }),
+    };
+    service.setRewardDeductionService(rewardDeductionService as any);
+
+    await service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      deductionAmount: 25,
+    } as any);
+
+    expect(rewardDeductionService.reserveDeductionUpTo)
+      .toHaveBeenCalledWith(getTransactionTx(), 'user1', 50, 25);
+    expect(getCreatedSessionData()).toEqual(expect.objectContaining({
+      goodsAmount: 50,
+      vipDiscountAmount: 25,
+      discountAmount: 25,
+      expectedTotal: 8,
+    }));
+  });
+
   it('splits one unified consumption-points deduction into reward first and group-buy rebate remainder', async () => {
     const { service, getCreatedSessionData, getTransactionTx } = buildOrdinaryCheckoutFixture();
     const rewardDeductionService = {
