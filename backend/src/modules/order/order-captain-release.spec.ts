@@ -49,10 +49,17 @@ describe('Order captain commission release hooks', () => {
     const tx = {
       order: {
         findUnique: jest.fn().mockResolvedValue({
+          id: 'order-1',
+          userId: 'user-1',
           status: 'DELIVERED',
+          bizType: 'NORMAL',
+          goodsAmount: 100,
+          totalAmount: 100,
+          items: [],
           afterSaleRequests: [],
         }),
         update: jest.fn(),
+        count: jest.fn().mockResolvedValue(1),
       },
       orderStatusHistory: {
         create: jest.fn(),

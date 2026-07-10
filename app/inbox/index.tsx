@@ -299,6 +299,11 @@ export default function InboxScreen() {
           >
             {messages.map((message, msgIndex) => {
               const icon = iconMap[message.type] ?? { name: 'bell-outline', tone: 'neutral' };
+              const isImportantAnnouncement = (
+                message.type === 'platform_announcement' || message.type === 'platform_notice'
+              ) && (
+                message.severity === 'WARNING' || message.metadata?.priority === 'IMPORTANT'
+              );
               const iconColor =
                 icon.tone === 'brand'
                   ? colors.brand.primary
@@ -322,9 +327,14 @@ export default function InboxScreen() {
                     </View>
                     <View style={styles.messageInfo}>
                       <View style={styles.messageHeader}>
-                        <Text style={[typography.bodyStrong, { color: colors.text.primary }]} numberOfLines={1}>
+                        <Text style={[typography.bodyStrong, styles.messageTitle, { color: colors.text.primary }]} numberOfLines={1}>
                           {message.title}
                         </Text>
+                        {isImportantAnnouncement ? (
+                          <View style={[styles.importantBadge, { borderColor: colors.warning }]}>
+                            <Text style={[typography.caption, { color: colors.warning }]}>重要</Text>
+                          </View>
+                        ) : null}
                         {message.unread ? <View style={[styles.dot, { backgroundColor: colors.danger }]} /> : null}
                       </View>
                       <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]} numberOfLines={2}>
@@ -421,6 +431,16 @@ const styles = StyleSheet.create({
   messageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  messageTitle: {
+    flex: 1,
+  },
+  importantBadge: {
+    borderWidth: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
   dot: {
     width: 6,

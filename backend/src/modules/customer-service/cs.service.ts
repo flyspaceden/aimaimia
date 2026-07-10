@@ -12,7 +12,7 @@ import { CsPresenceService } from './cs-presence.service';
 type BuyerSessionScope = 'active' | 'history' | 'all';
 
 const BUYER_ACTIVE_SESSION_STATUSES: CsSessionStatus[] = ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'];
-const BUYER_UNREAD_SENDERS: CsMessageSender[] = ['AGENT', 'SYSTEM'];
+const BUYER_UNREAD_SENDERS: CsMessageSender[] = ['AI', 'AGENT', 'SYSTEM'];
 
 @Injectable()
 export class CsService {
@@ -69,6 +69,22 @@ export class CsService {
               where: { id: existing.id },
               data: { status: 'CLOSED', closedAt: new Date() },
             });
+            if (existing.agentId) {
+              await tx.csAgentStatus.updateMany({
+                where: { adminId: existing.agentId, currentSessions: { gt: 0 } },
+                data: { currentSessions: { decrement: 1 }, lastActiveAt: new Date() },
+              });
+            }
+            if (existing.ticketId) {
+              await tx.csTicket.update({
+                where: { id: existing.ticketId },
+                data: {
+                  status: 'RESOLVED',
+                  resolvedBy: existing.agentId,
+                  resolvedAt: new Date(),
+                },
+              });
+            }
             this.logger.log(`会话 ${existing.id} 空闲超时，已自动关闭`);
           }
 
@@ -170,6 +186,23 @@ export class CsService {
     return { items, page, pageSize };
   }
 
+  /** 获取买家自有会话的权威状态，供通知深链接和历史会话初始化。 */
+  async getBuyerSessionDetail(sessionId: string, userId: string) {
+    const session = await this.prisma.csSession.findFirst({
+      where: { id: sessionId, userId },
+      select: {
+        id: true,
+        status: true,
+        source: true,
+        sourceId: true,
+        agentId: true,
+        closedAt: true,
+      },
+    });
+    if (!session) throw new NotFoundException('会话不存在');
+    return session;
+  }
+
   /** 标记买家已读到当前时间，只允许会话持有人调用 */
   async markBuyerSessionRead(sessionId: string, userId: string) {
     const session = await this.prisma.csSession.findUnique({
@@ -194,23 +227,26 @@ export class CsService {
    * - 全过程无单一事务（因为路由含外部 LLM 调用，不能锁数据库），但用 CAS 防止状态漂移
    */
   async handleUserMessage(sessionId: string, userId: string, content: string, contentType: CsContentType = 'TEXT') {
-    const session = await this.prisma.csSession.findUnique({
-      where: { id: sessionId },
-      include: { messages: { orderBy: { createdAt: 'asc' } } },
-    });
-
-    if (!session) throw new NotFoundException('会话不存在');
-    if (session.userId !== userId) throw new NotFoundException('会话不存在');
-    if (session.status === 'CLOSED') throw new BadRequestException('会话已关闭');
-    this.presenceService.markUserActiveInSession(sessionId, userId);
-
     // Sec1: 写入前对用户消息脱敏（身份证/银行卡/手机号/邮箱）
     const maskedContent = this.maskingService.mask(content);
+    const { session, userMsg } = await this.prisma.$transaction(async (tx) => {
+      // 与 closeSession 串行化，避免状态校验后会话被关闭再写入消息。
+      await tx.$queryRaw`SELECT "id" FROM "CsSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const lockedSession = await tx.csSession.findUnique({
+        where: { id: sessionId },
+        include: { messages: { orderBy: { createdAt: 'asc' } } },
+      });
 
-    // 保存用户消息
-    const userMsg = await this.prisma.csMessage.create({
-      data: { sessionId, senderType: 'USER', senderId: userId, contentType, content: maskedContent },
+      if (!lockedSession) throw new NotFoundException('会话不存在');
+      if (lockedSession.userId !== userId) throw new NotFoundException('会话不存在');
+      if (lockedSession.status === 'CLOSED') throw new BadRequestException('会话已关闭');
+
+      const persistedMessage = await tx.csMessage.create({
+        data: { sessionId, senderType: 'USER', senderId: userId, contentType, content: maskedContent },
+      });
+      return { session: lockedSession, userMsg: persistedMessage };
     });
+    this.presenceService.markUserActiveInSession(sessionId, userId);
 
     // 已转人工或排队中 → 只保存消息，不走路由（避免重复建工单）
     if (session.status === 'AGENT_HANDLING' || session.status === 'QUEUING') {
@@ -225,16 +261,36 @@ export class CsService {
     const failures = this.consecutiveFailures.get(sessionId) ?? 0;
     const routeResult = await this.routingService.route(maskedContent, context, failures);
 
-    // D2 修复：路由完成后重新检查 session 状态（期间可能被关闭/转人工）
-    const currentSession = await this.prisma.csSession.findUnique({
-      where: { id: sessionId },
-      select: { status: true },
+    // 路由可能耗时数秒；在短事务内重新锁行，并把状态校验与 AI 回复落库合并为原子操作。
+    const finalizedRoute = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "CsSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const currentSession = await tx.csSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true },
+      });
+      if (!currentSession || currentSession.status !== 'AI_HANDLING') {
+        return { status: currentSession?.status ?? null, aiReply: null, valid: false as const };
+      }
+
+      const aiReply = routeResult.reply
+        ? await tx.csMessage.create({
+            data: {
+              sessionId,
+              senderType: 'AI',
+              contentType: (routeResult.contentType as CsContentType) ?? 'TEXT',
+              content: routeResult.reply,
+              metadata: (routeResult.metadata as any) ?? undefined,
+              routeLayer: routeResult.layer,
+            },
+          })
+        : null;
+      return { status: currentSession.status, aiReply, valid: true as const };
     });
 
-    if (!currentSession || currentSession.status !== 'AI_HANDLING') {
+    if (!finalizedRoute.valid) {
       // 状态已变更，丢弃路由结果，仅返回用户消息
       this.logger.warn(
-        `会话 ${sessionId} 在路由期间状态变更为 ${currentSession?.status ?? 'NOT_FOUND'}，丢弃 AI 回复`,
+        `会话 ${sessionId} 在路由期间状态变更为 ${finalizedRoute.status ?? 'NOT_FOUND'}，丢弃 AI 回复`,
       );
       return { userMessage: userMsg, aiReply: null, transferred: false };
     }
@@ -246,20 +302,7 @@ export class CsService {
       this.consecutiveFailures.delete(sessionId);
     }
 
-    // 保存 AI/系统回复
-    let aiReply = null;
-    if (routeResult.reply) {
-      aiReply = await this.prisma.csMessage.create({
-        data: {
-          sessionId,
-          senderType: 'AI',
-          contentType: (routeResult.contentType as CsContentType) ?? 'TEXT',
-          content: routeResult.reply,
-          metadata: (routeResult.metadata as any) ?? undefined,
-          routeLayer: routeResult.layer,
-        },
-      });
-    }
+    const aiReply = finalizedRoute.aiReply;
 
     // 需要转人工
     let transferred = false;
@@ -272,98 +315,103 @@ export class CsService {
 
   /** 转人工（CAS 防并发 + 幂等工单创建） */
   async transferToAgent(sessionId: string): Promise<boolean> {
-    // CAS：仅当 status 仍为 AI_HANDLING 时才允许转人工（防并发重复调用）
-    const casResult = await this.prisma.csSession.updateMany({
-      where: { id: sessionId, status: 'AI_HANDLING' },
-      data: { status: 'QUEUING' }, // 先进排队，再尝试分配坐席
-    });
-    if (casResult.count === 0) {
-      // 已被其他并发请求转走，跳过
-      return false;
-    }
+    const ticketId = await this.ticketService.createTransferTicket(sessionId);
+    if (!ticketId) return false;
 
-    // 创建工单（CAS 成功后才创建，避免重复）
-    await this.ticketService.createTicket(sessionId);
+    // 坐席名额预占和会话归属必须同时成功或同时回滚。
+    return this.prisma.$transaction(async (tx) => {
+      const adminId = await this.agentService.assignAgent(tx);
+      if (!adminId) return false;
 
-    // 尝试分配坐席
-    const adminId = await this.agentService.assignAgent();
-
-    if (adminId) {
-      await this.prisma.csSession.update({
-        where: { id: sessionId },
+      const assigned = await tx.csSession.updateMany({
+        where: { id: sessionId, status: 'QUEUING', agentId: null },
         data: { status: 'AGENT_HANDLING', agentId: adminId, agentJoinedAt: new Date() },
       });
-      return true;
-    }
 
-    // 无可用坐席，保持 QUEUING 状态（已在 CAS 步骤设置）
-    return false;
+      if (assigned.count === 0) {
+        await this.agentService.releaseAgent(adminId, tx);
+        return false;
+      }
+      return true;
+    });
   }
 
   /** 坐席手动接入排队中的会话（CAS 防竞态 + 容量检查 + 递增计数） */
   async agentAcceptSession(sessionId: string, adminId: string) {
-    // 1. 检查坐席容量（原子操作：只在 currentSessions < maxSessions 时递增）
-    const capacityResult = await this.prisma.$queryRaw<{ adminId: string }[]>`
-      UPDATE "CsAgentStatus"
-      SET "currentSessions" = "currentSessions" + 1,
-          "lastActiveAt" = NOW(),
-          status = 'ONLINE'
-      WHERE "adminId" = ${adminId}
-        AND "currentSessions" < "maxSessions"
-      RETURNING "adminId"
-    `;
+    return this.prisma.$transaction(async (tx) => {
+      // 1. 检查坐席容量（原子操作：只在 currentSessions < maxSessions 时递增）
+      const capacityResult = await tx.$queryRaw<{ adminId: string }[]>`
+        UPDATE "CsAgentStatus"
+        SET "currentSessions" = "currentSessions" + 1,
+            "lastActiveAt" = NOW(),
+            status = 'ONLINE'
+        WHERE "adminId" = ${adminId}
+          AND "currentSessions" < "maxSessions"
+        RETURNING "adminId"
+      `;
 
-    // 如果坐席不存在，先创建再检查
-    if (capacityResult.length === 0) {
-      // 尝试创建新坐席记录（首次接入场景）
-      const existing = await this.prisma.csAgentStatus.findUnique({ where: { adminId } });
-      if (!existing) {
-        await this.prisma.csAgentStatus.create({
-          data: { adminId, status: 'ONLINE', currentSessions: 1, lastActiveAt: new Date() },
-        });
-      } else {
-        throw new BadRequestException('坐席会话数已达上限');
+      // 如果坐席不存在，先创建再检查。后续 CAS 失败时会一并回滚。
+      if (capacityResult.length === 0) {
+        const existing = await tx.csAgentStatus.findUnique({ where: { adminId } });
+        if (!existing) {
+          await tx.csAgentStatus.create({
+            data: { adminId, status: 'ONLINE', currentSessions: 1, lastActiveAt: new Date() },
+          });
+        } else {
+          throw new BadRequestException('坐席会话数已达上限');
+        }
       }
-    }
 
-    // 2. CAS 更新会话状态：只在 status=QUEUING 时才能接入
-    const result = await this.prisma.csSession.updateMany({
-      where: { id: sessionId, status: 'QUEUING' },
-      data: { status: 'AGENT_HANDLING', agentId: adminId, agentJoinedAt: new Date() },
+      // 2. CAS 更新会话状态：只在 status=QUEUING 时才能接入
+      const result = await tx.csSession.updateMany({
+        where: { id: sessionId, status: 'QUEUING' },
+        data: { status: 'AGENT_HANDLING', agentId: adminId, agentJoinedAt: new Date() },
+      });
+
+      if (result.count === 0) {
+        throw new BadRequestException('会话不在排队状态或已被其他坐席接入');
+      }
     });
-
-    if (result.count === 0) {
-      // 回退坐席计数
-      await this.agentService.releaseAgent(adminId);
-      throw new BadRequestException('会话不在排队状态或已被其他坐席接入');
-    }
   }
 
   /** 坐席发送消息 */
   async handleAgentMessage(sessionId: string, adminId: string, content: string, contentType: CsContentType = 'TEXT', metadata?: any) {
-    const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
-    if (!session || session.status !== 'AGENT_HANDLING' || session.agentId !== adminId) {
-      throw new BadRequestException('无权在此会话发送消息');
-    }
-
     // Sec1: 坐席消息也脱敏（防止坐席误发包含用户敏感信息的内容）
     const maskedContent = this.maskingService.mask(content);
-    const message = await this.prisma.csMessage.create({
-      data: { sessionId, senderType: 'AGENT', senderId: adminId, contentType, content: maskedContent, metadata, routeLayer: 3 },
+    const { session, message } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "CsSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const lockedSession = await tx.csSession.findUnique({ where: { id: sessionId } });
+      if (
+        !lockedSession
+        || lockedSession.status !== 'AGENT_HANDLING'
+        || lockedSession.agentId !== adminId
+      ) {
+        throw new BadRequestException('无权在此会话发送消息');
+      }
+
+      const persistedMessage = await tx.csMessage.create({
+        data: { sessionId, senderType: 'AGENT', senderId: adminId, contentType, content: maskedContent, metadata, routeLayer: 3 },
+      });
+      return { session: lockedSession, message: persistedMessage };
     });
     if (!this.presenceService.isUserInSession(sessionId, session.userId)) {
-      await this.notificationService.emit({
-        eventType: 'cs.agentReplyOffline',
-        aggregateType: 'csSession',
-        aggregateId: sessionId,
-        idempotencyKey: `cs:${sessionId}:${message.id}:agent-reply-offline`,
-        actor: { kind: 'admin', id: adminId },
-        payload: {
-          sessionId,
-          userId: session.userId,
-          messageId: message.id,
-        },
-      });
+      try {
+        await this.notificationService.emit({
+          eventType: 'cs.agentReplyOffline',
+          aggregateType: 'csSession',
+          aggregateId: sessionId,
+          idempotencyKey: `cs:${sessionId}:${message.id}:agent-reply-offline`,
+          actor: { kind: 'admin', id: adminId },
+          payload: {
+            sessionId,
+            userId: session.userId,
+            messageId: message.id,
+          },
+        });
+      } catch (error: any) {
+        // 消息已经提交，通知降级不能让坐席误以为发送失败并重复发送。
+        this.logger.error(`客服消息 ${message.id} 离线通知写入失败`, error?.stack || error);
+      }
     }
     return message;
   }
@@ -374,87 +422,101 @@ export class CsService {
    * - 解决问题 D5：避免坐席关闭与买家发消息的竞态
    */
   async agentReleaseSession(sessionId: string, adminId: string) {
-    // 检查会话状态
-    const current = await this.prisma.csSession.findUnique({
-      where: { id: sessionId },
-      select: { id: true, status: true, agentId: true, ticketId: true },
-    });
-
-    if (!current) {
-      throw new BadRequestException('会话不存在');
-    }
-
-    // 已经不是 AGENT_HANDLING（可能是 AI_HANDLING/CLOSED）→ 无需释放，直接返回
-    if (current.status !== 'AGENT_HANDLING') {
-      return { systemMessage: null, alreadyReleased: true };
-    }
-
-    // 不是当前坐席接入的会话
-    if (current.agentId !== adminId) {
-      throw new BadRequestException('无权释放此会话（非当前接入的坐席）');
-    }
-
-    // CAS 更新：只在状态仍为 AGENT_HANDLING 且 agentId 匹配时才释放
-    const result = await this.prisma.csSession.updateMany({
-      where: { id: sessionId, agentId: adminId, status: 'AGENT_HANDLING' },
-      data: {
-        agentId: null,
-        agentJoinedAt: null,
-        status: 'AI_HANDLING', // 退回 AI 接待
-      },
-    });
-
-    if (result.count === 0) {
-      // 在检查到更新之间状态被改了
-      return { systemMessage: null, alreadyReleased: true };
-    }
-
-    // 释放坐席名额
-    await this.agentService.releaseAgent(adminId);
-
-    // 插入系统消息通知用户
-    const sysMsg = await this.prisma.csMessage.create({
-      data: {
-        sessionId,
-        senderType: 'SYSTEM',
-        contentType: 'TEXT',
-        content: '客服已完成本次服务。如还有问题，可继续咨询智能助手或说"转人工"重新接入。',
-      },
-    });
-
-    // 标记关联工单为已解决（复用前面查询的 current.ticketId）
-    if (current.ticketId) {
-      await this.prisma.csTicket.update({
-        where: { id: current.ticketId },
-        data: { status: 'RESOLVED', resolvedBy: adminId, resolvedAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "CsSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const current = await tx.csSession.findUnique({
+        where: { id: sessionId },
+        select: { id: true, status: true, agentId: true, ticketId: true },
       });
-    }
 
-    return { systemMessage: sysMsg };
+      if (!current) throw new BadRequestException('会话不存在');
+      if (current.status !== 'AGENT_HANDLING') {
+        return { systemMessage: null, alreadyReleased: true };
+      }
+      if (current.agentId !== adminId) {
+        throw new BadRequestException('无权释放此会话（非当前接入的坐席）');
+      }
+
+      const result = await tx.csSession.updateMany({
+        where: { id: sessionId, agentId: adminId, status: 'AGENT_HANDLING' },
+        data: {
+          agentId: null,
+          agentJoinedAt: null,
+          status: 'AI_HANDLING',
+        },
+      });
+      if (result.count === 0) {
+        return { systemMessage: null, alreadyReleased: true };
+      }
+
+      await this.agentService.releaseAgent(adminId, tx);
+      const systemMessage = await tx.csMessage.create({
+        data: {
+          sessionId,
+          senderType: 'SYSTEM',
+          contentType: 'TEXT',
+          content: '客服已完成本次服务。如还有问题，可继续咨询智能助手或说"转人工"重新接入。',
+        },
+      });
+
+      if (current.ticketId) {
+        await tx.csTicket.update({
+          where: { id: current.ticketId },
+          data: { status: 'RESOLVED', resolvedBy: adminId, resolvedAt: new Date() },
+        });
+      }
+
+      return { systemMessage };
+    });
   }
 
-  /** 关闭会话 */
-  async closeSession(sessionId: string) {
-    const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
-    if (!session) throw new NotFoundException('会话不存在');
+  /** 关闭会话。只有抢到状态转换的一方执行释放席位、解决工单等副作用。 */
+  async closeSession(sessionId: string, expectedAgentId?: string): Promise<{ alreadyClosed: boolean }> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
+      if (!session) throw new NotFoundException('会话不存在');
+      if (session.status === 'CLOSED') return { alreadyClosed: true };
 
-    if (session.agentId) {
-      await this.agentService.releaseAgent(session.agentId);
-    }
+      if (
+        expectedAgentId
+        && (session.status !== 'AGENT_HANDLING' || session.agentId !== expectedAgentId)
+      ) {
+        throw new BadRequestException('无权关闭此会话');
+      }
 
-    await this.prisma.csSession.update({
-      where: { id: sessionId },
-      data: { status: 'CLOSED', closedAt: new Date() },
-    });
+      const didClose = await this.prisma.$transaction(async (tx) => {
+        const closed = await tx.csSession.updateMany({
+          where: {
+            id: sessionId,
+            status: session.status,
+            agentId: session.agentId,
+            ...(expectedAgentId ? { agentId: expectedAgentId } : {}),
+          },
+          data: { status: 'CLOSED', closedAt: new Date() },
+        });
 
-    if (session.ticketId) {
-      await this.prisma.csTicket.update({
-        where: { id: session.ticketId },
-        data: { status: 'RESOLVED', resolvedBy: session.agentId, resolvedAt: new Date() },
+        if (closed.count === 0) return false;
+
+        if (session.agentId) {
+          await this.agentService.releaseAgent(session.agentId, tx);
+        }
+
+        if (session.ticketId) {
+          await tx.csTicket.update({
+            where: { id: session.ticketId },
+            data: { status: 'RESOLVED', resolvedBy: session.agentId, resolvedAt: new Date() },
+          });
+        }
+        return true;
       });
+
+      if (!didClose) continue;
+
+      this.consecutiveFailures.delete(sessionId);
+      return { alreadyClosed: false };
     }
 
-    this.consecutiveFailures.delete(sessionId);
+    throw new BadRequestException('会话状态已变化，请重试');
   }
 
   /** 提交满意度评价 */

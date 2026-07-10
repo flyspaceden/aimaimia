@@ -79,6 +79,8 @@ export class NotificationMessageService {
     createdAt: Date;
     readAt: Date | null;
     action: Prisma.JsonValue | null;
+    severity: string;
+    metadata: Prisma.JsonValue | null;
   }) {
     return {
       id: row.id,
@@ -90,6 +92,8 @@ export class NotificationMessageService {
       unread: !row.readAt,
       action: row.action ?? undefined,
       target: row.action ?? undefined,
+      severity: row.severity,
+      metadata: row.metadata ?? undefined,
     };
   }
 }

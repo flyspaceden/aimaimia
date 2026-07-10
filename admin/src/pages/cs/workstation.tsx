@@ -54,6 +54,11 @@ const BRAND_BG = '#f0fdf4';
 const BRAND_LIGHT = '#dcfce7';
 const SESSION_BUYER_SUGGESTION_POPUP_WIDTH = 360;
 
+type PendingSessionAction = 'accept' | 'release' | 'close';
+type CsSendAckResponse =
+  | { ok: true; message: CsMessage }
+  | { ok: false; error: string };
+
 // 类别标签颜色
 const categoryColorMap: Record<string, { bg: string; text: string; border?: string }> = {
   ORDER: { bg: '#eff6ff', text: '#1d4ed8' },
@@ -554,6 +559,8 @@ function TypingIndicator() {
 export default function CsWorkstationPage() {
   const { message } = App.useApp();
   const currentAdmin = useAuthStore((state) => state.admin);
+  const adminToken = useAuthStore((state) => state.token);
+  const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.CS_MANAGE));
   const canOutreach = useAuthStore((state) => state.hasPermission(PERMISSIONS.CS_OUTREACH));
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSessionId = searchParams.get('sessionId');
@@ -575,11 +582,14 @@ export default function CsWorkstationPage() {
   const [outreachInviteTitle, setOutreachInviteTitle] = useState('');
   const [outreachSubmitting, setOutreachSubmitting] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [pendingSessionAction, setPendingSessionAction] = useState<PendingSessionAction | null>(null);
+  const pendingSessionActionRef = useRef<{ type: PendingSessionAction; sessionId: string } | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   const selectSession = useCallback((sessionId: string | null) => {
+    activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     if (sessionId) {
       setSearchParams({ sessionId });
@@ -590,6 +600,7 @@ export default function CsWorkstationPage() {
 
   useEffect(() => {
     const sessionId = searchParams.get('sessionId');
+    activeSessionIdRef.current = sessionId;
     setActiveSessionId((prev) => (prev === sessionId ? prev : sessionId));
   }, [searchParams]);
 
@@ -609,6 +620,7 @@ export default function CsWorkstationPage() {
     queryKey: ['admin', 'cs', 'session', activeSessionId],
     queryFn: () => getCsSessionDetail(activeSessionId!),
     enabled: !!activeSessionId,
+    refetchInterval: socketConnected ? false : 5000,
   });
 
   // 查询：快捷回复
@@ -653,19 +665,29 @@ export default function CsWorkstationPage() {
 
   // Socket.IO 连接
   useEffect(() => {
+    if (!adminToken) {
+      setSocketConnected(false);
+      return;
+    }
+
     const socket = io(
       `${import.meta.env.VITE_WS_BASE_URL || 'http://localhost:3000'}/cs`,
       {
-        auth: { token: localStorage.getItem('admin_token') },
+        auth: { token: adminToken },
         autoConnect: true,
         reconnection: true,
-        reconnectionAttempts: 5,
         reconnectionDelay: 2000,
       },
     );
 
     socket.on('connect', () => {
       console.log('[CS Workstation] Socket 已连接');
+      // 握手完成不等于后端坐席初始化完成，等待 cs:ready。
+      setSocketConnected(false);
+    });
+
+    socket.on('cs:ready', () => {
+      console.log('[CS Workstation] 客服实时连接已就绪');
       setSocketConnected(true);
       // D6+D7 修复：连接/重连时主动刷新所有会话和当前活跃会话的最新消息
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
@@ -675,6 +697,8 @@ export default function CsWorkstationPage() {
     socket.on('disconnect', (reason) => {
       console.log('[CS Workstation] Socket 断开:', reason);
       setSocketConnected(false);
+      pendingSessionActionRef.current = null;
+      setPendingSessionAction(null);
     });
 
     socket.on('connect_error', (err) => {
@@ -696,6 +720,12 @@ export default function CsWorkstationPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
     });
 
+    socket.on('cs:joined', (data: { sessionId: string }) => {
+      queryClient.invalidateQueries({
+        queryKey: ['admin', 'cs', 'session', data.sessionId],
+      });
+    });
+
     // 新工单进入排队
     socket.on('cs:new_ticket', () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
@@ -708,6 +738,14 @@ export default function CsWorkstationPage() {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
+      if (
+        pendingSessionActionRef.current?.type === 'accept'
+        && pendingSessionActionRef.current.sessionId === data.sessionId
+      ) {
+        pendingSessionActionRef.current = null;
+        setPendingSessionAction(null);
+        message.success('已接入会话');
+      }
     });
 
     // 会话关闭（强制结束 或 买家端关闭 或 超时自动关闭）
@@ -716,6 +754,14 @@ export default function CsWorkstationPage() {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
+      if (
+        pendingSessionActionRef.current?.type === 'close'
+        && pendingSessionActionRef.current.sessionId === data.sessionId
+      ) {
+        pendingSessionActionRef.current = null;
+        setPendingSessionAction(null);
+        message.success('会话已强制关闭');
+      }
       // 如果当前正在查看该会话，自动取消选中
       if (activeSessionIdRef.current === data.sessionId) {
         selectSession(null);
@@ -728,6 +774,14 @@ export default function CsWorkstationPage() {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'cs', 'session', data.sessionId],
       });
+      if (
+        pendingSessionActionRef.current?.type === 'release'
+        && pendingSessionActionRef.current.sessionId === data.sessionId
+      ) {
+        pendingSessionActionRef.current = null;
+        setPendingSessionAction(null);
+        message.success('已完成处理');
+      }
       // 如果当前正在查看该会话，自动取消选中（其他坐席视角）
       if (activeSessionIdRef.current === data.sessionId) {
         selectSession(null);
@@ -736,6 +790,8 @@ export default function CsWorkstationPage() {
 
     // 服务端错误反馈
     socket.on('cs:error', (data: { message: string }) => {
+      pendingSessionActionRef.current = null;
+      setPendingSessionAction(null);
       message.error(data?.message || '操作失败');
     });
 
@@ -753,7 +809,7 @@ export default function CsWorkstationPage() {
     return () => {
       socket.disconnect();
     };
-  }, [message, queryClient, selectSession]);
+  }, [adminToken, message, queryClient, selectSession]);
 
   // 当 sessionDetail 返回时，用 server 消息覆盖 local
   useEffect(() => {
@@ -797,8 +853,19 @@ export default function CsWorkstationPage() {
   // 获取当前选中的 session 对象
   const activeSession = useMemo(() => {
     if (!activeSessionId) return null;
-    return sessions.find((s) => s.id === activeSessionId) || sessionDetail || null;
+    return sessionDetail || sessions.find((s) => s.id === activeSessionId) || null;
   }, [sessions, activeSessionId, sessionDetail]);
+
+  const isCurrentAgent = Boolean(
+    activeSession?.status === 'AGENT_HANDLING'
+    && activeSession?.agentId === currentAdmin?.id,
+  );
+  const canOperateSession = Boolean(
+    canManage
+    && isCurrentAgent
+    && socketConnected
+    && pendingSessionAction === null,
+  );
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -840,6 +907,11 @@ export default function CsWorkstationPage() {
   const handleSend = useCallback(() => {
     if (!inputValue.trim() || !activeSessionId) return;
 
+    if (!canOperateSession) {
+      message.error('只有当前接入该会话的客服可以发送消息');
+      return;
+    }
+
     // 关键修复：发送前检查 Socket 是否真的连接，否则给用户明确错误
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
@@ -870,24 +942,59 @@ export default function CsWorkstationPage() {
     });
 
     // 通过 Socket 发送（带 ack 确认）
-    socket.emit('cs:send', {
+    socket.timeout(10_000).emit('cs:send', {
       sessionId: activeSessionId,
       content,
       contentType: 'TEXT',
+    }, (timeoutError: Error | null, response?: CsSendAckResponse) => {
+      if (timeoutError || !response?.ok) {
+        setLocalMessages((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(activeSessionId) || [];
+          next.set(activeSessionId, existing.filter((m) => m.id !== tempId));
+          return next;
+        });
+        if (timeoutError) {
+          queryClient.invalidateQueries({
+            queryKey: ['admin', 'cs', 'session', activeSessionId],
+          });
+          message.warning('发送结果确认超时，正在同步会话，请勿重复发送');
+        }
+        return;
+      }
+
+      const persistedMessage = response.message;
+      setLocalMessages((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(activeSessionId) || [];
+        const replaced = existing.map((m) => (m.id === tempId ? persistedMessage : m));
+        const unique = replaced.filter(
+          (item, index) => replaced.findIndex((candidate) => candidate.id === item.id) === index,
+        );
+        next.set(activeSessionId, unique);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
     });
 
     setInputValue('');
-  }, [inputValue, activeSessionId]);
+  }, [activeSessionId, canOperateSession, inputValue, message, queryClient]);
 
   // 接入排队会话
   const handleAccept = useCallback(
     (sessionId: string) => {
-      socketRef.current?.emit('cs:accept_ticket', { sessionId });
+      if (!canManage || pendingSessionActionRef.current) return;
+      const socket = socketRef.current;
+      if (!socket?.connected) {
+        message.error('实时通讯未连接，请刷新页面重试');
+        return;
+      }
+      pendingSessionActionRef.current = { type: 'accept', sessionId };
+      setPendingSessionAction('accept');
+      socket.emit('cs:accept_ticket', { sessionId });
       selectSession(sessionId);
-      queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
-      message.success('已接入会话');
     },
-    [message, queryClient, selectSession],
+    [canManage, message, selectSession],
   );
 
   const resetOutreachForm = useCallback(() => {
@@ -961,33 +1068,30 @@ export default function CsWorkstationPage() {
 
   // 完成处理（柔性脱身）：仅释放自己，会话保留供用户继续咨询
   const handleRelease = useCallback(() => {
-    if (!activeSessionId) return;
-    socketRef.current?.emit('cs:release_session', { sessionId: activeSessionId });
-    // 清除当前选中 + 刷新列表
-    selectSession(null);
-    setLocalMessages((prev) => {
-      const next = new Map(prev);
-      next.delete(activeSessionId);
-      return next;
-    });
-    queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
-    message.success('已完成处理');
-  }, [activeSessionId, message, queryClient, selectSession]);
+    if (!activeSessionId || !canOperateSession) return;
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      message.error('实时通讯未连接，请刷新页面重试');
+      return;
+    }
+    pendingSessionActionRef.current = { type: 'release', sessionId: activeSessionId };
+    setPendingSessionAction('release');
+    socket.emit('cs:release_session', { sessionId: activeSessionId });
+  }, [activeSessionId, canOperateSession, message]);
 
   // 强制关闭（特殊情况：恶意/违规，需要二次确认）
   const handleForceClose = useCallback(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !canOperateSession) return;
     if (!window.confirm('强制结束会话会立即关闭对话，用户将无法继续。仅在异常情况（违规/恶意）使用。确定继续吗？')) return;
-    socketRef.current?.emit('cs:close_session', { sessionId: activeSessionId });
-    selectSession(null);
-    setLocalMessages((prev) => {
-      const next = new Map(prev);
-      next.delete(activeSessionId);
-      return next;
-    });
-    queryClient.invalidateQueries({ queryKey: ['admin', 'cs', 'sessions'] });
-    message.success('会话已强制关闭');
-  }, [activeSessionId, message, queryClient, selectSession]);
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      message.error('实时通讯未连接，请刷新页面重试');
+      return;
+    }
+    pendingSessionActionRef.current = { type: 'close', sessionId: activeSessionId };
+    setPendingSessionAction('close');
+    socket.emit('cs:close_session', { sessionId: activeSessionId });
+  }, [activeSessionId, canOperateSession, message]);
 
   // 转接
   const handleTransfer = useCallback(() => {
@@ -1390,7 +1494,7 @@ export default function CsWorkstationPage() {
                     session={s}
                     isActive={activeSessionId === s.id}
                     onClick={() => selectSession(s.id)}
-                    onAccept={() => handleAccept(s.id)}
+                    onAccept={canManage && pendingSessionAction === null ? () => handleAccept(s.id) : undefined}
                   />
                 ))
               )}
@@ -1629,6 +1733,7 @@ export default function CsWorkstationPage() {
                       size="small"
                       icon={<SwapOutlined />}
                       onClick={handleTransfer}
+                      disabled={!canOperateSession}
                       style={{
                         borderRadius: 8,
                         fontSize: 12,
@@ -1645,6 +1750,8 @@ export default function CsWorkstationPage() {
                       icon={<CheckCircleOutlined />}
                       onClick={handleRelease}
                       type="primary"
+                      loading={pendingSessionAction === 'release'}
+                      disabled={!canOperateSession}
                       style={{
                         borderRadius: 8,
                         fontSize: 12,
@@ -1661,6 +1768,8 @@ export default function CsWorkstationPage() {
                       icon={<CloseCircleOutlined />}
                       onClick={handleForceClose}
                       danger
+                      loading={pendingSessionAction === 'close'}
+                      disabled={!canOperateSession}
                       style={{
                         borderRadius: 8,
                         fontSize: 12,
@@ -1687,11 +1796,9 @@ export default function CsWorkstationPage() {
                   <Button
                     size="small"
                     type="primary"
-                    onClick={() => {
-                      socketRef.current?.emit('cs:accept_ticket', { sessionId: activeSession.id });
-                      selectSession(activeSession.id);
-                      message.success('已接入');
-                    }}
+                    onClick={() => handleAccept(activeSession.id)}
+                    loading={pendingSessionAction === 'accept'}
+                    disabled={!canManage || !socketConnected || pendingSessionAction !== null}
                     style={{
                       borderRadius: 8,
                       fontSize: 12,
@@ -1875,6 +1982,7 @@ export default function CsWorkstationPage() {
                   <Button
                     type="text"
                     icon={<PaperClipOutlined />}
+                    disabled={!canOperateSession}
                     style={{ color: '#94a3b8', flexShrink: 0 }}
                   />
                 </Tooltip>
@@ -1891,6 +1999,7 @@ export default function CsWorkstationPage() {
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    disabled={!canOperateSession}
                     placeholder="输入回复内容...（Enter 发送，Shift+Enter 换行）"
                     autoSize={{ minRows: 1, maxRows: 4 }}
                     bordered={false}
@@ -1909,7 +2018,7 @@ export default function CsWorkstationPage() {
                   disabled={
                     !inputValue.trim() ||
                     !activeSessionId ||
-                    activeSession?.status !== 'AGENT_HANDLING'
+                    !canOperateSession
                   }
                   style={{
                     backgroundColor: BRAND_COLOR,

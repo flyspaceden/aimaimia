@@ -19,6 +19,7 @@ import {
 } from './dto/cs-admin.dto';
 import { CreateCsOutreachDto } from './dto/cs-outreach.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CsGateway } from './cs.gateway';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -31,6 +32,7 @@ export class CsAdminController {
     private ticketService: CsTicketService,
     private agentService: CsAgentService,
     private outreachService: CsOutreachService,
+    private csGateway: CsGateway,
     private prisma: PrismaService,
   ) {}
 
@@ -160,7 +162,9 @@ export class CsAdminController {
   @Post('outreach')
   @RequirePermission('cs:outreach')
   @AuditLog({ action: 'CREATE', module: 'cs-outreach', targetType: 'CsSession' })
-  createOutreach(@Body() dto: CreateCsOutreachDto, @CurrentAdmin('sub') adminId: string) {
-    return this.outreachService.create(adminId, dto);
+  async createOutreach(@Body() dto: CreateCsOutreachDto, @CurrentAdmin('sub') adminId: string) {
+    const result = await this.outreachService.create(adminId, dto);
+    this.csGateway.emitMessageToSession(result.sessionId, result.message);
+    return result;
   }
 }

@@ -35,6 +35,8 @@ describe('CsRoutingService', () => {
 
     expect(result.layer).toBe(3);
     expect(result.shouldTransferToAgent).toBe(true);
+    expect(result.reply).toBe('正在为您转接人工客服，请稍候...');
+    expect(result.contentType).toBe('TEXT');
   });
 
   it('"找客服" → layer 3', async () => {

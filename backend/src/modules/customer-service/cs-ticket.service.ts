@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CsTicketCategory, CsTicketPriority, CsTicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
+class TransferStateChangedError extends Error {}
+
 @Injectable()
 export class CsTicketService {
   private readonly logger = new Logger(CsTicketService.name);
@@ -33,24 +35,86 @@ export class CsTicketService {
       this.logger.warn('AI 摘要生成失败，跳过', e);
     }
 
-    const ticket = await this.prisma.csTicket.create({
-      data: {
-        userId: session.userId,
-        category,
-        priority,
-        summary,
-        relatedOrderId: session.source === 'ORDER_DETAIL' ? session.sourceId : undefined,
-        relatedAfterSaleId: session.source === 'AFTERSALE_DETAIL' ? session.sourceId : undefined,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const ticket = await tx.csTicket.create({
+        data: {
+          userId: session.userId,
+          category,
+          priority,
+          summary,
+          relatedOrderId: session.source === 'ORDER_DETAIL' ? session.sourceId : undefined,
+          relatedAfterSaleId: session.source === 'AFTERSALE_DETAIL' ? session.sourceId : undefined,
+        },
+      });
 
-    // 将会话关联到工单
-    await this.prisma.csSession.update({
+      await tx.csSession.update({
+        where: { id: sessionId },
+        data: { ticketId: ticket.id },
+      });
+      return ticket.id;
+    });
+  }
+
+  /** 原子创建转人工工单，并将会话从 AI 处理切换为排队。 */
+  async createTransferTicket(
+    sessionId: string,
+    category: CsTicketCategory = 'OTHER',
+  ): Promise<string | null> {
+    // 摘要可能调用外部 LLM，必须在短事务之外完成。
+    const session = await this.prisma.csSession.findUniqueOrThrow({
       where: { id: sessionId },
-      data: { ticketId: ticket.id },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
-    return ticket.id;
+    const priority: CsTicketPriority = category === 'PAYMENT' ? 'HIGH' : 'MEDIUM';
+    const summaryMessages = session.messages.map((message) => ({
+      role: message.senderType === 'USER' ? 'user' : 'assistant',
+      content: message.content,
+    }));
+
+    try {
+      const ticketId = await this.prisma.$transaction(async (tx) => {
+        const ticket = await tx.csTicket.create({
+          data: {
+            userId: session.userId,
+            category,
+            priority,
+            summary: undefined,
+            relatedOrderId: session.source === 'ORDER_DETAIL' ? session.sourceId : undefined,
+            relatedAfterSaleId: session.source === 'AFTERSALE_DETAIL' ? session.sourceId : undefined,
+          },
+        });
+
+        const queued = await tx.csSession.updateMany({
+          where: { id: sessionId, status: 'AI_HANDLING' },
+          data: { status: 'QUEUING', ticketId: ticket.id },
+        });
+        if (queued.count === 0) throw new TransferStateChangedError();
+        return ticket.id;
+      });
+
+      // 摘要只用于辅助坐席，不应阻塞买家进入排队的关键路径。
+      void this.populateSummary(ticketId, summaryMessages);
+      return ticketId;
+    } catch (error) {
+      if (error instanceof TransferStateChangedError) return null;
+      throw error;
+    }
+  }
+
+  private async populateSummary(
+    ticketId: string,
+    messages: { role: string; content: string }[],
+  ): Promise<void> {
+    try {
+      const summary = await this.generateSummary(messages);
+      await this.prisma.csTicket.update({
+        where: { id: ticketId },
+        data: { summary },
+      });
+    } catch (error) {
+      this.logger.warn('AI 摘要生成失败，跳过', error);
+    }
   }
 
   /** 调用 LLM 生成对话摘要 */

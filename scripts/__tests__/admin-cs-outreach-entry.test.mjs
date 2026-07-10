@@ -93,3 +93,34 @@ test('admin cs workstation top buyer suggestion popup is wider than the search i
   assert.match(workstation, /gridTemplateColumns:\s*'minmax\(0, 1fr\) auto'/);
   assert.doesNotMatch(workstation, /right:\s*0,\s*\n\s*zIndex:\s*35/);
 });
+
+test('admin cs workstation polls selected conversation only while socket is disconnected', () => {
+  assert.match(workstation, /refetchInterval:\s*socketConnected \? false : 5000/);
+});
+
+test('admin cs workstation recreates socket from Zustand token and retries without a finite cap', () => {
+  assert.match(workstation, /const adminToken = useAuthStore\(\(state\) => state\.token\)/);
+  assert.match(workstation, /auth:\s*\{ token: adminToken \}/);
+  assert.doesNotMatch(workstation, /reconnectionAttempts:\s*5/);
+});
+
+test('admin cs workstation updates active session ref synchronously and refreshes after joining room', () => {
+  assert.match(workstation, /activeSessionIdRef\.current = sessionId;\s*setActiveSessionId\(sessionId\)/);
+  assert.match(workstation, /socket\.on\('cs:joined'/);
+  assert.match(workstation, /queryKey:\s*\['admin', 'cs', 'session', data\.sessionId\]/);
+});
+
+test('admin cs workstation only lets the assigned connected agent operate the conversation', () => {
+  assert.match(workstation, /const isCurrentAgent =/);
+  assert.match(workstation, /activeSession\?\.agentId === currentAdmin\?\.id/);
+  assert.match(workstation, /PERMISSIONS\.CS_MANAGE/);
+  assert.match(workstation, /const canOperateSession =/);
+  assert.match(workstation, /pendingSessionAction === null/);
+  assert.match(workstation, /disabled=\{!canOperateSession\}/);
+});
+
+test('admin cs workstation replaces optimistic messages from persisted socket ACK', () => {
+  assert.match(workstation, /socket\.timeout\(10_000\)\.emit\('cs:send'/);
+  assert.match(workstation, /const persistedMessage = response\.message/);
+  assert.match(workstation, /m\.id === tempId \? persistedMessage : m/);
+});

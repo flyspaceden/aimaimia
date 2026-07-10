@@ -2,9 +2,11 @@ import { CsTicketService } from './cs-ticket.service';
 
 function createMocks() {
   const prisma = {
+    $transaction: jest.fn(),
     csSession: {
       findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     csTicket: {
       create: jest.fn().mockImplementation((args) =>
@@ -15,6 +17,7 @@ function createMocks() {
       update: jest.fn(),
     },
   };
+  prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
   const service = new CsTicketService(prisma as any);
   return { service, prisma };
 }
@@ -58,6 +61,7 @@ describe('CsTicketService', () => {
       const ticketId = await service.createTicket('session-1');
 
       expect(ticketId).toBe('ticket-1');
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.csSession.findUniqueOrThrow).toHaveBeenCalledWith({
         where: { id: 'session-1' },
         include: { messages: { orderBy: { createdAt: 'asc' } } },
@@ -145,6 +149,80 @@ describe('CsTicketService', () => {
         data: expect.objectContaining({
           relatedOrderId: 'order-123',
         }),
+      });
+    });
+  });
+
+  describe('createTransferTicket()', () => {
+    it('工单创建、会话关联和转排队在同一事务中完成', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUniqueOrThrow.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        source: 'MY_PAGE',
+        sourceId: null,
+        messages: [],
+      });
+      delete process.env.DASHSCOPE_API_KEY;
+
+      const ticketId = await service.createTransferTicket('session-1');
+
+      expect(ticketId).toBe('ticket-1');
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 'session-1', status: 'AI_HANDLING' },
+        data: { status: 'QUEUING', ticketId: 'ticket-1' },
+      });
+    });
+
+    it('会话已变更时返回 null，事务回滚新工单', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUniqueOrThrow.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        source: 'MY_PAGE',
+        sourceId: null,
+        messages: [],
+      });
+      prisma.csSession.updateMany.mockResolvedValue({ count: 0 });
+      delete process.env.DASHSCOPE_API_KEY;
+
+      await expect(service.createTransferTicket('session-1')).resolves.toBeNull();
+    });
+
+    it('不等待 AI 摘要即可完成排队，并在摘要生成后异步回填工单', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findUniqueOrThrow.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        source: 'MY_PAGE',
+        sourceId: null,
+        messages: [{ senderType: 'USER', content: '我要转人工' }],
+      });
+      prisma.csTicket.update.mockResolvedValue({ id: 'ticket-1' });
+
+      let resolveSummary!: (summary: string) => void;
+      const summaryPromise = new Promise<string>((resolve) => {
+        resolveSummary = resolve;
+      });
+      jest.spyOn(service as any, 'generateSummary').mockReturnValue(summaryPromise);
+
+      const pendingTicket = service.createTransferTicket('session-1');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const transactionStartedBeforeSummary = prisma.$transaction.mock.calls.length > 0;
+
+      resolveSummary('买家希望转接人工客服');
+      const ticketId = await pendingTicket;
+      expect(ticketId).toBe('ticket-1');
+      expect(transactionStartedBeforeSummary).toBe(true);
+      expect(prisma.csTicket.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ summary: undefined }),
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(prisma.csTicket.update).toHaveBeenCalledWith({
+        where: { id: 'ticket-1' },
+        data: { summary: '买家希望转接人工客服' },
       });
     });
   });

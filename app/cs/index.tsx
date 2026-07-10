@@ -27,6 +27,10 @@ import { CsHotQuestions } from '../../src/components/cs/CsHotQuestions';
 import { CsTypingIndicator } from '../../src/components/cs/CsTypingIndicator';
 import { useToast } from '../../src/components/feedback';
 import { USE_MOCK, WS_BASE_URL } from '../../src/repos/http/config';
+import {
+  mergeCustomerServiceMessages,
+  sortCustomerServiceMessages,
+} from '../../src/utils/customerServiceMessages';
 
 // 轮询间隔（毫秒）
 const POLL_INTERVAL = 5000;
@@ -44,13 +48,6 @@ const SESSION_STATUS_LABEL: Record<string, string> = {
   AGENT_HANDLING: '客服处理中',
   CLOSED: '已结束',
 };
-
-function sortMessages(messages: CsMessage[]) {
-  return [...messages].sort((a, b) => {
-    const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    return dt !== 0 ? dt : a.id.localeCompare(b.id);
-  });
-}
 
 function formatSessionTime(value?: string | null) {
   if (!value) return '';
@@ -79,6 +76,7 @@ export default function CsIndexScreen() {
   const socketRef = useRef<Socket | null>(null);
   // 同步锁：防止快速连点发送时 useState 异步导致的重复发送
   const sendingRef = useRef(false);
+  const closingSessionRef = useRef(false);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const accessToken = useAuthStore((state) => state.accessToken);
 
@@ -88,6 +86,7 @@ export default function CsIndexScreen() {
   const [sending, setSending] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionClosed, setSessionClosed] = useState(false);
+  const [sessionSocketReady, setSessionSocketReady] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [sessionScope, setSessionScope] = useState<CsSessionListScope>('active');
 
@@ -118,9 +117,18 @@ export default function CsIndexScreen() {
         setMessages([]);
         setSessionId(routeSessionId);
         setSessionClosed(routeSessionStatus === 'CLOSED');
-        const messagesResult = await CsRepo.getMessages(routeSessionId);
+        const [sessionResult, messagesResult] = await Promise.all([
+          CsRepo.getSession(routeSessionId),
+          CsRepo.getMessages(routeSessionId),
+        ]);
+        if (!cancelled && sessionResult.ok) {
+          setSessionClosed(sessionResult.data.status === 'CLOSED');
+        }
+        if (!cancelled && !sessionResult.ok) {
+          show({ message: sessionResult.error.displayMessage ?? '加载客服会话状态失败', type: 'error' });
+        }
         if (!cancelled && messagesResult.ok) {
-          setMessages(sortMessages(messagesResult.data));
+          setMessages(mergeCustomerServiceMessages([], messagesResult.data));
         }
         if (!cancelled && !messagesResult.ok) {
           show({ message: messagesResult.error.displayMessage ?? '加载客服会话失败', type: 'error' });
@@ -143,7 +151,7 @@ export default function CsIndexScreen() {
       if (result.data.isExisting) {
         const messagesResult = await CsRepo.getMessages(result.data.sessionId);
         if (!cancelled && messagesResult.ok) {
-          setMessages(sortMessages(messagesResult.data));
+          setMessages(mergeCustomerServiceMessages([], messagesResult.data));
         }
       }
     };
@@ -153,25 +161,34 @@ export default function CsIndexScreen() {
   }, [routeSessionId, routeSessionStatus, show, source, sourceId]);
 
   const mergeIncomingMessage = useCallback((incoming: CsMessage) => {
-    setMessages((prev) => {
-      const mergedMap = new Map<string, CsMessage>();
-      for (const message of prev) mergedMap.set(message.id, message);
-      mergedMap.set(incoming.id, incoming);
-      return sortMessages(Array.from(mergedMap.values()));
-    });
+    setMessages((prev) => mergeCustomerServiceMessages(prev, [incoming]));
   }, []);
 
   useEffect(() => {
     if (showConversationList || USE_MOCK || !sessionId || !accessToken || sessionClosed) return;
 
+    setSessionSocketReady(false);
     const socket = io(`${WS_BASE_URL}/cs`, {
       auth: { token: accessToken },
       transports: ['websocket'],
     });
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    socket.on('cs:ready', () => {
       socket.emit('cs:join_session', { sessionId });
+    });
+
+    socket.on('cs:joined', (payload: { sessionId: string }) => {
+      if (payload.sessionId !== sessionId) return;
+      setSessionSocketReady(true);
+    });
+
+    socket.on('disconnect', () => {
+      setSessionSocketReady(false);
+    });
+
+    socket.on('connect_error', () => {
+      setSessionSocketReady(false);
     });
 
     socket.on('cs:message', (message: CsMessage) => {
@@ -215,7 +232,7 @@ export default function CsIndexScreen() {
   // HTTP 轮询获取新消息（非 Mock 模式）
   // D1+D8 修复：合并服务器消息时按 createdAt 排序 + 按 id 去重
   useEffect(() => {
-    if (showConversationList || USE_MOCK || !sessionId || sessionClosed) return;
+    if (showConversationList || USE_MOCK || !sessionId || sessionClosed || sessionSocketReady) return;
 
     pollTimerRef.current = setInterval(async () => {
       // 修复竞态：发送中时跳过轮询，让 HTTP 响应独占状态更新
@@ -223,31 +240,7 @@ export default function CsIndexScreen() {
 
       const result = await CsRepo.getMessages(sessionId);
       if (result.ok) {
-        setMessages((prev) => {
-          // 保留本地 failed 消息（用户可重发）；sending 消息如果服务器已经有相同内容的 USER 消息则丢弃
-          const serverMsgs = result.data;
-          const localPending = prev.filter((m: any) => {
-            if (m._status === 'failed') return true;
-            if (m._status === 'sending') {
-              // 如果服务器已经收录了这条（content 匹配 + 时间接近），说明 HTTP 已完成
-              const hasServerCounterpart = serverMsgs.some(
-                (s) =>
-                  s.senderType === 'USER' &&
-                  s.content === m.content &&
-                  Math.abs(new Date(s.createdAt).getTime() - new Date(m.createdAt).getTime()) < 15000,
-              );
-              return !hasServerCounterpart; // 已被服务器收录则丢弃本地占位
-            }
-            return false;
-          });
-          // 合并服务器消息 + 本地待确认消息，按 id 去重
-          const mergedMap = new Map<string, CsMessage>();
-          for (const m of serverMsgs) mergedMap.set(m.id, m);
-          for (const m of localPending) {
-            if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
-          }
-          return sortMessages(Array.from(mergedMap.values()));
-        });
+        setMessages((prev) => mergeCustomerServiceMessages(prev, result.data));
       }
     }, POLL_INTERVAL);
 
@@ -257,7 +250,7 @@ export default function CsIndexScreen() {
         pollTimerRef.current = null;
       }
     };
-  }, [sessionId, sessionClosed, showConversationList]);
+  }, [sessionId, sessionClosed, sessionSocketReady, showConversationList]);
 
   // 监听键盘高度（跟 ai/chat.tsx 保持一致）
   useEffect(() => {
@@ -352,7 +345,7 @@ export default function CsIndexScreen() {
       if (aiReply && !deduped.some((m) => m.id === aiReply.id)) {
         deduped.push(aiReply);
       }
-      return sortMessages(deduped);
+      return sortCustomerServiceMessages(deduped);
     });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd({ animated: true });
@@ -363,10 +356,11 @@ export default function CsIndexScreen() {
 
   // D4: 失败消息重发
   const handleResend = useCallback(async (failedMsg: CsMessage) => {
+    if (sendingRef.current || !sessionId || sessionClosed) return;
     // 删除失败消息后重新发送
     setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
     await handleSend(failedMsg.content);
-  }, [handleSend]);
+  }, [handleSend, sessionClosed, sessionId]);
 
   // 处理快捷操作点击
   const handleQuickActionPress = useCallback((entry: CsQuickEntry) => {
@@ -382,28 +376,39 @@ export default function CsIndexScreen() {
 
   // 结束会话（不弹评价，用户想结束就直接结束）
   const handleEndSession = useCallback(async () => {
-    setSessionClosed(true);
-    // 通知后端关闭会话（释放坐席计数）
-    if (sessionId) {
-      await CsRepo.closeSession(sessionId).catch(() => {});
+    if (!sessionId || closingSessionRef.current) return;
+    closingSessionRef.current = true;
+    try {
+      const result = await CsRepo.closeSession(sessionId);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '结束会话失败，请重试', type: 'error' });
+        return;
+      }
+      if (!result.data.ok) {
+        show({ message: '结束会话失败，请重试', type: 'error' });
+        return;
+      }
+      setSessionClosed(true);
       void queryClient.invalidateQueries({ queryKey: ['cs-sessions'] });
+      const systemMsg: CsMessage = {
+        id: `system-end-${Date.now()}`,
+        sessionId,
+        senderType: 'SYSTEM',
+        contentType: 'TEXT',
+        content: '本次服务已结束',
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, systemMsg]);
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    } catch {
+      show({ message: '结束会话失败，请重试', type: 'error' });
+    } finally {
+      closingSessionRef.current = false;
     }
-    // 添加系统消息
-    const systemMsg: CsMessage = {
-      id: `system-end-${Date.now()}`,
-      sessionId: sessionId ?? '',
-      senderType: 'SYSTEM',
-      contentType: 'TEXT',
-      content: '本次服务已结束',
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, systemMsg]);
-    // 停止轮询
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-  }, [queryClient, sessionId]);
+  }, [queryClient, sessionId, show]);
 
   const handleStartConversation = useCallback(() => {
     if (!isLoggedIn) {
@@ -667,6 +672,7 @@ export default function CsIndexScreen() {
                 key={message.id}
                 message={message}
                 showTimestamp={showTimestamp}
+                onRetry={() => void handleResend(message)}
               />
             );
           })}
