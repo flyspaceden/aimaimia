@@ -828,13 +828,21 @@ export class CheckoutService {
             }
           }
 
-          // 计算应付总额（按商户分摊消费积分 + 团购返还余额 + 平台红包抵扣）
-          const rewardDiscountAllocations = this.allocateDiscountByCapacities(
+          // 按与支付回调完全相同的顺序分摊：VIP 折扣 → 消费积分 → 团购余额 → 红包。
+          // 后一类优惠只能占用前一类扣减后的剩余商品金额。
+          const vipDiscountAllocations = this.allocateDiscountByCapacities(
             companyGroups.map((group) => group.goodsAmount),
+            vipDiscountAmount,
+          );
+          const remainingAfterVip = companyGroups.map((group, idx) =>
+            Math.max(0, group.goodsAmount - vipDiscountAllocations[idx]),
+          );
+          const rewardDiscountAllocations = this.allocateDiscountByCapacities(
+            remainingAfterVip,
             discountAmount,
           );
-          const remainingAfterReward = companyGroups.map((group, idx) =>
-            Math.max(0, group.goodsAmount - rewardDiscountAllocations[idx]),
+          const remainingAfterReward = remainingAfterVip.map((value, idx) =>
+            Math.max(0, value - rewardDiscountAllocations[idx]),
           );
           const groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
             remainingAfterReward,
@@ -2495,10 +2503,14 @@ export class CheckoutService {
           error.code === 'P2034' ||
           error.message?.includes('could not serialize') ||
           error.message?.includes('40001');
-        if (isSerializationError && attempt < maxRetries) {
+        const isNormalTreeEnrollmentConflict =
+          error.code === 'P2002'
+          && ['NormalTreeNode', 'NormalProgress'].includes(error.meta?.modelName);
+        if ((isSerializationError || isNormalTreeEnrollmentConflict) && attempt < maxRetries) {
           const delay = 100 * Math.pow(2, attempt);
           this.logger.warn(
-            `handlePaymentSuccess 序列化冲突，第 ${attempt}/${maxRetries} 次重试，等待 ${delay}ms`,
+            `handlePaymentSuccess ${isNormalTreeEnrollmentConflict ? '普通树首次入树' : '序列化'}冲突，`
+            + `第 ${attempt}/${maxRetries} 次重试，等待 ${delay}ms`,
           );
           await new Promise((r) => setTimeout(r, delay));
           return execute(attempt + 1);

@@ -456,12 +456,17 @@ describe('CheckoutService handlePaymentSuccess bundle inventory deduction', () =
 });
 
 describe('CheckoutService group-buy rebate deduction on ordinary checkout', () => {
-  function buildOrdinaryCheckoutFixture() {
+  function buildOrdinaryCheckoutFixture(options: {
+    price?: number;
+    vip?: boolean;
+    vipDiscountRate?: number;
+    shippingFee?: number;
+  } = {}) {
     const sku = {
       id: 'sku-gb-deduct',
       productId: 'product-gb-deduct',
       title: '普通商品 SKU',
-      price: 200,
+      price: options.price ?? 200,
       stock: 20,
       status: 'ACTIVE',
       maxPerOrder: null,
@@ -491,7 +496,9 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
           detail: '街道一号',
         }),
       },
-      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      vipTreeNode: {
+        findFirst: jest.fn().mockResolvedValue(options.vip ? { id: 'vip-node-1' } : null),
+      },
       rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -517,14 +524,14 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
     };
     const service = new CheckoutService(prisma, {
       getSystemConfig: jest.fn().mockResolvedValue({
-        vipDiscountRate: 1,
+        vipDiscountRate: options.vipDiscountRate ?? 1,
         normalFreeShippingThreshold: 999,
         vipFreeShippingThreshold: 999,
         defaultShippingFee: 0,
       }),
     } as any);
     service.setShippingRuleService({
-      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: 0 }),
+      calculateShippingDetail: jest.fn().mockResolvedValue({ fee: options.shippingFee ?? 0 }),
     });
     return {
       service,
@@ -532,6 +539,36 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
       getTransactionTx: () => transactionTx,
     };
   }
+
+  it('applies VIP discount before coupon capacity in both session and payment accounting', async () => {
+    const { service, getCreatedSessionData } = buildOrdinaryCheckoutFixture({
+      price: 50,
+      vip: true,
+      vipDiscountRate: 0.95,
+      shippingFee: 8,
+    });
+    service.setCouponService({
+      validateAndReserveCoupons: jest.fn().mockResolvedValue({
+        totalDiscount: 50,
+        perCouponAmounts: [{ couponInstanceId: 'coupon-1', discountAmount: 50 }],
+      }),
+      releaseCoupons: jest.fn(),
+    });
+
+    await service.checkout('user1', {
+      items: [{ skuId: 'sku-gb-deduct', quantity: 1 }],
+      addressId: 'addr1',
+      couponInstanceIds: ['coupon-1'],
+    } as any);
+
+    expect(getCreatedSessionData()).toEqual(expect.objectContaining({
+      goodsAmount: 50,
+      vipDiscountAmount: 2.5,
+      totalCouponDiscount: 47.5,
+      expectedTotal: 8,
+      couponPerAmounts: [{ couponInstanceId: 'coupon-1', discountAmount: 47.5 }],
+    }));
+  });
 
   it('splits one unified consumption-points deduction into reward first and group-buy rebate remainder', async () => {
     const { service, getCreatedSessionData, getTransactionTx } = buildOrdinaryCheckoutFixture();
