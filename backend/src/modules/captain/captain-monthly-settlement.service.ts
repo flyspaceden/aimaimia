@@ -2,8 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CAPTAIN_SEAFOOD_PROGRAM_CODE } from './captain.constants';
-import { CaptainConfigService } from './captain-config.service';
-import type { CaptainSeafoodConfig, CaptainSeafoodConfigV3 } from './captain.types';
+import type { CaptainSeafoodConfigV3 } from './captain.types';
 
 type Tx = Prisma.TransactionClient;
 
@@ -65,29 +64,34 @@ const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 export class CaptainMonthlySettlementService {
   private readonly logger = new Logger(CaptainMonthlySettlementService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly configService: CaptainConfigService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async calculateMetrics(month: string, captainUserId?: string): Promise<MetricInput[]> {
-    const currentConfig = await this.configService.getSnapshot();
-    if (!this.isEnabledV3(currentConfig)) return [];
-
     return this.withSerializableRetry(async (tx) => {
       const captainIds = await this.listCaptainIds(
         tx,
         month,
-        currentConfig.programCode,
+        CAPTAIN_SEAFOOD_PROGRAM_CODE,
         captainUserId,
       );
       const metrics: MetricInput[] = [];
       for (const id of captainIds) {
-        const context = await this.loadMonthContext(tx, month, id, currentConfig.programCode);
+        const context = await this.loadMonthContext(
+          tx,
+          month,
+          id,
+          CAPTAIN_SEAFOOD_PROGRAM_CODE,
+        );
         if (context.attributions.length === 0) continue;
         const results = context.attributions.map((attribution) =>
           this.calculateOrderSettlement(attribution, context.facts));
-        const metric = this.toMetricInput(month, id, currentConfig.programCode, context, results);
+        const metric = this.toMetricInput(
+          month,
+          id,
+          CAPTAIN_SEAFOOD_PROGRAM_CODE,
+          context,
+          results,
+        );
         await this.upsertMetric(tx, metric);
         metrics.push(metric);
       }
@@ -100,20 +104,22 @@ export class CaptainMonthlySettlementService {
     captainUserId?: string,
     forceRecalculate = false,
   ): Promise<any[]> {
-    const currentConfig = await this.configService.getSnapshot();
-    if (!this.isEnabledV3(currentConfig)) return [];
-
     return this.withSerializableRetry(async (tx) => {
       const captainIds = await this.listCaptainIds(
         tx,
         month,
-        currentConfig.programCode,
+        CAPTAIN_SEAFOOD_PROGRAM_CODE,
         captainUserId,
       );
       const settlements: any[] = [];
 
       for (const id of captainIds) {
-        const context = await this.loadMonthContext(tx, month, id, currentConfig.programCode);
+        const context = await this.loadMonthContext(
+          tx,
+          month,
+          id,
+          CAPTAIN_SEAFOOD_PROGRAM_CODE,
+        );
         if (context.attributions.length === 0) continue;
 
         const existing = await (tx as any).captainMonthlySettlement.findUnique({
@@ -121,7 +127,7 @@ export class CaptainMonthlySettlementService {
             captainUserId_month_programCode: {
               captainUserId: id,
               month,
-              programCode: currentConfig.programCode,
+              programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
             },
           },
         });
@@ -141,7 +147,7 @@ export class CaptainMonthlySettlementService {
         const metricInput = this.toMetricInput(
           month,
           id,
-          currentConfig.programCode,
+          CAPTAIN_SEAFOOD_PROGRAM_CODE,
           context,
           orderResults,
         );
@@ -186,7 +192,7 @@ export class CaptainMonthlySettlementService {
             data: {
               captainUserId: id,
               month,
-              programCode: currentConfig.programCode,
+              programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
               ...settlementData,
             },
           });
@@ -209,6 +215,7 @@ export class CaptainMonthlySettlementService {
         where: { id: settlementId },
       });
       if (!settlement) throw new NotFoundException('团长月度结算不存在');
+      this.assertMonthClosed(settlement.month);
       if (!['DRAFT', 'PENDING_REVIEW'].includes(settlement.status)) {
         if (settlement.status === 'APPROVED' || settlement.status === 'PAID') return settlement;
         throw new BadRequestException('当前结算状态无法审核通过');
@@ -233,6 +240,7 @@ export class CaptainMonthlySettlementService {
         where: { id: settlementId },
       });
       if (!settlement) throw new NotFoundException('团长月度结算不存在');
+      this.assertMonthClosed(settlement.month);
       if (settlement.status !== 'APPROVED') {
         if (settlement.status === 'PAID') return settlement;
         throw new BadRequestException('仅已审核结算可标记已支付');
@@ -742,25 +750,24 @@ export class CaptainMonthlySettlementService {
 
   private async assertNoPendingReconciliation(tx: Tx, settlement: any): Promise<void> {
     if (!this.isV3Settlement(settlement)) return;
-    const rows = await (tx as any).captainMonthlySettlementOrder.findMany({
-      where: { settlementId: settlement.id },
-      select: {
-        orderAttribution: {
-          select: { orderId: true },
+    const { start, end } = this.monthRange(settlement.month);
+    const where: Prisma.OrderProfitReconciliationTaskWhereInput = {
+      status: 'PENDING',
+      order: {
+        paidAt: { gte: start, lt: end },
+      },
+      sourceSnapshot: {
+        ruleSnapshot: {
+          path: ['captain', 'directCaptainUserId'],
+          equals: settlement.captainUserId,
         },
       },
+    };
+    const pending = await (tx as any).orderProfitReconciliationTask.findFirst({
+      where,
+      select: { id: true },
     });
-    const orderIds = [...new Set((rows ?? [])
-      .map((item: any) => item.orderAttribution?.orderId)
-      .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0))];
-    if (orderIds.length === 0) return;
-    const pending = await (tx as any).orderProfitReconciliationTask.count({
-      where: {
-        orderId: { in: orderIds },
-        status: 'PENDING',
-      },
-    });
-    if (pending > 0) {
+    if (pending) {
       throw new BadRequestException('结算订单存在未解决的利润对账任务，不可审核或支付');
     }
   }
@@ -838,10 +845,6 @@ export class CaptainMonthlySettlementService {
     });
   }
 
-  private isEnabledV3(config: CaptainSeafoodConfig): config is CaptainSeafoodConfigV3 {
-    return config.schemaVersion === 3 && config.enabled === true;
-  }
-
   private isV3Settlement(settlement: any): boolean {
     return settlement?.configSnapshot?.schemaVersion === 3
       || settlement?.meta?.calculationModel === 'PROFIT_V3_ORDER_SNAPSHOT';
@@ -858,6 +861,13 @@ export class CaptainMonthlySettlementService {
       start: new Date(Date.UTC(year, monthNumber - 1, 1) - SHANGHAI_OFFSET_MS),
       end: new Date(Date.UTC(year, monthNumber, 1) - SHANGHAI_OFFSET_MS),
     };
+  }
+
+  private assertMonthClosed(month: string): void {
+    const { end } = this.monthRange(month);
+    if (Date.now() < end.getTime()) {
+      throw new BadRequestException('结算月份尚未闭合，不可审核或支付');
+    }
   }
 
   private readRate(value: unknown, label: string): number {
