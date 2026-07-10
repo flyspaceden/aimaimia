@@ -355,6 +355,33 @@ describe('OrderProfitSnapshotService', () => {
 });
 
 describe('resolveOrCreateNormalTreeNode concurrency', () => {
+  it('uses an unlocked fast path when the buyer already has a valid tree node', async () => {
+    const existingNode = {
+      id: 'existing-node',
+      rootId: 'NORMAL_ROOT',
+      userId: 'normal-buyer',
+      parentId: 'parent-1',
+      level: 2,
+      position: 1,
+    };
+    const tx: any = {
+      $executeRawUnsafe: jest.fn(),
+      normalProgress: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'normal-buyer',
+          treeNodeId: existingNode.id,
+        }),
+      },
+      normalTreeNode: {
+        findUnique: jest.fn().mockResolvedValue(existingNode),
+      },
+    };
+
+    await expect(resolveOrCreateNormalTreeNode(tx, 'normal-buyer', 3))
+      .resolves.toBe(existingNode);
+    expect(tx.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
   it('serializes two first-payment attempts and converges on one user node', async () => {
     const root = {
       id: 'normal-root',
@@ -486,8 +513,12 @@ describe('resolveOrCreateNormalTreeNode concurrency', () => {
     await resolveOrCreateNormalTreeNode(tx, 'new-buyer', 3);
 
     expect(createdData).toMatchObject({ parentId: 'parent-b', level: 2, position: 0 });
+    expect(tx.normalProgress.findUnique).toHaveBeenCalledTimes(2);
+    expect(tx.normalProgress.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$executeRawUnsafe.mock.invocationCallOrder[0],
+    );
     expect(tx.$executeRawUnsafe.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.normalProgress.findUnique.mock.invocationCallOrder[0],
+      tx.normalProgress.findUnique.mock.invocationCallOrder[1],
     );
   });
 });
