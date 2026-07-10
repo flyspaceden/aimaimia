@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
@@ -135,6 +137,14 @@ describe('CaptainConfigService', () => {
     });
   });
 
+  it('rejects a nonexistent V3 calendar date before UTC normalization', () => {
+    const effectiveFrom = '2026-02-29T00:00:00.000+08:00';
+    const invalidConfig = { ...v3Config, effectiveFrom };
+
+    expect(normalizeCaptainSeafoodConfig(invalidConfig)).toMatchObject({ effectiveFrom });
+    expect(() => validateCaptainSeafoodConfig(invalidConfig)).toThrow('effectiveFrom');
+  });
+
   it('returns disabled default config when RuleConfig is absent', async () => {
     const { prisma, service } = createService(null);
 
@@ -237,6 +247,34 @@ describe('CaptainConfigService', () => {
       perOrderCommission: { directRate: 0.11 },
       monthlyRewards: { baseManagementRate: 0.022 },
     });
+  });
+
+  it('returns a complete enabled persisted V2 fixture for historical snapshot reads while save validation rejects it', async () => {
+    const persistedConfig = {
+      ...v2Config,
+      enabled: true,
+      scope: {
+        ...v2Config.scope,
+        productIds: ['prod-legacy-v2'],
+      },
+    };
+    const { service } = createService({ value: persistedConfig });
+
+    await expect(service.getSnapshot()).resolves.toEqual(persistedConfig);
+    expect(() => validateCaptainSeafoodConfig(persistedConfig)).toThrow('V2');
+  });
+
+  it('defines a funding amount CHECK that rejects all non-finite float values', () => {
+    const migrationPath = join(
+      process.cwd(),
+      'prisma/migrations/20260710030000_captain_profit_v3/migration.sql',
+    );
+    const sql = readFileSync(migrationPath, 'utf8');
+
+    expect(sql).toMatch(/"amount"\s*<>\s*'NaN'::double precision/i);
+    expect(sql).toMatch(/"amount"\s*<>\s*'Infinity'::double precision/i);
+    expect(sql).toMatch(/"amount"\s*<>\s*'-Infinity'::double precision/i);
+    expect(sql).toMatch(/"type"\s*=\s*'REFUND_ADJUSTMENT'/);
   });
 
   it('rejects a non-ISO activation timestamp', () => {
