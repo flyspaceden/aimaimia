@@ -350,7 +350,7 @@ git commit -m "feat: add captain profit v3 contract"
 - Produces: `OrderProfitSnapshotCalculator.calculate(input): ProfitCalculationResult`.
 - Consumes later: checkout snapshot service, refund reversal and reconciliation.
 
-- [ ] **Step 1: Write failing golden-vector tests**
+- [x] **Step 1: Write failing golden-vector tests**
 
 ```ts
 expect(calculate({ gross: 13500, cost: 10000, vip: 675, coupon: 1000, reward: 500 })).toMatchObject({
@@ -363,13 +363,13 @@ expect(mixedItems([{ margin: 2000 }, { margin: -1500 }]).distributableProfitCent
 
 Add cases for discount-capacity redistribution, deterministic last-cent allocation, prize exclusion, missing cost, conservation failure, and `0 <= C <= D`.
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `cd backend && npx jest src/modules/profit/order-profit-snapshot-calculator.spec.ts --runInBand`
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement money helpers and calculator**
+- [x] **Step 3: Implement money helpers and calculator**
 
 ```ts
 export const yuanToCents = (value: number): number => Math.round((value + Number.EPSILON) * 100);
@@ -386,11 +386,11 @@ export interface ProfitCalculationResult {
 
 Allocate explicit item discounts first, then VIP/reward/group-buy/coupon order discounts by remaining item capacity. Sum all positive and negative item margins before applying the single order-level zero floor.
 
-- [ ] **Step 4: Verify GREEN and refactor without changing behavior**
+- [x] **Step 4: Verify GREEN and refactor without changing behavior**
 
 Run: `cd backend && npx jest src/modules/profit/order-profit-snapshot-calculator.spec.ts --runInBand`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/profit
