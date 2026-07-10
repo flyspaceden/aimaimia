@@ -26,6 +26,8 @@ import { sanitizeErrorForLog, sanitizeStringForLog } from '../../common/logging/
 import { ProductBundleService } from '../product/product-bundle.service';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
+import { OrderProfitRefundService, type ProfitRefundFinalizeResult } from '../profit/order-profit-refund.service';
+import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
@@ -57,6 +59,7 @@ export class AfterSaleRefundService {
   private groupBuyRebateService: GroupBuyRebateService | null = null;
   private growthEventService: GrowthEventService | null = null;
   private captainCommissionService: CaptainCommissionService | null = null;
+  private orderProfitRefundService: OrderProfitRefundService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -89,6 +92,10 @@ export class AfterSaleRefundService {
 
   setCaptainCommissionService(service: CaptainCommissionService) {
     this.captainCommissionService = service;
+  }
+
+  setOrderProfitRefundService(service: OrderProfitRefundService) {
+    this.orderProfitRefundService = service;
   }
 
   private buildRestockMovements(orderItem: {
@@ -285,14 +292,19 @@ export class AfterSaleRefundService {
         });
         if (!request) throw new NotFoundException('售后单不存在');
 
+        let profitRefund: ProfitRefundFinalizeResult = {
+          mode: 'NOOP',
+          orderId: request.orderId,
+        };
         if (refund.status !== 'REFUNDED') {
-          await tx.refund.update({
-            where: { id: refundId },
+          const cas = await tx.refund.updateMany({
+            where: { id: refundId, status: refund.status },
             data: {
               status: 'REFUNDED',
               providerRefundId: providerRefundId ?? refund.providerRefundId ?? undefined,
             },
           });
+          if (cas.count === 0) return null;
           await tx.refundStatusHistory.create({
             data: {
               refundId,
@@ -302,6 +314,9 @@ export class AfterSaleRefundService {
               operatorId: 'AFTER_SALE_REFUND_SERVICE',
             },
           });
+          profitRefund = this.orderProfitRefundService
+            ? await this.orderProfitRefundService.finalizeSuccessfulRefund(tx, refundId)
+            : { mode: 'LEGACY', orderId: request.orderId };
         }
 
         if (request.status !== 'REFUNDED') {
@@ -391,6 +406,7 @@ export class AfterSaleRefundService {
             refundDestination: this.formatRefundDestination(
               request.order?.checkoutSession?.paymentChannel ?? request.order?.payments?.[0]?.channel,
             ),
+            profitRefund,
           };
         }
 
@@ -402,9 +418,13 @@ export class AfterSaleRefundService {
 
     await this.reverseDigitalAssetAfterRefund(refundId);
     await this.reverseGrowthAfterRefund(completed.orderId, refundId);
-    await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
+    if (completed.profitRefund.mode !== 'V3') {
+      await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
+    }
     await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
-    await this.voidCaptainCommissionAfterRefund(completed.orderId, refundId, completed.amount);
+    if (completed.profitRefund.mode !== 'V3') {
+      await this.voidCaptainCommissionAfterRefund(completed.orderId, refundId, completed.amount);
+    }
     await this.afterSaleRewardService.checkAndMarkOrderRefunded(completed.orderId);
     await this.notificationService.emit({
       eventType: 'afterSale.refunded',
@@ -887,14 +907,7 @@ export class AfterSaleRefundService {
   }
 
   private async createOrGetRefundInTx(tx: Tx, afterSaleId: string): Promise<{
-    request: {
-      id: string;
-      orderId: string;
-      userId: string;
-      status: AfterSaleStatus;
-      refundAmount: number | null;
-      reason: string;
-    };
+    request: any;
     refund: Refund;
     merchantRefundNo: string;
     wasCreated: boolean;
@@ -915,6 +928,16 @@ export class AfterSaleRefundService {
         status: true,
         refundAmount: true,
         reason: true,
+        orderItemId: true,
+        orderItem: {
+          select: {
+            id: true,
+            skuId: true,
+            quantity: true,
+            unitPrice: true,
+            isPrize: true,
+          },
+        },
       },
     });
     if (!request) throw new NotFoundException('售后单不存在');
@@ -947,7 +970,46 @@ export class AfterSaleRefundService {
       throw new BadRequestException('退款单售后关联不一致');
     }
 
+    await this.ensureRefundItemInTx(tx, refund.id, request);
+
     return { request, refund, merchantRefundNo, wasCreated: !existingRefund };
+  }
+
+  private async ensureRefundItemInTx(tx: Tx, refundId: string, request: any): Promise<void> {
+    const item = request.orderItem;
+    if (!request.orderItemId || !item || item.isPrize || item.quantity <= 0) return;
+    const existing = await (tx as any).refundItem.findFirst({
+      where: { refundId, orderItemId: request.orderItemId },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const snapshot = await (tx as any).orderProfitSnapshot.findFirst({
+      where: { orderId: request.orderId, isCurrent: true, status: 'READY' },
+      orderBy: { revision: 'desc' },
+      select: { itemBreakdown: true },
+    });
+    const breakdown = Array.isArray(snapshot?.itemBreakdown)
+      ? snapshot.itemBreakdown.find((row: any) => row?.orderItemId === request.orderItemId)
+      : null;
+    const snapshotAmountCents = breakdown
+      && Number.isSafeInteger(breakdown.netGoodsRevenueCents)
+      && breakdown.netGoodsRevenueCents >= 0
+      ? breakdown.netGoodsRevenueCents
+      : null;
+    const fallbackCents = Math.min(
+      yuanToCents(Number(request.refundAmount || 0)),
+      yuanToCents(Number(item.unitPrice || 0) * Number(item.quantity || 0)),
+    );
+    await (tx as any).refundItem.create({
+      data: {
+        refundId,
+        orderItemId: request.orderItemId,
+        skuId: item.skuId,
+        quantity: item.quantity,
+        amount: centsToYuan(snapshotAmountCents ?? fallbackCents),
+      },
+    });
   }
 
   private async withSerializableRetry<T>(

@@ -20,6 +20,13 @@ describe('AfterSaleRefundService', () => {
       create: jest.fn(),
       findFirst: jest.fn(),
     },
+    refundItem: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
+    orderProfitSnapshot: {
+      findFirst: jest.fn(),
+    },
     afterSaleStatusHistory: {
       create: jest.fn(),
     },
@@ -127,6 +134,9 @@ describe('AfterSaleRefundService', () => {
     });
     tx.refund.updateMany.mockResolvedValue({ count: 1 });
     tx.refundStatusHistory.findFirst.mockResolvedValue(null);
+    tx.refundItem.findFirst.mockResolvedValue(null);
+    tx.refundItem.create.mockResolvedValue({ id: 'refund_item_001' });
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.create.mockResolvedValue({ id: 'inv_ledger_001' });
     tx.inventoryLedger.findFirst.mockResolvedValue(null);
     tx.inventoryLedger.findMany.mockResolvedValue([]);
@@ -204,6 +214,26 @@ describe('AfterSaleRefundService', () => {
       88,
       'AS-as_001',
     );
+  });
+
+  it('persists the full requested non-prize line with discounted goods amount from the profit snapshot', async () => {
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001', orderId: 'order_001', userId: 'user_001', status: 'RECEIVED_BY_SELLER',
+      refundAmount: 75, reason: '质量问题', orderItemId: 'item-1',
+      orderItem: { id: 'item-1', skuId: 'sku-1', quantity: 2, unitPrice: 50, isPrize: false },
+    });
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      itemBreakdown: [{ orderItemId: 'item-1', netGoodsRevenueCents: 7_500 }],
+    });
+
+    await service.createOrGetRefund('as_001');
+
+    expect(tx.refundItem.create).toHaveBeenCalledWith({
+      data: {
+        refundId: 'refund_001', orderItemId: 'item-1', skuId: 'sku-1',
+        quantity: 2, amount: 75,
+      },
+    });
   });
 
   it('startRefund keeps pending provider refunds in REFUNDING and only stores providerRefundId', async () => {
@@ -413,8 +443,8 @@ describe('AfterSaleRefundService', () => {
 
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
-    expect(tx.refund.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'refund_001' },
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'refund_001', status: 'REFUNDING' },
       data: expect.objectContaining({
         status: 'REFUNDED',
         providerRefundId: 'provider_refund_001',
@@ -447,6 +477,29 @@ describe('AfterSaleRefundService', () => {
       },
     });
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
+  });
+
+  it('runs V3 profit reversal in the successful refund transaction and skips legacy whole-order voiding', async () => {
+    const profitRefund = {
+      finalizeSuccessfulRefund: jest.fn().mockResolvedValue({ mode: 'V3', orderId: 'order_001' }),
+    };
+    (service as any).setOrderProfitRefundService(profitRefund);
+    tx.refund.findUnique.mockResolvedValue({
+      id: 'refund_001', afterSaleId: 'as_001', orderId: 'order_001', amount: 88,
+      status: 'REFUNDING', providerRefundId: null,
+    });
+    tx.afterSaleRequest.findUnique.mockResolvedValue({
+      id: 'as_001', orderId: 'order_001', userId: 'user_001', status: 'REFUNDING',
+      refundAmount: 88, refundId: 'refund_001',
+    });
+
+    await service.handleRefundSuccess('refund_001', 'provider_refund_001');
+
+    expect(profitRefund.finalizeSuccessfulRefund).toHaveBeenCalledWith(tx, 'refund_001');
+    expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
+    expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REFUNDED' }),
+    }));
   });
 
   it('handleRefundSuccess reverses digital asset cumulative spend after refund closes', async () => {
@@ -899,7 +952,7 @@ describe('AfterSaleRefundService', () => {
     await service.handleRefundSuccess('refund_001', 'provider_refund_001');
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
-    expect(tx.refund.update).toHaveBeenCalledTimes(1);
+    expect(tx.refund.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.refundStatusHistory.create).toHaveBeenCalledTimes(1);
     expect(tx.afterSaleRequest.update).toHaveBeenCalledTimes(1);
     expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledTimes(1);

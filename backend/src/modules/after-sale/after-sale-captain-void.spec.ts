@@ -82,6 +82,7 @@ describe('AfterSaleRefundService captain void hook', () => {
       },
     });
     tx.refund.update.mockResolvedValue({});
+    tx.refund.updateMany.mockResolvedValue({ count: 1 });
     tx.afterSaleRequest.update.mockResolvedValue({});
     tx.inventoryLedger.findMany.mockResolvedValue([]);
     tx.inventoryLedger.createMany.mockResolvedValue({ count: 1 });

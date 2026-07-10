@@ -238,6 +238,60 @@ describe('OrderService cancel PAID orders', () => {
       .toBeLessThan(paymentService.initiateRefund.mock.invocationCallOrder[0]);
   });
 
+  it('V3 未发货整单取消展开非奖品 RefundItems 并由 Payment finalizer 只冲回一次', async () => {
+    const { service, prisma, bonusAllocation } = makeService();
+    const order = {
+      id: 'o-v3', userId: 'u1', status: 'PAID', checkoutSessionId: null,
+      totalAmount: 105, goodsAmount: 100, shippingFee: 5, discountAmount: 0,
+      items: [
+        { id: 'item-1', skuId: 'sku1', quantity: 2, unitPrice: 50, companyId: 'c1', isPrize: false },
+        { id: 'prize-1', skuId: 'sku-prize', quantity: 1, unitPrice: 0, companyId: 'c1', isPrize: true },
+      ],
+    };
+    const tx = {
+      $executeRaw: jest.fn(),
+      checkoutSession: { findUnique: jest.fn().mockResolvedValue(null) },
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: { create: jest.fn().mockResolvedValue({ id: 'refund-v3', merchantRefundNo: 'AUTO-CANCEL-o-v3' }) },
+      refundItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+      orderProfitSnapshot: { findFirst: jest.fn().mockResolvedValue({
+        id: 'snapshot-v3',
+        itemBreakdown: [{ orderItemId: 'item-1', netGoodsRevenueCents: 9_000 }],
+      }) },
+    };
+    prisma.order.findUnique
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce({ ...order, createdAt: new Date(), afterSaleRequests: [], refunds: [], shipments: [] });
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.companyStaff.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(tx));
+    const paymentService = {
+      initiateRefund: jest.fn().mockResolvedValue({ success: true, providerRefundId: 'provider-v3' }),
+      finalizeAutoRefundRecord: jest.fn().mockResolvedValue(true),
+    };
+    service.setPaymentService(paymentService as any);
+
+    await service.cancelOrder('o-v3', 'u1');
+
+    expect(tx.refundItem.createMany).toHaveBeenCalledWith({
+      data: [{ refundId: 'refund-v3', orderItemId: 'item-1', skuId: 'sku1', quantity: 2, amount: 90 }],
+      skipDuplicates: true,
+    });
+    expect(bonusAllocation.rollbackForOrder).not.toHaveBeenCalled();
+    expect(paymentService.finalizeAutoRefundRecord).toHaveBeenCalledTimes(1);
+    expect(paymentService.finalizeAutoRefundRecord).toHaveBeenCalledWith(expect.objectContaining({
+      refundId: 'refund-v3', fromStatuses: ['REFUNDING'], toStatus: 'REFUNDED',
+      providerRefundId: 'provider-v3',
+    }));
+  });
+
   it('PAID 未发货单订单取消如果分润回滚失败则拒绝且不发起外部退款', async () => {
     const { service, prisma, bonusAllocation } = makeService();
     const order = {
