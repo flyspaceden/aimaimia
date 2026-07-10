@@ -83,6 +83,13 @@ function createHarness(options: {
   attributions?: any[];
   relations?: any[];
   unresolvedOrderIds?: string[];
+  unattributedReconciliations?: Array<{
+    id: string;
+    orderId: string;
+    directCaptainUserId: string;
+    paidAt: Date;
+    status?: string;
+  }>;
 } = {}) {
   const config = options.config ?? makeV3Config();
   const attributions = options.attributions ?? [];
@@ -91,7 +98,22 @@ function createHarness(options: {
     directCaptainUserId: 'captain-1',
     boundAt: new Date('2026-06-01T00:00:00.000Z'),
   }];
-  const unresolvedOrderIds = new Set(options.unresolvedOrderIds ?? []);
+  const reconciliationTasks = [
+    ...(options.unresolvedOrderIds ?? []).map((orderId) => {
+      const attribution = attributions.find((item) => item.orderId === orderId);
+      return {
+        id: `reconciliation-${orderId}`,
+        orderId,
+        directCaptainUserId: attribution?.directCaptainUserId ?? 'captain-1',
+        paidAt: attribution?.createdAt ?? new Date('2026-06-15T00:00:00.000Z'),
+        status: 'PENDING',
+      };
+    }),
+    ...(options.unattributedReconciliations ?? []).map((task) => ({
+      ...task,
+      status: task.status ?? 'PENDING',
+    })),
+  ];
   const settlements: any[] = [];
   const settlementOrders: any[] = [];
   const fundingLedgers: any[] = [];
@@ -203,9 +225,16 @@ function createHarness(options: {
       }),
     },
     orderProfitReconciliationTask: {
-      count: jest.fn(async ({ where }: any) => {
-        const ids = where.orderId?.in ?? [];
-        return ids.filter((id: string) => unresolvedOrderIds.has(id)).length;
+      findFirst: jest.fn(async ({ where }: any) => {
+        const captainFilter = where.sourceSnapshot?.ruleSnapshot;
+        const paidAtFilter = where.order?.paidAt;
+        return reconciliationTasks.find((task) => (
+          task.status === where.status
+          && captainFilter?.path?.join('.') === 'captain.directCaptainUserId'
+          && task.directCaptainUserId === captainFilter.equals
+          && task.paidAt >= paidAtFilter.gte
+          && task.paidAt < paidAtFilter.lt
+        )) ?? null;
       }),
     },
     captainAccount: {
@@ -258,11 +287,15 @@ function createHarness(options: {
     fundingLedgers,
     createdLedgers,
     metrics,
-    service: new CaptainMonthlySettlementService(prisma, configService as any),
+    service: new CaptainMonthlySettlementService(prisma),
   };
 }
 
 describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it.each([
     [8000, 0, 0, 'QUALIFIED'],
     [25000, 30, 20, 'BASE'],
@@ -422,6 +455,42 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
     );
   });
 
+  it('settles and releases historical V3 attributions after the current config is disabled', async () => {
+    const harness = createHarness({
+      config: makeV3Config({ enabled: false }),
+      attributions: [makeAttribution({ reserve: 50 })],
+    });
+
+    const [settlement] = await harness.service.createDraftSettlements('2026-06');
+
+    expect(settlement).toEqual(expect.objectContaining({
+      totalAmount: 30,
+    }));
+    expect(harness.fundingLedgers).toEqual([
+      expect.objectContaining({ type: 'CAPTAIN_MONTHLY_RELEASE', amount: 20 }),
+    ]);
+  });
+
+  it.each(['approve', 'pay'])(
+    'blocks %s before the selected month closes in Asia/Shanghai',
+    async (action) => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
+      const harness = createHarness({
+        attributions: [makeAttribution({
+          createdAt: new Date('2026-07-10T00:00:00.000Z'),
+        })],
+      });
+      const [draft] = await harness.service.createDraftSettlements('2026-07');
+      if (action === 'pay') draft.status = 'APPROVED';
+
+      const request = action === 'approve'
+        ? harness.service.approveSettlement(draft.id, 'admin-1')
+        : harness.service.markPaid(draft.id, 'admin-1');
+
+      await expect(request).rejects.toThrow('月份尚未闭合');
+    },
+  );
+
   it('recalculates only a mutable V3 draft without duplicating settlement orders or releases', async () => {
     const attribution = makeAttribution({ reserve: 50 });
     const harness = createHarness({ attributions: [attribution] });
@@ -470,6 +539,47 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
 
     await expect(request).rejects.toThrow('对账');
   });
+
+  it.each(['approve', 'pay'])(
+    'blocks %s for a same-month reconciliation snapshot that never created an attribution',
+    async (action) => {
+      const harness = createHarness({
+        attributions: [makeAttribution()],
+        unattributedReconciliations: [{
+          id: 'reconciliation-without-attribution',
+          orderId: 'order-without-attribution',
+          directCaptainUserId: 'captain-1',
+          paidAt: new Date('2026-06-20T08:00:00.000Z'),
+        }],
+      });
+      const [draft] = await harness.service.createDraftSettlements('2026-06');
+      if (action === 'pay') draft.status = 'APPROVED';
+
+      const request = action === 'approve'
+        ? harness.service.approveSettlement(draft.id, 'admin-1')
+        : harness.service.markPaid(draft.id, 'admin-1');
+
+      await expect(request).rejects.toThrow('对账');
+      expect(harness.tx.orderProfitReconciliationTask.findFirst).toHaveBeenCalledWith({
+        where: {
+          status: 'PENDING',
+          order: {
+            paidAt: {
+              gte: new Date('2026-05-31T16:00:00.000Z'),
+              lt: new Date('2026-06-30T16:00:00.000Z'),
+            },
+          },
+          sourceSnapshot: {
+            ruleSnapshot: {
+              path: ['captain', 'directCaptainUserId'],
+              equals: 'captain-1',
+            },
+          },
+        },
+        select: { id: true },
+      });
+    },
+  );
 });
 
 describe('CaptainMonthlySettlementService V2 compatibility', () => {
@@ -483,7 +593,7 @@ describe('CaptainMonthlySettlementService V2 compatibility', () => {
     await expect(service.calculateMetrics('2026-06')).resolves.toEqual([]);
     await expect(service.createDraftSettlements('2026-06')).resolves.toEqual([]);
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalled();
     expect(tx.captainMonthlyMetric.upsert).not.toHaveBeenCalled();
   });
 
@@ -519,6 +629,7 @@ describe('CaptainMonthlySettlementService V2 compatibility', () => {
     const harness = createHarness({ config: makeV2Config() });
     harness.settlements.push({
       id: 'settlement-1',
+      month: '2026-06',
       status: 'APPROVED',
       totalAmount: 650,
     });
@@ -540,7 +651,12 @@ describe('CaptainMonthlySettlementService V2 compatibility', () => {
 
   it('rejects payment when available ledgers do not match the settlement total', async () => {
     const harness = createHarness({ config: makeV2Config() });
-    harness.settlements.push({ id: 'settlement-1', status: 'APPROVED', totalAmount: 650 });
+    harness.settlements.push({
+      id: 'settlement-1',
+      month: '2026-06',
+      status: 'APPROVED',
+      totalAmount: 650,
+    });
     harness.createdLedgers.push({
       settlementId: 'settlement-1',
       accountId: 'account-captain-1',
