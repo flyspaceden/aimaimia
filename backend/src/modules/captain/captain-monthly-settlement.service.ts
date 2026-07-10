@@ -3,10 +3,9 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
-  DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
 } from './captain.constants';
 import { CaptainConfigService } from './captain-config.service';
-import type { CaptainSeafoodConfig } from './captain.types';
+import type { CaptainSeafoodConfigV2 } from './captain.types';
 
 type Tx = Prisma.TransactionClient;
 type MetricInput = {
@@ -21,7 +20,7 @@ type MetricInput = {
   refundRate: number;
   qualified: boolean;
   qualifiedTier: string | null;
-  configSnapshot: CaptainSeafoodConfig;
+  configSnapshot: CaptainSeafoodConfigV2;
 };
 type PerformanceBonusSummary = {
   amount: number;
@@ -41,7 +40,7 @@ export class CaptainMonthlySettlementService {
 
   async calculateMetrics(month: string, captainUserId?: string): Promise<MetricInput[]> {
     const config = await this.configService.getSnapshot();
-    if (!config.enabled) return [];
+    if (!config.enabled || config.schemaVersion !== 2) return [];
 
     return this.withSerializableRetry(async (tx) => {
       const captains = captainUserId
@@ -69,7 +68,7 @@ export class CaptainMonthlySettlementService {
     forceRecalculate = false,
   ): Promise<any[]> {
     const config = await this.configService.getSnapshot();
-    if (!config.enabled) return [];
+    if (!config.enabled || config.schemaVersion !== 2) return [];
 
     return this.withSerializableRetry(async (tx) => {
       const captains = captainUserId
@@ -272,7 +271,7 @@ export class CaptainMonthlySettlementService {
     tx: Tx,
     month: string,
     captainUserId: string,
-    config: CaptainSeafoodConfig,
+    config: CaptainSeafoodConfigV2,
   ): Promise<MetricInput> {
     const { start, end } = this.monthRange(month);
     const attributions = await (tx as any).captainOrderAttribution.findMany({
@@ -399,7 +398,7 @@ export class CaptainMonthlySettlementService {
 
   private calculateSettlementAmounts(
     metric: MetricInput,
-    config: CaptainSeafoodConfig,
+    config: CaptainSeafoodConfigV2,
   ): {
     baseManagementAmount: number;
     growthBonusAmount: number;
@@ -562,7 +561,7 @@ export class CaptainMonthlySettlementService {
       newEffectiveMembers: number;
       refundRate: number;
     },
-    config: CaptainSeafoodConfig,
+    config: CaptainSeafoodConfigV2,
   ): boolean {
     const qualification = config.monthlyQualification;
     if (metric.directEffectiveBuyers < qualification.minDirectEffectiveBuyers) return false;
@@ -577,7 +576,7 @@ export class CaptainMonthlySettlementService {
     return true;
   }
 
-  private resolveTier(teamGmv: number, config: CaptainSeafoodConfig): string {
+  private resolveTier(teamGmv: number, config: CaptainSeafoodConfigV2): string {
     if (teamGmv >= config.monthlyRewards.excellentTierGmv) return 'EXCELLENT';
     if (teamGmv >= config.monthlyRewards.growthTierGmv) return 'GROWTH';
     if (teamGmv >= config.monthlyRewards.baseTierGmv) return 'BASE';
@@ -604,8 +603,8 @@ export class CaptainMonthlySettlementService {
     return { start, end };
   }
 
-  private snapshot(config: CaptainSeafoodConfig): CaptainSeafoodConfig {
-    return JSON.parse(JSON.stringify(config ?? DEFAULT_CAPTAIN_SEAFOOD_CONFIG));
+  private snapshot(config: CaptainSeafoodConfigV2): CaptainSeafoodConfigV2 {
+    return JSON.parse(JSON.stringify(config));
   }
 
   private async withSerializableRetry<T>(

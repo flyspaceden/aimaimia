@@ -145,6 +145,16 @@ function normalizeRisk(risk: unknown) {
   return supportedRisk;
 }
 
+const ISO_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function isValidIsoTime(value: unknown): value is string {
+  return typeof value === 'string' && ISO_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function normalizeV3EffectiveFrom(value: unknown): unknown {
+  return isValidIsoTime(value) ? new Date(value).toISOString() : value;
+}
+
 export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return value;
@@ -153,6 +163,7 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   if (raw.schemaVersion === 3) {
     return {
       ...raw,
+      effectiveFrom: normalizeV3EffectiveFrom(raw.effectiveFrom),
       risk: normalizeRisk(raw.risk),
     };
   }
@@ -310,11 +321,7 @@ function validateCommonConfig(value: Record<string, unknown>) {
 }
 
 function assertValidIsoTime(value: unknown, path: string) {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-    Number.isNaN(Date.parse(value))
-  ) {
+  if (!isValidIsoTime(value)) {
     throw new Error(`${path} 必须是有效的 ISO 时间`);
   }
 }
@@ -378,7 +385,9 @@ function validateV2Config(value: Record<string, unknown>): CaptainSeafoodConfigV
 
 function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV3 {
   validateCommonConfig(value);
-  assertShanghaiNaturalMonthStart(value.effectiveFrom);
+  assertValidIsoTime(value.effectiveFrom, 'effectiveFrom');
+  const effectiveFrom = new Date(value.effectiveFrom as string).toISOString();
+  assertShanghaiNaturalMonthStart(effectiveFrom);
 
   assertObject(value.perOrderCommission, 'perOrderCommission');
   assertNumberInRange(value.perOrderCommission.directProfitRate, 'directProfitRate', 0, 1);
@@ -412,7 +421,7 @@ function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV
   if (totalIncentiveRate - (value.caps.maxTotalIncentiveProfitRate as number) > 0.0000001) {
     throw new Error('总激励率不能超过 maxTotalIncentiveProfitRate');
   }
-  return value as unknown as CaptainSeafoodConfigV3;
+  return { ...value, effectiveFrom } as unknown as CaptainSeafoodConfigV3;
 }
 
 function assertTierOrder(rewards: Record<string, unknown>) {
