@@ -117,6 +117,17 @@ describe('CaptainAttributionService', () => {
     expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
   });
 
+  it('skips an order paid before the configured activation time', async () => {
+    const { service, tx } = createHarness({
+      config: makeConfig({ effectiveFrom: '2026-07-11T00:00:00.000Z' }),
+      order: makeOrder({ paidAt: new Date('2026-07-10T23:59:59.000Z') }),
+    });
+
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
+    expect(tx.captainOrderAttribution.create).not.toHaveBeenCalled();
+    expect(tx.captainCommissionLedger.create).not.toHaveBeenCalled();
+  });
+
   it('creates only one direct frozen ledger from net eligible goods GMV', async () => {
     const { service, tx } = createHarness();
 

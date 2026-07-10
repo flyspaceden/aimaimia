@@ -54,8 +54,6 @@ export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfig = {
   },
   risk: {
     maxMonthlyRefundRate: 0.15,
-    maxSameDeviceEffectiveBuyers: 3,
-    maxSameAddressEffectiveBuyers: 5,
     holdSettlementOnRisk: true,
   },
 };
@@ -83,8 +81,20 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
     return value;
   }
   const raw = value as Record<string, any>;
+  const normalizeRisk = (risk: unknown) => {
+    const { maxSameDeviceEffectiveBuyers, maxSameAddressEffectiveBuyers, ...supportedRisk } =
+      (risk && typeof risk === 'object' && !Array.isArray(risk) ? risk : {}) as Record<string, any>;
+    return supportedRisk;
+  };
+  const effectiveFrom = typeof raw.effectiveFrom === 'string' && raw.effectiveFrom.trim()
+    ? raw.effectiveFrom
+    : null;
   if (raw.schemaVersion === 2) {
-    return raw;
+    return {
+      ...raw,
+      effectiveFrom,
+      risk: normalizeRisk(raw.risk),
+    };
   }
 
   const legacyPerOrder = raw.perOrderCommission ?? {};
@@ -93,6 +103,7 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   return {
     ...raw,
     schemaVersion: 2,
+    effectiveFrom,
     perOrderCommission: {
       directRate: Number(legacyPerOrder.directRate ?? 0) + Number(legacyPerOrder.indirectRate ?? 0),
     },
@@ -113,6 +124,7 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
       cultivationBonusRate: legacyRewards.cultivationBonusRate,
       performanceBonusRate: legacyRewards.teamPoolRate,
     },
+    risk: normalizeRisk(raw.risk),
   };
 }
 
@@ -173,8 +185,10 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
     throw new Error(`programCode 必须是 ${CAPTAIN_SEAFOOD_PROGRAM_CODE}`);
   }
   assertString(value.programName, 'programName');
-  if (value.effectiveFrom !== null && typeof value.effectiveFrom !== 'string') {
-    throw new Error('effectiveFrom 必须是字符串或 null');
+  if (value.effectiveFrom !== null) {
+    if (typeof value.effectiveFrom !== 'string' || Number.isNaN(Date.parse(value.effectiveFrom))) {
+      throw new Error('effectiveFrom 必须是有效的 ISO 时间或 null');
+    }
   }
 
   assertObject(value.scope, 'scope');
@@ -246,8 +260,6 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
 
   assertObject(value.risk, 'risk');
   assertNumberInRange(value.risk.maxMonthlyRefundRate, 'risk.maxMonthlyRefundRate', 0, 1);
-  assertNumberInRange(value.risk.maxSameDeviceEffectiveBuyers, 'risk.maxSameDeviceEffectiveBuyers', 0, 100000, true);
-  assertNumberInRange(value.risk.maxSameAddressEffectiveBuyers, 'risk.maxSameAddressEffectiveBuyers', 0, 100000, true);
   assertBoolean(value.risk.holdSettlementOnRisk, 'risk.holdSettlementOnRisk');
 
   const totalIncentiveRate =

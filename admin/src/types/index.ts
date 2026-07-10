@@ -631,8 +631,6 @@ export interface CaptainSeafoodConfig {
   };
   risk: {
     maxMonthlyRefundRate: number;
-    maxSameDeviceEffectiveBuyers: number;
-    maxSameAddressEffectiveBuyers: number;
     holdSettlementOnRisk: boolean;
   };
 }

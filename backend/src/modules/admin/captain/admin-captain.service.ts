@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
+  normalizeCaptainSeafoodConfig,
   validateCaptainSeafoodConfig,
 } from '../../captain/captain.constants';
 import { CaptainApplicationService } from '../../captain/captain-application.service';
@@ -310,7 +311,7 @@ export class AdminCaptainService {
   async updateSettings(value: unknown, adminUserId: string) {
     let config;
     try {
-      config = validateCaptainSeafoodConfig(value);
+      config = validateCaptainSeafoodConfig(normalizeCaptainSeafoodConfig(value));
     } catch (err: any) {
       throw new BadRequestException(err?.message || '团长配置不合法');
     }

@@ -274,6 +274,26 @@ describe('CaptainMonthlySettlementService', () => {
     });
   });
 
+  it('does not count a newly bound direct customer without a valid direct order', async () => {
+    const { service, savedMetrics } = createHarness({
+      relations: [
+        {
+          buyerUserId: 'buyer-without-order',
+          directCaptainUserId: 'captain-1',
+          boundAt: new Date('2026-06-15T00:00:00.000Z'),
+        },
+      ],
+    });
+
+    await service.createDraftSettlements('2026-06');
+
+    expect(savedMetrics[0]).toMatchObject({
+      directEffectiveBuyers: 0,
+      teamEffectiveMembers: 0,
+      newEffectiveMembers: 0,
+    });
+  });
+
   it('approves settlement and creates monthly reward ledgers with idempotency keys', async () => {
     const { service, tx, createdLedgers } = createHarness();
     tx.captainMonthlySettlement.findUnique.mockResolvedValue({

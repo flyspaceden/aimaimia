@@ -1268,4 +1268,4 @@
 | 团长申请 | 新增 `/captain/applications`，支持按关键词和状态查询申请；列表展示申请人、城市、社群规模、预计月 GMV、资源类型、历史消费、退款率和申请时间；详情抽屉展示申请内容和系统快照；通过申请可填团长码/展示名并自动开通团长，驳回必须填写原因 | `admin/src/pages/captain/applications.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
 | 团长列表与详情 | 支持按关键词、状态、月份查询团长；可开通团长、启用/暂停/禁用；详情页展示团长码、账户余额、冻结金额、直接客户有效 GMV、有效直接客户和直接客户列表，不展示团长层级 | `admin/src/pages/captain/index.tsx`, `admin/src/pages/captain/detail.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
 | 归因、流水、结算 | 订单归因页只展示买家、直接团长、佣金基数、退款和直接佣金率；佣金流水页仍可审计“历史二级佣金”；月度结算页将原团队池显示为经营绩效奖，支持按月份生成月结草稿、审核、标记支付和重算 | `admin/src/pages/captain/orders.tsx`, `admin/src/pages/captain/ledgers.tsx`, `admin/src/pages/captain/settlements.tsx` |
-| 团长配置 | `CAPTAIN_SEAFOOD_CONFIG` 专用配置页只暴露直接推广成交佣金、有效直接客户、直接客户 GMV、新增有效直接客户和经营绩效奖；默认直接佣金 11%，满配激励封顶 15.5%，实时展示净利与风险预留 | `admin/src/pages/captain/settings.tsx` |
+| 团长配置 | `CAPTAIN_SEAFOOD_CONFIG` 专用配置页只暴露会被后端实际执行的直接推广成交、有效直接客户、直接客户 GMV、新增有效直接客户、经营绩效奖、退款风控和经营测算参数；所有可编辑字段在标签右侧提供问号悬停说明，覆盖计算口径、关联参数、档位叠加和一层直推边界。生效时间使用日期时间选择器保存 ISO 时间；同设备/同地址阈值等未接入执行链路的伪参数不再展示或保存。默认直接佣金 11%，满配激励封顶 15.5%，实时展示净利与风险预留 | `admin/src/pages/captain/settings.tsx` |
