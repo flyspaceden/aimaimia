@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { calculateCaptainProfitFunding } from '../profit/captain-profit-funding';
-import { centsToYuan, checkedSafeIntegerSum } from '../profit/money-allocation';
+import {
+  centsToYuan,
+  checkedSafeIntegerSum,
+  yuanToCents,
+} from '../profit/money-allocation';
 import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
 } from './captain.constants';
@@ -10,11 +14,19 @@ import type { CaptainSeafoodConfigV3 } from './captain.types';
 export type CaptainAttributionResult = 'credited' | 'skipped';
 
 interface ProfitRateSnapshot {
+  platform: number;
   reward: number;
+  directReferral: number;
   industryFund: number;
   charity: number;
   tech: number;
   reserve: number;
+}
+
+interface CaptainEligibleGmv {
+  amount: number;
+  cents: number;
+  eligibleCount: number;
 }
 
 @Injectable()
@@ -42,50 +54,140 @@ export class CaptainAttributionService {
 
     const ruleSnapshot = this.asRecord(snapshot.ruleSnapshot);
     const captain = this.asRecord(ruleSnapshot?.captain);
-    const config = this.asRecord(captain?.config) as unknown as CaptainSeafoodConfigV3 | null;
-    const directCaptainUserId = this.asString(captain?.directCaptainUserId);
-    const configVersion = this.asString(captain?.configVersion);
-    const commissionBase = Number(snapshot.captainEligibleProfitAmount ?? 0);
-    const distributableProfitAmount = Number(snapshot.distributableProfitAmount ?? 0);
-
+    const configRecord = this.asRecord(captain?.config);
     if (
-      !config
-      || config.schemaVersion !== 3
-      || !config.enabled
-      || config.programCode !== CAPTAIN_SEAFOOD_PROGRAM_CODE
-      || !configVersion
-      || !directCaptainUserId
+      configRecord?.schemaVersion === 2
+      || (configRecord?.schemaVersion === 3 && configRecord.enabled === false)
+    ) {
+      return 'skipped';
+    }
+    if (
+      !configRecord
+      || configRecord.schemaVersion !== 3
+      || configRecord.enabled !== true
+      || configRecord.programCode !== CAPTAIN_SEAFOOD_PROGRAM_CODE
+    ) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+    const config = configRecord as unknown as CaptainSeafoodConfigV3;
+    const configVersion = this.asString(captain?.configVersion);
+    const commissionBaseMoney = this.readStrictMoney(snapshot.captainEligibleProfitAmount);
+    const distributableProfitMoney = this.readStrictMoney(snapshot.distributableProfitAmount);
+    if (
+      !configVersion
+      || !commissionBaseMoney
+      || !distributableProfitMoney
+      || commissionBaseMoney.cents > distributableProfitMoney.cents
+    ) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+
+    const buyerPath = ruleSnapshot?.buyerPath;
+    const rateSet = this.readProfitRateSet(ruleSnapshot?.rates);
+    const directInviter = this.asRecord(ruleSnapshot?.directInviter);
+    const directRate = this.readRate(directInviter?.effectiveDirectRate);
+    const directInviterUserId = directInviter?.eligibleUserId;
+    const perOrderCommission = this.asRecord(configRecord.perOrderCommission);
+    const captainDirectRate = this.readRate(perOrderCommission?.directProfitRate);
+    const monthlyRewards = this.asRecord(configRecord.monthlyRewards);
+    const monthlyRates = monthlyRewards
+      ? [
+        this.readRate(monthlyRewards.baseManagementProfitRate),
+        this.readRate(monthlyRewards.growthBonusProfitRate),
+        this.readRate(monthlyRewards.cultivationBonusProfitRate),
+        this.readRate(monthlyRewards.performanceBonusProfitRate),
+      ]
+      : [];
+    if (
+      (buyerPath !== 'VIP' && buyerPath !== 'NORMAL')
+      || !rateSet
+      || !directInviter
+      || directRate === null
+      || (directInviterUserId !== null && this.asString(directInviterUserId) === null)
+      || captainDirectRate === null
+      || monthlyRates.length !== 4
+      || monthlyRates.some((rate) => rate === null)
+    ) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+    const validatedMonthlyRates = monthlyRates as number[];
+    if (
+      captainDirectRate + validatedMonthlyRates.reduce((sum, rate) => sum + rate, 0)
+      > 1 + 0.0000001
+    ) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+
+    const eligibleGmv = this.captainEligibleNetGmv(snapshot.itemBreakdown);
+    if (
+      !eligibleGmv
+      || commissionBaseMoney.cents > eligibleGmv.cents
+    ) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+    if (eligibleGmv.eligibleCount === 0) return 'skipped';
+
+    const directCaptainUserId = this.asString(captain?.directCaptainUserId);
+    const effectiveAt = this.readDateMs(config.effectiveFrom);
+    const paidAt = this.readDateMs(snapshot.order.paidAt);
+    if (effectiveAt === null || paidAt === null) {
+      return this.reconcileInvalidSnapshot(tx, snapshot);
+    }
+    if (
+      !directCaptainUserId
       || captain?.relationStatus !== 'ACTIVE'
       || captain?.profileStatus !== 'ACTIVE'
       || captain?.exclusionReason != null
       || directCaptainUserId === snapshot.order.userId
       || snapshot.order.bizType !== 'NORMAL_GOODS'
-      || !this.isPaidOnOrAfterEffectiveFrom(snapshot.order.paidAt, config.effectiveFrom)
-      || !Number.isFinite(commissionBase)
-      || !Number.isFinite(distributableProfitAmount)
-      || commissionBase <= 0
-      || distributableProfitAmount <= 0
-      || commissionBase < Number(config.orderRules?.minCommissionBase ?? 0)
+      || paidAt < effectiveAt
     ) {
       return 'skipped';
     }
 
-    const eligibleGoodsAmount = this.captainEligibleNetGmv(snapshot.itemBreakdown);
-    if (eligibleGoodsAmount === null) {
-      await this.createReconciliationTask(
-        tx,
-        snapshot,
-        'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
-      );
-      return 'skipped';
+    const commissionBase = commissionBaseMoney.amount;
+    const distributableProfitAmount = distributableProfitMoney.amount;
+    const configSnapshot = JSON.parse(JSON.stringify(config));
+    const attributionBase = {
+      orderId,
+      buyerUserId: snapshot.order.userId,
+      directCaptainUserId,
+      legacyIndirectCaptainUserId: null,
+      programCode: config.programCode,
+      commissionBase,
+      eligibleGoodsAmount: eligibleGmv.amount,
+      couponDiscountAmount: Number(snapshot.couponDiscountAmount ?? 0),
+      rewardDeductionAmount: Number(snapshot.rewardDeductionAmount ?? 0),
+      directRate: captainDirectRate,
+      legacyIndirectRate: 0,
+      status: 'FROZEN',
+      configSnapshot,
+      calculationModel: 'PROFIT_V3',
+      profitSnapshotId: snapshot.id,
+      profitConfigVersion: configVersion,
+      profitBaseAmount: commissionBase,
+    };
+
+    if (commissionBaseMoney.cents === 0 || distributableProfitMoney.cents === 0) {
+      await (tx as any).captainOrderAttribution.create({
+        data: {
+          ...attributionBase,
+          meta: {
+            commissionModel: 'PROFIT_V3_DIRECT_ONLY',
+            captainRelationId: captain?.relationId ?? null,
+            monthlyGmvOnly: true,
+            vipNormalConfigVersion: ruleSnapshot?.vipNormalConfigVersion ?? null,
+          },
+        },
+      });
+      return 'credited';
     }
 
-    const buyerPath = ruleSnapshot?.buyerPath === 'VIP' ? 'vip' : 'normal';
-    const rates = this.asRecord(
-      this.asRecord(ruleSnapshot?.rates)?.[buyerPath],
-    ) as unknown as ProfitRateSnapshot | null;
-    const directInviter = this.asRecord(ruleSnapshot?.directInviter);
-    if (!rates) return 'skipped';
+    const minCommissionBase = this.readStrictMoney(config.orderRules?.minCommissionBase ?? 0);
+    if (!minCommissionBase) return this.reconcileInvalidSnapshot(tx, snapshot);
+    if (commissionBaseMoney.cents < minCommissionBase.cents) return 'skipped';
+
+    const rates = rateSet[buyerPath === 'VIP' ? 'vip' : 'normal'];
 
     let funding;
     try {
@@ -100,22 +202,12 @@ export class CaptainAttributionService {
           tech: Number(rates.tech),
           reserve: Number(rates.reserve),
         },
-        directReferralClaimed: Boolean(directInviter?.eligibleUserId),
-        captainDirectProfitRate: Number(config.perOrderCommission.directProfitRate),
-        monthlyProfitRates: [
-          Number(config.monthlyRewards.baseManagementProfitRate),
-          Number(config.monthlyRewards.growthBonusProfitRate),
-          Number(config.monthlyRewards.cultivationBonusProfitRate),
-          Number(config.monthlyRewards.performanceBonusProfitRate),
-        ],
+        directReferralClaimed: directInviterUserId !== null,
+        captainDirectProfitRate: captainDirectRate,
+        monthlyProfitRates: validatedMonthlyRates,
       });
     } catch {
-      await this.createReconciliationTask(
-        tx,
-        snapshot,
-        'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
-      );
-      return 'skipped';
+      return this.reconcileInvalidSnapshot(tx, snapshot);
     }
 
     if (!funding.coveredByPlatformRetained) {
@@ -127,26 +219,9 @@ export class CaptainAttributionService {
       return 'skipped';
     }
 
-    const configSnapshot = JSON.parse(JSON.stringify(config));
     const attribution = await (tx as any).captainOrderAttribution.create({
       data: {
-        orderId,
-        buyerUserId: snapshot.order.userId,
-        directCaptainUserId,
-        legacyIndirectCaptainUserId: null,
-        programCode: config.programCode,
-        commissionBase,
-        eligibleGoodsAmount,
-        couponDiscountAmount: Number(snapshot.couponDiscountAmount ?? 0),
-        rewardDeductionAmount: Number(snapshot.rewardDeductionAmount ?? 0),
-        directRate: config.perOrderCommission.directProfitRate,
-        legacyIndirectRate: 0,
-        status: 'FROZEN',
-        configSnapshot,
-        calculationModel: 'PROFIT_V3',
-        profitSnapshotId: snapshot.id,
-        profitConfigVersion: configVersion,
-        profitBaseAmount: commissionBase,
+        ...attributionBase,
         meta: {
           commissionModel: 'PROFIT_V3_DIRECT_ONLY',
           captainRelationId: captain?.relationId ?? null,
@@ -165,7 +240,7 @@ export class CaptainAttributionService {
         attributionId: attribution.id,
         commissionBase,
         amount: funding.directAmount,
-        rate: config.perOrderCommission.directProfitRate,
+        rate: captainDirectRate,
         configSnapshot,
       })
       : null;
@@ -308,23 +383,107 @@ export class CaptainAttributionService {
     });
   }
 
-  private isPaidOnOrAfterEffectiveFrom(paidAt: unknown, effectiveFrom: string): boolean {
-    const effectiveAt = Date.parse(effectiveFrom);
-    const paidAtMs = paidAt instanceof Date ? paidAt.getTime() : Date.parse(String(paidAt ?? ''));
-    return Number.isFinite(effectiveAt) && Number.isFinite(paidAtMs) && paidAtMs >= effectiveAt;
-  }
-
-  private captainEligibleNetGmv(itemBreakdown: unknown): number | null {
-    if (!Array.isArray(itemBreakdown)) return null;
+  private captainEligibleNetGmv(itemBreakdown: unknown): CaptainEligibleGmv | null {
+    if (!Array.isArray(itemBreakdown) || itemBreakdown.length === 0) return null;
     const eligibleCents: number[] = [];
+    const seenOrderItemIds = new Set<string>();
     for (const item of itemBreakdown) {
-      if (!item || typeof item !== 'object' || !(item as any).captainEligible) continue;
-      const cents = Number((item as any).netGoodsRevenueCents);
-      if (!Number.isSafeInteger(cents) || cents < 0) return null;
-      eligibleCents.push(cents);
+      const record = this.asRecord(item);
+      const orderItemId = this.asString(record?.orderItemId);
+      const captainEligible = record?.captainEligible;
+      const netGoodsRevenueCents = record?.netGoodsRevenueCents;
+      const distributableProfitShareCents = record?.distributableProfitShareCents;
+      if (
+        !record
+        || !orderItemId
+        || seenOrderItemIds.has(orderItemId)
+        || typeof captainEligible !== 'boolean'
+        || typeof netGoodsRevenueCents !== 'number'
+        || !Number.isSafeInteger(netGoodsRevenueCents)
+        || netGoodsRevenueCents < 0
+        || typeof distributableProfitShareCents !== 'number'
+        || !Number.isSafeInteger(distributableProfitShareCents)
+        || distributableProfitShareCents < 0
+        || distributableProfitShareCents > netGoodsRevenueCents
+      ) {
+        return null;
+      }
+      seenOrderItemIds.add(orderItemId);
+      if (captainEligible) {
+        eligibleCents.push(netGoodsRevenueCents);
+      }
     }
     const totalCents = checkedSafeIntegerSum(eligibleCents);
-    return totalCents === null ? null : centsToYuan(totalCents);
+    if (totalCents === null) return null;
+    return {
+      amount: centsToYuan(totalCents),
+      cents: totalCents,
+      eligibleCount: eligibleCents.length,
+    };
+  }
+
+  private readProfitRateSet(value: unknown): { vip: ProfitRateSnapshot; normal: ProfitRateSnapshot } | null {
+    const rateSet = this.asRecord(value);
+    const vip = this.readProfitRates(rateSet?.vip);
+    const normal = this.readProfitRates(rateSet?.normal);
+    return vip && normal ? { vip, normal } : null;
+  }
+
+  private readProfitRates(value: unknown): ProfitRateSnapshot | null {
+    const record = this.asRecord(value);
+    if (!record) return null;
+    const rates = {
+      platform: this.readRate(record.platform),
+      reward: this.readRate(record.reward),
+      directReferral: this.readRate(record.directReferral),
+      industryFund: this.readRate(record.industryFund),
+      charity: this.readRate(record.charity),
+      tech: this.readRate(record.tech),
+      reserve: this.readRate(record.reserve),
+    };
+    const values = Object.values(rates);
+    if (values.some((rate) => rate === null)) return null;
+    const totalRate = (values as number[]).reduce((sum, rate) => sum + rate, 0);
+    return Math.abs(totalRate - 1) <= 0.0000001
+      ? rates as ProfitRateSnapshot
+      : null;
+  }
+
+  private readRate(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
+      : null;
+  }
+
+  private readStrictMoney(value: unknown): { amount: number; cents: number } | null {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+    try {
+      const cents = yuanToCents(value);
+      return centsToYuan(cents) === value ? { amount: value, cents } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private readDateMs(value: unknown): number | null {
+    const milliseconds = value instanceof Date
+      ? value.getTime()
+      : typeof value === 'string'
+        ? Date.parse(value)
+        : Number.NaN;
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+  }
+
+  private async reconcileInvalidSnapshot(
+    tx: Prisma.TransactionClient,
+    snapshot: any,
+  ): Promise<CaptainAttributionResult> {
+    await this.createReconciliationTask(
+      tx,
+      snapshot,
+      'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
+    );
+    return 'skipped';
   }
 
   private asRecord(value: unknown): Record<string, any> | null {
