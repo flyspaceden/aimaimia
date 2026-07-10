@@ -289,9 +289,26 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
   });
 
   it('creates a reconciliation task and no reward when configured holds exceed R', async () => {
+    const overfundedConfig = {
+      ...captainConfig,
+      perOrderCommission: { directProfitRate: 0.5 },
+      monthlyRewards: {
+        ...captainConfig.monthlyRewards,
+        baseManagementProfitRate: 0.2,
+        growthBonusProfitRate: 0,
+        cultivationBonusProfitRate: 0,
+        performanceBonusProfitRate: 0,
+      },
+    };
     const snapshot = makeSnapshot({
       distributableProfitAmount: 8,
-      captainEligibleProfitAmount: 35,
+      captainEligibleProfitAmount: 8,
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: overfundedConfig,
+        },
+      },
     });
     const { service, tx } = createHarness(snapshot);
 
@@ -315,6 +332,24 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
         errorCode: 'CAPTAIN_FUNDING_EXCEEDS_PLATFORM_RETAINED',
       },
     });
+    expectNoRewardWrites(tx);
+  });
+
+  it('marks a snapshot with C greater than D as invalid and creates no reward', async () => {
+    const snapshot = makeSnapshot({
+      distributableProfitAmount: 8,
+      captainEligibleProfitAmount: 8.01,
+    });
+    const { service, tx } = createHarness(snapshot);
+
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('skipped');
+    expect(tx.orderProfitReconciliationTask.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          errorCode: 'CAPTAIN_FUNDING_INVALID_SNAPSHOT',
+        }),
+      }),
+    );
     expectNoRewardWrites(tx);
   });
 

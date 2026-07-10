@@ -210,4 +210,49 @@ describe('RewardCalculatorService.calculateFromProfit', () => {
     expect(Math.round((unclaimed.platformRetained - claimed.platformRetained) * 100)).toBe(199);
     expect(Math.round((unclaimed.externalNet + unclaimed.platformRetained) * 100)).toBe(1325);
   });
+
+  it('uses largest remainders so a one-cent profit can never be over-allocated', () => {
+    const tinyRates = {
+      vip: {
+        platform: 0,
+        reward: 0.5,
+        directReferral: 0.5,
+        industryFund: 0,
+        charity: 0,
+        tech: 0,
+        reserve: 0,
+      },
+      normal: {
+        platform: 0,
+        reward: 0.5,
+        directReferral: 0.5,
+        industryFund: 0,
+        charity: 0,
+        tech: 0,
+        reserve: 0,
+      },
+    };
+
+    const result = calculator.calculateFromProfit(
+      0.01,
+      'NORMAL',
+      tinyRates,
+      0.5,
+      {},
+      true,
+      'snapshot-v3',
+    );
+    const allocatedCents = [
+      result.platformProfit,
+      result.rewardPool,
+      result.directReferralPool,
+      result.industryFund,
+      result.charityFund,
+      result.techFund,
+      result.reserveFund,
+    ].reduce((total, amount) => total + Math.round(amount * 100), 0);
+
+    expect(allocatedCents).toBe(1);
+    expect(Math.round((result.externalNet + result.platformRetained) * 100)).toBe(1);
+  });
 });
