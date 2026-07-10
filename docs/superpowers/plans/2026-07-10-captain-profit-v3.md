@@ -106,7 +106,7 @@
 - Produces: `OrderProfitSnapshot`, `OrderProfitFundingLedger`, `OrderProfitRefundReversal`, `CaptainMonthlySettlementOrder` and V3 `CaptainSeafoodConfig`.
 - Preserves: all V2 rows and legacy indirect audit fields without reinterpretation.
 
-- [ ] **Step 1: Write failing V3 contract tests**
+- [x] **Step 1: Write failing V3 contract tests**
 
 ```ts
 expect(DEFAULT_CAPTAIN_SEAFOOD_CONFIG.schemaVersion).toBe(3);
@@ -116,13 +116,13 @@ expect(() => validateCaptainSeafoodConfig({ ...v2Config, enabled: true })).toThr
 expect(() => validateCaptainSeafoodConfig(v3Config)).not.toThrow();
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd backend && npx jest src/modules/captain/captain-config.service.spec.ts --runInBand`
 
 Expected: FAIL because schema version 3 and profit-rate fields do not exist.
 
-- [ ] **Step 3: Add Prisma models and enums**
+- [x] **Step 3: Add Prisma models and enums**
 
 ```prisma
 enum OrderProfitSnapshotStatus { READY RECONCILIATION_REQUIRED }
@@ -279,13 +279,13 @@ Add `Order.groupBuyRebateDeductionAmount`, optional snapshot relations on `Capta
 
 Add the required inverse relation arrays to `Order`, `OrderItem`, `Refund`, `OrderProfitSnapshot`, `CaptainOrderAttribution` and `CaptainMonthlySettlement`. Use explicit relation names shown above for snapshot revision, reconciliation source/resolution and adjustment source/target so `prisma validate` has no ambiguous dual relation.
 
-- [ ] **Step 4: Add migration SQL that preserves historical data**
+- [x] **Step 4: Add migration SQL that preserves historical data**
 
 The migration must create new tables/columns and indexes only. Add a PostgreSQL partial unique index on `OrderProfitSnapshot(orderId) WHERE isCurrent=true` so concurrent reconciliation cannot create two current revisions. Existing captain attribution rows receive `calculationModel='SALES_V2'`; no existing amount is converted to profit. Existing `RuleVersion` rows remain `isComplete=false` so a historical partial captain snapshot can never delete unrelated configuration through global rollback.
 
 Funding amounts are signed: `PLATFORM_RETAINED_CREDIT=+R`, `CAPTAIN_DIRECT_HOLD=-directAmount`, `CAPTAIN_MONTHLY_HOLD=-monthlyMaximum`, `CAPTAIN_MONTHLY_RELEASE=+unusedReserve`; refund adjustments use the sign required to bring the platform net to the remaining target. The accounting invariant is `memberExternalNet + captainNet + sum(funding.amount) = remaining D`.
 
-- [ ] **Step 5: Implement V3 config names and explicit V2 normalization**
+- [x] **Step 5: Implement V3 config names and explicit V2 normalization**
 
 ```ts
 type CaptainSeafoodConfigV3 = {
@@ -320,7 +320,7 @@ type CaptainSeafoodConfigV3 = {
 
 Implement `CaptainSeafoodConfig = CaptainSeafoodConfigV2 | CaptainSeafoodConfigV3` as a discriminated union. Persisted V2 reads remain possible for historical lifecycle, but `enabled=true` V2 is returned as migration-required and cannot create new attribution. Validate first V3 `effectiveFrom` as 00:00:00 on the first day of a natural month in `Asia/Shanghai`, stored as UTC.
 
-- [ ] **Step 6: Generate and validate Prisma, then verify GREEN**
+- [x] **Step 6: Generate and validate Prisma, then verify GREEN**
 
 Run:
 
@@ -331,7 +331,7 @@ npx prisma generate
 npx jest src/modules/captain/captain-config.service.spec.ts --runInBand
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/prisma backend/src/modules/captain
