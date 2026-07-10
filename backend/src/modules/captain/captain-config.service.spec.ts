@@ -117,6 +117,35 @@ describe('CaptainConfigService', () => {
         effectiveFrom: '2026-08-01T00:00:00.000Z',
       }),
     ).toThrow('Asia/Shanghai');
+    expect(() =>
+      validateCaptainSeafoodConfig({
+        ...v3Config,
+        effectiveFrom: '2026-07-31T16:00:00.999Z',
+      }),
+    ).toThrow('Asia/Shanghai');
+  });
+
+  it.each([
+    ['perOrderCommission.directRate', {
+      perOrderCommission: { ...v3Config.perOrderCommission, directRate: 0.11 },
+    }],
+    ['monthlyRewards.baseManagementRate', {
+      monthlyRewards: { ...v3Config.monthlyRewards, baseManagementRate: 0.022 },
+    }],
+    ['monthlyRewards.growthBonusRate', {
+      monthlyRewards: { ...v3Config.monthlyRewards, growthBonusRate: 0.007 },
+    }],
+    ['monthlyRewards.cultivationBonusRate', {
+      monthlyRewards: { ...v3Config.monthlyRewards, cultivationBonusRate: 0.006 },
+    }],
+    ['monthlyRewards.performanceBonusRate', {
+      monthlyRewards: { ...v3Config.monthlyRewards, performanceBonusRate: 0.01 },
+    }],
+    ['caps.maxTotalIncentiveRate', {
+      caps: { ...v3Config.caps, maxTotalIncentiveRate: 0.155 },
+    }],
+  ])('rejects retired V2 field %s instead of silently ignoring it', (path, override) => {
+    expect(() => validateCaptainSeafoodConfig({ ...v3Config, ...override })).toThrow(path);
   });
 
   it('canonicalizes an equivalent V3 timezone input to UTC across normalize and validate', async () => {
@@ -275,6 +304,27 @@ describe('CaptainConfigService', () => {
     expect(sql).toMatch(/"amount"\s*<>\s*'Infinity'::double precision/i);
     expect(sql).toMatch(/"amount"\s*<>\s*'-Infinity'::double precision/i);
     expect(sql).toMatch(/"type"\s*=\s*'REFUND_ADJUSTMENT'/);
+  });
+
+  it('defines database constraints that prevent cross-order funding and duplicate monthly attribution', () => {
+    const migrationPath = join(
+      process.cwd(),
+      'prisma/migrations/20260710030000_captain_profit_v3/migration.sql',
+    );
+    const sql = readFileSync(migrationPath, 'utf8');
+
+    expect(sql).toMatch(
+      /FOREIGN KEY \("snapshotId", "orderId"\) REFERENCES "OrderProfitSnapshot"\("id", "orderId"\)/,
+    );
+    expect(sql).toMatch(
+      /FOREIGN KEY \("sourceSnapshotId", "orderId"\) REFERENCES "OrderProfitSnapshot"\("id", "orderId"\)/,
+    );
+    expect(sql).toMatch(
+      /FOREIGN KEY \("targetSnapshotId", "orderId"\) REFERENCES "OrderProfitSnapshot"\("id", "orderId"\)/,
+    );
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX "CaptainMonthlySettlementOrder_orderAttributionId_key"/,
+    );
   });
 
   it('rejects a non-ISO activation timestamp', () => {
