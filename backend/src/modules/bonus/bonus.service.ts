@@ -592,6 +592,22 @@ export class BonusService {
         // 分配三叉树节点
         await this.assignVipTreeNode(tx, userId, referralContext.vipTreeInviterUserId);
 
+        // 付费 VIP 礼包的一次性推荐奖励：使用购买时的金额与比例快照。
+        // 累计消费自动升级不走本方法，因此不会误发一次性奖励。
+        const referralBonusRateSnapshot = vipPurchase.referralBonusRate ?? 0;
+        const referralBonus = Math.floor(
+          vipPurchase.amount * referralBonusRateSnapshot * 100,
+        ) / 100;
+        if (referralContext.directInviterUserId && referralBonus > 0) {
+          await this.grantVipReferralBonus(
+            tx,
+            referralContext.directInviterUserId,
+            userId,
+            referralBonus,
+            vipPurchase.id,
+          );
+        }
+
         // 冻结普通树进度
         const normalProgress = await tx.normalProgress.findUnique({
           where: { userId },
@@ -1499,6 +1515,19 @@ export class BonusService {
     amount: number,
     vipPurchaseId: string,
   ) {
+    const existing = await tx.rewardLedger.findFirst({
+      where: {
+        refType: 'VIP_REFERRAL',
+        refId: vipPurchaseId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      this.logger.warn(`VIP 推荐奖励已存在，跳过重复授奖：vipPurchaseId=${vipPurchaseId}`);
+      return;
+    }
+
     const activeRecipient = await this.resolveActiveRewardRecipient(tx, inviterUserId);
     if (!activeRecipient) {
       await this.creditVipReferralBonusToPlatform(

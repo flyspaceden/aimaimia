@@ -377,6 +377,7 @@
 | VDR01 | VIP直推佣金提前释放或重复释放 | 🔴 HIGH | `VIP_DIRECT_REFERRAL` 在普通商品支付成功时立即进入推荐人钱包，但必须保持 `FROZEN` 到确认收货后售后期结束；确认收货本身不释放。`VIP_DIRECT_REFERRAL` 冻结流水必须排除在通用冻结过期Cron之外，只能由“收货 + 售后期结束 + 无有效/成功售后”的专用逻辑释放；取消、退款、退货或换货成功必须在 Serializable 事务内作废或扣回。 | ✅ 已修 |
 | VDR02 | 直推佣金变成平台额外补贴 | 🟠 HIGH | `VIP_DIRECT_REFERRAL_PERCENT` 必须纳入VIP七分比例合计校验，七项总和必须等于100%；生产兼容默认50/30/0/10/2/2/6，运营推荐模板50/25/5/10/2/2/6，直推佣金从原利润比例中拆出，不额外增加平台支出。 | ✅ 已修 |
 | VDR03 | 普通直推佣金重复入账或提前释放 | 🔴 HIGH | `NORMAL_DIRECT_REFERRAL` 从普通七分比例中拆出后，必须在普通商品支付成功时按直推关系单独冻结；没有有效邀请人时用 `NORMAL_DIRECT_REFERRAL_PLATFORM` 明确路由平台。普通树确认收货拆账不能再创建 `NORMAL_DIRECT_REFERRAL_HOLDING`，否则会和支付时直推流水重复；通用冻结过期 Cron 必须排除 `NORMAL_DIRECT_REFERRAL`，避免绕过售后期专用释放条件。 | ✅ 已修 |
+| VDR04 | 统一推荐关系改造误删付费 VIP 礼包一次性推荐奖 | 🔴 HIGH | 2026-07-05 为避免“累计消费自动升级 VIP”发一次性推荐奖时，错误地从 `activateVipAfterPayment()` 删除了付费 `VIP_PACKAGE` 的授奖调用，而持续直推佣金又只处理 `NORMAL_GOODS`，形成资金断档。2026-07-10 已恢复：有效 VIP 推荐人按 `VipPurchase` 金额/比例快照在原 Serializable 激活事务内立即获得 `VIP_REFERRAL`；激活 CAS 负责主幂等，授奖函数再按 `refType=VIP_REFERRAL + refId=VipPurchase.id` 防御性查重；自动升级路径继续不发一次性奖。 | ✅ 已修 |
 
 ---
 
