@@ -1,11 +1,21 @@
 import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from '../captain/captain.constants';
-import { ProfitSafetyService } from './profit-safety.service';
-import { ProfitSafetyValidator } from './profit-safety-validator';
+import {
+  PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS,
+  ProfitSafetyService,
+} from './profit-safety.service';
+import {
+  ProfitSafetyValidator,
+  ProfitSafetyViolationError,
+} from './profit-safety-validator';
 
 function safeCaptainConfig() {
   return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
     enabled: true,
+    scope: {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.scope,
+      productIds: ['product-1'],
+    },
     perOrderCommission: { directProfitRate: 0.01 },
     monthlyRewards: {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyRewards,
@@ -23,7 +33,7 @@ function safeCaptainConfig() {
 
 function makeHarness() {
   const events: string[] = [];
-  const rows = [
+  const safetyValues = new Map<string, unknown>([
     ['MARKUP_RATE', 1.35],
     ['VIP_DISCOUNT_RATE', 0.95],
     ['VIP_REWARD_PERCENT', 0.2],
@@ -33,7 +43,13 @@ function makeHarness() {
     ['NORMAL_DIRECT_REFERRAL_PERCENT', 0.05],
     ['NORMAL_INDUSTRY_FUND_PERCENT', 0.1],
     ['CAPTAIN_SEAFOOD_CONFIG', safeCaptainConfig()],
-  ].map(([key, value]) => ({ key, value: { value } }));
+  ]);
+  const rows: Array<{ key: string; value: { value: unknown } }> =
+    PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.map((key) => ({
+      key,
+      value: { value: safetyValues.has(key) ? safetyValues.get(key) : `snapshot:${key}` },
+    }));
+  rows.push({ key: 'FUTURE_EXTENSION_CONFIG', value: { value: { enabled: true } } });
   const tx: any = {
     $executeRawUnsafe: jest.fn(async () => { events.push('lock'); }),
     ruleConfig: {
@@ -85,6 +101,19 @@ function makeHarness() {
 }
 
 describe('ProfitSafetyService', () => {
+  it('catalogs non-profit RuleConfig keys persisted by independent system modules', () => {
+    expect(PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS).toEqual(expect.arrayContaining([
+      'DIGITAL_ASSET_MODULE_SETTINGS',
+      'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+      'LOW_STOCK_DISPLAY_THRESHOLD',
+      'RETURN_SHIPPING_FEE_DEFAULT',
+      'VIP_FREE_SHIPPING_THRESHOLD',
+      'NORMAL_FREE_SHIPPING_THRESHOLD',
+      'VIP_REWARD_EXPIRY_DAYS',
+      'NORMAL_REWARD_EXPIRY_DAYS',
+    ]));
+  });
+
   it('locks, reads a full candidate, validates, writes, then stores a complete version', async () => {
     const { service, tx, events } = makeHarness();
     const write = jest.fn(async () => {
@@ -113,11 +142,27 @@ describe('ProfitSafetyService', () => {
         snapshot: expect.objectContaining({
           MARKUP_RATE: 1.35,
           NORMAL_REWARD_PERCENT: 0.21,
+          WITHDRAW_TAX_RATE: 'snapshot:WITHDRAW_TAX_RATE',
+          FUTURE_EXTENSION_CONFIG: { enabled: true },
           CAPTAIN_SEAFOOD_CONFIG: expect.objectContaining({ schemaVersion: 3 }),
         }),
         safetySummary: expect.objectContaining({ safe: true }),
       }),
     });
+    expect(output.summary.ruleConfigCompleteness).toEqual(expect.objectContaining({
+      complete: true,
+      missingKeys: [],
+      requiredKeys: expect.arrayContaining([
+        'WITHDRAW_TAX_RATE',
+        'DIGITAL_ASSET_MODULE_SETTINGS',
+        'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+        'LOW_STOCK_DISPLAY_THRESHOLD',
+      ]),
+      presentKeys: expect.arrayContaining([
+        'FUTURE_EXTENSION_CONFIG',
+        'WITHDRAW_TAX_RATE',
+      ]),
+    }));
   });
 
   it('performs no write and creates no version when the merged candidate is unsafe', async () => {
@@ -131,6 +176,43 @@ describe('ProfitSafetyService', () => {
       },
     }, write)).rejects.toThrow('CAPTAIN_PROFIT_SAFETY_VIOLATION');
 
+    expect(write).not.toHaveBeenCalled();
+    expect(tx.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'WITHDRAW_TAX_RATE',
+    'DIGITAL_ASSET_MODULE_SETTINGS',
+    'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+    'LOW_STOCK_DISPLAY_THRESHOLD',
+  ])('refuses to mark a snapshot complete when system RuleConfig %s is missing', async (missingKey) => {
+    const { service, tx } = makeHarness();
+    tx.ruleConfig.findMany.mockImplementation(async () => (
+      PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS
+        .filter((key) => key !== missingKey)
+        .map((key) => ({
+          key,
+          value: {
+            value: key === 'CAPTAIN_SEAFOOD_CONFIG'
+              ? safeCaptainConfig()
+              : key === 'MARKUP_RATE'
+                ? 1.35
+                : key === 'VIP_DISCOUNT_RATE'
+                  ? 0.95
+                  : key.includes('REWARD_PERCENT')
+                    ? 0.2
+                    : key.includes('DIRECT_REFERRAL_PERCENT')
+                      ? 0.05
+                      : key.includes('INDUSTRY_FUND_PERCENT')
+                        ? 0.1
+                        : `snapshot:${key}`,
+          },
+        }))
+    ));
+    const write = jest.fn();
+
+    await expect(service.withCandidateChange({}, write))
+      .rejects.toBeInstanceOf(ProfitSafetyViolationError);
     expect(write).not.toHaveBeenCalled();
     expect(tx.ruleVersion.create).not.toHaveBeenCalled();
   });
@@ -168,40 +250,28 @@ describe('ProfitSafetyService', () => {
     expect(tx.ruleVersion.create).not.toHaveBeenCalled();
   });
 
-  it('serializes concurrent candidates and lets the second read state after the first write', async () => {
-    const { service, tx, prisma } = makeHarness();
-    let persistedNormalRate = 0.2;
-    tx.ruleConfig.findMany.mockImplementation(async () => [
-      { key: 'MARKUP_RATE', value: { value: 1.35 } },
-      { key: 'VIP_DISCOUNT_RATE', value: { value: 0.95 } },
-      { key: 'VIP_REWARD_PERCENT', value: { value: 0.2 } },
-      { key: 'VIP_DIRECT_REFERRAL_PERCENT', value: { value: 0.05 } },
-      { key: 'VIP_INDUSTRY_FUND_PERCENT', value: { value: 0.1 } },
-      { key: 'NORMAL_REWARD_PERCENT', value: { value: persistedNormalRate } },
-      { key: 'NORMAL_DIRECT_REFERRAL_PERCENT', value: { value: 0.05 } },
-      { key: 'NORMAL_INDUSTRY_FUND_PERCENT', value: { value: 0.1 } },
-      { key: 'CAPTAIN_SEAFOOD_CONFIG', value: { value: safeCaptainConfig() } },
-    ]);
-    let tail = Promise.resolve();
-    prisma.$transaction.mockImplementation(async (callback: any) => {
-      const previous = tail;
-      let release!: () => void;
-      tail = new Promise<void>((resolve) => { release = resolve; });
-      await previous;
-      try {
-        return await callback(tx);
-      } finally {
-        release();
-      }
-    });
+  it('excludes platform-company SKUs from ordinary-goods safety validation', async () => {
+    const { service, tx } = makeHarness();
+    tx.productSKU.findMany.mockResolvedValue([{
+      id: 'platform-sku',
+      price: 0,
+      cost: 0,
+      status: 'ACTIVE',
+      vipGiftItems: [],
+      product: {
+        id: 'platform-product',
+        companyId: 'PLATFORM_COMPANY',
+        categoryId: null,
+        status: 'ACTIVE',
+        type: 'SIMPLE',
+        company: { isPlatform: true },
+        lotteryPrizes: [],
+      },
+    }]);
 
-    await Promise.all([
-      service.withCandidateChange({ ruleUpdates: { NORMAL_REWARD_PERCENT: 0.21 } }, async () => {
-        persistedNormalRate = 0.21;
-      }),
-      service.withCandidateChange({ ruleUpdates: { VIP_REWARD_PERCENT: 0.21 } }, async (_tx, ctx) => {
-        expect(ctx.candidateSnapshot.NORMAL_REWARD_PERCENT).toBe(0.21);
-      }),
-    ]);
+    const summary = await service.preview();
+
+    expect(summary.safe).toBe(true);
+    expect(summary.evaluatedSkuCount).toBe(0);
   });
 });

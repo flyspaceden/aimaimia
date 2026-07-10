@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { validateCaptainSeafoodConfig } from '../captain/captain.constants';
 import type {
   CaptainSeafoodConfig,
   CaptainSeafoodConfigV3,
@@ -78,6 +79,12 @@ export interface ProfitSafetySummary {
   captainMaximumProfitRate: number;
   captainConfiguredCap: number;
   errors: string[];
+  ruleConfigCompleteness?: {
+    complete: boolean;
+    requiredKeys: string[];
+    presentKeys: string[];
+    missingKeys: string[];
+  };
 }
 
 export class ProfitSafetyViolationError extends Error {
@@ -116,12 +123,22 @@ const SCENARIOS: ScenarioDefinition[] = [
 export class ProfitSafetyValidator {
   evaluate(candidate: ProfitSafetyCandidate): ProfitSafetySummary {
     const errors: string[] = [];
-    const captain = candidate.captainConfig;
-    if (captain.schemaVersion === 2 && captain.enabled) {
+    const rawCaptain = candidate.captainConfig as unknown;
+    const isEnabledV2 = this.isRecord(rawCaptain)
+      && rawCaptain.schemaVersion === 2
+      && rawCaptain.enabled === true;
+    let captain: CaptainSeafoodConfig | null = null;
+    if (isEnabledV2) {
       errors.push('CAPTAIN_CONFIG_V2_NOT_ACTIVE');
+    } else {
+      try {
+        captain = validateCaptainSeafoodConfig(rawCaptain);
+      } catch {
+        errors.push('INVALID_CAPTAIN_CONFIG');
+      }
     }
 
-    const captainV3 = captain.schemaVersion === 3
+    const captainV3 = captain?.schemaVersion === 3
       ? captain as CaptainSeafoodConfigV3
       : null;
     const captainMaximumProfitRate = captainV3?.enabled
@@ -147,6 +164,18 @@ export class ProfitSafetyValidator {
         captainV3.caps.targetNetProfitRate,
       ], errors, 'INVALID_PLATFORM_REQUIRED_RATE')
       : 0;
+    const markupRate = this.positiveRate(
+      candidate.markupRate,
+      errors,
+      'INVALID_MARKUP_RATE',
+    );
+    const vipDiscountRate = this.boundedRate(
+      candidate.vipDiscountRate,
+      errors,
+      'INVALID_VIP_DISCOUNT_RATE',
+      0,
+      1,
+    );
     const activeSkus = candidate.skus.filter((sku) => sku.active && sku.ordinary);
 
     const scenarioResults = SCENARIOS.map((definition) => this.evaluateScenario(
@@ -157,6 +186,8 @@ export class ProfitSafetyValidator {
       captainMaximumProfitRate,
       captainConfiguredCap,
       platformRequiredRevenueRate,
+      markupRate,
+      vipDiscountRate,
       errors,
     ));
     const limitingSkus = scenarioResults
@@ -194,6 +225,8 @@ export class ProfitSafetyValidator {
     captainMaximumProfitRate: number,
     captainConfiguredCap: number,
     platformRequiredRevenueRate: number,
+    markupRate: number,
+    vipDiscountRate: number,
     sharedErrors: string[],
   ): ProfitSafetyScenario & { limitingSku: ProfitSafetyLimitingSku | null } {
     const buyerRates = definition.buyerPath === 'VIP' ? candidate.vip : candidate.normal;
@@ -227,10 +260,18 @@ export class ProfitSafetyValidator {
       const price = Number(sku.price);
       const cost = sku.cost === null ? Number.NaN : Number(sku.cost);
       const validEconomics = Number.isFinite(price) && price > 0 && Number.isFinite(cost) && cost > 0;
-      const vipMultiplier = definition.buyerPath === 'VIP' && sku.vipDiscountEligible
-        ? candidate.vipDiscountRate
+      const mandatoryDiscountRate = definition.buyerPath === 'VIP' && sku.vipDiscountEligible
+        ? vipDiscountRate
         : 1;
-      const margin = validEconomics ? (price * vipMultiplier - cost) / price : -1;
+      const automaticDiscountedRevenueMultiplier = markupRate * mandatoryDiscountRate;
+      const automaticMargin = automaticDiscountedRevenueMultiplier > 0
+        ? (automaticDiscountedRevenueMultiplier - 1) / automaticDiscountedRevenueMultiplier
+        : -1;
+      const discountedRevenue = price * mandatoryDiscountRate;
+      const skuMargin = validEconomics && discountedRevenue > 0
+        ? (discountedRevenue - cost) / discountedRevenue
+        : -1;
+      const margin = Math.min(automaticMargin, skuMargin);
       const retained = margin * Math.max(0, 1 - externalProfitRate);
       const rateOverflow = externalProfitRate > 1 + 1e-12;
       const captainCapOverflow = captainProfitRate > captainConfiguredCap + 1e-12;
@@ -247,32 +288,33 @@ export class ProfitSafetyValidator {
         && retained + 1e-12 >= platformRequiredRevenueRate;
       if (!skuSafe) scenarioSafe = false;
 
-      if (!limitingSku || shortfall > limitingSku.shortfall) {
-        limitingSku = {
-          skuId: sku.id,
-          productId: sku.productId,
-          scenarioKey: definition.key,
-          price,
-          cost: sku.cost,
-          automaticPrice: Number.isFinite(cost) && cost > 0 && Number.isFinite(candidate.markupRate)
-            ? cost * candidate.markupRate
-            : null,
-          grossMarginRate: margin,
-          platformRetainedRevenueRate: retained,
-          platformRequiredRevenueRate,
-          shortfall,
-          reason: !validEconomics
-            ? 'SKU_COST_OR_PRICE_MISSING'
-            : margin <= 0
-              ? 'SKU_NON_POSITIVE_MARGIN'
-              : rateOverflow
-                ? 'EXTERNAL_PROFIT_RATE_EXCEEDS_100_PERCENT'
-                : captainCapOverflow
-                  ? 'CAPTAIN_RATE_EXCEEDS_CONFIGURED_CAP'
-                  : shortfall > 0
-                    ? 'PLATFORM_RETAINED_REVENUE_INSUFFICIENT'
-                    : 'SAFE',
-        };
+      const evaluatedSku: ProfitSafetyLimitingSku = {
+        skuId: sku.id,
+        productId: sku.productId,
+        scenarioKey: definition.key,
+        price,
+        cost: sku.cost,
+        automaticPrice: Number.isFinite(cost) && cost > 0 && markupRate > 0
+          ? cost * markupRate
+          : null,
+        grossMarginRate: margin,
+        platformRetainedRevenueRate: retained,
+        platformRequiredRevenueRate,
+        shortfall,
+        reason: !validEconomics
+          ? 'SKU_COST_OR_PRICE_MISSING'
+          : margin <= 0
+            ? 'SKU_NON_POSITIVE_MARGIN'
+            : rateOverflow
+              ? 'EXTERNAL_PROFIT_RATE_EXCEEDS_100_PERCENT'
+              : captainCapOverflow
+                ? 'CAPTAIN_RATE_EXCEEDS_CONFIGURED_CAP'
+                : shortfall > 0
+                  ? 'PLATFORM_RETAINED_REVENUE_INSUFFICIENT'
+                  : 'SAFE',
+      };
+      if (!limitingSku || this.isHigherRisk(evaluatedSku, limitingSku)) {
+        limitingSku = evaluatedSku;
       }
     }
 
@@ -326,6 +368,52 @@ export class ProfitSafetyValidator {
       return 0;
     }
     return rate;
+  }
+
+  private positiveRate(value: unknown, errors: string[], code: string): number {
+    const rate = Number(value);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      errors.push(code);
+      return 0;
+    }
+    return rate;
+  }
+
+  private boundedRate(
+    value: unknown,
+    errors: string[],
+    code: string,
+    minExclusive: number,
+    maxInclusive: number,
+  ): number {
+    const rate = Number(value);
+    if (!Number.isFinite(rate) || rate <= minExclusive || rate > maxInclusive) {
+      errors.push(code);
+      return 0;
+    }
+    return rate;
+  }
+
+  private isHigherRisk(
+    candidate: ProfitSafetyLimitingSku,
+    current: ProfitSafetyLimitingSku,
+  ): boolean {
+    const epsilon = 1e-12;
+    if (candidate.shortfall > current.shortfall + epsilon) return true;
+    if (current.shortfall > candidate.shortfall + epsilon) return false;
+    if (candidate.platformRetainedRevenueRate < current.platformRetainedRevenueRate - epsilon) {
+      return true;
+    }
+    if (current.platformRetainedRevenueRate < candidate.platformRetainedRevenueRate - epsilon) {
+      return false;
+    }
+    if (candidate.grossMarginRate < current.grossMarginRate - epsilon) return true;
+    if (current.grossMarginRate < candidate.grossMarginRate - epsilon) return false;
+    return candidate.skuId.localeCompare(current.skuId) < 0;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
   private sumRates(values: unknown[], errors: string[], code: string): number {

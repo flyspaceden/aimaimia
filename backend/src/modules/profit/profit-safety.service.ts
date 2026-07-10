@@ -13,6 +13,7 @@ import {
   ProfitSafetySku,
   ProfitSafetySummary,
   ProfitSafetyValidator,
+  ProfitSafetyViolationError,
 } from './profit-safety-validator';
 
 export interface ProfitSafetyCandidateChange {
@@ -37,6 +38,94 @@ export interface ProfitSafetyWriteResult<T> extends ProfitSafetyWriteContext {
 
 type Tx = Prisma.TransactionClient;
 
+// Stable baseline from the system seed plus safety-critical and separately seeded keys.
+// Unknown extension keys are preserved in snapshots too.
+export const PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS = Object.freeze([
+  'VIP_PLATFORM_PERCENT',
+  'VIP_REWARD_PERCENT',
+  'VIP_DIRECT_REFERRAL_PERCENT',
+  'VIP_INDUSTRY_FUND_PERCENT',
+  'VIP_CHARITY_PERCENT',
+  'VIP_TECH_PERCENT',
+  'VIP_RESERVE_PERCENT',
+  'NORMAL_BROADCAST_X',
+  'VIP_MIN_AMOUNT',
+  'VIP_MAX_LAYERS',
+  'VIP_BRANCH_FACTOR',
+  'BUCKET_RANGES',
+  'AUTO_CONFIRM_DAYS',
+  'NORMAL_BRANCH_FACTOR',
+  'NORMAL_MAX_LAYERS',
+  'NORMAL_FREEZE_DAYS',
+  'NORMAL_PLATFORM_PERCENT',
+  'NORMAL_REWARD_PERCENT',
+  'NORMAL_DIRECT_REFERRAL_PERCENT',
+  'NORMAL_INDUSTRY_FUND_PERCENT',
+  'NORMAL_CHARITY_PERCENT',
+  'NORMAL_TECH_PERCENT',
+  'NORMAL_RESERVE_PERCENT',
+  'AUTO_VIP_BY_SPEND_ENABLED',
+  'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD',
+  'VIP_FREEZE_DAYS',
+  'VIP_REWARD_EXPIRY_DAYS',
+  'NORMAL_REWARD_EXPIRY_DAYS',
+  'MARKUP_RATE',
+  'VIP_DISCOUNT_RATE',
+  'DEFAULT_SHIPPING_FEE',
+  'VIP_FREE_SHIPPING_THRESHOLD',
+  'NORMAL_FREE_SHIPPING_THRESHOLD',
+  'LOW_STOCK_DISPLAY_THRESHOLD',
+  'LOTTERY_ENABLED',
+  'LOTTERY_DAILY_CHANCES',
+  'GROWTH_ENABLED',
+  'GROWTH_POINTS_EXPIRE_DAYS',
+  'GROWTH_POINTS_EXPIRE_REMIND_DAYS',
+  'GROWTH_DAILY_POINTS_CAP',
+  'GROWTH_MONTHLY_POINTS_CAP',
+  'GROWTH_DAILY_SHARE_REWARD_USER_CAP',
+  'GROWTH_MONTHLY_INVITE_FIRST_ORDER_CAP',
+  'GROWTH_VIP_CHECKIN_POINTS_MULTIPLIER',
+  'GROWTH_VIP_SHOPPING_GROWTH_MULTIPLIER',
+  'GROWTH_REFUND_REVERSAL_ENABLED',
+  'GROWTH_AUTO_SUSPEND_EXCHANGE_RISK',
+  'RETURN_WINDOW_DAYS',
+  'NORMAL_RETURN_DAYS',
+  'FRESH_RETURN_HOURS',
+  'RETURN_NO_SHIP_THRESHOLD',
+  'RETURN_SHIPPING_FEE_DEFAULT',
+  'SELLER_REVIEW_TIMEOUT_DAYS',
+  'BUYER_SHIP_TIMEOUT_DAYS',
+  'SELLER_RECEIVE_TIMEOUT_DAYS',
+  'BUYER_CONFIRM_TIMEOUT_DAYS',
+  'INVOICE_PROVIDER_MODE',
+  'INVOICE_AUTO_ISSUE',
+  'INVOICE_AUTO_ISSUE_MAX_ATTEMPTS',
+  'INVOICE_ALLOW_VIP_PACKAGE',
+  'INVOICE_LINE_MODE',
+  'INVOICE_DEFAULT_TAX_RATE',
+  'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE',
+  'INVOICE_DEFAULT_GOODS_NAME',
+  'INVOICE_REMARK_TEMPLATE',
+  'INVOICE_ISSUER_PROFILE',
+  'WITHDRAW_TAX_RATE',
+  'WITHDRAW_MIN_AMOUNT',
+  'WITHDRAW_MAX_AMOUNT',
+  'WITHDRAW_DAILY_MAX_COUNT',
+  'WITHDRAW_COOLDOWN_SECONDS',
+  'WITHDRAW_YEARLY_MAX_AMOUNT',
+  'DEDUCTION_RATIO_NORMAL',
+  'DEDUCTION_RATIO_VIP',
+  'DEDUCTION_MIN_ORDER_AMOUNT',
+  'DEDUCTION_ALLOW_COUPON_STACK',
+  'WITHDRAW_PROVIDER_FEE_AMOUNT',
+  'WITHDRAW_YEARLY_ALERT_THRESHOLD',
+  'DIGITAL_ASSET_CREDIT_TIERS',
+  'DIGITAL_ASSET_MODULE_SETTINGS',
+  'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+  'DISCOVERY_COMPANY_FILTERS',
+  CAPTAIN_SEAFOOD_CONFIG_KEY,
+] as const);
+
 const CONFIG_DEFAULTS = {
   MARKUP_RATE: 1.35,
   VIP_DISCOUNT_RATE: 0.95,
@@ -59,8 +148,7 @@ export class ProfitSafetyService {
     change: ProfitSafetyCandidateChange,
     write: (tx: Tx, context: ProfitSafetyWriteContext) => Promise<T>,
   ): Promise<ProfitSafetyWriteResult<T>> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.takeSafetyLock(tx);
+    return this.withSafetyLock(async (tx) => {
       const context = await this.buildContext(tx, change, true);
       const result = await write(tx, context);
       const ruleVersion = await (tx as any).ruleVersion.create({
@@ -74,18 +162,36 @@ export class ProfitSafetyService {
         },
       });
       return { ...context, result, ruleVersion };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async preview(change: ProfitSafetyCandidateChange = {}): Promise<ProfitSafetySummary> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.takeSafetyLock(tx);
+    return this.withSafetyLock(async (tx) => {
       return (await this.buildContext(tx, change, false)).summary;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async getCurrentSummary(): Promise<ProfitSafetySummary> {
     return this.preview();
+  }
+
+  async withSafetyLock<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          await this.takeSafetyLock(tx);
+          return work(tx);
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5_000,
+          timeout: 15_000,
+        });
+      } catch (error) {
+        if (!this.isSerializationFailure(error) || attempt === maxAttempts) throw error;
+      }
+    }
+    throw new Error('profit safety transaction retry exhausted');
   }
 
   private async buildContext(
@@ -112,9 +218,26 @@ export class ProfitSafetyService {
       change.removeSkuIds ?? [],
     );
     const candidate = this.toValidatorCandidate(candidateSnapshot, candidateSkus);
-    const summary = assertSafe
-      ? this.validator.assertSafe(candidate)
-      : this.validator.evaluate(candidate);
+    const summary = this.validator.evaluate(candidate);
+    const missingKeys = PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.filter(
+      (key) => !Object.prototype.hasOwnProperty.call(candidateSnapshot, key),
+    );
+    summary.ruleConfigCompleteness = {
+      complete: missingKeys.length === 0,
+      requiredKeys: [...PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS],
+      presentKeys: Object.keys(candidateSnapshot).sort(),
+      missingKeys: [...missingKeys],
+    };
+    if (missingKeys.length > 0) {
+      summary.safe = false;
+      summary.errors = [
+        ...summary.errors,
+        `INCOMPLETE_RULE_CONFIG_SNAPSHOT:${missingKeys.join(',')}`,
+      ];
+    }
+    if (assertSafe && !summary.safe) {
+      throw new ProfitSafetyViolationError(summary);
+    }
     return { candidateSnapshot, candidateSkus, summary };
   }
 
@@ -138,7 +261,7 @@ export class ProfitSafetyService {
     const rows = await (tx as any).productSKU.findMany({
       where: {
         status: 'ACTIVE',
-        product: { status: 'ACTIVE' },
+        product: { status: 'ACTIVE', company: { isPlatform: false } },
       },
       select: {
         id: true,
@@ -167,7 +290,8 @@ export class ProfitSafetyService {
       price: Number(row.price),
       cost: row.cost === null || row.cost === undefined ? null : Number(row.cost),
       active: row.status === 'ACTIVE' && row.product.status === 'ACTIVE',
-      ordinary: (row.product.lotteryPrizes?.length ?? 0) === 0
+      ordinary: row.product.company?.isPlatform !== true
+        && (row.product.lotteryPrizes?.length ?? 0) === 0
         && (row.vipGiftItems?.length ?? 0) === 0,
       vipDiscountEligible: !row.product.company?.isPlatform,
     }));
@@ -253,5 +377,15 @@ export class ProfitSafetyService {
       return (value as { value: unknown }).value;
     }
     return value;
+  }
+
+  private isSerializationFailure(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const candidate = error as { code?: unknown; message?: unknown; meta?: { code?: unknown } };
+    return candidate.code === 'P2034'
+      || candidate.code === '40001'
+      || candidate.meta?.code === '40001'
+      || (typeof candidate.message === 'string'
+        && candidate.message.includes('could not serialize access'));
   }
 }
