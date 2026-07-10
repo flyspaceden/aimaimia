@@ -296,6 +296,32 @@ enum CaptainSettlementStatus {
   REJECTED
 }
 
+enum OrderProfitSnapshotStatus {
+  READY
+  RECONCILIATION_REQUIRED
+}
+
+enum OrderProfitFundingType {
+  PLATFORM_RETAINED_CREDIT
+  CAPTAIN_DIRECT_HOLD
+  CAPTAIN_MONTHLY_HOLD
+  CAPTAIN_MONTHLY_RELEASE
+  REFUND_ADJUSTMENT
+}
+
+enum OrderProfitReconciliationStatus {
+  PENDING
+  RESOLVED
+  REJECTED
+}
+
+enum OrderProfitAdjustmentStatus {
+  PENDING
+  APPLIED
+  REJECTED
+  SUPERSEDED
+}
+
 enum CaptainApplicationStatus {
   PENDING
   APPROVED
@@ -1054,6 +1080,8 @@ model RuleVersion {
   createdByAdminId String?
   createdByAdmin   AdminUser? @relation(fields: [createdByAdminId], references: [id])
   changeNote       String?
+  isComplete       Boolean    @default(false)
+  safetySummary    Json?
   createdAt        DateTime   @default(now())
 }
 
@@ -1759,6 +1787,7 @@ model Order {
   // K 域关系（平台红包）
   couponUsageRecords  CouponUsageRecord[]  @relation("OrderCouponUsage")
   totalCouponDiscount Float? // 平台红包总抵扣金额
+  groupBuyRebateDeductionAmount Float @default(0) // 团购返还消费积分抵扣，独立审计
   digitalAssetLedgers DigitalAssetLedger[]
 
   // 团购分享回馈订单关联
@@ -1768,6 +1797,10 @@ model Order {
   normalShareBindings       NormalShareBinding[]
   captainAttributions       CaptainOrderAttribution[]
   captainCommissionLedgers  CaptainCommissionLedger[]
+  profitSnapshots           OrderProfitSnapshot[]
+  profitFundingLedgers      OrderProfitFundingLedger[]
+  profitReconciliationTasks OrderProfitReconciliationTask[]
+  profitAdjustmentDrafts    OrderProfitAdjustmentDraft[]
 
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
@@ -1795,6 +1828,7 @@ model OrderItem {
   refundItems         RefundItem[]
   afterSaleRequests   AfterSaleRequest[]
   digitalAssetLedgers DigitalAssetLedger[]
+  profitRefundReversals OrderProfitRefundReversal[]
 
   @@index([orderId]) // 订单商品项查询
 }
@@ -2108,16 +2142,23 @@ model CaptainOrderAttribution {
   legacyIndirectRate    Float
   status                String                     @default("FROZEN")
   configSnapshot        Json
+  calculationModel      String                     @default("SALES_V2")
+  profitSnapshotId      String?
+  profitSnapshot        OrderProfitSnapshot?       @relation(fields: [profitSnapshotId], references: [id], onDelete: Restrict)
+  profitConfigVersion   String?
+  profitBaseAmount      Float?
   meta                  Json?
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
 
-  ledgers CaptainCommissionLedger[]
+  ledgers          CaptainCommissionLedger[]
+  settlementOrders CaptainMonthlySettlementOrder[]
 
   @@unique([orderId, programCode])
   @@index([buyerUserId, createdAt])
   @@index([directCaptainUserId, status, createdAt])
   @@index([legacyIndirectCaptainUserId, status, createdAt])
+  @@index([profitSnapshotId])
 }
 
 model CaptainAccount {
@@ -2228,11 +2269,157 @@ model CaptainMonthlySettlement {
   createdAt                DateTime                @default(now())
   updatedAt                DateTime                @updatedAt
 
-  ledgers CaptainCommissionLedger[]
+  ledgers          CaptainCommissionLedger[]
+  settlementOrders CaptainMonthlySettlementOrder[]
 
   @@unique([captainUserId, month, programCode])
   @@index([month, status])
   @@index([programCode, month])
+}
+
+model OrderProfitSnapshot {
+  id                            String                           @id @default(cuid())
+  orderId                       String
+  order                         Order                            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  revision                      Int                              @default(1)
+  isCurrent                     Boolean                          @default(true)
+  supersedesSnapshotId          String?
+  supersedesSnapshot            OrderProfitSnapshot?             @relation("ProfitSnapshotRevision", fields: [supersedesSnapshotId], references: [id], onDelete: Restrict)
+  supersededBy                  OrderProfitSnapshot[]            @relation("ProfitSnapshotRevision")
+  status                        OrderProfitSnapshotStatus
+  grossGoodsAmount              Float
+  shippingAmount                Float                            @default(0)
+  vipDiscountAmount             Float                            @default(0)
+  couponDiscountAmount          Float                            @default(0)
+  rewardDeductionAmount         Float                            @default(0)
+  groupBuyRebateDeductionAmount Float                            @default(0)
+  otherGoodsDiscountAmount      Float                            @default(0)
+  netGoodsRevenue               Float
+  productCostAmount             Float
+  distributableProfitAmount     Float
+  captainEligibleProfitAmount   Float
+  calculationVersion            String
+  itemBreakdown                 Json
+  ruleSnapshot                  Json
+  errorCode                     String?
+  errorMeta                     Json?
+  createdAt                     DateTime                         @default(now())
+  createdByAdminId              String?
+
+  fundingLedgers         OrderProfitFundingLedger[]
+  refundReversals        OrderProfitRefundReversal[]
+  reconciliationSource   OrderProfitReconciliationTask? @relation("ReconciliationSource")
+  reconciliationResolved OrderProfitReconciliationTask[] @relation("ReconciliationResolved")
+  adjustmentSources      OrderProfitAdjustmentDraft[]   @relation("ProfitAdjustmentSource")
+  adjustmentTargets      OrderProfitAdjustmentDraft[]   @relation("ProfitAdjustmentTarget")
+  captainAttributions    CaptainOrderAttribution[]
+
+  @@unique([orderId, revision])
+  @@index([orderId, isCurrent])
+}
+
+model OrderProfitFundingLedger {
+  id             String                 @id @default(cuid())
+  snapshotId     String
+  snapshot       OrderProfitSnapshot    @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  orderId        String
+  order          Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  type           OrderProfitFundingType
+  amount         Float
+  configVersion  String
+  sourceLedgerId String?
+  idempotencyKey String                 @unique
+  meta           Json?
+  createdAt      DateTime               @default(now())
+
+  @@index([orderId, type])
+  @@index([snapshotId, createdAt])
+}
+
+model OrderProfitRefundReversal {
+  id                       String              @id @default(cuid())
+  snapshotId               String
+  snapshot                 OrderProfitSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  refundId                 String
+  refund                   Refund              @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  orderItemId              String
+  orderItem                OrderItem           @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  sourceLedgerId           String
+  sourceLedgerType         String
+  refundedQuantity         Int?
+  refundedGoodsAmount      Float
+  cumulativeRefundRatio    Float
+  cumulativeTargetReversal Float
+  incrementalReversal      Float
+  createdAt                DateTime            @default(now())
+
+  @@unique([refundId, orderItemId, sourceLedgerId])
+  @@index([snapshotId, orderItemId])
+}
+
+model OrderProfitReconciliationTask {
+  id                  String                          @id @default(cuid())
+  orderId             String
+  order               Order                           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sourceSnapshotId    String                          @unique
+  sourceSnapshot      OrderProfitSnapshot             @relation("ReconciliationSource", fields: [sourceSnapshotId], references: [id], onDelete: Restrict)
+  status              OrderProfitReconciliationStatus @default(PENDING)
+  errorCode           String
+  itemCostCorrections Json?
+  resolutionNote      String?
+  resolvedSnapshotId  String?
+  resolvedSnapshot    OrderProfitSnapshot?            @relation("ReconciliationResolved", fields: [resolvedSnapshotId], references: [id], onDelete: Restrict)
+  resolvedByAdminId   String?
+  resolvedAt          DateTime?
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
+
+  @@index([status, createdAt])
+  @@index([orderId, status])
+}
+
+model CaptainMonthlySettlementOrder {
+  id                     String                   @id @default(cuid())
+  settlementId           String
+  settlement             CaptainMonthlySettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  orderAttributionId     String
+  orderAttribution       CaptainOrderAttribution  @relation(fields: [orderAttributionId], references: [id], onDelete: Restrict)
+  configVersion          String
+  profitBaseAmount       Float
+  baseManagementAmount   Float                    @default(0)
+  growthBonusAmount      Float                    @default(0)
+  cultivationBonusAmount Float                    @default(0)
+  performanceBonusAmount Float                    @default(0)
+  reservedAmount         Float
+  releasedAmount         Float                    @default(0)
+  reversedAmount         Float                    @default(0)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  @@unique([settlementId, orderAttributionId])
+  @@index([orderAttributionId])
+}
+
+model OrderProfitAdjustmentDraft {
+  id                  String                      @id @default(cuid())
+  orderId             String
+  order               Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sourceSnapshotId    String
+  sourceSnapshot      OrderProfitSnapshot         @relation("ProfitAdjustmentSource", fields: [sourceSnapshotId], references: [id], onDelete: Restrict)
+  targetSnapshotId    String
+  targetSnapshot      OrderProfitSnapshot         @relation("ProfitAdjustmentTarget", fields: [targetSnapshotId], references: [id], onDelete: Restrict)
+  status              OrderProfitAdjustmentStatus @default(PENDING)
+  adjustments         Json
+  idempotencyKey      String                      @unique
+  supersededByDraftId String?
+  reviewNote          String?
+  reviewedByAdminId   String?
+  reviewedAt          DateTime?
+  appliedAt           DateTime?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@index([orderId, status])
 }
 
 model Payment {
@@ -2311,6 +2498,7 @@ model Refund {
   afterSaleByAfterSaleId      AfterSaleRequest?     @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
   afterSaleRequestsByRefundId AfterSaleRequest[]    @relation("AfterSaleRefundByRefundId")
   digitalAssetLedgers         DigitalAssetLedger[]
+  profitRefundReversals       OrderProfitRefundReversal[]
 
   @@index([orderId])
 }
@@ -2727,6 +2915,8 @@ model RewardLedger {
   status       RewardLedgerStatus
   refType      String? // ORDER/REFUND/ADMIN
   refId        String?
+  idempotencyKey String?          @unique
+  sourceLedgerId String?
   meta         Json? // scheme/sourceUserId/bucketKey/vipIndex 等
   createdAt    DateTime           @default(now())
   deletedAt    DateTime? // 软删除标记

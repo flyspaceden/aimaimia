@@ -18,17 +18,67 @@ function createService(ruleConfigFindUniqueResult: unknown) {
 }
 
 describe('CaptainConfigService', () => {
+  const v2Config = {
+    ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+    schemaVersion: 2,
+  };
+  const v3Config = {
+    ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+    schemaVersion: 3,
+    effectiveFrom: '2026-07-31T16:00:00.000Z',
+    perOrderCommission: {
+      directProfitRate: 0.01,
+    },
+    monthlyRewards: {
+      baseTierGmv: 25000,
+      baseManagementProfitRate: 0.022,
+      growthTierGmv: 70000,
+      growthBonusProfitRate: 0.007,
+      excellentTierGmv: 140000,
+      cultivationBonusProfitRate: 0.006,
+      performanceBonusProfitRate: 0.01,
+    },
+    unitEconomics: {
+      fulfillmentCostRate: 0.12,
+    },
+    caps: {
+      maxTotalIncentiveProfitRate: 0.155,
+      targetNetProfitRate: 0.09,
+      coldChainRiskReserveRate: 0.02,
+    },
+  };
+
+  it('defines the disabled V3 profit configuration contract', () => {
+    expect(DEFAULT_CAPTAIN_SEAFOOD_CONFIG.schemaVersion).toBe(3);
+    expect(DEFAULT_CAPTAIN_SEAFOOD_CONFIG.enabled).toBe(false);
+    expect(DEFAULT_CAPTAIN_SEAFOOD_CONFIG.perOrderCommission).toEqual({
+      directProfitRate: 0,
+    });
+    expect(() => validateCaptainSeafoodConfig({ ...v2Config, enabled: true })).toThrow('V2');
+    expect(() => validateCaptainSeafoodConfig(v3Config)).not.toThrow();
+  });
+
+  it('requires the first V3 effectiveFrom to be a Shanghai natural-month boundary', () => {
+    expect(() => validateCaptainSeafoodConfig(v3Config)).not.toThrow();
+    expect(() =>
+      validateCaptainSeafoodConfig({
+        ...v3Config,
+        effectiveFrom: '2026-08-01T00:00:00.000Z',
+      }),
+    ).toThrow('Asia/Shanghai');
+  });
+
   it('returns disabled default config when RuleConfig is absent', async () => {
     const { prisma, service } = createService(null);
 
     await expect(service.getConfig()).resolves.toMatchObject({
       enabled: false,
-      schemaVersion: 2,
+      schemaVersion: 3,
       perOrderCommission: {
-        directRate: 0.11,
+        directProfitRate: 0,
       },
       caps: {
-        maxTotalIncentiveRate: 0.155,
+        maxTotalIncentiveProfitRate: 0,
       },
     });
     expect(prisma.ruleConfig.findUnique).toHaveBeenCalledWith({
@@ -126,7 +176,7 @@ describe('CaptainConfigService', () => {
         ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
         monthlyRewards: {
           ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyRewards,
-          growthBonusRate: 0.02,
+          growthBonusProfitRate: 0.02,
         },
       }),
     ).toThrow('总激励率');
