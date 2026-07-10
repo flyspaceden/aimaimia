@@ -7,6 +7,7 @@ function createMocks() {
     getSessionMessages: jest.fn(),
     handleUserMessage: jest.fn(),
     getBuyerSessionList: jest.fn(),
+    getBuyerSessionDetail: jest.fn(),
     markBuyerSessionRead: jest.fn(),
     getAdminSessionDetail: jest.fn(),
     submitRating: jest.fn(),
@@ -64,6 +65,16 @@ describe('CsController', () => {
 
     expect(csService.markBuyerSessionRead).toHaveBeenCalledWith('s1', 'user-1');
     expect(result).toEqual({ id: 's1', buyerLastReadAt: new Date('2026-07-06T12:00:00.000Z') });
+  });
+
+  it('getBuyerSessionDetail — 只查询当前买家拥有的会话状态', async () => {
+    const { controller, csService } = createMocks();
+    csService.getBuyerSessionDetail.mockResolvedValue({ id: 's1', status: 'CLOSED' });
+
+    const result = await controller.getBuyerSessionDetail('user-1', 's1');
+
+    expect(csService.getBuyerSessionDetail).toHaveBeenCalledWith('s1', 'user-1');
+    expect(result).toEqual({ id: 's1', status: 'CLOSED' });
   });
 
   it('sendMessage — 调用 handleUserMessage + 广播到 Socket.IO', async () => {
@@ -129,9 +140,14 @@ describe('CsController', () => {
   it('sendMessage — 转人工排队时广播 cs:new_ticket', async () => {
     const { controller, csService, csGateway } = createMocks();
     const userMsg = { id: 'msg-1', content: '转人工', senderType: 'USER' };
+    const transferReply = {
+      id: 'msg-2',
+      content: '正在为您转接人工客服，请稍候...',
+      senderType: 'AI',
+    };
     csService.handleUserMessage.mockResolvedValue({
       userMessage: userMsg,
-      aiReply: null,
+      aiReply: transferReply,
       transferred: false, // 未成功转接（排队中）
       routeResult: { shouldTransferToAgent: true },
     });
@@ -144,11 +160,11 @@ describe('CsController', () => {
       userId: 'user-1',
       category: 'OTHER',
     }));
-    // 系统提示消息
-    expect(csGateway.server.emit).toHaveBeenCalledWith('cs:message', expect.objectContaining({
-      senderType: 'SYSTEM',
-      content: '正在为您转接人工客服，请稍候...',
-    }));
+    const messageEmits = csGateway.server.emit.mock.calls.filter(([event]) => event === 'cs:message');
+    expect(messageEmits).toEqual([
+      ['cs:message', userMsg],
+      ['cs:message', transferReply],
+    ]);
     expect(result.transferred).toBe(false);
   });
 

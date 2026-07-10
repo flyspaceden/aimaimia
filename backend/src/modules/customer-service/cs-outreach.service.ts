@@ -108,7 +108,16 @@ export class CsOutreachService {
         if (activeSession) {
           if (activeSession.status === 'AGENT_HANDLING') {
             if (activeSession.agentId === adminId) {
-              return { sessionId: activeSession.id, reused: true };
+              const outreach = await this.createAgentMessageAndInvite(
+                tx,
+                user.id,
+                activeSession.id,
+                adminId,
+                maskedMessage,
+                dto.inviteTitle,
+                { source: 'ADMIN_OUTREACH', reused: true },
+              );
+              return { sessionId: activeSession.id, ...outreach, reused: true };
             }
             throw new BadRequestException('该买家已有其他客服正在处理中');
           }
@@ -224,6 +233,7 @@ export class CsOutreachService {
     return {
       inboxMessageId: notificationMessage.id,
       messageId: message.id,
+      message,
     };
   }
 

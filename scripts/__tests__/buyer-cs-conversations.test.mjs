@@ -70,3 +70,42 @@ test('buyer App chat page joins the session socket and keeps polling as fallback
   assert.match(csPage, /POLL_INTERVAL = 5000/);
   assert.match(notificationRoutes, /CS_SESSION:\s*'\/cs'/);
 });
+
+test('buyer App disables HTTP polling only after its concrete socket room is joined', () => {
+  assert.match(csPage, /sessionSocketReady/);
+  assert.match(csPage, /socket\.on\('cs:joined'/);
+  assert.match(csPage, /payload\.sessionId !== sessionId/);
+  assert.match(csPage, /setSessionSocketReady\(true\)/);
+  assert.match(csPage, /socket\.on\('disconnect'/);
+  assert.match(csPage, /socket\.on\('connect_error'/);
+  assert.match(csPage, /setSessionSocketReady\(false\)/);
+  assert.match(csPage, /if \(showConversationList \|\| USE_MOCK \|\| !sessionId \|\| sessionClosed \|\| sessionSocketReady\) return;/);
+});
+
+test('buyer App resolves deep-linked session status from the backend', () => {
+  assert.match(controller, /@Get\('sessions\/:id'\)/);
+  assert.match(controller, /getBuyerSessionDetail/);
+  assert.match(repo, /getSession:/);
+  assert.match(csPage, /CsRepo\.getSession\(routeSessionId\)/);
+  assert.match(csPage, /sessionResult\.data\.status === 'CLOSED'/);
+});
+
+test('buyer App does not mark a conversation closed when the close API fails', () => {
+  assert.match(csPage, /const result = await CsRepo\.closeSession\(sessionId\)/);
+  assert.match(csPage, /if \(!result\.ok\) \{/);
+  assert.match(csPage, /if \(!result\.data\.ok\) \{/);
+  assert.match(csPage, /setSessionClosed\(true\)/);
+  const failureCheck = csPage.indexOf('if (!result.ok) {', csPage.indexOf('const handleEndSession'));
+  const closedUpdate = csPage.indexOf('setSessionClosed(true)', csPage.indexOf('const handleEndSession'));
+  assert.ok(failureCheck >= 0 && closedUpdate > failureCheck);
+  assert.match(csPage, /closingSessionRef\.current/);
+});
+
+test('buyer App preserves socket messages across stale polls and wires failed-message retry', () => {
+  assert.match(csPage, /mergeCustomerServiceMessages/);
+  assert.match(csPage, /onRetry=\{\(\) => void handleResend\(message\)\}/);
+  const resendStart = csPage.indexOf('const handleResend');
+  const resendGuard = csPage.indexOf('if (sendingRef.current || !sessionId || sessionClosed) return;', resendStart);
+  const failedRemoval = csPage.indexOf('prev.filter((m) => m.id !== failedMsg.id)', resendStart);
+  assert.ok(resendGuard > resendStart && failedRemoval > resendGuard);
+});

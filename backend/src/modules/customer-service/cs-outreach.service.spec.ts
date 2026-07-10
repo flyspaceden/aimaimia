@@ -28,7 +28,15 @@ describe('CsOutreachService', () => {
         create: jest.fn().mockResolvedValue({ id: 'session-1' }),
       },
       csMessage: {
-        create: jest.fn().mockResolvedValue({ id: 'message-1' }),
+        create: jest.fn().mockResolvedValue({
+          id: 'message-1',
+          sessionId: 'session-1',
+          senderType: 'AGENT',
+          senderId: 'admin-1',
+          contentType: 'TEXT',
+          content: '您好',
+          createdAt: new Date('2026-07-10T12:00:00.000Z'),
+        }),
       },
       inboxMessage: {
         create: jest.fn().mockResolvedValue({ id: 'inbox-1' }),
@@ -201,7 +209,12 @@ describe('CsOutreachService', () => {
         idempotencyKey: 'cs-outreach:session-1:message-1',
       }),
     });
-    expect(result).toEqual({ sessionId: 'session-1', inboxMessageId: 'notification-1', messageId: 'message-1' });
+    expect(result).toEqual(expect.objectContaining({
+      sessionId: 'session-1',
+      inboxMessageId: 'notification-1',
+      messageId: 'message-1',
+      message: expect.objectContaining({ id: 'message-1', senderType: 'AGENT' }),
+    }));
   });
 
   it('reuses an active outreach session already handled by the current admin', async () => {
@@ -219,10 +232,21 @@ describe('CsOutreachService', () => {
 
     expect(tx.csAgentStatus.updateMany).not.toHaveBeenCalled();
     expect(tx.csSession.create).not.toHaveBeenCalled();
-    expect(tx.csMessage.create).not.toHaveBeenCalled();
+    expect(tx.csMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sessionId: 'session-existing',
+        senderType: 'AGENT',
+        senderId: 'admin-1',
+        content: '您好，继续沟通',
+      }),
+    });
     expect(tx.inboxMessage.create).not.toHaveBeenCalled();
-    expect(tx.notificationMessage.create).not.toHaveBeenCalled();
-    expect(result).toEqual({ sessionId: 'session-existing', reused: true });
+    expect(tx.notificationMessage.create).toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      sessionId: 'session-existing',
+      reused: true,
+      message: expect.objectContaining({ id: 'message-1' }),
+    }));
   });
 
   it('rejects outreach when the buyer is already handled by another admin', async () => {
@@ -288,6 +312,7 @@ describe('CsOutreachService', () => {
       sessionId: 'session-queued',
       inboxMessageId: 'notification-1',
       messageId: 'message-1',
+      message: expect.objectContaining({ id: 'message-1' }),
       claimed: true,
     });
   });

@@ -3,6 +3,7 @@ import { CsAgentService } from './cs-agent.service';
 function createMocks() {
   const prisma = {
     $queryRaw: jest.fn(),
+    $transaction: jest.fn(),
     csAgentStatus: {
       update: jest.fn(),
       updateMany: jest.fn(),
@@ -15,6 +16,7 @@ function createMocks() {
       findMany: jest.fn(),
     },
   };
+  prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
   const service = new CsAgentService(prisma as any);
   return { service, prisma };
 }
@@ -96,6 +98,8 @@ describe('CsAgentService', () => {
       prisma.csAgentStatus.updateMany.mockResolvedValue({ count: 1 });
 
       await service.handleDisconnect('admin-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
 
       // 1. 将该坐席正在处理的会话退回排队
       expect(prisma.csSession.updateMany).toHaveBeenCalledWith({

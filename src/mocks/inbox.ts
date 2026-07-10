@@ -58,6 +58,8 @@ export const mockInboxMessages: InboxMessage[] = [
     content: '本周五晚 8 点开启产地好物专场，点击查看活动入口。',
     createdAt: '2026-07-06 09:00',
     unread: true,
+    severity: 'WARNING',
+    metadata: { priority: 'IMPORTANT' },
     target: { route: '/(tabs)/home' },
   },
   {

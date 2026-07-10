@@ -29,6 +29,9 @@ function createMocks() {
       { id: 'user-1', buyerNo: 'AIMM20260706000001', nickname: '张三', phone: '138****1234' },
     ]),
   };
+  const gateway = {
+    emitMessageToSession: jest.fn(),
+  };
   const prisma = {
     csQuickEntry: {
       findMany: jest.fn().mockResolvedValue([
@@ -56,9 +59,10 @@ function createMocks() {
     ticketService as any,
     agentService as any,
     outreachService as any,
+    gateway as any,
     prisma as any,
   );
-  return { controller, csService, faqService, ticketService, agentService, outreachService, prisma };
+  return { controller, csService, faqService, ticketService, agentService, outreachService, gateway, prisma };
 }
 
 describe('CsAdminController', () => {
@@ -72,6 +76,29 @@ describe('CsAdminController', () => {
       expect(result).toEqual([
         { id: 'user-1', buyerNo: 'AIMM20260706000001', nickname: '张三', phone: '138****1234' },
       ]);
+    });
+
+    it('createOutreach — 事务成功后把已落库首条消息实时广播给买家', async () => {
+      const { controller, outreachService, gateway } = createMocks();
+      const persistedMessage = {
+        id: 'message-1',
+        sessionId: 'session-1',
+        senderType: 'AGENT',
+        content: '您好',
+      };
+      outreachService.create.mockResolvedValue({
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        message: persistedMessage,
+      });
+
+      const result = await controller.createOutreach({
+        buyerNo: 'AIMM20260706000001',
+        initialMessage: '您好',
+      }, 'admin-1');
+
+      expect(gateway.emitMessageToSession).toHaveBeenCalledWith('session-1', persistedMessage);
+      expect(result).toEqual(expect.objectContaining({ sessionId: 'session-1' }));
     });
   });
 

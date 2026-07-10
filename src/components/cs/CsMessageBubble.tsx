@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
@@ -9,6 +9,7 @@ interface CsMessageBubbleProps {
   message: CsMessage;
   /** 是否显示时间戳（通常每组消息首条显示） */
   showTimestamp?: boolean;
+  onRetry?: () => void;
 }
 
 /**
@@ -19,7 +20,7 @@ interface CsMessageBubbleProps {
  * - SYSTEM: 居中灰色标签
  * - 时间戳显示（U11）：showTimestamp=true 时在气泡上方居中显示
  */
-export function CsMessageBubble({ message, showTimestamp }: CsMessageBubbleProps) {
+export function CsMessageBubble({ message, showTimestamp, onRetry }: CsMessageBubbleProps) {
   const { colors, radius, typography, shadow, spacing } = useTheme();
 
   const status = (message as any)._status as 'sending' | 'sent' | 'failed' | undefined;
@@ -76,7 +77,14 @@ export function CsMessageBubble({ message, showTimestamp }: CsMessageBubbleProps
               <MaterialCommunityIcons name="clock-outline" size={14} color={colors.text.tertiary} />
             )}
             {status === 'failed' && (
-              <MaterialCommunityIcons name="alert-circle" size={14} color="#EF4444" />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="重新发送消息"
+                hitSlop={8}
+                onPress={onRetry}
+              >
+                <MaterialCommunityIcons name="refresh-circle" size={18} color="#EF4444" />
+              </Pressable>
             )}
             {(status === 'sent' || !status) && (
               <MaterialCommunityIcons name="check" size={14} color={colors.text.tertiary} />

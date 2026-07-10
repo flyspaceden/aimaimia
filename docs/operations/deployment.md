@@ -189,8 +189,11 @@ JWT_SECRET=<买家端随机密钥>
 ADMIN_JWT_SECRET=<管理端随机密钥>
 SELLER_JWT_SECRET=<卖家端随机密钥>
 
-# CORS（允许的前端域名）
+# CORS（允许的前端域名；Socket.IO 未单独配置 ALLOWED_ORIGINS 时复用此值）
 CORS_ORIGINS=https://ai-maimai.com,https://www.ai-maimai.com,https://app.ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com
+
+# 可选：仅在 Socket.IO 需要不同白名单时设置；设置后必须包含实际 App/管理后台域名
+# ALLOWED_ORIGINS=https://app.ai-maimai.com,https://admin.ai-maimai.com
 
 # H5 微信登录（扫码后 /invite/:code 网页授权）
 WECHAT_H5_APP_ID=<WECHAT_SERVICE_ACCOUNT_APP_ID>

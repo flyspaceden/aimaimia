@@ -67,6 +67,15 @@ export interface CsSessionListResult {
   pageSize: number;
 }
 
+export interface CsSessionDetail {
+  id: string;
+  status: CsSessionStatus;
+  source: CsSessionSource;
+  sourceId?: string | null;
+  agentId?: string | null;
+  closedAt?: string | null;
+}
+
 /** 发送消息后端返回结构 */
 export interface CsSendMessageResult {
   userMessage: CsMessage;

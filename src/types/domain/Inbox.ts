@@ -83,6 +83,8 @@ export type InboxMessage = {
   content: string;
   createdAt: string;
   unread: boolean;
+  severity?: 'INFO' | 'SUCCESS' | 'WARNING' | 'CRITICAL';
+  metadata?: Record<string, unknown>;
   target?: InboxTarget;
   action?: InboxAction;
 };

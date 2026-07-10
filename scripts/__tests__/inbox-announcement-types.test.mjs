@@ -21,6 +21,14 @@ test('buyer inbox renders announcement and outreach invite icons', () => {
   assert.match(inboxPage, /face-agent|message-account-outline/);
 });
 
+test('buyer inbox preserves and visibly marks important announcements', () => {
+  assert.match(inboxTypes, /severity\?:/);
+  assert.match(inboxTypes, /metadata\?:/);
+  assert.match(inboxPage, /message\.severity === 'WARNING'/);
+  assert.match(inboxPage, /message\.metadata\?\.priority === 'IMPORTANT'/);
+  assert.match(inboxPage, />重要<\/Text>/);
+});
+
 test('buyer inbox mock data includes platform announcement and customer-service invite examples', () => {
   assert.match(inboxMock, /platform_announcement/);
   assert.match(inboxMock, /cs_outreach_invite/);

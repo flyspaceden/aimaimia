@@ -16,6 +16,7 @@
  */
 import {
   CsMessage,
+  CsSessionDetail,
   CsQuickEntry,
   CsSendMessageResult,
   CsSessionInfo,
@@ -145,6 +146,18 @@ export const CsRepo = {
     });
   },
 
+  /** 获取买家自有客服会话的权威状态。 */
+  getSession: async (sessionId: string): Promise<Result<CsSessionDetail>> => {
+    if (USE_MOCK) {
+      return simulateRequest({
+        id: sessionId,
+        status: 'AGENT_HANDLING',
+        source: 'MY_PAGE',
+      }, { delay: 100 });
+    }
+    return ApiClient.get<CsSessionDetail>(`/cs/sessions/${sessionId}`);
+  },
+
   /**
    * 获取会话消息列表
    * - 用途：加载客服会话的历史消息
@@ -197,9 +210,9 @@ export const CsRepo = {
   },
 
   /** 关闭客服会话（通知后端释放坐席） */
-  closeSession: async (sessionId: string): Promise<Result<any>> => {
+  closeSession: async (sessionId: string): Promise<Result<{ ok: boolean }>> => {
     if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 200 });
-    return ApiClient.post<any>(`/cs/sessions/${sessionId}/close`);
+    return ApiClient.post<{ ok: boolean }>(`/cs/sessions/${sessionId}/close`);
   },
 
   /**

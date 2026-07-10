@@ -119,7 +119,9 @@ export class AdminAnnouncementsService {
             eventType: dto.type ?? 'platform_announcement',
             title: dto.title,
             body: dto.content,
-            severity: NotificationSeverity.INFO,
+            severity: dto.priority === 'IMPORTANT'
+              ? NotificationSeverity.WARNING
+              : NotificationSeverity.INFO,
             entityType: 'announcement',
             entityId: announcement.id,
             action: target,

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CsAgentOnlineStatus } from '@prisma/client';
+import { CsAgentOnlineStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -12,20 +12,39 @@ export class CsAgentService {
    * 原子分配坐席：UPDATE ... WHERE + RETURNING 确保不会超额分配
    * 返回 adminId，无可用坐席返回 null
    */
-  async assignAgent(): Promise<string | null> {
+  async assignAgent(
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<string | null> {
     // 原子操作：在单条 UPDATE 中同时选择和递增，避免 SELECT+UPDATE 竞态
-    const result = await this.prisma.$queryRaw<{ adminId: string }[]>`
-      UPDATE "CsAgentStatus"
+    const result = await db.$queryRaw<{ adminId: string }[]>`
+      UPDATE "CsAgentStatus" AS agent
       SET "currentSessions" = "currentSessions" + 1,
           "lastActiveAt" = NOW()
-      WHERE "adminId" = (
-        SELECT "adminId" FROM "CsAgentStatus"
-        WHERE status = 'ONLINE' AND "currentSessions" < "maxSessions"
-        ORDER BY "currentSessions" ASC
+      WHERE agent."adminId" = (
+        SELECT candidate."adminId"
+        FROM "CsAgentStatus" AS candidate
+        WHERE candidate.status = 'ONLINE'
+          AND candidate."currentSessions" < candidate."maxSessions"
+          AND EXISTS (
+            SELECT 1
+            FROM "AdminUser" AS admin
+            JOIN "AdminUserRole" AS user_role
+              ON user_role."adminUserId" = admin.id
+            JOIN "AdminRole" AS role
+              ON role.id = user_role."roleId"
+            LEFT JOIN "AdminRolePermission" AS role_permission
+              ON role_permission."roleId" = role.id
+            LEFT JOIN "AdminPermission" AS permission
+              ON permission.id = role_permission."permissionId"
+            WHERE admin.id = candidate."adminId"
+              AND admin.status = 'ACTIVE'
+              AND (role.name = '超级管理员' OR permission.code = 'cs:manage')
+          )
+        ORDER BY candidate."currentSessions" ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING "adminId"
+      RETURNING agent."adminId"
     `;
 
     if (result.length === 0) return null;
@@ -33,8 +52,8 @@ export class CsAgentService {
   }
 
   /** 坐席结束会话时递减 currentSessions */
-  async releaseAgent(adminId: string) {
-    await this.prisma.csAgentStatus.updateMany({
+  async releaseAgent(adminId: string, db: PrismaService | Prisma.TransactionClient = this.prisma) {
+    await db.csAgentStatus.updateMany({
       where: { adminId, currentSessions: { gt: 0 } },
       data: { currentSessions: { decrement: 1 }, lastActiveAt: new Date() },
     });
@@ -51,16 +70,16 @@ export class CsAgentService {
 
   /** 坐席断线：标记离线 + 将其 AGENT_HANDLING 会话退回 QUEUING */
   async handleDisconnect(adminId: string) {
-    // 1. 将该坐席正在处理的会话退回排队
-    await this.prisma.csSession.updateMany({
-      where: { agentId: adminId, status: 'AGENT_HANDLING' },
-      data: { status: 'QUEUING', agentId: null, agentJoinedAt: null },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.csSession.updateMany({
+        where: { agentId: adminId, status: 'AGENT_HANDLING' },
+        data: { status: 'QUEUING', agentId: null, agentJoinedAt: null },
+      });
 
-    // 2. 标记离线，重置会话计数
-    await this.prisma.csAgentStatus.updateMany({
-      where: { adminId },
-      data: { status: 'OFFLINE', currentSessions: 0, lastActiveAt: new Date() },
+      await tx.csAgentStatus.updateMany({
+        where: { adminId },
+        data: { status: 'OFFLINE', currentSessions: 0, lastActiveAt: new Date() },
+      });
     });
   }
 

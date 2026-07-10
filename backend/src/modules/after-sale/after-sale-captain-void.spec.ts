@@ -98,7 +98,7 @@ describe('AfterSaleRefundService captain void hook', () => {
         checkAndMarkOrderRefunded: jest.fn().mockResolvedValue(undefined),
       } as any,
       new AfterSaleStatusHistoryService(),
-      { send: jest.fn().mockResolvedValue(undefined) } as any,
+      { emit: jest.fn().mockResolvedValue(undefined) } as any,
     );
     const captainCommission = {
       voidForRefund: jest.fn().mockResolvedValue('voided'),

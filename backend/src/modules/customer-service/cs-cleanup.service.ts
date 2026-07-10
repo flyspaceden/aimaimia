@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CsAgentService } from './cs-agent.service';
 
@@ -58,23 +59,45 @@ export class CsCleanupService {
     // 批量关闭会话 + 释放坐席
     for (const session of allStale) {
       try {
-        await this.prisma.csSession.update({
-          where: { id: session.id },
-          data: { status: 'CLOSED', closedAt: new Date() },
-        });
-
-        // 释放坐席名额
-        if (session.agentId) {
-          await this.agentService.releaseAgent(session.agentId);
-        }
-
-        // 标记工单为已解决
-        if (session.ticketId) {
-          await this.prisma.csTicket.update({
-            where: { id: session.ticketId },
-            data: { status: 'RESOLVED', resolvedAt: new Date() },
+        await this.prisma.$transaction(async (tx) => {
+          const current = await tx.csSession.findUnique({
+            where: { id: session.id },
+            select: {
+              status: true,
+              agentId: true,
+              ticketId: true,
+              createdAt: true,
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: { createdAt: true },
+              },
+            },
           });
-        }
+          if (!current || current.status !== session.status) return;
+
+          const latestActivity = current.messages[0]?.createdAt ?? current.createdAt;
+          if (latestActivity.getTime() >= session.staleBefore.getTime()) return;
+
+          const closed = await tx.csSession.updateMany({
+            where: { id: session.id, status: session.status, agentId: current.agentId },
+            data: { status: 'CLOSED', closedAt: new Date() },
+          });
+
+          // 另一条关闭路径已经先完成时，不重复释放席位或更新工单。
+          if (closed.count === 0) return;
+
+          if (current.agentId) {
+            await this.agentService.releaseAgent(current.agentId, tx);
+          }
+
+          if (current.ticketId) {
+            await tx.csTicket.update({
+              where: { id: current.ticketId },
+              data: { status: 'RESOLVED', resolvedAt: new Date() },
+            });
+          }
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (e: any) {
         this.logger.warn(`清理会话 ${session.id} 失败: ${e.message}`);
       }
@@ -93,6 +116,7 @@ export class CsCleanupService {
       where: { status },
       select: {
         id: true,
+        status: true,
         agentId: true,
         ticketId: true,
         createdAt: true,
@@ -104,9 +128,11 @@ export class CsCleanupService {
       },
     });
 
-    return sessions.filter((s) => {
-      const lastActivity = s.messages[0]?.createdAt ?? s.createdAt;
-      return new Date(lastActivity).getTime() < cutoff.getTime();
-    });
+    return sessions
+      .filter((s) => {
+        const lastActivity = s.messages[0]?.createdAt ?? s.createdAt;
+        return new Date(lastActivity).getTime() < cutoff.getTime();
+      })
+      .map((session) => ({ ...session, staleBefore: cutoff }));
   }
 }

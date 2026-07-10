@@ -26,7 +26,12 @@ export class CsRoutingService {
     // 检查是否主动要求转人工
     const normalized = message.toLowerCase();
     if (TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw))) {
-      return { layer: 3, shouldTransferToAgent: true };
+      return {
+        layer: 3,
+        reply: '正在为您转接人工客服，请稍候...',
+        contentType: 'TEXT',
+        shouldTransferToAgent: true,
+      };
     }
 
     // 检查情绪激动/投诉升级

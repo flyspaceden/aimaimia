@@ -48,6 +48,11 @@ export class CsController {
     return this.csService.getActiveSession(userId, source, sourceId);
   }
 
+  @Get('sessions/:id')
+  getBuyerSessionDetail(@CurrentUser('sub') userId: string, @Param('id') sessionId: string) {
+    return this.csService.getBuyerSessionDetail(sessionId, userId);
+  }
+
   @Get('sessions/:id/messages')
   getMessages(@CurrentUser('sub') userId: string, @Param('id') sessionId: string) {
     return this.csService.getSessionMessages(sessionId, userId);
@@ -87,12 +92,6 @@ export class CsController {
           category: 'OTHER',
           waitingSince: new Date().toISOString(),
         });
-        server.to(`session:${sessionId}`).emit('cs:message', {
-          senderType: 'SYSTEM',
-          content: '正在为您转接人工客服，请稍候...',
-          contentType: 'TEXT',
-          createdAt: new Date().toISOString(),
-        });
       }
     }
 
@@ -106,7 +105,7 @@ export class CsController {
     @Param('id') sessionId: string,
   ) {
     // 先验证归属
-    const session = await this.csService.getSessionMessages(sessionId, userId);
+    await this.csService.getBuyerSessionDetail(sessionId, userId);
     await this.csService.closeSession(sessionId);
 
     // 通知坐席

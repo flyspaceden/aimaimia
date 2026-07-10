@@ -136,7 +136,7 @@ describe('AdminAnnouncementsService', () => {
           eventType: 'platform_announcement',
           title: '平台公告',
           body: '本周五 20:00 有平台活动',
-          severity: 'INFO',
+          severity: 'WARNING',
           entityType: 'announcement',
           entityId: 'announcement-1',
           action: { route: '/product/sku-1', params: { skuId: 'sku-1' } },

@@ -11,7 +11,7 @@ function createMocks() {
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn(),
       findMany: jest.fn(),
     },
@@ -19,6 +19,7 @@ function createMocks() {
       upsert: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     csMessage: {
       create: jest.fn(),
@@ -56,6 +57,7 @@ function createMocks() {
   };
   const ticket = {
     createTicket: jest.fn().mockResolvedValue('ticket-1'),
+    createTransferTicket: jest.fn().mockResolvedValue('ticket-1'),
   };
   // Sec1: MessagingMaskingService - no-op identity in tests by default
   const masking = {
@@ -141,6 +143,30 @@ describe('CsService', () => {
       // create 中 sourceId 应为 null
       expect(prisma.csSession.create).toHaveBeenCalledWith({
         data: { userId: 'user-1', source: 'PERSONAL_CENTER', sourceId: null },
+      });
+    });
+
+    it('人工会话空闲超时后创建新会话时同步释放席位并解决旧工单', async () => {
+      const { service, prisma } = createMocks();
+      prisma.csSession.findFirst.mockResolvedValue({
+        id: 'stale-session',
+        status: 'AGENT_HANDLING',
+        agentId: 'admin-1',
+        ticketId: 'ticket-1',
+        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        messages: [],
+      });
+      prisma.csSession.create.mockResolvedValue({ id: 'new-session' });
+
+      await service.createSession('user-1', 'MY_PAGE');
+
+      expect(prisma.csAgentStatus.updateMany).toHaveBeenCalledWith({
+        where: { adminId: 'admin-1', currentSessions: { gt: 0 } },
+        data: { currentSessions: { decrement: 1 }, lastActiveAt: expect.any(Date) },
+      });
+      expect(prisma.csTicket.update).toHaveBeenCalledWith({
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({ status: 'RESOLVED', resolvedBy: 'admin-1' }),
       });
     });
   });
@@ -253,7 +279,7 @@ describe('CsService', () => {
       expect(prisma.csMessage.count).toHaveBeenCalledWith({
         where: {
           sessionId: 's1',
-          senderType: { in: ['AGENT', 'SYSTEM'] },
+          senderType: { in: ['AI', 'AGENT', 'SYSTEM'] },
           createdAt: { gt: buyerLastReadAt },
         },
       });
@@ -412,18 +438,14 @@ describe('CsService', () => {
         shouldTransferToAgent: true,
       });
 
-      // 模拟 transferToAgent 中的 CAS + 分配坐席
-      prisma.csSession.updateMany.mockResolvedValue({ count: 1 }); // CAS 成功
+      // 模拟 transferToAgent 中的工单转排队 + 分配坐席
+      prisma.csSession.updateMany.mockResolvedValue({ count: 1 });
       agent.assignAgent.mockResolvedValue('admin-1');
       prisma.csSession.update.mockResolvedValue({});
 
       const result = await service.handleUserMessage('session-1', 'user-1', '转人工');
 
-      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 'session-1', status: 'AI_HANDLING' },
-        data: { status: 'QUEUING' },
-      });
-      expect(ticket.createTicket).toHaveBeenCalledWith('session-1');
+      expect(ticket.createTransferTicket).toHaveBeenCalledWith('session-1');
       expect(agent.assignAgent).toHaveBeenCalled();
       expect(result.transferred).toBe(true);
     });
@@ -451,21 +473,19 @@ describe('CsService', () => {
   describe('transferToAgent()', () => {
     it('有可用坐席 → CAS 成功 → 状态变为 AGENT_HANDLING，返回 true', async () => {
       const { service, prisma, agent, ticket } = createMocks();
+      prisma.$transaction.mockClear();
+      prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
       prisma.csSession.updateMany.mockResolvedValue({ count: 1 }); // CAS 成功
       agent.assignAgent.mockResolvedValue('admin-1');
       prisma.csSession.update.mockResolvedValue({});
 
       const result = await service.transferToAgent('session-1');
 
-      // CAS: updateMany where status=AI_HANDLING → QUEUING
-      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 'session-1', status: 'AI_HANDLING' },
-        data: { status: 'QUEUING' },
-      });
-      expect(ticket.createTicket).toHaveBeenCalledWith('session-1');
+      expect(ticket.createTransferTicket).toHaveBeenCalledWith('session-1');
       expect(agent.assignAgent).toHaveBeenCalled();
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 'session-1' },
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.csSession.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'session-1', status: 'QUEUING', agentId: null },
         data: expect.objectContaining({
           status: 'AGENT_HANDLING',
           agentId: 'admin-1',
@@ -482,14 +502,36 @@ describe('CsService', () => {
 
       const result = await service.transferToAgent('session-1');
 
-      // CAS: updateMany where status=AI_HANDLING → QUEUING
-      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 'session-1', status: 'AI_HANDLING' },
-        data: { status: 'QUEUING' },
+      expect(ticket.createTransferTicket).toHaveBeenCalledWith('session-1');
+      expect(prisma.csSession.updateMany).not.toHaveBeenCalled();
+      expect(result).toBe(false);
+    });
+
+    it('会话在工单事务前已变更 → 不占用坐席', async () => {
+      const { service, agent, ticket } = createMocks();
+      ticket.createTransferTicket.mockResolvedValue(null);
+
+      await expect(service.transferToAgent('session-1')).resolves.toBe(false);
+
+      expect(agent.assignAgent).not.toHaveBeenCalled();
+    });
+
+    it('分配坐席期间会话已关闭 → 最终 CAS 失败并回退坐席名额', async () => {
+      const { service, prisma, agent } = createMocks();
+      prisma.csSession.updateMany.mockResolvedValue({ count: 0 });
+      agent.assignAgent.mockResolvedValue('admin-1');
+
+      const result = await service.transferToAgent('session-1');
+
+      expect(prisma.csSession.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'session-1', status: 'QUEUING', agentId: null },
+        data: expect.objectContaining({
+          status: 'AGENT_HANDLING',
+          agentId: 'admin-1',
+          agentJoinedAt: expect.any(Date),
+        }),
       });
-      expect(ticket.createTicket).toHaveBeenCalledWith('session-1');
-      // 无坐席时不再调用 csSession.update（已在 CAS 步骤设为 QUEUING）
-      expect(prisma.csSession.update).not.toHaveBeenCalled();
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
       expect(result).toBe(false);
     });
   });
@@ -501,6 +543,8 @@ describe('CsService', () => {
   describe('agentAcceptSession()', () => {
     it('容量检查（$queryRaw）+ CAS 更新防竞态', async () => {
       const { service, prisma } = createMocks();
+      prisma.$transaction.mockClear();
+      prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
       // 1. 容量检查成功（原子 UPDATE WHERE currentSessions < maxSessions）
       prisma.$queryRaw.mockResolvedValue([{ adminId: 'admin-1' }]);
       // 2. CAS 更新会话状态成功
@@ -508,6 +552,7 @@ describe('CsService', () => {
 
       await service.agentAcceptSession('s1', 'admin-1');
 
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       // 验证容量检查使用了 $queryRaw
       expect(prisma.$queryRaw).toHaveBeenCalled();
       // 验证 CAS：updateMany 带 status=QUEUING 条件
@@ -517,7 +562,7 @@ describe('CsService', () => {
       });
     });
 
-    it('已被其他坐席接入时拒绝（CAS 失败 → 回退坐席计数）', async () => {
+    it('已被其他坐席接入时拒绝（CAS 失败 → 事务回滚席位计数）', async () => {
       const { service, prisma, agent } = createMocks();
       // 容量检查成功
       prisma.$queryRaw.mockResolvedValue([{ adminId: 'admin-1' }]);
@@ -527,8 +572,8 @@ describe('CsService', () => {
       await expect(service.agentAcceptSession('s1', 'admin-1'))
         .rejects.toThrow('会话不在排队状态或已被其他坐席接入');
 
-      // 验证回退了坐席计数
-      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+      // 席位预占和 CAS 位于同一事务，抛错后由数据库回滚，不做第二次递减。
+      expect(agent.releaseAgent).not.toHaveBeenCalled();
     });
   });
 
@@ -537,6 +582,23 @@ describe('CsService', () => {
   // ====================================================================
 
   describe('handleAgentMessage()', () => {
+    it('消息状态校验和落库在锁定会话行的同一事务中完成', async () => {
+      const { service, prisma } = createMocks();
+      prisma.$transaction.mockClear();
+      prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+      prisma.$queryRaw.mockResolvedValue([{ id: 's1' }]);
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', userId: 'user-1', status: 'AGENT_HANDLING', agentId: 'admin-1',
+      });
+      prisma.csMessage.create.mockResolvedValue({ id: 'msg-1', sessionId: 's1' });
+
+      await service.handleAgentMessage('s1', 'admin-1', '您好');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+      expect(prisma.csMessage.create).toHaveBeenCalled();
+    });
+
     it('坐席回复且买家不在会话时发送离线通知', async () => {
       const { service, prisma, notificationService, presenceService } = createMocks();
       presenceService.isUserInSession.mockReturnValue(false);
@@ -591,6 +653,22 @@ describe('CsService', () => {
       await service.handleAgentMessage('s1', 'admin-1', '您好');
 
       expect(notificationService.emit).not.toHaveBeenCalled();
+    });
+
+    it('消息已落库后离线通知失败仍返回成功，避免管理员误重发', async () => {
+      const { service, prisma, notificationService, presenceService } = createMocks();
+      presenceService.isUserInSession.mockReturnValue(false);
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', userId: 'user-1', status: 'AGENT_HANDLING', agentId: 'admin-1',
+      });
+      const persistedMessage = {
+        id: 'msg-1', sessionId: 's1', senderType: 'AGENT', content: '您好',
+      };
+      prisma.csMessage.create.mockResolvedValue(persistedMessage);
+      notificationService.emit.mockRejectedValue(new Error('notification unavailable'));
+
+      await expect(service.handleAgentMessage('s1', 'admin-1', '您好'))
+        .resolves.toEqual(persistedMessage);
     });
   });
 
@@ -670,10 +748,14 @@ describe('CsService', () => {
       await service.closeSession('session-1');
 
       // 释放坐席
-      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
       // 更新会话状态为 CLOSED
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 'session-1' },
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'session-1',
+          status: 'AGENT_HANDLING',
+          agentId: 'admin-1',
+        },
         data: expect.objectContaining({ status: 'CLOSED', closedAt: expect.any(Date) }),
       });
       // 更新工单状态为 RESOLVED
@@ -685,6 +767,58 @@ describe('CsService', () => {
           resolvedAt: expect.any(Date),
         }),
       });
+    });
+
+    it('重复关闭已关闭会话时不再释放坐席或重复更新工单', async () => {
+      const { service, prisma, agent } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 'session-1',
+        agentId: 'admin-1',
+        ticketId: 'ticket-1',
+        status: 'CLOSED',
+      });
+
+      const result = await service.closeSession('session-1');
+
+      expect(result).toEqual({ alreadyClosed: true });
+      expect(prisma.csSession.updateMany).not.toHaveBeenCalled();
+      expect(agent.releaseAgent).not.toHaveBeenCalled();
+      expect(prisma.csTicket.update).not.toHaveBeenCalled();
+    });
+
+    it('指定坐席强制关闭时拒绝关闭其他坐席的会话', async () => {
+      const { service, prisma, agent } = createMocks();
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 'session-1',
+        agentId: 'admin-2',
+        ticketId: 'ticket-1',
+        status: 'AGENT_HANDLING',
+      });
+
+      await expect(service.closeSession('session-1', 'admin-1'))
+        .rejects.toThrow('无权关闭此会话');
+
+      expect(prisma.csSession.updateMany).not.toHaveBeenCalled();
+      expect(agent.releaseAgent).not.toHaveBeenCalled();
+      expect(prisma.csTicket.update).not.toHaveBeenCalled();
+    });
+
+    it('关闭状态、释放坐席和解决工单在同一数据库事务中完成', async () => {
+      const { service, prisma, agent } = createMocks();
+      prisma.$transaction.mockClear();
+      prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 'session-1',
+        agentId: 'admin-1',
+        ticketId: 'ticket-1',
+        status: 'AGENT_HANDLING',
+      });
+
+      await service.closeSession('session-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
+      expect(prisma.csTicket.update).toHaveBeenCalled();
     });
   });
 
@@ -773,11 +907,12 @@ describe('CsService', () => {
 
       expect(agent.releaseAgent).not.toHaveBeenCalled();
       expect(prisma.csTicket.update).not.toHaveBeenCalled();
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 's1' },
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'AI_HANDLING', agentId: null },
         data: expect.objectContaining({ status: 'CLOSED', closedAt: expect.any(Date) }),
       });
       expect(ticket.createTicket).not.toHaveBeenCalled();
+      expect(ticket.createTransferTicket).not.toHaveBeenCalled();
     });
 
     it('转人工完整流程: createSession → handleUserMessage(转人工) → agentAcceptSession → handleAgentMessage → closeSession', async () => {
@@ -806,12 +941,7 @@ describe('CsService', () => {
 
       const msgResult = await service.handleUserMessage('s1', 'u1', '转人工');
       expect(msgResult.transferred).toBe(false); // 无坐席 → transferToAgent returns false
-      expect(ticket.createTicket).toHaveBeenCalledWith('s1');
-      // CAS: updateMany where status=AI_HANDLING → QUEUING（不再调用 csSession.update）
-      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 's1', status: 'AI_HANDLING' },
-        data: { status: 'QUEUING' },
-      });
+      expect(ticket.createTransferTicket).toHaveBeenCalledWith('s1');
 
       // Step 3: agentAcceptSession — QUEUING → AGENT_HANDLING
       prisma.$queryRaw.mockResolvedValue([{ adminId: 'admin-1' }]); // 容量检查成功
@@ -840,9 +970,9 @@ describe('CsService', () => {
       prisma.csTicket.update.mockResolvedValue({});
 
       await service.closeSession('s1');
-      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 's1' },
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'AGENT_HANDLING', agentId: 'admin-1' },
         data: expect.objectContaining({ status: 'CLOSED' }),
       });
       expect(prisma.csTicket.update).toHaveBeenCalledWith({
@@ -884,6 +1014,7 @@ describe('CsService', () => {
       expect(agent.releaseAgent).not.toHaveBeenCalled();
       expect(prisma.csTicket.update).not.toHaveBeenCalled();
       expect(ticket.createTicket).not.toHaveBeenCalled();
+      expect(ticket.createTransferTicket).not.toHaveBeenCalled();
     });
 
     it('排队中用户放弃: createSession → handleUserMessage(转人工, 无坐席→QUEUING) → closeSession', async () => {
@@ -909,11 +1040,7 @@ describe('CsService', () => {
       agent.assignAgent.mockResolvedValue(null);
 
       await service.handleUserMessage('s1', 'u1', '转人工');
-      // CAS: updateMany where status=AI_HANDLING → QUEUING
-      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 's1', status: 'AI_HANDLING' },
-        data: { status: 'QUEUING' },
-      });
+      expect(ticket.createTransferTicket).toHaveBeenCalledWith('s1');
 
       // Step 3: closeSession — QUEUING → CLOSED，有工单但无坐席
       prisma.csSession.findUnique.mockResolvedValue({
@@ -925,8 +1052,8 @@ describe('CsService', () => {
       await service.closeSession('s1');
 
       expect(agent.releaseAgent).not.toHaveBeenCalled(); // 无坐席不释放
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 's1' },
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'QUEUING', agentId: null },
         data: expect.objectContaining({ status: 'CLOSED' }),
       });
       expect(prisma.csTicket.update).toHaveBeenCalledWith({
@@ -975,8 +1102,8 @@ describe('CsService', () => {
 
       await service.closeSession('s1');
 
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 's1' },
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'AI_HANDLING', agentId: null },
         data: expect.objectContaining({ status: 'CLOSED' }),
       });
       expect(agent.releaseAgent).not.toHaveBeenCalled();
@@ -991,8 +1118,8 @@ describe('CsService', () => {
 
       await service.closeSession('s1');
 
-      expect(prisma.csSession.update).toHaveBeenCalledWith({
-        where: { id: 's1' },
+      expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', status: 'QUEUING', agentId: null },
         data: expect.objectContaining({ status: 'CLOSED' }),
       });
       expect(agent.releaseAgent).not.toHaveBeenCalled();
@@ -1072,7 +1199,7 @@ describe('CsService', () => {
 
       await service.closeSession('s1');
 
-      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
       expect(prisma.csTicket.update).not.toHaveBeenCalled();
     });
 
@@ -1091,6 +1218,9 @@ describe('CsService', () => {
   describe('agentReleaseSession()', () => {
     it('成功释放：CAS 更新 agentId=null + status=AI_HANDLING + 释放坐席 + 插系统消息', async () => {
       const { service, prisma, agent } = createMocks();
+      prisma.$transaction.mockClear();
+      prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+      prisma.$queryRaw.mockResolvedValue([{ id: 's1' }]);
       prisma.csSession.findUnique.mockResolvedValue({
         id: 's1', status: 'AGENT_HANDLING', agentId: 'admin-1', ticketId: 't1',
       });
@@ -1100,6 +1230,7 @@ describe('CsService', () => {
 
       const result = await service.agentReleaseSession('s1', 'admin-1');
 
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.csSession.updateMany).toHaveBeenCalledWith({
         where: { id: 's1', agentId: 'admin-1', status: 'AGENT_HANDLING' },
         data: expect.objectContaining({
@@ -1108,7 +1239,7 @@ describe('CsService', () => {
           status: 'AI_HANDLING',
         }),
       });
-      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1');
+      expect(agent.releaseAgent).toHaveBeenCalledWith('admin-1', prisma);
       expect(prisma.csMessage.create).toHaveBeenCalled();
       expect(prisma.csTicket.update).toHaveBeenCalledWith({
         where: { id: 't1' },
@@ -1193,6 +1324,8 @@ describe('CsService', () => {
       // AI 回复未保存（被丢弃）
       expect(result.aiReply).toBeNull();
       expect(result.transferred).toBe(false);
+      // 用户消息和 AI 回复各自在行锁内校验会话状态。
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
     });
 
     it('D2: 路由期间会话被转人工 (AGENT_HANDLING) → 不写入 AI 回复', async () => {

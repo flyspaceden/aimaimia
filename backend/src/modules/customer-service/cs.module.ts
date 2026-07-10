@@ -14,6 +14,7 @@ import { CsCleanupService } from './cs-cleanup.service';
 import { CsPresenceService } from './cs-presence.service';
 import { NotificationModule } from '../notification/notification.module';
 import { CsOutreachService } from './cs-outreach.service';
+import { CsSocketAuthService } from './cs-socket-auth.service';
 
 @Module({
   imports: [JwtModule, ConfigModule, NotificationModule],
@@ -29,6 +30,7 @@ import { CsOutreachService } from './cs-outreach.service';
     CsCleanupService,
     CsPresenceService,
     CsOutreachService,
+    CsSocketAuthService,
   ],
 })
 export class CustomerServiceModule {}
