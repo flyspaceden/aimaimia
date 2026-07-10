@@ -693,6 +693,41 @@ export class CheckoutService {
       throw new BadRequestException('请提交统一消费积分抵扣金额');
     }
 
+    // 抵扣上限必须在锁定红包之前确定，避免校验失败后留下 RESERVED 红包。
+    // 消费积分和团购余额只能占用 VIP 折扣后的商品金额。
+    if (dto.deductionAmount && dto.deductionAmount > 0) {
+      if (!this.rewardDeductionService) {
+        throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
+      }
+      const rewardMaxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
+        userId,
+        totalGoodsAmount,
+      );
+      let rebateMaxDeduction: {
+        rebateBalance: number;
+        rebateRatio: number;
+        maxDeductible: number;
+      } | null = null;
+      if (this.groupBuyRebateDeductionService) {
+        rebateMaxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
+          userId,
+          totalGoodsAmount,
+        );
+      }
+      const policyMaxDeduction = this.calculateUnifiedMaxDeductible(
+        totalGoodsAmount,
+        rewardMaxDeduction,
+        rebateMaxDeduction,
+      );
+      const postVipGoodsCapacity = Number(
+        Math.max(0, totalGoodsAmount - vipDiscountAmount).toFixed(2),
+      );
+      const maxDeduction = Math.min(policyMaxDeduction, postVipGoodsCapacity);
+      if (dto.deductionAmount - maxDeduction > 0.001) {
+        throw new BadRequestException('抵扣金额超出上限');
+      }
+    }
+
     if (dto.couponInstanceIds && dto.couponInstanceIds.length > 0) {
       if (!this.couponService) {
         throw new BadRequestException('红包服务不可用，请稍后重试');
@@ -724,36 +759,6 @@ export class CheckoutService {
       } catch (err: any) {
         // 红包校验失败直接抛出，不需要清理（validateAndReserveCoupons 内部事务会回滚）
         throw err;
-      }
-    }
-
-    // 消费积分统一抵扣上限只读校验；事务内 reserveDeduction* 会重新校验并 CAS 扣减。
-    if (dto.deductionAmount && dto.deductionAmount > 0) {
-      if (!this.rewardDeductionService) {
-        throw new BadRequestException('消费积分抵扣服务不可用，请稍后重试');
-      }
-      const rewardMaxDeduction = await this.rewardDeductionService.calculateMaxDeductible(
-        userId,
-        totalGoodsAmount,
-      );
-      let rebateMaxDeduction: {
-        rebateBalance: number;
-        rebateRatio: number;
-        maxDeductible: number;
-      } | null = null;
-      if (this.groupBuyRebateDeductionService) {
-        rebateMaxDeduction = await this.groupBuyRebateDeductionService.calculateMaxDeductible(
-          userId,
-          totalGoodsAmount,
-        );
-      }
-      const maxDeduction = this.calculateUnifiedMaxDeductible(
-        totalGoodsAmount,
-        rewardMaxDeduction,
-        rebateMaxDeduction,
-      );
-      if (dto.deductionAmount > maxDeduction) {
-        throw new BadRequestException('抵扣金额超出上限');
       }
     }
 
@@ -855,6 +860,18 @@ export class CheckoutService {
             remainingCapacities,
             totalCouponDiscount,
           );
+          const effectiveRewardDiscount = Number(
+            rewardDiscountAllocations.reduce((sum, value) => sum + value, 0).toFixed(2),
+          );
+          const effectiveGroupBuyRebateDiscount = Number(
+            groupBuyRebateDiscountAllocations.reduce((sum, value) => sum + value, 0).toFixed(2),
+          );
+          if (
+            Math.abs(effectiveRewardDiscount - discountAmount) > 0.001
+            || Math.abs(effectiveGroupBuyRebateDiscount - groupBuyRebateDeductionAmount) > 0.001
+          ) {
+            throw new InternalServerErrorException('抵扣预留金额与订单可分摊金额不一致');
+          }
           const effectiveTotalCouponDiscount = Number(
             couponDiscountAllocations
               .reduce((sum, value) => sum + value, 0)
