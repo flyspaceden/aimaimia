@@ -1238,6 +1238,22 @@ export class CouponService {
         for (const instanceId of couponInstanceIds) {
           const discountAmount = amountMap.get(instanceId) || 0;
 
+          if (discountAmount <= 0) {
+            await tx.couponInstance.updateMany({
+              where: {
+                id: instanceId,
+                status: 'RESERVED',
+              },
+              data: {
+                status: 'AVAILABLE',
+                usedAt: null,
+                usedOrderId: null,
+                usedAmount: null,
+              },
+            });
+            continue;
+          }
+
           // CAS 更新：RESERVED → USED
           const updated = await tx.couponInstance.updateMany({
             where: {

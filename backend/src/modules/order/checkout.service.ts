@@ -68,6 +68,13 @@ export interface ExcludedCheckoutItem {
   prizeRecordId?: string | null;
 }
 
+export function isNormalTreeEnrollmentConflict(error: unknown): boolean {
+  const candidate = error as { code?: unknown; meta?: { modelName?: unknown } } | null;
+  return candidate?.code === 'P2002'
+    && typeof candidate.meta?.modelName === 'string'
+    && ['NormalTreeNode', 'NormalProgress'].includes(candidate.meta.modelName);
+}
+
 @Injectable()
 export class CheckoutService {
   private readonly logger = new Logger(CheckoutService.name);
@@ -1957,24 +1964,130 @@ export class CheckoutService {
             const remainingAfterVip = companyGroups.map((group, idx) =>
               Math.max(0, group.goodsAmount - vipDiscountAllocations[idx]),
             );
-            const rewardDiscountAllocations = this.allocateDiscountByCapacities(
+            let rewardDiscountAllocations = this.allocateDiscountByCapacities(
               remainingAfterVip,
               session.discountAmount,
             );
             const remainingAfterReward = remainingAfterVip.map((value, idx) =>
               Math.max(0, value - rewardDiscountAllocations[idx]),
             );
-            const groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
+            let groupBuyRebateDiscountAllocations = this.allocateDiscountByCapacities(
               remainingAfterReward,
               sessionGroupBuyRebateDeduction,
             );
             const remainingCapacities = remainingAfterReward.map((value, idx) =>
               Math.max(0, value - groupBuyRebateDiscountAllocations[idx]),
             );
-            const couponDiscountAllocations = this.allocateDiscountByCapacities(
+            let couponDiscountAllocations = this.allocateDiscountByCapacities(
               remainingCapacities,
               sessionCouponDiscount,
             );
+            const calculateGroupTotals = () => companyGroups.map((group, idx) => Math.max(
+              0,
+              group.goodsAmount
+                - (vipDiscountAllocations[idx] || 0)
+                - (rewardDiscountAllocations[idx] || 0)
+                - (groupBuyRebateDiscountAllocations[idx] || 0)
+                - (couponDiscountAllocations[idx] || 0)
+                + groupShippingFees[idx],
+            ));
+            const sumMoney = (values: number[]) => Number(
+              values.reduce((sum, value) => sum + value, 0).toFixed(2),
+            );
+            let groupOrderTotals = calculateGroupTotals();
+            const canonicalOrderTotal = sumMoney(groupOrderTotals);
+            const paidExpectedTotal = Number(Number(session.expectedTotal || 0).toFixed(2));
+            let legacyDiscountOverlap: Prisma.InputJsonObject | null = null;
+
+            if (
+              !isVipPackageSession
+              && Math.abs(canonicalOrderTotal - paidExpectedTotal) > 0.001
+            ) {
+              // 旧版本先在商品金额上分配红包/积分，再额外扣 VIP 折扣，可能让优惠
+              // 重叠到运费。支付已经完成时必须按已支付金额落单，并保留完整审计。
+              const legacyCapacities = companyGroups.map((group, idx) => Math.max(
+                0,
+                group.goodsAmount + groupShippingFees[idx] - vipDiscountAllocations[idx],
+              ));
+              const legacyRewardAllocations = this.allocateDiscountByCapacities(
+                legacyCapacities,
+                session.discountAmount,
+              );
+              const legacyAfterReward = legacyCapacities.map((value, idx) => Math.max(
+                0,
+                value - legacyRewardAllocations[idx],
+              ));
+              const legacyGroupBuyAllocations = this.allocateDiscountByCapacities(
+                legacyAfterReward,
+                sessionGroupBuyRebateDeduction,
+              );
+              const legacyAfterGroupBuy = legacyAfterReward.map((value, idx) => Math.max(
+                0,
+                value - legacyGroupBuyAllocations[idx],
+              ));
+              const legacyCouponAllocations = this.allocateDiscountByCapacities(
+                legacyAfterGroupBuy,
+                sessionCouponDiscount,
+              );
+              const legacyTotals = companyGroups.map((group, idx) => Math.max(
+                0,
+                group.goodsAmount
+                  - (vipDiscountAllocations[idx] || 0)
+                  - (legacyRewardAllocations[idx] || 0)
+                  - (legacyGroupBuyAllocations[idx] || 0)
+                  - (legacyCouponAllocations[idx] || 0)
+                  + groupShippingFees[idx],
+              ));
+              const legacyOrderTotal = sumMoney(legacyTotals);
+              const legacyAmountsFullyAllocated = [
+                [legacyRewardAllocations, Number(session.discountAmount || 0)],
+                [legacyGroupBuyAllocations, sessionGroupBuyRebateDeduction],
+                [legacyCouponAllocations, sessionCouponDiscount],
+              ].every(([allocations, expected]) => (
+                Math.abs(sumMoney(allocations as number[]) - Number(expected)) <= 0.001
+              ));
+
+              if (
+                legacyAmountsFullyAllocated
+                && Math.abs(legacyOrderTotal - paidExpectedTotal) <= 0.001
+              ) {
+                rewardDiscountAllocations = legacyRewardAllocations;
+                groupBuyRebateDiscountAllocations = legacyGroupBuyAllocations;
+                couponDiscountAllocations = legacyCouponAllocations;
+                groupOrderTotals = legacyTotals;
+                legacyDiscountOverlap = {
+                  detected: true,
+                  strategy: 'LEGACY_OVERLAPPING_DISCOUNTS',
+                  sessionExpectedTotal: paidExpectedTotal,
+                  canonicalOrderTotal,
+                  overlapAmount: Number((canonicalOrderTotal - paidExpectedTotal).toFixed(2)),
+                  recordedCouponAmount: sumMoney(legacyCouponAllocations),
+                };
+              } else {
+                // 未知历史脏数据也不能回滚已完成支付；订单总额以支付事实为准，
+                // 同时写入审计，禁止静默伪装为当前口径。
+                groupOrderTotals = this.allocateShippingFeeByGoodsAmount(
+                  companyGroups.map((group) => group.goodsAmount),
+                  paidExpectedTotal,
+                );
+                legacyDiscountOverlap = {
+                  detected: true,
+                  strategy: 'PAID_TOTAL_AUDIT_FALLBACK',
+                  sessionExpectedTotal: paidExpectedTotal,
+                  canonicalOrderTotal,
+                  overlapAmount: Number((canonicalOrderTotal - paidExpectedTotal).toFixed(2)),
+                  recordedCouponAmount: sumMoney(couponDiscountAllocations),
+                };
+              }
+
+              this.logger.warn(
+                `CheckoutSession ${session.id} 检测到历史优惠重叠：`
+                + `paid=${paidExpectedTotal}, canonical=${canonicalOrderTotal}, `
+                + `strategy=${legacyDiscountOverlap.strategy}`,
+              );
+            }
+
+            const effectiveSessionCouponDiscount = sumMoney(couponDiscountAllocations);
             for (let idx = 0; idx < companyGroups.length; idx++) {
               const group = companyGroups[idx];
               const isPrimary = idx === 0;
@@ -1984,13 +2097,9 @@ export class CheckoutService {
               const groupBuyRebateDiscount = groupBuyRebateDiscountAllocations[idx] || 0;
               const groupCouponDiscount = couponDiscountAllocations[idx] || 0;
               const groupVipDiscount = vipDiscountAllocations[idx] || 0;
-              const groupTotalDiscount = groupRewardDiscount + groupBuyRebateDiscount + groupCouponDiscount;
               const groupTotal = isVipPackageSession
                 ? (idx === 0 ? Number(session.expectedTotal || group.goodsAmount || 0) : 0)
-                : Math.max(
-                    0,
-                    group.goodsAmount - groupVipDiscount - groupTotalDiscount + groupShippingFee,
-                  );
+                : groupOrderTotals[idx];
               const idempotencyKey = `cs:${session.id}:${cartContentHash}:${idx}`;
 
               const order = await tx.order.create({
@@ -2043,7 +2152,11 @@ export class CheckoutService {
                   fromStatus: 'PENDING_PAYMENT',
                   toStatus: 'PAID',
                   reason: 'CheckoutSession 支付回调建单',
-                  meta: { merchantOrderNo, providerTxnId },
+                  meta: {
+                    merchantOrderNo,
+                    providerTxnId,
+                    ...(legacyDiscountOverlap ? { legacyDiscountOverlap } : {}),
+                  },
                 },
               });
 
@@ -2295,7 +2408,7 @@ export class CheckoutService {
             if (
               session.couponInstanceIds &&
               session.couponInstanceIds.length > 0 &&
-              sessionCouponDiscount > 0
+              effectiveSessionCouponDiscount > 0
             ) {
               const storedPerAmounts = Array.isArray(session.couponPerAmounts)
                 ? (session.couponPerAmounts as Array<{
@@ -2321,17 +2434,17 @@ export class CheckoutService {
                   .reduce((sum, item) => sum + item.discountAmount, 0)
                   .toFixed(2),
               );
-              if (resolvedTotal <= 0 && sessionCouponDiscount > 0) {
+              if (resolvedTotal <= 0 && effectiveSessionCouponDiscount > 0) {
                 // 兼容老会话：没有逐张金额快照时回退为均分 + 尾差补偿
                 const base = Number(
-                  (sessionCouponDiscount / session.couponInstanceIds.length).toFixed(2),
+                  (effectiveSessionCouponDiscount / session.couponInstanceIds.length).toFixed(2),
                 );
                 let allocated = 0;
                 resolvedPerAmounts = session.couponInstanceIds.map(
                   (couponInstanceId: string, index: number) => {
                     const discountAmount =
                       index === session.couponInstanceIds.length - 1
-                        ? Number((sessionCouponDiscount - allocated).toFixed(2))
+                        ? Number((effectiveSessionCouponDiscount - allocated).toFixed(2))
                         : base;
                     allocated = Number((allocated + discountAmount).toFixed(2));
                     return { couponInstanceId, discountAmount };
@@ -2343,7 +2456,7 @@ export class CheckoutService {
               const normalizedPerAmounts = this.capCouponPerAmounts(
                 resolvedPerAmounts,
                 session.couponInstanceIds,
-                sessionCouponDiscount,
+                effectiveSessionCouponDiscount,
               );
               const normalizedTotal = Number(
                 normalizedPerAmounts
@@ -2357,7 +2470,7 @@ export class CheckoutService {
               );
               if (resolvedTotalAfterFallback - normalizedTotal > 0.01) {
                 this.logger.warn(
-                  `检测到逐张红包金额异常并已裁剪：sessionId=${session.id}, before=${resolvedTotalAfterFallback}, after=${normalizedTotal}, couponTotal=${sessionCouponDiscount}`,
+                  `检测到逐张红包金额异常并已裁剪：sessionId=${session.id}, before=${resolvedTotalAfterFallback}, after=${normalizedTotal}, couponTotal=${effectiveSessionCouponDiscount}`,
                 );
               }
 
@@ -2520,13 +2633,11 @@ export class CheckoutService {
           error.code === 'P2034' ||
           error.message?.includes('could not serialize') ||
           error.message?.includes('40001');
-        const isNormalTreeEnrollmentConflict =
-          error.code === 'P2002'
-          && ['NormalTreeNode', 'NormalProgress'].includes(error.meta?.modelName);
-        if ((isSerializationError || isNormalTreeEnrollmentConflict) && attempt < maxRetries) {
+        const isEnrollmentConflict = isNormalTreeEnrollmentConflict(error);
+        if ((isSerializationError || isEnrollmentConflict) && attempt < maxRetries) {
           const delay = 100 * Math.pow(2, attempt);
           this.logger.warn(
-            `handlePaymentSuccess ${isNormalTreeEnrollmentConflict ? '普通树首次入树' : '序列化'}冲突，`
+            `handlePaymentSuccess ${isEnrollmentConflict ? '普通树首次入树' : '序列化'}冲突，`
             + `第 ${attempt}/${maxRetries} 次重试，等待 ${delay}ms`,
           );
           await new Promise((r) => setTimeout(r, delay));

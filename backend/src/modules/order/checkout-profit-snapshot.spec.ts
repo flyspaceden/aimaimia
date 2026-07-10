@@ -1,4 +1,4 @@
-import { CheckoutService } from './checkout.service';
+import { CheckoutService, isNormalTreeEnrollmentConflict } from './checkout.service';
 
 function makeSession(overrides: any = {}) {
   return {
@@ -127,6 +127,27 @@ function makeFixture(session = makeSession(), existingOrders: Array<{ id: string
 }
 
 describe('CheckoutService payment-time profit snapshot', () => {
+  it.each([
+    ['NormalTreeNode', true],
+    ['NormalProgress', true],
+    ['Order', false],
+    [undefined, false],
+  ])('classifies P2002 modelName %s for production retry', (modelName, expected) => {
+    const error = {
+      code: 'P2002',
+      meta: modelName ? { modelName, target: ['userId'] } : undefined,
+    };
+
+    expect(isNormalTreeEnrollmentConflict(error)).toBe(expected);
+  });
+
+  it('does not classify non-P2002 errors as normal-tree enrollment conflicts', () => {
+    expect(isNormalTreeEnrollmentConflict({
+      code: 'P2034',
+      meta: { modelName: 'NormalTreeNode' },
+    })).toBe(false);
+  });
+
   it('retries a first-enrollment unique conflict in a fresh Serializable transaction', async () => {
     const fixture = makeFixture();
     fixture.prisma.$transaction

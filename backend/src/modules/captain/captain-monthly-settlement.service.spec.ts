@@ -47,6 +47,8 @@ function makeAttribution(overrides: any = {}) {
   const id = overrides.id ?? 'attr-1';
   const orderId = overrides.orderId ?? `order-${id}`;
   const reserve = overrides.reserve ?? 50;
+  const createdAt = overrides.createdAt ?? new Date('2026-06-15T00:00:00.000Z');
+  const paidAt = overrides.paidAt ?? createdAt;
   return {
     id,
     orderId,
@@ -61,7 +63,9 @@ function makeAttribution(overrides: any = {}) {
     profitBaseAmount: overrides.profitBaseAmount ?? 1000,
     configSnapshot: config,
     status: overrides.status ?? 'FROZEN',
-    createdAt: overrides.createdAt ?? new Date('2026-06-15T00:00:00.000Z'),
+    createdAt,
+    updatedAt: overrides.updatedAt ?? createdAt,
+    order: { paidAt },
     meta: {
       monthlyMaximum: reserve,
       ...(overrides.meta ?? {}),
@@ -130,6 +134,9 @@ function createHarness(options: {
           if (where?.calculationModel && item.calculationModel !== where.calculationModel) return false;
           if (where?.createdAt?.gte && item.createdAt < where.createdAt.gte) return false;
           if (where?.createdAt?.lt && item.createdAt >= where.createdAt.lt) return false;
+          const paidAt = item.order?.paidAt;
+          if (where?.order?.paidAt?.gte && paidAt < where.order.paidAt.gte) return false;
+          if (where?.order?.paidAt?.lt && paidAt >= where.order.paidAt.lt) return false;
           return true;
         });
         if (distinct?.includes('directCaptainUserId')) {
@@ -446,13 +453,80 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
     expect(harness.tx.captainOrderAttribution.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          createdAt: {
-            gte: new Date('2026-05-31T16:00:00.000Z'),
-            lt: new Date('2026-06-30T16:00:00.000Z'),
+          order: {
+            paidAt: {
+              gte: new Date('2026-05-31T16:00:00.000Z'),
+              lt: new Date('2026-06-30T16:00:00.000Z'),
+            },
           },
         }),
       }),
     );
+  });
+
+  it('uses order paidAt rather than attribution createdAt for month ownership', async () => {
+    const harness = createHarness({
+      attributions: [makeAttribution({
+        createdAt: new Date('2026-06-30T16:05:00.000Z'),
+        paidAt: new Date('2026-06-30T15:59:59.000Z'),
+      })],
+    });
+
+    const [settlement] = await harness.service.createDraftSettlements('2026-06');
+
+    expect(settlement).toEqual(expect.objectContaining({ totalAmount: 30 }));
+    expect(harness.tx.captainOrderAttribution.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          order: {
+            paidAt: {
+              gte: new Date('2026-05-31T16:00:00.000Z'),
+              lt: new Date('2026-06-30T16:00:00.000Z'),
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it('rejects draft generation before the Shanghai month closes and allows regeneration after close', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
+    const harness = createHarness({
+      attributions: [makeAttribution({
+        createdAt: new Date('2026-07-10T00:00:00.000Z'),
+        paidAt: new Date('2026-07-10T00:00:00.000Z'),
+      })],
+    });
+
+    await expect(harness.service.createDraftSettlements('2026-07'))
+      .rejects.toThrow('月份尚未闭合');
+
+    jest.setSystemTime(new Date('2026-07-31T16:00:00.000Z'));
+    await expect(harness.service.createDraftSettlements('2026-07'))
+      .resolves.toHaveLength(1);
+  });
+
+  it('rejects approval of a stale draft and regenerates it from final closed-month facts', async () => {
+    const first = makeAttribution({ id: 'attr-first', eligibleGoodsAmount: 25000 });
+    const attributions = [first];
+    const harness = createHarness({ attributions });
+    const [draft] = await harness.service.createDraftSettlements('2026-06');
+
+    attributions.push(makeAttribution({
+      id: 'attr-late',
+      buyerUserId: 'buyer-2',
+      eligibleGoodsAmount: 45000,
+      paidAt: new Date('2026-06-30T15:59:59.000Z'),
+      createdAt: new Date('2026-06-30T16:05:00.000Z'),
+    }));
+
+    await expect(harness.service.approveSettlement(draft.id, 'admin-1'))
+      .rejects.toThrow('草稿数据已变化');
+
+    const [regenerated] = await harness.service.createDraftSettlements('2026-06');
+    expect(regenerated.id).toBe(draft.id);
+    expect(regenerated.meta).toEqual(expect.objectContaining({ orderCount: 2 }));
+    expect(harness.settlementOrders).toHaveLength(2);
   });
 
   it('settles and releases historical V3 attributions after the current config is disabled', async () => {
@@ -480,8 +554,16 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
           createdAt: new Date('2026-07-10T00:00:00.000Z'),
         })],
       });
-      const [draft] = await harness.service.createDraftSettlements('2026-07');
-      if (action === 'pay') draft.status = 'APPROVED';
+      const draft = {
+        id: 'open-month-settlement',
+        captainUserId: 'captain-1',
+        month: '2026-07',
+        programCode: 'SEAFOOD_PREPACKAGED',
+        status: action === 'pay' ? 'APPROVED' : 'DRAFT',
+        configSnapshot: makeV3Config(),
+        meta: { calculationModel: 'PROFIT_V3_ORDER_SNAPSHOT' },
+      };
+      harness.settlements.push(draft);
 
       const request = action === 'approve'
         ? harness.service.approveSettlement(draft.id, 'admin-1')
