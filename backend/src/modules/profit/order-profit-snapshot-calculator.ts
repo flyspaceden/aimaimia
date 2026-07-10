@@ -30,14 +30,22 @@ export class OrderProfitSnapshotCalculator {
       couponDiscountCents: input.couponDiscountCents ?? 0,
       otherGoodsDiscountCents: input.otherGoodsDiscountCents ?? 0,
     };
-    const amountValues = Object.values(amounts);
+    const invalidAmountFields = Object.entries(amounts)
+      .filter(([, value]) => !isNonNegativeIntegerCents(value))
+      .map(([field]) => field);
 
-    if (amountValues.some((value) => !isNonNegativeIntegerCents(value))) {
+    if (invalidAmountFields.length > 0) {
+      const sanitizedAmounts = Object.fromEntries(
+        Object.entries(amounts).map(([field, value]) => [
+          field,
+          isNonNegativeIntegerCents(value) ? value : 0,
+        ]),
+      ) as typeof amounts;
       return this.reconciliationResult(
-        amounts,
+        sanitizedAmounts,
         [],
         'ORDER_PROFIT_CONSERVATION_FAILED',
-        { reason: 'INVALID_ORDER_AMOUNT' },
+        { reason: 'INVALID_ORDER_AMOUNT', invalidAmountFields },
       );
     }
 

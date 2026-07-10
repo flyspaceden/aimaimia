@@ -518,4 +518,45 @@ describe('OrderProfitSnapshotCalculator', () => {
     expect(() => yuanToCents(Number.NaN)).toThrow();
     expect(() => yuanToCents(Number.MAX_SAFE_INTEGER)).toThrow();
   });
+
+  it.each([
+    'grossGoodsAmountCents',
+    'vipDiscountCents',
+    'rewardDeductionCents',
+    'groupBuyRebateDeductionCents',
+    'couponDiscountCents',
+    'otherGoodsDiscountCents',
+  ] as const)('sanitizes non-finite top-level amount %s for persistence', (field) => {
+    const result = calculator.calculate({
+      grossGoodsAmountCents: 100,
+      vipDiscountCents: 0,
+      rewardDeductionCents: 0,
+      groupBuyRebateDeductionCents: 0,
+      couponDiscountCents: 0,
+      otherGoodsDiscountCents: 0,
+      items: [],
+      [field]: Number.NaN,
+    });
+
+    expect(result).toMatchObject({
+      status: 'RECONCILIATION_REQUIRED',
+      errorCode: 'ORDER_PROFIT_CONSERVATION_FAILED',
+      distributableProfitCents: 0,
+      captainEligibleProfitCents: 0,
+      errorMeta: {
+        reason: 'INVALID_ORDER_AMOUNT',
+        invalidAmountFields: [field],
+      },
+    });
+    for (const value of [
+      result.grossGoodsAmountCents,
+      result.vipDiscountCents,
+      result.rewardDeductionCents,
+      result.groupBuyRebateDeductionCents,
+      result.couponDiscountCents,
+      result.otherGoodsDiscountCents,
+    ]) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+  });
 });
