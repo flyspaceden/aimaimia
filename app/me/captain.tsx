@@ -17,11 +17,12 @@ const percent = (value?: number | null) => `${(Number(value ?? 0) * 100).toFixed
 
 const ledgerTypeLabel: Record<string, string> = {
   DIRECT_ORDER: '推广奖励',
-  INDIRECT_ORDER: '协助奖励',
+  LEGACY_INDIRECT_ORDER: '历史二级佣金',
   MANAGEMENT_ALLOWANCE: '管理津贴',
   GROWTH_BONUS: '增长奖励',
   CULTIVATION_BONUS: '有效成交辅导奖',
-  TEAM_POOL: '团队经营池',
+  PERFORMANCE_BONUS: '经营绩效奖',
+  TEAM_POOL: '历史团队池奖励',
   VOID: '售后冲回',
   ADJUSTMENT: '人工调整',
 };
@@ -157,8 +158,8 @@ export default function CaptainCenterPage() {
         <View style={styles.statsGrid}>
           <Stat label="已到账" value={money(account?.balance)} />
           <Stat label="待到账" value={money(account?.frozen)} />
-          <Stat label="本月个人 GMV" value={money(metric?.personalGmv)} />
-          <Stat label="本月团队 GMV" value={money(metric?.teamGmv)} />
+          <Stat label="本月直接客户 GMV" value={money(metric?.personalGmv)} />
+          <Stat label="有效直接客户" value={`${metric?.directEffectiveBuyers ?? 0} 人`} />
         </View>
 
         <View style={[styles.section, { backgroundColor: colors.surface, borderRadius: radius.lg }, shadow.sm]}>
@@ -168,9 +169,8 @@ export default function CaptainCenterPage() {
               {metric?.qualified ? '已达标' : '待达标'}
             </Text>
           </View>
-          <ProgressRow label="有效直推成交用户" value={`${metric?.directEffectiveBuyers ?? 0} 人`} />
-          <ProgressRow label="团队有效成员" value={`${metric?.teamEffectiveMembers ?? 0} 人`} />
-          <ProgressRow label="新增有效成交团员" value={`${metric?.newEffectiveMembers ?? 0} 人`} />
+          <ProgressRow label="有效直接成交客户" value={`${metric?.directEffectiveBuyers ?? 0} 人`} />
+          <ProgressRow label="新增有效直接客户" value={`${metric?.newEffectiveMembers ?? 0} 人`} />
           <ProgressRow label="退款率" value={percent(metric?.refundRate)} />
           <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 10 }]}>
             当前档位：{metric?.qualifiedTier ?? '未达档'}，月度奖励以后台当月配置和审核结果为准

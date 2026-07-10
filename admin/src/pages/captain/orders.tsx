@@ -21,8 +21,7 @@ export default function CaptainOrdersPage() {
       ),
     },
     { title: '买家', search: false, width: 230, render: (_, record) => <CaptainUser user={record.buyer} /> },
-    { title: '一级团长', search: false, width: 230, render: (_, record) => <CaptainUser user={record.directCaptain} /> },
-    { title: '二级团长', search: false, width: 230, render: (_, record) => <CaptainUser user={record.indirectCaptain} /> },
+    { title: '直接团长', search: false, width: 230, render: (_, record) => <CaptainUser user={record.directCaptain} /> },
     {
       title: '佣金基数',
       search: false,
@@ -38,7 +37,7 @@ export default function CaptainOrdersPage() {
       title: '费率',
       search: false,
       width: 120,
-      render: (_, record) => `${percent(record.directRate)} / ${percent(record.indirectRate)}`,
+      render: (_, record) => percent(record.directRate),
     },
     { title: '状态', dataIndex: 'status', width: 120 },
     { title: '归因时间', search: false, width: 170, render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') },

@@ -55,7 +55,7 @@ export class CaptainCommissionService {
           },
           ledgers: {
             where: {
-              type: { in: ['DIRECT_ORDER', 'INDIRECT_ORDER'] },
+              type: { in: ['DIRECT_ORDER', 'LEGACY_INDIRECT_ORDER'] },
               status: 'FROZEN',
               deletedAt: null,
             },
@@ -153,7 +153,7 @@ export class CaptainCommissionService {
         include: {
           ledgers: {
             where: {
-              type: { in: ['DIRECT_ORDER', 'INDIRECT_ORDER'] },
+              type: { in: ['DIRECT_ORDER', 'LEGACY_INDIRECT_ORDER'] },
               status: { in: ['FROZEN', 'AVAILABLE'] },
               deletedAt: null,
             },

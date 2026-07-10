@@ -30,7 +30,7 @@ function createHarness(txOverrides: Record<string, any> = {}) {
         id: 'relation-1',
         buyerUserId: 'buyer-1',
         directCaptainUserId: 'captain-1',
-        indirectCaptainUserId: null,
+        legacyIndirectCaptainUserId: null,
       }),
     },
     ...txOverrides,
@@ -98,7 +98,7 @@ describe('CaptainRelationService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('binds buyer to direct and indirect captains without storing a third level', async () => {
+  it('binds buyer only to the scanned captain even when that captain has an upstream relation', async () => {
     const { tx, service } = createHarness({
       captainRelation: {
         findUnique: jest
@@ -107,12 +107,12 @@ describe('CaptainRelationService', () => {
           .mockResolvedValueOnce({
             buyerUserId: 'captain-1',
             directCaptainUserId: 'captain-root',
-            indirectCaptainUserId: 'ignored-third-level',
+            legacyIndirectCaptainUserId: 'ignored-third-level',
           }),
         create: jest.fn().mockResolvedValue({
           buyerUserId: 'buyer-1',
           directCaptainUserId: 'captain-1',
-          indirectCaptainUserId: 'captain-root',
+          legacyIndirectCaptainUserId: 'captain-root',
         }),
       },
     });
@@ -126,19 +126,19 @@ describe('CaptainRelationService', () => {
     ).resolves.toMatchObject({
       buyerUserId: 'buyer-1',
       directCaptainUserId: 'captain-1',
-      indirectCaptainUserId: 'captain-root',
     });
 
     expect(tx.captainRelation.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         buyerUserId: 'buyer-1',
         directCaptainUserId: 'captain-1',
-        indirectCaptainUserId: 'captain-root',
         programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
         codeUsed: 'SEA001',
         source: 'LANDING',
       }),
     });
+    expect(tx.captainRelation.create.mock.calls[0][0].data).not.toHaveProperty('indirectCaptainUserId');
+    expect(tx.captainRelation.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('does not silently switch a buyer already bound to another captain', async () => {

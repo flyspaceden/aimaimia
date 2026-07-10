@@ -4,6 +4,7 @@ import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   cloneCaptainSeafoodConfig,
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+  normalizeCaptainSeafoodConfig,
   unwrapRuleConfigValue,
   validateCaptainSeafoodConfig,
 } from './captain.constants';
@@ -22,7 +23,7 @@ export class CaptainConfigService {
     }
 
     const rawConfig = unwrapRuleConfigValue<unknown>(row.value);
-    const config = validateCaptainSeafoodConfig(rawConfig);
+    const config = validateCaptainSeafoodConfig(normalizeCaptainSeafoodConfig(rawConfig));
     return cloneCaptainSeafoodConfig(config);
   }
 

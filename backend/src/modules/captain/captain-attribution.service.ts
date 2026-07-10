@@ -72,10 +72,7 @@ export class CaptainAttributionService {
       return 'skipped';
     }
 
-    const captainUserIds = [
-      relation.directCaptainUserId,
-      relation.indirectCaptainUserId,
-    ].filter(Boolean);
+    const captainUserIds = [relation.directCaptainUserId];
     const activeCaptains = await (tx as any).captainProfile.findMany({
       where: {
         userId: { in: captainUserIds },
@@ -88,11 +85,6 @@ export class CaptainAttributionService {
     const directCaptainUserId = activeCaptainSet.has(relation.directCaptainUserId)
       ? relation.directCaptainUserId
       : null;
-    const indirectCaptainUserId =
-      relation.indirectCaptainUserId &&
-      activeCaptainSet.has(relation.indirectCaptainUserId)
-        ? relation.indirectCaptainUserId
-        : null;
     if (!directCaptainUserId) {
       return 'skipped';
     }
@@ -129,20 +121,20 @@ export class CaptainAttributionService {
           orderId,
           buyerUserId: order.userId,
           directCaptainUserId,
-          indirectCaptainUserId,
+          legacyIndirectCaptainUserId: null,
           programCode: config.programCode,
           commissionBase,
           eligibleGoodsAmount,
           couponDiscountAmount,
           rewardDeductionAmount,
           directRate: config.perOrderCommission.directRate,
-          indirectRate: config.perOrderCommission.indirectRate,
+          legacyIndirectRate: 0,
           status: 'FROZEN',
           configSnapshot,
           meta: {
             netGoodsPaidAmount: this.roundMoney(netGoodsPaidAmount),
             discountRatio: ratio,
-            maxLevels: config.perOrderCommission.maxLevels,
+            commissionModel: 'DIRECT_ONLY',
           },
         },
       });
@@ -156,18 +148,6 @@ export class CaptainAttributionService {
         commissionBase,
         configSnapshot,
       });
-      if (indirectCaptainUserId && config.perOrderCommission.indirectRate > 0) {
-        await this.createFrozenLedger(tx, {
-          userId: indirectCaptainUserId,
-          orderId,
-          attributionId: attribution.id,
-          type: 'INDIRECT_ORDER',
-          rate: config.perOrderCommission.indirectRate,
-          commissionBase,
-          configSnapshot,
-        });
-      }
-
       return 'credited';
     } catch (err: any) {
       if (this.isUniqueConstraintError(err)) {
@@ -184,7 +164,7 @@ export class CaptainAttributionService {
       userId: string;
       orderId: string;
       attributionId: string;
-      type: 'DIRECT_ORDER' | 'INDIRECT_ORDER';
+      type: 'DIRECT_ORDER';
       rate: number;
       commissionBase: number;
       configSnapshot: CaptainSeafoodConfig;
@@ -220,7 +200,7 @@ export class CaptainAttributionService {
         commissionBase: params.commissionBase,
         rate: params.rate,
         frozenAfter: this.roundMoney(Number(account.frozen || 0) + amount),
-        idempotencyKey: `captain:order:${params.orderId}:${params.type === 'DIRECT_ORDER' ? 'direct' : 'indirect'}`,
+        idempotencyKey: `captain:order:${params.orderId}:direct`,
         refType: 'ORDER',
         refId: params.orderId,
         configSnapshot: params.configSnapshot,

@@ -270,10 +270,11 @@ enum CaptainRelationStatus {
 
 enum CaptainLedgerType {
   DIRECT_ORDER
-  INDIRECT_ORDER
+  LEGACY_INDIRECT_ORDER
   MANAGEMENT_ALLOWANCE
   GROWTH_BONUS
   CULTIVATION_BONUS
+  PERFORMANCE_BONUS
   TEAM_POOL
   VOID
   ADJUSTMENT
@@ -873,10 +874,10 @@ model User {
   captainAccounts                   CaptainAccount[]
   captainRelationsAsBuyer           CaptainRelation[]        @relation("CaptainRelationBuyer")
   captainRelationsAsDirectCaptain   CaptainRelation[]        @relation("CaptainRelationDirectCaptain")
-  captainRelationsAsIndirectCaptain CaptainRelation[]        @relation("CaptainRelationIndirectCaptain")
+  captainRelationsAsLegacyIndirectCaptain CaptainRelation[]        @relation("CaptainRelationLegacyIndirectCaptain")
   captainOrdersAsBuyer              CaptainOrderAttribution[] @relation("CaptainOrderBuyer")
   captainOrdersAsDirectCaptain      CaptainOrderAttribution[] @relation("CaptainOrderDirectCaptain")
-  captainOrdersAsIndirectCaptain    CaptainOrderAttribution[] @relation("CaptainOrderIndirectCaptain")
+  captainOrdersAsLegacyIndirectCaptain    CaptainOrderAttribution[] @relation("CaptainOrderLegacyIndirectCaptain")
   captainCommissionLedgers          CaptainCommissionLedger[] @relation("CaptainLedgerUser")
   captainMonthlyMetrics             CaptainMonthlyMetric[]    @relation("CaptainMonthlyMetricUser")
   captainMonthlySettlements         CaptainMonthlySettlement[] @relation("CaptainMonthlySettlementUser")
@@ -2070,8 +2071,8 @@ model CaptainRelation {
   buyer                 User                  @relation("CaptainRelationBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
   directCaptainUserId   String
   directCaptain         User                  @relation("CaptainRelationDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
-  indirectCaptainUserId String?
-  indirectCaptain       User?                 @relation("CaptainRelationIndirectCaptain", fields: [indirectCaptainUserId], references: [id], onDelete: Restrict)
+  legacyIndirectCaptainUserId String?
+  legacyIndirectCaptain       User?                 @relation("CaptainRelationLegacyIndirectCaptain", fields: [legacyIndirectCaptainUserId], references: [id], onDelete: Restrict)
   programCode           String                @default("SEAFOOD_PREPACKAGED")
   codeUsed              String
   source                String?
@@ -2083,7 +2084,7 @@ model CaptainRelation {
 
   @@unique([buyerUserId, programCode])
   @@index([directCaptainUserId, status, createdAt])
-  @@index([indirectCaptainUserId, status, createdAt])
+  @@index([legacyIndirectCaptainUserId, status, createdAt])
   @@index([codeUsed])
 }
 
@@ -2095,8 +2096,8 @@ model CaptainOrderAttribution {
   buyer                 User                       @relation("CaptainOrderBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
   directCaptainUserId   String
   directCaptain         User                       @relation("CaptainOrderDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
-  indirectCaptainUserId String?
-  indirectCaptain       User?                      @relation("CaptainOrderIndirectCaptain", fields: [indirectCaptainUserId], references: [id], onDelete: Restrict)
+  legacyIndirectCaptainUserId String?
+  legacyIndirectCaptain       User?                      @relation("CaptainOrderLegacyIndirectCaptain", fields: [legacyIndirectCaptainUserId], references: [id], onDelete: Restrict)
   programCode           String                     @default("SEAFOOD_PREPACKAGED")
   commissionBase        Float
   eligibleGoodsAmount   Float
@@ -2104,7 +2105,7 @@ model CaptainOrderAttribution {
   rewardDeductionAmount Float                      @default(0)
   refundAmount          Float                      @default(0)
   directRate            Float
-  indirectRate          Float
+  legacyIndirectRate    Float
   status                String                     @default("FROZEN")
   configSnapshot        Json
   meta                  Json?
@@ -2116,7 +2117,7 @@ model CaptainOrderAttribution {
   @@unique([orderId, programCode])
   @@index([buyerUserId, createdAt])
   @@index([directCaptainUserId, status, createdAt])
-  @@index([indirectCaptainUserId, status, createdAt])
+  @@index([legacyIndirectCaptainUserId, status, createdAt])
 }
 
 model CaptainAccount {

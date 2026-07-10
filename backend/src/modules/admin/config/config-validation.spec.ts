@@ -105,16 +105,16 @@ describe('CAPTAIN_SEAFOOD_CONFIG validation', () => {
     ).toBeNull();
   });
 
-  it('rejects captain config that enables third-level per-order commission', () => {
+  it('rejects captain config that restores a secondary per-order commission', () => {
     expect(
       validateConfigValue(CAPTAIN_SEAFOOD_CONFIG_KEY, {
         ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
         perOrderCommission: {
           ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.perOrderCommission,
-          maxLevels: 3,
+          indirectRate: 0.02,
         },
       }),
-    ).toContain('maxLevels');
+    ).toContain('indirectRate');
   });
 
   it('rejects captain config that exceeds the incentive cap', () => {

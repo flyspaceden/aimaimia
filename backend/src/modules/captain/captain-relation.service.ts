@@ -129,28 +129,10 @@ export class CaptainRelationService {
         throw new BadRequestException('用户已绑定其他团长，不能自动换绑');
       }
 
-      const upstream = await tx.captainRelation.findUnique({
-        where: {
-          buyerUserId_programCode: {
-            buyerUserId: directCaptain.userId,
-            programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
-          },
-        },
-        select: {
-          directCaptainUserId: true,
-        },
-      });
-      const indirectCaptainUserId =
-        upstream?.directCaptainUserId &&
-        upstream.directCaptainUserId !== input.buyerUserId
-          ? upstream.directCaptainUserId
-          : null;
-
       return tx.captainRelation.create({
         data: {
           buyerUserId: input.buyerUserId,
           directCaptainUserId: directCaptain.userId,
-          indirectCaptainUserId,
           programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
           codeUsed: captainCode,
           source: input.source || null,

@@ -31,6 +31,7 @@ const GROSS_MARGIN_RATE = 0.35;
 const FIXED_COST_RATE = 0.105;
 
 const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
+  schemaVersion: 2,
   enabled: false,
   programCode: PROGRAM_CODE,
   programName: '预包装海鲜团长经营激励',
@@ -52,16 +53,12 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
     includeRewardDeduction: false,
   },
   perOrderCommission: {
-    directRate: 0.09,
-    indirectRate: 0.02,
-    maxLevels: 2,
+    directRate: 0.11,
   },
   monthlyQualification: {
     minDirectEffectiveBuyers: 12,
-    minPersonalMonthlyGmv: 2800,
-    minTeamEffectiveMembers: 35,
-    minTeamMonthlyGmv: 8000,
-    minNewEffectiveMembers: 1,
+    minDirectMonthlyGmv: 8000,
+    minNewEffectiveBuyers: 1,
   },
   monthlyRewards: {
     baseTierGmv: 25000,
@@ -70,8 +67,7 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
     growthBonusRate: 0.007,
     excellentTierGmv: 140000,
     cultivationBonusRate: 0.006,
-    teamPoolRate: 0.01,
-    captainTeamPoolWeight: 0.4,
+    performanceBonusRate: 0.01,
   },
   caps: {
     maxTotalIncentiveRate: 0.155,
@@ -115,6 +111,7 @@ function formatPercent(value: number, digits = 2) {
 
 function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
   return {
+    schemaVersion: 2,
     enabled: Boolean(values.enabled),
     programCode: PROGRAM_CODE,
     programName: values.programName || DEFAULT_FORM_VALUES.programName,
@@ -137,15 +134,11 @@ function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
     },
     perOrderCommission: {
       directRate: toNumber(values.perOrderCommission?.directRate),
-      indirectRate: toNumber(values.perOrderCommission?.indirectRate),
-      maxLevels: 2,
     },
     monthlyQualification: {
       minDirectEffectiveBuyers: toNumber(values.monthlyQualification?.minDirectEffectiveBuyers),
-      minPersonalMonthlyGmv: toNumber(values.monthlyQualification?.minPersonalMonthlyGmv),
-      minTeamEffectiveMembers: toNumber(values.monthlyQualification?.minTeamEffectiveMembers),
-      minTeamMonthlyGmv: toNumber(values.monthlyQualification?.minTeamMonthlyGmv),
-      minNewEffectiveMembers: toNumber(values.monthlyQualification?.minNewEffectiveMembers),
+      minDirectMonthlyGmv: toNumber(values.monthlyQualification?.minDirectMonthlyGmv),
+      minNewEffectiveBuyers: toNumber(values.monthlyQualification?.minNewEffectiveBuyers),
     },
     monthlyRewards: {
       baseTierGmv: toNumber(values.monthlyRewards?.baseTierGmv),
@@ -154,8 +147,7 @@ function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
       growthBonusRate: toNumber(values.monthlyRewards?.growthBonusRate),
       excellentTierGmv: toNumber(values.monthlyRewards?.excellentTierGmv),
       cultivationBonusRate: toNumber(values.monthlyRewards?.cultivationBonusRate),
-      teamPoolRate: toNumber(values.monthlyRewards?.teamPoolRate),
-      captainTeamPoolWeight: toNumber(values.monthlyRewards?.captainTeamPoolWeight),
+      performanceBonusRate: toNumber(values.monthlyRewards?.performanceBonusRate),
     },
     caps: {
       maxTotalIncentiveRate: toNumber(values.caps?.maxTotalIncentiveRate, 0.155),
@@ -233,11 +225,10 @@ export default function CaptainSettingsPage() {
   const economics = useMemo(() => {
     const totalIncentiveRate =
       readRate(watched, ['perOrderCommission', 'directRate']) +
-      readRate(watched, ['perOrderCommission', 'indirectRate']) +
       readRate(watched, ['monthlyRewards', 'baseManagementRate']) +
       readRate(watched, ['monthlyRewards', 'growthBonusRate']) +
       readRate(watched, ['monthlyRewards', 'cultivationBonusRate']) +
-      readRate(watched, ['monthlyRewards', 'teamPoolRate']);
+      readRate(watched, ['monthlyRewards', 'performanceBonusRate']);
     const maxTotalIncentiveRate = readRate(watched, ['caps', 'maxTotalIncentiveRate']);
     const riskReserveRate = readRate(watched, ['caps', 'coldChainRiskReserveRate']);
     const targetNetProfitRate = readRate(watched, ['caps', 'targetNetProfitRate']);
@@ -377,18 +368,8 @@ export default function CaptainSettingsPage() {
             <SectionTitle>逐单佣金</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['perOrderCommission', 'directRate']} label="一级直推佣金率" rules={rateRules}>
+                <Form.Item name={['perOrderCommission', 'directRate']} label="直接推广成交佣金率" rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={6}>
-                <Form.Item name={['perOrderCommission', 'indirectRate']} label="二级间推佣金率" rules={rateRules}>
-                  <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={6}>
-                <Form.Item name={['perOrderCommission', 'maxLevels']} label="逐单层级">
-                  <InputNumber disabled style={{ width: '100%' }} addonAfter="级" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
@@ -421,27 +402,17 @@ export default function CaptainSettingsPage() {
             <SectionTitle>团长资格</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minDirectEffectiveBuyers']} label="有效直推成交用户" rules={[{ required: true }]}>
+                <Form.Item name={['monthlyQualification', 'minDirectEffectiveBuyers']} label="有效直接成交客户" rules={[{ required: true }]}>
                   <InputNumber min={0} precision={0} style={{ width: '100%' }} addonAfter="人" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minPersonalMonthlyGmv']} label="个人月度直推业绩" rules={amountRules}>
+                <Form.Item name={['monthlyQualification', 'minDirectMonthlyGmv']} label="资格线直接客户 GMV" rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minTeamEffectiveMembers']} label="团队总推广人数" rules={[{ required: true }]}>
-                  <InputNumber min={0} precision={0} style={{ width: '100%' }} addonAfter="人" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minTeamMonthlyGmv']} label="资格线团队 GMV" rules={amountRules}>
-                  <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minNewEffectiveMembers']} label="新增有效成交团员" rules={[{ required: true }]}>
+                <Form.Item name={['monthlyQualification', 'minNewEffectiveBuyers']} label="新增有效直接客户" rules={[{ required: true }]}>
                   <InputNumber min={0} precision={0} style={{ width: '100%' }} addonAfter="人" />
                 </Form.Item>
               </Col>
@@ -480,13 +451,8 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'teamPoolRate']} label="团队分红池率" rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'performanceBonusRate']} label="经营绩效奖率" rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'captainTeamPoolWeight']} label="团长团队池权重" rules={rateRules}>
-                  <PercentInput min={0} max={100} precision={2} step={1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>

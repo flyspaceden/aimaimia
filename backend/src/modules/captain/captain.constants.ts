@@ -4,6 +4,7 @@ export const CAPTAIN_SEAFOOD_CONFIG_KEY = 'CAPTAIN_SEAFOOD_CONFIG';
 export const CAPTAIN_SEAFOOD_PROGRAM_CODE = 'SEAFOOD_PREPACKAGED';
 
 export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfig = {
+  schemaVersion: 2,
   enabled: false,
   programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
   programName: '预包装海鲜团长经营激励',
@@ -25,16 +26,12 @@ export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfig = {
     includeRewardDeduction: false,
   },
   perOrderCommission: {
-    directRate: 0.09,
-    indirectRate: 0.02,
-    maxLevels: 2,
+    directRate: 0.11,
   },
   monthlyQualification: {
     minDirectEffectiveBuyers: 12,
-    minPersonalMonthlyGmv: 2800,
-    minTeamEffectiveMembers: 35,
-    minTeamMonthlyGmv: 8000,
-    minNewEffectiveMembers: 1,
+    minDirectMonthlyGmv: 8000,
+    minNewEffectiveBuyers: 1,
   },
   monthlyRewards: {
     baseTierGmv: 25000,
@@ -43,8 +40,7 @@ export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfig = {
     growthBonusRate: 0.007,
     excellentTierGmv: 140000,
     cultivationBonusRate: 0.006,
-    teamPoolRate: 0.01,
-    captainTeamPoolWeight: 0.4,
+    performanceBonusRate: 0.01,
   },
   caps: {
     maxTotalIncentiveRate: 0.155,
@@ -80,6 +76,44 @@ export function unwrapRuleConfigValue<T>(raw: unknown): T {
     return (raw as { value: T }).value;
   }
   return raw as T;
+}
+
+export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value;
+  }
+  const raw = value as Record<string, any>;
+  if (raw.schemaVersion === 2) {
+    return raw;
+  }
+
+  const legacyPerOrder = raw.perOrderCommission ?? {};
+  const legacyQualification = raw.monthlyQualification ?? {};
+  const legacyRewards = raw.monthlyRewards ?? {};
+  return {
+    ...raw,
+    schemaVersion: 2,
+    perOrderCommission: {
+      directRate: Number(legacyPerOrder.directRate ?? 0) + Number(legacyPerOrder.indirectRate ?? 0),
+    },
+    monthlyQualification: {
+      minDirectEffectiveBuyers: legacyQualification.minDirectEffectiveBuyers,
+      minDirectMonthlyGmv: Math.max(
+        Number(legacyQualification.minPersonalMonthlyGmv ?? 0),
+        Number(legacyQualification.minTeamMonthlyGmv ?? 0),
+      ),
+      minNewEffectiveBuyers: legacyQualification.minNewEffectiveMembers,
+    },
+    monthlyRewards: {
+      baseTierGmv: legacyRewards.baseTierGmv,
+      baseManagementRate: legacyRewards.baseManagementRate,
+      growthTierGmv: legacyRewards.growthTierGmv,
+      growthBonusRate: legacyRewards.growthBonusRate,
+      excellentTierGmv: legacyRewards.excellentTierGmv,
+      cultivationBonusRate: legacyRewards.cultivationBonusRate,
+      performanceBonusRate: legacyRewards.teamPoolRate,
+    },
+  };
 }
 
 function assertObject(value: unknown, path: string): asserts value is Record<string, unknown> {
@@ -131,6 +165,9 @@ function assertFalse(value: unknown, path: string) {
 export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConfig {
   assertObject(value, CAPTAIN_SEAFOOD_CONFIG_KEY);
 
+  if (value.schemaVersion !== 2) {
+    throw new Error('schemaVersion 必须是 2');
+  }
   assertBoolean(value.enabled, 'enabled');
   if (value.programCode !== CAPTAIN_SEAFOOD_PROGRAM_CODE) {
     throw new Error(`programCode 必须是 ${CAPTAIN_SEAFOOD_PROGRAM_CODE}`);
@@ -168,17 +205,14 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
 
   assertObject(value.perOrderCommission, 'perOrderCommission');
   assertNumberInRange(value.perOrderCommission.directRate, 'directRate', 0, 1);
-  assertNumberInRange(value.perOrderCommission.indirectRate, 'indirectRate', 0, 1);
-  if (value.perOrderCommission.maxLevels !== 2) {
-    throw new Error('maxLevels 必须等于 2');
+  if ('indirectRate' in value.perOrderCommission) {
+    throw new Error('indirectRate 不再支持');
   }
 
   assertObject(value.monthlyQualification, 'monthlyQualification');
   assertNumberInRange(value.monthlyQualification.minDirectEffectiveBuyers, 'monthlyQualification.minDirectEffectiveBuyers', 0, 100000, true);
-  assertNumberInRange(value.monthlyQualification.minPersonalMonthlyGmv, 'monthlyQualification.minPersonalMonthlyGmv', 0, 100000000);
-  assertNumberInRange(value.monthlyQualification.minTeamEffectiveMembers, 'monthlyQualification.minTeamEffectiveMembers', 0, 100000, true);
-  assertNumberInRange(value.monthlyQualification.minTeamMonthlyGmv, 'monthlyQualification.minTeamMonthlyGmv', 0, 100000000);
-  assertNumberInRange(value.monthlyQualification.minNewEffectiveMembers, 'monthlyQualification.minNewEffectiveMembers', 0, 100000, true);
+  assertNumberInRange(value.monthlyQualification.minDirectMonthlyGmv, 'monthlyQualification.minDirectMonthlyGmv', 0, 100000000);
+  assertNumberInRange(value.monthlyQualification.minNewEffectiveBuyers, 'monthlyQualification.minNewEffectiveBuyers', 0, 100000, true);
 
   assertObject(value.monthlyRewards, 'monthlyRewards');
   assertNumberInRange(value.monthlyRewards.baseTierGmv, 'monthlyRewards.baseTierGmv', 0, 100000000);
@@ -187,8 +221,7 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
   assertNumberInRange(value.monthlyRewards.growthBonusRate, 'monthlyRewards.growthBonusRate', 0, 1);
   assertNumberInRange(value.monthlyRewards.excellentTierGmv, 'monthlyRewards.excellentTierGmv', 0, 100000000);
   assertNumberInRange(value.monthlyRewards.cultivationBonusRate, 'monthlyRewards.cultivationBonusRate', 0, 1);
-  assertNumberInRange(value.monthlyRewards.teamPoolRate, 'monthlyRewards.teamPoolRate', 0, 1);
-  assertNumberInRange(value.monthlyRewards.captainTeamPoolWeight, 'monthlyRewards.captainTeamPoolWeight', 0, 1);
+  assertNumberInRange(value.monthlyRewards.performanceBonusRate, 'monthlyRewards.performanceBonusRate', 0, 1);
   const baseTierGmv = value.monthlyRewards.baseTierGmv as number;
   const growthTierGmv = value.monthlyRewards.growthTierGmv as number;
   const excellentTierGmv = value.monthlyRewards.excellentTierGmv as number;
@@ -219,11 +252,10 @@ export function validateCaptainSeafoodConfig(value: unknown): CaptainSeafoodConf
 
   const totalIncentiveRate =
     (value.perOrderCommission.directRate as number) +
-    (value.perOrderCommission.indirectRate as number) +
     (value.monthlyRewards.baseManagementRate as number) +
     (value.monthlyRewards.growthBonusRate as number) +
     (value.monthlyRewards.cultivationBonusRate as number) +
-    (value.monthlyRewards.teamPoolRate as number);
+    (value.monthlyRewards.performanceBonusRate as number);
   if (totalIncentiveRate - (value.caps.maxTotalIncentiveRate as number) > 0.0000001) {
     throw new Error('总激励率不能超过 maxTotalIncentiveRate');
   }

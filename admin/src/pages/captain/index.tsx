@@ -93,10 +93,7 @@ export default function CaptainProfilesPage() {
       render: (_, record) => {
         const metric = record.user?.captainMonthlyMetrics?.[0];
         return (
-          <Space direction="vertical" size={0}>
-            <Typography.Text>团队 {money(metric?.teamGmv)}</Typography.Text>
-            <Typography.Text type="secondary">个人 {money(metric?.personalGmv)}</Typography.Text>
-          </Space>
+          <Typography.Text>直接客户 {money(metric?.personalGmv)}</Typography.Text>
         );
       },
     },

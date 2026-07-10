@@ -23,10 +23,9 @@ describe('CaptainConfigService', () => {
 
     await expect(service.getConfig()).resolves.toMatchObject({
       enabled: false,
+      schemaVersion: 2,
       perOrderCommission: {
-        directRate: 0.09,
-        indirectRate: 0.02,
-        maxLevels: 2,
+        directRate: 0.11,
       },
       caps: {
         maxTotalIncentiveRate: 0.155,
@@ -34,6 +33,42 @@ describe('CaptainConfigService', () => {
     });
     expect(prisma.ruleConfig.findUnique).toHaveBeenCalledWith({
       where: { key: CAPTAIN_SEAFOOD_CONFIG_KEY },
+    });
+  });
+
+  it('normalizes a persisted two-level config into the one-level direct rule', async () => {
+    const legacyConfig = {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+      schemaVersion: 1,
+      perOrderCommission: {
+        directRate: 0.09,
+        indirectRate: 0.02,
+        maxLevels: 2,
+      },
+      monthlyQualification: {
+        minDirectEffectiveBuyers: 12,
+        minPersonalMonthlyGmv: 2800,
+        minTeamEffectiveMembers: 35,
+        minTeamMonthlyGmv: 8000,
+        minNewEffectiveMembers: 1,
+      },
+      monthlyRewards: {
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.monthlyRewards,
+        teamPoolRate: 0.01,
+        captainTeamPoolWeight: 0.4,
+      },
+    };
+    const { service } = createService({ value: legacyConfig });
+
+    await expect(service.getConfig()).resolves.toMatchObject({
+      schemaVersion: 2,
+      perOrderCommission: { directRate: 0.11 },
+      monthlyQualification: {
+        minDirectEffectiveBuyers: 12,
+        minDirectMonthlyGmv: 8000,
+        minNewEffectiveBuyers: 1,
+      },
+      monthlyRewards: { performanceBonusRate: 0.01 },
     });
   });
 
@@ -71,16 +106,16 @@ describe('CaptainConfigService', () => {
     ).toThrow('总激励率');
   });
 
-  it('rejects maxLevels above two', () => {
+  it('rejects active configuration that includes a secondary commission field', () => {
     expect(() =>
       validateCaptainSeafoodConfig({
         ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
         perOrderCommission: {
           ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.perOrderCommission,
-          maxLevels: 3,
+          indirectRate: 0.02,
         },
       }),
-    ).toThrow('maxLevels');
+    ).toThrow('indirectRate');
   });
 
   it('rejects enabling VIP packages, group-buy, or prize orders', () => {

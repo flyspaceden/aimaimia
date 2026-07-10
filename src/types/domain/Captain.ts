@@ -4,10 +4,11 @@ export type CaptainProfileStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
 export type CaptainApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
 export type CaptainLedgerType =
   | 'DIRECT_ORDER'
-  | 'INDIRECT_ORDER'
+  | 'LEGACY_INDIRECT_ORDER'
   | 'MANAGEMENT_ALLOWANCE'
   | 'GROWTH_BONUS'
   | 'CULTIVATION_BONUS'
+  | 'PERFORMANCE_BONUS'
   | 'TEAM_POOL'
   | 'VOID'
   | 'ADJUSTMENT';
@@ -45,7 +46,6 @@ export interface CaptainRelation {
   id: string;
   buyerUserId: string;
   directCaptainUserId: string;
-  indirectCaptainUserId: string | null;
   codeUsed: string;
   status?: string;
   boundAt?: string;
@@ -88,9 +88,7 @@ export interface CaptainMonthlyMetric {
   captainUserId: string;
   month: string;
   personalGmv: number;
-  teamGmv: number;
   directEffectiveBuyers: number;
-  teamEffectiveMembers: number;
   newEffectiveMembers: number;
   refundRate: number;
   qualified: boolean;
@@ -197,11 +195,9 @@ export interface CaptainOrderProgress {
   orderId: string;
   buyerUserId: string;
   directCaptainUserId: string;
-  indirectCaptainUserId: string | null;
   commissionBase: number;
   refundAmount: number;
   directRate: number;
-  indirectRate: number;
   status: string;
   createdAt: string;
   order?: {

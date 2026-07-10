@@ -69,7 +69,7 @@ function createHarness(overrides: Record<string, any> = {}) {
       id: 'relation-1',
       buyerUserId: 'buyer-1',
       directCaptainUserId: 'captain-1',
-      indirectCaptainUserId: null,
+      legacyIndirectCaptainUserId: null,
       codeUsed: 'SEA001',
     }),
     ...overrides.relationService,
@@ -163,18 +163,22 @@ describe('CaptainBuyerService', () => {
           findUnique: jest.fn().mockResolvedValue({
             buyerUserId: 'captain-1',
             directCaptainUserId: 'root-captain',
+            legacyIndirectCaptainUserId: 'legacy-root-captain',
           }),
         },
       },
     });
 
-    await expect(service.getMyCaptainProfile('captain-1')).resolves.toMatchObject({
+    const result = await service.getMyCaptainProfile('captain-1');
+
+    expect(result).toMatchObject({
       isCaptain: true,
       profile: { captainCode: 'SEA001', status: 'ACTIVE' },
       account: { balance: 120, frozen: 30 },
       metric: { teamGmv: 25000, qualifiedTier: 'BASE' },
       boundRelation: { directCaptainUserId: 'root-captain' },
     });
+    expect(result.boundRelation).not.toHaveProperty('legacyIndirectCaptainUserId');
     expect(prisma.captainProfile.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: 'captain-1' },
     }));
@@ -200,20 +204,24 @@ describe('CaptainBuyerService', () => {
     }));
   });
 
-  it('lists captain order progress for direct and indirect captain roles only', async () => {
+  it('lists captain order progress for direct customers only', async () => {
     const { prisma, service } = createHarness();
 
-    await expect(service.listMyOrders('captain-1', 1, 20)).resolves.toMatchObject({
+    prisma.captainOrderAttribution.findMany.mockResolvedValueOnce([
+      { id: 'attr-1', directCaptainUserId: 'captain-1', legacyIndirectCaptainUserId: 'legacy-captain' },
+    ]);
+
+    const result = await service.listMyOrders('captain-1', 1, 20);
+
+    expect(result).toMatchObject({
       items: [{ id: 'attr-1' }],
       total: 1,
     });
+    expect(result.items[0]).not.toHaveProperty('legacyIndirectCaptainUserId');
     expect(prisma.captainOrderAttribution.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
-        OR: [
-          { directCaptainUserId: 'captain-1' },
-          { indirectCaptainUserId: 'captain-1' },
-        ],
+        directCaptainUserId: 'captain-1',
       },
     }));
   });
