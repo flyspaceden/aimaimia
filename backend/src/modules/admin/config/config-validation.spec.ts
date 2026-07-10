@@ -126,6 +126,6 @@ describe('CAPTAIN_SEAFOOD_CONFIG validation', () => {
           growthBonusRate: 0.02,
         },
       }),
-    ).toContain('总激励率');
+    ).toContain('growthBonusRate');
   });
 });

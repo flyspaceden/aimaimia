@@ -121,10 +121,12 @@ export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfigV3 = {
   },
 };
 
-export function cloneCaptainSeafoodConfig<T extends CaptainSeafoodConfig>(
-  value: T = DEFAULT_CAPTAIN_SEAFOOD_CONFIG as T,
-): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+export function cloneCaptainSeafoodConfig(): CaptainSeafoodConfigV3;
+export function cloneCaptainSeafoodConfig<T extends CaptainSeafoodConfig>(value: T): T;
+export function cloneCaptainSeafoodConfig(
+  value: CaptainSeafoodConfig = DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+): CaptainSeafoodConfig {
+  return JSON.parse(JSON.stringify(value)) as CaptainSeafoodConfig;
 }
 
 export function unwrapRuleConfigValue<T>(raw: unknown): T {
@@ -198,11 +200,27 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   const legacyRewards = raw.monthlyRewards ?? {};
   return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2,
-    ...raw,
     schemaVersion: 2,
+    enabled: typeof raw.enabled === 'boolean'
+      ? raw.enabled
+      : DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.enabled,
+    programCode: raw.programCode === CAPTAIN_SEAFOOD_PROGRAM_CODE
+      ? raw.programCode
+      : DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.programCode,
+    programName: typeof raw.programName === 'string' && raw.programName.trim()
+      ? raw.programName
+      : DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.programName,
     effectiveFrom: typeof raw.effectiveFrom === 'string' && raw.effectiveFrom.trim()
       ? raw.effectiveFrom
       : null,
+    scope: {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.scope,
+      ...(raw.scope ?? {}),
+    },
+    orderRules: {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.orderRules,
+      ...(raw.orderRules ?? {}),
+    },
     perOrderCommission: {
       directRate: Number(legacyPerOrder.directRate ?? 0) + Number(legacyPerOrder.indirectRate ?? 0),
     },
@@ -239,6 +257,10 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
       coldChainRiskReserveRate: raw.caps?.coldChainRiskReserveRate
         ?? DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.caps.coldChainRiskReserveRate,
     },
+    tax: {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.tax,
+      ...(raw.tax ?? {}),
+    },
     risk: normalizeRisk(raw.risk),
   };
 }
@@ -246,6 +268,18 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
 function assertObject(value: unknown, path: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${path} 必须是对象`);
+  }
+}
+
+function assertOnlyKeys(
+  value: Record<string, unknown>,
+  path: string,
+  allowedKeys: readonly string[],
+) {
+  const allowed = new Set(allowedKeys);
+  const unsupported = Object.keys(value).find((key) => !allowed.has(key));
+  if (unsupported) {
+    throw new Error(`${path ? `${path}.` : ''}${unsupported} 不支持`);
   }
 }
 
@@ -297,6 +331,15 @@ function validateCommonConfig(value: Record<string, unknown>) {
   assertString(value.programName, 'programName');
 
   assertObject(value.scope, 'scope');
+  assertOnlyKeys(value.scope, 'scope', [
+    'categoryIds',
+    'productIds',
+    'companyIds',
+    'excludedProductIds',
+    'includeVipPackage',
+    'includeGroupBuy',
+    'includePrize',
+  ]);
   assertStringArray(value.scope.categoryIds, 'scope.categoryIds');
   assertStringArray(value.scope.productIds, 'scope.productIds');
   assertStringArray(value.scope.companyIds, 'scope.companyIds');
@@ -313,6 +356,13 @@ function validateCommonConfig(value: Record<string, unknown>) {
   }
 
   assertObject(value.orderRules, 'orderRules');
+  assertOnlyKeys(value.orderRules, 'orderRules', [
+    'freezeDaysAfterReceived',
+    'minCommissionBase',
+    'includeShippingFee',
+    'includeCouponDiscount',
+    'includeRewardDeduction',
+  ]);
   assertNumberInRange(value.orderRules.freezeDaysAfterReceived, 'orderRules.freezeDaysAfterReceived', 0, 365, true);
   assertNumberInRange(value.orderRules.minCommissionBase, 'orderRules.minCommissionBase', 0, 1000000);
   assertFalse(value.orderRules.includeShippingFee, 'includeShippingFee');
@@ -320,11 +370,17 @@ function validateCommonConfig(value: Record<string, unknown>) {
   assertFalse(value.orderRules.includeRewardDeduction, 'includeRewardDeduction');
 
   assertObject(value.monthlyQualification, 'monthlyQualification');
+  assertOnlyKeys(value.monthlyQualification, 'monthlyQualification', [
+    'minDirectEffectiveBuyers',
+    'minDirectMonthlyGmv',
+    'minNewEffectiveBuyers',
+  ]);
   assertNumberInRange(value.monthlyQualification.minDirectEffectiveBuyers, 'monthlyQualification.minDirectEffectiveBuyers', 0, 100000, true);
   assertNumberInRange(value.monthlyQualification.minDirectMonthlyGmv, 'monthlyQualification.minDirectMonthlyGmv', 0, 100000000);
   assertNumberInRange(value.monthlyQualification.minNewEffectiveBuyers, 'monthlyQualification.minNewEffectiveBuyers', 0, 100000, true);
 
   assertObject(value.tax, 'tax');
+  assertOnlyKeys(value.tax, 'tax', ['enabled', 'withholdingRate', 'incomeType']);
   assertBoolean(value.tax.enabled, 'tax.enabled');
   assertNumberInRange(value.tax.withholdingRate, 'tax.withholdingRate', 0, 1);
   if (value.tax.incomeType !== 'LABOR_SERVICE') {
@@ -332,6 +388,7 @@ function validateCommonConfig(value: Record<string, unknown>) {
   }
 
   assertObject(value.risk, 'risk');
+  assertOnlyKeys(value.risk, 'risk', ['maxMonthlyRefundRate', 'holdSettlementOnRisk']);
   assertNumberInRange(value.risk.maxMonthlyRefundRate, 'risk.maxMonthlyRefundRate', 0, 1);
   assertBoolean(value.risk.holdSettlementOnRisk, 'risk.holdSettlementOnRisk');
 }
@@ -353,7 +410,13 @@ function assertShanghaiNaturalMonthStart(value: unknown) {
     hourCycle: 'h23',
   }).formatToParts(new Date(value as string));
   const local = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  if (local.day !== '01' || local.hour !== '00' || local.minute !== '00' || local.second !== '00') {
+  if (
+    local.day !== '01'
+    || local.hour !== '00'
+    || local.minute !== '00'
+    || local.second !== '00'
+    || new Date(value as string).getUTCMilliseconds() !== 0
+  ) {
     throw new Error('effectiveFrom 必须是 Asia/Shanghai 自然月第一天 00:00:00 对应的 UTC 时间');
   }
 }
@@ -362,6 +425,21 @@ function validateV2Config(
   value: Record<string, unknown>,
   allowEnabledForHistoricalRead = false,
 ): CaptainSeafoodConfigV2 {
+  assertOnlyKeys(value, '', [
+    'schemaVersion',
+    'enabled',
+    'programCode',
+    'programName',
+    'effectiveFrom',
+    'scope',
+    'orderRules',
+    'monthlyQualification',
+    'perOrderCommission',
+    'monthlyRewards',
+    'caps',
+    'tax',
+    'risk',
+  ]);
   if (value.enabled === true && !allowEnabledForHistoricalRead) {
     throw new Error('V2 团长销售额配置必须迁移到 V3 后才能启用新归因');
   }
@@ -371,12 +449,22 @@ function validateV2Config(
   }
 
   assertObject(value.perOrderCommission, 'perOrderCommission');
+  assertOnlyKeys(value.perOrderCommission, 'perOrderCommission', ['directRate']);
   assertNumberInRange(value.perOrderCommission.directRate, 'directRate', 0, 1);
   if ('indirectRate' in value.perOrderCommission) {
     throw new Error('indirectRate 不再支持');
   }
 
   assertObject(value.monthlyRewards, 'monthlyRewards');
+  assertOnlyKeys(value.monthlyRewards, 'monthlyRewards', [
+    'baseTierGmv',
+    'baseManagementRate',
+    'growthTierGmv',
+    'growthBonusRate',
+    'excellentTierGmv',
+    'cultivationBonusRate',
+    'performanceBonusRate',
+  ]);
   assertNumberInRange(value.monthlyRewards.baseTierGmv, 'monthlyRewards.baseTierGmv', 0, 100000000);
   assertNumberInRange(value.monthlyRewards.baseManagementRate, 'monthlyRewards.baseManagementRate', 0, 1);
   assertNumberInRange(value.monthlyRewards.growthTierGmv, 'monthlyRewards.growthTierGmv', 0, 100000000);
@@ -387,6 +475,11 @@ function validateV2Config(
   assertTierOrder(value.monthlyRewards);
 
   assertObject(value.caps, 'caps');
+  assertOnlyKeys(value.caps, 'caps', [
+    'maxTotalIncentiveRate',
+    'targetNetProfitRate',
+    'coldChainRiskReserveRate',
+  ]);
   assertNumberInRange(value.caps.maxTotalIncentiveRate, 'caps.maxTotalIncentiveRate', 0, 0.155);
   assertNumberInRange(value.caps.targetNetProfitRate, 'caps.targetNetProfitRate', 0, 1);
   assertNumberInRange(value.caps.coldChainRiskReserveRate, 'caps.coldChainRiskReserveRate', 0, 1);
@@ -403,18 +496,41 @@ function validateV2Config(
 }
 
 function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV3 {
+  assertOnlyKeys(value, '', [
+    'schemaVersion',
+    'enabled',
+    'programCode',
+    'programName',
+    'effectiveFrom',
+    'scope',
+    'orderRules',
+    'monthlyQualification',
+    'perOrderCommission',
+    'monthlyRewards',
+    'unitEconomics',
+    'caps',
+    'tax',
+    'risk',
+  ]);
   validateCommonConfig(value);
   assertValidIsoTime(value.effectiveFrom, 'effectiveFrom');
   const effectiveFrom = new Date(value.effectiveFrom as string).toISOString();
   assertShanghaiNaturalMonthStart(effectiveFrom);
 
   assertObject(value.perOrderCommission, 'perOrderCommission');
+  assertOnlyKeys(value.perOrderCommission, 'perOrderCommission', ['directProfitRate']);
   assertNumberInRange(value.perOrderCommission.directProfitRate, 'directProfitRate', 0, 1);
-  if ('directRate' in value.perOrderCommission || 'indirectRate' in value.perOrderCommission) {
-    throw new Error('V3 perOrderCommission 只支持 directProfitRate，indirectRate 不再支持');
-  }
 
   assertObject(value.monthlyRewards, 'monthlyRewards');
+  assertOnlyKeys(value.monthlyRewards, 'monthlyRewards', [
+    'baseTierGmv',
+    'baseManagementProfitRate',
+    'growthTierGmv',
+    'growthBonusProfitRate',
+    'excellentTierGmv',
+    'cultivationBonusProfitRate',
+    'performanceBonusProfitRate',
+  ]);
   assertNumberInRange(value.monthlyRewards.baseTierGmv, 'monthlyRewards.baseTierGmv', 0, 100000000);
   assertNumberInRange(value.monthlyRewards.baseManagementProfitRate, 'baseManagementProfitRate', 0, 1);
   assertNumberInRange(value.monthlyRewards.growthTierGmv, 'monthlyRewards.growthTierGmv', 0, 100000000);
@@ -425,9 +541,15 @@ function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV
   assertTierOrder(value.monthlyRewards);
 
   assertObject(value.unitEconomics, 'unitEconomics');
+  assertOnlyKeys(value.unitEconomics, 'unitEconomics', ['fulfillmentCostRate']);
   assertNumberInRange(value.unitEconomics.fulfillmentCostRate, 'unitEconomics.fulfillmentCostRate', 0, 1);
 
   assertObject(value.caps, 'caps');
+  assertOnlyKeys(value.caps, 'caps', [
+    'maxTotalIncentiveProfitRate',
+    'targetNetProfitRate',
+    'coldChainRiskReserveRate',
+  ]);
   assertNumberInRange(value.caps.maxTotalIncentiveProfitRate, 'caps.maxTotalIncentiveProfitRate', 0, 1);
   assertNumberInRange(value.caps.targetNetProfitRate, 'caps.targetNetProfitRate', 0, 1);
   assertNumberInRange(value.caps.coldChainRiskReserveRate, 'caps.coldChainRiskReserveRate', 0, 1);

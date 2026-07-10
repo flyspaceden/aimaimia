@@ -75,6 +75,7 @@ CREATE TABLE "OrderProfitFundingLedger" (
 
 CREATE TABLE "OrderProfitRefundReversal" (
   "id" TEXT NOT NULL,
+  "orderId" TEXT NOT NULL,
   "snapshotId" TEXT NOT NULL,
   "refundId" TEXT NOT NULL,
   "orderItemId" TEXT NOT NULL,
@@ -147,6 +148,8 @@ CREATE TABLE "OrderProfitAdjustmentDraft" (
 
 CREATE UNIQUE INDEX "OrderProfitSnapshot_orderId_revision_key"
   ON "OrderProfitSnapshot"("orderId", "revision");
+CREATE UNIQUE INDEX "OrderProfitSnapshot_id_orderId_key"
+  ON "OrderProfitSnapshot"("id", "orderId");
 CREATE INDEX "OrderProfitSnapshot_orderId_isCurrent_idx"
   ON "OrderProfitSnapshot"("orderId", "isCurrent");
 CREATE UNIQUE INDEX "OrderProfitSnapshot_one_current_per_order"
@@ -176,8 +179,8 @@ CREATE UNIQUE INDEX "OrderProfitRefundReversal_refundId_orderItemId_sourceLedger
 CREATE INDEX "OrderProfitRefundReversal_snapshotId_orderItemId_idx"
   ON "OrderProfitRefundReversal"("snapshotId", "orderItemId");
 
-CREATE UNIQUE INDEX "OrderProfitReconciliationTask_sourceSnapshotId_key"
-  ON "OrderProfitReconciliationTask"("sourceSnapshotId");
+CREATE UNIQUE INDEX "OrderProfitReconciliationTask_sourceSnapshotId_orderId_key"
+  ON "OrderProfitReconciliationTask"("sourceSnapshotId", "orderId");
 CREATE INDEX "OrderProfitReconciliationTask_status_createdAt_idx"
   ON "OrderProfitReconciliationTask"("status", "createdAt");
 CREATE INDEX "OrderProfitReconciliationTask_orderId_status_idx"
@@ -185,7 +188,7 @@ CREATE INDEX "OrderProfitReconciliationTask_orderId_status_idx"
 
 CREATE UNIQUE INDEX "CaptainMonthlySettlementOrder_settlementId_orderAttributionId_key"
   ON "CaptainMonthlySettlementOrder"("settlementId", "orderAttributionId");
-CREATE INDEX "CaptainMonthlySettlementOrder_orderAttributionId_idx"
+CREATE UNIQUE INDEX "CaptainMonthlySettlementOrder_orderAttributionId_key"
   ON "CaptainMonthlySettlementOrder"("orderAttributionId");
 
 CREATE UNIQUE INDEX "OrderProfitAdjustmentDraft_idempotencyKey_key"
@@ -196,34 +199,38 @@ CREATE INDEX "OrderProfitAdjustmentDraft_orderId_status_idx"
 CREATE UNIQUE INDEX "RewardLedger_idempotencyKey_key" ON "RewardLedger"("idempotencyKey");
 CREATE INDEX "CaptainOrderAttribution_profitSnapshotId_idx"
   ON "CaptainOrderAttribution"("profitSnapshotId");
+CREATE UNIQUE INDEX "OrderItem_id_orderId_key" ON "OrderItem"("id", "orderId");
+CREATE UNIQUE INDEX "Refund_id_orderId_key" ON "Refund"("id", "orderId");
 
 ALTER TABLE "OrderProfitSnapshot"
   ADD CONSTRAINT "OrderProfitSnapshot_orderId_fkey"
   FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitSnapshot_supersedesSnapshotId_fkey"
-  FOREIGN KEY ("supersedesSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("supersedesSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "OrderProfitFundingLedger"
   ADD CONSTRAINT "OrderProfitFundingLedger_snapshotId_fkey"
-  FOREIGN KEY ("snapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY ("snapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitFundingLedger_orderId_fkey"
   FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "OrderProfitRefundReversal"
+  ADD CONSTRAINT "OrderProfitRefundReversal_orderId_fkey"
+  FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitRefundReversal_snapshotId_fkey"
-  FOREIGN KEY ("snapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY ("snapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitRefundReversal_refundId_fkey"
-  FOREIGN KEY ("refundId") REFERENCES "Refund"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY ("refundId", "orderId") REFERENCES "Refund"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitRefundReversal_orderItemId_fkey"
-  FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("orderItemId", "orderId") REFERENCES "OrderItem"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "OrderProfitReconciliationTask"
   ADD CONSTRAINT "OrderProfitReconciliationTask_orderId_fkey"
   FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitReconciliationTask_sourceSnapshotId_fkey"
-  FOREIGN KEY ("sourceSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY ("sourceSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitReconciliationTask_resolvedSnapshotId_fkey"
-  FOREIGN KEY ("resolvedSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("resolvedSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "CaptainMonthlySettlementOrder"
   ADD CONSTRAINT "CaptainMonthlySettlementOrder_settlementId_fkey"
@@ -235,10 +242,10 @@ ALTER TABLE "OrderProfitAdjustmentDraft"
   ADD CONSTRAINT "OrderProfitAdjustmentDraft_orderId_fkey"
   FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitAdjustmentDraft_sourceSnapshotId_fkey"
-  FOREIGN KEY ("sourceSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  FOREIGN KEY ("sourceSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "OrderProfitAdjustmentDraft_targetSnapshotId_fkey"
-  FOREIGN KEY ("targetSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("targetSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "CaptainOrderAttribution"
   ADD CONSTRAINT "CaptainOrderAttribution_profitSnapshotId_fkey"
-  FOREIGN KEY ("profitSnapshotId") REFERENCES "OrderProfitSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  FOREIGN KEY ("profitSnapshotId", "orderId") REFERENCES "OrderProfitSnapshot"("id", "orderId") ON DELETE RESTRICT ON UPDATE CASCADE;
