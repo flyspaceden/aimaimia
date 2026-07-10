@@ -9,6 +9,8 @@ function makeAttribution(overrides: any = {}) {
     orderId: 'order-1',
     programCode: DEFAULT_CAPTAIN_SEAFOOD_CONFIG.programCode,
     commissionBase: 100,
+    calculationModel: 'SALES_V2',
+    profitBaseAmount: null,
     refundAmount: 0,
     status: 'FROZEN',
     configSnapshot: {
@@ -146,6 +148,41 @@ describe('CaptainCommissionService', () => {
     });
   });
 
+  it('releases a PROFIT_V3 direct ledger by its snapshotted amount only', async () => {
+    const attribution = makeAttribution({
+      calculationModel: 'PROFIT_V3',
+      commissionBase: 35,
+      profitBaseAmount: 35,
+      ledgers: [
+        {
+          ...makeAttribution().ledgers[0],
+          amount: 3.85,
+          commissionBase: 35,
+          rate: 0.11,
+        },
+        makeAttribution().ledgers[1],
+      ],
+    });
+    const { service, tx } = createHarness(attribution);
+    tx.captainAccount.findUnique.mockResolvedValueOnce({
+      id: 'account-direct',
+      frozen: 3.85,
+      balance: 0,
+      clawback: 0,
+    });
+
+    await expect(service.releaseForReceivedOrder('order-1', 'BUYER_RECEIVED')).resolves.toBe('released');
+
+    expect(tx.captainAccount.update).toHaveBeenCalledTimes(1);
+    expect(tx.captainAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-direct' },
+      data: {
+        frozen: { decrement: 3.85 },
+        balance: { increment: 3.85 },
+      },
+    });
+  });
+
   it('skips release before the configured freeze days have passed', async () => {
     const attribution = makeAttribution({
       order: {
@@ -188,6 +225,41 @@ describe('CaptainCommissionService', () => {
     expect(tx.captainAccount.update).toHaveBeenCalledWith({
       where: { id: 'account-direct' },
       data: { frozen: { decrement: 9 } },
+    });
+  });
+
+  it('voids only direct ledgers for PROFIT_V3 while leaving historical V2 behavior intact', async () => {
+    const attribution = makeAttribution({
+      calculationModel: 'PROFIT_V3',
+      commissionBase: 35,
+      profitBaseAmount: 35,
+      ledgers: [
+        {
+          ...makeAttribution().ledgers[0],
+          amount: 3.85,
+          commissionBase: 35,
+          rate: 0.11,
+        },
+        makeAttribution().ledgers[1],
+      ],
+    });
+    const { service, tx } = createHarness(attribution);
+    tx.captainAccount.findUnique.mockResolvedValueOnce({
+      id: 'account-direct',
+      frozen: 3.85,
+      balance: 0,
+      clawback: 0,
+    });
+
+    await expect(service.voidForRefund('order-1', 'refund-v3', 35)).resolves.toBe('voided');
+
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'captain-1',
+        amount: -3.85,
+        idempotencyKey: 'captain:void:order-1:refund-v3:ledger-direct',
+      }),
     });
   });
 

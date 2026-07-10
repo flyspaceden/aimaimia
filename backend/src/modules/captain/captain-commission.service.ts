@@ -70,7 +70,7 @@ export class CaptainCommissionService {
       if ((attribution.order.refunds?.length ?? 0) > 0) return 'skipped';
       if ((attribution.order.afterSaleRequests?.length ?? 0) > 0) return 'skipped';
 
-      const ledgers = attribution.ledgers ?? [];
+      const ledgers = this.releaseableOrderLedgers(attribution);
       if (ledgers.length === 0) return 'skipped';
 
       for (const ledger of ledgers) {
@@ -169,7 +169,7 @@ export class CaptainCommissionService {
       const refundRatio = Math.min(1, this.roundMoney(refundAmount) / commissionBase);
       if (refundRatio <= 0) return 'skipped';
 
-      const ledgers = attribution.ledgers ?? [];
+      const ledgers = this.releaseableOrderLedgers(attribution);
       const priorVoidAmounts = await this.loadPriorVoidAmounts(tx, orderId);
       let touched = false;
       for (const ledger of ledgers) {
@@ -453,6 +453,13 @@ export class CaptainCommissionService {
     const releaseAt = new Date(Math.max(receivedReleaseAt.getTime(), returnWindowReleaseAt.getTime()));
 
     return Date.now() >= releaseAt.getTime();
+  }
+
+  private releaseableOrderLedgers(attribution: any): any[] {
+    const ledgers = attribution.ledgers ?? [];
+    return attribution.calculationModel === 'PROFIT_V3'
+      ? ledgers.filter((ledger: any) => ledger.type === 'DIRECT_ORDER')
+      : ledgers;
   }
 
   private async withSerializableRetry<T>(
