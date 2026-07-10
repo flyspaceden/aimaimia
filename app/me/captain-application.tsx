@@ -142,7 +142,7 @@ export default function CaptainApplicationPage() {
   if (!isLoggedIn) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="申请团长" />
+        <AppHeader title="申请主任" />
         <View style={{ padding: spacing.xl }}>
           <ErrorState title="请先登录" description="登录后可以提交团长申请" />
         </View>
@@ -153,7 +153,7 @@ export default function CaptainApplicationPage() {
   if (applicationQuery.isLoading) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="申请团长" />
+        <AppHeader title="申请主任" />
         <View style={{ padding: spacing.xl }}>
           <Skeleton height={160} radius={radius.lg} />
           <View style={{ height: spacing.md }} />
@@ -166,7 +166,7 @@ export default function CaptainApplicationPage() {
   if (loadError) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="申请团长" />
+        <AppHeader title="申请主任" />
         <View style={{ padding: spacing.xl }}>
           <ErrorState
             title="申请状态加载失败"
@@ -217,7 +217,7 @@ export default function CaptainApplicationPage() {
 
   return (
     <Screen contentStyle={{ flex: 1 }} keyboardAvoiding>
-      <AppHeader title="申请团长" />
+      <AppHeader title="申请主任" />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}
         keyboardShouldPersistTaps="handled"
@@ -364,7 +364,7 @@ function StatusLayout({
   const { colors, radius, shadow, spacing, typography } = useTheme();
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="申请团长" />
+      <AppHeader title="申请主任" />
       <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] }}>
         <View style={[styles.statusCard, { backgroundColor: colors.surface, borderRadius: radius.xl }, shadow.sm]}>
           <MaterialCommunityIcons name={icon} size={42} color={colors.brand.primary} />

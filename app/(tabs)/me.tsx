@@ -142,7 +142,7 @@ export default function MeScreen() {
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
   const directReferralPercentText = formatPercent(member?.directReferralPercent);
-  const growthToolLabel = '积分成长';
+  const growthToolLabel = '耕耘值';
   const normalGrowthTool = useMemo(
     () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
     [growthToolLabel],
@@ -154,7 +154,7 @@ export default function MeScreen() {
         entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
       } else {
         entries.push({
-          label: '申请团长',
+          label: '社区服务',
           icon: 'clipboard-edit-outline' as const,
           route: '/me/captain-application',
         });

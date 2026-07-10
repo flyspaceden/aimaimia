@@ -133,9 +133,9 @@ export default function GrowthCenterScreen() {
   if (!isLoggedIn) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
-        <AppHeader title="积分成长" />
+        <AppHeader title="耕耘值" />
         <View style={{ flex: 1, padding: spacing.xl, justifyContent: 'center' }}>
-          <EmptyState title="登录后查看积分成长" description="登录后可以查看积分、成长值、等级和可兑换权益" />
+          <EmptyState title="登录后查看耕耘值" description="登录后可以查看积分、成长值、等级和可兑换权益" />
         </View>
       </Screen>
     );
@@ -143,7 +143,7 @@ export default function GrowthCenterScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="积分成长" />
+      <AppHeader title="耕耘值" />
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing['3xl'] + bottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
@@ -226,7 +226,7 @@ export default function GrowthCenterScreen() {
               </View>
               {earningRules.length === 0 ? (
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: spacing.md }]}>
-                  当前暂无开启中的积分成长任务。
+                  当前暂无开启中的耕耘值任务。
                 </Text>
               ) : (
                 <View style={{ marginTop: spacing.sm }}>
