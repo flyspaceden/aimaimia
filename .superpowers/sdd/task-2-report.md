@@ -36,7 +36,7 @@ Result: exit code 0.
 
 ```text
 Test Suites: 1 passed, 1 total
-Tests:       14 passed, 14 total
+Tests:       28 passed, 28 total
 Snapshots:   0 total
 ```
 
@@ -50,6 +50,10 @@ Covered vectors and boundaries:
 - Positive/negative item margin aggregation before the order-level floor.
 - Captain-eligible profit subset with `0 <= C <= D`.
 - No duplicate deduction of promotions already reflected in `unitPriceCents`.
+- Safe-integer aggregate overflow and allocator exceptions fail closed without throwing.
+- Non-finite item costs and top-level order amounts are sanitized before persistence.
+- Half-up yuan-to-cent conversion and unsafe conversion rejection.
+- Captain-eligible loss with only non-eligible profit keeps `C=0`.
 
 ## Verification
 
@@ -57,3 +61,6 @@ Covered vectors and boundaries:
 git diff --check  -> exit code 0
 cd backend && npm run build -> exit code 0 (nest build)
 ```
+
+Two independent review rounds were completed. All Critical and Important findings were fixed;
+the final focused suite passed 28/28.
