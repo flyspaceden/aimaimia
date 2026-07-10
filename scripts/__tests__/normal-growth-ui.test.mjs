@@ -51,14 +51,14 @@ test('me page separates referral center from points growth', () => {
   const growthSource = read('app/me/growth.tsx');
 
   assert.match(meSource, /const normalGrowthTool =/);
-  assert.match(meSource, /const growthToolLabel = '积分成长'/);
+  assert.match(meSource, /const growthToolLabel = '耕耘值'/);
   assert.match(meSource, /label: growthToolLabel/);
   assert.match(meSource, /buildMeReferralToolEntry\(member\)/);
   assert.match(meSource, /\.\.\.TOOL_GRID_BASE/);
   assert.match(growthSource, /BonusRepo\.getMember/);
   assert.match(growthSource, /const isVip = member\?\.tier === 'VIP'/);
   assert.match(growthSource, /会员状态加载失败/);
-  assert.match(growthSource, /AppHeader title="积分成长"/);
+  assert.match(growthSource, /AppHeader title="耕耘值"/);
   assert.doesNotMatch(growthSource, /normalShareEnabled/);
   assert.doesNotMatch(growthSource, /getNormalShareMe/);
   assert.doesNotMatch(growthSource, /getNormalShareRecords/);
