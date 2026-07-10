@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CAPTAIN_SEAFOOD_PROGRAM_CODE } from './captain.constants';
 import type { CaptainSeafoodConfigV3 } from './captain.types';
@@ -104,6 +105,7 @@ export class CaptainMonthlySettlementService {
     captainUserId?: string,
     forceRecalculate = false,
   ): Promise<any[]> {
+    this.assertMonthClosed(month);
     return this.withSerializableRetry(async (tx) => {
       const captainIds = await this.listCaptainIds(
         tx,
@@ -131,7 +133,7 @@ export class CaptainMonthlySettlementService {
             },
           },
         });
-        if (existing && (!forceRecalculate || ['APPROVED', 'PAID'].includes(existing.status))) {
+        if (existing && ['APPROVED', 'PAID'].includes(existing.status)) {
           settlements.push(existing);
           continue;
         }
@@ -140,6 +142,16 @@ export class CaptainMonthlySettlementService {
         }
         if (existing && !['DRAFT', 'PENDING_REVIEW'].includes(existing.status)) {
           throw new BadRequestException('当前结算状态不可重新计算');
+        }
+
+        const sourceFingerprint = this.sourceFingerprint(context);
+        if (
+          existing
+          && !forceRecalculate
+          && existing.meta?.sourceFingerprint === sourceFingerprint
+        ) {
+          settlements.push(existing);
+          continue;
         }
 
         const orderResults = context.attributions.map((attribution) =>
@@ -175,6 +187,7 @@ export class CaptainMonthlySettlementService {
             monthFacts: context.facts,
             configVersions: [...new Set(orderResults.map((item) => item.configVersion))],
             orderCount: orderResults.length,
+            sourceFingerprint,
           },
         };
 
@@ -221,6 +234,7 @@ export class CaptainMonthlySettlementService {
         throw new BadRequestException('当前结算状态无法审核通过');
       }
 
+      await this.assertDraftCurrent(tx, settlement);
       await this.assertNoPendingReconciliation(tx, settlement);
       await this.createMonthlyRewardLedgers(tx, settlement);
       return (tx as any).captainMonthlySettlement.update({
@@ -347,7 +361,7 @@ export class CaptainMonthlySettlementService {
       where: {
         programCode,
         calculationModel: 'PROFIT_V3',
-        createdAt: { gte: start, lt: end },
+        order: { paidAt: { gte: start, lt: end } },
         ...(captainUserId ? { directCaptainUserId: captainUserId } : {}),
       },
       select: { directCaptainUserId: true },
@@ -374,9 +388,12 @@ export class CaptainMonthlySettlementService {
         programCode,
         calculationModel: 'PROFIT_V3',
         directCaptainUserId: captainUserId,
-        createdAt: { gte: start, lt: end },
+        order: { paidAt: { gte: start, lt: end } },
       },
       include: {
+        order: {
+          select: { paidAt: true },
+        },
         profitSnapshot: {
           select: {
             fundingLedgers: {
@@ -770,6 +787,50 @@ export class CaptainMonthlySettlementService {
     if (pending) {
       throw new BadRequestException('结算订单存在未解决的利润对账任务，不可审核或支付');
     }
+  }
+
+  private async assertDraftCurrent(tx: Tx, settlement: any): Promise<void> {
+    if (!this.isV3Settlement(settlement)) return;
+    const context = await this.loadMonthContext(
+      tx,
+      settlement.month,
+      settlement.captainUserId,
+      settlement.programCode,
+    );
+    const savedFingerprint = settlement.meta?.sourceFingerprint;
+    const currentFingerprint = this.sourceFingerprint(context);
+    if (
+      typeof savedFingerprint !== 'string'
+      || savedFingerprint.length === 0
+      || savedFingerprint !== currentFingerprint
+    ) {
+      throw new BadRequestException('月结草稿数据已变化，请重新生成后再审核');
+    }
+  }
+
+  private sourceFingerprint(context: MonthContext): string {
+    const rows = context.attributions.map((attribution) => ({
+      id: attribution.id,
+      orderId: attribution.orderId,
+      paidAt: attribution.order?.paidAt instanceof Date
+        ? attribution.order.paidAt.toISOString()
+        : String(attribution.order?.paidAt ?? ''),
+      updatedAt: attribution.updatedAt instanceof Date
+        ? attribution.updatedAt.toISOString()
+        : String(attribution.updatedAt ?? ''),
+      eligibleGoodsAmount: attribution.eligibleGoodsAmount,
+      refundAmount: attribution.refundAmount,
+      profitBaseAmount: attribution.profitBaseAmount,
+      profitConfigVersion: attribution.profitConfigVersion,
+      status: attribution.status,
+      monthlyHolds: (attribution.profitSnapshot?.fundingLedgers ?? []).map((ledger: any) => ({
+        id: ledger.id,
+        amount: ledger.amount,
+      })),
+    }));
+    return createHash('sha256')
+      .update(JSON.stringify({ facts: context.facts, rows }))
+      .digest('hex');
   }
 
   private async createMonthlyRewardLedgers(tx: Tx, settlement: any): Promise<void> {

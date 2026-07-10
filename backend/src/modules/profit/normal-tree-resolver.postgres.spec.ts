@@ -1,25 +1,80 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { resolveOrCreateNormalTreeNode } from './normal-tree-resolver';
+import { isNormalTreeEnrollmentConflict } from '../order/checkout.service';
+
+function assertNormalTreeTestDatabaseUrl(rawUrl: string): { databaseName: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('NORMAL_TREE_POSTGRES_TEST_URL 必须是有效的 PostgreSQL 专用测试库 URL');
+  }
+  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+  if (!/(^|[_-])test($|[_-])/i.test(databaseName)) {
+    throw new Error('NORMAL_TREE_POSTGRES_TEST_URL 必须指向库名含 test 的专用测试库');
+  }
+  return { databaseName };
+}
+
+describe('normal-tree PostgreSQL test database guard', () => {
+  it('rejects default and non-test database names', () => {
+    expect(() => assertNormalTreeTestDatabaseUrl(
+      'postgresql://postgres@127.0.0.1:5432/postgres?schema=public',
+    )).toThrow('专用测试库');
+    expect(() => assertNormalTreeTestDatabaseUrl(
+      'postgresql://postgres@127.0.0.1:5432/nongmai?schema=public',
+    )).toThrow('专用测试库');
+  });
+
+  it('accepts an explicitly named test database', () => {
+    expect(assertNormalTreeTestDatabaseUrl(
+      'postgresql://postgres@127.0.0.1:5432/nongmai_test?schema=public',
+    ).databaseName).toBe('nongmai_test');
+  });
+});
 
 const databaseUrl = process.env.NORMAL_TREE_POSTGRES_TEST_URL;
+const databaseConfig = databaseUrl ? assertNormalTreeTestDatabaseUrl(databaseUrl) : null;
 const describePostgres = databaseUrl ? describe : describe.skip;
 
 describePostgres('resolveOrCreateNormalTreeNode PostgreSQL concurrency', () => {
   let prisma: PrismaClient;
-  const userId = 'normal-tree-postgres-buyer';
+  let preexistingNodeIds = new Set<string>();
+  const userId = `normal-tree-postgres-buyer-${Date.now()}`;
 
   beforeAll(async () => {
     prisma = new PrismaClient({ datasourceUrl: databaseUrl });
     await prisma.$connect();
+    const current = await prisma.$queryRawUnsafe<Array<{ database_name: string }>>(
+      'SELECT current_database() AS database_name',
+    );
+    if (current[0]?.database_name !== databaseConfig?.databaseName) {
+      throw new Error('普通树并发测试连接的数据库与专用测试库 URL 不一致');
+    }
+    const preexistingNodes = await prisma.normalTreeNode.findMany({ select: { id: true } });
+    preexistingNodeIds = new Set(preexistingNodes.map((node) => node.id));
+    if (preexistingNodeIds.size > 0) {
+      throw new Error('普通树并发测试要求专用测试库的 NormalTreeNode 为空');
+    }
   });
 
   afterAll(async () => {
     if (!prisma) return;
-    await prisma.normalProgress.deleteMany({ where: { userId } });
-    await prisma.memberProfile.deleteMany({ where: { userId } });
-    await prisma.normalTreeNode.deleteMany({});
-    await prisma.user.deleteMany({ where: { id: userId } });
-    await prisma.$disconnect();
+    try {
+      await prisma.normalProgress.deleteMany({ where: { userId } });
+      await prisma.memberProfile.deleteMany({ where: { userId } });
+      const createdNodes = (await prisma.normalTreeNode.findMany({
+        select: { id: true, level: true },
+      }))
+        .filter((node) => !preexistingNodeIds.has(node.id))
+        .sort((a, b) => b.level - a.level);
+      for (const node of createdNodes) {
+        await prisma.normalTreeNode.delete({ where: { id: node.id } });
+      }
+      await prisma.user.deleteMany({ where: { id: userId } });
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it('converges two fixed-snapshot first enrollments after retrying in a new transaction', async () => {
@@ -68,7 +123,12 @@ describePostgres('resolveOrCreateNormalTreeNode PostgreSQL concurrency', () => {
           });
         } catch (error: any) {
           observedConflictCodes.push(String(error?.code ?? 'unknown'));
-          if (!['P2002', 'P2034'].includes(error?.code) || attempt === 3) throw error;
+          if (
+            !(error?.code === 'P2034' || isNormalTreeEnrollmentConflict(error))
+            || attempt === 3
+          ) {
+            throw error;
+          }
         }
       }
       throw new Error('normal tree enrollment retry exhausted');
@@ -85,5 +145,23 @@ describePostgres('resolveOrCreateNormalTreeNode PostgreSQL concurrency', () => {
       normalTreeNodeId: first.id,
     });
     expect(observedConflictCodes.some((code) => ['P2002', 'P2034'].includes(code))).toBe(true);
+
+    let duplicateError: any;
+    try {
+      await prisma.normalTreeNode.create({
+        data: {
+          rootId: first.rootId,
+          userId,
+          parentId: first.parentId,
+          level: first.level,
+          position: first.position + 100,
+        },
+      });
+    } catch (error) {
+      duplicateError = error;
+    }
+    expect(duplicateError?.code).toBe('P2002');
+    expect(duplicateError?.meta?.modelName).toBe('NormalTreeNode');
+    expect(isNormalTreeEnrollmentConflict(duplicateError)).toBe(true);
   });
 });

@@ -298,6 +298,115 @@ describe('CheckoutService handlePaymentSuccess VIP 抵扣隔离', () => {
   });
 });
 
+describe('CheckoutService legacy overlapping discount settlement', () => {
+  it('preserves the paid expectedTotal and confirms only the coupon amount recorded on orders', async () => {
+    const session = {
+      id: 'cs-legacy-overlap',
+      userId: 'user1',
+      status: 'ACTIVE',
+      bizType: 'NORMAL_GOODS',
+      merchantOrderNo: 'LEGACY-OVERLAP-001',
+      expectedTotal: 5.5,
+      goodsAmount: 50,
+      shippingFee: 8,
+      discountAmount: 0,
+      groupBuyRebateDeductionAmount: 0,
+      vipDiscountAmount: 2.5,
+      totalCouponDiscount: 50,
+      couponInstanceIds: ['coupon-legacy'],
+      couponPerAmounts: [{ couponInstanceId: 'coupon-legacy', discountAmount: 50 }],
+      rewardId: null,
+      deductionGroupId: null,
+      groupBuyRebateDeductionGroupId: null,
+      buyerNote: null,
+      addressSnapshot: {},
+      bizMeta: null,
+      itemsSnapshot: [{
+        skuId: 'sku-legacy',
+        quantity: 1,
+        unitPrice: 50,
+        companyId: 'company-legacy',
+        productSnapshot: {},
+        isPrize: false,
+      }],
+    };
+    const createdOrders: any[] = [];
+    const statusHistory: any[] = [];
+    const tx: any = {
+      checkoutSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: any) => {
+          const order = { id: 'order-legacy', ...data };
+          createdOrders.push(order);
+          return order;
+        }),
+      },
+      orderStatusHistory: {
+        create: jest.fn(async ({ data }: any) => {
+          statusHistory.push(data);
+          return data;
+        }),
+      },
+      productSKU: {
+        update: jest.fn().mockResolvedValue({ stock: 9 }),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      inventoryLedger: {
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      rewardLedger: {
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      cart: { findUnique: jest.fn().mockResolvedValue(null) },
+      cartItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      lotteryRecord: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const couponService = {
+      confirmCouponUsage: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new CheckoutService(prisma, {} as any);
+    service.setCouponService(couponService as any);
+
+    await expect(service.handlePaymentSuccess(
+      'LEGACY-OVERLAP-001',
+      'trade-legacy',
+      '2026-07-01T00:00:00.000Z',
+    )).resolves.toEqual({ orderIds: ['order-legacy'] });
+
+    expect(createdOrders).toHaveLength(1);
+    expect(createdOrders[0]).toEqual(expect.objectContaining({
+      totalAmount: 5.5,
+      goodsAmount: 50,
+      shippingFee: 8,
+      vipDiscountAmount: 2.5,
+      totalCouponDiscount: 50,
+    }));
+    expect(couponService.confirmCouponUsage).toHaveBeenCalledWith(
+      ['coupon-legacy'],
+      'order-legacy',
+      [{ couponInstanceId: 'coupon-legacy', discountAmount: 50 }],
+    );
+    expect(statusHistory[0]?.meta).toEqual(expect.objectContaining({
+      legacyDiscountOverlap: expect.objectContaining({
+        detected: true,
+        sessionExpectedTotal: 5.5,
+        canonicalOrderTotal: 8,
+        overlapAmount: 2.5,
+      }),
+    }));
+  });
+});
+
 describe('CheckoutService handlePaymentSuccess bundle inventory deduction', () => {
   function buildBundleSession() {
     return {
