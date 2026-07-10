@@ -11,7 +11,7 @@ import {
 } from '../captain/captain.constants';
 import type { CaptainSeafoodConfig } from '../captain/captain.types';
 import { resolveDirectRelation } from './direct-relation-resolver';
-import { centsToYuan, yuanToCents } from './money-allocation';
+import { centsToYuan, checkedSafeIntegerSum, yuanToCents } from './money-allocation';
 import { resolveOrCreateNormalTreeNode } from './normal-tree-resolver';
 import { OrderProfitSnapshotCalculator } from './order-profit-snapshot-calculator';
 
@@ -155,8 +155,43 @@ export class OrderProfitSnapshotService {
 
     const captain = await this.resolveCaptain(tx, order.userId, ruleState);
     const paidAt = order.paidAt ?? order.createdAt;
+    const calculationItems = order.items.map((item) => ({
+      id: item.id,
+      unitPriceCents: this.toCentsOrInvalid(item.unitPrice),
+      quantity: item.quantity,
+      unitCostCents: this.toOptionalCostCents(item.sku.cost),
+      explicitDiscountCents: 0,
+      isPrize: item.isPrize,
+      captainEligible: this.isCaptainEligible(
+        item,
+        order.bizType,
+        paidAt,
+        ruleState.captainConfig,
+      ),
+    }));
+    const declaredGrossGoodsAmountCents = this.toCentsOrInvalid(order.goodsAmount);
+    const nonPrizeGrossGoodsAmountCents = checkedSafeIntegerSum(
+      calculationItems
+        .filter((item) => !item.isPrize)
+        .map((item) => item.unitPriceCents * item.quantity),
+    );
+    const allItemGrossGoodsAmountCents = checkedSafeIntegerSum(
+      calculationItems.map((item) => item.unitPriceCents * item.quantity),
+    );
+    const declaredGrossMatchesFulfillment = nonPrizeGrossGoodsAmountCents !== null
+      && allItemGrossGoodsAmountCents !== null
+      && (
+        declaredGrossGoodsAmountCents === nonPrizeGrossGoodsAmountCents
+        || declaredGrossGoodsAmountCents === allItemGrossGoodsAmountCents
+      );
+
     const calculation = this.calculator.calculate({
-      grossGoodsAmountCents: this.toCentsOrInvalid(order.goodsAmount),
+      // Paid prize rows are fulfillment facts, not a member/captain profit source.
+      // Accept both historical orders that excluded prize value from goodsAmount
+      // and current orders that included a positive DISCOUNT_BUY price.
+      grossGoodsAmountCents: declaredGrossMatchesFulfillment
+        ? nonPrizeGrossGoodsAmountCents!
+        : declaredGrossGoodsAmountCents,
       vipDiscountCents: this.toCentsOrInvalid(order.vipDiscountAmount ?? 0),
       couponDiscountCents: this.toCentsOrInvalid(order.totalCouponDiscount ?? 0),
       rewardDeductionCents: this.toCentsOrInvalid(order.discountAmount ?? 0),
@@ -164,20 +199,7 @@ export class OrderProfitSnapshotService {
         order.groupBuyRebateDeductionAmount ?? 0,
       ),
       otherGoodsDiscountCents: 0,
-      items: order.items.map((item) => ({
-        id: item.id,
-        unitPriceCents: this.toCentsOrInvalid(item.unitPrice),
-        quantity: item.quantity,
-        unitCostCents: this.toOptionalCostCents(item.sku.cost),
-        explicitDiscountCents: 0,
-        isPrize: item.isPrize,
-        captainEligible: this.isCaptainEligible(
-          item,
-          order.bizType,
-          paidAt,
-          ruleState.captainConfig,
-        ),
-      })),
+      items: calculationItems,
     });
 
     const snapshot = await tx.orderProfitSnapshot.create({

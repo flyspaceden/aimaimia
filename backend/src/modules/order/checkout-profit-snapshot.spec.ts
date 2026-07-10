@@ -116,6 +116,7 @@ function makeFixture(session = makeSession(), existingOrders: Array<{ id: string
 
   return {
     service,
+    prisma,
     tx,
     events,
     createdOrders,
@@ -126,6 +127,21 @@ function makeFixture(session = makeSession(), existingOrders: Array<{ id: string
 }
 
 describe('CheckoutService payment-time profit snapshot', () => {
+  it('retries a first-enrollment unique conflict in a fresh Serializable transaction', async () => {
+    const fixture = makeFixture();
+    fixture.prisma.$transaction
+      .mockRejectedValueOnce(Object.assign(new Error('normal tree enrollment race'), {
+        code: 'P2002',
+        meta: { modelName: 'NormalTreeNode', target: ['userId'] },
+      }))
+      .mockImplementation(async (callback: any) => callback(fixture.tx));
+
+    await expect(fixture.service.handlePaymentSuccess('MO-1', 'TX-RACE')).resolves.toEqual({
+      orderIds: ['order-1', 'order-2'],
+    });
+    expect(fixture.prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
   it('stores exact group-buy allocations and snapshots every suborder before history and attribution', async () => {
     const fixture = makeFixture();
 

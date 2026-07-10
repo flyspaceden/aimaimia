@@ -263,6 +263,31 @@ describe('OrderProfitSnapshotService', () => {
     });
   });
 
+  it('excludes a positive-price prize from profit gross without creating a false reconciliation', async () => {
+    const regularItem = makeOrder().items[0];
+    const paidPrize = {
+      ...makeOrder().items[1],
+      unitPrice: 10,
+    };
+    const order = makeOrder({
+      goodsAmount: 145,
+      vipDiscountAmount: 0,
+      totalCouponDiscount: 10,
+      discountAmount: 0,
+      items: [regularItem, paidPrize],
+    });
+    const { tx } = makeTx(order);
+
+    await expect(service.createForPaidOrder(tx, 'order-1')).resolves.toMatchObject({
+      status: 'READY',
+      grossGoodsAmount: 135,
+      netGoodsRevenue: 125,
+      productCostAmount: 100,
+      distributableProfitAmount: 25,
+    });
+    expect(tx.orderProfitReconciliationTask.upsert).not.toHaveBeenCalled();
+  });
+
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'treats invalid SKU cost %s as reconciliation data instead of failing payment',
     async (cost) => {
