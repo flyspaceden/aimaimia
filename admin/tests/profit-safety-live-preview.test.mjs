@@ -75,6 +75,8 @@ test('admin architecture documents VIP and normal candidate safety preview guara
   assert.match(doc, /500ms/);
   assert.match(doc, /config:update/);
   assert.match(doc, /比例合计非法或存在字段校验错误时不预检/);
-  assert.match(doc, /只读|不写入.*RuleConfig.*version.*audit|不落库/);
+  assert.match(doc, /候选结果不写入 `RuleConfig`/);
+  assert.match(doc, /候选结果不写入[^。\n]*(?:版本历史|配置版本)/);
+  assert.match(doc, /候选结果不写入[^。\n]*(?:audit records|审计记录)/);
   assert.match(doc, /保存时.*Serializable.*advisory lock.*原子.*硬校验/);
 });
