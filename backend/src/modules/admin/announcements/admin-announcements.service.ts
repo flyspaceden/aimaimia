@@ -9,6 +9,7 @@ import {
   AnnouncementAudienceDto,
   AnnouncementListQueryDto,
   AnnouncementTargetDto,
+  AnnouncementTargetProductQueryDto,
   CreateAnnouncementDto,
 } from './dto/admin-announcement.dto';
 
@@ -51,6 +52,7 @@ const VALID_APP_DYNAMIC_ROUTE_PREFIXES = [
 ];
 
 const BATCH_SIZE = 1000;
+const PRODUCT_DETAIL_ROUTE_KEY = 'PRODUCT_DETAIL';
 
 type AnnouncementRecipient = {
   id: string;
@@ -62,7 +64,7 @@ export class AdminAnnouncementsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async preview(dto: CreateAnnouncementDto) {
-    this.assertValidTarget(dto.target);
+    await this.resolveTarget(dto.target);
     this.assertAudience(dto.audience);
 
     if (dto.audience.type === 'BUYER_NOS') {
@@ -77,9 +79,8 @@ export class AdminAnnouncementsService {
   }
 
   async create(dto: CreateAnnouncementDto, adminId: string) {
-    this.assertValidTarget(dto.target);
     this.assertAudience(dto.audience);
-    const target = this.normalizeTarget(dto.target);
+    const target = await this.resolveTarget(dto.target);
     const { recipients, invalidBuyerNos } = await this.resolveAudience(dto.audience);
     if (invalidBuyerNos.length > 0) {
       throw new BadRequestException(`以下买家编号不存在或不可发送: ${invalidBuyerNos.join(', ')}`);
@@ -172,6 +173,62 @@ export class AdminAnnouncementsService {
     return { items, total, page, pageSize };
   }
 
+  async findTargetProducts(query: AnnouncementTargetProductQueryDto) {
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize ?? 20)));
+    const keyword = query.keyword?.trim();
+    const where: any = {
+      status: 'ACTIVE',
+      auditStatus: 'APPROVED',
+      company: { isPlatform: false },
+    };
+    if (keyword) {
+      where.OR = [
+        { title: { contains: keyword, mode: 'insensitive' } },
+        { id: keyword },
+        { company: { name: { contains: keyword, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [products, total] = await Promise.all([
+      (this.prisma as any).product.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          basePrice: true,
+          createdAt: true,
+          company: { select: { id: true, name: true } },
+          media: {
+            where: { type: 'IMAGE' },
+            orderBy: { sortOrder: 'asc' },
+            take: 1,
+            select: { url: true },
+          },
+        },
+      }),
+      (this.prisma as any).product.count({ where }),
+    ]);
+
+    return {
+      items: products.map((product: any) => ({
+        id: product.id,
+        title: product.title,
+        basePrice: product.basePrice,
+        companyId: product.company.id,
+        companyName: product.company.name,
+        imageUrl: product.media[0]?.url ?? null,
+        createdAt: product.createdAt,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
   async findById(id: string) {
     const announcement = await (this.prisma as any).announcement.findUnique({ where: { id } });
     if (!announcement) throw new NotFoundException('公告不存在');
@@ -246,18 +303,69 @@ export class AdminAnnouncementsService {
     }
   }
 
+  private async resolveTarget(target?: AnnouncementTargetDto) {
+    if (!target) return undefined;
+    if (target.routeKey && target.route) {
+      throw new BadRequestException('公告跳转目标不能同时使用页面动作和历史地址');
+    }
+
+    if (target.routeKey) {
+      if (target.routeKey !== PRODUCT_DETAIL_ROUTE_KEY) {
+        throw new BadRequestException('公告跳转页面不受支持');
+      }
+      return this.resolveProductTarget(target.params?.id);
+    }
+
+    if (!target.route) {
+      if (target.params && Object.keys(target.params).length > 0) {
+        throw new BadRequestException('公告跳转参数缺少对应页面');
+      }
+      return undefined;
+    }
+
+    this.assertValidTarget(target);
+    const route = target.route.trim();
+    const productRouteMatch = route.match(/^\/product\/([^/?#]+)$/);
+    if (productRouteMatch) {
+      return this.resolveProductTarget(productRouteMatch[1]);
+    }
+
+    return {
+      ...target,
+      route,
+    };
+  }
+
+  private async resolveProductTarget(rawProductId: unknown) {
+    const productId = typeof rawProductId === 'string' ? rawProductId.trim() : '';
+    if (!productId) {
+      throw new BadRequestException('请选择要跳转的商品');
+    }
+
+    const product = await (this.prisma as any).product.findFirst({
+      where: {
+        id: productId,
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+        company: { isPlatform: false },
+      },
+      select: { id: true, title: true },
+    });
+    if (!product) {
+      throw new BadRequestException('所选商品已下架、未通过审核或买家不可见');
+    }
+
+    return {
+      routeKey: PRODUCT_DETAIL_ROUTE_KEY,
+      params: { id: product.id },
+      label: `商品详情：${product.title}`,
+    };
+  }
+
   private assertAudience(audience?: AnnouncementAudienceDto): asserts audience is AnnouncementAudienceDto {
     if (!audience?.type) {
       throw new BadRequestException('请选择公告发送范围');
     }
-  }
-
-  private normalizeTarget(target?: AnnouncementTargetDto) {
-    if (!target?.route) return undefined;
-    return {
-      ...target,
-      route: target.route.trim(),
-    };
   }
 
   private recipientKey(userId: string) {

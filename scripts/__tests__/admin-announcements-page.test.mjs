@@ -5,6 +5,7 @@ import test from 'node:test';
 const apiPath = 'admin/src/api/announcements.ts';
 const pagePath = 'admin/src/pages/announcements/index.tsx';
 const pageStylePath = 'admin/src/pages/announcements/index.css';
+const productSelectPath = 'admin/src/components/AnnouncementProductSelect.tsx';
 const app = readFileSync('admin/src/App.tsx', 'utf8');
 const layout = readFileSync('admin/src/layouts/AdminLayout.tsx', 'utf8');
 const permissions = readFileSync('admin/src/constants/permissions.ts', 'utf8');
@@ -15,6 +16,7 @@ test('admin announcements API exposes list preview and publish calls', () => {
   assert.match(api, /getAnnouncements/);
   assert.match(api, /previewAnnouncement/);
   assert.match(api, /createAnnouncement/);
+  assert.match(api, /getAnnouncementTargetProducts/);
   assert.match(api, /\/admin\/announcements/);
 });
 
@@ -54,9 +56,22 @@ test('admin announcements page uses friendly target page choices instead of rout
   assert.match(page, /团购首页/);
   assert.match(page, /我的财库/);
   assert.match(page, /推荐中心/);
+  assert.match(page, /商品详情/);
+  assert.match(page, /AnnouncementProductSelect/);
+  assert.match(page, /routeKey: 'PRODUCT_DETAIL'/);
   assert.doesNotMatch(page, /targetRoute/);
   assert.doesNotMatch(page, /\/product\/xxx/);
   assert.doesNotMatch(page, /\/orders\/xxx/);
+});
+
+test('announcement product picker searches buyer-visible products and loads more on scroll', () => {
+  assert.equal(existsSync(productSelectPath), true, 'announcement product selector should exist');
+  const productSelect = readFileSync(productSelectPath, 'utf8');
+  assert.match(productSelect, /getAnnouncementTargetProducts/);
+  assert.match(productSelect, /useInfiniteQuery/);
+  assert.match(productSelect, /onFocus=\{\(\) => setOpen\(true\)\}/);
+  assert.match(productSelect, /onPopupScroll=\{handlePopupScroll\}/);
+  assert.match(productSelect, /fetchNextPage/);
 });
 
 test('admin announcements page lets operators resize publish and history panes', () => {

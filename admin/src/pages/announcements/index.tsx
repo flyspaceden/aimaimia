@@ -45,6 +45,7 @@ import {
   type CreateAnnouncementPayload,
 } from '@/api/announcements';
 import PermissionGate from '@/components/PermissionGate';
+import AnnouncementProductSelect from '@/components/AnnouncementProductSelect';
 import { BuyerNoMultiSelect } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
 import './index.css';
@@ -64,10 +65,12 @@ type AnnouncementFormValues = {
   audienceType: AnnouncementAudienceType;
   buyerNoText?: string;
   targetPage?: AnnouncementTargetPage;
+  productId?: string;
 };
 
 type AnnouncementTargetPage =
   | 'NONE'
+  | 'PRODUCT_DETAIL'
   | 'COUPON_CENTER'
   | 'GROUP_BUY'
   | 'ORDER_LIST'
@@ -95,6 +98,7 @@ const statusMap: Record<AnnouncementRecord['status'], { text: string; color: str
 
 const targetPageOptions: Array<{ value: AnnouncementTargetPage; label: string; route?: string }> = [
   { value: 'NONE', label: '不跳转' },
+  { value: 'PRODUCT_DETAIL', label: '商品详情' },
   { value: 'COUPON_CENTER', label: '领券中心', route: '/coupon-center' },
   { value: 'GROUP_BUY', label: '团购首页', route: '/group-buy' },
   { value: 'ORDER_LIST', label: '订单列表', route: '/orders' },
@@ -118,6 +122,7 @@ const targetLabelByRoute = targetPageOptions.reduce((acc, option) => {
 }, {} as Record<string, string>);
 
 const getTargetPageLabel = (target?: AnnouncementRecord['target'] | null) => {
+  if (target?.routeKey === 'PRODUCT_DETAIL') return target.label ?? '商品详情';
   if (!target?.route) return '不跳转';
   return targetLabelByRoute[target.route] ?? '历史跳转页面';
 };
@@ -135,6 +140,7 @@ export default function AnnouncementsPage() {
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AnnouncementFormValues>();
+  const selectedTargetPage = Form.useWatch('targetPage', form);
   const [audienceType, setAudienceType] = useState<AnnouncementAudienceType>('ALL');
   const [previewResult, setPreviewResult] = useState<AnnouncementPreviewResult | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -204,6 +210,9 @@ export default function AnnouncementsPage() {
   }, []);
 
   const buildPayload = (values: AnnouncementFormValues): CreateAnnouncementPayload => {
+    const target = values.targetPage === 'PRODUCT_DETAIL'
+      ? { routeKey: 'PRODUCT_DETAIL' as const, params: { id: values.productId! } }
+      : undefined;
     const selectedRoute = values.targetPage && values.targetPage !== 'NONE'
       ? routeByTargetPage[values.targetPage]
       : undefined;
@@ -213,7 +222,7 @@ export default function AnnouncementsPage() {
       category: values.category,
       type: values.type,
       priority: values.priority,
-      target: selectedRoute ? { route: selectedRoute } : undefined,
+      target: target ?? (selectedRoute ? { route: selectedRoute } : undefined),
       audience: values.audienceType === 'BUYER_NOS'
         ? { type: values.audienceType, buyerNos: parseBuyerNos(values.buyerNoText) }
         : { type: values.audienceType },
@@ -311,11 +320,19 @@ export default function AnnouncementsPage() {
       title: '跳转',
       dataIndex: 'target',
       width: 180,
-      render: (target: AnnouncementRecord['target']) => (
-        <Text type={target?.route ? undefined : 'secondary'}>
-          {getTargetPageLabel(target)}
-        </Text>
-      ),
+      render: (target: AnnouncementRecord['target']) => {
+        const label = getTargetPageLabel(target);
+        const hasTarget = Boolean(target?.route || target?.routeKey);
+        return (
+          <Text
+            type={hasTarget ? undefined : 'secondary'}
+            ellipsis={hasTarget ? { tooltip: label } : undefined}
+            style={{ maxWidth: 160 }}
+          >
+            {label}
+          </Text>
+        );
+      },
     },
     {
       title: '发送时间',
@@ -418,8 +435,21 @@ export default function AnnouncementsPage() {
                     value: option.value,
                     label: option.label,
                   }))}
+                  onChange={(nextPage: AnnouncementTargetPage) => {
+                    if (nextPage !== 'PRODUCT_DETAIL') form.setFieldValue('productId', undefined);
+                  }}
                 />
               </Form.Item>
+              {selectedTargetPage === 'PRODUCT_DETAIL' ? (
+                <Form.Item
+                  name="productId"
+                  label="选择商品"
+                  rules={[{ required: true, message: '请选择要跳转的商品' }]}
+                  extra="仅显示已上架、审核通过且买家可以访问的商品"
+                >
+                  <AnnouncementProductSelect />
+                </Form.Item>
+              ) : null}
 
               {previewResult ? (
                 <Alert

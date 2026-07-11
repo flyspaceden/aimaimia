@@ -12,6 +12,10 @@ describe('InboxService', () => {
       unreadCount: jest.fn(),
       markRead: jest.fn(),
       markAllRead: jest.fn(),
+      deleteOne: jest.fn(),
+      restoreOne: jest.fn(),
+      deleteRead: jest.fn(),
+      deleteAll: jest.fn(),
     };
 
     return {
@@ -37,6 +41,24 @@ describe('InboxService', () => {
     expect(notificationMessages.unreadCount).toHaveBeenCalledWith('buyer:buyer-1');
     expect(notificationMessages.markRead).toHaveBeenCalledWith('buyer:buyer-1', 'message-1');
     expect(notificationMessages.markAllRead).toHaveBeenCalledWith('buyer:buyer-1');
+  });
+
+  it('delegates buyer-owned soft deletion and restore operations', async () => {
+    const { service, notificationMessages } = makeService();
+    notificationMessages.deleteOne.mockResolvedValue({ id: 'message-1', deletedCount: 1 });
+    notificationMessages.restoreOne.mockResolvedValue({ id: 'message-1', restoredCount: 1 });
+    notificationMessages.deleteRead.mockResolvedValue({ deletedCount: 3 });
+    notificationMessages.deleteAll.mockResolvedValue({ deletedCount: 5 });
+
+    await expect(service.deleteOne('message-1', 'buyer-1')).resolves.toEqual({ id: 'message-1', deletedCount: 1 });
+    await expect(service.restoreOne('message-1', 'buyer-1')).resolves.toEqual({ id: 'message-1', restoredCount: 1 });
+    await expect(service.deleteRead('buyer-1')).resolves.toEqual({ deletedCount: 3 });
+    await expect(service.deleteAll('buyer-1')).resolves.toEqual({ deletedCount: 5 });
+
+    expect(notificationMessages.deleteOne).toHaveBeenCalledWith('buyer:buyer-1', 'message-1');
+    expect(notificationMessages.restoreOne).toHaveBeenCalledWith('buyer:buyer-1', 'message-1');
+    expect(notificationMessages.deleteRead).toHaveBeenCalledWith('buyer:buyer-1');
+    expect(notificationMessages.deleteAll).toHaveBeenCalledWith('buyer:buyer-1');
   });
 
   it('adapts deprecated send calls to NotificationMessage rows with a unique idempotency key', async () => {

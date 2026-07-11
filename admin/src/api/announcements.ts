@@ -4,10 +4,23 @@ export type AnnouncementAudienceType = 'ALL' | 'VIP' | 'NORMAL' | 'BUYER_NOS';
 export type AnnouncementCategory = 'system' | 'transaction' | 'interaction';
 export type AnnouncementType = 'platform_announcement' | 'platform_notice';
 export type AnnouncementPriority = 'NORMAL' | 'IMPORTANT';
+export type AnnouncementTargetRouteKey = 'PRODUCT_DETAIL';
 
 export interface AnnouncementTarget {
+  routeKey?: AnnouncementTargetRouteKey;
   route?: string;
   params?: Record<string, string>;
+  label?: string;
+}
+
+export interface AnnouncementTargetProduct {
+  id: string;
+  title: string;
+  basePrice: number;
+  companyId: string;
+  companyName: string;
+  imageUrl: string | null;
+  createdAt: string;
 }
 
 export interface AnnouncementAudience {
@@ -55,6 +68,13 @@ export const getAnnouncements = (params?: {
   pageSize?: number;
 }): Promise<{ items: AnnouncementRecord[]; total: number; page: number; pageSize: number }> =>
   client.get('/admin/announcements', { params });
+
+export const getAnnouncementTargetProducts = (params?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+}): Promise<{ items: AnnouncementTargetProduct[]; total: number; page: number; pageSize: number }> =>
+  client.get('/admin/announcements/target-products', { params });
 
 export const previewAnnouncement = (data: CreateAnnouncementPayload): Promise<AnnouncementPreviewResult> =>
   client.post('/admin/announcements/preview', data);

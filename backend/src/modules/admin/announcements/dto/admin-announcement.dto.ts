@@ -18,6 +18,10 @@ import {
 
 export class AnnouncementTargetDto {
   @IsOptional()
+  @IsIn(['PRODUCT_DETAIL'])
+  routeKey?: 'PRODUCT_DETAIL';
+
+  @IsOptional()
   @IsString()
   @MaxLength(200)
   route?: string;
@@ -25,6 +29,26 @@ export class AnnouncementTargetDto {
   @IsOptional()
   @IsObject()
   params?: Record<string, unknown>;
+}
+
+export class AnnouncementTargetProductQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  pageSize?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  keyword?: string;
 }
 
 export class AnnouncementAudienceDto {

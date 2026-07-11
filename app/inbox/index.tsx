@@ -1,19 +1,29 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
+import { AppBottomSheet } from '../../src/components/overlay';
 import { InboxRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { useTheme } from '../../src/theme';
-import { AppError, InboxCategory, InboxMessage, InboxType } from '../../src/types';
+import { useBottomInset, useTheme } from '../../src/theme';
+import { AppError, InboxMessage, InboxType } from '../../src/types';
+import {
+  DEFAULT_INBOX_FILTERS,
+  resetInboxFilters,
+  type InboxFilterTab,
+} from '../../src/utils/inboxFilters';
+import { formatInboxTimestamp } from '../../src/utils/inboxDisplay';
 import { resolveBuyerNotificationRoute } from '../../src/utils/notificationRoutes';
 
-type InboxTab = 'all' | InboxCategory;
+type CleanupMode = 'menu' | 'confirm-read' | 'confirm-all' | null;
 
 const iconMap: Partial<Record<InboxType, { name: string; tone: 'brand' | 'accent' | 'neutral' }>> = {
   expert_reply: { name: 'comment-question-outline', tone: 'accent' },
@@ -80,13 +90,22 @@ const iconMap: Partial<Record<InboxType, { name: string; tone: 'brand' | 'accent
 
 export default function InboxScreen() {
   const { colors, radius, spacing, typography, shadow } = useTheme();
+  const undoBottomOffset = useBottomInset(spacing.lg);
   const { show } = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<InboxTab>('all');
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [filters, setFilters] = useState(DEFAULT_INBOX_FILTERS);
+  const [cleanupMode, setCleanupMode] = useState<CleanupMode>(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [lastDeletedMessage, setLastDeletedMessage] = useState<InboxMessage | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { activeTab, unreadOnly } = filters;
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const PAGE_SIZE = 20;
+
+  useEffect(() => () => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+  }, []);
 
   const {
     data,
@@ -146,6 +165,85 @@ export default function InboxScreen() {
     ]);
   };
 
+  const clearFilters = () => {
+    setFilters(resetInboxFilters());
+  };
+
+  const startUndoWindow = (message: InboxMessage) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setLastDeletedMessage(message);
+    undoTimerRef.current = setTimeout(() => {
+      setLastDeletedMessage(null);
+      undoTimerRef.current = null;
+    }, 5000);
+  };
+
+  const handleDeleteMessage = async (message: InboxMessage) => {
+    const result = await InboxRepo.deleteMessage(message.id);
+    if (!result.ok) {
+      show({ message: result.error.displayMessage ?? '删除失败', type: 'error' });
+      return;
+    }
+    startUndoWindow(message);
+    await invalidateInboxState();
+  };
+
+  const handleRestoreMessage = async () => {
+    if (!lastDeletedMessage) return;
+    const messageId = lastDeletedMessage.id;
+    const result = await InboxRepo.restoreMessage(messageId);
+    if (!result.ok) {
+      show({ message: result.error.displayMessage ?? '恢复失败', type: 'error' });
+      return;
+    }
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = null;
+    setLastDeletedMessage(null);
+    await invalidateInboxState();
+    show({ message: '消息已恢复', type: 'success' });
+  };
+
+  const handleBulkDelete = async (scope: 'READ' | 'ALL') => {
+    setCleanupLoading(true);
+    try {
+      const result = scope === 'READ'
+        ? await InboxRepo.deleteReadMessages()
+        : await InboxRepo.deleteAllMessages();
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '清理失败', type: 'error' });
+        return;
+      }
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+      setLastDeletedMessage(null);
+      clearFilters();
+      setCleanupMode(null);
+      await invalidateInboxState();
+      const count = result.data.deletedCount ?? 0;
+      show({
+        message: count > 0 ? `已清理 ${count} 条消息` : '没有需要清理的消息',
+        type: count > 0 ? 'success' : 'info',
+      });
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
+  const renderDeleteAction = (message: InboxMessage, swipeable: SwipeableMethods) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`删除消息：${message.title}`}
+      onPress={() => {
+        swipeable.close();
+        void handleDeleteMessage(message);
+      }}
+      style={[styles.deleteAction, { backgroundColor: colors.danger }]}
+    >
+      <MaterialCommunityIcons name="trash-can-outline" size={22} color={colors.text.inverse} />
+      <Text style={[typography.caption, { color: colors.text.inverse, marginTop: 4 }]}>删除</Text>
+    </Pressable>
+  );
+
   const handleOpenMessage = async (message: InboxMessage) => {
     if (message.unread) {
       const result = await InboxRepo.markRead(message.id);
@@ -171,7 +269,20 @@ export default function InboxScreen() {
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
-      <AppHeader title="消息中心" />
+      <AppHeader
+        title="消息中心"
+        rightSlot={(
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="清理消息"
+            hitSlop={10}
+            onPress={() => setCleanupMode('menu')}
+            style={({ pressed }) => [styles.headerAction, pressed && styles.pressedControl]}
+          >
+            <MaterialCommunityIcons name="delete-sweep-outline" size={23} color={colors.text.secondary} />
+          </Pressable>
+        )}
+      />
       <View style={{ padding: spacing.xl, paddingBottom: spacing['3xl'], flex: 1 }}>
         <View style={styles.toolbar}>
           <View style={styles.tabRow}>
@@ -180,7 +291,10 @@ export default function InboxScreen() {
               return (
                 <Pressable
                   key={tab.id}
-                  onPress={() => setActiveTab(tab.id as InboxTab)}
+                  onPress={() => setFilters((current) => ({
+                    ...current,
+                    activeTab: tab.id as InboxFilterTab,
+                  }))}
                   style={[
                     styles.tabChip,
                     {
@@ -207,7 +321,10 @@ export default function InboxScreen() {
           </View>
           <View style={styles.filterRow}>
             <Pressable
-              onPress={() => setUnreadOnly((prev) => !prev)}
+              onPress={() => setFilters((current) => ({
+                ...current,
+                unreadOnly: !current.unreadOnly,
+              }))}
               style={[
                 styles.filterChip,
                 {
@@ -254,12 +371,13 @@ export default function InboxScreen() {
             </Text>
             {hasFilter ? (
               <Pressable
-                onPress={() => {
-                  setActiveTab('all');
-                  setUnreadOnly(false);
-                }}
-                style={styles.resetFilter}
+                accessibilityRole="button"
+                accessibilityLabel="清空消息筛选"
+                hitSlop={10}
+                onPress={clearFilters}
+                style={({ pressed }) => [styles.resetFilter, pressed && styles.pressedControl]}
               >
+                <MaterialCommunityIcons name="filter-remove-outline" size={16} color={colors.accent.blue} />
                 <Text style={[typography.caption, { color: colors.accent.blue }]}>清空筛选</Text>
               </Pressable>
             ) : null}
@@ -285,8 +403,7 @@ export default function InboxScreen() {
             actionLabel={hasFilter ? '清空筛选' : '去首页'}
             onAction={() => {
               if (hasFilter) {
-                setActiveTab('all');
-                setUnreadOnly(false);
+                clearFilters();
                 return;
               }
               router.push('/(tabs)/home');
@@ -317,38 +434,50 @@ export default function InboxScreen() {
                   ? colors.accent.blueSoft
                   : colors.border;
               return (
-                <Animated.View key={message.id} entering={FadeInDown.duration(300).delay(50 + msgIndex * 30)}>
-                  <Pressable
-                    onPress={() => handleOpenMessage(message)}
-                    style={[styles.messageRow, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg, marginBottom: 8, padding: 12 }]}
+                <Animated.View
+                  key={message.id}
+                  entering={FadeInDown.duration(300).delay(50 + msgIndex * 30)}
+                  style={[shadow.md, { marginBottom: 8, borderRadius: radius.lg }]}
+                >
+                  <ReanimatedSwipeable
+                    friction={2}
+                    rightThreshold={42}
+                    overshootRight={false}
+                    renderRightActions={(_progress, _translation, swipeable) => renderDeleteAction(message, swipeable)}
+                    containerStyle={{ borderRadius: radius.lg, overflow: 'hidden' }}
                   >
-                    <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
-                      <MaterialCommunityIcons name={icon.name as any} size={18} color={iconColor} />
-                    </View>
-                    <View style={styles.messageInfo}>
-                      <View style={styles.messageHeader}>
-                        <Text style={[typography.bodyStrong, styles.messageTitle, { color: colors.text.primary }]} numberOfLines={1}>
-                          {message.title}
-                        </Text>
-                        {isImportantAnnouncement ? (
-                          <View style={[styles.importantBadge, { borderColor: colors.warning }]}>
-                            <Text style={[typography.caption, { color: colors.warning }]}>重要</Text>
-                          </View>
-                        ) : null}
-                        {message.unread ? <View style={[styles.dot, { backgroundColor: colors.danger }]} /> : null}
+                    <Pressable
+                      onPress={() => handleOpenMessage(message)}
+                      style={[styles.messageRow, { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12 }]}
+                    >
+                      <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
+                        <MaterialCommunityIcons name={icon.name as any} size={18} color={iconColor} />
                       </View>
-                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]} numberOfLines={2}>
-                        {message.content}
-                      </Text>
-                      <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
-                        {message.createdAt}
-                      </Text>
-                    </View>
-                    {/* 仅当消息可跳转时显示 chevron，info-only 消息不显示避免误导 */}
-                    {isMessageClickable(message) ? (
-                      <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
-                    ) : null}
-                  </Pressable>
+                      <View style={styles.messageInfo}>
+                        <View style={styles.messageHeader}>
+                          <Text style={[typography.bodyStrong, styles.messageTitle, { color: colors.text.primary }]} numberOfLines={1}>
+                            {message.title}
+                          </Text>
+                          {isImportantAnnouncement ? (
+                            <View style={[styles.importantBadge, { borderColor: colors.warning }]}>
+                              <Text style={[typography.caption, { color: colors.warning }]}>重要</Text>
+                            </View>
+                          ) : null}
+                          {message.unread ? <View style={[styles.dot, { backgroundColor: colors.danger }]} /> : null}
+                        </View>
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 4 }]} numberOfLines={2}>
+                          {message.content}
+                        </Text>
+                        <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 6 }]}>
+                          {formatInboxTimestamp(message.createdAt)}
+                        </Text>
+                      </View>
+                      {/* 仅当消息可跳转时显示 chevron，info-only 消息不显示避免误导 */}
+                      {isMessageClickable(message) ? (
+                        <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
+                      ) : null}
+                    </Pressable>
+                  </ReanimatedSwipeable>
                 </Animated.View>
               );
             })}
@@ -373,11 +502,133 @@ export default function InboxScreen() {
           </ScrollView>
         )}
       </View>
+
+      <AppBottomSheet
+        open={cleanupMode !== null}
+        onClose={() => {
+          if (!cleanupLoading) setCleanupMode(null);
+        }}
+        title={cleanupMode === 'menu' ? '清理消息' : '确认清理'}
+      >
+        {cleanupMode === 'menu' ? (
+          <View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCleanupMode('confirm-read')}
+              style={({ pressed }) => [
+                styles.cleanupOption,
+                { borderColor: colors.border },
+                pressed && styles.pressedControl,
+              ]}
+            >
+              <View style={[styles.cleanupIcon, { backgroundColor: colors.brand.primarySoft }]}>
+                <MaterialCommunityIcons name="email-open-multiple-outline" size={22} color={colors.brand.primary} />
+              </View>
+              <View style={styles.cleanupText}>
+                <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>清空已读消息</Text>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 3 }]}>保留所有未读消息</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.tertiary} />
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCleanupMode('confirm-all')}
+              style={({ pressed }) => [
+                styles.cleanupOption,
+                { borderColor: colors.border, marginTop: 10 },
+                pressed && styles.pressedControl,
+              ]}
+            >
+              <View style={[styles.cleanupIcon, { backgroundColor: colors.bgSecondary }]}>
+                <MaterialCommunityIcons name="delete-alert-outline" size={22} color={colors.danger} />
+              </View>
+              <View style={styles.cleanupText}>
+                <Text style={[typography.bodyStrong, { color: colors.danger }]}>清空全部消息</Text>
+                <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 3 }]}>包括所有分类中的未读消息</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.tertiary} />
+            </Pressable>
+          </View>
+        ) : cleanupMode ? (
+          <View>
+            <Text style={[typography.body, { color: colors.text.secondary, lineHeight: 24 }]}>
+              {cleanupMode === 'confirm-all'
+                ? '确定清空全部消息吗？所有分类中的已读和未读消息都会从消息中心移除。'
+                : '确定清空全部已读消息吗？未读消息会继续保留。'}
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={cleanupLoading}
+                onPress={() => setCleanupMode('menu')}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  { borderColor: colors.border },
+                  pressed && styles.pressedControl,
+                ]}
+              >
+                <Text style={[typography.bodyStrong, { color: colors.text.secondary }]}>取消</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={cleanupLoading}
+                onPress={() => void handleBulkDelete(cleanupMode === 'confirm-all' ? 'ALL' : 'READ')}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  {
+                    backgroundColor: cleanupMode === 'confirm-all' ? colors.danger : colors.brand.primary,
+                    borderColor: cleanupMode === 'confirm-all' ? colors.danger : colors.brand.primary,
+                    opacity: cleanupLoading ? 0.6 : 1,
+                  },
+                  pressed && styles.pressedControl,
+                ]}
+              >
+                <Text style={[typography.bodyStrong, { color: colors.text.inverse }]}>
+                  {cleanupLoading ? '清理中...' : '确认清理'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      </AppBottomSheet>
+
+      {lastDeletedMessage ? (
+        <View
+          style={[
+            styles.undoBar,
+            shadow.md,
+            {
+              bottom: undoBottomOffset,
+              backgroundColor: colors.text.primary,
+              borderRadius: radius.lg,
+            },
+          ]}
+        >
+          <Text style={[typography.caption, styles.undoText, { color: colors.surface }]} numberOfLines={1}>
+            已删除“{lastDeletedMessage.title}”
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={10}
+            onPress={() => void handleRestoreMessage()}
+            style={({ pressed }) => [styles.undoButton, pressed && styles.pressedControl]}
+          >
+            <Text style={[typography.bodyStrong, { color: colors.warning }]}>撤销</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  headerAction: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   toolbar: {
     marginBottom: 12,
   },
@@ -409,12 +660,24 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   resetFilter: {
-    paddingVertical: 4,
-    paddingHorizontal: 6,
+    minHeight: 44,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pressedControl: {
+    opacity: 0.55,
   },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  deleteAction: {
+    width: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconWrap: {
     width: 36,
@@ -454,5 +717,61 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 16,
     paddingVertical: 8,
+  },
+  cleanupOption: {
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cleanupIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  cleanupText: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+  },
+  confirmButton: {
+    flex: 1,
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  undoBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  undoText: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
+  },
+  undoButton: {
+    minWidth: 52,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

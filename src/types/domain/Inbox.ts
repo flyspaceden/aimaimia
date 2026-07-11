@@ -59,6 +59,7 @@ export type InboxRouteKey =
   | 'COUPONS'
   | 'DIGITAL_ASSETS'
   | 'GROUP_BUY_DETAIL'
+  | 'PRODUCT_DETAIL'
   | 'CS_SESSION'
   | 'ORDER_RECEIVER_INFO'
   | string;

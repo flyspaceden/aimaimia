@@ -7,7 +7,11 @@ import { AuditLogInterceptor } from '../common/interceptors/audit-log.intercepto
 import { AuditLog } from '../common/decorators/audit-action';
 import { CurrentAdmin } from '../common/decorators/current-admin';
 import { AdminAnnouncementsService } from './admin-announcements.service';
-import { AnnouncementListQueryDto, CreateAnnouncementDto } from './dto/admin-announcement.dto';
+import {
+  AnnouncementListQueryDto,
+  AnnouncementTargetProductQueryDto,
+  CreateAnnouncementDto,
+} from './dto/admin-announcement.dto';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
@@ -20,6 +24,12 @@ export class AdminAnnouncementsController {
   @RequirePermission('announcements:read')
   findAll(@Query() query: AnnouncementListQueryDto) {
     return this.announcementsService.findAll(query);
+  }
+
+  @Get('target-products')
+  @RequirePermission('announcements:read')
+  findTargetProducts(@Query() query: AnnouncementTargetProductQueryDto) {
+    return this.announcementsService.findTargetProducts(query);
   }
 
   @Get(':id')

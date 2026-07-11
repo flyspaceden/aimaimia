@@ -22,10 +22,17 @@ import { USE_MOCK } from './http/config';
 import { ApiClient } from './http/ApiClient';
 
 let messageCache = [...mockInboxMessages];
+const deletedMessageCache = new Map<string, InboxMessage>();
 
 type InboxListParams = {
   page?: number;
   pageSize?: number;
+};
+
+type InboxDeleteResult = {
+  id?: string;
+  deletedCount?: number;
+  restoredCount?: number;
 };
 
 // 消息中心仓储：消息列表与已读状态（复杂业务逻辑需中文注释）
@@ -78,6 +85,62 @@ export const InboxRepo = {
     }
 
     return ApiClient.post<InboxMessage[]>('/inbox/read-all');
+  },
+  /** 删除单条消息：后端软删除，仅影响当前买家。 */
+  deleteMessage: async (id: string): Promise<Result<InboxDeleteResult>> => {
+    if (USE_MOCK) {
+      const message = messageCache.find((item) => item.id === id);
+      if (!message) {
+        return {
+          ok: false,
+          error: { code: 'NOT_FOUND', message: '消息不存在', displayMessage: '消息不存在', retryable: false },
+        };
+      }
+      deletedMessageCache.set(id, message);
+      messageCache = messageCache.filter((item) => item.id !== id);
+      return simulateRequest({ id, deletedCount: 1 }, { delay: 160 });
+    }
+
+    return ApiClient.delete<InboxDeleteResult>(`/inbox/${id}`);
+  },
+  /** 恢复刚删除的单条消息。 */
+  restoreMessage: async (id: string): Promise<Result<InboxDeleteResult>> => {
+    if (USE_MOCK) {
+      const message = deletedMessageCache.get(id);
+      if (!message) {
+        return {
+          ok: false,
+          error: { code: 'NOT_FOUND', message: '消息无法恢复', displayMessage: '消息无法恢复', retryable: false },
+        };
+      }
+      messageCache = [message, ...messageCache];
+      deletedMessageCache.delete(id);
+      return simulateRequest({ id, restoredCount: 1 }, { delay: 160 });
+    }
+
+    return ApiClient.post<InboxDeleteResult>(`/inbox/${id}/restore`);
+  },
+  /** 清空已读消息，保留未读消息。 */
+  deleteReadMessages: async (): Promise<Result<InboxDeleteResult>> => {
+    if (USE_MOCK) {
+      const readMessages = messageCache.filter((item) => !item.unread);
+      readMessages.forEach((message) => deletedMessageCache.set(message.id, message));
+      messageCache = messageCache.filter((item) => item.unread);
+      return simulateRequest({ deletedCount: readMessages.length }, { delay: 200 });
+    }
+
+    return ApiClient.delete<InboxDeleteResult>('/inbox/read');
+  },
+  /** 清空当前买家的全部消息。 */
+  deleteAllMessages: async (): Promise<Result<InboxDeleteResult>> => {
+    if (USE_MOCK) {
+      const deletedCount = messageCache.length;
+      messageCache.forEach((message) => deletedMessageCache.set(message.id, message));
+      messageCache = [];
+      return simulateRequest({ deletedCount }, { delay: 220 });
+    }
+
+    return ApiClient.delete<InboxDeleteResult>('/inbox/all');
   },
   /** 未读数：`GET /api/v1/inbox/unread-count` */
   getUnreadCount: async (): Promise<Result<number>> => {

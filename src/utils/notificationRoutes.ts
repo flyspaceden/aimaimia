@@ -21,6 +21,7 @@ const BUYER_ROUTE_BY_KEY: Record<string, string> = {
   COUPONS: '/me/coupons',
   DIGITAL_ASSETS: '/me/digital-assets',
   GROUP_BUY_DETAIL: '/group-buy/[activityId]',
+  PRODUCT_DETAIL: '/product/[id]',
   CS_SESSION: '/cs',
   ORDER_RECEIVER_INFO: '/orders/receiver-info/[id]',
 };
@@ -95,6 +96,7 @@ export const resolveBuyerNotificationRoute = (action: NotificationRouteInput): B
   const params = normalizeParams(action.params);
   if (action.routeKey) {
     const pathname = BUYER_ROUTE_BY_KEY[action.routeKey];
+    if (action.routeKey === 'PRODUCT_DETAIL' && !params?.id) return null;
     return pathname ? { pathname, ...(params ? { params } : {}) } : null;
   }
 
