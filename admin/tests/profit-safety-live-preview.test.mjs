@@ -65,3 +65,16 @@ test('normal configuration previews dirty candidate profit safety without changi
   assert.match(source, /<ProfitSafetyStatus[\s\S]*previewState=\{profitSafetyPreview\}/);
   assert.match(source, /message\.success\('配置保存成功'\);[\s\S]*setDirty\(false\);[\s\S]*setChangeNote\(''\);/);
 });
+
+test('admin architecture documents VIP and normal candidate safety preview guarantees', async () => {
+  const doc = await readFile(new URL('../../docs/architecture/admin-frontend.md', import.meta.url), 'utf8');
+
+  assert.match(doc, /VIP 系统配置页/);
+  assert.match(doc, /普通用户系统配置页/);
+  assert.match(doc, /useConfigProfitSafetyPreview/);
+  assert.match(doc, /500ms/);
+  assert.match(doc, /config:update/);
+  assert.match(doc, /比例合计非法或存在字段校验错误时不预检/);
+  assert.match(doc, /只读|不写入.*RuleConfig.*version.*audit|不落库/);
+  assert.match(doc, /保存时.*Serializable.*advisory lock.*原子.*硬校验/);
+});

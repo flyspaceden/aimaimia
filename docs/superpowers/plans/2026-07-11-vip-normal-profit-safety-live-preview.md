@@ -35,8 +35,9 @@
 - Produces: `useConfigProfitSafetyPreview(input): ProfitSafetyPreviewState`。
 - Produces: `ProfitSafetyStatus` optional candidate props without changing callers that only provide the saved server summary.
 - Produces: testable `buildProfitSafetyCandidateUpdates`、`getProfitSafetyPreviewEligibility`、`createProfitSafetyPreviewScheduler` and `getProfitSafetyStatusPresentation` utility functions.
+- The direct Node candidate test self-prepares and cleans its temporary CommonJS compilation artifact under `admin/.tmp/profit-safety-preview-test`.
 
-- [ ] **Step 1: Write failing executable and source-contract tests**
+- [x] **Step 1: Write failing executable and source-contract tests**
 
 Create `admin/tests/profit-safety-candidate.test.mjs`. It must import the temporary CommonJS compilation of `src/utils/configProfitSafetyPreview.ts` with `createRequire`, then include these executable tests:
 
@@ -161,7 +162,7 @@ test('maps every candidate status to its visible presentation and captain action
 
 Create `admin/tests/profit-safety-live-preview.test.mjs` with source-contract assertions that the hook uses the tested scheduler, calls `previewProfitSafety({ updates })`, invalidates stale requests on every effect change and cleanup, and that `ProfitSafetyStatus` contains all required candidate messages.
 
-- [ ] **Step 2: Run the new test to verify RED**
+- [x] **Step 2: Run the new test to verify RED**
 
 Run:
 
@@ -176,7 +177,7 @@ node --test tests/profit-safety-candidate.test.mjs tests/profit-safety-live-prev
 
 Expected: the TypeScript compile fails with `TS6053` because the new utility file does not yet exist; therefore the test command does not run and the complete command block exits nonzero.
 
-- [ ] **Step 3: Implement the tested candidate utility**
+- [x] **Step 3: Implement the tested candidate utility**
 
 Create `admin/src/utils/configProfitSafetyPreview.ts`; it must not import React, Ant Design, the API client, or application aliases, so the test can compile it in isolation. Define these public interfaces and functions:
 
@@ -233,7 +234,7 @@ export function getProfitSafetyStatusPresentation(input: {
 | Saved loading | `message` / `info` / none | 正在读取服务器利润安全状态 | false |
 | Saved-summary fetch error | `message` / `warning` / none | 利润安全状态暂不可用 | false |
 
-- [ ] **Step 4: Implement the hook and status rendering**
+- [x] **Step 4: Implement the hook and status rendering**
 
 Create `useConfigProfitSafetyPreview.ts` with these exact responsibilities:
 
@@ -298,7 +299,7 @@ if (previewState?.mode === 'error') {
 
 For `candidate`, reuse the existing scenario/SKU/shortfall rendering while changing the result heading to `未保存参数通过利润安全校验` or `未保存参数未通过利润安全校验`. For `saved`, preserve current output byte-for-byte where practical.
 
-- [ ] **Step 5: Run the hook/status tests to verify GREEN**
+- [x] **Step 5: Run the hook/status tests to verify GREEN**
 
 Run:
 
@@ -314,7 +315,7 @@ npx tsc -b --pretty false
 
 Expected: the isolated TypeScript compilation, both Node test files, and the admin TypeScript build all exit 0.
 
-- [ ] **Step 6: Commit the isolated reusable layer**
+- [x] **Step 6: Commit the isolated reusable layer**
 
 ```bash
 git add admin/src/utils/configProfitSafetyPreview.ts admin/src/hooks/useConfigProfitSafetyPreview.ts admin/src/components/ProfitSafetyStatus.tsx admin/tests/profit-safety-candidate.test.mjs admin/tests/profit-safety-live-preview.test.mjs
@@ -333,7 +334,7 @@ git commit -m "feat: add candidate profit safety preview"
 - Consumes: `useConfigProfitSafetyPreview` from Task 1.
 - Produces: VIP configuration page candidate preview for every unsaved configuration change while preserving current save confirmation and batch write.
 
-- [ ] **Step 1: Write the failing VIP integration source-contract test**
+- [x] **Step 1: Write the failing VIP integration source-contract test**
 
 Append:
 
@@ -349,7 +350,7 @@ test('VIP configuration previews complete unsaved changes before save', () => {
 });
 ```
 
-- [ ] **Step 2: Run the VIP test to verify RED**
+- [x] **Step 2: Run the VIP test to verify RED**
 
 Run:
 
@@ -360,7 +361,7 @@ node --test tests/profit-safety-live-preview.test.mjs
 
 Expected: FAIL because VIP page does not yet call the hook or pass `previewState`.
 
-- [ ] **Step 3: Integrate the hook into VIP configuration**
+- [x] **Step 3: Integrate the hook into VIP configuration**
 
 After `allValues` and `sumValid` are computed, calculate `hasValidationErrors` from `form.getFieldsError()` in a memo keyed by `allValues`, then create:
 
@@ -371,7 +372,7 @@ const profitSafetyPreview = useConfigProfitSafetyPreview({
   schema: CONFIG_SCHEMA,
   sumValid,
   hasValidationErrors,
-  enabled: configs.length > 0 && dirty,
+  enabled: configs.length > 0 && dirty && canUpdateConfig,
 });
 ```
 
@@ -388,7 +389,7 @@ Update the existing status component:
 
 Do not alter `doSave`, `handleSave`, change confirmation copy, `batchUpdateConfig`, or the seven-ratio save rule. Preserve the existing successful `setDirty(false)` after `batchUpdateConfig`; it is the explicit preview reset. Preserve the catch path without changing `dirty`, so a rejected save retains the form and candidate result.
 
-- [ ] **Step 4: Verify VIP GREEN**
+- [x] **Step 4: Verify VIP GREEN**
 
 Run:
 
@@ -405,7 +406,7 @@ npm run build
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit VIP integration**
+- [x] **Step 5: Commit VIP integration**
 
 ```bash
 git add admin/src/pages/bonus/vip-config.tsx admin/tests/profit-safety-live-preview.test.mjs
@@ -422,7 +423,7 @@ git commit -m "feat: preview VIP profit safety changes"
 - Consumes: `useConfigProfitSafetyPreview` from Task 1.
 - Produces: Normal configuration page candidate preview matching VIP and captain semantics.
 
-- [ ] **Step 1: Write the failing normal integration source-contract test**
+- [x] **Step 1: Write the failing normal integration source-contract test**
 
 Append:
 
@@ -438,7 +439,7 @@ test('normal configuration previews complete unsaved changes before save', () =>
 });
 ```
 
-- [ ] **Step 2: Run the normal test to verify RED**
+- [x] **Step 2: Run the normal test to verify RED**
 
 Run:
 
@@ -449,7 +450,7 @@ node --test tests/profit-safety-live-preview.test.mjs
 
 Expected: FAIL because normal page does not yet call the hook or pass `previewState`.
 
-- [ ] **Step 3: Integrate the hook into normal configuration**
+- [x] **Step 3: Integrate the hook into normal configuration**
 
 After `allValues` and `sumValid` are computed, calculate `hasValidationErrors` from `form.getFieldsError()` in a memo keyed by `allValues`. Pass the following exact input:
 
@@ -460,7 +461,7 @@ const profitSafetyPreview = useConfigProfitSafetyPreview({
   schema: CONFIG_SCHEMA,
   sumValid,
   hasValidationErrors,
-  enabled: configs.length > 0 && dirty,
+  enabled: configs.length > 0 && dirty && canUpdateConfig,
 });
 ```
 
@@ -475,7 +476,7 @@ const profitSafetyPreview = useConfigProfitSafetyPreview({
 
 Do not change normal tree fields, reward expiry fields, the confirmation modal, or the backend batch update path. Keep the successful `setDirty(false)` after `batchUpdateConfig` as the preview reset and keep the error path unchanged so it preserves the candidate result.
 
-- [ ] **Step 4: Verify normal GREEN**
+- [x] **Step 4: Verify normal GREEN**
 
 Run:
 
@@ -492,7 +493,7 @@ npm run build
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit normal integration**
+- [x] **Step 5: Commit normal integration**
 
 ```bash
 git add admin/src/pages/bonus/normal-config.tsx admin/tests/profit-safety-live-preview.test.mjs
@@ -512,7 +513,7 @@ git commit -m "feat: preview normal profit safety changes"
 **Interfaces:**
 - Produces: documentation that tells administrators candidate previews are advisory and save-time backend validation remains authoritative.
 
-- [ ] **Step 1: Add exact documentation assertions to the source-contract test**
+- [x] **Step 1: Add exact documentation assertions to the source-contract test**
 
 Append this test to `admin/tests/profit-safety-live-preview.test.mjs`:
 
@@ -528,7 +529,7 @@ test('admin architecture documents VIP and normal candidate safety previews', ()
 });
 ```
 
-- [ ] **Step 2: Run the documentation test to verify RED**
+- [x] **Step 2: Run the documentation test to verify RED**
 
 Run:
 
@@ -539,26 +540,22 @@ node --test tests/profit-safety-live-preview.test.mjs
 
 Expected: FAIL because the new behavior is not yet documented.
 
-- [ ] **Step 3: Update architecture and project plan documentation**
+- [x] **Step 3: Update architecture and project plan documentation**
 
-Add a dedicated subsection under the existing configuration-page documentation with this exact operational content:
+Add a dedicated subsection under the existing configuration-page documentation with the final operational contract:
 
 ```text
-VIP 系统配置页和普通用户系统配置页均通过 useConfigProfitSafetyPreview 对未保存参数做 500ms 候选预检。比例合计非法或存在字段校验错误时不预检；候选结果不落库。保存时后端仍在 Serializable 事务和 advisory lock 内重新原子校验，浏览器预检不能替代保存校验。
+VIP 系统配置页和普通用户系统配置页均通过 useConfigProfitSafetyPreview 对未保存参数做 500ms 候选预检。仅在配置已加载、表单已变更且管理员具备 config:update 权限、七项比例有效并且没有字段校验错误时运行；比例合计非法或存在字段校验错误时不预检。候选浏览器预检是建议性的只读结果，不写入 RuleConfig、配置版本或审计记录。保存时后端仍在 Serializable 事务和 advisory lock 内重新执行原子硬校验，浏览器预检不能替代保存校验。
 ```
 
 After and only after every final verification command in Step 4 exits 0, change each checklist item in this plan from `- [ ]` to `- [x]`. Then add a dated completed entry directly under `plan.md` heading `### 近期完成补充`, naming both configuration pages, the 500ms candidate preview, stale-response discard, and the final save-time hard validation.
 
-- [ ] **Step 4: Run final verification**
+- [x] **Step 4: Run final verification**
 
 Run:
 
 ```bash
 cd admin
-rm -rf .tmp/profit-safety-preview-test
-mkdir -p .tmp/profit-safety-preview-test
-printf '{"type":"commonjs"}' > .tmp/profit-safety-preview-test/package.json
-npx tsc --target ES2022 --module commonjs --moduleResolution node --strict --skipLibCheck --rootDir src/utils --outDir .tmp/profit-safety-preview-test src/utils/configProfitSafetyPreview.ts
 node --test tests/profit-safety-candidate.test.mjs tests/profit-safety-live-preview.test.mjs tests/profit-reconciliation-ui.test.mjs
 npx tsc -b --pretty false
 npm run build
@@ -567,9 +564,9 @@ git diff --check
 git status --short
 ```
 
-Expected: all verification commands exit 0; only intended files are modified.
+Expected: the direct Node candidate test self-prepares and cleans its temporary compilation artifact; all verification commands exit 0; only intended files are modified.
 
-- [ ] **Step 5: Commit final documentation and verification state**
+- [x] **Step 5: Commit final documentation and verification state**
 
 ```bash
 git add admin/tests/profit-safety-live-preview.test.mjs docs/architecture/admin-frontend.md docs/superpowers/plans/2026-07-11-vip-normal-profit-safety-live-preview.md plan.md
