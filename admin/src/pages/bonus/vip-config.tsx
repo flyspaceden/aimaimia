@@ -26,6 +26,7 @@ import {
   Col,
   Divider,
   Tooltip,
+  type FormProps,
 } from 'antd';
 import {
   SaveOutlined,
@@ -205,6 +206,7 @@ export default function VipConfigPage() {
   const [changeNote, setChangeNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [hasValidationErrors, setHasValidationErrors] = useState(false);
 
   // 未保存更改警告
   useUnsavedChanges(dirty);
@@ -254,10 +256,9 @@ export default function VipConfigPage() {
     return RATIO_KEYS.reduce((s, k) => s + readFormNumber(allValues, k), 0);
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
-  const hasValidationErrors = useMemo(
-    () => allValues !== undefined && form.getFieldsError().some((field) => field.errors.length > 0),
-    [allValues, form],
-  );
+  const handleFieldsChange = useCallback<NonNullable<FormProps['onFieldsChange']>>((_, allFields) => {
+    setHasValidationErrors(allFields.some((field) => field.validating || (field.errors?.length ?? 0) > 0));
+  }, []);
   const profitSafetyPreview = useConfigProfitSafetyPreview({
     configs,
     values: allValues,
@@ -524,6 +525,7 @@ export default function VipConfigPage() {
         form={form}
         layout="vertical"
         onValuesChange={() => setDirty(true)}
+        onFieldsChange={handleFieldsChange}
         requiredMark={false}
       >
         <Row gutter={[16, 16]}>
