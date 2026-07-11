@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductBundleService } from '../../product/product-bundle.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
+import type { ProfitSafetySku } from '../../profit/profit-safety-validator';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductSkusDto } from './dto/update-sku.dto';
 
@@ -10,7 +13,64 @@ export class AdminProductsService {
   constructor(
     private prisma: PrismaService,
     private productBundleService: ProductBundleService,
+    private profitSafety: ProfitSafetyService,
   ) {}
+
+  private readonly profitSafetyProductSelect = {
+    id: true,
+    companyId: true,
+    categoryId: true,
+    status: true,
+    auditStatus: true,
+    type: true,
+    company: { select: { isPlatform: true } },
+    lotteryPrizes: { select: { id: true }, take: 1 },
+    skus: {
+      select: {
+        id: true,
+        productId: true,
+        price: true,
+        cost: true,
+        stock: true,
+        status: true,
+        vipGiftItems: { select: { id: true }, take: 1 },
+      },
+    },
+  } as const;
+
+  private toProfitSafetySku(
+    product: any,
+    sku: any,
+    overrides: Partial<ProfitSafetySku> = {},
+  ): ProfitSafetySku {
+    const isPlatform = product.company?.isPlatform === true;
+    const productStatus = overrides.active === undefined ? product.status : undefined;
+    return {
+      id: sku.id,
+      productId: product.id,
+      companyId: product.companyId,
+      categoryId: product.categoryId ?? null,
+      price: Number(sku.price),
+      cost: sku.cost === null || sku.cost === undefined ? null : Number(sku.cost),
+      active: productStatus === 'ACTIVE' && sku.status === 'ACTIVE',
+      ordinary: !isPlatform
+        && (product.lotteryPrizes?.length ?? 0) === 0
+        && (sku.vipGiftItems?.length ?? 0) === 0,
+      vipDiscountEligible: !isPlatform,
+      ...overrides,
+    };
+  }
+
+  private activeProductCandidates(
+    product: any,
+    overrides: { categoryId?: string | null; status?: string } = {},
+  ): ProfitSafetySku[] {
+    const finalStatus = overrides.status ?? product.status;
+    return (product.skus ?? []).map((sku: any) => this.toProfitSafetySku(product, sku, {
+      categoryId: overrides.categoryId ?? product.categoryId ?? null,
+      active: finalStatus === 'ACTIVE' && sku.status === 'ACTIVE',
+    }));
+  }
 
   private readonly bundleReviewInclude = {
     orderBy: { sortOrder: 'asc' as const },
@@ -230,7 +290,10 @@ export class AdminProductsService {
 
   /** 更新商品 */
   async update(id: string, dto: AdminUpdateProductDto) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: this.profitSafetyProductSelect,
+    });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     // 提取 tagIds，不传给 Prisma product.update
@@ -240,7 +303,7 @@ export class AdminProductsService {
       ...(returnPolicy !== undefined ? { returnPolicy: returnPolicy as ReturnPolicy } : {}),
     };
 
-    return this.prisma.$transaction(async (tx) => {
+    const write = async (tx: Prisma.TransactionClient) => {
       const updated = await tx.product.update({
         where: { id },
         data: productData,
@@ -314,18 +377,42 @@ export class AdminProductsService {
       });
 
       return updated;
-    });
+    };
+
+    const finalStatus = dto.status ?? product.status;
+    const changesActiveEconomics = finalStatus === 'ACTIVE'
+      && (dto.status === 'ACTIVE' || dto.categoryId !== undefined);
+    if (changesActiveEconomics) {
+      const output = await this.profitSafety.withCandidateChange({
+        skuUpserts: this.activeProductCandidates(product, {
+          categoryId: dto.categoryId ?? product.categoryId,
+          status: finalStatus,
+        }),
+        changeNote: `admin product ${id} economic update`,
+      }, write);
+      return output.result;
+    }
+
+    return this.prisma.$transaction(write);
   }
 
   /** 上下架 */
   async toggleStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: this.profitSafetyProductSelect,
+    });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
-    return this.prisma.product.update({
-      where: { id },
-      data: { status },
-    });
+    if (status === 'ACTIVE') {
+      const output = await this.profitSafety.withCandidateChange({
+        skuUpserts: this.activeProductCandidates(product, { status }),
+        changeNote: `admin product ${id} activation`,
+      }, (tx) => tx.product.update({ where: { id }, data: { status } }));
+      return output.result;
+    }
+
+    return this.prisma.product.update({ where: { id }, data: { status } });
   }
 
   /** 硬删除商品（要求已下架 + 无交易/业务引用；购物车未成交引用会自动清理） */
@@ -429,12 +516,7 @@ export class AdminProductsService {
   async audit(id: string, auditStatus: 'APPROVED' | 'REJECTED', auditNote?: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      select: {
-        id: true,
-        companyId: true,
-        status: true,
-        type: true,
-      },
+      select: this.profitSafetyProductSelect,
     });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
@@ -444,8 +526,8 @@ export class AdminProductsService {
       updateData.status = 'ACTIVE';
     }
 
-    if (auditStatus === 'APPROVED' && product.type === ProductType.BUNDLE) {
-      return this.prisma.$transaction(async (tx) => {
+    const write = async (tx: Prisma.TransactionClient) => {
+      if (auditStatus === 'APPROVED' && product.type === ProductType.BUNDLE) {
         const persistedBundleItems = await tx.productBundleItem.findMany({
           where: { bundleProductId: id },
           orderBy: { sortOrder: 'asc' },
@@ -468,18 +550,19 @@ export class AdminProductsService {
             sortOrder: item.sortOrder ?? undefined,
           })),
         );
+      }
+      return tx.product.update({ where: { id }, data: updateData });
+    };
 
-        return tx.product.update({
-          where: { id },
-          data: updateData,
-        });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (auditStatus === 'APPROVED') {
+      const output = await this.profitSafety.withCandidateChange({
+        skuUpserts: this.activeProductCandidates(product, { status: 'ACTIVE' }),
+        changeNote: `admin product ${id} audit activation`,
+      }, write);
+      return output.result;
     }
 
-    return this.prisma.product.update({
-      where: { id },
-      data: updateData,
-    });
+    return this.prisma.product.update({ where: { id }, data: updateData });
   }
 
   /**
@@ -489,14 +572,39 @@ export class AdminProductsService {
    * - 无 id → 新建 SKU
    */
   async updateSkus(productId: string, dto: UpdateProductSkusDto) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: this.profitSafetyProductSelect,
+    });
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
     for (const sku of dto.skus) {
       this.assertSkuWeightGram(sku.weightGram);
     }
 
-    return this.prisma.$transaction(
-      async (tx) => {
+    const existingById = new Map((product.skus ?? []).map((sku: any) => [sku.id, sku]));
+    const preparedSkus = dto.skus.map((sku) => {
+      const existing = sku.id ? existingById.get(sku.id) : undefined;
+      return {
+        ...sku,
+        id: sku.id ?? randomUUID(),
+        cost: sku.cost ?? existing?.cost ?? 0,
+        existing,
+      };
+    });
+    const skuUpserts = preparedSkus.map((sku) => this.toProfitSafetySku(product, {
+      id: sku.id,
+      price: sku.price,
+      cost: sku.cost,
+      status: sku.existing?.status ?? 'ACTIVE',
+      vipGiftItems: sku.existing?.vipGiftItems ?? [],
+    }, {
+      active: product.status === 'ACTIVE' && (sku.existing?.status ?? 'ACTIVE') === 'ACTIVE',
+    }));
+
+    const output = await this.profitSafety.withCandidateChange({
+      skuUpserts,
+      changeNote: `admin product ${productId} SKU economic update`,
+    }, async (tx) => {
         // 校验传入带 id 的 SKU 必须属于该商品
         const incomingIds = dto.skus.map((s) => s.id).filter((v): v is string => !!v);
         if (incomingIds.length > 0) {
@@ -509,8 +617,8 @@ export class AdminProductsService {
           }
         }
 
-        for (const sku of dto.skus) {
-          if (sku.id) {
+        for (const sku of preparedSkus) {
+          if (sku.existing) {
             // 更新已存在 SKU
             const data: Prisma.ProductSKUUncheckedUpdateInput = {
               price: sku.price,
@@ -525,6 +633,7 @@ export class AdminProductsService {
             // 新建 SKU
             await tx.productSKU.create({
               data: {
+                id: sku.id,
                 productId,
                 title: sku.specText ?? '默认规格',
                 price: sku.price,
@@ -554,9 +663,8 @@ export class AdminProductsService {
           where: { productId },
           orderBy: { createdAt: 'asc' },
         });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      });
+    return output.result;
   }
 
   /** 清除语义字段来源标记，使 SemanticFillService 可以重新填充 */

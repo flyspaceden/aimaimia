@@ -7,6 +7,14 @@ import { ProductBundleService } from '../../product/product-bundle.service';
 import { AdminProductsService } from './admin-products.service';
 import { SkuUpdateItem, UpdateProductSkusDto } from './dto/update-sku.dto';
 
+const passthroughProfitSafety = (prisma: any) => ({
+  withCandidateChange: jest.fn(async (_change: unknown, write: (tx: any) => Promise<unknown>) => ({
+    result: await prisma.$transaction(write, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    }),
+  })),
+});
+
 describe('AdminProductsService SKU weight validation', () => {
   const buildService = () => {
     const tx = {
@@ -27,14 +35,29 @@ describe('AdminProductsService SKU weight validation', () => {
       product: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'product_1',
+          companyId: 'company_1',
+          categoryId: 'category_1',
           status: 'ACTIVE',
+          company: { isPlatform: false },
+          lotteryPrizes: [],
+          skus: [{
+            id: 'sku_1',
+            price: 18,
+            cost: 10,
+            status: 'ACTIVE',
+            vipGiftItems: [],
+          }],
         }),
       },
       $transaction: jest.fn((fn) => fn(tx)),
     };
 
     return {
-      service: new AdminProductsService(prisma as any, new ProductBundleService()),
+      service: new AdminProductsService(
+        prisma as any,
+        new ProductBundleService(),
+        passthroughProfitSafety(prisma) as any,
+      ),
       prisma,
       tx,
     };
@@ -262,7 +285,9 @@ describe('AdminProductsService bundle review reads and audit', () => {
     const tx = {
       product: {
         findUnique: jest.fn().mockResolvedValue(options.auditProduct ?? createBundleProduct()),
-        update: jest.fn().mockResolvedValue({ id: 'bundle_1', auditStatus: 'APPROVED', status: 'ACTIVE' }),
+        update: jest.fn().mockResolvedValue(
+          options.updateResult ?? { id: 'bundle_1', auditStatus: 'APPROVED', status: 'ACTIVE' },
+        ),
       },
       productBundleItem: {
         findMany: jest.fn().mockResolvedValue(options.persistedBundleItems ?? [
@@ -332,7 +357,11 @@ describe('AdminProductsService bundle review reads and audit', () => {
     };
 
     return {
-      service: new AdminProductsService(prisma as any, new ProductBundleService()),
+      service: new AdminProductsService(
+        prisma as any,
+        new ProductBundleService(),
+        passthroughProfitSafety(prisma) as any,
+      ),
       prisma,
       tx,
     };
@@ -498,7 +527,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
 
   it('keeps SIMPLE review reads and audit approval behavior unchanged', async () => {
     const simpleProduct = createSimpleProduct();
-    const { service, prisma } = buildBundleReviewService({
+    const { service, tx } = buildBundleReviewService({
       listItems: [simpleProduct],
       detailProduct: simpleProduct,
       auditProduct: simpleProduct,
@@ -514,7 +543,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
       bundleAvailableStock: null,
       bundleTotalWeightGram: null,
     });
-    expect(prisma.product.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.product.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'simple_1' },
       data: expect.objectContaining({
         auditStatus: 'APPROVED',
@@ -552,7 +581,11 @@ describe('AdminProductsService bundle review reads and audit', () => {
       checkoutSession: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((fn) => fn(tx)),
     };
-    const service = new AdminProductsService(prisma as any, new ProductBundleService());
+    const service = new AdminProductsService(
+      prisma as any,
+      new ProductBundleService(),
+      passthroughProfitSafety(prisma) as any,
+    );
 
     await expect(service.remove('product_1')).resolves.toEqual({
       ok: true,
@@ -588,7 +621,11 @@ describe('AdminProductsService bundle review reads and audit', () => {
       },
       $transaction: jest.fn(),
     };
-    const service = new AdminProductsService(prisma as any, new ProductBundleService());
+    const service = new AdminProductsService(
+      prisma as any,
+      new ProductBundleService(),
+      passthroughProfitSafety(prisma) as any,
+    );
 
     await expect(service.remove('product_1')).rejects.toMatchObject({
       response: {
