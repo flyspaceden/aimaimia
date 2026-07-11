@@ -3,6 +3,94 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const root = new URL('../src/', import.meta.url);
+const backendModulesRoot = new URL('../../backend/src/modules/', import.meta.url);
+
+function extractBetween(source, startToken, endToken) {
+  const start = source.indexOf(startToken);
+  assert.notEqual(start, -1, `missing start token: ${startToken}`);
+  const end = source.indexOf(endToken, start + startToken.length);
+  assert.notEqual(end, -1, `missing end token: ${endToken}`);
+  return source.slice(start, end);
+}
+
+function extractBalancedBlock(source, startToken, open, close) {
+  const start = source.indexOf(startToken);
+  assert.notEqual(start, -1, `missing start token: ${startToken}`);
+  const openIndex = source.indexOf(open, start + startToken.length - 1);
+  assert.notEqual(openIndex, -1, `missing opening ${open}: ${startToken}`);
+
+  let depth = 0;
+  let quote;
+  let escaped = false;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '\'' || character === '"' || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (character === open) depth += 1;
+    if (character === close) depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  assert.fail(`unterminated balanced block: ${startToken}`);
+}
+
+function extractJsxOpeningTag(source, component) {
+  const startToken = `<${component}`;
+  const start = source.indexOf(startToken);
+  assert.notEqual(start, -1, `missing JSX tag: ${component}`);
+  const end = source.indexOf('/>', start + startToken.length);
+  assert.notEqual(end, -1, `unterminated JSX tag: ${component}`);
+  return source.slice(start, end + 2);
+}
+
+function assertConfigPagePreviewIntegration(source) {
+  const permissionRegion = extractBetween(
+    source,
+    'const { hasPermission } = usePermission();',
+    'const [drawerOpen, setDrawerOpen]',
+  );
+  assert.match(permissionRegion, /const canUpdateConfig = hasPermission\(PERMISSIONS\.CONFIG_UPDATE\);/);
+
+  const validationRegion = extractBetween(
+    source,
+    'const hasValidationErrors = useMemo(',
+    'const profitSafetyPreview = useConfigProfitSafetyPreview(',
+  );
+  assert.match(validationRegion, /form\.getFieldsError\(\)/);
+  assert.match(validationRegion, /\[allValues, form\]/);
+
+  const previewCall = extractBalancedBlock(
+    source,
+    'useConfigProfitSafetyPreview(',
+    '(',
+    ')',
+  );
+  for (const input of [
+    'configs,',
+    'values: allValues,',
+    'schema: CONFIG_SCHEMA,',
+    'sumValid,',
+    'hasValidationErrors,',
+    'enabled: configs.length > 0 && dirty && canUpdateConfig,',
+  ]) {
+    assert.ok(previewCall.includes(input), `preview call missing input: ${input}`);
+  }
+
+  const statusTag = extractJsxOpeningTag(source, 'ProfitSafetyStatus');
+  assert.match(statusTag, /previewState=\{profitSafetyPreview\}/);
+
+  const saveCallback = extractBalancedBlock(source, 'const doSave = useCallback', '{', '}');
+  assert.match(saveCallback, /message\.success\('配置保存成功'\);/);
+  assert.match(saveCallback, /setDirty\(false\);/);
+  assert.match(saveCallback, /setChangeNote\(''\);/);
+}
 
 test('live preview hook schedules API previews and invalidates stale work', async () => {
   const source = await readFile(new URL('hooks/useConfigProfitSafetyPreview.ts', root), 'utf8');
@@ -19,6 +107,13 @@ test('live preview hook schedules API previews and invalidates stale work', asyn
   assert.match(source, /\}: UseConfigProfitSafetyPreviewInput\): ProfitSafetyPreviewState/);
   assert.match(source, /const fingerprint = JSON\.stringify\(updates\)/);
   assert.match(source, /asyncState\?\.fingerprint !== fingerprint/);
+  const hookInput = extractBalancedBlock(
+    source,
+    'export function useConfigProfitSafetyPreview(',
+    '(',
+    ')',
+  );
+  assert.match(hookInput, /delayMs = 500/);
   const effectSource = source.slice(source.indexOf('useEffect('));
   assert.doesNotMatch(effectSource, /setState/);
 });
@@ -47,11 +142,7 @@ test('VIP configuration previews dirty candidate profit safety without changing 
 
   assert.match(source, /import \{ useConfigProfitSafetyPreview \} from '@\/hooks\/useConfigProfitSafetyPreview';/);
   assert.match(source, /import \{ usePermission \} from '@\/hooks\/usePermission';/);
-  assert.match(source, /const \{ hasPermission \} = usePermission\(\);[\s\S]*const canUpdateConfig = hasPermission\(PERMISSIONS\.CONFIG_UPDATE\);/);
-  assert.match(source, /const hasValidationErrors = useMemo\(\s*\(\) =>[\s\S]*form\.getFieldsError\(\)[\s\S]*\[allValues, form\]\s*,\s*\);/);
-  assert.match(source, /const profitSafetyPreview = useConfigProfitSafetyPreview\(\{[\s\S]*configs,[\s\S]*values: allValues,[\s\S]*schema: CONFIG_SCHEMA,[\s\S]*sumValid,[\s\S]*hasValidationErrors,[\s\S]*enabled: configs\.length > 0 && dirty && canUpdateConfig,[\s\S]*\}\);/);
-  assert.match(source, /<ProfitSafetyStatus[\s\S]*previewState=\{profitSafetyPreview\}/);
-  assert.match(source, /message\.success\('配置保存成功'\);[\s\S]*setDirty\(false\);[\s\S]*setChangeNote\(''\);/);
+  assertConfigPagePreviewIntegration(source);
 });
 
 test('normal configuration previews dirty candidate profit safety without changing save reset behavior', async () => {
@@ -59,11 +150,48 @@ test('normal configuration previews dirty candidate profit safety without changi
 
   assert.match(source, /import \{ useConfigProfitSafetyPreview \} from '@\/hooks\/useConfigProfitSafetyPreview';/);
   assert.match(source, /import \{ usePermission \} from '@\/hooks\/usePermission';/);
-  assert.match(source, /const \{ hasPermission \} = usePermission\(\);[\s\S]*const canUpdateConfig = hasPermission\(PERMISSIONS\.CONFIG_UPDATE\);/);
-  assert.match(source, /const hasValidationErrors = useMemo\(\s*\(\) =>[\s\S]*form\.getFieldsError\(\)[\s\S]*\[allValues, form\]\s*,\s*\);/);
-  assert.match(source, /const profitSafetyPreview = useConfigProfitSafetyPreview\(\{[\s\S]*configs,[\s\S]*values: allValues,[\s\S]*schema: CONFIG_SCHEMA,[\s\S]*sumValid,[\s\S]*hasValidationErrors,[\s\S]*enabled: configs\.length > 0 && dirty && canUpdateConfig,[\s\S]*\}\);/);
-  assert.match(source, /<ProfitSafetyStatus[\s\S]*previewState=\{profitSafetyPreview\}/);
-  assert.match(source, /message\.success\('配置保存成功'\);[\s\S]*setDirty\(false\);[\s\S]*setChangeNote\(''\);/);
+  assertConfigPagePreviewIntegration(source);
+});
+
+test('live preview architecture claims are bound to the guarded backend implementation', async () => {
+  const [controllerSource, configServiceSource, profitSafetySource] = await Promise.all([
+    readFile(new URL('admin/config/admin-config.controller.ts', backendModulesRoot), 'utf8'),
+    readFile(new URL('admin/config/admin-config.service.ts', backendModulesRoot), 'utf8'),
+    readFile(new URL('profit/profit-safety.service.ts', backendModulesRoot), 'utf8'),
+  ]);
+
+  const previewRoute = extractBetween(
+    controllerSource,
+    "@Post('profit-safety-preview')",
+    "@Get('versions')",
+  );
+  assert.match(previewRoute, /@Post\('profit-safety-preview'\)/);
+  assert.match(previewRoute, /@RequirePermission\('config:update'\)/);
+  assert.match(previewRoute, /return this\.configService\.previewProfitSafety\(body\);/);
+  assert.doesNotMatch(previewRoute, /@AuditLog\b/);
+
+  const previewMethod = extractBalancedBlock(
+    configServiceSource,
+    'async previewProfitSafety(input: unknown)',
+    '{',
+    '}',
+  );
+  assert.match(previewMethod, /return this\.profitSafety\.preview\(this\.normalizePreview\(input\)\);/);
+
+  const safetyLockMethod = extractBalancedBlock(
+    profitSafetySource,
+    'async withSafetyLock<T>',
+    '{',
+    '}',
+  );
+  assert.match(safetyLockMethod, /Prisma\.TransactionIsolationLevel\.Serializable/);
+  const advisoryLockMethod = extractBalancedBlock(
+    profitSafetySource,
+    'private async takeSafetyLock',
+    '{',
+    '}',
+  );
+  assert.match(advisoryLockMethod, /pg_advisory_xact_lock/);
 });
 
 test('admin architecture documents VIP and normal candidate safety preview guarantees', async () => {
