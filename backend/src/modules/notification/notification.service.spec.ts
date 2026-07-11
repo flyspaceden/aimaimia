@@ -37,6 +37,7 @@ type MessageRow = {
   metadata: unknown;
   idempotencyKey: string;
   readAt: Date | null;
+  deletedAt: Date | null;
   expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -73,6 +74,9 @@ describe('NotificationService and dispatcher', () => {
         }
         if ('in' in value && Array.isArray(value.in)) {
           return value.in.includes(rowValue);
+        }
+        if ('not' in value) {
+          return rowValue !== value.not;
         }
         return matchesWhere(rowValue ?? {}, value);
       }
@@ -152,6 +156,7 @@ describe('NotificationService and dispatcher', () => {
         const row: MessageRow = {
           id: `message-${state.messages.length + 1}`,
           readAt: null,
+          deletedAt: null,
           expiresAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -175,6 +180,7 @@ describe('NotificationService and dispatcher', () => {
         state.messages.filter((row) => matchesWhere(row as any, where as any)).length,
       ),
       findUnique: jest.fn(async ({ where }) => state.messages.find((row) => row.id === where.id) ?? null),
+      findFirst: jest.fn(async ({ where }) => state.messages.find((row) => matchesWhere(row as any, where as any)) ?? null),
       update: jest.fn(async ({ where, data }) => {
         const row = state.messages.find((item) => item.id === where.id);
         if (!row) {
@@ -397,6 +403,7 @@ describe('NotificationService and dispatcher', () => {
         metadata: null,
         idempotencyKey: 'id-1',
         readAt: null,
+        deletedAt: null,
         expiresAt: null,
         createdAt: new Date(now.getTime() - 2000),
         updatedAt: new Date(now.getTime() - 2000),
@@ -417,6 +424,7 @@ describe('NotificationService and dispatcher', () => {
         metadata: null,
         idempotencyKey: 'id-2',
         readAt: null,
+        deletedAt: null,
         expiresAt: null,
         createdAt: new Date(now.getTime() - 1000),
         updatedAt: new Date(now.getTime() - 1000),
@@ -437,6 +445,7 @@ describe('NotificationService and dispatcher', () => {
         metadata: null,
         idempotencyKey: 'id-3',
         readAt: null,
+        deletedAt: null,
         expiresAt: null,
         createdAt: now,
         updatedAt: now,
@@ -457,6 +466,11 @@ describe('NotificationService and dispatcher', () => {
     expect(await service.unreadCount('buyer:1')).toBe(0);
     expect(await service.unreadCount('buyer:2')).toBe(1);
     expect(prisma.state.messages.find((item) => item.id === 'message-3')?.readAt).toBeNull();
+
+    await service.deleteOne('buyer:1', 'message-1');
+    expect((await service.list('buyer:1')).map((item) => item.id)).toEqual(['message-2']);
+    await service.restoreOne('buyer:1', 'message-1');
+    expect((await service.list('buyer:1')).map((item) => item.id)).toEqual(['message-2', 'message-1']);
   });
 
   it('maps legacy buyer transaction filters to the new trade-related notification categories', async () => {
@@ -482,6 +496,7 @@ describe('NotificationService and dispatcher', () => {
         metadata: null,
         idempotencyKey: `id-${category}`,
         readAt: null,
+        deletedAt: null,
         expiresAt: null,
         createdAt: new Date(now.getTime() + index),
         updatedAt: now,
@@ -519,6 +534,7 @@ describe('NotificationService and dispatcher', () => {
       metadata: null,
       idempotencyKey: 'id-9',
       readAt: null,
+      deletedAt: null,
       expiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),

@@ -35,6 +35,22 @@ export class InboxService {
     return this.notificationMessages.markAllRead(this.recipientKey(userId));
   }
 
+  async deleteOne(id: string, userId: string) {
+    return this.notificationMessages.deleteOne(this.recipientKey(userId), id);
+  }
+
+  async restoreOne(id: string, userId: string) {
+    return this.notificationMessages.restoreOne(this.recipientKey(userId), id);
+  }
+
+  async deleteRead(userId: string) {
+    return this.notificationMessages.deleteRead(this.recipientKey(userId));
+  }
+
+  async deleteAll(userId: string) {
+    return this.notificationMessages.deleteAll(this.recipientKey(userId));
+  }
+
   /** 未读数 */
   async getUnreadCount(userId: string) {
     return this.notificationMessages.unreadCount(this.recipientKey(userId));

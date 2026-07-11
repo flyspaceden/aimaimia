@@ -21,6 +21,11 @@ describe('AdminAnnouncementsService', () => {
       notificationMessage: {
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      product: {
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
     };
 
     return {
@@ -65,6 +70,40 @@ describe('AdminAnnouncementsService', () => {
     })).resolves.toEqual({ count: 3, invalidBuyerNos: [] });
   });
 
+  it('lists only buyer-visible products for the announcement selector', async () => {
+    const { service, prisma } = makeService();
+    prisma.product.findMany.mockResolvedValue([
+      {
+        id: 'product-1',
+        title: '帝王蟹',
+        basePrice: 299,
+        createdAt: new Date('2026-07-11T00:00:00.000Z'),
+        company: { id: 'company-1', name: '远洋生鲜' },
+        media: [{ url: 'https://example.com/crab.jpg' }],
+      },
+    ]);
+    prisma.product.count.mockResolvedValue(1);
+
+    const result = await service.findTargetProducts({ page: 1, pageSize: 20, keyword: '帝王蟹' });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+        company: { isPlatform: false },
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      items: [expect.objectContaining({
+        id: 'product-1',
+        title: '帝王蟹',
+        companyName: '远洋生鲜',
+        imageUrl: 'https://example.com/crab.jpg',
+      })],
+      total: 1,
+    }));
+  });
+
   it('rejects requests without an announcement audience explicitly', async () => {
     const { service } = makeService();
 
@@ -93,6 +132,7 @@ describe('AdminAnnouncementsService', () => {
 
   it('creates announcement and buyer notification messages for buyerNo list without a long batch transaction', async () => {
     const { service, prisma } = makeService();
+    prisma.product.findFirst.mockResolvedValue({ id: 'product-1', title: '帝王蟹' });
     prisma.user.findMany.mockResolvedValue([
       { id: 'user-1', buyerNo: 'AIMM202607060001' },
       { id: 'user-2', buyerNo: 'AIMM202607060002' },
@@ -112,7 +152,7 @@ describe('AdminAnnouncementsService', () => {
         type: 'BUYER_NOS',
         buyerNos: ['AIMM202607060001', 'AIMM202607060002'],
       },
-      target: { route: ' /product/sku-1 ', params: { skuId: 'sku-1' } },
+      target: { routeKey: 'PRODUCT_DETAIL', params: { id: 'product-1' } },
     }, 'admin-1');
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -122,7 +162,11 @@ describe('AdminAnnouncementsService', () => {
         createdBy: 'admin-1',
         recipientCount: 2,
         status: 'SENDING',
-        target: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
+        target: {
+          routeKey: 'PRODUCT_DETAIL',
+          params: { id: 'product-1' },
+          label: '商品详情：帝王蟹',
+        },
       }),
     }));
     expect(prisma.inboxMessage.createMany).not.toHaveBeenCalled();
@@ -139,7 +183,11 @@ describe('AdminAnnouncementsService', () => {
           severity: 'WARNING',
           entityType: 'announcement',
           entityId: 'announcement-1',
-          action: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
+          action: {
+            routeKey: 'PRODUCT_DETAIL',
+            params: { id: 'product-1' },
+            label: '商品详情：帝王蟹',
+          },
           idempotencyKey: 'announcement:announcement-1:user-1',
         }),
         expect.objectContaining({
@@ -147,7 +195,11 @@ describe('AdminAnnouncementsService', () => {
           recipientKey: 'buyer:user-2',
           eventType: 'platform_announcement',
           entityId: 'announcement-1',
-          action: { route: '/product/sku-1', params: { skuId: 'sku-1' } },
+          action: {
+            routeKey: 'PRODUCT_DETAIL',
+            params: { id: 'product-1' },
+            label: '商品详情：帝王蟹',
+          },
           idempotencyKey: 'announcement:announcement-1:user-2',
         }),
       ],
@@ -215,5 +267,24 @@ describe('AdminAnnouncementsService', () => {
       ...baseDto,
       target: { route: '/product' },
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a product target that is no longer visible to buyers', async () => {
+    const { service, prisma } = makeService();
+    prisma.product.findFirst.mockResolvedValue(null);
+
+    await expect(service.preview({
+      ...baseDto,
+      target: { routeKey: 'PRODUCT_DETAIL', params: { id: 'inactive-product' } },
+    })).rejects.toThrow('所选商品已下架、未通过审核或买家不可见');
+  });
+
+  it('rejects a product target without a product id', async () => {
+    const { service } = makeService();
+
+    await expect(service.preview({
+      ...baseDto,
+      target: { routeKey: 'PRODUCT_DETAIL', params: {} },
+    })).rejects.toThrow('请选择要跳转的商品');
   });
 });

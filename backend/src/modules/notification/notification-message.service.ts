@@ -8,7 +8,7 @@ export class NotificationMessageService {
 
   async list(recipientKey: string, category?: string, unreadOnly?: boolean, page = 1, pageSize = 20) {
     const take = Math.min(Math.max(pageSize, 1), 50);
-    const where: Prisma.NotificationMessageWhereInput = { recipientKey };
+    const where: Prisma.NotificationMessageWhereInput = { recipientKey, deletedAt: null };
 
     if (category) {
       const categories = this.resolveCategoryFilter(category);
@@ -30,31 +30,75 @@ export class NotificationMessageService {
 
   async unreadCount(recipientKey: string) {
     return this.prisma.notificationMessage.count({
-      where: { recipientKey, readAt: null },
+      where: { recipientKey, deletedAt: null, readAt: null },
     });
   }
 
   async markRead(recipientKey: string, id: string) {
-    const row = await this.prisma.notificationMessage.findUnique({ where: { id } });
-    if (!row || row.recipientKey !== recipientKey) {
+    const row = await this.prisma.notificationMessage.findFirst({
+      where: { id, recipientKey, deletedAt: null },
+      select: { id: true, readAt: true },
+    });
+    if (!row) {
       throw new NotFoundException('消息不存在');
     }
 
-    await this.prisma.notificationMessage.update({
-      where: { id },
+    const result = await this.prisma.notificationMessage.updateMany({
+      where: { id, recipientKey, deletedAt: null },
       data: { readAt: row.readAt ?? new Date() },
     });
+    if (result.count === 0) {
+      throw new NotFoundException('消息不存在');
+    }
 
     return this.list(recipientKey);
   }
 
   async markAllRead(recipientKey: string) {
     await this.prisma.notificationMessage.updateMany({
-      where: { recipientKey, readAt: null },
+      where: { recipientKey, deletedAt: null, readAt: null },
       data: { readAt: new Date() },
     });
 
     return this.list(recipientKey);
+  }
+
+  async deleteOne(recipientKey: string, id: string) {
+    const result = await this.prisma.notificationMessage.updateMany({
+      where: { id, recipientKey, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException('消息不存在');
+    }
+    return { id, deletedCount: 1 };
+  }
+
+  async restoreOne(recipientKey: string, id: string) {
+    const result = await this.prisma.notificationMessage.updateMany({
+      where: { id, recipientKey, deletedAt: { not: null } },
+      data: { deletedAt: null },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException('消息不存在或无需恢复');
+    }
+    return { id, restoredCount: 1 };
+  }
+
+  async deleteRead(recipientKey: string) {
+    const result = await this.prisma.notificationMessage.updateMany({
+      where: { recipientKey, deletedAt: null, readAt: { not: null } },
+      data: { deletedAt: new Date() },
+    });
+    return { deletedCount: result.count };
+  }
+
+  async deleteAll(recipientKey: string) {
+    const result = await this.prisma.notificationMessage.updateMany({
+      where: { recipientKey, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    return { deletedCount: result.count };
   }
 
   private resolveCategoryFilter(category: string): string[] {

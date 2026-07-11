@@ -29,6 +29,17 @@ describe('resolveBuyerNotificationRoute', () => {
     });
   });
 
+  it('maps PRODUCT_DETAIL with a concrete product id', () => {
+    expect(resolveBuyerNotificationRoute({ routeKey: 'PRODUCT_DETAIL', params: { id: 'product-1' } })).toEqual({
+      pathname: '/product/[id]',
+      params: { id: 'product-1' },
+    });
+  });
+
+  it('rejects PRODUCT_DETAIL without a product id', () => {
+    expect(resolveBuyerNotificationRoute({ routeKey: 'PRODUCT_DETAIL' })).toBeNull();
+  });
+
   it('returns null for unsupported seller or admin route keys', () => {
     expect(resolveBuyerNotificationRoute({ routeKey: 'SELLER_ORDER_DETAIL', params: { id: 'order-1' } })).toBeNull();
     expect(resolveBuyerNotificationRoute({ routeKey: 'ADMIN_INVOICE_DETAIL', params: { id: 'invoice-1' } })).toBeNull();

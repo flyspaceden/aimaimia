@@ -467,6 +467,13 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 
 ## 十一、生产变更记录
 
+### 2026-07-11 公告商品跳转与买家消息清理
+
+- **公告跳转**：管理后台公告支持选择具体商品，发布时保存标准 `PRODUCT_DETAIL` 跳转目标，买家点击后进入对应商品详情。
+- **消息清理**：买家消息中心支持左滑单条删除、5 秒撤销、清除已读和二次确认清空全部；删除按收件人软删除并保留审计数据。
+- **数据库迁移**：新增 `20260711160000_notification_message_soft_delete`，部署工作流会在后端构建前执行 `npx prisma migrate deploy`。
+- **发布前验证**：App Jest 113/113、根目录契约测试 191/191、后端 2172/2172 通过（2 项既有用例跳过），三端类型检查/构建与 Prisma 校验通过。
+
 ### 2026-06-18 数字资产“消费资产”命名与 VIP 口径修正
 
 - **代码发布**：`staging` 推送 `08c1c75 fix(digital-asset): rename credit assets to consumption assets`；`main` 合并提交 `2b3872a release: 合并 staging 到 main（数字资产消费资产命名）`。

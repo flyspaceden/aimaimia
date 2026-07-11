@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Param, Query } from '@nestjs/common';
 import { InboxService } from './inbox.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -43,6 +43,36 @@ export class InboxController {
   @Post('read-all')
   markAllRead(@CurrentUser('sub') userId: string) {
     return this.inboxService.markAllRead(userId);
+  }
+
+  /** 删除全部已读消息（软删除，仅影响当前买家） */
+  @Delete('read')
+  deleteRead(@CurrentUser('sub') userId: string) {
+    return this.inboxService.deleteRead(userId);
+  }
+
+  /** 删除全部消息（软删除，仅影响当前买家） */
+  @Delete('all')
+  deleteAll(@CurrentUser('sub') userId: string) {
+    return this.inboxService.deleteAll(userId);
+  }
+
+  /** 恢复刚删除的单条消息 */
+  @Post(':id/restore')
+  restoreOne(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.inboxService.restoreOne(id, userId);
+  }
+
+  /** 删除单条消息（软删除，仅影响当前买家） */
+  @Delete(':id')
+  deleteOne(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.inboxService.deleteOne(id, userId);
   }
 
   private parsePositiveInt(value: string | undefined, fallback: number) {
