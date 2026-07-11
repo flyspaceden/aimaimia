@@ -8,13 +8,23 @@ import {
   type ProfitSafetyPreviewConfigMeta,
 } from '@/utils/configProfitSafetyPreview';
 
-export type ConfigProfitSafetyPreviewState =
+export type ProfitSafetyPreviewState =
   | { kind: 'saved' }
   | { kind: 'checking' }
   | { kind: 'candidate'; summary: ProfitSafetySummary }
   | { kind: 'invalid-ratio' }
   | { kind: 'invalid-form' }
   | { kind: 'error'; error: Error };
+
+export interface UseConfigProfitSafetyPreviewInput {
+  configs: RuleConfig[];
+  values?: Record<string, unknown>;
+  schema: readonly ProfitSafetyPreviewConfigMeta[];
+  sumValid: boolean;
+  hasValidationErrors: boolean;
+  enabled: boolean;
+  delayMs?: number;
+}
 
 function normalizeValues(values: unknown): Record<string, unknown> {
   return values !== null && typeof values === 'object' && !Array.isArray(values)
@@ -30,16 +40,8 @@ export function useConfigProfitSafetyPreview({
   hasValidationErrors,
   enabled,
   delayMs = 500,
-}: {
-  configs: RuleConfig[];
-  values?: Record<string, unknown>;
-  schema: ProfitSafetyPreviewConfigMeta[];
-  sumValid: boolean;
-  hasValidationErrors: boolean;
-  enabled: boolean;
-  delayMs?: number;
-}): ConfigProfitSafetyPreviewState {
-  const [state, setState] = useState<ConfigProfitSafetyPreviewState>({ kind: 'saved' });
+}: UseConfigProfitSafetyPreviewInput): ProfitSafetyPreviewState {
+  const [state, setState] = useState<ProfitSafetyPreviewState>({ kind: 'saved' });
   const normalizedValues = useMemo(() => normalizeValues(values), [values]);
   const valuesReady = schema.every(({ key }) => Object.hasOwn(normalizedValues, key));
   const updates = useMemo(

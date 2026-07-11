@@ -17,9 +17,9 @@ function unwrapConfigValue(value: unknown): unknown {
 }
 
 export function buildProfitSafetyCandidateUpdates(
-  configs: Array<{ key: string; value: unknown }>,
+  configs: readonly { key: string; value: unknown }[],
   values: Record<string, unknown>,
-  schema: ProfitSafetyPreviewConfigMeta[],
+  schema: readonly ProfitSafetyPreviewConfigMeta[],
 ): ProfitSafetyPreviewUpdate[] {
   const savedByKey = new Map(configs.map((config) => [config.key, unwrapConfigValue(config.value)]));
   return schema.flatMap(({ key }) => (
