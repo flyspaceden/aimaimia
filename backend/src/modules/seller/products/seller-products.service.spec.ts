@@ -3,6 +3,14 @@ import { Prisma } from '@prisma/client';
 import { ProductBundleService } from '../../product/product-bundle.service';
 import { SellerProductsService } from './seller-products.service';
 
+const passthroughProfitSafety = (prisma: any) => ({
+  withCandidateChange: jest.fn(async (_change: unknown, write: (tx: any) => Promise<unknown>) => ({
+    result: await prisma.$transaction(write, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    }),
+  })),
+});
+
 describe('SellerProductsService SKU weight validation', () => {
   const buildThrowingSellerBundleService = (message = '组合商品组成规格校验失败') => ({
     validateSellerBundleItems: jest.fn().mockRejectedValue(new BadRequestException(message)),
@@ -31,6 +39,7 @@ describe('SellerProductsService SKU weight validation', () => {
       bonusConfig as any,
       semanticFillService as any,
       productBundleService as any,
+      passthroughProfitSafety(prisma) as any,
     );
   };
 
@@ -101,6 +110,7 @@ describe('SellerProductsService SKU weight validation', () => {
       bonusConfig as any,
       semanticFillService as any,
       productBundleService,
+      passthroughProfitSafety(prisma) as any,
     );
     return { service, prisma, tx };
   };
@@ -122,6 +132,7 @@ describe('SellerProductsService SKU weight validation', () => {
       bonusConfig as any,
       semanticFillService as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await (service.findAll as any)('company_1', 2, 50, 'ACTIVE', undefined, '苹果', 'SIMPLE');
@@ -163,6 +174,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn() } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await (service.findAll as any)(
@@ -227,6 +239,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn() } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await expect(service.remove('company_1', 'product_1')).resolves.toEqual({
@@ -264,6 +277,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn() } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await expect(service.remove('company_1', 'product_1')).rejects.toMatchObject({
@@ -304,6 +318,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn() } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await expect(service.remove('company_1', 'product_1')).rejects.toMatchObject({
@@ -430,6 +445,7 @@ describe('SellerProductsService SKU weight validation', () => {
       bonusConfig as any,
       semanticFillService as any,
       productBundleService,
+      passthroughProfitSafety(prisma) as any,
     );
     return { service, prisma, tx };
   };
@@ -484,6 +500,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn() } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
     return { service, prisma, tx };
   };
@@ -585,6 +602,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn().mockResolvedValue({ markupRate: 1.3 }) } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       productBundleService,
+      passthroughProfitSafety(prisma) as any,
     );
     return { service, prisma, tx };
   };
@@ -653,8 +671,8 @@ describe('SellerProductsService SKU weight validation', () => {
   });
 
   it('submitDraft rejects SKU with placeholder skuCode prefix', async () => {
-    const { service, tx } = buildDraftService();
-    tx.product.findUnique.mockResolvedValueOnce({
+    const { service, prisma, tx } = buildDraftService();
+    const draft = {
       id: 'draft_1',
       companyId: 'company_1',
       status: 'DRAFT',
@@ -682,7 +700,9 @@ describe('SellerProductsService SKU weight validation', () => {
       }],
       media: [],
       tags: [],
-    });
+    };
+    prisma.product.findUnique.mockResolvedValue(draft);
+    tx.product.findUnique.mockResolvedValue(draft);
 
     await expect(service.submitDraft('company_1', 'draft_1'))
       .rejects.toMatchObject({
@@ -723,6 +743,7 @@ describe('SellerProductsService SKU weight validation', () => {
       media: [],
       tags: [],
     };
+    prisma.product.findUnique.mockResolvedValue(cleanDraft);
     tx.product.findUnique.mockResolvedValueOnce({
       ...cleanDraft,
       skus: [{
@@ -737,13 +758,13 @@ describe('SellerProductsService SKU weight validation', () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
-    expect(prisma.product.findUnique).not.toHaveBeenCalled();
+    expect(prisma.product.findUnique).toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(tx.product.update).not.toHaveBeenCalled();
   });
 
   it('updateDraft clears placeholder skuCode when user fills real weightGram', async () => {
-    const { service, tx } = buildDraftService();
+    const { service, prisma, tx } = buildDraftService();
 
     await service.updateDraft('company_1', 'draft_1', {
       skus: [{
@@ -776,11 +797,13 @@ describe('SellerProductsService SKU weight validation', () => {
 
   it('updateDraft rejects non-DRAFT from the Serializable transaction snapshot without writing', async () => {
     const { service, prisma, tx } = buildDraftService();
-    tx.product.findUnique.mockResolvedValueOnce({
+    const bundleDraft = {
       id: 'draft_1',
       companyId: 'company_1',
       status: 'ACTIVE',
-    });
+    };
+    prisma.product.findUnique.mockResolvedValue(bundleDraft);
+    tx.product.findUnique.mockResolvedValue(bundleDraft);
 
     await expect(service.updateDraft('company_1', 'draft_1', {
       title: '不能覆盖正式商品',
@@ -946,7 +969,7 @@ describe('SellerProductsService SKU weight validation', () => {
   });
 
   it('createDraft allows incomplete BUNDLE but submitDraft rejects missing valid bundleItems', async () => {
-    const { service, tx } = buildDraftService();
+    const { service, prisma, tx } = buildDraftService();
 
     await service.createDraft('company_1', {
       title: '组合草稿',
@@ -957,7 +980,7 @@ describe('SellerProductsService SKU weight validation', () => {
     const createArg = tx.product.create.mock.calls[0][0];
     expect(createArg.data.type).toBe('BUNDLE');
 
-    tx.product.findUnique.mockResolvedValueOnce({
+    const bundleDraft = {
       id: 'draft_1',
       companyId: 'company_1',
       status: 'DRAFT',
@@ -987,7 +1010,9 @@ describe('SellerProductsService SKU weight validation', () => {
       media: [],
       tags: [],
       bundleItems: [],
-    });
+    };
+    prisma.product.findUnique.mockResolvedValue(bundleDraft);
+    tx.product.findUnique.mockResolvedValue(bundleDraft);
 
     await expect(service.submitDraft('company_1', 'draft_1'))
       .rejects.toBeInstanceOf(BadRequestException);
@@ -1012,13 +1037,15 @@ describe('SellerProductsService SKU weight validation', () => {
 
   it('updateDraft wraps bundle validation errors onto bundleItems field', async () => {
     const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
-    const { service, tx } = buildDraftService(productBundleService);
-    tx.product.findUnique.mockResolvedValueOnce({
+    const { service, prisma, tx } = buildDraftService(productBundleService);
+    const bundleDraft = {
       id: 'draft_1',
       companyId: 'company_1',
       status: 'DRAFT',
       type: 'BUNDLE',
-    });
+    };
+    prisma.product.findUnique.mockResolvedValue(bundleDraft);
+    tx.product.findUnique.mockResolvedValue(bundleDraft);
 
     await expect(service.updateDraft('company_1', 'draft_1', {
       productType: 'BUNDLE',
@@ -1033,8 +1060,8 @@ describe('SellerProductsService SKU weight validation', () => {
 
   it('submitDraft wraps bundle validation errors onto bundleItems field', async () => {
     const productBundleService = buildThrowingSellerBundleService('组合商品组成规格必须为本商家在售普通商品');
-    const { service, tx } = buildDraftService(productBundleService);
-    tx.product.findUnique.mockResolvedValueOnce({
+    const { service, prisma, tx } = buildDraftService(productBundleService);
+    const bundleDraft = {
       id: 'draft_1',
       companyId: 'company_1',
       status: 'DRAFT',
@@ -1064,7 +1091,9 @@ describe('SellerProductsService SKU weight validation', () => {
       media: [],
       tags: [],
       bundleItems: [{ skuId: 'component_sku_1', quantity: 1, sortOrder: 0 }],
-    });
+    };
+    prisma.product.findUnique.mockResolvedValue(bundleDraft);
+    tx.product.findUnique.mockResolvedValue(bundleDraft);
 
     await expect(service.submitDraft('company_1', 'draft_1'))
       .rejects.toMatchObject({
@@ -1101,9 +1130,16 @@ describe('SellerProductsService SKU weight validation', () => {
         findUnique: jest.fn().mockResolvedValue({
           id: 'product_1',
           companyId: 'company_1',
+          categoryId: 'category_1',
           status: 'INACTIVE',
           auditStatus: 'PENDING',
           type: 'SIMPLE',
+          company: { isPlatform: false },
+          lotteryPrizes: [],
+          skus: [
+            { id: 'sku_keep', price: 13, cost: 10, status: 'ACTIVE', vipGiftItems: [] },
+            { id: 'sku_remove', price: 15, cost: 11, status: 'ACTIVE', vipGiftItems: [] },
+          ],
         }),
       },
       $transaction: jest.fn((fn) => fn(tx)),
@@ -1113,6 +1149,7 @@ describe('SellerProductsService SKU weight validation', () => {
       { getSystemConfig: jest.fn().mockResolvedValue({ markupRate: 1.3 }) } as any,
       { fillProduct: jest.fn().mockResolvedValue(undefined) } as any,
       new ProductBundleService() as any,
+      passthroughProfitSafety(prisma) as any,
     );
 
     await expect(service.updateSkus('company_1', 'product_1', [
