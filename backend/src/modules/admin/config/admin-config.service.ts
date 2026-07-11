@@ -1,166 +1,109 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
-import { UpdateConfigDto, BatchUpdateConfigDto } from './dto/admin-config.dto';
+import type { CaptainSeafoodConfig } from '../../captain/captain.types';
+import {
+  PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS,
+  ProfitSafetyCandidateChange,
+  ProfitSafetyService,
+} from '../../profit/profit-safety.service';
+import { ProfitSafetyViolationError } from '../../profit/profit-safety-validator';
 import { validateConfigValue } from './config-validation';
-import { createHash } from 'crypto';
+import { BatchUpdateConfigDto, UpdateConfigDto } from './dto/admin-config.dto';
+
+type VersionAssessment = {
+  rollbackAllowed: boolean;
+  rollbackBlockedReason: string | null;
+};
 
 @Injectable()
 export class AdminConfigService {
   constructor(
-    private prisma: PrismaService,
-    private bonusConfig: BonusConfigService,
+    private readonly prisma: PrismaService,
+    private readonly bonusConfig: BonusConfigService,
+    private readonly profitSafety: ProfitSafetyService,
   ) {}
 
-  /** 获取所有配置 */
-  async findAll() {
+  findAll() {
     return this.prisma.ruleConfig.findMany();
   }
 
-  /** 获取单个配置 */
   async findByKey(key: string) {
     const config = await this.prisma.ruleConfig.findUnique({ where: { key } });
     if (!config) throw new NotFoundException(`配置项 ${key} 不存在`);
     return config;
   }
 
-  /** 更新配置 */
   async update(key: string, dto: UpdateConfigDto, adminUserId: string) {
-    // 提取实际值：前端可能传 { value: xxx, description: xxx } 或直接传值
-    const rawValue = dto.value;
-    const actualValue =
-      rawValue !== null &&
-      typeof rawValue === 'object' &&
-      !Array.isArray(rawValue) &&
-      'value' in rawValue
-        ? rawValue.value
-        : rawValue;
-
-    // 校验配置值类型和范围
+    const actualValue = this.unwrapValue(dto.value);
     const validationError = validateConfigValue(key, actualValue);
-    if (validationError) {
-      throw new BadRequestException(validationError);
-    }
+    if (validationError) throw new BadRequestException(validationError);
 
-    // 校验利润分配比例（VIP/普通用户）更新后总和是否仍为 1.0
-    await this.bonusConfig.validateRatioUpdate(key, dto.value);
-
-    // 获取当前值用于快照
-    const allConfigs = await this.prisma.ruleConfig.findMany();
-    const snapshot: Record<string, any> = {};
-    for (const c of allConfigs) {
-      snapshot[c.key] = c.value;
-    }
-    // 更新为新值
-    snapshot[key] = dto.value;
-
-    return this.prisma.$transaction(async (tx) => {
-      // 更新或创建配置
-      await tx.ruleConfig.upsert({
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
+      ruleUpdates: { [key]: actualValue },
+      createdByAdminId: adminUserId,
+      changeNote: dto.changeNote || `更新配置项 ${key}`,
+    }, async (tx, context) => {
+      this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
+      await (tx as any).ruleConfig.upsert({
         where: { key },
         update: { value: dto.value },
         create: { key, value: dto.value },
       });
+      return { ok: true };
+    }));
 
-      // 创建版本记录
-      const version = createHash('md5')
-        .update(JSON.stringify(snapshot) + Date.now())
-        .digest('hex')
-        .slice(0, 12);
-
-      await tx.ruleVersion.create({
-        data: {
-          version,
-          snapshot,
-          createdByAdminId: adminUserId,
-          changeNote: dto.changeNote || `更新配置项 ${key}`,
-        },
-      });
-
-      // P1-7: 清除分润配置缓存
-      this.bonusConfig.invalidateCache();
-
-      return { ok: true, version };
-    });
+    this.bonusConfig.invalidateCache();
+    return { ok: true, version: (output.ruleVersion as any).version };
   }
 
-  /**
-   * 批量更新配置（原子事务 + 最终态一次性校验）
-   *
-   * 为什么要这个接口：单项 update 会触发 validateRatioUpdate，用"DB 旧值 + 单项新值"
-   * 校验总和。当用户同时调整多个比例（如 VIP 平台 50→49 + 奖励 30→31），串行调用
-   * 就会在第一项提交时因其他项仍是旧值导致总和 ≠ 1.0 被拦截。批量接口把所有
-   * updates 先合并成目标快照，再校验比例总和，最后在单个事务里 upsert 全部项。
-   */
   async batchUpdate(dto: BatchUpdateConfigDto, adminUserId: string) {
-    const { updates, changeNote } = dto;
-
-    // 1. 逐项校验值类型和范围（不涉及跨项约束）
-    for (const u of updates) {
-      const rawValue = u.value;
-      const actualValue =
-        rawValue !== null &&
-        typeof rawValue === 'object' &&
-        !Array.isArray(rawValue) &&
-        'value' in rawValue
-          ? rawValue.value
-          : rawValue;
-      const err = validateConfigValue(u.key, actualValue);
-      if (err) {
-        throw new BadRequestException(`[${u.key}] ${err}`);
+    const ruleUpdates: Record<string, unknown> = {};
+    for (const update of dto.updates) {
+      const actualValue = this.unwrapValue(update.value);
+      const validationError = validateConfigValue(update.key, actualValue);
+      if (validationError) {
+        throw new BadRequestException(`[${update.key}] ${validationError}`);
       }
+      ruleUpdates[update.key] = actualValue;
     }
 
-    // 2. 构建目标快照：以当前 DB 为基线，全部 updates 叠加
-    const allConfigs = await this.prisma.ruleConfig.findMany();
-    const snapshot: Record<string, any> = {};
-    for (const c of allConfigs) {
-      snapshot[c.key] = c.value;
-    }
-    for (const u of updates) {
-      snapshot[u.key] = u.value;
-    }
-
-    // 3. 对目标快照做跨项约束校验（VIP + 普通用户七分比例总和 = 1.0）
-    this.bonusConfig.validateSnapshotRatios(snapshot);
-
-    // 4. 事务内批量 upsert + 版本快照
-    return this.prisma.$transaction(async (tx) => {
-      for (const u of updates) {
-        await tx.ruleConfig.upsert({
-          where: { key: u.key },
-          update: { value: u.value },
-          create: { key: u.key, value: u.value },
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
+      ruleUpdates,
+      createdByAdminId: adminUserId,
+      changeNote: dto.changeNote
+        || `批量更新 ${dto.updates.length} 个配置项：${dto.updates.map((item) => item.key).join(', ')}`,
+    }, async (tx, context) => {
+      this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
+      for (const update of dto.updates) {
+        await (tx as any).ruleConfig.upsert({
+          where: { key: update.key },
+          update: { value: update.value },
+          create: { key: update.key, value: update.value },
         });
       }
+      return { ok: true };
+    }));
 
-      const version = createHash('md5')
-        .update(JSON.stringify(snapshot) + Date.now())
-        .digest('hex')
-        .slice(0, 12);
-
-      await tx.ruleVersion.create({
-        data: {
-          version,
-          snapshot,
-          createdByAdminId: adminUserId,
-          changeNote:
-            changeNote ||
-            `批量更新 ${updates.length} 个配置项：${updates.map((u) => u.key).join(', ')}`,
-        },
-      });
-
-      this.bonusConfig.invalidateCache();
-
-      return { ok: true, version, updated: updates.length };
-    });
+    this.bonusConfig.invalidateCache();
+    return {
+      ok: true,
+      version: (output.ruleVersion as any).version,
+      updated: dto.updates.length,
+    };
   }
 
-  /** 配置版本历史 */
+  async getProfitSafetySummary() {
+    return this.profitSafety.getCurrentSummary();
+  }
+
+  async previewProfitSafety(input: unknown) {
+    return this.profitSafety.preview(this.normalizePreview(input));
+  }
+
   async findVersions(page = 1, pageSize = 20) {
     const skip = (page - 1) * pageSize;
-
-    const [items, total] = await Promise.all([
+    const [versions, total] = await Promise.all([
       this.prisma.ruleVersion.findMany({
         skip,
         take: pageSize,
@@ -173,11 +116,13 @@ export class AdminConfigService {
       }),
       this.prisma.ruleVersion.count(),
     ]);
-
+    const items = await Promise.all(versions.map(async (version) => ({
+      ...version,
+      ...(await this.assessVersion(version)),
+    })));
     return { items, total, page, pageSize };
   }
 
-  /** 查看某个版本的快照 */
   async findVersionById(id: string) {
     const version = await this.prisma.ruleVersion.findUnique({
       where: { id },
@@ -188,49 +133,121 @@ export class AdminConfigService {
       },
     });
     if (!version) throw new NotFoundException('版本不存在');
-    return version;
+    return { ...version, ...(await this.assessVersion(version)) };
   }
 
-  /** 回滚到指定版本 */
   async rollbackToVersion(versionId: string, adminUserId: string) {
-    const version = await this.prisma.ruleVersion.findUnique({
-      where: { id: versionId },
-    });
+    const version = await this.prisma.ruleVersion.findUnique({ where: { id: versionId } });
     if (!version) throw new NotFoundException('版本不存在');
 
-    const snapshot = version.snapshot as Record<string, any>;
+    const snapshot = this.unwrapSnapshot(version.snapshot);
+    const assessment = await this.assessVersion(version, snapshot);
+    if (!assessment.rollbackAllowed) {
+      throw new BadRequestException(assessment.rollbackBlockedReason);
+    }
 
-    // 校验回滚快照中的利润分配比例（VIP + 普通用户）总和是否为 1.0
-    this.bonusConfig.validateSnapshotRatios(snapshot);
-
-    return this.prisma.$transaction(async (tx) => {
-      // 清空当前配置
-      await tx.ruleConfig.deleteMany();
-
-      // 恢复快照中的所有配置
-      for (const [key, value] of Object.entries(snapshot)) {
-        await tx.ruleConfig.create({ data: { key, value } });
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
+      replaceRuleSnapshot: snapshot,
+      createdByAdminId: adminUserId,
+      changeNote: `回滚到版本 ${version.version}`,
+    }, async (tx, context) => {
+      this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
+      await (tx as any).ruleConfig.deleteMany();
+      for (const [key, value] of Object.entries(context.candidateSnapshot)) {
+        await (tx as any).ruleConfig.create({ data: { key, value } });
       }
+      return { ok: true };
+    }));
 
-      // 创建新版本记录
-      const newVersion = createHash('md5')
-        .update(JSON.stringify(snapshot) + Date.now())
-        .digest('hex')
-        .slice(0, 12);
+    this.bonusConfig.invalidateCache();
+    return { ok: true, version: (output.ruleVersion as any).version };
+  }
 
-      await tx.ruleVersion.create({
-        data: {
-          version: newVersion,
-          snapshot,
-          createdByAdminId: adminUserId,
-          changeNote: `回滚到版本 ${version.version}`,
-        },
-      });
+  private async assessVersion(
+    version: any,
+    preparedSnapshot?: Record<string, unknown>,
+  ): Promise<VersionAssessment> {
+    if (version?.isComplete !== true) {
+      return { rollbackAllowed: false, rollbackBlockedReason: '该版本是不完整历史快照，不允许回滚' };
+    }
+    const snapshot = preparedSnapshot ?? this.unwrapSnapshot(version.snapshot);
+    const missingKeys = PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.filter(
+      (key) => !Object.prototype.hasOwnProperty.call(snapshot, key),
+    );
+    if (missingKeys.length > 0) {
+      return {
+        rollbackAllowed: false,
+        rollbackBlockedReason: `该版本缺少完整配置：${missingKeys.join(', ')}`,
+      };
+    }
+    const captain = snapshot.CAPTAIN_SEAFOOD_CONFIG as any;
+    if (captain?.schemaVersion === 2 && captain?.enabled === true) {
+      return { rollbackAllowed: false, rollbackBlockedReason: '该版本启用了销售额口径 V2 团长配置' };
+    }
+    try {
+      this.bonusConfig.validateSnapshotRatios(snapshot);
+    } catch {
+      return { rollbackAllowed: false, rollbackBlockedReason: '该版本的利润分配比例总和不合法' };
+    }
+    try {
+      const summary = await this.profitSafety.preview({ replaceRuleSnapshot: snapshot });
+      if (!summary.safe) {
+        return { rollbackAllowed: false, rollbackBlockedReason: '该版本在当前商品经济数据下会突破利润安全底线' };
+      }
+    } catch {
+      return { rollbackAllowed: false, rollbackBlockedReason: '该版本无法通过当前利润安全校验' };
+    }
+    return { rollbackAllowed: true, rollbackBlockedReason: null };
+  }
 
-      // P1-7: 清除分润配置缓存
-      this.bonusConfig.invalidateCache();
+  private normalizePreview(input: unknown): ProfitSafetyCandidateChange {
+    const payload = input && typeof input === 'object' && !Array.isArray(input)
+      ? input as Record<string, any>
+      : {};
+    const ruleUpdates: Record<string, unknown> = {};
+    if (Array.isArray(payload.updates)) {
+      for (const update of payload.updates) {
+        if (typeof update?.key === 'string') {
+          ruleUpdates[update.key] = this.unwrapValue(update.value);
+        }
+      }
+    }
+    if (payload.ruleUpdates && typeof payload.ruleUpdates === 'object') {
+      for (const [key, value] of Object.entries(payload.ruleUpdates)) {
+        ruleUpdates[key] = this.unwrapValue(value);
+      }
+    }
+    return {
+      ...(Object.keys(ruleUpdates).length > 0 ? { ruleUpdates } : {}),
+      ...(payload.captainConfig ? { captainConfig: payload.captainConfig as CaptainSeafoodConfig } : {}),
+    };
+  }
 
-      return { ok: true, version: newVersion };
-    });
+  private unwrapSnapshot(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, item]) => [key, this.unwrapValue(item)]),
+    );
+  }
+
+  private unwrapValue(value: any): unknown {
+    return value !== null
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && Object.prototype.hasOwnProperty.call(value, 'value')
+      ? value.value
+      : value;
+  }
+
+  private async executeSafety<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof ProfitSafetyViolationError) {
+        throw new BadRequestException(error.toResponse());
+      }
+      throw error;
+    }
   }
 }
