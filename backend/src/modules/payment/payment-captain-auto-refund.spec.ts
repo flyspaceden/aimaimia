@@ -5,6 +5,51 @@ jest.mock('../delivery/payments/delivery-payments.service', () => ({
 import { PaymentService } from './payment.service';
 
 describe('PaymentService captain auto-refund hook', () => {
+  it('routes an after-sale success through AfterSaleRefundService', async () => {
+    const prisma: any = {
+      refund: { findUnique: jest.fn().mockResolvedValue({
+        status: 'REFUNDING', afterSaleId: 'after-sale-1', merchantRefundNo: 'AS-after-sale-1',
+      }) },
+    };
+    const afterSaleRefund = { handleRefundSuccess: jest.fn().mockResolvedValue(undefined) };
+    const service = new PaymentService(prisma, {} as any, {} as any);
+    service.setAfterSaleRefundService(afterSaleRefund as any);
+
+    await expect(service.finalizeSuccessfulRefundRecord({
+      refundId: 'refund-as-1',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'provider-as-1',
+      remark: '售后退款成功',
+    })).resolves.toBe(true);
+
+    expect(afterSaleRefund.handleRefundSuccess).toHaveBeenCalledWith('refund-as-1', 'provider-as-1');
+  });
+
+  it('routes a non-after-sale success through the Serializable auto-refund CAS finalizer', async () => {
+    const prisma: any = {
+      refund: { findUnique: jest.fn().mockResolvedValue({
+        status: 'REFUNDING', afterSaleId: null, merchantRefundNo: 'AUTO-CANCEL-order-1',
+      }) },
+    };
+    const service = new PaymentService(prisma, {} as any, {} as any);
+    const finalizeAuto = jest.spyOn(service, 'finalizeAutoRefundRecord').mockResolvedValue(true);
+
+    await expect(service.finalizeSuccessfulRefundRecord({
+      refundId: 'refund-auto-1',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'provider-auto-1',
+      remark: '自动退款成功',
+    })).resolves.toBe(true);
+
+    expect(finalizeAuto).toHaveBeenCalledWith({
+      refundId: 'refund-auto-1',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'provider-auto-1',
+      remark: '自动退款成功',
+      toStatus: 'REFUNDED',
+    });
+  });
+
   it('preserves legacy captain voiding when an auto-cancel refund has no profit snapshot', async () => {
     const tx: any = {
       refund: {

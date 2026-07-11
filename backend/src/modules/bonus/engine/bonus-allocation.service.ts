@@ -12,6 +12,12 @@ import { RewardCalculatorService, OrderItemForCalc, OrderItemForPoolCalc, OrderI
 import { sanitizeErrorForLog } from '../../../common/logging/log-sanitizer';
 import { NORMAL_ROOT_ID, MAX_BFS_ITERATIONS, MAX_TREE_DEPTH, BONUS_MIGRATION_DATE, PLATFORM_USER_ID } from './constants';
 import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
+import {
+  buildRemainingProfitView,
+  type RefundProfitItem,
+  type SuccessfulRefundItem,
+} from '../../profit/order-profit-refund.service';
+import { centsToYuan, yuanToCents } from '../../profit/money-allocation';
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
@@ -330,20 +336,16 @@ export class BonusAllocationService {
     const ruleVersion = typeof rule.vipNormalConfigVersion === 'string'
       ? rule.vipNormalConfigVersion
       : `snapshot:${snapshot.id}`;
-    const companyProfitShares = this.companyProfitSharesFromSnapshot(
-      order.items,
-      snapshot.itemBreakdown,
-      Number(snapshot.distributableProfitAmount),
-    );
-    const pools = this.calculator.calculateFromProfit(
-      Number(snapshot.distributableProfitAmount),
-      buyerPath,
-      rates,
-      directRate,
-      companyProfitShares,
-      Boolean(rule?.directInviter?.eligibleUserId),
-      ruleVersion,
-    );
+    const profitItems = this.readRefundProfitItems(snapshot.itemBreakdown);
+    const originalProfit = buildRemainingProfitView(profitItems, []);
+    if (
+      originalProfit.originalDistributableProfitCents
+        !== yuanToCents(snapshot.distributableProfitAmount)
+      || originalProfit.originalCaptainEligibleProfitCents
+        !== yuanToCents(snapshot.captainEligibleProfitAmount)
+    ) {
+      throw new Error('profit snapshot item totals do not match D/C');
+    }
     const ancestors = this.readSnapshotAncestors(
       buyerPath === 'VIP'
         ? rule.vipTreeAncestorPathAtPayment
@@ -357,6 +359,33 @@ export class BonusAllocationService {
       try {
         await this.prisma.$transaction(
           async (tx) => {
+            await tx.$executeRaw`
+              SELECT pg_advisory_xact_lock(
+                hashtext('order-profit-refund-v3'),
+                hashtext(${order.id})
+              )
+            `;
+            const remaining = await this.loadRemainingProfitAtReceipt(
+              tx,
+              order.id,
+              profitItems,
+            );
+            if (!remaining) return;
+            const remainingProfit = centsToYuan(remaining.remainingDistributableProfitCents);
+            const companyProfitShares = this.companyProfitSharesFromSnapshot(
+              order.items,
+              remaining.remainingItemProfitCents,
+              remainingProfit,
+            );
+            const pools = this.calculator.calculateFromProfit(
+              remainingProfit,
+              buyerPath,
+              rates,
+              directRate,
+              companyProfitShares,
+              Boolean(rule?.directInviter?.eligibleUserId),
+              ruleVersion,
+            );
             if (buyerPath === 'VIP') {
               vipAncestorUserId = await this.executeVipUpstreamSevenWay(
                 tx,
@@ -429,22 +458,70 @@ export class BonusAllocationService {
 
   private companyProfitSharesFromSnapshot(
     items: Array<{ id: string; companyId: string | null }>,
-    rawBreakdown: unknown,
+    itemProfitCents: Record<string, number>,
     profit: number,
   ): Record<string, number> {
     const profitCents = Math.round(profit * 100);
-    if (!Array.isArray(rawBreakdown) || profitCents <= 0) return {};
+    if (profitCents <= 0) return {};
     const companyByItem = new Map(items.map((item) => [item.id, item.companyId]));
     const companyCents = new Map<string, number>();
-    for (const entry of rawBreakdown as any[]) {
-      const companyId = companyByItem.get(entry?.orderItemId);
-      const cents = Number(entry?.distributableProfitShareCents);
+    for (const [orderItemId, rawCents] of Object.entries(itemProfitCents)) {
+      const companyId = companyByItem.get(orderItemId);
+      const cents = Number(rawCents);
       if (!companyId || !Number.isSafeInteger(cents) || cents <= 0) continue;
       companyCents.set(companyId, (companyCents.get(companyId) ?? 0) + cents);
     }
     return Object.fromEntries(
       [...companyCents.entries()].map(([companyId, cents]) => [companyId, cents / profitCents]),
     );
+  }
+
+  private async loadRemainingProfitAtReceipt(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    profitItems: RefundProfitItem[],
+  ): Promise<ReturnType<typeof buildRemainingProfitView> | null> {
+    const successfulRefunds = await tx.refund.findMany({
+      where: { orderId, status: 'REFUNDED', deletedAt: null },
+      include: { items: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const refundItems: SuccessfulRefundItem[] = successfulRefunds.flatMap((refund: any) =>
+      (refund.items ?? []).map((item: any) => ({
+        refundId: refund.id,
+        orderItemId: item.orderItemId,
+        quantity: item.quantity,
+        goodsAmountCents: yuanToCents(item.amount),
+      })),
+    );
+    const incompleteRefund = successfulRefunds.find(
+      (refund: any) => !Array.isArray(refund.items) || refund.items.length === 0,
+    );
+    if (incompleteRefund) {
+      this.logger.warn(
+        `订单 ${orderId} 的成功退款 ${incompleteRefund.id} 缺少行级退款事实，关闭收货分润`,
+      );
+      return null;
+    }
+    const remaining = buildRemainingProfitView(profitItems, refundItems);
+    if (remaining.remainingDistributableProfitCents <= 0) {
+      this.logger.log(`订单 ${orderId} 退款后可分润利润为零，跳过收货分润`);
+      return null;
+    }
+    return remaining;
+  }
+
+  private readRefundProfitItems(raw: unknown): RefundProfitItem[] {
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new Error('profit snapshot item breakdown is missing');
+    }
+    return raw.map((entry: any) => ({
+      orderItemId: entry.orderItemId,
+      quantity: entry.quantity,
+      netGoodsRevenueCents: entry.netGoodsRevenueCents,
+      distributableProfitShareCents: entry.distributableProfitShareCents,
+      captainEligible: entry.captainEligible,
+    }));
   }
 
   private readSnapshotAncestors(raw: unknown): SnapshotTreeAncestor[] {

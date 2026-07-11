@@ -20,7 +20,8 @@ export type RefundProfitItem = {
 export type SuccessfulRefundItem = {
   refundId: string;
   orderItemId: string;
-  quantity: number | null;
+  /** Positive means quantity-based; zero is the persisted amount-only sentinel. */
+  quantity: number;
   goodsAmountCents: number;
   channelRefundAmountCents?: number;
   refundedAt?: Date;
@@ -35,6 +36,63 @@ export type CumulativeRefundTarget = {
   ratioNumerator: number;
   ratioDenominator: number;
 };
+
+export type RemainingProfitView = {
+  originalDistributableProfitCents: number;
+  originalCaptainEligibleProfitCents: number;
+  refundedDistributableProfitCents: number;
+  refundedCaptainEligibleProfitCents: number;
+  remainingDistributableProfitCents: number;
+  remainingCaptainEligibleProfitCents: number;
+  remainingItemProfitCents: Record<string, number>;
+};
+
+export function assertRefundSourceCaps(input: {
+  distributableProfitCents: number;
+  captainEligibleProfitCents: number;
+  memberSourceCents: number;
+  captainSourceCents: number;
+  fundingSources: Array<{ type: string; amountCents: number }>;
+}): void {
+  for (const [label, value] of Object.entries({
+    distributableProfitCents: input.distributableProfitCents,
+    captainEligibleProfitCents: input.captainEligibleProfitCents,
+    memberSourceCents: input.memberSourceCents,
+    captainSourceCents: input.captainSourceCents,
+  })) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${label} must be a non-negative safe integer`);
+    }
+  }
+  if (input.memberSourceCents > input.distributableProfitCents) {
+    throw new Error('member refund sources exceed original D');
+  }
+  if (input.captainSourceCents > input.captainEligibleProfitCents) {
+    throw new Error('captain refund sources exceed original C');
+  }
+  for (const source of input.fundingSources) {
+    if (!source.type || !Number.isSafeInteger(source.amountCents)) {
+      throw new Error('funding source must contain a type and safe integer cents');
+    }
+    if (source.type === 'PLATFORM_RETAINED_CREDIT') {
+      if (source.amountCents < 0) throw new Error('platform funding must not be negative');
+      if (source.amountCents > input.distributableProfitCents) {
+        throw new Error('platform funding exceeds original D');
+      }
+    } else if (Math.abs(source.amountCents) > input.captainEligibleProfitCents) {
+      throw new Error('captain funding source exceeds original C');
+    }
+  }
+  const fundingNetCents = checkedSafeIntegerSum(
+    input.fundingSources.map((source) => source.amountCents),
+  );
+  if (fundingNetCents === null || fundingNetCents < 0) {
+    throw new Error('signed funding net is invalid');
+  }
+  if (fundingNetCents > input.distributableProfitCents) {
+    throw new Error('signed funding net exceeds original D');
+  }
+}
 
 export type ProfitRefundFinalizeResult = {
   mode: 'V3' | 'LEGACY' | 'NOOP';
@@ -95,6 +153,12 @@ export function buildCumulativeRefundTargets(
   const targets: Record<string, CumulativeRefundTarget> = {};
   const knownIds = new Set<string>();
 
+  for (const refundItem of refundItems) {
+    if (!Number.isSafeInteger(refundItem.quantity) || refundItem.quantity < 0) {
+      throw new Error('refund quantity must be zero or a positive integer');
+    }
+  }
+
   for (const item of [...items].sort((a, b) => a.orderItemId.localeCompare(b.orderItemId))) {
     if (!item.orderItemId || knownIds.has(item.orderItemId)) {
       throw new Error('profit snapshot contains duplicate order items');
@@ -113,7 +177,7 @@ export function buildCumulativeRefundTargets(
 
     const facts = refundItems.filter((entry) => entry.orderItemId === item.orderItemId);
     const quantityFacts = facts.filter(
-      (entry) => Number.isSafeInteger(entry.quantity) && Number(entry.quantity) > 0,
+      (entry) => entry.quantity > 0,
     );
     let ratioNumerator: number;
     let ratioDenominator: number;
@@ -163,6 +227,50 @@ export function buildCumulativeRefundTargets(
   return targets;
 }
 
+export function buildRemainingProfitView(
+  items: RefundProfitItem[],
+  refundItems: SuccessfulRefundItem[],
+): RemainingProfitView {
+  const targets = buildCumulativeRefundTargets(items, refundItems);
+  const originalDistributableProfitCents = checkedSafeIntegerSum(
+    items.map((item) => item.distributableProfitShareCents),
+  );
+  const originalCaptainEligibleProfitCents = checkedSafeIntegerSum(
+    items.filter((item) => item.captainEligible).map((item) => item.distributableProfitShareCents),
+  );
+  if (originalDistributableProfitCents === null || originalCaptainEligibleProfitCents === null) {
+    throw new Error('profit item totals exceed the safe cent range');
+  }
+
+  const remainingItemProfitCents: Record<string, number> = {};
+  let refundedDistributableProfitCents = 0;
+  let refundedCaptainEligibleProfitCents = 0;
+  for (const item of items) {
+    const refunded = targets[item.orderItemId].cumulativeProfitTargetCents;
+    remainingItemProfitCents[item.orderItemId] = item.distributableProfitShareCents - refunded;
+    refundedDistributableProfitCents += refunded;
+    if (item.captainEligible) refundedCaptainEligibleProfitCents += refunded;
+  }
+  if (
+    !Number.isSafeInteger(refundedDistributableProfitCents)
+    || !Number.isSafeInteger(refundedCaptainEligibleProfitCents)
+  ) {
+    throw new Error('refunded profit totals exceed the safe cent range');
+  }
+
+  return {
+    originalDistributableProfitCents,
+    originalCaptainEligibleProfitCents,
+    refundedDistributableProfitCents,
+    refundedCaptainEligibleProfitCents,
+    remainingDistributableProfitCents:
+      originalDistributableProfitCents - refundedDistributableProfitCents,
+    remainingCaptainEligibleProfitCents:
+      originalCaptainEligibleProfitCents - refundedCaptainEligibleProfitCents,
+    remainingItemProfitCents,
+  };
+}
+
 @Injectable()
 export class OrderProfitRefundService {
   async finalizeSuccessfulRefund(
@@ -191,23 +299,39 @@ export class OrderProfitRefundService {
 
     const items = this.readProfitItems(snapshot.itemBreakdown);
     const successfulRefunds = await tx.refund.findMany({
-      where: { orderId: refund.orderId, status: 'REFUNDED' },
+      where: { orderId: refund.orderId, status: 'REFUNDED', deletedAt: null },
       include: { items: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
+    const incompleteRefund = successfulRefunds.find(
+      (successfulRefund) => !Array.isArray(successfulRefund.items) || successfulRefund.items.length === 0,
+    );
+    if (incompleteRefund) {
+      throw new Error(
+        `successful V3 refund ${incompleteRefund.id} is missing line-level facts`,
+      );
+    }
     const allRefundItems = this.flattenRefundItems(successfulRefunds);
-    if (allRefundItems.length === 0) return { mode: 'V3', orderId: refund.orderId, reversalCount: 0 };
 
-    await tx.orderProfitAdjustmentDraft.updateMany({
-      where: { orderId: refund.orderId, status: 'PENDING' },
-      data: { status: 'SUPERSEDED' },
+    const adjustmentDrafts = await tx.orderProfitAdjustmentDraft.findMany({
+      where: { orderId: refund.orderId, status: { in: ['PENDING', 'APPLIED'] } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
     const targets = buildCumulativeRefundTargets(items, allRefundItems);
+    const profitView = buildRemainingProfitView(items, allRefundItems);
+    if (
+      profitView.originalDistributableProfitCents !== yuanToCents(snapshot.distributableProfitAmount)
+      || profitView.originalCaptainEligibleProfitCents
+        !== yuanToCents(snapshot.captainEligibleProfitAmount)
+    ) {
+      throw new Error('profit snapshot item totals do not match D/C');
+    }
     const priorReversals = await tx.orderProfitRefundReversal.findMany({
       where: { orderId: refund.orderId, snapshotId: snapshot.id },
     });
     const pending: PendingClawback[] = [];
+    const currentRecovered = new Map<string, number>();
     let reversalCount = 0;
 
     const memberSources = await tx.rewardLedger.findMany({
@@ -217,11 +341,83 @@ export class OrderProfitRefundService {
         refId: refund.orderId,
         allocation: { orderId: refund.orderId },
         status: { in: ['FROZEN', 'AVAILABLE', 'WITHDRAWN', 'RETURN_FROZEN'] },
-        account: { type: { in: [...MEMBER_ACCOUNT_TYPES] } },
+        account: { type: { in: [...MEMBER_ACCOUNT_TYPES, RewardAccountType.PLATFORM_PROFIT] } },
       },
       include: { account: { select: { id: true, type: true, balance: true, frozen: true } } },
     });
-    for (const source of memberSources.filter((row: any) => MEMBER_ACCOUNT_TYPES.has(row.account?.type))) {
+    const refundableMemberSources = memberSources.filter((row: any) =>
+      this.isRefundableMemberSource(row));
+    const memberSourceCents = checkedSafeIntegerSum(
+      refundableMemberSources.map((source: any) =>
+        this.originalSourceAmountCents(source, priorReversals)),
+    );
+    if (memberSourceCents === null) throw new Error('member refund sources exceed the safe cent range');
+
+    const attribution = await tx.captainOrderAttribution.findFirst({
+      where: {
+        orderId: refund.orderId,
+        profitSnapshotId: snapshot.id,
+        calculationModel: 'PROFIT_V3',
+      },
+    });
+    const captainLedgers = attribution
+      ? await tx.captainCommissionLedger.findMany({
+          where: {
+            OR: [
+              { orderAttributionId: attribution.id, type: 'DIRECT_ORDER' },
+              { settlement: { settlementOrders: { some: { orderAttributionId: attribution.id } } } },
+            ],
+            deletedAt: null,
+          },
+        })
+      : [];
+    const directCaptainLedgers = captainLedgers.filter((row: any) =>
+      row.orderAttributionId === attribution?.id && row.type === 'DIRECT_ORDER');
+    const directCaptainSourceCents = checkedSafeIntegerSum(
+      directCaptainLedgers.map((source: any) =>
+        this.originalSourceAmountCents(source, priorReversals)),
+    );
+    if (directCaptainSourceCents === null) {
+      throw new Error('captain refund sources exceed the safe cent range');
+    }
+    const settlementOrder = attribution
+      ? await tx.captainMonthlySettlementOrder.findUnique({
+          where: { orderAttributionId: attribution.id },
+          include: { settlement: true },
+        })
+      : null;
+    const monthlySourceCents = settlementOrder
+      && ['APPROVED', 'PENDING_REVIEW', 'PAID'].includes(settlementOrder.settlement?.status)
+      ? checkedSafeIntegerSum([
+          settlementOrder.baseManagementAmount,
+          settlementOrder.growthBonusAmount,
+          settlementOrder.cultivationBonusAmount,
+          settlementOrder.performanceBonusAmount,
+        ].map((amount) => yuanToCents(amount ?? 0)))
+      : 0;
+    if (monthlySourceCents === null) {
+      throw new Error('captain monthly refund sources exceed the safe cent range');
+    }
+    const fundingSources = await tx.orderProfitFundingLedger.findMany({
+      where: {
+        orderId: refund.orderId,
+        snapshotId: snapshot.id,
+        type: { not: 'REFUND_ADJUSTMENT' },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    assertRefundSourceCaps({
+      distributableProfitCents: profitView.originalDistributableProfitCents,
+      captainEligibleProfitCents: profitView.originalCaptainEligibleProfitCents,
+      memberSourceCents,
+      captainSourceCents: directCaptainSourceCents + monthlySourceCents,
+      fundingSources: fundingSources.map((source) => ({
+        type: source.type,
+        amountCents: yuanToCents(source.amount),
+      })),
+    });
+
+    for (const source of refundableMemberSources) {
       const originalAmountCents = this.originalSourceAmountCents(source, priorReversals);
       const applied = await this.reverseSourceByItems(tx, {
         refund,
@@ -236,23 +432,20 @@ export class OrderProfitRefundService {
       });
       reversalCount += applied.rows;
       if (applied.incrementCents > 0) {
-        const pendingCents = await this.applyMemberReversal(tx, source, refundId, applied.incrementCents);
-        if (pendingCents > 0) pending.push({
+        const recovery = await this.applyMemberReversal(tx, source, refundId, applied.incrementCents);
+        currentRecovered.set(
+          source.id,
+          (currentRecovered.get(source.id) ?? 0) + recovery.recoveredCents,
+        );
+        if (recovery.pendingCents > 0) pending.push({
           sourceLedgerId: source.id,
           sourceLedgerType: 'MEMBER_REWARD',
           userId: source.userId,
-          amountCents: pendingCents,
+          amountCents: recovery.pendingCents,
         });
       }
     }
 
-    const attribution = await tx.captainOrderAttribution.findFirst({
-      where: {
-        orderId: refund.orderId,
-        profitSnapshotId: snapshot.id,
-        calculationModel: 'PROFIT_V3',
-      },
-    });
     if (attribution) {
       const eligibleRefundCents = checkedSafeIntegerSum(
         items
@@ -276,17 +469,7 @@ export class OrderProfitRefundService {
           refundAmount: centsToYuan(Math.min(eligibleGoodsCents, eligibleRefundCents)),
         },
       });
-      const captainLedgers = await tx.captainCommissionLedger.findMany({
-        where: {
-          OR: [
-            { orderAttributionId: attribution.id, type: 'DIRECT_ORDER' },
-            { settlement: { settlementOrders: { some: { orderAttributionId: attribution.id } } } },
-          ],
-          deletedAt: null,
-        },
-      });
-      for (const source of captainLedgers.filter((row: any) =>
-        row.orderAttributionId === attribution.id && row.type === 'DIRECT_ORDER')) {
+      for (const source of directCaptainLedgers) {
         const originalAmountCents = this.originalSourceAmountCents(source, priorReversals);
         const applied = await this.reverseSourceByItems(tx, {
           refund,
@@ -301,7 +484,7 @@ export class OrderProfitRefundService {
         });
         reversalCount += applied.rows;
         if (applied.incrementCents > 0) {
-          const pendingCents = await this.applyCaptainReversal(
+          const recovery = await this.applyCaptainReversal(
             tx,
             source,
             attribution,
@@ -309,11 +492,15 @@ export class OrderProfitRefundService {
             applied.incrementCents,
             'CAPTAIN_DIRECT',
           );
-          if (pendingCents > 0) pending.push({
+          currentRecovered.set(
+            source.id,
+            (currentRecovered.get(source.id) ?? 0) + recovery.recoveredCents,
+          );
+          if (recovery.pendingCents > 0) pending.push({
             sourceLedgerId: source.id,
             sourceLedgerType: 'CAPTAIN_DIRECT',
             userId: source.userId,
-            amountCents: pendingCents,
+            amountCents: recovery.pendingCents,
           });
         }
       }
@@ -327,17 +514,11 @@ export class OrderProfitRefundService {
         targets,
         priorReversals,
         pending,
+        settlementOrder,
+        currentRecovered,
       );
     }
 
-    const fundingSources = await tx.orderProfitFundingLedger.findMany({
-      where: {
-        orderId: refund.orderId,
-        snapshotId: snapshot.id,
-        type: { not: 'REFUND_ADJUSTMENT' },
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
     for (const source of fundingSources) {
       const captainOnly = source.type !== 'PLATFORM_RETAINED_CREDIT';
       const applied = await this.reverseSourceByItems(tx, {
@@ -373,7 +554,23 @@ export class OrderProfitRefundService {
       }
     }
 
-    if (pending.length > 0) {
+    const unresolved = reversalCount > 0
+      ? await this.buildOutstandingClawbacks(
+          tx,
+          refund,
+          snapshot,
+          adjustmentDrafts,
+          pending,
+          currentRecovered,
+        )
+      : [];
+    if (reversalCount > 0) {
+      await tx.orderProfitAdjustmentDraft.updateMany({
+        where: { orderId: refund.orderId, status: 'PENDING' },
+        data: { status: 'SUPERSEDED' },
+      });
+    }
+    if (reversalCount > 0 && unresolved.length > 0) {
       await tx.orderProfitAdjustmentDraft.create({
         data: {
           orderId: refund.orderId,
@@ -383,7 +580,7 @@ export class OrderProfitRefundService {
           adjustments: {
             reason: 'CLAWBACK_PENDING',
             refundId,
-            sources: pending.map((item) => ({
+            sources: unresolved.map((item) => ({
               ...item,
               amount: centsToYuan(item.amountCents),
             })),
@@ -426,11 +623,136 @@ export class OrderProfitRefundService {
     return refunds.flatMap((refund) => (refund.items ?? []).map((item: any) => ({
       refundId: refund.id,
       orderItemId: item.orderItemId,
-      quantity: Number.isSafeInteger(item.quantity) && item.quantity > 0 ? item.quantity : null,
+      quantity: item.quantity,
       goodsAmountCents: yuanToCents(item.amount),
       channelRefundAmountCents: yuanToCents(refund.amount ?? item.amount),
       refundedAt: item.createdAt ?? refund.updatedAt ?? refund.createdAt,
     })));
+  }
+
+  private isRefundableMemberSource(source: any): boolean {
+    if (MEMBER_ACCOUNT_TYPES.has(source.account?.type)) return true;
+    if (source.account?.type !== RewardAccountType.PLATFORM_PROFIT) return false;
+    return source.meta?.scheme === 'VIP_UPSTREAM_FALLBACK'
+      || source.meta?.scheme === 'NORMAL_TREE_FALLBACK';
+  }
+
+  private async buildOutstandingClawbacks(
+    tx: Tx,
+    refund: any,
+    snapshot: any,
+    drafts: any[],
+    currentPending: PendingClawback[],
+    currentRecovered: Map<string, number>,
+  ): Promise<PendingClawback[]> {
+    const reversals = await tx.orderProfitRefundReversal.findMany({
+      where: { orderId: refund.orderId, snapshotId: snapshot.id },
+    });
+    const targets = new Map<string, number>();
+    const metadata = new Map<string, Omit<PendingClawback, 'amountCents'>>();
+    for (const reversal of reversals) {
+      const sourceLedgerId = reversal.sourceLedgerId;
+      targets.set(
+        sourceLedgerId,
+        (targets.get(sourceLedgerId) ?? 0) + yuanToCents(reversal.incrementalReversal),
+      );
+    }
+    for (const draft of drafts) {
+      const sources = Array.isArray(draft?.adjustments?.sources)
+        ? draft.adjustments.sources
+        : [];
+      for (const source of sources) {
+        if (typeof source?.sourceLedgerId !== 'string') continue;
+        metadata.set(source.sourceLedgerId, {
+          sourceLedgerId: source.sourceLedgerId,
+          sourceLedgerType: String(source.sourceLedgerType ?? 'UNKNOWN'),
+          userId: String(source.userId ?? ''),
+        });
+      }
+    }
+    for (const source of currentPending) {
+      metadata.set(source.sourceLedgerId, {
+        sourceLedgerId: source.sourceLedgerId,
+        sourceLedgerType: source.sourceLedgerType,
+        userId: source.userId,
+      });
+    }
+    const sourceIds = [...targets.keys()];
+    const [rewardRecoveries, captainRecoveries] = sourceIds.length > 0
+      ? await Promise.all([
+          tx.rewardLedger.findMany({
+            where: {
+              sourceLedgerId: { in: sourceIds },
+              refType: 'REFUND',
+              refId: { not: refund.id },
+              amount: { lt: 0 },
+            },
+            select: { sourceLedgerId: true, userId: true, meta: true },
+          }),
+          tx.captainCommissionLedger.findMany({
+            where: {
+              orderId: refund.orderId,
+              refType: 'REFUND',
+              refId: { not: refund.id },
+              type: 'VOID',
+              amount: { lt: 0 },
+            },
+            select: { userId: true, meta: true },
+          }),
+        ])
+      : [[], []];
+    const recovered = new Map(currentRecovered);
+    for (const ledger of rewardRecoveries as any[]) {
+      if (typeof ledger.sourceLedgerId !== 'string') continue;
+      const cents = yuanToCents(Number(ledger.meta?.recoveredAmount ?? 0));
+      recovered.set(ledger.sourceLedgerId, (recovered.get(ledger.sourceLedgerId) ?? 0) + cents);
+      if (!metadata.has(ledger.sourceLedgerId)) {
+        metadata.set(ledger.sourceLedgerId, {
+          sourceLedgerId: ledger.sourceLedgerId,
+          sourceLedgerType: 'MEMBER_REWARD',
+          userId: ledger.userId,
+        });
+      }
+    }
+    for (const ledger of captainRecoveries as any[]) {
+      const sourceLedgerId = ledger.meta?.originalLedgerId;
+      if (typeof sourceLedgerId !== 'string') continue;
+      const cents = yuanToCents(Number(ledger.meta?.recoveredAmount ?? 0));
+      recovered.set(sourceLedgerId, (recovered.get(sourceLedgerId) ?? 0) + cents);
+      if (!metadata.has(sourceLedgerId)) {
+        metadata.set(sourceLedgerId, {
+          sourceLedgerId,
+          sourceLedgerType: String(ledger.meta?.sourceType ?? 'CAPTAIN_REWARD'),
+          userId: ledger.userId,
+        });
+      }
+    }
+    for (const draft of drafts.filter((item) => item.status === 'APPLIED')) {
+      const sources = Array.isArray(draft?.adjustments?.sources)
+        ? draft.adjustments.sources
+        : [];
+      for (const source of sources) {
+        if (typeof source?.sourceLedgerId !== 'string') continue;
+        const cents = Number.isSafeInteger(source.amountCents)
+          ? Number(source.amountCents)
+          : yuanToCents(Number(source.amount ?? 0));
+        recovered.set(
+          source.sourceLedgerId,
+          (recovered.get(source.sourceLedgerId) ?? 0) + Math.max(0, cents),
+        );
+      }
+    }
+    return sourceIds
+      .map((sourceLedgerId) => {
+        const amountCents = Math.max(
+          0,
+          (targets.get(sourceLedgerId) ?? 0) - (recovered.get(sourceLedgerId) ?? 0),
+        );
+        const meta = metadata.get(sourceLedgerId);
+        return meta && amountCents > 0 ? { ...meta, amountCents } : null;
+      })
+      .filter((item): item is PendingClawback => item !== null)
+      .sort((a, b) => a.sourceLedgerId.localeCompare(b.sourceLedgerId));
   }
 
   private allocateSourceAcrossItems(
@@ -516,7 +838,7 @@ export class OrderProfitRefundService {
     source: any,
     refundId: string,
     amountCents: number,
-  ): Promise<number> {
+  ): Promise<{ pendingCents: number; recoveredCents: number }> {
     const amount = centsToYuan(amountCents);
     let recoveredCents = 0;
     if (source.status === 'FROZEN') {
@@ -569,7 +891,7 @@ export class OrderProfitRefundService {
         },
       },
     });
-    return pendingCents;
+    return { pendingCents, recoveredCents };
   }
 
   private async applyCaptainReversal(
@@ -580,7 +902,7 @@ export class OrderProfitRefundService {
     amountCents: number,
     sourceType: string,
     mutateSource = true,
-  ): Promise<number> {
+  ): Promise<{ pendingCents: number; recoveredCents: number }> {
     const amount = centsToYuan(amountCents);
     let recoveredCents = 0;
     if (source.status === 'FROZEN') {
@@ -638,7 +960,7 @@ export class OrderProfitRefundService {
         },
       },
     });
-    return pendingCents;
+    return { pendingCents, recoveredCents };
   }
 
   private async reverseMonthlySources(
@@ -651,12 +973,13 @@ export class OrderProfitRefundService {
     targets: Record<string, CumulativeRefundTarget>,
     priorReversals: any[],
     pending: PendingClawback[],
+    settlementOrder: any,
+    currentRecovered: Map<string, number>,
   ): Promise<number> {
-    const settlementOrder = await tx.captainMonthlySettlementOrder.findUnique({
-      where: { orderAttributionId: attribution.id },
-      include: { settlement: true },
-    });
-    if (!settlementOrder || !['APPROVED', 'PAID'].includes(settlementOrder.settlement?.status)) return 0;
+    if (
+      !settlementOrder
+      || !['APPROVED', 'PENDING_REVIEW', 'PAID'].includes(settlementOrder.settlement?.status)
+    ) return 0;
 
     let rows = 0;
     let reversedCents = 0;
@@ -680,13 +1003,13 @@ export class OrderProfitRefundService {
       rows += applied.rows;
       reversedCents += applied.incrementCents;
       if (applied.incrementCents <= 0) continue;
-      if (settlementOrder.settlement.status === 'APPROVED') {
+      if (settlementOrder.settlement.status !== 'PAID') {
         const amount = centsToYuan(applied.incrementCents);
         await tx.captainCommissionLedger.update({
           where: { id: source.id },
           data: { amount: { decrement: amount } },
         });
-        const pendingCents = await this.applyCaptainReversal(
+        const recovery = await this.applyCaptainReversal(
           tx,
           { ...source, amount: orderSourceCents / 100 },
           attribution,
@@ -695,11 +1018,15 @@ export class OrderProfitRefundService {
           'CAPTAIN_MONTHLY',
           false,
         );
-        if (pendingCents > 0) pending.push({
+        currentRecovered.set(
+          source.id,
+          (currentRecovered.get(source.id) ?? 0) + recovery.recoveredCents,
+        );
+        if (recovery.pendingCents > 0) pending.push({
           sourceLedgerId: source.id,
           sourceLedgerType: 'CAPTAIN_MONTHLY',
           userId: source.userId,
-          amountCents: pendingCents,
+          amountCents: recovery.pendingCents,
         });
         const settlementTotalCents = Math.max(
           1,
@@ -724,7 +1051,7 @@ export class OrderProfitRefundService {
           },
         });
       } else {
-        const pendingCents = await this.applyCaptainReversal(
+        const recovery = await this.applyCaptainReversal(
           tx,
           source,
           attribution,
@@ -732,11 +1059,15 @@ export class OrderProfitRefundService {
           applied.incrementCents,
           'CAPTAIN_MONTHLY',
         );
-        if (pendingCents > 0) pending.push({
+        currentRecovered.set(
+          source.id,
+          (currentRecovered.get(source.id) ?? 0) + recovery.recoveredCents,
+        );
+        if (recovery.pendingCents > 0) pending.push({
           sourceLedgerId: source.id,
           sourceLedgerType: 'CAPTAIN_MONTHLY',
           userId: source.userId,
-          amountCents: pendingCents,
+          amountCents: recovery.pendingCents,
         });
       }
     }

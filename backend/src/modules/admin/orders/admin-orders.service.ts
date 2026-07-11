@@ -500,18 +500,16 @@ export class AdminOrdersService {
     const historyRemark = result.success
       ? (isPendingRefund ? '管理员手动重试已受理，等待渠道确认' : '管理员手动重试成功')
       : `管理员手动重试失败: ${result.message ?? ''}`;
-    const isAutoCancelFinalSuccess =
+    const isUnifiedFinalSuccess =
       result.success &&
       !isPendingRefund &&
-      refund.merchantRefundNo?.startsWith('AUTO-CANCEL-') &&
-      typeof this.paymentService.finalizeAutoRefundRecord === 'function';
+      typeof this.paymentService.finalizeSuccessfulRefundRecord === 'function';
 
     try {
-      if (isAutoCancelFinalSuccess) {
-        const written = await this.paymentService.finalizeAutoRefundRecord({
+      if (isUnifiedFinalSuccess) {
+        const written = await this.paymentService.finalizeSuccessfulRefundRecord({
           refundId,
           fromStatuses: [lease.fromStatus],
-          toStatus: 'REFUNDED',
           providerRefundId,
           remark: historyRemark,
           operatorId: adminUserId,

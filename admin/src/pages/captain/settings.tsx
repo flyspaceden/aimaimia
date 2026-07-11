@@ -11,6 +11,7 @@ import {
   DatePicker,
   Divider,
   Form,
+  Grid,
   Input,
   InputNumber,
   Row,
@@ -390,6 +391,7 @@ function SafetySummaryPanel({ summary }: { summary?: ProfitSafetySummary | null 
 
 export default function CaptainSettingsPage() {
   const { message } = App.useApp();
+  const screens = Grid.useBreakpoint();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<CaptainSeafoodConfig>();
   const [dirty, setDirty] = useState(false);
@@ -494,7 +496,7 @@ export default function CaptainSettingsPage() {
   const amountRules = [{ required: true, message: '请输入金额' }];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: screens.md ? 24 : 0, minWidth: 0, width: '100%' }}>
       <Card
         loading={isLoading}
         title={<Space><SettingOutlined />团长配置</Space>}

@@ -16,6 +16,7 @@ describe('AdminOrdersService.retryRefund', () => {
     const paymentService = {
       initiateRefund: jest.fn(),
       finalizeAutoRefundRecord: jest.fn(),
+      finalizeSuccessfulRefundRecord: jest.fn(),
     };
     const service = new (AdminOrdersService as any)(
       prisma,
@@ -97,7 +98,7 @@ describe('AdminOrdersService.retryRefund', () => {
     }));
   });
 
-  it('手动重试 CAS 写回 count=0 时记审计并跳过覆盖', async () => {
+  it('手动重试 pending 状态 CAS 写回 count=0 时记审计并跳过覆盖', async () => {
     const { service, prisma, paymentService } = makeService();
     prisma.refund.findUnique.mockResolvedValue({
       id: 'r1',
@@ -109,6 +110,7 @@ describe('AdminOrdersService.retryRefund', () => {
     });
     paymentService.initiateRefund.mockResolvedValue({
       success: true,
+      pending: true,
       providerRefundId: 'PROVIDER-REF-1',
     });
     const leaseTx = {
@@ -140,7 +142,7 @@ describe('AdminOrdersService.retryRefund', () => {
 
     await expect((service as any).retryRefund('o1', 'r1', 'admin1')).resolves.toEqual({
       ok: true,
-      message: undefined,
+      message: '退款已受理，等待渠道确认',
     });
     expect(writeBackTx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'r1', status: 'FAILED' },
@@ -239,7 +241,7 @@ describe('AdminOrdersService.retryRefund', () => {
       providerRefundId: 'PROVIDER-REF-1',
       message: 'OK',
     });
-    paymentService.finalizeAutoRefundRecord.mockResolvedValue(true);
+    paymentService.finalizeSuccessfulRefundRecord.mockResolvedValue(true);
     const leaseTx = {
       $executeRaw: jest.fn(),
       refund: {
@@ -260,10 +262,9 @@ describe('AdminOrdersService.retryRefund', () => {
       ok: true,
       message: 'OK',
     });
-    expect(paymentService.finalizeAutoRefundRecord).toHaveBeenCalledWith({
+    expect(paymentService.finalizeSuccessfulRefundRecord).toHaveBeenCalledWith({
       refundId: 'r1',
       fromStatuses: ['FAILED'],
-      toStatus: 'REFUNDED',
       providerRefundId: 'PROVIDER-REF-1',
       remark: '管理员手动重试成功',
       operatorId: 'admin1',
@@ -271,7 +272,38 @@ describe('AdminOrdersService.retryRefund', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('手动重试遇到 providerRefundId P2002 时另开事务写审计并抛 ConflictException', async () => {
+  it('手动重试 AS 退款同步成功时也复用统一成功 finalizer', async () => {
+    const { service, prisma, paymentService } = makeService();
+    prisma.refund.findUnique.mockResolvedValue({
+      id: 'r-as-1', orderId: 'o1', amount: 65, status: 'FAILED',
+      merchantRefundNo: 'AS-after-sale-1', providerRefundId: null,
+    });
+    paymentService.initiateRefund.mockResolvedValue({
+      success: true, providerRefundId: 'PROVIDER-AS-1', message: 'OK',
+    });
+    paymentService.finalizeSuccessfulRefundRecord.mockResolvedValue(true);
+    const leaseTx = {
+      $executeRaw: jest.fn(),
+      refund: { findUnique: jest.fn().mockResolvedValue({ id: 'r-as-1', orderId: 'o1', status: 'FAILED' }) },
+      refundStatusHistory: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    };
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(leaseTx));
+
+    await expect((service as any).retryRefund('o1', 'r-as-1', 'admin1')).resolves.toEqual({
+      ok: true,
+      message: 'OK',
+    });
+    expect(paymentService.finalizeSuccessfulRefundRecord).toHaveBeenCalledWith({
+      refundId: 'r-as-1',
+      fromStatuses: ['FAILED'],
+      providerRefundId: 'PROVIDER-AS-1',
+      remark: '管理员手动重试成功',
+      operatorId: 'admin1',
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('手动重试 pending 写回遇到 providerRefundId P2002 时另开事务写审计并抛 ConflictException', async () => {
     const { service, prisma, paymentService } = makeService();
     const p2002 = new Prisma.PrismaClientKnownRequestError(
       'Unique constraint failed on the fields: (`providerRefundId`)',
@@ -291,6 +323,7 @@ describe('AdminOrdersService.retryRefund', () => {
     });
     paymentService.initiateRefund.mockResolvedValue({
       success: true,
+      pending: true,
       providerRefundId: 'PROVIDER-REF-1',
     });
 

@@ -1929,6 +1929,35 @@ export class PaymentService {
     return Boolean(updated);
   }
 
+  async finalizeSuccessfulRefundRecord(params: {
+    refundId: string;
+    fromStatuses: string[];
+    remark: string;
+    providerRefundId?: string | null;
+    rawNotifyPayload?: any;
+    operatorId?: string | null;
+  }): Promise<boolean> {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: params.refundId },
+      select: { status: true, afterSaleId: true, merchantRefundNo: true },
+    });
+    if (!refund || !params.fromStatuses.includes(refund.status)) return false;
+    if (refund.afterSaleId || refund.merchantRefundNo.startsWith('AS-')) {
+      if (!this.afterSaleRefundService) {
+        throw new Error('AfterSaleRefundService is required to finalize an after-sale refund');
+      }
+      await this.afterSaleRefundService.handleRefundSuccess(
+        params.refundId,
+        params.providerRefundId ?? null,
+      );
+      return true;
+    }
+    return this.finalizeAutoRefundRecord({
+      ...params,
+      toStatus: 'REFUNDED',
+    });
+  }
+
   private async reverseDigitalAssetAfterAutoRefund(refundId: string): Promise<void> {
     if (!this.digitalAssetService) return;
     try {
