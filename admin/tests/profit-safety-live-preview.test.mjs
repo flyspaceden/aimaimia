@@ -170,6 +170,16 @@ test('live preview architecture claims are bound to the guarded backend implemen
   assert.match(previewRoute, /return this\.configService\.previewProfitSafety\(body\);/);
   assert.doesNotMatch(previewRoute, /@AuditLog\b/);
 
+  const batchRoute = extractBetween(
+    controllerSource,
+    "@Put('batch')",
+    "@Get(':key')",
+  );
+  assert.match(batchRoute, /@Put\('batch'\)/);
+  assert.match(batchRoute, /@RequirePermission\('config:update'\)/);
+  assert.match(batchRoute, /@AuditLog\(/);
+  assert.match(batchRoute, /return this\.configService\.batchUpdate\(dto, adminUserId\);/);
+
   const previewMethod = extractBalancedBlock(
     configServiceSource,
     'async previewProfitSafety(input: unknown)',
@@ -177,6 +187,15 @@ test('live preview architecture claims are bound to the guarded backend implemen
     '}',
   );
   assert.match(previewMethod, /return this\.profitSafety\.preview\(this\.normalizePreview\(input\)\);/);
+
+  const batchUpdateMethod = extractBalancedBlock(
+    configServiceSource,
+    'async batchUpdate(dto: BatchUpdateConfigDto, adminUserId: string)',
+    '{',
+    '}',
+  );
+  assert.match(batchUpdateMethod, /this\.profitSafety\.withCandidateChange\(\{/);
+  assert.match(batchUpdateMethod, /ruleUpdates,/);
 
   const safetyLockMethod = extractBalancedBlock(
     profitSafetySource,
@@ -207,6 +226,23 @@ test('live preview architecture claims are bound to the guarded backend implemen
     /\b(?:auditLog|audit|auditService)\s*\.\s*(?:create|update|upsert|delete|write|log)\s*\(/i,
   ]) {
     assert.doesNotMatch(previewSafetyMethod, persistencePattern);
+  }
+
+  const buildContextMethod = extractBalancedBlock(
+    profitSafetySource,
+    'private async buildContext(',
+    '{',
+    '}',
+  );
+  assert.match(buildContextMethod, /this\.loadRuleSnapshot\(tx\)/);
+  assert.match(buildContextMethod, /this\.loadActiveSkus\(tx\)/);
+  assert.match(buildContextMethod, /this\.validator\.evaluate\(candidate\)/);
+  for (const persistencePattern of [
+    /ruleConfig\.(?:create|update|upsert|delete|updateMany|createMany|deleteMany)/,
+    /ruleVersion\.(?:create|update|upsert|delete|updateMany|createMany|deleteMany)/,
+    /\b(?:auditLog|audit|auditService)\s*\.\s*(?:create|update|upsert|delete|updateMany|createMany|deleteMany|write|log)\s*\(/i,
+  ]) {
+    assert.doesNotMatch(buildContextMethod, persistencePattern);
   }
 
   const candidateChangeMethod = extractBalancedBlock(
