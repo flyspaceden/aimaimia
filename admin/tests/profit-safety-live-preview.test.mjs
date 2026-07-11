@@ -43,7 +43,9 @@ function extractBalancedBlock(source, startToken, open, close) {
 
 function extractJsxOpeningTag(source, component) {
   const startToken = `<${component}`;
-  const start = source.indexOf(startToken);
+  const tagPattern = new RegExp(`${startToken}(?=\\s|/)`);
+  const match = source.match(tagPattern);
+  const start = match?.index ?? -1;
   assert.notEqual(start, -1, `missing JSX tag: ${component}`);
   const end = source.indexOf('/>', start + startToken.length);
   assert.notEqual(end, -1, `unterminated JSX tag: ${component}`);
@@ -60,11 +62,12 @@ function assertConfigPagePreviewIntegration(source) {
 
   const validationRegion = extractBetween(
     source,
-    'const hasValidationErrors = useMemo(',
+    'const [hasValidationErrors, setHasValidationErrors] = useState(false);',
     'const profitSafetyPreview = useConfigProfitSafetyPreview(',
   );
-  assert.match(validationRegion, /form\.getFieldsError\(\)/);
-  assert.match(validationRegion, /\[allValues, form\]/);
+  assert.match(validationRegion, /const handleFieldsChange = useCallback(?:<[^\n]+>)?\(\(_, allFields\) =>/);
+  assert.match(validationRegion, /allFields\.some\(\(field\) => field\.validating \|\| \(field\.errors\?\.length \?\? 0\) > 0\)/);
+  assert.doesNotMatch(validationRegion, /form\.getFieldsError\(\)/);
 
   const previewCall = extractBalancedBlock(
     source,
@@ -85,6 +88,10 @@ function assertConfigPagePreviewIntegration(source) {
 
   const statusTag = extractJsxOpeningTag(source, 'ProfitSafetyStatus');
   assert.match(statusTag, /previewState=\{profitSafetyPreview\}/);
+
+  const formTag = extractJsxOpeningTag(source, 'Form');
+  assert.match(formTag, /onValuesChange=\{\(\) => setDirty\(true\)\}/);
+  assert.match(formTag, /onFieldsChange=\{handleFieldsChange\}/);
 
   const saveCallback = extractBalancedBlock(source, 'const doSave = useCallback', '{', '}');
   assert.match(saveCallback, /message\.success\('配置保存成功'\);/);
