@@ -546,6 +546,7 @@ export default function CaptainSettingsPage() {
                 <Form.Item
                   name="effectiveFrom"
                   label={<FieldLabel label="生效时间" help={FIELD_HELP.effectiveFrom} />}
+                  rules={[{ required: true, message: '请选择 V3 生效时间' }]}
                   getValueProps={(value: string | null | undefined) => ({ value: value ? dayjs(value) : null })}
                   getValueFromEvent={(value: Dayjs | null) => value?.toISOString() ?? null}
                 >

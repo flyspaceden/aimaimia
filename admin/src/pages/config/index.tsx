@@ -29,9 +29,9 @@ import {
   GiftOutlined,
   ShoppingCartOutlined,
   InfoCircleOutlined,
-  RollbackOutlined,
 } from '@ant-design/icons';
 import { getConfigs, updateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -134,6 +134,7 @@ export default function ConfigPage() {
       message.success('已回滚到指定版本');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'config-versions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDrawerOpen(false);
     },
     onError: (err: Error) => message.error(err.message),
@@ -180,6 +181,7 @@ export default function ConfigPage() {
 
       message.success('配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDirty(false);
       setChangeNote('');
     } catch (err: any) {
@@ -426,18 +428,7 @@ function VersionItem({ version, onRollback }: { version: ConfigVersion; onRollba
           >
             {expanded ? '收起' : '详情'}
           </Button>
-          <PermissionGate permission={PERMISSIONS.CONFIG_UPDATE}>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<RollbackOutlined />}
-              onClick={onRollback}
-              style={{ fontSize: 12 }}
-            >
-              回滚
-            </Button>
-          </PermissionGate>
+          <ConfigVersionRollbackButton version={version} onRollback={onRollback} />
         </Space>
       </div>
 

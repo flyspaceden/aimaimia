@@ -408,6 +408,7 @@ export type CaptainSettlementStatus =
   | 'PAID'
   | 'REJECTED';
 export type CaptainApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+export type CaptainCalculationModel = 'SALES_V2' | 'PROFIT_V3';
 
 export interface CaptainApplicationSnapshot {
   capturedAt?: string;
@@ -528,6 +529,10 @@ export interface CaptainOrderAttribution {
   rewardDeductionAmount: number;
   refundAmount: number;
   directRate: number;
+  calculationModel: CaptainCalculationModel;
+  profitSnapshotId: string | null;
+  profitConfigVersion: string | null;
+  profitBaseAmount: number | null;
   status: string;
   createdAt: string;
   order?: { id: string; status: string; totalAmount: number; createdAt: string };
@@ -550,9 +555,18 @@ export interface CaptainCommissionLedger {
   frozenAfter: number | null;
   refType: string | null;
   refId: string | null;
+  configSnapshot?: Record<string, unknown> | null;
+  meta?: Record<string, unknown> | null;
   createdAt: string;
   user?: UserLite;
   settlement?: { id: string; month: string; status: CaptainSettlementStatus };
+  orderAttribution?: {
+    id: string;
+    orderId: string;
+    buyerUserId: string;
+    calculationModel?: CaptainCalculationModel;
+    profitBaseAmount?: number | null;
+  } | null;
 }
 
 export interface CaptainMonthlySettlement {
@@ -574,18 +588,20 @@ export interface CaptainMonthlySettlement {
   reviewedAt: string | null;
   paidAt: string | null;
   rejectReason: string | null;
-  meta?: Record<string, any> | null;
+  configSnapshot?: Record<string, unknown> | null;
+  meta?: Record<string, unknown> | null;
+  profitBaseAmount?: number | null;
   createdAt: string;
   captain?: UserLite;
   metric?: CaptainMonthlyMetric | null;
 }
 
 export interface CaptainSeafoodConfig {
-  schemaVersion: 2;
+  schemaVersion: 3;
   enabled: boolean;
   programCode: 'SEAFOOD_PREPACKAGED';
   programName: string;
-  effectiveFrom: string | null;
+  effectiveFrom: string;
   scope: {
     categoryIds: string[];
     productIds: string[];
@@ -603,7 +619,7 @@ export interface CaptainSeafoodConfig {
     includeRewardDeduction: false;
   };
   perOrderCommission: {
-    directRate: number;
+    directProfitRate: number;
   };
   monthlyQualification: {
     minDirectEffectiveBuyers: number;
@@ -612,15 +628,18 @@ export interface CaptainSeafoodConfig {
   };
   monthlyRewards: {
     baseTierGmv: number;
-    baseManagementRate: number;
+    baseManagementProfitRate: number;
     growthTierGmv: number;
-    growthBonusRate: number;
+    growthBonusProfitRate: number;
     excellentTierGmv: number;
-    cultivationBonusRate: number;
-    performanceBonusRate: number;
+    cultivationBonusProfitRate: number;
+    performanceBonusProfitRate: number;
+  };
+  unitEconomics: {
+    fulfillmentCostRate: number;
   };
   caps: {
-    maxTotalIncentiveRate: number;
+    maxTotalIncentiveProfitRate: number;
     targetNetProfitRate: number;
     coldChainRiskReserveRate: number;
   };
@@ -632,6 +651,61 @@ export interface CaptainSeafoodConfig {
   risk: {
     maxMonthlyRefundRate: number;
     holdSettlementOnRisk: boolean;
+  };
+}
+
+export type ProfitSafetyScenarioKey =
+  | 'VIP_BUYER_VIP_INVITER'
+  | 'VIP_BUYER_NORMAL_INVITER'
+  | 'NORMAL_BUYER_VIP_INVITER'
+  | 'NORMAL_BUYER_NORMAL_INVITER';
+
+export interface ProfitSafetyLimitingSku {
+  skuId: string;
+  productId: string;
+  scenarioKey: ProfitSafetyScenarioKey;
+  price: number;
+  cost: number | null;
+  automaticPrice: number | null;
+  grossMarginRate: number;
+  platformRetainedRevenueRate: number;
+  platformRequiredRevenueRate: number;
+  shortfall: number;
+  reason: string;
+}
+
+export interface ProfitSafetyScenario {
+  key: ProfitSafetyScenarioKey;
+  buyerPath: 'VIP' | 'NORMAL';
+  inviterPath: 'VIP' | 'NORMAL';
+  treeProfitRate: number;
+  industryFundProfitRate: number;
+  directReferralProfitRate: number;
+  captainProfitRate: number;
+  externalProfitRate: number;
+  platformRequiredRevenueRate: number;
+  limitingSkuId: string | null;
+  limitingGrossMarginRate: number;
+  platformRetainedRevenueRate: number;
+  shortfall: number;
+  safe: boolean;
+}
+
+export interface ProfitSafetySummary {
+  safe: boolean;
+  scenarios: ProfitSafetyScenario[];
+  limitingSkus: ProfitSafetyLimitingSku[];
+  shortfall: number;
+  evaluatedSkuCount: number;
+  platformRequiredRevenueRate: number;
+  captainMaximumProfitRate: number;
+  captainConfiguredCap: number;
+  errors: string[];
+  ruleConfigCompleteness?: {
+    complete: boolean;
+    requiredKeys: string[];
+    presentKeys: string[];
+    missingKeys: string[];
   };
 }
 
@@ -1990,5 +2064,7 @@ export interface ConfigVersion {
   changeNote: string | null;
   createdByAdminId: string | null;
   createdByAdmin?: { id: string; username: string; realName?: string };
+  rollbackAllowed: boolean;
+  rollbackBlockedReason: string | null;
   createdAt: string;
 }

@@ -1,5 +1,12 @@
 import client from './client';
-import type { RuleConfig, ConfigVersion, PaginatedData, PaginationParams } from '@/types';
+import type {
+  CaptainSeafoodConfig,
+  ConfigVersion,
+  PaginatedData,
+  PaginationParams,
+  ProfitSafetySummary,
+  RuleConfig,
+} from '@/types';
 
 /** 所有配置 */
 export const getConfigs = (): Promise<RuleConfig[]> =>
@@ -26,6 +33,18 @@ export const batchUpdateConfig = (data: {
   changeNote?: string;
 }): Promise<{ ok: boolean; version: string; updated: number }> =>
   client.put('/admin/config/batch', data);
+
+/** 当前配置在全部买家/邀请人组合下的服务器利润安全状态 */
+export const getProfitSafetySummary = (): Promise<ProfitSafetySummary> =>
+  client.get('/admin/config/profit-safety-summary');
+
+/** 保存前预检规则配置或团长 V3 配置 */
+export const previewProfitSafety = (data: {
+  updates?: Array<{ key: string; value: unknown }>;
+  ruleUpdates?: Record<string, unknown>;
+  captainConfig?: CaptainSeafoodConfig;
+}): Promise<ProfitSafetySummary> =>
+  client.post('/admin/config/profit-safety-preview', data);
 
 /** 配置版本历史 */
 export const getConfigVersions = (params?: PaginationParams): Promise<PaginatedData<ConfigVersion>> =>
