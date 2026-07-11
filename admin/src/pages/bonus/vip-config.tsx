@@ -50,6 +50,7 @@ import {
 import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import ProfitSafetyStatus from '@/components/ProfitSafetyStatus';
 import { useConfigProfitSafetyPreview } from '@/hooks/useConfigProfitSafetyPreview';
+import { usePermission } from '@/hooks/usePermission';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -198,6 +199,8 @@ export default function VipConfigPage() {
   const queryClient = useQueryClient();
   const { message, modal } = App.useApp();
   const [form] = Form.useForm();
+  const { hasPermission } = usePermission();
+  const canUpdateConfig = hasPermission(PERMISSIONS.CONFIG_UPDATE);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -261,7 +264,7 @@ export default function VipConfigPage() {
     schema: CONFIG_SCHEMA,
     sumValid,
     hasValidationErrors,
-    enabled: configs.length > 0 && dirty,
+    enabled: configs.length > 0 && dirty && canUpdateConfig,
   });
 
   // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
