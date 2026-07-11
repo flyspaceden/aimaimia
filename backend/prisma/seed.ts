@@ -1753,9 +1753,15 @@ async function main() {
     // --- VIP冻结过期（新增，原VIP系统无此机制） ---
     { key: 'VIP_FREEZE_DAYS', value: 30, desc: 'VIP冻结奖励过期天数' },
     // --- 定价系统 ---
-    { key: 'MARKUP_RATE', value: 1.30, desc: '卖家商品加价率（售价=成本×此值）' },
+    { key: 'MARKUP_RATE', value: 1.35, desc: '卖家商品加价率（售价=成本×此值）' },
+    { key: 'VIP_DISCOUNT_RATE', value: 0.95, desc: 'VIP用户商品折扣率（如0.95表示95折）' },
+    { key: 'VIP_REWARD_EXPIRY_DAYS', value: 30, desc: 'VIP已释放奖励有效期（天）' },
+    { key: 'NORMAL_REWARD_EXPIRY_DAYS', value: 30, desc: '普通用户已释放奖励有效期（天）' },
     // --- 运费系统 ---
     { key: 'DEFAULT_SHIPPING_FEE', value: 8.0, desc: '无匹配规则时的默认运费' },
+    { key: 'VIP_FREE_SHIPPING_THRESHOLD', value: 49.0, desc: 'VIP用户免运费门槛（元），0=无条件免运费' },
+    { key: 'NORMAL_FREE_SHIPPING_THRESHOLD', value: 99.0, desc: '普通用户免运费门槛（元），0=无条件免运费' },
+    { key: 'LOW_STOCK_DISPLAY_THRESHOLD', value: 10, desc: 'App 低库存展示阈值（0 表示关闭）' },
     // --- 抽奖系统 ---
     { key: 'LOTTERY_ENABLED', value: true, desc: '抽奖功能开关' },
     { key: 'LOTTERY_DAILY_CHANCES', value: 1, desc: '每日抽奖次数' },
@@ -1776,6 +1782,7 @@ async function main() {
     { key: 'NORMAL_RETURN_DAYS', value: 7, desc: '普通退货窗口（天）' },
     { key: 'FRESH_RETURN_HOURS', value: 24, desc: '生鲜退货窗口（小时）' },
     { key: 'RETURN_NO_SHIP_THRESHOLD', value: 50, desc: '免退货退款金额门槛（元）' },
+    { key: 'RETURN_SHIPPING_FEE_DEFAULT', value: 10, desc: '默认退货运费（元）' },
     { key: 'SELLER_REVIEW_TIMEOUT_DAYS', value: 3, desc: '卖家审核超时（天）' },
     { key: 'BUYER_SHIP_TIMEOUT_DAYS', value: 7, desc: '买家退货寄回超时（天）' },
     { key: 'SELLER_RECEIVE_TIMEOUT_DAYS', value: 7, desc: '卖家签收退货超时（天）' },
@@ -1829,6 +1836,19 @@ async function main() {
       },
       desc: '数字资产 V2 消费资产倍率档位',
     },
+    {
+      key: 'DIGITAL_ASSET_MODULE_SETTINGS',
+      value: {
+        modules: [
+          { key: 'assetValue', title: '未来权益模块', enabled: false, description: '规则待开放' },
+          { key: 'level', title: '权益规则待开放', enabled: false, description: '规则待开放' },
+          { key: 'benefits', title: '未来权益模块', enabled: false, description: '规则待开放' },
+          { key: 'futureRights', title: '未来权益模块', enabled: false, description: '规则待开放' },
+        ],
+      },
+      desc: '数字资产模块展示设置',
+    },
+    { key: 'GROUP_BUY_MAX_MONTHLY_LAUNCHES', value: 4, desc: '每个用户每月最多可发起的团购次数' },
     {
       key: CAPTAIN_SEAFOOD_CONFIG_KEY,
       value: DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
