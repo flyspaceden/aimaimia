@@ -39,6 +39,13 @@ const parseErrorMessage = (payload: any, fallback = '请求失败') => {
   return fallback;
 };
 
+const createApiError = (payload: any, fallback: string) => {
+  const error = new Error(parseErrorMessage(payload, fallback)) as Error & { details?: unknown };
+  const details = payload?.error ?? payload;
+  if (details && typeof details === 'object') error.details = details;
+  return error;
+};
+
 // 请求拦截：附加 admin JWT
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin_token');
@@ -82,7 +89,7 @@ client.interceptors.response.use(
     // 后端统一包装 { ok: true, data: ... }
     if (body && typeof body === 'object' && 'ok' in body) {
       if (!body.ok) {
-        return Promise.reject(new Error(parseErrorMessage(body, '请求失败')));
+        return Promise.reject(createApiError(body, '请求失败'));
       }
       // I24修复：检查 data 字段存在性
       if (body.data === undefined) {
@@ -179,8 +186,10 @@ client.interceptors.response.use(
     }
 
     // 非 401 或刷新失败后的错误
-    const msg = parseErrorMessage(error.response?.data, error.message || '网络错误');
-    return Promise.reject(new Error(msg));
+    return Promise.reject(createApiError(
+      error.response?.data,
+      error.message || '网络错误',
+    ));
   },
 );
 

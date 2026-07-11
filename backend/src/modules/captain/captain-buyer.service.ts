@@ -141,8 +141,17 @@ export class CaptainBuyerService {
         take: pagination.pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          orderAttribution: { select: { id: true, orderId: true, buyerUserId: true, status: true } },
-          settlement: { select: { id: true, month: true, status: true } },
+          orderAttribution: {
+            select: {
+              id: true,
+              orderId: true,
+              buyerUserId: true,
+              status: true,
+              calculationModel: true,
+              profitBaseAmount: true,
+            },
+          },
+          settlement: { select: { id: true, month: true, status: true, meta: true } },
         },
       }),
       (this.prisma as any).captainCommissionLedger.count({ where }),

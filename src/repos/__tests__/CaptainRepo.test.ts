@@ -96,4 +96,62 @@ describe('CaptainRepo', () => {
       body: JSON.stringify(payload),
     }));
   });
+
+  it('preserves V3 profit-base order progress returned by the captain endpoint', async () => {
+    mockFetch({
+      items: [{
+        id: 'attr-v3',
+        orderId: 'order-v3',
+        buyerUserId: 'buyer-1',
+        directCaptainUserId: 'captain-1',
+        calculationModel: 'PROFIT_V3',
+        profitBaseAmount: 35,
+        commissionBase: 35,
+        directRate: 0.1,
+        refundAmount: 0,
+        status: 'FROZEN',
+        createdAt: '2026-07-10T00:00:00.000Z',
+      }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const result = await CaptainRepo.getMyOrders();
+
+    expect(result.ok && result.data.items[0]).toMatchObject({
+      calculationModel: 'PROFIT_V3',
+      profitBaseAmount: 35,
+      directRate: 0.1,
+    });
+  });
+
+  it('keeps V2 sales-base history readable without treating it as profit V3', async () => {
+    mockFetch({
+      items: [{
+        id: 'attr-v2',
+        orderId: 'order-v2',
+        buyerUserId: 'buyer-1',
+        directCaptainUserId: 'captain-1',
+        calculationModel: 'SALES_V2',
+        profitBaseAmount: null,
+        commissionBase: 100,
+        directRate: 0.11,
+        refundAmount: 0,
+        status: 'AVAILABLE',
+        createdAt: '2026-06-10T00:00:00.000Z',
+      }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    const result = await CaptainRepo.getMyOrders();
+
+    expect(result.ok && result.data.items[0]).toMatchObject({
+      calculationModel: 'SALES_V2',
+      commissionBase: 100,
+      profitBaseAmount: null,
+    });
+  });
 });
