@@ -5,7 +5,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   cloneCaptainSeafoodConfig,
-  DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
 } from '../captain/captain.constants';
 import type { CaptainSeafoodConfig } from '../captain/captain.types';
 import {
@@ -360,7 +359,7 @@ export class ProfitSafetyService {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return cloneCaptainSeafoodConfig(value as CaptainSeafoodConfig);
     }
-    return cloneCaptainSeafoodConfig(DEFAULT_CAPTAIN_SEAFOOD_CONFIG);
+    return value as CaptainSeafoodConfig;
   }
 
   private readNumber(value: unknown, fallback: number): number {

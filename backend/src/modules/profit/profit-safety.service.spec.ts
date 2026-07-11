@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from '../captain/captain.constants';
 import {
   PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS,
@@ -101,6 +103,18 @@ function makeHarness() {
 }
 
 describe('ProfitSafetyService', () => {
+  const historicallyMissingRequiredKeys = [
+    'VIP_DISCOUNT_RATE',
+    'VIP_REWARD_EXPIRY_DAYS',
+    'NORMAL_REWARD_EXPIRY_DAYS',
+    'VIP_FREE_SHIPPING_THRESHOLD',
+    'NORMAL_FREE_SHIPPING_THRESHOLD',
+    'LOW_STOCK_DISPLAY_THRESHOLD',
+    'RETURN_SHIPPING_FEE_DEFAULT',
+    'DIGITAL_ASSET_MODULE_SETTINGS',
+    'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
+  ];
+
   it('catalogs non-profit RuleConfig keys persisted by independent system modules', () => {
     expect(PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS).toEqual(expect.arrayContaining([
       'DIGITAL_ASSET_MODULE_SETTINGS',
@@ -178,6 +192,55 @@ describe('ProfitSafetyService', () => {
 
     expect(write).not.toHaveBeenCalled();
     expect(tx.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 'bad-config', [], 3])(
+    'fails closed when captain configuration is a malformed non-object: %p',
+    async (captainConfig) => {
+      const { service, tx } = makeHarness();
+      tx.ruleConfig.findMany.mockImplementation(async () => (
+        PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.map((key) => ({
+          key,
+          value: {
+            value: key === 'CAPTAIN_SEAFOOD_CONFIG'
+              ? captainConfig
+              : key === 'MARKUP_RATE'
+                ? 1.35
+                : key === 'VIP_DISCOUNT_RATE'
+                  ? 0.95
+                  : key.includes('REWARD_PERCENT')
+                    ? 0.2
+                    : key.includes('DIRECT_REFERRAL_PERCENT')
+                      ? 0.05
+                      : key.includes('INDUSTRY_FUND_PERCENT')
+                        ? 0.1
+                        : `snapshot:${key}`,
+          },
+        }))
+      ));
+      const write = jest.fn();
+
+      await expect(service.withCandidateChange({}, write))
+        .rejects.toBeInstanceOf(ProfitSafetyViolationError);
+      expect(write).not.toHaveBeenCalled();
+      expect(tx.ruleVersion.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('initializes every required safety key in both seed and upgrade migration', () => {
+    const seed = readFileSync(resolve(__dirname, '../../../prisma/seed.ts'), 'utf8');
+    const migration = readFileSync(
+      resolve(
+        __dirname,
+        '../../../prisma/migrations/20260710050000_backfill_profit_safety_rule_configs/migration.sql',
+      ),
+      'utf8',
+    );
+
+    for (const key of historicallyMissingRequiredKeys) {
+      expect(seed).toContain(`key: '${key}'`);
+      expect(migration).toContain(`'${key}'`);
+    }
   });
 
   it.each([
