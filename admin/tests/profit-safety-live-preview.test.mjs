@@ -41,3 +41,13 @@ test('status presentation covers every candidate state and component keeps capta
   assert.match(source, /ProfitSafetyPreviewState/);
   assert.match(source, /处理团长冲突/);
 });
+
+test('VIP configuration previews dirty candidate profit safety without changing save reset behavior', async () => {
+  const source = await readFile(new URL('pages/bonus/vip-config.tsx', root), 'utf8');
+
+  assert.match(source, /import \{ useConfigProfitSafetyPreview \} from '@\/hooks\/useConfigProfitSafetyPreview';/);
+  assert.match(source, /const hasValidationErrors = useMemo\(\s*\(\) =>[\s\S]*form\.getFieldsError\(\)[\s\S]*\[allValues, form\]\s*,\s*\);/);
+  assert.match(source, /const profitSafetyPreview = useConfigProfitSafetyPreview\(\{[\s\S]*configs,[\s\S]*values: allValues,[\s\S]*schema: CONFIG_SCHEMA,[\s\S]*sumValid,[\s\S]*hasValidationErrors,[\s\S]*enabled: configs\.length > 0 && dirty,[\s\S]*\}\);/);
+  assert.match(source, /<ProfitSafetyStatus[\s\S]*previewState=\{profitSafetyPreview\}/);
+  assert.match(source, /message\.success\('配置保存成功'\);[\s\S]*setDirty\(false\);[\s\S]*setChangeNote\(''\);/);
+});

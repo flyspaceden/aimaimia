@@ -49,6 +49,7 @@ import {
 } from '@/api/config';
 import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import ProfitSafetyStatus from '@/components/ProfitSafetyStatus';
+import { useConfigProfitSafetyPreview } from '@/hooks/useConfigProfitSafetyPreview';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -250,6 +251,18 @@ export default function VipConfigPage() {
     return RATIO_KEYS.reduce((s, k) => s + readFormNumber(allValues, k), 0);
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
+  const hasValidationErrors = useMemo(
+    () => allValues !== undefined && form.getFieldsError().some((field) => field.errors.length > 0),
+    [allValues, form],
+  );
+  const profitSafetyPreview = useConfigProfitSafetyPreview({
+    configs,
+    values: allValues,
+    schema: CONFIG_SCHEMA,
+    sumValid,
+    hasValidationErrors,
+    enabled: configs.length > 0 && dirty,
+  });
 
   // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
   const doSave = useCallback(async () => {
@@ -501,6 +514,7 @@ export default function VipConfigPage() {
         summary={safetyQuery.data}
         loading={safetyQuery.isLoading}
         error={safetyQuery.error}
+        previewState={profitSafetyPreview}
       />
 
       <Form
