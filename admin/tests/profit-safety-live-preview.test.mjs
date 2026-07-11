@@ -93,6 +93,14 @@ function assertConfigPagePreviewIntegration(source) {
   assert.match(formTag, /onValuesChange=\{\(\) => setDirty\(true\)\}/);
   assert.match(formTag, /onFieldsChange=\{handleFieldsChange\}/);
 
+  for (const [callbackName, values] of [
+    ['handleApplyTemplate', 'RECOMMENDED_RATIO_TEMPLATE'],
+    ['handleRestoreDefaults', 'ALL_DEFAULTS'],
+  ]) {
+    const callback = extractBalancedBlock(source, `const ${callbackName} = useCallback`, '{', '}');
+    assert.match(callback, new RegExp(`form\\.setFieldsValue\\(${values}\\);\\s*setHasValidationErrors\\(false\\);`));
+  }
+
   const saveCallback = extractBalancedBlock(source, 'const doSave = useCallback', '{', '}');
   assert.match(saveCallback, /message\.success\('配置保存成功'\);/);
   assert.match(saveCallback, /setDirty\(false\);/);

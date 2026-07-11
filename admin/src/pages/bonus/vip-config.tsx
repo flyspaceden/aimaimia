@@ -436,6 +436,7 @@ export default function VipConfigPage() {
       okButtonProps: { style: { background: '#1E40AF' } },
       onOk: () => {
         form.setFieldsValue(RECOMMENDED_RATIO_TEMPLATE);
+        setHasValidationErrors(false);
         setDirty(true);
         message.success('已应用推荐模板，请确认后保存');
       },
@@ -472,6 +473,7 @@ export default function VipConfigPage() {
       okButtonProps: { danger: true },
       onOk: () => {
         form.setFieldsValue(ALL_DEFAULTS);
+        setHasValidationErrors(false);
         setDirty(true);
         message.success('已恢复默认值，请确认后保存');
       },
