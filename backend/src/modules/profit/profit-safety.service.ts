@@ -17,6 +17,7 @@ import {
 
 export interface ProfitSafetyCandidateChange {
   ruleUpdates?: Record<string, unknown>;
+  replaceRuleSnapshot?: Record<string, unknown>;
   captainConfig?: CaptainSeafoodConfig;
   skuUpserts?: ProfitSafetySku[];
   removeSkuIds?: string[];
@@ -202,10 +203,12 @@ export class ProfitSafetyService {
       this.loadRuleSnapshot(tx),
       this.loadActiveSkus(tx),
     ]);
-    const candidateSnapshot = {
-      ...currentSnapshot,
-      ...(change.ruleUpdates ?? {}),
-    };
+    const candidateSnapshot = change.replaceRuleSnapshot
+      ? { ...change.replaceRuleSnapshot }
+      : {
+          ...currentSnapshot,
+          ...(change.ruleUpdates ?? {}),
+        };
     if (change.captainConfig) {
       candidateSnapshot[CAPTAIN_SEAFOOD_CONFIG_KEY] = cloneCaptainSeafoodConfig(
         change.captainConfig,

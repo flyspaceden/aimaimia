@@ -301,6 +301,39 @@ describe('ProfitSafetyService', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('replaces the complete rule snapshot for full-version rollback', async () => {
+    const { service, tx } = makeHarness();
+    const replacement = Object.fromEntries(
+      PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.map((key) => [
+        key,
+        key === 'CAPTAIN_SEAFOOD_CONFIG'
+          ? safeCaptainConfig()
+          : key === 'MARKUP_RATE'
+            ? 1.35
+            : key === 'VIP_DISCOUNT_RATE'
+              ? 0.95
+              : key.includes('REWARD_PERCENT')
+                ? 0.2
+                : key.includes('DIRECT_REFERRAL_PERCENT')
+                  ? 0.05
+                  : key.includes('INDUSTRY_FUND_PERCENT')
+                    ? 0.1
+                    : `replacement:${key}`,
+      ]),
+    );
+    const write = jest.fn(async () => undefined);
+
+    const output = await service.withCandidateChange({
+      replaceRuleSnapshot: replacement,
+    }, write);
+
+    expect(output.candidateSnapshot).toEqual(replacement);
+    expect(output.candidateSnapshot).not.toHaveProperty('FUTURE_EXTENSION_CONFIG');
+    expect(tx.ruleVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ snapshot: replacement }),
+    });
+  });
+
   it('previews under the same lock without writing a version', async () => {
     const { service, tx, events } = makeHarness();
 

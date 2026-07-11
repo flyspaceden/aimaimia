@@ -32,6 +32,18 @@ export class AdminConfigController {
     return this.configService.findAll();
   }
 
+  @Get('profit-safety-summary')
+  @RequirePermission('config:read')
+  getProfitSafetySummary() {
+    return this.configService.getProfitSafetySummary();
+  }
+
+  @Post('profit-safety-preview')
+  @RequirePermission('config:update')
+  previewProfitSafety(@Body() body: unknown) {
+    return this.configService.previewProfitSafety(body);
+  }
+
   @Get('versions')
   @RequirePermission('config:read')
   findVersions(
