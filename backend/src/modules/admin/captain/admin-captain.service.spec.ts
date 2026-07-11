@@ -3,6 +3,14 @@ import { DEFAULT_CAPTAIN_SEAFOOD_CONFIG } from '../../captain/captain.constants'
 import { AdminCaptainService } from './admin-captain.service';
 
 function createHarness() {
+  const safetyTx: any = {
+    ruleConfig: {
+      upsert: jest.fn(),
+    },
+    ruleVersion: {
+      create: jest.fn(),
+    },
+  };
   const prisma: any = {
     $transaction: jest.fn(async (callback: any) => callback(prisma)),
     captainProfile: {
@@ -55,6 +63,12 @@ function createHarness() {
     approve: jest.fn().mockResolvedValue({ id: 'application-1', status: 'APPROVED' }),
     reject: jest.fn().mockResolvedValue({ id: 'application-1', status: 'REJECTED' }),
   };
+  const profitSafetyService = {
+    withCandidateChange: jest.fn(async (_change: any, write: any) => ({
+      result: await write(safetyTx),
+      ruleVersion: { id: 'version-1', isComplete: true },
+    })),
+  };
 
   return {
     prisma,
@@ -62,12 +76,15 @@ function createHarness() {
     configService,
     monthlySettlementService,
     applicationService,
-    service: new AdminCaptainService(
+    profitSafetyService,
+    safetyTx,
+    service: new (AdminCaptainService as any)(
       prisma,
       relationService as any,
       configService as any,
       monthlySettlementService as any,
       applicationService as any,
+      profitSafetyService as any,
     ),
   };
 }
@@ -218,8 +235,8 @@ describe('AdminCaptainService', () => {
     expect(applicationService.reject).toHaveBeenCalledWith('application-1', 'admin-1', { reason: '资料不足' });
   });
 
-  it('reads and updates captain config with strict validation', async () => {
-    const { service, prisma, configService } = createHarness();
+  it('updates captain settings through the profit safety coordinator without a second version', async () => {
+    const { service, configService, profitSafetyService, safetyTx } = createHarness();
     const enabledConfig = {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
       enabled: true,
@@ -231,20 +248,52 @@ describe('AdminCaptainService', () => {
     configService.getSnapshot.mockResolvedValueOnce(enabledConfig);
 
     await expect(service.getSettings()).resolves.toMatchObject({ enabled: true });
-    await service.updateSettings(enabledConfig, 'admin-1');
+    await expect(service.updateSettings(enabledConfig, 'admin-1')).resolves.toEqual(enabledConfig);
 
-    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith({
+    expect(profitSafetyService.withCandidateChange).toHaveBeenCalledWith({
+      captainConfig: enabledConfig,
+      createdByAdminId: 'admin-1',
+      changeNote: '更新预包装海鲜团长经营激励配置',
+    }, expect.any(Function));
+    expect(safetyTx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'CAPTAIN_SEAFOOD_CONFIG' },
       update: { value: enabledConfig },
       create: {
         key: 'CAPTAIN_SEAFOOD_CONFIG',
         value: enabledConfig,
-        description: '预包装海鲜团长经营激励配置',
       },
     });
+    expect(safetyTx.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when profit safety rejects captain settings', async () => {
+    const { service, prisma, profitSafetyService, safetyTx } = createHarness();
+    profitSafetyService.withCandidateChange.mockRejectedValueOnce(new Error('unsafe'));
+
+    await expect(service.updateSettings(DEFAULT_CAPTAIN_SEAFOOD_CONFIG, 'admin-1'))
+      .rejects.toThrow('unsafe');
+
+    expect(safetyTx.ruleConfig.upsert).not.toHaveBeenCalled();
+    expect(safetyTx.ruleVersion.create).not.toHaveBeenCalled();
+    expect(prisma.ruleConfig.upsert).not.toHaveBeenCalled();
+    expect(prisma.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps strict local captain config validation before safety evaluation', async () => {
+    const { service, profitSafetyService } = createHarness();
+    const enabledConfig = {
+      ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+      enabled: true,
+      scope: {
+        ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG.scope,
+        productIds: ['product-1'],
+      },
+    };
+
     await expect(service.updateSettings({
       ...enabledConfig,
       perOrderCommission: { ...enabledConfig.perOrderCommission, indirectRate: 0.02 },
     }, 'admin-1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(profitSafetyService.withCandidateChange).not.toHaveBeenCalled();
   });
 });

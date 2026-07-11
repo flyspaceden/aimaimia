@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CaptainProfileStatus, Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
+import { CaptainProfileStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
@@ -12,6 +11,7 @@ import { CaptainApplicationService } from '../../captain/captain-application.ser
 import { CaptainConfigService } from '../../captain/captain-config.service';
 import { CaptainMonthlySettlementService } from '../../captain/captain-monthly-settlement.service';
 import { CaptainRelationService } from '../../captain/captain-relation.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import {
   ApproveCaptainApplicationDto,
   RejectCaptainApplicationDto,
@@ -35,6 +35,7 @@ export class AdminCaptainService {
     private readonly configService: CaptainConfigService,
     private readonly monthlySettlementService: CaptainMonthlySettlementService,
     private readonly applicationService: CaptainApplicationService,
+    private readonly profitSafetyService: ProfitSafetyService,
   ) {}
 
   async listProfiles(query: ListCaptainProfilesQueryDto = {}) {
@@ -316,31 +317,22 @@ export class AdminCaptainService {
       throw new BadRequestException(err?.message || '团长配置不合法');
     }
 
-    return (this.prisma as any).$transaction(async (tx: Prisma.TransactionClient) => {
+    const { result } = await this.profitSafetyService.withCandidateChange({
+      captainConfig: config,
+      createdByAdminId: adminUserId,
+      changeNote: '更新预包装海鲜团长经营激励配置',
+    }, async (tx) => {
       await (tx as any).ruleConfig.upsert({
         where: { key: CAPTAIN_SEAFOOD_CONFIG_KEY },
         update: { value: config },
         create: {
           key: CAPTAIN_SEAFOOD_CONFIG_KEY,
           value: config,
-          description: '预包装海鲜团长经营激励配置',
         },
       });
-
-      await (tx as any).ruleVersion.create({
-        data: {
-          version: createHash('md5')
-            .update(JSON.stringify(config) + Date.now())
-            .digest('hex')
-            .slice(0, 12),
-          snapshot: { [CAPTAIN_SEAFOOD_CONFIG_KEY]: config },
-          createdByAdminId: adminUserId,
-          changeNote: '更新预包装海鲜团长经营激励配置',
-        },
-      });
-
       return config;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
+    return result;
   }
 
   private pagination(query: { page?: number; pageSize?: number }) {
