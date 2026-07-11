@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import { NotificationService } from '../../notification/notification.service';
 import { AlipayService } from '../../payment/alipay.service';
 import { WithdrawPayoutService } from '../../bonus/withdraw-payout.service';
@@ -116,6 +117,7 @@ export class AdminBonusService {
     private notificationService: NotificationService,
     private moduleRef: ModuleRef,
     private bonusConfig: BonusConfigService,
+    private profitSafetyService: ProfitSafetyService,
   ) {}
 
   /**
@@ -462,7 +464,9 @@ export class AdminBonusService {
     const next = { ...current, ...dto };
     this.validateWithdrawRules(next);
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.profitSafetyService.withRuleConfigUpdates(
+      Object.fromEntries(updates.map((update) => [update.key, update.value.value])),
+      async (tx) => {
       for (const update of updates) {
         await tx.ruleConfig.upsert({
           where: { key: update.key },
@@ -470,9 +474,9 @@ export class AdminBonusService {
           create: { key: update.key, value: update.value as Prisma.InputJsonValue },
         });
       }
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+      },
+      { changeNote: '更新提现规则' },
+    );
 
     return this.getWithdrawRules();
   }

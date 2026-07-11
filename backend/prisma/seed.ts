@@ -1859,7 +1859,7 @@ async function main() {
   for (const rc of ruleConfigs) {
     await prisma.ruleConfig.upsert({
       where: { key: rc.key },
-      update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS' || rc.key === CAPTAIN_SEAFOOD_CONFIG_KEY
+      update: rc.key === 'DIGITAL_ASSET_CREDIT_TIERS'
         ? { value: toRuleConfigJson(rc.value, rc.desc) }
         : {},
       create: { key: rc.key, value: toRuleConfigJson(rc.value, rc.desc) },

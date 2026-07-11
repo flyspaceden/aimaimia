@@ -283,7 +283,11 @@ export class AdminCaptainService {
       (this.prisma as any).captainMonthlySettlement.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    const itemsWithReviewState = await Promise.all(items.map(async (settlement: any) => ({
+      ...settlement,
+      reviewBlockedReason: await this.monthlySettlementService.getReviewBlockReason(settlement),
+    })));
+    return { items: itemsWithReviewState, total, page, pageSize };
   }
 
   generateSettlements(month: GenerateCaptainSettlementsDto['month']) {

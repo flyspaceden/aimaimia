@@ -121,7 +121,11 @@ export default function MeScreen() {
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
-  const { data: captainProfileData } = useQuery({
+  const {
+    data: captainProfileData,
+    isError: isCaptainProfileError,
+    refetch: refetchCaptainProfile,
+  } = useQuery({
     queryKey: ['captain-me'],
     queryFn: () => CaptainRepo.getMyCaptainProfile(),
     enabled: isLoggedIn,
@@ -138,6 +142,7 @@ export default function MeScreen() {
   const walletBalance = walletData?.ok ? walletData.data.balance : 0;
   const member = memberData?.ok ? memberData.data : null;
   const captainProfile = captainProfileData?.ok ? captainProfileData.data : null;
+  const captainProfileFailed = isLoggedIn && (isCaptainProfileError || captainProfileData?.ok === false);
   const isVip = member?.tier === 'VIP';
   const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
   const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
@@ -150,18 +155,20 @@ export default function MeScreen() {
   const toolGrid = useMemo(
     () => {
       const entries: ToolEntry[] = [buildMeReferralToolEntry(member), normalGrowthTool];
-      if (captainProfile?.isCaptain) {
-        entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
-      } else {
-        entries.push({
-          label: '社区服务',
-          icon: 'clipboard-edit-outline' as const,
-          route: '/me/captain-application',
-        });
+      if (!captainProfileFailed) {
+        if (captainProfile?.isCaptain) {
+          entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
+        } else {
+          entries.push({
+            label: '社区服务',
+            icon: 'clipboard-edit-outline' as const,
+            route: '/me/captain-application',
+          });
+        }
       }
       return [...entries, ...TOOL_GRID_BASE];
     },
-    [member, normalGrowthTool, captainProfile?.isCaptain],
+    [member, normalGrowthTool, captainProfile?.isCaptain, captainProfileFailed],
   );
 
   const handleRefresh = async () => {
@@ -467,6 +474,30 @@ export default function MeScreen() {
             <Text style={[typography.headingSm, { color: colors.text.primary, marginBottom: spacing.md }]}>
               常用工具
             </Text>
+            {captainProfileFailed ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="重新加载团长状态"
+                onPress={() => { void refetchCaptainProfile(); }}
+                style={{
+                  alignItems: 'center',
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                  borderRadius: radius.md,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  marginBottom: spacing.md,
+                  minHeight: 44,
+                  paddingHorizontal: spacing.md,
+                }}
+              >
+                <Text style={[typography.captionSm, { color: colors.text.secondary, flex: 1 }]}>
+                  团长状态加载失败
+                </Text>
+                <MaterialCommunityIcons name="refresh" size={20} color={colors.brand.primary} />
+              </Pressable>
+            ) : null}
             <View style={styles.toolGrid}>
               {toolGrid.map((tool) => (
                 <Pressable

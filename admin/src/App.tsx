@@ -3,6 +3,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { Spin } from 'antd';
 import useAuthStore from '@/store/useAuthStore';
 import AdminLayout from '@/layouts/AdminLayout';
+import { PERMISSIONS } from '@/constants/permissions';
 
 // N17修复：路由级代码拆分，减小首屏包体
 const LoginPage = lazy(() => import('@/pages/login/index'));
@@ -72,6 +73,8 @@ const CaptainOrdersPage = lazy(() => import('@/pages/captain/orders'));
 const CaptainLedgersPage = lazy(() => import('@/pages/captain/ledgers'));
 const CaptainSettlementsPage = lazy(() => import('@/pages/captain/settlements'));
 const CaptainSettingsPage = lazy(() => import('@/pages/captain/settings'));
+const ProfitReconciliationsPage = lazy(() => import('@/pages/captain/reconciliations'));
+const ProfitAdjustmentsPage = lazy(() => import('@/pages/captain/adjustments'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -86,6 +89,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace />;
   }
   return <>{children}</>;
+}
+
+function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  return hasPermission(permission) ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 /** 已登录访问登录页则跳转首页 */
@@ -160,13 +168,15 @@ export default function App() {
             <Route path="group-buy/orders" element={<GroupBuyOrdersPage />} />
             <Route path="group-buy/rebate-ledgers" element={<GroupBuyRebateLedgersPage />} />
             <Route path="group-buy/settings" element={<GroupBuySettingsPage />} />
-            <Route path="captain/applications" element={<CaptainApplicationsPage />} />
-            <Route path="captain/profiles" element={<CaptainProfilesPage />} />
-            <Route path="captain/profiles/:userId" element={<CaptainDetailPage />} />
-            <Route path="captain/orders" element={<CaptainOrdersPage />} />
-            <Route path="captain/ledgers" element={<CaptainLedgersPage />} />
-            <Route path="captain/settlements" element={<CaptainSettlementsPage />} />
-            <Route path="captain/settings" element={<CaptainSettingsPage />} />
+            <Route path="captain/applications" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainApplicationsPage /></RequirePermission>} />
+            <Route path="captain/profiles" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainProfilesPage /></RequirePermission>} />
+            <Route path="captain/profiles/:userId" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainDetailPage /></RequirePermission>} />
+            <Route path="captain/orders" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainOrdersPage /></RequirePermission>} />
+            <Route path="captain/ledgers" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainLedgersPage /></RequirePermission>} />
+            <Route path="captain/settlements" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><CaptainSettlementsPage /></RequirePermission>} />
+            <Route path="captain/profit-reconciliations" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><ProfitReconciliationsPage /></RequirePermission>} />
+            <Route path="captain/profit-adjustments" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_READ}><ProfitAdjustmentsPage /></RequirePermission>} />
+            <Route path="captain/settings" element={<RequirePermission permission={PERMISSIONS.CAPTAIN_SETTINGS}><CaptainSettingsPage /></RequirePermission>} />
             <Route path="reward-products" element={<RewardProductsPage />} />
             <Route path="reward-products/:id/edit" element={<RewardProductEditPage />} />
             <Route path="shipping-rules" element={<ShippingRulesPage />} />

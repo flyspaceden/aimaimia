@@ -25,6 +25,10 @@ export interface ProfitSafetyCandidateChange {
   changeNote?: string | null;
 }
 
+export type ProfitSafetyCandidateChangeFactory = (
+  tx: Prisma.TransactionClient,
+) => Promise<ProfitSafetyCandidateChange> | ProfitSafetyCandidateChange;
+
 export interface ProfitSafetyWriteContext {
   candidateSnapshot: Record<string, unknown>;
   candidateSkus: ProfitSafetySku[];
@@ -35,6 +39,11 @@ export interface ProfitSafetyWriteResult<T> extends ProfitSafetyWriteContext {
   result: T;
   ruleVersion: unknown;
 }
+
+export type ProfitSafetyRuleConfigWriteMetadata = Pick<
+  ProfitSafetyCandidateChange,
+  'createdByAdminId' | 'changeNote'
+>;
 
 type Tx = Prisma.TransactionClient;
 
@@ -145,10 +154,13 @@ export class ProfitSafetyService {
   ) {}
 
   async withCandidateChange<T>(
-    change: ProfitSafetyCandidateChange,
+    changeOrFactory: ProfitSafetyCandidateChange | ProfitSafetyCandidateChangeFactory,
     write: (tx: Tx, context: ProfitSafetyWriteContext) => Promise<T>,
   ): Promise<ProfitSafetyWriteResult<T>> {
     return this.withSafetyLock(async (tx) => {
+      const change = typeof changeOrFactory === 'function'
+        ? await changeOrFactory(tx)
+        : changeOrFactory;
       const context = await this.buildContext(tx, change, true);
       const result = await write(tx, context);
       const ruleVersion = await (tx as any).ruleVersion.create({
@@ -163,6 +175,21 @@ export class ProfitSafetyService {
       });
       return { ...context, result, ruleVersion };
     });
+  }
+
+  /**
+   * Persists required RuleConfig updates only after their exact candidate has
+   * been validated while holding the shared profit-safety transaction lock.
+   */
+  async withRuleConfigUpdates<T>(
+    ruleUpdates: Record<string, unknown>,
+    write: (tx: Tx, context: ProfitSafetyWriteContext) => Promise<T>,
+    metadata: ProfitSafetyRuleConfigWriteMetadata = {},
+  ): Promise<ProfitSafetyWriteResult<T>> {
+    return this.withCandidateChange({
+      ruleUpdates,
+      ...metadata,
+    }, write);
   }
 
   async preview(change: ProfitSafetyCandidateChange = {}): Promise<ProfitSafetySummary> {

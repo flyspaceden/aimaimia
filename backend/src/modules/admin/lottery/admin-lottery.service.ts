@@ -7,6 +7,7 @@ import {
 import { LotteryPrizeType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import {
   CreateLotteryPrizeDto,
@@ -21,6 +22,7 @@ export class AdminLotteryService {
   constructor(
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
+    private profitSafetyService: ProfitSafetyService,
   ) {}
 
   /** 奖品列表（分页） */
@@ -81,7 +83,9 @@ export class AdminLotteryService {
     this.validateTypeConstraints(dto.type, dto.productId, dto.skuId);
     this.validatePricingConstraints(dto.type, dto.prizePrice, dto.threshold);
 
-    const created = await this.prisma.$transaction(async (tx) => {
+    const { result: created } = await this.profitSafetyService.withRuleConfigUpdates({
+      LOTTERY_ENABLED: true,
+    }, async (tx) => {
       await this.validateProductSkuRelation(
         tx,
         dto.type,
@@ -113,7 +117,7 @@ export class AdminLotteryService {
       await this.rebalanceOtherPrizes(tx, newPrize.id, dto.probability);
       await this.syncLotteryEnabled(tx, true);
       return newPrize;
-    });
+    }, { changeNote: '新增抽奖奖品并启用抽奖' });
 
     this.bonusConfig.invalidateCache();
     return created;
@@ -183,7 +187,9 @@ export class AdminLotteryService {
       updateData.threshold = null;
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const { result: updated } = await this.profitSafetyService.withRuleConfigUpdates({
+      LOTTERY_ENABLED: true,
+    }, async (tx) => {
       if (touchesBusinessFields) {
         await this.validateProductSkuRelation(
           tx,
@@ -205,7 +211,7 @@ export class AdminLotteryService {
       }
       await this.syncLotteryEnabled(tx, true);
       return next;
-    });
+    }, { changeNote: '更新抽奖奖品并启用抽奖' });
 
     this.bonusConfig.invalidateCache();
     return updated;
@@ -221,7 +227,9 @@ export class AdminLotteryService {
     const prize = await this.prisma.lotteryPrize.findUnique({ where: { id } });
     if (!prize) throw new NotFoundException('奖品不存在');
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.profitSafetyService.withRuleConfigUpdates({
+      LOTTERY_ENABLED: true,
+    }, async (tx) => {
       // 所有引用此奖品的抽奖记录 prizeId 置 null，meta 快照保留
       await tx.lotteryRecord.updateMany({
         where: { prizeId: id },
@@ -233,7 +241,7 @@ export class AdminLotteryService {
       // 剩余活跃奖品按比例吸收该奖品的概率，使总和保持 100%
       await this.rebalanceOtherPrizes(tx, id, 0);
       await this.syncLotteryEnabled(tx, true);
-    });
+    }, { changeNote: '删除抽奖奖品并启用抽奖' });
 
     this.bonusConfig.invalidateCache();
     this.logger.log(`奖品「${prize.name}」已删除`);
@@ -263,7 +271,9 @@ export class AdminLotteryService {
       }
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const { result: updated } = await this.profitSafetyService.withRuleConfigUpdates({
+      LOTTERY_ENABLED: true,
+    }, async (tx) => {
       // 校验所有 id 存在且活跃
       const prizes = await tx.lotteryPrize.findMany({
         where: { id: { in: items.map((i) => i.id) }, isActive: true },
@@ -300,7 +310,7 @@ export class AdminLotteryService {
       await this.ensureActiveProbabilitySumIs100(tx);
       await this.syncLotteryEnabled(tx, true);
       return results;
-    });
+    }, { changeNote: '更新抽奖概率并启用抽奖' });
 
     this.bonusConfig.invalidateCache();
     this.logger.log(`批量调整概率完成，共 ${items.length} 个奖品`);

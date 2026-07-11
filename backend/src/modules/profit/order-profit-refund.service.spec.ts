@@ -332,6 +332,87 @@ describe('OrderProfitRefundService', () => {
     }));
   });
 
+  it('reverses every V3 reward bucket for this order without widening beyond its allocation', async () => {
+    const { tx, reversals } = makeTx();
+    const sources = [
+      ['vip-tree', 'VIP_REWARD', 'VIP_UPSTREAM'],
+      ['normal-tree', 'NORMAL_REWARD', 'NORMAL_TREE'],
+      ['vip-direct', 'VIP_REWARD', 'VIP_DIRECT_REFERRAL'],
+      ['normal-direct', 'NORMAL_REWARD', 'NORMAL_DIRECT_REFERRAL'],
+      ['industry', 'INDUSTRY_FUND', 'NORMAL_PLATFORM_SPLIT'],
+      ['platform', 'PLATFORM_PROFIT', 'NORMAL_PLATFORM_SPLIT'],
+      ['charity', 'CHARITY_FUND', 'NORMAL_PLATFORM_SPLIT'],
+      ['tech', 'TECH_FUND', 'NORMAL_PLATFORM_SPLIT'],
+      ['reserve', 'RESERVE_FUND', 'NORMAL_PLATFORM_SPLIT'],
+    ].map(([id, accountType, scheme]) => ({
+      id,
+      allocationId: `allocation-${id}`,
+      accountId: `account-${id}`,
+      userId: `user-${id}`,
+      amount: 1,
+      status: 'FROZEN',
+      entryType: 'FREEZE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      allocation: { orderId: 'order-1' },
+      account: { type: accountType },
+      meta: { scheme, accountType },
+    }));
+    const historicalSource = {
+      ...sources[0],
+      id: 'historical-vip-referral',
+      allocationId: 'allocation-historical',
+      meta: { scheme: 'VIP_REFERRAL', accountType: 'VIP_REWARD' },
+    };
+    tx.rewardLedger.findMany.mockImplementation(async ({ where }: any) => {
+      if (where?.amount?.lt === 0) return [];
+      expect(where).toEqual(expect.objectContaining({
+        refType: 'ORDER',
+        refId: 'order-1',
+        allocation: { orderId: 'order-1' },
+      }));
+      expect(where.account.type.in).toEqual(expect.arrayContaining([
+        'VIP_REWARD',
+        'NORMAL_REWARD',
+        'INDUSTRY_FUND',
+        'PLATFORM_PROFIT',
+        'CHARITY_FUND',
+        'TECH_FUND',
+        'RESERVE_FUND',
+      ]));
+      return [...sources, historicalSource];
+    });
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    expect(new Set(reversals.map((row) => row.sourceLedgerId))).toEqual(
+      new Set(sources.map((row) => row.id)),
+    );
+  });
+
+  it('allocates the complete reward distribution and retained funding as parallel accounting layers', async () => {
+    const { tx, reversals } = makeTx();
+    tx.rewardLedger.findMany.mockResolvedValue([{
+      id: 'complete-reward-layer', allocationId: 'allocation-1',
+      accountId: 'platform-profit-account', userId: 'PLATFORM', amount: 50.01,
+      status: 'AVAILABLE', entryType: 'RELEASE',
+      account: { type: 'PLATFORM_PROFIT' },
+      meta: { scheme: 'NORMAL_PLATFORM_SPLIT', accountType: 'PLATFORM_PROFIT' },
+    }]);
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([{
+      id: 'retained-funding-layer', snapshotId: 'snapshot-1', orderId: 'order-1',
+      type: 'PLATFORM_RETAINED_CREDIT', amount: 30.01, configVersion: 'cfg-1',
+    }]);
+
+    await expect(new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1'))
+      .resolves.toEqual(expect.objectContaining({ mode: 'V3' }));
+
+    expect(new Set(reversals.map((row) => row.sourceLedgerId))).toEqual(new Set([
+      'complete-reward-layer',
+      'retained-funding-layer',
+    ]));
+  });
+
   it('carries unresolved clawback from superseded drafts into the replacement draft', async () => {
     const { tx, reversals } = makeTx();
     reversals.push({
@@ -353,6 +434,9 @@ describe('OrderProfitRefundService', () => {
       account: { type: 'VIP_REWARD' },
       meta: { scheme: 'VIP_UPSTREAM' },
     }]);
+    tx.rewardAccount.findUnique.mockResolvedValue({
+      id: 'reward-account', balance: 0, frozen: 0,
+    });
     tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([{
       id: 'draft-old',
       status: 'PENDING',
@@ -378,9 +462,279 @@ describe('OrderProfitRefundService', () => {
         }),
       }),
     }));
+    expect(tx.orderProfitAdjustmentDraft.updateMany).toHaveBeenCalledWith({
+      where: {
+        orderId: 'order-1',
+        status: 'PENDING',
+        id: { not: 'draft-1' },
+      },
+      data: {
+        status: 'SUPERSEDED',
+        supersededByDraftId: 'draft-1',
+      },
+    });
   });
 
-  it('subtracts APPLIED recovery from the cumulative replacement clawback', async () => {
+  it('replaces a pending reconciliation draft with the complete refund-adjusted target', async () => {
+    const { tx } = makeTx();
+    const currentSnapshot = await tx.orderProfitSnapshot.findFirst();
+    tx.orderProfitSnapshot.findMany = jest.fn().mockResolvedValue([
+      { ...currentSnapshot, id: 'snapshot-old' },
+      currentSnapshot,
+    ]);
+    const sourceAttribution = {
+      id: 'attribution-old', orderId: 'order-1', programCode: 'SEAFOOD_PREPACKAGED',
+      calculationModel: 'PROFIT_V3', profitSnapshotId: 'snapshot-old',
+      eligibleGoodsAmount: 100.01,
+    };
+    tx.captainOrderAttribution.findFirst.mockImplementation(async ({ where }: any) => (
+      where.profitSnapshotId === 'snapshot-old' ? sourceAttribution : null
+    ));
+    tx.rewardLedger.findMany.mockResolvedValue([{
+      id: 'reward-old', allocationId: 'allocation-1', accountId: 'reward-account',
+      userId: 'member-1', amount: 3, status: 'FROZEN', entryType: 'FREEZE',
+      account: { type: 'VIP_REWARD' }, meta: { scheme: 'VIP_UPSTREAM' },
+    }]);
+    tx.captainCommissionLedger.findMany.mockResolvedValue([{
+      id: 'captain-old', accountId: 'captain-account', userId: 'captain-1',
+      orderAttributionId: 'attribution-old', orderId: 'order-1',
+      programCode: 'SEAFOOD_PREPACKAGED', type: 'DIRECT_ORDER', amount: 2,
+      status: 'FROZEN', meta: {},
+    }]);
+    const funding = [
+      { id: 'platform-old', snapshotId: 'snapshot-old', type: 'PLATFORM_RETAINED_CREDIT', amount: 20, configVersion: 'cfg-1' },
+      { id: 'direct-hold-old', snapshotId: 'snapshot-old', type: 'CAPTAIN_DIRECT_HOLD', amount: -2, configVersion: 'cfg-1' },
+    ];
+    tx.orderProfitFundingLedger.findMany.mockImplementation(async ({ where }: any) => {
+      const snapshotIds = Array.isArray(where.snapshotId?.in)
+        ? where.snapshotId.in
+        : [where.snapshotId];
+      return funding.filter((row) => snapshotIds.includes(row.snapshotId));
+    });
+    tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([{
+      id: 'revision-draft', orderId: 'order-1', status: 'PENDING',
+      sourceSnapshotId: 'snapshot-old', targetSnapshotId: 'snapshot-1',
+      adjustments: {
+        version: 1,
+        reason: 'RECONCILIATION_REVISION',
+        reconciliationTaskId: 'task-1',
+        attributionUpdate: {
+          attributionId: 'attribution-old',
+          sourceSnapshotId: 'snapshot-old',
+          targetSnapshotId: 'snapshot-1',
+        },
+        components: [
+          { key: 'reward:old', kind: 'REWARD', sourceLedgerId: 'reward-old', beforeCents: 300, targetCents: 900, deltaCents: 600 },
+          { key: 'captain:old', kind: 'CAPTAIN', sourceLedgerId: 'captain-old', beforeCents: 200, targetCents: 450, deltaCents: 250 },
+          { key: 'funding:platform', kind: 'FUNDING', fundingType: 'PLATFORM_RETAINED_CREDIT', sourceLedgerId: 'platform-old', sourceLedgerIds: ['platform-old'], beforeCents: 2_000, targetCents: 5_400, deltaCents: 3_400 },
+          { key: 'funding:direct', kind: 'FUNDING', fundingType: 'CAPTAIN_DIRECT_HOLD', sourceLedgerId: 'direct-hold-old', sourceLedgerIds: ['direct-hold-old'], beforeCents: -200, targetCents: -450, deltaCents: -250 },
+        ],
+      },
+    }]);
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    expect(tx.orderProfitAdjustmentDraft.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        sourceSnapshotId: 'snapshot-old',
+        targetSnapshotId: 'snapshot-1',
+        adjustments: expect.objectContaining({
+          version: 1,
+          reason: 'RECONCILIATION_REVISION_REFUND',
+          reconciliationTaskId: 'task-1',
+          components: expect.arrayContaining([
+            expect.objectContaining({ key: 'reward:old', sourceLedgerId: 'reward-old', targetCents: 720 }),
+            expect.objectContaining({ key: 'captain:old', sourceLedgerId: 'captain-old', targetCents: 300 }),
+            expect.objectContaining({ key: 'funding:platform', sourceLedgerIds: ['platform-old'], targetCents: 4_320 }),
+            expect.objectContaining({ key: 'funding:direct', sourceLedgerIds: ['direct-hold-old'], targetCents: -300 }),
+          ]),
+        }),
+      }),
+    }));
+    expect(tx.orderProfitAdjustmentDraft.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'SUPERSEDED' }),
+    }));
+  });
+
+  it('keeps the unrefunded revision baseline and scales consecutive refunds only once', async () => {
+    const { tx } = makeTx();
+    const refundRows: any[] = [{
+      id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 33.34,
+      items: [{ orderItemId: 'item-a', quantity: 1, amount: 33.34 }],
+    }];
+    tx.refund.findUnique.mockImplementation(async ({ where }: any) => (
+      refundRows.find((row) => row.id === where.id)
+    ));
+    tx.refund.findMany.mockImplementation(async () => refundRows);
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([{
+      id: 'platform-source', snapshotId: 'snapshot-1', orderId: 'order-1',
+      type: 'PLATFORM_RETAINED_CREDIT', amount: 30.01, configVersion: 'cfg-1',
+    }]);
+    let pendingDraft: any = {
+      id: 'revision-original', orderId: 'order-1', status: 'PENDING',
+      sourceSnapshotId: 'snapshot-1', targetSnapshotId: 'snapshot-1',
+      adjustments: {
+        version: 1,
+        reason: 'RECONCILIATION_REVISION',
+        components: [{
+          key: 'funding:platform', kind: 'FUNDING',
+          fundingType: 'PLATFORM_RETAINED_CREDIT',
+          sourceLedgerId: 'platform-source', sourceLedgerIds: ['platform-source'],
+          beforeCents: 3_001, targetCents: 3_001, deltaCents: 0,
+        }],
+      },
+    };
+    tx.orderProfitAdjustmentDraft.findMany.mockImplementation(async () => [pendingDraft]);
+    tx.orderProfitAdjustmentDraft.create.mockImplementation(async ({ data }: any) => {
+      pendingDraft = { id: `revision-${data.adjustments.refundId}`, ...data };
+      return pendingDraft;
+    });
+
+    const service = new OrderProfitRefundService();
+    await service.finalizeSuccessfulRefund(tx, 'refund-1');
+    refundRows.push({
+      id: 'refund-2', orderId: 'order-1', status: 'REFUNDED', amount: 33.33,
+      items: [{ orderItemId: 'item-a', quantity: 1, amount: 33.33 }],
+    });
+    await service.finalizeSuccessfulRefund(tx, 'refund-2');
+
+    expect(pendingDraft.adjustments.refundBaseline).toEqual({
+      originalDistributableProfitCents: 5_001,
+      originalCaptainEligibleProfitCents: 3_001,
+      components: [{ key: 'funding:platform', beforeCents: 3_001, targetCents: 3_001 }],
+    });
+    expect(pendingDraft.adjustments.components).toEqual([
+      expect.objectContaining({
+        key: 'funding:platform',
+        beforeCents: 1_800,
+        targetCents: 1_800,
+        deltaCents: 0,
+      }),
+    ]);
+  });
+
+  it('keeps an unrecovered refund clawback outstanding and nets revision credit against actual recovery', async () => {
+    const { tx } = makeTx();
+    tx.rewardLedger.findMany.mockImplementation(async ({ where }: any) => {
+      if (where?.amount?.lt === 0) return [];
+      return [{
+        id: 'reward-withdrawn', allocationId: 'allocation-1', accountId: 'reward-account',
+        userId: 'member-1', amount: 3, status: 'WITHDRAWN', entryType: 'WITHDRAW',
+        account: { type: 'VIP_REWARD' }, meta: { scheme: 'VIP_UPSTREAM' },
+      }];
+    });
+    tx.rewardAccount.findUnique.mockResolvedValue({
+      id: 'reward-account', balance: 0, frozen: 0,
+    });
+    tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([{
+      id: 'revision-draft', orderId: 'order-1', status: 'PENDING',
+      sourceSnapshotId: 'snapshot-1', targetSnapshotId: 'snapshot-1',
+      adjustments: {
+        version: 1,
+        reason: 'RECONCILIATION_REVISION',
+        components: [{
+          key: 'reward:old', kind: 'REWARD', sourceLedgerId: 'reward-withdrawn',
+          beforeCents: 300, targetCents: 900, deltaCents: 600,
+        }],
+      },
+    }]);
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    const replacement = tx.orderProfitAdjustmentDraft.create.mock.calls[0][0].data.adjustments;
+    expect(replacement.sources).toEqual([
+      expect.objectContaining({ sourceLedgerId: 'reward-withdrawn', amountCents: 60 }),
+    ]);
+    expect(replacement.components).toEqual([
+      expect.objectContaining({
+        key: 'reward:old', beforeCents: 300, targetCents: 720, deltaCents: 420,
+      }),
+    ]);
+  });
+
+  it.each([
+    ['partial', [{ orderItemId: 'item-a', quantity: 1, amount: 50 }], [1_600, 2_401]],
+    ['full', [
+      { orderItemId: 'item-a', quantity: 3, amount: 100 },
+      { orderItemId: 'item-b', quantity: 2, amount: 80 },
+    ], [0, 0]],
+  ])(
+    'refunds %s against the old source basis when old member plus platform exceeds target D',
+    async (_label, refundItems, expectedTargets) => {
+      const { tx, reversals } = makeTx();
+      const currentSnapshot = await tx.orderProfitSnapshot.findFirst();
+      const oldSnapshot = {
+        ...currentSnapshot,
+        id: 'snapshot-old',
+        distributableProfitAmount: 100,
+        captainEligibleProfitAmount: 60,
+        itemBreakdown: [
+          { ...ITEMS[0], distributableProfitShareCents: 6_000 },
+          { ...ITEMS[1], distributableProfitShareCents: 4_000 },
+        ],
+      };
+      tx.orderProfitSnapshot.findMany = jest.fn().mockResolvedValue([oldSnapshot, currentSnapshot]);
+      const refund = {
+        id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 180,
+        items: refundItems,
+      };
+      tx.refund.findUnique.mockResolvedValue(refund);
+      tx.refund.findMany.mockResolvedValue([refund]);
+      tx.rewardLedger.findMany.mockResolvedValue([{
+        id: 'member-old', allocationId: 'allocation-old', accountId: 'reward-account',
+        userId: 'member-1', amount: 60, status: 'FROZEN', entryType: 'FREEZE',
+        account: { type: 'VIP_REWARD' }, meta: { scheme: 'VIP_UPSTREAM' },
+      }]);
+      tx.orderProfitFundingLedger.findMany.mockResolvedValue([{
+        id: 'platform-old', snapshotId: 'snapshot-old', orderId: 'order-1',
+        type: 'PLATFORM_RETAINED_CREDIT', amount: 40, configVersion: 'cfg-old',
+      }]);
+      tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([{
+        id: 'revision-draft', orderId: 'order-1', status: 'PENDING',
+        sourceSnapshotId: 'snapshot-old', targetSnapshotId: 'snapshot-1',
+        adjustments: {
+          version: 1,
+          reason: 'RECONCILIATION_REVISION',
+          reconciliationTaskId: 'task-1',
+          components: [
+            {
+              key: 'reward:old', kind: 'REWARD', sourceLedgerId: 'member-old',
+              sourceBasisSnapshotId: 'snapshot-old', beforeCents: 6_000,
+              targetCents: 2_000, deltaCents: -4_000,
+            },
+            {
+              key: 'funding:old', kind: 'FUNDING', fundingType: 'PLATFORM_RETAINED_CREDIT',
+              sourceLedgerId: 'platform-old', sourceLedgerIds: ['platform-old'],
+              sourceBasisSnapshotId: 'snapshot-old', beforeCents: 4_000,
+              targetCents: 3_001, deltaCents: -999,
+            },
+          ],
+        },
+      }]);
+
+      await expect(new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1'))
+        .resolves.toEqual(expect.objectContaining({ mode: 'V3' }));
+
+      expect(reversals).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sourceLedgerId: 'member-old', snapshotId: 'snapshot-old' }),
+        expect.objectContaining({ sourceLedgerId: 'platform-old', snapshotId: 'snapshot-old' }),
+      ]));
+      const replacement = tx.orderProfitAdjustmentDraft.create.mock.calls[0][0].data;
+      expect(replacement.adjustments.components).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          key: 'reward:old', sourceBasisSnapshotId: 'snapshot-old',
+          targetCents: expectedTargets[0],
+        }),
+        expect.objectContaining({
+          key: 'funding:old', sourceBasisSnapshotId: 'snapshot-old',
+          targetCents: expectedTargets[1],
+        }),
+      ]));
+      expect(replacement.adjustments.components).toHaveLength(2);
+    },
+  );
+
+  it('does not treat an APPLIED clawback review as recovered money', async () => {
     const { tx, reversals } = makeTx();
     reversals.push({
       refundId: 'refund-old', orderItemId: 'item-a', sourceLedgerId: 'reward-withdrawn',
@@ -395,6 +749,9 @@ describe('OrderProfitRefundService', () => {
       userId: 'member-1', amount: 18, status: 'WITHDRAWN', entryType: 'WITHDRAW',
       account: { type: 'VIP_REWARD' }, meta: { scheme: 'VIP_UPSTREAM' },
     }]);
+    tx.rewardAccount.findUnique.mockResolvedValue({
+      id: 'reward-account', balance: 0, frozen: 0,
+    });
     tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([
       {
         id: 'draft-old', status: 'PENDING',
@@ -418,14 +775,14 @@ describe('OrderProfitRefundService', () => {
       data: expect.objectContaining({
         adjustments: expect.objectContaining({
           sources: expect.arrayContaining([
-            expect.objectContaining({ sourceLedgerId: 'reward-withdrawn', amountCents: 520 }),
+            expect.objectContaining({ sourceLedgerId: 'reward-withdrawn', amountCents: 720 }),
           ]),
         }),
       }),
     }));
   });
 
-  it('rebuilds clawback from cumulative reversal target minus recovered and APPLIED amounts', async () => {
+  it('rebuilds clawback from cumulative reversal target minus actual ledger recovery only', async () => {
     const { tx, reversals } = makeTx();
     reversals.push({
       refundId: 'refund-old', orderItemId: 'item-a', sourceLedgerId: 'reward-withdrawn',
@@ -448,6 +805,9 @@ describe('OrderProfitRefundService', () => {
         account: { type: 'VIP_REWARD' }, meta: { scheme: 'VIP_UPSTREAM' },
       }];
     });
+    tx.rewardAccount.findUnique.mockResolvedValue({
+      id: 'reward-account', balance: 0, frozen: 0,
+    });
     tx.orderProfitAdjustmentDraft.findMany.mockResolvedValue([{
       id: 'draft-applied', status: 'APPLIED',
       adjustments: { sources: [{
@@ -463,7 +823,7 @@ describe('OrderProfitRefundService', () => {
         adjustments: expect.objectContaining({
           sources: [expect.objectContaining({
             sourceLedgerId: 'reward-withdrawn',
-            amountCents: 400,
+            amountCents: 500,
           })],
         }),
       }),
@@ -484,6 +844,10 @@ describe('OrderProfitRefundService', () => {
       id: 'attribution-1', orderId: 'order-1', programCode: 'SEAFOOD_PREPACKAGED',
       calculationModel: 'PROFIT_V3', eligibleGoodsAmount: 100.01,
     });
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      { id: 'platform-funding', type: 'PLATFORM_RETAINED_CREDIT', amount: 6, configVersion: 'cfg-1' },
+      { id: 'direct-hold', type: 'CAPTAIN_DIRECT_HOLD', amount: -6, configVersion: 'cfg-1' },
+    ]);
     const source = {
       id: 'captain-withdrawn', accountId: 'captain-account', userId: 'captain-1',
       orderAttributionId: 'attribution-1', orderId: 'order-1',
@@ -578,6 +942,11 @@ describe('OrderProfitRefundService', () => {
         account: { type: 'VIP_REWARD' },
         meta: { scheme: 'VIP_UPSTREAM' },
       }]);
+      if (status === 'WITHDRAWN') {
+        tx.rewardAccount.findUnique.mockResolvedValue({
+          id: 'reward-account', balance: 0, frozen: 0,
+        });
+      }
       const service = new OrderProfitRefundService();
 
       await service.finalizeSuccessfulRefund(tx, 'refund-1');
@@ -595,6 +964,112 @@ describe('OrderProfitRefundService', () => {
       }
     },
   );
+
+  it('recovers an available reward upgrade delta before clawing back the withdrawn canonical source', async () => {
+    const { tx } = makeTx();
+    const item = {
+      orderItemId: 'item-a', quantity: 1, netGoodsRevenueCents: 1_500,
+      distributableProfitShareCents: 1_500, captainEligible: true,
+    };
+    const refund = {
+      id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 15,
+      items: [{ orderItemId: 'item-a', quantity: 1, amount: 15 }],
+    };
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      id: 'snapshot-1', orderId: 'order-1', status: 'READY',
+      distributableProfitAmount: 15, captainEligibleProfitAmount: 15,
+      itemBreakdown: [item], ruleSnapshot: {},
+    });
+    tx.refund.findUnique.mockResolvedValue(refund);
+    tx.refund.findMany.mockResolvedValue([refund]);
+    const sources = [
+      {
+        id: 'reward-withdrawn', allocationId: 'allocation-1', accountId: 'reward-account',
+        userId: 'member-1', amount: 10, status: 'WITHDRAWN', entryType: 'WITHDRAW',
+        account: { type: 'NORMAL_REWARD' }, meta: { scheme: 'NORMAL_TREE' },
+      },
+      {
+        id: 'reward-upgrade-delta', allocationId: 'allocation-1', accountId: 'reward-account',
+        userId: 'member-1', amount: 5, status: 'AVAILABLE', entryType: 'ADJUST',
+        account: { type: 'NORMAL_REWARD' },
+        meta: { scheme: 'NORMAL_TREE', adjustmentKind: 'WITHDRAWN_UPGRADE_DELTA' },
+      },
+    ];
+    tx.rewardLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where?.amount?.lt === 0 ? [] : sources
+    ));
+    tx.rewardAccount.findUnique
+      .mockResolvedValueOnce({ id: 'reward-account', balance: 5, frozen: 0 })
+      .mockResolvedValueOnce({ id: 'reward-account', balance: 0, frozen: 0 });
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    const reversalSources = tx.rewardLedger.create.mock.calls
+      .map(([call]: any[]) => call.data.sourceLedgerId);
+    expect(reversalSources.slice(0, 2)).toEqual([
+      'reward-upgrade-delta',
+      'reward-withdrawn',
+    ]);
+    expect(tx.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'reward-account' },
+      data: { balance: { decrement: 5 } },
+    });
+    expect(tx.orderProfitAdjustmentDraft.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        adjustments: expect.objectContaining({
+          sources: [expect.objectContaining({
+            sourceLedgerId: 'reward-withdrawn',
+            amountCents: 1_000,
+          })],
+        }),
+      }),
+    }));
+  });
+
+  it('uses remaining reward upgrade balance before creating clawback on a partial refund', async () => {
+    const { tx } = makeTx();
+    const item = {
+      orderItemId: 'item-a', quantity: 1, netGoodsRevenueCents: 1_500,
+      distributableProfitShareCents: 1_500, captainEligible: true,
+    };
+    const refund = {
+      id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 3,
+      items: [{ orderItemId: 'item-a', quantity: 0, amount: 3 }],
+    };
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      id: 'snapshot-1', orderId: 'order-1', status: 'READY',
+      distributableProfitAmount: 15, captainEligibleProfitAmount: 15,
+      itemBreakdown: [item], ruleSnapshot: {},
+    });
+    tx.refund.findUnique.mockResolvedValue(refund);
+    tx.refund.findMany.mockResolvedValue([refund]);
+    tx.rewardLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where?.amount?.lt === 0 ? [] : [
+        {
+          id: 'reward-withdrawn', allocationId: 'allocation-1', accountId: 'reward-account',
+          userId: 'member-1', amount: 10, status: 'WITHDRAWN', entryType: 'WITHDRAW',
+          account: { type: 'NORMAL_REWARD' }, meta: { scheme: 'NORMAL_TREE' },
+        },
+        {
+          id: 'reward-upgrade-delta', allocationId: 'allocation-1', accountId: 'reward-account',
+          userId: 'member-1', amount: 5, status: 'AVAILABLE', entryType: 'ADJUST',
+          account: { type: 'NORMAL_REWARD' },
+          meta: { scheme: 'NORMAL_TREE', adjustmentKind: 'WITHDRAWN_UPGRADE_DELTA' },
+        },
+      ]
+    ));
+    tx.rewardAccount.findUnique
+      .mockResolvedValueOnce({ id: 'reward-account', balance: 5, frozen: 0 })
+      .mockResolvedValueOnce({ id: 'reward-account', balance: 4, frozen: 0 });
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    expect(tx.rewardAccount.update.mock.calls.map(([call]: any[]) => call.data)).toEqual([
+      { balance: { decrement: 1 } },
+      { balance: { decrement: 2 } },
+    ]);
+    expect(tx.orderProfitAdjustmentDraft.create).not.toHaveBeenCalled();
+  });
 
   it('updates cumulative captain-eligible refunded GMV for cross-month metric recalculation', async () => {
     const { tx } = makeTx();
@@ -634,6 +1109,15 @@ describe('OrderProfitRefundService', () => {
         status,
         meta: {},
       }]);
+      tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+        { id: 'platform-funding', type: 'PLATFORM_RETAINED_CREDIT', amount: 6, configVersion: 'cfg-1' },
+        { id: 'direct-hold', type: 'CAPTAIN_DIRECT_HOLD', amount: -6, configVersion: 'cfg-1' },
+      ]);
+      if (status === 'WITHDRAWN') {
+        tx.captainAccount.findUnique.mockResolvedValue({
+          id: 'captain-account', balance: 0, frozen: 0, clawback: 0,
+        });
+      }
       const service = new OrderProfitRefundService();
 
       await service.finalizeSuccessfulRefund(tx, 'refund-1');
@@ -648,6 +1132,137 @@ describe('OrderProfitRefundService', () => {
       }
     },
   );
+
+  it('recovers an available captain upgrade delta before recording withdrawn clawback', async () => {
+    const { tx } = makeTx();
+    const item = {
+      orderItemId: 'item-a', quantity: 1, netGoodsRevenueCents: 1_500,
+      distributableProfitShareCents: 1_500, captainEligible: true,
+    };
+    const refund = {
+      id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 15,
+      items: [{ orderItemId: 'item-a', quantity: 1, amount: 15 }],
+    };
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      id: 'snapshot-1', orderId: 'order-1', status: 'READY',
+      distributableProfitAmount: 15, captainEligibleProfitAmount: 15,
+      itemBreakdown: [item], ruleSnapshot: {},
+    });
+    tx.refund.findUnique.mockResolvedValue(refund);
+    tx.refund.findMany.mockResolvedValue([refund]);
+    tx.captainOrderAttribution.findFirst.mockResolvedValue({
+      id: 'attribution-1', orderId: 'order-1', directCaptainUserId: 'captain-1',
+      programCode: 'SEAFOOD_PREPACKAGED', calculationModel: 'PROFIT_V3',
+      eligibleGoodsAmount: 15, profitSnapshotId: 'snapshot-1',
+    });
+    const sources = [
+      {
+        id: 'captain-withdrawn', accountId: 'captain-account', userId: 'captain-1',
+        orderAttributionId: 'attribution-1', orderId: 'order-1',
+        programCode: 'SEAFOOD_PREPACKAGED', type: 'DIRECT_ORDER', amount: 10,
+        status: 'WITHDRAWN', meta: {},
+      },
+      {
+        id: 'captain-upgrade-delta', accountId: 'captain-account', userId: 'captain-1',
+        orderAttributionId: 'attribution-1', orderId: 'order-1',
+        programCode: 'SEAFOOD_PREPACKAGED', type: 'DIRECT_ORDER', amount: 5,
+        status: 'AVAILABLE', meta: { adjustmentKind: 'WITHDRAWN_UPGRADE_DELTA' },
+      },
+    ];
+    tx.captainCommissionLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where?.amount?.lt === 0 ? [] : sources
+    ));
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      {
+        id: 'platform-retained', snapshotId: 'snapshot-1', orderId: 'order-1',
+        type: 'PLATFORM_RETAINED_CREDIT', amount: 15, configVersion: 'cfg-1',
+      },
+      {
+        id: 'captain-direct-hold', snapshotId: 'snapshot-1', orderId: 'order-1',
+        type: 'CAPTAIN_DIRECT_HOLD', amount: -15, configVersion: 'cfg-1',
+      },
+    ]);
+    tx.captainAccount.findUnique
+      .mockResolvedValueOnce({ id: 'captain-account', balance: 5, frozen: 0, clawback: 0 })
+      .mockResolvedValueOnce({ id: 'captain-account', balance: 0, frozen: 0, clawback: 0 });
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    const accountUpdates = tx.captainAccount.update.mock.calls.map(([call]: any[]) => call.data);
+    expect(accountUpdates[0]).toEqual({ balance: { decrement: 5 } });
+    expect(accountUpdates).toContainEqual({ clawback: { increment: 10 } });
+    expect(tx.orderProfitAdjustmentDraft.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        adjustments: expect.objectContaining({
+          sources: [expect.objectContaining({
+            sourceLedgerId: 'captain-withdrawn',
+            amountCents: 1_000,
+          })],
+        }),
+      }),
+    }));
+  });
+
+  it('uses remaining captain upgrade balance before recording clawback on a partial refund', async () => {
+    const { tx } = makeTx();
+    const item = {
+      orderItemId: 'item-a', quantity: 1, netGoodsRevenueCents: 1_500,
+      distributableProfitShareCents: 1_500, captainEligible: true,
+    };
+    const refund = {
+      id: 'refund-1', orderId: 'order-1', status: 'REFUNDED', amount: 3,
+      items: [{ orderItemId: 'item-a', quantity: 0, amount: 3 }],
+    };
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      id: 'snapshot-1', orderId: 'order-1', status: 'READY',
+      distributableProfitAmount: 15, captainEligibleProfitAmount: 15,
+      itemBreakdown: [item], ruleSnapshot: {},
+    });
+    tx.refund.findUnique.mockResolvedValue(refund);
+    tx.refund.findMany.mockResolvedValue([refund]);
+    tx.captainOrderAttribution.findFirst.mockResolvedValue({
+      id: 'attribution-1', orderId: 'order-1', directCaptainUserId: 'captain-1',
+      programCode: 'SEAFOOD_PREPACKAGED', calculationModel: 'PROFIT_V3',
+      eligibleGoodsAmount: 15, profitSnapshotId: 'snapshot-1',
+    });
+    tx.captainCommissionLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where?.amount?.lt === 0 ? [] : [
+        {
+          id: 'captain-withdrawn', accountId: 'captain-account', userId: 'captain-1',
+          orderAttributionId: 'attribution-1', orderId: 'order-1',
+          programCode: 'SEAFOOD_PREPACKAGED', type: 'DIRECT_ORDER', amount: 10,
+          status: 'WITHDRAWN', meta: {},
+        },
+        {
+          id: 'captain-upgrade-delta', accountId: 'captain-account', userId: 'captain-1',
+          orderAttributionId: 'attribution-1', orderId: 'order-1',
+          programCode: 'SEAFOOD_PREPACKAGED', type: 'DIRECT_ORDER', amount: 5,
+          status: 'AVAILABLE', meta: { adjustmentKind: 'WITHDRAWN_UPGRADE_DELTA' },
+        },
+      ]
+    ));
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      {
+        id: 'platform-retained', snapshotId: 'snapshot-1', orderId: 'order-1',
+        type: 'PLATFORM_RETAINED_CREDIT', amount: 15, configVersion: 'cfg-1',
+      },
+      {
+        id: 'captain-direct-hold', snapshotId: 'snapshot-1', orderId: 'order-1',
+        type: 'CAPTAIN_DIRECT_HOLD', amount: -15, configVersion: 'cfg-1',
+      },
+    ]);
+    tx.captainAccount.findUnique
+      .mockResolvedValueOnce({ id: 'captain-account', balance: 5, frozen: 0, clawback: 0 })
+      .mockResolvedValueOnce({ id: 'captain-account', balance: 4, frozen: 0, clawback: 0 });
+
+    await new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1');
+
+    expect(tx.captainAccount.update.mock.calls.map(([call]: any[]) => call.data)).toEqual([
+      { balance: { decrement: 1 } },
+      { balance: { decrement: 2 } },
+    ]);
+    expect(tx.orderProfitAdjustmentDraft.create).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['APPROVED', 'AVAILABLE'],
@@ -669,11 +1284,37 @@ describe('OrderProfitRefundService', () => {
       reversedAmount: 0,
       settlement: { id: 'settlement-1', status: settlementStatus, captainUserId: 'captain-1' },
     });
-    tx.captainCommissionLedger.findMany.mockResolvedValue([{
-      id: 'monthly-management', accountId: 'captain-account', userId: 'captain-1',
-      settlementId: 'settlement-1', type: 'MANAGEMENT_ALLOWANCE', amount: 3,
-      status: ledgerStatus, programCode: 'SEAFOOD_PREPACKAGED', meta: {},
-    }]);
+    tx.captainCommissionLedger.findMany.mockResolvedValue([
+      {
+        id: 'monthly-management', accountId: 'captain-account', userId: 'captain-1',
+        settlementId: 'settlement-1', type: 'MANAGEMENT_ALLOWANCE', amount: 3,
+        status: ledgerStatus, programCode: 'SEAFOOD_PREPACKAGED', meta: {},
+      },
+      {
+        id: 'monthly-growth', accountId: 'captain-account', userId: 'captain-1',
+        settlementId: 'settlement-1', type: 'GROWTH_BONUS', amount: 2,
+        status: ledgerStatus, programCode: 'SEAFOOD_PREPACKAGED', meta: {},
+      },
+      {
+        id: 'monthly-cultivation', accountId: 'captain-account', userId: 'captain-1',
+        settlementId: 'settlement-1', type: 'CULTIVATION_BONUS', amount: 1,
+        status: ledgerStatus, programCode: 'SEAFOOD_PREPACKAGED', meta: {},
+      },
+      {
+        id: 'monthly-performance', accountId: 'captain-account', userId: 'captain-1',
+        settlementId: 'settlement-1', type: 'PERFORMANCE_BONUS', amount: 1,
+        status: ledgerStatus, programCode: 'SEAFOOD_PREPACKAGED', meta: {},
+      },
+    ]);
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      { id: 'platform-funding', type: 'PLATFORM_RETAINED_CREDIT', amount: 7, configVersion: 'cfg-1' },
+      { id: 'monthly-hold', type: 'CAPTAIN_MONTHLY_HOLD', amount: -7, configVersion: 'cfg-1' },
+    ]);
+    if (settlementStatus === 'PAID') {
+      tx.captainAccount.findUnique.mockResolvedValue({
+        id: 'captain-account', balance: 0, frozen: 0, clawback: 0,
+      });
+    }
     const service = new OrderProfitRefundService();
 
     await service.finalizeSuccessfulRefund(tx, 'refund-1');
@@ -688,6 +1329,47 @@ describe('OrderProfitRefundService', () => {
     } else {
       expect(tx.captainMonthlySettlement.update).toHaveBeenCalled();
     }
+  });
+
+  it('refunds a draft settlement with partial release and positive monthly actual without breaking conservation', async () => {
+    const { tx } = makeTx();
+    tx.orderProfitSnapshot.findFirst.mockResolvedValue({
+      id: 'snapshot-1', orderId: 'order-1', status: 'READY',
+      distributableProfitAmount: 50.01, captainEligibleProfitAmount: 50.01,
+      itemBreakdown: ITEMS.map((item) => ({ ...item, captainEligible: true })),
+      ruleSnapshot: {},
+    });
+    tx.captainOrderAttribution.findFirst.mockResolvedValue({
+      id: 'attribution-1', orderId: 'order-1', programCode: 'SEAFOOD_PREPACKAGED',
+      calculationModel: 'PROFIT_V3', profitSnapshotId: 'snapshot-1', eligibleGoodsAmount: 100.01,
+    });
+    tx.captainMonthlySettlementOrder.findUnique.mockResolvedValue({
+      id: 'settlement-order-1', orderAttributionId: 'attribution-1', settlementId: 'settlement-1',
+      baseManagementAmount: 3, growthBonusAmount: 0, cultivationBonusAmount: 0,
+      performanceBonusAmount: 0, reservedAmount: 10, releasedAmount: 7,
+      settlement: { id: 'settlement-1', status: 'DRAFT', captainUserId: 'captain-1' },
+    });
+    tx.captainCommissionLedger.findMany.mockResolvedValue([]);
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      { id: 'platform-funding', snapshotId: 'snapshot-1', type: 'PLATFORM_RETAINED_CREDIT', amount: 3, configVersion: 'cfg-1' },
+      { id: 'monthly-hold', snapshotId: 'snapshot-1', type: 'CAPTAIN_MONTHLY_HOLD', amount: -10, configVersion: 'cfg-1' },
+      { id: 'monthly-release', snapshotId: 'snapshot-1', type: 'CAPTAIN_MONTHLY_RELEASE', amount: 7, configVersion: 'cfg-1' },
+    ]);
+
+    await expect(new OrderProfitRefundService().finalizeSuccessfulRefund(tx, 'refund-1'))
+      .resolves.toEqual(expect.objectContaining({ mode: 'V3' }));
+
+    const fundingAdjustments = new Map<string, number>(
+      tx.orderProfitFundingLedger.create.mock.calls.map(([call]: any[]) => [
+        call.data.sourceLedgerId,
+        Math.round(call.data.amount * 100),
+      ]),
+    );
+    const remainingNetCents = 300 - 1_000 + 700
+      + [...fundingAdjustments.values()].reduce((sum, cents) => sum + cents, 0);
+    expect(fundingAdjustments.has('monthly-hold')).toBe(true);
+    expect(fundingAdjustments.has('monthly-release')).toBe(true);
+    expect(remainingNetCents).toBe(0);
   });
 
   it('applies consecutive refunds to a PENDING_REVIEW monthly settlement cumulatively', async () => {
@@ -722,6 +1404,10 @@ describe('OrderProfitRefundService', () => {
       settlementId: 'settlement-1', type: 'MANAGEMENT_ALLOWANCE', amount: 3,
       status: 'AVAILABLE', programCode: 'SEAFOOD_PREPACKAGED', meta: {},
     }]);
+    tx.orderProfitFundingLedger.findMany.mockResolvedValue([
+      { id: 'platform-funding', type: 'PLATFORM_RETAINED_CREDIT', amount: 3, configVersion: 'cfg-1' },
+      { id: 'monthly-hold', type: 'CAPTAIN_MONTHLY_HOLD', amount: -3, configVersion: 'cfg-1' },
+    ]);
     const service = new OrderProfitRefundService();
 
     await service.finalizeSuccessfulRefund(tx, 'refund-1');

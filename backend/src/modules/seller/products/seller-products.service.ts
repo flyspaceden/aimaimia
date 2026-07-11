@@ -110,6 +110,28 @@ export class SellerProductsService {
     }));
   }
 
+  private async loadProfitSafetyProduct(reader: any, productId: string) {
+    const product = await reader.product.findUnique({
+      where: { id: productId },
+      select: this.profitSafetyProductSelect,
+    });
+    if (!product) throw new NotFoundException('商品不存在');
+    return product;
+  }
+
+  private async loadLockedMarkupRate(tx: Prisma.TransactionClient): Promise<number> {
+    const row = await tx.ruleConfig.findUnique({
+      where: { key: 'MARKUP_RATE' },
+      select: { value: true },
+    });
+    const stored = row?.value as any;
+    const markupRate = Number(stored?.value ?? stored);
+    if (!Number.isFinite(markupRate) || markupRate <= 0) {
+      throw new BadRequestException('MARKUP_RATE 配置不合法');
+    }
+    return markupRate;
+  }
+
   private assertLockedMarkupRate(
     context: ProfitSafetyWriteContext | undefined,
     expectedMarkupRate: number | null,
@@ -848,7 +870,8 @@ export class SellerProductsService {
       throw new BadRequestException('草稿商品请使用草稿更新接口');
     }
     this.assertNoTypeConversion(product.type, dto.productType);
-    const productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
+    let lockedProduct = product;
+    let productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
     if (dto.skus !== undefined) {
       if (!this.isBundleType(productType)) {
         throw new BadRequestException('普通商品规格请使用规格更新接口');
@@ -860,24 +883,42 @@ export class SellerProductsService {
     let preparedBundleTargetSkuId: string | undefined;
     let skuUpserts: ProfitSafetySku[] | undefined;
     let removeSkuIds: string[] | undefined;
-    const changesActiveEconomics = product.status === 'ACTIVE'
-      && (dto.categoryId !== undefined || dto.skus !== undefined);
-    if (changesActiveEconomics) {
+    const requiresSafetyLock = dto.categoryId !== undefined || dto.skus !== undefined;
+
+    const buildSafetyChange = async (tx: Prisma.TransactionClient) => {
+      lockedProduct = await this.loadProfitSafetyProduct(tx, productId);
+      if (lockedProduct.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+      if (lockedProduct.status === 'DRAFT') {
+        throw new BadRequestException('草稿商品请使用草稿更新接口');
+      }
+      this.assertNoTypeConversion(lockedProduct.type, dto.productType);
+      productType = (dto.productType ?? lockedProduct.type ?? ProductType.SIMPLE) as ProductType;
+      if (dto.skus !== undefined) {
+        if (!this.isBundleType(productType)) {
+          throw new BadRequestException('普通商品规格请使用规格更新接口');
+        }
+        this.assertPositiveSkuCosts(dto.skus);
+      }
+
+      preparedMarkupRate = null;
+      preparedBundleTargetSkuId = undefined;
+      skuUpserts = undefined;
+      removeSkuIds = undefined;
       if (this.isBundleType(productType) && dto.skus !== undefined) {
         if (dto.skus.length !== 1) {
           throw new BadRequestException('组合商品必须且只能保留一个销售规格');
         }
-        preparedMarkupRate = (await this.bonusConfig.getSystemConfig()).markupRate;
-        const existingSkus = product.skus ?? [];
+        preparedMarkupRate = await this.loadLockedMarkupRate(tx);
+        const existingSkus = lockedProduct.skus ?? [];
         const existingIds = new Set(existingSkus.map((sku: any) => sku.id));
         const requested = dto.skus[0];
         const targetExisting = requested?.id && existingIds.has(requested.id)
           ? existingSkus.find((sku: any) => sku.id === requested.id)
           : existingSkus.find((sku: any) => sku.status === SkuStatus.ACTIVE);
         preparedBundleTargetSkuId = targetExisting?.id ?? randomUUID();
-        const finalCategoryId = dto.categoryId ?? product.categoryId ?? null;
+        const finalCategoryId = dto.categoryId ?? lockedProduct.categoryId ?? null;
         const bundlePrice = +(requested.cost * preparedMarkupRate).toFixed(2);
-        skuUpserts = [this.toProfitSafetySku(product, {
+        skuUpserts = [this.toProfitSafetySku(lockedProduct, {
           id: preparedBundleTargetSkuId,
           price: bundlePrice,
           cost: requested.cost,
@@ -885,17 +926,22 @@ export class SellerProductsService {
           vipGiftItems: targetExisting?.vipGiftItems ?? [],
         }, {
           categoryId: finalCategoryId,
-          active: true,
+          active: lockedProduct.status === 'ACTIVE',
         })];
         removeSkuIds = existingSkus
           .filter((sku: any) => sku.status === SkuStatus.ACTIVE && sku.id !== preparedBundleTargetSkuId)
           .map((sku: any) => sku.id);
       } else {
-        skuUpserts = this.productCandidates(product, {
-          categoryId: dto.categoryId ?? product.categoryId,
+        skuUpserts = this.productCandidates(lockedProduct, {
+          categoryId: dto.categoryId ?? lockedProduct.categoryId,
         });
       }
-    }
+      return {
+        skuUpserts,
+        removeSkuIds,
+        changeNote: `seller product ${productId} economic update`,
+      };
+    };
 
     // 事务结果赋值给 updated 变量，以便事务提交后触发异步语义填充
     const write = async (
@@ -905,7 +951,7 @@ export class SellerProductsService {
       this.assertLockedMarkupRate(context, preparedMarkupRate);
       // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
       const needReAudit =
-        product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
+        lockedProduct.auditStatus === 'APPROVED' || lockedProduct.auditStatus === 'REJECTED';
       const bundleState = this.isBundleType(productType) && dto.bundleItems !== undefined
         ? await this.buildBundleState(tx, companyId, dto.bundleItems, { requireItems: true })
         : null;
@@ -1072,12 +1118,8 @@ export class SellerProductsService {
       return result;
     };
 
-    const updated = changesActiveEconomics
-      ? (await this.profitSafety.withCandidateChange({
-          skuUpserts,
-          removeSkuIds,
-          changeNote: `seller product ${productId} economic update`,
-        }, write)).result
+    const updated = requiresSafetyLock
+      ? (await this.profitSafety.withCandidateChange(buildSafetyChange, write)).result
       : await this.prisma.$transaction(write, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
@@ -1136,9 +1178,18 @@ export class SellerProductsService {
     };
 
     if (status === 'ACTIVE') {
-      const output = await this.profitSafety.withCandidateChange({
-        skuUpserts: this.productCandidates(candidateProduct, { status: 'ACTIVE' }),
-        changeNote: `seller product ${productId} activation`,
+      const output = await this.profitSafety.withCandidateChange(async (tx) => {
+        const lockedProduct = await this.loadProfitSafetyProduct(tx, productId);
+        if (lockedProduct.companyId !== companyId) {
+          throw new ForbiddenException('无权操作该商品');
+        }
+        if (lockedProduct.status === 'DRAFT') {
+          throw new BadRequestException('草稿商品需先提交审核后才能上下架');
+        }
+        return {
+          skuUpserts: this.productCandidates(lockedProduct, { status: 'ACTIVE' }),
+          changeNote: `seller product ${productId} activation`,
+        };
       }, write);
       return output.result;
     }
@@ -1251,12 +1302,8 @@ export class SellerProductsService {
 
   /** 管理 SKU 列表 */
   async updateSkus(companyId: string, productId: string, skus: SkuItemDto[]) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      select: this.profitSafetyProductSelect,
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-    if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    const initialProduct = await this.loadProfitSafetyProduct(this.prisma, productId);
+    if (initialProduct.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
 
     // 服务层兜底校验：所有 SKU 成本必须大于 0
     for (const sku of skus) {
@@ -1264,47 +1311,14 @@ export class SellerProductsService {
         throw new BadRequestException('商品成本必须大于 0');
       }
     }
+    if (!this.isBundleType(initialProduct.type)) this.assertPositiveSkuWeights(skus);
 
-    // SKU 变更同样触发重新审核（APPROVED/REJECTED 状态下）
-    const needReAudit =
-      product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
-    const isBundleProduct = this.isBundleType(product.type);
-
-    if (!isBundleProduct) {
-      this.assertPositiveSkuWeights(skus);
-    }
-
-    const markupRate = (await this.bonusConfig.getSystemConfig()).markupRate;
-    const candidateExistingSkus = product.skus ?? [];
-    const candidateExistingIds = new Set(candidateExistingSkus.map((sku: any) => sku.id));
-    const bundleTargetSkuId = isBundleProduct
-      ? (skus[0]?.id && candidateExistingIds.has(skus[0].id)
-          ? skus[0].id
-          : candidateExistingSkus.find((sku: any) => sku.status === SkuStatus.ACTIVE)?.id
-            ?? randomUUID())
-      : undefined;
-    const preparedSkus = skus.map((sku, index) => ({
-      ...sku,
-      id: isBundleProduct && index === 0
-        ? bundleTargetSkuId!
-        : (sku.id && candidateExistingIds.has(sku.id) ? sku.id : randomUUID()),
-    }));
-    const retainedSkuIds = new Set(preparedSkus.map((sku) => sku.id));
-    const removeSkuIds = candidateExistingSkus
-      .filter((sku: any) => sku.status === SkuStatus.ACTIVE && !retainedSkuIds.has(sku.id))
-      .map((sku: any) => sku.id);
-    const skuUpserts = preparedSkus.map((sku) => {
-      const existing = candidateExistingSkus.find((item: any) => item.id === sku.id);
-      return this.toProfitSafetySku(product, {
-        id: sku.id,
-        price: +(sku.cost * markupRate).toFixed(2),
-        cost: sku.cost,
-        status: SkuStatus.ACTIVE,
-        vipGiftItems: existing?.vipGiftItems ?? [],
-      }, {
-        active: product.status === 'ACTIVE',
-      });
-    });
+    let product: any;
+    let needReAudit = false;
+    let isBundleProduct = false;
+    let markupRate = 0;
+    let bundleTargetSkuId: string | undefined;
+    let preparedSkus: Array<any> = [];
 
     // 自动定价：候选与最终写入复用同一个 MARKUP_RATE 结果。
     const write = async (
@@ -1432,18 +1446,52 @@ export class SellerProductsService {
       });
     };
 
-    if (product.status === 'ACTIVE') {
-      const output = await this.profitSafety.withCandidateChange({
+    const output = await this.profitSafety.withCandidateChange(async (tx) => {
+      product = await this.loadProfitSafetyProduct(tx, productId);
+      if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+
+      needReAudit = product.auditStatus === 'APPROVED' || product.auditStatus === 'REJECTED';
+      isBundleProduct = this.isBundleType(product.type);
+      if (!isBundleProduct) this.assertPositiveSkuWeights(skus);
+
+      markupRate = await this.loadLockedMarkupRate(tx);
+      const candidateExistingSkus = product.skus ?? [];
+      const candidateExistingIds = new Set(candidateExistingSkus.map((sku: any) => sku.id));
+      bundleTargetSkuId = isBundleProduct
+        ? (skus[0]?.id && candidateExistingIds.has(skus[0].id)
+            ? skus[0].id
+            : candidateExistingSkus.find((sku: any) => sku.status === SkuStatus.ACTIVE)?.id
+              ?? randomUUID())
+        : undefined;
+      preparedSkus = skus.map((sku, index) => ({
+        ...sku,
+        id: isBundleProduct && index === 0
+          ? bundleTargetSkuId!
+          : (sku.id && candidateExistingIds.has(sku.id) ? sku.id : randomUUID()),
+      }));
+      const retainedSkuIds = new Set(preparedSkus.map((sku) => sku.id));
+      const removeSkuIds = candidateExistingSkus
+        .filter((sku: any) => sku.status === SkuStatus.ACTIVE && !retainedSkuIds.has(sku.id))
+        .map((sku: any) => sku.id);
+      const skuUpserts = preparedSkus.map((sku) => {
+        const existing = candidateExistingSkus.find((item: any) => item.id === sku.id);
+        return this.toProfitSafetySku(product, {
+          id: sku.id,
+          price: +(sku.cost * markupRate).toFixed(2),
+          cost: sku.cost,
+          status: SkuStatus.ACTIVE,
+          vipGiftItems: existing?.vipGiftItems ?? [],
+        }, {
+          active: product.status === 'ACTIVE',
+        });
+      });
+      return {
         skuUpserts,
         removeSkuIds,
         changeNote: `seller product ${productId} SKU economic update`,
-      }, write);
-      return output.result;
-    }
-
-    return this.prisma.$transaction(write, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+      };
+    }, write);
+    return output.result;
   }
 
   // ============================================================
@@ -1691,74 +1739,55 @@ export class SellerProductsService {
       throw new BadRequestException('该商品非草稿状态，不能提交');
     }
 
-    const markupRate = (await this.bonusConfig.getSystemConfig()).markupRate;
-    const isCandidateBundle = this.isBundleType(candidateProduct.type);
-    const preparedBundleSkuId = isCandidateBundle ? randomUUID() : undefined;
-    const skuUpserts = isCandidateBundle
-      ? (candidateProduct.skus[0]
-          ? [this.toProfitSafetySku(candidateProduct, {
-              ...candidateProduct.skus[0],
-              id: preparedBundleSkuId!,
-              price: +((candidateProduct.skus[0].cost ?? 0) * markupRate).toFixed(2),
-              status: SkuStatus.ACTIVE,
-            }, { active: false })]
-          : [])
-      : candidateProduct.skus.map((sku) => this.toProfitSafetySku(candidateProduct, {
-          ...sku,
-          price: +((sku.cost ?? 0) * markupRate).toFixed(2),
-        }, { active: false }));
-    const expectedEconomics = JSON.stringify({
-      companyId: candidateProduct.companyId,
-      categoryId: candidateProduct.categoryId,
-      status: candidateProduct.status,
-      type: candidateProduct.type,
-      skus: candidateProduct.skus.map((sku) => ({
-        id: sku.id,
-        cost: sku.cost,
-        status: sku.status,
-      })),
-    });
+    let product: any;
+    let markupRate = 0;
+    let preparedBundleSkuId: string | undefined;
 
-    const output = await this.profitSafety.withCandidateChange({
-      skuUpserts,
-      changeNote: `seller draft ${productId} submission`,
-    }, async (tx, context) => {
-      this.assertLockedMarkupRate(context, markupRate);
-      const product = await tx.product.findUnique({
+    const output = await this.profitSafety.withCandidateChange(async (tx) => {
+      product = await tx.product.findUnique({
         where: { id: productId },
         include: {
-          skus: true,
+          company: { select: { isPlatform: true } },
+          lotteryPrizes: { select: { id: true }, take: 1 },
+          skus: { include: { vipGiftItems: { select: { id: true }, take: 1 } } },
           media: { orderBy: { sortOrder: 'asc' } },
           tags: true,
           bundleItems: { orderBy: { sortOrder: 'asc' } },
         },
       });
-        if (!product) throw new NotFoundException('商品不存在');
-        if (product.companyId !== companyId)
-          throw new ForbiddenException('无权操作该商品');
-        if (product.status !== 'DRAFT')
-          throw new BadRequestException('该商品非草稿状态，不能提交');
-        const currentEconomics = JSON.stringify({
-          companyId: product.companyId,
-          categoryId: product.categoryId,
-          status: product.status,
-          type: product.type,
-          skus: product.skus.map((sku) => ({
-            id: sku.id,
-            cost: sku.cost,
-            status: sku.status,
-          })),
-        });
-        if (currentEconomics !== expectedEconomics) {
-          throw new ConflictException('商品已发生变化，请刷新后重试');
-        }
-
+      if (!product) throw new NotFoundException('商品不存在');
+      if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+      if (product.status !== 'DRAFT') {
+        throw new BadRequestException('该商品非草稿状态，不能提交');
+      }
+      markupRate = await this.loadLockedMarkupRate(tx);
+      const isCandidateBundle = this.isBundleType(product.type);
+      preparedBundleSkuId = isCandidateBundle ? randomUUID() : undefined;
+      const skuUpserts = isCandidateBundle
+        ? (product.skus[0]
+            ? [this.toProfitSafetySku(product, {
+                ...product.skus[0],
+                id: preparedBundleSkuId!,
+                price: +((product.skus[0].cost ?? 0) * markupRate).toFixed(2),
+                status: SkuStatus.ACTIVE,
+              }, { active: false })]
+            : [])
+        : product.skus.map((sku: any) => this.toProfitSafetySku(product, {
+            ...sku,
+            price: +((sku.cost ?? 0) * markupRate).toFixed(2),
+          }, { active: false }));
+      return {
+        skuUpserts,
+        changeNote: `seller draft ${productId} submission`,
+      };
+    }, async (tx, context) => {
+      this.assertLockedMarkupRate(context, markupRate);
         const isBundleProduct = this.isBundleType(product.type);
         const bundleState = isBundleProduct
           ? await this.buildBundleState(
               tx,
               companyId,
-              product.bundleItems.map((item) => ({
+              product.bundleItems.map((item: any) => ({
                 skuId: item.skuId,
                 quantity: item.quantity,
                 sortOrder: item.sortOrder,
@@ -1769,7 +1798,7 @@ export class SellerProductsService {
 
         if (!isBundleProduct) {
           const missingWeightSkuIndex = product.skus.findIndex(
-            (sku) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
+            (sku: any) => this.isDraftWeightPlaceholderSkuCode(sku.skuCode),
           );
           if (missingWeightSkuIndex >= 0) {
             throw new BadRequestException({
@@ -1795,7 +1824,7 @@ export class SellerProductsService {
           categoryId: product.categoryId ?? '',
           returnPolicy: product.returnPolicy,
           origin: product.origin ?? undefined,
-          tagIds: product.tags.map((t) => t.tagId),
+          tagIds: product.tags.map((t: any) => t.tagId),
           productType: product.type,
           skus: isBundleProduct
             ? (bundleSeedSku
@@ -1807,7 +1836,7 @@ export class SellerProductsService {
                     weightGram: bundleState?.bundleTotalWeightGram ?? 0,
                   }]
                 : [])
-            : product.skus.map((s) => ({
+            : product.skus.map((s: any) => ({
                 specName: s.title,
                 cost: s.cost ?? 0,
                 stock: s.stock,
@@ -1815,7 +1844,7 @@ export class SellerProductsService {
                 weightGram: s.weightGram,
               })),
           bundleItems: isBundleProduct
-            ? product.bundleItems.map((item) => ({
+            ? product.bundleItems.map((item: any) => ({
                 skuId: item.skuId,
                 quantity: item.quantity,
                 sortOrder: item.sortOrder,
@@ -1823,7 +1852,7 @@ export class SellerProductsService {
             : undefined,
           attributes: product.attributes ?? undefined,
           aiKeywords: product.aiKeywords,
-          mediaUrls: product.media.map((m) => m.url),
+          mediaUrls: product.media.map((m: any) => m.url),
           flavorTags: product.flavorTags,
           seasonalMonths: product.seasonalMonths,
           usageScenarios: product.usageScenarios,
@@ -1915,7 +1944,7 @@ export class SellerProductsService {
               data: { price: +(cost * markupRate).toFixed(2) },
             });
           }
-          minCost = Math.min(...product.skus.map((s) => s.cost ?? 0));
+          minCost = Math.min(...product.skus.map((s: any) => s.cost ?? 0));
           basePrice = +(minCost * markupRate).toFixed(2);
         }
 

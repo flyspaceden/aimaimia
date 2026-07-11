@@ -591,6 +591,7 @@ export interface CaptainMonthlySettlement {
   configSnapshot?: Record<string, unknown> | null;
   meta?: Record<string, unknown> | null;
   profitBaseAmount?: number | null;
+  reviewBlockedReason?: string | null;
   createdAt: string;
   captain?: UserLite;
   metric?: CaptainMonthlyMetric | null;

@@ -205,6 +205,14 @@ describe('ProfitSafetyValidator', () => {
         .toBe('CAPTAIN_PROFIT_SAFETY_VIOLATION');
       expect((error as ProfitSafetyViolationError).summary.errors)
         .toContain('INVALID_CAPTAIN_CONFIG');
+      expect((error as ProfitSafetyViolationError).toResponse()).toEqual(
+        expect.objectContaining({
+          evaluatedSkuCount: expect.any(Number),
+          captainMaximumProfitRate: expect.any(Number),
+          captainConfiguredCap: expect.any(Number),
+          errors: expect.any(Array),
+        }),
+      );
     }
   });
 

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, DatePicker, Modal, Space, Tag, Typography } from 'antd';
+import { App, Button, DatePicker, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
 import {
   approveCaptainSettlement,
@@ -19,6 +19,11 @@ import { isProfitV3Settlement } from '@/components/captainProfitV3';
 const RECALCULABLE_STATUSES: CaptainSettlementStatus[] = ['DRAFT', 'PENDING_REVIEW', 'REJECTED'];
 const DEFAULT_GENERATE_MONTH = dayjs().subtract(1, 'month').format('YYYY-MM');
 
+const actionErrorMessage = (error: unknown) => {
+  const value = error as { message?: string; response?: { data?: { error?: { message?: string } } } };
+  return value.response?.data?.error?.message ?? value.message ?? '操作失败，请刷新后重试';
+};
+
 export default function CaptainSettlementsPage() {
   const actionRef = useRef<ActionType | undefined>(undefined);
   const { message } = App.useApp();
@@ -27,9 +32,13 @@ export default function CaptainSettlementsPage() {
   const [generating, setGenerating] = useState(false);
 
   const runAction = async (fn: () => Promise<unknown>, text: string) => {
-    await fn();
-    message.success(text);
-    actionRef.current?.reload();
+    try {
+      await fn();
+      message.success(text);
+      actionRef.current?.reload();
+    } catch (error) {
+      message.error(actionErrorMessage(error));
+    }
   };
 
   const handleGenerate = async () => {
@@ -39,6 +48,8 @@ export default function CaptainSettlementsPage() {
       message.success(`已生成/更新 ${items.length} 条月结草稿`);
       setGenerateOpen(false);
       actionRef.current?.reload();
+    } catch (error) {
+      message.error(actionErrorMessage(error));
     } finally {
       setGenerating(false);
     }
@@ -85,18 +96,34 @@ export default function CaptainSettlementsPage() {
     { title: '经营绩效奖', search: false, width: 120, render: (_, record) => money(record.teamPoolAmount) },
     { title: '税前合计', search: false, width: 120, render: (_, record) => <Typography.Text strong>{money(record.totalAmount)}</Typography.Text> },
     { title: '税后', search: false, width: 120, render: (_, record) => money(record.netAmount) },
+    {
+      title: '利润对账',
+      search: false,
+      width: 220,
+      render: (_, record) => record.reviewBlockedReason
+        ? (
+          <Space direction="vertical" size={2}>
+            <Tag color="error">待处理</Tag>
+            <Typography.Text type="secondary" ellipsis={{ tooltip: record.reviewBlockedReason }} style={{ maxWidth: 200 }}>
+              {record.reviewBlockedReason}
+            </Typography.Text>
+          </Space>
+        )
+        : <Tag color="success">可审核</Tag>,
+    },
     { title: '创建时间', search: false, width: 170, render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') },
     {
       title: '操作',
       valueType: 'option',
       width: 220,
       render: (_, record) => (
-        <Space>
+        <Tooltip title={record.reviewBlockedReason ?? undefined}>
+          <Space>
           <PermissionGate permission={PERMISSIONS.CAPTAIN_SETTLEMENT}>
             <Button
               type="link"
               size="small"
-              disabled={!['DRAFT', 'PENDING_REVIEW'].includes(record.status)}
+              disabled={Boolean(record.reviewBlockedReason) || !['DRAFT', 'PENDING_REVIEW'].includes(record.status)}
               onClick={() => runAction(() => approveCaptainSettlement(record.id), '结算已审核')}
             >
               审核
@@ -104,7 +131,7 @@ export default function CaptainSettlementsPage() {
             <Button
               type="link"
               size="small"
-              disabled={record.status !== 'APPROVED'}
+              disabled={Boolean(record.reviewBlockedReason) || record.status !== 'APPROVED'}
               onClick={() => runAction(() => markCaptainSettlementPaid(record.id), '结算已标记支付')}
             >
               标记支付
@@ -120,7 +147,8 @@ export default function CaptainSettlementsPage() {
               重算
             </Button>
           </PermissionGate>
-        </Space>
+          </Space>
+        </Tooltip>
       ),
     },
   ];

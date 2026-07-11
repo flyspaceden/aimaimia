@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProfitSafetyService } from '../profit/profit-safety.service';
 import type { UpdateWithdrawRulesDto, WithdrawRules } from './dto/withdraw-rules.dto';
 
 type RuleField = keyof WithdrawRules;
@@ -83,7 +85,10 @@ export const WITHDRAW_RULE_DEFAULTS = Object.fromEntries(
 
 @Injectable()
 export class WithdrawRulesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private profitSafetyService: ProfitSafetyService,
+  ) {}
 
   async getRules(): Promise<WithdrawRules> {
     const rows = await this.prisma.ruleConfig.findMany({
@@ -108,6 +113,7 @@ export class WithdrawRulesService {
     const nextRules = { ...(await this.getRules()), ...dto };
     this.validateRules(nextRules);
 
+    const updates: Array<{ key: string; value: unknown; description: string }> = [];
     for (const [field, value] of Object.entries(dto) as Array<[RuleField, unknown]>) {
       if (value === undefined) continue;
 
@@ -115,23 +121,27 @@ export class WithdrawRulesService {
       const definition = key ? RULE_DEFINITIONS[key] : undefined;
       if (!key || !definition) continue;
 
-      await this.prisma.ruleConfig.upsert({
-        where: { key },
-        create: {
-          key,
-          value: {
-            value,
-            description: definition.description,
-          },
-        },
-        update: {
-          value: {
-            value,
-            description: definition.description,
-          },
-        },
-      });
+      updates.push({ key, value, description: definition.description });
     }
+
+    await this.profitSafetyService.withRuleConfigUpdates(
+      Object.fromEntries(updates.map((update) => [update.key, update.value])),
+      async (tx) => {
+        for (const update of updates) {
+          await tx.ruleConfig.upsert({
+            where: { key: update.key },
+            create: {
+              key: update.key,
+              value: { value: update.value, description: update.description } as Prisma.InputJsonValue,
+            },
+            update: {
+              value: { value: update.value, description: update.description } as Prisma.InputJsonValue,
+            },
+          });
+        }
+      },
+      { changeNote: '更新提现规则' },
+    );
 
     return this.getRules();
   }

@@ -72,6 +72,9 @@ describe('AdminGroupBuyService', () => {
       groupBuyInstance: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      ruleConfig: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
     };
 
     const prisma = {
@@ -137,6 +140,11 @@ describe('AdminGroupBuyService', () => {
         upsert: jest.fn().mockResolvedValue({}),
       },
     };
+    const profitSafetyService = {
+      withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+        result: await write(tx),
+      })),
+    };
 
     const lifecycleService = {
       expireActivitiesByIds: jest.fn().mockResolvedValue({
@@ -157,7 +165,12 @@ describe('AdminGroupBuyService', () => {
       prisma,
       tx,
       lifecycleService,
-      service: new AdminGroupBuyService(prisma as any, lifecycleService as any),
+      profitSafetyService,
+      service: new AdminGroupBuyService(
+        prisma as any,
+        lifecycleService as any,
+        profitSafetyService as any,
+      ),
     };
   };
 
@@ -418,11 +431,16 @@ describe('AdminGroupBuyService', () => {
   });
 
   it('updates max monthly launches through RuleConfig', async () => {
-    const { prisma, service } = buildPrisma();
+    const { tx, service, profitSafetyService } = buildPrisma();
 
     await service.updateSettings({ maxMonthlyLaunches: 6 });
 
-    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith({
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      { GROUP_BUY_MAX_MONTHLY_LAUNCHES: 6 },
+      expect.any(Function),
+      { changeNote: '更新团购月发起上限' },
+    );
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'GROUP_BUY_MAX_MONTHLY_LAUNCHES' },
       update: {
         value: {

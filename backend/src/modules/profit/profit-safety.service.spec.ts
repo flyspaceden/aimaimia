@@ -179,6 +179,53 @@ describe('ProfitSafetyService', () => {
     }));
   });
 
+  it('wraps RuleConfig updates in the same validated safety transaction and complete version', async () => {
+    const { service, tx, events } = makeHarness();
+    const write = jest.fn(async () => {
+      events.push('write');
+      return { saved: true };
+    });
+
+    const output = await service.withRuleConfigUpdates({
+      INVOICE_AUTO_ISSUE: false,
+    }, write, {
+      changeNote: '关闭自动开票',
+    });
+
+    expect(output.result).toEqual({ saved: true });
+    expect(events).toEqual(['lock', 'rules', 'skus', 'write', 'version']);
+    expect(write).toHaveBeenCalledWith(tx, expect.objectContaining({
+      candidateSnapshot: expect.objectContaining({ INVOICE_AUTO_ISSUE: false }),
+      summary: expect.objectContaining({ safe: true }),
+    }));
+    expect(tx.ruleVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        isComplete: true,
+        changeNote: '关闭自动开票',
+        snapshot: expect.objectContaining({ INVOICE_AUTO_ISSUE: false }),
+      }),
+    });
+  });
+
+  it('resolves a candidate factory after taking the safety lock and validates that exact change', async () => {
+    const { service, tx, events } = makeHarness();
+    const changeFactory = jest.fn(async (factoryTx: typeof tx) => {
+      expect(factoryTx).toBe(tx);
+      events.push('factory');
+      return { ruleUpdates: { NORMAL_REWARD_PERCENT: 0.21 } };
+    });
+    const write = jest.fn(async () => {
+      events.push('write');
+      return { saved: true };
+    });
+
+    const output = await service.withCandidateChange(changeFactory, write);
+
+    expect(changeFactory).toHaveBeenCalledTimes(1);
+    expect(output.candidateSnapshot.NORMAL_REWARD_PERCENT).toBe(0.21);
+    expect(events).toEqual(['lock', 'factory', 'rules', 'skus', 'write', 'version']);
+  });
+
   it('performs no write and creates no version when the merged candidate is unsafe', async () => {
     const { service, tx } = makeHarness();
     const write = jest.fn();

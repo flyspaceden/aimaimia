@@ -141,6 +141,8 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/captain/orders', name: '订单归因', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/ledgers', name: '佣金流水', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/settlements', name: '月度结算', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/profit-reconciliations', name: '利润纠错', permission: PERMISSIONS.CAPTAIN_READ },
+        { path: '/captain/profit-adjustments', name: '利润调整单', permission: PERMISSIONS.CAPTAIN_READ },
         { path: '/captain/settings', name: '团长配置', permission: PERMISSIONS.CAPTAIN_SETTINGS },
       ],
     },

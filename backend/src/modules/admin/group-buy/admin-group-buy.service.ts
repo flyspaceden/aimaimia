@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import { GroupBuyService } from '../../group-buy/group-buy.service';
 import { GroupBuyLifecycleService } from '../../group-buy/group-buy-lifecycle.service';
 import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
@@ -42,6 +43,7 @@ export class AdminGroupBuyService {
   constructor(
     private prisma: PrismaService,
     private readonly groupBuyLifecycleService: GroupBuyLifecycleService,
+    private profitSafetyService: ProfitSafetyService,
   ) {}
 
   private readonly serializableTransactionOptions = {
@@ -575,7 +577,9 @@ export class AdminGroupBuyService {
       throw new BadRequestException('每月发起次数必须在 1 到 100 之间');
     }
 
-    await this.prisma.ruleConfig.upsert({
+    await this.profitSafetyService.withRuleConfigUpdates({
+      [GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY]: maxMonthlyLaunches,
+    }, async (tx) => tx.ruleConfig.upsert({
       where: { key: GROUP_BUY_MAX_MONTHLY_LAUNCHES_KEY },
       update: {
         value: {
@@ -590,7 +594,7 @@ export class AdminGroupBuyService {
           description: GROUP_BUY_MAX_MONTHLY_LAUNCHES_DESCRIPTION,
         },
       },
-    });
+    }), { changeNote: '更新团购月发起上限' });
 
     return { maxMonthlyLaunches };
   }

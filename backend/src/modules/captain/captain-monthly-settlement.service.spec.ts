@@ -71,13 +71,13 @@ function makeAttribution(overrides: any = {}) {
       ...(overrides.meta ?? {}),
     },
     profitSnapshot: {
-      fundingLedgers: reserve > 0
+      fundingLedgers: overrides.fundingLedgers ?? (reserve > 0
         ? [{
           id: `hold-${id}`,
           type: 'CAPTAIN_MONTHLY_HOLD',
           amount: -reserve,
         }]
-        : [],
+        : []),
     },
   };
 }
@@ -88,6 +88,13 @@ function createHarness(options: {
   relations?: any[];
   unresolvedOrderIds?: string[];
   unattributedReconciliations?: Array<{
+    id: string;
+    orderId: string;
+    directCaptainUserId: string;
+    paidAt: Date;
+    status?: string;
+  }>;
+  pendingAdjustments?: Array<{
     id: string;
     orderId: string;
     directCaptainUserId: string;
@@ -118,6 +125,10 @@ function createHarness(options: {
       status: task.status ?? 'PENDING',
     })),
   ];
+  const adjustmentDrafts = (options.pendingAdjustments ?? []).map((draft) => ({
+    ...draft,
+    status: draft.status ?? 'PENDING',
+  }));
   const settlements: any[] = [];
   const settlementOrders: any[] = [];
   const fundingLedgers: any[] = [];
@@ -244,6 +255,19 @@ function createHarness(options: {
         )) ?? null;
       }),
     },
+    orderProfitAdjustmentDraft: {
+      findFirst: jest.fn(async ({ where }: any) => {
+        const captainFilter = where.targetSnapshot?.ruleSnapshot;
+        const paidAtFilter = where.order?.paidAt;
+        return adjustmentDrafts.find((draft) => (
+          draft.status === where.status
+          && captainFilter?.path?.join('.') === 'captain.directCaptainUserId'
+          && draft.directCaptainUserId === captainFilter.equals
+          && draft.paidAt >= paidAtFilter.gte
+          && draft.paidAt < paidAtFilter.lt
+        )) ?? null;
+      }),
+    },
     captainAccount: {
       upsert: jest.fn(async ({ where }: any) => ({
         id: `account-${where.userId_programCode.userId}`,
@@ -254,6 +278,9 @@ function createHarness(options: {
       update: jest.fn(),
     },
     captainCommissionLedger: {
+      findUnique: jest.fn(async ({ where }: any) => createdLedgers.find(
+        (item) => item.idempotencyKey === where.idempotencyKey,
+      ) ?? null),
       findMany: jest.fn(async ({ where }: any) => createdLedgers.filter(
         (item) => item.settlementId === where.settlementId && item.status === where.status,
       )),
@@ -265,6 +292,11 @@ function createHarness(options: {
         }
         const row = { id: `ledger-${createdLedgers.length + 1}`, ...data };
         createdLedgers.push(row);
+        return row;
+      }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = createdLedgers.find((item) => item.id === where.id);
+        if (row) Object.assign(row, data);
         return row;
       }),
       updateMany: jest.fn(async ({ where, data }: any) => {
@@ -294,6 +326,8 @@ function createHarness(options: {
     fundingLedgers,
     createdLedgers,
     metrics,
+    reconciliationTasks,
+    adjustmentDrafts,
     service: new CaptainMonthlySettlementService(prisma),
   };
 }
@@ -443,6 +477,94 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
       expect.objectContaining({ type: 'CAPTAIN_MONTHLY_RELEASE', amount: 7 }),
     ]);
     expect(harness.tx.orderProfitFundingLedger.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles against the signed monthly hold net of refund adjustments', async () => {
+    const harness = createHarness({
+      attributions: [makeAttribution({
+        reserve: 0.02,
+        profitBaseAmount: 100,
+        fundingLedgers: [
+          { id: 'hold-attr-1', type: 'CAPTAIN_MONTHLY_HOLD', amount: -0.02 },
+          {
+            id: 'refund-hold-1',
+            type: 'REFUND_ADJUSTMENT',
+            amount: 0.01,
+            sourceLedgerId: 'hold-attr-1',
+          },
+        ],
+      })],
+    });
+
+    const [settlement] = await harness.service.createDraftSettlements('2026-06');
+
+    expect(harness.settlementOrders[0]).toEqual(expect.objectContaining({
+      reservedAmount: 0.01,
+      baseManagementAmount: 0.01,
+      releasedAmount: 0,
+    }));
+    expect(settlement.totalAmount).toBe(0.01);
+  });
+
+  it('reduces the order profit base in proportion to the remaining refunded C', async () => {
+    const harness = createHarness({
+      attributions: [makeAttribution({
+        profitBaseAmount: 1000,
+        reserve: 50,
+        fundingLedgers: [
+          { id: 'hold-attr-1', type: 'CAPTAIN_MONTHLY_HOLD', amount: -50 },
+          {
+            id: 'refund-hold-1',
+            type: 'REFUND_ADJUSTMENT',
+            amount: 25,
+            sourceLedgerId: 'hold-attr-1',
+          },
+        ],
+      })],
+    });
+
+    const [settlement] = await harness.service.createDraftSettlements('2026-06');
+
+    expect(harness.settlementOrders[0]).toEqual(expect.objectContaining({
+      profitBaseAmount: 500,
+      reservedAmount: 25,
+      baseManagementAmount: 10,
+      performanceBonusAmount: 5,
+      releasedAmount: 10,
+    }));
+    expect(settlement.totalAmount).toBe(15);
+  });
+
+  it('recalculates an existing monthly release net of its refund adjustment exactly once', async () => {
+    const attribution = makeAttribution({
+      profitBaseAmount: 100,
+      reserve: 10,
+      fundingLedgers: [
+        { id: 'hold-attr-1', type: 'CAPTAIN_MONTHLY_HOLD', amount: -10 },
+        { id: 'refund-hold-1', type: 'REFUND_ADJUSTMENT', amount: 5, sourceLedgerId: 'hold-attr-1' },
+        { id: 'release-attr-1', type: 'CAPTAIN_MONTHLY_RELEASE', amount: 7 },
+        { id: 'refund-release-1', type: 'REFUND_ADJUSTMENT', amount: -3, sourceLedgerId: 'release-attr-1' },
+      ],
+    });
+    const harness = createHarness({ attributions: [attribution] });
+    harness.fundingLedgers.push({
+      id: 'release-attr-1',
+      snapshotId: 'snapshot-attr-1',
+      orderId: 'order-attr-1',
+      type: 'CAPTAIN_MONTHLY_RELEASE',
+      amount: 7,
+      idempotencyKey: 'captain:v3:funding:order-attr-1:monthly-release:attr-1',
+    });
+
+    const [settlement] = await harness.service.createDraftSettlements('2026-06');
+
+    expect(settlement.totalAmount).toBe(1.5);
+    expect(harness.settlementOrders[0]).toEqual(expect.objectContaining({
+      reservedAmount: 5,
+      releasedAmount: 3.5,
+    }));
+    expect(harness.fundingLedgers[0].amount).toBe(6.5);
+    expect(-10 + 5 + harness.fundingLedgers[0].amount - 3).toBe(-settlement.totalAmount);
   });
 
   it('uses Asia/Shanghai natural-month UTC boundaries', async () => {
@@ -607,12 +729,103 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
     expect(harness.settlements[0].status).toBe('PAID');
   });
 
-  it.each(['approve', 'pay'])('blocks %s while a settlement order has unresolved reconciliation', async (action) => {
+  it('revises approved monthly ledgers after a refund tier downgrade and allows reapprove and pay', async () => {
+    const attribution = makeAttribution({ eligibleGoodsAmount: 140000, reserve: 50 });
+    const harness = createHarness({ attributions: [attribution] });
+    const [draft] = await harness.service.createDraftSettlements('2026-06');
+    await harness.service.approveSettlement(draft.id, 'admin-1');
+    expect(draft.totalAmount).toBe(39);
+
+    attribution.refundAmount = 10000;
+    attribution.updatedAt = new Date('2026-07-01T00:00:00.000Z');
+    draft.status = 'PENDING_REVIEW';
+
+    const recalculated = await harness.service.recalculateSettlement(draft.id, 'admin-2');
+    expect(recalculated.totalAmount).toBe(35);
+    await harness.service.approveSettlement(draft.id, 'admin-2');
+
+    expect(harness.createdLedgers.find((row) => row.type === 'CULTIVATION_BONUS'))
+      .toEqual(expect.objectContaining({ amount: 0, status: 'VOIDED' }));
+    expect(harness.tx.captainAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-captain-1' },
+      data: { balance: { decrement: 4 } },
+    });
+
+    await expect(harness.service.markPaid(draft.id, 'admin-2'))
+      .resolves.toEqual(expect.objectContaining({ status: 'PAID' }));
+  });
+
+  it('uses a CLAWBACK_PENDING ledger upgrade to repay only that ledger debt before crediting balance', async () => {
+    const harness = createHarness();
+    const existing = {
+      id: 'monthly-management',
+      accountId: 'account-captain-1',
+      amount: 10,
+      status: 'CLAWBACK_PENDING',
+      meta: {
+        month: '2026-06',
+        sourceCaptainUserId: 'captain-1',
+        monthlyClawbackCents: 400,
+      },
+    };
+    harness.tx.captainAccount.findUnique.mockResolvedValue({
+      id: 'account-captain-1',
+      balance: 0,
+      clawback: 10,
+    });
+
+    await (harness.service as any).reviseMonthlyLedger(harness.tx, existing, 15);
+
+    expect(harness.tx.captainAccount.update).toHaveBeenCalledWith({
+      where: { id: 'account-captain-1' },
+      data: {
+        clawback: { decrement: 4 },
+        balance: { increment: 1 },
+      },
+    });
+    expect(harness.tx.captainCommissionLedger.update).toHaveBeenCalledWith({
+      where: { id: 'monthly-management' },
+      data: {
+        amount: 15,
+        balanceAfter: 1,
+        status: 'AVAILABLE',
+        meta: expect.objectContaining({ monthlyClawbackCents: 0 }),
+      },
+    });
+  });
+
+  it.each([
+    ['reconciliation', { unresolvedOrderIds: ['order-attr-1'] }],
+    ['adjustment', {
+      pendingAdjustments: [{
+        id: 'adjustment-1',
+        orderId: 'order-attr-1',
+        directCaptainUserId: 'captain-1',
+        paidAt: new Date('2026-06-20T08:00:00.000Z'),
+      }],
+    }],
+  ])('blocks draft creation before release writes while a %s is pending', async (_label, pending) => {
     const harness = createHarness({
       attributions: [makeAttribution()],
-      unresolvedOrderIds: ['order-attr-1'],
+      ...pending,
     });
+
+    await expect(harness.service.createDraftSettlements('2026-06')).rejects.toThrow();
+
+    expect(harness.tx.captainMonthlyMetric.upsert).not.toHaveBeenCalled();
+    expect(harness.tx.captainMonthlySettlement.create).not.toHaveBeenCalled();
+    expect(harness.tx.captainMonthlySettlementOrder.upsert).not.toHaveBeenCalled();
+    expect(harness.tx.orderProfitFundingLedger.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each(['approve', 'pay'])('blocks %s while a settlement order has unresolved reconciliation', async (action) => {
+    const harness = createHarness({ attributions: [makeAttribution()] });
     const [draft] = await harness.service.createDraftSettlements('2026-06');
+    harness.reconciliationTasks.push({
+      id: 'reconciliation-order-attr-1', orderId: 'order-attr-1',
+      directCaptainUserId: 'captain-1', paidAt: new Date('2026-06-15T00:00:00.000Z'),
+      status: 'PENDING',
+    });
     if (action === 'pay') draft.status = 'APPROVED';
 
     const request = action === 'approve'
@@ -623,18 +836,53 @@ describe('CaptainMonthlySettlementService V3 monthly profit settlement', () => {
   });
 
   it.each(['approve', 'pay'])(
+    'blocks %s while reconciliation is resolved but its revision adjustment is pending',
+    async (action) => {
+      const harness = createHarness({ attributions: [makeAttribution()] });
+      const [draft] = await harness.service.createDraftSettlements('2026-06');
+      harness.adjustmentDrafts.push({
+        id: 'adjustment-1', orderId: 'order-attr-1',
+        directCaptainUserId: 'captain-1',
+        paidAt: new Date('2026-06-20T08:00:00.000Z'), status: 'PENDING',
+      });
+      if (action === 'pay') draft.status = 'APPROVED';
+
+      const request = action === 'approve'
+        ? harness.service.approveSettlement(draft.id, 'admin-1')
+        : harness.service.markPaid(draft.id, 'admin-1');
+
+      await expect(request).rejects.toThrow('利润补差');
+      expect(harness.tx.orderProfitAdjustmentDraft.findFirst).toHaveBeenCalledWith({
+        where: {
+          status: 'PENDING',
+          order: {
+            paidAt: {
+              gte: new Date('2026-05-31T16:00:00.000Z'),
+              lt: new Date('2026-06-30T16:00:00.000Z'),
+            },
+          },
+          targetSnapshot: {
+            ruleSnapshot: {
+              path: ['captain', 'directCaptainUserId'],
+              equals: 'captain-1',
+            },
+          },
+        },
+        select: { id: true },
+      });
+    },
+  );
+
+  it.each(['approve', 'pay'])(
     'blocks %s for a same-month reconciliation snapshot that never created an attribution',
     async (action) => {
-      const harness = createHarness({
-        attributions: [makeAttribution()],
-        unattributedReconciliations: [{
-          id: 'reconciliation-without-attribution',
-          orderId: 'order-without-attribution',
-          directCaptainUserId: 'captain-1',
-          paidAt: new Date('2026-06-20T08:00:00.000Z'),
-        }],
-      });
+      const harness = createHarness({ attributions: [makeAttribution()] });
       const [draft] = await harness.service.createDraftSettlements('2026-06');
+      harness.reconciliationTasks.push({
+        id: 'reconciliation-without-attribution', orderId: 'order-without-attribution',
+        directCaptainUserId: 'captain-1',
+        paidAt: new Date('2026-06-20T08:00:00.000Z'), status: 'PENDING',
+      });
       if (action === 'pay') draft.status = 'APPROVED';
 
       const request = action === 'approve'

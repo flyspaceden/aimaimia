@@ -8,8 +8,11 @@ import { AdminProductsService } from './admin-products.service';
 import { SkuUpdateItem, UpdateProductSkusDto } from './dto/update-sku.dto';
 
 const passthroughProfitSafety = (prisma: any) => ({
-  withCandidateChange: jest.fn(async (_change: unknown, write: (tx: any) => Promise<unknown>) => ({
-    result: await prisma.$transaction(write, {
+  withCandidateChange: jest.fn(async (changeOrFactory: any, write: (tx: any) => Promise<unknown>) => ({
+    result: await prisma.$transaction(async (tx: any) => {
+      if (typeof changeOrFactory === 'function') await changeOrFactory(tx);
+      return write(tx);
+    }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     }),
   })),
@@ -17,6 +20,24 @@ const passthroughProfitSafety = (prisma: any) => ({
 
 describe('AdminProductsService SKU weight validation', () => {
   const buildService = (productOverrides: Record<string, any> = {}) => {
+    const product = {
+      id: 'product_1',
+      companyId: 'company_1',
+      categoryId: 'category_1',
+      status: 'ACTIVE',
+      auditStatus: 'APPROVED',
+      type: 'SIMPLE',
+      company: { isPlatform: false },
+      lotteryPrizes: [],
+      skus: [{
+        id: 'sku_1',
+        price: 18,
+        cost: 10,
+        status: 'ACTIVE',
+        vipGiftItems: [],
+      }],
+      ...productOverrides,
+    };
     const tx = {
       productSKU: {
         findMany: jest
@@ -28,29 +49,13 @@ describe('AdminProductsService SKU weight validation', () => {
         create: jest.fn().mockResolvedValue({ id: 'sku_2' }),
       },
       product: {
+        findUnique: jest.fn().mockResolvedValue(product),
         update: jest.fn().mockResolvedValue({ id: 'product_1' }),
       },
     };
     const prisma = {
       product: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'product_1',
-          companyId: 'company_1',
-          categoryId: 'category_1',
-          status: 'ACTIVE',
-          auditStatus: 'APPROVED',
-          type: 'SIMPLE',
-          company: { isPlatform: false },
-          lotteryPrizes: [],
-          skus: [{
-            id: 'sku_1',
-            price: 18,
-            cost: 10,
-            status: 'ACTIVE',
-            vipGiftItems: [],
-          }],
-          ...productOverrides,
-        }),
+        findUnique: jest.fn().mockResolvedValue(product),
       },
       $transaction: jest.fn((fn) => fn(tx)),
     };

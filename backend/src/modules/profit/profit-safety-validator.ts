@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { validateCaptainSeafoodConfig } from '../captain/captain.constants';
 import type {
   CaptainSeafoodConfig,
@@ -87,11 +87,26 @@ export interface ProfitSafetySummary {
   };
 }
 
-export class ProfitSafetyViolationError extends Error {
+export class ProfitSafetyViolationError extends BadRequestException {
   readonly code = 'CAPTAIN_PROFIT_SAFETY_VIOLATION';
 
   constructor(readonly summary: ProfitSafetySummary) {
-    super('CAPTAIN_PROFIT_SAFETY_VIOLATION');
+    super({
+      code: 'CAPTAIN_PROFIT_SAFETY_VIOLATION',
+      message: '当前配置会突破平台利润安全底线',
+      scenarios: summary.scenarios,
+      limitingSkus: summary.limitingSkus,
+      shortfall: summary.shortfall,
+      evaluatedSkuCount: summary.evaluatedSkuCount,
+      platformRequiredRevenueRate: summary.platformRequiredRevenueRate,
+      captainMaximumProfitRate: summary.captainMaximumProfitRate,
+      captainConfiguredCap: summary.captainConfiguredCap,
+      errors: summary.errors,
+      ...(summary.ruleConfigCompleteness
+        ? { ruleConfigCompleteness: summary.ruleConfigCompleteness }
+        : {}),
+    });
+    this.message = 'CAPTAIN_PROFIT_SAFETY_VIOLATION';
     this.name = 'ProfitSafetyViolationError';
   }
 
@@ -102,6 +117,14 @@ export class ProfitSafetyViolationError extends Error {
       scenarios: this.summary.scenarios,
       limitingSkus: this.summary.limitingSkus,
       shortfall: this.summary.shortfall,
+      evaluatedSkuCount: this.summary.evaluatedSkuCount,
+      platformRequiredRevenueRate: this.summary.platformRequiredRevenueRate,
+      captainMaximumProfitRate: this.summary.captainMaximumProfitRate,
+      captainConfiguredCap: this.summary.captainConfiguredCap,
+      errors: this.summary.errors,
+      ...(this.summary.ruleConfigCompleteness
+        ? { ruleConfigCompleteness: this.summary.ruleConfigCompleteness }
+        : {}),
     };
   }
 }

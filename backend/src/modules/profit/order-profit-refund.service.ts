@@ -6,6 +6,10 @@ import {
   checkedSafeIntegerSum,
   yuanToCents,
 } from './money-allocation';
+import {
+  allocatePairedProfitSourcesToItems,
+  allocateProfitSourcesToItems,
+} from './profit-source-item-allocation';
 
 type Tx = Prisma.TransactionClient;
 
@@ -45,6 +49,13 @@ export type RemainingProfitView = {
   remainingDistributableProfitCents: number;
   remainingCaptainEligibleProfitCents: number;
   remainingItemProfitCents: Record<string, number>;
+};
+
+type RefundSourceBasisView = {
+  snapshot: any;
+  items: RefundProfitItem[];
+  targets: Record<string, CumulativeRefundTarget>;
+  profitView: RemainingProfitView;
 };
 
 export function assertRefundSourceCaps(input: {
@@ -117,6 +128,22 @@ const MEMBER_ACCOUNT_TYPES = new Set<RewardAccountType>([
   RewardAccountType.VIP_REWARD,
   RewardAccountType.NORMAL_REWARD,
   RewardAccountType.INDUSTRY_FUND,
+  RewardAccountType.PLATFORM_PROFIT,
+  RewardAccountType.CHARITY_FUND,
+  RewardAccountType.TECH_FUND,
+  RewardAccountType.RESERVE_FUND,
+]);
+const V3_REWARD_SCHEMES = new Set([
+  'VIP_UPSTREAM',
+  'VIP_UPSTREAM_FALLBACK',
+  'NORMAL_TREE',
+  'NORMAL_TREE_FALLBACK',
+  'VIP_DIRECT_REFERRAL',
+  'NORMAL_DIRECT_REFERRAL',
+  'VIP_DIRECT_REFERRAL_PLATFORM',
+  'NORMAL_DIRECT_REFERRAL_PLATFORM',
+  'VIP_PLATFORM_SPLIT',
+  'NORMAL_PLATFORM_SPLIT',
 ]);
 const CAPTAIN_MONTHLY_LEDGER_FIELDS: Partial<
   Record<CaptainLedgerType, CaptainMonthlyAmountField>
@@ -179,11 +206,31 @@ export function buildCumulativeRefundTargets(
     const quantityFacts = facts.filter(
       (entry) => entry.quantity > 0,
     );
+    const amountOnlyFacts = facts.filter((entry) => entry.quantity === 0);
     let ratioNumerator: number;
     let ratioDenominator: number;
     let refundedQuantity: number | null;
 
-    if (quantityFacts.length > 0) {
+    if (quantityFacts.length > 0 && amountOnlyFacts.length > 0) {
+      const quantitySum = checkedSafeIntegerSum(quantityFacts.map((entry) => Number(entry.quantity)));
+      const allFactsAmountSum = checkedSafeIntegerSum(
+        facts.map((entry) => assertNonNegativeSafeInteger(
+          entry.goodsAmountCents,
+          'refund goods amount',
+        )),
+      );
+      if (quantitySum === null || allFactsAmountSum === null) {
+        throw new Error('mixed refund facts exceed the safe range');
+      }
+      refundedQuantity = Math.min(quantity, quantitySum);
+      const cappedAmount = Math.min(netGoodsRevenueCents, allFactsAmountSum);
+      const quantityRatioIsLarger = BigInt(refundedQuantity) * BigInt(Math.max(1, netGoodsRevenueCents))
+        >= BigInt(cappedAmount) * BigInt(quantity);
+      ratioNumerator = quantityRatioIsLarger ? refundedQuantity : cappedAmount;
+      ratioDenominator = quantityRatioIsLarger
+        ? quantity
+        : Math.max(1, netGoodsRevenueCents);
+    } else if (quantityFacts.length > 0) {
       const quantitySum = checkedSafeIntegerSum(quantityFacts.map((entry) => Number(entry.quantity)));
       if (quantitySum === null) throw new Error('refunded quantity exceeds the safe range');
       ratioNumerator = Math.min(quantity, quantitySum);
@@ -297,7 +344,6 @@ export class OrderProfitRefundService {
     if (!snapshot) return { mode: 'LEGACY', orderId: refund.orderId };
     if (snapshot.status !== 'READY') return { mode: 'NOOP', orderId: refund.orderId };
 
-    const items = this.readProfitItems(snapshot.itemBreakdown);
     const successfulRefunds = await tx.refund.findMany({
       where: { orderId: refund.orderId, status: 'REFUNDED', deletedAt: null },
       include: { items: true },
@@ -317,18 +363,67 @@ export class OrderProfitRefundService {
       where: { orderId: refund.orderId, status: { in: ['PENDING', 'APPLIED'] } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
+    const pendingRevisionDraft = adjustmentDrafts.find((draft: any) => (
+      draft.status === 'PENDING'
+      && draft.targetSnapshotId === snapshot.id
+      && draft.adjustments?.version === 1
+      && Array.isArray(draft.adjustments?.components)
+    ));
 
-    const targets = buildCumulativeRefundTargets(items, allRefundItems);
-    const profitView = buildRemainingProfitView(items, allRefundItems);
-    if (
-      profitView.originalDistributableProfitCents !== yuanToCents(snapshot.distributableProfitAmount)
-      || profitView.originalCaptainEligibleProfitCents
-        !== yuanToCents(snapshot.captainEligibleProfitAmount)
-    ) {
-      throw new Error('profit snapshot item totals do not match D/C');
+    const sourceBasisByLedgerId = this.readSourceBasisByLedgerId(
+      pendingRevisionDraft,
+      snapshot.id,
+    );
+    const requestedBasisIds = new Set<string>([
+      snapshot.id,
+      ...(pendingRevisionDraft?.sourceSnapshotId
+        ? [pendingRevisionDraft.sourceSnapshotId]
+        : []),
+      ...sourceBasisByLedgerId.values(),
+    ]);
+    const basisSnapshots = requestedBasisIds.size > 1
+      ? await tx.orderProfitSnapshot.findMany({
+          where: { id: { in: [...requestedBasisIds] }, orderId: refund.orderId },
+        })
+      : [snapshot];
+    const basisViews = new Map<string, RefundSourceBasisView>();
+    for (const basisSnapshot of basisSnapshots) {
+      if (basisSnapshot.status !== 'READY') {
+        throw new Error(`profit source basis snapshot ${basisSnapshot.id} is not READY`);
+      }
+      const basisItems = this.readProfitItems(basisSnapshot.itemBreakdown);
+      const basisTargets = buildCumulativeRefundTargets(basisItems, allRefundItems);
+      const basisProfitView = buildRemainingProfitView(basisItems, allRefundItems);
+      if (
+        basisProfitView.originalDistributableProfitCents
+          !== yuanToCents(basisSnapshot.distributableProfitAmount)
+        || basisProfitView.originalCaptainEligibleProfitCents
+          !== yuanToCents(basisSnapshot.captainEligibleProfitAmount)
+      ) {
+        throw new Error(`profit source basis snapshot ${basisSnapshot.id} item totals do not match D/C`);
+      }
+      basisViews.set(basisSnapshot.id, {
+        snapshot: basisSnapshot,
+        items: basisItems,
+        targets: basisTargets,
+        profitView: basisProfitView,
+      });
     }
+    for (const basisId of requestedBasisIds) {
+      if (!basisViews.has(basisId)) {
+        throw new Error(`profit source basis snapshot ${basisId} is missing`);
+      }
+    }
+    const currentBasis = basisViews.get(snapshot.id)!;
+    const targets = currentBasis.targets;
+    const profitView = currentBasis.profitView;
     const priorReversals = await tx.orderProfitRefundReversal.findMany({
-      where: { orderId: refund.orderId, snapshotId: snapshot.id },
+      where: {
+        orderId: refund.orderId,
+        snapshotId: requestedBasisIds.size === 1
+          ? snapshot.id
+          : { in: [...requestedBasisIds] },
+      },
     });
     const pending: PendingClawback[] = [];
     const currentRecovered = new Map<string, number>();
@@ -341,25 +436,34 @@ export class OrderProfitRefundService {
         refId: refund.orderId,
         allocation: { orderId: refund.orderId },
         status: { in: ['FROZEN', 'AVAILABLE', 'WITHDRAWN', 'RETURN_FROZEN'] },
-        account: { type: { in: [...MEMBER_ACCOUNT_TYPES, RewardAccountType.PLATFORM_PROFIT] } },
+        account: { type: { in: [...MEMBER_ACCOUNT_TYPES] } },
       },
       include: { account: { select: { id: true, type: true, balance: true, frozen: true } } },
     });
-    const refundableMemberSources = memberSources.filter((row: any) =>
-      this.isRefundableMemberSource(row));
-    const memberSourceCents = checkedSafeIntegerSum(
-      refundableMemberSources.map((source: any) =>
-        this.originalSourceAmountCents(source, priorReversals)),
-    );
-    if (memberSourceCents === null) throw new Error('member refund sources exceed the safe cent range');
-
-    const attribution = await tx.captainOrderAttribution.findFirst({
+    const refundableMemberSources = memberSources
+      .filter((row: any) => this.isRefundableMemberSource(row))
+      .sort((a: any, b: any) => this.refundRecoveryPriority(a) - this.refundRecoveryPriority(b)
+        || String(a.id).localeCompare(String(b.id)));
+    let attribution = await tx.captainOrderAttribution.findFirst({
       where: {
         orderId: refund.orderId,
         profitSnapshotId: snapshot.id,
         calculationModel: 'PROFIT_V3',
       },
     });
+    if (
+      !attribution
+      && pendingRevisionDraft?.sourceSnapshotId
+      && pendingRevisionDraft.sourceSnapshotId !== snapshot.id
+    ) {
+      attribution = await tx.captainOrderAttribution.findFirst({
+        where: {
+          orderId: refund.orderId,
+          profitSnapshotId: pendingRevisionDraft.sourceSnapshotId,
+          calculationModel: 'PROFIT_V3',
+        },
+      });
+    }
     const captainLedgers = attribution
       ? await tx.captainCommissionLedger.findMany({
           where: {
@@ -371,64 +475,188 @@ export class OrderProfitRefundService {
           },
         })
       : [];
-    const directCaptainLedgers = captainLedgers.filter((row: any) =>
-      row.orderAttributionId === attribution?.id && row.type === 'DIRECT_ORDER');
-    const directCaptainSourceCents = checkedSafeIntegerSum(
-      directCaptainLedgers.map((source: any) =>
-        this.originalSourceAmountCents(source, priorReversals)),
-    );
-    if (directCaptainSourceCents === null) {
-      throw new Error('captain refund sources exceed the safe cent range');
-    }
+    const directCaptainLedgers = captainLedgers
+      .filter((row: any) => row.orderAttributionId === attribution?.id && row.type === 'DIRECT_ORDER')
+      .sort((a: any, b: any) => this.refundRecoveryPriority(a) - this.refundRecoveryPriority(b)
+        || String(a.id).localeCompare(String(b.id)));
     const settlementOrder = attribution
       ? await tx.captainMonthlySettlementOrder.findUnique({
           where: { orderAttributionId: attribution.id },
           include: { settlement: true },
         })
       : null;
-    const monthlySourceCents = settlementOrder
-      && ['APPROVED', 'PENDING_REVIEW', 'PAID'].includes(settlementOrder.settlement?.status)
-      ? checkedSafeIntegerSum([
-          settlementOrder.baseManagementAmount,
-          settlementOrder.growthBonusAmount,
-          settlementOrder.cultivationBonusAmount,
-          settlementOrder.performanceBonusAmount,
-        ].map((amount) => yuanToCents(amount ?? 0)))
-      : 0;
-    if (monthlySourceCents === null) {
-      throw new Error('captain monthly refund sources exceed the safe cent range');
-    }
+    const fundingSnapshotIds = [
+      snapshot.id,
+      pendingRevisionDraft?.sourceSnapshotId,
+    ].filter((id, index, values): id is string => (
+      typeof id === 'string' && values.indexOf(id) === index
+    ));
     const fundingSources = await tx.orderProfitFundingLedger.findMany({
       where: {
         orderId: refund.orderId,
-        snapshotId: snapshot.id,
+        snapshotId: fundingSnapshotIds.length === 1
+          ? fundingSnapshotIds[0]
+          : { in: fundingSnapshotIds },
         type: { not: 'REFUND_ADJUSTMENT' },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    assertRefundSourceCaps({
-      distributableProfitCents: profitView.originalDistributableProfitCents,
-      captainEligibleProfitCents: profitView.originalCaptainEligibleProfitCents,
-      memberSourceCents,
-      captainSourceCents: directCaptainSourceCents + monthlySourceCents,
-      fundingSources: fundingSources.map((source) => ({
-        type: source.type,
-        amountCents: yuanToCents(source.amount),
-      })),
-    });
+
+    const monthlyOrderSources = settlementOrder
+      ? captainLedgers
+          .filter((source: any) => source.settlementId === settlementOrder.settlementId)
+          .map((source: any) => {
+            const field = CAPTAIN_MONTHLY_LEDGER_FIELDS[source.type as CaptainLedgerType];
+            return field
+              ? { id: source.id, amountCents: yuanToCents(settlementOrder[field] ?? 0) }
+              : null;
+          })
+          .filter((source: any): source is { id: string; amountCents: number } => (
+            source !== null && source.amountCents > 0
+          ))
+      : [];
+    const monthlyReleaseSources = fundingSources
+      .filter((source) => source.type === 'CAPTAIN_MONTHLY_RELEASE')
+      .map((source) => ({
+        id: source.id,
+        amountCents: Math.abs(yuanToCents(source.amount)),
+      }));
+    const monthlyPositiveSources = [...monthlyOrderSources, ...monthlyReleaseSources];
+    const monthlyHoldSources = fundingSources.filter(
+      (source) => source.type === 'CAPTAIN_MONTHLY_HOLD',
+    ).map((source) => ({
+        id: source.id,
+        amountCents: Math.abs(yuanToCents(source.amount)),
+      }));
+    const basisIdForSource = (sourceId: string) => (
+      sourceBasisByLedgerId.get(sourceId) ?? snapshot.id
+    );
+    const baseSourceMatrix: Record<string, Record<string, number>> = {};
+    const directPositiveMatrix: Record<string, Record<string, number>> = {};
+    const directHoldMatrix: Record<string, Record<string, number>> = {};
+    const monthlyPositiveMatrix: Record<string, Record<string, number>> = {};
+    const monthlyHoldMatrix: Record<string, Record<string, number>> = {};
+
+    for (const [basisId, basis] of basisViews) {
+      const basisMemberSources = refundableMemberSources.filter(
+        (source: any) => basisIdForSource(source.id) === basisId,
+      );
+      const basisDirectCaptainSources = directCaptainLedgers
+        .filter((source: any) => basisIdForSource(source.id) === basisId)
+        .map((source: any) => ({
+          id: source.id,
+          amountCents: this.originalSourceAmountCents(source, priorReversals),
+        }));
+      const basisMonthlyOrderSources = monthlyOrderSources.filter(
+        (source) => basisIdForSource(source.id) === basisId,
+      );
+      const basisFundingSources = fundingSources.filter(
+        (source) => (source.snapshotId ?? basisIdForSource(source.id)) === basisId,
+      );
+      const basisMemberSourceCents = checkedSafeIntegerSum(
+        basisMemberSources.map((source: any) =>
+          this.originalSourceAmountCents(source, priorReversals)),
+      );
+      const basisCaptainSourceCents = checkedSafeIntegerSum([
+        ...basisDirectCaptainSources.map((source) => source.amountCents),
+        ...basisMonthlyOrderSources.map((source) => source.amountCents),
+      ]);
+      if (basisMemberSourceCents === null || basisCaptainSourceCents === null) {
+        throw new Error('refund sources exceed the safe cent range');
+      }
+      assertRefundSourceCaps({
+        distributableProfitCents: basis.profitView.originalDistributableProfitCents,
+        captainEligibleProfitCents: basis.profitView.originalCaptainEligibleProfitCents,
+        memberSourceCents: basisMemberSourceCents,
+        captainSourceCents: basisCaptainSourceCents,
+        fundingSources: basisFundingSources.map((source) => ({
+          type: source.type,
+          amountCents: yuanToCents(source.amount),
+        })),
+      });
+
+      const itemCapacities = basis.items.map((item) => ({
+        id: item.orderItemId,
+        capacityCents: item.distributableProfitShareCents,
+      }));
+      const captainItemCapacities = basis.items
+        .filter((item) => item.captainEligible)
+        .map((item) => ({
+          id: item.orderItemId,
+          capacityCents: item.distributableProfitShareCents,
+        }));
+      Object.assign(baseSourceMatrix, allocateProfitSourcesToItems(
+        basisMemberSources.map((source: any) => ({
+          id: source.id,
+          amountCents: this.originalSourceAmountCents(source, priorReversals),
+        })),
+        itemCapacities,
+      ));
+      // Funding is an internal mirror of retained profit, not an extra share of D.
+      Object.assign(baseSourceMatrix, allocateProfitSourcesToItems(
+        basisFundingSources
+          .filter((source) => source.type === 'PLATFORM_RETAINED_CREDIT')
+          .map((source) => ({
+            id: source.id,
+            amountCents: Math.abs(yuanToCents(source.amount)),
+          })),
+        itemCapacities,
+      ));
+
+      const basisDirectHolds = basisFundingSources
+        .filter((source) => source.type === 'CAPTAIN_DIRECT_HOLD')
+        .map((source) => ({
+          id: source.id,
+          amountCents: Math.abs(yuanToCents(source.amount)),
+        }));
+      const directPair = basisDirectCaptainSources.length > 0 || basisDirectHolds.length > 0
+        ? allocatePairedProfitSourcesToItems(
+            basisDirectCaptainSources,
+            basisDirectHolds,
+            captainItemCapacities,
+          )
+        : { positive: {}, hold: {} };
+      Object.assign(directPositiveMatrix, directPair.positive);
+      Object.assign(directHoldMatrix, directPair.hold);
+
+      const basisMonthlyPositive = monthlyPositiveSources.filter((source) => {
+        const funding = fundingSources.find((row) => row.id === source.id);
+        return (funding?.snapshotId ?? basisIdForSource(source.id)) === basisId;
+      });
+      const basisMonthlyHolds = monthlyHoldSources.filter((source) => {
+        const funding = fundingSources.find((row) => row.id === source.id);
+        return (funding?.snapshotId ?? basisIdForSource(source.id)) === basisId;
+      });
+      const monthlyPair = basisMonthlyPositive.length > 0
+        ? allocatePairedProfitSourcesToItems(
+            basisMonthlyPositive,
+            basisMonthlyHolds,
+            captainItemCapacities,
+            { allowUnmatchedHold: true },
+          )
+        : {
+            positive: {},
+            hold: allocateProfitSourcesToItems(basisMonthlyHolds, captainItemCapacities),
+          };
+      Object.assign(monthlyPositiveMatrix, monthlyPair.positive);
+      Object.assign(monthlyHoldMatrix, monthlyPair.hold);
+    }
 
     for (const source of refundableMemberSources) {
+      const sourceBasis = basisViews.get(basisIdForSource(source.id));
+      if (!sourceBasis) throw new Error(`profit source basis is missing for ${source.id}`);
       const originalAmountCents = this.originalSourceAmountCents(source, priorReversals);
       const applied = await this.reverseSourceByItems(tx, {
         refund,
-        snapshot,
+        snapshot: sourceBasis.snapshot,
         sourceLedgerId: source.id,
         sourceLedgerType: 'MEMBER_REWARD',
         originalAmountCents,
-        items,
-        targets,
+        items: sourceBasis.items,
+        targets: sourceBasis.targets,
         priorReversals,
         captainOnly: false,
+        itemAllocations: baseSourceMatrix[source.id],
       });
       reversalCount += applied.rows;
       if (applied.incrementCents > 0) {
@@ -447,11 +675,14 @@ export class OrderProfitRefundService {
     }
 
     if (attribution) {
+      const attributionBasis = basisViews.get(
+        attribution.profitSnapshotId ?? pendingRevisionDraft?.sourceSnapshotId ?? snapshot.id,
+      ) ?? currentBasis;
       const eligibleRefundCents = checkedSafeIntegerSum(
-        items
+        attributionBasis.items
           .filter((item) => item.captainEligible)
           .map((item) => {
-            const target = targets[item.orderItemId];
+            const target = attributionBasis.targets[item.orderItemId];
             return roundRatioCents(
               item.netGoodsRevenueCents,
               target.ratioNumerator,
@@ -470,17 +701,20 @@ export class OrderProfitRefundService {
         },
       });
       for (const source of directCaptainLedgers) {
+        const sourceBasis = basisViews.get(basisIdForSource(source.id));
+        if (!sourceBasis) throw new Error(`profit source basis is missing for ${source.id}`);
         const originalAmountCents = this.originalSourceAmountCents(source, priorReversals);
         const applied = await this.reverseSourceByItems(tx, {
           refund,
-          snapshot,
+          snapshot: sourceBasis.snapshot,
           sourceLedgerId: source.id,
           sourceLedgerType: 'CAPTAIN_DIRECT',
           originalAmountCents,
-          items,
-          targets,
+          items: sourceBasis.items,
+          targets: sourceBasis.targets,
           priorReversals,
           captainOnly: true,
+          itemAllocations: directPositiveMatrix[source.id],
         });
         reversalCount += applied.rows;
         if (applied.incrementCents > 0) {
@@ -507,37 +741,50 @@ export class OrderProfitRefundService {
       reversalCount += await this.reverseMonthlySources(
         tx,
         refund,
-        snapshot,
         attribution,
         captainLedgers,
-        items,
-        targets,
         priorReversals,
         pending,
         settlementOrder,
         currentRecovered,
+        monthlyPositiveMatrix,
+        sourceBasisByLedgerId,
+        basisViews,
+        snapshot.id,
       );
     }
 
     for (const source of fundingSources) {
+      const sourceBasisId = source.snapshotId ?? basisIdForSource(source.id);
+      const sourceBasis = basisViews.get(sourceBasisId);
+      if (!sourceBasis) throw new Error(`profit source basis is missing for ${source.id}`);
       const captainOnly = source.type !== 'PLATFORM_RETAINED_CREDIT';
       const applied = await this.reverseSourceByItems(tx, {
         refund,
-        snapshot,
+        snapshot: sourceBasis.snapshot,
         sourceLedgerId: source.id,
         sourceLedgerType: `FUNDING:${source.type}`,
         originalAmountCents: Math.abs(yuanToCents(source.amount)),
-        items,
-        targets,
+        items: sourceBasis.items,
+        targets: sourceBasis.targets,
         priorReversals,
         captainOnly,
+        itemAllocations: source.type === 'PLATFORM_RETAINED_CREDIT'
+          ? baseSourceMatrix[source.id]
+          : source.type === 'CAPTAIN_DIRECT_HOLD'
+            ? directHoldMatrix[source.id]
+            : source.type === 'CAPTAIN_MONTHLY_HOLD'
+              ? monthlyHoldMatrix[source.id]
+              : source.type === 'CAPTAIN_MONTHLY_RELEASE'
+                ? monthlyPositiveMatrix[source.id]
+                : undefined,
       });
       reversalCount += applied.rows;
       if (applied.incrementCents > 0) {
         const direction = yuanToCents(source.amount) >= 0 ? -1 : 1;
         await tx.orderProfitFundingLedger.create({
           data: {
-            snapshotId: snapshot.id,
+            snapshotId: sourceBasisId,
             orderId: refund.orderId,
             type: 'REFUND_ADJUSTMENT',
             amount: centsToYuan(direction * applied.incrementCents),
@@ -564,14 +811,40 @@ export class OrderProfitRefundService {
           currentRecovered,
         )
       : [];
-    if (reversalCount > 0) {
-      await tx.orderProfitAdjustmentDraft.updateMany({
-        where: { orderId: refund.orderId, status: 'PENDING' },
-        data: { status: 'SUPERSEDED' },
+    let replacementDraft: { id: string } | null = null;
+    if (reversalCount > 0 && pendingRevisionDraft) {
+      const adjustedRevision = await this.refundAdjustedRevisionComponents(
+        tx,
+        pendingRevisionDraft,
+        profitView,
+        unresolved,
+      );
+      replacementDraft = await tx.orderProfitAdjustmentDraft.create({
+        data: {
+          orderId: refund.orderId,
+          sourceSnapshotId: pendingRevisionDraft.sourceSnapshotId,
+          targetSnapshotId: pendingRevisionDraft.targetSnapshotId,
+          status: 'PENDING',
+          adjustments: {
+            ...(pendingRevisionDraft.adjustments as Record<string, any>),
+            reason: 'RECONCILIATION_REVISION_REFUND',
+            refundId,
+            refundTarget: {
+              remainingDistributableProfitCents: profitView.remainingDistributableProfitCents,
+              remainingCaptainEligibleProfitCents: profitView.remainingCaptainEligibleProfitCents,
+            },
+            refundBaseline: adjustedRevision.refundBaseline,
+            components: adjustedRevision.components,
+            sources: unresolved.map((item) => ({
+              ...item,
+              amount: centsToYuan(item.amountCents),
+            })),
+          },
+          idempotencyKey: `profit:refund:${refundId}:revision:${pendingRevisionDraft.id}`,
+        },
       });
-    }
-    if (reversalCount > 0 && unresolved.length > 0) {
-      await tx.orderProfitAdjustmentDraft.create({
+    } else if (reversalCount > 0 && unresolved.length > 0) {
+      replacementDraft = await tx.orderProfitAdjustmentDraft.create({
         data: {
           orderId: refund.orderId,
           sourceSnapshotId: snapshot.id,
@@ -586,6 +859,19 @@ export class OrderProfitRefundService {
             })),
           },
           idempotencyKey: `profit:refund:${refundId}:clawback`,
+        },
+      });
+    }
+    if (reversalCount > 0) {
+      await tx.orderProfitAdjustmentDraft.updateMany({
+        where: {
+          orderId: refund.orderId,
+          status: 'PENDING',
+          ...(replacementDraft ? { id: { not: replacementDraft.id } } : {}),
+        },
+        data: {
+          status: 'SUPERSEDED',
+          ...(replacementDraft ? { supersededByDraftId: replacementDraft.id } : {}),
         },
       });
     }
@@ -619,6 +905,35 @@ export class OrderProfitRefundService {
     });
   }
 
+  private readSourceBasisByLedgerId(
+    draft: any,
+    fallbackSnapshotId: string,
+  ): Map<string, string> {
+    const result = new Map<string, string>();
+    if (!draft || !Array.isArray(draft.adjustments?.components)) return result;
+    for (const component of draft.adjustments.components) {
+      const basisId = typeof component?.sourceBasisSnapshotId === 'string'
+        ? component.sourceBasisSnapshotId
+        : typeof draft.sourceSnapshotId === 'string'
+          ? draft.sourceSnapshotId
+          : fallbackSnapshotId;
+      const sourceIds = new Set<string>([
+        ...(Array.isArray(component?.sourceLedgerIds)
+          ? component.sourceLedgerIds.filter((id: unknown): id is string => typeof id === 'string')
+          : []),
+        ...(typeof component?.sourceLedgerId === 'string' ? [component.sourceLedgerId] : []),
+      ]);
+      for (const sourceId of sourceIds) {
+        const existing = result.get(sourceId);
+        if (existing && existing !== basisId) {
+          throw new Error(`profit source ${sourceId} has conflicting basis snapshots`);
+        }
+        result.set(sourceId, basisId);
+      }
+    }
+    return result;
+  }
+
   private flattenRefundItems(refunds: any[]): SuccessfulRefundItem[] {
     return refunds.flatMap((refund) => (refund.items ?? []).map((item: any) => ({
       refundId: refund.id,
@@ -631,10 +946,13 @@ export class OrderProfitRefundService {
   }
 
   private isRefundableMemberSource(source: any): boolean {
-    if (MEMBER_ACCOUNT_TYPES.has(source.account?.type)) return true;
-    if (source.account?.type !== RewardAccountType.PLATFORM_PROFIT) return false;
-    return source.meta?.scheme === 'VIP_UPSTREAM_FALLBACK'
-      || source.meta?.scheme === 'NORMAL_TREE_FALLBACK';
+    return MEMBER_ACCOUNT_TYPES.has(source.account?.type)
+      && V3_REWARD_SCHEMES.has(source.meta?.scheme);
+  }
+
+  private refundRecoveryPriority(source: any): number {
+    if (source.meta?.adjustmentKind === 'WITHDRAWN_UPGRADE_DELTA') return 0;
+    return source.status === 'WITHDRAWN' ? 2 : 1;
   }
 
   private async buildOutstandingClawbacks(
@@ -646,7 +964,7 @@ export class OrderProfitRefundService {
     currentRecovered: Map<string, number>,
   ): Promise<PendingClawback[]> {
     const reversals = await tx.orderProfitRefundReversal.findMany({
-      where: { orderId: refund.orderId, snapshotId: snapshot.id },
+      where: { orderId: refund.orderId },
     });
     const targets = new Map<string, number>();
     const metadata = new Map<string, Omit<PendingClawback, 'amountCents'>>();
@@ -727,21 +1045,6 @@ export class OrderProfitRefundService {
         });
       }
     }
-    for (const draft of drafts.filter((item) => item.status === 'APPLIED')) {
-      const sources = Array.isArray(draft?.adjustments?.sources)
-        ? draft.adjustments.sources
-        : [];
-      for (const source of sources) {
-        if (typeof source?.sourceLedgerId !== 'string') continue;
-        const cents = Number.isSafeInteger(source.amountCents)
-          ? Number(source.amountCents)
-          : yuanToCents(Number(source.amount ?? 0));
-        recovered.set(
-          source.sourceLedgerId,
-          (recovered.get(source.sourceLedgerId) ?? 0) + Math.max(0, cents),
-        );
-      }
-    }
     return sourceIds
       .map((sourceLedgerId) => {
         const amountCents = Math.max(
@@ -753,6 +1056,146 @@ export class OrderProfitRefundService {
       })
       .filter((item): item is PendingClawback => item !== null)
       .sort((a, b) => a.sourceLedgerId.localeCompare(b.sourceLedgerId));
+  }
+
+  private async refundAdjustedRevisionComponents(
+    tx: Tx,
+    draft: any,
+    profitView: RemainingProfitView,
+    unresolved: PendingClawback[],
+  ): Promise<{
+    components: any[];
+    refundBaseline: {
+      originalDistributableProfitCents: number;
+      originalCaptainEligibleProfitCents: number;
+      components: Array<{ key: string; beforeCents: number; targetCents: number }>;
+    };
+  }> {
+    const rawComponents = draft.adjustments?.components;
+    if (!Array.isArray(rawComponents)) {
+      throw new Error('pending reconciliation draft components are missing');
+    }
+    const storedBaseline = draft.adjustments?.refundBaseline;
+    const baselineComponents: Array<{
+      key: string;
+      beforeCents: number;
+      targetCents: number;
+    }> = Array.isArray(storedBaseline?.components)
+      ? storedBaseline.components.map((component: any) => ({
+          key: component.key,
+          beforeCents: component.beforeCents,
+          targetCents: component.targetCents,
+        }))
+      : rawComponents.map((component: any) => ({
+          key: component.key,
+          beforeCents: component.beforeCents,
+          targetCents: component.targetCents,
+        }));
+    const refundBaseline: {
+      originalDistributableProfitCents: number;
+      originalCaptainEligibleProfitCents: number;
+      components: Array<{ key: string; beforeCents: number; targetCents: number }>;
+    } = {
+      originalDistributableProfitCents: Number.isSafeInteger(
+        storedBaseline?.originalDistributableProfitCents,
+      )
+        ? storedBaseline.originalDistributableProfitCents
+        : profitView.originalDistributableProfitCents,
+      originalCaptainEligibleProfitCents: Number.isSafeInteger(
+        storedBaseline?.originalCaptainEligibleProfitCents,
+      )
+        ? storedBaseline.originalCaptainEligibleProfitCents
+        : profitView.originalCaptainEligibleProfitCents,
+      components: baselineComponents.map((component: any) => ({
+        key: component.key,
+        beforeCents: component.beforeCents,
+        targetCents: component.targetCents,
+      })),
+    };
+    const baselineByKey = new Map<
+      string,
+      { key: string; beforeCents: number; targetCents: number }
+    >(
+      refundBaseline.components.map((component) => [component.key, component]),
+    );
+    const reversals = await tx.orderProfitRefundReversal.findMany({
+      where: { orderId: draft.orderId },
+    });
+    const reversedBySource = new Map<string, number>();
+    for (const reversal of reversals) {
+      const sourceLedgerId = reversal.sourceLedgerId;
+      const cents = yuanToCents(reversal.incrementalReversal);
+      const next = (reversedBySource.get(sourceLedgerId) ?? 0) + cents;
+      if (!Number.isSafeInteger(next) || next < 0) {
+        throw new Error('refund-adjusted revision source exceeds the safe cent range');
+      }
+      reversedBySource.set(sourceLedgerId, next);
+    }
+    const outstandingBySource = new Map(
+      unresolved.map((source) => [source.sourceLedgerId, source.amountCents]),
+    );
+
+    const components = rawComponents.map((component: any) => {
+      const baseline = baselineByKey.get(component.key);
+      if (
+        !baseline
+        || !Number.isSafeInteger(baseline.beforeCents)
+        || !Number.isSafeInteger(baseline.targetCents)
+      ) {
+        throw new Error('pending reconciliation component cents are invalid');
+      }
+      const usesCaptainProfit = component.kind === 'CAPTAIN'
+        || (component.kind === 'FUNDING'
+          && typeof component.fundingType === 'string'
+          && component.fundingType.startsWith('CAPTAIN_'));
+      const originalCents = usesCaptainProfit
+        ? refundBaseline.originalCaptainEligibleProfitCents
+        : refundBaseline.originalDistributableProfitCents;
+      const remainingCents = usesCaptainProfit
+        ? profitView.remainingCaptainEligibleProfitCents
+        : profitView.remainingDistributableProfitCents;
+      const targetCents = this.scaleSignedCents(
+        baseline.targetCents,
+        remainingCents,
+        originalCents,
+      );
+      const sourceIds = new Set<string>([
+        ...(Array.isArray(component.sourceLedgerIds) ? component.sourceLedgerIds : []),
+        ...(typeof component.sourceLedgerId === 'string' ? [component.sourceLedgerId] : []),
+      ]);
+      const reversedCents = [...sourceIds].reduce(
+        (sum, sourceId) => sum + (reversedBySource.get(sourceId) ?? 0),
+        0,
+      );
+      const outstandingCents = component.kind === 'FUNDING'
+        ? 0
+        : [...sourceIds].reduce(
+            (sum, sourceId) => sum + (outstandingBySource.get(sourceId) ?? 0),
+            0,
+          );
+      const recoveredCents = Math.max(0, reversedCents - outstandingCents);
+      const beforeCents = baseline.beforeCents > 0
+        ? Math.max(0, baseline.beforeCents - recoveredCents)
+        : baseline.beforeCents < 0
+          ? Math.min(0, baseline.beforeCents + recoveredCents)
+          : 0;
+      const deltaCents = targetCents - beforeCents;
+      if (!Number.isSafeInteger(deltaCents)) {
+        throw new Error('refund-adjusted revision delta exceeds the safe cent range');
+      }
+      return { ...component, beforeCents, targetCents, deltaCents };
+    });
+    return { components, refundBaseline };
+  }
+
+  private scaleSignedCents(
+    amountCents: number,
+    remainingCents: number,
+    originalCents: number,
+  ): number {
+    if (amountCents === 0 || remainingCents === 0 || originalCents === 0) return 0;
+    const scaled = roundRatioCents(Math.abs(amountCents), remainingCents, originalCents);
+    return amountCents < 0 ? -scaled : scaled;
   }
 
   private allocateSourceAcrossItems(
@@ -785,8 +1228,9 @@ export class OrderProfitRefundService {
     targets: Record<string, CumulativeRefundTarget>;
     priorReversals: any[];
     captainOnly: boolean;
+    itemAllocations?: Record<string, number>;
   }): Promise<{ rows: number; incrementCents: number; cumulativeTargetCents: number }> {
-    const allocations = this.allocateSourceAcrossItems(
+    const allocations = params.itemAllocations ?? this.allocateSourceAcrossItems(
       params.originalAmountCents,
       params.items,
       params.captainOnly,
@@ -849,7 +1293,7 @@ export class OrderProfitRefundService {
       recoveredCents = result.count > 0 ? amountCents : 0;
     } else if (source.status === 'RETURN_FROZEN') {
       recoveredCents = amountCents;
-    } else if (source.status === 'AVAILABLE') {
+    } else if (source.status === 'AVAILABLE' || source.status === 'WITHDRAWN') {
       const account = await tx.rewardAccount.findUnique({ where: { id: source.accountId } });
       recoveredCents = Math.min(amountCents, Math.max(0, yuanToCents(account?.balance ?? 0)));
       if (recoveredCents > 0) {
@@ -912,7 +1356,7 @@ export class OrderProfitRefundService {
         where: { id: source.accountId },
         data: { frozen: { decrement: centsToYuan(recoveredCents) } },
       });
-    } else if (source.status === 'AVAILABLE') {
+    } else if (source.status === 'AVAILABLE' || source.status === 'WITHDRAWN') {
       const account = await tx.captainAccount.findUnique({ where: { id: source.accountId } });
       recoveredCents = Math.min(amountCents, Math.max(0, yuanToCents(account?.balance ?? 0)));
       if (recoveredCents > 0) await tx.captainAccount.update({
@@ -966,15 +1410,16 @@ export class OrderProfitRefundService {
   private async reverseMonthlySources(
     tx: Tx,
     refund: any,
-    snapshot: any,
     attribution: any,
     captainLedgers: any[],
-    items: RefundProfitItem[],
-    targets: Record<string, CumulativeRefundTarget>,
     priorReversals: any[],
     pending: PendingClawback[],
     settlementOrder: any,
     currentRecovered: Map<string, number>,
+    itemAllocationMatrix: Record<string, Record<string, number>>,
+    sourceBasisByLedgerId: Map<string, string>,
+    basisViews: Map<string, RefundSourceBasisView>,
+    fallbackSnapshotId: string,
   ): Promise<number> {
     if (
       !settlementOrder
@@ -989,16 +1434,21 @@ export class OrderProfitRefundService {
       if (!field) continue;
       const orderSourceCents = yuanToCents(settlementOrder[field] ?? 0);
       if (orderSourceCents <= 0) continue;
+      const sourceBasis = basisViews.get(
+        sourceBasisByLedgerId.get(source.id) ?? fallbackSnapshotId,
+      );
+      if (!sourceBasis) throw new Error(`profit source basis is missing for ${source.id}`);
       const applied = await this.reverseSourceByItems(tx, {
         refund,
-        snapshot,
+        snapshot: sourceBasis.snapshot,
         sourceLedgerId: source.id,
         sourceLedgerType: 'CAPTAIN_MONTHLY',
         originalAmountCents: orderSourceCents,
-        items,
-        targets,
+        items: sourceBasis.items,
+        targets: sourceBasis.targets,
         priorReversals,
         captainOnly: true,
+        itemAllocations: itemAllocationMatrix[source.id],
       });
       rows += applied.rows;
       reversedCents += applied.incrementCents;

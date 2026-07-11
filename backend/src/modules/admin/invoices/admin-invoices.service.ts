@@ -23,6 +23,7 @@ import {
 } from './provider/invoice-provider.interface';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 import { NotificationService } from '../../notification/notification.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 
 type TxClient = Omit<
   PrismaService,
@@ -120,8 +121,9 @@ export class AdminInvoicesService {
   constructor(
     private prisma: PrismaService,
     private providerFactory: InvoiceProviderFactory,
-    private config?: ConfigService,
-    private notificationService?: NotificationService,
+    private config: ConfigService | undefined,
+    private notificationService: NotificationService | undefined,
+    private profitSafetyService: ProfitSafetyService,
   ) {}
 
   private async emitInvoiceNotification(
@@ -356,11 +358,19 @@ export class AdminInvoicesService {
       if (error) throw new BadRequestException(error);
     }
 
-    await Promise.all(entries.map((entry) => this.prisma.ruleConfig.upsert({
-      where: { key: entry.key },
-      update: { value: { value: entry.value, description: entry.description } },
-      create: { key: entry.key, value: { value: entry.value, description: entry.description } },
-    })));
+    await this.profitSafetyService.withRuleConfigUpdates(
+      Object.fromEntries(entries.map((entry) => [entry.key, entry.value])),
+      async (tx) => {
+        for (const entry of entries) {
+          await tx.ruleConfig.upsert({
+            where: { key: entry.key },
+            update: { value: { value: entry.value, description: entry.description } },
+            create: { key: entry.key, value: { value: entry.value, description: entry.description } },
+          });
+        }
+      },
+      { changeNote: '更新发票设置' },
+    );
 
     return { ok: true };
   }
