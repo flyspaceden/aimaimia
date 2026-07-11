@@ -192,6 +192,32 @@ test('live preview architecture claims are bound to the guarded backend implemen
     '}',
   );
   assert.match(advisoryLockMethod, /pg_advisory_xact_lock/);
+
+  const previewSafetyMethod = extractBalancedBlock(
+    profitSafetySource,
+    'async preview(change: ProfitSafetyCandidateChange = {})',
+    '{',
+    '}',
+  );
+  assert.match(previewSafetyMethod, /return this\.withSafetyLock\(async \(tx\) =>/);
+  assert.match(previewSafetyMethod, /this\.buildContext\(tx, change, false\)/);
+  for (const persistencePattern of [
+    /ruleVersion\.create/,
+    /ruleConfig\.(?:create|update|upsert|delete)/,
+    /\b(?:auditLog|audit|auditService)\s*\.\s*(?:create|update|upsert|delete|write|log)\s*\(/i,
+  ]) {
+    assert.doesNotMatch(previewSafetyMethod, persistencePattern);
+  }
+
+  const candidateChangeMethod = extractBalancedBlock(
+    profitSafetySource,
+    'async withCandidateChange<T>',
+    '{',
+    '}',
+  );
+  assert.match(candidateChangeMethod, /return this\.withSafetyLock\(async \(tx\) =>/);
+  assert.match(candidateChangeMethod, /this\.buildContext\(tx, change, true\)/);
+  assert.match(candidateChangeMethod, /ruleVersion\.create/);
 });
 
 test('admin architecture documents VIP and normal candidate safety preview guarantees', async () => {
