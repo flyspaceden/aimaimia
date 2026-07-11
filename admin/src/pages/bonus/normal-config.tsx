@@ -311,6 +311,12 @@ export default function NormalConfigPage() {
   const handleFieldsChange = useCallback<NonNullable<FormProps['onFieldsChange']>>((_, allFields) => {
     setHasValidationErrors(allFields.some((field) => field.validating || (field.errors?.length ?? 0) > 0));
   }, []);
+  const syncValidationErrors = useCallback(() => {
+    const allFields = form.getFieldsError();
+    setHasValidationErrors(allFields.some(
+      (field) => form.isFieldValidating(field.name) || (field.errors?.length ?? 0) > 0,
+    ));
+  }, [form]);
   const profitSafetyPreview = useConfigProfitSafetyPreview({
     configs,
     values: allValues,
@@ -486,14 +492,21 @@ export default function NormalConfigPage() {
       okText: '应用模板',
       cancelText: '取消',
       okButtonProps: { style: { background: '#2E7D32' } },
-      onOk: () => {
+      onOk: async () => {
+        setHasValidationErrors(true);
         form.setFieldsValue(RECOMMENDED_RATIO_TEMPLATE);
-        setHasValidationErrors(false);
         setDirty(true);
+        try {
+          await form.validateFields(RATIO_KEYS);
+        } catch {
+          // The final gate state is derived from every registered form field below.
+        } finally {
+          syncValidationErrors();
+        }
         message.success('已应用推荐模板，请确认后保存');
       },
     });
-  }, [form]);
+  }, [form, syncValidationErrors]);
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
@@ -521,14 +534,21 @@ export default function NormalConfigPage() {
       okText: '恢复默认值',
       cancelText: '取消',
       okButtonProps: { danger: true },
-      onOk: () => {
+      onOk: async () => {
+        setHasValidationErrors(true);
         form.setFieldsValue(ALL_DEFAULTS);
-        setHasValidationErrors(false);
         setDirty(true);
+        try {
+          await form.validateFields();
+        } catch {
+          // The final gate state is derived from every registered form field below.
+        } finally {
+          syncValidationErrors();
+        }
         message.success('已恢复默认值，请确认后保存');
       },
     });
-  }, [form]);
+  }, [form, syncValidationErrors]);
 
   if (isLoading) {
     return (

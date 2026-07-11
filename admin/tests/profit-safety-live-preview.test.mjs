@@ -65,9 +65,22 @@ function assertConfigPagePreviewIntegration(source) {
     'const [hasValidationErrors, setHasValidationErrors] = useState(false);',
     'const profitSafetyPreview = useConfigProfitSafetyPreview(',
   );
-  assert.match(validationRegion, /const handleFieldsChange = useCallback(?:<[^\n]+>)?\(\(_, allFields\) =>/);
-  assert.match(validationRegion, /allFields\.some\(\(field\) => field\.validating \|\| \(field\.errors\?\.length \?\? 0\) > 0\)/);
-  assert.doesNotMatch(validationRegion, /form\.getFieldsError\(\)/);
+  const fieldsChangeRegion = extractBetween(
+    validationRegion,
+    'const handleFieldsChange = useCallback',
+    'const syncValidationErrors = useCallback',
+  );
+  assert.match(fieldsChangeRegion, /const handleFieldsChange = useCallback(?:<[^\n]+>)?\(\(_, allFields\) =>/);
+  assert.match(fieldsChangeRegion, /allFields\.some\(\(field\) => field\.validating \|\| \(field\.errors\?\.length \?\? 0\) > 0\)/);
+  assert.doesNotMatch(fieldsChangeRegion, /form\.getFieldsError\(\)/);
+
+  const syncValidationRegion = extractBetween(
+    source,
+    'const syncValidationErrors = useCallback(() => {',
+    'const profitSafetyPreview = useConfigProfitSafetyPreview(',
+  );
+  assert.match(syncValidationRegion, /form\.getFieldsError\(\)/);
+  assert.match(syncValidationRegion, /form\.isFieldValidating\(field\.name\) \|\| \(field\.errors\?\.length \?\? 0\) > 0/);
 
   const previewCall = extractBalancedBlock(
     source,
@@ -93,13 +106,16 @@ function assertConfigPagePreviewIntegration(source) {
   assert.match(formTag, /onValuesChange=\{\(\) => setDirty\(true\)\}/);
   assert.match(formTag, /onFieldsChange=\{handleFieldsChange\}/);
 
-  for (const [callbackName, values] of [
-    ['handleApplyTemplate', 'RECOMMENDED_RATIO_TEMPLATE'],
-    ['handleRestoreDefaults', 'ALL_DEFAULTS'],
-  ]) {
-    const callback = extractBalancedBlock(source, `const ${callbackName} = useCallback`, '{', '}');
-    assert.match(callback, new RegExp(`form\\.setFieldsValue\\(${values}\\);\\s*setHasValidationErrors\\(false\\);`));
-  }
+  const templateCallback = extractBalancedBlock(source, 'const handleApplyTemplate = useCallback', '{', '}');
+  assert.match(templateCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(RECOMMENDED_RATIO_TEMPLATE\);/);
+  assert.match(templateCallback, /await form\.validateFields\(RATIO_KEYS\);/);
+  assert.match(templateCallback, /finally \{\s*syncValidationErrors\(\);\s*\}/);
+  assert.doesNotMatch(templateCallback, /form\.setFieldsValue\(RECOMMENDED_RATIO_TEMPLATE\);\s*setHasValidationErrors\(false\);/);
+
+  const defaultsCallback = extractBalancedBlock(source, 'const handleRestoreDefaults = useCallback', '{', '}');
+  assert.match(defaultsCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(ALL_DEFAULTS\);/);
+  assert.match(defaultsCallback, /await form\.validateFields\(\);/);
+  assert.match(defaultsCallback, /finally \{\s*syncValidationErrors\(\);\s*\}/);
 
   const saveCallback = extractBalancedBlock(source, 'const doSave = useCallback', '{', '}');
   assert.match(saveCallback, /message\.success\('配置保存成功'\);/);
