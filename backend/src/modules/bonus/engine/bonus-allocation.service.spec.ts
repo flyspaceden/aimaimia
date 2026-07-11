@@ -47,8 +47,15 @@ function makeSnapshotOrder(path: 'VIP' | 'NORMAL', snapshotOverrides: any = {}) 
         status: 'READY',
         isCurrent: true,
         distributableProfitAmount: 13.25,
+        captainEligibleProfitAmount: 13.25,
         itemBreakdown: [
-          { orderItemId: 'item-1', distributableProfitShareCents: 1325 },
+          {
+            orderItemId: 'item-1',
+            quantity: 99,
+            netGoodsRevenueCents: 9_900,
+            distributableProfitShareCents: 1325,
+            captainEligible: true,
+          },
         ],
         ruleSnapshot: {
           buyerPath: path,
@@ -78,12 +85,15 @@ function makeSnapshotOrder(path: 'VIP' | 'NORMAL', snapshotOverrides: any = {}) 
 
 function makeSnapshotAllocationService(order: any) {
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    refund: { findMany: jest.fn().mockResolvedValue([]) },
     rewardAllocation: {
       create: jest.fn().mockResolvedValue({ id: 'allocation-1' }),
     },
   };
   const prisma = {
     order: { findUnique: jest.fn().mockResolvedValue(order) },
+    refund: { findMany: jest.fn().mockResolvedValue([]) },
     rewardAllocation: { findFirst: jest.fn(), create: jest.fn() },
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
@@ -125,6 +135,84 @@ function makeSnapshotAllocationService(order: any) {
 }
 
 describe('BonusAllocationService.allocateForOrder snapshot path', () => {
+  it('uses remaining D after a successful pre-receipt partial refund', async () => {
+    const order = makeSnapshotOrder('VIP', {
+      distributableProfitAmount: 13.25,
+      captainEligibleProfitAmount: 13.25,
+      itemBreakdown: [{
+        orderItemId: 'item-1',
+        quantity: 2,
+        netGoodsRevenueCents: 10_000,
+        distributableProfitShareCents: 1_325,
+        captainEligible: true,
+      }],
+    });
+    order.items[0].quantity = 2;
+    const harness = makeSnapshotAllocationService(order);
+    harness.tx.refund.findMany.mockResolvedValue([{
+      id: 'refund-before-receipt',
+      status: 'REFUNDED',
+      items: [{ orderItemId: 'item-1', quantity: 1, amount: 50 }],
+    }]);
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.vipUpstream.distribute).toHaveBeenCalledWith(
+      harness.tx,
+      'allocation-1',
+      'snapshot-order',
+      'buyer-1',
+      135,
+      1.33,
+      null,
+      expect.any(Object),
+    );
+    expect(harness.vipPlatformSplit.split).toHaveBeenCalledWith(
+      harness.tx,
+      expect.any(String),
+      'snapshot-order',
+      expect.objectContaining({ platformProfit: 2.65, industryFund: 0.66 }),
+      { 'company-1': 1 },
+    );
+  });
+
+  it('reads successful refunds under the shared order lock inside the Serializable allocation transaction', async () => {
+    const harness = makeSnapshotAllocationService(makeSnapshotOrder('VIP'));
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(harness.tx.refund.findMany).toHaveBeenCalledTimes(1);
+    expect(harness.tx.$executeRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(harness.tx.refund.findMany.mock.invocationCallOrder[0]);
+    expect(harness.prisma.refund.findMany).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when one of several successful refunds has no line facts', async () => {
+    const harness = makeSnapshotAllocationService(makeSnapshotOrder('VIP'));
+    harness.tx.refund.findMany.mockResolvedValue([
+      { id: 'refund-missing', items: [] },
+      { id: 'refund-with-items', items: [{ orderItemId: 'item-1', quantity: 1, amount: 1 }] },
+    ]);
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.tx.rewardAllocation.create).not.toHaveBeenCalled();
+    expect(harness.vipUpstream.distribute).not.toHaveBeenCalled();
+    expect(harness.vipPlatformSplit.split).not.toHaveBeenCalled();
+  });
+
+  it('rejects a payment snapshot whose item totals disagree with D or C', async () => {
+    const harness = makeSnapshotAllocationService(makeSnapshotOrder('VIP', {
+      distributableProfitAmount: 13.26,
+      captainEligibleProfitAmount: 13.25,
+    }));
+
+    await expect(harness.service.allocateForOrder('snapshot-order'))
+      .rejects.toThrow('profit snapshot item totals do not match D/C');
+    expect(harness.tx.rewardAllocation.create).not.toHaveBeenCalled();
+  });
+
   it('uses snapshot D, VIP rates, and the snapshotted VIP ancestor after cost/tree/config changes', async () => {
     const harness = makeSnapshotAllocationService(makeSnapshotOrder('VIP'));
 
