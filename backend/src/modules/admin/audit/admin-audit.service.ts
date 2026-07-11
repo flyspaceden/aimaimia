@@ -10,10 +10,14 @@ import {
   sanitizeStringForLog,
 } from '../../../common/logging/log-sanitizer';
 import { maskIp } from '../../../common/security/privacy-mask';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 
 @Injectable()
 export class AdminAuditService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly profitSafetyService: ProfitSafetyService,
+  ) {}
 
   /** 审计日志列表 */
   async findAll(query: AuditQueryDto, page = 1, pageSize = 20) {
@@ -132,6 +136,29 @@ export class AdminAuditService {
       throw new BadRequestException(`无法回滚：不支持的实体类型 ${log.targetType}`);
     }
 
+    if (log.targetType === 'RuleConfig') {
+      const beforeData = log.before as Record<string, unknown>;
+      if (!Object.prototype.hasOwnProperty.call(beforeData, 'value')) {
+        throw new BadRequestException('无法回滚：配置快照缺少历史值');
+      }
+      const historicalValue = beforeData.value;
+      await this.profitSafetyService.withCandidateChange({
+        ruleUpdates: {
+          [log.targetId]: this.unwrapRuleConfigValue(historicalValue),
+        },
+        createdByAdminId: adminUserId,
+        changeNote: `审计回滚配置项 ${log.targetId}`,
+      }, async (tx) => {
+        await (tx as any).ruleConfig.update({
+          where: { key: log.targetId },
+          data: { value: historicalValue },
+        });
+        await this.writeRollbackAudit(tx, log, adminUserId, ip);
+      });
+
+      return { ok: true, message: '回滚成功' };
+    }
+
     // 在事务中执行回滚
     await this.prisma.$transaction(async (tx) => {
       const model = (tx as any)[modelName];
@@ -140,47 +167,56 @@ export class AdminAuditService {
       // 移除不可更新的字段
       const { id, createdAt, ...updateData } = beforeData;
 
-      // 恢复数据
-      if (log.targetType === 'RuleConfig') {
-        await model.update({
-          where: { key: log.targetId },
-          data: updateData,
-        });
-      } else {
-        await model.update({
-          where: { id: log.targetId },
-          data: updateData,
-        });
-      }
-
-      // 标记原日志已回滚
-      await tx.adminAuditLog.update({
-        where: { id: logId },
-        data: {
-          rolledBackAt: new Date(),
-          rolledBackByAdminId: adminUserId,
-        },
+      await model.update({
+        where: { id: log.targetId },
+        data: updateData,
       });
-
-      // 创建回滚审计日志
-      await tx.adminAuditLog.create({
-        data: {
-          adminUserId,
-          action: 'ROLLBACK',
-          module: log.module,
-          targetType: log.targetType,
-          targetId: log.targetId,
-          summary: `回滚操作 [${log.id}]`,
-          before: log.after ?? undefined,
-          after: log.before ?? undefined,
-          ip,
-          isReversible: false,
-          rollbackOfLogId: logId,
-        },
-      });
+      await this.writeRollbackAudit(tx, log, adminUserId, ip);
     });
 
     return { ok: true, message: '回滚成功' };
+  }
+
+  private async writeRollbackAudit(
+    tx: any,
+    log: any,
+    adminUserId: string,
+    ip?: string,
+  ) {
+    await tx.adminAuditLog.update({
+      where: { id: log.id },
+      data: {
+        rolledBackAt: new Date(),
+        rolledBackByAdminId: adminUserId,
+      },
+    });
+    await tx.adminAuditLog.create({
+      data: {
+        adminUserId,
+        action: 'ROLLBACK',
+        module: log.module,
+        targetType: log.targetType,
+        targetId: log.targetId,
+        summary: `回滚操作 [${log.id}]`,
+        before: log.after ?? undefined,
+        after: log.before ?? undefined,
+        ip,
+        isReversible: false,
+        rollbackOfLogId: log.id,
+      },
+    });
+  }
+
+  private unwrapRuleConfigValue(value: unknown): unknown {
+    if (
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && Object.prototype.hasOwnProperty.call(value, 'value')
+    ) {
+      return (value as { value: unknown }).value;
+    }
+    return value;
   }
 
   private sanitizeAuditLogForResponse(log: any) {
