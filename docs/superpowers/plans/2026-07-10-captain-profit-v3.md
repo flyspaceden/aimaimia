@@ -411,7 +411,7 @@ git commit -m "feat: calculate discounted order profit"
 - Produces: `createForPaidOrder(tx, orderId): Promise<OrderProfitSnapshot>`.
 - Snapshot rule JSON contains buyer path, direct inviter and tier, VIP/normal ancestor paths, captain relation/config version and all applicable rates.
 
-- [ ] **Step 1: Write failing service and checkout integration tests**
+- [x] **Step 1: Write failing service and checkout integration tests**
 
 ```ts
 await service.createForPaidOrder(tx, 'order-1');
@@ -422,11 +422,11 @@ expect(tx.orderProfitSnapshot.create).toHaveBeenCalledWith(expect.objectContaini
 
 Add tests proving cost failure creates `RECONCILIATION_REQUIRED` without throwing from `handlePaymentSuccess`, and each suborder stores its allocated group-buy deduction.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/profit/order-profit-snapshot.service.spec.ts src/modules/order/checkout-profit-snapshot.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement snapshot resolution**
+- [x] **Step 3: Implement snapshot resolution**
 
 Use the payment transaction client for all reads. Resolve current SKU cost at payment time, exclude prize items, capture the full buyer/recommender/captain/rule state, and write one immutable snapshot per order. Read the single current RuleConfig set directly through `tx` as one transaction-consistent snapshot; do not use the process cache. V3 later saves take effect immediately only for payments whose transaction begins after that save commits. `ProfitModule` may depend only on Prisma and local pure helpers so Bonus/Captain/Order modules can import it without a circular module dependency.
 
@@ -440,11 +440,11 @@ async createForPaidOrder(tx: Prisma.TransactionClient, orderId: string) {
 
 Move direct-relation resolution into one shared resolver consumed by both the snapshot service and direct commission service. For a normal buyer without a tree node, create/resolve the normal tree placement inside this payment transaction before capturing the ancestor path; add a test proving two concurrent first payments cannot create two nodes.
 
-- [ ] **Step 4: Insert snapshot creation before any reward attribution**
+- [x] **Step 4: Insert snapshot creation before any reward attribution**
 
 In `CheckoutService.handlePaymentSuccess()`, persist `groupBuyRebateDeductionAmount`, create the profit snapshot immediately after each `Order`, then call direct-referral and captain services. Payment must not fail solely because the profit status is reconciliation-required.
 
-- [ ] **Step 5: Verify GREEN and checkout regressions**
+- [x] **Step 5: Verify GREEN and checkout regressions**
 
 Run:
 
@@ -453,7 +453,7 @@ cd backend
 npx jest src/modules/profit/order-profit-snapshot.service.spec.ts src/modules/order/checkout-profit-snapshot.spec.ts src/modules/order/checkout-captain-attribution.spec.ts src/modules/order/checkout-vip-direct-referral.spec.ts --runInBand
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/profit backend/src/modules/order backend/prisma/schema.prisma
@@ -472,15 +472,15 @@ git commit -m "feat: snapshot profit at payment"
 - Consumes: `OrderProfitSnapshot.distributableProfitAmount` and `ruleSnapshot`.
 - Produces: all member reward allocations whose net sum does not exceed `D`.
 
-- [ ] **Step 1: Write failing tests for snapshot-only behavior**
+- [x] **Step 1: Write failing tests for snapshot-only behavior**
 
 Assert direct referral uses `D × inviterTierRate`, zero/reconciliation snapshots create no user ledger, receipt allocation does not read current SKU cost or current ratio, and mixed-item negative profit has already reduced `D`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/bonus/engine/reward-calculator.service.spec.ts src/modules/bonus/engine/vip-direct-referral-commission.service.spec.ts src/modules/bonus/engine/bonus-allocation.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Replace item-cost recalculation with pool calculation from D**
+- [x] **Step 3: Replace item-cost recalculation with pool calculation from D**
 
 ```ts
 calculateFromProfit(profit: number, path: 'VIP' | 'NORMAL', config: BonusConfig): PoolCalculation
@@ -488,15 +488,15 @@ calculateFromProfit(profit: number, path: 'VIP' | 'NORMAL', config: BonusConfig)
 
 The direct rate comes from the inviter tier in the payment snapshot. Tree reward and industry fund come from the buyer path. Missing/inactive inviter routes the direct share to platform instead of a user.
 
-- [ ] **Step 4: Use payment-time route and ancestor path at receipt**
+- [x] **Step 4: Use payment-time route and ancestor path at receipt**
 
 `BonusAllocationService.allocateForOrder()` must load the snapshot and choose the eligible ancestor from `ruleSnapshot`; it must not re-read current cost, current config or current tree parentage. Orders paid before deployment with no snapshot follow the existing legacy path so historical fulfilment is not blocked or recomputed with current costs.
 
-- [ ] **Step 5: Verify GREEN and full bonus engine tests**
+- [x] **Step 5: Verify GREEN and full bonus engine tests**
 
 Run: `cd backend && npx jest src/modules/bonus/engine --runInBand`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/bonus
@@ -515,7 +515,7 @@ git commit -m "refactor: allocate member rewards from profit snapshots"
 - Consumes: `C`, payment rule snapshot and platform retained `R`.
 - Produces: direct frozen ledger, platform direct hold and invisible monthly maximum hold.
 
-- [ ] **Step 1: Write failing V3 funding tests**
+- [x] **Step 1: Write failing V3 funding tests**
 
 ```ts
 expect(attribution.commissionBase).toBe(35);
@@ -526,11 +526,11 @@ expect(directHold.amount + monthlyHold.amount).toBeLessThanOrEqual(platformRetai
 
 Add tests for non-eligible products, self-binding prevention, no captain relation, `C=0`, reconciliation status, V2 disabled and idempotent duplicate payment.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/captain/captain-attribution.service.spec.ts src/modules/captain/captain-commission.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement snapshot-based attribution**
+- [x] **Step 3: Implement snapshot-based attribution**
 
 ```ts
 directAmount = roundMoney(C * directProfitRate);
@@ -542,15 +542,15 @@ monthlyMaximum = roundMoney(C * (
 
 Write `PLATFORM_RETAINED_CREDIT` as `+R`, then `CAPTAIN_DIRECT_HOLD` and `CAPTAIN_MONTHLY_HOLD` as negative amounts with unique idempotency keys in the same payment transaction. Arithmetic invariant failure creates a reconciliation task and no reward; it never reduces rates dynamically.
 
-- [ ] **Step 4: Keep V2 lifecycle isolated**
+- [x] **Step 4: Keep V2 lifecycle isolated**
 
 Existing `SALES_V2` ledgers continue release/void/clawback by their historical snapshot. V3 release reads its own `PROFIT_V3` attribution; no migration changes historical amounts.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run: `cd backend && npx jest src/modules/captain --runInBand`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/captain backend/src/modules/profit
@@ -567,15 +567,15 @@ git commit -m "feat: fund captain rewards from retained profit"
 - Consumes: monthly direct net GMV, effective buyer metrics, per-order `C`, config version and monthly hold.
 - Produces: `CaptainMonthlySettlementOrder`, actual monthly ledgers and unused hold releases.
 
-- [ ] **Step 1: Write failing monthly scenarios**
+- [x] **Step 1: Write failing monthly scenarios**
 
 Cover 8,000 qualification without tier reward, 25,000 base+performance, 70,000 growth stacking, 140,000 full stacking, zero-profit orders with zero `C`, mixed config versions, refund-risk disqualification, and unused hold return. The mixed-version test must use one whole-month fact set while each order batch applies its own snapshotted thresholds and rates.
 
-- [ ] **Step 2: Run test and verify RED**
+- [x] **Step 2: Run test and verify RED**
 
 Run: `cd backend && npx jest src/modules/captain/captain-monthly-settlement.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement order-level monthly target calculation**
+- [x] **Step 3: Implement order-level monthly target calculation**
 
 ```ts
 monthFacts = { netGmv, effectiveBuyers, newEffectiveBuyers, refundRate };
@@ -589,11 +589,11 @@ unused = order.monthlyReserveAmount - orderActualMonthly;
 
 Persist one settlement-order row per attribution, aggregate to the existing settlement amount fields, write `CAPTAIN_MONTHLY_RELEASE` for unused amounts and retain tax behavior.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd backend && npx jest src/modules/captain/captain-monthly-settlement.service.spec.ts src/modules/captain/captain-commission.service.spec.ts --runInBand`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/modules/captain
@@ -618,15 +618,15 @@ git commit -m "feat: settle captain monthly profit rewards"
 **Interfaces:**
 - Produces: incremental target reversals keyed by `orderId + refundId + orderItemId + sourceLedgerId`.
 
-- [ ] **Step 1: Write failing refund tests**
+- [x] **Step 1: Write failing refund tests**
 
 Cover two consecutive partial refunds, last-cent absorption, item quantity refunds, amount-only refunds, cross-month refunds, approved/unpaid monthly awards, paid awards creating `CLAWBACK_PENDING`, paid-unshipped auto cancel, asynchronous Alipay/WeChat success, active-query compensation and final net ledgers equaling remaining `D`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/profit/order-profit-refund.service.spec.ts src/modules/after-sale/after-sale-refund.service.spec.ts src/modules/after-sale/after-sale-reward.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement cumulative target reversal**
+- [x] **Step 3: Implement cumulative target reversal**
 
 ```ts
 cumulativeRatio = min(1, refundedQuantity / originalQuantity);
@@ -636,19 +636,19 @@ incrementForSource = cumulativeTargetForSource - alreadyReversedForSourceLedger;
 
 For amount-only refunds, use cumulative refunded goods amount divided by original item discounted amount. Never use a refund total that includes returned shipping as the profit numerator, and never reverse more than original `D` or `C`.
 
-- [ ] **Step 4: Persist line-level refund facts**
+- [x] **Step 4: Persist line-level refund facts**
 
 When an after-sale refund row is created, also create its existing `RefundItem` row using `orderItemId`, the full requested line quantity and the line's discounted goods refund amount from the current profit snapshot. Paid-unshipped cancellation expands every non-prize order item into `RefundItem` rows; the channel refund may include shipping but `RefundItem.amount` must not.
 
-- [ ] **Step 5: Route every successful refund finalizer to one service**
+- [x] **Step 5: Route every successful refund finalizer to one service**
 
 `OrderProfitRefundService.finalizeSuccessfulRefund(tx, refundId)` runs inside the same Serializable transaction that CAS-transitions the refund to `REFUNDED`. Call it from after-sale success and `PaymentService.finalizeAutoRefundRecord`; provider callbacks, active query and retry compensation already converge on that finalizer. Before computing reversals, mark every `PENDING` adjustment draft for the order `SUPERSEDED`; after reversal, recompute at most one replacement draft from actual applied balances to the post-refund target. `APPLIED` adjustments are included in actual balances. Replace whole-order reward voiding for V3 snapshots and preserve legacy V2 behavior for orders with no profit snapshot.
 
-- [ ] **Step 6: Verify GREEN**
+- [x] **Step 6: Verify GREEN**
 
 Run: `cd backend && npx jest src/modules/profit/order-profit-refund.service.spec.ts src/modules/after-sale src/modules/payment/payment-captain-auto-refund.spec.ts --runInBand`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/modules/profit backend/src/modules/after-sale backend/src/modules/order backend/src/modules/payment
@@ -667,7 +667,7 @@ git commit -m "feat: reverse profit rewards on partial refunds"
 - Produces: `ProfitSafetySummary` and `withSafetyLock(work)`.
 - Error: `{ code: 'CAPTAIN_PROFIT_SAFETY_VIOLATION', scenarios, limitingSkus, shortfall }`.
 
-- [ ] **Step 1: Write failing four-scenario tests**
+- [x] **Step 1: Write failing four-scenario tests**
 
 ```ts
 expect(summary.scenarios.map(x => x.key)).toEqual([
@@ -679,11 +679,11 @@ expect(() => validator.assertSafe(unsafeCandidate)).toThrow('CAPTAIN_PROFIT_SAFE
 
 Test `g_sku <= 0`, missing cost, current 1.35 markup + configured VIP discount, captain disabled, V2 enabled rejection, a low-margin SKU outside captain scope, an in-scope SKU, and the worst normal-buyer/VIP-inviter combination.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/profit/profit-safety-validator.spec.ts src/modules/profit/profit-safety.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement pure validation formula**
+- [x] **Step 3: Implement pure validation formula**
 
 ```ts
 platformRequiredRevenueRate = fulfillmentCostRate + coldChainRiskReserveRate + targetNetProfitRate;
@@ -694,7 +694,7 @@ safe = externalProfitRate <= 1 && gSku * (1 - externalProfitRate) >= platformReq
 
 Evaluate every active ordinary SKU against the automatic markup baseline and its own mandatory-discount margin `gSku`; aggregate the limiting result only after scenario evaluation. Optional coupons/points do not participate in static SKU safety because actual `D` falls at order time.
 
-- [ ] **Step 4: Implement the shared transaction lock**
+- [x] **Step 4: Implement the shared transaction lock**
 
 ```ts
 await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('profit-safety-config-v1'))`;
@@ -702,11 +702,11 @@ await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('profit-safety-config
 
 Inside the lock read all configs and active SKU economics, merge the candidate change, validate, execute the supplied write, create a full version snapshot and return the safety summary.
 
-- [ ] **Step 5: Verify GREEN including simulated concurrent candidates**
+- [x] **Step 5: Verify GREEN including simulated concurrent candidates**
 
 Run: `cd backend && npx jest src/modules/profit/profit-safety-validator.spec.ts src/modules/profit/profit-safety.service.spec.ts --runInBand`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/profit
@@ -723,11 +723,11 @@ git commit -m "feat: validate profit safety across configurations"
 - Consumes: `ProfitSafetyService.withCandidateChange()`.
 - Produces: complete RuleVersion snapshots, safety preview/summary APIs and zero-write failures.
 
-- [ ] **Step 1: Write failing atomicity and rollback tests**
+- [x] **Step 1: Write failing atomicity and rollback tests**
 
 Assert validation happens inside the Serializable transaction after advisory lock, unsafe candidates perform no upsert/version/cache invalidation, captain versions contain the full RuleConfig snapshot, incomplete historical snapshots cannot globally roll back, and audit single-field rollback merges with current config before validation.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -736,7 +736,7 @@ cd backend
 npx jest src/modules/admin/config src/modules/admin/captain src/modules/admin/audit src/modules/admin/products src/modules/seller/products/seller-products.service.spec.ts --runInBand
 ```
 
-- [ ] **Step 3: Refactor related config writes to one coordinator**
+- [x] **Step 3: Refactor related config writes to one coordinator**
 
 Remove transaction-external ratio/safety reads. Save a full snapshot and safety summary for every new RuleVersion. Remove the invalid `RuleConfig.description` create field from captain settings.
 
@@ -749,11 +749,11 @@ POST /admin/config/profit-safety-preview -> { candidateUpdates, candidateCaptain
 
 Unsafe saves return HTTP 400 with `{ code: 'CAPTAIN_PROFIT_SAFETY_VIOLATION', message, scenarios, limitingSkus, shortfall }`. Version list/detail returns `isComplete`, `rollbackAllowed`, `rollbackBlockedReason` and `safetySummary`.
 
-- [ ] **Step 4: Protect all SKU economic mutations**
+- [x] **Step 4: Protect all SKU economic mutations**
 
 Admin and seller create/update/submit/status paths provide candidate price, cost, category, company and active status to the validator before writing. Draft-only changes that cannot enter the active ordinary sale scope may skip the economic check but still use their existing validation.
 
-- [ ] **Step 5: Verify GREEN and Prisma/backend build**
+- [x] **Step 5: Verify GREEN and Prisma/backend build**
 
 Run:
 
@@ -764,7 +764,7 @@ DATABASE_URL='postgresql://user:pass@localhost:5432/nongmai' npx prisma validate
 npm run build
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/modules/admin backend/src/modules/seller backend/src/modules/profit
@@ -781,23 +781,23 @@ git commit -m "fix: lock profit-sensitive configuration writes"
 - Modify: `backend/src/modules/captain/captain-monthly-settlement.service.ts`
 - Test: `backend/src/modules/captain/captain-monthly-settlement.service.spec.ts`
 - Create: `admin/src/api/profit-reconciliation.ts`
-- Create: `admin/src/pages/captain/reconciliation.tsx`
-- Create: `admin/src/pages/captain/profit-adjustments.tsx`
+- Create: `admin/src/pages/captain/reconciliations.tsx`
+- Create: `admin/src/pages/captain/adjustments.tsx`
 - Modify: admin routes/navigation and `admin/src/types/index.ts`.
 
 **Interfaces:**
 - Produces: immutable profit snapshot revisions and auditable reconciliation tasks.
 - Endpoints: list/detail/recalculate/reject under `/admin/profit-reconciliation`.
 
-- [ ] **Step 1: Write failing revision and month-blocking tests**
+- [x] **Step 1: Write failing revision and month-blocking tests**
 
 Assert reconciliation-required payment creates one unique pending task, repeated creation is idempotent, audited cost correction creates revision 2 and leaves revision 1 unchanged, rewards already generated produce a supplement/clawback draft instead of silent mutation, and unresolved tasks block monthly review/payment.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd backend && npx jest src/modules/admin/profit-reconciliation/admin-profit-reconciliation.service.spec.ts src/modules/captain/captain-monthly-settlement.service.spec.ts --runInBand`
 
-- [ ] **Step 3: Implement immutable revision transition**
+- [x] **Step 3: Implement immutable revision transition**
 
 ```ts
 await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-profit-reconcile'), hashtext(${orderId}))`;
@@ -807,11 +807,11 @@ await tx.orderProfitSnapshot.create({ data: { ...recalculated, revision: current
 
 Validate submitted item costs against order items, save admin/reason/before/after audit, CAS task `PENDING -> RESOLVED`, and invoke idempotent reward attribution only when no prior reward/funding/settlement exists.
 
-- [ ] **Step 4: Implement explicit post-reward adjustment behavior**
+- [x] **Step 4: Implement explicit post-reward adjustment behavior**
 
 If any user, seller or captain reward already exists, create a reviewable supplement/clawback draft linked to the new revision; do not alter available balances until finance calls `approveAndApply`. That method runs a Serializable CAS from `PENDING` directly to `APPLIED` and writes all reward/funding/account changes in the same transaction, so no approved-but-unapplied state exists. Tests must prove duplicate approvals cannot apply twice and `SUPERSEDED` drafts cannot apply.
 
-- [ ] **Step 5: Add admin API and work-focused page**
+- [x] **Step 5: Add admin API and work-focused page**
 
 ```text
 GET  /admin/profit-reconciliation?status=PENDING
@@ -827,7 +827,7 @@ POST /admin/profit-adjustments/:id/reject
 
 The reconciliation page lists order, error, missing item cost and affected captain/month, opens a detail modal for audited costs and reason, and shows whether the result can auto-resume rewards or requires a supplement review. The adjustment page shows per-account before/target/delta, source and target revisions, current status and approve-and-apply/reject actions. Refunds automatically mark pending drafts `SUPERSEDED` and create a replacement draft; the page must make this replacement chain visible.
 
-- [ ] **Step 6: Verify backend tests and admin build**
+- [x] **Step 6: Verify backend tests and admin build**
 
 Run:
 
@@ -837,7 +837,7 @@ npx jest src/modules/admin/profit-reconciliation/admin-profit-reconciliation.ser
 cd ../admin && npm run build
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/modules/admin backend/src/modules/captain admin/src
@@ -854,11 +854,11 @@ git commit -m "feat: add profit reconciliation workflow"
 - Admin consumes server `ProfitSafetySummary`; no hard-coded 35%/10.5% calculator remains.
 - Buyer consumes V3 profit-base labels without exposing internal funding ledgers.
 
-- [ ] **Step 1: Invoke frontend design guidance and inspect existing conventions**
+- [x] **Step 1: Invoke frontend design guidance and inspect existing conventions**
 
 Use `frontend-design:frontend-design` before edits. Keep the operational Ant Design layout, existing tooltips and current navigation.
 
-- [ ] **Step 2: Write failing buyer repository/type expectations**
+- [x] **Step 2: Write failing buyer repository/type expectations**
 
 ```ts
 expect(order.calculationModel).toBe('PROFIT_V3');
@@ -866,19 +866,19 @@ expect(order.profitBase).toBe(35);
 expect(order.commissionAmount).toBe(3.85);
 ```
 
-- [ ] **Step 3: Replace captain V2 fields and hard-coded economics UI**
+- [x] **Step 3: Replace captain V2 fields and hard-coded economics UI**
 
 Use `directProfitRate`, the four monthly profit rates, fulfillment/risk/target parameters, server safety summary, four scenario rows, limiting SKU list and structured conflict messages. Every editable field retains a question-mark tooltip explaining its formula and related fields.
 
-- [ ] **Step 4: Add safety feedback to VIP/normal/product pages**
+- [x] **Step 4: Add safety feedback to VIP/normal/product pages**
 
 VIP and normal pages display the current safety summary and route captain conflicts to `/captain/settings`. Version history disables incomplete or unsafe rollback. Product edit shows the limiting SKU and failed scenario from the server error.
 
-- [ ] **Step 5: Update buyer captain center labels**
+- [x] **Step 5: Update buyer captain center labels**
 
 Show “直接客户可分润利润”“逐单利润奖励”“月度利润奖励”; keep V2 history visibly labelled “历史销售额规则”. A captain's own purchase must never show self captain commission.
 
-- [ ] **Step 6: Update frontend documentation and verify builds**
+- [x] **Step 6: Update frontend documentation and verify builds**
 
 Run:
 
@@ -888,7 +888,7 @@ npx tsc -b --noEmit --pretty false
 cd admin && npm run build
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin src app docs/architecture
@@ -902,7 +902,7 @@ git commit -m "feat: expose captain profit v3 controls"
 - Modify: `plan.md`
 - Modify: `docs/superpowers/plans/2026-07-10-captain-profit-v3.md`
 
-- [ ] **Step 1: Add reconciliation and golden invariant tests**
+- [x] **Step 1: Add reconciliation and golden invariant tests**
 
 Create end-to-end service tests proving for ready snapshots:
 
@@ -912,14 +912,14 @@ captain direct hold + captain monthly hold <= platform retained before captain
 refund reversals never exceed original D or C
 ```
 
-- [ ] **Step 2: Run complete focused suites**
+- [x] **Step 2: Run complete focused suites**
 
 ```bash
 cd backend
 npx jest src/modules/profit src/modules/captain src/modules/bonus/engine src/modules/after-sale src/modules/admin/config src/modules/admin/captain src/modules/admin/products --runInBand
 ```
 
-- [ ] **Step 3: Run schema and build verification**
+- [x] **Step 3: Run schema and build verification**
 
 ```bash
 cd backend
@@ -929,7 +929,7 @@ cd ../admin && npm run build
 cd .. && npx tsc -b --noEmit --pretty false
 ```
 
-- [ ] **Step 4: Run source audits and diff checks**
+- [x] **Step 4: Run source audits and diff checks**
 
 ```bash
 rg -n "indirectRate|INDIRECT_ORDER|teamPoolRate|commissionBase.*totalAmount" backend/src admin/src src app
@@ -940,15 +940,15 @@ git status --short
 
 Only explicitly labelled V2/legacy lifecycle references may remain.
 
-- [ ] **Step 5: Perform independent whole-branch review and fix every Critical/Important finding**
+- [x] **Step 5: Perform independent whole-branch review and fix every Critical/Important finding**
 
 Review money conservation, Serializable coverage, idempotency, V2/V3 isolation, incomplete rollback rejection, missing-cost fail-closed behavior, refund cumulative targets, App/admin contract alignment and every requirement in the design spec.
 
-- [ ] **Step 6: Update security and project documentation**
+- [x] **Step 6: Update security and project documentation**
 
 Record the shared lock, profit snapshot, platform funding, refund reversal and verification evidence in `docs/issues/tofix-safe.md`; update `plan.md` and mark every completed checkbox in this plan.
 
-- [ ] **Step 7: Commit final reviewed state**
+- [x] **Step 7: Commit final reviewed state**
 
 ```bash
 git add backend admin src app docs plan.md
@@ -957,13 +957,13 @@ git commit -m "feat: complete captain profit v3"
 
 ## Self-Review Checklist
 
-- [ ] Every design requirement has a task and verification command.
-- [ ] No task treats V2 sales rates as V3 profit rates.
-- [ ] No runtime path dynamically scales configured rates.
-- [ ] Optional discounts lower `D`; zero/negative `D` does not block payment.
-- [ ] Group-buy rebate deduction is persisted per order and included once.
-- [ ] All payment/receipt/refund calculations read the same immutable snapshot.
-- [ ] Captain monthly reserves are not visible buyer balances before settlement.
-- [ ] Config and SKU writes share one lock and one complete candidate snapshot.
-- [ ] Full rollback rejects incomplete historical snapshots instead of deleting unrelated configs.
-- [ ] Frontend safety summaries come from the backend, not duplicated formulas.
+- [x] Every design requirement has a task and verification command.
+- [x] No task treats V2 sales rates as V3 profit rates.
+- [x] No runtime path dynamically scales configured rates.
+- [x] Optional discounts lower `D`; zero/negative `D` does not block payment.
+- [x] Group-buy rebate deduction is persisted per order and included once.
+- [x] All payment/receipt/refund calculations read the same immutable snapshot.
+- [x] Captain monthly reserves are not visible buyer balances before settlement.
+- [x] Config and SKU writes share one lock and one complete candidate snapshot.
+- [x] Full rollback rejects incomplete historical snapshots instead of deleting unrelated configs.
+- [x] Frontend safety summaries come from the backend, not duplicated formulas.

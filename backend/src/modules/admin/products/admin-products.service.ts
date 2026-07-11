@@ -72,6 +72,17 @@ export class AdminProductsService {
     }));
   }
 
+  private async loadProfitSafetyProduct(reader: any, id: string) {
+    const product = await reader.product.findUnique({
+      where: { id },
+      select: this.profitSafetyProductSelect,
+    });
+    if (!product || product.status === 'DRAFT') {
+      throw new NotFoundException('商品不存在');
+    }
+    return product;
+  }
+
   private readonly bundleReviewInclude = {
     orderBy: { sortOrder: 'asc' as const },
     select: {
@@ -290,11 +301,7 @@ export class AdminProductsService {
 
   /** 更新商品 */
   async update(id: string, dto: AdminUpdateProductDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
-      select: this.profitSafetyProductSelect,
-    });
-    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
+    await this.loadProfitSafetyProduct(this.prisma, id);
 
     // 提取 tagIds，不传给 Prisma product.update
     const { tagIds, returnPolicy, ...rest } = dto;
@@ -379,16 +386,18 @@ export class AdminProductsService {
       return updated;
     };
 
-    const finalStatus = dto.status ?? product.status;
-    const changesActiveEconomics = finalStatus === 'ACTIVE'
-      && (dto.status === 'ACTIVE' || dto.categoryId !== undefined);
-    if (changesActiveEconomics) {
-      const output = await this.profitSafety.withCandidateChange({
-        skuUpserts: this.activeProductCandidates(product, {
-          categoryId: dto.categoryId ?? product.categoryId,
-          status: finalStatus,
-        }),
-        changeNote: `admin product ${id} economic update`,
+    const requiresSafetyLock = dto.status !== undefined || dto.categoryId !== undefined;
+    if (requiresSafetyLock) {
+      const output = await this.profitSafety.withCandidateChange(async (tx) => {
+        const lockedProduct = await this.loadProfitSafetyProduct(tx, id);
+        const finalStatus = dto.status ?? lockedProduct.status;
+        return {
+          skuUpserts: this.activeProductCandidates(lockedProduct, {
+            categoryId: dto.categoryId ?? lockedProduct.categoryId,
+            status: finalStatus,
+          }),
+          changeNote: `admin product ${id} economic update`,
+        };
       }, write);
       return output.result;
     }
@@ -405,9 +414,12 @@ export class AdminProductsService {
     if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
 
     if (status === 'ACTIVE') {
-      const output = await this.profitSafety.withCandidateChange({
-        skuUpserts: this.activeProductCandidates(product, { status }),
-        changeNote: `admin product ${id} activation`,
+      const output = await this.profitSafety.withCandidateChange(async (tx) => {
+        const lockedProduct = await this.loadProfitSafetyProduct(tx, id);
+        return {
+          skuUpserts: this.activeProductCandidates(lockedProduct, { status }),
+          changeNote: `admin product ${id} activation`,
+        };
       }, (tx) => tx.product.update({ where: { id }, data: { status } }));
       return output.result;
     }
@@ -526,8 +538,9 @@ export class AdminProductsService {
       updateData.status = 'ACTIVE';
     }
 
+    let lockedProduct = product;
     const write = async (tx: Prisma.TransactionClient) => {
-      if (auditStatus === 'APPROVED' && product.type === ProductType.BUNDLE) {
+      if (auditStatus === 'APPROVED' && lockedProduct.type === ProductType.BUNDLE) {
         const persistedBundleItems = await tx.productBundleItem.findMany({
           where: { bundleProductId: id },
           orderBy: { sortOrder: 'asc' },
@@ -543,7 +556,7 @@ export class AdminProductsService {
 
         await this.productBundleService.validateSellerBundleItems(
           tx as any,
-          product.companyId,
+          lockedProduct.companyId,
           persistedBundleItems.map((item) => ({
             skuId: item.skuId,
             quantity: item.quantity,
@@ -555,9 +568,12 @@ export class AdminProductsService {
     };
 
     if (auditStatus === 'APPROVED') {
-      const output = await this.profitSafety.withCandidateChange({
-        skuUpserts: this.activeProductCandidates(product, { status: 'ACTIVE' }),
-        changeNote: `admin product ${id} audit activation`,
+      const output = await this.profitSafety.withCandidateChange(async (tx) => {
+        lockedProduct = await this.loadProfitSafetyProduct(tx, id);
+        return {
+          skuUpserts: this.activeProductCandidates(lockedProduct, { status: 'ACTIVE' }),
+          changeNote: `admin product ${id} audit activation`,
+        };
       }, write);
       return output.result;
     }
@@ -572,50 +588,43 @@ export class AdminProductsService {
    * - 无 id → 新建 SKU
    */
   async updateSkus(productId: string, dto: UpdateProductSkusDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      select: this.profitSafetyProductSelect,
-    });
-    if (!product || product.status === 'DRAFT') throw new NotFoundException('商品不存在');
     for (const sku of dto.skus) {
       this.assertSkuWeightGram(sku.weightGram);
     }
 
-    const existingById = new Map((product.skus ?? []).map((sku: any) => [sku.id, sku]));
-    const preparedSkus = dto.skus.map((sku) => {
-      const existing = sku.id ? existingById.get(sku.id) : undefined;
-      return {
-        ...sku,
-        id: sku.id ?? randomUUID(),
-        cost: sku.cost ?? existing?.cost ?? 0,
-        existing,
-      };
-    });
-    const skuUpserts = preparedSkus.map((sku) => this.toProfitSafetySku(product, {
-      id: sku.id,
-      price: sku.price,
-      cost: sku.cost,
-      status: sku.existing?.status ?? 'ACTIVE',
-      vipGiftItems: sku.existing?.vipGiftItems ?? [],
-    }, {
-      active: product.status === 'ACTIVE' && (sku.existing?.status ?? 'ACTIVE') === 'ACTIVE',
-    }));
+    let preparedSkus: Array<any> = [];
 
-    const output = await this.profitSafety.withCandidateChange({
-      skuUpserts,
-      changeNote: `admin product ${productId} SKU economic update`,
-    }, async (tx) => {
-        // 校验传入带 id 的 SKU 必须属于该商品
-        const incomingIds = dto.skus.map((s) => s.id).filter((v): v is string => !!v);
-        if (incomingIds.length > 0) {
-          const existing = await tx.productSKU.findMany({
-            where: { id: { in: incomingIds }, productId },
-            select: { id: true },
-          });
-          if (existing.length !== incomingIds.length) {
-            throw new NotFoundException('存在不属于该商品的 SKU');
-          }
+    const output = await this.profitSafety.withCandidateChange(async (tx) => {
+      const product = await this.loadProfitSafetyProduct(tx, productId);
+      const existingById = new Map((product.skus ?? []).map((sku: any) => [sku.id, sku]));
+      for (const sku of dto.skus) {
+        if (sku.id && !existingById.has(sku.id)) {
+          throw new NotFoundException('存在不属于该商品的 SKU');
         }
+      }
+      preparedSkus = dto.skus.map((sku) => {
+        const existing: any = sku.id ? existingById.get(sku.id) : undefined;
+        return {
+          ...sku,
+          id: sku.id ?? randomUUID(),
+          cost: sku.cost ?? existing?.cost ?? 0,
+          existing,
+        };
+      });
+      return {
+        skuUpserts: preparedSkus.map((sku) => this.toProfitSafetySku(product, {
+          id: sku.id,
+          price: sku.price,
+          cost: sku.cost,
+          status: sku.existing?.status ?? 'ACTIVE',
+          vipGiftItems: sku.existing?.vipGiftItems ?? [],
+        }, {
+          active: product.status === 'ACTIVE'
+            && (sku.existing?.status ?? 'ACTIVE') === 'ACTIVE',
+        })),
+        changeNote: `admin product ${productId} SKU economic update`,
+      };
+    }, async (tx) => {
 
         for (const sku of preparedSkus) {
           if (sku.existing) {

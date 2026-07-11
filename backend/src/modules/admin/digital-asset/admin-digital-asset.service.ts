@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { validateCreditTiers } from '../../digital-asset/digital-asset-credit-calculator';
 import {
@@ -47,6 +48,7 @@ export class AdminDigitalAssetService {
   constructor(
     private prisma: PrismaService,
     private digitalAssetService: DigitalAssetService,
+    private profitSafetyService: ProfitSafetyService,
   ) {}
 
   async getOverview() {
@@ -286,7 +288,10 @@ export class AdminDigitalAssetService {
   async updateRules(dto: UpdateDigitalAssetRulesDto) {
     const tiers = this.normalizeCreditTiers(dto.tiers);
     const modules = this.normalizeSettings(dto.modules);
-    await this.prisma.$transaction(async (tx) => {
+    await this.profitSafetyService.withRuleConfigUpdates({
+      [DIGITAL_ASSET_CREDIT_TIERS_KEY]: { tiers },
+      [DIGITAL_ASSET_SETTINGS_KEY]: { modules },
+    }, async (tx) => {
       await tx.ruleConfig.upsert({
         where: { key: DIGITAL_ASSET_CREDIT_TIERS_KEY },
         update: { value: { tiers } },
@@ -297,7 +302,7 @@ export class AdminDigitalAssetService {
         update: { value: { modules } },
         create: { key: DIGITAL_ASSET_SETTINGS_KEY, value: { modules } },
       });
-    });
+    }, { changeNote: '更新数字资产规则' });
     return { tiers, modules };
   }
 

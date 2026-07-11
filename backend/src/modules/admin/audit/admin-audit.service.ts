@@ -11,12 +11,16 @@ import {
 } from '../../../common/logging/log-sanitizer';
 import { maskIp } from '../../../common/security/privacy-mask';
 import { ProfitSafetyService } from '../../profit/profit-safety.service';
+import type { ProfitSafetySku } from '../../profit/profit-safety-validator';
+import { BonusConfigService } from '../../bonus/engine/bonus-config.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AdminAuditService {
   constructor(
     private prisma: PrismaService,
     private readonly profitSafetyService: ProfitSafetyService,
+    private readonly bonusConfig: BonusConfigService,
   ) {}
 
   /** 审计日志列表 */
@@ -148,14 +152,75 @@ export class AdminAuditService {
         },
         createdByAdminId: adminUserId,
         changeNote: `审计回滚配置项 ${log.targetId}`,
-      }, async (tx) => {
+      }, async (tx, context) => {
+        this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
         await (tx as any).ruleConfig.update({
           where: { key: log.targetId },
           data: { value: historicalValue },
         });
         await this.writeRollbackAudit(tx, log, adminUserId, ip);
       });
+      this.bonusConfig.invalidateCache();
 
+      return { ok: true, message: '回滚成功' };
+    }
+
+    if (log.targetType === 'Product') {
+      const beforeData = log.before as Record<string, unknown>;
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...updateData } = beforeData;
+      await this.profitSafetyService.withCandidateChange(async (tx) => {
+        const product = await (tx as any).product.findUnique({
+          where: { id: log.targetId },
+          select: {
+            id: true,
+            companyId: true,
+            categoryId: true,
+            status: true,
+            company: { select: { isPlatform: true } },
+            lotteryPrizes: { select: { id: true }, take: 1 },
+            skus: {
+              select: {
+                id: true,
+                price: true,
+                cost: true,
+                status: true,
+                vipGiftItems: { select: { id: true }, take: 1 },
+              },
+            },
+          },
+        });
+        if (!product) throw new NotFoundException('商品不存在');
+        const targetStatus = typeof beforeData.status === 'string'
+          ? beforeData.status
+          : product.status;
+        const targetCategoryId = Object.prototype.hasOwnProperty.call(beforeData, 'categoryId')
+          ? (beforeData.categoryId as string | null)
+          : product.categoryId;
+        const skuUpserts: ProfitSafetySku[] = product.skus.map((sku: any) => ({
+          id: sku.id,
+          productId: product.id,
+          companyId: product.companyId,
+          categoryId: targetCategoryId,
+          price: Number(sku.price),
+          cost: sku.cost === null || sku.cost === undefined ? null : Number(sku.cost),
+          active: targetStatus === 'ACTIVE' && sku.status === 'ACTIVE',
+          ordinary: product.company?.isPlatform !== true
+            && (product.lotteryPrizes?.length ?? 0) === 0
+            && (sku.vipGiftItems?.length ?? 0) === 0,
+          vipDiscountEligible: product.company?.isPlatform !== true,
+        }));
+        return {
+          skuUpserts,
+          createdByAdminId: adminUserId,
+          changeNote: `审计回滚商品 ${log.targetId}`,
+        };
+      }, async (tx) => {
+        await (tx as any).product.update({
+          where: { id: log.targetId },
+          data: updateData,
+        });
+        await this.writeRollbackAudit(tx, log, adminUserId, ip);
+      });
       return { ok: true, message: '回滚成功' };
     }
 
@@ -172,6 +237,8 @@ export class AdminAuditService {
         data: updateData,
       });
       await this.writeRollbackAudit(tx, log, adminUserId, ip);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
 
     return { ok: true, message: '回滚成功' };
@@ -183,13 +250,14 @@ export class AdminAuditService {
     adminUserId: string,
     ip?: string,
   ) {
-    await tx.adminAuditLog.update({
-      where: { id: log.id },
+    const claimed = await tx.adminAuditLog.updateMany({
+      where: { id: log.id, rolledBackAt: null, isReversible: true },
       data: {
         rolledBackAt: new Date(),
         rolledBackByAdminId: adminUserId,
       },
     });
+    if (claimed.count !== 1) throw new BadRequestException('该操作已被回滚');
     await tx.adminAuditLog.create({
       data: {
         adminUserId,

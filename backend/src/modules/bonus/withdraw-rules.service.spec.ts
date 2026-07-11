@@ -1,11 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProfitSafetyService } from '../profit/profit-safety.service';
 import { WithdrawRulesService } from './withdraw-rules.service';
 
 describe('WithdrawRulesService', () => {
   let service: WithdrawRulesService;
   let prisma: any;
+  let profitSafetyService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -14,11 +16,17 @@ describe('WithdrawRulesService', () => {
         upsert: jest.fn(),
       },
     };
+    profitSafetyService = {
+      withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+        result: await write(prisma),
+      })),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         WithdrawRulesService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ProfitSafetyService, useValue: profitSafetyService },
       ],
     }).compile();
 
@@ -65,6 +73,11 @@ describe('WithdrawRulesService', () => {
 
     await service.updateRules({ withdrawTaxRate: 0.16, deductionAllowCouponStack: false });
 
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      { WITHDRAW_TAX_RATE: 0.16, DEDUCTION_ALLOW_COUPON_STACK: false },
+      expect.any(Function),
+      { changeNote: '更新提现规则' },
+    );
     expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { key: 'WITHDRAW_TAX_RATE' },
       create: expect.objectContaining({

@@ -8,6 +8,7 @@ describe('AdminInvoicesService invoice closure', () => {
   let provider: any;
   let providerFactory: any;
   let notificationService: any;
+  let profitSafetyService: any;
   let service: AdminInvoicesService;
 
   beforeEach(() => {
@@ -48,11 +49,17 @@ describe('AdminInvoicesService invoice closure', () => {
     notificationService = {
       emit: jest.fn().mockResolvedValue(undefined),
     };
+    profitSafetyService = {
+      withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+        result: await write(tx),
+      })),
+    };
     service = new AdminInvoicesService(
       prisma,
       providerFactory,
       { get: jest.fn().mockReturnValue(undefined) } as any,
       notificationService,
+      profitSafetyService,
     );
   });
 
@@ -108,7 +115,7 @@ describe('AdminInvoicesService invoice closure', () => {
   });
 
   it('upserts invoice settings using wrapped RuleConfig values', async () => {
-    prisma.ruleConfig.upsert.mockResolvedValue({});
+    tx.ruleConfig.upsert.mockResolvedValue({});
 
     await service.updateInvoiceSettings({
       allowVipPackage: true,
@@ -116,12 +123,17 @@ describe('AdminInvoicesService invoice closure', () => {
       issuerProfile: { companyName: '爱买买app', taxNo: '91440300MAEXAMPLE' },
     });
 
-    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith({
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({ INVOICE_ALLOW_VIP_PACKAGE: true, INVOICE_DEFAULT_TAX_RATE: 0.06 }),
+      expect.any(Function),
+      { changeNote: '更新发票设置' },
+    );
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'INVOICE_ALLOW_VIP_PACKAGE' },
       update: { value: { value: true, description: expect.any(String) } },
       create: { key: 'INVOICE_ALLOW_VIP_PACKAGE', value: { value: true, description: expect.any(String) } },
     });
-    expect(prisma.ruleConfig.upsert).toHaveBeenCalledWith({
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'INVOICE_DEFAULT_TAX_RATE' },
       update: { value: { value: 0.06, description: expect.any(String) } },
       create: { key: 'INVOICE_DEFAULT_TAX_RATE', value: { value: 0.06, description: expect.any(String) } },

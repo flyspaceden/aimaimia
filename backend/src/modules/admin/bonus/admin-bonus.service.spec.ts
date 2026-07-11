@@ -102,6 +102,7 @@ describe('AdminBonusService reward income totals', () => {
       notificationService as any,
       { get: jest.fn() } as any,
       { getConfig: jest.fn().mockResolvedValue({ vipMaxLayers: 6 }) } as any,
+      { withRuleConfigUpdates: jest.fn() } as any,
     );
     return { prisma, notificationService, service };
   };

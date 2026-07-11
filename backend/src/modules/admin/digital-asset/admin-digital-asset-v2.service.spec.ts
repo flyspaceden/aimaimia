@@ -40,8 +40,17 @@ describe('AdminDigitalAssetService V2', () => {
       getSummary: jest.fn(),
       listLedgers: jest.fn(),
     };
-    const service = new AdminDigitalAssetService(prisma as any, digitalAssetService as any);
-    return { service, prisma, tx, digitalAssetService };
+    const profitSafetyService = {
+      withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+        result: await write(tx),
+      })),
+    };
+    const service = new AdminDigitalAssetService(
+      prisma as any,
+      digitalAssetService as any,
+      profitSafetyService as any,
+    );
+    return { service, prisma, tx, digitalAssetService, profitSafetyService };
   };
 
   it('getRules returns credit tiers and module settings together', async () => {
@@ -156,7 +165,7 @@ describe('AdminDigitalAssetService V2', () => {
   });
 
   it('updateRules persists tiers and modules in one transaction', async () => {
-    const { service, prisma, tx } = makeService();
+    const { service, prisma, tx, profitSafetyService } = makeService();
     tx.ruleConfig.upsert
       .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_CREDIT_TIERS' })
       .mockResolvedValueOnce({ key: 'DIGITAL_ASSET_MODULE_SETTINGS' });
@@ -171,7 +180,14 @@ describe('AdminDigitalAssetService V2', () => {
       ],
     });
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        DIGITAL_ASSET_CREDIT_TIERS: expect.any(Object),
+        DIGITAL_ASSET_MODULE_SETTINGS: expect.any(Object),
+      }),
+      expect.any(Function),
+      { changeNote: '更新数字资产规则' },
+    );
     expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(2);
     expect(prisma.ruleConfig.upsert).not.toHaveBeenCalled();
     expect(result).toEqual({

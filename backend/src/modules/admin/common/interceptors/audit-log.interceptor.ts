@@ -34,7 +34,8 @@ export class AuditLogInterceptor implements NestInterceptor {
 
     const request = context.switchToHttp().getRequest();
     const admin = request.user;
-    const targetId = this.extractTargetId(request, meta.targetIdParam);
+    const targetId = meta.targetIdValue
+      ?? this.extractTargetId(request, meta.targetIdParam);
 
     // 捕获 before 快照（异步，不阻塞请求处理）
     let beforeSnapshot: any = null;

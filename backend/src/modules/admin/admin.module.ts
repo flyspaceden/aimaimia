@@ -31,6 +31,7 @@ import { AdminNotificationsModule } from './notifications/admin-notifications.mo
 import { AdminGrowthModule } from './growth/admin-growth.module';
 import { AdminAnnouncementsModule } from './announcements/admin-announcements.module';
 import { AdminCaptainModule } from './captain/admin-captain.module';
+import { AdminProfitReconciliationModule } from './profit-reconciliation/admin-profit-reconciliation.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { AdminCaptainModule } from './captain/admin-captain.module';
     AdminGrowthModule,
     AdminAnnouncementsModule,
     AdminCaptainModule,
+    AdminProfitReconciliationModule,
   ],
 })
 export class AdminModule {}

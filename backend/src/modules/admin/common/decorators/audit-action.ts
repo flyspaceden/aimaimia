@@ -9,6 +9,8 @@ export interface AuditActionMeta {
   targetType?: string;
   /** 从请求参数中提取 targetId 的路径，如 'params.id' */
   targetIdParam?: string;
+  /** 没有路由参数的固定配置键等目标 ID */
+  targetIdValue?: string;
   /** 该操作是否可回滚 */
   isReversible?: boolean;
 }

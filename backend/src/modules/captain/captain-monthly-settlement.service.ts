@@ -100,6 +100,10 @@ export class CaptainMonthlySettlementService {
     });
   }
 
+  async getReviewBlockReason(settlement: any): Promise<string | null> {
+    return this.findReviewBlockReason(this.prisma as unknown as Tx, settlement);
+  }
+
   async createDraftSettlements(
     month: string,
     captainUserId?: string,
@@ -123,6 +127,11 @@ export class CaptainMonthlySettlementService {
           CAPTAIN_SEAFOOD_PROGRAM_CODE,
         );
         if (context.attributions.length === 0) continue;
+        await this.assertNoPendingReconciliation(tx, {
+          captainUserId: id,
+          month,
+          configSnapshot: { schemaVersion: 3 },
+        });
 
         const existing = await (tx as any).captainMonthlySettlement.findUnique({
           where: {
@@ -397,8 +406,16 @@ export class CaptainMonthlySettlementService {
         profitSnapshot: {
           select: {
             fundingLedgers: {
-              where: { type: 'CAPTAIN_MONTHLY_HOLD' },
-              select: { id: true, type: true, amount: true },
+              where: {
+                type: {
+                  in: [
+                    'CAPTAIN_MONTHLY_HOLD',
+                    'CAPTAIN_MONTHLY_RELEASE',
+                    'REFUND_ADJUSTMENT',
+                  ],
+                },
+              },
+              select: { id: true, type: true, amount: true, sourceLedgerId: true },
             },
           },
         },
@@ -485,11 +502,18 @@ export class CaptainMonthlySettlementService {
       : '';
     if (!configVersion) throw new BadRequestException('团长 V3 订单缺少利润配置版本');
 
-    const profitBaseCents = this.toNonNegativeCents(
+    const originalProfitBaseCents = this.toNonNegativeCents(
       attribution.profitBaseAmount,
       '团长订单利润基数',
     );
-    const { cents: reservedCents, ledgerId: holdLedgerId } = this.monthlyReserve(attribution);
+    const {
+      cents: reservedCents,
+      originalCents: originalReservedCents,
+      ledgerId: holdLedgerId,
+    } = this.monthlyReserve(attribution);
+    const profitBaseCents = originalReservedCents > 0
+      ? this.scaleCents(originalProfitBaseCents, reservedCents, originalReservedCents)
+      : originalProfitBaseCents;
     if (profitBaseCents === 0 && reservedCents !== 0) {
       throw new BadRequestException('零利润团长订单不应存在月度预留');
     }
@@ -521,19 +545,45 @@ export class CaptainMonthlySettlementService {
     };
   }
 
-  private monthlyReserve(attribution: any): { cents: number; ledgerId: string | null } {
+  private monthlyReserve(attribution: any): {
+    cents: number;
+    originalCents: number;
+    ledgerId: string | null;
+  } {
     const ledgers = attribution.profitSnapshot?.fundingLedgers ?? [];
-    const hold = ledgers.find((item: any) => item.type === 'CAPTAIN_MONTHLY_HOLD');
-    if (hold) {
-      const signedCents = this.toSignedCents(hold.amount, '团长月度预留流水');
-      if (signedCents > 0) throw new BadRequestException('团长月度预留流水方向错误');
-      return { cents: Math.abs(signedCents), ledgerId: hold.id ?? null };
+    const holds = ledgers.filter((item: any) => item.type === 'CAPTAIN_MONTHLY_HOLD');
+    if (holds.length > 0) {
+      let signedCents = 0;
+      let originalSignedCents = 0;
+      for (const hold of holds) {
+        const holdCents = this.toSignedCents(hold.amount, '团长月度预留流水');
+        signedCents += holdCents;
+        originalSignedCents += holdCents;
+        for (const adjustment of ledgers.filter((item: any) => (
+          item.type === 'REFUND_ADJUSTMENT' && item.sourceLedgerId === hold.id
+        ))) {
+          signedCents += this.toSignedCents(adjustment.amount, '团长月度预留退款调整');
+        }
+        if (!Number.isSafeInteger(signedCents) || !Number.isSafeInteger(originalSignedCents)) {
+          throw new BadRequestException('团长月度预留净额超出安全范围');
+        }
+      }
+      if (signedCents > 0 || originalSignedCents > 0) {
+        throw new BadRequestException('团长月度预留流水方向错误');
+      }
+      return {
+        cents: Math.abs(signedCents),
+        originalCents: Math.abs(originalSignedCents),
+        ledgerId: holds[0].id ?? null,
+      };
     }
+    const fallbackCents = this.toNonNegativeCents(
+      attribution.meta?.monthlyMaximum ?? 0,
+      '团长月度预留上限',
+    );
     return {
-      cents: this.toNonNegativeCents(
-        attribution.meta?.monthlyMaximum ?? 0,
-        '团长月度预留上限',
-      ),
+      cents: fallbackCents,
+      originalCents: fallbackCents,
       ledgerId: null,
     };
   }
@@ -738,7 +788,23 @@ export class CaptainMonthlySettlementService {
       select: { id: true },
     });
     if (!existing && result.releasedCents === 0) return;
-    const amount = this.fromCents(result.releasedCents);
+    const ledgers = result.attribution.profitSnapshot?.fundingLedgers ?? [];
+    const releaseAdjustmentCents = existing
+      ? ledgers
+          .filter((ledger: any) => (
+            ledger.type === 'REFUND_ADJUSTMENT' && ledger.sourceLedgerId === existing.id
+          ))
+          .reduce(
+            (sum: number, ledger: any) => sum
+              + this.toSignedCents(ledger.amount, '团长月度释放退款调整'),
+            0,
+          )
+      : 0;
+    const sourceReleaseCents = result.releasedCents - releaseAdjustmentCents;
+    if (!Number.isSafeInteger(sourceReleaseCents) || sourceReleaseCents < 0) {
+      throw new BadRequestException('团长月度释放源金额无效');
+    }
+    const amount = this.fromCents(sourceReleaseCents);
     const data = {
       amount,
       configVersion: result.configVersion,
@@ -766,7 +832,12 @@ export class CaptainMonthlySettlementService {
   }
 
   private async assertNoPendingReconciliation(tx: Tx, settlement: any): Promise<void> {
-    if (!this.isV3Settlement(settlement)) return;
+    const reason = await this.findReviewBlockReason(tx, settlement);
+    if (reason) throw new BadRequestException(reason);
+  }
+
+  private async findReviewBlockReason(tx: Tx, settlement: any): Promise<string | null> {
+    if (!this.isV3Settlement(settlement)) return null;
     const { start, end } = this.monthRange(settlement.month);
     const where: Prisma.OrderProfitReconciliationTaskWhereInput = {
       status: 'PENDING',
@@ -785,8 +856,27 @@ export class CaptainMonthlySettlementService {
       select: { id: true },
     });
     if (pending) {
-      throw new BadRequestException('结算订单存在未解决的利润对账任务，不可审核或支付');
+      return '结算订单存在未解决的利润对账任务，不可审核或支付';
     }
+    const pendingAdjustment = await (tx as any).orderProfitAdjustmentDraft.findFirst({
+      where: {
+        status: 'PENDING',
+        order: {
+          paidAt: { gte: start, lt: end },
+        },
+        targetSnapshot: {
+          ruleSnapshot: {
+            path: ['captain', 'directCaptainUserId'],
+            equals: settlement.captainUserId,
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (pendingAdjustment) {
+      return '结算订单存在待审批的利润补差，不可审核或支付';
+    }
+    return null;
   }
 
   private async assertDraftCurrent(tx: Tx, settlement: any): Promise<void> {
@@ -842,7 +932,6 @@ export class CaptainMonthlySettlementService {
     ];
     for (const entry of entries) {
       const amountCents = this.toNonNegativeCents(entry.amount, '团长月度奖励金额');
-      if (amountCents === 0) continue;
       await this.createMonthlyLedger(tx, settlement, {
         userId: settlement.captainUserId,
         type: entry.type,
@@ -860,9 +949,13 @@ export class CaptainMonthlySettlementService {
     const idempotencyKey = `captain:month:${settlement.month}:${entry.userId}:${entry.keySuffix}`;
     const existing = await (tx as any).captainCommissionLedger.findUnique?.({
       where: { idempotencyKey },
-      select: { id: true },
+      select: { id: true, accountId: true, amount: true, status: true, meta: true },
     });
-    if (existing) return;
+    if (existing) {
+      await this.reviseMonthlyLedger(tx, existing, entry.amount);
+      return;
+    }
+    if (entry.amount === 0) return;
     const account = await (tx as any).captainAccount.upsert({
       where: {
         userId_programCode: {
@@ -906,6 +999,91 @@ export class CaptainMonthlySettlementService {
     });
   }
 
+  private async reviseMonthlyLedger(
+    tx: Tx,
+    existing: any,
+    targetAmount: number,
+  ): Promise<void> {
+    if (!['AVAILABLE', 'CLAWBACK_PENDING', 'VOIDED'].includes(existing.status)) {
+      throw new BadRequestException('已支付的团长月奖流水不可修订');
+    }
+    const beforeCents = this.toNonNegativeCents(existing.amount, '团长月奖原金额');
+    const targetCents = this.toNonNegativeCents(targetAmount, '团长月奖目标金额');
+    const deltaCents = targetCents - beforeCents;
+    if (deltaCents === 0) return;
+    const trackedClawbackCents = existing.status === 'CLAWBACK_PENDING'
+      ? Number(existing.meta?.monthlyClawbackCents)
+      : 0;
+    if (
+      !Number.isSafeInteger(trackedClawbackCents)
+      || trackedClawbackCents < 0
+      || (existing.status === 'CLAWBACK_PENDING' && trackedClawbackCents === 0)
+    ) {
+      throw new BadRequestException('团长月奖待追缴流水缺少可归属的 clawback 金额');
+    }
+
+    const account = await (tx as any).captainAccount.findUnique({
+      where: { id: existing.accountId },
+      select: { id: true, balance: true, clawback: true },
+    });
+    if (!account) throw new BadRequestException('团长月奖账户不存在');
+    const currentBalanceCents = this.toNonNegativeCents(account.balance, '团长账户余额');
+    let nextBalanceCents = currentBalanceCents;
+    const accountData: Record<string, unknown> = {};
+    let clawbackCents = trackedClawbackCents;
+    if (deltaCents > 0) {
+      const accountClawbackCents = this.toNonNegativeCents(
+        account.clawback ?? 0,
+        '团长账户待追缴金额',
+      );
+      const repaidCents = Math.min(deltaCents, trackedClawbackCents);
+      if (accountClawbackCents < repaidCents) {
+        throw new BadRequestException('团长月奖流水与账户 clawback 不一致');
+      }
+      const creditedCents = deltaCents - repaidCents;
+      clawbackCents -= repaidCents;
+      if (repaidCents > 0) {
+        accountData.clawback = { decrement: this.fromCents(repaidCents) };
+      }
+      if (creditedCents > 0) {
+        accountData.balance = { increment: this.fromCents(creditedCents) };
+        nextBalanceCents += creditedCents;
+      }
+    } else {
+      const requestedCents = Math.abs(deltaCents);
+      const recoveredCents = Math.min(currentBalanceCents, requestedCents);
+      const addedClawbackCents = requestedCents - recoveredCents;
+      clawbackCents += addedClawbackCents;
+      if (recoveredCents > 0) {
+        accountData.balance = { decrement: this.fromCents(recoveredCents) };
+        nextBalanceCents -= recoveredCents;
+      }
+      if (addedClawbackCents > 0) {
+        accountData.clawback = { increment: this.fromCents(addedClawbackCents) };
+      }
+    }
+    await (tx as any).captainCommissionLedger.update({
+      where: { id: existing.id },
+      data: {
+        amount: targetAmount,
+        balanceAfter: this.fromCents(nextBalanceCents),
+        status: clawbackCents > 0
+          ? 'CLAWBACK_PENDING'
+          : targetCents === 0 ? 'VOIDED' : 'AVAILABLE',
+        meta: {
+          ...(existing.meta ?? {}),
+          monthlyClawbackCents: clawbackCents,
+        },
+      },
+    });
+    if (Object.keys(accountData).length > 0) {
+      await (tx as any).captainAccount.update({
+        where: { id: existing.accountId },
+        data: accountData,
+      });
+    }
+  }
+
   private isV3Settlement(settlement: any): boolean {
     return settlement?.configSnapshot?.schemaVersion === 3
       || settlement?.meta?.calculationModel === 'PROFIT_V3_ORDER_SNAPSHOT';
@@ -943,6 +1121,20 @@ export class CaptainMonthlySettlementService {
     const amount = Math.round(baseCents * rate);
     this.assertSafeCents(amount, '团长月度奖励计算结果');
     return amount;
+  }
+
+  private scaleCents(amountCents: number, numerator: number, denominator: number): number {
+    if (amountCents === 0 || numerator === 0) return 0;
+    if (denominator <= 0 || numerator > denominator) {
+      throw new BadRequestException('团长订单剩余利润比例无效');
+    }
+    const scaled = BigInt(amountCents) * BigInt(numerator);
+    const divisor = BigInt(denominator);
+    const result = (scaled * 2n + divisor) / (2n * divisor);
+    if (result > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new BadRequestException('团长订单利润基数超出安全范围');
+    }
+    return Number(result);
   }
 
   private toNonNegativeCents(value: unknown, label: string): number {

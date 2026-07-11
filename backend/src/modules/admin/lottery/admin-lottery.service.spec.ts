@@ -27,7 +27,11 @@ describe('AdminLotteryService no-prize display counts', () => {
 
     return {
       prisma,
-      service: new AdminLotteryService(prisma as any, { invalidateCache: jest.fn() } as any),
+      service: new AdminLotteryService(
+        prisma as any,
+        { invalidateCache: jest.fn() } as any,
+        { withRuleConfigUpdates: jest.fn() } as any,
+      ),
     };
   };
 
@@ -79,7 +83,11 @@ describe('AdminLotteryService no-prize display counts', () => {
         ]),
       },
     };
-    const service = new AdminLotteryService(prisma as any, { invalidateCache: jest.fn() } as any);
+    const service = new AdminLotteryService(
+      prisma as any,
+      { invalidateCache: jest.fn() } as any,
+      { withRuleConfigUpdates: jest.fn() } as any,
+    );
 
     const stats = await service.getStats();
 

@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import { maskPhone } from '../../../common/security/privacy-mask';
 import { resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
 import {
@@ -63,7 +64,10 @@ const ALLOWED_BEHAVIOR_CODES = new Set([
 export class AdminGrowthService {
   private readonly levelService = new GrowthLevelService();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly profitSafetyService: ProfitSafetyService,
+  ) {}
 
   async getDashboard() {
     const today = new Date();
@@ -180,7 +184,9 @@ export class AdminGrowthService {
       throw new BadRequestException('没有可保存的成长设置');
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.profitSafetyService.withRuleConfigUpdates(
+      Object.fromEntries(updates.map((update) => [update.key, update.value])),
+      async (tx) => {
       for (const update of updates) {
         await (tx as any).ruleConfig.upsert({
           where: { key: update.key },
@@ -188,7 +194,9 @@ export class AdminGrowthService {
           update: { value: update.value },
         });
       }
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      },
+      { changeNote: '更新成长设置' },
+    );
 
     return this.getSettings();
   }

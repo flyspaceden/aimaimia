@@ -4,8 +4,21 @@ import { ProductBundleService } from '../../product/product-bundle.service';
 import { SellerProductsService } from './seller-products.service';
 
 const passthroughProfitSafety = (prisma: any) => ({
-  withCandidateChange: jest.fn(async (_change: unknown, write: (tx: any) => Promise<unknown>) => ({
-    result: await prisma.$transaction(write, {
+  withCandidateChange: jest.fn(async (
+    changeOrFactory: any,
+    write: (tx: any, context?: any) => Promise<unknown>,
+  ) => ({
+    result: await prisma.$transaction(async (tx: any) => {
+      tx.ruleConfig ??= {
+        findUnique: jest.fn().mockResolvedValue({ value: { value: 1.3 } }),
+      };
+      if (typeof changeOrFactory === 'function') await changeOrFactory(tx);
+      return write(tx, {
+        candidateSnapshot: { MARKUP_RATE: 1.3 },
+        candidateSkus: [],
+        summary: { safe: true },
+      });
+    }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     }),
   })),
@@ -1102,6 +1115,20 @@ describe('SellerProductsService SKU weight validation', () => {
         }),
       },
       product: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'product_1',
+          companyId: 'company_1',
+          categoryId: 'category_1',
+          status: 'INACTIVE',
+          auditStatus: 'PENDING',
+          type: 'SIMPLE',
+          company: { isPlatform: false },
+          lotteryPrizes: [],
+          skus: [
+            { id: 'sku_keep', price: 13, cost: 10, status: 'ACTIVE', vipGiftItems: [] },
+            { id: 'sku_remove', price: 15, cost: 11, status: 'ACTIVE', vipGiftItems: [] },
+          ],
+        }),
         update: jest.fn(),
       },
     };
@@ -1256,6 +1283,33 @@ describe('SellerProductsService SKU weight validation', () => {
 
   it('update atomically updates BUNDLE bundleItems and the single selling SKU', async () => {
     const { service, prisma, tx } = buildBundleUpdateSkusService();
+    const returnedProduct = {
+      id: 'bundle_1',
+      companyId: 'company_1',
+      status: 'INACTIVE',
+      auditStatus: 'APPROVED',
+      type: 'BUNDLE',
+      company: { isPlatform: false },
+      lotteryPrizes: [],
+      skus: [],
+      media: [],
+      tags: [],
+      category: null,
+      bundleItems: [
+        {
+          skuId: 'component_sku_1',
+          quantity: 1,
+          sortOrder: 0,
+          sku: { id: 'component_sku_1', price: 12, stock: 9, weightGram: 500, product: { media: [] } },
+        },
+        {
+          skuId: 'component_sku_2',
+          quantity: 2,
+          sortOrder: 1,
+          sku: { id: 'component_sku_2', price: 8, stock: 5, weightGram: 300, product: { media: [] } },
+        },
+      ],
+    };
     (prisma.product.findUnique as jest.Mock)
       .mockResolvedValueOnce({
         id: 'bundle_1',
@@ -1264,29 +1318,8 @@ describe('SellerProductsService SKU weight validation', () => {
         auditStatus: 'APPROVED',
         type: 'BUNDLE',
       })
-      .mockResolvedValueOnce({
-        id: 'bundle_1',
-        companyId: 'company_1',
-        type: 'BUNDLE',
-        skus: [],
-        media: [],
-        tags: [],
-        category: null,
-        bundleItems: [
-          {
-            skuId: 'component_sku_1',
-            quantity: 1,
-            sortOrder: 0,
-            sku: { id: 'component_sku_1', price: 12, stock: 9, weightGram: 500, product: { media: [] } },
-          },
-          {
-            skuId: 'component_sku_2',
-            quantity: 2,
-            sortOrder: 1,
-            sku: { id: 'component_sku_2', price: 8, stock: 5, weightGram: 300, product: { media: [] } },
-          },
-        ],
-      });
+      .mockResolvedValueOnce(returnedProduct)
+      .mockResolvedValueOnce(returnedProduct);
 
     await service.update('company_1', 'bundle_1', {
       title: '新水果礼盒',

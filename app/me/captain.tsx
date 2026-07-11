@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -9,11 +9,12 @@ import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { CaptainRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { compactActionTextProps, priceTextProps, useTheme } from '../../src/theme';
+import { compactActionTextProps, fitTextProps, priceTextProps, useTheme } from '../../src/theme';
 import type { CaptainLedger, CaptainOrderProgress } from '../../src/types';
 
 const money = (value?: number | null) => `¥${Number(value ?? 0).toFixed(2)}`;
 const percent = (value?: number | null) => `${(Number(value ?? 0) * 100).toFixed(1)}%`;
+const PAGE_SIZE = 8;
 
 const ledgerTypeLabel: Record<string, string> = {
   DIRECT_ORDER: '逐单利润奖励',
@@ -45,14 +46,34 @@ export default function CaptainCenterPage() {
     queryFn: () => CaptainRepo.getMyCaptainProfile(),
     enabled: isLoggedIn,
   });
-  const ledgerQuery = useQuery({
+  const ledgerQuery = useInfiniteQuery({
     queryKey: ['captain-me-ledgers'],
-    queryFn: () => CaptainRepo.getMyLedgers(1, 8),
+    queryFn: async ({ pageParam }) => {
+      const result = await CaptainRepo.getMyLedgers(pageParam, PAGE_SIZE);
+      if (!result.ok) throw result.error;
+      return result.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const page = lastPage.page ?? 1;
+      const pageSize = lastPage.pageSize ?? PAGE_SIZE;
+      return page * pageSize < (lastPage.total ?? 0) ? page + 1 : undefined;
+    },
     enabled: isLoggedIn,
   });
-  const orderQuery = useQuery({
+  const orderQuery = useInfiniteQuery({
     queryKey: ['captain-me-orders'],
-    queryFn: () => CaptainRepo.getMyOrders(1, 8),
+    queryFn: async ({ pageParam }) => {
+      const result = await CaptainRepo.getMyOrders(pageParam, PAGE_SIZE);
+      if (!result.ok) throw result.error;
+      return result.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const page = lastPage.page ?? 1;
+      const pageSize = lastPage.pageSize ?? PAGE_SIZE;
+      return page * pageSize < (lastPage.total ?? 0) ? page + 1 : undefined;
+    },
     enabled: isLoggedIn,
   });
 
@@ -60,8 +81,8 @@ export default function CaptainCenterPage() {
   const profile = data?.profile ?? null;
   const account = data?.account ?? null;
   const metric = data?.metric ?? null;
-  const ledgers = ledgerQuery.data?.ok ? ledgerQuery.data.data.items : [];
-  const orders = orderQuery.data?.ok ? orderQuery.data.data.items : [];
+  const ledgers = ledgerQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const orders = orderQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const captainCode = profile?.captainCode ?? '';
   const shareLink = captainCode ? `https://app.ai-maimai.com/c/${captainCode}` : '';
 
@@ -106,6 +127,22 @@ export default function CaptainCenterPage() {
     );
   }
 
+  if (profileQuery.isError || profileQuery.data?.ok === false) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="团长经营" />
+        <View style={{ padding: spacing.xl }}>
+          <ErrorState
+            title="团长信息加载失败"
+            description="请检查网络后重试"
+            onAction={() => profileQuery.refetch()}
+            actionLabel="重新加载"
+          />
+        </View>
+      </Screen>
+    );
+  }
+
   if (!data?.isCaptain || !profile) {
     return (
       <Screen contentStyle={{ flex: 1 }}>
@@ -133,7 +170,7 @@ export default function CaptainCenterPage() {
           style={[styles.heroCard, { borderRadius: radius.xl }, shadow.lg]}
         >
           <View style={styles.heroTop}>
-            <View>
+            <View style={styles.heroValueColumn}>
               <Text style={[typography.caption, styles.heroCaption]}>团长经营奖励</Text>
               <Text {...priceTextProps} style={styles.heroAmount}>{money((account?.balance ?? 0) + (account?.frozen ?? 0))}</Text>
             </View>
@@ -142,7 +179,7 @@ export default function CaptainCenterPage() {
             </View>
           </View>
           <View style={styles.codeRow}>
-            <Text style={styles.codeText}>{captainCode}</Text>
+            <Text {...fitTextProps} style={styles.codeText}>{captainCode}</Text>
             <Pressable onPress={copyCode} hitSlop={10}>
               <MaterialCommunityIcons name="content-copy" size={18} color="#FFFFFF" />
             </Pressable>
@@ -181,6 +218,11 @@ export default function CaptainCenterPage() {
           title="订单进度"
           items={orders}
           emptyText="暂无经营订单"
+          error={orderQuery.isError}
+          onRetry={() => orderQuery.refetch()}
+          hasMore={orderQuery.hasNextPage}
+          loadingMore={orderQuery.isFetchingNextPage}
+          onLoadMore={() => orderQuery.fetchNextPage()}
           renderItem={(item) => (
             <View key={item.id} style={styles.listRow}>
               <View style={{ flex: 1 }}>
@@ -199,7 +241,7 @@ export default function CaptainCenterPage() {
               {item.buyerUserId !== profile.userId ? (
                 <View style={styles.rewardAmount}>
                   <Text style={[typography.caption, { color: colors.text.secondary }]}>逐单利润奖励</Text>
-                  <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+                  <Text {...priceTextProps} style={[typography.bodyStrong, { color: colors.brand.primary }]}>
                     {money((item.calculationModel === 'PROFIT_V3'
                       ? item.profitBaseAmount ?? item.commissionBase
                       : item.commissionBase) * item.directRate)}
@@ -214,6 +256,11 @@ export default function CaptainCenterPage() {
           title="奖励明细"
           items={ledgers}
           emptyText="暂无经营奖励流水"
+          error={ledgerQuery.isError}
+          onRetry={() => ledgerQuery.refetch()}
+          hasMore={ledgerQuery.hasNextPage}
+          loadingMore={ledgerQuery.isFetchingNextPage}
+          onLoadMore={() => ledgerQuery.fetchNextPage()}
           renderItem={(item) => (
             <View key={item.id} style={styles.listRow}>
               <View style={{ flex: 1 }}>
@@ -229,7 +276,7 @@ export default function CaptainCenterPage() {
                     <Text style={[typography.caption, styles.legacyBadge]}>历史销售额规则</Text>
                   ) : null}
               </View>
-              <Text style={[typography.bodyStrong, { color: item.amount < 0 ? colors.danger : colors.brand.primary }]}>
+              <Text {...priceTextProps} style={[typography.bodyStrong, styles.ledgerAmount, { color: item.amount < 0 ? colors.danger : colors.brand.primary }]}>
                 {money(item.amount)}
               </Text>
             </View>
@@ -245,7 +292,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <View style={[styles.statCard, { backgroundColor: colors.surface, borderRadius: radius.lg }, shadow.sm]}>
       <Text style={[typography.caption, { color: colors.text.secondary }]}>{label}</Text>
-      <Text style={[typography.headingSm, { color: colors.text.primary, marginTop: 6 }]}>{value}</Text>
+      <Text {...priceTextProps} style={[typography.headingSm, { color: colors.text.primary, marginTop: 6 }]}>{value}</Text>
     </View>
   );
 }
@@ -254,8 +301,8 @@ function ProgressRow({ label, value }: { label: string; value: string }) {
   const { colors, typography } = useTheme();
   return (
     <View style={styles.progressRow}>
-      <Text style={[typography.bodySm, { color: colors.text.secondary }]}>{label}</Text>
-      <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{value}</Text>
+      <Text {...fitTextProps} style={[typography.bodySm, styles.progressLabel, { color: colors.text.secondary }]}>{label}</Text>
+      <Text {...fitTextProps} style={[typography.bodyStrong, styles.progressValue, { color: colors.text.primary }]}>{value}</Text>
     </View>
   );
 }
@@ -265,19 +312,47 @@ function ListSection<T>({
   items,
   emptyText,
   renderItem,
+  error,
+  onRetry,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   title: string;
   items: T[];
   emptyText: string;
   renderItem: (item: T) => React.ReactNode;
+  error?: boolean;
+  onRetry?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const { colors, radius, shadow, typography } = useTheme();
   return (
     <View style={[styles.section, { backgroundColor: colors.surface, borderRadius: radius.lg }, shadow.sm]}>
       <Text style={[typography.headingSm, { color: colors.text.primary, marginBottom: 10 }]}>{title}</Text>
-      {items.length > 0 ? items.map(renderItem) : (
+      {error ? (
+        <ErrorState
+          title={`${title}加载失败`}
+          description="请检查网络后重试"
+          onAction={onRetry}
+          actionLabel="重新加载"
+        />
+      ) : items.length > 0 ? items.map(renderItem) : (
         <Text style={[typography.caption, { color: colors.text.secondary }]}>{emptyText}</Text>
       )}
+      {!error && hasMore ? (
+        <Pressable
+          disabled={loadingMore}
+          onPress={onLoadMore}
+          style={[styles.loadMoreButton, { borderColor: colors.border }]}
+        >
+          <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+            {loadingMore ? '加载中...' : '加载更多'}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -294,6 +369,11 @@ const styles = StyleSheet.create({
   },
   heroCaption: {
     color: 'rgba(255,255,255,0.76)',
+  },
+  heroValueColumn: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
   },
   heroAmount: {
     color: '#FFFFFF',
@@ -315,6 +395,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   codeText: {
+    flex: 1,
+    minWidth: 0,
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
@@ -359,6 +441,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  progressLabel: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
+  },
+  progressValue: {
+    maxWidth: '42%',
+  },
   listRow: {
     paddingVertical: 10,
     flexDirection: 'row',
@@ -366,6 +456,11 @@ const styles = StyleSheet.create({
   },
   rewardAmount: {
     alignItems: 'flex-end',
+    marginLeft: 12,
+    maxWidth: '40%',
+  },
+  ledgerAmount: {
+    maxWidth: '40%',
     marginLeft: 12,
   },
   legacyBadge: {
@@ -376,5 +471,17 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     marginTop: 4,
+  },
+  loadMoreButton: {
+    alignSelf: 'center',
+    marginTop: 12,
+    minWidth: 120,
+    minHeight: 42,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

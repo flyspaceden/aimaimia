@@ -26,6 +26,7 @@ describe('AdminProductsService profit safety lock', () => {
     };
     const tx = {
       product: {
+        findUnique: jest.fn().mockResolvedValue(product),
         update: jest.fn().mockResolvedValue({ ...product, attributes: null }),
       },
       productSKU: {
@@ -59,18 +60,22 @@ describe('AdminProductsService profit safety lock', () => {
       profitSafety,
     ) as AdminProductsService;
 
-    return { service, prisma, tx, profitSafety };
+    return { service, prisma, tx, profitSafety, product };
   }
 
   it('rejects an unsafe active product category change before any business write', async () => {
     const { service, prisma, tx, profitSafety } = buildHarness();
+    let change: any;
+    profitSafety.withCandidateChange.mockImplementationOnce(async (changeFactory: any) => {
+      change = await changeFactory(tx);
+      throw unsafe;
+    });
 
     await expect(service.update('product-1', { categoryId: 'category-new' }))
       .rejects.toBe(unsafe);
 
-    expect(profitSafety.withCandidateChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skuUpserts: [expect.objectContaining({
+    expect(change).toEqual(expect.objectContaining({
+      skuUpserts: [expect.objectContaining({
           id: 'sku-1',
           productId: 'product-1',
           companyId: 'company-1',
@@ -80,10 +85,8 @@ describe('AdminProductsService profit safety lock', () => {
           active: true,
           ordinary: true,
           vipDiscountEligible: true,
-        })],
-      }),
-      expect.any(Function),
-    );
+      })],
+    }));
     expect(prisma.product.update).not.toHaveBeenCalled();
     expect(tx.product.update).not.toHaveBeenCalled();
   });
@@ -93,21 +96,28 @@ describe('AdminProductsService profit safety lock', () => {
     ['audit approval', (service: AdminProductsService) => service.audit('product-1', 'APPROVED')],
   ])('rejects unsafe %s activation before writing', async (_label, invoke) => {
     const { service, prisma, tx, profitSafety } = buildHarness();
+    let change: any;
+    profitSafety.withCandidateChange.mockImplementationOnce(async (changeFactory: any) => {
+      change = await changeFactory(tx);
+      throw unsafe;
+    });
 
     await expect(invoke(service)).rejects.toBe(unsafe);
 
-    expect(profitSafety.withCandidateChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skuUpserts: [expect.objectContaining({ id: 'sku-1', active: true })],
-      }),
-      expect.any(Function),
-    );
+    expect(change).toEqual(expect.objectContaining({
+      skuUpserts: [expect.objectContaining({ id: 'sku-1', active: true })],
+    }));
     expect(prisma.product.update).not.toHaveBeenCalled();
     expect(tx.product.update).not.toHaveBeenCalled();
   });
 
   it('validates the exact merged active SKU prices and costs before admin SKU upserts', async () => {
     const { service, tx, profitSafety } = buildHarness();
+    let change: any;
+    profitSafety.withCandidateChange.mockImplementationOnce(async (changeFactory: any) => {
+      change = await changeFactory(tx);
+      throw unsafe;
+    });
 
     await expect(service.updateSkus('product-1', {
       skus: [
@@ -116,7 +126,6 @@ describe('AdminProductsService profit safety lock', () => {
       ],
     })).rejects.toBe(unsafe);
 
-    const change = profitSafety.withCandidateChange.mock.calls[0][0];
     expect(change.skuUpserts).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'sku-1',
@@ -136,5 +145,72 @@ describe('AdminProductsService profit safety lock', () => {
     expect(tx.productSKU.update).not.toHaveBeenCalled();
     expect(tx.productSKU.create).not.toHaveBeenCalled();
     expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds an activation candidate under the lock after a concurrent SKU economic change', async () => {
+    const { service, tx, profitSafety, product } = buildHarness();
+    const initiallyInactive = { ...product, status: 'INACTIVE' };
+    const lockedProduct = {
+      ...initiallyInactive,
+      skus: [{ ...product.skus[0], price: 101, cost: 100 }],
+    };
+    (service as any).prisma.product.findUnique.mockResolvedValue(initiallyInactive);
+    tx.product.findUnique.mockResolvedValue(lockedProduct);
+    let lockedChange: any;
+    profitSafety.withCandidateChange.mockImplementation(async (changeOrFactory: any, write: any) => {
+      lockedChange = typeof changeOrFactory === 'function'
+        ? await changeOrFactory(tx)
+        : changeOrFactory;
+      return {
+        result: await write(tx, {
+          candidateSnapshot: { MARKUP_RATE: 1.35 },
+          candidateSkus: lockedChange.skuUpserts,
+          summary: { safe: true },
+        }),
+      };
+    });
+
+    await service.toggleStatus('product-1', 'ACTIVE');
+
+    expect(lockedChange.skuUpserts).toEqual([
+      expect.objectContaining({ id: 'sku-1', price: 101, cost: 100, active: true }),
+    ]);
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 'product-1' },
+      data: { status: 'ACTIVE' },
+    });
+  });
+
+  it('uses the locked ACTIVE status when validating and executing an admin SKU update', async () => {
+    const { service, tx, profitSafety, product } = buildHarness();
+    const initiallyInactive = { ...product, status: 'INACTIVE' };
+    const lockedProduct = { ...product, status: 'ACTIVE' };
+    (service as any).prisma.product.findUnique.mockResolvedValue(initiallyInactive);
+    tx.product.findUnique.mockResolvedValue(lockedProduct);
+    let lockedChange: any;
+    profitSafety.withCandidateChange.mockImplementation(async (changeOrFactory: any, write: any) => {
+      lockedChange = typeof changeOrFactory === 'function'
+        ? await changeOrFactory(tx)
+        : changeOrFactory;
+      return {
+        result: await write(tx, {
+          candidateSnapshot: { MARKUP_RATE: 1.35 },
+          candidateSkus: lockedChange.skuUpserts,
+          summary: { safe: true },
+        }),
+      };
+    });
+
+    await service.updateSkus('product-1', {
+      skus: [{ id: 'sku-1', price: 102, cost: 100, stock: 8, weightGram: 500 }],
+    });
+
+    expect(lockedChange.skuUpserts).toEqual([
+      expect.objectContaining({ id: 'sku-1', price: 102, cost: 100, active: true }),
+    ]);
+    expect(tx.productSKU.update).toHaveBeenCalledWith({
+      where: { id: 'sku-1' },
+      data: expect.objectContaining({ price: 102, cost: 100 }),
+    });
   });
 });

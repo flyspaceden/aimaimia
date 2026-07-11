@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { Public } from '../../../common/decorators/public.decorator';
+import { CAPTAIN_SEAFOOD_CONFIG_KEY } from '../../captain/captain.constants';
 import { AuditLog } from '../common/decorators/audit-action';
 import { CurrentAdmin } from '../common/decorators/current-admin';
 import { RequirePermission } from '../common/decorators/require-permission';
@@ -206,7 +207,13 @@ export class AdminCaptainController {
 
   @Put('settings')
   @RequirePermission('captain:settings')
-  @AuditLog({ action: 'CONFIG_CHANGE', module: 'captain', targetType: 'RuleConfig', isReversible: true })
+  @AuditLog({
+    action: 'CONFIG_CHANGE',
+    module: 'captain',
+    targetType: 'RuleConfig',
+    targetIdValue: CAPTAIN_SEAFOOD_CONFIG_KEY,
+    isReversible: true,
+  })
   updateSettings(@Body() dto: UpdateCaptainSettingsDto, @CurrentAdmin('sub') adminUserId: string) {
     return this.captainService.updateSettings(dto.value, adminUserId);
   }

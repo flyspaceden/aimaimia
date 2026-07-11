@@ -90,7 +90,7 @@ export const markCaptainSettlementPaid = (id: string): Promise<CaptainMonthlySet
 export const recalculateCaptainSettlement = (id: string): Promise<CaptainMonthlySettlement> =>
   client.post(`/admin/captain/settlements/${id}/recalculate`);
 
-export const getCaptainSettings = (): Promise<CaptainSeafoodConfig> =>
+export const getCaptainSettings = (): Promise<CaptainSeafoodConfig | Record<string, unknown>> =>
   client.get('/admin/captain/settings');
 
 export const updateCaptainSettings = (

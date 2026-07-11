@@ -142,5 +142,5 @@ export class GenerateCaptainSettlementsDto {
 
 export class UpdateCaptainSettingsDto {
   @IsObject()
-  value: Record<string, any>;
+  value: Record<string, unknown>;
 }

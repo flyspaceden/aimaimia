@@ -29,7 +29,7 @@ import { getProfitSafetySummary, previewProfitSafety } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import type { CaptainSeafoodConfig, ProfitSafetyScenario, ProfitSafetySummary } from '@/types';
+import type { CaptainSeafoodConfig, ProfitSafetyLimitingSku, ProfitSafetyScenario, ProfitSafetySummary } from '@/types';
 
 const { Text } = Typography;
 
@@ -345,7 +345,26 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
   );
 }
 
-function SafetySummaryPanel({ summary }: { summary?: ProfitSafetySummary | null }) {
+function SafetySummaryPanel({
+  summary,
+  error,
+  onRetry,
+}: {
+  summary?: ProfitSafetySummary | null;
+  error?: unknown;
+  onRetry: () => void;
+}) {
+  if (error) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="平台利润安全结果读取失败"
+        description={error instanceof Error ? error.message : '请检查网络或服务状态后重新读取'}
+        action={<Button size="small" onClick={onRetry}>重新读取</Button>}
+      />
+    );
+  }
   if (!summary) {
     return <Alert type="info" showIcon message="正在读取平台利润安全校验结果" />;
   }
@@ -367,6 +386,16 @@ function SafetySummaryPanel({ summary }: { summary?: ProfitSafetySummary | null 
     { title: '限制 SKU', dataIndex: 'limitingSkuId', width: 150, render: (value: string | null) => value || '-' },
     { title: '结果', dataIndex: 'safe', width: 90, render: (value: boolean) => <Tag color={value ? 'success' : 'error'}>{value ? '安全' : '拦截'}</Tag> },
   ];
+  const limitingSkuColumns = [
+    { title: 'SKU', dataIndex: 'skuId', width: 160 },
+    { title: '售价', dataIndex: 'price', width: 100, render: (value: number) => `¥${value.toFixed(2)}` },
+    { title: '成本', dataIndex: 'cost', width: 100, render: (value: number | null) => value == null ? '缺失' : `¥${value.toFixed(2)}` },
+    { title: '毛利率', dataIndex: 'grossMarginRate', width: 110, render: (value: number) => formatPercent(value) },
+    { title: '平台留存率', dataIndex: 'platformRetainedRevenueRate', width: 120, render: (value: number) => formatPercent(value) },
+    { title: '最低要求', dataIndex: 'platformRequiredRevenueRate', width: 110, render: (value: number) => formatPercent(value) },
+    { title: '缺口', dataIndex: 'shortfall', width: 100, render: (value: number) => <Text type={value > 0 ? 'danger' : undefined}>{formatPercent(value)}</Text> },
+    { title: '原因', dataIndex: 'reason', width: 260 },
+  ];
   return (
     <Space direction="vertical" size={10} style={{ width: '100%' }}>
       <Alert
@@ -385,6 +414,19 @@ function SafetySummaryPanel({ summary }: { summary?: ProfitSafetySummary | null 
         columns={columns}
         dataSource={summary.scenarios}
       />
+      {summary.limitingSkus.length > 0 ? (
+        <>
+          <Text strong>限制 SKU 经济明细</Text>
+          <Table<ProfitSafetyLimitingSku>
+            rowKey={(row) => `${row.skuId}:${row.scenarioKey}`}
+            size="small"
+            pagination={false}
+            scroll={{ x: 1060 }}
+            columns={limitingSkuColumns}
+            dataSource={summary.limitingSkus}
+          />
+        </>
+      ) : null}
     </Space>
   );
 }
@@ -487,6 +529,8 @@ export default function CaptainSettingsPage() {
         return;
       }
       mutation.mutate(next);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '利润安全预检失败，请稍后重试');
     } finally {
       setChecking(false);
     }
@@ -524,7 +568,11 @@ export default function CaptainSettingsPage() {
             message={`团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
             description="团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。"
           />
-          <SafetySummaryPanel summary={safetySummary} />
+          <SafetySummaryPanel
+            summary={safetySummary}
+            error={safetyQuery.isError ? safetyQuery.error : null}
+            onRetry={() => { void safetyQuery.refetch(); }}
+          />
 
           <Form
             form={form}

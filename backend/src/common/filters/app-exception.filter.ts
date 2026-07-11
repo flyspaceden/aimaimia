@@ -57,6 +57,7 @@ export class AppExceptionFilter implements ExceptionFilter {
     // 字段级错误（由 service 层抛 BadRequestException({ message, fieldErrors: [...] }) 携带）
     // 数组每项形如 { field: 'description', message: '至少 10 字' }，前端可直接 form.setFields() 高亮
     let fieldErrors: Array<{ field: string; message: string }> | undefined;
+    let structuredDetails: Record<string, unknown> | undefined;
 
     // Multer 限制错误：统一映射为 400，避免被当成 500
     const multerErrorCode = (exception as any)?.name === 'MulterError'
@@ -110,6 +111,24 @@ export class AppExceptionFilter implements ExceptionFilter {
           .filter((e) => e && typeof e === 'object' && typeof e.field === 'string' && typeof e.message === 'string')
           .map((e) => ({ field: String(e.field), message: String(e.message) }));
         if (fieldErrors.length === 0) fieldErrors = undefined;
+      }
+
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const detailKeys = [
+          'scenarios',
+          'limitingSkus',
+          'shortfall',
+          'evaluatedSkuCount',
+          'platformRequiredRevenueRate',
+          'captainMaximumProfitRate',
+          'captainConfiguredCap',
+          'errors',
+          'ruleConfigCompleteness',
+        ];
+        const entries = detailKeys
+          .filter((key) => Object.prototype.hasOwnProperty.call(exceptionResponse, key))
+          .map((key) => [key, sanitizeForLog((exceptionResponse as any)[key])]);
+        if (entries.length > 0) structuredDetails = Object.fromEntries(entries);
       }
 
       // 通用策略：service 层主动抛出具体 message 时优先透传，避免被通用 fallback 覆盖
@@ -172,6 +191,7 @@ export class AppExceptionFilter implements ExceptionFilter {
         retryable,
         ...(businessCode ? { businessCode } : {}),
         ...(fieldErrors ? { fieldErrors } : {}),
+        ...(structuredDetails ?? {}),
         ...(requestId ? { requestId } : {}),
       },
     });

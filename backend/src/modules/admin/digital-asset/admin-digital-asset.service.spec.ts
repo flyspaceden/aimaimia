@@ -34,8 +34,17 @@ describe('AdminDigitalAssetService', () => {
       getSummary: jest.fn(),
       listLedgers: jest.fn(),
     };
-    const service = new AdminDigitalAssetService(prisma as any, digitalAssetService as any);
-    return { service, prisma, tx, digitalAssetService };
+    const profitSafetyService = {
+      withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+        result: await write(tx),
+      })),
+    };
+    const service = new AdminDigitalAssetService(
+      prisma as any,
+      digitalAssetService as any,
+      profitSafetyService as any,
+    );
+    return { service, prisma, tx, digitalAssetService, profitSafetyService };
   };
 
   it('blocks manual adjustment for non super admins', async () => {
@@ -106,7 +115,7 @@ describe('AdminDigitalAssetService', () => {
   });
 
   it('stores only presentation settings for digital asset placeholder modules', async () => {
-    const { service, prisma, tx } = makeService();
+    const { service, prisma, tx, profitSafetyService } = makeService();
     prisma.ruleConfig.findUnique
       .mockResolvedValueOnce({
         key: 'DIGITAL_ASSET_CREDIT_TIERS',
@@ -145,7 +154,14 @@ describe('AdminDigitalAssetService', () => {
       enabled: false,
       description: '规则待公布',
     });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        DIGITAL_ASSET_CREDIT_TIERS: expect.any(Object),
+        DIGITAL_ASSET_MODULE_SETTINGS: expect.any(Object),
+      }),
+      expect.any(Function),
+      { changeNote: '更新数字资产规则' },
+    );
     expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(2);
     expect(prisma.ruleConfig.upsert).not.toHaveBeenCalled();
   });

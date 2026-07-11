@@ -1178,9 +1178,11 @@
 
 | 页面 | 完成内容 | 文件 |
 |------|----------|------|
-| 团长经营入口 | 新增独立一级菜单“团长经营”，不归入 VIP、普通奖励、消费积分或平台红包；菜单包含团长申请、团长列表、订单归因、佣金流水、月度结算、团长配置，权限使用 `captain:read/manage/settlement/settings` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
+| 团长经营入口 | 新增独立一级菜单“团长经营”，不归入 VIP、普通奖励、消费积分或平台红包；菜单包含团长申请、团长列表、订单归因、佣金流水、月度结算、利润纠错、利润调整单、团长配置，权限使用 `captain:read/manage/settlement/settings` | `admin/src/App.tsx`, `admin/src/layouts/AdminLayout.tsx`, `admin/src/constants/permissions.ts` |
 | 团长申请 | 新增 `/captain/applications`，支持按关键词和状态查询申请；列表展示申请人、城市、社群规模、预计月 GMV、资源类型、历史消费、退款率和申请时间；详情抽屉展示申请内容和系统快照；通过申请可填团长码/展示名并自动开通团长，驳回必须填写原因 | `admin/src/pages/captain/applications.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
 | 团长列表与详情 | 支持按关键词、状态、月份查询团长；可开通团长、启用/暂停/禁用；详情页展示团长码、账户余额、冻结金额、直接客户有效 GMV、有效直接客户和直接客户列表，不展示团长层级 | `admin/src/pages/captain/index.tsx`, `admin/src/pages/captain/detail.tsx`, `admin/src/api/captain.ts`, `admin/src/types/index.ts` |
 | 归因、流水、结算 | 订单归因页按 `calculationModel` 展示 V3 可分润利润 `C` 和逐单利润率；V2 订单、流水和月结统一标记“历史销售额规则”，只用于阅读和收尾。月度结算展示四项 V3 利润奖励，仍支持生成草稿、审核、标记支付和安全重算 | `admin/src/pages/captain/orders.tsx`, `admin/src/pages/captain/ledgers.tsx`, `admin/src/pages/captain/settlements.tsx` |
 | 团长配置 V3 | `CAPTAIN_SEAFOOD_CONFIG` 与 VIP/普通七分配置分开；只编辑 `directProfitRate`、四项月度 `*ProfitRate`、标准履约成本率和利润封顶。所有参数标签后保留问号悬停说明，明确分母是销售额、`D`、`C` 还是净 GMV，并解释档位、封顶和 `g_sku × (1-external) >= fulfillment+risk+target` 关系。页面不再使用 35%/10.5%/15.5% 本地常量测算，直接消费后端四种买家/邀请人组合的 SKU 安全摘要，安全不通过时展示限制 SKU、平台留存率、要求率和缺口 | `admin/src/pages/captain/settings.tsx`, `admin/src/api/config.ts`, `admin/src/types/index.ts` |
 | 跨配置利润安全 | VIP/普通配置页展示当前服务器利润安全状态；团长导致冲突时可进入 `/captain/settings`。版本历史使用 `rollbackAllowed/rollbackBlockedReason` 禁用不完整、V2 或当前 SKU 不安全的回滚 | `admin/src/components/ProfitSafetyStatus.tsx`, `admin/src/components/ConfigVersionRollbackButton.tsx`, `admin/src/pages/bonus/*-config.tsx`, `admin/src/pages/config/index.tsx` |
+| 利润纠错与补差 | 新增“利润纠错”和“利润调整单”，管理员可按订单项补齐成本、生成不可变新快照、审批/拒绝补差，并查看退款产生的替换链。列表使用真实分页；查看使用 `captain:read`，利润纠错操作使用 `captain:manage`，调整单审批/驳回使用 `captain:settlement` | `admin/src/pages/captain/reconciliations.tsx`, `admin/src/pages/captain/adjustments.tsx`, `admin/src/api/profit-reconciliation.ts` |
+| 月结对账阻断 | 月结列表直接展示 `reviewBlockedReason`；存在未解决利润对账或待审批补差时，审核/支付按钮禁用并显示原因。所有月结动作显式展示后端错误，不再无反馈失败 | `admin/src/pages/captain/settlements.tsx`, `backend/src/modules/admin/captain/admin-captain.service.ts`, `backend/src/modules/captain/captain-monthly-settlement.service.ts` |

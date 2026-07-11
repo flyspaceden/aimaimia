@@ -17,11 +17,12 @@ import { CouponModule } from '../coupon/coupon.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { NotificationModule } from '../notification/notification.module';
 import { InfraModule } from '../../common/infra/infra.module';
+import { ProfitModule } from '../profit/profit.module';
 import { WithdrawPayoutService } from './withdraw-payout.service';
 import { WithdrawRulesService } from './withdraw-rules.service';
 
 @Module({
-  imports: [CouponModule, NotificationModule, InfraModule, DigitalAssetModule],
+  imports: [CouponModule, NotificationModule, InfraModule, DigitalAssetModule, ProfitModule],
   controllers: [BonusController],
   providers: [
     BonusService,

@@ -161,11 +161,17 @@ const makeHarness = (options: {
       callback(tx).then((result: any) => ({ result, transactionOptions })),
     ),
   };
+  const profitSafetyService = {
+    withRuleConfigUpdates: jest.fn(async (_updates: Record<string, unknown>, write: any) => ({
+      result: await write(tx),
+    })),
+  };
 
   return {
     tx,
     prisma,
-    service: new AdminGrowthService(prisma),
+    profitSafetyService,
+    service: new AdminGrowthService(prisma, profitSafetyService as any),
   };
 };
 
@@ -367,7 +373,7 @@ describe('AdminGrowthService', () => {
   });
 
   it('reads and saves configurable growth settings through RuleConfig', async () => {
-    const { service, prisma, tx } = makeHarness({
+    const { service, prisma, tx, profitSafetyService } = makeHarness({
       settings: {
         GROWTH_ENABLED: true,
         GROWTH_POINTS_EXPIRE_DAYS: 180,
@@ -391,9 +397,15 @@ describe('AdminGrowthService', () => {
       autoVipCumulativeSpendThreshold: 399,
     }) as any;
 
-    expect(prisma.$transaction).toHaveBeenCalledWith(
+    expect(profitSafetyService.withRuleConfigUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        GROWTH_ENABLED: false,
+        GROWTH_DAILY_POINTS_CAP: 200,
+        AUTO_VIP_BY_SPEND_ENABLED: true,
+        AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD: 399,
+      }),
       expect.any(Function),
-      { isolationLevel: 'Serializable' },
+      { changeNote: '更新成长设置' },
     );
     expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'GROWTH_ENABLED' },

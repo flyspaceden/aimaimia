@@ -52,6 +52,7 @@ function createHarness() {
     getSnapshot: jest.fn().mockResolvedValue(DEFAULT_CAPTAIN_SEAFOOD_CONFIG),
   };
   const monthlySettlementService = {
+    getReviewBlockReason: jest.fn().mockResolvedValue(null),
     createDraftSettlements: jest.fn().mockResolvedValue([{ id: 'settlement-1', status: 'DRAFT' }]),
     approveSettlement: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'APPROVED' }),
     markPaid: jest.fn().mockResolvedValue({ id: 'settlement-1', status: 'PAID' }),
@@ -180,11 +181,20 @@ describe('AdminCaptainService', () => {
   });
 
   it('queries order attributions, commission ledgers and monthly settlements', async () => {
-    const { service, prisma } = createHarness();
+    const { service, prisma, monthlySettlementService } = createHarness();
+    prisma.captainMonthlySettlement.findMany.mockResolvedValue([{
+      id: 'settlement-1',
+      month: '2026-06',
+      captainUserId: 'captain-1',
+      configSnapshot: { schemaVersion: 3 },
+    }]);
+    monthlySettlementService.getReviewBlockReason.mockResolvedValue(
+      '结算订单存在未解决的利润对账任务，不可审核或支付',
+    );
 
     await service.listOrders({ captainUserId: 'captain-1', month: '2026-06' });
     await service.listLedgers({ userId: 'captain-1', status: 'AVAILABLE' });
-    await service.listSettlements({ month: '2026-06', status: 'DRAFT' });
+    const settlements = await service.listSettlements({ month: '2026-06', status: 'DRAFT' });
 
     expect(prisma.captainOrderAttribution.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
@@ -197,6 +207,7 @@ describe('AdminCaptainService', () => {
     expect(prisma.captainMonthlySettlement.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ month: '2026-06', status: 'DRAFT' }),
     }));
+    expect(settlements.items[0].reviewBlockedReason).toContain('未解决的利润对账');
   });
 
   it('delegates settlement approval operations to monthly settlement service', async () => {
