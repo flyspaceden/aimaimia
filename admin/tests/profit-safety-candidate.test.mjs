@@ -54,9 +54,10 @@ test('returns all ineligible states before requesting a candidate preview', () =
   assert.equal(getProfitSafetyPreviewEligibility(base), 'ready');
 });
 
-test('schedules deterministically after 500ms and discards stale completions', async () => {
+function createTimers() {
   let nextTimer = 0;
   const pendingTimers = new Map();
+  const clearedTimers = [];
   const timers = {
     setTimeout(callback, delay) {
       const id = ++nextTimer;
@@ -64,41 +65,105 @@ test('schedules deterministically after 500ms and discards stale completions', a
       return id;
     },
     clearTimeout(id) {
+      clearedTimers.push(id);
       pendingTimers.delete(id);
     },
   };
+  return { timers, pendingTimers, clearedTimers };
+}
+
+function runOnlyTimer(pendingTimers) {
+  assert.equal(pendingTimers.size, 1);
+  const [id, timer] = pendingTimers.entries().next().value;
+  pendingTimers.delete(id);
+  timer.callback();
+  return timer;
+}
+
+test('replaces a pending timer before 500ms so only the latest request runs', async () => {
+  const { timers, pendingTimers, clearedTimers } = createTimers();
+  const requests = [];
   const checks = [];
-  const candidates = [];
-  let resolveFirst;
-  let resolveSecond;
   const scheduler = createProfitSafetyPreviewScheduler({
     delayMs: 500,
     timers,
-    preview: (updates) => new Promise((resolve) => {
-      if (updates[0].value.value === 0.31) resolveFirst = resolve;
-      else resolveSecond = resolve;
-    }),
+    preview: async (updates) => {
+      requests.push(updates);
+      return { safe: true };
+    },
     onChecking: () => checks.push('checking'),
-    onCandidate: (summary) => candidates.push(summary),
+    onCandidate: () => {},
     onError: (error) => { throw error; },
   });
 
   scheduler.schedule([{ key: 'VIP_TREE_RATE', value: { value: 0.31 } }]);
-  const firstTimer = [...pendingTimers.values()][0];
-  assert.equal(firstTimer.delay, 500);
-  firstTimer.callback();
-  pendingTimers.clear();
   scheduler.schedule([{ key: 'VIP_TREE_RATE', value: { value: 0.32 } }]);
-  const secondTimer = [...pendingTimers.values()][0];
-  assert.equal(secondTimer.delay, 500);
-  secondTimer.callback();
-  resolveFirst({ safe: true });
+
+  assert.deepEqual(clearedTimers, [1]);
+  const timer = runOnlyTimer(pendingTimers);
+  assert.equal(timer.delay, 500);
   await Promise.resolve();
+
+  assert.deepEqual(checks, ['checking']);
+  assert.deepEqual(requests, [[{ key: 'VIP_TREE_RATE', value: { value: 0.32 } }]]);
+});
+
+test('discards a stale non-Error rejection after a newer request succeeds', async () => {
+  const { timers, pendingTimers } = createTimers();
+  const checks = [];
+  const candidates = [];
+  const errors = [];
+  let rejectFirst;
+  let resolveSecond;
+  const scheduler = createProfitSafetyPreviewScheduler({
+    delayMs: 500,
+    timers,
+    preview: (updates) => new Promise((resolve, reject) => {
+      if (updates[0].value.value === 0.31) rejectFirst = reject;
+      else resolveSecond = resolve;
+    }),
+    onChecking: () => checks.push('checking'),
+    onCandidate: (summary) => candidates.push(summary),
+    onError: (error) => errors.push(error),
+  });
+
+  scheduler.schedule([{ key: 'VIP_TREE_RATE', value: { value: 0.31 } }]);
+  runOnlyTimer(pendingTimers);
+  scheduler.schedule([{ key: 'VIP_TREE_RATE', value: { value: 0.32 } }]);
+  runOnlyTimer(pendingTimers);
   resolveSecond({ safe: false });
+  await Promise.resolve();
+  rejectFirst('stale failure');
   await Promise.resolve();
 
   assert.deepEqual(checks, ['checking', 'checking']);
   assert.deepEqual(candidates, [{ safe: false }]);
+  assert.deepEqual(errors, []);
+});
+
+test('normalizes a current non-Error rejection', async () => {
+  const { timers, pendingTimers } = createTimers();
+  const errors = [];
+  let rejectCurrent;
+  const scheduler = createProfitSafetyPreviewScheduler({
+    delayMs: 500,
+    timers,
+    preview: () => new Promise((_resolve, reject) => {
+      rejectCurrent = reject;
+    }),
+    onChecking: () => {},
+    onCandidate: () => {},
+    onError: (error) => errors.push(error),
+  });
+
+  scheduler.schedule([{ key: 'VIP_TREE_RATE', value: { value: 0.31 } }]);
+  runOnlyTimer(pendingTimers);
+  rejectCurrent('network unavailable');
+  await Promise.resolve();
+
+  assert.equal(errors.length, 1);
+  assert.ok(errors[0] instanceof Error);
+  assert.equal(errors[0].message, '预检请求失败');
 });
 
 test('maps candidate and saved status presentations precisely', () => {

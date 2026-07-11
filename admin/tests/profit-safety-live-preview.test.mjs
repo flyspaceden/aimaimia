@@ -13,6 +13,10 @@ test('live preview hook schedules API previews and invalidates stale work', asyn
   assert.match(source, /Object\.hasOwn\(normalizedValues, key\)/);
   assert.match(source, /import type \{ ProfitSafetySummary, RuleConfig \} from '@\/types';/);
   assert.match(source, /import \{ previewProfitSafety \} from '@\/api\/config';/);
+  assert.match(source, /export type ProfitSafetyPreviewState/);
+  assert.match(source, /export interface UseConfigProfitSafetyPreviewInput/);
+  assert.match(source, /schema: readonly ProfitSafetyPreviewConfigMeta\[\]/);
+  assert.match(source, /\}: UseConfigProfitSafetyPreviewInput\): ProfitSafetyPreviewState/);
 });
 
 test('status presentation covers every candidate state and component keeps captain conflict action', async () => {
@@ -30,5 +34,6 @@ test('status presentation covers every candidate state and component keeps capta
   }
   assert.match(source, /getProfitSafetyStatusPresentation/);
   assert.match(source, /previewState/);
+  assert.match(source, /ProfitSafetyPreviewState/);
   assert.match(source, /处理团长冲突/);
 });

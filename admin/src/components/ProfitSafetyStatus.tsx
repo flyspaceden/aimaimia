@@ -2,7 +2,7 @@ import { Alert, Space, Tag, Typography } from 'antd';
 import { Link } from 'react-router-dom';
 import type { ProfitSafetyScenarioKey, ProfitSafetySummary } from '@/types';
 import { shouldLinkCaptainSettings } from './captainProfitV3';
-import type { ConfigProfitSafetyPreviewState } from '@/hooks/useConfigProfitSafetyPreview';
+import type { ProfitSafetyPreviewState } from '@/hooks/useConfigProfitSafetyPreview';
 import { getProfitSafetyStatusPresentation } from '@/utils/configProfitSafetyPreview';
 
 const { Text } = Typography;
@@ -27,7 +27,7 @@ export default function ProfitSafetyStatus({
   summary?: ProfitSafetySummary;
   loading?: boolean;
   error?: Error | null;
-  previewState?: ConfigProfitSafetyPreviewState;
+  previewState?: ProfitSafetyPreviewState;
 }) {
   const displaySummary = previewState?.kind === 'candidate' ? previewState.summary : summary;
   const presentation = getProfitSafetyStatusPresentation({
