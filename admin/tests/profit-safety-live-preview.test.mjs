@@ -17,6 +17,10 @@ test('live preview hook schedules API previews and invalidates stale work', asyn
   assert.match(source, /export interface UseConfigProfitSafetyPreviewInput/);
   assert.match(source, /schema: readonly ProfitSafetyPreviewConfigMeta\[\]/);
   assert.match(source, /\}: UseConfigProfitSafetyPreviewInput\): ProfitSafetyPreviewState/);
+  assert.match(source, /const fingerprint = JSON\.stringify\(updates\)/);
+  assert.match(source, /asyncState\?\.fingerprint !== fingerprint/);
+  const effectSource = source.slice(source.indexOf('useEffect('));
+  assert.doesNotMatch(effectSource, /setState/);
 });
 
 test('status presentation covers every candidate state and component keeps captain conflict action', async () => {

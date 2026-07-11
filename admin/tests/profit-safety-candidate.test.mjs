@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import test from 'node:test';
+import test, { after } from 'node:test';
+
+const adminRoot = fileURLToPath(new URL('../', import.meta.url));
+const testOutputDir = resolve(adminRoot, '.tmp/profit-safety-preview-test');
+rmSync(testOutputDir, { force: true, recursive: true });
+mkdirSync(testOutputDir, { recursive: true });
+writeFileSync(resolve(testOutputDir, 'package.json'), '{"type":"commonjs"}');
+execFileSync(process.execPath, [
+  resolve(adminRoot, 'node_modules/typescript/bin/tsc'),
+  '--target', 'ES2022',
+  '--module', 'commonjs',
+  '--moduleResolution', 'node',
+  '--strict',
+  '--skipLibCheck',
+  '--rootDir', 'src/utils',
+  '--outDir', '.tmp/profit-safety-preview-test',
+  'src/utils/configProfitSafetyPreview.ts',
+], { cwd: adminRoot, stdio: 'inherit' });
+after(() => rmSync(testOutputDir, { force: true, recursive: true }));
 
 const require = createRequire(import.meta.url);
 const {
@@ -8,7 +30,7 @@ const {
   createProfitSafetyPreviewScheduler,
   getProfitSafetyPreviewEligibility,
   getProfitSafetyStatusPresentation,
-} = require('../.tmp/profit-safety-preview-test/configProfitSafetyPreview.js');
+} = require(resolve(testOutputDir, 'configProfitSafetyPreview.js'));
 
 const schema = [
   { key: 'VIP_PLATFORM_RATE' },
