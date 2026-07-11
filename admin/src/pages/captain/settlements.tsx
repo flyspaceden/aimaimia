@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, DatePicker, Modal, Space, Typography } from 'antd';
+import { App, Button, DatePicker, Modal, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import {
   approveCaptainSettlement,
@@ -14,6 +14,7 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import type { CaptainMonthlySettlement, CaptainSettlementStatus } from '@/types';
 import { CaptainUser, StatusTag, captainSettlementStatusMap, money } from './common';
+import { isProfitV3Settlement } from '@/components/captainProfitV3';
 
 const RECALCULABLE_STATUSES: CaptainSettlementStatus[] = ['DRAFT', 'PENDING_REVIEW', 'REJECTED'];
 const DEFAULT_GENERATE_MONTH = dayjs().subtract(1, 'month').format('YYYY-MM');
@@ -55,6 +56,28 @@ export default function CaptainSettlementsPage() {
       width: 120,
       valueEnum: Object.fromEntries(Object.entries(captainSettlementStatusMap).map(([key, value]) => [key, { text: value.text }])),
       render: (_, record) => <StatusTag value={record.status as CaptainSettlementStatus} map={captainSettlementStatusMap} />,
+    },
+    {
+      title: '计提口径',
+      search: false,
+      width: 180,
+      render: (_, record) => {
+        const isV3 = isProfitV3Settlement(record);
+        return (
+          <Space direction="vertical" size={2}>
+            <Tag color={isV3 ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
+              {isV3 ? '利润规则 V3' : '历史销售额规则'}
+            </Tag>
+            <Typography.Text type="secondary">
+              {isV3
+                ? record.profitBaseAmount == null
+                  ? '按订单可分润利润 C 汇总'
+                  : `利润基数 ${money(record.profitBaseAmount)}`
+                : '历史 GMV 计提'}
+            </Typography.Text>
+          </Space>
+        );
+      },
     },
     { title: '管理津贴', search: false, width: 120, render: (_, record) => money(record.baseManagementAmount) },
     { title: '增长奖', search: false, width: 120, render: (_, record) => money(record.growthBonusAmount) },
@@ -122,6 +145,7 @@ export default function CaptainSettlementsPage() {
         pagination={{ defaultPageSize: 20 }}
         options={false}
         headerTitle="月度结算"
+        scroll={{ x: 1500 }}
         toolBarRender={() => [
           <PermissionGate key="generate" permission={PERMISSIONS.CAPTAIN_SETTLEMENT}>
             <Button type="primary" onClick={() => setGenerateOpen(true)}>

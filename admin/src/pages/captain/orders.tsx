@@ -1,10 +1,14 @@
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Space, Typography } from 'antd';
+import { Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { getCaptainOrders } from '@/api/captain';
 import type { CaptainOrderAttribution } from '@/types';
 import { CaptainUser, money, percent } from './common';
+import {
+  getCaptainCalculationDisplay,
+  getCaptainProfitBaseAmount,
+} from '@/components/captainProfitV3';
 
 export default function CaptainOrdersPage() {
   const columns: ProColumns<CaptainOrderAttribution>[] = [
@@ -23,18 +27,25 @@ export default function CaptainOrdersPage() {
     { title: '买家', search: false, width: 230, render: (_, record) => <CaptainUser user={record.buyer} /> },
     { title: '直接团长', search: false, width: 230, render: (_, record) => <CaptainUser user={record.directCaptain} /> },
     {
-      title: '佣金基数',
+      title: '计提基数',
       search: false,
       width: 150,
-      render: (_, record) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text strong>{money(record.commissionBase)}</Typography.Text>
-          <Typography.Text type="secondary">退款 {money(record.refundAmount)}</Typography.Text>
-        </Space>
-      ),
+      render: (_, record) => {
+        const display = getCaptainCalculationDisplay(record.calculationModel);
+        const baseAmount = getCaptainProfitBaseAmount(record);
+        return (
+          <Space direction="vertical" size={2}>
+            <Typography.Text strong>{money(baseAmount)}</Typography.Text>
+            <Tag color={display.color} style={{ marginInlineEnd: 0 }}>{display.label}</Tag>
+            <Typography.Text type="secondary">
+              {record.calculationModel === 'PROFIT_V3' ? '可分润利润 C' : '销售额基数'} · 退款 {money(record.refundAmount)}
+            </Typography.Text>
+          </Space>
+        );
+      },
     },
     {
-      title: '费率',
+      title: '奖励率',
       search: false,
       width: 120,
       render: (_, record) => percent(record.directRate),

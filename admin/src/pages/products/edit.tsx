@@ -34,6 +34,7 @@ import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { productStatusMap as statusMap, auditStatusMap, auditActionColors } from '@/constants/statusMaps';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
+import { formatProfitSafetyError } from '@/components/captainProfitV3';
 import {
   extractConfigValue,
   type AuditLog,
@@ -222,7 +223,7 @@ export default function ProductEditPage() {
       }
       // API / 网络错误（拦截器已包装为 Error）
       if (err instanceof Error) {
-        message.error(err.message || '保存失败');
+        message.error({ content: formatProfitSafetyError(err), duration: 8 });
         return;
       }
       message.error('保存失败：未知错误');
@@ -290,7 +291,7 @@ export default function ProductEditPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
     } catch (err) {
       if (err instanceof Error) {
-        message.error(err.message || '规格保存失败');
+        message.error({ content: formatProfitSafetyError(err), duration: 8 });
       }
     }
   };

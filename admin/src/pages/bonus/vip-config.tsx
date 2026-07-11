@@ -34,14 +34,21 @@ import {
   CrownOutlined,
   ClockCircleOutlined,
   InfoCircleOutlined,
-  RollbackOutlined,
   CheckCircleOutlined,
   WarningOutlined,
   ThunderboltOutlined,
   UndoOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { getConfigs, batchUpdateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import {
+  batchUpdateConfig,
+  getConfigs,
+  getConfigVersions,
+  getProfitSafetySummary,
+  rollbackConfigVersion,
+} from '@/api/config';
+import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
+import ProfitSafetyStatus from '@/components/ProfitSafetyStatus';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -203,6 +210,10 @@ export default function VipConfigPage() {
     queryKey: ['admin', 'configs'],
     queryFn: getConfigs,
   });
+  const safetyQuery = useQuery({
+    queryKey: ['admin', 'profit-safety-summary'],
+    queryFn: getProfitSafetySummary,
+  });
 
   // 版本历史
   const { data: versions, isLoading: versionsLoading } = useQuery({
@@ -218,6 +229,7 @@ export default function VipConfigPage() {
       message.success('已回滚到指定版本');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'config-versions'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDrawerOpen(false);
     },
     onError: (err: Error) => message.error(err.message),
@@ -271,6 +283,7 @@ export default function VipConfigPage() {
 
       message.success('配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDirty(false);
       setChangeNote('');
     } catch (err: unknown) {
@@ -483,6 +496,12 @@ export default function VipConfigPage() {
           </PermissionGate>
         </Space>
       </div>
+
+      <ProfitSafetyStatus
+        summary={safetyQuery.data}
+        loading={safetyQuery.isLoading}
+        error={safetyQuery.error}
+      />
 
       <Form
         form={form}
@@ -800,18 +819,7 @@ function VersionItem({ version, onRollback }: { version: ConfigVersion; onRollba
           >
             {expanded ? '收起' : '详情'}
           </Button>
-          <PermissionGate permission={PERMISSIONS.CONFIG_UPDATE}>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<RollbackOutlined />}
-              onClick={onRollback}
-              style={{ fontSize: 12 }}
-            >
-              回滚
-            </Button>
-          </PermissionGate>
+          <ConfigVersionRollbackButton version={version} onRollback={onRollback} />
         </Space>
       </div>
 

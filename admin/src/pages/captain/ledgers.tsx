@@ -1,6 +1,6 @@
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
-import { Typography } from 'antd';
+import { Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { getCaptainLedgers } from '@/api/captain';
 import type { CaptainCommissionLedger, CaptainLedgerStatus, CaptainLedgerType } from '@/types';
@@ -12,6 +12,10 @@ import {
   money,
   percent,
 } from './common';
+import {
+  getCaptainCalculationDisplay,
+  getCaptainCalculationModel,
+} from '@/components/captainProfitV3';
 
 export default function CaptainLedgersPage() {
   const columns: ProColumns<CaptainCommissionLedger>[] = [
@@ -42,7 +46,26 @@ export default function CaptainLedgersPage() {
       render: (_, record) => <StatusTag value={record.status as CaptainLedgerStatus} map={captainLedgerStatusMap} />,
     },
     { title: '金额', search: false, width: 120, render: (_, record) => <Typography.Text strong>{money(record.amount)}</Typography.Text> },
-    { title: '基数', search: false, width: 120, render: (_, record) => money(record.commissionBase) },
+    {
+      title: '计提基数',
+      search: false,
+      width: 180,
+      render: (_, record) => {
+        const model = getCaptainCalculationModel(record);
+        const display = getCaptainCalculationDisplay(model);
+        return (
+          <Space direction="vertical" size={2}>
+            <Typography.Text>{record.commissionBase == null ? '-' : money(record.commissionBase)}</Typography.Text>
+            <Tag color={display.color} style={{ marginInlineEnd: 0 }}>{display.label}</Tag>
+            {model === 'PROFIT_V3' ? (
+              <Typography.Text type="secondary">
+                {record.commissionBase == null ? '月度利润奖励' : '可分润利润 C'}
+              </Typography.Text>
+            ) : null}
+          </Space>
+        );
+      },
+    },
     { title: '费率', search: false, width: 100, render: (_, record) => record.rate == null ? '-' : percent(record.rate) },
     {
       title: '关联',
