@@ -2,6 +2,7 @@ import type { PaginationResult } from '../Pagination';
 
 export type CaptainProfileStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
 export type CaptainApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+export type CaptainCalculationModel = 'PROFIT_V3' | 'SALES_V2';
 export type CaptainLedgerType =
   | 'DIRECT_ORDER'
   | 'LEGACY_INDIRECT_ORDER'
@@ -182,11 +183,17 @@ export interface CaptainLedger {
     orderId: string;
     buyerUserId: string;
     status: string;
+    calculationModel: CaptainCalculationModel;
+    profitBaseAmount?: number | null;
   } | null;
   settlement?: {
     id: string;
     month: string;
     status: string;
+    meta?: {
+      calculationModel?: string;
+      [key: string]: unknown;
+    } | null;
   } | null;
 }
 
@@ -196,6 +203,9 @@ export interface CaptainOrderProgress {
   buyerUserId: string;
   directCaptainUserId: string;
   commissionBase: number;
+  calculationModel: CaptainCalculationModel;
+  profitBaseAmount?: number | null;
+  eligibleGoodsAmount?: number;
   refundAmount: number;
   directRate: number;
   status: string;

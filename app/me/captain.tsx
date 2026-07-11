@@ -16,12 +16,12 @@ const money = (value?: number | null) => `¥${Number(value ?? 0).toFixed(2)}`;
 const percent = (value?: number | null) => `${(Number(value ?? 0) * 100).toFixed(1)}%`;
 
 const ledgerTypeLabel: Record<string, string> = {
-  DIRECT_ORDER: '推广奖励',
+  DIRECT_ORDER: '逐单利润奖励',
   LEGACY_INDIRECT_ORDER: '历史二级佣金',
-  MANAGEMENT_ALLOWANCE: '管理津贴',
-  GROWTH_BONUS: '增长奖励',
-  CULTIVATION_BONUS: '有效成交辅导奖',
-  PERFORMANCE_BONUS: '经营绩效奖',
+  MANAGEMENT_ALLOWANCE: '月度利润奖励·管理津贴',
+  GROWTH_BONUS: '月度利润奖励·增长奖',
+  CULTIVATION_BONUS: '月度利润奖励·有效成交辅导奖',
+  PERFORMANCE_BONUS: '月度利润奖励·经营绩效奖',
   TEAM_POOL: '历史团队池奖励',
   VOID: '售后冲回',
   ADJUSTMENT: '人工调整',
@@ -158,7 +158,7 @@ export default function CaptainCenterPage() {
         <View style={styles.statsGrid}>
           <Stat label="已到账" value={money(account?.balance)} />
           <Stat label="待到账" value={money(account?.frozen)} />
-          <Stat label="本月直接客户 GMV" value={money(metric?.personalGmv)} />
+          <Stat label="本月直接客户净 GMV" value={money(metric?.personalGmv)} />
           <Stat label="有效直接客户" value={`${metric?.directEffectiveBuyers ?? 0} 人`} />
         </View>
 
@@ -188,12 +188,24 @@ export default function CaptainCenterPage() {
                   订单 {item.orderId.slice(-8)}
                 </Text>
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
-                  基数 {money(item.commissionBase)} · 状态 {item.status}
+                  {item.calculationModel === 'PROFIT_V3'
+                    ? `直接客户可分润利润 ${money(item.profitBaseAmount ?? item.commissionBase)}`
+                    : `历史销售额基数 ${money(item.commissionBase)}`} · 状态 {item.status}
                 </Text>
+                {item.calculationModel === 'SALES_V2' ? (
+                  <Text style={[typography.caption, styles.legacyBadge]}>历史销售额规则</Text>
+                ) : null}
               </View>
-              <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>
-                {money(item.commissionBase * item.directRate)}
-              </Text>
+              {item.buyerUserId !== profile.userId ? (
+                <View style={styles.rewardAmount}>
+                  <Text style={[typography.caption, { color: colors.text.secondary }]}>逐单利润奖励</Text>
+                  <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>
+                    {money((item.calculationModel === 'PROFIT_V3'
+                      ? item.profitBaseAmount ?? item.commissionBase
+                      : item.commissionBase) * item.directRate)}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           )}
         />
@@ -211,6 +223,11 @@ export default function CaptainCenterPage() {
                 <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 2 }]}>
                   {statusLabel[item.status] ?? item.status}
                 </Text>
+                {item.orderAttribution?.calculationModel === 'SALES_V2'
+                  || item.type === 'LEGACY_INDIRECT_ORDER'
+                  || item.type === 'TEAM_POOL' ? (
+                    <Text style={[typography.caption, styles.legacyBadge]}>历史销售额规则</Text>
+                  ) : null}
               </View>
               <Text style={[typography.bodyStrong, { color: item.amount < 0 ? colors.danger : colors.brand.primary }]}>
                 {money(item.amount)}
@@ -346,5 +363,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  rewardAmount: {
+    alignItems: 'flex-end',
+    marginLeft: 12,
+  },
+  legacyBadge: {
+    alignSelf: 'flex-start',
+    color: '#8A4B08',
+    backgroundColor: '#FFF3D6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 4,
   },
 });

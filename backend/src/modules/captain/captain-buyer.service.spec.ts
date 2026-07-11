@@ -201,6 +201,17 @@ describe('CaptainBuyerService', () => {
       },
       skip: 10,
       take: 10,
+      include: expect.objectContaining({
+        orderAttribution: {
+          select: expect.objectContaining({
+            calculationModel: true,
+            profitBaseAmount: true,
+          }),
+        },
+        settlement: {
+          select: expect.objectContaining({ meta: true }),
+        },
+      }),
     }));
   });
 

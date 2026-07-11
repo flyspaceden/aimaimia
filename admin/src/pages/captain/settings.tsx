@@ -17,28 +17,29 @@ import {
   Select,
   Space,
   Switch,
+  Table,
+  Tag,
   Tooltip,
   Typography,
 } from 'antd';
-import { QuestionCircleOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons';
+import { QuestionCircleOutlined, SafetyCertificateOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons';
 import { getCaptainSettings, updateCaptainSettings } from '@/api/captain';
+import { getProfitSafetySummary, previewProfitSafety } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import type { CaptainSeafoodConfig } from '@/types';
+import type { CaptainSeafoodConfig, ProfitSafetyScenario, ProfitSafetySummary } from '@/types';
 
 const { Text } = Typography;
 
 const PROGRAM_CODE = 'SEAFOOD_PREPACKAGED' as const;
-const GROSS_MARGIN_RATE = 0.35;
-const FIXED_COST_RATE = 0.105;
 
 const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   enabled: false,
   programCode: PROGRAM_CODE,
   programName: '预包装海鲜团长经营激励',
-  effectiveFrom: null,
+  effectiveFrom: '2026-07-31T16:00:00.000Z',
   scope: {
     categoryIds: [],
     productIds: [],
@@ -56,7 +57,7 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
     includeRewardDeduction: false,
   },
   perOrderCommission: {
-    directRate: 0.11,
+    directProfitRate: 0,
   },
   monthlyQualification: {
     minDirectEffectiveBuyers: 12,
@@ -65,15 +66,18 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
   },
   monthlyRewards: {
     baseTierGmv: 25000,
-    baseManagementRate: 0.022,
+    baseManagementProfitRate: 0,
     growthTierGmv: 70000,
-    growthBonusRate: 0.007,
+    growthBonusProfitRate: 0,
     excellentTierGmv: 140000,
-    cultivationBonusRate: 0.006,
-    performanceBonusRate: 0.01,
+    cultivationBonusProfitRate: 0,
+    performanceBonusProfitRate: 0,
+  },
+  unitEconomics: {
+    fulfillmentCostRate: 0,
   },
   caps: {
-    maxTotalIncentiveRate: 0.155,
+    maxTotalIncentiveProfitRate: 0,
     targetNetProfitRate: 0.09,
     coldChainRiskReserveRate: 0.02,
   },
@@ -103,7 +107,7 @@ const FIELD_HELP = {
   },
   effectiveFrom: {
     summary: '只有实际支付时间不早于此时间的订单，才会创建新的团长归因和冻结佣金；此前订单不会补发。',
-    related: '需同时开启团长激励，并命中适用范围。留空代表保存后立即生效。',
+    related: '首次从 V2 切换到 V3 必须从未来自然月起生效；V3 后续修改只影响之后支付的新订单，旧订单继续使用支付快照。',
   },
   categoryIds: {
     summary: '命中任一类目的普通商品可参与计佣。',
@@ -121,9 +125,9 @@ const FIELD_HELP = {
     summary: '指定商品即使同时命中类目、商品或商户范围，也不会产生团长佣金。',
     related: '用于排除低毛利、特殊履约或临时不参与的商品。',
   },
-  directRate: {
-    summary: '订单只给付款客户已绑定的那一名直接团长计佣，金额等于计佣商品实付金额乘以该比例。不会给上级或间接团长收益。',
-    related: '与最低计佣商品实付、总激励率封顶共同决定单品激励空间。',
+  directProfitRate: {
+    summary: '逐单奖励 = 本单团长适用商品的可分润利润 C × 该比例。C 是统一优惠后利润 D 中命中团长适用范围的子集，不是销售额。只给付款客户直接绑定的一名团长，没有二级。',
+    related: '直接奖励率 + 四项月度利润奖励率 必须小于等于团长总利润激励上限。D≤0 时 C=0，本单不分润。',
   },
   freezeDaysAfterReceived: {
     summary: '逐单佣金至少在确认收货后冻结指定天数；如退货窗口更晚，则以更晚的时间为准。退款成功或售后完成不会释放佣金。',
@@ -139,7 +143,7 @@ const FIELD_HELP = {
   },
   minDirectMonthlyGmv: {
     summary: '月度资格线只汇总该团长直接客户的有效净商品 GMV，不包含任何下级团长、间接客户或历史二级订单。',
-    related: '达到资格线后，仍需达到各月度档位 GMV 才会产生对应奖励。',
+    related: 'D≤0 时订单不分润，但命中团长范围的优惠后净商品 GMV 仍可计入资格和档位；8,000 是资格线，25,000/70,000/140,000 是累进档位。',
   },
   minNewEffectiveBuyers: {
     summary: '当月新绑定且当月产生正向直接成交的客户数。仅新增绑定或仅注册不计入。',
@@ -149,41 +153,45 @@ const FIELD_HELP = {
     summary: '通过月度资格后，直接客户有效净 GMV 达到此值，开始计算管理津贴和经营绩效奖。',
     related: '增长档和卓越档在此基础上继续叠加，不是替换基础档奖励。',
   },
-  baseManagementRate: {
-    summary: '基础档达标后，管理津贴等于当月直接客户有效净 GMV 乘以该比例。',
-    related: '与基础档 GMV、总激励率封顶关联。',
+  baseManagementProfitRate: {
+    summary: '通过 8,000 元资格线并达到 25,000 元基础档后，对当月各有效订单的可分润利润 C 按该比例累计管理津贴。分母是 C，不是 GMV。',
+    related: '8,000 是资格线，25,000/70,000/140,000 是累进档位；GMV 只决定是否达标，奖励金额按 C 计算。',
   },
   growthTierGmv: {
     summary: '通过月度资格且 GMV 达到此值时，在基础档奖励之外增加增长奖。',
     related: '必须不低于基础档 GMV，且不高于卓越档 GMV。',
   },
-  growthBonusRate: {
-    summary: '增长档达标后，增长奖等于当月直接客户有效净 GMV 乘以该比例。',
-    related: '与基础档奖励累计计算，并计入总激励率封顶。',
+  growthBonusProfitRate: {
+    summary: '通过资格并达到 70,000 元增长档后，对当月各有效订单的 C 按该比例追加增长奖。分母是 C。',
+    related: '与基础档利润奖励累加，并共同占用团长总利润激励上限。',
   },
   excellentTierGmv: {
     summary: '通过月度资格且 GMV 达到此值时，在基础档和增长档奖励之外增加有效成交辅导奖。',
     related: '必须不低于增长档 GMV。',
   },
-  cultivationBonusRate: {
-    summary: '卓越档达标后，有效成交辅导奖等于当月直接客户有效净 GMV 乘以该比例。',
-    related: '名称仅代表直接客户经营服务，不按下级团长或其销售额分配。',
+  cultivationBonusProfitRate: {
+    summary: '通过资格并达到 140,000 元卓越档后，对当月各有效订单的 C 按该比例追加有效成交辅导奖。分母是 C。',
+    related: '只衡量直接客户的真实成交，不奖励注册数，不按下级团长或间接订单计提。',
   },
-  performanceBonusRate: {
-    summary: '基础档达标后，经营绩效奖等于当月直接客户有效净 GMV 乘以该比例，100% 记入本团长。',
-    related: '不再使用团队池或 40/60 分配；与管理津贴同在基础档开始计算。',
+  performanceBonusProfitRate: {
+    summary: '基础档达标后，对当月各有效订单的 C 按该比例计算经营绩效奖，100% 记入本团长。分母是 C。',
+    related: '不存在团队池或 40/60 分配；与其他团长利润奖励共用同一资金上限。',
   },
-  maxTotalIncentiveRate: {
-    summary: '最高激励率按直接佣金、管理津贴、增长奖、有效成交辅导奖和经营绩效奖的比例之和计算；超过此值不能保存。',
-    related: '默认满配为 15.5%，用于保护商品毛利和履约空间。',
+  maxTotalIncentiveProfitRate: {
+    summary: '团长直接奖励与四项月度奖励对可分润利润 C 的最高合计比例，超过不能保存。',
+    related: '团长最高比例与会员树奖励、产业基金、邀请人直推共同占用 D；平台实际留存还必须覆盖履约、风险与目标净利。',
+  },
+  fulfillmentCostRate: {
+    summary: '标准履约成本占 VIP 必然折扣后商品收入的比例，用于配置保存时的单品利润安全校验，不在单笔订单里再扣一次。',
+    related: '每个活跃普通 SKU 都必须满足 g_sku × (1 - 会员树 - 产业基金 - 邀请人直推 - 团长最高奖励) ≥ 履约成本 + 冷链风险预留 + 目标净利。',
   },
   targetNetProfitRate: {
-    summary: '经营测算的目标净利率，用于提示当前参数组合是否低于目标，不改变已生成佣金。',
-    related: '测算值 = 毛利率 - 刚性成本 - 总激励率 - 冷链售后预留率。',
+    summary: '平台要保留的最低净利占 VIP 必然折扣后商品收入的比例，只用于后台保存时的单品安全校验。',
+    related: '与标准履约成本率、冷链风险预留率相加，必须由各 SKU 在扣除会员和团长外部分配后的平台留存覆盖。',
   },
   coldChainRiskReserveRate: {
-    summary: '经营测算中为冷链波动、售后和退换货预留的比例，不会自动生成单独资金流水。',
-    related: '与目标净利率一起决定“扣风险预留后”是否出现预警。',
+    summary: '为冷链波动、售后和退换货保留的比例，分母是 VIP 必然折扣后商品收入，不会自动生成单独资金流水。',
+    related: '与履约成本率、目标净利率一起构成平台最低留存线，任一买家/邀请人组合突破都会拒绝保存。',
   },
   taxEnabled: {
     summary: '控制月度结算是否计算税前、代扣和税后金额；不替代财务申报、实际付款和完税凭证流程。',
@@ -225,13 +233,17 @@ function formatPercent(value: number, digits = 2) {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
+function normalizeConfig(values: Partial<CaptainSeafoodConfig> | Record<string, any>): CaptainSeafoodConfig {
+  const isV3 = values?.schemaVersion === 3;
+  const profitValues = isV3 ? values as CaptainSeafoodConfig : DEFAULT_FORM_VALUES;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     enabled: Boolean(values.enabled),
     programCode: PROGRAM_CODE,
     programName: values.programName || DEFAULT_FORM_VALUES.programName,
-    effectiveFrom: values.effectiveFrom?.trim() || null,
+    effectiveFrom: isV3 && typeof values.effectiveFrom === 'string'
+      ? values.effectiveFrom
+      : DEFAULT_FORM_VALUES.effectiveFrom,
     scope: {
       categoryIds: toArray(values.scope?.categoryIds),
       productIds: toArray(values.scope?.productIds),
@@ -249,7 +261,7 @@ function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
       includeRewardDeduction: false,
     },
     perOrderCommission: {
-      directRate: toNumber(values.perOrderCommission?.directRate),
+      directProfitRate: toNumber(profitValues.perOrderCommission?.directProfitRate),
     },
     monthlyQualification: {
       minDirectEffectiveBuyers: toNumber(values.monthlyQualification?.minDirectEffectiveBuyers),
@@ -258,17 +270,20 @@ function normalizeConfig(values: CaptainSeafoodConfig): CaptainSeafoodConfig {
     },
     monthlyRewards: {
       baseTierGmv: toNumber(values.monthlyRewards?.baseTierGmv),
-      baseManagementRate: toNumber(values.monthlyRewards?.baseManagementRate),
+      baseManagementProfitRate: toNumber(profitValues.monthlyRewards?.baseManagementProfitRate),
       growthTierGmv: toNumber(values.monthlyRewards?.growthTierGmv),
-      growthBonusRate: toNumber(values.monthlyRewards?.growthBonusRate),
+      growthBonusProfitRate: toNumber(profitValues.monthlyRewards?.growthBonusProfitRate),
       excellentTierGmv: toNumber(values.monthlyRewards?.excellentTierGmv),
-      cultivationBonusRate: toNumber(values.monthlyRewards?.cultivationBonusRate),
-      performanceBonusRate: toNumber(values.monthlyRewards?.performanceBonusRate),
+      cultivationBonusProfitRate: toNumber(profitValues.monthlyRewards?.cultivationBonusProfitRate),
+      performanceBonusProfitRate: toNumber(profitValues.monthlyRewards?.performanceBonusProfitRate),
+    },
+    unitEconomics: {
+      fulfillmentCostRate: toNumber(profitValues.unitEconomics?.fulfillmentCostRate),
     },
     caps: {
-      maxTotalIncentiveRate: toNumber(values.caps?.maxTotalIncentiveRate, 0.155),
-      targetNetProfitRate: toNumber(values.caps?.targetNetProfitRate, 0.09),
-      coldChainRiskReserveRate: toNumber(values.caps?.coldChainRiskReserveRate, 0.02),
+      maxTotalIncentiveProfitRate: toNumber(profitValues.caps?.maxTotalIncentiveProfitRate),
+      targetNetProfitRate: toNumber(profitValues.caps?.targetNetProfitRate, 0.09),
+      coldChainRiskReserveRate: toNumber(profitValues.caps?.coldChainRiskReserveRate, 0.02),
     },
     tax: {
       enabled: Boolean(values.tax?.enabled),
@@ -329,16 +344,66 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
   );
 }
 
+function SafetySummaryPanel({ summary }: { summary?: ProfitSafetySummary | null }) {
+  if (!summary) {
+    return <Alert type="info" showIcon message="正在读取平台利润安全校验结果" />;
+  }
+  const columns = [
+    { title: '买家路径', dataIndex: 'buyerPath', width: 100, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
+    { title: '邀请人', dataIndex: 'inviterPath', width: 100, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
+    { title: '外部利润比例', dataIndex: 'externalProfitRate', width: 130, render: (value: number) => formatPercent(value) },
+    { title: '平台留存率', dataIndex: 'platformRetainedRevenueRate', width: 120, render: (value: number) => formatPercent(value) },
+    { title: '履约+风险+净利', dataIndex: 'platformRequiredRevenueRate', width: 150, render: (value: number) => formatPercent(value) },
+    {
+      title: '余量/缺口',
+      key: 'headroom',
+      width: 120,
+      render: (_: unknown, row: ProfitSafetyScenario) => {
+        const headroom = row.platformRetainedRevenueRate - row.platformRequiredRevenueRate;
+        return <Text type={headroom < 0 ? 'danger' : 'success'}>{formatPercent(headroom)}</Text>;
+      },
+    },
+    { title: '限制 SKU', dataIndex: 'limitingSkuId', width: 150, render: (value: string | null) => value || '-' },
+    { title: '结果', dataIndex: 'safe', width: 90, render: (value: boolean) => <Tag color={value ? 'success' : 'error'}>{value ? '安全' : '拦截'}</Tag> },
+  ];
+  return (
+    <Space direction="vertical" size={10} style={{ width: '100%' }}>
+      <Alert
+        type={summary.safe ? 'success' : 'error'}
+        showIcon
+        message={summary.safe ? '当前四种分润组合均在平台利润底线内' : '当前参数将突破平台利润底线'}
+        description={summary.safe
+          ? `已检查 ${summary.evaluatedSkuCount} 个活跃普通 SKU；团长最高利润比例 ${formatPercent(summary.captainMaximumProfitRate)}。`
+          : `最大缺口 ${formatPercent(summary.shortfall)}，请根据限制 SKU 降低奖励或调整商品经济数据。`}
+      />
+      <Table<ProfitSafetyScenario>
+        rowKey="key"
+        size="small"
+        pagination={false}
+        scroll={{ x: 950 }}
+        columns={columns}
+        dataSource={summary.scenarios}
+      />
+    </Space>
+  );
+}
+
 export default function CaptainSettingsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<CaptainSeafoodConfig>();
   const [dirty, setDirty] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [safetySummary, setSafetySummary] = useState<ProfitSafetySummary | null>(null);
   useUnsavedChanges(dirty);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'captain', 'settings'],
     queryFn: getCaptainSettings,
+  });
+  const safetyQuery = useQuery({
+    queryKey: ['admin', 'profit-safety-summary'],
+    queryFn: getProfitSafetySummary,
   });
 
   useEffect(() => {
@@ -348,6 +413,10 @@ export default function CaptainSettingsPage() {
     }
   }, [data, form]);
 
+  useEffect(() => {
+    if (safetyQuery.data) setSafetySummary(safetyQuery.data);
+  }, [safetyQuery.data]);
+
   const mutation = useMutation({
     mutationFn: updateCaptainSettings,
     onSuccess: (next) => {
@@ -355,31 +424,39 @@ export default function CaptainSettingsPage() {
       form.setFieldsValue(normalizeConfig(next));
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ['admin', 'captain', 'settings'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
     },
-    onError: (err: Error) => message.error(err.message || '保存失败'),
+    onError: (err: Error & { details?: Partial<ProfitSafetySummary> }) => {
+      if (err.details?.scenarios) {
+        setSafetySummary({
+          safe: false,
+          scenarios: err.details.scenarios,
+          limitingSkus: err.details.limitingSkus ?? [],
+          shortfall: err.details.shortfall ?? 0,
+          evaluatedSkuCount: err.details.evaluatedSkuCount ?? 0,
+          platformRequiredRevenueRate: err.details.platformRequiredRevenueRate ?? 0,
+          captainMaximumProfitRate: err.details.captainMaximumProfitRate ?? 0,
+          captainConfiguredCap: err.details.captainConfiguredCap ?? 0,
+          errors: err.details.errors ?? [],
+        });
+      }
+      message.error(err.message || '保存失败');
+    },
   });
 
   const watched = Form.useWatch([], form) as CaptainSeafoodConfig | undefined;
   const economics = useMemo(() => {
     const totalIncentiveRate =
-      readRate(watched, ['perOrderCommission', 'directRate']) +
-      readRate(watched, ['monthlyRewards', 'baseManagementRate']) +
-      readRate(watched, ['monthlyRewards', 'growthBonusRate']) +
-      readRate(watched, ['monthlyRewards', 'cultivationBonusRate']) +
-      readRate(watched, ['monthlyRewards', 'performanceBonusRate']);
-    const maxTotalIncentiveRate = readRate(watched, ['caps', 'maxTotalIncentiveRate']);
-    const riskReserveRate = readRate(watched, ['caps', 'coldChainRiskReserveRate']);
-    const targetNetProfitRate = readRate(watched, ['caps', 'targetNetProfitRate']);
-    const estimatedNetRate = GROSS_MARGIN_RATE - FIXED_COST_RATE - totalIncentiveRate;
-    const reserveNetRate = estimatedNetRate - riskReserveRate;
+      readRate(watched, ['perOrderCommission', 'directProfitRate']) +
+      readRate(watched, ['monthlyRewards', 'baseManagementProfitRate']) +
+      readRate(watched, ['monthlyRewards', 'growthBonusProfitRate']) +
+      readRate(watched, ['monthlyRewards', 'cultivationBonusProfitRate']) +
+      readRate(watched, ['monthlyRewards', 'performanceBonusProfitRate']);
+    const maxTotalIncentiveRate = readRate(watched, ['caps', 'maxTotalIncentiveProfitRate']);
     return {
       totalIncentiveRate,
       maxTotalIncentiveRate,
-      targetNetProfitRate,
-      estimatedNetRate,
-      reserveNetRate,
       exceedsCap: totalIncentiveRate - maxTotalIncentiveRate > 0.000001,
-      belowTarget: reserveNetRate + 0.000001 < targetNetProfitRate,
     };
   }, [watched]);
 
@@ -399,7 +476,18 @@ export default function CaptainSettingsPage() {
       message.error('总激励率不能超过封顶比例');
       return;
     }
-    mutation.mutate(next);
+    setChecking(true);
+    try {
+      const summary = await previewProfitSafety({ captainConfig: next });
+      setSafetySummary(summary);
+      if (!summary.safe) {
+        message.error('当前参数未通过平台利润安全校验');
+        return;
+      }
+      mutation.mutate(next);
+    } finally {
+      setChecking(false);
+    }
   };
 
   const rateRules = [{ required: true, message: '请输入比例' }];
@@ -412,27 +500,29 @@ export default function CaptainSettingsPage() {
         title={<Space><SettingOutlined />团长配置</Space>}
         extra={
           <PermissionGate permission={PERMISSIONS.CAPTAIN_SETTINGS}>
-            <Button type="primary" icon={<SaveOutlined />} loading={mutation.isPending} onClick={handleSubmit}>
+            <Button type="primary" icon={<SaveOutlined />} loading={checking || mutation.isPending} onClick={handleSubmit}>
               保存配置
             </Button>
           </PermissionGate>
         }
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {data && (data as any).schemaVersion === 2 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前是历史销售额规则"
+              description="历史 V2 只继续用于旧订单和旧月结。本页不会把销售额比例换算成利润比例；保存时将以 0 起始的 V3 利润参数创建新规则。"
+            />
+          ) : null}
           <Alert
-            type={economics.exceedsCap || economics.belowTarget ? 'warning' : 'success'}
+            type={economics.exceedsCap ? 'error' : 'info'}
             showIcon
-            message="经济账测算"
-            description={
-              <Space size={24} wrap>
-                <Text>总激励率：<Text strong>{formatPercent(economics.totalIncentiveRate)}</Text></Text>
-                <Text>封顶：{formatPercent(economics.maxTotalIncentiveRate)}</Text>
-                <Text>预估净利：<Text strong>{formatPercent(economics.estimatedNetRate)}</Text></Text>
-                <Text>扣风险预留后：{formatPercent(economics.reserveNetRate)}</Text>
-                <Text>目标净利：{formatPercent(economics.targetNetProfitRate)}</Text>
-              </Space>
-            }
+            icon={<SafetyCertificateOutlined />}
+            message={`团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
+            description="团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。"
           />
+          <SafetySummaryPanel summary={safetySummary} />
 
           <Form
             form={form}
@@ -459,7 +549,7 @@ export default function CaptainSettingsPage() {
                   getValueProps={(value: string | null | undefined) => ({ value: value ? dayjs(value) : null })}
                   getValueFromEvent={(value: Dayjs | null) => value?.toISOString() ?? null}
                 >
-                  <DatePicker showTime allowClear placeholder="留空立即生效" style={{ width: '100%' }} />
+                  <DatePicker showTime allowClear={false} placeholder="选择 V3 生效时间" style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
@@ -488,10 +578,10 @@ export default function CaptainSettingsPage() {
               </Col>
             </Row>
 
-            <SectionTitle>逐单佣金</SectionTitle>
+            <SectionTitle>逐单利润奖励</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={8}>
-                <Form.Item name={['perOrderCommission', 'directRate']} label={<FieldLabel label="直接推广成交佣金率" help={FIELD_HELP.directRate} />} rules={rateRules}>
+                <Form.Item name={['perOrderCommission', 'directProfitRate']} label={<FieldLabel label="直接客户利润奖励率" help={FIELD_HELP.directProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -534,7 +624,7 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'baseManagementRate']} label={<FieldLabel label="管理津贴率" help={FIELD_HELP.baseManagementRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'baseManagementProfitRate']} label={<FieldLabel label="管理津贴利润率" help={FIELD_HELP.baseManagementProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -544,7 +634,7 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'growthBonusRate']} label={<FieldLabel label="增长奖率" help={FIELD_HELP.growthBonusRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'growthBonusProfitRate']} label={<FieldLabel label="增长奖利润率" help={FIELD_HELP.growthBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -554,22 +644,27 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'cultivationBonusRate']} label={<FieldLabel label="有效成交辅导奖率" help={FIELD_HELP.cultivationBonusRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'cultivationBonusProfitRate']} label={<FieldLabel label="有效成交辅导奖利润率" help={FIELD_HELP.cultivationBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'performanceBonusRate']} label={<FieldLabel label="经营绩效奖率" help={FIELD_HELP.performanceBonusRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'performanceBonusProfitRate']} label={<FieldLabel label="经营绩效奖利润率" help={FIELD_HELP.performanceBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
 
-            <SectionTitle>利润封顶与税务</SectionTitle>
+            <SectionTitle>平台利润底线与税务</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['caps', 'maxTotalIncentiveRate']} label={<FieldLabel label="总激励率封顶" help={FIELD_HELP.maxTotalIncentiveRate} />} rules={rateRules}>
-                  <PercentInput min={0} max={15.5} precision={2} step={0.1} style={{ width: '100%' }} />
+                <Form.Item name={['caps', 'maxTotalIncentiveProfitRate']} label={<FieldLabel label="团长总利润激励封顶" help={FIELD_HELP.maxTotalIncentiveProfitRate} />} rules={rateRules}>
+                  <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={6}>
+                <Form.Item name={['unitEconomics', 'fulfillmentCostRate']} label={<FieldLabel label="标准履约成本率" help={FIELD_HELP.fulfillmentCostRate} />} rules={rateRules}>
+                  <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
