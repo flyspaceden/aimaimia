@@ -41,3 +41,13 @@ test('every captain parameter explanation includes a plain meaning and example',
   assert.match(settings, /举个例子：/);
   assert.match(settings, /还要一起看：/);
 });
+
+test('parameter explanations keep the tooltip body and text width in sync', () => {
+  assert.ok(settings.includes('styles={{'));
+  assert.ok(settings.includes('body: {'));
+  assert.ok(settings.includes("width: 'min(380px, calc(100vw - 32px))'"));
+  assert.ok(settings.includes("boxSizing: 'border-box'"));
+  assert.ok(settings.includes("whiteSpace: 'normal'"));
+  assert.ok(settings.includes("overflowWrap: 'anywhere'"));
+  assert.ok(settings.includes("width: '100%', lineHeight: 1.65"));
+});

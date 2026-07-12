@@ -364,8 +364,17 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
       <span>{label}</span>
       <Tooltip
         placement="topLeft"
+        styles={{
+          body: {
+            width: 'min(380px, calc(100vw - 32px))',
+            maxWidth: 'calc(100vw - 32px)',
+            boxSizing: 'border-box',
+            whiteSpace: 'normal',
+            overflowWrap: 'anywhere',
+          },
+        }}
         title={
-          <div style={{ width: 380, maxWidth: 'calc(100vw - 48px)', lineHeight: 1.65 }}>
+          <div style={{ width: '100%', lineHeight: 1.65, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
             <div>
               <span style={{ color: '#91caff', fontWeight: 600 }}>什么意思：</span>
               {help.meaning}
