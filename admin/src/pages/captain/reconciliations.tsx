@@ -52,6 +52,8 @@ const ERROR_LABELS: Record<string, string> = {
   ORDER_PROFIT_CONSERVATION_FAILED: '利润守恒校验失败',
 };
 
+const getErrorLabel = (errorCode: string) => ERROR_LABELS[errorCode] ?? '利润核算异常，请联系平台管理员';
+
 const money = (value?: number | null) =>
   value == null || !Number.isFinite(Number(value)) ? '-' : `¥${Number(value).toFixed(2)}`;
 
@@ -259,7 +261,7 @@ export default function ProfitReconciliationsPage() {
         const missing = missingCostIds(record.sourceSnapshot);
         return (
           <Space direction="vertical" size={2}>
-            <Text>{ERROR_LABELS[record.errorCode] ?? record.errorCode}</Text>
+            <Text>{getErrorLabel(record.errorCode)}</Text>
             {missing.length > 0 ? <Text type="danger">缺失 {missing.length} 个订单项成本</Text> : null}
           </Space>
         );
@@ -355,7 +357,7 @@ export default function ProfitReconciliationsPage() {
               <Descriptions.Item label="任务状态"><StatusTag status={detail.status} /></Descriptions.Item>
               <Descriptions.Item label="订单号"><Text copyable>{detail.orderId}</Text></Descriptions.Item>
               <Descriptions.Item label="付款月份">{detail.order?.paidAt ? dayjs(detail.order.paidAt).format('YYYY-MM') : '-'}</Descriptions.Item>
-              <Descriptions.Item label="错误类型">{ERROR_LABELS[detail.errorCode] ?? detail.errorCode}</Descriptions.Item>
+              <Descriptions.Item label="错误类型">{getErrorLabel(detail.errorCode)}</Descriptions.Item>
               <Descriptions.Item label="直接团长">{getCaptainIdFromSnapshot(detail.sourceSnapshot) ?? '无'}</Descriptions.Item>
               <Descriptions.Item label="处理备注">{detail.resolutionNote || '-'}</Descriptions.Item>
             </Descriptions>

@@ -75,7 +75,11 @@ test('formats structured safety details when the current Error exposes them', ()
 
   assert.equal(
     formatProfitSafetyError(error),
-    '当前配置会突破平台利润安全底线；失败场景 VIP_BUYER_VIP_INVITER；限制 SKU sku-low-margin；利润缺口 3.10%',
+    '当前配置会突破平台利润安全底线；失败场景 VIP 买家 / VIP 邀请人；存在不满足利润安全要求的商品规格；利润缺口 3.10%',
+  );
+  assert.equal(
+    formatProfitSafetyError(new Error('INVALID_CAPTAIN_CONFIG')),
+    '当前配置未通过利润安全校验，请检查页面提示后重试',
   );
   assert.equal(formatProfitSafetyError(new Error('保存失败')), '保存失败');
 });
