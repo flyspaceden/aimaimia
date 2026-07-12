@@ -240,8 +240,8 @@ export function getProfitSafetyGuidance(summary: ProfitSafetyGuidanceSummary): P
       description: '不会产生新的团长归因或佣金；VIP 与普通用户分润仍按当前商品利润安全规则测算。',
       actions: [{
         id: 'captain-settings',
-        label: '配置团长激励',
-        description: '准备启用时，再填写适用范围、实际奖励率和利润底线参数。',
+        label: '开始配置团长激励',
+        description: '定位到下方“基础开关”，随后填写适用范围、实际奖励率和利润底线参数。',
         to: '/captain/settings',
       }],
       riskScenarios,

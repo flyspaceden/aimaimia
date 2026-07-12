@@ -61,6 +61,7 @@ test('treats an unsaved or disabled captain program as a neutral zero-reward sta
   assert.equal(guidance.state, 'disabled');
   assert.match(guidance.title, /未启用/);
   assert.equal(guidance.alertType, 'info');
+  assert.equal(guidance.actions[0]?.label, '开始配置团长激励');
 });
 
 test('turns incomplete financial inputs into concrete setup actions instead of a false SKU-risk alert', () => {
@@ -167,8 +168,11 @@ test('captain settings uses the actionable state model and product names instead
 
   assert.match(source, /getProfitSafetyGuidance/);
   assert.match(source, /getSystemConfigCompletenessNotice/);
-  assert.match(source, /团长激励未启用，当前按 0% 团长奖励测算/);
   assert.match(source, /商品名称待补充/);
   assert.match(source, /查看四种买家与推荐人组合测算/);
+  assert.match(source, /onCaptainSettings/);
+  assert.match(source, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  assert.match(source, /已定位到团长基础开关/);
+  assert.doesNotMatch(source, /团长激励未启用，当前按 0% 团长奖励测算/);
   assert.doesNotMatch(source, /当前参数将突破平台利润底线/);
 });
