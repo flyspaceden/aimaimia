@@ -1014,6 +1014,18 @@ export default function VipGiftsPage() {
             </Button>
           </Space>
         }
+        footer={
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={closeDrawer}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleSubmit}
+              loading={createMutation.isPending || updateMutation.isPending}
+            >
+              {editingRecord ? '保存修改' : '创建方案'}
+            </Button>
+          </Space>
+        }
       >
         <Form
           form={form}
