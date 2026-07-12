@@ -30,6 +30,15 @@ export class InboxController {
     return this.inboxService.getUnreadCount(userId);
   }
 
+  /** 单条消息详情（仅当前买家可读） */
+  @Get(':id')
+  getOne(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.inboxService.getOne(id, userId);
+  }
+
   /** 标记单条已读 */
   @Post(':id/read')
   markRead(

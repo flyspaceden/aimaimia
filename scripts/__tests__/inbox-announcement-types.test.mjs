@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const inboxTypes = readFileSync('src/types/domain/Inbox.ts', 'utf8');
 const inboxPage = readFileSync('app/inbox/index.tsx', 'utf8');
+const inboxDetailPage = readFileSync('app/inbox/[id].tsx', 'utf8');
 const inboxMock = readFileSync('src/mocks/inbox.ts', 'utf8');
 const notificationRoutes = readFileSync('src/utils/notificationRoutes.ts', 'utf8');
 const inboxFilters = readFileSync('src/utils/inboxFilters.ts', 'utf8');
@@ -13,6 +14,8 @@ const inboxController = readFileSync('backend/src/modules/inbox/inbox.controller
 const notificationMessages = readFileSync('backend/src/modules/notification/notification-message.service.ts', 'utf8');
 const notificationSchema = readFileSync('backend/prisma/schema.prisma', 'utf8');
 const softDeleteMigrationPath = 'backend/prisma/migrations/20260711160000_notification_message_soft_delete/migration.sql';
+const outreachCategoryMigrationPath = 'backend/prisma/migrations/20260712050000_fix_cs_outreach_notification_category/migration.sql';
+const outreachService = readFileSync('backend/src/modules/customer-service/cs-outreach.service.ts', 'utf8');
 
 test('buyer inbox domain accepts platform announcement and outreach invitation message types', () => {
   for (const type of ['platform_announcement', 'platform_notice', 'cs_outreach_invite']) {
@@ -38,23 +41,43 @@ test('buyer inbox preserves and visibly marks important announcements', () => {
 
 test('buyer inbox mock data includes platform announcement and customer-service invite examples', () => {
   assert.match(inboxMock, /platform_announcement/);
-  assert.match(inboxMock, /cs_outreach_invite/);
+  assert.match(inboxMock, /category: 'service'[\s\S]*cs_outreach_invite/);
   assert.match(inboxMock, /\/cs/);
 });
 
 test('buyer inbox route resolver includes announcement-friendly pages', () => {
   assert.match(notificationRoutes, /'\/group-buy'/);
   assert.match(notificationRoutes, /'\/coupon-center'/);
-  assert.match(inboxPage, /resolveBuyerNotificationRoute/);
+  assert.match(inboxDetailPage, /resolveBuyerNotificationRoute/);
   assert.match(notificationRoutes, /PRODUCT_DETAIL:\s*'\/product\/\[id\]'/);
 });
 
-test('buyer inbox clear filter action atomically restores all messages', () => {
+test('buyer inbox filters are controlled by category and unread chips without a reset button', () => {
   assert.match(inboxFilters, /activeTab:\s*'all'/);
   assert.match(inboxFilters, /unreadOnly:\s*false/);
   assert.match(inboxPage, /setFilters\(resetInboxFilters\(\)\)/);
-  assert.match(inboxPage, /accessibilityLabel="清空消息筛选"/);
-  assert.match(inboxPage, /hitSlop=\{10\}/);
+  assert.doesNotMatch(inboxPage, /accessibilityLabel="重置消息筛选"/);
+  assert.doesNotMatch(inboxPage, />重置筛选<\/Text>/);
+});
+
+test('buyer inbox opens a message detail before offering the target action', () => {
+  assert.match(inboxPage, /pathname: '\/inbox\/\[id\]'/);
+  assert.match(inboxDetailPage, /InboxRepo\.getMessage/);
+  assert.match(inboxDetailPage, /formatInboxDetailTimestamp/);
+  assert.match(inboxDetailPage, /getBuyerNotificationActionLabel/);
+  assert.match(inboxDetailPage, /router\.push\(targetRoute/);
+  assert.match(inboxDetailPage, /message\.content/);
+  assert.match(inboxController, /@Get\(':id'\)/);
+  assert.match(notificationMessages, /async getOne\(recipientKey: string, id: string\)/);
+});
+
+test('buyer inbox explains swipe deletion and classifies customer-service outreach as interaction', () => {
+  assert.match(inboxPage, /消息向左滑动删除/);
+  assert.match(outreachService, /category: 'service'[\s\S]*eventType: 'cs_outreach_invite'/);
+  assert.equal(existsSync(outreachCategoryMigrationPath), true);
+  const migration = readFileSync(outreachCategoryMigrationPath, 'utf8');
+  assert.match(migration, /"eventType" = 'cs_outreach_invite'/);
+  assert.match(migration, /SET "category" = 'service'/);
 });
 
 test('buyer inbox supports single swipe deletion undo and confirmed bulk cleanup', () => {

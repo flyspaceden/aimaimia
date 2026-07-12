@@ -34,6 +34,17 @@ export class NotificationMessageService {
     });
   }
 
+  async getOne(recipientKey: string, id: string) {
+    const row = await this.prisma.notificationMessage.findFirst({
+      where: { id, recipientKey, deletedAt: null },
+    });
+    if (!row) {
+      throw new NotFoundException('消息不存在');
+    }
+
+    return this.map(row);
+  }
+
   async markRead(recipientKey: string, id: string) {
     const row = await this.prisma.notificationMessage.findFirst({
       where: { id, recipientKey, deletedAt: null },

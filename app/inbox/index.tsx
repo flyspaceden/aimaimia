@@ -21,7 +21,6 @@ import {
   type InboxFilterTab,
 } from '../../src/utils/inboxFilters';
 import { formatInboxTimestamp } from '../../src/utils/inboxDisplay';
-import { resolveBuyerNotificationRoute } from '../../src/utils/notificationRoutes';
 
 type CleanupMode = 'menu' | 'confirm-read' | 'confirm-all' | null;
 
@@ -157,6 +156,10 @@ export default function InboxScreen() {
     ],
     []
   );
+  const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? '全部';
+  const filterSummary = activeTab === 'all'
+    ? (unreadOnly ? '全部消息 · 仅未读' : `全部消息 · 未读 ${unreadCount} 条`)
+    : `${activeTabLabel}消息${unreadOnly ? ' · 仅未读' : ''}`;
 
   const invalidateInboxState = async () => {
     await Promise.all([
@@ -165,7 +168,7 @@ export default function InboxScreen() {
     ]);
   };
 
-  const clearFilters = () => {
+  const resetFilters = () => {
     setFilters(resetInboxFilters());
   };
 
@@ -216,7 +219,7 @@ export default function InboxScreen() {
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
       undoTimerRef.current = null;
       setLastDeletedMessage(null);
-      clearFilters();
+      resetFilters();
       setCleanupMode(null);
       await invalidateInboxState();
       const count = result.data.deletedCount ?? 0;
@@ -244,28 +247,9 @@ export default function InboxScreen() {
     </Pressable>
   );
 
-  const handleOpenMessage = async (message: InboxMessage) => {
-    if (message.unread) {
-      const result = await InboxRepo.markRead(message.id);
-      if (!result.ok) {
-        show({ message: result.error.displayMessage ?? '操作失败', type: 'error' });
-        return;
-      }
-      await invalidateInboxState();
-    }
-
-    const route = resolveBuyerNotificationRoute(message.action ?? message.target);
-    if (route) {
-      router.push(route as any);
-      return;
-    }
-
-    show({ message: '该消息暂无可跳转的页面', type: 'info' });
+  const handleOpenMessage = (message: InboxMessage) => {
+    router.push({ pathname: '/inbox/[id]', params: { id: message.id } });
   };
-
-  // 判断单条消息是否可点击跳转，用于 chevron 条件渲染
-  const isMessageClickable = (message: InboxMessage): boolean =>
-    resolveBuyerNotificationRoute(message.action ?? message.target) !== null;
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -280,6 +264,7 @@ export default function InboxScreen() {
             style={({ pressed }) => [styles.headerAction, pressed && styles.pressedControl]}
           >
             <MaterialCommunityIcons name="delete-sweep-outline" size={23} color={colors.text.secondary} />
+            <Text style={[typography.caption, { color: colors.text.secondary, marginLeft: 3 }]}>清理</Text>
           </Pressable>
         )}
       />
@@ -367,20 +352,8 @@ export default function InboxScreen() {
           </View>
           <View style={styles.summaryRow}>
             <Text style={[typography.caption, { color: colors.text.secondary }]}>
-              {hasFilter ? '当前筛选' : '全部消息'} · 未读 {unreadCount} 条
+              {filterSummary}
             </Text>
-            {hasFilter ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="清空消息筛选"
-                hitSlop={10}
-                onPress={clearFilters}
-                style={({ pressed }) => [styles.resetFilter, pressed && styles.pressedControl]}
-              >
-                <MaterialCommunityIcons name="filter-remove-outline" size={16} color={colors.accent.blue} />
-                <Text style={[typography.caption, { color: colors.accent.blue }]}>清空筛选</Text>
-              </Pressable>
-            ) : null}
           </View>
         </View>
 
@@ -400,20 +373,18 @@ export default function InboxScreen() {
           <EmptyState
             title={hasFilter ? '暂无匹配消息' : '暂无消息'}
             description={hasFilter ? '试试调整筛选条件' : '互动通知会出现在这里'}
-            actionLabel={hasFilter ? '清空筛选' : '去首页'}
-            onAction={() => {
-              if (hasFilter) {
-                clearFilters();
-                return;
-              }
-              router.push('/(tabs)/home');
-            }}
+            actionLabel={hasFilter ? undefined : '去首页'}
+            onAction={hasFilter ? undefined : () => router.push('/(tabs)/home')}
           />
         ) : (
           <ScrollView
             refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} />}
             showsVerticalScrollIndicator={false}
           >
+            <View style={styles.swipeHint}>
+              <MaterialCommunityIcons name="gesture-swipe-left" size={16} color={colors.text.tertiary} />
+              <Text style={[typography.caption, { color: colors.text.tertiary, marginLeft: 6 }]}>消息向左滑动删除</Text>
+            </View>
             {messages.map((message, msgIndex) => {
               const icon = iconMap[message.type] ?? { name: 'bell-outline', tone: 'neutral' };
               const isImportantAnnouncement = (
@@ -472,10 +443,7 @@ export default function InboxScreen() {
                           {formatInboxTimestamp(message.createdAt)}
                         </Text>
                       </View>
-                      {/* 仅当消息可跳转时显示 chevron，info-only 消息不显示避免误导 */}
-                      {isMessageClickable(message) ? (
-                        <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
-                      ) : null}
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text.secondary} />
                     </Pressable>
                   </ReanimatedSwipeable>
                 </Animated.View>
@@ -624,13 +592,23 @@ export default function InboxScreen() {
 
 const styles = StyleSheet.create({
   headerAction: {
-    width: 40,
+    minWidth: 52,
     height: 40,
+    paddingHorizontal: 4,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   toolbar: {
     marginBottom: 12,
+  },
+  swipeHint: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 4,
+    paddingBottom: 8,
   },
   tabRow: {
     flexDirection: 'row',
@@ -656,16 +634,7 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginTop: 8,
-  },
-  resetFilter: {
-    minHeight: 44,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
   },
   pressedControl: {
     opacity: 0.55,

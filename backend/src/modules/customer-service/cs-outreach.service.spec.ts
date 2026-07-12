@@ -198,7 +198,7 @@ describe('CsOutreachService', () => {
         recipientKind: 'BUYER_USER',
         recipientKey: 'buyer:user-1',
         audience: 'BUYER_APP',
-        category: 'system',
+        category: 'service',
         eventType: 'cs_outreach_invite',
         title: '平台客服邀请沟通',
         body: '平台客服已发起一对一沟通，点击进入客服对话。',

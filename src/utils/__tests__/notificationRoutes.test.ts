@@ -1,4 +1,4 @@
-import { resolveBuyerNotificationRoute } from '../notificationRoutes';
+import { getBuyerNotificationActionLabel, resolveBuyerNotificationRoute } from '../notificationRoutes';
 
 describe('resolveBuyerNotificationRoute', () => {
   it('maps ORDER_DETAIL to the buyer order detail route', () => {
@@ -62,5 +62,11 @@ describe('resolveBuyerNotificationRoute', () => {
   it('returns null for an empty action', () => {
     expect(resolveBuyerNotificationRoute(undefined)).toBeNull();
     expect(resolveBuyerNotificationRoute(null)).toBeNull();
+  });
+
+  it('provides buyer-facing labels for detail-page action buttons', () => {
+    expect(getBuyerNotificationActionLabel({ routeKey: 'PRODUCT_DETAIL', params: { id: 'product-1' } })).toBe('查看商品');
+    expect(getBuyerNotificationActionLabel({ route: '/cs', params: { sessionId: 'cs-1' } })).toBe('进入客服对话');
+    expect(getBuyerNotificationActionLabel(undefined)).toBeNull();
   });
 });
