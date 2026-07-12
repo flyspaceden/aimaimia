@@ -136,7 +136,7 @@ eas submit --profile production --platform ios
 
 ## 四、OTA 推送前 Checklist（强制）
 
-**踩过白屏事故，按此 SOP 推**：
+**踩过白屏事故，按此 SOP 推。EAS 显示 Published 不代表设备可以启动。**
 
 ### 第一关：本地验证
 
@@ -144,11 +144,26 @@ eas submit --profile production --platform ios
 # 1. TypeScript 编译（CI 等效）
 npx tsc -b --noEmit
 
-# 2. 干跑 bundle 编译（只能验语法，不验运行时）
-NODE_ENV=production npx expo export --platform android
+# 2. 从空 Metro 缓存导出 Android + iOS 的固定发布产物
+#    所有 EXPO_PUBLIC_* 必须按目标环境显式传入
+env NODE_ENV=production \
+  EXPO_PUBLIC_ENV=production \
+  EXPO_PUBLIC_USE_MOCK=false \
+  EXPO_PUBLIC_API_BASE_URL=https://api.ai-maimai.com/api/v1 \
+  EXPO_PUBLIC_ALIPAY_SANDBOX=false \
+  EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true \
+  npx expo export --platform all --clear --dump-assetmap \
+  --output-dir /tmp/aimaimai-ota-preflight
+
+# 3. 上传上一步已验证的目录；禁止让 eas update 再走一次未清缓存的 bundler
+CI=1 npx eas-cli@latest update --branch production \
+  --input-dir /tmp/aimaimai-ota-preflight --skip-bundler \
+  --message "<本次说明>" --non-interactive
 ```
 
-两者都通过 = bundle 不会因语法错误 / 类型错误炸。但**不能保证运行时不炸**。
+导出日志必须同时出现 Android 和 iOS bundle；当前基线每个平台都应包含图标字体。发布后还必须直接拉取 EAS manifest，确认 Android / iOS 均含 `font/ttf` 资源（当前为 19 个）且运行时版本正确。若字体为 0、资源数异常下降或启动包异常偏小，立刻 `update:republish` 上一个稳定 Group，禁止继续让测试人员安装。
+
+2026-07-12 事故证明：只发布不做 manifest 校验，会产生一个看似 Published、实际缺少 19 个字体的 OTA，Android 首启白屏后回退到嵌入 bundle。
 
 ### 第二关：模块顶层副作用自查
 
@@ -431,7 +446,8 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 | Group ID | 内容 | 备注 |
 |---|---|---|
-| `f3129bfd-ac57-483a-8000-827ecda4fd22` | 消息中心详情与筛选优化：买家 App 点击消息先进入详情页，再从详情按钮跳转商品/客服等目标；主动客服邀请统一归入互动分类；移除容易与删除混淆的“重置筛选”按钮，保留分类和仅未读筛选；保留左滑删除提示与消息清理能力 | **当前生效** ✅，commit `ac46d14a`（2026-07-12，staging），runtime **1.0.5** preview OTA；Android update `019f54cb-534a-782d-bad5-7fed09bd9b19`，iOS update `019f54cb-534a-724e-b75e-469d01ee0c31`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/f3129bfd-ac57-483a-8000-827ecda4fd22`；命令带全 5 个测试 `EXPO_PUBLIC_*`（ENV=staging、USE_MOCK=false、API_BASE_URL=test-api、ALIPAY_SANDBOX=false、WECHAT_PAY_AVAILABLE=true）；契约测试 10/10、App TypeScript、后端相关测试 24/24、`git diff --check` 通过。后端 API 与数据库迁移需等待 staging 服务端部署完成后生效；本条只覆盖 runtime **1.0.5**。 |
+| `d121c094-c64f-4f05-a086-666f7cb811a4` | 修复消息中心 OTA 资源不完整：使用清空缓存的固定导出目录上传，保留消息详情、筛选与删除功能 | **当前生效** ✅，commit `ac46d14a`（2026-07-12，staging）；Android `019f54fa-8b3d-7a9d-9cfc-9a47a8c74a10`，iOS `019f54fa-8b3d-75a9-881a-25effa3b848e`；线上 manifest 已验证 Android 为 26 PNG + 19 TTF，共 45 个资源。 |
+| `f3129bfd-ac57-483a-8000-827ecda4fd22` | 消息中心详情与筛选优化：买家 App 点击消息先进入详情页，再从详情按钮跳转商品/客服等目标；主动客服邀请统一归入互动分类；移除容易与删除混淆的“重置筛选”按钮，保留分类和仅未读筛选；保留左滑删除提示与消息清理能力 | 已被 `d121c094-c64f-4f05-a086-666f7cb811a4` 覆盖。原 OTA 缺少 19 个 TTF 字体资源，禁止继续使用。 |
 | `95924b79-8ffe-4c0d-9bb0-62af591b4e60` | 客服公告与主动会话联动真机测试：管理后台消息公告、主动联系买家入口、客服工作台主动会话管理已接入；买家 App `/cs` 新增会话列表、处理中/历史会话、未读数、已结束只读历史、通知和消息中心跳转到具体会话；后端新增买家会话列表、已读游标 `buyerLastReadAt`、Socket `cs:join_session` 加入具体会话房间 | 已被 `f3129bfd-ac57-483a-8000-827ecda4fd22` 覆盖；commit `4ea35c92`（2026-07-06，staging），runtime **1.0.5** preview OTA；Android update `019f39b8-ea1a-78cf-a962-4c36024dec29`，iOS update `019f39b8-ea1a-7547-90d9-8ec95e6c8489`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/95924b79-8ffe-4c0d-9bb0-62af591b4e60`；命令带全 5 个测试 `EXPO_PUBLIC_*`（ENV=staging、USE_MOCK=false、API_BASE_URL=test-api、ALIPAY_SANDBOX=false、WECHAT_PAY_AVAILABLE=true）。发布前通过客服/公告静态回归 34/34、`npx tsc -b --noEmit --pretty false`、preview Android `expo export --platform android` |
 | `c2fd73ad-0cd0-42ae-8d0d-aca7d23956e4` | 下线 AI 多轮对话页（过华为审查 + 规避"网络异常"）：`app/ai/chat.tsx`+`assistant.tsx`+`history.tsx` 默认导出改 `<Redirect href="/(tabs)/home" />`（原实现保留为 `*ScreenDisabled`，恢复时切回 export default）；`app/(tabs)/home.tsx` 短按光球不再进聊天页 + 隐藏「继续对话」「最近对话」（`false &&`）+ 最近对话 query `enabled:false`；`src/hooks/useVoiceRecording.ts` 聊天类回复从跳 `/ai/chat` 改为浮层内联**单轮**显示（`setFeedbackText`+`setFeedbackVisible`）；`AiFloatingCompanion.tsx` `onContinueChat={undefined}`；`cart.tsx` 两入口 / `me.tsx`「AI 小助手」块 / `mocks/me.ts` task-002 / `navigateByIntent.ts` ai-chat→原地反馈，全部注释或不跳页。**保留单轮语音**：首页长按语音 + 全局浮球 + 语音搜索/推荐/跳页/结账 + 溯源/AI推荐/金融页 + 后端 AI 模块均不动 | 已被 `95924b79-8ffe-4c0d-9bb0-62af591b4e60` 覆盖；commit `db3d7be`（2026-06-02），纯 JS/TS 无原生改动、无顶层副作用/白屏风险、无后端依赖；`tsc -b` 通过 + 独立审查 SHIP；Android update `019e86cc-de81-779b-8f86-6e79929b780f`，iOS update `019e86cc-de81-706d-941d-c5750b646518`；带全 5 个 `EXPO_PUBLIC_*`（`ENV=staging`+`USE_MOCK=false`+`API_BASE_URL=test`+`ALIPAY_SANDBOX=true`+`WECHAT_PAY_AVAILABLE=true`）。⚠️ 多轮 `sendMessage` 后端接口仍在、前端已无入口；背景根因是后端 `chatWithContext` 调 Qwen 10s 超时（`backend/.../ai.service.ts:3789`） |
 | `a9b24b6d-a344-4fc1-8690-704d9b758fc4` | 售后申请页真机 bug 修复：①上传凭证入口支持拍照/相册二选一，拍照独立申请相机权限；②提交按钮加同步防重复保护，成功后直达售后详情；③售后详情页对金额、图片数组、物流轨迹数组做渲染前归一化，并加路由级 ErrorBoundary，避免后端已创建售后但详情异常数据导致白屏 | 已被 `c2fd73ad-0cd0-42ae-8d0d-aca7d23956e4` 覆盖，commit `46ef1e7`（2026-06-02），App 端纯 JS/TS 无原生改动；Android update `019e8624-9923-783c-9fcd-ff9c7dafece3`，iOS update `019e8624-9923-723b-b8be-802f8ea61c46`；带 `EXPO_PUBLIC_ENV=staging` + `EXPO_PUBLIC_ALIPAY_SANDBOX=false`（支付宝真实链路）+ `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`（微信真实链路入口打开） |
@@ -498,9 +514,13 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 **已存在并持续使用**（channel `production` → branch `production`）。v1.0 已上线：生产设备当前存在 runtime **1.0.1**（华为等旧包用户）与 **1.0.2**（小米 1.0.2 包用户）；2026-06-22 已本地生成 1.0.5 production APK（`prod-1.0.5-20260621-234914.apk`，versionCode 15，runtime 1.0.5，commit `3f72cec`），`apk/aimaimai-latest.apk` 已同步为该包。2026-06-16 已本地重新生成 1.0.4 隐私政策三端一致修复 production APK（`prod-1.0.4-privacy-consistency-20260616-135143.apk`，versionCode 11，runtime 1.0.4，commit `a7589ed`），但已被 1.0.5 包替代；此前 `prod-1.0.4-20260616-002402.apk`（versionCode 10）因隐私弹窗摘要仍有手写旧口径且官网 `/privacy` 为 SPA shell，已被替代，不再提审。上一版 2026-06-11 1.0.3 production APK 为 `prod-1.0.3-lottery-20260611-222117.apk`（versionCode 9，内嵌隐私政策 `v1.0.2` OPPO SDK 精确公示 + 会员服务协议 + 抽奖转盘奖品名完整展示 / 奖品实例配色修复）。2026-06-10 源码已按 OPPO 审核整改升级隐私政策 `v1.0.2`（支付宝/微信 SDK 精确公示），并已发 OPPO SDK 公示版 production OTA 到 runtime **1.0.3**；同日晚继续按 OPPO 付费会员审核要求发 runtime **1.0.3** production OTA，新增独立《会员服务协议》页面，并在 VIP 礼包选择页 / VIP 结算支付页醒目提示且支付前强制勾选。2026-06-11 已继续发 runtime **1.0.3** production OTA，将「关于爱买买」联系邮箱改为 `zwf@huahainongke.com`。2026-06-14 已发 runtime **1.0.3** production OTA，新增买家 App「数字资产」入口与累计消费金额页面；该页面依赖本次 `main` 后端部署完成 `DigitalAssetAccount`/`DigitalAssetLedger` migration 与 `/me/digital-assets/*` API 后可用。2026-06-15 曾发 runtime **1.0.3** 首页品牌文案/VIP 礼包卡片精简 OTA，但 Android 侧出现 0 installs / 3 failedInstalls / 100% crashRate，已用 `eas update:republish` 紧急回滚到数字资产稳定版本；同日已从干净 `main` 重新发 runtime **1.0.3** production OTA，包含首页品牌文案/VIP 礼包卡片精简与我的页 VIP 卡片「减免运费权益」文案；随后继续发第 22 条 OTA，将首页标语固定为「消费者就是生产力 / 是社会价值的创造者」，使命文案改为「让消费者创造一个属于自己的世界 / 为全世界创造一个共生的未来」，并把搜索框和已抽奖提示移动到使命文案下方；第 23 条 OTA 删除首页 VIP 礼包跑马灯顶部「好友开通可得礼包 / 3 个档位可选」标题行，并将黑色推荐条文案精简为「推荐好友开通 VIP」；第 24 条 OTA 调整我的页身份卡：删除时段问候语，用户编号显示为 `ID: AIMM...`，并优化昵称 / 编号 / 推荐码 / 右侧按钮排版。第 21/22/24 条发布前后均验证 Android/iOS manifest 为 45 assets / 19 ttf、launch HBC 约 5.27 MB。runtime 1.0.5 / 1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 用户互不接收其他 runtime 的 OTA；1.0.5 新包上线后，后续 App JS 更新需要针对 runtime **1.0.5** 单独发 production OTA。**生产 OTA 必须按目标 runtime 分发**——1.0.5 / 1.0.4 / 1.0.3 / 1.0.2 / 1.0.1 / 1.0.0 / 0.2.0 互不通 OTA。
 
-生产 OTA 完整历史（第 1-59 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
+生产 OTA 完整历史（第 1-61 条，含 Group ID / commit / 内容）以 memory `project_app_release_status.md` 的「Production Branch」节为权威，或跑 `eas update:list --branch production` 查询。
 
-最近一条（2026-07-12，第 59 条）：消息中心详情与筛选优化（从干净 `origin/main` commit `1145d130` 发布）——买家 App 点击消息先进入详情页，再从详情按钮跳转商品/客服等目标；主动客服邀请统一归入互动分类；移除容易与删除混淆的“重置筛选”按钮，保留分类和仅未读筛选；保留左滑删除提示与消息清理能力。runtime 1.0.5 production OTA：Group `f7000fa9-b476-4301-8a67-72cbe9784f8b`，Android update `019f54cb-f5e8-7f69-b575-15339ed91f9f`，iOS update `019f54cb-f5e8-793b-9645-fe8f79ab4b09`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/f7000fa9-b476-4301-8a67-72cbe9784f8b`。发布命令带全 5 个生产 `EXPO_PUBLIC_*`（ENV=production、USE_MOCK=false、API_BASE_URL=api、ALIPAY_SANDBOX=false、WECHAT_PAY_AVAILABLE=true）；契约测试 10/10、App TypeScript、后端相关测试 24/24、`git diff --check` 通过。后端 API 与数据库迁移需等待 main 服务端部署完成后生效；本条只覆盖 runtime **1.0.5**；已安装 1.0.5 的用户需要完全关闭 App 后冷启动两次，第一次下载、第二次生效；更旧 runtime 不会收到本 OTA。
+最近一条（2026-07-12，第 61 条）：消息中心 OTA 资源完整性修复——保留第 59 条的消息详情、筛选与删除功能，但从清空 Metro 缓存后的固定 Android/iOS 导出目录上传，避免远端 bundler 再次生成不完整包。runtime 1.0.5 production OTA：Group `797f3f00-86fe-4e5c-9f1f-fd163feb197c`，Android update `019f54f8-03bc-7126-b8c5-986893da92b8`，iOS update `019f54f8-03bc-7173-9767-614db69073e4`。线上 production manifest 已直接验证 Android 为 26 个 PNG + 19 个 TTF，共 45 个资源；runtime 为 1.0.5。应用代码仍为 `1145d130`，发布工作区的 `e026394a` 仅补充了发布记录。
+
+上一条（2026-07-12，第 60 条）：紧急回退——第 59 条 Android 出现 4 次 failed installs、crash rate 100%，先将第 58 条稳定消息中心 OTA republish 为 Group `e550f3c2-df32-416c-9ba1-6df416b8c5a0`，Android update `019f54f5-8010-7604-9ab9-fe9309529e1f`，阻止新设备继续获取故障包；随后才发布第 61 条完整资源修复版。
+
+再上一条（2026-07-12，第 59 条，已回退）：消息中心详情与筛选优化（从干净 `origin/main` commit `1145d130` 发布）——功能内容有效，但 OTA Group `f7000fa9-b476-4301-8a67-72cbe9784f8b` 的 Android update `019f54cb-f5e8-7f69-b575-15339ed91f9f` 线上 manifest 仅有 26 个 PNG，缺少 19 个 `font/ttf`；Android insights 显示 `failedInstalls=4`、`crashRatePercent=100`，用户表现为首次启动白屏、随后回退到嵌入 bundle。该 Group 已被第 60/61 条覆盖，禁止再次 republish。
 
 上一条（2026-07-11，第 58 条）：客服实时通讯与消息中心清理（从干净 `origin/main` commit `91b3582f` 发布）——纳入客服实时链路加固，以及买家消息中心公告商品详情跳转、筛选重置、左滑单条删除、5 秒撤销、清空已读、二次确认清空全部和友好时间展示。runtime 1.0.5 production OTA：Group `b3614f85-ec3a-4f50-9ab8-fec69abd5904`，Android update `019f5356-2b05-7a0d-a263-9396ed245d92`，iOS update `019f5356-2b05-702a-8095-bea3119e2378`；EAS Dashboard `https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/b3614f85-ec3a-4f50-9ab8-fec69abd5904`。发布命令带全 5 个生产 `EXPO_PUBLIC_*`（ENV=production、USE_MOCK=false、API_BASE_URL=api、ALIPAY_SANDBOX=false、WECHAT_PAY_AVAILABLE=true），并使用 `--clear-cache --emit-metadata`；发布前确认当前 production 最新 runtime 为 `1.0.5`，相对第 57 条未改 `app.json` / `eas.json` / `plugins/` / `android/` / `ios/` / 依赖锁文件，production Android 预检 export 通过并输出 43 assets / 1 bundle（launch HBC 约 9.03 MB）。发布后 `eas update:list` 确认本 Group 为 production 最新记录，Android 服务端 manifest 返回完整图片和 TTF 字体资源。注意：本条只覆盖 runtime **1.0.5**；已安装 1.0.5 的用户需完全关闭 App 后冷启动两次，第一次下载、第二次生效；更旧 runtime 不会收到本 OTA。若需紧急回滚，可将第 57 条 Group `fcbee76b-bfe3-43fb-8016-901809c6b119` republish 到 production。
 
