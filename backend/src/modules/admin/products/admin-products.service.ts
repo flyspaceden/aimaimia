@@ -343,7 +343,7 @@ export class AdminProductsService {
 
   /** 更新商品 */
   async update(id: string, dto: AdminUpdateProductDto) {
-    await this.loadProfitSafetyProduct(this.prisma, id);
+    let lockedProduct = await this.loadProfitSafetyProduct(this.prisma, id);
 
     // 提取 tagIds，不传给 Prisma product.update
     const { tagIds, returnPolicy, ...rest } = dto;
@@ -351,18 +351,17 @@ export class AdminProductsService {
       ...rest,
       ...(returnPolicy !== undefined ? { returnPolicy: returnPolicy as ReturnPolicy } : {}),
     };
-    const shouldValidateBundleForSale =
-      product.type === ProductType.BUNDLE &&
-      (dto.status === ProductStatus.ACTIVE || dto.auditStatus === ProductAuditStatus.APPROVED);
-    const nextStatus = (dto.status ?? product.status) as ProductStatus;
-    const nextAuditStatus = (dto.auditStatus ?? product.auditStatus) as ProductAuditStatus;
-
     const write = async (tx: Prisma.TransactionClient) => {
+      const shouldValidateBundleForSale =
+        lockedProduct.type === ProductType.BUNDLE &&
+        (dto.status === ProductStatus.ACTIVE || dto.auditStatus === ProductAuditStatus.APPROVED);
+      const nextStatus = (dto.status ?? lockedProduct.status) as ProductStatus;
+      const nextAuditStatus = (dto.auditStatus ?? lockedProduct.auditStatus) as ProductAuditStatus;
       if (shouldValidateBundleForSale) {
         if (nextStatus === ProductStatus.ACTIVE && nextAuditStatus !== ProductAuditStatus.APPROVED) {
           throw new BadRequestException('组合商品审核通过后才能上架');
         }
-        await this.assertPersistedBundleReadyForSale(tx, product);
+        await this.assertPersistedBundleReadyForSale(tx, lockedProduct);
       }
       const updated = await tx.product.update({
         where: { id },
@@ -439,10 +438,12 @@ export class AdminProductsService {
       return updated;
     };
 
-    const requiresSafetyLock = dto.status !== undefined || dto.categoryId !== undefined;
+    const requiresSafetyLock = dto.status !== undefined
+      || dto.categoryId !== undefined
+      || dto.auditStatus !== undefined;
     if (requiresSafetyLock) {
       const output = await this.profitSafety.withCandidateChange(async (tx) => {
-        const lockedProduct = await this.loadProfitSafetyProduct(tx, id);
+        lockedProduct = await this.loadProfitSafetyProduct(tx, id);
         const finalStatus = dto.status ?? lockedProduct.status;
         return {
           skuUpserts: this.activeProductCandidates(lockedProduct, {
@@ -632,15 +633,20 @@ export class AdminProductsService {
     for (const sku of dto.skus) {
       this.assertSkuWeightGram(sku.weightGram);
     }
-    if (product.type === ProductType.BUNDLE && dto.skus.length !== 1) {
+    const initialProduct = await this.loadProfitSafetyProduct(this.prisma, productId);
+    if (initialProduct.type === ProductType.BUNDLE && dto.skus.length !== 1) {
       throw new BadRequestException('组合商品必须且只能有一个销售规格');
     }
 
     let preparedSkus: Array<any> = [];
+    let lockedProduct: any = initialProduct;
 
     const output = await this.profitSafety.withCandidateChange(async (tx) => {
-      const product = await this.loadProfitSafetyProduct(tx, productId);
-      const existingById = new Map((product.skus ?? []).map((sku: any) => [sku.id, sku]));
+      lockedProduct = await this.loadProfitSafetyProduct(tx, productId);
+      if (lockedProduct.type === ProductType.BUNDLE && dto.skus.length !== 1) {
+        throw new BadRequestException('组合商品必须且只能有一个销售规格');
+      }
+      const existingById = new Map((lockedProduct.skus ?? []).map((sku: any) => [sku.id, sku]));
       for (const sku of dto.skus) {
         if (sku.id && !existingById.has(sku.id)) {
           throw new NotFoundException('存在不属于该商品的 SKU');
@@ -656,14 +662,14 @@ export class AdminProductsService {
         };
       });
       return {
-        skuUpserts: preparedSkus.map((sku) => this.toProfitSafetySku(product, {
+        skuUpserts: preparedSkus.map((sku) => this.toProfitSafetySku(lockedProduct, {
           id: sku.id,
           price: sku.price,
           cost: sku.cost,
           status: sku.existing?.status ?? 'ACTIVE',
           vipGiftItems: sku.existing?.vipGiftItems ?? [],
         }, {
-          active: product.status === 'ACTIVE'
+          active: lockedProduct.status === 'ACTIVE'
             && (sku.existing?.status ?? 'ACTIVE') === 'ACTIVE',
         })),
         changeNote: `admin product ${productId} SKU economic update`,
@@ -704,7 +710,7 @@ export class AdminProductsService {
           where: { productId, status: 'ACTIVE' },
           select: { price: true },
         });
-        if (product.type === ProductType.BUNDLE && allActiveSkus.length !== 1) {
+        if (lockedProduct.type === ProductType.BUNDLE && allActiveSkus.length !== 1) {
           throw new BadRequestException('组合商品必须且只能有一个销售规格');
         }
         if (allActiveSkus.length > 0) {
