@@ -4,6 +4,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
+  CAPTAIN_SHANGHAI_OFFSET_MS,
+  getCaptainShanghaiMonth,
   normalizeCaptainSeafoodConfig,
   validateCaptainSeafoodConfig,
 } from '../../captain/captain.constants';
@@ -180,7 +182,9 @@ export class AdminCaptainService {
     if (query.captainUserId) where.directCaptainUserId = query.captainUserId;
     if (query.buyerUserId) where.buyerUserId = query.buyerUserId;
     if (query.status) where.status = query.status;
-    if (query.month) where.createdAt = this.monthDateWhere(query.month);
+    if (query.month) {
+      and.push({ order: { paidAt: this.monthDateWhere(query.month) } });
+    }
     if (query.keyword) {
       and.push({
         OR: [
@@ -385,15 +389,18 @@ export class AdminCaptainService {
   }
 
   private monthDateWhere(month: string) {
-    if (!/^\d{4}-\d{2}$/.test(month)) {
+    const match = /^(\d{4})-(\d{2})$/.exec(month);
+    const year = match ? Number(match[1]) : NaN;
+    const monthNumber = match ? Number(match[2]) : NaN;
+    if (!Number.isInteger(year) || monthNumber < 1 || monthNumber > 12) {
       throw new BadRequestException('month 必须是 YYYY-MM');
     }
-    const start = new Date(`${month}-01T00:00:00.000Z`);
-    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    const start = new Date(Date.UTC(year, monthNumber - 1, 1) - CAPTAIN_SHANGHAI_OFFSET_MS);
+    const end = new Date(Date.UTC(year, monthNumber, 1) - CAPTAIN_SHANGHAI_OFFSET_MS);
     return { gte: start, lt: end };
   }
 
   private currentMonth() {
-    return new Date().toISOString().slice(0, 7);
+    return getCaptainShanghaiMonth();
   }
 }

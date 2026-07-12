@@ -209,6 +209,50 @@ describe('CaptainAttributionService V3 retained-profit funding', () => {
       .toBeLessThanOrEqual(funding[0].amount);
   });
 
+  it('uses discounted eligible goods GMV, rather than profit C, for the minimum commission threshold', async () => {
+    const snapshot = makeSnapshot({
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: {
+            ...captainConfig,
+            orderRules: {
+              ...captainConfig.orderRules,
+              minCommissionBase: 50,
+            },
+          },
+        },
+      },
+    });
+    const { service, tx } = createHarness(snapshot);
+
+    // C is 35, but the direct customer's discounted eligible goods GMV is 113.25.
+    await expect(service.createFrozenForPaidOrder(tx, 'order-1')).resolves.toBe('credited');
+    expect(tx.captainCommissionLedger.create).toHaveBeenCalledTimes(1);
+
+    const belowThreshold = makeSnapshot({
+      ruleSnapshot: {
+        captain: {
+          ...makeSnapshot().ruleSnapshot.captain,
+          config: {
+            ...captainConfig,
+            orderRules: {
+              ...captainConfig.orderRules,
+              minCommissionBase: 113.26,
+            },
+          },
+        },
+      },
+    });
+    const belowThresholdHarness = createHarness(belowThreshold);
+
+    await expect(belowThresholdHarness.service.createFrozenForPaidOrder(
+      belowThresholdHarness.tx,
+      'order-1',
+    )).resolves.toBe('skipped');
+    expectNoRewardWrites(belowThresholdHarness.tx);
+  });
+
   it('keeps a missing direct inviter share in platform retained funding', async () => {
     const snapshot = makeSnapshot({
       ruleSnapshot: {

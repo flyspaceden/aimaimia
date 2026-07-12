@@ -6,6 +6,14 @@ import type {
 
 export const CAPTAIN_SEAFOOD_CONFIG_KEY = 'CAPTAIN_SEAFOOD_CONFIG';
 export const CAPTAIN_SEAFOOD_PROGRAM_CODE = 'SEAFOOD_PREPACKAGED' as const;
+// China has no daylight-saving adjustment, so the captain program uses a fixed UTC+8 business month.
+export const CAPTAIN_SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export function getCaptainShanghaiMonth(date: Date = new Date()): string {
+  return new Date(date.getTime() + CAPTAIN_SHANGHAI_OFFSET_MS)
+    .toISOString()
+    .slice(0, 7);
+}
 
 const DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2: CaptainSeafoodConfigV2 = {
   schemaVersion: 2,

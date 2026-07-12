@@ -185,7 +185,7 @@ export class CaptainAttributionService {
 
     const minCommissionBase = this.readStrictMoney(config.orderRules?.minCommissionBase ?? 0);
     if (!minCommissionBase) return this.reconcileInvalidSnapshot(tx, snapshot);
-    if (commissionBaseMoney.cents < minCommissionBase.cents) return 'skipped';
+    if (eligibleGmv.cents < minCommissionBase.cents) return 'skipped';
 
     const rates = rateSet[buyerPath === 'VIP' ? 'vip' : 'normal'];
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CAPTAIN_SEAFOOD_PROGRAM_CODE } from './captain.constants';
+import { CAPTAIN_SEAFOOD_PROGRAM_CODE, getCaptainShanghaiMonth } from './captain.constants';
 import { CaptainConfigService } from './captain-config.service';
 import { CaptainRelationService } from './captain-relation.service';
 
@@ -230,6 +230,6 @@ export class CaptainBuyerService {
   }
 
   private currentMonth() {
-    return new Date().toISOString().slice(0, 7);
+    return getCaptainShanghaiMonth();
   }
 }

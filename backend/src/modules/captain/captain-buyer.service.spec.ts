@@ -184,6 +184,21 @@ describe('CaptainBuyerService', () => {
     }));
   });
 
+  it('loads the current metric by the Asia/Shanghai natural month', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-31T16:30:00.000Z'));
+    const { prisma, service } = createHarness();
+
+    await service.getMyCaptainProfile('captain-1');
+
+    expect(prisma.captainMonthlyMetric.findFirst).toHaveBeenCalledWith({
+      where: {
+        captainUserId: 'captain-1',
+        month: '2026-08',
+        programCode: CAPTAIN_SEAFOOD_PROGRAM_CODE,
+      },
+    });
+  });
+
   it('lists only the current captain reward ledgers', async () => {
     const { prisma, service } = createHarness();
 
