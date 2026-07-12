@@ -110,3 +110,31 @@ export const resolveBuyerNotificationRoute = (action: NotificationRouteInput): B
 
   return null;
 };
+
+const ACTION_LABEL_BY_ROUTE_KEY: Record<string, string> = {
+  ORDER_DETAIL: '查看订单',
+  ORDER_TRACK: '查看物流',
+  AFTER_SALE_DETAIL: '查看售后详情',
+  INVOICE_DETAIL: '查看发票',
+  WALLET: '查看钱包',
+  COUPONS: '查看红包',
+  DIGITAL_ASSETS: '查看数字资产',
+  GROUP_BUY_DETAIL: '查看团购',
+  PRODUCT_DETAIL: '查看商品',
+  CS_SESSION: '进入客服对话',
+  ORDER_RECEIVER_INFO: '修改收货信息',
+};
+
+export const getBuyerNotificationActionLabel = (action: NotificationRouteInput): string | null => {
+  const route = resolveBuyerNotificationRoute(action);
+  if (!route) return null;
+
+  if (action?.routeKey && ACTION_LABEL_BY_ROUTE_KEY[action.routeKey]) {
+    return ACTION_LABEL_BY_ROUTE_KEY[action.routeKey];
+  }
+  if (route.pathname === '/cs') return '进入客服对话';
+  if (route.pathname.startsWith('/product/')) return '查看商品';
+  if (route.pathname.startsWith('/orders/')) return '查看订单';
+  if (route.pathname.startsWith('/group-buy/')) return '查看团购';
+  return '查看相关页面';
+};

@@ -214,7 +214,7 @@ export class CsOutreachService {
         recipientKind: NotificationRecipientKind.BUYER_USER,
         recipientKey: this.recipientKey(userId),
         audience: NotificationAudience.BUYER_APP,
-        category: 'system',
+        category: 'service',
         eventType: 'cs_outreach_invite',
         title: inviteTitle?.trim() || '平台客服邀请沟通',
         body: '平台客服已发起一对一沟通，点击进入客服对话。',

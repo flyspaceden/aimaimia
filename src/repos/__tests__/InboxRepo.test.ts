@@ -48,6 +48,15 @@ describe('InboxRepo deletion endpoints', () => {
     expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: 'POST' }));
   });
 
+  it('loads one buyer message for the detail page', async () => {
+    const fetchMock = mockFetch({ id: 'message-1', title: '消息标题' });
+
+    await InboxRepo.getMessage('message-1');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/inbox/message-1');
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ method: 'GET' }));
+  });
+
   it('uses separate endpoints for clearing read messages and all messages', async () => {
     const fetchMock = mockFetch({ deletedCount: 3 });
 

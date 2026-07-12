@@ -41,6 +41,34 @@ describe('NotificationMessageService', () => {
     }));
   });
 
+  it('消息详情只能读取当前收件人未删除的消息', async () => {
+    const { prisma, service } = makeService();
+    prisma.notificationMessage.findFirst.mockResolvedValue({
+      id: 'message-1',
+      category: 'service',
+      eventType: 'cs_outreach_invite',
+      title: '平台客服邀请沟通',
+      body: '请进入客服对话。',
+      severity: 'INFO',
+      metadata: null,
+      createdAt: new Date('2026-07-12T01:00:00.000Z'),
+      readAt: null,
+      action: { route: '/cs', params: { sessionId: 'session-1' } },
+    });
+
+    await expect(service.getOne('buyer:user-1', 'message-1')).resolves.toEqual(
+      expect.objectContaining({ id: 'message-1', category: 'service', unread: true }),
+    );
+    expect(prisma.notificationMessage.findFirst).toHaveBeenCalledWith({
+      where: { id: 'message-1', recipientKey: 'buyer:user-1', deletedAt: null },
+    });
+  });
+
+  it('消息详情无法读取其他收件人的消息', async () => {
+    const { service } = makeService();
+    await expect(service.getOne('buyer:user-1', 'other-message')).rejects.toThrow('消息不存在');
+  });
+
   it('未读数和全部已读都排除用户已经删除的消息', async () => {
     const { prisma, service } = makeService();
     prisma.notificationMessage.count.mockResolvedValue(3);
@@ -55,6 +83,20 @@ describe('NotificationMessageService', () => {
       where: { recipientKey: 'buyer:user-1', deletedAt: null, readAt: null },
       data: { readAt: expect.any(Date) },
     });
+  });
+
+  it('互动筛选包含客服 service 分类且不混入 system', async () => {
+    const { prisma, service } = makeService();
+
+    await service.list('buyer:user-1', 'interaction');
+
+    expect(prisma.notificationMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        recipientKey: 'buyer:user-1',
+        deletedAt: null,
+        category: { in: ['interaction', 'service'] },
+      },
+    }));
   });
 
   it('单条删除和恢复始终同时校验消息与当前收件人', async () => {

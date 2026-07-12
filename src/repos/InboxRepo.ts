@@ -68,6 +68,21 @@ export const InboxRepo = {
       pageSize,
     });
   },
+  /** 单条消息详情：`GET /api/v1/inbox/{id}` */
+  getMessage: async (id: string): Promise<Result<InboxMessage>> => {
+    if (USE_MOCK) {
+      const message = messageCache.find((item) => item.id === id);
+      if (!message) {
+        return {
+          ok: false,
+          error: { code: 'NOT_FOUND', message: '消息不存在', displayMessage: '消息不存在', retryable: false },
+        };
+      }
+      return simulateRequest(message, { delay: 160 });
+    }
+
+    return ApiClient.get<InboxMessage>(`/inbox/${id}`);
+  },
   /** 标记单条已读：`POST /api/v1/inbox/{id}/read` */
   markRead: async (id: string): Promise<Result<InboxMessage[]>> => {
     if (USE_MOCK) {

@@ -64,7 +64,7 @@ export const mockInboxMessages: InboxMessage[] = [
   },
   {
     id: 'msg-007',
-    category: 'system',
+    category: 'service',
     type: 'cs_outreach_invite',
     title: '客服邀请你沟通',
     content: '平台客服已发起一对一沟通，点击进入客服对话。',

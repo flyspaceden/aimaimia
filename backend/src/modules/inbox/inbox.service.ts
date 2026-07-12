@@ -25,6 +25,11 @@ export class InboxService {
     return this.notificationMessages.list(this.recipientKey(userId), category, unreadOnly, page, pageSize);
   }
 
+  /** 获取当前买家的单条消息详情 */
+  async getOne(id: string, userId: string) {
+    return this.notificationMessages.getOne(this.recipientKey(userId), id);
+  }
+
   /** 标记单条已读 */
   async markRead(id: string, userId: string) {
     return this.notificationMessages.markRead(this.recipientKey(userId), id);
