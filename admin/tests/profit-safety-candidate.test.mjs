@@ -40,6 +40,11 @@ const require = createRequire(import.meta.url);
 const {
   buildProfitSafetyCandidateUpdates,
   createProfitSafetyPreviewScheduler,
+  formatProfitSafetyConfigKey,
+  formatProfitSafetyRequestError,
+  formatProfitSafetyScenario,
+  formatProfitSafetySummaryError,
+  formatProfitSafetySummaryErrors,
   getProfitSafetyPreviewEligibility,
   getProfitSafetyStatusPresentation,
 } = require(resolve(testOutputDir, 'configProfitSafetyPreview.js'));
@@ -218,4 +223,23 @@ test('maps candidate and saved status presentations precisely', () => {
   assert.deepEqual(getProfitSafetyStatusPresentation({ kind: 'saved', error: new Error('offline') }), {
     type: 'warning', message: '利润安全状态暂不可用', description: 'offline', summary: undefined, linkCaptain: false,
   });
+});
+
+test('renders profit safety internal identifiers as Chinese administrator guidance', () => {
+  const incomplete = 'INCOMPLETE_RULE_CONFIG_SNAPSHOT:GROWTH_VIP_CHECKIN_POINTS_MULTIPLIER,GROWTH_VIP_SHOPPING_GROWTH_MULTIPLIER,DIGITAL_ASSET_CREDIT_TIERS,DISCOVERY_COMPANY_FILTERS,CAPTAIN_SEAFOOD_CONFIG';
+
+  assert.equal(formatProfitSafetyScenario('VIP_BUYER_VIP_INVITER'), 'VIP 买家 / VIP 邀请人');
+  assert.equal(formatProfitSafetyConfigKey('CAPTAIN_SEAFOOD_CONFIG'), '团长预包装海鲜激励配置');
+  assert.equal(
+    formatProfitSafetySummaryError(incomplete),
+    '以下基础配置尚未完成：VIP 签到积分倍数、VIP 购物成长值倍数、数字资产累计消费档位、发现页商家筛选项、团长预包装海鲜激励配置',
+  );
+  assert.deepEqual(
+    formatProfitSafetySummaryErrors(['INVALID_CAPTAIN_CONFIG', incomplete]),
+    ['以下基础配置尚未完成：VIP 签到积分倍数、VIP 购物成长值倍数、数字资产累计消费档位、发现页商家筛选项、团长预包装海鲜激励配置'],
+  );
+  assert.equal(
+    formatProfitSafetyRequestError(new Error('INVALID_CAPTAIN_CONFIG')),
+    '利润安全校验未完成，请检查页面提示后重试',
+  );
 });

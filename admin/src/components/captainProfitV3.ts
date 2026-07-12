@@ -12,6 +12,13 @@ type SafetySummaryLike = {
   scenarios?: unknown;
 };
 
+const PROFIT_SAFETY_SCENARIO_LABELS: Record<string, string> = {
+  VIP_BUYER_VIP_INVITER: 'VIP 买家 / VIP 邀请人',
+  VIP_BUYER_NORMAL_INVITER: 'VIP 买家 / 普通邀请人',
+  NORMAL_BUYER_VIP_INVITER: '普通买家 / VIP 邀请人',
+  NORMAL_BUYER_NORMAL_INVITER: '普通买家 / 普通邀请人',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -19,6 +26,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function finiteNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function formatSafetyScenario(key: string): string {
+  return PROFIT_SAFETY_SCENARIO_LABELS[key] ?? '当前奖励组合';
+}
+
+function formatSafetyMessage(message: string): string {
+  return /(?:^|[,:\s])[A-Z][A-Z0-9_]{2,}(?::|,|$)/.test(message)
+    ? '当前配置未通过利润安全校验，请检查页面提示后重试'
+    : message;
 }
 
 export function getCaptainCalculationDisplay(model: CalculationModel) {
@@ -93,25 +110,26 @@ export function shouldLinkCaptainSettings(summary: SafetySummaryLike | null | un
 export function formatProfitSafetyError(error: unknown): string {
   const record = isRecord(error) ? error : {};
   const payloadDetails = isRecord(record.details) ? record.details : record;
-  const message = error instanceof Error && error.message
+  const rawMessage = error instanceof Error && error.message
     ? error.message
     : typeof record.message === 'string' && record.message
       ? record.message
       : '保存失败';
+  const message = formatSafetyMessage(rawMessage);
   const details: string[] = [];
   const scenarios = Array.isArray(payloadDetails.scenarios)
     ? payloadDetails.scenarios.filter(isRecord)
     : [];
   const failedScenario = scenarios.find((scenario) => scenario.safe === false);
   if (typeof failedScenario?.key === 'string') {
-    details.push(`失败场景 ${failedScenario.key}`);
+    details.push(`失败场景 ${formatSafetyScenario(failedScenario.key)}`);
   }
   const limitingSkus = Array.isArray(payloadDetails.limitingSkus)
     ? payloadDetails.limitingSkus.filter(isRecord)
     : [];
   const limitingSku = limitingSkus[0];
   if (typeof limitingSku?.skuId === 'string') {
-    details.push(`限制 SKU ${limitingSku.skuId}`);
+    details.push('存在不满足利润安全要求的商品规格');
   }
   const shortfall = finiteNumber(limitingSku?.shortfall ?? payloadDetails.shortfall);
   if (shortfall !== null && shortfall > 0) {

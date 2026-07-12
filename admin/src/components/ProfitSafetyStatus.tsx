@@ -1,18 +1,15 @@
 import { Alert, Space, Tag, Typography } from 'antd';
 import { Link } from 'react-router-dom';
-import type { ProfitSafetyScenarioKey, ProfitSafetySummary } from '@/types';
+import type { ProfitSafetySummary } from '@/types';
 import { shouldLinkCaptainSettings } from './captainProfitV3';
 import type { ProfitSafetyPreviewState } from '@/hooks/useConfigProfitSafetyPreview';
-import { getProfitSafetyStatusPresentation } from '@/utils/configProfitSafetyPreview';
+import {
+  formatProfitSafetyScenario,
+  formatProfitSafetySummaryErrors,
+  getProfitSafetyStatusPresentation,
+} from '@/utils/configProfitSafetyPreview';
 
 const { Text } = Typography;
-
-const SCENARIO_LABELS: Record<ProfitSafetyScenarioKey, string> = {
-  VIP_BUYER_VIP_INVITER: 'VIP 买家 / VIP 邀请人',
-  VIP_BUYER_NORMAL_INVITER: 'VIP 买家 / 普通邀请人',
-  NORMAL_BUYER_VIP_INVITER: '普通买家 / VIP 邀请人',
-  NORMAL_BUYER_NORMAL_INVITER: '普通买家 / 普通邀请人',
-};
 
 function percent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
@@ -51,6 +48,7 @@ export default function ProfitSafetyStatus({
 
   const failedScenario = presentation.summary.scenarios.find((scenario) => !scenario.safe);
   const limitingSku = presentation.summary.limitingSkus[0];
+  const errorMessages = formatProfitSafetySummaryErrors(presentation.summary.errors);
   const description = presentation.summary.safe ? (
     <Space size={[12, 4]} wrap>
       <Text>已校验 {presentation.summary.evaluatedSkuCount} 个在售普通 SKU</Text>
@@ -59,10 +57,10 @@ export default function ProfitSafetyStatus({
     </Space>
   ) : (
     <Space size={[8, 4]} wrap>
-      {failedScenario ? <Tag color="error">{SCENARIO_LABELS[failedScenario.key]}</Tag> : null}
-      {limitingSku ? <Text>限制 SKU：{limitingSku.skuId}</Text> : null}
+      {failedScenario ? <Tag color="error">{formatProfitSafetyScenario(failedScenario.key)}</Tag> : null}
+      {limitingSku ? <Text>存在不满足利润安全要求的商品规格</Text> : null}
       <Text type="danger">利润缺口 {percent(presentation.summary.shortfall)}</Text>
-      {presentation.summary.errors.length > 0 ? <Text type="secondary">{presentation.summary.errors.join('、')}</Text> : null}
+      {errorMessages.length > 0 ? <Text type="secondary">{errorMessages.join('；')}</Text> : null}
     </Space>
   );
 
