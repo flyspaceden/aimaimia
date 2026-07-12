@@ -23,6 +23,8 @@ export interface UseConfigProfitSafetyPreviewInput {
   sumValid: boolean;
   hasValidationErrors: boolean;
   enabled: boolean;
+  /** Increments for every form edit so repeated candidates cannot reuse an earlier result. */
+  revision?: number;
   delayMs?: number;
 }
 
@@ -44,6 +46,7 @@ export function useConfigProfitSafetyPreview({
   sumValid,
   hasValidationErrors,
   enabled,
+  revision = 0,
   delayMs = 500,
 }: UseConfigProfitSafetyPreviewInput): ProfitSafetyPreviewState {
   const [asyncState, setAsyncState] = useState<AsyncProfitSafetyPreviewState>();
@@ -60,7 +63,7 @@ export function useConfigProfitSafetyPreview({
     sumValid,
     hasValidationErrors,
   });
-  const fingerprint = JSON.stringify(updates);
+  const fingerprint = JSON.stringify([revision, updates]);
   const scheduler = useMemo(() => createProfitSafetyPreviewScheduler<ProfitSafetySummary>({
     delayMs,
     preview: async (updates) => previewProfitSafety({ updates }),

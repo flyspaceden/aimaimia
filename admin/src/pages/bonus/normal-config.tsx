@@ -234,8 +234,8 @@ function getVal(configs: RuleConfig[], key: string): unknown {
 }
 
 /** 将后端配置列表解析为表单初始值 */
-function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
-  const values: Record<string, any> = {};
+function configsToFormValues(configs: RuleConfig[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
   for (const meta of CONFIG_SCHEMA) {
     const raw = getVal(configs, meta.key);
     values[meta.key] = raw ?? meta.defaultValue ?? meta.min ?? 0;
@@ -245,6 +245,15 @@ function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
 
 /** 格式化百分比显示 */
 const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return '保存失败';
+}
 
 // ============ 组件 ============
 
@@ -259,6 +268,7 @@ export default function NormalConfigPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [profitSafetyPreviewRevision, setProfitSafetyPreviewRevision] = useState(0);
 
   // 未保存更改警告
   useUnsavedChanges(dirty);
@@ -305,9 +315,14 @@ export default function NormalConfigPage() {
   const allValues = Form.useWatch([], form);
   const sumValue = useMemo(() => {
     if (!allValues) return 0;
-    return RATIO_KEYS.reduce((s, k) => s + (Number((allValues as any)?.[k]) || 0), 0);
+    const formValues = allValues as Record<string, unknown>;
+    return RATIO_KEYS.reduce((s, k) => s + (Number(formValues[k]) || 0), 0);
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
+  const markConfigDirty = useCallback(() => {
+    setDirty(true);
+    setProfitSafetyPreviewRevision((revision) => revision + 1);
+  }, []);
   const handleFieldsChange = useCallback<NonNullable<FormProps['onFieldsChange']>>((_, allFields) => {
     setHasValidationErrors(allFields.some((field) => field.validating || (field.errors?.length ?? 0) > 0));
   }, []);
@@ -324,6 +339,7 @@ export default function NormalConfigPage() {
     sumValid,
     hasValidationErrors,
     enabled: configs.length > 0 && dirty && canUpdateConfig,
+    revision: profitSafetyPreviewRevision,
   });
 
   // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
@@ -361,8 +377,8 @@ export default function NormalConfigPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDirty(false);
       setChangeNote('');
-    } catch (err: any) {
-      message.error(err?.message || '保存失败');
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -470,7 +486,7 @@ export default function NormalConfigPage() {
       okButtonProps: { style: { background: '#2E7D32' } },
       onOk: doSave,
     });
-  }, [form, configs, sumValid, sumValue, doSave]);
+  }, [form, configs, sumValid, sumValue, doSave, message, modal]);
 
   // 应用推荐模板（七分比例）
   const handleApplyTemplate = useCallback(() => {
@@ -495,7 +511,7 @@ export default function NormalConfigPage() {
       onOk: async () => {
         setHasValidationErrors(true);
         form.setFieldsValue(RECOMMENDED_RATIO_TEMPLATE);
-        setDirty(true);
+        markConfigDirty();
         try {
           await form.validateFields(RATIO_KEYS);
         } catch {
@@ -506,7 +522,7 @@ export default function NormalConfigPage() {
         message.success('已应用推荐模板，请确认后保存');
       },
     });
-  }, [form, syncValidationErrors]);
+  }, [form, markConfigDirty, message, modal, syncValidationErrors]);
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
@@ -537,7 +553,7 @@ export default function NormalConfigPage() {
       onOk: async () => {
         setHasValidationErrors(true);
         form.setFieldsValue(ALL_DEFAULTS);
-        setDirty(true);
+        markConfigDirty();
         try {
           await form.validateFields();
         } catch {
@@ -548,7 +564,7 @@ export default function NormalConfigPage() {
         message.success('已恢复默认值，请确认后保存');
       },
     });
-  }, [form, syncValidationErrors]);
+  }, [form, markConfigDirty, message, modal, syncValidationErrors]);
 
   if (isLoading) {
     return (
@@ -596,7 +612,7 @@ export default function NormalConfigPage() {
       <Form
         form={form}
         layout="vertical"
-        onValuesChange={() => setDirty(true)}
+        onValuesChange={markConfigDirty}
         onFieldsChange={handleFieldsChange}
         requiredMark={false}
       >
@@ -930,8 +946,12 @@ function VersionItem({ version, onRollback }: { version: ConfigVersion; onRollba
             const meta = CONFIG_SCHEMA.find((m) => m.key === key);
             // 仅显示本页相关的 NORMAL_* 配置项
             if (!meta) return null;
-            const stored = val as any;
-            const displayVal = stored?.value ?? stored;
+            const displayVal = val !== null
+              && typeof val === 'object'
+              && !Array.isArray(val)
+              && 'value' in val
+              ? (val as { value?: unknown }).value
+              : val;
             return (
               <div
                 key={key}

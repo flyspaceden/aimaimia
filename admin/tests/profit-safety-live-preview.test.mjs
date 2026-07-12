@@ -95,6 +95,7 @@ function assertConfigPagePreviewIntegration(source) {
     'sumValid,',
     'hasValidationErrors,',
     'enabled: configs.length > 0 && dirty && canUpdateConfig,',
+    'revision: profitSafetyPreviewRevision,',
   ]) {
     assert.ok(previewCall.includes(input), `preview call missing input: ${input}`);
   }
@@ -103,17 +104,19 @@ function assertConfigPagePreviewIntegration(source) {
   assert.match(statusTag, /previewState=\{profitSafetyPreview\}/);
 
   const formTag = extractJsxOpeningTag(source, 'Form');
-  assert.match(formTag, /onValuesChange=\{\(\) => setDirty\(true\)\}/);
+  assert.match(source, /const \[profitSafetyPreviewRevision, setProfitSafetyPreviewRevision\] = useState\(0\);/);
+  assert.match(source, /const markConfigDirty = useCallback\(\(\) => \{\s*setDirty\(true\);\s*setProfitSafetyPreviewRevision\(\(revision\) => revision \+ 1\);/);
+  assert.match(formTag, /onValuesChange=\{markConfigDirty\}/);
   assert.match(formTag, /onFieldsChange=\{handleFieldsChange\}/);
 
   const templateCallback = extractBalancedBlock(source, 'const handleApplyTemplate = useCallback', '{', '}');
-  assert.match(templateCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(RECOMMENDED_RATIO_TEMPLATE\);/);
+  assert.match(templateCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(RECOMMENDED_RATIO_TEMPLATE\);\s*markConfigDirty\(\);/);
   assert.match(templateCallback, /await form\.validateFields\(RATIO_KEYS\);/);
   assert.match(templateCallback, /finally \{\s*syncValidationErrors\(\);\s*\}/);
   assert.doesNotMatch(templateCallback, /form\.setFieldsValue\(RECOMMENDED_RATIO_TEMPLATE\);\s*setHasValidationErrors\(false\);/);
 
   const defaultsCallback = extractBalancedBlock(source, 'const handleRestoreDefaults = useCallback', '{', '}');
-  assert.match(defaultsCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(ALL_DEFAULTS\);/);
+  assert.match(defaultsCallback, /setHasValidationErrors\(true\);\s*form\.setFieldsValue\(ALL_DEFAULTS\);\s*markConfigDirty\(\);/);
   assert.match(defaultsCallback, /await form\.validateFields\(\);/);
   assert.match(defaultsCallback, /finally \{\s*syncValidationErrors\(\);\s*\}/);
 
@@ -136,7 +139,8 @@ test('live preview hook schedules API previews and invalidates stale work', asyn
   assert.match(source, /export interface UseConfigProfitSafetyPreviewInput/);
   assert.match(source, /schema: readonly ProfitSafetyPreviewConfigMeta\[\]/);
   assert.match(source, /\}: UseConfigProfitSafetyPreviewInput\): ProfitSafetyPreviewState/);
-  assert.match(source, /const fingerprint = JSON\.stringify\(updates\)/);
+  assert.match(source, /revision = 0/);
+  assert.match(source, /const fingerprint = JSON\.stringify\(\[revision, updates\]\)/);
   assert.match(source, /asyncState\?\.fingerprint !== fingerprint/);
   const hookInput = extractBalancedBlock(
     source,
@@ -296,6 +300,7 @@ test('admin architecture documents VIP and normal candidate safety preview guara
   assert.match(doc, /500ms/);
   assert.match(doc, /config:update/);
   assert.match(doc, /比例合计非法或存在字段校验错误时不预检/);
+  assert.match(doc, /不会复用先前请求的安全结果/);
   assert.match(doc, /候选结果不写入 `RuleConfig`/);
   assert.match(doc, /候选结果不写入[^。\n]*(?:版本历史|配置版本)/);
   assert.match(doc, /候选结果不写入[^。\n]*(?:audit records|审计记录)/);

@@ -207,6 +207,7 @@ export default function VipConfigPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [hasValidationErrors, setHasValidationErrors] = useState(false);
+  const [profitSafetyPreviewRevision, setProfitSafetyPreviewRevision] = useState(0);
 
   // 未保存更改警告
   useUnsavedChanges(dirty);
@@ -256,6 +257,10 @@ export default function VipConfigPage() {
     return RATIO_KEYS.reduce((s, k) => s + readFormNumber(allValues, k), 0);
   }, [allValues]);
   const sumValid = Math.abs(sumValue - 1) < 0.001;
+  const markConfigDirty = useCallback(() => {
+    setDirty(true);
+    setProfitSafetyPreviewRevision((revision) => revision + 1);
+  }, []);
   const handleFieldsChange = useCallback<NonNullable<FormProps['onFieldsChange']>>((_, allFields) => {
     setHasValidationErrors(allFields.some((field) => field.validating || (field.errors?.length ?? 0) > 0));
   }, []);
@@ -272,6 +277,7 @@ export default function VipConfigPage() {
     sumValid,
     hasValidationErrors,
     enabled: configs.length > 0 && dirty && canUpdateConfig,
+    revision: profitSafetyPreviewRevision,
   });
 
   // 实际执行保存逻辑（原子批量提交，避免串行更新中间态触发七分比例总和 ≠ 1.0）
@@ -443,7 +449,7 @@ export default function VipConfigPage() {
       onOk: async () => {
         setHasValidationErrors(true);
         form.setFieldsValue(RECOMMENDED_RATIO_TEMPLATE);
-        setDirty(true);
+        markConfigDirty();
         try {
           await form.validateFields(RATIO_KEYS);
         } catch {
@@ -454,7 +460,7 @@ export default function VipConfigPage() {
         message.success('已应用推荐模板，请确认后保存');
       },
     });
-  }, [form, message, modal, syncValidationErrors]);
+  }, [form, markConfigDirty, message, modal, syncValidationErrors]);
 
   // 恢复默认值
   const handleRestoreDefaults = useCallback(() => {
@@ -487,7 +493,7 @@ export default function VipConfigPage() {
       onOk: async () => {
         setHasValidationErrors(true);
         form.setFieldsValue(ALL_DEFAULTS);
-        setDirty(true);
+        markConfigDirty();
         try {
           await form.validateFields();
         } catch {
@@ -498,7 +504,7 @@ export default function VipConfigPage() {
         message.success('已恢复默认值，请确认后保存');
       },
     });
-  }, [form, message, modal, syncValidationErrors]);
+  }, [form, markConfigDirty, message, modal, syncValidationErrors]);
 
   if (isLoading) {
     return (
@@ -546,7 +552,7 @@ export default function VipConfigPage() {
       <Form
         form={form}
         layout="vertical"
-        onValuesChange={() => setDirty(true)}
+        onValuesChange={markConfigDirty}
         onFieldsChange={handleFieldsChange}
         requiredMark={false}
       >
