@@ -135,6 +135,19 @@ export const PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS = Object.freeze([
   CAPTAIN_SEAFOOD_CONFIG_KEY,
 ] as const);
 
+// These values change the actual per-order profit equation. Missing unrelated
+// system settings must not be presented as a product-margin breach.
+export const PROFIT_SAFETY_FINANCIAL_RULE_CONFIG_KEYS = Object.freeze([
+  'MARKUP_RATE',
+  'VIP_DISCOUNT_RATE',
+  'VIP_REWARD_PERCENT',
+  'VIP_DIRECT_REFERRAL_PERCENT',
+  'VIP_INDUSTRY_FUND_PERCENT',
+  'NORMAL_REWARD_PERCENT',
+  'NORMAL_DIRECT_REFERRAL_PERCENT',
+  'NORMAL_INDUSTRY_FUND_PERCENT',
+] as const);
+
 const CONFIG_DEFAULTS = {
   MARKUP_RATE: 1.35,
   VIP_DISCOUNT_RATE: 0.95,
@@ -169,7 +182,7 @@ export class ProfitSafetyService {
           snapshot: context.candidateSnapshot as Prisma.InputJsonValue,
           createdByAdminId: change.createdByAdminId ?? null,
           changeNote: change.changeNote ?? null,
-          isComplete: true,
+          isComplete: context.summary.ruleConfigCompleteness?.complete === true,
           safetySummary: context.summary as unknown as Prisma.InputJsonValue,
         },
       });
@@ -251,17 +264,28 @@ export class ProfitSafetyService {
     const missingKeys = PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS.filter(
       (key) => !Object.prototype.hasOwnProperty.call(candidateSnapshot, key),
     );
+    const missingProfitSafetyKeys = PROFIT_SAFETY_FINANCIAL_RULE_CONFIG_KEYS.filter(
+      (key) => !Object.prototype.hasOwnProperty.call(candidateSnapshot, key),
+    );
     summary.ruleConfigCompleteness = {
       complete: missingKeys.length === 0,
       requiredKeys: [...PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS],
       presentKeys: Object.keys(candidateSnapshot).sort(),
       missingKeys: [...missingKeys],
     };
-    if (missingKeys.length > 0) {
+    summary.profitSafetyConfigCompleteness = {
+      complete: missingProfitSafetyKeys.length === 0,
+      requiredKeys: [...PROFIT_SAFETY_FINANCIAL_RULE_CONFIG_KEYS],
+      presentKeys: Object.keys(candidateSnapshot)
+        .filter((key) => PROFIT_SAFETY_FINANCIAL_RULE_CONFIG_KEYS.includes(key as any))
+        .sort(),
+      missingKeys: [...missingProfitSafetyKeys],
+    };
+    if (missingProfitSafetyKeys.length > 0) {
       summary.safe = false;
       summary.errors = [
         ...summary.errors,
-        `INCOMPLETE_RULE_CONFIG_SNAPSHOT:${missingKeys.join(',')}`,
+        `INCOMPLETE_PROFIT_SAFETY_CONFIG:${missingProfitSafetyKeys.join(',')}`,
       ];
     }
     if (assertSafe && !summary.safe) {
@@ -294,6 +318,7 @@ export class ProfitSafetyService {
       },
       select: {
         id: true,
+        title: true,
         price: true,
         cost: true,
         status: true,
@@ -301,6 +326,7 @@ export class ProfitSafetyService {
         product: {
           select: {
             id: true,
+            title: true,
             companyId: true,
             categoryId: true,
             status: true,
@@ -314,6 +340,8 @@ export class ProfitSafetyService {
     return (rows ?? []).map((row: any) => ({
       id: row.id,
       productId: row.product.id,
+      productTitle: row.product.title,
+      skuTitle: row.title,
       companyId: row.product.companyId,
       categoryId: row.product.categoryId ?? null,
       price: Number(row.price),
@@ -386,6 +414,7 @@ export class ProfitSafetyService {
   }
 
   private readCaptainConfig(value: unknown): CaptainSeafoodConfig {
+    if (value === undefined) return cloneCaptainSeafoodConfig();
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return cloneCaptainSeafoodConfig(value as CaptainSeafoodConfig);
     }

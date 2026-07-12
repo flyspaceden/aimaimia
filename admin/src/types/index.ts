@@ -664,6 +664,8 @@ export type ProfitSafetyScenarioKey =
 export interface ProfitSafetyLimitingSku {
   skuId: string;
   productId: string;
+  productTitle?: string | null;
+  skuTitle?: string | null;
   scenarioKey: ProfitSafetyScenarioKey;
   price: number;
   cost: number | null;
@@ -701,7 +703,14 @@ export interface ProfitSafetySummary {
   platformRequiredRevenueRate: number;
   captainMaximumProfitRate: number;
   captainConfiguredCap: number;
+  captainConfigState: 'DISABLED' | 'ENABLED' | 'INVALID';
   errors: string[];
+  profitSafetyConfigCompleteness?: {
+    complete: boolean;
+    requiredKeys: string[];
+    presentKeys: string[];
+    missingKeys: string[];
+  };
   ruleConfigCompleteness?: {
     complete: boolean;
     requiredKeys: string[];

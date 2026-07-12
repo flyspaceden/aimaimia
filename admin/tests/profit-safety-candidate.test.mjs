@@ -227,12 +227,17 @@ test('maps candidate and saved status presentations precisely', () => {
 
 test('renders profit safety internal identifiers as Chinese administrator guidance', () => {
   const incomplete = 'INCOMPLETE_RULE_CONFIG_SNAPSHOT:GROWTH_VIP_CHECKIN_POINTS_MULTIPLIER,GROWTH_VIP_SHOPPING_GROWTH_MULTIPLIER,DIGITAL_ASSET_CREDIT_TIERS,DISCOVERY_COMPANY_FILTERS,CAPTAIN_SEAFOOD_CONFIG';
+  const incompleteProfitSafety = 'INCOMPLETE_PROFIT_SAFETY_CONFIG:VIP_DISCOUNT_RATE,NORMAL_REWARD_PERCENT';
 
   assert.equal(formatProfitSafetyScenario('VIP_BUYER_VIP_INVITER'), 'VIP 买家 / VIP 邀请人');
   assert.equal(formatProfitSafetyConfigKey('CAPTAIN_SEAFOOD_CONFIG'), '团长预包装海鲜激励配置');
   assert.equal(
     formatProfitSafetySummaryError(incomplete),
     '以下基础配置尚未完成：VIP 签到积分倍数、VIP 购物成长值倍数、数字资产累计消费档位、发现页商家筛选项、团长预包装海鲜激励配置',
+  );
+  assert.equal(
+    formatProfitSafetySummaryError(incompleteProfitSafety),
+    '以下利润安全参数尚未完成：VIP 商品折扣、普通用户奖励比例',
   );
   assert.deepEqual(
     formatProfitSafetySummaryErrors(['INVALID_CAPTAIN_CONFIG', incomplete]),

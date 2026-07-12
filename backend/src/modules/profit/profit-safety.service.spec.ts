@@ -295,7 +295,52 @@ describe('ProfitSafetyService', () => {
     'DIGITAL_ASSET_MODULE_SETTINGS',
     'GROUP_BUY_MAX_MONTHLY_LAUNCHES',
     'LOW_STOCK_DISPLAY_THRESHOLD',
-  ])('refuses to mark a snapshot complete when system RuleConfig %s is missing', async (missingKey) => {
+  ])('keeps a finance-safe write available but marks the version incomplete when system RuleConfig %s is missing', async (missingKey) => {
+    const { service, tx } = makeHarness();
+    tx.ruleConfig.findMany.mockImplementation(async () => (
+      PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS
+        .filter((key) => key !== missingKey)
+        .map((key) => ({
+          key,
+          value: {
+            value: key === 'CAPTAIN_SEAFOOD_CONFIG'
+              ? safeCaptainConfig()
+              : key === 'MARKUP_RATE'
+                ? 1.35
+                : key === 'VIP_DISCOUNT_RATE'
+                  ? 0.95
+                  : key.includes('REWARD_PERCENT')
+                    ? 0.2
+                    : key.includes('DIRECT_REFERRAL_PERCENT')
+                      ? 0.05
+                      : key.includes('INDUSTRY_FUND_PERCENT')
+                        ? 0.1
+                        : `snapshot:${key}`,
+          },
+        }))
+    ));
+    const write = jest.fn();
+
+    const output = await service.withCandidateChange({}, write);
+
+    expect(output.summary.safe).toBe(true);
+    expect(output.summary.profitSafetyConfigCompleteness).toMatchObject({ complete: true });
+    expect(output.summary.ruleConfigCompleteness).toMatchObject({
+      complete: false,
+      missingKeys: [missingKey],
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(tx.ruleVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ isComplete: false }),
+    });
+  });
+
+  it.each([
+    'MARKUP_RATE',
+    'VIP_DISCOUNT_RATE',
+    'VIP_REWARD_PERCENT',
+    'NORMAL_DIRECT_REFERRAL_PERCENT',
+  ])('still blocks a write when profit safety input %s is missing', async (missingKey) => {
     const { service, tx } = makeHarness();
     tx.ruleConfig.findMany.mockImplementation(async () => (
       PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS
@@ -325,6 +370,41 @@ describe('ProfitSafetyService', () => {
       .rejects.toBeInstanceOf(ProfitSafetyViolationError);
     expect(write).not.toHaveBeenCalled();
     expect(tx.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('uses the disabled default when a captain configuration has not been saved yet', async () => {
+    const { service, tx } = makeHarness();
+    tx.ruleConfig.findMany.mockImplementation(async () => (
+      PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS
+        .filter((key) => key !== 'CAPTAIN_SEAFOOD_CONFIG')
+        .map((key) => ({
+          key,
+          value: {
+            value: key === 'MARKUP_RATE'
+              ? 1.35
+              : key === 'VIP_DISCOUNT_RATE'
+                ? 0.95
+                : key.includes('REWARD_PERCENT')
+                  ? 0.2
+                  : key.includes('DIRECT_REFERRAL_PERCENT')
+                    ? 0.05
+                    : key.includes('INDUSTRY_FUND_PERCENT')
+                      ? 0.1
+                      : `snapshot:${key}`,
+          },
+        }))
+    ));
+    const write = jest.fn();
+
+    const output = await service.withCandidateChange({}, write);
+
+    expect(output.summary.safe).toBe(true);
+    expect(output.summary.captainConfigState).toBe('DISABLED');
+    expect(output.summary.captainMaximumProfitRate).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(tx.ruleVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ isComplete: false }),
+    });
   });
 
   it('merges a candidate SKU mutation before validation', async () => {
