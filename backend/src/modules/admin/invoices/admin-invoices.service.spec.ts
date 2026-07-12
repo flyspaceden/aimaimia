@@ -1,3 +1,6 @@
+import 'reflect-metadata';
+import { ConfigService } from '@nestjs/config';
+import { NotificationService } from '../../notification/notification.service';
 import { Prisma } from '@prisma/client';
 import { AdminInvoicesService } from './admin-invoices.service';
 
@@ -57,9 +60,9 @@ describe('AdminInvoicesService invoice closure', () => {
     service = new AdminInvoicesService(
       prisma,
       providerFactory,
+      profitSafetyService,
       { get: jest.fn().mockReturnValue(undefined) } as any,
       notificationService,
-      profitSafetyService,
     );
   });
 
@@ -75,6 +78,13 @@ describe('AdminInvoicesService invoice closure', () => {
     { key: 'INVOICE_DEFAULT_TAX_CLASSIFICATION_CODE', value: { value: '', description: '编码' } },
     { key: 'INVOICE_REMARK_TEMPLATE', value: { value: '订单号：{{orderId}}', description: '备注' } },
   ];
+
+  it('keeps optional configuration and notification dependencies injectable at runtime', () => {
+    const parameterTypes = Reflect.getMetadata('design:paramtypes', AdminInvoicesService);
+
+    expect(parameterTypes[3]).toBe(ConfigService);
+    expect(parameterTypes[4]).toBe(NotificationService);
+  });
 
   const makeIssueableInvoice = (overrides: Record<string, unknown> = {}) => ({
     id: 'inv-1',
