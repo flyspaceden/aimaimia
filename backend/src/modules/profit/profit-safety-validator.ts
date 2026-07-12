@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { validateCaptainSeafoodConfig } from '../captain/captain.constants';
+import {
+  cloneCaptainSeafoodConfig,
+  validateCaptainSeafoodConfig,
+} from '../captain/captain.constants';
 import type {
   CaptainSeafoodConfig,
   CaptainSeafoodConfigV3,
@@ -27,6 +30,8 @@ export interface ProfitSafetySku {
   active: boolean;
   ordinary: boolean;
   vipDiscountEligible: boolean;
+  productTitle?: string | null;
+  skuTitle?: string | null;
 }
 
 export interface ProfitSafetyCandidate {
@@ -41,6 +46,8 @@ export interface ProfitSafetyCandidate {
 export interface ProfitSafetyLimitingSku {
   skuId: string;
   productId: string;
+  productTitle?: string | null;
+  skuTitle?: string | null;
   scenarioKey: ProfitSafetyScenarioKey;
   price: number;
   cost: number | null;
@@ -78,7 +85,14 @@ export interface ProfitSafetySummary {
   platformRequiredRevenueRate: number;
   captainMaximumProfitRate: number;
   captainConfiguredCap: number;
+  captainConfigState: 'DISABLED' | 'ENABLED' | 'INVALID';
   errors: string[];
+  profitSafetyConfigCompleteness?: {
+    complete: boolean;
+    requiredKeys: string[];
+    presentKeys: string[];
+    missingKeys: string[];
+  };
   ruleConfigCompleteness?: {
     complete: boolean;
     requiredKeys: string[];
@@ -101,7 +115,11 @@ export class ProfitSafetyViolationError extends BadRequestException {
       platformRequiredRevenueRate: summary.platformRequiredRevenueRate,
       captainMaximumProfitRate: summary.captainMaximumProfitRate,
       captainConfiguredCap: summary.captainConfiguredCap,
+      captainConfigState: summary.captainConfigState,
       errors: summary.errors,
+      ...(summary.profitSafetyConfigCompleteness
+        ? { profitSafetyConfigCompleteness: summary.profitSafetyConfigCompleteness }
+        : {}),
       ...(summary.ruleConfigCompleteness
         ? { ruleConfigCompleteness: summary.ruleConfigCompleteness }
         : {}),
@@ -121,7 +139,11 @@ export class ProfitSafetyViolationError extends BadRequestException {
       platformRequiredRevenueRate: this.summary.platformRequiredRevenueRate,
       captainMaximumProfitRate: this.summary.captainMaximumProfitRate,
       captainConfiguredCap: this.summary.captainConfiguredCap,
+      captainConfigState: this.summary.captainConfigState,
       errors: this.summary.errors,
+      ...(this.summary.profitSafetyConfigCompleteness
+        ? { profitSafetyConfigCompleteness: this.summary.profitSafetyConfigCompleteness }
+        : {}),
       ...(this.summary.ruleConfigCompleteness
         ? { ruleConfigCompleteness: this.summary.ruleConfigCompleteness }
         : {}),
@@ -151,13 +173,22 @@ export class ProfitSafetyValidator {
       && rawCaptain.schemaVersion === 2
       && rawCaptain.enabled === true;
     let captain: CaptainSeafoodConfig | null = null;
-    if (isEnabledV2) {
+    let captainConfigState: ProfitSafetySummary['captainConfigState'];
+    if (rawCaptain === undefined) {
+      captain = cloneCaptainSeafoodConfig();
+      captainConfigState = 'DISABLED';
+    } else if (isEnabledV2) {
       errors.push('CAPTAIN_CONFIG_V2_NOT_ACTIVE');
+      captainConfigState = 'INVALID';
     } else {
       try {
         captain = validateCaptainSeafoodConfig(rawCaptain);
+        captainConfigState = captain.schemaVersion === 3 && captain.enabled
+          ? 'ENABLED'
+          : 'DISABLED';
       } catch {
         errors.push('INVALID_CAPTAIN_CONFIG');
+        captainConfigState = 'INVALID';
       }
     }
 
@@ -230,6 +261,7 @@ export class ProfitSafetyValidator {
       platformRequiredRevenueRate,
       captainMaximumProfitRate,
       captainConfiguredCap,
+      captainConfigState,
       errors: [...new Set(errors)],
     };
   }
@@ -314,6 +346,8 @@ export class ProfitSafetyValidator {
       const evaluatedSku: ProfitSafetyLimitingSku = {
         skuId: sku.id,
         productId: sku.productId,
+        productTitle: sku.productTitle ?? null,
+        skuTitle: sku.skuTitle ?? null,
         scenarioKey: definition.key,
         price,
         cost: sku.cost,

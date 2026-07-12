@@ -133,6 +133,12 @@ export function formatProfitSafetyConfigKey(key: string): string {
 
 export function formatProfitSafetySummaryError(error: string): string {
   const incompletePrefix = 'INCOMPLETE_RULE_CONFIG_SNAPSHOT:';
+  const incompleteProfitSafetyPrefix = 'INCOMPLETE_PROFIT_SAFETY_CONFIG:';
+  if (error.startsWith(incompleteProfitSafetyPrefix)) {
+    const keys = error.slice(incompleteProfitSafetyPrefix.length).split(',').filter(Boolean);
+    const labels = keys.map(formatProfitSafetyConfigKey);
+    return labels.length > 0 ? `以下利润安全参数尚未完成：${labels.join('、')}` : '利润安全参数尚未完成';
+  }
   if (error.startsWith(incompletePrefix)) {
     const keys = error.slice(incompletePrefix.length).split(',').filter(Boolean);
     const labels = keys.map(formatProfitSafetyConfigKey);

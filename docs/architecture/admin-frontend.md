@@ -1190,3 +1190,14 @@ VIP 系统配置页和普通用户系统配置页均通过 `useConfigProfitSafet
 | 跨配置利润安全 | VIP/普通配置页展示当前服务器利润安全状态；团长导致冲突时可进入 `/captain/settings`。版本历史使用 `rollbackAllowed/rollbackBlockedReason` 禁用不完整、V2 或当前 SKU 不安全的回滚 | `admin/src/components/ProfitSafetyStatus.tsx`, `admin/src/components/ConfigVersionRollbackButton.tsx`, `admin/src/pages/bonus/*-config.tsx`, `admin/src/pages/config/index.tsx` |
 | 利润纠错与补差 | 新增“利润纠错”和“利润调整单”，管理员可按订单项补齐成本、生成不可变新快照、审批/拒绝补差，并查看退款产生的替换链。列表使用真实分页；查看使用 `captain:read`，利润纠错操作使用 `captain:manage`，调整单审批/驳回使用 `captain:settlement` | `admin/src/pages/captain/reconciliations.tsx`, `admin/src/pages/captain/adjustments.tsx`, `admin/src/api/profit-reconciliation.ts` |
 | 月结对账阻断 | 月结列表直接展示 `reviewBlockedReason`；存在未解决利润对账或待审批补差时，审核/支付按钮禁用并显示原因。所有月结动作显式展示后端错误，不再无反馈失败 | `admin/src/pages/captain/settlements.tsx`, `backend/src/modules/admin/captain/admin-captain.service.ts`, `backend/src/modules/captain/captain-monthly-settlement.service.ts` |
+
+#### 团长利润安全操作引导（2026-07-11）
+
+团长配置页把利润安全摘要拆为四个互斥状态，避免“表格显示安全、顶部又显示风险”的冲突：
+
+- **团长激励未启用**：未保存团长配置或保存的 V3 配置关闭时，按 0% 团长奖励测算；不会产生新的团长归因或佣金，页面只提示可前往团长配置启用。
+- **利润安全参数待完善**：只有影响订单利润公式的加价率、VIP 折扣、VIP/普通奖励、产业基金和直推奖励会阻断利润安全结论；页面逐项给出可点击的中文修复入口，未完成前不展示非权威的四组合测算表。
+- **真实商品利润缺口**：仅当完整参数下的某个买家/直接邀请人组合不能覆盖履约、冷链风险和目标净利时，展示风险组合、限制商品及可操作入口（团长奖励、相关 VIP/普通分润、商品成本/售价）。限制商品显示商品名与规格名，内部规格编号仅可复制，不直接暴露在界面。
+- **安全**：完整参数下四种买家/直接邀请人组合都满足利润底线时，允许保存；管理员可按需展开组合测算，核对各路径的外部分润、平台可留存、最低留存要求和余量。
+
+完整系统配置快照仍用于配置版本审计与回滚控制；积分成长、数字资产、发现页等非订单利润参数缺失不会再被说成“商品亏损”，但会单独提示其配置版本不可回滚。

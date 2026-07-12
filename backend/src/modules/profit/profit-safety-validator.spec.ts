@@ -176,6 +176,19 @@ describe('ProfitSafetyValidator', () => {
     const summary = validator.evaluate(input);
 
     expect(summary.scenarios.every((scenario) => scenario.captainProfitRate === 0)).toBe(true);
+    expect(summary.captainConfigState).toBe('DISABLED');
+  });
+
+  it('treats an unsaved captain configuration as the disabled zero-reward default', () => {
+    const input = candidate();
+    input.captainConfig = undefined as any;
+
+    const summary = validator.evaluate(input);
+
+    expect(summary.safe).toBe(true);
+    expect(summary.captainConfigState).toBe('DISABLED');
+    expect(summary.captainMaximumProfitRate).toBe(0);
+    expect(summary.scenarios.every((scenario) => scenario.captainProfitRate === 0)).toBe(true);
   });
 
   it('rejects an enabled V2 captain configuration', () => {
@@ -218,6 +231,11 @@ describe('ProfitSafetyValidator', () => {
 
   it('reports limiting SKUs and shortfall when platform retained revenue is insufficient', () => {
     const input = candidate();
+    input.skus[0] = {
+      ...input.skus[0],
+      productTitle: '阿拉斯加鳕鱼段',
+      skuTitle: '500g 冷冻装',
+    };
     input.captainConfig = {
       ...input.captainConfig,
       unitEconomics: { fulfillmentCostRate: 0.12 },
@@ -231,7 +249,11 @@ describe('ProfitSafetyValidator', () => {
     const summary = validator.evaluate(input);
 
     expect(summary.safe).toBe(false);
-    expect(summary.limitingSkus).toContainEqual(expect.objectContaining({ skuId: 'sku-safe' }));
+    expect(summary.limitingSkus).toContainEqual(expect.objectContaining({
+      skuId: 'sku-safe',
+      productTitle: '阿拉斯加鳕鱼段',
+      skuTitle: '500g 冷冻装',
+    }));
     expect(summary.shortfall).toBeGreaterThan(0);
     expect(() => validator.assertSafe(input)).toThrow('CAPTAIN_PROFIT_SAFETY_VIOLATION');
   });

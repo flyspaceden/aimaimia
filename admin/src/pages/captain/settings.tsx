@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { InputNumberProps } from 'antd';
+import { Link } from 'react-router-dom';
 import {
   Alert,
   App,
@@ -31,6 +32,11 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { formatProfitSafetySummaryError } from '@/utils/configProfitSafetyPreview';
+import {
+  getProfitSafetyGuidance,
+  getSystemConfigCompletenessNotice,
+  type ProfitSafetyAction,
+} from '@/utils/profitSafetyGuidance';
 import type { CaptainSeafoodConfig, ProfitSafetyLimitingSku, ProfitSafetyScenario, ProfitSafetySummary } from '@/types';
 
 const { Text } = Typography;
@@ -347,6 +353,19 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
   );
 }
 
+function SafetyActionLinks({ actions }: { actions: ProfitSafetyAction[] }) {
+  if (actions.length === 0) return null;
+  return (
+    <Space wrap>
+      {actions.map((action, index) => (
+        <Link key={action.id} to={action.to}>
+          <Button size="small" type={index === 0 ? 'primary' : 'default'}>{action.label}</Button>
+        </Link>
+      ))}
+    </Space>
+  );
+}
+
 function SafetySummaryPanel({
   summary,
   error,
@@ -356,6 +375,7 @@ function SafetySummaryPanel({
   error?: unknown;
   onRetry: () => void;
 }) {
+  const [showAllPaths, setShowAllPaths] = useState(false);
   if (error) {
     return (
       <Alert
@@ -370,12 +390,24 @@ function SafetySummaryPanel({
   if (!summary) {
     return <Alert type="info" showIcon message="正在读取平台利润安全校验结果" />;
   }
+  const guidance = getProfitSafetyGuidance(summary);
+  const systemCompletenessNotice = getSystemConfigCompletenessNotice(summary);
+  const canExpandScenarioCalculation = guidance.state === 'safe' || guidance.state === 'disabled';
+  const limitingByScenario = new Map(
+    summary.limitingSkus.map((sku) => [sku.scenarioKey, sku]),
+  );
+  const visibleScenarios = guidance.state === 'risk'
+    ? guidance.riskScenarios as ProfitSafetyScenario[]
+    : showAllPaths
+      ? summary.scenarios
+      : [];
+  const visibleLimitingSkus = summary.limitingSkus.filter((sku) => sku.shortfall > 0);
   const columns = [
-    { title: '买家路径', dataIndex: 'buyerPath', width: 100, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
-    { title: '邀请人', dataIndex: 'inviterPath', width: 100, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
-    { title: '外部利润比例', dataIndex: 'externalProfitRate', width: 130, render: (value: number) => formatPercent(value) },
-    { title: '平台留存率', dataIndex: 'platformRetainedRevenueRate', width: 120, render: (value: number) => formatPercent(value) },
-    { title: '履约+风险+净利', dataIndex: 'platformRequiredRevenueRate', width: 150, render: (value: number) => formatPercent(value) },
+    { title: '下单买家身份', dataIndex: 'buyerPath', width: 120, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
+    { title: '直接邀请人身份', dataIndex: 'inviterPath', width: 130, render: (value: string) => value === 'VIP' ? 'VIP' : '普通' },
+    { title: '本组合外部分润', dataIndex: 'externalProfitRate', width: 130, render: (value: number) => formatPercent(value) },
+    { title: '商品利润中平台可留存', dataIndex: 'platformRetainedRevenueRate', width: 165, render: (value: number) => formatPercent(value) },
+    { title: '平台最低留存要求', dataIndex: 'platformRequiredRevenueRate', width: 150, render: (value: number) => formatPercent(value) },
     {
       title: '余量/缺口',
       key: 'headroom',
@@ -385,11 +417,35 @@ function SafetySummaryPanel({
         return <Text type={headroom < 0 ? 'danger' : 'success'}>{formatPercent(headroom)}</Text>;
       },
     },
-    { title: '限制 SKU', dataIndex: 'limitingSkuId', width: 150, render: (value: string | null) => value || '-' },
+    {
+      title: '限制商品',
+      key: 'limitingProduct',
+      width: 220,
+      render: (_: unknown, row: ProfitSafetyScenario) => {
+        const sku = limitingByScenario.get(row.key);
+        if (!sku) return '-';
+        return (
+          <Space direction="vertical" size={0}>
+            <Text>{sku.productTitle || '商品名称待补充'}{sku.skuTitle ? `｜${sku.skuTitle}` : ''}</Text>
+            <Text type="secondary" copyable={{ text: sku.skuId, tooltips: ['复制规格编号', '已复制'] }}>规格编号</Text>
+          </Space>
+        );
+      },
+    },
     { title: '结果', dataIndex: 'safe', width: 90, render: (value: boolean) => <Tag color={value ? 'success' : 'error'}>{value ? '安全' : '拦截'}</Tag> },
   ];
   const limitingSkuColumns = [
-    { title: 'SKU', dataIndex: 'skuId', width: 160 },
+    {
+      title: '限制商品',
+      key: 'product',
+      width: 230,
+      render: (_: unknown, row: ProfitSafetyLimitingSku) => (
+        <Space direction="vertical" size={0}>
+          <Text>{row.productTitle || '商品名称待补充'}{row.skuTitle ? `｜${row.skuTitle}` : ''}</Text>
+          <Text type="secondary" copyable={{ text: row.skuId, tooltips: ['复制规格编号', '已复制'] }}>规格编号</Text>
+        </Space>
+      ),
+    },
     { title: '售价', dataIndex: 'price', width: 100, render: (value: number) => `¥${value.toFixed(2)}` },
     { title: '成本', dataIndex: 'cost', width: 100, render: (value: number | null) => value == null ? '缺失' : `¥${value.toFixed(2)}` },
     { title: '毛利率', dataIndex: 'grossMarginRate', width: 110, render: (value: number) => formatPercent(value) },
@@ -401,31 +457,63 @@ function SafetySummaryPanel({
   return (
     <Space direction="vertical" size={10} style={{ width: '100%' }}>
       <Alert
-        type={summary.safe ? 'success' : 'error'}
+        type={guidance.alertType}
         showIcon
-        message={summary.safe ? '当前四种分润组合均在平台利润底线内' : '当前参数将突破平台利润底线'}
-        description={summary.safe
-          ? `已检查 ${summary.evaluatedSkuCount} 个活跃普通 SKU；团长最高利润比例 ${formatPercent(summary.captainMaximumProfitRate)}。`
-          : `最大缺口 ${formatPercent(summary.shortfall)}，请根据限制 SKU 降低奖励或调整商品经济数据。`}
+        message={guidance.title}
+        description={(
+          <Space direction="vertical" size={6}>
+            <Text>{guidance.description}</Text>
+            {guidance.actions.map((action) => (
+              <Text key={action.id} type="secondary">{action.label}：{action.description}</Text>
+            ))}
+            <SafetyActionLinks actions={guidance.actions} />
+          </Space>
+        )}
       />
-      <Table<ProfitSafetyScenario>
-        rowKey="key"
-        size="small"
-        pagination={false}
-        scroll={{ x: 950 }}
-        columns={columns}
-        dataSource={summary.scenarios}
-      />
-      {summary.limitingSkus.length > 0 ? (
+      {systemCompletenessNotice ? (
+        <Alert
+          type="info"
+          showIcon
+          message="系统基础配置待完善"
+          description={(
+            <Space direction="vertical" size={6}>
+              <Text>{systemCompletenessNotice.message}</Text>
+              <SafetyActionLinks actions={systemCompletenessNotice.actions} />
+            </Space>
+          )}
+        />
+      ) : null}
+      {visibleScenarios.length > 0 ? (
+        <Table<ProfitSafetyScenario>
+          rowKey="key"
+          size="small"
+          pagination={false}
+          scroll={{ x: 1100 }}
+          columns={columns}
+          dataSource={visibleScenarios}
+        />
+      ) : canExpandScenarioCalculation ? (
+        <Button type="link" style={{ alignSelf: 'flex-start', paddingInline: 0 }} onClick={() => setShowAllPaths(true)}>
+          查看四种买家与推荐人组合测算
+        </Button>
+      ) : (
+        <Text type="secondary">完成利润安全参数后，系统会展示四种买家与直接邀请人组合的正式测算。</Text>
+      )}
+      {showAllPaths && guidance.state !== 'risk' ? (
+        <Button type="link" style={{ alignSelf: 'flex-start', paddingInline: 0 }} onClick={() => setShowAllPaths(false)}>
+          收起组合测算
+        </Button>
+      ) : null}
+      {guidance.state === 'risk' && visibleLimitingSkus.length > 0 ? (
         <>
-          <Text strong>限制 SKU 经济明细</Text>
+          <Text strong>需要处理的商品利润明细</Text>
           <Table<ProfitSafetyLimitingSku>
             rowKey={(row) => `${row.skuId}:${row.scenarioKey}`}
             size="small"
             pagination={false}
-            scroll={{ x: 1060 }}
+            scroll={{ x: 1140 }}
             columns={limitingSkuColumns}
-            dataSource={summary.limitingSkus}
+            dataSource={visibleLimitingSkus}
           />
         </>
       ) : null}
@@ -483,7 +571,10 @@ export default function CaptainSettingsPage() {
           platformRequiredRevenueRate: err.details.platformRequiredRevenueRate ?? 0,
           captainMaximumProfitRate: err.details.captainMaximumProfitRate ?? 0,
           captainConfiguredCap: err.details.captainConfiguredCap ?? 0,
+          captainConfigState: err.details.captainConfigState ?? 'INVALID',
           errors: err.details.errors ?? [],
+          profitSafetyConfigCompleteness: err.details.profitSafetyConfigCompleteness,
+          ruleConfigCompleteness: err.details.ruleConfigCompleteness,
         });
       }
       message.error(getAdminErrorMessage(err, '保存失败'));
@@ -564,11 +655,15 @@ export default function CaptainSettingsPage() {
             />
           ) : null}
           <Alert
-            type={economics.exceedsCap ? 'error' : 'info'}
+            type={!watched?.enabled ? 'info' : economics.exceedsCap ? 'error' : 'info'}
             showIcon
             icon={<SafetyCertificateOutlined />}
-            message={`团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
-            description="团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。"
+            message={!watched?.enabled
+              ? '团长激励未启用，当前按 0% 团长奖励测算'
+              : `团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
+            description={!watched?.enabled
+              ? '当前不会产生新的团长佣金；VIP 与普通用户路径仍会继续进行利润安全测算。'
+              : '团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。'}
           />
           <SafetySummaryPanel
             summary={safetySummary}

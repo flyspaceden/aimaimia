@@ -21,7 +21,14 @@ describe('AppExceptionFilter profit safety response', () => {
       platformRequiredRevenueRate: 0.215,
       captainMaximumProfitRate: 0,
       captainConfiguredCap: 0.1,
+      captainConfigState: 'ENABLED',
       errors: ['UNSAFE'],
+      profitSafetyConfigCompleteness: {
+        complete: true,
+        requiredKeys: ['MARKUP_RATE'],
+        presentKeys: ['MARKUP_RATE'],
+        missingKeys: [],
+      },
     };
 
     new AppExceptionFilter().catch(new ProfitSafetyViolationError(summary), host);
@@ -35,6 +42,8 @@ describe('AppExceptionFilter profit safety response', () => {
         scenarios: summary.scenarios,
         limitingSkus: summary.limitingSkus,
         shortfall: 0.02,
+        captainConfigState: 'ENABLED',
+        profitSafetyConfigCompleteness: summary.profitSafetyConfigCompleteness,
       }),
     });
   });

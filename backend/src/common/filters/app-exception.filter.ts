@@ -122,7 +122,9 @@ export class AppExceptionFilter implements ExceptionFilter {
           'platformRequiredRevenueRate',
           'captainMaximumProfitRate',
           'captainConfiguredCap',
+          'captainConfigState',
           'errors',
+          'profitSafetyConfigCompleteness',
           'ruleConfigCompleteness',
         ];
         const entries = detailKeys
