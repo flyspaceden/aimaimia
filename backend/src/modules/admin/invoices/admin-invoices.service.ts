@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InvoiceStatus, Prisma } from '@prisma/client';
@@ -121,9 +122,9 @@ export class AdminInvoicesService {
   constructor(
     private prisma: PrismaService,
     private providerFactory: InvoiceProviderFactory,
-    private config: ConfigService | undefined,
-    private notificationService: NotificationService | undefined,
     private profitSafetyService: ProfitSafetyService,
+    @Optional() private config?: ConfigService,
+    @Optional() private notificationService?: NotificationService,
   ) {}
 
   private async emitInvoiceNotification(
