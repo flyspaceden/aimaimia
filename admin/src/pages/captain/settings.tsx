@@ -626,7 +626,12 @@ export default function CaptainSettingsPage() {
 
   const handleSubmit = async () => {
     const values = await form.validateFields();
-    const next = normalizeConfig(values);
+    // Form only returns registered fields; the V3 contract metadata is not editable.
+    const next = normalizeConfig({
+      ...values,
+      schemaVersion: 3,
+      programCode: PROGRAM_CODE,
+    });
     const scopeCount = next.scope.categoryIds.length + next.scope.productIds.length + next.scope.companyIds.length;
     if (next.enabled && scopeCount === 0) {
       message.error('启用前必须至少配置一个适用类目、商品或商户');
