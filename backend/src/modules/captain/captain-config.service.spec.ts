@@ -3,6 +3,7 @@ import { join } from 'path';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
+  getCaptainShanghaiMonth,
   normalizeCaptainSeafoodConfig,
   validateCaptainSeafoodConfig,
 } from './captain.constants';
@@ -98,6 +99,11 @@ describe('CaptainConfigService', () => {
       coldChainRiskReserveRate: 0.02,
     },
   };
+
+  it('uses an Asia/Shanghai month key at the UTC month boundary', () => {
+    expect(getCaptainShanghaiMonth(new Date('2026-07-31T16:30:00.000Z'))).toBe('2026-08');
+    expect(getCaptainShanghaiMonth(new Date('2026-07-31T15:59:59.000Z'))).toBe('2026-07');
+  });
 
   it('defines the disabled V3 profit configuration contract', () => {
     expect(DEFAULT_CAPTAIN_SEAFOOD_CONFIG.schemaVersion).toBe(3);

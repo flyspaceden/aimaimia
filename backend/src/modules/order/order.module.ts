@@ -126,7 +126,7 @@ export class OrderModule implements OnModuleInit {
     if (captainAttributionService) {
       this.checkoutService.setCaptainAttributionService(captainAttributionService);
     } else {
-      console.warn('[OrderModule] CaptainAttributionService 未注入，团长订单归因不可用');
+      throw new Error('[OrderModule] CaptainAttributionService 未注入，团长订单归因不可用，启动中止');
     }
 
     const orderProfitSnapshotService = this.moduleRef.get(OrderProfitSnapshotService, {
@@ -143,7 +143,7 @@ export class OrderModule implements OnModuleInit {
       this.orderService.setCaptainCommissionService(captainCommissionService);
       this.orderAutoConfirmService.setCaptainCommissionService(captainCommissionService);
     } else {
-      console.warn('[OrderModule] CaptainCommissionService 未注入，团长佣金释放不可用');
+      throw new Error('[OrderModule] CaptainCommissionService 未注入，团长佣金释放不可用，启动中止');
     }
 
     const rewardDeductionService = this.moduleRef.get(RewardDeductionService, { strict: false });

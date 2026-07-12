@@ -199,6 +199,14 @@ describe('AdminCaptainService', () => {
     expect(prisma.captainOrderAttribution.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         directCaptainUserId: 'captain-1',
+        AND: expect.arrayContaining([{
+          order: {
+            paidAt: {
+              gte: new Date('2026-05-31T16:00:00.000Z'),
+              lt: new Date('2026-06-30T16:00:00.000Z'),
+            },
+          },
+        }]),
       }),
     }));
     expect(prisma.captainCommissionLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -230,6 +238,26 @@ describe('AdminCaptainService', () => {
     expect(() => service.generateSettlements('2026-6')).toThrow(BadRequestException);
 
     expect(monthlySettlementService.createDraftSettlements).not.toHaveBeenCalled();
+  });
+
+  it('uses Shanghai paid-at boundaries and rejects invalid order-list months', async () => {
+    const { service, prisma } = createHarness();
+
+    await service.listOrders({ month: '2026-08' });
+
+    expect(prisma.captainOrderAttribution.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{
+          order: {
+            paidAt: {
+              gte: new Date('2026-07-31T16:00:00.000Z'),
+              lt: new Date('2026-08-31T16:00:00.000Z'),
+            },
+          },
+        }],
+      }),
+    }));
+    await expect(service.listOrders({ month: '2026-13' })).rejects.toThrow(BadRequestException);
   });
 
   it('delegates captain application list and review operations to application service', async () => {

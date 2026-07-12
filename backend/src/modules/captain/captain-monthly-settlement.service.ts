@@ -2,7 +2,10 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CAPTAIN_SEAFOOD_PROGRAM_CODE } from './captain.constants';
+import {
+  CAPTAIN_SEAFOOD_PROGRAM_CODE,
+  CAPTAIN_SHANGHAI_OFFSET_MS,
+} from './captain.constants';
 import type { CaptainSeafoodConfigV3 } from './captain.types';
 
 type Tx = Prisma.TransactionClient;
@@ -59,7 +62,6 @@ type MonthContext = {
 };
 
 const SERIALIZABLE_MAX_RETRIES = 3;
-const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 @Injectable()
 export class CaptainMonthlySettlementService {
@@ -913,11 +915,19 @@ export class CaptainMonthlySettlementService {
       profitBaseAmount: attribution.profitBaseAmount,
       profitConfigVersion: attribution.profitConfigVersion,
       status: attribution.status,
-      monthlyHolds: (attribution.profitSnapshot?.fundingLedgers ?? []).map((ledger: any) => ({
-        id: ledger.id,
-        amount: ledger.amount,
-      })),
-    }));
+      // CAPTAIN_MONTHLY_RELEASE is derived while this very draft is generated.
+      // It must not invalidate the draft that created it, unlike source holds
+      // and refund adjustments which are business facts requiring a recalculation.
+      monthlyFunding: (attribution.profitSnapshot?.fundingLedgers ?? [])
+        .filter((ledger: any) => ledger.type !== 'CAPTAIN_MONTHLY_RELEASE')
+        .map((ledger: any) => ({
+          id: ledger.id,
+          type: ledger.type,
+          amount: ledger.amount,
+          sourceLedgerId: ledger.sourceLedgerId ?? null,
+        }))
+        .sort((left: any, right: any) => String(left.id).localeCompare(String(right.id))),
+    })).sort((left, right) => String(left.id).localeCompare(String(right.id)));
     return createHash('sha256')
       .update(JSON.stringify({ facts: context.facts, rows }))
       .digest('hex');
@@ -1097,8 +1107,8 @@ export class CaptainMonthlySettlementService {
       throw new BadRequestException('month 必须是 YYYY-MM');
     }
     return {
-      start: new Date(Date.UTC(year, monthNumber - 1, 1) - SHANGHAI_OFFSET_MS),
-      end: new Date(Date.UTC(year, monthNumber, 1) - SHANGHAI_OFFSET_MS),
+      start: new Date(Date.UTC(year, monthNumber - 1, 1) - CAPTAIN_SHANGHAI_OFFSET_MS),
+      end: new Date(Date.UTC(year, monthNumber, 1) - CAPTAIN_SHANGHAI_OFFSET_MS),
     };
   }
 
