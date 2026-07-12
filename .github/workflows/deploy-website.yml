@@ -328,8 +328,24 @@ jobs:
             pm2 reload $PM2_NAME --update-env
 
             echo "═══ 7. 验证健康检查 ═══"
-            sleep 3
-            pm2 list | grep $PM2_NAME
+            API_PORT=\$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r')
+            case "\$API_PORT" in
+              ''|*[!0-9]*) API_PORT=3000 ;;
+            esac
+            API_HEALTH_URL="http://127.0.0.1:\$API_PORT/api/v1/products?page=1&pageSize=1"
+            for attempt in \$(seq 1 15); do
+              if curl --fail --silent --show-error "\$API_HEALTH_URL" >/dev/null; then
+                echo "✅ API 健康检查通过（第 \$attempt 次）"
+                break
+              fi
+              if [ "\$attempt" -eq 15 ]; then
+                echo "❌ API 健康检查失败：\$API_HEALTH_URL"
+                pm2 describe $PM2_NAME || true
+                pm2 logs $PM2_NAME --lines 100 --nostream || true
+                exit 1
+              fi
+              sleep 2
+            done
 
             echo "✅ 后端部署完成"
           EOF
