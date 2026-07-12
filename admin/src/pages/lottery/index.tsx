@@ -60,6 +60,7 @@ import RewardProductPicker from '@/components/RewardProductPicker';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import { BuyerSuggestInput } from '@/components/BuyerSuggestInput';
 import { PERMISSIONS } from '@/constants/permissions';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 
@@ -577,7 +578,7 @@ function PrizeEditDrawer({
       onSuccess();
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return; // 表单校验失败
-      const raw = err instanceof Error ? err.message : '操作失败';
+      const raw = getAdminErrorMessage(err, '操作失败');
       const hint = raw.includes('抽奖奖品只能关联平台商品')
         ? '当前奖品关联的是旧数据（非奖励商品），请重新选择「关联奖励商品」和「商品规格」后再保存。'
         : raw;
@@ -704,7 +705,7 @@ function PrizeCreateDrawer({
             onSuccess();
             return true;
           } catch (err) {
-            const raw = err instanceof Error ? err.message : '操作失败';
+            const raw = getAdminErrorMessage(err, '操作失败');
             const hint = raw.includes('抽奖奖品只能关联平台商品')
               ? '当前奖品关联的是旧数据（非奖励商品），请重新选择「关联奖励商品」和「商品规格」后再保存。'
               : raw;

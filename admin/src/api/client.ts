@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import useAuthStore from '../store/useAuthStore';
+import { sanitizeAdminErrorMessage } from '../utils/adminErrorMessage';
 
 /**
  * 管理后台 Axios 实例
@@ -30,12 +31,12 @@ const client = axios.create({
 const parseErrorMessage = (payload: any, fallback = '请求失败') => {
   if (!payload) return fallback;
   const candidate = payload?.error ?? payload;
-  if (typeof candidate === 'string') return candidate;
+  if (typeof candidate === 'string') return sanitizeAdminErrorMessage(candidate, fallback);
   if (candidate && typeof candidate === 'object') {
-    if (typeof candidate.displayMessage === 'string' && candidate.displayMessage) return candidate.displayMessage;
-    if (typeof candidate.message === 'string' && candidate.message) return candidate.message;
+    if (typeof candidate.displayMessage === 'string' && candidate.displayMessage) return sanitizeAdminErrorMessage(candidate.displayMessage, fallback);
+    if (typeof candidate.message === 'string' && candidate.message) return sanitizeAdminErrorMessage(candidate.message, fallback);
   }
-  if (typeof payload?.message === 'string' && payload.message) return payload.message;
+  if (typeof payload?.message === 'string' && payload.message) return sanitizeAdminErrorMessage(payload.message, fallback);
   return fallback;
 };
 

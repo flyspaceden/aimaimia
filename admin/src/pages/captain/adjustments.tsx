@@ -83,7 +83,7 @@ function ProfitModelTag({ snapshot }: { snapshot?: OrderProfitSnapshot | null })
 
 const componentTarget = (component: ProfitAdjustmentComponent) => {
   if (component.kind === 'FUNDING') {
-    return FUNDING_LABELS[component.fundingType ?? ''] ?? component.fundingType ?? '-';
+    return FUNDING_LABELS[component.fundingType ?? ''] ?? '平台利润资金项';
   }
   return component.userId
     ? `${component.userId} / ${component.accountType ?? '-'}`

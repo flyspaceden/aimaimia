@@ -9,6 +9,7 @@ import {
   changePhone,
 } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 
 const { Text } = Typography;
 
@@ -90,7 +91,7 @@ export default function AccountSecurityPage() {
       });
       forceRelogin('密码已修改，请用新密码重新登录');
     } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '修改失败');
+      message.error(getAdminErrorMessage(err, '修改失败'));
     } finally {
       setPwdSaving(false);
     }
@@ -108,7 +109,7 @@ export default function AccountSecurityPage() {
       message.success(`验证码已发送到原手机 ${maskPhone(admin.phone)}`);
       startCountdown(setOldCountdown, oldTimerRef);
     } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '发送失败');
+      message.error(getAdminErrorMessage(err, '发送失败'));
     } finally {
       setOldSending(false);
     }
@@ -127,7 +128,7 @@ export default function AccountSecurityPage() {
         message.warning(err.errorFields?.[0]?.errors?.[0] || '请填写新手机号');
         return;
       }
-      message.error(err?.response?.data?.message || err?.message || '发送失败');
+      message.error(getAdminErrorMessage(err, '发送失败'));
     } finally {
       setNewSending(false);
     }
@@ -140,7 +141,7 @@ export default function AccountSecurityPage() {
       await changePhone(values);
       forceRelogin('手机号已修改，请重新登录');
     } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '修改失败');
+      message.error(getAdminErrorMessage(err, '修改失败'));
     } finally {
       setPhoneSaving(false);
     }

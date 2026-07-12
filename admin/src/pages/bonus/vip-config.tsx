@@ -51,6 +51,7 @@ import {
 import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import ProfitSafetyStatus from '@/components/ProfitSafetyStatus';
 import { useConfigProfitSafetyPreview } from '@/hooks/useConfigProfitSafetyPreview';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { usePermission } from '@/hooks/usePermission';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
@@ -180,7 +181,7 @@ function readFormNumber(values: unknown, key: string): number {
 }
 
 function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : '保存失败';
+  return getAdminErrorMessage(err, '保存失败');
 }
 
 function readStoredConfigValue(value: unknown): unknown {

@@ -37,6 +37,7 @@ import {
 import type { InvoiceOrderItem } from '@/api/invoices';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import { sanitizeAdminErrorMessage } from '@/utils/adminErrorMessage';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -521,7 +522,7 @@ export default function InvoiceDetailPage() {
                     {item.operatorType &&
                       `  ·  ${OPERATOR_TYPE_LABEL[item.operatorType] || item.operatorType}`}
                   </Text>
-                  {item.reason && <Text type="danger">{item.reason}</Text>}
+                  {item.reason && <Text type="danger">{sanitizeAdminErrorMessage(item.reason, '开票处理未完成，请稍后重试')}</Text>}
                 </Space>
               ),
             }))}

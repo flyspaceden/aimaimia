@@ -3,6 +3,7 @@ import { Button, Tooltip, Typography } from 'antd';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import type { ConfigVersion } from '@/types';
+import { sanitizeAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { getConfigRollbackState } from './captainProfitV3';
 
 const { Text } = Typography;
@@ -15,10 +16,11 @@ export default function ConfigVersionRollbackButton({
   onRollback: () => void;
 }) {
   const state = getConfigRollbackState(version);
+  const reason = state.reason ? sanitizeAdminErrorMessage(state.reason, '当前版本暂不允许回滚') : null;
   return (
     <div style={{ textAlign: 'right', maxWidth: 220 }}>
       <PermissionGate permission={PERMISSIONS.CONFIG_UPDATE}>
-        <Tooltip title={state.reason}>
+        <Tooltip title={reason}>
           <span>
             <Button
               type="text"
@@ -34,9 +36,9 @@ export default function ConfigVersionRollbackButton({
           </span>
         </Tooltip>
       </PermissionGate>
-      {state.reason ? (
+      {reason ? (
         <Text type="danger" style={{ display: 'block', fontSize: 11, lineHeight: 1.4 }}>
-          {state.reason}
+          {reason}
         </Text>
       ) : null}
     </div>
