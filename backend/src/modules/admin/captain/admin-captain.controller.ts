@@ -29,6 +29,7 @@ import {
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
   ListCaptainProfilesQueryDto,
+  ListCaptainScopeOptionsQueryDto,
   ListCaptainSettlementsQueryDto,
   UpdateCaptainProfileStatusDto,
   UpdateCaptainSettingsDto,
@@ -197,6 +198,12 @@ export class AdminCaptainController {
   })
   recalculate(@Param('id') id: string, @CurrentAdmin('sub') adminUserId: string) {
     return this.captainService.recalculateSettlement(id, adminUserId);
+  }
+
+  @Get('scope-options')
+  @RequirePermission('captain:settings')
+  listScopeOptions(@Query() query: ListCaptainScopeOptionsQueryDto) {
+    return this.captainService.listScopeOptions(query);
   }
 
   @Get('settings')

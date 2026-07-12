@@ -44,6 +44,18 @@ function createHarness() {
     ruleVersion: {
       create: jest.fn(),
     },
+    category: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    product: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    company: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
   };
   const relationService = {
     createCaptainProfile: jest.fn().mockResolvedValue({ userId: 'captain-1' }),
@@ -272,6 +284,89 @@ describe('AdminCaptainService', () => {
     expect(applicationService.getAdmin).toHaveBeenCalledWith('application-1');
     expect(applicationService.approve).toHaveBeenCalledWith('application-1', 'admin-1', { captainCode: 'SEA001' });
     expect(applicationService.reject).toHaveBeenCalledWith('application-1', 'admin-1', { reason: '资料不足' });
+  });
+
+  it('searches active category scope options and resolves saved ids in their original order', async () => {
+    const { service, prisma } = createHarness();
+    prisma.category.findMany
+      .mockResolvedValueOnce([{
+        id: 'cat-seafood',
+        name: '速冻海鲜',
+        path: '/食品/速冻海鲜',
+        level: 2,
+        isActive: true,
+      }])
+      .mockResolvedValueOnce([
+        { id: 'cat-seafood', name: '速冻海鲜', path: '/食品/速冻海鲜', level: 2, isActive: true },
+        { id: 'cat-old', name: '历史海鲜', path: '/历史海鲜', level: 1, isActive: false },
+      ]);
+    prisma.category.count.mockResolvedValueOnce(1);
+
+    const result = await service.listScopeOptions({
+      type: 'CATEGORY',
+      keyword: '海鲜',
+      page: 1,
+      pageSize: 12,
+      selectedIds: 'cat-old,cat-seafood',
+    });
+
+    const firstQuery = prisma.category.findMany.mock.calls[0][0];
+    expect(firstQuery.where).toEqual(expect.objectContaining({
+      isActive: true,
+      OR: expect.arrayContaining([
+        { name: { contains: '海鲜', mode: 'insensitive' } },
+        { path: { contains: '海鲜', mode: 'insensitive' } },
+        { id: { contains: '海鲜', mode: 'insensitive' } },
+      ]),
+    }));
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: 'cat-seafood', name: '速冻海鲜', status: 'ACTIVE' }),
+    ]);
+    expect(result.selectedItems.map((item: any) => item.id)).toEqual(['cat-old', 'cat-seafood']);
+  });
+
+  it('searches product and company scope options by names and partial ids', async () => {
+    const { service, prisma } = createHarness();
+    prisma.product.findMany.mockResolvedValueOnce([{
+      id: 'prod-cod-001',
+      title: '深海鳕鱼礼盒',
+      status: 'ACTIVE',
+      type: 'SIMPLE',
+      company: { name: '舟山海味' },
+      category: { name: '速冻海鲜' },
+    }]);
+    prisma.product.count.mockResolvedValueOnce(1);
+    prisma.company.findMany.mockResolvedValueOnce([{
+      id: 'company-001',
+      name: '舟山海味',
+      shortName: '海味',
+      status: 'ACTIVE',
+    }]);
+    prisma.company.count.mockResolvedValueOnce(1);
+
+    const products = await service.listScopeOptions({ type: 'PRODUCT', keyword: 'cod' });
+    const companies = await service.listScopeOptions({ type: 'COMPANY', keyword: '舟山' });
+
+    expect(prisma.product.findMany.mock.calls[0][0].where).toEqual(expect.objectContaining({
+      status: { not: 'DRAFT' },
+      OR: expect.arrayContaining([
+        { title: { contains: 'cod', mode: 'insensitive' } },
+        { id: { contains: 'cod', mode: 'insensitive' } },
+      ]),
+    }));
+    expect(prisma.company.findMany.mock.calls[0][0].where).toEqual(expect.objectContaining({
+      status: 'ACTIVE',
+      OR: expect.arrayContaining([
+        { name: { contains: '舟山', mode: 'insensitive' } },
+        { id: { contains: '舟山', mode: 'insensitive' } },
+      ]),
+    }));
+    expect(products.items[0]).toMatchObject({
+      id: 'prod-cod-001',
+      name: '深海鳕鱼礼盒',
+      subtitle: '舟山海味 · 速冻海鲜 · 普通商品',
+    });
+    expect(companies.items[0]).toMatchObject({ id: 'company-001', name: '舟山海味' });
   });
 
   it('updates captain settings through the profit safety coordinator without a second version', async () => {

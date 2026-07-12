@@ -16,7 +16,6 @@ import {
   Input,
   InputNumber,
   Row,
-  Select,
   Space,
   Switch,
   Table,
@@ -32,6 +31,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { formatProfitSafetySummaryError } from '@/utils/configProfitSafetyPreview';
+import ScopeEntitySelect from './ScopeEntitySelect';
 import {
   getProfitSafetyGuidance,
   getSystemConfigCompletenessNotice,
@@ -102,121 +102,150 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
 };
 
 type FieldHelp = {
-  summary: string;
+  meaning: string;
+  example: string;
   related?: string;
 };
 
 const FIELD_HELP = {
   enabled: {
-    summary: '关闭后会拒绝新的团长码绑定，新的支付订单也不会生成团长佣金。已有关系、冻结佣金和历史台账不会被删除。',
-    related: '开启后，生效时间和适用范围才会参与订单归因。',
+    meaning: '这是团长奖励的总开关。关闭后，新客户不能再绑定团长码，新支付订单也不会产生团长奖励；已经绑定的客户、已经冻结的奖励和历史记录不会被删除。',
+    example: '今天关闭开关后，客户明天下单不会产生新奖励；团长账户里原来冻结的 100 元仍会保留，并按原订单规则继续处理。',
+    related: '只有开启后，“生效时间”和“适用范围”才会决定哪些新订单参加。',
   },
   programName: {
-    summary: '团长端和后台展示的项目名称，不改变佣金比例、适用商品或结算规则。',
+    meaning: '这是后台和团长端看到的活动名称，只影响显示文字，不会改变奖励金额。',
+    example: '把名称改成“舟山海鲜团长计划”，页面会显示新名称，但所有比例、门槛和适用商品都保持原样。',
   },
   effectiveFrom: {
-    summary: '只有实际支付时间不早于此时间的订单，才会创建新的团长归因和冻结佣金；此前订单不会补发。',
-    related: '首次从 V2 切换到 V3 必须从未来自然月起生效；V3 后续修改只影响之后支付的新订单，旧订单继续使用支付快照。',
+    meaning: '从这个时间开始支付的订单，才使用这份团长配置。之前已经支付的订单不会补算，也不会被新参数改写。',
+    example: '设置为 8 月 1 日 00:00：7 月 31 日 23:59 支付的订单仍按旧规则，8 月 1 日 00:01 支付的订单按新规则。',
+    related: '修改配置只影响之后支付的新订单，旧订单始终保留付款时的规则。',
   },
   categoryIds: {
-    summary: '命中任一类目的普通商品可参与计佣。',
-    related: '与商品 ID、商户 ID 是“满足任一即可”；排除商品优先级更高。',
+    meaning: '选择哪些商品类目参加团长奖励。系统会用商品自身保存的类目进行匹配。',
+    example: '选择“速冻海鲜”后，所属类目正好是“速冻海鲜”的鳕鱼礼盒参加；如果该商品又被放进“不参与奖励的商品”，它仍然不参加。',
+    related: '类目按精确归属匹配，选上级类目不会自动包含未选中的子类目。适用类目、商品、商户任一命中即可；排除商品优先。',
   },
   productIds: {
-    summary: '指定商品可参与计佣，适合单品活动或试运行。',
-    related: '与类目 ID、商户 ID 是“满足任一即可”；排除商品优先级更高。',
+    meaning: '单独指定参加团长奖励的商品，适合只开放少量商品试运行。',
+    example: '只选择“深海鳕鱼礼盒”，即使它所在的类目和商户都没有被选中，这个商品仍然参加。',
+    related: '适用类目、适用商品、适用商户三项只要命中一项即可；排除商品的优先级最高。',
   },
   companyIds: {
-    summary: '指定商户的普通商品可参与计佣。',
-    related: '与类目 ID、商品 ID 是“满足任一即可”；排除商品优先级更高。',
+    meaning: '选择哪些商户的普通商品参加团长奖励。选中商户后，该商户符合订单规则的商品都会参加。',
+    example: '选择“舟山海味旗舰店”后，这家店的普通商品都参加；其中某个低毛利商品可以再放入排除名单。',
+    related: '适用类目、适用商品、适用商户三项只要命中一项即可；排除商品的优先级最高。',
   },
   excludedProductIds: {
-    summary: '指定商品即使同时命中类目、商品或商户范围，也不会产生团长佣金。',
-    related: '用于排除低毛利、特殊履约或临时不参与的商品。',
+    meaning: '这里选择的商品一定不产生团长奖励，即使它同时命中了适用类目、适用商品或适用商户。',
+    example: '“特价鳕鱼”属于已选中的速冻海鲜类目，但把它加入这里后，客户购买它仍不会产生团长奖励。',
+    related: '适合排除低毛利、特殊履约或临时促销商品。',
   },
   directProfitRate: {
-    summary: '逐单奖励 = 本单团长适用商品的可分润利润 C × 该比例。C 是统一优惠后利润 D 中命中团长适用范围的子集，不是销售额。只给付款客户直接绑定的一名团长，没有二级。',
-    related: '直接奖励率 + 四项月度利润奖励率 必须小于等于团长总利润激励上限。D≤0 时 C=0，本单不分润。',
+    meaning: '客户每完成一笔符合条件的订单，直接绑定他的团长可以拿走多少可分润利润。这里按利润计算，不按销售额计算，而且只给一名直接团长。',
+    example: '一笔订单中符合范围商品的可分润利润是 40 元，比例填 10%，团长逐单奖励就是 4 元；如果可分润利润为 0，就没有奖励。',
+    related: '它会和四项月度奖励一起占用“团长奖励合计上限”，没有二级团长奖励。',
   },
   freezeDaysAfterReceived: {
-    summary: '逐单佣金至少在确认收货后冻结指定天数；如退货窗口更晚，则以更晚的时间为准。退款成功或售后完成不会释放佣金。',
-    related: '冻结期使用订单归因当时保存的配置快照，后续改配置不会追溯改变旧订单。',
+    meaning: '逐单奖励在客户确认收货后还要等待多少天，等待结束且没有未完成售后，才可以转为可结算。',
+    example: '填 7 天，客户 8 月 1 日确认收货，最早 8 月 8 日释放；如果退换货期限到 8 月 12 日，则要等到更晚的 8 月 12 日。',
+    related: '退款或售后成功会按订单规则冲回奖励；后续修改天数不会改变旧订单。',
   },
   minCommissionBase: {
-    summary: '单笔订单中命中范围的商品实付金额低于此值时，不创建团长佣金。运费、平台红包和消费积分抵扣不计入。',
-    related: '适用范围决定哪些商品进入门槛；通过门槛后，逐单奖励仍按可分润利润 C 计算。',
+    meaning: '一笔订单里，参加团长活动的商品在各种优惠和抵扣后的净商品金额，至少达到多少元才计算逐单奖励。运费不算。',
+    example: '门槛填 100 元：符合范围商品优惠后只剩 80 元，不计奖励；优惠后是 150 元则通过门槛，但奖励金额仍按利润计算，不是按 150 元计算。',
+    related: '先由适用范围筛出商品，再判断这项金额门槛。',
   },
   minDirectEffectiveBuyers: {
-    summary: '当月至少有这么多不同的直接客户产生正向有效净商品成交，才通过月度资格。注册、绑定或无效订单不计入。',
-    related: '需同时满足资格线直接客户 GMV、新增有效直接客户和退款风控条件。',
+    meaning: '团长当月至少要有多少名不同的直接客户完成有效购买，才能取得当月的月度奖励资格。只注册、只绑定但没有有效购买的人不算。',
+    example: '填 12 人：当月只有 11 名直接客户完成有效购买，不发月度奖励；达到 12 人后，还要继续检查销售额和新增客户条件。',
+    related: '有效客户数、月度资格最低销售额、新增有效客户数三项必须同时满足。',
   },
   minDirectMonthlyGmv: {
-    summary: '月度资格线只汇总该团长直接客户的有效净商品 GMV，不包含任何下级团长、间接客户或历史二级订单。',
-    related: 'D≤0 时订单不分润，但命中团长范围的优惠后净商品 GMV 仍可计入资格和档位；8,000 是资格线，25,000/70,000/140,000 是累进档位。',
+    meaning: '团长的直接客户当月购买符合范围商品的优惠后销售额，至少达到多少元，团长才有资格拿月度奖励。不统计任何间接客户。',
+    example: '填 8,000 元：当月直接客户有效销售额为 7,900 元，不具备月度资格；达到 8,500 元后通过这一项检查。',
+    related: '这只是月度资格线；25,000、70,000、140,000 元是通过资格后继续判断奖励档位的门槛。',
   },
   minNewEffectiveBuyers: {
-    summary: '当月新绑定且当月产生正向直接成交的客户数。仅新增绑定或仅注册不计入。',
-    related: '与有效直接成交客户一起构成月度资格，不会给发展下级团长计数。',
+    meaning: '团长当月至少要新增多少名“新绑定并且完成有效购买”的直接客户。只新注册或只绑定、没有购买的人不算。',
+    example: '填 1 人：本月新绑定 3 人，但只有 1 人完成有效购买，则新增有效客户数是 1，刚好达标。',
+    related: '这里只统计直接客户，不统计发展了多少团长，也没有二级人数。',
   },
   baseTierGmv: {
-    summary: '通过月度资格后，直接客户有效净 GMV 达到此值，开始计算管理津贴和经营绩效奖。',
-    related: '增长档和卓越档在此基础上继续叠加，不是替换基础档奖励。',
+    meaning: '团长通过月度资格后，直接客户当月有效销售额达到这个门槛，才开始获得基础档管理津贴和经营绩效奖。',
+    example: '填 25,000 元：当月销售额 24,999 元没有基础档奖励；达到 25,000 元后开始计算基础档奖励。',
+    related: '增长档和卓越档是在基础档之上继续加奖，不会替换基础档。',
   },
   baseManagementProfitRate: {
-    summary: '通过 8,000 元资格线并达到 25,000 元基础档后，对当月各有效订单的可分润利润 C 按该比例累计管理津贴。分母是 C，不是 GMV。',
-    related: '8,000 是资格线，25,000/70,000/140,000 是累进档位；GMV 只决定是否达标，奖励金额按 C 计算。',
+    meaning: '达到基础档后，团长从当月符合条件商品的可分润利润中，按这个比例获得管理津贴。销售额只决定是否达档，实际奖励仍按利润计算。',
+    example: '当月符合条件商品的可分润利润合计为 6,000 元，比例填 0.5%，管理津贴是 30 元。',
+    related: '必须先通过月度资格并达到基础档销售额门槛。',
   },
   growthTierGmv: {
-    summary: '通过月度资格且 GMV 达到此值时，在基础档奖励之外增加增长奖。',
-    related: '必须不低于基础档 GMV，且不高于卓越档 GMV。',
+    meaning: '团长通过月度资格后，当月直接客户有效销售额达到这个门槛，就在基础档奖励之外再获得增长档加奖。',
+    example: '填 70,000 元：销售额达到 70,000 元时，同时保留基础档奖励，并开始增加增长档奖励。',
+    related: '增长档门槛不能低于基础档，也不能高于卓越档。',
   },
   growthBonusProfitRate: {
-    summary: '通过资格并达到 70,000 元增长档后，对当月各有效订单的 C 按该比例追加增长奖。分母是 C。',
-    related: '与基础档利润奖励累加，并共同占用团长总利润激励上限。',
+    meaning: '达到增长档后，在基础档奖励之外，再从当月符合条件商品的可分润利润中按这个比例加奖。',
+    example: '当月可分润利润合计为 20,000 元，增长奖比例填 1%，增长奖是 200 元，并且基础档奖励仍然保留。',
+    related: '增长奖会与其他团长奖励相加，并共同受奖励合计上限约束。',
   },
   excellentTierGmv: {
-    summary: '通过月度资格且 GMV 达到此值时，在基础档和增长档奖励之外增加有效成交辅导奖。',
-    related: '必须不低于增长档 GMV。',
+    meaning: '团长通过月度资格后，当月直接客户有效销售额达到这个最高档门槛，就可以在基础档、增长档之外再获得卓越档辅导奖。',
+    example: '填 140,000 元：当月达到 140,000 元时，基础档和增长档奖励继续保留，同时开始计算卓越档辅导奖。',
+    related: '卓越档门槛必须大于或等于增长档门槛。',
   },
   cultivationBonusProfitRate: {
-    summary: '通过资格并达到 140,000 元卓越档后，对当月各有效订单的 C 按该比例追加有效成交辅导奖。分母是 C。',
-    related: '只衡量直接客户的真实成交，不奖励注册数，不按下级团长或间接订单计提。',
+    meaning: '达到卓越档后，从当月符合条件商品的可分润利润中，按这个比例给团长增加辅导奖。它奖励真实直接客户成交，不奖励单纯拉人注册。',
+    example: '当月可分润利润合计为 40,000 元，比例填 0.6%，辅导奖是 240 元。',
+    related: '只统计直接客户真实成交，不统计下级团长或间接订单。',
   },
   performanceBonusProfitRate: {
-    summary: '基础档达标后，对当月各有效订单的 C 按该比例计算经营绩效奖，100% 记入本团长。分母是 C。',
-    related: '不存在团队池或 40/60 分配；与其他团长利润奖励共用同一资金上限。',
+    meaning: '达到基础档后，从当月符合条件商品的可分润利润中，按这个比例计算经营绩效奖，全部给当前团长。',
+    example: '当月可分润利润合计为 20,000 元，比例填 1%，经营绩效奖是 200 元。',
+    related: '没有团队池，也没有 40/60 分配；它会和其他团长奖励一起占用奖励合计上限。',
   },
   maxTotalIncentiveProfitRate: {
-    summary: '团长直接奖励与四项月度奖励对可分润利润 C 的最高合计比例，超过不能保存。',
-    related: '团长最高比例与会员树奖励、产业基金、邀请人直推共同占用 D；平台实际留存还必须覆盖履约、风险与目标净利。',
+    meaning: '这是所有团长奖励比例加起来允许达到的最高值，用来防止逐单奖励和月度奖励叠加过高。超过这个上限时，配置不能保存。',
+    example: '逐单 9% + 管理津贴 2.2% + 增长奖 0.7% + 辅导奖 0.6% + 绩效奖 1% = 13.5%。上限填 14.5% 可以保存，填 13% 就不能保存。',
+    related: '通过这项检查后，系统还会继续检查 VIP/普通奖励、履约成本、风险预留和目标净利，确保平台整体不亏。',
   },
   fulfillmentCostRate: {
-    summary: '标准履约成本占 VIP 必然折扣后商品收入的比例，用于配置保存时的单品利润安全校验，不在单笔订单里再扣一次。',
-    related: '每个活跃普通 SKU 都必须满足 g_sku × (1 - 会员树 - 产业基金 - 邀请人直推 - 团长最高奖励) ≥ 履约成本 + 冷链风险预留 + 目标净利。',
+    meaning: '平台预计每卖出 100 元优惠后商品收入，需要拿出多少比例支付包装、冷链、仓储、客服等履约成本。它只用于保存配置时检查利润安全，不会在订单里重复扣钱。',
+    example: '比例填 10.5%，某商品优惠后收入为 100 元，系统会按 10.5 元履约成本检查平台是否还有足够利润。',
+    related: '履约成本、冷链售后预留和目标净利三项相加，就是平台必须保留的最低金额。',
   },
   targetNetProfitRate: {
-    summary: '平台要保留的最低净利占 VIP 必然折扣后商品收入的比例，只用于后台保存时的单品安全校验。',
-    related: '与标准履约成本率、冷链风险预留率相加，必须由各 SKU 在扣除会员和团长外部分配后的平台留存覆盖。',
+    meaning: '扣完商品成本、用户奖励、团长奖励、履约成本和风险预留后，平台希望至少留下多少净利润。配置不满足时不能保存。',
+    example: '目标净利填 8%，某商品优惠后收入为 100 元，所有成本和奖励扣完后至少还要给平台留下 8 元。',
+    related: '它要和预计履约成本比例、冷链和售后预留比例一起看。',
   },
   coldChainRiskReserveRate: {
-    summary: '为冷链波动、售后和退换货保留的比例，分母是 VIP 必然折扣后商品收入，不会自动生成单独资金流水。',
-    related: '与履约成本率、目标净利率一起构成平台最低留存线，任一买家/邀请人组合突破都会拒绝保存。',
+    meaning: '平台为冷链涨价、破损补发、退款和其他售后波动预留多少空间。它是利润安全预算，不会自动转入一个单独账户。',
+    example: '比例填 2%，某商品优惠后收入为 100 元，系统会预留 2 元风险空间再判断配置是否安全。',
+    related: '它与预计履约成本比例、目标净利率共同组成平台最低留存要求。',
   },
   taxEnabled: {
-    summary: '控制月度结算是否计算税前、代扣和税后金额；不替代财务申报、实际付款和完税凭证流程。',
-    related: '代扣税率决定月结中的税额和税后展示。',
+    meaning: '开启后，月度结算会同时显示税前奖励、预计代扣税额和税后应付金额。这里只负责计算和记录，不代替财务实际申报与付款。',
+    example: '团长税前月度奖励为 1,000 元，代扣税率为 20%，结算会显示代扣 200 元、税后 800 元。',
+    related: '关闭后不计算代扣金额；开启时由“代扣税率”决定扣多少。',
   },
   withholdingRate: {
-    summary: '月度结算税额 = 月度奖励税前合计乘以该比例；税后金额会在结算列表展示。',
-    related: '仅在“代扣劳务个税”开启时生效。',
+    meaning: '月度奖励中预计代扣税额所使用的比例。税额等于税前月度奖励乘以这个比例。',
+    example: '税前奖励 2,000 元，税率填 20%，预计代扣 400 元，税后应付 1,600 元。',
+    related: '只有开启“代扣劳务个税”时，这个比例才生效。',
   },
   maxMonthlyRefundRate: {
-    summary: '当月直接客户订单的退款金额占计佣基数比例超过此值时，命中退款风控。',
-    related: '只有“命中风控暂停结算”开启时，才会导致当月资格不通过、月度奖励为零。',
+    meaning: '当月直接客户的退款金额占有效销售额的比例超过多少时，系统把这个团长标记为退款风险。',
+    example: '警戒线填 15%，当月有效销售额 10,000 元、退款 1,600 元，退款率为 16%，超过警戒线。',
+    related: '是否真的暂停月度奖励，由“超出警戒线时暂停月度奖励”开关决定。',
   },
   holdSettlementOnRisk: {
-    summary: '开启后，超过月退款率冻结阈值的团长当月不通过月度资格；逐单佣金仍按订单售后状态独立冻结、释放或冲回。',
-    related: '关闭后，退款率继续记录但不阻断月度奖励资格。',
+    meaning: '开启后，只要团长当月退款率超过警戒线，就暂停发放当月的月度奖励；逐单奖励仍然按每笔订单的退款和售后结果单独处理。',
+    example: '警戒线 15%，实际退款率 16%：开关开启时当月管理津贴和档位加奖为 0；关闭时只记录风险，不自动取消月度奖励。',
+    related: '它只控制月度奖励资格，不会跳过单笔订单原有的冻结、释放和退款冲回。',
   },
 } satisfies Record<string, FieldHelp>;
 
@@ -334,10 +363,23 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
     <Space size={4}>
       <span>{label}</span>
       <Tooltip
+        placement="topLeft"
         title={
-          <div style={{ maxWidth: 320 }}>
-            <div>{help.summary}</div>
-            {help.related ? <div style={{ marginTop: 8, opacity: 0.85 }}>关联：{help.related}</div> : null}
+          <div style={{ width: 380, maxWidth: 'calc(100vw - 48px)', lineHeight: 1.65 }}>
+            <div>
+              <span style={{ color: '#91caff', fontWeight: 600 }}>什么意思：</span>
+              {help.meaning}
+            </div>
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.18)' }}>
+              <span style={{ color: '#b7eb8f', fontWeight: 600 }}>举个例子：</span>
+              {help.example}
+            </div>
+            {help.related ? (
+              <div style={{ marginTop: 10, opacity: 0.9 }}>
+                <span style={{ color: '#ffd591', fontWeight: 600 }}>还要一起看：</span>
+                {help.related}
+              </div>
+            ) : null}
           </div>
         }
       >
@@ -740,23 +782,23 @@ export default function CaptainSettingsPage() {
             <SectionTitle>适用范围</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'categoryIds']} label={<FieldLabel label="适用类目 ID" help={FIELD_HELP.categoryIds} />}>
-                  <Select mode="tags" tokenSeparators={[',', '，', ' ']} placeholder="输入类目 ID 后回车" />
+                <Form.Item name={['scope', 'categoryIds']} label={<FieldLabel label="适用类目" help={FIELD_HELP.categoryIds} />}>
+                  <ScopeEntitySelect type="CATEGORY" placeholder="点击选择，或搜索类目名称、路径和 ID" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'productIds']} label={<FieldLabel label="适用商品 ID" help={FIELD_HELP.productIds} />}>
-                  <Select mode="tags" tokenSeparators={[',', '，', ' ']} placeholder="输入商品 ID 后回车" />
+                <Form.Item name={['scope', 'productIds']} label={<FieldLabel label="适用商品" help={FIELD_HELP.productIds} />}>
+                  <ScopeEntitySelect type="PRODUCT" placeholder="点击选择，或搜索商品名称、商户和 ID" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'companyIds']} label={<FieldLabel label="适用商户 ID" help={FIELD_HELP.companyIds} />}>
-                  <Select mode="tags" tokenSeparators={[',', '，', ' ']} placeholder="输入商户 ID 后回车" />
+                <Form.Item name={['scope', 'companyIds']} label={<FieldLabel label="适用商户" help={FIELD_HELP.companyIds} />}>
+                  <ScopeEntitySelect type="COMPANY" placeholder="点击选择，或搜索商户名称、简称和 ID" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'excludedProductIds']} label={<FieldLabel label="排除商品 ID" help={FIELD_HELP.excludedProductIds} />}>
-                  <Select mode="tags" tokenSeparators={[',', '，', ' ']} placeholder="输入排除商品 ID 后回车" />
+                <Form.Item name={['scope', 'excludedProductIds']} label={<FieldLabel label="不参与奖励的商品" help={FIELD_HELP.excludedProductIds} />}>
+                  <ScopeEntitySelect type="PRODUCT" placeholder="点击选择需要排除的商品，或搜索名称和 ID" />
                 </Form.Item>
               </Col>
             </Row>
@@ -764,17 +806,17 @@ export default function CaptainSettingsPage() {
             <SectionTitle>逐单利润奖励</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={8}>
-                <Form.Item name={['perOrderCommission', 'directProfitRate']} label={<FieldLabel label="直接客户利润奖励率" help={FIELD_HELP.directProfitRate} />} rules={rateRules}>
+                <Form.Item name={['perOrderCommission', 'directProfitRate']} label={<FieldLabel label="直接客户逐单奖励比例" help={FIELD_HELP.directProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={8}>
-                <Form.Item name={['orderRules', 'freezeDaysAfterReceived']} label={<FieldLabel label="确认收货后冻结天数" help={FIELD_HELP.freezeDaysAfterReceived} />} rules={[{ required: true }]}>
+                <Form.Item name={['orderRules', 'freezeDaysAfterReceived']} label={<FieldLabel label="确认收货后等待天数" help={FIELD_HELP.freezeDaysAfterReceived} />} rules={[{ required: true }]}>
                   <InputNumber min={0} max={365} precision={0} style={{ width: '100%' }} addonAfter="天" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={8}>
-                <Form.Item name={['orderRules', 'minCommissionBase']} label={<FieldLabel label="最低计佣商品实付" help={FIELD_HELP.minCommissionBase} />} rules={amountRules}>
+                <Form.Item name={['orderRules', 'minCommissionBase']} label={<FieldLabel label="单笔订单最低参加金额" help={FIELD_HELP.minCommissionBase} />} rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
@@ -783,17 +825,17 @@ export default function CaptainSettingsPage() {
             <SectionTitle>团长资格</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minDirectEffectiveBuyers']} label={<FieldLabel label="有效直接成交客户" help={FIELD_HELP.minDirectEffectiveBuyers} />} rules={[{ required: true }]}>
+                <Form.Item name={['monthlyQualification', 'minDirectEffectiveBuyers']} label={<FieldLabel label="月度有效直接客户数" help={FIELD_HELP.minDirectEffectiveBuyers} />} rules={[{ required: true }]}>
                   <InputNumber min={0} precision={0} style={{ width: '100%' }} addonAfter="人" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minDirectMonthlyGmv']} label={<FieldLabel label="资格线直接客户 GMV" help={FIELD_HELP.minDirectMonthlyGmv} />} rules={amountRules}>
+                <Form.Item name={['monthlyQualification', 'minDirectMonthlyGmv']} label={<FieldLabel label="月度资格最低销售额" help={FIELD_HELP.minDirectMonthlyGmv} />} rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyQualification', 'minNewEffectiveBuyers']} label={<FieldLabel label="新增有效直接客户" help={FIELD_HELP.minNewEffectiveBuyers} />} rules={[{ required: true }]}>
+                <Form.Item name={['monthlyQualification', 'minNewEffectiveBuyers']} label={<FieldLabel label="月度新增有效客户数" help={FIELD_HELP.minNewEffectiveBuyers} />} rules={[{ required: true }]}>
                   <InputNumber min={0} precision={0} style={{ width: '100%' }} addonAfter="人" />
                 </Form.Item>
               </Col>
@@ -802,37 +844,37 @@ export default function CaptainSettingsPage() {
             <SectionTitle>月度激励</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'baseTierGmv']} label={<FieldLabel label="基础档 GMV" help={FIELD_HELP.baseTierGmv} />} rules={amountRules}>
+                <Form.Item name={['monthlyRewards', 'baseTierGmv']} label={<FieldLabel label="基础档销售额门槛" help={FIELD_HELP.baseTierGmv} />} rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'baseManagementProfitRate']} label={<FieldLabel label="管理津贴利润率" help={FIELD_HELP.baseManagementProfitRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'baseManagementProfitRate']} label={<FieldLabel label="基础档管理津贴比例" help={FIELD_HELP.baseManagementProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'growthTierGmv']} label={<FieldLabel label="增长档 GMV" help={FIELD_HELP.growthTierGmv} />} rules={amountRules}>
+                <Form.Item name={['monthlyRewards', 'growthTierGmv']} label={<FieldLabel label="增长档销售额门槛" help={FIELD_HELP.growthTierGmv} />} rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'growthBonusProfitRate']} label={<FieldLabel label="增长奖利润率" help={FIELD_HELP.growthBonusProfitRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'growthBonusProfitRate']} label={<FieldLabel label="增长档加奖比例" help={FIELD_HELP.growthBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'excellentTierGmv']} label={<FieldLabel label="卓越档 GMV" help={FIELD_HELP.excellentTierGmv} />} rules={amountRules}>
+                <Form.Item name={['monthlyRewards', 'excellentTierGmv']} label={<FieldLabel label="卓越档销售额门槛" help={FIELD_HELP.excellentTierGmv} />} rules={amountRules}>
                   <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="元" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'cultivationBonusProfitRate']} label={<FieldLabel label="有效成交辅导奖利润率" help={FIELD_HELP.cultivationBonusProfitRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'cultivationBonusProfitRate']} label={<FieldLabel label="卓越档辅导奖比例" help={FIELD_HELP.cultivationBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['monthlyRewards', 'performanceBonusProfitRate']} label={<FieldLabel label="经营绩效奖利润率" help={FIELD_HELP.performanceBonusProfitRate} />} rules={rateRules}>
+                <Form.Item name={['monthlyRewards', 'performanceBonusProfitRate']} label={<FieldLabel label="经营绩效奖比例" help={FIELD_HELP.performanceBonusProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -841,12 +883,12 @@ export default function CaptainSettingsPage() {
             <SectionTitle>平台利润底线与税务</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['caps', 'maxTotalIncentiveProfitRate']} label={<FieldLabel label="团长总利润激励封顶" help={FIELD_HELP.maxTotalIncentiveProfitRate} />} rules={rateRules}>
+                <Form.Item name={['caps', 'maxTotalIncentiveProfitRate']} label={<FieldLabel label="团长奖励合计上限" help={FIELD_HELP.maxTotalIncentiveProfitRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['unitEconomics', 'fulfillmentCostRate']} label={<FieldLabel label="标准履约成本率" help={FIELD_HELP.fulfillmentCostRate} />} rules={rateRules}>
+                <Form.Item name={['unitEconomics', 'fulfillmentCostRate']} label={<FieldLabel label="预计履约成本比例" help={FIELD_HELP.fulfillmentCostRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -856,7 +898,7 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['caps', 'coldChainRiskReserveRate']} label={<FieldLabel label="冷链售后预留率" help={FIELD_HELP.coldChainRiskReserveRate} />} rules={rateRules}>
+                <Form.Item name={['caps', 'coldChainRiskReserveRate']} label={<FieldLabel label="冷链和售后预留比例" help={FIELD_HELP.coldChainRiskReserveRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={0.1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
@@ -875,12 +917,12 @@ export default function CaptainSettingsPage() {
             <SectionTitle>风控</SectionTitle>
             <Row gutter={16}>
               <Col xs={24} md={6}>
-                <Form.Item name={['risk', 'maxMonthlyRefundRate']} label={<FieldLabel label="月退款率冻结阈值" help={FIELD_HELP.maxMonthlyRefundRate} />} rules={rateRules}>
+                <Form.Item name={['risk', 'maxMonthlyRefundRate']} label={<FieldLabel label="月退款率警戒线" help={FIELD_HELP.maxMonthlyRefundRate} />} rules={rateRules}>
                   <PercentInput min={0} max={100} precision={2} step={1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6}>
-                <Form.Item name={['risk', 'holdSettlementOnRisk']} label={<FieldLabel label="命中风控暂停结算" help={FIELD_HELP.holdSettlementOnRisk} />} valuePropName="checked">
+                <Form.Item name={['risk', 'holdSettlementOnRisk']} label={<FieldLabel label="超出警戒线时暂停月度奖励" help={FIELD_HELP.holdSettlementOnRisk} />} valuePropName="checked">
                   <Switch />
                 </Form.Item>
               </Col>

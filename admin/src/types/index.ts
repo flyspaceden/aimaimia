@@ -655,6 +655,19 @@ export interface CaptainSeafoodConfig {
   };
 }
 
+export type CaptainScopeOptionType = 'CATEGORY' | 'PRODUCT' | 'COMPANY';
+
+export interface CaptainScopeOption {
+  id: string;
+  name: string;
+  subtitle: string;
+  status: string;
+}
+
+export interface CaptainScopeOptionsResponse extends PaginatedData<CaptainScopeOption> {
+  selectedItems: CaptainScopeOption[];
+}
+
 export type ProfitSafetyScenarioKey =
   | 'VIP_BUYER_VIP_INVITER'
   | 'VIP_BUYER_NORMAL_INVITER'

@@ -18,6 +18,9 @@ import {
   CaptainApplicationStatusValue,
 } from '../../captain/dto/captain-application.dto';
 
+export const CAPTAIN_SCOPE_OPTION_TYPES = ['CATEGORY', 'PRODUCT', 'COMPANY'] as const;
+export type CaptainScopeOptionType = typeof CAPTAIN_SCOPE_OPTION_TYPES[number];
+
 export class CaptainPaginationQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -132,6 +135,16 @@ export class ListCaptainSettlementsQueryDto extends CaptainPaginationQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+}
+
+export class ListCaptainScopeOptionsQueryDto extends CaptainPaginationQueryDto {
+  @IsIn(CAPTAIN_SCOPE_OPTION_TYPES)
+  type: CaptainScopeOptionType;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(6000)
+  selectedIds?: string;
 }
 
 export class GenerateCaptainSettlementsDto {
