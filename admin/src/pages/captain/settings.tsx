@@ -29,6 +29,8 @@ import { getProfitSafetySummary, previewProfitSafety } from '@/api/config';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
+import { formatProfitSafetySummaryError } from '@/utils/configProfitSafetyPreview';
 import type { CaptainSeafoodConfig, ProfitSafetyLimitingSku, ProfitSafetyScenario, ProfitSafetySummary } from '@/types';
 
 const { Text } = Typography;
@@ -360,7 +362,7 @@ function SafetySummaryPanel({
         type="error"
         showIcon
         message="平台利润安全结果读取失败"
-        description={error instanceof Error ? error.message : '请检查网络或服务状态后重新读取'}
+        description={getAdminErrorMessage(error, '请检查网络或服务状态后重新读取')}
         action={<Button size="small" onClick={onRetry}>重新读取</Button>}
       />
     );
@@ -394,7 +396,7 @@ function SafetySummaryPanel({
     { title: '平台留存率', dataIndex: 'platformRetainedRevenueRate', width: 120, render: (value: number) => formatPercent(value) },
     { title: '最低要求', dataIndex: 'platformRequiredRevenueRate', width: 110, render: (value: number) => formatPercent(value) },
     { title: '缺口', dataIndex: 'shortfall', width: 100, render: (value: number) => <Text type={value > 0 ? 'danger' : undefined}>{formatPercent(value)}</Text> },
-    { title: '原因', dataIndex: 'reason', width: 260 },
+    { title: '原因', dataIndex: 'reason', width: 260, render: (value: string) => formatProfitSafetySummaryError(value) },
   ];
   return (
     <Space direction="vertical" size={10} style={{ width: '100%' }}>
@@ -484,7 +486,7 @@ export default function CaptainSettingsPage() {
           errors: err.details.errors ?? [],
         });
       }
-      message.error(err.message || '保存失败');
+      message.error(getAdminErrorMessage(err, '保存失败'));
     },
   });
 
@@ -530,7 +532,7 @@ export default function CaptainSettingsPage() {
       }
       mutation.mutate(next);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '利润安全预检失败，请稍后重试');
+      message.error(getAdminErrorMessage(error, '利润安全预检失败，请稍后重试'));
     } finally {
       setChecking(false);
     }

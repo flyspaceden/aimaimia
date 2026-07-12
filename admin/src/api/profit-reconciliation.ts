@@ -1,4 +1,5 @@
 import client from './client';
+import { sanitizeAdminErrorMessage } from '../utils/adminErrorMessage';
 
 export type ProfitReconciliationStatus = 'PENDING' | 'RESOLVED' | 'REJECTED';
 export type ProfitAdjustmentStatus = 'PENDING' | 'APPLIED' | 'REJECTED' | 'SUPERSEDED';
@@ -249,19 +250,17 @@ export function formatProfitWorkflowError(error: unknown): string {
   const root = asRecord(error);
   const details = asRecord(root?.details);
   const payload = details ?? root;
-  const message = [payload?.displayMessage, payload?.message, root?.message]
-    .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    ?? '操作失败，请刷新后重试';
   const code = typeof payload?.code === 'string' ? payload.code : null;
+  const rawMessage = [payload?.displayMessage, payload?.message, root?.message]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    ?? code;
+  const message = sanitizeAdminErrorMessage(rawMessage, '操作失败，请刷新后重试');
   const errorMeta = asRecord(payload?.errorMeta);
   const orderItemIds = Array.isArray(errorMeta?.orderItemIds)
     ? errorMeta.orderItemIds.filter((id): id is string => typeof id === 'string')
     : [];
-  const reason = typeof errorMeta?.reason === 'string' ? errorMeta.reason : null;
   const suffix = [
-    code ? `错误码 ${code}` : null,
-    orderItemIds.length > 0 ? `订单项 ${orderItemIds.join('、')}` : null,
-    reason ? `校验原因 ${reason}` : null,
+    orderItemIds.length > 0 ? `有 ${orderItemIds.length} 个订单项尚未完成成本核对` : null,
   ].filter(Boolean);
   return suffix.length > 0 ? `${message}；${suffix.join('；')}` : message;
 }

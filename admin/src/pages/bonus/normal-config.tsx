@@ -51,6 +51,7 @@ import {
 import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import ProfitSafetyStatus from '@/components/ProfitSafetyStatus';
 import { useConfigProfitSafetyPreview } from '@/hooks/useConfigProfitSafetyPreview';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { usePermission } from '@/hooks/usePermission';
 import PermissionGate from '@/components/PermissionGate';
@@ -247,12 +248,7 @@ function configsToFormValues(configs: RuleConfig[]): Record<string, unknown> {
 const fmtPercent = (v: number) => `${(v * 100).toFixed(0)}%`;
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === 'object' && 'message' in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === 'string') return message;
-  }
-  return '保存失败';
+  return getAdminErrorMessage(error, '保存失败');
 }
 
 // ============ 组件 ============

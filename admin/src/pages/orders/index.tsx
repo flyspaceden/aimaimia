@@ -25,6 +25,7 @@ import {
   refundStatusMap,
 } from '@/constants/statusMaps';
 import { PERMISSIONS } from '@/constants/permissions';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import dayjs from 'dayjs';
 
 const { Text } = Typography;
@@ -118,7 +119,7 @@ export default function OrderListPage() {
       actionRef.current?.reload();
       loadStats();
     } catch (err: any) {
-      message.error(`发货失败: ${err?.response?.data?.error?.displayMessage || err?.message || '未知错误'}`);
+      message.error(`发货失败：${getAdminErrorMessage(err, '请检查订单状态后重试')}`);
     } finally {
       setShipLoading(false);
     }

@@ -15,14 +15,12 @@ import { PERMISSIONS } from '@/constants/permissions';
 import type { CaptainMonthlySettlement, CaptainSettlementStatus } from '@/types';
 import { CaptainUser, StatusTag, captainSettlementStatusMap, money } from './common';
 import { isProfitV3Settlement } from '@/components/captainProfitV3';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 
 const RECALCULABLE_STATUSES: CaptainSettlementStatus[] = ['DRAFT', 'PENDING_REVIEW', 'REJECTED'];
 const DEFAULT_GENERATE_MONTH = dayjs().subtract(1, 'month').format('YYYY-MM');
 
-const actionErrorMessage = (error: unknown) => {
-  const value = error as { message?: string; response?: { data?: { error?: { message?: string } } } };
-  return value.response?.data?.error?.message ?? value.message ?? '操作失败，请刷新后重试';
-};
+const actionErrorMessage = (error: unknown) => getAdminErrorMessage(error, '操作失败，请刷新后重试');
 
 export default function CaptainSettlementsPage() {
   const actionRef = useRef<ActionType | undefined>(undefined);
@@ -104,8 +102,8 @@ export default function CaptainSettlementsPage() {
         ? (
           <Space direction="vertical" size={2}>
             <Tag color="error">待处理</Tag>
-            <Typography.Text type="secondary" ellipsis={{ tooltip: record.reviewBlockedReason }} style={{ maxWidth: 200 }}>
-              {record.reviewBlockedReason}
+            <Typography.Text type="secondary" ellipsis={{ tooltip: getAdminErrorMessage(record.reviewBlockedReason, '月结审核暂不可进行，请处理相关问题') }} style={{ maxWidth: 200 }}>
+              {getAdminErrorMessage(record.reviewBlockedReason, '月结审核暂不可进行，请处理相关问题')}
             </Typography.Text>
           </Space>
         )
@@ -117,7 +115,7 @@ export default function CaptainSettlementsPage() {
       valueType: 'option',
       width: 220,
       render: (_, record) => (
-        <Tooltip title={record.reviewBlockedReason ?? undefined}>
+        <Tooltip title={record.reviewBlockedReason ? getAdminErrorMessage(record.reviewBlockedReason, '月结审核暂不可进行，请处理相关问题') : undefined}>
           <Space>
           <PermissionGate permission={PERMISSIONS.CAPTAIN_SETTLEMENT}>
             <Button

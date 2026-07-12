@@ -63,7 +63,7 @@ export function StatusTag<T extends string>({
 }) {
   if (!value) return <Tag>未知</Tag>;
   const item = map[value];
-  return <Tag color={item?.color || 'default'}>{item?.text || value}</Tag>;
+  return <Tag color={item?.color || 'default'}>{item?.text || '状态异常'}</Tag>;
 }
 
 export function CaptainUser({ user }: { user?: UserLite | null }) {

@@ -28,6 +28,7 @@ import {
   sendSmsCode,
 } from '@/api/auth';
 import useAuthStore from '@/store/useAuthStore';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 
 const { Title, Text } = Typography;
 
@@ -55,18 +56,14 @@ const switchToDeliveryAdminUrl = isProduction
 const getLoginErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
-    const serverMsg =
-      err.response?.data?.error ||
-      err.response?.data?.message ||
-      (typeof err.response?.data === 'string' ? err.response.data : '');
 
     switch (status) {
       case 400:
-        return serverMsg || '请求参数错误';
+        return getAdminErrorMessage(err.response?.data, '请求参数错误');
       case 401:
-        return serverMsg || '用户名或密码错误，请检查后重试';
+        return getAdminErrorMessage(err.response?.data, '用户名或密码错误，请检查后重试');
       case 403:
-        return serverMsg || '该账号已被禁用或无管理后台权限';
+        return getAdminErrorMessage(err.response?.data, '该账号已被禁用或无管理后台权限');
       case 429:
         return '登录请求过于频繁，请稍后再试';
       case 500:
@@ -77,15 +74,11 @@ const getLoginErrorMessage = (err: unknown): string => {
         if (!err.response) {
           return '网络连接失败，请检查网络设置';
         }
-        return serverMsg || '登录失败，请稍后重试';
+        return getAdminErrorMessage(err.response?.data, '登录失败，请稍后重试');
     }
   }
 
-  if (err instanceof Error && err.message) {
-    return err.message;
-  }
-
-  return '登录失败，请稍后重试';
+  return getAdminErrorMessage(err, '登录失败，请稍后重试');
 };
 
 /** 将 SVG 字符串转为可直接用于 <img> 的 data URL（base64 编码，规避中文等 Unicode 字符） */
