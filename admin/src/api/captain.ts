@@ -9,6 +9,8 @@ import type {
   CaptainQueryParams,
   CaptainRelation,
   CaptainSeafoodConfig,
+  CaptainScopeOptionsResponse,
+  CaptainScopeOptionType,
   PaginatedData,
 } from '@/types';
 
@@ -89,6 +91,20 @@ export const markCaptainSettlementPaid = (id: string): Promise<CaptainMonthlySet
 
 export const recalculateCaptainSettlement = (id: string): Promise<CaptainMonthlySettlement> =>
   client.post(`/admin/captain/settlements/${id}/recalculate`);
+
+export const getCaptainScopeOptions = (params: {
+  type: CaptainScopeOptionType;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+  selectedIds?: string[];
+}): Promise<CaptainScopeOptionsResponse> =>
+  client.get('/admin/captain/scope-options', {
+    params: {
+      ...params,
+      selectedIds: params.selectedIds?.join(','),
+    },
+  });
 
 export const getCaptainSettings = (): Promise<CaptainSeafoodConfig | Record<string, unknown>> =>
   client.get('/admin/captain/settings');

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CaptainProfileStatus } from '@prisma/client';
+import { CaptainProfileStatus, CompanyStatus, Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CAPTAIN_SEAFOOD_CONFIG_KEY,
@@ -25,6 +25,7 @@ import {
   ListCaptainLedgersQueryDto,
   ListCaptainOrdersQueryDto,
   ListCaptainProfilesQueryDto,
+  ListCaptainScopeOptionsQueryDto,
   ListCaptainSettlementsQueryDto,
   UpdateCaptainProfileStatusDto,
 } from './admin-captain.dto';
@@ -313,6 +314,19 @@ export class AdminCaptainService {
     return this.monthlySettlementService.recalculateSettlement(id, adminUserId);
   }
 
+  async listScopeOptions(query: ListCaptainScopeOptionsQueryDto) {
+    switch (query.type) {
+      case 'CATEGORY':
+        return this.listCategoryScopeOptions(query);
+      case 'PRODUCT':
+        return this.listProductScopeOptions(query);
+      case 'COMPANY':
+        return this.listCompanyScopeOptions(query);
+      default:
+        throw new BadRequestException('不支持的适用范围类型');
+    }
+  }
+
   async getSettings() {
     return this.configService.getSnapshot();
   }
@@ -341,6 +355,180 @@ export class AdminCaptainService {
       return config;
     });
     return result;
+  }
+
+  private async listCategoryScopeOptions(query: ListCaptainScopeOptionsQueryDto) {
+    const { page, pageSize, skip } = this.pagination(query);
+    const keyword = query.keyword?.trim();
+    const selectedIds = this.scopeSelectedIds(query.selectedIds);
+    const where: Prisma.CategoryWhereInput = {
+      isActive: true,
+      ...(keyword ? {
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { path: { contains: keyword, mode: 'insensitive' } },
+          { id: { contains: keyword, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const select = { id: true, name: true, path: true, level: true, isActive: true } as const;
+    const [rows, total, selectedRows] = await Promise.all([
+      this.prisma.category.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+        select,
+      }),
+      this.prisma.category.count({ where }),
+      selectedIds.length > 0
+        ? this.prisma.category.findMany({ where: { id: { in: selectedIds } }, select })
+        : Promise.resolve([]),
+    ]);
+    return this.scopeOptionResult({
+      rows,
+      selectedRows,
+      selectedIds,
+      total,
+      page,
+      pageSize,
+      map: (row) => ({
+        id: row.id,
+        name: row.name,
+        subtitle: row.path ? `类目路径：${row.path.replace(/^\/+/, '')}` : `第 ${row.level} 级类目`,
+        status: row.isActive ? 'ACTIVE' : 'INACTIVE',
+      }),
+    });
+  }
+
+  private async listProductScopeOptions(query: ListCaptainScopeOptionsQueryDto) {
+    const { page, pageSize, skip } = this.pagination(query);
+    const keyword = query.keyword?.trim();
+    const selectedIds = this.scopeSelectedIds(query.selectedIds);
+    const where: Prisma.ProductWhereInput = {
+      status: { not: ProductStatus.DRAFT },
+      ...(keyword ? {
+        OR: [
+          { title: { contains: keyword, mode: 'insensitive' } },
+          { id: { contains: keyword, mode: 'insensitive' } },
+          { company: { is: { name: { contains: keyword, mode: 'insensitive' } } } },
+          { category: { is: { name: { contains: keyword, mode: 'insensitive' } } } },
+        ],
+      } : {}),
+    };
+    const select = {
+      id: true,
+      title: true,
+      status: true,
+      type: true,
+      company: { select: { name: true } },
+      category: { select: { name: true } },
+    } as const;
+    const [rows, total, selectedRows] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        select,
+      }),
+      this.prisma.product.count({ where }),
+      selectedIds.length > 0
+        ? this.prisma.product.findMany({ where: { id: { in: selectedIds } }, select })
+        : Promise.resolve([]),
+    ]);
+    return this.scopeOptionResult({
+      rows,
+      selectedRows,
+      selectedIds,
+      total,
+      page,
+      pageSize,
+      map: (row) => ({
+        id: row.id,
+        name: row.title,
+        subtitle: [
+          row.company?.name || '未知商户',
+          row.category?.name || '未分类',
+          row.type === 'BUNDLE' ? '组合商品' : '普通商品',
+        ].join(' · '),
+        status: row.status,
+      }),
+    });
+  }
+
+  private async listCompanyScopeOptions(query: ListCaptainScopeOptionsQueryDto) {
+    const { page, pageSize, skip } = this.pagination(query);
+    const keyword = query.keyword?.trim();
+    const selectedIds = this.scopeSelectedIds(query.selectedIds);
+    const where: Prisma.CompanyWhereInput = {
+      status: CompanyStatus.ACTIVE,
+      ...(keyword ? {
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { shortName: { contains: keyword, mode: 'insensitive' } },
+          { id: { contains: keyword, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const select = { id: true, name: true, shortName: true, status: true } as const;
+    const [rows, total, selectedRows] = await Promise.all([
+      this.prisma.company.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        select,
+      }),
+      this.prisma.company.count({ where }),
+      selectedIds.length > 0
+        ? this.prisma.company.findMany({ where: { id: { in: selectedIds } }, select })
+        : Promise.resolve([]),
+    ]);
+    return this.scopeOptionResult({
+      rows,
+      selectedRows,
+      selectedIds,
+      total,
+      page,
+      pageSize,
+      map: (row) => ({
+        id: row.id,
+        name: row.name,
+        subtitle: row.shortName ? `简称：${row.shortName}` : '未设置简称',
+        status: row.status,
+      }),
+    });
+  }
+
+  private scopeSelectedIds(value?: string) {
+    return [...new Set((value || '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean))]
+      .slice(0, 100);
+  }
+
+  private scopeOptionResult<T extends { id: string }>(input: {
+    rows: T[];
+    selectedRows: T[];
+    selectedIds: string[];
+    total: number;
+    page: number;
+    pageSize: number;
+    map: (row: T) => { id: string; name: string; subtitle: string; status: string };
+  }) {
+    const selectedById = new Map(input.selectedRows.map((row) => [row.id, row]));
+    return {
+      items: input.rows.map(input.map),
+      selectedItems: input.selectedIds
+        .map((id) => selectedById.get(id))
+        .filter((row): row is T => Boolean(row))
+        .map(input.map),
+      total: input.total,
+      page: input.page,
+      pageSize: input.pageSize,
+    };
   }
 
   private pagination(query: { page?: number; pageSize?: number }) {
