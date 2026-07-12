@@ -454,6 +454,12 @@ export default function GroupBuyActivitiesPage() {
         destroyOnClose
         onClose={closeDrawer}
         extra={<Button type="primary" loading={submitting} onClick={handleSubmit}>保存</Button>}
+        footer={
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={closeDrawer}>取消</Button>
+            <Button type="primary" loading={submitting} onClick={handleSubmit}>保存</Button>
+          </Space>
+        }
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="活动标题" rules={[{ required: true, message: '请输入活动标题' }]}>

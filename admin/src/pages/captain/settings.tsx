@@ -885,6 +885,23 @@ export default function CaptainSettingsPage() {
                 </Form.Item>
               </Col>
             </Row>
+
+            <Divider style={{ margin: '8px 0 16px' }} />
+            <Row justify="end">
+              <Col flex="none">
+                <PermissionGate permission={PERMISSIONS.CAPTAIN_SETTINGS}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<SaveOutlined />}
+                    loading={checking || mutation.isPending}
+                    onClick={handleSubmit}
+                  >
+                    保存配置
+                  </Button>
+                </PermissionGate>
+              </Col>
+            </Row>
           </Form>
         </Space>
       </Card>

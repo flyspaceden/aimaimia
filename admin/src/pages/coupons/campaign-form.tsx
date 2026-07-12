@@ -326,6 +326,19 @@ export default function CampaignFormDrawer({
     </div>
   );
 
+  const renderDrawerActions = () => (
+    <Space>
+      <Button onClick={onClose}>取消</Button>
+      <Button
+        type="primary"
+        icon={<SaveOutlined />}
+        onClick={() => formRef.current?.submit()}
+      >
+        {isEdit ? '保存修改' : '创建活动'}
+      </Button>
+    </Space>
+  );
+
   return (
     <Drawer
       title={isEdit ? '编辑红包活动' : '新建红包活动'}
@@ -333,18 +346,8 @@ export default function CampaignFormDrawer({
       onClose={onClose}
       width="75vw"
       destroyOnClose
-      extra={
-        <Space>
-          <Button onClick={onClose}>取消</Button>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={() => formRef.current?.submit()}
-          >
-            {isEdit ? '保存修改' : '创建活动'}
-          </Button>
-        </Space>
-      }
+      extra={renderDrawerActions()}
+      footer={<div style={{ display: 'flex', justifyContent: 'flex-end' }}>{renderDrawerActions()}</div>}
     >
       <ProForm
         formRef={formRef}
