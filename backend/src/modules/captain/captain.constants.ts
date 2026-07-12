@@ -78,6 +78,7 @@ export const DEFAULT_CAPTAIN_SEAFOOD_CONFIG: CaptainSeafoodConfigV3 = {
   // 2026-08-01 00:00:00 in Asia/Shanghai, persisted in the database's UTC form.
   effectiveFrom: '2026-07-31T16:00:00.000Z',
   scope: {
+    mode: 'SELECTED',
     categoryIds: [],
     productIds: [],
     companyIds: [],
@@ -187,9 +188,16 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   }
   const raw = value as Record<string, any>;
   if (raw.schemaVersion === 3) {
+    const rawScope = raw.scope && typeof raw.scope === 'object' && !Array.isArray(raw.scope)
+      ? raw.scope as Record<string, unknown>
+      : {};
     return {
       ...raw,
       effectiveFrom: normalizeV3EffectiveFrom(raw.effectiveFrom),
+      scope: {
+        ...rawScope,
+        mode: rawScope.mode ?? 'SELECTED',
+      },
       risk: normalizeRisk(raw.risk),
     };
   }
@@ -206,6 +214,11 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
   const legacyPerOrder = raw.perOrderCommission ?? {};
   const legacyQualification = raw.monthlyQualification ?? {};
   const legacyRewards = raw.monthlyRewards ?? {};
+  const rawLegacyScope = raw.scope && typeof raw.scope === 'object' && !Array.isArray(raw.scope)
+    ? raw.scope as Record<string, unknown>
+    : {};
+  // V1 records may have been created from a current default object. Scope mode is V3-only.
+  const { mode: _legacyScopeMode, ...legacyScope } = rawLegacyScope;
   return {
     ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2,
     schemaVersion: 2,
@@ -223,7 +236,7 @@ export function normalizeCaptainSeafoodConfig(value: unknown): unknown {
       : null,
     scope: {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.scope,
-      ...(raw.scope ?? {}),
+      ...legacyScope,
     },
     orderRules: {
       ...DEFAULT_CAPTAIN_SEAFOOD_CONFIG_V2.orderRules,
@@ -331,7 +344,10 @@ function assertFalse(value: unknown, path: string) {
   }
 }
 
-function validateCommonConfig(value: Record<string, unknown>) {
+function validateCommonConfig(
+  value: Record<string, unknown>,
+  options: { allowAllNormalGoodsScope?: boolean } = {},
+) {
   assertBoolean(value.enabled, 'enabled');
   if (value.programCode !== CAPTAIN_SEAFOOD_PROGRAM_CODE) {
     throw new Error(`programCode 必须是 ${CAPTAIN_SEAFOOD_PROGRAM_CODE}`);
@@ -347,7 +363,12 @@ function validateCommonConfig(value: Record<string, unknown>) {
     'includeVipPackage',
     'includeGroupBuy',
     'includePrize',
+    ...(options.allowAllNormalGoodsScope ? ['mode'] : []),
   ]);
+  const scopeMode = value.scope.mode ?? 'SELECTED';
+  if (scopeMode !== 'SELECTED' && (!options.allowAllNormalGoodsScope || scopeMode !== 'ALL_NORMAL_GOODS')) {
+    throw new Error('scope.mode 必须是 SELECTED 或 ALL_NORMAL_GOODS');
+  }
   assertStringArray(value.scope.categoryIds, 'scope.categoryIds');
   assertStringArray(value.scope.productIds, 'scope.productIds');
   assertStringArray(value.scope.companyIds, 'scope.companyIds');
@@ -359,7 +380,7 @@ function validateCommonConfig(value: Record<string, unknown>) {
     (value.scope.categoryIds as string[]).length +
     (value.scope.productIds as string[]).length +
     (value.scope.companyIds as string[]).length;
-  if (value.enabled === true && scopeCount === 0) {
+  if (value.enabled === true && scopeMode === 'SELECTED' && scopeCount === 0) {
     throw new Error('启用团长配置前必须至少配置一个适用类目、商品或商户');
   }
 
@@ -520,7 +541,7 @@ function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV
     'tax',
     'risk',
   ]);
-  validateCommonConfig(value);
+  validateCommonConfig(value, { allowAllNormalGoodsScope: true });
   assertValidIsoTime(value.effectiveFrom, 'effectiveFrom');
   const effectiveFrom = new Date(value.effectiveFrom as string).toISOString();
   assertShanghaiNaturalMonthStart(effectiveFrom);
@@ -570,7 +591,14 @@ function validateV3Config(value: Record<string, unknown>): CaptainSeafoodConfigV
   if (totalIncentiveRate - (value.caps.maxTotalIncentiveProfitRate as number) > 0.0000001) {
     throw new Error('总激励率不能超过 maxTotalIncentiveProfitRate');
   }
-  return { ...value, effectiveFrom } as unknown as CaptainSeafoodConfigV3;
+  return {
+    ...value,
+    effectiveFrom,
+    scope: {
+      ...(value.scope as Record<string, unknown>),
+      mode: (value.scope as Record<string, unknown>).mode ?? 'SELECTED',
+    },
+  } as unknown as CaptainSeafoodConfigV3;
 }
 
 function assertTierOrder(rewards: Record<string, unknown>) {

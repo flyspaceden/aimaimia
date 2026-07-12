@@ -115,6 +115,44 @@ describe('CaptainConfigService', () => {
     expect(() => validateCaptainSeafoodConfig(v3Config)).not.toThrow();
   });
 
+  it('keeps historical V3 configurations on the selected-scope mode', () => {
+    const historicalConfig = {
+      ...v3Config,
+      scope: { ...v3Config.scope },
+    } as any;
+    delete historicalConfig.scope.mode;
+
+    expect(normalizeCaptainSeafoodConfig(historicalConfig)).toMatchObject({
+      scope: { mode: 'SELECTED' },
+    });
+    expect(validateCaptainSeafoodConfig(historicalConfig)).toMatchObject({
+      scope: { mode: 'SELECTED' },
+    });
+  });
+
+  it('allows an enabled V3 configuration to cover all normal goods without a whitelist', () => {
+    const allNormalGoodsConfig = {
+      ...v3Config,
+      enabled: true,
+      scope: {
+        ...v3Config.scope,
+        mode: 'ALL_NORMAL_GOODS',
+        categoryIds: [],
+        productIds: [],
+        companyIds: [],
+      },
+    };
+
+    expect(validateCaptainSeafoodConfig(allNormalGoodsConfig)).toMatchObject({
+      enabled: true,
+      scope: { mode: 'ALL_NORMAL_GOODS' },
+    });
+    expect(() => validateCaptainSeafoodConfig({
+      ...allNormalGoodsConfig,
+      scope: { ...allNormalGoodsConfig.scope, mode: 'EVERYTHING' },
+    })).toThrow('scope.mode');
+  });
+
   it('requires the first V3 effectiveFrom to be a Shanghai natural-month boundary', () => {
     expect(() => validateCaptainSeafoodConfig(v3Config)).not.toThrow();
     expect(() =>

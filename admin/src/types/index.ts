@@ -604,6 +604,8 @@ export interface CaptainSeafoodConfig {
   programName: string;
   effectiveFrom: string;
   scope: {
+    /** Missing on historical V3 configurations means SELECTED. */
+    mode?: 'SELECTED' | 'ALL_NORMAL_GOODS';
     categoryIds: string[];
     productIds: string[];
     companyIds: string[];

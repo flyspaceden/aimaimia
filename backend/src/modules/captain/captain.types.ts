@@ -1,6 +1,9 @@
 export type CaptainProgramCode = 'SEAFOOD_PREPACKAGED';
+export type CaptainScopeMode = 'SELECTED' | 'ALL_NORMAL_GOODS';
 
 export interface CaptainScopeConfig {
+  /** Missing on historical records means SELECTED. */
+  mode?: CaptainScopeMode;
   categoryIds: string[];
   productIds: string[];
   companyIds: string[];

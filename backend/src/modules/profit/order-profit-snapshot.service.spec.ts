@@ -377,6 +377,49 @@ describe('OrderProfitSnapshotService', () => {
     });
     expect(tx.captainProfile.findUnique).not.toHaveBeenCalled();
   });
+
+  it('includes all normal goods in all-normal-goods mode but keeps exclusions and non-normal orders out', () => {
+    const normalItem = {
+      ...makeOrder().items[0],
+      sku: {
+        ...makeOrder().items[0].sku,
+        product: {
+          ...makeOrder().items[0].sku.product,
+          id: 'other-product',
+        },
+      },
+    };
+    const allNormalGoodsConfig = {
+      ...captainConfig,
+      scope: {
+        ...captainConfig.scope,
+        mode: 'ALL_NORMAL_GOODS',
+        productIds: [],
+      },
+    };
+
+    expect((service as any).isCaptainEligible(
+      normalItem,
+      'NORMAL_GOODS',
+      new Date('2026-07-10T00:00:00.000Z'),
+      allNormalGoodsConfig,
+    )).toBe(true);
+    expect((service as any).isCaptainEligible(
+      normalItem,
+      'GROUP_BUY',
+      new Date('2026-07-10T00:00:00.000Z'),
+      allNormalGoodsConfig,
+    )).toBe(false);
+    expect((service as any).isCaptainEligible(
+      normalItem,
+      'NORMAL_GOODS',
+      new Date('2026-07-10T00:00:00.000Z'),
+      {
+        ...allNormalGoodsConfig,
+        scope: { ...allNormalGoodsConfig.scope, excludedProductIds: ['other-product'] },
+      },
+    )).toBe(false);
+  });
 });
 
 describe('resolveOrCreateNormalTreeNode concurrency', () => {

@@ -22,6 +22,19 @@ test('captain scope fields use searchable entity selectors instead of raw id tag
   assert.match(api, /getCaptainScopeOptions[\s\S]*?\/admin\/captain\/scope-options/);
 });
 
+test('captain scope has an explicit all-normal-goods mode instead of overloading an empty whitelist', () => {
+  const scopeSection = settings.slice(
+    settings.indexOf('<SectionTitle>适用范围</SectionTitle>'),
+    settings.indexOf('<SectionTitle>逐单利润奖励</SectionTitle>'),
+  );
+
+  assert.match(scopeSection, /<Segmented/);
+  assert.match(scopeSection, /全部普通商品/);
+  assert.match(scopeSection, /value: 'ALL_NORMAL_GOODS'/);
+  assert.match(scopeSection, /!isAllNormalGoodsScope/);
+  assert.match(scopeSection, /不参与奖励的商品/);
+});
+
 test('scope selector loads on focus, searches remotely and paginates', () => {
   assert.match(selector, /useInfiniteQuery\(/);
   assert.match(selector, /enabled: open \|\| selectedIds\.length > 0/);

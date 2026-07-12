@@ -409,6 +409,7 @@ export class ProfitSafetyValidator {
   private matchesCaptainScope(sku: ProfitSafetySku, config: CaptainSeafoodConfigV3): boolean {
     const scope = config.scope;
     if (scope.excludedProductIds.includes(sku.productId)) return false;
+    if (scope.mode === 'ALL_NORMAL_GOODS') return true;
     const hasIncludes = scope.productIds.length > 0
       || scope.categoryIds.length > 0
       || scope.companyIds.length > 0;
