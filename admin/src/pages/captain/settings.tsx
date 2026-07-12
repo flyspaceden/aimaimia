@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs, { type Dayjs } from 'dayjs';
 import type { InputNumberProps } from 'antd';
@@ -353,15 +353,31 @@ function FieldLabel({ label, help }: { label: string; help: FieldHelp }) {
   );
 }
 
-function SafetyActionLinks({ actions }: { actions: ProfitSafetyAction[] }) {
+function SafetyActionLinks({
+  actions,
+  onCaptainSettings,
+}: {
+  actions: ProfitSafetyAction[];
+  onCaptainSettings?: () => void;
+}) {
   if (actions.length === 0) return null;
   return (
     <Space wrap>
-      {actions.map((action, index) => (
-        <Link key={action.id} to={action.to}>
-          <Button size="small" type={index === 0 ? 'primary' : 'default'}>{action.label}</Button>
-        </Link>
-      ))}
+      {actions.map((action, index) => {
+        const button = (
+          <Button
+            key={action.id}
+            size="small"
+            type={index === 0 ? 'primary' : 'default'}
+            onClick={action.id === 'captain-settings' ? onCaptainSettings : undefined}
+          >
+            {action.label}
+          </Button>
+        );
+        return action.id === 'captain-settings' && onCaptainSettings
+          ? button
+          : <Link key={action.id} to={action.to}>{button}</Link>;
+      })}
     </Space>
   );
 }
@@ -370,10 +386,12 @@ function SafetySummaryPanel({
   summary,
   error,
   onRetry,
+  onCaptainSettings,
 }: {
   summary?: ProfitSafetySummary | null;
   error?: unknown;
   onRetry: () => void;
+  onCaptainSettings: () => void;
 }) {
   const [showAllPaths, setShowAllPaths] = useState(false);
   if (error) {
@@ -466,7 +484,7 @@ function SafetySummaryPanel({
             {guidance.actions.map((action) => (
               <Text key={action.id} type="secondary">{action.label}：{action.description}</Text>
             ))}
-            <SafetyActionLinks actions={guidance.actions} />
+            <SafetyActionLinks actions={guidance.actions} onCaptainSettings={onCaptainSettings} />
           </Space>
         )}
       />
@@ -478,7 +496,7 @@ function SafetySummaryPanel({
           description={(
             <Space direction="vertical" size={6}>
               <Text>{systemCompletenessNotice.message}</Text>
-              <SafetyActionLinks actions={systemCompletenessNotice.actions} />
+              <SafetyActionLinks actions={systemCompletenessNotice.actions} onCaptainSettings={onCaptainSettings} />
             </Space>
           )}
         />
@@ -529,6 +547,8 @@ export default function CaptainSettingsPage() {
   const [dirty, setDirty] = useState(false);
   const [checking, setChecking] = useState(false);
   const [safetySummary, setSafetySummary] = useState<ProfitSafetySummary | null>(null);
+  const configurationSectionRef = useRef<HTMLDivElement>(null);
+  const captainEnableControlRef = useRef<HTMLDivElement>(null);
   useUnsavedChanges(dirty);
 
   const { data, isLoading } = useQuery({
@@ -582,6 +602,13 @@ export default function CaptainSettingsPage() {
   });
 
   const watched = Form.useWatch([], form) as CaptainSeafoodConfig | undefined;
+  const scrollToCaptainConfiguration = useCallback(() => {
+    configurationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => {
+      captainEnableControlRef.current?.querySelector<HTMLElement>('button')?.focus();
+    }, 350);
+    message.info('已定位到团长基础开关，请按需开启后继续填写配置');
+  }, [message]);
   const economics = useMemo(() => {
     const totalIncentiveRate =
       readRate(watched, ['perOrderCommission', 'directProfitRate']) +
@@ -654,21 +681,20 @@ export default function CaptainSettingsPage() {
               description="历史 V2 只继续用于旧订单和旧月结。本页不会把销售额比例换算成利润比例；保存时将以 0 起始的 V3 利润参数创建新规则。"
             />
           ) : null}
-          <Alert
-            type={!watched?.enabled ? 'info' : economics.exceedsCap ? 'error' : 'info'}
-            showIcon
-            icon={<SafetyCertificateOutlined />}
-            message={!watched?.enabled
-              ? '团长激励未启用，当前按 0% 团长奖励测算'
-              : `团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
-            description={!watched?.enabled
-              ? '当前不会产生新的团长佣金；VIP 与普通用户路径仍会继续进行利润安全测算。'
-              : '团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。'}
-          />
+          {watched?.enabled ? (
+            <Alert
+              type={economics.exceedsCap ? 'error' : 'info'}
+              showIcon
+              icon={<SafetyCertificateOutlined />}
+              message={`团长最高利润激励 ${formatPercent(economics.totalIncentiveRate)} / 封顶 ${formatPercent(economics.maxTotalIncentiveRate)}`}
+              description="团长奖励是 VIP/普通分润之外的独立路径，但只能从该订单实际平台留存利润中占用，不是第八份无来源资金。"
+            />
+          ) : null}
           <SafetySummaryPanel
             summary={safetySummary}
             error={safetyQuery.isError ? safetyQuery.error : null}
             onRetry={() => { void safetyQuery.refetch(); }}
+            onCaptainSettings={scrollToCaptainConfiguration}
           />
 
           <Form
@@ -677,30 +703,34 @@ export default function CaptainSettingsPage() {
             initialValues={DEFAULT_FORM_VALUES}
             onValuesChange={() => setDirty(true)}
           >
-            <SectionTitle>基础开关</SectionTitle>
-            <Row gutter={16}>
-              <Col xs={24} md={8}>
-                <Form.Item name="enabled" label={<FieldLabel label="启用团长激励" help={FIELD_HELP.enabled} />} valuePropName="checked">
-                  <Switch checkedChildren="启用" unCheckedChildren="关闭" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="programName" label={<FieldLabel label="项目名称" help={FIELD_HELP.programName} />} rules={[{ required: true, message: '请输入项目名称' }]}>
-                  <Input />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={8}>
-                <Form.Item
-                  name="effectiveFrom"
-                  label={<FieldLabel label="生效时间" help={FIELD_HELP.effectiveFrom} />}
-                  rules={[{ required: true, message: '请选择 V3 生效时间' }]}
-                  getValueProps={(value: string | null | undefined) => ({ value: value ? dayjs(value) : null })}
-                  getValueFromEvent={(value: Dayjs | null) => value?.toISOString() ?? null}
-                >
-                  <DatePicker showTime allowClear={false} placeholder="选择 V3 生效时间" style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-            </Row>
+            <div ref={configurationSectionRef} style={{ scrollMarginTop: 24 }}>
+              <SectionTitle>基础开关</SectionTitle>
+              <Row gutter={16}>
+                <Col xs={24} md={8}>
+                  <div ref={captainEnableControlRef}>
+                    <Form.Item name="enabled" label={<FieldLabel label="启用团长激励" help={FIELD_HELP.enabled} />} valuePropName="checked">
+                      <Switch checkedChildren="启用" unCheckedChildren="关闭" />
+                    </Form.Item>
+                  </div>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item name="programName" label={<FieldLabel label="项目名称" help={FIELD_HELP.programName} />} rules={[{ required: true, message: '请输入项目名称' }]}>
+                    <Input />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item
+                    name="effectiveFrom"
+                    label={<FieldLabel label="生效时间" help={FIELD_HELP.effectiveFrom} />}
+                    rules={[{ required: true, message: '请选择 V3 生效时间' }]}
+                    getValueProps={(value: string | null | undefined) => ({ value: value ? dayjs(value) : null })}
+                    getValueFromEvent={(value: Dayjs | null) => value?.toISOString() ?? null}
+                  >
+                    <DatePicker showTime allowClear={false} placeholder="选择 V3 生效时间" style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </div>
 
             <SectionTitle>适用范围</SectionTitle>
             <Row gutter={16}>
