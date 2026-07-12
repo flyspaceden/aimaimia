@@ -461,6 +461,9 @@ export class OrderProfitSnapshotService {
     ) {
       return false;
     }
+    if (config.scope.mode === 'ALL_NORMAL_GOODS') {
+      return true;
+    }
     return config.scope.productIds.includes(item.sku.product.id)
       || (item.sku.product.categoryId
         ? config.scope.categoryIds.includes(item.sku.product.categoryId)

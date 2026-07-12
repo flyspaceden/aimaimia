@@ -169,6 +169,37 @@ describe('ProfitSafetyValidator', () => {
     expect(summary.scenarios.every((scenario) => scenario.captainProfitRate === 0)).toBe(true);
   });
 
+  it('charges every ordinary SKU in all-normal-goods mode and still honors exclusions', () => {
+    const allNormalGoodsConfig = {
+      ...candidate().captainConfig,
+      scope: {
+        ...candidate().captainConfig.scope,
+        mode: 'ALL_NORMAL_GOODS',
+        productIds: [],
+      },
+    } as any;
+    const outsideSku = {
+      ...candidate().skus[0],
+      id: 'sku-all-normal',
+      productId: 'product-outside',
+    };
+
+    const allSummary = validator.evaluate(candidate({
+      captainConfig: allNormalGoodsConfig,
+      skus: [outsideSku],
+    }));
+    expect(allSummary.scenarios.every((scenario) => scenario.captainProfitRate === 0.1)).toBe(true);
+
+    const excludedSummary = validator.evaluate(candidate({
+      captainConfig: {
+        ...allNormalGoodsConfig,
+        scope: { ...allNormalGoodsConfig.scope, excludedProductIds: ['product-outside'] },
+      },
+      skus: [outsideSku],
+    }));
+    expect(excludedSummary.scenarios.every((scenario) => scenario.captainProfitRate === 0)).toBe(true);
+  });
+
   it('sets captain rates to zero when the captain program is disabled', () => {
     const input = candidate();
     input.captainConfig = { ...input.captainConfig, enabled: false } as any;

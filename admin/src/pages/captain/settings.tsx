@@ -16,6 +16,7 @@ import {
   Input,
   InputNumber,
   Row,
+  Segmented,
   Space,
   Switch,
   Table,
@@ -50,6 +51,7 @@ const DEFAULT_FORM_VALUES: CaptainSeafoodConfig = {
   programName: '预包装海鲜团长经营激励',
   effectiveFrom: '2026-07-31T16:00:00.000Z',
   scope: {
+    mode: 'SELECTED',
     categoryIds: [],
     productIds: [],
     companyIds: [],
@@ -122,6 +124,11 @@ const FIELD_HELP = {
     example: '设置为 8 月 1 日 00:00：7 月 31 日 23:59 支付的订单仍按旧规则，8 月 1 日 00:01 支付的订单按新规则。',
     related: '修改配置只影响之后支付的新订单，旧订单始终保留付款时的规则。',
   },
+  scopeMode: {
+    meaning: '选择团长奖励覆盖哪些普通商品。“全部普通商品”会覆盖所有当前和以后上架的普通商品；“指定范围”只覆盖你选择的类目、商品或商户。',
+    example: '选择“全部普通商品”后，普通商品默认参加，特价鳕鱼仍可单独放进排除名单；选择“指定范围”并选中“速冻海鲜”后，只有这个类目的商品参加。',
+    related: 'VIP 礼包、团购和奖品始终不参加。全部普通商品模式在保存、上架、改售价或改成本时都会进行利润安全校验；订单结算不重复校验。',
+  },
   categoryIds: {
     meaning: '选择哪些商品类目参加团长奖励。系统会用商品自身保存的类目进行匹配。',
     example: '选择“速冻海鲜”后，所属类目正好是“速冻海鲜”的鳕鱼礼盒参加；如果该商品又被放进“不参与奖励的商品”，它仍然不参加。',
@@ -138,9 +145,9 @@ const FIELD_HELP = {
     related: '适用类目、适用商品、适用商户三项只要命中一项即可；排除商品的优先级最高。',
   },
   excludedProductIds: {
-    meaning: '这里选择的商品一定不产生团长奖励，即使它同时命中了适用类目、适用商品或适用商户。',
-    example: '“特价鳕鱼”属于已选中的速冻海鲜类目，但把它加入这里后，客户购买它仍不会产生团长奖励。',
-    related: '适合排除低毛利、特殊履约或临时促销商品。',
+    meaning: '这里选择的商品一定不产生团长奖励。无论它命中了指定类目、指定商品、指定商户，还是当前选择了“全部普通商品”，排除名单都优先。',
+    example: '选择“全部普通商品”后，把“特价鳕鱼”加入这里，客户购买它仍不会产生团长奖励。',
+    related: '适合排除低毛利、特殊履约或临时促销商品；商品上架、改售价或改成本后，若无法通过利润安全校验，也可以先加入这里再保存。',
   },
   directProfitRate: {
     meaning: '客户每完成一笔符合条件的订单，直接绑定他的团长可以拿走多少可分润利润。这里按利润计算，不按销售额计算，而且只给一名直接团长。',
@@ -283,6 +290,7 @@ function normalizeConfig(values: Partial<CaptainSeafoodConfig> | Record<string, 
       ? values.effectiveFrom
       : DEFAULT_FORM_VALUES.effectiveFrom,
     scope: {
+      mode: values.scope?.mode === 'ALL_NORMAL_GOODS' ? 'ALL_NORMAL_GOODS' : 'SELECTED',
       categoryIds: toArray(values.scope?.categoryIds),
       productIds: toArray(values.scope?.productIds),
       companyIds: toArray(values.scope?.companyIds),
@@ -653,6 +661,8 @@ export default function CaptainSettingsPage() {
   });
 
   const watched = Form.useWatch([], form) as CaptainSeafoodConfig | undefined;
+  const scopeMode = Form.useWatch(['scope', 'mode'], form) as CaptainSeafoodConfig['scope']['mode'];
+  const isAllNormalGoodsScope = scopeMode === 'ALL_NORMAL_GOODS';
   const scrollToCaptainConfiguration = useCallback(() => {
     configurationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     window.setTimeout(() => {
@@ -684,7 +694,7 @@ export default function CaptainSettingsPage() {
       programCode: PROGRAM_CODE,
     });
     const scopeCount = next.scope.categoryIds.length + next.scope.productIds.length + next.scope.companyIds.length;
-    if (next.enabled && scopeCount === 0) {
+    if (next.enabled && next.scope.mode !== 'ALL_NORMAL_GOODS' && scopeCount === 0) {
       message.error('启用前必须至少配置一个适用类目、商品或商户');
       return;
     }
@@ -790,21 +800,45 @@ export default function CaptainSettingsPage() {
 
             <SectionTitle>适用范围</SectionTitle>
             <Row gutter={16}>
-              <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'categoryIds']} label={<FieldLabel label="适用类目" help={FIELD_HELP.categoryIds} />}>
-                  <ScopeEntitySelect type="CATEGORY" placeholder="点击选择，或搜索类目名称、路径和 ID" />
+              <Col xs={24}>
+                <Form.Item name={['scope', 'mode']} label={<FieldLabel label="奖励覆盖方式" help={FIELD_HELP.scopeMode} />}>
+                  <Segmented
+                    block
+                    options={[
+                      { label: '全部普通商品', value: 'ALL_NORMAL_GOODS' },
+                      { label: '指定范围', value: 'SELECTED' },
+                    ]}
+                  />
                 </Form.Item>
+                <Alert
+                  showIcon
+                  type={isAllNormalGoodsScope ? 'info' : 'warning'}
+                  style={{ marginBottom: 16 }}
+                  message={isAllNormalGoodsScope ? '全部普通商品将参加团长奖励' : '仅指定范围内的普通商品参加团长奖励'}
+                  description={isAllNormalGoodsScope
+                    ? '所有当前和以后上架的普通商品默认参与；VIP 礼包、团购和奖品不参与。保存、商品上架、改售价或改成本时都会进行利润安全校验；不安全商品不能进入可产生团长奖励的在售状态。'
+                    : '适用类目、适用商品、适用商户中任一命中即可参加。至少选择其中一项；“不参与奖励的商品”始终优先排除。'}
+                />
               </Col>
-              <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'productIds']} label={<FieldLabel label="适用商品" help={FIELD_HELP.productIds} />}>
-                  <ScopeEntitySelect type="PRODUCT" placeholder="点击选择，或搜索商品名称、商户和 ID" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
-                <Form.Item name={['scope', 'companyIds']} label={<FieldLabel label="适用商户" help={FIELD_HELP.companyIds} />}>
-                  <ScopeEntitySelect type="COMPANY" placeholder="点击选择，或搜索商户名称、简称和 ID" />
-                </Form.Item>
-              </Col>
+              {!isAllNormalGoodsScope ? (
+                <>
+                  <Col xs={24} md={12}>
+                    <Form.Item name={['scope', 'categoryIds']} label={<FieldLabel label="适用类目" help={FIELD_HELP.categoryIds} />}>
+                      <ScopeEntitySelect type="CATEGORY" placeholder="点击选择，或搜索类目名称、路径和 ID" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name={['scope', 'productIds']} label={<FieldLabel label="适用商品" help={FIELD_HELP.productIds} />}>
+                      <ScopeEntitySelect type="PRODUCT" placeholder="点击选择，或搜索商品名称、商户和 ID" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name={['scope', 'companyIds']} label={<FieldLabel label="适用商户" help={FIELD_HELP.companyIds} />}>
+                      <ScopeEntitySelect type="COMPANY" placeholder="点击选择，或搜索商户名称、简称和 ID" />
+                    </Form.Item>
+                  </Col>
+                </>
+              ) : null}
               <Col xs={24} md={12}>
                 <Form.Item name={['scope', 'excludedProductIds']} label={<FieldLabel label="不参与奖励的商品" help={FIELD_HELP.excludedProductIds} />}>
                   <ScopeEntitySelect type="PRODUCT" placeholder="点击选择需要排除的商品，或搜索名称和 ID" />
