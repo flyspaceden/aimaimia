@@ -1812,6 +1812,10 @@ export interface BonusMemberDetail {
     unlockedLevel: number;
     exitedAt: string | null;
   } | null;
+  normalTree: {
+    /** 是否曾完成普通商品消费并进入普通奖励树 */
+    hasNode: boolean;
+  };
   ledgers: {
     id: string;
     entryType: string;
