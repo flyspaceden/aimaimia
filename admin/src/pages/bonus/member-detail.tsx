@@ -106,6 +106,7 @@ export default function MemberDetailPage() {
   }
 
   const d = data;
+  const hasNormalTree = d.normalTree?.hasNode === true;
   const buildTreeLink = (path: '/bonus/vip-tree' | '/bonus/normal-tree') => {
     const params = new URLSearchParams({
       userId: d.userId,
@@ -319,13 +320,17 @@ export default function MemberDetailPage() {
           <Card
             title="普通奖励账户"
             extra={
-              <Button
-                type="link"
-                size="small"
-                onClick={() => navigate(buildTreeLink('/bonus/normal-tree'))}
-              >
-                查看完整结构 →
-              </Button>
+              hasNormalTree ? (
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => navigate(buildTreeLink('/bonus/normal-tree'))}
+                >
+                  查看完整结构 →
+                </Button>
+              ) : (
+                <Tag>未进入普通树</Tag>
+              )
             }
           >
             <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
@@ -340,6 +345,11 @@ export default function MemberDetailPage() {
                   </a>
                 ) : '-'}
               </Descriptions.Item>
+              {!hasNormalTree && (
+                <Descriptions.Item label="普通树状态" span={2}>
+                  <span style={{ color: '#8c8c8c' }}>尚未参与普通树奖励，暂无可查看的结构</span>
+                </Descriptions.Item>
+              )}
             </Descriptions>
           </Card>
         </Col>

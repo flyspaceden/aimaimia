@@ -1049,6 +1049,11 @@ export class AdminBonusService {
           exitedAt: progress?.exitedAt?.toISOString() ?? null,
         };
       })() : null,
+      normalTree: {
+        // normalTreeNodeId 仅在首次普通商品消费入树后写入；VIP 直开用户
+        // 没有该节点，不能跳转普通树详情，否则接口会返回“该用户不在普通树中”。
+        hasNode: !!member?.normalTreeNodeId,
+      },
       ledgers,
       withdrawals,
     };

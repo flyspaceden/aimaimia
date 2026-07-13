@@ -56,6 +56,7 @@ describe('AdminBonusService reward income totals', () => {
           referralCode: 'VBHJ7PZT',
           inviterUserId: 'parent-1',
           vipPurchasedAt: new Date('2026-06-24T15:01:57.852Z'),
+          normalTreeNodeId: null,
         }),
       },
       vipProgress: {
@@ -120,6 +121,26 @@ describe('AdminBonusService reward income totals', () => {
         status: 'AVAILABLE',
       }),
       _sum: { amount: true },
+    });
+  });
+
+  it('returns normal tree availability so the admin UI does not link users without a node', async () => {
+    const { prisma, service } = makeService();
+
+    await expect(service.getMemberDetail('buyer-1')).resolves.toMatchObject({
+      normalTree: { hasNode: false },
+    });
+
+    prisma.memberProfile.findUnique.mockResolvedValue({
+      tier: 'VIP',
+      referralCode: 'VBHJ7PZT',
+      inviterUserId: 'parent-1',
+      vipPurchasedAt: new Date('2026-06-24T15:01:57.852Z'),
+      normalTreeNodeId: 'normal-node-1',
+    });
+
+    await expect(service.getMemberDetail('buyer-1')).resolves.toMatchObject({
+      normalTree: { hasNode: true },
     });
   });
 
