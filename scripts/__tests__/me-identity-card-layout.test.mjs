@@ -54,12 +54,14 @@ test('me identity card shows digital asset rank next to the referral entry', () 
   assert.match(source, /assetRankText:\s*\{[^}]*flexShrink:\s*1,/s);
 });
 
-test('me page places the VIP carousel above order shortcuts after identity card moves to home', () => {
+test('me page places activity center above order shortcuts and leaves VIP carousel on home', () => {
   const source = meTab();
-  const vipCarousel = source.indexOf('<VipHomePromoCarousel');
+  const activityCenter = source.indexOf('活动中心');
   const ordersSection = source.indexOf('我的订单');
 
-  assert.match(source, /VipHomePromoCarousel/);
-  assert.ok(vipCarousel > 0, 'VIP carousel should render on the me page');
-  assert.ok(ordersSection > vipCarousel, 'order shortcuts should stay below the VIP carousel');
+  assert.ok(activityCenter > 0, 'activity center should render on the me page');
+  assert.ok(ordersSection > activityCenter, 'order shortcuts should stay below activity center');
+  assert.doesNotMatch(source, /VipHomePromoCarousel/);
+  assert.match(source, /精选团购/);
+  assert.match(source, /幸运抽奖/);
 });

@@ -1,57 +1,75 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../../src/components/layout';
 import { useToast } from '../../src/components/feedback';
 import { AuthModal } from '../../src/components/overlay';
-import { VipHomePromoCarousel } from '../../src/components/data';
 import { Countdown } from '../../src/components/ui/Countdown';
+import { SeafoodIcon, type SeafoodIconName } from '../../src/components/ui/SeafoodIcon';
 import { FloatingParticles } from '../../src/components/effects/FloatingParticles';
 import { BonusRepo, CaptainRepo, InboxRepo, OrderRepo } from '../../src/repos';
+import { LotteryRepo } from '../../src/repos/LotteryRepo';
 import { useAuthStore, useCartStore } from '../../src/store';
 import { compactActionTextProps, fitTextProps, priceTextProps, useResponsiveLayout, useTheme } from '../../src/theme';
 import { OrderStatus } from '../../src/types';
 import { getPrizeMergeNotice } from '../../src/utils/cartMerge';
 import { buildMeReferralToolEntry } from '../../src/utils/referralRelation';
-import type { VipHomePromoCard, VipPromoMode } from '../../src/utils/vipHomePromo';
 
 // 订单快捷入口
 // 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
 // 售后入口为 UI 派生（'afterSaleList' 路由参数），不是真实 OrderStatus
-const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: string }> = [
-  { id: 'PAID', label: '待发货', icon: 'package-variant' },
-  { id: 'SHIPPED', label: '已发货', icon: 'truck-delivery-outline' },
-  { id: 'DELIVERED', label: '待收货', icon: 'inbox-arrow-down-outline' },
-  { id: 'afterSaleList', label: '换货/售后', icon: 'headset' },
-  { id: 'RECEIVED', label: '已完成', icon: 'check-circle-outline' },
+const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: SeafoodIconName }> = [
+  { id: 'PAID', label: '待发货', icon: 'lobster' },
+  { id: 'SHIPPED', label: '已发货', icon: 'fish' },
+  { id: 'DELIVERED', label: '待收货', icon: 'crab' },
+  { id: 'afterSaleList', label: '换货/售后', icon: 'scallop' },
+  { id: 'RECEIVED', label: '已完成', icon: 'puffer' },
 ];
 
 type ToolEntry = {
   label: string;
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  icon: SeafoodIconName;
   route: string;
 };
 
 // 工具网格
 const TOOL_GRID_BASE: ToolEntry[] = [
-  { label: '设置', icon: 'cog-outline' as const, route: '/settings' },
-  { label: '地址', icon: 'map-marker-outline' as const, route: '/me/addresses' },
-  { label: '关注', icon: 'account-heart-outline' as const, route: '/me/following' },
-  { label: '消息', icon: 'bell-outline' as const, route: '/inbox' },
-  { label: '我的福利', icon: 'ticket-percent-outline' as const, route: '/me/coupons' },
-  { label: '数字资产', icon: 'diamond-stone' as const, route: '/me/digital-assets' },
-  { label: '我的发票', icon: 'file-document-outline' as const, route: '/invoices' },
-  { label: '联系客服', icon: 'headset' as const, route: '/cs' },
+  { label: '设置', icon: 'shrimp', route: '/settings' },
+  { label: '地址', icon: 'abalone', route: '/me/addresses' },
+  { label: '关注', icon: 'squid', route: '/me/following' },
+  { label: '消息', icon: 'octopus', route: '/inbox' },
+  { label: '我的福利', icon: 'conch', route: '/me/coupons' },
+  { label: '数字资产', icon: 'puffer', route: '/me/digital-assets' },
+  { label: '我的发票', icon: 'seaCucumber', route: '/invoices' },
+  { label: '联系客服', icon: 'supportCrab', route: '/cs' },
 ];
 
 function formatPercent(value?: number | null) {
   if (typeof value !== 'number') return '后台配置';
   const percent = value * 100;
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
+function getMsUntilNextUtc8Midnight(): number {
+  const now = new Date();
+  const nowUtc8 = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const nextUtc8Midnight = new Date(
+    Date.UTC(
+      nowUtc8.getUTCFullYear(),
+      nowUtc8.getUTCMonth(),
+      nowUtc8.getUTCDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    ),
+  );
+  return nextUtc8Midnight.getTime() - nowUtc8.getTime();
 }
 
 // 【AI 多轮对话已下线 — 过华为审查】「AI 小助手」整块已注释，恢复时取消注释即可
@@ -129,9 +147,9 @@ export default function MeScreen() {
     queryFn: () => CaptainRepo.getMyCaptainProfile(),
     enabled: isLoggedIn,
   });
-  const { data: vipGiftOptionsData } = useQuery({
-    queryKey: ['vip-gift-options'],
-    queryFn: () => BonusRepo.getVipGiftOptions(),
+  const { data: lotteryStatusData } = useQuery({
+    queryKey: ['lottery-today', isLoggedIn],
+    queryFn: () => LotteryRepo.getTodayStatus(),
   });
 
   // const tasks = taskData?.ok ? taskData.data : [];
@@ -142,25 +160,34 @@ export default function MeScreen() {
   const member = memberData?.ok ? memberData.data : null;
   const captainProfile = captainProfileData?.ok ? captainProfileData.data : null;
   const captainProfileFailed = isLoggedIn && (isCaptainProfileError || captainProfileData?.ok === false);
-  const isVip = member?.tier === 'VIP';
-  const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
-  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
+  const lotteryStatus = lotteryStatusData?.ok ? lotteryStatusData.data : null;
+  const lotteryRemaining = lotteryStatus?.remainingDraws ?? 0;
+  const hasLotteryChance = Boolean(lotteryStatus && !lotteryStatus.hasDrawn);
+  const lotterySummary = lotteryStatus
+    ? hasLotteryChance
+      ? `今天还有 ${lotteryRemaining} 次机会`
+      : '今日已参与 · 明天再来'
+    : '进入抽奖页查看今日机会';
   const directReferralPercentText = formatPercent(member?.directReferralPercent);
   const growthToolLabel = '耕耘值';
   const normalGrowthTool = useMemo(
-    () => ({ label: growthToolLabel, icon: 'sprout-outline' as const, route: '/me/growth' }),
+    () => ({ label: growthToolLabel, icon: 'starfish' as const, route: '/me/growth' }),
     [growthToolLabel],
   );
   const toolGrid = useMemo(
     () => {
-      const entries: ToolEntry[] = [buildMeReferralToolEntry(member), normalGrowthTool];
+      const referralTool = buildMeReferralToolEntry(member);
+      const entries: ToolEntry[] = [
+        { label: referralTool.label, icon: 'seahorse', route: referralTool.route },
+        normalGrowthTool,
+      ];
       if (!captainProfileFailed) {
         if (captainProfile?.isCaptain) {
-          entries.push({ label: '团长经营', icon: 'storefront-outline' as const, route: '/me/captain' });
+          entries.push({ label: '团长经营', icon: 'fish', route: '/me/captain' });
         } else {
           entries.push({
             label: '社区服务',
-            icon: 'clipboard-edit-outline' as const,
+            icon: 'fish',
             route: '/me/captain-application',
           });
         }
@@ -179,10 +206,24 @@ export default function MeScreen() {
       queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
       queryClient.invalidateQueries({ queryKey: ['bonus-member'] }),
       queryClient.invalidateQueries({ queryKey: ['captain-me'] }),
-      queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] }),
+      queryClient.invalidateQueries({ queryKey: ['lottery-today'] }),
     ]);
     setRefreshing(false);
   };
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNextRefresh = () => {
+      timer = setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
+        scheduleNextRefresh();
+      }, getMsUntilNextUtc8Midnight() + 500);
+    };
+    scheduleNextRefresh();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [queryClient, isLoggedIn]);
 
   // const handleCheckIn = async () => {
   //   const result = await CheckInRepo.checkIn();
@@ -217,16 +258,6 @@ export default function MeScreen() {
       setVipModalOpen(true);
     }
   };
-  const handleVipPromoPress = (card: VipHomePromoCard) => {
-    router.push({
-      pathname: '/vip/gifts',
-      params: {
-        packageId: card.packageId,
-        giftOptionId: card.giftOptionId,
-      },
-    });
-  };
-
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <ScrollView
@@ -234,19 +265,103 @@ export default function MeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== 5A. VIP 礼包轮播 ===== */}
-        <Animated.View
-          entering={FadeInDown.duration(300)}
-          style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, marginBottom: spacing.lg }}
-        >
-          <VipHomePromoCarousel
-            packages={vipPackages}
-            onPressCard={handleVipPromoPress}
-            mode={vipPromoMode}
-          />
-        </Animated.View>
-
         <View style={{ paddingHorizontal: spacing.xl }}>
+          {/* ===== 5A. 活动中心：团购与抽奖从首页迁入 ===== */}
+          <Animated.View
+            entering={FadeInDown.duration(300)}
+            style={{ marginTop: spacing.lg, marginBottom: spacing.xl }}
+          >
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>活动中心</Text>
+                <Text style={[typography.captionSm, { color: colors.muted, marginTop: 2 }]}>
+                  团购好物与每日惊喜
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={() => router.push('/group-buy')}
+              accessibilityRole="button"
+              accessibilityLabel="精选团购，查看限时团购商品"
+              style={{ marginTop: spacing.md }}
+            >
+              <LinearGradient
+                colors={['#F8FFF9', '#E5F7EA']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[
+                  styles.activityCard,
+                  {
+                    borderColor: 'rgba(38,123,72,0.18)',
+                    borderRadius: radius.xl,
+                  },
+                  shadow.sm,
+                ]}
+              >
+                <View style={styles.activitySeafoodWrap}>
+                  <SeafoodIcon name="lobster" size={62} />
+                </View>
+                <View style={styles.activityCopy}>
+                  <Text style={[typography.captionSm, { color: colors.brand.primary, fontWeight: '700' }]}>
+                    限时拼团
+                  </Text>
+                  <Text style={[typography.bodyStrong, { color: colors.brand.primaryDark, marginTop: 2 }]}>
+                    精选团购
+                  </Text>
+                  <Text style={[typography.captionSm, { color: colors.text.secondary, marginTop: 3 }]}>
+                    指定商品 · 团购活动
+                  </Text>
+                </View>
+                <View style={[styles.activityCta, { backgroundColor: colors.brand.primary }]}>
+                  <Text {...compactActionTextProps} style={[typography.captionSm, { color: '#FFFFFF', fontWeight: '700' }]}>
+                    去拼团
+                  </Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push('/lottery' as any)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                lotteryStatus
+                  ? hasLotteryChance
+                    ? `每日抽奖，今天还有${lotteryRemaining}次机会`
+                    : '每日抽奖，今天已经参与'
+                  : '每日抽奖，进入抽奖页查看今日机会'
+              }
+              style={{ marginTop: spacing.md }}
+            >
+              <LinearGradient
+                colors={['#2D8850', '#155D37']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.lotteryActivityCard, { borderRadius: radius.xl }, shadow.md]}
+              >
+                <View style={styles.lotteryGlow} />
+                <View style={styles.lotteryCopy}>
+                  <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.76)', fontWeight: '700' }]}>
+                    每日惊喜
+                  </Text>
+                  <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: 3 }]}>幸运抽奖</Text>
+                  <Text style={[typography.captionSm, { color: 'rgba(255,255,255,0.76)', marginTop: 4 }]}>
+                    {lotterySummary}
+                  </Text>
+                </View>
+                <View style={styles.lotterySeafoodWrap}>
+                  <SeafoodIcon name="crab" size={72} />
+                  {hasLotteryChance && lotteryRemaining > 0 ? (
+                    <View style={styles.lotteryCountBadge}>
+                      <Text style={styles.lotteryCountText}>{lotteryRemaining}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.84)" />
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
+
           {/* ===== 5B. 订单快捷入口 ===== */}
           <Animated.View entering={FadeInDown.duration(300).delay(80)} style={{ marginBottom: spacing.lg }}>
             <View style={styles.sectionHeader}>
@@ -294,7 +409,7 @@ export default function MeScreen() {
                     style={[styles.orderItem, compactMe && styles.orderItemCompact]}
                   >
                     <View style={styles.orderIconWrap}>
-                      <MaterialCommunityIcons name={entry.icon as any} size={22} color={colors.brand.primary} />
+                      <SeafoodIcon name={entry.icon} size={40} />
                       {count > 0 && (
                         <View style={[styles.orderBadge, { backgroundColor: colors.danger }]}>
                           <Text style={styles.orderBadgeText}>
@@ -312,19 +427,26 @@ export default function MeScreen() {
             </View>
           </Animated.View>
 
-          {/* ===== 5C. 钱包/VIP 双卡片 ===== */}
-          <View style={[styles.dualCards, compactMe && styles.dualCardsCompact, { marginBottom: spacing.lg }]}>
+          {/* ===== 5C. 财库与 VIP 全宽纵向卡片 ===== */}
+          <View style={[styles.dualCards, { marginBottom: spacing.lg }]}>
             {/* 钱包卡 */}
             <Pressable
               onPress={() => requireLogin(() => router.push('/me/wallet'))}
-              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginRight: spacing.sm }]}
+              style={styles.dualCardItem}
             >
               <LinearGradient
-                colors={[colors.gold.primary, '#E8B730']}
+                colors={['#F4C73B', '#E6AB15']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={[styles.dualCardGradient, { borderRadius: radius.xl, flex: 1 }]}
+                style={[styles.dualCardGradient, { borderRadius: radius.xl }]}
               >
+                <Image
+                  source={require('../../assets/seafood/me-shell-ivory.png')}
+                  style={styles.walletShell}
+                  contentFit="contain"
+                  transition={0}
+                  pointerEvents="none"
+                />
                 <MaterialCommunityIcons name="wallet-outline" size={20} color="#FFFFFF" />
                 <Text style={[typography.bodyStrong, { color: '#FFFFFF', marginTop: spacing.sm }]}>
                   我的财库
@@ -341,14 +463,21 @@ export default function MeScreen() {
             {/* VIP 卡 */}
             <Pressable
               onPress={handleVipPress}
-              style={[styles.dualCardItem, compactMe ? styles.dualCardItemStacked : { marginLeft: spacing.sm }]}
+              style={styles.dualCardItem}
             >
               <LinearGradient
-                colors={[colors.brand.primary, colors.brand.primaryDark]}
+                colors={['#3B9A59', '#17623A']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={[styles.dualCardGradient, { borderRadius: radius.xl, flex: 1 }]}
+                style={[styles.dualCardGradient, { borderRadius: radius.xl }]}
               >
+                <Image
+                  source={require('../../assets/seafood/me-shell-mint.png')}
+                  style={styles.vipShell}
+                  contentFit="contain"
+                  transition={0}
+                  pointerEvents="none"
+                />
                 <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between' }}>
                   <View>
                     <MaterialCommunityIcons name="crown-outline" size={20} color="#FFFFFF" />
@@ -502,10 +631,10 @@ export default function MeScreen() {
                 <Pressable
                   key={tool.label}
                   onPress={() => requireLogin(() => router.push(tool.route as any))}
-                  style={styles.toolItem}
+                  style={[styles.toolItem, compactMe && styles.toolItemCompact]}
                 >
-                  <View style={[styles.toolIcon, { backgroundColor: colors.background }]}>
-                    <MaterialCommunityIcons name={tool.icon} size={20} color={colors.brand.primary} />
+                  <View style={styles.toolIcon}>
+                    <SeafoodIcon name={tool.icon} size={43} />
                     {/* 消息角标 */}
                     {tool.label === '消息' && unreadCount > 0 && (
                       <View style={[styles.toolBadge, { backgroundColor: colors.danger }]}>
@@ -674,6 +803,86 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   section: {},
+  // 活动中心
+  activityCard: {
+    minHeight: 108,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  activitySeafoodWrap: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 8,
+  },
+  activityCta: {
+    minWidth: 66,
+    minHeight: 36,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lotteryActivityCard: {
+    minHeight: 112,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 20,
+    paddingRight: 14,
+    paddingVertical: 15,
+    overflow: 'hidden',
+  },
+  lotteryGlow: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    right: 42,
+    top: -70,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  lotteryCopy: {
+    flex: 1,
+    minWidth: 0,
+    zIndex: 1,
+  },
+  lotterySeafoodWrap: {
+    width: 82,
+    height: 76,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginHorizontal: 4,
+    zIndex: 1,
+  },
+  lotteryCountBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 3,
+    minWidth: 21,
+    height: 21,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FF7A32',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  lotteryCountText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
   // 订单
   orderRow: {
     flexDirection: 'row',
@@ -691,11 +900,17 @@ const styles = StyleSheet.create({
   },
   orderItemCompact: {
     width: '33.333%',
-    flex: 0,
+    flexBasis: '33.333%',
+    flexGrow: 0,
+    flexShrink: 0,
     minHeight: 68,
   },
   orderIconWrap: {
     position: 'relative',
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   orderBadge: {
     position: 'absolute',
@@ -714,32 +929,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  // 双卡片
+  // 财库 / VIP 纵向卡片
   dualCards: {
-    flexDirection: 'row',
-  },
-  dualCardsCompact: {
     flexDirection: 'column',
     gap: 12,
   },
   dualCardItem: {
-    flex: 1,
-  },
-  dualCardItemStacked: {
-    flex: 0,
-    marginLeft: 0,
-    marginRight: 0,
+    width: '100%',
   },
   dualCardGradient: {
     padding: 16,
-    minHeight: 140,
+    minHeight: 152,
     justifyContent: 'space-between',
+    overflow: 'hidden',
   },
   dualCardCta: {
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 4,
     marginTop: 8,
+    zIndex: 1,
+  },
+  walletShell: {
+    position: 'absolute',
+    width: 132,
+    height: 132,
+    right: -18,
+    bottom: -22,
+    opacity: 0.42,
+    transform: [{ rotate: '-8deg' }],
+  },
+  vipShell: {
+    position: 'absolute',
+    width: 142,
+    height: 142,
+    left: '38%',
+    bottom: -48,
+    opacity: 0.19,
+    transform: [{ rotate: '12deg' }],
   },
   // 签到行
   checkInRow: {
@@ -771,10 +998,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
   },
+  toolItemCompact: {
+    width: '33.333%',
+    flexBasis: '33.333%',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   toolIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',

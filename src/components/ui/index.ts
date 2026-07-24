@@ -10,3 +10,4 @@ export * from './AiBadge';
 export * from './AiDivider';
 export * from './AiCardGlow';
 export * from './AiChatBubble';
+export * from './SeafoodIcon';
