@@ -42,6 +42,57 @@ export function inviteLandingSessionStorageKey(inviteCode: string): string {
   return `invite_h5_landing_session:${inviteCode}`
 }
 
+const INVITE_DOWNLOAD_PASS_PATTERN = /^[A-Za-z0-9_-]{43}$/
+
+type SessionStorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+export function normalizeInviteDownloadPass(ticket?: string | null): string | null {
+  const normalized = ticket?.trim() ?? ''
+  return INVITE_DOWNLOAD_PASS_PATTERN.test(normalized) ? normalized : null
+}
+
+export function inviteDownloadPassSessionStorageKey(landingSessionId: string): string {
+  return `invite_h5_download_pass:${landingSessionId}`
+}
+
+export function readInviteDownloadPass(
+  storage: Pick<SessionStorageLike, 'getItem'>,
+  landingSessionId: string,
+): string | null {
+  return normalizeInviteDownloadPass(
+    storage.getItem(inviteDownloadPassSessionStorageKey(landingSessionId)),
+  )
+}
+
+export function storeInviteDownloadPass(
+  storage: Pick<SessionStorageLike, 'setItem'>,
+  landingSessionId: string,
+  ticket: string,
+): void {
+  const normalized = normalizeInviteDownloadPass(ticket)
+  if (!normalized) throw new Error('invalid invite download pass')
+  storage.setItem(inviteDownloadPassSessionStorageKey(landingSessionId), normalized)
+}
+
+export function clearInviteDownloadPass(
+  storage: Pick<SessionStorageLike, 'removeItem'>,
+  landingSessionId: string,
+): void {
+  storage.removeItem(inviteDownloadPassSessionStorageKey(landingSessionId))
+}
+
+export function canResumeWechatDownload(input: {
+  ticket?: string | null
+  accessToken?: string | null
+  landingSessionId?: string | null
+}): boolean {
+  return Boolean(
+    normalizeInviteDownloadPass(input.ticket) &&
+    input.accessToken?.trim() &&
+    input.landingSessionId?.trim(),
+  )
+}
+
 export function buildH5WechatStartUrl(
   apiBase: string,
   input: { inviteCode: string; landingSessionId?: string },
