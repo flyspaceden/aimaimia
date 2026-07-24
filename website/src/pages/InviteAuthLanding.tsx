@@ -6,12 +6,17 @@ import {
   apiErrorMessage,
   bindingStatusText,
   buildH5WechatStartUrl,
+  canResumeWechatDownload,
   canContinueAfterLandingCodeStatus,
+  clearInviteDownloadPass,
   getWechatCallbackParams,
   inviteLandingSessionStorageKey,
   normalizeInviteCode,
+  normalizeInviteDownloadPass,
+  readInviteDownloadPass,
   removeWechatCallbackHash,
   removeWechatCallbackParamsFromSearch,
+  storeInviteDownloadPass,
   submitStateForBindingStatus,
   unwrapApiData,
   type InviteBindingStatus,
@@ -40,6 +45,24 @@ type InviteLoginResponse = {
   }
 }
 
+type DownloadPassResponse =
+  | { status: 'READY'; expiresAt: string }
+  | { status: 'RENEW_REQUIRED' }
+
+type ConsumeDownloadPassResponse = {
+  valid: boolean
+}
+
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
 function detectPlatform(): Platform {
   const ua = navigator.userAgent.toLowerCase()
   if (/iphone|ipad|ipod/.test(ua)) return 'ios'
@@ -55,15 +78,18 @@ function isValidPhone(phone: string): boolean {
   return /^1[3-9]\d{9}$/.test(phone.trim())
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, accessToken?: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify(body),
   })
   const payload = await res.json().catch(() => null)
   if (!res.ok) {
-    throw new Error(apiErrorMessage(payload, '请求失败，请稍后重试'))
+    throw new ApiRequestError(apiErrorMessage(payload, '请求失败，请稍后重试'), res.status)
   }
   return unwrapApiData<T>(payload) as T
 }
@@ -86,6 +112,42 @@ function redirectToAndroidDownload(downloadUrl: string) {
   window.location.href = downloadUrl
 }
 
+function startDownloadInBrowser(platform: Platform) {
+  if (platform === 'ios') {
+    window.alert('iOS 版即将上线，请使用安卓手机下载')
+    return
+  }
+  if (platform === 'android') {
+    redirectToAndroidDownload(pickAndroidDownloadUrl(navigator.userAgent))
+    return
+  }
+  window.location.href = '/download'
+}
+
+/** 32 字节随机值经 base64url 编码后固定为 43 个字符。 */
+function createDownloadPassTicket(): string {
+  const bytes = new Uint8Array(32)
+  window.crypto.getRandomValues(bytes)
+  const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')
+  return window.btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+}
+
+function replaceDownloadPassHash(ticket: string | null) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('downloadPass')
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''))
+  if (ticket) {
+    hashParams.set('downloadPass', ticket)
+  } else {
+    hashParams.delete('downloadPass')
+  }
+  url.hash = hashParams.toString()
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
 export default function InviteAuthLanding() {
   if (typeof window !== 'undefined' && redirectToCanonicalDomainIfNeeded()) {
     return null
@@ -93,6 +155,12 @@ export default function InviteAuthLanding() {
 
   const { code } = useParams<{ code?: string }>()
   const inviteCode = useMemo(() => normalizeInviteCode(code), [code])
+  // 只在页面首次打开时读取。消费前会立即从地址栏移除，不能因为 URL 改写让
+  // React 取消尚在进行的消费请求。
+  const [downloadPass, setDownloadPass] = useState(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    return normalizeInviteDownloadPass(hashParams.get('downloadPass'))
+  })
   const landingSessionStorageKey = useMemo(
     () => (inviteCode ? inviteLandingSessionStorageKey(inviteCode) : null),
     [inviteCode],
@@ -104,6 +172,9 @@ export default function InviteAuthLanding() {
     if (!initialInviteCode) return undefined
     return sessionStorage.getItem(inviteLandingSessionStorageKey(initialInviteCode)) || undefined
   })
+  const [preparedDownloadPass, setPreparedDownloadPass] = useState<string | null>(() => (
+    landingSessionId ? readInviteDownloadPass(sessionStorage, landingSessionId) : null
+  ))
   const [landingState, setLandingState] = useState<LandingState>(() => (inviteCode ? 'checking' : 'invalid'))
   const [phone, setPhone] = useState('')
   const [smsCode, setSmsCode] = useState('')
@@ -113,15 +184,28 @@ export default function InviteAuthLanding() {
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState('')
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
-  const [loginCompleted, setLoginCompleted] = useState(false)
+  const [loginCompleted, setLoginCompleted] = useState(() => (
+    isWechat() && canResumeWechatDownload({
+      ticket: downloadPass || preparedDownloadPass,
+      accessToken: sessionStorage.getItem('invite_h5_access_token'),
+      landingSessionId,
+    })
+  ))
   const [showWechatGuide, setShowWechatGuide] = useState(false)
+  const [preparingDownload, setPreparingDownload] = useState(false)
   const landingRequestRef = useRef<{ key: string; promise: Promise<LandingResponse> } | null>(null)
   const wechatCallbackRequestRef = useRef<{ key: string; promise: Promise<InviteLoginResponse> } | null>(null)
+  const downloadPassRequestRef = useRef<Promise<void> | null>(null)
   const platform = detectPlatform()
   const wechat = isWechat()
+  const hasResumableWechatDownload = wechat && canResumeWechatDownload({
+    ticket: downloadPass || preparedDownloadPass,
+    accessToken: sessionStorage.getItem('invite_h5_access_token'),
+    landingSessionId,
+  })
   const authCompleted = loginCompleted
-  const formDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted
-  const wechatAuthDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted || submitting
+  const formDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted || Boolean(downloadPass)
+  const wechatAuthDisabled = !inviteCode || landingState === 'invalid' || landingState === 'checking' || authCompleted || submitting || Boolean(downloadPass)
 
   const completeInviteAuth = (res: InviteLoginResponse) => {
     if (res.accessToken) sessionStorage.setItem('invite_h5_access_token', res.accessToken)
@@ -135,9 +219,81 @@ export default function InviteAuthLanding() {
   }
 
   useEffect(() => {
+    if (!downloadPass) return
+
+    // 微信“在浏览器中打开”会沿用当前 URL。微信内不消费凭证，避免刷新页面后
+    // 把凭证提前作废；系统浏览器才会原子消费并立即进入下载渠道。
+    if (wechat) {
+      const accessToken = sessionStorage.getItem('invite_h5_access_token')
+      if (!canResumeWechatDownload({ ticket: downloadPass, accessToken, landingSessionId })) {
+        replaceDownloadPassHash(null)
+        if (landingSessionId) clearInviteDownloadPass(sessionStorage, landingSessionId)
+        setDownloadPass(null)
+        setPreparedDownloadPass(null)
+        setLoginCompleted(false)
+        setSubmitState('warning')
+        setNotice('下载状态已失效，请重新登录后下载')
+        return
+      }
+      if (landingSessionId) {
+        const storedDownloadPass = readInviteDownloadPass(sessionStorage, landingSessionId)
+        if (!storedDownloadPass) {
+          storeInviteDownloadPass(sessionStorage, landingSessionId, downloadPass)
+        }
+        setPreparedDownloadPass((current) => current || storedDownloadPass || downloadPass)
+      } else {
+        setPreparedDownloadPass((current) => current || downloadPass)
+      }
+      setLoginCompleted(true)
+      setSubmitState('success')
+      setNotice('已完成登记，请在浏览器中打开，系统会自动前往下载')
+      return
+    }
+
+    let active = true
+    // 先清掉地址栏里的短时凭证，再发起请求，避免它进入浏览器历史或下游 Referer。
+    replaceDownloadPassHash(null)
+    setNotice('正在确认下载')
+
+    postJson<ConsumeDownloadPassResponse>('/invite-h5/download-pass/consume', { ticket: downloadPass })
+      .then((res) => {
+        if (!active) return
+        if (!res.valid) {
+          setSubmitState('warning')
+          setNotice('下载凭证已过期或已使用，请返回微信页面重新点击下载')
+          return
+        }
+        setLoginCompleted(true)
+        setSubmitState('success')
+        setNotice('已完成登记，正在前往下载')
+        window.setTimeout(() => startDownloadInBrowser(platform), 0)
+      })
+      .catch(() => {
+        if (!active) return
+        setSubmitState('error')
+        setNotice('下载状态确认失败，请返回微信页面重新点击下载')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [downloadPass, landingSessionId, platform, wechat])
+
+  useEffect(() => {
     if (!inviteCode) {
       setLandingState('invalid')
       setNotice('邀请链接不可用')
+      return
+    }
+    // 从微信跳到系统浏览器时只应消费已有下载凭证，不能额外记一次扫码打开。
+    if (downloadPass) {
+      setLandingState('ready')
+      return
+    }
+    // 创建凭证成功但响应丢失后刷新时，复用原 landing session 和持久化票据，
+    // 不能再记一次扫码并换成未认证的新 session。
+    if (hasResumableWechatDownload) {
+      setLandingState('ready')
       return
     }
     if (hasWechatCallback) {
@@ -185,7 +341,13 @@ export default function InviteAuthLanding() {
     return () => {
       active = false
     }
-  }, [inviteCode, hasWechatCallback, landingSessionStorageKey])
+  }, [
+    inviteCode,
+    downloadPass,
+    hasResumableWechatDownload,
+    hasWechatCallback,
+    landingSessionStorageKey,
+  ])
 
   useEffect(() => {
     if (countdown <= 0) return
@@ -318,20 +480,86 @@ export default function InviteAuthLanding() {
     })
   }
 
+  const prepareDownloadInWechat = async () => {
+    const accessToken = sessionStorage.getItem('invite_h5_access_token')
+    if (!accessToken || !landingSessionId) {
+      setSubmitState('error')
+      setNotice('登录状态已失效，请重新登录后下载')
+      return
+    }
+
+    setPreparingDownload(true)
+    try {
+      // 同一个随机值可以安全重试：若请求已经写入但响应丢失，重新点击仍会拿回原凭证。
+      let ticket = preparedDownloadPass ||
+        readInviteDownloadPass(sessionStorage, landingSessionId) ||
+        downloadPass ||
+        createDownloadPassTicket()
+      setPreparedDownloadPass(ticket)
+      storeInviteDownloadPass(sessionStorage, landingSessionId, ticket)
+      const requestPass = (candidate: string) => postJson<DownloadPassResponse>(
+        '/invite-h5/download-pass',
+        { landingSessionId, ticket: candidate },
+        accessToken,
+      )
+
+      let response = await requestPass(ticket)
+      // 从系统浏览器返回微信时，旧凭证可能已用完或超时；仅在这种明确状态下生成新值。
+      if (response.status === 'RENEW_REQUIRED') {
+        ticket = createDownloadPassTicket()
+        setPreparedDownloadPass(ticket)
+        storeInviteDownloadPass(sessionStorage, landingSessionId, ticket)
+        response = await requestPass(ticket)
+      }
+      if (response.status !== 'READY') {
+        throw new Error('下载凭证准备失败，请稍后重试')
+      }
+
+      replaceDownloadPassHash(ticket)
+      setSubmitState('success')
+      setNotice('已完成登记，请在浏览器中打开，系统会自动前往下载')
+      setShowWechatGuide(true)
+    } catch (err) {
+      if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) {
+        sessionStorage.removeItem('invite_h5_access_token')
+        sessionStorage.removeItem('invite_h5_refresh_token')
+        clearInviteDownloadPass(sessionStorage, landingSessionId)
+        replaceDownloadPassHash(null)
+        setDownloadPass(null)
+        setPreparedDownloadPass(null)
+        setLoginCompleted(false)
+        setShowWechatGuide(false)
+        setSubmitState('warning')
+        setNotice('登录状态已失效，请重新登录后下载')
+        return
+      }
+      setSubmitState('error')
+      setNotice(err instanceof Error ? err.message : '下载准备失败，请稍后重试')
+    } finally {
+      setPreparingDownload(false)
+    }
+  }
+
   const handleDownload = () => {
     if (wechat) {
-      setShowWechatGuide(true)
+      const accessToken = sessionStorage.getItem('invite_h5_access_token')
+      if (!accessToken || !landingSessionId) {
+        setSubmitState('error')
+        setNotice('登录状态已失效，请重新登录后下载')
+        return
+      }
+
+      if (downloadPassRequestRef.current) return
+      const request = prepareDownloadInWechat()
+      downloadPassRequestRef.current = request
+      void request.finally(() => {
+        if (downloadPassRequestRef.current === request) {
+          downloadPassRequestRef.current = null
+        }
+      })
       return
     }
-    if (platform === 'ios') {
-      window.alert('iOS 版即将上线，请使用安卓手机下载')
-      return
-    }
-    if (platform === 'android') {
-      redirectToAndroidDownload(pickAndroidDownloadUrl(navigator.userAgent))
-      return
-    }
-    window.location.href = '/download'
+    startDownloadInBrowser(platform)
   }
 
   const noticeTone = submitState === 'success'
@@ -451,13 +679,14 @@ export default function InviteAuthLanding() {
             微信登录
           </button>
 
-          {submitState === 'success' || submitState === 'warning' ? (
+          {authCompleted ? (
             <button
               type="button"
               onClick={handleDownload}
+              disabled={preparingDownload}
               className="mt-3 h-12 w-full rounded-md border border-[#0e7c86] bg-white text-[16px] font-bold text-[#0e7c86] transition hover:bg-[#eef9fa]"
             >
-              下载 App
+              {preparingDownload ? '正在准备下载' : '下载 App'}
             </button>
           ) : null}
         </form>

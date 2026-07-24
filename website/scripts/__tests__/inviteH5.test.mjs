@@ -5,8 +5,14 @@ import { readFileSync } from 'node:fs'
 import {
   apiErrorMessage,
   bindingStatusText,
+  canResumeWechatDownload,
   canContinueAfterLandingCodeStatus,
+  clearInviteDownloadPass,
+  inviteDownloadPassSessionStorageKey,
   normalizeInviteCode,
+  normalizeInviteDownloadPass,
+  readInviteDownloadPass,
+  storeInviteDownloadPass,
   submitStateForBindingStatus,
   unwrapApiData,
 } from '../../src/lib/inviteH5.ts'
@@ -62,6 +68,37 @@ test('绑定结果状态不会把失败误渲染为成功', () => {
   assert.equal(submitStateForBindingStatus('ERROR'), 'error')
 })
 
+test('下载交接凭证只接受 256 位 base64url，并按 H5 会话持久化和清理', () => {
+  const values = new Map()
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  }
+  const ticket = 'A'.repeat(43)
+
+  assert.equal(normalizeInviteDownloadPass(ticket), ticket)
+  assert.equal(normalizeInviteDownloadPass('bad-ticket'), null)
+  assert.equal(inviteDownloadPassSessionStorageKey('ih5_session_1'), 'invite_h5_download_pass:ih5_session_1')
+  storeInviteDownloadPass(storage, 'ih5_session_1', ticket)
+  assert.equal(readInviteDownloadPass(storage, 'ih5_session_1'), ticket)
+  clearInviteDownloadPass(storage, 'ih5_session_1')
+  assert.equal(readInviteDownloadPass(storage, 'ih5_session_1'), null)
+})
+
+test('微信下载 hash 必须同时有本地 H5 token 和 landing session 才能恢复', () => {
+  const ticket = 'A'.repeat(43)
+
+  assert.equal(canResumeWechatDownload({
+    ticket,
+    accessToken: 'access-token',
+    landingSessionId: 'ih5_session_1',
+  }), true)
+  assert.equal(canResumeWechatDownload({ ticket, accessToken: null, landingSessionId: 'ih5_session_1' }), false)
+  assert.equal(canResumeWechatDownload({ ticket, accessToken: 'access-token', landingSessionId: null }), false)
+  assert.equal(canResumeWechatDownload({ ticket: 'fake', accessToken: 'access-token', landingSessionId: 'ih5_session_1' }), false)
+})
+
 test('H5 页面首屏不自动弹微信下载遮罩，且成功后阻止重复提交', () => {
   const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
 
@@ -88,6 +125,42 @@ test('H5 邀请页支持微信授权 callback 和非微信浏览器 fallback', (
   assert.match(page, /buildH5WechatStartUrl/)
   assert.match(lib, /h5-wechat\/start/)
   assert.match(page, /请在微信中打开，或使用手机号登录/)
+})
+
+test('微信完成 H5 登录后以一次性下载凭证交接给系统浏览器，不重复登录或重复绑定', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+
+  assert.match(page, /invite-h5\/download-pass/)
+  assert.match(page, /invite-h5\/download-pass\/consume/)
+  assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/)
+  assert.match(page, /window\.crypto\.getRandomValues/)
+  assert.match(page, /storeInviteDownloadPass\(sessionStorage, landingSessionId, ticket\)/)
+  assert.match(page, /readInviteDownloadPass\(sessionStorage, landingSessionId\)/)
+  assert.match(page, /ticket: candidate/)
+  assert.match(page, /response\.status === 'RENEW_REQUIRED'/)
+  assert.match(page, /hashParams\.set\('downloadPass', ticket\)/)
+  assert.match(page, /hashParams\.delete\('downloadPass'\)/)
+  assert.match(page, /window\.location\.hash\.replace\(\/\^#\/, ''\)/)
+  assert.match(page, /startDownloadInBrowser\(platform\)/)
+  assert.match(page, /已完成登记，请在浏览器中打开，系统会自动前往下载/)
+  assert.match(page, /if \(downloadPass\) \{\s*setLandingState\('ready'\)/)
+  assert.match(page, /\{authCompleted \? \(/)
+})
+
+test('微信返回后会复用有效下载凭证，已使用或过期才生成新的凭证', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+
+  assert.match(
+    page,
+    /let ticket = preparedDownloadPass \|\|[\s\S]*readInviteDownloadPass\(sessionStorage, landingSessionId\) \|\|[\s\S]*downloadPass \|\|[\s\S]*createDownloadPassTicket\(\)/,
+  )
+  assert.match(page, /if \(response\.status === 'RENEW_REQUIRED'\) \{[\s\S]*ticket = createDownloadPassTicket\(\)/)
+  assert.match(page, /downloadPassRequestRef\.current/)
+  assert.match(page, /canResumeWechatDownload\(\{ ticket: downloadPass, accessToken, landingSessionId \}\)/)
+  assert.match(page, /if \(!storedDownloadPass\) \{\s*storeInviteDownloadPass\(sessionStorage, landingSessionId, downloadPass\)/)
+  assert.match(page, /if \(hasResumableWechatDownload\) \{\s*setLandingState\('ready'\)\s*return/)
+  assert.match(page, /setDownloadPass\(null\)/)
+  assert.doesNotMatch(page, /if \(downloadPass \|\| preparedDownloadPass\) \{\s*setShowWechatGuide/)
 })
 
 test('H5 邀请页响应式覆盖窄屏验证码行和桌面窄表单', () => {
