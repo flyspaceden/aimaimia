@@ -8,37 +8,29 @@ import {
   Text,
   View,
 } from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-  withDelay,
-  Easing,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { Screen } from '../../src/components/layout';
-import { GROUP_BUY_COLORS } from '../../src/components/group-buy';
 import { MeIdentityCard } from '../../src/components/cards';
+import { VipHomePromoCarousel } from '../../src/components/data';
 import { AuthModal } from '../../src/components/overlay';
 import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
 import { useToast } from '../../src/components/feedback';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
-import { LotteryRepo } from '../../src/repos/LotteryRepo';
 import { BonusRepo, DigitalAssetRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
-import { compactActionTextProps, fitTextProps, useResponsiveLayout, useTheme, priceTextProps } from '../../src/theme';
+import { useResponsiveLayout, useTheme } from '../../src/theme';
 import { AuthSession } from '../../src/types';
-import { HOME_HERO_STATEMENT, HOME_MISSION_LINES } from '../../src/utils/homeHero';
-import { buildVipReferralHomePrompt } from '../../src/utils/vipHomePromo';
+import {
+  buildVipReferralHomePrompt,
+  type VipHomePromoCard,
+  type VipPromoMode,
+} from '../../src/utils/vipHomePromo';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -54,23 +46,6 @@ function formatRelativeTime(iso: string): string {
   if (diffDay < 7) return `${diffDay}天前`;
   const d = new Date(iso);
   return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
-function getMsUntilNextUtc8Midnight(): number {
-  const now = new Date();
-  const nowUtc8 = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  const nextUtc8Midnight = new Date(
-    Date.UTC(
-      nowUtc8.getUTCFullYear(),
-      nowUtc8.getUTCMonth(),
-      nowUtc8.getUTCDate() + 1,
-      0,
-      0,
-      0,
-      0,
-    ),
-  );
-  return nextUtc8Midnight.getTime() - nowUtc8.getTime();
 }
 
 export default function HomeScreen() {
@@ -137,22 +112,20 @@ export default function HomeScreen() {
     ? remoteRecentConversations
     : localRecentConversations;
 
-  // 抽奖状态（后端 /lottery/today 已公开，登录态变化时重新请求）
-  const { data: lotteryStatusData } = useQuery({
-    queryKey: ['lottery-today', isLoggedIn],
-    queryFn: () => LotteryRepo.getTodayStatus(),
-  });
-  const lotteryStatus = lotteryStatusData?.ok ? lotteryStatusData.data : null;
-  const hasLotteryChance = !!(lotteryStatus && !lotteryStatus.hasDrawn);
-
   // VIP 首页礼包展示：非 VIP 为购买语境；VIP 切推荐语境（好友开通可得），作为推荐弹药
   const { data: memberData } = useQuery({
     queryKey: ['bonus-member'],
     queryFn: () => BonusRepo.getMember(),
     enabled: isLoggedIn,
   });
+  const { data: vipGiftOptionsData } = useQuery({
+    queryKey: ['vip-gift-options'],
+    queryFn: () => BonusRepo.getVipGiftOptions(),
+  });
   const member = memberData?.ok ? memberData.data : null;
   const vipReferralPrompt = buildVipReferralHomePrompt(member);
+  const vipPromoMode: VipPromoMode = member?.tier === 'VIP' ? 'referral' : 'purchase';
+  const vipPackages = vipGiftOptionsData?.ok ? vipGiftOptionsData.data.packages : [];
   const { data: profileData, isLoading: profileLoading, refetch: refetchProfile } = useQuery({
     queryKey: ['me-profile'],
     queryFn: () => UserRepo.profile(),
@@ -172,20 +145,12 @@ export default function HomeScreen() {
   const referralCode = isVip ? (member.referralCode ?? '') : '';
   const showNormalShareEntry = Boolean(memberData?.ok && !isVip);
 
-  // 跨零点自动刷新抽奖状态
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
-    }, getMsUntilNextUtc8Midnight() + 500); // +500ms 确保已过业务日切点
-    return () => clearTimeout(timer);
-  }, [queryClient, isLoggedIn]);
-
-  // 下拉刷新：刷新抽奖状态
+  // 下拉刷新：首页身份、会员礼包和数字资产
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    queryClient.invalidateQueries({ queryKey: ['lottery-today'] });
     queryClient.invalidateQueries({ queryKey: ['me-profile'] });
     queryClient.invalidateQueries({ queryKey: ['bonus-member'] });
+    queryClient.invalidateQueries({ queryKey: ['vip-gift-options'] });
     queryClient.invalidateQueries({ queryKey: ['digital-assets-summary'] });
     setTimeout(() => setRefreshing(false), 600);
   }, [queryClient]);
@@ -268,150 +233,15 @@ export default function HomeScreen() {
     show({ message: '用户编号已复制', type: 'success' });
   }, [profile?.buyerNo, show]);
 
-  const handleGroupBuyPress = useCallback(() => {
-    router.push('/group-buy');
+  const handleVipPromoPress = useCallback((card: VipHomePromoCard) => {
+    router.push({
+      pathname: '/vip/gifts',
+      params: {
+        packageId: card.packageId,
+        giftOptionId: card.giftOptionId,
+      },
+    });
   }, [router]);
-
-  // --- 录音按钮动画 ---
-  const recordHaloScale = useSharedValue(1);
-  const recordHaloOpacity = useSharedValue(0.18);
-  const recordRippleScale = useSharedValue(1);
-  const recordRippleOpacity = useSharedValue(0.3);
-
-  useEffect(() => {
-    if (voice.isRecording) {
-      // 录音中：快速脉动
-      recordHaloScale.value = withRepeat(
-        withSequence(
-          withTiming(1.25, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        ),
-        -1, true,
-      );
-      recordHaloOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.35, { duration: 800 }),
-          withTiming(0.12, { duration: 800 }),
-        ),
-        -1, true,
-      );
-      // 扩散波纹
-      recordRippleScale.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 0 }),
-          withTiming(1.6, { duration: 1200, easing: Easing.out(Easing.ease) }),
-        ),
-        -1,
-      );
-      recordRippleOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.25, { duration: 0 }),
-          withTiming(0, { duration: 1200, easing: Easing.out(Easing.ease) }),
-        ),
-        -1,
-      );
-    } else {
-      // 非录音：回到 idle 慢脉动（与 AiOrb idle 一致）
-      recordHaloScale.value = withRepeat(
-        withSequence(
-          withTiming(1.15, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-        ),
-        -1, true,
-      );
-      recordHaloOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.15, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.4, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-        ),
-        -1, true,
-      );
-      recordRippleScale.value = withTiming(1, { duration: 300 });
-      recordRippleOpacity.value = withTiming(0, { duration: 300 });
-    }
-  }, [voice.isRecording, recordHaloScale, recordHaloOpacity, recordRippleScale, recordRippleOpacity]);
-
-  const recordingHaloStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: recordHaloScale.value }],
-    opacity: recordHaloOpacity.value,
-  }));
-
-  const recordingRippleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: recordRippleScale.value }],
-    opacity: recordRippleOpacity.value,
-  }));
-
-  // --- 抽奖悬浮按钮动画组 ---
-  const fabScale = useSharedValue(1);
-  const fabGlow = useSharedValue(0);
-  const fabWobble = useSharedValue(0); // 图标左右摇摆
-  const fabShine = useSharedValue(0); // 流光扫过
-
-  useEffect(() => {
-    if (lotteryStatus && !lotteryStatus.hasDrawn) {
-      // 脉冲：缩放 1→1.08→1，循环
-      fabScale.value = withRepeat(
-        withSequence(
-          withDelay(2500, withTiming(1.08, { duration: 500, easing: Easing.out(Easing.ease) })),
-          withTiming(1, { duration: 500, easing: Easing.in(Easing.ease) }),
-        ),
-        -1,
-      );
-      // 光晕：0→1→0，循环
-      fabGlow.value = withRepeat(
-        withSequence(
-          withDelay(2500, withTiming(1, { duration: 500 })),
-          withTiming(0, { duration: 500 }),
-        ),
-        -1,
-      );
-      // 摇摆：脉冲间歇期连续晃 3 下（-12°→12°→-8°→8°→0°），像藏着宝藏急着被打开
-      fabWobble.value = withRepeat(
-        withSequence(
-          withDelay(800, withTiming(-12, { duration: 80, easing: Easing.out(Easing.ease) })),
-          withTiming(12, { duration: 100, easing: Easing.inOut(Easing.ease) }),
-          withTiming(-8, { duration: 90, easing: Easing.inOut(Easing.ease) }),
-          withTiming(8, { duration: 90, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0, { duration: 80, easing: Easing.in(Easing.ease) }),
-          withDelay(3000, withTiming(0, { duration: 0 })), // 静止等待下一轮
-        ),
-        -1,
-      );
-      // 流光：从左到右扫过，循环
-      fabShine.value = withRepeat(
-        withSequence(
-          withDelay(4000, withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) })),
-          withTiming(0, { duration: 0 }),
-        ),
-        -1,
-      );
-    } else {
-      fabScale.value = withTiming(1);
-      fabGlow.value = withTiming(0);
-      fabWobble.value = withTiming(0);
-      fabShine.value = withTiming(0);
-    }
-  }, [lotteryStatus, fabScale, fabGlow, fabWobble, fabShine]);
-
-  const fabAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: fabScale.value }],
-  }));
-
-  const fabGlowStyle = useAnimatedStyle(() => ({
-    opacity: fabGlow.value * 0.5,
-    transform: [{ scale: 1 + fabGlow.value * 0.4 }],
-  }));
-
-  // 图标摇摆样式
-  const fabIconWobbleStyle = useAnimatedStyle(() => ({
-    transform: [{ rotateZ: `${fabWobble.value}deg` }],
-  }));
-
-  // 流光高光条（匹配 140px 抽奖按钮宽度）
-  const fabShineStyle = useAnimatedStyle(() => ({
-    opacity: fabShine.value * 0.6,
-    transform: [{ translateX: -70 + fabShine.value * 140 }],
-  }));
 
   // --- AiOrb state ---
   const orbState = voice.isRecording ? 'listening' : voice.isProcessing ? 'thinking' : 'idle';
@@ -439,33 +269,6 @@ export default function HomeScreen() {
         {/* 未完成订单横幅（无未支付订单时返回 null） */}
         <PendingCheckoutBanner />
 
-        {/* 首页品牌标语区域 */}
-        <View style={[styles.greetingRow, { marginTop: spacing['3xl'] }]}>
-          <View style={styles.greetingArea}>
-            <Text
-              style={[
-                styles.heroStatement,
-                { color: colors.brand.primaryDark },
-              ]}
-            >
-              {HOME_HERO_STATEMENT}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => router.push('/cart')}
-            style={styles.cartBtn}
-          >
-            <MaterialCommunityIcons name="cart-outline" size={24} color={colors.text.secondary} />
-            {cartCount > 0 && (
-              <View style={[styles.cartBadge, { backgroundColor: colors.brand.primary }]}>
-                <Text style={[typography.captionSm, { color: colors.text.inverse, fontSize: 10, lineHeight: 14 }]}>
-                  {cartCount > 99 ? '99+' : cartCount}
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
-
         <Animated.View entering={FadeInDown.duration(300).delay(40)}>
           <MeIdentityCard
             isLoggedIn={isLoggedIn}
@@ -475,7 +278,7 @@ export default function HomeScreen() {
             assetRankLabel={assetRankLabel}
             referralCode={referralCode}
             showNormalShareEntry={showNormalShareEntry}
-            style={{ marginTop: spacing.lg }}
+            style={{ marginTop: spacing['3xl'] }}
             onScanPress={() => router.push('/me/scanner')}
             onLoginPress={() => setAuthModalOpen(true)}
             onAppearancePress={() => router.push('/me/appearance')}
@@ -499,12 +302,12 @@ export default function HomeScreen() {
                 {
                   marginTop: spacing.lg,
                   borderRadius: radius.pill,
-                  borderColor: 'rgba(201,169,110,0.28)',
+                  borderColor: 'rgba(51,140,83,0.16)',
                 },
                 shadow.sm,
               ]}
             >
-              <MaterialCommunityIcons name="crown-outline" size={16} color="#F5E6B8" />
+              <MaterialCommunityIcons name="crown-outline" size={17} color={colors.brand.primary} />
               <Text style={styles.vipReferralText} numberOfLines={1}>
                 {vipReferralPrompt.title}
               </Text>
@@ -516,143 +319,98 @@ export default function HomeScreen() {
         ) : null}
 
         <Animated.View entering={FadeInDown.duration(300).delay(80)}>
-          <Pressable
-            onPress={handleGroupBuyPress}
-            accessibilityRole="button"
-            accessibilityLabel="精选团购，查看当前团购商品"
-            style={[
-              styles.groupBuyEntry,
-              {
-                marginTop: spacing.lg,
-                borderRadius: 8,
-                borderColor: GROUP_BUY_COLORS.mist,
-                backgroundColor: GROUP_BUY_COLORS.porcelain,
-              },
-              shadow.sm,
-            ]}
-          >
-            <View style={[styles.groupBuyIcon, { backgroundColor: `${GROUP_BUY_COLORS.tide}14` }]}>
-              <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color={GROUP_BUY_COLORS.tide} />
-            </View>
-            <View style={styles.groupBuyCopy}>
-              <Text {...fitTextProps} style={[typography.bodyStrong, { color: GROUP_BUY_COLORS.pine }]}>
-                精选团购
+          <View style={[styles.searchRow, { marginTop: spacing.lg }]}>
+            <Pressable
+              onPress={() => router.push('/search')}
+              accessibilityRole="search"
+              accessibilityLabel="搜索商品，或问我"
+              style={[
+                styles.searchBar,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  borderRadius: radius.pill,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md,
+                },
+                shadow.sm,
+              ]}
+            >
+              <MaterialCommunityIcons name="magnify" size={20} color={colors.muted} />
+              <Text
+                style={[
+                  typography.bodyLg,
+                  { color: colors.muted, marginLeft: spacing.sm, flex: 1 },
+                ]}
+                numberOfLines={1}
+              >
+                搜索商品，或问我...
               </Text>
-              <Text {...fitTextProps} style={[typography.caption, { color: GROUP_BUY_COLORS.inkSoft, marginTop: 2 }]}>
-                指定商品 · 团购活动
-              </Text>
-            </View>
-            <View style={[styles.groupBuyCta, { backgroundColor: GROUP_BUY_COLORS.pine }]}>
-              <Text {...compactActionTextProps} style={[typography.caption, { color: '#FFFFFF', fontWeight: '700' }]}>
-                查看
-              </Text>
-            </View>
-          </Pressable>
+              <MaterialCommunityIcons name="microphone-outline" size={20} color={colors.ai.start} />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/cart')}
+              accessibilityRole="button"
+              accessibilityLabel={`购物车${cartCount > 0 ? `，${cartCount}件商品` : ''}`}
+              style={[
+                styles.cartBtn,
+                {
+                  borderColor: colors.border,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                },
+                shadow.sm,
+              ]}
+            >
+              <MaterialCommunityIcons name="cart-outline" size={22} color={colors.text.secondary} />
+              {cartCount > 0 && (
+                <View style={[styles.cartBadge, { backgroundColor: colors.brand.primary }]}>
+                  <Text style={[typography.captionSm, { color: colors.text.inverse, fontSize: 10, lineHeight: 14 }]}>
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
         </Animated.View>
 
-        {/* AI光球 + 抽奖按钮区域 */}
+        {/* 单一 AI 入口：龙虾与帝王蟹分居两侧，不再与抽奖按钮争夺主视觉 */}
         <Animated.View entering={FadeInDown.duration(300)}>
-          {hasLotteryChance ? (
-            /* 并排模式：两个等大的 120px 圆形按钮 */
-            <View style={[styles.pairedRow, { marginTop: spacing['3xl'] }]}>
-              {/* AI买买按钮 */}
-              <View style={styles.pairedBtnWrap}>
-                {/* 光环：始终脉动（idle 慢速 / 录音快速） */}
-                <Animated.View
-                  style={[
-                    styles.pairedHalo,
-                    { backgroundColor: colors.ai.start },
-                    recordingHaloStyle,
-                  ]}
-                />
-                {/* 录音时额外扩散波纹 */}
-                {voice.isRecording && (
-                  <Animated.View
-                    style={[
-                      styles.pairedHalo,
-                      { backgroundColor: colors.ai.start },
-                      recordingRippleStyle,
-                    ]}
-                  />
-                )}
-                <Pressable
-                  onPress={handleShortPress}
-                  onLongPress={handleLongPress}
-                  onPressOut={handleOrbPressOut}
-                  delayLongPress={400}
-                  style={[styles.pairedBtn, shadow.lg, { backgroundColor: voice.isRecording ? colors.brand.primaryDark : colors.brand.primary }]}
-                >
-                  {voice.isRecording ? (
-                    <>
-                      <MaterialCommunityIcons name="microphone" size={40} color={colors.text.inverse} />
-                      <Text style={[typography.bodySm, { color: colors.text.inverse, marginTop: 2 }]}>
-                        正在听...
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text {...priceTextProps} style={styles.pairedAiTitle}>AI</Text>
-                      <Text {...priceTextProps} style={[styles.pairedAiSub, { color: colors.text.inverse }]}>买买</Text>
-                    </>
-                  )}
-                </Pressable>
-              </View>
-
-              {/* 抽奖按钮 */}
-              <Pressable
-                onPress={() => router.push('/lottery' as any)}
-                style={styles.lotteryInline}
-              >
-                {/* 光晕层 */}
-                <Animated.View
-                  style={[
-                    styles.lotteryGlowRing,
-                    { backgroundColor: '#F97316' },
-                    fabGlowStyle,
-                  ]}
-                />
-                {/* 按钮主体 */}
-                <Animated.View
-                  style={[
-                    styles.lotteryButton,
-                    shadow.lg,
-                    { backgroundColor: '#F97316' },
-                    fabAnimatedStyle,
-                  ]}
-                >
-                  {/* 流光高光条 */}
-                  <Animated.View
-                    style={[styles.lotteryShine, fabShineStyle]}
-                    pointerEvents="none"
-                  />
-                  {/* 图标带摇摆动画 */}
-                  <Animated.View style={fabIconWobbleStyle}>
-                    <MaterialCommunityIcons name="gift-outline" size={46} color="#FFFFFF" />
-                  </Animated.View>
-                  <Text style={styles.lotteryBtnLabel}>抽奖</Text>
-                </Animated.View>
-                {/* 剩余次数角标 */}
-                {(lotteryStatus?.remainingDraws ?? 0) > 0 && (
-                  <View style={styles.lotteryBadge}>
-                    <Text style={styles.lotteryBadgeText}>
-                      {lotteryStatus!.remainingDraws}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            </View>
-          ) : (
-            /* 单独模式：完整大光球 */
+          <View
+            style={[
+              styles.aiStage,
+              compactHome && styles.aiStageCompact,
+              {
+                marginTop: spacing.xl,
+                marginHorizontal: compactHome ? -spacing.xl : 0,
+              },
+            ]}
+          >
+            <Image
+              source={require('../../assets/seafood/home-lobster.png')}
+              style={[styles.homeLobster, compactHome && styles.homeLobsterCompact]}
+              contentFit="contain"
+              transition={0}
+              pointerEvents="none"
+            />
             <AiOrb
-              size="large"
+              size={compactHome ? 'medium' : 'large'}
               state={orbState}
+              appearance="bright"
               onPress={handleShortPress}
               onLongPress={handleLongPress}
               onPressOut={handleOrbPressOut}
               showLabel
-              style={{ alignSelf: 'center', marginTop: spacing['4xl'] }}
+              style={styles.homeAiOrb}
             />
-          )}
+            <Image
+              source={require('../../assets/seafood/home-king-crab.png')}
+              style={[styles.homeCrab, compactHome && styles.homeCrabCompact]}
+              contentFit="contain"
+              transition={0}
+              pointerEvents="none"
+            />
+          </View>
 
           {/* 提示文字 / AI 反馈文字 */}
           {voice.feedbackText ? (
@@ -767,63 +525,26 @@ export default function HomeScreen() {
           )}
         </Animated.View>
 
-        {/* 品牌使命文案 */}
-        <Animated.View entering={FadeInDown.duration(300).delay(80)}>
-          <View style={[styles.missionBlock, { marginTop: spacing['2xl'] }]}>
-            <Text style={[styles.missionText, { color: colors.brand.primaryDark }]}>
-              {HOME_MISSION_LINES[0]}
-            </Text>
-            <Text style={[styles.missionText, styles.missionTextSecondary, { color: colors.text.secondary }]}>
-              {HOME_MISSION_LINES[1]}
-            </Text>
-          </View>
-        </Animated.View>
-
-        {/* 搜索框（胶囊形，点击跳转搜索页） */}
-        <Pressable
-          onPress={() => router.push('/search')}
-          style={[
-            styles.searchBar,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderRadius: radius.pill,
-              marginTop: spacing.xl,
-              paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.md,
-            },
-            shadow.sm,
-          ]}
-        >
-          <MaterialCommunityIcons
-            name="magnify"
-            size={20}
-            color={colors.muted}
-          />
-          <Text
-            style={[
-              typography.bodyLg,
-              { color: colors.muted, marginLeft: spacing.sm, flex: 1 },
-            ]}
-          >
-            搜索商品，或问我...
-          </Text>
-          <MaterialCommunityIcons
-            name="microphone-outline"
-            size={20}
-            color={colors.ai.start}
-          />
-        </Pressable>
-
-        {/* 今日已抽完提示 — 搜索框下方 */}
-        {lotteryStatus && lotteryStatus.hasDrawn && (
-          <Animated.View entering={FadeIn.duration(300)} style={[styles.drawnHint, { marginTop: spacing.sm }]}>
-            <MaterialCommunityIcons name="gift-open-outline" size={14} color={colors.muted} />
-            <Text style={[typography.captionSm, { color: colors.muted, marginLeft: spacing.xxs }]}>
-              今日已抽奖，请明天再来
-            </Text>
+        {/* VIP 礼包轮播替换旧品牌使命文案；无数据时整块隐藏，避免空标题占位 */}
+        {vipPackages.length > 0 ? (
+          <Animated.View entering={FadeInDown.duration(300).delay(80)}>
+            <View style={[styles.vipPromoSection, { marginTop: spacing['2xl'] }]}>
+              <View style={styles.vipPromoHeader}>
+                <Text style={[typography.headingSm, { color: colors.text.primary }]}>
+                  精选 VIP 礼包
+                </Text>
+                <Text style={[typography.captionSm, { color: colors.muted }]}>
+                  左右滑动查看
+                </Text>
+              </View>
+              <VipHomePromoCarousel
+                packages={vipPackages}
+                onPressCard={handleVipPromoPress}
+                mode={vipPromoMode}
+              />
+            </View>
           </Animated.View>
-        )}
+        ) : null}
 
         {/* 最近对话 —【AI 多轮对话已下线】用 false && 关闭整块，恢复时删掉 false && ( 和结尾的 ) 即可 */}
         {false && (
@@ -942,33 +663,17 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
-  greetingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  greetingArea: {
-    flex: 1,
-    alignItems: 'flex-start',
-    paddingRight: 12,
-  },
-  heroStatement: {
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    letterSpacing: 0,
-  },
   cartBtn: {
-    width: 40,
-    height: 40,
+    width: 46,
+    height: 46,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
   },
   cartBadge: {
     position: 'absolute',
-    top: 0,
-    right: 0,
+    top: -4,
+    right: -3,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
@@ -977,173 +682,101 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   searchBar: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
   },
-  missionBlock: {
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  missionText: {
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: '700',
-    letterSpacing: 0,
-    textAlign: 'center',
-  },
-  missionTextSecondary: {
-    marginTop: 2,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  pairedRow: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
+    gap: 10,
   },
-  pairedBtnWrap: {
+  aiStage: {
+    minHeight: 236,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
   },
-  pairedHalo: {
+  aiStageCompact: {
+    minHeight: 220,
+  },
+  homeAiOrb: {
+    alignSelf: 'center',
+    zIndex: 2,
+  },
+  homeLobster: {
     position: 'absolute',
-    width: 164,
-    height: 164,
-    borderRadius: 82,
-    opacity: 0.18,
+    width: 126,
+    height: 126,
+    left: -14,
+    top: 58,
+    opacity: 0.86,
+    zIndex: 3,
+    transform: [{ rotate: '-8deg' }],
   },
-  pairedBtn: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
+  homeLobsterCompact: {
+    width: 78,
+    height: 78,
+    left: -6,
+    top: 76,
+    opacity: 0.84,
   },
-  pairedAiTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 2,
+  homeCrab: {
+    position: 'absolute',
+    width: 136,
+    height: 136,
+    right: -18,
+    top: 62,
+    opacity: 0.78,
+    zIndex: 1,
+    transform: [{ rotate: '7deg' }],
   },
-  pairedAiSub: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginTop: -2,
+  homeCrabCompact: {
+    width: 80,
+    height: 80,
+    right: -6,
+    top: 78,
+    opacity: 0.76,
   },
-  drawnHint: {
+  vipPromoSection: {
+    marginHorizontal: 0,
+  },
+  vipPromoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
   },
   vipReferralStrip: {
-    height: 36,
-    paddingLeft: 12,
-    paddingRight: 6,
+    minHeight: 44,
+    paddingLeft: 14,
+    paddingRight: 7,
+    paddingVertical: 5,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    backgroundColor: '#0F1F17',
+    backgroundColor: '#F2FAF5',
   },
   vipReferralText: {
     flex: 1,
     marginLeft: 8,
-    color: '#F5E6B8',
-    fontSize: 12,
+    color: '#143D28',
+    fontSize: 13,
     fontWeight: '700',
   },
   vipReferralCta: {
-    height: 26,
-    paddingHorizontal: 10,
-    borderRadius: 13,
+    minHeight: 31,
+    paddingHorizontal: 13,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5E6B8',
+    backgroundColor: '#267B48',
   },
   vipReferralCtaText: {
-    color: '#13231A',
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '800',
-  },
-  groupBuyEntry: {
-    minHeight: 72,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  groupBuyIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  groupBuyCopy: {
-    flex: 1,
-    minWidth: 0,
-    marginLeft: 12,
-  },
-  groupBuyCta: {
-    minWidth: 56,
-    minHeight: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-  lotteryInline: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lotteryGlowRing: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-  },
-  lotteryButton: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  lotteryShine: {
-    position: 'absolute',
-    width: 18,
-    height: 140,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  lotteryBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  lotteryBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    lineHeight: 14,
-  },
-  lotteryBtnLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginTop: 2,
-    letterSpacing: 1,
   },
   recentSection: {},
   conversationCard: {

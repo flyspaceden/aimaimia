@@ -1,9 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AiOrb } from '../../src/components/effects';
+import { SeafoodIcon } from '../../src/components/ui';
 import { useTheme } from '../../src/theme';
 
 // 底部三个主 Tab 的导航容器
@@ -45,8 +44,8 @@ export default function TabsLayout() {
           title: '首页',
           tabBarAccessibilityLabel: '首页，AI 农业助手',
           tabBarIcon: ({ focused }) => (
-            <View style={styles.iconWrap}>
-              <AiOrb size="mini" state={focused ? 'idle' : 'idle'} />
+            <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
+              <SeafoodIcon name="puffer" size={30} opacity={focused ? 1 : 0.68} />
               {focused && (
                 <View style={[styles.dot, { backgroundColor: colors.brand.primary }]} />
               )}
@@ -59,13 +58,9 @@ export default function TabsLayout() {
         options={{
           title: '发现',
           tabBarAccessibilityLabel: '发现，浏览商品与企业',
-          tabBarIcon: ({ focused, color }) => (
-            <View style={styles.iconWrap}>
-              <MaterialCommunityIcons
-                name="compass-outline"
-                size={24}
-                color={color}
-              />
+          tabBarIcon: ({ focused }) => (
+            <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
+              <SeafoodIcon name="starfish" size={30} opacity={focused ? 1 : 0.68} />
               {focused && (
                 <View style={[styles.dot, { backgroundColor: colors.brand.primary }]} />
               )}
@@ -78,13 +73,9 @@ export default function TabsLayout() {
         options={{
           title: '我的',
           tabBarAccessibilityLabel: '我的，个人中心',
-          tabBarIcon: ({ focused, color }) => (
-            <View style={styles.iconWrap}>
-              <MaterialCommunityIcons
-                name="account-circle-outline"
-                size={24}
-                color={color}
-              />
+          tabBarIcon: ({ focused }) => (
+            <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
+              <SeafoodIcon name="oyster" size={30} opacity={focused ? 1 : 0.68} />
               {focused && (
                 <View style={[styles.dot, { backgroundColor: colors.brand.primary }]} />
               )}
@@ -101,6 +92,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     height: 32,
+  },
+  iconWrapFocused: {
+    transform: [{ translateY: -1 }, { scale: 1.06 }],
   },
   dot: {
     width: 4,

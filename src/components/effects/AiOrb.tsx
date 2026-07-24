@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,8 +12,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../../theme';
 
-export type AiOrbSize = 'large' | 'small' | 'mini';
+export type AiOrbSize = 'large' | 'medium' | 'small' | 'mini';
 export type AiOrbState = 'idle' | 'listening' | 'thinking' | 'responding' | 'error';
+export type AiOrbAppearance = 'default' | 'bright';
 
 interface AiOrbProps {
   size: AiOrbSize;
@@ -24,17 +26,19 @@ interface AiOrbProps {
   showLabel?: boolean;
   /** 当 false 时用 View 替代 Pressable，让父级 GestureDetector 接管触摸 */
   interactive?: boolean;
+  appearance?: AiOrbAppearance;
   style?: any;
 }
 
 // 尺寸配置
 const SIZE_MAP = {
   large: { orb: 160, halo: 200 },
+  medium: { orb: 136, halo: 174 },
   small: { orb: 48, halo: 64 },
   mini: { orb: 24, halo: 32 },
 };
 
-// AI 光球组件：支持 large/small/mini 三种尺寸
+// AI 光球组件：支持 large/medium/small/mini 四种尺寸
 export function AiOrb({
   size,
   state = 'idle',
@@ -44,6 +48,7 @@ export function AiOrb({
   onPressOut,
   showLabel,
   interactive = true,
+  appearance = 'default',
   style,
 }: AiOrbProps) {
   const { colors, typography, shadow } = useTheme();
@@ -101,6 +106,7 @@ export function AiOrb({
 
   const isListening = state === 'listening';
   const orbBg = isListening ? colors.brand.primaryDark : colors.brand.primary;
+  const isBright = appearance === 'bright';
 
   // mini 尺寸：简化圆形 + 内部亮点
   if (size === 'mini') {
@@ -230,13 +236,29 @@ export function AiOrb({
             styles.orbButton,
             shadow.lg,
             {
-              backgroundColor: orbBg,
+              backgroundColor: isBright ? 'transparent' : orbBg,
               width: dim.orb,
               height: dim.orb,
               borderRadius: dim.orb / 2,
             },
           ]}
         >
+          {isBright && (
+            <>
+              <LinearGradient
+                colors={
+                  isListening
+                    ? ['#54B96D', '#218447', '#135F35']
+                    : ['#8BE18F', '#43AD62', '#1F7845']
+                }
+                start={{ x: 0.18, y: 0.04 }}
+                end={{ x: 0.82, y: 0.96 }}
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              />
+              <View style={styles.orbHighlight} pointerEvents="none" />
+            </>
+          )}
           {isListening ? (
             <>
               <MaterialCommunityIcons
@@ -293,5 +315,16 @@ const styles = StyleSheet.create({
   orbButton: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  orbHighlight: {
+    position: 'absolute',
+    top: 16,
+    left: 25,
+    width: 72,
+    height: 34,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    transform: [{ rotate: '-18deg' }],
   },
 });
