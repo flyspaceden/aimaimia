@@ -1715,7 +1715,7 @@ Tab 栏设计：
 推荐关系展示规则：
 - `GET /bonus/member` 返回 `inviter` 摘要后，`/me/vip` 在购买前显示"将加入谁的 VIP 团队"；未绑定时显示"购买后将由系统分配"，并提供扫码绑定入口。
 - `我的`Tab 的"常用工具"第一项固定进入 `/me/referral`，文案统一为"推荐中心"；第二项为独立的"积分成长"，进入 `/me/growth`。
-- `/me/referral` 是统一推荐中心：普通用户展示普通分享码、绑定推荐人、自动成为 VIP 进度、普通推荐收益说明和最近推荐用户；VIP 用户展示 VIP 推荐码、VIP 直邀 VIP 人数、绑定推荐人和最近推荐用户。普通和 VIP 的新二维码/分享链接统一指向官网 H5 `https://app.ai-maimai.com/invite/{code}`，被推荐人可先在 H5 用手机号验证码登录/自动注册并绑定关系；若用户在微信内完成登记后转系统浏览器下载，H5 以首次登记起固定 10 分钟的一次性下载凭证交接，候选值按 landing session 先写入微信页 `sessionStorage` 以支持响应丢失后的刷新重试，系统浏览器消费后直达原有下载分发渠道，不再重复登录或重复绑定推荐关系；无本地 H5 Token / landing session 的伪造或残留 hash 会被清除并恢复登录表单。页面同时展示 H5 邀请漏斗统计（扫码打开次数、H5 已登录人数、H5 已绑定人数，不混入 App 内或历史绑定）。若推荐人摘要缺失但已有关系，前端仍按已绑定展示，名称兜底为"已绑定用户"。
+- `/me/referral` 是统一推荐中心：普通用户展示普通分享码、绑定推荐人、自动成为 VIP 进度、普通推荐收益说明和最近推荐用户；VIP 用户展示 VIP 推荐码、VIP 直邀 VIP 人数、绑定推荐人和最近推荐用户。普通和 VIP 的新二维码/分享链接统一指向官网 H5 `https://app.ai-maimai.com/invite/{code}`，被推荐人可先在 H5 用手机号验证码登录/自动注册并绑定关系；若用户在微信内完成登记后转系统浏览器下载，H5 以首次登记起固定 10 分钟的一次性下载凭证交接，候选值按 landing session 先写入微信页 `sessionStorage` 以支持响应丢失后的刷新重试；微信页会真实跳转到带 `?handoff=` 的当前地址，避免微信跨浏览器时丢失仅由 History API 写入的 hash，系统浏览器随即清理 query、原子消费凭证并直达原有下载分发渠道，不再重复登录或重复绑定推荐关系。无本地 H5 Token / landing session 的伪造或残留 handoff 会被清除并恢复登录表单；官网为这类短时 URL 设置 `Referrer-Policy: no-referrer`。页面同时展示 H5 邀请漏斗统计（扫码打开次数、H5 已登录人数、H5 已绑定人数，不混入 App 内或历史绑定）。若推荐人摘要缺失但已有关系，前端仍按已绑定展示，名称兜底为"已绑定用户"。
 - `/me/referral-users` 展示当前用户直接推荐的全部用户：普通用户读取 `GET /normal-share/records`，VIP 用户读取 `GET /bonus/referral/records`。
 - `/me/growth` 只展示积分余额、成长值、成长任务、等级规则和积分兑换，不再承载普通分享码、绑定分享码或推荐收益模块。
 - 扫码成功后 `/me/scanner` 使用绑定结果中的 `inviter.nickname / maskedPhone` 提示"已绑定推荐人：xxx"，并刷新 `bonus-member` 缓存；扫码器兼容旧 `/r/{code}`、`/s/{code}` 和新 `/invite/{code}`，其中 `/invite/{code}` 按 auto 类型交给后端绑定规则判断。
