@@ -12,9 +12,12 @@ import {
   normalizeInviteCode,
   normalizeInviteDownloadPass,
   readInviteDownloadPass,
+  readInviteDownloadHandoff,
   storeInviteDownloadPass,
   submitStateForBindingStatus,
   unwrapApiData,
+  withoutInviteDownloadHandoff,
+  withInviteDownloadHandoff,
 } from '../../src/lib/inviteH5.ts'
 
 test('邀请码统一修剪并大写，非 8 位字母数字视为无效', () => {
@@ -86,7 +89,17 @@ test('下载交接凭证只接受 256 位 base64url，并按 H5 会话持久化�
   assert.equal(readInviteDownloadPass(storage, 'ih5_session_1'), null)
 })
 
-test('微信下载 hash 必须同时有本地 H5 token 和 landing session 才能恢复', () => {
+test('下载交接凭证使用真实 query，保留其他参数且可在消费前清理', () => {
+  const ticket = 'A'.repeat(43)
+  const search = withInviteDownloadHandoff('?utm_source=wechat', ticket)
+
+  assert.equal(search, `?utm_source=wechat&handoff=${ticket}`)
+  assert.equal(readInviteDownloadHandoff(search), ticket)
+  assert.equal(readInviteDownloadHandoff('?handoff=fake'), null)
+  assert.equal(withoutInviteDownloadHandoff(search), '?utm_source=wechat')
+})
+
+test('微信下载 handoff 必须同时有本地 H5 token 和 landing session 才能恢复', () => {
   const ticket = 'A'.repeat(43)
 
   assert.equal(canResumeWechatDownload({
@@ -129,6 +142,7 @@ test('H5 邀请页支持微信授权 callback 和非微信浏览器 fallback', (
 
 test('微信完成 H5 登录后以一次性下载凭证交接给系统浏览器，不重复登录或重复绑定', () => {
   const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+  const index = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
 
   assert.match(page, /invite-h5\/download-pass/)
   assert.match(page, /invite-h5\/download-pass\/consume/)
@@ -138,13 +152,19 @@ test('微信完成 H5 登录后以一次性下载凭证交接给系统浏览器�
   assert.match(page, /readInviteDownloadPass\(sessionStorage, landingSessionId\)/)
   assert.match(page, /ticket: candidate/)
   assert.match(page, /response\.status === 'RENEW_REQUIRED'/)
-  assert.match(page, /hashParams\.set\('downloadPass', ticket\)/)
-  assert.match(page, /hashParams\.delete\('downloadPass'\)/)
-  assert.match(page, /window\.location\.hash\.replace\(\/\^#\/, ''\)/)
+  assert.match(page, /readInviteDownloadHandoff\(window\.location\.search\)/)
+  assert.match(page, /navigateToDownloadHandoff\(ticket\)/)
+  assert.match(page, /window\.location\.replace\(url\.toString\(\)\)/)
+  assert.match(page, /removeDownloadHandoffFromUrl\(\)/)
+  assert.doesNotMatch(page, /hashParams\.set\('downloadPass', ticket\)/)
+  assert.match(page, /setShowWechatGuide\(true\)/)
+  assert.match(page, /if \(hasResumableWechatDownload && downloadPass\) \{\s*setShowWechatGuide\(true\)\s*return/)
+  assert.match(page, /请在右上角打开浏览器/)
   assert.match(page, /startDownloadInBrowser\(platform\)/)
   assert.match(page, /已完成登记，请在浏览器中打开，系统会自动前往下载/)
   assert.match(page, /if \(downloadPass\) \{\s*setLandingState\('ready'\)/)
   assert.match(page, /\{authCompleted \? \(/)
+  assert.match(index, /<meta name="referrer" content="no-referrer" \/>/)
 })
 
 test('微信返回后会复用有效下载凭证，已使用或过期才生成新的凭证', () => {

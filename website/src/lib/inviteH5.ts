@@ -43,12 +43,39 @@ export function inviteLandingSessionStorageKey(inviteCode: string): string {
 }
 
 const INVITE_DOWNLOAD_PASS_PATTERN = /^[A-Za-z0-9_-]{43}$/
+export const INVITE_DOWNLOAD_HANDOFF_PARAM = 'handoff'
 
 type SessionStorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 export function normalizeInviteDownloadPass(ticket?: string | null): string | null {
   const normalized = ticket?.trim() ?? ''
   return INVITE_DOWNLOAD_PASS_PATTERN.test(normalized) ? normalized : null
+}
+
+/**
+ * 微信内置浏览器切到系统浏览器时不会可靠保留仅由 History API 写入的 hash。
+ * 下载交接值必须位于一次真实页面跳转的 query 中，才会成为系统浏览器实际打开的 URL。
+ */
+export function readInviteDownloadHandoff(search: string): string | null {
+  return normalizeInviteDownloadPass(
+    new URLSearchParams(search).get(INVITE_DOWNLOAD_HANDOFF_PARAM),
+  )
+}
+
+export function withInviteDownloadHandoff(search: string, ticket: string): string {
+  const normalized = normalizeInviteDownloadPass(ticket)
+  if (!normalized) throw new Error('invalid invite download pass')
+  const params = new URLSearchParams(search)
+  params.set(INVITE_DOWNLOAD_HANDOFF_PARAM, normalized)
+  const next = params.toString()
+  return next ? `?${next}` : ''
+}
+
+export function withoutInviteDownloadHandoff(search: string): string {
+  const params = new URLSearchParams(search)
+  params.delete(INVITE_DOWNLOAD_HANDOFF_PARAM)
+  const next = params.toString()
+  return next ? `?${next}` : ''
 }
 
 export function inviteDownloadPassSessionStorageKey(landingSessionId: string): string {

@@ -12,13 +12,15 @@ import {
   getWechatCallbackParams,
   inviteLandingSessionStorageKey,
   normalizeInviteCode,
-  normalizeInviteDownloadPass,
   readInviteDownloadPass,
+  readInviteDownloadHandoff,
   removeWechatCallbackHash,
   removeWechatCallbackParamsFromSearch,
   storeInviteDownloadPass,
   submitStateForBindingStatus,
+  withoutInviteDownloadHandoff,
   unwrapApiData,
+  withInviteDownloadHandoff,
   type InviteBindingStatus,
 } from '@/lib/inviteH5'
 import { pickAndroidDownloadUrl, resolveAndroidFallbackUrl } from '@/lib/downloadLinks'
@@ -135,16 +137,21 @@ function createDownloadPassTicket(): string {
     .replace(/=+$/g, '')
 }
 
-function replaceDownloadPassHash(ticket: string | null) {
+/**
+ * 必须触发真实导航：微信“在浏览器中打开”会取实际加载的 URL，不能依赖
+ * replaceState 写入的 hash。handoff 是高熵、10 分钟、一次性的下载凭证，
+ * 不携带登录 token、手机号或推荐码。
+ */
+function navigateToDownloadHandoff(ticket: string) {
   const url = new URL(window.location.href)
-  url.searchParams.delete('downloadPass')
-  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''))
-  if (ticket) {
-    hashParams.set('downloadPass', ticket)
-  } else {
-    hashParams.delete('downloadPass')
-  }
-  url.hash = hashParams.toString()
+  url.search = withInviteDownloadHandoff(url.search, ticket)
+  url.hash = ''
+  window.location.replace(url.toString())
+}
+
+function removeDownloadHandoffFromUrl() {
+  const url = new URL(window.location.href)
+  url.search = withoutInviteDownloadHandoff(url.search)
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
@@ -155,11 +162,10 @@ export default function InviteAuthLanding() {
 
   const { code } = useParams<{ code?: string }>()
   const inviteCode = useMemo(() => normalizeInviteCode(code), [code])
-  // 只在页面首次打开时读取。消费前会立即从地址栏移除，不能因为 URL 改写让
-  // React 取消尚在进行的消费请求。
+  // 只在页面首次打开时读取。系统浏览器消费前会立即从地址栏移除，不能因为 URL
+  // 改写让 React 取消尚在进行的消费请求。
   const [downloadPass, setDownloadPass] = useState(() => {
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-    return normalizeInviteDownloadPass(hashParams.get('downloadPass'))
+    return readInviteDownloadHandoff(window.location.search)
   })
   const landingSessionStorageKey = useMemo(
     () => (inviteCode ? inviteLandingSessionStorageKey(inviteCode) : null),
@@ -221,12 +227,12 @@ export default function InviteAuthLanding() {
   useEffect(() => {
     if (!downloadPass) return
 
-    // 微信“在浏览器中打开”会沿用当前 URL。微信内不消费凭证，避免刷新页面后
-    // 把凭证提前作废；系统浏览器才会原子消费并立即进入下载渠道。
+    // 微信内不消费凭证，避免刷新页面后把凭证提前作废；系统浏览器才会原子消费并
+    // 立即进入下载渠道。handoff query 是真实导航后的 URL，微信打开系统浏览器时可携带它。
     if (wechat) {
       const accessToken = sessionStorage.getItem('invite_h5_access_token')
       if (!canResumeWechatDownload({ ticket: downloadPass, accessToken, landingSessionId })) {
-        replaceDownloadPassHash(null)
+        removeDownloadHandoffFromUrl()
         if (landingSessionId) clearInviteDownloadPass(sessionStorage, landingSessionId)
         setDownloadPass(null)
         setPreparedDownloadPass(null)
@@ -247,12 +253,13 @@ export default function InviteAuthLanding() {
       setLoginCompleted(true)
       setSubmitState('success')
       setNotice('已完成登记，请在浏览器中打开，系统会自动前往下载')
+      setShowWechatGuide(true)
       return
     }
 
     let active = true
     // 先清掉地址栏里的短时凭证，再发起请求，避免它进入浏览器历史或下游 Referer。
-    replaceDownloadPassHash(null)
+    removeDownloadHandoffFromUrl()
     setNotice('正在确认下载')
 
     postJson<ConsumeDownloadPassResponse>('/invite-h5/download-pass/consume', { ticket: downloadPass })
@@ -515,16 +522,13 @@ export default function InviteAuthLanding() {
         throw new Error('下载凭证准备失败，请稍后重试')
       }
 
-      replaceDownloadPassHash(ticket)
-      setSubmitState('success')
-      setNotice('已完成登记，请在浏览器中打开，系统会自动前往下载')
-      setShowWechatGuide(true)
+      navigateToDownloadHandoff(ticket)
     } catch (err) {
       if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) {
         sessionStorage.removeItem('invite_h5_access_token')
         sessionStorage.removeItem('invite_h5_refresh_token')
         clearInviteDownloadPass(sessionStorage, landingSessionId)
-        replaceDownloadPassHash(null)
+        removeDownloadHandoffFromUrl()
         setDownloadPass(null)
         setPreparedDownloadPass(null)
         setLoginCompleted(false)
@@ -546,6 +550,13 @@ export default function InviteAuthLanding() {
       if (!accessToken || !landingSessionId) {
         setSubmitState('error')
         setNotice('登录状态已失效，请重新登录后下载')
+        return
+      }
+
+      // 已完成真实 handoff 导航时，只重新展示“右上角打开浏览器”引导，不能重复
+      // 签发或覆盖仍有效的一次性凭证。
+      if (hasResumableWechatDownload && downloadPass) {
+        setShowWechatGuide(true)
         return
       }
 
@@ -683,10 +694,14 @@ export default function InviteAuthLanding() {
             <button
               type="button"
               onClick={handleDownload}
-              disabled={preparingDownload}
+            disabled={preparingDownload}
               className="mt-3 h-12 w-full rounded-md border border-[#0e7c86] bg-white text-[16px] font-bold text-[#0e7c86] transition hover:bg-[#eef9fa]"
             >
-              {preparingDownload ? '正在准备下载' : '下载 App'}
+              {preparingDownload
+                ? '正在准备下载'
+                : hasResumableWechatDownload && downloadPass
+                  ? '请在右上角打开浏览器'
+                  : '下载 App'}
             </button>
           ) : null}
         </form>
