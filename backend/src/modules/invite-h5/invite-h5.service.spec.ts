@@ -1,4 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { InviteH5Service } from './invite-h5.service';
 
 const makeHarness = () => {
@@ -278,5 +279,171 @@ describe('InviteH5Service', () => {
     expect(prisma.normalShareBinding.count).not.toHaveBeenCalled();
     expect(prisma.referralLink.count).not.toHaveBeenCalled();
     expect(result).toEqual({ openCount: 6, authedCount: 2, boundCount: 1 });
+  });
+
+  it('issues a ten-minute client-generated download pass only to the authenticated H5 user', async () => {
+    const { prisma, service } = makeHarness();
+    const ticket = 'A'.repeat(43);
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({
+      authedUserId: 'invitee-1',
+      downloadPassHash: null,
+      downloadPassExpiresAt: null,
+      downloadPassUsedAt: null,
+    });
+
+    const result = await service.createDownloadPass('invitee-1', 'ih5_session_1', ticket);
+
+    expect(result.status).toBe('READY');
+    if (result.status !== 'READY') throw new Error('expected READY pass');
+    expect(new Date(result.expiresAt).getTime()).toBeGreaterThan(Date.now() + 9 * 60 * 1000);
+    expect(new Date(result.expiresAt).getTime()).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000 + 1_000);
+    expect(prisma.inviteH5LandingEvent.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ landingSessionId: 'ih5_session_1', authedUserId: 'invitee-1' }),
+      data: expect.objectContaining({
+        downloadPassHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        downloadPassExpiresAt: expect.any(Date),
+        downloadPassUsedAt: null,
+      }),
+    });
+  });
+
+  it('reuses the same active download pass for a network retry without overwriting it', async () => {
+    const { prisma, service } = makeHarness();
+    const expiresAt = new Date(Date.now() + 60_000);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 1 });
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({
+      authedUserId: 'invitee-1',
+      downloadPassHash: createHash('sha256').update('A'.repeat(43)).digest('hex'),
+      downloadPassExpiresAt: expiresAt,
+      downloadPassUsedAt: null,
+    });
+
+    await expect(service.createDownloadPass('invitee-1', 'ih5_session_1', 'A'.repeat(43)))
+      .resolves.toEqual({ status: 'READY', expiresAt: expiresAt.toISOString() });
+    expect(prisma.inviteH5LandingEvent.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        landingSessionId: 'ih5_session_1',
+        authedUserId: 'invitee-1',
+        downloadPassHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        downloadPassExpiresAt: { gt: expect.any(Date) },
+        downloadPassUsedAt: null,
+      }),
+      data: { downloadPassExpiresAt: expiresAt },
+    });
+  });
+
+  it('returns the settled same ticket when another identical request wins first issuance', async () => {
+    const { prisma, service } = makeHarness();
+    const ticket = 'A'.repeat(43);
+    const expiresAt = new Date(Date.now() + 60_000);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 0 });
+    prisma.inviteH5LandingEvent.findUnique
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: null,
+        downloadPassExpiresAt: null,
+        downloadPassUsedAt: null,
+      })
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: createHash('sha256').update(ticket).digest('hex'),
+        downloadPassExpiresAt: expiresAt,
+        downloadPassUsedAt: null,
+      });
+
+    await expect(service.createDownloadPass('invitee-1', 'ih5_session_1', ticket))
+      .resolves.toEqual({ status: 'READY', expiresAt: expiresAt.toISOString() });
+  });
+
+  it('requires renewal when the system browser consumes a pass during a same-ticket retry', async () => {
+    const { prisma, service } = makeHarness();
+    const ticket = 'A'.repeat(43);
+    const ticketHash = createHash('sha256').update(ticket).digest('hex');
+    const expiresAt = new Date(Date.now() + 60_000);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 0 });
+    prisma.inviteH5LandingEvent.findUnique
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: ticketHash,
+        downloadPassExpiresAt: expiresAt,
+        downloadPassUsedAt: null,
+      })
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: ticketHash,
+        downloadPassExpiresAt: expiresAt,
+        downloadPassUsedAt: new Date(),
+      });
+
+    await expect(service.createDownloadPass('invitee-1', 'ih5_session_1', ticket))
+      .resolves.toEqual({ status: 'RENEW_REQUIRED' });
+  });
+
+  it('requires a fresh ticket instead of resurrecting an expired or consumed pass', async () => {
+    const { prisma, service } = makeHarness();
+    const ticket = 'A'.repeat(43);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 0 });
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({
+      authedUserId: 'invitee-1',
+      downloadPassHash: createHash('sha256').update(ticket).digest('hex'),
+      downloadPassExpiresAt: new Date(Date.now() - 1),
+      downloadPassUsedAt: null,
+    });
+
+    await expect(service.createDownloadPass('invitee-1', 'ih5_session_1', ticket))
+      .resolves.toEqual({ status: 'RENEW_REQUIRED' });
+    expect(prisma.inviteH5LandingEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not let a different concurrent ticket overwrite an existing active pass', async () => {
+    const { prisma, service } = makeHarness();
+    const activeTicket = 'A'.repeat(43);
+    prisma.inviteH5LandingEvent.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    prisma.inviteH5LandingEvent.findUnique
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: createHash('sha256').update(activeTicket).digest('hex'),
+        downloadPassExpiresAt: new Date(Date.now() + 60_000),
+        downloadPassUsedAt: null,
+      })
+      .mockResolvedValueOnce({
+        authedUserId: 'invitee-1',
+        downloadPassHash: createHash('sha256').update(activeTicket).digest('hex'),
+        downloadPassExpiresAt: new Date(Date.now() + 60_000),
+        downloadPassUsedAt: null,
+      });
+
+    await expect(service.createDownloadPass('invitee-1', 'ih5_session_1', 'B'.repeat(43)))
+      .rejects.toMatchObject({ response: { message: '下载已在另一个窗口准备，请返回原页面继续' } });
+  });
+
+  it('rejects issuing a download pass for another user or an unknown H5 session', async () => {
+    const { prisma, service } = makeHarness();
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.createDownloadPass('other-user', 'ih5_session_1', 'A'.repeat(43)))
+      .rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('atomically consumes a download pass once without exposing failure reason', async () => {
+    const { prisma, service } = makeHarness();
+    prisma.inviteH5LandingEvent.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    const ticket = 'A'.repeat(43);
+
+    await expect(service.consumeDownloadPass(ticket)).resolves.toEqual({ valid: true });
+    await expect(service.consumeDownloadPass(ticket)).resolves.toEqual({ valid: false });
+    expect(prisma.inviteH5LandingEvent.updateMany).toHaveBeenNthCalledWith(1, {
+      where: expect.objectContaining({
+        downloadPassHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        downloadPassExpiresAt: { gt: expect.any(Date) },
+        downloadPassUsedAt: null,
+        authedUserId: { not: null },
+      }),
+      data: { downloadPassUsedAt: expect.any(Date) },
+    });
   });
 });

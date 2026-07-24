@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusService } from '../bonus/bonus.service';
 import { NormalShareService } from '../normal-share/normal-share.service';
@@ -22,6 +22,7 @@ type BindAfterAuthInput = {
 @Injectable()
 export class InviteH5Service {
   private readonly logger = new Logger(InviteH5Service.name);
+  private static readonly DOWNLOAD_PASS_TTL_MS = 10 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -138,6 +139,154 @@ export class InviteH5Service {
       authedCount: authedUsers.length,
       boundCount: boundUsers.length,
     };
+  }
+
+  /**
+   * 为当前已完成 H5 登录的会话签发下载交接凭证。
+   * 这里只用 updateMany 的条件作为授权判断，避免“先读再写”之间被替换会话归属。
+   */
+  async createDownloadPass(userId: string, landingSessionId: string, ticket: string) {
+    const ticketHash = this.hashDownloadPass(ticket);
+    const now = new Date();
+    const expiresAt = new Date(Date.now() + InviteH5Service.DOWNLOAD_PASS_TTL_MS);
+
+    const current = await this.prisma.inviteH5LandingEvent.findUnique({
+      where: { landingSessionId },
+      select: {
+        authedUserId: true,
+        downloadPassHash: true,
+        downloadPassExpiresAt: true,
+        downloadPassUsedAt: true,
+      },
+    });
+
+    if (!current || current.authedUserId !== userId) {
+      throw new ForbiddenException('当前登录会话不能申请下载凭证');
+    }
+
+    if (current.downloadPassHash === ticketHash) {
+      const existingExpiresAt = current.downloadPassExpiresAt;
+      // 已消费或过期的旧凭证不能被复活；前端应生成新的随机值再请求一次。
+      if (current.downloadPassUsedAt || !existingExpiresAt || existingExpiresAt <= now) {
+        return { status: 'RENEW_REQUIRED' as const };
+      }
+
+      // 同一票据可重试，但有效期固定从首次登记时起算，不能被反复续期。
+      // 条件更新仍是并发裁决点：若刚好被系统浏览器消费，会得到 0 并走后续状态确认。
+      const reused = await this.prisma.inviteH5LandingEvent.updateMany({
+        where: {
+          landingSessionId,
+          authedUserId: userId,
+          downloadPassHash: ticketHash,
+          downloadPassExpiresAt: { gt: now },
+          downloadPassUsedAt: null,
+        },
+        data: {
+          downloadPassExpiresAt: existingExpiresAt,
+        },
+      });
+      if (reused.count === 1) {
+        return { status: 'READY' as const, expiresAt: existingExpiresAt.toISOString() };
+      }
+
+      const settled = await this.prisma.inviteH5LandingEvent.findUnique({
+        where: { landingSessionId },
+        select: {
+          authedUserId: true,
+          downloadPassHash: true,
+          downloadPassExpiresAt: true,
+          downloadPassUsedAt: true,
+        },
+      });
+      if (!settled || settled.authedUserId !== userId) {
+        throw new ForbiddenException('当前登录会话不能申请下载凭证');
+      }
+      if (
+        settled.downloadPassHash === ticketHash &&
+        !settled.downloadPassUsedAt &&
+        settled.downloadPassExpiresAt &&
+        settled.downloadPassExpiresAt > now
+      ) {
+        return { status: 'READY' as const, expiresAt: settled.downloadPassExpiresAt.toISOString() };
+      }
+      if (
+        settled.downloadPassHash === ticketHash &&
+        (settled.downloadPassUsedAt || !settled.downloadPassExpiresAt || settled.downloadPassExpiresAt <= now)
+      ) {
+        return { status: 'RENEW_REQUIRED' as const };
+      }
+      throw new ConflictException('下载已在另一个窗口准备，请返回原页面继续');
+    }
+
+    // 只有没有有效凭证的会话才允许写入新票据。这个条件更新是并发裁决点：
+    // 双击/多标签页不同票据只能有一个成功，后写请求不能覆盖先写请求。
+    const issued = await this.prisma.inviteH5LandingEvent.updateMany({
+      where: {
+        landingSessionId,
+        authedUserId: userId,
+        OR: [
+          { downloadPassHash: null },
+          { downloadPassExpiresAt: { lte: now } },
+          { downloadPassUsedAt: { not: null } },
+        ],
+      },
+      data: {
+        downloadPassHash: ticketHash,
+        downloadPassExpiresAt: expiresAt,
+        downloadPassUsedAt: null,
+      },
+    });
+
+    if (issued.count === 1) {
+      return { status: 'READY' as const, expiresAt: expiresAt.toISOString() };
+    }
+
+    // 若另一个同票据重试刚好先完成，当前请求也可安全复用它；不同有效票据则拒绝。
+    const settled = await this.prisma.inviteH5LandingEvent.findUnique({
+      where: { landingSessionId },
+      select: {
+        authedUserId: true,
+        downloadPassHash: true,
+        downloadPassExpiresAt: true,
+        downloadPassUsedAt: true,
+      },
+    });
+    if (!settled || settled.authedUserId !== userId) {
+      throw new ForbiddenException('当前登录会话不能申请下载凭证');
+    }
+    if (
+      settled.downloadPassHash === ticketHash &&
+      !settled.downloadPassUsedAt &&
+      settled.downloadPassExpiresAt &&
+      settled.downloadPassExpiresAt > now
+    ) {
+      return { status: 'READY' as const, expiresAt: settled.downloadPassExpiresAt.toISOString() };
+    }
+    if (
+      settled.downloadPassHash === ticketHash &&
+      (settled.downloadPassUsedAt || !settled.downloadPassExpiresAt || settled.downloadPassExpiresAt <= now)
+    ) {
+      return { status: 'RENEW_REQUIRED' as const };
+    }
+    throw new ConflictException('下载已在另一个窗口准备，请返回原页面继续');
+  }
+
+  /**
+   * 原子消费一次性下载凭证。无论凭证不存在、过期还是已消费，都只返回不可用，
+   * 避免让公开接口泄露 H5 会话或用户信息。
+   */
+  async consumeDownloadPass(ticket: string): Promise<{ valid: boolean }> {
+    const now = new Date();
+    const result = await this.prisma.inviteH5LandingEvent.updateMany({
+      where: {
+        downloadPassHash: this.hashDownloadPass(ticket),
+        downloadPassExpiresAt: { gt: now },
+        downloadPassUsedAt: null,
+        authedUserId: { not: null },
+      },
+      data: { downloadPassUsedAt: now },
+    });
+    return { valid: result.count === 1 };
   }
 
   private async inviteCodeForBinding(input: BindAfterAuthInput): Promise<string> {
@@ -279,5 +428,9 @@ export class InviteH5Service {
 
   private newLandingSessionId(): string {
     return `ih5_${randomBytes(12).toString('hex')}`;
+  }
+
+  private hashDownloadPass(ticket: string): string {
+    return createHash('sha256').update(ticket).digest('hex');
   }
 }

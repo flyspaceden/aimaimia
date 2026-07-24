@@ -2811,6 +2811,11 @@ model InviteH5LandingEvent {
   bindingType      String?
   boundAt          DateTime?
   errorCode        String?
+  // 微信内 H5 登录完成后，交给系统浏览器直接下载的短时一次性凭证（只存哈希）。
+  // 它不代表买家登录态，也不参与推荐关系绑定。
+  downloadPassHash      String?   @unique
+  downloadPassExpiresAt DateTime?
+  downloadPassUsedAt    DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
