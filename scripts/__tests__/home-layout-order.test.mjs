@@ -6,11 +6,14 @@ const read = (path) => readFileSync(path, 'utf8');
 
 test('home search moves into the former group-buy slot before the AI stage', () => {
   const home = read('app/(tabs)/home.tsx');
+  const heroStatement = home.indexOf('{HOME_HERO_STATEMENT}');
   const identityCard = home.indexOf('<MeIdentityCard');
   const vipReferralStrip = home.indexOf('vipReferralPrompt ?');
   const searchRow = home.indexOf('styles.searchRow');
   const aiStage = home.indexOf('styles.aiStage');
 
+  assert.ok(heroStatement > 0, 'consumer productivity statement should render on home');
+  assert.ok(identityCard > heroStatement, 'identity card should follow the brand statement');
   assert.ok(identityCard > 0, 'identity card should render on home');
   assert.ok(vipReferralStrip > identityCard, 'VIP referral strip should follow the identity card');
   assert.ok(searchRow > vipReferralStrip, 'search should replace the former group-buy position');
@@ -24,7 +27,8 @@ test('home keeps one AI entry and moves the VIP carousel into the former mission
 
   assert.ok(aiOrb > 0, 'home should retain the AI Buy entry');
   assert.ok(vipCarousel > aiOrb, 'VIP carousel should render after the AI prompt');
-  assert.doesNotMatch(home, /HOME_MISSION_LINES|HOME_HERO_STATEMENT/);
+  assert.match(home, /HOME_HERO_STATEMENT/);
+  assert.doesNotMatch(home, /HOME_MISSION_LINES/);
   assert.doesNotMatch(home, /GROUP_BUY_COLORS|styles\.groupBuyEntry|LotteryRepo|styles\.lotteryInline/);
   assert.match(home, /home-lobster\.png/);
   assert.match(home, /home-king-crab\.png/);

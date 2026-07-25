@@ -56,3 +56,29 @@ test('all three primary tabs use seafood character icons', () => {
   assert.match(tabs, /name="me"[\s\S]*?<SeafoodIcon name="oyster"/);
   assert.doesNotMatch(tabs, /compass-outline|account-circle-outline|<AiOrb/);
 });
+
+test('home keeps the seafood hero in a centered width-based cluster', () => {
+  const home = read('app/(tabs)/home.tsx');
+
+  assert.match(home, /getHomeAiStageLayout\(width, spacing\.xl\)/);
+  assert.match(home, /width: aiStageLayout\.stageWidth/);
+  assert.match(home, /size=\{aiStageLayout\.orbSize\}/);
+  assert.match(home, /alignSelf: 'center'/);
+  assert.doesNotMatch(home, /marginHorizontal: compactHome/);
+  assert.doesNotMatch(home, /homeLobsterCompact|homeCrabCompact|aiStageCompact/);
+});
+
+test('home VIP referral and search affordances use distinct seafood characters', () => {
+  const home = read('app/(tabs)/home.tsx');
+
+  assert.match(home, /<SeafoodIcon name="scallop" size=\{38\}/);
+  assert.match(home, /<SeafoodIcon name="puffer" size=\{32\}/);
+  assert.match(home, /styles\.vipReferralIconHalo/);
+  assert.match(home, /styles\.searchDivider/);
+  assert.doesNotMatch(home, /name="crown-outline"/);
+  assert.doesNotMatch(home, /name="magnify"/);
+
+  // 语义明确的操作仍保留原图标，海鲜角色只替换装饰性入口标识。
+  assert.match(home, /name="microphone-outline"/);
+  assert.match(home, /name="cart-outline"/);
+});
