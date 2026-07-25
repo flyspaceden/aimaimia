@@ -26,7 +26,7 @@
   - **实际做了**: 购物车及其商品数量角标、`/cart` 路由和辅助说明整体迁入品牌标语头部，页面仍只保留一个购物车入口；搜索框移除右侧占位后独占整行，搜索、语音和河豚图标逻辑不变。
   - **响应式**: 品牌标语与购物车改用同一 `flex` 安全布局，标题占剩余宽度并允许自适应缩小，购物车固定 46pt 且不收缩；窄屏和大字体下不会通过绝对定位压住标题。
   - **安全边界**: 仅调整买家 App 首页入口位置和布局，不涉及购物车状态、库存、结算、支付、认证或并发逻辑。
-  - **验证**: 首页顺序/VIP 文案/海鲜图标目标回归 11/11；`npm exec tsc -- --noEmit --pretty false`；`npm exec expo export -- --platform web`；`git diff --check`。
+  - **验证与发布**: 首页顺序/VIP 文案/海鲜图标目标回归 11/11；`npm exec tsc -- --noEmit --pretty false`；production Android `expo export --platform android --clear`（62 个资源）和 `git diff --check`。已单独提交并推送至 `staging` `b01ff428`、`main` `d320dd60`；production OTA 已发布到 runtime 1.0.6，Group `88ff8955-e042-46de-9b9f-449083afd665`。
 
 - [x] **首页 VIP 邀请栏与搜索栏海洋化优化**（2026-07-24）
   - **来源**: 用户在华为真机截图中圈出「推荐好友开通 VIP」和搜索/购物车区域，要求优化层次并将左侧皇冠、放大镜替换为海鲜角色。
