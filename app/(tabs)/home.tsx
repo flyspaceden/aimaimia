@@ -291,6 +291,30 @@ export default function HomeScreen() {
             >
               {HOME_HERO_STATEMENT}
             </Text>
+            <Pressable
+              onPress={() => router.push('/cart')}
+              accessibilityRole="button"
+              accessibilityLabel={`购物车${cartCount > 0 ? `，${cartCount}件商品` : ''}`}
+              style={[
+                styles.cartBtn,
+                styles.heroCartBtn,
+                {
+                  borderColor: colors.border,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.surface,
+                },
+                shadow.sm,
+              ]}
+            >
+              <MaterialCommunityIcons name="cart-outline" size={22} color={colors.text.secondary} />
+              {cartCount > 0 && (
+                <View style={[styles.cartBadge, { backgroundColor: colors.brand.primary }]}>
+                  <Text style={[typography.captionSm, { color: colors.text.inverse, fontSize: 10, lineHeight: 14 }]}>
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
           </View>
         </Animated.View>
 
@@ -401,29 +425,6 @@ export default function HomeScreen() {
                 搜索商品，或问我...
               </Text>
               <MaterialCommunityIcons name="microphone-outline" size={20} color={colors.ai.start} />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/cart')}
-              accessibilityRole="button"
-              accessibilityLabel={`购物车${cartCount > 0 ? `，${cartCount}件商品` : ''}`}
-              style={[
-                styles.cartBtn,
-                {
-                  borderColor: colors.border,
-                  borderRadius: radius.pill,
-                  backgroundColor: colors.surface,
-                },
-                shadow.sm,
-              ]}
-            >
-              <MaterialCommunityIcons name="cart-outline" size={22} color={colors.text.secondary} />
-              {cartCount > 0 && (
-                <View style={[styles.cartBadge, { backgroundColor: colors.brand.primary }]}>
-                  <Text style={[typography.captionSm, { color: colors.text.inverse, fontSize: 10, lineHeight: 14 }]}>
-                    {cartCount > 99 ? '99+' : cartCount}
-                  </Text>
-                </View>
-              )}
             </Pressable>
           </View>
         </Animated.View>
@@ -735,8 +736,13 @@ const styles = StyleSheet.create({
   },
   heroStatementWrap: {
     alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   heroStatement: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 16,
     fontSize: 26,
     lineHeight: 34,
     fontWeight: '800',
@@ -752,6 +758,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heroCartBtn: {
+    flexShrink: 0,
+    marginTop: 7,
   },
   cartBadge: {
     position: 'absolute',

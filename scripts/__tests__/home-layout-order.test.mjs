@@ -4,15 +4,19 @@ import { test } from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 
-test('home search moves into the former group-buy slot before the AI stage', () => {
+test('home keeps the cart in the brand header and gives search the former group-buy slot', () => {
   const home = read('app/(tabs)/home.tsx');
   const heroStatement = home.indexOf('{HOME_HERO_STATEMENT}');
+  const cartRoute = home.indexOf("router.push('/cart')");
   const identityCard = home.indexOf('<MeIdentityCard');
   const vipReferralStrip = home.indexOf('vipReferralPrompt ?');
   const searchRow = home.indexOf('styles.searchRow');
   const aiStage = home.indexOf('styles.aiStage');
 
   assert.ok(heroStatement > 0, 'consumer productivity statement should render on home');
+  assert.ok(cartRoute > heroStatement, 'cart should sit beside the brand statement');
+  assert.ok(cartRoute < identityCard, 'cart should stay in the top brand header');
+  assert.equal(home.match(/router\.push\('\/cart'\)/g)?.length, 1, 'home should keep one cart entry');
   assert.ok(identityCard > heroStatement, 'identity card should follow the brand statement');
   assert.ok(identityCard > 0, 'identity card should render on home');
   assert.ok(vipReferralStrip > identityCard, 'VIP referral strip should follow the identity card');
