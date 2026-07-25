@@ -23,6 +23,8 @@ const makeHarness = () => {
       findUnique: jest.fn().mockResolvedValue(null),
     },
   };
+  prisma.$executeRawUnsafe = jest.fn().mockResolvedValue(1);
+  prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => unknown) => callback(prisma));
   const resolver = {
     resolve: jest.fn(),
   };
@@ -58,6 +60,10 @@ describe('InviteH5Service', () => {
         screenWidth: 390,
         screenHeight: 844,
         language: 'zh-CN',
+        devicePixelRatio: 3,
+        colorDepth: 24,
+        timezoneOffset: -480,
+        maxTouchPoints: 5,
       },
       '127.0.0.1',
     );
@@ -69,7 +75,7 @@ describe('InviteH5Service', () => {
         inviterUserId: 'inviter-1',
         ipAddress: '127.0.0.1',
         userAgent: 'Mozilla/5.0',
-        screenInfo: '390x844',
+        screenInfo: '390x844|dpr=3|depth=24|tz=-480|touch=5',
         language: 'zh-CN',
       }),
       select: { landingSessionId: true },
@@ -445,5 +451,215 @@ describe('InviteH5Service', () => {
       }),
       data: { downloadPassUsedAt: expect.any(Date) },
     });
+  });
+
+  it('atomically resumes a unique recent WeChat pass from the same Android device context', async () => {
+    const { prisma, service } = makeHarness();
+    const ticketHash = createHash('sha256').update('A'.repeat(43)).digest('hex');
+    prisma.inviteH5LandingEvent.findMany.mockResolvedValue([
+      {
+        id: 'landing-wechat-1',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007; wv) ' +
+          'AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36 MicroMessenger/8.0.49',
+        language: 'zh-CN',
+        downloadPassHash: ticketHash,
+      },
+    ]);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.resumeDownloadPass(
+      {
+        inviteCode: 'kyy12345',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007) ' +
+          'AppleWebKit/537.36 Chrome/122.0 Mobile Safari/537.36 VivoBrowser/22.0',
+        screenWidth: 873,
+        screenHeight: 393,
+        language: 'zh_CN',
+        devicePixelRatio: 2.75,
+        colorDepth: 24,
+        timezoneOffset: -480,
+        maxTouchPoints: 5,
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: true });
+
+    expect(prisma.inviteH5LandingEvent.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        inviteCode: 'KYY12345',
+        ipAddress: '203.0.113.10',
+        screenInfo: '393x873|dpr=2.75|depth=24|tz=-480|touch=5',
+        authedUserId: { not: null },
+        downloadPassHash: { not: null },
+        downloadPassExpiresAt: { gt: expect.any(Date) },
+        downloadPassUsedAt: null,
+        updatedAt: { gt: expect.any(Date) },
+      }),
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        userAgent: true,
+        language: true,
+        downloadPassHash: true,
+      },
+    });
+    expect(prisma.inviteH5LandingEvent.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: 'landing-wechat-1',
+        downloadPassHash: ticketHash,
+        downloadPassExpiresAt: { gt: expect.any(Date) },
+        downloadPassUsedAt: null,
+        authedUserId: { not: null },
+        updatedAt: { gt: expect.any(Date) },
+      }),
+      data: { downloadPassUsedAt: expect.any(Date) },
+    });
+    expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1, $2)',
+      0x41494d4d,
+      0x4835444c,
+    );
+  });
+
+  it('refuses to guess when more than one WeChat pass matches the same device context', async () => {
+    const { prisma, service } = makeHarness();
+    const source = {
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007; wv) ' +
+        'AppleWebKit/537.36 MicroMessenger/8.0.49',
+      language: 'zh-CN',
+      downloadPassHash: 'a'.repeat(64),
+    };
+    prisma.inviteH5LandingEvent.findMany.mockResolvedValue([
+      { ...source, id: 'landing-wechat-1' },
+      { ...source, id: 'landing-wechat-2', downloadPassHash: 'b'.repeat(64) },
+    ]);
+
+    await expect(service.resumeDownloadPass(
+      {
+        inviteCode: 'KYY12345',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007) VivoBrowser/22.0',
+        screenWidth: 393,
+        screenHeight: 873,
+        language: 'zh-CN',
+        devicePixelRatio: 2.75,
+        colorDepth: 24,
+        timezoneOffset: -480,
+        maxTouchPoints: 5,
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+    expect(prisma.inviteH5LandingEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-resume across different Android device models', async () => {
+    const { prisma, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findMany.mockResolvedValue([
+      {
+        id: 'landing-wechat-1',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007; wv) MicroMessenger/8.0.49',
+        language: 'zh-CN',
+        downloadPassHash: 'a'.repeat(64),
+      },
+    ]);
+
+    await expect(service.resumeDownloadPass(
+      {
+        inviteCode: 'KYY12345',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; OTHER-MODEL Build/UP1A.231005.007) Chrome/122.0',
+        screenWidth: 393,
+        screenHeight: 873,
+        language: 'zh-CN',
+        devicePixelRatio: 2.75,
+        colorDepth: 24,
+        timezoneOffset: -480,
+        maxTouchPoints: 5,
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+    expect(prisma.inviteH5LandingEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns false when another browser wins the resume CAS', async () => {
+    const { prisma, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findMany.mockResolvedValue([
+      {
+        id: 'landing-wechat-1',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007; wv) MicroMessenger/8.0.49',
+        language: 'zh-CN',
+        downloadPassHash: 'a'.repeat(64),
+      },
+    ]);
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.resumeDownloadPass(
+      {
+        inviteCode: 'KYY12345',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007) Chrome/122.0',
+        screenWidth: 393,
+        screenHeight: 873,
+        language: 'zh-CN',
+        devicePixelRatio: 2.75,
+        colorDepth: 24,
+        timezoneOffset: -480,
+        maxTouchPoints: 5,
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+  });
+
+  it('does not auto-resume from another system browser or without extended device context', async () => {
+    const { prisma, service } = makeHarness();
+
+    await expect(service.resumeDownloadPass(
+      {
+        inviteCode: 'KYY12345',
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007) Chrome/122.0',
+        screenWidth: 393,
+        screenHeight: 873,
+        language: 'zh-CN',
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+    expect(prisma.inviteH5LandingEvent.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects generic Android UAs and missing language instead of guessing a device', async () => {
+    const { prisma, service } = makeHarness();
+    const context = {
+      inviteCode: 'KYY12345',
+      screenWidth: 393,
+      screenHeight: 873,
+      devicePixelRatio: 2.75,
+      colorDepth: 24,
+      timezoneOffset: -480,
+      maxTouchPoints: 5,
+    };
+
+    await expect(service.resumeDownloadPass(
+      {
+        ...context,
+        language: 'zh-CN',
+        userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/122.0',
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+    await expect(service.resumeDownloadPass(
+      {
+        ...context,
+        userAgent:
+          'Mozilla/5.0 (Linux; Android 14; V2303A Build/UP1A.231005.007) Chrome/122.0',
+      },
+      '203.0.113.10',
+    )).resolves.toEqual({ valid: false });
+
+    expect(prisma.inviteH5LandingEvent.findMany).not.toHaveBeenCalled();
   });
 });

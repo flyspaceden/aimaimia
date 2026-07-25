@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   apiErrorMessage,
   bindingStatusText,
+  buildInviteDownloadHandoffUrl,
   canResumeWechatDownload,
   canContinueAfterLandingCodeStatus,
   clearInviteDownloadPass,
@@ -12,6 +13,7 @@ import {
   normalizeInviteCode,
   normalizeInviteDownloadPass,
   readInviteDownloadPass,
+  readInviteDownloadPassFromClipboardText,
   readInviteDownloadHandoff,
   storeInviteDownloadPass,
   submitStateForBindingStatus,
@@ -99,6 +101,23 @@ test('下载交接凭证使用真实 query，保留其他参数且可在消费�
   assert.equal(withoutInviteDownloadHandoff(search), '?utm_source=wechat')
 })
 
+test('剪贴板交接使用完整下载 URL，并且只接受完整 URL 或合法纯票据', () => {
+  const ticket = 'A'.repeat(43)
+  const url = buildInviteDownloadHandoffUrl(
+    'https://app.ai-maimai.com/invite/KYY12345?utm_source=wechat#section',
+    ticket,
+  )
+
+  assert.equal(
+    url,
+    `https://app.ai-maimai.com/invite/KYY12345?utm_source=wechat&handoff=${ticket}`,
+  )
+  assert.equal(readInviteDownloadPassFromClipboardText(url), ticket)
+  assert.equal(readInviteDownloadPassFromClipboardText(ticket), ticket)
+  assert.equal(readInviteDownloadPassFromClipboardText('普通剪贴板内容'), null)
+  assert.equal(readInviteDownloadPassFromClipboardText('https://example.com/?handoff=fake'), null)
+})
+
 test('微信下载 handoff 必须同时有本地 H5 token 和 landing session 才能恢复', () => {
   const ticket = 'A'.repeat(43)
 
@@ -140,12 +159,14 @@ test('H5 邀请页支持微信授权 callback 和非微信浏览器 fallback', (
   assert.match(page, /请在微信中打开，或使用手机号登录/)
 })
 
-test('微信完成 H5 登录后以一次性下载凭证交接给系统浏览器，不重复登录或重复绑定', () => {
+test('微信完成 H5 登录后可由短时设备匹配或剪贴板一次性凭证交接，不重复登录或绑定', () => {
   const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
   const index = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
 
   assert.match(page, /invite-h5\/download-pass/)
   assert.match(page, /invite-h5\/download-pass\/consume/)
+  assert.match(page, /invite-h5\/download-pass\/resume/)
+  assert.match(page, /consumeDownloadPassRequestRef/)
   assert.match(page, /Authorization: `Bearer \$\{accessToken\}`/)
   assert.match(page, /window\.crypto\.getRandomValues/)
   assert.match(page, /storeInviteDownloadPass\(sessionStorage, landingSessionId, ticket\)/)
@@ -154,12 +175,17 @@ test('微信完成 H5 登录后以一次性下载凭证交接给系统浏览器�
   assert.match(page, /response\.status === 'RENEW_REQUIRED'/)
   assert.match(page, /readInviteDownloadHandoff\(window\.location\.search\)/)
   assert.match(page, /navigateToDownloadHandoff\(ticket\)/)
-  assert.match(page, /window\.location\.replace\(url\.toString\(\)\)/)
+  assert.match(page, /window\.location\.replace\(buildInviteDownloadHandoffUrl\(window\.location\.href, ticket\)\)/)
   assert.match(page, /removeDownloadHandoffFromUrl\(\)/)
   assert.doesNotMatch(page, /hashParams\.set\('downloadPass', ticket\)/)
   assert.match(page, /setShowWechatGuide\(true\)/)
   assert.match(page, /if \(hasResumableWechatDownload && downloadPass\) \{\s*setShowWechatGuide\(true\)\s*return/)
   assert.match(page, /请在右上角打开浏览器/)
+  assert.match(page, /读取刚才复制的下载链接/)
+  assert.match(page, /readInviteDownloadPassFromClipboardText/)
+  assert.match(page, /copyTextToClipboard/)
+  assert.match(page, /devicePixelRatio/)
+  assert.match(page, /timezoneOffset/)
   assert.match(page, /startDownloadInBrowser\(platform\)/)
   assert.match(page, /已完成登记，请在浏览器中打开，系统会自动前往下载/)
   assert.match(page, /if \(downloadPass\) \{\s*setLandingState\('ready'\)/)
@@ -175,6 +201,10 @@ test('微信返回后会复用有效下载凭证，已使用或过期才生成�
     /let ticket = preparedDownloadPass \|\|[\s\S]*readInviteDownloadPass\(sessionStorage, landingSessionId\) \|\|[\s\S]*downloadPass \|\|[\s\S]*createDownloadPassTicket\(\)/,
   )
   assert.match(page, /if \(response\.status === 'RENEW_REQUIRED'\) \{[\s\S]*ticket = createDownloadPassTicket\(\)/)
+  assert.match(page, /renewedAfterAsyncResponse = true/)
+  assert.match(page, /replaceDownloadHandoffInUrl\(ticket\)/)
+  assert.match(page, /下载链接已更新，请先点击上方按钮复制，再打开浏览器/)
+  assert.match(page, /const ticket = preparedDownloadPass \|\| downloadPass/)
   assert.match(page, /downloadPassRequestRef\.current/)
   assert.match(page, /canResumeWechatDownload\(\{ ticket: downloadPass, accessToken, landingSessionId \}\)/)
   assert.match(page, /if \(!storedDownloadPass\) \{\s*storeInviteDownloadPass\(sessionStorage, landingSessionId, downloadPass\)/)
