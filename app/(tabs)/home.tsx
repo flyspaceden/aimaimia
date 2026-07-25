@@ -21,6 +21,7 @@ import { AuthModal } from '../../src/components/overlay';
 import { PendingCheckoutBanner } from '../../src/components/overlay/PendingCheckoutBanner';
 import { useToast } from '../../src/components/feedback';
 import { FloatingParticles, AiOrb } from '../../src/components/effects';
+import { SeafoodIcon } from '../../src/components/ui';
 import { AiSessionRepo } from '../../src/repos/AiSessionRepo';
 import { BonusRepo, DigitalAssetRepo, UserRepo } from '../../src/repos';
 import { useAuthStore, useCartStore, useAiChatStore } from '../../src/store';
@@ -31,6 +32,8 @@ import {
   type VipHomePromoCard,
   type VipPromoMode,
 } from '../../src/utils/vipHomePromo';
+import { HOME_HERO_STATEMENT } from '../../src/utils/homeHero';
+import { getHomeAiStageLayout } from '../../src/utils/homeAiStage';
 import { USE_MOCK } from '../../src/repos/http/config';
 import { useVoiceRecording } from '../../src/hooks/useVoiceRecording';
 
@@ -50,8 +53,12 @@ function formatRelativeTime(iso: string): string {
 
 export default function HomeScreen() {
   const { colors, spacing, radius, typography, shadow } = useTheme();
-  const { isCompact, isLargeText } = useResponsiveLayout();
+  const { width, isCompact, isLargeText } = useResponsiveLayout();
   const compactHome = isCompact || isLargeText;
+  const aiStageLayout = useMemo(
+    () => getHomeAiStageLayout(width, spacing.xl),
+    [spacing.xl, width]
+  );
   const router = useRouter();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -269,6 +276,24 @@ export default function HomeScreen() {
         {/* 未完成订单横幅（无未支付订单时返回 null） */}
         <PendingCheckoutBanner />
 
+        <Animated.View entering={FadeInDown.duration(300).delay(20)}>
+          <View style={[styles.heroStatementWrap, { marginTop: spacing['3xl'] }]}>
+            <Text
+              accessibilityRole="header"
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+              numberOfLines={2}
+              style={[
+                styles.heroStatement,
+                compactHome && styles.heroStatementCompact,
+                { color: colors.brand.primaryDark },
+              ]}
+            >
+              {HOME_HERO_STATEMENT}
+            </Text>
+          </View>
+        </Animated.View>
+
         <Animated.View entering={FadeInDown.duration(300).delay(40)}>
           <MeIdentityCard
             isLoggedIn={isLoggedIn}
@@ -278,7 +303,7 @@ export default function HomeScreen() {
             assetRankLabel={assetRankLabel}
             referralCode={referralCode}
             showNormalShareEntry={showNormalShareEntry}
-            style={{ marginTop: spacing['3xl'] }}
+            style={{ marginTop: spacing.xl }}
             onScanPress={() => router.push('/me/scanner')}
             onLoginPress={() => setAuthModalOpen(true)}
             onAppearancePress={() => router.push('/me/appearance')}
@@ -307,12 +332,38 @@ export default function HomeScreen() {
                 shadow.sm,
               ]}
             >
-              <MaterialCommunityIcons name="crown-outline" size={17} color={colors.brand.primary} />
-              <Text style={styles.vipReferralText} numberOfLines={1}>
-                {vipReferralPrompt.title}
-              </Text>
+              <View style={styles.vipReferralGlow} pointerEvents="none" />
+              <View style={styles.vipReferralIconHalo}>
+                <SeafoodIcon name="scallop" size={38} />
+              </View>
+              <View style={styles.vipReferralCopy}>
+                <Text
+                  style={styles.vipReferralText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.86}
+                  maxFontSizeMultiplier={1.1}
+                >
+                  {vipReferralPrompt.title}
+                </Text>
+                <Text
+                  style={styles.vipReferralHint}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.1}
+                >
+                  邀请好友 · 一起享 VIP 礼遇
+                </Text>
+              </View>
               <View style={styles.vipReferralCta}>
-                <Text style={styles.vipReferralCtaText}>{vipReferralPrompt.actionLabel}</Text>
+                <Text
+                  style={styles.vipReferralCtaText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.88}
+                  maxFontSizeMultiplier={1.1}
+                >
+                  {vipReferralPrompt.actionLabel}
+                </Text>
               </View>
             </Pressable>
           </Animated.View>
@@ -336,13 +387,16 @@ export default function HomeScreen() {
                 shadow.sm,
               ]}
             >
-              <MaterialCommunityIcons name="magnify" size={20} color={colors.muted} />
+              <SeafoodIcon name="puffer" size={32} style={styles.searchSeafoodIcon} />
+              <View style={styles.searchDivider} />
               <Text
                 style={[
                   typography.bodyLg,
-                  { color: colors.muted, marginLeft: spacing.sm, flex: 1 },
+                  styles.searchPrompt,
+                  { color: colors.muted },
                 ]}
                 numberOfLines={1}
+                maxFontSizeMultiplier={1.1}
               >
                 搜索商品，或问我...
               </Text>
@@ -379,22 +433,30 @@ export default function HomeScreen() {
           <View
             style={[
               styles.aiStage,
-              compactHome && styles.aiStageCompact,
               {
                 marginTop: spacing.xl,
-                marginHorizontal: compactHome ? -spacing.xl : 0,
+                width: aiStageLayout.stageWidth,
+                minHeight: aiStageLayout.stageHeight,
               },
             ]}
           >
             <Image
               source={require('../../assets/seafood/home-lobster.png')}
-              style={[styles.homeLobster, compactHome && styles.homeLobsterCompact]}
+              style={[
+                styles.homeLobster,
+                {
+                  width: aiStageLayout.lobsterSize,
+                  height: aiStageLayout.lobsterSize,
+                  left: aiStageLayout.lobsterLeft,
+                  top: aiStageLayout.lobsterTop,
+                },
+              ]}
               contentFit="contain"
               transition={0}
               pointerEvents="none"
             />
             <AiOrb
-              size={compactHome ? 'medium' : 'large'}
+              size={aiStageLayout.orbSize}
               state={orbState}
               appearance="bright"
               onPress={handleShortPress}
@@ -405,7 +467,15 @@ export default function HomeScreen() {
             />
             <Image
               source={require('../../assets/seafood/home-king-crab.png')}
-              style={[styles.homeCrab, compactHome && styles.homeCrabCompact]}
+              style={[
+                styles.homeCrab,
+                {
+                  width: aiStageLayout.crabSize,
+                  height: aiStageLayout.crabSize,
+                  right: aiStageLayout.crabRight,
+                  top: aiStageLayout.crabTop,
+                },
+              ]}
               contentFit="contain"
               transition={0}
               pointerEvents="none"
@@ -663,6 +733,19 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
+  heroStatementWrap: {
+    alignSelf: 'stretch',
+  },
+  heroStatement: {
+    fontSize: 26,
+    lineHeight: 34,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  heroStatementCompact: {
+    fontSize: 23,
+    lineHeight: 31,
+  },
   cartBtn: {
     width: 46,
     height: 46,
@@ -686,6 +769,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+    minHeight: 54,
+    overflow: 'hidden',
+  },
+  searchSeafoodIcon: {
+    marginLeft: -2,
+  },
+  searchDivider: {
+    width: 1,
+    height: 24,
+    marginLeft: 7,
+    marginRight: 10,
+    backgroundColor: 'rgba(45, 126, 82, 0.15)',
+  },
+  searchPrompt: {
+    flex: 1,
+    fontWeight: '500',
   },
   searchRow: {
     flexDirection: 'row',
@@ -694,13 +793,11 @@ const styles = StyleSheet.create({
   },
   aiStage: {
     minHeight: 236,
+    alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     overflow: 'visible',
-  },
-  aiStageCompact: {
-    minHeight: 220,
   },
   homeAiOrb: {
     alignSelf: 'center',
@@ -708,37 +805,15 @@ const styles = StyleSheet.create({
   },
   homeLobster: {
     position: 'absolute',
-    width: 126,
-    height: 126,
-    left: -14,
-    top: 58,
     opacity: 0.86,
     zIndex: 3,
     transform: [{ rotate: '-8deg' }],
   },
-  homeLobsterCompact: {
-    width: 78,
-    height: 78,
-    left: -6,
-    top: 76,
-    opacity: 0.84,
-  },
   homeCrab: {
     position: 'absolute',
-    width: 136,
-    height: 136,
-    right: -18,
-    top: 62,
     opacity: 0.78,
     zIndex: 1,
     transform: [{ rotate: '7deg' }],
-  },
-  homeCrabCompact: {
-    width: 80,
-    height: 80,
-    right: -6,
-    top: 78,
-    opacity: 0.76,
   },
   vipPromoSection: {
     marginHorizontal: 0,
@@ -749,33 +824,64 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   vipReferralStrip: {
-    minHeight: 44,
-    paddingLeft: 14,
-    paddingRight: 7,
-    paddingVertical: 5,
+    minHeight: 58,
+    paddingLeft: 9,
+    paddingRight: 8,
+    paddingVertical: 7,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    backgroundColor: '#F2FAF5',
+    backgroundColor: '#F3FCF7',
+    overflow: 'hidden',
+  },
+  vipReferralGlow: {
+    position: 'absolute',
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    right: 74,
+    top: -48,
+    backgroundColor: 'rgba(255, 219, 113, 0.15)',
+  },
+  vipReferralIconHalo: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF3C9',
+  },
+  vipReferralCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 9,
   },
   vipReferralText: {
-    flex: 1,
-    marginLeft: 8,
     color: '#143D28',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  vipReferralHint: {
+    marginTop: 1,
+    color: '#6B8778',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '500',
   },
   vipReferralCta: {
-    minHeight: 31,
-    paddingHorizontal: 13,
-    borderRadius: 16,
+    minWidth: 69,
+    minHeight: 36,
+    marginLeft: 8,
+    paddingHorizontal: 14,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#267B48',
   },
   vipReferralCtaText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
   },
   recentSection: {},
