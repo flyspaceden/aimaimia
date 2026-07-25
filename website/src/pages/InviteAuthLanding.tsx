@@ -5,6 +5,7 @@ import { redirectToCanonicalDomainIfNeeded } from '@/lib/canonicalDomain'
 import {
   apiErrorMessage,
   bindingStatusText,
+  buildInviteDownloadHandoffUrl,
   buildH5WechatStartUrl,
   canResumeWechatDownload,
   canContinueAfterLandingCodeStatus,
@@ -13,6 +14,7 @@ import {
   inviteLandingSessionStorageKey,
   normalizeInviteCode,
   readInviteDownloadPass,
+  readInviteDownloadPassFromClipboardText,
   readInviteDownloadHandoff,
   removeWechatCallbackHash,
   removeWechatCallbackParamsFromSearch,
@@ -20,7 +22,6 @@ import {
   submitStateForBindingStatus,
   withoutInviteDownloadHandoff,
   unwrapApiData,
-  withInviteDownloadHandoff,
   type InviteBindingStatus,
 } from '@/lib/inviteH5'
 import { pickAndroidDownloadUrl, resolveAndroidFallbackUrl } from '@/lib/downloadLinks'
@@ -30,6 +31,7 @@ const API_BASE = getApiBaseUrl()
 type Platform = 'ios' | 'android' | 'desktop'
 type LandingState = 'checking' | 'ready' | 'invalid' | 'unverified'
 type SubmitState = 'idle' | 'success' | 'warning' | 'error'
+type BrowserResumeState = 'not-needed' | 'checking' | 'unavailable' | 'resumed'
 
 type LandingResponse = {
   landingSessionId: string
@@ -78,6 +80,19 @@ function isWechat(): boolean {
 
 function isValidPhone(phone: string): boolean {
   return /^1[3-9]\d{9}$/.test(phone.trim())
+}
+
+function inviteDeviceContext() {
+  return {
+    userAgent: navigator.userAgent,
+    screenWidth: window.screen.width,
+    screenHeight: window.screen.height,
+    language: navigator.language,
+    devicePixelRatio: Math.round(window.devicePixelRatio * 100) / 100,
+    colorDepth: window.screen.colorDepth,
+    timezoneOffset: new Date().getTimezoneOffset(),
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+  }
 }
 
 async function postJson<T>(path: string, body: unknown, accessToken?: string): Promise<T> {
@@ -138,15 +153,46 @@ function createDownloadPassTicket(): string {
 }
 
 /**
- * 必须触发真实导航：微信“在浏览器中打开”会取实际加载的 URL，不能依赖
- * replaceState 写入的 hash。handoff 是高熵、10 分钟、一次性的下载凭证，
- * 不携带登录 token、手机号或推荐码。
+ * 优先同步使用传统 copy，兼容不开放 Clipboard API 的微信 WebView；失败后再
+ * 尝试标准 Clipboard API。调用方必须在用户点击手势内立即调用本函数。
+ */
+function legacyCopyText(text: string): boolean {
+  const input = document.createElement('textarea')
+  input.value = text
+  input.setAttribute('readonly', '')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  input.style.pointerEvents = 'none'
+  document.body.appendChild(input)
+  input.select()
+  input.setSelectionRange(0, input.value.length)
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  }
+  document.body.removeChild(input)
+  return copied
+}
+
+function copyTextToClipboard(text: string): Promise<boolean> {
+  const legacyCopied = legacyCopyText(text)
+  if (!navigator.clipboard?.writeText) return Promise.resolve(legacyCopied)
+  return navigator.clipboard.writeText(text).then(() => true).catch(() => legacyCopied)
+}
+
+/**
+ * query 跳转继续保留为兼容路径；真正兜底不再依赖微信传递当前 URL，而是使用
+ * 服务端短时唯一设备匹配或剪贴板中的同一高熵一次性凭证。
  */
 function navigateToDownloadHandoff(ticket: string) {
-  const url = new URL(window.location.href)
-  url.search = withInviteDownloadHandoff(url.search, ticket)
-  url.hash = ''
-  window.location.replace(url.toString())
+  window.location.replace(buildInviteDownloadHandoffUrl(window.location.href, ticket))
+}
+
+function replaceDownloadHandoffInUrl(ticket: string) {
+  const url = new URL(buildInviteDownloadHandoffUrl(window.location.href, ticket))
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
 function removeDownloadHandoffFromUrl() {
@@ -173,6 +219,14 @@ export default function InviteAuthLanding() {
   )
   const [wechatCallbackParams] = useState(() => getWechatCallbackParams(window.location.search))
   const hasWechatCallback = Boolean(wechatCallbackParams.wechatCode && wechatCallbackParams.state)
+  const [browserResumeState, setBrowserResumeState] = useState<BrowserResumeState>(() => (
+    isWechat() || Boolean(downloadPass) || hasWechatCallback ? 'not-needed' : 'checking'
+  ))
+  const [showBrowserLoginForm, setShowBrowserLoginForm] = useState(() => isWechat())
+  const [clipboardWorking, setClipboardWorking] = useState(false)
+  const [clipboardCopyNotice, setClipboardCopyNotice] = useState('')
+  const [showManualHandoff, setShowManualHandoff] = useState(false)
+  const [manualHandoff, setManualHandoff] = useState('')
   const [landingSessionId, setLandingSessionId] = useState<string | undefined>(() => {
     const initialInviteCode = normalizeInviteCode(code)
     if (!initialInviteCode) return undefined
@@ -200,6 +254,14 @@ export default function InviteAuthLanding() {
   const [showWechatGuide, setShowWechatGuide] = useState(false)
   const [preparingDownload, setPreparingDownload] = useState(false)
   const landingRequestRef = useRef<{ key: string; promise: Promise<LandingResponse> } | null>(null)
+  const browserResumeRequestRef = useRef<{
+    key: string
+    promise: Promise<ConsumeDownloadPassResponse>
+  } | null>(null)
+  const consumeDownloadPassRequestRef = useRef<{
+    ticket: string
+    promise: Promise<ConsumeDownloadPassResponse>
+  } | null>(null)
   const wechatCallbackRequestRef = useRef<{ key: string; promise: Promise<InviteLoginResponse> } | null>(null)
   const downloadPassRequestRef = useRef<Promise<void> | null>(null)
   const platform = detectPlatform()
@@ -225,10 +287,64 @@ export default function InviteAuthLanding() {
   }
 
   useEffect(() => {
+    if (browserResumeState !== 'checking') return
+    if (!inviteCode || wechat || downloadPass || hasWechatCallback) {
+      setBrowserResumeState('not-needed')
+      return
+    }
+
+    let active = true
+    setLandingState('checking')
+    setNotice('正在恢复微信中的下载状态')
+
+    if (browserResumeRequestRef.current?.key !== inviteCode) {
+      browserResumeRequestRef.current = {
+        key: inviteCode,
+        promise: postJson<ConsumeDownloadPassResponse>('/invite-h5/download-pass/resume', {
+          inviteCode,
+          ...inviteDeviceContext(),
+        }),
+      }
+    }
+
+    browserResumeRequestRef.current.promise.then((res) => {
+      if (!active) return
+      if (!res.valid) {
+        setBrowserResumeState('unavailable')
+        setNotice('')
+        return
+      }
+
+      setBrowserResumeState('resumed')
+      setLandingState('ready')
+      setLoginCompleted(true)
+      setSubmitState('success')
+      setNotice('已恢复登记状态，正在前往下载')
+      window.setTimeout(() => startDownloadInBrowser(platform), 0)
+    }).catch(() => {
+      if (!active) return
+      // 自动匹配失败不能阻断正常登录或剪贴板兜底，也不向公开页面暴露失败原因。
+      setBrowserResumeState('unavailable')
+      setNotice('')
+    })
+
+    return () => {
+      active = false
+    }
+  }, [
+    browserResumeState,
+    downloadPass,
+    hasWechatCallback,
+    inviteCode,
+    platform,
+    wechat,
+  ])
+
+  useEffect(() => {
     if (!downloadPass) return
 
     // 微信内不消费凭证，避免刷新页面后把凭证提前作废；系统浏览器才会原子消费并
-    // 立即进入下载渠道。handoff query 是真实导航后的 URL，微信打开系统浏览器时可携带它。
+    // 立即进入下载渠道。query 只作为兼容路径，丢失时由设备匹配/剪贴板继续。
     if (wechat) {
       const accessToken = sessionStorage.getItem('invite_h5_access_token')
       if (!canResumeWechatDownload({ ticket: downloadPass, accessToken, landingSessionId })) {
@@ -262,14 +378,27 @@ export default function InviteAuthLanding() {
     removeDownloadHandoffFromUrl()
     setNotice('正在确认下载')
 
-    postJson<ConsumeDownloadPassResponse>('/invite-h5/download-pass/consume', { ticket: downloadPass })
+    if (consumeDownloadPassRequestRef.current?.ticket !== downloadPass) {
+      consumeDownloadPassRequestRef.current = {
+        ticket: downloadPass,
+        promise: postJson<ConsumeDownloadPassResponse>(
+          '/invite-h5/download-pass/consume',
+          { ticket: downloadPass },
+        ),
+      }
+    }
+
+    consumeDownloadPassRequestRef.current.promise
       .then((res) => {
         if (!active) return
         if (!res.valid) {
+          setDownloadPass(null)
+          setBrowserResumeState('unavailable')
           setSubmitState('warning')
-          setNotice('下载凭证已过期或已使用，请返回微信页面重新点击下载')
+          setNotice('下载凭证已过期或已使用，可读取刚才复制的下载链接重试')
           return
         }
+        setBrowserResumeState('resumed')
         setLoginCompleted(true)
         setSubmitState('success')
         setNotice('已完成登记，正在前往下载')
@@ -277,8 +406,10 @@ export default function InviteAuthLanding() {
       })
       .catch(() => {
         if (!active) return
+        setDownloadPass(null)
+        setBrowserResumeState('unavailable')
         setSubmitState('error')
-        setNotice('下载状态确认失败，请返回微信页面重新点击下载')
+        setNotice('下载状态确认失败，可读取刚才复制的下载链接重试')
       })
 
     return () => {
@@ -290,6 +421,12 @@ export default function InviteAuthLanding() {
     if (!inviteCode) {
       setLandingState('invalid')
       setNotice('邀请链接不可用')
+      return
+    }
+    // 非微信浏览器先尝试恢复刚在微信完成的下载；完成或明确失败前不能创建新的
+    // landing session，否则会把原始已认证会话遮蔽成一个新的未认证会话。
+    if (browserResumeState === 'checking' || browserResumeState === 'resumed') {
+      if (browserResumeState === 'resumed') setLandingState('ready')
       return
     }
     // 从微信跳到系统浏览器时只应消费已有下载凭证，不能额外记一次扫码打开。
@@ -317,10 +454,7 @@ export default function InviteAuthLanding() {
         key: inviteCode,
         promise: postJson<LandingResponse>('/invite-h5/landing', {
           inviteCode,
-          userAgent: navigator.userAgent,
-          screenWidth: window.screen.width,
-          screenHeight: window.screen.height,
-          language: navigator.language,
+          ...inviteDeviceContext(),
         }),
       }
     }
@@ -350,6 +484,7 @@ export default function InviteAuthLanding() {
     }
   }, [
     inviteCode,
+    browserResumeState,
     downloadPass,
     hasResumableWechatDownload,
     hasWechatCallback,
@@ -504,6 +639,11 @@ export default function InviteAuthLanding() {
         createDownloadPassTicket()
       setPreparedDownloadPass(ticket)
       storeInviteDownloadPass(sessionStorage, landingSessionId, ticket)
+      // 在用户点击手势仍有效时立即开始写剪贴板。微信若重新打开原始二维码 URL，
+      // 系统浏览器仍可读取或让用户手动粘贴这个完整的一次性下载地址。
+      const clipboardPromise = copyTextToClipboard(
+        buildInviteDownloadHandoffUrl(window.location.href, ticket),
+      )
       const requestPass = (candidate: string) => postJson<DownloadPassResponse>(
         '/invite-h5/download-pass',
         { landingSessionId, ticket: candidate },
@@ -511,17 +651,31 @@ export default function InviteAuthLanding() {
       )
 
       let response = await requestPass(ticket)
+      let renewedAfterAsyncResponse = false
       // 从系统浏览器返回微信时，旧凭证可能已用完或超时；仅在这种明确状态下生成新值。
       if (response.status === 'RENEW_REQUIRED') {
         ticket = createDownloadPassTicket()
         setPreparedDownloadPass(ticket)
         storeInviteDownloadPass(sessionStorage, landingSessionId, ticket)
+        // 网络 await 后已不再处于原始点击手势，浏览器通常会拒绝自动写入新票据。
+        // 先登记新票据并更新地址栏，随后要求用户在遮罩按钮上显式复制一次。
+        renewedAfterAsyncResponse = true
         response = await requestPass(ticket)
       }
       if (response.status !== 'READY') {
         throw new Error('下载凭证准备失败，请稍后重试')
       }
 
+      if (renewedAfterAsyncResponse) {
+        replaceDownloadHandoffInUrl(ticket)
+        setClipboardCopyNotice('下载链接已更新，请先点击上方按钮复制，再打开浏览器')
+        setSubmitState('success')
+        setNotice('下载链接已更新，请先复制专属下载链接')
+        setShowWechatGuide(true)
+        return
+      }
+
+      await clipboardPromise
       navigateToDownloadHandoff(ticket)
     } catch (err) {
       if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) {
@@ -542,6 +696,88 @@ export default function InviteAuthLanding() {
     } finally {
       setPreparingDownload(false)
     }
+  }
+
+  const consumeClipboardDownload = async (clipboardText: string) => {
+    const ticket = readInviteDownloadPassFromClipboardText(clipboardText)
+    if (!ticket) {
+      setShowManualHandoff(true)
+      setSubmitState('warning')
+      setNotice('没有读取到有效下载链接，请长按输入框粘贴后继续')
+      return
+    }
+
+    setClipboardWorking(true)
+    setSubmitState('idle')
+    setNotice('正在确认下载')
+    try {
+      const res = await postJson<ConsumeDownloadPassResponse>(
+        '/invite-h5/download-pass/consume',
+        { ticket },
+      )
+      if (!res.valid) {
+        setShowManualHandoff(true)
+        setSubmitState('warning')
+        setNotice('下载链接已过期或已使用，请返回微信页面重新点击下载')
+        return
+      }
+
+      setBrowserResumeState('resumed')
+      setLoginCompleted(true)
+      setSubmitState('success')
+      setNotice('已完成登记，正在前往下载')
+      window.setTimeout(() => startDownloadInBrowser(platform), 0)
+    } catch {
+      setShowManualHandoff(true)
+      setSubmitState('error')
+      setNotice('下载状态确认失败，请粘贴下载链接后重试')
+    } finally {
+      setClipboardWorking(false)
+    }
+  }
+
+  const handleClipboardResume = async () => {
+    if (!navigator.clipboard?.readText) {
+      setShowManualHandoff(true)
+      setSubmitState('warning')
+      setNotice('当前浏览器不能自动读取，请长按输入框粘贴下载链接')
+      return
+    }
+
+    setClipboardWorking(true)
+    try {
+      const clipboardText = await navigator.clipboard.readText()
+      await consumeClipboardDownload(clipboardText)
+    } catch {
+      setShowManualHandoff(true)
+      setSubmitState('warning')
+      setNotice('浏览器未允许读取剪贴板，请长按输入框粘贴下载链接')
+    } finally {
+      setClipboardWorking(false)
+    }
+  }
+
+  const handleManualHandoff = () => {
+    void consumeClipboardDownload(manualHandoff)
+  }
+
+  const handleCopyPreparedDownloadLink = async () => {
+    // preparedDownloadPass 可能是旧票据消费后刚续签的新值，应优先于初始 URL 中的值。
+    const ticket = preparedDownloadPass || downloadPass
+    if (!ticket) {
+      setSubmitState('warning')
+      setNotice('下载链接已失效，请关闭提示后重新点击下载')
+      return
+    }
+
+    const copied = await copyTextToClipboard(
+      buildInviteDownloadHandoffUrl(window.location.href, ticket),
+    )
+    setClipboardCopyNotice(copied ? '复制成功，可以打开浏览器' : '复制失败，请再试一次')
+    setSubmitState(copied ? 'success' : 'warning')
+    setNotice(copied
+      ? '专属下载链接已复制，请在右上角选择浏览器打开'
+      : '复制失败，请重试或使用右上角浏览器打开')
   }
 
   const handleDownload = () => {
@@ -580,6 +816,7 @@ export default function InviteAuthLanding() {
       : submitState === 'error' || landingState === 'invalid'
         ? 'border-[#f0c4c4] bg-[#fff0f0] text-[#9f1d1d]'
         : 'border-[#d7e7d5] bg-white/70 text-[#36543c]'
+  const showBrowserResumeCard = !wechat && !authCompleted && !showBrowserLoginForm
 
   return (
     <div className="min-h-screen bg-[#f7fbf1] text-[#17211a]" style={{
@@ -592,14 +829,89 @@ export default function InviteAuthLanding() {
           </div>
           <div>
             <p className="m-0 text-sm font-semibold text-[#247a3e]">爱买买</p>
-            <h1 className="m-0 text-[26px] font-bold leading-tight tracking-[0]">手机号登录</h1>
+            <h1 className="m-0 text-[26px] font-bold leading-tight tracking-[0]">
+              {showBrowserResumeCard ? '继续下载' : '手机号登录'}
+            </h1>
           </div>
         </div>
 
-        <form
+        {showBrowserResumeCard ? (
+          <div className="rounded-lg border border-[#d9e7d4] bg-white p-5 shadow-[0_18px_60px_rgba(23,33,26,0.10)]">
+            <div className="mb-5 flex items-center justify-between gap-3 border-b border-[#e6eee3] pb-4">
+              <span className="text-sm font-medium text-[#4e6652]">
+                {browserResumeState === 'checking' ? '正在恢复下载状态' : '已从微信打开浏览器'}
+              </span>
+              <span className={`h-2.5 w-2.5 rounded-full ${browserResumeState === 'checking' ? 'bg-[#d79b28]' : 'bg-[#247a3e]'}`} />
+            </div>
+
+            {browserResumeState === 'checking' ? (
+              <div className="rounded-md border border-[#d7e7d5] bg-[#f7fbf6] px-4 py-5 text-center text-sm leading-6 text-[#36543c]">
+                正在确认你刚才在微信里完成的登记，请稍候
+              </div>
+            ) : (
+              <>
+                <p className="mb-4 text-sm leading-6 text-[#4e6652]">
+                  如果你刚才已经在微信里注册或登录，不需要再次填写手机号。
+                </p>
+
+                {notice && (
+                  <div className={`mb-4 rounded-md border px-3 py-3 text-sm leading-6 ${noticeTone}`} aria-live="polite">
+                    {notice}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void handleClipboardResume()}
+                  disabled={clipboardWorking}
+                  className="h-12 w-full rounded-md bg-[#247a3e] text-[16px] font-bold text-white shadow-[0_10px_24px_rgba(36,122,62,0.24)] transition hover:bg-[#1f6f35] disabled:cursor-not-allowed disabled:bg-[#9eb5a1] disabled:shadow-none"
+                >
+                  {clipboardWorking ? '正在确认下载' : '读取刚才复制的下载链接'}
+                </button>
+
+                {showManualHandoff && (
+                  <div className="mt-4 rounded-md border border-[#d7e7d5] bg-[#f7fbf6] p-3">
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-semibold text-[#263a2b]">粘贴下载链接</span>
+                      <input
+                        value={manualHandoff}
+                        onChange={(event) => setManualHandoff(event.target.value)}
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        placeholder="长按此处粘贴"
+                        className="h-12 w-full rounded-md border border-[#cfded0] bg-white px-3 text-[16px] text-[#17211a] outline-none transition focus:border-[#247a3e]"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleManualHandoff}
+                      disabled={clipboardWorking || !manualHandoff.trim()}
+                      className="mt-3 h-11 w-full rounded-md border border-[#247a3e] bg-white text-sm font-bold text-[#247a3e] disabled:cursor-not-allowed disabled:border-[#b9cbbb] disabled:text-[#8aa08d]"
+                    >
+                      确认并继续下载
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBrowserLoginForm(true)
+                    setNotice('')
+                    setSubmitState('idle')
+                  }}
+                  className="mt-4 h-11 w-full rounded-md border border-[#cfded0] bg-white text-sm font-semibold text-[#4e6652]"
+                >
+                  还没有登录？使用手机号登录
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <form
           onSubmit={handleSubmit}
           className="rounded-lg border border-[#d9e7d4] bg-white p-5 shadow-[0_18px_60px_rgba(23,33,26,0.10)]"
-        >
+          >
           <div className="mb-5 flex items-center justify-between gap-3 border-b border-[#e6eee3] pb-4">
             <span className="text-sm font-medium text-[#4e6652]">
               {landingState === 'checking'
@@ -704,10 +1016,13 @@ export default function InviteAuthLanding() {
                   : '下载 App'}
             </button>
           ) : null}
-        </form>
+          </form>
+        )}
 
         <p className="mt-5 text-center text-xs leading-6 text-[#6b7f6d]">
-          未注册手机号会自动创建账号。之后可下载 App 登录。
+          {showBrowserResumeCard
+            ? '下载链接只用于本次 App 下载，不会转移登录状态或推荐关系。'
+            : '未注册手机号会自动创建账号。之后可下载 App 登录。'}
         </p>
       </div>
 
@@ -720,6 +1035,20 @@ export default function InviteAuthLanding() {
           <p className="mt-5 text-right text-lg font-semibold leading-8">
             点击右上角<br />
             选择在浏览器中打开
+          </p>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              void handleCopyPreparedDownloadLink()
+            }}
+            className="mt-6 rounded-md border border-white/70 bg-white/10 px-4 py-3 text-sm font-semibold text-white"
+          >
+            先复制专属下载链接
+          </button>
+          <p className="mt-3 max-w-[260px] text-right text-xs leading-5 text-white/70">
+            {clipboardCopyNotice ||
+              '若浏览器没有自动继续，可在浏览器页面读取或粘贴此链接，不需要重新登录。'}
           </p>
           <p className="absolute inset-x-0 bottom-10 text-center text-sm text-white/60">
             点击任意位置关闭

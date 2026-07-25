@@ -50,11 +50,23 @@ export class InviteH5Controller {
     return this.inviteH5Service.consumeDownloadPass(dto.ticket);
   }
 
+  /**
+   * 微信菜单在部分安卓机型上会重新打开最初的二维码 URL，而不是当前 handoff URL。
+   * 系统浏览器可用同设备短时上下文恢复下载；服务端只在唯一匹配时原子放行。
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('download-pass/resume')
+  resumeDownloadPass(
+    @Body() dto: InviteH5LandingDto,
+    @Req() req: Request,
+  ) {
+    return this.inviteH5Service.resumeDownloadPass(dto, this.getClientIp(req));
+  }
+
   private getClientIp(req: Request): string {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.length > 0) {
-      return forwarded.split(',')[0]?.trim() || 'unknown';
-    }
-    return req.socket.remoteAddress || req.ip || 'unknown';
+    // 只信任 Express 按 main.ts 的 TRUST_PROXY 解析结果，不能直接读取客户端可伪造的
+    // X-Forwarded-For 首项。生产 Nginx 是唯一可信代理，req.ips[0]/req.ip 才是客户端。
+    return req.ips[0] || req.ip || req.socket.remoteAddress || 'unknown';
   }
 }

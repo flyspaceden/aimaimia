@@ -53,8 +53,8 @@ export function normalizeInviteDownloadPass(ticket?: string | null): string | nu
 }
 
 /**
- * 微信内置浏览器切到系统浏览器时不会可靠保留仅由 History API 写入的 hash。
- * 下载交接值必须位于一次真实页面跳转的 query 中，才会成为系统浏览器实际打开的 URL。
+ * query 是可兼容的第一条交接路径，但部分安卓微信会让系统浏览器重新打开二维码
+ * 初始 URL，连真实导航后的 query 也会丢失，因此不能把它当作唯一交接机制。
  */
 export function readInviteDownloadHandoff(search: string): string | null {
   return normalizeInviteDownloadPass(
@@ -76,6 +76,32 @@ export function withoutInviteDownloadHandoff(search: string): string {
   params.delete(INVITE_DOWNLOAD_HANDOFF_PARAM)
   const next = params.toString()
   return next ? `?${next}` : ''
+}
+
+/**
+ * 剪贴板写入完整的专属下载 URL：系统浏览器若没有被微信带上 query，
+ * 用户仍可读取或手动粘贴同一个高熵一次性凭证。
+ */
+export function buildInviteDownloadHandoffUrl(currentUrl: string, ticket: string): string {
+  const url = new URL(currentUrl)
+  url.search = withInviteDownloadHandoff(url.search, ticket)
+  url.hash = ''
+  return url.toString()
+}
+
+/**
+ * 兼容剪贴板中是完整 URL 或纯票据两种形式。只提取合法 256 位随机值，
+ * 不读取手机号、登录 Token 或推荐码。
+ */
+export function readInviteDownloadPassFromClipboardText(text?: string | null): string | null {
+  const normalized = normalizeInviteDownloadPass(text)
+  if (normalized) return normalized
+
+  try {
+    return readInviteDownloadHandoff(new URL(text?.trim() ?? '').search)
+  } catch {
+    return null
+  }
 }
 
 export function inviteDownloadPassSessionStorageKey(landingSessionId: string): string {
