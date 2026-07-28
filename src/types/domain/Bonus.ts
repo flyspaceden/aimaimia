@@ -73,6 +73,12 @@ export interface Wallet {
   vip?: { balance: number; frozen: number };
   /** 普通奖励分账户 */
   normal?: { balance: number; frozen: number };
+  /**
+   * 全平台订单队列奖励。
+   * balance 只包含售后期结束后已实际到账的余额；
+   * frozen 只包含已申请提现、尚在处理中的金额。
+   */
+  queueReward?: { balance: number; frozen: number };
   industryFund?: { balance: number; frozen: number } | null;
   /** 团购返利分账户 */
   groupBuyRebate?: {
@@ -229,6 +235,59 @@ export interface QueueStatus {
   bucketKey?: string;
   position?: number;
   joinedAt?: string;
+}
+
+export interface QueueRewardStatusV2 {
+  enabled: boolean;
+  queueSize: number;
+  splitUnitAmount: number;
+  distributionMode: 'AVERAGE' | 'NORMAL_RANDOM';
+  wallet: {
+    available: number;
+    total: number;
+  };
+  totalActivePositions: number;
+  positionPage: {
+    pageSize: number;
+    total: number;
+    hasMore: boolean;
+    nextSequence: string | null;
+  };
+  activePositions: Array<{
+    id: string;
+    sequence: string;
+    orderId: string;
+    orderNo: string;
+    unitIndex: number;
+    status: 'ACTIVE' | 'CAPPED';
+    ahead: number;
+    observedUnitCount: number;
+    targetObservedUnitCount: number;
+    remainingObservedUnitCount: number;
+    sharedCapAmount: number;
+    receivedAmount: number;
+    joinedAt: string;
+  }>;
+  recentOrders: Array<{
+    orderId: string;
+    orderNo: string;
+    eligiblePaidAmount: number;
+    sharedCapAmount: number;
+    availableReceivedAmount: number;
+    status: 'ACTIVE' | 'CAPPED' | 'COMPLETED' | 'VOIDED';
+    returnWindowExpiresAt: string | null;
+    createdAt: string;
+  }>;
+  recentRewards: Array<{
+    id: string;
+    amount: number;
+    status: 'AVAILABLE';
+    sourceOrderNo: string;
+    releaseAt: string | null;
+    releasedAt: string | null;
+    voidedAt: string | null;
+    createdAt: string;
+  }>;
 }
 
 // VIP 赠品封面模式

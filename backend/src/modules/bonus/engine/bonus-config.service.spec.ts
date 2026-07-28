@@ -104,6 +104,81 @@ describe('BonusConfigService VIP direct referral ratio config', () => {
     expect((config as any).autoVipCumulativeSpendThreshold).toBe(399);
   });
 
+  it('loads the global queue defaults as disabled and independently configurable', async () => {
+    const service = makeService([]);
+
+    await expect(service.getQueueRewardConfig()).resolves.toMatchObject({
+      queueRewardEnabled: false,
+      queueSize: 21,
+      queueRewardPercent: 0.01,
+      queueSplitUnitAmount: 200,
+      queueMaxPositionsPerOrder: 100,
+      queueDistributionMode: 'AVERAGE',
+      queueRandomStddev: 0.25,
+      queueRandomMinFactor: 0.5,
+      queueRandomMaxFactor: 1.5,
+      queueActivationAt: '',
+      ruleVersion: 'test-version',
+    });
+  });
+
+  it('rejects an enabled queue rate larger than either buyer path platform share', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_REWARD_ENABLED: { value: true },
+        QUEUE_REWARD_PERCENT: { value: 0.1 },
+        QUEUE_ACTIVATION_AT: {
+          value: '2026-07-28T00:00:00.000Z',
+        },
+        VIP_PLATFORM_PERCENT: { value: 0.05 },
+        VIP_REWARD_PERCENT: { value: 0.75 },
+      }),
+    ).toThrow('不能超过普通用户或VIP的平台利润比例');
+  });
+
+  it.each([
+    ['QUEUE_REWARD_PERCENT', Number.NaN],
+    ['QUEUE_RANDOM_STDDEV', Number.POSITIVE_INFINITY],
+    ['QUEUE_RANDOM_MIN_FACTOR', Number.NaN],
+  ])('rejects non-finite queue snapshot value %s', (key, value) => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        [key]: { value },
+      }),
+    ).toThrow('必须是有限数字');
+  });
+
+  it('rejects invalid queue random bounds and activation time', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_RANDOM_MIN_FACTOR: { value: 2 },
+        QUEUE_RANDOM_MAX_FACTOR: { value: 1 },
+      }),
+    ).toThrow('最大倍数不能小于最小倍数');
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_ACTIVATION_AT: { value: 'not-a-date' },
+      }),
+    ).toThrow('有效的 ISO 时间');
+  });
+
+  it('rejects enabling the queue without an activation time', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_REWARD_ENABLED: { value: true },
+        QUEUE_ACTIVATION_AT: { value: '' },
+      }),
+    ).toThrow('开启队列奖励时必须设置生效时间');
+  });
+
   it('loads legacy normal six-way DB rows without defaulting direct referral into the total', async () => {
     const service = makeService([
       { key: 'NORMAL_PLATFORM_PERCENT', value: { value: 0.5 } },

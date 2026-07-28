@@ -27,6 +27,7 @@ function createMocks() {
   const paymentService = {};
   const afterSaleRewardService = {
     voidRewardsForOrder: jest.fn(),
+    voidRewardsForOrderInTransaction: jest.fn().mockResolvedValue(undefined),
   };
   const notificationService = {
     emit: jest.fn().mockResolvedValue(undefined),
@@ -60,6 +61,7 @@ function createMocks() {
     service,
     prisma,
     tx,
+    afterSaleRewardService,
     statusHistory,
     notificationService,
     returnShippingService,
@@ -569,3 +571,41 @@ describe('AfterSaleTimeoutService seller receive timeout', () => {
     expect(statusHistory.create).not.toHaveBeenCalled();
   });
 });
+
+describe('AfterSaleTimeoutService buyer replacement confirm timeout', () => {
+  it('commits COMPLETED and reward voiding in the same Serializable transaction', async () => {
+    const {
+      service,
+      tx,
+      afterSaleRewardService,
+    } = createMocks();
+    (tx as any).order = {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ status: 'RECEIVED' }),
+    };
+    (tx as any).orderStatusHistory = {
+      create: jest.fn().mockResolvedValue({ id: 'history-1' }),
+    };
+
+    await (service as any).autoCompleteBuyerConfirm({
+      id: AFTER_SALE_ID,
+      orderId: ORDER_ID,
+    });
+
+    expect(
+      afterSaleRewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(tx, ORDER_ID);
+    expect(prismaIsolation(service)).toBe(
+      Prisma.TransactionIsolationLevel.Serializable,
+    );
+  });
+});
+
+function prismaIsolation(service: any) {
+  const prisma = service.prisma as {
+    $transaction: jest.Mock;
+  };
+  return prisma.$transaction.mock.calls.at(-1)?.[1]
+    ?.isolationLevel;
+}

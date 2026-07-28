@@ -345,7 +345,7 @@ describe('NotificationService and dispatcher', () => {
     );
   });
 
-  it('requeues on a failed attempt and marks FAILED on the fifth attempt', async () => {
+  it('marks the fifth failure observable and automatically redrives it after the dependency recovers', async () => {
     const prisma = makePrisma();
     const registry = { resolve: jest.fn(() => {
       throw new Error('registry boom');
@@ -379,6 +379,97 @@ describe('NotificationService and dispatcher', () => {
 
     expect(prisma.state.outbox[0].attempts).toBe(5);
     expect(prisma.state.outbox[0].status).toBe('FAILED');
+
+    (registry.resolve as jest.Mock).mockReturnValueOnce({
+      messages: [
+        {
+          recipientKind: 'BUYER_USER',
+          recipientKey: 'buyer:1',
+          audience: 'BUYER_APP',
+          category: 'wallet',
+          eventType: 'queueReward.available',
+          title: '排队红包到账',
+          body: '到账',
+          severity: 'SUCCESS',
+          entityType: 'queueRewardDistribution',
+          entityId: 'distribution-1',
+          metadata: { ring: true },
+          idempotencyKey: 'queue-reward-message-1',
+        },
+      ],
+    });
+    prisma.state.outbox[0].runAt =
+      new Date(Date.now() - 1000);
+
+    await dispatcher.dispatchPending(10);
+
+    expect(prisma.state.outbox[0].attempts).toBe(6);
+    expect(prisma.state.outbox[0].status).toBe('SENT');
+    expect(prisma.state.messages).toHaveLength(1);
+  });
+
+  it('does not let an older FAILED row occupy the batch ahead of a new PENDING notification', async () => {
+    const prisma = makePrisma();
+    const registry = new NotificationRegistry();
+    const service = new NotificationService(prisma as any);
+    const dispatcher = new NotificationDispatcherService(prisma as any, registry);
+
+    await service.emit({
+      ...baseEvent,
+      idempotencyKey: 'old-failed',
+    });
+    prisma.state.outbox[0].status = 'FAILED';
+    prisma.state.outbox[0].runAt =
+      new Date(Date.now() - 1000);
+    prisma.state.outbox[0].createdAt =
+      new Date(Date.now() - 10_000);
+
+    await service.emit({
+      ...baseEvent,
+      aggregateId: 'order-2',
+      idempotencyKey: 'new-pending',
+      payload: {
+        orderId: 'order-2',
+        buyerUserId: 'buyer-2',
+      },
+    });
+
+    await dispatcher.dispatchPending(1);
+
+    expect(prisma.state.outbox[0].status).toBe('FAILED');
+    expect(prisma.state.outbox[1].status).toBe('SENT');
+  });
+
+  it('fills unused batch capacity with additional FAILED rows when there are no new notifications', async () => {
+    const prisma = makePrisma();
+    const registry = new NotificationRegistry();
+    const service = new NotificationService(prisma as any);
+    const dispatcher = new NotificationDispatcherService(
+      prisma as any,
+      registry,
+    );
+
+    for (let index = 0; index < 3; index += 1) {
+      await service.emit({
+        ...baseEvent,
+        aggregateId: `order-failed-${index}`,
+        idempotencyKey: `failed-${index}`,
+        payload: {
+          orderId: `order-failed-${index}`,
+          buyerUserId: `buyer-${index}`,
+        },
+      });
+      prisma.state.outbox[index].status = 'FAILED';
+      prisma.state.outbox[index].runAt =
+        new Date(Date.now() - 1000);
+    }
+
+    await dispatcher.dispatchPending(3);
+
+    expect(
+      prisma.state.outbox.map((row) => row.status),
+    ).toEqual(['SENT', 'SENT', 'SENT']);
+    expect(prisma.state.messages).toHaveLength(3);
   });
 
   it('isolates notification messages by recipient and updates read state', async () => {

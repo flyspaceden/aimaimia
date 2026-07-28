@@ -59,6 +59,7 @@ describe('NotificationRegistry', () => {
       ['coupon.expired', { couponInstanceId: 'coupon-1', userId: 'buyer-1' }],
       ['coupon.claimableAvailable', { campaignIds: ['campaign-1'], userId: 'buyer-1', count: 1 }],
       ['reward.credited', { ledgerId: 'ledger-1', userId: 'buyer-1', amount: 12.34 }],
+      ['queueReward.available', { distributionId: 'dist-1', userId: 'buyer-1', amount: 1.23 }],
       ['reward.unfrozen', { ledgerId: 'ledger-1', userId: 'buyer-1', amount: 12.34 }],
       ['reward.expired', { ledgerId: 'ledger-1', userId: 'buyer-1' }],
       ['withdraw.approved', { withdrawId: 'withdraw-1', userId: 'buyer-1' }],
@@ -77,6 +78,30 @@ describe('NotificationRegistry', () => {
       expect(result.messages.length).toBeGreaterThan(0);
       expect(result.messages.every((message) => message.eventType === eventType)).toBe(true);
     }
+  });
+
+  it('marks each queue reward message as a ring-worthy wallet event', async () => {
+    const result = await registry.resolve(
+      event('queueReward.available', {
+        distributionId: 'dist-1',
+        userId: 'buyer-1',
+        amount: 1.23,
+      }),
+    );
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        recipientKey: 'buyer:buyer-1',
+        category: 'wallet',
+        title: '排队红包到账',
+        body: '您收到1.23 元排队红包，已可提现。',
+        metadata: {
+          rewardKind: 'QUEUE_REWARD',
+          ring: true,
+        },
+        action: { routeKey: 'WALLET', params: { id: 'entity-1' } },
+      }),
+    ]);
   });
 
   it('registers high-value after-sale, invoice, group-buy, digital-asset, and customer-service events', async () => {

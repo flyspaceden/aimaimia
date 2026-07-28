@@ -37,6 +37,7 @@ export interface ProfitSafetySku {
 export interface ProfitSafetyCandidate {
   markupRate: number;
   vipDiscountRate: number;
+  queueRewardProfitRate: number;
   vip: ProfitSafetyPathRates;
   normal: ProfitSafetyPathRates;
   captainConfig: CaptainSeafoodConfig;
@@ -66,6 +67,7 @@ export interface ProfitSafetyScenario {
   treeProfitRate: number;
   industryFundProfitRate: number;
   directReferralProfitRate: number;
+  queueRewardProfitRate: number;
   captainProfitRate: number;
   externalProfitRate: number;
   platformRequiredRevenueRate: number;
@@ -301,6 +303,11 @@ export class ProfitSafetyValidator {
       sharedErrors,
       `INVALID_${definition.inviterPath}_DIRECT_RATE`,
     );
+    const queueRewardProfitRate = this.nonNegativeRate(
+      candidate.queueRewardProfitRate,
+      sharedErrors,
+      'INVALID_QUEUE_REWARD_RATE',
+    );
     let limitingSku: ProfitSafetyLimitingSku | null = null;
     let scenarioSafe = true;
 
@@ -311,6 +318,7 @@ export class ProfitSafetyValidator {
       const externalProfitRate = this.roundRate(treeProfitRate
         + industryFundProfitRate
         + directReferralProfitRate
+        + queueRewardProfitRate
         + captainProfitRate);
       const price = Number(sku.price);
       const cost = sku.cost === null ? Number.NaN : Number(sku.cost);
@@ -385,6 +393,7 @@ export class ProfitSafetyValidator {
     const externalProfitRate = this.roundRate(treeProfitRate
       + industryFundProfitRate
       + directReferralProfitRate
+      + queueRewardProfitRate
       + captainProfitRate);
 
     return {
@@ -394,6 +403,7 @@ export class ProfitSafetyValidator {
       treeProfitRate,
       industryFundProfitRate,
       directReferralProfitRate,
+      queueRewardProfitRate,
       captainProfitRate,
       externalProfitRate,
       platformRequiredRevenueRate,

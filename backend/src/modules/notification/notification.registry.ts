@@ -100,6 +100,19 @@ export class NotificationRegistry {
           entityType: 'rewardLedger',
           routeKey: 'WALLET',
         });
+      case 'queueReward.available':
+        return this.buyer(event, {
+          category: 'wallet',
+          title: '排队红包到账',
+          body: `您收到${this.amountText(event)}排队红包，已可提现。`,
+          severity: 'SUCCESS',
+          entityType: 'queueRewardDistribution',
+          routeKey: 'WALLET',
+          metadata: {
+            rewardKind: 'QUEUE_REWARD',
+            ring: true,
+          },
+        });
       case 'reward.unfrozen':
         return this.buyer(event, {
           category: 'wallet',
@@ -440,6 +453,7 @@ export class NotificationRegistry {
       severity: NotificationSeverity;
       entityType: string;
       routeKey: NotificationRouteKey;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<NotificationResolveResult> {
     const userId = this.payloadString(event, 'buyerUserId', 'userId');
@@ -459,6 +473,7 @@ export class NotificationRegistry {
           entityType: template.entityType,
           entityId,
           action: this.action(template.routeKey, this.routeParams(event)),
+          metadata: template.metadata,
         }),
       ],
     };

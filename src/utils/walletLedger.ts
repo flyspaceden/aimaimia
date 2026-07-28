@@ -25,6 +25,8 @@ const schemeLabel: Record<string, string> = {
   VIP_DIRECT_REFERRAL_VOID: 'VIP 直推佣金作废',
   VIP_UPSTREAM: 'VIP 上溯分润',
   VIP_REFERRAL: 'VIP 推荐奖励',
+  GLOBAL_QUEUE: '排队红包',
+  GLOBAL_QUEUE_VOID: '排队红包作废',
 };
 
 function readMetaScheme(entry: WalletLedgerEntry): string | null {
@@ -51,6 +53,17 @@ export function isWalletDeductionTitle(title: string): boolean {
 }
 
 export function getWalletLedgerTitle(entry: WalletLedgerEntry): string {
+  if (entry.accountType === 'QUEUE_REWARD') {
+    if (entry.entryType === 'WITHDRAW' || entry.refType === 'WITHDRAW') {
+      return '排队红包提现';
+    }
+    if (entry.status === 'FROZEN') return '排队红包待释放';
+    if (entry.status === 'VOIDED' || entry.entryType === 'VOID') {
+      return '排队红包已作废';
+    }
+    return '排队红包到账';
+  }
+
   if (isGroupBuyRebateLedger(entry)) {
     if (isPendingGroupBuyRebate(entry)) {
       return '团购返还冻结中';

@@ -44,6 +44,8 @@ function makeHarness() {
     ['NORMAL_REWARD_PERCENT', 0.2],
     ['NORMAL_DIRECT_REFERRAL_PERCENT', 0.05],
     ['NORMAL_INDUSTRY_FUND_PERCENT', 0.1],
+    ['QUEUE_REWARD_ENABLED', false],
+    ['QUEUE_REWARD_PERCENT', 0.01],
     ['CAPTAIN_SEAFOOD_CONFIG', safeCaptainConfig()],
   ]);
   const rows: Array<{ key: string; value: { value: unknown } }> =
@@ -470,6 +472,29 @@ describe('ProfitSafetyService', () => {
 
     expect(summary.safe).toBe(true);
     expect(events).toEqual(['lock', 'rules', 'skus']);
+    expect(tx.ruleVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('exposes the exact candidate snapshot for API-level final-state preview validation', async () => {
+    const { service, tx } = makeHarness();
+
+    const context = await service.previewContext({
+      ruleUpdates: {
+        QUEUE_REWARD_ENABLED: true,
+        QUEUE_REWARD_PERCENT: 0.05,
+      },
+    });
+
+    expect(context.candidateSnapshot).toMatchObject({
+      QUEUE_REWARD_ENABLED: true,
+      QUEUE_REWARD_PERCENT: 0.05,
+    });
+    expect(context.summary.scenarios).toHaveLength(4);
+    expect(
+      context.summary.scenarios.every(
+        (scenario) => scenario.queueRewardProfitRate === 0.05,
+      ),
+    ).toBe(true);
     expect(tx.ruleVersion.create).not.toHaveBeenCalled();
   });
 

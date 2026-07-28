@@ -4,6 +4,35 @@ import {
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
 } from '../../captain/captain.constants';
 
+describe('after-sale window config validation', () => {
+  it('accepts bounded integers and rejects unsafe values', () => {
+    expect(validateConfigValue('RETURN_WINDOW_DAYS', 7)).toBeNull();
+    expect(validateConfigValue('NORMAL_RETURN_DAYS', 15)).toBeNull();
+    expect(validateConfigValue('FRESH_RETURN_HOURS', 240)).toBeNull();
+    expect(validateConfigValue('RETURN_WINDOW_DAYS', 0)).toContain('最小值');
+    expect(validateConfigValue('NORMAL_RETURN_DAYS', 1.5)).toContain('整数');
+    expect(validateConfigValue('FRESH_RETURN_HOURS', 0)).toContain('最小值');
+    expect(validateConfigValue('FRESH_RETURN_HOURS', 8761)).toContain('最大值');
+  });
+});
+
+describe('global queue position cap validation', () => {
+  it('accepts 1–500 integer positions per order and rejects unsafe values', () => {
+    expect(
+      validateConfigValue('QUEUE_MAX_POSITIONS_PER_ORDER', 100),
+    ).toBeNull();
+    expect(
+      validateConfigValue('QUEUE_MAX_POSITIONS_PER_ORDER', 0),
+    ).toContain('最小值');
+    expect(
+      validateConfigValue('QUEUE_MAX_POSITIONS_PER_ORDER', 501),
+    ).toContain('最大值');
+    expect(
+      validateConfigValue('QUEUE_MAX_POSITIONS_PER_ORDER', 1.5),
+    ).toContain('整数');
+  });
+});
+
 describe('invoice config validation', () => {
   it('accepts valid invoice provider mode and line mode', () => {
     expect(validateConfigValue('INVOICE_PROVIDER_MODE', 'MOCK')).toBeNull();

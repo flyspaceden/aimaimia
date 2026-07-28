@@ -44,8 +44,26 @@ export interface SystemConfig {
   autoVipCumulativeSpendThreshold: number; // 累计普通商品有效消费自动成为VIP门槛（元）
 }
 
+/** 全平台订单队列奖励配置 */
+export interface QueueRewardConfig {
+  queueRewardEnabled: boolean;
+  queueSize: number;
+  queueRewardPercent: number;
+  queueSplitUnitAmount: number;
+  queueMaxPositionsPerOrder: number;
+  queueDistributionMode: 'AVERAGE' | 'NORMAL_RANDOM';
+  queueRandomStddev: number;
+  queueRandomMinFactor: number;
+  queueRandomMaxFactor: number;
+  queueActivationAt: string;
+}
+
 /** 完整分润系统配置（向后兼容） */
-export interface BonusConfig extends VipBonusConfig, NormalBonusConfig, SystemConfig {
+export interface BonusConfig
+  extends VipBonusConfig,
+    NormalBonusConfig,
+    SystemConfig,
+    QueueRewardConfig {
   /** @deprecated 旧VIP返利比例，NORMAL_BROADCAST遗留路径仍需要 */
   rebateRatio: number;
   /** @deprecated 旧VIP奖励池占比，NORMAL_BROADCAST遗留路径仍需要 */
@@ -93,6 +111,17 @@ const KEY_MAP: Record<string, keyof Omit<BonusConfig, 'ruleVersion'>> = {
   NORMAL_CHARITY_PERCENT: 'normalCharityPercent',
   NORMAL_TECH_PERCENT: 'normalTechPercent',
   NORMAL_RESERVE_PERCENT: 'normalReservePercent',
+  // 全平台订单队列奖励
+  QUEUE_REWARD_ENABLED: 'queueRewardEnabled',
+  QUEUE_SIZE: 'queueSize',
+  QUEUE_REWARD_PERCENT: 'queueRewardPercent',
+  QUEUE_SPLIT_UNIT_AMOUNT: 'queueSplitUnitAmount',
+  QUEUE_MAX_POSITIONS_PER_ORDER: 'queueMaxPositionsPerOrder',
+  QUEUE_DISTRIBUTION_MODE: 'queueDistributionMode',
+  QUEUE_RANDOM_STDDEV: 'queueRandomStddev',
+  QUEUE_RANDOM_MIN_FACTOR: 'queueRandomMinFactor',
+  QUEUE_RANDOM_MAX_FACTOR: 'queueRandomMaxFactor',
+  QUEUE_ACTIVATION_AT: 'queueActivationAt',
   // 系统级配置
   MARKUP_RATE: 'markupRate',
   DEFAULT_SHIPPING_FEE: 'defaultShippingFee',
@@ -171,6 +200,17 @@ const DEFAULTS: Omit<BonusConfig, 'ruleVersion'> = {
   normalCharityPercent: 0.08,
   normalTechPercent: 0.08,
   normalReservePercent: 0.02,
+  // 全平台订单队列奖励（部署后默认关闭）
+  queueRewardEnabled: false,
+  queueSize: 21,
+  queueRewardPercent: 0.01,
+  queueSplitUnitAmount: 200,
+  queueMaxPositionsPerOrder: 100,
+  queueDistributionMode: 'AVERAGE',
+  queueRandomStddev: 0.25,
+  queueRandomMinFactor: 0.5,
+  queueRandomMaxFactor: 1.5,
+  queueActivationAt: '',
   // 系统级
   markupRate: 1.30,
   defaultShippingFee: 8.0,
@@ -241,6 +281,24 @@ export class BonusConfigService {
       vipMaxLayers: config.vipMaxLayers,
       vipBranchFactor: config.vipBranchFactor,
       vipFreezeDays: config.vipFreezeDays,
+    };
+  }
+
+  /** 仅获取全平台订单队列奖励配置 */
+  async getQueueRewardConfig(): Promise<QueueRewardConfig & { ruleVersion: string }> {
+    const config = await this.getConfig();
+    return {
+      queueRewardEnabled: config.queueRewardEnabled,
+      queueSize: config.queueSize,
+      queueRewardPercent: config.queueRewardPercent,
+      queueSplitUnitAmount: config.queueSplitUnitAmount,
+      queueMaxPositionsPerOrder: config.queueMaxPositionsPerOrder,
+      queueDistributionMode: config.queueDistributionMode,
+      queueRandomStddev: config.queueRandomStddev,
+      queueRandomMinFactor: config.queueRandomMinFactor,
+      queueRandomMaxFactor: config.queueRandomMaxFactor,
+      queueActivationAt: config.queueActivationAt,
+      ruleVersion: config.ruleVersion,
     };
   }
 
@@ -343,7 +401,18 @@ export class BonusConfigService {
       const val = typeof stored === 'object' && stored?.value !== undefined
         ? stored.value
         : stored;
-      return Number(val);
+      const parsed = Number(val);
+      if (!Number.isFinite(parsed)) {
+        throw new BadRequestException(`${key} 必须是有限数字`);
+      }
+      return parsed;
+    };
+    const getRawValue = (key: string, fallback: unknown): unknown => {
+      const stored = snapshot[key];
+      if (stored === undefined || stored === null) return fallback;
+      return typeof stored === 'object' && stored?.value !== undefined
+        ? stored.value
+        : stored;
     };
 
     // 校验VIP利润分配比例（自动检测旧/新格式）
@@ -404,6 +473,111 @@ export class BonusConfigService {
     if (Math.abs(normalSum - 1.0) > 0.001) {
       throw new BadRequestException(
         `快照中普通用户利润分配比例总和为 ${normalSum.toFixed(4)}，应为 1.0（NORMAL_PLATFORM_PERCENT + NORMAL_REWARD_PERCENT + NORMAL_DIRECT_REFERRAL_PERCENT + NORMAL_INDUSTRY_FUND_PERCENT + NORMAL_CHARITY_PERCENT + NORMAL_TECH_PERCENT + NORMAL_RESERVE_PERCENT）`,
+      );
+    }
+
+    const queuePercent = getValue(
+      'QUEUE_REWARD_PERCENT',
+      DEFAULTS.queueRewardPercent,
+    );
+    const queueSize = getValue('QUEUE_SIZE', DEFAULTS.queueSize);
+    const queueSplitUnitAmount = getValue(
+      'QUEUE_SPLIT_UNIT_AMOUNT',
+      DEFAULTS.queueSplitUnitAmount,
+    );
+    const queueMaxPositionsPerOrder = getValue(
+      'QUEUE_MAX_POSITIONS_PER_ORDER',
+      DEFAULTS.queueMaxPositionsPerOrder,
+    );
+    const queueStddev = getValue(
+      'QUEUE_RANDOM_STDDEV',
+      DEFAULTS.queueRandomStddev,
+    );
+    const queueMinFactor = getValue(
+      'QUEUE_RANDOM_MIN_FACTOR',
+      DEFAULTS.queueRandomMinFactor,
+    );
+    const queueMaxFactor = getValue(
+      'QUEUE_RANDOM_MAX_FACTOR',
+      DEFAULTS.queueRandomMaxFactor,
+    );
+    const queueMode = getRawValue(
+      'QUEUE_DISTRIBUTION_MODE',
+      DEFAULTS.queueDistributionMode,
+    );
+    const queueActivationAt = getRawValue(
+      'QUEUE_ACTIVATION_AT',
+      DEFAULTS.queueActivationAt,
+    );
+    if (!Number.isInteger(queueSize) || queueSize < 2 || queueSize > 100) {
+      throw new BadRequestException('队列人数必须是 2–100 的整数');
+    }
+    if (queuePercent < 0.01 || queuePercent > 0.1) {
+      throw new BadRequestException('队列奖励比例必须在 1%–10% 之间');
+    }
+    if (
+      queueSplitUnitAmount < 0.01 ||
+      queueSplitUnitAmount > 1_000_000
+    ) {
+      throw new BadRequestException('队列拆单金额必须在 0.01–1000000 元之间');
+    }
+    if (
+      !Number.isInteger(queueMaxPositionsPerOrder) ||
+      queueMaxPositionsPerOrder < 1 ||
+      queueMaxPositionsPerOrder > 500
+    ) {
+      throw new BadRequestException('单笔订单队列位置上限必须是 1–500 的整数');
+    }
+    if (!['AVERAGE', 'NORMAL_RANDOM'].includes(String(queueMode))) {
+      throw new BadRequestException('队列红包分配模式不合法');
+    }
+    if (queueStddev < 0 || queueStddev > 1) {
+      throw new BadRequestException('队列正态随机标准差必须在 0–1 之间');
+    }
+    if (
+      queueMinFactor <= 0 ||
+      queueMinFactor > 10 ||
+      queueMaxFactor <= 0 ||
+      queueMaxFactor > 10
+    ) {
+      throw new BadRequestException('队列正态随机倍数必须在 0–10 之间');
+    }
+    if (
+      typeof queueActivationAt !== 'string' ||
+      (queueActivationAt !== '' &&
+        Number.isNaN(Date.parse(queueActivationAt)))
+    ) {
+      throw new BadRequestException('队列奖励生效时间必须是有效的 ISO 时间');
+    }
+    const queueEnabledStored = snapshot['QUEUE_REWARD_ENABLED'];
+    const queueEnabledValue =
+      typeof queueEnabledStored === 'object' &&
+      queueEnabledStored?.value !== undefined
+        ? queueEnabledStored.value
+        : queueEnabledStored;
+    const queueEnabled =
+      queueEnabledValue === undefined
+        ? DEFAULTS.queueRewardEnabled
+        : queueEnabledValue === true;
+    if (queueEnabled && queueActivationAt === '') {
+      throw new BadRequestException(
+        '开启队列奖励时必须设置生效时间',
+      );
+    }
+    if (
+      queueEnabled &&
+      (queuePercent >
+        getValue('NORMAL_PLATFORM_PERCENT', DEFAULTS.normalPlatformPercent) ||
+        queuePercent >
+          getValue('VIP_PLATFORM_PERCENT', DEFAULTS.vipPlatformPercent))
+    ) {
+      throw new BadRequestException(
+        '队列奖励比例不能超过普通用户或VIP的平台利润比例',
+      );
+    }
+    if (queueMaxFactor < queueMinFactor) {
+      throw new BadRequestException(
+        '队列正态随机最大倍数不能小于最小倍数',
       );
     }
   }
@@ -493,6 +667,63 @@ export class BonusConfigService {
       result.normalCharityPercent = DEFAULTS.normalCharityPercent;
       result.normalTechPercent = DEFAULTS.normalTechPercent;
       result.normalReservePercent = DEFAULTS.normalReservePercent;
+    }
+
+    const queueRewardPercent = Number(result.queueRewardPercent);
+    const queueSplitUnitAmount = Number(result.queueSplitUnitAmount);
+    const queueMaxPositionsPerOrder = Number(
+      result.queueMaxPositionsPerOrder,
+    );
+    const queueRandomStddev = Number(result.queueRandomStddev);
+    const queueRandomMinFactor = Number(result.queueRandomMinFactor);
+    const queueRandomMaxFactor = Number(result.queueRandomMaxFactor);
+    const queueActivationValid =
+      typeof result.queueActivationAt === 'string' &&
+      (result.queueActivationAt === '' ||
+        !Number.isNaN(Date.parse(result.queueActivationAt)));
+    const queueConfigValid =
+      typeof result.queueRewardEnabled === 'boolean' &&
+      Number.isInteger(result.queueSize) &&
+      result.queueSize >= 2 &&
+      result.queueSize <= 100 &&
+      Number.isFinite(queueRewardPercent) &&
+      queueRewardPercent >= 0.01 &&
+      queueRewardPercent <= 0.1 &&
+      Number.isFinite(queueSplitUnitAmount) &&
+      queueSplitUnitAmount >= 0.01 &&
+      queueSplitUnitAmount <= 1_000_000 &&
+      Number.isInteger(queueMaxPositionsPerOrder) &&
+      queueMaxPositionsPerOrder >= 1 &&
+      queueMaxPositionsPerOrder <= 500 &&
+      ['AVERAGE', 'NORMAL_RANDOM'].includes(result.queueDistributionMode) &&
+      Number.isFinite(queueRandomStddev) &&
+      queueRandomStddev >= 0 &&
+      queueRandomStddev <= 1 &&
+      Number.isFinite(queueRandomMinFactor) &&
+      queueRandomMinFactor > 0 &&
+      queueRandomMinFactor <= 10 &&
+      Number.isFinite(queueRandomMaxFactor) &&
+      queueRandomMaxFactor >= queueRandomMinFactor &&
+      queueRandomMaxFactor <= 10 &&
+      queueActivationValid &&
+      (!result.queueRewardEnabled ||
+        result.queueActivationAt !== '') &&
+      (!result.queueRewardEnabled ||
+        (queueRewardPercent <= Number(result.normalPlatformPercent) &&
+          queueRewardPercent <= Number(result.vipPlatformPercent)));
+    if (!queueConfigValid) {
+      this.logger.error('全平台订单队列奖励配置异常，已回退为默认关闭配置');
+      result.queueRewardEnabled = false;
+      result.queueSize = DEFAULTS.queueSize;
+      result.queueRewardPercent = DEFAULTS.queueRewardPercent;
+      result.queueSplitUnitAmount = DEFAULTS.queueSplitUnitAmount;
+      result.queueMaxPositionsPerOrder =
+        DEFAULTS.queueMaxPositionsPerOrder;
+      result.queueDistributionMode = DEFAULTS.queueDistributionMode;
+      result.queueRandomStddev = DEFAULTS.queueRandomStddev;
+      result.queueRandomMinFactor = DEFAULTS.queueRandomMinFactor;
+      result.queueRandomMaxFactor = DEFAULTS.queueRandomMaxFactor;
+      result.queueActivationAt = DEFAULTS.queueActivationAt;
     }
 
     this.logger.log(`分润配置已加载，版本: ${result.ruleVersion}`);

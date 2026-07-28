@@ -7,7 +7,7 @@ import { NotificationEvent } from './notification.types';
 type OutboxRow = {
   id: string;
   payload: unknown;
-  status: 'PENDING' | 'PROCESSING';
+  status: 'PENDING' | 'PROCESSING' | 'FAILED';
   attempts: number;
   runAt: Date;
   updatedAt: Date;
@@ -31,7 +31,28 @@ export class NotificationDispatcherService {
   async dispatchPending(limit = 50) {
     const now = new Date();
     const staleProcessingBefore = new Date(now.getTime() - this.staleProcessingMs);
-    const rows = await this.prisma.notificationOutbox.findMany({
+    const batchSize =
+      Number.isFinite(limit) && limit > 0
+        ? Math.floor(limit)
+        : 50;
+    // 大批次给 FAILED 保留不超过 10% 的重驱配额，确保依赖恢复后能自愈；
+    // 单条批次始终优先新消息，避免永久“毒消息”饿死新红包。
+    const failedQuota =
+      batchSize > 1
+        ? Math.max(1, Math.floor(batchSize * 0.1))
+        : 0;
+    const failedCandidates =
+      await this.prisma.notificationOutbox.findMany({
+        where: {
+          status: 'FAILED',
+          runAt: { lte: now },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: batchSize,
+      });
+    const failedRows =
+      failedCandidates.slice(0, failedQuota);
+    const primaryRows = await this.prisma.notificationOutbox.findMany({
       where: {
         OR: [
           { status: 'PENDING', runAt: { lte: now } },
@@ -39,8 +60,24 @@ export class NotificationDispatcherService {
         ],
       },
       orderBy: { createdAt: 'asc' },
-      take: limit,
+      take: batchSize - failedRows.length,
     });
+    const remaining =
+      batchSize - primaryRows.length - failedRows.length;
+    // 主队列没有填满时继续使用 FAILED 候选补齐整批，不能因为已经
+    // 取到一条保留配额就让其余容量闲置。
+    const fallbackFailedRows =
+      remaining > 0
+        ? failedCandidates.slice(
+            failedRows.length,
+            failedRows.length + remaining,
+          )
+        : [];
+    const rows = [
+      ...primaryRows,
+      ...failedRows,
+      ...fallbackFailedRows,
+    ];
 
     for (const row of rows) {
       await this.dispatchOne(row as OutboxRow);

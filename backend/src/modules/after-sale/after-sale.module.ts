@@ -29,6 +29,7 @@ import { CaptainModule } from '../captain/captain.module';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
 import { ProfitModule } from '../profit/profit.module';
 import { OrderProfitRefundService } from '../profit/order-profit-refund.service';
+import { QueueRewardModule } from '../queue-reward/queue-reward.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { OrderProfitRefundService } from '../profit/order-profit-refund.service'
     GrowthModule,
     CaptainModule,
     ProfitModule,
+    QueueRewardModule,
   ],
   controllers: [AfterSaleController],
   providers: [

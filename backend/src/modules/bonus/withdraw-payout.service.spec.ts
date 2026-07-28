@@ -113,6 +113,80 @@ function buildService(overrides: {
 }
 
 describe('WithdrawPayoutService.requestWithdraw', () => {
+  it('uses released queue rewards for withdrawal after VIP and normal balances', async () => {
+    const { service, prisma } = buildService();
+    prisma.rewardAccount.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'acc-queue',
+        userId: 'u1',
+        type: 'QUEUE_REWARD',
+        balance: 12,
+        frozen: 0,
+      });
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue(null);
+
+    const split = await service.deductBalanceForWithdraw(
+      prisma,
+      'u1',
+      1_000,
+    );
+
+    expect(split).toMatchObject({
+      fromVipCents: 0,
+      fromNormalCents: 0,
+      fromQueueRewardCents: 1_000,
+      queueRewardAccountId: 'acc-queue',
+      fromGroupBuyRebateCents: 0,
+      fromIndustryFundCents: 0,
+    });
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'acc-queue',
+        balance: { gte: 10 },
+      },
+      data: {
+        balance: { decrement: 10 },
+        frozen: { increment: 10 },
+      },
+    });
+  });
+
+  it('reserves pending queue clawback debt from subsequent queue withdrawals', async () => {
+    const { service, prisma } = buildService();
+    prisma.rewardAccount.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'acc-queue',
+        userId: 'u1',
+        type: 'QUEUE_REWARD',
+        balance: 12,
+        frozen: 0,
+      });
+    prisma.rewardLedger.findMany.mockResolvedValue([
+      {
+        amount: -5,
+        meta: {
+          scheme: 'GLOBAL_QUEUE_VOID',
+          clawbackAmount: 3,
+        },
+      },
+    ]);
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.deductBalanceForWithdraw(
+        prisma,
+        'u1',
+        1_000,
+      ),
+    ).rejects.toThrow('余额不足');
+  });
+
   it('rejects amounts outside configured min/max using cents math', async () => {
     const { service } = buildService();
 
@@ -903,6 +977,108 @@ describe('WithdrawPayoutService.finalize', () => {
         amount: 80,
         reason: 'PAYOUT_FAILED',
       },
+    });
+  });
+
+  it('uses a failed queue withdrawal to settle linked queue clawback debt before restoring user balance', async () => {
+    const { service, prisma } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      id: 'w-queue-1',
+      userId: 'u1',
+      amount: 3,
+    });
+    prisma.rewardLedger.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'withdraw-ledger',
+          accountId: 'acc-queue',
+          userId: 'u1',
+          amount: 3,
+          account: { type: 'QUEUE_REWARD' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'clawback-ledger',
+          accountId: 'acc-queue',
+          userId: 'u1',
+          amount: -5,
+          status: 'RETURN_FROZEN',
+          meta: {
+            scheme: 'GLOBAL_QUEUE_VOID',
+            originalDistributionId: 'distribution-1',
+            recoveredAmount: 2,
+            clawbackAmount: 3,
+          },
+        },
+      ]);
+    prisma.rewardLedger.update = jest
+      .fn()
+      .mockResolvedValue({});
+    prisma.rewardLedger.create.mockResolvedValue({});
+    prisma.rewardAccount.upsert = jest
+      .fn()
+      .mockResolvedValue({ id: 'platform-account' });
+    prisma.rewardAccount.update = jest
+      .fn()
+      .mockResolvedValue({});
+    prisma.queueRewardDistribution = {
+      findUnique: jest.fn().mockResolvedValue({
+        recoveredAmount: 2,
+        platformReturnedAmount: 2,
+        platformReturnRatio: {
+          numerator: 1,
+          denominator: 1,
+        },
+      }),
+      updateMany: jest
+        .fn()
+        .mockResolvedValue({ count: 1 }),
+    };
+
+    await service.finalizeWithdrawalFailed('w-queue-1', {
+      errorCode: 'PAYOUT_FAILED',
+      providerStatus: 'FAIL',
+    });
+
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'acc-queue',
+        frozen: { gte: 3 },
+      },
+      data: {
+        frozen: { decrement: 3 },
+        balance: { increment: 0 },
+      },
+    });
+    expect(
+      prisma.queueRewardDistribution.updateMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: 'distribution-1',
+        recoveredAmount: 2,
+        platformReturnedAmount: 2,
+      },
+      data: {
+        recoveredAmount: 5,
+        platformReturnedAmount: 5,
+      },
+    });
+    expect(prisma.rewardLedger.update).toHaveBeenCalledWith({
+      where: { id: 'clawback-ledger' },
+      data: expect.objectContaining({
+        status: 'VOIDED',
+        meta: expect.objectContaining({
+          recoveredAmount: 5,
+          clawbackAmount: 0,
+          clawbackStatus: 'CLAWBACK_RECOVERED',
+          recoveredFromFailedWithdrawId: 'w-queue-1',
+        }),
+      }),
+    });
+    expect(prisma.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'platform-account' },
+      data: { balance: { increment: 3 } },
     });
   });
 

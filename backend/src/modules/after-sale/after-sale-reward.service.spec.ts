@@ -10,7 +10,14 @@ function makeHarness(frozenLedgers: any[], releasedLedgers: any[] = []) {
       create: jest.fn().mockResolvedValue({ id: 'platform-ledger-1' }),
     },
     rewardAccount: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'platform-account-1' }),
+      findUnique: jest.fn(async ({ where }: any) =>
+        where.userId_type
+          ? { id: 'platform-account-1' }
+          : {
+              id: where.id,
+              balance: 100,
+              frozen: 100,
+            }),
       create: jest.fn().mockResolvedValue({ id: 'platform-account-1' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn().mockResolvedValue({}),
@@ -19,10 +26,17 @@ function makeHarness(frozenLedgers: any[], releasedLedgers: any[] = []) {
   const prisma = {
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
+  const queueRewardService = {
+    voidRewardsForOrderInTransaction: jest.fn().mockResolvedValue(0),
+  };
   return {
-    service: new AfterSaleRewardService(prisma as any),
+    service: new AfterSaleRewardService(
+      prisma as any,
+      queueRewardService as any,
+    ),
     prisma,
     tx,
+    queueRewardService,
   };
 }
 
@@ -50,6 +64,7 @@ describe('AfterSaleRewardService direct referral voiding', () => {
         refId: 'order-1',
         entryType: 'FREEZE',
         status: { in: ['RETURN_FROZEN', 'FROZEN'] },
+        account: { type: { not: 'QUEUE_REWARD' } },
       },
     });
     expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
@@ -99,6 +114,7 @@ describe('AfterSaleRewardService direct referral voiding', () => {
         refId: 'order-1',
         entryType: 'RELEASE',
         status: 'AVAILABLE',
+        account: { type: { not: 'QUEUE_REWARD' } },
       },
     });
     expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({

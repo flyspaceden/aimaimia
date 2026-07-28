@@ -9,6 +9,7 @@ function candidate(overrides: Partial<ProfitSafetyCandidate> = {}): ProfitSafety
   return {
     markupRate: 1.35,
     vipDiscountRate: 0.95,
+    queueRewardProfitRate: 0,
     vip: {
       rewardProfitRate: 0.2,
       directReferralProfitRate: 0.1,
@@ -76,9 +77,29 @@ describe('ProfitSafetyValidator', () => {
         treeProfitRate: 0.3,
         industryFundProfitRate: 0.1,
         directReferralProfitRate: 0.1,
+        queueRewardProfitRate: 0,
         captainProfitRate: 0.1,
         externalProfitRate: 0.6,
       });
+  });
+
+  it('counts the enabled global queue rate as an external profit use on every buyer path', () => {
+    const summary = validator.evaluate(
+      candidate({ queueRewardProfitRate: 0.05 }),
+    );
+
+    expect(
+      summary.scenarios.every(
+        (scenario) => scenario.queueRewardProfitRate === 0.05,
+      ),
+    ).toBe(true);
+    expect(
+      summary.scenarios.find(
+        (scenario) => scenario.key === 'NORMAL_BUYER_VIP_INVITER',
+      ),
+    ).toMatchObject({
+      externalProfitRate: 0.65,
+    });
   });
 
   it('uses discounted revenue as the denominator for the mandatory VIP margin', () => {

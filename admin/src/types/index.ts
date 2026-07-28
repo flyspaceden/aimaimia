@@ -699,6 +699,7 @@ export interface ProfitSafetyScenario {
   treeProfitRate: number;
   industryFundProfitRate: number;
   directReferralProfitRate: number;
+  queueRewardProfitRate: number;
   captainProfitRate: number;
   externalProfitRate: number;
   platformRequiredRevenueRate: number;

@@ -15,9 +15,20 @@ import { NotificationService } from '../notification/notification.service';
 import { pickUniqueReferralCode } from '../../common/utils/referral-code.util';
 import { maskPhone } from '../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../common/security/encryption';
+import { centsToYuan, yuanToCents } from '../profit/money-allocation';
+import { pendingQueueClawbackCents } from '../queue-reward/queue-reward-clawback';
 
-const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
-const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = ['VIP_REWARD', 'NORMAL_REWARD'];
+const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = [
+  'VIP_REWARD',
+  'NORMAL_REWARD',
+  'QUEUE_REWARD',
+  'INDUSTRY_FUND',
+];
+const APP_WALLET_MEMBER_REWARD_ACCOUNT_TYPES = [
+  'VIP_REWARD',
+  'NORMAL_REWARD',
+  'QUEUE_REWARD',
+];
 const AUTO_VIP_MAX_RETRIES = 3;
 type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
@@ -34,6 +45,8 @@ const REWARD_SOURCE_LABELS: Record<string, string> = {
   BROADCAST: '广播分润',
   NORMAL_TREE: '普通树分润',
   NORMAL_BROADCAST: '普通广播分润',
+  GLOBAL_QUEUE: '排队红包',
+  GLOBAL_QUEUE_VOID: '排队红包作废',
 };
 
 function getLedgerScheme(meta: unknown): string | null {
@@ -947,9 +960,25 @@ export class BonusService {
 
   /** 获取奖励钱包（App 读模型：奖励账户 + 团购返利账户） */
   async getWallet(userId: string) {
-    const [accounts, isSellerOwner, groupBuyAccount, pendingAggregate] = await Promise.all([
+    const [
+      accounts,
+      isSellerOwner,
+      groupBuyAccount,
+      pendingAggregate,
+      pendingQueueClawbacks,
+    ] = await Promise.all([
       this.prisma.rewardAccount.findMany({
-        where: { userId, type: { in: ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'] } },
+        where: {
+          userId,
+          type: {
+            in: [
+              'VIP_REWARD',
+              'NORMAL_REWARD',
+              'QUEUE_REWARD',
+              'INDUSTRY_FUND',
+            ],
+          },
+        },
       }),
       this.isSellerOwner(userId),
       this.prisma.groupBuyRebateAccount.findUnique({
@@ -964,16 +993,48 @@ export class BonusService {
         },
         _sum: { amount: true },
       }),
+      this.prisma.rewardLedger.findMany({
+        where: {
+          userId,
+          entryType: 'VOID',
+          status: 'RETURN_FROZEN',
+          account: { type: 'QUEUE_REWARD' },
+        },
+        select: { amount: true, meta: true },
+      }),
     ]);
 
     const vip = accounts.find((a) => a.type === 'VIP_REWARD');
     const normal = accounts.find((a) => a.type === 'NORMAL_REWARD');
+    const queueReward = accounts.find(
+      (a) => a.type === 'QUEUE_REWARD',
+    );
     const industry = accounts.find((a) => a.type === 'INDUSTRY_FUND');
 
     const vipBalance = vip?.balance ?? 0;
     const vipFrozen = vip?.frozen ?? 0;
     const normalBalance = normal?.balance ?? 0;
     const normalFrozen = normal?.frozen ?? 0;
+    const queueGrossBalanceCents = yuanToCents(
+      queueReward?.balance ?? 0,
+    );
+    const queuePendingClawbackCents =
+      pendingQueueClawbackCents(
+        pendingQueueClawbacks ?? [],
+      );
+    // 已提现红包后来因售后形成的追偿，会优先占用后续队列到账。
+    // 钱包必须展示与提现服务相同的净可提口径，不能把被追偿预留的
+    // 余额继续标成“可提现”。
+    const queueBalance = centsToYuan(
+      Math.max(
+        0,
+        queueGrossBalanceCents -
+          queuePendingClawbackCents,
+      ),
+    );
+    // 队列奖励只有售后期结束后才进入 RewardAccount；这里的 frozen
+    // 仅代表用户已发起提现、尚在处理中的金额，不是待释放的队列奖励。
+    const queueFrozen = queueReward?.frozen ?? 0;
     const industryBalance = isSellerOwner ? industry?.balance ?? 0 : 0;
     const industryFrozen = isSellerOwner ? industry?.frozen ?? 0 : 0;
     const groupBuyBalance = groupBuyAccount?.balance ?? 0;
@@ -982,8 +1043,14 @@ export class BonusService {
     const groupBuyDeducted = groupBuyAccount?.deducted ?? 0;
     const groupBuyPending = pendingAggregate._sum.amount ?? 0;
     const deductibleBalance = vipBalance + normalBalance + groupBuyBalance;
-    const balance = deductibleBalance + industryBalance;
-    const frozen = vipFrozen + normalFrozen + industryFrozen + groupBuyPending;
+    const balance =
+      deductibleBalance + queueBalance + industryBalance;
+    const frozen =
+      vipFrozen +
+      normalFrozen +
+      queueFrozen +
+      industryFrozen +
+      groupBuyPending;
 
     return {
       balance,
@@ -995,6 +1062,10 @@ export class BonusService {
       // 分账户明细
       vip: { balance: vipBalance, frozen: vipFrozen },
       normal: { balance: normalBalance, frozen: normalFrozen },
+      queueReward: {
+        balance: queueBalance,
+        frozen: queueFrozen,
+      },
       industryFund: isSellerOwner ? { balance: industryBalance, frozen: industryFrozen } : null,
       groupBuyRebate: {
         balance: groupBuyBalance,

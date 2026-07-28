@@ -191,6 +191,32 @@ export function isWithinReturnWindow(
 }
 
 /**
+ * 奖励最早可释放的售后保护时长。必须覆盖平台允许的所有售后类型，
+ * 包括按小时配置的生鲜质量退换货窗口。
+ */
+export function resolveRewardSafeWindowMs(
+  returnWindowDays: number,
+  normalReturnDays: number,
+  freshReturnHours: number,
+): number {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hourMs = 60 * 60 * 1000;
+  const candidates = [
+    returnWindowDays * dayMs,
+    normalReturnDays * dayMs,
+    freshReturnHours * hourMs,
+  ];
+  if (
+    candidates.some(
+      (value) => !Number.isFinite(value) || value <= 0,
+    )
+  ) {
+    throw new Error('售后窗口配置必须是正数');
+  }
+  return Math.max(...candidates);
+}
+
+/**
  * 从 RuleConfig 表读取配置值，不存在则使用默认值
  * RuleConfig.value 为 Json 类型，数值配置通常直接存为数字
  *

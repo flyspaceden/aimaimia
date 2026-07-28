@@ -96,6 +96,10 @@ describe('AfterSaleRefundService captain void hook', () => {
       {} as any,
       {
         voidRewardsForOrder: jest.fn().mockResolvedValue(undefined),
+        voidQueueRewardsForOrderInTransaction:
+          jest.fn().mockResolvedValue(undefined),
+        voidRewardsForOrderInTransaction:
+          jest.fn().mockResolvedValue(undefined),
         checkAndMarkOrderRefunded: jest.fn().mockResolvedValue(undefined),
       } as any,
       new AfterSaleStatusHistoryService(),

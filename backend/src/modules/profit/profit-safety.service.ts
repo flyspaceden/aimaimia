@@ -73,6 +73,16 @@ export const PROFIT_SAFETY_REQUIRED_RULE_CONFIG_KEYS = Object.freeze([
   'NORMAL_CHARITY_PERCENT',
   'NORMAL_TECH_PERCENT',
   'NORMAL_RESERVE_PERCENT',
+  'QUEUE_REWARD_ENABLED',
+  'QUEUE_SIZE',
+  'QUEUE_REWARD_PERCENT',
+  'QUEUE_SPLIT_UNIT_AMOUNT',
+  'QUEUE_MAX_POSITIONS_PER_ORDER',
+  'QUEUE_DISTRIBUTION_MODE',
+  'QUEUE_RANDOM_STDDEV',
+  'QUEUE_RANDOM_MIN_FACTOR',
+  'QUEUE_RANDOM_MAX_FACTOR',
+  'QUEUE_ACTIVATION_AT',
   'AUTO_VIP_BY_SPEND_ENABLED',
   'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD',
   'VIP_FREEZE_DAYS',
@@ -146,6 +156,8 @@ export const PROFIT_SAFETY_FINANCIAL_RULE_CONFIG_KEYS = Object.freeze([
   'NORMAL_REWARD_PERCENT',
   'NORMAL_DIRECT_REFERRAL_PERCENT',
   'NORMAL_INDUSTRY_FUND_PERCENT',
+  'QUEUE_REWARD_ENABLED',
+  'QUEUE_REWARD_PERCENT',
 ] as const);
 
 const CONFIG_DEFAULTS = {
@@ -157,6 +169,8 @@ const CONFIG_DEFAULTS = {
   NORMAL_REWARD_PERCENT: 0.16,
   NORMAL_DIRECT_REFERRAL_PERCENT: 0.01,
   NORMAL_INDUSTRY_FUND_PERCENT: 0.16,
+  QUEUE_REWARD_ENABLED: false,
+  QUEUE_REWARD_PERCENT: 0.01,
 } as const;
 
 @Injectable()
@@ -206,8 +220,14 @@ export class ProfitSafetyService {
   }
 
   async preview(change: ProfitSafetyCandidateChange = {}): Promise<ProfitSafetySummary> {
+    return (await this.previewContext(change)).summary;
+  }
+
+  async previewContext(
+    change: ProfitSafetyCandidateChange = {},
+  ): Promise<ProfitSafetyWriteContext> {
     return this.withSafetyLock(async (tx) => {
-      return (await this.buildContext(tx, change, false)).summary;
+      return this.buildContext(tx, change, false);
     });
   }
 
@@ -380,6 +400,15 @@ export class ProfitSafetyService {
         snapshot.VIP_DISCOUNT_RATE,
         CONFIG_DEFAULTS.VIP_DISCOUNT_RATE,
       ),
+      queueRewardProfitRate: this.readBoolean(
+        snapshot.QUEUE_REWARD_ENABLED,
+        CONFIG_DEFAULTS.QUEUE_REWARD_ENABLED,
+      )
+        ? this.readNumber(
+            snapshot.QUEUE_REWARD_PERCENT,
+            CONFIG_DEFAULTS.QUEUE_REWARD_PERCENT,
+          )
+        : 0,
       vip: {
         rewardProfitRate: this.readNumber(
           snapshot.VIP_REWARD_PERCENT,
@@ -423,6 +452,11 @@ export class ProfitSafetyService {
 
   private readNumber(value: unknown, fallback: number): number {
     return value === undefined ? fallback : Number(value);
+  }
+
+  private readBoolean(value: unknown, fallback: boolean): boolean {
+    if (value === undefined) return fallback;
+    return value === true;
   }
 
   private unwrapRuleValue(value: unknown): unknown {

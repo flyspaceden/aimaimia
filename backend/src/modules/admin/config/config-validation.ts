@@ -261,6 +261,96 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     max: 1,
   },
 
+  // =================== 售后窗口 ===================
+  RETURN_WINDOW_DAYS: {
+    type: 'integer',
+    description: '无理由退货及奖励保护窗口（天）',
+    min: 1,
+    max: 365,
+  },
+  NORMAL_RETURN_DAYS: {
+    type: 'integer',
+    description: '普通商品质量退换货窗口（天）',
+    min: 1,
+    max: 365,
+  },
+  FRESH_RETURN_HOURS: {
+    type: 'integer',
+    description: '生鲜质量退换货窗口（小时）',
+    min: 1,
+    max: 8760,
+  },
+
+  // =================== 全平台订单队列奖励 ===================
+  QUEUE_REWARD_ENABLED: {
+    type: 'boolean',
+    description: '全平台订单队列奖励开关',
+  },
+  QUEUE_SIZE: {
+    type: 'integer',
+    description: '当前订单加前序订单位置的队列人数',
+    min: 2,
+    max: 100,
+  },
+  QUEUE_REWARD_PERCENT: {
+    type: 'number',
+    description: '每单利润中用于队列奖励的比例（实际从平台分成扣减）',
+    min: 0.01,
+    max: 0.1,
+  },
+  QUEUE_SPLIT_UNIT_AMOUNT: {
+    type: 'number',
+    description: '大单产生一个完整队列位置的商品实付金额（元）',
+    min: 0.01,
+    max: 1000000,
+  },
+  QUEUE_MAX_POSITIONS_PER_ORDER: {
+    type: 'integer',
+    description: '单个订单最多产生的队列位置数',
+    min: 1,
+    max: 500,
+  },
+  QUEUE_DISTRIBUTION_MODE: {
+    type: 'string',
+    description: '队列红包分配模式',
+    custom: (value: any) =>
+      validateEnumString('QUEUE_DISTRIBUTION_MODE', value, [
+        'AVERAGE',
+        'NORMAL_RANDOM',
+      ]),
+  },
+  QUEUE_RANDOM_STDDEV: {
+    type: 'number',
+    description: '正态随机权重标准差',
+    min: 0,
+    max: 1,
+  },
+  QUEUE_RANDOM_MIN_FACTOR: {
+    type: 'number',
+    description: '正态随机权重最小倍数',
+    min: 0.01,
+    max: 10,
+  },
+  QUEUE_RANDOM_MAX_FACTOR: {
+    type: 'number',
+    description: '正态随机权重最大倍数',
+    min: 0.01,
+    max: 10,
+  },
+  QUEUE_ACTIVATION_AT: {
+    type: 'string',
+    description: '队列奖励生效时间，关闭时可为空，开启前必须设置',
+    custom: (value: any) => {
+      if (typeof value !== 'string') {
+        return 'QUEUE_ACTIVATION_AT 必须是字符串';
+      }
+      if (value === '') return null;
+      return Number.isNaN(Date.parse(value))
+        ? 'QUEUE_ACTIVATION_AT 必须是有效的 ISO 时间'
+        : null;
+    },
+  },
+
   // =================== 系统级配置 ===================
   VIP_DISCOUNT_RATE: {
     type: 'number',

@@ -35,6 +35,16 @@ const CONFIG_DEFAULTS = {
   NORMAL_RESERVE_PERCENT: 0.02,
   NORMAL_MAX_LAYERS: 15,
   NORMAL_BRANCH_FACTOR: 3,
+  QUEUE_REWARD_ENABLED: false,
+  QUEUE_SIZE: 21,
+  QUEUE_REWARD_PERCENT: 0.01,
+  QUEUE_SPLIT_UNIT_AMOUNT: 200,
+  QUEUE_MAX_POSITIONS_PER_ORDER: 100,
+  QUEUE_DISTRIBUTION_MODE: 'AVERAGE',
+  QUEUE_RANDOM_STDDEV: 0.25,
+  QUEUE_RANDOM_MIN_FACTOR: 0.5,
+  QUEUE_RANDOM_MAX_FACTOR: 1.5,
+  QUEUE_ACTIVATION_AT: '',
 } as const;
 
 type ConfigKey = keyof typeof CONFIG_DEFAULTS;
@@ -56,6 +66,18 @@ interface RuleState {
   normalMaxLayers: number;
   normalBranchFactor: number;
   rates: { vip: RateSnapshot; normal: RateSnapshot };
+  queueReward: {
+    enabled: boolean;
+    queueSize: number;
+    rewardPercent: number;
+    splitUnitAmount: number;
+    maxPositionsPerOrder: number;
+    distributionMode: 'AVERAGE' | 'NORMAL_RANDOM';
+    randomStddev: number;
+    randomMinFactor: number;
+    randomMaxFactor: number;
+    activationAt: string;
+  };
   captainConfig: CaptainSeafoodConfig;
   captainConfigVersion: string;
 }
@@ -254,6 +276,7 @@ export class OrderProfitSnapshotService {
           normalTreeAncestorPathAtPayment: buyerPath === 'NORMAL' ? ancestorPath : [],
           captain,
           rates: ruleState.rates,
+          queueReward: ruleState.queueReward,
         } as unknown as Prisma.InputJsonValue,
         errorCode: calculation.errorCode ?? null,
         errorMeta: calculation.errorMeta
@@ -291,13 +314,21 @@ export class OrderProfitSnapshotService {
     const rowMap = new Map(rows.map((row) => [row.key, row]));
     const readNumber = (key: ConfigKey): number => {
       const row = rowMap.get(key);
-      if (!row) return CONFIG_DEFAULTS[key];
+      if (!row) return Number(CONFIG_DEFAULTS[key]);
       const stored = row.value as Record<string, unknown>;
       const raw = stored && typeof stored === 'object' && 'value' in stored
         ? stored.value
         : row.value;
       const value = Number(raw);
-      return Number.isFinite(value) ? value : CONFIG_DEFAULTS[key];
+      return Number.isFinite(value) ? value : Number(CONFIG_DEFAULTS[key]);
+    };
+    const readRaw = (key: ConfigKey): unknown => {
+      const row = rowMap.get(key);
+      if (!row) return CONFIG_DEFAULTS[key];
+      const stored = row.value as Record<string, unknown>;
+      return stored && typeof stored === 'object' && 'value' in stored
+        ? stored.value
+        : row.value;
     };
 
     const captainRow = rowMap.get(CAPTAIN_SEAFOOD_CONFIG_KEY);
@@ -332,6 +363,24 @@ export class OrderProfitSnapshotService {
           tech: readNumber('NORMAL_TECH_PERCENT'),
           reserve: readNumber('NORMAL_RESERVE_PERCENT'),
         },
+      },
+      queueReward: {
+        enabled: readRaw('QUEUE_REWARD_ENABLED') === true,
+        queueSize: readNumber('QUEUE_SIZE'),
+        rewardPercent: readNumber('QUEUE_REWARD_PERCENT'),
+        splitUnitAmount: readNumber('QUEUE_SPLIT_UNIT_AMOUNT'),
+        maxPositionsPerOrder: readNumber('QUEUE_MAX_POSITIONS_PER_ORDER'),
+        distributionMode:
+          readRaw('QUEUE_DISTRIBUTION_MODE') === 'NORMAL_RANDOM'
+            ? 'NORMAL_RANDOM'
+            : 'AVERAGE',
+        randomStddev: readNumber('QUEUE_RANDOM_STDDEV'),
+        randomMinFactor: readNumber('QUEUE_RANDOM_MIN_FACTOR'),
+        randomMaxFactor: readNumber('QUEUE_RANDOM_MAX_FACTOR'),
+        activationAt:
+          typeof readRaw('QUEUE_ACTIVATION_AT') === 'string'
+            ? String(readRaw('QUEUE_ACTIVATION_AT'))
+            : '',
       },
       captainConfig,
       captainConfigVersion: captainRow?.updatedAt.toISOString() ?? 'default',

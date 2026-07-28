@@ -30,6 +30,27 @@ export class InboxService {
     return this.notificationMessages.getOne(this.recipientKey(userId), id);
   }
 
+  async listQueueRewardEventsAfter(
+    userId: string,
+    afterCreatedAt: Date,
+    afterId: string,
+    limit: number,
+  ) {
+    return this.notificationMessages
+      .listQueueRewardEventsAfter(
+        this.recipientKey(userId),
+        afterCreatedAt,
+        afterId,
+        limit,
+      );
+  }
+
+  async getQueueRewardEventBaseline(userId: string) {
+    return this.notificationMessages.getQueueRewardEventBaseline(
+      this.recipientKey(userId),
+    );
+  }
+
   /** 标记单条已读 */
   async markRead(id: string, userId: string) {
     return this.notificationMessages.markRead(this.recipientKey(userId), id);

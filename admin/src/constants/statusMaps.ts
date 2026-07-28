@@ -191,6 +191,7 @@ export const withdrawChannelMap: Record<string, StatusEntry> = {
 export const rewardAccountTypeMap: Record<string, StatusEntry> = {
   VIP_REWARD: { text: 'VIP 奖励', color: 'blue' },
   NORMAL_REWARD: { text: '普通分润', color: 'default' },
+  QUEUE_REWARD: { text: '订单队列奖励', color: 'green' },
   INDUSTRY_FUND: { text: '产业基金', color: 'gold' },
   PLATFORM_PROFIT: { text: '平台利润', color: 'purple' },
   CHARITY_FUND: { text: '慈善基金', color: 'magenta' },

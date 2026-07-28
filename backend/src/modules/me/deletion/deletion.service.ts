@@ -21,6 +21,7 @@ import {
   PaymentStatus,
   Prisma,
   RewardEntryType,
+  RewardAccountType,
   RewardLedgerStatus,
   SessionStatus,
   SmsPurpose,
@@ -33,6 +34,8 @@ import { RedisCoordinatorService } from '../../../common/infra/redis-coordinator
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
+import { PLATFORM_USER_ID } from '../../bonus/engine/constants';
+import { QueueRewardService } from '../../queue-reward/queue-reward.service';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
 
 type DeletionBlockerCode =
@@ -99,6 +102,7 @@ export class DeletionService {
     private readonly redisCoord: RedisCoordinatorService,
     private readonly aliyunSms: AliyunSmsService,
     private readonly digitalAssetService: DigitalAssetService,
+    private readonly queueRewardService?: QueueRewardService,
   ) {}
 
   async preview(userId: string) {
@@ -397,6 +401,14 @@ export class DeletionService {
     dto: ExecuteDeletionDto,
     evidence: DeletionEvidenceContext = {},
   ) {
+    // 先把队列中该用户作为受益人的内部待结算/已到账红包按来源逐条
+    // 作废并回到平台，再快照并清空剩余账户。否则先把 QUEUE_REWARD
+    // 余额整体转给平台，未来来源单退款时会把同一笔钱再次记为待追偿。
+    await this.queueRewardService
+      ?.voidRecipientRewardsForUserDeletionInTransaction(
+        tx,
+        userId,
+      );
     const cleanup = await this.buildCleanupSnapshot(tx, userId, dto, evidence);
 
     await tx.rewardLedger.updateMany({
@@ -437,8 +449,70 @@ export class DeletionService {
           destination: 'PLATFORM',
         },
       }));
-    if (voidLedgerRows.length > 0) {
-      await tx.rewardLedger.createMany({ data: voidLedgerRows });
+    const forfeitures = cleanup.rewardAccounts
+      .map((account) => ({
+        account,
+        amount: this.roundMoney(
+          Math.max(0, account.balance) +
+            Math.max(0, account.frozen),
+        ),
+      }))
+      .filter((item) => item.amount > 0);
+    if (voidLedgerRows.length > 0 || forfeitures.length > 0) {
+      const platformAccount = forfeitures.length > 0
+        ? await tx.rewardAccount.upsert({
+            where: {
+              userId_type: {
+                userId: PLATFORM_USER_ID,
+                type: RewardAccountType.PLATFORM_PROFIT,
+              },
+            },
+            update: {},
+            create: {
+              userId: PLATFORM_USER_ID,
+              type: RewardAccountType.PLATFORM_PROFIT,
+            },
+          })
+        : null;
+      const platformLedgerRows = platformAccount
+        ? forfeitures.map(({ account, amount }) => ({
+            accountId: platformAccount.id,
+            userId: PLATFORM_USER_ID,
+            entryType: RewardEntryType.RELEASE,
+            amount,
+            status: RewardLedgerStatus.AVAILABLE,
+            refType: 'ACCOUNT_DELETION',
+            refId: userId,
+            idempotencyKey:
+              `ACCOUNT_DELETION_PLATFORM:${userId}:${account.id}`,
+            meta: {
+              scheme: 'ACCOUNT_DELETION_FORFEITURE',
+              sourceUserId: userId,
+              sourceAccountId: account.id,
+              sourceAccountType: account.type,
+              originalBalance: account.balance,
+              originalFrozen: account.frozen,
+              reason: 'ACCOUNT_DELETION',
+            },
+          }))
+        : [];
+      await tx.rewardLedger.createMany({
+        data: [...voidLedgerRows, ...platformLedgerRows],
+      });
+      const forfeitedTotal = this.roundMoney(
+        forfeitures.reduce(
+          (sum, item) => sum + item.amount,
+          0,
+        ),
+      );
+      if (platformAccount && forfeitedTotal > 0) {
+        await tx.rewardAccount.update({
+          where: { id: platformAccount.id },
+          data: {
+            balance: { increment: forfeitedTotal },
+          },
+        });
+      }
     }
 
     await this.digitalAssetService.clearAccountAssets(tx, {

@@ -64,6 +64,107 @@ describe('NotificationMessageService', () => {
     });
   });
 
+  it('uses a stable createdAt plus id cursor for queue reward bell events', async () => {
+    const { prisma, service } = makeService();
+    const cursorTime =
+      new Date('2026-07-10T12:00:00.000Z');
+    prisma.notificationMessage.findMany.mockResolvedValue([
+      {
+        id: 'message-b',
+        category: 'wallet',
+        eventType: 'queueReward.available',
+        title: '排队红包到账',
+        body: '到账',
+        severity: 'SUCCESS',
+        metadata: { ring: true },
+        createdAt: cursorTime,
+        readAt: null,
+        action: null,
+      },
+    ]);
+
+    await expect(
+      service.listQueueRewardEventsAfter(
+        'buyer:user-1',
+        cursorTime,
+        'message-a',
+        100,
+      ),
+    ).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({ id: 'message-b' }),
+      ],
+      nextCursor: {
+        createdAt: cursorTime.toISOString(),
+        id: 'message-b',
+      },
+      hasMore: false,
+    });
+    expect(
+      prisma.notificationMessage.findMany,
+    ).toHaveBeenCalledWith({
+      where: {
+        recipientKey: 'buyer:user-1',
+        deletedAt: null,
+        eventType: 'queueReward.available',
+        OR: [
+          { createdAt: { gt: cursorTime } },
+          {
+            createdAt: cursorTime,
+            id: { gt: 'message-a' },
+          },
+        ],
+      },
+      orderBy: [
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ],
+      take: 100,
+    });
+  });
+
+  it('uses the latest server-side queue message as the initial bell cursor', async () => {
+    const { prisma, service } = makeService();
+    const createdAt =
+      new Date('2026-07-10T12:00:00.000Z');
+    prisma.notificationMessage.findFirst.mockResolvedValue({
+      id: 'message-z',
+      createdAt,
+    });
+
+    await expect(
+      service.getQueueRewardEventBaseline('buyer:user-1'),
+    ).resolves.toEqual({
+      createdAt: createdAt.toISOString(),
+      id: 'message-z',
+    });
+    expect(
+      prisma.notificationMessage.findFirst,
+    ).toHaveBeenCalledWith({
+      where: {
+        recipientKey: 'buyer:user-1',
+        deletedAt: null,
+        eventType: 'queueReward.available',
+      },
+      orderBy: [
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      select: { id: true, createdAt: true },
+    });
+  });
+
+  it('uses the epoch when no queue reward message exists yet', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.getQueueRewardEventBaseline('buyer:user-1'),
+    ).resolves.toEqual({
+      createdAt: '1970-01-01T00:00:00.000Z',
+      id: '',
+    });
+  });
+
   it('消息详情无法读取其他收件人的消息', async () => {
     const { service } = makeService();
     await expect(service.getOne('buyer:user-1', 'other-message')).rejects.toThrow('消息不存在');

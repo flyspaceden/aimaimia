@@ -68,6 +68,16 @@ describe('wallet ledger display titles', () => {
     }))).toBe('产业基金');
   });
 
+  it('labels a frozen queue withdrawal as a withdrawal rather than an unreleased reward', () => {
+    expect(getWalletLedgerTitle(ledger({
+      accountType: 'QUEUE_REWARD',
+      entryType: 'WITHDRAW',
+      type: 'WITHDRAW',
+      refType: 'WITHDRAW',
+      status: 'FROZEN',
+    }))).toBe('排队红包提现');
+  });
+
   it('labels VIP direct referral commission by scheme even when refType is ORDER', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',
