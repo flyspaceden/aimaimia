@@ -314,9 +314,51 @@ export class AfterSaleRefundService {
               operatorId: 'AFTER_SALE_REFUND_SERVICE',
             },
           });
-          profitRefund = this.orderProfitRefundService
-            ? await this.orderProfitRefundService.finalizeSuccessfulRefund(tx, refundId)
-            : { mode: 'LEGACY', orderId: request.orderId };
+        }
+
+        // 即使退款状态已经由旧版本置为 REFUNDED，也必须重跑幂等的利润
+        // 冲正与奖励回收。旧实现曾在状态提交后才回收奖励，一旦进程退出，
+        // 后续回调会因“已经退款”而永久跳过。
+        profitRefund = this.orderProfitRefundService
+          ? await this.orderProfitRefundService.finalizeSuccessfulRefund(tx, refundId)
+          : { mode: 'LEGACY', orderId: request.orderId };
+        const queueVoidOptions = profitRefund.mode === 'V3'
+          ? {
+              sourcePlatformReturnRatio: {
+                numerator:
+                  profitRefund
+                    .remainingDistributableProfitCents ?? 0,
+                denominator: Math.max(
+                  1,
+                  profitRefund
+                    .originalDistributableProfitCents ?? 0,
+                ),
+              },
+              sourceAdjustmentId: refundId,
+            }
+          : {
+              // 队列只允许带支付利润快照的新订单参加；旧单若异常命中，
+              // fail-closed：退款来源不再形成新的平台可用利润。
+              sourcePlatformReturnRatio: {
+                numerator: 0,
+                denominator: 1,
+              },
+              sourceAdjustmentId: refundId,
+            };
+        if (profitRefund.mode === 'V3') {
+          await this.afterSaleRewardService
+            .voidQueueRewardsForOrderInTransaction(
+              tx,
+              request.orderId,
+              queueVoidOptions,
+            );
+        } else {
+          await this.afterSaleRewardService
+            .voidRewardsForOrderInTransaction(
+              tx,
+              request.orderId,
+              queueVoidOptions,
+            );
         }
 
         if (request.status !== 'REFUNDED') {
@@ -398,19 +440,18 @@ export class AfterSaleRefundService {
           await this.restoreDeductedPointsInTx(tx, refundId, request);
           await this.restoreGroupBuyRebateDeductionInTx(tx, refundId, request);
 
-          return {
-            afterSaleId: request.id,
-            orderId: request.orderId,
-            userId: request.userId,
-            amount: refund.amount,
-            refundDestination: this.formatRefundDestination(
-              request.order?.checkoutSession?.paymentChannel ?? request.order?.payments?.[0]?.channel,
-            ),
-            profitRefund,
-          };
         }
 
-        return null;
+        return {
+          afterSaleId: request.id,
+          orderId: request.orderId,
+          userId: request.userId,
+          amount: refund.amount,
+          refundDestination: this.formatRefundDestination(
+            request.order?.checkoutSession?.paymentChannel ?? request.order?.payments?.[0]?.channel,
+          ),
+          profitRefund,
+        };
       },
     );
 
@@ -418,9 +459,6 @@ export class AfterSaleRefundService {
 
     await this.reverseDigitalAssetAfterRefund(refundId);
     await this.reverseGrowthAfterRefund(completed.orderId, refundId);
-    if (completed.profitRefund.mode !== 'V3') {
-      await this.afterSaleRewardService.voidRewardsForOrder(completed.orderId);
-    }
     await this.voidGroupBuyRebateAfterRefund(completed.orderId, refundId);
     if (completed.profitRefund.mode !== 'V3') {
       await this.voidCaptainCommissionAfterRefund(completed.orderId, refundId, completed.amount);
@@ -1019,6 +1057,7 @@ export class AfterSaleRefundService {
       try {
         return await this.prisma.$transaction(operation, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 30_000,
         });
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {

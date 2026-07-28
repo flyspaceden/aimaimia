@@ -42,6 +42,7 @@ import {
   matchByFingerprint,
 } from '../src/services/deferredLink';
 import { needsPrivacyConsent } from '../src/services/privacyConsent';
+import { useQueueRewardBell } from '../src/hooks/useQueueRewardBell';
 
 // 全局兜底：所有 <Text> 默认最大字体放大不超过 1.2x（无障碍合规 + 防爆）。
 // 写死 fontSize 的页面即使忘加 priceTextProps / fitTextProps，也不会被系统
@@ -251,6 +252,13 @@ export default function RootLayout() {
   // 订阅 isLoggedIn：zustand persist rehydrate 是 async，
   // 冷启动时 effect 可能在恢复完成前先跑（看到 false），订阅后 rehydrate 完成会重跑
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const userId = useAuthStore((s) => s.userId);
+  useQueueRewardBell(
+    isLoggedIn &&
+      Boolean(userId) &&
+      consentState === 'granted',
+    userId,
+  );
 
   // 首启检查：是否已同意隐私政策和用户协议
   useEffect(() => {

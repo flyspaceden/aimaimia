@@ -35,6 +35,34 @@ type InboxDeleteResult = {
   restoredCount?: number;
 };
 
+export type QueueRewardBellCursor = {
+  createdAt: string;
+  id: string;
+};
+
+export type QueueRewardBellPage = {
+  items: InboxMessage[];
+  nextCursor: QueueRewardBellCursor;
+  hasMore: boolean;
+};
+
+function latestMockQueueRewardCursor(): QueueRewardBellCursor {
+  const latest = messageCache
+    .filter((item) => item.type === 'queueReward.available')
+    .sort((left, right) => {
+      const timeDelta =
+        Date.parse(right.createdAt) -
+        Date.parse(left.createdAt);
+      return timeDelta !== 0
+        ? timeDelta
+        : right.id.localeCompare(left.id);
+    })
+    .at(0);
+  return latest
+    ? { createdAt: latest.createdAt, id: latest.id }
+    : { createdAt: new Date(0).toISOString(), id: '' };
+}
+
 // 消息中心仓储：消息列表与已读状态（复杂业务逻辑需中文注释）
 export const InboxRepo = {
   /**
@@ -68,6 +96,74 @@ export const InboxRepo = {
       pageSize,
     });
   },
+  /** 使用稳定复合游标正序追赶队列红包到账消息，供逐笔铃声确认。 */
+  listQueueRewardEvents: async (
+    cursor: QueueRewardBellCursor,
+    limit = 100,
+  ): Promise<Result<QueueRewardBellPage>> => {
+    if (USE_MOCK) {
+      const cursorTime = Date.parse(cursor.createdAt);
+      const items = messageCache
+        .filter((item) => {
+          if (item.type !== 'queueReward.available') {
+            return false;
+          }
+          const itemTime = Date.parse(item.createdAt);
+          return (
+            itemTime > cursorTime ||
+            (
+              itemTime === cursorTime &&
+              item.id > cursor.id
+            )
+          );
+        })
+        .sort((left, right) => {
+          const timeDelta =
+            Date.parse(left.createdAt) -
+            Date.parse(right.createdAt);
+          return timeDelta !== 0
+            ? timeDelta
+            : left.id.localeCompare(right.id);
+        })
+        .slice(0, limit);
+      const last = items.at(-1);
+      return simulateRequest(
+        {
+          items,
+          nextCursor: last
+            ? {
+                createdAt: last.createdAt,
+                id: last.id,
+              }
+            : cursor,
+          hasMore: items.length === limit,
+        },
+        { delay: 160 },
+      );
+    }
+
+    return ApiClient.get<QueueRewardBellPage>(
+      '/inbox/queue-reward-events',
+      {
+        afterCreatedAt: cursor.createdAt,
+        afterId: cursor.id,
+        limit,
+      },
+    );
+  },
+  /** 获取服务端最后一条已存在消息作为首次铃声游标，避免使用设备本地时间。 */
+  getQueueRewardBellBaseline:
+    async (): Promise<Result<QueueRewardBellCursor>> => {
+      if (USE_MOCK) {
+        return simulateRequest(
+          latestMockQueueRewardCursor(),
+          { delay: 120 },
+        );
+      }
+      return ApiClient.get<QueueRewardBellCursor>(
+        '/inbox/queue-reward-events/baseline',
+      );
+    },
   /** 单条消息详情：`GET /api/v1/inbox/{id}` */
   getMessage: async (id: string): Promise<Result<InboxMessage>> => {
     if (USE_MOCK) {

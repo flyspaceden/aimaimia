@@ -30,6 +30,8 @@ function makeSnapshotOrder(path: 'VIP' | 'NORMAL', snapshotOverrides: any = {}) 
     status: 'RECEIVED',
     bizType: 'NORMAL_GOODS',
     totalAmount: 135,
+    paidAt: new Date('2026-07-10T00:00:00.000Z'),
+    returnWindowExpiresAt: new Date('2026-07-20T00:00:00.000Z'),
     createdAt: new Date('2026-07-10T00:00:00.000Z'),
     items: [
       {
@@ -46,6 +48,7 @@ function makeSnapshotOrder(path: 'VIP' | 'NORMAL', snapshotOverrides: any = {}) 
         id: 'snapshot-1',
         status: 'READY',
         isCurrent: true,
+        netGoodsRevenue: 99,
         distributableProfitAmount: 13.25,
         captainEligibleProfitAmount: 13.25,
         itemBreakdown: [
@@ -87,6 +90,9 @@ function makeSnapshotAllocationService(order: any) {
   const tx = {
     $executeRaw: jest.fn().mockResolvedValue(1),
     refund: { findMany: jest.fn().mockResolvedValue([]) },
+    afterSaleRequest: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     rewardAllocation: {
       create: jest.fn().mockResolvedValue({ id: 'allocation-1' }),
     },
@@ -110,6 +116,16 @@ function makeSnapshotAllocationService(order: any) {
     creditToPlatform: jest.fn(),
   };
   const normalPlatformSplit = { split: jest.fn().mockResolvedValue(undefined) };
+  const queueReward = {
+    allocateForReceivedOrder: jest.fn().mockResolvedValue({
+      participated: false,
+      alreadyProcessed: false,
+      fundedCents: 0,
+      positionCount: 0,
+    }),
+    voidRewardsForOrderInTransaction:
+      jest.fn().mockResolvedValue(0),
+  };
   const service = new BonusAllocationService(
     prisma as any,
     configService as any,
@@ -120,6 +136,7 @@ function makeSnapshotAllocationService(order: any) {
     vipPlatformSplit as any,
     normalUpstream as any,
     normalPlatformSplit as any,
+    queueReward as any,
   );
   return {
     service,
@@ -130,6 +147,7 @@ function makeSnapshotAllocationService(order: any) {
     vipPlatformSplit,
     normalUpstream,
     normalPlatformSplit,
+    queueReward,
     exitConfig,
   };
 }
@@ -183,9 +201,48 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
 
     expect(harness.tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(harness.tx.refund.findMany).toHaveBeenCalledTimes(1);
+    expect(harness.tx.afterSaleRequest.findFirst).toHaveBeenCalledWith({
+      where: {
+        orderId: 'snapshot-order',
+        status: { in: ['REFUNDED', 'COMPLETED'] },
+      },
+      select: { id: true },
+    });
     expect(harness.tx.$executeRaw.mock.invocationCallOrder[0])
       .toBeLessThan(harness.tx.refund.findMany.mock.invocationCallOrder[0]);
     expect(harness.prisma.refund.findMany).not.toHaveBeenCalled();
+  });
+
+  it('passes a completed exchange without a Refund row to the queue as a successful after-sale', async () => {
+    const order = makeSnapshotOrder('VIP');
+    order.profitSnapshots[0].ruleSnapshot.queueReward = {
+      enabled: true,
+      queueSize: 21,
+      rewardPercent: 0.01,
+      splitUnitAmount: 200,
+      maxPositionsPerOrder: 100,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+      activationAt: null,
+    };
+    const harness = makeSnapshotAllocationService(order);
+    harness.tx.afterSaleRequest.findFirst.mockResolvedValue({
+      id: 'completed-exchange',
+    });
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(
+      harness.queueReward.allocateForReceivedOrder,
+    ).toHaveBeenCalledWith(
+      harness.tx,
+      expect.objectContaining({
+        orderId: 'snapshot-order',
+        hasSuccessfulAfterSale: true,
+      }),
+    );
   });
 
   it('fails closed when one of several successful refunds has no line facts', async () => {
@@ -282,6 +339,160 @@ describe('BonusAllocationService.allocateForOrder snapshot path', () => {
     expect(harness.configService.getConfig).not.toHaveBeenCalled();
   });
 
+  it('funds the global queue from the platform-profit pool in the same transaction', async () => {
+    const order = makeSnapshotOrder('VIP');
+    order.profitSnapshots[0].ruleSnapshot.queueReward = {
+      enabled: true,
+      queueSize: 21,
+      rewardPercent: 0.05,
+      splitUnitAmount: 200,
+      maxPositionsPerOrder: 100,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+      activationAt: '2026-07-01T00:00:00.000Z',
+    };
+    const harness = makeSnapshotAllocationService(order);
+    harness.queueReward.allocateForReceivedOrder.mockResolvedValue({
+      participated: true,
+      alreadyProcessed: false,
+      fundedCents: 50,
+      positionCount: 1,
+    });
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.queueReward.allocateForReceivedOrder).toHaveBeenCalledWith(
+      harness.tx,
+      expect.objectContaining({
+        orderId: 'snapshot-order',
+        eligiblePaidCents: 9_900,
+        profitCents: 1_325,
+        platformProfitCents: 530,
+        hasSuccessfulAfterSale: false,
+      }),
+    );
+    expect(harness.vipPlatformSplit.split).toHaveBeenCalledWith(
+      harness.tx,
+      expect.any(String),
+      'snapshot-order',
+      expect.objectContaining({ platformProfit: 4.8 }),
+      { 'company-1': 1 },
+    );
+  });
+
+  it('still creates a zero-funded queue position when cost reconciliation blocks tree rewards', async () => {
+    const order = makeSnapshotOrder('NORMAL', {
+      status: 'RECONCILIATION_REQUIRED',
+      errorCode: 'ORDER_PROFIT_COST_MISSING',
+      distributableProfitAmount: 0,
+      captainEligibleProfitAmount: 0,
+      itemBreakdown: [
+        {
+          orderItemId: 'item-1',
+          quantity: 99,
+          netGoodsRevenueCents: 9_900,
+          distributableProfitShareCents: 0,
+          captainEligible: true,
+        },
+      ],
+    });
+    order.profitSnapshots[0].ruleSnapshot.queueReward = {
+      enabled: true,
+      queueSize: 21,
+      rewardPercent: 0.05,
+      splitUnitAmount: 200,
+      maxPositionsPerOrder: 100,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+      activationAt: '',
+    };
+    const harness = makeSnapshotAllocationService(order);
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.queueReward.allocateForReceivedOrder).toHaveBeenCalledWith(
+      harness.tx,
+      expect.objectContaining({
+        profitCents: 0,
+        platformProfitCents: 0,
+      }),
+    );
+    expect(harness.normalUpstream.distribute).not.toHaveBeenCalled();
+    expect(harness.normalPlatformSplit.split).not.toHaveBeenCalled();
+  });
+
+  it('does not advance the queue when profit conservation fails', async () => {
+    const order = makeSnapshotOrder('NORMAL', {
+      status: 'RECONCILIATION_REQUIRED',
+      errorCode: 'ORDER_PROFIT_CONSERVATION_FAILED',
+      netGoodsRevenue: 100,
+      distributableProfitAmount: 0,
+      captainEligibleProfitAmount: 0,
+      itemBreakdown: [
+        {
+          orderItemId: 'item-1',
+          quantity: 99,
+          netGoodsRevenueCents: 10_000,
+          distributableProfitShareCents: 0,
+          captainEligible: true,
+        },
+      ],
+    });
+    order.profitSnapshots[0].ruleSnapshot.queueReward = {
+      enabled: true,
+      queueSize: 21,
+      rewardPercent: 0.05,
+      splitUnitAmount: 200,
+      maxPositionsPerOrder: 100,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+      activationAt: '',
+    };
+    const harness = makeSnapshotAllocationService(order);
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(
+      harness.queueReward.allocateForReceivedOrder,
+    ).not.toHaveBeenCalled();
+    expect(harness.normalUpstream.distribute).not.toHaveBeenCalled();
+    expect(harness.normalPlatformSplit.split).not.toHaveBeenCalled();
+  });
+
+  it('does not advance the queue when the payment profit rule snapshot is incomplete', async () => {
+    const order = makeSnapshotOrder('NORMAL');
+    order.profitSnapshots[0].ruleSnapshot.rates = undefined;
+    order.profitSnapshots[0].ruleSnapshot.queueReward = {
+      enabled: true,
+      queueSize: 21,
+      rewardPercent: 0.05,
+      splitUnitAmount: 200,
+      maxPositionsPerOrder: 100,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+      activationAt: '',
+    };
+    const harness = makeSnapshotAllocationService(order);
+
+    await harness.service.allocateForOrder('snapshot-order');
+
+    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(
+      harness.queueReward.allocateForReceivedOrder,
+    ).not.toHaveBeenCalled();
+    expect(harness.normalUpstream.distribute).not.toHaveBeenCalled();
+    expect(harness.normalPlatformSplit.split).not.toHaveBeenCalled();
+  });
+
   it('retries a snapshot allocation after a Serializable transaction conflict', async () => {
     const harness = makeSnapshotAllocationService(makeSnapshotOrder('NORMAL'));
     const conflict = new Prisma.PrismaClientKnownRequestError('serialization conflict', {
@@ -370,6 +581,10 @@ describe('BonusAllocationService.allocateForOrder legacy fallback', () => {
       {} as any,
       {} as any,
       {} as any,
+      {
+        voidRewardsForOrderInTransaction:
+          jest.fn().mockResolvedValue(0),
+      } as any,
     );
     jest.spyOn(service as any, 'determineRouting').mockResolvedValue('NORMAL_TREE');
     const executeLegacy = jest.spyOn(service as any, 'executeNormalTree').mockResolvedValue(undefined);
@@ -434,6 +649,10 @@ describe('BonusAllocationService.allocateForOrder cancellation isolation', () =>
       {} as any,
       {} as any,
       {} as any,
+      {
+        voidRewardsForOrderInTransaction:
+          jest.fn().mockResolvedValue(0),
+      } as any,
     );
     return { service, prisma };
   };
@@ -463,6 +682,10 @@ describe('BonusAllocationService.rollbackForOrder direct referral rollback', () 
     const prisma = {
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
+    const queueReward = {
+      voidRewardsForOrderInTransaction:
+        jest.fn().mockResolvedValue(0),
+    };
     const service = new BonusAllocationService(
       prisma as any,
       {} as any,
@@ -473,8 +696,9 @@ describe('BonusAllocationService.rollbackForOrder direct referral rollback', () 
       {} as any,
       {} as any,
       {} as any,
+      queueReward as any,
     );
-    return { service, prisma };
+    return { service, prisma, queueReward };
   };
 
   it('includes VIP_DIRECT_REFERRAL allocations and mirrors voided direct ledger to platform', async () => {
@@ -519,7 +743,10 @@ describe('BonusAllocationService.rollbackForOrder direct referral rollback', () 
     await service.rollbackForOrder('order-1');
 
     expect(tx.rewardAllocation.findMany).toHaveBeenCalledWith({
-      where: { orderId: 'order-1' },
+      where: {
+        orderId: 'order-1',
+        ruleType: { not: 'GLOBAL_QUEUE' },
+      },
       include: { ledgers: true },
     });
     expect(tx.rewardLedger.updateMany).toHaveBeenCalledWith({
@@ -843,7 +1070,10 @@ describe('BonusAllocationService.rollbackForOrder direct referral rollback', () 
       where: { idempotencyKey: 'ALLOC:REFUND:order-1' },
     });
     expect(tx.rewardAllocation.findMany).toHaveBeenCalledWith({
-      where: { orderId: 'order-1' },
+      where: {
+        orderId: 'order-1',
+        ruleType: { not: 'GLOBAL_QUEUE' },
+      },
       include: { ledgers: true },
     });
     expect(tx.rewardAllocation.create).not.toHaveBeenCalled();

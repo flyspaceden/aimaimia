@@ -72,6 +72,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/bonus/normal-tree', name: '普通奖励可视化', icon: <ApartmentOutlined />, permission: PERMISSIONS.BONUS_READ },
         { path: '/bonus/vip-config', name: 'VIP 系统配置', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
         { path: '/bonus/normal-config', name: '普通系统配置', icon: <SettingOutlined />, permission: PERMISSIONS.BONUS_MANAGE_RULES },
+        { path: '/bonus/queue-config', name: '订单队列奖励', icon: <BellOutlined />, permission: PERMISSIONS.CONFIG_READ },
         { path: '/vip-gifts', name: '购买VIP赠品', icon: <GiftOutlined />, permission: PERMISSIONS.VIP_GIFT_READ },
       ],
     },

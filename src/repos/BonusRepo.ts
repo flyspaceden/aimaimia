@@ -14,7 +14,7 @@
  */
 import {
   MemberProfile, Wallet, WalletLedgerPage, WithdrawRecord,
-  VipTree, QueueStatus, RewardItem, NormalRewardPage, Result,
+  VipTree, QueueStatus, QueueRewardStatusV2, RewardItem, NormalRewardPage, Result,
   VipGiftOptionsResponse,
   ReferralBindingResult,
   DeductionPreview,
@@ -95,12 +95,13 @@ const mockMember: MemberProfile = {
 };
 
 const mockWallet: Wallet = {
-  balance: 325.20, frozen: 59.60, total: 384.80,
+  balance: 343.20, frozen: 67.10, total: 410.30,
   deductibleBalance: 265.20,
-  withdrawableBalance: 325.20,
+  withdrawableBalance: 343.20,
   isSellerOwner: true,
   vip: { balance: 186.30, frozen: 35.60 },
   normal: { balance: 50.50, frozen: 12.00 },
+  queueReward: { balance: 18.00, frozen: 0.00 },
   industryFund: { balance: 60.00, frozen: 0.00 },
   groupBuyRebate: {
     balance: 28.40,
@@ -305,6 +306,66 @@ export const BonusRepo = {
       return simulateRequest({ inQueue: true, bucketKey: 'CNY_10_50', position: 23, joinedAt: '2026-02-14T10:00:00Z' });
     }
     return ApiClient.get<QueueStatus>('/bonus/queue/status');
+  },
+
+  /** 全平台订单队列奖励状态（与旧分桶队列接口隔离） */
+  getQueueRewardStatus: async (
+    afterSequence?: string,
+    positionPageSize = 20,
+  ): Promise<Result<QueueRewardStatusV2>> => {
+    if (USE_MOCK) {
+      return simulateRequest({
+        enabled: true,
+        queueSize: 21,
+        splitUnitAmount: 200,
+        distributionMode: 'AVERAGE',
+        wallet: { available: 18, total: 18 },
+        totalActivePositions: 1,
+        positionPage: {
+          pageSize: positionPageSize,
+          total: 1,
+          hasMore: false,
+          nextSequence: '128',
+        },
+        activePositions: [
+          {
+            id: 'queue-position-1',
+            sequence: '128',
+            orderId: 'order-1',
+            orderNo: 'MO-202607280001',
+            unitIndex: 0,
+            status: 'ACTIVE',
+            ahead: 8,
+            observedUnitCount: 11,
+            targetObservedUnitCount: 20,
+            remainingObservedUnitCount: 9,
+            sharedCapAmount: 268,
+            receivedAmount: 18,
+            joinedAt: '2026-07-28T08:00:00.000Z',
+          },
+        ],
+        recentOrders: [],
+        recentRewards: [
+          {
+            id: 'queue-reward-1',
+            amount: 0.68,
+            status: 'AVAILABLE',
+            sourceOrderNo: 'MO-202607280018',
+            releaseAt: '2026-08-04T08:00:00.000Z',
+            releasedAt: '2026-08-04T08:00:00.000Z',
+            voidedAt: null,
+            createdAt: '2026-07-28T10:00:00.000Z',
+          },
+        ],
+      });
+    }
+    return ApiClient.get<QueueRewardStatusV2>(
+      '/bonus/queue/v2/status',
+      {
+        afterSequence,
+        positionPageSize,
+      },
+    );
   },
 
   /** 普通树上下文（普通用户奖励树可视化） */

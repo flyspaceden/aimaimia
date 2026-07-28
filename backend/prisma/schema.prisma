@@ -484,6 +484,7 @@ enum VipActivationStatus {
 enum RewardAccountType {
   VIP_REWARD // VIP分润奖励
   NORMAL_REWARD // 普通用户分润奖励
+  QUEUE_REWARD // 全平台订单队列奖励
   POINTS
   FUND_POOL
   PLATFORM_PROFIT
@@ -507,7 +508,33 @@ enum AllocationRuleType {
   NORMAL_DIRECT_REFERRAL
   VIP_PLATFORM_SPLIT // VIP 平台分成（百分比与普通 PLATFORM_SPLIT 不同）
   PLATFORM_SPLIT
+  GLOBAL_QUEUE // 全平台订单队列奖励
   ZERO_PROFIT // M03: 零利润订单幂等标记
+}
+
+enum QueueRewardDistributionMode {
+  AVERAGE
+  NORMAL_RANDOM
+}
+
+enum QueueRewardOrderStatus {
+  ACTIVE
+  CAPPED
+  COMPLETED
+  VOIDED
+}
+
+enum QueueRewardPositionStatus {
+  ACTIVE
+  CAPPED
+  COMPLETED
+  VOIDED
+}
+
+enum QueueRewardDistributionStatus {
+  FROZEN
+  AVAILABLE
+  VOIDED
 }
 
 enum RewardEntryType {
@@ -1778,6 +1805,8 @@ model Order {
   vipEligibleOrder   VipEligibleOrder?
   rewardAllocations  RewardAllocation[]
   normalQueueMembers NormalQueueMember[] // @deprecated 废弃：滑动窗口
+  queueRewardOrderState  QueueRewardOrderState?
+  queueRewardAllocations QueueRewardAllocation[] @relation("QueueRewardSourceOrder")
 
   // J 域关系（普通用户系统改造 + 统一售后）
   normalEligibleOrder NormalEligibleOrder?
@@ -1803,6 +1832,7 @@ model Order {
   profitReconciliationTasks OrderProfitReconciliationTask[]
   profitAdjustmentDrafts    OrderProfitAdjustmentDraft[]
 
+  @@unique([id, userId])
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
   @@index([createdAt]) // 管理端销售趋势按日期范围查询
@@ -2909,7 +2939,8 @@ model RewardAllocation {
   createdAt      DateTime              @default(now())
   deletedAt      DateTime? // 软删除标记
 
-  ledgers RewardLedger[]
+  ledgers                RewardLedger[]
+  queueRewardAllocations QueueRewardAllocation[]
 
   @@index([orderId]) // M5: 外键索引，加速订单关联的分配记录查询
 }
@@ -2931,7 +2962,8 @@ model RewardLedger {
   sourceLedgerId String?
   meta         Json? // scheme/sourceUserId/bucketKey/vipIndex 等
   createdAt    DateTime           @default(now())
-  deletedAt    DateTime? // 软删除标记
+  deletedAt               DateTime? // 软删除标记
+  queueRewardDistribution QueueRewardDistribution?
 
   @@index([userId, status, createdAt])
   @@index([userId, status, entryType]) // VIP 冻结红包释放查询
@@ -3028,6 +3060,130 @@ model DigitalAssetRefundReversalFailure {
   @@index([userId, createdAt])
   @@index([orderId, createdAt])
   @@index([afterSaleId, createdAt])
+}
+
+// 全平台订单队列奖励：一个物理订单共享领取上限和售后状态
+model QueueRewardOrderState {
+  id                      String                 @id @default(cuid())
+  orderId                 String                 @unique
+  userId                  String
+  order                   Order                  @relation(fields: [orderId, userId], references: [id, userId], onDelete: Restrict)
+  eligiblePaidAmount      Float
+  sharedCapAmount         Float
+  frozenReceivedAmount    Float                  @default(0)
+  availableReceivedAmount Float                  @default(0)
+  voidedReceivedAmount    Float                  @default(0)
+  status                  QueueRewardOrderStatus @default(ACTIVE)
+  ruleVersion             String
+  configSnapshot          Json
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  positions QueueRewardPosition[]
+
+  @@unique([orderId, userId])
+  @@unique([id, orderId, userId])
+  @@index([userId, status, createdAt])
+  @@index([status, updatedAt])
+}
+
+// 每个完整拆分单元对应一个全局队列位置
+model QueueRewardPosition {
+  id                      String                    @id @default(cuid())
+  sequence                BigInt                    @unique @default(autoincrement())
+  orderStateId            String
+  orderId                 String
+  userId                  String
+  orderState              QueueRewardOrderState     @relation(fields: [orderStateId, orderId, userId], references: [id, orderId, userId], onDelete: Restrict)
+  unitIndex               Int
+  observedUnitCount       Int                       @default(0)
+  targetObservedUnitCount Int
+  status                  QueueRewardPositionStatus @default(ACTIVE)
+  exitReason              String?
+  ruleVersion             String
+  configSnapshot          Json
+  joinedAt                DateTime                  @default(now())
+  completedAt             DateTime?
+  voidedAt                DateTime?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  sourceAllocations        QueueRewardAllocation[]   @relation("QueueRewardAllocationSourcePosition")
+  sourceDistributions      QueueRewardDistribution[] @relation("QueueRewardDistributionSourcePosition")
+  beneficiaryDistributions QueueRewardDistribution[] @relation("QueueRewardDistributionBeneficiaryPosition")
+
+  @@unique([orderId, unitIndex])
+  @@unique([id, orderId])
+  @@unique([id, orderId, userId])
+  @@index([status, sequence])
+  @@index([userId, joinedAt])
+  @@index([orderId, status])
+}
+
+// 每个来源订单单元的奖励池和资金守恒快照
+model QueueRewardAllocation {
+  id                     String                      @id @default(cuid())
+  rewardAllocationId     String
+  rewardAllocation       RewardAllocation            @relation(fields: [rewardAllocationId], references: [id], onDelete: Restrict)
+  sourceOrderId          String
+  sourceOrder            Order                       @relation("QueueRewardSourceOrder", fields: [sourceOrderId], references: [id], onDelete: Restrict)
+  sourcePositionId       String
+  sourcePosition         QueueRewardPosition         @relation("QueueRewardAllocationSourcePosition", fields: [sourcePositionId, sourceOrderId], references: [id, orderId], onDelete: Restrict)
+  sourceUnitIndex        Int
+  profitAmount           Float
+  rewardPoolAmount       Float
+  distributedAmount      Float
+  platformRetainedAmount Float
+  distributionMode       QueueRewardDistributionMode
+  randomSeed             String
+  ruleVersion            String
+  configSnapshot         Json
+  idempotencyKey         String                      @unique
+  createdAt              DateTime                    @default(now())
+
+  distributions QueueRewardDistribution[]
+
+  @@unique([sourceOrderId, sourceUnitIndex])
+  @@unique([id, sourceOrderId])
+  @@index([sourceOrderId, createdAt])
+  @@index([rewardAllocationId])
+}
+
+// 一条实际大于0的“来源单元 -> 历史位置”红包
+model QueueRewardDistribution {
+  id                         String                        @id @default(cuid())
+  allocationId               String
+  sourceOrderId              String
+  allocation                 QueueRewardAllocation         @relation(fields: [allocationId, sourceOrderId], references: [id, sourceOrderId], onDelete: Restrict)
+  sourcePositionId           String
+  sourcePosition             QueueRewardPosition           @relation("QueueRewardDistributionSourcePosition", fields: [sourcePositionId, sourceOrderId], references: [id, orderId], onDelete: Restrict)
+  beneficiaryPositionOrderId String
+  beneficiaryPositionId      String
+  recipientUserId            String
+  beneficiaryPosition        QueueRewardPosition           @relation("QueueRewardDistributionBeneficiaryPosition", fields: [beneficiaryPositionId, beneficiaryPositionOrderId, recipientUserId], references: [id, orderId, userId], onDelete: Restrict)
+  amount                     Float
+  status                     QueueRewardDistributionStatus @default(FROZEN)
+  rewardLedgerId             String?                       @unique
+  rewardLedger               RewardLedger?                 @relation(fields: [rewardLedgerId], references: [id], onDelete: Restrict)
+  weightSnapshot             Json?
+  releaseAt                  DateTime?
+  releasedAt                 DateTime?
+  voidedAt                   DateTime?
+  voidReason                 String?
+  recoveredAmount            Float                         @default(0)
+  platformReturnedAmount     Float                         @default(0)
+  platformReturnRatio        Json?
+  idempotencyKey             String                        @unique
+  createdAt                  DateTime                      @default(now())
+  updatedAt                  DateTime                      @updatedAt
+
+  @@unique([allocationId, beneficiaryPositionId])
+  @@unique([id, recipientUserId])
+  @@index([sourceOrderId, status])
+  @@index([beneficiaryPositionOrderId, status])
+  @@index([recipientUserId, status, createdAt])
+  @@index([releaseAt, status])
+  @@index([status, updatedAt, releaseAt, id])
 }
 
 /// @deprecated 废弃：滑动窗口分桶，由 NormalTreeNode + 普通树分配替代。保留用于历史数据查询

@@ -10,6 +10,7 @@ import {
   PaymentStatus,
   Prisma,
   RewardEntryType,
+  RewardAccountType,
   RewardLedgerStatus,
   SessionStatus,
   SmsPurpose,
@@ -82,6 +83,10 @@ function makeTx(overrides: Record<string, any> = {}) {
     rewardAccount: {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      upsert: jest.fn().mockResolvedValue({
+        id: 'platform-profit-account',
+      }),
+      update: jest.fn().mockResolvedValue({}),
     },
     rewardLedger: {
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -124,6 +129,7 @@ function makeService(overrides: {
   redis?: any;
   sms?: any;
   digitalAsset?: any;
+  queueReward?: any;
 } = {}) {
   const prisma = overrides.prisma ?? makeTx();
   const config = overrides.config ?? {
@@ -142,13 +148,22 @@ function makeService(overrides: {
   const digitalAsset = overrides.digitalAsset ?? {
     clearAccountAssets: jest.fn().mockResolvedValue(undefined),
   };
+  const queueReward = overrides.queueReward;
   return {
     prisma,
     config,
     redis,
     sms,
     digitalAsset,
-    service: new DeletionService(prisma, config, redis, sms, digitalAsset),
+    queueReward,
+    service: new DeletionService(
+      prisma,
+      config,
+      redis,
+      sms,
+      digitalAsset,
+      queueReward,
+    ),
   };
 }
 
@@ -648,7 +663,7 @@ describe('DeletionService.execute', () => {
       data: { balance: 0, frozen: 0 },
     });
     expect(prisma.rewardLedger.createMany).toHaveBeenCalledWith({
-      data: [
+      data: expect.arrayContaining([
         expect.objectContaining({
           accountId: 'reward-vip',
           userId,
@@ -662,7 +677,45 @@ describe('DeletionService.execute', () => {
           amount: 4,
           status: RewardLedgerStatus.VOIDED,
         }),
-      ],
+        expect.objectContaining({
+          accountId: 'platform-profit-account',
+          userId: 'PLATFORM',
+          entryType: RewardEntryType.RELEASE,
+          amount: 15,
+          status: RewardLedgerStatus.AVAILABLE,
+          refType: 'ACCOUNT_DELETION',
+          refId: userId,
+          meta: expect.objectContaining({
+            scheme: 'ACCOUNT_DELETION_FORFEITURE',
+            sourceAccountId: 'reward-vip',
+          }),
+        }),
+        expect.objectContaining({
+          accountId: 'platform-profit-account',
+          amount: 4,
+          status: RewardLedgerStatus.AVAILABLE,
+          meta: expect.objectContaining({
+            sourceAccountId: 'reward-normal',
+          }),
+        }),
+      ]),
+    });
+    expect(prisma.rewardAccount.upsert).toHaveBeenCalledWith({
+      where: {
+        userId_type: {
+          userId: 'PLATFORM',
+          type: RewardAccountType.PLATFORM_PROFIT,
+        },
+      },
+      update: {},
+      create: {
+        userId: 'PLATFORM',
+        type: RewardAccountType.PLATFORM_PROFIT,
+      },
+    });
+    expect(prisma.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'platform-profit-account' },
+      data: { balance: { increment: 19 } },
     });
     expect(prisma.couponInstance.updateMany).toHaveBeenCalledWith({
       where: {
@@ -701,6 +754,74 @@ describe('DeletionService.execute', () => {
         entryType: RewardEntryType.VOID,
       },
     });
+  });
+
+  it('returns released queue reward balance to the platform when the user deletes the account', async () => {
+    const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
+    prisma.rewardAccount.findMany.mockResolvedValue([
+      {
+        id: 'queue-reward-account',
+        userId,
+        type: 'QUEUE_REWARD',
+        balance: 2.5,
+        frozen: 1,
+      },
+    ]);
+    const { service } = makeService({ prisma });
+
+    await service.execute(userId, executeDto());
+
+    expect(prisma.rewardLedger.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          accountId: 'platform-profit-account',
+          userId: 'PLATFORM',
+          entryType: RewardEntryType.RELEASE,
+          amount: 3.5,
+          status: RewardLedgerStatus.AVAILABLE,
+          refType: 'ACCOUNT_DELETION',
+          refId: userId,
+          idempotencyKey:
+            `ACCOUNT_DELETION_PLATFORM:${userId}:queue-reward-account`,
+          meta: expect.objectContaining({
+            sourceAccountId: 'queue-reward-account',
+            sourceAccountType: 'QUEUE_REWARD',
+          }),
+        }),
+      ]),
+    });
+    expect(prisma.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'platform-profit-account' },
+      data: { balance: { increment: 3.5 } },
+    });
+  });
+
+  it('voids beneficiary queue rewards before snapshotting remaining balances on account deletion', async () => {
+    const prisma = makeTx();
+    mockWechatOnlyDeletion(prisma);
+    const queueReward = {
+      voidRecipientRewardsForUserDeletionInTransaction:
+        jest.fn().mockResolvedValue(2),
+    };
+    const { service } = makeService({
+      prisma,
+      queueReward,
+    });
+
+    await service.execute(userId, executeDto());
+
+    expect(
+      queueReward
+        .voidRecipientRewardsForUserDeletionInTransaction,
+    ).toHaveBeenCalledWith(prisma, userId);
+    expect(
+      queueReward
+        .voidRecipientRewardsForUserDeletionInTransaction
+        .mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      prisma.rewardAccount.findMany.mock.invocationCallOrder[0],
+    );
   });
 
   it('rewrites phone and WeChat identity identifiers through a tombstone raw SQL update', async () => {

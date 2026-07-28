@@ -44,6 +44,7 @@ const TOOL_GRID_BASE: ToolEntry[] = [
   { label: '关注', icon: 'squid', route: '/me/following' },
   { label: '消息', icon: 'octopus', route: '/inbox' },
   { label: '我的福利', icon: 'conch', route: '/me/coupons' },
+  { label: '排队红包', icon: 'starfish', route: '/me/bonus-queue' },
   { label: '数字资产', icon: 'puffer', route: '/me/digital-assets' },
   { label: '我的发票', icon: 'seaCucumber', route: '/invoices' },
   { label: '联系客服', icon: 'supportCrab', route: '/cs' },

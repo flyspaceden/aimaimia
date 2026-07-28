@@ -63,6 +63,7 @@ export const RETURN_FREEZE_STATUS = 'RETURN_FROZEN';
 export type RewardAccountTypeStr =
   | 'VIP_REWARD'
   | 'NORMAL_REWARD'
+  | 'QUEUE_REWARD'
   | 'POINTS'
   | 'FUND_POOL'
   | 'PLATFORM_PROFIT'

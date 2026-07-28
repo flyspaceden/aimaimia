@@ -25,6 +25,7 @@
 - `docs/features/new-features-design.md` — 五大新功能设计方案（F1 订单流程重构 / F2 赠品锁定 / F3 奖品过期 / F4 平台公司 / F5 奖励过期可配置，**新功能实现权威来源**）
 - `docs/features/buy-vip.md` — VIP 购买流程
 - `docs/features/plan-treeforuser.md` — 普通用户分润奖励系统改造计划（抽奖/普通树/自动定价/运费/换货，Phase A~G 已完成 + Phase H~L 新增，**普通用户系统改造权威来源**）
+- `docs/features/global-order-queue-reward.md` — 全平台订单队列奖励规则（统一队列、利润出资、N人滑动、大单拆位、内部待结算/双向售后作废、后台参数与示例，**订单队列奖励权威来源；独立于普通/VIP树和直推**）
 - `docs/features/test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
 - `docs/features/admin-tree-frontend.md` — 管理端树前端
 - `docs/features/普通用户红包分润系统.md` — 普通用户分润奖励系统需求原文（产品需求文档）

@@ -292,6 +292,7 @@ function makeTxService(tx: any) {
   };
   const afterSaleRewardService = {
     voidRewardsForOrder: jest.fn().mockResolvedValue(undefined),
+    voidRewardsForOrderInTransaction: jest.fn().mockResolvedValue(undefined),
   };
   const notificationService = {
     emit: jest.fn().mockResolvedValue(undefined),
@@ -610,6 +611,10 @@ describe('AfterSaleService buyer terminal actions', () => {
 
     await service.confirmReceive('user-1', 'after-sale-1');
 
+    expect(
+      (service as any).afterSaleRewardService
+        .voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(tx, 'order-1');
     expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         afterSaleId: 'after-sale-1',

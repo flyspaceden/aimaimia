@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_USER_ID, getAccountTypeForLedger } from '../bonus/engine/constants';
+import { QueueRewardService } from '../queue-reward/queue-reward.service';
+import type { QueueRewardVoidOptions } from '../queue-reward/queue-reward.service';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
@@ -48,7 +50,10 @@ const DIRECT_REFERRAL_AUDIT_COPY_KEYS = [
 export class AfterSaleRewardService {
   private readonly logger = new Logger(AfterSaleRewardService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private queueRewardService: QueueRewardService,
+  ) {}
 
   /**
    * 售后成功后作废该订单的所有分润奖励
@@ -59,160 +64,7 @@ export class AfterSaleRewardService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(
-          async (tx) => {
-            // 1. 查找该订单的所有分润奖励（RETURN_FROZEN / FROZEN / AVAILABLE）
-            const ledgers = await tx.rewardLedger.findMany({
-              where: {
-                refType: 'ORDER',
-                refId: orderId,
-                entryType: 'FREEZE',
-                status: { in: ['RETURN_FROZEN', 'FROZEN'] },
-              },
-            });
-
-            // 防御性查找：已释放为 AVAILABLE 的奖励（RELEASE 类型）
-            const releasedLedgers = (await tx.rewardLedger.findMany({
-              where: {
-                refType: 'ORDER',
-                refId: orderId,
-                entryType: 'RELEASE',
-                status: 'AVAILABLE',
-              },
-            })).filter((ledger) => !DIRECT_REFERRAL_VOID_SCHEMES.has((ledger.meta as any)?.scheme));
-
-            if (releasedLedgers.length > 0) {
-              this.logger.warn(
-                `订单 ${orderId} 有 ${releasedLedgers.length} 条已释放(AVAILABLE)奖励需回收，进入防御回收流程`,
-              );
-            }
-
-            const allLedgers = [...ledgers, ...releasedLedgers];
-
-            if (allLedgers.length === 0) {
-              this.logger.log(`订单 ${orderId} 无待作废的分润奖励`);
-              return;
-            }
-
-            this.logger.log(
-              `订单 ${orderId} 发现 ${allLedgers.length} 条分润奖励待作废 ` +
-              `(RETURN_FROZEN: ${ledgers.filter((l) => l.status === 'RETURN_FROZEN').length}, ` +
-              `FROZEN: ${ledgers.filter((l) => l.status === 'FROZEN').length}, ` +
-              `AVAILABLE: ${releasedLedgers.length})`,
-            );
-
-            // 确保平台 PLATFORM_PROFIT 账户存在
-            let platformAccount = await tx.rewardAccount.findUnique({
-              where: { userId_type: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' } },
-            });
-            if (!platformAccount) {
-              platformAccount = await tx.rewardAccount.create({
-                data: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' },
-              });
-            }
-
-            // 2. 逐条 CAS 作废
-            for (const ledger of allLedgers) {
-              const originalStatus = ledger.status;
-              const originalEntryType = ledger.entryType;
-
-              // CAS 更新原记录 → VOIDED/VOID
-              const cas = await tx.rewardLedger.updateMany({
-                where: {
-                  id: ledger.id,
-                  status: originalStatus as any,
-                  entryType: originalEntryType as any,
-                },
-                data: {
-                  status: 'VOIDED',
-                  entryType: 'VOID',
-                },
-              });
-
-              if (cas.count === 0) {
-                this.logger.log(
-                  `奖励 ${ledger.id} 已非 ${originalStatus} 状态，跳过`,
-                );
-                continue;
-              }
-
-              // 3. 扣减用户账户余额（兼容 INDUSTRY_FUND/CHARITY_FUND 等，meta.accountType 优先）
-              const accountType = getAccountTypeForLedger(ledger.meta);
-              const scheme = (ledger.meta as any)?.scheme; // 仅用于审计 meta，accountType 走 getAccountTypeForLedger
-              const isDirectReferral = DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
-
-              if (originalStatus === 'AVAILABLE') {
-                // 已释放的奖励：扣减 balance
-                const debit = await tx.rewardAccount.updateMany({
-                  where: {
-                    userId: ledger.userId,
-                    type: accountType,
-                    balance: { gte: ledger.amount },
-                  },
-                  data: { balance: { decrement: ledger.amount } },
-                });
-                if (debit.count === 0) {
-                  throw new Error(
-                    `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
-                  );
-                }
-              } else if (originalStatus === 'FROZEN') {
-                // FROZEN：已计入账户 frozen，需扣减
-                const debit = await tx.rewardAccount.updateMany({
-                  where: {
-                    userId: ledger.userId,
-                    type: accountType,
-                    frozen: { gte: ledger.amount },
-                  },
-                  data: { frozen: { decrement: ledger.amount } },
-                });
-                if (debit.count === 0) {
-                  throw new Error(
-                    `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
-                  );
-                }
-              }
-              // RETURN_FROZEN：未计入账户余额，无需扣减
-
-              // 4. 创建平台收入 VOID 记录
-              await tx.rewardLedger.create({
-                data: {
-                  accountId: platformAccount.id,
-                  userId: PLATFORM_USER_ID,
-                  entryType: 'RELEASE',
-                  amount: ledger.amount,
-                  status: 'AVAILABLE',
-                  refType: 'AFTER_SALE',
-                  refId: orderId,
-                  meta: isDirectReferral
-                    ? this.buildDirectReferralVoidMeta(
-                        ledger,
-                        orderId,
-                        originalStatus,
-                        scheme,
-                      )
-                    : {
-                        scheme: 'AFTER_SALE_VOID',
-                        originalUserId: ledger.userId,
-                        originalLedgerId: ledger.id,
-                        originalStatus,
-                        originalScheme: scheme,
-                        reason: '售后成功，奖励归平台',
-                      },
-                },
-              });
-
-              // 增加平台账户余额
-              await tx.rewardAccount.update({
-                where: { id: platformAccount.id },
-                data: { balance: { increment: ledger.amount } },
-              });
-
-              this.logger.log(
-                `作废奖励：ledger ${ledger.id}，${ledger.amount} 元（${originalStatus}→VOIDED），` +
-                `用户 ${ledger.userId} → 平台`,
-              );
-            }
-          },
+          (tx) => this.voidRewardsForOrderInTransaction(tx, orderId),
           {
             timeout: 30000,
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -233,6 +85,195 @@ export class AfterSaleRewardService {
         throw err;
       }
     }
+  }
+
+  /**
+   * 在调用方已经建立的 Serializable 事务内作废全部奖励。
+   *
+   * 换货完成必须把状态迁移和奖励作废放进同一个事务，不能依赖
+   * 提交后的 fire-and-forget；否则进程退出会永久漏回收。
+   */
+  async voidRewardsForOrderInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    queueOptions: QueueRewardVoidOptions = {},
+  ): Promise<void> {
+    // 全局订单队列同时受“来源订单”和“受益位置订单”影响，
+    // 必须走独立双向作废逻辑，不能混入下面按 refId 的旧树回收。
+    await this.queueRewardService.voidRewardsForOrderInTransaction(
+      tx,
+      orderId,
+      'AFTER_SALE_SUCCESS',
+      queueOptions,
+    );
+
+    // 1. 查找该订单的所有分润奖励（RETURN_FROZEN / FROZEN / AVAILABLE）
+    const ledgers = await tx.rewardLedger.findMany({
+      where: {
+        refType: 'ORDER',
+        refId: orderId,
+        entryType: 'FREEZE',
+        status: { in: ['RETURN_FROZEN', 'FROZEN'] },
+        account: { type: { not: 'QUEUE_REWARD' } },
+      },
+    });
+
+    // 防御性查找：已释放为 AVAILABLE 的奖励（RELEASE 类型）
+    const releasedLedgers = (await tx.rewardLedger.findMany({
+      where: {
+        refType: 'ORDER',
+        refId: orderId,
+        entryType: 'RELEASE',
+        status: 'AVAILABLE',
+        account: { type: { not: 'QUEUE_REWARD' } },
+      },
+    })).filter((ledger) =>
+      !DIRECT_REFERRAL_VOID_SCHEMES.has((ledger.meta as any)?.scheme),
+    );
+
+    if (releasedLedgers.length > 0) {
+      this.logger.warn(
+        `订单 ${orderId} 有 ${releasedLedgers.length} 条已释放(AVAILABLE)奖励需回收，进入防御回收流程`,
+      );
+    }
+
+    const allLedgers = [...ledgers, ...releasedLedgers];
+    if (allLedgers.length === 0) {
+      this.logger.log(`订单 ${orderId} 无待作废的分润奖励`);
+      return;
+    }
+
+    this.logger.log(
+      `订单 ${orderId} 发现 ${allLedgers.length} 条分润奖励待作废 ` +
+      `(RETURN_FROZEN: ${ledgers.filter((l) => l.status === 'RETURN_FROZEN').length}, ` +
+      `FROZEN: ${ledgers.filter((l) => l.status === 'FROZEN').length}, ` +
+      `AVAILABLE: ${releasedLedgers.length})`,
+    );
+
+    // 确保平台 PLATFORM_PROFIT 账户存在
+    let platformAccount = await tx.rewardAccount.findUnique({
+      where: {
+        userId_type: {
+          userId: PLATFORM_USER_ID,
+          type: 'PLATFORM_PROFIT',
+        },
+      },
+    });
+    if (!platformAccount) {
+      platformAccount = await tx.rewardAccount.create({
+        data: { userId: PLATFORM_USER_ID, type: 'PLATFORM_PROFIT' },
+      });
+    }
+
+    // 2. 逐条 CAS 作废。旧树与直推奖励保持原有严格回收语义；
+    // 队列奖励的独立追偿逻辑已经在上方单独完成。
+    for (const ledger of allLedgers) {
+      const originalStatus = ledger.status;
+      const originalEntryType = ledger.entryType;
+      const cas = await tx.rewardLedger.updateMany({
+        where: {
+          id: ledger.id,
+          status: originalStatus as any,
+          entryType: originalEntryType as any,
+        },
+        data: {
+          status: 'VOIDED',
+          entryType: 'VOID',
+        },
+      });
+
+      if (cas.count === 0) {
+        this.logger.log(`奖励 ${ledger.id} 已非 ${originalStatus} 状态，跳过`);
+        continue;
+      }
+
+      // 3. 扣减用户账户余额（meta.accountType 优先）
+      const accountType = getAccountTypeForLedger(ledger.meta);
+      const scheme = (ledger.meta as any)?.scheme;
+      const isDirectReferral =
+        DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
+
+      if (originalStatus === 'AVAILABLE') {
+        const debit = await tx.rewardAccount.updateMany({
+          where: {
+            userId: ledger.userId,
+            type: accountType,
+            balance: { gte: ledger.amount },
+          },
+          data: { balance: { decrement: ledger.amount } },
+        });
+        if (debit.count === 0) {
+          throw new Error(
+            `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
+          );
+        }
+      } else if (originalStatus === 'FROZEN') {
+        const debit = await tx.rewardAccount.updateMany({
+          where: {
+            userId: ledger.userId,
+            type: accountType,
+            frozen: { gte: ledger.amount },
+          },
+          data: { frozen: { decrement: ledger.amount } },
+        });
+        if (debit.count === 0) {
+          throw new Error(
+            `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
+          );
+        }
+      }
+
+      // 4. 创建平台收入 VOID 记录
+      await tx.rewardLedger.create({
+        data: {
+          accountId: platformAccount.id,
+          userId: PLATFORM_USER_ID,
+          entryType: 'RELEASE',
+          amount: ledger.amount,
+          status: 'AVAILABLE',
+          refType: 'AFTER_SALE',
+          refId: orderId,
+          meta: isDirectReferral
+            ? this.buildDirectReferralVoidMeta(
+                ledger,
+                orderId,
+                originalStatus,
+                scheme,
+              )
+            : {
+                scheme: 'AFTER_SALE_VOID',
+                originalUserId: ledger.userId,
+                originalLedgerId: ledger.id,
+                originalStatus,
+                originalScheme: scheme,
+                reason: '售后成功，奖励归平台',
+              },
+        },
+      });
+
+      await tx.rewardAccount.update({
+        where: { id: platformAccount.id },
+        data: { balance: { increment: ledger.amount } },
+      });
+
+      this.logger.log(
+        `作废奖励：ledger ${ledger.id}，${ledger.amount} 元（${originalStatus}→VOIDED），` +
+        `用户 ${ledger.userId} → 平台`,
+      );
+    }
+  }
+
+  async voidQueueRewardsForOrderInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    options: QueueRewardVoidOptions = {},
+  ): Promise<void> {
+    await this.queueRewardService.voidRewardsForOrderInTransaction(
+      tx,
+      orderId,
+      'AFTER_SALE_SUCCESS',
+      options,
+    );
   }
 
   private buildDirectReferralVoidMeta(

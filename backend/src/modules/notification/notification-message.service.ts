@@ -34,6 +34,80 @@ export class NotificationMessageService {
     });
   }
 
+  /**
+   * 返回服务端已经持久化的最后一条队列红包消息，供新设备建立铃声基线。
+   * 游标不能用设备本地时间，否则设备时间快于服务端时会永久跳过后续红包。
+   */
+  async getQueueRewardEventBaseline(recipientKey: string) {
+    const latest =
+      await this.prisma.notificationMessage.findFirst({
+        where: {
+          recipientKey,
+          deletedAt: null,
+          eventType: 'queueReward.available',
+        },
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        select: { id: true, createdAt: true },
+      });
+
+    return latest
+      ? {
+          createdAt: latest.createdAt.toISOString(),
+          id: latest.id,
+        }
+      : {
+          createdAt: new Date(0).toISOString(),
+          id: '',
+        };
+  }
+
+  async listQueueRewardEventsAfter(
+    recipientKey: string,
+    afterCreatedAt: Date,
+    afterId: string,
+    limit = 100,
+  ) {
+    const take = Math.min(Math.max(limit, 1), 500);
+    const rows =
+      await this.prisma.notificationMessage.findMany({
+        where: {
+          recipientKey,
+          deletedAt: null,
+          eventType: 'queueReward.available',
+          OR: [
+            { createdAt: { gt: afterCreatedAt } },
+            {
+              createdAt: afterCreatedAt,
+              id: { gt: afterId },
+            },
+          ],
+        },
+        orderBy: [
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
+        take,
+      });
+    const items = rows.map((row) => this.map(row));
+    const last = rows.at(-1);
+    return {
+      items,
+      nextCursor: last
+        ? {
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          }
+        : {
+            createdAt: afterCreatedAt.toISOString(),
+            id: afterId,
+          },
+      hasMore: rows.length === take,
+    };
+  }
+
   async getOne(recipientKey: string, id: string) {
     const row = await this.prisma.notificationMessage.findFirst({
       where: { id, recipientKey, deletedAt: null },

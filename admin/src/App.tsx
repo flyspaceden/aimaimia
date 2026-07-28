@@ -35,6 +35,7 @@ const RewardProductEditPage = lazy(() => import('@/pages/reward-products/edit'))
 const ShippingRulesPage = lazy(() => import('@/pages/shipping-rules/index'));
 const NormalTreePage = lazy(() => import('@/pages/bonus/normal-tree'));
 const NormalConfigPage = lazy(() => import('@/pages/bonus/normal-config'));
+const QueueConfigPage = lazy(() => import('@/pages/bonus/queue-config'));
 const CouponCampaignsPage = lazy(() => import('@/pages/coupons/campaigns'));
 const CouponInstancesPage = lazy(() => import('@/pages/coupons/instances'));
 const CouponUsagePage = lazy(() => import('@/pages/coupons/usage'));
@@ -151,6 +152,7 @@ export default function App() {
             <Route path="bonus/broadcast-window" element={<BroadcastWindowPage />} />
             <Route path="bonus/normal-tree" element={<NormalTreePage />} />
             <Route path="bonus/normal-config" element={<NormalConfigPage />} />
+            <Route path="bonus/queue-config" element={<RequirePermission permission={PERMISSIONS.CONFIG_READ}><QueueConfigPage /></RequirePermission>} />
             <Route path="bonus/vip-config" element={<VipConfigPage />} />
             <Route path="vip-gifts" element={<VipGiftsPage />} />
             <Route path="coupons" element={<CouponManagementPage />} />

@@ -19,6 +19,8 @@ import { PaymentService } from '../payment/payment.service';
 import { WithdrawDto } from './dto/withdraw.dto';
 import type { WithdrawRules } from './dto/withdraw-rules.dto';
 import { WithdrawRulesService } from './withdraw-rules.service';
+import { PLATFORM_USER_ID } from './engine/constants';
+import { pendingQueueClawbackCents } from '../queue-reward/queue-reward-clawback';
 
 type WithdrawStatusResult = 'PROCESSING' | 'PAID' | 'FAILED';
 type WithdrawSource = 'REWARD' | 'GROUP_BUY_REBATE';
@@ -64,10 +66,12 @@ type WithdrawSplit = {
   source: WithdrawSource;
   fromVipCents: number;
   fromNormalCents: number;
+  fromQueueRewardCents: number;
   fromIndustryFundCents: number;
   fromGroupBuyRebateCents: number;
   vipAccountId?: string;
   normalAccountId?: string;
+  queueRewardAccountId?: string;
   industryFundAccountId?: string;
   groupBuyRebateAccountId?: string;
   groupBuyRebateBalanceBeforeCents?: number;
@@ -253,7 +257,7 @@ export class WithdrawPayoutService implements OnModuleInit {
     userId: string,
     amountCents: number,
   ): Promise<WithdrawSplit> {
-    // 统一消费积分提现优先级：VIP_REWARD → NORMAL_REWARD → GROUP_BUY_REBATE → OWNER INDUSTRY_FUND
+    // 统一提现优先级：VIP → 普通树 → 全局队列 → 团购返还 → OWNER 产业基金
     const vip = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'VIP_REWARD' as any } },
     });
@@ -263,6 +267,14 @@ export class WithdrawPayoutService implements OnModuleInit {
     const industry = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'INDUSTRY_FUND' as any } },
     });
+    const queueReward = await tx.rewardAccount.findUnique({
+      where: {
+        userId_type: {
+          userId,
+          type: 'QUEUE_REWARD' as any,
+        },
+      },
+    });
     const groupBuyRebate = await tx.groupBuyRebateAccount.findUnique({ where: { userId } });
     const isSellerOwner = !!(await tx.companyStaff.findFirst({
       where: { userId, role: 'OWNER' as any, status: 'ACTIVE' as any },
@@ -271,9 +283,39 @@ export class WithdrawPayoutService implements OnModuleInit {
 
     const vipBalanceCents = vip ? yuanToCents(vip.balance) : 0;
     const normalBalanceCents = normal ? yuanToCents(normal.balance) : 0;
+    const pendingQueueClawbacks = queueReward
+      ? await tx.rewardLedger.findMany({
+          where: {
+            accountId: queueReward.id,
+            userId,
+            entryType: 'VOID',
+            status: 'RETURN_FROZEN',
+          },
+          select: { amount: true, meta: true },
+        })
+      : [];
+    const pendingQueueClawbackTotalCents =
+      pendingQueueClawbackCents(
+        pendingQueueClawbacks ?? [],
+      );
+    // 已形成的队列追偿债务优先占用后续队列可用余额，禁止反复提现逃逸。
+    const queueRewardBalanceCents = queueReward
+      ? Math.max(
+          0,
+          yuanToCents(queueReward.balance) -
+            pendingQueueClawbackTotalCents,
+        )
+      : 0;
     const groupBuyRebateBalanceCents = groupBuyRebate ? yuanToCents(groupBuyRebate.balance) : 0;
     const industryBalanceCents = industry && isSellerOwner ? yuanToCents(industry.balance) : 0;
-    if (vipBalanceCents + normalBalanceCents + groupBuyRebateBalanceCents + industryBalanceCents < amountCents) {
+    if (
+      vipBalanceCents +
+        normalBalanceCents +
+        queueRewardBalanceCents +
+        groupBuyRebateBalanceCents +
+        industryBalanceCents <
+      amountCents
+    ) {
       throw new BadRequestException('余额不足');
     }
 
@@ -281,6 +323,11 @@ export class WithdrawPayoutService implements OnModuleInit {
     let remaining = amountCents - fromVipCents;
     const fromNormalCents = Math.min(normalBalanceCents, remaining);
     remaining -= fromNormalCents;
+    const fromQueueRewardCents = Math.min(
+      queueRewardBalanceCents,
+      remaining,
+    );
+    remaining -= fromQueueRewardCents;
     const fromGroupBuyRebateCents = Math.min(groupBuyRebateBalanceCents, remaining);
     remaining -= fromGroupBuyRebateCents;
     const fromIndustryFundCents = Math.min(industryBalanceCents, remaining);
@@ -310,6 +357,25 @@ export class WithdrawPayoutService implements OnModuleInit {
       });
       if (cas.count !== 1) {
         throw new BadRequestException('普通余额扣减并发失败，请重试');
+      }
+    }
+
+    if (fromQueueRewardCents > 0 && queueReward) {
+      const amount = centsToYuan(fromQueueRewardCents);
+      const cas = await tx.rewardAccount.updateMany({
+        where: {
+          id: queueReward.id,
+          balance: { gte: amount },
+        },
+        data: {
+          balance: { decrement: amount },
+          frozen: { increment: amount },
+        },
+      });
+      if (cas.count !== 1) {
+        throw new BadRequestException(
+          '排队红包余额扣减并发失败，请重试',
+        );
       }
     }
 
@@ -345,10 +411,12 @@ export class WithdrawPayoutService implements OnModuleInit {
       source: 'REWARD',
       fromVipCents,
       fromNormalCents,
+      fromQueueRewardCents,
       fromIndustryFundCents,
       fromGroupBuyRebateCents,
       vipAccountId: vip?.id,
       normalAccountId: normal?.id,
+      queueRewardAccountId: queueReward?.id,
       industryFundAccountId: isSellerOwner ? industry?.id : undefined,
       groupBuyRebateAccountId: groupBuyRebate?.id,
       groupBuyRebateBalanceBeforeCents: groupBuyRebateBalanceCents,
@@ -383,6 +451,7 @@ export class WithdrawPayoutService implements OnModuleInit {
       source: 'GROUP_BUY_REBATE',
       fromVipCents: 0,
       fromNormalCents: 0,
+      fromQueueRewardCents: 0,
       fromIndustryFundCents: 0,
       fromGroupBuyRebateCents: amountCents,
       groupBuyRebateAccountId: account.id,
@@ -506,14 +575,31 @@ export class WithdrawPayoutService implements OnModuleInit {
       const current = await tx.withdrawRequest.findUnique({ where: { id: withdrawId } });
       const rewardLedgers = await tx.rewardLedger.findMany({
         where: { refType: 'WITHDRAW', refId: withdrawId, status: 'FROZEN' as any },
+        include: {
+          account: {
+            select: { type: true },
+          },
+        },
       });
 
       for (const ledger of rewardLedgers ?? []) {
+        const restoredToBalanceCents =
+          ledger.account?.type === 'QUEUE_REWARD'
+            ? await this.settleQueueClawbacksFromFailedWithdrawal(
+                tx,
+                ledger,
+                withdrawId,
+              )
+            : yuanToCents(ledger.amount);
         const restore = await tx.rewardAccount.updateMany({
           where: { id: ledger.accountId, frozen: { gte: ledger.amount } },
           data: {
             frozen: { decrement: ledger.amount },
-            balance: { increment: ledger.amount },
+            balance: {
+              increment: centsToYuan(
+                restoredToBalanceCents,
+              ),
+            },
           },
         });
         if (restore.count !== 1) {
@@ -570,6 +656,215 @@ export class WithdrawPayoutService implements OnModuleInit {
         },
       });
     }
+  }
+
+  private async settleQueueClawbacksFromFailedWithdrawal(
+    tx: any,
+    withdrawalLedger: {
+      accountId: string;
+      userId: string;
+      amount: number;
+    },
+    withdrawId: string,
+  ): Promise<number> {
+    let remainingCents = yuanToCents(withdrawalLedger.amount);
+    const clawbacks = await tx.rewardLedger.findMany({
+      where: {
+        accountId: withdrawalLedger.accountId,
+        userId: withdrawalLedger.userId,
+        entryType: 'VOID',
+        status: 'RETURN_FROZEN',
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    for (const clawback of clawbacks ?? []) {
+      if (remainingCents <= 0) break;
+      const meta =
+        clawback.meta &&
+        typeof clawback.meta === 'object' &&
+        !Array.isArray(clawback.meta)
+          ? (clawback.meta as Record<string, any>)
+          : {};
+      if (meta.scheme !== 'GLOBAL_QUEUE_VOID') continue;
+      const distributionId =
+        typeof meta.originalDistributionId === 'string'
+          ? meta.originalDistributionId
+          : null;
+      const pendingCents = yuanToCents(
+        Number(meta.clawbackAmount ?? 0),
+      );
+      if (!distributionId || pendingCents <= 0) continue;
+
+      const recoveredCents = Math.min(
+        remainingCents,
+        pendingCents,
+      );
+      const distribution =
+        await tx.queueRewardDistribution.findUnique({
+          where: { id: distributionId },
+          select: {
+            recoveredAmount: true,
+            platformReturnedAmount: true,
+            platformReturnRatio: true,
+          },
+        });
+      if (!distribution) {
+        throw new InternalServerErrorException(
+          '队列提现失败追偿缺少原始分配记录',
+        );
+      }
+      const ratio = this.readQueuePlatformReturnRatio(
+        distribution.platformReturnRatio,
+      );
+      const previousRecoveredCents = yuanToCents(
+        distribution.recoveredAmount,
+      );
+      const previousPlatformReturnedCents = yuanToCents(
+        distribution.platformReturnedAmount,
+      );
+      const nextRecoveredCents =
+        previousRecoveredCents + recoveredCents;
+      const nextPlatformReturnedCents = Number(
+        (BigInt(nextRecoveredCents) *
+          BigInt(ratio.numerator)) /
+          BigInt(ratio.denominator),
+      );
+      const platformDeltaCents =
+        nextPlatformReturnedCents -
+        previousPlatformReturnedCents;
+      if (platformDeltaCents < 0) {
+        throw new InternalServerErrorException(
+          '队列提现失败追偿的平台回流金额异常',
+        );
+      }
+
+      const distributionCas =
+        await tx.queueRewardDistribution.updateMany({
+          where: {
+            id: distributionId,
+            recoveredAmount: distribution.recoveredAmount,
+            platformReturnedAmount:
+              distribution.platformReturnedAmount,
+          },
+          data: {
+            recoveredAmount:
+              centsToYuan(nextRecoveredCents),
+            platformReturnedAmount:
+              centsToYuan(nextPlatformReturnedCents),
+          },
+        });
+      if (distributionCas.count !== 1) {
+        throw new InternalServerErrorException(
+          '队列提现失败追偿发生并发变化',
+        );
+      }
+
+      const nextPendingCents =
+        pendingCents - recoveredCents;
+      await tx.rewardLedger.update({
+        where: { id: clawback.id },
+        data: {
+          status:
+            nextPendingCents === 0
+              ? 'VOIDED'
+              : 'RETURN_FROZEN',
+          meta: {
+            ...meta,
+            recoveredAmount: centsToYuan(
+              yuanToCents(Number(meta.recoveredAmount ?? 0)) +
+                recoveredCents,
+            ),
+            clawbackAmount: centsToYuan(nextPendingCents),
+            clawbackStatus:
+              nextPendingCents === 0
+                ? 'CLAWBACK_RECOVERED'
+                : 'CLAWBACK_PENDING',
+            recoveredFromFailedWithdrawId: withdrawId,
+          },
+        },
+      });
+
+      if (platformDeltaCents > 0) {
+        const platformAccount = await tx.rewardAccount.upsert({
+          where: {
+            userId_type: {
+              userId: PLATFORM_USER_ID,
+              type: 'PLATFORM_PROFIT',
+            },
+          },
+          update: {},
+          create: {
+            userId: PLATFORM_USER_ID,
+            type: 'PLATFORM_PROFIT',
+          },
+          select: { id: true },
+        });
+        const platformDelta =
+          centsToYuan(platformDeltaCents);
+        await tx.rewardLedger.create({
+          data: {
+            accountId: platformAccount.id,
+            userId: PLATFORM_USER_ID,
+            entryType: 'RELEASE',
+            amount: platformDelta,
+            status: 'AVAILABLE',
+            refType: 'WITHDRAW',
+            refId: withdrawId,
+            idempotencyKey:
+              `QUEUE_REWARD_WITHDRAW_FAILED_RECOVERY:` +
+              `${withdrawId}:${distributionId}`,
+            meta: {
+              scheme:
+                'GLOBAL_QUEUE_WITHDRAW_FAILED_RECOVERY',
+              accountType: 'PLATFORM_PROFIT',
+              originalDistributionId: distributionId,
+              originalRecipientUserId:
+                withdrawalLedger.userId,
+              recoveredAmount:
+                centsToYuan(recoveredCents),
+              platformReturnedAmount: platformDelta,
+              ratio,
+              withdrawId,
+            },
+          },
+        });
+        await tx.rewardAccount.update({
+          where: { id: platformAccount.id },
+          data: {
+            balance: { increment: platformDelta },
+          },
+        });
+      }
+      remainingCents -= recoveredCents;
+    }
+
+    return remainingCents;
+  }
+
+  private readQueuePlatformReturnRatio(
+    raw: unknown,
+  ): { numerator: number; denominator: number } {
+    const value =
+      raw &&
+      typeof raw === 'object' &&
+      !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const numerator = Number(value.numerator ?? 1);
+    const denominator = Number(value.denominator ?? 1);
+    if (
+      !Number.isSafeInteger(numerator) ||
+      !Number.isSafeInteger(denominator) ||
+      numerator < 0 ||
+      denominator <= 0 ||
+      numerator > denominator
+    ) {
+      throw new InternalServerErrorException(
+        '队列追偿平台回流比例不合法',
+      );
+    }
+    return { numerator, denominator };
   }
 
   async markProcessingProviderInfo(
@@ -784,8 +1079,11 @@ export class WithdrawPayoutService implements OnModuleInit {
         ? 'GROUP_BUY_REBATE'
         : split.fromVipCents > 0 ? 'VIP_REWARD'
           : split.fromNormalCents > 0 ? 'NORMAL_REWARD'
-            : split.fromGroupBuyRebateCents > 0 ? 'GROUP_BUY_REBATE'
-              : 'INDUSTRY_FUND';
+            : split.fromQueueRewardCents > 0
+              ? 'QUEUE_REWARD'
+              : split.fromGroupBuyRebateCents > 0
+                ? 'GROUP_BUY_REBATE'
+                : 'INDUSTRY_FUND';
       const requestSource: WithdrawRequestSource = source === 'GROUP_BUY_REBATE'
         ? 'GROUP_BUY_REBATE_LEGACY'
         : 'UNIFIED_POINTS';
@@ -863,16 +1161,25 @@ export class WithdrawPayoutService implements OnModuleInit {
     const usedSources = [
       params.split.fromVipCents > 0 ? 'VIP_REWARD' : null,
       params.split.fromNormalCents > 0 ? 'NORMAL_REWARD' : null,
+      params.split.fromQueueRewardCents > 0
+        ? 'QUEUE_REWARD'
+        : null,
       params.split.fromGroupBuyRebateCents > 0 ? 'GROUP_BUY_REBATE' : null,
       params.split.fromIndustryFundCents > 0 ? 'INDUSTRY_FUND' : null,
     ].filter(Boolean) as string[];
     const roleFor = (accountType: string) => {
       if (usedSources.length <= 1) return 'SOLE';
       const index = usedSources.indexOf(accountType);
-      return ['PRIMARY', 'SECONDARY', 'TERTIARY', 'QUATERNARY'][index] ?? 'SECONDARY';
+      return [
+        'PRIMARY',
+        'SECONDARY',
+        'TERTIARY',
+        'QUATERNARY',
+        'QUINARY',
+      ][index] ?? 'SECONDARY';
     };
 
-    // role 计算：SOLE / PRIMARY / SECONDARY / TERTIARY / QUATERNARY
+    // role 计算：SOLE / PRIMARY / SECONDARY / TERTIARY / QUATERNARY / QUINARY
     if (params.split.fromVipCents > 0 && params.split.vipAccountId) {
       await tx.rewardLedger.create({
         data: {
@@ -910,6 +1217,32 @@ export class WithdrawPayoutService implements OnModuleInit {
             outBizNo: params.outBizNo,
             accountType: 'NORMAL_REWARD',
             role: roleFor('NORMAL_REWARD'),
+          },
+        },
+      });
+    }
+
+    if (
+      params.split.fromQueueRewardCents > 0 &&
+      params.split.queueRewardAccountId
+    ) {
+      await tx.rewardLedger.create({
+        data: {
+          accountId: params.split.queueRewardAccountId,
+          userId: params.userId,
+          entryType: 'WITHDRAW' as any,
+          amount: centsToYuan(
+            params.split.fromQueueRewardCents,
+          ),
+          status: 'FROZEN' as any,
+          refType: 'WITHDRAW',
+          refId: params.withdrawId,
+          meta: {
+            scheme: 'POINTS_WITHDRAW',
+            groupId,
+            outBizNo: params.outBizNo,
+            accountType: 'QUEUE_REWARD',
+            role: roleFor('QUEUE_REWARD'),
           },
         },
       });

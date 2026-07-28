@@ -109,6 +109,8 @@ export type ProfitRefundFinalizeResult = {
   mode: 'V3' | 'LEGACY' | 'NOOP';
   orderId?: string;
   reversalCount?: number;
+  originalDistributableProfitCents?: number;
+  remainingDistributableProfitCents?: number;
 };
 
 type PendingClawback = {
@@ -876,7 +878,15 @@ export class OrderProfitRefundService {
       });
     }
 
-    return { mode: 'V3', orderId: refund.orderId, reversalCount };
+    return {
+      mode: 'V3',
+      orderId: refund.orderId,
+      reversalCount,
+      originalDistributableProfitCents:
+        profitView.originalDistributableProfitCents,
+      remainingDistributableProfitCents:
+        profitView.remainingDistributableProfitCents,
+    };
   }
 
   private readProfitItems(value: unknown): RefundProfitItem[] {

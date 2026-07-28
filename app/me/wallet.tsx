@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../src/components/feedback'
 import { AiDivider } from '../../src/components/ui';
 import { BonusRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
-import { priceTextProps, useBottomInset, useTheme } from '../../src/theme';
+import { fitTextProps, priceTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type { WalletLedgerEntry } from '../../src/types';
 import { getWalletLedgerTitle, isPendingGroupBuyRebate, isWalletDeductionTitle } from '../../src/utils/walletLedger';
 
@@ -35,6 +35,7 @@ interface LedgerDisplayItem {
   // 冻结专有
   requiredLevel?: number | null;
   remainingDays?: number | null;
+  statusLabel?: string;
 }
 
 // 格式化日期时间：2026-03-26 14:30
@@ -200,6 +201,10 @@ export default function WalletScreen() {
         amount: isWithdraw ? -Math.abs(entry.amount) : entry.amount,
         date: entry.createdAt,
         type: isWithdraw ? 'expense' : 'income',
+        statusLabel:
+          isWithdraw && entry.status === 'FROZEN'
+            ? '处理中'
+            : undefined,
       });
     });
 
@@ -321,11 +326,13 @@ export default function WalletScreen() {
                     },
                   ]}
                 >
-                  {item.type === 'income' ? '已到账'
+                  {item.statusLabel ?? (
+                    item.type === 'income' ? '已到账'
                     : item.type === 'frozen' ? '冻结积分'
                     : item.type === 'expense' ? '已完成'
                     : item.type === 'failed' ? '已退回'
-                    : '已过期'}
+                    : '已过期'
+                  )}
                 </Text>
               </View>
             </View>
@@ -469,6 +476,58 @@ export default function WalletScreen() {
                 </Animated.View>
               </LinearGradient>
 
+              <Pressable
+                onPress={() => router.push('/me/bonus-queue')}
+                accessibilityRole="button"
+                accessibilityLabel="查看排队红包明细"
+                style={[
+                  styles.queueRewardCard,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    borderRadius: radius.lg,
+                    marginHorizontal: spacing.xl,
+                    marginTop: spacing.md,
+                  },
+                  shadow.sm,
+                ]}
+              >
+                <View style={styles.queueRewardIcon}>
+                  <MaterialCommunityIcons
+                    name="bell-ring-outline"
+                    size={23}
+                    color="#176B43"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    {...fitTextProps}
+                    style={[
+                      typography.bodyStrong,
+                      { color: colors.text.primary },
+                    ]}
+                  >
+                    排队红包
+                  </Text>
+                  <Text
+                    style={[
+                      typography.captionSm,
+                      { color: colors.text.secondary, marginTop: 2 },
+                    ]}
+                  >
+                    已到账可提现 ¥{(wallet?.queueReward?.balance ?? 0).toFixed(2)}
+                    {(wallet?.queueReward?.frozen ?? 0) > 0
+                      ? ` · 提现处理中 ¥${wallet!.queueReward!.frozen.toFixed(2)}`
+                      : ''}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={20}
+                  color={colors.text.tertiary}
+                />
+              </Pressable>
+
               {/* ===== 筛选 Tab ===== */}
               <View style={[styles.filterRow, { paddingHorizontal: spacing.xl }]}>
                 {FILTERS.map((filter) => {
@@ -573,6 +632,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.6)',
     marginTop: 2,
+  },
+  queueRewardCard: {
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 68,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  queueRewardIcon: {
+    alignItems: 'center',
+    backgroundColor: '#DDF4E7',
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   balanceStatDivider: {
     width: 1,

@@ -76,6 +76,8 @@ describe('AfterSaleRefundService', () => {
 
   const rewardService = {
     voidRewardsForOrder: jest.fn(),
+    voidRewardsForOrderInTransaction: jest.fn(),
+    voidQueueRewardsForOrderInTransaction: jest.fn(),
     checkAndMarkOrderRefunded: jest.fn(),
   };
 
@@ -164,6 +166,12 @@ describe('AfterSaleRefundService', () => {
     });
     paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(false);
     rewardService.voidRewardsForOrder.mockResolvedValue(undefined);
+    rewardService.voidRewardsForOrderInTransaction.mockResolvedValue(
+      undefined,
+    );
+    rewardService.voidQueueRewardsForOrderInTransaction.mockResolvedValue(
+      undefined,
+    );
     rewardService.checkAndMarkOrderRefunded.mockResolvedValue(undefined);
     notificationService.emit.mockResolvedValue(undefined);
     growthEvents.reverseByRef.mockResolvedValue({ reversedCount: 1 });
@@ -465,7 +473,19 @@ describe('AfterSaleRefundService', () => {
         toStatus: 'REFUNDED',
       }),
     }));
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      {
+        sourcePlatformReturnRatio: {
+          numerator: 0,
+          denominator: 1,
+        },
+        sourceAdjustmentId: 'refund_001',
+      },
+    );
     expect(growthEvents.reverseByRef).toHaveBeenCalledWith('ORDER', 'order_001');
     expect(prisma.normalShareBinding.updateMany).toHaveBeenCalledWith({
       where: {
@@ -479,9 +499,14 @@ describe('AfterSaleRefundService', () => {
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
-  it('runs V3 profit reversal in the successful refund transaction and skips legacy whole-order voiding', async () => {
+  it('runs V3 profit reversal and still dual-voids the independent queue rule', async () => {
     const profitRefund = {
-      finalizeSuccessfulRefund: jest.fn().mockResolvedValue({ mode: 'V3', orderId: 'order_001' }),
+      finalizeSuccessfulRefund: jest.fn().mockResolvedValue({
+        mode: 'V3',
+        orderId: 'order_001',
+        originalDistributableProfitCents: 10_000,
+        remainingDistributableProfitCents: 4_000,
+      }),
     };
     (service as any).setOrderProfitRefundService(profitRefund);
     tx.refund.findUnique.mockResolvedValue({
@@ -497,6 +522,19 @@ describe('AfterSaleRefundService', () => {
 
     expect(profitRefund.finalizeSuccessfulRefund).toHaveBeenCalledWith(tx, 'refund_001');
     expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
+    expect(
+      rewardService.voidQueueRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      {
+        sourcePlatformReturnRatio: {
+          numerator: 4_000,
+          denominator: 10_000,
+        },
+        sourceAdjustmentId: 'refund_001',
+      },
+    );
     expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'REFUNDED' }),
     }));
@@ -915,7 +953,13 @@ describe('AfterSaleRefundService', () => {
       where: { id: 'sku_001' },
       data: { stock: { increment: 3 } },
     });
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
@@ -972,8 +1016,16 @@ describe('AfterSaleRefundService', () => {
       where: { id: 'sku_001' },
       data: { stock: { increment: 3 } },
     });
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledTimes(1);
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledTimes(1);
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
     expect(notificationService.emit).toHaveBeenCalledTimes(1);
@@ -1024,7 +1076,13 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.findMany).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_bundle_002',
+      expect.any(Object),
+    );
   });
 
   it('handleRefundSuccess does not restock exchange types', async () => {
@@ -1070,7 +1128,13 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
   });
 
   it('handleRefundSuccess does not restock refund-only return types without returned goods', async () => {
@@ -1116,7 +1180,13 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
   });
 
   it('handleRefundSuccess does not restock prize items', async () => {
@@ -1162,7 +1232,13 @@ describe('AfterSaleRefundService', () => {
     expect(tx.inventoryLedger.create).not.toHaveBeenCalled();
     expect(tx.inventoryLedger.createMany).not.toHaveBeenCalled();
     expect(tx.productSKU.update).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
   });
 
   it('handleRefundSuccess closes after-sale when refund is already REFUNDED but request is still REFUNDING', async () => {
@@ -1194,11 +1270,17 @@ describe('AfterSaleRefundService', () => {
       }),
     }));
     expect(tx.afterSaleStatusHistory.create).toHaveBeenCalledTimes(1);
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
     expect(rewardService.checkAndMarkOrderRefunded).toHaveBeenCalledWith('order_001');
   });
 
-  it('handleRefundSuccess does nothing when refund and after-sale are already REFUNDED', async () => {
+  it('handleRefundSuccess replays idempotent reward recovery when both statuses are already REFUNDED', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
       afterSaleId: 'as_001',
@@ -1221,7 +1303,16 @@ describe('AfterSaleRefundService', () => {
     expect(tx.refund.update).not.toHaveBeenCalled();
     expect(tx.afterSaleRequest.update).not.toHaveBeenCalled();
     expect(tx.afterSaleStatusHistory.create).not.toHaveBeenCalled();
-    expect(rewardService.voidRewardsForOrder).not.toHaveBeenCalled();
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
+    expect(
+      rewardService.checkAndMarkOrderRefunded,
+    ).toHaveBeenCalledWith('order_001');
   });
 
   it('startRefund routes existing REFUNDED refund through success closure', async () => {
@@ -1273,7 +1364,13 @@ describe('AfterSaleRefundService', () => {
         toStatus: 'REFUNDED',
       }),
     }));
-    expect(rewardService.voidRewardsForOrder).toHaveBeenCalledWith('order_001');
+    expect(
+      rewardService.voidRewardsForOrderInTransaction,
+    ).toHaveBeenCalledWith(
+      tx,
+      'order_001',
+      expect.any(Object),
+    );
   });
 
   it('retryRefund uses refund-retry advisory lock and 30-second throttle through RefundStatusHistory', async () => {

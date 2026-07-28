@@ -529,6 +529,47 @@ describe('handleCallback — Order 状态联动', () => {
     expect(diffDays).toBeCloseTo(7, 0);
   });
 
+  it('奖励保护期覆盖更长的生鲜质量售后小时窗口', async () => {
+    const { service, prisma } = createMocks();
+    const shipment = makeShipment({ status: 'IN_TRANSIT' });
+    prisma.shipment.findFirst.mockResolvedValue(shipment);
+    prisma.shipment.update.mockResolvedValue({
+      ...shipment,
+      status: 'DELIVERED',
+    });
+    prisma.shipmentTrackingEvent.findMany.mockResolvedValue([]);
+    prisma.shipment.count.mockResolvedValue(0);
+    prisma.ruleConfig.findUnique.mockImplementation(
+      async ({ where }: any) => ({
+        key: where.key,
+        value:
+          where.key === 'FRESH_RETURN_HOURS'
+            ? 240
+            : 7,
+      }),
+    );
+    prisma.order.updateMany.mockResolvedValue({ count: 1 });
+    prisma.orderStatusHistory.create.mockResolvedValue({});
+
+    await service.handleCallback(
+      'SF1234567890',
+      'DELIVERED',
+      [{ time: '2026-04-05T14:00:00Z', message: '已签收' }],
+      undefined,
+      undefined,
+      { skipSignatureVerification: true },
+    );
+
+    const updateCall = prisma.order.updateMany.mock.calls[0][0];
+    const deliveredAt = updateCall.data.deliveredAt as Date;
+    const expiresAt =
+      updateCall.data.returnWindowExpiresAt as Date;
+    const diffHours =
+      (expiresAt.getTime() - deliveredAt.getTime()) /
+      (60 * 60 * 1000);
+    expect(diffHours).toBeCloseTo(240, 0);
+  });
+
   it('多包裹订单部分签收 → Order 保持 SHIPPED（undeliveredCount > 0）', async () => {
     const { service, prisma } = createMocks();
     const shipment = makeShipment({ status: 'IN_TRANSIT' });

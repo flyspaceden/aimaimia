@@ -20,6 +20,16 @@ const RATE_ROWS = [
   ['NORMAL_RESERVE_PERCENT', 0.04],
   ['NORMAL_MAX_LAYERS', 15],
   ['NORMAL_BRANCH_FACTOR', 3],
+  ['QUEUE_REWARD_ENABLED', true],
+  ['QUEUE_SIZE', 21],
+  ['QUEUE_REWARD_PERCENT', 0.05],
+  ['QUEUE_SPLIT_UNIT_AMOUNT', 200],
+  ['QUEUE_MAX_POSITIONS_PER_ORDER', 100],
+  ['QUEUE_DISTRIBUTION_MODE', 'NORMAL_RANDOM'],
+  ['QUEUE_RANDOM_STDDEV', 0.2],
+  ['QUEUE_RANDOM_MIN_FACTOR', 0.6],
+  ['QUEUE_RANDOM_MAX_FACTOR', 1.4],
+  ['QUEUE_ACTIVATION_AT', '2026-07-01T00:00:00.000Z'],
 ] as const;
 
 const captainConfig = {
@@ -222,6 +232,18 @@ describe('OrderProfitSnapshotService', () => {
           tech: 0.08,
           reserve: 0.04,
         },
+      },
+      queueReward: {
+        enabled: true,
+        queueSize: 21,
+        rewardPercent: 0.05,
+        splitUnitAmount: 200,
+        maxPositionsPerOrder: 100,
+        distributionMode: 'NORMAL_RANDOM',
+        randomStddev: 0.2,
+        randomMinFactor: 0.6,
+        randomMaxFactor: 1.4,
+        activationAt: '2026-07-01T00:00:00.000Z',
       },
     });
     expect(tx.ruleConfig.findMany).toHaveBeenCalledTimes(1);

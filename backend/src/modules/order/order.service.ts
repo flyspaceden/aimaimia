@@ -14,7 +14,10 @@ import {
 import { decryptJsonValue, encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
-import { getConfigValue } from '../after-sale/after-sale.utils';
+import {
+  getConfigValue,
+  resolveRewardSafeWindowMs,
+} from '../after-sale/after-sale.utils';
 import {
   getPrizeUnavailableReason,
   getUnavailableReasonText,
@@ -1792,12 +1795,40 @@ export class OrderService {
 
           // 兜底：如果 deliveredAt 未设置（物流异常/直接从 SHIPPED 确认），补充退货窗口
           if (!(current as any).deliveredAt) {
-            const returnWindowDays = await getConfigValue(tx as any, 'RETURN_WINDOW_DAYS', 7);
+            const [
+              returnWindowDays,
+              normalReturnDays,
+              freshReturnHours,
+            ] = await Promise.all([
+              getConfigValue(
+                tx as any,
+                'RETURN_WINDOW_DAYS',
+                7,
+              ),
+              getConfigValue(
+                tx as any,
+                'NORMAL_RETURN_DAYS',
+                7,
+              ),
+              getConfigValue(
+                tx as any,
+                'FRESH_RETURN_HOURS',
+                24,
+              ),
+            ]);
+            const rewardSafeWindowMs = resolveRewardSafeWindowMs(
+              returnWindowDays,
+              normalReturnDays,
+              freshReturnHours,
+            );
             await tx.order.update({
               where: { id },
               data: {
                 deliveredAt: now,
-                returnWindowExpiresAt: new Date(now.getTime() + returnWindowDays * 24 * 60 * 60 * 1000),
+                returnWindowExpiresAt: new Date(
+                  now.getTime() +
+                    rewardSafeWindowMs,
+                ),
               },
             });
           }

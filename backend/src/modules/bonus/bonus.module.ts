@@ -20,9 +20,17 @@ import { InfraModule } from '../../common/infra/infra.module';
 import { ProfitModule } from '../profit/profit.module';
 import { WithdrawPayoutService } from './withdraw-payout.service';
 import { WithdrawRulesService } from './withdraw-rules.service';
+import { QueueRewardModule } from '../queue-reward/queue-reward.module';
 
 @Module({
-  imports: [CouponModule, NotificationModule, InfraModule, DigitalAssetModule, ProfitModule],
+  imports: [
+    CouponModule,
+    NotificationModule,
+    InfraModule,
+    DigitalAssetModule,
+    ProfitModule,
+    QueueRewardModule,
+  ],
   controllers: [BonusController],
   providers: [
     BonusService,

@@ -2016,8 +2016,12 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
         findMany: jest.fn().mockResolvedValue([
           { id: 'acct-vip', userId: 'user-1', type: 'VIP_REWARD', balance: 10, frozen: 1 },
           { id: 'acct-normal', userId: 'user-1', type: 'NORMAL_REWARD', balance: 20, frozen: 2 },
+          { id: 'acct-queue', userId: 'user-1', type: 'QUEUE_REWARD', balance: 8, frozen: 3 },
           { id: 'acct-industry', userId: 'user-1', type: 'INDUSTRY_FUND', balance: 300, frozen: 40 },
         ]),
+      },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       companyStaff: {
         findFirst: jest.fn().mockResolvedValue(isSellerOwner ? { id: 'staff-owner' } : null),
@@ -2044,14 +2048,15 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
     const result = await service.getWallet('user-1');
 
     expect(result).toEqual({
-      balance: 35,
-      frozen: 7,
-      total: 42,
+      balance: 43,
+      frozen: 10,
+      total: 53,
       deductibleBalance: 35,
-      withdrawableBalance: 35,
+      withdrawableBalance: 43,
       isSellerOwner: false,
       vip: { balance: 10, frozen: 1 },
       normal: { balance: 20, frozen: 2 },
+      queueReward: { balance: 8, frozen: 3 },
       industryFund: null,
       groupBuyRebate: {
         balance: 5,
@@ -2080,12 +2085,13 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
     const result = await service.getWallet('user-1');
 
     expect(result).toMatchObject({
-      balance: 335,
-      frozen: 47,
-      total: 382,
+      balance: 343,
+      frozen: 50,
+      total: 393,
       deductibleBalance: 35,
-      withdrawableBalance: 335,
+      withdrawableBalance: 343,
       isSellerOwner: true,
+      queueReward: { balance: 8, frozen: 3 },
       industryFund: { balance: 300, frozen: 40 },
       groupBuyRebate: {
         balance: 5,
@@ -2099,6 +2105,38 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
     expect(prismaMock.companyStaff.findFirst).toHaveBeenCalledWith({
       where: { userId: 'user-1', role: 'OWNER', status: 'ACTIVE' },
       select: { id: true },
+    });
+  });
+
+  it('钱包与提现使用相同口径扣除尚未偿还的队列追偿', async () => {
+    const prismaMock: any = buildWalletPrisma(false);
+    prismaMock.rewardLedger.findMany.mockResolvedValue([
+      {
+        amount: -6,
+        meta: {
+          scheme: 'GLOBAL_QUEUE_VOID',
+          clawbackAmount: 6,
+        },
+      },
+    ]);
+    const service = buildService(prismaMock);
+
+    const result = await service.getWallet('user-1');
+
+    expect(result.balance).toBe(37);
+    expect(result.withdrawableBalance).toBe(37);
+    expect(result.queueReward).toEqual({
+      balance: 2,
+      frozen: 3,
+    });
+    expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        entryType: 'VOID',
+        status: 'RETURN_FROZEN',
+        account: { type: 'QUEUE_REWARD' },
+      },
+      select: { amount: true, meta: true },
     });
   });
 });
@@ -2231,7 +2269,7 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
       ],
       nextPage: undefined,
     });
-    const allowedAccountTypes = ['VIP_REWARD', 'NORMAL_REWARD'];
+    const allowedAccountTypes = ['VIP_REWARD', 'NORMAL_REWARD', 'QUEUE_REWARD'];
     expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -2267,7 +2305,12 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
     expect(result.items.map((item: any) => item.id)).not.toContain('reward-platform-profit');
     expect(result.items.map((item: any) => item.id)).not.toContain('reward-charity');
 
-    const allowedAccountTypes = ['VIP_REWARD', 'NORMAL_REWARD', 'INDUSTRY_FUND'];
+    const allowedAccountTypes = [
+      'VIP_REWARD',
+      'NORMAL_REWARD',
+      'QUEUE_REWARD',
+      'INDUSTRY_FUND',
+    ];
     expect(prismaMock.rewardLedger.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({

@@ -1748,6 +1748,17 @@ async function main() {
     { key: 'NORMAL_CHARITY_PERCENT', value: 0.08, desc: '普通用户利润-慈善基金比例' },
     { key: 'NORMAL_TECH_PERCENT', value: 0.08, desc: '普通用户利润-科技基金比例' },
     { key: 'NORMAL_RESERVE_PERCENT', value: 0.02, desc: '普通用户利润-备用金比例' },
+    // --- 全平台订单队列奖励（默认关闭，避免部署即改变线上资金） ---
+    { key: 'QUEUE_REWARD_ENABLED', value: false, desc: '全平台订单队列奖励开关' },
+    { key: 'QUEUE_SIZE', value: 21, desc: '队列人数（当前订单+前序位置）' },
+    { key: 'QUEUE_REWARD_PERCENT', value: 0.01, desc: '每单利润中用于队列奖励的比例（实际从平台分成扣减）' },
+    { key: 'QUEUE_SPLIT_UNIT_AMOUNT', value: 200, desc: '大单完整队列位置金额单元（元）' },
+    { key: 'QUEUE_MAX_POSITIONS_PER_ORDER', value: 100, desc: '单个订单最多产生的队列位置数' },
+    { key: 'QUEUE_DISTRIBUTION_MODE', value: 'AVERAGE', desc: '队列红包分配模式' },
+    { key: 'QUEUE_RANDOM_STDDEV', value: 0.25, desc: '正态随机权重标准差' },
+    { key: 'QUEUE_RANDOM_MIN_FACTOR', value: 0.5, desc: '正态随机权重最小倍数' },
+    { key: 'QUEUE_RANDOM_MAX_FACTOR', value: 1.5, desc: '正态随机权重最大倍数' },
+    { key: 'QUEUE_ACTIVATION_AT', value: '', desc: '队列奖励生效时间，开启前必须设置' },
     { key: 'AUTO_VIP_BY_SPEND_ENABLED', value: true, desc: '是否启用累计消费自动成为VIP' },
     { key: 'AUTO_VIP_CUMULATIVE_SPEND_THRESHOLD', value: 399, desc: '累计普通商品有效消费达到多少元自动成为VIP' },
     // --- VIP冻结过期（新增，原VIP系统无此机制） ---

@@ -1045,20 +1045,15 @@ export class AfterSaleService {
             },
           });
 
-          // 换货完成后异步触发奖励归平台（不阻塞主事务）
-          const capturedOrderId = request.orderId;
-          setImmediate(() => {
-            this.afterSaleRewardService
-              .voidRewardsForOrder(capturedOrderId)
-              .catch((err: any) => {
-                this.logger.error(
-                  `换货完成后奖励归平台失败: orderId=${capturedOrderId}, error=${err?.message}`,
-                );
-              });
-          });
+          // 换货完成与全部奖励作废必须原子提交；避免进程退出导致漏回收。
+          await this.afterSaleRewardService
+            .voidRewardsForOrderInTransaction(tx, request.orderId);
 
           return tx.afterSaleRequest.findUnique({ where: { id: afterSaleId } });
-        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 30_000,
+        });
       } catch (e: any) {
         if (e?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
           this.logger.warn(

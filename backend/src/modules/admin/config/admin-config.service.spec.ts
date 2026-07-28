@@ -69,6 +69,11 @@ function createHarness() {
       ruleVersion: { id: 'rv-1', version: 'profit-safety-v1' },
     })),
     preview: jest.fn().mockResolvedValue(fourScenarioSummary),
+    previewContext: jest.fn().mockResolvedValue({
+      candidateSnapshot: completeSnapshot(),
+      candidateSkus: [],
+      summary: fourScenarioSummary,
+    }),
     getCurrentSummary: jest.fn().mockResolvedValue(fourScenarioSummary),
   };
   return {
@@ -143,6 +148,39 @@ describe('AdminConfigService profit safety coordination', () => {
     expect(result).toEqual({ ok: true, version: 'profit-safety-v1', updated: 2 });
   });
 
+  it('rejects a reward release window shorter than the quality after-sale window', async () => {
+    const { service, tx, profitSafety } = createHarness();
+    profitSafety.withCandidateChange.mockImplementationOnce(
+      async (_change: any, write: any) =>
+        write(tx, {
+          candidateSnapshot: {
+            ...completeSnapshot(),
+            RETURN_WINDOW_DAYS: 7,
+            NORMAL_RETURN_DAYS: 15,
+          },
+          candidateSkus: [],
+          summary: fourScenarioSummary,
+        }),
+    );
+
+    await expect(
+      service.batchUpdate(
+        {
+          updates: [
+            { key: 'RETURN_WINDOW_DAYS', value: 7 },
+            { key: 'NORMAL_RETURN_DAYS', value: 15 },
+          ],
+        },
+        'admin-1',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'AFTER_SALE_WINDOW_COVERAGE_INVALID',
+      }),
+    });
+    expect(tx.ruleConfig.upsert).not.toHaveBeenCalled();
+  });
+
   it('rejects incomplete versions before attempting a rollback', async () => {
     const { service, prisma, profitSafety, tx } = createHarness();
     prisma.ruleVersion.findUnique.mockResolvedValue({
@@ -181,16 +219,19 @@ describe('AdminConfigService profit safety coordination', () => {
     expect(result).toEqual({ ok: true, version: 'profit-safety-v1' });
   });
 
-  it('returns four-scenario current and preview safety summaries', async () => {
-    const { service, profitSafety } = createHarness();
+  it('returns four-scenario current and preview safety summaries with final snapshot validation', async () => {
+    const { service, profitSafety, bonusConfig } = createHarness();
 
     await expect(service.getProfitSafetySummary()).resolves.toEqual(fourScenarioSummary);
     await expect(service.previewProfitSafety({
       updates: [{ key: 'VIP_REWARD_PERCENT', value: { value: 0.31 } }],
     })).resolves.toEqual(fourScenarioSummary);
-    expect(profitSafety.preview).toHaveBeenCalledWith({
+    expect(profitSafety.previewContext).toHaveBeenCalledWith({
       ruleUpdates: { VIP_REWARD_PERCENT: 0.31 },
     });
+    expect(bonusConfig.validateSnapshotRatios).toHaveBeenCalledWith(
+      completeSnapshot(),
+    );
   });
 
   it('derives rollback eligibility and stored safety fields for version history', async () => {

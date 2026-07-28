@@ -44,6 +44,9 @@ export class AdminConfigService {
       createdByAdminId: adminUserId,
       changeNote: dto.changeNote || `更新配置项 ${key}`,
     }, async (tx, context) => {
+      this.validateAfterSaleWindowCoverage(
+        context.candidateSnapshot,
+      );
       this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
       await (tx as any).ruleConfig.upsert({
         where: { key },
@@ -74,6 +77,9 @@ export class AdminConfigService {
       changeNote: dto.changeNote
         || `批量更新 ${dto.updates.length} 个配置项：${dto.updates.map((item) => item.key).join(', ')}`,
     }, async (tx, context) => {
+      this.validateAfterSaleWindowCoverage(
+        context.candidateSnapshot,
+      );
       this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
       for (const update of dto.updates) {
         await (tx as any).ruleConfig.upsert({
@@ -98,7 +104,15 @@ export class AdminConfigService {
   }
 
   async previewProfitSafety(input: unknown) {
-    return this.profitSafety.preview(this.normalizePreview(input));
+    const context = await this.profitSafety.previewContext(
+      this.normalizePreview(input),
+    );
+    // 实时预览必须执行与最终保存相同的快照级业务校验。
+    // ProfitSafetyValidator 负责逐 SKU 利润底线；这里补齐七分总和、
+    // 队列比例不得超过平台份额以及售后窗口覆盖等最终态约束。
+    this.validateAfterSaleWindowCoverage(context.candidateSnapshot);
+    this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
+    return context.summary;
   }
 
   async findVersions(page = 1, pageSize = 20) {
@@ -151,6 +165,9 @@ export class AdminConfigService {
       createdByAdminId: adminUserId,
       changeNote: `回滚到版本 ${version.version}`,
     }, async (tx, context) => {
+      this.validateAfterSaleWindowCoverage(
+        context.candidateSnapshot,
+      );
       this.bonusConfig.validateSnapshotRatios(context.candidateSnapshot);
       await (tx as any).ruleConfig.deleteMany();
       for (const [key, value] of Object.entries(context.candidateSnapshot)) {
@@ -185,6 +202,7 @@ export class AdminConfigService {
       return { rollbackAllowed: false, rollbackBlockedReason: '该版本启用了销售额口径 V2 团长配置' };
     }
     try {
+      this.validateAfterSaleWindowCoverage(snapshot);
       this.bonusConfig.validateSnapshotRatios(snapshot);
     } catch {
       return { rollbackAllowed: false, rollbackBlockedReason: '该版本的利润分配比例总和不合法' };
@@ -238,6 +256,30 @@ export class AdminConfigService {
       && Object.prototype.hasOwnProperty.call(value, 'value')
       ? value.value
       : value;
+  }
+
+  private validateAfterSaleWindowCoverage(
+    snapshot: Record<string, unknown>,
+  ): void {
+    const returnWindowDays = Number(
+      snapshot.RETURN_WINDOW_DAYS,
+    );
+    const normalReturnDays = Number(
+      snapshot.NORMAL_RETURN_DAYS,
+    );
+    if (
+      Number.isFinite(returnWindowDays) &&
+      Number.isFinite(normalReturnDays) &&
+      returnWindowDays < normalReturnDays
+    ) {
+      throw new BadRequestException({
+        code: 'AFTER_SALE_WINDOW_COVERAGE_INVALID',
+        message:
+          '退货申请时限不能短于普通商品质量退换货时限，否则奖励可能在合法售后结束前释放',
+        returnWindowDays,
+        normalReturnDays,
+      });
+    }
   }
 
   private async executeSafety<T>(work: () => Promise<T>): Promise<T> {

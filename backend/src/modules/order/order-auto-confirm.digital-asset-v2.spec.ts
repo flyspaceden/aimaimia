@@ -32,7 +32,13 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     const digitalAsset = { recordOrderReceived: jest.fn().mockResolvedValue({ recorded: true, cumulativeSpendAmount: 100 }) };
     const bonusService = { activateVipByCumulativeSpend: jest.fn().mockResolvedValue({ status: 'UPGRADED' }) };
     const service = new OrderAutoConfirmService(prisma as any, bonusAllocation as any);
-    return { service, prisma, digitalAsset, bonusService };
+    return {
+      service,
+      prisma,
+      bonusAllocation,
+      digitalAsset,
+      bonusService,
+    };
   };
 
   it('calls recordOrderReceived after automatic confirm receive succeeds', async () => {
@@ -100,5 +106,39 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(bonusService.activateVipByCumulativeSpend).not.toHaveBeenCalled();
+  });
+
+  it('persists a compensatable dead letter after automatic receipt bonus retries are exhausted', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, prisma, bonusAllocation } = makeService();
+      bonusAllocation.allocateForOrder.mockRejectedValue(
+        new Error('queue allocation failed'),
+      );
+
+      const pending = (service as any).allocateBonusWithRetry(
+        'order-1',
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(bonusAllocation.allocateForOrder).toHaveBeenCalledTimes(3);
+      expect(prisma.orderStatusHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: 'order-1',
+          fromStatus: 'RECEIVED',
+          toStatus: 'RECEIVED',
+          reason: '分润分配失败（死信记录）',
+          meta: expect.objectContaining({
+            deadLetter: true,
+            source: 'AUTO_CONFIRM',
+            retries: 3,
+            error: 'queue allocation failed',
+          }),
+        }),
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

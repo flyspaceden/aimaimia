@@ -1,4 +1,12 @@
-import { Controller, Delete, Get, Post, Param, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Delete,
+  Get,
+  Post,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { InboxService } from './inbox.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -28,6 +36,34 @@ export class InboxController {
   @Get('unread-count')
   getUnreadCount(@CurrentUser('sub') userId: string) {
     return this.inboxService.getUnreadCount(userId);
+  }
+
+  /** 队列红包铃声专用稳定游标：按 createdAt + id 正序追赶，不受列表插入漂移影响。 */
+  @Get('queue-reward-events')
+  listQueueRewardEvents(
+    @CurrentUser('sub') userId: string,
+    @Query('afterCreatedAt') afterCreatedAt?: string,
+    @Query('afterId') afterId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = new Date(afterCreatedAt ?? '');
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('afterCreatedAt 必须是有效时间');
+    }
+    return this.inboxService.listQueueRewardEventsAfter(
+      userId,
+      parsed,
+      afterId ?? '',
+      this.parsePositiveInt(limit, 100),
+    );
+  }
+
+  /** 新设备首次启用铃声时使用服务端消息基线，避免客户端时钟偏差漏报。 */
+  @Get('queue-reward-events/baseline')
+  getQueueRewardEventBaseline(
+    @CurrentUser('sub') userId: string,
+  ) {
+    return this.inboxService.getQueueRewardEventBaseline(userId);
   }
 
   /** 单条消息详情（仅当前买家可读） */

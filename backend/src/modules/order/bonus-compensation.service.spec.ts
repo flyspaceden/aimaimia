@@ -44,7 +44,11 @@ describe('BonusCompensationService auto VIP compensation', () => {
     await service.compensateFailedBonusAllocations();
 
     expect(prisma.rewardAllocation.findFirst).toHaveBeenCalledWith({
-      where: { orderId: 'order-1', triggerType: 'ORDER_RECEIVED' },
+      where: {
+        orderId: 'order-1',
+        triggerType: 'ORDER_RECEIVED',
+        ruleType: { not: 'GLOBAL_QUEUE' },
+      },
     });
     expect(allocateForOrder).toHaveBeenCalledWith('order-1');
     expect(prisma.orderStatusHistory.create).toHaveBeenCalledWith({
@@ -53,6 +57,51 @@ describe('BonusCompensationService auto VIP compensation', () => {
         reason: '补偿分润成功',
       }),
     });
+  });
+
+  it('does not let a queue-only allocation suppress compensation for the existing tree reward', async () => {
+    const allocateForOrder = jest.fn().mockResolvedValue(undefined);
+    const prisma: any = {
+      orderStatusHistory: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([{ orderId: 'order-queue-only', reason: DEAD_LETTER_REASON }])
+          .mockResolvedValueOnce([]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'order-queue-only',
+          userId: 'user-1',
+          status: 'RECEIVED',
+        }),
+      },
+      rewardAllocation: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      memberProfile: {
+        findUnique: jest.fn().mockResolvedValue({ tier: 'NORMAL' }),
+      },
+    };
+    const service = new BonusCompensationService(
+      prisma,
+      { allocateForOrder } as any,
+      { activateVipByCumulativeSpend: jest.fn() } as any,
+      {
+        acquireLock: jest.fn().mockResolvedValue(true),
+        releaseLock: jest.fn().mockResolvedValue(undefined),
+      } as any,
+    );
+
+    await service.compensateFailedBonusAllocations();
+
+    expect(prisma.rewardAllocation.findFirst).toHaveBeenCalledWith({
+      where: {
+        orderId: 'order-queue-only',
+        triggerType: 'ORDER_RECEIVED',
+        ruleType: { not: 'GLOBAL_QUEUE' },
+      },
+    });
+    expect(allocateForOrder).toHaveBeenCalledWith('order-queue-only');
   });
 
   it('retries unresolved auto VIP dead letters for received orders', async () => {

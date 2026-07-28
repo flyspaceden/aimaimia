@@ -9,6 +9,7 @@ import { DigitalAssetService } from '../digital-asset/digital-asset.service';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
 import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
+import { DEAD_LETTER_REASON } from '../bonus/engine/constants';
 
 type AutoVipBySpendActivator = {
   activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
@@ -164,11 +165,9 @@ export class OrderAutoConfirmService {
       return;
     }
 
-    // 异步触发分润分配
-    this.bonusAllocation.allocateForOrder(orderId).catch((err) => {
-      const safeErr = sanitizeErrorForLog(err);
-      this.logger.error(`订单 ${orderId} 分润分配失败: ${safeErr.message}`, safeErr.stack);
-    });
+    // 自动确认与人工确认使用同一套“重试 + 持久化死信”保障，
+    // 最终失败后由 BonusCompensationService 定时恢复。
+    void this.allocateBonusWithRetry(orderId);
     this.evaluateGroupBuyAfterReceive(orderId);
     this.creditDigitalAssetAfterReceive(orderId, confirmedOrder.userId)
       .then((settlement) => {
@@ -181,6 +180,63 @@ export class OrderAutoConfirmService {
       });
     await this.releaseCaptainCommissionAfterReceive(orderId);
     this.logger.log(`订单 ${orderId} 已自动确认收货`);
+  }
+
+  private async allocateBonusWithRetry(orderId: string): Promise<void> {
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.bonusAllocation.allocateForOrder(orderId);
+        return;
+      } catch (err) {
+        const safeErr = sanitizeErrorForLog(err);
+        this.logger.warn(
+          `自动确认分润尝试 ${attempt}/${maxRetries} 失败: orderId=${orderId}; error=${safeErr.message}`,
+          safeErr.stack,
+        );
+        if (attempt < maxRetries) {
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, 1000 * Math.pow(2, attempt)),
+          );
+          continue;
+        }
+
+        this.logger.error(
+          JSON.stringify({
+            event: 'BONUS_ALLOCATION_DEAD_LETTER',
+            source: 'AUTO_CONFIRM',
+            orderId,
+            retries: maxRetries,
+            error: safeErr.message,
+            failedAt: new Date().toISOString(),
+          }),
+        );
+        try {
+          await this.prisma.orderStatusHistory.create({
+            data: {
+              orderId,
+              fromStatus: 'RECEIVED',
+              toStatus: 'RECEIVED',
+              reason: DEAD_LETTER_REASON,
+              meta: {
+                deadLetter: true,
+                source: 'AUTO_CONFIRM',
+                retries: maxRetries,
+                error: safeErr.message,
+                failedAt: new Date().toISOString(),
+              },
+            },
+          });
+        } catch (deadLetterError) {
+          const safeDeadLetterError =
+            sanitizeErrorForLog(deadLetterError);
+          this.logger.error(
+            `自动确认分润死信写入失败: orderId=${orderId}; error=${safeDeadLetterError.message}`,
+            safeDeadLetterError.stack,
+          );
+        }
+      }
+    }
   }
 
   private async creditDigitalAssetAfterReceive(orderId: string, userId: string): Promise<PostReceiveAssetSettlement> {

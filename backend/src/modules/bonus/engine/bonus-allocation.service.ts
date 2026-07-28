@@ -18,6 +18,7 @@ import {
   type SuccessfulRefundItem,
 } from '../../profit/order-profit-refund.service';
 import { centsToYuan, yuanToCents } from '../../profit/money-allocation';
+import { QueueRewardService } from '../../queue-reward/queue-reward.service';
 
 /** 分流路由结果 */
 type RoutingDecision = 'NORMAL_BROADCAST' | 'NORMAL_TREE' | 'VIP_UPSTREAM' | 'VIP_EXITED';
@@ -59,6 +60,7 @@ export class BonusAllocationService {
     private vipPlatformSplit: VipPlatformSplitService,
     private normalUpstream: NormalUpstreamService,
     private normalPlatformSplit: NormalPlatformSplitService,
+    private queueReward: QueueRewardService,
   ) {}
 
   /**
@@ -314,22 +316,41 @@ export class BonusAllocationService {
   }
 
   private async allocateFromPaymentSnapshot(order: any, snapshot: any): Promise<void> {
-    if (snapshot.status !== 'READY' || Number(snapshot.distributableProfitAmount) <= 0) {
-      this.logger.log(`订单 ${order.id} 支付利润快照不可分配，跳过收货分润`);
-      return;
-    }
-
     const rule = snapshot.ruleSnapshot as any;
     const buyerPath = rule?.buyerPath;
     const rates = rule?.rates as SnapshotProfitRateSet | undefined;
     const directRate = Number(rule?.directInviter?.effectiveDirectRate ?? 0);
-    if (
+    const queueSnapshotEnabled = rule?.queueReward?.enabled === true;
+    const treeRuleValid =
       (buyerPath !== 'VIP' && buyerPath !== 'NORMAL')
-      || !rates?.vip
-      || !rates?.normal
-      || !Number.isFinite(directRate)
-    ) {
+        ? false
+        : Boolean(
+            rates?.vip &&
+              rates?.normal &&
+              Number.isFinite(directRate),
+          );
+    // 缺成本是唯一允许“零资金入队”的核对异常：订单仍有可信的商品净实付，
+    // 只是利润暂时无法出资。金额守恒失败意味着订单头与行项目事实冲突，
+    // 此时连队列推进都必须 fail-closed，避免异常订单挤出正常位置。
+    const queueSnapshotEligible =
+      queueSnapshotEnabled &&
+      treeRuleValid &&
+      (
+        snapshot.status === 'READY' ||
+        (
+          snapshot.status === 'RECONCILIATION_REQUIRED' &&
+          snapshot.errorCode === 'ORDER_PROFIT_COST_MISSING'
+        )
+      );
+    let treeSnapshotEligible =
+      snapshot.status === 'READY' &&
+      Number(snapshot.distributableProfitAmount) > 0;
+    if (treeSnapshotEligible && !treeRuleValid) {
       this.logger.warn(`订单 ${order.id} 支付利润快照规则不完整，关闭收货分润`);
+      treeSnapshotEligible = false;
+    }
+    if (!treeSnapshotEligible && !queueSnapshotEligible) {
+      this.logger.log(`订单 ${order.id} 支付利润快照不可分配，跳过收货分润`);
       return;
     }
 
@@ -338,12 +359,12 @@ export class BonusAllocationService {
       : `snapshot:${snapshot.id}`;
     const profitItems = this.readRefundProfitItems(snapshot.itemBreakdown);
     const originalProfit = buildRemainingProfitView(profitItems, []);
-    if (
+    if (snapshot.status === 'READY' && (
       originalProfit.originalDistributableProfitCents
         !== yuanToCents(snapshot.distributableProfitAmount)
       || originalProfit.originalCaptainEligibleProfitCents
         !== yuanToCents(snapshot.captainEligibleProfitAmount)
-    ) {
+    )) {
       throw new Error('profit snapshot item totals do not match D/C');
     }
     const ancestors = this.readSnapshotAncestors(
@@ -354,7 +375,9 @@ export class BonusAllocationService {
     const route: SnapshotTreeRoute = { buyerPath, ancestors };
 
     let vipAncestorUserId: string | null = null;
-    const maxRetries = 1;
+    // 全局队列使用同一把 advisory lock；高并发确认收货时允许最多 3 次
+    // Serializable 尝试，避免瞬时 P2034 直接进入死信。
+    const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         await this.prisma.$transaction(
@@ -365,38 +388,98 @@ export class BonusAllocationService {
                 hashtext(${order.id})
               )
             `;
-            const remaining = await this.loadRemainingProfitAtReceipt(
+            const receiptContext = await this.loadReceiptProfitContext(
               tx,
               order.id,
               profitItems,
             );
-            if (!remaining) return;
-            const remainingProfit = centsToYuan(remaining.remainingDistributableProfitCents);
-            const companyProfitShares = this.companyProfitSharesFromSnapshot(
-              order.items,
-              remaining.remainingItemProfitCents,
-              remainingProfit,
-            );
-            const pools = this.calculator.calculateFromProfit(
-              remainingProfit,
-              buyerPath,
-              rates,
-              directRate,
-              companyProfitShares,
-              Boolean(rule?.directInviter?.eligibleUserId),
-              ruleVersion,
-            );
+            const remaining = receiptContext.remaining;
+            const canAllocateTree =
+              treeSnapshotEligible &&
+              treeRuleValid &&
+              !receiptContext.incompleteRefundId &&
+              remaining.remainingDistributableProfitCents > 0;
+            let pools: SnapshotPoolCalculation | null = null;
+            if (canAllocateTree) {
+              const remainingProfit = centsToYuan(
+                remaining.remainingDistributableProfitCents,
+              );
+              const companyProfitShares =
+                this.companyProfitSharesFromSnapshot(
+                  order.items,
+                  remaining.remainingItemProfitCents,
+                  remainingProfit,
+                );
+              pools = this.calculator.calculateFromProfit(
+                remainingProfit,
+                buyerPath,
+                rates!,
+                directRate,
+                companyProfitShares,
+                Boolean(rule?.directInviter?.eligibleUserId),
+                ruleVersion,
+              );
+            }
+
+            const queueResult = queueSnapshotEligible
+              ? await this.queueReward.allocateForReceivedOrder(tx, {
+                orderId: order.id,
+                userId: order.userId,
+                paidAt: order.paidAt ?? order.createdAt,
+                returnWindowExpiresAt:
+                  order.returnWindowExpiresAt ?? null,
+                eligiblePaidCents: yuanToCents(
+                  snapshot.netGoodsRevenue,
+                ),
+                profitCents: pools
+                  ? remaining.remainingDistributableProfitCents
+                  : 0,
+                platformProfitCents: pools
+                  ? yuanToCents(pools.platformProfit)
+                  : 0,
+                hasSuccessfulAfterSale:
+                  receiptContext.hasSuccessfulAfterSale,
+                ruleVersion,
+                ruleSnapshot: rule,
+              })
+              : {
+                  participated: false,
+                  alreadyProcessed: false,
+                  fundedCents: 0,
+                  positionCount: 0,
+                  reason: 'PROFIT_SNAPSHOT_NOT_QUEUE_ELIGIBLE',
+                };
+
+            if (!pools) return;
+            const platformProfitCents =
+              yuanToCents(pools.platformProfit);
+            if (queueResult.fundedCents > platformProfitCents) {
+              throw new Error(
+                'queue reward funding exceeds platform profit',
+              );
+            }
+            const adjustedPools: SnapshotPoolCalculation = {
+              ...pools,
+              platformProfit: centsToYuan(
+                platformProfitCents - queueResult.fundedCents,
+              ),
+            };
             if (buyerPath === 'VIP') {
               vipAncestorUserId = await this.executeVipUpstreamSevenWay(
                 tx,
                 order.id,
                 order.userId,
                 order.totalAmount,
-                pools,
+                adjustedPools,
                 null,
                 route,
               );
-              await this.executeVipPlatformSplit(tx, order.id, pools, ruleVersion);
+              await this.executeVipPlatformSplit(
+                tx,
+                order.id,
+                adjustedPools,
+                ruleVersion,
+              );
               return;
             }
 
@@ -405,7 +488,7 @@ export class BonusAllocationService {
               order.id,
               order.userId,
               order.totalAmount,
-              pools,
+              adjustedPools,
               route,
             );
           },
@@ -453,7 +536,9 @@ export class BonusAllocationService {
         this.logger.error(`读取出局规则失败: ${safeErr.message}`, safeErr.stack);
       }
     }
-    this.logger.log(`订单 ${order.id} 分润分配完成（SNAPSHOT_${buyerPath}）`);
+    this.logger.log(
+      `订单 ${order.id} 分润分配完成（SNAPSHOT_${buyerPath ?? 'QUEUE_ONLY'}）`,
+    );
   }
 
   private companyProfitSharesFromSnapshot(
@@ -476,15 +561,26 @@ export class BonusAllocationService {
     );
   }
 
-  private async loadRemainingProfitAtReceipt(
+  private async loadReceiptProfitContext(
     tx: Prisma.TransactionClient,
     orderId: string,
     profitItems: RefundProfitItem[],
-  ): Promise<ReturnType<typeof buildRemainingProfitView> | null> {
+  ): Promise<{
+    remaining: ReturnType<typeof buildRemainingProfitView>;
+    hasSuccessfulAfterSale: boolean;
+    incompleteRefundId: string | null;
+  }> {
     const successfulRefunds = await tx.refund.findMany({
       where: { orderId, status: 'REFUNDED', deletedAt: null },
       include: { items: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const successfulAfterSale = await tx.afterSaleRequest.findFirst({
+      where: {
+        orderId,
+        status: { in: ['REFUNDED', 'COMPLETED'] },
+      },
+      select: { id: true },
     });
     const refundItems: SuccessfulRefundItem[] = successfulRefunds.flatMap((refund: any) =>
       (refund.items ?? []).map((item: any) => ({
@@ -501,14 +597,22 @@ export class BonusAllocationService {
       this.logger.warn(
         `订单 ${orderId} 的成功退款 ${incompleteRefund.id} 缺少行级退款事实，关闭收货分润`,
       );
-      return null;
+      return {
+        remaining: buildRemainingProfitView(profitItems, []),
+        hasSuccessfulAfterSale: true,
+        incompleteRefundId: incompleteRefund.id,
+      };
     }
     const remaining = buildRemainingProfitView(profitItems, refundItems);
     if (remaining.remainingDistributableProfitCents <= 0) {
       this.logger.log(`订单 ${orderId} 退款后可分润利润为零，跳过收货分润`);
-      return null;
     }
-    return remaining;
+    return {
+      remaining,
+      hasSuccessfulAfterSale:
+        successfulRefunds.length > 0 || Boolean(successfulAfterSale),
+      incompleteRefundId: null,
+    };
   }
 
   private readRefundProfitItems(raw: unknown): RefundProfitItem[] {
@@ -592,6 +696,12 @@ export class BonusAllocationService {
     orderId: string,
     refundKey: string,
   ): Promise<void> {
+    await this.queueReward.voidRewardsForOrderInTransaction(
+      tx,
+      orderId,
+      'ORDER_REFUND_ROLLBACK',
+    );
+
     const existingRollback = await tx.rewardAllocation.findUnique({
       where: { idempotencyKey: refundKey },
     });
@@ -602,7 +712,10 @@ export class BonusAllocationService {
 
     // C07修复：在事务内查询分配记录，避免 TOCTOU 竞态（事务外快照可能过期）
     const allocations = await tx.rewardAllocation.findMany({
-      where: { orderId },
+      where: {
+        orderId,
+        ruleType: { not: 'GLOBAL_QUEUE' },
+      },
       include: { ledgers: true },
     });
 

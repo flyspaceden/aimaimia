@@ -98,9 +98,14 @@ export class BonusCompensationService {
           continue;
         }
 
-        // 检查是否已有成功的分润记录
+        // 检查旧树/平台分润是否已有成功记录。GLOBAL_QUEUE 是独立奖励规则，
+        // 不能仅因队列位置已落库就误判整笔收货分润已经完成。
         const existingAllocation = await this.prisma.rewardAllocation.findFirst({
-          where: { orderId, triggerType: 'ORDER_RECEIVED' },
+          where: {
+            orderId,
+            triggerType: 'ORDER_RECEIVED',
+            ruleType: { not: 'GLOBAL_QUEUE' },
+          },
         });
         if (existingAllocation) {
           this.logger.log(`订单 ${orderId} 已有分润记录，清理死信`);

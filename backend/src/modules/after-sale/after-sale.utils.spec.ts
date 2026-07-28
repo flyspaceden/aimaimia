@@ -2,6 +2,7 @@ import {
   calculateRefundAmount,
   isWithinReturnWindow,
   requiresReturnShipping,
+  resolveRewardSafeWindowMs,
 } from './after-sale.utils';
 
 describe('requiresReturnShipping', () => {
@@ -20,6 +21,20 @@ describe('isWithinReturnWindow', () => {
   it('NON_RETURNABLE 商品不允许无理由换货', () => {
     const deliveredAt = new Date();
     expect(isWithinReturnWindow(deliveredAt, null, 'NON_RETURNABLE', 'NO_REASON_EXCHANGE', 7, 7, 24)).toBe(false);
+  });
+});
+
+describe('resolveRewardSafeWindowMs', () => {
+  it('covers a fresh-goods quality window longer than both day-based windows', () => {
+    expect(
+      resolveRewardSafeWindowMs(7, 7, 240),
+    ).toBe(240 * 60 * 60 * 1000);
+  });
+
+  it('keeps the longer day-based window when fresh hours are shorter', () => {
+    expect(
+      resolveRewardSafeWindowMs(7, 15, 24),
+    ).toBe(15 * 24 * 60 * 60 * 1000);
   });
 });
 

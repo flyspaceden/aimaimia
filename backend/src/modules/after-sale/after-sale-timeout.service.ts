@@ -794,24 +794,16 @@ export class AfterSaleTimeoutService {
                 },
               });
             }
+
+            // 自动完成换货与全部奖励作废原子提交，不能依赖提交后的内存任务。
+            await this.afterSaleRewardService
+              .voidRewardsForOrderInTransaction(tx, request.orderId);
           },
           {
-            timeout: 10000,
+            timeout: 30000,
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           },
         );
-
-        // 事务提交后异步触发奖励归平台
-        const capturedOrderId = request.orderId;
-        setImmediate(() => {
-          this.afterSaleRewardService
-            .voidRewardsForOrder(capturedOrderId)
-            .catch((err: any) => {
-              this.logger.error(
-                `换货完成后奖励归平台失败: orderId=${capturedOrderId}, error=${err?.message}`,
-              );
-            });
-        });
 
         return;
       } catch (err: any) {

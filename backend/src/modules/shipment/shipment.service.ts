@@ -11,7 +11,10 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { sanitizeStringForLog } from '../../common/logging/log-sanitizer';
 import { maskTrackingNo } from '../../common/security/privacy-mask';
-import { getConfigValue } from '../after-sale/after-sale.utils';
+import {
+  getConfigValue,
+  resolveRewardSafeWindowMs,
+} from '../after-sale/after-sale.utils';
 import { AFTER_SALE_CONFIG_KEYS } from '../after-sale/after-sale.constants';
 import { SfExpressService, SfTrackingEvent } from './sf-express.service';
 import { NotificationService } from '../notification/notification.service';
@@ -442,14 +445,36 @@ export class ShipmentService {
             });
             if (undeliveredCount === 0) {
               // 读取退货窗口配置
-              const returnWindowDays = await getConfigValue(
-                tx as any,
-                AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS,
-                7,
+              const [
+                returnWindowDays,
+                normalReturnDays,
+                freshReturnHours,
+              ] = await Promise.all([
+                getConfigValue(
+                  tx as any,
+                  AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS,
+                  7,
+                ),
+                getConfigValue(
+                  tx as any,
+                  AFTER_SALE_CONFIG_KEYS.NORMAL_RETURN_DAYS,
+                  7,
+                ),
+                getConfigValue(
+                  tx as any,
+                  AFTER_SALE_CONFIG_KEYS.FRESH_RETURN_HOURS,
+                  24,
+                ),
+              ]);
+              const rewardSafeWindowMs = resolveRewardSafeWindowMs(
+                returnWindowDays,
+                normalReturnDays,
+                freshReturnHours,
               );
               const now = new Date();
               const returnWindowExpiresAt = new Date(
-                now.getTime() + returnWindowDays * 24 * 60 * 60 * 1000,
+                now.getTime() +
+                  rewardSafeWindowMs,
               );
               const casResult = await tx.order.updateMany({
                 where: { id: shipment.orderId, status: 'SHIPPED' },
@@ -693,14 +718,36 @@ export class ShipmentService {
             },
           });
           if (undeliveredCount === 0) {
-            const returnWindowDays = await getConfigValue(
-              tx as any,
-              AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS,
-              7,
+            const [
+              returnWindowDays,
+              normalReturnDays,
+              freshReturnHours,
+            ] = await Promise.all([
+              getConfigValue(
+                tx as any,
+                AFTER_SALE_CONFIG_KEYS.RETURN_WINDOW_DAYS,
+                7,
+              ),
+              getConfigValue(
+                tx as any,
+                AFTER_SALE_CONFIG_KEYS.NORMAL_RETURN_DAYS,
+                7,
+              ),
+              getConfigValue(
+                tx as any,
+                AFTER_SALE_CONFIG_KEYS.FRESH_RETURN_HOURS,
+                24,
+              ),
+            ]);
+            const rewardSafeWindowMs = resolveRewardSafeWindowMs(
+              returnWindowDays,
+              normalReturnDays,
+              freshReturnHours,
             );
             const now = new Date();
             const returnWindowExpiresAt = new Date(
-              now.getTime() + returnWindowDays * 24 * 60 * 60 * 1000,
+              now.getTime() +
+                rewardSafeWindowMs,
             );
             const casResult = await tx.order.updateMany({
               where: { id: shipment.orderId, status: 'SHIPPED' },
