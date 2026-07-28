@@ -56,8 +56,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="museum"
         options={{
-          title: '产品',
-          tabBarAccessibilityLabel: '产品，浏览商品与企业',
+          title: '商品',
+          tabBarAccessibilityLabel: '商品，浏览商品与企业',
           tabBarIcon: ({ focused }) => (
             <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
               <SeafoodIcon name="starfish" size={30} opacity={focused ? 1 : 0.68} />
