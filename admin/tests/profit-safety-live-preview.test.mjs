@@ -221,7 +221,11 @@ test('live preview architecture claims are bound to the guarded backend implemen
     '{',
     '}',
   );
-  assert.match(previewMethod, /return this\.profitSafety\.preview\(this\.normalizePreview\(input\)\);/);
+  assert.match(previewMethod, /this\.profitSafety\.previewContext\(/);
+  assert.match(previewMethod, /this\.normalizePreview\(input\)/);
+  assert.match(previewMethod, /this\.validateAfterSaleWindowCoverage\(context\.candidateSnapshot\);/);
+  assert.match(previewMethod, /this\.bonusConfig\.validateSnapshotRatios\(context\.candidateSnapshot\);/);
+  assert.match(previewMethod, /return context\.summary;/);
 
   const batchUpdateMethod = extractBalancedBlock(
     configServiceSource,
@@ -253,14 +257,22 @@ test('live preview architecture claims are bound to the guarded backend implemen
     '{',
     '}',
   );
-  assert.match(previewSafetyMethod, /return this\.withSafetyLock\(async \(tx\) =>/);
-  assert.match(previewSafetyMethod, /this\.buildContext\(tx, change, false\)/);
+  assert.match(previewSafetyMethod, /this\.previewContext\(change\)/);
+  const previewContextMethod = extractBalancedBlock(
+    profitSafetySource,
+    'async previewContext(\n    change: ProfitSafetyCandidateChange = {},\n  ): Promise<ProfitSafetyWriteContext> {',
+    '{',
+    '}',
+  );
+  assert.match(previewContextMethod, /return this\.withSafetyLock\(async \(tx\) =>/);
+  assert.match(previewContextMethod, /this\.buildContext\(tx, change, false\)/);
   for (const persistencePattern of [
     /ruleVersion\.create/,
     /ruleConfig\.(?:create|update|upsert|delete)/,
     /\b(?:auditLog|audit|auditService)\s*\.\s*(?:create|update|upsert|delete|write|log)\s*\(/i,
   ]) {
     assert.doesNotMatch(previewSafetyMethod, persistencePattern);
+    assert.doesNotMatch(previewContextMethod, persistencePattern);
   }
 
   const buildContextMethod = extractBalancedBlock(

@@ -47,6 +47,7 @@ const {
   formatProfitSafetySummaryErrors,
   getProfitSafetyPreviewEligibility,
   getProfitSafetyStatusPresentation,
+  mergeDefinedProfitSafetyFormValues,
 } = require(resolve(testOutputDir, 'configProfitSafetyPreview.js'));
 
 const schema = [
@@ -80,6 +81,33 @@ test('builds every changed RuleConfig-style candidate update and unwraps saved v
       { key: 'VIP_PLATFORM_RATE', value: { value: 0.48 } },
       { key: 'VIP_CAPTAIN_RATE', value: { value: 0.08 } },
     ],
+  );
+});
+
+test('keeps saved hidden fields when the mounted form only reports visible changes', () => {
+  assert.deepEqual(
+    mergeDefinedProfitSafetyFormValues(
+      {
+        enabled: false,
+        distributionMode: 'AVERAGE',
+        randomStddev: 0.25,
+        randomMinFactor: 0.5,
+        randomMaxFactor: 1.5,
+      },
+      {
+        enabled: true,
+        randomStddev: undefined,
+        randomMinFactor: undefined,
+        randomMaxFactor: undefined,
+      },
+    ),
+    {
+      enabled: true,
+      distributionMode: 'AVERAGE',
+      randomStddev: 0.25,
+      randomMinFactor: 0.5,
+      randomMaxFactor: 1.5,
+    },
   );
 });
 

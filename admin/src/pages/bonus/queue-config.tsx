@@ -43,6 +43,7 @@ import {
   type RuleConfig,
 } from '@/types';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
+import { mergeDefinedProfitSafetyFormValues } from '@/utils/configProfitSafetyPreview';
 
 const { Text, Title } = Typography;
 
@@ -380,9 +381,16 @@ export default function QueueConfigPage() {
   );
   const queueSize = Form.useWatch('queueSize', form) ?? 21;
   const allValues = Form.useWatch([], form) as QueueForm | undefined;
+  const savedFormValues = useMemo(
+    () => (configs.length > 0 ? initialValues(configs) : undefined),
+    [configs],
+  );
   const profitSafetyValues = useMemo(
-    () => serializeQueueFormForProfitSafety(allValues),
-    [allValues],
+    () =>
+      serializeQueueFormForProfitSafety(
+        mergeDefinedProfitSafetyFormValues(savedFormValues, allValues),
+      ),
+    [allValues, savedFormValues],
   );
   const profitSafetyPreview = useConfigProfitSafetyPreview({
     configs,
@@ -401,6 +409,24 @@ export default function QueueConfigPage() {
     dirty &&
     (profitSafetyPreview.kind !== 'candidate' ||
       !profitSafetyPreview.summary.safe);
+  const saveBlockedReason = useMemo(() => {
+    if (!dirty || !canSave || !previewBlocksSave) return undefined;
+    if (profitSafetyPreview.kind === 'candidate') {
+      return '保存暂不可用：当前参数未通过利润安全校验';
+    }
+    if (profitSafetyPreview.kind === 'invalid-form') {
+      return '保存暂不可用：请先修正存在校验错误的参数';
+    }
+    if (profitSafetyPreview.kind === 'error') {
+      return '保存暂不可用：未保存参数的利润安全校验失败，请稍后重试';
+    }
+    return '保存暂不可用：正在校验未保存参数，请稍候';
+  }, [
+    canSave,
+    dirty,
+    previewBlocksSave,
+    profitSafetyPreview.kind,
+  ]);
   const queueRate =
     Number(allValues?.rewardPercentDisplay ?? DEFAULTS.rewardPercentDisplay) /
     100;
@@ -894,6 +920,14 @@ export default function QueueConfigPage() {
                   style={{ display: 'block', marginTop: 10 }}
                 >
                   当前账号缺少 config:update 权限，只能查看。
+                </Text>
+              ) : null}
+              {saveBlockedReason ? (
+                <Text
+                  type="warning"
+                  style={{ display: 'block', marginTop: 10 }}
+                >
+                  {saveBlockedReason}
                 </Text>
               ) : null}
             </Form>

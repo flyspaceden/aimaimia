@@ -16,6 +16,7 @@ test('queue config previews the exact unsaved candidate with the shared profit s
   assert.match(queuePage, /getProfitSafetySummary/);
   assert.match(queuePage, /useConfigProfitSafetyPreview/);
   assert.match(queuePage, /serializeQueueFormForProfitSafety/);
+  assert.match(queuePage, /mergeDefinedProfitSafetyFormValues\(savedFormValues, allValues\)/);
   assert.match(
     queuePage,
     /rewardPercentDisplay[\s\S]*?serialize:\s*\(value\)\s*=>\s*Number\(value\)\s*\/\s*100/,
@@ -37,6 +38,7 @@ test('queue config makes platform-share consumption explicit and blocks an unsaf
     queuePage,
     /profitSafetyPreview\.kind !== 'candidate'[\s\S]*?!profitSafetyPreview\.summary\.safe/,
   );
+  assert.match(queuePage, /保存暂不可用：正在校验未保存参数，请稍候/);
 });
 
 test('queue profit safety fields and errors have administrator-facing contracts', () => {
