@@ -512,8 +512,8 @@ export class BonusConfigService {
     if (!Number.isInteger(queueSize) || queueSize < 2 || queueSize > 100) {
       throw new BadRequestException('队列人数必须是 2–100 的整数');
     }
-    if (queuePercent < 0.01 || queuePercent > 0.1) {
-      throw new BadRequestException('队列奖励比例必须在 1%–10% 之间');
+    if (queuePercent < 0.01 || queuePercent > 1) {
+      throw new BadRequestException('队列奖励比例必须在 1%–100% 之间');
     }
     if (
       queueSplitUnitAmount < 0.01 ||
@@ -688,7 +688,7 @@ export class BonusConfigService {
       result.queueSize <= 100 &&
       Number.isFinite(queueRewardPercent) &&
       queueRewardPercent >= 0.01 &&
-      queueRewardPercent <= 0.1 &&
+      queueRewardPercent <= 1 &&
       Number.isFinite(queueSplitUnitAmount) &&
       queueSplitUnitAmount >= 0.01 &&
       queueSplitUnitAmount <= 1_000_000 &&

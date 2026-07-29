@@ -15,6 +15,29 @@ const queueRuleSnapshot = {
   },
 };
 
+describe('QueueRewardService queue percentage snapshot boundary', () => {
+  const service = new QueueRewardService({} as any, {} as any);
+
+  it('accepts 100% and rejects values above 100%', () => {
+    expect(
+      (service as any).readSnapshot({
+        queueReward: {
+          ...queueRuleSnapshot.queueReward,
+          rewardPercent: 1,
+        },
+      }),
+    ).toMatchObject({ rewardPercent: 1 });
+    expect(
+      (service as any).readSnapshot({
+        queueReward: {
+          ...queueRuleSnapshot.queueReward,
+          rewardPercent: 1.0001,
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
 function makeInput(overrides: Record<string, unknown> = {}) {
   return {
     orderId: 'source-order',

@@ -1836,7 +1836,7 @@ export class QueueRewardService {
       config.queueSize <= 100 &&
       Number.isFinite(config.rewardPercent) &&
       config.rewardPercent >= 0.01 &&
-      config.rewardPercent <= 0.1 &&
+      config.rewardPercent <= 1 &&
       Number.isFinite(config.splitUnitAmount) &&
       config.splitUnitAmount >= 0.01 &&
       config.splitUnitAmount <= 1_000_000 &&

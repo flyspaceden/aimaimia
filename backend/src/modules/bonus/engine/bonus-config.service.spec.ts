@@ -138,6 +138,28 @@ describe('BonusConfigService VIP direct referral ratio config', () => {
     ).toThrow('不能超过普通用户或VIP的平台利润比例');
   });
 
+  it('accepts a 100% queue rate as the standalone upper bound', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_REWARD_ENABLED: { value: false },
+        QUEUE_REWARD_PERCENT: { value: 1 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a queue rate above 100%', () => {
+    const service = makeService();
+
+    expect(() =>
+      service.validateSnapshotRatios({
+        QUEUE_REWARD_ENABLED: { value: false },
+        QUEUE_REWARD_PERCENT: { value: 1.0001 },
+      }),
+    ).toThrow('队列奖励比例必须在 1%–100% 之间');
+  });
+
   it.each([
     ['QUEUE_REWARD_PERCENT', Number.NaN],
     ['QUEUE_RANDOM_STDDEV', Number.POSITIVE_INFINITY],

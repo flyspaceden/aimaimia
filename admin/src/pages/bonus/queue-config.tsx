@@ -698,11 +698,11 @@ export default function QueueConfigPage() {
                     name="rewardPercentDisplay"
                     label="订单利润用于队列的比例"
                     rules={[{ required: true }]}
-                    extra="平台允许 1%–10%"
+                    extra="平台允许 1%–100%；保存时仍需通过利润安全校验"
                   >
                     <InputNumber
                       min={1}
-                      max={10}
+                      max={100}
                       step={0.1}
                       precision={2}
                       addonAfter="%"
