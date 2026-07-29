@@ -102,6 +102,21 @@ describe('ProfitSafetyValidator', () => {
     });
   });
 
+  it('keeps 100% queue allocation behind the aggregate profit safety gate', () => {
+    const input = candidate({ queueRewardProfitRate: 1 });
+    const summary = validator.evaluate(input);
+
+    expect(summary.safe).toBe(false);
+    expect(
+      summary.scenarios.every(
+        (scenario) => scenario.queueRewardProfitRate === 1,
+      ),
+    ).toBe(true);
+    expect(() => validator.assertSafe(input)).toThrow(
+      ProfitSafetyViolationError,
+    );
+  });
+
   it('uses discounted revenue as the denominator for the mandatory VIP margin', () => {
     const summary = validator.evaluate(candidate({
       skus: [{

@@ -296,7 +296,7 @@ export const CONFIG_VALIDATION_RULES: Record<string, ConfigValidationRule> = {
     type: 'number',
     description: '每单利润中用于队列奖励的比例（实际从平台分成扣减）',
     min: 0.01,
-    max: 0.1,
+    max: 1,
   },
   QUEUE_SPLIT_UNIT_AMOUNT: {
     type: 'number',

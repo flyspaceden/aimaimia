@@ -33,6 +33,19 @@ describe('global queue position cap validation', () => {
   });
 });
 
+describe('global queue reward percentage validation', () => {
+  it('accepts 1%–100% and rejects values outside the configured range', () => {
+    expect(validateConfigValue('QUEUE_REWARD_PERCENT', 0.01)).toBeNull();
+    expect(validateConfigValue('QUEUE_REWARD_PERCENT', 1)).toBeNull();
+    expect(validateConfigValue('QUEUE_REWARD_PERCENT', 0.0099)).toContain(
+      '最小值',
+    );
+    expect(validateConfigValue('QUEUE_REWARD_PERCENT', 1.0001)).toContain(
+      '最大值',
+    );
+  });
+});
+
 describe('invoice config validation', () => {
   it('accepts valid invoice provider mode and line mode', () => {
     expect(validateConfigValue('INVOICE_PROVIDER_MODE', 'MOCK')).toBeNull();
