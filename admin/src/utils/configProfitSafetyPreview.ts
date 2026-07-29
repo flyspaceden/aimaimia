@@ -4,6 +4,19 @@ export interface ProfitSafetyPreviewConfigMeta {
 
 export type ProfitSafetyPreviewUpdate = { key: string; value: { value: unknown } };
 
+export function mergeDefinedProfitSafetyFormValues<T extends object>(
+  fallback: Partial<T> | undefined,
+  candidate: Partial<T> | undefined,
+): Partial<T> | undefined {
+  if (!fallback && !candidate) return undefined;
+  const merged = { ...(fallback ?? {}) } as Partial<T>;
+  for (const key of Object.keys(candidate ?? {}) as Array<keyof T>) {
+    const value = candidate?.[key];
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
+}
+
 const PROFIT_SAFETY_CONFIG_LABELS: Record<string, string> = {
   VIP_PLATFORM_PERCENT: 'VIP 平台留存比例',
   VIP_REWARD_PERCENT: 'VIP 奖励比例',
