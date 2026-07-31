@@ -111,6 +111,31 @@ test('keeps saved hidden fields when the mounted form only reports visible chang
   );
 });
 
+test('keeps edited random fields when normal random mode mounts them', () => {
+  assert.deepEqual(
+    mergeDefinedProfitSafetyFormValues(
+      {
+        distributionMode: 'AVERAGE',
+        randomStddev: 0.25,
+        randomMinFactor: 0.5,
+        randomMaxFactor: 1.5,
+      },
+      {
+        distributionMode: 'NORMAL_RANDOM',
+        randomStddev: 0.4,
+        randomMinFactor: 0.8,
+        randomMaxFactor: 1.8,
+      },
+    ),
+    {
+      distributionMode: 'NORMAL_RANDOM',
+      randomStddev: 0.4,
+      randomMinFactor: 0.8,
+      randomMaxFactor: 1.8,
+    },
+  );
+});
+
 test('returns all ineligible states before requesting a candidate preview', () => {
   const base = { enabled: true, valuesReady: true, updates: [{ key: 'VIP_TREE_RATE', value: { value: 0.31 } }], sumValid: true, hasValidationErrors: false };
   assert.equal(getProfitSafetyPreviewEligibility({ ...base, enabled: false }), 'saved');

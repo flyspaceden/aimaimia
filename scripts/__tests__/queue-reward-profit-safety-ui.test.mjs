@@ -24,6 +24,14 @@ test('queue config previews the exact unsaved candidate with the shared profit s
   assert.match(queuePage, /previewState=\{profitSafetyPreview\}/);
 });
 
+test('queue config restores hidden random fields before saving average mode', () => {
+  assert.match(
+    queuePage,
+    /const validatedValues = await form\.validateFields\(\);[\s\S]*?values = mergeDefinedProfitSafetyFormValues\([\s\S]*?savedFormValues,[\s\S]*?validatedValues,[\s\S]*?\) as QueueForm;/,
+  );
+  assert.match(queuePage, /配置尚未加载完成，请稍后重试/);
+});
+
 test('queue config makes platform-share consumption explicit and blocks an unsafe candidate', () => {
   assert.match(queuePage, /利润安全闸门/);
   assert.match(queuePage, /队列从利润中取走/);

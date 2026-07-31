@@ -541,7 +541,15 @@ export default function QueueConfigPage() {
     }
     let values: QueueForm;
     try {
-      values = await form.validateFields();
+      const validatedValues = await form.validateFields();
+      if (!savedFormValues) {
+        message.warning('配置尚未加载完成，请稍后重试');
+        return;
+      }
+      values = mergeDefinedProfitSafetyFormValues(
+        savedFormValues,
+        validatedValues,
+      ) as QueueForm;
     } catch {
       message.warning('请先修正参数');
       return;
