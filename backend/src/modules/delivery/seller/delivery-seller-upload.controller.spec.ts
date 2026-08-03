@@ -42,14 +42,18 @@ describe('DeliverySellerUploadController', () => {
     };
     deliveryPrisma = {
       deliveryProduct: { findMany: jest.fn().mockResolvedValue([]) },
-      deliveryProductSku: { count: jest.fn().mockResolvedValue(1) },
-      deliveryManifest: {
-        count: jest.fn().mockResolvedValue(0),
-        findFirst: jest.fn().mockResolvedValue(null),
+      deliveryProductSku: {
+        findMany: jest.fn().mockResolvedValue([
+          { imageUrl: 'https://example.com/delivery/products/file.webp' },
+        ]),
       },
-      deliveryShipment: { count: jest.fn().mockResolvedValue(0) },
-      deliverySettlement: { count: jest.fn().mockResolvedValue(0) },
-      deliveryMerchantApplication: { count: jest.fn().mockResolvedValue(0) },
+      deliveryManifest: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      deliveryShipment: { findMany: jest.fn().mockResolvedValue([]) },
+      deliveryCarrierOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      deliverySettlement: { findMany: jest.fn().mockResolvedValue([]) },
+      deliveryMerchantApplication: { findMany: jest.fn().mockResolvedValue([]) },
     };
     controller = new DeliverySellerUploadController(
       uploadService as unknown as UploadService,
@@ -95,11 +99,12 @@ describe('DeliverySellerUploadController', () => {
 
     await (controller as any).downloadFile(sellerUser(), 'delivery/products/file.webp', '配送商品图.webp', res);
 
-    expect(deliveryPrisma.deliveryProductSku.count).toHaveBeenCalledWith({
+    expect(deliveryPrisma.deliveryProductSku.findMany).toHaveBeenCalledWith({
       where: {
         product: { merchantId: 'merchant_1' },
         imageUrl: { contains: 'delivery/products/file.webp' },
       },
+      select: { imageUrl: true },
     });
     expect(uploadService.getFileForDownload).toHaveBeenCalledWith('delivery/products/file.webp');
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
@@ -125,12 +130,12 @@ describe('DeliverySellerUploadController', () => {
 
   it('rejects delivery downloads when the file key is not owned by the current merchant', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
     deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([]);
-    deliveryPrisma.deliveryManifest.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryShipment.count.mockResolvedValue(0);
-    deliveryPrisma.deliverySettlement.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryMerchantApplication.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryManifest.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryShipment.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliverySettlement.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryMerchantApplication.findMany.mockResolvedValue([]);
 
     await expect(
       (controller as any).downloadFile(sellerUser(), 'delivery/products/other.webp', '别人的文件.webp', res),
@@ -141,9 +146,27 @@ describe('DeliverySellerUploadController', () => {
     expect(res.sendFile).not.toHaveBeenCalled();
   });
 
+  it('does not treat a partial delivery key as proof of file ownership', async () => {
+    const res = createResponseDouble();
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([
+      { imageUrl: 'https://example.com/delivery/products/file.webp' },
+    ]);
+
+    await expect(
+      (controller as any).downloadFile(
+        sellerUser(),
+        'delivery/products/file',
+        '非完整文件.webp',
+        res,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(uploadService.getFileForDownload).not.toHaveBeenCalled();
+  });
+
   it('allows delivery product media downloads owned by the current merchant', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
     deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([
       {
         media: [
@@ -160,9 +183,40 @@ describe('DeliverySellerUploadController', () => {
     expect(res.sendFile).toHaveBeenCalledWith('/tmp/delivery/products/file.webp');
   });
 
+  it('allows the owning seller to download a pickup batch SF waybill', async () => {
+    const res = createResponseDouble();
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryCarrierOrder.findMany.mockResolvedValue([
+      { waybillUrl: 'https://example.com/delivery/pickup-waybills/batch.pdf' },
+    ]);
+    uploadService.getFileForDownload.mockResolvedValue({
+      filePath: '/tmp/delivery/pickup-waybills/batch.pdf',
+      mimeType: 'application/pdf',
+      basename: 'batch.pdf',
+    });
+
+    await (controller as any).downloadFile(
+      sellerUser({ permissionCodes: ['orders:read'] }),
+      'delivery/pickup-waybills/batch.pdf',
+      '顺丰面单.pdf',
+      res,
+    );
+
+    expect(deliveryPrisma.deliveryCarrierOrder.findMany).toHaveBeenCalledWith({
+      where: {
+        batch: { merchantId: 'merchant_1' },
+        waybillUrl: { contains: 'delivery/pickup-waybills/batch.pdf' },
+      },
+      select: { waybillUrl: true },
+    });
+    expect(uploadService.getFileForDownload).toHaveBeenCalledWith('delivery/pickup-waybills/batch.pdf');
+  });
+
   it('adds content-disposition for private delivery downloads when download mode is requested', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(1);
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([
+      { imageUrl: 'https://example.com/delivery/products/private-file.webp' },
+    ]);
     deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([]);
 
     await (controller as any).getPrivateFile(
@@ -175,11 +229,12 @@ describe('DeliverySellerUploadController', () => {
       res,
     );
 
-    expect(deliveryPrisma.deliveryProductSku.count).toHaveBeenCalledWith({
+    expect(deliveryPrisma.deliveryProductSku.findMany).toHaveBeenCalledWith({
       where: {
         product: { merchantId: 'merchant_1' },
         imageUrl: { contains: 'delivery/products/private-file.webp' },
       },
+      select: { imageUrl: true },
     });
     expect(uploadService.getSignedLocalFile).toHaveBeenCalledWith('delivery/products/private-file.webp', '123', 'signed');
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
@@ -204,12 +259,12 @@ describe('DeliverySellerUploadController', () => {
 
   it('rejects private delivery downloads when the file key is not owned by the current merchant', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
     deliveryPrisma.deliveryProduct.findMany.mockResolvedValue([]);
-    deliveryPrisma.deliveryManifest.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryShipment.count.mockResolvedValue(0);
-    deliveryPrisma.deliverySettlement.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryMerchantApplication.count.mockResolvedValue(0);
+    deliveryPrisma.deliveryManifest.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryShipment.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliverySettlement.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryMerchantApplication.findMany.mockResolvedValue([]);
 
     await expect(
       (controller as any).getPrivateFile(
@@ -230,11 +285,12 @@ describe('DeliverySellerUploadController', () => {
 
   it('rejects seller finance downloads for staff without finance permission even when the file belongs to the merchant', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue({
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryManifest.findMany.mockResolvedValue([{
       type: 'SELLER_SETTLEMENT',
       storageKey: 'delivery/manifests/seller-finance/export.xls',
-    });
+      fileUrl: null,
+    }]);
 
     await expect(
       (controller as any).downloadFile(
@@ -252,11 +308,12 @@ describe('DeliverySellerUploadController', () => {
 
   it('allows seller finance downloads for staff with finance permission', async () => {
     const res = createResponseDouble();
-    deliveryPrisma.deliveryProductSku.count.mockResolvedValue(0);
-    deliveryPrisma.deliveryManifest.findFirst.mockResolvedValue({
+    deliveryPrisma.deliveryProductSku.findMany.mockResolvedValue([]);
+    deliveryPrisma.deliveryManifest.findMany.mockResolvedValue([{
       type: 'SELLER_SETTLEMENT',
       storageKey: 'delivery/manifests/seller-finance/export.xls',
-    });
+      fileUrl: null,
+    }]);
     uploadService.getFileForDownload.mockResolvedValue({
       filePath: '/tmp/delivery/manifests/seller-finance/export.xls',
       mimeType: 'application/vnd.ms-excel',

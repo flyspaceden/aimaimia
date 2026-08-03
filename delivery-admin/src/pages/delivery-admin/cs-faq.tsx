@@ -3,9 +3,10 @@ import { Button, Space, Table, Tag, Typography } from 'antd';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
-import { getDeliveryConfig } from '@/api/delivery-management';
+import { getDeliveryCustomerServiceConfig } from '@/api/delivery-management';
 import { PageHeader } from './components';
 import { getCustomerServiceDefaults } from './cs-helpers';
+import useAuthStore from '@/store/useAuthStore';
 
 type FaqRow = {
   id: string;
@@ -16,9 +17,10 @@ type FaqRow = {
 
 export default function DeliveryCsFaqPage() {
   const navigate = useNavigate();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:customer-service:write'));
   const configQuery = useQuery({
     queryKey: ['delivery-config', 'customer-service-defaults'],
-    queryFn: () => getDeliveryConfig('CUSTOMER_SERVICE'),
+    queryFn: getDeliveryCustomerServiceConfig,
   });
 
   const defaults = getCustomerServiceDefaults(configQuery.data);
@@ -40,7 +42,7 @@ export default function DeliveryCsFaqPage() {
       <PageHeader
         title="配送 FAQ 管理"
         subtitle="查看配送 App 客服入口展示的常见问题，问题内容由坐席快捷回复配置统一维护。"
-        extra={<Button type="primary" onClick={() => navigate('/cs/quick-replies')}>维护常见问题</Button>}
+        extra={<Button type={canWrite ? 'primary' : 'default'} onClick={() => navigate('/cs/quick-replies')}>{canWrite ? '维护常见问题' : '查看常见问题配置'}</Button>}
       />
 
       <ProCard title="常见问题" headerBordered>

@@ -332,8 +332,8 @@ describe('DeliverySellerOpsService', () => {
             subOrderId: 'sub_1',
             merchantId: 'merchant_1',
             batchNo: 1,
-            status: 'DRIVER_ASSIGNED',
-            provider: 'HUOLALA',
+            status: 'WAITING_DRIVER',
+            provider: 'SF',
             plannedPickupAt: new Date('2026-06-19T12:00:00Z'),
             readyAt: new Date('2026-06-19T11:20:00Z'),
             calledAt: new Date('2026-06-19T11:30:00Z'),
@@ -359,10 +359,21 @@ describe('DeliverySellerOpsService', () => {
             ],
             carrierOrders: [
               {
-                carrierOrderNo: 'HL001',
-                status: 'DRIVER_ASSIGNED',
-                driverSnapshot: { name: '王师傅', phone: '13800000001' },
-                vehicleSnapshot: { plateNo: '粤A12345', model: '小面包' },
+                carrierOrderNo: 'SF-BATCH-001',
+                status: 'WAITING_DRIVER',
+                expressTypeId: 1,
+                expressTypeName: '顺丰标快',
+                packageCount: 1,
+                totalWeightKg: 12.5,
+                waybillUrl: '/waybills/SF-BATCH-001.pdf',
+                waybills: [
+                  {
+                    trackingNo: 'SF-BATCH-001',
+                    status: 'WAITING_PICKUP',
+                    deliveredAt: null,
+                    lastSyncedAt: null,
+                  },
+                ],
                 estimatedFeeCents: 500,
                 actualFeeCents: 700,
                 lastSyncedAt: new Date('2026-06-19T11:40:00Z'),
@@ -405,11 +416,14 @@ describe('DeliverySellerOpsService', () => {
             {
               id: 'PSTH0000000000001',
               batchNo: 1,
-              status: 'DRIVER_ASSIGNED',
-              carrierOrderNo: 'HL001',
+              status: 'WAITING_DRIVER',
+              carrierOrderNo: 'SF-BATCH-001',
               latestCarrierOrder: {
-                carrierOrderNo: 'HL001',
-                status: 'DRIVER_ASSIGNED',
+                carrierOrderNo: 'SF-BATCH-001',
+                status: 'WAITING_DRIVER',
+                expressTypeName: '顺丰标快',
+                packageCount: 1,
+                totalWeightKg: 12.5,
               },
               items: [
                 {

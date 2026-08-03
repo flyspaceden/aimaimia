@@ -3,7 +3,7 @@ import { DeliveryConfigService } from './delivery-config.service';
 
 describe('DeliveryConfigService', () => {
   it('writes audit logs when an admin updates delivery configuration', async () => {
-    const deliveryPrisma = {
+    const deliveryPrisma: any = {
       deliveryConfig: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'config_1',
@@ -24,6 +24,10 @@ describe('DeliveryConfigService', () => {
         create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
       },
     };
+    deliveryPrisma.$transaction = jest.fn(
+      async (callback: (tx: any) => Promise<unknown>): Promise<unknown> =>
+        callback(deliveryPrisma),
+    );
     const service = new DeliveryConfigService(deliveryPrisma as unknown as DeliveryPrismaService);
 
     await service.update([
@@ -47,5 +51,37 @@ describe('DeliveryConfigService', () => {
         after: expect.objectContaining({ value: { value: 10 } }),
       }),
     }));
+  });
+
+  it('validates and normalizes the enabled SF product list atomically', async () => {
+    const deliveryPrisma: any = {
+      deliveryConfig: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockImplementation(({ create }: any) => Promise.resolve(create)),
+      },
+      deliveryAuditLog: { create: jest.fn() },
+    };
+    deliveryPrisma.$transaction = jest.fn(async (callback: any) => callback(deliveryPrisma));
+    const service = new DeliveryConfigService(deliveryPrisma as DeliveryPrismaService);
+
+    await service.update(
+      [
+        {
+          key: 'SF_EXPRESS_PRODUCTS',
+          scope: 'SYSTEM',
+          value: [{ expressTypeId: 1, name: ' 顺丰标快 ', enabled: true }],
+        },
+      ],
+      'admin_1',
+    );
+
+    expect(deliveryPrisma.deliveryConfig.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          value: { products: [{ expressTypeId: 1, name: '顺丰标快', enabled: true }] },
+        }),
+      }),
+    );
+    expect(deliveryPrisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

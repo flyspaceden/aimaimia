@@ -10,11 +10,13 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getDashboard } from '@/api/dashboard';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text, Title } = Typography;
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const hasPermission = useAuthStore((state) => state.hasPermission);
 
   const { data: dashboard, isLoading, isError } = useQuery({
     queryKey: ['delivery-seller-dashboard'],
@@ -43,12 +45,12 @@ export default function DashboardPage() {
   ];
 
   const quickLinks = [
-    { label: '待发货订单', path: '/orders?statusTab=pending', icon: <ShoppingCartOutlined /> },
-    { label: '库存管理', path: '/products/stock', icon: <AppstoreOutlined /> },
-    { label: '物流跟踪', path: '/orders/logistics', icon: <TruckOutlined /> },
-    { label: '经营导出', path: '/exports', icon: <ExportOutlined /> },
+    { label: '待发货订单', path: '/orders?statusTab=pending', icon: <ShoppingCartOutlined />, permission: 'orders:read' },
+    { label: '库存管理', path: '/products/stock', icon: <AppstoreOutlined />, permission: 'inventory:write' },
+    { label: '物流跟踪', path: '/orders/logistics', icon: <TruckOutlined />, permission: 'orders:read' },
+    { label: '经营导出', path: '/exports', icon: <ExportOutlined />, permission: 'finance:read' },
     { label: '账号安全', path: '/account-security', icon: <ClockCircleOutlined /> },
-  ];
+  ].filter((item) => !item.permission || hasPermission(item.permission));
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
@@ -90,7 +92,9 @@ export default function DashboardPage() {
           >
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Button block onClick={() => navigate('/orders?statusTab=pending')}>待发货订单</Button>
-              <Button block onClick={() => navigate('/exports')}>财务结算导出</Button>
+              {hasPermission('finance:read') ? (
+                <Button block onClick={() => navigate('/exports')}>财务结算导出</Button>
+              ) : null}
               <Text type="secondary">配送中心只展示供货、履约和结算相关事项。</Text>
             </Space>
           </ProCard>

@@ -66,7 +66,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/orders', name: '订单管理', permission: 'delivery:orders:read' },
         { path: '/shipping-records', name: '发货记录', permission: 'delivery:orders:read' },
         { path: '/freight-center', name: '运费中心', permission: 'delivery:orders:read' },
-        { path: '/pickup-batches', name: '提货批次', permission: 'delivery:orders:read' },
+        { path: '/pickup-batches', name: '配送批次', permission: 'delivery:orders:read' },
         { path: '/abnormal-payments', name: '异常支付', permission: 'delivery:orders:read' },
         { path: '/settlements', name: '结算管理', permission: 'delivery:settlements:read' },
         { path: '/manifests', name: '清单模板', permission: 'delivery:manifests:read' },
@@ -151,7 +151,15 @@ export default function AdminLayout() {
       routes: filterMenuByPermission((menuRoutes?.routes ?? []) as DeliveryMenuRoute[]),
     };
   }, [hasPermission]);
-  const routeItems = (filteredRoute.routes ?? []) as DeliveryMenuRoute[];
+  const routeItems = useMemo(
+    () => (filteredRoute.routes ?? []) as DeliveryMenuRoute[],
+    [filteredRoute.routes],
+  );
+  const visibleGroupKeys = useMemo(
+    () => routeItems.filter((route) => route.routes?.length && route.path).map((route) => route.path as string),
+    [routeItems],
+  );
+  const [openKeys, setOpenKeys] = useState<string[]>(visibleGroupKeys);
 
   const selectedKeys = useMemo(() => {
     const all = flattenRoutes(routeItems);
@@ -186,12 +194,17 @@ export default function AdminLayout() {
       title="配送管理后台"
       logo={null}
       route={filteredRoute}
+      menu={{ defaultOpenAll: true }}
       layout="side"
       fixSiderbar
       collapsed={collapsed}
       onCollapse={setCollapsed}
       location={{ pathname: location.pathname }}
-      menuProps={{ selectedKeys }}
+      menuProps={{
+        selectedKeys,
+        openKeys,
+        onOpenChange: (keys) => setOpenKeys(keys.map(String)),
+      }}
       menuHeaderRender={() => (
         <div style={{ color: '#0F3B66', fontWeight: 700, fontSize: 16, padding: '16px 0 8px 20px' }}>
           配送管理后台

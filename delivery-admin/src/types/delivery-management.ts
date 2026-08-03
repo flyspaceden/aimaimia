@@ -337,14 +337,22 @@ export type DeliveryCarrierOrder = {
   id: string;
   batchId?: string;
   provider: string;
+  attempt: number;
   outsideOrderId: string;
   carrierOrderNo: string | null;
-  priceCalculateId?: string | null;
-  cityId: string | null;
-  vehicleId: string | null;
+  expressTypeId: number | null;
+  expressTypeName: string | null;
+  packageCount: number | null;
+  totalWeightKg: number | null;
+  waybillUrl: string | null;
   status: string;
-  driverSnapshot: JsonValue | null;
-  vehicleSnapshot: JsonValue | null;
+  waybills: Array<{
+    id: string;
+    trackingNo: string;
+    status: string;
+    deliveredAt: string | null;
+    lastSyncedAt: string | null;
+  }>;
   estimatedFeeCents?: number | null;
   actualFeeCents?: number | null;
   lastSyncedAt: string | null;
@@ -379,9 +387,8 @@ export type DeliveryPickupBatch = {
   pickupMode?: string | null;
   plannedPickupCount?: number | null;
   pickupStatus?: string | null;
+  suggestedWeightKg?: number;
   carrierOrderNo?: string | null;
-  driverSnapshot?: JsonValue | null;
-  vehicleSnapshot?: JsonValue | null;
   latestCarrierOrder?: DeliveryCarrierOrder | null;
   carrierOrders?: DeliveryCarrierOrder[];
   items: DeliveryPickupBatchItem[];
@@ -591,6 +598,12 @@ export type DeliveryConfigItem = {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type DeliverySfExpressProduct = {
+  expressTypeId: number;
+  name: string;
+  enabled: boolean;
 };
 
 export type DeliveryUnitFieldConfig = {

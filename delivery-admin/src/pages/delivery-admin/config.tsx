@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App as AntdApp,
+  Alert,
   Badge,
   Button,
   Col,
@@ -21,11 +22,13 @@ import {
 } from 'antd';
 import {
   EditOutlined,
+  DeleteOutlined,
   FilePdfOutlined,
   FormOutlined,
   PlusOutlined,
   SaveOutlined,
   SettingOutlined,
+  TruckOutlined,
 } from '@ant-design/icons';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
@@ -37,6 +40,7 @@ import {
 } from '@/api/delivery-management';
 import type {
   DeliveryConfigItem,
+  DeliverySfExpressProduct,
   DeliveryUnitFieldConfig,
   JsonValue,
 } from '@/types/delivery-management';
@@ -47,6 +51,7 @@ import {
   getErrorMessage,
   unitFieldTypeOptions,
 } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type UnitFieldFormValues = {
   fieldKey?: string;
@@ -63,12 +68,16 @@ type UnitFieldFormValues = {
   includeInExcel?: boolean;
 };
 
-type ConfigCategoryKey = 'unit-fields' | 'manifest-export' | 'platform-rules';
+type ConfigCategoryKey = 'unit-fields' | 'manifest-export' | 'platform-rules' | 'sf-products';
 type PlatformRuleKey = 'LOW_STOCK_DISPLAY_THRESHOLD' | 'MANIFEST_CUSTOM_COLUMNS_ENABLED';
 
 type RuleFormValues = {
   lowStockThreshold?: number;
   manifestCustomColumnsEnabled?: boolean;
+};
+
+type SfProductFormValues = {
+  products: DeliverySfExpressProduct[];
 };
 
 type ConfigCategoryItem = {
@@ -96,6 +105,12 @@ const configCategoryItems: ConfigCategoryItem[] = [
     title: '平台规则',
     description: '设置库存提醒、自定义列等配送运营规则。',
     icon: <SettingOutlined />,
+  },
+  {
+    key: 'sf-products',
+    title: '顺丰产品',
+    description: '维护配送中心发货时可选的已签约顺丰产品代码。',
+    icon: <TruckOutlined />,
   },
 ];
 
@@ -207,12 +222,15 @@ function renderLocationTags(record: DeliveryUnitFieldConfig) {
 
 export default function DeliveryConfigPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:config:write'));
   const queryClient = useQueryClient();
   const [activeCategory, setActiveCategory] = useState<ConfigCategoryKey>('unit-fields');
   const [ruleDirty, setRuleDirty] = useState(false);
+  const [sfProductDirty, setSfProductDirty] = useState(false);
   const [editingField, setEditingField] = useState<DeliveryUnitFieldConfig | null>(null);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [ruleForm] = Form.useForm<RuleFormValues>();
+  const [sfProductForm] = Form.useForm<SfProductFormValues>();
   const [fieldForm] = Form.useForm<UnitFieldFormValues>();
 
   const configQuery = useQuery({
@@ -224,8 +242,8 @@ export default function DeliveryConfigPage() {
     queryFn: getDeliveryUnitFieldConfig,
   });
 
-  const unitFields = unitFieldQuery.data ?? [];
-  const configItems = configQuery.data ?? [];
+  const unitFields = useMemo(() => unitFieldQuery.data ?? [], [unitFieldQuery.data]);
+  const configItems = useMemo(() => configQuery.data ?? [], [configQuery.data]);
   const configByKey = useMemo(
     () => new Map(configItems.map((item) => [item.key, item])),
     [configItems],
@@ -239,6 +257,7 @@ export default function DeliveryConfigPage() {
   }), [unitFields]);
 
   useEffect(() => {
+    if (activeCategory !== 'platform-rules') return;
     if (ruleDirty) {
       return;
     }
@@ -248,7 +267,26 @@ export default function DeliveryConfigPage() {
       lowStockThreshold: Number(getPlatformRuleValue(lowStockDefinition, configByKey.get(lowStockDefinition.key))),
       manifestCustomColumnsEnabled: Boolean(getPlatformRuleValue(manifestDefinition, configByKey.get(manifestDefinition.key))),
     });
-  }, [configByKey, ruleDirty, ruleForm]);
+  }, [activeCategory, configByKey, ruleDirty, ruleForm]);
+
+  useEffect(() => {
+    if (activeCategory !== 'sf-products') return;
+    if (sfProductDirty) return;
+    const config = configByKey.get('SF_EXPRESS_PRODUCTS');
+    const rawProducts = config ? getObjectValue(config.value, 'products') : undefined;
+    const products = Array.isArray(rawProducts)
+      ? rawProducts.flatMap((item) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+          const record = item as Record<string, JsonValue>;
+          const expressTypeId = Number(record.expressTypeId);
+          const name = typeof record.name === 'string' ? record.name : '';
+          return Number.isSafeInteger(expressTypeId) && expressTypeId > 0 && name
+            ? [{ expressTypeId, name, enabled: record.enabled === true }]
+            : [];
+        })
+      : [{ expressTypeId: 1, name: '顺丰标快', enabled: true }];
+    sfProductForm.setFieldsValue({ products });
+  }, [activeCategory, configByKey, sfProductDirty, sfProductForm]);
 
   useEffect(() => {
     if (!fieldOpen) {
@@ -315,6 +353,26 @@ export default function DeliveryConfigPage() {
     },
   });
 
+  const sfProductMutation = useMutation({
+    mutationFn: async (values: SfProductFormValues) => {
+      const existing = configByKey.get('SF_EXPRESS_PRODUCTS');
+      return updateDeliveryConfig([
+        {
+          key: 'SF_EXPRESS_PRODUCTS',
+          scope: 'SYSTEM',
+          description: existing?.description ?? '配送批次可选顺丰产品；仅配置已与顺丰签约开通的产品代码',
+          value: { products: values.products },
+        },
+      ]);
+    },
+    onSuccess: async () => {
+      message.success('顺丰产品已保存');
+      setSfProductDirty(false);
+      await queryClient.invalidateQueries({ queryKey: ['delivery-config'] });
+    },
+    onError: (error) => message.error(getErrorMessage(error)),
+  });
+
   const fieldMutation = useMutation({
     mutationFn: async (values: UnitFieldFormValues) =>
       updateDeliveryUnitFieldConfig([
@@ -362,6 +420,7 @@ export default function DeliveryConfigPage() {
   });
 
   const openFieldDrawer = (record?: DeliveryUnitFieldConfig) => {
+    if (!canWrite) return;
     setEditingField(record ?? null);
     setFieldOpen(true);
   };
@@ -374,6 +433,7 @@ export default function DeliveryConfigPage() {
     >,
     value: boolean,
   ) => {
+    if (!canWrite) return;
     fieldPatchMutation.mutate({
       fieldKey: record.fieldKey,
       patch: { [key]: value },
@@ -417,7 +477,7 @@ export default function DeliveryConfigPage() {
           checked={value}
           checkedChildren="开"
           unCheckedChildren="关"
-          disabled={record.isFixed || fieldPatchMutation.isPending}
+          disabled={!canWrite || record.isFixed || fieldPatchMutation.isPending}
           onChange={(checked) => quickToggle(record, 'isVisible', checked)}
         />
       ),
@@ -433,7 +493,7 @@ export default function DeliveryConfigPage() {
           checked={value}
           checkedChildren="是"
           unCheckedChildren="否"
-          disabled={record.isFixed || fieldPatchMutation.isPending}
+          disabled={!canWrite || record.isFixed || fieldPatchMutation.isPending}
           onChange={(checked) => quickToggle(record, 'isRequired', checked)}
         />
       ),
@@ -449,7 +509,7 @@ export default function DeliveryConfigPage() {
       key: 'action',
       width: 96,
       render: (_, record) => (
-        <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openFieldDrawer(record)}>
+        <Button type="link" size="small" icon={<EditOutlined />} disabled={!canWrite} onClick={() => openFieldDrawer(record)}>
           编辑
         </Button>
       ),
@@ -478,7 +538,7 @@ export default function DeliveryConfigPage() {
           checked={value}
           checkedChildren="加入"
           unCheckedChildren="不加"
-          disabled={record.isFixed || fieldPatchMutation.isPending}
+          disabled={!canWrite || record.isFixed || fieldPatchMutation.isPending}
           onChange={(checked) => quickToggle(record, 'includeInPdf', checked)}
         />
       ),
@@ -494,7 +554,7 @@ export default function DeliveryConfigPage() {
           checked={value}
           checkedChildren="加入"
           unCheckedChildren="不加"
-          disabled={record.isFixed || fieldPatchMutation.isPending}
+          disabled={!canWrite || record.isFixed || fieldPatchMutation.isPending}
           onChange={(checked) => quickToggle(record, 'includeInExcel', checked)}
         />
       ),
@@ -514,7 +574,7 @@ export default function DeliveryConfigPage() {
       key: 'action',
       width: 96,
       render: (_, record) => (
-        <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openFieldDrawer(record)}>
+        <Button type="link" size="small" icon={<EditOutlined />} disabled={!canWrite} onClick={() => openFieldDrawer(record)}>
           编辑
         </Button>
       ),
@@ -531,7 +591,7 @@ export default function DeliveryConfigPage() {
             type="primary"
             icon={<SaveOutlined />}
             loading={ruleMutation.isPending}
-            disabled={!ruleDirty || ruleMutation.isPending}
+            disabled={!canWrite || !ruleDirty || ruleMutation.isPending}
             onClick={async () => {
               const values = await ruleForm.validateFields();
               ruleMutation.mutate(values);
@@ -541,7 +601,7 @@ export default function DeliveryConfigPage() {
           </Button>
         )}
       >
-        <Form form={ruleForm} layout="vertical" onValuesChange={() => setRuleDirty(true)}>
+        <Form form={ruleForm} layout="vertical" disabled={!canWrite} onValuesChange={() => setRuleDirty(true)}>
           <Row gutter={[16, 16]}>
             {platformRuleOrder.map((ruleKey) => {
               const definition = platformRuleDefinitions[ruleKey];
@@ -611,6 +671,82 @@ export default function DeliveryConfigPage() {
     );
   }
 
+  function renderSfProducts() {
+    return (
+      <ProCard
+        title="顺丰产品"
+        headerBordered
+        extra={(
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={sfProductMutation.isPending}
+            disabled={!canWrite || !sfProductDirty || sfProductMutation.isPending}
+            onClick={async () => sfProductMutation.mutate(await sfProductForm.validateFields())}
+          >
+            保存顺丰产品
+          </Button>
+        )}
+      >
+        <Alert
+          showIcon
+          type="warning"
+          message="只填写已在当前顺丰月结账号下签约开通的产品代码"
+          description="当前默认只启用顺丰标快（代码 1）。大件产品开通后，以顺丰商务确认的产品代码新增并启用；未启用的产品不会出现在配送中心。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={sfProductForm} layout="vertical" disabled={!canWrite} onValuesChange={() => setSfProductDirty(true)}>
+          <Form.List name="products" rules={[{ validator: async (_, products) => { if (!products?.length) throw new Error('至少保留一个顺丰产品'); } }]}>
+            {(fields, { add, remove }, { errors }) => (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {fields.map((field, index) => (
+                  <Row key={field.key} gutter={12} align="middle" style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 12 }}>
+                    <Col xs={24} md={6}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'expressTypeId']}
+                        label={index === 0 ? '产品代码' : undefined}
+                        rules={[{ required: true, message: '请输入正整数产品代码' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <InputNumber min={1} precision={0} style={{ width: '100%' }} placeholder="例如 1" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={10}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'name']}
+                        label={index === 0 ? '显示名称' : undefined}
+                        rules={[{ required: true, whitespace: true, max: 30, message: '请输入 1 到 30 个字符' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input placeholder="例如 顺丰标快" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={16} md={5}>
+                      <Form.Item {...field} name={[field.name, 'enabled']} label={index === 0 ? '配送中心可选' : undefined} valuePropName="checked" style={{ marginBottom: 0 }}>
+                        <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={8} md={3}>
+                      <Button danger type="text" icon={<DeleteOutlined />} disabled={!canWrite || fields.length === 1} onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </Col>
+                  </Row>
+                ))}
+                <Form.ErrorList errors={errors} />
+                <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ enabled: false })} disabled={!canWrite || fields.length >= 20}>
+                  新增顺丰产品
+                </Button>
+              </Space>
+            )}
+          </Form.List>
+        </Form>
+      </ProCard>
+    );
+  }
+
   const renderCategoryContent = () => {
     if (activeCategory === 'unit-fields') {
       return (
@@ -618,7 +754,7 @@ export default function DeliveryConfigPage() {
           title="配送单位字段"
           headerBordered
           extra={(
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openFieldDrawer()}>
+            <Button type="primary" icon={<PlusOutlined />} disabled={!canWrite} onClick={() => openFieldDrawer()}>
               新增字段
             </Button>
           )}
@@ -672,6 +808,10 @@ export default function DeliveryConfigPage() {
       );
     }
 
+    if (activeCategory === 'sf-products') {
+      return renderSfProducts();
+    }
+
     return renderPlatformRules();
   };
 
@@ -688,10 +828,21 @@ export default function DeliveryConfigPage() {
                 const active = activeCategory === item.key;
                 const count = item.key === 'unit-fields' || item.key === 'manifest-export'
                   ? unitFields.length
-                  : platformRuleOrder.length;
+                  : item.key === 'sf-products'
+                    ? sfProductForm.getFieldValue('products')?.length ?? 1
+                    : platformRuleOrder.length;
                 return (
                   <List.Item
+                    role="button"
+                    tabIndex={0}
+                    aria-current={active ? 'page' : undefined}
                     onClick={() => setActiveCategory(item.key)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setActiveCategory(item.key);
+                      }
+                    }}
                     style={{
                       cursor: 'pointer',
                       borderRadius: 8,
@@ -723,6 +874,7 @@ export default function DeliveryConfigPage() {
       </Row>
 
       <Drawer
+        forceRender
         open={fieldOpen}
         width={860}
         title={editingField ? '编辑配送单位字段' : '新增配送单位字段'}
@@ -744,6 +896,7 @@ export default function DeliveryConfigPage() {
             </Button>
             <Button
               type="primary"
+              disabled={!canWrite}
               loading={fieldMutation.isPending}
               onClick={async () => {
                 const values = await fieldForm.validateFields();
@@ -755,7 +908,7 @@ export default function DeliveryConfigPage() {
           </Space>
         )}
       >
-        <Form form={fieldForm} layout="vertical">
+        <Form form={fieldForm} layout="vertical" disabled={!canWrite}>
           <Typography.Title level={5}>基础资料</Typography.Title>
           <Form.Item name="fieldKey" hidden>
             <Input />

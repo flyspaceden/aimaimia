@@ -7,6 +7,7 @@ import { getDeliveryMerchants, updateDeliveryMerchant } from '@/api/delivery-man
 import type { DeliveryMerchantSummary } from '@/types/delivery-management';
 import { DetailLinkButton, PageHeader, StatusPill } from './components';
 import { deliveryValueEnum, formatBps, formatDateTime, formatDeliveryDisplayText, getErrorMessage, merchantStatusOptions } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type MerchantFormValues = {
   name?: string;
@@ -17,6 +18,7 @@ type MerchantFormValues = {
 
 export default function DeliveryMerchantsPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:merchants:write'));
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [editing, setEditing] = useState<DeliveryMerchantSummary | null>(null);
@@ -98,9 +100,11 @@ export default function DeliveryMerchantsPage() {
       render: (_, record) => (
         <Space size="small">
           <DetailLinkButton to={`/merchants/${record.id}`} />
-          <Button type="link" size="small" onClick={() => setEditing(record)}>
-            编辑
-          </Button>
+          {canWrite ? (
+            <Button type="link" size="small" onClick={() => setEditing(record)}>
+              编辑
+            </Button>
+          ) : null}
         </Space>
       ),
       search: false,
@@ -141,6 +145,7 @@ export default function DeliveryMerchantsPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(editing)}
         title="编辑配送商家"
         confirmLoading={mutation.isPending}

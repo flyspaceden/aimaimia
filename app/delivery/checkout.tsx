@@ -332,7 +332,7 @@ export default function DeliveryCheckoutScreen() {
           setPickupEstimating(false);
           if (!estimateResult.ok) {
             show({
-              message: estimateResult.error.displayMessage ?? '提货运费预估失败，请稍后重试',
+              message: estimateResult.error.displayMessage ?? '配送运费预估失败，请稍后重试',
               type: 'error',
             });
             return;
@@ -472,7 +472,7 @@ export default function DeliveryCheckoutScreen() {
           </DeliveryPanel>
 
           <DeliveryPanel style={{ marginBottom: spacing.md }}>
-            <Text style={[typography.headingSm, { color: palette.text.primary }]}>提货安排</Text>
+            <Text style={[typography.headingSm, { color: palette.text.primary }]}>配送安排</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }}>
               {pickupCountOptions.map((option) => {
                 const selected = pickupCountPreset === option.key;
@@ -480,6 +480,9 @@ export default function DeliveryCheckoutScreen() {
                 return (
                   <Pressable
                     key={option.key}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.label}
+                    accessibilityState={{ selected, disabled }}
                     disabled={disabled}
                     onPress={() => {
                       if (disabled) {
@@ -532,7 +535,7 @@ export default function DeliveryCheckoutScreen() {
                 }}
               >
                 <Text style={[typography.bodySm, { color: palette.text.secondary, flex: 1 }]}>
-                  自定义提货次数
+                  自定义配送批次
                 </Text>
                 <DeliveryQuantityControl
                   value={plannedPickupCount}
@@ -545,7 +548,7 @@ export default function DeliveryCheckoutScreen() {
             ) : null}
             <View style={{ marginTop: spacing.md, gap: spacing.xs }}>
               <Text style={[typography.bodySm, { color: palette.text.secondary }]}>
-                预计提货次数：{plannedPickupCount} 次
+                预计配送批次：{plannedPickupCount} 个
               </Text>
               {pickupMode === 'MULTI_BATCH' ? (
                 <Text style={[typography.caption, { color: palette.text.tertiary }]}>
@@ -553,7 +556,7 @@ export default function DeliveryCheckoutScreen() {
                 </Text>
               ) : null}
               <Text style={[typography.bodySm, { color: palette.text.secondary }]}>
-                预计提货运费：
+                预计配送运费：
                 {displayedPickupShippingFee === null
                   ? pickupMode === 'MULTI_BATCH'
                     ? '提交后预估'
@@ -562,7 +565,7 @@ export default function DeliveryCheckoutScreen() {
               </Text>
               {pickupMode === 'MULTI_BATCH' ? (
                 <Text style={[typography.caption, { color: palette.brand.primaryDark }]}>
-                  后续叫车由平台安排，用户无需再次支付。
+                  后续每个批次由商家通过顺丰发货，实际运费差额由平台承担，您无需再次支付。
                 </Text>
               ) : null}
             </View>
@@ -611,7 +614,7 @@ export default function DeliveryCheckoutScreen() {
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
               <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
-                {pickupMode === 'MULTI_BATCH' ? '预收提货运费' : '配送费'}
+                {pickupMode === 'MULTI_BATCH' ? '预收配送运费' : '配送费'}
               </Text>
               <Text style={[typography.bodyStrong, { color: palette.text.primary }]}>
                 {displayedPickupShippingFee === null
@@ -630,7 +633,7 @@ export default function DeliveryCheckoutScreen() {
             </View>
             {pickupEstimate && !lockedCheckout ? (
               <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.sm }]}>
-                已按当前提货安排预估费用，提交后以后端锁定金额为准。
+                已按当前配送安排预估费用，提交后以后端锁定金额为准。
               </Text>
             ) : null}
             {summary.source === 'LOCKED_CHECKOUT' ? (

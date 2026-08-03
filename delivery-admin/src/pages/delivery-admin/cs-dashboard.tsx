@@ -23,7 +23,7 @@ export default function DeliveryCsDashboardPage() {
     refetchInterval: 30000,
   });
 
-  const rows = query.data ?? [];
+  const rows = useMemo(() => query.data ?? [], [query.data]);
   const stats = useMemo(() => {
     const open = rows.filter((item) => item.status === 'OPEN').length;
     const closed = rows.filter((item) => item.status === 'CLOSED').length;

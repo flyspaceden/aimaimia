@@ -889,8 +889,19 @@ export class DeliveryOrdersService {
           carrierOrders: {
             select: {
               carrierOrderNo: true,
-              driverSnapshot: true,
-              vehicleSnapshot: true,
+              expressTypeName: true,
+              packageCount: true,
+              totalWeightKg: true,
+              waybillUrl: true,
+              waybills: {
+                select: {
+                  trackingNo: true,
+                  status: true,
+                  deliveredAt: true,
+                  lastSyncedAt: true,
+                },
+                orderBy: [{ createdAt: 'asc' as const }],
+              },
               createdAt: true,
             },
             orderBy: [{ createdAt: 'desc' as const }],
@@ -1044,8 +1055,11 @@ export class DeliveryOrdersService {
           completedAt: batch.completedAt,
           canceledAt: batch.canceledAt,
           carrierOrderNo: latestCarrierOrder?.carrierOrderNo ?? null,
-          driverSnapshot: latestCarrierOrder?.driverSnapshot ?? null,
-          vehicleSnapshot: latestCarrierOrder?.vehicleSnapshot ?? null,
+          expressTypeName: latestCarrierOrder?.expressTypeName ?? null,
+          packageCount: latestCarrierOrder?.packageCount ?? null,
+          totalWeightKg: latestCarrierOrder?.totalWeightKg ?? null,
+          waybillUrl: latestCarrierOrder?.waybillUrl ?? null,
+          waybills: latestCarrierOrder?.waybills ?? [],
           items: (batch.items ?? []).map((item: any) => {
             const snapshot = this.parseProductSnapshot(item.productSnapshot);
             return {

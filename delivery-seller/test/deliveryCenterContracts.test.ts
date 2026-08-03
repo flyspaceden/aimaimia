@@ -67,6 +67,43 @@ test('delivery center layout shows the full operational menu in the sidebar', ()
   assert.match(layout, /切换爱买买卖家中心/);
 });
 
+test('delivery center keeps visible menu groups open while users move between pages', () => {
+  const layout = read('src/layouts/SellerLayout.tsx');
+  assert.match(layout, /visibleGroupKeys/);
+  assert.match(layout, /openKeys/);
+  assert.match(layout, /onOpenChange/);
+  assert.match(layout, /menuProps=\{\{[\s\S]*selectedKeys,[\s\S]*openKeys,/);
+});
+
+test('delivery center recovers persisted profiles and synchronizes refreshed tokens', () => {
+  const app = read('src/App.tsx');
+  const client = read('src/api/client.ts');
+  assert.match(app, /getMe\(\)/);
+  assert.match(app, /if \(!seller\) \{[\s\S]*return <PageLoading \/>/);
+  assert.match(app, /setAuth\(currentAccessToken, currentRefreshToken, profile\)/);
+  assert.match(client, /useAuthStore\.setState\(/);
+  assert.match(client, /token:\s*accessToken/);
+});
+
+test('delivery center read-only users do not receive write shortcuts', () => {
+  const dashboard = read('src/pages/dashboard/index.tsx');
+  const products = read('src/pages/products/index.tsx');
+  const orders = read('src/pages/orders/index.tsx');
+  assert.match(dashboard, /permission:\s*'inventory:write'/);
+  assert.match(dashboard, /permission:\s*'finance:read'/);
+  assert.match(dashboard, /filter\(\(item\) => !item\.permission \|\| hasPermission\(item\.permission\)\)/);
+  assert.match(products, /canWriteProducts/);
+  assert.match(products, /仅查看/);
+  assert.match(orders, /查看待发货/);
+});
+
+test('delivery center loads the React 19 compatibility patch and custom click targets support keyboards', () => {
+  assert.match(read('src/main.tsx'), /@ant-design\/v5-patch-for-react-19/);
+  assert.match(read('src/pages/login/index.tsx'), /role="button"[\s\S]*aria-disabled=\{isDisabled\}[\s\S]*onKeyDown/);
+  assert.match(read('src/pages/products/index.tsx'), /aria-pressed=\{isActive\}/);
+  assert.match(read('src/pages/orders/index.tsx'), /role="button"[\s\S]*tabIndex=\{0\}/);
+});
+
 test('delivery center operational pages use seller-center dense page components', () => {
   for (const file of [
     'src/pages/dashboard/index.tsx',
@@ -165,17 +202,34 @@ test('delivery center exposes a cost-redacted pickup batch workbench', () => {
   assert.match(types, /interface\s+PickupBatch/);
   assert.match(ordersApi, /getPickupBatches/);
   assert.match(ordersApi, /markPickupBatchReady/);
-  assert.match(ordersApi, /markPickupBatchLoaded/);
+  assert.match(ordersApi, /shipPickupBatchWithSf/);
+  assert.match(ordersApi, /reprintPickupBatchWaybill/);
   assert.match(ordersApi, /reportPickupBatchException/);
+  assert.doesNotMatch(ordersApi, /markPickupBatchLoaded/);
   assert.match(app, /pickup-batches/);
   assert.match(app, /RequirePermission permission="orders:read"/);
-  assert.match(layout, /提货批次/);
+  assert.match(layout, /配送批次/);
 
-  for (const label of ['批次号', '订单号', '状态', '商品', '数量', '收货单位', '司机', '车辆', '预计', '已备货', '已交货', '异常反馈']) {
+  for (const label of [
+    '配送批次',
+    '订单',
+    '状态',
+    '商品',
+    '配送进度',
+    '顺丰产品',
+    '运单',
+    '已备货',
+    '顺丰发货',
+    '重打面单',
+    '报异常',
+    '包裹数量',
+    '本批实际总重量',
+  ]) {
     assert.ok(pickupPage.includes(label), `pickup batch page should expose ${label}`);
   }
+  assert.doesNotMatch(pickupPage, /司机|车辆|已交货/);
 
-  assert.match(pickupPage, /Modal\.confirm/);
+  assert.match(pickupPage, /modal\.confirm/);
   assert.match(orderDetail, /pickupBatches/);
   assert.match(logisticsPage, /pickupBatches/);
   assert.match(orderDetail, /hasPermission\('orders:write'\)/);

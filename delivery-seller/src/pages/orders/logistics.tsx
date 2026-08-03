@@ -13,14 +13,14 @@ const logisticsStatuses = 'PENDING_SHIPMENT,SHIPPED,DELIVERED,COMPLETED';
 
 const pickupBatchStatusText: Record<string, string> = {
   PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已交货',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
@@ -46,58 +46,10 @@ function PickupBatchStatusTag({ value }: { value?: string | null }) {
   return <Tag color={pickupBatchStatusColor[value] ?? 'default'}>{pickupBatchStatusText[value] ?? value}</Tag>;
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asString(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : '';
-}
-
 function getCarrierOrder(batch: PickupBatch): PickupBatchCarrierOrder {
   return batch.latestCarrierOrder ?? {
     carrierOrderNo: batch.carrierOrderNo,
-    driverSnapshot: batch.driverSnapshot,
-    vehicleSnapshot: batch.vehicleSnapshot,
   };
-}
-
-function formatDriver(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
 }
 
 function formatDateTime(value?: string | null) {
@@ -136,7 +88,7 @@ export default function LogisticsPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <ProCard
         title="物流跟踪"
-        subTitle="查看提货批次、司机车辆和旧快递面单轨迹"
+        subTitle="查看每个配送批次的顺丰产品、运单和签收进度"
         headerBordered
         style={{ borderTop: '3px solid #EA580C' }}
       >
@@ -175,14 +127,11 @@ export default function LogisticsPage() {
                   return (
                     <Space direction="vertical" size={0}>
                       <Space size={4}>
-                        <Tag color="orange">货拉拉</Tag>
+                        <Tag color="green">顺丰</Tag>
                         <PickupBatchStatusTag value={firstBatch.status} />
                       </Space>
                       <Typography.Text type="secondary">
-                        {pickupBatches.length > 1 ? `共 ${pickupBatches.length} 批` : carrier.carrierOrderNo || '待生成运单'}
-                      </Typography.Text>
-                      <Typography.Text type="secondary">
-                        {formatDriver(carrier.driverSnapshot)} / {formatVehicle(carrier.vehicleSnapshot)}
+                        {pickupBatches.length > 1 ? `共 ${pickupBatches.length} 批` : carrier.expressTypeName || '待创建运单'}
                       </Typography.Text>
                     </Space>
                   );
@@ -219,7 +168,7 @@ export default function LogisticsPage() {
         onCancel={() => setActiveOrder(null)}
         footer={null}
         width={760}
-        destroyOnClose
+        destroyOnHidden
       >
         <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
           <Descriptions.Item label="子订单号">{activeOrder?.id}</Descriptions.Item>
@@ -235,7 +184,7 @@ export default function LogisticsPage() {
             columns={[
               { title: '批次号', dataIndex: 'id', render: (value: string) => <Typography.Text copyable>{value}</Typography.Text> },
               {
-                title: '货拉拉状态',
+                title: '顺丰状态',
                 render: (_, record) => {
                   const carrier = getCarrierOrder(record);
                   return (
@@ -246,13 +195,19 @@ export default function LogisticsPage() {
                   );
                 },
               },
+              { title: '顺丰产品', render: (_, record) => getCarrierOrder(record).expressTypeName || '-' },
               {
-                title: '司机',
-                render: (_, record) => formatDriver(getCarrierOrder(record).driverSnapshot),
-              },
-              {
-                title: '车辆',
-                render: (_, record) => formatVehicle(getCarrierOrder(record).vehicleSnapshot),
+                title: '顺丰运单',
+                render: (_, record) => (
+                  <Space direction="vertical" size={0}>
+                    {(getCarrierOrder(record).waybills ?? []).map((waybill) => (
+                      <Typography.Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }}>
+                        {waybill.trackingNo}
+                      </Typography.Text>
+                    ))}
+                    {(getCarrierOrder(record).waybills?.length ?? 0) === 0 ? '-' : null}
+                  </Space>
+                ),
               },
               {
                 title: '更新时间',

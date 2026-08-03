@@ -54,20 +54,20 @@ export function validateDeliveryPickupPlan(
 
   const batchCount = isPositiveInteger(plannedPickupCount) ? plannedPickupCount : 1;
   if (batchCount > totalQuantity) {
-    return { ok: false, message: '提货次数不能超过所选商品总数量' };
+    return { ok: false, message: '配送批次不能超过所选商品总数量' };
   }
 
   const plannedTotals = new Map<string, number>();
   const usedBatchNos = new Set<number>();
   for (const planItem of plan) {
     if (!expectedTotals.has(planItem.cartItemId)) {
-      return { ok: false, message: '提货计划包含未知商品' };
+      return { ok: false, message: '配送计划包含未知商品' };
     }
     if (!isPositiveInteger(planItem.batchNo) || !isPositiveInteger(planItem.quantity)) {
-      return { ok: false, message: '提货批次和数量必须是正整数' };
+      return { ok: false, message: '配送批次和数量必须是正整数' };
     }
     if (planItem.batchNo > batchCount) {
-      return { ok: false, message: '提货批次编号超出计划范围' };
+      return { ok: false, message: '配送批次编号超出计划范围' };
     }
     usedBatchNos.add(planItem.batchNo);
     plannedTotals.set(
@@ -78,14 +78,14 @@ export function validateDeliveryPickupPlan(
 
   for (const [cartItemId, expectedQuantity] of expectedTotals.entries()) {
     if ((plannedTotals.get(cartItemId) ?? 0) !== expectedQuantity) {
-      return { ok: false, message: '提货计划数量必须与购物车数量一致' };
+      return { ok: false, message: '配送计划数量必须与购物车数量一致' };
     }
   }
 
   if (batchCount > 1) {
     for (let batchNo = 1; batchNo <= batchCount; batchNo += 1) {
       if (!usedBatchNos.has(batchNo)) {
-        return { ok: false, message: '提货计划必须覆盖每个计划批次' };
+        return { ok: false, message: '配送计划必须覆盖每个计划批次' };
       }
     }
   }

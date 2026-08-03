@@ -80,7 +80,7 @@ export class DeliveryPickupPlanService {
       pickupMode === DeliveryPickupMode.MULTI_BATCH &&
       plannedPickupCount < 2
     ) {
-      throw new BadRequestException('MULTI_BATCH 至少需要 2 批提货');
+      throw new BadRequestException('MULTI_BATCH 至少需要 2 个配送批次');
     }
 
     const totalQuantity = params.cartItems.reduce(
@@ -91,7 +91,7 @@ export class DeliveryPickupPlanService {
       pickupMode === DeliveryPickupMode.MULTI_BATCH &&
       plannedPickupCount > totalQuantity
     ) {
-      throw new BadRequestException('提货次数不能超过所选商品总数量');
+      throw new BadRequestException('配送批次不能超过所选商品总数量');
     }
 
     const cartItemById = new Map(
@@ -123,7 +123,7 @@ export class DeliveryPickupPlanService {
 
     for (const cartItem of params.cartItems) {
       if ((plannedQuantityByCartItemId.get(cartItem.cartItemId) ?? 0) !== cartItem.quantity) {
-        throw new BadRequestException('提货计划数量与购物车数量不一致');
+        throw new BadRequestException('配送计划数量与购物车数量不一致');
       }
     }
 
@@ -131,7 +131,7 @@ export class DeliveryPickupPlanService {
       const usedBatchNos = new Set(planAssignments.map((item) => item.batchNo));
       for (let batchNo = 1; batchNo <= plannedPickupCount; batchNo += 1) {
         if (!usedBatchNos.has(batchNo)) {
-          throw new BadRequestException('提货计划必须覆盖每个计划批次');
+          throw new BadRequestException('配送计划必须覆盖每个计划批次');
         }
       }
     }
@@ -143,7 +143,7 @@ export class DeliveryPickupPlanService {
     for (const planItem of planAssignments) {
       const cartItem = cartItemById.get(planItem.cartItemId);
       if (!cartItem) {
-        throw new BadRequestException('提货计划包含未知购物车商品');
+        throw new BadRequestException('配送计划包含未知购物车商品');
       }
 
       const merchantBatches =
@@ -300,7 +300,7 @@ export class DeliveryPickupPlanService {
     for (const merchantGroup of planSnapshot.merchantGroups) {
       const subOrderId = params.subOrderIdsByMerchantId.get(merchantGroup.merchantId);
       if (!subOrderId) {
-        throw new BadRequestException('提货批次缺少商家子订单映射');
+        throw new BadRequestException('配送批次缺少商家子订单映射');
       }
 
       for (const batch of merchantGroup.batches) {
@@ -312,7 +312,7 @@ export class DeliveryPickupPlanService {
             subOrderId,
             merchantId: merchantGroup.merchantId,
             batchNo: batch.batchNo,
-            provider: DeliveryCarrierProvider.HUOLALA,
+            provider: DeliveryCarrierProvider.SF,
             estimatedShippingFeeCents: batch.estimatedShippingFeeCents,
             cargoSnapshot: batch.items as unknown as Prisma.InputJsonValue,
             lastOperatorType: DeliveryAuditActorType.SYSTEM,
@@ -323,17 +323,17 @@ export class DeliveryPickupPlanService {
         for (const batchItem of batch.items) {
           const orderItem = orderItemByCartItemId.get(batchItem.cartItemId);
           if (!orderItem) {
-            throw new BadRequestException('提货批次找不到对应的订单商品');
+            throw new BadRequestException('配送批次找不到对应的订单商品');
           }
           if (orderItem.subOrderId !== subOrderId) {
-            throw new BadRequestException('提货批次不能跨商家子订单');
+            throw new BadRequestException('配送批次不能跨商家子订单');
           }
 
           const currentReserved =
             reservedQuantityByOrderItemId.get(orderItem.id) ??
             orderItem.reservedPickupQuantity;
           if (currentReserved + batchItem.quantity > orderItem.quantity) {
-            throw new BadRequestException('提货批次预占数量超过订单商品数量');
+            throw new BadRequestException('配送批次预占数量超过订单商品数量');
           }
 
           const updated = await tx.deliveryOrderItem.updateMany({
@@ -349,7 +349,7 @@ export class DeliveryPickupPlanService {
             },
           });
           if (updated.count !== 1) {
-            throw new ConflictException('提货批次预占失败，请重试');
+            throw new ConflictException('配送批次预占失败，请重试');
           }
 
           reservedQuantityByOrderItemId.set(
@@ -383,7 +383,7 @@ export class DeliveryPickupPlanService {
           orderId: params.orderId,
           subOrderId: null,
           batchId: null,
-          provider: DeliveryCarrierProvider.HUOLALA,
+          provider: DeliveryCarrierProvider.SF,
           type: DeliveryShippingCostLedgerType.PREPAID_BY_USER,
           amountCents: prepaidAmountCents,
           source: 'DELIVERY_CHECKOUT',
@@ -403,10 +403,10 @@ export class DeliveryPickupPlanService {
   ) {
     const merged = pickupPlanItems.reduce((map, item) => {
       if (!cartItemById.has(item.cartItemId)) {
-        throw new BadRequestException('提货计划包含未知购物车商品');
+        throw new BadRequestException('配送计划包含未知购物车商品');
       }
       if (item.batchNo < 1 || item.batchNo > plannedPickupCount) {
-        throw new BadRequestException('提货批次编号超出计划范围');
+        throw new BadRequestException('配送批次编号超出计划范围');
       }
 
       const key = `${item.cartItemId}:${item.batchNo}`;

@@ -55,7 +55,7 @@ describe('deliveryPickupPlan', () => {
       3,
     );
 
-    expect(result).toEqual({ ok: false, message: '提货次数不能超过所选商品总数量' });
+    expect(result).toEqual({ ok: false, message: '配送批次不能超过所选商品总数量' });
   });
 
   it('rejects multi-pickup plans that leave a planned batch empty', () => {
@@ -68,6 +68,6 @@ describe('deliveryPickupPlan', () => {
       3,
     );
 
-    expect(result).toEqual({ ok: false, message: '提货计划必须覆盖每个计划批次' });
+    expect(result).toEqual({ ok: false, message: '配送计划必须覆盖每个计划批次' });
   });
 });

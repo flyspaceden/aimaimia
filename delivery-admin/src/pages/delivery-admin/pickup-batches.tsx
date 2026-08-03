@@ -6,14 +6,16 @@ import { ProTable, type ActionType, type ProColumns } from '@ant-design/pro-comp
 import type { ColumnsType } from 'antd/es/table';
 import {
   adjustDeliveryPickupCost,
-  callDeliveryHuolala,
   cancelDeliveryCarrier,
+  downloadDeliveryPickupWaybill,
   getDeliveryPickupBatches,
+  reprintDeliveryPickupWaybill,
   syncDeliveryCarrier,
 } from '@/api/delivery-management';
 import type { DeliveryPickupBatch, DeliveryPickupBatchItem, JsonValue } from '@/types/delivery-management';
 import { PageHeader } from './components';
-import { formatDateTime, formatMoney, getErrorMessage } from './utils';
+import { downloadBlob, formatDateTime, formatMoney, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
@@ -33,14 +35,14 @@ const pickupBatchStatusOptions = [
 
 const pickupBatchStatusText: Record<string, string> = {
   PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已装车',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
@@ -60,6 +62,7 @@ const statusColor: Record<string, string> = {
 };
 
 type PickupBatchFilters = {
+  keyword?: string;
   status?: string;
   merchantId?: string;
   unitId?: string;
@@ -76,8 +79,8 @@ type AdjustFormValues = {
 };
 
 type BatchActionInput =
-  | { type: 'call'; batch: DeliveryPickupBatch }
   | { type: 'sync'; batch: DeliveryPickupBatch }
+  | { type: 'reprint'; batch: DeliveryPickupBatch }
   | { type: 'cancel'; batch: DeliveryPickupBatch; reason: string }
   | { type: 'adjust'; batch: DeliveryPickupBatch; amountCents: number; remark: string };
 
@@ -102,42 +105,6 @@ function asRecord(value: JsonValue | unknown): Record<string, unknown> {
 
 function asString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
-}
-
-function formatDriver(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
 }
 
 function formatItemTitle(item: DeliveryPickupBatchItem) {
@@ -168,28 +135,13 @@ function normalizeFilters(params: PickupBatchFilters & { current?: number; pageS
   return {
     page: params.current,
     pageSize: params.pageSize,
+    keyword: typeof params.keyword === 'string' ? params.keyword.trim() : undefined,
     status: typeof params.status === 'string' ? params.status : undefined,
     merchantId: typeof params.merchantId === 'string' ? params.merchantId.trim() : undefined,
     unitId: typeof params.unitId === 'string' ? params.unitId.trim() : undefined,
     from: Array.isArray(params.createdRange) ? params.createdRange[0] : undefined,
     to: Array.isArray(params.createdRange) ? params.createdRange[1] : undefined,
   };
-}
-
-function canCallHuolala(batch: DeliveryPickupBatch) {
-  if (batch.latestCarrierOrder?.carrierOrderNo) {
-    return false;
-  }
-  return ![
-    'CALLING_CARRIER',
-    'WAITING_DRIVER',
-    'DRIVER_ASSIGNED',
-    'ARRIVED',
-    'LOADED',
-    'DELIVERING',
-    'COMPLETED',
-    'CANCELED',
-  ].includes(batch.status);
 }
 
 function canCancel(batch: DeliveryPickupBatch) {
@@ -206,13 +158,13 @@ const itemColumns: ColumnsType<DeliveryPickupBatchItem> = [
   },
   { title: 'SKU', dataIndex: 'skuId', key: 'skuId', width: 170, ellipsis: true },
   {
-    title: '计划提货',
+    title: '计划配送',
     key: 'quantity',
     width: 120,
     render: (_, record) => `${record.quantity}${formatUnitName(record)}`,
   },
   {
-    title: '已提货',
+    title: '已配送',
     key: 'pickedQuantity',
     width: 120,
     render: (_, record) => `${record.pickedQuantity}${formatUnitName(record)}`,
@@ -222,6 +174,7 @@ const itemColumns: ColumnsType<DeliveryPickupBatchItem> = [
 
 export default function DeliveryPickupBatchesPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:orders:write'));
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [canceling, setCanceling] = useState<DeliveryPickupBatch | null>(null);
   const [adjusting, setAdjusting] = useState<DeliveryPickupBatch | null>(null);
@@ -230,11 +183,14 @@ export default function DeliveryPickupBatchesPage() {
 
   const batchMutation = useMutation({
     mutationFn: async (input: BatchActionInput) => {
-      if (input.type === 'call') {
-        return callDeliveryHuolala(input.batch.id);
-      }
       if (input.type === 'sync') {
         return syncDeliveryCarrier(input.batch.id);
+      }
+      if (input.type === 'reprint') {
+        const updated = await reprintDeliveryPickupWaybill(input.batch.id);
+        const file = await downloadDeliveryPickupWaybill(input.batch.id);
+        downloadBlob(file, `顺丰面单-${input.batch.id}.pdf`);
+        return updated;
       }
       if (input.type === 'cancel') {
         return cancelDeliveryCarrier(input.batch.id, input.reason);
@@ -246,10 +202,10 @@ export default function DeliveryPickupBatchesPage() {
     },
     onSuccess: (_, input) => {
       const successText = {
-        call: '已发起货拉拉叫车',
-        sync: '货拉拉状态已同步',
-        cancel: '货拉拉订单已取消',
-        adjust: '提货成本已调整',
+        sync: '顺丰状态已同步',
+        reprint: '顺丰面单已重新生成',
+        cancel: '顺丰运单已取消，批次可重新发货',
+        adjust: '配送成本已调整',
       }[input.type];
       message.success(successText);
       setCanceling(null);
@@ -264,6 +220,12 @@ export default function DeliveryPickupBatchesPage() {
   });
 
   const columns: ProColumns<DeliveryPickupBatch>[] = [
+    {
+      title: '关键词',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: { placeholder: '订单、批次、子单、商家或运单号' },
+    },
     {
       title: '订单 / 子单',
       key: 'order',
@@ -311,7 +273,7 @@ export default function DeliveryPickupBatchesPage() {
       search: false,
     },
     {
-      title: '提货商品',
+      title: '配送商品',
       key: 'items',
       width: 260,
       render: (_, record) => (
@@ -327,7 +289,7 @@ export default function DeliveryPickupBatchesPage() {
       search: false,
     },
     {
-      title: '计划提货',
+      title: '计划配送',
       dataIndex: 'plannedPickupAt',
       key: 'plannedPickupAt',
       width: 150,
@@ -335,27 +297,20 @@ export default function DeliveryPickupBatchesPage() {
       search: false,
     },
     {
-      title: '货拉拉',
+      title: '顺丰产品 / 运单',
       key: 'carrier',
       width: 230,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <span>{record.latestCarrierOrder?.carrierOrderNo ?? '-'}</span>
+          <span>{record.latestCarrierOrder?.expressTypeName ?? '顺丰速运'}</span>
+          {(record.latestCarrierOrder?.waybills ?? []).map((waybill) => (
+            <Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }} type="secondary">
+              {waybill.trackingNo} · {waybill.status}
+            </Text>
+          ))}
           {record.latestCarrierOrder?.status ? (
             <Text type="secondary">{record.latestCarrierOrder.status}</Text>
           ) : null}
-        </Space>
-      ),
-      search: false,
-    },
-    {
-      title: '司机 / 车辆',
-      key: 'driverVehicle',
-      width: 230,
-      render: (_, record) => (
-        <Space direction="vertical" size={0}>
-          <span>{formatDriver(record.latestCarrierOrder?.driverSnapshot)}</span>
-          <Text type="secondary">{formatVehicle(record.latestCarrierOrder?.vehicleSnapshot)}</Text>
         </Space>
       ),
       search: false,
@@ -391,16 +346,7 @@ export default function DeliveryPickupBatchesPage() {
           <Button
             type="link"
             size="small"
-            disabled={!canCallHuolala(record)}
-            loading={batchMutation.isPending}
-            onClick={() => batchMutation.mutate({ type: 'call', batch: record })}
-          >
-            叫货拉拉
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            disabled={!record.latestCarrierOrder}
+            disabled={!canWrite || !record.latestCarrierOrder}
             loading={batchMutation.isPending}
             onClick={() => batchMutation.mutate({ type: 'sync', batch: record })}
           >
@@ -408,9 +354,18 @@ export default function DeliveryPickupBatchesPage() {
           </Button>
           <Button
             type="link"
+            size="small"
+            disabled={!canWrite || !record.latestCarrierOrder?.carrierOrderNo}
+            loading={batchMutation.isPending}
+            onClick={() => batchMutation.mutate({ type: 'reprint', batch: record })}
+          >
+            重打面单
+          </Button>
+          <Button
+            type="link"
             danger
             size="small"
-            disabled={!canCancel(record)}
+            disabled={!canWrite || !canCancel(record)}
             loading={batchMutation.isPending}
             onClick={() => {
               setCanceling(record);
@@ -422,6 +377,7 @@ export default function DeliveryPickupBatchesPage() {
           <Button
             type="link"
             size="small"
+            disabled={!canWrite}
             loading={batchMutation.isPending}
             onClick={() => {
               setAdjusting(record);
@@ -439,8 +395,8 @@ export default function DeliveryPickupBatchesPage() {
   return (
     <div style={{ padding: 24 }}>
       <PageHeader
-        title="提货批次"
-        subtitle="按订单、子单和批次管理多次提货，可发起货拉拉叫车、同步承运状态、取消未装车订单或手工调整成本。"
+        title="配送批次"
+        subtitle="配送中心创建顺丰运单；平台在此同步轨迹、重打或取消面单、处理异常并核对实际成本。"
       />
 
       <ProTable<DeliveryPickupBatch, PickupBatchFilters>
@@ -478,8 +434,9 @@ export default function DeliveryPickupBatchesPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(canceling)}
-        title="取消货拉拉订单"
+        title="取消顺丰运单"
         okText="确认取消"
         okButtonProps={{ danger: true }}
         confirmLoading={batchMutation.isPending}
@@ -500,14 +457,15 @@ export default function DeliveryPickupBatchesPage() {
             name="reason"
             rules={[{ required: true, message: '请输入取消原因' }]}
           >
-            <Input.TextArea rows={3} maxLength={200} placeholder="请说明取消货拉拉订单的原因" />
+            <Input.TextArea rows={3} maxLength={200} placeholder="请说明取消顺丰运单的原因；取消成功后配送中心可重新发货" />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
+        forceRender
         open={Boolean(adjusting)}
-        title="调整提货成本"
+        title="调整配送成本"
         okText="确认调整"
         confirmLoading={batchMutation.isPending}
         onCancel={() => setAdjusting(null)}

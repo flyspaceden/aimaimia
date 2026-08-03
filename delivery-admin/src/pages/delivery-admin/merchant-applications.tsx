@@ -15,6 +15,7 @@ import {
   getErrorMessage,
   merchantApplicationStatusOptions,
 } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type ReviewFormValues = {
   status: 'APPROVED' | 'REJECTED';
@@ -24,6 +25,7 @@ type ReviewFormValues = {
 
 export default function DeliveryMerchantApplicationsPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:merchants:write'));
   const queryClient = useQueryClient();
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [reviewing, setReviewing] = useState<DeliveryMerchantApplicationSummary | null>(null);
@@ -73,9 +75,11 @@ export default function DeliveryMerchantApplicationsPage() {
       render: (_, record) => (
         <Space size="small">
           <DetailLinkButton to={`/merchant-applications/${record.id}`} />
-          <Button type="link" size="small" onClick={() => setReviewing(record)}>
-            审核
-          </Button>
+          {canWrite ? (
+            <Button type="link" size="small" onClick={() => setReviewing(record)}>
+              审核
+            </Button>
+          ) : null}
         </Space>
       ),
       search: false,
@@ -115,6 +119,7 @@ export default function DeliveryMerchantApplicationsPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(reviewing)}
         title="审核商家入驻"
         confirmLoading={mutation.isPending}

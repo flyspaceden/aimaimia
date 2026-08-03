@@ -96,7 +96,7 @@ describe('DeliveryPickupPlanService', () => {
         ],
         fallbackShippingFeeCents: 500,
       }),
-    ).rejects.toThrow('提货次数不能超过所选商品总数量');
+    ).rejects.toThrow('配送批次不能超过所选商品总数量');
   });
 
   it('rejects explicit pickup plans that leave a selected batch empty', async () => {
@@ -126,7 +126,7 @@ describe('DeliveryPickupPlanService', () => {
         ],
         fallbackShippingFeeCents: 500,
       }),
-    ).rejects.toThrow('提货计划必须覆盖每个计划批次');
+    ).rejects.toThrow('配送计划必须覆盖每个计划批次');
   });
 
   it('splits quantities across batches by default when no explicit pickup plan is provided', async () => {
@@ -597,7 +597,7 @@ describe('DeliveryPickupPlanService', () => {
         orderId: 'order_1',
         subOrderId: null,
         batchId: null,
-        provider: DeliveryCarrierProvider.HUOLALA,
+        provider: DeliveryCarrierProvider.SF,
         type: DeliveryShippingCostLedgerType.PREPAID_BY_USER,
         amountCents: 500,
         source: 'DELIVERY_CHECKOUT',

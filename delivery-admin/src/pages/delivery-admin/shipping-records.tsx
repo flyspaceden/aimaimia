@@ -48,14 +48,14 @@ export default function DeliveryShippingRecordsPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="一次付款多次提货订单已拆到独立的运费中心和提货批次页；本页继续保留顺丰等传统发货记录。"
+        message="一次付款多批次配送订单已统一到运费中心和配送批次页；本页仅保留历史整单发货记录。"
         action={(
           <Space wrap>
             <Link to="/freight-center">
               <Button size="small">运费中心</Button>
             </Link>
             <Link to="/pickup-batches">
-              <Button size="small">提货批次</Button>
+              <Button size="small">配送批次</Button>
             </Link>
           </Space>
         )}

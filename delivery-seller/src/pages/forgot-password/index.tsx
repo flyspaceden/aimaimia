@@ -278,7 +278,10 @@ export default function ForgotPasswordPage() {
             >
               <Space.Compact style={{ width: '100%' }}>
                 <Input prefix={<SafetyOutlined />} placeholder="点击右侧图片刷新" autoComplete="off" />
-                <div
+                <button
+                  type="button"
+                  aria-label="刷新图形验证码"
+                  disabled={captchaLoading}
                   onClick={() => !captchaLoading && void refreshCaptcha()}
                   title="点击刷新验证码"
                   style={{
@@ -293,6 +296,7 @@ export default function ForgotPasswordPage() {
                     background: '#fafafa',
                     cursor: captchaLoading ? 'wait' : 'pointer',
                     overflow: 'hidden',
+                    padding: 0,
                   }}
                 >
                   {captchaSvg ? (
@@ -304,7 +308,7 @@ export default function ForgotPasswordPage() {
                   ) : (
                     <ReloadOutlined spin={captchaLoading} />
                   )}
-                </div>
+                </button>
               </Space.Compact>
             </Form.Item>
 

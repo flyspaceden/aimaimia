@@ -24,6 +24,7 @@ import {
   formatMoney,
   getErrorMessage,
 } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
@@ -200,6 +201,7 @@ function FormSection({
 
 export default function DeliveryPricingRulesPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:config:write'));
   const queryClient = useQueryClient();
   const [scope, setScope] = useState<string | undefined>();
   const [ruleType, setRuleType] = useState<string | undefined>();
@@ -229,8 +231,8 @@ export default function DeliveryPricingRulesPage() {
     queryKey: ['delivery-pricing-rule-products'],
     queryFn: () => getDeliveryProducts(),
   });
-  const merchants = merchantsQuery.data?.items ?? [];
-  const products = productsQuery.data?.items ?? [];
+  const merchants = useMemo(() => merchantsQuery.data?.items ?? [], [merchantsQuery.data?.items]);
+  const products = useMemo(() => productsQuery.data?.items ?? [], [productsQuery.data?.items]);
   const merchantById = useMemo(
     () => new Map(merchants.map((merchant) => [merchant.id, merchant] as const)),
     [merchants],
@@ -368,6 +370,7 @@ export default function DeliveryPricingRulesPage() {
   };
 
   const openCreateRule = (initialValues: Partial<RuleFormValues> = {}) => {
+    if (!canWrite) return;
     setEditing(null);
     setCreateInitialValues(initialValues);
     setOpen(true);
@@ -455,7 +458,7 @@ export default function DeliveryPricingRulesPage() {
               不确定从哪里开始时，可以按下面的业务场景新建，再补充商家、商品或规格。
             </Text>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateRule()}>
+          <Button type="primary" icon={<PlusOutlined />} disabled={!canWrite} onClick={() => openCreateRule()}>
             新建价格规则
           </Button>
         </Space>
@@ -478,6 +481,7 @@ export default function DeliveryPricingRulesPage() {
                 <Button
                   size="small"
                   style={{ marginTop: 12 }}
+                  disabled={!canWrite}
                   onClick={() => openCreateRule(item.initialValues)}
                 >
                   按这个新建
@@ -603,6 +607,7 @@ export default function DeliveryPricingRulesPage() {
           type="link"
           size="small"
           icon={<EditOutlined />}
+          disabled={!canWrite}
           onClick={() => {
             setEditing(record);
             setCreateInitialValues(null);
@@ -664,7 +669,7 @@ export default function DeliveryPricingRulesPage() {
         pagination={{ defaultPageSize: 20 }}
         scroll={{ x: 1060 }}
         locale={{ emptyText: query.isError ? getErrorMessage(query.error) : '暂无价格规则，可以先新建全平台默认加价规则' }}
-        toolBarRender={() => [
+        toolBarRender={() => canWrite ? [
           <Button
             key="add"
             type="primary"
@@ -673,7 +678,7 @@ export default function DeliveryPricingRulesPage() {
           >
             新建价格规则
           </Button>,
-        ]}
+        ] : []}
       />
 
       <Alert
@@ -692,6 +697,7 @@ export default function DeliveryPricingRulesPage() {
         width={780}
         title={editing ? '编辑价格规则' : '新建价格规则'}
         modalProps={{
+          forceRender: true,
           destroyOnHidden: true,
           onCancel: closeForm,
         }}

@@ -34,20 +34,20 @@ import {
 const { Text } = Typography;
 
 const pickupStatusText: Record<string, string> = {
-  SINGLE: '单次提货',
-  MULTI_BATCH: '多批次提货',
+  SINGLE: '单次配送',
+  MULTI_BATCH: '多批次配送',
   NOT_STARTED: '未开始',
-  PARTIAL_PICKED: '部分提货',
-  ALL_PICKED: '全部提货',
+  PARTIAL_PICKED: '部分配送',
+  ALL_PICKED: '全部配送',
   PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已装车',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
@@ -91,42 +91,6 @@ function asRecord(value: JsonValue | unknown): Record<string, unknown> {
 
 function asString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
-}
-
-function formatDriver(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
 }
 
 function getLatestCarrierOrder(batch: DeliveryPickupBatch) {
@@ -279,7 +243,7 @@ export default function DeliveryOrderDetailPage() {
         </Space>
       ),
     },
-    { title: '计划提货', dataIndex: 'plannedPickupAt', key: 'plannedPickupAt', width: 150, render: formatDateTime },
+    { title: '计划配送', dataIndex: 'plannedPickupAt', key: 'plannedPickupAt', width: 150, render: formatDateTime },
   ];
 
   const pickupFulfillmentColumns: ColumnsType<DeliveryPickupBatch> = [
@@ -297,30 +261,32 @@ export default function DeliveryOrderDetailPage() {
       render: (value: string) => <PickupStatusTag value={value} />,
     },
     {
-      title: '货拉拉订单',
+      title: '顺丰产品 / 运单',
       key: 'carrierOrder',
       width: 190,
       render: (_, record) => {
         const carrierOrder = getLatestCarrierOrder(record);
         return (
           <Space direction="vertical" size={0}>
-            <Text>{carrierOrder?.carrierOrderNo ?? '-'}</Text>
+            <Text>{carrierOrder?.expressTypeName ?? '顺丰速运'}</Text>
+            {(carrierOrder?.waybills ?? []).map((waybill) => (
+              <Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }} type="secondary">
+                {waybill.trackingNo} · {waybill.status}
+              </Text>
+            ))}
             {carrierOrder?.status ? <Text type="secondary">{carrierOrder.status}</Text> : null}
           </Space>
         );
       },
     },
     {
-      title: '司机',
-      key: 'driver',
-      width: 160,
-      render: (_, record) => formatDriver(getLatestCarrierOrder(record)?.driverSnapshot),
-    },
-    {
-      title: '车辆',
-      key: 'vehicle',
-      width: 160,
-      render: (_, record) => formatVehicle(getLatestCarrierOrder(record)?.vehicleSnapshot),
+      title: '包裹 / 重量',
+      key: 'packageWeight',
+      width: 150,
+      render: (_, record) => {
+        const carrier = getLatestCarrierOrder(record);
+        return carrier?.packageCount ? `${carrier.packageCount} 件 / ${carrier.totalWeightKg ?? '-'} kg` : '-';
+      },
     },
     {
       title: '履约时间线',
@@ -329,7 +295,7 @@ export default function DeliveryOrderDetailPage() {
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <Text>备货 {formatDateTime(record.readyAt)}</Text>
-          <Text>叫车 {formatDateTime(record.calledAt)} / 装车 {formatDateTime(record.loadedAt)}</Text>
+          <Text>顺丰下单 {formatDateTime(record.calledAt)} / 揽收 {formatDateTime(record.loadedAt)}</Text>
           <Text type="secondary">
             完成 {formatDateTime(record.completedAt)} / 取消 {formatDateTime(record.canceledAt)}
           </Text>
@@ -387,7 +353,7 @@ export default function DeliveryOrderDetailPage() {
                 ),
               },
               { key: 'goodsAmountCents', label: '货款', children: formatMoney(data.goodsAmountCents) },
-              { key: 'shippingFeeCents', label: '预收提货运费', children: formatMoney(data.prepaidPickupShippingFeeCents ?? data.shippingFeeCents) },
+              { key: 'shippingFeeCents', label: '预收配送运费', children: formatMoney(data.prepaidPickupShippingFeeCents ?? data.shippingFeeCents) },
               { key: 'totalAmountCents', label: '总支付', children: formatMoney(data.totalAmountCents) },
               { key: 'paidAt', label: '支付时间', children: formatDateTime(data.paidAt) },
               { key: 'shippedAt', label: '整单发货', children: formatDateTime(data.shippedAt) },
@@ -405,11 +371,11 @@ export default function DeliveryOrderDetailPage() {
             { key: 'goods', label: '商品金额', children: formatMoney(data?.goodsAmountCents) },
             {
               key: 'prepaidFreight',
-              label: '预收提货运费',
+              label: '预收配送运费',
               children: formatMoney(data?.prepaidPickupShippingFeeCents ?? data?.shippingFeeCents),
             },
             { key: 'totalPaid', label: '总支付', children: formatMoney(data?.totalAmountCents) },
-            { key: 'actualCost', label: '货拉拉实际成本', children: formatMoney(data?.actualCarrierCostCents) },
+            { key: 'actualCost', label: '顺丰实际成本', children: formatMoney(data?.actualCarrierCostCents) },
             { key: 'costDiff', label: '成本差额', children: formatDiff(data?.shippingCostDiffCents) },
           ]}
         />
@@ -427,12 +393,12 @@ export default function DeliveryOrderDetailPage() {
         <Table rowKey="id" pagination={false} columns={shipmentColumns} dataSource={data?.shipments ?? []} scroll={{ x: 940 }} />
       </Card>
 
-      <Card title="提货计划" style={{ marginTop: 16 }}>
+      <Card title="配送计划" style={{ marginTop: 16 }}>
         <DetailDescriptions
           items={[
-            { key: 'pickupMode', label: '提货方式', children: pickupStatusText[data?.pickupMode ?? ''] ?? data?.pickupMode ?? '-' },
+            { key: 'pickupMode', label: '配送方式', children: pickupStatusText[data?.pickupMode ?? ''] ?? data?.pickupMode ?? '-' },
             { key: 'plannedPickupCount', label: '计划批次数', children: data?.plannedPickupCount ? `${data.plannedPickupCount} 批` : '-' },
-            { key: 'pickupStatus', label: '整单提货状态', children: <PickupStatusTag value={data?.pickupStatus} /> },
+            { key: 'pickupStatus', label: '整单配送状态', children: <PickupStatusTag value={data?.pickupStatus} /> },
           ]}
         />
         <Table
@@ -455,7 +421,7 @@ export default function DeliveryOrderDetailPage() {
         />
       </Card>
 
-      <Card title="提货成本记录" style={{ marginTop: 16 }}>
+      <Card title="配送成本记录" style={{ marginTop: 16 }}>
         {shippingCostLedgers.length > 0 ? (
           <Table
             rowKey="id"
@@ -467,8 +433,8 @@ export default function DeliveryOrderDetailPage() {
         ) : (
           <DetailDescriptions
             items={[
-              { key: 'prepaid', label: '预收提货运费', children: formatMoney(data?.prepaidPickupShippingFeeCents ?? data?.shippingFeeCents) },
-              { key: 'actual', label: '货拉拉实际成本', children: formatMoney(data?.actualCarrierCostCents) },
+              { key: 'prepaid', label: '预收配送运费', children: formatMoney(data?.prepaidPickupShippingFeeCents ?? data?.shippingFeeCents) },
+              { key: 'actual', label: '顺丰实际成本', children: formatMoney(data?.actualCarrierCostCents) },
               { key: 'diff', label: '成本差额', children: formatDiff(data?.shippingCostDiffCents) },
             ]}
           />

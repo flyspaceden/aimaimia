@@ -27,15 +27,19 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-const parseErrorMessage = (payload: any, fallback = '请求失败') => {
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null
+);
+
+const parseErrorMessage = (payload: unknown, fallback = '请求失败') => {
   if (!payload) return fallback;
-  const candidate = payload?.error ?? payload;
+  const candidate = isRecord(payload) && 'error' in payload ? payload.error : payload;
   if (typeof candidate === 'string') return candidate;
-  if (candidate && typeof candidate === 'object') {
+  if (isRecord(candidate)) {
     if (typeof candidate.displayMessage === 'string' && candidate.displayMessage) return candidate.displayMessage;
     if (typeof candidate.message === 'string' && candidate.message) return candidate.message;
   }
-  if (typeof payload?.message === 'string' && payload.message) return payload.message;
+  if (isRecord(payload) && typeof payload.message === 'string' && payload.message) return payload.message;
   return fallback;
 };
 

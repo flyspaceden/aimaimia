@@ -6,6 +6,7 @@ import { getDeliveryMerchant, updateDeliveryMerchant } from '@/api/delivery-mana
 import type { DeliverySellerStaff } from '@/types/delivery-management';
 import { DetailDescriptions, JsonBlock, NotFoundPanel, PageHeader, StatusPill } from './components';
 import { formatBps, formatDateTime, formatDeliveryDisplayText, getErrorMessage, merchantStatusOptions } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type MerchantFormValues = {
   name?: string;
@@ -17,6 +18,7 @@ type MerchantFormValues = {
 export default function DeliveryMerchantDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:merchants:write'));
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<MerchantFormValues>();
@@ -72,13 +74,13 @@ export default function DeliveryMerchantDetailPage() {
       <PageHeader
         title="商家详情"
         subtitle="查看商家档案、默认加价率和员工列表。"
-        extra={(
+        extra={canWrite ? (
           <Space>
             <Button type="primary" onClick={() => setOpen(true)}>
               编辑默认加价率
             </Button>
           </Space>
-        )}
+        ) : undefined}
       />
       <Card loading={query.isLoading}>
         {data ? (

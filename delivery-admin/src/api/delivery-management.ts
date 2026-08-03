@@ -206,6 +206,7 @@ export const getDeliveryFreightDashboard = (
 
 export const getDeliveryFreightBatches = (
   params?: PaginationParams & {
+    keyword?: string;
     status?: string;
     merchantId?: string;
     unitId?: string;
@@ -217,6 +218,7 @@ export const getDeliveryFreightBatches = (
 
 export const getDeliveryPickupBatches = (
   params?: PaginationParams & {
+    keyword?: string;
     status?: string;
     merchantId?: string;
     unitId?: string;
@@ -226,14 +228,19 @@ export const getDeliveryPickupBatches = (
 ): Promise<PagedResult<DeliveryPickupBatch>> =>
   client.get(withQuery('/delivery-admin/pickup-batches', params));
 
-export const callDeliveryHuolala = (id: string): Promise<DeliveryPickupBatch> =>
-  client.post(`/delivery-admin/pickup-batches/${id}/call-huolala`);
-
 export const syncDeliveryCarrier = (id: string): Promise<DeliveryPickupBatch> =>
   client.post(`/delivery-admin/pickup-batches/${id}/sync-carrier`);
 
 export const cancelDeliveryCarrier = (id: string, reason: string): Promise<DeliveryPickupBatch> =>
   client.post(`/delivery-admin/pickup-batches/${id}/cancel-carrier`, { reason });
+
+export const reprintDeliveryPickupWaybill = (id: string): Promise<DeliveryPickupBatch> =>
+  client.post(`/delivery-admin/pickup-batches/${id}/reprint-waybill`);
+
+export const downloadDeliveryPickupWaybill = (id: string): Promise<Blob> =>
+  client.get(`/delivery-admin/pickup-batches/${id}/waybill-file`, {
+    responseType: 'blob',
+  }) as unknown as Promise<Blob>;
 
 export const adjustDeliveryPickupCost = (
   id: string,
@@ -314,6 +321,18 @@ export const updateDeliveryCustomerService = (
     assignedStaffId?: string;
   },
 ): Promise<DeliveryConversation> => client.patch(`/delivery-admin/cs/${id}`, payload);
+
+export const getDeliveryCustomerServiceConfig = (): Promise<DeliveryConfigItem[]> =>
+  client.get('/delivery-admin/cs/config/defaults');
+
+export const updateDeliveryCustomerServiceConfig = (
+  items: Array<{
+    key: 'CUSTOMER_SERVICE_DEFAULTS';
+    value: JsonValue;
+    description?: string;
+    scope?: 'CUSTOMER_SERVICE';
+  }>,
+): Promise<DeliveryConfigItem[]> => client.patch('/delivery-admin/cs/config/defaults', { items });
 
 export const getDeliveryAuditLogs = (
   params?: PaginationParams & { keyword?: string },

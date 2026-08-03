@@ -52,7 +52,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <FileTextOutlined />,
       routes: [
         { path: '/orders', name: '订单列表', icon: <FileTextOutlined />, permission: 'orders:read' },
-        { path: '/pickup-batches', name: '提货批次', icon: <TruckOutlined />, permission: 'orders:read' },
+        { path: '/pickup-batches', name: '配送批次', icon: <TruckOutlined />, permission: 'orders:read' },
         { path: '/orders/logistics', name: '物流跟踪', icon: <TruckOutlined />, permission: 'orders:read' },
       ],
     },
@@ -134,6 +134,14 @@ export default function SellerLayout() {
     };
   }, [hasPermission]);
 
+  const visibleGroupKeys = useMemo(
+    () => ((filteredRoute.routes ?? []) as MenuRoute[])
+      .filter((route) => route.routes?.length && route.path)
+      .map((route) => route.path as string),
+    [filteredRoute.routes],
+  );
+  const [openKeys, setOpenKeys] = useState<string[]>(visibleGroupKeys);
+
   const selectedKeys = useMemo(() => {
     const all = flattenRoutes((filteredRoute.routes ?? []) as MenuRoute[]);
     const matches = all.filter((path) => path === location.pathname || (path !== '/' && location.pathname.startsWith(`${path}/`)));
@@ -152,8 +160,13 @@ export default function SellerLayout() {
       collapsed={collapsed}
       onCollapse={setCollapsed}
       route={filteredRoute}
+      menu={{ defaultOpenAll: true }}
       location={{ pathname: location.pathname }}
-      menuProps={{ selectedKeys }}
+      menuProps={{
+        selectedKeys,
+        openKeys,
+        onOpenChange: (keys) => setOpenKeys(keys.map(String)),
+      }}
       menuHeaderRender={() => (
         <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, padding: '16px 0 8px 20px' }}>
           配送中心
@@ -177,7 +190,6 @@ export default function SellerLayout() {
         <a onClick={() => {
           if (!item.path) return;
           if (isGlobalDirty()) {
-            // eslint-disable-next-line no-restricted-globals
             const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
             if (!confirmed) return;
           }

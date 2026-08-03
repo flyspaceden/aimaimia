@@ -179,14 +179,10 @@ enum DeliveryPickupBatchStatus {
 
 enum DeliveryCarrierProvider {
   SF
-  HUOLALA
-  MANUAL
 }
 
 enum DeliveryCarrierPaymentMode {
   PLATFORM_MONTHLY
-  PLATFORM_WALLET
-  MANUAL_OFFLINE
 }
 
 enum DeliveryShippingCostLedgerType {
@@ -910,7 +906,7 @@ model DeliveryPickupBatch {
   merchant                  DeliveryMerchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   batchNo                   Int
   status                    DeliveryPickupBatchStatus @default(PLANNED)
-  provider                  DeliveryCarrierProvider   @default(HUOLALA)
+  provider                  DeliveryCarrierProvider   @default(SF)
   plannedPickupAt           DateTime?
   readyAt                   DateTime?
   calledAt                  DateTime?
@@ -965,15 +961,16 @@ model DeliveryCarrierOrder {
   batchId            String
   batch              DeliveryPickupBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
   provider           DeliveryCarrierProvider
+  attempt            Int                        @default(1)
   outsideOrderId     String                     @unique
   carrierOrderNo     String?
-  priceCalculateId   String?
-  cityId             String?
-  vehicleId          String?
+  expressTypeId      Int?
+  expressTypeName    String?
+  packageCount       Int?
+  totalWeightKg      Float?
+  waybillUrl         String?
   payType            DeliveryCarrierPaymentMode @default(PLATFORM_MONTHLY)
   status             String
-  driverSnapshot     Json?
-  vehicleSnapshot    Json?
   estimatePayload    Json?
   orderPayload       Json?
   detailPayload      Json?
@@ -984,8 +981,26 @@ model DeliveryCarrierOrder {
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
+  waybills           DeliveryCarrierWaybill[]
+
+  @@unique([batchId, attempt])
   @@index([batchId, provider])
   @@index([carrierOrderNo])
+}
+
+model DeliveryCarrierWaybill {
+  id                 String               @id @default(cuid())
+  carrierOrderId     String
+  carrierOrder       DeliveryCarrierOrder @relation(fields: [carrierOrderId], references: [id], onDelete: Cascade)
+  trackingNo         String               @unique
+  status             String               @default("WAITING_PICKUP")
+  deliveredAt        DateTime?
+  lastSyncedAt       DateTime?
+  rawPayload         Json?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([carrierOrderId, status])
 }
 
 model DeliveryShippingCostLedger {
@@ -993,10 +1008,10 @@ model DeliveryShippingCostLedger {
   orderId         String
   order           DeliveryOrder                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   subOrderId      String?
-  subOrder        DeliverySubOrder?              @relation(fields: [subOrderId, orderId], references: [id, orderId], onDelete: SetNull)
+  subOrder        DeliverySubOrder?              @relation(fields: [subOrderId, orderId], references: [id, orderId], onDelete: Cascade)
   batchId         String?
-  batch           DeliveryPickupBatch?           @relation(fields: [batchId, orderId], references: [id, orderId], onDelete: SetNull)
-  batchSubOrder   DeliveryPickupBatch?           @relation("DeliveryShippingCostLedgerBatchSubOrder", fields: [batchId, subOrderId], references: [id, subOrderId], onDelete: SetNull)
+  batch           DeliveryPickupBatch?           @relation(fields: [batchId, orderId], references: [id, orderId], onDelete: Cascade)
+  batchSubOrder   DeliveryPickupBatch?           @relation("DeliveryShippingCostLedgerBatchSubOrder", fields: [batchId, subOrderId], references: [id, subOrderId], onDelete: Cascade)
   provider        DeliveryCarrierProvider
   type            DeliveryShippingCostLedgerType
   amountCents     Int

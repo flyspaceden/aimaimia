@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntdApp, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -21,6 +21,7 @@ import {
   validateDeliveryManifestTemplateColumns,
 } from './formValidation';
 import { formatDateTime, formatDeliveryDisplayText, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type TemplateFormValues = {
   name?: string;
@@ -30,6 +31,7 @@ type TemplateFormValues = {
 
 export default function DeliveryManifestsPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:manifests:write'));
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<DeliveryManifestTemplate | null>(null);
   const [open, setOpen] = useState(false);
@@ -49,19 +51,16 @@ export default function DeliveryManifestsPage() {
     queryFn: getDeliveryManifests,
   });
 
-  useEffect(() => {
-    if (!editing || !open) {
-      form.resetFields();
-      setColumns([]);
-      return;
-    }
+  const openTemplateEditor = (template: DeliveryManifestTemplate) => {
     form.setFieldsValue({
-      name: editing.name,
-      description: editing.description ?? undefined,
-      columns: editing.currentConfig.columns,
+      name: template.name,
+      description: template.description ?? undefined,
+      columns: template.currentConfig.columns,
     });
-    setColumns(editing.currentConfig.columns.map((item) => ({ ...item })));
-  }, [editing, form, open]);
+    setColumns(template.currentConfig.columns.map((item) => ({ ...item })));
+    setEditing(template);
+    setOpen(true);
+  };
 
   const mutation = useMutation({
     mutationFn: async (values: TemplateFormValues) =>
@@ -90,7 +89,10 @@ export default function DeliveryManifestsPage() {
     mutationFn: async () =>
       getDeliveryManifestCustomization(customTarget.manifestType, customTarget.targetId.trim()),
     onSuccess: (data) => {
-      setCustomEntries(data.entries.map((entry) => ({ ...entry })));
+      setCustomEntries(data.entries.map((entry, index) => ({
+        ...entry,
+        key: entry.key || `loaded-${index}-${entry.sortOrder}`,
+      })));
       message.success('已加载目标自定义列');
     },
     onError: (error) => {
@@ -144,10 +146,8 @@ export default function DeliveryManifestsPage() {
         <Button
           type="link"
           size="small"
-          onClick={() => {
-            setEditing(record);
-            setOpen(true);
-          }}
+          disabled={!canWrite}
+          onClick={() => openTemplateEditor(record)}
         >
           编辑列配置
         </Button>
@@ -162,6 +162,7 @@ export default function DeliveryManifestsPage() {
       key: 'label',
       render: (_, record, index) => (
         <Input
+          disabled={!canWrite}
           value={record.label}
           onChange={(event) =>
             setColumns((prev) =>
@@ -178,6 +179,7 @@ export default function DeliveryManifestsPage() {
       width: 110,
       render: (_, record, index) => (
         <InputNumber
+          disabled={!canWrite}
           min={0}
           max={999}
           precision={0}
@@ -197,6 +199,7 @@ export default function DeliveryManifestsPage() {
       width: 90,
       render: (_, record, index) => (
         <Switch
+          disabled={!canWrite}
           checked={record.visible}
           onChange={(checked) =>
             setColumns((prev) =>
@@ -223,6 +226,7 @@ export default function DeliveryManifestsPage() {
       width: 180,
       render: (_, record, index) => (
         <Input
+          disabled={!canWrite}
           value={record.label}
           onChange={(event) =>
             setCustomEntries((prev) =>
@@ -240,6 +244,7 @@ export default function DeliveryManifestsPage() {
       key: 'value',
       render: (_, record, index) => (
         <Input
+          disabled={!canWrite}
           value={record.value}
           onChange={(event) =>
             setCustomEntries((prev) =>
@@ -258,6 +263,7 @@ export default function DeliveryManifestsPage() {
       width: 110,
       render: (_, record, index) => (
         <InputNumber
+          disabled={!canWrite}
           min={0}
           max={999}
           precision={0}
@@ -279,6 +285,7 @@ export default function DeliveryManifestsPage() {
       width: 90,
       render: (_, record, index) => (
         <Switch
+          disabled={!canWrite}
           checked={record.visible}
           onChange={(checked) =>
             setCustomEntries((prev) =>
@@ -299,6 +306,7 @@ export default function DeliveryManifestsPage() {
           danger
           type="link"
           size="small"
+          disabled={!canWrite}
           onClick={() =>
             setCustomEntries((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
           }
@@ -408,16 +416,19 @@ export default function DeliveryManifestsPage() {
             </Button>
             <Button
               type="primary"
+              disabled={!canWrite}
               onClick={handleSaveCustomization}
               loading={saveCustomizationMutation.isPending}
             >
               保存
             </Button>
             <Button
+              disabled={!canWrite}
               onClick={() =>
                 setCustomEntries((prev) => [
                   ...prev,
                   {
+                    key: `custom-${Date.now()}-${prev.length}`,
                     label: '',
                     value: '',
                     sortOrder: 500 + prev.length * 10,
@@ -432,7 +443,7 @@ export default function DeliveryManifestsPage() {
         </Space>
 
         <Table<DeliveryManifestCustomizationEntry>
-          rowKey={(record, index) => `${record.key || 'custom'}-${index}`}
+          rowKey="key"
           size="small"
           pagination={false}
           columns={customColumnsTable}
@@ -443,6 +454,7 @@ export default function DeliveryManifestsPage() {
       </Card>
 
       <Modal
+        forceRender
         open={open}
         width={900}
         title="编辑清单模板"
@@ -462,7 +474,7 @@ export default function DeliveryManifestsPage() {
           mutation.mutate(values);
         }}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" disabled={!canWrite}>
           <Space align="start" style={{ width: '100%' }}>
             <Form.Item label="模板名称" name="name" style={{ flex: 1 }}>
               <Input />

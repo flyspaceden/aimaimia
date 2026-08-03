@@ -1,1060 +1,341 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import {
-  DeliveryAuditActorType,
-  DeliveryCarrierProvider,
-  DeliveryPickupBatchStatus,
-  DeliveryPickupStatus,
-  DeliveryShippingCostLedgerType,
-  Prisma,
-} from '../../../generated/delivery-client';
+import { BadRequestException } from '@nestjs/common';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import { SfPickupCarrierService } from '../carriers/sf-pickup-carrier.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
-import { HuolalaCarrierService } from '../carriers/huolala-carrier.service';
-import { DeliveryAdminPickupController } from './delivery-admin-pickup.controller';
+import { DeliveryConfigService } from '../config/delivery-config.service';
 import { DeliveryPickupService } from './delivery-pickup.service';
 
-describe('DeliveryPickupService admin flows', () => {
+describe('DeliveryPickupService SF fulfillment', () => {
+  let batch: any;
+  let carrierOrder: any;
   let tx: any;
   let deliveryPrisma: any;
-  let deliveryIdService: { nextInTransaction: jest.Mock };
-  let huolalaCarrier: {
-    quote: jest.Mock;
-    requestOrder: jest.Mock;
-    getOrderDetail: jest.Mock;
-    cancelOrder: jest.Mock;
-    mapHuolalaStatus: jest.Mock;
-  };
+  let sfCarrier: any;
+  let deliveryConfig: any;
   let service: DeliveryPickupService;
 
-  const now = new Date('2026-06-30T12:00:00.000Z');
-
   beforeEach(() => {
-    jest.useFakeTimers().setSystemTime(now);
-    tx = createPrismaMock();
+    carrierOrder = null;
+    batch = createBatch();
+    tx = {
+      $executeRaw: jest.fn(),
+      deliveryPickupBatch: {
+        findFirst: jest.fn(async () => batch),
+        findUnique: jest.fn(async () => batch),
+        findMany: jest.fn(async () => [{ status: batch.status }]),
+        update: jest.fn(async ({ data }: any) => {
+          Object.assign(batch, data);
+          return batch;
+        }),
+        updateMany: jest.fn(async ({ data }: any) => {
+          Object.assign(batch, data);
+          return { count: 1 };
+        }),
+        aggregate: jest.fn(async () => ({
+          _sum: { actualCarrierCostCents: batch.actualCarrierCostCents },
+        })),
+      },
+      deliveryCarrierOrder: {
+        create: jest.fn(async ({ data }: any) => {
+          carrierOrder = {
+            ...data,
+            carrierOrderNo: null,
+            waybillUrl: null,
+            estimatePayload: null,
+            orderPayload: null,
+            detailPayload: null,
+            cancelPayload: null,
+            estimatedFeeCents: null,
+            actualFeeCents: null,
+            lastSyncedAt: null,
+            createdAt: new Date('2026-08-03T10:00:00Z'),
+            updatedAt: new Date('2026-08-03T10:00:00Z'),
+            waybills: [],
+          };
+          batch.carrierOrders = [carrierOrder];
+          return carrierOrder;
+        }),
+        update: jest.fn(async ({ data }: any) => {
+          const waybillCreates = data.waybills?.create;
+          const { waybills: _waybills, ...scalarData } = data;
+          Object.assign(carrierOrder, scalarData);
+          if (waybillCreates) {
+            carrierOrder.waybills = waybillCreates.map((item: any, index: number) => ({
+              id: `waybill_${index + 1}`,
+              carrierOrderId: carrierOrder.id,
+              deliveredAt: null,
+              lastSyncedAt: null,
+              rawPayload: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              ...item,
+            }));
+          }
+          return carrierOrder;
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      deliveryCarrierWaybill: {
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const target = carrierOrder?.waybills?.find(
+            (item: any) => item.trackingNo === where.trackingNo,
+          );
+          if (!target) return { count: 0 };
+          Object.assign(target, data);
+          return { count: 1 };
+        }),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      deliveryPickupBatchItem: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      deliveryOrderItem: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      deliverySubOrder: {
+        findUnique: jest.fn().mockResolvedValue({ status: 'PENDING_SHIPMENT' }),
+        findMany: jest.fn().mockResolvedValue([{ status: 'PENDING_SHIPMENT' }]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      deliveryOrder: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: 'PENDING_SHIPMENT',
+          prepaidPickupShippingFeeCents: 500,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      deliveryAuditLog: { create: jest.fn().mockResolvedValue({}) },
+      deliveryShippingCostLedger: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
     deliveryPrisma = {
       ...tx,
-      $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
-        callback(tx),
-      ),
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
     };
-    deliveryIdService = {
-      nextInTransaction: jest.fn().mockResolvedValue('PSCY0000000000001'),
+    sfCarrier = {
+      createShipment: jest.fn().mockResolvedValue({
+        provider: 'SF',
+        outsideOrderId: 'AIMM-DELIVERY-BATCH-hash',
+        sfOrderId: 'sf_order_1',
+        primaryWaybillNo: 'SF001',
+        waybillNos: ['SF001', 'SF002'],
+        waybillUrl: 'https://oss.example/waybill.pdf',
+        status: 'WAITING_DRIVER',
+        rawPayload: { sfOrderId: 'sf_order_1' },
+      }),
+      syncWaybills: jest.fn(),
+      cancelShipment: jest.fn(),
+      reprintWaybill: jest.fn(),
     };
-    huolalaCarrier = {
-      quote: jest.fn().mockResolvedValue({
-        provider: 'HUOLALA',
-        priceCalculateId: 'price_calc_001',
-        estimatedFeeCents: 320,
-        rawPayload: { quote: 'payload' },
-      }),
-      requestOrder: jest.fn().mockResolvedValue({
-        provider: 'HUOLALA',
-        outsideOrderId: 'PSTH0000000000001',
-        carrierOrderNo: 'HL001',
-        status: 'driver_assigned',
-        rawPayload: { order: 'payload' },
-      }),
-      getOrderDetail: jest.fn().mockResolvedValue({
-        provider: 'HUOLALA',
-        outsideOrderId: 'PSTH0000000000001',
-        carrierOrderNo: 'HL001',
-        status: 'delivering',
-        mappedStatus: DeliveryPickupBatchStatus.DELIVERING,
-        actualFeeCents: 380,
-        driverSnapshot: { name: 'driver-a' },
-        vehicleSnapshot: { plateNo: '粤A12345' },
-        rawPayload: { status: 'delivering', version: 1 },
-      }),
-      cancelOrder: jest.fn().mockResolvedValue({
-        provider: 'HUOLALA',
-        carrierOrderNo: 'HL001',
-        status: 'canceled',
-        rawPayload: { status: 'canceled' },
-      }),
-      mapHuolalaStatus: jest.fn(() => DeliveryPickupBatchStatus.DRIVER_ASSIGNED),
+    deliveryConfig = {
+      getSfExpressProducts: jest
+        .fn()
+        .mockResolvedValue([{ expressTypeId: 1, name: '顺丰标快', enabled: true }]),
     };
-
     service = new DeliveryPickupService(
       deliveryPrisma as DeliveryPrismaService,
-      deliveryIdService as unknown as DeliveryIdService,
-      huolalaCarrier as unknown as HuolalaCarrierService,
+      { nextInTransaction: jest.fn().mockResolvedValue('PSCY0000000000001') } as any as DeliveryIdService,
+      sfCarrier as SfPickupCarrierService,
+      deliveryConfig as DeliveryConfigService,
     );
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('lists freight batches with prepaid, actual, and difference fields for admin', async () => {
-    deliveryPrisma.deliveryPickupBatch.aggregate.mockResolvedValue({
-      _sum: {
-        estimatedShippingFeeCents: 600,
-        actualCarrierCostCents: 760,
-        shippingCostDiffCents: -160,
-      },
-    });
-    deliveryPrisma.deliveryPickupBatch.count.mockResolvedValue(1);
-    deliveryPrisma.deliveryPickupBatch.findMany.mockResolvedValue([
-        buildBatch({
-          estimatedShippingFeeCents: 600,
-          actualCarrierCostCents: 760,
-          shippingCostDiffCents: -160,
-          status: DeliveryPickupBatchStatus.EXCEPTION,
-        carrierOrders: [
-          buildCarrierOrder({
-            carrierOrderNo: 'HL001',
-            status: 'exception',
-            actualFeeCents: 760,
-          }),
-        ],
-      }),
-    ]);
-
-    const dashboard = await service.getFreightDashboard({
-      merchantId: 'merchant_1',
-      status: DeliveryPickupBatchStatus.EXCEPTION,
-    });
-    const list = await service.listAdminPickupBatches({
-      page: 1,
-      pageSize: 10,
-      merchantId: 'merchant_1',
+  it('lets the owning seller create one idempotent SF shipment with multiple waybills', async () => {
+    const result = await service.createSfShipment('merchant_1', 'staff_1', batch.id, {
+      expressTypeId: 1,
+      packageCount: 2,
+      totalWeightKg: 35.5,
     });
 
-    expect(deliveryPrisma.deliveryPickupBatch.aggregate).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        merchantId: 'merchant_1',
-        status: DeliveryPickupBatchStatus.EXCEPTION,
-      }),
-      _sum: {
-        estimatedShippingFeeCents: true,
-        actualCarrierCostCents: true,
-        shippingCostDiffCents: true,
-      },
-    });
-    expect(dashboard).toEqual({
-      prepaidPickupShippingFeeCents: 600,
-      actualCarrierCostCents: 760,
-      shippingCostDiffCents: -160,
-      exceptionBatchCount: 1,
-    });
-    expect(list.items[0]).toMatchObject({
-      id: 'PSTH0000000000001',
-      merchantName: '华南仓',
-      prepaidPickupShippingFeeCents: 600,
-      actualCarrierCostCents: 760,
-      shippingCostDiffCents: -160,
-      latestCarrierOrder: expect.objectContaining({
-        carrierOrderNo: 'HL001',
-        status: 'exception',
-      }),
-    });
-  });
-
-  it('calls Huolala once per batch and stores carrier order idempotently', async () => {
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(buildBatch({ carrierOrders: [] }))
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              priceCalculateId: 'price_calc_001',
-              status: 'driver_assigned',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              status: 'driver_assigned',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValue(
-        buildBatch({
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              status: 'driver_assigned',
-            }),
-          ],
-        }),
-      );
-    tx.deliveryCarrierOrder.findFirst.mockResolvedValue(null);
-    tx.deliveryCarrierOrder.create.mockResolvedValue(
-      buildCarrierOrder({
-        id: 'PSCY0000000000001',
-        carrierOrderNo: null,
-        priceCalculateId: null,
-        status: 'CALLING_CARRIER',
-      }),
-    );
-    tx.deliveryCarrierOrder.update.mockResolvedValue(
-      buildCarrierOrder({
-        carrierOrderNo: 'HL001',
-        priceCalculateId: 'price_calc_001',
-        status: 'driver_assigned',
-      }),
-    );
-    tx.deliveryShippingCostLedger.findFirst.mockResolvedValue(null);
-    tx.deliveryPickupBatch.update.mockResolvedValue(
-      buildBatch({ status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED }),
-    );
-
-    const result = await service.callHuolala('PSTH0000000000001', 'admin_1');
-
-    expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
-    expect(huolalaCarrier.quote).toHaveBeenCalledTimes(1);
-    expect(huolalaCarrier.quote).toHaveBeenCalledWith(
+    expect(sfCarrier.createShipment).toHaveBeenCalledWith(
       expect.objectContaining({
-        outsideOrderId: 'PSTH0000000000001',
+        expressTypeId: 1,
+        expressTypeName: '顺丰标快',
+        packageCount: 2,
+        totalWeightKg: 35.5,
       }),
     );
-    expect(huolalaCarrier.requestOrder).toHaveBeenCalledTimes(1);
-    expect(tx.deliveryCarrierOrder.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        id: 'PSCY0000000000001',
-        outsideOrderId: 'PSTH0000000000001',
-      }),
-    });
-    expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        actorType: 'ADMIN',
-        actorId: 'admin_1',
-        module: 'delivery-pickup',
-        action: 'CALL_HUOLALA',
-      }),
-    });
-    expect(result.latestCarrierOrder?.carrierOrderNo).toBe('HL001');
+    expect(carrierOrder.carrierOrderNo).toBe('SF001');
+    expect(carrierOrder.waybills).toHaveLength(2);
+    expect(batch.status).toBe('WAITING_DRIVER');
+    expect(result).not.toHaveProperty('actualCarrierCostCents');
+    expect(result.latestCarrierOrder).not.toHaveProperty('actualFeeCents');
 
-    await expect(
-      service.callHuolala('PSTH0000000000001', 'admin_1'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(huolalaCarrier.requestOrder).toHaveBeenCalledTimes(1);
+    await service.createSfShipment('merchant_1', 'staff_1', batch.id, {
+      expressTypeId: 1,
+      packageCount: 2,
+      totalWeightKg: 35.5,
+    });
+    expect(sfCarrier.createShipment).toHaveBeenCalledTimes(1);
   });
 
-  it('allows retry after Huolala quote failure leaves a carrier row without carrier order number', async () => {
-    huolalaCarrier.quote
-      .mockRejectedValueOnce(new Error('quote unavailable'))
-      .mockResolvedValueOnce({
-        provider: 'HUOLALA',
-        priceCalculateId: 'price_calc_retry',
-        estimatedFeeCents: 330,
-        rawPayload: { quote: 'retry-payload' },
-      });
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(buildBatch({ carrierOrders: [] }))
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.CALLING_CARRIER,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: null,
-              priceCalculateId: null,
-              status: 'CALLING_CARRIER',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.CALLING_CARRIER,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: null,
-              priceCalculateId: null,
-              status: 'CALLING_CARRIER',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValue(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              priceCalculateId: 'price_calc_retry',
-              status: 'driver_assigned',
-            }),
-          ],
-        }),
-      );
-    tx.deliveryCarrierOrder.create.mockResolvedValue(
-      buildCarrierOrder({
-        id: 'PSCY0000000000001',
-        carrierOrderNo: null,
-        priceCalculateId: null,
-        status: 'CALLING_CARRIER',
-      }),
-    );
-    tx.deliveryShippingCostLedger.findFirst.mockResolvedValue(null);
-
+  it('rejects a product code that the platform has not enabled', async () => {
     await expect(
-      service.callHuolala('PSTH0000000000001', 'admin_1'),
-    ).rejects.toThrow('quote unavailable');
-
-    const result = await service.callHuolala('PSTH0000000000001', 'admin_1');
-
-    expect(tx.deliveryCarrierOrder.create).toHaveBeenCalledTimes(1);
-    expect(huolalaCarrier.quote).toHaveBeenCalledTimes(2);
-    expect(huolalaCarrier.requestOrder).toHaveBeenCalledTimes(1);
-    expect(result.latestCarrierOrder?.carrierOrderNo).toBe('HL001');
-  });
-
-  it('syncs carrier detail and updates actual cost ledger idempotently', async () => {
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(
-        buildBatch({
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.DELIVERING,
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              actualFeeCents: 380,
-              status: 'delivering',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.DELIVERING,
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              actualFeeCents: 380,
-              status: 'delivering',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.DELIVERING,
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              actualFeeCents: 380,
-              status: 'delivering',
-            }),
-          ],
-        }),
-      );
-    tx.deliveryShippingCostLedger.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 'ledger_actual_1' });
-
-    const result = await service.syncCarrier('PSTH0000000000001', 'admin_1');
-    await service.syncCarrier('PSTH0000000000001', 'admin_1');
-
-    expect(result.actualCarrierCostCents).toBe(380);
-    expect(tx.deliveryCarrierOrder.update).toHaveBeenCalledWith({
-      where: { id: 'PSCY0000000000001' },
-      data: expect.objectContaining({
-        status: 'delivering',
-        actualFeeCents: 380,
+      service.createSfShipment('merchant_1', 'staff_1', batch.id, {
+        expressTypeId: 999,
+        packageCount: 1,
+        totalWeightKg: 1,
       }),
-    });
-    expect(tx.deliveryShippingCostLedger.create).toHaveBeenCalledTimes(1);
-    expect(tx.deliveryShippingCostLedger.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        batchId: 'PSTH0000000000001',
-        type: DeliveryShippingCostLedgerType.CARRIER_ACTUAL,
-        amountCents: 380,
-        source: 'HUOLALA_DETAIL',
-      }),
-    });
-    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-      where: { id: 'PSTH0000000000001' },
-      data: expect.objectContaining({
-        actualCarrierCostCents: 380,
-        shippingCostDiffCents: 220,
-      }),
-    });
-    expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
-      where: { id: 'PSDD0000000000001' },
-      data: expect.objectContaining({
-        actualCarrierCostCents: 380,
-        shippingCostDiffCents: 220,
-      }),
-    });
-  });
-
-  it('completes batch item quantities when carrier sync reaches completed', async () => {
-    huolalaCarrier.getOrderDetail.mockResolvedValueOnce({
-      provider: 'HUOLALA',
-      outsideOrderId: 'PSTH0000000000001',
-      carrierOrderNo: 'HL001',
-      status: 'completed',
-      mappedStatus: DeliveryPickupBatchStatus.COMPLETED,
-      actualFeeCents: 380,
-      driverSnapshot: { name: 'driver-a' },
-      vehicleSnapshot: { plateNo: '粤A12345' },
-      rawPayload: { status: 'completed', version: 1 },
-    });
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.LOADED,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.LOADED,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.COMPLETED,
-          completedAt: now,
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-          items: [
-            {
-              id: 'batch_item_1',
-              batchId: 'PSTH0000000000001',
-              subOrderId: 'PSZDD000000000001',
-              orderItemId: 'order_item_1',
-              skuId: 'sku_1',
-              productSnapshot: {
-                productTitle: '西红柿',
-                skuTitle: '5kg/箱',
-                unitName: '箱',
-              },
-              quantity: 2,
-              pickedQuantity: 2,
-              createdAt: new Date('2026-06-30T10:00:00.000Z'),
-            },
-          ],
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              actualFeeCents: 380,
-              status: 'completed',
-            }),
-          ],
-        }),
-      );
-    tx.deliveryPickupBatch.findMany
-      .mockResolvedValueOnce([{ status: DeliveryPickupBatchStatus.COMPLETED }])
-      .mockResolvedValueOnce([{ status: DeliveryPickupBatchStatus.COMPLETED }]);
-
-    const result = await service.syncCarrier('PSTH0000000000001', 'admin_1');
-
-    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-      where: { id: 'PSTH0000000000001' },
-      data: expect.objectContaining({
-        status: DeliveryPickupBatchStatus.COMPLETED,
-        completedAt: now,
-      }),
-    });
-    expect(tx.deliveryPickupBatchItem.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: 'batch_item_1',
-        batchId: 'PSTH0000000000001',
-        pickedQuantity: 0,
-      },
-      data: {
-        pickedQuantity: 2,
-      },
-    });
-    expect(tx.deliveryOrderItem.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: 'order_item_1',
-        subOrderId: 'PSZDD000000000001',
-      },
-      data: {
-        pickedQuantity: { increment: 2 },
-      },
-    });
-    expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
-      where: { id: 'PSDD0000000000001' },
-      data: { pickupStatus: DeliveryPickupStatus.ALL_PICKED },
-    });
-    expect(tx.deliverySubOrder.update).toHaveBeenCalledWith({
-      where: { id: 'PSZDD000000000001' },
-      data: { pickupStatus: DeliveryPickupStatus.ALL_PICKED },
-    });
-    expect(result.items[0]).toMatchObject({
-      quantity: 2,
-      pickedQuantity: 2,
-    });
-  });
-
-  it('rejects manual cost adjustment without admin actor id or remark', async () => {
-    await expect(
-      service.manualAdjustCost('PSTH0000000000001', '', 100, 'manual fix'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    await expect(
-      service.manualAdjustCost('PSTH0000000000001', 'admin_1', 100, '   '),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
+    expect(sfCarrier.createShipment).not.toHaveBeenCalled();
   });
 
-  it('rejects non-integer manual cost adjustment strings before writing ledger', async () => {
-    await expect(
-      service.manualAdjustCost('PSTH0000000000001', 'admin_1', '100abc' as any, 'manual fix'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    await expect(
-      service.manualAdjustCost('PSTH0000000000001', 'admin_1', '10.5' as any, 'manual fix'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.deliveryShippingCostLedger.create).not.toHaveBeenCalled();
-  });
-
-  it('keeps shipping cost difference as prepaid minus actual after manual adjustments', async () => {
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(
-        buildBatch({
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          actualCarrierCostCents: 480,
-          shippingCostDiffCents: 120,
-        }),
-      );
-    tx.deliveryPickupBatch.aggregate.mockResolvedValueOnce({
-      _sum: {
-        actualCarrierCostCents: 480,
-      },
-    });
-
-    const result = await service.manualAdjustCost(
-      'PSTH0000000000001',
-      'admin_1',
-      100,
-      '补录等候费',
-    );
+  it('keeps manual cost adjustments attributed to SF instead of creating a manual carrier', async () => {
+    await service.manualAdjustCost(batch.id, 'admin_1', 250, '顺丰月结账单补差');
 
     expect(tx.deliveryShippingCostLedger.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        batchId: 'PSTH0000000000001',
-        type: DeliveryShippingCostLedgerType.MANUAL_ADJUSTMENT,
-        amountCents: 100,
+        provider: 'SF',
+        type: 'MANUAL_ADJUSTMENT',
+        amountCents: 250,
         source: 'ADMIN_MANUAL_ADJUSTMENT',
       }),
     });
-    expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-      where: { id: 'PSTH0000000000001' },
-      data: expect.objectContaining({
-        actualCarrierCostCents: 480,
-        shippingCostDiffCents: 120,
-      }),
-    });
-    expect(tx.deliveryOrder.update).toHaveBeenCalledWith({
-      where: { id: 'PSDD0000000000001' },
-      data: expect.objectContaining({
-        actualCarrierCostCents: 480,
-        shippingCostDiffCents: 120,
-      }),
-    });
-    expect(result.shippingCostDiffCents).toBe(120);
+    expect(batch.actualCarrierCostCents).toBe(250);
   });
 
-  it('rejects loaded delivering completed cancellation and accepts cancellable status', async () => {
-    for (const status of [
-      DeliveryPickupBatchStatus.LOADED,
-      DeliveryPickupBatchStatus.DELIVERING,
-      DeliveryPickupBatchStatus.COMPLETED,
-    ]) {
-      tx.deliveryPickupBatch.findUnique.mockResolvedValueOnce(
-        buildBatch({
-          status,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      );
-      await expect(
-        service.cancelCarrier('PSTH0000000000001', 'admin_1', 'changed'),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    }
-    expect(huolalaCarrier.cancelOrder).not.toHaveBeenCalled();
-
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.WAITING_DRIVER,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.WAITING_DRIVER,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              status: 'waiting_driver',
-            }),
-          ],
-        }),
-      )
-      .mockResolvedValue(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.CANCELED,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              status: 'canceled',
-            }),
-          ],
-        }),
-      );
-
-    const result = await service.cancelCarrier('PSTH0000000000001', 'admin_1', 'changed');
-
-    expect(huolalaCarrier.cancelOrder).toHaveBeenCalledWith({
-      carrierOrderNo: 'HL001',
-      reason: 'changed',
-    });
-    expect(result.status).toBe(DeliveryPickupBatchStatus.CANCELED);
-  });
-
-  it('re-checks latest batch status before final cancel write and refuses loaded batches', async () => {
-    tx.deliveryPickupBatch.findUnique
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.WAITING_DRIVER,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBatch({
-          status: DeliveryPickupBatchStatus.LOADED,
-          carrierOrders: [buildCarrierOrder({ carrierOrderNo: 'HL001' })],
-        }),
-      );
-
-    await expect(
-      service.cancelCarrier('PSTH0000000000001', 'admin_1', 'changed'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(huolalaCarrier.cancelOrder).toHaveBeenCalledTimes(1);
-    expect(tx.deliveryPickupBatch.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: DeliveryPickupBatchStatus.CANCELED,
-        }),
-      }),
-    );
-    expect(tx.deliveryCarrierOrder.update).not.toHaveBeenCalled();
-  });
-
-  it('passes raw manual adjustment amount strings from controller to strict service validation', async () => {
-    const controllerService = {
-      manualAdjustCost: jest.fn().mockResolvedValue({ ok: true }),
+  it('allows the seller to recover a stale SF creation reservation with the same outside order id', async () => {
+    batch.status = 'CALLING_CARRIER';
+    carrierOrder = {
+      id: 'PSCY0000000000001',
+      batchId: batch.id,
+      provider: 'SF',
+      attempt: 1,
+      outsideOrderId: 'AIMM-DELIVERY-BATCH-hash',
+      carrierOrderNo: null,
+      expressTypeId: 1,
+      expressTypeName: '顺丰标快',
+      packageCount: 1,
+      totalWeightKg: 25,
+      waybillUrl: null,
+      status: 'CREATING_SF_ORDER',
+      updatedAt: new Date(Date.now() - 16 * 60 * 1000),
+      createdAt: new Date(Date.now() - 16 * 60 * 1000),
+      waybills: [],
     };
-    const controller = new DeliveryAdminPickupController(controllerService as any);
+    batch.carrierOrders = [carrierOrder];
 
-    await controller.manualAdjustCost('admin_1', 'PSTH0000000000001', '100abc', 'manual fix');
+    await service.createSfShipment('merchant_1', 'staff_1', batch.id, {
+      expressTypeId: 1,
+      packageCount: 1,
+      totalWeightKg: 25,
+    });
 
-    expect(controllerService.manualAdjustCost).toHaveBeenCalledWith(
-      'PSTH0000000000001',
-      'admin_1',
-      '100abc',
-      'manual fix',
+    expect(tx.deliveryCarrierOrder.create).not.toHaveBeenCalled();
+    expect(sfCarrier.createShipment).toHaveBeenCalledWith(
+      expect.objectContaining({ outsideOrderId: 'AIMM-DELIVERY-BATCH-hash' }),
     );
+    expect(carrierOrder.carrierOrderNo).toBe('SF001');
   });
 
-  describe('DeliveryPickupService seller flows', () => {
-    it('lists only batches for the seller merchantId', async () => {
-      deliveryPrisma.deliveryPickupBatch.count.mockResolvedValue(1);
-      deliveryPrisma.deliveryPickupBatch.findMany.mockResolvedValue([
-        buildBatch({
-          status: DeliveryPickupBatchStatus.PLANNED,
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              priceCalculateId: 'price_calc_001',
-              estimatedFeeCents: 320,
-              actualFeeCents: 380,
-            }),
-          ],
-        }),
-      ]);
-
-      const result = await service.listSellerPickupBatches('merchant_1', {
-        page: '2',
-        pageSize: '5',
-        status: DeliveryPickupBatchStatus.PLANNED,
-      });
-
-      expect(deliveryPrisma.deliveryPickupBatch.count).toHaveBeenCalledWith({
-        where: expect.objectContaining({
-          merchantId: 'merchant_1',
-          status: DeliveryPickupBatchStatus.PLANNED,
-        }),
-      });
-      expect(deliveryPrisma.deliveryPickupBatch.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            merchantId: 'merchant_1',
-            status: DeliveryPickupBatchStatus.PLANNED,
-          }),
-          skip: 5,
-          take: 5,
-        }),
-      );
-      expect(result).toMatchObject({
-        total: 1,
-        page: 2,
-        pageSize: 5,
-      });
-      expect(result.items).toHaveLength(1);
-      assertSellerPickupBatchHidesCosts(result.items[0]);
+  it('completes a batch only after all SF waybills complete and releases reserved quantity', async () => {
+    batch.status = 'DELIVERING';
+    batch.items[0].quantity = 2;
+    carrierOrder = {
+      id: 'PSCY0000000000001',
+      batchId: batch.id,
+      provider: 'SF',
+      attempt: 1,
+      outsideOrderId: 'AIMM-DELIVERY-BATCH-hash',
+      carrierOrderNo: 'SF001',
+      expressTypeId: 1,
+      expressTypeName: '顺丰标快',
+      packageCount: 2,
+      totalWeightKg: 35.5,
+      waybillUrl: null,
+      payType: 'PLATFORM_MONTHLY',
+      status: 'DELIVERING',
+      estimatePayload: null,
+      orderPayload: null,
+      detailPayload: null,
+      cancelPayload: null,
+      estimatedFeeCents: null,
+      actualFeeCents: null,
+      lastSyncedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      waybills: [
+        { id: 'w1', trackingNo: 'SF001', status: 'IN_TRANSIT' },
+        { id: 'w2', trackingNo: 'SF002', status: 'IN_TRANSIT' },
+      ],
+    };
+    batch.carrierOrders = [carrierOrder];
+    sfCarrier.syncWaybills.mockResolvedValue({
+      provider: 'SF',
+      status: 'COMPLETED',
+      waybills: [
+        { trackingNo: 'SF001', status: 'DELIVERED', mappedStatus: 'COMPLETED', events: [] },
+        { trackingNo: 'SF002', status: 'DELIVERED', mappedStatus: 'COMPLETED', events: [] },
+      ],
+      rawPayload: {},
     });
 
-    it('omits prepaid and actual freight fields from seller batch views', async () => {
-      deliveryPrisma.deliveryPickupBatch.findFirst.mockResolvedValue(
-        buildBatch({
-          estimatedShippingFeeCents: 600,
-          actualCarrierCostCents: 760,
-          shippingCostDiffCents: -160,
-          costLedgers: [{ id: 'ledger_estimate_1', amountCents: 600 }],
-          costLedgersBySubOrder: [{ id: 'ledger_actual_1', amountCents: 760 }],
-          carrierOrders: [
-            buildCarrierOrder({
-              carrierOrderNo: 'HL001',
-              priceCalculateId: 'price_calc_001',
-              estimatedFeeCents: 600,
-              actualFeeCents: 760,
-              driverSnapshot: { name: 'driver-a' },
-              vehicleSnapshot: { plateNo: '粤A12345' },
-            }),
-          ],
-        }),
-      );
+    await service.syncCarrier(batch.id, 'admin_1');
 
-      const result = await service.getSellerPickupBatch('merchant_1', 'PSTH0000000000001');
+    expect(tx.deliveryOrderItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ reservedPickupQuantity: { gte: 2 } }),
+        data: {
+          pickedQuantity: { increment: 2 },
+          reservedPickupQuantity: { decrement: 2 },
+        },
+      }),
+    );
+    expect(batch.status).toBe('COMPLETED');
+  });
 
-      expect(deliveryPrisma.deliveryPickupBatch.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            id: 'PSTH0000000000001',
-            merchantId: 'merchant_1',
-          },
-        }),
-      );
-      expect(result).toMatchObject({
-        id: 'PSTH0000000000001',
-        merchantId: 'merchant_1',
-        latestCarrierOrder: expect.objectContaining({
-          carrierOrderNo: 'HL001',
-          driverSnapshot: { name: 'driver-a' },
-          vehicleSnapshot: { plateNo: '粤A12345' },
-        }),
-      });
-      assertSellerPickupBatchHidesCosts(result);
+  it('does not regress a completed multi-waybill batch when a stale route query arrives', async () => {
+    batch.status = 'COMPLETED';
+    batch.completedAt = new Date('2026-08-03T12:00:00Z');
+    batch.items[0].pickedQuantity = batch.items[0].quantity;
+    carrierOrder = {
+      id: 'PSCY0000000000001',
+      batchId: batch.id,
+      provider: 'SF',
+      attempt: 1,
+      outsideOrderId: 'AIMM-DELIVERY-BATCH-hash',
+      carrierOrderNo: 'SF001',
+      status: 'COMPLETED',
+      updatedAt: new Date(),
+      createdAt: new Date(),
+      waybills: [
+        { id: 'w1', trackingNo: 'SF001', status: 'DELIVERED', deliveredAt: new Date() },
+        { id: 'w2', trackingNo: 'SF002', status: 'DELIVERED', deliveredAt: new Date() },
+      ],
+    };
+    batch.carrierOrders = [carrierOrder];
+    sfCarrier.syncWaybills.mockResolvedValue({
+      provider: 'SF',
+      status: 'DELIVERING',
+      waybills: [
+        { trackingNo: 'SF001', status: 'IN_TRANSIT', mappedStatus: 'DELIVERING', events: [] },
+        { trackingNo: 'SF002', status: 'IN_TRANSIT', mappedStatus: 'DELIVERING', events: [] },
+      ],
+      rawPayload: {},
     });
 
-    it('marks a planned batch ready and writes seller audit log', async () => {
-      tx.deliveryPickupBatch.findFirst
-        .mockResolvedValueOnce(buildBatch({ status: DeliveryPickupBatchStatus.PLANNED }))
-        .mockResolvedValueOnce(
-          buildBatch({
-            status: DeliveryPickupBatchStatus.READY_TO_CALL,
-            readyAt: now,
-          }),
-        );
+    await service.syncCarrier(batch.id, 'admin_1');
 
-      const result = await service.markReady(
-        'merchant_1',
-        'staff_1',
-        'PSTH0000000000001',
-      );
-
-      expect(deliveryPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
-      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-        where: { id: 'PSTH0000000000001' },
-        data: expect.objectContaining({
-          status: DeliveryPickupBatchStatus.READY_TO_CALL,
-          readyAt: now,
-          lastOperatorType: DeliveryAuditActorType.SELLER,
-          lastOperatorId: 'staff_1',
-        }),
-      });
-      expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          actorType: DeliveryAuditActorType.SELLER,
-          actorId: 'staff_1',
-          module: 'delivery-pickup',
-          action: 'SELLER_MARK_READY',
-          targetId: 'PSTH0000000000001',
-        }),
-      });
-      expect(result.status).toBe(DeliveryPickupBatchStatus.READY_TO_CALL);
-      assertSellerPickupBatchHidesCosts(result);
-    });
-
-    it('marks an arrived batch loaded and does not complete quantities until carrier completion sync', async () => {
-      tx.deliveryPickupBatch.findFirst
-        .mockResolvedValueOnce(
-          buildBatch({
-            status: DeliveryPickupBatchStatus.ARRIVED,
-          }),
-        )
-        .mockResolvedValueOnce(
-          buildBatch({
-            status: DeliveryPickupBatchStatus.LOADED,
-            loadedAt: now,
-            items: [
-              {
-                id: 'batch_item_1',
-                batchId: 'PSTH0000000000001',
-                subOrderId: 'PSZDD000000000001',
-                orderItemId: 'order_item_1',
-                skuId: 'sku_1',
-                productSnapshot: {
-                  productTitle: '西红柿',
-                  skuTitle: '5kg/箱',
-                  unitName: '箱',
-                },
-                quantity: 2,
-                pickedQuantity: 0,
-                createdAt: new Date('2026-06-30T10:00:00.000Z'),
-              },
-            ],
-          }),
-        );
-
-      const result = await service.markLoaded(
-        'merchant_1',
-        'staff_1',
-        'PSTH0000000000001',
-      );
-
-      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-        where: { id: 'PSTH0000000000001' },
-        data: expect.objectContaining({
-          status: DeliveryPickupBatchStatus.LOADED,
-          loadedAt: now,
-          lastOperatorType: DeliveryAuditActorType.SELLER,
-          lastOperatorId: 'staff_1',
-        }),
-      });
-      expect(tx.deliveryPickupBatchItem.updateMany).not.toHaveBeenCalled();
-      expect(result.status).toBe(DeliveryPickupBatchStatus.LOADED);
-      expect(result.items[0]).toMatchObject({
-        quantity: 2,
-        pickedQuantity: 0,
-      });
-      assertSellerPickupBatchHidesCosts(result);
-    });
-
-    it('records seller exception reports without exposing cost fields', async () => {
-      tx.deliveryPickupBatch.findFirst
-        .mockResolvedValueOnce(
-          buildBatch({
-            status: DeliveryPickupBatchStatus.DRIVER_ASSIGNED,
-            estimatedShippingFeeCents: 600,
-            actualCarrierCostCents: 760,
-            shippingCostDiffCents: -160,
-            carrierOrders: [
-              buildCarrierOrder({
-                carrierOrderNo: 'HL001',
-                estimatedFeeCents: 600,
-                actualFeeCents: 760,
-              }),
-            ],
-          }),
-        )
-        .mockResolvedValueOnce(
-          buildBatch({
-            status: DeliveryPickupBatchStatus.EXCEPTION,
-            remark: '司机联系不上',
-            estimatedShippingFeeCents: 600,
-            actualCarrierCostCents: 760,
-            shippingCostDiffCents: -160,
-            carrierOrders: [
-              buildCarrierOrder({
-                carrierOrderNo: 'HL001',
-                estimatedFeeCents: 600,
-                actualFeeCents: 760,
-              }),
-            ],
-          }),
-        );
-
-      const result = await service.reportException(
-        'merchant_1',
-        'staff_1',
-        'PSTH0000000000001',
-        '  司机联系不上  ',
-      );
-
-      expect(tx.deliveryPickupBatch.update).toHaveBeenCalledWith({
-        where: { id: 'PSTH0000000000001' },
-        data: expect.objectContaining({
-          status: DeliveryPickupBatchStatus.EXCEPTION,
-          remark: '司机联系不上',
-          lastOperatorType: DeliveryAuditActorType.SELLER,
-          lastOperatorId: 'staff_1',
-        }),
-      });
-      expect(tx.deliveryAuditLog.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          actorType: DeliveryAuditActorType.SELLER,
-          actorId: 'staff_1',
-          module: 'delivery-pickup',
-          action: 'SELLER_REPORT_EXCEPTION',
-          targetId: 'PSTH0000000000001',
-        }),
-      });
-      expect(result).toMatchObject({
-        status: DeliveryPickupBatchStatus.EXCEPTION,
-      });
-      assertSellerPickupBatchHidesCosts(result);
-    });
-
-    it('rejects operations for wrong merchantId and terminal statuses', async () => {
-      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(null);
-      await expect(
-        service.markReady('merchant_other', 'staff_1', 'PSTH0000000000001'),
-      ).rejects.toBeInstanceOf(NotFoundException);
-
-      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
-        buildBatch({ status: DeliveryPickupBatchStatus.COMPLETED }),
-      );
-      await expect(
-        service.markReady('merchant_1', 'staff_1', 'PSTH0000000000001'),
-      ).rejects.toBeInstanceOf(BadRequestException);
-
-      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
-        buildBatch({ status: DeliveryPickupBatchStatus.PLANNED }),
-      );
-      await expect(
-        service.markLoaded('merchant_1', 'staff_1', 'PSTH0000000000001'),
-      ).rejects.toBeInstanceOf(BadRequestException);
-
-      tx.deliveryPickupBatch.findFirst.mockResolvedValueOnce(
-        buildBatch({ status: DeliveryPickupBatchStatus.CANCELED }),
-      );
-      await expect(
-        service.reportException('merchant_1', 'staff_1', 'PSTH0000000000001', '异常'),
-      ).rejects.toBeInstanceOf(BadRequestException);
-
-      expect(tx.deliveryPickupBatch.update).not.toHaveBeenCalled();
-      expect(tx.deliveryAuditLog.create).not.toHaveBeenCalled();
-    });
+    expect(batch.status).toBe('COMPLETED');
+    expect(carrierOrder.status).toBe('COMPLETED');
+    expect(carrierOrder.waybills.map((item: any) => item.status)).toEqual(['DELIVERED', 'DELIVERED']);
+    expect(tx.deliveryOrderItem.updateMany).not.toHaveBeenCalled();
   });
 });
 
-function createPrismaMock() {
-  return {
-    deliveryPickupBatch: {
-      aggregate: jest.fn().mockResolvedValue({
-        _sum: {
-          estimatedShippingFeeCents: 600,
-          actualCarrierCostCents: 380,
-          shippingCostDiffCents: 220,
-        },
-      }),
-      count: jest.fn(),
-      findMany: jest.fn().mockResolvedValue([{ status: DeliveryPickupBatchStatus.DELIVERING }]),
-      findFirst: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-    deliveryPickupBatchItem: {
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-    },
-    deliveryOrderItem: {
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-    },
-    deliveryCarrierOrder: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
-      update: jest.fn(),
-    },
-    deliveryShippingCostLedger: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
-      aggregate: jest.fn().mockResolvedValue({
-        _sum: {
-          amountCents: 0,
-        },
-      }),
-    },
-    deliveryOrder: {
-      findUnique: jest.fn().mockResolvedValue({
-        prepaidPickupShippingFeeCents: 600,
-      }),
-      update: jest.fn(),
-    },
-    deliverySubOrder: {
-      update: jest.fn(),
-    },
-    deliveryAuditLog: {
-      create: jest.fn().mockResolvedValue({ id: 'audit_1' }),
-    },
-  };
-}
-
-function assertSellerPickupBatchHidesCosts(batch: Record<string, any>) {
-  for (const field of [
-    'prepaidShippingFeeCents',
-    'prepaidPickupShippingFeeCents',
-    'estimatedShippingFeeCents',
-    'actualCarrierCostCents',
-    'shippingCostDiffCents',
-    'costLedgers',
-    'costLedgersBySubOrder',
-  ]) {
-    expect(batch).not.toHaveProperty(field);
-  }
-  if (batch.latestCarrierOrder) {
-    for (const field of ['priceCalculateId', 'estimatedFeeCents', 'actualFeeCents']) {
-      expect(batch.latestCarrierOrder).not.toHaveProperty(field);
-    }
-  }
-}
-
-function buildBatch(overrides: Record<string, unknown> = {}) {
-  const carrierOrders = (overrides.carrierOrders as unknown[]) ?? [];
+function createBatch() {
   return {
     id: 'PSTH0000000000001',
     orderId: 'PSDD0000000000001',
     subOrderId: 'PSZDD000000000001',
     merchantId: 'merchant_1',
     batchNo: 1,
-    status: DeliveryPickupBatchStatus.READY_TO_CALL,
-    provider: DeliveryCarrierProvider.HUOLALA,
+    status: 'READY_TO_CALL',
+    provider: 'SF',
     plannedPickupAt: null,
-    readyAt: null,
+    readyAt: new Date('2026-08-03T09:00:00Z'),
     calledAt: null,
     loadedAt: null,
     completedAt: null,
@@ -1062,27 +343,26 @@ function buildBatch(overrides: Record<string, unknown> = {}) {
     receiverSnapshot: null,
     senderSnapshot: null,
     cargoSnapshot: null,
-    estimatedShippingFeeCents: 600,
-    actualCarrierCostCents: null,
-    shippingCostDiffCents: null,
+    estimatedShippingFeeCents: 500,
+    actualCarrierCostCents: 0,
+    shippingCostDiffCents: 500,
     createdByAdminId: null,
     lastOperatorType: null,
     lastOperatorId: null,
     remark: null,
-    createdAt: new Date('2026-06-30T10:00:00.000Z'),
-    updatedAt: new Date('2026-06-30T10:00:00.000Z'),
+    createdAt: new Date('2026-08-03T08:00:00Z'),
+    updatedAt: new Date('2026-08-03T08:00:00Z'),
     merchant: {
       id: 'merchant_1',
-      name: '华南仓',
-      contactName: '仓库负责人',
-      contactPhone: '13800000001',
-      servicePhone: '400-100',
+      name: '华南配送中心',
+      contactName: '李四',
+      contactPhone: '13900000000',
+      servicePhone: null,
       addressJson: {
         provinceName: '广东省',
         cityName: '广州市',
-        cityCode: '440100',
         districtName: '天河区',
-        detailAddress: '体育东路1号',
+        detailAddress: '科韵路 8 号',
       },
     },
     order: {
@@ -1091,29 +371,26 @@ function buildBatch(overrides: Record<string, unknown> = {}) {
       pickupMode: 'MULTI_BATCH',
       plannedPickupCount: 2,
       pickupStatus: 'NOT_STARTED',
-      prepaidPickupShippingFeeCents: 600,
+      prepaidPickupShippingFeeCents: 1000,
       actualCarrierCostCents: 0,
-      shippingCostDiffCents: 0,
-      unitSnapshot: {
-        id: 'unit_1',
-        name: '青禾食堂',
-      },
+      shippingCostDiffCents: 1000,
+      unitSnapshot: {},
       addressSnapshot: {
         recipientName: '张三',
-        phone: '13800000002',
+        phone: '13800000000',
         provinceName: '广东省',
         cityName: '广州市',
-        cityCode: '440100',
-        districtName: '海珠区',
-        detailAddress: '新港中路2号',
+        districtName: '天河区',
+        detailAddress: '体育东路 1 号',
       },
+      status: 'PENDING_SHIPMENT',
     },
     subOrder: {
       id: 'PSZDD000000000001',
       orderId: 'PSDD0000000000001',
       merchantId: 'merchant_1',
-      pickupStatus: 'NOT_STARTED',
       status: 'PENDING_SHIPMENT',
+      pickupStatus: 'NOT_STARTED',
     },
     items: [
       {
@@ -1122,45 +399,12 @@ function buildBatch(overrides: Record<string, unknown> = {}) {
         subOrderId: 'PSZDD000000000001',
         orderItemId: 'order_item_1',
         skuId: 'sku_1',
-        productSnapshot: {
-          productTitle: '西红柿',
-          skuTitle: '5kg/箱',
-          unitName: '箱',
-          weightGram: 5000,
-        },
-        quantity: 2,
+        productSnapshot: { productTitle: '大米', skuTitle: '25kg/袋', weightGram: 25000 },
+        quantity: 1,
         pickedQuantity: 0,
-        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+        createdAt: new Date(),
       },
     ],
-    carrierOrders,
-    ...overrides,
-  };
-}
-
-function buildCarrierOrder(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'PSCY0000000000001',
-    batchId: 'PSTH0000000000001',
-    provider: DeliveryCarrierProvider.HUOLALA,
-    outsideOrderId: 'PSTH0000000000001',
-    carrierOrderNo: null,
-    priceCalculateId: null,
-    cityId: '440100',
-    vehicleId: 'small-van',
-    payType: 'PLATFORM_MONTHLY',
-    status: 'CALLING_CARRIER',
-    driverSnapshot: null,
-    vehicleSnapshot: null,
-    estimatePayload: null,
-    orderPayload: null,
-    detailPayload: null,
-    cancelPayload: null,
-    estimatedFeeCents: null,
-    actualFeeCents: null,
-    lastSyncedAt: null,
-    createdAt: new Date('2026-06-30T10:00:00.000Z'),
-    updatedAt: new Date('2026-06-30T10:00:00.000Z'),
-    ...overrides,
+    carrierOrders: [],
   };
 }

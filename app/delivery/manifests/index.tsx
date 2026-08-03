@@ -12,6 +12,17 @@ import {
   useDeliveryTheme,
 } from '../_components';
 
+const manifestTypeLabels: Record<string, string> = {
+  BUYER_FULL: '买家整单清单',
+  SELLER_FULFILLMENT: '商家配货清单',
+};
+
+const manifestStatusLabels: Record<string, string> = {
+  PENDING: '生成中',
+  GENERATED: '已生成',
+  FAILED: '生成失败',
+};
+
 export default function DeliveryManifestsScreen() {
   const { spacing, typography, palette } = useDeliveryTheme();
   const { show } = useToast();
@@ -66,7 +77,13 @@ export default function DeliveryManifestsScreen() {
           />
         ) : (
           manifests.map((manifest) => (
-            <Pressable key={manifest.id} onPress={() => openManifest(manifest.fileUrl)} style={{ marginBottom: spacing.md }}>
+            <Pressable
+              key={manifest.id}
+              accessibilityRole="button"
+              accessibilityLabel={`打开配送清单 ${manifest.title}`}
+              onPress={() => openManifest(manifest.fileUrl)}
+              style={{ marginBottom: spacing.md }}
+            >
               <DeliveryPanel>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
                   <View
@@ -90,7 +107,7 @@ export default function DeliveryManifestsScreen() {
                       {manifest.title}
                     </Text>
                     <Text style={[typography.caption, { color: palette.text.secondary, marginTop: 2 }]}>
-                      {manifest.type} · {manifest.status}
+                      {manifestTypeLabels[manifest.type] ?? '配送清单'} · {manifestStatusLabels[manifest.status] ?? '状态待更新'}
                     </Text>
                     <Text style={[typography.caption, { color: palette.text.tertiary, marginTop: 2 }]}>
                       {new Date(manifest.generatedAt).toLocaleString()}

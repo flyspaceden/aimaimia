@@ -1,5 +1,7 @@
 # Delivery Partial Pickup Huolala Implementation Plan
 
+> ⚠️ **ARCHIVED / DO NOT EXECUTE**: The user replaced Huolala with the already-working SF integration on 2026-08-03. The current implementation and release checklist live in `docs/features/shipping.md` and the live delivery code. This file is retained only as historical planning evidence; none of its Huolala API, driver, vehicle, quote, or call-order steps may be reintroduced.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the delivery-line “一次付款，多次提货” flow with Huolala enterprise carrier orders, platform freight cost accounting, App pickup visibility, admin freight management, and delivery-center batch fulfillment.

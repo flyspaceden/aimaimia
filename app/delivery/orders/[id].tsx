@@ -17,20 +17,20 @@ import {
 } from '../_components';
 
 const pickupStatusLabels: Record<string, string> = {
-  NOT_STARTED: '待提货',
-  PARTIAL_PICKED: '部分提货中',
-  ALL_PICKED: '已全部提货',
-  CANCELED: '提货已取消',
+  NOT_STARTED: '待配送',
+  PARTIAL_PICKED: '分批配送中',
+  ALL_PICKED: '已全部送达',
+  CANCELED: '配送已取消',
 };
 
 const pickupBatchStatusLabels: Record<string, string> = {
   PLANNED: '计划中',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '等待司机',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '已到达',
-  LOADED: '已装货',
+  READY_TO_CALL: '待顺丰下单',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '等待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已上门',
+  LOADED: '顺丰已揽收',
   DELIVERING: '配送中',
   COMPLETED: '已完成',
   CANCELED: '已取消',
@@ -38,9 +38,25 @@ const pickupBatchStatusLabels: Record<string, string> = {
 };
 
 const carrierProviderLabels: Record<string, string> = {
-  HUOLALA: '货拉拉',
   SF: '顺丰',
   MANUAL: '人工安排',
+};
+
+const carrierWaybillStatusLabels: Record<string, string> = {
+  WAITING_PICKUP: '等待揽收',
+  SHIPPED: '已揽收',
+  IN_TRANSIT: '运输中',
+  DELIVERED: '已签收',
+  EXCEPTION: '物流异常',
+  CANCELED: '已取消',
+};
+
+const shipmentStatusLabels: Record<string, string> = {
+  INIT: '待发货',
+  SHIPPED: '已发货',
+  IN_TRANSIT: '运输中',
+  DELIVERED: '已送达',
+  EXCEPTION: '物流异常',
 };
 
 export default function DeliveryOrderDetailScreen() {
@@ -158,7 +174,7 @@ export default function DeliveryOrderDetailScreen() {
           </Text>
           <Row label="商品金额" value={formatDeliveryMoney(order.goodsAmount)} />
           <Row
-            label={hasPickupBatches || order.pickupMode === 'MULTI_BATCH' ? '预收提货运费' : '配送运费'}
+            label={hasPickupBatches || order.pickupMode === 'MULTI_BATCH' ? '预收配送运费' : '配送运费'}
             value={formatDeliveryMoney(
               hasPickupBatches || order.pickupMode === 'MULTI_BATCH'
                 ? order.prepaidPickupShippingFee
@@ -172,14 +188,14 @@ export default function DeliveryOrderDetailScreen() {
           <DeliveryPanel style={{ marginBottom: spacing.md }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md }}>
               <Text style={[typography.headingSm, { color: palette.text.primary }]}>
-                提货进度
+                配送进度
               </Text>
               <Text style={[typography.caption, { color: palette.brand.primaryDark }]} numberOfLines={1}>
-                {pickupStatusLabels[order.pickupStatus] ?? order.pickupStatus}
+                {pickupStatusLabels[order.pickupStatus] ?? '状态待更新'}
               </Text>
             </View>
             <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
-              预计 {order.plannedPickupCount} 次提货 · 已预收 {formatDeliveryMoney(order.prepaidPickupShippingFee)}
+              预计 {order.plannedPickupCount} 个配送批次 · 已预收 {formatDeliveryMoney(order.prepaidPickupShippingFee)}
             </Text>
 
             <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
@@ -189,7 +205,7 @@ export default function DeliveryOrderDetailScreen() {
                     {item.productTitle}
                   </Text>
                   <Text style={[typography.caption, { color: palette.text.secondary, marginTop: 2 }]}>
-                    已购 {item.quantity}{item.unitName} · 已提 {item.pickedQuantity}{item.unitName} · 剩余 {item.remainingQuantity}{item.unitName}
+                    已购 {item.quantity}{item.unitName} · 已送达 {item.pickedQuantity}{item.unitName} · 待配送 {item.remainingQuantity}{item.unitName}
                   </Text>
                 </View>
               ))}
@@ -197,10 +213,6 @@ export default function DeliveryOrderDetailScreen() {
 
             <View style={{ marginTop: spacing.lg, gap: spacing.md }}>
               {order.pickupBatches.map((batch) => {
-                const driverName = pickSnapshotText(batch.driverSnapshot, ['name', 'driverName']);
-                const driverPhone = pickSnapshotText(batch.driverSnapshot, ['phone', 'mobile']);
-                const vehicleLabel = pickSnapshotText(batch.vehicleSnapshot, ['plateNo', 'plateNumber', 'vehicleNo']);
-                const vehicleType = pickSnapshotText(batch.vehicleSnapshot, ['vehicleName', 'vehicleType']);
                 return (
                   <View
                     key={batch.id}
@@ -212,18 +224,31 @@ export default function DeliveryOrderDetailScreen() {
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md }}>
                       <Text style={[typography.bodyStrong, { color: palette.text.primary, flex: 1 }]} numberOfLines={1}>
-                        第 {batch.batchNo} 次提货
+                        第 {batch.batchNo} 个配送批次
                       </Text>
                       <Text style={[typography.caption, { color: palette.brand.primaryDark }]} numberOfLines={1}>
-                        {pickupBatchStatusLabels[batch.status] ?? batch.status}
+                        {pickupBatchStatusLabels[batch.status] ?? '状态待更新'}
                       </Text>
                     </View>
                     <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
-                      {carrierProviderLabels[batch.provider] ?? batch.provider} · 承运单号 {batch.carrierOrderNo || '待生成'}
+                      {carrierProviderLabels[batch.provider] ?? '配送承运方'} · {batch.expressTypeName || '快递产品待确定'}
                     </Text>
                     <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
-                      司机 {joinSnapshotParts([driverName || '待分配', driverPhone])} · 车辆 {joinSnapshotParts([vehicleLabel || '待分配', vehicleType])}
+                      {batch.packageCount ? `${batch.packageCount}件` : '件数待确定'} · {batch.totalWeightKg ? `${batch.totalWeightKg}kg` : '重量待确定'}
                     </Text>
+                    {batch.waybills.length > 0 ? (
+                      <View style={{ marginTop: spacing.xs, gap: 2 }}>
+                        {batch.waybills.map((waybill) => (
+                          <Text key={waybill.trackingNo} style={[typography.caption, { color: palette.brand.primaryDark }]}>
+                            顺丰运单 {waybill.trackingNo} · {carrierWaybillStatusLabels[waybill.status] ?? '状态待更新'}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
+                        顺丰运单号 {batch.carrierOrderNo || '待生成'}
+                      </Text>
+                    )}
                     <Text style={[typography.caption, { color: palette.text.secondary, marginTop: spacing.xs }]}>
                       {batch.completedAt
                         ? `完成时间 ${formatDeliveryDate(batch.completedAt)}`
@@ -236,7 +261,7 @@ export default function DeliveryOrderDetailScreen() {
                           style={[typography.caption, { color: palette.text.tertiary }]}
                           numberOfLines={1}
                         >
-                          {item.productTitle || '配送商品'} {item.skuTitle ? `· ${item.skuTitle}` : ''} · 计划 {item.quantity}{item.unitName} · 已提 {item.pickedQuantity}{item.unitName}
+                          {item.productTitle || '配送商品'} {item.skuTitle ? `· ${item.skuTitle}` : ''} · 计划 {item.quantity}{item.unitName} · 已送达 {item.pickedQuantity}{item.unitName}
                         </Text>
                       ))}
                     </View>
@@ -260,11 +285,21 @@ export default function DeliveryOrderDetailScreen() {
                       {shipment.carrierName} · {shipment.waybillNo || '待回填单号'}
                     </Text>
                     <Text style={[typography.caption, { color: palette.text.secondary, marginTop: 2 }]}>
-                      {shipment.status}
+                      {shipmentStatusLabels[shipment.status] ?? '状态待更新'}
                       {shipment.shippedAt ? ` · 发货于 ${new Date(shipment.shippedAt).toLocaleString()}` : ''}
                     </Text>
                     {shipment.waybillUrl ? (
-                      <Pressable onPress={() => Linking.openURL(shipment.waybillUrl!)}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`打开面单 ${shipment.waybillNo || ''}`.trim()}
+                        onPress={async () => {
+                          try {
+                            await Linking.openURL(shipment.waybillUrl!);
+                          } catch {
+                            show({ message: '面单打开失败，请稍后重试', type: 'error' });
+                          }
+                        }}
+                      >
                         <Text style={[typography.caption, { color: palette.brand.primaryDark, marginTop: spacing.xs }]}>
                           打开面单
                         </Text>
@@ -308,25 +343,4 @@ function formatDeliveryDate(value: string | null) {
     return '';
   }
   return new Date(value).toLocaleString();
-}
-
-function pickSnapshotText(snapshot: unknown, keys: string[]) {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-    return '';
-  }
-  const record = snapshot as Record<string, unknown>;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return String(value);
-    }
-  }
-  return '';
-}
-
-function joinSnapshotParts(parts: string[]) {
-  return parts.filter(Boolean).join(' / ');
 }

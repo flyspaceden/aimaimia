@@ -19,8 +19,14 @@ export const getPickupBatch = (id: string): Promise<PickupBatch> =>
 export const markPickupBatchReady = (id: string): Promise<PickupBatch> =>
   client.post(`/delivery-seller/pickup-batches/${id}/mark-ready`, {});
 
-export const markPickupBatchLoaded = (id: string): Promise<PickupBatch> =>
-  client.post(`/delivery-seller/pickup-batches/${id}/mark-loaded`, {});
+export const shipPickupBatchWithSf = (
+  id: string,
+  payload: { expressTypeId: number; packageCount: number; totalWeightKg: number },
+): Promise<PickupBatch> =>
+  client.post(`/delivery-seller/pickup-batches/${id}/ship-sf`, payload);
+
+export const reprintPickupBatchWaybill = (id: string): Promise<PickupBatch> =>
+  client.post(`/delivery-seller/pickup-batches/${id}/reprint-waybill`, {});
 
 export const reportPickupBatchException = (id: string, message: string): Promise<PickupBatch> =>
   client.post(`/delivery-seller/pickup-batches/${id}/report-exception`, { message });

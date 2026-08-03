@@ -79,6 +79,18 @@ export function getErrorMessage(error: unknown) {
   return '请求失败';
 }
 
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 export function calcMargin(buyerAmountCents?: number | null, sellerAmountCents?: number | null) {
   if (buyerAmountCents === null || buyerAmountCents === undefined) {
     return null;

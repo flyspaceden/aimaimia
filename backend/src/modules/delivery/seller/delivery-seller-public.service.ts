@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
+import {
+  parseSfExpressProducts,
+  SF_EXPRESS_PRODUCTS_CONFIG_KEY,
+} from '../config/sf-express-products';
 
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
 
@@ -10,10 +14,16 @@ export class DeliverySellerPublicService {
   constructor(private readonly deliveryPrisma: DeliveryPrismaService) {}
 
   async getPublicConfig() {
-    const row = await this.deliveryPrisma.deliveryConfig.findUnique({
-      where: { key: 'LOW_STOCK_DISPLAY_THRESHOLD' },
-      select: { value: true },
-    });
+    const [row, sfProductsRow] = await Promise.all([
+      this.deliveryPrisma.deliveryConfig.findUnique({
+        where: { key: 'LOW_STOCK_DISPLAY_THRESHOLD' },
+        select: { value: true },
+      }),
+      this.deliveryPrisma.deliveryConfig.findUnique({
+        where: { key: SF_EXPRESS_PRODUCTS_CONFIG_KEY },
+        select: { value: true },
+      }),
+    ]);
 
     const raw = this.unwrap(row?.value, DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD);
     const valid = Number.isInteger(raw) && raw >= 0 && raw <= 999;
@@ -25,6 +35,9 @@ export class DeliverySellerPublicService {
 
     return {
       lowStockDisplayThreshold: valid ? raw : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD,
+      sfExpressProducts: parseSfExpressProducts(sfProductsRow?.value).filter(
+        (item) => item.enabled,
+      ),
     };
   }
 

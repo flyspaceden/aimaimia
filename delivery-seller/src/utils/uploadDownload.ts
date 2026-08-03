@@ -6,6 +6,7 @@ export interface UploadDownloadRequest {
 const DELIVERY_UPLOAD_KEY_PREFIXES = [
   'delivery/products/',
   'delivery/waybills/',
+  'delivery/pickup-waybills/',
   'delivery/manifests/',
   'delivery/settlements/',
   'delivery/documents/',

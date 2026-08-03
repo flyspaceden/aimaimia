@@ -142,7 +142,7 @@ export default function StockPage() {
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<StockForm> form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item label="商品">

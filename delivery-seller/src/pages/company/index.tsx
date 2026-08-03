@@ -81,7 +81,7 @@ export default function CompanySettingsPage() {
         </Col>
         <Col xs={24} md={8}>
           <ProCard title="基础资料" headerBordered style={{ borderTop: '3px solid #f59e0b' }}>
-            <Descriptions column={1} size="small" labelStyle={{ width: 96 }}>
+            <Descriptions column={1} size="small" styles={{ label: { width: 96 } }}>
               <Descriptions.Item label="配送中心">{company.name}</Descriptions.Item>
               <Descriptions.Item label="创建时间">
                 {dayjs(company.createdAt).format('YYYY-MM-DD HH:mm')}
@@ -157,7 +157,7 @@ export default function CompanySettingsPage() {
 
         <Col xs={24} lg={8}>
           <ProCard title="当前联系方式" headerBordered style={{ borderTop: '3px solid #ffa940' }}>
-            <Descriptions column={1} size="small" labelStyle={{ width: 112 }}>
+            <Descriptions column={1} size="small" styles={{ label: { width: 112 } }}>
               <Descriptions.Item label="联系人">{company.contactName}</Descriptions.Item>
               <Descriptions.Item label="联系手机">{company.contactPhone}</Descriptions.Item>
               <Descriptions.Item label="值班电话">{company.servicePhone || '-'}</Descriptions.Item>

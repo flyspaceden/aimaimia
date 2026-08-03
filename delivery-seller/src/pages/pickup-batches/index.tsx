@@ -1,9 +1,13 @@
 import { useRef, useState } from 'react';
 import {
+  Alert,
   App,
   Button,
+  Form,
   Input,
+  InputNumber,
   Modal,
+  Select,
   Space,
   Tag,
   Typography,
@@ -12,55 +16,48 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   InboxOutlined,
+  PrinterOutlined,
+  SendOutlined,
   TruckOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import {
   getPickupBatches,
-  markPickupBatchLoaded,
   markPickupBatchReady,
+  reprintPickupBatchWaybill,
   reportPickupBatchException,
+  shipPickupBatchWithSf,
 } from '@/api/orders';
+import { getPublicAppConfig } from '@/api/config';
 import useAuthStore from '@/store/useAuthStore';
-import type { PickupBatch, PickupBatchCarrierOrder, PickupBatchItem } from '@/types';
+import type { PickupBatch, PickupBatchItem } from '@/types';
+import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
 
 const { Text } = Typography;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
-const pickupBatchStatusOptions = [
-  'PLANNED',
-  'READY_TO_CALL',
-  'CALLING_CARRIER',
-  'WAITING_DRIVER',
-  'DRIVER_ASSIGNED',
-  'ARRIVED',
-  'LOADED',
-  'DELIVERING',
-  'COMPLETED',
-  'CANCELED',
-  'EXCEPTION',
-];
-
-const pickupBatchStatusText: Record<string, string> = {
-  PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已交货',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+const statusText: Record<string, string> = {
+  PLANNED: '待备货',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
 
-const pickupBatchStatusColor: Record<string, string> = {
+const statusColor: Record<string, string> = {
   PLANNED: 'default',
   READY_TO_CALL: 'processing',
   CALLING_CARRIER: 'processing',
-  WAITING_DRIVER: 'processing',
+  WAITING_DRIVER: 'cyan',
   DRIVER_ASSIGNED: 'blue',
   ARRIVED: 'cyan',
   LOADED: 'purple',
@@ -70,27 +67,14 @@ const pickupBatchStatusColor: Record<string, string> = {
   EXCEPTION: 'error',
 };
 
-function pickupBatchValueEnum() {
-  return Object.fromEntries(
-    pickupBatchStatusOptions.map((status) => [status, { text: pickupBatchStatusText[status] }]),
-  );
-}
+type SfFormValues = {
+  expressTypeId: number;
+  packageCount: number;
+  totalWeightKg: number;
+};
 
-function PickupBatchStatusTag({ value }: { value?: string | null }) {
-  if (!value) {
-    return <Tag>-</Tag>;
-  }
-  return <Tag color={pickupBatchStatusColor[value] ?? 'default'}>{pickupBatchStatusText[value] ?? value}</Tag>;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asString(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : '';
+function StatusTag({ value }: { value?: string | null }) {
+  return value ? <Tag color={statusColor[value] ?? 'default'}>{statusText[value] ?? value}</Tag> : <Tag>-</Tag>;
 }
 
 function formatDateTime(value?: string | null) {
@@ -98,87 +82,22 @@ function formatDateTime(value?: string | null) {
 }
 
 function formatItemTitle(item: PickupBatchItem) {
-  const productTitle = item.productTitle || item.skuId;
-  return item.skuTitle ? `${productTitle} / ${item.skuTitle}` : productTitle;
-}
-
-function formatUnitName(item: PickupBatchItem) {
-  return item.unitName || '件';
-}
-
-function getCarrierOrder(batch: PickupBatch): PickupBatchCarrierOrder {
-  return batch.latestCarrierOrder ?? {
-    carrierOrderNo: batch.carrierOrderNo,
-    driverSnapshot: batch.driverSnapshot,
-    vehicleSnapshot: batch.vehicleSnapshot,
-  };
-}
-
-function formatDriver(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
-}
-
-function formatUnitAndAddress(batch: PickupBatch) {
-  const unit = asRecord(batch.unitSnapshot);
-  const address = asRecord(batch.addressSnapshot);
-  const unitName =
-    asString(unit.name) ||
-    asString(unit.unitName) ||
-    asString(unit.companyName) ||
-    batch.merchantName ||
-    batch.unitId ||
-    '-';
-  const regionText =
-    asString(address.regionText) ||
-    asString(address.region) ||
-    asString(unit.regionText);
-  const detailAddress =
-    asString(address.detailAddress) ||
-    asString(address.address) ||
-    asString(address.detail) ||
-    asString(unit.address);
-  const fullAddress = [regionText, detailAddress].filter(Boolean).join(' ');
-  return { unitName, fullAddress };
+  return item.skuTitle ? `${item.productTitle || item.skuId} / ${item.skuTitle}` : item.productTitle || item.skuId;
 }
 
 function canMarkReady(batch: PickupBatch) {
-  return ['PLANNED', 'EXCEPTION'].includes(batch.status);
+  return ['PLANNED', 'EXCEPTION'].includes(batch.status) && !batch.latestCarrierOrder?.carrierOrderNo;
 }
 
-function canMarkLoaded(batch: PickupBatch) {
-  return ['ARRIVED', 'DRIVER_ASSIGNED'].includes(batch.status);
+function canShip(batch: PickupBatch) {
+  const carrier = batch.latestCarrierOrder;
+  const staleReservation =
+    batch.status === 'CALLING_CARRIER' &&
+    carrier?.status === 'CREATING_SF_ORDER' &&
+    Boolean(carrier.updatedAt) &&
+    Date.now() - new Date(carrier.updatedAt!).getTime() >= 15 * 60 * 1000;
+  return (['READY_TO_CALL', 'EXCEPTION'].includes(batch.status) || staleReservation)
+    && (!carrier?.carrierOrderNo || carrier.status?.startsWith('CANCELED'));
 }
 
 function canReportException(batch: PickupBatch) {
@@ -186,43 +105,34 @@ function canReportException(batch: PickupBatch) {
 }
 
 export default function PickupBatchesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
-  const hasPermission = useAuthStore((s) => s.hasPermission);
-  const canWrite = hasPermission('orders:write');
+  const canWrite = useAuthStore((state) => state.hasPermission('orders:write'));
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [sfTarget, setSfTarget] = useState<PickupBatch | null>(null);
   const [exceptionTarget, setExceptionTarget] = useState<PickupBatch | null>(null);
   const [exceptionMessage, setExceptionMessage] = useState('');
+  const [sfForm] = Form.useForm<SfFormValues>();
+  const configQuery = useQuery({ queryKey: ['seller-public-config'], queryFn: getPublicAppConfig });
+  const sfProducts = configQuery.data?.sfExpressProducts ?? [];
 
   const reload = () => actionRef.current?.reload();
 
-  const confirmBatchAction = (
-    batch: PickupBatch,
-    action: 'ready' | 'loaded',
-  ) => {
-    const isReady = action === 'ready';
-    Modal.confirm({
-      title: isReady ? '确认已备货' : '确认已交货',
-      icon: isReady ? <CheckCircleOutlined /> : <TruckOutlined />,
-      content: isReady
-        ? `批次 ${batch.id} 的商品已备齐，可以等待平台叫车。`
-        : `批次 ${batch.id} 已交给司机，后续由承运状态继续更新。`,
-      okText: isReady ? '已备货' : '已交货',
-      cancelText: '取消',
+  const confirmReady = (batch: PickupBatch) => {
+    modal.confirm({
+      title: '确认备货完成',
+      icon: <CheckCircleOutlined />,
+      content: `配送批次 ${batch.id} 的商品已备齐，可以创建顺丰运单。`,
+      okText: '确认已备货',
+      cancelText: '返回',
       onOk: async () => {
-        const key = `${action}:${batch.id}`;
-        setActionLoading(key);
+        setActionLoading(`ready:${batch.id}`);
         try {
-          if (isReady) {
-            await markPickupBatchReady(batch.id);
-            message.success('批次已标记为备货完成');
-          } else {
-            await markPickupBatchLoaded(batch.id);
-            message.success('批次已标记为交货完成');
-          }
+          await markPickupBatchReady(batch.id);
+          message.success('配送批次已进入待顺丰发货');
           reload();
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : '批次操作失败');
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '备货状态更新失败');
         } finally {
           setActionLoading(null);
         }
@@ -230,23 +140,61 @@ export default function PickupBatchesPage() {
     });
   };
 
+  const openSfShipment = (batch: PickupBatch) => {
+    setSfTarget(batch);
+    sfForm.setFieldsValue({
+      expressTypeId: sfProducts[0]?.expressTypeId ?? 1,
+      packageCount: 1,
+      totalWeightKg: Math.max(0.1, batch.suggestedWeightKg ?? 1),
+    });
+  };
+
+  const submitSfShipment = async () => {
+    if (!sfTarget) return;
+    const values = await sfForm.validateFields();
+    setActionLoading(`ship:${sfTarget.id}`);
+    try {
+      await shipPickupBatchWithSf(sfTarget.id, values);
+      message.success('顺丰运单已创建，已通知上门揽收');
+      setSfTarget(null);
+      sfForm.resetFields();
+      reload();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '顺丰发货失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const reprintWaybill = async (batch: PickupBatch) => {
+    setActionLoading(`print:${batch.id}`);
+    try {
+      const updated = await reprintPickupBatchWaybill(batch.id);
+      const url = updated.latestCarrierOrder?.waybillUrl;
+      if (!url) throw new Error('顺丰面单文件尚未生成');
+      await downloadDeliveryUploadWithAuth(url, `顺丰面单-${batch.id}`, API_BASE);
+      message.success('顺丰面单已重新生成');
+      reload();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '面单重打失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const submitException = async () => {
     if (!exceptionTarget) return;
     const content = exceptionMessage.trim();
-    if (!content) {
-      message.warning('请填写异常反馈');
-      return;
-    }
-    const key = `exception:${exceptionTarget.id}`;
-    setActionLoading(key);
+    if (!content) return message.warning('请填写异常说明');
+    setActionLoading(`exception:${exceptionTarget.id}`);
     try {
       await reportPickupBatchException(exceptionTarget.id, content);
-      message.success('异常反馈已提交');
+      message.success('异常已提交给平台管理员');
       setExceptionTarget(null);
       setExceptionMessage('');
       reload();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '异常反馈提交失败');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '异常提交失败');
     } finally {
       setActionLoading(null);
     }
@@ -254,58 +202,32 @@ export default function PickupBatchesPage() {
 
   const columns: ProColumns<PickupBatch>[] = [
     {
-      title: '批次/订单',
+      title: '批次或订单号',
       dataIndex: 'keyword',
       hideInTable: true,
-      fieldProps: { placeholder: '输入批次号或订单号' },
+      fieldProps: { placeholder: '输入配送批次、订单或子单号' },
     },
     {
-      title: '批次号',
-      key: 'batch',
-      width: 190,
-      search: false,
+      title: '配送批次', key: 'batch', width: 220, search: false,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Text copyable={{ text: record.id }} style={{ fontFamily: 'monospace' }}>
-            {record.id}
-          </Text>
-          <Tag>第 {record.batchNo} 批</Tag>
+          <Text copyable={{ text: record.id }} style={{ fontFamily: 'monospace' }}>{record.id}</Text>
+          <Text type="secondary">订单 {record.orderId} · 第 {record.batchNo} 批</Text>
         </Space>
       ),
     },
     {
-      title: '订单号',
-      key: 'order',
-      width: 220,
-      search: false,
-      render: (_, record) => (
-        <Space direction="vertical" size={0}>
-          <Text copyable={{ text: record.orderId }} style={{ fontFamily: 'monospace' }}>
-            {record.orderId}
-          </Text>
-          <Text type="secondary" copyable={{ text: record.subOrderId }}>
-            子单 {record.subOrderId}
-          </Text>
-        </Space>
-      ),
+      title: '状态', dataIndex: 'status', width: 130,
+      valueEnum: Object.fromEntries(Object.entries(statusText).map(([key, text]) => [key, { text }])),
+      render: (_, record) => <StatusTag value={record.status} />,
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      width: 120,
-      valueEnum: pickupBatchValueEnum(),
-      render: (_, record) => <PickupBatchStatusTag value={record.status} />,
-    },
-    {
-      title: '商品',
-      key: 'items',
-      width: 260,
-      search: false,
+      title: '商品', key: 'items', width: 280, search: false,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           {record.items.slice(0, 2).map((item) => (
-            <Text key={item.id} ellipsis style={{ maxWidth: 240 }}>
-              {formatItemTitle(item)}
+            <Text key={item.id} ellipsis style={{ maxWidth: 260 }}>
+              {formatItemTitle(item)} × {item.quantity}{item.unitName || '件'}
             </Text>
           ))}
           {record.items.length > 2 ? <Text type="secondary">另 {record.items.length - 2} 项</Text> : null}
@@ -313,58 +235,32 @@ export default function PickupBatchesPage() {
       ),
     },
     {
-      title: '数量',
-      key: 'quantity',
-      width: 150,
-      search: false,
+      title: '配送进度', key: 'quantity', width: 140, search: false,
       render: (_, record) => {
         const total = record.items.reduce((sum, item) => sum + item.quantity, 0);
-        const picked = record.items.reduce((sum, item) => sum + item.pickedQuantity, 0);
-        const firstUnit = record.items[0] ? formatUnitName(record.items[0]) : '件';
-        return (
-          <Space direction="vertical" size={0}>
-            <Text>{total}{firstUnit}</Text>
-            <Text type="secondary">已交 {picked}{firstUnit}</Text>
-          </Space>
-        );
+        const delivered = record.items.reduce((sum, item) => sum + item.pickedQuantity, 0);
+        return <Text>{delivered} / {total}</Text>;
       },
     },
     {
-      title: '收货单位/地址',
-      key: 'unit',
-      width: 230,
-      search: false,
+      title: '顺丰产品 / 运单', key: 'sf', width: 260, search: false,
       render: (_, record) => {
-        const { unitName, fullAddress } = formatUnitAndAddress(record);
+        const carrier = record.latestCarrierOrder;
         return (
           <Space direction="vertical" size={0}>
-            <Text>{unitName}</Text>
-            <Text type="secondary" ellipsis style={{ maxWidth: 210 }}>
-              {fullAddress || '-'}
-            </Text>
+            <Text>{carrier?.expressTypeName ?? '顺丰速运'}</Text>
+            {(carrier?.waybills ?? []).map((waybill) => (
+              <Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }} type="secondary">
+                {waybill.trackingNo} · {waybill.status}
+              </Text>
+            ))}
+            {carrier?.packageCount ? <Text type="secondary">{carrier.packageCount} 件 / {carrier.totalWeightKg} kg</Text> : null}
           </Space>
         );
       },
     },
     {
-      title: '司机',
-      key: 'driver',
-      width: 160,
-      search: false,
-      render: (_, record) => formatDriver(getCarrierOrder(record).driverSnapshot),
-    },
-    {
-      title: '车辆',
-      key: 'vehicle',
-      width: 150,
-      search: false,
-      render: (_, record) => formatVehicle(getCarrierOrder(record).vehicleSnapshot),
-    },
-    {
-      title: '预计/更新时间',
-      key: 'time',
-      width: 180,
-      search: false,
+      title: '计划 / 更新', key: 'time', width: 170, search: false,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
           <Text>{formatDateTime(record.plannedPickupAt)}</Text>
@@ -373,41 +269,20 @@ export default function PickupBatchesPage() {
       ),
     },
     {
-      title: '操作',
-      key: 'actions',
-      width: 230,
-      fixed: 'right',
-      search: false,
+      title: '操作', key: 'actions', width: 280, fixed: 'right', search: false,
       render: (_, record) => (
         <Space size={4} wrap>
-          <Button
-            size="small"
-            disabled={!canWrite || !canMarkReady(record)}
-            loading={actionLoading === `ready:${record.id}`}
-            onClick={() => confirmBatchAction(record, 'ready')}
-          >
+          <Button size="small" disabled={!canWrite || !canMarkReady(record)} loading={actionLoading === `ready:${record.id}`} onClick={() => confirmReady(record)}>
             已备货
           </Button>
-          <Button
-            size="small"
-            disabled={!canWrite || !canMarkLoaded(record)}
-            loading={actionLoading === `loaded:${record.id}`}
-            onClick={() => confirmBatchAction(record, 'loaded')}
-          >
-            已交货
+          <Button type="primary" size="small" icon={<SendOutlined />} disabled={!canWrite || !canShip(record) || sfProducts.length === 0} loading={actionLoading === `ship:${record.id}`} onClick={() => openSfShipment(record)}>
+            顺丰发货
           </Button>
-          <Button
-            danger
-            size="small"
-            icon={<ExclamationCircleOutlined />}
-            disabled={!canWrite || !canReportException(record)}
-            loading={actionLoading === `exception:${record.id}`}
-            onClick={() => {
-              setExceptionTarget(record);
-              setExceptionMessage('');
-            }}
-          >
-            异常反馈
+          <Button size="small" icon={<PrinterOutlined />} disabled={!canWrite || !record.latestCarrierOrder?.carrierOrderNo} loading={actionLoading === `print:${record.id}`} onClick={() => reprintWaybill(record)}>
+            重打面单
+          </Button>
+          <Button danger size="small" icon={<ExclamationCircleOutlined />} disabled={!canWrite || !canReportException(record)} loading={actionLoading === `exception:${record.id}`} onClick={() => setExceptionTarget(record)}>
+            报异常
           </Button>
         </Space>
       ),
@@ -416,11 +291,17 @@ export default function PickupBatchesPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+      <Alert
+        showIcon
+        type="info"
+        message="每个配送批次独立创建顺丰运单"
+        description="实际重量和包裹数请按本次交寄填写；可选产品只来自平台已启用的顺丰签约产品。"
+      />
       <ProTable<PickupBatch>
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        scroll={{ x: 1520 }}
+        scroll={{ x: 1580 }}
         tableAlertRender={false}
         request={async (params) => {
           const result = await getPickupBatches({
@@ -433,49 +314,46 @@ export default function PickupBatchesPage() {
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         search={{ labelWidth: 'auto', collapsed: false, collapseRender: false }}
-        headerTitle={
-          <Space>
-            <TruckOutlined />
-            <span>提货批次</span>
-          </Space>
-        }
+        headerTitle={<Space><TruckOutlined /><span>配送批次</span></Space>}
         toolBarRender={() => []}
-        locale={{
-          emptyText: (
-            <div style={{ padding: '40px 0', color: '#999' }}>
-              <InboxOutlined style={{ fontSize: 48, marginBottom: 16, display: 'block' }} />
-              暂无提货批次
-            </div>
-          ),
-        }}
+        locale={{ emptyText: <div style={{ padding: '40px 0', color: '#999' }}><InboxOutlined style={{ fontSize: 48, display: 'block', marginBottom: 16 }} />暂无配送批次</div> }}
       />
 
       <Modal
-        title="异常反馈"
-        open={!!exceptionTarget}
-        okText="提交反馈"
-        cancelText="取消"
+        title="创建顺丰运单"
+        open={Boolean(sfTarget)}
+        okText="确认顺丰发货"
+        cancelText="返回检查"
+        confirmLoading={actionLoading === `ship:${sfTarget?.id}`}
+        onOk={submitSfShipment}
+        onCancel={() => { setSfTarget(null); sfForm.resetFields(); }}
+        destroyOnHidden
+      >
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="运单创建后顺丰将按配置上门揽收；重量和产品会影响月结成本。" />
+        <Form form={sfForm} layout="vertical">
+          <Form.Item name="expressTypeId" label="顺丰产品" rules={[{ required: true, message: '请选择顺丰产品' }]}>
+            <Select options={sfProducts.map((item) => ({ value: item.expressTypeId, label: `${item.name}（代码 ${item.expressTypeId}）` }))} />
+          </Form.Item>
+          <Form.Item name="packageCount" label="包裹数量" rules={[{ required: true, message: '请输入包裹数量' }]}>
+            <InputNumber min={1} max={999} precision={0} style={{ width: '100%' }} addonAfter="件" />
+          </Form.Item>
+          <Form.Item name="totalWeightKg" label="本批实际总重量" rules={[{ required: true, message: '请输入实际总重量' }]}>
+            <InputNumber min={0.001} max={1000000} precision={3} style={{ width: '100%' }} addonAfter="kg" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="上报配送异常"
+        open={Boolean(exceptionTarget)}
+        okText="提交给平台"
         confirmLoading={actionLoading === `exception:${exceptionTarget?.id}`}
         onOk={submitException}
-        onCancel={() => {
-          setExceptionTarget(null);
-          setExceptionMessage('');
-        }}
-        destroyOnClose
+        onCancel={() => { setExceptionTarget(null); setExceptionMessage(''); }}
+        destroyOnHidden
       >
-        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <Text type="secondary">
-            批次 {exceptionTarget?.id || '-'} 如遇司机联系不上、车辆未到场、商品破损等情况，请记录现场说明。
-          </Text>
-          <Input.TextArea
-            value={exceptionMessage}
-            onChange={(event) => setExceptionMessage(event.target.value)}
-            rows={4}
-            maxLength={200}
-            showCount
-            placeholder="填写异常反馈"
-          />
-        </Space>
+        <Text type="secondary">请说明顺丰揽收、面单、商品或收件信息中的具体问题。</Text>
+        <Input.TextArea value={exceptionMessage} onChange={(event) => setExceptionMessage(event.target.value)} rows={4} maxLength={200} showCount style={{ marginTop: 12 }} placeholder="填写异常说明和已采取的处理" />
       </Modal>
     </Space>
   );

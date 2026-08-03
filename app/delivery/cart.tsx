@@ -93,7 +93,13 @@ export default function DeliveryCartScreen() {
             {items.map((item) => (
               <DeliveryPanel key={item.id} style={{ marginBottom: spacing.md }}>
                 <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                  <Pressable onPress={() => toggleSelect(item.id)} style={{ paddingTop: 4 }}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`选择 ${item.productTitle}`}
+                    accessibilityState={{ checked: item.isSelected }}
+                    onPress={() => toggleSelect(item.id)}
+                    style={{ paddingTop: 4 }}
+                  >
                     <MaterialCommunityIcons
                       name={item.isSelected ? 'check-circle' : 'checkbox-blank-circle-outline'}
                       size={22}
@@ -129,7 +135,7 @@ export default function DeliveryCartScreen() {
                       />
                     </View>
                   </View>
-                  <Pressable onPress={() => handleRemove(item.id)} style={{ paddingTop: 4 }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`删除 ${item.productTitle}`} onPress={() => handleRemove(item.id)} style={{ paddingTop: 4 }}>
                     <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.text.tertiary} />
                   </Pressable>
                 </View>

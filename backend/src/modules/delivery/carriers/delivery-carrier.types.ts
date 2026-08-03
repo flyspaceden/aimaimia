@@ -7,8 +7,6 @@ export type DeliveryCarrierParty = {
   city: string;
   district: string;
   detail: string;
-  lat?: number;
-  lng?: number;
 };
 
 export type DeliveryCarrierCargo = {
@@ -18,47 +16,45 @@ export type DeliveryCarrierCargo = {
   remark?: string;
 };
 
-export type DeliveryCarrierQuoteRequest = {
+export type DeliverySfCreateShipmentRequest = {
   outsideOrderId: string;
-  cityId: string;
-  vehicleId: string;
   sender: DeliveryCarrierParty;
   receiver: DeliveryCarrierParty;
   cargo: DeliveryCarrierCargo;
-  plannedPickupAt?: Date;
+  expressTypeId: number;
+  expressTypeName: string;
+  packageCount: number;
+  totalWeightKg: number;
 };
 
-export type DeliveryCarrierQuoteResult = {
-  provider: 'HUOLALA';
-  priceCalculateId: string;
-  estimatedFeeCents: number;
-  rawPayload: unknown;
-};
-
-export type DeliveryCarrierOrderResult = {
-  provider: 'HUOLALA';
+export type DeliverySfCreateShipmentResult = {
+  provider: 'SF';
   outsideOrderId: string;
-  carrierOrderNo: string;
-  status: string;
+  sfOrderId: string;
+  primaryWaybillNo: string;
+  waybillNos: string[];
+  waybillUrl: string | null;
+  status: DeliveryPickupBatchStatus;
   rawPayload: unknown;
 };
 
-export type DeliveryCarrierDetailResult = {
-  provider: 'HUOLALA';
-  outsideOrderId?: string;
-  carrierOrderNo: string;
+export type DeliverySfWaybillDetail = {
+  trackingNo: string;
   status: string;
   mappedStatus: DeliveryPickupBatchStatus;
-  estimatedFeeCents?: number;
-  actualFeeCents?: number;
-  driverSnapshot?: unknown;
-  vehicleSnapshot?: unknown;
+  events: unknown[];
+};
+
+export type DeliverySfSyncResult = {
+  provider: 'SF';
+  status: DeliveryPickupBatchStatus;
+  waybills: DeliverySfWaybillDetail[];
   rawPayload: unknown;
 };
 
-export type DeliveryCarrierCancelResult = {
-  provider: 'HUOLALA';
-  carrierOrderNo: string;
-  status: string;
+export type DeliverySfCancelResult = {
+  provider: 'SF';
+  success: boolean;
+  status: 'CANCELED';
   rawPayload: unknown;
 };

@@ -29,6 +29,7 @@ import { getProducts } from '@/api/products';
 import { getPublicAppConfig } from '@/api/config';
 import { auditStatusMap, getStatusDisplay, productStatusMap } from '@/constants/statusMaps';
 import type { Product, ProductSKU } from '@/types';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
@@ -57,6 +58,7 @@ function getStockSummary(product: Product, threshold: number) {
 
 export default function ProductListPage() {
   const navigate = useNavigate();
+  const canWriteProducts = useAuthStore((state) => state.hasPermission('products:write'));
   const actionRef = useRef<ActionType>(null);
   // 顶部统计卡作为快捷筛选 tab
   type StatusTabKey = 'ALL' | 'ACTIVE' | 'PENDING' | 'DRAFT';
@@ -145,15 +147,23 @@ export default function ProductListPage() {
             )}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
+                role={canWriteProducts ? 'button' : undefined}
+                tabIndex={canWriteProducts ? 0 : undefined}
                 style={{
                   fontWeight: 500,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                   lineHeight: '20px',
-                  cursor: 'pointer',
+                  cursor: canWriteProducts ? 'pointer' : 'default',
                 }}
-                onClick={() => navigate(`/products/${r.id}/edit`)}
+                onClick={canWriteProducts ? () => navigate(`/products/${r.id}/edit`) : undefined}
+                onKeyDown={canWriteProducts ? (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    navigate(`/products/${r.id}/edit`);
+                  }
+                } : undefined}
               >
                 {r.title}
               </div>
@@ -250,7 +260,9 @@ export default function ProductListPage() {
       width: 80,
       search: false,
       render: (_, r) => {
-        const limits = (r.skus ?? []).map((s: any) => s.maxPerOrder).filter((v: any) => v != null);
+        const limits = (r.skus ?? [])
+          .map((sku) => sku.maxPerOrder)
+          .filter((value): value is number => value != null);
         if (limits.length === 0) return <span style={{ color: '#999' }}>不限</span>;
         const min = Math.min(...limits);
         const max = Math.max(...limits);
@@ -294,6 +306,9 @@ export default function ProductListPage() {
       fixed: 'right',
       search: false,
       render: (_, r) => {
+        if (!canWriteProducts) {
+          return <Typography.Text type="secondary">仅查看</Typography.Text>;
+        }
         if (r.status === 'DRAFT') {
           return (
             <Button
@@ -376,7 +391,16 @@ export default function ProductListPage() {
               key={card.key}
               size="small"
               hoverable
+              role="button"
+              tabIndex={0}
+              aria-pressed={isActive}
               onClick={() => setActiveTab(card.key as StatusTabKey)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setActiveTab(card.key as StatusTabKey);
+                }
+              }}
               style={{
                 cursor: 'pointer',
                 borderColor: isActive ? card.color : undefined,
@@ -483,7 +507,7 @@ export default function ProductListPage() {
           });
           return { data: res.items, total: res.total, success: true };
         }}
-        toolBarRender={() => [
+        toolBarRender={() => canWriteProducts ? [
           <Button
             key="create"
             type="primary"
@@ -492,7 +516,7 @@ export default function ProductListPage() {
           >
             创建商品
           </Button>,
-        ]}
+        ] : []}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         search={{ labelWidth: 'auto', collapsed: true, collapseRender: (collapsed) => collapsed ? '展开筛选' : '收起' }}
       />

@@ -25,6 +25,7 @@ describe('DeliverySellerPublicService', () => {
 
     await expect(service.getPublicConfig()).resolves.toEqual({
       lowStockDisplayThreshold: 10,
+      sfExpressProducts: [{ expressTypeId: 1, name: '顺丰标快', enabled: true }],
     });
     expect(deliveryPrisma.deliveryConfig.findUnique).toHaveBeenCalledWith({
       where: { key: 'LOW_STOCK_DISPLAY_THRESHOLD' },

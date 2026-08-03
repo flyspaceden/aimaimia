@@ -193,13 +193,22 @@ export interface TrackingEvent {
 }
 
 // ============================================================
-// 提货批次
+// 配送批次（后端字段仍保留 pickup 历史命名）
 // ============================================================
 
 export interface PickupBatchCarrierOrder {
   carrierOrderNo?: string | null;
-  driverSnapshot?: unknown;
-  vehicleSnapshot?: unknown;
+  expressTypeId?: number | null;
+  expressTypeName?: string | null;
+  packageCount?: number | null;
+  totalWeightKg?: number | null;
+  waybillUrl?: string | null;
+  waybills?: Array<{
+    trackingNo: string;
+    status: string;
+    deliveredAt?: string | null;
+    lastSyncedAt?: string | null;
+  }>;
   status?: string | null;
   lastSyncedAt?: string | null;
   createdAt?: string | null;
@@ -235,13 +244,18 @@ export interface PickupBatch {
   loadedAt?: string | null;
   completedAt?: string | null;
   canceledAt?: string | null;
+  suggestedWeightKg?: number;
   carrierOrderNo?: string | null;
-  driverSnapshot?: unknown;
-  vehicleSnapshot?: unknown;
   latestCarrierOrder?: PickupBatchCarrierOrder | null;
   items: PickupBatchItem[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SfExpressProductOption {
+  expressTypeId: number;
+  name: string;
+  enabled: boolean;
 }
 
 // ============================================================

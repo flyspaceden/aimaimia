@@ -1,72 +1,67 @@
 # 快递物流链路实施文档
 
-> **状态**: 顺丰丰桥直连已完成，**2026-05-08 沙箱全流程调测追加修复已完成**；配送独立业务线“一次付款，多次提货”与货拉拉企业/月结接入骨架已完成，待真实货拉拉企业账号联调
-> **最后更新**: 2026-07-01
-> **权威范围**: 快递物流链路的开发进度、顺丰直连改造计划、配送提货批次/货拉拉接入、上线前配置清单
+> **状态**: 顺丰丰桥直连已完成；独立配送业务线的“一次付款、多批配送”已全面切换为顺丰。货拉拉不再是可执行通道。
+> **最后更新**: 2026-08-03
+> **权威范围**: 快递物流链路、配送批次顺丰履约、运费差额和上线前配置清单
 
 ---
 
-## 📌 2026-07-01 配送一次付款多次提货 + 货拉拉企业/月结接入 ✅
+## 📌 2026-08-03 配送一次付款、多批顺丰配送 ✅
 
 > 范围仅限独立配送业务线：买家 App `/delivery`、`backend/prisma-delivery/schema.prisma`、`backend/src/modules/delivery/**`、`delivery-admin/**`、`delivery-seller/**`。普通商城订单、普通顺丰发货、普通售后、分润、红包、数字资产不纳入本功能。
 
 ### 业务口径
 
-- 买家在配送结算页一次性支付商品金额 + 预收提货运费；付款后不再因为后续批次叫车向买家二次收运费。
-- 买家下单时选择预计提货次数，系统按购物车商品生成分批提货计划；每个商品的各批数量合计必须等于购买数量。
+- 买家在配送结算页一次性支付商品金额 + 预收配送运费；付款后不再按顺丰实际运费补收或退款。
+- 买家下单时选择预计配送批次，系统按购物车商品生成分批配送计划；每个商品的各批数量合计必须等于购买数量。
 - 支付成功后创建 `DeliveryOrder` / `DeliverySubOrder` / `DeliveryPickupBatch` / `DeliveryPickupBatchItem`。批次履约边界固定为单个 `DeliverySubOrder` + 单个 `merchantId`，不跨商家合车。
-- 平台通过货拉拉企业账号/月结为每个批次叫车；货拉拉实际费用写入平台成本流水，不自动退款、不自动补收，不展示给配送中心。
+- 每个批次由所属商家在企业配送中心确认备货后创建顺丰运单，顺丰从商家发件地址揽收并送到用户配送单位地址。
+- 顺丰实际成本由平台承担并仅在配送管理后台核对；买家和企业配送中心都不能看到平台成本、差额或利润。
+- 独立配送承运商固定为顺丰、付款方式固定为平台月结；管理员人工调整月结成本仍归属顺丰，仅以“人工调整”流水类型区分，不生成手工承运记录。
 
 ### 已落地代码
 
 | 系统 | 已完成内容 |
 |---|---|
-| 配送数据库 | 新增提货模式、提货状态、批次状态、承运商、承运支付方式、成本流水类型；新增 `DeliveryPickupBatch`、`DeliveryPickupBatchItem`、`DeliveryCarrierOrder`、`DeliveryShippingCostLedger`；订单和 checkout 增加提货计划、预收运费、实际成本和差额字段 |
-| 后端 | checkout 锁定提货计划和预收运费；支付成功建单时在 `Serializable` 事务内创建批次并预留数量；买家订单详情返回批次进度；配送管理后台提供运费看板、批次列表、叫车、同步、取消、人工成本调整；配送中心提供批次列表、详情、备货、交货、异常反馈，且返回值脱敏成本字段 |
-| 货拉拉适配 | `HuolalaCarrierService` 封装报价、下单、详情同步、取消和状态映射；下单使用平台月结配置；货拉拉返回的预计/实际费用写入承运订单和成本流水 |
-| 买家 App | 配送结算页新增提货次数和分批计划预览，展示预收提货运费；配送订单列表/详情展示提货状态、剩余数量和批次时间线 |
-| 配送管理后台 | 新增“运费中心”和“提货批次”页面；订单详情展示支付拆分、提货批次、货拉拉单、司机车辆、成本流水；物流记录页可跳转到新页面 |
-| 配送中心 | 新增“提货批次”工作台；订单详情和物流页展示批次、司机、车辆、货拉拉状态；`orders:write` 才能执行备货、交货、异常反馈和旧的确认发货动作 |
+| 配送数据库 | 新增批次、批次商品、承运订单、多运单和成本流水；数量预留和已送达数量有 CHECK / UNIQUE / 组合外键保护 |
+| 后端 | checkout 锁定配送计划和预收运费；支付成功后在 `Serializable` 事务内建批次并预留数量；顺丰下单使用稳定业务幂等号，支持多运单、回调/主动同步、取消、补打和异常恢复 |
+| 顺丰适配 | `SfPickupCarrierService` 复用已跑通的 `SfExpressService`；企业中心填顺丰产品、包裹数和实际重量；多运单合并生成一份可下载 PDF |
+| 买家 App | 结算页展示配送批次和预收运费；订单列表/详情展示顺丰产品、全部运单号、批次状态和已送达/待配送数量 |
+| 配送管理后台 | 运费中心、配送批次、订单详情和顺丰产品配置齐全；可同步、取消、补打并下载面单、手工调整实际成本 |
+| 企业配送中心 | 配送批次工作台支持备货、顺丰发货、面单下载/补打和异常反馈；平台成本字段由后端 DTO 脱敏 |
 
 ### 成本和权限边界
 
-- 配送管理后台可见：预收提货运费、预计承运费、货拉拉实际成本、差额、人工调整、成本流水。差额统一按“预收运费 - 调整后的实际成本”计算，正数代表平台结余，负数代表平台超支。
-- 配送中心可见：批次商品、数量、收货/提货信息、司机、车辆、货拉拉状态、备货/交货/异常操作。
+- 配送管理后台可见：预收配送运费、顺丰实际成本、差额、人工调整和成本流水。差额统一按“预收运费 - 调整后实际成本”计算。
+- 企业配送中心可见：批次商品、数量、收发件信息、顺丰产品、包裹数、实际重量、运单和面单。
 - 配送中心不可见：用户预收运费、预计承运费、实际承运成本、差额、成本流水、平台利润或加价规则。
 
-### 货拉拉环境变量
+### 顺丰配置与产品开关
 
-上线前需要在 staging / production 后端配置：
+配送批次复用现有顺丰丰桥配置：
 
 ```bash
-DELIVERY_HUOLALA_ENABLED=true
-DELIVERY_HUOLALA_BASE_URL=https://openapi-pre.huolala.cn
-DELIVERY_HUOLALA_APP_KEY=...
-DELIVERY_HUOLALA_APP_SECRET=...
-DELIVERY_HUOLALA_ACCESS_TOKEN=...
-DELIVERY_HUOLALA_PAY_TYPE=8
-DELIVERY_HUOLALA_MONTHLY_ACCOUNT_ID=...
+SF_CLIENT_CODE=...
+SF_CHECK_WORD=...
+SF_MONTHLY_ACCOUNT=...
+SF_TEMPLATE_CODE=...
+SF_ENV=SANDBOX # staging；生产改为 PROD
 ```
 
-`DELIVERY_HUOLALA_BASE_URL` 不配置时默认正式开放平台 `https://openapi.huolala.cn`；staging 联调建议显式配置为预发地址。`DELIVERY_HUOLALA_PAY_TYPE=8` 表示账期/月结支付，代码也兼容旧写法 `MONTHLY_ACCOUNT` 并规范化为 `8`。
-
-当前代码中的货拉拉 adapter 已完成企业版公开 endpoint 封装和异常归一化，但还没有使用真实企业账号做沙箱/生产联调。真实联调时需要确认货拉拉企业版最终开放的签名字段、城市/车型编码、月结参数和回调/账单口径；如官方字段与当前映射不同，只改 adapter 层，不改订单/批次/成本主流程。
+平台配置 `SF_EXPRESS_PRODUCTS` 决定企业中心可选产品。默认只启用已开通的 `1 / 顺丰标快`；大件或大批量产品必须等顺丰合同实际开通并取得有效产品代码后，再由配送管理后台新增并启用。不允许在代码中猜测大件产品代码。
 
 ### 本地验证
 
-- `cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npx prisma validate --schema prisma-delivery/schema.prisma` 通过；仅保留既有 `SetNull` warning。
-- `cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run prisma:delivery:generate` 通过。
-- `cd backend && npm test -- delivery-pickup-plan.service.spec.ts delivery-pickup.service.spec.ts huolala-carrier.service.spec.ts delivery-checkout.service.spec.ts delivery-orders.service.spec.ts delivery-seller-ops.service.spec.ts --runInBand` 通过，6 suites / 78 tests。
-- 根目录 `npx jest src/utils/__tests__/deliveryPickupPlan.test.ts --runInBand` 通过，4 tests。
-- 根目录 `npx tsc --noEmit` 通过。
-- `cd delivery-admin && npm run build`、`cd delivery-seller && npm run build`、`cd backend && DELIVERY_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/nongmai_delivery' npm run build` 均通过；Vite 仅输出既有 vendor chunk 体积提示。
+- 配送后端与顺丰配送回调全量回归 56 个套件 / 300 条用例、买家配送定向回归 5 个套件 / 18 条用例通过；配送管理后台 25 条合同测试、企业配送中心 30 条合同测试通过。
+- `npx prisma validate --schema prisma-delivery/schema.prisma`、根目录 `npx tsc --noEmit`、后端 TypeScript 生产构建、两个 Web 包 ESLint 与生产构建均通过；此前范围外 `paymentScene` 类型错误已不再复现。
+- 本地浏览器使用受控 Mock API 逐项验证配送管理后台 23 个菜单子路由、企业配送中心 9 个菜单子路由、5 个工作台快捷入口和 2 个履约待办入口，跳转目标全部正确；切换页面后所有业务目录仍保持完整展开。分类新建、定价规则新建等代表性弹窗完成打开/取消验证，React 19 与 Ant Design 5 兼容警告已处理。
+- 本地验证不替代真实 staging：第三方支付、顺丰沙箱创单/回调、真实文件下载、部署后的角色数据和 CORS 仍按下方发布前待办验收。
+- Web 生产依赖已升级并消除其余 `npm audit --omit=dev` 告警；当前两个包各剩 2 个 high 条目，实际来自同一条 React Router RSC / Server Action CSRF 公告及其 `react-router-dom` 依赖链。配送后台为纯 Vite 客户端 SPA，不启用 RSC、Server Action 或服务端 Action 路由，当前无可执行攻击面；继续跟踪上游安全版本，不为清零数字执行会降级到已知更多漏洞版本的 `--force`。
 
 ### 发布前人工待办
 
-- 在 staging 配置真实或沙箱货拉拉企业账号，并完成报价、叫车、同步、取消、月结成本入账冒烟。
-- 准备一笔多批次配送订单：App 下单付款 → 管理后台叫车/同步 → 配送中心备货/交货/异常反馈 → 买家订单详情查看批次进度。
-- 核对货拉拉实际账单与 `DeliveryShippingCostLedger` 的 `CARRIER_ACTUAL` / `MANUAL_ADJUSTMENT` 口径。
-- 如真实货拉拉接口需要回调，新增受控回调 endpoint 后再把状态同步从“后台主动同步”为主扩展为“回调 + 主动补偿”。
+- 在 staging 执行新配送 migration，并用已跑通的顺丰沙箱配置完成：App 一次付款 → 企业中心分批备货/顺丰发货/打印 → 平台同步/取消/补打/成本核对 → 买家查看全部运单并签收的冒烟验收。
+- 当前未开通顺丰大件产品，因此不得在 staging / production 配置中增加未签约的产品代码。
 
 ---
 

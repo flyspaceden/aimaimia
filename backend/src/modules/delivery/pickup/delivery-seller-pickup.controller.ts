@@ -5,6 +5,7 @@ import { RequireDeliverySellerPermission } from '../auth/decorators/require-deli
 import { DeliverySellerAuthGuard } from '../auth/guards/delivery-seller-auth.guard';
 import { DeliverySellerPermissionGuard } from '../auth/guards/delivery-seller-permission.guard';
 import { DeliveryPickupService } from './delivery-pickup.service';
+import { CreateDeliveryPickupSfShipmentDto } from './dto/delivery-pickup.dto';
 
 @Public()
 @UseGuards(DeliverySellerAuthGuard, DeliverySellerPermissionGuard)
@@ -40,14 +41,34 @@ export class DeliverySellerPickupController {
     return this.deliveryPickupService.markReady(merchantId, deliverySellerStaffId, id);
   }
 
-  @Post(':id/mark-loaded')
+  @Post(':id/ship-sf')
   @RequireDeliverySellerPermission('orders:write')
-  markLoaded(
+  shipWithSf(
+    @CurrentUser('merchantId') merchantId: string,
+    @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
+    @Param('id') id: string,
+    @Body() input: CreateDeliveryPickupSfShipmentDto,
+  ) {
+    return this.deliveryPickupService.createSfShipment(
+      merchantId,
+      deliverySellerStaffId,
+      id,
+      input,
+    );
+  }
+
+  @Post(':id/reprint-waybill')
+  @RequireDeliverySellerPermission('orders:write')
+  reprintWaybill(
     @CurrentUser('merchantId') merchantId: string,
     @CurrentUser('deliverySellerStaffId') deliverySellerStaffId: string,
     @Param('id') id: string,
   ) {
-    return this.deliveryPickupService.markLoaded(merchantId, deliverySellerStaffId, id);
+    return this.deliveryPickupService.reprintSellerWaybill(
+      merchantId,
+      deliverySellerStaffId,
+      id,
+    );
   }
 
   @Post(':id/report-exception')

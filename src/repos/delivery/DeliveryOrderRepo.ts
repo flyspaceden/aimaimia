@@ -112,8 +112,16 @@ export type DeliveryPickupBatch = {
   completedAt: string | null;
   canceledAt: string | null;
   carrierOrderNo: string | null;
-  driverSnapshot: unknown;
-  vehicleSnapshot: unknown;
+  expressTypeName: string | null;
+  packageCount: number | null;
+  totalWeightKg: number | null;
+  waybillUrl: string | null;
+  waybills: Array<{
+    trackingNo: string;
+    status: string;
+    deliveredAt: string | null;
+    lastSyncedAt: string | null;
+  }>;
   items: DeliveryPickupBatchItem[];
 };
 
@@ -218,8 +226,16 @@ type DeliveryBuyerOrderResponse = {
     completedAt: string | null;
     canceledAt: string | null;
     carrierOrderNo: string | null;
-    driverSnapshot: unknown;
-    vehicleSnapshot: unknown;
+    expressTypeName: string | null;
+    packageCount: number | null;
+    totalWeightKg: number | null;
+    waybillUrl: string | null;
+    waybills: Array<{
+      trackingNo: string;
+      status: string;
+      deliveredAt: string | null;
+      lastSyncedAt: string | null;
+    }>;
     items: Array<{
       id: string;
       orderItemId: string;
@@ -427,8 +443,11 @@ export const mapDeliveryBuyerOrder = (
     completedAt: batch.completedAt ?? null,
     canceledAt: batch.canceledAt ?? null,
     carrierOrderNo: batch.carrierOrderNo ?? null,
-    driverSnapshot: batch.driverSnapshot ?? null,
-    vehicleSnapshot: batch.vehicleSnapshot ?? null,
+    expressTypeName: batch.expressTypeName ?? null,
+    packageCount: batch.packageCount ?? null,
+    totalWeightKg: batch.totalWeightKg ?? null,
+    waybillUrl: batch.waybillUrl ?? null,
+    waybills: batch.waybills ?? [],
     items: batch.items.map((item) => ({
       id: item.id,
       orderItemId: item.orderItemId,

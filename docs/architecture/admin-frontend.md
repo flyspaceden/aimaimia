@@ -66,7 +66,7 @@
 - 商家供货、运费分摊优先取后端明确字段，如 `supplyAmountCents`、`shippingFeeShareCents`；缺字段时只展示可得项。
 - 平台差额只在前端能从现有字段确定时显示；不能确定时显示 `-`。
 - 结算页只展示供货额、应结额、已结额，不在该页暴露平台定价策略。
-- 一次付款多次提货的货拉拉成本字段仅在 `delivery-admin` 展示：运费中心、提货批次和订单详情可见 `预收提货运费 / 货拉拉实际成本 / 成本差额 / 成本流水`；成本差额统一按“预收运费 - 调整后的实际成本”展示，正数为平台结余，负数为平台超支；配送中心和买家端不得展示平台实际承运成本、成本差额或成本流水。
+- 一次付款、多批顺丰配送的成本字段仅在 `delivery-admin` 展示：运费中心、配送批次和订单详情可见 `预收配送运费 / 顺丰实际成本 / 成本差额 / 成本流水`；成本差额统一按“预收运费 - 调整后实际成本”展示；企业配送中心和买家端不得展示平台实际承运成本、差额或成本流水。
 
 ### 组件风格
 
@@ -92,13 +92,23 @@
 - `delivery-admin/vite.config.ts` 与 `delivery-seller/vite.config.ts` 的本地 dev proxy 默认指向 `https://test-api.ai-maimai.com`，避免本地未启动后端时验证码和登录请求打到 `localhost:3000`；需要联调本地后端时可设置 `VITE_PROXY_TARGET=http://localhost:3000`。
 - 新增合同测试锁定上述结构，当前验证：`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm test && npm run build` 均通过。
 
-### 一次付款多次提货后台补充（Task 7，2026-06-30）
+### 一次付款、多批顺丰配送后台补充（2026-08-03 审查更新）
 
-- `delivery-admin/src/pages/delivery-admin/freight-center.tsx` 新增运费中心，顶部用 `Statistic/Card` 汇总预收提货运费、货拉拉实际成本、成本差额和异常批次，下方列表展示订单号、批次号、商家、状态、预收/报价、实际成本、差额、货拉拉订单号、司机、车辆和更新时间；差额颜色与口径一致，正数绿色、负数红色。
-- `delivery-admin/src/pages/delivery-admin/pickup-batches.tsx` 新增提货批次操作页，按订单 / 子单 / 批次展示，支持后端已实现的 `status / merchantId / unitId / from / to` 筛选，不发送未支持的 keyword；行操作支持叫货拉拉、同步、取消和手工调整成本。
-- `delivery-admin/src/pages/delivery-admin/order-detail.tsx` 增加支付拆分、提货计划、批次履约记录和提货成本记录。若后端返回 `shippingCostLedgers` 则展示真实流水；为空时只展示订单聚合成本字段，不伪造流水。
-- `delivery-admin/src/pages/delivery-admin/shipping-records.tsx` 保留原顺丰等传统发货记录，并提示运营跳转到运费中心和提货批次处理货拉拉多批次提货。
+- `delivery-admin/src/pages/delivery-admin/freight-center.tsx` 汇总预收配送运费、顺丰实际成本、差额和异常批次；列表展示顺丰产品、包裹数、实际重量和全部运单。
+- `delivery-admin/src/pages/delivery-admin/pickup-batches.tsx` 为配送批次操作页；平台管理员负责同步、取消、补打并下载面单、成本调整，不代替所属商家创建顺丰运单。
+- `delivery-admin/src/pages/delivery-admin/config.tsx` 可维护 `SF_EXPRESS_PRODUCTS`；只能添加顺丰合同已开通的产品代码，且至少保留一个启用项。当前默认只有 `1 / 顺丰标快`。
+- `delivery-admin/src/pages/delivery-admin/order-detail.tsx` 展示支付拆分、配送计划、顺丰批次履约和成本流水；无真实流水时不伪造记录。
+- `delivery-admin/src/pages/delivery-admin/shipping-records.tsx` 仅保留旧的整单发货记录，新配送批次进入运费中心/配送批次页处理。
 - 新路由 `/freight-center` 与 `/pickup-batches` 挂在“订单与履约”下，权限沿用 `delivery:orders:read`。
+
+### 配送三端交互终审（2026-08-03）
+
+- 配送管理后台 23 个菜单子路由、企业配送中心 9 个菜单子路由、5 个工作台快捷入口和 2 个履约待办入口已用本地浏览器逐项核对，目标地址全部正确；所有有权限的菜单分组在跨页后保持展开，父级只负责展开/收起，不触发错误跳转。
+- 两个后台启动时会用已存 token 恢复完整账号资料和最新权限；接口刷新 token 后同步更新持久化认证状态，避免首次登录、刷新或 token 续期后出现空目录、错权限或被错误送回登录页。
+- 页面路由和新增、编辑、审核、发货、下载、配置等操作入口采用同一权限口径；无权限时不渲染可执行按钮，客服只读角色显示“查看”语义。客服默认配置改用 `delivery:customer-service:read/write` 专用接口，不再借用系统配置权限。
+- 分类、配置、定价等表单解决未挂载 Form 警告；商品创建/编辑的面包屑和返回按钮纳入未保存保护；验证码、状态卡、分类项和图标操作补齐原生按钮或键盘语义。两个 React 19 Web 包加载 Ant Design 5 官方兼容补丁。
+- 本轮合同测试：配送管理后台 25 条、企业配送中心 30 条；两个 Web 包 ESLint 均为 0 error / 0 warning，生产构建通过；本地浏览器还验证分类新建、定价规则新建等代表性弹窗的打开/取消闭环，最终依赖环境 console 为 0 error / 0 warning。部署域名、真实角色数据、文件存储和顺丰沙箱业务动作仍需 staging 冒烟。
+- 可安全升级的生产依赖和传递依赖已更新；`path-to-regexp` 使用同主版本安全补丁。`npm audit --omit=dev` 剩余的 2 个 high 条目来自同一 React Router RSC / Server Action 公告及直接依赖链，本项目两个后台均为客户端 SPA，未使用该服务端执行面；不得用 `npm audit fix --force` 回退到带有更多已知漏洞的旧路由版本。
 
 ---
 

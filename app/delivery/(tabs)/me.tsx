@@ -86,6 +86,8 @@ export default function DeliveryMeScreen() {
             {tools.map((tool) => (
               <Pressable
                 key={tool.label}
+                accessibilityRole="button"
+                accessibilityLabel={tool.label}
                 onPress={() => router.push(tool.route)}
                 style={{
                   flexDirection: 'row',

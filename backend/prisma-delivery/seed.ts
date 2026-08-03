@@ -934,6 +934,21 @@ async function main(): Promise<void> {
 
   const configs = await Promise.all([
     prisma.deliveryConfig.upsert({
+      where: { key: 'SF_EXPRESS_PRODUCTS' },
+      create: {
+        key: 'SF_EXPRESS_PRODUCTS',
+        scope: DeliveryConfigScope.SYSTEM,
+        value: {
+          products: [{ expressTypeId: 1, name: '顺丰标快', enabled: true }],
+        } as Prisma.InputJsonValue,
+        description: '配送批次可选顺丰产品；仅配置已与顺丰签约开通的产品代码',
+      },
+      update: {
+        scope: DeliveryConfigScope.SYSTEM,
+        description: '配送批次可选顺丰产品；仅配置已与顺丰签约开通的产品代码',
+      },
+    }),
+    prisma.deliveryConfig.upsert({
       where: { key: 'LOW_STOCK_DISPLAY_THRESHOLD' },
       create: {
         key: 'LOW_STOCK_DISPLAY_THRESHOLD',

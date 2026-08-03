@@ -27,6 +27,7 @@ export default function DeliveryProductDetailScreen() {
   const cartCount = useDeliveryCartStore((state) => state.totalCount());
   const [skuId, setSkuId] = React.useState<string | null>(null);
   const [quantity, setQuantity] = React.useState(1);
+  const [adding, setAdding] = React.useState(false);
 
   const query = useQuery({
     queryKey: ['delivery-product', id],
@@ -51,20 +52,30 @@ export default function DeliveryProductDetailScreen() {
   }, [product, sku?.id]);
 
   const handleAdd = async (goCart = false) => {
+    if (adding) return;
     if (!sku) {
       show({ message: '请选择可下单规格', type: 'warning' });
       return;
     }
-    const result = await addItem(sku.id, quantity);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '加入购物车失败', type: 'error' });
+    if (sku.stock < (sku.minOrderQuantity || product?.minOrderQuantity || 1)) {
+      show({ message: '当前规格库存不足，请选择其他规格', type: 'warning' });
       return;
     }
-    if (goCart) {
-      router.push('/delivery/cart');
-      return;
+    setAdding(true);
+    try {
+      const result = await addItem(sku.id, quantity);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '加入购物车失败', type: 'error' });
+        return;
+      }
+      if (goCart) {
+        router.push('/delivery/cart');
+        return;
+      }
+      show({ message: '已加入配送购物车', type: 'success' });
+    } finally {
+      setAdding(false);
     }
-    show({ message: '已加入配送购物车', type: 'success' });
   };
 
   if (query.isLoading && !query.data) {
@@ -94,13 +105,14 @@ export default function DeliveryProductDetailScreen() {
   const minQty = sku?.minOrderQuantity || product.minOrderQuantity || 1;
   const stepQty = sku?.orderStepQuantity || product.orderStepQuantity || 1;
   const maxQty = Math.max(minQty, sku?.stock || product.stock || minQty);
+  const canOrderSku = Boolean(sku && sku.stock >= minQty);
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader
         title="商品详情"
         rightSlot={
-          <Pressable onPress={() => router.push('/delivery/cart')} style={{ padding: 8 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="打开配送购物车" onPress={() => router.push('/delivery/cart')} style={{ padding: 8 }}>
             <View>
               <MaterialCommunityIcons name="cart-outline" size={22} color={palette.text.primary} />
               {cartCount > 0 ? (
@@ -196,10 +208,19 @@ export default function DeliveryProductDetailScreen() {
 
         <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg }}>
           <View style={{ flex: 1 }}>
-            <DeliveryButton label="加入购物车" variant="secondary" onPress={() => handleAdd(false)} />
+            <DeliveryButton
+              label={adding ? '加入中...' : '加入购物车'}
+              variant="secondary"
+              disabled={adding || !canOrderSku}
+              onPress={() => handleAdd(false)}
+            />
           </View>
           <View style={{ flex: 1 }}>
-            <DeliveryButton label="去购物车" onPress={() => handleAdd(true)} />
+            <DeliveryButton
+              label={adding ? '处理中...' : '去购物车'}
+              disabled={adding || !canOrderSku}
+              onPress={() => handleAdd(true)}
+            />
           </View>
         </View>
       </ScrollView>

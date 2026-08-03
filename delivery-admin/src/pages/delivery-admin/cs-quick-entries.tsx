@@ -3,9 +3,10 @@ import { Button, Space, Table, Tag, Typography } from 'antd';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
-import { getDeliveryConfig } from '@/api/delivery-management';
+import { getDeliveryCustomerServiceConfig } from '@/api/delivery-management';
 import { PageHeader } from './components';
 import { getCustomerServiceDefaults } from './cs-helpers';
+import useAuthStore from '@/store/useAuthStore';
 
 type QuickEntryRow = {
   id: string;
@@ -17,9 +18,10 @@ type QuickEntryRow = {
 
 export default function DeliveryCsQuickEntriesPage() {
   const navigate = useNavigate();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:customer-service:write'));
   const configQuery = useQuery({
     queryKey: ['delivery-config', 'customer-service-defaults'],
-    queryFn: () => getDeliveryConfig('CUSTOMER_SERVICE'),
+    queryFn: getDeliveryCustomerServiceConfig,
   });
 
   const defaults = getCustomerServiceDefaults(configQuery.data);
@@ -43,7 +45,7 @@ export default function DeliveryCsQuickEntriesPage() {
       <PageHeader
         title="配送快捷入口配置"
         subtitle="查看配送 App 客服页的快捷问题入口，入口内容由坐席快捷回复配置统一维护。"
-        extra={<Button type="primary" onClick={() => navigate('/cs/quick-replies')}>维护入口内容</Button>}
+        extra={<Button type={canWrite ? 'primary' : 'default'} onClick={() => navigate('/cs/quick-replies')}>{canWrite ? '维护入口内容' : '查看入口配置'}</Button>}
       />
 
       <ProCard title="快捷入口" headerBordered>

@@ -7,13 +7,16 @@ import { Link } from 'react-router-dom';
 import {
   adjustDeliveryPickupCost,
   cancelDeliveryCarrier,
+  downloadDeliveryPickupWaybill,
   getDeliveryFreightBatches,
   getDeliveryFreightDashboard,
+  reprintDeliveryPickupWaybill,
   syncDeliveryCarrier,
 } from '@/api/delivery-management';
-import type { DeliveryFreightDashboard, DeliveryPickupBatch, JsonValue } from '@/types/delivery-management';
+import type { DeliveryFreightDashboard, DeliveryPickupBatch } from '@/types/delivery-management';
 import { PageHeader } from './components';
-import { formatDateTime, formatMoney, getErrorMessage } from './utils';
+import { downloadBlob, formatDateTime, formatMoney, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
@@ -33,14 +36,14 @@ const pickupBatchStatusOptions = [
 
 const pickupBatchStatusText: Record<string, string> = {
   PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已装车',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
@@ -60,6 +63,7 @@ const statusColor: Record<string, string> = {
 };
 
 type FreightFilters = {
+  keyword?: string;
   status?: string;
   merchantId?: string;
   unitId?: string;
@@ -77,6 +81,7 @@ type AdjustFormValues = {
 
 type BatchActionInput =
   | { type: 'sync'; batch: DeliveryPickupBatch }
+  | { type: 'reprint'; batch: DeliveryPickupBatch }
   | { type: 'cancel'; batch: DeliveryPickupBatch; reason: string }
   | { type: 'adjust'; batch: DeliveryPickupBatch; amountCents: number; remark: string };
 
@@ -93,52 +98,6 @@ function PickupBatchStatusTag({ value }: { value?: string | null }) {
   return <Tag color={statusColor[value] ?? 'default'}>{pickupBatchStatusText[value] ?? value}</Tag>;
 }
 
-function asRecord(value: JsonValue | unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asString(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : '';
-}
-
-function formatDriver(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: JsonValue | null) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
-}
-
 function formatDiff(cents?: number | null) {
   if (cents === null || cents === undefined) {
     return '-';
@@ -151,6 +110,7 @@ function normalizeFilters(params: FreightFilters & { current?: number; pageSize?
   return {
     page: params.current,
     pageSize: params.pageSize,
+    keyword: typeof params.keyword === 'string' ? params.keyword.trim() : undefined,
     status: typeof params.status === 'string' ? params.status : undefined,
     merchantId: typeof params.merchantId === 'string' ? params.merchantId.trim() : undefined,
     unitId: typeof params.unitId === 'string' ? params.unitId.trim() : undefined,
@@ -166,6 +126,7 @@ function canCancel(batch: DeliveryPickupBatch) {
 
 export default function DeliveryFreightCenterPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:orders:write'));
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [dashboard, setDashboard] = useState<DeliveryFreightDashboard | null>(null);
   const [canceling, setCanceling] = useState<DeliveryPickupBatch | null>(null);
@@ -178,6 +139,12 @@ export default function DeliveryFreightCenterPage() {
       if (input.type === 'sync') {
         return syncDeliveryCarrier(input.batch.id);
       }
+      if (input.type === 'reprint') {
+        const updated = await reprintDeliveryPickupWaybill(input.batch.id);
+        const file = await downloadDeliveryPickupWaybill(input.batch.id);
+        downloadBlob(file, `顺丰面单-${input.batch.id}.pdf`);
+        return updated;
+      }
       if (input.type === 'cancel') {
         return cancelDeliveryCarrier(input.batch.id, input.reason);
       }
@@ -188,9 +155,10 @@ export default function DeliveryFreightCenterPage() {
     },
     onSuccess: (_, input) => {
       const successText = {
-        sync: '货拉拉状态已同步',
-        cancel: '货拉拉订单已取消',
-        adjust: '提货成本已调整',
+        sync: '顺丰状态已同步',
+        reprint: '顺丰面单已重新生成',
+        cancel: '顺丰运单已取消，批次可重新发货',
+        adjust: '配送成本已调整',
       }[input.type];
       message.success(successText);
       setCanceling(null);
@@ -205,6 +173,12 @@ export default function DeliveryFreightCenterPage() {
   });
 
   const columns: ProColumns<DeliveryPickupBatch>[] = [
+    {
+      title: '关键词',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: { placeholder: '订单、批次、子单、商家或运单号' },
+    },
     { title: '订单号', dataIndex: 'orderId', key: 'orderId', width: 170, ellipsis: true, copyable: true, search: false },
     { title: '批次号', dataIndex: 'id', key: 'id', width: 170, ellipsis: true, copyable: true, search: false },
     {
@@ -271,24 +245,19 @@ export default function DeliveryFreightCenterPage() {
       search: false,
     },
     {
-      title: '货拉拉订单号',
+      title: '顺丰产品 / 运单',
       key: 'carrierOrderNo',
       width: 150,
-      render: (_, record) => record.latestCarrierOrder?.carrierOrderNo ?? record.carrierOrderNo ?? '-',
-      search: false,
-    },
-    {
-      title: '司机',
-      key: 'driver',
-      width: 150,
-      render: (_, record) => formatDriver(record.latestCarrierOrder?.driverSnapshot ?? record.driverSnapshot),
-      search: false,
-    },
-    {
-      title: '车辆',
-      key: 'vehicle',
-      width: 150,
-      render: (_, record) => formatVehicle(record.latestCarrierOrder?.vehicleSnapshot ?? record.vehicleSnapshot),
+      render: (_, record) => (
+        <Space direction="vertical" size={0}>
+          <Text>{record.latestCarrierOrder?.expressTypeName ?? '顺丰速运'}</Text>
+          {(record.latestCarrierOrder?.waybills ?? []).map((waybill) => (
+            <Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }} type="secondary">
+              {waybill.trackingNo} · {waybill.status}
+            </Text>
+          ))}
+        </Space>
+      ),
       search: false,
     },
     {
@@ -309,7 +278,7 @@ export default function DeliveryFreightCenterPage() {
           <Button
             type="link"
             size="small"
-            disabled={!record.latestCarrierOrder}
+            disabled={!canWrite || !record.latestCarrierOrder}
             loading={batchMutation.isPending}
             onClick={() => batchMutation.mutate({ type: 'sync', batch: record })}
           >
@@ -317,9 +286,18 @@ export default function DeliveryFreightCenterPage() {
           </Button>
           <Button
             type="link"
+            size="small"
+            disabled={!canWrite || !record.latestCarrierOrder?.carrierOrderNo}
+            loading={batchMutation.isPending}
+            onClick={() => batchMutation.mutate({ type: 'reprint', batch: record })}
+          >
+            重打面单
+          </Button>
+          <Button
+            type="link"
             danger
             size="small"
-            disabled={!canCancel(record)}
+            disabled={!canWrite || !canCancel(record)}
             loading={batchMutation.isPending}
             onClick={() => {
               setCanceling(record);
@@ -331,6 +309,7 @@ export default function DeliveryFreightCenterPage() {
           <Button
             type="link"
             size="small"
+            disabled={!canWrite}
             loading={batchMutation.isPending}
             onClick={() => {
               setAdjusting(record);
@@ -354,7 +333,7 @@ export default function DeliveryFreightCenterPage() {
     <div style={{ padding: 24 }}>
       <PageHeader
         title="运费中心"
-        subtitle="查看配送订单预收提货运费、货拉拉实际成本、成本差额和异常批次；差额按“预收运费 - 实际成本”展示，正数为结余，负数为超支。"
+        subtitle="查看买家预收配送费、顺丰月结实际成本、成本差额和异常批次；差额按“预收运费 - 实际成本”展示。"
       />
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -365,7 +344,7 @@ export default function DeliveryFreightCenterPage() {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
-            <Statistic title="货拉拉实际成本" prefix="¥" value={((dashboard?.actualCarrierCostCents ?? 0) / 100).toFixed(2)} />
+            <Statistic title="顺丰实际成本" prefix="¥" value={((dashboard?.actualCarrierCostCents ?? 0) / 100).toFixed(2)} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -413,8 +392,9 @@ export default function DeliveryFreightCenterPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(canceling)}
-        title="取消货拉拉订单"
+        title="取消顺丰运单"
         okText="确认取消"
         okButtonProps={{ danger: true }}
         confirmLoading={batchMutation.isPending}
@@ -435,14 +415,15 @@ export default function DeliveryFreightCenterPage() {
             name="reason"
             rules={[{ required: true, message: '请输入取消原因' }]}
           >
-            <Input.TextArea rows={3} maxLength={200} placeholder="请说明取消货拉拉订单的原因" />
+            <Input.TextArea rows={3} maxLength={200} placeholder="请说明取消顺丰运单的原因；取消成功后配送中心可重新发货" />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
+        forceRender
         open={Boolean(adjusting)}
-        title="调整提货成本"
+        title="调整配送成本"
         okText="确认调整"
         confirmLoading={batchMutation.isPending}
         onCancel={() => setAdjusting(null)}

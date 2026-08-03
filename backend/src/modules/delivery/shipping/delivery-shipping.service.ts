@@ -308,6 +308,10 @@ export class DeliveryShippingService {
               orderBy: { createdAt: 'desc' },
               take: 1,
             },
+            pickupBatches: {
+              select: { id: true },
+              take: 1,
+            },
           },
         });
 
@@ -316,6 +320,9 @@ export class DeliveryShippingService {
         }
         if (subOrder.merchantId !== merchantId) {
           throw new ForbiddenException('无权操作该配送子订单');
+        }
+        if (subOrder.pickupBatches?.length > 0) {
+          throw new BadRequestException('该订单已启用配送批次，请在配送批次工作台创建顺丰运单');
         }
 
         const existingShipment = subOrder.shipments[0] ?? null;

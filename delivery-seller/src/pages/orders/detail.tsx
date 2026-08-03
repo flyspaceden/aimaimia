@@ -2,15 +2,19 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   App,
+  Alert,
   Avatar,
   Button,
   Card,
   Descriptions,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Space,
   Spin,
   Steps,
+  Select,
   Table,
   Tag,
   Typography,
@@ -29,15 +33,17 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getOrder,
-  markPickupBatchLoaded,
   markPickupBatchReady,
+  reprintPickupBatchWaybill,
   reportPickupBatchException,
+  shipPickupBatchWithSf,
   shipOrder,
 } from '@/api/orders';
+import { getPublicAppConfig } from '@/api/config';
 import { exportFulfillmentManifest } from '@/api/manifests';
 import { getStatusDisplay, orderStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
-import type { PickupBatch, PickupBatchCarrierOrder, PickupBatchItem } from '@/types';
+import type { PickupBatch, PickupBatchItem } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
 import dayjs from 'dayjs';
 
@@ -65,14 +71,14 @@ function getOrderStep(order: {
 
 const pickupBatchStatusText: Record<string, string> = {
   PLANNED: '已计划',
-  READY_TO_CALL: '待叫车',
-  CALLING_CARRIER: '叫车中',
-  WAITING_DRIVER: '待接单',
-  DRIVER_ASSIGNED: '司机已接单',
-  ARRIVED: '司机已到达',
-  LOADED: '已交货',
-  DELIVERING: '配送中',
-  COMPLETED: '已完成',
+  READY_TO_CALL: '待顺丰发货',
+  CALLING_CARRIER: '顺丰下单中',
+  WAITING_DRIVER: '待顺丰揽收',
+  DRIVER_ASSIGNED: '顺丰已接单',
+  ARRIVED: '快递员已到达',
+  LOADED: '顺丰已揽收',
+  DELIVERING: '运输中',
+  COMPLETED: '已签收',
   CANCELED: '已取消',
   EXCEPTION: '异常',
 };
@@ -98,16 +104,6 @@ function PickupBatchStatusTag({ value }: { value?: string | null }) {
   return <Tag color={pickupBatchStatusColor[value] ?? 'default'}>{pickupBatchStatusText[value] ?? value}</Tag>;
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asString(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : '';
-}
-
 function formatDateTime(value?: string | null) {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
 }
@@ -121,56 +117,19 @@ function formatUnitName(item: PickupBatchItem) {
   return item.unitName || '件';
 }
 
-function getCarrierOrder(batch: PickupBatch): PickupBatchCarrierOrder {
-  return batch.latestCarrierOrder ?? {
-    carrierOrderNo: batch.carrierOrderNo,
-    driverSnapshot: batch.driverSnapshot,
-    vehicleSnapshot: batch.vehicleSnapshot,
-  };
-}
-
-function formatDriver(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const name =
-    asString(record.name) ||
-    asString(record.driverName) ||
-    asString(record.driver_name);
-  const phone =
-    asString(record.phone) ||
-    asString(record.mobile) ||
-    asString(record.driverPhone) ||
-    asString(record.driver_phone);
-  if (name && phone) {
-    return `${name} / ${phone}`;
-  }
-  return name || phone || '-';
-}
-
-function formatVehicle(snapshot?: unknown) {
-  const record = asRecord(snapshot);
-  const plate =
-    asString(record.plateNo) ||
-    asString(record.vehicleNo) ||
-    asString(record.carNo) ||
-    asString(record.licensePlate) ||
-    asString(record.plate_no);
-  const model =
-    asString(record.model) ||
-    asString(record.vehicleTypeName) ||
-    asString(record.vehicleType) ||
-    asString(record.vehicle_type);
-  if (plate && model) {
-    return `${plate} / ${model}`;
-  }
-  return plate || model || '-';
-}
-
 function canMarkReady(batch: PickupBatch) {
-  return ['PLANNED', 'EXCEPTION'].includes(batch.status);
+  return ['PLANNED', 'EXCEPTION'].includes(batch.status) && !batch.latestCarrierOrder?.carrierOrderNo;
 }
 
-function canMarkLoaded(batch: PickupBatch) {
-  return ['ARRIVED', 'DRIVER_ASSIGNED'].includes(batch.status);
+function canShipBatch(batch: PickupBatch) {
+  const carrier = batch.latestCarrierOrder;
+  const staleReservation =
+    batch.status === 'CALLING_CARRIER' &&
+    carrier?.status === 'CREATING_SF_ORDER' &&
+    Boolean(carrier.updatedAt) &&
+    Date.now() - new Date(carrier.updatedAt!).getTime() >= 15 * 60 * 1000;
+  return (['READY_TO_CALL', 'EXCEPTION'].includes(batch.status) || staleReservation)
+    && (!carrier?.carrierOrderNo || carrier.status?.startsWith('CANCELED'));
 }
 
 function canReportException(batch: PickupBatch) {
@@ -178,7 +137,7 @@ function canReportException(batch: PickupBatch) {
 }
 
 export default function OrderDetailPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -188,12 +147,16 @@ export default function OrderDetailPage() {
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
   const [exceptionTarget, setExceptionTarget] = useState<PickupBatch | null>(null);
   const [exceptionMessage, setExceptionMessage] = useState('');
+  const [sfTarget, setSfTarget] = useState<PickupBatch | null>(null);
+  const [sfForm] = Form.useForm<{ expressTypeId: number; packageCount: number; totalWeightKg: number }>();
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['seller-order', id],
     queryFn: () => getOrder(id!),
     enabled: !!id,
   });
+  const configQuery = useQuery({ queryKey: ['seller-public-config'], queryFn: getPublicAppConfig });
+  const sfProducts = configQuery.data?.sfExpressProducts ?? [];
 
   const handleShip = async () => {
     setShipping(true);
@@ -215,27 +178,19 @@ export default function OrderDetailPage() {
     await queryClient.refetchQueries({ queryKey: ['seller-order', id] });
   };
 
-  const confirmBatchAction = (batch: PickupBatch, action: 'ready' | 'loaded') => {
-    const isReady = action === 'ready';
-    Modal.confirm({
-      title: isReady ? '确认已备货' : '确认已交货',
-      icon: isReady ? <CheckCircleOutlined /> : <TruckOutlined />,
-      content: isReady
-        ? `批次 ${batch.id} 的商品已备齐，可以等待平台叫车。`
-        : `批次 ${batch.id} 已交给司机，后续由承运状态继续更新。`,
-      okText: isReady ? '已备货' : '已交货',
+  const confirmBatchReady = (batch: PickupBatch) => {
+    modal.confirm({
+      title: '确认备货完成',
+      icon: <CheckCircleOutlined />,
+      content: `配送批次 ${batch.id} 的商品已备齐，可以创建顺丰运单。`,
+      okText: '确认已备货',
       cancelText: '取消',
       onOk: async () => {
-        const key = `${action}:${batch.id}`;
+        const key = `ready:${batch.id}`;
         setBatchActionLoading(key);
         try {
-          if (isReady) {
-            await markPickupBatchReady(batch.id);
-            message.success('批次已标记为备货完成');
-          } else {
-            await markPickupBatchLoaded(batch.id);
-            message.success('批次已标记为交货完成');
-          }
+          await markPickupBatchReady(batch.id);
+          message.success('配送批次已进入待顺丰发货');
           await refreshOrder();
         } catch (err) {
           message.error(err instanceof Error ? err.message : '批次操作失败');
@@ -244,6 +199,48 @@ export default function OrderDetailPage() {
         }
       },
     });
+  };
+
+  const openSfShipment = (batch: PickupBatch) => {
+    setSfTarget(batch);
+    sfForm.setFieldsValue({
+      expressTypeId: sfProducts[0]?.expressTypeId ?? 1,
+      packageCount: 1,
+      totalWeightKg: Math.max(0.1, batch.suggestedWeightKg ?? 1),
+    });
+  };
+
+  const submitSfShipment = async () => {
+    if (!sfTarget) return;
+    const values = await sfForm.validateFields();
+    setBatchActionLoading(`ship:${sfTarget.id}`);
+    try {
+      await shipPickupBatchWithSf(sfTarget.id, values);
+      message.success('顺丰运单已创建，已通知上门揽收');
+      setSfTarget(null);
+      sfForm.resetFields();
+      await refreshOrder();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '顺丰发货失败');
+    } finally {
+      setBatchActionLoading(null);
+    }
+  };
+
+  const handleReprintBatchWaybill = async (batch: PickupBatch) => {
+    setBatchActionLoading(`print:${batch.id}`);
+    try {
+      const updated = await reprintPickupBatchWaybill(batch.id);
+      const url = updated.latestCarrierOrder?.waybillUrl;
+      if (!url) throw new Error('顺丰面单文件尚未生成');
+      await downloadDeliveryUploadWithAuth(url, `顺丰面单-${batch.id}`, API_BASE);
+      message.success('顺丰面单已重新生成');
+      await refreshOrder();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '面单重打失败');
+    } finally {
+      setBatchActionLoading(null);
+    }
   };
 
   const submitBatchException = async () => {
@@ -346,17 +343,21 @@ export default function OrderDetailPage() {
       },
     },
     {
-      title: '司机/车辆',
-      width: 190,
-      render: (_, record) => {
-        const carrier = getCarrierOrder(record);
-        return (
-          <Space direction="vertical" size={0}>
-            <span>{formatDriver(carrier.driverSnapshot)}</span>
-            <Typography.Text type="secondary">{formatVehicle(carrier.vehicleSnapshot)}</Typography.Text>
-          </Space>
-        );
-      },
+      title: '顺丰产品 / 运单',
+      width: 230,
+      render: (_, record) => (
+        <Space direction="vertical" size={0}>
+          <span>{record.latestCarrierOrder?.expressTypeName ?? '顺丰速运'}</span>
+          {(record.latestCarrierOrder?.waybills ?? []).map((waybill) => (
+            <Typography.Text key={waybill.trackingNo} copyable={{ text: waybill.trackingNo }} type="secondary">
+              {waybill.trackingNo}
+            </Typography.Text>
+          ))}
+          {record.latestCarrierOrder?.packageCount ? (
+            <Typography.Text type="secondary">{record.latestCarrierOrder.packageCount} 件 / {record.latestCarrierOrder.totalWeightKg} kg</Typography.Text>
+          ) : null}
+        </Space>
+      ),
     },
     {
       title: '预计/完成时间',
@@ -370,7 +371,7 @@ export default function OrderDetailPage() {
     },
     {
       title: '操作',
-      width: 220,
+      width: 300,
       fixed: 'right',
       render: (_, record) => (
         <Space size={4} wrap>
@@ -378,17 +379,15 @@ export default function OrderDetailPage() {
             size="small"
             disabled={!canWriteOrders || !canMarkReady(record)}
             loading={batchActionLoading === `ready:${record.id}`}
-            onClick={() => confirmBatchAction(record, 'ready')}
+            onClick={() => confirmBatchReady(record)}
           >
             已备货
           </Button>
-          <Button
-            size="small"
-            disabled={!canWriteOrders || !canMarkLoaded(record)}
-            loading={batchActionLoading === `loaded:${record.id}`}
-            onClick={() => confirmBatchAction(record, 'loaded')}
-          >
-            已交货
+          <Button type="primary" size="small" icon={<SendOutlined />} disabled={!canWriteOrders || !canShipBatch(record) || sfProducts.length === 0} loading={batchActionLoading === `ship:${record.id}`} onClick={() => openSfShipment(record)}>
+            顺丰发货
+          </Button>
+          <Button size="small" icon={<PrinterOutlined />} disabled={!canWriteOrders || !record.latestCarrierOrder?.carrierOrderNo} loading={batchActionLoading === `print:${record.id}`} onClick={() => handleReprintBatchWaybill(record)}>
+            重打面单
           </Button>
           <Button
             danger
@@ -645,7 +644,7 @@ export default function OrderDetailPage() {
           title={
             <Space>
               <TruckOutlined />
-              <span>提货批次</span>
+              <span>配送批次</span>
             </Space>
           }
           size="small"
@@ -657,7 +656,7 @@ export default function OrderDetailPage() {
             columns={pickupBatchColumns}
             dataSource={pickupBatches}
             pagination={false}
-            scroll={{ x: 1180 }}
+            scroll={{ x: 1320 }}
           />
         </Card>
       )}
@@ -719,6 +718,29 @@ export default function OrderDetailPage() {
       )}
 
       <Modal
+        title="创建顺丰运单"
+        open={Boolean(sfTarget)}
+        okText="确认顺丰发货"
+        confirmLoading={batchActionLoading === `ship:${sfTarget?.id}`}
+        onOk={submitSfShipment}
+        onCancel={() => { setSfTarget(null); sfForm.resetFields(); }}
+        destroyOnHidden
+      >
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="运单创建后顺丰将上门揽收；请按本批实物填写重量和包裹数。" />
+        <Form form={sfForm} layout="vertical">
+          <Form.Item name="expressTypeId" label="顺丰产品" rules={[{ required: true, message: '请选择顺丰产品' }]}>
+            <Select options={sfProducts.map((item) => ({ value: item.expressTypeId, label: `${item.name}（代码 ${item.expressTypeId}）` }))} />
+          </Form.Item>
+          <Form.Item name="packageCount" label="包裹数量" rules={[{ required: true, message: '请输入包裹数量' }]}>
+            <InputNumber min={1} max={999} precision={0} addonAfter="件" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="totalWeightKg" label="本批实际总重量" rules={[{ required: true, message: '请输入实际总重量' }]}>
+            <InputNumber min={0.001} max={1000000} precision={3} addonAfter="kg" style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
         title="异常反馈"
         open={!!exceptionTarget}
         okText="提交反馈"
@@ -729,11 +751,11 @@ export default function OrderDetailPage() {
           setExceptionTarget(null);
           setExceptionMessage('');
         }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Typography.Text type="secondary">
-            批次 {exceptionTarget?.id || '-'} 如遇司机联系不上、车辆未到场、商品破损等情况，请记录现场说明。
+            配送批次 {exceptionTarget?.id || '-'} 如遇顺丰揽收、面单、商品或收件信息问题，请记录具体情况。
           </Typography.Text>
           <Input.TextArea
             value={exceptionMessage}

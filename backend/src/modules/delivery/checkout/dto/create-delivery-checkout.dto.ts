@@ -40,7 +40,7 @@ export class CreateDeliveryCheckoutDto {
   paymentChannel: DeliveryPaymentChannel;
 
   @IsOptional()
-  @IsEnum(DeliveryPickupMode, { message: 'pickupMode 必须是有效的提货方式' })
+  @IsEnum(DeliveryPickupMode, { message: 'pickupMode 必须是有效的配送方式' })
   pickupMode?: DeliveryPickupMode;
 
   @IsOptional()

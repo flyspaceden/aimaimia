@@ -65,7 +65,7 @@ import { DeliveryPickupPlanService } from './pickup/delivery-pickup-plan.service
 import { DeliveryPickupService } from './pickup/delivery-pickup.service';
 import { DeliveryAdminPickupController } from './pickup/delivery-admin-pickup.controller';
 import { DeliverySellerPickupController } from './pickup/delivery-seller-pickup.controller';
-import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
+import { SfPickupCarrierService } from './carriers/sf-pickup-carrier.service';
 
 @Module({
   imports: [
@@ -135,7 +135,7 @@ import { HuolalaCarrierService } from './carriers/huolala-carrier.service';
     DeliveryCheckoutService,
     DeliveryPickupPlanService,
     DeliveryPickupService,
-    HuolalaCarrierService,
+    SfPickupCarrierService,
     DeliveryOrdersService,
     DeliveryPaymentsService,
     DeliveryShippingService,
