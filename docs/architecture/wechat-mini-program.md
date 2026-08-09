@@ -593,11 +593,11 @@ AppID `wx1b33112db0d5267b` 已写入 `project.config.json`，可用于开发者�
 - Contract 测试：后端 DTO 与 App/Miniapp 类型、HTTP method、path 和枚举一致。
 - 安全测试：code 重放、账号错误合并、OpenID 越权、金额篡改、重复回调、重复提现和并发结算。
 
-2026-08-04 验证快照：
+2026-08-04～2026-08-09 验证快照：
 
 - 小程序 ESLint 0 警告、TypeScript、37 个 Vitest 文件 210 个用例、staging 和 production 两套 Taro 微信构建全部通过；生产产物自动检查确认 71 个页面、分享/隐私事件、真实 AbortController polyfill、生产域名和首版范围正确，主包 1.235 MiB、总包 2.293 MiB、最大分包 0.194 MiB。
-- 后端 Nest 构建、Prisma validate 通过；全量 Jest 297 个套件、3182 个用例通过，另有仓库既有 2 个套件/5 个用例标记跳过；根 App TypeScript、38 个 Jest 套件/145 个用例和 208 个源码与合规测试均通过。
-- 111 个 Prisma 迁移已在临时 PostgreSQL 16 空库按顺序执行并确认无待迁移项。
+- 合并 `origin/staging` 后的最终回归：后端 Nest 构建、主库与配送库 Prisma validate 通过；全量 Jest 302 个套件、3234 个用例通过，另有仓库既有 2 个套件/5 个用例标记跳过；根 App TypeScript、39 个 Jest 套件/152 个用例和 208 个源码与合规测试均通过；配送管理端 25/25、配送卖家端 30/30 合同测试及两端生产构建通过。小程序首版仍由范围守卫排除配送。
+- 2026-08-04 当时的 111 个 Prisma 迁移已在临时 PostgreSQL 16 空库按顺序执行并确认无待迁移项；合并后新增迁移的真实 staging 部署仍按 WMP00-F 外部发布门禁执行，本轮仅完成主库/配送库 schema validate 与客户端 generate。
 - CI 已增加小程序范围守卫、类型/测试、双环境构建，并在 production 构建后执行同一套产物断言；部署 E2E 改为 `prisma migrate deploy`，避免生产式流程使用 `db push`。
 - 2026-08-08 资金安全复核补强：微信支付 APIv3 JSON 应答改为原始 body 验签后解析，关单只接受签名 204/明确终态；提现补偿按到期公平调度并由人工/Cron CAS 抢占；微信交易发货发送前重建订单快照。新增聚焦资金回归 8 套件 262/262 通过，完整最终验证以本节后续交付快照为准。
 - 小程序依赖审计仍有 14 条 Taro/构建链上游公告；2026-08-08 已把可独立安全升级的间接依赖 `nanoid` 从 3.3.16 更新到 3.3.18，消除该项 High。生产微信包不包含剩余公告涉及的 Swiper JS，开发服务器不得暴露公网。当前不存在不破坏 Taro 4.2.1 依赖约束的自动升级路径，按 `WMPF08` 跟踪兼容升级，禁止使用 `npm audit fix --force`。完整发现、修复与外部验收边界见 `docs/issues/wechat-miniapp-full-audit-2026-08-04.md`。
