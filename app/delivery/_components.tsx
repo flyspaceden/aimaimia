@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  GestureResponderEvent,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -30,6 +31,7 @@ export const DELIVERY_ORDER_STATUS_LABELS: Record<string, string> = {
   SHIPPED: '已发货',
   DELIVERED: '已送达',
   COMPLETED: '已完成',
+  CANCELED: '已取消',
 };
 
 export const DeliveryPanel = ({
@@ -67,7 +69,7 @@ export const DeliveryButton = ({
   style,
 }: {
   label: string;
-  onPress?: () => void;
+  onPress?: (event: GestureResponderEvent) => void;
   icon?: keyof typeof MaterialCommunityIcons.glyphMap;
   variant?: 'primary' | 'secondary' | 'ghost';
   disabled?: boolean;
@@ -95,6 +97,9 @@ export const DeliveryButton = ({
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={[
@@ -177,7 +182,7 @@ export const DeliveryStatusPill = ({ status }: { status: string }) => {
       ]}
     >
       <Text style={[typography.captionSm, { color: palette.brand.primaryDark }]}>
-        {DELIVERY_ORDER_STATUS_LABELS[status] ?? status}
+        {DELIVERY_ORDER_STATUS_LABELS[status] ?? '状态待更新'}
       </Text>
     </View>
   );
@@ -212,6 +217,9 @@ export const DeliveryQuantityControl = ({
       ]}
     >
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="减少数量"
+        accessibilityState={{ disabled: decreaseDisabled }}
         disabled={decreaseDisabled}
         onPress={() => onChange(Math.max(min, value - step))}
         style={[styles.qtyButton, { opacity: decreaseDisabled ? 0.35 : 1 }]}
@@ -222,6 +230,9 @@ export const DeliveryQuantityControl = ({
         {value}
       </Text>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="增加数量"
+        accessibilityState={{ disabled: increaseDisabled }}
         disabled={increaseDisabled}
         onPress={() => onChange(Math.min(max, value + step))}
         style={[styles.qtyButton, { opacity: increaseDisabled ? 0.35 : 1 }]}

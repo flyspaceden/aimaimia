@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntdApp, Button, Col, Form, Input, InputNumber, Row, Space, Table, Tag } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { ProCard } from '@ant-design/pro-components';
 import type { ColumnsType } from 'antd/es/table';
-import { getDeliveryConfig, updateDeliveryConfig } from '@/api/delivery-management';
+import { getDeliveryCustomerServiceConfig, updateDeliveryCustomerServiceConfig } from '@/api/delivery-management';
 import type { JsonValue } from '@/types/delivery-management';
 import { PageHeader } from './components';
 import {
@@ -13,6 +13,7 @@ import {
   type CustomerServiceDefaults,
 } from './cs-helpers';
 import { getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type QuickReplyFormValues = {
   serviceHours: string;
@@ -52,24 +53,25 @@ function toConfigValue(values: QuickReplyFormValues): JsonValue {
 
 export default function DeliveryCsQuickRepliesPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:customer-service:write'));
   const queryClient = useQueryClient();
   const [form] = Form.useForm<QuickReplyFormValues>();
 
   const configQuery = useQuery({
     queryKey: ['delivery-config', 'customer-service-defaults'],
-    queryFn: () => getDeliveryConfig('CUSTOMER_SERVICE'),
+    queryFn: getDeliveryCustomerServiceConfig,
   });
 
   const config = getCustomerServiceConfig(configQuery.data);
-  const defaults = getCustomerServiceDefaults(configQuery.data);
+  const defaults = useMemo(() => getCustomerServiceDefaults(configQuery.data), [configQuery.data]);
 
   useEffect(() => {
     form.setFieldsValue(toFormValues(defaults));
-  }, [defaults.defaultReply, defaults.escalationMinutes, defaults.quickQuestions, defaults.serviceHours, form]);
+  }, [defaults, form]);
 
   const mutation = useMutation({
     mutationFn: async (values: QuickReplyFormValues) =>
-      updateDeliveryConfig([
+      updateDeliveryCustomerServiceConfig([
         {
           key: 'CUSTOMER_SERVICE_DEFAULTS',
           scope: 'CUSTOMER_SERVICE',
@@ -123,6 +125,7 @@ export default function DeliveryCsQuickRepliesPage() {
             <Form<QuickReplyFormValues>
               form={form}
               layout="vertical"
+              disabled={!canWrite}
               onFinish={(values) => mutation.mutate(values)}
             >
               <Row gutter={16}>
@@ -143,7 +146,7 @@ export default function DeliveryCsQuickRepliesPage() {
               <Form.Item name="quickQuestionsText" label="常见问题入口（一行一个）">
                 <Input.TextArea rows={6} />
               </Form.Item>
-              <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={mutation.isPending}>
+              <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={mutation.isPending} disabled={!canWrite}>
                 保存快捷回复
               </Button>
             </Form>

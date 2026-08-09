@@ -37,6 +37,7 @@ export interface SfCreateOrderParams {
 /** 顺丰下单返回 */
 export interface SfCreateOrderResult {
   waybillNo: string;
+  waybillNos: string[];
   sfOrderId: string;
   originCode?: string;
   destCode?: string;
@@ -427,6 +428,7 @@ export class SfExpressService {
       const ts = Date.now();
       return {
         waybillNo: `SFE2E${ts}`,
+        waybillNos: [`SFE2E${ts}`],
         sfOrderId: `SFORDE2E${ts}`,
         originCode: 'E2E',
         destCode: 'E2E',
@@ -442,6 +444,19 @@ export class SfExpressService {
     this.assertContactComplete('发件人', params.sender);
     this.assertContactComplete('收件人', params.receiver);
 
+    const packageCount = params.packageCount ?? 1;
+    if (!Number.isSafeInteger(packageCount) || packageCount < 1 || packageCount > 999) {
+      throw new BadRequestException('顺丰包裹数量必须是 1 到 999 的整数');
+    }
+    const totalWeight = params.totalWeight ?? 1;
+    if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+      throw new BadRequestException('顺丰货物重量必须大于 0kg');
+    }
+    const expressTypeId = params.expressTypeId ?? 1;
+    if (!Number.isSafeInteger(expressTypeId) || expressTypeId <= 0) {
+      throw new BadRequestException('顺丰产品代码必须是正整数');
+    }
+
     // 顺丰 cargoDesc 硬限制：最长 20 字符，超长（多商品订单商品名拼接）会报
     // "顺丰API错误: cargoDesc字符长度不允许超过20"。统一在此兜底截断，
     // 保护所有调用方（管理端 admin-orders / 卖家端 seller-shipping）不论怎么拼都不会超限。
@@ -454,13 +469,13 @@ export class SfExpressService {
       orderId: params.orderId,
       monthlyCard: params.monthlyCard || this.monthlyAccount,
       payMethod: params.payMethod ?? 1,
-      expressTypeId: params.expressTypeId ?? 1,
+      expressTypeId,
       isReturnRoutelabel: params.isReturnRoutelabel ?? 1,
       // 关键：isDocall=1 才会「下call」通知顺丰收派员上门取件（顺丰默认 0=不通知，
       // 导致下单成功有运单号、但无人上门）。官方丰桥文档 EXP_RECE_CREATE_ORDER 确认。
       isDocall: params.isDocall ?? 1,
-      parcelQty: params.packageCount ?? 1,
-      totalWeight: params.totalWeight ?? 1,
+      parcelQty: packageCount,
+      totalWeight,
       cargoDesc,
       contactInfoList: [
         {
@@ -491,6 +506,17 @@ export class SfExpressService {
     const waybillNoInfoList = inner?.waybillNoInfoList ?? [];
     const firstWaybill = waybillNoInfoList[0] || {};
     const waybillNo = firstWaybill.waybillNo || '';
+    const waybillNos: string[] = Array.from(
+      new Set<string>(
+        (waybillNoInfoList as unknown[])
+          .map((item: unknown) =>
+            item && typeof item === 'object' && !Array.isArray(item)
+              ? String((item as { waybillNo?: unknown }).waybillNo ?? '').trim()
+              : '',
+          )
+          .filter((value: string): value is string => Boolean(value)),
+      ),
+    );
 
     if (!waybillNo) {
       this.logger.error(
@@ -505,6 +531,7 @@ export class SfExpressService {
 
     return {
       waybillNo,
+      waybillNos,
       sfOrderId: inner?.orderId || params.orderId,
       originCode: inner?.originCode || firstWaybill.originCode,
       destCode: inner?.destCode || firstWaybill.destCode,
@@ -782,7 +809,7 @@ export class SfExpressService {
    * Bug 1: 返回的是 PDF 文件 URL（顺丰临时签名地址），不是 base64
    * 真实路径：apiResultData.obj.files[0].url
    */
-  async printWaybill(waybillNo: string): Promise<SfPrintWaybillResult> {
+  async printWaybill(waybillNo: string | string[]): Promise<SfPrintWaybillResult> {
     if (!this.isConfigured()) {
       throw new BadRequestException('顺丰丰桥服务未配置');
     }
@@ -791,16 +818,23 @@ export class SfExpressService {
       throw new BadRequestException('SF_TEMPLATE_CODE 未配置，无法打印面单');
     }
 
+    const waybillNos = Array.from(
+      new Set(
+        (Array.isArray(waybillNo) ? waybillNo : [waybillNo])
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (waybillNos.length === 0) {
+      throw new BadRequestException('顺丰运单号缺失，无法打印面单');
+    }
+
     const msgData = {
       templateCode: this.templateCode,
       version: '2.0',
       fileType: 'pdf',
       sync: true,
-      documents: [
-        {
-          masterWaybillNo: waybillNo,
-        },
-      ],
+      documents: waybillNos.map((masterWaybillNo) => ({ masterWaybillNo })),
     };
 
     const data = await this.callApi('COM_RECE_CLOUD_PRINT_WAYBILLS', msgData);
@@ -811,7 +845,7 @@ export class SfExpressService {
 
     if (!pdfUrl || typeof pdfUrl !== 'string') {
       this.logger.error(
-        `顺丰面单打印返回缺少 url: waybillNo=${waybillNo}, data=${JSON.stringify(data).slice(0, 300)}`,
+        `顺丰面单打印返回缺少 url: waybillNo=${waybillNos.join(',')}, data=${JSON.stringify(data).slice(0, 300)}`,
       );
       throw new BadRequestException('面单打印失败: 未获取到面单 URL');
     }

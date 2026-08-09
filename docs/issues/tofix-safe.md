@@ -583,3 +583,20 @@
 | WMPA08 | 提现补偿固定取最早 20 条导致后续记录饿死，人工查单又可能与 Cron 并发访问同一转账 | 🔴 HIGH | 新增 `nextReconcileAt` 与复合索引，按到期时间 nulls-first 公平取数，采用 10/20/40/80/160/240 分钟退避；Cron 用状态+到期 CAS 抢占，人工查单用 `lastQueriedAt` 版本 CAS 抢占；微信 UNKNOWN/NOT_FOUND 达阈值只幂等告警，资金继续冻结。 | ✅ 已修复 |
 | WMPA09 | 微信交易发货 outbox 发送旧包裹快照，或把 `10060002/10060003` 错当远端已成功 | 🔴 HIGH | 每次远端发送前重新读取支付会话、当前订单和包裹；退款/取消 fail-closed，快照变化通过 generation+lease CAS 重建，发送前再验 payload hash；`10060002/10060003` 转人工失败，仅 `10060023` 保留远端已完成语义。 | ✅ 已修复 |
 | WMPA10 | 无 `sessionId` 的历史买家 JWT 可借同用户任意活跃会话继续访问，设备退出不能精确失效 | 🟠 MEDIUM | 现行 access token 已全部由登录/刷新写入 `sessionId` 且默认 15 分钟过期；买家 Strategy 不再按用户级会话降级放行，无 `sessionId` 直接 401，由 App/小程序现有 refresh 流程换取精确会话 Token。 | ✅ 已修复 |
+
+---
+
+## 2026-08-03 配送批次顺丰履约安全与一致性检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|---|---|---|---|---|
+| DSF01 | 企业中心重复点顺丰发货造成重复运单 | 🔴 HIGH | 按批次加 PostgreSQL advisory xact lock；`outsideOrderId` 使用批次 + attempt 稳定业务幂等号；`@@unique([batchId, attempt])` 和 `outsideOrderId @unique` 双重约束。已有生效运单时幂等返回，不再调顺丰。 | ✅ 已检查 |
+| DSF02 | 顺丰下单成功但本地落库失败，形成远端孤儿单 | 🔴 HIGH | 本地落库失败会立即尝试撤销远端运单；撤销成功恢复为可重试，撤销不确定则进入 `MANUAL_INTERVENTION_REQUIRED` 并禁止自动重发。 | ✅ 已检查 |
+| DSF03 | 进程在顺丰请求前后崩溃，批次永久卡在“下单中” | 🟠 MEDIUM | 创单预留 15 分钟后允许用原 `outsideOrderId` 恢复，不生成新的远端业务单号；前后端同步开放过期恢复操作。 | ✅ 已修复 |
+| DSF04 | 顺丰回调与管理员主动同步并发，旧路由把已签收倒退为运输中 | 🔴 HIGH | 回调和同步共用同一批次 advisory lock；单运单和批次状态单调保护，`DELIVERED/COMPLETED` 不倒退；订单 `DELIVERED` 也不会被刷回 `SHIPPED`。 | ✅ 已修复 |
+| DSF05 | 多运单批次在部分签收时提前增加已送达数量 | 🔴 HIGH | 只有全部 `DeliveryCarrierWaybill` 签收才将批次置为 `COMPLETED`；数量完成用批次明细 CAS，并在同一 `Serializable` 事务中增加 `pickedQuantity`、减少 `reservedPickupQuantity`；数据库 CHECK 防止超送。 | ✅ 已检查 |
+| DSF06 | 顺丰面单被非所属商家下载，或多运单只打印第一张 | 🔴 HIGH | 企业端下载会校验 `DeliveryCarrierOrder -> batch.merchantId`所有权和 `orders:read`；数据库 URL 只用来缩小候选集，提取出的完整 `delivery/` key 必须与请求 key 精确相等，部分前缀不得当作归属证明；平台端使用受管理员 Guard 保护的按批次下载接口；云打印一次传入全部运单号，返回合并 PDF。 | ✅ 已修复 |
+| DSF07 | 平台实际成本泄露给买家或企业配送中心 | 🔴 HIGH | 买家订单映射不查询/返回实际成本、差额和流水；企业端 `mapSellerBatchView` 在后端移除批次与承运单的所有报价/实际成本字段，并有回归断言。 | ✅ 已检查 |
+| DSF08 | 前端隐藏按钮但接口或路由仍可越权操作 | 🔴 HIGH | 两个配送后台的路由与操作入口统一按权限守门；客服默认配置拆为 `delivery:customer-service:read/write` 专用 Controller，后端强制 scope 为 `CUSTOMER_SERVICE` 并拒绝写入非白名单 key，不能通过构造请求改其他平台配置。 | ✅ 已修复 |
+| DSF09 | 登录恢复或刷新 token 后使用空/旧权限导致错菜单、错操作 | 🟠 HIGH | 配送管理后台和企业配送中心启动时先用 token 拉取权威账号资料；刷新 token 后同步内存和持久化 token。菜单、路由和按钮都以恢复后的最新权限过滤，避免只靠 localStorage 旧 profile 决策。 | ✅ 已修复 |
+| DSF10 | 顺丰成本人工调整被记为手工承运商 | 🟠 HIGH | 审查发现人工调整顺丰月结成本时，流水 `provider` 原写为 `MANUAL`，会污染顺丰成本对账；同时 Schema 仍允许 `MANUAL_OFFLINE`。已将配送承运商枚举固定为 `SF`、付款方式固定为 `PLATFORM_MONTHLY`，人工调整只通过 `MANUAL_ADJUSTMENT` 流水类型表达，新增回归测试锁定。 | ✅ 已修复 |

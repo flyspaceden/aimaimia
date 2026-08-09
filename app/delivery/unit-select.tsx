@@ -22,6 +22,7 @@ export default function DeliveryUnitSelectScreen() {
   const { palette, spacing, typography } = useDeliveryTheme();
   const currentUnitId = useDeliveryAuthStore((state) => state.currentUnitId);
   const setCurrentUnit = useDeliveryAuthStore((state) => state.setCurrentUnit);
+  const [selectingId, setSelectingId] = React.useState<string | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['delivery-units'],
@@ -31,17 +32,23 @@ export default function DeliveryUnitSelectScreen() {
   const units = data?.ok ? data.data.items : [];
 
   const handleSelect = async (id: string) => {
-    const result = await DeliveryUnitRepo.select(id);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '切换单位失败', type: 'error' });
-      return;
-    }
+    if (selectingId) return;
+    setSelectingId(id);
+    try {
+      const result = await DeliveryUnitRepo.select(id);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '切换单位失败', type: 'error' });
+        return;
+      }
 
-    const nextUnit = units.find((unit) => unit.id === id) ?? null;
-    useDeliveryCartStore.getState().clearLocal();
-    setCurrentUnit(nextUnit);
-    await queryClient.invalidateQueries({ queryKey: ['delivery-cart'] });
-    router.replace('/delivery/(tabs)/products');
+      const nextUnit = units.find((unit) => unit.id === id) ?? null;
+      useDeliveryCartStore.getState().clearLocal();
+      setCurrentUnit(nextUnit);
+      await queryClient.invalidateQueries({ queryKey: ['delivery-cart'] });
+      router.replace('/delivery/(tabs)/products');
+    } finally {
+      setSelectingId(null);
+    }
   };
 
   if (isLoading) {
@@ -115,6 +122,8 @@ export default function DeliveryUnitSelectScreen() {
                       </Text>
                     </View>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`编辑配送单位 ${unit.name}`}
                       onPress={() => router.push({ pathname: '/delivery/unit-edit', params: { id: unit.id } })}
                       style={{ alignSelf: 'flex-start', padding: 4 }}
                     >
@@ -122,8 +131,9 @@ export default function DeliveryUnitSelectScreen() {
                     </Pressable>
                   </View>
                   <DeliveryButton
-                    label={active ? '进入商品页' : '切换到该单位'}
+                    label={selectingId === unit.id ? '切换中...' : active ? '进入商品页' : '切换到该单位'}
                     variant={active ? 'secondary' : 'primary'}
+                    disabled={Boolean(selectingId)}
                     onPress={() => handleSelect(unit.id)}
                     style={{ marginTop: spacing.lg }}
                   />

@@ -5,6 +5,30 @@ import {
   deliveryApiClient,
   mapDeliveryResult,
 } from './DeliveryAuthRepo';
+import type { DeliveryPickupPlanItem } from '../../utils/deliveryPickupPlan';
+
+export type DeliveryPickupMode = 'SINGLE' | 'MULTI_BATCH';
+
+export type DeliveryPickupStatus =
+  | 'NOT_STARTED'
+  | 'PARTIAL_PICKED'
+  | 'ALL_PICKED'
+  | 'CANCELED'
+  | string;
+
+export type DeliveryPickupBatchStatus =
+  | 'PLANNED'
+  | 'READY_TO_CALL'
+  | 'CALLING_CARRIER'
+  | 'WAITING_DRIVER'
+  | 'DRIVER_ASSIGNED'
+  | 'ARRIVED'
+  | 'LOADED'
+  | 'DELIVERING'
+  | 'COMPLETED'
+  | 'CANCELED'
+  | 'EXCEPTION'
+  | string;
 
 export type DeliveryCheckoutSession = {
   id: string;
@@ -56,8 +80,49 @@ export type DeliveryOrderItem = {
   imageUrl: string;
   unitName: string;
   quantity: number;
+  pickedQuantity: number;
+  remainingQuantity: number;
   unitPrice: number;
   lineAmount: number;
+};
+
+export type DeliveryPickupBatchItem = {
+  id: string;
+  orderItemId: string;
+  skuId: string;
+  productTitle: string;
+  skuTitle: string;
+  unitName: string;
+  quantity: number;
+  pickedQuantity: number;
+};
+
+export type DeliveryPickupBatch = {
+  id: string;
+  orderId: string;
+  subOrderId: string;
+  merchantId: string;
+  batchNo: number;
+  status: DeliveryPickupBatchStatus;
+  provider: string;
+  plannedPickupAt: string | null;
+  readyAt: string | null;
+  calledAt: string | null;
+  loadedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
+  carrierOrderNo: string | null;
+  expressTypeName: string | null;
+  packageCount: number | null;
+  totalWeightKg: number | null;
+  waybillUrl: string | null;
+  waybills: Array<{
+    trackingNo: string;
+    status: string;
+    deliveredAt: string | null;
+    lastSyncedAt: string | null;
+  }>;
+  items: DeliveryPickupBatchItem[];
 };
 
 export type DeliveryOrderShipment = {
@@ -74,6 +139,10 @@ export type DeliveryOrderShipment = {
 export type DeliveryBuyerOrder = {
   id: string;
   status: string;
+  pickupMode: DeliveryPickupMode | string;
+  plannedPickupCount: number;
+  pickupStatus: DeliveryPickupStatus;
+  prepaidPickupShippingFee: number;
   note: string | null;
   merchantOrderNo: string | null;
   paymentChannel: string | null;
@@ -87,11 +156,16 @@ export type DeliveryBuyerOrder = {
   subOrders: DeliveryOrderSubOrder[];
   items: DeliveryOrderItem[];
   shipments: DeliveryOrderShipment[];
+  pickupBatches: DeliveryPickupBatch[];
 };
 
 type DeliveryBuyerOrderResponse = {
   id: string;
   status: string;
+  pickupMode?: DeliveryPickupMode | string | null;
+  plannedPickupCount?: number | null;
+  pickupStatus?: DeliveryPickupStatus | null;
+  prepaidPickupShippingFeeCents?: number | null;
   note: string | null;
   merchantOrderNo: string | null;
   paymentChannel: string | null;
@@ -122,6 +196,8 @@ type DeliveryBuyerOrderResponse = {
     imageUrl: string | null;
     unitName: string;
     quantity: number;
+    pickedQuantity?: number | null;
+    remainingQuantity?: number | null;
     unitPriceCents: number;
     lineAmountCents: number;
   }>;
@@ -134,6 +210,42 @@ type DeliveryBuyerOrderResponse = {
     waybillUrl: string | null;
     shippedAt: string | null;
     deliveredAt: string | null;
+  }>;
+  pickupBatches?: Array<{
+    id: string;
+    orderId: string;
+    subOrderId: string;
+    merchantId: string;
+    batchNo: number;
+    status: DeliveryPickupBatchStatus;
+    provider: string;
+    plannedPickupAt: string | null;
+    readyAt: string | null;
+    calledAt: string | null;
+    loadedAt: string | null;
+    completedAt: string | null;
+    canceledAt: string | null;
+    carrierOrderNo: string | null;
+    expressTypeName: string | null;
+    packageCount: number | null;
+    totalWeightKg: number | null;
+    waybillUrl: string | null;
+    waybills: Array<{
+      trackingNo: string;
+      status: string;
+      deliveredAt: string | null;
+      lastSyncedAt: string | null;
+    }>;
+    items: Array<{
+      id: string;
+      orderItemId: string;
+      skuId: string;
+      productTitle: string;
+      skuTitle: string;
+      unitName: string;
+      quantity: number;
+      pickedQuantity: number;
+    }>;
   }>;
 };
 
@@ -164,6 +276,35 @@ export type DeliveryCreateCheckoutPayload = {
   addressId?: string;
   note?: string;
   paymentChannel: 'ALIPAY' | 'WECHAT_PAY';
+  pickupMode?: DeliveryPickupMode;
+  plannedPickupCount?: number;
+  pickupPlanItems?: DeliveryPickupPlanItem[];
+};
+
+type DeliveryPickupEstimateResponse = {
+  goodsAmountCents: number;
+  prepaidPickupShippingFeeCents: number;
+  totalAmountCents: number;
+  plannedPickupCount: number;
+  perBatchEstimates: Array<{
+    merchantId: string;
+    merchantName?: string;
+    batchNo: number;
+    estimatedShippingFeeCents: number;
+  }>;
+};
+
+export type DeliveryPickupEstimate = {
+  goodsAmount: number;
+  prepaidPickupShippingFee: number;
+  totalAmount: number;
+  plannedPickupCount: number;
+  perBatchEstimates: Array<{
+    merchantId: string;
+    merchantName?: string;
+    batchNo: number;
+    estimatedShippingFee: number;
+  }>;
 };
 
 export type DeliveryAlipayPaymentParams = {
@@ -204,6 +345,7 @@ export type DeliveryCheckoutActiveQueryResult = {
 
 export const deliveryOrderPaths = {
   checkoutRoot: () => buildDeliveryPath('checkout'),
+  estimatePickups: () => buildDeliveryPath('checkout/estimate-pickups'),
   checkout: (id: string) => buildDeliveryPath(`checkout/${id}`),
   payment: (id: string) => buildDeliveryPath(`checkout/${id}/pay`),
   activeQuery: (id: string) => buildDeliveryPath(`checkout/${id}/active-query`),
@@ -234,6 +376,12 @@ export const mapDeliveryBuyerOrder = (
 ): DeliveryBuyerOrder => ({
   id: order.id,
   status: order.status,
+  pickupMode: order.pickupMode ?? 'SINGLE',
+  plannedPickupCount: order.plannedPickupCount ?? 1,
+  pickupStatus: order.pickupStatus ?? 'NOT_STARTED',
+  prepaidPickupShippingFee: centsToYuan(
+    order.prepaidPickupShippingFeeCents ?? order.shippingFeeCents,
+  ),
   note: order.note ?? null,
   merchantOrderNo: order.merchantOrderNo ?? null,
   paymentChannel: order.paymentChannel ?? null,
@@ -264,6 +412,9 @@ export const mapDeliveryBuyerOrder = (
     imageUrl: item.imageUrl ?? '',
     unitName: item.unitName,
     quantity: item.quantity,
+    pickedQuantity: item.pickedQuantity ?? 0,
+    remainingQuantity:
+      item.remainingQuantity ?? Math.max(0, item.quantity - (item.pickedQuantity ?? 0)),
     unitPrice: centsToYuan(item.unitPriceCents),
     lineAmount: centsToYuan(item.lineAmountCents),
   })),
@@ -277,6 +428,52 @@ export const mapDeliveryBuyerOrder = (
     shippedAt: shipment.shippedAt ?? null,
     deliveredAt: shipment.deliveredAt ?? null,
   })),
+  pickupBatches: (order.pickupBatches ?? []).map((batch) => ({
+    id: batch.id,
+    orderId: batch.orderId,
+    subOrderId: batch.subOrderId,
+    merchantId: batch.merchantId,
+    batchNo: batch.batchNo,
+    status: batch.status,
+    provider: batch.provider,
+    plannedPickupAt: batch.plannedPickupAt ?? null,
+    readyAt: batch.readyAt ?? null,
+    calledAt: batch.calledAt ?? null,
+    loadedAt: batch.loadedAt ?? null,
+    completedAt: batch.completedAt ?? null,
+    canceledAt: batch.canceledAt ?? null,
+    carrierOrderNo: batch.carrierOrderNo ?? null,
+    expressTypeName: batch.expressTypeName ?? null,
+    packageCount: batch.packageCount ?? null,
+    totalWeightKg: batch.totalWeightKg ?? null,
+    waybillUrl: batch.waybillUrl ?? null,
+    waybills: batch.waybills ?? [],
+    items: batch.items.map((item) => ({
+      id: item.id,
+      orderItemId: item.orderItemId,
+      skuId: item.skuId,
+      productTitle: item.productTitle,
+      skuTitle: item.skuTitle,
+      unitName: item.unitName,
+      quantity: item.quantity,
+      pickedQuantity: item.pickedQuantity,
+    })),
+  })),
+});
+
+export const mapDeliveryPickupEstimate = (
+  payload: DeliveryPickupEstimateResponse,
+): DeliveryPickupEstimate => ({
+  goodsAmount: centsToYuan(payload.goodsAmountCents),
+  prepaidPickupShippingFee: centsToYuan(payload.prepaidPickupShippingFeeCents),
+  totalAmount: centsToYuan(payload.totalAmountCents),
+  plannedPickupCount: payload.plannedPickupCount,
+  perBatchEstimates: payload.perBatchEstimates.map((item) => ({
+    merchantId: item.merchantId,
+    merchantName: item.merchantName,
+    batchNo: item.batchNo,
+    estimatedShippingFee: centsToYuan(item.estimatedShippingFeeCents),
+  })),
 });
 
 export const DeliveryOrderRepo = {
@@ -286,6 +483,13 @@ export const DeliveryOrderRepo = {
     deliveryApiClient
       .post<DeliveryCheckoutSessionResponse>(deliveryOrderPaths.checkoutRoot(), payload)
       .then((result) => mapDeliveryResult(result, mapDeliveryCheckoutSession)),
+
+  estimatePickups: (
+    payload: DeliveryCreateCheckoutPayload,
+  ): Promise<Result<DeliveryPickupEstimate>> =>
+    deliveryApiClient
+      .post<DeliveryPickupEstimateResponse>(deliveryOrderPaths.estimatePickups(), payload)
+      .then((result) => mapDeliveryResult(result, mapDeliveryPickupEstimate)),
 
   getCheckout: (id: string): Promise<Result<DeliveryCheckoutSession>> =>
     deliveryApiClient

@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios';
+import useAuthStore from '@/store/useAuthStore';
 
 /**
  * 配送中心 Axios 实例
@@ -25,15 +26,19 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-const parseErrorMessage = (payload: any, fallback = '请求失败') => {
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null
+);
+
+const parseErrorMessage = (payload: unknown, fallback = '请求失败') => {
   if (!payload) return fallback;
-  const candidate = payload?.error ?? payload;
+  const candidate = isRecord(payload) && 'error' in payload ? payload.error : payload;
   if (typeof candidate === 'string') return candidate;
-  if (candidate && typeof candidate === 'object') {
+  if (isRecord(candidate)) {
     if (typeof candidate.displayMessage === 'string' && candidate.displayMessage) return candidate.displayMessage;
     if (typeof candidate.message === 'string' && candidate.message) return candidate.message;
   }
-  if (typeof payload?.message === 'string' && payload.message) return payload.message;
+  if (isRecord(payload) && typeof payload.message === 'string' && payload.message) return payload.message;
   return fallback;
 };
 
@@ -66,9 +71,9 @@ export class ApiError extends Error {
 }
 
 /** 从后端信封 `{ ok:false, error: { businessCode, ... } }` 中提取业务子错误码 */
-const extractBusinessCode = (payload: any): string | undefined => {
-  const err = payload?.error;
-  if (err && typeof err === 'object' && typeof err.businessCode === 'string') {
+const extractBusinessCode = (payload: unknown): string | undefined => {
+  const err = isRecord(payload) ? payload.error : undefined;
+  if (isRecord(err) && typeof err.businessCode === 'string') {
     return err.businessCode;
   }
   return undefined;
@@ -76,15 +81,17 @@ const extractBusinessCode = (payload: any): string | undefined => {
 
 /** 提取字段级校验错误数组（用于 form.setFields 高亮） */
 const extractFieldErrors = (
-  payload: any,
+  payload: unknown,
 ): Array<{ field: string; message: string }> | undefined => {
-  const err = payload?.error;
-  if (!err || typeof err !== 'object') return undefined;
+  const err = isRecord(payload) ? payload.error : undefined;
+  if (!isRecord(err)) return undefined;
   const list = err.fieldErrors;
   if (!Array.isArray(list) || list.length === 0) return undefined;
   return list
-    .filter((e: any) => e && typeof e.field === 'string' && typeof e.message === 'string')
-    .map((e: any) => ({ field: e.field, message: e.message }));
+    .filter((entry): entry is { field: string; message: string } => (
+      isRecord(entry) && typeof entry.field === 'string' && typeof entry.message === 'string'
+    ))
+    .map((entry) => ({ field: entry.field, message: entry.message }));
 };
 
 // 请求拦截：附加 delivery seller JWT
@@ -203,6 +210,11 @@ client.interceptors.response.use(
         if (newRefreshToken) {
           localStorage.setItem('delivery_seller_refresh_token', newRefreshToken);
         }
+
+        useAuthStore.setState({
+          token: accessToken,
+          ...(newRefreshToken ? { refreshToken: newRefreshToken } : {}),
+        });
 
         processQueue(accessToken);
 

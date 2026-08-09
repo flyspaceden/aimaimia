@@ -8,6 +8,7 @@ import {
 } from '@/api/delivery-management';
 import { DetailDescriptions, NotFoundPanel, PageHeader, StatusPill } from './components';
 import { conversationStatusOptions, formatDateTime, formatDeliveryDisplayText, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type ConversationFormValues = {
   subject?: string;
@@ -20,6 +21,7 @@ type ConversationFormValues = {
 export default function DeliveryCustomerServiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:customer-service:write'));
   const queryClient = useQueryClient();
   const [form] = Form.useForm<ConversationFormValues>();
 
@@ -90,7 +92,7 @@ export default function DeliveryCustomerServiceDetailPage() {
       </Card>
 
       <Card title="更新会话" style={{ marginTop: 16 }}>
-        <Form form={form} layout="vertical" onFinish={(values) => mutation.mutate(values)}>
+        <Form form={form} layout="vertical" disabled={!canWrite} onFinish={(values) => mutation.mutate(values)}>
           <Space align="start" style={{ width: '100%' }}>
             <Form.Item label="主题" name="subject" style={{ flex: 1 }}>
               <Input />
@@ -113,7 +115,7 @@ export default function DeliveryCustomerServiceDetailPage() {
             <Input.TextArea rows={4} maxLength={500} placeholder="写入 lastMessagePreview，并将来源切到 ADMIN" />
           </Form.Item>
 
-          <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+          <Button type="primary" htmlType="submit" loading={mutation.isPending} disabled={!canWrite}>
             保存更新
           </Button>
         </Form>

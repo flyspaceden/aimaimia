@@ -293,6 +293,9 @@ export default function DeliveryUnitEditScreen() {
                         return (
                           <Pressable
                             key={option.value}
+                            accessibilityRole="radio"
+                            accessibilityLabel={`${field.label} ${option.label}`}
+                            accessibilityState={{ selected }}
                             onPress={() => updateExtraField(field.fieldKey, option.value)}
                             style={{
                               borderWidth: 1,

@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { DeliveryConfigScope, Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { UpdateDeliveryConfigItemDto } from './dto/update-delivery-config.dto';
+import {
+  parseSfExpressProducts,
+  SF_EXPRESS_PRODUCTS_CONFIG_KEY,
+  validateSfExpressProducts,
+} from './sf-express-products';
 
 @Injectable()
 export class DeliveryConfigService {
@@ -20,36 +25,60 @@ export class DeliveryConfigService {
   }
 
   async update(items: UpdateDeliveryConfigItemDto[], deliveryAdminUserId?: string) {
-    const results = [];
-    for (const item of items) {
-      const before = deliveryAdminUserId
-        ? await this.deliveryPrisma.deliveryConfig.findUnique({ where: { key: item.key } })
-        : null;
-      const result = await this.deliveryPrisma.deliveryConfig.upsert({
-        where: { key: item.key },
-        create: {
-          key: item.key,
-          value: item.value as any,
-          description: item.description?.trim() || null,
-          scope: item.scope ?? 'SYSTEM',
-        },
-        update: {
-          value: item.value as any,
-          description: item.description?.trim() || null,
-          scope: item.scope ?? 'SYSTEM',
-        },
-      });
-      await this.writeAdminAuditLog(deliveryAdminUserId, {
-        key: item.key,
-        before,
-        after: result,
-      });
-      results.push(result);
-    }
-    return results;
+    const normalizedItems = items.map((item) => ({
+      ...item,
+      key: item.key.trim(),
+      value:
+        item.key.trim() === SF_EXPRESS_PRODUCTS_CONFIG_KEY
+          ? { products: validateSfExpressProducts(item.value) }
+          : item.value,
+    }));
+
+    return this.deliveryPrisma.$transaction(
+      async (tx) => {
+        const results = [];
+        for (const item of normalizedItems) {
+          const before = deliveryAdminUserId
+            ? await tx.deliveryConfig.findUnique({ where: { key: item.key } })
+            : null;
+          const result = await tx.deliveryConfig.upsert({
+            where: { key: item.key },
+            create: {
+              key: item.key,
+              value: item.value as Prisma.InputJsonValue,
+              description: item.description?.trim() || null,
+              scope: item.scope ?? 'SYSTEM',
+            },
+            update: {
+              value: item.value as Prisma.InputJsonValue,
+              description: item.description?.trim() || null,
+              scope: item.scope ?? 'SYSTEM',
+            },
+          });
+          await this.writeAdminAuditLog(tx, deliveryAdminUserId, {
+            key: item.key,
+            before,
+            after: result,
+          });
+          results.push(result);
+        }
+        return results;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  async getSfExpressProducts(enabledOnly = false) {
+    const row = await this.deliveryPrisma.deliveryConfig.findUnique({
+      where: { key: SF_EXPRESS_PRODUCTS_CONFIG_KEY },
+      select: { value: true },
+    });
+    const products = parseSfExpressProducts(row?.value);
+    return enabledOnly ? products.filter((item) => item.enabled) : products;
   }
 
   private async writeAdminAuditLog(
+    tx: Prisma.TransactionClient,
     deliveryAdminUserId: string | undefined,
     input: { key: string; before: unknown; after: unknown },
   ) {
@@ -57,7 +86,7 @@ export class DeliveryConfigService {
       return;
     }
 
-    await this.deliveryPrisma.deliveryAuditLog.create({
+    await tx.deliveryAuditLog.create({
       data: {
         actorType: 'ADMIN',
         actorId: deliveryAdminUserId,

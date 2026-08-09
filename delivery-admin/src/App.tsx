@@ -1,8 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Spin } from 'antd';
 import AdminLayout from '@/layouts/AdminLayout';
 import useAuthStore from '@/store/useAuthStore';
+import { getProfile } from '@/api/auth';
 
 const LoginPage = lazy(() => import('@/pages/login/index'));
 const DashboardPage = lazy(() => import('@/pages/delivery-admin/dashboard'));
@@ -21,6 +22,8 @@ const PricingRulesPage = lazy(() => import('@/pages/delivery-admin/pricing-rules
 const OrdersPage = lazy(() => import('@/pages/delivery-admin/orders'));
 const OrderDetailPage = lazy(() => import('@/pages/delivery-admin/order-detail'));
 const ShippingRecordsPage = lazy(() => import('@/pages/delivery-admin/shipping-records'));
+const FreightCenterPage = lazy(() => import('@/pages/delivery-admin/freight-center'));
+const PickupBatchesPage = lazy(() => import('@/pages/delivery-admin/pickup-batches'));
 const AbnormalPaymentsPage = lazy(() => import('@/pages/delivery-admin/abnormal-payments'));
 const ManifestsPage = lazy(() => import('@/pages/delivery-admin/manifests'));
 const SettlementsPage = lazy(() => import('@/pages/delivery-admin/settlements'));
@@ -43,8 +46,64 @@ const PageLoading = () => (
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((state) => state.token);
+  const refreshToken = useAuthStore((state) => state.refreshToken);
+  const admin = useAuthStore((state) => state.admin);
+  const setAuth = useAuthStore((state) => state.setAuth);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
+  useEffect(() => {
+    if (!token || admin) {
+      return;
+    }
+
+    let active = true;
+    getProfile()
+      .then((profile) => {
+        if (!active) return;
+        const currentAccessToken = localStorage.getItem('delivery_admin_token') || token;
+        const currentRefreshToken = localStorage.getItem('delivery_admin_refresh_token') || refreshToken;
+        if (!currentRefreshToken) {
+          clearAuth();
+          return;
+        }
+        setAuth(currentAccessToken, currentRefreshToken, profile);
+      })
+      .catch(() => {
+        if (active) clearAuth();
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [admin, clearAuth, refreshToken, setAuth, token]);
+
   if (!token) {
     return <Navigate to="/login" replace />;
+  }
+  if (!admin) {
+    return <PageLoading />;
+  }
+  return <>{children}</>;
+}
+
+function useDefaultAuthorizedPath() {
+  const hasPermission = useAuthStore((state) => state.hasPermission);
+  if (hasPermission('delivery:dashboard:read')) return '/';
+  if (hasPermission('delivery:users:read')) return '/users';
+  if (hasPermission('delivery:merchants:read')) return '/merchants';
+  if (hasPermission('delivery:products:read')) return '/products';
+  if (hasPermission('delivery:config:read')) return '/config';
+  if (hasPermission('delivery:orders:read')) return '/orders';
+  if (hasPermission('delivery:settlements:read')) return '/settlements';
+  if (hasPermission('delivery:manifests:read')) return '/manifests';
+  if (hasPermission('delivery:customer-service:read')) return '/cs/workstation';
+  return '/account-security';
+}
+
+function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
+  const hasPermission = useAuthStore((state) => state.hasPermission);
+  const fallbackPath = useDefaultAuthorizedPath();
+  if (!hasPermission(permission)) {
+    return <Navigate to={fallbackPath} replace />;
   }
   return <>{children}</>;
 }
@@ -78,35 +137,37 @@ export default function App() {
               </RequireAuth>
             )}
           >
-            <Route index element={<DashboardPage />} />
-            <Route path="stats" element={<StatsPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="users/:id" element={<UserDetailPage />} />
-            <Route path="units" element={<UnitsPage />} />
-            <Route path="units/:id" element={<UnitDetailPage />} />
-            <Route path="merchants" element={<MerchantsPage />} />
-            <Route path="merchants/:id" element={<MerchantDetailPage />} />
-            <Route path="merchant-applications" element={<MerchantApplicationsPage />} />
-            <Route path="merchant-applications/:id" element={<MerchantApplicationDetailPage />} />
-            <Route path="products" element={<ProductsPage />} />
-            <Route path="categories" element={<CategoriesPage />} />
-            <Route path="pricing-rules" element={<PricingRulesPage />} />
-            <Route path="orders" element={<OrdersPage />} />
-            <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="shipping-records" element={<ShippingRecordsPage />} />
-            <Route path="abnormal-payments" element={<AbnormalPaymentsPage />} />
-            <Route path="manifests" element={<ManifestsPage />} />
-            <Route path="settlements" element={<SettlementsPage />} />
+            <Route index element={<RequirePermission permission="delivery:dashboard:read"><DashboardPage /></RequirePermission>} />
+            <Route path="stats" element={<RequirePermission permission="delivery:dashboard:read"><StatsPage /></RequirePermission>} />
+            <Route path="users" element={<RequirePermission permission="delivery:users:read"><UsersPage /></RequirePermission>} />
+            <Route path="users/:id" element={<RequirePermission permission="delivery:users:read"><UserDetailPage /></RequirePermission>} />
+            <Route path="units" element={<RequirePermission permission="delivery:users:read"><UnitsPage /></RequirePermission>} />
+            <Route path="units/:id" element={<RequirePermission permission="delivery:users:read"><UnitDetailPage /></RequirePermission>} />
+            <Route path="merchants" element={<RequirePermission permission="delivery:merchants:read"><MerchantsPage /></RequirePermission>} />
+            <Route path="merchants/:id" element={<RequirePermission permission="delivery:merchants:read"><MerchantDetailPage /></RequirePermission>} />
+            <Route path="merchant-applications" element={<RequirePermission permission="delivery:merchants:read"><MerchantApplicationsPage /></RequirePermission>} />
+            <Route path="merchant-applications/:id" element={<RequirePermission permission="delivery:merchants:read"><MerchantApplicationDetailPage /></RequirePermission>} />
+            <Route path="products" element={<RequirePermission permission="delivery:products:read"><ProductsPage /></RequirePermission>} />
+            <Route path="categories" element={<RequirePermission permission="delivery:products:read"><CategoriesPage /></RequirePermission>} />
+            <Route path="pricing-rules" element={<RequirePermission permission="delivery:config:read"><PricingRulesPage /></RequirePermission>} />
+            <Route path="orders" element={<RequirePermission permission="delivery:orders:read"><OrdersPage /></RequirePermission>} />
+            <Route path="orders/:id" element={<RequirePermission permission="delivery:orders:read"><OrderDetailPage /></RequirePermission>} />
+            <Route path="shipping-records" element={<RequirePermission permission="delivery:orders:read"><ShippingRecordsPage /></RequirePermission>} />
+            <Route path="freight-center" element={<RequirePermission permission="delivery:orders:read"><FreightCenterPage /></RequirePermission>} />
+            <Route path="pickup-batches" element={<RequirePermission permission="delivery:orders:read"><PickupBatchesPage /></RequirePermission>} />
+            <Route path="abnormal-payments" element={<RequirePermission permission="delivery:orders:read"><AbnormalPaymentsPage /></RequirePermission>} />
+            <Route path="manifests" element={<RequirePermission permission="delivery:manifests:read"><ManifestsPage /></RequirePermission>} />
+            <Route path="settlements" element={<RequirePermission permission="delivery:settlements:read"><SettlementsPage /></RequirePermission>} />
             <Route path="customer-service" element={<Navigate to="/cs/workstation" replace />} />
-            <Route path="customer-service/:id" element={<CustomerServiceDetailPage />} />
-            <Route path="cs/workstation" element={<CsWorkstationPage />} />
-            <Route path="cs/tickets" element={<CsTicketsPage />} />
-            <Route path="cs/faq" element={<CsFaqPage />} />
-            <Route path="cs/quick-entries" element={<CsQuickEntriesPage />} />
-            <Route path="cs/quick-replies" element={<CsQuickRepliesPage />} />
-            <Route path="cs/dashboard" element={<CsDashboardPage />} />
-            <Route path="audit" element={<AuditPage />} />
-            <Route path="config" element={<ConfigPage />} />
+            <Route path="customer-service/:id" element={<RequirePermission permission="delivery:customer-service:read"><CustomerServiceDetailPage /></RequirePermission>} />
+            <Route path="cs/workstation" element={<RequirePermission permission="delivery:customer-service:read"><CsWorkstationPage /></RequirePermission>} />
+            <Route path="cs/tickets" element={<RequirePermission permission="delivery:customer-service:read"><CsTicketsPage /></RequirePermission>} />
+            <Route path="cs/faq" element={<RequirePermission permission="delivery:customer-service:read"><CsFaqPage /></RequirePermission>} />
+            <Route path="cs/quick-entries" element={<RequirePermission permission="delivery:customer-service:read"><CsQuickEntriesPage /></RequirePermission>} />
+            <Route path="cs/quick-replies" element={<RequirePermission permission="delivery:customer-service:read"><CsQuickRepliesPage /></RequirePermission>} />
+            <Route path="cs/dashboard" element={<RequirePermission permission="delivery:customer-service:read"><CsDashboardPage /></RequirePermission>} />
+            <Route path="audit" element={<RequirePermission permission="delivery:config:read"><AuditPage /></RequirePermission>} />
+            <Route path="config" element={<RequirePermission permission="delivery:config:read"><ConfigPage /></RequirePermission>} />
             <Route path="account-security" element={<AccountSecurityPage />} />
           </Route>
 

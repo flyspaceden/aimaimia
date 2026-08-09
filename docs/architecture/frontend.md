@@ -57,10 +57,10 @@
 | 配送商品列表 | `/delivery/(tabs)/products` | ✅ 已接入 | 分类筛选、关键词搜索、快捷加购物车 |
 | 配送商品详情 | `/delivery/product/[id]` | ✅ 已接入 | SKU 选择、起订量 / 步长 / 库存展示 |
 | 配送购物车 | `/delivery/cart` | ✅ 已接入 | 勾选、改数量、删除、去结算 |
-| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；用户核对后第二次确认才通过 delivery 专属 pay-params 接口拉起原生支付宝 / 微信支付 |
+| 配送结算 | `/delivery/checkout` | ✅ 已接入 | 第一次提交先创建 delivery checkout session 并展示后端锁定的商品金额 / 配送费 / 应付合计；支持一次付款、1 / 2 / 3 / 自定义配送批次，批次数按所选商品总数量和平台 5 次上限动态收紧；多批次先预估预收配送运费，顺丰实际成本差额由平台承担，不对买家二次补收或退款 |
 | 配送结算状态 | `/delivery/payment-success` | ✅ 已接入 | 支付拉起后主动查单并轮询 delivery checkout session 状态，等待支付回调建单完成 |
-| 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用 |
-| 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口 |
+| 配送订单列表 | `/delivery/orders` | ✅ 已接入 | 仅 delivery 订单，状态筛选可用；多批次订单展示配送状态和预计批次数 |
+| 配送订单详情 | `/delivery/orders/[id]` | ✅ 已接入 | 地址、商品、金额、物流、清单入口；多批次订单展示“配送进度”，包含商品已购/已送达/待配送数量、顺丰产品、包裹数、实际重量、全部运单号和完成时间；不展示平台实际承运成本 |
 | 配送清单列表 | `/delivery/manifests` | ✅ 已接入 | 打开 buyer manifests 文件 |
 | 配送客服 | `/delivery/cs` | ✅ 已接入 | 我的页入口，买家可按配送订单/子订单上下文创建和查看客服记录 |
 
@@ -68,6 +68,7 @@
 
 - delivery 订单列表/详情走 delivery buyer 专属后端接口，不再落到普通订单接口。
 - checkout 已接入 delivery 专属支付发起链路：`createCheckout -> 展示后端锁定金额 -> createPaymentParams -> 原生 Alipay/WeChat SDK -> active-query -> /delivery/payment-success`。App 不再用本地购物车金额直接作为付款前应付合计，避免有配送费时展示金额与实际支付金额不一致。
+- 一次付款多次配送只影响 delivery 结算和 delivery buyer 订单展示：App 提交 `pickupMode` / `plannedPickupCount` / `pickupPlanItems`，后端锁定 `prepaidPickupShippingFeeCents` 后一次性收款；所选配送批次数不能超过所选商品总数量，每个计划批次必须有货；付款后各批次由配送企业在备货完成后分别向顺丰下单，平台管理员全局监控和处理异常。买家端不展示平台实际承运成本、成本差额或成本流水。
 - delivery paid order 创建后会在同一 delivery 事务内清理本次 checkout snapshot 对应的 `DeliveryCartItem`，不触碰普通购物车。
 - 支付宝 / 微信真实 provider 回调链路沿用现有 `/payments/alipay|wechat/notify -> DeliveryPaymentsService -> DeliveryOrdersService`；App 侧支付完成后会调用 `/delivery/checkout/:id/active-query` 主动查单，降低第三方异步回调延迟导致的长时间未建单风险。真实渠道联调仍待实机验证，当前不能表述为已完成生产验证。
 - 当前 delivery 前端未接普通 App 的 VIP / 红包 / 消费积分 / 数字资产 / 推荐码 / 抽奖 / 售后入口。
@@ -101,7 +102,10 @@
 - 配送客服中心补齐（2026-06-20）：配送管理后台客服中心对齐现有爱买买管理后台 6 页结构：对话工作台、工单管理、FAQ 管理、快捷入口配置、坐席快捷回复、数据看板；当前配送后端已提供会话列表/详情/更新和客服默认配置，前端先接真实会话数据与默认配置，FAQ/快捷入口独立 CRUD 等待后端配送接口后续补齐。
 - 配送中心登录菜单修复（2026-06-21）：配送中心登录成功后不再先把 `seller=null` 的临时登录态写入 Zustand，改为先把 token 写入 localStorage 供 `getMe` 拉取完整账号资料，拿到完整 `permissionCodes` 后再一次性进入已登录状态，避免 ProLayout 在空权限 profile 下初始化成空侧边栏，导致首次登录只有一个页面、刷新后才出现完整菜单。
 - 配送管理后台定价规则弹窗修复（2026-06-21）：定价规则弹窗在选择“指定规格规则”时，商家 / 商品 / 规格三个选择框改为响应式网格布局，去掉固定 `md` 宽度，选择框按弹窗宽度自动等分或换行，避免规格选择框撑出弹窗范围。
-- 本轮验证：`npx jest src/utils/__tests__/deliveryRepos.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryRegion.test.ts src/utils/__tests__/regionPickerTheme.test.ts --runInBand`、`npx jest src/utils/__tests__/deliveryCheckoutSummary.test.ts --runInBand`、`npx tsc --noEmit --pretty false`、`cd delivery-admin && npm test && npm run build`、`cd delivery-seller && npm run build`、根目录 `npm test -- --runInBand` 均通过。
+- 一次付款多次配送 App 接入（2026-06-30，2026-08-03 顺丰收口）：配送结算页新增紧凑“配送安排”控制区，默认按商品数量均分到多批次且余数进入较早批次；批次数按所选商品总数量和平台 5 次上限动态收紧，并在 App / 后端同时拒绝空批次计划。多批次锁单前预估并一次预收配送运费；订单列表和详情展示批次配送进度。后端 buyer order API 返回预收配送运费、批次状态、顺丰产品、包裹数、实际重量和全部运单号，不返回平台 actual carrier cost、cost diff 或 cost ledger。
+- 配送三端交互终审（2026-08-03）：App 商品、详情、购物车、结算、单位、订单、清单、客服等可操作项补齐可访问名称、加载锁和失败重试；快捷加购只选择有库存且满足起订量的规格，并阻止事件穿透到商品详情；清单/运单外链打开失败给出可见提示；配送、批次、承运和清单状态统一显示中文兜底，不向买家暴露后端枚举。
+- 配送 Web 交互终审（2026-08-03）：两个后台的认证恢复会先拉取完整账号和最新权限，避免刷新或首次登录出现空目录；业务目录改为受控展开，页面跳转后不再丢失其他分组；路由和操作按钮同时按权限守门；无写权限的客服入口只显示“查看”；表单、验证码、卡片和图标按钮补齐键盘操作；商品编辑离开前保护未保存内容；React 19 项目加载 Ant Design 5 官方兼容补丁。
+- 本轮验证：买家配送 5 suites / 18 tests、配送管理后台 25 tests、企业配送中心 30 tests、配送后端与顺丰配送回调 56 suites / 300 tests、两个 Web 包 ESLint、三端 TypeScript/生产构建和配送 Prisma validate 均通过；本地浏览器验证配送管理后台 23/23、企业配送中心 9/9 菜单路由及工作台 7 个入口跳转正确，最终依赖环境浏览器 console 为 0 error / 0 warning。真实支付、顺丰回调与部署配置仍须在 staging 验收。
 
 ### 0.9 Web 管理后台同步记录（2026-07-04）
 

@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Spin } from 'antd';
 import useAuthStore from '@/store/useAuthStore';
 import SellerLayout from '@/layouts/SellerLayout';
+import { getMe } from '@/api/auth';
 
 // N17修复：路由级代码拆分，减小首屏包体
 const LoginPage = lazy(() => import('@/pages/login/index'));
@@ -14,6 +15,7 @@ const StockPage = lazy(() => import('@/pages/products/stock'));
 const OrderListPage = lazy(() => import('@/pages/orders/index'));
 const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
 const LogisticsPage = lazy(() => import('@/pages/orders/logistics'));
+const PickupBatchesPage = lazy(() => import('@/pages/pickup-batches/index'));
 const ExportCenterPage = lazy(() => import('@/pages/exports/index'));
 const CompanySettingsPage = lazy(() => import('@/pages/company/index'));
 const StaffManagementPage = lazy(() => import('@/pages/company/staff'));
@@ -28,8 +30,41 @@ const PageLoading = () => (
 /** 路由守卫：未登录跳转登录页 */
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const refreshToken = useAuthStore((s) => s.refreshToken);
+  const seller = useAuthStore((s) => s.seller);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const clearAuth = useAuthStore((s) => s.clearAuth);
+  useEffect(() => {
+    if (!token || seller) {
+      return;
+    }
+
+    let active = true;
+    getMe()
+      .then((profile) => {
+        if (!active) return;
+        const currentAccessToken = localStorage.getItem('delivery_seller_token') || token;
+        const currentRefreshToken = localStorage.getItem('delivery_seller_refresh_token') || refreshToken;
+        if (!currentRefreshToken) {
+          clearAuth();
+          return;
+        }
+        setAuth(currentAccessToken, currentRefreshToken, profile);
+      })
+      .catch(() => {
+        if (active) clearAuth();
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [clearAuth, refreshToken, seller, setAuth, token]);
+
   if (!token) {
     return <Navigate to="/login" replace />;
+  }
+  if (!seller) {
+    return <PageLoading />;
   }
   return <>{children}</>;
 }
@@ -110,6 +145,7 @@ export default function App() {
             <Route path="orders" element={<RequirePermission permission="orders:read"><OrderListPage /></RequirePermission>} />
             <Route path="orders/logistics" element={<RequirePermission permission="orders:read"><LogisticsPage /></RequirePermission>} />
             <Route path="orders/:id" element={<RequirePermission permission="orders:read"><OrderDetailPage /></RequirePermission>} />
+            <Route path="pickup-batches" element={<RequirePermission permission="orders:read"><PickupBatchesPage /></RequirePermission>} />
             <Route path="exports" element={<RequirePermission permission="finance:read"><ExportCenterPage /></RequirePermission>} />
             <Route path="company/settings" element={<RequirePermission permission="company:read"><CompanySettingsPage /></RequirePermission>} />
             <Route path="company/staff" element={<RequirePermission permission="staff:manage"><StaffManagementPage /></RequirePermission>} />

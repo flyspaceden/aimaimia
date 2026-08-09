@@ -121,6 +121,70 @@ test('delivery admin navigation is filtered by delivery admin permissions', () =
   assert.match(authStore, /\$\{moduleName\}:\*/, 'frontend permission checker should support module wildcard permission');
 });
 
+test('delivery admin keeps every visible menu group open across route navigation', () => {
+  const layout = read('src/layouts/AdminLayout.tsx');
+
+  assert.match(layout, /visibleGroupKeys/);
+  assert.match(layout, /openKeys/);
+  assert.match(layout, /onOpenChange/);
+  assert.match(layout, /menuProps=\{\{[\s\S]*selectedKeys,[\s\S]*openKeys,/);
+});
+
+test('delivery admin protects direct routes and write actions with matching permissions', () => {
+  const app = read('src/App.tsx');
+  for (const permission of [
+    'delivery:dashboard:read',
+    'delivery:users:read',
+    'delivery:merchants:read',
+    'delivery:products:read',
+    'delivery:config:read',
+    'delivery:orders:read',
+    'delivery:settlements:read',
+    'delivery:manifests:read',
+    'delivery:customer-service:read',
+  ]) {
+    assert.match(app, new RegExp(`RequirePermission permission=["']${permission.replace(':', '\\:')}["']`));
+  }
+
+  for (const [file, permission] of [
+    ['src/pages/delivery-admin/merchants.tsx', 'delivery:merchants:write'],
+    ['src/pages/delivery-admin/merchant-applications.tsx', 'delivery:merchants:write'],
+    ['src/pages/delivery-admin/products.tsx', 'delivery:products:audit'],
+    ['src/pages/delivery-admin/categories.tsx', 'delivery:products:write'],
+    ['src/pages/delivery-admin/pricing-rules.tsx', 'delivery:config:write'],
+    ['src/pages/delivery-admin/freight-center.tsx', 'delivery:orders:write'],
+    ['src/pages/delivery-admin/pickup-batches.tsx', 'delivery:orders:write'],
+    ['src/pages/delivery-admin/settlements.tsx', 'delivery:settlements:write'],
+    ['src/pages/delivery-admin/manifests.tsx', 'delivery:manifests:write'],
+    ['src/pages/delivery-admin/config.tsx', 'delivery:config:write'],
+    ['src/pages/delivery-admin/cs-quick-replies.tsx', 'delivery:customer-service:write'],
+  ]) {
+    assert.match(read(file), new RegExp(permission.replace(':', '\\:')), `${file} should gate mutations with ${permission}`);
+  }
+});
+
+test('delivery customer-service settings use their own permitted API instead of generic config', () => {
+  const api = read('src/api/delivery-management.ts');
+  assert.match(api, /\/delivery-admin\/cs\/config\/defaults/);
+  for (const file of [
+    'src/pages/delivery-admin/cs-faq.tsx',
+    'src/pages/delivery-admin/cs-quick-entries.tsx',
+    'src/pages/delivery-admin/cs-quick-replies.tsx',
+  ]) {
+    const source = read(file);
+    assert.match(source, /CustomerServiceConfig/);
+    assert.doesNotMatch(source, /getDeliveryConfig\(/);
+    assert.doesNotMatch(source, /updateDeliveryConfig\(/);
+  }
+});
+
+test('delivery admin loads the React 19 compatibility patch and exposes keyboard-operable custom controls', () => {
+  assert.match(read('src/main.tsx'), /@ant-design\/v5-patch-for-react-19/);
+  assert.match(read('src/pages/delivery-admin/config.tsx'), /role="button"[\s\S]*tabIndex=\{0\}[\s\S]*onKeyDown/);
+  assert.match(read('src/pages/delivery-admin/categories.tsx'), /aria-expanded=\{isExpanded\}/);
+  assert.match(read('src/pages/login/index.tsx'), /aria-label="刷新图形验证码"/);
+});
+
 test('delivery admin core list pages use mature ProTable request patterns', () => {
   for (const file of [
     'src/pages/delivery-admin/users.tsx',

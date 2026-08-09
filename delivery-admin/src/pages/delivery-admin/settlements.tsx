@@ -10,6 +10,7 @@ import {
 import type { DeliverySettlement } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
 import { deliveryValueEnum, formatDateTime, formatMoney, getErrorMessage, settlementStatusOptions } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type SettlementFormValues = {
   settledAmountCents: number;
@@ -18,6 +19,7 @@ type SettlementFormValues = {
 
 export default function DeliverySettlementsPage() {
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:settlements:write'));
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [editing, setEditing] = useState<DeliverySettlement | null>(null);
   const [form] = Form.useForm<SettlementFormValues>();
@@ -91,7 +93,7 @@ export default function DeliverySettlementsPage() {
       width: 110,
       fixed: 'right',
       render: (_, record) => (
-        <Button type="link" size="small" disabled={record.status === 'SETTLED'} onClick={() => setEditing(record)}>
+        <Button type="link" size="small" disabled={!canWrite || record.status === 'SETTLED'} onClick={() => setEditing(record)}>
           标记已打款
         </Button>
       ),
@@ -133,6 +135,7 @@ export default function DeliverySettlementsPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(editing)}
         title="标记结算为已支付"
         confirmLoading={mutation.isPending}

@@ -53,6 +53,21 @@ export default function DeliveryCustomerServiceScreen() {
     show({ message: '问题已提交，客服会尽快处理', type: 'success' });
   };
 
+  if (!query.isLoading && (!query.data || !query.data.ok)) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="配送客服" />
+        <DeliveryMessageState
+          title="配送客服加载失败"
+          description={query.data?.ok === false ? query.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
+          actionLabel="重新加载"
+          onAction={() => query.refetch()}
+          icon="headset-off"
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Screen contentStyle={{ flex: 1 }}>
       <AppHeader title="配送客服" />

@@ -505,6 +505,26 @@ export class DeliveryAdminOpsService {
         subOrders: true,
         payments: true,
         shipments: true,
+        pickupBatches: {
+          include: {
+            merchant: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            items: {
+              orderBy: [{ createdAt: 'asc' }],
+            },
+            carrierOrders: {
+              orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+            },
+          },
+          orderBy: [{ batchNo: 'asc' }, { createdAt: 'asc' }],
+        },
+        shippingCostLedgers: {
+          orderBy: [{ createdAt: 'desc' }],
+        },
       },
     });
     if (!order) {

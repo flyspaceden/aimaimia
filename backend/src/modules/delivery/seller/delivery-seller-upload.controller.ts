@@ -135,59 +135,72 @@ export class DeliverySellerUploadController {
 
   private async assertMerchantOwnsDeliveryKey(merchantId: string, key: string): Promise<DeliverySellerFileScope> {
     const [
-      skuImageCount,
+      skuImageRows,
       productMediaRows,
-      manifest,
-      shipmentCount,
-      settlementCount,
-      applicationCount,
+      manifestRows,
+      shipmentRows,
+      pickupWaybillRows,
+      settlementRows,
+      applicationRows,
     ] = await Promise.all([
-      this.deliveryPrisma.deliveryProductSku.count({
+      this.deliveryPrisma.deliveryProductSku.findMany({
         where: {
           product: { merchantId },
           imageUrl: { contains: key },
         },
+        select: { imageUrl: true },
       }),
       this.deliveryPrisma.deliveryProduct.findMany({
         where: { merchantId },
         select: { media: true },
       }),
-      this.deliveryPrisma.deliveryManifest.findFirst({
+      this.deliveryPrisma.deliveryManifest.findMany({
         where: {
           merchantId,
-          OR: [
-            { storageKey: key },
-            { fileUrl: { contains: key } },
-          ],
+          OR: [{ storageKey: key }, { fileUrl: { contains: key } }],
         },
-        select: { type: true },
+        select: { type: true, storageKey: true, fileUrl: true },
       }),
-      this.deliveryPrisma.deliveryShipment.count({
-        where: {
-          merchantId,
-          waybillUrl: { contains: key },
-        },
+      this.deliveryPrisma.deliveryShipment.findMany({
+        where: { merchantId, waybillUrl: { contains: key } },
+        select: { waybillUrl: true },
       }),
-      this.deliveryPrisma.deliverySettlement.count({
-        where: {
-          merchantId,
-          exportFileUrl: { contains: key },
-        },
+      this.deliveryPrisma.deliveryCarrierOrder.findMany({
+        where: { batch: { merchantId }, waybillUrl: { contains: key } },
+        select: { waybillUrl: true },
       }),
-      this.deliveryPrisma.deliveryMerchantApplication.count({
-        where: {
-          merchantId,
-          licenseFileUrl: { contains: key },
-        },
+      this.deliveryPrisma.deliverySettlement.findMany({
+        where: { merchantId, exportFileUrl: { contains: key } },
+        select: { exportFileUrl: true },
+      }),
+      this.deliveryPrisma.deliveryMerchantApplication.findMany({
+        where: { merchantId, licenseFileUrl: { contains: key } },
+        select: { licenseFileUrl: true },
       }),
     ]);
-    const productMediaCount = productMediaRows.some((row) => this.jsonContainsKey(row.media, key)) ? 1 : 0;
+    const ownsProductFile =
+      skuImageRows.some((row) => this.referencesDeliveryKey(row.imageUrl, key)) ||
+      productMediaRows.some((row) => this.jsonContainsKey(row.media, key));
+    const manifest = manifestRows.find(
+      (row) =>
+        this.referencesDeliveryKey(row.storageKey, key) ||
+        this.referencesDeliveryKey(row.fileUrl, key),
+    );
+    const ownsOrderFile =
+      shipmentRows.some((row) => this.referencesDeliveryKey(row.waybillUrl, key)) ||
+      pickupWaybillRows.some((row) => this.referencesDeliveryKey(row.waybillUrl, key));
+    const ownsSettlementFile = settlementRows.some((row) =>
+      this.referencesDeliveryKey(row.exportFileUrl, key),
+    );
+    const ownsApplicationFile = applicationRows.some((row) =>
+      this.referencesDeliveryKey(row.licenseFileUrl, key),
+    );
 
-    if (skuImageCount + productMediaCount > 0) return 'products';
+    if (ownsProductFile) return 'products';
     if (manifest) return manifest.type === 'SELLER_SETTLEMENT' ? 'finance' : 'orders';
-    if (shipmentCount > 0) return 'orders';
-    if (settlementCount > 0) return 'finance';
-    if (applicationCount > 0) return 'company';
+    if (ownsOrderFile) return 'orders';
+    if (ownsSettlementFile) return 'finance';
+    if (ownsApplicationFile) return 'company';
 
     throw new ForbiddenException('无权下载该配送文件');
   }
@@ -231,7 +244,7 @@ export class DeliverySellerUploadController {
 
   private jsonContainsKey(value: unknown, key: string): boolean {
     if (typeof value === 'string') {
-      return value.includes(key);
+      return this.referencesDeliveryKey(value, key);
     }
     if (Array.isArray(value)) {
       return value.some((item) => this.jsonContainsKey(item, key));
@@ -240,5 +253,23 @@ export class DeliverySellerUploadController {
       return Object.values(value).some((item) => this.jsonContainsKey(item, key));
     }
     return false;
+  }
+
+  private referencesDeliveryKey(value: unknown, key: string): boolean {
+    if (typeof value !== 'string' || !value.trim()) return false;
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(new URL(value.trim(), 'http://localhost').pathname);
+    } catch {
+      try {
+        pathname = decodeURIComponent(value.trim().split('?')[0]);
+      } catch {
+        return false;
+      }
+    }
+    const normalized = pathname.replace(/^\/+/, '');
+    if (normalized === key) return true;
+    const deliveryIndex = normalized.indexOf('delivery/');
+    return deliveryIndex >= 0 && normalized.slice(deliveryIndex) === key;
   }
 }

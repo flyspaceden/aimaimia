@@ -8,6 +8,7 @@ import {
 import { Prisma } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliveryIdService } from '../common/delivery-id.service';
+import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
 
 type PaidCheckoutParams = {
   merchantOrderNo: string;
@@ -141,6 +142,7 @@ export class DeliveryOrdersService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryIdService: DeliveryIdService,
+    private readonly deliveryPickupPlanService: DeliveryPickupPlanService,
   ) {}
 
   async getOrderManifestContextForBuyer(
@@ -517,6 +519,8 @@ export class DeliveryOrdersService {
                 unitId: checkout.unitId,
                 checkoutSessionId: checkout.id,
                 status: 'PENDING_SHIPMENT',
+                pickupMode: checkout.pickupMode,
+                plannedPickupCount: checkout.plannedPickupCount,
                 unitSnapshot: checkout.unitSnapshot as Prisma.InputJsonValue,
                 addressSnapshot: checkout.addressSnapshot as Prisma.InputJsonValue,
                 itemsSnapshot: checkout.itemsSnapshot as Prisma.InputJsonValue,
@@ -524,6 +528,8 @@ export class DeliveryOrdersService {
                   checkout.pricingSnapshot === null
                     ? Prisma.JsonNull
                     : (checkout.pricingSnapshot as Prisma.InputJsonValue),
+                prepaidPickupShippingFeeCents:
+                  checkout.prepaidPickupShippingFeeCents ?? checkout.shippingFeeCents,
                 note: checkout.note,
                 goodsAmountCents: checkout.goodsAmountCents,
                 shippingFeeCents: checkout.shippingFeeCents,
@@ -533,6 +539,7 @@ export class DeliveryOrdersService {
             });
 
             const subOrderIds: string[] = [];
+            const subOrderIdsByMerchantId = new Map<string, string>();
             const itemSnapshotsByMerchant = itemsSnapshot.reduce((map, item) => {
               const existing = map.get(item.merchantId) ?? [];
               existing.push(item);
@@ -543,6 +550,7 @@ export class DeliveryOrdersService {
             for (const pricingGroup of pricingGroups) {
               const subOrderId = await this.deliveryIdService.nextInTransaction(tx, 'PSZDD');
               subOrderIds.push(subOrderId);
+              subOrderIdsByMerchantId.set(pricingGroup.merchantId, subOrderId);
               const merchantItems = itemSnapshotsByMerchant.get(pricingGroup.merchantId) ?? [];
               const supplyAmountCents = merchantItems.reduce((sum, item) => {
                 const sku = skuById.get(item.skuId)!;
@@ -594,6 +602,13 @@ export class DeliveryOrdersService {
                 });
               }
             }
+
+            await this.deliveryPickupPlanService.createBatchesForPaidOrder(tx, {
+              orderId,
+              checkout,
+              subOrderIdsByMerchantId,
+              createdByProviderTxnId: params.providerTxnId,
+            });
 
             const purchasedCartItemIds = Array.from(
               new Set(
@@ -824,6 +839,7 @@ export class DeliveryOrdersService {
           productId: true,
           skuId: true,
           quantity: true,
+          pickedQuantity: true,
           unitPriceCents: true,
           lineAmountCents: true,
           productSnapshot: true,
@@ -843,6 +859,56 @@ export class DeliveryOrdersService {
           },
         },
         orderBy: [{ createdAt: 'asc' as const }],
+      },
+      pickupBatches: {
+        select: {
+          id: true,
+          orderId: true,
+          subOrderId: true,
+          merchantId: true,
+          batchNo: true,
+          status: true,
+          provider: true,
+          plannedPickupAt: true,
+          readyAt: true,
+          calledAt: true,
+          loadedAt: true,
+          completedAt: true,
+          canceledAt: true,
+          items: {
+            select: {
+              id: true,
+              orderItemId: true,
+              skuId: true,
+              productSnapshot: true,
+              quantity: true,
+              pickedQuantity: true,
+            },
+            orderBy: [{ createdAt: 'asc' as const }],
+          },
+          carrierOrders: {
+            select: {
+              carrierOrderNo: true,
+              expressTypeName: true,
+              packageCount: true,
+              totalWeightKg: true,
+              waybillUrl: true,
+              waybills: {
+                select: {
+                  trackingNo: true,
+                  status: true,
+                  deliveredAt: true,
+                  lastSyncedAt: true,
+                },
+                orderBy: [{ createdAt: 'asc' as const }],
+              },
+              createdAt: true,
+            },
+            orderBy: [{ createdAt: 'desc' as const }],
+            take: 1,
+          },
+        },
+        orderBy: [{ batchNo: 'asc' as const }, { createdAt: 'asc' as const }],
       },
       shipments: {
         select: {
@@ -914,6 +980,11 @@ export class DeliveryOrdersService {
     return {
       id: order.id,
       status: order.status,
+      pickupMode: order.pickupMode ?? 'SINGLE',
+      plannedPickupCount: order.plannedPickupCount ?? 1,
+      pickupStatus: order.pickupStatus ?? 'NOT_STARTED',
+      prepaidPickupShippingFeeCents:
+        order.prepaidPickupShippingFeeCents ?? order.shippingFeeCents ?? 0,
       note: order.note ?? null,
       merchantOrderNo: firstPayment?.merchantOrderNo ?? null,
       paymentChannel: firstPayment?.channel ?? null,
@@ -951,6 +1022,8 @@ export class DeliveryOrdersService {
           imageUrl: snapshot.imageUrl || null,
           unitName: snapshot.unitName || '',
           quantity: item.quantity,
+          pickedQuantity: item.pickedQuantity ?? 0,
+          remainingQuantity: Math.max(0, item.quantity - (item.pickedQuantity ?? 0)),
           unitPriceCents: item.unitPriceCents,
           lineAmountCents: item.lineAmountCents,
         };
@@ -965,6 +1038,43 @@ export class DeliveryOrdersService {
         shippedAt: shipment.shippedAt,
         deliveredAt: shipment.deliveredAt,
       })),
+      pickupBatches: (order.pickupBatches ?? []).map((batch: any) => {
+        const latestCarrierOrder = batch.carrierOrders?.[0] ?? null;
+        return {
+          id: batch.id,
+          orderId: batch.orderId,
+          subOrderId: batch.subOrderId,
+          merchantId: batch.merchantId,
+          batchNo: batch.batchNo,
+          status: batch.status,
+          provider: batch.provider,
+          plannedPickupAt: batch.plannedPickupAt,
+          readyAt: batch.readyAt,
+          calledAt: batch.calledAt,
+          loadedAt: batch.loadedAt,
+          completedAt: batch.completedAt,
+          canceledAt: batch.canceledAt,
+          carrierOrderNo: latestCarrierOrder?.carrierOrderNo ?? null,
+          expressTypeName: latestCarrierOrder?.expressTypeName ?? null,
+          packageCount: latestCarrierOrder?.packageCount ?? null,
+          totalWeightKg: latestCarrierOrder?.totalWeightKg ?? null,
+          waybillUrl: latestCarrierOrder?.waybillUrl ?? null,
+          waybills: latestCarrierOrder?.waybills ?? [],
+          items: (batch.items ?? []).map((item: any) => {
+            const snapshot = this.parseProductSnapshot(item.productSnapshot);
+            return {
+              id: item.id,
+              orderItemId: item.orderItemId,
+              skuId: item.skuId,
+              productTitle: snapshot.productTitle || '',
+              skuTitle: snapshot.skuTitle || '',
+              unitName: snapshot.unitName || '',
+              quantity: item.quantity,
+              pickedQuantity: item.pickedQuantity ?? 0,
+            };
+          }),
+        };
+      }),
     };
   }
 

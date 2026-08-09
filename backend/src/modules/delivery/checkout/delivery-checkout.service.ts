@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
+  DeliveryPickupMode,
   DeliveryPriceRuleScope,
-  DeliveryShippingCalcType,
   Prisma,
 } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
@@ -18,6 +18,8 @@ import { DeliveryIdService } from '../common/delivery-id.service';
 import { DeliveryPaymentsService } from '../payments/delivery-payments.service';
 import { parseDeliveryYuanAmountToCents } from '../payments/delivery-payment-routing.util';
 import { DeliveryPricingService } from '../pricing/delivery-pricing.service';
+import { DeliveryPickupPlanService } from '../pickup/delivery-pickup-plan.service';
+import { resolveDeliveryCheckoutShippingFee } from './delivery-shipping-fee.util';
 import { CreateDeliveryCheckoutDto } from './dto/create-delivery-checkout.dto';
 
 const checkoutCartItemInclude = {
@@ -72,12 +74,76 @@ type CurrentUnit = {
   extraFields: Prisma.JsonValue | null;
 };
 
+type CheckoutPreparation = {
+  currentUnit: CurrentUnit;
+  address: any | null;
+  itemSnapshots: Array<{
+    cartItemId: string;
+    skuId: string;
+    productId: string;
+    merchantId: string;
+    merchantName: string;
+    productTitle: string;
+    skuTitle: string;
+    imageUrl: string | null;
+    unitName: string | null;
+    quantity: number;
+    weightGram: number;
+    minOrderQuantity: number;
+    orderStepQuantity: number;
+    supplyPriceCents: number;
+    basePriceCents: number;
+    finalPriceCents: number;
+    lineAmountCents: number;
+    pricingSource: string | null;
+    matchedRuleId: string | null;
+  }>;
+  merchantGroups: Array<{
+    merchantId: string;
+    merchantName: string;
+    goodsAmountCents: number;
+    items: Array<{
+      cartItemId: string;
+      skuId: string;
+      productId: string;
+      merchantId: string;
+      merchantName: string;
+      productTitle: string;
+      skuTitle: string;
+      imageUrl: string | null;
+      unitName: string | null;
+      quantity: number;
+      weightGram: number;
+      minOrderQuantity: number;
+      orderStepQuantity: number;
+      supplyPriceCents: number;
+      basePriceCents: number;
+      finalPriceCents: number;
+      lineAmountCents: number;
+      pricingSource: string | null;
+      matchedRuleId: string | null;
+    }>;
+  }>;
+  pickupMode: DeliveryPickupMode;
+  plannedPickupCount: number;
+  pickupSnapshot: Awaited<
+    ReturnType<DeliveryPickupPlanService['buildCheckoutPickupSnapshot']>
+  >;
+  goodsAmountCents: number;
+  shippingFeeCents: number;
+  totalAmountCents: number;
+  unitSnapshot: Record<string, unknown>;
+  addressSnapshot: Record<string, unknown>;
+  pricingSnapshot: Record<string, unknown>;
+};
+
 @Injectable()
 export class DeliveryCheckoutService {
   constructor(
     private readonly deliveryPrisma: DeliveryPrismaService,
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly deliveryIdService: DeliveryIdService,
+    private readonly deliveryPickupPlanService: DeliveryPickupPlanService,
     @Optional() private readonly moduleRef?: ModuleRef,
     @Optional() private readonly deliveryPaymentsService?: DeliveryPaymentsService,
   ) {}
@@ -89,229 +155,28 @@ export class DeliveryCheckoutService {
           throw new BadRequestException('paymentChannel 必填');
         }
 
-        const currentUnit = await this.requireCurrentUnit(tx, deliveryUserId);
-        const cartItemIds = Array.from(
-          new Set(dto.cartItemIds.map((itemId) => itemId.trim()).filter(Boolean)),
-        );
-
-        if (!cartItemIds.length) {
-          throw new BadRequestException('至少选择一个购物车商品');
-        }
-
-        const [platformRules, cartItems, shippingRules] = await Promise.all([
-          tx.deliveryPriceRule.findMany({
-            where: {
-              scope: DeliveryPriceRuleScope.PLATFORM,
-              isActive: true,
-            },
-            orderBy: [{ priority: 'desc' }, { minQuantity: 'asc' }, { createdAt: 'desc' }],
-          }),
-          tx.deliveryCartItem.findMany({
-            where: {
-              id: {
-                in: cartItemIds,
-              },
-              userId: deliveryUserId,
-              unitId: currentUnit.id,
-              isSelected: true,
-            },
-            include: checkoutCartItemInclude,
-            orderBy: [{ createdAt: 'asc' }],
-          }),
-          tx.deliveryShippingRule.findMany({
-            where: {
-              status: 'ACTIVE',
-            },
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-          }),
-        ]);
-
-        if (cartItems.length !== cartItemIds.length) {
-          throw new BadRequestException('所选购物车商品无效、未勾选或不属于当前配送单位');
-        }
-
-        const merchantRulesByMerchantId = await this.loadMerchantRulesByMerchantId(
-          tx,
-          cartItems.map((item) => item.sku.product.merchant.id),
-        );
-        const address = dto.addressId
-          ? await tx.deliveryAddress.findFirst({
-              where: {
-                id: dto.addressId,
-                userId: deliveryUserId,
-                unitId: currentUnit.id,
-              },
-            })
-          : null;
-
-        if (dto.addressId && !address) {
-          throw new BadRequestException('配送地址不存在或不属于当前配送单位');
-        }
-
-        const itemSnapshots = cartItems.map((item) => {
-          this.assertCartItemOrderable(item);
-          this.assertQuantityValid(item.quantity, item);
-          this.assertStockEnough(item.quantity, item.sku.stock);
-
-          const pricing = this.deliveryPricingService.resolvePrice({
-            basePriceCents: item.sku.basePriceCents,
-            fixedFinalPriceCents: item.sku.fixedFinalPriceCents,
-            quantity: item.quantity,
-            merchantDefaultMarkupBps: item.sku.product.merchant.defaultMarkupBps ?? null,
-            rules: [
-              ...platformRules,
-              ...(merchantRulesByMerchantId.get(item.sku.product.merchant.id) ?? []),
-              ...item.sku.product.priceRules,
-              ...item.sku.priceRules,
-            ],
-          });
-          const lineAmountCents = pricing.finalPriceCents * item.quantity;
-
-          return {
-            cartItemId: item.id,
-            skuId: item.skuId,
-            productId: item.sku.product.id,
-            merchantId: item.sku.product.merchant.id,
-            merchantName: item.sku.product.merchant.name,
-            productTitle: item.sku.product.title,
-            skuTitle: item.sku.title,
-            imageUrl: item.sku.imageUrl,
-            unitName: item.sku.product.unitName,
-            quantity: item.quantity,
-            weightGram: item.sku.weightGram,
-            minOrderQuantity: item.sku.minOrderQuantity ?? item.sku.product.minOrderQuantity ?? 1,
-            orderStepQuantity:
-              item.sku.orderStepQuantity ?? item.sku.product.orderStepQuantity ?? 1,
-            supplyPriceCents: item.sku.supplyPriceCents,
-            basePriceCents: item.sku.basePriceCents,
-            finalPriceCents: pricing.finalPriceCents,
-            lineAmountCents,
-            pricingSource: pricing.matchedSource,
-            matchedRuleId: pricing.matchedRuleId,
-          };
-        });
-
-        const merchantGroups = Array.from(
-          itemSnapshots.reduce((map, item) => {
-            const existing = map.get(item.merchantId) ?? {
-              merchantId: item.merchantId,
-              merchantName: item.merchantName,
-              items: [] as typeof itemSnapshots,
-            };
-            existing.items.push(item);
-            map.set(item.merchantId, existing);
-            return map;
-          }, new Map<string, { merchantId: string; merchantName: string; items: typeof itemSnapshots }>()),
-        ).map(([, group]) => ({
-          merchantId: group.merchantId,
-          merchantName: group.merchantName,
-          goodsAmountCents: group.items.reduce((sum, item) => sum + item.lineAmountCents, 0),
-          items: group.items,
-        }));
-
-        const goodsAmountCents = merchantGroups.reduce((sum, group) => sum + group.goodsAmountCents, 0);
-        const orderShippingRuleSnapshot = this.resolveCheckoutShippingFee(
-          itemSnapshots,
-          goodsAmountCents,
-          shippingRules,
-        );
-        const shippingAllocations = this.allocateShippingFeeByGoodsAmount(
-          merchantGroups.map((group) => group.goodsAmountCents),
-          orderShippingRuleSnapshot.shippingFeeCents,
-        );
-        const merchantGroupsWithShipping = merchantGroups.map((group, index) => {
-          const shippingFeeCents = shippingAllocations[index] ?? 0;
-
-          return {
-            ...group,
-            shippingFeeCents,
-            totalAmountCents: group.goodsAmountCents + shippingFeeCents,
-            shippingRuleSnapshot: {
-              ...orderShippingRuleSnapshot,
-              allocationBasis: 'GOODS_AMOUNT',
-              allocationWeightCents: group.goodsAmountCents,
-              allocatedShippingFeeCents: shippingFeeCents,
-            },
-          };
-        });
-
-        const shippingFeeCents = orderShippingRuleSnapshot.shippingFeeCents;
-        const totalAmountCents = goodsAmountCents + shippingFeeCents;
+        const preparation = await this.prepareCheckout(tx, deliveryUserId, dto);
         const note = dto.note?.trim() || null;
         const merchantOrderNo = await this.deliveryIdService.nextInTransaction(tx, 'PSZF');
-        const unitSnapshot = {
-          id: currentUnit.id,
-          name: currentUnit.name,
-          contactName: currentUnit.contactName,
-          contactPhone: currentUnit.contactPhone,
-          provinceCode: currentUnit.provinceCode,
-          provinceName: currentUnit.provinceName,
-          cityCode: currentUnit.cityCode,
-          cityName: currentUnit.cityName,
-          districtCode: currentUnit.districtCode,
-          districtName: currentUnit.districtName,
-          detailAddress: currentUnit.detailAddress,
-          extraFields: currentUnit.extraFields ?? null,
-        };
-        const addressSnapshot = address
-          ? {
-              source: 'ADDRESS',
-              id: address.id,
-              recipientName: address.recipientName,
-              phone: address.phone,
-              provinceCode: address.provinceCode,
-              provinceName: address.provinceName,
-              cityCode: address.cityCode,
-              cityName: address.cityName,
-              districtCode: address.districtCode,
-              districtName: address.districtName,
-              detailAddress: address.detailAddress,
-              regionText: address.regionText ?? null,
-              label: address.label ?? null,
-            }
-          : {
-              source: 'UNIT',
-              recipientName: currentUnit.contactName,
-              phone: currentUnit.contactPhone,
-              provinceCode: currentUnit.provinceCode,
-              provinceName: currentUnit.provinceName,
-              cityCode: currentUnit.cityCode,
-              cityName: currentUnit.cityName,
-              districtCode: currentUnit.districtCode,
-              districtName: currentUnit.districtName,
-              detailAddress: currentUnit.detailAddress,
-              regionText: `${currentUnit.provinceName}${currentUnit.cityName}${currentUnit.districtName}`,
-            };
-        const pricingSnapshot = {
-          currency: 'CNY_CENTS',
-          merchantGroups: merchantGroupsWithShipping,
-          totals: {
-            goodsAmountCents,
-            shippingFeeCents,
-            totalAmountCents,
-          },
-          unsupportedAdjustments: {
-            vip: false,
-            coupon: false,
-            reward: false,
-            digitalAsset: false,
-            referral: false,
-          },
-        };
 
         return tx.deliveryCheckoutSession.create({
           data: {
             userId: deliveryUserId,
-            unitId: currentUnit.id,
-            addressId: address?.id ?? null,
-            itemsSnapshot: itemSnapshots as Prisma.InputJsonValue,
-            unitSnapshot: unitSnapshot as Prisma.InputJsonValue,
-            addressSnapshot: addressSnapshot as Prisma.InputJsonValue,
-            pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue,
+            unitId: preparation.currentUnit.id,
+            addressId: preparation.address?.id ?? null,
+            itemsSnapshot: preparation.itemSnapshots as Prisma.InputJsonValue,
+            unitSnapshot: preparation.unitSnapshot as Prisma.InputJsonValue,
+            addressSnapshot: preparation.addressSnapshot as Prisma.InputJsonValue,
+            pricingSnapshot: preparation.pricingSnapshot as Prisma.InputJsonValue,
+            pickupMode: preparation.pickupMode,
+            plannedPickupCount: preparation.plannedPickupCount,
+            pickupPlanSnapshot: preparation.pickupSnapshot.pickupPlanSnapshot,
+            prepaidPickupShippingFeeCents:
+              preparation.pickupSnapshot.prepaidPickupShippingFeeCents,
             note,
-            goodsAmountCents,
-            shippingFeeCents,
-            totalAmountCents,
+            goodsAmountCents: preparation.goodsAmountCents,
+            shippingFeeCents: preparation.shippingFeeCents,
+            totalAmountCents: preparation.totalAmountCents,
             paymentChannel: dto.paymentChannel,
             merchantOrderNo,
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -324,6 +189,22 @@ export class DeliveryCheckoutService {
     );
 
     return this.mapBuyerCheckoutSession(session);
+  }
+
+  async estimatePickups(deliveryUserId: string, dto: CreateDeliveryCheckoutDto) {
+    const estimate = await this.deliveryPrisma.$transaction(async (tx) => {
+      const preparation = await this.prepareCheckout(tx, deliveryUserId, dto);
+      return {
+        goodsAmountCents: preparation.goodsAmountCents,
+        prepaidPickupShippingFeeCents:
+          preparation.pickupSnapshot.prepaidPickupShippingFeeCents,
+        totalAmountCents: preparation.totalAmountCents,
+        plannedPickupCount: preparation.plannedPickupCount,
+        perBatchEstimates: preparation.pickupSnapshot.perBatchEstimates,
+      };
+    });
+
+    return estimate;
   }
 
   async getCheckout(deliveryUserId: string, checkoutSessionId: string) {
@@ -730,165 +611,281 @@ export class DeliveryCheckoutService {
     }, new Map<string, typeof merchantRules>());
   }
 
-  private resolveShippingFee(
-    merchantId: string,
-    items: Array<{ quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-    shippingRules: Array<{
-      id: string;
-      merchantId: string | null;
-      calcType: DeliveryShippingCalcType;
-      firstWeightGram: number;
-      firstWeightPriceCents: number;
-      additionalWeightGram: number | null;
-      additionalWeightPriceCents: number | null;
-      freeShippingThresholdCents: number | null;
-      minShippingFeeCents: number;
-      sortOrder: number;
-    }>,
-  ) {
-    const merchantRule =
-      shippingRules.find((rule) => rule.merchantId === merchantId) ??
-      shippingRules.find((rule) => rule.merchantId === null);
+  private async prepareCheckout(
+    tx: Prisma.TransactionClient,
+    deliveryUserId: string,
+    dto: CreateDeliveryCheckoutDto,
+  ): Promise<CheckoutPreparation> {
+    const currentUnit = await this.requireCurrentUnit(tx, deliveryUserId);
+    const cartItemIds = Array.from(
+      new Set(dto.cartItemIds.map((itemId) => itemId.trim()).filter(Boolean)),
+    );
 
-    if (!merchantRule) {
+    if (!cartItemIds.length) {
+      throw new BadRequestException('至少选择一个购物车商品');
+    }
+
+    const [platformRules, cartItems, shippingRules] = await Promise.all([
+      tx.deliveryPriceRule.findMany({
+        where: {
+          scope: DeliveryPriceRuleScope.PLATFORM,
+          isActive: true,
+        },
+        orderBy: [{ priority: 'desc' }, { minQuantity: 'asc' }, { createdAt: 'desc' }],
+      }),
+      tx.deliveryCartItem.findMany({
+        where: {
+          id: {
+            in: cartItemIds,
+          },
+          userId: deliveryUserId,
+          unitId: currentUnit.id,
+          isSelected: true,
+        },
+        include: checkoutCartItemInclude,
+        orderBy: [{ createdAt: 'asc' }],
+      }),
+      tx.deliveryShippingRule.findMany({
+        where: {
+          status: 'ACTIVE',
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+
+    if (cartItems.length !== cartItemIds.length) {
+      throw new BadRequestException('所选购物车商品无效、未勾选或不属于当前配送单位');
+    }
+
+    const merchantRulesByMerchantId = await this.loadMerchantRulesByMerchantId(
+      tx,
+      cartItems.map((item) => item.sku.product.merchant.id),
+    );
+    const address = dto.addressId
+      ? await tx.deliveryAddress.findFirst({
+          where: {
+            id: dto.addressId,
+            userId: deliveryUserId,
+            unitId: currentUnit.id,
+          },
+        })
+      : null;
+
+    if (dto.addressId && !address) {
+      throw new BadRequestException('配送地址不存在或不属于当前配送单位');
+    }
+
+    const itemSnapshots = cartItems.map((item) => {
+      this.assertCartItemOrderable(item);
+      this.assertQuantityValid(item.quantity, item);
+      this.assertStockEnough(item.quantity, item.sku.stock);
+
+      const pricing = this.deliveryPricingService.resolvePrice({
+        basePriceCents: item.sku.basePriceCents,
+        fixedFinalPriceCents: item.sku.fixedFinalPriceCents,
+        quantity: item.quantity,
+        merchantDefaultMarkupBps: item.sku.product.merchant.defaultMarkupBps ?? null,
+        rules: [
+          ...platformRules,
+          ...(merchantRulesByMerchantId.get(item.sku.product.merchant.id) ?? []),
+          ...item.sku.product.priceRules,
+          ...item.sku.priceRules,
+        ],
+      });
+      const lineAmountCents = pricing.finalPriceCents * item.quantity;
+
       return {
-        ruleId: null,
-        calcType: null,
-        metricValue: 0,
-        shippingFeeCents: 0,
-        fallbackReason: 'NO_DELIVERY_SHIPPING_RULE',
+        cartItemId: item.id,
+        skuId: item.skuId,
+        productId: item.sku.product.id,
+        merchantId: item.sku.product.merchant.id,
+        merchantName: item.sku.product.merchant.name,
+        productTitle: item.sku.product.title,
+        skuTitle: item.sku.title,
+        imageUrl: item.sku.imageUrl,
+        unitName: item.sku.product.unitName,
+        quantity: item.quantity,
+        weightGram: item.sku.weightGram,
+        minOrderQuantity: item.sku.minOrderQuantity ?? item.sku.product.minOrderQuantity ?? 1,
+        orderStepQuantity:
+          item.sku.orderStepQuantity ?? item.sku.product.orderStepQuantity ?? 1,
+        supplyPriceCents: item.sku.supplyPriceCents,
+        basePriceCents: item.sku.basePriceCents,
+        finalPriceCents: pricing.finalPriceCents,
+        lineAmountCents,
+        pricingSource: pricing.matchedSource,
+        matchedRuleId: pricing.matchedRuleId,
       };
-    }
+    });
 
-    const metricValue = this.resolveShippingMetric(merchantRule.calcType, items, goodsAmountCents);
+    const merchantGroups = Array.from(
+      itemSnapshots.reduce((map, item) => {
+        const existing = map.get(item.merchantId) ?? {
+          merchantId: item.merchantId,
+          merchantName: item.merchantName,
+          items: [] as typeof itemSnapshots,
+        };
+        existing.items.push(item);
+        map.set(item.merchantId, existing);
+        return map;
+      }, new Map<string, { merchantId: string; merchantName: string; items: typeof itemSnapshots }>()),
+    ).map(([, group]) => ({
+      merchantId: group.merchantId,
+      merchantName: group.merchantName,
+      goodsAmountCents: group.items.reduce((sum, item) => sum + item.lineAmountCents, 0),
+      items: group.items,
+    }));
 
-    if (
-      merchantRule.freeShippingThresholdCents !== null &&
-      goodsAmountCents >= merchantRule.freeShippingThresholdCents
-    ) {
+    const goodsAmountCents = merchantGroups.reduce((sum, group) => sum + group.goodsAmountCents, 0);
+    const orderShippingRuleSnapshot = resolveDeliveryCheckoutShippingFee(
+      itemSnapshots,
+      goodsAmountCents,
+      shippingRules,
+    );
+    const pickupMode = dto.pickupMode ?? DeliveryPickupMode.SINGLE;
+    const plannedPickupCount =
+      pickupMode === DeliveryPickupMode.MULTI_BATCH ? dto.plannedPickupCount ?? 2 : 1;
+    const pickupSnapshot = await this.deliveryPickupPlanService.buildCheckoutPickupSnapshot({
+      pickupMode,
+      plannedPickupCount,
+      cartItems: itemSnapshots.map((item) => ({
+        cartItemId: item.cartItemId,
+        merchantId: item.merchantId,
+        merchantName: item.merchantName,
+        quantity: item.quantity,
+        weightGram: item.weightGram,
+        lineAmountCents: item.lineAmountCents,
+      })),
+      merchantGroups: merchantGroups.map((group) => ({
+        merchantId: group.merchantId,
+        merchantName: group.merchantName,
+        goodsAmountCents: group.goodsAmountCents,
+      })),
+      pickupPlanItems: dto.pickupPlanItems,
+      fallbackShippingFeeCents: orderShippingRuleSnapshot.shippingFeeCents,
+      shippingRules,
+    });
+
+    const shippingByMerchantId = pickupSnapshot.perBatchEstimates.reduce((map, item) => {
+      map.set(item.merchantId, (map.get(item.merchantId) ?? 0) + item.estimatedShippingFeeCents);
+      return map;
+    }, new Map<string, number>());
+    const merchantGroupsWithShipping = merchantGroups.map((group) => {
+      const shippingFeeCents = shippingByMerchantId.get(group.merchantId) ?? 0;
+      const batchEstimates = pickupSnapshot.perBatchEstimates
+        .filter((item) => item.merchantId === group.merchantId)
+        .map((item) => ({
+          batchNo: item.batchNo,
+          estimatedShippingFeeCents: item.estimatedShippingFeeCents,
+        }));
+
       return {
-        ruleId: merchantRule.id,
-        calcType: merchantRule.calcType,
-        metricValue,
-        shippingFeeCents: 0,
-        freeShippingThresholdCents: merchantRule.freeShippingThresholdCents,
+        ...group,
+        shippingFeeCents,
+        totalAmountCents: group.goodsAmountCents + shippingFeeCents,
+        shippingRuleSnapshot:
+          pickupMode === DeliveryPickupMode.MULTI_BATCH
+            ? {
+                source: 'MULTI_BATCH_PICKUP_PLAN',
+                pickupMode,
+                plannedPickupCount,
+                allocatedShippingFeeCents: shippingFeeCents,
+                shippingFeeCents,
+                batchEstimates,
+                fallbackCheckoutShippingRuleSnapshot: orderShippingRuleSnapshot,
+              }
+            : {
+                ...orderShippingRuleSnapshot,
+                allocationBasis: 'GOODS_AMOUNT',
+                allocationWeightCents: group.goodsAmountCents,
+                allocatedShippingFeeCents: shippingFeeCents,
+                pickupMode,
+                plannedPickupCount,
+              },
       };
-    }
+    });
 
-    const firstUnit = Math.max(merchantRule.firstWeightGram, 1);
-    const additionalUnit = Math.max(merchantRule.additionalWeightGram ?? firstUnit, 1);
-    const additionalPrice = merchantRule.additionalWeightPriceCents ?? 0;
-    let shippingFeeCents = merchantRule.firstWeightPriceCents;
-
-    if (metricValue > firstUnit) {
-      const additionalSteps = Math.ceil((metricValue - firstUnit) / additionalUnit);
-      shippingFeeCents += additionalSteps * additionalPrice;
-    }
-
-    shippingFeeCents = Math.max(shippingFeeCents, merchantRule.minShippingFeeCents);
+    const shippingFeeCents = pickupSnapshot.prepaidPickupShippingFeeCents;
+    const totalAmountCents = goodsAmountCents + shippingFeeCents;
+    const unitSnapshot = {
+      id: currentUnit.id,
+      name: currentUnit.name,
+      contactName: currentUnit.contactName,
+      contactPhone: currentUnit.contactPhone,
+      provinceCode: currentUnit.provinceCode,
+      provinceName: currentUnit.provinceName,
+      cityCode: currentUnit.cityCode,
+      cityName: currentUnit.cityName,
+      districtCode: currentUnit.districtCode,
+      districtName: currentUnit.districtName,
+      detailAddress: currentUnit.detailAddress,
+      extraFields: currentUnit.extraFields ?? null,
+    };
+    const addressSnapshot = address
+      ? {
+          source: 'ADDRESS',
+          id: address.id,
+          recipientName: address.recipientName,
+          phone: address.phone,
+          provinceCode: address.provinceCode,
+          provinceName: address.provinceName,
+          cityCode: address.cityCode,
+          cityName: address.cityName,
+          districtCode: address.districtCode,
+          districtName: address.districtName,
+          detailAddress: address.detailAddress,
+          regionText: address.regionText ?? null,
+          label: address.label ?? null,
+        }
+      : {
+          source: 'UNIT',
+          recipientName: currentUnit.contactName,
+          phone: currentUnit.contactPhone,
+          provinceCode: currentUnit.provinceCode,
+          provinceName: currentUnit.provinceName,
+          cityCode: currentUnit.cityCode,
+          cityName: currentUnit.cityName,
+          districtCode: currentUnit.districtCode,
+          districtName: currentUnit.districtName,
+          detailAddress: currentUnit.detailAddress,
+          regionText: `${currentUnit.provinceName}${currentUnit.cityName}${currentUnit.districtName}`,
+        };
+    const pricingSnapshot = {
+      currency: 'CNY_CENTS',
+      merchantGroups: merchantGroupsWithShipping,
+      totals: {
+        goodsAmountCents,
+        shippingFeeCents,
+        totalAmountCents,
+        pickupMode,
+        plannedPickupCount,
+        prepaidPickupShippingFeeCents: pickupSnapshot.prepaidPickupShippingFeeCents,
+      },
+      pickupPlanSnapshot: pickupSnapshot.pickupPlanSnapshot,
+      perBatchEstimates: pickupSnapshot.perBatchEstimates,
+      unsupportedAdjustments: {
+        vip: false,
+        coupon: false,
+        reward: false,
+        digitalAsset: false,
+        referral: false,
+      },
+    };
 
     return {
-      ruleId: merchantRule.id,
-      calcType: merchantRule.calcType,
-      metricValue,
-      shippingFeeCents,
-      firstWeightGram: merchantRule.firstWeightGram,
-      firstWeightPriceCents: merchantRule.firstWeightPriceCents,
-      additionalWeightGram: merchantRule.additionalWeightGram,
-      additionalWeightPriceCents: merchantRule.additionalWeightPriceCents,
-      minShippingFeeCents: merchantRule.minShippingFeeCents,
-      freeShippingThresholdCents: merchantRule.freeShippingThresholdCents,
-    };
-  }
-
-  private resolveCheckoutShippingFee(
-    items: Array<{ merchantId: string; quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-    shippingRules: Array<{
-      id: string;
-      merchantId: string | null;
-      calcType: DeliveryShippingCalcType;
-      firstWeightGram: number;
-      firstWeightPriceCents: number;
-      additionalWeightGram: number | null;
-      additionalWeightPriceCents: number | null;
-      freeShippingThresholdCents: number | null;
-      minShippingFeeCents: number;
-      sortOrder: number;
-    }>,
-  ) {
-    const platformRule =
-      shippingRules.find((rule) => rule.merchantId === null) ?? shippingRules[0] ?? null;
-
-    if (!platformRule) {
-      return {
-        ruleId: null,
-        calcType: null,
-        metricValue: 0,
-        shippingFeeCents: 0,
-        fallbackReason: 'NO_DELIVERY_SHIPPING_RULE',
-      };
-    }
-
-    return this.resolveShippingFee(
-      platformRule.merchantId ?? items[0]?.merchantId ?? '',
-      items,
+      currentUnit,
+      address,
+      itemSnapshots,
+      merchantGroups,
+      pickupMode,
+      plannedPickupCount,
+      pickupSnapshot,
       goodsAmountCents,
-      [platformRule],
-    );
-  }
-
-  private allocateShippingFeeByGoodsAmount(goodsAmountCentsList: number[], totalShippingFeeCents: number) {
-    if (goodsAmountCentsList.length === 0) {
-      return [];
-    }
-    if (totalShippingFeeCents <= 0) {
-      return goodsAmountCentsList.map(() => 0);
-    }
-
-    const weights = goodsAmountCentsList.map((value) => Math.max(0, Math.trunc(value)));
-    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
-
-    if (totalWeight === 0) {
-      const allocations = goodsAmountCentsList.map(() => 0);
-      allocations[allocations.length - 1] = totalShippingFeeCents;
-      return allocations;
-    }
-
-    const allocations = goodsAmountCentsList.map(() => 0);
-    let allocatedCents = 0;
-    for (let index = 0; index < weights.length; index += 1) {
-      const remainingCents = totalShippingFeeCents - allocatedCents;
-      if (index === weights.length - 1) {
-        allocations[index] = remainingCents;
-        break;
-      }
-
-      const cents = Math.min(
-        remainingCents,
-        Math.round((weights[index] / totalWeight) * totalShippingFeeCents),
-      );
-      allocations[index] = cents;
-      allocatedCents += cents;
-    }
-
-    return allocations;
-  }
-
-  private resolveShippingMetric(
-    calcType: DeliveryShippingCalcType,
-    items: Array<{ quantity: number; weightGram: number; lineAmountCents: number }>,
-    goodsAmountCents: number,
-  ) {
-    switch (calcType) {
-      case DeliveryShippingCalcType.COUNT:
-        return items.reduce((sum, item) => sum + item.quantity, 0);
-      case DeliveryShippingCalcType.AMOUNT:
-        return goodsAmountCents;
-      case DeliveryShippingCalcType.WEIGHT:
-      default:
-        return items.reduce((sum, item) => sum + item.weightGram * item.quantity, 0);
-    }
+      shippingFeeCents,
+      totalAmountCents,
+      unitSnapshot,
+      addressSnapshot,
+      pricingSnapshot,
+    };
   }
 }

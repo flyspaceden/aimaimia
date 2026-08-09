@@ -6,6 +6,7 @@ import { sendSmsCode, login, loginByPassword, selectCompany, getMe, getCaptcha }
 import { createDeliveryMerchantApplication } from '@/api/merchant-applications';
 import useAuthStore from '@/store/useAuthStore';
 import { queryClient } from '@/queryClient';
+import { ApiError } from '@/api/client';
 import type { LoginResponse, SelectCompanyResponse } from '@/types';
 
 const { Title, Text } = Typography;
@@ -25,6 +26,10 @@ const svgToDataUrl = (svg: string): string => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   }
 };
+
+const hasFormErrors = (error: unknown): boolean => (
+  Boolean(error && typeof error === 'object' && 'errorFields' in error)
+);
 
 export default function LoginPage() {
   const { message } = App.useApp();
@@ -59,7 +64,7 @@ export default function LoginPage() {
     } finally {
       setCaptchaLoading(false);
     }
-  }, []);
+  }, [message]);
 
   // 首次加载
   useEffect(() => {
@@ -102,7 +107,7 @@ export default function LoginPage() {
         return prev - 1;
       });
     }, 1000);
-  }, [clearTempTokenTimer]);
+  }, [clearTempTokenTimer, message]);
 
   // 组件卸载时清理定时器
   useEffect(() => {
@@ -198,9 +203,9 @@ export default function LoginPage() {
       const result = await selectCompany(tempToken, companyId, staffId);
       clearTempTokenTimer(); // 登录成功后清理倒计时
       await completeLogin(result);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // M15修复：捕获 401 错误，给出明确的临时凭证过期提示
-      const status = err?.response?.status || err?.status;
+      const status = err instanceof ApiError ? err.status : undefined;
       if (status === 401) {
         setTempTokenExpired(true);
         clearTempTokenTimer();
@@ -258,7 +263,7 @@ export default function LoginPage() {
       setApplyOpen(false);
       applyForm.resetFields();
     } catch (err) {
-      if ((err as any)?.errorFields) {
+      if (hasFormErrors(err)) {
         return;
       }
       message.error(err instanceof Error ? err.message : '提交申请失败');
@@ -309,6 +314,9 @@ export default function LoginPage() {
               const isDisabled = isFrozen || isSuspended || tempTokenExpired;
               return (
                 <List.Item
+                  role="button"
+                  tabIndex={isDisabled ? -1 : 0}
+                  aria-disabled={isDisabled}
                   style={{
                     cursor: isDisabled ? 'not-allowed' : 'pointer',
                     padding: '12px 16px',
@@ -316,6 +324,12 @@ export default function LoginPage() {
                     opacity: isDisabled ? 0.5 : 1,
                   }}
                   onClick={() => !isDisabled && handleSelectCompany(item.companyId, item.staffId)}
+                  onKeyDown={(event) => {
+                    if (!isDisabled && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      handleSelectCompany(item.companyId, item.staffId);
+                    }
+                  }}
                 >
                   <List.Item.Meta
                     avatar={<ShopOutlined style={{ fontSize: 24, color: isDisabled ? '#999' : '#EA580C' }} />}
@@ -374,7 +388,10 @@ export default function LoginPage() {
             autoComplete="off"
           />
         </Form.Item>
-        <div
+        <button
+          type="button"
+          aria-label="刷新图形验证码"
+          disabled={captchaLoading}
           onClick={() => !captchaLoading && refreshCaptcha()}
           title="点击刷新验证码"
           style={{
@@ -389,6 +406,7 @@ export default function LoginPage() {
             background: '#fafafa',
             cursor: captchaLoading ? 'wait' : 'pointer',
             overflow: 'hidden',
+            padding: 0,
           }}
         >
           {captchaSvg ? (
@@ -400,7 +418,7 @@ export default function LoginPage() {
           ) : (
             <ReloadOutlined spin={captchaLoading} />
           )}
-        </div>
+        </button>
       </Space.Compact>
     </Form.Item>
   );
@@ -578,7 +596,7 @@ export default function LoginPage() {
         confirmLoading={applySubmitting}
         okText="提交申请"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         okButtonProps={{ style: { background: '#EA580C', borderColor: '#EA580C' } }}
       >
         <Form

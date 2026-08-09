@@ -36,6 +36,7 @@ export default function DeliveryProductsScreen() {
   const [keywordInput, setKeywordInput] = React.useState('');
   const [keyword, setKeyword] = React.useState('');
   const [categoryId, setCategoryId] = React.useState<string | undefined>(undefined);
+  const [quickAddingId, setQuickAddingId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const timer = setTimeout(() => setKeyword(keywordInput.trim()), 250);
@@ -59,18 +60,24 @@ export default function DeliveryProductsScreen() {
   );
 
   const handleQuickAdd = async (product: any) => {
-    const sku = product.skus[0];
+    if (quickAddingId) return;
+    const sku = product.skus.find((item: any) => item.stock >= (item.minOrderQuantity || 1));
     if (!sku) {
-      show({ message: '当前商品暂无可下单规格', type: 'warning' });
+      show({ message: '当前商品暂无库存充足的可下单规格', type: 'warning' });
       return;
     }
 
-    const result = await addItem(sku.id, sku.minOrderQuantity || 1);
-    if (!result.ok) {
-      show({ message: result.error.displayMessage ?? '加入购物车失败', type: 'error' });
-      return;
+    setQuickAddingId(product.id);
+    try {
+      const result = await addItem(sku.id, sku.minOrderQuantity || 1);
+      if (!result.ok) {
+        show({ message: result.error.displayMessage ?? '加入购物车失败', type: 'error' });
+        return;
+      }
+      show({ message: '已加入配送购物车', type: 'success' });
+    } finally {
+      setQuickAddingId(null);
     }
-    show({ message: '已加入配送购物车', type: 'success' });
   };
 
   if (productsQuery.isLoading && !productsQuery.data) {
@@ -78,6 +85,21 @@ export default function DeliveryProductsScreen() {
       <Screen contentStyle={{ flex: 1 }}>
         <AppHeader title="配送商品" showBack={false} />
         <DeliveryLoading />
+      </Screen>
+    );
+  }
+
+  if (!productsQuery.data || !productsQuery.data.ok) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="配送商品" showBack={false} />
+        <DeliveryMessageState
+          title="配送商品加载失败"
+          description={productsQuery.data?.ok === false ? productsQuery.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
+          actionLabel="重新加载"
+          onAction={() => productsQuery.refetch()}
+          icon="store-alert-outline"
+        />
       </Screen>
     );
   }
@@ -91,7 +113,7 @@ export default function DeliveryProductsScreen() {
         title="配送商品"
         showBack={false}
         rightSlot={
-          <Pressable onPress={() => router.push('/delivery/cart')} style={{ padding: 8 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="打开配送购物车" onPress={() => router.push('/delivery/cart')} style={{ padding: 8 }}>
             <View>
               <MaterialCommunityIcons name="cart-outline" size={22} color={palette.text.primary} />
               {cartCount > 0 ? (
@@ -179,6 +201,8 @@ export default function DeliveryProductsScreen() {
         }
         renderItem={({ item }) => (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`查看商品 ${item.title}`}
             onPress={() => router.push({ pathname: '/delivery/product/[id]', params: { id: item.id } })}
             style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md }}
           >
@@ -211,8 +235,12 @@ export default function DeliveryProductsScreen() {
                       </Text>
                     </View>
                     <DeliveryButton
-                      label="加入"
-                      onPress={() => handleQuickAdd(item)}
+                      label={quickAddingId === item.id ? '加入中...' : '加入'}
+                      disabled={Boolean(quickAddingId) || !item.skus.some((sku) => sku.stock >= (sku.minOrderQuantity || 1))}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void handleQuickAdd(item);
+                      }}
                       style={{ minWidth: 88 }}
                     />
                   </View>

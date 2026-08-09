@@ -1,6 +1,6 @@
 # 爱买买 - 开发计划（v1.0 上线冲刺）
 
-> **最后更新**: 2026-07-28
+> **最后更新**: 2026-08-03
 > **维护规则**: 每次修完一项 → 打 ✅ + 填完成日期；每次新增需求 → 追加条目 + 标注来源日期
 > **历史记录**: `docs/reference/plan-history-2026Q1.md`（2026-02 至 2026-03 的 Phase 1-10 开发历程）
 
@@ -198,6 +198,11 @@
   - **实际做了**: 新增 `getCartDisplayQuantity`，购物车标题、首页/发现/商品详情/搜索/AI 推荐入口角标、语音结算判断和 `useCartStore.count()` 统一只统计可结算普通商品数量；锁定奖品仍保留在购物车列表和倒计时展示，但不污染普通购物车数量。
   - **验证**: 先新增失败回归测试；修复后 `npx jest src/utils/__tests__/cartCounts.test.ts --runInBand --modulePathIgnorePatterns='<rootDir>/.worktrees'`、`npx tsc --noEmit` 通过。
 
+- [x] **配送一次付款、多批顺丰配送全面审查与切换**（2026-08-03 完成）
+  - **来源**: 用户明确取消货拉拉，改用已跑通的顺丰；流程与当前爱买买顺丰一致，但支持大件/大批量、包裹数、实际重量和多运单。买家只支付一次，实际运费差额由平台承担。
+  - **实际做了**: 删除可执行的货拉拉 adapter/API/前端入口，承运枚举收口为 `SF / MANUAL`；企业配送中心备货后选顺丰产品、包裹数和实际重量并创建运单，平台管理员负责同步、取消、补打下载、异常和成本核对；新增多运单模型与合并 PDF，回调/主动同步只有全部运单签收才完成批次；新增量预留、幂等号、过期创单恢复、远端成功本地失败补偿、状态防倒退、面单所有权校验和成本 DTO 脱敏；买家 App 全部改为“配送/送达”语义并展示所有顺丰运单。`SF_EXPRESS_PRODUCTS` 默认仅开启 `1 / 顺丰标快`，未开通大件产品时不伪造产品代码。
+  - **验证**: 配送后端 10 个定向套件 / 72 条用例、买家配送 3 个套件 / 15 条用例、配送管理后台 21 条合同测试、企业配送中心 26 条合同测试、买家 App TypeScript、两个 Web 端生产构建、配送 Prisma validate / generate 和 `git diff --check` 通过。后端全量 TypeScript 仅被范围外既有 `after-sale-shipping-payment.service.spec.ts` 类型错误阻塞。真实顺丰沙箱端到端和新 migration 部署仍属 staging 发布验收。
+
 - [x] **VIP 礼包选择页详情展示与图片预览**（2026-06-30 新增并完成）
   - **来源**: 用户截图反馈 `/vip/gifts` 礼包商品内容只显示一半，图片不能点开查看多图，权益横排仍有“包邮特权”但当前业务不应承诺无条件包邮。
   - **实际做了**: 礼包卡片下方新增完整“礼包清单”，逐项展示商品、规格和数量；封面图与清单缩略图支持点开全屏图片预览并左右滑动；VIP 权益横排删除“包邮特权”，选择页底部提示、VIP 结算页提示和会员服务协议同步去掉包邮承诺，改为订单页配送费用口径。
@@ -300,6 +305,16 @@
   - **实际做了**: 买家 App `我的 > 常用工具 > 配送` 入口接到 `/delivery`；完成 delivery 登录门禁、单位选择/编辑、双 Tab（商品/我的）、商品列表/详情、购物车、配送专属结算与支付状态页、配送订单列表/详情、配送清单页；新增 delivery buyer 订单列表/详情后端接口与 App `DeliveryOrderRepo` 映射；补 delivery 专属 `checkout/:id/pay` 发起支付参数接口，App 走原生支付宝 / 微信 SDK；配送支付回调建单后同事务清理本次 checkout 对应的 `DeliveryCartItem`
   - **验证**: `npx tsc --noEmit --pretty false`、根目录 `npm test -- --runInBand`、`backend npm test -- --runInBand src/modules/delivery/checkout/delivery-checkout.controller.spec.ts src/modules/delivery/checkout/delivery-checkout.service.spec.ts src/modules/delivery/orders/delivery-orders.service.spec.ts`、`backend npm run build`、`git diff --check`；其中真实支付宝 / 微信 provider 回调仍待实机联调验证，当前仅完成代码链路与单测验证
 
+- [x] **配送一次付款、多批配送买家 App 体验（Task 6）**（2026-08-03 顺丰语义收口）
+  - **来源**: 独立配送业务线的分批履约需求。
+  - **实际做了**: 结算页支持 1 / 2 / 3 / 自定义配送批次并预估一次性预收运费；订单列表/详情全部改为“配送、已送达、待配送”语义，显示顺丰产品、包裹数、重量和所有运单号，不再展示货拉拉司机/车辆；平台成本仍不向买家返回。
+  - **验证**: `npx jest --runTestsByPath src/utils/__tests__/deliveryPickupPlan.test.ts src/utils/__tests__/cartCounts.test.ts --runInBand`、`npx tsc --noEmit`、`cd backend && npm test -- --runTestsByPath src/modules/delivery/orders/delivery-orders.service.spec.ts src/modules/delivery/pickup/delivery-pickup.service.spec.ts src/modules/delivery/pickup/delivery-pickup-plan.service.spec.ts --runInBand`、`git diff --check`。
+
+- [x] **配送管理后台运费中心与配送批次（Task 7）**（2026-08-03 顺丰收口）
+  - **来源**: 平台需要全局查看顺丰批次、异常、面单和实际成本。
+  - **实际做了**: 运费中心和配送批次页展示顺丰产品、包裹数、重量、多运单、成本和差额；支持同步、取消、补打并受控下载 PDF、成本调整；顺丰运单由所属商家创建，平台不代替创单。配置中心新增 `SF_EXPRESS_PRODUCTS`，当前只默认开启顺丰标快。
+  - **验证**: `cd delivery-admin && npm run build`、`git diff --check`。
+
 - [x] **配送管理后台壳（Task 14）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 14 brief
   - **实际做了**: 复制 `admin/` 新建 `delivery-admin/`；切成 `delivery_admin_token` / `delivery_admin_refresh_token` / `nongmai-delivery-admin-auth` 独立登录态；认证接口改到 `/delivery-admin/auth/*`；登录页与爱买买管理后台互相增加切换按钮；配送管理后台改为浅蓝主题；裁掉 VIP / 红包 / 分润 / 抽奖 / 数字资产 / 售后等非配送菜单与路由；`deploy-website.yml` 新增 delivery-admin 构建与部署目标
@@ -339,6 +354,11 @@
   - **来源**: 用户截图反馈“系统参数”含义不清，编辑抽屉像代码，管理人员看不懂。
   - **实际做了**: 对齐现有爱买买管理后台“平台设置/发票设置”的业务表单模式，将配置中心第三类从“系统参数”改为“平台规则”；低库存展示改为“低库存提醒阈值”数字输入，逐单自定义列改为“允许逐单添加自定义列”开关；这两个平台规则不再点击编辑进入弹窗，而是在页面卡片内直接修改后统一保存；移除管理人员可见的内部配置标识、配置范围、JSON 内容和新增内部参数入口；配送单位字段的下拉选项改为每行一个选项。
   - **验证**: `cd delivery-admin && npm test`、`cd delivery-admin && npm run build`、`git diff --check` 均通过。
+
+- [x] **配送三端交互与权限终审（2026-08-03）**
+  - **来源**: staging 前对配送管理后台、企业配送中心和买家 App 全部菜单、按钮、跳转和下一步行为的复核。
+  - **实际做了**: 修复两个后台跨页后目录分组折叠、登录/刷新恢复完整账号权限、刷新 token 同步、路由与操作权限不一致、客服配置误用系统配置权限、表单未挂载警告、商品编辑绕过未保存保护、鼠标专用卡片/图标按钮和 React 19 + Ant Design 5 兼容问题；App 补齐请求失败重试、快捷加购规格/库存裁决、防重复点击、外链失败提示、中文状态兜底和可访问操作语义；最终发布审查将承运商和付款方式固定为顺丰平台月结，人工成本调整不再伪装成手工承运商，并删除未被正式文档引用的旧货拉拉临时任务报告。
+  - **验证**: 本地浏览器验证配送管理后台 23/23 菜单路由、企业配送中心 9/9 菜单路由、工作台 5 个快捷入口和 2 个履约入口，最终依赖环境 console 0 error / 0 warning；`delivery-admin` 25 tests、`delivery-seller` 30 tests、买家配送 5 suites / 18 tests、配送后端与顺丰配送回调 56 suites / 300 tests，以及两个 Web ESLint、配送 Prisma validate、根/后端 TypeScript 和两个 Web 生产构建均通过。真实支付、顺丰沙箱、文件下载和部署环境角色权限保留为 staging 冒烟门槛。
 
 - [x] **配送部署、法律页、seed 与集成验证（Task 18-20）**（2026-06-19 新增并完成）
   - **来源**: isolated worktree `delivery-system` / Task 18-20 brief

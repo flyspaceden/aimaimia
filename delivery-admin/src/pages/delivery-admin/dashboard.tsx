@@ -14,10 +14,15 @@ import type {
 } from '@/types/delivery-management';
 import { DetailLinkButton, MoneyText, PageHeader, StatusPill } from './components';
 import { formatDateTime, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
 export default function DeliveryDashboardPage() {
+  const hasPermission = useAuthStore((state) => state.hasPermission);
+  const canReadMerchants = hasPermission('delivery:merchants:read');
+  const canReadOrders = hasPermission('delivery:orders:read');
+  const canReadSettlements = hasPermission('delivery:settlements:read');
   const statsQuery = useQuery({
     queryKey: ['delivery-dashboard', 'stats'],
     queryFn: getDeliveryStats,
@@ -25,14 +30,17 @@ export default function DeliveryDashboardPage() {
   const applicationsQuery = useQuery({
     queryKey: ['delivery-dashboard', 'applications'],
     queryFn: () => getDeliveryMerchantApplications({ page: 1, pageSize: 5, status: 'PENDING' }),
+    enabled: canReadMerchants,
   });
   const paymentsQuery = useQuery({
     queryKey: ['delivery-dashboard', 'abnormal-payments'],
     queryFn: () => getDeliveryAbnormalPayments({ page: 1, pageSize: 5 }),
+    enabled: canReadOrders,
   });
   const settlementsQuery = useQuery({
     queryKey: ['delivery-dashboard', 'settlements'],
     queryFn: () => getDeliverySettlements({ page: 1, pageSize: 5, status: 'PENDING' }),
+    enabled: canReadSettlements,
   });
 
   const stats = statsQuery.data;
@@ -126,7 +134,7 @@ export default function DeliveryDashboardPage() {
       </Row>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={8}>
+        {canReadMerchants ? <Col xs={24} xl={8}>
           <Card
             title="待审入驻申请"
             extra={<Link to="/merchant-applications">查看全部</Link>}
@@ -157,9 +165,9 @@ export default function DeliveryDashboardPage() {
               ]}
             />
           </Card>
-        </Col>
+        </Col> : null}
 
-        <Col xs={24} xl={8}>
+        {canReadOrders ? <Col xs={24} xl={8}>
           <Card
             title="异常支付"
             extra={<Link to="/abnormal-payments">查看全部</Link>}
@@ -197,9 +205,9 @@ export default function DeliveryDashboardPage() {
               ]}
             />
           </Card>
-        </Col>
+        </Col> : null}
 
-        <Col xs={24} xl={8}>
+        {canReadSettlements ? <Col xs={24} xl={8}>
           <Card
             title="待结算"
             extra={<Link to="/settlements">查看全部</Link>}
@@ -240,7 +248,7 @@ export default function DeliveryDashboardPage() {
               ]}
             />
           </Card>
-        </Col>
+        </Col> : null}
       </Row>
     </div>
   );

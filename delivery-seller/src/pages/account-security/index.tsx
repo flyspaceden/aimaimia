@@ -9,6 +9,7 @@ import {
   changePhone,
   changeNickname,
 } from '@/api/auth';
+import { ApiError } from '@/api/client';
 import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
@@ -28,6 +29,17 @@ interface ChangePhoneForm {
 function maskPhone(phone?: string): string {
   if (!phone || phone.length < 7) return phone || '';
   return phone.slice(0, 3) + '****' + phone.slice(-4);
+}
+
+function getActionErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError || error instanceof Error) return error.message || fallback;
+  return fallback;
+}
+
+function getFirstFormError(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('errorFields' in error)) return undefined;
+  const fields = (error as { errorFields?: Array<{ errors?: string[] }> }).errorFields;
+  return fields?.[0]?.errors?.[0];
 }
 
 export default function AccountSecurityPage() {
@@ -90,8 +102,8 @@ export default function AccountSecurityPage() {
         newPassword: values.newPassword,
       });
       forceRelogin('密码已修改，请用新密码重新登录');
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '修改失败');
+    } catch (err: unknown) {
+      message.error(getActionErrorMessage(err, '修改失败'));
     } finally {
       setPwdSaving(false);
     }
@@ -108,8 +120,8 @@ export default function AccountSecurityPage() {
       await sendSmsCode(phone);
       message.success(`验证码已发送到原手机 ${maskPhone(phone)}`);
       startCountdown(setOldCountdown, oldTimerRef);
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '发送失败');
+    } catch (err: unknown) {
+      message.error(getActionErrorMessage(err, '发送失败'));
     } finally {
       setOldSending(false);
     }
@@ -122,12 +134,13 @@ export default function AccountSecurityPage() {
       await sendBindPhoneSmsCode(values.newPhone);
       message.success('验证码已发送到新手机');
       startCountdown(setNewCountdown, newTimerRef);
-    } catch (err: any) {
-      if (err?.errorFields) {
-        message.warning(err.errorFields?.[0]?.errors?.[0] || '请填写新手机号');
+    } catch (err: unknown) {
+      const formError = getFirstFormError(err);
+      if (formError) {
+        message.warning(formError);
         return;
       }
-      message.error(err?.response?.data?.message || err?.message || '发送失败');
+      message.error(getActionErrorMessage(err, '发送失败'));
     } finally {
       setNewSending(false);
     }
@@ -138,8 +151,8 @@ export default function AccountSecurityPage() {
     try {
       await changePhone(values);
       forceRelogin('手机号已修改，请重新登录');
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '修改失败');
+    } catch (err: unknown) {
+      message.error(getActionErrorMessage(err, '修改失败'));
     } finally {
       setPhoneSaving(false);
     }
@@ -152,8 +165,8 @@ export default function AccountSecurityPage() {
       setSellerNickname(res.nickname);
       message.success('昵称已更新');
       nicknameForm.setFieldsValue({ nickname: res.nickname });
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || err?.message || '修改失败');
+    } catch (err: unknown) {
+      message.error(getActionErrorMessage(err, '修改失败'));
     } finally {
       setNicknameSaving(false);
     }

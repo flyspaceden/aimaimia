@@ -156,6 +156,8 @@ export interface Order {
   };
   items: OrderItem[];
   shipment?: Shipment | null;
+  shipments?: Shipment[];
+  pickupBatches?: PickupBatch[];
 }
 
 export interface OrderItem {
@@ -188,6 +190,72 @@ export interface TrackingEvent {
   status: string;
   description: string;
   occurredAt: string;
+}
+
+// ============================================================
+// 配送批次（后端字段仍保留 pickup 历史命名）
+// ============================================================
+
+export interface PickupBatchCarrierOrder {
+  carrierOrderNo?: string | null;
+  expressTypeId?: number | null;
+  expressTypeName?: string | null;
+  packageCount?: number | null;
+  totalWeightKg?: number | null;
+  waybillUrl?: string | null;
+  waybills?: Array<{
+    trackingNo: string;
+    status: string;
+    deliveredAt?: string | null;
+    lastSyncedAt?: string | null;
+  }>;
+  status?: string | null;
+  lastSyncedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PickupBatchItem {
+  id: string;
+  orderItemId: string;
+  skuId: string;
+  productTitle: string;
+  skuTitle: string;
+  unitName: string;
+  quantity: number;
+  pickedQuantity: number;
+}
+
+export interface PickupBatch {
+  id: string;
+  orderId: string;
+  subOrderId: string;
+  merchantId: string;
+  merchantName?: string | null;
+  unitId?: string | null;
+  unitSnapshot?: unknown;
+  addressSnapshot?: unknown;
+  batchNo: number;
+  status: string;
+  provider: string;
+  plannedPickupAt?: string | null;
+  readyAt?: string | null;
+  calledAt?: string | null;
+  loadedAt?: string | null;
+  completedAt?: string | null;
+  canceledAt?: string | null;
+  suggestedWeightKg?: number;
+  carrierOrderNo?: string | null;
+  latestCarrierOrder?: PickupBatchCarrierOrder | null;
+  items: PickupBatchItem[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SfExpressProductOption {
+  expressTypeId: number;
+  name: string;
+  enabled: boolean;
 }
 
 // ============================================================

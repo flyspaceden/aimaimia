@@ -325,6 +325,64 @@ describe('DeliverySellerOpsService', () => {
             updatedAt: new Date('2026-06-19T10:10:00Z'),
           },
         ],
+        pickupBatches: [
+          {
+            id: 'PSTH0000000000001',
+            orderId: 'order_1',
+            subOrderId: 'sub_1',
+            merchantId: 'merchant_1',
+            batchNo: 1,
+            status: 'WAITING_DRIVER',
+            provider: 'SF',
+            plannedPickupAt: new Date('2026-06-19T12:00:00Z'),
+            readyAt: new Date('2026-06-19T11:20:00Z'),
+            calledAt: new Date('2026-06-19T11:30:00Z'),
+            loadedAt: null,
+            completedAt: null,
+            canceledAt: null,
+            estimatedShippingFeeCents: 500,
+            actualCarrierCostCents: 700,
+            shippingCostDiffCents: -200,
+            items: [
+              {
+                id: 'batch_item_1',
+                orderItemId: 'item_1',
+                skuId: 'sku_1',
+                productSnapshot: {
+                  productTitle: '冷鲜牛腩',
+                  skuTitle: '5kg/箱',
+                  unitName: '箱',
+                },
+                quantity: 1,
+                pickedQuantity: 0,
+              },
+            ],
+            carrierOrders: [
+              {
+                carrierOrderNo: 'SF-BATCH-001',
+                status: 'WAITING_DRIVER',
+                expressTypeId: 1,
+                expressTypeName: '顺丰标快',
+                packageCount: 1,
+                totalWeightKg: 12.5,
+                waybillUrl: '/waybills/SF-BATCH-001.pdf',
+                waybills: [
+                  {
+                    trackingNo: 'SF-BATCH-001',
+                    status: 'WAITING_PICKUP',
+                    deliveredAt: null,
+                    lastSyncedAt: null,
+                  },
+                ],
+                estimatedFeeCents: 500,
+                actualFeeCents: 700,
+                lastSyncedAt: new Date('2026-06-19T11:40:00Z'),
+                createdAt: new Date('2026-06-19T11:30:00Z'),
+                updatedAt: new Date('2026-06-19T11:40:00Z'),
+              },
+            ],
+          },
+        ],
       },
     ]);
 
@@ -354,12 +412,41 @@ describe('DeliverySellerOpsService', () => {
             waybillNo: 'SF123',
             waybillPrintUrl: '/waybills/SF123.pdf',
           },
+          pickupBatches: [
+            {
+              id: 'PSTH0000000000001',
+              batchNo: 1,
+              status: 'WAITING_DRIVER',
+              carrierOrderNo: 'SF-BATCH-001',
+              latestCarrierOrder: {
+                carrierOrderNo: 'SF-BATCH-001',
+                status: 'WAITING_DRIVER',
+                expressTypeName: '顺丰标快',
+                packageCount: 1,
+                totalWeightKg: 12.5,
+              },
+              items: [
+                {
+                  id: 'batch_item_1',
+                  productTitle: '冷鲜牛腩',
+                  skuTitle: '5kg/箱',
+                  quantity: 1,
+                  pickedQuantity: 0,
+                },
+              ],
+            },
+          ],
         },
       ],
     });
     expect(result.items[0]).not.toHaveProperty('totalAmountCents');
     expect(result.items[0].items[0]).not.toHaveProperty('lineAmountCents');
     expect(result.items[0]).not.toHaveProperty('settlements');
+    expect(result.items[0].pickupBatches[0]).not.toHaveProperty('estimatedShippingFeeCents');
+    expect(result.items[0].pickupBatches[0]).not.toHaveProperty('actualCarrierCostCents');
+    expect(result.items[0].pickupBatches[0]).not.toHaveProperty('shippingCostDiffCents');
+    expect(result.items[0].pickupBatches[0].latestCarrierOrder).not.toHaveProperty('estimatedFeeCents');
+    expect(result.items[0].pickupBatches[0].latestCarrierOrder).not.toHaveProperty('actualFeeCents');
   });
 
   it('loads a seller order detail with only fulfillment-safe fields', async () => {
@@ -411,6 +498,7 @@ describe('DeliverySellerOpsService', () => {
           updatedAt: new Date('2026-06-19T10:10:00Z'),
         },
       ],
+      pickupBatches: [],
     });
 
     const result = await service.getOrder('merchant_1', 'sub_1');

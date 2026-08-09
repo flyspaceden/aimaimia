@@ -275,6 +275,19 @@ describe('DeliveryShippingService', () => {
     });
   });
 
+  it('rejects the legacy whole-suborder shipping path when pickup batches exist', async () => {
+    tx.deliverySubOrder.findUnique.mockResolvedValue({
+      ...pendingSubOrder,
+      shipments: [],
+      pickupBatches: [{ id: 'batch_1' }],
+    });
+
+    await expect(service.shipSubOrder('merchant_1', 'staff_1', 'sub_1')).rejects.toThrow(
+      '该订单已启用配送批次',
+    );
+    expect(sfExpress.createOrder).not.toHaveBeenCalled();
+  });
+
   it('returns the existing shipment idempotently when the suborder is already shipped', async () => {
     tx.deliverySubOrder.findUnique.mockResolvedValue({
       ...pendingSubOrder,

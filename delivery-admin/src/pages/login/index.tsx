@@ -88,6 +88,12 @@ const getLoginErrorMessage = (err: unknown): string => {
   return '登录失败，请稍后重试';
 };
 
+const getFirstFormError = (error: unknown): string | undefined => {
+  if (!error || typeof error !== 'object' || !('errorFields' in error)) return undefined;
+  const fields = (error as { errorFields?: Array<{ errors?: string[] }> }).errorFields;
+  return fields?.[0]?.errors?.[0];
+};
+
 /** 将 SVG 字符串转为可直接用于 <img> 的 data URL（base64 编码，规避中文等 Unicode 字符） */
 const svgToDataUrl = (svg: string): string => {
   try {
@@ -126,12 +132,12 @@ export default function LoginPage() {
       const res = await getCaptcha();
       setCaptchaId(res.captchaId);
       setCaptchaSvg(res.svg);
-    } catch (err) {
+    } catch {
       message.error('验证码加载失败，请刷新重试');
     } finally {
       setCaptchaLoading(false);
     }
-  }, []);
+  }, [message]);
 
   // 初始化/切换 tab 时拉取验证码（账号登录 + 手机登录都需要）
   useEffect(() => {
@@ -202,11 +208,11 @@ export default function LoginPage() {
       await sendSmsCode(values.phone);
       message.success('验证码已发送');
       startCountdown();
-    } catch (err: any) {
-      if (err?.errorFields) {
+    } catch (err: unknown) {
+      const formError = getFirstFormError(err);
+      if (formError) {
         // 表单校验错误：显式 toast 提示（仅靠字段下方小红字容易被忽略）
-        const firstMsg = err.errorFields?.[0]?.errors?.[0] || '请填写完整信息';
-        message.warning(firstMsg);
+        message.warning(formError);
         return;
       }
       message.error(getLoginErrorMessage(err));
@@ -318,7 +324,10 @@ export default function LoginPage() {
                           autoComplete="off"
                         />
                       </Form.Item>
-                      <div
+                      <button
+                        type="button"
+                        aria-label="刷新图形验证码"
+                        disabled={captchaLoading}
                         onClick={() => !captchaLoading && refreshCaptcha()}
                         title="点击刷新验证码"
                         style={{
@@ -333,6 +342,7 @@ export default function LoginPage() {
                           background: '#fafafa',
                           cursor: captchaLoading ? 'wait' : 'pointer',
                           overflow: 'hidden',
+                          padding: 0,
                         }}
                       >
                         {captchaSvg ? (
@@ -348,7 +358,7 @@ export default function LoginPage() {
                         ) : (
                           <ReloadOutlined spin={captchaLoading} />
                         )}
-                      </div>
+                      </button>
                     </Space.Compact>
                   </Form.Item>
 

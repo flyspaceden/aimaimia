@@ -61,6 +61,11 @@ import { DeliverySellerAuthController } from './seller-auth/delivery-seller-auth
 import { DeliverySellerAuthService } from './seller-auth/delivery-seller-auth.service';
 import { DeliveryAdminAuthController } from './admin-auth/delivery-admin-auth.controller';
 import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.service';
+import { DeliveryPickupPlanService } from './pickup/delivery-pickup-plan.service';
+import { DeliveryPickupService } from './pickup/delivery-pickup.service';
+import { DeliveryAdminPickupController } from './pickup/delivery-admin-pickup.controller';
+import { DeliverySellerPickupController } from './pickup/delivery-seller-pickup.controller';
+import { SfPickupCarrierService } from './carriers/sf-pickup-carrier.service';
 
 @Module({
   imports: [
@@ -107,6 +112,8 @@ import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.servi
     DeliveryAdminConfigController,
     DeliveryAdminStatsController,
     DeliveryAdminOpsController,
+    DeliveryAdminPickupController,
+    DeliverySellerPickupController,
     DeliverySellerOpsController,
     DeliverySellerPublicController,
     DeliverySellerUploadController,
@@ -126,6 +133,9 @@ import { DeliveryAdminAuthService } from './admin-auth/delivery-admin-auth.servi
     DeliveryInventoryService,
     DeliveryCartService,
     DeliveryCheckoutService,
+    DeliveryPickupPlanService,
+    DeliveryPickupService,
+    SfPickupCarrierService,
     DeliveryOrdersService,
     DeliveryPaymentsService,
     DeliveryShippingService,

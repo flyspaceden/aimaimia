@@ -19,6 +19,9 @@ describe('DeliveryAdminOpsService', () => {
         count: jest.fn(),
         findMany: jest.fn(),
       },
+      deliveryOrder: {
+        findUnique: jest.fn(),
+      },
       deliveryCategory: {
         count: jest.fn(),
         create: jest.fn(),
@@ -132,6 +135,50 @@ describe('DeliveryAdminOpsService', () => {
       }),
     );
     expect(result.items).toHaveLength(1);
+  });
+
+  it('includes pickup batches and shipping cost ledgers in admin order details', async () => {
+    deliveryPrisma.deliveryOrder.findUnique.mockResolvedValue({
+      id: 'PSDD0000000000001',
+      pickupMode: 'MULTI_BATCH',
+      plannedPickupCount: 2,
+      pickupStatus: 'PARTIAL_PICKED',
+      prepaidPickupShippingFeeCents: 600,
+      actualCarrierCostCents: 760,
+      shippingCostDiffCents: -160,
+      pickupBatches: [
+        {
+          id: 'PSTH0000000000001',
+          actualCarrierCostCents: 760,
+        },
+      ],
+      shippingCostLedgers: [
+        {
+          id: 'ledger_1',
+          amountCents: 760,
+        },
+      ],
+    });
+
+    const order = await service.getOrder('PSDD0000000000001');
+
+    expect(deliveryPrisma.deliveryOrder.findUnique).toHaveBeenCalledWith({
+      where: { id: 'PSDD0000000000001' },
+      include: expect.objectContaining({
+        pickupBatches: expect.any(Object),
+        shippingCostLedgers: expect.any(Object),
+      }),
+    });
+    expect(order).toMatchObject({
+      pickupMode: 'MULTI_BATCH',
+      plannedPickupCount: 2,
+      pickupStatus: 'PARTIAL_PICKED',
+      prepaidPickupShippingFeeCents: 600,
+      actualCarrierCostCents: 760,
+      shippingCostDiffCents: -160,
+      pickupBatches: expect.any(Array),
+      shippingCostLedgers: expect.any(Array),
+    });
   });
 
   it('writes audit logs when an admin updates a delivery merchant', async () => {

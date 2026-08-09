@@ -23,6 +23,13 @@ const filters: Array<{ id?: string; label: string }> = [
   { id: 'COMPLETED', label: '已完成' },
 ];
 
+const pickupStatusLabels: Record<string, string> = {
+  NOT_STARTED: '待配送',
+  PARTIAL_PICKED: '分批配送中',
+  ALL_PICKED: '已全部送达',
+  CANCELED: '配送已取消',
+};
+
 export default function DeliveryOrdersScreen() {
   const router = useRouter();
   const { spacing, typography, palette } = useDeliveryTheme();
@@ -42,7 +49,22 @@ export default function DeliveryOrdersScreen() {
     );
   }
 
-  const orders = query.data?.ok ? query.data.data.items : [];
+  if (!query.data || !query.data.ok) {
+    return (
+      <Screen contentStyle={{ flex: 1 }}>
+        <AppHeader title="配送订单" />
+        <DeliveryMessageState
+          title="配送订单加载失败"
+          description={query.data?.ok === false ? query.data.error.displayMessage ?? '请稍后重试' : '请稍后重试'}
+          actionLabel="重新加载"
+          onAction={() => query.refetch()}
+          icon="alert-circle-outline"
+        />
+      </Screen>
+    );
+  }
+
+  const orders = query.data.data.items;
 
   return (
     <Screen contentStyle={{ flex: 1 }}>
@@ -78,6 +100,8 @@ export default function DeliveryOrdersScreen() {
         }
         renderItem={({ item }) => (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`查看配送订单 ${item.id}`}
             onPress={() => router.push({ pathname: '/delivery/orders/[id]', params: { id: item.id } })}
             style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md }}
           >
@@ -95,12 +119,17 @@ export default function DeliveryOrdersScreen() {
                 {item.items[0]?.productTitle || '配送商品'}
                 {item.items.length > 1 ? ` 等 ${item.items.length} 件` : ''}
               </Text>
+              {item.pickupMode === 'MULTI_BATCH' || item.pickupBatches.length > 0 ? (
+                <Text style={[typography.caption, { color: palette.brand.primaryDark, marginTop: spacing.xs }]} numberOfLines={1}>
+                  配送：{pickupStatusLabels[item.pickupStatus] ?? item.pickupStatus} · 预计 {item.plannedPickupCount} 个批次
+                </Text>
+              ) : null}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
                 <Text style={[typography.headingSm, { color: palette.brand.primaryDark }]}>
                   {formatDeliveryMoney(item.totalAmount)}
                 </Text>
                 <Text style={[typography.caption, { color: palette.text.tertiary }]}>
-                  {DELIVERY_ORDER_STATUS_LABELS[item.status] ?? item.status}
+                  {DELIVERY_ORDER_STATUS_LABELS[item.status] ?? '状态待更新'}
                 </Text>
               </View>
             </DeliveryPanel>

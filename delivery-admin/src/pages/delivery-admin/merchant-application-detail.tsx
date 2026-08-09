@@ -8,6 +8,7 @@ import {
 } from '@/api/delivery-management';
 import { DetailDescriptions, NotFoundPanel, PageHeader, StatusPill } from './components';
 import { formatDateTime, getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type ReviewFormValues = {
   status: 'APPROVED' | 'REJECTED';
@@ -18,6 +19,7 @@ type ReviewFormValues = {
 export default function DeliveryMerchantApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { message } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:merchants:write'));
   const queryClient = useQueryClient();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [form] = Form.useForm<ReviewFormValues>();
@@ -57,11 +59,11 @@ export default function DeliveryMerchantApplicationDetailPage() {
       <PageHeader
         title="入驻申请详情"
         subtitle="查看申请资料、审批人和当前审核状态。"
-        extra={(
+        extra={canWrite ? (
           <Space>
             <Button onClick={() => setReviewOpen(true)}>审核</Button>
           </Space>
-        )}
+        ) : undefined}
       />
       <Card loading={query.isLoading}>
         {data ? (

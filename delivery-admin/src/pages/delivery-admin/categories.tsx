@@ -29,6 +29,7 @@ import {
 import type { DeliveryCategory } from '@/types/delivery-management';
 import { PageHeader } from './components';
 import { getErrorMessage } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 type DisplayRow = DeliveryCategory & { children?: undefined };
 
@@ -70,19 +71,20 @@ function DraggableRow(props: React.HTMLAttributes<HTMLTableRowElement> & { 'data
   );
 }
 
-function DragHandle({ id }: { id: string }) {
-  const { listeners, setActivatorNodeRef } = useSortable({ id });
+function DragHandle({ id, disabled }: { id: string; disabled: boolean }) {
+  const { listeners, setActivatorNodeRef } = useSortable({ id, disabled });
   return (
     <HolderOutlined
       ref={setActivatorNodeRef}
       {...listeners}
-      style={{ cursor: 'grab', color: '#8c8c8c', fontSize: 16 }}
+      style={{ cursor: disabled ? 'not-allowed' : 'grab', color: '#8c8c8c', fontSize: 16, opacity: disabled ? 0.35 : 1 }}
     />
   );
 }
 
 export default function DeliveryCategoriesPage() {
   const { message, modal } = AntdApp.useApp();
+  const canWrite = useAuthStore((state) => state.hasPermission('delivery:products:write'));
   const [flatList, setFlatList] = useState<DeliveryCategory[]>([]);
   const [displayRows, setDisplayRows] = useState<DisplayRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -266,7 +268,7 @@ export default function DeliveryCategoriesPage() {
       title: '',
       width: 44,
       align: 'center',
-      render: (_, record) => <DragHandle id={record.id} />,
+      render: (_, record) => <DragHandle id={record.id} disabled={!canWrite} />,
     },
     {
       title: '分类名称',
@@ -286,12 +288,15 @@ export default function DeliveryCategoriesPage() {
             alignItems: 'center',
           }}>
             {hasChildren ? (
-              <span
+              <button
+                type="button"
+                aria-label={isExpanded ? `收起${record.name}` : `展开${record.name}`}
+                aria-expanded={isExpanded}
                 onClick={() => toggleExpand(record.id)}
-                style={{ cursor: 'pointer', marginRight: 6, color: '#595959', fontSize: 12 }}
+                style={{ cursor: 'pointer', marginRight: 6, color: '#595959', fontSize: 12, border: 0, padding: 0, background: 'transparent' }}
               >
                 {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
-              </span>
+              </button>
             ) : (
               <span style={{ width: 18 }} />
             )}
@@ -311,7 +316,11 @@ export default function DeliveryCategoriesPage() {
                 }}
               />
             ) : (
-              <span onDoubleClick={() => startEditing(record)} style={{ cursor: 'text' }} title="双击编辑">
+              <span
+                onDoubleClick={canWrite ? () => startEditing(record) : undefined}
+                style={{ cursor: canWrite ? 'text' : 'default' }}
+                title={canWrite ? '双击编辑' : '当前账号仅可查看'}
+              >
                 {record.name}
               </span>
             )}
@@ -344,6 +353,7 @@ export default function DeliveryCategoriesPage() {
           checked={record.status === 'ACTIVE'}
           checkedChildren="启用"
           unCheckedChildren="停用"
+          disabled={!canWrite}
           onChange={() => handleToggleStatus(record)}
         />
       ),
@@ -354,7 +364,7 @@ export default function DeliveryCategoriesPage() {
       width: 220,
       render: (_, record) => (
         <Space>
-          <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => openCreateModal(record)}>
+          <Button type="link" size="small" icon={<PlusOutlined />} disabled={!canWrite} onClick={() => openCreateModal(record)}>
             新增子分类
           </Button>
           {record._count.children > 0 || record._count.products > 0 ? (
@@ -372,8 +382,8 @@ export default function DeliveryCategoriesPage() {
               </span>
             </Tooltip>
           ) : (
-            <Popconfirm title="确认删除此分类？" onConfirm={() => handleDelete(record.id)}>
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+            <Popconfirm disabled={!canWrite} title="确认删除此分类？" onConfirm={() => handleDelete(record.id)}>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} disabled={!canWrite}>
                 删除
               </Button>
             </Popconfirm>
@@ -390,11 +400,11 @@ export default function DeliveryCategoriesPage() {
       <PageHeader
         title="商品分类管理"
         subtitle="维护配送中心商品发布和买家商品列表共用的配送分类。"
-        extra={(
+        extra={canWrite ? (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateModal()}>
             新增顶级分类
           </Button>
-        )}
+        ) : undefined}
       />
 
       <Space style={{ marginBottom: 12 }}>
@@ -409,7 +419,7 @@ export default function DeliveryCategoriesPage() {
           collisionDetection={closestCenter}
           modifiers={[restrictToVerticalAxis]}
           onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
+          onDragEnd={canWrite ? handleDragEnd : undefined}
         >
           <SortableContext items={flatIds} strategy={verticalListSortingStrategy}>
             <Table<DisplayRow>
@@ -435,6 +445,7 @@ export default function DeliveryCategoriesPage() {
       `}</style>
 
       <Modal
+        forceRender
         title={parentCategory ? `新增子分类（父级：${parentCategory.name}）` : '新增顶级分类'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}

@@ -23,6 +23,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getOrders } from '@/api/orders';
 import { getStatusDisplay, orderStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
+import useAuthStore from '@/store/useAuthStore';
 
 const orderStatusTabs = [
   { key: 'all', label: '全部', status: '' },
@@ -40,6 +41,7 @@ function shortOrderId(id: string): string {
 
 export default function OrderListPage() {
   const navigate = useNavigate();
+  const canWriteOrders = useAuthStore((state) => state.hasPermission('orders:write'));
   const actionRef = useRef<ActionType>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -98,7 +100,7 @@ export default function OrderListPage() {
           style={{ backgroundColor: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}
           onClick={() => navigate(`/orders/${record.id}`)}
         >
-          去发货
+          {canWriteOrders ? '去发货' : '查看待发货'}
         </Button>
       );
     }
@@ -235,8 +237,16 @@ export default function OrderListPage() {
         <Card
           size="small"
           hoverable
+          role="button"
+          tabIndex={0}
           style={{ cursor: 'pointer' }}
           onClick={() => handleOrderStatusTabChange('pending')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              handleOrderStatusTabChange('pending');
+            }
+          }}
         >
           <Statistic
             title="待发货"

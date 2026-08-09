@@ -19,6 +19,7 @@ import {
   productAuditStatusOptions,
   productStatusOptions,
 } from './utils';
+import useAuthStore from '@/store/useAuthStore';
 
 const { Text } = Typography;
 
@@ -29,6 +30,7 @@ type ReviewAction = {
 
 export default function DeliveryProductsPage() {
   const { message } = AntdApp.useApp();
+  const canAudit = useAuthStore((state) => state.hasPermission('delivery:products:audit'));
   const actionRef = useRef<ActionType | undefined>(undefined);
   const [reviewAction, setReviewAction] = useState<ReviewAction | null>(null);
   const [form] = Form.useForm<{ note?: string }>();
@@ -170,12 +172,16 @@ export default function DeliveryProductsPage() {
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" size="small" onClick={() => setReviewAction({ product: record, type: 'approve' })}>
-            通过
-          </Button>
-          <Button type="link" danger size="small" onClick={() => setReviewAction({ product: record, type: 'reject' })}>
-            驳回
-          </Button>
+          {canAudit ? (
+            <>
+              <Button type="link" size="small" onClick={() => setReviewAction({ product: record, type: 'approve' })}>
+                通过
+              </Button>
+              <Button type="link" danger size="small" onClick={() => setReviewAction({ product: record, type: 'reject' })}>
+                驳回
+              </Button>
+            </>
+          ) : <Typography.Text type="secondary">仅查看</Typography.Text>}
         </Space>
       ),
       search: false,
@@ -228,6 +234,7 @@ export default function DeliveryProductsPage() {
       />
 
       <Modal
+        forceRender
         open={Boolean(reviewAction)}
         title={reviewAction?.type === 'approve' ? '通过商品审核' : '驳回商品审核'}
         confirmLoading={reviewMutation.isPending}

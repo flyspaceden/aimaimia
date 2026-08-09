@@ -1,14 +1,22 @@
 import { Type } from 'class-transformer';
-import { DeliveryPaymentChannel } from '../../../../generated/delivery-client';
+import {
+  DeliveryPaymentChannel,
+  DeliveryPickupMode,
+} from '../../../../generated/delivery-client';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
+  ValidateNested,
 } from 'class-validator';
+import { DeliveryPickupPlanItemDto } from '../../pickup/dto/delivery-pickup.dto';
 
 export class CreateDeliveryCheckoutDto {
   @IsArray({ message: 'cartItemIds 必须为数组' })
@@ -30,4 +38,21 @@ export class CreateDeliveryCheckoutDto {
 
   @IsEnum(DeliveryPaymentChannel, { message: 'paymentChannel 必须是有效的配送支付渠道' })
   paymentChannel: DeliveryPaymentChannel;
+
+  @IsOptional()
+  @IsEnum(DeliveryPickupMode, { message: 'pickupMode 必须是有效的配送方式' })
+  pickupMode?: DeliveryPickupMode;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'plannedPickupCount 必须是整数' })
+  @Min(1, { message: 'plannedPickupCount 至少为 1' })
+  @Max(5, { message: 'plannedPickupCount 最多为 5' })
+  plannedPickupCount?: number;
+
+  @IsOptional()
+  @IsArray({ message: 'pickupPlanItems 必须为数组' })
+  @ValidateNested({ each: true })
+  @Type(() => DeliveryPickupPlanItemDto)
+  pickupPlanItems?: DeliveryPickupPlanItemDto[];
 }

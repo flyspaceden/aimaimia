@@ -1,7 +1,8 @@
 import { useRef } from 'react';
-import { Button } from 'antd';
+import { Alert, Button, Space } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
+import { Link } from 'react-router-dom';
 import { getDeliveryShippingRecords } from '@/api/delivery-management';
 import type { DeliveryShippingRecord } from '@/types/delivery-management';
 import { PageHeader, StatusPill } from './components';
@@ -42,6 +43,23 @@ export default function DeliveryShippingRecordsPage() {
   return (
     <div style={{ padding: 24 }}>
       <PageHeader title="配送发货记录" subtitle="查看面单号、买家预估运费和顺丰实际成本。" />
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="一次付款多批次配送订单已统一到运费中心和配送批次页；本页仅保留历史整单发货记录。"
+        action={(
+          <Space wrap>
+            <Link to="/freight-center">
+              <Button size="small">运费中心</Button>
+            </Link>
+            <Link to="/pickup-batches">
+              <Button size="small">配送批次</Button>
+            </Link>
+          </Space>
+        )}
+      />
 
       <ProTable<DeliveryShippingRecord>
         actionRef={actionRef}

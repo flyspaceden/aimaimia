@@ -24,7 +24,7 @@ import {
 import { getPublicAppConfig } from '@/api/config';
 import { getProductUnits } from '@/api/productUnits';
 import { getTagCategories } from '@/api/tags';
-import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+import { isGlobalDirty, useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
 import useAuthStore from '@/store/useAuthStore';
 import { downloadDeliveryUploadWithAuth } from '@/utils/uploadDownload';
@@ -307,8 +307,11 @@ function MultiSpecRows({ lowStockThreshold }: { lowStockThreshold: number }) {
                 </Col>
                 <Col span={1} style={{ textAlign: 'center', paddingTop: 28 }}>
                   {fields.length > 1 && (
-                    <MinusCircleOutlined
-                      style={{ fontSize: 18, color: '#999', cursor: 'pointer' }}
+                    <Button
+                      type="text"
+                      aria-label="删除规格"
+                      icon={<MinusCircleOutlined />}
+                      style={{ color: '#999' }}
                       onClick={() => remove(field.name)}
                     />
                   )}
@@ -361,7 +364,6 @@ function ImageUploadSection({
       await downloadDeliveryUploadWithAuth(previewFile.url, previewFile.name, API_BASE);
     } catch (err) {
       message.error('图片下载失败，请确认当前账号有商品查看权限');
-      // eslint-disable-next-line no-console
       console.error('图片下载失败', err);
     } finally {
       // 浏览器接管下载流程，无需等待回调
@@ -398,7 +400,7 @@ function ImageUploadSection({
         onCancel={() => setPreviewFile(null)}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         {previewFile && (
           <>
@@ -462,7 +464,13 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
                   <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '属性值' }]}>
                     <Input placeholder="属性值（如：有机种植）" style={{ width: 240 }} />
                   </Form.Item>
-                  <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
+                  <Button
+                    type="text"
+                    aria-label="删除属性"
+                    icon={<MinusCircleOutlined />}
+                    style={{ marginTop: 4, color: '#999' }}
+                    onClick={() => remove(field.name)}
+                  />
                 </Space>
               ))}
               <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
@@ -577,6 +585,12 @@ function ProductEditForm({ id }: { id: string }) {
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
   useUnsavedChanges(form.isFieldsTouched());
+  const navigateSafely = useCallback((path: string) => {
+    if (isGlobalDirty() && !window.confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。')) {
+      return;
+    }
+    navigate(path);
+  }, [navigate]);
 
   // 加载商品数据
   const { data: product, isLoading } = useQuery({
@@ -645,7 +659,7 @@ function ProductEditForm({ id }: { id: string }) {
       unit: getUnitName(product),
       categoryId: product.categoryId,
       originText,
-      tagIds: product.tags?.map((t: any) => t.tag?.id || t.tagId) || [],
+      tagIds: product.tags?.map((tag) => tag.tag?.id || tag.tagId) || [],
       aiKeywords: (product.aiKeywords || []).join(','),
       attributes: attrPairs.length > 0 ? attrPairs : [],
       // 单规格字段
@@ -754,13 +768,13 @@ function ProductEditForm({ id }: { id: string }) {
         <Breadcrumb
           style={{ marginBottom: 8 }}
           items={[
-            { title: <a onClick={() => navigate('/')}>首页</a> },
-            { title: <a onClick={() => navigate('/products')}>商品管理</a> },
+            { title: <a href="/" onClick={(event) => { event.preventDefault(); navigateSafely('/'); }}>首页</a> },
+            { title: <a href="/products" onClick={(event) => { event.preventDefault(); navigateSafely('/products'); }}>商品管理</a> },
             { title: '编辑商品' },
           ]}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigateSafely('/products')}>
             返回列表
           </Button>
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} size="large">
@@ -1014,6 +1028,12 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const hydratingRef = useRef(false);
 
   useUnsavedChanges(dirtySinceSave);
+  const navigateSafely = useCallback((path: string) => {
+    if (isGlobalDirty() && !window.confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。')) {
+      return;
+    }
+    navigate(path);
+  }, [navigate]);
 
   // 包装 setFileList：图片增删也要标 dirty（fileList 不在 Form 内，onValuesChange 收不到）
   const updateFileList = useCallback((newList: UploadFile[]) => {
@@ -1271,13 +1291,13 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         <Breadcrumb
           style={{ marginBottom: 8 }}
           items={[
-            { title: <a onClick={() => navigate('/')}>首页</a> },
-            { title: <a onClick={() => navigate('/products')}>商品管理</a> },
+            { title: <a href="/" onClick={(event) => { event.preventDefault(); navigateSafely('/'); }}>首页</a> },
+            { title: <a href="/products" onClick={(event) => { event.preventDefault(); navigateSafely('/products'); }}>商品管理</a> },
             { title: draftId ? '继续编辑草稿' : '创建商品' },
           ]}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigateSafely('/products')}>
             返回列表
           </Button>
           <Space>
