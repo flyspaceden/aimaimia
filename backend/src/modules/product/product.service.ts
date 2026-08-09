@@ -108,7 +108,9 @@ export class ProductService {
     const where: any = {
       status: 'ACTIVE',
       auditStatus: 'APPROVED',
-      company: { isPlatform: false }, // F4: 用户端搜索排除平台公司奖励商品（奖品商品只在抽奖/购物车中可见）
+      // 买家端只能看到正常营业的非平台企业商品。仅过滤商品本身
+      // 会让已停业/封禁企业的旧商品继续通过搜索和深链暴露。
+      company: { status: 'ACTIVE', isPlatform: false },
     };
 
     if (categoryScopeIds.length > 0) {
@@ -282,7 +284,11 @@ export class ProductService {
         if (queryPinyin && queryPinyin.length >= 2) {
           // 拉取所有 ACTIVE 商品的标题做拼音比较
           const allProducts = await this.prisma.product.findMany({
-            where: { status: 'ACTIVE', auditStatus: 'APPROVED', company: { isPlatform: false } },
+            where: {
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              company: { status: 'ACTIVE', isPlatform: false },
+            },
             select: { id: true, title: true },
             take: 500,
           });
@@ -295,7 +301,14 @@ export class ProductService {
             this.logger.log(`[PinyinFallback] "${normalizedKeyword}" → 拼音匹配到 ${pinyinMatches.length} 个商品: ${pinyinMatches.map(p => p.title).join(', ')}`);
             const pinyinIds = pinyinMatches.map((p) => p.id);
             const pinyinProducts = await this.prisma.product.findMany({
-              where: { id: { in: pinyinIds } },
+              // 二段查询再次带完整可见性条件，防止企业暂停/商品下架
+              // 恰好发生在候选 ID 查询与详情回读之间。
+              where: {
+                id: { in: pinyinIds },
+                status: 'ACTIVE',
+                auditStatus: 'APPROVED',
+                company: { status: 'ACTIVE', isPlatform: false },
+              },
               include,
             });
             items = pinyinProducts as ListableProduct[];
@@ -367,7 +380,7 @@ export class ProductService {
         tags: { include: { tag: true } },
         skus: { where: { status: 'ACTIVE' }, orderBy: { price: 'asc' } },
         category: true,
-        company: { select: { id: true, name: true, isPlatform: true } },
+        company: { select: { id: true, name: true, isPlatform: true, status: true } },
         bundleItems: {
           orderBy: { sortOrder: 'asc' as const },
           select: {
@@ -402,7 +415,7 @@ export class ProductService {
       },
     });
     if (!product) throw new NotFoundException('商品已下架');
-    if (product.company?.isPlatform) {
+    if (product.company?.isPlatform || product.company?.status !== 'ACTIVE') {
       throw new NotFoundException('商品已下架');
     }
     if ((product as any).auditStatus !== 'APPROVED') {
@@ -591,7 +604,7 @@ export class ProductService {
       where: {
         status: 'ACTIVE',
         auditStatus: 'APPROVED',
-        company: { isPlatform: false },
+        company: { status: 'ACTIVE', isPlatform: false },
         OR: [
           { title: { contains: normalizedKeyword, mode: 'insensitive' } },
           { subtitle: { contains: normalizedKeyword, mode: 'insensitive' } },

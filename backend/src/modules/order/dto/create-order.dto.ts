@@ -9,8 +9,10 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   IsNotEmpty,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CheckoutSource } from '../checkout-source';
 
 export class CreateOrderItemDto {
   @IsString()
@@ -37,6 +39,11 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
+
+  /** 预结算来源，必须与最终 CheckoutSession 创建请求一致。 */
+  @IsOptional()
+  @IsEnum(CheckoutSource)
+  checkoutSource?: CheckoutSource;
 
   @IsOptional()
   @IsString()

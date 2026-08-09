@@ -5,6 +5,7 @@ describe('SellerOrdersService invoice privacy', () => {
   let prisma: any;
   let bonusConfig: any;
   let notificationService: any;
+  let wechatShippingOutbox: any;
   let service: SellerOrdersService;
 
   beforeEach(() => {
@@ -28,11 +29,15 @@ describe('SellerOrdersService invoice privacy', () => {
     notificationService = {
       emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
     };
+    wechatShippingOutbox = {
+      enqueueForOrderTx: jest.fn().mockResolvedValue({ enqueued: true }),
+    };
     service = new SellerOrdersService(
       prisma,
       bonusConfig as any,
       { getWaybillPrintUrl: jest.fn(() => 'http://localhost/waybill.pdf') } as any,
       notificationService as any,
+      wechatShippingOutbox as any,
     );
   });
 
@@ -452,5 +457,9 @@ describe('SellerOrdersService invoice privacy', () => {
         buyerUserId: 'buyer-ship-1',
       },
     }, prisma);
+    expect(wechatShippingOutbox.enqueueForOrderTx).toHaveBeenCalledWith(
+      prisma,
+      'order-ship-1',
+    );
   });
 });

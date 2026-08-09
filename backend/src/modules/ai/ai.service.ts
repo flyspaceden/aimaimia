@@ -3907,11 +3907,17 @@ export class AiService {
     // 如果传了 productId，查产品名称
     let productName = '有机蓝莓';
     if (productId) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: productId },
+      const product = await this.prisma.product.findFirst({
+        where: {
+          id: productId,
+          status: 'ACTIVE',
+          auditStatus: 'APPROVED',
+          company: { status: 'ACTIVE', isPlatform: false },
+        },
         select: { title: true },
       });
-      if (product) productName = product.title;
+      if (!product) throw new NotFoundException('商品不存在');
+      productName = product.title;
     }
 
     return {

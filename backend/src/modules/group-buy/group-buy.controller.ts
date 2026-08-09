@@ -1,16 +1,27 @@
-import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  Param,
+  Post,
+  Query,
+} from "@nestjs/common";
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Public } from '../../common/decorators/public.decorator';
-import { WithdrawDto } from '../bonus/dto/withdraw.dto';
-import { WithdrawPayoutService } from '../bonus/withdraw-payout.service';
-import { GroupBuyCheckoutDto } from './dto/group-buy-checkout.dto';
-import { GroupBuyCheckoutService } from './group-buy-checkout.service';
-import { GroupBuyLifecycleService } from './group-buy-lifecycle.service';
-import { GroupBuyRebateService } from './group-buy-rebate.service';
-import { GroupBuyService } from './group-buy.service';
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { Public } from "../../common/decorators/public.decorator";
+import { WithdrawDto } from "../bonus/dto/withdraw.dto";
+import { WithdrawPayoutService } from "../bonus/withdraw-payout.service";
+import { GroupBuyCheckoutDto } from "./dto/group-buy-checkout.dto";
+import { MiniProgramGroupBuyCheckoutDto } from "./dto/mini-program-group-buy-checkout.dto";
+import { GroupBuyCheckoutService } from "./group-buy-checkout.service";
+import { GroupBuyLifecycleService } from "./group-buy-lifecycle.service";
+import { GroupBuyRebateService } from "./group-buy-rebate.service";
+import { GroupBuyService } from "./group-buy.service";
 
-@Controller('group-buy')
+@Controller("group-buy")
 export class GroupBuyController {
   constructor(
     private readonly groupBuyService: GroupBuyService,
@@ -20,68 +31,81 @@ export class GroupBuyController {
     private readonly withdrawPayoutService: WithdrawPayoutService,
   ) {}
 
-  @Get('activities')
+  @Get("activities")
   @Public()
   findActiveActivities() {
     return this.groupBuyService.findActiveActivities();
   }
 
-  @Get('landing/:code')
+  @Get("landing/:code")
   @Public()
-  getLanding(@Param('code') code: string) {
+  getLanding(@Param("code") code: string) {
     return this.groupBuyService.getLandingByCode(code);
   }
 
-  @Get('me/current')
-  @Header('Cache-Control', 'no-store')
-  @Header('Pragma', 'no-cache')
-  @Header('Expires', '0')
-  getCurrentState(@CurrentUser('sub') userId: string) {
+  @Get("me/current")
+  @Header("Cache-Control", "no-store")
+  @Header("Pragma", "no-cache")
+  @Header("Expires", "0")
+  getCurrentState(@CurrentUser("sub") userId: string) {
     return this.groupBuyService.getCurrentState(userId);
   }
 
-  @Post('checkout')
+  @Post("checkout")
   createCheckout(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser("sub") userId: string,
     @Body() dto: GroupBuyCheckoutDto,
   ) {
     return this.checkoutService.createCheckout(userId, dto);
   }
 
-  @Post('checkout/preview')
+  @Post("checkout/mini-program")
+  createMiniProgramCheckout(
+    @CurrentUser("sub") userId: string,
+    @CurrentUser("sessionId") sessionId: string | undefined,
+    @CurrentUser("authIdentityId") authIdentityId: string | undefined,
+    @Body() dto: MiniProgramGroupBuyCheckoutDto,
+  ) {
+    return this.checkoutService.createMiniProgramCheckout(userId, dto, {
+      sessionId,
+      authIdentityId,
+    });
+  }
+
+  @Post("checkout/preview")
   previewCheckout(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser("sub") userId: string,
     @Body() dto: GroupBuyCheckoutDto,
   ) {
     return this.checkoutService.previewCheckout(userId, dto);
   }
 
-  @Post('me/current/:instanceId/abandon')
+  @Post("me/current/:instanceId/abandon")
   abandonCurrent(
-    @CurrentUser('sub') userId: string,
-    @Param('instanceId') instanceId: string,
+    @CurrentUser("sub") userId: string,
+    @Param("instanceId") instanceId: string,
   ) {
     if (!instanceId?.trim()) {
-      throw new BadRequestException('缺少团购资格ID');
+      throw new BadRequestException("缺少团购资格ID");
     }
     return this.lifecycleService.abandonCurrent(userId, instanceId.trim());
   }
 
-  @Post('me/current/terminate')
-  terminateCurrent(@CurrentUser('sub') userId: string) {
+  @Post("me/current/terminate")
+  terminateCurrent(@CurrentUser("sub") userId: string) {
     return this.lifecycleService.terminateCurrent(userId);
   }
 
-  @Get('me/rebate-account')
-  getRebateAccount(@CurrentUser('sub') userId: string) {
+  @Get("me/rebate-account")
+  getRebateAccount(@CurrentUser("sub") userId: string) {
     return this.rebateService.getAccount(userId);
   }
 
-  @Get('me/rebate-ledgers')
+  @Get("me/rebate-ledgers")
   listRebateLedgers(
-    @CurrentUser('sub') userId: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
+    @CurrentUser("sub") userId: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
   ) {
     return this.rebateService.listLedgers(
       userId,
@@ -90,27 +114,30 @@ export class GroupBuyController {
     );
   }
 
-  @Post('me/rebate-withdraw')
+  @Post("me/rebate-withdraw")
   requestRebateWithdraw(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser("sub") userId: string,
+    @CurrentUser("sessionId") sessionId: string | undefined,
+    @CurrentUser("authIdentityId") authIdentityId: string | undefined,
     @Body() dto: WithdrawDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
-      throw new BadRequestException('Idempotency-Key header required');
+      throw new BadRequestException("Idempotency-Key header required");
     }
     return this.withdrawPayoutService.requestGroupBuyRebateWithdraw(
       userId,
       dto,
       idempotencyKey.trim(),
+      { sessionId, authIdentityId },
     );
   }
 
-  @Get('me/rebate-withdraw/history')
+  @Get("me/rebate-withdraw/history")
   listRebateWithdrawals(
-    @CurrentUser('sub') userId: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
+    @CurrentUser("sub") userId: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
   ) {
     return this.rebateService.listWithdrawals(
       userId,

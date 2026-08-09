@@ -1,6 +1,7 @@
-import { IsIn } from 'class-validator';
+import { IsEnum } from 'class-validator';
+import { GroupStatus } from '@prisma/client';
 
 export class UpdateGroupStatusDto {
-  @IsIn(['forming', 'inviting', 'confirmed', 'paid', 'completed'])
-  status: string;
+  @IsEnum(GroupStatus)
+  status: GroupStatus;
 }

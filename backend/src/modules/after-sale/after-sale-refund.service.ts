@@ -14,7 +14,10 @@ import {
   RefundStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PaymentService } from '../payment/payment.service';
+import {
+  PaymentService,
+  type WechatRefundNotifyAuthorityClaim,
+} from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { NotificationService } from '../notification/notification.service';
@@ -256,11 +259,22 @@ export class AfterSaleRefundService {
   async handleRefundSuccess(
     refundId: string,
     providerRefundId?: string | null,
+    wechatNotifyAuthority?: WechatRefundNotifyAuthorityClaim,
   ): Promise<void> {
     const completed = await this.withSerializableRetry(
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
+        if (
+          wechatNotifyAuthority &&
+          !(await this.paymentService.isWechatRefundNotifyAuthorityValidInTx(
+            tx,
+            refund,
+            wechatNotifyAuthority,
+          ))
+        ) {
+          return null;
+        }
         if (!refund.afterSaleId) {
           throw new BadRequestException('退款单未关联售后申请');
         }
@@ -756,11 +770,25 @@ export class AfterSaleRefundService {
     );
   }
 
-  async handleRefundFailure(refundId: string, reason: string): Promise<void> {
+  async handleRefundFailure(
+    refundId: string,
+    reason: string,
+    wechatNotifyAuthority?: WechatRefundNotifyAuthorityClaim,
+  ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
+        if (
+          wechatNotifyAuthority &&
+          !(await this.paymentService.isWechatRefundNotifyAuthorityValidInTx(
+            tx,
+            refund,
+            wechatNotifyAuthority,
+          ))
+        ) {
+          return;
+        }
         if (refund.status === 'FAILED' || refund.status === 'REFUNDED') return;
 
         const updated = await tx.refund.updateMany({

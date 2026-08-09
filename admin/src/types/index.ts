@@ -1571,8 +1571,18 @@ export interface Order {
   discountAmount?: number;
   shippingFee?: number;
   paymentMethod?: string;
+  paymentScene?: 'APP' | 'MINI_PROGRAM' | null;
   paidAt?: string;
   transactionId?: string;
+  wechatShipping?: {
+    status: 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED';
+    attemptCount: number;
+    nextAttemptAt?: string | null;
+    lastErrorCode?: string | null;
+    lastError?: string | null;
+    succeededAt?: string | null;
+    updatedAt: string;
+  } | null;
   remark?: string;
   items: OrderItem[];
   itemsSummary?: string;

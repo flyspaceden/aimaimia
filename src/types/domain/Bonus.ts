@@ -97,7 +97,6 @@ export interface WalletLedgerEntry {
   entryType: string;
   /** 合并流水来源：消费积分或团购返利 */
   source?: 'REWARD' | 'GROUP_BUY_REBATE';
-  sourceLedgerId?: string;
   /** 后端合并流水的原始类型字段 */
   type?: string;
   /** 金额（单位：元，保留 2 位小数精度） */
@@ -105,8 +104,8 @@ export interface WalletLedgerEntry {
   status: string;
   balanceAfter?: number | null;
   refType: string | null;
-  refId?: string | null;
-  meta: Record<string, unknown> | null;
+  /** 买家端展示白名单，服务端不透传内部记账 meta。 */
+  meta: { orderNo?: string; requiredLevel?: number; expiresAt?: string } | null;
   scheme?: string | null;
   sourceLabel?: string | null;
   createdAt: string;

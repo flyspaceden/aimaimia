@@ -2,6 +2,10 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  acquireUserWriteLock,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 
 const DEFAULT_DEDUCTION_RULES = {
   deductionRatioNormal: 0.1,
@@ -246,22 +250,34 @@ export class GroupBuyRebateDeductionService {
       isFinalRefund,
     );
 
+    const activeUsers = new Map<string, boolean>();
+    for (const ledgerUserId of [...new Set(portions.map(({ ledger }) => ledger.userId))].sort()) {
+      await acquireUserWriteLock(tx, ledgerUserId);
+      activeUsers.set(
+        ledgerUserId,
+        await isActiveUserInTransaction(tx, ledgerUserId),
+      );
+    }
+
     for (const { ledger, amountCents } of portions) {
       if (amountCents <= 0) continue;
       const amount = centsToYuan(amountCents);
-      await tx.groupBuyRebateAccount.updateMany({
-        where: { id: ledger.accountId },
-        data: {
-          balance: { increment: amount },
-          deducted: { decrement: amount },
-        },
-      });
+      const recipientActive = activeUsers.get(ledger.userId) === true;
+      if (recipientActive) {
+        await tx.groupBuyRebateAccount.updateMany({
+          where: { id: ledger.accountId },
+          data: {
+            balance: { increment: amount },
+            deducted: { decrement: amount },
+          },
+        });
+      }
       await tx.groupBuyRebateLedger.create({
         data: {
           accountId: ledger.accountId,
           userId: ledger.userId,
           type: 'REFUND_RETURN',
-          status: 'AVAILABLE',
+          status: recipientActive ? 'AVAILABLE' : 'VOIDED',
           amount,
           balanceBefore: 0,
           balanceAfter: 0,
@@ -275,6 +291,12 @@ export class GroupBuyRebateDeductionService {
             sourceLedgerId: ledger.id,
             originalGoodsAmount: params.originalGoodsAmount,
             originalGoodsRefundAmount: params.originalGoodsRefundAmount,
+            ...(recipientActive
+              ? {}
+              : {
+                forfeitedReason: 'ACCOUNT_DELETION',
+                destination: 'PLATFORM',
+              }),
           },
         },
       });

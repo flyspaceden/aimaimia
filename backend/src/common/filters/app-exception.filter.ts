@@ -217,19 +217,26 @@ export class AppExceptionFilter implements ExceptionFilter {
 
     if (!shouldLog || !request) return;
 
+    const rawPath = request.originalUrl || request.url || '';
+    const path = rawPath.split('?')[0];
+    // Authentication request bodies contain one-time WeChat codes, SMS OTPs,
+    // passwords and refresh/binding credentials. Field-name based sanitizers
+    // are only defense in depth here: fail closed and never log an auth body.
+    const isAuthenticationRequest = /^\/(?:api\/v\d+\/)?auth(?:\/|$)/i.test(path || '');
+
     const payload = {
       requestId,
       status,
       code,
       message: sanitizeStringForLog(message),
       method: request.method,
-      path: request.originalUrl || request.url,
+      path,
       ip: request.ip,
       userId: (request as any)?.user?.sub ?? (request as any)?.user?.userId ?? undefined,
       headers: sanitizeHeadersForLog(request.headers as any),
-      params: sanitizeForLog(request.params),
-      query: sanitizeForLog(request.query),
-      body: sanitizeForLog(request.body),
+      params: isAuthenticationRequest ? '[REDACTED]' : sanitizeForLog(request.params),
+      query: isAuthenticationRequest ? '[REDACTED]' : sanitizeForLog(request.query),
+      body: isAuthenticationRequest ? '[REDACTED]' : sanitizeForLog(request.body),
       exception:
         exception instanceof Error
           ? {

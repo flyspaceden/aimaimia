@@ -10,13 +10,11 @@ function ledger(overrides: Partial<WalletLedgerEntry> & Record<string, unknown>)
     id: 'ledger-1',
     entryType: 'RELEASE',
     source: 'REWARD',
-    sourceLedgerId: 'ledger-1',
     type: 'RELEASE',
     amount: 10,
     status: 'AVAILABLE',
     balanceAfter: 10,
     refType: 'ORDER',
-    refId: 'order-1',
     meta: null,
     createdAt: '2026-06-29T00:00:00.000Z',
     accountType: 'VIP_REWARD',
@@ -81,26 +79,26 @@ describe('wallet ledger display titles', () => {
   it('labels VIP direct referral commission by scheme even when refType is ORDER', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',
-      meta: { scheme: 'VIP_DIRECT_REFERRAL' },
+      scheme: 'VIP_DIRECT_REFERRAL',
     }))).toBe('VIP 直推佣金');
   });
 
   it('labels normal direct referral commission by scheme even when refType is ORDER', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',
-      meta: { scheme: 'NORMAL_DIRECT_REFERRAL' },
+      scheme: 'NORMAL_DIRECT_REFERRAL',
     }))).toBe('普通直推佣金');
   });
 
   it('labels direct referral void mirrors by scheme', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'AFTER_SALE',
-      meta: { scheme: 'VIP_DIRECT_REFERRAL_VOID' },
+      scheme: 'VIP_DIRECT_REFERRAL_VOID',
     }))).toBe('VIP 直推佣金作废');
 
     expect(getWalletLedgerTitle(ledger({
       refType: 'AFTER_SALE',
-      meta: { scheme: 'NORMAL_DIRECT_REFERRAL_VOID' },
+      scheme: 'NORMAL_DIRECT_REFERRAL_VOID',
     }))).toBe('普通直推佣金作废');
   });
 
@@ -124,12 +122,11 @@ describe('wallet ledger display titles', () => {
     expect(getWalletLedgerTitle(ledger({
       refType: 'ORDER',
       scheme: 'VIP_UPSTREAM',
-      meta: { scheme: 'VIP_DIRECT_REFERRAL' },
     }))).toBe('VIP 上溯分润');
 
     expect(getWalletLedgerTitle(ledger({
       refType: 'VIP_REFERRAL',
-      meta: { scheme: 'VIP_REFERRAL' },
+      scheme: 'VIP_REFERRAL',
     }))).toBe('VIP 推荐奖励');
   });
 
@@ -138,14 +135,12 @@ describe('wallet ledger display titles', () => {
       entryType: 'WITHDRAW',
       type: 'WITHDRAW',
       refType: 'WITHDRAW',
-      meta: { scheme: 'POINTS_WITHDRAW' },
     }))).toBe('提现到支付宝');
 
     expect(getWalletLedgerTitle(ledger({
       entryType: 'DEDUCT',
       type: 'DEDUCT',
       refType: 'ORDER',
-      meta: { scheme: 'POINTS_DEDUCTION' },
     }))).toBe('消费抵扣');
   });
 

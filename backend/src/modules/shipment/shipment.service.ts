@@ -256,24 +256,29 @@ export class ShipmentService {
 
     if (shipments.length === 0) return null;
 
-    const mappedShipments = shipments.map((shipment) => ({
-      id: shipment.id,
-      companyId: shipment.companyId,
-      carrierCode: shipment.carrierCode,
-      carrierName: shipment.carrierName,
-      trackingNo: shipment.trackingNo,
-      trackingNoMasked: maskTrackingNo(shipment.trackingNo) ?? null,
-      status: shipment.status,
-      shippedAt: shipment.shippedAt?.toISOString() || null,
-      deliveredAt: shipment.deliveredAt?.toISOString() || null,
-      events: shipment.trackingEvents.map((e) => ({
-        id: e.id,
-        occurredAt: e.occurredAt.toISOString(),
-        message: e.message,
-        location: e.location,
-        statusCode: e.statusCode,
-      })),
-    }));
+    const mappedShipments = shipments.map((shipment) => {
+      // 顺丰自动取号写 waybillNo，手工录单写 trackingNo；买家端必须与
+      // OrderService 的统一口径一致，否则自动取号订单会显示“暂无运单号”。
+      const effectiveTrackingNo = shipment.waybillNo || shipment.trackingNo || null;
+      return {
+        id: shipment.id,
+        companyId: shipment.companyId,
+        carrierCode: shipment.carrierCode,
+        carrierName: shipment.carrierName,
+        trackingNo: effectiveTrackingNo,
+        trackingNoMasked: maskTrackingNo(effectiveTrackingNo) ?? null,
+        status: shipment.status,
+        shippedAt: shipment.shippedAt?.toISOString() || null,
+        deliveredAt: shipment.deliveredAt?.toISOString() || null,
+        events: shipment.trackingEvents.map((e) => ({
+          id: e.id,
+          occurredAt: e.occurredAt.toISOString(),
+          message: e.message,
+          location: e.location,
+          statusCode: e.statusCode,
+        })),
+      };
+    });
     const primaryShipment = mappedShipments[0];
     const allEvents = mappedShipments
       .flatMap((shipment) =>

@@ -30,7 +30,7 @@ const schemeLabel: Record<string, string> = {
 };
 
 function readMetaScheme(entry: WalletLedgerEntry): string | null {
-  const scheme = entry.scheme ?? entry.meta?.scheme;
+  const scheme = entry.scheme;
   return typeof scheme === 'string' && scheme.length > 0 ? scheme : null;
 }
 

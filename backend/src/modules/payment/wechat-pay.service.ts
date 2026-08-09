@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  assertVerifiedWechatPaySignature,
+  VerifiedWechatPayHttpTransport,
+} from '../../common/payments/verified-wechat-pay-http';
 
 type WechatPayNotifyResource = {
   original_type?: 'transaction' | 'refund' | string;
@@ -26,6 +30,7 @@ type WechatPayNotifyHeaders = {
 type WechatPayParsedNotify = {
   type: 'payment' | 'refund';
   appId?: string;
+  tradeType?: string;
   mchId: string;
   outTradeNo: string;
   outRefundNo?: string;
@@ -37,6 +42,21 @@ type WechatPayParsedNotify = {
   totalAmount?: number;
   paidAt?: Date;
 };
+
+export type WechatOrderQueryResult =
+  | {
+      outcome: 'FOUND';
+      tradeState: string;
+      transactionId?: string;
+      outTradeNo: string;
+      appId: string;
+      tradeType: string;
+      totalAmountFen: number;
+      totalAmount: number;
+      paidAt?: Date;
+    }
+  | { outcome: 'DEFINITIVE_NOT_FOUND' }
+  | { outcome: 'UNKNOWN'; code?: string };
 
 type WechatRefundResult = {
   success: boolean;
@@ -73,35 +93,58 @@ export class WechatPayService implements OnModuleInit {
   private readonly logger = new Logger(WechatPayService.name);
   private client: any = null;
   private appId: string | null = null;
+  private miniProgramAppId: string | null = null;
   private mchId: string | null = null;
   private apiV3Key: string | null = null;
   private certSerial: string | null = null;
   private merchantCert: string | null = null;
   private privateKey: string | null = null;
+  private wechatPayPublicKeyId: string | null = null;
+  private wechatPayPublicKey: string | null = null;
 
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
     const appId = this.configService.get<string>('WECHAT_PAY_APP_ID');
+    const miniProgramAppId = this.configService.get<string>('WECHAT_MINIAPP_APP_ID');
     const mchId = this.configService.get<string>('WECHAT_PAY_MCH_ID');
     const apiV3Key = this.configService.get<string>('WECHAT_PAY_API_V3_KEY');
     const certSerial = this.configService.get<string>('WECHAT_PAY_MERCHANT_CERT_SERIAL');
     const merchantCert = this.loadPemFromEnv('WECHAT_PAY_MERCHANT_CERT', 'WECHAT_PAY_MERCHANT_CERT_PATH');
     const privateKey = this.loadPemFromEnv('WECHAT_PAY_MERCHANT_PRIVATE_KEY', 'WECHAT_PAY_MERCHANT_PRIVATE_KEY_PATH');
+    const wechatPayPublicKeyId = this.configService
+      .get<string>('WECHAT_PAY_PUBLIC_KEY_ID', '')
+      .trim();
+    const wechatPayPublicKey = this.loadPemFromEnv(
+      'WECHAT_PAY_PUBLIC_KEY',
+      'WECHAT_PAY_PUBLIC_KEY_PATH',
+    );
 
-    if (!appId || !mchId || !apiV3Key || !certSerial || !merchantCert || !privateKey) {
+    if (
+      !appId
+      || !mchId
+      || !apiV3Key
+      || !certSerial
+      || !merchantCert
+      || !privateKey
+      || !wechatPayPublicKeyId
+      || !wechatPayPublicKey
+    ) {
       this.logger.warn(
-        '微信支付凭据未配齐（缺 APP_ID / MCH_ID / API_V3_KEY / CERT_SERIAL / MERCHANT_CERT / PRIVATE_KEY 其一），微信支付不可用',
+        '微信支付凭据未配齐（缺 APP_ID / MCH_ID / API_V3_KEY / CERT_SERIAL / MERCHANT_CERT / PRIVATE_KEY / WECHAT_PAY_PUBLIC_KEY_ID / WECHAT_PAY_PUBLIC_KEY 其一），微信支付不可用',
       );
       return;
     }
 
     this.appId = appId;
+    this.miniProgramAppId = miniProgramAppId?.trim() || null;
     this.mchId = mchId;
     this.apiV3Key = apiV3Key;
     this.certSerial = certSerial;
     this.merchantCert = merchantCert;
     this.privateKey = privateKey;
+    this.wechatPayPublicKeyId = wechatPayPublicKeyId;
+    this.wechatPayPublicKey = wechatPayPublicKey;
 
     try {
       // wechatpay-node-v3 是 CommonJS 包：module.exports 本身就是构造函数，没有 .default。
@@ -118,6 +161,13 @@ export class WechatPayService implements OnModuleInit {
         key: apiV3Key,                          // APIv3 密钥（用于解密 notify body）
         serial_no: certSerial,                  // 商户证书序列号
       });
+      if (typeof this.client.createHttp !== 'function') {
+        throw new Error('微信支付 SDK 不支持安全自定义传输层');
+      }
+      this.client.createHttp(new VerifiedWechatPayHttpTransport({
+        publicKeyId: wechatPayPublicKeyId,
+        publicKey: wechatPayPublicKey,
+      }));
       this.logger.log(`微信支付 SDK 初始化成功，AppID: ${appId}, MchID: ${mchId}`);
     } catch (err: any) {
       this.logger.error(`微信支付 SDK 初始化失败: ${err.message}`);
@@ -264,6 +314,7 @@ export class WechatPayService implements OnModuleInit {
       this.isNonEmptyString(decrypted?.out_trade_no) &&
       this.isNonEmptyString(decrypted?.transaction_id) &&
       this.isNonEmptyString(decrypted?.trade_state) &&
+      this.isNonEmptyString(decrypted?.trade_type) &&
       typeof decrypted?.amount?.total === 'number' &&
       Number.isInteger(decrypted.amount.total) &&
       Number.isSafeInteger(decrypted.amount.total) &&
@@ -277,7 +328,8 @@ export class WechatPayService implements OnModuleInit {
       !this.isNonEmptyString(decrypted?.mchid) ||
       !this.isNonEmptyString(decrypted?.out_trade_no) ||
       !this.isNonEmptyString(decrypted?.transaction_id) ||
-      !this.isNonEmptyString(decrypted?.trade_state)
+      !this.isNonEmptyString(decrypted?.trade_state) ||
+      !this.isNonEmptyString(decrypted?.trade_type)
     ) {
       throw new Error('微信支付通知缺少必要字段');
     }
@@ -358,6 +410,18 @@ export class WechatPayService implements OnModuleInit {
     return this.client !== null;
   }
 
+  /** 小程序支付必须同时具备商户凭据和已绑定商户号的小程序 AppID。 */
+  isMiniProgramAvailable(): boolean {
+    return this.client !== null && this.miniProgramAppId !== null;
+  }
+
+  /**
+   * 供服务端身份解析使用。不得把此方法替换为客户端提交 AppID/OpenID。
+   */
+  getMiniProgramAppId(): string | null {
+    return this.miniProgramAppId;
+  }
+
   async createAppOrder(params: {
     outTradeNo: string;
     amount: number;
@@ -432,6 +496,98 @@ export class WechatPayService implements OnModuleInit {
     };
   }
 
+  /**
+   * 微信小程序 JSAPI 下单。
+   *
+   * openId 只接受调用方从当前已认证用户的 AuthIdentity 解析出的可信值；
+   * Controller/DTO 不暴露 openId 字段，避免用户替他人发起支付。
+   */
+  async createMiniProgramOrder(params: {
+    outTradeNo: string;
+    amount: number;
+    description: string;
+    openId: string;
+    timeExpire?: Date;
+  }): Promise<{
+    appId: string;
+    timeStamp: string;
+    nonceStr: string;
+    package: string;
+    signType: 'RSA';
+    paySign: string;
+    prepayId: string;
+  }> {
+    if (!this.client) {
+      throw new Error('微信支付 SDK 未初始化');
+    }
+    if (!this.miniProgramAppId) {
+      throw new Error('微信小程序 AppID 未配置');
+    }
+    if (!this.isNonEmptyString(params.openId)) {
+      throw new Error('当前账号未绑定微信小程序身份');
+    }
+
+    this.validateOutTradeNo(params.outTradeNo);
+    const total = this.yuanToFen(params.amount, 'amount');
+    const notifyUrl = this.configService.get<string>(
+      'WECHAT_PAY_NOTIFY_URL',
+      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
+    );
+
+    const result = await this.client.transactions_jsapi({
+      appid: this.miniProgramAppId,
+      mchid: this.mchId!,
+      description: params.description,
+      out_trade_no: params.outTradeNo,
+      notify_url: notifyUrl,
+      amount: {
+        total,
+        currency: 'CNY',
+      },
+      payer: { openid: params.openId.trim() },
+      ...(params.timeExpire ? { time_expire: this.formatWechatTimeExpire(params.timeExpire) } : {}),
+    });
+
+    if (result?.status !== 200) {
+      const { code, message } = this.parseSdkError(result);
+      this.logger.error(
+        `微信小程序支付下单失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${this.maskBizId(params.outTradeNo)}`,
+      );
+      throw new Error(`微信小程序支付下单失败 [${code}] ${message}`);
+    }
+
+    // wechatpay-node-v3 会按官方格式签名 appId/timeStamp/nonceStr/package；
+    // 对外只返回 requestPayment 所需字段，不返回 payer.openid。
+    const data = result.data;
+    const packageValue = this.isNonEmptyString(data?.package) ? data.package : '';
+    const prepayId = packageValue.startsWith('prepay_id=')
+      ? packageValue.slice('prepay_id='.length)
+      : '';
+    if (
+      data?.appId !== this.miniProgramAppId
+      || !this.isNonEmptyString(data?.timeStamp)
+      || !this.isNonEmptyString(data?.nonceStr)
+      || !prepayId
+      || data?.signType !== 'RSA'
+      || !this.isNonEmptyString(data?.paySign)
+    ) {
+      this.logger.error(
+        `微信小程序支付下单返回缺少必要签名字段: outTradeNo=${this.maskBizId(params.outTradeNo)}`,
+      );
+      throw new Error('微信小程序支付下单返回缺少必要签名字段');
+    }
+
+    return {
+      appId: data.appId,
+      timeStamp: data.timeStamp,
+      nonceStr: data.nonceStr,
+      package: packageValue,
+      signType: 'RSA',
+      paySign: data.paySign,
+      prepayId,
+    };
+  }
+
   async parseNotify(args: {
     body: WechatPayNotifyBody;
     rawBody: string;
@@ -448,14 +604,29 @@ export class WechatPayService implements OnModuleInit {
 
     let verified: boolean;
     try {
-      verified = await this.client.verifySign({
-        timestamp: headers.timestamp,
-        nonce: headers.nonce,
-        body: rawBody,
-        serial: headers.serial,
-        signature: headers.signature,
-        apiSecret: this.apiV3Key!,
-      });
+      if (
+        headers.serial === this.wechatPayPublicKeyId
+        && this.wechatPayPublicKeyId
+        && this.wechatPayPublicKey
+      ) {
+        assertVerifiedWechatPaySignature({
+          publicKeyId: this.wechatPayPublicKeyId,
+          publicKey: this.wechatPayPublicKey,
+          headers,
+          rawBody,
+        });
+        verified = true;
+      } else {
+        // 兼容仍由平台证书签名的历史支付回调；SDK 会按证书序列号拉取并缓存平台证书。
+        verified = await this.client.verifySign({
+          timestamp: headers.timestamp,
+          nonce: headers.nonce,
+          body: rawBody,
+          serial: headers.serial,
+          signature: headers.signature,
+          apiSecret: this.apiV3Key!,
+        });
+      }
     } catch (err) {
       this.logger.error(`微信通知签名校验异常: ${this.buildNotifyLogContext(body)}`);
       throw err;
@@ -531,6 +702,7 @@ export class WechatPayService implements OnModuleInit {
       return {
         type: 'payment',
         appId: decrypted.appid,
+        tradeType: decrypted.trade_type,
         mchId: decrypted.mchid,
         outTradeNo: decrypted.out_trade_no,
         providerTxnId: decrypted.transaction_id,
@@ -545,22 +717,15 @@ export class WechatPayService implements OnModuleInit {
     }
   }
 
-  async queryOrder(outTradeNo: string): Promise<{
-    tradeState: string;
-    transactionId?: string;
-    outTradeNo: string;
-    totalAmountFen: number;
-    totalAmount: number;
-    paidAt?: Date;
-  } | null> {
+  async queryOrder(outTradeNo: string): Promise<WechatOrderQueryResult> {
     if (!this.client) {
-      return null;
+      return { outcome: 'UNKNOWN', code: 'SDK_NOT_INITIALIZED' };
     }
 
     try {
       this.validateOutTradeNo(outTradeNo);
     } catch {
-      return null;
+      return { outcome: 'UNKNOWN', code: 'INVALID_OUT_TRADE_NO' };
     }
 
     const outTradeNoForLog = this.maskBizId(outTradeNo);
@@ -569,11 +734,15 @@ export class WechatPayService implements OnModuleInit {
     try {
       result = await this.client.query({ out_trade_no: outTradeNo });
     } catch (err: any) {
-      const code = String(err?.code || 'SDK_EXCEPTION');
+      const parsedError = this.parseSdkError(err, '微信主动查单失败');
+      const code = String(err?.code || parsedError.code || 'SDK_EXCEPTION');
       this.logger.error(
         `微信主动查单 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog}`,
       );
-      return null;
+      if (code === 'ORDER_NOT_EXIST' || code === 'ORDERNOTEXIST') {
+        return { outcome: 'DEFINITIVE_NOT_FOUND' };
+      }
+      return { outcome: 'UNKNOWN', code };
     }
 
     if (result?.status !== 200) {
@@ -581,14 +750,19 @@ export class WechatPayService implements OnModuleInit {
       this.logger.error(
         `微信主动查单失败: status=${result?.status ?? 'UNKNOWN'} code=${code} outTradeNo=${outTradeNoForLog}`,
       );
-      return null;
+      if (code === 'ORDER_NOT_EXIST' || code === 'ORDERNOTEXIST') {
+        return { outcome: 'DEFINITIVE_NOT_FOUND' };
+      }
+      return { outcome: 'UNKNOWN', code };
     }
 
     const data = result.data;
     try {
       if (
         !this.isNonEmptyString(data?.trade_state) ||
-        !this.isNonEmptyString(data?.out_trade_no)
+        !this.isNonEmptyString(data?.out_trade_no) ||
+        !this.isNonEmptyString(data?.appid) ||
+        !this.isNonEmptyString(data?.trade_type)
       ) {
         throw new Error('微信主动查单返回缺少必要字段');
       }
@@ -597,34 +771,40 @@ export class WechatPayService implements OnModuleInit {
         this.logger.warn(
           `微信主动查单返回未知交易状态: outTradeNo=${outTradeNoForLog}`,
         );
-        return null;
+        return { outcome: 'UNKNOWN', code: 'UNKNOWN_TRADE_STATE' };
       }
 
       if (data.trade_state === 'SUCCESS' && !this.isNonEmptyString(data.transaction_id)) {
         this.logger.warn(
           `微信主动查单成功态缺少交易流水号: outTradeNo=${outTradeNoForLog}`,
         );
-        return null;
+        return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRANSACTION_ID' };
       }
 
       if (data.out_trade_no !== outTradeNo) {
         this.logger.warn(
           `微信主动查单返回订单号不匹配: outTradeNo=${outTradeNoForLog} providerOutTradeNo=${this.maskBizId(data.out_trade_no)}`,
         );
-        return null;
+        return { outcome: 'UNKNOWN', code: 'OUT_TRADE_NO_MISMATCH' };
       }
 
       const totalAmountFen = this.validateNotifyAmountFen(data?.amount?.total);
       const parsed: {
+        outcome: 'FOUND';
         tradeState: string;
         transactionId?: string;
         outTradeNo: string;
+        appId: string;
+        tradeType: string;
         totalAmountFen: number;
         totalAmount: number;
         paidAt?: Date;
       } = {
+        outcome: 'FOUND',
         tradeState: data.trade_state,
         outTradeNo: data.out_trade_no,
+        appId: data.appid,
+        tradeType: data.trade_type,
         totalAmountFen,
         totalAmount: totalAmountFen / 100,
       };
@@ -642,8 +822,27 @@ export class WechatPayService implements OnModuleInit {
       this.logger.warn(
         `微信主动查单返回字段无效: outTradeNo=${outTradeNoForLog}`,
       );
-      return null;
+      return { outcome: 'UNKNOWN', code: 'INVALID_RESPONSE' };
     }
+  }
+
+  /** 服务端支付身份白名单：App 与小程序必须同时匹配 AppID 和 trade_type。 */
+  matchesPaymentScene(
+    identity: { appId?: string | null; tradeType?: string | null },
+    scene: 'APP' | 'MINI_PROGRAM' | string | null | undefined,
+  ): boolean {
+    if (scene === 'MINI_PROGRAM') {
+      return Boolean(
+        this.miniProgramAppId
+        && identity.appId === this.miniProgramAppId
+        && identity.tradeType === 'JSAPI',
+      );
+    }
+    return Boolean(
+      this.appId
+      && identity.appId === this.appId
+      && identity.tradeType === 'APP',
+    );
   }
 
   async closeOrder(outTradeNo: string): Promise<{
@@ -654,10 +853,10 @@ export class WechatPayService implements OnModuleInit {
   }> {
     if (!this.client) {
       return {
-        success: true,
-        terminal: true,
+        success: false,
+        terminal: false,
         alreadyPaid: false,
-        message: '微信支付 SDK 未初始化，按未建单处理',
+        message: '微信支付 SDK 未初始化，无法确认远端状态',
       };
     }
 
@@ -665,10 +864,10 @@ export class WechatPayService implements OnModuleInit {
       this.validateOutTradeNo(outTradeNo);
     } catch {
       return {
-        success: true,
-        terminal: true,
+        success: false,
+        terminal: false,
         alreadyPaid: false,
-        message: '微信支付商户订单号无效，按未建单处理',
+        message: '微信支付商户订单号无效，无法确认远端状态',
       };
     }
 
@@ -690,18 +889,22 @@ export class WechatPayService implements OnModuleInit {
       };
     }
 
-    if (result?.status === 204 || result?.status === 200) {
+    if (result?.status === 204) {
       return {
         success: true,
-        terminal: false,
+        terminal: true,
         alreadyPaid: false,
         message: '关单成功',
       };
     }
 
     const { code } = this.parseSdkError(result, '微信关单失败');
+    // 微信不同接口/版本会返回 ORDER_NOT_EXIST / ORDER_CLOSED，旧 SDK 与
+    // 历史响应也可能使用 ORDERNOTEXIST / ORDERCLOSED。这里只归一化分隔符，
+    // 不做模糊匹配，避免把未知错误误判为安全终态。
+    const normalizedCode = code.replace(/_/g, '');
 
-    if (code === 'ORDERNOTEXIST' || code === 'ORDERCLOSED') {
+    if (normalizedCode === 'ORDERNOTEXIST' || normalizedCode === 'ORDERCLOSED') {
       return {
         success: true,
         terminal: true,
@@ -894,11 +1097,11 @@ export class WechatPayService implements OnModuleInit {
     } catch (err: any) {
       const code = String(err?.code || 'SDK_EXCEPTION');
       const message = String(err?.message || '微信退款调用失败');
-      const isNetworkError = this.isNetworkError(err);
+      const isUncertainError = this.isUncertainProviderError(err);
       this.logger.error(
         `微信退款 SDK 调用失败: code=${code} outTradeNo=${outTradeNoForLog} outRefundNo=${outRefundNoForLog}`,
       );
-      if (isNetworkError) {
+      if (isUncertainError) {
         return {
           success: true,
           pending: true,
@@ -1018,6 +1221,12 @@ export class WechatPayService implements OnModuleInit {
     const message = String(err?.message || '');
     return /ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNABORTED|ENOTFOUND|EAI_AGAIN|socket hang up|timeout/i
       .test(`${code} ${message}`);
+  }
+
+  private isUncertainProviderError(err: any): boolean {
+    const code = String(err?.code || '');
+    return this.isNetworkError(err)
+      || /^(?:WECHATPAY_|INVALID_WECHATPAY_)/.test(code);
   }
 
   /** 暴露给上层做金额校验、防伪造（notify 路径用） */

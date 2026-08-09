@@ -5,5 +5,6 @@ import { GroupService } from './group.service';
 @Module({
   controllers: [GroupController],
   providers: [GroupService],
+  exports: [GroupService],
 })
 export class GroupModule {}

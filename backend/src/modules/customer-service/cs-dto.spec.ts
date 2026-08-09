@@ -146,6 +146,12 @@ describe('CreateCsSessionDto', () => {
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);
   });
+
+  it('15b. 买家不能伪造 ADMIN_OUTREACH 来源', async () => {
+    const dto = plainToInstance(CreateCsSessionDto, { source: 'ADMIN_OUTREACH' });
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === 'source')).toBe(true);
+  });
 });
 
 // ==================== CreateCsQuickEntryDto ====================

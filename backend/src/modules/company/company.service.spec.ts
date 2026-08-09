@@ -45,7 +45,9 @@ describe('CompanyService', () => {
       expect(result.items[0]).toEqual(
         expect.objectContaining({
           id: 'bundle-product',
+          type: 'BUNDLE',
           stock: 9,
+          bundleAvailableStock: 9,
           defaultSkuId: 'bundle-selling-sku',
         }),
       );
@@ -58,7 +60,7 @@ describe('CompanyService', () => {
       const createdAt = new Date('2026-06-02T03:04:05.000Z');
       const prisma = {
         company: {
-          findUnique: jest.fn().mockResolvedValue({
+          findFirst: jest.fn().mockResolvedValue({
             id: 'c-1',
             name: '测试企业',
             shortName: null,
@@ -107,9 +109,9 @@ describe('CompanyService', () => {
 
       const result = await service.getById('c-1');
 
-      expect(prisma.company.findUnique).toHaveBeenCalledWith(
+      expect(prisma.company.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'c-1' },
+          where: { id: 'c-1', status: 'ACTIVE', isPlatform: false },
           include: expect.objectContaining({
             documents: expect.objectContaining({
               where: { type: 'INSPECTION', verifyStatus: 'VERIFIED' },
@@ -127,6 +129,50 @@ describe('CompanyService', () => {
           createdAt: createdAt.toISOString(),
         },
       ]);
+    });
+  });
+
+  it('only lists active non-platform companies and applies a server-side keyword', async () => {
+    const prisma = {
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const service = new CompanyService(prisma as any);
+
+    await service.list(undefined, '苹果');
+
+    expect(prisma.company.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        status: 'ACTIVE',
+        isPlatform: false,
+        OR: [
+          { name: { contains: '苹果', mode: 'insensitive' } },
+          { shortName: { contains: '苹果', mode: 'insensitive' } },
+          { description: { contains: '苹果', mode: 'insensitive' } },
+        ],
+      },
+    }));
+  });
+
+  it('only returns an activity owned by an active non-platform company', async () => {
+    const activity = {
+      id: 'event-1',
+      companyId: 'company-1',
+      title: '采摘活动',
+      startAt: new Date('2026-08-03T01:00:00.000Z'),
+      endAt: null,
+      content: {},
+    };
+    const prisma = {
+      companyActivity: { findFirst: jest.fn().mockResolvedValue(activity) },
+    };
+    const service = new CompanyService(prisma as any);
+
+    await expect(service.getActivityById('event-1')).resolves.toMatchObject({ id: 'event-1' });
+    expect(prisma.companyActivity.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'event-1',
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
     });
   });
 });

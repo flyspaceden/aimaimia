@@ -2,6 +2,37 @@ import { CheckoutService } from './checkout.service';
 import { DEFAULT_SKU_WEIGHT_GRAM } from '../../common/constants/shipping.constants';
 
 describe('CheckoutService shipping lock-in', () => {
+  function activeUserBarrierTx() {
+    return {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
+    };
+  }
+
+  function wirePaymentFixture(
+    service: CheckoutService,
+    prisma: any,
+    getCreatedSession: () => any,
+  ) {
+    service.setPaymentOperationCoordinator({
+      acquireLock: jest.fn().mockResolvedValue(true),
+      renewLock: jest.fn().mockResolvedValue(true),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+    } as any);
+    const originalFindFirst = prisma.checkoutSession.findFirst;
+    prisma.checkoutSession.findFirst = jest.fn(async (args: any) => (
+      args?.where?.id ? getCreatedSession() : originalFindFirst(args)
+    ));
+    // Shipping tests retain the real lock + ACTIVE/expiry/scene validation;
+    // only the provider-facing fence body is replaced with its contract fake.
+    (service as any).createFencedPaymentParams = jest.fn(async (input: any) => {
+      await input.lock.assertOwned();
+      const session = getCreatedSession();
+      expect(input.sessionId).toBe(session.id);
+      return { session, paymentParams: { channel: 'test' } };
+    });
+  }
+
   const validAddress = {
     id: 'addr1',
     userId: 'user1',
@@ -64,6 +95,7 @@ describe('CheckoutService shipping lock-in', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        ...activeUserBarrierTx(),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
@@ -94,6 +126,7 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     const result = await service.checkout('user1', {
       items: [{ skuId: 'sku-threshold', quantity: 1, cartItemId: 'ci-threshold' }],
@@ -216,6 +249,7 @@ describe('CheckoutService shipping lock-in', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        ...activeUserBarrierTx(),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
@@ -252,6 +286,7 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     const checkoutResult = await service.checkout('user1', {
       items: [
@@ -409,11 +444,18 @@ describe('CheckoutService shipping lock-in', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        ...activeUserBarrierTx(),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
-            createdSessionData = data;
-            return { id: 'sess-weight', userId: 'user1', status: 'ACTIVE', ...data };
+            createdSessionData = {
+              id: 'sess-weight',
+              userId: 'user1',
+              status: 'ACTIVE',
+              bizType: 'NORMAL_GOODS',
+              ...data,
+            };
+            return createdSessionData;
           }),
         },
         rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -432,6 +474,7 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     await service.checkout('user1', {
       items: [{ skuId: 'sku-missing-weight', quantity: 2, cartItemId: 'ci-weight' }],
@@ -532,11 +575,18 @@ describe('CheckoutService shipping lock-in', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        ...activeUserBarrierTx(),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
-            createdSessionData = data;
-            return { id: 'sess-bundle', userId: 'user1', status: 'ACTIVE', bizType: 'NORMAL_GOODS', ...data };
+            createdSessionData = {
+              id: 'sess-bundle',
+              userId: 'user1',
+              status: 'ACTIVE',
+              bizType: 'NORMAL_GOODS',
+              ...data,
+            };
+            return createdSessionData;
           }),
         },
         rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -555,6 +605,7 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     await service.checkout('user1', {
       items: [{ skuId: 'bundle-sku', quantity: 2, cartItemId: 'ci-bundle' }],
@@ -655,11 +706,18 @@ describe('CheckoutService shipping lock-in', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        ...activeUserBarrierTx(),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
-            createdSessionData = data;
-            return { id: 'sess-bundle', userId: 'user1', status: 'ACTIVE', bizType: 'NORMAL_GOODS', ...data };
+            createdSessionData = {
+              id: 'sess-bundle',
+              userId: 'user1',
+              status: 'ACTIVE',
+              bizType: 'NORMAL_GOODS',
+              ...data,
+            };
+            return createdSessionData;
           }),
         },
         rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -678,6 +736,7 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     await service.checkout('user1', {
       items: [{ skuId: 'bundle-sku', quantity: 2, cartItemId: 'ci-bundle' }],

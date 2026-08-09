@@ -401,6 +401,13 @@ enum ShipmentStatus {
   EXCEPTION
 }
 
+enum WechatShippingOutboxStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
 enum ShippingCalcType {
   WEIGHT
   COUNT
@@ -832,6 +839,7 @@ enum NormalShareCodeStatus {
 enum NormalShareBindingSource {
   LANDING
   APP
+  MINI_PROGRAM
   DEFERRED
   ADMIN
 }
@@ -853,18 +861,18 @@ enum NormalShareRewardStatus {
 }
 
 enum CouponManualIssueTargetMode {
-  SPECIFIC_USERS    // 指定买家编号/用户 ID
-  ALL_USERS         // 发放时所有有效买家
-  NORMAL_USERS      // 发放时所有有效普通买家
-  VIP_USERS         // 发放时所有有效 VIP 买家
+  SPECIFIC_USERS // 指定买家编号/用户 ID
+  ALL_USERS // 发放时所有有效买家
+  NORMAL_USERS // 发放时所有有效普通买家
+  VIP_USERS // 发放时所有有效 VIP 买家
 }
 
 enum CouponManualIssueJobStatus {
-  PENDING           // 等待执行
-  PROCESSING        // 执行中
-  COMPLETED         // 已完成
-  FAILED            // 执行失败
-  CANCELED          // 已取消
+  PENDING // 等待执行
+  PROCESSING // 执行中
+  COMPLETED // 已完成
+  FAILED // 执行失败
+  CANCELED // 已取消
 }
 
 // ============================================================
@@ -923,18 +931,18 @@ model User {
   groupBuyRebateLedgers GroupBuyRebateLedger[]
 
   // 预包装海鲜团长经营激励（独立于 VIP/普通树/Reward/Coupon）
-  captainProfile                    CaptainProfile?
-  captainAccounts                   CaptainAccount[]
-  captainRelationsAsBuyer           CaptainRelation[]        @relation("CaptainRelationBuyer")
-  captainRelationsAsDirectCaptain   CaptainRelation[]        @relation("CaptainRelationDirectCaptain")
-  captainRelationsAsLegacyIndirectCaptain CaptainRelation[]        @relation("CaptainRelationLegacyIndirectCaptain")
-  captainOrdersAsBuyer              CaptainOrderAttribution[] @relation("CaptainOrderBuyer")
-  captainOrdersAsDirectCaptain      CaptainOrderAttribution[] @relation("CaptainOrderDirectCaptain")
-  captainOrdersAsLegacyIndirectCaptain    CaptainOrderAttribution[] @relation("CaptainOrderLegacyIndirectCaptain")
-  captainCommissionLedgers          CaptainCommissionLedger[] @relation("CaptainLedgerUser")
-  captainMonthlyMetrics             CaptainMonthlyMetric[]    @relation("CaptainMonthlyMetricUser")
-  captainMonthlySettlements         CaptainMonthlySettlement[] @relation("CaptainMonthlySettlementUser")
-  captainApplications               CaptainApplication[]       @relation("CaptainApplicationUser")
+  captainProfile                          CaptainProfile?
+  captainAccounts                         CaptainAccount[]
+  captainRelationsAsBuyer                 CaptainRelation[]          @relation("CaptainRelationBuyer")
+  captainRelationsAsDirectCaptain         CaptainRelation[]          @relation("CaptainRelationDirectCaptain")
+  captainRelationsAsLegacyIndirectCaptain CaptainRelation[]          @relation("CaptainRelationLegacyIndirectCaptain")
+  captainOrdersAsBuyer                    CaptainOrderAttribution[]  @relation("CaptainOrderBuyer")
+  captainOrdersAsDirectCaptain            CaptainOrderAttribution[]  @relation("CaptainOrderDirectCaptain")
+  captainOrdersAsLegacyIndirectCaptain    CaptainOrderAttribution[]  @relation("CaptainOrderLegacyIndirectCaptain")
+  captainCommissionLedgers                CaptainCommissionLedger[]  @relation("CaptainLedgerUser")
+  captainMonthlyMetrics                   CaptainMonthlyMetric[]     @relation("CaptainMonthlyMetricUser")
+  captainMonthlySettlements               CaptainMonthlySettlement[] @relation("CaptainMonthlySettlementUser")
+  captainApplications                     CaptainApplication[]       @relation("CaptainApplicationUser")
 
   // J 域关系（普通用户系统改造）
   normalProgress       NormalProgress?
@@ -959,8 +967,8 @@ model User {
   normalShareBindingReceived NormalShareBinding?    @relation("NormalShareInvitee")
 
   // K 域关系（平台红包）
-  couponInstances     CouponInstance[]     @relation("UserCouponInstances")
-  couponTriggerEvents CouponTriggerEvent[] @relation("UserCouponTriggerEvents")
+  couponInstances          CouponInstance[]          @relation("UserCouponInstances")
+  couponTriggerEvents      CouponTriggerEvent[]      @relation("UserCouponTriggerEvents")
   couponClaimableSeenState CouponClaimableSeenState?
 
   // 卖家域关系
@@ -970,6 +978,11 @@ model User {
   // N 域关系（智能客服）
   csTickets  CsTicket[]
   csSessions CsSession[]
+
+  // 微信小程序一次性订阅授权与发送审计
+  miniProgramSubscriptionConsents MiniProgramSubscriptionConsent[] @relation("MiniSubscriptionConsentUser")
+  miniProgramSubscriptionOutbox   MiniProgramSubscriptionOutbox[]  @relation("MiniSubscriptionOutboxUser")
+  miniProgramScenes               MiniProgramScene[]               @relation("MiniProgramSceneOwner")
 
   @@index([deletionExecutedAt])
 }
@@ -1009,6 +1022,7 @@ model AuthIdentity {
   meta       Json? // 微信昵称头像快照等
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
+  sessions   Session[]
 
   @@unique([provider, identifier, appId])
   @@index([userId, provider])
@@ -1032,6 +1046,8 @@ model Session {
   id                String        @id @default(cuid())
   userId            String
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authIdentityId    String?
+  authIdentity      AuthIdentity? @relation(fields: [authIdentityId], references: [id], onDelete: SetNull)
   deviceId          String?
   device            Device?       @relation(fields: [deviceId], references: [id])
   accessTokenHash   String? // 不存明文
@@ -1043,6 +1059,7 @@ model Session {
   updatedAt         DateTime      @updatedAt
 
   @@index([userId, status])
+  @@index([authIdentityId])
   @@index([expiresAt])
 }
 
@@ -1736,9 +1753,11 @@ model CheckoutSession {
   vipDiscountAmount              Float   @default(0) // VIP折扣金额（元），平台补贴
 
   // 支付信息
-  merchantOrderNo String?         @unique // 预生成的商户订单号
-  paymentChannel  PaymentChannel?
-  providerTxnId   String?         @unique // 支付渠道返回的交易号
+  merchantOrderNo        String?         @unique // 预生成的商户订单号
+  paymentChannel         PaymentChannel?
+  paymentScene           PaymentScene    @default(APP) // 可信支付场景：App 与小程序支付参数禁止跨场景复用
+  providerTxnId          String?         @unique // 支付渠道返回的交易号
+  miniProgramPayerOpenId String? // 小程序预下单时锁定的 payer.openid；发货同步不得从当前任意会话重取
 
   // 平台红包
   couponInstanceIds   String[] @default([]) // 选中的平台红包实例 ID 列表
@@ -1755,10 +1774,12 @@ model CheckoutSession {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  orders Order[] // 支付成功后创建的订单
+  orders               Order[] // 支付成功后创建的订单
+  wechatShippingOutbox WechatShippingOutbox?
 
   @@unique([userId, bizType, idempotencyKey])
   @@index([userId, status])
+  @@index([userId, status, paymentScene])
   @@index([status, createdAt])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
@@ -1801,10 +1822,10 @@ model Order {
   shippingCosts     OrderShippingCost[]
 
   // I 域关系
-  vipPurchase        VipPurchase?
-  vipEligibleOrder   VipEligibleOrder?
-  rewardAllocations  RewardAllocation[]
-  normalQueueMembers NormalQueueMember[] // @deprecated 废弃：滑动窗口
+  vipPurchase            VipPurchase?
+  vipEligibleOrder       VipEligibleOrder?
+  rewardAllocations      RewardAllocation[]
+  normalQueueMembers     NormalQueueMember[] // @deprecated 废弃：滑动窗口
   queueRewardOrderState  QueueRewardOrderState?
   queueRewardAllocations QueueRewardAllocation[] @relation("QueueRewardSourceOrder")
 
@@ -1814,14 +1835,14 @@ model Order {
   virtualCallBindings VirtualCallBinding[] @relation("OrderVirtualCallBindings")
 
   // K 域关系（平台红包）
-  couponUsageRecords  CouponUsageRecord[]  @relation("OrderCouponUsage")
-  totalCouponDiscount Float? // 平台红包总抵扣金额
-  groupBuyRebateDeductionAmount Float @default(0) // 团购返还消费积分抵扣，独立审计
-  digitalAssetLedgers DigitalAssetLedger[]
+  couponUsageRecords            CouponUsageRecord[]  @relation("OrderCouponUsage")
+  totalCouponDiscount           Float? // 平台红包总抵扣金额
+  groupBuyRebateDeductionAmount Float                @default(0) // 团购返还消费积分抵扣，独立审计
+  digitalAssetLedgers           DigitalAssetLedger[]
 
   // 团购分享回馈订单关联
-  groupBuyInitiatedInstance GroupBuyInstance?      @relation("GroupBuyInitiatorOrder")
-  groupBuyReferredPurchase  GroupBuyReferral?      @relation("GroupBuyReferredOrder")
+  groupBuyInitiatedInstance GroupBuyInstance?               @relation("GroupBuyInitiatorOrder")
+  groupBuyReferredPurchase  GroupBuyReferral?               @relation("GroupBuyReferredOrder")
   groupBuyRebateLedgers     GroupBuyRebateLedger[]
   normalShareBindings       NormalShareBinding[]
   captainAttributions       CaptainOrderAttribution[]
@@ -1854,15 +1875,15 @@ model OrderItem {
   createdAt       DateTime   @default(now())
   deletedAt       DateTime? // 软删除标记
 
-  orderItemTraceLinks OrderItemTraceLink[]
+  orderItemTraceLinks   OrderItemTraceLink[]
   // H02修复：关联退款明细行
-  refundItems         RefundItem[]
-  afterSaleRequests   AfterSaleRequest[]
-  digitalAssetLedgers DigitalAssetLedger[]
+  refundItems           RefundItem[]
+  afterSaleRequests     AfterSaleRequest[]
+  digitalAssetLedgers   DigitalAssetLedger[]
   profitRefundReversals OrderProfitRefundReversal[]
 
-  @@index([orderId]) // 订单商品项查询
   @@unique([id, orderId])
+  @@index([orderId]) // 订单商品项查询
 }
 
 model OrderStatusHistory {
@@ -2132,21 +2153,21 @@ model CaptainApplication {
 }
 
 model CaptainRelation {
-  id                    String                @id @default(cuid())
-  buyerUserId           String
-  buyer                 User                  @relation("CaptainRelationBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
-  directCaptainUserId   String
-  directCaptain         User                  @relation("CaptainRelationDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
+  id                          String                @id @default(cuid())
+  buyerUserId                 String
+  buyer                       User                  @relation("CaptainRelationBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  directCaptainUserId         String
+  directCaptain               User                  @relation("CaptainRelationDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
   legacyIndirectCaptainUserId String?
   legacyIndirectCaptain       User?                 @relation("CaptainRelationLegacyIndirectCaptain", fields: [legacyIndirectCaptainUserId], references: [id], onDelete: Restrict)
-  programCode           String                @default("SEAFOOD_PREPACKAGED")
-  codeUsed              String
-  source                String?
-  status                CaptainRelationStatus @default(ACTIVE)
-  boundAt               DateTime              @default(now())
-  endedAt               DateTime?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  programCode                 String                @default("SEAFOOD_PREPACKAGED")
+  codeUsed                    String
+  source                      String?
+  status                      CaptainRelationStatus @default(ACTIVE)
+  boundAt                     DateTime              @default(now())
+  endedAt                     DateTime?
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
 
   @@unique([buyerUserId, programCode])
   @@index([directCaptainUserId, status, createdAt])
@@ -2155,33 +2176,33 @@ model CaptainRelation {
 }
 
 model CaptainOrderAttribution {
-  id                    String                     @id @default(cuid())
-  orderId               String
-  order                 Order                      @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  buyerUserId           String
-  buyer                 User                       @relation("CaptainOrderBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
-  directCaptainUserId   String
-  directCaptain         User                       @relation("CaptainOrderDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
+  id                          String               @id @default(cuid())
+  orderId                     String
+  order                       Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  buyerUserId                 String
+  buyer                       User                 @relation("CaptainOrderBuyer", fields: [buyerUserId], references: [id], onDelete: Restrict)
+  directCaptainUserId         String
+  directCaptain               User                 @relation("CaptainOrderDirectCaptain", fields: [directCaptainUserId], references: [id], onDelete: Restrict)
   legacyIndirectCaptainUserId String?
-  legacyIndirectCaptain       User?                      @relation("CaptainOrderLegacyIndirectCaptain", fields: [legacyIndirectCaptainUserId], references: [id], onDelete: Restrict)
-  programCode           String                     @default("SEAFOOD_PREPACKAGED")
-  commissionBase        Float
-  eligibleGoodsAmount   Float
-  couponDiscountAmount  Float                      @default(0)
-  rewardDeductionAmount Float                      @default(0)
-  refundAmount          Float                      @default(0)
-  directRate            Float
-  legacyIndirectRate    Float
-  status                String                     @default("FROZEN")
-  configSnapshot        Json
-  calculationModel      String                     @default("SALES_V2")
-  profitSnapshotId      String?
-  profitSnapshot        OrderProfitSnapshot?       @relation(fields: [profitSnapshotId, orderId], references: [id, orderId], onDelete: Restrict)
-  profitConfigVersion   String?
-  profitBaseAmount      Float?
-  meta                  Json?
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
+  legacyIndirectCaptain       User?                @relation("CaptainOrderLegacyIndirectCaptain", fields: [legacyIndirectCaptainUserId], references: [id], onDelete: Restrict)
+  programCode                 String               @default("SEAFOOD_PREPACKAGED")
+  commissionBase              Float
+  eligibleGoodsAmount         Float
+  couponDiscountAmount        Float                @default(0)
+  rewardDeductionAmount       Float                @default(0)
+  refundAmount                Float                @default(0)
+  directRate                  Float
+  legacyIndirectRate          Float
+  status                      String               @default("FROZEN")
+  configSnapshot              Json
+  calculationModel            String               @default("SALES_V2")
+  profitSnapshotId            String?
+  profitSnapshot              OrderProfitSnapshot? @relation(fields: [profitSnapshotId, orderId], references: [id, orderId], onDelete: Restrict)
+  profitConfigVersion         String?
+  profitBaseAmount            Float?
+  meta                        Json?
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
 
   ledgers          CaptainCommissionLedger[]
   settlementOrders CaptainMonthlySettlementOrder[]
@@ -2194,16 +2215,16 @@ model CaptainOrderAttribution {
 }
 
 model CaptainAccount {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  programCode String    @default("SEAFOOD_PREPACKAGED")
-  balance     Float     @default(0)
-  frozen      Float     @default(0)
-  withdrawn   Float     @default(0)
-  clawback    Float     @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  programCode String   @default("SEAFOOD_PREPACKAGED")
+  balance     Float    @default(0)
+  frozen      Float    @default(0)
+  withdrawn   Float    @default(0)
+  clawback    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   ledgers CaptainCommissionLedger[]
 
@@ -2214,18 +2235,18 @@ model CaptainAccount {
 }
 
 model CaptainCommissionLedger {
-  id                 String                     @id @default(cuid())
+  id                 String                    @id @default(cuid())
   accountId          String
-  account            CaptainAccount             @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account            CaptainAccount            @relation(fields: [accountId], references: [id], onDelete: Restrict)
   userId             String
-  user               User                       @relation("CaptainLedgerUser", fields: [userId], references: [id], onDelete: Restrict)
+  user               User                      @relation("CaptainLedgerUser", fields: [userId], references: [id], onDelete: Restrict)
   orderAttributionId String?
-  orderAttribution   CaptainOrderAttribution?   @relation(fields: [orderAttributionId], references: [id], onDelete: Restrict)
+  orderAttribution   CaptainOrderAttribution?  @relation(fields: [orderAttributionId], references: [id], onDelete: Restrict)
   orderId            String?
-  order              Order?                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  order              Order?                    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   settlementId       String?
-  settlement         CaptainMonthlySettlement?  @relation(fields: [settlementId], references: [id], onDelete: Restrict)
-  programCode        String                     @default("SEAFOOD_PREPACKAGED")
+  settlement         CaptainMonthlySettlement? @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  programCode        String                    @default("SEAFOOD_PREPACKAGED")
   type               CaptainLedgerType
   status             CaptainLedgerStatus
   amount             Float
@@ -2233,13 +2254,13 @@ model CaptainCommissionLedger {
   rate               Float?
   balanceAfter       Float?
   frozenAfter        Float?
-  idempotencyKey     String                     @unique
+  idempotencyKey     String                    @unique
   refType            String?
   refId              String?
   configSnapshot     Json?
   meta               Json?
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
   deletedAt          DateTime?
 
   @@index([userId, status, createdAt])
@@ -2251,22 +2272,22 @@ model CaptainCommissionLedger {
 }
 
 model CaptainMonthlyMetric {
-  id                    String                    @id @default(cuid())
+  id                    String   @id @default(cuid())
   captainUserId         String
-  captain               User                      @relation("CaptainMonthlyMetricUser", fields: [captainUserId], references: [id], onDelete: Restrict)
+  captain               User     @relation("CaptainMonthlyMetricUser", fields: [captainUserId], references: [id], onDelete: Restrict)
   month                 String
-  programCode           String                    @default("SEAFOOD_PREPACKAGED")
-  personalGmv           Float                     @default(0)
-  teamGmv               Float                     @default(0)
-  directEffectiveBuyers Int                       @default(0)
-  teamEffectiveMembers  Int                       @default(0)
-  newEffectiveMembers   Int                       @default(0)
-  refundRate            Float                     @default(0)
-  qualified             Boolean                   @default(false)
+  programCode           String   @default("SEAFOOD_PREPACKAGED")
+  personalGmv           Float    @default(0)
+  teamGmv               Float    @default(0)
+  directEffectiveBuyers Int      @default(0)
+  teamEffectiveMembers  Int      @default(0)
+  newEffectiveMembers   Int      @default(0)
+  refundRate            Float    @default(0)
+  qualified             Boolean  @default(false)
   qualifiedTier         String?
   configSnapshot        Json
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   settlement CaptainMonthlySettlement?
 
@@ -2276,30 +2297,30 @@ model CaptainMonthlyMetric {
 }
 
 model CaptainMonthlySettlement {
-  id                       String                  @id @default(cuid())
-  captainUserId            String
-  captain                  User                    @relation("CaptainMonthlySettlementUser", fields: [captainUserId], references: [id], onDelete: Restrict)
-  metricId                 String?                 @unique
-  metric                   CaptainMonthlyMetric?   @relation(fields: [metricId], references: [id], onDelete: Restrict)
-  month                    String
-  programCode              String                  @default("SEAFOOD_PREPACKAGED")
-  status                   CaptainSettlementStatus @default(DRAFT)
-  baseManagementAmount     Float                   @default(0)
-  growthBonusAmount        Float                   @default(0)
-  cultivationBonusAmount   Float                   @default(0)
-  teamPoolAmount           Float                   @default(0)
-  totalAmount              Float                   @default(0)
-  taxAmount                Float                   @default(0)
-  netAmount                Float                   @default(0)
-  reviewedByAdminId        String?
-  paidByAdminId            String?
-  reviewedAt               DateTime?
-  paidAt                   DateTime?
-  rejectReason             String?
-  configSnapshot           Json
-  meta                     Json?
-  createdAt                DateTime                @default(now())
-  updatedAt                DateTime                @updatedAt
+  id                     String                  @id @default(cuid())
+  captainUserId          String
+  captain                User                    @relation("CaptainMonthlySettlementUser", fields: [captainUserId], references: [id], onDelete: Restrict)
+  metricId               String?                 @unique
+  metric                 CaptainMonthlyMetric?   @relation(fields: [metricId], references: [id], onDelete: Restrict)
+  month                  String
+  programCode            String                  @default("SEAFOOD_PREPACKAGED")
+  status                 CaptainSettlementStatus @default(DRAFT)
+  baseManagementAmount   Float                   @default(0)
+  growthBonusAmount      Float                   @default(0)
+  cultivationBonusAmount Float                   @default(0)
+  teamPoolAmount         Float                   @default(0)
+  totalAmount            Float                   @default(0)
+  taxAmount              Float                   @default(0)
+  netAmount              Float                   @default(0)
+  reviewedByAdminId      String?
+  paidByAdminId          String?
+  reviewedAt             DateTime?
+  paidAt                 DateTime?
+  rejectReason           String?
+  configSnapshot         Json
+  meta                   Json?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 
   ledgers          CaptainCommissionLedger[]
   settlementOrders CaptainMonthlySettlementOrder[]
@@ -2310,22 +2331,22 @@ model CaptainMonthlySettlement {
 }
 
 model OrderProfitSnapshot {
-  id                            String                           @id @default(cuid())
+  id                            String                    @id @default(cuid())
   orderId                       String
-  order                         Order                            @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  revision                      Int                              @default(1)
-  isCurrent                     Boolean                          @default(true)
+  order                         Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  revision                      Int                       @default(1)
+  isCurrent                     Boolean                   @default(true)
   supersedesSnapshotId          String?
-  supersedesSnapshot            OrderProfitSnapshot?             @relation("ProfitSnapshotRevision", fields: [supersedesSnapshotId, orderId], references: [id, orderId], onDelete: Restrict)
-  supersededBy                  OrderProfitSnapshot[]            @relation("ProfitSnapshotRevision")
+  supersedesSnapshot            OrderProfitSnapshot?      @relation("ProfitSnapshotRevision", fields: [supersedesSnapshotId, orderId], references: [id, orderId], onDelete: Restrict)
+  supersededBy                  OrderProfitSnapshot[]     @relation("ProfitSnapshotRevision")
   status                        OrderProfitSnapshotStatus
   grossGoodsAmount              Float
-  shippingAmount                Float                            @default(0)
-  vipDiscountAmount             Float                            @default(0)
-  couponDiscountAmount          Float                            @default(0)
-  rewardDeductionAmount         Float                            @default(0)
-  groupBuyRebateDeductionAmount Float                            @default(0)
-  otherGoodsDiscountAmount      Float                            @default(0)
+  shippingAmount                Float                     @default(0)
+  vipDiscountAmount             Float                     @default(0)
+  couponDiscountAmount          Float                     @default(0)
+  rewardDeductionAmount         Float                     @default(0)
+  groupBuyRebateDeductionAmount Float                     @default(0)
+  otherGoodsDiscountAmount      Float                     @default(0)
   netGoodsRevenue               Float
   productCostAmount             Float
   distributableProfitAmount     Float
@@ -2335,15 +2356,15 @@ model OrderProfitSnapshot {
   ruleSnapshot                  Json
   errorCode                     String?
   errorMeta                     Json?
-  createdAt                     DateTime                         @default(now())
+  createdAt                     DateTime                  @default(now())
   createdByAdminId              String?
 
   fundingLedgers         OrderProfitFundingLedger[]
   refundReversals        OrderProfitRefundReversal[]
-  reconciliationSource   OrderProfitReconciliationTask? @relation("ReconciliationSource")
+  reconciliationSource   OrderProfitReconciliationTask?  @relation("ReconciliationSource")
   reconciliationResolved OrderProfitReconciliationTask[] @relation("ReconciliationResolved")
-  adjustmentSources      OrderProfitAdjustmentDraft[]   @relation("ProfitAdjustmentSource")
-  adjustmentTargets      OrderProfitAdjustmentDraft[]   @relation("ProfitAdjustmentTarget")
+  adjustmentSources      OrderProfitAdjustmentDraft[]    @relation("ProfitAdjustmentSource")
+  adjustmentTargets      OrderProfitAdjustmentDraft[]    @relation("ProfitAdjustmentTarget")
   captainAttributions    CaptainOrderAttribution[]
 
   @@unique([orderId, revision])
@@ -2409,9 +2430,9 @@ model OrderProfitReconciliationTask {
   createdAt           DateTime                        @default(now())
   updatedAt           DateTime                        @updatedAt
 
+  @@unique([sourceSnapshotId, orderId])
   @@index([status, createdAt])
   @@index([orderId, status])
-  @@unique([sourceSnapshotId, orderId])
 }
 
 model CaptainMonthlySettlementOrder {
@@ -2531,13 +2552,13 @@ model Refund {
   statusHistory               RefundStatusHistory[]
   // H02修复：商品行级退款明细
   items                       RefundItem[]
-  afterSaleByAfterSaleId      AfterSaleRequest?     @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
-  afterSaleRequestsByRefundId AfterSaleRequest[]    @relation("AfterSaleRefundByRefundId")
+  afterSaleByAfterSaleId      AfterSaleRequest?           @relation("AfterSaleRefundByAfterSaleId", fields: [afterSaleId], references: [id])
+  afterSaleRequestsByRefundId AfterSaleRequest[]          @relation("AfterSaleRefundByRefundId")
   digitalAssetLedgers         DigitalAssetLedger[]
   profitRefundReversals       OrderProfitRefundReversal[]
 
-  @@index([orderId])
   @@unique([id, orderId])
+  @@index([orderId])
 }
 
 // 退款状态变更历史（类似 OrderStatusHistory）
@@ -2612,6 +2633,30 @@ model ShipmentTrackingEvent {
   createdAt  DateTime @default(now())
 
   @@index([shipmentId]) // M5: 外键索引，加速物流事件查询
+}
+
+/// 微信小程序交易发货信息同步 outbox。
+/// 同一微信支付单仅保留最新发货快照；generation + leaseToken 保护并发发送和新快照覆盖。
+model WechatShippingOutbox {
+  id                String                     @id @default(cuid())
+  checkoutSessionId String                     @unique
+  checkoutSession   CheckoutSession            @relation(fields: [checkoutSessionId], references: [id], onDelete: Restrict)
+  status            WechatShippingOutboxStatus @default(PENDING)
+  generation        Int                        @default(1)
+  payloadHash       String
+  payload           Json
+  attemptCount      Int                        @default(0)
+  nextAttemptAt     DateTime                   @default(now())
+  leaseToken        String?
+  leaseExpiresAt    DateTime?
+  lastErrorCode     String?
+  lastError         String?
+  succeededAt       DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([status, leaseExpiresAt])
 }
 
 /// @deprecated 废弃：商户独立运费模板，由 ShippingRule 平台统一运费替代。保留用于历史数据查询
@@ -2825,29 +2870,29 @@ model DeferredDeepLink {
 }
 
 model InviteH5LandingEvent {
-  id               String   @id @default(cuid())
-  inviteCode       String
-  inviteType       String?
-  inviterUserId    String?
-  landingSessionId String   @unique
-  ipAddress        String
-  userAgent        String
-  screenInfo       String?
-  language         String?
-  openedAt         DateTime @default(now())
-  authedUserId     String?
-  authedAt         DateTime?
-  bindingStatus    String?
-  bindingType      String?
-  boundAt          DateTime?
-  errorCode        String?
+  id                    String    @id @default(cuid())
+  inviteCode            String
+  inviteType            String?
+  inviterUserId         String?
+  landingSessionId      String    @unique
+  ipAddress             String
+  userAgent             String
+  screenInfo            String?
+  language              String?
+  openedAt              DateTime  @default(now())
+  authedUserId          String?
+  authedAt              DateTime?
+  bindingStatus         String?
+  bindingType           String?
+  boundAt               DateTime?
+  errorCode             String?
   // 微信内 H5 登录完成后，交给系统浏览器直接下载的短时一次性凭证（只存哈希）。
   // 它不代表买家登录态，也不参与推荐关系绑定。
   downloadPassHash      String?   @unique
   downloadPassExpiresAt DateTime?
   downloadPassUsedAt    DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([inviteCode, openedAt])
   @@index([inviterUserId, openedAt])
@@ -2946,22 +2991,22 @@ model RewardAllocation {
 }
 
 model RewardLedger {
-  id           String             @id @default(cuid())
-  allocationId String?
-  allocation   RewardAllocation?  @relation(fields: [allocationId], references: [id])
-  accountId    String
-  account      RewardAccount      @relation(fields: [accountId], references: [id])
-  userId       String // 接收者
-  user         User               @relation(fields: [userId], references: [id])
-  entryType    RewardEntryType
-  amount       Float // 金额（元）
-  status       RewardLedgerStatus
-  refType      String? // ORDER/REFUND/ADMIN
-  refId        String?
-  idempotencyKey String?          @unique
-  sourceLedgerId String?
-  meta         Json? // scheme/sourceUserId/bucketKey/vipIndex 等
-  createdAt    DateTime           @default(now())
+  id                      String                   @id @default(cuid())
+  allocationId            String?
+  allocation              RewardAllocation?        @relation(fields: [allocationId], references: [id])
+  accountId               String
+  account                 RewardAccount            @relation(fields: [accountId], references: [id])
+  userId                  String // 接收者
+  user                    User                     @relation(fields: [userId], references: [id])
+  entryType               RewardEntryType
+  amount                  Float // 金额（元）
+  status                  RewardLedgerStatus
+  refType                 String? // ORDER/REFUND/ADMIN
+  refId                   String?
+  idempotencyKey          String?                  @unique
+  sourceLedgerId          String?
+  meta                    Json? // scheme/sourceUserId/bucketKey/vipIndex 等
+  createdAt               DateTime                 @default(now())
   deletedAt               DateTime? // 软删除标记
   queueRewardDistribution QueueRewardDistribution?
 
@@ -3213,39 +3258,63 @@ model NormalQueueMember {
 }
 
 model WithdrawRequest {
-  id                   String          @id @default(cuid())
-  userId               String
-  user                 User            @relation(fields: [userId], references: [id])
-  amount               Float // grossAmount 申请金额（元，保留旧字段名）
-  channel              WithdrawChannel
-  accountSnapshot      Json? // 加密存 { account, name, source }
-  accountType          String          @default("VIP_REWARD")
-  status               WithdrawStatus  @default(PROCESSING)
-  providerPayoutId     String?
-  taxAmount            Float           @default(0)
-  netAmount            Float           @default(0)
-  taxRate              Float           @default(0.20)
-  providerFeeAmount    Float           @default(0)
-  outBizNo             String?         @unique
-  clientIdempotencyKey String?         @unique
-  providerFundOrderId  String?
-  providerStatus       String?
-  providerErrorCode    String?
-  providerErrorMessage String?
-  paidAt               DateTime?
-  lastQueriedAt        DateTime?
-  queryAttempts        Int             @default(0)
-  rejectReason         String?
-  reviewerAdminId      String?
-  reviewerAdmin        AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  deletedAt            DateTime?
+  id                     String          @id @default(cuid())
+  userId                 String
+  user                   User            @relation(fields: [userId], references: [id])
+  amount                 Float // grossAmount 申请金额（元，保留旧字段名）
+  channel                WithdrawChannel
+  accountSnapshot        Json? // 加密存 { account, name, source }
+  accountType            String          @default("VIP_REWARD")
+  status                 WithdrawStatus  @default(PROCESSING)
+  providerPayoutId       String?
+  taxAmount              Float           @default(0)
+  netAmount              Float           @default(0)
+  taxRate                Float           @default(0.20)
+  providerFeeAmount      Float           @default(0)
+  outBizNo               String?         @unique
+  clientIdempotencyKey   String?         @unique
+  providerFundOrderId    String?
+  providerStatus         String?
+  providerStateUpdatedAt DateTime? // providerStatus 状态租约时间；查询次数更新不得覆盖
+  providerErrorCode      String?
+  providerErrorMessage   String?
+  paidAt                 DateTime?
+  lastQueriedAt          DateTime?
+  nextReconcileAt        DateTime? // 提现补偿公平调度；到期后才允许下一次 provider 查单
+  queryAttempts          Int             @default(0)
+  rejectReason           String?
+  reviewerAdminId        String?
+  reviewerAdmin          AdminUser?      @relation(fields: [reviewerAdminId], references: [id])
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  deletedAt              DateTime?
 
   @@index([userId, status, createdAt])
   @@index([status, createdAt])
+  @@index([status, nextReconcileAt, createdAt])
   @@index([providerFundOrderId])
   @@index([userId, createdAt])
+}
+
+/// 已验签微信提现终态通知的持久化收件箱。
+/// HTTP 回调只负责验签、落库和快速应答；资金收口由后台任务主动查原单后完成。
+model WechatTransferNotifyInbox {
+  id            String    @id @default(cuid())
+  eventId       String    @unique
+  outBillNo     String
+  payload       Json // 加密后的 WechatMerchantTransferNotify
+  status        String    @default("PENDING") // PENDING / PROCESSING / DONE / DEAD
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?
+  processedAt   DateTime?
+  deadAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([outBillNo])
 }
 
 // ============================================================
@@ -3273,6 +3342,7 @@ model Booking {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
+  @@unique([userId, groupId])
   @@index([userId])
   @@index([companyId])
 }
@@ -3392,6 +3462,89 @@ model NotificationMessage {
   @@index([recipientKey, deletedAt, readAt, createdAt])
   @@index([audience, category, createdAt])
   @@index([entityType, entityId])
+}
+
+enum MiniProgramSubscriptionConsentStatus {
+  ACCEPTED
+  REJECTED
+  BANNED
+  FILTERED
+}
+
+enum MiniProgramSubscriptionOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model MiniProgramSubscriptionConsent {
+  id               String                               @id @default(cuid())
+  userId           String
+  user             User                                 @relation("MiniSubscriptionConsentUser", fields: [userId], references: [id], onDelete: Cascade)
+  authIdentityId   String
+  appId            String
+  templateKey      String
+  templateId       String
+  status           MiniProgramSubscriptionConsentStatus
+  clientRequestId  String
+  reservedOutboxId String?                              @unique
+  reservedAt       DateTime?
+  consumedAt       DateTime?
+  createdAt        DateTime                             @default(now())
+  updatedAt        DateTime                             @updatedAt
+
+  @@unique([userId, clientRequestId, templateKey])
+  @@index([userId, templateKey, status, consumedAt, createdAt])
+  @@index([authIdentityId, appId])
+}
+
+model MiniProgramSubscriptionOutbox {
+  id             String                              @id @default(cuid())
+  userId         String
+  user           User                                @relation("MiniSubscriptionOutboxUser", fields: [userId], references: [id], onDelete: Cascade)
+  consentId      String?                             @unique
+  eventType      String
+  aggregateType  String
+  aggregateId    String
+  templateKey    String
+  templateId     String?
+  page           String?
+  data           Json
+  idempotencyKey String                              @unique
+  status         MiniProgramSubscriptionOutboxStatus @default(PENDING)
+  attempts       Int                                 @default(0)
+  runAt          DateTime                            @default(now())
+  processingAt   DateTime?
+  processedAt    DateTime?
+  lastErrorCode  String?
+  lastError      String?
+  createdAt      DateTime                            @default(now())
+  updatedAt      DateTime                            @updatedAt
+
+  @@index([status, runAt])
+  @@index([userId, templateKey, createdAt])
+  @@index([aggregateType, aggregateId])
+}
+
+model MiniProgramScene {
+  id              String   @id @default(cuid())
+  token           String   @unique
+  ownerUserId     String
+  owner           User     @relation("MiniProgramSceneOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  kind            String
+  payload         Json
+  payloadHash     String
+  targetPath      String
+  expiresAt       DateTime
+  generatedCount  Int      @default(0)
+  lastGeneratedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerUserId, kind, payloadHash, expiresAt])
+  @@index([expiresAt])
 }
 
 model Announcement {
@@ -3637,25 +3790,25 @@ model NormalShareProfile {
 }
 
 model NormalShareBinding {
-  id                       String                         @id @default(cuid())
-  inviterUserId            String
-  inviter                  User                           @relation("NormalShareInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
-  inviteeUserId            String                         @unique
-  invitee                  User                           @relation("NormalShareInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
-  code                     String
-  source                   NormalShareBindingSource
-  relationStatus           DirectReferralRelationStatus   @default(ACTIVE)
-  relationInvalidAt        DateTime?
-  relationInvalidReason    String?
-  effectiveInviterUserId   String?
-  boundAt                  DateTime                       @default(now())
-  firstOrderId             String?
-  firstOrder               Order?                         @relation(fields: [firstOrderId], references: [id], onDelete: SetNull)
-  rewardStatus             NormalShareRewardStatus        @default(PENDING)
-  rewardIssuedAt           DateTime?
-  meta                     Json?
-  createdAt                DateTime                       @default(now())
-  updatedAt                DateTime                       @updatedAt
+  id                     String                       @id @default(cuid())
+  inviterUserId          String
+  inviter                User                         @relation("NormalShareInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  inviteeUserId          String                       @unique
+  invitee                User                         @relation("NormalShareInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  code                   String
+  source                 NormalShareBindingSource
+  relationStatus         DirectReferralRelationStatus @default(ACTIVE)
+  relationInvalidAt      DateTime?
+  relationInvalidReason  String?
+  effectiveInviterUserId String?
+  boundAt                DateTime                     @default(now())
+  firstOrderId           String?
+  firstOrder             Order?                       @relation(fields: [firstOrderId], references: [id], onDelete: SetNull)
+  rewardStatus           NormalShareRewardStatus      @default(PENDING)
+  rewardIssuedAt         DateTime?
+  meta                   Json?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
 
   @@index([inviterUserId, createdAt])
   @@index([code, createdAt])
@@ -3930,6 +4083,9 @@ model AfterSaleShippingPayment {
   merchantPaymentNo String                         @unique
   providerPaymentNo String?
   provider          String                         @default("ALIPAY")
+  paymentScene      PaymentScene                   @default(APP)
+  miniProgramPayerOpenId String?
+  paymentParamState      Json?
   paidAt            DateTime?
   refundedAt        DateTime?
   failureReason     String?
@@ -3972,19 +4128,19 @@ model CouponCampaign {
   applicableCompanyIds String[] @default([]) // 限定店铺（空=不限，预留扩展）
 
   // 叠加规则
-  stackable            Boolean               @default(false) // 是否可与同类叠加
-  stackGroup           String?               // 叠加分组标识
+  stackable  Boolean @default(false) // 是否可与同类叠加
+  stackGroup String? // 叠加分组标识
 
   // 发放限制
-  totalQuota  Int // 总发放量
-  issuedCount Int @default(0) // 已发放数量
-  maxPerUser  Int @default(1) // 每人限领
+  totalQuota            Int // 总发放量
+  issuedCount           Int     @default(0) // 已发放数量
+  maxPerUser            Int     @default(1) // 每人限领
   growthExchangeEnabled Boolean @default(false) // 是否作为积分兑换专用红包池
 
   // 有效期
-  validDays            Int                   @default(7)  // 领取后有效天数（0=跟随活动结束时间）
-  startAt              DateTime              // 活动开始时间
-  endAt                DateTime?             // 活动结束时间（null=长期活动）
+  validDays Int       @default(7) // 领取后有效天数（0=跟随活动结束时间）
+  startAt   DateTime // 活动开始时间
+  endAt     DateTime? // 活动结束时间（null=长期活动）
 
   // 审计
   createdBy String // 创建管理员 ID
@@ -3992,9 +4148,9 @@ model CouponCampaign {
   updatedAt DateTime @updatedAt
 
   // 关联
-  instances            CouponInstance[]
-  manualIssueJobs      CouponManualIssueJob[]
-  growthExchangeItems  GrowthExchangeItem[]
+  instances           CouponInstance[]
+  manualIssueJobs     CouponManualIssueJob[]
+  growthExchangeItems GrowthExchangeItem[]
 
   @@index([status, startAt, endAt])
   @@index([triggerType])
@@ -4004,12 +4160,12 @@ model CouponCampaign {
 // 领券中心已看状态（用于买家端新可领红包角标）
 // ==========================================
 model CouponClaimableSeenState {
-  id                  String                @id @default(uuid())
-  userId              String                @unique
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lastSeenAt          DateTime
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([lastSeenAt])
 }
@@ -4085,29 +4241,29 @@ model CouponUsageRecord {
 // 手动发放定时任务
 // ==========================================
 model CouponManualIssueJob {
-  id                  String                      @id @default(uuid())
+  id String @id @default(uuid())
 
   // 关联
-  campaignId          String
-  campaign            CouponCampaign              @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  campaignId String
+  campaign   CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
 
   // 发放对象与时间
-  targetMode          CouponManualIssueTargetMode
-  userIds             String[]                    @default([]) // SPECIFIC_USERS 时存储已解析内部 User.id
-  scheduledAt         DateTime
-  status              CouponManualIssueJobStatus  @default(PENDING)
+  targetMode  CouponManualIssueTargetMode
+  userIds     String[]                    @default([]) // SPECIFIC_USERS 时存储已解析内部 User.id
+  scheduledAt DateTime
+  status      CouponManualIssueJobStatus  @default(PENDING)
 
   // 执行结果
-  issuedCount         Int                         @default(0)
-  skippedCount        Int                         @default(0)
-  skippedUsers        String[]                    @default([])
-  errorMessage        String?
-  processedAt         DateTime?
+  issuedCount  Int       @default(0)
+  skippedCount Int       @default(0)
+  skippedUsers String[]  @default([])
+  errorMessage String?
+  processedAt  DateTime?
 
   // 审计
-  createdBy           String
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, scheduledAt])
   @@index([campaignId])
@@ -4321,21 +4477,21 @@ model CsTicket {
 }
 
 model CsSession {
-  id            String          @id @default(cuid())
-  ticketId      String?
-  ticket        CsTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
-  userId        String
-  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
-  status        CsSessionStatus @default(AI_HANDLING)
-  source        CsSessionSource
-  sourceId      String?
-  agentId       String?
-  agentJoinedAt DateTime?
+  id              String          @id @default(cuid())
+  ticketId        String?
+  ticket          CsTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status          CsSessionStatus @default(AI_HANDLING)
+  source          CsSessionSource
+  sourceId        String?
+  agentId         String?
+  agentJoinedAt   DateTime?
   buyerLastReadAt DateTime?
-  closedAt      DateTime?
-  createdAt     DateTime        @default(now())
-  messages      CsMessage[]
-  rating        CsRating?
+  closedAt        DateTime?
+  createdAt       DateTime        @default(now())
+  messages        CsMessage[]
+  rating          CsRating?
 
   @@index([userId, status])
   @@index([userId, buyerLastReadAt])

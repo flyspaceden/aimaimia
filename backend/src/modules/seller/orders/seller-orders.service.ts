@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -16,6 +17,7 @@ import {
 import { SellerShippingService } from '../shipping/seller-shipping.service';
 import { NotificationService } from '../../notification/notification.service';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
+import { WechatShippingOutboxService } from '../../shipment/wechat-shipping-outbox.service';
 
 @Injectable()
 export class SellerOrdersService {
@@ -26,6 +28,8 @@ export class SellerOrdersService {
     private bonusConfig: BonusConfigService,
     private shippingService: SellerShippingService,
     private notificationService: NotificationService,
+    @Optional()
+    private wechatShippingOutbox?: WechatShippingOutboxService,
   ) {}
 
   /**
@@ -456,6 +460,9 @@ export class SellerOrdersService {
           buyerUserId: freshOrder.userId,
         },
       }, tx as any);
+
+      // 只在本地 Serializable 事务中落 durable outbox；微信 HTTP 由后台 worker 发送。
+      await this.wechatShippingOutbox?.enqueueForOrderTx(tx, orderId);
 
       return { ok: true };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

@@ -1,56 +1,15 @@
 import { TaskService } from './task.service';
 
-describe('TaskService growth integration', () => {
-  it('writes task rewards only through GrowthEventService to avoid double profile increments', async () => {
-    const task = {
-      id: 'task-1',
-      title: '完善资料',
-      rewardLabel: '+20积分',
-      rewardPoints: 20,
-      rewardGrowth: 30,
-      targetRoute: '/me/profile',
-      completions: [],
-    };
-    const tx: any = {
-      taskCompletion: {
-        create: jest.fn().mockResolvedValue({ id: 'completion-1' }),
-      },
-      userProfile: {
-        upsert: jest.fn().mockResolvedValue({ userId: 'user-1' }),
-      },
-    };
-    const prisma: any = {
-      task: {
-        findUnique: jest.fn().mockResolvedValue(task),
-        findMany: jest.fn().mockResolvedValue([task]),
-      },
-      taskCompletion: {
-        findUnique: jest.fn().mockResolvedValue(null),
-      },
-      $transaction: jest.fn((callback: any) => callback(tx)),
-    };
-    const growthEvents = {
-      grantDirect: jest.fn().mockResolvedValue({ granted: true }),
-    };
-    const service = new TaskService(prisma, growthEvents as any);
+describe('TaskService fail-closed task claims', () => {
+  const service = new TaskService();
 
-    await service.complete('task-1', 'user-1');
+  it('does not expose unverified task definitions', async () => {
+    await expect(service.list('user-1')).resolves.toEqual([]);
+  });
 
-    expect(tx.userProfile.upsert).not.toHaveBeenCalled();
-    expect(growthEvents.grantDirect).toHaveBeenCalledWith(expect.objectContaining({
-      tx,
-      userId: 'user-1',
-      behaviorCode: 'TASK_COMPLETE',
-      pointsReward: 20,
-      growthReward: 30,
-      idempotencyKey: 'TASK:user-1:task-1',
-      refType: 'TASK',
-      refId: 'task-1',
-      meta: { taskTitle: '完善资料' },
-    }));
-    expect(prisma.$transaction).toHaveBeenCalledWith(
-      expect.any(Function),
-      { isolationLevel: 'Serializable' },
-    );
+  it('rejects direct reward claims until server-side behavior evidence exists', async () => {
+    await expect(service.complete('task-1', 'user-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TASK_CLAIM_UNAVAILABLE' }),
+    });
   });
 });

@@ -9,8 +9,10 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   IsNotEmpty,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CheckoutSource } from './checkout-source';
 
 export class CheckoutItemDto {
   @IsString()
@@ -37,6 +39,11 @@ export class CheckoutDto {
   @ValidateNested({ each: true })
   @Type(() => CheckoutItemDto)
   items: CheckoutItemDto[];
+
+  /** 结算来源；立即购买必须显式声明，禁止后端猜测购物车语义。 */
+  @IsOptional()
+  @IsEnum(CheckoutSource)
+  checkoutSource?: CheckoutSource;
 
   @IsString()
   @IsNotEmpty()

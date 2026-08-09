@@ -13,7 +13,12 @@ describe('DeliveryCheckoutService', () => {
   let moduleRef: { get: jest.Mock };
   let service: DeliveryCheckoutService;
   let alipayService: { isAvailable: jest.Mock; createAppPayOrder: jest.Mock; queryOrder: jest.Mock };
-  let wechatPayService: { isAvailable: jest.Mock; createAppOrder: jest.Mock; queryOrder: jest.Mock };
+  let wechatPayService: {
+    isAvailable: jest.Mock;
+    createAppOrder: jest.Mock;
+    queryOrder: jest.Mock;
+    matchesPaymentScene: jest.Mock;
+  };
   let deliveryPaymentsService: { handlePaymentCallback: jest.Mock };
 
   beforeEach(() => {
@@ -95,6 +100,7 @@ describe('DeliveryCheckoutService', () => {
         paySign: 'signed',
       }),
       queryOrder: jest.fn(),
+      matchesPaymentScene: jest.fn().mockReturnValue(true),
     };
     deliveryPaymentsService = {
       handlePaymentCallback: jest.fn().mockResolvedValue({ code: 'SUCCESS' }),
@@ -478,6 +484,9 @@ describe('DeliveryCheckoutService', () => {
       orders: [],
     });
     wechatPayService.queryOrder.mockResolvedValue({
+      outcome: 'FOUND',
+      appId: 'wx-app',
+      tradeType: 'APP',
       tradeState: 'USERPAYING',
       outTradeNo: 'PSZF0000000000001',
       totalAmountFen: 1234,

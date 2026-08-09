@@ -97,6 +97,7 @@ export class AlipayService implements OnModuleInit {
     totalAmount: number;
     subject: string;
     body?: string;
+    timeExpire?: Date;
   }): Promise<string> {
     if (!this.sdk) {
       throw new Error('支付宝 SDK 未初始化');
@@ -110,6 +111,9 @@ export class AlipayService implements OnModuleInit {
     const returnUrl = this.configService.get<string>('ALIPAY_RETURN_URL', 'aimaimai://alipay');
 
     // sdkExecute 是同步方法，返回完整的 orderStr，可直接传给客户端调起支付宝
+    const absoluteTimeExpire = params.timeExpire
+      ? this.formatAlipayTimeExpire(params.timeExpire)
+      : null;
     const result = this.sdk.sdkExecute('alipay.trade.app.pay', {
       alipaySdk: (this.sdk as any).version ?? 'alipay-sdk-nodejs-4.0.0',
       bizContent: {
@@ -118,14 +122,28 @@ export class AlipayService implements OnModuleInit {
         subject: params.subject,
         body: params.body || '',
         product_code: 'QUICK_MSECURITY_PAY',
-        // 30 分钟超时（与 CheckoutSession 过期时间一致）
-        timeout_express: '30m',
+        ...(absoluteTimeExpire
+          ? { time_expire: absoluteTimeExpire }
+          : { timeout_express: '30m' }),
       },
       notify_url: notifyUrl,
       return_url: returnUrl,
     });
 
     return result as string;
+  }
+
+  /** 渠道截止时间使用中国标准时，并向下截断到分。 */
+  private formatAlipayTimeExpire(value: Date): string {
+    if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+      throw new Error('支付过期时间无效');
+    }
+    if (value.getTime() - Date.now() < 60_000) {
+      throw new Error('结算会话即将过期，请重新结算');
+    }
+    const chinaTime = new Date(value.getTime() + 8 * 60 * 60 * 1000);
+    const pad = (part: number) => String(part).padStart(2, '0');
+    return `${chinaTime.getUTCFullYear()}-${pad(chinaTime.getUTCMonth() + 1)}-${pad(chinaTime.getUTCDate())} ${pad(chinaTime.getUTCHours())}:${pad(chinaTime.getUTCMinutes())}`;
   }
 
   /**
@@ -286,6 +304,8 @@ export class AlipayService implements OnModuleInit {
     orderId?: string;
   }): Promise<{
     status: 'SUCCESS' | 'PROCESSING' | 'FAIL' | 'NOT_FOUND';
+    outBizNo?: string;
+    transAmount?: string;
     orderId?: string;
     payFundOrderId?: string;
     payDate?: Date;
@@ -307,6 +327,10 @@ export class AlipayService implements OnModuleInit {
     const result = await this.sdk.exec('alipay.fund.trans.common.query', {
       bizContent,
     }) as any;
+    // alipay-sdk 默认将响应字段转为 camelCase；部分测试、旧版 SDK
+    // 或原始透传响应仍使用 snake_case。资金查单必须同时兼容两种形态。
+    const responseOutBizNo = this.readAlipayString(result?.outBizNo ?? result?.out_biz_no);
+    const responseTransAmount = this.readAlipayAmount(result?.transAmount ?? result?.trans_amount);
 
     if (result.code !== '10000') {
       const subCode = result.subCode;
@@ -323,6 +347,8 @@ export class AlipayService implements OnModuleInit {
       ) {
         return {
           status: 'NOT_FOUND',
+          outBizNo: responseOutBizNo,
+          transAmount: responseTransAmount,
           errorCode: subCode,
           errorMessage,
           raw: result,
@@ -331,6 +357,8 @@ export class AlipayService implements OnModuleInit {
       if (processing) {
         return {
           status: 'PROCESSING',
+          outBizNo: responseOutBizNo,
+          transAmount: responseTransAmount,
           errorCode: subCode,
           errorMessage,
           raw: result,
@@ -338,6 +366,8 @@ export class AlipayService implements OnModuleInit {
       }
       return {
         status: 'FAIL',
+        outBizNo: responseOutBizNo,
+        transAmount: responseTransAmount,
         errorCode: subCode,
         errorMessage,
         raw: result,
@@ -354,11 +384,29 @@ export class AlipayService implements OnModuleInit {
 
     return {
       status,
-      orderId: result.orderId,
-      payFundOrderId: result.payFundOrderId,
-      payDate: result.payDate ? new Date(result.payDate) : undefined,
+      outBizNo: responseOutBizNo,
+      transAmount: responseTransAmount,
+      orderId: this.readAlipayString(result.orderId ?? result.order_id),
+      payFundOrderId: this.readAlipayString(result.payFundOrderId ?? result.pay_fund_order_id),
+      payDate: (result.payDate ?? result.pay_date)
+        ? new Date(result.payDate ?? result.pay_date)
+        : undefined,
       raw: result,
     };
+  }
+
+  private readAlipayString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  }
+
+  private readAlipayAmount(value: unknown): string | undefined {
+    if (typeof value === 'string' && /^\d+(?:\.\d{1,2})?$/.test(value.trim())) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return value.toFixed(2);
+    }
+    return undefined;
   }
 
   /**

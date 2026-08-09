@@ -146,6 +146,30 @@ describe('OrderService receiver info correction', () => {
     expect(tx.order.update).not.toHaveBeenCalled();
   });
 
+  it('rejects a forged region code whose province differs from the address text', async () => {
+    const { service, tx } = makeService();
+
+    await expect(
+      (service as any).updateReceiverInfo('o-receiver-1', 'buyer-1', {
+        ...payload,
+        regionCode: '110108',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.order.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects legacy or arbitrary non-six-digit region codes', async () => {
+    const { service, tx } = makeService();
+
+    await expect(
+      (service as any).updateReceiverInfo('o-receiver-1', 'buyer-1', {
+        ...payload,
+        regionCode: 'CN-GX-CX',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(tx.order.update).not.toHaveBeenCalled();
+  });
+
   it('rejects orders that already have a generated waybill', async () => {
     const { service, tx } = makeService({
       shipments: [{ id: 'ship-1', waybillNo: 'SF1234567890' }],

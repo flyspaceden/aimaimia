@@ -18,7 +18,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
       findUnique: jest.fn().mockResolvedValue({ status: UserStatus.ACTIVE }),
     },
     session: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'session-1' }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'session-1', authIdentityId: 'identity-1' }),
     },
     ...overrides,
   } as any;
@@ -35,7 +35,11 @@ describe('JwtStrategy.validate — 账号状态拦截', () => {
 
     const result = await strategy.validate({ sub: 'user-1', sessionId: 'session-1' });
 
-    expect(result).toEqual({ sub: 'user-1' });
+    expect(result).toEqual({
+      sub: 'user-1',
+      sessionId: 'session-1',
+      authIdentityId: 'identity-1',
+    });
   });
 
   it('用户不存在 → UnauthorizedException', async () => {
@@ -79,5 +83,15 @@ describe('JwtStrategy.validate — 账号状态拦截', () => {
     await expect(strategy.validate({ sub: 'user-1', sessionId: 's' })).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('无 sessionId 的历史 token 必须刷新，不能借用同用户任意活跃会话', async () => {
+    const prisma = makePrisma();
+    const strategy = new JwtStrategy(makeConfig(), prisma);
+
+    await expect(strategy.validate({ sub: 'user-1' })).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(prisma.session.findFirst).not.toHaveBeenCalled();
   });
 });

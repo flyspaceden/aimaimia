@@ -37,6 +37,72 @@ describe('AlipayService', () => {
       return_url: 'aimaimai://alipay',
     });
   });
+
+  it('uses the CheckoutSession absolute expiry for app pay', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-02T18:00:00.000Z'));
+    try {
+      const config = { get: jest.fn((_key: string, fallback?: string) => fallback) };
+      const service = new AlipayService(config as any);
+      const sdkExecute = jest.fn().mockReturnValue('signed-order-string');
+      (service as any).sdk = { sdkExecute };
+
+      await service.createAppPayOrder({
+        merchantOrderNo: 'VIP-test',
+        totalAmount: 399,
+        subject: '爱买买VIP礼包',
+        timeExpire: new Date('2026-08-02T18:05:59.000Z'),
+      });
+
+      expect(sdkExecute).toHaveBeenCalledWith(
+        'alipay.trade.app.pay',
+        expect.objectContaining({
+          bizContent: expect.objectContaining({
+            time_expire: '2026-08-03 02:05',
+          }),
+        }),
+      );
+      expect(sdkExecute.mock.calls[0][1].bizContent.timeout_express).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses to create an app-pay string when the local checkout expires in under one minute', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
+    try {
+      const service = new AlipayService({
+        get: jest.fn((_key: string, fallback?: string) => fallback),
+      } as any);
+      const sdkExecute = jest.fn();
+      (service as any).sdk = { sdkExecute };
+
+      await expect(service.createAppPayOrder({
+        merchantOrderNo: 'CS-expiring',
+        totalAmount: 1,
+        subject: '即将过期订单',
+        timeExpire: new Date('2026-08-02T12:00:59.000Z'),
+      })).rejects.toThrow('结算会话即将过期');
+      expect(sdkExecute).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses an invalid absolute app-pay expiry', async () => {
+    const service = new AlipayService({
+      get: jest.fn((_key: string, fallback?: string) => fallback),
+    } as any);
+    const sdkExecute = jest.fn();
+    (service as any).sdk = { sdkExecute };
+
+    await expect(service.createAppPayOrder({
+      merchantOrderNo: 'CS-invalid-expiry',
+      totalAmount: 1,
+      subject: '无效截止时间订单',
+      timeExpire: new Date(Number.NaN),
+    })).rejects.toThrow('支付过期时间无效');
+    expect(sdkExecute).not.toHaveBeenCalled();
+  });
 });
 
 describe('AlipayService.closeOrder', () => {
@@ -233,6 +299,8 @@ describe('AlipayService.queryTransfer', () => {
     exec.mockResolvedValue({
       code: '10000',
       status: 'SUCCESS',
+      outBizNo: 'WD-x',
+      transAmount: '80.00',
       orderId: 'O1',
       payFundOrderId: 'F1',
       payDate: '2026-01-01 10:00:00',
@@ -241,9 +309,32 @@ describe('AlipayService.queryTransfer', () => {
     const result = await service.queryTransfer({ outBizNo: 'WD-x' });
 
     expect(result.status).toBe('SUCCESS');
+    expect(result.outBizNo).toBe('WD-x');
+    expect(result.transAmount).toBe('80.00');
     expect(result.orderId).toBe('O1');
     expect(result.payFundOrderId).toBe('F1');
     expect(result.payDate).toBeInstanceOf(Date);
+  });
+
+  it('preserves raw snake_case transfer identity and amount fields', async () => {
+    exec.mockResolvedValue({
+      code: '10000',
+      status: 'SUCCESS',
+      out_biz_no: 'WD-raw',
+      trans_amount: 80,
+      orderId: 'O-raw',
+      payFundOrderId: 'F-raw',
+    });
+
+    const result = await service.queryTransfer({ outBizNo: 'WD-raw' });
+
+    expect(result).toMatchObject({
+      status: 'SUCCESS',
+      outBizNo: 'WD-raw',
+      transAmount: '80.00',
+      orderId: 'O-raw',
+      payFundOrderId: 'F-raw',
+    });
   });
 
   it('maps not-found provider responses to NOT_FOUND', async () => {

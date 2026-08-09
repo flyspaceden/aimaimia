@@ -16,6 +16,7 @@ describe('PaymentController.handleAlipayNotify', () => {
     assertAfterSaleShippingPaymentAmountMatches?: jest.Mock;
     assertDeliveryAlipayAmountMatches?: jest.Mock;
     handlePaymentCallback?: jest.Mock;
+    verifyNotify?: jest.Mock;
   }) => {
     const paymentService = {
       handlePaymentCallback: overrides?.handlePaymentCallback ?? jest.fn().mockResolvedValue({ code: 'SUCCESS' }),
@@ -25,7 +26,7 @@ describe('PaymentController.handleAlipayNotify', () => {
       getByOrderId: jest.fn(),
     };
     const alipayService = {
-      verifyNotify: jest.fn().mockResolvedValue(true),
+      verifyNotify: overrides?.verifyNotify ?? jest.fn().mockResolvedValue(true),
     };
     const checkoutService = {
       findByMerchantOrderNo: overrides?.findByMerchantOrderNo ?? jest.fn().mockResolvedValue({
@@ -59,6 +60,25 @@ describe('PaymentController.handleAlipayNotify', () => {
       res,
     };
   };
+
+  it('验签失败时日志不记录支付宝通知原文或完整交易号', async () => {
+    const { controller, res } = buildController({
+      verifyNotify: jest.fn().mockResolvedValue(false),
+    });
+    const logger = (controller as any).logger;
+    const logSpy = jest.spyOn(logger, 'log').mockImplementation(() => undefined);
+    const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const sensitiveBody = { ...notifyBody, sign: 'very-sensitive-signature' };
+
+    await controller.handleAlipayNotify(sensitiveBody, res as any);
+
+    const logs = [...logSpy.mock.calls, ...errorSpy.mock.calls].flat().join(' ');
+    expect(logs).not.toContain(sensitiveBody.sign);
+    expect(logs).not.toContain(notifyBody.out_trade_no);
+    expect(logs).not.toContain(JSON.stringify(sensitiveBody));
+    expect(logs).toContain('CS-1***-abc');
+    expect(res.send).toHaveBeenCalledWith('failure');
+  });
 
   it('returns failure when session lookup throws so Alipay can retry', async () => {
     const { controller, paymentService, checkoutService, res } = buildController({

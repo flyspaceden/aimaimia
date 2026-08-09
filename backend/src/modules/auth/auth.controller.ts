@@ -15,6 +15,12 @@ import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  WechatMiniappBindPhoneCodeDto,
+  WechatMiniappBindPhoneDto,
+  WechatMiniappLoginDto,
+} from './dto/wechat-miniapp.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -80,10 +86,48 @@ export class AuthController {
     return this.authService.logout(userId, token);
   }
 
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('change-password')
+  changePassword(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | null | undefined,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(userId, dto, sessionId ?? undefined);
+  }
+
   @Public()
   @Post('oauth/wechat')
   loginWithWeChat(@Body() dto: WeChatOAuthDto) {
     return this.authService.loginWithWeChat(dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp')
+  loginWithWechatMiniapp(@Body() dto: WechatMiniappLoginDto) {
+    return this.authService.loginWithWechatMiniapp(dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat-miniapp/bind-phone/sms/code')
+  sendWechatMiniappBindPhoneCode(@Body() dto: WechatMiniappBindPhoneCodeDto) {
+    return this.authService.sendWechatMiniappBindPhoneCode(
+      dto.miniLoginTicket,
+      dto.phone,
+    );
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp/bind-phone')
+  bindWechatMiniappPhone(@Body() dto: WechatMiniappBindPhoneDto) {
+    return this.authService.bindWechatMiniappPhone(
+      dto.miniLoginTicket,
+      dto.phone,
+      dto.code,
+    );
   }
 
   @Public()

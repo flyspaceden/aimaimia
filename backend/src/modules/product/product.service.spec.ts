@@ -17,7 +17,7 @@ const buildBundleProduct = () => ({
   categoryId: 'cat-fruit',
   category: { id: 'cat-fruit', name: '水果' },
   companyId: 'company-1',
-  company: { id: 'company-1', name: '果园旗舰店', isPlatform: false },
+  company: { id: 'company-1', name: '果园旗舰店', isPlatform: false, status: 'ACTIVE' },
   returnPolicy: 'RETURNABLE',
   status: 'ACTIVE',
   auditStatus: 'APPROVED',
@@ -92,7 +92,7 @@ const buildSimpleProduct = () => ({
   categoryId: 'cat-fruit',
   category: { id: 'cat-fruit', name: '水果' },
   companyId: 'company-1',
-  company: { id: 'company-1', name: '果园旗舰店', isPlatform: false },
+  company: { id: 'company-1', name: '果园旗舰店', isPlatform: false, status: 'ACTIVE' },
   returnPolicy: 'RETURNABLE',
   status: 'ACTIVE',
   auditStatus: 'APPROVED',
@@ -232,10 +232,36 @@ describe('ProductService bundle mapping', () => {
     const prisma = createPrismaMock();
     prisma.product.findUnique.mockResolvedValue({
       ...buildBundleProduct(),
-      company: { id: 'company-platform', name: '爱买买app', isPlatform: true },
+      company: { id: 'company-platform', name: '爱买买app', isPlatform: true, status: 'ACTIVE' },
     });
     const service = new ProductService(prisma as any, new ProductBundleService());
 
     await expect(service.getById('bundle-product-1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('hides products owned by a suspended company from buyer detail', async () => {
+    const prisma = createPrismaMock();
+    prisma.product.findUnique.mockResolvedValue({
+      ...buildBundleProduct(),
+      company: { id: 'company-suspended', name: '暂停营业企业', isPlatform: false, status: 'SUSPENDED' },
+    });
+    const service = new ProductService(prisma as any, new ProductBundleService());
+
+    await expect(service.getById('bundle-product-1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('filters product lists to active non-platform companies', async () => {
+    const prisma = createPrismaMock();
+    prisma.product.findMany.mockResolvedValue([]);
+    prisma.product.count.mockResolvedValue(0);
+    const service = new ProductService(prisma as any, new ProductBundleService());
+
+    await service.list();
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        company: { status: 'ACTIVE', isPlatform: false },
+      }),
+    }));
   });
 });

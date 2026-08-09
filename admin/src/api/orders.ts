@@ -53,3 +53,9 @@ export const retryRefund = (
   refundId: string,
 ): Promise<{ ok: boolean; message?: string }> =>
   client.post(`/admin/orders/${orderId}/refunds/${refundId}/retry`);
+
+/** 将当前订单所属微信支付单的最新发货快照重新加入异步上报队列 */
+export const retryWechatShipping = (
+  orderId: string,
+): Promise<{ ok: boolean; status: 'PENDING' }> =>
+  client.post(`/admin/orders/${orderId}/wechat-shipping/retry`);

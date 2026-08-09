@@ -6,6 +6,6 @@ export class BindNormalShareDto {
   code: string;
 
   @IsOptional()
-  @IsIn(['LANDING', 'APP', 'DEFERRED', 'ADMIN'])
-  source?: 'LANDING' | 'APP' | 'DEFERRED' | 'ADMIN';
+  @IsIn(['LANDING', 'APP', 'MINI_PROGRAM', 'DEFERRED', 'ADMIN'])
+  source?: 'LANDING' | 'APP' | 'MINI_PROGRAM' | 'DEFERRED' | 'ADMIN';
 }

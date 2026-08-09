@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Modal, Form, Input } from 'antd';
-import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
-import { getOrder, retryRefund, updateOrderReceiverInfo } from '@/api/orders';
+import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
+import { getOrder, retryRefund, retryWechatShipping, updateOrderReceiverInfo } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { OrderItem, Refund } from '@/types';
@@ -92,12 +92,32 @@ export default function OrderDetailPage() {
   const [receiverInfoForm] = Form.useForm<ReceiverInfoFormValues>();
   const [receiverInfoModalOpen, setReceiverInfoModalOpen] = useState(false);
   const [receiverInfoSaving, setReceiverInfoSaving] = useState(false);
+  const [wechatShippingRetrying, setWechatShippingRetrying] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
     queryFn: () => getOrder(id!),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const status = query.state.data?.wechatShipping?.status;
+      return status === 'PENDING' || status === 'PROCESSING' ? 5_000 : false;
+    },
+    refetchIntervalInBackground: false,
   });
+
+  const handleWechatShippingRetry = async () => {
+    if (!id || wechatShippingRetrying) return;
+    setWechatShippingRetrying(true);
+    try {
+      await retryWechatShipping(id);
+      message.success('已重新加入微信发货上报队列');
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || error?.message || '重试失败');
+    } finally {
+      setWechatShippingRetrying(false);
+    }
+  };
 
   if (isLoading) return <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>;
   if (!order) return (
@@ -457,6 +477,47 @@ export default function OrderDetailPage() {
           </Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {order.paymentMethod === 'WECHAT_PAY' && order.paymentScene === 'MINI_PROGRAM' && (
+        <Card title="微信小程序交易发货" style={{ marginBottom: 16 }}>
+          {order.wechatShipping ? (
+            <Descriptions bordered column={{ xs: 1, sm: 2 }}>
+              <Descriptions.Item label="上报状态">
+                <Tag color={{ PENDING: 'processing', PROCESSING: 'blue', SUCCEEDED: 'success', FAILED: 'error' }[order.wechatShipping.status]}>
+                  {{ PENDING: '待上报', PROCESSING: '上报中', SUCCEEDED: '已上报', FAILED: '失败' }[order.wechatShipping.status]}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="尝试次数">{order.wechatShipping.attemptCount}</Descriptions.Item>
+              <Descriptions.Item label="最后更新">{formatDateTime(order.wechatShipping.updatedAt)}</Descriptions.Item>
+              <Descriptions.Item label="成功时间">{formatDateTime(order.wechatShipping.succeededAt)}</Descriptions.Item>
+              {order.wechatShipping.lastError && (
+                <Descriptions.Item label="最近错误" span={2}>
+                  <Alert
+                    type="error"
+                    showIcon
+                    message={order.wechatShipping.lastErrorCode || '微信平台返回失败'}
+                    description={order.wechatShipping.lastError}
+                    action={order.wechatShipping.status === 'FAILED' ? (
+                      <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
+                        <Button
+                          size="small"
+                          icon={<ReloadOutlined />}
+                          loading={wechatShippingRetrying}
+                          onClick={handleWechatShippingRetry}
+                        >
+                          重新上报
+                        </Button>
+                      </PermissionGate>
+                    ) : undefined}
+                  />
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          ) : (
+            <Alert type="info" showIcon message="订单发货后将自动创建微信发货上报任务" />
+          )}
+        </Card>
+      )}
 
       {order.refunds?.length ? (
         <Card title="退款信息" style={{ marginBottom: 16 }}>

@@ -43,6 +43,8 @@ const makeHarness = (options: {
 } = {}) => {
   const configs = { GROWTH_ENABLED: true, ...(options.configs ?? {}) };
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
     growthExchangeRecord: {
       findUnique: jest.fn().mockResolvedValue(options.existingRecord ?? null),
       count: jest.fn().mockResolvedValue(options.limitCount ?? 0),

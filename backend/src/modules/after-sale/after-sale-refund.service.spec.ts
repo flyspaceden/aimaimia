@@ -72,6 +72,7 @@ describe('AfterSaleRefundService', () => {
   const paymentService = {
     initiateRefund: jest.fn(),
     reconcileWechatRefundBeforeRetry: jest.fn(),
+    isWechatRefundNotifyAuthorityValidInTx: jest.fn(),
   };
 
   const rewardService = {
@@ -165,6 +166,7 @@ describe('AfterSaleRefundService', () => {
       message: 'OK',
     });
     paymentService.reconcileWechatRefundBeforeRetry.mockResolvedValue(false);
+    paymentService.isWechatRefundNotifyAuthorityValidInTx.mockResolvedValue(true);
     rewardService.voidRewardsForOrder.mockResolvedValue(undefined);
     rewardService.voidRewardsForOrderInTransaction.mockResolvedValue(
       undefined,
@@ -431,6 +433,31 @@ describe('AfterSaleRefundService', () => {
     expect(tx.refundStatusHistory.create).not.toHaveBeenCalled();
   });
 
+  it('handleRefundFailure revalidates WeChat authority inside its Serializable transaction', async () => {
+    const authority = {
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AS-as_001',
+      providerRefundId: 'provider_refund_001',
+      refundAmountFen: 8800,
+      totalAmountFen: 12000,
+    };
+    paymentService.isWechatRefundNotifyAuthorityValidInTx.mockResolvedValue(false);
+
+    await service.handleRefundFailure(
+      'refund_001',
+      '微信退款失败: ABNORMAL',
+      authority,
+    );
+
+    expect(paymentService.isWechatRefundNotifyAuthorityValidInTx).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: 'refund_001' }),
+      authority,
+    );
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(tx.refundStatusHistory.create).not.toHaveBeenCalled();
+  });
+
   it('handleRefundSuccess sets REFUNDED statuses and creates AfterSaleStatusHistory once', async () => {
     tx.refund.findUnique.mockResolvedValue({
       id: 'refund_001',
@@ -538,6 +565,31 @@ describe('AfterSaleRefundService', () => {
     expect(tx.refund.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'REFUNDED' }),
     }));
+  });
+
+  it('handleRefundSuccess revalidates WeChat authority before refund finalization', async () => {
+    const authority = {
+      outTradeNo: 'CS-1',
+      outRefundNo: 'AS-as_001',
+      providerRefundId: 'provider_refund_001',
+      refundAmountFen: 8800,
+      totalAmountFen: 12000,
+    };
+    paymentService.isWechatRefundNotifyAuthorityValidInTx.mockResolvedValue(false);
+
+    await service.handleRefundSuccess(
+      'refund_001',
+      'provider_refund_001',
+      authority,
+    );
+
+    expect(paymentService.isWechatRefundNotifyAuthorityValidInTx).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: 'refund_001' }),
+      authority,
+    );
+    expect(tx.refund.updateMany).not.toHaveBeenCalled();
+    expect(tx.afterSaleRequest.findUnique).not.toHaveBeenCalled();
   });
 
   it('handleRefundSuccess reverses digital asset cumulative spend after refund closes', async () => {

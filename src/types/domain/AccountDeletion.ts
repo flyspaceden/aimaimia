@@ -15,6 +15,7 @@ export type AccountDeletionBlockerCode =
   | 'USER_NOT_ACTIVE' // 账号状态非 ACTIVE 或已注销
   | 'ACTIVE_CHECKOUT_EXISTS' // 存在支付中 / 确认中的结算会话
   | 'PENDING_PAYMENT_EXISTS' // 存在待支付 / 处理中的支付
+  | 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS' // 存在未安全关闭的退货运费支付
   | 'WITHDRAW_PROCESSING_EXISTS'; // 存在在途提现
 
 /** 单条注销阻塞项 */
@@ -37,6 +38,12 @@ export interface AccountDeletionAssets {
   withdrawableRewards: number;
   /** 冻结中奖励余额 */
   frozenRewards: number;
+  digitalAssetSeedBalance: number;
+  digitalAssetCreditBalance: number;
+  groupBuyRebateBalance: number;
+  groupBuyRebateReserved: number;
+  captainBalance: number;
+  captainFrozen: number;
   /** 抽奖名额 */
   lotteryQuota: number;
   /** 在途提现金额 */

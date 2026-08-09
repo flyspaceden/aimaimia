@@ -148,6 +148,31 @@ export class RedisCoordinatorService implements OnModuleDestroy {
     }
   }
 
+  /** 仅锁 owner 仍匹配时续租，避免旧请求误延长后来者持有的锁。 */
+  async renewLock(rawKey: string, owner: string, ttlMs: number): Promise<boolean | null> {
+    if (!this.client) return null;
+    const key = this.key(rawKey);
+    try {
+      await this.ensureConnected();
+      const result = await this.client.eval(
+        `
+          if redis.call('GET', KEYS[1]) == ARGV[1] then
+            return redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+          end
+          return 0
+        `,
+        1,
+        key,
+        owner,
+        String(ttlMs),
+      );
+      return Number(result ?? 0) === 1;
+    } catch (err: any) {
+      this.logRedisFallbackOnce(err);
+      return null;
+    }
+  }
+
   async getPttl(rawKey: string): Promise<number | null> {
     if (!this.client) return null;
     try {

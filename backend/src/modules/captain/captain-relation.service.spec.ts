@@ -5,8 +5,17 @@ import { CaptainRelationService } from './captain-relation.service';
 
 function createHarness(txOverrides: Record<string, any> = {}) {
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([{
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+    }]),
     user: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'user-1',
+        status: 'ACTIVE',
+        deletionExecutedAt: null,
+      }),
     },
     captainProfile: {
       findUnique: jest.fn().mockResolvedValue(null),

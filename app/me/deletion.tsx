@@ -100,6 +100,7 @@ const BLOCKER_HINTS: Record<AccountDeletionBlockerCode, string> = {
   USER_NOT_ACTIVE: '账号状态不支持注销',
   ACTIVE_CHECKOUT_EXISTS: '您有正在支付或确认中的订单，请先完成或取消',
   PENDING_PAYMENT_EXISTS: '您有支付处理中记录，请稍后再试',
+  PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS: '请先完成或安全关闭退货运费支付',
   WITHDRAW_PROCESSING_EXISTS: '您有提现处理中记录，请到账或失败后再注销',
 };
 
@@ -475,6 +476,12 @@ export default function AccountDeletionScreen() {
     { label: '平台红包', value: `${assets.coupons} 张` },
     { label: 'VIP 权益', value: '立即终止' },
     { label: '冻结分润', value: formatMoney(assets.frozenRewards) },
+    { label: '数字资产种子余额', value: formatMoney(assets.digitalAssetSeedBalance) },
+    { label: '数字资产增量余额', value: formatMoney(assets.digitalAssetCreditBalance) },
+    { label: '团购返还可用余额', value: formatMoney(assets.groupBuyRebateBalance) },
+    { label: '团购返还冻结余额', value: formatMoney(assets.groupBuyRebateReserved) },
+    { label: '团长可用佣金', value: formatMoney(assets.captainBalance) },
+    { label: '团长冻结佣金', value: formatMoney(assets.captainFrozen) },
     { label: '抽奖名额', value: `${assets.lotteryQuota}` },
   ];
 

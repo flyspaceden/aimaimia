@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Headers } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
@@ -34,6 +34,16 @@ export class CartController {
     return this.cartService.updateItemQuantity(userId, skuId, dto.quantity);
   }
 
+  /** 微信小程序 wx.request 不支持 PATCH。 */
+  @Put('items/:skuId')
+  updateItemQuantityFromMiniProgram(
+    @CurrentUser('sub') userId: string,
+    @Param('skuId') skuId: string,
+    @Body() dto: UpdateCartItemQuantityDto,
+  ) {
+    return this.cartService.updateItemQuantity(userId, skuId, dto.quantity);
+  }
+
   @Delete('items/:skuId')
   removeItem(
     @CurrentUser('sub') userId: string,
@@ -45,6 +55,15 @@ export class CartController {
   /** F2: 勾选/取消勾选购物车商品 */
   @Patch('items/:skuId/select')
   toggleSelect(
+    @CurrentUser('sub') userId: string,
+    @Param('skuId') skuId: string,
+    @Body() dto: ToggleCartSelectDto,
+  ) {
+    return this.cartService.toggleSelect(userId, skuId, dto.isSelected);
+  }
+
+  @Put('items/:skuId/select')
+  toggleSelectFromMiniProgram(
     @CurrentUser('sub') userId: string,
     @Param('skuId') skuId: string,
     @Body() dto: ToggleCartSelectDto,

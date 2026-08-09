@@ -20,8 +20,11 @@ export class BookingController {
   }
 
   @Get('company/:companyId')
-  listByCompany(@Param('companyId') companyId: string) {
-    return this.bookingService.listByCompany(companyId);
+  listByCompany(
+    @CurrentUser('sub') userId: string,
+    @Param('companyId') companyId: string,
+  ) {
+    return this.bookingService.listByCompany(userId, companyId);
   }
 
   @Post()

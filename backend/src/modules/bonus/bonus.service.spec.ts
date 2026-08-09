@@ -2239,7 +2239,6 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
       items: [
         {
           id: 'gb-mid',
-          sourceLedgerId: 'gb-mid',
           source: 'GROUP_BUY_REBATE',
           accountType: 'GROUP_BUY_REBATE',
           type: 'RELEASE',
@@ -2248,13 +2247,11 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
           amount: 4,
           balanceAfter: 4,
           refType: 'GROUP_BUY_REFERRAL',
-          refId: 'ref-gb-mid',
-          meta: { tierSequence: 1 },
+          meta: null,
           createdAt: '2026-06-22T09:00:00.000Z',
         },
         {
           id: 'reward-vip',
-          sourceLedgerId: 'reward-vip',
           source: 'REWARD',
           accountType: 'VIP_REWARD',
           type: 'RELEASE',
@@ -2262,8 +2259,7 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
           status: 'AVAILABLE',
           amount: 10,
           refType: 'ORDER',
-          refId: 'order-reward-vip',
-          meta: { accountType: 'VIP_REWARD' },
+          meta: null,
           createdAt: '2026-06-22T08:00:00.000Z',
         },
       ],
@@ -2436,16 +2432,55 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
 
     const result = await service.getWalletLedger('user-1', 1, 20);
 
-    expect(result.items[0]).toMatchObject({
-      id: 'reward-withdraw',
-      scheme: 'POINTS_WITHDRAW',
-    });
+    expect(result.items[0]).toMatchObject({ id: 'reward-withdraw', meta: null });
+    expect(result.items[0]).not.toHaveProperty('scheme');
     expect(result.items[0]).not.toHaveProperty('sourceLabel');
-    expect(result.items[1]).toMatchObject({
-      id: 'reward-deduct',
-      scheme: 'POINTS_DEDUCTION',
-    });
+    expect(result.items[1]).toMatchObject({ id: 'reward-deduct', meta: null });
+    expect(result.items[1]).not.toHaveProperty('scheme');
     expect(result.items[1]).not.toHaveProperty('sourceLabel');
+  });
+
+  it('钱包流水只输出允许的展示 meta，不暴露内部 ID、路由或配置快照', async () => {
+    const reward = rewardLedger('reward-public-meta', 'NORMAL_REWARD', '2026-06-22T12:00:00.000Z', 8, {
+      meta: {
+        orderNo: 'AIMM202606220001',
+        requiredLevel: 3,
+        expiresAt: '2026-07-22T12:00:00.000Z',
+        scheme: 'NORMAL_TREE',
+        sourceLedgerId: 'ledger-secret',
+        ancestorNodeId: 'node-secret',
+        routing: { recipientUserId: 'user-secret' },
+        configSnapshot: { platformRatio: 0.5 },
+      },
+    });
+    const prismaMock: any = {
+      companyStaff: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue([reward]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+
+    const result = await buildService(prismaMock).getWalletLedger('user-1', 1, 20);
+
+    expect(result.items[0]).toMatchObject({
+      id: 'reward-public-meta',
+      scheme: 'NORMAL_TREE',
+      sourceLabel: '普通树分润',
+      meta: {
+        orderNo: 'AIMM202606220001',
+        requiredLevel: 3,
+        expiresAt: '2026-07-22T12:00:00.000Z',
+      },
+    });
+    expect(result.items[0]).not.toHaveProperty('sourceLedgerId');
+    expect(result.items[0]).not.toHaveProperty('refId');
+    expect(JSON.stringify(result.items[0])).not.toContain('secret');
+    expect(JSON.stringify(result.items[0])).not.toContain('configSnapshot');
   });
 
   it('对非法页码和过大 pageSize 做夹紧后再查询并计算 nextPage', async () => {

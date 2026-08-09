@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
 
 /**
  * 红包触发类型（与 Prisma enum CouponTriggerType 保持一致）
@@ -450,6 +451,7 @@ export class CouponEngineService {
   ): Promise<boolean> {
     return this.prisma.$transaction(
       async (tx) => {
+        await assertActiveUserWriteBarrier(tx, userId);
         const now = new Date();
 
         // 1. 查询活动并校验

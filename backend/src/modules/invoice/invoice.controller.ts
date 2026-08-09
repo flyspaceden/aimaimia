@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Body,
@@ -38,6 +39,16 @@ export class InvoiceController {
   /** 修改发票抬头 */
   @Patch('profiles/:id')
   updateProfile(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateInvoiceProfileDto,
+  ) {
+    return this.invoiceService.updateProfile(userId, id, dto);
+  }
+
+  /** 微信小程序 wx.request 不支持 PATCH。 */
+  @Put('profiles/:id')
+  updateProfileFromMiniProgram(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body() dto: UpdateInvoiceProfileDto,

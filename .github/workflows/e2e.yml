@@ -57,11 +57,11 @@ jobs:
       - name: Install Playwright browsers
         run: cd tests && npx playwright install chromium --with-deps
 
-      # 数据库 schema + seed
+      # 数据库 migration + seed（不得用 db push，否则手写 partial index 不会生效）
       - name: Setup database
         run: |
           cd backend
-          npx prisma db push --skip-generate
+          npx prisma migrate deploy
           npx prisma generate
           npx prisma db seed
         env:

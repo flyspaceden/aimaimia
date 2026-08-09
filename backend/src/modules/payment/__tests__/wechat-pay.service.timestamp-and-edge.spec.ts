@@ -13,6 +13,7 @@ jest.mock('wechatpay-node-v3', () => ({
     fetchCertificates: jest.fn(),
     verifySign: jest.fn(),
     decipher_gcm: jest.fn(),
+    createHttp: jest.fn(),
   })),
 }));
 
@@ -32,6 +33,8 @@ describe('WechatPayService 边界与时间窗口', () => {
     WECHAT_PAY_MERCHANT_CERT_SERIAL: 'ABC123',
     WECHAT_PAY_MERCHANT_CERT: '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----',
     WECHAT_PAY_MERCHANT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----',
+    WECHAT_PAY_PUBLIC_KEY_ID: 'PUB_KEY_ID',
+    WECHAT_PAY_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----',
   };
 
   const buildSvc = async () => {
@@ -67,6 +70,7 @@ describe('WechatPayService 边界与时间窗口', () => {
       out_trade_no: 'CS-1',
       transaction_id: 'TXN-1',
       trade_state: 'SUCCESS',
+      trade_type: 'APP',
       amount: { total: 100 },
     };
 
@@ -156,6 +160,7 @@ describe('WechatPayService 边界与时间窗口', () => {
           out_trade_no: 'CS-1',
           transaction_id: 'TXN-1',
           trade_state: 'SUCCESS',
+          trade_type: 'APP',
           amount: { total: 200 },
         }),
       );
@@ -195,7 +200,7 @@ describe('WechatPayService 边界与时间窗口', () => {
       const result = await svc.closeOrder('CS-1');
       expect(result).toEqual({
         success: true,
-        terminal: false,
+        terminal: true,
         alreadyPaid: false,
         message: '关单成功',
       });
@@ -237,12 +242,12 @@ describe('WechatPayService 边界与时间窗口', () => {
       expect(result.terminal).toBe(false);
     });
 
-    it('outTradeNo 超过 32 字符时应安全降级为未建单（防止把账号带去微信被拒）', async () => {
+    it('outTradeNo 超过 32 字符时应 fail-closed，不伪装成远端已终结', async () => {
       const svc = await buildSvc();
       const client = (svc as any).client;
       const result = await svc.closeOrder('X'.repeat(40));
-      expect(result.success).toBe(true);
-      expect(result.terminal).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.terminal).toBe(false);
       expect(client.close).not.toHaveBeenCalled();
     });
   });

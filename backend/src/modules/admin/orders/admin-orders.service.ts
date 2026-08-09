@@ -21,6 +21,7 @@ import { decryptJsonValue, encryptJsonValue } from '../../../common/security/enc
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
+import { WechatShippingOutboxService } from '../../shipment/wechat-shipping-outbox.service';
 
 @Injectable()
 export class AdminOrdersService {
@@ -34,6 +35,8 @@ export class AdminOrdersService {
     private paymentService: PaymentService,
     @Optional()
     private shippingCost?: OrderShippingCostService,
+    @Optional()
+    private wechatShippingOutbox?: WechatShippingOutboxService,
   ) {}
 
   private normalizeTrackingNo(value?: string | null): string {
@@ -258,7 +261,22 @@ export class AdminOrdersService {
           },
         },
         checkoutSession: {
-          select: { paymentChannel: true, providerTxnId: true },
+          select: {
+            paymentChannel: true,
+            paymentScene: true,
+            providerTxnId: true,
+            wechatShippingOutbox: {
+              select: {
+                status: true,
+                attemptCount: true,
+                nextAttemptAt: true,
+                lastErrorCode: true,
+                lastError: true,
+                succeededAt: true,
+                updatedAt: true,
+              },
+            },
+          },
         },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: true,
@@ -299,7 +317,9 @@ export class AdminOrdersService {
       receiverInfoEditable: this.canUpdateReceiverInfo(order, shipments),
       company,
       paymentMethod,
+      paymentScene: order.checkoutSession?.paymentScene ?? null,
       transactionId,
+      wechatShipping: order.checkoutSession?.wechatShippingOutbox ?? null,
       user: {
         ...order.user,
         authIdentities: (order.user?.authIdentities || []).map((identity) => ({
@@ -331,6 +351,20 @@ export class AdminOrdersService {
         };
       }),
     };
+  }
+
+  async retryWechatShipping(orderId: string) {
+    if (!this.wechatShippingOutbox) {
+      throw new ConflictException('微信发货上报服务未启用');
+    }
+    const result = await this.wechatShippingOutbox.retryForOrder(orderId);
+    if (!result.enqueued) {
+      if (result.reason === 'NOT_MINI_PROGRAM_WECHAT_PAYMENT') {
+        throw new BadRequestException('该订单不是微信小程序支付订单');
+      }
+      throw new BadRequestException(`微信发货快照暂不可重试：${result.reason || 'UNKNOWN'}`);
+    }
+    return { ok: true, status: 'PENDING' as const };
   }
 
   async updateReceiverInfo(id: string, dto: AdminUpdateOrderReceiverInfoDto) {
@@ -797,6 +831,9 @@ export class AdminOrdersService {
               reason: `发货 ${resolvedCarrierName} ${reasonNo}${dto.useCarrierAuto ? '（自动取号）' : ''}`,
             },
           });
+
+          // 发货事务只写 durable outbox；不得在 Serializable 事务内请求微信。
+          await this.wechatShippingOutbox?.enqueueForOrderTx(tx, orderId);
 
           return { ok: true, waybillNo: resolvedWaybillNo, waybillUrl: resolvedWaybillUrl };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

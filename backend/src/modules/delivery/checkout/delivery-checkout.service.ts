@@ -553,22 +553,22 @@ export class DeliveryCheckoutService {
         return toResult('query-error');
       }
 
-      let queryResult: {
-        tradeState: string;
-        transactionId?: string;
-        outTradeNo: string;
-        totalAmountFen: number;
-        totalAmount: number;
-        paidAt?: Date;
-      } | null = null;
+      let queryResult: any;
       try {
         queryResult = await wechatPayService.queryOrder(session.merchantOrderNo);
       } catch {
         return toResult('query-error');
       }
 
-      if (!queryResult) {
+      if (!queryResult || queryResult.outcome === 'UNKNOWN') {
+        return toResult('query-error');
+      }
+      if (queryResult.outcome === 'DEFINITIVE_NOT_FOUND') {
         return toResult('not-found');
+      }
+      // 配送中心当前只支持 App 支付；查单响应也必须来自 APP AppID/trade_type。
+      if (!wechatPayService.matchesPaymentScene(queryResult, 'APP')) {
+        return toResult('query-error');
       }
       if (queryResult.tradeState !== 'SUCCESS') {
         return toResult(`wechat-${queryResult.tradeState.toLowerCase()}`);

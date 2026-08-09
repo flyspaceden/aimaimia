@@ -36,8 +36,30 @@ function createMocks() {
       create: jest.fn(),
       aggregate: jest.fn().mockResolvedValue({ _avg: { score: 4.5 } }),
     },
-    order: { findUnique: jest.fn() },
-    afterSaleRequest: { findUnique: jest.fn() },
+    order: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        status: 'PAID',
+        totalAmount: 100,
+        goodsAmount: 100,
+        shippingFee: 0,
+        discountAmount: 0,
+        paidAt: new Date(),
+        deliveredAt: null,
+        createdAt: new Date(),
+        addressSnapshot: null,
+        items: [],
+        shipments: [],
+        afterSaleRequests: [],
+      }),
+    },
+    afterSaleRequest: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'after-sale-1',
+        userId: 'user-1',
+        order: { userId: 'user-1' },
+      }),
+    },
   };
   // $transaction 默认实现：把 tx 替换为 prisma 本身，这样测试中对
   // prisma.csSession.* 的 mock 在事务回调内部同样有效
@@ -132,7 +154,7 @@ describe('CsService', () => {
       prisma.csSession.findFirst.mockResolvedValue(null);
       prisma.csSession.create.mockResolvedValue({ id: 'session-no-source' });
 
-      await service.createSession('user-1', 'PERSONAL_CENTER');
+      await service.createSession('user-1', 'MY_PAGE');
 
       // findFirst 查询中 sourceId 应为 null
       expect(prisma.csSession.findFirst).toHaveBeenCalledWith(
@@ -142,7 +164,7 @@ describe('CsService', () => {
       );
       // create 中 sourceId 应为 null
       expect(prisma.csSession.create).toHaveBeenCalledWith({
-        data: { userId: 'user-1', source: 'PERSONAL_CENTER', sourceId: null },
+        data: { userId: 'user-1', source: 'MY_PAGE', sourceId: null },
       });
     });
 
@@ -169,6 +191,52 @@ describe('CsService', () => {
         data: expect.objectContaining({ status: 'RESOLVED', resolvedBy: 'admin-1' }),
       });
     });
+
+    it('拒绝买家伪造 ADMIN_OUTREACH 会话', async () => {
+      const { service, prisma } = createMocks();
+
+      await expect(service.createSession('user-1', 'ADMIN_OUTREACH'))
+        .rejects.toThrow('不允许创建此来源的客服会话');
+
+      expect(prisma.csSession.findFirst).not.toHaveBeenCalled();
+      expect(prisma.csSession.create).not.toHaveBeenCalled();
+    });
+
+    it('订单不存在或不属于当前买家时统一返回 NotFound', async () => {
+      const { service, prisma } = createMocks();
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(service.createSession('user-1', 'ORDER_DETAIL', 'other-order'))
+        .rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.order.findFirst).toHaveBeenCalledWith({
+        where: { id: 'other-order', userId: 'user-1' },
+        select: { id: true },
+      });
+      expect(prisma.csSession.create).not.toHaveBeenCalled();
+    });
+
+    it('售后单同时校验 afterSale.userId 和关联订单买家', async () => {
+      const { service, prisma } = createMocks();
+      prisma.afterSaleRequest.findFirst.mockResolvedValue(null);
+
+      await expect(service.createSession('user-1', 'AFTERSALE_DETAIL', 'other-after-sale'))
+        .rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.afterSaleRequest.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'other-after-sale',
+          userId: 'user-1',
+          order: { userId: 'user-1' },
+        },
+        select: {
+          id: true,
+          userId: true,
+          order: { select: { userId: true } },
+        },
+      });
+      expect(prisma.csSession.create).not.toHaveBeenCalled();
+    });
   });
 
   // ====================================================================
@@ -180,13 +248,13 @@ describe('CsService', () => {
       const { service, prisma } = createMocks();
       prisma.csSession.findFirst.mockResolvedValue(null);
 
-      await service.getActiveSession('user-1', 'PERSONAL_CENTER');
+      await service.getActiveSession('user-1', 'MY_PAGE');
 
       expect(prisma.csSession.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             userId: 'user-1',
-            source: 'PERSONAL_CENTER',
+            source: 'MY_PAGE',
             sourceId: null,
             status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
           }),
@@ -391,7 +459,7 @@ describe('CsService', () => {
         id: 'session-1',
         userId: 'user-1',
         status: 'AI_HANDLING',
-        source: 'PERSONAL_CENTER',
+        source: 'MY_PAGE',
         sourceId: null,
         messages: [],
       });
@@ -424,7 +492,7 @@ describe('CsService', () => {
         id: 'session-1',
         userId: 'user-1',
         status: 'AI_HANDLING',
-        source: 'PERSONAL_CENTER',
+        source: 'MY_PAGE',
         sourceId: null,
         messages: [],
       });
@@ -840,6 +908,75 @@ describe('CsService', () => {
     });
   });
 
+  describe('getBuyerSessionDetail()', () => {
+    it('返回当前买家会话的已有评价摘要', async () => {
+      const { service, prisma } = createMocks();
+      const rating = {
+        id: 'rating-1', score: 5, tags: ['快速'], comment: '很好', createdAt: new Date(),
+      };
+      prisma.csSession.findFirst.mockResolvedValue({
+        id: 's1', status: 'CLOSED', source: 'MY_PAGE', sourceId: null,
+        agentId: null, closedAt: new Date(), rating,
+      });
+
+      await expect(service.getBuyerSessionDetail('s1', 'u1')).resolves.toEqual(
+        expect.objectContaining({ id: 's1', status: 'CLOSED', rating }),
+      );
+      expect(prisma.csSession.findFirst).toHaveBeenCalledWith({
+        where: { id: 's1', userId: 'u1' },
+        select: expect.objectContaining({
+          rating: {
+            select: {
+              id: true,
+              score: true,
+              tags: true,
+              comment: true,
+              createdAt: true,
+            },
+          },
+        }),
+      });
+    });
+  });
+
+  describe('关联资源纵深鉴权', () => {
+    it('buildAiContext 再次按会话 userId 校验订单归属', async () => {
+      const { service, prisma } = createMocks();
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect((service as any).buildAiContext({
+        userId: 'user-1',
+        source: 'ORDER_DETAIL',
+        sourceId: 'other-order',
+        messages: [],
+      })).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.order.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'other-order', userId: 'user-1' },
+      }));
+    });
+
+    it('buildAiContext 再次同时校验售后和关联订单归属', async () => {
+      const { service, prisma } = createMocks();
+      prisma.afterSaleRequest.findFirst.mockResolvedValue(null);
+
+      await expect((service as any).buildAiContext({
+        userId: 'user-1',
+        source: 'AFTERSALE_DETAIL',
+        sourceId: 'other-after-sale',
+        messages: [],
+      })).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.afterSaleRequest.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: 'other-after-sale',
+          userId: 'user-1',
+          order: { userId: 'user-1' },
+        },
+      }));
+    });
+  });
+
   // ====================================================================
   // getStats
   // ====================================================================
@@ -878,13 +1015,13 @@ describe('CsService', () => {
       prisma.csSession.findFirst.mockResolvedValue(null);
       prisma.csSession.create.mockResolvedValue({ id: 's1' });
 
-      const session = await service.createSession('u1', 'PERSONAL_CENTER');
+      const session = await service.createSession('u1', 'MY_PAGE');
       expect(session).toEqual({ sessionId: 's1', isExisting: false });
 
       // Step 2: handleUserMessage — FAQ 命中
       prisma.csSession.findUnique.mockResolvedValue({
         id: 's1', userId: 'u1', status: 'AI_HANDLING',
-        source: 'PERSONAL_CENTER', sourceId: null, messages: [],
+        source: 'MY_PAGE', sourceId: null, messages: [],
       });
       prisma.csMessage.create
         .mockResolvedValueOnce({ id: 'msg-user', content: '运费多少' })
@@ -987,12 +1124,12 @@ describe('CsService', () => {
       // Step 1: createSession
       prisma.csSession.findFirst.mockResolvedValue(null);
       prisma.csSession.create.mockResolvedValue({ id: 's1' });
-      await service.createSession('u1', 'PERSONAL_CENTER');
+      await service.createSession('u1', 'MY_PAGE');
 
       // Step 2: handleUserMessage — AI 正常回复
       prisma.csSession.findUnique.mockResolvedValue({
         id: 's1', userId: 'u1', status: 'AI_HANDLING',
-        source: 'PERSONAL_CENTER', sourceId: null, messages: [],
+        source: 'MY_PAGE', sourceId: null, messages: [],
       });
       prisma.csMessage.create
         .mockResolvedValueOnce({ id: 'msg-user', content: '谢谢' })
@@ -1023,12 +1160,12 @@ describe('CsService', () => {
       // Step 1: createSession
       prisma.csSession.findFirst.mockResolvedValue(null);
       prisma.csSession.create.mockResolvedValue({ id: 's1' });
-      await service.createSession('u1', 'PERSONAL_CENTER');
+      await service.createSession('u1', 'MY_PAGE');
 
       // Step 2: handleUserMessage — 转人工，无坐席 → QUEUING
       prisma.csSession.findUnique.mockResolvedValue({
         id: 's1', userId: 'u1', status: 'AI_HANDLING',
-        source: 'PERSONAL_CENTER', sourceId: null, messages: [],
+        source: 'MY_PAGE', sourceId: null, messages: [],
       });
       prisma.csMessage.create
         .mockResolvedValueOnce({ id: 'msg-user' })
@@ -1075,7 +1212,9 @@ describe('CsService', () => {
       await service.closeSession('s1');
 
       // Step 2: submitRating
-      prisma.csSession.findUnique.mockResolvedValue({ id: 's1', userId: 'u1' });
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', userId: 'u1', status: 'CLOSED', rating: null,
+      });
       const ratingData = { id: 'rating-1', sessionId: 's1', score: 5, tags: ['快速'] };
       prisma.csRating.create.mockResolvedValue(ratingData);
 
@@ -1084,7 +1223,7 @@ describe('CsService', () => {
       expect(prisma.csRating.create).toHaveBeenCalledWith({
         data: { sessionId: 's1', userId: 'u1', score: 5, tags: ['快速'], comment: '很好' },
       });
-      expect(rating).toEqual(ratingData);
+      expect(rating).toEqual({ ...ratingData, alreadyRated: false });
     });
   });
 
@@ -1304,7 +1443,7 @@ describe('CsService', () => {
           id: 's1',
           userId: 'u1',
           status: 'AI_HANDLING',
-          source: 'PERSONAL_CENTER',
+          source: 'MY_PAGE',
           sourceId: null,
           messages: [],
         })
@@ -1335,7 +1474,7 @@ describe('CsService', () => {
           id: 's1',
           userId: 'u1',
           status: 'AI_HANDLING',
-          source: 'PERSONAL_CENTER',
+          source: 'MY_PAGE',
           sourceId: null,
           messages: [],
         })
@@ -1359,7 +1498,7 @@ describe('CsService', () => {
       prisma.csSession.findFirst.mockResolvedValue(null);
       prisma.csSession.create.mockResolvedValue({ id: 's1' });
 
-      await service.createSession('u1', 'PERSONAL_CENTER');
+      await service.createSession('u1', 'MY_PAGE');
 
       expect(prisma.$transaction).toHaveBeenCalledWith(
         expect.any(Function),
@@ -1385,7 +1524,7 @@ describe('CsService', () => {
         createdAt: new Date(),
       });
 
-      const result = await service.createSession('u1', 'PERSONAL_CENTER');
+      const result = await service.createSession('u1', 'MY_PAGE');
 
       expect(callCount).toBe(2);
       expect(result.sessionId).toBe('existing');
@@ -1398,32 +1537,29 @@ describe('CsService', () => {
   // ====================================================================
 
   describe('评价边界', () => {
-    it('重复评价: Prisma unique constraint → 错误传播', async () => {
+    it('重复评价幂等返回已有评价，不再写入', async () => {
       const { service, prisma } = createMocks();
-      prisma.csSession.findUnique.mockResolvedValue({ id: 's1', userId: 'u1' });
-      prisma.csRating.create.mockRejectedValue(
-        new Error('Unique constraint failed on the fields: (`sessionId`)'),
-      );
+      const existingRating = {
+        id: 'rating-1', score: 5, tags: ['快速'], comment: '很好', createdAt: new Date(),
+      };
+      prisma.csSession.findUnique.mockResolvedValue({
+        id: 's1', userId: 'u1', status: 'CLOSED', rating: existingRating,
+      });
 
-      await expect(
-        service.submitRating('s1', 'u1', 5, ['快速'], '很好'),
-      ).rejects.toThrow('Unique constraint failed on the fields: (`sessionId`)');
+      await expect(service.submitRating('s1', 'u1', 1, [], '重复提交'))
+        .resolves.toEqual({ ...existingRating, alreadyRated: true });
+      expect(prisma.csRating.create).not.toHaveBeenCalled();
     });
 
-    it('会话未关闭时提交评价: 仍可正常提交（评价基于 sessionId，不校验状态）', async () => {
+    it('会话未关闭时拒绝评价', async () => {
       const { service, prisma } = createMocks();
       prisma.csSession.findUnique.mockResolvedValue({
-        id: 's1', userId: 'u1', status: 'AGENT_HANDLING',
+        id: 's1', userId: 'u1', status: 'AGENT_HANDLING', rating: null,
       });
-      const ratingData = { id: 'rating-1', sessionId: 's1', score: 4, tags: ['专业'] };
-      prisma.csRating.create.mockResolvedValue(ratingData);
 
-      const result = await service.submitRating('s1', 'u1', 4, ['专业']);
-
-      expect(result).toEqual(ratingData);
-      expect(prisma.csRating.create).toHaveBeenCalledWith({
-        data: { sessionId: 's1', userId: 'u1', score: 4, tags: ['专业'], comment: undefined },
-      });
+      await expect(service.submitRating('s1', 'u1', 4, ['专业']))
+        .rejects.toThrow('会话结束后才能评价');
+      expect(prisma.csRating.create).not.toHaveBeenCalled();
     });
   });
 });

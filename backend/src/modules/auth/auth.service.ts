@@ -7,6 +7,7 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -30,6 +31,8 @@ import { GrowthEventService } from '../growth/growth-event.service';
 import { pickUniqueNormalShareCode } from '../normal-share/normal-share-code.util';
 import { InviteH5Service } from '../invite-h5/invite-h5.service';
 import { H5WechatInviteLoginDto, H5WechatStartQueryDto } from './dto/send-code.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { acquireUserWriteLock } from '../../common/transactions/active-user-write-barrier';
 
 type WechatOAuthSource = 'mobile' | 'h5';
 
@@ -37,8 +40,17 @@ type WechatLoginProfile = {
   openId: string;
   unionId: string;
   appId: string;
-  appType: 'MOBILE_APP' | 'H5_SERVICE_ACCOUNT';
+  appType: 'MOBILE_APP' | 'H5_SERVICE_ACCOUNT' | 'MINI_PROGRAM';
   accessToken: string | null;
+};
+
+type MiniappLoginTicketPayload = {
+  purpose: 'WECHAT_MINIAPP_BIND_PHONE';
+  appId: string;
+  openId: string;
+  unionId: string;
+  issuedAt: number;
+  expiresAt: number;
 };
 
 type H5WechatStatePayload = {
@@ -48,11 +60,21 @@ type H5WechatStatePayload = {
   iat: number;
 };
 
+type WechatIdentityLockLease = {
+  assertHeld(): Promise<void>;
+  stop(): void;
+};
+
 const PHONE_AUTH_APP_ID = 'PHONE';
 const H5_WECHAT_STATE_TTL_MS = 10 * 60_000;
 const H5_WECHAT_STATE_KEY_PREFIX = 'auth:h5-wechat:state';
 const WECHAT_UNION_LOCK_TTL_MS = 10_000;
+const WECHAT_CODE2SESSION_TIMEOUT_MS = 8_000;
+const WECHAT_OAUTH_HTTP_TIMEOUT_MS = 8_000;
+const MINIAPP_LOGIN_TICKET_TTL_MS = 5 * 60_000;
+const MINIAPP_LOGIN_TICKET_KEY_PREFIX = 'auth:wechat-miniapp:ticket';
 const h5WechatStateMemoryStore = new Map<string, { value: string; expiresAt: number }>();
+const miniappTicketMemoryStore = new Map<string, { value: string; expiresAt: number }>();
 
 @Injectable()
 export class AuthService {
@@ -101,7 +123,8 @@ export class AuthService {
   /** 发送短信验证码 */
   async sendSmsCode(phone: string) {
     // B02修复：SMS_MOCK 控制是否走真实短信通道
-    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const smsMock = this.config.get('SMS_MOCK', 'false');
+    this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     // 开发模式使用固定验证码 123456
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
@@ -222,6 +245,8 @@ export class AuthService {
    * IP 维度限流由 controller 的 @Throttle 承载，service 层仅处理手机号维度限流
    */
   async sendForgotPasswordCode(dto: SendForgotPasswordCodeDto) {
+    const smsMock = this.config.get('SMS_MOCK', 'false');
+    this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     // 1. 图形验证码校验（verify 内部原子 getdel，防重放）
     const captchaOk = await this.captcha.verify(dto.captchaId, dto.captchaCode);
     if (!captchaOk) {
@@ -237,7 +262,6 @@ export class AuthService {
     }
 
     // 3. 生成验证码 + 限流 + 写入 OTP（purpose=BUYER_RESET，与登录 scope 隔离）
-    const smsMock = this.config.get('SMS_MOCK', 'true');
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 分钟有效
@@ -331,6 +355,77 @@ export class AuthService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  /**
+   * 已登录买家修改密码。
+   *
+   * 身份活动状态、旧密码校验、密码写入、其他会话撤销和审计在同一个
+   * Serializable 事务中完成，避免并发改密或注销竞态把已释放身份复活。
+   */
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    currentSessionId?: string,
+  ) {
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/.test(dto.newPassword)) {
+      throw new BadRequestException({
+        code: 'PASSWORD_FORMAT_INVALID',
+        message: '新密码至少 6 位且必须包含大写字母、小写字母和数字',
+      });
+    }
+    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    return this.prisma.$transaction(async (tx) => {
+      await acquireUserWriteLock(tx, userId);
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { status: true, deletionExecutedAt: true },
+      });
+      if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+        throw new ForbiddenException('账号已注销，不能修改密码');
+      }
+
+      const identity = await tx.authIdentity.findFirst({
+        where: { userId, provider: 'PHONE' },
+      });
+      const rawMeta = identity?.meta;
+      const meta: Prisma.JsonObject = rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)
+        ? rawMeta as Prisma.JsonObject
+        : {};
+      const passwordHash = typeof meta.passwordHash === 'string' ? meta.passwordHash : null;
+      if (!identity || !passwordHash) {
+        throw new BadRequestException('该账号尚未设置密码，请使用忘记密码流程设置');
+      }
+      if (!await bcrypt.compare(dto.oldPassword, passwordHash)) {
+        throw new UnauthorizedException('旧密码不正确');
+      }
+      if (await bcrypt.compare(dto.newPassword, passwordHash)) {
+        throw new BadRequestException('新密码不能与旧密码相同');
+      }
+
+      await tx.authIdentity.update({
+        where: { id: identity.id },
+        data: { meta: { ...meta, passwordHash: newHash } },
+      });
+      await tx.session.updateMany({
+        where: {
+          userId,
+          status: 'ACTIVE',
+          ...(currentSessionId ? { id: { not: currentSessionId } } : {}),
+        },
+        data: { status: 'REVOKED', expiresAt: new Date() },
+      });
+      await tx.loginEvent.create({
+        data: {
+          userId,
+          provider: 'PHONE',
+          phone: identity.identifier,
+          success: true,
+          meta: { action: 'PASSWORD_CHANGED', otherSessionsRevoked: true },
+        },
+      });
+      return { ok: true };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /**
@@ -435,15 +530,28 @@ export class AuthService {
       throw new UnauthorizedException('刷新令牌已失效');
     }
 
-    // 查找用户的登录方式
-    const identity = await this.prisma.authIdentity.findFirst({
-      where: { userId: session.userId },
-      orderBy: { createdAt: 'desc' },
-    });
+    // 刷新只能继承签发旧 Session 的同一个可信身份，不能重新挑选该用户的任意微信身份。
+    // 旧 Session 没有 authIdentityId 时仍可刷新，但新 Session 继续保持 null，不能用于
+    // 需要精确 OpenID 的小程序支付。
+    const identity = session.authIdentityId
+      ? await this.prisma.authIdentity.findFirst({
+          where: { id: session.authIdentityId, userId: session.userId, verified: true },
+        })
+      : null;
 
-    const loginMethod = identity?.provider === 'WECHAT' ? 'wechat' : 'phone';
+    const miniAppId = this.config.get<string>('WECHAT_MINIAPP_APP_ID', '').trim();
+    const loginMethod = identity?.provider === 'WECHAT'
+      ? identity.appId && identity.appId === miniAppId
+        ? 'wechat-miniapp'
+        : 'wechat'
+      : 'phone';
     // L1修复：继承旧 session 的 absoluteExpiresAt，防止无限续期
-    return this.issueTokens(session.userId, loginMethod, session.absoluteExpiresAt);
+    return this.issueTokens(
+      session.userId,
+      loginMethod,
+      session.absoluteExpiresAt,
+      session.authIdentityId,
+    );
   }
 
   /** P1-1: 买家登出，撤销当前 Session */
@@ -469,6 +577,326 @@ export class AuthService {
   async loginWithWeChat(code: string) {
     const profile = await this.exchangeWechatOAuthCode(code, 'mobile');
     return this.loginOrCreateWechatUser(profile);
+  }
+
+  /**
+   * 微信小程序登录。
+   *
+   * 小程序 code 只能由服务端调用 code2Session。已存在 appId+openid 身份，或可由
+   * unionId 安全归并到既有账号时直接签发当前 AuthSession；无法安全匹配时只返回
+   * 短期、单次使用的绑定票据，不自动创建孤立账号。
+   */
+  async loginWithWechatMiniapp(code: string) {
+    const profile = await this.exchangeWechatMiniappCode(code);
+    const lockKey = this.wechatIdentityLockKey(profile);
+    const lockOwner = randomBytes(16).toString('hex');
+    const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
+    if (locked === false) {
+      throw new BadRequestException('微信小程序登录处理中，请稍后重试');
+    }
+    if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
+      throw new ServiceUnavailableException('微信小程序登录服务繁忙，请稍后重试');
+    }
+    const lockLease = locked
+      ? this.startWechatIdentityLockRenewal(lockKey, lockOwner)
+      : this.createNoopWechatIdentityLockLease();
+
+    try {
+      await lockLease.assertHeld();
+      // exact + 全部 union 候选必须在每次 Serializable 重试内重新裁决。
+      // 不能带着事务外的旧 identity 进入补建，否则锁丢失后新 owner
+      // 可能先把同一 unionId 绑到其他用户，旧事务再错误回填第二个用户。
+      const resolved = await this.withWechatIdentitySerializableRetry(async (tx) => {
+        const identity = await this.findWechatMiniappIdentity(profile, tx);
+        if (!identity) return null;
+
+        // 身份补建与用户活动状态复核必须在同一 Serializable 事务内，
+        // 使并发注销与重新绑定发生可检测冲突，禁止注销后身份复活。
+        const user = await tx.user.findUnique({
+          where: { id: identity.userId },
+          select: { status: true, deletionExecutedAt: true },
+        });
+        if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+          throw new ForbiddenException('账号不可用');
+        }
+        await lockLease.assertHeld();
+        const authIdentityId = await this.ensureWechatIdentityForProfile(
+          identity,
+          profile,
+          true,
+          tx,
+        );
+        return { userId: identity.userId, authIdentityId };
+      });
+      if (resolved) {
+        await this.ensureBuyerNoForBuyer(resolved.userId);
+        await lockLease.assertHeld();
+        return await this.issueTokens(
+          resolved.userId,
+          'wechat-miniapp',
+          undefined,
+          resolved.authIdentityId,
+          () => lockLease.assertHeld(),
+        );
+      }
+
+      await lockLease.assertHeld();
+      const miniLoginTicket = await this.createMiniappLoginTicket(profile);
+      return {
+        bindRequired: true,
+        miniLoginTicket,
+        expiresInSeconds: Math.floor(MINIAPP_LOGIN_TICKET_TTL_MS / 1000),
+      };
+    } finally {
+      lockLease.stop();
+      if (locked) {
+        await this.redisCoord.releaseLock(lockKey, lockOwner);
+      }
+    }
+  }
+
+  /** 为未匹配的小程序身份发送手机号验证短信，不泄露手机号是否已注册。 */
+  async sendWechatMiniappBindPhoneCode(miniLoginTicket: string, phone: string) {
+    await this.readMiniappLoginTicket(miniLoginTicket, false);
+    return this.issueBindPhoneOtp(phone, '小程序账号合并');
+  }
+
+  /**
+   * 用已验证手机号把小程序身份合并到既有账号；手机号不存在时创建同一个买家账号，
+   * 并在一次 Serializable 事务内同时写入 PHONE 与小程序 WECHAT 身份。
+   */
+  async bindWechatMiniappPhone(miniLoginTicket: string, phone: string, code: string) {
+    // 先窥视票据并获取与 App/H5 共用的微信统一身份锁，避免跨渠道并发创建两个 User。
+    const initialTicket = await this.readMiniappLoginTicket(miniLoginTicket, false);
+    const profile: WechatLoginProfile = {
+      openId: initialTicket.openId,
+      unionId: initialTicket.unionId,
+      appId: initialTicket.appId,
+      appType: 'MINI_PROGRAM',
+      accessToken: null,
+    };
+    const lockKey = this.wechatIdentityLockKey(profile);
+    const lockOwner = randomBytes(16).toString('hex');
+    const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
+    if (locked === false) {
+      throw new BadRequestException('微信账号绑定处理中，请稍后重试');
+    }
+    if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
+      throw new ServiceUnavailableException('微信账号绑定服务繁忙，请稍后重试');
+    }
+    const lockLease = locked
+      ? this.startWechatIdentityLockRenewal(lockKey, lockOwner)
+      : this.createNoopWechatIdentityLockLease();
+
+    try {
+    // 获锁后再次确认 ticket 尚未消费，再消费 OTP，最后以 GETDEL 原子消费 ticket。
+    await this.readMiniappLoginTicket(miniLoginTicket, false);
+    await this.verifyCode(phone, code, SmsPurpose.BIND);
+    const ticket = await this.readMiniappLoginTicket(miniLoginTicket, true);
+    if (
+      ticket.appId !== profile.appId ||
+      ticket.openId !== profile.openId ||
+      ticket.unionId !== profile.unionId
+    ) {
+      throw new BadRequestException('小程序登录凭证不一致，请重新登录');
+    }
+    await lockLease.assertHeld();
+
+    const MAX_RETRIES = 1;
+    let result: { userId: string; created: boolean; authIdentityId: string } | null = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        result = await this.prisma.$transaction(async (tx) => {
+          const exactIdentity = await tx.authIdentity.findFirst({
+            where: {
+              provider: 'WECHAT',
+              identifier: profile.openId,
+              appId: profile.appId,
+            },
+          });
+          const unionIdentities = profile.unionId
+            ? await tx.authIdentity.findMany({
+                where: {
+                  provider: 'WECHAT',
+                  OR: [
+                    { unionId: profile.unionId },
+                    { meta: { path: ['unionId'], equals: profile.unionId } },
+                  ],
+                },
+              })
+            : [];
+          const phoneIdentities = await tx.authIdentity.findMany({
+            where: { provider: 'PHONE', identifier: phone },
+            select: { userId: true },
+          });
+
+          const candidateUserIds = new Set<string>([
+            ...(exactIdentity ? [exactIdentity.userId] : []),
+            ...unionIdentities.map((item) => item.userId),
+            ...phoneIdentities.map((item) => item.userId),
+          ]);
+          if (candidateUserIds.size > 1) {
+            throw new BadRequestException('微信身份与手机号所属账号不一致，请联系客服处理');
+          }
+
+          const targetUserId = candidateUserIds.values().next().value as string | undefined;
+          if (targetUserId) {
+            const targetUser = await tx.user.findUnique({
+              where: { id: targetUserId },
+              select: { status: true, deletionExecutedAt: true },
+            });
+            if (
+              !targetUser ||
+              targetUser.status !== UserStatus.ACTIVE ||
+              targetUser.deletionExecutedAt
+            ) {
+              throw new ForbiddenException('账号不可用');
+            }
+
+            const ownPhoneIdentity = await tx.authIdentity.findFirst({
+              where: { userId: targetUserId, provider: 'PHONE' },
+            });
+            if (ownPhoneIdentity && ownPhoneIdentity.identifier !== phone) {
+              throw new BadRequestException('微信身份已绑定其他手机号，请使用原手机号登录');
+            }
+            await lockLease.assertHeld();
+            if (!ownPhoneIdentity) {
+              await tx.authIdentity.create({
+                data: {
+                  userId: targetUserId,
+                  provider: 'PHONE',
+                  identifier: phone,
+                  appId: PHONE_AUTH_APP_ID,
+                  verified: true,
+                },
+              });
+            }
+
+            let authIdentityId = exactIdentity?.id;
+            if (!exactIdentity) {
+              const createdIdentity = await tx.authIdentity.create({
+                data: {
+                  userId: targetUserId,
+                  provider: 'WECHAT',
+                  identifier: profile.openId,
+                  unionId: profile.unionId || null,
+                  appId: profile.appId,
+                  verified: true,
+                  meta: this.mergeWechatIdentityMeta(null, profile),
+                },
+              });
+              authIdentityId = createdIdentity.id;
+            }
+            return { userId: targetUserId, created: false, authIdentityId: authIdentityId! };
+          }
+
+          await lockLease.assertHeld();
+          const user = await tx.user.create({
+            data: {
+              buyerNo: await nextBuyerNo(tx),
+              profile: { create: { nickname: '微信用户' } },
+              memberProfile: {
+                create: { referralCode: await pickUniqueReferralCode(tx) },
+              },
+              growthAccount: {
+                create: {
+                  pointsBalance: 0,
+                  pointsTotalEarned: 0,
+                  pointsTotalSpent: 0,
+                  growthValue: 0,
+                },
+              },
+              normalShareProfile: {
+                create: {
+                  code: await pickUniqueNormalShareCode(tx as any),
+                  status: 'ACTIVE',
+                },
+              },
+              authIdentities: {
+                create: [
+                  {
+                    provider: 'PHONE',
+                    identifier: phone,
+                    appId: PHONE_AUTH_APP_ID,
+                    verified: true,
+                  },
+                  {
+                    provider: 'WECHAT',
+                    identifier: profile.openId,
+                    unionId: profile.unionId || null,
+                    appId: profile.appId,
+                    verified: true,
+                    meta: this.mergeWechatIdentityMeta(null, profile),
+                  },
+                ],
+              },
+            },
+            select: { id: true },
+          });
+          const createdMiniIdentity = await tx.authIdentity.findFirst({
+            where: {
+              userId: user.id,
+              provider: 'WECHAT',
+              identifier: profile.openId,
+              appId: profile.appId,
+            },
+            select: { id: true },
+          });
+          if (!createdMiniIdentity) {
+            throw new ServiceUnavailableException('微信小程序身份创建失败，请重新登录');
+          }
+          return {
+            userId: user.id,
+            created: true,
+            authIdentityId: createdMiniIdentity.id,
+          };
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+        break;
+      } catch (err: any) {
+        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+        if (
+          isPrismaError &&
+          (err.code === 'P2002' || err.code === 'P2034') &&
+          attempt < MAX_RETRIES
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+          continue;
+        }
+        if (isPrismaError && err.code === 'P2002') {
+          throw new BadRequestException('账号绑定处理中，请重新发起小程序登录');
+        }
+        throw err;
+      }
+    }
+
+    if (!result) {
+      throw new ServiceUnavailableException('账号绑定服务繁忙，请稍后重试');
+    }
+    await this.ensureBuyerNoForBuyer(result.userId);
+    if (result.created) {
+      this.couponEngine.handleTrigger(result.userId, 'REGISTER').catch((err: any) => {
+        this.logger.warn(
+          `REGISTER 红包触发失败: userId=${result!.userId}, error=${err?.message}`,
+        );
+      });
+      this.triggerRegisterGrowth(result.userId);
+    }
+    await lockLease.assertHeld();
+    return await this.issueTokens(
+      result.userId,
+      'wechat-miniapp',
+      undefined,
+      result.authIdentityId,
+      () => lockLease.assertHeld(),
+    );
+    } finally {
+      lockLease.stop();
+      if (locked) {
+        await this.redisCoord.releaseLock(lockKey, lockOwner);
+      }
+    }
   }
 
   async buildH5WechatAuthUrl(input: H5WechatStartQueryDto) {
@@ -543,7 +971,7 @@ export class AuthService {
     code: string,
     source: WechatOAuthSource,
   ): Promise<WechatLoginProfile> {
-    const wechatMock = this.config.get('WECHAT_MOCK', 'true');
+    const wechatMock = this.config.get('WECHAT_MOCK', 'false');
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     const appId = source === 'h5'
       ? this.config.get<string>('WECHAT_H5_APP_ID', 'mock-h5-service-account')
@@ -552,9 +980,8 @@ export class AuthService {
 
     if (wechatMock === 'true') {
       if (nodeEnv === 'production') {
-        this.logger.warn(
-          '[WeChat] 生产环境仍使用 Mock 微信登录，请设置 WECHAT_MOCK=false 并配置微信开放平台',
-        );
+        this.logger.error('[WeChat] 生产环境禁止 Mock 微信登录');
+        throw new ServiceUnavailableException('微信登录配置不可用');
       }
       const openIdPrefix = source === 'h5' ? 'wx_h5_openid' : 'wx_openid';
       const openId = createHash('sha256').update(`${openIdPrefix}_${code}`).digest('hex').slice(0, 28);
@@ -593,12 +1020,202 @@ export class AuthService {
     }
   }
 
-  private async loginOrCreateWechatUser(profile: WechatLoginProfile) {
-    if (!profile.unionId) {
-      return this.loginOrCreateWechatUserUnlocked(profile);
+  /** 小程序专用 code2Session；session_key 仅在本地响应对象中出现，解析后立即丢弃。 */
+  private async exchangeWechatMiniappCode(code: string): Promise<WechatLoginProfile> {
+    const wechatMock = this.config.get(
+      'WECHAT_MINIAPP_MOCK',
+      this.config.get('WECHAT_MOCK', 'false'),
+    );
+    const nodeEnv = this.config.get('NODE_ENV', 'development');
+    const configuredAppId = this.config.get<string>('WECHAT_MINIAPP_APP_ID', '').trim();
+    const appId = configuredAppId || 'mock-mini-program';
+
+    if (wechatMock === 'true') {
+      if (nodeEnv === 'production') {
+        this.logger.error('[WeChat Miniapp] 生产环境禁止 Mock 登录');
+        throw new ServiceUnavailableException('微信小程序登录配置不可用');
+      }
+      return {
+        openId: createHash('sha256')
+          .update(`wx_miniapp_openid_${appId}_${code}`)
+          .digest('hex')
+          .slice(0, 28),
+        // 与既有 App mock 使用相同派生规则，便于测试跨端 unionId 合并。
+        unionId: createHash('sha256').update(`wx_unionid_${code}`).digest('hex').slice(0, 28),
+        appId,
+        appType: 'MINI_PROGRAM',
+        accessToken: null,
+      };
     }
 
-    const lockKey = `auth:wechat-union:${this.hashKey(profile.unionId)}`;
+    const realAppId = this.config.getOrThrow<string>('WECHAT_MINIAPP_APP_ID').trim();
+    const appSecret = this.config.getOrThrow<string>('WECHAT_MINIAPP_APP_SECRET').trim();
+    if (!realAppId || !appSecret) {
+      throw new ServiceUnavailableException('微信小程序登录配置不可用');
+    }
+    const url = new URL('https://api.weixin.qq.com/sns/jscode2session');
+    url.searchParams.set('appid', realAppId);
+    url.searchParams.set('secret', appSecret);
+    url.searchParams.set('js_code', code);
+    url.searchParams.set('grant_type', 'authorization_code');
+
+    let data: {
+      openid?: string;
+      unionid?: string;
+      session_key?: string;
+      errcode?: number;
+      errmsg?: string;
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), WECHAT_CODE2SESSION_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal, redirect: 'error' });
+      if (!response.ok) {
+        throw new ServiceUnavailableException('微信小程序登录服务暂不可用');
+      }
+      data = (await response.json()) as typeof data;
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException('微信小程序登录服务暂不可用');
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (data.errcode || !data.openid) {
+      this.logger.warn(
+        `[WeChat Miniapp] code2Session 失败: errcode=${data.errcode ?? 'unknown'}`,
+      );
+      throw new BadRequestException('微信小程序登录失败，请重新授权');
+    }
+
+    return {
+      openId: data.openid,
+      unionId: data.unionid || '',
+      appId: realAppId,
+      appType: 'MINI_PROGRAM',
+      accessToken: null,
+    };
+  }
+
+  private async findWechatMiniappIdentity(
+    profile: WechatLoginProfile,
+    client: Pick<Prisma.TransactionClient, 'authIdentity'> = this.prisma,
+  ) {
+    const exactIdentity = await client.authIdentity.findFirst({
+      where: {
+        provider: 'WECHAT',
+        identifier: profile.openId,
+        appId: profile.appId,
+      },
+      include: { user: { select: { status: true, deletionExecutedAt: true } } },
+    });
+
+    const unionIdentities = profile.unionId
+      ? await client.authIdentity.findMany({
+          where: {
+            provider: 'WECHAT',
+            OR: [
+              { unionId: profile.unionId },
+              { meta: { path: ['unionId'], equals: profile.unionId } },
+            ],
+          },
+          include: { user: { select: { status: true, deletionExecutedAt: true } } },
+        })
+      : [];
+    const unionUserIds = new Set(unionIdentities.map((item) => item.userId));
+    if (unionUserIds.size > 1) {
+      throw new BadRequestException('微信统一身份关联多个账号，请联系客服处理');
+    }
+    const unionIdentity = unionIdentities[0] ?? null;
+    if (exactIdentity && unionIdentity && exactIdentity.userId !== unionIdentity.userId) {
+      throw new BadRequestException('微信小程序身份与统一身份冲突，请联系客服处理');
+    }
+    return exactIdentity ?? unionIdentity;
+  }
+
+  private async createMiniappLoginTicket(profile: WechatLoginProfile): Promise<string> {
+    const ticket = randomBytes(32).toString('hex');
+    const now = Date.now();
+    const payload: MiniappLoginTicketPayload = {
+      purpose: 'WECHAT_MINIAPP_BIND_PHONE',
+      appId: profile.appId,
+      openId: profile.openId,
+      unionId: profile.unionId,
+      issuedAt: now,
+      expiresAt: now + MINIAPP_LOGIN_TICKET_TTL_MS,
+    };
+    const value = JSON.stringify(payload);
+    const key = this.miniappLoginTicketKey(ticket);
+    const stored = await this.redisCoord.set(key, value, MINIAPP_LOGIN_TICKET_TTL_MS);
+    if (!stored) {
+      if (this.config.get('NODE_ENV', 'development') === 'production') {
+        throw new ServiceUnavailableException('微信小程序登录服务繁忙，请稍后重试');
+      }
+      miniappTicketMemoryStore.set(key, { value, expiresAt: payload.expiresAt });
+    }
+    return ticket;
+  }
+
+  private async readMiniappLoginTicket(
+    ticket: string,
+    consume: boolean,
+  ): Promise<MiniappLoginTicketPayload> {
+    if (!/^[a-f0-9]{64}$/.test(ticket)) {
+      throw new BadRequestException('小程序登录凭证无效，请重新登录');
+    }
+    const key = this.miniappLoginTicketKey(ticket);
+    let value = consume
+      ? await this.redisCoord.getdel(key)
+      : await this.redisCoord.get(key);
+
+    if (!value) {
+      const memoryValue = miniappTicketMemoryStore.get(key);
+      if (memoryValue?.expiresAt && memoryValue.expiresAt > Date.now()) {
+        value = memoryValue.value;
+      }
+      if (consume || (memoryValue && memoryValue.expiresAt <= Date.now())) {
+        miniappTicketMemoryStore.delete(key);
+      }
+    }
+    if (!value) {
+      throw new BadRequestException('小程序登录凭证无效或已过期，请重新登录');
+    }
+
+    let payload: MiniappLoginTicketPayload;
+    try {
+      payload = JSON.parse(value) as MiniappLoginTicketPayload;
+    } catch {
+      throw new BadRequestException('小程序登录凭证无效，请重新登录');
+    }
+    const now = Date.now();
+    if (
+      payload.purpose !== 'WECHAT_MINIAPP_BIND_PHONE' ||
+      typeof payload.appId !== 'string' ||
+      !payload.appId ||
+      typeof payload.openId !== 'string' ||
+      !payload.openId ||
+      typeof payload.unionId !== 'string' ||
+      typeof payload.issuedAt !== 'number' ||
+      typeof payload.expiresAt !== 'number' ||
+      payload.issuedAt > now + 30_000 ||
+      payload.expiresAt <= now ||
+      payload.expiresAt - payload.issuedAt > MINIAPP_LOGIN_TICKET_TTL_MS
+    ) {
+      if (!consume) {
+        await this.redisCoord.del(key);
+        miniappTicketMemoryStore.delete(key);
+      }
+      throw new BadRequestException('小程序登录凭证无效或已过期，请重新登录');
+    }
+    return payload;
+  }
+
+  private miniappLoginTicketKey(ticket: string): string {
+    return `${MINIAPP_LOGIN_TICKET_KEY_PREFIX}:${this.hashKey(ticket)}`;
+  }
+
+  private async loginOrCreateWechatUser(profile: WechatLoginProfile) {
+    const lockKey = this.wechatIdentityLockKey(profile);
     const lockOwner = randomBytes(16).toString('hex');
     const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
     if (locked === false) {
@@ -607,77 +1224,108 @@ export class AuthService {
     if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
       throw new BadRequestException('微信登录服务繁忙，请稍后重试');
     }
+    const lockLease = locked
+      ? this.startWechatIdentityLockRenewal(lockKey, lockOwner)
+      : this.createNoopWechatIdentityLockLease();
 
     try {
-      return await this.loginOrCreateWechatUserUnlocked(profile);
+      return await this.loginOrCreateWechatUserUnlocked(profile, lockLease);
     } finally {
+      lockLease.stop();
       if (locked) {
         await this.redisCoord.releaseLock(lockKey, lockOwner);
       }
     }
   }
 
-  private async loginOrCreateWechatUserUnlocked(profile: WechatLoginProfile) {
-    const identity = await this.findWechatIdentity(profile);
-
-    if (identity) {
-      if (identity.user.status !== UserStatus.ACTIVE) {
-        throw new ForbiddenException('账号不可用');
-      }
-      await this.ensureBuyerNoForBuyer(identity.userId);
-      await this.ensureWechatIdentityForProfile(identity, profile);
-      return this.issueTokens(identity.userId, 'wechat');
-    }
-
+  private async loginOrCreateWechatUserUnlocked(
+    profile: WechatLoginProfile,
+    lockLease: WechatIdentityLockLease,
+  ) {
+    // 外部微信资料请求不放进数据库事务；归属首查、活动状态复核以及
+    // 身份/用户写入则全部在同一个 Serializable 事务内完成。
     const profileData = await this.fetchWechatUserProfile(profile.accessToken, profile.openId);
-    const user = await this.prisma.user.create({
-      data: {
-        buyerNo: await nextBuyerNo(this.prisma),
-        profile: {
-          create: profileData,
-        },
-        memberProfile: {
-          create: { referralCode: await pickUniqueReferralCode(this.prisma) },
-        },
-        growthAccount: {
-          create: {
-            pointsBalance: 0,
-            pointsTotalEarned: 0,
-            pointsTotalSpent: 0,
-            growthValue: 0,
+
+    await lockLease.assertHeld();
+    const resolved = await this.withWechatIdentitySerializableRetry(async (tx) => {
+      const identity = await this.findWechatIdentity(profile, tx);
+      if (identity) {
+        const user = await tx.user.findUnique({
+          where: { id: identity.userId },
+          select: { status: true, deletionExecutedAt: true },
+        });
+        if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
+          throw new ForbiddenException('账号不可用');
+        }
+        await lockLease.assertHeld();
+        await this.ensureWechatIdentityForProfile(identity, profile, false, tx);
+        return { userId: identity.userId, created: false };
+      }
+
+      await lockLease.assertHeld();
+      const user = await tx.user.create({
+        data: {
+          buyerNo: await nextBuyerNo(tx),
+          profile: {
+            create: profileData,
           },
-        },
-        normalShareProfile: {
-          create: {
-            code: await pickUniqueNormalShareCode(this.prisma as any),
-            status: 'ACTIVE',
+          memberProfile: {
+            create: { referralCode: await pickUniqueReferralCode(tx) },
           },
-        },
-        authIdentities: {
-          create: {
-            provider: 'WECHAT',
-            identifier: profile.openId,
-            unionId: profile.unionId || null,
-            appId: profile.appId,
-            verified: true,
-            meta: {
-              unionId: profile.unionId,
+          growthAccount: {
+            create: {
+              pointsBalance: 0,
+              pointsTotalEarned: 0,
+              pointsTotalSpent: 0,
+              growthValue: 0,
+            },
+          },
+          normalShareProfile: {
+            create: {
+              code: await pickUniqueNormalShareCode(tx as any),
+              status: 'ACTIVE',
+            },
+          },
+          authIdentities: {
+            create: {
+              provider: 'WECHAT',
+              identifier: profile.openId,
+              unionId: profile.unionId || null,
               appId: profile.appId,
-              appType: profile.appType,
-              nickname: profileData.nickname,
-              avatarUrl: profileData.avatarUrl,
+              verified: true,
+              meta: {
+                unionId: profile.unionId,
+                appId: profile.appId,
+                appType: profile.appType,
+                nickname: profileData.nickname,
+                avatarUrl: profileData.avatarUrl,
+              },
             },
           },
         },
-      },
+        select: { id: true },
+      });
+      return { userId: user.id, created: true };
     });
 
-    this.couponEngine.handleTrigger(user.id, 'REGISTER').catch((err: any) => {
-      this.logger.warn(`REGISTER 红包触发失败: userId=${user.id}, error=${err?.message}`);
-    });
-    this.triggerRegisterGrowth(user.id);
+    await this.ensureBuyerNoForBuyer(resolved.userId);
+    if (resolved.created) {
+      this.couponEngine.handleTrigger(resolved.userId, 'REGISTER').catch((err: any) => {
+        this.logger.warn(
+          `REGISTER 红包触发失败: userId=${resolved.userId}, error=${err?.message}`,
+        );
+      });
+      this.triggerRegisterGrowth(resolved.userId);
+    }
 
-    return this.issueTokens(user.id, 'wechat');
+    await lockLease.assertHeld();
+    return this.issueTokens(
+      resolved.userId,
+      'wechat',
+      undefined,
+      undefined,
+      () => lockLease.assertHeld(),
+    );
   }
 
   private async assertH5LandingSessionMatchesInviteCode(
@@ -697,25 +1345,13 @@ export class AuthService {
     }
   }
 
-  private async findWechatIdentity(profile: WechatLoginProfile) {
-    if (profile.unionId) {
-      const byUnion = await this.prisma.authIdentity.findFirst({
-        where: { provider: 'WECHAT', unionId: profile.unionId },
-        include: { user: { select: { status: true } } },
-      });
-      if (byUnion) return byUnion;
-
-      const byLegacyMetaUnion = await this.prisma.authIdentity.findFirst({
-        where: {
-          provider: 'WECHAT',
-          meta: { path: ['unionId'], equals: profile.unionId },
-        },
-        include: { user: { select: { status: true } } },
-      });
-      if (byLegacyMetaUnion) return byLegacyMetaUnion;
-    }
-
-    return this.prisma.authIdentity.findFirst({
+  private async findWechatIdentity(
+    profile: WechatLoginProfile,
+    client: Pick<Prisma.TransactionClient, 'authIdentity'> = this.prisma,
+  ) {
+    // App/H5 同样先查当前 appId+openid（含 legacy null appId），再收集全部
+    // unionId 列与 legacy meta 候选。两类候选不可以短路返回，否则会漏掉跨端归属冲突。
+    const openIdIdentities = await client.authIdentity.findMany({
       where: {
         provider: 'WECHAT',
         identifier: profile.openId,
@@ -724,8 +1360,35 @@ export class AuthService {
           { appId: null },
         ],
       },
-      include: { user: { select: { status: true } } },
+      include: { user: { select: { status: true, deletionExecutedAt: true } } },
     });
+    const exactIdentity = openIdIdentities.find(
+      (identity) => identity.appId === profile.appId,
+    ) ?? null;
+    const legacyOpenIdIdentity = openIdIdentities.find(
+      (identity) => identity.appId === null,
+    ) ?? null;
+
+    const unionIdentities = profile.unionId
+      ? await client.authIdentity.findMany({
+          where: {
+            provider: 'WECHAT',
+            OR: [
+              { unionId: profile.unionId },
+              { meta: { path: ['unionId'], equals: profile.unionId } },
+            ],
+          },
+          include: { user: { select: { status: true, deletionExecutedAt: true } } },
+        })
+      : [];
+    const candidateUserIds = new Set<string>([
+      ...openIdIdentities.map((identity) => identity.userId),
+      ...unionIdentities.map((identity) => identity.userId),
+    ]);
+    if (candidateUserIds.size > 1) {
+      throw new BadRequestException('微信身份与统一身份冲突，请联系客服处理');
+    }
+    return exactIdentity ?? legacyOpenIdIdentity ?? unionIdentities[0] ?? null;
   }
 
   private async ensureWechatIdentityForProfile(
@@ -738,7 +1401,9 @@ export class AuthService {
       meta?: Prisma.JsonValue | null;
     },
     profile: WechatLoginProfile,
-  ) {
+    exactAppIdOnly = false,
+    client: Pick<Prisma.TransactionClient, 'authIdentity'> = this.prisma,
+  ): Promise<string> {
     const sameOpenId = identity.identifier === profile.openId;
     const updateData: Prisma.AuthIdentityUpdateInput = {};
     if (!identity.unionId && profile.unionId) {
@@ -749,22 +1414,28 @@ export class AuthService {
     }
     if (Object.keys(updateData).length > 0) {
       updateData.meta = this.mergeWechatIdentityMeta(identity.meta, profile);
-      await this.prisma.authIdentity.update({
+      await client.authIdentity.update({
         where: { id: identity.id },
         data: updateData,
       });
     }
 
-    if (sameOpenId) return;
+    if (sameOpenId && (!exactAppIdOnly || identity.appId === profile.appId)) {
+      return identity.id;
+    }
 
-    const currentOpenIdIdentity = await this.prisma.authIdentity.findFirst({
+    const currentOpenIdIdentity = await client.authIdentity.findFirst({
       where: {
         provider: 'WECHAT',
         identifier: profile.openId,
-        OR: [
-          { appId: profile.appId },
-          { appId: null },
-        ],
+        ...(exactAppIdOnly
+          ? { appId: profile.appId }
+          : {
+              OR: [
+                { appId: profile.appId },
+                { appId: null },
+              ],
+            }),
       },
     });
     if (currentOpenIdIdentity) {
@@ -781,15 +1452,15 @@ export class AuthService {
       }
       if (Object.keys(currentUpdate).length > 0) {
         currentUpdate.meta = this.mergeWechatIdentityMeta(currentOpenIdIdentity.meta, profile);
-        await this.prisma.authIdentity.update({
+        await client.authIdentity.update({
           where: { id: currentOpenIdIdentity.id },
           data: currentUpdate,
         });
       }
-      return;
+      return currentOpenIdIdentity.id;
     }
 
-    await this.prisma.authIdentity.create({
+    const createdIdentity = await client.authIdentity.create({
       data: {
         userId: identity.userId,
         provider: 'WECHAT',
@@ -800,6 +1471,36 @@ export class AuthService {
         meta: this.mergeWechatIdentityMeta(null, profile),
       },
     });
+    return createdIdentity.id;
+  }
+
+  /**
+   * App/H5 首登与小程序自动补建身份都使用 Serializable 有限重试。
+   * 最终仍冲突必须 fail-closed，避免锁过期/多实例并发时签发没有可信身份的 Session。
+   */
+  private async withWechatIdentitySerializableRetry<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: any) {
+        const retryable = error instanceof Prisma.PrismaClientKnownRequestError
+          && (error.code === 'P2034' || error.code === 'P2002');
+        if (retryable && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+          continue;
+        }
+        if (retryable) {
+          throw new ServiceUnavailableException('微信登录服务繁忙，请稍后重试');
+        }
+        throw error;
+      }
+    }
+    throw new ServiceUnavailableException('微信登录服务繁忙，请稍后重试');
   }
 
   private mergeWechatIdentityMeta(
@@ -934,7 +1635,14 @@ export class AuthService {
 
     try {
       const url = `https://api.weixin.qq.com/sns/userinfo?access_token=${encodeURIComponent(accessToken)}&openid=${encodeURIComponent(openId)}&lang=zh_CN`;
-      const res = await fetch(url);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WECHAT_OAUTH_HTTP_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: controller.signal, redirect: 'error' });
+      } finally {
+        clearTimeout(timeout);
+      }
       const data = (await res.json()) as {
         nickname?: string;
         headimgurl?: string;
@@ -1124,6 +1832,11 @@ export class AuthService {
    * 防止跨 purpose 串用（例如 RESET 验证码被误用于 LOGIN）。
    */
   private async verifyCode(target: string, code: string | undefined, purpose: SmsPurpose) {
+    this.assertProductionMockDisabled(
+      'SMS_MOCK',
+      this.config.get('SMS_MOCK', 'false'),
+      '短信验证码服务',
+    );
     if (!code) throw new BadRequestException('请输入验证码');
 
     // 查找最近一条未使用且未过期的验证码（强过滤 purpose）
@@ -1169,8 +1882,20 @@ export class AuthService {
     userId: string,
     loginMethod: string,
     inheritedAbsoluteExpiresAt?: Date | null,
+    authIdentityId?: string | null,
+    beforeTokenSign?: () => Promise<void>,
   ) {
     await this.assertActiveUserForSessionIssue(userId);
+
+    if (authIdentityId) {
+      const trustedIdentity = await this.prisma.authIdentity.findFirst({
+        where: { id: authIdentityId, userId, verified: true },
+        select: { id: true },
+      });
+      if (!trustedIdentity) {
+        throw new UnauthorizedException('登录身份已失效，请重新登录');
+      }
+    }
 
     const expiresIn = this.config.get('JWT_EXPIRES_IN', '15m');
 
@@ -1188,6 +1913,7 @@ export class AuthService {
     const session = await this.prisma.session.create({
       data: {
         userId,
+        authIdentityId: authIdentityId ?? null,
         accessTokenHash: '', // 占位，下面更新
         refreshTokenHash,
         status: 'ACTIVE',
@@ -1195,6 +1921,19 @@ export class AuthService {
         absoluteExpiresAt,
       },
     });
+
+    if (beforeTokenSign) {
+      try {
+        await beforeTokenSign();
+      } catch (error) {
+        // 锁已失效时不得签发 JWT；同时撤销尚未对客户端暴露的孤立 Session。
+        await this.prisma.session.updateMany({
+          where: { id: session.id, status: 'ACTIVE' },
+          data: { status: 'REVOKED' },
+        });
+        throw error;
+      }
+    }
 
     // JWT payload 包含 sessionId，用于 validate() 精确匹配会话
     const payload = { sub: userId, sessionId: session.id };
@@ -1509,6 +2248,82 @@ export class AuthService {
     return createHash('sha256').update(value).digest('hex').slice(0, 24);
   }
 
+  private assertProductionMockDisabled(
+    key: 'SMS_MOCK' | 'WECHAT_MOCK',
+    value: string | undefined,
+    serviceName: string,
+  ): void {
+    if (
+      this.config.get('NODE_ENV', 'development') === 'production'
+      && value === 'true'
+    ) {
+      this.logger.error(`[Auth] 生产环境禁止 ${key}=true`);
+      throw new ServiceUnavailableException(`${serviceName}配置不可用`);
+    }
+  }
+
+  /** App、H5 与小程序必须共用同一微信身份锁命名空间。 */
+  private wechatIdentityLockKey(profile: WechatLoginProfile) {
+    const subject = profile.unionId
+      ? `union:${profile.unionId}`
+      : `openid:${profile.appId}:${profile.openId}`;
+    return `auth:wechat-identity:${this.hashKey(subject)}`;
+  }
+
+  private createNoopWechatIdentityLockLease(): WechatIdentityLockLease {
+    return {
+      assertHeld: async () => undefined,
+      stop: () => undefined,
+    };
+  }
+
+  private startWechatIdentityLockRenewal(
+    lockKey: string,
+    lockOwner: string,
+  ): WechatIdentityLockLease {
+    let lost = false;
+    let stopped = false;
+    let warned = false;
+    const markLost = () => {
+      lost = true;
+      if (!warned) {
+        warned = true;
+        this.logger.warn(`[WeChat] 身份锁已失效，lock=${this.hashKey(lockKey)}`);
+      }
+    };
+    const renew = async () => {
+      if (stopped || lost) return;
+      const renewed = await this.redisCoord.renewLock(
+        lockKey,
+        lockOwner,
+        WECHAT_UNION_LOCK_TTL_MS,
+      );
+      // false 表示 owner 不匹配/null 表示 Redis 不可用，两者都不能继续依赖该锁。
+      if (renewed !== true) markLost();
+    };
+    const interval = setInterval(() => {
+      void renew().catch(() => markLost());
+    }, Math.floor(WECHAT_UNION_LOCK_TTL_MS / 3));
+    interval.unref?.();
+    return {
+      assertHeld: async () => {
+        if (stopped || lost) {
+          throw new ServiceUnavailableException('微信身份锁已失效，请稍后重试');
+        }
+        // 不仅依赖后台心跳日志：每个身份写事务/签 token 前主动向 Redis
+        // 验证当前 owner，无法确认时立即 fail-closed。
+        await renew().catch(() => markLost());
+        if (lost) {
+          throw new ServiceUnavailableException('微信身份锁已失效，请稍后重试');
+        }
+      },
+      stop: () => {
+        stopped = true;
+        clearInterval(interval);
+      },
+    };
+  }
+
   /**
    * 账号注销护栏：任何登录态身份变更（绑定手机号/微信、未来的解绑/改密等）写操作前必须先断言账号仍 ACTIVE。
    * 已注销用户在 30 天冷静期内可能仍持有未失效的旧 JWT（或撤销前抢发的请求），
@@ -1549,7 +2364,12 @@ export class AuthService {
       throw new BadRequestException('当前账号已绑定手机号');
     }
 
-    const smsMock = this.config.get('SMS_MOCK', 'true');
+    return this.issueBindPhoneOtp(phone, '绑定手机号');
+  }
+
+  private async issueBindPhoneOtp(phone: string, context: string) {
+    const smsMock = this.config.get('SMS_MOCK', 'false');
+    this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
@@ -1559,16 +2379,16 @@ export class AuthService {
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     if (smsMock === 'true') {
       if (nodeEnv === 'production') {
-        this.logger.warn('[SMS] 生产环境仍使用 Mock 短信（绑定手机号），请设置 SMS_MOCK=false');
+        this.logger.warn(`[SMS] 生产环境仍使用 Mock 短信（${context}），请设置 SMS_MOCK=false`);
       }
-      this.logger.log(`[SMS Mock] 绑定手机号验证码=${code}（目标=${this.maskContact(phone)}）`);
+      this.logger.log(`[SMS Mock] ${context}验证码=${code}（目标=${this.maskContact(phone)}）`);
     } else {
       try {
         await this.aliyunSms.sendVerificationCode(phone, code);
-        this.logger.log(`[SMS] 绑定手机号验证码已发送（目标=${this.maskContact(phone)}）`);
+        this.logger.log(`[SMS] ${context}验证码已发送（目标=${this.maskContact(phone)}）`);
       } catch (err) {
         this.logger.error(
-          `[SMS] 绑定手机号验证码发送失败: ${(err as Error)?.message}`,
+          `[SMS] ${context}验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
       }
@@ -1596,6 +2416,14 @@ export class AuthService {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(async (tx) => {
+          await acquireUserWriteLock(tx, userId);
+          const currentUser = await tx.user.findUnique({
+            where: { id: userId },
+            select: { status: true, deletionExecutedAt: true },
+          });
+          if (!currentUser || currentUser.status !== UserStatus.ACTIVE || currentUser.deletionExecutedAt) {
+            throw new ForbiddenException('账号已注销，不能修改登录身份');
+          }
           const own = await tx.authIdentity.findFirst({
             where: { userId, provider: 'PHONE' },
           });
@@ -1649,47 +2477,102 @@ export class AuthService {
     await this.assertActiveUserForIdentityMutation(userId);
 
     // 1. 先 code 换 openId（事务外，外部 HTTP 调用不进事务）
-    const wechatProfile = await this.exchangeCodeForWechatProfile(code);
-    const { openId, unionId } = wechatProfile;
+    const wechatProfile = await this.exchangeWechatOAuthCode(code, 'mobile');
+    const { openId, unionId, appId } = wechatProfile;
+    const lockKey = this.wechatIdentityLockKey(wechatProfile);
+    const lockOwner = randomBytes(16).toString('hex');
+    const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
+    if (locked === false) {
+      throw new BadRequestException('微信账号绑定处理中，请稍后重试');
+    }
+    if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
+      throw new ServiceUnavailableException('微信账号绑定服务繁忙，请稍后重试');
+    }
+    const lockLease = locked
+      ? this.startWechatIdentityLockRenewal(lockKey, lockOwner)
+      : this.createNoopWechatIdentityLockLease();
 
-    // 2. Serializable 事务：findFirst+create 原子化；P2034 退避重试 1 次（同 bindPhone）
-    const MAX_RETRIES = 1;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          const own = await tx.authIdentity.findFirst({
-            where: { userId, provider: 'WECHAT' },
+    try {
+      await lockLease.assertHeld();
+      // 2. Serializable 事务：精确 OpenID 与全部 unionId 候选一并裁决。
+      const MAX_RETRIES = 1;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await acquireUserWriteLock(tx, userId);
+            const currentUser = await tx.user.findUnique({
+              where: { id: userId },
+              select: { status: true, deletionExecutedAt: true },
+            });
+            if (!currentUser || currentUser.status !== UserStatus.ACTIVE || currentUser.deletionExecutedAt) {
+              throw new ForbiddenException('账号已注销，不能修改登录身份');
+            }
+
+            const own = await tx.authIdentity.findFirst({
+              where: { userId, provider: 'WECHAT' },
+            });
+            if (own) {
+              throw new BadRequestException('当前账号已绑定微信');
+            }
+
+            const candidates = await tx.authIdentity.findMany({
+              where: {
+                provider: 'WECHAT',
+                OR: [
+                  {
+                    identifier: openId,
+                    OR: [{ appId }, { appId: null }],
+                  },
+                  ...(unionId
+                    ? [
+                        { unionId },
+                        { meta: { path: ['unionId'], equals: unionId } },
+                      ]
+                    : []),
+                ],
+              },
+              select: { userId: true },
+            });
+            if (candidates.some((candidate) => candidate.userId !== userId)) {
+              throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+            }
+
+            await lockLease.assertHeld();
+            await tx.authIdentity.create({
+              data: {
+                userId,
+                provider: 'WECHAT',
+                identifier: openId,
+                unionId: unionId || null,
+                appId,
+                verified: true,
+                meta: this.mergeWechatIdentityMeta(null, wechatProfile),
+              },
+            });
+          }, {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           });
-          if (own) {
-            throw new BadRequestException('当前账号已绑定微信');
-          }
-          const taken = await tx.authIdentity.findFirst({
-            where: { provider: 'WECHAT', identifier: openId },
-          });
-          if (taken) {
+          break;
+        } catch (err: any) {
+          const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
+          if (isPrismaError && err.code === 'P2002') {
             throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
           }
-          await tx.authIdentity.create({
-            data: { userId, provider: 'WECHAT', identifier: openId, verified: true, meta: { unionId } },
-          });
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        });
-        break;
-      } catch (err: any) {
-        const isPrismaError = err instanceof Prisma.PrismaClientKnownRequestError;
-        if (isPrismaError && err.code === 'P2002') {
-          throw new BadRequestException('该微信已被其他账号绑定，请使用该微信直接登录');
+          if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+            continue;
+          }
+          throw err;
         }
-        if (isPrismaError && err.code === 'P2034' && attempt < MAX_RETRIES) {
-          await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
-          continue;
-        }
-        throw err;
+      }
+
+      this.logger.log(`[BindWechat] userId=${userId} 已绑定微信 openId=${this.maskOpaqueId(openId)}`);
+      return { ok: true };
+    } finally {
+      lockLease.stop();
+      if (locked) {
+        await this.redisCoord.releaseLock(lockKey, lockOwner);
       }
     }
-
-    this.logger.log(`[BindWechat] userId=${userId} 已绑定微信 openId=${this.maskOpaqueId(openId)}`);
-    return { ok: true };
   }
 }

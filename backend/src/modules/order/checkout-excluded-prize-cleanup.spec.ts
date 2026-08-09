@@ -1,6 +1,28 @@
 import { CheckoutService } from './checkout.service';
 
 describe('CheckoutService excluded prize cleanup', () => {
+  function wirePaymentFixture(
+    service: CheckoutService,
+    prisma: any,
+    getCreatedSession: () => any,
+  ) {
+    service.setPaymentOperationCoordinator({
+      acquireLock: jest.fn().mockResolvedValue(true),
+      renewLock: jest.fn().mockResolvedValue(true),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+    } as any);
+    const originalFindFirst = prisma.checkoutSession.findFirst;
+    prisma.checkoutSession.findFirst = jest.fn(async (args: any) => (
+      args?.where?.id ? getCreatedSession() : originalFindFirst(args)
+    ));
+    (service as any).createFencedPaymentParams = jest.fn(async (input: any) => {
+      await input.lock.assertOwned();
+      const session = getCreatedSession();
+      expect(input.sessionId).toBe(session.id);
+      return { session, paymentParams: { channel: 'test' } };
+    });
+  }
+
   const validAddress = {
     id: 'addr1',
     userId: 'user1',
@@ -71,22 +93,19 @@ describe('CheckoutService excluded prize cleanup', () => {
       company: { findMany: jest.fn().mockResolvedValue([]) },
       checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (cb: any) => cb({
+        $executeRaw: jest.fn().mockResolvedValue(1),
+        $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
         checkoutSession: {
           findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn(async ({ data }: any) => {
-            createdSessionData = data;
-            return {
+            createdSessionData = {
               id: 'sess1',
-              merchantOrderNo: data.merchantOrderNo,
-              expectedTotal: data.expectedTotal,
-              goodsAmount: data.goodsAmount,
-              shippingFee: data.shippingFee,
-              discountAmount: data.discountAmount,
-              paymentChannel: data.paymentChannel,
-              vipDiscountAmount: data.vipDiscountAmount,
-              totalCouponDiscount: data.totalCouponDiscount,
-              couponInstanceIds: data.couponInstanceIds,
+              userId: 'user1',
+              status: 'ACTIVE',
+              bizType: 'NORMAL_GOODS',
+              ...data,
             };
+            return createdSessionData;
           }),
         },
         rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -100,6 +119,7 @@ describe('CheckoutService excluded prize cleanup', () => {
       }),
     };
     const service = new CheckoutService(prisma, bonusConfig);
+    wirePaymentFixture(service, prisma, () => createdSessionData);
 
     const result = await service.checkout('user1', {
       items: [

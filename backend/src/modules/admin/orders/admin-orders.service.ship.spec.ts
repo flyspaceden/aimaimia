@@ -29,6 +29,10 @@ describe('AdminOrdersService.ship', () => {
     const shippingCost = {
       recordPackage: jest.fn().mockResolvedValue({ id: 'cost-001' }),
     };
+    const wechatShippingOutbox = {
+      enqueueForOrderTx: jest.fn().mockResolvedValue({ enqueued: true }),
+      retryForOrder: jest.fn().mockResolvedValue({ enqueued: true }),
+    };
     const service = new (AdminOrdersService as any)(
       prisma,
       bonusConfig,
@@ -36,8 +40,9 @@ describe('AdminOrdersService.ship', () => {
       {},
       {},
       shippingCost,
+      wechatShippingOutbox,
     );
-    return { service, prisma, sfExpress, shippingCost };
+    return { service, prisma, sfExpress, shippingCost, wechatShippingOutbox };
   };
 
   const mockSuccessfulTransaction = (prisma: any) => {
@@ -114,7 +119,7 @@ describe('AdminOrdersService.ship', () => {
   });
 
   it('自动顺丰取号按 SKU 重量汇总 totalWeight，并在事务提交后记录平台承运成本', async () => {
-    const { service, prisma, sfExpress, shippingCost } = makeService();
+    const { service, prisma, sfExpress, shippingCost, wechatShippingOutbox } = makeService();
     mockAutoShipOrder(prisma);
     prisma.orderItem.findMany.mockResolvedValue([
       { quantity: 2, sku: { weightGram: 750, product: { title: '苹果' } } },
@@ -144,6 +149,10 @@ describe('AdminOrdersService.ship', () => {
       sfOrderId: 'sf-order-001',
       weightGramSent: 2750,
     });
+    expect(wechatShippingOutbox.enqueueForOrderTx).toHaveBeenCalledWith(
+      expect.any(Object),
+      'order-001',
+    );
   });
 
   it('自动顺丰取号对缺失或无效 SKU 重量按每件 1000g 兜底', async () => {
@@ -197,5 +206,15 @@ describe('AdminOrdersService.ship', () => {
 
     expect(sfExpress.createOrder).not.toHaveBeenCalled();
     expect(shippingCost.recordPackage).not.toHaveBeenCalled();
+  });
+
+  it('管理端人工重试只调用可信快照重建入口', async () => {
+    const { service, wechatShippingOutbox } = makeService();
+
+    await expect(service.retryWechatShipping('order-001')).resolves.toEqual({
+      ok: true,
+      status: 'PENDING',
+    });
+    expect(wechatShippingOutbox.retryForOrder).toHaveBeenCalledWith('order-001');
   });
 });

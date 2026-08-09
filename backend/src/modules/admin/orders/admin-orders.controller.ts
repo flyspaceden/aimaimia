@@ -70,6 +70,19 @@ export class AdminOrdersController {
     return this.ordersService.ship(id, dto);
   }
 
+  @Post(':id/wechat-shipping/retry')
+  @RequirePermission('orders:ship')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'orders',
+    targetType: 'WechatShippingOutbox',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  retryWechatShipping(@Param('id') id: string) {
+    return this.ordersService.retryWechatShipping(id);
+  }
+
   @Patch(':id/receiver-info')
   @RequirePermission('orders:ship')
   @AuditLog({

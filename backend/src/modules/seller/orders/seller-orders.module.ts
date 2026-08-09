@@ -5,9 +5,16 @@ import { SellerOrdersService } from './seller-orders.service';
 import { SellerShippingModule } from '../shipping/seller-shipping.module';
 import { SellerRiskControlModule } from '../risk-control/seller-risk-control.module';
 import { NotificationModule } from '../../notification/notification.module';
+import { ShipmentModule } from '../../shipment/shipment.module';
 
 @Module({
-  imports: [BonusModule, SellerShippingModule, SellerRiskControlModule, NotificationModule],
+  imports: [
+    BonusModule,
+    SellerShippingModule,
+    SellerRiskControlModule,
+    NotificationModule,
+    ShipmentModule,
+  ],
   controllers: [SellerOrdersController],
   providers: [SellerOrdersService],
 })

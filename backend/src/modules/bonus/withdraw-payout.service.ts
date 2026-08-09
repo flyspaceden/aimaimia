@@ -5,6 +5,9 @@ import {
   InternalServerErrorException,
   Logger,
   OnModuleInit,
+  Optional,
+  ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -21,6 +24,13 @@ import type { WithdrawRules } from './dto/withdraw-rules.dto';
 import { WithdrawRulesService } from './withdraw-rules.service';
 import { PLATFORM_USER_ID } from './engine/constants';
 import { pendingQueueClawbackCents } from '../queue-reward/queue-reward-clawback';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
+import {
+  WechatMerchantTransferNotify,
+  WechatMerchantTransferCreateResult,
+  WechatMerchantTransferQueryResult,
+  WechatMerchantTransferService,
+} from './wechat-merchant-transfer.service';
 
 type WithdrawStatusResult = 'PROCESSING' | 'PAID' | 'FAILED';
 type WithdrawSource = 'REWARD' | 'GROUP_BUY_REBATE';
@@ -29,6 +39,22 @@ type AccountSnapshot = {
   account?: string;
   name?: string;
   source?: WithdrawRequestSource;
+  channel?: 'ALIPAY' | 'WECHAT';
+  appId?: string;
+  packageInfo?: string;
+};
+
+type WechatNotifyInboxStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'DEAD';
+
+type WithdrawAuthContext = {
+  sessionId?: string | null;
+  authIdentityId?: string | null;
+};
+
+type WechatWithdrawIdentity = {
+  authIdentityId: string;
+  appId: string;
+  openId: string;
 };
 
 type TransferProviderResult = {
@@ -60,6 +86,9 @@ type WithdrawResult = {
   netAmount: number;
   status: WithdrawStatusResult;
   message: string;
+  mchId?: string;
+  appId?: string;
+  package?: string;
 };
 
 type WithdrawSplit = {
@@ -80,6 +109,13 @@ type WithdrawSplit = {
 
 const yuanToCents = (amount: number) => Math.round(amount * 100);
 const centsToYuan = (cents: number) => Math.round(cents) / 100;
+const WECHAT_CREATING_LEASE_MS = 2 * 60 * 1000;
+const WECHAT_RETRY_ATTEMPTS = new Set([3, 6, 9]);
+const WECHAT_CANCEL_AFTER_ATTEMPTS = 12;
+const WECHAT_CANCEL_RETRY_ATTEMPTS = new Set([3, 6, 9, 12, 15, 18]);
+const WECHAT_NOTIFY_MAX_ATTEMPTS = 8;
+const WITHDRAW_RECONCILE_BATCH_SIZE = 20;
+const WITHDRAW_RECONCILE_BACKOFF_MINUTES = [10, 20, 40, 80, 160, 240] as const;
 
 @Injectable()
 export class WithdrawPayoutService implements OnModuleInit {
@@ -93,6 +129,7 @@ export class WithdrawPayoutService implements OnModuleInit {
     private notificationService: NotificationService,
     private moduleRef: ModuleRef,
     private redisCoordinator: RedisCoordinatorService,
+    @Optional() private wechatTransferService?: WechatMerchantTransferService,
   ) {}
 
   onModuleInit() {
@@ -104,16 +141,30 @@ export class WithdrawPayoutService implements OnModuleInit {
     userId: string,
     input: WithdrawDto,
     idempotencyKey?: string,
+    authContext?: WithdrawAuthContext,
   ): Promise<WithdrawResult> {
-    return this.requestWithdrawBySource(userId, input, idempotencyKey, 'REWARD');
+    return this.requestWithdrawBySource(
+      userId,
+      input,
+      idempotencyKey,
+      'REWARD',
+      authContext,
+    );
   }
 
   async requestGroupBuyRebateWithdraw(
     userId: string,
     input: WithdrawDto,
     idempotencyKey?: string,
+    authContext?: WithdrawAuthContext,
   ): Promise<WithdrawResult> {
-    return this.requestWithdrawBySource(userId, input, idempotencyKey, 'GROUP_BUY_REBATE');
+    return this.requestWithdrawBySource(
+      userId,
+      input,
+      idempotencyKey,
+      'GROUP_BUY_REBATE',
+      authContext,
+    );
   }
 
   private async requestWithdrawBySource(
@@ -121,9 +172,18 @@ export class WithdrawPayoutService implements OnModuleInit {
     input: WithdrawDto,
     idempotencyKey: string | undefined,
     source: WithdrawSource,
+    authContext?: WithdrawAuthContext,
   ): Promise<WithdrawResult> {
     const rules = await this.rulesService.getRules();
     const amountCents = yuanToCents(input.amount);
+    const channel = input.channel === 'wechat' ? 'WECHAT' : 'ALIPAY';
+    const wechatIdentity = channel === 'WECHAT'
+      ? await this.resolveWechatWithdrawIdentity(
+          this.prisma as any,
+          userId,
+          authContext,
+        )
+      : undefined;
 
     if (amountCents < yuanToCents(rules.withdrawMinAmount)) {
       throw new BadRequestException(`单笔最低 ¥${rules.withdrawMinAmount}`);
@@ -131,27 +191,69 @@ export class WithdrawPayoutService implements OnModuleInit {
     if (amountCents > yuanToCents(rules.withdrawMaxAmount)) {
       throw new BadRequestException(`单笔最高 ¥${rules.withdrawMaxAmount}`);
     }
+    if (channel === 'WECHAT') {
+      const expectedNetCents = amountCents
+        - Math.floor(amountCents * rules.withdrawTaxRate)
+        - yuanToCents(rules.withdrawProviderFeeAmount);
+      if (expectedNetCents <= 0) {
+        throw new BadRequestException('提现到账金额必须大于 0');
+      }
+      this.resolveWechatTransferService().assertTransferAmountSupported(expectedNetCents);
+    }
 
     if (idempotencyKey) {
       const existing = await (this.prisma.withdrawRequest as any).findUnique({
         where: { clientIdempotencyKey: idempotencyKey },
       });
       if (existing) {
-        this.assertIdempotentRetryMatches(existing, userId, input, amountCents, source);
+        this.assertIdempotentRetryMatches(
+          existing,
+          userId,
+          input,
+          amountCents,
+          source,
+          wechatIdentity,
+        );
         return this.mapWithdrawResult(existing, '请求已处理');
       }
     }
 
     let created: any;
     try {
-      created = await this.createWithdrawTx(userId, input, idempotencyKey, rules, source);
+      const MAX_CREATE_RETRIES = 3;
+      for (let attempt = 1; attempt <= MAX_CREATE_RETRIES; attempt += 1) {
+        try {
+          created = await this.createWithdrawTx(
+            userId,
+            input,
+            idempotencyKey,
+            rules,
+            source,
+            authContext,
+          );
+          break;
+        } catch (err: any) {
+          const retryable = err instanceof Prisma.PrismaClientKnownRequestError
+            && err.code === 'P2034'
+            && attempt < MAX_CREATE_RETRIES;
+          if (!retryable) throw err;
+          await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        }
+      }
     } catch (err: any) {
       if (this.isUniqueConstraintError(err) && idempotencyKey) {
         const existing = await (this.prisma.withdrawRequest as any).findUnique({
           where: { clientIdempotencyKey: idempotencyKey },
         });
         if (existing) {
-          this.assertIdempotentRetryMatches(existing, userId, input, amountCents, source);
+          this.assertIdempotentRetryMatches(
+            existing,
+            userId,
+            input,
+            amountCents,
+            source,
+            wechatIdentity,
+          );
           return this.mapWithdrawResult(existing, '请求已处理');
         }
       }
@@ -164,14 +266,18 @@ export class WithdrawPayoutService implements OnModuleInit {
       netAmount: created.netAmount,
     };
 
+    if (channel === 'WECHAT') {
+      return this.initiateWechatWithdrawal(created, grossNet);
+    }
+
     let transferResult: TransferProviderResult;
     try {
       transferResult = await this.resolvePaymentService().initiateTransfer({
         channel: 'ALIPAY',
         amount: created.netAmount,
         outBizNo: created.outBizNo!,
-        payeeAccount: input.alipayAccount,
-        payeeRealName: input.alipayName,
+        payeeAccount: input.alipayAccount!,
+        payeeRealName: input.alipayName!,
         remark: this.getWithdrawRemark(source),
       });
     } catch (err: any) {
@@ -216,6 +322,166 @@ export class WithdrawPayoutService implements OnModuleInit {
       ...grossNet,
       status: 'PROCESSING',
       message: '提现处理中，请稍后查看',
+    };
+  }
+
+  private async initiateWechatWithdrawal(
+    created: any,
+    grossNet: {
+      grossAmount: number;
+      taxAmount: number;
+      taxRate: number;
+      netAmount: number;
+    },
+  ): Promise<WithdrawResult> {
+    const provider = this.resolveWechatTransferService();
+    const snapshot = this.readAccountSnapshot(created.accountSnapshot);
+    if (!snapshot.account || snapshot.appId !== provider.getMiniProgramAppId()) {
+      throw new UnauthorizedException('微信提现身份快照无效');
+    }
+
+    const claim = await (this.prisma.withdrawRequest as any).updateMany({
+      where: {
+        id: created.id,
+        status: 'PROCESSING' as any,
+        providerStatus: 'READY',
+      },
+      data: { providerStatus: 'CREATING', providerStateUpdatedAt: new Date() },
+    });
+    if (claim.count !== 1) {
+      const current = await (this.prisma.withdrawRequest as any).findUnique({
+        where: { id: created.id },
+      });
+      return this.mapWithdrawResult(current ?? created, '微信提现处理中，请稍后查看');
+    }
+    created.providerStatus = 'CREATING';
+    created.providerStateUpdatedAt = new Date();
+
+    let transferResult;
+    try {
+      transferResult = await provider.createTransfer({
+        outBillNo: created.outBizNo,
+        openId: snapshot.account,
+        amountFen: yuanToCents(created.netAmount),
+      });
+    } catch (error: any) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      await this.markWechatProcessingProviderInfo(created, {
+        state: 'UNKNOWN',
+        errorCode: String(error?.code || 'PROVIDER_EXCEPTION'),
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PROCESSING',
+        message: '微信提现结果确认中，请稍后查看',
+      };
+    }
+
+    if (transferResult.outcome !== 'FOUND' || !transferResult.state) {
+      await this.markWechatProcessingProviderInfo(created, {
+        state: 'UNKNOWN',
+        errorCode: transferResult.errorCode,
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PROCESSING',
+        message: '微信提现结果确认中，请稍后查看',
+      };
+    }
+
+    if (transferResult.state === 'SUCCESS') {
+      await this.finalizeWithdrawalPaid(created.id, {
+        providerOrderId: transferResult.transferBillNo,
+        providerStatus: 'SUCCESS',
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PAID',
+        message: `提现已到账 ¥${created.netAmount.toFixed(2)}`,
+      };
+    }
+
+    if (transferResult.state === 'FAIL' || transferResult.state === 'CANCELLED') {
+      await this.finalizeWithdrawalFailed(created.id, {
+        errorCode: transferResult.state,
+        errorMessage: '微信转账未成功',
+        providerStatus: transferResult.state,
+        providerOrderId: transferResult.transferBillNo,
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'FAILED',
+        message: '微信提现未成功，款项已退回',
+      };
+    }
+
+    if (transferResult.state === 'WAIT_USER_CONFIRM' && !transferResult.packageInfo) {
+      await this.recoverUnconfirmableWechatTransfer(created, {
+        transferBillNo: transferResult.transferBillNo,
+        reason: 'WAIT_USER_CONFIRM_PACKAGE_UNRECOVERABLE',
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PROCESSING',
+        message: '微信提现正在安全恢复，请稍后重试',
+      };
+    }
+
+    try {
+      const persisted = await this.markWechatProcessingProviderInfo(created, {
+        state: transferResult.state,
+        transferBillNo: transferResult.transferBillNo,
+        packageInfo: transferResult.packageInfo,
+      });
+      if (!persisted) {
+        this.logger.warn(
+          `微信提现创建结果被并发状态转换围栏拒绝: withdrawId=${created.id}`,
+        );
+        return {
+          withdrawId: created.id,
+          ...grossNet,
+          status: 'PROCESSING',
+          message: '微信提现处理中，请稍后查看',
+        };
+      }
+    } catch (error: any) {
+      // package_info 只在创建响应中返回。若无法持久化，绝不能把一次性参数直接交给客户端；
+      // 先撤销原单并保持资金冻结，待查到 CANCELLED 后再幂等退款。
+      await this.recoverUnconfirmableWechatTransfer(created, {
+        transferBillNo: transferResult.transferBillNo,
+        reason: 'PACKAGE_PERSIST_FAILED',
+      });
+      this.logger.error(
+        `微信提现确认参数落库失败，已启动撤销恢复: withdrawId=${created.id} error=${error?.message || 'UNKNOWN'}`,
+      );
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PROCESSING',
+        message: '微信提现正在安全恢复，请稍后重试',
+      };
+    }
+    if (transferResult.state === 'WAIT_USER_CONFIRM' && transferResult.packageInfo) {
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'PROCESSING',
+        message: '请在微信中确认收款',
+        mchId: provider.getMerchantId(),
+        appId: provider.getMiniProgramAppId(),
+        package: transferResult.packageInfo,
+      };
+    }
+    return {
+      withdrawId: created.id,
+      ...grossNet,
+      status: 'PROCESSING',
+      message: '微信提现处理中，请稍后查看',
     };
   }
 
@@ -558,6 +824,7 @@ export class WithdrawPayoutService implements OnModuleInit {
       errorMessage?: string;
       errorCode?: string;
       providerStatus?: string;
+      providerOrderId?: string;
     },
   ): Promise<void> {
     const withdraw = await this.prisma.$transaction(async (tx: any) => {
@@ -568,6 +835,7 @@ export class WithdrawPayoutService implements OnModuleInit {
           providerErrorCode: providerResult.errorCode,
           providerErrorMessage: providerResult.errorMessage,
           providerStatus: providerResult.providerStatus,
+          providerPayoutId: providerResult.providerOrderId,
         },
       });
       if (cas.count === 0) return null;
@@ -900,6 +1168,541 @@ export class WithdrawPayoutService implements OnModuleInit {
     }
   }
 
+  private async markWechatProcessingProviderInfo(
+    withdraw: any,
+    providerResult: {
+      state: string;
+      transferBillNo?: string;
+      packageInfo?: string;
+      errorCode?: string;
+    },
+  ): Promise<boolean> {
+    const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+    const data: Record<string, unknown> = {
+      providerStatus: providerResult.state,
+      providerStateUpdatedAt: new Date(),
+      providerErrorCode: providerResult.errorCode,
+      accountSnapshot: encryptJsonValue({
+        ...snapshot,
+        channel: 'WECHAT',
+        packageInfo: providerResult.packageInfo ?? snapshot.packageInfo,
+      }) as any,
+    };
+    if (providerResult.transferBillNo) {
+      data.providerPayoutId = providerResult.transferBillNo;
+    }
+    const where: Record<string, unknown> = {
+      id: withdraw.id,
+      status: 'PROCESSING' as any,
+    };
+    if (typeof withdraw.providerStatus === 'string' && withdraw.providerStatus) {
+      where.providerStatus = withdraw.providerStatus;
+    }
+    const cas = await (this.prisma.withdrawRequest as any).updateMany({
+      where,
+      data,
+    });
+    if (cas.count !== 1) return false;
+    withdraw.providerStatus = providerResult.state;
+    withdraw.providerStateUpdatedAt = data.providerStateUpdatedAt;
+    if (providerResult.transferBillNo) {
+      withdraw.providerPayoutId = providerResult.transferBillNo;
+    }
+    withdraw.accountSnapshot = data.accountSnapshot;
+    const updated = await (this.prisma.withdrawRequest as any).findUnique({
+      where: { id: withdraw.id },
+    });
+    if (updated?.userId) {
+      await this.notificationService.emit({
+        eventType: 'withdraw.processing',
+        aggregateType: 'withdrawRequest',
+        aggregateId: updated.id,
+        idempotencyKey: `withdraw:${updated.id}:processing`,
+        actor: { kind: 'system' },
+        payload: {
+          withdrawId: updated.id,
+          userId: updated.userId,
+          amount: updated.amount,
+        },
+      });
+    }
+    return true;
+  }
+
+  private async recoverUnconfirmableWechatTransfer(
+    withdraw: any,
+    args: { transferBillNo?: string; reason: string },
+  ): Promise<void> {
+    // 必须先抢状态 owner 再发外部撤销。否则恢复者在 cancel 网络调用期间，
+    // 原创建者仍可能 CREATING→WAIT 并把已被撤销的 package 返回客户端。
+    try {
+      const claimed = await this.markWechatProcessingProviderInfo(withdraw, {
+        state: 'RECOVERY_CANCEL_CLAIMED',
+        transferBillNo: args.transferBillNo,
+        errorCode: args.reason,
+      });
+      if (!claimed) return;
+
+      let cancel;
+      try {
+        cancel = await this.resolveWechatTransferService().cancelTransfer(withdraw.outBizNo);
+      } catch (error: any) {
+        cancel = { accepted: false, errorCode: String(error?.code || 'CANCEL_EXCEPTION') };
+      }
+      const cancelIdentityMatches = !args.transferBillNo
+        || !cancel.transferBillNo
+        || args.transferBillNo === cancel.transferBillNo;
+      const cancelAccepted = cancel.accepted && cancelIdentityMatches;
+      await this.markWechatProcessingProviderInfo(withdraw, {
+        state: cancelAccepted ? 'RECOVERY_CANCEL_REQUESTED' : 'RECOVERY_CANCEL_PENDING',
+        transferBillNo: args.transferBillNo,
+        errorCode: cancelAccepted
+          ? args.reason
+          : `${args.reason}:${cancelIdentityMatches ? cancel.errorCode || 'CANCEL_UNKNOWN' : 'CANCEL_IDENTITY_MISMATCH'}`,
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `微信提现撤销恢复状态落库失败: withdrawId=${withdraw.id} error=${error?.message || 'UNKNOWN'}`,
+      );
+    }
+  }
+
+  /**
+   * 将已验签、已解密的回调放入持久化 inbox。eventId 冲突必须内容完全一致，
+   * 防止同一微信事件号被替换为另一笔资金通知。
+   */
+  async enqueueWechatTransferNotify(notify: WechatMerchantTransferNotify): Promise<string> {
+    const inbox = (this.prisma as any).wechatTransferNotifyInbox;
+    const existing = await inbox.findUnique({ where: { eventId: notify.eventId } });
+    if (existing) {
+      const saved = decryptJsonValue<WechatMerchantTransferNotify>(existing.payload);
+      if (JSON.stringify(saved) !== JSON.stringify(notify)) {
+        throw new UnauthorizedException('微信提现通知事件号内容冲突');
+      }
+      return existing.eventId;
+    }
+
+    try {
+      await inbox.create({
+        data: {
+          eventId: notify.eventId,
+          outBillNo: notify.outBillNo,
+          payload: encryptJsonValue(notify) as any,
+          status: 'PENDING' satisfies WechatNotifyInboxStatus,
+        },
+      });
+    } catch (error: any) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const raced = await inbox.findUnique({ where: { eventId: notify.eventId } });
+      const saved = raced
+        ? decryptJsonValue<WechatMerchantTransferNotify>(raced.payload)
+        : null;
+      if (!raced || JSON.stringify(saved) !== JSON.stringify(notify)) {
+        throw new UnauthorizedException('微信提现通知事件号内容冲突');
+      }
+    }
+    return notify.eventId;
+  }
+
+  /** 单事件 CAS 消费；失败指数退避，超过上限转 DEAD 并通知管理员。 */
+  async processWechatTransferNotifyInbox(eventId: string): Promise<void> {
+    const inbox = (this.prisma as any).wechatTransferNotifyInbox;
+    const now = new Date();
+    const claim = await inbox.updateMany({
+      where: { eventId, status: 'PENDING', nextAttemptAt: { lte: now } },
+      data: {
+        status: 'PROCESSING' satisfies WechatNotifyInboxStatus,
+        attempts: { increment: 1 },
+        lastError: null,
+      },
+    });
+    if (claim.count !== 1) return;
+
+    const row = await inbox.findUnique({ where: { eventId } });
+    try {
+      const notify = decryptJsonValue<WechatMerchantTransferNotify>(row?.payload);
+      if (!notify || notify.eventId !== eventId || notify.outBillNo !== row?.outBillNo) {
+        throw new UnauthorizedException('微信提现通知收件箱内容无效');
+      }
+      await this.handleWechatTransferNotify(notify);
+      await inbox.updateMany({
+        where: { eventId, status: 'PROCESSING' },
+        data: {
+          status: 'DONE' satisfies WechatNotifyInboxStatus,
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+    } catch (error: any) {
+      const attempts = Math.max(1, Number(row?.attempts ?? 1));
+      const dead = attempts >= WECHAT_NOTIFY_MAX_ATTEMPTS;
+      const delayMs = Math.min(60 * 60 * 1000, 30_000 * (2 ** Math.min(attempts - 1, 7)));
+      await inbox.updateMany({
+        where: { eventId, status: 'PROCESSING' },
+        data: {
+          status: (dead ? 'DEAD' : 'PENDING') satisfies WechatNotifyInboxStatus,
+          nextAttemptAt: dead ? now : new Date(now.getTime() + delayMs),
+          deadAt: dead ? now : null,
+          lastError: String(error?.message || 'UNKNOWN').slice(0, 500),
+        },
+      });
+      if (dead) {
+        await this.alertWechatNotifyDead(row, attempts, error);
+      }
+      throw error;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async retryWechatTransferNotifyInbox(): Promise<void> {
+    const inbox = (this.prisma as any).wechatTransferNotifyInbox;
+    const staleBefore = new Date(Date.now() - 5 * 60 * 1000);
+    await inbox.updateMany({
+      where: { status: 'PROCESSING', updatedAt: { lt: staleBefore } },
+      data: {
+        status: 'PENDING' satisfies WechatNotifyInboxStatus,
+        nextAttemptAt: new Date(),
+      },
+    });
+    const rows = await inbox.findMany({
+      where: { status: 'PENDING', nextAttemptAt: { lte: new Date() } },
+      select: { eventId: true },
+      orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+      take: 20,
+    });
+    for (const row of rows) {
+      try {
+        await this.processWechatTransferNotifyInbox(row.eventId);
+      } catch (error: any) {
+        this.logger.error(
+          `微信提现通知异步处理失败: eventId=${this.maskIdentifier(row.eventId)} error=${error?.message || 'UNKNOWN'}`,
+        );
+      }
+    }
+  }
+
+  private async alertWechatNotifyDead(row: any, attempts: number, error: any): Promise<void> {
+    const admins = await (this.prisma.adminUser as any).findMany({
+      where: { status: 'ACTIVE' as any },
+      select: { id: true },
+    });
+    await this.notificationService.emit({
+      eventType: 'withdraw.wechatNotifyDead',
+      aggregateType: 'wechatTransferNotifyInbox',
+      aggregateId: row?.id || row?.eventId || 'unknown',
+      idempotencyKey: `wechat-transfer-notify:${row?.eventId || 'unknown'}:dead`,
+      actor: { kind: 'system' },
+      payload: {
+        outBillNo: row?.outBillNo,
+        attempts,
+        error: String(error?.message || 'UNKNOWN').slice(0, 200),
+        adminUserIds: admins.map((admin: { id: string }) => admin.id),
+      },
+    });
+  }
+
+  /**
+   * 商家转账通知不含 appid，因此必须用同一 outBillNo 主动查单后再收口。
+   * 只有查询结果与本地身份快照及通知的全部资金字段一致，才允许改变状态。
+   */
+  async handleWechatTransferNotify(notify: WechatMerchantTransferNotify): Promise<void> {
+    const withdraw = await (this.prisma.withdrawRequest as any).findUnique({
+      where: { outBizNo: notify.outBillNo },
+    });
+    if (!withdraw || withdraw.channel !== 'WECHAT') {
+      throw new UnauthorizedException('微信提现通知未匹配到可信订单');
+    }
+
+    const query = await this.resolveWechatTransferService().queryTransfer(notify.outBillNo);
+    if (query.outcome !== 'FOUND') {
+      throw new ServiceUnavailableException('微信提现通知暂无法完成原单查询');
+    }
+    this.assertWechatQueryMatchesWithdraw(withdraw, query, notify);
+
+    if (query.state === 'SUCCESS') {
+      await this.finalizeWithdrawalPaid(withdraw.id, {
+        providerOrderId: query.transferBillNo,
+        providerStatus: query.state,
+      });
+      return;
+    }
+    await this.finalizeWithdrawalFailed(withdraw.id, {
+      errorCode: query.state,
+      errorMessage: query.failReason || '微信转账未成功',
+      providerStatus: query.state,
+      providerOrderId: query.transferBillNo,
+    });
+  }
+
+  private async reconcileWechatWithdrawal(withdraw: any): Promise<string> {
+    const provider = this.resolveWechatTransferService();
+    const query = await provider.queryTransfer(withdraw.outBizNo);
+    const queryAttempts = Number(withdraw.queryAttempts ?? 0);
+    const creatingLeaseActive = withdraw.providerStatus === 'CREATING'
+      && withdraw.providerStateUpdatedAt instanceof Date
+      && withdraw.providerStateUpdatedAt.getTime() > Date.now() - WECHAT_CREATING_LEASE_MS;
+
+    if (query.outcome === 'FOUND') {
+      this.assertWechatQueryMatchesWithdraw(withdraw, query);
+      if (query.state === 'SUCCESS') {
+        await this.finalizeWithdrawalPaid(withdraw.id, {
+          providerOrderId: query.transferBillNo,
+          providerStatus: query.state,
+        });
+        return 'PAID';
+      }
+      if (query.state === 'FAIL' || query.state === 'CANCELLED') {
+        await this.finalizeWithdrawalFailed(withdraw.id, {
+          errorCode: query.state,
+          errorMessage: query.failReason || '微信转账未成功',
+          providerStatus: query.state,
+          providerOrderId: query.transferBillNo,
+        });
+        return 'FAILED';
+      }
+      // 创建请求的 owner 仍在租约内时，人工查单/Cron 只允许观察，不得撤销或覆盖
+      // 一次性 package_info，避免“已撤销却仍向客户端返回确认参数”的竞态。
+      if (creatingLeaseActive) return 'PROCESSING';
+    } else if (creatingLeaseActive) {
+      return 'PROCESSING';
+    }
+
+    if (
+      query.outcome === 'NOT_FOUND'
+      && (
+        withdraw.providerStatus === 'READY'
+        || withdraw.providerStatus === 'CREATING'
+        || withdraw.providerStatus === 'UNKNOWN'
+      )
+    ) {
+      // 本地已冻结但进程可能在调用微信前退出。只复用原 outBillNo 幂等发起，绝不换号。
+      const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+      if (!snapshot.account || snapshot.appId !== provider.getMiniProgramAppId()) {
+        throw new UnauthorizedException('微信提现身份快照无效');
+      }
+      const created = await provider.createTransfer({
+        outBillNo: withdraw.outBizNo,
+        openId: snapshot.account,
+        amountFen: yuanToCents(withdraw.netAmount),
+      });
+      const status = await this.applyWechatCreateRecoveryResult(withdraw, created);
+      if (status === 'PROCESSING' && queryAttempts >= WECHAT_CANCEL_AFTER_ATTEMPTS) {
+        await this.alertWechatWithdrawalStuck(withdraw, query.outcome, queryAttempts);
+      }
+      return status;
+    }
+
+    if (query.outcome !== 'FOUND') {
+      // 未知/404 不能证明失败，必须保持冻结。
+      if (queryAttempts >= WECHAT_CANCEL_AFTER_ATTEMPTS) {
+        await this.alertWechatWithdrawalStuck(withdraw, query.outcome, queryAttempts);
+      }
+      return 'PROCESSING';
+    }
+    const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+    if (String(withdraw.providerStatus || '').startsWith('RECOVERY_CANCEL_')) {
+      if (
+        withdraw.providerStatus !== 'RECOVERY_CANCEL_REQUESTED'
+        && WECHAT_CANCEL_RETRY_ATTEMPTS.has(queryAttempts)
+      ) {
+        await this.recoverUnconfirmableWechatTransfer(withdraw, {
+          transferBillNo: query.transferBillNo,
+          reason: 'NON_TERMINAL_CANCEL_RETRY',
+        });
+      }
+      if (queryAttempts >= WECHAT_CANCEL_AFTER_ATTEMPTS) {
+        await this.alertWechatWithdrawalStuck(withdraw, query.state, queryAttempts);
+      }
+      return 'PROCESSING';
+    }
+    if (query.state === 'WAIT_USER_CONFIRM' && !snapshot.packageInfo) {
+      await this.recoverUnconfirmableWechatTransfer(withdraw, {
+        transferBillNo: query.transferBillNo,
+        reason: 'WAIT_USER_CONFIRM_PACKAGE_UNAVAILABLE',
+      });
+      return 'PROCESSING';
+    }
+
+    if (
+      (query.state === 'ACCEPTED' || query.state === 'PROCESSING')
+      && WECHAT_RETRY_ATTEMPTS.has(queryAttempts)
+    ) {
+      // 微信官方允许使用完全相同的 outBillNo 原单重试；金额和 OpenID 均取加密快照，绝不换号。
+      if (!snapshot.account || snapshot.appId !== provider.getMiniProgramAppId()) {
+        throw new UnauthorizedException('微信提现身份快照无效');
+      }
+      const replay = await provider.createTransfer({
+        outBillNo: withdraw.outBizNo,
+        openId: snapshot.account,
+        amountFen: yuanToCents(withdraw.netAmount),
+      });
+      return this.applyWechatCreateRecoveryResult(withdraw, replay);
+    }
+
+    if (
+      (query.state === 'ACCEPTED' || query.state === 'PROCESSING')
+      && queryAttempts >= WECHAT_CANCEL_AFTER_ATTEMPTS
+    ) {
+      // 限次原单重试仍无终态后，发起同一原单撤销；只有后续签名查询为 CANCELLED 才退款。
+      await this.recoverUnconfirmableWechatTransfer(withdraw, {
+        transferBillNo: query.transferBillNo,
+        reason: 'NON_TERMINAL_MAX_ATTEMPTS',
+      });
+      await this.alertWechatWithdrawalStuck(withdraw, query.state, queryAttempts);
+      return 'PROCESSING';
+    }
+
+    await this.markWechatProcessingProviderInfo(withdraw, {
+      state: query.state,
+      transferBillNo: query.transferBillNo,
+    });
+    return 'PROCESSING';
+  }
+
+  private async applyWechatCreateRecoveryResult(
+    withdraw: any,
+    created: WechatMerchantTransferCreateResult,
+  ): Promise<string> {
+    if (created.outcome !== 'FOUND' || !created.state) {
+      await this.markWechatProcessingProviderInfo(withdraw, {
+        state: 'UNKNOWN',
+        errorCode: created.errorCode,
+      });
+      return 'PROCESSING';
+    }
+    if (created.state === 'SUCCESS') {
+      await this.finalizeWithdrawalPaid(withdraw.id, {
+        providerOrderId: created.transferBillNo,
+        providerStatus: created.state,
+      });
+      return 'PAID';
+    }
+    if (created.state === 'FAIL' || created.state === 'CANCELLED') {
+      await this.finalizeWithdrawalFailed(withdraw.id, {
+        errorCode: created.state,
+        errorMessage: '微信转账未成功',
+        providerStatus: created.state,
+        providerOrderId: created.transferBillNo,
+      });
+      return 'FAILED';
+    }
+    if (created.state === 'WAIT_USER_CONFIRM' && !created.packageInfo) {
+      await this.recoverUnconfirmableWechatTransfer(withdraw, {
+        transferBillNo: created.transferBillNo,
+        reason: 'RECOVERED_CREATE_PACKAGE_UNAVAILABLE',
+      });
+      return 'PROCESSING';
+    }
+    await this.markWechatProcessingProviderInfo(withdraw, {
+      state: created.state,
+      transferBillNo: created.transferBillNo,
+      packageInfo: created.packageInfo,
+    });
+    return 'PROCESSING';
+  }
+
+  private async alertWechatWithdrawalStuck(
+    withdraw: any,
+    providerState: string,
+    attempts: number,
+  ): Promise<void> {
+    const admins = await (this.prisma.adminUser as any).findMany({
+      where: { status: 'ACTIVE' as any },
+      select: { id: true },
+    });
+    await this.notificationService.emit({
+      eventType: 'withdraw.wechatStuck',
+      aggregateType: 'withdrawRequest',
+      aggregateId: withdraw.id,
+      idempotencyKey: `withdraw:${withdraw.id}:wechat-stuck`,
+      actor: { kind: 'system' },
+      payload: {
+        withdrawId: withdraw.id,
+        userId: withdraw.userId,
+        providerState,
+        attempts,
+        adminUserIds: admins.map((admin: { id: string }) => admin.id),
+      },
+    });
+  }
+
+  async manualReconcileWithdrawal(withdrawId: string): Promise<{
+    status: string;
+    channel: string;
+    providerStatus?: string;
+  }> {
+    const withdraw = await (this.prisma.withdrawRequest as any).findUnique({
+      where: { id: withdrawId },
+    });
+    if (!withdraw) throw new BadRequestException('提现记录不存在');
+    if (withdraw.status !== 'PROCESSING') {
+      return { status: withdraw.status, channel: withdraw.channel, providerStatus: withdraw.providerStatus };
+    }
+    const nextAttempt = Number(withdraw.queryAttempts ?? 0) + 1;
+    const queriedAt = new Date();
+    // 人工查单与 Cron 共用 lastQueriedAt 作为轻量租约版本。先 CAS 抢占再访问
+    // 支付渠道，避免两者同时重放/撤销同一笔转账。
+    const claimed = await (this.prisma.withdrawRequest as any).updateMany({
+      where: {
+        id: withdraw.id,
+        status: 'PROCESSING' as any,
+        lastQueriedAt: withdraw.lastQueriedAt ?? null,
+      },
+      data: {
+        lastQueriedAt: queriedAt,
+        nextReconcileAt: new Date(
+          queriedAt.getTime() + this.withdrawReconcileDelayMs(nextAttempt),
+        ),
+        queryAttempts: { increment: 1 },
+      },
+    });
+    if (claimed.count !== 1) {
+      const current = await (this.prisma.withdrawRequest as any).findUnique({
+        where: { id: withdraw.id },
+      });
+      if (!current) throw new BadRequestException('提现记录不存在');
+      if (current.status !== 'PROCESSING') {
+        return {
+          status: current.status,
+          channel: current.channel,
+          providerStatus: current.providerStatus,
+        };
+      }
+      throw new ConflictException('提现查单正在处理中，请稍后重试');
+    }
+    withdraw.queryAttempts = nextAttempt;
+    withdraw.lastQueriedAt = queriedAt;
+    if (withdraw.channel === 'WECHAT') {
+      const status = await this.reconcileWechatWithdrawal(withdraw);
+      return { status, channel: 'WECHAT' };
+    }
+    if (withdraw.channel !== 'ALIPAY') {
+      this.logger.error(`未知提现渠道，拒绝人工查单: withdrawId=${withdraw.id} channel=${withdraw.channel}`);
+      throw new BadRequestException('该提现渠道暂不支持自动查单');
+    }
+    const query = await this.resolveAlipayService().queryTransfer({ outBizNo: withdraw.outBizNo });
+    if (query.status === 'SUCCESS') {
+      this.assertAlipayQueryMatchesWithdraw(withdraw, query);
+      await this.finalizeWithdrawalPaid(withdraw.id, {
+        providerOrderId: query.orderId,
+        providerFundOrderId: query.payFundOrderId,
+        providerStatus: 'SUCCESS',
+      });
+      return { status: 'PAID', channel: 'ALIPAY', providerStatus: query.status };
+    }
+    if (query.status === 'FAIL') {
+      this.assertAlipayQueryMatchesWithdraw(withdraw, query);
+      await this.finalizeWithdrawalFailed(withdraw.id, {
+        errorCode: query.errorCode,
+        errorMessage: query.errorMessage,
+        providerStatus: 'FAIL',
+        providerOrderId: query.orderId,
+      });
+      return { status: 'FAILED', channel: 'ALIPAY', providerStatus: query.status };
+    }
+    return { status: 'PROCESSING', channel: 'ALIPAY', providerStatus: query.status };
+  }
+
   async checkYearlyAlertAndNotify(
     userId: string,
     _lastAmount: number,
@@ -955,45 +1758,95 @@ export class WithdrawPayoutService implements OnModuleInit {
     }
 
     try {
-      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const now = new Date();
+      const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
       const candidates = await (this.prisma.withdrawRequest as any).findMany({
         where: {
           deletedAt: null,
           status: 'PROCESSING' as any,
           createdAt: { lte: fiveMinAgo },
           outBizNo: { not: null },
+          OR: [
+            { nextReconcileAt: null },
+            { nextReconcileAt: { lte: now } },
+          ],
         },
         select: {
           id: true,
+          userId: true,
           outBizNo: true,
           queryAttempts: true,
+          channel: true,
+          netAmount: true,
+          accountSnapshot: true,
+          providerPayoutId: true,
+          providerStatus: true,
+          providerStateUpdatedAt: true,
+          nextReconcileAt: true,
         },
-        orderBy: { createdAt: 'asc' },
-        take: 20,
+        orderBy: [
+          { nextReconcileAt: { sort: 'asc', nulls: 'first' } },
+          { createdAt: 'asc' },
+        ],
+        take: WITHDRAW_RECONCILE_BATCH_SIZE,
       });
       if (candidates.length === 0) return;
 
-      const alipayService = this.resolveAlipayService();
       for (const withdraw of candidates) {
-        await (this.prisma.withdrawRequest as any).update({
-          where: { id: withdraw.id },
-          data: { lastQueriedAt: new Date(), queryAttempts: { increment: 1 } },
+        const nextAttempt = Number(withdraw.queryAttempts ?? 0) + 1;
+        const claimedAt = new Date();
+        const nextReconcileAt = new Date(
+          claimedAt.getTime() + this.withdrawReconcileDelayMs(nextAttempt),
+        );
+        const claimed = await (this.prisma.withdrawRequest as any).updateMany({
+          where: {
+            id: withdraw.id,
+            status: 'PROCESSING' as any,
+            OR: [
+              { nextReconcileAt: null },
+              { nextReconcileAt: { lte: claimedAt } },
+            ],
+          },
+          data: {
+            lastQueriedAt: claimedAt,
+            nextReconcileAt,
+            queryAttempts: { increment: 1 },
+          },
         });
+        if (claimed.count !== 1) continue;
+        withdraw.queryAttempts = nextAttempt;
+        withdraw.nextReconcileAt = nextReconcileAt;
 
         try {
+          if (withdraw.channel === 'WECHAT') {
+            await this.reconcileWechatWithdrawal(withdraw);
+            continue;
+          }
+
+          if (withdraw.channel !== 'ALIPAY') {
+            this.logger.error(
+              `未知提现渠道，补偿任务跳过: withdrawId=${withdraw.id} channel=${withdraw.channel}`,
+            );
+            continue;
+          }
+
+          const alipayService = this.resolveAlipayService();
           const queryResult = await alipayService.queryTransfer({ outBizNo: withdraw.outBizNo });
 
           if (queryResult.status === 'SUCCESS') {
+            this.assertAlipayQueryMatchesWithdraw(withdraw, queryResult);
             await this.finalizeWithdrawalPaid(withdraw.id, {
               providerOrderId: queryResult.orderId,
               providerFundOrderId: queryResult.payFundOrderId,
               providerStatus: 'SUCCESS',
             });
           } else if (queryResult.status === 'FAIL') {
+            this.assertAlipayQueryMatchesWithdraw(withdraw, queryResult);
             await this.finalizeWithdrawalFailed(withdraw.id, {
               errorCode: queryResult.errorCode,
               errorMessage: queryResult.errorMessage,
               providerStatus: 'FAIL',
+              providerOrderId: queryResult.orderId,
             });
           } else if (queryResult.status === 'NOT_FOUND' && Number(withdraw.queryAttempts ?? 0) >= 9) {
             await this.finalizeWithdrawalFailed(withdraw.id, {
@@ -1011,15 +1864,29 @@ export class WithdrawPayoutService implements OnModuleInit {
     }
   }
 
+  private withdrawReconcileDelayMs(attempt: number): number {
+    const index = Math.min(
+      Math.max(1, Math.trunc(attempt)) - 1,
+      WITHDRAW_RECONCILE_BACKOFF_MINUTES.length - 1,
+    );
+    return WITHDRAW_RECONCILE_BACKOFF_MINUTES[index] * 60 * 1000;
+  }
+
   private async createWithdrawTx(
     userId: string,
     input: WithdrawDto,
     idempotencyKey: string | undefined,
     rules: WithdrawRules,
     source: WithdrawSource,
+    authContext?: WithdrawAuthContext,
   ) {
     return this.prisma.$transaction(async (tx: any) => {
+      await assertActiveUserWriteBarrier(tx, userId);
       const amountCents = yuanToCents(input.amount);
+      const channel = input.channel === 'wechat' ? 'WECHAT' : 'ALIPAY';
+      const wechatIdentity = channel === 'WECHAT'
+        ? await this.resolveWechatWithdrawIdentity(tx, userId, authContext)
+        : undefined;
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
@@ -1073,7 +1940,10 @@ export class WithdrawPayoutService implements OnModuleInit {
       }
 
       const id = randomUUID();
-      const outBizNo = `WD-${id}`;
+      // 微信 out_bill_no 只允许数字/字母且最长 32 位。
+      const outBizNo = channel === 'WECHAT'
+        ? `WX${id.replace(/-/g, '').slice(0, 30)}`
+        : `WD-${id}`;
       // 主账户记录在 WithdrawRequest.accountType（用于管理后台筛选展示），优先级 VIP > NORMAL > GROUP_BUY > INDUSTRY
       const primaryAccountType = source === 'GROUP_BUY_REBATE'
         ? 'GROUP_BUY_REBATE'
@@ -1092,12 +1962,19 @@ export class WithdrawPayoutService implements OnModuleInit {
           id,
           userId,
           amount: centsToYuan(amountCents),
-          channel: 'ALIPAY' as any,
-          accountSnapshot: encryptJsonValue({
-            account: input.alipayAccount,
-            name: input.alipayName,
-            source: requestSource,
-          }) as any,
+          channel: channel as any,
+          accountSnapshot: encryptJsonValue(channel === 'WECHAT'
+            ? {
+                account: wechatIdentity!.openId,
+                source: requestSource,
+                channel: 'WECHAT',
+                appId: wechatIdentity!.appId,
+              }
+            : {
+                account: input.alipayAccount,
+                name: input.alipayName,
+                source: requestSource,
+              }) as any,
           accountType: primaryAccountType,
           status: 'PROCESSING' as any,
           taxAmount: centsToYuan(taxCents),
@@ -1106,6 +1983,8 @@ export class WithdrawPayoutService implements OnModuleInit {
           providerFeeAmount: centsToYuan(providerFeeCents),
           outBizNo,
           clientIdempotencyKey: idempotencyKey ?? null,
+          providerStatus: channel === 'WECHAT' ? 'READY' : null,
+          providerStateUpdatedAt: channel === 'WECHAT' ? new Date() : null,
         },
       });
 
@@ -1300,15 +2179,27 @@ export class WithdrawPayoutService implements OnModuleInit {
     input: WithdrawDto,
     amountCents: number,
     source: WithdrawSource,
+    wechatIdentity?: WechatWithdrawIdentity,
   ): void {
     const snapshot = this.readAccountSnapshot(existing.accountSnapshot);
+    const inputChannel = input.channel === 'wechat' ? 'WECHAT' : 'ALIPAY';
+    const existingChannel = existing.channel === 'WECHAT' || snapshot.channel === 'WECHAT'
+      ? 'WECHAT'
+      : 'ALIPAY';
     const sameUser = existing.userId === userId;
     const sameAmount = yuanToCents(existing.amount) === amountCents;
-    const sameAccount = snapshot.account === input.alipayAccount;
-    const sameName = snapshot.name === input.alipayName;
+    const sameChannel = inputChannel === existingChannel;
+    const sameAccount = inputChannel === 'WECHAT'
+      ? Boolean(
+          wechatIdentity
+          && snapshot.account === wechatIdentity.openId
+          && snapshot.appId === wechatIdentity.appId,
+        )
+      : snapshot.account === input.alipayAccount;
+    const sameName = inputChannel === 'WECHAT' || snapshot.name === input.alipayName;
     const existingSource = this.resolveWithdrawSource(existing);
     const sameSource = existingSource === source;
-    if (!sameUser || !sameAmount || !sameAccount || !sameName || !sameSource) {
+    if (!sameUser || !sameAmount || !sameChannel || !sameAccount || !sameName || !sameSource) {
       throw new ConflictException('Idempotency-Key conflict: existing request differs');
     }
   }
@@ -1340,13 +2231,20 @@ export class WithdrawPayoutService implements OnModuleInit {
         account: typeof decrypted.account === 'string' ? decrypted.account : undefined,
         name: typeof decrypted.name === 'string' ? decrypted.name : undefined,
         source,
+        channel: decrypted.channel === 'WECHAT' || decrypted.channel === 'ALIPAY'
+          ? decrypted.channel
+          : undefined,
+        appId: typeof decrypted.appId === 'string' ? decrypted.appId : undefined,
+        packageInfo: typeof decrypted.packageInfo === 'string'
+          ? decrypted.packageInfo
+          : undefined,
       };
     }
     return {};
   }
 
   private mapWithdrawResult(withdraw: any, message: string): WithdrawResult {
-    return {
+    const result: WithdrawResult = {
       withdrawId: withdraw.id,
       grossAmount: withdraw.amount,
       taxAmount: withdraw.taxAmount,
@@ -1355,6 +2253,143 @@ export class WithdrawPayoutService implements OnModuleInit {
       status: withdraw.status as WithdrawStatusResult,
       message,
     };
+    const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+    if (
+      withdraw.status === 'PROCESSING'
+      && withdraw.providerStatus === 'WAIT_USER_CONFIRM'
+      && snapshot.channel === 'WECHAT'
+      && snapshot.packageInfo
+      && this.wechatTransferService?.isAvailable()
+    ) {
+      result.mchId = this.wechatTransferService.getMerchantId();
+      result.appId = this.wechatTransferService.getMiniProgramAppId();
+      result.package = snapshot.packageInfo;
+    }
+    return result;
+  }
+
+  private async resolveWechatWithdrawIdentity(
+    client: any,
+    userId: string,
+    authContext?: WithdrawAuthContext,
+  ): Promise<WechatWithdrawIdentity> {
+    const provider = this.resolveWechatTransferService();
+    const appId = provider.getMiniProgramAppId();
+    if (!authContext?.sessionId || !authContext.authIdentityId) {
+      throw new UnauthorizedException('当前会话不是可用的微信小程序登录');
+    }
+    const now = new Date();
+    const session = await client.session.findFirst({
+      where: {
+        id: authContext.sessionId,
+        userId,
+        status: 'ACTIVE',
+        authIdentityId: authContext.authIdentityId,
+        expiresAt: { gt: now },
+        OR: [
+          { absoluteExpiresAt: null },
+          { absoluteExpiresAt: { gt: now } },
+        ],
+      },
+      include: {
+        authIdentity: true,
+      },
+    });
+    const identity = session?.authIdentity;
+    if (
+      !identity
+      || identity.id !== authContext.authIdentityId
+      || identity.userId !== userId
+      || identity.provider !== 'WECHAT'
+      || identity.verified !== true
+      || identity.appId !== appId
+      || typeof identity.identifier !== 'string'
+      || !identity.identifier
+      || identity.identifier.length > 64
+    ) {
+      throw new UnauthorizedException('当前会话未绑定可信的小程序微信身份');
+    }
+    return {
+      authIdentityId: identity.id,
+      appId,
+      openId: identity.identifier,
+    };
+  }
+
+  private assertWechatQueryMatchesWithdraw(
+    withdraw: any,
+    query: Extract<WechatMerchantTransferQueryResult, { outcome: 'FOUND' }>,
+    notify?: WechatMerchantTransferNotify,
+  ): void {
+    const provider = this.resolveWechatTransferService();
+    const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+    const expectedAmountFen = yuanToCents(withdraw.netAmount);
+    const trustedOpenId = query.openId ?? notify?.openId;
+    const localMatches = Boolean(
+      withdraw.channel === 'WECHAT'
+      && withdraw.outBizNo === query.outBillNo
+      && snapshot.channel === 'WECHAT'
+      && snapshot.appId === provider.getMiniProgramAppId()
+      && snapshot.appId === query.appId
+      && snapshot.account
+      && trustedOpenId
+      && snapshot.account === trustedOpenId
+      && query.mchId === provider.getMerchantId()
+      && query.amountFen === expectedAmountFen,
+    );
+    const notifyMatches = !notify || Boolean(
+      notify.outBillNo === query.outBillNo
+      && notify.transferBillNo === query.transferBillNo
+      && notify.state === query.state
+      && notify.mchId === query.mchId
+      && (!query.openId || notify.openId === query.openId)
+      && notify.openId === snapshot.account
+      && notify.amountFen === query.amountFen,
+    );
+    const providerOrderMatches = !withdraw.providerPayoutId
+      || withdraw.providerPayoutId === query.transferBillNo;
+    if (!localMatches || !notifyMatches || !providerOrderMatches) {
+      throw new UnauthorizedException('微信提现订单身份或金额不匹配');
+    }
+  }
+
+  private assertAlipayQueryMatchesWithdraw(
+    withdraw: any,
+    query: {
+      outBizNo?: string;
+      transAmount?: string;
+      orderId?: string;
+      payFundOrderId?: string;
+      status: string;
+    },
+  ): void {
+    const amount = typeof query.transAmount === 'string'
+      && /^\d+(?:\.\d{1,2})?$/.test(query.transAmount)
+      ? Number(query.transAmount)
+      : NaN;
+    const orderMatches = Boolean(
+      query.orderId
+      && (!withdraw.providerPayoutId || withdraw.providerPayoutId === query.orderId),
+    );
+    const fundOrderMatches = query.status !== 'SUCCESS' || Boolean(
+      query.payFundOrderId
+      && (!withdraw.providerFundOrderId || withdraw.providerFundOrderId === query.payFundOrderId),
+    );
+    if (
+      query.outBizNo !== withdraw.outBizNo
+      || !Number.isFinite(amount)
+      || yuanToCents(amount) !== yuanToCents(withdraw.netAmount)
+      || !orderMatches
+      || !fundOrderMatches
+    ) {
+      throw new UnauthorizedException('支付宝提现查单身份或金额不匹配');
+    }
+  }
+
+  private maskIdentifier(value: string): string {
+    if (!value) return '***';
+    if (value.length <= 8) return `${value.slice(0, 2)}***`;
+    return `${value.slice(0, 4)}***${value.slice(-4)}`;
   }
 
   private isUniqueConstraintError(err: any): boolean {
@@ -1412,5 +2447,12 @@ export class WithdrawPayoutService implements OnModuleInit {
       throw new InternalServerErrorException('支付宝提现查询通道未就绪');
     }
     return this.alipayService;
+  }
+
+  private resolveWechatTransferService(): WechatMerchantTransferService {
+    if (!this.wechatTransferService?.isAvailable()) {
+      throw new ServiceUnavailableException('微信提现通道配置不可用');
+    }
+    return this.wechatTransferService;
   }
 }

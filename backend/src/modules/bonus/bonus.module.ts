@@ -21,6 +21,7 @@ import { ProfitModule } from '../profit/profit.module';
 import { WithdrawPayoutService } from './withdraw-payout.service';
 import { WithdrawRulesService } from './withdraw-rules.service';
 import { QueueRewardModule } from '../queue-reward/queue-reward.module';
+import { WechatMerchantTransferService } from './wechat-merchant-transfer.service';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { QueueRewardModule } from '../queue-reward/queue-reward.module';
     FreezeExpireService,
     VipActivationRetryService,
     WithdrawRulesService,
+    WechatMerchantTransferService,
     WithdrawPayoutService,
   ],
   exports: [
@@ -55,6 +57,7 @@ import { QueueRewardModule } from '../queue-reward/queue-reward.module';
     BonusService,
     VipDirectReferralCommissionService,
     WithdrawRulesService,
+    WechatMerchantTransferService,
     WithdrawPayoutService,
   ],
 })

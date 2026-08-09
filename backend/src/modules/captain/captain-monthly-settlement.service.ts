@@ -7,6 +7,10 @@ import {
   CAPTAIN_SHANGHAI_OFFSET_MS,
 } from './captain.constants';
 import type { CaptainSeafoodConfigV3 } from './captain.types';
+import {
+  acquireUserWriteLock,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 
 type Tx = Prisma.TransactionClient;
 
@@ -245,6 +249,11 @@ export class CaptainMonthlySettlementService {
         throw new BadRequestException('当前结算状态无法审核通过');
       }
 
+      await acquireUserWriteLock(tx, settlement.captainUserId);
+      if (!(await isActiveUserInTransaction(tx, settlement.captainUserId))) {
+        throw new BadRequestException('团长账号已注销，不能继续结算');
+      }
+
       await this.assertDraftCurrent(tx, settlement);
       await this.assertNoPendingReconciliation(tx, settlement);
       await this.createMonthlyRewardLedgers(tx, settlement);
@@ -269,6 +278,11 @@ export class CaptainMonthlySettlementService {
       if (settlement.status !== 'APPROVED') {
         if (settlement.status === 'PAID') return settlement;
         throw new BadRequestException('仅已审核结算可标记已支付');
+      }
+
+      await acquireUserWriteLock(tx, settlement.captainUserId);
+      if (!(await isActiveUserInTransaction(tx, settlement.captainUserId))) {
+        throw new BadRequestException('团长账号已注销，不能标记已支付');
       }
 
       await this.assertNoPendingReconciliation(tx, settlement);

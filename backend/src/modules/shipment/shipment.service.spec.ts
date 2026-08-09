@@ -1192,6 +1192,27 @@ describe('getByOrderId — 查看物流信息', () => {
     // 原始 trackingNo 也返回（用于复制）
     expect(result!.trackingNo).toBe('SF1234567890');
   });
+
+  it('顺丰自动取号仅写 waybillNo 时仍返回可复制的统一运单号', async () => {
+    const { service, prisma } = createMocks();
+    prisma.order.findUnique.mockResolvedValue({
+      id: ORDER_SHIPPED,
+      userId: BUYER_USER_ID,
+    });
+    prisma.shipment.findMany.mockResolvedValue([
+      makeShipment({
+        trackingNo: null,
+        waybillNo: 'SF9876543210',
+        trackingEvents: [],
+      }),
+    ]);
+
+    const result = await service.getByOrderId(ORDER_SHIPPED, BUYER_USER_ID);
+
+    expect(result!.trackingNo).toBe('SF9876543210');
+    expect(result!.trackingNoMasked).toBe('SF98***3210');
+    expect(result!.shipments[0].trackingNo).toBe('SF9876543210');
+  });
 });
 
 // =========================================================================

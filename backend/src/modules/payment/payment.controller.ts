@@ -1,33 +1,56 @@
-import { BadRequestException, Body, Controller, Get, Headers, Logger, NotFoundException, Optional, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
-import { Request, Response } from 'express';
-import { PaymentService } from './payment.service';
-import { AlipayService } from './alipay.service';
-import { WechatPayService } from './wechat-pay.service';
-import { CheckoutService } from '../order/checkout.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Public } from '../../common/decorators/public.decorator';
-import { WebhookIpGuard } from '../../common/guards/webhook-ip.guard';
-import { PaymentCallbackDto } from './dto/payment-callback.dto';
-import { DeliveryPaymentsService } from '../delivery/payments/delivery-payments.service';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Logger,
+  NotFoundException,
+  Optional,
+  Param,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
+import { Request, Response } from "express";
+import { PaymentService } from "./payment.service";
+import { AlipayService } from "./alipay.service";
+import { WechatPayService } from "./wechat-pay.service";
+import { CheckoutService } from "../order/checkout.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { Public } from "../../common/decorators/public.decorator";
+import { WebhookIpGuard } from "../../common/guards/webhook-ip.guard";
+import { PaymentCallbackDto } from "./dto/payment-callback.dto";
+import { DeliveryPaymentsService } from "../delivery/payments/delivery-payments.service";
 import {
   isDeliveryMerchantOrderNo,
   parseDeliveryYuanAmountToCents,
-} from '../delivery/payments/delivery-payment-routing.util';
+} from "../delivery/payments/delivery-payment-routing.util";
 
 type WithdrawPayoutRuntimeService = {
   finalizeWithdrawalPaid(
     withdrawId: string,
-    providerResult: { providerOrderId?: string; providerFundOrderId?: string },
+    providerResult: {
+      providerOrderId?: string;
+      providerFundOrderId?: string;
+      providerStatus?: string;
+    },
   ): Promise<void>;
   finalizeWithdrawalFailed(
     withdrawId: string,
-    failure: { errorCode?: string; errorMessage?: string; providerStatus?: string },
+    failure: {
+      errorCode?: string;
+      errorMessage?: string;
+      providerStatus?: string;
+      providerOrderId?: string;
+    },
   ): Promise<void>;
 };
 
-@Controller('payments')
+@Controller("payments")
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);
 
@@ -43,10 +66,10 @@ export class PaymentController {
   ) {}
 
   /** 查询订单支付记录 */
-  @Get('order/:orderId')
+  @Get("order/:orderId")
   getByOrderId(
-    @CurrentUser('sub') userId: string,
-    @Param('orderId') orderId: string,
+    @CurrentUser("sub") userId: string,
+    @Param("orderId") orderId: string,
   ) {
     return this.paymentService.getByOrderId(orderId, userId);
   }
@@ -56,12 +79,12 @@ export class PaymentController {
    */
   @Public()
   @UseGuards(WebhookIpGuard)
-  @Post('callback')
+  @Post("callback")
   handleCallback(
     @Body() body: PaymentCallbackDto,
-    @Headers('x-webhook-signature') webhookSignature?: string,
-    @Headers('x-payment-signature') paymentSignature?: string,
-    @Headers('x-signature') signature?: string,
+    @Headers("x-webhook-signature") webhookSignature?: string,
+    @Headers("x-payment-signature") paymentSignature?: string,
+    @Headers("x-signature") signature?: string,
   ) {
     const headerSignature = webhookSignature || paymentSignature || signature;
     return this.paymentService.handlePaymentCallback({
@@ -77,24 +100,26 @@ export class PaymentController {
    */
   @Public()
   @UseGuards(WebhookIpGuard)
-  @Post('alipay/notify')
+  @Post("alipay/notify")
   async handleAlipayNotify(
     @Body() body: Record<string, string>,
     @Res() res: Response,
   ) {
-    this.logger.log(`收到支付宝异步通知: out_trade_no=${body.out_trade_no}`);
+    this.logger.log(
+      `收到支付宝异步通知: out_trade_no=${this.maskBizId(body.out_trade_no)}`,
+    );
 
     // 1. 验签
     const verified = await this.alipayService.verifyNotify(body);
     if (!verified) {
-      // 诊断日志：把完整 notify body 打出来，便于定位是哪个字段导致签名不一致
-      // ⚠️ 仅沙箱诊断用，含交易明细，上线前必须移除
       this.logger.error(
-        `支付宝异步通知验签失败 | out_trade_no=${body.out_trade_no} | ` +
-        `字段数=${Object.keys(body).length} | 空字段=[${Object.entries(body).filter(([_, v]) => !v).map(([k]) => k).join(',')}] | ` +
-        `完整 body (JSON): ${JSON.stringify(body)}`,
+        `支付宝异步通知验签失败 | out_trade_no=${this.maskBizId(body.out_trade_no)} | ` +
+          `字段数=${Object.keys(body).length} | 空字段=[${Object.entries(body)
+            .filter(([_, v]) => !v)
+            .map(([k]) => k)
+            .join(",")}]`,
       );
-      res.status(200).send('failure');
+      res.status(200).send("failure");
       return;
     }
 
@@ -102,22 +127,24 @@ export class PaymentController {
     const tradeStatus = body.trade_status;
 
     // WAIT_BUYER_PAY: 用户还没付款，不需要处理，直接返回 success
-    if (tradeStatus === 'WAIT_BUYER_PAY') {
-      this.logger.log(`支付宝通知: 等待买家付款 out_trade_no=${body.out_trade_no}`);
-      res.status(200).send('success');
+    if (tradeStatus === "WAIT_BUYER_PAY") {
+      this.logger.log(
+        `支付宝通知: 等待买家付款 out_trade_no=${this.maskBizId(body.out_trade_no)}`,
+      );
+      res.status(200).send("success");
       return;
     }
 
-    const status: 'SUCCESS' | 'FAILED' =
-      tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED'
-        ? 'SUCCESS'
-        : 'FAILED';
+    const status: "SUCCESS" | "FAILED" =
+      tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED"
+        ? "SUCCESS"
+        : "FAILED";
 
     // 3. 金额校验（仅 SUCCESS 类才校验，FAILED 单不需要）
     // P5 第三轮 finding F3：notify 路径之前漏了金额校验，与 active-query 不一致 → 安全漏洞
     // 现在两个路径共用 PaymentService.assertAlipayAmountMatchesSession
-    if (status === 'SUCCESS') {
-      if (body.out_trade_no?.startsWith('AS_SHIP_PAY_')) {
+    if (status === "SUCCESS") {
+      if (body.out_trade_no?.startsWith("AS_SHIP_PAY_")) {
         try {
           await this.paymentService.assertAfterSaleShippingPaymentAmountMatches(
             body.out_trade_no,
@@ -126,15 +153,19 @@ export class PaymentController {
         } catch (amountErr: any) {
           this.logger.error(
             `支付宝 notify 售后退货运费金额校验失败，已拒绝处理：${amountErr.message} ` +
-            `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+              `out_trade_no=${this.maskBizId(body.out_trade_no)}`,
           );
-          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
+          res
+            .status(200)
+            .send(
+              amountErr instanceof BadRequestException ? "success" : "failure",
+            );
           return;
         }
       } else if (isDeliveryMerchantOrderNo(body.out_trade_no)) {
         try {
           if (!this.deliveryPaymentsService) {
-            throw new Error('delivery payments service unavailable');
+            throw new Error("delivery payments service unavailable");
           }
           await this.deliveryPaymentsService.assertAlipayAmountMatchesCheckout(
             body.out_trade_no,
@@ -143,21 +174,29 @@ export class PaymentController {
         } catch (amountErr: any) {
           this.logger.error(
             `支付宝 notify 配送金额校验失败，已拒绝处理：${amountErr.message} ` +
-            `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+              `out_trade_no=${this.maskBizId(body.out_trade_no)}`,
           );
-          res.status(200).send(amountErr instanceof BadRequestException ? 'success' : 'failure');
+          res
+            .status(200)
+            .send(
+              amountErr instanceof BadRequestException ? "success" : "failure",
+            );
           return;
         }
       } else {
-        let session: Awaited<ReturnType<CheckoutService['findByMerchantOrderNo']>>;
+        let session: Awaited<
+          ReturnType<CheckoutService["findByMerchantOrderNo"]>
+        >;
         try {
-          session = await this.checkoutService.findByMerchantOrderNo(body.out_trade_no);
+          session = await this.checkoutService.findByMerchantOrderNo(
+            body.out_trade_no,
+          );
         } catch (lookupErr: any) {
           this.logger.error(
             `支付宝 notify 查询 CheckoutSession 异常，返回 failure 让支付宝重试：${lookupErr.message} ` +
-            `out_trade_no=${body.out_trade_no}`,
+              `out_trade_no=${this.maskBizId(body.out_trade_no)}`,
           );
-          res.status(200).send('failure');
+          res.status(200).send("failure");
           return;
         }
 
@@ -165,17 +204,20 @@ export class PaymentController {
         if (session) {
           try {
             this.paymentService.assertAlipayAmountMatchesSession(
-              { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+              {
+                expectedTotal: session.expectedTotal,
+                merchantOrderNo: session.merchantOrderNo,
+              },
               body.total_amount,
-              'notify',
+              "notify",
             );
           } catch (amountErr: any) {
             // 金额校验失败：不建单 + 仍返 success 给支付宝避免无限重试 + 留 error 日志等运营介入
             this.logger.error(
               `支付宝 notify 金额校验失败，已拒绝建单：${amountErr.message} ` +
-              `out_trade_no=${body.out_trade_no} total_amount=${body.total_amount}`,
+                `out_trade_no=${this.maskBizId(body.out_trade_no)}`,
             );
-            res.status(200).send('success');
+            res.status(200).send("success");
             return;
           }
         }
@@ -187,20 +229,24 @@ export class PaymentController {
         merchantOrderNo: body.out_trade_no,
         providerTxnId: body.trade_no,
         status,
-        paidAt: body.gmt_payment ? new Date(body.gmt_payment).toISOString() : undefined,
-        paymentChannel: isDeliveryMerchantOrderNo(body.out_trade_no) ? 'ALIPAY' : undefined,
+        paidAt: body.gmt_payment
+          ? new Date(body.gmt_payment).toISOString()
+          : undefined,
+        paymentChannel: isDeliveryMerchantOrderNo(body.out_trade_no)
+          ? "ALIPAY"
+          : undefined,
         claimedAmountCents:
-          status === 'SUCCESS' && isDeliveryMerchantOrderNo(body.out_trade_no)
+          status === "SUCCESS" && isDeliveryMerchantOrderNo(body.out_trade_no)
             ? this.requireDeliveryAlipayAmountCents(body.total_amount)
             : undefined,
         rawPayload: body,
         skipSignatureVerification: true, // 已在上方用支付宝证书验签
       });
-      res.status(200).send('success');
+      res.status(200).send("success");
     } catch (err: any) {
       this.logger.error(`处理支付宝通知异常: ${err.message}`);
       // 返回 failure 让支付宝重试
-      res.status(200).send('failure');
+      res.status(200).send("failure");
     }
   }
 
@@ -217,7 +263,7 @@ export class PaymentController {
    *   另：parseNotify 还做了 timestamp 5 分钟重放窗口 + appid/mchid 身份校验 双重防护。
    */
   @Public()
-  @Post('wechat/notify')
+  @Post("wechat/notify")
   async handleWechatNotify(
     @Body() body: Record<string, any>,
     @Req() req: Request & { rawBody?: Buffer | string },
@@ -225,13 +271,15 @@ export class PaymentController {
     @Res() res: Response,
   ) {
     if (!this.wechatPayService) {
-      res.status(401).send({ code: 'FAIL', message: '微信支付服务未启用' });
+      res.status(401).send({ code: "FAIL", message: "微信支付服务未启用" });
       return;
     }
 
     const rawBody = this.normalizeRawBody(req.rawBody);
     if (!rawBody) {
-      res.status(401).send({ code: 'FAIL', message: '微信支付通知缺少 rawBody' });
+      res
+        .status(401)
+        .send({ code: "FAIL", message: "微信支付通知缺少 rawBody" });
       return;
     }
 
@@ -243,21 +291,21 @@ export class PaymentController {
         headers: this.normalizeWechatNotifyHeaders(headers),
       });
     } catch (err: any) {
-      const message = err?.message || '微信支付通知验签失败';
+      const message = err?.message || "微信支付通知验签失败";
       this.logger.error(`微信支付通知解析失败: ${message}`);
-      res.status(401).send({ code: 'FAIL', message });
+      res.status(401).send({ code: "FAIL", message });
       return;
     }
 
-    if (!this.assertWechatNotifyIdentity(notify)) {
+    if (!(await this.assertWechatNotifyIdentity(notify))) {
       this.logger.error(
-        `微信支付通知身份不匹配: type=${notify?.type || 'UNKNOWN'} outTradeNo=${notify?.outTradeNo || 'N/A'}`,
+        `微信支付通知身份不匹配: type=${notify?.type || "UNKNOWN"} outTradeNo=${this.maskBizId(notify?.outTradeNo)}`,
       );
-      res.status(401).send({ code: 'FAIL', message: '微信支付通知身份不匹配' });
+      res.status(401).send({ code: "FAIL", message: "微信支付通知身份不匹配" });
       return;
     }
 
-    if (notify.type === 'refund') {
+    if (notify.type === "refund") {
       await this.paymentService.handleWechatRefundNotify({
         outTradeNo: notify.outTradeNo,
         outRefundNo: notify.outRefundNo,
@@ -271,34 +319,40 @@ export class PaymentController {
       return;
     }
 
-    if (notify.type !== 'payment') {
-      res.status(401).send({ code: 'FAIL', message: '微信支付通知类型不支持' });
+    if (notify.type !== "payment") {
+      res.status(401).send({ code: "FAIL", message: "微信支付通知类型不支持" });
       return;
     }
 
-    const status: 'SUCCESS' | 'FAILED' = notify.tradeState === 'SUCCESS' ? 'SUCCESS' : 'FAILED';
-    if (status === 'SUCCESS') {
+    const status: "SUCCESS" | "FAILED" =
+      notify.tradeState === "SUCCESS" ? "SUCCESS" : "FAILED";
+    if (status === "SUCCESS") {
       try {
-        if (notify.outTradeNo?.startsWith('AS_SHIP_PAY_')) {
+        if (notify.outTradeNo?.startsWith("AS_SHIP_PAY_")) {
           await this.paymentService.assertWechatAfterSaleShippingPaymentAmountMatches(
             notify.outTradeNo,
             notify.amountFen,
           );
         } else if (isDeliveryMerchantOrderNo(notify.outTradeNo)) {
           if (!this.deliveryPaymentsService) {
-            throw new Error('delivery payments service unavailable');
+            throw new Error("delivery payments service unavailable");
           }
           await this.deliveryPaymentsService.assertWechatAmountMatchesCheckout(
             notify.outTradeNo,
             notify.amountFen,
           );
         } else {
-          const session = await this.checkoutService.findByMerchantOrderNo(notify.outTradeNo);
+          const session = await this.checkoutService.findByMerchantOrderNo(
+            notify.outTradeNo,
+          );
           if (session) {
             this.paymentService.assertWechatAmountMatchesSession(
-              { expectedTotal: session.expectedTotal, merchantOrderNo: session.merchantOrderNo },
+              {
+                expectedTotal: session.expectedTotal,
+                merchantOrderNo: session.merchantOrderNo,
+              },
               notify.amountFen,
-              'notify',
+              "notify",
             );
           } else {
             await this.paymentService.assertWechatPaymentAmountMatches(
@@ -308,10 +362,13 @@ export class PaymentController {
           }
         }
       } catch (amountErr: any) {
-        if (amountErr instanceof BadRequestException || amountErr instanceof NotFoundException) {
+        if (
+          amountErr instanceof BadRequestException ||
+          amountErr instanceof NotFoundException
+        ) {
           this.logger.error(
             `微信 notify 金额校验失败，已拒绝处理：${amountErr.message} ` +
-            `out_trade_no=${notify.outTradeNo} amountFen=${notify.amountFen}`,
+              `out_trade_no=${this.maskBizId(notify.outTradeNo)}`,
           );
           res.status(200).send();
           return;
@@ -325,9 +382,11 @@ export class PaymentController {
       providerTxnId: notify.providerTxnId,
       status,
       paidAt: this.normalizeNotifyPaidAt(notify.paidAt),
-      paymentChannel: isDeliveryMerchantOrderNo(notify.outTradeNo) ? 'WECHAT_PAY' : undefined,
+      paymentChannel: isDeliveryMerchantOrderNo(notify.outTradeNo)
+        ? "WECHAT_PAY"
+        : undefined,
       claimedAmountCents:
-        status === 'SUCCESS' && isDeliveryMerchantOrderNo(notify.outTradeNo)
+        status === "SUCCESS" && isDeliveryMerchantOrderNo(notify.outTradeNo)
           ? notify.amountFen
           : undefined,
       rawPayload: body,
@@ -344,26 +403,26 @@ export class PaymentController {
    */
   @Public()
   @UseGuards(WebhookIpGuard)
-  @Post('alipay/transfer-notify')
+  @Post("alipay/transfer-notify")
   async handleAlipayTransferNotify(
     @Body() body: Record<string, string>,
     @Res() res: Response,
   ) {
     this.logger.log(
-      `收到支付宝转账通知: msg_method=${body.msg_method || 'N/A'}, notify_id=${body.notify_id || 'N/A'}`,
+      `收到支付宝转账通知: msg_method=${body.msg_method || "N/A"}, notify_id=${body.notify_id || "N/A"}`,
     );
 
     const verified = await this.alipayService.verifyNotify(body);
     if (!verified) {
       this.logger.error(
-        `支付宝转账通知验签失败: msg_method=${body.msg_method || 'N/A'}, 字段数=${Object.keys(body).length}`,
+        `支付宝转账通知验签失败: msg_method=${body.msg_method || "N/A"}, 字段数=${Object.keys(body).length}`,
       );
-      res.status(200).send('failure');
+      res.status(200).send("failure");
       return;
     }
 
-    if (body.msg_method !== 'alipay.fund.trans.order.changed') {
-      res.status(200).send('success');
+    if (body.msg_method !== "alipay.fund.trans.order.changed") {
+      res.status(200).send("success");
       return;
     }
 
@@ -371,58 +430,123 @@ export class PaymentController {
     try {
       biz = JSON.parse(body.biz_content);
     } catch {
-      this.logger.error('支付宝转账通知 biz_content 解析失败');
-      res.status(200).send('failure');
+      this.logger.error("支付宝转账通知 biz_content 解析失败");
+      res.status(200).send("failure");
       return;
     }
 
     const outBizNo = biz.out_biz_no || biz.outBizNo;
     if (!outBizNo) {
-      this.logger.error('支付宝转账通知缺少 out_biz_no');
-      res.status(200).send('failure');
+      this.logger.error("支付宝转账通知缺少 out_biz_no");
+      res.status(200).send("failure");
       return;
     }
 
     if (!this.prisma) {
-      this.logger.error('PrismaService 未注入，无法处理支付宝转账通知');
-      res.status(200).send('failure');
+      this.logger.error("PrismaService 未注入，无法处理支付宝转账通知");
+      res.status(200).send("failure");
       return;
     }
 
     let withdraw: any;
     try {
       withdraw = await (this.prisma as any).withdrawRequest.findFirst({
-        where: { outBizNo },
+        where: { outBizNo, channel: "ALIPAY" },
       });
     } catch (err: any) {
       this.logger.error(`查询 WithdrawRequest 异常: ${err.message}`);
-      res.status(200).send('failure');
+      res.status(200).send("failure");
       return;
     }
 
     if (!withdraw) {
-      this.logger.warn(`未找到 WithdrawRequest: out_biz_no=${outBizNo}`);
-      res.status(200).send('success');
+      this.logger.warn(
+        `未找到 WithdrawRequest: out_biz_no=${this.maskBizId(outBizNo)}`,
+      );
+      res.status(200).send("success");
       return;
     }
 
-    if (withdraw.status !== 'PROCESSING') {
-      res.status(200).send('success');
+    if (withdraw.status !== "PROCESSING") {
+      res.status(200).send("success");
+      return;
+    }
+
+    const rawAmount = biz.trans_amount ?? biz.transAmount;
+    const normalizedAmount =
+      typeof rawAmount === "number"
+        ? rawAmount.toFixed(2)
+        : typeof rawAmount === "string" && /^\d+(?:\.\d{1,2})?$/.test(rawAmount)
+          ? Number(rawAmount).toFixed(2)
+          : null;
+    if (
+      !normalizedAmount ||
+      Math.round(Number(normalizedAmount) * 100) !==
+        Math.round(Number(withdraw.netAmount) * 100)
+    ) {
+      this.logger.error(`支付宝转账通知金额不匹配: withdrawId=${withdraw.id}`);
+      res.status(200).send("failure");
+      return;
+    }
+    const callbackOrderId = this.readNonEmptyString(
+      biz.order_id ?? biz.orderId,
+    );
+    if (!callbackOrderId) {
+      this.logger.error(
+        `支付宝转账终态通知缺少 order_id: withdrawId=${withdraw.id}`,
+      );
+      res.status(200).send("failure");
+      return;
+    }
+    if (
+      withdraw.providerPayoutId &&
+      withdraw.providerPayoutId !== callbackOrderId
+    ) {
+      this.logger.error(
+        `支付宝转账通知订单身份不匹配: withdrawId=${withdraw.id}`,
+      );
+      res.status(200).send("failure");
+      return;
+    }
+    const callbackFundOrderId = this.readNonEmptyString(
+      biz.pay_fund_order_id ?? biz.payFundOrderId,
+    );
+    if (
+      callbackFundOrderId &&
+      withdraw.providerFundOrderId &&
+      withdraw.providerFundOrderId !== callbackFundOrderId
+    ) {
+      this.logger.error(
+        `支付宝转账通知资金流水身份不匹配: withdrawId=${withdraw.id}`,
+      );
+      res.status(200).send("failure");
       return;
     }
 
     try {
       const withdrawPayoutService = this.getWithdrawPayoutService();
       const providerStatus = biz.status;
-      if (providerStatus === 'SUCCESS') {
+      if (providerStatus === "SUCCESS") {
+        if (
+          !callbackFundOrderId ||
+          (withdraw.providerFundOrderId &&
+            withdraw.providerFundOrderId !== callbackFundOrderId)
+        ) {
+          this.logger.error(
+            `支付宝转账通知资金流水身份不匹配: withdrawId=${withdraw.id}`,
+          );
+          res.status(200).send("failure");
+          return;
+        }
         await withdrawPayoutService.finalizeWithdrawalPaid(withdraw.id, {
-          providerOrderId: biz.order_id || biz.orderId,
-          providerFundOrderId: biz.pay_fund_order_id || biz.payFundOrderId,
+          providerOrderId: callbackOrderId,
+          providerFundOrderId: callbackFundOrderId,
+          providerStatus: "SUCCESS",
         });
       } else if (
-        providerStatus === 'FAIL' ||
-        providerStatus === 'FAILED' ||
-        providerStatus === 'CLOSED'
+        providerStatus === "FAIL" ||
+        providerStatus === "FAILED" ||
+        providerStatus === "CLOSED"
       ) {
         await withdrawPayoutService.finalizeWithdrawalFailed(withdraw.id, {
           errorCode: biz.error_code || biz.errorCode,
@@ -433,25 +557,40 @@ export class PaymentController {
             biz.errorMessage ||
             `支付宝转账 ${providerStatus}`,
           providerStatus,
+          providerOrderId: callbackOrderId,
         });
       }
-      res.status(200).send('success');
+      res.status(200).send("success");
     } catch (err: any) {
       this.logger.error(`处理支付宝转账通知异常: ${err.message}`);
-      res.status(200).send('failure');
+      res.status(200).send("failure");
     }
+  }
+
+  private readNonEmptyString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
+  private maskBizId(value: unknown): string {
+    if (typeof value !== "string") return "[ID_REDACTED]";
+    const safe = value.trim();
+    if (safe.length <= 8) return "[ID_REDACTED]";
+    return `${safe.slice(0, 4)}***${safe.slice(-4)}`;
   }
 
   private getWithdrawPayoutService(): WithdrawPayoutRuntimeService {
     if (!this.moduleRef) {
-      throw new Error('ModuleRef 未注入，无法解析 WithdrawPayoutService');
+      throw new Error("ModuleRef 未注入，无法解析 WithdrawPayoutService");
     }
 
     const tokens = this.getWithdrawPayoutServiceTokens();
     let lastError: unknown;
     for (const token of tokens) {
       try {
-        const service = this.moduleRef.get<WithdrawPayoutRuntimeService>(token, { strict: false });
+        const service = this.moduleRef.get<WithdrawPayoutRuntimeService>(
+          token,
+          { strict: false },
+        );
         if (service) return service;
       } catch (err) {
         lastError = err;
@@ -459,28 +598,29 @@ export class PaymentController {
     }
 
     if (lastError instanceof Error) throw lastError;
-    throw new Error('WithdrawPayoutService 未注册');
+    throw new Error("WithdrawPayoutService 未注册");
   }
 
   private getWithdrawPayoutServiceTokens(): any[] {
     const tokens: any[] = [];
     try {
-      const withdrawPayoutModule = require('../bonus/withdraw-payout.service') as {
-        WithdrawPayoutService?: any;
-      };
+      const withdrawPayoutModule =
+        require("../bonus/withdraw-payout.service") as {
+          WithdrawPayoutService?: any;
+        };
       if (withdrawPayoutModule.WithdrawPayoutService) {
         tokens.push(withdrawPayoutModule.WithdrawPayoutService);
       }
     } catch {
       // Parallel reward work may create this provider after the payment slice lands.
     }
-    tokens.push('WithdrawPayoutService');
+    tokens.push("WithdrawPayoutService");
     return tokens;
   }
 
   private normalizeRawBody(rawBody?: Buffer | string): string | null {
-    if (Buffer.isBuffer(rawBody)) return rawBody.toString('utf8');
-    if (typeof rawBody === 'string' && rawBody.length > 0) return rawBody;
+    if (Buffer.isBuffer(rawBody)) return rawBody.toString("utf8");
+    if (typeof rawBody === "string" && rawBody.length > 0) return rawBody;
     return null;
   }
 
@@ -499,23 +639,51 @@ export class PaymentController {
     };
 
     return {
-      signature: pick('wechatpay-signature'),
-      timestamp: pick('wechatpay-timestamp'),
-      nonce: pick('wechatpay-nonce'),
-      serial: pick('wechatpay-serial'),
+      signature: pick("wechatpay-signature"),
+      timestamp: pick("wechatpay-timestamp"),
+      nonce: pick("wechatpay-nonce"),
+      serial: pick("wechatpay-serial"),
     };
   }
 
-  private assertWechatNotifyIdentity(notify: any): boolean {
+  private async assertWechatNotifyIdentity(notify: any): Promise<boolean> {
     const expectedMchId = this.wechatPayService?.getMchId();
     if (!expectedMchId || notify?.mchId !== expectedMchId) return false;
-    if (notify?.type === 'refund') return true;
+    if (notify?.type === "refund") return true;
 
-    const expectedAppId = this.wechatPayService?.getAppId();
-    return Boolean(expectedAppId && notify?.appId === expectedAppId);
+    // CheckoutSession 和售后运费单均以服务端场景快照决定可信 AppID/trade_type。
+    const isAfterSaleShippingPayment =
+      notify?.outTradeNo?.startsWith("AS_SHIP_PAY_");
+    const isKnownAppOnlyPayment = isDeliveryMerchantOrderNo(notify?.outTradeNo);
+    const checkout =
+      notify?.outTradeNo &&
+      !isAfterSaleShippingPayment &&
+      !isKnownAppOnlyPayment
+        ? await this.checkoutService.findByMerchantOrderNo(notify.outTradeNo)
+        : null;
+    const afterSaleScene = isAfterSaleShippingPayment
+      ? await this.paymentService.getAfterSaleShippingPaymentScene(
+          notify.outTradeNo,
+        )
+      : null;
+    if (isAfterSaleShippingPayment && !afterSaleScene) return false;
+    const scene =
+      afterSaleScene ??
+      (checkout?.paymentScene === "MINI_PROGRAM" ? "MINI_PROGRAM" : "APP");
+    return Boolean(
+      this.wechatPayService?.matchesPaymentScene?.(
+        {
+          appId: notify?.appId,
+          tradeType: notify?.tradeType,
+        },
+        scene,
+      ),
+    );
   }
 
-  private normalizeNotifyPaidAt(paidAt?: Date | string | null): string | undefined {
+  private normalizeNotifyPaidAt(
+    paidAt?: Date | string | null,
+  ): string | undefined {
     if (!paidAt) return undefined;
     if (paidAt instanceof Date) return paidAt.toISOString();
     return paidAt;
@@ -524,7 +692,7 @@ export class PaymentController {
   private requireDeliveryAlipayAmountCents(totalAmount: unknown): number {
     const claimedAmountCents = parseDeliveryYuanAmountToCents(totalAmount);
     if (!Number.isInteger(claimedAmountCents)) {
-      throw new BadRequestException('配送支付金额格式错误');
+      throw new BadRequestException("配送支付金额格式错误");
     }
 
     return claimedAmountCents as number;

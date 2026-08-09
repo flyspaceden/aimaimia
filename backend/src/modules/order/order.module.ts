@@ -30,6 +30,7 @@ import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.servi
 import { ProductModule } from '../product/product.module';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
+import { GroupBuyCheckoutService } from '../group-buy/group-buy-checkout.service';
 import { GroupBuyModule } from '../group-buy/group-buy.module';
 import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
@@ -195,6 +196,13 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setGroupBuyRebateService(groupBuyRebateService);
     } else {
       throw new Error('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用，启动中止');
+    }
+
+    const groupBuyCheckoutService = this.moduleRef.get(GroupBuyCheckoutService, { strict: false });
+    if (groupBuyCheckoutService) {
+      groupBuyCheckoutService.setCheckoutPaymentService(this.checkoutService);
+    } else {
+      throw new Error('[OrderModule] GroupBuyCheckoutService 未注入，团购支付 fence 不可用，启动中止');
     }
 
     const notificationService = this.moduleRef.get(NotificationService, { strict: false });

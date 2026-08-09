@@ -7,30 +7,39 @@ export class TraceService {
 
   /** 查询商品溯源链 */
   async getProductTrace(productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      select: { id: true, title: true },
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-
-    // 通过 ProductTraceLink 查找关联的 TraceBatch
-    const traceLinks = await this.prisma.productTraceLink.findMany({
-      where: { productId },
-      include: {
-        batch: {
+    // 单次查询完成商品可见性校验和批次回读，避免两段查询之间状态变化。
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
+      select: {
+        id: true,
+        title: true,
+        productTraceLinks: {
+          where: {
+            batch: { company: { status: 'ACTIVE', isPlatform: false } },
+          },
           include: {
-            events: { orderBy: { occurredAt: 'asc' } },
-            ownershipClaim: true,
-            company: { select: { id: true, name: true } },
+            batch: {
+              include: {
+                events: { orderBy: { occurredAt: 'asc' } },
+                ownershipClaim: true,
+                company: { select: { id: true, name: true } },
+              },
+            },
           },
         },
       },
     });
+    if (!product) throw new NotFoundException('商品不存在');
 
     return {
       productId: product.id,
       productTitle: product.title,
-      batches: traceLinks.map((link) => this.mapBatch(link.batch, link.note)),
+      batches: product.productTraceLinks.map((link) => this.mapBatch(link.batch, link.note)),
     };
   }
 
@@ -76,8 +85,20 @@ export class TraceService {
 
   /** 查询溯源批次详情 */
   async getBatchDetail(batchId: string) {
-    const batch = await this.prisma.traceBatch.findUnique({
-      where: { id: batchId },
+    const batch = await this.prisma.traceBatch.findFirst({
+      where: {
+        id: batchId,
+        company: { status: 'ACTIVE', isPlatform: false },
+        productTraceLinks: {
+          some: {
+            product: {
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              company: { status: 'ACTIVE', isPlatform: false },
+            },
+          },
+        },
+      },
       include: {
         events: { orderBy: { occurredAt: 'asc' } },
         ownershipClaim: true,
@@ -91,8 +112,20 @@ export class TraceService {
 
   /** 通过批次码查询 */
   async getBatchByCode(batchCode: string) {
-    const batch = await this.prisma.traceBatch.findUnique({
-      where: { batchCode },
+    const batch = await this.prisma.traceBatch.findFirst({
+      where: {
+        batchCode,
+        company: { status: 'ACTIVE', isPlatform: false },
+        productTraceLinks: {
+          some: {
+            product: {
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              company: { status: 'ACTIVE', isPlatform: false },
+            },
+          },
+        },
+      },
       include: {
         events: { orderBy: { occurredAt: 'asc' } },
         ownershipClaim: true,

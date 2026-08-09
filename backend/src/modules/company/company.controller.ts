@@ -12,8 +12,11 @@ export class CompanyController {
 
   @Public()
   @Get()
-  list(@Query('tagId') tagId?: string) {
-    return this.companyService.list(tagId || undefined);
+  list(
+    @Query('tagId') tagId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.companyService.list(tagId || undefined, keyword || undefined);
   }
 
   /** 公开接口：获取标签类别与标签选项 */

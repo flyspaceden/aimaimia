@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GrowthCouponAdapterService } from './growth-coupon-adapter.service';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
 import {
   isCouponBackedExchangeType,
   isGrowthEnabled,
@@ -74,6 +75,7 @@ export class GrowthExchangeService {
     const idempotencyKey = `GROWTH_EXCHANGE:${userId}:${requestKey}`;
 
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveUserWriteBarrier(tx, userId);
       const existing = await tx.growthExchangeRecord.findUnique({
         where: { idempotencyKey },
       });

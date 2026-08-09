@@ -5,10 +5,12 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AfterSaleStatus,
+  AfterSaleShippingPaymentStatus,
   AuthProvider,
   CheckoutSessionStatus,
   CompanyStaffRole,
@@ -36,6 +38,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { PLATFORM_USER_ID } from '../../bonus/engine/constants';
 import { QueueRewardService } from '../../queue-reward/queue-reward.service';
+import { acquireUserWriteLock } from '../../../common/transactions/active-user-write-barrier';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
 
 type DeletionBlockerCode =
@@ -43,6 +46,7 @@ type DeletionBlockerCode =
   | 'USER_NOT_ACTIVE'
   | 'ACTIVE_CHECKOUT_EXISTS'
   | 'PENDING_PAYMENT_EXISTS'
+  | 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS'
   | 'WITHDRAW_PROCESSING_EXISTS';
 
 type DeletionBlocker = {
@@ -70,6 +74,17 @@ type RewardSnapshot = {
 type CleanupSnapshot = {
   deletionMeta: Prisma.InputJsonObject;
   rewardAccounts: RewardSnapshot[];
+  groupBuyRebateAccount: {
+    id: string;
+    balance: number;
+    reserved: number;
+  } | null;
+  captainAccounts: Array<{
+    id: string;
+    programCode: string;
+    balance: number;
+    frozen: number;
+  }>;
   primaryIdentity: IdentitySnapshot | null;
   maskedPhone: string | null;
   maskedWechatOpenId: string | null;
@@ -117,6 +132,9 @@ export class DeletionService {
       paidOrders,
       activeAfterSales,
       phoneIdentity,
+      digitalAssetAccount,
+      groupBuyRebateAccount,
+      captainAccounts,
     ] = await Promise.all([
       this.prisma.userProfile.findUnique({
         where: { userId },
@@ -173,6 +191,18 @@ export class DeletionService {
         },
       }),
       this.getPhoneIdentity(this.prisma, userId),
+      this.prisma.digitalAssetAccount.findUnique({
+        where: { userId },
+        select: { seedAssetBalance: true, creditAssetBalance: true },
+      }),
+      this.prisma.groupBuyRebateAccount.findUnique({
+        where: { userId },
+        select: { balance: true, reserved: true },
+      }),
+      this.prisma.captainAccount.findMany({
+        where: { userId },
+        select: { balance: true, frozen: true },
+      }),
     ]);
 
     const { withdrawableRewards, frozenRewards } = this.sumRewards(rewardAccounts);
@@ -186,6 +216,18 @@ export class DeletionService {
         coupons: couponCount,
         withdrawableRewards,
         frozenRewards,
+        digitalAssetSeedBalance: digitalAssetAccount?.seedAssetBalance ?? 0,
+        digitalAssetCreditBalance: digitalAssetAccount?.creditAssetBalance ?? 0,
+        groupBuyRebateBalance: groupBuyRebateAccount?.balance ?? 0,
+        groupBuyRebateReserved: groupBuyRebateAccount?.reserved ?? 0,
+        captainBalance: this.roundMoney(captainAccounts.reduce(
+          (sum, account) => sum + Number(account.balance ?? 0),
+          0,
+        )),
+        captainFrozen: this.roundMoney(captainAccounts.reduce(
+          (sum, account) => sum + Number(account.frozen ?? 0),
+          0,
+        )),
         lotteryQuota,
         pendingWithdrawAmount: pendingWithdrawAggregate._sum.amount ?? 0,
         activeCheckoutCount,
@@ -212,7 +254,14 @@ export class DeletionService {
       });
     }
 
-    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const smsMock = this.config.get('SMS_MOCK', 'false');
+    const nodeEnv = this.config.get('NODE_ENV', 'development');
+    if (smsMock === 'true' && nodeEnv === 'production') {
+      throw new ServiceUnavailableException({
+        code: 'ACCOUNT_DELETION_SMS_MISCONFIGURED',
+        message: '注销短信服务配置异常，请联系客服',
+      });
+    }
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -224,11 +273,7 @@ export class DeletionService {
       SmsPurpose.DELETION,
     );
 
-    const nodeEnv = this.config.get('NODE_ENV', 'development');
     if (smsMock === 'true') {
-      if (nodeEnv === 'production') {
-        this.logger.warn('[SMS] 生产环境仍使用 Mock 短信（账号注销），请设置 SMS_MOCK=false');
-      }
       this.logger.log(`[SMS Mock] 账号注销验证码=${code}（目标=${this.maskPhone(phoneIdentity.identifier)}）`);
     } else {
       try {
@@ -251,7 +296,7 @@ export class DeletionService {
       try {
         return await this.prisma.$transaction(
           async (tx) => {
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`AD-${userId}`}))`;
+            await acquireUserWriteLock(tx, userId);
 
             const blockers = await this.getBlockers(userId, tx);
             if (blockers.length > 0) {
@@ -289,6 +334,7 @@ export class DeletionService {
       activeCheckoutCount,
       pendingPaymentCount,
       pendingPaymentGroupCount,
+      pendingAfterSaleShippingPaymentCount,
       withdrawProcessingCount,
     ] = await Promise.all([
       tx.user.findUnique({
@@ -306,6 +352,17 @@ export class DeletionService {
       }),
       tx.paymentGroup.count({
         where: { userId, status: { in: [PaymentStatus.INIT, PaymentStatus.PENDING] } },
+      }),
+      tx.afterSaleShippingPayment.count({
+        where: {
+          afterSale: { userId },
+          status: {
+            in: [
+              AfterSaleShippingPaymentStatus.UNPAID,
+              AfterSaleShippingPaymentStatus.PENDING,
+            ],
+          },
+        },
       }),
       tx.withdrawRequest.count({
         where: { userId, status: { in: DeletionService.BLOCKING_WITHDRAW_STATUSES } },
@@ -334,6 +391,13 @@ export class DeletionService {
         code: 'PENDING_PAYMENT_EXISTS',
         message: '您有支付处理中记录，请稍后再试',
         count: pendingPaymentCount + pendingPaymentGroupCount,
+      });
+    }
+    if (pendingAfterSaleShippingPaymentCount > 0) {
+      blockers.push({
+        code: 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS',
+        message: '您有退货运费支付正在进行，请先完成、关单或等待支付结果',
+        count: pendingAfterSaleShippingPaymentCount,
       });
     }
     if (withdrawProcessingCount > 0) {
@@ -410,6 +474,11 @@ export class DeletionService {
         userId,
       );
     const cleanup = await this.buildCleanupSnapshot(tx, userId, dto, evidence);
+
+    await this.forfeitGroupBuyRebateAssets(tx, userId, cleanup.groupBuyRebateAccount);
+    await this.forfeitCaptainAssets(tx, userId, cleanup.captainAccounts);
+    await this.terminateUserGrowthPrograms(tx, userId);
+    await this.invalidateMiniProgramClientState(tx, userId);
 
     await tx.rewardLedger.updateMany({
       where: {
@@ -627,6 +696,266 @@ export class DeletionService {
     });
   }
 
+  private async forfeitGroupBuyRebateAssets(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    account: CleanupSnapshot['groupBuyRebateAccount'],
+  ): Promise<void> {
+    if (!account) return;
+
+    const balance = this.roundMoney(Math.max(0, Number(account.balance ?? 0)));
+    const reserved = this.roundMoney(Math.max(0, Number(account.reserved ?? 0)));
+    const forfeited = this.roundMoney(balance + reserved);
+
+    await tx.groupBuyRebateLedger.updateMany({
+      where: {
+        userId,
+        status: { in: ['PENDING', 'AVAILABLE', 'RESERVED'] },
+        deletedAt: null,
+      },
+      data: { status: 'VOIDED' },
+    });
+    await tx.groupBuyRebateAccount.update({
+      where: { id: account.id },
+      data: { balance: 0, reserved: 0 },
+    });
+    if (forfeited <= 0) return;
+
+    const platformAccount = await tx.groupBuyRebateAccount.upsert({
+      where: { userId: PLATFORM_USER_ID },
+      update: {},
+      create: { userId: PLATFORM_USER_ID },
+    });
+    const platformBalanceBefore = this.roundMoney(Number(platformAccount.balance ?? 0));
+    await tx.groupBuyRebateLedger.create({
+      data: {
+        accountId: account.id,
+        userId,
+        type: 'VOID',
+        status: 'COMPLETED',
+        amount: -forfeited,
+        balanceBefore: balance,
+        balanceAfter: 0,
+        idempotencyKey: `ACCOUNT_DELETION_GROUP_BUY_VOID:${userId}`,
+        refType: 'ACCOUNT_DELETION',
+        refId: userId,
+        meta: {
+          reason: 'ACCOUNT_DELETION',
+          originalBalance: balance,
+          originalReserved: reserved,
+          destination: 'PLATFORM',
+        },
+      },
+    });
+    await tx.groupBuyRebateLedger.create({
+      data: {
+        accountId: platformAccount.id,
+        userId: PLATFORM_USER_ID,
+        type: 'ADMIN_ADJUST',
+        status: 'AVAILABLE',
+        amount: forfeited,
+        balanceBefore: platformBalanceBefore,
+        balanceAfter: this.roundMoney(platformBalanceBefore + forfeited),
+        idempotencyKey: `ACCOUNT_DELETION_GROUP_BUY_PLATFORM:${userId}`,
+        refType: 'ACCOUNT_DELETION',
+        refId: userId,
+        meta: {
+          scheme: 'ACCOUNT_DELETION_FORFEITURE',
+          sourceUserId: userId,
+          sourceAccountId: account.id,
+        },
+      },
+    });
+    await tx.groupBuyRebateAccount.update({
+      where: { id: platformAccount.id },
+      data: { balance: { increment: forfeited } },
+    });
+  }
+
+  private async forfeitCaptainAssets(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    accounts: CleanupSnapshot['captainAccounts'],
+  ): Promise<void> {
+    await tx.captainCommissionLedger.updateMany({
+      where: {
+        userId,
+        status: { in: ['FROZEN', 'AVAILABLE'] },
+        deletedAt: null,
+      },
+      data: { status: 'VOIDED' },
+    });
+
+    for (const account of accounts) {
+      const balance = this.roundMoney(Math.max(0, Number(account.balance ?? 0)));
+      const frozen = this.roundMoney(Math.max(0, Number(account.frozen ?? 0)));
+      const forfeited = this.roundMoney(balance + frozen);
+      await tx.captainAccount.update({
+        where: { id: account.id },
+        data: { balance: 0, frozen: 0 },
+      });
+      if (forfeited <= 0) continue;
+
+      const platformAccount = await tx.captainAccount.upsert({
+        where: {
+          userId_programCode: {
+            userId: PLATFORM_USER_ID,
+            programCode: account.programCode,
+          },
+        },
+        update: {},
+        create: {
+          userId: PLATFORM_USER_ID,
+          programCode: account.programCode,
+        },
+      });
+      const platformBalanceBefore = this.roundMoney(Number(platformAccount.balance ?? 0));
+      await tx.captainCommissionLedger.create({
+        data: {
+          accountId: account.id,
+          userId,
+          programCode: account.programCode,
+          type: 'VOID',
+          status: 'VOIDED',
+          amount: -forfeited,
+          balanceAfter: 0,
+          frozenAfter: 0,
+          idempotencyKey: `captain:account-deletion:void:${userId}:${account.id}`,
+          refType: 'ACCOUNT_DELETION',
+          refId: userId,
+          meta: {
+            reason: 'ACCOUNT_DELETION',
+            originalBalance: balance,
+            originalFrozen: frozen,
+            destination: 'PLATFORM',
+          },
+        },
+      });
+      await tx.captainCommissionLedger.create({
+        data: {
+          accountId: platformAccount.id,
+          userId: PLATFORM_USER_ID,
+          programCode: account.programCode,
+          type: 'ADJUSTMENT',
+          status: 'AVAILABLE',
+          amount: forfeited,
+          balanceAfter: this.roundMoney(platformBalanceBefore + forfeited),
+          idempotencyKey: `captain:account-deletion:platform:${userId}:${account.id}`,
+          refType: 'ACCOUNT_DELETION',
+          refId: userId,
+          meta: {
+            scheme: 'ACCOUNT_DELETION_FORFEITURE',
+            sourceUserId: userId,
+            sourceAccountId: account.id,
+          },
+        },
+      });
+      await tx.captainAccount.update({
+        where: { id: platformAccount.id },
+        data: { balance: { increment: forfeited } },
+      });
+    }
+  }
+
+  private async terminateUserGrowthPrograms(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    const now = new Date();
+    const ownedInstances = await tx.groupBuyInstance.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const ownedInstanceIds = ownedInstances.map((instance) => instance.id);
+    if (ownedInstanceIds.length > 0) {
+      await tx.groupBuyCode.updateMany({
+        where: {
+          instanceId: { in: ownedInstanceIds },
+          status: { in: ['PENDING', 'ACTIVE'] },
+        },
+        data: { status: 'DISABLED', disabledAt: now },
+      });
+      await tx.groupBuyReferral.updateMany({
+        where: {
+          instanceId: { in: ownedInstanceIds },
+          status: 'CANDIDATE',
+        },
+        data: {
+          status: 'INVALID',
+          invalidReason: 'ACCOUNT_DELETION',
+          invalidatedAt: now,
+        },
+      });
+      await tx.groupBuyInstance.updateMany({
+        where: {
+          id: { in: ownedInstanceIds },
+          status: { in: ['QUALIFICATION_PENDING', 'SHARING'] },
+        },
+        data: {
+          status: 'TERMINATED',
+          terminatedAt: now,
+          invalidReason: 'ACCOUNT_DELETION',
+        },
+      });
+    }
+
+    await tx.captainProfile.updateMany({
+      where: { userId, status: { not: 'DISABLED' } },
+      data: {
+        status: 'DISABLED',
+        disabledAt: now,
+        statusReason: 'ACCOUNT_DELETION',
+      },
+    });
+    await tx.captainRelation.updateMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [
+          { buyerUserId: userId },
+          { directCaptainUserId: userId },
+          { legacyIndirectCaptainUserId: userId },
+        ],
+      },
+      data: { status: 'INACTIVE', endedAt: now },
+    });
+    await tx.captainMonthlySettlement.updateMany({
+      where: {
+        captainUserId: userId,
+        status: { in: ['DRAFT', 'PENDING_REVIEW', 'APPROVED'] },
+      },
+      data: {
+        status: 'REJECTED',
+        rejectReason: 'ACCOUNT_DELETION',
+        reviewedAt: now,
+      },
+    });
+  }
+
+  private async invalidateMiniProgramClientState(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    const now = new Date();
+    await tx.miniProgramScene.deleteMany({ where: { ownerUserId: userId } });
+    await tx.miniProgramSubscriptionConsent.updateMany({
+      where: { userId, status: 'ACCEPTED' },
+      data: { status: 'FILTERED', consumedAt: now },
+    });
+    await tx.miniProgramSubscriptionOutbox.updateMany({
+      where: {
+        userId,
+        status: { in: ['PENDING', 'PROCESSING', 'FAILED'] },
+      },
+      data: {
+        status: 'SKIPPED',
+        processedAt: now,
+        processingAt: null,
+        lastErrorCode: 'ACCOUNT_DELETION',
+        lastError: '用户已注销',
+      },
+    });
+  }
+
   private async buildCleanupSnapshot(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -644,6 +973,8 @@ export class DeletionService {
       activeAfterSales,
       user,
       digitalAssetAccount,
+      groupBuyRebateAccount,
+      captainAccounts,
     ] = await Promise.all([
       tx.userProfile.findUnique({
         where: { userId },
@@ -717,8 +1048,21 @@ export class DeletionService {
             seedAssetBalance: true,
             creditAssetBalance: true,
           },
-        })
+          })
         : null,
+      tx.groupBuyRebateAccount.findUnique({
+        where: { userId },
+        select: { id: true, balance: true, reserved: true },
+      }),
+      tx.captainAccount.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          programCode: true,
+          balance: true,
+          frozen: true,
+        },
+      }),
     ]);
 
     const { withdrawableRewards, frozenRewards } = this.sumRewards(rewardAccounts);
@@ -753,6 +1097,16 @@ export class DeletionService {
           coupons: coupons.length,
           withdrawableRewards,
           frozenRewards,
+          groupBuyRebateBalance: groupBuyRebateAccount?.balance ?? 0,
+          groupBuyRebateReserved: groupBuyRebateAccount?.reserved ?? 0,
+          captainBalance: captainAccounts.reduce(
+            (sum, account) => sum + Number(account.balance ?? 0),
+            0,
+          ),
+          captainFrozen: captainAccounts.reduce(
+            (sum, account) => sum + Number(account.frozen ?? 0),
+            0,
+          ),
           lotteryQuota: lotteryRecords.length,
           pendingWithdrawAmount: pendingWithdrawAggregate._sum.amount ?? 0,
           activeCheckoutCount,
@@ -778,6 +1132,16 @@ export class DeletionService {
         lotteryQuota: lotteryRecords.length,
         withdrawableRewards,
         frozenRewards,
+        groupBuyRebateBalance: groupBuyRebateAccount?.balance ?? 0,
+        groupBuyRebateReserved: groupBuyRebateAccount?.reserved ?? 0,
+        captainBalance: captainAccounts.reduce(
+          (sum, account) => sum + Number(account.balance ?? 0),
+          0,
+        ),
+        captainFrozen: captainAccounts.reduce(
+          (sum, account) => sum + Number(account.frozen ?? 0),
+          0,
+        ),
         digitalAssetSeedBalance: digitalAssetAccount?.seedAssetBalance ?? 0,
         digitalAssetCreditBalance: digitalAssetAccount?.creditAssetBalance ?? 0,
       },
@@ -786,6 +1150,8 @@ export class DeletionService {
     return {
       deletionMeta,
       rewardAccounts,
+      groupBuyRebateAccount,
+      captainAccounts,
       primaryIdentity,
       maskedPhone,
       maskedWechatOpenId,

@@ -5,6 +5,7 @@ import { BonusAllocationService } from '../bonus/engine/bonus-allocation.service
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CheckoutSource } from './checkout-source';
 import { sanitizeErrorForLog, sanitizeForLog } from '../../common/logging/log-sanitizer';
 import { DEAD_LETTER_REASON } from '../bonus/engine/constants';
 import {
@@ -13,6 +14,7 @@ import {
 } from '../../common/security/privacy-mask';
 import { decryptJsonValue, encryptJsonValue } from '../../common/security/encryption';
 import { parseChineseAddress } from '../../common/utils/parse-region';
+import { provinceForRegionCode } from '../address/china-province-code';
 import { ACTIVE_STATUSES } from '../after-sale/after-sale.constants';
 import {
   getConfigValue,
@@ -819,7 +821,7 @@ export class OrderService {
     if (!/^1[3-9]\d{9}$/.test(phone)) {
       throw new BadRequestException('请输入正确的手机号');
     }
-    if (!regionCode || !regionText) {
+    if (!/^\d{6}$/.test(regionCode) || !regionText) {
       throw new BadRequestException('请选择省/市/区');
     }
     if (!detail) {
@@ -827,6 +829,10 @@ export class OrderService {
     }
 
     const region = parseChineseAddress(regionText);
+    const expectedProvince = provinceForRegionCode(regionCode);
+    if (!expectedProvince || region.province !== expectedProvince) {
+      throw new BadRequestException('行政区划代码与地址省份不一致');
+    }
     return {
       recipientName,
       phone,
@@ -1252,6 +1258,15 @@ export class OrderService {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空');
     }
+    const checkoutSource = dto.checkoutSource ?? CheckoutSource.CART;
+    if (checkoutSource === CheckoutSource.BUY_NOW) {
+      if (dto.items.length !== 1) {
+        throw new BadRequestException('立即购买每次只能预结算一个商品规格');
+      }
+      if (dto.items[0].cartItemId) {
+        throw new BadRequestException('立即购买不能关联购物车项');
+      }
+    }
 
     // 查询所有 SKU 信息
     const skuIds = dto.items.map((i) => i.skuId);
@@ -1333,7 +1348,9 @@ export class OrderService {
     }
 
     // 查询用户购物车中的奖品项（用于 preview 也正确显示奖品价格）
-    const previewCart = await this.prisma.cart.findUnique({ where: { userId } });
+    const previewCart = checkoutSource === CheckoutSource.CART
+      ? await this.prisma.cart.findUnique({ where: { userId } })
+      : null;
     const previewPrizeItems = previewCart
       ? await this.prisma.cartItem.findMany({
           where: {
@@ -1398,7 +1415,12 @@ export class OrderService {
           if (!previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); }
         }
       }
-      if (!(item as any).cartItemId && !prizeCi && previewPrizeBySkuId.has(item.skuId)) {
+      if (
+        checkoutSource === CheckoutSource.CART
+        && !(item as any).cartItemId
+        && !prizeCi
+        && previewPrizeBySkuId.has(item.skuId)
+      ) {
         for (const c of previewPrizeBySkuId.get(item.skuId)!) {
           if (!previewMatchedIds.has(c.id)) { prizeCi = c; previewMatchedIds.add(c.id); break; }
         }

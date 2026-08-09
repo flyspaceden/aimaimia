@@ -70,6 +70,30 @@ function getRewardSourceLabel(refType: string | null, meta: unknown): string {
   return getKnownRewardSourceLabel(refType, meta) ?? '平台奖励';
 }
 
+/**
+ * 钱包流水是买家端公开接口，不应直接透传内部记账 meta。
+ * 只保留 App/小程序实际用于展示的字段。
+ */
+function publicWalletLedgerMeta(meta: unknown): Record<string, string | number> | null {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+  const value = meta as Record<string, unknown>;
+  const result: Record<string, string | number> = {};
+  if (typeof value.orderNo === 'string' && value.orderNo.length > 0 && value.orderNo.length <= 64) {
+    result.orderNo = value.orderNo;
+  }
+  if (Number.isInteger(value.requiredLevel) && Number(value.requiredLevel) >= 0) {
+    result.requiredLevel = Number(value.requiredLevel);
+  }
+  if (
+    typeof value.expiresAt === 'string'
+    && value.expiresAt.length <= 64
+    && Number.isFinite(Date.parse(value.expiresAt))
+  ) {
+    result.expiresAt = value.expiresAt;
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 @Injectable()
 export class BonusService {
   private readonly logger = new Logger(BonusService.name);
@@ -1120,7 +1144,6 @@ export class BonusService {
         const sourceLabel = scheme ? getKnownRewardSourceLabel(l.refType, l.meta) : null;
         return {
           id: l.id,
-          sourceLedgerId: l.id,
           source: 'REWARD',
           accountType: l.account?.type ?? null,
           type: l.entryType,
@@ -1129,16 +1152,14 @@ export class BonusService {
           amount: l.amount,
           balanceAfter: (l as any).balanceAfter,
           refType: l.refType,
-          refId: l.refId,
-          meta: l.meta,
-          ...(scheme ? { scheme } : {}),
+          meta: publicWalletLedgerMeta(l.meta),
+          ...(sourceLabel && scheme ? { scheme } : {}),
           ...(sourceLabel ? { sourceLabel } : {}),
           createdAt: l.createdAt.toISOString(),
         };
       }),
       ...groupBuyItems.map((l) => ({
         id: l.id,
-        sourceLedgerId: l.id,
         source: 'GROUP_BUY_REBATE',
         accountType: 'GROUP_BUY_REBATE',
         type: l.type,
@@ -1147,8 +1168,7 @@ export class BonusService {
         amount: l.amount,
         balanceAfter: l.balanceAfter,
         refType: l.refType,
-        refId: l.refId,
-        meta: l.meta,
+        meta: publicWalletLedgerMeta(l.meta),
         createdAt: l.createdAt.toISOString(),
       })),
     ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));

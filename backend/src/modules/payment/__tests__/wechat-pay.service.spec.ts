@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { WechatPayService } from '../wechat-pay.service';
+import { VerifiedWechatPayHttpTransport } from '../../../common/payments/verified-wechat-pay-http';
 
 jest.mock('wechatpay-node-v3', () => ({
   __esModule: true,
@@ -13,6 +14,7 @@ jest.mock('wechatpay-node-v3', () => ({
 	    fetchCertificates: jest.fn(),
 	    verifySign: jest.fn(),
 	    decipher_gcm: jest.fn(),
+	    createHttp: jest.fn(),
 	  })),
 	}));
 
@@ -37,6 +39,8 @@ describe('WechatPayService', () => {
     WECHAT_PAY_MERCHANT_CERT_SERIAL: 'ABC123',
     WECHAT_PAY_MERCHANT_CERT: '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----',
     WECHAT_PAY_MERCHANT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----',
+    WECHAT_PAY_PUBLIC_KEY_ID: 'PUB_KEY_ID',
+    WECHAT_PAY_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----',
   };
 
   const buildModule = async (envOverrides: Record<string, string | undefined>) => {
@@ -73,6 +77,14 @@ describe('WechatPayService', () => {
       const svc = await buildModule(validWechatEnv);
       expect(svc.isAvailable()).toBe(true);
 	  });
+
+    it('injects the verified APIv3 response transport before enabling payment', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+
+      expect(client.createHttp).toHaveBeenCalledTimes(1);
+      expect(client.createHttp.mock.calls[0][0]).toBeInstanceOf(VerifiedWechatPayHttpTransport);
+    });
 
 	  describe('refreshPlatformCertificates', () => {
 	    it('fetches platform certificates with API v3 key when SDK is initialized', async () => {
@@ -290,11 +302,34 @@ describe('WechatPayService', () => {
     });
   });
 
+  describe('payment scene identity', () => {
+    it('requires AppID and trade_type to match the same payment scene', async () => {
+      const svc = await buildModule({
+        ...validWechatEnv,
+        WECHAT_MINIAPP_APP_ID: 'wx-mini-test',
+      });
+
+      expect(svc.matchesPaymentScene({ appId: 'wxtest', tradeType: 'APP' }, 'APP')).toBe(true);
+      expect(svc.matchesPaymentScene({ appId: 'wxtest', tradeType: 'JSAPI' }, 'APP')).toBe(false);
+      expect(svc.matchesPaymentScene(
+        { appId: 'wx-mini-test', tradeType: 'JSAPI' },
+        'MINI_PROGRAM',
+      )).toBe(true);
+      expect(svc.matchesPaymentScene(
+        { appId: 'wx-mini-test', tradeType: 'APP' },
+        'MINI_PROGRAM',
+      )).toBe(false);
+    });
+  });
+
   describe('queryOrder', () => {
-    it('returns null when SDK is not initialized', async () => {
+    it('returns UNKNOWN when SDK is not initialized', async () => {
       const svc = await buildModule({});
 
-      await expect(svc.queryOrder('CS-1')).resolves.toBeNull();
+      await expect(svc.queryOrder('CS-1')).resolves.toEqual({
+        outcome: 'UNKNOWN',
+        code: 'SDK_NOT_INITIALIZED',
+      });
     });
 
     it('queries by out_trade_no and returns parsed SUCCESS payload', async () => {
@@ -306,6 +341,8 @@ describe('WechatPayService', () => {
           trade_state: 'SUCCESS',
           transaction_id: 'WX-TXN-1',
           out_trade_no: 'CS-1',
+          appid: 'wxtest',
+          trade_type: 'APP',
           amount: { total: 1234 },
           success_time: '2026-05-23T10:11:12+08:00',
         },
@@ -315,9 +352,12 @@ describe('WechatPayService', () => {
 
       expect(client.query).toHaveBeenCalledWith({ out_trade_no: 'CS-1' });
       expect(result).toEqual({
+        outcome: 'FOUND',
         tradeState: 'SUCCESS',
         transactionId: 'WX-TXN-1',
         outTradeNo: 'CS-1',
+        appId: 'wxtest',
+        tradeType: 'APP',
         totalAmountFen: 1234,
         totalAmount: 12.34,
         paidAt: new Date('2026-05-23T10:11:12+08:00'),
@@ -332,6 +372,8 @@ describe('WechatPayService', () => {
         data: {
           trade_state: 'NOTPAY',
           out_trade_no: 'CS-NOTPAY-1',
+          appid: 'wxtest',
+          trade_type: 'APP',
           amount: { total: 0 },
         },
       });
@@ -339,12 +381,15 @@ describe('WechatPayService', () => {
       const result = await svc.queryOrder('CS-NOTPAY-1');
 
       expect(result).toEqual({
+        outcome: 'FOUND',
         tradeState: 'NOTPAY',
         outTradeNo: 'CS-NOTPAY-1',
+        appId: 'wxtest',
+        tradeType: 'APP',
         totalAmountFen: 0,
         totalAmount: 0,
       });
-      expect(result?.paidAt).toBeUndefined();
+      expect(result.outcome === 'FOUND' ? result.paidAt : undefined).toBeUndefined();
       expect(result).not.toHaveProperty('transactionId');
     });
 
@@ -357,6 +402,8 @@ describe('WechatPayService', () => {
         data: {
           trade_state: 'SUCCESS',
           out_trade_no: 'CS-SUCCESS-NO-TXN',
+          appid: 'wxtest',
+          trade_type: 'APP',
           amount: { total: 100 },
           rawSecretPayload: 'RAW-SUCCESS-NO-TXN-SECRET',
         },
@@ -364,7 +411,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder('CS-SUCCESS-NO-TXN');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRANSACTION_ID' });
       const logged = loggerWarn.mock.calls.flat().join(' ');
       expect(logged).toContain('outTradeNo=CS-***-TXN');
       expect(logged).not.toContain('RAW-SUCCESS-NO-TXN-SECRET');
@@ -381,6 +428,8 @@ describe('WechatPayService', () => {
           trade_state: 'PAID_OK',
           transaction_id: 'WX-TXN-UNKNOWN-STATE',
           out_trade_no: 'CS-UNKNOWN-STATE',
+          appid: 'wxtest',
+          trade_type: 'APP',
           amount: { total: 100 },
           rawSecretPayload: 'RAW-UNKNOWN-STATE-SECRET',
         },
@@ -388,7 +437,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder('CS-UNKNOWN-STATE');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'UNKNOWN_TRADE_STATE' });
       const logged = loggerWarn.mock.calls.flat().join(' ');
       expect(logged).toContain('outTradeNo=CS-***TATE');
       expect(logged).not.toContain('PAID_OK');
@@ -414,7 +463,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder('CS-NON200-001');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'DEFINITIVE_NOT_FOUND' });
       const logged = loggerError.mock.calls.flat().join(' ');
       expect(logged).toContain('status=404 code=ORDER_NOT_EXIST outTradeNo=CS-***-001');
       expect(logged).not.toContain('raw non-200 secret should not leak');
@@ -441,7 +490,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder('CS-THROW-001');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'SYSTEM_ERROR' });
       const logged = loggerError.mock.calls.flat().join(' ');
       expect(logged).toContain('code=SYSTEM_ERROR outTradeNo=CS-***-001');
       expect(logged).not.toContain('raw thrown payload should not leak');
@@ -456,7 +505,7 @@ describe('WechatPayService', () => {
 
       const result = await (svc as any).queryOrder(null);
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'INVALID_OUT_TRADE_NO' });
       expect(client.query).not.toHaveBeenCalled();
     });
 
@@ -470,7 +519,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder(outTradeNo);
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'INVALID_OUT_TRADE_NO' });
       expect(client.query).not.toHaveBeenCalled();
     });
 
@@ -483,9 +532,11 @@ describe('WechatPayService', () => {
         trade_state: 'SUCCESS',
         out_trade_no: 'CS-BAD-AMOUNT',
         transaction_id: 'WX-TXN-BAD-AMOUNT',
+        appid: 'wxtest',
+        trade_type: 'APP',
         amount: { total: 100.5 },
       }],
-    ])('returns null when query payload has %s', async (_case, data) => {
+    ])('returns UNKNOWN when query payload has %s', async (_case, data) => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.query = jest.fn().mockResolvedValue({
@@ -495,7 +546,7 @@ describe('WechatPayService', () => {
 
       const result = await svc.queryOrder(data.out_trade_no);
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'INVALID_RESPONSE' });
     });
 
     it('returns null and warns when response out_trade_no differs from request', async () => {
@@ -508,13 +559,15 @@ describe('WechatPayService', () => {
           trade_state: 'SUCCESS',
           transaction_id: 'WX-TXN-MISMATCH',
           out_trade_no: 'CS-OTHER-456',
+          appid: 'wxtest',
+          trade_type: 'APP',
           amount: { total: 100 },
         },
       });
 
       const result = await svc.queryOrder('CS-REQUEST-123');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'UNKNOWN', code: 'OUT_TRADE_NO_MISMATCH' });
       const logged = loggerWarn.mock.calls.flat().join(' ');
       expect(logged).toContain('outTradeNo=CS-***-123');
       expect(logged).toContain('providerOutTradeNo=CS-***-456');
@@ -523,14 +576,14 @@ describe('WechatPayService', () => {
   });
 
   describe('closeOrder', () => {
-    it('treats uninitialized SDK as terminal uncreated order', async () => {
+    it('fails closed when SDK is uninitialized because remote state is unknown', async () => {
       const svc = await buildModule({});
 
       await expect((svc as any).closeOrder('CS-CLOSE-001')).resolves.toEqual({
-        success: true,
-        terminal: true,
+        success: false,
+        terminal: false,
         alreadyPaid: false,
-        message: '微信支付 SDK 未初始化，按未建单处理',
+        message: '微信支付 SDK 未初始化，无法确认远端状态',
       });
     });
 
@@ -538,7 +591,7 @@ describe('WechatPayService', () => {
       ['runtime null', null],
       ['empty', ''],
       ['too long', 'T'.repeat(33)],
-    ])('treats %s outTradeNo as terminal uncreated order without calling SDK', async (_case, outTradeNo) => {
+    ])('fails closed for %s outTradeNo without calling SDK', async (_case, outTradeNo) => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.close = jest.fn();
@@ -546,15 +599,15 @@ describe('WechatPayService', () => {
       const result = await (svc as any).closeOrder(outTradeNo);
 
       expect(result).toEqual({
-        success: true,
-        terminal: true,
+        success: false,
+        terminal: false,
         alreadyPaid: false,
-        message: '微信支付商户订单号无效，按未建单处理',
+        message: '微信支付商户订单号无效，无法确认远端状态',
       });
       expect(client.close).not.toHaveBeenCalled();
     });
 
-    it('calls SDK close with only outTradeNo and returns non-terminal success on 204', async () => {
+    it('calls SDK close with only outTradeNo and returns terminal success on 204', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.close = jest.fn().mockResolvedValue({ status: 204 });
@@ -564,13 +617,13 @@ describe('WechatPayService', () => {
       expect(client.close).toHaveBeenCalledWith('CS-CLOSE-204');
       expect(result).toEqual({
         success: true,
-        terminal: false,
+        terminal: true,
         alreadyPaid: false,
         message: '关单成功',
       });
     });
 
-    it('returns non-terminal success on 200', async () => {
+    it('keeps an undocumented 200 close response non-terminal', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;
       client.close = jest.fn().mockResolvedValue({ status: 200 });
@@ -578,14 +631,14 @@ describe('WechatPayService', () => {
       const result = await (svc as any).closeOrder('CS-CLOSE-200');
 
       expect(result).toEqual({
-        success: true,
+        success: false,
         terminal: false,
         alreadyPaid: false,
-        message: '关单成功',
+        message: '微信关单失败 [UNKNOWN]',
       });
     });
 
-    it.each(['ORDERNOTEXIST', 'ORDERCLOSED'])(
+    it.each(['ORDERNOTEXIST', 'ORDERCLOSED', 'ORDER_NOT_EXIST', 'ORDER_CLOSED'])(
       'treats %s as terminal success',
       async (code) => {
         const svc = await buildModule(validWechatEnv);
@@ -876,6 +929,21 @@ describe('WechatPayService', () => {
 	        message: '微信退款请求异常待查 [ECONNRESET] socket hang up',
 	      });
 	    });
+
+    it('treats an unverifiable refund response as pending instead of a terminal failure', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.refunds = jest.fn().mockRejectedValue(Object.assign(
+        new Error('微信支付应答签名验证失败'),
+        { code: 'INVALID_WECHATPAY_SIGNATURE' },
+      ));
+
+      await expect(svc.refund(refundParams)).resolves.toEqual({
+        success: true,
+        pending: true,
+        message: '微信退款请求异常待查 [INVALID_WECHATPAY_SIGNATURE] 微信支付应答签名验证失败',
+      });
+    });
 
     it('treats missing data.status as pending instead of success', async () => {
       const svc = await buildModule(validWechatEnv);
@@ -1308,6 +1376,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-NOTIFY-001',
         transaction_id: 'WX-TXN-001',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 100 },
       });
 
@@ -1338,6 +1407,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-PAY-999',
         transaction_id: 'WX-TXN-999',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 999 },
         success_time: '2026-05-23T10:11:12+08:00',
       });
@@ -1357,6 +1427,7 @@ describe('WechatPayService', () => {
       expect(result).toEqual({
         type: 'payment',
         appId: 'wxtest',
+        tradeType: 'APP',
         mchId: '1234567890',
         outTradeNo: 'CS-PAY-999',
         providerTxnId: 'WX-TXN-999',
@@ -1480,6 +1551,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-STRING-PAYLOAD',
         transaction_id: 'WX-TXN-STRING',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 999 },
       }));
 
@@ -1492,6 +1564,7 @@ describe('WechatPayService', () => {
 	      expect(result).toEqual({
 	        type: 'payment',
 	        appId: 'wxtest',
+	        tradeType: 'APP',
 	        mchId: '1234567890',
 	        outTradeNo: 'CS-STRING-PAYLOAD',
 	        providerTxnId: 'WX-TXN-STRING',
@@ -1512,6 +1585,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-COMPAT-PAY',
         transaction_id: 'WX-TXN-COMPAT',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 1000 },
       });
 
@@ -1529,6 +1603,7 @@ describe('WechatPayService', () => {
 	      expect(result).toEqual({
 	        type: 'payment',
 	        appId: 'wxtest',
+	        tradeType: 'APP',
 	        mchId: '1234567890',
 	        outTradeNo: 'CS-COMPAT-PAY',
 	        providerTxnId: 'WX-TXN-COMPAT',
@@ -1549,6 +1624,7 @@ describe('WechatPayService', () => {
         mchid: '1234567890',
         out_trade_no: 'CS-MISSING-TXN',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 100 },
         secret_payload: 'DECRYPTED-SECRET',
       });
@@ -1583,6 +1659,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-MISSING-IDENTITY',
         transaction_id: 'WX-TXN-MISSING-IDENTITY',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 100 },
       });
 
@@ -1661,6 +1738,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-UNKNOWN-EVENT',
         transaction_id: 'WX-TXN-UNKNOWN',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total: 100 },
       });
 
@@ -1693,6 +1771,7 @@ describe('WechatPayService', () => {
         out_trade_no: 'CS-BAD-PAY-AMOUNT',
         transaction_id: 'WX-TXN-BAD-AMOUNT',
         trade_state: 'SUCCESS',
+        trade_type: 'APP',
         amount: { total },
       });
 
