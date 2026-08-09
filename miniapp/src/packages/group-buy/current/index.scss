@@ -1,0 +1,23 @@
+@use '../group-buy.scss';
+.group-buy-current__hero { overflow: hidden; padding: 18px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #1b5e20, #2e7d32 56%, #408e59); }
+.group-buy-current__status, .group-buy-current__title, .group-buy-current__description { display: block; }
+.group-buy-current__status { width: fit-content; padding: 4px 9px; border-radius: 999px; color: #fff; background: rgba(255, 255, 255, .15); font-size: 11px; }
+.group-buy-current__title { margin-top: 14px; font-size: 22px; line-height: 30px; font-weight: 700; }
+.group-buy-current__description { margin-top: 6px; color: rgba(255, 255, 255, .78); font-size: 12px; line-height: 19px; }
+.group-buy-current__code-panel { margin-top: 16px; padding: 15px; border-radius: 14px; background: rgba(255, 255, 255, .12); }
+.group-buy-current__code-label, .group-buy-current__code, .group-buy-current__code-hint { display: block; }
+.group-buy-current__code-label { color: rgba(255, 255, 255, .68); font-size: 11px; }
+.group-buy-current__code { margin-top: 6px; overflow-wrap: anywhere; color: #fff; font-size: 26px; line-height: 34px; font-weight: 750; letter-spacing: 3px; }
+.group-buy-current__code-hint { margin-top: 5px; color: rgba(255, 255, 255, .72); font-size: 11px; }
+.group-buy-current__hero .group-buy-clock { color: #fff; background: rgba(255, 255, 255, .15); }
+.group-buy-current__share-row { display: flex; gap: 10px; margin-top: 14px; }
+.group-buy-current__share-row button { min-width: 0; flex: 1; min-height: 44px; margin: 0; border-radius: 999px; font-size: 13px; line-height: 44px; }
+.group-buy-current__share-row button::after { border: 0; }
+.group-buy-current__copy { color: #1b5e20; background: #fff; }
+.group-buy-current__share { color: #1b5e20; background: #f5e6b8; }
+.group-buy-current__share[disabled], .group-buy-current__copy[disabled] { color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .14); }
+.group-buy-current__nav { display: flex; gap: 10px; margin-top: 14px; }
+.group-buy-current__nav > view { min-width: 0; flex: 1; padding: 13px; border-radius: 12px; background: #f7faf7; }
+.group-buy-current__nav text { display: block; }
+.group-buy-current__nav text:first-child { color: #1a2e1a; font-size: 14px; font-weight: 600; }
+.group-buy-current__nav text:last-child { margin-top: 4px; color: #8a9b8a; font-size: 11px; }

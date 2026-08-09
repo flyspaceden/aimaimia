@@ -1,0 +1,20 @@
+@use '../theme/tokens' as t;
+
+.catalog-product-card { min-width: 0; padding: 0; overflow: hidden; }
+.catalog-product-card--pressed { opacity: .82; transform: scale(.985); }
+.catalog-product-card__media { position: relative; width: 100%; aspect-ratio: 1.12; overflow: hidden; background: t.$skeleton; }
+.catalog-product-card__image { display: block; width: 100%; height: 100%; }
+.catalog-product-card__bundle { position: absolute; top: 9px; left: 9px; padding: 3px 8px; color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; background: linear-gradient(110deg, t.$ai-start, t.$ai-end); border-radius: t.$radius-full; }
+.catalog-product-card__body { padding: 11px 12px 13px; }
+.catalog-product-card__title { display: -webkit-box; min-height: 42px; overflow: hidden; color: t.$text-primary; font-size: 15px; font-weight: 600; line-height: 21px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.catalog-product-card__origin { display: block; margin-top: 5px; overflow: hidden; color: t.$text-tertiary; font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-product-card__footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 5px; margin-top: 8px; }
+.catalog-product-card__price-row { display: flex; align-items: baseline; min-width: 0; color: t.$brand-primary; }
+.catalog-product-card__currency { font-size: 12px; font-weight: 700; }
+.catalog-product-card__price { font-size: 20px; font-weight: 750; line-height: 24px; }
+.catalog-product-card__from, .catalog-product-card__stock { margin-left: 3px; color: t.$text-tertiary; font-size: 10px; line-height: 16px; }
+.catalog-product-card__stock { flex: 0 0 auto; margin-left: 0; color: t.$brand-primary; }
+.catalog-product-card__stock--out { color: #a04b42; }
+.catalog-product-card--compact { display: flex; }
+.catalog-product-card--compact .catalog-product-card__media { flex: 0 0 110px; width: 110px; aspect-ratio: auto; }
+.catalog-product-card--compact .catalog-product-card__body { flex: 1; min-width: 0; }

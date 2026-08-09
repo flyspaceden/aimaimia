@@ -1,0 +1,76 @@
+name: WeChat Mini Program CI
+
+on:
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - 'miniapp/**'
+      - 'src/content/legal/**'
+      - '.github/workflows/miniapp-ci.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'miniapp/**'
+      - 'src/content/legal/**'
+      - '.github/workflows/miniapp-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Typecheck
+        working-directory: miniapp
+        run: npm run typecheck
+      - name: Lint
+        working-directory: miniapp
+        run: npm run lint -- --max-warnings=0
+      - name: Test
+        working-directory: miniapp
+        run: npm test
+
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, production]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Build ${{ matrix.environment }} mini program
+        working-directory: miniapp
+        run: npm run build:${{ matrix.environment }}
+      - name: Verify production artifact
+        if: matrix.environment == 'production'
+        working-directory: miniapp
+        run: npm run verify:artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimai-miniapp-${{ matrix.environment }}-${{ github.sha }}
+          path: miniapp/dist/
+          if-no-files-found: error
+          retention-days: 14

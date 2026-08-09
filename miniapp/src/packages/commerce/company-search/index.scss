@@ -1,0 +1,14 @@
+@use '../../../theme/tokens' as t;
+
+.company-search-bar { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; }
+.company-search-bar__mark { display: flex; flex: 0 0 27px; align-items: center; justify-content: center; width: 27px; height: 27px; color: #fff; font-size: 10px; font-weight: 750; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 50%; }
+.company-search-bar input { flex: 1; min-width: 0; height: 38px; color: t.$text-primary; font-size: 13px; }
+.company-search-bar button { flex: 0 0 auto; height: 36px; margin: 0; padding: 0 14px; color: #fff; font-size: 12px; font-weight: 650; line-height: 36px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.company-search-summary { margin-top: 13px; padding: 14px; background: linear-gradient(135deg, t.$ai-soft, #fff); border-color: rgba(0, 137, 123, .18); }
+.company-search-summary__head { display: flex; align-items: center; gap: 8px; color: t.$ai-start; font-size: 13px; font-weight: 700; }
+.company-search-summary__head text:first-child { display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; color: #fff; font-size: 10px; background: t.$ai-start; border-radius: 50%; }
+.company-search-summary__copy { display: block; margin-top: 8px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.company-search-list { display: grid; gap: 13px; margin-top: 14px; }
+.company-search-suggestions__title { display: block; margin: 17px 0 9px; color: t.$text-primary; font-size: 14px; font-weight: 650; }
+.company-search-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+.company-search-suggestions text { padding: 7px 13px; color: t.$text-secondary; font-size: 11px; background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-full; }

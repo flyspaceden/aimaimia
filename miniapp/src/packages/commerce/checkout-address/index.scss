@@ -1,0 +1,15 @@
+@use '../../../theme/tokens' as t;
+
+.checkout-address-choice-list { display: grid; gap: 12px; }
+.checkout-address-choice { position: relative; display: flex; align-items: center; min-width: 0; padding: 14px; overflow: hidden; }
+.checkout-address-choice--active { border-color: t.$brand-primary; background: linear-gradient(135deg, t.$brand-soft, #fff); }
+.checkout-address-choice__rail { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; background: linear-gradient(t.$brand-primary, t.$ai-start); }
+.checkout-address-choice__copy { flex: 1; min-width: 0; }
+.checkout-address-choice__copy > view { display: flex; align-items: center; gap: 10px; }
+.checkout-address-choice__copy > view text { color: t.$text-primary; font-size: 13px; font-weight: 650; }
+.checkout-address-choice__copy > view text:nth-child(2) { color: t.$text-secondary; font-size: 11px; font-weight: 400; }
+.checkout-address-choice__copy > view text:last-child:not(:nth-child(2)) { padding: 2px 6px; color: t.$brand-primary; font-size: 9px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.checkout-address-choice__copy > text { display: block; margin-top: 5px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.checkout-address-choice__check { display: flex; flex: 0 0 24px; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 10px; color: t.$brand-primary; font-size: 13px; border: 1px solid t.$border; border-radius: 50%; }
+.checkout-address-choice--active .checkout-address-choice__check { color: #fff; background: t.$brand-primary; border-color: t.$brand-primary; }
+.checkout-address-add { height: 46px; margin-top: 16px; color: t.$brand-primary; font-size: 13px; font-weight: 650; line-height: 46px; background: t.$surface; border: 1px dashed t.$brand-primary; border-radius: t.$radius-lg; }

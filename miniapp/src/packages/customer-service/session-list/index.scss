@@ -1,0 +1,32 @@
+@use '../../../theme/tokens' as t;
+.cs-list-page { display: flex; min-height: 100vh; flex-direction: column; background: t.$background; }
+.cs-list-hero { padding: 16px 16px 0; }
+.cs-list-hero .page-header { margin-bottom: 10px; }
+.cs-list-hero__new { min-width: 78px; height: 38px; margin: 0; padding: 0 14px; color: #fff; font-size: 12px; font-weight: 700; line-height: 38px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.cs-list-lane { display: flex; align-items: center; min-height: 34px; padding: 0 12px; color: t.$text-secondary; font-size: 10px; background: linear-gradient(90deg, t.$brand-soft, t.$ai-soft); border-radius: 10px; }
+.cs-list-lane__dot { width: 7px; height: 7px; margin-right: 8px; background: t.$ai-end; border-radius: 50%; box-shadow: 0 0 0 4px rgba(0,191,165,.12); }
+.cs-list-tabs { display: flex; gap: 8px; padding: 14px 16px 10px; }
+.cs-list-tab { min-width: 88px; padding: 8px 14px; color: t.$text-secondary; font-size: 12px; text-align: center; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
+.cs-list-tab--active { color: t.$brand-primary; font-weight: 750; background: t.$brand-soft; border-color: rgba(46,125,50,.22); }
+.cs-list-scroll { flex: 1; min-height: 0; }
+.cs-list-content { padding: 2px 16px calc(28px + env(safe-area-inset-bottom)); }
+.cs-session-card { display: flex; align-items: center; min-height: 100px; margin-bottom: 11px; padding: 15px 13px; }
+.cs-session-card--pressed { opacity: .82; }
+.cs-session-card__seal { display: flex; align-items: center; justify-content: center; width: 45px; height: 45px; color: #fff; font-size: 16px; font-weight: 800; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border-radius: 15px 15px 15px 4px; }
+.cs-session-card__seal--outreach { background: linear-gradient(145deg, #365E9D, #5E8FC7); }
+.cs-session-card__body { flex: 1; min-width: 0; margin-left: 12px; }
+.cs-session-card__heading, .cs-session-card__footer { display: flex; align-items: center; justify-content: space-between; }
+.cs-session-card__title { color: t.$text-primary; font-size: 14px; font-weight: 750; }
+.cs-session-card__time { color: t.$text-tertiary; font-size: 9px; }
+.cs-session-card__preview { display: block; overflow: hidden; margin-top: 5px; color: t.$text-secondary; font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.cs-session-card__footer { margin-top: 8px; }
+.cs-session-card__status { padding: 3px 8px; color: #a55312; font-size: 9px; background: #fff4e6; border-radius: t.$radius-full; }
+.cs-session-card__status--closed { color: t.$text-tertiary; background: #f1f4f1; }
+.cs-session-card__unread { min-width: 20px; height: 20px; padding: 0 5px; color: #fff; font-size: 9px; line-height: 20px; text-align: center; background: #c94945; border-radius: t.$radius-full; }
+.cs-session-card__arrow { margin-left: 8px; color: t.$text-tertiary; font-size: 23px; }
+.cs-list-load-more { min-height: 40px; margin: 14px auto 4px; padding: 0 22px; color: t.$brand-primary; font-size: 11px; line-height: 40px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.cs-auth { display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+.cs-auth__stamp { display: flex; align-items: center; justify-content: center; width: 76px; height: 76px; color: #fff; font-size: 27px; font-weight: 800; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border-radius: 22px 22px 22px 6px; }
+.cs-auth__title { margin-top: 19px; color: t.$text-primary; font-size: 20px; font-weight: 750; }
+.cs-auth__copy { margin-top: 7px; color: t.$text-secondary; font-size: 12px; }
+.cs-auth__button { min-width: 150px; margin-top: 20px; }

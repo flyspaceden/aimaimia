@@ -1,0 +1,27 @@
+@use '../../../theme/tokens' as t;
+
+.receiver-info-page { min-height: 100vh; background: t.$background; }
+.receiver-info-scroll { height: 100vh; }
+.receiver-info-content { padding: 15px 15px calc(30px + env(safe-area-inset-bottom)); }
+.receiver-info-notice { display: flex; align-items: flex-start; margin-bottom: 15px; padding: 13px; background: linear-gradient(110deg, #fff6dc, #fffaf0); border: 1px solid #efdca1; border-radius: t.$radius-lg; }
+.receiver-info-notice__mark { display: flex; flex: 0 0 34px; align-items: center; justify-content: center; width: 34px; height: 34px; margin-right: 10px; color: t.$gold-dark; font-size: 15px; font-weight: 800; background: #f8e7ad; border-radius: 11px 11px 11px 4px; }
+.receiver-info-notice__title { display: block; color: t.$text-primary; font-size: 12px; font-weight: 750; }
+.receiver-info-notice__copy { display: block; margin-top: 4px; color: t.$text-secondary; font-size: 10px; line-height: 17px; }
+.receiver-address-book { margin-bottom: 15px; }
+.receiver-address-book__head { display: flex; justify-content: space-between; padding: 0 2px 8px; color: t.$text-primary; font-size: 11px; font-weight: 700; }
+.receiver-address-book__head text:last-child { color: t.$text-tertiary; font-size: 9px; font-weight: 400; }
+.receiver-address-book__list { display: inline-flex; gap: 9px; padding-right: 15px; }
+.receiver-address-choice { position: relative; width: 250px; min-height: 82px; padding: 12px; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.receiver-address-choice__name { display: block; color: t.$text-primary; font-size: 11px; font-weight: 700; }
+.receiver-address-choice__line { display: -webkit-box; overflow: hidden; margin-top: 5px; color: t.$text-secondary; font-size: 9px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.receiver-address-choice__badge { position: absolute; top: 9px; right: 9px; padding: 2px 5px; color: t.$brand-primary; font-size: 8px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.receiver-info-form { padding: 17px; }
+.receiver-field { position: relative; margin-bottom: 17px; }
+.receiver-field__label { display: block; margin-bottom: 7px; color: t.$text-primary; font-size: 11px; font-weight: 700; }
+.receiver-field__input, .receiver-field__picker { width: 100%; min-height: 46px; padding: 0 13px; color: t.$text-primary; font-size: 12px; line-height: 46px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.receiver-field__picker { display: flex; align-items: center; justify-content: space-between; }
+.receiver-field__picker--empty { color: t.$text-tertiary; }
+.receiver-field__textarea { width: 100%; height: 105px; padding: 12px 13px 28px; color: t.$text-primary; font-size: 12px; line-height: 19px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.receiver-field__warning { display: block; margin-top: 5px; color: #9a6b00; font-size: 9px; line-height: 15px; }
+.receiver-field__count { position: absolute; right: 10px; bottom: 7px; color: t.$text-tertiary; font-size: 8px; }
+.receiver-save { width: 100%; height: 47px; margin: 3px 0 0; color: #fff; font-size: 13px; font-weight: 700; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; box-shadow: 0 8px 18px rgba(46,125,50,.16); }

@@ -1,0 +1,19 @@
+@use '../../../theme/tokens' as t;
+
+.account-forgot-page { min-height: 100vh; }
+.account-forgot-hero { padding: 16px 3px 20px; }
+.account-forgot-hero__step { display: block; color: t.$ai-start; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+.account-forgot-hero__title { display: block; margin-top: 5px; color: t.$text-primary; font-size: 22px; font-weight: 750; }
+.account-forgot-hero__description { display: block; margin-top: 7px; color: t.$text-secondary; font-size: 12px; line-height: 20px; }
+.account-forgot-card { padding: 19px; }
+.account-forgot-field { margin-top: 15px; }
+.account-forgot-field:first-child { margin-top: 0; }
+.account-forgot-field__label { display: block; margin-bottom: 6px; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.account-forgot-field__input { width: 100%; height: 46px; padding: 0 13px; color: t.$text-primary; font-size: 13px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.account-forgot-captcha-row { display: flex; align-items: center; gap: 9px; }
+.account-forgot-captcha-row .account-forgot-field__input { flex: 1; min-width: 0; }
+.account-forgot-captcha { flex: 0 0 120px; width: 120px; height: 42px; background: #f0f0f0; border-radius: 8px; }
+.account-forgot-refresh { display: block; margin-top: 7px; color: t.$brand-primary; font-size: 10px; text-align: right; }
+.account-forgot-primary { width: 100%; min-height: 47px; margin: 19px 0 0; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.account-forgot-secondary { width: 100%; min-height: 41px; margin: 10px 0 0; color: t.$brand-primary; font-size: 12px; line-height: 41px; background: transparent; }
+.account-forgot-tip { display: block; margin-top: 13px; color: t.$text-tertiary; font-size: 10px; line-height: 17px; text-align: center; }

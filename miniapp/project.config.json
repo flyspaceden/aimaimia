@@ -1,0 +1,17 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "爱买买",
+  "description": "爱买买买家微信小程序",
+  "appid": "wx1b33112db0d5267b",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "compileHotReLoad": true,
+    "checkInvalidKey": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "latest"
+}

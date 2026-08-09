@@ -1,0 +1,43 @@
+@use '../../../theme/tokens' as t;
+
+.account-login-page { min-height: 100vh; }
+.account-login-hero { display: flex; flex-direction: column; align-items: center; padding: 32px 17px 25px; text-align: center; }
+.account-login-hero__orbit { position: relative; display: flex; align-items: center; justify-content: center; width: 94px; height: 94px; background: rgba(255,255,255,.9); border: 1px solid rgba(0,137,123,.13); border-radius: 50%; box-shadow: 0 0 0 10px t.$ai-soft, 0 18px 34px rgba(0,137,123,.18); }
+.account-login-hero__orbit::after { position: absolute; width: 126px; height: 49px; border: 1px solid rgba(46,125,50,.22); border-radius: 50%; transform: rotate(-22deg); content: ''; }
+.account-login-hero__core { display: flex; align-items: center; justify-content: center; width: 67px; height: 67px; color: #fff; font-size: 23px; font-weight: 750; background: radial-gradient(circle at 30% 25%, #8bffe8, t.$ai-end 37%, t.$brand-primary); border-radius: 50%; }
+.account-login-hero__title { margin-top: 27px; color: t.$text-primary; font-size: 22px; font-weight: 750; line-height: 31px; }
+.account-login-hero__description { max-width: 310px; margin-top: 8px; color: t.$text-secondary; font-size: 12px; line-height: 20px; }
+.account-login-card, .account-bind-card { padding: 20px; }
+.account-login-tabs { display: flex; padding: 3px; margin-bottom: 17px; background: t.$background; border-radius: t.$radius-full; }
+.account-login-tabs__item { flex: 1; padding: 9px 0; color: t.$text-secondary; font-size: 13px; text-align: center; border-radius: t.$radius-full; }
+.account-login-tabs__item--active { color: t.$brand-primary; font-weight: 700; background: #fff; box-shadow: 0 3px 10px rgba(46,125,50,.1); }
+.account-login-modes { display: flex; gap: 20px; margin: -2px 0 17px; }
+.account-login-modes__item { padding-bottom: 5px; color: t.$text-tertiary; font-size: 11px; border-bottom: 2px solid transparent; }
+.account-login-modes__item--active { color: t.$brand-primary; font-weight: 650; border-color: t.$brand-primary; }
+.account-login-benefit { display: flex; align-items: center; padding: 13px; background: linear-gradient(135deg, t.$brand-soft, t.$ai-soft); border-radius: t.$radius-md; }
+.account-login-benefit__mark { display: flex; flex: 0 0 36px; align-items: center; justify-content: center; width: 36px; height: 36px; margin-right: 10px; color: t.$brand-primary; font-size: 13px; font-weight: 750; background: #fff; border-radius: 12px; }
+.account-login-benefit__title { display: block; color: t.$text-primary; font-size: 13px; font-weight: 650; }
+.account-login-benefit__text { display: block; margin-top: 2px; color: t.$text-secondary; font-size: 10px; }
+.account-login-agreement { display: flex; align-items: flex-start; margin-top: 18px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.account-login-agreement__box { display: flex; flex: 0 0 18px; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 7px; color: #fff; font-size: 11px; border: 1px solid t.$border; border-radius: 6px; }
+.account-login-agreement__box--checked { background: t.$brand-primary; border-color: t.$brand-primary; }
+.account-login-agreement__link { color: t.$brand-primary; }
+.account-login-primary { width: 100%; min-height: 47px; margin: 19px 0 0; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; box-shadow: 0 8px 18px rgba(46,125,50,.2); }
+.account-login-primary--disabled { background: #aab9ad; box-shadow: none; }
+.account-login-security, .account-bind-tip { display: block; margin-top: 13px; color: t.$text-tertiary; font-size: 10px; line-height: 17px; text-align: center; }
+.account-bind-field { margin-bottom: 16px; }
+.account-bind-field__label { display: block; margin-bottom: 6px; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.account-bind-field__input { flex: 1; min-width: 0; height: 46px; padding: 0 13px; color: t.$text-primary; font-size: 13px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.account-bind-code { display: flex; align-items: center; gap: 9px; }
+.account-bind-code__button { flex: 0 0 100px; min-height: 44px; margin: 0; padding: 0 8px; color: t.$brand-primary; font-size: 11px; line-height: 44px; background: t.$brand-soft; border-radius: t.$radius-md; }
+.account-login-forgot { display: block; margin-top: -8px; color: t.$brand-primary; font-size: 11px; text-align: right; }
+.account-login-divider { display: flex; align-items: center; gap: 10px; margin: 17px 0 11px; color: t.$text-tertiary; font-size: 10px; }
+.account-login-divider view { flex: 1; height: 1px; background: t.$border; }
+.account-login-divider text { flex: none; }
+.account-login-wechat { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin: 0; color: #183c23; font-size: 13px; font-weight: 650; line-height: 44px; background: #ecf9ef; border: 1px solid rgba(7,193,96,.2); border-radius: t.$radius-full; }
+.account-login-wechat__mark { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; margin-right: 7px; color: #fff; font-size: 10px; background: #07c160; border-radius: 50%; }
+.account-bind-restart { display: block; margin-top: 17px; color: t.$brand-primary; font-size: 12px; text-align: center; }
+.account-login-done { display: flex; flex-direction: column; align-items: center; margin-top: 60px; padding: 35px 24px; text-align: center; }
+.account-login-done__mark { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; color: #fff; font-size: 24px; background: linear-gradient(135deg, t.$brand-primary, t.$ai-end); border-radius: 50%; }
+.account-login-done__title { margin-top: 17px; color: t.$text-primary; font-size: 18px; font-weight: 650; }
+.account-login-done__button { min-height: 40px; margin: 19px 0 0; padding: 0 20px; color: #fff; font-size: 13px; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }

@@ -1,0 +1,53 @@
+@use '../../../theme/tokens' as t;
+
+.ai-recommend-page { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+.ai-recommend-intro { display: flex; align-items: center; margin-bottom: 12px; color: t.$text-secondary; font-size: 13px; }
+.ai-recommend-orb { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-right: 9px; color: #fff; font-size: 11px; font-weight: 800; background: radial-gradient(circle at 34% 30%, t.$ai-glow, t.$ai-start 48%, #126454 100%); border: 2px solid rgba(255, 255, 255, .88); border-radius: 50%; box-shadow: 0 4px 14px rgba(0, 137, 123, .24); }
+.ai-recommend-summary { padding: 14px; }
+.ai-recommend-summary__head { display: flex; align-items: flex-start; gap: 8px; }
+.ai-recommend-summary__copy { flex: 1; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
+.ai-recommend-summary__link { flex: 0 0 auto; padding: 2px 0; color: t.$ai-start; font-size: 11px; font-weight: 600; }
+.ai-recommend-badge { flex: 0 0 auto; padding: 3px 8px; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; background: linear-gradient(110deg, t.$ai-start, t.$ai-end); border-radius: t.$radius-full; }
+.ai-recommend-badge--analysis { color: t.$ai-start; background: t.$ai-soft; border: 1px solid rgba(0, 137, 123, .18); }
+.ai-recommend-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ai-recommend-tag { padding: 3px 9px; color: t.$ai-start; font-size: 10px; line-height: 16px; background: t.$ai-soft; border: 1px solid rgba(0, 137, 123, .13); border-radius: t.$radius-full; }
+.ai-recommend-section { margin-top: 22px; }
+.ai-recommend-section__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ai-recommend-section__title { color: t.$text-primary; font-size: 19px; font-weight: 700; line-height: 27px; }
+.ai-recommend-section__meta { max-width: 54%; overflow: hidden; color: t.$ai-start; font-size: 11px; line-height: 18px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.ai-recommend-divider { height: 1px; margin: 7px 0 12px; background: linear-gradient(90deg, t.$ai-start, rgba(0, 191, 165, .06)); }
+.ai-recommend-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ai-recommend-product { min-width: 0; }
+.ai-recommend-product .catalog-product-card__media { aspect-ratio: 1; }
+.ai-recommend-product .catalog-product-card__body { padding-bottom: 8px; }
+.ai-recommend-product__add { width: calc(100% - 16px); height: 35px; margin: -1px auto 10px; color: #fff; font-size: 12px; font-weight: 650; line-height: 35px; background: linear-gradient(110deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.ai-recommend-plan { margin-bottom: 13px; padding: 15px; border-left: 3px solid t.$brand-primary; }
+.ai-recommend-plan--accent { border-left-color: t.$ai-start; }
+.ai-recommend-plan--analysis { border-left-color: t.$ai-end; }
+.ai-recommend-plan__head { display: flex; align-items: flex-start; gap: 10px; }
+.ai-recommend-plan__copy { flex: 1; min-width: 0; }
+.ai-recommend-plan__title { display: block; color: t.$text-primary; font-size: 15px; font-weight: 700; line-height: 22px; }
+.ai-recommend-plan__description { display: block; margin-top: 4px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.ai-recommend-plan__price { flex: 0 0 auto; padding: 5px 9px; color: t.$ai-start; font-size: 11px; font-weight: 700; background: t.$ai-soft; border-radius: t.$radius-full; }
+.ai-recommend-progress { margin-top: 12px; }
+.ai-recommend-progress__label { display: flex; justify-content: space-between; color: t.$ai-start; font-size: 10px; }
+.ai-recommend-progress__track { height: 5px; margin-top: 5px; overflow: hidden; background: t.$border; border-radius: t.$radius-full; }
+.ai-recommend-progress__fill { height: 100%; background: linear-gradient(90deg, t.$brand-primary, t.$ai-start, t.$ai-end); border-radius: t.$radius-full; }
+.ai-recommend-plan__products { margin-top: 11px; border-top: 1px solid t.$border; }
+.ai-recommend-plan-product { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 0; border-bottom: 1px solid t.$border; }
+.ai-recommend-plan-product:last-child { border-bottom: 0; }
+.ai-recommend-plan-product image { flex: 0 0 42px; width: 42px; height: 42px; background: t.$skeleton; border-radius: 10px; }
+.ai-recommend-plan-product > view { flex: 1; min-width: 0; }
+.ai-recommend-plan-product__title, .ai-recommend-plan-product__origin { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-recommend-plan-product__title { color: t.$text-primary; font-size: 12px; font-weight: 600; }
+.ai-recommend-plan-product__origin { margin-top: 2px; color: t.$text-tertiary; font-size: 10px; }
+.ai-recommend-plan-product__price { flex: 0 0 auto; color: t.$ai-start; font-size: 11px; font-weight: 650; }
+.ai-recommend-note, .ai-recommend-insight { margin-bottom: 12px; padding: 14px; }
+.ai-recommend-note > text { display: block; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
+.ai-recommend-note button { height: 36px; margin-top: 11px; color: t.$ai-start; font-size: 12px; line-height: 36px; background: t.$ai-soft; border-radius: t.$radius-full; }
+.ai-recommend-insight__head { display: flex; align-items: center; justify-content: space-between; color: t.$text-primary; font-size: 14px; font-weight: 650; }
+.ai-recommend-insight__head text:last-child { color: t.$ai-start; font-size: 11px; }
+.ai-recommend-insight__description { display: block; margin-top: 5px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.ai-recommend-cart { position: fixed; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 10; display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; color: #fff; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border: 3px solid #fff; border-radius: 50%; box-shadow: 0 8px 22px rgba(27, 94, 32, .3); }
+.ai-recommend-cart__icon { font-size: 17px; font-weight: 750; }
+.ai-recommend-cart__badge { position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 4px; color: #fff; font-size: 9px; font-weight: 700; line-height: 20px; text-align: center; background: #c94a3f; border: 2px solid #fff; border-radius: t.$radius-full; }

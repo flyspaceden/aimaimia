@@ -1,0 +1,14 @@
+@use '../../../theme/tokens' as t;
+
+.payment-success-page { display: flex; align-items: center; flex-direction: column; padding-top: 50px; text-align: center; }
+.payment-success-mark { position: relative; display: flex; align-items: center; justify-content: center; width: 88px; height: 88px; color: #fff; font-size: 34px; font-weight: 800; background: linear-gradient(135deg, t.$brand-primary, t.$ai-end); border-radius: 50%; box-shadow: 0 16px 38px rgba(46,125,50,.25); }
+.payment-success-mark view { position: absolute; inset: -9px; border: 1px solid rgba(46,125,50,.2); border-radius: 50%; }
+.payment-success-title { margin-top: 24px; color: t.$text-primary; font-size: 24px; font-weight: 800; }
+.payment-success-copy { max-width: 285px; margin-top: 8px; color: t.$text-secondary; font-size: 12px; line-height: 20px; }
+.payment-success-amount { margin-top: 18px; color: t.$brand-primary; font-size: 30px; font-weight: 800; }
+.payment-success-orders { width: 100%; margin-top: 24px; padding: 14px; }
+.payment-success-orders text { display: block; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.payment-success-orders text:last-child { margin-top: 5px; color: t.$text-tertiary; font-size: 10px; font-weight: 400; }
+.payment-success-primary, .payment-success-secondary { width: 100%; height: 46px; margin-top: 24px; color: #fff; font-size: 14px; font-weight: 650; line-height: 46px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.payment-success-secondary { margin-top: 10px; color: t.$brand-primary; background: #fff; border: 1px solid t.$border; }
+.payment-success-subscription-hint { max-width: 300px; margin-top: 8px; color: t.$text-tertiary; font-size: 10px; line-height: 16px; }

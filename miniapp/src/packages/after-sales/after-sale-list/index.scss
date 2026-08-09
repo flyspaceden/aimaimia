@@ -1,0 +1,22 @@
+@use '../../../theme/tokens' as t;
+.after-sale-list-page { display: flex; min-height: 100vh; flex-direction: column; background: t.$background; }
+.after-sale-list-hero { display: flex; align-items: flex-end; justify-content: space-between; padding: 20px 18px 14px; }
+.after-sale-list-hero__eyebrow { display: block; color: t.$ai-start; font-size: 8px; font-weight: 800; letter-spacing: 1.7px; }
+.after-sale-list-hero__title { display: block; margin-top: 3px; color: t.$text-primary; font-size: 25px; font-weight: 850; }
+.after-sale-list-hero__count { color: t.$brand-primary; font-size: 20px; font-weight: 800; }
+.after-sale-list-hero__count text { color: t.$text-tertiary; font-size: 9px; font-weight: 400; }
+.after-sale-list-scroll { flex: 1; min-height: 0; }
+.after-sale-list-content { padding: 2px 15px calc(28px + env(safe-area-inset-bottom)); }
+.after-sale-case { position: relative; display: flex; overflow: hidden; margin-bottom: 13px; }
+.after-sale-case__rail { flex: 0 0 4px; background: t.$brand-primary; }
+.after-sale-case__rail--warn { background: #c38c13; }.after-sale-case__rail--danger { background: #a04b42; }.after-sale-case__rail--muted { background: t.$text-tertiary; }
+.after-sale-case__body { flex: 1; min-width: 0; padding: 13px; }
+.after-sale-case__head, .after-sale-case__foot { display: flex; align-items: center; justify-content: space-between; }
+.after-sale-case__shop { color: t.$text-primary; font-size: 10px; font-weight: 700; }
+.after-sale-case__type { display: block; margin-top: 7px; color: t.$text-primary; font-size: 14px; font-weight: 800; }
+.after-sale-case__product { display: flex; margin-top: 10px; padding: 9px; background: t.$background; border-radius: 11px; }
+.after-sale-case__image { flex: 0 0 57px; width: 57px; height: 57px; margin-right: 10px; background: t.$skeleton; border-radius: 9px; }
+.after-sale-case__copy { flex: 1; min-width: 0; }.after-sale-case__title { display: block; overflow: hidden; color: t.$text-primary; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.after-sale-case__sku, .after-sale-case__price { display: block; margin-top: 4px; color: t.$text-tertiary; font-size: 9px; }.after-sale-case__price { color: t.$text-secondary; }
+.after-sale-case__foot { margin-top: 10px; padding-top: 9px; color: t.$text-tertiary; font-size: 9px; border-top: 1px dashed t.$border; }.after-sale-case__foot text:last-child { color: #a04b42; font-weight: 700; }
+.after-sale-list-more { display: block; padding: 12px; color: t.$text-tertiary; font-size: 9px; text-align: center; }

@@ -1,0 +1,34 @@
+@use '../../../theme/tokens' as t;
+
+.ai-assistant-page { position: relative; overflow: hidden; }
+.ai-assistant-page::before { position: absolute; top: -96px; right: -88px; width: 230px; height: 230px; content: ''; background: radial-gradient(circle, rgba(0,229,204,.18), rgba(0,137,123,0) 68%); pointer-events: none; }
+.ai-assistant-search { position: relative; z-index: 1; display: flex; align-items: center; min-height: 56px; padding: 7px 8px 7px 12px; }
+.ai-assistant-search__mark { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; color: #fff; font-size: 10px; font-weight: 800; background: linear-gradient(145deg, t.$ai-start, t.$ai-end); border-radius: 10px 10px 10px 3px; }
+.ai-assistant-search__input { flex: 1; height: 42px; margin: 0 8px; color: t.$text-primary; font-size: 14px; }
+.ai-assistant-search__button { min-width: 62px; height: 40px; margin: 0; padding: 0 12px; color: #fff; font-size: 13px; font-weight: 700; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.ai-assistant-stage { display: flex; align-items: center; flex-direction: column; padding: 34px 0 28px; }
+.ai-assistant-orbit { position: relative; display: flex; align-items: center; justify-content: center; width: 154px; height: 154px; border: 1px solid rgba(0,137,123,.18); border-radius: 50%; transition: transform .2s ease; }
+.ai-assistant-orbit::before, .ai-assistant-orbit::after { position: absolute; content: ''; border: 1px solid rgba(0,191,165,.15); border-radius: 50%; }
+.ai-assistant-orbit::before { width: 124px; height: 124px; }
+.ai-assistant-orbit::after { width: 98px; height: 98px; background: rgba(224,247,244,.55); }
+.ai-assistant-orbit--active { transform: scale(1.04); animation: listening 1.2s ease-in-out infinite; }
+.ai-assistant-orbit__core { z-index: 1; display: flex; align-items: center; justify-content: center; width: 74px; height: 74px; color: #fff; background: linear-gradient(145deg, t.$brand-primary, t.$ai-end); border-radius: 50% 50% 50% 18px; box-shadow: 0 14px 30px rgba(0,137,123,.28); }
+.ai-assistant-orbit__core--pressed { opacity: .86; }
+.ai-assistant-orbit__mic { color: #fff; font-size: 19px; font-weight: 800; letter-spacing: 2px; }
+.ai-assistant-stage__status { margin-top: 15px; color: t.$text-primary; font-size: 15px; font-weight: 700; }
+.ai-assistant-stage__hint { margin-top: 4px; color: t.$text-tertiary; font-size: 10px; }
+.ai-assistant-result { position: relative; overflow: hidden; padding: 20px 18px 18px 23px; }
+.ai-assistant-result__rail { position: absolute; top: 18px; bottom: 18px; left: 11px; width: 3px; background: linear-gradient(t.$ai-start, t.$ai-glow); border-radius: 4px; }
+.ai-assistant-result__label { color: t.$ai-start; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+.ai-assistant-result__transcript { display: block; margin-top: 6px; color: t.$text-primary; font-size: 18px; font-weight: 750; line-height: 26px; }
+.ai-assistant-result__reply { display: block; margin-top: 13px; color: t.$text-secondary; font-size: 13px; line-height: 21px; white-space: pre-wrap; }
+.ai-assistant-result__choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.ai-assistant-result__choice { min-height: 38px; margin: 0; padding: 0 14px; color: t.$ai-start; font-size: 12px; line-height: 38px; background: t.$ai-soft; border: 1px solid rgba(0,137,123,.15); border-radius: t.$radius-full; }
+.ai-assistant-result__action { min-height: 44px; margin: 17px 0 0; color: #fff; font-size: 13px; font-weight: 750; line-height: 44px; background: linear-gradient(100deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.ai-assistant-suggestions { padding-top: 6px; }
+.ai-assistant-suggestions__title { display: block; margin-bottom: 8px; color: t.$text-tertiary; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+.ai-assistant-suggestion { display: flex; align-items: center; min-height: 52px; border-bottom: 1px solid t.$border; }
+.ai-assistant-suggestion__index { width: 31px; color: t.$ai-start; font-size: 10px; font-weight: 700; }
+.ai-assistant-suggestion__text { flex: 1; color: t.$text-primary; font-size: 13px; }
+.ai-assistant-suggestion__arrow { color: t.$text-tertiary; font-size: 15px; }
+@keyframes listening { 0%,100% { box-shadow: 0 0 0 0 rgba(0,191,165,.05); } 50% { box-shadow: 0 0 0 12px rgba(0,191,165,.08); } }
