@@ -400,6 +400,42 @@
 
 ---
 
+## 2026-08-02 微信小程序登录与账号合并安全检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMA01 | 小程序 `code`、`session_key`、AppSecret 或 OpenID 泄露到客户端/日志，或生产误开 Mock 形成认证绕过 | 🔴 CRITICAL | `code2Session` 只在服务端调用；返回结构主动丢弃 `session_key`；生产检测到 `WECHAT_MINIAPP_MOCK=true` 直接 fail-closed，示例配置默认 false；错误日志不记录 URL、code、AppSecret、OpenID 或 session_key；单测覆盖客户端响应、ticket 存储和生产 Mock 拒绝 | ✅ 已修复 |
+| WMA02 | `miniLoginTicket` 被重放、跨用途使用或长期有效 | 🔴 HIGH | ticket 使用 256-bit 随机值，Redis 键只保存其哈希，payload 固定绑定 `WECHAT_MINIAPP_BIND_PHONE` 用途和 5 分钟绝对过期时间；最终绑定通过原子 `GETDEL` 单次消费，生产 Redis 不可用时 fail-closed | ✅ 已检查 |
+| WMA03 | 客户端指定 `User.id` 或仅提交未验证手机号劫持既有账号 | 🔴 CRITICAL | DTO 不接收 `userId` 且全局 ValidationPipe 拒绝额外字段；合并目标只由服务端 `appId+openid`、UnionID 和 `SmsPurpose.BIND` 已验证手机号推导；手机号 OTP 使用 bcrypt 校验与 `usedAt` CAS 消费 | ✅ 已检查 |
+| WMA04 | 并发登录/绑定把同一微信或手机号归到多个账号 | 🔴 HIGH | App、H5、小程序登录和小程序手机号绑定共用 `auth:wechat-identity:*` 锁命名空间；绑定事务查询全部精确身份、UnionID 候选和手机号候选，发现不同 User 立即 fail-closed；PHONE/WECHAT 双身份写入使用 Serializable，P2002/P2034 退避重试 | ✅ 已修复 |
+| WMA05 | 小程序 OpenID 与 App OpenID 混用导致误登录 | 🔴 HIGH | 小程序身份只按非空 `WECHAT_MINIAPP_APP_ID + openid` 精确查询和创建；只有 UnionID 可跨应用合并，不在小程序路径兼容 `appId=null` 的旧身份 | ✅ 已检查 |
+| WMA06 | 微信 `code2Session` 长连接、重定向或非 2xx 响应占用登录资源 | 🟠 HIGH | 固定官方 HTTPS URL；8 秒 AbortController 超时；禁止重定向；非 2xx、网络/解析异常统一按上游不可用 fail-closed，且不创建 ticket/身份；回归覆盖非 2xx | ✅ 已修复 |
+| WMA07 | UnionID 自动补建身份与账号注销竞争，给已注销用户重新写入 verified 身份 | 🔴 HIGH | 命中身份后在 Serializable 事务内重新读取 `status + deletionExecutedAt`，活动状态复核与小程序身份补建原子执行；并发注销产生事务冲突或直接拒绝，签发 Session 前仍二次检查 | ✅ 已修复 |
+| WMA08 | OTP 消费后 ticket 过期/事务失败导致用户必须重走登录与短信流程 | 🟡 MEDIUM | 当前采用 fail-closed：统一身份锁内二次检查 ticket，OTP CAS 后立即 GETDEL 消费 ticket；不会造成账户接管或重复绑定，但极窄失败窗口会影响体验。后续如真实联调频繁出现，再引入绑定 operationId 状态机和幂等重试 | ⏳ 联调观察 |
+| WMA09 | 小程序自动登录携带事务外旧 exact 候选补建 UnionID，锁丢失后可把同一 UnionID 回填到两个用户 | 🔴 HIGH | `findWechatMiniappIdentity(profile, tx)` 在每次 Serializable retry 内重新查询精确 `appId+openid` 与全部 `unionId`/legacy meta 候选；候选裁决、活动状态复核、锁 owner 复核和身份回填在同一事务内，任意候选归属突变或失锁均 fail-closed；回归覆盖事务内 exact A + union B 与裁决后失锁不写库 | ✅ 已修复 |
+| WMA10 | 登录/绑定失败时异常过滤器记录微信 code、短信 OTP、密码、refresh token、ticket 或带查询串的 URL | 🔴 HIGH | `/auth/**` 异常日志 fail-closed：请求 body/query/params 整体隐藏且 path 去除查询串；通用 sanitizer 先把 camelCase/PascalCase 归一化，再拦截 token/ticket/OTP/captcha/password 等字段；回归覆盖 `accessToken`、`miniLoginTicket` 等绕过形式 | ✅ 已修复 |
+| WMA11 | 客户端伪造行政区划文字与代码组合，以便宜地区代码计算运费但展示另一省地址 | 🔴 HIGH | 地址簿新增/更新及已付款订单发货前收货信息修正都强制六位行政区划码；服务端按 GB/T 2260 省级前缀解析并校验与地址文字省份一致。当前运费规则按省级前缀匹配；小程序和 App 均通过标准省市区选择器提交，历史无代码地址在编辑时要求重新选择 | ✅ 已修复 |
+| WMA12 | 登录 `returnUrl` 接受外部 URL、协议相对地址或回到认证页，造成跳转劫持/循环 | 🟠 MEDIUM | 小程序只接受单斜杠开头、无协议/反斜杠/换行的内部路径，并拒绝登录、找回密码和法律页自身；非法目标回退上一页或“我的”Tab，回归覆盖双编码和外部地址 | ✅ 已修复 |
+| WMA13 | 买家 App 展示修改密码但后端端点缺失；若直接补简单写入，可能与注销竞态复活身份或让被盗会话继续存活 | 🔴 HIGH | 新增登录态买家改密端点，强制旧密码校验和新密码复杂度；账号 ACTIVE 复核、PHONE 身份读取、密码写入、除当前设备外 Session 撤销及 LoginEvent 审计放在同一 Serializable 事务；小程序只提交旧/新密码，不接收用户或身份 ID | ✅ 已修复 |
+
+## 2026-08-02 微信小程序支付身份与跨端重付安全检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMP01 | 小程序支付从同一用户的任意微信身份取 OpenID，导致多身份账号代付串线 | 🔴 CRITICAL | `Session` 新增 nullable `authIdentityId`；小程序登录/手机号合并签发时保存精确 `WECHAT + miniAppId + openId` 身份，refresh 原样继承；`JwtStrategy` 只暴露当前 token 精确 Session 的身份，旧 token 不推断；小程序 checkout/VIP/resume 再查当前 ACTIVE Session 及其 verified 身份，禁止按 userId 任意选择 | ✅ 已修复 |
+| WMP02 | APP 与小程序共用商户号时，仅验商户号会接受错误 AppID 或交易类型通知 | 🔴 CRITICAL | 支付通知按 `CheckoutSession.paymentScene` 精确校验：`APP = WECHAT_PAY_APP_ID + APP`，`MINI_PROGRAM = WECHAT_MINIAPP_APP_ID + JSAPI`；非 CheckoutSession 的售后/配送/历史支付固定为 APP；不匹配返回 401 且不验金额、不建单 | ✅ 已修复 |
+| WMP03 | 主动查单返回错误应用下的同名商户单号并触发建单/关单 | 🔴 CRITICAL | `queryOrder()` 的 FOUND 结果强制包含 `appid + trade_type`；普通结算 active-query、取消、过期 cron 均按 paymentScene 校验，售后运费与配送固定校验 APP；身份不一致一律 fail-closed | ✅ 已修复 |
+| WMP04 | 微信查单把“明确不存在”和“网络/协议未知”都映射为 null，既可能永久占用，也可能误释放 | 🔴 HIGH | 查询结果改为 `FOUND / DEFINITIVE_NOT_FOUND / UNKNOWN`；仅微信明确 `ORDER_NOT_EXIST` 允许不关单直接走本地 CAS 释放，SDK 异常、未知错误、字段无效继续阻断取消/过期 | ✅ 已修复 |
+| WMP05 | VIP 同幂等键重试使用当前套餐价格或新商户单号，造成同键不同金额/重复支付 | 🔴 HIGH | 仅允许复用 ACTIVE、未过期且 paymentScene 相同的原 Session；支付参数完全取原 `merchantOrderNo / expectedTotal / bizMeta.giftTitle` 快照；终态、过期或跨场景复用返回冲突 | ✅ 已修复 |
+| WMP06 | App 与小程序切换支付时，并发取消已把会话置 EXPIRED/FAILED，却被当成异常继续阻断 | 🟠 MEDIUM | 切换闸门捕获取消竞态后重读会话；COMPLETED/PAID 返回订单，EXPIRED/FAILED 幂等返回 `recheckoutRequired=true`；UNKNOWN 查询/关单错误仍不吞掉 | ✅ 已修复 |
+| WMP07 | 生产误开 SMS/微信 Mock，或 10 秒微信统一身份锁在外部调用中途过期 | 🔴 CRITICAL | `.env.example` 默认关闭 `SMS_MOCK/WECHAT_MOCK`；生产所有短信校验/发码与 App/小程序微信 Mock 均 fail-closed；owner 校验的 Lua `PEXPIRE` 续租返回 `false/null` 会把租约置为 lost，不只记心跳日志；App/H5/小程序在身份创建或归属写入前、签发 token 前主动复核 owner，无法确认即 fail-closed；回归覆盖 `false/null` 期间不创建用户 | ✅ 已修复 |
+| WMP08 | App/H5 登录或旧 App `bindWechat` 只检查一个 OpenID/UnionID，遗漏跨端归属冲突 | 🔴 HIGH | App/H5 登录与旧绑定共用 `auth:wechat-identity:*` 锁；App/H5 首次身份查找、用户活动状态复核、身份补写/用户创建全部纳入 Serializable 有限重试；精确 `appId+openId`（含 legacy null appId）与全部 unionId/legacy meta 候选统一裁决，任意不同 User 立即 fail-closed；回归覆盖 exact A + union B 冲突 | ✅ 已修复 |
+| WMP09 | 新建 VIP 结算在事务内直接把已过本地时间的旧会话改为 EXPIRED，旧支付页仍可扣款却无法建单 | 🔴 CRITICAL | 创建新 VIP 会话前逐个通过 `cancelSession()` 进入同一 payment-operation owner 锁，主动查单/关单；已支付则主动建单，只有渠道明确未支付且关闭成功才 CAS 释放预留；删除 VIP 创建事务内直接清理分支 | ✅ 已修复 |
+| WMP10 | 支付宝服务未注入或暂时不可用时，cancel/expire 跳过渠道确认并释放本地会话 | 🔴 CRITICAL | 存在 `merchantOrderNo + ALIPAY` 时必须显式确认 AlipayService available；不可用时用户取消返回可重试错误，过期 Cron 跳过本轮，两者都不进入本地 EXPIRED 事务 | ✅ 已修复 |
+| WMP11 | 微信/支付宝渠道支付窗口晚于 CheckoutSession，本地过期后仍可扣款 | 🟠 HIGH | 微信 APP/JSAPI 下单传入 `session.expiresAt` 作为 `time_expire`；支付宝 App 下单传入同一截止时间的 `time_expire`（Asia/Shanghai，向下截断到分）；provider request fingerprint 同步包含过期快照 | ✅ 已修复 |
+
+---
+
 ## 2026-06-04 账号注销（即时）分润资金安全（Task 5）
 
 | 编号 | 风险 | 级别 | 说明 | 状态 |
@@ -456,6 +492,27 @@
 | GB09 | 推荐码容量竞态导致已付款订单回滚 | 🔴 CRITICAL | 审查发现被推荐人付款前推荐码仍可能被其他付款占满，原支付回调会在创建 `GroupBuyReferral` 前抛错并回滚已付款订单。已修：支付回调保留买家的团购订单、团购实例和本人分享码；推荐码失效/满额/档位异常时只跳过本次推荐返还并记录日志。 | ✅ 已修复 |
 | GB10 | 非包邮团购运费少收 | 🔴 HIGH | 审查发现后台活动可配置“非包邮/按配置运费”，但真实团购 checkout 无论是否包邮都写 0 运费。已修：包邮活动仍为 0，非包邮团购按地址地区与 SKU 重量调用平台 `ShippingRuleService.calculateShippingDetail`，失败时降级为系统默认运费，并锁定到 checkout/order 快照。 | ✅ 已修复 |
 | GB11 | 历史 `QUALIFICATION_PENDING` 团购实例无法分享 | 🟠 HIGH | 审查发现新订单付款即生成码已满足，但历史已付款待生成码实例缺少上线补偿脚本。已修：新增 `group-buy:backfill-instant-codes`，默认 dry-run，`--execute` 写入；在 Serializable 批次内为合格历史实例生成 ACTIVE 码并切到 `SHARING`，同时补缺失 `PENDING_REBATE` 并对已收货推荐调用现有释放逻辑，重复执行不覆盖现有码或重复记账。 | ✅ 已修复 |
+| GB12 | 团购 App 支付参数被小程序复用 | 🔴 CRITICAL | 新增专用 `/group-buy/checkout/mini-program`：服务端强制 `WECHAT_PAY + MINI_PROGRAM`，从当前 JWT 精确 `Session.authIdentityId` 解析同 AppID OpenID；团购会话持久化 `paymentScene`，幂等复用同时校验 ACTIVE/过期/请求指纹/场景，禁止 APP 与 JSAPI 交叉复用；支付窗口同步锁定 `time_expire`。创建支付会话仍在 Serializable 事务中完成。 | ✅ 已修复 |
+
+## 2026-08-02 微信小程序售后运费支付安全检查
+
+| 编号 | 风险 | 级别 | 说明 | 状态 |
+|------|------|------|------|------|
+| WMAS01 | 退货运费小程序误用 App 或其他用户 OpenID | 🔴 CRITICAL | `AfterSaleShippingPayment` 新增服务端 `paymentScene` 快照；小程序专用端点强制 WECHAT_PAY，不接收客户端渠道/OpenID，仅从当前 JWT 精确 Session + AuthIdentity 取同 AppID 已验证 OpenID。创建/重用运费单继续使用 Serializable；已有未支付记录的端场景不一致时 fail-closed，不交叉复用渠道订单。 | ✅ 已修复 |
+| WMAS02 | 主动查单/通知仅按 APP AppID 验证 | 🔴 CRITICAL | 售后运费主动查单与微信支付通知均先读取运费单 `paymentScene`，再同时校验 AppID 和 `trade_type` (`APP` / `JSAPI`)；金额仍以服务端运费单分值对比，场景或金额不匹配均不确认支付。 | ✅ 已修复 |
+| WMAS03 | 首次预下单超时后重试产生重复交易，或本地关单后原交易晚到支付 | 🔴 CRITICAL | App/小程序共用 Redis owner 租约与持久化 `CREATING/READY/UNCERTAIN` fence，以原商户单号查单后才决定返回、同单重试或 fail-closed。用户取消只调用后端安全关单：查到成功则先收口支付，状态未知则拒绝本地关单，只有确定未下单或 Provider 终态关单成功才写 `CLOSED`。 | ✅ 已修复 |
+
+## 2026-08-03 即时注销与小程序结算并发安全补强
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMD01 | 注销与地址、结算、团购、团长、售后运费写入竞态，导致注销后仍生成交易或资产 | 🔴 CRITICAL | 注销和相关用户写入共用 PostgreSQL 用户维度 advisory transaction lock；统一锁序为“用户 advisory lock → `User FOR UPDATE` → 业务行”，业务写前必须复核 `ACTIVE + deletionExecutedAt IS NULL`。多用户团长绑定按去重后的用户 ID 排序取锁，避免反向锁序。 | ✅ 已修复 |
+| WMD02 | 售后运费待支付漏阻断注销，或历史未支付记录永久阻断注销 | 🔴 CRITICAL | `UNPAID/PENDING` 运费单纳入注销 blocker；用户可经安全查单/关单端点将确定未支付交易收口为 `CLOSED`后再注销。未知态不释放 blocker，防止注销后晚到支付。 | ✅ 已修复 |
+| WMD03 | 注销漏清团购返还、团长佣金、小程序场景/订阅状态，或历史回调让资产复活 | 🔴 CRITICAL | 注销事务将团购可用/预占余额和团长可用/冻结余额转平台并写可审计流水；终止未完成团购/团长关系和未完成月结，清理小程序场景、订阅与可丢弃 outbox。所有后续发放/恢复路径再校验用户 ACTIVE，注销账户不再入账。 | ✅ 已修复 |
+| WMD04 | 普通/VIP/团购首次 Provider 预下单无持久化防重，幂等复用路径又可绕过 ACTIVE 检查 | 🔴 CRITICAL | 结算统一使用 Redis owner 租约 + `CheckoutSession.bizMeta.paymentParamState` 持久化 fence；每次 fence claim（包括 READY 幂等返回和团购复用）先走用户活性屏障。超时/未知只查原商户单号，不换号重建。 | ✅ 已修复 |
+| WMD05 | `BUY_NOW` 与购物车同 SKU 奖品/普通行串线，或拆成多行绕过库存/限购 | 🔴 CRITICAL | 客户端明确传 `checkoutSource=CART|BUY_NOW`并纳入请求指纹。`BUY_NOW` 仅允许一行、禁止 `cartItemId`、不查购物车也不做同 SKU 奖品 fallback；最终 SKU 重复行默认拒绝，只允许每行精确绑定不同合法奖品购物车行的特例。 | ✅ 已修复 |
+| WMD06 | 注销预览漏披露将作废的数字资产、团购返还和团长佣金 | 🟠 HIGH | App/小程序预览与确认页同步展示数字资产种子/消费资产、团购可用/预占返还、团长可用/冻结佣金，与服务端清理口径一致。 | ✅ 已修复 |
+| WMD07 | 生产环境账号注销短信 Mock 默认开启，验证码可被日志泄露或绕过 | 🔴 CRITICAL | `SMS_MOCK` 默认改为关闭；生产检测到 Mock 配置时在生成、存储或打印验证码前 fail-closed，返回 `ACCOUNT_DELETION_SMS_MISCONFIGURED`。仅非生产开发 Mock 允许输出测试码。 | ✅ 已修复 |
 
 ## 2026-07-08 预包装海鲜团长经营资金安全检查
 
@@ -479,3 +536,50 @@
 | CAP16 | 团长月度展示与后台订单筛选按 UTC 跨月 | 🟠 HIGH | 买家团长中心和管理后台默认月份原来按 UTC，上海 00:00-07:59 会读到上月；后台订单月份按归因创建时间而非实际支付时间。已修：统一使用 Asia/Shanghai 自然月，订单筛选按 `order.paidAt` 归属，并校验月份数值范围。 | ✅ 已修复 |
 | CAP17 | 最低计佣商品实付被错误按利润 C 判断 | 🟠 HIGH | 配置字段和说明约定按团长范围内“优惠后净商品实付”设置门槛，但 V3 实现错误以利润 C 比较，导致实付足够但毛利较低的订单被漏记团长佣金。已修：门槛比较统一使用 `eligibleGoodsAmount`，逐单金额仍只按利润 C 计算；新增正反门槛回归测试。 | ✅ 已修复 |
 | CAP18 | 团长服务注入异常时支付/收货链路静默漏记 | 🔴 HIGH | `OrderModule` 已显式导入团长模块，但归因或佣金释放服务意外缺失时原来只记录 warning 并继续启动，会造成新订单不归因或冻结佣金永不释放。已修：两项服务作为团长资金链路必备依赖，缺失立即终止启动。 | ✅ 已修复 |
+
+---
+
+## 2026-08-02 微信小程序商家转账提现安全检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMW01 | 客户端伪造 OpenID，把统一钱包提现到攻击者微信零钱 | 🔴 CRITICAL | 提现 DTO 不接收 OpenID；后端只接受当前 JWT 的 `sessionId + authIdentityId`，再查同一 ACTIVE、未过期 Session 关联的 verified `WECHAT + WECHAT_MINIAPP_APP_ID` 身份。申请前和 Serializable 扣款事务内各复核一次，跨端会话、旧 token、其他 AppID 或同用户另一微信身份一律拒绝。 | ✅ 已修复 |
+| WMW02 | 发起超时后换单号重试造成重复出款，或误用旧批量转账接口 | 🔴 CRITICAL | 仅调用当前单笔接口 `POST /v3/fund-app/mch-transfer/transfer-bills`；`out_bill_no` 固定为 32 位以内字母数字且数据库唯一。发起请求遇到超时、非 200、未知错误码、非法或验签失败响应，只调用 `GET .../out-bill-no/{原单号}`，不生成新单号，也不调用旧批量转账接口。 | ✅ 已修复 |
+| WMW03 | 伪造 Provider HTTP 响应或回调使本地误判到账/退款 | 🔴 CRITICAL | 所有微信 HTTP 响应和回调均使用配置的微信支付公钥验 `Wechatpay-*` RSA-SHA256 签名，强制公钥 ID、5 分钟时间窗并拒绝 SIGNTEST；回调只从已验签 rawBody 解析，随后用 APIv3 Key 做 AES-256-GCM 解密。生产缺配置或配置错误 fail-closed。 | ✅ 已修复 |
+| WMW04 | 回调密文缺少 AppID，错误商户/应用/用户/金额的同名订单串线 | 🔴 CRITICAL | 回调验签解密后必须按同一 `outBillNo` 主动查单；查询结果的 `mchId/appId/outBillNo/openid/amount/transferBillNo/state` 必须分别与 Provider 配置、本地加密身份快照、提现净额及回调完全一致，任一缺失或不匹配均不改变资金状态并要求微信重试。 | ✅ 已修复 |
+| WMW05 | 小程序 `wx.requestMerchantTransfer` 返回 success 就错误标记到账 | 🔴 CRITICAL | `WAIT_USER_CONFIRM` 仅返回服务端签发的 `{mchId, appId, package}`，本地保持 PROCESSING；客户端调起结果不参与资金状态机。只有通过签名验证的微信 Provider 结果为 `SUCCESS` 才将冻结流水置为已提现；`FAIL/CANCELLED` 才 CAS 失败并退回一次，其余状态以及 unknown/404 均继续 PROCESSING。 | ✅ 已修复 |
+| WMW06 | 重复申请、重复回调或 Cron 与回调竞态导致重复扣款/重复退回 | 🔴 CRITICAL | 沿用客户端幂等键唯一约束、统一钱包固定扣款顺序、税费快照及 Serializable 事务；终态收口复用 `status=PROCESSING` 的 CAS，只有首个失败收口事务能恢复冻结余额。Cron 按 WithdrawChannel 分流，微信只查原单号且 unknown/404 永不自动退款。 | ✅ 已修复 |
+| WMW07 | Provider 创建调用已到达微信但本地进程中断，恢复任务直接重建或退款造成重复出款 | 🔴 CRITICAL | `CREATING` 持久化两分钟租约；超租约恢复者先用当前 `providerStatus` 做 CAS 抢占 `RECOVERY_CANCEL_CLAIMED`，再撤销原 `outBillNo`。ACCEPTED/PROCESSING 仅以同单号有限重试，达到阈值先撤销并告警，绝不换业务单号 | ✅ 已修复 |
+| WMW08 | 微信终态回调处理失败或单条毒消息反复占队，导致回调丢失/后续提现无法收口 | 🔴 HIGH | 验签后的加密通知先按 `eventId` 幂等写入 inbox 并快速 204；消费者按 `nextAttemptAt` 指数退避，单事件 CAS 抢占，8 次失败转 DEAD 并通知管理员，查询按可执行时间排序避免队首饥饿 | ✅ 已修复 |
+| WMW09 | 支付宝历史提现主动查单只看 SUCCESS，不核对原商户单号、金额和支付宝资金单号，可能串单收口 | 🔴 CRITICAL | Alipay 查询适配器同时返回 camel/snake case 的 `outBizNo/transAmount/orderId/fundOrderId`；人工与 Cron 收口必须核对原 `outBizNo`、金额和成功资金单号，未知标识只写脱敏日志且不改变资金状态 | ✅ 已修复 |
+| WMW10 | 为让微信回调绕开限流而完全跳过 Throttler，攻击流量可耗尽验签/解密资源 | 🔴 HIGH | 微信商家转账回调保留独立 600 次/分钟的 IP 与用户桶，不复用普通业务低限额，也不设置 skip；只有验签、解密、持久化成功后才快速确认 | ✅ 已修复 |
+
+---
+
+## 2026-08-02 微信小程序平台能力与本地状态安全检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMPF01 | 一次性订阅授权被并发重复消费，或发送失败反向破坏订单/售后/提现状态 | 🔴 HIGH | consent 领取使用状态 CAS；业务通知只写 outbox，发送失败独立重试且不回滚内部状态；并发唯一冲突 `P2002` 与序列化冲突均按幂等成功/重试处理。授权语义明确为同模板最先发生的一次事件，不伪装成系统级永久授权。 | ✅ 已修复 |
+| WMPF02 | 小程序码参数伪造、任意路由跳转、非 PNG 响应落盘或切换账号后展示旧码 | 🔴 HIGH | scene 只保存服务端随机 token，目标 path 在写库和调用微信前双重白名单校验；二进制响应要求 `image/png`、PNG 签名及 IEND；客户端保存前后都复核账号 revision/用户/generation，失效结果会删除。 | ✅ 已修复 |
+| WMPF03 | 交易发货串用 App 交易、错误付款人或失败重试阻断卖家发货 | 🔴 CRITICAL | 只处理 `WECHAT_PAY + MINI_PROGRAM`，按 CheckoutSession 聚合同一支付的订单/包裹，使用支付 Provider 交易号与精确付款 OpenID；卖家/管理发货在原 Serializable 事务内只入 outbox，外部调用由租约 + CAS 异步执行，失败不回滚内部发货。 | ✅ 已修复 |
+| WMPF04 | 任意第三方头像 URL 形成追踪/内容绕过，或账号切换后旧上传覆盖新账号 | 🟠 HIGH | 后端只接受 8 个精确预设值、当前合法历史头像或平台上传域名前缀；生产强制 HTTPS。客户端同时校验上传返回的协议、路径、MIME 和大小，上传/保存回调绑定当前账号 revision 与操作 generation。 | ✅ 已修复 |
+| WMPF05 | 成长任务可仅凭公开任务 ID 自行领取，缺少真实行为凭证 | 🟡 MEDIUM | 对齐 App 当前隐藏入口，小程序不注册任务页面；共用后端 `TaskService.list()` 固定返回空列表，`complete()` 拒绝客户端自行声明完成。未来只有在服务端行为事件、幂等 `evidenceId` 和领取资格都确定后才能重新开放。 | ✅ 已安全关闭 |
+| WMPF06 | 用户误以为一次订阅授权绑定当前具体订单/售后单 | 🟡 MEDIUM | 微信一次性模板授权当前没有业务对象绑定字段；小程序文案已明确“授权一次，提醒最先发生的一次对应事件”，售后页同时提示多个服务单场景。不对外声称精确绑定。若后续要求精确对象绑定，需要扩展 consent schema 和授权交互。 | ✅ 已披露边界 |
+| WMPF07 | 管理端现有前端依赖包含 npm 安全公告 | 🟠 HIGH | `npm audit fix` 已在不跨主版本的范围内升级 lockfile，将生产依赖告警从 17 条降到 5 条，并升级 Axios、React Router 等可安全更新项；管理端生产构建通过。剩余为 Ant Design Pro 间接 `path-to-regexp` ReDoS 与 React Router RSC 模式公告：当前管理端是认证后的 Vite CSR、无 RSC/SSR 且路由模式为静态定义，实际暴露面低于公告通用评级。npm 只提供强制降级方案，本次不使用 `--force`；待上游发布兼容修复后独立升级回归。 | ⏳ 上游兼容修复待跟踪 |
+| WMPF08 | 小程序 Taro 构建依赖包含 npm 安全公告 | 🟠 HIGH | `miniapp` 的 `npm audit --omit=dev` 当前报告 14 条上游公告（3 critical、1 high、10 moderate），高等级来源为 Taro 4.2.1 间接 `swiper`、Taro 自带开发服务器及 Vite 构建链。微信构建已确认把页面 Swiper 编译为原生 `<swiper>`，生产分包中不包含公告涉及的 Swiper JS；Vite/webpack-dev-server 仅用于本地构建且不得暴露公网。npm 给出的自动修复会降级 Taro 或升级到不兼容的构建主版本，Taro 4.2.1 又精确要求 webpack 5.91.0，因此禁止 `--force` 破坏锁定依赖；待 Taro 发布兼容版本后升级并重新跑全部小程序测试、双环境构建与生产产物检查。 | ⏳ 上游兼容修复待跟踪 |
+
+## 2026-08-04 微信小程序全面审查安全补强
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|------|------|------|-----------|------|
+| WMPA01 | 退出登录与 Token 刷新竞态使旧会话复活 | 🔴 HIGH | 小程序会话增加 logout generation；退出先同步清除凭据，刷新完成前后核对 generation，旧刷新结果不能重新写回；服务端撤销使用已旋转出的最后可信 refresh token。 | ✅ 已修复 |
+| WMPA02 | 注销后仍可能通过红包、成长兑换或提现并发恢复资产 | 🔴 CRITICAL | 红包系统发放/领取、成长兑换和提现扣款统一接入用户 advisory transaction lock、事务内 ACTIVE 复核和必要的 Serializable/P2034 重试；注销先提交时后续写入 fail-closed。 | ✅ 已修复 |
+| WMPA03 | 微信退款通知字段绑定不足或校验/收口分离导致串单与 TOCTOU | 🔴 CRITICAL | 售后、自动退款和退货运费退款统一验证商户退款单号、原支付单号、退款金额、原支付总额及已保存微信退款 ID；最终校验与状态更新在同一 Serializable 事务内，失败通知不触发库存、奖励或资金补偿。 | ✅ 已修复 |
+| WMPA04 | 支付通知日志泄露完整 payload 或可关联业务标识 | 🔴 HIGH | 支付宝/微信通知日志移除完整请求对象，业务单号统一脱敏，不再记录不必要的原始金额和签名字段；增加负向泄露测试。 | ✅ 已修复 |
+| WMPA05 | 钱包流水暴露内部来源流水 ID 和任意 meta | 🟡 MEDIUM | 服务端只公开 `orderNo/requiredLevel/expiresAt` 等白名单字段；移除顶层 `refId` 和 `sourceLedgerId`，App/小程序类型同步收紧。 | ✅ 已修复 |
+| WMPA06 | `wechatpay-node-v3@2.2.1` 丢弃 APIv3 应答签名头，伪造的查单 `SUCCESS` 可能触发本地建单或资金状态转换 | 🔴 CRITICAL | 为 SDK 注入固定微信支付域名的安全传输层；请求显式携带微信支付公钥 ID，读取原始 body 后先校验 `Wechatpay-Serial/Timestamp/Nonce/Signature`、5 分钟时间窗与 RSA-SHA256，再允许 JSON 映射；缺头、SIGNTEST、错误公钥、伪造签名、超时与重定向全部 fail-closed。 | ✅ 已修复 |
+| WMPA07 | 微信关单 SDK 未初始化、商户单号非法或未知 200 响应被误当作远端未支付终态，导致本地过期/取消已支付单 | 🔴 CRITICAL | SDK 不可用和参数非法统一返回 non-terminal；只接受官方定义的签名 `204 No Content`，并兼容 `ORDER_NOT_EXIST/ORDER_CLOSED` 两种官方错误码写法；未知 2xx、网络和验签错误继续阻断本地释放。 | ✅ 已修复 |
+| WMPA08 | 提现补偿固定取最早 20 条导致后续记录饿死，人工查单又可能与 Cron 并发访问同一转账 | 🔴 HIGH | 新增 `nextReconcileAt` 与复合索引，按到期时间 nulls-first 公平取数，采用 10/20/40/80/160/240 分钟退避；Cron 用状态+到期 CAS 抢占，人工查单用 `lastQueriedAt` 版本 CAS 抢占；微信 UNKNOWN/NOT_FOUND 达阈值只幂等告警，资金继续冻结。 | ✅ 已修复 |
+| WMPA09 | 微信交易发货 outbox 发送旧包裹快照，或把 `10060002/10060003` 错当远端已成功 | 🔴 HIGH | 每次远端发送前重新读取支付会话、当前订单和包裹；退款/取消 fail-closed，快照变化通过 generation+lease CAS 重建，发送前再验 payload hash；`10060002/10060003` 转人工失败，仅 `10060023` 保留远端已完成语义。 | ✅ 已修复 |
+| WMPA10 | 无 `sessionId` 的历史买家 JWT 可借同用户任意活跃会话继续访问，设备退出不能精确失效 | 🟠 MEDIUM | 现行 access token 已全部由登录/刷新写入 `sessionId` 且默认 15 分钟过期；买家 Strategy 不再按用户级会话降级放行，无 `sessionId` 直接 401，由 App/小程序现有 refresh 流程换取精确会话 Token。 | ✅ 已修复 |

@@ -9,6 +9,7 @@
 - `docs/architecture/data-system.md` — 完整数据库设计（9 大域，67 模型，41 枚举，**权威来源**）
 - `docs/architecture/backend.md` — 后端技术文档（API/模块/部署）
 - `docs/architecture/frontend.md` — 买家 App 前端设计文档（页面设计稿、组件规范、AI 视觉语言，**前端开发权威来源**）
+- `docs/architecture/wechat-mini-program.md` — 爱买买微信小程序完整设计（产品范围、App 对标矩阵、Taro 架构、微信登录/支付/提现适配、分包、版本管理、实施阶段与验收标准，**微信小程序开发权威来源；首版明确排除配送和支付宝**）
 - `docs/architecture/sales.md` — 卖家系统设计文档（数据模型、API 设计、前端页面、业务流程，**卖家端开发权威来源**）
 - `docs/architecture/seller.md` — 卖家系统完整设计方案（隐私保护策略、页面设计、安全架构、API 改造计划，**卖家系统开发权威来源，替代 sales.md 中的前端/隐私相关内容**）
 - `docs/architecture/admin-frontend.md` — 管理后台前端

@@ -49,7 +49,7 @@
 | 算法混淆攻击 | 攻击者将 `alg` 从 RS256 改为 HS256，用公钥签名 | 服务端强制指定算法，忽略 Header 中的 `alg` |
 | Token 注入跨端 | 用买家 Token 调用管理端 API | 已做三套独立 Secret（`JWT_SECRET` / `ADMIN_JWT_SECRET` / `SELLER_JWT_SECRET`），确保每个 Guard 只校验对应 Secret ✅ |
 
-**当前代码状态（2026-02-25）**: `部分实现`。买家端、卖家端、管理员端 JWT Strategy 均已补 `Session` 有效性检查（新版 token 使用 `sessionId` 精确匹配；旧 token 兼容降级为主体维度会话检查）✅。卖家端/管理员端也会校验主体状态（禁用后拒绝访问）✅。买家 Access Token 默认配置已收紧为 `15m` ✅；卖家/管理员默认仍为 `8h`，与文档建议基线存在差距（`建议未落地`）。三端 Session 均已补 `absoluteExpiresAt`（90天最大续期上限），首次登录时生成、Refresh 时继承旧值（不重置），Refresh 时同时检查滑动过期和绝对过期 ✅。
+**当前代码状态（2026-08-08）**: `部分实现`。三端 JWT Strategy 均已补 `Session` 有效性检查；买家 token 必须携带 `sessionId` 精确匹配，无该字段的历史 access token 返回 401 并由现有 refresh 流程换新，不能借同用户其他设备会话放行 ✅。卖家端/管理员端仍保留无 `sessionId` 历史 token 的主体维度兼容，且会校验主体状态（禁用后拒绝访问）✅。买家 Access Token 默认 `15m` ✅；卖家/管理员默认仍为 `8h`，与文档建议基线存在差距（`建议未落地`）。三端 Session 均有 `absoluteExpiresAt`（90 天最大续期上限），首次登录时生成、Refresh 时继承旧值（不重置），Refresh 同时检查滑动过期和绝对过期 ✅。
 
 ### 1.2 验证码安全
 
