@@ -1,4 +1,5 @@
-import { readFileSync , globSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const TAB_BAR_PAGES = [
@@ -7,9 +8,17 @@ const TAB_BAR_PAGES = [
   '/pages/me/index',
 ] as const;
 
+function listSourceFiles(directory = 'src'): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = join(directory, entry.name);
+    if (entry.isDirectory()) return listSourceFiles(relativePath);
+    return /\.(?:ts|tsx)$/.test(entry.name) ? [relativePath] : [];
+  });
+}
+
 describe('WeChat navigation contracts', () => {
   it('only opens tabBar pages with switchTab', () => {
-    const sourceFiles = globSync('src/**/*.{ts,tsx}', { cwd: process.cwd() });
+    const sourceFiles = listSourceFiles();
     const violations: string[] = [];
 
     for (const relativePath of sourceFiles) {
@@ -24,7 +33,7 @@ describe('WeChat navigation contracts', () => {
   });
 
   it('never sends PATCH because wx.request does not support it', () => {
-    const sourceFiles = globSync('src/**/*.{ts,tsx}', { cwd: process.cwd() });
+    const sourceFiles = listSourceFiles();
     const source = sourceFiles.map((relativePath) => readFileSync(relativePath, 'utf8')).join('\n');
     expect(source).not.toMatch(/ApiClient\.patch|request<[^>]*>\([^)]*method:\s*['"]PATCH|request\(['"]PATCH/);
   });
