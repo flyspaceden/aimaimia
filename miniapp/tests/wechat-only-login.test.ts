@@ -11,8 +11,9 @@ describe('mini-program WeChat-only authentication boundary', () => {
   it('keeps the login page to one WeChat action without phone login or registration forms', () => {
     const page = readSource('src/packages/account/account-login/index.tsx');
 
-    expect(page).toContain('微信一键登录');
+    expect(page).toContain('微信登录');
     expect(page).toContain('loginWithWechatMiniProgram');
+    expect(page).not.toMatch(/一个微信身份|无需填写手机号|account-login-benefit/);
     expect(page).not.toMatch(/验证码登录|密码登录|请输入手机号|绑定你的手机号|loginWithPhone|registerWithPhone/);
     expect(page).not.toMatch(/import\s*\{[^}]*\bInput\b[^}]*\}\s*from '@tarojs\/components'/);
     expect(page).not.toContain('<Input');

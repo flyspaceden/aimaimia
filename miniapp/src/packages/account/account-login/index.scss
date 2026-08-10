@@ -5,23 +5,15 @@
 .account-login-hero__orbit { position: relative; display: flex; align-items: center; justify-content: center; width: 104px; height: 104px; background: rgba(255,255,255,.92); border: 1px solid rgba(0,137,123,.13); border-radius: 50%; box-shadow: 0 0 0 12px t.$ai-soft, 0 19px 38px rgba(0,137,123,.18); }
 .account-login-hero__orbit::after { position: absolute; width: 140px; height: 54px; border: 1px solid rgba(46,125,50,.24); border-radius: 50%; transform: rotate(-22deg); content: ''; }
 .account-login-hero__core { z-index: 1; display: flex; align-items: center; justify-content: center; width: 74px; height: 74px; color: #fff; font-size: 26px; font-weight: 750; background: radial-gradient(circle at 30% 25%, #8bffe8, t.$ai-end 37%, t.$brand-primary); border-radius: 50%; }
-.account-login-hero__eyebrow { margin-top: 32px; color: t.$ai-start; font-size: 10px; font-weight: 700; letter-spacing: 3px; }
-.account-login-hero__title { margin-top: 8px; color: t.$text-primary; font-size: 23px; font-weight: 750; line-height: 32px; }
-.account-login-hero__description { max-width: 310px; margin-top: 9px; color: t.$text-secondary; font-size: 12px; line-height: 20px; }
-.account-login-card { padding: 21px; }
-.account-login-benefit { display: flex; align-items: center; padding: 13px; background: linear-gradient(135deg, t.$brand-soft, t.$ai-soft); border-radius: t.$radius-md; }
-.account-login-benefit + .account-login-benefit { margin-top: 10px; }
-.account-login-benefit__mark { display: flex; flex: 0 0 38px; align-items: center; justify-content: center; width: 38px; height: 38px; margin-right: 11px; color: t.$brand-primary; font-size: 13px; font-weight: 750; background: #fff; border-radius: 13px; }
-.account-login-benefit__title { display: block; color: t.$text-primary; font-size: 13px; font-weight: 650; }
-.account-login-benefit__text { display: block; margin-top: 3px; color: t.$text-secondary; font-size: 10px; line-height: 16px; }
-.account-login-agreement { display: flex; align-items: flex-start; margin-top: 19px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.account-login-hero__title { margin-top: 32px; color: t.$text-primary; font-size: 23px; font-weight: 750; line-height: 32px; }
+.account-login-card { padding: 22px 21px; }
+.account-login-agreement { display: flex; align-items: flex-start; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
 .account-login-agreement__box { display: flex; flex: 0 0 18px; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 7px; color: #fff; font-size: 11px; border: 1px solid t.$border; border-radius: 6px; }
 .account-login-agreement__box--checked { background: t.$brand-primary; border-color: t.$brand-primary; }
 .account-login-agreement__link { color: t.$brand-primary; }
 .account-login-wechat { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 49px; margin: 20px 0 0; color: #fff; font-size: 14px; font-weight: 700; line-height: 49px; background: linear-gradient(105deg, #228b3a, #07a982); border: 0; border-radius: t.$radius-full; box-shadow: 0 9px 20px rgba(46,125,50,.22); }
 .account-login-wechat[disabled] { opacity: .62; box-shadow: none; }
 .account-login-wechat__mark { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; margin-right: 8px; color: #07a85d; font-size: 11px; background: #fff; border-radius: 50%; }
-.account-login-security { display: block; margin-top: 14px; color: t.$text-tertiary; font-size: 10px; line-height: 17px; text-align: center; }
 .account-login-done { display: flex; flex-direction: column; align-items: center; margin-top: 76px; padding: 38px 24px; text-align: center; }
 .account-login-done__mark { display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; color: #fff; font-size: 24px; background: linear-gradient(135deg, t.$brand-primary, t.$ai-end); border-radius: 50%; }
 .account-login-done__title { margin-top: 18px; color: t.$text-primary; font-size: 18px; font-weight: 650; }
