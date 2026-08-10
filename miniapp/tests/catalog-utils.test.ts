@@ -6,6 +6,8 @@ import {
   buildProductWeightLabel,
   companyProductToProduct,
   defaultSelectedSkuId,
+  displayProductAttributes,
+  displayCompanyHighlights,
   filterCompanies,
   formatCatalogPrice,
   paginateCatalog,
@@ -55,6 +57,37 @@ describe('catalog presentation contracts', () => {
     expect(buildProductUnitLabel('  ')).toBeUndefined();
     expect(buildProductWeightLabel(400)).toBe('包装重量 400克');
     expect(buildProductWeightLabel(null)).toBeUndefined();
+  });
+
+  it('never renders semantic metadata objects as React children', () => {
+    expect(displayProductAttributes({
+      '产地': '福建',
+      '净含量': 500,
+      semanticMeta: {
+        dietaryTags: { source: 'ai', updatedAt: '2026-08-10T00:00:00.000Z' },
+        originRegion: { source: 'seller', updatedAt: '2026-08-10T00:00:00.000Z' },
+        seasonalMonths: { source: 'ai', updatedAt: '2026-08-10T00:00:00.000Z' },
+        usageScenarios: { source: 'ops', updatedAt: '2026-08-10T00:00:00.000Z' },
+      },
+      tags: ['送礼'],
+      enabled: true,
+      missing: null,
+    })).toEqual([
+      ['产地', '福建'],
+      ['净含量', '500'],
+    ]);
+  });
+
+  it('never renders nested company highlight JSON as React children', () => {
+    expect(displayCompanyHighlights({ highlights: {
+      '合作农户': 128,
+      '核心产区': '贵州黔东南',
+      traceability: { provider: 'platform' },
+      media: ['https://img/cert.jpg'],
+    } })).toEqual([
+      ['合作农户', '128'],
+      ['核心产区', '贵州黔东南'],
+    ]);
   });
 
   it('does not preselect one of multiple SKUs and shows a real minimum price', () => {

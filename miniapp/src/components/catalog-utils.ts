@@ -38,6 +38,23 @@ export function buildProductWeightLabel(weightGram?: number | null): string | un
 }
 
 /**
+ * Product.attributes 是 Prisma Json，同时包含商家可见属性和 semanticMeta
+ * 等系统结构。与 App 保持一致：买家页只渲染字符串和有限数字。
+ */
+export function displayProductAttributes(
+  attributes?: Record<string, unknown> | null,
+): Array<[label: string, value: string]> {
+  if (!attributes) return [];
+  return Object.entries(attributes).flatMap(([label, value]) => {
+    if (typeof value === 'string') return [[label, value] as [string, string]];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return [[label, String(value)] as [string, string]];
+    }
+    return [];
+  });
+}
+
+/**
  * App 端以 certifications 为企业真实资质来源；badges 仅是历史展示字段的兼容回退。
  */
 export function displayCompanyCertifications(company: Pick<Company, 'certifications' | 'badges'>): string[] {
@@ -46,6 +63,11 @@ export function displayCompanyCertifications(company: Pick<Company, 'certificati
   ));
   const certifications = normalize(company.certifications);
   return certifications.length ? certifications : normalize(company.badges);
+}
+
+/** CompanyProfile.highlights 同样来自 Prisma Json；只允许可安全显示的文本标量进入 JSX。 */
+export function displayCompanyHighlights(company: Pick<Company, 'highlights'>): Array<[label: string, value: string]> {
+  return displayProductAttributes(company.highlights);
 }
 
 export type CatalogQuickAddAction =

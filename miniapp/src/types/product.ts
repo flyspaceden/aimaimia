@@ -44,7 +44,8 @@ export type ProductDetail = Product & {
   description?: string;
   detailRich?: unknown;
   basePrice: number;
-  attributes?: Record<string, string>;
+  /** Prisma Json；必须过滤后展示，不能假设所有值都是字符串。 */
+  attributes?: Record<string, unknown>;
   aiKeywords?: string[];
   images: Array<{ id: string; url: string; alt?: string }>;
   videos?: Array<{ id: string; url: string }>;

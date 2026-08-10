@@ -3,7 +3,7 @@ import Taro, { useRouter } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
-import { buildProductUnitLabel, buildProductWeightLabel, catalogCardStockText, defaultSelectedSkuId, formatCatalogPrice, productHeadlinePrice } from '@/components/catalog-utils';
+import { buildProductUnitLabel, buildProductWeightLabel, catalogCardStockText, defaultSelectedSkuId, displayProductAttributes, formatCatalogPrice, productHeadlinePrice } from '@/components/catalog-utils';
 import { useAppConfig } from '@/hooks/use-app-config';
 import { queryClient } from '@/query/client';
 import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
@@ -75,6 +75,7 @@ export default function CatalogProductPage() {
   if (!id || !productQuery.data || !productQuery.data.ok) return <View className='aim-page'><CatalogFeedback kind='error' title='商品加载失败' description={productQuery.data && !productQuery.data.ok ? productQuery.data.error.displayMessage : '商品信息不完整'} onRetry={() => productQuery.refetch()} /></View>;
 
   const product = detail as ProductDetail;
+  const visibleAttributes = displayProductAttributes(product.attributes);
   return (
     <View className='catalog-product-page'>
       <View className='catalog-product-gallery'>
@@ -124,11 +125,15 @@ export default function CatalogProductPage() {
           <View className='catalog-product-company__copy'><Text className='catalog-product-company__label'>企业优选</Text><Text className='catalog-product-company__name'>{company.name}</Text><Text className='catalog-product-company__business'>{company.mainBusiness}</Text></View><Text className='catalog-product-company__arrow'>›</Text>
         </View> : null}
 
-        {(product.description || Object.keys(product.attributes ?? {}).length) ? <View className='catalog-product-section aim-card'>
-          <View className='catalog-product-section__heading'><Text className='catalog-product-section__accent' /><Text className='catalog-product-section__title'>商品详情</Text></View>
-          {product.description ? <Text className='catalog-product-description'>{product.description}</Text> : null}
-          {Object.entries(product.attributes ?? {}).map(([label, value]) => <View className='catalog-product-attribute' key={label}><Text>{label}</Text><Text>{value}</Text></View>)}
+        {visibleAttributes.length ? <View className='catalog-product-section aim-card'>
+          <View className='catalog-product-section__heading'><Text className='catalog-product-section__accent' /><Text className='catalog-product-section__title'>商品属性</Text></View>
+          {visibleAttributes.map(([label, value]) => <View className='catalog-product-attribute' key={label}><Text>{label}</Text><Text>{value}</Text></View>)}
         </View> : null}
+
+        <View className='catalog-product-section aim-card'>
+          <View className='catalog-product-section__heading'><Text className='catalog-product-section__accent' /><Text className='catalog-product-section__title'>图文详情</Text></View>
+          <Text className={product.description ? 'catalog-product-description' : 'catalog-product-description catalog-product-description--empty'}>{product.description || '暂无详情描述'}</Text>
+        </View>
       </View>
       <View className='catalog-product-bar'>
         <View className='catalog-product-cart-entry' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}><Text className='catalog-product-cart-entry__icon'>购</Text><Text>购物车</Text></View>

@@ -33,7 +33,8 @@ export type Company = {
     postalCode?: string;
     detail?: string;
   };
-  highlights?: Record<string, string>;
+  /** 后端 Prisma Json：消费端必须先过滤为可显示的文本标量。 */
+  highlights?: Record<string, unknown>;
   companyType?: string;
   industryTags?: string[];
   productKeywords?: string[];

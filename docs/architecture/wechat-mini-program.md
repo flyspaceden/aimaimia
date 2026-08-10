@@ -797,3 +797,13 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 6. 清理用户页面中的“服务端、后端、已加载、平台配置”等工程化表达，改为消费者可理解的状态与操作说明；法律文本中必要的资金和安全口径保留。
 
 本轮的代码验收要求为 TypeScript、ESLint、全量单测、staging/production 构建、产物页面/分包校验和后端聚焦回归全部通过。视觉上的“已验收”仍只能在微信开发者工具和真机使用真实商品/会员/订单数据逐页截图对比后标记。
+
+## 20. 2026-08-10 商品详情真实数据崩溃修复
+
+微信开发者工具首次用 staging 真实商品打开详情页时，暴露 `Product.attributes` 类型被错误缩窄为 `Record<string, string>`：实际 Prisma Json 内含 `semanticMeta` 嵌套对象，小程序将对象直接渲染到 `<Text>` 触发 React #31 白屏。修复要求：
+
+1. 类型保持 `Record<string, unknown>`，不在客户端伪造后端 Contract。
+2. 与 App 当前实现一致，仅展示字符串和有限数字属性；对象、数组、布尔值和 null 不进入 React 子节点。
+3. “商品属性”与“图文详情”拆成与 App 相同的两个区块，缺少描述时显示明确空态。
+4. 横向 `scroll-view` 的留白改为内容容器 margin，避免微信 WebView 渲染模式的 padding 兼容警告。
+5. 回归用例使用包含 `dietaryTags/originRegion/seasonalMonths/usageScenarios` 的真实 `semanticMeta` 形状，不再只用全字符串 Mock。

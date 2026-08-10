@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
-import { companyProductToProduct, displayCompanyCertifications, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
+import { companyProductToProduct, displayCompanyCertifications, displayCompanyHighlights, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
 import { openSecureDocument } from '@/platform/document';
 import { CartRepo, CompanyRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
@@ -34,6 +34,7 @@ export default function CatalogCompanyPage() {
     staleTime: 60_000,
   });
   const company = companyQuery.data?.ok ? companyQuery.data.data : undefined;
+  const visibleHighlights = company ? displayCompanyHighlights(company) : [];
   const products = useMemo(() => company ? productsQuery.data?.pages.flatMap((page) => page.ok ? page.data.items.map((item) => companyProductToProduct(item, company)) : []) ?? [] : [], [company, productsQuery.data]);
   const categories = productsQuery.data?.pages[0]?.ok ? productsQuery.data.pages[0].data.categories : [];
   const productError = productsQuery.data?.pages.find((page) => !page.ok);
@@ -137,7 +138,7 @@ export default function CatalogCompanyPage() {
           {company!.supplyModes?.length ? <View className='catalog-company-info'><Text>供应方式</Text><Text>{company!.supplyModes.join('、')}</Text></View> : null}
           {company!.serviceAreas?.length ? <View className='catalog-company-info'><Text>服务区域</Text><Text>{company!.serviceAreas.join('、')}</Text></View> : null}
         </View>
-        {Object.keys(company!.highlights ?? {}).length ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>企业亮点</Text><View className='catalog-company-highlights'>{Object.entries(company!.highlights ?? {}).map(([label, value]) => <View className='catalog-company-highlight' key={label}><Text className='catalog-company-highlight__value'>{value}</Text><Text className='catalog-company-highlight__label'>{label}</Text></View>)}</View></View> : null}
+        {visibleHighlights.length ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>企业亮点</Text><View className='catalog-company-highlights'>{visibleHighlights.map(([label, value]) => <View className='catalog-company-highlight' key={label}><Text className='catalog-company-highlight__value'>{value}</Text><Text className='catalog-company-highlight__label'>{label}</Text></View>)}</View></View> : null}
         {(company!.certifications?.length || company!.inspectionReports?.length) ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>资质与检测</Text><View className='catalog-company-certifications'>{(company!.certifications ?? []).map((item) => <Text className='catalog-company-certification' key={item}>{item}</Text>)}</View>{(company!.inspectionReports ?? []).map((report) => <View className={report.fileUrl ? 'catalog-company-report catalog-company-report--openable' : 'catalog-company-report'} key={report.id} onClick={() => { if (report.fileUrl) void openSecureDocument(report.fileUrl); }}><View><Text className='catalog-company-report__title'>{report.title}</Text><Text className='catalog-company-report__meta'>{report.issuer || '平台检测'} {report.issuedAt?.slice(0, 10) || ''}</Text></View><Text className='catalog-company-report__status'>{report.fileUrl ? '查看报告 ›' : '暂无文件'}</Text></View>)}</View> : null}
       </View>}
     </View>
