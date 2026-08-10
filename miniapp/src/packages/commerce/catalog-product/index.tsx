@@ -20,6 +20,7 @@ export default function CatalogProductPage() {
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const { lowStockDisplayThreshold } = useAppConfig();
   const productQuery = useQuery({ queryKey: ['catalog', 'product', id], queryFn: () => ProductRepo.getById(id), enabled: Boolean(id), staleTime: 5 * 60_000 });
+  const cartQuery = useQuery({ queryKey: ['commerce', 'cart'], queryFn: CartRepo.get, enabled: loggedIn, staleTime: 15_000 });
   const detail = productQuery.data?.ok ? productQuery.data.data : undefined;
   const companyQuery = useQuery({ queryKey: ['catalog', 'company', detail?.companyId], queryFn: () => CompanyRepo.getById(detail!.companyId!), enabled: Boolean(detail?.companyId), staleTime: 5 * 60_000 });
 
@@ -34,6 +35,9 @@ export default function CatalogProductPage() {
   const images = detail ? (detail.images.length ? detail.images.map((item) => item.url) : [detail.image].filter(Boolean)) : [];
   const company = companyQuery.data?.ok ? companyQuery.data.data : undefined;
   const showSimpleProductPackaging = detail?.type !== 'BUNDLE';
+  const cartCount = cartQuery.data?.ok
+    ? cartQuery.data.data.items.reduce((total, item) => total + item.quantity, 0)
+    : 0;
   const priceMetaLabels = detail ? [
     showSimpleProductPackaging ? buildProductUnitLabel(detail.unit) : undefined,
     showSimpleProductPackaging ? buildProductWeightLabel(selectedSku?.weightGram ?? (detail.skus.length === 1 ? detail.skus[0]?.weightGram : undefined)) : undefined,
@@ -108,7 +112,17 @@ export default function CatalogProductPage() {
             const skuWeight = showSimpleProductPackaging ? buildProductWeightLabel(sku.weightGram) : undefined;
             return <View className={active ? 'catalog-product-sku catalog-product-sku--active' : 'catalog-product-sku'} key={sku.id} onClick={() => { setSelectedSkuId(sku.id); setQuantity(1); }}><Text className='catalog-product-sku__title'>{sku.title}</Text><Text className='catalog-product-sku__meta'>¥{formatCatalogPrice(sku.price)}</Text>{skuWeight ? <Text className='catalog-product-sku__meta'>{skuWeight}</Text> : null}{skuStockText ? <Text className={skuStock && skuStock > 0 ? 'catalog-product-sku__stock' : 'catalog-product-sku__stock catalog-product-sku__stock--out'}>{skuStockText}</Text> : null}</View>;
           })}</View>
-          {selectedSku?.maxPerOrder ? <Text className='catalog-product-section__tip'>每单限购 {selectedSku.maxPerOrder} 件</Text> : null}
+          <View className='catalog-product-quantity-row'>
+            <View className='catalog-product-quantity-row__copy'>
+              <Text className='catalog-product-quantity-row__label'>购买数量</Text>
+              {selectedSku?.maxPerOrder ? <Text className='catalog-product-quantity-row__meta'>每单限购 {selectedSku.maxPerOrder} 件</Text> : null}
+            </View>
+            <View className='catalog-product-quantity'>
+              <Text className={quantity <= 1 ? 'catalog-product-quantity__button catalog-product-quantity__button--disabled' : 'catalog-product-quantity__button'} onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</Text>
+              <Text className='catalog-product-quantity__value'>{quantity}</Text>
+              <Text className={quantity >= maxQuantity ? 'catalog-product-quantity__button catalog-product-quantity__button--disabled' : 'catalog-product-quantity__button'} onClick={() => setQuantity((value) => Math.min(maxQuantity, value + 1))}>+</Text>
+            </View>
+          </View>
           {stockText ? <Text className={stock && stock > 0 ? 'catalog-product-section__stock' : 'catalog-product-section__stock catalog-product-section__stock--out'}>{stockText}</Text> : null}
         </View> : null}
 
@@ -136,9 +150,22 @@ export default function CatalogProductPage() {
         </View>
       </View>
       <View className='catalog-product-bar'>
-        <View className='catalog-product-cart-entry' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}><Text className='catalog-product-cart-entry__icon'>购</Text><Text>购物车</Text></View>
-        <View className='catalog-product-quantity'><Text className={quantity <= 1 ? 'catalog-product-quantity__button catalog-product-quantity__button--disabled' : 'catalog-product-quantity__button'} onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</Text><Text className='catalog-product-quantity__value'>{quantity}</Text><Text className={quantity >= maxQuantity ? 'catalog-product-quantity__button catalog-product-quantity__button--disabled' : 'catalog-product-quantity__button'} onClick={() => setQuantity((value) => Math.min(maxQuantity, value + 1))}>+</Text></View>
-        <View className='catalog-product-bar__actions'><Button className={canAdd ? 'catalog-product-bar__button catalog-product-bar__button--cart' : 'catalog-product-bar__button catalog-product-bar__button--disabled'} disabled={!canAdd || addMutation.isPending} loading={addMutation.isPending} onClick={addToCart}>{needsSku ? '请选规格' : !selectedSkuId ? '暂不可购买' : stock === 0 ? '暂时缺货' : '加入购物车'}</Button><Button className={canAdd ? 'catalog-product-bar__button catalog-product-bar__button--buy' : 'catalog-product-bar__button catalog-product-bar__button--disabled'} disabled={!canAdd} onClick={buyNow}>{!loggedIn ? '登录后购买' : '立即购买'}</Button></View>
+        <View className='catalog-product-cart-entry' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}>
+          <View className='catalog-product-cart-entry__icon'>
+            <View className='catalog-product-cart-glyph' aria-hidden>
+              <View className='catalog-product-cart-glyph__handle' />
+              <View className='catalog-product-cart-glyph__basket' />
+              <View className='catalog-product-cart-glyph__wheel catalog-product-cart-glyph__wheel--left' />
+              <View className='catalog-product-cart-glyph__wheel catalog-product-cart-glyph__wheel--right' />
+            </View>
+            {cartCount > 0 ? <Text className='catalog-product-cart-entry__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
+          </View>
+          <Text className='catalog-product-cart-entry__label'>购物车</Text>
+        </View>
+        <View className='catalog-product-bar__actions'>
+          <Button className={canAdd ? 'catalog-product-bar__button catalog-product-bar__button--cart' : 'catalog-product-bar__button catalog-product-bar__button--disabled'} disabled={!canAdd || addMutation.isPending} loading={addMutation.isPending} onClick={addToCart}><Text>{needsSku ? '请选规格' : !selectedSkuId ? '暂不可购买' : stock === 0 ? '暂时缺货' : '加入购物车'}</Text></Button>
+          <Button className={canAdd ? 'catalog-product-bar__button catalog-product-bar__button--buy' : 'catalog-product-bar__button catalog-product-bar__button--disabled'} disabled={!canAdd} onClick={buyNow}><Text>{!loggedIn ? '登录后购买' : '立即购买'}</Text></Button>
+        </View>
       </View>
     </View>
   );
