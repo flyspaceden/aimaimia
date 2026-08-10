@@ -1,4 +1,4 @@
-import { Button, ScrollView, Text, View } from '@tarojs/components';
+import { Button, Text, View } from '@tarojs/components';
 import Taro, { useDidHide, useDidShow, useUnload } from '@tarojs/taro';
 import { useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
@@ -28,6 +28,7 @@ export default function HomePage() {
   const authRevision = useAuthStore((state) => state.revision);
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle');
   const [voiceIntent, setVoiceIntent] = useState<AiVoiceIntent>();
+  const [vipCarouselPaused, setVipCarouselPaused] = useState(false);
   const lifecycleRef = useRef(0);
   // `onLongPress` 开始录音是异步的；松手可以发生在 RecorderManager.onStart
   // 之前，不能依赖 React state 是否已经渲染为 recording 来决定是否 stop。
@@ -86,6 +87,9 @@ export default function HomePage() {
     const gift = pkg.giftOptions.find((item) => item.available);
     return gift ? [{ pkg, gift }] : [];
   }).slice(0, 3);
+  const vipLoopGroups = vipCards.length > 1 ? [vipCards, vipCards] : [vipCards];
+  const vipCardWidth = Math.min(246, Math.max(204, Taro.getWindowInfo().windowWidth * 0.58));
+  const vipCarouselDuration = Math.max(1, ((vipCardWidth + 8) * vipCards.length) / 28);
 
   const refresh = () => {
     if (useAuthStore.getState().accessToken) {
@@ -326,21 +330,29 @@ export default function HomePage() {
         {vipCards.length ? (
         <View className='home-vip'>
           <View className='home-vip__header'><Text>精选 VIP 礼包</Text><Text>左右滑动查看</Text></View>
-          <ScrollView className='home-vip__scroll' scrollX enhanced showScrollbar={false}>
-            <View className='home-vip__row'>
-              {vipCards.map(({ pkg, gift }) => (
-                <View
-                  className='home-vip-card'
-                  key={`${pkg.id}-${gift.id}`}
-                  onClick={() => Taro.navigateTo({ url: `/packages/benefits/vip-gifts/index?packageId=${encodeURIComponent(pkg.id)}&giftOptionId=${encodeURIComponent(gift.id)}` })}
-                >
-                  <View className='home-vip-card__top'><Text className='home-vip-card__price'>¥{formatMoney(pkg.price)}</Text><Text>VIP 礼包</Text><Text className='home-vip-card__gift'>礼</Text></View>
-                  <View className='home-vip-card__title-row'><Text>{gift.title}</Text>{gift.badge ? <Text>{gift.badge}</Text> : null}</View>
-                  <Text className='home-vip-card__subtitle'>{gift.subtitle || '精选礼包组合'}</Text>
-                </View>
-              ))}
+          <View className='home-vip__marquee'>
+            <View
+              className={`home-vip__track home-vip__track--${vipCards.length}${vipCarouselPaused ? ' home-vip__track--paused' : ''}`}
+              style={vipCards.length > 1 ? `animation-duration:${vipCarouselDuration}s` : undefined}
+              onTouchStart={() => setVipCarouselPaused(true)}
+              onTouchEnd={() => setVipCarouselPaused(false)}
+              onTouchCancel={() => setVipCarouselPaused(false)}
+            >
+              {vipLoopGroups.map((group, groupIndex) => <View className='home-vip__group' key={`vip-group-${groupIndex}`}>
+                {group.map(({ pkg, gift }) => (
+                  <View
+                    className='home-vip-card'
+                    key={`${groupIndex}-${pkg.id}-${gift.id}`}
+                    onClick={() => Taro.navigateTo({ url: `/packages/benefits/vip-gifts/index?packageId=${encodeURIComponent(pkg.id)}&giftOptionId=${encodeURIComponent(gift.id)}` })}
+                  >
+                    <View className='home-vip-card__top'><Text className='home-vip-card__price'>¥{Number.isInteger(pkg.price) ? pkg.price.toFixed(0) : pkg.price.toFixed(2)}</Text><Text>VIP 礼包</Text><Text className='home-vip-card__gift'>礼</Text></View>
+                    <View className='home-vip-card__title-row'><Text>{gift.title}</Text>{gift.badge ? <Text>{gift.badge}</Text> : null}</View>
+                    <Text className='home-vip-card__subtitle'>{gift.subtitle?.trim() || '精选礼包组合'}</Text>
+                  </View>
+                ))}
+              </View>)}
             </View>
-          </ScrollView>
+          </View>
         </View>
         ) : null}
       </View>

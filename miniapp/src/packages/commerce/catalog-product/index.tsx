@@ -3,7 +3,8 @@ import Taro, { useRouter } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
-import { catalogStockText, defaultSelectedSkuId, formatCatalogPrice, productHeadlinePrice } from '@/components/catalog-utils';
+import { buildProductUnitLabel, buildProductWeightLabel, catalogCardStockText, defaultSelectedSkuId, formatCatalogPrice, productHeadlinePrice } from '@/components/catalog-utils';
+import { useAppConfig } from '@/hooks/use-app-config';
 import { queryClient } from '@/query/client';
 import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
@@ -17,6 +18,7 @@ export default function CatalogProductPage() {
   const [quantity, setQuantity] = useState(1);
   const [slide, setSlide] = useState(0);
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
+  const { lowStockDisplayThreshold } = useAppConfig();
   const productQuery = useQuery({ queryKey: ['catalog', 'product', id], queryFn: () => ProductRepo.getById(id), enabled: Boolean(id), staleTime: 5 * 60_000 });
   const detail = productQuery.data?.ok ? productQuery.data.data : undefined;
   const companyQuery = useQuery({ queryKey: ['catalog', 'company', detail?.companyId], queryFn: () => CompanyRepo.getById(detail!.companyId!), enabled: Boolean(detail?.companyId), staleTime: 5 * 60_000 });
@@ -24,13 +26,18 @@ export default function CatalogProductPage() {
   useEffect(() => { if (detail) setSelectedSkuId(defaultSelectedSkuId(detail)); }, [detail]);
   const selectedSku = useMemo(() => detail?.skus.find((sku) => sku.id === selectedSkuId), [detail, selectedSkuId]);
   const stock = detail ? (detail.type === 'BUNDLE' ? detail.bundleAvailableStock ?? selectedSku?.stock : selectedSku?.stock) : undefined;
-  const stockText = catalogStockText(stock);
+  const stockText = catalogCardStockText(stock, lowStockDisplayThreshold);
   const maxQuantity = Math.max(1, Math.min(stock ?? Number.MAX_SAFE_INTEGER, selectedSku?.maxPerOrder ?? detail?.maxPerOrder ?? Number.MAX_SAFE_INTEGER));
   const needsSku = Boolean(detail?.skus.length && !selectedSku);
   const canAdd = Boolean(detail && selectedSkuId && !needsSku && (stock === undefined || stock > 0));
   const headline = detail ? productHeadlinePrice(detail, selectedSkuId) : undefined;
   const images = detail ? (detail.images.length ? detail.images.map((item) => item.url) : [detail.image].filter(Boolean)) : [];
   const company = companyQuery.data?.ok ? companyQuery.data.data : undefined;
+  const showSimpleProductPackaging = detail?.type !== 'BUNDLE';
+  const priceMetaLabels = detail ? [
+    showSimpleProductPackaging ? buildProductUnitLabel(detail.unit) : undefined,
+    showSimpleProductPackaging ? buildProductWeightLabel(selectedSku?.weightGram ?? (detail.skus.length === 1 ? detail.skus[0]?.weightGram : undefined)) : undefined,
+  ].filter((label): label is string => Boolean(label)) : [];
 
   useEffect(() => { if (quantity > maxQuantity) setQuantity(maxQuantity); }, [maxQuantity, quantity]);
   const addMutation = useMutation({
@@ -80,6 +87,7 @@ export default function CatalogProductPage() {
       <View className='catalog-product-content'>
         <View className='catalog-product-price aim-card'>
           <View className='catalog-product-price__line'><Text className='catalog-product-price__currency'>¥</Text><Text className='catalog-product-price__value'>{formatCatalogPrice(headline!.value)}</Text>{headline!.from ? <Text className='catalog-product-price__from'>起</Text> : null}{product.strikePrice ? <Text className='catalog-product-price__strike'>¥{formatCatalogPrice(product.strikePrice)}</Text> : null}</View>
+          {priceMetaLabels.length ? <View className='catalog-product-price__meta'>{priceMetaLabels.map((label) => <Text key={label}>{label}</Text>)}</View> : null}
           <View className='catalog-product-price__stats'>{product.monthlySales ? <Text>月销 {product.monthlySales}</Text> : null}{product.rating ? <Text>好评 {product.rating}%</Text> : null}</View>
           <Text className='catalog-product-price__policy'>{product.effectiveReturnPolicy === 'NON_RETURNABLE' ? '签收后24小时内如有质量问题可申请售后' : '支持7天无理由退换 · 质量问题可申请售后'}</Text>
         </View>
@@ -95,7 +103,9 @@ export default function CatalogProductPage() {
           <View className='catalog-product-skus'>{product.skus.map((sku) => {
             const skuStock = product.type === 'BUNDLE' ? product.bundleAvailableStock ?? sku.stock : sku.stock;
             const active = sku.id === selectedSkuId;
-            return <View className={active ? 'catalog-product-sku catalog-product-sku--active' : 'catalog-product-sku'} key={sku.id} onClick={() => { setSelectedSkuId(sku.id); setQuantity(1); }}><Text className='catalog-product-sku__title'>{sku.title}</Text><Text className='catalog-product-sku__meta'>¥{formatCatalogPrice(sku.price)} {catalogStockText(skuStock) ? `· ${catalogStockText(skuStock)}` : ''}</Text></View>;
+            const skuStockText = catalogCardStockText(skuStock, lowStockDisplayThreshold);
+            const skuWeight = showSimpleProductPackaging ? buildProductWeightLabel(sku.weightGram) : undefined;
+            return <View className={active ? 'catalog-product-sku catalog-product-sku--active' : 'catalog-product-sku'} key={sku.id} onClick={() => { setSelectedSkuId(sku.id); setQuantity(1); }}><Text className='catalog-product-sku__title'>{sku.title}</Text><Text className='catalog-product-sku__meta'>¥{formatCatalogPrice(sku.price)}</Text>{skuWeight ? <Text className='catalog-product-sku__meta'>{skuWeight}</Text> : null}{skuStockText ? <Text className={skuStock && skuStock > 0 ? 'catalog-product-sku__stock' : 'catalog-product-sku__stock catalog-product-sku__stock--out'}>{skuStockText}</Text> : null}</View>;
           })}</View>
           {selectedSku?.maxPerOrder ? <Text className='catalog-product-section__tip'>每单限购 {selectedSku.maxPerOrder} 件</Text> : null}
           {stockText ? <Text className={stock && stock > 0 ? 'catalog-product-section__stock' : 'catalog-product-section__stock catalog-product-section__stock--out'}>{stockText}</Text> : null}

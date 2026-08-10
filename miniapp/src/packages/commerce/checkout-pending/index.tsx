@@ -13,7 +13,7 @@ import type { CheckoutStatusResult } from '@/types';
 import './index.scss';
 
 function remainingText(expiresAt?: string): string {
-  if (!expiresAt) return '有效期以服务端为准';
+  if (!expiresAt) return '正在读取支付有效期';
   const seconds = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
   const minutes = Math.floor(seconds / 60);
   return seconds > 0 ? `剩余 ${minutes}:${String(seconds % 60).padStart(2, '0')}` : '支付窗口已结束';
@@ -126,7 +126,7 @@ export default function CheckoutPendingPage() {
       <Text className='pending-time'>{remainingText(pending?.expiresAt)}</Text>
       <View className='pending-card aim-card'>
         {pending?.preview.firstItemImage ? <Image className='pending-card__image' src={pending.preview.firstItemImage} mode='aspectFill' /> : null}
-        <View className='pending-card__copy'><Text className='pending-card__title'>{title}</Text><Text className='pending-card__meta'>{pending ? `共 ${pending.itemCount} 件${pending.preview.extraCount ? ` · 另有 ${pending.preview.extraCount} 件` : ''}` : '正在查询服务端状态'}</Text></View>
+        <View className='pending-card__copy'><Text className='pending-card__title'>{title}</Text><Text className='pending-card__meta'>{pending ? `共 ${pending.itemCount} 件${pending.preview.extraCount ? ` · 另有 ${pending.preview.extraCount} 件` : ''}` : '正在查询支付状态'}</Text></View>
         {pending ? <Text className='pending-card__price'>¥{formatMoney(pending.expectedTotal)}</Text> : null}
       </View>
       {!belongsToRequested ? <Text className='pending-hint'>当前另有一笔待支付订单，请先处理后再重试。</Text> : null}

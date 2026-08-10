@@ -16,6 +16,13 @@
 .vip-earnings__grid > view + view::before { position: absolute; top: 3px; bottom: 3px; left: 0; width: 1px; background: rgba(255,255,255,.13); content: ''; }
 .vip-earnings__grid text:first-child { display: block; color: #fff7d9; font-size: 15px; font-weight: 760; }
 .vip-earnings__grid text:last-child { display: block; margin-top: 5px; color: rgba(255,250,228,.62); font-size: 8px; }
+.vip-earnings__breakdown { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 15px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.14); }
+.vip-earnings__breakdown-item { display: flex; align-items: center; color: rgba(255,250,228,.78); font-size: 8px; line-height: 14px; }
+.vip-earnings__breakdown-dot { width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; }
+.vip-earnings__breakdown-dot--vip { background: #e9ce82; }
+.vip-earnings__breakdown-dot--normal { background: #71c878; }
+.vip-earnings__breakdown-dot--queue { background: #6db8e8; }
+.vip-earnings__breakdown-dot--industry { background: #f0b95b; }
 
 .vip-benefit-list { display: flex; flex-direction: column; gap: 9px; }
 .vip-benefit { display: flex; align-items: flex-start; gap: 11px; padding: 14px; }

@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
-import { formatCatalogPrice, resolveProductStock } from '@/components/catalog-utils';
+import { formatCatalogPrice, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
 import { queryClient } from '@/query/client';
 import { CartRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
@@ -160,9 +160,10 @@ export default function AiRecommendPage() {
       });
       return;
     }
-    if (!product.defaultSkuId || resolveProductStock(product) === 0) {
+    const action = resolveCatalogQuickAddAction(product);
+    if (action.kind === 'detail') {
       void openProduct(product);
-      Taro.showToast({ title: product.defaultSkuId ? '商品暂时缺货' : '请选择商品规格', icon: 'none' });
+      Taro.showToast({ title: action.label === '查看商品' ? '商品暂时缺货' : '请选择商品规格', icon: 'none' });
       return;
     }
     addMutation.mutate(product);
@@ -201,8 +202,8 @@ export default function AiRecommendPage() {
         {plan && !plan.products.length ? <CatalogFeedback kind='empty' title='暂时没有匹配结果' description='你可以放宽预算或条件，看看更多推荐商品。' /> : null}
         {plan?.products.length ? <View className='ai-recommend-grid'>{plan.products.map((product) => (
           <View className='ai-recommend-product' key={product.id}>
-            <CatalogProductCard product={product} onClick={openProduct} />
-            <Button className='ai-recommend-product__add' loading={addMutation.isPending && addMutation.variables?.id === product.id} onClick={() => addProduct(product)}>{!product.defaultSkuId ? '选择规格' : resolveProductStock(product) === 0 ? '查看商品' : '加入购物车'}</Button>
+            <CatalogProductCard product={product} onClick={openProduct} aiRecommend aiReason={plan.aiReason} />
+            <Button className='ai-recommend-product__add' loading={addMutation.isPending && addMutation.variables?.id === product.id} onClick={() => addProduct(product)}>{resolveCatalogQuickAddAction(product).label}</Button>
           </View>
         ))}</View> : null}
       </View>

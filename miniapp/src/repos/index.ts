@@ -1,5 +1,6 @@
 export * from './user';
 export * from './product';
+export * from './recommendation';
 export * from './company';
 export * from './cart';
 export * from './address';
@@ -8,3 +9,4 @@ export * from './checkout';
 export * from './order';
 export * from './logistics';
 export * from './deletion';
+export * from './app-config';

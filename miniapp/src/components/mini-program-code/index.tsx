@@ -83,7 +83,7 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
   };
 
   return <View className='mini-code-panel aim-card'>
-    <View className='mini-code-panel__heading'><View><Text>微信小程序码</Text><Text>由服务端校验当前账号的可分享资格</Text></View><Button disabled={!enabled || busy} loading={busy} onClick={() => { void generate(); }}>{filePath ? '重新生成' : '生成'}</Button></View>
-    {filePath ? <View className='mini-code-panel__result'><Image src={filePath} mode='aspectFit' /><Text>好友扫码后会先经服务端解析短场景码，不在二维码中暴露内部 ID。</Text><Button onClick={() => { void save(); }}>保存到相册</Button></View> : null}
+    <View className='mini-code-panel__heading'><View><Text>微信小程序码</Text><Text>资格确认后即可生成专属分享码</Text></View><Button disabled={!enabled || busy} loading={busy} onClick={() => { void generate(); }}>{filePath ? '重新生成' : '生成'}</Button></View>
+    {filePath ? <View className='mini-code-panel__result'><Image src={filePath} mode='aspectFit' /><Text>好友扫码即可打开对应页面，分享码不会展示账号内部信息。</Text><Button onClick={() => { void save(); }}>保存到相册</Button></View> : null}
   </View>;
 }

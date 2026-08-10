@@ -190,7 +190,7 @@ export default function AccountLoginPage() {
     <View className='account-login-hero'>
       <View className='account-login-hero__orbit'><View className='account-login-hero__core'>爱</View></View>
       <Text className='account-login-hero__title'>{binding ? '绑定你的手机号' : '欢迎来到爱买买'}</Text>
-      <Text className='account-login-hero__description'>{binding ? '用短信验证码确认本人手机号；已注册号码会合并原账户。' : '手机号和微信都可以登录，与 App 共用同一账户。'}</Text>
+      <Text className='account-login-hero__description'>{binding ? '用短信验证码确认本人手机号；已注册号码会合并原账户。' : '手机号和微信都可登录，已有爱买买账号可直接使用。'}</Text>
     </View>
 
     {binding ? <View className='account-bind-card aim-card'>

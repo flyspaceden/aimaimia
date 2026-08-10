@@ -10,13 +10,13 @@ type Props = {
 
 export function MemberFeedback({ kind, title, description, actionLabel, onAction }: Props) {
   if (kind === 'loading') {
-    return <View className='member-feedback member-feedback--loading'><View className='member-feedback__pulse' /><Text>正在读取服务端数据...</Text></View>;
+    return <View className='member-feedback member-feedback--loading'><View className='member-feedback__pulse' /><Text>正在加载...</Text></View>;
   }
   const defaults = kind === 'login'
-    ? { mark: '爱', title: '请先登录', description: '登录后查看与 App 同步的账户资产' }
+    ? { mark: '爱', title: '请先登录', description: '登录后查看账户资产' }
     : kind === 'error'
       ? { mark: '!', title: '加载失败', description: '请稍后重试' }
-      : { mark: '·', title: '暂无记录', description: '服务端暂时没有相关数据' };
+      : { mark: '·', title: '暂无记录', description: '暂时没有相关数据' };
   return <View className='member-feedback aim-card'>
     <Text className={`member-feedback__mark member-feedback__mark--${kind}`}>{defaults.mark}</Text>
     <Text className='member-feedback__title'>{title || defaults.title}</Text>

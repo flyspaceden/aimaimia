@@ -3,13 +3,16 @@ import Taro, { useDidShow, useRouter } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { catalogCardStockText } from '@/components/catalog-utils';
 import { clampDeduction, formatMoney, isUserCancelledPayment, newCheckoutIdempotencyKey, payableAfterDeduction, selectedCartItems } from '@/components/commerce-utils';
+import { useAppConfig } from '@/hooks/use-app-config';
 import { AddressRepo, CartRepo, CheckoutRepo, CouponRepo, ProductRepo } from '@/repos';
 import { miniProgramCashierFailureMessage, requestMiniProgramPayment } from '@/platform/payment';
 import { ensureWechatMiniProgramSession } from '@/platform/auth';
 import { queryClient } from '@/query/client';
 import type { CartItem, CheckoutStatusResult } from '@/types';
 import { captureAuthSession, useAuthStore } from '@/store/auth';
+import { useCartSelectionStore } from '@/store/cart-selection';
 import { useCheckoutSelectionStore } from '@/store/checkout-selection';
 import './index.scss';
 
@@ -41,6 +44,9 @@ export default function CheckoutPage() {
   const hasWechatSession = useAuthStore((state) => state.loginMethod === 'wechat-miniapp');
   const authRevision = useAuthStore((state) => state.revision);
   const checkoutSelection = useCheckoutSelectionStore();
+  const prizeSelections = useCartSelectionStore((state) => state.prizeSelections);
+  const clearCartSelections = useCartSelectionStore((state) => state.clear);
+  const { lowStockDisplayThreshold } = useAppConfig();
   const [addressId, setAddressId] = useState('');
   const [couponIds, setCouponIds] = useState<string[]>([]);
   const [deductionInput, setDeductionInput] = useState('');
@@ -83,7 +89,10 @@ export default function CheckoutPage() {
       selectable: true,
     };
   }, [buyNowQuantity, buyNowSkuId, directProduct, isBuyNow]);
-  const items = useMemo(() => isBuyNow ? (directItem ? [directItem] : []) : selectedCartItems(cart?.items ?? []), [cart, directItem, isBuyNow]);
+  const items = useMemo(
+    () => isBuyNow ? (directItem ? [directItem] : []) : selectedCartItems(cart?.items ?? [], prizeSelections),
+    [cart, directItem, isBuyNow, prizeSelections],
+  );
   const addresses = useMemo(() => addressQuery.data?.ok ? addressQuery.data.data : [], [addressQuery.data]);
 
   useEffect(() => {
@@ -153,7 +162,7 @@ export default function CheckoutPage() {
           .join('、');
         const modal = await Taro.showModal({
           title: '结算内容有变化',
-          content: `${removedNames}已被服务端移出本单，当前应付 ¥${formatMoney(session.data.expectedTotal)}。是否按新内容继续微信支付？`,
+          content: `${removedNames}已不再参与本次结算，当前应付 ¥${formatMoney(session.data.expectedTotal)}。是否按新内容继续微信支付？`,
           confirmText: '继续支付',
           cancelText: '暂不支付',
           confirmColor: '#2E7D32',
@@ -198,6 +207,7 @@ export default function CheckoutPage() {
       const paymentError = 'paymentError' in result.data ? result.data.paymentError : undefined;
       if (status?.status === 'COMPLETED') {
         checkoutSelection.clear();
+        clearCartSelections();
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['commerce', 'cart'] }),
           queryClient.invalidateQueries({ queryKey: ['orders'] }),
@@ -256,9 +266,14 @@ export default function CheckoutPage() {
       {previewQuery.isLoading ? <CatalogFeedback kind='loading' /> : null}
       {previewQuery.data && !previewQuery.data.ok ? <CatalogFeedback kind='error' title='价格校验失败' description={previewQuery.data.error.displayMessage || '请稍后重试'} onRetry={() => previewQuery.refetch()} /> : null}
       {preview ? <>
-        {preview.excludedItems?.length ? <View className='checkout-options aim-card'><View className='checkout-section-heading'><Text>结算内容已调整</Text><Text>{preview.excludedItems.length} 项</Text></View><Text className='checkout-muted'>以下失效或不可售内容不会进入订单：{preview.excludedItems.map((item) => item.isPrize ? '奖品' : '商品').join('、')}。提交支付前服务端还会再次核对。</Text></View> : null}
+        {preview.excludedItems?.length ? <View className='checkout-options aim-card'><View className='checkout-section-heading'><Text>结算内容已调整</Text><Text>{preview.excludedItems.length} 项</Text></View><Text className='checkout-muted'>以下失效或不可售内容不会进入订单：{preview.excludedItems.map((item) => item.isPrize ? '奖品' : '商品').join('、')}。支付前还会再次核对库存和价格。</Text></View> : null}
         <View className='checkout-groups'>
-          {preview.groups.map((group) => <View className='checkout-group aim-card' key={group.companyId}><View className='checkout-section-heading'><Text>{group.companyName}</Text><Text>{group.items.length} 件</Text></View>{group.items.map((item) => <View className='checkout-item' key={item.skuId}><Image className='checkout-item__image' src={item.image} mode='aspectFill' /><View className='checkout-item__copy'><Text className='checkout-item__title'>{item.title}</Text><Text className='checkout-item__quantity'>×{item.quantity}</Text></View><Text className='checkout-item__price'>¥{formatMoney(item.unitPrice * item.quantity)}</Text></View>)}<View className='checkout-group__summary'><Text>商品 ¥{formatMoney(group.goodsAmount)}</Text><Text>{group.shippingFee ? `运费 ¥${formatMoney(group.shippingFee)}` : '包邮'}</Text></View></View>)}
+          {preview.groups.map((group) => <View className='checkout-group aim-card' key={group.companyId}><View className='checkout-section-heading'><Text>{group.companyName}</Text><Text>{group.items.length} 件</Text></View>{group.items.map((item) => {
+            const source = items.find((candidate) => candidate.skuId === item.skuId);
+            const bundleItems = source?.bundleItems ?? source?.product.bundleItems ?? [];
+            const stockText = source ? catalogCardStockText(source.product.stock, lowStockDisplayThreshold) : undefined;
+            return <View className='checkout-item' key={item.skuId}><Image className='checkout-item__image' src={item.image} mode='aspectFill' /><View className='checkout-item__copy'><Text className='checkout-item__title'>{item.title}</Text><Text className='checkout-item__quantity'>×{item.quantity}</Text>{stockText ? <Text className={stockText === '已售完' ? 'checkout-item__stock checkout-item__stock--out' : 'checkout-item__stock'}>{stockText}</Text> : null}{bundleItems.length ? <View className='checkout-item__bundle'>{bundleItems.map((bundleItem) => <Text key={`${bundleItem.skuId}-${bundleItem.productTitle}`}>{bundleItem.productTitle}{bundleItem.skuTitle ? ` · ${bundleItem.skuTitle}` : ''} ×{bundleItem.totalQuantity ?? bundleItem.quantityPerBundle ?? 1}</Text>)}</View> : null}</View><Text className='checkout-item__price'>¥{formatMoney(item.unitPrice * item.quantity)}</Text></View>;
+          })}<View className='checkout-group__summary'><Text>商品 ¥{formatMoney(group.goodsAmount)}</Text><Text>{group.shippingFee ? `运费 ¥${formatMoney(group.shippingFee)}` : '包邮'}</Text></View></View>)}
         </View>
 
         <View className='checkout-options aim-card'>
@@ -279,7 +294,7 @@ export default function CheckoutPage() {
 
         <View className='checkout-price aim-card'>
           <View><Text>商品金额</Text><Text>¥{formatMoney(preview.summary.totalGoodsAmount)}</Text></View>
-          <View><Text>运费</Text><Text>{preview.summary.totalShippingFee ? `¥${formatMoney(preview.summary.totalShippingFee)}` : '包邮'}</Text></View>
+          <View><Text>运费</Text><View className='checkout-price__shipping'><Text>{preview.summary.totalShippingFee ? `¥${formatMoney(preview.summary.totalShippingFee)}` : '包邮'}</Text>{preview.summary.totalShippingFee > 0 && typeof preview.summary.amountToFreeShipping === 'number' && preview.summary.amountToFreeShipping > 0 ? <Text>再买 ¥{formatMoney(preview.summary.amountToFreeShipping)} 可免运费</Text> : null}</View></View>
           {preview.summary.vipDiscount > 0 ? <View><Text>VIP 优惠</Text><Text className='checkout-price__minus'>-¥{formatMoney(preview.summary.vipDiscount)}</Text></View> : null}
           {preview.summary.totalDiscount > 0 ? <View><Text>红包优惠</Text><Text className='checkout-price__minus'>-¥{formatMoney(preview.summary.totalDiscount)}</Text></View> : null}
           {deduction > 0 ? <View><Text>消费积分</Text><Text className='checkout-price__minus'>-¥{formatMoney(deduction)}</Text></View> : null}

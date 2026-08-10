@@ -18,6 +18,7 @@ export type OrderStatus = FulfillmentOrderStatus | HistoricalOrderStatus;
 export type OrderListFilter = FulfillmentOrderStatus | 'afterSale' | 'shipping';
 export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE' | 'GROUP_BUY';
 export type OrderInvoiceStatus = 'REQUESTED' | 'ISSUED' | 'FAILED' | 'CANCELED';
+export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 export type OrderAfterSaleStatus =
   | 'applying'
   | 'reviewing'
@@ -91,6 +92,16 @@ export type Order = {
   buyerNote?: string | null;
   /** 小程序只区分本端微信支付与历史其他渠道，不提供其他渠道支付入口。 */
   paymentMethod?: 'wechat' | 'other';
+  merchantOrderNo?: string | null;
+  refundSummary?: {
+    id: string;
+    amount: number;
+    status: RefundStatus;
+    reason: string;
+    merchantRefundNo?: string | null;
+    providerRefundId?: string | null;
+    updatedAt?: string | null;
+  } | null;
   invoiceEligible?: boolean;
   invoiceStatus?: OrderInvoiceStatus | null;
   invoice?: {

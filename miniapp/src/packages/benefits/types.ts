@@ -3,6 +3,12 @@ export type MemberProfile = {
   referralCode: string | null;
   inviterUserId: string | null;
   inviter: { userId: string; nickname: string | null; maskedPhone: string | null } | null;
+  /**
+   * 推荐关系的服务端权威状态。会员中心必须依赖该字段，而不能只看
+   * inviterUserId（失效关系仍可能保留历史 inviterUserId）。
+   */
+  directReferralStatus: 'ACTIVE' | 'INVALIDATED_BY_INVITEE_VIP_UPGRADE' | 'SUPERSEDED_BY_VIP_TREE' | 'ADMIN_VOIDED' | null;
+  directReferralInviter: { id: string; nickname: string | null; buyerNo: string | null } | null;
   directReferralPercent?: number | null;
   inviteeVipCount: number;
   vipPurchasedAt: string | null;
@@ -186,5 +192,6 @@ export type VipCheckoutDraft = {
   giftOptionId: string;
   addressId: string;
   expectedTotal: number;
+  buyerNote?: string;
   createdAt: string;
 };

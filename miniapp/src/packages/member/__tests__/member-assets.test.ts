@@ -34,7 +34,7 @@ describe('member asset repo contracts', () => {
     postMock.mockReset();
   });
 
-  it('exposes only the unified wallet read model to member pages', async () => {
+  it('preserves the server-authoritative wallet sub-account read model', async () => {
     getMock.mockResolvedValue({
       ok: true,
       data: {
@@ -45,7 +45,17 @@ describe('member asset repo contracts', () => {
         withdrawableBalance: 120,
         vip: { balance: 50, frozen: 10 },
         normal: { balance: 70, frozen: 10 },
+        queueReward: { balance: 8, frozen: 2 },
         industryFund: { balance: 1, frozen: 0 },
+        isSellerOwner: true,
+        groupBuyRebate: {
+          balance: 10,
+          pending: 2,
+          reserved: 3,
+          withdrawn: 4,
+          deducted: 5,
+          total: 24,
+        },
       },
     });
 
@@ -57,7 +67,43 @@ describe('member asset repo contracts', () => {
         total: 140,
         deductibleBalance: 90,
         withdrawableBalance: 120,
+        vip: { balance: 50, frozen: 10 },
+        normal: { balance: 70, frozen: 10 },
+        queueReward: { balance: 8, frozen: 2 },
+        industryFund: { balance: 1, frozen: 0 },
+        isSellerOwner: true,
+        groupBuyRebate: {
+          balance: 10,
+          pending: 2,
+          reserved: 3,
+          withdrawn: 4,
+          deducted: 5,
+          total: 24,
+        },
       },
+    });
+  });
+
+  it('fails closed when the wallet omits a required sub-account', async () => {
+    getMock.mockResolvedValue({
+      ok: true,
+      data: {
+        balance: 120,
+        frozen: 20,
+        total: 140,
+        deductibleBalance: 90,
+        withdrawableBalance: 120,
+        isSellerOwner: false,
+        vip: { balance: 50, frozen: 10 },
+        normal: { balance: 70, frozen: 10 },
+        industryFund: null,
+        groupBuyRebate: { balance: 0, pending: 0, reserved: 0, withdrawn: 0, deducted: 0, total: 0 },
+      },
+    });
+
+    await expect(MemberWalletRepo.getWallet()).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_CONTRACT' },
     });
   });
 

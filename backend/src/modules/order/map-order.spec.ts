@@ -40,6 +40,17 @@ describe('OrderService.mapOrder snapshot', () => {
     expect(out.deliveredAt).toBeNull();
   });
 
+  it('mapOrderDetail exposes the server-owned merchant order number for payment receipts', () => {
+    const order = {
+      id: 'o-receipt', status: 'PAID', bizType: 'NORMAL_GOODS', totalAmount: 100,
+      createdAt: new Date(), items: [], afterSaleRequests: [], refunds: [], shipments: [],
+      payments: [{ channel: 'WECHAT_PAY' }],
+      checkoutSession: { merchantOrderNo: 'CS-RECEIPT-1' },
+    };
+    const out = (service as any).mapOrderDetail(order);
+    expect(out.merchantOrderNo).toBe('CS-RECEIPT-1');
+  });
+
   it('mapOrder includes companyName from companyMap', () => {
     const order = {
       id: 'o1', status: 'PAID', bizType: 'NORMAL_GOODS', totalAmount: 100,

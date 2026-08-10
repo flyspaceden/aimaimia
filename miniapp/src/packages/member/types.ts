@@ -1,11 +1,32 @@
 import type { PageResult } from '@/types/pagination';
 
+export type WalletAccountSummary = {
+  balance: number;
+  frozen: number;
+};
+
+export type GroupBuyRebateSummary = {
+  balance: number;
+  pending: number;
+  reserved: number;
+  withdrawn: number;
+  deducted: number;
+  total: number;
+};
+
+/** /bonus/wallet 的服务端权威读模型；不要丢弃分账户余额。 */
 export type WalletSummary = {
   balance: number;
   frozen: number;
   total: number;
-  deductibleBalance?: number;
-  withdrawableBalance?: number;
+  deductibleBalance: number;
+  withdrawableBalance: number;
+  isSellerOwner: boolean;
+  vip: WalletAccountSummary;
+  normal: WalletAccountSummary;
+  queueReward: WalletAccountSummary;
+  industryFund: WalletAccountSummary | null;
+  groupBuyRebate: GroupBuyRebateSummary;
 };
 
 export type WalletLedgerEntry = {

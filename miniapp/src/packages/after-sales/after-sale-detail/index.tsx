@@ -262,7 +262,7 @@ export default function AfterSaleDetailPage() {
         {!id ? (
           <CatalogFeedback
             kind='error'
-            title='售后参数缺失'
+            title='未找到售后服务单'
             description='请从售后列表重新进入'
           />
         ) : detailQuery.isLoading ? (
@@ -445,7 +445,7 @@ function AfterSaleDetailBody({
                 <View className='after-sale-payment-boundary'>
                   <Text>需要先支付退货运费</Text>
                   <Text>
-                    仅调起当前小程序的微信支付，不会使用其他端支付参数。
+                    审核通过后，请先完成退货运费支付，再获取寄回指引。
                   </Text>
                 </View>
               ) : null}

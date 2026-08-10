@@ -79,7 +79,7 @@ export default function WalletPage() {
       <View className='member-link-card aim-card' onClick={() => Taro.navigateTo({ url: '/packages/member/digital-assets/index' })}><Text className='member-link-card__mark member-link-card__mark--blue'>资</Text><View><Text className='member-link-card__title'>数字资产</Text><Text className='member-link-card__meta'>累计消费资产</Text></View></View>
     </View>
 
-    <View className='member-section-head'><Text>钱包流水</Text><Text>以服务端记录为准</Text></View>
+    <View className='member-section-head'><Text>钱包流水</Text><Text>实时记录</Text></View>
     <ScrollView className='member-filter-scroll' scrollX enhanced showScrollbar={false}>
       <View className='member-filter-row'>{FILTERS.map((item) => <View key={item.key} className={filter === item.key ? 'member-filter member-filter--active' : 'member-filter'} onClick={() => setFilter(item.key)}><Text>{item.label}</Text></View>)}</View>
     </ScrollView>
@@ -91,8 +91,8 @@ export default function WalletPage() {
           <View className='member-ledger-row__main'><Text className='member-ledger-row__title'>{item.title}</Text><Text className='member-ledger-row__meta'>{item.description} · {formatDateTime(entry.createdAt)}</Text></View>
           <Text className={`member-ledger-row__amount member-ledger-row__amount--${item.tone}`}>{item.amount > 0 ? '+' : ''}{formatMoney(item.amount)}</Text>
         </View>;
-      }) : <MemberFeedback kind='empty' title='暂无相关流水' description='当前筛选下没有服务端记录' />}
+      }) : <MemberFeedback kind='empty' title='暂无相关流水' description='当前筛选下没有记录' />}
     </View>
-    {ledgerQuery.hasNextPage ? <Button className='member-load-more' loading={ledgerQuery.isFetchingNextPage} onClick={() => ledgerQuery.fetchNextPage()}>{ledgerQuery.isFetchingNextPage ? '加载中...' : '加载更多'}</Button> : entries.length ? <Text className='member-list-end'>已显示全部服务端记录</Text> : null}
+    {ledgerQuery.hasNextPage ? <Button className='member-load-more' loading={ledgerQuery.isFetchingNextPage} onClick={() => ledgerQuery.fetchNextPage()}>{ledgerQuery.isFetchingNextPage ? '加载中...' : '加载更多'}</Button> : entries.length ? <Text className='member-list-end'>已显示全部记录</Text> : null}
   </View>;
 }

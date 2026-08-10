@@ -721,6 +721,9 @@ export class OrderService {
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' }, take: 1 },
         refunds: { orderBy: { createdAt: 'desc' }, take: 1 },
+        checkoutSession: {
+          select: { merchantOrderNo: true },
+        },
         afterSaleRequests: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -3231,6 +3234,7 @@ export class OrderService {
             ? 'bankcard'
             : 'alipay'
         : undefined,
+      merchantOrderNo: order.checkoutSession?.merchantOrderNo ?? null,
       buyerNote: order.buyerNote ?? null,
       logisticsStatus: logistics.logisticsStatus,
       trackingNo: logistics.trackingNo,

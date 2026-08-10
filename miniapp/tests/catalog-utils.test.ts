@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  catalogCardStockText,
   catalogStockText,
+  buildProductUnitLabel,
+  buildProductWeightLabel,
   companyProductToProduct,
   defaultSelectedSkuId,
   filterCompanies,
@@ -34,9 +37,24 @@ describe('catalog presentation contracts', () => {
 
   it('uses bundle available stock instead of a synthetic product stock', () => {
     expect(resolveProductStock({ type: 'BUNDLE', stock: 99, bundleAvailableStock: 3 })).toBe(3);
+    expect(resolveProductStock({ type: 'BUNDLE', stock: 4 })).toBe(4);
     expect(resolveProductStock({ type: 'SIMPLE', stock: 99 })).toBe(99);
     expect(catalogStockText(0)).toBe('暂时缺货');
     expect(catalogStockText(7)).toBe('仅剩 7 件');
+    expect(catalogCardStockText(0)).toBe('已售完');
+    expect(catalogCardStockText(7)).toBe('仅剩 7 件');
+    expect(catalogCardStockText(11)).toBeUndefined();
+    expect(catalogCardStockText(6, 5)).toBeUndefined();
+    expect(catalogCardStockText(5, 5)).toBe('仅剩 5 件');
+    expect(catalogCardStockText(5, 0)).toBeUndefined();
+    expect(catalogCardStockText(undefined)).toBeUndefined();
+  });
+
+  it('matches the App unit and packaging labels', () => {
+    expect(buildProductUnitLabel('斤')).toBe('单位 斤');
+    expect(buildProductUnitLabel('  ')).toBeUndefined();
+    expect(buildProductWeightLabel(400)).toBe('包装重量 400克');
+    expect(buildProductWeightLabel(null)).toBeUndefined();
   });
 
   it('does not preselect one of multiple SKUs and shows a real minimum price', () => {

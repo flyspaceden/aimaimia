@@ -72,7 +72,7 @@ export default function ReceiverInfoPage() {
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page'><CatalogFeedback kind='empty' title='请先登录' description='登录后才能修改订单收货信息' actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(`/packages/orders/receiver-info/index?id=${orderId}`)}` })} /></View>;
-  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单参数缺失' description='请从订单详情重新进入' /></View>;
+  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单信息缺失' description='请从订单详情重新进入' /></View>;
   if (orderQuery.isLoading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!order) return <View className='aim-page'><CatalogFeedback kind='error' title='订单加载失败' description={orderQuery.data && !orderQuery.data.ok ? orderQuery.data.error.displayMessage : '请稍后重试'} onRetry={() => orderQuery.refetch()} /></View>;
   if (order.status !== 'PAID' || !order.receiverInfoEditable) return <View className='aim-page'><CatalogFeedback kind='error' title='已无法修收货信息' description='只有已付款且尚未发货的订单可修改' /></View>;

@@ -1,7 +1,7 @@
 import { Text, View } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SeafoodImage, type SeafoodImageName } from '@/components/SeafoodImage';
 import { CheckoutRepo, OrderRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
@@ -18,7 +18,7 @@ const orderEntries: Array<Entry & { countKey: 'PAID' | 'SHIPPED' | 'DELIVERED' |
   { label: '待发货', image: 'icon-order-lobster', url: '/packages/orders/order-list/index?status=PAID', countKey: 'PAID' },
   { label: '已发货', image: 'icon-order-fish', url: '/packages/orders/order-list/index?status=SHIPPED', countKey: 'SHIPPED' },
   { label: '待收货', image: 'icon-order-crab', url: '/packages/orders/order-list/index?status=DELIVERED', countKey: 'DELIVERED' },
-  { label: '换货/售后', image: 'icon-order-scallop', url: '/packages/orders/order-list/index?status=afterSale', countKey: 'afterSale' },
+  { label: '换货/售后', image: 'icon-order-scallop', url: '/packages/after-sales/after-sale-list/index', countKey: 'afterSale' },
   { label: '已完成', image: 'icon-order-puffer', url: '/packages/orders/order-list/index?status=RECEIVED', countKey: 'RECEIVED' },
 ];
 
@@ -39,6 +39,12 @@ export default function MePage() {
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const authRevision = useAuthStore((state) => state.revision);
   const fingerprint = useMemo(getDeviceFingerprint, []);
+  const [now, setNow] = useState(Date.now());
+  const [vipEducationOpen, setVipEducationOpen] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const countsQuery = useQuery({
     queryKey: ['me', 'order-counts', authRevision],
@@ -98,6 +104,13 @@ export default function MePage() {
       ? '今日已参与 · 明天再来'
       : `今天还有 ${lottery.remainingDraws} 次机会`
     : '进入抽奖页查看今日机会';
+  const pendingCountdown = pending ? (() => {
+    const seconds = Math.max(0, Math.ceil((Date.parse(pending.expiresAt) - now) / 1_000));
+    return seconds > 0 ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '已超时';
+  })() : '';
+  const directReferralPercentText = typeof member?.directReferralPercent === 'number'
+    ? `${Number.isInteger(member.directReferralPercent * 100) ? (member.directReferralPercent * 100).toFixed(0) : (member.directReferralPercent * 100).toFixed(2)}%`
+    : '';
 
   const tools = useMemo<Entry[]>(() => [
     { label: '推荐中心', image: 'icon-tool-seahorse', url: '/packages/referral/center/index' },
@@ -128,7 +141,11 @@ export default function MePage() {
       void Taro.showToast({ title: '会员状态加载中', icon: 'none' });
       return;
     }
-    void requireLogin({ url: member?.tier === 'VIP' ? '/packages/benefits/vip-center/index' : '/packages/benefits/vip-gifts/index' });
+    if (member?.tier === 'VIP') {
+      void requireLogin({ url: '/packages/benefits/vip-center/index' });
+      return;
+    }
+    setVipEducationOpen(true);
   };
 
   const refresh = () => {
@@ -193,7 +210,7 @@ export default function MePage() {
           <View className='me-order-entry' onClick={() => { void requireLogin({ url: `/packages/commerce/checkout-pending/index?sessionId=${encodeURIComponent(pending.sessionId)}` }); }}>
             <View className='me-order-entry__pending'>待</View>
             <Text>未完成支付</Text>
-            <Text className='me-order-entry__pending-meta'>¥{pending.expectedTotal.toFixed(2)}</Text>
+            <Text className='me-order-entry__pending-meta'>{pendingCountdown}</Text>
           </View>
         ) : null}
         {orderEntries.map((entry) => {
@@ -242,6 +259,20 @@ export default function MePage() {
           ))}
         </View>
       </View>
+      {vipEducationOpen ? <View className='me-vip-modal' onClick={() => setVipEducationOpen(false)}>
+        <View className='me-vip-modal__card' onClick={(event) => event.stopPropagation()}>
+          <View className='me-vip-modal__crown'>冠</View>
+          <Text className='me-vip-modal__title'>VIP 会员权益</Text>
+          <View className='me-vip-modal__perks'>
+            <Text>✓ 普通商品会员价</Text>
+            <Text>✓ 更低包邮门槛</Text>
+            <Text>✓ 消费积分抵扣更多</Text>
+            <Text>✓ 推荐 VIP 奖励{directReferralPercentText ? ` · 直推 ${directReferralPercentText}` : ''}</Text>
+          </View>
+          <View className='me-vip-modal__button' onClick={() => { setVipEducationOpen(false); void requireLogin({ url: '/packages/benefits/vip-gifts/index' }); }}><Text>购买 VIP 礼包</Text></View>
+          <Text className='me-vip-modal__close' onClick={() => setVipEducationOpen(false)}>暂不购买</Text>
+        </View>
+      </View> : null}
     </View>
   );
 }

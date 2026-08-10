@@ -53,17 +53,37 @@ export function newCheckoutIdempotencyKey(): string {
   return `mini-checkout-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function selectedCartItems(items: CartItem[]): CartItem[] {
+export type CartPrizeSelections = Readonly<Record<string, boolean>>;
+
+export function isCartItemSelected(
+  item: CartItem,
+  prizeSelections: CartPrizeSelections = {},
+): boolean {
+  if (!item.isPrize) return item.isSelected === true;
+  const localSelection = prizeSelections[item.id];
+  return typeof localSelection === 'boolean' ? localSelection : item.isSelected !== false;
+}
+
+export function selectedCartItems(
+  items: CartItem[],
+  prizeSelections: CartPrizeSelections = {},
+): CartItem[] {
   const selectedNonPrizeTotal = items
     .filter((item) => !item.isPrize && item.isSelected && isCartItemPurchasable(item))
     .reduce((total, item) => total + Number(item.product.price || 0) * item.quantity, 0);
-  return items.filter(
-    (item) => item.isSelected && isCartItemPurchasable(item, selectedNonPrizeTotal),
-  );
+  return items.filter((item) => {
+    if (!isCartItemPurchasable(item, selectedNonPrizeTotal)) return false;
+    // 门槛赠品解锁后强制进入结算，与 App 保持一致，不受旧 isSelected 值影响。
+    if (item.isPrize && item.threshold) return true;
+    return isCartItemSelected(item, prizeSelections);
+  });
 }
 
-export function selectedCartTotal(items: CartItem[]): number {
-  return selectedCartItems(items).reduce(
+export function selectedCartTotal(
+  items: CartItem[],
+  prizeSelections: CartPrizeSelections = {},
+): number {
+  return selectedCartItems(items, prizeSelections).reduce(
     (total, item) => total + Number(item.product.price || 0) * item.quantity,
     0,
   );

@@ -37,7 +37,7 @@ export default function OrderTrackPage() {
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page'><CatalogFeedback kind='empty' title='请先登录' description='登录后才能查看物流' actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(`/packages/orders/order-track/index?orderId=${orderId}`)}` })} /></View>;
-  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单参数缺失' description='请从订单详情重新进入' /></View>;
+  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单信息缺失' description='请从订单详情重新进入' /></View>;
   if (shipmentQuery.isLoading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!shipmentQuery.data || !shipmentQuery.data.ok) return <View className='aim-page'><CatalogFeedback kind='error' title='物流加载失败' description={shipmentQuery.data && !shipmentQuery.data.ok ? shipmentQuery.data.error.displayMessage : '请稍后重试'} onRetry={() => shipmentQuery.refetch()} /></View>;
 

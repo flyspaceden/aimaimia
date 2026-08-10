@@ -63,6 +63,16 @@
 .me-tool > text { margin-top: 6px; color: t.$text-secondary; font-size: 9px; text-align: center; }
 .me-tool__badge { top: -4px; right: -6px; }
 
+.me-vip-modal { position: fixed; z-index: 100; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(8, 24, 14, .62); }
+.me-vip-modal__card { position: relative; width: 100%; max-width: 340px; padding: 25px 22px 20px; overflow: hidden; text-align: center; background: linear-gradient(145deg, #2e7d32, #155d37); border: 1px solid rgba(255, 215, 0, .28); border-radius: 22px; box-shadow: 0 24px 70px rgba(0, 0, 0, .28); }
+.me-vip-modal__card::before { position: absolute; top: -75px; right: -40px; width: 180px; height: 180px; content: ''; background: rgba(255, 215, 0, .1); border-radius: 50%; }
+.me-vip-modal__crown { position: relative; display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; margin: 0 auto; color: #ffd65a; font-size: 18px; font-weight: 850; background: rgba(255, 215, 0, .16); border: 1px solid rgba(255, 215, 0, .35); border-radius: 50%; }
+.me-vip-modal__title { position: relative; display: block; margin-top: 14px; color: #fff; font-size: 21px; font-weight: 800; }
+.me-vip-modal__perks { position: relative; display: grid; gap: 10px; margin-top: 18px; text-align: left; }
+.me-vip-modal__perks text { color: rgba(255,255,255,.92); font-size: 12px; line-height: 18px; }
+.me-vip-modal__button { position: relative; margin-top: 22px; padding: 13px 18px; color: #fff; font-size: 14px; font-weight: 750; background: linear-gradient(90deg, #c99800, #f3c83b); border-radius: t.$radius-full; box-shadow: 0 8px 22px rgba(178, 131, 0, .3); }
+.me-vip-modal__close { position: relative; display: block; margin-top: 13px; color: rgba(255,255,255,.68); font-size: 11px; }
+
 @media (max-width: 355px) {
   .me-order-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
   .me-tools__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

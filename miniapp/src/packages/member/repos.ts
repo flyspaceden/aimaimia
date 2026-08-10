@@ -39,21 +39,31 @@ function normalize<T>(result: Result<unknown>, guard: (value: unknown) => value 
   return guard(result.data) ? { ok: true, data: result.data } : invalidContract(name);
 }
 
+function isWalletAccount(value: unknown): boolean {
+  return isObject(value) && isFiniteNumber(value.balance) && isFiniteNumber(value.frozen);
+}
+
+function isGroupBuyRebate(value: unknown): boolean {
+  return isObject(value)
+    && isFiniteNumber(value.balance)
+    && isFiniteNumber(value.pending)
+    && isFiniteNumber(value.reserved)
+    && isFiniteNumber(value.withdrawn)
+    && isFiniteNumber(value.deducted)
+    && isFiniteNumber(value.total);
+}
+
 function isWallet(value: unknown): value is WalletSummary {
   if (!isObject(value)) return false;
   return isFiniteNumber(value.balance) && isFiniteNumber(value.frozen) && isFiniteNumber(value.total)
-    && (value.deductibleBalance === undefined || isFiniteNumber(value.deductibleBalance))
-    && (value.withdrawableBalance === undefined || isFiniteNumber(value.withdrawableBalance));
-}
-
-function publicWallet(value: WalletSummary): WalletSummary {
-  return {
-    balance: value.balance,
-    frozen: value.frozen,
-    total: value.total,
-    ...(value.deductibleBalance === undefined ? {} : { deductibleBalance: value.deductibleBalance }),
-    ...(value.withdrawableBalance === undefined ? {} : { withdrawableBalance: value.withdrawableBalance }),
-  };
+    && isFiniteNumber(value.deductibleBalance)
+    && isFiniteNumber(value.withdrawableBalance)
+    && typeof value.isSellerOwner === 'boolean'
+    && isWalletAccount(value.vip)
+    && isWalletAccount(value.normal)
+    && isWalletAccount(value.queueReward)
+    && (value.industryFund === null || isWalletAccount(value.industryFund))
+    && isGroupBuyRebate(value.groupBuyRebate);
 }
 
 function isWalletLedgerEntry(value: unknown): value is WalletLedgerEntry {
@@ -149,8 +159,7 @@ function isDigitalSummary(value: unknown): value is DigitalAssetSummary {
 
 export const MemberWalletRepo = {
   async getWallet(): Promise<Result<WalletSummary>> {
-    const result = normalize(await ApiClient.get<unknown>('/bonus/wallet'), isWallet, 'wallet');
-    return result.ok ? { ok: true, data: publicWallet(result.data) } : result;
+    return normalize(await ApiClient.get<unknown>('/bonus/wallet'), isWallet, 'wallet');
   },
   async getLedger(page = 1, pageSize = 20): Promise<Result<WalletLedgerPage>> {
     return normalize(

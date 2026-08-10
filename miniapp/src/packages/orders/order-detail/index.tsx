@@ -26,6 +26,19 @@ const INVOICE_STATUS_LABELS: Record<NonNullable<Order['invoiceStatus']>, string>
   CANCELED: '开票申请已取消',
 };
 
+function refundStatusText(refund: NonNullable<Order['refundSummary']>): string {
+  const amount = formatMoney(refund.amount);
+  const labels: Record<typeof refund.status, string> = {
+    REQUESTED: '退款申请已提交，等待审核',
+    APPROVED: `退款已同意，处理中 ¥${amount}`,
+    REJECTED: '退款申请被拒绝，请联系客服',
+    REFUNDING: `退款处理中 ¥${amount}，预计 1-3 个工作日到账`,
+    REFUNDED: `已原路退回 ¥${amount}`,
+    FAILED: '退款失败，请联系客服处理',
+  };
+  return labels[refund.status];
+}
+
 function Section({ index, title, children, action }: { index: string; title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return <View className='order-detail-section aim-card'><View className='order-detail-section__head'><View className='order-detail-section__index'>{index}</View><Text className='order-detail-section__title'>{title}</Text>{action}</View>{children}</View>;
 }
@@ -98,7 +111,7 @@ export default function OrderDetailPage() {
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page'><CatalogFeedback kind='empty' title='请先登录' description='登录后才能查看订单详情' actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(`/packages/orders/order-detail/index?id=${orderId}`)}` })} /></View>;
-  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单参数缺失' description='请从订单列表重新进入' /></View>;
+  if (!orderId) return <View className='aim-page'><CatalogFeedback kind='error' title='订单信息缺失' description='请从订单列表重新进入' /></View>;
   if (orderQuery.isLoading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!order) return <View className='aim-page'><CatalogFeedback kind='error' title='订单加载失败' description={orderQuery.data && !orderQuery.data.ok ? orderQuery.data.error.displayMessage : '请稍后重试'} onRetry={() => orderQuery.refetch()} /></View>;
 
@@ -109,6 +122,7 @@ export default function OrderDetailPage() {
   const existingInvoice = order.invoice;
   const invoiceStatus = existingInvoice?.status ?? order.invoiceStatus ?? null;
   const existingAfterSale = order.afterSaleSummary;
+  const refund = order.refundSummary;
   const replacementConfirmable = canConfirmReplacementOrder(order);
   const repurchaseAllowed = canRepurchaseOrder(order) && !replacementConfirmable;
   const busy = confirmMutation.isPending || cancelMutation.isPending || repurchaseMutation.isPending || confirmReplacementMutation.isPending;
@@ -119,6 +133,7 @@ export default function OrderDetailPage() {
     <ScrollView className='order-detail-scroll' scrollY enhanced refresherEnabled refresherTriggered={orderQuery.isRefetching} onRefresherRefresh={() => orderQuery.refetch()}>
       <View className={`order-detail-hero order-detail-hero--${meta.tone}`}><Text className='order-detail-hero__eyebrow'>订单履约进度</Text><Text className='order-detail-hero__status'>{meta.label}</Text><Text className='order-detail-hero__hint'>{meta.hint}</Text>{order.status === 'PENDING_PAYMENT' ? <View className='order-detail-hero__history'>历史待支付记录不支持续付，请重新选购商品</View> : null}</View>
       <View className='order-detail-content'>
+        {refund ? <View className={refund.status === 'FAILED' || refund.status === 'REJECTED' ? 'order-refund-card order-refund-card--alert aim-card' : 'order-refund-card aim-card'}><View className='order-refund-card__icon'>退</View><View><Text className='order-refund-card__title'>{refundStatusText(refund)}</Text><Text className='order-refund-card__reason'>{refund.reason || '退款进度以原支付渠道实际处理结果为准'}</Text></View></View> : null}
         <Section index='01' title='物流进度' action={logistics ? <Text className='order-detail-section__link' onClick={() => Taro.navigateTo({ url: `/packages/orders/order-track/index?orderId=${encodeURIComponent(order.id)}` })}>全部轨迹 ›</Text> : null}>
           {logistics?.latestEventMessage ? <View className='order-logistics-brief' onClick={() => Taro.navigateTo({ url: `/packages/orders/order-track/index?orderId=${encodeURIComponent(order.id)}` })}><View className='order-logistics-brief__dot' /><View><Text>{logistics.latestEventMessage}</Text><Text>{formatOrderTime(logistics.latestEventTime)}</Text></View></View> : <Text className='order-detail-empty-line'>{order.status === 'PAID' ? '商家备货中，暂无物流轨迹' : '暂无物流信息'}</Text>}
         </Section>
@@ -147,7 +162,7 @@ export default function OrderDetailPage() {
         <Section index='07' title='可用操作'>
           <Text className='order-detail-empty-line'>{replacementConfirmable ? '换货商品已发出，请收货后确认' : existingAfterSale ? '该订单已有售后记录，可进入查看处理进度' : invoiceStatus ? INVOICE_STATUS_LABELS[invoiceStatus] : order.status === 'PENDING_PAYMENT' ? '仅可查看历史记录' : canCancelPaidOrder(order) ? '发货前可修收货信息或取消并申请退款' : canConfirmOrder(order) ? '可查看物流并确认收货' : repurchaseAllowed ? '可按当前库存和价格再次购买' : '当前没有可执行的订单操作'}</Text>
           {order.status !== 'PENDING_PAYMENT' ? <View className='order-detail-service-actions'>
-            {existingAfterSale ? <Button onClick={() => Taro.navigateTo({ url: `/packages/after-sales/after-sale-detail/index?id=${encodeURIComponent(existingAfterSale.id)}` })}>查看售后</Button> : ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'].includes(order.status) ? <Button onClick={() => Taro.navigateTo({ url: `/packages/after-sales/after-sale-apply/index?orderId=${encodeURIComponent(order.id)}` })}>申请售后</Button> : null}
+            {existingAfterSale ? <Button onClick={() => Taro.navigateTo({ url: `/packages/after-sales/after-sale-detail/index?id=${encodeURIComponent(existingAfterSale.id)}` })}>查看售后</Button> : order.bizType !== 'VIP_PACKAGE' && order.bizType !== 'GROUP_BUY' && ['DELIVERED', 'RECEIVED'].includes(order.status) && order.items.some((item) => !item.isPrize) ? <Button onClick={() => Taro.navigateTo({ url: `/packages/after-sales/after-sale-apply/index?orderId=${encodeURIComponent(order.id)}` })}>申请售后</Button> : null}
             <Button onClick={() => Taro.navigateTo({ url: '/packages/after-sales/after-sale-list/index' })}>售后记录</Button>
             {invoiceStatus ? <Button onClick={() => Taro.navigateTo({ url: existingInvoice?.id ? `/packages/invoices/invoice-detail/index?id=${encodeURIComponent(existingInvoice.id)}` : '/packages/invoices/invoice-list/index' })}>查看发票</Button> : order.invoiceEligible === true ? <Button onClick={() => Taro.navigateTo({ url: `/packages/invoices/invoice-request/index?orderId=${encodeURIComponent(order.id)}` })}>申请发票</Button> : null}
             <Button onClick={() => Taro.navigateTo({ url: `/packages/customer-service/chat/index?source=ORDER_DETAIL&sourceId=${encodeURIComponent(order.id)}` })}>订单客服</Button>

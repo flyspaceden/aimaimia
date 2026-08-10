@@ -12,6 +12,8 @@
 .catalog-product-price__value { font-size: 30px; font-weight: 800; line-height: 36px; }
 .catalog-product-price__from { margin-left: 3px; font-size: 12px; }
 .catalog-product-price__strike { margin-left: 9px; color: t.$text-tertiary; font-size: 12px; text-decoration: line-through; }
+.catalog-product-price__meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.catalog-product-price__meta text { padding: 3px 8px; color: t.$text-secondary; font-size: 9px; background: t.$background; border-radius: t.$radius-full; }
 .catalog-product-price__stats { display: flex; gap: 8px; margin-top: 7px; }
 .catalog-product-price__stats text { padding: 3px 8px; color: t.$brand-primary; font-size: 10px; background: t.$brand-soft; border-radius: t.$radius-full; }
 .catalog-product-price__policy { display: block; margin-top: 8px; color: t.$text-tertiary; font-size: 10px; }
@@ -28,6 +30,8 @@
 .catalog-product-sku--active { color: t.$brand-primary; background: t.$brand-soft; border-color: t.$brand-primary; box-shadow: 0 4px 12px rgba(46,125,50,.11); }
 .catalog-product-sku__title { display: block; font-size: 13px; font-weight: 600; }
 .catalog-product-sku__meta { display: block; margin-top: 3px; color: inherit; font-size: 10px; }
+.catalog-product-sku__stock { display: block; margin-top: 3px; color: #a16d00; font-size: 10px; }
+.catalog-product-sku__stock--out { color: #a04b42; }
 .catalog-product-section__tip, .catalog-product-section__stock { display: block; margin-top: 8px; color: #a16d00; font-size: 11px; }
 .catalog-product-section__stock--out { color: #a04b42; }
 .catalog-bundle-row { display: flex; align-items: center; padding-top: 13px; }

@@ -84,18 +84,29 @@
 .home-vip__header { display: flex; align-items: center; justify-content: space-between; }
 .home-vip__header text:first-child { color: t.$text-primary; font-size: 17px; font-weight: 700; }
 .home-vip__header text:last-child { color: t.$text-tertiary; font-size: 10px; }
-.home-vip__scroll { width: calc(100% + 32px); margin: 12px 0 0 -16px; }
-.home-vip__row { display: flex; gap: 8px; width: max-content; padding: 2px 16px 8px; }
-.home-vip-card { position: relative; width: 225px; height: 132px; padding: 12px; overflow: hidden; background: linear-gradient(140deg, #fffdf5, #fff8e1 60%, #fff1c8); border: 1px solid t.$brand-primary; border-radius: t.$radius-lg; box-shadow: 0 5px 16px rgba(109,79,12,.08); }
+.home-vip__marquee { width: calc(100% + 32px); margin: 12px 0 0 -16px; padding: 2px 0 8px 16px; overflow: hidden; }
+.home-vip__track { display: flex; width: max-content; animation-name: home-vip-marquee; animation-timing-function: linear; animation-iteration-count: infinite; will-change: transform; }
+.home-vip__track--1 { animation: none; }
+.home-vip__track--2 { animation-duration: 18s; }
+.home-vip__track--3 { animation-duration: 27s; }
+.home-vip__track--paused { animation-play-state: paused; }
+.home-vip__group { display: flex; flex: 0 0 auto; }
+.home-vip-card { position: relative; width: 58vw; min-width: 204px; max-width: 246px; height: 132px; padding: 12px; overflow: hidden; background: linear-gradient(140deg, #fffdf5, #fff8e1 60%, #fff1c8); border: 1px solid t.$brand-primary; border-radius: t.$radius-lg; box-shadow: 0 5px 16px rgba(109,79,12,.08); }
+.home-vip-card { flex: 0 0 auto; margin-right: 8px; }
 .home-vip-card::after { position: absolute; right: -38px; bottom: -42px; width: 118px; height: 118px; background: rgba(212,160,23,.1); border-radius: 50%; content: ''; }
 .home-vip-card__top { position: relative; z-index: 1; display: flex; align-items: center; }
 .home-vip-card__top > text:nth-child(2) { margin-left: 6px; color: t.$text-secondary; font-size: 10px; }
 .home-vip-card__price { color: #b8860b; font-size: 22px; font-weight: 800; }
 .home-vip-card__gift { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: auto; color: t.$brand-primary; font-size: 12px; font-weight: 800; background: rgba(46,125,50,.08); border: 1px solid t.$brand-primary; border-radius: 50%; }
 .home-vip-card__title-row { position: relative; z-index: 1; display: flex; align-items: center; margin-top: 8px; }
-.home-vip-card__title-row text:first-child { flex: 1; overflow: hidden; color: #155d37; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.home-vip-card__title-row text:last-child { margin-left: 7px; padding: 2px 6px; color: #155d37; font-size: 8px; background: t.$brand-soft; border: 1px solid t.$brand-primary; border-radius: t.$radius-full; }
-.home-vip-card__subtitle { position: relative; z-index: 1; display: -webkit-box; margin-top: 5px; overflow: hidden; color: t.$text-secondary; font-size: 10px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.home-vip-card__title-row text:first-child { flex: 1; min-width: 0; overflow: hidden; color: #155d37; font-size: 15px; font-weight: 700; line-height: 19px; text-overflow: ellipsis; white-space: nowrap; }
+.home-vip-card__title-row text:last-child { max-width: 54px; margin-left: 7px; padding: 2px 7px; overflow: hidden; color: #155d37; font-size: 10px; font-weight: 600; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; background: t.$brand-soft; border: 1px solid t.$brand-primary; border-radius: t.$radius-full; }
+.home-vip-card__subtitle { position: relative; z-index: 1; display: -webkit-box; margin-top: 5px; overflow: hidden; color: t.$text-secondary; font-size: 13px; line-height: 17px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+@keyframes home-vip-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
 
 @media (max-width: 355px) {
   .home-heading__statement { font-size: 23px; line-height: 31px; }

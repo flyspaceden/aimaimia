@@ -11,6 +11,12 @@
 .order-detail-hero__hint { display: block; max-width: 280px; margin-top: 6px; font-size: 11px; line-height: 18px; opacity: .9; }
 .order-detail-hero__history { display: inline-flex; margin-top: 13px; padding: 7px 10px; font-size: 9px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); border-radius: 9px; }
 .order-detail-content { padding: 12px 14px calc(102px + env(safe-area-inset-bottom)); }
+.order-refund-card { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 11px; padding: 13px 15px; border-color: rgba(46,125,50,.18); }
+.order-refund-card__icon { display: flex; flex: 0 0 30px; align-items: center; justify-content: center; width: 30px; height: 30px; color: t.$brand-primary; font-size: 10px; font-weight: 800; background: t.$brand-soft; border-radius: 50%; }
+.order-refund-card__title { display: block; color: t.$text-primary; font-size: 12px; font-weight: 700; line-height: 18px; }
+.order-refund-card__reason { display: block; margin-top: 3px; color: t.$text-secondary; font-size: 10px; line-height: 16px; }
+.order-refund-card--alert { border-color: rgba(160,75,66,.24); }
+.order-refund-card--alert .order-refund-card__icon { color: #a04b42; background: #fff1ef; }
 .order-detail-section { margin-bottom: 11px; padding: 15px; }
 .order-detail-section__head { display: flex; align-items: center; margin-bottom: 12px; }
 .order-detail-section__index { display: flex; align-items: center; justify-content: center; width: 27px; height: 27px; margin-right: 8px; color: t.$brand-primary; font-size: 9px; font-weight: 800; background: linear-gradient(135deg, t.$brand-soft, t.$ai-soft); border-radius: 9px 9px 9px 3px; }

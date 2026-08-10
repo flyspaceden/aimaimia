@@ -81,3 +81,9 @@ export type ProductListQuery = PageQuery & {
   flavorPreference?: string;
   categoryHint?: string;
 };
+
+export type RecommendationItem = {
+  id: string;
+  product: Product;
+  reason: string;
+};

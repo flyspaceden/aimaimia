@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro';
 import type { CartMergeItem, CheckoutSession } from '@/types';
-import type { GrowthExchangeRecord, PendingPrizeClaim, QueueRewardStatus, VipCheckoutDraft } from './types';
+import type { GrowthExchangeRecord, MemberProfile, PendingPrizeClaim, QueueRewardStatus, VipCheckoutDraft } from './types';
 
 const environment = process.env.TARO_APP_ENV || 'development';
 const FINGERPRINT_KEY = `aimai-benefits-fingerprint-v1:${environment}`;
@@ -26,6 +26,18 @@ export function formatPercent(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '以平台规则为准';
   const percent = value * 100;
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+}
+
+/** 推荐关系以后端状态为准，不能只看仍被保留的历史 inviterUserId。 */
+export function hasActiveReferral(member?: MemberProfile): boolean {
+  if (!member) return false;
+  if (member.directReferralStatus === 'INVALIDATED_BY_INVITEE_VIP_UPGRADE'
+    || member.directReferralStatus === 'ADMIN_VOIDED') return false;
+  return Boolean(
+    member.directReferralInviter?.id
+    || member.inviter?.userId
+    || member.inviterUserId,
+  );
 }
 
 export function benefitsLoginUrl(returnUrl: string): string {
@@ -111,7 +123,8 @@ export function readVipCheckoutDraft(userId: string): VipCheckoutDraft | undefin
   if (!value || typeof value !== 'object' || value.userId !== userId
     || typeof value.idempotencyKey !== 'string' || typeof value.packageId !== 'string'
     || typeof value.giftOptionId !== 'string' || typeof value.addressId !== 'string'
-    || typeof value.expectedTotal !== 'number' || !Number.isFinite(value.expectedTotal)) return undefined;
+    || typeof value.expectedTotal !== 'number' || !Number.isFinite(value.expectedTotal)
+    || (value.buyerNote !== undefined && (typeof value.buyerNote !== 'string' || value.buyerNote.length > 200))) return undefined;
   return value;
 }
 

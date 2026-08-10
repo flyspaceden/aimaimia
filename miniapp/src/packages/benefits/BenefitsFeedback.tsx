@@ -9,12 +9,12 @@ type Props = {
 };
 
 export function BenefitsFeedback({ kind, title, description, actionLabel, onAction }: Props) {
-  if (kind === 'loading') return <View className='benefits-feedback benefits-feedback--loading'><View className='benefits-feedback__seed' /><Text>正在同步服务端数据...</Text></View>;
+  if (kind === 'loading') return <View className='benefits-feedback benefits-feedback--loading'><View className='benefits-feedback__seed' /><Text>正在加载...</Text></View>;
   const defaults = kind === 'login'
-    ? { mark: '爱', title: '请先登录', description: '登录后与 App 共用会员与权益数据' }
+    ? { mark: '爱', title: '请先登录', description: '登录后查看会员身份与权益' }
     : kind === 'error'
       ? { mark: '!', title: '加载失败', description: '请稍后重试' }
-      : { mark: '·', title: '暂无数据', description: '服务端暂时没有相关记录' };
+      : { mark: '·', title: '暂无数据', description: '暂时没有相关记录' };
   return <View className='benefits-feedback aim-card'>
     <Text className={`benefits-feedback__mark benefits-feedback__mark--${kind}`}>{defaults.mark}</Text>
     <Text className='benefits-feedback__title'>{title || defaults.title}</Text>

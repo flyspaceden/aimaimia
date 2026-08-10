@@ -9,7 +9,7 @@ export function formatCatalogPrice(value: number): string {
 
 export function resolveProductStock(product: Pick<Product, 'type' | 'stock' | 'bundleAvailableStock'>): number | undefined {
   return product.type === 'BUNDLE'
-    ? product.bundleAvailableStock ?? undefined
+    ? product.bundleAvailableStock ?? product.stock
     : product.stock;
 }
 
@@ -18,6 +18,23 @@ export function catalogStockText(stock: number | undefined): string | undefined 
   if (stock <= 0) return '暂时缺货';
   if (stock <= 10) return `仅剩 ${stock} 件`;
   return '现货';
+}
+
+/** App 商品卡只提示低库存/售罄，正常库存不额外显示“现货”。 */
+export function catalogCardStockText(stock: number | undefined, threshold = 10): string | undefined {
+  if (stock === undefined || (threshold <= 0 && stock > 0) || stock > threshold) return undefined;
+  if (stock <= 0) return '已售完';
+  return `仅剩 ${stock} 件`;
+}
+
+export function buildProductUnitLabel(unit?: string | null): string | undefined {
+  const value = unit?.trim();
+  return value ? `单位 ${value}` : undefined;
+}
+
+export function buildProductWeightLabel(weightGram?: number | null): string | undefined {
+  if (typeof weightGram !== 'number' || !Number.isFinite(weightGram) || weightGram <= 0) return undefined;
+  return `包装重量 ${Number.isInteger(weightGram) ? weightGram : weightGram.toFixed(1)}克`;
 }
 
 /**

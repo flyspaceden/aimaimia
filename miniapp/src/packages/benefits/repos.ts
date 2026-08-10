@@ -35,9 +35,20 @@ function normalize<T>(result: Result<unknown>, guard: (value: unknown) => value 
 
 function isMember(value: unknown): value is MemberProfile {
   if (!isObject(value) || (value.tier !== 'NORMAL' && value.tier !== 'VIP')) return false;
+  const directReferralStatuses = new Set([
+    'ACTIVE',
+    'INVALIDATED_BY_INVITEE_VIP_UPGRADE',
+    'SUPERSEDED_BY_VIP_TREE',
+    'ADMIN_VOIDED',
+  ]);
   return nullableString(value.referralCode) && nullableString(value.inviterUserId)
     && (value.inviter === null || isObject(value.inviter) && isString(value.inviter.userId)
       && nullableString(value.inviter.nickname) && nullableString(value.inviter.maskedPhone))
+    && (value.directReferralStatus === null || directReferralStatuses.has(String(value.directReferralStatus)))
+    && (value.directReferralInviter === null || isObject(value.directReferralInviter)
+      && isString(value.directReferralInviter.id)
+      && nullableString(value.directReferralInviter.nickname)
+      && nullableString(value.directReferralInviter.buyerNo))
     && isNumber(value.inviteeVipCount) && nullableString(value.vipPurchasedAt)
     && typeof value.normalEligible === 'boolean' && (value.vipProgress === null || isObject(value.vipProgress));
 }

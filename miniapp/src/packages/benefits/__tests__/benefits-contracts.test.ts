@@ -7,6 +7,7 @@ import {
   buildPrizeMergeItem,
   clearVipCheckoutDraft,
   clearVipCheckoutSession,
+  hasActiveReferral,
   readVipCheckoutDraft,
   readVipCheckoutSession,
   safeTaskTarget,
@@ -33,6 +34,23 @@ const gift = {
 describe('benefits repository contracts', () => {
   beforeEach(() => { getMock.mockReset(); postMock.mockReset(); storageState.clear(); });
 
+  it('does not present an invalidated historical inviter as an active referral', () => {
+    const member = {
+      tier: 'NORMAL' as const,
+      referralCode: null,
+      inviterUserId: 'old-inviter',
+      inviter: { userId: 'old-inviter', nickname: 'old', maskedPhone: null },
+      directReferralStatus: 'INVALIDATED_BY_INVITEE_VIP_UPGRADE' as const,
+      directReferralInviter: null,
+      inviteeVipCount: 0,
+      vipPurchasedAt: null,
+      normalEligible: true,
+      vipProgress: null,
+    };
+    expect(hasActiveReferral(member)).toBe(false);
+    expect(hasActiveReferral({ ...member, directReferralStatus: 'ACTIVE' })).toBe(true);
+  });
+
   it('accepts and preserves multiple server-authoritative VIP packages', async () => {
     getMock.mockResolvedValue({ ok: true, data: { packages: [
       { id: 'package-399', price: 399, sortOrder: 2, giftOptions: [gift] },
@@ -40,6 +58,35 @@ describe('benefits repository contracts', () => {
     ] } });
     await expect(BenefitsRepo.getVipGiftOptions()).resolves.toMatchObject({ ok: true, data: { packages: [{ price: 399 }, { price: 699 }] } });
     expect(getMock).toHaveBeenCalledWith('/bonus/vip/gift-options');
+  });
+
+  it('fails closed for a member response without an authoritative referral status', async () => {
+    const member = {
+      tier: 'NORMAL', referralCode: null, inviterUserId: 'inviter-1',
+      inviter: { userId: 'inviter-1', nickname: '推荐人', maskedPhone: '138****0000' },
+      directReferralStatus: 'ACTIVE',
+      directReferralInviter: { id: 'inviter-1', nickname: '推荐人', buyerNo: 'AIMM202608020001' },
+      directReferralPercent: 0.05, inviteeVipCount: 0, vipPurchasedAt: null,
+      normalEligible: true, vipProgress: null,
+    };
+    getMock.mockResolvedValue({ ok: true, data: member });
+    await expect(BenefitsRepo.getMember()).resolves.toMatchObject({
+      ok: true,
+      data: { directReferralStatus: 'ACTIVE' },
+    });
+
+    const { directReferralStatus: _status, ...missingStatus } = member;
+    getMock.mockResolvedValue({ ok: true, data: missingStatus });
+    await expect(BenefitsRepo.getMember()).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_CONTRACT' },
+    });
+
+    getMock.mockResolvedValue({ ok: true, data: { ...member, directReferralStatus: 'UNKNOWN_STATUS' } });
+    await expect(BenefitsRepo.getMember()).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_CONTRACT' },
+    });
   });
 
   it('uses the real normal-tree contract instead of coercing it into a VIP tree', async () => {
