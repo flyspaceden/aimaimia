@@ -78,6 +78,10 @@ const inspectableOutput = files
   .filter(({ relativePath }) => /\.(?:js|json|wxml)$/.test(relativePath))
   .map(({ relativePath }) => readDist(relativePath))
   .join('\n');
+const wxssOutput = files
+  .filter(({ relativePath }) => relativePath.endsWith('.wxss'))
+  .map(({ relativePath }) => readDist(relativePath))
+  .join('\n');
 assert.doesNotMatch(inspectableOutput, /["']PATCH["']/, '微信请求产物不得使用 PATCH');
 assert.doesNotMatch(inspectableOutput, /voice_recognition/i, '录音产物不得使用废弃 voice_recognition 音源');
 assert.doesNotMatch(inspectableOutput, /\.ico(?:["'?]|$)/i, '地图 Marker 不得引用微信不支持的 ICO');
@@ -85,6 +89,7 @@ assert.match(inspectableOutput, /https:\/\/api\.ai-maimai\.com/, '生产包应�
 assert.match(inspectableOutput, /wss:\/\/api\.ai-maimai\.com/, '生产包应指向生产 WebSocket');
 assert.doesNotMatch(inspectableOutput, /https:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 API');
 assert.doesNotMatch(inspectableOutput, /wss:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 WebSocket');
+assert.doesNotMatch(wxssOutput, /:not\(/, 'WXSS 不得使用开发者工具不支持的 :not() 选择器');
 
 const subpackageRoots = appConfig.subPackages.map(({ root }) => `${root}/`);
 const totalBytes = files.reduce((total, file) => total + file.size, 0);

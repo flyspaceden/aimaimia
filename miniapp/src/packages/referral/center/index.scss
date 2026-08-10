@@ -9,7 +9,7 @@
 .referral-code-card__actions { position: relative; z-index: 1; display: flex; gap: 9px; margin-top: 18px; }
 .referral-code-card__copy-button, .referral-code-card__share-button { flex: 1; min-height: 40px; margin: 0; padding: 0 10px; color: t.$brand-primary; font-size: 11px; font-weight: 700; line-height: 40px; background: #fff; border-radius: t.$radius-full; }
 .referral-code-card__copy-button { color: inherit; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.34); }
-.referral-code-card:not(.referral-code-card--vip) .referral-code-card__copy-button { color: t.$text-secondary; background: rgba(255,255,255,.8); border-color: t.$border; }
+.referral-code-card--normal .referral-code-card__copy-button { color: t.$text-secondary; background: rgba(255,255,255,.8); border-color: t.$border; }
 .referral-code-card__timeline { position: relative; z-index: 1; display: block; margin-top: 10px; color: inherit; font-size: 9px; text-align: center; opacity: .66; }
 .referral-bind { margin-top: 16px; padding: 17px; }
 .referral-section__title { display: block; color: t.$text-primary; font-size: 16px; font-weight: 750; }

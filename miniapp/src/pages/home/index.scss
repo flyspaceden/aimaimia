@@ -1,7 +1,7 @@
 @use '../../theme/tokens' as t;
 
 .home-page { position: relative; min-height: 100vh; padding-top: 20px; overflow: hidden; }
-.home-page > :not(.home-particles) { position: relative; z-index: 1; }
+.home-page__content { position: relative; z-index: 1; }
 .home-particles { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .home-particle { position: absolute; width: 5px; height: 5px; background: rgba(0,137,123,.14); border-radius: 50%; }
 .home-particle--1 { top: 4%; left: 8%; }.home-particle--2 { top: 13%; right: 9%; width: 3px; height: 3px; }.home-particle--3 { top: 27%; left: 3%; }.home-particle--4 { top: 34%; right: 4%; width: 7px; height: 7px; }.home-particle--5 { top: 46%; left: 13%; width: 3px; height: 3px; }.home-particle--6 { top: 55%; right: 16%; }.home-particle--7 { top: 63%; left: 7%; width: 4px; height: 4px; }.home-particle--8 { top: 72%; right: 4%; }.home-particle--9 { top: 80%; left: 21%; }.home-particle--10 { top: 88%; right: 22%; width: 3px; height: 3px; }.home-particle--11 { top: 94%; left: 5%; }.home-particle--12 { top: 39%; left: 48%; width: 3px; height: 3px; }

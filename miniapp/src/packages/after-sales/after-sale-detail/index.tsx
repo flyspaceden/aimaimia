@@ -87,8 +87,8 @@ function TrackingBlock({
               </View>
               <View className='after-sale-track-event__copy'>
                 <Text>{event.message}</Text>
-                {event.location ? <Text>{event.location}</Text> : null}
-                <Text>{formatTime(event.time)}</Text>
+                {event.location ? <Text className='after-sale-track-event__meta'>{event.location}</Text> : null}
+                <Text className='after-sale-track-event__meta'>{formatTime(event.time)}</Text>
               </View>
             </View>
           ))}
@@ -510,20 +510,20 @@ function AfterSaleDetailBody({
             <Text className='after-sale-detail-card__title'>处理进度</Text>
             {timeline.length ? (
               <View className='after-sale-history'>
-                {[...timeline].reverse().map((item, index) => (
+                {[...timeline].reverse().map((item, index, items) => (
                   <View
-                    className={
-                      index === 0
-                        ? "after-sale-history__item after-sale-history__item--latest"
-                        : "after-sale-history__item"
-                    }
+                    className={[
+                      "after-sale-history__item",
+                      index === 0 ? "after-sale-history__item--latest" : "",
+                      index === items.length - 1 ? "after-sale-history__item--last" : "",
+                    ].filter(Boolean).join(" ")}
                     key={item.id}
                   >
                     <View />
                     <View>
                       <Text>{AFTER_SALE_STATUS_LABELS[item.toStatus]}</Text>
-                      {item.reason ? <Text>{item.reason}</Text> : null}
-                      <Text>{formatTime(item.createdAt)}</Text>
+                      {item.reason ? <Text className='after-sale-history__meta'>{item.reason}</Text> : null}
+                      <Text className='after-sale-history__meta'>{formatTime(item.createdAt)}</Text>
                     </View>
                   </View>
                 ))}

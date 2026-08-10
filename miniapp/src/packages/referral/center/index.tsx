@@ -111,7 +111,7 @@ export default function ReferralCenterPage() {
   return (
     <View className='aim-page referral-center-page'>
       <PageHeader title='推荐中心' eyebrow={isVip ? 'VIP 团队邀请' : '普通用户分享'} />
-      <View className={isVip ? 'referral-code-card referral-code-card--vip' : 'referral-code-card'}>
+      <View className={isVip ? 'referral-code-card referral-code-card--vip' : 'referral-code-card referral-code-card--normal'}>
         <Text className='referral-code-card__label'>{isVip ? 'VIP 推荐码' : '普通分享码'}</Text>
         <Text className='referral-code-card__code'>{shareCode ? shareCode.split('').join(' ') : '暂不可用'}</Text>
         <Text className='referral-code-card__copy'>{isVip ? `已推荐 ${member?.inviteeVipCount || 0} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。` : '好友从微信卡片进入并登录后，后端会按当前规则绑定普通推荐关系。'}</Text>

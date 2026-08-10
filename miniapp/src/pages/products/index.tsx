@@ -136,7 +136,7 @@ export default function ProductsPage() {
             : Taro.navigateTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/commerce/cart/index')}` })}
         >
           <Text>购</Text>
-          {cartCount > 0 ? <Text>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
+          {cartCount > 0 ? <Text className='products-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
         </View>
       </PageHeader>
       <View className='products-search aim-card' hoverClass='products-search--pressed' onClick={() => Taro.navigateTo({ url: '/packages/commerce/catalog-search/index' })}>

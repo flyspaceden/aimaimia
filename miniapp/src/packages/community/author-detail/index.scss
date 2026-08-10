@@ -16,4 +16,4 @@
 .author-panel view text { padding: 6px 10px; color: #087d6f; font-size: 10px; background: #e1f6f1; border-radius: t.$radius-full; }
 .author-actions { display: flex; gap: 10px; margin-top: 15px; }
 .author-actions button { flex: 1; height: 44px; color: #fff; font-size: 12px; line-height: 44px; background: #087d6f; border-radius: t.$radius-full; }
-.author-actions button:last-child:not(:first-child) { color: #087d6f; background: #fff; border: 1px solid #9ed1c6; }
+.author-actions .author-actions__secondary { color: #087d6f; background: #fff; border: 1px solid #9ed1c6; }

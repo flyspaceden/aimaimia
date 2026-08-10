@@ -211,7 +211,8 @@ export default function HomePage() {
         {Array.from({ length: 12 }, (_, index) => <View className={`home-particle home-particle--${index + 1}`} key={index} />)}
       </View>
 
-      {pending ? (
+      <View className='home-page__content'>
+        {pending ? (
         <View
           className='home-pending aim-card'
           hoverClass='home-pending--pressed'
@@ -224,9 +225,9 @@ export default function HomePage() {
           </View>
           <Text className='home-pending__action'>继续支付 ›</Text>
         </View>
-      ) : null}
+        ) : null}
 
-      <View className='home-heading'>
+        <View className='home-heading'>
         <Text className='home-heading__statement'>消费者就是生产力{`\n`}是社会价值的创造者</Text>
         <View
           className='home-cart aim-card'
@@ -236,9 +237,9 @@ export default function HomePage() {
           <Text className='home-cart__glyph'>购</Text>
           {cartCount > 0 ? <Text className='home-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
         </View>
-      </View>
+        </View>
 
-      {!loggedIn ? (
+        {!loggedIn ? (
         <View className='home-identity home-identity--login aim-card'>
           <View className='home-identity__copy'>
             <Text className='home-identity__title'>登录/注册</Text>
@@ -274,22 +275,22 @@ export default function HomePage() {
           </View>
         ) : <CatalogFeedback kind='error' title='资料加载失败' description='请稍后重试' onRetry={() => profileQuery.refetch()} />}
 
-      {member?.tier === 'VIP' && member.referralCode ? (
+        {member?.tier === 'VIP' && member.referralCode ? (
         <View className='home-referral aim-card' onClick={() => Taro.navigateTo({ url: '/packages/referral/center/index' })}>
           <View className='home-referral__icon'><SeafoodImage name='icon-order-scallop' /></View>
           <View className='home-referral__copy'><Text>推荐好友开通 VIP</Text><Text>邀请好友 · 一起享 VIP 礼遇</Text></View>
           <Text className='home-referral__action'>去分享</Text>
         </View>
-      ) : null}
+        ) : null}
 
-      <View className='home-search aim-card' hoverClass='home-search--pressed' onClick={() => Taro.navigateTo({ url: '/packages/commerce/catalog-search/index' })}>
+        <View className='home-search aim-card' hoverClass='home-search--pressed' onClick={() => Taro.navigateTo({ url: '/packages/commerce/catalog-search/index' })}>
         <SeafoodImage className='home-search__character' name='icon-order-puffer' />
         <View className='home-search__divider' />
         <Text className='home-search__prompt'>搜索商品，或问我...</Text>
         <Text className='home-search__mic'>声</Text>
-      </View>
+        </View>
 
-      <View className='home-ai-stage'>
+        <View className='home-ai-stage'>
         <SeafoodImage className='home-ai-stage__lobster' name='home-lobster' />
         <View
           className={`home-ai-orb home-ai-orb--${voicePhase}`}
@@ -304,10 +305,10 @@ export default function HomePage() {
           <Text className='home-ai-orb__label'>{voicePhase === 'recording' ? '正在听' : voicePhase === 'recognizing' ? '思考中' : 'AI 助手'}</Text>
         </View>
         <SeafoodImage className='home-ai-stage__crab' name='home-king-crab' />
-      </View>
-      <Text className='home-ai-hint'>{voiceHint}</Text>
+        </View>
+        <Text className='home-ai-hint'>{voiceHint}</Text>
 
-      {voiceIntent ? (
+        {voiceIntent ? (
         <View className='home-ai-result aim-card'>
           <Text className='home-ai-result__heard'>我听到 “{voiceIntent.transcript}”</Text>
           <Text className='home-ai-result__reply'>{aiReply(voiceIntent)}</Text>
@@ -320,9 +321,9 @@ export default function HomePage() {
           ) : null}
           {voiceAction ? <Button className='home-ai-result__action' onClick={() => { void performAction(voiceAction); }}>{voiceAction.label} ›</Button> : null}
         </View>
-      ) : null}
+        ) : null}
 
-      {vipCards.length ? (
+        {vipCards.length ? (
         <View className='home-vip'>
           <View className='home-vip__header'><Text>精选 VIP 礼包</Text><Text>左右滑动查看</Text></View>
           <ScrollView className='home-vip__scroll' scrollX enhanced showScrollbar={false}>
@@ -341,7 +342,8 @@ export default function HomePage() {
             </View>
           </ScrollView>
         </View>
-      ) : null}
+        ) : null}
+      </View>
     </View>
   );
 }

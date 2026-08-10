@@ -1,7 +1,7 @@
 @use '../../theme/tokens' as t;
 
 .products-cart { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: t.$text-secondary; font-size: 13px; font-weight: 800; border-radius: t.$radius-full; }
-.products-cart > text:last-child:not(:first-child) { position: absolute; top: -4px; right: -3px; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 3px; color: #fff; font-size: 8px; line-height: 16px; background: t.$brand-primary; border-radius: 8px; }
+.products-cart__badge { position: absolute; top: -4px; right: -3px; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 3px; color: #fff; font-size: 8px; line-height: 16px; background: t.$brand-primary; border-radius: 8px; }
 .products-search { display: flex; align-items: center; height: 50px; padding: 0 14px; }
 .products-search--pressed { opacity: .78; }
 .products-search__character { flex: 0 0 32px; width: 32px; height: 32px; margin-left: -3px; }
