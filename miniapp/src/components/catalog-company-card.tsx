@@ -1,11 +1,12 @@
 import { Image, Text, View } from '@tarojs/components';
 import type { Company } from '@/types';
+import { displayCompanyCertifications } from './catalog-utils';
 import './catalog-company-card.scss';
 
 type Props = { company: Company; onClick: (company: Company) => void };
 
 export function CatalogCompanyCard({ company, onClick }: Props) {
-  const badges = company.badges?.slice(0, 3) ?? [];
+  const badges = displayCompanyCertifications(company).slice(0, 3);
   return (
     <View className='catalog-company-card aim-card' hoverClass='catalog-company-card--pressed' onClick={() => onClick(company)}>
       <Image className='catalog-company-card__cover' src={company.cover} mode='aspectFill' lazyLoad />

@@ -29,6 +29,10 @@ export default function HomePage() {
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle');
   const [voiceIntent, setVoiceIntent] = useState<AiVoiceIntent>();
   const lifecycleRef = useRef(0);
+  // `onLongPress` 开始录音是异步的；松手可以发生在 RecorderManager.onStart
+  // 之前，不能依赖 React state 是否已经渲染为 recording 来决定是否 stop。
+  const holdingVoiceRef = useRef(false);
+  const recorderStartedRef = useRef(false);
   const finishingRef = useRef(false);
   const prepareRef = useRef<ReturnType<typeof AiVoiceRepo.prepare>>();
 
@@ -99,6 +103,8 @@ export default function HomePage() {
 
   const discardRecording = () => {
     lifecycleRef.current += 1;
+    holdingVoiceRef.current = false;
+    recorderStartedRef.current = false;
     finishingRef.current = false;
     prepareRef.current = undefined;
     cancelVoiceRecording();
@@ -108,7 +114,7 @@ export default function HomePage() {
   useUnload(discardRecording);
 
   const finishRecording = async (operation = lifecycleRef.current) => {
-    if (finishingRef.current || voicePhase !== 'recording') return;
+    if (finishingRef.current || !recorderStartedRef.current) return;
     finishingRef.current = true;
     setVoicePhase('recognizing');
     try {
@@ -138,6 +144,7 @@ export default function HomePage() {
       }
     } finally {
       if (operation === lifecycleRef.current) {
+        recorderStartedRef.current = false;
         finishingRef.current = false;
         prepareRef.current = undefined;
         setVoicePhase('idle');
@@ -149,14 +156,22 @@ export default function HomePage() {
     if (voicePhase !== 'idle') return;
     const operation = lifecycleRef.current + 1;
     lifecycleRef.current = operation;
+    holdingVoiceRef.current = true;
+    recorderStartedRef.current = false;
     setVoiceIntent(undefined);
     setVoicePhase('starting');
     prepareRef.current = AiVoiceRepo.prepare();
     try {
       await startVoiceRecording();
-      if (operation === lifecycleRef.current) setVoicePhase('recording');
+      if (operation !== lifecycleRef.current) return;
+      recorderStartedRef.current = true;
+      setVoicePhase('recording');
+      // 用户在微信录音器真正启动前已松手：此时必须立即停止并提交，
+      // 否则会停留在“正在听”直到 60 秒自动结束。
+      if (!holdingVoiceRef.current) await finishRecording(operation);
     } catch (error) {
       if (operation === lifecycleRef.current) {
+        recorderStartedRef.current = false;
         prepareRef.current = undefined;
         setVoicePhase('idle');
         Taro.showToast({
@@ -165,6 +180,11 @@ export default function HomePage() {
         });
       }
     }
+  };
+
+  const releaseRecording = () => {
+    holdingVoiceRef.current = false;
+    if (recorderStartedRef.current) void finishRecording(lifecycleRef.current);
   };
 
   const performAction = async (action: AiPageAction | null) => {
@@ -275,8 +295,8 @@ export default function HomePage() {
           className={`home-ai-orb home-ai-orb--${voicePhase}`}
           hoverClass='home-ai-orb--pressed'
           onLongPress={() => { void beginRecording(); }}
-          onTouchEnd={() => { void finishRecording(); }}
-          onTouchCancel={() => { void finishRecording(); }}
+          onTouchEnd={releaseRecording}
+          onTouchCancel={releaseRecording}
         >
           <View className='home-ai-orb__ring home-ai-orb__ring--outer' />
           <View className='home-ai-orb__ring home-ai-orb__ring--inner' />

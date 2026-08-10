@@ -6,13 +6,19 @@ import { AccountFeedback } from '@/components/account-feedback';
 import { addressDraftToInput, addressToDraft, validateAddressDraft, type AddressDraft } from '@/components/account-utils';
 import { AddressRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
+import { selectCreatedCheckoutAddressIfActive } from '@/store/checkout-selection';
 import type { Address, Result } from '@/types';
 import './index.scss';
 
 export default function AccountAddressFormPage() {
   const router = useRouter();
   const id = typeof router.params.id === 'string' ? router.params.id : '';
-  const returnPath = `/packages/account/account-address-form/index${id ? `?id=${encodeURIComponent(id)}` : ''}`;
+  const fromCheckout = router.params.fromCheckout === '1';
+  const returnParams = [
+    id ? `id=${encodeURIComponent(id)}` : '',
+    fromCheckout ? 'fromCheckout=1' : '',
+  ].filter(Boolean).join('&');
+  const returnPath = `/packages/account/account-address-form/index${returnParams ? `?${returnParams}` : ''}`;
   const hydrated = useAuthStore((state) => state.hydrated);
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const queryClient = useQueryClient();
@@ -46,6 +52,15 @@ export default function AccountAddressFormPage() {
         queryClient.setQueryData(['account', 'addresses'], { ok: true, data: next });
       } else {
         void queryClient.invalidateQueries({ queryKey: ['account', 'addresses'] });
+      }
+      if (!id && fromCheckout) {
+        const currentAuth = useAuthStore.getState();
+        selectCreatedCheckoutAddressIfActive({
+          fromCheckout,
+          addressId: result.data.id,
+          accessToken: currentAuth.accessToken,
+          authRevision: currentAuth.revision,
+        });
       }
       Taro.showToast({ title: id ? '地址已更新' : '地址已添加', icon: 'success' });
       setTimeout(() => Taro.navigateBack(), 420);

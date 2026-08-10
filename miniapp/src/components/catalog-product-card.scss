@@ -15,6 +15,10 @@
 .catalog-product-card__from, .catalog-product-card__stock { margin-left: 3px; color: t.$text-tertiary; font-size: 10px; line-height: 16px; }
 .catalog-product-card__stock { flex: 0 0 auto; margin-left: 0; color: t.$brand-primary; }
 .catalog-product-card__stock--out { color: #a04b42; }
+.catalog-product-card__actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 5px; }
+.catalog-product-card__quick-add { min-width: 62px; margin: 0; padding: 0 8px; color: #fff; font-size: 11px; font-weight: 600; line-height: 26px; background: t.$brand-primary; border: 0; border-radius: t.$radius-full; }
+.catalog-product-card__quick-add::after { border: 0; }
+.catalog-product-card__quick-add[disabled] { color: rgba(255, 255, 255, .8); background: t.$brand-primary; opacity: .65; }
 .catalog-product-card--compact { display: flex; }
 .catalog-product-card--compact .catalog-product-card__media { flex: 0 0 110px; width: 110px; aspect-ratio: auto; }
 .catalog-product-card--compact .catalog-product-card__body { flex: 1; min-width: 0; }

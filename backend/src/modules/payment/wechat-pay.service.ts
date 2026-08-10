@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { createDecipheriv, createPrivateKey, createPublicKey } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -101,15 +102,16 @@ export class WechatPayService implements OnModuleInit {
   private privateKey: string | null = null;
   private wechatPayPublicKeyId: string | null = null;
   private wechatPayPublicKey: string | null = null;
+  private notifyUrl: string | null = null;
 
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const appId = this.configService.get<string>('WECHAT_PAY_APP_ID');
-    const miniProgramAppId = this.configService.get<string>('WECHAT_MINIAPP_APP_ID');
-    const mchId = this.configService.get<string>('WECHAT_PAY_MCH_ID');
-    const apiV3Key = this.configService.get<string>('WECHAT_PAY_API_V3_KEY');
-    const certSerial = this.configService.get<string>('WECHAT_PAY_MERCHANT_CERT_SERIAL');
+    const appId = this.configService.get<string>('WECHAT_PAY_APP_ID')?.trim();
+    const miniProgramAppId = this.configService.get<string>('WECHAT_MINIAPP_APP_ID')?.trim();
+    const mchId = this.configService.get<string>('WECHAT_PAY_MCH_ID')?.trim();
+    const apiV3Key = this.configService.get<string>('WECHAT_PAY_API_V3_KEY')?.trim();
+    const certSerial = this.configService.get<string>('WECHAT_PAY_MERCHANT_CERT_SERIAL')?.trim();
     const merchantCert = this.loadPemFromEnv('WECHAT_PAY_MERCHANT_CERT', 'WECHAT_PAY_MERCHANT_CERT_PATH');
     const privateKey = this.loadPemFromEnv('WECHAT_PAY_MERCHANT_PRIVATE_KEY', 'WECHAT_PAY_MERCHANT_PRIVATE_KEY_PATH');
     const wechatPayPublicKeyId = this.configService
@@ -119,32 +121,53 @@ export class WechatPayService implements OnModuleInit {
       'WECHAT_PAY_PUBLIC_KEY',
       'WECHAT_PAY_PUBLIC_KEY_PATH',
     );
+    const notifyUrl = this.configService.get<string>('WECHAT_PAY_NOTIFY_URL', '').trim();
 
-    if (
-      !appId
-      || !mchId
-      || !apiV3Key
-      || !certSerial
-      || !merchantCert
-      || !privateKey
-      || !wechatPayPublicKeyId
-      || !wechatPayPublicKey
-    ) {
+    const configuredCredentialCount = [
+      appId,
+      mchId,
+      apiV3Key,
+      certSerial,
+      merchantCert,
+      privateKey,
+      wechatPayPublicKeyId,
+      wechatPayPublicKey,
+    ].filter(Boolean).length;
+    if (configuredCredentialCount === 0) {
       this.logger.warn(
         '微信支付凭据未配齐（缺 APP_ID / MCH_ID / API_V3_KEY / CERT_SERIAL / MERCHANT_CERT / PRIVATE_KEY / WECHAT_PAY_PUBLIC_KEY_ID / WECHAT_PAY_PUBLIC_KEY 其一），微信支付不可用',
       );
       return;
     }
 
-    this.appId = appId;
-    this.miniProgramAppId = miniProgramAppId?.trim() || null;
-    this.mchId = mchId;
-    this.apiV3Key = apiV3Key;
-    this.certSerial = certSerial;
-    this.merchantCert = merchantCert;
-    this.privateKey = privateKey;
+    const configError = this.validateConfiguration({
+      appId,
+      mchId,
+      apiV3Key,
+      certSerial,
+      merchantCert,
+      privateKey,
+      wechatPayPublicKeyId,
+      wechatPayPublicKey,
+      notifyUrl,
+    });
+    if (configError) {
+      const error = new Error(`微信支付配置无效：${configError}`);
+      this.logger.error(`${error.message}；支付通道将 fail-closed`);
+      if (process.env.NODE_ENV === 'production') throw error;
+      return;
+    }
+
+    this.appId = appId!;
+    this.miniProgramAppId = miniProgramAppId || null;
+    this.mchId = mchId!;
+    this.apiV3Key = apiV3Key!;
+    this.certSerial = certSerial!;
+    this.merchantCert = merchantCert!;
+    this.privateKey = privateKey!;
     this.wechatPayPublicKeyId = wechatPayPublicKeyId;
-    this.wechatPayPublicKey = wechatPayPublicKey;
+    this.wechatPayPublicKey = wechatPayPublicKey!;
+    this.notifyUrl = notifyUrl;
 
     try {
       // wechatpay-node-v3 是 CommonJS 包：module.exports 本身就是构造函数，没有 .default。
@@ -156,8 +179,8 @@ export class WechatPayService implements OnModuleInit {
       this.client = new WxPay({
         appid: appId,
         mchid: mchId,
-        publicKey: Buffer.from(merchantCert),   // apiclient_cert.pem（商户证书）
-        privateKey: Buffer.from(privateKey),    // apiclient_key.pem（商户私钥，签名用）
+        publicKey: Buffer.from(merchantCert!),   // apiclient_cert.pem（商户证书）
+        privateKey: Buffer.from(privateKey!),    // apiclient_key.pem（商户私钥，签名用）
         key: apiV3Key,                          // APIv3 密钥（用于解密 notify body）
         serial_no: certSerial,                  // 商户证书序列号
       });
@@ -166,7 +189,7 @@ export class WechatPayService implements OnModuleInit {
       }
       this.client.createHttp(new VerifiedWechatPayHttpTransport({
         publicKeyId: wechatPayPublicKeyId,
-        publicKey: wechatPayPublicKey,
+        publicKey: wechatPayPublicKey!,
       }));
       this.logger.log(`微信支付 SDK 初始化成功，AppID: ${appId}, MchID: ${mchId}`);
     } catch (err: any) {
@@ -190,6 +213,73 @@ export class WechatPayService implements OnModuleInit {
       } catch {
         return null;
       }
+    }
+    return null;
+  }
+
+  /**
+   * SDK 构造器不会验证 PEM 或 APIv3 key；若先创建预支付单、回调解密才失败，会留下已付款未建单。
+   * 所以所有支付凭据格式和回调地址必须在启用通道前本地校验。
+   */
+  private validateConfiguration(input: {
+    appId?: string;
+    mchId?: string;
+    apiV3Key?: string;
+    certSerial?: string;
+    merchantCert: string | null;
+    privateKey: string | null;
+    wechatPayPublicKeyId: string;
+    wechatPayPublicKey: string | null;
+    notifyUrl: string;
+  }): string | null {
+    if (
+      !input.appId
+      || !input.mchId
+      || !input.apiV3Key
+      || !input.certSerial
+      || !input.merchantCert
+      || !input.privateKey
+      || !input.wechatPayPublicKeyId
+      || !input.wechatPayPublicKey
+    ) {
+      return '支付凭据不完整';
+    }
+    if (Buffer.byteLength(input.apiV3Key, 'utf8') !== 32) {
+      return 'WECHAT_PAY_API_V3_KEY 必须为 32 字节';
+    }
+    if (!/^[A-Za-z0-9]+$/.test(input.certSerial)) {
+      return 'WECHAT_PAY_MERCHANT_CERT_SERIAL 格式无效';
+    }
+    if (!/^PUB_KEY_ID_\d+$/.test(input.wechatPayPublicKeyId)) {
+      return 'WECHAT_PAY_PUBLIC_KEY_ID 格式无效';
+    }
+    try {
+      const merchantPrivateKey = createPrivateKey(input.privateKey);
+      const merchantCertificateKey = createPublicKey(input.merchantCert);
+      const wechatPublicKey = createPublicKey(input.wechatPayPublicKey);
+      if (
+        merchantPrivateKey.asymmetricKeyType !== 'rsa'
+        || merchantCertificateKey.asymmetricKeyType !== 'rsa'
+        || wechatPublicKey.asymmetricKeyType !== 'rsa'
+      ) {
+        return '微信支付密钥必须为 RSA 格式';
+      }
+    } catch {
+      return '微信支付 PEM 密钥或商户证书无法解析';
+    }
+    try {
+      const parsed = new URL(input.notifyUrl);
+      if (
+        parsed.protocol !== 'https:'
+        || !parsed.hostname
+        || parsed.username
+        || parsed.password
+        || parsed.hash
+      ) {
+        return 'WECHAT_PAY_NOTIFY_URL 必须为不含认证信息的 HTTPS 地址';
+      }
+    } catch {
+      return 'WECHAT_PAY_NOTIFY_URL 必须为合法 HTTPS 地址';
     }
     return null;
   }
@@ -447,17 +537,12 @@ export class WechatPayService implements OnModuleInit {
     this.validateOutTradeNo(params.outTradeNo);
     const total = this.yuanToFen(params.amount, 'amount');
 
-    const notifyUrl = this.configService.get<string>(
-      'WECHAT_PAY_NOTIFY_URL',
-      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
-    );
-
     const result = await this.client.transactions_app({
       appid: this.appId!,
       mchid: this.mchId!,
       description: params.description,
       out_trade_no: params.outTradeNo,
-      notify_url: notifyUrl,
+      notify_url: this.notifyUrl!,
       amount: {
         total,
         currency: 'CNY',
@@ -529,17 +614,12 @@ export class WechatPayService implements OnModuleInit {
 
     this.validateOutTradeNo(params.outTradeNo);
     const total = this.yuanToFen(params.amount, 'amount');
-    const notifyUrl = this.configService.get<string>(
-      'WECHAT_PAY_NOTIFY_URL',
-      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
-    );
-
     const result = await this.client.transactions_jsapi({
       appid: this.miniProgramAppId,
       mchid: this.mchId!,
       description: params.description,
       out_trade_no: params.outTradeNo,
-      notify_url: notifyUrl,
+      notify_url: this.notifyUrl!,
       amount: {
         total,
         currency: 'CNY',
@@ -639,12 +719,7 @@ export class WechatPayService implements OnModuleInit {
 
     let decryptedRaw: unknown;
     try {
-      decryptedRaw = await this.client.decipher_gcm(
-        resource.ciphertext,
-        resource.associated_data ?? '',
-        resource.nonce,
-        this.apiV3Key!,
-      );
+      decryptedRaw = this.decryptNotifyResource(resource);
     } catch (err) {
       this.logger.error(`微信通知解密失败: ${this.buildNotifyLogContext(body)}`);
       throw err;
@@ -715,6 +790,35 @@ export class WechatPayService implements OnModuleInit {
       this.logger.error(`微信通知字段映射失败: ${this.buildNotifyLogContext(body, decrypted)}`);
       throw err;
     }
+  }
+
+  /**
+   * 微信支付 APIv3 回调资源使用 AES-256-GCM；必须执行 decipher.final() 才会校验 auth tag。
+   * 不使用 SDK 的 decipher_gcm：已安装版本只调用 update()，会跳过完整性认证。
+   */
+  private decryptNotifyResource(resource: WechatPayNotifyResource): string {
+    if (
+      !this.apiV3Key
+      || !this.isNonEmptyString(resource.ciphertext)
+      || !this.isNonEmptyString(resource.nonce)
+      || (resource.associated_data !== undefined && typeof resource.associated_data !== 'string')
+    ) {
+      throw new Error('微信支付回调密文字段不完整');
+    }
+    const encrypted = Buffer.from(resource.ciphertext, 'base64');
+    if (encrypted.length <= 16) {
+      throw new Error('微信支付回调密文无效');
+    }
+    const ciphertext = encrypted.subarray(0, encrypted.length - 16);
+    const authTag = encrypted.subarray(encrypted.length - 16);
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      Buffer.from(this.apiV3Key, 'utf8'),
+      Buffer.from(resource.nonce, 'utf8'),
+    );
+    decipher.setAAD(Buffer.from(resource.associated_data ?? '', 'utf8'));
+    decipher.setAuthTag(authTag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
   }
 
   async queryOrder(outTradeNo: string): Promise<WechatOrderQueryResult> {
@@ -1073,11 +1177,6 @@ export class WechatPayService implements OnModuleInit {
       };
     }
 
-    const notifyUrl = this.configService.get<string>(
-      'WECHAT_PAY_NOTIFY_URL',
-      'https://api.ai-maimai.com/api/v1/payments/wechat/notify',
-    );
-
     const outTradeNoForLog = this.maskBizId(params.outTradeNo);
     const outRefundNoForLog = this.maskBizId(params.outRefundNo);
 
@@ -1087,7 +1186,7 @@ export class WechatPayService implements OnModuleInit {
         out_trade_no: params.outTradeNo,
         out_refund_no: params.outRefundNo,
         reason: params.reason,
-        notify_url: notifyUrl,
+        notify_url: this.notifyUrl!,
         amount: {
           refund,
           total,

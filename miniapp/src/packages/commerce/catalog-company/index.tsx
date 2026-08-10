@@ -4,9 +4,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
-import { companyProductToProduct } from '@/components/catalog-utils';
+import { companyProductToProduct, displayCompanyCertifications, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
 import { openSecureDocument } from '@/platform/document';
-import { CompanyRepo } from '@/repos';
+import { CartRepo, CompanyRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
 import type { Product } from '@/types';
 import { CommunityRepo } from '../../community/repo';
@@ -47,6 +47,18 @@ export default function CatalogCompanyPage() {
       ]);
     },
   });
+  const addToCartMutation = useMutation({
+    mutationFn: (product: Product) => CartRepo.addItem(product.defaultSkuId!, 1),
+    onSuccess: async (result) => {
+      if (!result.ok) {
+        Taro.showToast({ title: result.error.displayMessage || '加入购物车失败', icon: 'none' });
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['commerce', 'cart'] });
+      Taro.showToast({ title: '已加入购物车', icon: 'success' });
+    },
+    onError: () => Taro.showToast({ title: '网络开小差了，请重试', icon: 'none' }),
+  });
   useDidShow(() => { if (id && useAuthStore.getState().hydrated) void companyQuery.refetch(); });
   useShareAppMessage(() => ({
     title: company ? `${company.name} - 爱买买企业专页` : '爱买买企业专页',
@@ -65,6 +77,18 @@ export default function CatalogCompanyPage() {
   const callCompany = () => {
     if (!company?.servicePhone) return;
     void Taro.makePhoneCall({ phoneNumber: company.servicePhone });
+  };
+  const addProduct = (product: Product) => {
+    const returnUrl = `/packages/commerce/catalog-company/index?id=${encodeURIComponent(id)}`;
+    if (!loggedIn) {
+      void Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}` });
+      return;
+    }
+    if (resolveCatalogQuickAddAction(product).kind === 'detail') {
+      void openProduct(product);
+      return;
+    }
+    if (!addToCartMutation.isPending) addToCartMutation.mutate(product);
   };
 
   if (!hydrated || companyQuery.isLoading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
@@ -88,7 +112,7 @@ export default function CatalogCompanyPage() {
         </View>
       </View>
       <View className='catalog-company-summary'>
-        {(company!.badges ?? []).slice(0, 4).map((badge) => <Text className='catalog-company-summary__badge' key={badge}>{badge}</Text>)}
+        {displayCompanyCertifications(company!).slice(0, 4).map((badge) => <Text className='catalog-company-summary__badge' key={badge}>{badge}</Text>)}
         {company!.latestTestedAt ? <Text className='catalog-company-summary__tested'>最新检测 {company!.latestTestedAt.slice(0, 10)}</Text> : null}
       </View>
       <View className='catalog-company-tabs'>
@@ -101,7 +125,7 @@ export default function CatalogCompanyPage() {
         {productsQuery.isLoading ? <CatalogFeedback kind='loading' /> : null}
         {productError && !productError.ok ? <CatalogFeedback kind='error' description={productError.error.displayMessage || '商品加载失败'} onRetry={() => productsQuery.refetch()} /> : null}
         {!productsQuery.isLoading && !productError && !products.length ? <CatalogFeedback kind='empty' title='暂无可售商品' description='可以先看看企业档案' /> : null}
-        <View className='catalog-company-products'>{products.map((product) => <CatalogProductCard product={product} key={product.id} onClick={openProduct} />)}</View>
+        <View className='catalog-company-products'>{products.map((product) => <CatalogProductCard product={product} key={product.id} onClick={openProduct} onAdd={addProduct} adding={addToCartMutation.isPending && addToCartMutation.variables?.id === product.id} />)}</View>
         {productsQuery.hasNextPage ? <Button className='catalog-company-more' loading={productsQuery.isFetchingNextPage} onClick={() => productsQuery.fetchNextPage()}>加载更多商品</Button> : null}
       </View> : <View className='catalog-company-body catalog-company-profile'>
         {company!.description ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>企业介绍</Text><Text className='catalog-company-panel__description'>{company!.description}</Text></View> : null}

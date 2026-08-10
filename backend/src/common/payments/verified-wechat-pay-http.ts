@@ -34,10 +34,6 @@ export function assertVerifiedWechatPaySignature(options: {
   if (serial !== options.publicKeyId) {
     throw taggedError('微信支付公钥 ID 不匹配', 'WECHATPAY_SERIAL_MISMATCH');
   }
-  if (signature.startsWith('WECHATPAY/SIGNTEST/')) {
-    throw taggedError('微信支付签名探测未通过', 'WECHATPAY_SIGNTEST');
-  }
-
   const seconds = Number(timestamp);
   if (
     !/^\d{10}$/.test(timestamp)
@@ -65,7 +61,9 @@ export function assertVerifiedWechatPaySignature(options: {
  *
  * 该 SDK 自带 transport 会丢弃 Wechatpay-* 应答头，导致上层无法验证
  * APIv3 应答来源。此实现保留原始 body，在解析前按微信官方三行签名串验签；
- * 缺头、过期、SIGNTEST、错误公钥 ID 或签名错误均直接 fail-closed。
+ * 缺头、过期、错误公钥 ID 或签名错误均直接 fail-closed。微信的 SIGNTEST
+ * 探测响应不作特判，而是与正常响应走完全相同的 RSA 验签流程并自然失败，
+ * 与微信支付的验签规范保持一致。
  * 当前能力边界只覆盖本项目实际调用的 JSON API；文件上传和账单下载必须
  * 单独实现原始字节/下载 URL 的安全传输与验签，不能复用这里的 JSON 解析路径。
  */

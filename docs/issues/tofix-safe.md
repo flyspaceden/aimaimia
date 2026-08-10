@@ -545,7 +545,7 @@
 |------|------|------|-----------|------|
 | WMW01 | 客户端伪造 OpenID，把统一钱包提现到攻击者微信零钱 | 🔴 CRITICAL | 提现 DTO 不接收 OpenID；后端只接受当前 JWT 的 `sessionId + authIdentityId`，再查同一 ACTIVE、未过期 Session 关联的 verified `WECHAT + WECHAT_MINIAPP_APP_ID` 身份。申请前和 Serializable 扣款事务内各复核一次，跨端会话、旧 token、其他 AppID 或同用户另一微信身份一律拒绝。 | ✅ 已修复 |
 | WMW02 | 发起超时后换单号重试造成重复出款，或误用旧批量转账接口 | 🔴 CRITICAL | 仅调用当前单笔接口 `POST /v3/fund-app/mch-transfer/transfer-bills`；`out_bill_no` 固定为 32 位以内字母数字且数据库唯一。发起请求遇到超时、非 200、未知错误码、非法或验签失败响应，只调用 `GET .../out-bill-no/{原单号}`，不生成新单号，也不调用旧批量转账接口。 | ✅ 已修复 |
-| WMW03 | 伪造 Provider HTTP 响应或回调使本地误判到账/退款 | 🔴 CRITICAL | 所有微信 HTTP 响应和回调均使用配置的微信支付公钥验 `Wechatpay-*` RSA-SHA256 签名，强制公钥 ID、5 分钟时间窗并拒绝 SIGNTEST；回调只从已验签 rawBody 解析，随后用 APIv3 Key 做 AES-256-GCM 解密。生产缺配置或配置错误 fail-closed。 | ✅ 已修复 |
+| WMW03 | 伪造 Provider HTTP 响应或回调使本地误判到账/退款 | 🔴 CRITICAL | 所有微信 HTTP 响应和回调均使用配置的微信支付公钥验 `Wechatpay-*` RSA-SHA256 签名，强制公钥 ID、5 分钟时间窗；SIGNTEST 探测流量也走同一验签并自然失败。回调只从已验签 rawBody 解析，随后以 APIv3 Key 做 AES-256-GCM 解密且必须执行 `decipher.final()` 验证 auth tag。生产缺配置或格式错误 fail-closed。 | ✅ 已修复 |
 | WMW04 | 回调密文缺少 AppID，错误商户/应用/用户/金额的同名订单串线 | 🔴 CRITICAL | 回调验签解密后必须按同一 `outBillNo` 主动查单；查询结果的 `mchId/appId/outBillNo/openid/amount/transferBillNo/state` 必须分别与 Provider 配置、本地加密身份快照、提现净额及回调完全一致，任一缺失或不匹配均不改变资金状态并要求微信重试。 | ✅ 已修复 |
 | WMW05 | 小程序 `wx.requestMerchantTransfer` 返回 success 就错误标记到账 | 🔴 CRITICAL | `WAIT_USER_CONFIRM` 仅返回服务端签发的 `{mchId, appId, package}`，本地保持 PROCESSING；客户端调起结果不参与资金状态机。只有通过签名验证的微信 Provider 结果为 `SUCCESS` 才将冻结流水置为已提现；`FAIL/CANCELLED` 才 CAS 失败并退回一次，其余状态以及 unknown/404 均继续 PROCESSING。 | ✅ 已修复 |
 | WMW06 | 重复申请、重复回调或 Cron 与回调竞态导致重复扣款/重复退回 | 🔴 CRITICAL | 沿用客户端幂等键唯一约束、统一钱包固定扣款顺序、税费快照及 Serializable 事务；终态收口复用 `status=PROCESSING` 的 CAS，只有首个失败收口事务能恢复冻结余额。Cron 按 WithdrawChannel 分流，微信只查原单号且 unknown/404 永不自动退款。 | ✅ 已修复 |
@@ -578,11 +578,12 @@
 | WMPA03 | 微信退款通知字段绑定不足或校验/收口分离导致串单与 TOCTOU | 🔴 CRITICAL | 售后、自动退款和退货运费退款统一验证商户退款单号、原支付单号、退款金额、原支付总额及已保存微信退款 ID；最终校验与状态更新在同一 Serializable 事务内，失败通知不触发库存、奖励或资金补偿。 | ✅ 已修复 |
 | WMPA04 | 支付通知日志泄露完整 payload 或可关联业务标识 | 🔴 HIGH | 支付宝/微信通知日志移除完整请求对象，业务单号统一脱敏，不再记录不必要的原始金额和签名字段；增加负向泄露测试。 | ✅ 已修复 |
 | WMPA05 | 钱包流水暴露内部来源流水 ID 和任意 meta | 🟡 MEDIUM | 服务端只公开 `orderNo/requiredLevel/expiresAt` 等白名单字段；移除顶层 `refId` 和 `sourceLedgerId`，App/小程序类型同步收紧。 | ✅ 已修复 |
-| WMPA06 | `wechatpay-node-v3@2.2.1` 丢弃 APIv3 应答签名头，伪造的查单 `SUCCESS` 可能触发本地建单或资金状态转换 | 🔴 CRITICAL | 为 SDK 注入固定微信支付域名的安全传输层；请求显式携带微信支付公钥 ID，读取原始 body 后先校验 `Wechatpay-Serial/Timestamp/Nonce/Signature`、5 分钟时间窗与 RSA-SHA256，再允许 JSON 映射；缺头、SIGNTEST、错误公钥、伪造签名、超时与重定向全部 fail-closed。 | ✅ 已修复 |
+| WMPA06 | `wechatpay-node-v3@2.2.1` 丢弃 APIv3 应答签名头，伪造的查单 `SUCCESS` 可能触发本地建单或资金状态转换 | 🔴 CRITICAL | 为 SDK 注入固定微信支付域名的安全传输层；请求显式携带微信支付公钥 ID，读取原始 body 后先校验 `Wechatpay-Serial/Timestamp/Nonce/Signature`、5 分钟时间窗与 RSA-SHA256，再允许 JSON 映射；SIGNTEST 也必须经过同一验签并失败；缺头、错误公钥、伪造签名、超时与重定向全部 fail-closed。 | ✅ 已修复 |
 | WMPA07 | 微信关单 SDK 未初始化、商户单号非法或未知 200 响应被误当作远端未支付终态，导致本地过期/取消已支付单 | 🔴 CRITICAL | SDK 不可用和参数非法统一返回 non-terminal；只接受官方定义的签名 `204 No Content`，并兼容 `ORDER_NOT_EXIST/ORDER_CLOSED` 两种官方错误码写法；未知 2xx、网络和验签错误继续阻断本地释放。 | ✅ 已修复 |
 | WMPA08 | 提现补偿固定取最早 20 条导致后续记录饿死，人工查单又可能与 Cron 并发访问同一转账 | 🔴 HIGH | 新增 `nextReconcileAt` 与复合索引，按到期时间 nulls-first 公平取数，采用 10/20/40/80/160/240 分钟退避；Cron 用状态+到期 CAS 抢占，人工查单用 `lastQueriedAt` 版本 CAS 抢占；微信 UNKNOWN/NOT_FOUND 达阈值只幂等告警，资金继续冻结。 | ✅ 已修复 |
 | WMPA09 | 微信交易发货 outbox 发送旧包裹快照，或把 `10060002/10060003` 错当远端已成功 | 🔴 HIGH | 每次远端发送前重新读取支付会话、当前订单和包裹；退款/取消 fail-closed，快照变化通过 generation+lease CAS 重建，发送前再验 payload hash；`10060002/10060003` 转人工失败，仅 `10060023` 保留远端已完成语义。 | ✅ 已修复 |
 | WMPA10 | 无 `sessionId` 的历史买家 JWT 可借同用户任意活跃会话继续访问，设备退出不能精确失效 | 🟠 MEDIUM | 现行 access token 已全部由登录/刷新写入 `sessionId` 且默认 15 分钟过期；买家 Strategy 不再按用户级会话降级放行，无 `sessionId` 直接 401，由 App/小程序现有 refresh 流程换取精确会话 Token。 | ✅ 已修复 |
+| WMPA11 | SDK 解密 APIv3 回调未执行 GCM auth tag 校验，或支付回调地址/PEM/公钥 ID 配错后仍可创建预支付单 | 🔴 CRITICAL | 不再调用 SDK 的 `decipher_gcm`；本地以 `createDecipheriv`、AAD、auth tag 和 `decipher.final()` 完成认证解密，篡改 tag 的回归测试必须失败。支付启用前校验 APIv3 Key 长度、商户私钥/证书和微信支付公钥可解析为 RSA、公钥 ID 格式与显式 HTTPS 回调地址；生产环境出现部分或格式错误配置时拒绝启动，非生产关闭通道，且不再静默回落固定生产回调 URL。32 字节密钥是否与商户平台真实匹配仍由上线前真实小额回调联调验证。 | ✅ 已修复 |
 
 ---
 

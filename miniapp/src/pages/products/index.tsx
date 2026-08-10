@@ -1,11 +1,11 @@
 import { Button, Image, Map, ScrollView, Text, View } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { CatalogCompanyCard } from '@/components/catalog-company-card';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
-import { paginateCatalog, type CatalogTab } from '@/components/catalog-utils';
+import { paginateCatalog, resolveCatalogQuickAddAction, type CatalogTab } from '@/components/catalog-utils';
 import { PageHeader } from '@/components/PageHeader';
 import { SeafoodImage } from '@/components/SeafoodImage';
 import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
@@ -26,6 +26,7 @@ export default function ProductsPage() {
   const hydrated = useAuthStore((state) => state.hydrated);
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const authRevision = useAuthStore((state) => state.revision);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<CatalogTab>('products');
   const [viewMode, setViewMode] = useState<CatalogViewMode>('list');
   const [categoryId, setCategoryId] = useState<string>();
@@ -46,6 +47,18 @@ export default function ProductsPage() {
     queryFn: CartRepo.get,
     enabled: hydrated && loggedIn,
     staleTime: 15_000,
+  });
+  const addToCartMutation = useMutation({
+    mutationFn: (product: Product) => CartRepo.addItem(product.defaultSkuId!, 1),
+    onSuccess: async (result) => {
+      if (!result.ok) {
+        Taro.showToast({ title: result.error.displayMessage || '加入购物车失败', icon: 'none' });
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['commerce', 'cart'] });
+      Taro.showToast({ title: '已加入购物车', icon: 'success' });
+    },
+    onError: () => Taro.showToast({ title: '网络开小差了，请重试', icon: 'none' }),
   });
   const categoriesQuery = useQuery({ queryKey: ['catalog', 'categories'], queryFn: ProductRepo.listCategories, staleTime: 5 * 60_000 });
   const filtersQuery = useQuery({ queryKey: ['catalog', 'company-filters'], queryFn: CompanyRepo.getDiscoveryFilters, staleTime: 10 * 60_000 });
@@ -101,6 +114,17 @@ export default function ProductsPage() {
     setSelectedMapCompanyId(undefined);
     if (next === 'map') setMapUnavailable(false);
   };
+  const addProduct = (product: Product) => {
+    if (!loggedIn) {
+      void Taro.navigateTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/pages/products/index')}` });
+      return;
+    }
+    if (resolveCatalogQuickAddAction(product).kind === 'detail') {
+      void openProduct(product);
+      return;
+    }
+    if (!addToCartMutation.isPending) addToCartMutation.mutate(product);
+  };
 
   return (
     <View className='aim-page products-page'>
@@ -150,13 +174,13 @@ export default function ProductsPage() {
               <View className='products-curated__divider' />
               <ScrollView className='products-curated__scroll' scrollX enhanced showScrollbar={false}>
                 <View className='products-curated__row'>
-                  {curatedProducts.map((product) => <View className='products-curated__cell' key={`curated-${product.id}`}><CatalogProductCard product={product} onClick={openProduct} /></View>)}
+                  {curatedProducts.map((product) => <View className='products-curated__cell' key={`curated-${product.id}`}><CatalogProductCard product={product} onClick={openProduct} onAdd={addProduct} adding={addToCartMutation.isPending && addToCartMutation.variables?.id === product.id} /></View>)}
                 </View>
               </ScrollView>
             </View>
           ) : null}
           {products.length ? <Text className='products-hot-title'>热门商品</Text> : null}
-          <View className='product-grid'>{products.map((product) => <CatalogProductCard product={product} key={product.id} onClick={openProduct} />)}</View>
+          <View className='product-grid'>{products.map((product) => <CatalogProductCard product={product} key={product.id} onClick={openProduct} onAdd={addProduct} adding={addToCartMutation.isPending && addToCartMutation.variables?.id === product.id} />)}</View>
           {productsQuery.hasNextPage ? <Button className='products-load-more' loading={productsQuery.isFetchingNextPage} onClick={() => productsQuery.fetchNextPage()}>{productsQuery.isFetchingNextPage ? '加载中...' : '加载更多商品'}</Button> : products.length ? <Text className='products-end'>已为你展示全部商品</Text> : null}
         </>
       ) : (

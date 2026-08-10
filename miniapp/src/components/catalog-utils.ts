@@ -20,6 +20,29 @@ export function catalogStockText(stock: number | undefined): string | undefined 
   return '现货';
 }
 
+/**
+ * App 端以 certifications 为企业真实资质来源；badges 仅是历史展示字段的兼容回退。
+ */
+export function displayCompanyCertifications(company: Pick<Company, 'certifications' | 'badges'>): string[] {
+  const normalize = (values: readonly string[] | undefined) => Array.from(new Set(
+    (values ?? []).map((value) => value.trim()).filter(Boolean),
+  ));
+  const certifications = normalize(company.certifications);
+  return certifications.length ? certifications : normalize(company.badges);
+}
+
+export type CatalogQuickAddAction =
+  | { kind: 'add'; label: '加入购物车' }
+  | { kind: 'detail'; label: '选择规格' | '查看商品' };
+
+/** 商品卡片的快捷操作必须先按列表数据作体验分流，实际库存仍由后端购物车接口最终裁决。 */
+export function resolveCatalogQuickAddAction(product: Pick<Product, 'defaultSkuId' | 'type' | 'stock' | 'bundleAvailableStock'>): CatalogQuickAddAction {
+  if (!product.defaultSkuId) return { kind: 'detail', label: '选择规格' };
+  const stock = resolveProductStock(product);
+  if (stock !== undefined && stock <= 0) return { kind: 'detail', label: '查看商品' };
+  return { kind: 'add', label: '加入购物车' };
+}
+
 export function productHeadlinePrice(detail: ProductDetail, skuId?: string): {
   value: number;
   from: boolean;

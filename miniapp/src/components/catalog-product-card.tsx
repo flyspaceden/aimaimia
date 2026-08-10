@@ -1,16 +1,19 @@
-import { Image, Text, View } from '@tarojs/components';
+import { Button, Image, Text, View } from '@tarojs/components';
 import type { Product } from '@/types';
-import { catalogStockText, formatCatalogPrice, resolveProductStock } from './catalog-utils';
+import { catalogStockText, formatCatalogPrice, resolveCatalogQuickAddAction, resolveProductStock } from './catalog-utils';
 import './catalog-product-card.scss';
 
 type Props = {
   product: Product;
   compact?: boolean;
   onClick: (product: Product) => void;
+  onAdd?: (product: Product) => void;
+  adding?: boolean;
 };
 
-export function CatalogProductCard({ product, compact = false, onClick }: Props) {
+export function CatalogProductCard({ product, compact = false, onClick, onAdd, adding = false }: Props) {
   const stockText = catalogStockText(resolveProductStock(product));
+  const quickAdd = onAdd ? resolveCatalogQuickAddAction(product) : undefined;
   return (
     <View
       className={`catalog-product-card aim-card${compact ? ' catalog-product-card--compact' : ''}`}
@@ -30,7 +33,18 @@ export function CatalogProductCard({ product, compact = false, onClick }: Props)
             <Text className='catalog-product-card__price'>{formatCatalogPrice(product.price)}</Text>
             {product.priceFrom ? <Text className='catalog-product-card__from'>起</Text> : null}
           </View>
-          {stockText ? <Text className={stockText === '暂时缺货' ? 'catalog-product-card__stock catalog-product-card__stock--out' : 'catalog-product-card__stock'}>{stockText}</Text> : null}
+          <View className='catalog-product-card__actions'>
+            {stockText ? <Text className={stockText === '暂时缺货' ? 'catalog-product-card__stock catalog-product-card__stock--out' : 'catalog-product-card__stock'}>{stockText}</Text> : null}
+            {quickAdd ? <Button
+              className='catalog-product-card__quick-add'
+              loading={adding}
+              disabled={adding}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAdd?.(product);
+              }}
+            >{quickAdd.label}</Button> : null}
+          </View>
         </View>
       </View>
     </View>

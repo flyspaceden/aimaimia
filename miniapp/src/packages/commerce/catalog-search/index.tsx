@@ -1,13 +1,14 @@
 import { Button, Input, Text, View } from '@tarojs/components';
 import Taro, { useRouter } from '@tarojs/taro';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { CatalogCompanyCard } from '@/components/catalog-company-card';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
-import { filterCompanies, paginateCatalog, type CatalogTab } from '@/components/catalog-utils';
+import { filterCompanies, paginateCatalog, resolveCatalogQuickAddAction, type CatalogTab } from '@/components/catalog-utils';
 import { addRecentSearch, clearRecentSearches, loadRecentSearches } from '@/components/recent-searches';
-import { CompanyRepo, ProductRepo } from '@/repos';
+import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
+import { useAuthStore } from '@/store/auth';
 import type { Company, Product } from '@/types';
 import './index.scss';
 
@@ -30,6 +31,9 @@ function routeCsv(value: unknown, maxItems = 8): string[] {
 
 export default function CatalogSearchPage() {
   const router = useRouter();
+  const hydrated = useAuthStore((state) => state.hydrated);
+  const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
+  const queryClient = useQueryClient();
   const initial = typeof router.params.q === 'string' ? router.params.q : '';
   const categoryId = routeText(router.params.categoryId, 64);
   const constraints = useMemo(() => routeCsv(router.params.constraints), [router.params.constraints]);
@@ -87,12 +91,40 @@ export default function CatalogSearchPage() {
   const filteredCompanies = companiesQuery.data?.ok ? filterCompanies(companiesQuery.data.data, keyword) : [];
   const companySlice = paginateCatalog(filteredCompanies, companyPage, 8);
   const productError = productsQuery.data?.pages.find((page) => !page.ok);
+  const addToCartMutation = useMutation({
+    mutationFn: (product: Product) => CartRepo.addItem(product.defaultSkuId!, 1),
+    onSuccess: async (result) => {
+      if (!result.ok) {
+        Taro.showToast({ title: result.error.displayMessage || '加入购物车失败', icon: 'none' });
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['commerce', 'cart'] });
+      Taro.showToast({ title: '已加入购物车', icon: 'success' });
+    },
+    onError: () => Taro.showToast({ title: '网络开小差了，请重试', icon: 'none' }),
+  });
 
   const submit = (value = input) => {
     const normalized = value.trim();
     if (!normalized) { Taro.showToast({ title: '请输入搜索内容', icon: 'none' }); return; }
     setInput(normalized); setKeyword(normalized); setSubmitted(true); setCompanyPage(1);
     setRecentSearches(addRecentSearch(normalized));
+  };
+  const addProduct = (product: Product) => {
+    const returnUrl = `/packages/commerce/catalog-search/index${keyword ? `?q=${encodeURIComponent(keyword)}` : ''}`;
+    if (!hydrated) {
+      Taro.showToast({ title: '账号状态加载中，请稍后重试', icon: 'none' });
+      return;
+    }
+    if (!loggedIn) {
+      void Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}` });
+      return;
+    }
+    if (resolveCatalogQuickAddAction(product).kind === 'detail') {
+      void openProduct(product);
+      return;
+    }
+    if (!addToCartMutation.isPending) addToCartMutation.mutate(product);
   };
 
   return (
@@ -124,7 +156,7 @@ export default function CatalogSearchPage() {
               {productsQuery.isLoading ? <CatalogFeedback kind='loading' /> : null}
               {productError && !productError.ok ? <CatalogFeedback kind='error' description={productError.error.displayMessage || '搜索失败'} onRetry={() => productsQuery.refetch()} /> : null}
               {!productsQuery.isLoading && !productError && !products.length ? <CatalogFeedback kind='empty' title='没找到相关商品' description='试试更短的关键词或搜索品类' /> : null}
-              <View className='catalog-search-products'>{products.map((product) => <CatalogProductCard product={product} key={product.id} compact onClick={openProduct} />)}</View>
+              <View className='catalog-search-products'>{products.map((product) => <CatalogProductCard product={product} key={product.id} compact onClick={openProduct} onAdd={addProduct} adding={addToCartMutation.isPending && addToCartMutation.variables?.id === product.id} />)}</View>
               {productsQuery.hasNextPage ? <Button className='catalog-search-more' loading={productsQuery.isFetchingNextPage} onClick={() => productsQuery.fetchNextPage()}>加载更多</Button> : null}
             </>
           ) : (

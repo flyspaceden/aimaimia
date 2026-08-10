@@ -80,7 +80,8 @@ describe('VerifiedWechatPayHttpTransport', () => {
   it.each([
     [{ 'wechatpay-signature': '' }, 'WECHATPAY_SIGNATURE_MISSING'],
     [{ 'wechatpay-serial': 'OTHER_KEY' }, 'WECHATPAY_SERIAL_MISMATCH'],
-    [{ 'wechatpay-signature': 'WECHATPAY/SIGNTEST/fake' }, 'WECHATPAY_SIGNTEST'],
+    // 微信支付要求签名探测流量也按普通响应验签，不能按前缀走特殊分支。
+    [{ 'wechatpay-signature': 'WECHATPAY/SIGNTEST/fake' }, 'INVALID_WECHATPAY_SIGNATURE'],
     [{ 'wechatpay-timestamp': '1' }, 'WECHATPAY_TIMESTAMP_INVALID'],
   ])('fails closed for invalid signature metadata %#', async (overrides, code) => {
     global.fetch = jest.fn().mockResolvedValue(signedResponse(200, '{}', overrides));

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { generateKeyPairSync } from 'crypto';
 import { WechatPayService } from '../wechat-pay.service';
 
 jest.mock('wechatpay-node-v3', () => ({
@@ -11,16 +12,20 @@ jest.mock('wechatpay-node-v3', () => ({
 }));
 
 describe('WechatPayService mini-program JSAPI payment', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const merchantPrivateKey = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const rsaPublicKey = publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const baseEnv = {
     WECHAT_PAY_APP_ID: 'wx-app-id',
     WECHAT_MINIAPP_APP_ID: 'wx-mini-id',
     WECHAT_PAY_MCH_ID: '1234567890',
     WECHAT_PAY_API_V3_KEY: 'a'.repeat(32),
-    WECHAT_PAY_MERCHANT_CERT_SERIAL: 'SERIAL-1',
-    WECHAT_PAY_MERCHANT_CERT: '-----BEGIN CERTIFICATE-----\nCERT\n-----END CERTIFICATE-----',
-    WECHAT_PAY_MERCHANT_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----',
-    WECHAT_PAY_PUBLIC_KEY_ID: 'PUB_KEY_ID',
-    WECHAT_PAY_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----',
+    WECHAT_PAY_MERCHANT_CERT_SERIAL: 'SERIAL1',
+    WECHAT_PAY_MERCHANT_CERT: rsaPublicKey,
+    WECHAT_PAY_MERCHANT_PRIVATE_KEY: merchantPrivateKey,
+    WECHAT_PAY_PUBLIC_KEY_ID: 'PUB_KEY_ID_123456',
+    WECHAT_PAY_PUBLIC_KEY: rsaPublicKey,
+    WECHAT_PAY_NOTIFY_URL: 'https://api.test.ai-maimai.com/api/v1/payments/wechat/notify',
   };
 
   async function build(overrides: Record<string, string | undefined> = {}) {

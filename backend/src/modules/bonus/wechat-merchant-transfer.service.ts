@@ -443,9 +443,6 @@ export class WechatMerchantTransferService implements OnModuleInit {
     if (args.serial !== this.wechatPayPublicKeyId) {
       throw Object.assign(new Error('微信支付公钥 ID 不匹配'), { code: 'WECHATPAY_SERIAL_MISMATCH' });
     }
-    if (args.signature.startsWith('WECHATPAY/SIGNTEST/')) {
-      throw Object.assign(new Error('微信支付签名探测未通过'), { code: 'WECHATPAY_SIGNTEST' });
-    }
     const verifier = createVerify('RSA-SHA256');
     verifier.update(`${args.timestamp}\n${args.nonce}\n${args.rawBody}\n`);
     verifier.end();
