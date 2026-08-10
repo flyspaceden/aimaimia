@@ -583,11 +583,12 @@ export class AuthService {
    * 微信小程序登录。
    *
    * 小程序 code 只能由服务端调用 code2Session。已存在 appId+openid 身份，或可由
-   * unionId 安全归并到既有账号时直接签发当前 AuthSession；无法安全匹配时只返回
-   * 短期、单次使用的绑定票据，不自动创建孤立账号。
+   * unionId 安全归并到既有账号时复用同一 User；无法匹配时在微信身份锁和
+   * Serializable 事务内直接创建买家账号，不强制收集手机号。
    */
   async loginWithWechatMiniapp(code: string) {
     const profile = await this.exchangeWechatMiniappCode(code);
+    const profileData = await this.fetchWechatUserProfile(profile.accessToken, profile.openId);
     const lockKey = this.wechatIdentityLockKey(profile);
     const lockOwner = randomBytes(16).toString('hex');
     const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
@@ -608,7 +609,55 @@ export class AuthService {
       // 可能先把同一 unionId 绑到其他用户，旧事务再错误回填第二个用户。
       const resolved = await this.withWechatIdentitySerializableRetry(async (tx) => {
         const identity = await this.findWechatMiniappIdentity(profile, tx);
-        if (!identity) return null;
+        if (!identity) {
+          await lockLease.assertHeld();
+          const user = await tx.user.create({
+            data: {
+              buyerNo: await nextBuyerNo(tx),
+              profile: { create: profileData },
+              memberProfile: {
+                create: { referralCode: await pickUniqueReferralCode(tx) },
+              },
+              growthAccount: {
+                create: {
+                  pointsBalance: 0,
+                  pointsTotalEarned: 0,
+                  pointsTotalSpent: 0,
+                  growthValue: 0,
+                },
+              },
+              normalShareProfile: {
+                create: {
+                  code: await pickUniqueNormalShareCode(tx as any),
+                  status: 'ACTIVE',
+                },
+              },
+            },
+            select: { id: true },
+          });
+          const authIdentity = await tx.authIdentity.create({
+            data: {
+              userId: user.id,
+              provider: 'WECHAT',
+              identifier: profile.openId,
+              unionId: profile.unionId || null,
+              appId: profile.appId,
+              verified: true,
+              meta: {
+                unionId: profile.unionId,
+                appId: profile.appId,
+                appType: profile.appType,
+                nickname: profileData.nickname,
+                avatarUrl: profileData.avatarUrl,
+              },
+            },
+          });
+          return {
+            userId: user.id,
+            authIdentityId: authIdentity.id,
+            created: true,
+          };
+        }
 
         // 身份补建与用户活动状态复核必须在同一 Serializable 事务内，
         // 使并发注销与重新绑定发生可检测冲突，禁止注销后身份复活。
@@ -626,27 +675,27 @@ export class AuthService {
           true,
           tx,
         );
-        return { userId: identity.userId, authIdentityId };
+        return { userId: identity.userId, authIdentityId, created: false };
       });
-      if (resolved) {
-        await this.ensureBuyerNoForBuyer(resolved.userId);
-        await lockLease.assertHeld();
-        return await this.issueTokens(
-          resolved.userId,
-          'wechat-miniapp',
-          undefined,
-          resolved.authIdentityId,
-          () => lockLease.assertHeld(),
-        );
+
+      await this.ensureBuyerNoForBuyer(resolved.userId);
+      if (resolved.created) {
+        this.couponEngine.handleTrigger(resolved.userId, 'REGISTER').catch((err: any) => {
+          this.logger.warn(
+            `REGISTER 红包触发失败: userId=${resolved.userId}, error=${err?.message}`,
+          );
+        });
+        this.triggerRegisterGrowth(resolved.userId);
       }
 
       await lockLease.assertHeld();
-      const miniLoginTicket = await this.createMiniappLoginTicket(profile);
-      return {
-        bindRequired: true,
-        miniLoginTicket,
-        expiresInSeconds: Math.floor(MINIAPP_LOGIN_TICKET_TTL_MS / 1000),
-      };
+      return await this.issueTokens(
+        resolved.userId,
+        'wechat-miniapp',
+        undefined,
+        resolved.authIdentityId,
+        () => lockLease.assertHeld(),
+      );
     } finally {
       lockLease.stop();
       if (locked) {

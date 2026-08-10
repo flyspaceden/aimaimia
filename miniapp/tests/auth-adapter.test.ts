@@ -2,15 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { queryClient } from '@/query/client';
 import {
-  bindMiniappPhone,
   changePassword,
   completeAuthNavigation,
   ensureWechatMiniProgramSession,
-  loginWithPhone,
   loginWithWechatMiniProgram,
   logoutMiniapp,
   normalizeAuthReturnUrl,
-  sendMiniappBindPhoneCode,
   wechatMiniProgramReauthUrl,
 } from '@/platform/auth';
 import { useAuthStore } from '@/store/auth';
@@ -104,19 +101,6 @@ describe('miniapp auth adapter', () => {
     });
   });
 
-  it('does not create a local session when phone binding is required', async () => {
-    loginMock.mockResolvedValue({ code: 'one-time-code' });
-    postMock.mockResolvedValue({
-      ok: true,
-      data: { bindRequired: true, miniLoginTicket: 'a'.repeat(64), expiresInSeconds: 300 },
-    });
-    await expect(loginWithWechatMiniProgram()).resolves.toMatchObject({
-      ok: true,
-      data: { bindRequired: true },
-    });
-    expect(useAuthStore.getState().accessToken).toBeUndefined();
-  });
-
   it('does not replace a phone session when reverified WeChat belongs to another user', async () => {
     useAuthStore.getState().setSession({ accessToken: 'phone-access', refreshToken: 'phone-refresh', userId: 'phone-user', loginMethod: 'phone' });
     loginMock.mockResolvedValue({ code: 'other-wechat-code' });
@@ -127,38 +111,6 @@ describe('miniapp auth adapter', () => {
 
     await expect(loginWithWechatMiniProgram('phone-user')).resolves.toMatchObject({ ok: false, error: { code: 'WECHAT_ACCOUNT_MISMATCH' } });
     expect(useAuthStore.getState()).toMatchObject({ accessToken: 'phone-access', userId: 'phone-user', loginMethod: 'phone' });
-  });
-
-  it('does not trust a binding result for a different reauthentication user', async () => {
-    useAuthStore.getState().setSession({ accessToken: 'phone-access', refreshToken: 'phone-refresh', userId: 'phone-user', loginMethod: 'phone' });
-    postMock.mockResolvedValue({
-      ok: true,
-      data: { accessToken: 'other-access', refreshToken: 'other-refresh', expiresAt: '2026-08-03T00:00:00.000Z', userId: 'other-user', loginMethod: 'wechat-miniapp' },
-    });
-
-    await expect(bindMiniappPhone('ticket', '13800138000', '123456', 'phone-user')).resolves.toMatchObject({ ok: false, error: { code: 'WECHAT_ACCOUNT_MISMATCH' } });
-    expect(useAuthStore.getState()).toMatchObject({ accessToken: 'phone-access', userId: 'phone-user', loginMethod: 'phone' });
-  });
-
-  it('supports the existing phone login contract and persists its session', async () => {
-    postMock.mockResolvedValue({
-      ok: true,
-      data: {
-        accessToken: 'phone-access',
-        refreshToken: 'phone-refresh',
-        expiresAt: '2026-08-03T00:00:00.000Z',
-        userId: 'phone-user',
-        loginMethod: 'phone',
-      },
-    });
-
-    await expect(loginWithPhone({
-      phone: '13800138000', mode: 'password', password: 'Aa123456',
-    })).resolves.toMatchObject({ ok: true });
-    expect(postMock).toHaveBeenCalledWith('/auth/login', {
-      phone: '13800138000', mode: 'password', password: 'Aa123456',
-    });
-    expect(useAuthStore.getState()).toMatchObject({ userId: 'phone-user', loginMethod: 'phone' });
   });
 
   it('routes a phone session to explicit WeChat reauthentication before money actions', async () => {
@@ -192,33 +144,23 @@ describe('miniapp auth adapter', () => {
   });
 
   it('rejects malformed success payloads without trusting partial tokens', async () => {
+    loginMock.mockResolvedValue({ code: 'one-time-code' });
     postMock.mockResolvedValue({
       ok: true,
-      data: { accessToken: 'unsafe-partial-token', loginMethod: 'phone' },
+      data: { accessToken: 'unsafe-partial-token', loginMethod: 'wechat-miniapp' },
     });
 
-    await expect(loginWithPhone({
-      phone: '13800138000', mode: 'code', code: '123456',
-    })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_AUTH_RESPONSE' } });
+    await expect(loginWithWechatMiniProgram())
+      .resolves.toMatchObject({ ok: false, error: { code: 'INVALID_AUTH_RESPONSE' } });
     expect(useAuthStore.getState().accessToken).toBeUndefined();
   });
 
-  it('uses the backend bind-code response contract without invented expiry fields', async () => {
-    postMock.mockResolvedValue({ ok: true, data: { ok: true } });
-    await expect(sendMiniappBindPhoneCode('a'.repeat(64), '13800138000')).resolves.toEqual({
-      ok: true, data: { ok: true },
-    });
-    expect(postMock).toHaveBeenCalledWith(
-      '/auth/oauth/wechat-miniapp/bind-phone/sms/code',
-      { miniLoginTicket: 'a'.repeat(64), phone: '13800138000' },
-    );
-  });
-
-  it('clears the previous account query cache before replacing its trusted session', async () => {
+  it('clears the previous account query cache before replacing it with a WeChat session', async () => {
     useAuthStore.getState().setSession({
       accessToken: 'access-a', refreshToken: 'refresh-a', userId: 'user-a',
     });
     queryClient.setQueryData(['wallet'], { balance: 88 });
+    loginMock.mockResolvedValue({ code: 'one-time-code' });
     postMock.mockResolvedValue({
       ok: true,
       data: {
@@ -227,7 +169,7 @@ describe('miniapp auth adapter', () => {
       },
     });
 
-    await bindMiniappPhone('ticket-b', '13800138000', '123456');
+    await loginWithWechatMiniProgram();
 
     expect(useAuthStore.getState().userId).toBe('user-b');
     expect(queryClient.getQueryData(['wallet'])).toBeUndefined();

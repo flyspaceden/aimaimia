@@ -919,8 +919,11 @@ describe('AuthService — H5 invite login', () => {
 describe('AuthService — 微信小程序登录与手机号安全合并', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('真实 code2Session 响应中的 session_key/openid/code 不会出现在客户端响应或 ticket 键中', async () => {
+  it('真实 code2Session 登录直接创建会话，且客户端响应不泄露 session_key/openid/code', async () => {
     const prisma = makePrisma();
+    prisma.authIdentity.findFirst.mockImplementation((args: any) =>
+      Promise.resolve(args?.where?.id === 'identity-new' ? { id: 'identity-new' } : null),
+    );
     const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
       json: jest.fn().mockResolvedValue({
@@ -938,18 +941,25 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
 
     const result = await service.loginWithWechatMiniapp('one-time-wechat-code');
 
-    expect(result).toMatchObject({ bindRequired: true, expiresInSeconds: 300 });
+    expect(result).toMatchObject({
+      userId: 'new-user',
+      loginMethod: 'wechat-miniapp',
+    });
     const responseText = JSON.stringify(result);
     expect(responseText).not.toContain('one-time-wechat-code');
     expect(responseText).not.toContain('wechat-session-key-secret');
     expect(responseText).not.toContain('mini-openid-secret');
     expect(responseText).not.toContain('mini-union-secret');
     expect(responseText).not.toContain('mini-app-secret');
-
-    const [ticketKey, storedValue, ttlMs] = redisCoord.set.mock.calls[0];
-    expect(ticketKey).not.toContain((result as any).miniLoginTicket);
-    expect(storedValue).not.toContain('wechat-session-key-secret');
-    expect(ttlMs).toBe(5 * 60_000);
+    expect(redisCoord.set).not.toHaveBeenCalled();
+    expect(prisma.authIdentity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'new-user',
+        identifier: 'mini-openid-secret',
+        unionId: 'mini-union-secret',
+        appId: 'mini-app-id',
+      }),
+    });
     fetchSpy.mockRestore();
   });
 
@@ -1098,76 +1108,49 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
 
-  it('无法匹配时不创建用户，只签发短期 ticket；手机号验证后合并既有账号且 ticket 只能用一次', async () => {
+  it('无法匹配 App 或既有小程序身份时直接创建微信买家账号，不要求手机号', async () => {
     const prisma = makePrisma();
-    const bcrypt = require('bcrypt');
-    prisma.smsOtp.findMany.mockResolvedValue([
-      {
-        id: 'otp-mini-bind',
-        codeHash: bcrypt.hashSync('123456', 4),
-        usedAt: null,
-        expiresAt: new Date(Date.now() + 60_000),
-      },
-    ]);
-    const { service } = makeService(prisma, {
+    prisma.authIdentity.findFirst.mockImplementation((args: any) =>
+      Promise.resolve(args?.where?.id === 'identity-new' ? { id: 'identity-new' } : null),
+    );
+    const { service, couponEngine, growthEvents } = makeService(prisma, {
       WECHAT_MINIAPP_APP_ID: 'mini-app-id',
     });
 
-    const pending = await service.loginWithWechatMiniapp('new-mini-user') as any;
-    expect(pending.bindRequired).toBe(true);
-    expect(prisma.user.create).not.toHaveBeenCalled();
+    const session = await service.loginWithWechatMiniapp('new-mini-user');
 
-    await service.sendWechatMiniappBindPhoneCode(pending.miniLoginTicket, PHONE);
-    expect(prisma.smsOtp.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ phone: PHONE, purpose: 'BIND' }),
-    });
-
-    const phoneIdentity = {
-      id: 'phone-existing',
-      userId: 'existing-phone-user',
-      provider: 'PHONE',
-      identifier: PHONE,
-      appId: 'PHONE',
-    };
-    prisma.authIdentity.findFirst.mockImplementation((args: any) => {
-      if (args?.where?.id === 'identity-new') {
-        return Promise.resolve({ id: 'identity-new' });
-      }
-      if (args?.where?.provider === 'PHONE' && args?.where?.identifier === PHONE) {
-        return Promise.resolve(phoneIdentity);
-      }
-      if (args?.where?.userId === 'existing-phone-user' && args?.where?.provider === 'PHONE') {
-        return Promise.resolve(phoneIdentity);
-      }
-      return Promise.resolve(null);
-    });
-    prisma.authIdentity.findMany.mockImplementation((args: any) => {
-      if (args?.where?.provider === 'PHONE' && args?.where?.identifier === PHONE) {
-        return Promise.resolve([{ userId: phoneIdentity.userId }]);
-      }
-      return Promise.resolve([]);
-    });
-
-    const session = await service.bindWechatMiniappPhone(
-      pending.miniLoginTicket,
-      PHONE,
-      '123456',
-    );
     expect(session).toMatchObject({
-      userId: 'existing-phone-user',
+      userId: 'new-user',
       loginMethod: 'wechat-miniapp',
+    });
+    expect(session).not.toHaveProperty('bindRequired');
+    expect(session).not.toHaveProperty('miniLoginTicket');
+    expect(prisma.user.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        buyerNo: 'AIMM00000000000001',
+        profile: { create: expect.objectContaining({ nickname: expect.any(String) }) },
+        memberProfile: { create: expect.objectContaining({ referralCode: expect.any(String) }) },
+        growthAccount: { create: expect.any(Object) },
+        normalShareProfile: { create: expect.objectContaining({ status: 'ACTIVE' }) },
+      }),
+      select: { id: true },
     });
     expect(prisma.authIdentity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        userId: 'existing-phone-user',
+        userId: 'new-user',
         provider: 'WECHAT',
         appId: 'mini-app-id',
+        verified: true,
       }),
     });
-
-    await expect(
-      service.bindWechatMiniappPhone(pending.miniLoginTicket, PHONE, '123456'),
-    ).rejects.toThrow('小程序登录凭证无效或已过期');
+    expect(prisma.session.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'new-user',
+        authIdentityId: 'identity-new',
+      }),
+    });
+    expect(couponEngine.handleTrigger).toHaveBeenCalledWith('new-user', 'REGISTER');
+    expect(growthEvents.receive).toHaveBeenCalled();
   });
 
   it('生产环境 SMS_MOCK=true 时小程序绑定发码与身份写入均 fail-closed', async () => {
@@ -1212,7 +1195,14 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
     const { service, redisCoord } = makeService(prisma, {
       WECHAT_MINIAPP_APP_ID: 'mini-app-id',
     });
-    const pending = await service.loginWithWechatMiniapp('ticket-validation') as any;
+    const profile = {
+      openId: 'ticket-openid',
+      unionId: 'ticket-unionid',
+      appId: 'mini-app-id',
+      appType: 'MINI_PROGRAM',
+      accessToken: null,
+    };
+    const ticket = await (service as any).createMiniappLoginTicket(profile);
     const [ticketKey, storedValue] = redisCoord.set.mock.calls[0];
     const payload = JSON.parse(storedValue);
 
@@ -1221,10 +1211,13 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
       purpose: 'PASSWORD_RESET',
     }));
     await expect(
-      service.sendWechatMiniappBindPhoneCode(pending.miniLoginTicket, PHONE),
+      service.sendWechatMiniappBindPhoneCode(ticket, PHONE),
     ).rejects.toThrow('小程序登录凭证无效或已过期');
 
-    const pendingExpired = await service.loginWithWechatMiniapp('ticket-expired') as any;
+    const expiredTicket = await (service as any).createMiniappLoginTicket({
+      ...profile,
+      openId: 'expired-ticket-openid',
+    });
     const latestSetCall = redisCoord.set.mock.calls
       .filter((call: any[]) => call[2] === 5 * 60_000)
       .at(-1);
@@ -1236,7 +1229,7 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
       expiresAt: Date.now() - 60_000,
     }));
     await expect(
-      service.sendWechatMiniappBindPhoneCode(pendingExpired.miniLoginTicket, PHONE),
+      service.sendWechatMiniappBindPhoneCode(expiredTicket, PHONE),
     ).rejects.toThrow('小程序登录凭证无效或已过期');
   });
 

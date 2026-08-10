@@ -254,18 +254,16 @@ flowchart LR
 
 当前 App 的 `/auth/oauth/wechat` 使用移动应用/H5 OAuth 换取身份；小程序的 `Taro.login` 授权码必须由服务端调用 `code2Session`，两者不能混用。
 
-建议新增：
+小程序只提供微信身份登录，不复制 App 的手机号验证码、密码登录、注册和忘记密码表单。登录页仅保留协议确认与“微信一键登录”；业务页面触发登录时统一携带受限的站内 `returnUrl` 进入该页，成功后返回原页面。
+
+接口：
 
 ```text
 POST /api/v1/auth/oauth/wechat-miniapp
 body: { code: string }
 response:
-  - 已匹配账号：现有 AuthSession
-  - 需要绑定：miniLoginTicket + bindRequired=true
-
-POST /api/v1/auth/oauth/wechat-miniapp/bind-phone
-body: { miniLoginTicket, phoneCode 或 smsVerification }
-response: 现有 AuthSession
+  - 已匹配小程序身份或 UnionID：复用现有 User 的 AuthSession
+  - 无可安全匹配身份：直接创建微信买家账号并返回 AuthSession
 ```
 
 账号匹配顺序：
@@ -290,9 +288,8 @@ sequenceDiagram
     else UnionID 匹配 App 既有账号
         B->>D: 给同一 User 绑定新的 miniapp openid
     else 无法安全匹配
-        B-->>M: 要求手机号验证合并/创建
-        M->>B: 微信手机号 code 或短信验证码
-        B->>D: 验证后绑定既有手机号账号或创建用户
+        B->>D: 身份锁 + Serializable 事务创建买家账号
+        B->>D: 写入当前 appid + openid 微信身份
     end
     B-->>M: 现有 accessToken / refreshToken
     M->>B: 加载同一 User 的服务端购物车
@@ -302,12 +299,15 @@ sequenceDiagram
 
 - 小程序 OpenID 与 App OpenID 通常不同，必须按 AppID 存储，不能把两个 OpenID 当成同一个值。
 - 小程序应绑定到与 App 相同的微信开放平台主体，优先使用 UnionID 关联。
-- UnionID 不可用时必须经过已验证手机号合并，禁止仅凭客户端提交的手机号静默合并账号。
+- UnionID 不可用且没有现有 `appid + openid` 身份时，创建新的微信买家账号；禁止仅凭客户端手机号或昵称静默合并既有账号。
 - `session_key`、AppSecret 和 OpenID 查询逻辑只保留在服务端，不能返回或写入前端日志。
 - 现有 `AuthIdentity` 已具备 `identifier`、`unionId`、`appId` 的建模基础，优先复用；是否增加渠道审计字段在实现前通过 Schema 审查决定。
-- 用户登录并合并成功后，App 与小程序使用同一个 `User.id`，所有服务端数据自然共用。
+- 只有微信开放平台返回相同 UnionID 或已经存在同一小程序身份时，App 与小程序才复用同一个 `User.id`；仅有手机号 App 账号但没有可验证微信统一身份时不能自动识别为同一人。
+- 首次微信登录创建账号和写入微信身份必须处于同一个 Serializable 事务，并使用跨进程身份锁，防止并发重复建号；注册红包和成长事件使用现有幂等机制触发。
+- 旧版本遗留的手机号小程序 Session 在水合时立即清除，支付、提现和其他受保护页面只接受 `loginMethod=wechat-miniapp`。
+- 微信 `wx.login` 只提供服务端换取身份所需的临时 code，不等于获取用户头像和昵称；首次账号使用非敏感兜底资料，用户登录后可自愿完善。
 
-小程序同时保留当前 App 已有的手机号验证码登录、手机号密码登录、注册和忘记密码，以便老用户主动选择原账号登录。
+2026-08-10 首次真实联调修复：staging 的 500 根因是 PM2 运行环境缺少 `WECHAT_MINIAPP_APP_ID` / `WECHAT_MINIAPP_APP_SECRET`。测试服务器已从本地密码本安全补齐并以 `WECHAT_MINIAPP_MOCK=false` 重载；秘密值不写入 Git、前端代码或日志。production 仍须在发布前独立配置和验收。
 
 ### 8.2 微信小程序支付
 
@@ -643,7 +643,7 @@ AppID `wx1b33112db0d5267b` 已写入 `project.config.json`，可用于开发者�
 
 - [x] `miniapp/` 独立工程、三 Tab 骨架、主题、Result 请求、Token 刷新并发隔离、环境锁定和 feature manifest。
 - [x] 三个原生 TabBar 已按 App 顺序配置首页河豚、商品海星、我的牡蛎图标；生产产物校验会阻止图标路径缺失、未复制或单文件超过 40 KiB。
-- [x] 五个 POC 所需前端适配层及自动化测试：微信 code 登录/手机号绑定、`requestPayment`、`requestMerchantTransfer`、RecorderManager + uploadFile、Engine.IO v4/Socket.IO `/cs` namespace。
+- [x] 五个 POC 所需前端适配层及自动化测试：微信 code 一键登录/自动建号、`requestPayment`、`requestMerchantTransfer`、RecorderManager + uploadFile、Engine.IO v4/Socket.IO `/cs` namespace。
 - [x] 账号合并、JSAPI 支付、跨端安全切换和微信商家转账 Provider 已完成安全收口、聚焦测试、后端构建与独立复审；真实通道仍需外部材料联调。
 - [x] 真实 AppID `wx1b33112db0d5267b` 已写入工程，AppSecret 已由项目方保存在本地密码本；秘密值不进入前端代码或 Git。
 - [ ] 后端测试/生产环境、商户号权限、转账场景 ID、合法域名和隐私接口仍待配置；开发者工具/真机项不得标记通过。
@@ -658,7 +658,7 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 
 - 三个主 Tab。
 - 首页、商品/企业、搜索、详情。
-- 登录、注册、手机号绑定、资料和地址。
+- 微信一键登录/自动注册、可选手机号绑定、资料和地址。
 - 购物车、结算、优惠券/消费积分、微信支付、支付结果。
 - 订单列表/详情、物流、确认收货和复购。
 
@@ -758,7 +758,7 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 | 页面组 | 当前 App 路由 | 小程序处理 |
 |---|---|---|
 | 启动与主导航 | `/`、`/(tabs)/home`、`/(tabs)/museum`、`/(tabs)/me` | 主包；`museum` 对外名称继续显示“商品” |
-| 登录与手机绑定 | 全局 `AuthModal`、`/bind-phone` | 主包登录弹层 + 会员分包绑定页；保留手机验证码、密码、注册、忘记密码和微信快捷登录 |
+| 登录与手机绑定 | 全局 `AuthModal`、`/bind-phone` | 主包只保留微信一键登录/自动注册；手机号绑定仅作为登录后的可选账号资料能力，不作为小程序登录条件 |
 | 账号和资料 | `/me/profile`、`/account-security`、`/me/deletion` | 会员分包完整对标 |
 | 地址 | `/me/addresses`、`/checkout-address` | 地址管理在会员分包，结算选择在商城分包，共用地址 API |
 | 设置与法律 | `/settings`、`/notification-settings`、`/me/appearance`、`/about`、`/privacy`、`/terms`、`/member-service-agreement` | 会员分包；订阅消息授权与 App 本地通知设置分开 |

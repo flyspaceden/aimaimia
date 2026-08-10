@@ -64,7 +64,7 @@ export default function VipCenterPage() {
       </View>
     </View>
 
-    {!loggedIn ? <View className='benefits-card aim-card'><Text className='benefits-card__title'>登录后查看你的会员身份</Text><Text className='benefits-card__description'>使用手机号或微信登录即可查看全部权益。</Text><Button className='benefits-primary benefits-primary--gold' onClick={() => Taro.redirectTo({ url: benefitsLoginUrl('/packages/benefits/vip-center/index') })}>去登录</Button></View> : null}
+    {!loggedIn ? <View className='benefits-card aim-card'><Text className='benefits-card__title'>登录后查看你的会员身份</Text><Text className='benefits-card__description'>使用当前微信身份登录，即可查看全部权益。</Text><Button className='benefits-primary benefits-primary--gold' onClick={() => Taro.redirectTo({ url: benefitsLoginUrl('/packages/benefits/vip-center/index') })}>微信登录</Button></View> : null}
 
     {member ? <View className='vip-relation-card aim-card'>
       <View className='vip-relation-card__mark'>{hasReferral ? '友' : '?'}</View>

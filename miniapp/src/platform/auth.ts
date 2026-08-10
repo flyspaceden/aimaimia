@@ -15,13 +15,7 @@ export type MiniappSession = {
   loginMethod: 'wechat-miniapp' | 'phone';
 };
 
-export type MiniappBindingRequired = {
-  bindRequired: true;
-  miniLoginTicket: string;
-  expiresInSeconds: number;
-};
-
-export type MiniappLoginResult = MiniappSession | MiniappBindingRequired;
+export type MiniappLoginResult = MiniappSession;
 
 function isSession(value: unknown): value is MiniappSession {
   if (!value || typeof value !== 'object') return false;
@@ -31,15 +25,6 @@ function isSession(value: unknown): value is MiniappSession {
     && typeof session.userId === 'string' && session.userId.length > 0
     && typeof session.expiresAt === 'string'
     && (session.loginMethod === 'wechat-miniapp' || session.loginMethod === 'phone');
-}
-
-function isBindingRequired(value: unknown): value is MiniappBindingRequired {
-  if (!value || typeof value !== 'object') return false;
-  const binding = value as Record<string, unknown>;
-  return binding.bindRequired === true
-    && typeof binding.miniLoginTicket === 'string'
-    && /^[a-f0-9]{64}$/.test(binding.miniLoginTicket)
-    && typeof binding.expiresInSeconds === 'number';
 }
 
 type AuthAttempt = { id: number; revision: number };
@@ -99,22 +84,11 @@ function persistSession(
   expectedUserId?: string,
 ): Result<MiniappLoginResult> {
   if (result.ok && !isCurrentAuthAttempt(attempt)) return supersededAuthResult();
-  if (result.ok && !isSession(result.data) && !isBindingRequired(result.data)) return invalidAuthResponse();
+  if (result.ok && !isSession(result.data)) return invalidAuthResponse();
   if (result.ok && isSession(result.data) && expectedUserId && result.data.userId !== expectedUserId) {
     return accountMismatchResult();
   }
   if (result.ok && isSession(result.data)) replaceTrustedSession(result.data);
-  return result;
-}
-
-async function persistPhoneSession(
-  request: Promise<Result<MiniappSession>>,
-  attempt: AuthAttempt,
-): Promise<Result<MiniappSession>> {
-  const result = await request;
-  if (result.ok && !isCurrentAuthAttempt(attempt)) return supersededAuthResult();
-  if (result.ok && !isSession(result.data)) return invalidAuthResponse();
-  if (result.ok) replaceTrustedSession(result.data);
   return result;
 }
 
@@ -147,55 +121,6 @@ export async function loginWithWechatMiniProgram(expectedUserId?: string): Promi
       },
     };
   }
-}
-
-export function sendMiniappBindPhoneCode(miniLoginTicket: string, phone: string) {
-  return ApiClient.post<{ ok: boolean }>(
-    '/auth/oauth/wechat-miniapp/bind-phone/sms/code',
-    { miniLoginTicket, phone },
-  );
-}
-
-export async function bindMiniappPhone(
-  miniLoginTicket: string,
-  phone: string,
-  code: string,
-  expectedUserId?: string,
-): Promise<Result<MiniappSession>> {
-  const attempt = beginAuthAttempt();
-  const result = await ApiClient.post<MiniappSession>(
-    '/auth/oauth/wechat-miniapp/bind-phone',
-    { miniLoginTicket, phone, code },
-  );
-  if (result.ok && !isCurrentAuthAttempt(attempt)) return supersededAuthResult();
-  if (result.ok && !isSession(result.data)) return invalidAuthResponse();
-  if (result.ok && expectedUserId && result.data.userId !== expectedUserId) return accountMismatchResult();
-  if (result.ok) replaceTrustedSession(result.data);
-  return result;
-}
-
-export function requestPhoneSmsCode(phone: string): Promise<Result<{ ok: boolean }>> {
-  return ApiClient.post<{ ok: boolean }>('/auth/sms/code', { phone });
-}
-
-export function loginWithPhone(input: {
-  phone: string;
-  mode: 'code' | 'password';
-  code?: string;
-  password?: string;
-}): Promise<Result<MiniappSession>> {
-  const attempt = beginAuthAttempt();
-  return persistPhoneSession(ApiClient.post<MiniappSession>('/auth/login', input), attempt);
-}
-
-export function registerWithPhone(input: {
-  phone: string;
-  code: string;
-  name: string;
-  password: string;
-}): Promise<Result<MiniappSession>> {
-  const attempt = beginAuthAttempt();
-  return persistPhoneSession(ApiClient.post<MiniappSession>('/auth/register', input), attempt);
 }
 
 export function getForgotPasswordCaptcha(): Promise<Result<{ captchaId: string; svg: string }>> {
@@ -253,24 +178,20 @@ export function hasWechatMiniProgramSession(): boolean {
 
 export function wechatMiniProgramReauthUrl(rawReturnUrl: string): string {
   const returnUrl = normalizeAuthReturnUrl(rawReturnUrl) || '/pages/me/index';
-  return `/packages/account/account-login/index?requireWechat=1&returnUrl=${encodeURIComponent(returnUrl)}`;
+  return `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}`;
 }
 
 /**
  * 微信支付与微信零钱提现必须使用当前小程序微信身份。
- * 手机号会话先跳转身份重验，调用方必须在 false 时立即停止资金请求。
+ * 旧版本留下的非微信会话先同步清理，再跳转微信登录；调用方必须在 false 时
+ * 立即停止资金请求，避免把支付身份附着到旧手机号会话。
  */
 export async function ensureWechatMiniProgramSession(returnUrl: string): Promise<boolean> {
   if (hasWechatMiniProgramSession()) return true;
   const state = useAuthStore.getState();
-  if (state.accessToken && !state.userId) {
+  if (state.accessToken || state.refreshToken || state.userId) {
     const guard = captureAuthSession();
     logoutAndClearClientStateIfCurrent(guard);
-    const normalizedReturnUrl = normalizeAuthReturnUrl(returnUrl) || '/pages/me/index';
-    await Taro.navigateTo({
-      url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(normalizedReturnUrl)}`,
-    });
-    return false;
   }
   await Taro.navigateTo({ url: wechatMiniProgramReauthUrl(returnUrl) });
   return false;

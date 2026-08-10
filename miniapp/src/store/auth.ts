@@ -150,7 +150,13 @@ export const useAuthStore = create<AuthState>()(persist(
         setTimeout(() => initialState.setHydrated(true), 0);
         return;
       }
-      (state ?? initialState).setHydrated(true);
+      const hydratedState = state ?? initialState;
+      // 小程序已切换为纯微信认证。清理旧版本可能遗留的手机号/未知来源
+      // Session，避免受保护页面继续使用无法绑定当前小程序 OpenID 的 Token。
+      if (hydratedState.accessToken && hydratedState.loginMethod !== 'wechat-miniapp') {
+        hydratedState.clearSession();
+      }
+      hydratedState.setHydrated(true);
     },
   },
 ));
