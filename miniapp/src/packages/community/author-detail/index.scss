@@ -1,5 +1,5 @@
 @use '../../../theme/tokens' as t;
-.author-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px 40px; background: t.$background; }
+.author-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); background: t.$background; }
 .author-hero { position: relative; overflow: hidden; padding: 34px 18px 22px; text-align: center; background: linear-gradient(160deg, #f0faf5, #fff 62%); border: 1px solid t.$border; border-radius: 26px; }
 .author-hero__rings { position: absolute; top: -65px; left: 50%; width: 240px; height: 160px; border: 1px solid #c8e7d7; border-radius: 50%; transform: translateX(-50%); }
 .author-avatar { position: relative; width: 74px; height: 74px; border: 4px solid #fff; border-radius: 25px; box-shadow: 0 8px 20px rgba(46,125,50,.15); }
@@ -9,11 +9,11 @@
 .author-metrics { display: grid; grid-template-columns: 1fr 1fr; margin-top: 21px; padding-top: 15px; border-top: 1px solid t.$border; }
 .author-metrics view:first-child { border-right: 1px solid t.$border; }
 .author-metrics text { display: block; color: #087d6f; font-family: Georgia, serif; font-size: 16px; font-weight: 750; }
-.author-metrics text:last-child { margin-top: 3px; color: t.$text-tertiary; font-family: inherit; font-size: 9px; font-weight: 400; }
+.author-metrics text:last-child { margin-top: 3px; color: t.$text-tertiary; font-family: inherit; font-size: 11px; font-weight: 400; }
 .author-panel { margin-top: 12px; padding: 15px; }
 .author-panel > text { color: t.$text-primary; font-size: 13px; font-weight: 750; }
 .author-panel view { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
-.author-panel view text { padding: 6px 10px; color: #087d6f; font-size: 10px; background: #e1f6f1; border-radius: t.$radius-full; }
+.author-panel view text { padding: 8px 11px; color: #087d6f; font-size: 11px; background: #e1f6f1; border-radius: t.$radius-full; }
 .author-actions { display: flex; gap: 10px; margin-top: 15px; }
 .author-actions button { flex: 1; height: 44px; color: #fff; font-size: 12px; line-height: 44px; background: #087d6f; border-radius: t.$radius-full; }
 .author-actions .author-actions__secondary { color: #087d6f; background: #fff; border: 1px solid #9ed1c6; }

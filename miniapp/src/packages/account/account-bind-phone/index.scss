@@ -12,7 +12,7 @@
 .bind-phone-field input { height: 44px; padding: 0 12px; color: t.$text-primary; font-size: 14px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
 .bind-phone-code { display: flex; align-items: center; gap: 9px; }
 .bind-phone-code input { flex: 1; min-width: 0; }
-.bind-phone-code button { flex: 0 0 auto; height: 42px; margin: 0; padding: 0 12px; color: t.$brand-primary; font-size: 11px; line-height: 42px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.bind-phone-code button { flex: 0 0 auto; height: 42px; margin: 0; padding: 0 13px; color: t.$brand-primary; font-size: 12px; line-height: 42px; background: t.$brand-soft; border-radius: t.$radius-full; }
 .bind-phone-code button[disabled] { color: t.$text-tertiary; background: t.$skeleton; }
 .bind-phone-submit { height: 48px; margin-top: 20px; color: #fff; font-size: 14px; font-weight: 700; line-height: 48px; background: linear-gradient(110deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
 .bind-phone-submit[disabled] { background: #aab9ad; }

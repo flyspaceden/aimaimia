@@ -10,10 +10,10 @@
 .catalog-company-hero__business { margin-top: 4px; overflow: hidden; color: rgba(255,255,255,.82); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-company-hero__meta { display: flex; justify-content: space-between; margin-top: 12px; color: rgba(255,255,255,.7); font-size: 11px; }
 .catalog-company-hero__actions { display: flex; gap: 7px; margin-top: 12px; }
-.catalog-company-hero__actions button { flex: 1; min-width: 0; height: 34px; margin: 0; padding: 0 7px; color: #fff; font-size: 10px; font-weight: 650; line-height: 32px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.26); border-radius: t.$radius-full; }
+.catalog-company-hero__actions button { flex: 1; min-width: 0; height: 42px; margin: 0; padding: 0 9px; color: #fff; font-size: 12px; font-weight: 650; line-height: 40px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.26); border-radius: t.$radius-full; }
 .catalog-company-summary { display: flex; align-items: center; gap: 7px; padding: 13px 16px; overflow: hidden; background: t.$surface; }
 .catalog-company-summary__badge { flex: 0 0 auto; padding: 3px 8px; color: t.$brand-primary; font-size: 10px; background: t.$brand-soft; border-radius: t.$radius-full; }
-.catalog-company-summary__tested { flex: 0 0 auto; color: t.$text-tertiary; font-size: 10px; }
+.catalog-company-summary__tested { flex: 0 0 auto; color: t.$text-tertiary; font-size: 11px; }
 .catalog-company-tabs { display: grid; grid-template-columns: 1fr 1fr; background: t.$surface; border-top: 1px solid t.$border; border-bottom: 1px solid t.$border; }
 .catalog-company-tab { position: relative; padding: 13px 0; color: t.$text-secondary; font-size: 14px; font-weight: 600; text-align: center; }
 .catalog-company-tab--active { color: t.$brand-primary; }
@@ -35,11 +35,11 @@
 .catalog-company-highlights { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
 .catalog-company-highlight { padding: 12px; background: linear-gradient(135deg, t.$brand-soft, t.$ai-soft); border-radius: t.$radius-md; }
 .catalog-company-highlight__value { display: block; color: t.$brand-primary; font-size: 18px; font-weight: 750; }
-.catalog-company-highlight__label { display: block; margin-top: 2px; color: t.$text-secondary; font-size: 10px; }
+.catalog-company-highlight__label { display: block; margin-top: 2px; color: t.$text-secondary; font-size: 11px; }
 .catalog-company-certifications { display: flex; flex-wrap: wrap; gap: 7px; }
 .catalog-company-certification { padding: 5px 9px; color: t.$brand-primary; font-size: 11px; background: t.$brand-soft; border-radius: t.$radius-full; }
 .catalog-company-report { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid t.$border; }
 .catalog-company-report--openable { cursor: pointer; }
 .catalog-company-report__title { display: block; color: t.$text-primary; font-size: 12px; font-weight: 600; }
-.catalog-company-report__meta { display: block; margin-top: 2px; color: t.$text-tertiary; font-size: 10px; }
+.catalog-company-report__meta { display: block; margin-top: 2px; color: t.$text-tertiary; font-size: 11px; }
 .catalog-company-report__status { color: t.$ai-start; font-size: 11px; font-weight: 600; }

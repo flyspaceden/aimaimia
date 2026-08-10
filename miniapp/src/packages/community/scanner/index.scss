@@ -1,22 +1,22 @@
 @use '../../../theme/tokens' as t;
 
-.scanner-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px 40px; background: #eef6f1; }
+.scanner-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); background: #eef6f1; }
 .scanner-stage { padding: 30px 20px 22px; text-align: center; background: #153f39; border-radius: 28px; box-shadow: 0 15px 32px rgba(18,63,57,.24); }
-.scanner-frame { position: relative; display: grid; width: 214px; height: 214px; margin: 0 auto; color: rgba(255,255,255,.66); font-size: 10px; place-items: center; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.13); border-radius: 22px; }
+.scanner-frame { position: relative; display: grid; width: 214px; height: 214px; margin: 0 auto; color: rgba(255,255,255,.78); font-size: 12px; place-items: center; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.13); border-radius: 22px; }
 .scanner-corner { position: absolute; width: 29px; height: 29px; border-color: #77e0c8; border-style: solid; }
 .scanner-corner--a { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-radius: 10px 0 0; }
 .scanner-corner--b { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-radius: 0 10px 0 0; }
 .scanner-corner--c { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; border-radius: 0 0 0 10px; }
 .scanner-corner--d { right: -2px; bottom: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 10px; }
 .scanner-line { position: absolute; top: 50%; left: 11px; right: 11px; height: 1px; background: linear-gradient(90deg, transparent, #77e0c8, transparent); box-shadow: 0 0 12px #77e0c8; }
-.scanner-stage__copy { display: block; max-width: 270px; margin: 18px auto 14px; color: rgba(255,255,255,.66); font-size: 10px; line-height: 1.7; }
+.scanner-stage__copy { display: block; max-width: 270px; margin: 18px auto 14px; color: rgba(255,255,255,.78); font-size: 12px; line-height: 1.7; }
 .scanner-primary { height: 44px; color: #153f39; font-size: 12px; font-weight: 700; line-height: 44px; background: #c9f1e6; border-radius: t.$radius-full; }
 .scanner-manual { margin-top: 13px; padding: 15px; }
 .scanner-manual > text { display: block; color: t.$text-primary; font-size: 14px; font-weight: 750; }
-.scanner-manual > text:nth-child(2) { margin-top: 4px; color: t.$text-tertiary; font-size: 9px; font-weight: 400; }
+.scanner-manual > text:nth-child(2) { margin-top: 4px; color: t.$text-tertiary; font-size: 11px; font-weight: 400; }
 .scanner-manual > view { display: flex; gap: 8px; margin-top: 12px; }
 .scanner-manual input { flex: 1; height: 40px; box-sizing: border-box; padding: 0 11px; color: t.$text-primary; font-size: 11px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
-.scanner-manual button { flex: 0 0 70px; height: 40px; padding: 0; color: #fff; font-size: 11px; line-height: 40px; background: #087d6f; border-radius: t.$radius-md; }
+.scanner-manual button { flex: 0 0 76px; height: 42px; padding: 0; color: #fff; font-size: 13px; line-height: 42px; background: #087d6f; border-radius: t.$radius-md; }
 .scanner-safe { margin: 16px 4px 0; padding-left: 12px; border-left: 2px solid #65b8a9; }
-.scanner-safe text { display: block; color: #087d6f; font-size: 10px; font-weight: 700; }
-.scanner-safe text:last-child { margin-top: 4px; color: t.$text-secondary; font-size: 9px; font-weight: 400; line-height: 1.7; }
+.scanner-safe text { display: block; color: #087d6f; font-size: 12px; font-weight: 700; }
+.scanner-safe text:last-child { margin-top: 4px; color: t.$text-secondary; font-size: 11px; font-weight: 400; line-height: 1.7; }

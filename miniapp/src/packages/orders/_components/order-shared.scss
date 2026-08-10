@@ -3,8 +3,8 @@
 .mini-order-card { overflow: hidden; margin-bottom: 13px; }
 .mini-order-card__head { display: flex; align-items: flex-start; justify-content: space-between; padding: 14px 14px 11px; border-bottom: 1px solid t.$border; }
 .mini-order-card__no { display: block; color: t.$text-primary; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; font-weight: 700; }
-.mini-order-card__time { display: block; margin-top: 3px; color: t.$text-tertiary; font-size: 9px; }
-.mini-order-status { flex: 0 0 auto; padding: 4px 8px; font-size: 10px; font-weight: 700; border-radius: t.$radius-full; }
+.mini-order-card__time { display: block; margin-top: 3px; color: t.$text-tertiary; font-size: 11px; }
+.mini-order-status { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; font-weight: 700; border-radius: t.$radius-full; }
 .mini-order-status--brand, .mini-order-status--success { color: t.$brand-primary; background: t.$brand-soft; }
 .mini-order-status--gold { color: t.$gold-dark; background: #fff6dc; }
 .mini-order-status--muted { color: t.$text-secondary; background: #eef2ee; }
@@ -14,13 +14,13 @@
 .mini-order-card__image { flex: 0 0 62px; width: 62px; height: 62px; margin-right: 10px; background: t.$skeleton; border-radius: 10px; }
 .mini-order-card__item-copy { flex: 1; min-width: 0; }
 .mini-order-card__title { display: -webkit-box; overflow: hidden; color: t.$text-primary; font-size: 12px; font-weight: 650; line-height: 18px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.mini-order-card__sku { display: block; margin-top: 4px; color: t.$text-tertiary; font-size: 9px; }
-.mini-order-card__unit-price { margin-left: 8px; color: t.$text-secondary; font-size: 10px; }
-.mini-order-card__more { display: block; padding: 0 14px 8px; color: t.$text-tertiary; font-size: 9px; text-align: center; }
-.mini-order-history-note { margin: 0 14px 9px; padding: 8px 10px; color: t.$text-secondary; font-size: 10px; line-height: 17px; background: #f1f4f1; border-radius: 9px; }
-.mini-order-card__total { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; padding: 10px 14px; color: t.$text-secondary; font-size: 10px; border-top: 1px solid t.$border; }
+.mini-order-card__sku { display: block; margin-top: 4px; color: t.$text-tertiary; font-size: 11px; }
+.mini-order-card__unit-price { margin-left: 8px; color: t.$text-secondary; font-size: 11px; }
+.mini-order-card__more { display: block; padding: 0 14px 8px; color: t.$text-tertiary; font-size: 11px; text-align: center; }
+.mini-order-history-note { margin: 0 14px 9px; padding: 9px 11px; color: t.$text-secondary; font-size: 11px; line-height: 18px; background: #f1f4f1; border-radius: 9px; }
+.mini-order-card__total { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; padding: 10px 14px; color: t.$text-secondary; font-size: 11px; border-top: 1px solid t.$border; }
 .mini-order-card__amount { color: t.$text-primary; font-size: 17px; font-weight: 800; }
 .mini-order-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 14px 13px; }
-.mini-order-action { min-width: 86px; height: 34px; margin: 0; padding: 0 13px; color: t.$text-primary; font-size: 11px; line-height: 34px; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
+.mini-order-action { min-width: 92px; height: 40px; margin: 0; padding: 0 14px; color: t.$text-primary; font-size: 12px; line-height: 40px; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
 .mini-order-action--primary { color: #fff; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-color: transparent; }
 .mini-order-action--danger { color: #a04b42; }

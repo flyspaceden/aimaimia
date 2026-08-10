@@ -38,16 +38,16 @@ export default function GroupBuyRebateLedgersPage() {
     <View className='group-buy-rebate__hero'>
       <Text className='group-buy-rebate__label'>团购返还可用余额</Text>
       <Text className='group-buy-rebate__amount'>¥{formatGroupBuyMoney(account?.available || 0)}</Text>
-      <Text className='group-buy-rebate__hint'>这里仅展示团购返还明细。提现仍进入统一钱包，由后端按统一余额和规则处理。</Text>
+      <Text className='group-buy-rebate__hint'>这里仅展示团购返还明细。提现请前往统一钱包，并按钱包页面规则办理。</Text>
       <View className='group-buy-rebate__stats'><View><Text>¥{formatGroupBuyMoney(account?.reserved || 0)}</Text><Text>冻结中</Text></View><View><Text>¥{formatGroupBuyMoney(account?.withdrawn || 0)}</Text><Text>历史提现</Text></View><View><Text>¥{formatGroupBuyMoney(account?.deducted || 0)}</Text><Text>历史抵扣</Text></View></View>
       <Button className='group-buy-current__copy group-buy-primary' onClick={() => Taro.navigateTo({ url: '/packages/member/wallet/index' })}>前往统一钱包</Button>
     </View>
 
-    <View className='group-buy-section-head'><Text>返还流水</Text><Text>只读 · 服务端记录</Text></View>
+    <View className='group-buy-section-head'><Text>返还流水</Text><Text>只读记录</Text></View>
     {!ledgers.length ? <CatalogFeedback kind='empty' title='暂无团购返还流水' description='好友付款、确认收货或返还状态变化后会在这里记录' /> : <View className='group-buy-ledger-list aim-card'>{ledgers.map((ledger) => {
       const item = groupBuyLedgerPresentation(ledger);
       return <View className='group-buy-ledger' key={ledger.id}><Text className={`group-buy-ledger__mark group-buy-ledger__mark--${item.tone}`}>{item.tone === 'income' ? '+' : item.tone === 'expense' ? '−' : item.tone === 'pending' ? '时' : '·'}</Text><View className='group-buy-ledger__copy'><Text className='group-buy-ledger__title'>{item.title}</Text><Text className='group-buy-ledger__meta'>{formatGroupBuyDate(ledger.createdAt)} · {groupBuyLedgerStatusLabel(ledger.status)}</Text></View><Text className={`group-buy-ledger__amount group-buy-ledger__amount--${item.tone}`}>{item.amount > 0 ? '+' : item.amount < 0 ? '−' : ''}{formatGroupBuyMoney(Math.abs(item.amount))}</Text></View>;
     })}</View>}
-    {ledgerQuery.hasNextPage ? <Button className='group-buy-secondary' loading={ledgerQuery.isFetchingNextPage} onClick={() => ledgerQuery.fetchNextPage()}>{ledgerQuery.isFetchingNextPage ? '加载中...' : '加载更多'}</Button> : ledgers.length ? <Text className='group-buy-rebate__end'>已显示全部服务端记录</Text> : null}
+    {ledgerQuery.hasNextPage ? <Button className='group-buy-secondary' loading={ledgerQuery.isFetchingNextPage} onClick={() => ledgerQuery.fetchNextPage()}>{ledgerQuery.isFetchingNextPage ? '加载中...' : '加载更多'}</Button> : ledgers.length ? <Text className='group-buy-rebate__end'>已显示全部记录</Text> : null}
   </View>;
 }

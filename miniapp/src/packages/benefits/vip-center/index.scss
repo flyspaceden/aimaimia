@@ -4,20 +4,20 @@
 .vip-relation-card__mark { display: flex; flex: 0 0 38px; align-items: center; justify-content: center; width: 38px; height: 38px; color: #8a640c; font-size: 14px; font-weight: 760; background: #fff4c9; border-radius: 50%; }
 .vip-relation-card__copy { flex: 1; min-width: 0; }
 .vip-relation-card__copy text:first-child { display: block; color: #3d2e1a; font-size: 12px; font-weight: 720; }
-.vip-relation-card__copy text:last-child { display: block; margin-top: 3px; color: #786742; font-size: 9px; line-height: 15px; }
-.vip-relation-card__action { flex: 0 0 auto; color: #946c0b; font-size: 9px; font-weight: 650; }
+.vip-relation-card__copy text:last-child { display: block; margin-top: 3px; color: #786742; font-size: 11px; line-height: 17px; }
+.vip-relation-card__action { flex: 0 0 auto; min-height: 36px; padding: 9px 0 0 10px; color: #946c0b; font-size: 11px; font-weight: 650; }
 
 .vip-earnings { padding: 17px 15px; background: linear-gradient(145deg, #473714, #7d5b16); border-color: rgba(255,225,135,.22); }
 .vip-earnings__heading { display: flex; align-items: center; justify-content: space-between; color: #fff8df; }
 .vip-earnings__heading text:first-child { font-size: 13px; font-weight: 720; }
-.vip-earnings__heading text:last-child { color: #e9ce82; font-size: 9px; }
+.vip-earnings__heading text:last-child { color: #e9ce82; font-size: 11px; }
 .vip-earnings__grid { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 16px; }
 .vip-earnings__grid > view { position: relative; text-align: center; }
 .vip-earnings__grid > view + view::before { position: absolute; top: 3px; bottom: 3px; left: 0; width: 1px; background: rgba(255,255,255,.13); content: ''; }
 .vip-earnings__grid text:first-child { display: block; color: #fff7d9; font-size: 15px; font-weight: 760; }
-.vip-earnings__grid text:last-child { display: block; margin-top: 5px; color: rgba(255,250,228,.62); font-size: 8px; }
+.vip-earnings__grid text:last-child { display: block; margin-top: 5px; color: rgba(255,250,228,.72); font-size: 10px; }
 .vip-earnings__breakdown { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 15px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.14); }
-.vip-earnings__breakdown-item { display: flex; align-items: center; color: rgba(255,250,228,.78); font-size: 8px; line-height: 14px; }
+.vip-earnings__breakdown-item { display: flex; align-items: center; color: rgba(255,250,228,.82); font-size: 10px; line-height: 16px; }
 .vip-earnings__breakdown-dot { width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; }
 .vip-earnings__breakdown-dot--vip { background: #e9ce82; }
 .vip-earnings__breakdown-dot--normal { background: #71c878; }
@@ -31,7 +31,7 @@
 .vip-benefit__copy > view { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vip-benefit__copy > view text:first-child { color: #3d2e1a; font-size: 12px; font-weight: 720; }
 .vip-benefit__copy > view text:last-child { padding: 2px 7px; color: #85620d; font-size: 8px; background: #fff6d9; border-radius: 999px; }
-.vip-benefit__copy > text { display: block; margin-top: 6px; color: #786742; font-size: 9px; line-height: 15px; }
+.vip-benefit__copy > text { display: block; margin-top: 6px; color: #786742; font-size: 11px; line-height: 17px; }
 
 .vip-reward-steps { padding: 16px 15px 8px; }
 .vip-reward-step { display: flex; align-items: stretch; gap: 11px; min-height: 63px; }
@@ -40,4 +40,4 @@
 .vip-reward-step__timeline view { flex: 1; width: 1px; background: #e3d39f; }
 .vip-reward-step__copy { padding: 3px 0 13px; }
 .vip-reward-step__copy text:first-child { display: block; color: #3d2e1a; font-size: 11px; font-weight: 700; }
-.vip-reward-step__copy text:last-child { display: block; margin-top: 4px; color: #786742; font-size: 9px; line-height: 14px; }
+.vip-reward-step__copy text:last-child { display: block; margin-top: 4px; color: #786742; font-size: 11px; line-height: 17px; }

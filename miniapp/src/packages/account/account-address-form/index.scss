@@ -11,7 +11,7 @@
 .account-address-field__picker { display: flex; align-items: center; justify-content: space-between; }
 .account-address-field__picker--empty { color: t.$text-tertiary; }
 .account-address-field__arrow { color: t.$text-tertiary; font-size: 22px; }
-.account-address-field__warning { display: block; margin-top: 6px; color: #a16d00; font-size: 10px; line-height: 17px; }
+.account-address-field__warning { display: block; margin-top: 6px; color: #a16d00; font-size: 11px; line-height: 18px; }
 .account-address-field__textarea { width: 100%; height: 104px; padding: 12px 13px 27px; color: t.$text-primary; font-size: 13px; line-height: 21px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
 .account-address-field__count { position: absolute; right: 11px; bottom: 8px; color: t.$text-tertiary; font-size: 9px; }
 .account-address-save { width: 100%; min-height: 47px; margin: 2px 0 0; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; box-shadow: 0 8px 18px rgba(46,125,50,.18); }

@@ -3,6 +3,7 @@ import Taro, { usePullDownRefresh, useRouter } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { CatalogProductCard } from '@/components/catalog-product-card';
 import { formatCatalogPrice, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
 import { queryClient } from '@/query/client';
@@ -230,7 +231,7 @@ export default function AiRecommendPage() {
         {loggedIn && insights.map((insight) => <View className='ai-recommend-insight aim-card' key={insight.id}><View className='ai-recommend-insight__head'><Text>{insight.title}</Text><Text>{Math.round(insight.weight * 100)}%</Text></View><Text className='ai-recommend-insight__description'>{insight.description}</Text><View className='ai-recommend-tags'>{insight.tags.map((tag) => <Text className='ai-recommend-tag' key={`${insight.id}-${tag}`}>{tag}</Text>)}</View></View>)}
       </View>
 
-      <View className='ai-recommend-cart' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}><Text className='ai-recommend-cart__icon'>购</Text>{cartCount ? <Text className='ai-recommend-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}</View>
+      <View className='ai-recommend-cart' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}><FunctionalIcon name='cart' className='ai-recommend-cart__icon' />{cartCount ? <Text className='ai-recommend-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}</View>
     </View>
   );
 }

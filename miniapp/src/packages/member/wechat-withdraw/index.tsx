@@ -104,7 +104,7 @@ export default function WechatWithdrawPage() {
     if (!tracked || isPendingWithdrawStatus(tracked.status) || announcedTerminal.current === tracked.id) return;
     announcedTerminal.current = tracked.id;
     const succeeded = tracked.status === 'PAID';
-    Taro.showToast({ title: succeeded ? '服务端已确认到账' : '提现未成功，余额已退回', icon: 'none', duration: 2600 });
+    Taro.showToast({ title: succeeded ? '提现已确认到账' : '提现未成功，余额已退回', icon: 'none', duration: 2600 });
     void queryClient.invalidateQueries({ queryKey: ['member', 'wallet'] });
     void queryClient.invalidateQueries({ queryKey: ['member', 'wallet-ledger'] });
   }, [queryClient, tracked]);
@@ -133,7 +133,7 @@ export default function WechatWithdrawPage() {
             await requestMerchantTransferConfirmation(result.data);
             Taro.showToast({ title: '已返回爱买买，正在确认到账状态', icon: 'none', duration: 2600 });
           } catch {
-            Taro.showToast({ title: '确认页已关闭，提现状态仍以后端为准', icon: 'none', duration: 2600 });
+            Taro.showToast({ title: '确认页已关闭，可稍后在提现记录查看结果', icon: 'none', duration: 2600 });
           } finally {
             void historyQuery.refetch();
           }
@@ -168,7 +168,7 @@ export default function WechatWithdrawPage() {
     try {
       const modal = await Taro.showModal({
         title: '确认提现到微信零钱',
-        content: `申请金额 ${formatMoney(numericAmount)}。税费和实际到账金额由服务端按现行规则计算。`,
+        content: `申请金额 ${formatMoney(numericAmount)}。税费和实际到账金额将按当前提现规则计算。`,
         confirmText: '确认提现',
         confirmColor: '#2E7D32',
       });
@@ -215,12 +215,12 @@ export default function WechatWithdrawPage() {
       <View className='withdraw-input'><Text>¥</Text><Input type='digit' value={amount} placeholder='0.00' onInput={(event) => setAmount(normalizeAmount(event.detail.value))} /></View>
       <View className='withdraw-quick-row'>{QUICK_AMOUNTS.map((value) => <View key={value} className='withdraw-quick' onClick={() => setAmount(Math.min(value, available).toFixed(2))}>{formatMoney(value)}</View>)}<View className='withdraw-quick withdraw-quick--all' onClick={() => setAmount(available > 0 ? available.toFixed(2) : '')}>全部</View></View>
       <View className='withdraw-channel'><Text className='withdraw-channel__logo'>微</Text><View><Text className='withdraw-channel__title'>微信零钱</Text><Text className='withdraw-channel__meta'>收款身份来自当前微信小程序登录，不需要填写账户</Text></View><Text className='withdraw-channel__check'>✓</Text></View>
-      <View className='withdraw-rule'><Text>资金说明</Text><Text>提现规则、税费、冻结和失败退回与 App 保持一致；最终到账状态以后端回调或主动查询为准。</Text></View>
+      <View className='withdraw-rule'><Text>资金说明</Text><Text>提现规则、税费、冻结和失败退回与 App 保持一致；最终结果会自动更新到提现记录。</Text></View>
       <Button className='member-primary-button' disabled={requestingSubscription || withdrawMutation.isPending || trackedPending || numericAmount <= 0} loading={requestingSubscription || withdrawMutation.isPending} onClick={submit}>{trackedPending ? '提现处理中' : requestingSubscription ? '准备提醒...' : withdrawMutation.isPending ? '正在提交...' : '确认提现'}</Button>
     </View>
-    <View className='member-section-head'><Text>最近提现</Text><Text>{trackedPending ? '正在轮询服务端' : '服务端最终状态'}</Text></View>
+    <View className='member-section-head'><Text>最近提现</Text><Text>{trackedPending ? '正在确认到账' : '最终结果'}</Text></View>
     <View className='withdraw-history aim-card'>
-      {historyQuery.isLoading ? <MemberFeedback kind='loading' /> : history.length ? history.slice(0, 8).map((item: WithdrawRecord) => <View className='withdraw-history__row' key={item.id}><View><Text className='withdraw-history__amount'>{formatMoney(item.amount)}</Text><Text className='withdraw-history__date'>{formatDateTime(item.createdAt)}</Text></View><Text className={`withdraw-history__status withdraw-history__status--${item.status.toLowerCase()}`}>{statusCopy(item.status)}</Text></View>) : <MemberFeedback kind='empty' title='暂无提现记录' description='提交后由服务端生成提现记录' />}
+      {historyQuery.isLoading ? <MemberFeedback kind='loading' /> : history.length ? history.slice(0, 8).map((item: WithdrawRecord) => <View className='withdraw-history__row' key={item.id}><View><Text className='withdraw-history__amount'>{formatMoney(item.amount)}</Text><Text className='withdraw-history__date'>{formatDateTime(item.createdAt)}</Text></View><Text className={`withdraw-history__status withdraw-history__status--${item.status.toLowerCase()}`}>{statusCopy(item.status)}</Text></View>) : <MemberFeedback kind='empty' title='暂无提现记录' description='提交提现申请后可在这里查看进度' />}
     </View>
   </View>;
 }

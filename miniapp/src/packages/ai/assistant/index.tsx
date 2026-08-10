@@ -2,6 +2,7 @@ import { Button, Input, Text, View } from '@tarojs/components';
 import Taro, { useDidHide, useUnload } from '@tarojs/taro';
 import { useRef, useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { cancelVoiceRecording, startVoiceRecording, stopVoiceRecording } from '@/platform/voice';
 import { useAuthStore } from '@/store/auth';
 import { AiVoiceRepo } from '../repo';
@@ -169,7 +170,7 @@ export default function AiAssistantPage() {
             onTouchEnd={releaseRecording}
             onTouchCancel={releaseRecording}
           >
-            <Text className='ai-assistant-orbit__mic'>声</Text>
+            <FunctionalIcon name='microphone' className='ai-assistant-orbit__mic' />
           </View>
         </View>
         <Text className='ai-assistant-stage__status'>{phaseText}</Text>

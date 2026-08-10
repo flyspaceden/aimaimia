@@ -13,7 +13,7 @@
 .account-forgot-captcha-row { display: flex; align-items: center; gap: 9px; }
 .account-forgot-captcha-row .account-forgot-field__input { flex: 1; min-width: 0; }
 .account-forgot-captcha { flex: 0 0 120px; width: 120px; height: 42px; background: #f0f0f0; border-radius: 8px; }
-.account-forgot-refresh { display: block; margin-top: 7px; color: t.$brand-primary; font-size: 10px; text-align: right; }
+.account-forgot-refresh { display: block; min-height: 36px; margin-top: 7px; padding-top: 9px; color: t.$brand-primary; font-size: 11px; text-align: right; }
 .account-forgot-primary { width: 100%; min-height: 47px; margin: 19px 0 0; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
 .account-forgot-secondary { width: 100%; min-height: 41px; margin: 10px 0 0; color: t.$brand-primary; font-size: 12px; line-height: 41px; background: transparent; }
-.account-forgot-tip { display: block; margin-top: 13px; color: t.$text-tertiary; font-size: 10px; line-height: 17px; text-align: center; }
+.account-forgot-tip { display: block; margin-top: 13px; color: t.$text-tertiary; font-size: 11px; line-height: 18px; text-align: center; }

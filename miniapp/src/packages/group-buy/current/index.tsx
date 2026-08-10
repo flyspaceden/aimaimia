@@ -86,11 +86,11 @@ export default function GroupBuyCurrentPage() {
       <Text className='group-buy-current__title'>{current.activity.title}</Text>
       <Text className='group-buy-current__description'>{slotsFull && current.status === 'SHARING' ? '推荐名额已全部锁定，正在等待好友确认收货。' : copy[1]}</Text>
       <GroupBuyClock endAt={current.activity.endAt} onExpire={() => currentQuery.refetch()} />
-      <View className='group-buy-current__code-panel'><Text className='group-buy-current__code-label'>团购推荐码</Text><Text className='group-buy-current__code'>{code || (current.status === 'QUALIFICATION_PENDING' ? '生成中' : '不可用')}</Text><Text className='group-buy-current__code-hint'>推荐码与当前活动绑定，服务端会校验使用人、活动和剩余名额。</Text></View>
+      <View className='group-buy-current__code-panel'><Text className='group-buy-current__code-label'>团购推荐码</Text><Text className='group-buy-current__code'>{code || (current.status === 'QUALIFICATION_PENDING' ? '生成中' : '不可用')}</Text><Text className='group-buy-current__code-hint'>推荐码仅限当前活动使用，付款时会自动核验活动和剩余名额。</Text></View>
       <View className='group-buy-current__share-row'><Button className='group-buy-current__copy' disabled={!canShare} onClick={() => code && Taro.setClipboardData({ data: code })}>复制推荐码</Button><Button className='group-buy-current__share' disabled={!canShare} openType='share'>分享给好友</Button></View>
     </View>
 
-    <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>推荐进度</Text><Text>服务端实时状态</Text></View><GroupBuyProgress current={current} /><Text className='group-buy-notice'>好友付款后先锁定名额并冻结返还，确认收货后才释放到账。分享按钮不会提示“分享成功”，实际购买和返还均以后端记录为准。</Text></View>
+    <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>推荐进度</Text><Text>实时更新</Text></View><GroupBuyProgress current={current} /><Text className='group-buy-notice'>好友付款后先锁定名额并冻结返还，确认收货后才释放到账。分享按钮不会提示“分享成功”，购买和返还结果以页面记录为准。</Text></View>
 
     <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>账户与订单</Text><Text>只读入口</Text></View><View className='group-buy-current__nav'><View onClick={() => Taro.navigateTo({ url: '/packages/group-buy/rebate-ledgers/index' })}><Text>返还流水</Text><Text>查看冻结、释放和失效记录</Text></View><View onClick={() => Taro.navigateTo({ url: '/packages/orders/order-list/index' })}><Text>团购订单</Text><Text>在订单中心查看履约状态</Text></View></View></View>
 

@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useMemo, useState } from 'react';
 import { CatalogCompanyCard } from '@/components/catalog-company-card';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { CatalogProductCard } from '@/components/catalog-product-card';
 import { filterCompanies, paginateCatalog, resolveCatalogQuickAddAction, type CatalogTab } from '@/components/catalog-utils';
 import { addRecentSearch, clearRecentSearches, loadRecentSearches } from '@/components/recent-searches';
@@ -130,7 +131,7 @@ export default function CatalogSearchPage() {
   return (
     <View className='aim-page catalog-search-page'>
       <View className='catalog-search-bar aim-card'>
-        <Text className='catalog-search-bar__icon'>⌕</Text>
+        <FunctionalIcon name='search' className='catalog-search-bar__icon' />
         <Input className='catalog-search-bar__input' value={input} focus={!initial} confirmType='search' placeholder='搜索商品、品类或企业' onInput={(event) => setInput(event.detail.value)} onConfirm={() => submit()} />
         {input ? <Text className='catalog-search-bar__clear' onClick={() => { setInput(''); setKeyword(''); setSubmitted(false); }}>×</Text> : null}
         <Button className='catalog-search-bar__button' onClick={() => submit()}>搜索</Button>

@@ -1,9 +1,9 @@
 @use '../../../theme/tokens' as t;
 
 .company-search-bar { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; }
-.company-search-bar__mark { display: flex; flex: 0 0 27px; align-items: center; justify-content: center; width: 27px; height: 27px; color: #fff; font-size: 10px; font-weight: 750; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 50%; }
+.company-search-bar__mark { flex: 0 0 22px; width: 22px; height: 22px; color: t.$ai-start; }
 .company-search-bar input { flex: 1; min-width: 0; height: 38px; color: t.$text-primary; font-size: 13px; }
-.company-search-bar button { flex: 0 0 auto; height: 36px; margin: 0; padding: 0 14px; color: #fff; font-size: 12px; font-weight: 650; line-height: 36px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.company-search-bar button { flex: 0 0 auto; height: 40px; margin: 0; padding: 0 15px; color: #fff; font-size: 13px; font-weight: 650; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }
 .company-search-summary { margin-top: 13px; padding: 14px; background: linear-gradient(135deg, t.$ai-soft, #fff); border-color: rgba(0, 137, 123, .18); }
 .company-search-summary__head { display: flex; align-items: center; gap: 8px; color: t.$ai-start; font-size: 13px; font-weight: 700; }
 .company-search-summary__head text:first-child { display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; color: #fff; font-size: 10px; background: t.$ai-start; border-radius: 50%; }

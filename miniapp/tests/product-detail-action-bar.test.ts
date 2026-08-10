@@ -18,7 +18,8 @@ describe('product detail action bar', () => {
   it('uses a real cart glyph and count badge instead of the placeholder character', () => {
     const page = source('src/packages/commerce/catalog-product/index.tsx');
 
-    expect(page).toContain("className='catalog-product-cart-glyph__basket'");
+    expect(page).toContain("<FunctionalIcon name='cart' />");
+    expect(source('src/components/functional-icon.tsx')).toContain("functional-icon__cart-basket");
     expect(page).toContain("className='catalog-product-cart-entry__badge'");
     expect(page).toContain("queryKey: ['commerce', 'cart']");
     expect(page).not.toContain("catalog-product-cart-entry__icon'>购");

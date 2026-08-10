@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { buildProductUnitLabel, buildProductWeightLabel, catalogCardStockText, defaultSelectedSkuId, displayProductAttributes, formatCatalogPrice, productHeadlinePrice } from '@/components/catalog-utils';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { useAppConfig } from '@/hooks/use-app-config';
 import { queryClient } from '@/query/client';
 import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
@@ -152,12 +153,7 @@ export default function CatalogProductPage() {
       <View className='catalog-product-bar'>
         <View className='catalog-product-cart-entry' onClick={() => Taro.navigateTo({ url: '/packages/commerce/cart/index' })}>
           <View className='catalog-product-cart-entry__icon'>
-            <View className='catalog-product-cart-glyph' aria-hidden>
-              <View className='catalog-product-cart-glyph__handle' />
-              <View className='catalog-product-cart-glyph__basket' />
-              <View className='catalog-product-cart-glyph__wheel catalog-product-cart-glyph__wheel--left' />
-              <View className='catalog-product-cart-glyph__wheel catalog-product-cart-glyph__wheel--right' />
-            </View>
+            <FunctionalIcon name='cart' />
             {cartCount > 0 ? <Text className='catalog-product-cart-entry__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
           </View>
           <Text className='catalog-product-cart-entry__label'>购物车</Text>

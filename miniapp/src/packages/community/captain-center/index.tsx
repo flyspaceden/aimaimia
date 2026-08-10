@@ -71,14 +71,14 @@ export default function CaptainCenterPage() {
       <View className='captain-hero__split'><View><Text>¥{formatMoney(account?.balance)}</Text><Text>可用</Text></View><View><Text>¥{formatMoney(account?.frozen)}</Text><Text>冻结</Text></View><View><Text>¥{formatMoney(account?.withdrawn)}</Text><Text>已提现</Text></View></View>
     </View>
 
-    <View className='captain-code aim-card'><View className='captain-code__seal'>长</View><View className='captain-code__copy'><Text>我的团长码</Text><Text>{code}</Text><Text>好友通过小程序卡片进入，绑定由服务端确认。</Text></View></View>
+    <View className='captain-code aim-card'><View className='captain-code__seal'>长</View><View className='captain-code__copy'><Text>我的团长码</Text><Text>{code}</Text><Text>好友通过小程序卡片进入后，平台会自动核验绑定关系。</Text></View></View>
     <View className='captain-actions'><Button onClick={() => Taro.setClipboardData({ data: code })}>复制团长码</Button><Button openType='share'>分享给好友</Button></View>
     <MiniProgramCodePanel kind='CAPTAIN' enabled={Boolean(code)} />
 
     <View className='captain-section-head'><Text>本月经营</Text><Text>{metric?.month || '当前月'}</Text></View>
     <View className='captain-stats aim-card'><View><Text>¥{formatMoney(metric?.personalGmv)}</Text><Text>个人成交额</Text></View><View><Text>{metric?.directEffectiveBuyers || 0}</Text><Text>直接有效买家</Text></View><View><Text>{metric?.newEffectiveMembers || 0}</Text><Text>新增有效会员</Text></View><View><Text>{(Number(metric?.refundRate || 0) * 100).toFixed(1)}%</Text><Text>退款率</Text></View></View>
 
-    <View className='captain-section-head'><Text>订单进度</Text><Text>服务端实时记录</Text></View>
+    <View className='captain-section-head'><Text>订单进度</Text><Text>实时更新</Text></View>
     {orderQuery.isLoading ? <CatalogFeedback kind='loading' /> : orderQuery.data?.pages.some((page) => !page.ok) ? <CatalogFeedback kind='error' title='订单进度加载失败' onRetry={() => orderQuery.refetch()} /> : !orders.length ? <CatalogFeedback kind='empty' title='暂无团长订单' /> : <View className='captain-list aim-card'>{orders.map((order) => <View className='captain-row' key={order.id}><View><Text>{order.buyer?.profile?.nickname || order.buyer?.buyerNo || '买家订单'}</Text><Text>{formatDate(order.createdAt)} · {captainOrderStatusLabel(order.status)}</Text></View><Text>基数 ¥{formatMoney(order.profitBaseAmount ?? order.commissionBase)}</Text></View>)}</View>}
     {orderQuery.hasNextPage ? <Button className='captain-more' loading={orderQuery.isFetchingNextPage} onClick={() => orderQuery.fetchNextPage()}>加载更多订单</Button> : null}
 

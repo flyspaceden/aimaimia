@@ -5,14 +5,14 @@
 .order-list-hero__eyebrow { display: block; color: t.$ai-start; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
 .order-list-hero__title { display: block; margin-top: 3px; color: t.$text-primary; font-size: 25px; font-weight: 800; }
 .order-list-hero__count { color: t.$brand-primary; font-size: 20px; font-weight: 800; }
-.order-list-hero__count text { color: t.$text-tertiary; font-size: 9px; font-weight: 400; }
+.order-list-hero__count text { color: t.$text-tertiary; font-size: 11px; font-weight: 400; }
 .order-filter-scroll { flex: 0 0 auto; width: 100%; white-space: nowrap; }
 .order-filters { display: inline-flex; gap: 8px; padding: 0 18px 13px; }
 .order-filter { padding: 7px 13px; color: t.$text-secondary; font-size: 11px; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
 .order-filter--active { color: t.$brand-primary; font-weight: 700; background: linear-gradient(110deg, t.$brand-soft, t.$ai-soft); border-color: rgba(46,125,50,.2); }
 .order-list-scroll { flex: 1; min-height: 0; }
 .order-list-content { padding: 2px 16px calc(28px + env(safe-area-inset-bottom)); }
-.order-list-more { display: block; padding: 12px; color: t.$text-tertiary; font-size: 10px; text-align: center; }
+.order-list-more { display: block; padding: 14px; color: t.$text-tertiary; font-size: 11px; text-align: center; }
 .order-auth { display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
 .order-auth__stamp { display: flex; align-items: center; justify-content: center; width: 76px; height: 76px; color: #fff; font-size: 27px; font-weight: 800; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border-radius: 22px 22px 22px 6px; box-shadow: 0 14px 30px rgba(0,137,123,.2); }
 .order-auth__title { margin-top: 19px; color: t.$text-primary; font-size: 20px; font-weight: 750; }

@@ -90,12 +90,12 @@ export default function GroupBuyActivityDetailPage() {
         <GroupBuyClock endAt={activity.endAt} />
         <Text className='group-buy-muted'>现金购买指定商品 · 可购 {stock} 份</Text>
       </View>
-      {shareCode && landing?.inviter ? <View className='group-buy-inviter'><Text className='group-buy-inviter__mark'>邀</Text><Text className='group-buy-inviter__copy'>来自 {landing.inviter.nickname || landing.inviter.buyerNo || '分享用户'} 的团购分享。付款时服务端会校验推荐码和活动是否匹配。</Text></View> : null}
+      {shareCode && landing?.inviter ? <View className='group-buy-inviter'><Text className='group-buy-inviter__mark'>邀</Text><Text className='group-buy-inviter__copy'>来自 {landing.inviter.nickname || landing.inviter.buyerNo || '分享用户'} 的团购分享。付款时会自动核验推荐码与活动。</Text></View> : null}
       {ownsShareCode ? <MiniProgramCodePanel kind='GROUP_BUY' /> : null}
       <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>包含商品</Text><Text>{activity.items?.length || 1} 项</Text></View><GroupBuyItems activity={activity} /></View>
       {activity.description?.trim() ? <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>商品详情</Text><Text>活动配置</Text></View><Text className='group-buy-muted group-buy-detail__description'>{activity.description.trim()}</Text></View> : null}
       <View className='group-buy-card aim-card'><View className='group-buy-card__heading'><Text>活动规则</Text><Text>付款前请阅读</Text></View><View className='group-buy-rules'>{RULES.map((rule, index) => <View className='group-buy-rule' key={rule}><Text className='group-buy-rule__index'>{index + 1}</Text><Text className='group-buy-rule__copy'>{rule}</Text></View>)}</View></View>
     </View>
-    <View className='group-buy-detail__bar'><View className='group-buy-detail__bar-price'><Text>¥{formatGroupBuyMoney(activity.price)}</Text><Text>最终金额含服务端计算运费</Text></View><Button className='group-buy-detail__pay' disabled={unavailable} onClick={goCheckout}>{cta}</Button></View>
+    <View className='group-buy-detail__bar'><View className='group-buy-detail__bar-price'><Text>¥{formatGroupBuyMoney(activity.price)}</Text><Text>运费将在结算页确认</Text></View><Button className='group-buy-detail__pay' disabled={unavailable} onClick={goCheckout}>{cta}</Button></View>
   </View>;
 }

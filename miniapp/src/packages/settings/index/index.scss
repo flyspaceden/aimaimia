@@ -1,30 +1,30 @@
 @use '../../../theme/tokens' as t;
-.settings-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px 40px; background: t.$background; }
+.settings-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); background: t.$background; }
 .settings-intro { padding: 20px; color: #fff; background: linear-gradient(140deg, #223d2c, #2e7d32); border-radius: 23px; }
 .settings-intro text { display: block; font-family: Georgia, serif; font-size: 20px; font-weight: 750; }
-.settings-intro text:last-child { margin-top: 7px; font-family: inherit; font-size: 10px; font-weight: 400; line-height: 1.7; opacity: .72; }
+.settings-intro text:last-child { margin-top: 7px; font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.7; opacity: .8; }
 .settings-heading { display: flex; justify-content: space-between; margin: 19px 2px 8px; }
 .settings-heading text:first-child { color: t.$text-primary; font-size: 14px; font-weight: 800; }
-.settings-heading text:last-child { color: t.$text-tertiary; font-size: 9px; }
+.settings-heading text:last-child { color: t.$text-tertiary; font-size: 11px; }
 .settings-card { overflow: hidden; padding: 0 14px; }
 .settings-row { display: flex; align-items: center; min-height: 66px; border-bottom: 1px solid t.$border; }
 .settings-row:last-child { border: 0; }
 .settings-row__mark { display: grid; flex: 0 0 34px; height: 34px; margin-right: 10px; color: #25612b; font-family: serif; font-size: 13px; place-items: center; background: t.$brand-soft; border-radius: 11px; }
 .settings-row__copy { flex: 1; min-width: 0; }
 .settings-row__copy text { display: block; color: t.$text-primary; font-size: 12px; font-weight: 700; }
-.settings-row__copy text:last-child { overflow: hidden; margin-top: 4px; color: t.$text-tertiary; font-size: 9px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.settings-row__copy text:last-child { overflow: hidden; margin-top: 4px; color: t.$text-tertiary; font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .settings-row__arrow { color: t.$text-tertiary; font-size: 21px; }
 .settings-capability { padding: 5px 14px; }
 .settings-capability view { padding: 12px 0; border-bottom: 1px solid t.$border; }
 .settings-capability view:last-child { border: 0; }
 .settings-capability text { display: block; color: t.$text-primary; font-size: 11px; font-weight: 700; }
-.settings-capability text:last-child { margin-top: 4px; color: t.$text-secondary; font-size: 9px; font-weight: 400; line-height: 1.6; }
+.settings-capability text:last-child { margin-top: 4px; color: t.$text-secondary; font-size: 11px; font-weight: 400; line-height: 1.6; }
 .settings-capability .settings-subscription { display: flex; align-items: center; gap: 10px; }
 .settings-subscription > view { flex: 1; padding: 0; border: 0; }
-.settings-subscription button { flex: 0 0 74px; height: 32px; margin: 0; padding: 0; color: #fff; font-size: 9px; line-height: 32px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.settings-subscription button { flex: 0 0 82px; height: 40px; margin: 0; padding: 0 10px; color: #fff; font-size: 12px; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }
 .settings-subscription button[disabled] { color: t.$text-tertiary; background: #eef2ee; }
 .settings-note { margin: 17px 3px 0; padding-left: 12px; border-left: 2px solid #a6b7aa; }
-.settings-note text { display: block; color: t.$text-secondary; font-size: 10px; font-weight: 700; }
-.settings-note text:last-child { margin-top: 4px; color: t.$text-tertiary; font-size: 9px; font-weight: 400; line-height: 1.7; }
+.settings-note text { display: block; color: t.$text-secondary; font-size: 12px; font-weight: 700; }
+.settings-note text:last-child { margin-top: 4px; color: t.$text-tertiary; font-size: 11px; font-weight: 400; line-height: 1.7; }
 .settings-logout, .settings-login { height: 44px; margin-top: 22px; color: #a04b42; font-size: 12px; line-height: 44px; background: #fff; border: 1px solid #d6aaa5; border-radius: t.$radius-full; }
 .settings-login { color: #fff; background: t.$brand-primary; border-color: t.$brand-primary; }

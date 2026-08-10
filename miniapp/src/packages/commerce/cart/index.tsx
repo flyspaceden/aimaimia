@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { formatMoney, isCartItemPurchasable, isCartItemSelected, selectedCartItems, selectedCartTotal } from '@/components/commerce-utils';
+import { SeafoodImage } from '@/components/SeafoodImage';
 import { useAppConfig } from '@/hooks/use-app-config';
 import { CartRepo, CheckoutRepo, RecommendationRepo } from '@/repos';
 import { queryClient } from '@/query/client';
@@ -207,7 +208,7 @@ export default function CartPage() {
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return (
     <View className='aim-page cart-auth'>
-      <View className='cart-auth__orb'>购</View><Text className='cart-auth__title'>登录后查看购物车</Text>
+      <View className='cart-auth__orb'><SeafoodImage name='icon-order-puffer' /></View><Text className='cart-auth__title'>登录后查看购物车</Text>
       <Text className='cart-auth__copy'>登录后即可查看已加入的商品并继续结算。</Text>
       <Button className='aim-button-primary cart-auth__button' onClick={() => Taro.navigateTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/commerce/cart/index')}` })}>去登录</Button>
     </View>
@@ -216,7 +217,7 @@ export default function CartPage() {
   if (!cartQuery.data || !cartQuery.data.ok) return <View className='aim-page'><CatalogFeedback kind='error' title='购物车加载失败' description={cartQuery.data && !cartQuery.data.ok ? cartQuery.data.error.displayMessage : '请稍后重试'} onRetry={() => cartQuery.refetch()} /></View>;
   if (!cart?.items.length) return (
     <View className='aim-page cart-empty'>
-      <View className='cart-empty__basket'>叶</View><Text className='cart-empty__title'>购物车还是空的</Text>
+      <View className='cart-empty__basket'><SeafoodImage name='icon-tool-abalone' /></View><Text className='cart-empty__title'>购物车还是空的</Text>
       <Text className='cart-empty__copy'>去挑选来自真实产地的新鲜好物吧。</Text>
       <Button className='aim-button-primary cart-empty__button' onClick={() => Taro.switchTab({ url: '/pages/products/index' })}>去逛商品</Button>
     </View>

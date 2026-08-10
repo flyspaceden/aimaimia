@@ -3,6 +3,7 @@ import Taro, { useDidHide, useDidShow, useUnload } from '@tarojs/taro';
 import { useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { formatMoney } from '@/components/commerce-utils';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { SeafoodImage } from '@/components/SeafoodImage';
@@ -238,7 +239,7 @@ export default function HomePage() {
           hoverClass='home-cart--pressed'
           onClick={() => loggedIn ? Taro.navigateTo({ url: '/packages/commerce/cart/index' }) : openLogin('/packages/commerce/cart/index')}
         >
-          <Text className='home-cart__glyph'>购</Text>
+          <FunctionalIcon name='cart' className='home-cart__glyph' />
           {cartCount > 0 ? <Text className='home-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
         </View>
         </View>
@@ -291,7 +292,7 @@ export default function HomePage() {
         <SeafoodImage className='home-search__character' name='icon-order-puffer' />
         <View className='home-search__divider' />
         <Text className='home-search__prompt'>搜索商品，或问我...</Text>
-        <Text className='home-search__mic'>声</Text>
+        <View className='home-search__mic'><FunctionalIcon name='microphone' /></View>
         </View>
 
         <View className='home-ai-stage'>

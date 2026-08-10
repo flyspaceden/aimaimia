@@ -1,17 +1,17 @@
 @use '../../../theme/tokens' as t;
-.about-page { min-height: 100vh; box-sizing: border-box; padding: 38px 16px 40px; background: radial-gradient(circle at 50% 0, #e7f5e8, t.$background 34%); }
+.about-page { min-height: 100vh; box-sizing: border-box; padding: 38px 16px calc(40px + env(safe-area-inset-bottom)); background: radial-gradient(circle at 50% 0, #e7f5e8, t.$background 34%); }
 .about-brand { text-align: center; }
 .about-brand__seal { display: grid; width: 72px; height: 72px; margin: 0 auto; color: #fff; font-family: serif; font-size: 31px; place-items: center; background: #2e7d32; border: 5px double #c9ebcb; border-radius: 21px; transform: rotate(-4deg); box-shadow: 0 10px 24px rgba(46,125,50,.2); }
 .about-brand text { display: block; margin-top: 15px; color: t.$text-primary; font-family: Georgia, serif; font-size: 24px; font-weight: 800; }
 .about-brand text:nth-child(3) { margin-top: 5px; color: t.$brand-primary; font-family: inherit; font-size: 11px; letter-spacing: 1px; }
-.about-brand text:last-child { margin-top: 8px; color: t.$text-secondary; font-family: inherit; font-size: 10px; font-weight: 400; }
+.about-brand text:last-child { margin-top: 8px; color: t.$text-secondary; font-family: inherit; font-size: 12px; font-weight: 400; }
 .about-ledger, .about-contact { margin-top: 25px; padding: 3px 14px; }
 .about-ledger view, .about-contact view { display: flex; justify-content: space-between; padding: 13px 0; border-bottom: 1px solid t.$border; }
 .about-ledger view:last-child, .about-contact view:last-child { border: 0; }
-.about-ledger text, .about-contact text { color: t.$text-secondary; font-size: 10px; }
-.about-ledger text:last-child, .about-contact text:last-child { max-width: 210px; color: t.$text-primary; font-size: 10px; font-weight: 650; text-align: right; }
+.about-ledger text, .about-contact text { color: t.$text-secondary; font-size: 11px; }
+.about-ledger text:last-child, .about-contact text:last-child { max-width: 210px; color: t.$text-primary; font-size: 11px; font-weight: 650; text-align: right; }
 .about-copy { margin-top: 15px; padding: 14px; background: #eef7ef; border-left: 3px solid t.$brand-primary; border-radius: 0 t.$radius-md t.$radius-md 0; }
 .about-copy text { display: block; color: t.$brand-primary; font-size: 11px; font-weight: 750; }
-.about-copy text:last-child { margin-top: 5px; color: t.$text-secondary; font-size: 9px; font-weight: 400; line-height: 1.7; }
+.about-copy text:last-child { margin-top: 5px; color: t.$text-secondary; font-size: 11px; font-weight: 400; line-height: 1.7; }
 .about-contact { margin-top: 15px; }
-.about-copyright { display: block; margin-top: 25px; color: t.$text-tertiary; font-size: 9px; text-align: center; }
+.about-copyright { display: block; margin-top: 25px; color: t.$text-tertiary; font-size: 10px; text-align: center; }

@@ -103,7 +103,7 @@ export default function ReferralCenterPage() {
     const returnUrl = incomingCode && incomingKind
       ? `${PAGE_PATH}?code=${encodeURIComponent(incomingCode)}&kind=${incomingKind}`
       : PAGE_PATH;
-    return <View className='aim-page referral-auth'><CatalogFeedback kind='empty' title={incomingCode ? '登录并接受好友邀请' : '登录后查看推荐中心'} description={incomingCode ? '登录后，后端会确认并绑定这次分享中的推荐关系' : '查看自己的分享码和推荐记录'} actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}` })} /></View>;
+    return <View className='aim-page referral-auth'><CatalogFeedback kind='empty' title={incomingCode ? '登录并接受好友邀请' : '登录后查看推荐中心'} description={incomingCode ? '登录后，平台会核验并绑定这次分享中的推荐关系' : '查看自己的分享码和推荐记录'} actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}` })} /></View>;
   }
   if (loading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (queryError) return <View className='aim-page'><CatalogFeedback kind='error' title='推荐中心加载失败' description={queryError.displayMessage || '请稍后重试'} onRetry={() => { void memberQuery.refetch(); void normalQuery.refetch(); }} /></View>;
@@ -114,7 +114,7 @@ export default function ReferralCenterPage() {
       <View className={isVip ? 'referral-code-card referral-code-card--vip' : 'referral-code-card referral-code-card--normal'}>
         <Text className='referral-code-card__label'>{isVip ? 'VIP 推荐码' : '普通分享码'}</Text>
         <Text className='referral-code-card__code'>{shareCode ? shareCode.split('').join(' ') : '暂不可用'}</Text>
-        <Text className='referral-code-card__copy'>{isVip ? `已推荐 ${member?.inviteeVipCount || 0} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。` : '好友从微信卡片进入并登录后，后端会按当前规则绑定普通推荐关系。'}</Text>
+        <Text className='referral-code-card__copy'>{isVip ? `已推荐 ${member?.inviteeVipCount || 0} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。` : '好友从微信卡片进入并登录后，平台会按当前规则绑定普通推荐关系。'}</Text>
         <View className='referral-code-card__actions'>
           <Button className='referral-code-card__copy-button' disabled={!shareCode} onClick={() => shareCode && Taro.setClipboardData({ data: shareCode })}>复制分享码</Button>
           <Button className='referral-code-card__share-button' disabled={!shareCode} openType='share'>分享给好友</Button>

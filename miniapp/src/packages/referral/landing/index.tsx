@@ -57,7 +57,7 @@ export default function ReferralLandingPage() {
     <View className='referral-landing-orbit referral-landing-orbit--done'><Text>✓</Text></View>
     <Text className='referral-landing-eyebrow'>绑定完成</Text>
     <Text className='referral-landing-title'>欢迎来到爱买买</Text>
-    <Text className='referral-landing-copy'>推荐关系已由后端确认。现在可以正常浏览、下单和使用会员功能。</Text>
+    <Text className='referral-landing-copy'>推荐关系已确认。现在可以正常浏览、下单和使用会员功能。</Text>
     <Button className='referral-landing-action' onClick={() => Taro.switchTab({ url: '/pages/home/index' })}>开始逛逛</Button>
   </View>;
 }

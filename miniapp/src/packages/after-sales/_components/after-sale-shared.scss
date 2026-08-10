@@ -1,9 +1,10 @@
 @use '../../../theme/tokens' as t;
 
 .after-sale-auth { display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
-.after-sale-auth__mark { display: flex; align-items: center; justify-content: center; width: 72px; height: 72px; color: #fff; font-size: 25px; font-weight: 800; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border-radius: 24px 24px 24px 7px; }
+.after-sale-auth__illustration { display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; background: t.$brand-soft; border-radius: 50%; box-shadow: 0 12px 28px rgba(46,125,50,.12); }
+.after-sale-auth__illustration image { width: 72px; height: 72px; }
 .after-sale-auth__title { margin-top: 18px; color: t.$text-primary; font-size: 19px; font-weight: 800; }
-.after-sale-auth__copy { margin-top: 7px; color: t.$text-secondary; font-size: 11px; }
+.after-sale-auth__copy { margin-top: 7px; color: t.$text-secondary; font-size: 13px; }
 .after-sale-auth__button { min-width: 150px; margin-top: 20px; }
 .after-sale-status { display: inline-flex; padding: 4px 8px; color: t.$brand-primary; font-size: 9px; font-weight: 750; background: t.$brand-soft; border-radius: t.$radius-full; }
 .after-sale-status--warn { color: #9a6b00; background: #fff4d6; }

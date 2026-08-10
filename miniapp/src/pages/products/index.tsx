@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useMemo, useState } from 'react';
 import { CatalogCompanyCard } from '@/components/catalog-company-card';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { CatalogProductCard } from '@/components/catalog-product-card';
 import { paginateCatalog, resolveCatalogQuickAddAction, type CatalogTab } from '@/components/catalog-utils';
 import { PageHeader } from '@/components/PageHeader';
@@ -135,7 +136,7 @@ export default function ProductsPage() {
             ? Taro.navigateTo({ url: '/packages/commerce/cart/index' })
             : Taro.navigateTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/commerce/cart/index')}` })}
         >
-          <Text>购</Text>
+          <FunctionalIcon name='cart' />
           {cartCount > 0 ? <Text className='products-cart__badge'>{cartCount > 99 ? '99+' : cartCount}</Text> : null}
         </View>
       </PageHeader>

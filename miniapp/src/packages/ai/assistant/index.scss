@@ -14,9 +14,9 @@
 .ai-assistant-orbit--active { transform: scale(1.04); animation: listening 1.2s ease-in-out infinite; }
 .ai-assistant-orbit__core { z-index: 1; display: flex; align-items: center; justify-content: center; width: 74px; height: 74px; color: #fff; background: linear-gradient(145deg, t.$brand-primary, t.$ai-end); border-radius: 50% 50% 50% 18px; box-shadow: 0 14px 30px rgba(0,137,123,.28); }
 .ai-assistant-orbit__core--pressed { opacity: .86; }
-.ai-assistant-orbit__mic { color: #fff; font-size: 19px; font-weight: 800; letter-spacing: 2px; }
+.ai-assistant-orbit__mic { width: 32px; height: 32px; color: #fff; }
 .ai-assistant-stage__status { margin-top: 15px; color: t.$text-primary; font-size: 15px; font-weight: 700; }
-.ai-assistant-stage__hint { margin-top: 4px; color: t.$text-tertiary; font-size: 10px; }
+.ai-assistant-stage__hint { margin-top: 4px; color: t.$text-tertiary; font-size: 11px; }
 .ai-assistant-result { position: relative; overflow: hidden; padding: 20px 18px 18px 23px; }
 .ai-assistant-result__rail { position: absolute; top: 18px; bottom: 18px; left: 11px; width: 3px; background: linear-gradient(t.$ai-start, t.$ai-glow); border-radius: 4px; }
 .ai-assistant-result__label { color: t.$ai-start; font-size: 10px; font-weight: 800; letter-spacing: 1px; }

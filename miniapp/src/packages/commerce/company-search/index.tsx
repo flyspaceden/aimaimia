@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { CatalogCompanyCard } from '@/components/catalog-company-card';
 import { CatalogFeedback } from '@/components/catalog-feedback';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { addRecentSearch } from '@/components/recent-searches';
 import { CompanyRepo } from '@/repos';
 import type { Company } from '@/types';
@@ -61,7 +62,7 @@ export default function CompanySearchPage() {
   const openCompany = (company: Company) => Taro.navigateTo({ url: `/packages/commerce/catalog-company/index?id=${encodeURIComponent(company.id)}` });
 
   return <View className='aim-page company-search-page'>
-    <View className='company-search-bar aim-card'><Text className='company-search-bar__mark'>企</Text><Input value={input} focus={!initial && !hasFilters} confirmType='search' maxlength={128} placeholder='搜索企业、农场、主营业务...' onInput={(event) => { const value = event.detail.value; setInput(value); if (!value.trim() && !hasFilters) { setQuery(''); setSubmitted(false); } }} onConfirm={() => submit()} /><Button onClick={() => submit()}>搜索</Button></View>
+    <View className='company-search-bar aim-card'><FunctionalIcon name='search' className='company-search-bar__mark' /><Input value={input} focus={!initial && !hasFilters} confirmType='search' maxlength={128} placeholder='搜索企业、农场、主营业务...' onInput={(event) => { const value = event.detail.value; setInput(value); if (!value.trim() && !hasFilters) { setQuery(''); setSubmitted(false); } }} onConfirm={() => submit()} /><Button onClick={() => submit()}>搜索</Button></View>
     <View className='company-search-summary aim-card'><View className='company-search-summary__head'><Text>AI</Text><Text>企业搜索摘要</Text></View><Text className='company-search-summary__copy'>{summary}</Text></View>
     {companiesQuery.isLoading ? <CatalogFeedback kind='loading' /> : null}
     {companiesQuery.data && !companiesQuery.data.ok ? <CatalogFeedback kind='error' title='企业加载失败' description={companiesQuery.data.error.displayMessage} onRetry={() => companiesQuery.refetch()} /> : null}

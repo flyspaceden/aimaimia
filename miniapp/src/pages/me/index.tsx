@@ -3,6 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { SeafoodImage, type SeafoodImageName } from '@/components/SeafoodImage';
+import { FunctionalIcon } from '@/components/functional-icon';
 import { CheckoutRepo, OrderRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
 import { BenefitsRepo } from '@/packages/benefits/repos';
@@ -229,7 +230,7 @@ export default function MePage() {
 
       <View className='me-finance-card me-finance-card--wallet' onClick={openWallet}>
         <SeafoodImage className='me-finance-card__shell me-finance-card__shell--wallet' name='me-shell-ivory' />
-        <Text className='me-finance-card__mark'>财</Text>
+        <FunctionalIcon name='wallet' className='me-finance-card__mark' />
         <Text className='me-finance-card__title'>我的财库</Text>
         <Text className='me-finance-card__amount'>{!loggedIn ? '登录后查看' : walletFailed ? '余额加载失败' : walletBalance === undefined ? '加载中…' : `¥${Number(walletBalance).toFixed(2)}`}</Text>
         <Text className='me-finance-card__action'>{walletFailed ? '点击重试' : '去提现'}</Text>
@@ -238,7 +239,7 @@ export default function MePage() {
       <View className='me-finance-card me-finance-card--vip' onClick={openVip}>
         <SeafoodImage className='me-finance-card__shell me-finance-card__shell--vip' name='me-shell-mint' />
         <View className='me-finance-card__vip-top'>
-          <View><Text className='me-finance-card__mark'>冠</Text><Text className='me-finance-card__title'>VIP</Text></View>
+          <View><FunctionalIcon name='crown' className='me-finance-card__mark' /><Text className='me-finance-card__title'>VIP</Text></View>
           <View><Text>· 普通商品会员价</Text><Text>· 更多奖励</Text><Text>· 减免运费权益</Text></View>
         </View>
         <Text className='me-finance-card__action'>{memberFailed ? '状态加载失败 · 点击重试' : loggedIn && !memberQuery.data ? '状态加载中' : member?.tier === 'VIP' ? '查看权益' : '开通会员'}</Text>
@@ -261,7 +262,7 @@ export default function MePage() {
       </View>
       {vipEducationOpen ? <View className='me-vip-modal' onClick={() => setVipEducationOpen(false)}>
         <View className='me-vip-modal__card' onClick={(event) => event.stopPropagation()}>
-          <View className='me-vip-modal__crown'>冠</View>
+          <View className='me-vip-modal__crown'><FunctionalIcon name='crown' /></View>
           <Text className='me-vip-modal__title'>VIP 会员权益</Text>
           <View className='me-vip-modal__perks'>
             <Text>✓ 普通商品会员价</Text>

@@ -3,7 +3,7 @@
 .security-page { padding-bottom: 36px; }
 .security-heading { display: flex; justify-content: space-between; margin: 18px 2px 8px; }
 .security-heading text:first-child { color: t.$text-primary; font-size: 15px; font-weight: 750; }
-.security-heading text:last-child { color: t.$text-tertiary; font-size: 10px; }
+.security-heading text:last-child { color: t.$text-tertiary; font-size: 11px; }
 .security-card { padding: 15px; }
 .security-row { display: flex; justify-content: space-between; padding: 11px 0; color: t.$text-primary; font-size: 13px; border-bottom: 1px solid t.$border; }
 .security-row:last-child { border-bottom: 0; }
@@ -12,5 +12,5 @@
 .security-primary { height: 44px; margin-top: 4px; color: #fff; font-size: 13px; line-height: 44px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
 .security-danger { display: flex; align-items: center; justify-content: space-between; }
 .security-danger text { display: block; color: #a04b42; font-size: 14px; font-weight: 650; }
-.security-danger view text:last-child { margin-top: 3px; color: t.$text-tertiary; font-size: 10px; font-weight: 400; }
+.security-danger view text:last-child { margin-top: 3px; color: t.$text-tertiary; font-size: 11px; font-weight: 400; }
 .security-logout { height: 44px; margin-top: 22px; color: #a04b42; font-size: 13px; line-height: 44px; background: #fff; border: 1px solid #d6aaa5; border-radius: t.$radius-full; }

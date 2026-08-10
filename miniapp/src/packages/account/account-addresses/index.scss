@@ -18,8 +18,8 @@
 .account-address-card__arrow { margin-left: 8px; color: t.$text-tertiary; font-size: 24px; }
 .account-address-card__actions { display: flex; align-items: center; justify-content: space-between; min-height: 43px; margin: 0 15px 0 18px; border-top: 1px solid t.$border; }
 .account-address-card__default-copy { color: t.$brand-primary; font-size: 10px; }
-.account-address-card__default-button { min-height: 32px; margin: 0; padding: 0; color: t.$ai-start; font-size: 11px; line-height: 32px; background: transparent; }
+.account-address-card__default-button { min-height: 40px; margin: 0; padding: 0 8px; color: t.$ai-start; font-size: 12px; line-height: 40px; background: transparent; }
 .account-address-card__action-group { display: flex; align-items: center; }
-.account-address-card__delete { padding: 7px 15px; color: #c62828; font-size: 11px; }
-.account-address-card__edit { padding: 7px 0 7px 15px; color: t.$text-secondary; font-size: 11px; }
+.account-address-card__delete { min-height: 40px; padding: 10px 15px; color: #c62828; font-size: 12px; }
+.account-address-card__edit { min-height: 40px; padding: 10px 0 10px 15px; color: t.$text-secondary; font-size: 12px; }
 .account-addresses-add { width: 100%; min-height: 47px; margin: 20px 0 3px; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; box-shadow: 0 8px 18px rgba(46,125,50,.18); }

@@ -3,7 +3,7 @@
 .cs-list-hero { padding: 16px 16px 0; }
 .cs-list-hero .page-header { margin-bottom: 10px; }
 .cs-list-hero__new { min-width: 78px; height: 38px; margin: 0; padding: 0 14px; color: #fff; font-size: 12px; font-weight: 700; line-height: 38px; background: t.$brand-primary; border-radius: t.$radius-full; }
-.cs-list-lane { display: flex; align-items: center; min-height: 34px; padding: 0 12px; color: t.$text-secondary; font-size: 10px; background: linear-gradient(90deg, t.$brand-soft, t.$ai-soft); border-radius: 10px; }
+.cs-list-lane { display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: t.$text-secondary; font-size: 11px; background: linear-gradient(90deg, t.$brand-soft, t.$ai-soft); border-radius: 10px; }
 .cs-list-lane__dot { width: 7px; height: 7px; margin-right: 8px; background: t.$ai-end; border-radius: 50%; box-shadow: 0 0 0 4px rgba(0,191,165,.12); }
 .cs-list-tabs { display: flex; gap: 8px; padding: 14px 16px 10px; }
 .cs-list-tab { min-width: 88px; padding: 8px 14px; color: t.$text-secondary; font-size: 12px; text-align: center; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
@@ -17,7 +17,7 @@
 .cs-session-card__body { flex: 1; min-width: 0; margin-left: 12px; }
 .cs-session-card__heading, .cs-session-card__footer { display: flex; align-items: center; justify-content: space-between; }
 .cs-session-card__title { color: t.$text-primary; font-size: 14px; font-weight: 750; }
-.cs-session-card__time { color: t.$text-tertiary; font-size: 9px; }
+.cs-session-card__time { color: t.$text-tertiary; font-size: 10px; }
 .cs-session-card__preview { display: block; overflow: hidden; margin-top: 5px; color: t.$text-secondary; font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
 .cs-session-card__footer { margin-top: 8px; }
 .cs-session-card__status { padding: 3px 8px; color: #a55312; font-size: 9px; background: #fff4e6; border-radius: t.$radius-full; }

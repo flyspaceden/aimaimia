@@ -1,10 +1,10 @@
 @use '../../../theme/tokens' as t;
 
 .catalog-search-bar { display: flex; align-items: center; height: 50px; padding: 0 7px 0 14px; }
-.catalog-search-bar__icon { margin-right: 8px; color: t.$ai-start; font-size: 22px; }
+.catalog-search-bar__icon { width: 22px; height: 22px; margin-right: 9px; color: t.$ai-start; }
 .catalog-search-bar__input { flex: 1; min-width: 0; height: 42px; color: t.$text-primary; font-size: 14px; }
 .catalog-search-bar__clear { padding: 5px 8px; color: t.$text-tertiary; font-size: 19px; }
-.catalog-search-bar__button { flex: 0 0 auto; min-height: 36px; margin: 0; padding: 0 15px; color: #fff; font-size: 13px; line-height: 36px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.catalog-search-bar__button { flex: 0 0 auto; min-height: 40px; margin: 0; padding: 0 16px; color: #fff; font-size: 13px; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }
 .catalog-search-empty { display: flex; flex-direction: column; align-items: center; padding: 76px 22px 20px; text-align: center; }
 .catalog-search-empty__mark { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; color: #fff; font-size: 15px; font-weight: 800; background: radial-gradient(circle at 30% 25%, #8bffe8, t.$ai-end 40%, t.$ai-start); border-radius: 50%; box-shadow: 0 0 0 9px t.$ai-soft, 0 14px 28px rgba(0,137,123,.2); }
 .catalog-search-empty__title { max-width: 280px; margin-top: 27px; color: t.$text-primary; font-size: 18px; font-weight: 650; line-height: 27px; }

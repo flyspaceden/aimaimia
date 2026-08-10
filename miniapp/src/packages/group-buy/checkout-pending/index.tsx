@@ -25,7 +25,7 @@ async function waitForGroupBuyOrder(sessionId: string): Promise<CheckoutStatusRe
 }
 
 function remainingText(expiresAt?: string): string {
-  if (!expiresAt) return '支付状态以服务端为准';
+  if (!expiresAt) return '正在确认支付状态';
   const seconds = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1_000));
   return seconds > 0 ? `支付窗口剩余 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : '支付窗口已结束';
 }
@@ -121,8 +121,8 @@ export default function GroupBuyCheckoutPendingPage() {
 
   return <View className='group-buy-page group-buy-pending'>
     <View className='group-buy-pending__orb'>待</View><Text className='group-buy-pending__title'>等待完成微信支付</Text><Text className='group-buy-pending__time'>{remainingText(pending?.expiresAt)}</Text>
-    <View className='group-buy-pending__card aim-card'>{pending?.preview.firstItemImage ? <Image className='group-buy-pending__image' src={pending.preview.firstItemImage} mode='aspectFill' /> : <View className='group-buy-pending__placeholder'>团</View>}<View className='group-buy-pending__copy'><Text>{pending?.preview.firstItemTitle || '爱买买团购订单'}</Text><Text>{pending ? `共 ${pending.itemCount} 件 · ${pending.paymentScene === 'MINI_PROGRAM' ? '小程序发起' : 'App 发起'}` : '正在查询服务端状态'}</Text></View>{pending ? <Text className='group-buy-pending__amount'>¥{formatGroupBuyMoney(pending.expectedTotal)}</Text> : null}</View>
-    {!matchesRequested ? <Text className='group-buy-pending__hint'>当前另有一笔待支付订单，请先处理后再重试。</Text> : pending && !pending.canResumeInCurrentScene ? <Text className='group-buy-pending__hint'>这笔团购支付从 App 发起。小程序不会复用 App 支付参数；系统会先查单，确认未支付并安全关单，再让你重新选择团购。</Text> : <Text className='group-buy-pending__hint'>继续支付会重新向服务端获取当前会话的小程序支付参数；付款完成仍以后端查单和建单结果为准。</Text>}
+    <View className='group-buy-pending__card aim-card'>{pending?.preview.firstItemImage ? <Image className='group-buy-pending__image' src={pending.preview.firstItemImage} mode='aspectFill' /> : <View className='group-buy-pending__placeholder'>团</View>}<View className='group-buy-pending__copy'><Text>{pending?.preview.firstItemTitle || '爱买买团购订单'}</Text><Text>{pending ? `共 ${pending.itemCount} 件 · ${pending.paymentScene === 'MINI_PROGRAM' ? '小程序发起' : 'App 发起'}` : '正在确认支付状态'}</Text></View>{pending ? <Text className='group-buy-pending__amount'>¥{formatGroupBuyMoney(pending.expectedTotal)}</Text> : null}</View>
+    {!matchesRequested ? <Text className='group-buy-pending__hint'>当前另有一笔待支付订单，请先处理后再重试。</Text> : pending && !pending.canResumeInCurrentScene ? <Text className='group-buy-pending__hint'>这笔团购支付从 App 发起，不能直接在小程序继续。确认原支付未完成后，即可重新选择团购。</Text> : <Text className='group-buy-pending__hint'>继续支付会重新确认订单与金额；付款后请以本页最终结果为准，避免重复支付。</Text>}
     <Button className='group-buy-primary' loading={resumeMutation.isPending} disabled={!sessionId || !matchesRequested || resumeMutation.isPending} onClick={async () => { if (!await ensureWechatMiniProgramSession(paymentReturnUrl)) return; resumeMutation.mutate(); }}>{pending && !pending.canResumeInCurrentScene ? '安全切换到小程序' : '继续微信支付'}</Button>
     <Button className='group-buy-danger' loading={cancelMutation.isPending} disabled={!sessionId || !matchesRequested || cancelMutation.isPending} onClick={async () => { const modal = await Taro.showModal({ title: '取消团购支付', content: '系统会先向微信确认未付款并安全关单；结果不确定时不会强行取消。', confirmText: '确认取消', confirmColor: '#A04B42' }); if (modal.confirm) cancelMutation.mutate(); }}>取消支付</Button>
     <Text className='group-buy-pending__orders' onClick={() => Taro.navigateTo({ url: '/packages/orders/order-list/index' })}>查看我的订单 ›</Text>

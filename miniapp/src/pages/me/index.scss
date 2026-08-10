@@ -4,25 +4,25 @@
 .me-section-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 12px; }
 .me-section-head > view { display: flex; flex-direction: column; }
 .me-section-head > view text:first-child, .me-section-head > text:first-child { color: t.$text-primary; font-size: 17px; font-weight: 700; }
-.me-section-head > view text:last-child { margin-top: 3px; color: t.$text-tertiary; font-size: 10px; }
-.me-section-head > text:last-child { color: t.$text-tertiary; font-size: 10px; }
+.me-section-head > view text:last-child { margin-top: 3px; color: t.$text-tertiary; font-size: 12px; }
+.me-section-head > text:last-child { color: t.$text-tertiary; font-size: 12px; }
 .me-section-head--orders { margin-top: 24px; }
 
 .me-activity-card { display: flex; align-items: center; min-height: 108px; padding: 12px 14px; background: linear-gradient(135deg, #f8fff9, #e5f7ea); border-color: rgba(38,123,72,.18); }
 .me-activity-card__character { display: flex; flex: 0 0 68px; align-items: center; justify-content: center; width: 68px; height: 68px; }
 .me-activity-card__character image { width: 68px; height: 68px; }
 .me-activity-card__copy { display: flex; flex: 1; min-width: 0; flex-direction: column; margin-left: 8px; }
-.me-activity-card__copy text:nth-child(1) { color: t.$brand-primary; font-size: 10px; font-weight: 700; }
+.me-activity-card__copy text:nth-child(1) { color: t.$brand-primary; font-size: 11px; font-weight: 700; }
 .me-activity-card__copy text:nth-child(2) { margin-top: 2px; color: #155d37; font-size: 15px; font-weight: 700; }
-.me-activity-card__copy text:nth-child(3) { margin-top: 3px; color: t.$text-secondary; font-size: 10px; }
-.me-activity-card__action { min-width: 66px; padding: 10px 12px; color: #fff; font-size: 10px; font-weight: 700; text-align: center; background: t.$brand-primary; border-radius: t.$radius-full; }
+.me-activity-card__copy text:nth-child(3) { margin-top: 3px; color: t.$text-secondary; font-size: 11px; }
+.me-activity-card__action { min-width: 72px; min-height: 40px; padding: 10px 14px; color: #fff; font-size: 12px; font-weight: 700; text-align: center; background: t.$brand-primary; border-radius: t.$radius-full; }
 
 .me-lottery-card { position: relative; display: flex; align-items: center; min-height: 112px; margin-top: 12px; padding: 15px 14px 15px 20px; overflow: hidden; background: linear-gradient(135deg, #2d8850, #155d37); border-radius: t.$radius-lg; box-shadow: 0 9px 24px rgba(21,93,55,.2); }
 .me-lottery-card__glow { position: absolute; top: -70px; right: 42px; width: 150px; height: 150px; background: rgba(255,255,255,.08); border-radius: 50%; }
 .me-lottery-card__copy { position: relative; z-index: 1; display: flex; flex: 1; min-width: 0; flex-direction: column; }
-.me-lottery-card__copy text:nth-child(1) { color: rgba(255,255,255,.76); font-size: 10px; font-weight: 700; }
+.me-lottery-card__copy text:nth-child(1) { color: rgba(255,255,255,.76); font-size: 11px; font-weight: 700; }
 .me-lottery-card__copy text:nth-child(2) { margin-top: 3px; color: #fff; font-size: 15px; font-weight: 700; }
-.me-lottery-card__copy text:nth-child(3) { margin-top: 4px; color: rgba(255,255,255,.76); font-size: 10px; }
+.me-lottery-card__copy text:nth-child(3) { margin-top: 4px; color: rgba(255,255,255,.76); font-size: 11px; }
 .me-lottery-card__character { position: relative; z-index: 1; display: flex; width: 82px; height: 76px; margin: 0 4px; align-items: center; justify-content: center; }
 .me-lottery-card__character image { width: 72px; height: 72px; }
 .me-lottery-card__badge { position: absolute; top: 0; right: 3px; display: flex; align-items: center; justify-content: center; min-width: 21px; height: 21px; padding: 0 5px; color: #fff; font-size: 9px; font-weight: 800; background: #ff7a32; border: 2px solid #fff; border-radius: 11px; }
@@ -31,12 +31,12 @@
 .me-order-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 14px 8px; }
 .me-order-grid--pending { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
 .me-order-entry { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: flex-start; padding: 4px 2px; }
-.me-order-entry > text { margin-top: 4px; color: t.$text-secondary; font-size: 9px; text-align: center; }
+.me-order-entry > text { margin-top: 4px; color: t.$text-secondary; font-size: 11px; text-align: center; }
 .me-order-entry__icon { position: relative; display: flex; width: 42px; height: 42px; align-items: center; justify-content: center; }
 .me-order-entry__icon image { width: 40px; height: 40px; }
 .me-order-entry__badge, .me-tool__badge { position: absolute; top: -6px; right: -10px; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; color: #fff; font-size: 8px; font-weight: 700; background: #d14343; border: 2px solid #fff; border-radius: 9px; }
 .me-order-entry__pending { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; color: #ff6b35; font-size: 12px; font-weight: 800; background: #fff1ea; border: 1px solid #ffb99e; border-radius: 50%; }
-.me-order-entry > .me-order-entry__pending-meta { margin-top: 2px; color: #ff6b35; font-size: 8px; font-weight: 700; }
+.me-order-entry > .me-order-entry__pending-meta { margin-top: 2px; color: #ff6b35; font-size: 10px; font-weight: 700; }
 
 .me-finance-card { position: relative; min-height: 152px; margin-top: 13px; padding: 16px; overflow: hidden; border-radius: t.$radius-lg; }
 .me-finance-card--wallet { color: #fff; background: linear-gradient(135deg, #f4c73b, #e6ab15); }
@@ -44,29 +44,30 @@
 .me-finance-card__shell { position: absolute; opacity: .42; }
 .me-finance-card__shell--wallet { right: -18px; bottom: -22px; width: 132px; height: 132px; transform: rotate(-8deg); }
 .me-finance-card__shell--vip { bottom: -48px; left: 38%; width: 142px; height: 142px; opacity: .19; transform: rotate(12deg); }
-.me-finance-card__mark { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; color: #fff; font-size: 9px; font-weight: 800; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.42); border-radius: 50%; }
+.me-finance-card__mark { position: relative; z-index: 1; width: 25px; height: 25px; padding: 4px; color: #fff; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.42); border-radius: 50%; }
 .me-finance-card__title { position: relative; z-index: 1; display: block; margin-top: 8px; color: #fff; font-size: 15px; font-weight: 700; }
 .me-finance-card__amount { position: relative; z-index: 1; display: block; margin-top: 2px; color: #fff; font-size: 21px; font-weight: 800; }
-.me-finance-card__action { position: relative; z-index: 1; display: inline-block; margin-top: 8px; padding: 5px 12px; color: #fff; font-size: 10px; background: rgba(255,255,255,.25); border-radius: t.$radius-full; }
+.me-finance-card__action { position: relative; z-index: 1; display: inline-block; margin-top: 8px; padding: 7px 14px; color: #fff; font-size: 12px; background: rgba(255,255,255,.25); border-radius: t.$radius-full; }
 .me-finance-card__vip-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; }
 .me-finance-card__vip-top > view:last-child { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
-.me-finance-card__vip-top > view:last-child text { color: rgba(255,255,255,.76); font-size: 10px; }
+.me-finance-card__vip-top > view:last-child text { color: rgba(255,255,255,.8); font-size: 11px; }
 
 .me-tools { margin-top: 14px; padding: 16px 9px; }
 .me-tools__title { display: block; margin: 0 7px 12px; color: t.$text-primary; font-size: 17px; font-weight: 700; }
-.me-tools__status { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin: 0 7px 8px; padding: 0 12px; color: t.$text-secondary; font-size: 10px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.me-tools__status { display: flex; align-items: center; justify-content: space-between; min-height: 44px; margin: 0 7px 8px; padding: 0 12px; color: t.$text-secondary; font-size: 12px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
 .me-tools__status text:last-child { color: t.$brand-primary; font-weight: 700; }
 .me-tools__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .me-tool { display: flex; min-width: 0; flex-direction: column; align-items: center; padding: 10px 2px; }
 .me-tool__icon { position: relative; display: flex; width: 46px; height: 46px; align-items: center; justify-content: center; }
 .me-tool__icon image { width: 43px; height: 43px; }
-.me-tool > text { margin-top: 6px; color: t.$text-secondary; font-size: 9px; text-align: center; }
+.me-tool > text { margin-top: 6px; color: t.$text-secondary; font-size: 11px; text-align: center; }
 .me-tool__badge { top: -4px; right: -6px; }
 
 .me-vip-modal { position: fixed; z-index: 100; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(8, 24, 14, .62); }
 .me-vip-modal__card { position: relative; width: 100%; max-width: 340px; padding: 25px 22px 20px; overflow: hidden; text-align: center; background: linear-gradient(145deg, #2e7d32, #155d37); border: 1px solid rgba(255, 215, 0, .28); border-radius: 22px; box-shadow: 0 24px 70px rgba(0, 0, 0, .28); }
 .me-vip-modal__card::before { position: absolute; top: -75px; right: -40px; width: 180px; height: 180px; content: ''; background: rgba(255, 215, 0, .1); border-radius: 50%; }
-.me-vip-modal__crown { position: relative; display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; margin: 0 auto; color: #ffd65a; font-size: 18px; font-weight: 850; background: rgba(255, 215, 0, .16); border: 1px solid rgba(255, 215, 0, .35); border-radius: 50%; }
+.me-vip-modal__crown { position: relative; display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; margin: 0 auto; color: #ffd65a; background: rgba(255, 215, 0, .16); border: 1px solid rgba(255, 215, 0, .35); border-radius: 50%; }
+.me-vip-modal__crown .functional-icon { width: 30px; height: 30px; }
 .me-vip-modal__title { position: relative; display: block; margin-top: 14px; color: #fff; font-size: 21px; font-weight: 800; }
 .me-vip-modal__perks { position: relative; display: grid; gap: 10px; margin-top: 18px; text-align: left; }
 .me-vip-modal__perks text { color: rgba(255,255,255,.92); font-size: 12px; line-height: 18px; }

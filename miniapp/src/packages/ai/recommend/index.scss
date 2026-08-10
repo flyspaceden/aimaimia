@@ -30,7 +30,7 @@
 .ai-recommend-plan__description { display: block; margin-top: 4px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
 .ai-recommend-plan__price { flex: 0 0 auto; padding: 5px 9px; color: t.$ai-start; font-size: 11px; font-weight: 700; background: t.$ai-soft; border-radius: t.$radius-full; }
 .ai-recommend-progress { margin-top: 12px; }
-.ai-recommend-progress__label { display: flex; justify-content: space-between; color: t.$ai-start; font-size: 10px; }
+.ai-recommend-progress__label { display: flex; justify-content: space-between; color: t.$ai-start; font-size: 11px; }
 .ai-recommend-progress__track { height: 5px; margin-top: 5px; overflow: hidden; background: t.$border; border-radius: t.$radius-full; }
 .ai-recommend-progress__fill { height: 100%; background: linear-gradient(90deg, t.$brand-primary, t.$ai-start, t.$ai-end); border-radius: t.$radius-full; }
 .ai-recommend-plan__products { margin-top: 11px; border-top: 1px solid t.$border; }
@@ -40,14 +40,14 @@
 .ai-recommend-plan-product > view { flex: 1; min-width: 0; }
 .ai-recommend-plan-product__title, .ai-recommend-plan-product__origin { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-recommend-plan-product__title { color: t.$text-primary; font-size: 12px; font-weight: 600; }
-.ai-recommend-plan-product__origin { margin-top: 2px; color: t.$text-tertiary; font-size: 10px; }
+.ai-recommend-plan-product__origin { margin-top: 2px; color: t.$text-tertiary; font-size: 11px; }
 .ai-recommend-plan-product__price { flex: 0 0 auto; color: t.$ai-start; font-size: 11px; font-weight: 650; }
 .ai-recommend-note, .ai-recommend-insight { margin-bottom: 12px; padding: 14px; }
 .ai-recommend-note > text { display: block; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
-.ai-recommend-note button { height: 36px; margin-top: 11px; color: t.$ai-start; font-size: 12px; line-height: 36px; background: t.$ai-soft; border-radius: t.$radius-full; }
+.ai-recommend-note button { height: 42px; margin-top: 11px; color: t.$ai-start; font-size: 13px; line-height: 42px; background: t.$ai-soft; border-radius: t.$radius-full; }
 .ai-recommend-insight__head { display: flex; align-items: center; justify-content: space-between; color: t.$text-primary; font-size: 14px; font-weight: 650; }
 .ai-recommend-insight__head text:last-child { color: t.$ai-start; font-size: 11px; }
 .ai-recommend-insight__description { display: block; margin-top: 5px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
 .ai-recommend-cart { position: fixed; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 10; display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; color: #fff; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border: 3px solid #fff; border-radius: 50%; box-shadow: 0 8px 22px rgba(27, 94, 32, .3); }
-.ai-recommend-cart__icon { font-size: 17px; font-weight: 750; }
+.ai-recommend-cart__icon { width: 26px; height: 26px; }
 .ai-recommend-cart__badge { position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 4px; color: #fff; font-size: 9px; font-weight: 700; line-height: 20px; text-align: center; background: #c94a3f; border: 2px solid #fff; border-radius: t.$radius-full; }
