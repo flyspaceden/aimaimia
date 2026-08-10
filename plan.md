@@ -2042,3 +2042,4 @@
 - [x] **WMP10** 2026-08-10 开发者工具真实商品详情热修：修正 `attributes` Contract 为 Json `unknown`，按 App 只展示原始字符串/数字，隐藏 `semanticMeta` 嵌套对象，修复 React #31 白屏；商品属性/图文详情分区，横向滚动容器移除 padding 兼容警告，并用真实 `semanticMeta` 形状增加回归测试。
 - [x] **WMP11** 2026-08-10 微信开发者工具自动逐页巡检：新增基于官方 `miniprogram-automator` 的 71 路由运行时遍历、真实 staging fixture、console/exception 收集和逐页截图报告；首轮定位并修复消息收件箱/详情的中文 WXSS 类名导致分包编译 10041 和后续导航卡死，新增全 SCSS 中文选择器回归门槛。未登录页面保持 `AUTH_GATE` 单独统计，订单/资金/售后内部链路仍须测试账号登录后二次运行。
 - [x] **WMP12** 2026-08-10 小程序纯微信认证：删除小程序手机号验证码、密码登录、注册和忘记密码入口，保留协议确认 + 微信一键登录；已有小程序身份/同一 UnionID 复用原账号，未知身份在锁与 Serializable 事务内自动创建买家账号，旧手机号 Session 自动清理。修复 staging PM2 缺少小程序 AppID/AppSecret 导致 `/auth/oauth/wechat-miniapp` 500，并增加纯微信 UI、适配层和会话迁移回归测试；小程序 44 文件 237/237、后端登录 52/52、双环境构建、生产产物、Nest build 和 Prisma 校验通过。production 配置与真机验收仍归 WMP00-F。
+- [x] **WMP13** 2026-08-10 登录后运行时巡检防卡死：开发者工具在订单详情 `captureScreenshot` 不返回时，旧脚本会阻塞余下页面；现已为导航/页面读取/截图增加独立硬超时，截图异常只记审计警告，真实导航/React/WXSS 错误仍失败，单页不能阻塞整轮 71 路由巡检。

@@ -8,6 +8,8 @@ const CLI_PATH = process.env.WECHAT_DEVTOOLS_CLI
 const PROJECT_PATH = path.resolve(process.env.MINIAPP_RUNTIME_PROJECT || process.cwd());
 const API_BASE = (process.env.MINIAPP_RUNTIME_API || 'https://test-api.ai-maimai.com/api/v1').replace(/\/$/, '');
 const WAIT_MS = Math.max(1_000, Number(process.env.MINIAPP_RUNTIME_WAIT_MS || 2_500));
+const NAVIGATION_TIMEOUT_MS = Math.max(8_000, Number(process.env.MINIAPP_RUNTIME_NAVIGATION_TIMEOUT_MS || 20_000));
+const SCREENSHOT_TIMEOUT_MS = Math.max(3_000, Number(process.env.MINIAPP_RUNTIME_SCREENSHOT_TIMEOUT_MS || 8_000));
 const ROUTE_FILTER = process.env.MINIAPP_RUNTIME_ROUTES
   ? new Set(process.env.MINIAPP_RUNTIME_ROUTES.split(',').map((value) => value.trim().replace(/^\//, '')).filter(Boolean))
   : null;
@@ -68,6 +70,16 @@ const AUTH_REQUIRED_ROUTES = new Set([
 ]);
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function withTimeout(promise, milliseconds, label) {
+  let timeout;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(`${label} 超过 ${milliseconds}ms`)), milliseconds);
+    }),
+  ]).finally(() => clearTimeout(timeout));
+}
 
 function safeJson(value) {
   const seen = new WeakSet();
@@ -251,17 +263,32 @@ async function main() {
       const url = routeUrl(route, fixtures);
       const screenshot = path.join(OUTPUT_DIR, 'screenshots', fileName(route));
       let navigationError;
+      let screenshotError;
       let actualPath;
       try {
-        await miniProgram.reLaunch(url);
+        await withTimeout(miniProgram.reLaunch(url), NAVIGATION_TIMEOUT_MS, `${route} 导航`);
         await sleep(WAIT_MS);
-        actualPath = (await miniProgram.currentPage())?.path;
-        await miniProgram.screenshot({ path: screenshot });
+        actualPath = (await withTimeout(miniProgram.currentPage(), 5_000, `${route} 当前页面读取`))?.path;
+        try {
+          await withTimeout(
+            miniProgram.screenshot({ path: screenshot }),
+            SCREENSHOT_TIMEOUT_MS,
+            `${route} 截图`,
+          );
+        } catch (error) {
+          // 个别复杂页面在特定开发者工具版本中可能无法完成 captureScreenshot。
+          // 截图是审计证据，不是业务页面是否可用的裁决；记录警告并继续后续路由。
+          screenshotError = error.message;
+        }
       } catch (error) {
         navigationError = error.message;
         // 一个分包编译失败不能污染后面几十页的结论；回到主包后继续隔离巡检。
         try {
-          await miniProgram.reLaunch('/pages/home/index');
+          await withTimeout(
+            miniProgram.reLaunch('/pages/home/index'),
+            NAVIGATION_TIMEOUT_MS,
+            '失败恢复到首页',
+          );
           await sleep(1_000);
         } catch {
           // 原始页面保留 FAIL；下一页仍会再次独立 reLaunch。
@@ -273,12 +300,25 @@ async function main() {
         ...routeExceptions.map(eventText),
         ...routeConsole.filter(isConsoleError).map(eventText),
       ];
-      const warnings = routeConsole.filter(isConsoleWarning).map(eventText);
+      const warnings = [
+        ...routeConsole.filter(isConsoleWarning).map(eventText),
+        ...(screenshotError ? [`截图未生成：${screenshotError}`] : []),
+      ];
       const gateOnly = !authenticated && AUTH_REQUIRED_ROUTES.has(route);
       const status = navigationError || errors.length || (actualPath && actualPath !== route && !gateOnly) ? 'FAIL'
         : gateOnly ? 'AUTH_GATE'
           : 'PASS';
-      results.push({ route, url, actualPath, status, navigationError, errors, warnings, screenshot: navigationError ? undefined : screenshot });
+      results.push({
+        route,
+        url,
+        actualPath,
+        status,
+        navigationError,
+        screenshotError,
+        errors,
+        warnings,
+        screenshot: navigationError || screenshotError ? undefined : screenshot,
+      });
       process.stdout.write(`[${results.length}/${routes.length}] ${status.padEnd(9)} ${route}${actualPath && actualPath !== route ? ` -> ${actualPath}` : ''}\n`);
     }
   } finally {
