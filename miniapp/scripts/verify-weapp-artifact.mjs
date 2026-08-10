@@ -47,6 +47,20 @@ assert.equal(
   '首版不得包含配送分包',
 );
 
+const expectedTabIcons = [
+  ['pages/home/index', 'assets/seafood/icon-order-puffer.png'],
+  ['pages/products/index', 'assets/seafood/icon-tool-starfish.png'],
+  ['pages/me/index', 'assets/seafood/icon-tool-oyster.png'],
+];
+for (const [pagePath, iconPath] of expectedTabIcons) {
+  const tab = appConfig.tabBar?.list?.find((item) => item.pagePath === pagePath);
+  assert.equal(tab?.iconPath, iconPath, `${pagePath} 应配置与 App 对齐的 Tab 图标`);
+  assert.equal(tab?.selectedIconPath, iconPath, `${pagePath} 应配置选中态 Tab 图标`);
+  const icon = files.find(({ relativePath }) => relativePath === iconPath);
+  assert.ok(icon, `${iconPath} 应进入微信小程序产物`);
+  assert.ok(icon.size < 40 * 1024, `${iconPath} 应小于微信 Tab 图标 40 KiB 限制`);
+}
+
 const sharePages = [
   ['packages/commerce/catalog-company/index.js', false],
   ['packages/community/captain-center/index.js', false],

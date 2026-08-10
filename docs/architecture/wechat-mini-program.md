@@ -642,10 +642,13 @@ AppID `wx1b33112db0d5267b` 已写入 `project.config.json`，可用于开发者�
 2026-08-02 实施状态：
 
 - [x] `miniapp/` 独立工程、三 Tab 骨架、主题、Result 请求、Token 刷新并发隔离、环境锁定和 feature manifest。
+- [x] 三个原生 TabBar 已按 App 顺序配置首页河豚、商品海星、我的牡蛎图标；生产产物校验会阻止图标路径缺失、未复制或单文件超过 40 KiB。
 - [x] 五个 POC 所需前端适配层及自动化测试：微信 code 登录/手机号绑定、`requestPayment`、`requestMerchantTransfer`、RecorderManager + uploadFile、Engine.IO v4/Socket.IO `/cs` namespace。
 - [x] 账号合并、JSAPI 支付、跨端安全切换和微信商家转账 Provider 已完成安全收口、聚焦测试、后端构建与独立复审；真实通道仍需外部材料联调。
 - [x] 真实 AppID `wx1b33112db0d5267b` 已写入工程，AppSecret 已由项目方保存在本地密码本；秘密值不进入前端代码或 Git。
 - [ ] 后端测试/生产环境、商户号权限、转账场景 ID、合法域名和隐私接口仍待配置；开发者工具/真机项不得标记通过。
+
+2026-08-10 开发者工具首次联调确认：staging 请求会被微信的 request 合法域名校验拦截。项目本地可通过开发者工具私有设置暂时关闭校验，但开发版/体验版/正式版仍必须在微信后台加入 `https://test-api.ai-maimai.com` 和对应生产域名，不能把本地开关当作上线配置。
 
 Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面；外部微信能力门槛仍保持为真实联调与发布阻塞项。
 

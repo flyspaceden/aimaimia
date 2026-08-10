@@ -142,9 +142,24 @@ export default defineAppConfig({
     backgroundColor: '#FFFFFF',
     borderStyle: 'white',
     list: [
-      { pagePath: 'pages/home/index', text: '首页' },
-      { pagePath: 'pages/products/index', text: '商品' },
-      { pagePath: 'pages/me/index', text: '我的' },
+      {
+        pagePath: 'pages/home/index',
+        text: '首页',
+        iconPath: 'assets/seafood/icon-order-puffer.png',
+        selectedIconPath: 'assets/seafood/icon-order-puffer.png',
+      },
+      {
+        pagePath: 'pages/products/index',
+        text: '商品',
+        iconPath: 'assets/seafood/icon-tool-starfish.png',
+        selectedIconPath: 'assets/seafood/icon-tool-starfish.png',
+      },
+      {
+        pagePath: 'pages/me/index',
+        text: '我的',
+        iconPath: 'assets/seafood/icon-tool-oyster.png',
+        selectedIconPath: 'assets/seafood/icon-tool-oyster.png',
+      },
     ],
   },
   lazyCodeLoading: 'requiredComponents',
