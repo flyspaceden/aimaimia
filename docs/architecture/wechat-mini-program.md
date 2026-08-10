@@ -807,3 +807,11 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 3. “商品属性”与“图文详情”拆成与 App 相同的两个区块，缺少描述时显示明确空态。
 4. 横向 `scroll-view` 的留白改为内容容器 margin，避免微信 WebView 渲染模式的 padding 兼容警告。
 5. 回归用例使用包含 `dietaryTags/originRegion/seasonalMonths/usageScenarios` 的真实 `semanticMeta` 形状，不再只用全字符串 Mock。
+
+## 21. 微信开发者工具逐页运行时巡检
+
+源码测试和 Taro 构建不能替代微信 WXSS 编译器与真实数据运行。小程序提供 `npm run audit:runtime`：读取构建后的 71 个路由，用 `miniprogram-automator` 驱动微信开发者工具逐页 `reLaunch`，使用 staging 商品/企业数据补齐公开详情参数，捕获 JavaScript/React/WXSS 异常并保存每页截图与 Markdown/JSON 报告。
+
+运行前必须打开微信开发者工具“设置 → 安全设置 → 服务端口”。未登录时，报告将会员页面标记为 `AUTH_GATE`，只证明登录门禁可渲染，不得冒充订单、资金或售后内部功能已通过；登录后必须再跑第二轮。
+
+首轮巡检发现消息分包使用中文 CSS 后缀 `--互` / `--交`。Taro 构建可通过，但微信懒加载该分包时以 WXSS 10041 拒绝解析，导致消息页及后续导航卡死。显示徽章继续使用中文，CSS 状态改为 `--interaction` / `--transaction`，并由 `tests/wxss-compatibility.test.ts` 全目录阻止中文选择器回归。

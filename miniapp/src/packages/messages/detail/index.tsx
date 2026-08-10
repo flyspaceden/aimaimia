@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { useAuthStore } from '@/store/auth';
 import { MessageRepo } from '../repo';
-import { categoryLabel, formatMessageTime, messageSeal, resolveMessageRoute } from '../utils';
+import { categoryLabel, formatMessageTime, messageSeal, messageSealTone, resolveMessageRoute } from '../utils';
 import './index.scss';
 
 export default function MessageDetailPage() {
@@ -48,7 +48,7 @@ export default function MessageDetailPage() {
   return (
     <View className='aim-page message-detail-page'>
       <View className='message-detail-meta'>
-        <Text className={`message-detail-meta__seal message-detail-meta__seal--${messageSeal(message!.category)}`}>{messageSeal(message!.category)}</Text>
+        <Text className={`message-detail-meta__seal message-detail-meta__seal--${messageSealTone(message!.category)}`}>{messageSeal(message!.category)}</Text>
         <View><Text className='message-detail-meta__category'>{categoryLabel(message!.category)}</Text><Text className='message-detail-meta__time'>{formatMessageTime(message!.createdAt, true)}</Text></View>
         {message!.severity === 'WARNING' || message!.severity === 'CRITICAL' ? <Text className='message-detail-meta__important'>重要</Text> : null}
       </View>

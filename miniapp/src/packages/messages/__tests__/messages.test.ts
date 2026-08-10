@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageRepo } from '../repo';
-import { formatMessageTime, resolveMessageRoute } from '../utils';
+import { formatMessageTime, messageSeal, messageSealTone, resolveMessageRoute } from '../utils';
 
 const getMock = vi.hoisted(() => vi.fn());
 const postMock = vi.hoisted(() => vi.fn());
@@ -32,5 +32,14 @@ describe('miniapp message center contracts', () => {
 
   it('formats invalid timestamps without throwing', () => {
     expect(formatMessageTime('not-a-date')).toBe('not-a-date');
+  });
+
+  it('keeps Chinese seal glyphs out of WXSS class names', () => {
+    expect(messageSeal('interaction')).toBe('互');
+    expect(messageSealTone('interaction')).toBe('interaction');
+    expect(messageSeal('transaction')).toBe('交');
+    expect(messageSealTone('transaction')).toBe('transaction');
+    expect(messageSeal('system')).toBe('系');
+    expect(messageSealTone('system')).toBe('system');
   });
 });

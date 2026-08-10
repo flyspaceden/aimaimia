@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { useAuthStore } from '@/store/auth';
 import { MessageRepo } from '../repo';
 import type { InboxCategory, InboxFilter, InboxMessage } from '../types';
-import { categoryLabel, formatMessageTime, messageSeal } from '../utils';
+import { categoryLabel, formatMessageTime, messageSeal, messageSealTone } from '../utils';
 import './index.scss';
 
 const PAGE_SIZE = 20;
@@ -145,7 +145,7 @@ export default function MessageInboxPage() {
         <View className='message-inbox-content'>
           {inboxQuery.isLoading ? <CatalogFeedback kind='loading' /> : inboxQuery.isError ? <CatalogFeedback kind='error' description={(inboxQuery.error as { displayMessage?: string })?.displayMessage || '消息加载失败'} onRetry={() => inboxQuery.refetch()} /> : messages.length === 0 ? <CatalogFeedback kind='empty' title={unreadOnly ? '没有未读消息' : '暂无消息'} description='新的服务进度会出现在这里' /> : messages.map((message) => (
             <View className={message.unread ? 'message-card aim-card message-card--unread' : 'message-card aim-card'} key={message.id}>
-              <View className={`message-card__seal message-card__seal--${messageSeal(message.category)}`}>{messageSeal(message.category)}</View>
+              <View className={`message-card__seal message-card__seal--${messageSealTone(message.category)}`}>{messageSeal(message.category)}</View>
               <View className='message-card__body' onClick={() => Taro.navigateTo({ url: `/packages/messages/detail/index?id=${encodeURIComponent(message.id)}` })}>
                 <View className='message-card__heading'><Text className='message-card__title'>{message.title}</Text><Text className='message-card__time'>{formatMessageTime(message.createdAt)}</Text></View>
                 <Text className='message-card__category'>{categoryLabel(message.category)}{message.severity === 'WARNING' || message.severity === 'CRITICAL' ? ' · 重要' : ''}</Text>

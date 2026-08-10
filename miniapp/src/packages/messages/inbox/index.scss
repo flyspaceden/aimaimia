@@ -15,8 +15,8 @@
 .message-card { position: relative; display: flex; align-items: flex-start; min-height: 114px; margin-bottom: 10px; padding: 14px 12px; }
 .message-card--unread::before { position: absolute; top: 12px; left: -3px; width: 6px; height: 24px; content: ''; background: t.$ai-end; border-radius: 0 5px 5px 0; }
 .message-card__seal { display: flex; align-items: center; justify-content: center; width: 39px; height: 39px; color: #fff; font-size: 13px; font-weight: 800; background: linear-gradient(145deg, #6d7c6e, #93a095); border-radius: 13px 13px 13px 4px; }
-.message-card__seal--互 { background: linear-gradient(145deg, t.$ai-start, t.$ai-end); }
-.message-card__seal--交 { background: linear-gradient(145deg, t.$brand-primary, t.$brand-light); }
+.message-card__seal--interaction { background: linear-gradient(145deg, t.$ai-start, t.$ai-end); }
+.message-card__seal--transaction { background: linear-gradient(145deg, t.$brand-primary, t.$brand-light); }
 .message-card__body { flex: 1; min-width: 0; margin-left: 10px; }
 .message-card__heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .message-card__title { overflow: hidden; color: t.$text-primary; font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }

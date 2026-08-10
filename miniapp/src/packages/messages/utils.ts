@@ -87,3 +87,10 @@ export function messageSeal(category: InboxCategory): string {
   if (['transaction', 'order', 'after_sale', 'wallet', 'group_buy'].includes(category)) return '交';
   return '系';
 }
+
+/** 显示字可以是中文，但 WXSS 类名必须保持 ASCII，微信懒加载分包时才可解析。 */
+export function messageSealTone(category: InboxCategory): 'interaction' | 'transaction' | 'system' {
+  if (category === 'interaction' || category === 'service') return 'interaction';
+  if (['transaction', 'order', 'after_sale', 'wallet', 'group_buy'].includes(category)) return 'transaction';
+  return 'system';
+}
