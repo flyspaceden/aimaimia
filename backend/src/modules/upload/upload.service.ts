@@ -334,12 +334,97 @@ export class UploadService {
     const oss = this.getOssClient() as unknown as {
       getStream: (key: string) => Promise<{ stream: NodeJS.ReadableStream }>;
     };
-    const result = await oss.getStream(normalizedKey);
+    let result: { stream: NodeJS.ReadableStream };
+    try {
+      result = await oss.getStream(normalizedKey);
+    } catch (error) {
+      if (this.isObjectNotFoundError(error)) {
+        throw new NotFoundException('文件不存在');
+      }
+      throw error;
+    }
     return {
       stream: result.stream,
       mimeType: this.getMimeFromKey(normalizedKey),
       basename: path.basename(normalizedKey),
     };
+  }
+
+  /** 检测报告只能预览平台 documents/ 下的 PDF 或图片，绝不请求原始 URL。 */
+  canPreviewCompanyDocument(fileUrl: string): boolean {
+    return this.getPreviewableCompanyDocumentKey(fileUrl) !== null;
+  }
+
+  async getCompanyDocumentPreviewFile(
+    fileUrl: string,
+  ): Promise<
+    | { filePath: string; mimeType: string; basename: string }
+    | { stream: NodeJS.ReadableStream; mimeType: string; basename: string }
+  > {
+    const key = this.getPreviewableCompanyDocumentKey(fileUrl);
+    if (!key) throw new NotFoundException('该报告暂不支持预览');
+    return this.getFileForDownload(key);
+  }
+
+  private getPreviewableCompanyDocumentKey(fileUrl: string): string | null {
+    let source: URL;
+    try {
+      source = new URL(fileUrl);
+    } catch {
+      return null;
+    }
+    if (
+      (source.protocol !== 'http:' && source.protocol !== 'https:') ||
+      source.username ||
+      source.password
+    ) {
+      return null;
+    }
+
+    for (const prefix of this.getTrustedCompanyDocumentPrefixes()) {
+      if (source.origin !== prefix.origin) continue;
+      const prefixPath = prefix.pathname.replace(/\/+$/, '');
+      if (!source.pathname.startsWith(`${prefixPath}/`)) continue;
+
+      let key: string;
+      try {
+        key = this.normalizeKey(decodeURIComponent(source.pathname.slice(prefixPath.length)));
+      } catch {
+        return null;
+      }
+      if (!key.startsWith('documents/')) return null;
+
+      const mimeType = this.getMimeFromKey(key);
+      return mimeType === 'application/pdf' || mimeType.startsWith('image/') ? key : null;
+    }
+    return null;
+  }
+
+  private getTrustedCompanyDocumentPrefixes(): URL[] {
+    const values = [
+      this.baseUrl,
+      this.config.get<string>('UPLOAD_PRIVATE_BASE_URL'),
+    ];
+    const bucket = this.config.get<string>('OSS_BUCKET');
+    const region = this.config.get<string>('OSS_REGION');
+    if (bucket && region) {
+      values.push(`https://${bucket}.${region}.aliyuncs.com`);
+    }
+
+    return values.flatMap((value) => {
+      if (!value) return [];
+      try {
+        const url = new URL(value);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? [url] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  private isObjectNotFoundError(error: unknown): boolean {
+    const candidate = error as { code?: string; status?: number; statusCode?: number } | undefined;
+    return candidate?.code === 'NoSuchKey' || candidate?.status === 404 || candidate?.statusCode === 404;
   }
 
   private getExtFromMime(mime: string): string {

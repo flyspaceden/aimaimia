@@ -1,12 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TtlCache } from '../../common/ttl-cache';
+import { UploadService } from '../upload/upload.service';
 
 @Injectable()
 export class CompanyService {
   private listCache = new TtlCache<any[]>(3 * 60_000); // 3 分钟
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService,
+    private config: ConfigService,
+  ) {}
 
   /** 企业列表（含每家企业 top 8 商品） */
   async list(tagId?: string, keyword?: string) {
@@ -125,6 +131,7 @@ export class CompanyService {
 
   /** 企业详情 */
   async getById(id: string, userId?: string) {
+    const now = new Date();
     const company = await this.prisma.company.findFirst({
       where: { id, status: 'ACTIVE', isPlatform: false },
       include: {
@@ -134,7 +141,11 @@ export class CompanyService {
           include: { tag: { include: { category: { select: { code: true } } } } },
         },
         documents: {
-          where: { type: 'INSPECTION', verifyStatus: 'VERIFIED' },
+          where: {
+            type: 'INSPECTION',
+            verifyStatus: 'VERIFIED',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
           orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
         },
       },
@@ -155,6 +166,27 @@ export class CompanyService {
       servicePhone: company.servicePhone ?? null,
       isFollowed,
     };
+  }
+
+  /**
+   * 公开检测报告预览只读取当前仍有效、已验证且属于可公开企业的受信任存储文件。
+   * 不使用 document.fileUrl 作为远程请求地址，避免开放重定向和 SSRF。
+   */
+  async getInspectionReportPreview(reportId: string) {
+    const report = await this.prisma.companyDocument.findFirst({
+      where: {
+        id: reportId,
+        type: 'INSPECTION',
+        verifyStatus: 'VERIFIED',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
+      select: { fileUrl: true, title: true },
+    });
+    if (!report) throw new NotFoundException('检测报告不存在或已失效');
+
+    const file = await this.uploadService.getCompanyDocumentPreviewFile(report.fileUrl);
+    return { ...file, title: report.title };
   }
 
   /** 企业商品分页列表 */
@@ -359,14 +391,37 @@ export class CompanyService {
   private mapInspectionReports(documents: any[] = []) {
     return documents
       .filter((doc) => doc.type === 'INSPECTION' && doc.verifyStatus === 'VERIFIED')
-      .map((doc) => ({
-        id: doc.id,
-        title: doc.title,
-        fileUrl: doc.fileUrl,
-        issuer: doc.issuer || undefined,
-        issuedAt: this.toIsoString(doc.issuedAt),
-        createdAt: this.toIsoString(doc.createdAt),
-      }));
+      .map((doc) => {
+        const previewAvailable = this.uploadService.canPreviewCompanyDocument(doc.fileUrl);
+        const legacyPreviewUrl = previewAvailable
+          ? this.getPublicInspectionReportPreviewUrl(doc.id)
+          : undefined;
+        return {
+          id: doc.id,
+          title: doc.title,
+          previewAvailable,
+          // 仅为未 OTA 的旧客户端保留；永远不是对象存储地址。
+          ...(legacyPreviewUrl ? { fileUrl: legacyPreviewUrl } : {}),
+          issuer: doc.issuer || undefined,
+          issuedAt: this.toIsoString(doc.issuedAt),
+          createdAt: this.toIsoString(doc.createdAt),
+        };
+      });
+  }
+
+  private getPublicInspectionReportPreviewUrl(reportId: string): string | undefined {
+    const configuredBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')?.trim();
+    if (!configuredBaseUrl) return undefined;
+    try {
+      const apiUrl = new URL(configuredBaseUrl);
+      if (apiUrl.protocol !== 'http:' && apiUrl.protocol !== 'https:') return undefined;
+      apiUrl.pathname = `${apiUrl.pathname.replace(/\/+$/, '')}/companies/inspection-reports/${encodeURIComponent(reportId)}/preview`;
+      apiUrl.search = '';
+      apiUrl.hash = '';
+      return apiUrl.toString();
+    } catch {
+      return undefined;
+    }
   }
 
   /** 映射新 Schema 到前端期望的 Company 格式 */

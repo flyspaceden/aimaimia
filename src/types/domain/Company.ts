@@ -60,7 +60,9 @@ export type Company = {
 export type CompanyInspectionReport = {
   id: string;
   title: string;
-  fileUrl: string;
+  previewAvailable: boolean;
+  /** 仅兼容尚未 OTA 的旧版客户端；始终是平台受控预览 URL。 */
+  fileUrl?: string;
   issuer?: string;
   issuedAt?: string;
   createdAt?: string;

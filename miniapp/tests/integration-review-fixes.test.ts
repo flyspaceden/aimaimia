@@ -13,7 +13,9 @@ describe('integration review front-end fixes', () => {
     expect(company).toContain('Taro.makePhoneCall');
     expect(company).toContain('useShareAppMessage');
     expect(company).toContain("openType='share'");
-    expect(company).toContain('openSecureDocument(report.fileUrl)');
+    expect(company).toContain('getCompanyInspectionReportPreviewUrl(reportId)');
+    expect(company).toContain('openSecureDocument(previewUrl)');
+    expect(company).not.toContain('openSecureDocument(report.fileUrl)');
   });
 
   it('keeps the unfinished task claim route and mutation unreachable', () => {

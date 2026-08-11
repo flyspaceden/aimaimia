@@ -4,7 +4,9 @@ import type { PageQuery, PageResult } from './pagination';
 export type CompanyInspectionReport = {
   id: string;
   title: string;
-  fileUrl: string;
+  previewAvailable: boolean;
+  /** 仅兼容旧版客户端；后端绝不返回对象存储 URL。 */
+  fileUrl?: string;
   issuer?: string;
   issuedAt?: string;
   createdAt?: string;

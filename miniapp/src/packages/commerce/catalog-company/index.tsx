@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { CatalogProductCard } from '@/components/catalog-product-card';
 import { companyProductToProduct, displayCompanyCertifications, displayCompanyHighlights, resolveCatalogQuickAddAction } from '@/components/catalog-utils';
+import { getCompanyInspectionReportPreviewUrl } from '@/platform/company-inspection-report';
 import { openSecureDocument } from '@/platform/document';
 import { CartRepo, CompanyRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
@@ -91,6 +92,18 @@ export default function CatalogCompanyPage() {
     }
     if (!addToCartMutation.isPending) addToCartMutation.mutate(product);
   };
+  const openInspectionReport = (reportId: string, previewAvailable: boolean) => {
+    if (!previewAvailable) {
+      void Taro.showToast({ title: '该报告暂不支持预览', icon: 'none' });
+      return;
+    }
+    const previewUrl = getCompanyInspectionReportPreviewUrl(reportId);
+    if (!previewUrl) {
+      void Taro.showToast({ title: '报告预览地址无效', icon: 'none' });
+      return;
+    }
+    void openSecureDocument(previewUrl);
+  };
 
   if (!hydrated || companyQuery.isLoading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!id || !companyQuery.data || !companyQuery.data.ok) return <View className='aim-page'><CatalogFeedback kind='error' title='企业加载失败' description={companyQuery.data && !companyQuery.data.ok ? companyQuery.data.error.displayMessage : '企业信息不完整'} onRetry={() => companyQuery.refetch()} /></View>;
@@ -139,7 +152,7 @@ export default function CatalogCompanyPage() {
           {company!.serviceAreas?.length ? <View className='catalog-company-info'><Text>服务区域</Text><Text>{company!.serviceAreas.join('、')}</Text></View> : null}
         </View>
         {visibleHighlights.length ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>企业亮点</Text><View className='catalog-company-highlights'>{visibleHighlights.map(([label, value]) => <View className='catalog-company-highlight' key={label}><Text className='catalog-company-highlight__value'>{value}</Text><Text className='catalog-company-highlight__label'>{label}</Text></View>)}</View></View> : null}
-        {(company!.certifications?.length || company!.inspectionReports?.length) ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>资质与检测</Text><View className='catalog-company-certifications'>{(company!.certifications ?? []).map((item) => <Text className='catalog-company-certification' key={item}>{item}</Text>)}</View>{(company!.inspectionReports ?? []).map((report) => <View className={report.fileUrl ? 'catalog-company-report catalog-company-report--openable' : 'catalog-company-report'} key={report.id} onClick={() => { if (report.fileUrl) void openSecureDocument(report.fileUrl); }}><View><Text className='catalog-company-report__title'>{report.title}</Text><Text className='catalog-company-report__meta'>{report.issuer || '平台检测'} {report.issuedAt?.slice(0, 10) || ''}</Text></View><Text className='catalog-company-report__status'>{report.fileUrl ? '查看报告 ›' : '暂无文件'}</Text></View>)}</View> : null}
+        {(company!.certifications?.length || company!.inspectionReports?.length) ? <View className='catalog-company-panel aim-card'><Text className='catalog-company-panel__title'>资质与检测</Text><View className='catalog-company-certifications'>{(company!.certifications ?? []).map((item) => <Text className='catalog-company-certification' key={item}>{item}</Text>)}</View>{(company!.inspectionReports ?? []).map((report) => <View className={report.previewAvailable ? 'catalog-company-report catalog-company-report--openable' : 'catalog-company-report'} key={report.id} onClick={() => openInspectionReport(report.id, report.previewAvailable)}><View><Text className='catalog-company-report__title'>{report.title}</Text><Text className='catalog-company-report__meta'>{report.issuer || '平台检测'} {report.issuedAt?.slice(0, 10) || ''}</Text></View><Text className='catalog-company-report__status'>{report.previewAvailable ? '预览报告 ›' : '暂不支持预览'}</Text></View>)}</View> : null}
       </View>}
     </View>
   );
