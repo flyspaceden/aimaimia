@@ -14,6 +14,7 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
+import * as WebBrowser from 'expo-web-browser';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -39,6 +40,7 @@ import type {
   Product,
 } from '../../src/types';
 import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
+import { getInspectionReportPreviewUrl } from '../../src/utils/inspectionReportPreview';
 
 // 日期工具函数
 const formatDate = (value: Date) => value.toISOString().slice(0, 10);
@@ -273,17 +275,22 @@ export default function CompanyDetailScreen() {
 
   const handleOpenInspectionReport = useCallback(
     async (report: CompanyInspectionReport) => {
-      if (!report.fileUrl) {
-        show({ message: '报告文件地址为空', type: 'error' });
+      const previewUrl = getInspectionReportPreviewUrl(report.id);
+      if (!report.previewAvailable || !previewUrl) {
+        show({ message: '该报告暂不支持预览，请联系商家重新上传', type: 'error' });
         return;
       }
       try {
-        await Linking.openURL(report.fileUrl);
+        await WebBrowser.openBrowserAsync(previewUrl, {
+          toolbarColor: colors.surface,
+          controlsColor: colors.text.primary,
+          enableBarCollapsing: true,
+        });
       } catch {
-        show({ message: '无法打开报告文件，请稍后重试', type: 'error' });
+        show({ message: '无法打开报告预览，请稍后重试', type: 'error' });
       }
     },
-    [show]
+    [colors.surface, colors.text.primary, show]
   );
 
   // CompanyProduct 转 Product（供 ProductCard 使用）
@@ -819,13 +826,18 @@ export default function CompanyDetailScreen() {
               <Pressable
                 key={report.id}
                 onPress={() => handleOpenInspectionReport(report)}
+                disabled={!report.previewAvailable}
+                accessibilityRole="button"
+                accessibilityLabel={`预览${report.title}`}
+                accessibilityHint={report.previewAvailable ? '在应用内打开报告预览' : '该报告暂不支持预览'}
+                accessibilityState={{ disabled: !report.previewAvailable }}
                 style={({ pressed }) => [
                   styles.reportItem,
                   {
                     backgroundColor: colors.bgSecondary,
                     borderColor: colors.border,
                     borderRadius: radius.md,
-                    opacity: pressed ? 0.75 : 1,
+                    opacity: !report.previewAvailable ? 0.55 : pressed ? 0.75 : 1,
                   },
                 ]}
               >
@@ -840,7 +852,9 @@ export default function CompanyDetailScreen() {
                     签发机构：{report.issuer || '—'} · 上传时间：{formatReportDate(report.createdAt)}
                   </Text>
                 </View>
-                <Text style={[typography.caption, { color: colors.accent.blue, marginLeft: spacing.sm }]}>查看</Text>
+                <Text style={[typography.caption, { color: report.previewAvailable ? colors.accent.blue : colors.text.secondary, marginLeft: spacing.sm }]}>
+                  {report.previewAvailable ? '预览' : '暂不支持预览'}
+                </Text>
               </Pressable>
             ))}
           </View>

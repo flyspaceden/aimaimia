@@ -30,7 +30,7 @@ describe('CompanyService', () => {
           count: jest.fn().mockResolvedValue(1),
         },
       };
-      const service = new CompanyService(prisma as any);
+      const service = new CompanyService(prisma as any, {} as any, {} as any);
 
       const result = await service.listCompanyProducts('company-1', { page: 1, pageSize: 10 });
 
@@ -61,6 +61,8 @@ describe('CompanyService', () => {
           findUnique: jest.fn().mockResolvedValue({
             id: 'c-1',
             name: '测试企业',
+            status: 'ACTIVE',
+            isPlatform: false,
             shortName: null,
             cover: null,
             description: '主营农产品',
@@ -75,6 +77,7 @@ describe('CompanyService', () => {
                 fileUrl: 'https://example.com/reports/inspection.pdf',
                 issuer: '第三方检测中心',
                 issuedAt,
+                expiresAt: null,
                 createdAt,
                 verifyStatus: 'VERIFIED',
               },
@@ -103,7 +106,13 @@ describe('CompanyService', () => {
         },
         follow: { findUnique: jest.fn() },
       };
-      const service = new CompanyService(prisma as any);
+      const uploadService = {
+        canPreviewCompanyDocument: jest.fn().mockReturnValue(true),
+      };
+      const config = {
+        get: jest.fn((key: string) => key === 'PUBLIC_API_BASE_URL' ? 'https://api.example.com/api/v1' : undefined),
+      };
+      const service = new CompanyService(prisma as any, uploadService as any, config as any);
 
       const result = await service.getById('c-1');
 
@@ -112,7 +121,11 @@ describe('CompanyService', () => {
           where: { id: 'c-1' },
           include: expect.objectContaining({
             documents: expect.objectContaining({
-              where: { type: 'INSPECTION', verifyStatus: 'VERIFIED' },
+              where: expect.objectContaining({
+                type: 'INSPECTION',
+                verifyStatus: 'VERIFIED',
+                OR: expect.any(Array),
+              }),
             }),
           }),
         }),
@@ -121,12 +134,80 @@ describe('CompanyService', () => {
         {
           id: 'doc-inspection-verified',
           title: '农残检测报告',
-          fileUrl: 'https://example.com/reports/inspection.pdf',
+          previewAvailable: true,
+          fileUrl: 'https://api.example.com/api/v1/companies/inspection-reports/doc-inspection-verified/preview',
           issuer: '第三方检测中心',
           issuedAt: issuedAt.toISOString(),
           createdAt: createdAt.toISOString(),
         },
       ]);
+      expect(uploadService.canPreviewCompanyDocument).toHaveBeenCalledWith(
+        'https://example.com/reports/inspection.pdf',
+      );
+      expect((result as any).inspectionReports[0].fileUrl).not.toBe('https://example.com/reports/inspection.pdf');
+    });
+
+    it('looks up only an active, unexpired verified report before reading its controlled storage object', async () => {
+      const previewFile = {
+        filePath: '/tmp/documents/report.pdf',
+        mimeType: 'application/pdf',
+        basename: 'report.pdf',
+      };
+      const prisma = {
+        companyDocument: {
+          findFirst: jest.fn().mockResolvedValue({
+            title: '农残检测报告.pdf',
+            fileUrl: 'http://localhost:3000/uploads/documents/report.pdf',
+          }),
+        },
+      };
+      const uploadService = {
+        getCompanyDocumentPreviewFile: jest.fn().mockResolvedValue(previewFile),
+      };
+      const service = new CompanyService(prisma as any, uploadService as any, {} as any);
+
+      await expect(service.getInspectionReportPreview('doc-verified')).resolves.toEqual({
+        ...previewFile,
+        title: '农残检测报告.pdf',
+      });
+      expect(prisma.companyDocument.findFirst).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          id: 'doc-verified',
+          type: 'INSPECTION',
+          verifyStatus: 'VERIFIED',
+          company: { status: 'ACTIVE', isPlatform: false },
+          OR: expect.any(Array),
+        }),
+        select: { fileUrl: true, title: true },
+      });
+      expect(uploadService.getCompanyDocumentPreviewFile).toHaveBeenCalledWith(
+        'http://localhost:3000/uploads/documents/report.pdf',
+      );
+    });
+
+    it('does not mark reports previewable when the company itself is not public', () => {
+      const uploadService = {
+        canPreviewCompanyDocument: jest.fn().mockReturnValue(true),
+      };
+      const service = new CompanyService(
+        {} as any,
+        uploadService as any,
+        { get: jest.fn().mockReturnValue('https://api.example.com/api/v1') } as any,
+      );
+
+      const [report] = (service as any).mapInspectionReports([
+        {
+          id: 'doc-hidden',
+          type: 'INSPECTION',
+          verifyStatus: 'VERIFIED',
+          title: '隐藏企业报告',
+          fileUrl: 'https://api.example.com/uploads/documents/report.pdf',
+        },
+      ], false);
+
+      expect(report).toMatchObject({ id: 'doc-hidden', previewAvailable: false });
+      expect(report.fileUrl).toBeUndefined();
+      expect(uploadService.canPreviewCompanyDocument).not.toHaveBeenCalled();
     });
   });
 });

@@ -3,9 +3,10 @@ import { JwtModule } from '@nestjs/jwt';
 import { CompanyController } from './company.controller';
 import { CompanyEventController } from './company-event.controller';
 import { CompanyService } from './company.service';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), UploadModule],
   controllers: [CompanyController, CompanyEventController],
   providers: [CompanyService],
   exports: [CompanyService],
