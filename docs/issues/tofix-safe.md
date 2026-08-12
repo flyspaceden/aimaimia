@@ -584,6 +584,7 @@
 | WMPA09 | 微信交易发货 outbox 发送旧包裹快照，或把 `10060002/10060003` 错当远端已成功 | 🔴 HIGH | 每次远端发送前重新读取支付会话、当前订单和包裹；退款/取消 fail-closed，快照变化通过 generation+lease CAS 重建，发送前再验 payload hash；`10060002/10060003` 转人工失败，仅 `10060023` 保留远端已完成语义。 | ✅ 已修复 |
 | WMPA10 | 无 `sessionId` 的历史买家 JWT 可借同用户任意活跃会话继续访问，设备退出不能精确失效 | 🟠 MEDIUM | 现行 access token 已全部由登录/刷新写入 `sessionId` 且默认 15 分钟过期；买家 Strategy 不再按用户级会话降级放行，无 `sessionId` 直接 401，由 App/小程序现有 refresh 流程换取精确会话 Token。 | ✅ 已修复 |
 | WMPA11 | SDK 解密 APIv3 回调未执行 GCM auth tag 校验，或支付回调地址/PEM/公钥 ID 配错后仍可创建预支付单 | 🔴 CRITICAL | 不再调用 SDK 的 `decipher_gcm`；本地以 `createDecipheriv`、AAD、auth tag 和 `decipher.final()` 完成认证解密，篡改 tag 的回归测试必须失败。支付启用前校验 APIv3 Key 长度、商户私钥/证书和微信支付公钥可解析为 RSA、公钥 ID 格式与显式 HTTPS 回调地址；生产环境出现部分或格式错误配置时拒绝启动，非生产关闭通道，且不再静默回落固定生产回调 URL。32 字节密钥是否与商户平台真实匹配仍由上线前真实小额回调联调验证。 | ✅ 已修复 |
+| WMPA12 | 二次注册 `express.json()` 先消耗请求流，导致微信支付/退款回调缺少 rawBody、验签全部 401 | 🔴 CRITICAL | 请求体大小限制改为 Nest `app.useBodyParser()`，在保留 `rawBody: true` 的同时应用 limit；增加真实 HTTP JSON 请求回归测试，断言解析后 body 与用于 APIv3 RSA 验签的原始字节同时存在。 | ✅ 已修复 |
 
 ---
 
