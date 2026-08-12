@@ -16,6 +16,18 @@ export function formatMoney(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
 
+/**
+ * VIP 结算只允许使用当前地址簿中的地址。显式选择仍有效时优先使用；
+ * 否则回落默认地址，再回落第一条地址，保证展示、按钮状态与提交载荷一致。
+ */
+export function resolveVipCheckoutAddressId(
+  addresses: ReadonlyArray<{ id: string; isDefault?: boolean }>,
+  selectedAddressId: string,
+): string {
+  if (addresses.some((item) => item.id === selectedAddressId)) return selectedAddressId;
+  return (addresses.find((item) => item.isDefault) || addresses[0])?.id || '';
+}
+
 export function formatDate(value?: string | null): string {
   if (!value) return '--';
   const date = new Date(value);

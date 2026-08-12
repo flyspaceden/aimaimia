@@ -51,7 +51,7 @@ export type WechatOrderQueryResult =
       transactionId?: string;
       outTradeNo: string;
       appId: string;
-      tradeType: string;
+      tradeType?: string;
       totalAmountFen: number;
       totalAmount: number;
       paidAt?: Date;
@@ -866,9 +866,16 @@ export class WechatPayService implements OnModuleInit {
         !this.isNonEmptyString(data?.trade_state) ||
         !this.isNonEmptyString(data?.out_trade_no) ||
         !this.isNonEmptyString(data?.appid) ||
-        !this.isNonEmptyString(data?.trade_type)
+        !this.isNonEmptyString(data?.mchid)
       ) {
         throw new Error('微信主动查单返回缺少必要字段');
+      }
+
+      if (data.mchid !== this.mchId) {
+        this.logger.warn(
+          `微信主动查单返回商户号不匹配: outTradeNo=${outTradeNoForLog}`,
+        );
+        return { outcome: 'UNKNOWN', code: 'MCH_ID_MISMATCH' };
       }
 
       if (!WECHAT_ORDER_TRADE_STATES.has(data.trade_state)) {
@@ -878,11 +885,19 @@ export class WechatPayService implements OnModuleInit {
         return { outcome: 'UNKNOWN', code: 'UNKNOWN_TRADE_STATE' };
       }
 
-      if (data.trade_state === 'SUCCESS' && !this.isNonEmptyString(data.transaction_id)) {
-        this.logger.warn(
-          `微信主动查单成功态缺少交易流水号: outTradeNo=${outTradeNoForLog}`,
-        );
-        return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRANSACTION_ID' };
+      if (data.trade_state === 'SUCCESS') {
+        if (!this.isNonEmptyString(data.transaction_id)) {
+          this.logger.warn(
+            `微信主动查单成功态缺少交易流水号: outTradeNo=${outTradeNoForLog}`,
+          );
+          return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRANSACTION_ID' };
+        }
+        if (!this.isNonEmptyString(data.trade_type)) {
+          this.logger.warn(
+            `微信主动查单成功态缺少交易类型: outTradeNo=${outTradeNoForLog}`,
+          );
+          return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRADE_TYPE' };
+        }
       }
 
       if (data.out_trade_no !== outTradeNo) {
@@ -899,7 +914,7 @@ export class WechatPayService implements OnModuleInit {
         transactionId?: string;
         outTradeNo: string;
         appId: string;
-        tradeType: string;
+        tradeType?: string;
         totalAmountFen: number;
         totalAmount: number;
         paidAt?: Date;
@@ -908,10 +923,13 @@ export class WechatPayService implements OnModuleInit {
         tradeState: data.trade_state,
         outTradeNo: data.out_trade_no,
         appId: data.appid,
-        tradeType: data.trade_type,
         totalAmountFen,
         totalAmount: totalAmountFen / 100,
       };
+
+      if (this.isNonEmptyString(data.trade_type)) {
+        parsed.tradeType = data.trade_type;
+      }
 
       if (this.isNonEmptyString(data.transaction_id)) {
         parsed.transactionId = data.transaction_id;
@@ -930,23 +948,26 @@ export class WechatPayService implements OnModuleInit {
     }
   }
 
-  /** 服务端支付身份白名单：App 与小程序必须同时匹配 AppID 和 trade_type。 */
+  /** 服务端支付身份白名单：始终匹配场景 AppID；成功态还必须匹配 trade_type。 */
   matchesPaymentScene(
-    identity: { appId?: string | null; tradeType?: string | null },
+    identity: {
+      appId?: string | null;
+      tradeType?: string | null;
+      tradeState?: string | null;
+    },
     scene: 'APP' | 'MINI_PROGRAM' | string | null | undefined,
   ): boolean {
-    if (scene === 'MINI_PROGRAM') {
-      return Boolean(
-        this.miniProgramAppId
-        && identity.appId === this.miniProgramAppId
-        && identity.tradeType === 'JSAPI',
-      );
+    const expectedAppId = scene === 'MINI_PROGRAM' ? this.miniProgramAppId : this.appId;
+    const expectedTradeType = scene === 'MINI_PROGRAM' ? 'JSAPI' : 'APP';
+    if (!expectedAppId || identity.appId !== expectedAppId) return false;
+    if (this.isNonEmptyString(identity.tradeType)) {
+      return identity.tradeType === expectedTradeType;
     }
-    return Boolean(
-      this.appId
-      && identity.appId === this.appId
-      && identity.tradeType === 'APP',
-    );
+
+    // 微信真实查单在 NOTPAY 时可能省略 trade_type。此时应答已经过
+    // APIv3 RSA 验签，且 AppID 与当前场景匹配，可用于关单/释放；但绝不能把
+    // 缺少交易类型的 SUCCESS 当作付款建单证据。
+    return Boolean(identity.tradeState && identity.tradeState !== 'SUCCESS');
   }
 
   async closeOrder(outTradeNo: string): Promise<{

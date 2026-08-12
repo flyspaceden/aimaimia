@@ -28,6 +28,7 @@ import {
   hasActiveReferral,
   readVipCheckoutDraft,
   readVipCheckoutSession,
+  resolveVipCheckoutAddressId,
   saveVipCheckoutDraft,
   saveVipCheckoutSession,
 } from '../utils';
@@ -131,6 +132,7 @@ export default function VipGiftsPage() {
   const selectedGift = selectedPackage?.giftOptions.find((item) => item.id === giftId && item.available);
   const visibleGift = selectedPackage?.giftOptions[visibleGiftIndex] || selectedPackage?.giftOptions[0];
   const addresses = useMemo(() => addressQuery.data?.ok ? addressQuery.data.data : [], [addressQuery.data]);
+  const effectiveAddressId = resolveVipCheckoutAddressId(addresses, addressId);
   const member = memberQuery.data?.ok ? memberQuery.data.data : undefined;
   const profile = profileQuery.data?.ok ? profileQuery.data.data : undefined;
   const returnPolicyReady = profile?.hasAgreedReturnPolicy === true || returnPolicyAccepted;
@@ -261,9 +263,9 @@ export default function VipGiftsPage() {
         if (!userIdAtStart || !ownsCurrentGeneration()) throw new Error('MISSING_USER');
         let draft = checkoutDraft;
         if (!draft) {
-          if (!selectedPackage || !selectedGift || !addressId) throw new Error('MISSING_SELECTION');
+          if (!selectedPackage || !selectedGift || !effectiveAddressId) throw new Error('MISSING_SELECTION');
           checkoutKey.current ||= createOperationKey('mini-vip');
-          draft = { userId, idempotencyKey: checkoutKey.current, packageId: selectedPackage.id, giftOptionId: selectedGift.id, addressId, expectedTotal: selectedPackage.price, ...(buyerNote.trim() ? { buyerNote: buyerNote.trim() } : {}), createdAt: new Date().toISOString() };
+          draft = { userId, idempotencyKey: checkoutKey.current, packageId: selectedPackage.id, giftOptionId: selectedGift.id, addressId: effectiveAddressId, expectedTotal: selectedPackage.price, ...(buyerNote.trim() ? { buyerNote: buyerNote.trim() } : {}), createdAt: new Date().toISOString() };
           saveVipCheckoutDraft(draft);
           setCheckoutDraft(draft);
         }
@@ -356,7 +358,7 @@ export default function VipGiftsPage() {
       Taro.showToast({ title: '请先重试上次未确认的创建请求', icon: 'none' });
       return;
     }
-    checkoutSelection.begin({ ownerRevision: authRevision, addressId, couponIds: [] });
+    checkoutSelection.begin({ ownerRevision: authRevision, addressId: effectiveAddressId, couponIds: [] });
     void Taro.navigateTo({ url: '/packages/commerce/checkout-address/index' });
   };
   const startPurchase = async (sessionToContinue?: RecoverableVipSession) => {
@@ -364,7 +366,7 @@ export default function VipGiftsPage() {
     if (!sessionToContinue) {
       if (!agreed) { Taro.showToast({ title: '请先阅读并同意会员服务协议', icon: 'none' }); return; }
       if (!returnPolicyReady) { Taro.showToast({ title: '请先阅读并确认退换货规则', icon: 'none' }); return; }
-      if (!addressId) { Taro.showToast({ title: '请先选择礼包收货地址', icon: 'none' }); return; }
+      if (!effectiveAddressId) { Taro.showToast({ title: '请先选择礼包收货地址', icon: 'none' }); return; }
       if (profile?.hasAgreedReturnPolicy !== true) {
         const result = await MiniAfterSaleRepo.agreePolicy();
         if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '退换货规则确认失败', icon: 'none' }); return; }
@@ -396,7 +398,7 @@ export default function VipGiftsPage() {
   if (loggedIn && !memberQuery.data?.ok) return <View className='aim-page benefits-page benefits-page--gold'><BenefitsFeedback kind='error' title='会员资格校验失败' description={memberQuery.data && !memberQuery.data.ok ? memberQuery.data.error.displayMessage : undefined} onAction={() => memberQuery.refetch()} /></View>;
 
   if (checkoutMode && member?.tier !== 'VIP') {
-    const address = addresses.find((item) => item.id === addressId) || addresses[0];
+    const address = addresses.find((item) => item.id === effectiveAddressId);
     return <View className='vip-checkout-page'>
       <View className='vip-checkout-back' onClick={() => { if (!pendingSession && !checkoutDraft) { setCheckoutMode(false); void Taro.setNavigationBarTitle({ title: '选择 VIP 礼包' }); } }}>‹ 返回礼包选择</View>
       <View className='vip-checkout-summary'>
@@ -412,7 +414,7 @@ export default function VipGiftsPage() {
       {profile?.hasAgreedReturnPolicy !== true ? <View className='benefits-agreement' onClick={() => setReturnPolicyAccepted((value) => !value)}><View className={returnPolicyAccepted ? 'benefits-agreement__box benefits-agreement__box--active' : 'benefits-agreement__box'}>{returnPolicyAccepted ? '✓' : ''}</View><Text>我已阅读并确认</Text><Text className='vip-checkout-link' onClick={(event) => { event.stopPropagation(); const policy = returnPolicyQuery.data?.ok ? returnPolicyQuery.data.data : undefined; void Taro.showModal({ title: policy?.title || '退换货规则', content: policy?.content.join('\n') || '礼包中的实物赠品按页面展示的售后资格与费用规则处理。', showCancel: false, confirmText: '知道了' }); }}>《退换货规则》</Text></View> : null}
       <View className='benefits-legal-links'><Text onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=terms' })}>《用户协议》</Text><Text onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=privacy' })}>《隐私政策》</Text></View>
       {paymentNotice ? <View className='benefits-payment-state'>{paymentNotice}</View> : null}
-      {pendingSession ? <><Button className='benefits-secondary' disabled={purchaseMutation.isPending || recoveringVip} onClick={queryStatus}>查询当前礼包订单</Button><Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={purchaseMutation.isPending || recoveringVip} onClick={() => { void startPurchase(pendingSession); }}>{recoveringVip ? '正在恢复...' : '继续微信支付'}</Button></> : <Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={recoveringVip || (!checkoutDraft && (!selectedGift || !addressId)) || !agreed || !returnPolicyReady || purchaseMutation.isPending} onClick={() => { void startPurchase(); }}>{recoveringVip ? '正在检查未完成订单...' : purchaseMutation.isPending ? '正在确认...' : `微信支付 ¥${formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}`}</Button>}
+      {pendingSession ? <><Button className='benefits-secondary' disabled={purchaseMutation.isPending || recoveringVip} onClick={queryStatus}>查询当前礼包订单</Button><Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={purchaseMutation.isPending || recoveringVip} onClick={() => { void startPurchase(pendingSession); }}>{recoveringVip ? '正在恢复...' : '继续微信支付'}</Button></> : <Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={recoveringVip || (!checkoutDraft && (!selectedGift || !effectiveAddressId)) || !agreed || !returnPolicyReady || purchaseMutation.isPending} onClick={() => { void startPurchase(); }}>{recoveringVip ? '正在检查未完成订单...' : purchaseMutation.isPending ? '正在确认...' : `微信支付 ¥${formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}`}</Button>}
     </View>;
   }
 

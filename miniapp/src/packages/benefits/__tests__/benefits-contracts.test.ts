@@ -10,6 +10,7 @@ import {
   hasActiveReferral,
   readVipCheckoutDraft,
   readVipCheckoutSession,
+  resolveVipCheckoutAddressId,
   safeTaskTarget,
   saveVipCheckoutDraft,
   saveVipCheckoutSession,
@@ -130,6 +131,18 @@ describe('benefits repository contracts', () => {
 });
 
 describe('benefits navigation and claim boundaries', () => {
+  it('uses one effective VIP checkout address for display, button state, and submission', () => {
+    const addresses = [
+      { id: 'address-old', isDefault: false },
+      { id: 'address-default', isDefault: true },
+    ];
+    expect(resolveVipCheckoutAddressId(addresses, '')).toBe('address-default');
+    expect(resolveVipCheckoutAddressId(addresses, 'address-old')).toBe('address-old');
+    expect(resolveVipCheckoutAddressId(addresses, 'removed-address')).toBe('address-default');
+    expect(resolveVipCheckoutAddressId([{ id: 'address-first' }], '')).toBe('address-first');
+    expect(resolveVipCheckoutAddressId([], 'removed-address')).toBe('');
+  });
+
   it('maps only known App task targets to miniapp routes', () => {
     expect(safeTaskTarget('/lottery')).toBe('/packages/benefits/lottery/index');
     expect(safeTaskTarget('/me/growth')).toBe('/packages/benefits/growth/index');
@@ -157,6 +170,8 @@ describe('benefits navigation and claim boundaries', () => {
     expect(source).toContain("created.error.code === 'PENDING_CHECKOUT_EXISTS'");
     expect(source).toContain('authRevision');
     expect(source).toContain('current.userId === userId');
+    expect(source).toContain('effectiveAddressId');
+    expect(source).toContain('addressId: effectiveAddressId');
   });
 
   it('restores VIP checkout attempts only for the owning account', () => {
