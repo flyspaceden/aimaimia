@@ -52,7 +52,7 @@ export default function CaptainCenterPage() {
   const code = profile?.profile?.captainCode || '';
   const sharePath = `/packages/community/captain-landing/index?code=${encodeURIComponent(code)}`;
 
-  useShareAppMessage(() => ({ title: '和我一起发现爱买买好物', path: code ? sharePath : '/pages/home/index' }));
+  useShareAppMessage(() => ({ title: '和我一起发现 AI爱买买好物', path: code ? sharePath : '/pages/home/index' }));
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page'><CatalogFeedback kind='empty' title='请先登录' description='登录后才能查看团长经营账户' actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/community/captain-center/index')}` })} /></View>;

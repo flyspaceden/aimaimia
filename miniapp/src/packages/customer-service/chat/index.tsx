@@ -290,7 +290,7 @@ export default function CustomerServiceChatPage() {
           {visibleMessages.length === 0 && !routeSessionId ? (
             <View className='cs-chat-welcome aim-card'>
               <Text className='cs-chat-welcome__mark'>AI</Text>
-              <Text className='cs-chat-welcome__title'>你好，我是爱买买智能客服</Text>
+              <Text className='cs-chat-welcome__title'>你好，我是 AI爱买买智能客服</Text>
               <Text className='cs-chat-welcome__copy'>先描述你的问题；需要人工处理时，客服系统会继续接力。</Text>
               {quickEntries.length ? <View className='cs-chat-chips'>{quickEntries.map((entry) => <Text className='cs-chat-chip' key={entry.id} onClick={() => selectEntry(entry)}>{entry.label}</Text>)}</View> : null}
               {questions.map((entry) => <View className='cs-chat-question' key={entry.id} onClick={() => selectEntry(entry)}><Text>{entry.label}</Text><Text>›</Text></View>)}

@@ -5,12 +5,12 @@ const SERVICE_PHONE = '0755-28509232';
 const SERVICE_EMAIL = 'zwf@huahainongke.com';
 
 export const MINIAPP_TERMS_OF_SERVICE: LegalDocument = {
-  title: '爱买买微信小程序用户协议',
+  title: 'AI爱买买微信小程序用户协议',
   version: 'v1.0.0',
   publishedAt: '2026-08-02',
   effectiveAt: '2026-08-02',
   summary: [
-    `本协议由您与${OPERATOR}共同订立，适用于爱买买微信小程序提供的商品浏览、交易、会员、积分、售后、客服及相关服务。`,
+    `本协议由您与${OPERATOR}共同订立，适用于 AI爱买买微信小程序提供的商品浏览、交易、会员、积分、售后、客服及相关服务。`,
     '请在注册、登录或使用服务前完整阅读本协议。您勾选同意并继续使用，即表示已经理解并接受本协议。',
   ],
   sections: [
@@ -18,7 +18,7 @@ export const MINIAPP_TERMS_OF_SERVICE: LegalDocument = {
       id: 'account',
       title: '一、账号与身份',
       blocks: [
-        { type: 'p', text: '1.1 您可通过微信授权或平台支持的其他身份核验方式登录。账号与爱买买其他已登录渠道共用，订单、会员、钱包、优惠权益及售后记录以同一平台账号为准。' },
+        { type: 'p', text: '1.1 您可通过微信授权或平台支持的其他身份核验方式登录。账号与 AI爱买买其他已登录渠道共用，订单、会员、钱包、优惠权益及售后记录以同一平台账号为准。' },
         { type: 'p', text: '1.2 您应确保手机号、收货信息等资料真实有效，并妥善保管微信账号、验证码及登录凭证。因主动转交凭证造成的损失，由责任方依法承担。' },
         { type: 'p', text: '1.3 平台不会仅凭小程序前端传入的用户标识确认身份；涉及支付、提现、售后和账号注销的操作均以后端认证与风控结果为准。' },
       ],
@@ -89,12 +89,12 @@ export const MINIAPP_TERMS_OF_SERVICE: LegalDocument = {
 };
 
 export const MINIAPP_PRIVACY_POLICY: LegalDocument = {
-  title: '爱买买微信小程序隐私政策',
+  title: 'AI爱买买微信小程序隐私政策',
   version: 'v1.0.0',
   publishedAt: '2026-08-02',
   effectiveAt: '2026-08-02',
   summary: [
-    `${OPERATOR}重视您的个人信息和隐私安全。本政策说明爱买买微信小程序如何收集、使用、存储、共享和保护个人信息。`,
+    `${OPERATOR}重视您的个人信息和隐私安全。本政策说明 AI爱买买微信小程序如何收集、使用、存储、共享和保护个人信息。`,
     '我们遵循合法、正当、必要和诚信原则，仅在实现您主动使用的功能或履行法定义务所需范围内处理信息。涉及可选权限时，微信会按隐私保护指引再次征得您的同意。',
   ],
   sections: [
@@ -103,7 +103,7 @@ export const MINIAPP_PRIVACY_POLICY: LegalDocument = {
       title: '一、适用范围',
       blocks: [
         { type: 'p', text: '1.1 本政策适用于小程序内的登录、浏览、交易、支付、会员、钱包、售后、发票、消息、客服、分享、扫码和智能语音等功能。' },
-        { type: 'p', text: '1.2 账号与爱买买其他已登录渠道共用，因此您在不同渠道产生的账号资料、订单、权益及售后记录会在同一平台账号下同步。各渠道单独申请的设备权限由对应平台管理。' },
+        { type: 'p', text: '1.2 账号与 AI爱买买其他已登录渠道共用，因此您在不同渠道产生的账号资料、订单、权益及售后记录会在同一平台账号下同步。各渠道单独申请的设备权限由对应平台管理。' },
       ],
     },
     {
@@ -184,12 +184,12 @@ export const MINIAPP_PRIVACY_POLICY: LegalDocument = {
 };
 
 export const MINIAPP_MEMBER_SERVICE_AGREEMENT: LegalDocument = {
-  title: '爱买买微信小程序会员服务协议',
+  title: 'AI爱买买微信小程序会员服务协议',
   version: 'v1.0.0',
   publishedAt: '2026-08-02',
   effectiveAt: '2026-08-02',
   summary: [
-    '本协议适用于您在爱买买微信小程序购买和使用会员服务。请重点阅读会员价格、赠品、支付、退款限制、推荐奖励及账号注销条款。',
+    '本协议适用于您在 AI爱买买微信小程序购买和使用会员服务。请重点阅读会员价格、赠品、支付、退款限制、推荐奖励及账号注销条款。',
     '您勾选同意并继续微信支付，即表示接受本协议以及用户协议、隐私政策和购买页实时展示的会员规则。',
   ],
   sections: [

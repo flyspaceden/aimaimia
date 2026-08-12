@@ -17,6 +17,7 @@ function harness() {
     miniProgramSubscriptionOutbox: {
       findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(),
     },
+    withdrawRequest: { findUnique: jest.fn() },
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prisma));
   const config = { get: jest.fn((key: string, fallback?: string) => key in env ? env[key as keyof typeof env] : fallback) };
@@ -111,6 +112,40 @@ describe('MiniProgramSubscriptionService', () => {
     await service.enqueueFromNotification(event, message);
     expect(prisma.miniProgramSubscriptionOutbox.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ status: 'SKIPPED', lastErrorCode: 'NO_ACCEPTED_CONSENT' }),
+    });
+  });
+
+  it('uses the authoritative withdrawal request time for the withdrawal template', async () => {
+    const { service, prisma } = harness();
+    prisma.withdrawRequest.findUnique.mockResolvedValue({
+      createdAt: new Date('2026-08-11T12:34:00.000Z'),
+    });
+    const eventTime = await (service as any).resolveEventTime({
+      ...event,
+      eventType: 'withdraw.paid',
+      aggregateId: 'withdraw-1',
+      payload: {},
+    });
+    const data = (service as any).buildWechatData(
+      { status: 'phrase2', remark: 'thing4', time: 'time3' },
+      {
+        ...event,
+        eventType: 'withdraw.paid',
+        aggregateId: 'withdraw-1',
+        payload: {},
+      },
+      { ...message, body: '提现金额已转入申请的收款账户' },
+      eventTime,
+    );
+
+    expect(data).toEqual({
+      phrase2: { value: '已到账' },
+      thing4: { value: '提现金额已转入申请的收款账户' },
+      time3: { value: '2026-08-11 20:34' },
+    });
+    expect(prisma.withdrawRequest.findUnique).toHaveBeenCalledWith({
+      where: { id: 'withdraw-1' },
+      select: { createdAt: true },
     });
   });
 

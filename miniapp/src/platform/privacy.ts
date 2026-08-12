@@ -43,11 +43,11 @@ export function resolveMiniappPrivacyRequest(
 }
 
 export function getMiniappPrivacyContractName(): Promise<string> {
-  if (typeof Taro.getPrivacySetting !== 'function') return Promise.resolve('爱买买小程序隐私保护指引');
+  if (typeof Taro.getPrivacySetting !== 'function') return Promise.resolve('AI爱买买小程序隐私保护指引');
   return new Promise((resolve) => {
     Taro.getPrivacySetting({
-      success: (result) => resolve(result.privacyContractName || '爱买买小程序隐私保护指引'),
-      fail: () => resolve('爱买买小程序隐私保护指引'),
+      success: (result) => resolve(result.privacyContractName || 'AI爱买买小程序隐私保护指引'),
+      fail: () => resolve('AI爱买买小程序隐私保护指引'),
     });
   });
 }

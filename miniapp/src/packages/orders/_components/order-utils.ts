@@ -14,9 +14,18 @@ export function formatMoney(value?: number | null): string {
   return Number(value || 0).toFixed(2);
 }
 
+export function normalizeOrderDateValue(value: string): string {
+  const minutePrecision = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})$/.exec(value.trim());
+  return minutePrecision ? `${minutePrecision[1]}T${minutePrecision[2]}:00` : value;
+}
+
+function orderDateTimestamp(value: string): number {
+  return new Date(normalizeOrderDateValue(value)).getTime();
+}
+
 export function formatOrderTime(value?: string | null): string {
   if (!value) return '—';
-  const date = new Date(value);
+  const date = new Date(normalizeOrderDateValue(value));
   if (Number.isNaN(date.getTime())) return value;
   const pad = (part: number) => String(part).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -111,12 +120,12 @@ export function dedupeTrackingEvents(events: TrackingEvent[]): TrackingEvent[] {
   for (const event of events) {
     const key = `${event.message || '物流更新'}|${event.location || ''}`;
     const previous = latestByContent.get(key);
-    if (!previous || new Date(event.occurredAt).getTime() > new Date(previous.occurredAt).getTime()) {
+    if (!previous || orderDateTimestamp(event.occurredAt) > orderDateTimestamp(previous.occurredAt)) {
       latestByContent.set(key, event);
     }
   }
   return Array.from(latestByContent.values()).sort(
-    (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+    (a, b) => orderDateTimestamp(b.occurredAt) - orderDateTimestamp(a.occurredAt),
   );
 }
 

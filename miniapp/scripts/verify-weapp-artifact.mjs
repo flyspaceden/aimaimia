@@ -11,8 +11,11 @@ const appConfig = JSON.parse(fs.readFileSync(path.join(distRoot, 'app.json'), 'u
 assert.equal(
   projectConfig.appid,
   'wx1b33112db0d5267b',
-  '微信开发者工具必须使用爱买买真实小程序 AppID',
+  '微信开发者工具必须使用 AI爱买买真实小程序 AppID',
 );
+assert.equal(projectConfig.projectname, 'AI爱买买', '微信开发者工具工程名必须使用 AI爱买买');
+assert.equal(projectConfig.description, 'AI爱买买买家微信小程序', '微信开发者工具工程描述必须使用 AI爱买买');
+assert.equal(appConfig.window?.navigationBarTitleText, 'AI爱买买', '全局导航标题必须使用 AI爱买买');
 
 const files = [];
 const walk = (directory) => {
@@ -31,6 +34,8 @@ const walk = (directory) => {
 walk(distRoot);
 
 const readDist = (relativePath) => fs.readFileSync(path.join(distRoot, relativePath), 'utf8');
+const homePageConfig = JSON.parse(readDist('pages/home/index.json'));
+assert.equal(homePageConfig.navigationBarTitleText, 'AI爱买买', '首页导航标题必须使用 AI爱买买');
 const pageCount = appConfig.pages.length
   + appConfig.subPackages.reduce((total, item) => total + item.pages.length, 0);
 const pageWxmlCount = files.filter(({ relativePath }) => (
@@ -82,6 +87,11 @@ const baseTemplate = readDist('base.wxml');
 assert.match(appOutput, /openType:"agreePrivacyAuthorization"/, '隐私同意按钮应使用微信专用 open-type');
 assert.match(appOutput, /onAgreePrivacyAuthorization:/, '隐私同意按钮应绑定微信专用回调');
 assert.match(baseTemplate, /bindagreeprivacyauthorization="eh"/, 'WXML 应生成隐私授权事件绑定');
+assert.doesNotMatch(
+  baseTemplate,
+  /<scroll-view[^>]*\spadding=/,
+  'WebView 渲染模式下 ScrollView 不得携带仅 Skyline 支持的 padding 属性',
+);
 assert.match(
   appOutput,
   /AbortSignal cannot be constructed directly/,

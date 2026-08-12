@@ -1,15 +1,16 @@
-# 爱买买微信小程序设计文档
+# AI爱买买微信小程序设计文档
 
-> 状态：Phase 0～4 代码与自动化闭环已完成；真实微信材料、开发者工具、资金通道与真机验收待完成，尚未发布
+> 状态：Phase 0～4 代码与自动化闭环、登录态微信开发者工具 71 页巡检已完成；平台资质/权限、真实资金通道、体验版与真机验收待完成，尚未发布
 > 日期：2026-08-04
-> 目标：新增一个与爱买买买家 App 基本等价的微信小程序，共用现有业务后端和数据库。
+> 目标：新增一个与 AI爱买买买家 App 基本等价的微信小程序，共用现有业务后端和数据库。
 > 首版明确排除：配送模块、支付宝支付、支付宝提现、Apple 登录及其他仅属于原生 App 的能力。
 
 ## 1. 已确认的产品决策
 
 | 决策项 | 结论 |
 |---|---|
-| 产品定位 | 微信小程序是爱买买买家端的新渠道，不是一个新的独立业务系统 |
+| 小程序名称 | 对外统一为“AI爱买买”；工程名、导航标题、登录/关于页、小程序专属协议、分享标题、扫码提示和隐私指引默认名称保持一致。旧域名兼容、企业法定名称及其他历史数据不因此改写 |
+| 产品定位 | 微信小程序是 AI爱买买买家端的新渠道，不是一个新的独立业务系统 |
 | 数据关系 | 小程序与 App 共用用户、商品、企业、购物车、订单、地址、售后、发票、会员、奖励、钱包、优惠券、推荐关系和数字资产等数据 |
 | 后端关系 | 不复制后端、不复制数据库、不重做核心业务；只增加微信小程序渠道所必需的适配接口 |
 | 后端改造授权 | 允许新增或修改小程序登录与账号合并、JSAPI 支付、跨端待支付、微信提现、微信发货上报及其必要字段、回调、幂等和安全逻辑；现有 App API 保持向后兼容 |
@@ -546,6 +547,7 @@ AI 语音：
 - 前端构建：`TARO_APP_ENV`、`TARO_APP_API_BASE_URL`、`TARO_APP_WS_BASE_URL`、`TARO_APP_USE_MOCK`；staging/production 构建禁止 Mock 和非 HTTPS/WSS 地址。
 - 小程序平台：`WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`WECHAT_MINIAPP_MOCK`、小程序码 `WECHAT_MINIAPP_CODE_*`。
 - 订阅消息：三组 `WECHAT_MINIAPP_SUBSCRIBE_*_TEMPLATE_ID/FIELDS` 及 `WECHAT_MINIAPP_SUBSCRIBE_STATE`。
+  - 2026-08-11 微信后台实际模板：订单发货 `AaefuI_Uqp1qvX7fNuGbEe3w6Qe4b4M5SUpboeLXvNQ`（`character_string6/phrase18/thing5/date4`）；售后状态 `sAQM7NcmYHH6x1nxlqr_Fy2EBushICGBCt42XPsG04Q`（`character_string7/thing2/thing5/time12`）；提现结果 `2zKL7siL8vg7U8t31koS272-CQBxTz9ePaXoi1vXAYU`（`phrase2/thing4/time3`）。部署环境必须使用 `backend/.env.example` 中同名字段映射，禁止沿用占位 keyword。
 - 支付与提现：沿用 `WECHAT_PAY_*`，新增/启用 `WECHAT_TRANSFER_*`；支付 JSON API 必须配置 `WECHAT_PAY_PUBLIC_KEY_ID` 和 `WECHAT_PAY_PUBLIC_KEY`（或 `WECHAT_PAY_PUBLIC_KEY_PATH`），生产缺任一必需凭据即 fail-closed。微信支付公钥不是 AppSecret、APIv3 Key 或商户私钥，不能混填。
 - 头像白名单：`AVATAR_ALLOWED_URL_PREFIXES` 仅在平台上传域名无法由现有上传配置推导时补充，禁止将任意第三方图片 URL 保存为头像。
 
@@ -600,6 +602,8 @@ AppID `wx1b33112db0d5267b` 已写入 `project.config.json`，可用于开发者�
 - 2026-08-04 当时的 111 个 Prisma 迁移已在临时 PostgreSQL 16 空库按顺序执行并确认无待迁移项；合并后新增迁移的真实 staging 部署仍按 WMP00-F 外部发布门禁执行，本轮仅完成主库/配送库 schema validate 与客户端 generate。
 - CI 已增加小程序范围守卫、类型/测试、双环境构建，并在 production 构建后执行同一套产物断言；部署 E2E 改为 `prisma migrate deploy`，避免生产式流程使用 `db push`。
 - 2026-08-08 资金安全复核补强：微信支付 APIv3 JSON 应答改为原始 body 验签后解析，关单只接受签名 204/明确终态；提现补偿按到期公平调度并由人工/Cron CAS 抢占；微信交易发货发送前重建订单快照。新增聚焦资金回归 8 套件 262/262 通过，完整最终验证以本节后续交付快照为准。
+- 2026-08-10 登录态开发者工具复核：47 个 Vitest 文件 249/249、ESLint 0 警告、TypeScript、staging/production 双构建和生产产物断言全部通过；生产包 71 页、主包 1.255 MiB、总包 2.307 MiB、最大分包 0.213 MiB。构建结束后会对 Taro 4.2.1 生成的 `base.wxml` 做 fail-closed 兼容修正并再次断言，删除微信 WebView 不支持的 `scroll-view padding` 属性；最终仍重新构建 staging，避免开发者工具误连生产 API。
+- 2026-08-10 完整 fixture 复核：新增 `backend/scripts/miniapp-runtime-fixtures.ts`，仅在同时满足显式 staging 开关、固定确认短语、数据库名精确为 `testaimaimai`、目标 `userId + buyerNo` 与数据库 ACTIVE 买家一致时，才创建固定 ID、可重复清理的地址/订单/微信小程序支付记录/物流/售后/发票/拼团/场景数据。登录态微信开发者工具最终 71/71 `PASS`、0 `NO_FIXTURE`、0 `AUTH_GATE`、0 `FAIL`、0 warning；审计后 18 类临时主表和关联表记录全部复查为 0，远端临时执行脚本已删除。最终小程序 ESLint 0 警告、TypeScript、47 个 Vitest 文件 250/250、staging/production 双构建和 71 页生产产物断言通过；后端 fixture 守卫 5/5、主库 Prisma validate 与 Nest 构建通过。该结果验证页面渲染、真实 staging 读取和路由参数，不等于真实付款、退款、提现、订阅、发货或真机权限已验收。
 - 小程序依赖审计仍有 14 条 Taro/构建链上游公告；2026-08-08 已把可独立安全升级的间接依赖 `nanoid` 从 3.3.16 更新到 3.3.18，消除该项 High。生产微信包不包含剩余公告涉及的 Swiper JS，开发服务器不得暴露公网。当前不存在不破坏 Taro 4.2.1 依赖约束的自动升级路径，按 `WMPF08` 跟踪兼容升级，禁止使用 `npm audit fix --force`。完整发现、修复与外部验收边界见 `docs/issues/wechat-miniapp-full-audit-2026-08-04.md`。
 
 ### 13.2 真机关键链路
@@ -697,7 +701,7 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 
 ### 15.1 需要用户/公司完成
 
-- 确认并注册爱买买微信小程序名称、主体和管理员。
+- 在微信公众平台确认并注册“AI爱买买”小程序名称、主体和管理员。
 - 完成认证、备案和服务类目申请。
 - 把小程序绑定到 App 所属的同一微信开放平台账号。
 - 在微信支付商户平台绑定小程序 AppID，开通 JSAPI/小程序支付。
@@ -815,3 +819,9 @@ Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面
 运行前必须打开微信开发者工具“设置 → 安全设置 → 服务端口”。未登录时，报告将会员页面标记为 `AUTH_GATE`，只证明登录门禁可渲染，不得冒充订单、资金或售后内部功能已通过；登录后必须再跑第二轮。
 
 首轮巡检发现消息分包使用中文 CSS 后缀 `--互` / `--交`。Taro 构建可通过，但微信懒加载该分包时以 WXSS 10041 拒绝解析，导致消息页及后续导航卡死。显示徽章继续使用中文，CSS 状态改为 `--interaction` / `--transaction`，并由 `tests/wxss-compatibility.test.ts` 全目录阻止中文选择器回归。
+
+2026-08-10 登录态全量复核连接已打开的开发者工具自动化 WebSocket，读取当前微信登录会话后只使用真实 staging 商品、企业、订单、售后、发票和消息数据，不再制造不存在的详情 ID。结果为 71 页中 56 `PASS`、15 `NO_FIXTURE`、0 `AUTH_GATE`、0 `FAIL`、0 页面级 warning；`NO_FIXTURE` 表示当前测试账号确实没有订单/售后/发票/团购等详情数据，不能冒充业务闭环已验收。对此前出现兼容提示的商品、企业、订单、法律、钱包、消费记录、售后、发票、会员协议、客服和消息 14 页清空旧控制台后复走，全部为 0 错误、0 页面级 warning。协议正文已显式开启 `user-select` 供复制；开发者工具对 Taro 动态 `base.wxml` 仍可能显示静态长文本建议，该提示不代表运行错误。
+
+同日第三轮使用 staging-only 固定 fixture 补齐此前 15 个缺数据路由；最终报告为 71/71 `PASS`、0 `NO_FIXTURE`、0 `AUTH_GATE`、0 `FAIL`、0 warning。订单接口的分钟级时间字符串先归一化为微信 iOS 可解析的 ISO 本地时间，再进入 `Date`，消除订单列表/详情的兼容警告。运行时刷新必须重启开发者工具 AppService；只清编译缓存不会替换已连接自动化 WebSocket 中的旧代码。fixture 审计结束后按固定 ID 清理并核对地址、抬头、临时身份、订单/订单项/状态历史、支付、物流/节点、Checkout、拼团/档位、售后/历史、发票/历史与场景共 18 类记录全部归零。
+
+2026-08-11 终审补齐审计证据的 fail-closed 边界：开发者工具未返回 `currentPage().path` 时页面不得判定通过；自动化连接与本地登录态读取有硬超时；认证夹具只有在 401/403 时允许降级为未登录数据，不能制造会员业务 ID；写入报告前同时脱敏结构化字段和原始字符串中的 Bearer、敏感查询参数及手机号。最新登录态复验为 71 页、56 `PASS`、15 `NO_FIXTURE`、0 `FAIL`、0 warning。缺真实订单/售后/发票/团购记录的 15 页保持 `NO_FIXTURE`，此前完整 staging fixture 的 71/71 结果仍作为这些数据态页面的代码运行证据，但两轮都不替代真实资金与真机验收。

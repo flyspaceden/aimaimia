@@ -44,7 +44,7 @@ export default function ReferralCenterPage() {
   const shareCode = isVip ? member?.referralCode || '' : normalProfile?.status === 'ACTIVE' ? normalProfile.code : '';
   const shareKind: InviteKind = isVip ? 'vip' : 'normal';
   const sharePath = shareCode ? buildMiniappInvitePath(shareCode, shareKind) : PAGE_PATH;
-  const shareTitle = isVip ? '和我一起在爱买买发现产地好物' : '我在爱买买发现了优质农产品';
+  const shareTitle = isVip ? '和我一起在 AI爱买买发现产地好物' : '我在 AI爱买买发现了优质农产品';
 
   useShareAppMessage(() => ({ title: shareTitle, path: sharePath }));
   useShareTimeline(() => ({ title: shareTitle, query: shareCode ? `code=${encodeURIComponent(shareCode)}&kind=${shareKind}` : '' }));

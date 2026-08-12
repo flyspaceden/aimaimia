@@ -45,8 +45,8 @@ export default function GroupBuyActivityDetailPage() {
       : `/packages/group-buy/activity-detail/index?activityId=${encodeURIComponent(activity.id)}`
     : '/packages/group-buy/activity-list/index';
 
-  useShareAppMessage(() => ({ title: activity ? `${activity.title}｜爱买买精选团购` : '爱买买精选团购', path: sharePath }));
-  useShareTimeline(() => ({ title: activity ? `${activity.title}｜爱买买精选团购` : '爱买买精选团购', query: activity ? `activityId=${encodeURIComponent(activity.id)}${shareCode ? `&shareCode=${encodeURIComponent(shareCode)}` : ''}` : '' }));
+  useShareAppMessage(() => ({ title: activity ? `${activity.title}｜AI爱买买精选团购` : 'AI爱买买精选团购', path: sharePath }));
+  useShareTimeline(() => ({ title: activity ? `${activity.title}｜AI爱买买精选团购` : 'AI爱买买精选团购', query: activity ? `activityId=${encodeURIComponent(activity.id)}${shareCode ? `&shareCode=${encodeURIComponent(shareCode)}` : ''}` : '' }));
 
   const goCheckout = async () => {
     if (!activity) return;

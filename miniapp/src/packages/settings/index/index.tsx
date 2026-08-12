@@ -62,9 +62,9 @@ export default function SettingsPage() {
     <View className='settings-card aim-card'>
       <SettingRow mark='条' title='用户协议' description='查看当前有效版本' onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=terms' })} />
       <SettingRow mark='隐' title='隐私政策' description='包含个人信息处理与第三方说明' onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=privacy' })} />
-      <SettingRow mark='爱' title='关于爱买买' description='小程序版本、联系方式与备案信息' onClick={() => Taro.navigateTo({ url: '/packages/settings/about/index' })} />
+      <SettingRow mark='爱' title='关于AI爱买买' description='小程序版本、联系方式与备案信息' onClick={() => Taro.navigateTo({ url: '/packages/settings/about/index' })} />
     </View>
     <View className='settings-note'><Text>隐私授权说明</Text><Text>App 中“撤回隐私同意”是 App 本地状态。小程序权限依微信平台管理，当前代码没有可同步的小程序隐私同意状态，因此不会做一个无效的“撤回”按钮。</Text></View>
-    {loggedIn ? <Button className='settings-logout' onClick={logout}>退出当前设备</Button> : <Button className='settings-login' onClick={() => Taro.navigateTo({ url: '/packages/account/account-login/index' })}>登录爱买买</Button>}
+    {loggedIn ? <Button className='settings-logout' onClick={logout}>退出当前设备</Button> : <Button className='settings-login' onClick={() => Taro.navigateTo({ url: '/packages/account/account-login/index' })}>登录AI爱买买</Button>}
   </View>;
 }

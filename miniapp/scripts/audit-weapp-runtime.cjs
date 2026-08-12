@@ -10,11 +10,16 @@ const API_BASE = (process.env.MINIAPP_RUNTIME_API || 'https://test-api.ai-maimai
 const WAIT_MS = Math.max(1_000, Number(process.env.MINIAPP_RUNTIME_WAIT_MS || 2_500));
 const NAVIGATION_TIMEOUT_MS = Math.max(8_000, Number(process.env.MINIAPP_RUNTIME_NAVIGATION_TIMEOUT_MS || 20_000));
 const SCREENSHOT_TIMEOUT_MS = Math.max(3_000, Number(process.env.MINIAPP_RUNTIME_SCREENSHOT_TIMEOUT_MS || 8_000));
+const CAPTURE_SCREENSHOTS = process.env.MINIAPP_RUNTIME_SCREENSHOTS !== 'false';
+const AUTOMATION_WS_ENDPOINT = process.env.MINIAPP_RUNTIME_WS_ENDPOINT?.trim();
 const ROUTE_FILTER = process.env.MINIAPP_RUNTIME_ROUTES
   ? new Set(process.env.MINIAPP_RUNTIME_ROUTES.split(',').map((value) => value.trim().replace(/^\//, '')).filter(Boolean))
   : null;
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
 const OUTPUT_DIR = path.resolve(process.env.MINIAPP_RUNTIME_OUTPUT || path.join(PROJECT_PATH, '.runtime-audit', RUN_ID));
+const FIXTURE_FILE = process.env.MINIAPP_RUNTIME_FIXTURE_FILE
+  ? path.resolve(process.env.MINIAPP_RUNTIME_FIXTURE_FILE)
+  : null;
 
 const AUTH_REQUIRED_ROUTES = new Set([
   'packages/commerce/cart/index',
@@ -83,7 +88,7 @@ function withTimeout(promise, milliseconds, label) {
 
 function safeJson(value) {
   const seen = new WeakSet();
-  return JSON.stringify(value, (key, item) => {
+  const serialized = JSON.stringify(value, (key, item) => {
     if (/token|authorization|password|secret|phone/i.test(key)) return '<redacted>';
     if (item && typeof item === 'object') {
       if (seen.has(item)) return '[Circular]';
@@ -91,13 +96,22 @@ function safeJson(value) {
     }
     return item;
   });
+  return redactSensitiveText(serialized);
+}
+
+function redactSensitiveText(value) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer <redacted>')
+    .replace(/([?&](?:access_token|token|authorization|password|secret)=)[^&\s"']+/gi, '$1<redacted>')
+    .replace(/(^|\D)1[3-9]\d{9}(?=\D|$)/g, '$1<phone-redacted>');
 }
 
 function eventText(event) {
   try {
-    return safeJson(event) || String(event);
+    return safeJson(event) || redactSensitiveText(String(event));
   } catch {
-    return String(event);
+    return redactSensitiveText(String(event));
   }
 }
 
@@ -113,15 +127,31 @@ function isConsoleWarning(event) {
   return level.includes('warn') || /\bwarning\b|不支持|deprecated/i.test(eventText(event));
 }
 
-async function getJson(resource) {
-  const response = await fetch(`${API_BASE}${resource}`, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`fixture ${resource} returned HTTP ${response.status}`);
+async function getJson(resource, accessToken) {
+  const response = await fetch(`${API_BASE}${resource}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    const error = new Error(`fixture ${resource} returned HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   const payload = await response.json();
   if (!payload || payload.ok !== true) throw new Error(`fixture ${resource} did not return ok=true`);
   return payload.data;
 }
 
-async function loadFixtures() {
+function firstItem(value) {
+  if (Array.isArray(value)) return value[0];
+  if (Array.isArray(value?.items)) return value.items[0];
+  return undefined;
+}
+
+async function loadFixtures(accessToken, userId) {
+  const explicit = FIXTURE_FILE
+    ? JSON.parse(await fs.readFile(FIXTURE_FILE, 'utf8'))
+    : {};
   const [productPage, companies, groupBuyPage] = await Promise.all([
     getJson('/products?page=1&pageSize=20'),
     getJson('/companies'),
@@ -129,11 +159,39 @@ async function loadFixtures() {
   ]);
   const product = productPage?.items?.[0];
   const company = companies?.[0];
-  const activity = groupBuyPage?.items?.[0];
+  const activity = explicit.activity || groupBuyPage?.items?.[0];
   assert(product?.id, 'staging has no public product fixture');
   assert(company?.id, 'staging has no public company fixture');
   const detail = await getJson(`/products/${encodeURIComponent(product.id)}`);
-  return { product: detail, company, activity };
+  const mergedProduct = {
+    ...detail,
+    ...(explicit.product || {}),
+    defaultSkuId: explicit.product?.skuId || detail.defaultSkuId,
+  };
+  if (!accessToken) return { ...explicit, product: mergedProduct, company, activity, userId };
+
+  const [orders, afterSales, invoices, messages, pendingCheckout] = await Promise.all([
+    getJson('/orders?page=1&pageSize=20', accessToken),
+    getJson('/after-sale?page=1&pageSize=20', accessToken),
+    getJson('/invoices?page=1&pageSize=20', accessToken),
+    getJson('/inbox?page=1&pageSize=20', accessToken),
+    getJson('/orders/checkout/me/pending/mini-program', accessToken),
+  ]);
+  const orderItems = Array.isArray(orders?.items) ? orders.items : [];
+  const trackingOrder = orderItems.find((item) => ['SHIPPED', 'DELIVERED', 'RECEIVED'].includes(item?.status));
+  return {
+    ...explicit,
+    product: mergedProduct,
+    company,
+    activity,
+    userId: explicit.userId || userId,
+    order: explicit.order || firstItem(orders),
+    trackingOrder: explicit.trackingOrder || trackingOrder,
+    afterSale: explicit.afterSale || firstItem(afterSales),
+    invoice: explicit.invoice || firstItem(invoices),
+    message: explicit.message || firstItem(messages),
+    pendingCheckout: explicit.pendingCheckout || (pendingCheckout?.sessionId ? pendingCheckout : undefined),
+  };
 }
 
 function routeList(appConfig) {
@@ -147,40 +205,74 @@ function routeList(appConfig) {
 function queryFor(route, fixtures) {
   const productId = fixtures.product.id;
   const skuId = fixtures.product.defaultSkuId || fixtures.product.skus?.[0]?.id;
-  const activityId = fixtures.activity?.id || 'runtime-missing-activity';
+  const activityId = fixtures.activity?.id;
   const values = {
     'packages/commerce/catalog-search/index': { q: '龙虾' },
     'packages/commerce/company-search/index': { q: fixtures.company.name || '农业' },
     'packages/commerce/catalog-product/index': { id: productId },
     'packages/commerce/catalog-company/index': { id: fixtures.company.id },
     'packages/commerce/checkout/index': { buyNowProductId: productId, buyNowSkuId: skuId, buyNowQuantity: '1' },
-    'packages/commerce/checkout-pending/index': { sessionId: 'runtime-missing-session' },
-    'packages/orders/order-detail/index': { id: 'runtime-missing-order' },
-    'packages/orders/order-track/index': { orderId: 'runtime-missing-order' },
-    'packages/orders/receiver-info/index': { id: 'runtime-missing-order' },
-    'packages/orders/payment-success/index': { orderIds: 'runtime-missing-order' },
+    'packages/commerce/checkout-pending/index': { sessionId: fixtures.pendingCheckout?.sessionId },
+    'packages/orders/order-detail/index': { id: fixtures.detailOrder?.id || fixtures.order?.id },
+    'packages/orders/order-track/index': { orderId: fixtures.trackingOrder?.id },
+    'packages/orders/receiver-info/index': { id: fixtures.receiverOrder?.id || fixtures.order?.id },
+    'packages/orders/payment-success/index': { orderIds: [fixtures.detailOrder?.id, fixtures.eligibleOrder?.id].filter(Boolean).join(',') || fixtures.order?.id },
     'packages/account/account-legal/index': { document: 'privacy' },
-    'packages/after-sales/after-sale-apply/index': { orderId: 'runtime-missing-order' },
-    'packages/after-sales/after-sale-detail/index': { id: 'runtime-missing-after-sale' },
-    'packages/invoices/invoice-request/index': { orderId: 'runtime-missing-order' },
-    'packages/invoices/invoice-detail/index': { id: 'runtime-missing-invoice' },
+    'packages/after-sales/after-sale-apply/index': { orderId: fixtures.eligibleOrder?.id || fixtures.order?.id },
+    'packages/after-sales/after-sale-detail/index': { id: fixtures.afterSale?.id },
+    'packages/invoices/invoice-request/index': { orderId: fixtures.eligibleOrder?.id || fixtures.order?.id },
+    'packages/invoices/invoice-detail/index': { id: fixtures.invoice?.id },
     'packages/group-buy/activity-detail/index': { activityId },
     'packages/group-buy/checkout/index': { activityId },
-    'packages/group-buy/checkout-pending/index': { sessionId: 'runtime-missing-session' },
+    'packages/group-buy/checkout-pending/index': { sessionId: fixtures.pendingCheckout?.sessionId },
     'packages/ai/recommend/index': { q: '适合家庭聚餐的水产' },
     'packages/customer-service/chat/index': { source: 'GENERAL' },
-    'packages/messages/detail/index': { id: 'runtime-missing-message' },
-    'packages/referral/landing/index': { code: 'RUNTIME-CHECK', kind: 'vip' },
-    'packages/community/captain-landing/index': { code: 'RUNTIME-CHECK' },
-    'packages/community/author-detail/index': { id: 'runtime-missing-author' },
-    'packages/community/scene/index': { scene: 'RUNTIME-CHECK' },
+    'packages/messages/detail/index': { id: fixtures.message?.id },
+    'packages/community/author-detail/index': { id: fixtures.userId },
+    'packages/referral/landing/index': { code: fixtures.referralCode, kind: fixtures.referralKind || 'normal' },
+    'packages/community/captain-landing/index': { code: fixtures.captainCode },
+    'packages/community/scene/index': { scene: fixtures.scene },
   }[route] || {};
   return Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === 'string' && value.length > 0));
+}
+
+const REQUIRED_QUERY_KEYS = {
+  'packages/commerce/checkout-pending/index': ['sessionId'],
+  'packages/orders/order-detail/index': ['id'],
+  'packages/orders/order-track/index': ['orderId'],
+  'packages/orders/receiver-info/index': ['id'],
+  'packages/orders/payment-success/index': ['orderIds'],
+  'packages/after-sales/after-sale-apply/index': ['orderId'],
+  'packages/after-sales/after-sale-detail/index': ['id'],
+  'packages/invoices/invoice-request/index': ['orderId'],
+  'packages/invoices/invoice-detail/index': ['id'],
+  'packages/group-buy/activity-detail/index': ['activityId'],
+  'packages/group-buy/checkout/index': ['activityId'],
+  'packages/group-buy/checkout-pending/index': ['sessionId'],
+  'packages/messages/detail/index': ['id'],
+  'packages/referral/landing/index': ['code'],
+  'packages/community/captain-landing/index': ['code'],
+  'packages/community/author-detail/index': ['id'],
+  'packages/community/scene/index': ['scene'],
+};
+
+function missingFixture(route, fixtures) {
+  const required = REQUIRED_QUERY_KEYS[route] || [];
+  const query = queryFor(route, fixtures);
+  return required.some((key) => !query[key]);
 }
 
 function routeUrl(route, fixtures) {
   const query = new URLSearchParams(queryFor(route, fixtures)).toString();
   return `/${route}${query ? `?${query}` : ''}`;
+}
+
+function actualPathMatches(route, actualPath, fixtures) {
+  if (!actualPath) return false;
+  if (actualPath === route) return true;
+  return route === 'packages/community/scene/index'
+    && typeof fixtures.expectedScenePath === 'string'
+    && actualPath === fixtures.expectedScenePath.replace(/^\//, '');
 }
 
 function fileName(route) {
@@ -195,7 +287,7 @@ function markdown(report) {
     `- 工程：${report.projectPath}`,
     `- API：${report.apiBase}`,
     `- 登录态：${report.authenticated ? '已登录（覆盖真实会员页面）' : '未登录（登录后页面仅覆盖登录门禁）'}`,
-    `- 页面：${report.summary.total}；通过 ${report.summary.passed}；登录门禁 ${report.summary.authGated}；失败 ${report.summary.failed}；警告 ${report.summary.warnings}`,
+    `- 页面：${report.summary.total}；通过 ${report.summary.passed}；无真实数据 ${report.summary.noFixture}；登录门禁 ${report.summary.authGated}；失败 ${report.summary.failed}；警告 ${report.summary.warnings}`,
     '',
     '| 状态 | 目标页面 | 实际页面 | 错误 | 警告 | 截图 |',
     '|---|---|---|---:|---:|---|',
@@ -220,7 +312,6 @@ async function main() {
   const startedAt = new Date().toISOString();
   const configPath = path.join(PROJECT_PATH, 'dist', 'app.json');
   const appConfig = JSON.parse(await fs.readFile(configPath, 'utf8'));
-  const fixtures = await loadFixtures();
   const allRoutes = routeList(appConfig);
   const routes = ROUTE_FILTER ? allRoutes.filter((route) => ROUTE_FILTER.has(route)) : allRoutes;
   assert(routes.length, 'no routes selected');
@@ -228,24 +319,54 @@ async function main() {
 
   let miniProgram;
   try {
-    miniProgram = await automator.launch({
-      cliPath: CLI_PATH,
-      projectPath: PROJECT_PATH,
-      trustProject: true,
-      timeout: 60_000,
-    });
+    const connection = AUTOMATION_WS_ENDPOINT
+      ? automator.connect({ wsEndpoint: AUTOMATION_WS_ENDPOINT })
+      : automator.launch({
+        cliPath: CLI_PATH,
+        projectPath: PROJECT_PATH,
+        trustProject: true,
+        timeout: 60_000,
+      });
+    miniProgram = await withTimeout(Promise.resolve(connection), 65_000, '微信开发者工具连接');
   } catch (error) {
-    throw new Error(`无法连接微信开发者工具。请打开“设置 → 安全设置 → 服务端口”，并保持项目窗口开启。原始错误：${error.message}`);
+    const mode = AUTOMATION_WS_ENDPOINT
+      ? `自动化端口 ${AUTOMATION_WS_ENDPOINT}`
+      : '开发者工具服务端口';
+    throw new Error(`无法连接微信开发者工具（${mode}）。请保持项目窗口和自动化端口开启。原始错误：${error.message}`);
   }
 
-  const authRaw = await miniProgram.callWxMethod('getStorageSync', 'aimai-miniapp-auth-v1:staging').catch(() => undefined);
+  const authRaw = await withTimeout(
+    miniProgram.callWxMethod('getStorageSync', 'aimai-miniapp-auth-v1:staging'),
+    5_000,
+    '登录态读取',
+  ).catch(() => undefined);
   let authenticated = false;
+  let accessToken;
+  let userId;
   try {
     const rawValue = typeof authRaw === 'string' ? authRaw : authRaw?.data;
     const parsed = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    authenticated = Boolean(parsed?.state?.accessToken && parsed?.state?.userId);
+    accessToken = typeof parsed?.state?.accessToken === 'string' ? parsed.state.accessToken : undefined;
+    userId = typeof parsed?.state?.userId === 'string' ? parsed.state.userId : undefined;
+    authenticated = Boolean(accessToken && userId);
   } catch {
     authenticated = false;
+  }
+  let fixtures;
+  try {
+    try {
+      fixtures = await loadFixtures(accessToken, userId);
+    } catch (error) {
+      if (!authenticated || ![401, 403].includes(error?.status)) throw error;
+      process.stderr.write('登录态夹具已失效，降级为未登录逐页巡检；不会伪造会员数据。\n');
+      authenticated = false;
+      accessToken = undefined;
+      userId = undefined;
+      fixtures = await loadFixtures(undefined, undefined);
+    }
+  } catch (fixtureError) {
+    miniProgram.disconnect();
+    throw fixtureError;
   }
 
   const consoleEvents = [];
@@ -261,24 +382,29 @@ async function main() {
       const consoleStart = consoleEvents.length;
       const exceptionStart = exceptionEvents.length;
       const url = routeUrl(route, fixtures);
+      const fixtureUnavailable = missingFixture(route, fixtures);
       const screenshot = path.join(OUTPUT_DIR, 'screenshots', fileName(route));
       let navigationError;
       let screenshotError;
+      let screenshotCaptured = false;
       let actualPath;
       try {
         await withTimeout(miniProgram.reLaunch(url), NAVIGATION_TIMEOUT_MS, `${route} 导航`);
         await sleep(WAIT_MS);
         actualPath = (await withTimeout(miniProgram.currentPage(), 5_000, `${route} 当前页面读取`))?.path;
-        try {
-          await withTimeout(
-            miniProgram.screenshot({ path: screenshot }),
-            SCREENSHOT_TIMEOUT_MS,
-            `${route} 截图`,
-          );
-        } catch (error) {
-          // 个别复杂页面在特定开发者工具版本中可能无法完成 captureScreenshot。
-          // 截图是审计证据，不是业务页面是否可用的裁决；记录警告并继续后续路由。
-          screenshotError = error.message;
+        if (CAPTURE_SCREENSHOTS) {
+          try {
+            await withTimeout(
+              miniProgram.screenshot({ path: screenshot }),
+              SCREENSHOT_TIMEOUT_MS,
+              `${route} 截图`,
+            );
+            screenshotCaptured = true;
+          } catch (error) {
+            // 个别复杂页面在特定开发者工具版本中可能无法完成 captureScreenshot。
+            // 截图是审计证据，不是业务页面是否可用的裁决；记录警告并继续后续路由。
+            screenshotError = error.message;
+          }
         }
       } catch (error) {
         navigationError = error.message;
@@ -305,19 +431,21 @@ async function main() {
         ...(screenshotError ? [`截图未生成：${screenshotError}`] : []),
       ];
       const gateOnly = !authenticated && AUTH_REQUIRED_ROUTES.has(route);
-      const status = navigationError || errors.length || (actualPath && actualPath !== route && !gateOnly) ? 'FAIL'
+      const status = navigationError || errors.length || (!actualPathMatches(route, actualPath, fixtures) && !gateOnly) ? 'FAIL'
         : gateOnly ? 'AUTH_GATE'
+          : fixtureUnavailable ? 'NO_FIXTURE'
           : 'PASS';
       results.push({
         route,
         url,
         actualPath,
         status,
+        fixtureUnavailable,
         navigationError,
         screenshotError,
         errors,
         warnings,
-        screenshot: navigationError || screenshotError ? undefined : screenshot,
+        screenshot: screenshotCaptured ? screenshot : undefined,
       });
       process.stdout.write(`[${results.length}/${routes.length}] ${status.padEnd(9)} ${route}${actualPath && actualPath !== route ? ` -> ${actualPath}` : ''}\n`);
     }
@@ -335,10 +463,12 @@ async function main() {
       product: { id: fixtures.product.id, title: fixtures.product.title, hasNestedAttributes: Object.values(fixtures.product.attributes || {}).some((value) => value && typeof value === 'object') },
       company: { id: fixtures.company.id, name: fixtures.company.name },
       activity: fixtures.activity ? { id: fixtures.activity.id, title: fixtures.activity.title } : null,
+      runtimePrefix: fixtures.prefix || null,
     },
     summary: {
       total: results.length,
       passed: results.filter((result) => result.status === 'PASS').length,
+      noFixture: results.filter((result) => result.status === 'NO_FIXTURE').length,
       authGated: results.filter((result) => result.status === 'AUTH_GATE').length,
       failed: results.filter((result) => result.status === 'FAIL').length,
       warnings: results.reduce((total, result) => total + result.warnings.length, 0),

@@ -45,7 +45,7 @@ export default function CheckoutPendingPage() {
   const pending = pendingQuery.data?.ok ? pendingQuery.data.data : null;
   const sessionId = requestedId || pending?.sessionId || '';
   const belongsToRequested = !requestedId || !pending || pending.sessionId === requestedId;
-  const title = useMemo(() => pending?.preview.firstItemTitle || '爱买买订单', [pending]);
+  const title = useMemo(() => pending?.preview.firstItemTitle || 'AI爱买买订单', [pending]);
 
   const resumeMutation = useMutation({
     mutationFn: async () => {

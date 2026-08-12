@@ -123,7 +123,7 @@ export default function AccountAppearancePage() {
       <Button disabled={uploading} loading={uploading} onClick={() => { void chooseMedia(['album']); }}>从相册选择</Button>
       <Button disabled={uploading} onClick={() => { void chooseMedia(['camera']); }}>拍照</Button>
       <Button className='appearance-upload__wechat' openType='chooseAvatar' disabled={uploading} onChooseAvatar={(event) => { const path = event.detail.avatarUrl; if (path) void upload(path); }}>选择微信头像</Button>
-      <Text>图片会上传到爱买买的安全存储，保存后将在当前账号内更新。</Text>
+      <Text>图片会上传到 AI爱买买的安全存储，保存后将在当前账号内更新。</Text>
     </View>
 
     <View className='appearance-heading'><Text>选择头像框</Text><Text>{isVip ? 'VIP 已解锁' : '会员权益'}</Text></View>

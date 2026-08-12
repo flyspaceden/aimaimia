@@ -147,7 +147,12 @@ export class MiniProgramSubscriptionService {
     if (!templateKey) return null;
     const definition = this.templateDefinitions().find((item) => item.key === templateKey);
     const idempotencyKey = `mini-sub:${message.idempotencyKey}:${templateKey}`;
-    const data = definition ? this.buildWechatData(definition.fields, event, message) : {};
+    const eventTime = definition?.fields.time
+      ? await this.resolveEventTime(event)
+      : new Date();
+    const data = definition
+      ? this.buildWechatData(definition.fields, event, message, eventTime)
+      : {};
     const page = this.resolvePage(message);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -397,17 +402,36 @@ export class MiniProgramSubscriptionService {
     }
   }
 
-  private buildWechatData(fields: FieldMap, event: NotificationEvent, message: NotificationMessageDraft) {
+  private buildWechatData(
+    fields: FieldMap,
+    event: NotificationEvent,
+    message: NotificationMessageDraft,
+    eventTime = new Date(),
+  ) {
     const semantic: Record<keyof FieldMap, string> = {
       reference: this.shortReference(message.entityId || event.aggregateId),
       status: (STATUS_TEXT[event.eventType] || '进度已更新').slice(0, 10),
       remark: message.body.replace(/\s+/g, '').slice(0, 20),
-      time: this.shanghaiTime(new Date()),
+      time: this.shanghaiTime(eventTime),
     };
     return Object.fromEntries(Object.entries(fields).map(([key, keyword]) => [
       keyword,
       { value: semantic[key as keyof FieldMap] },
     ]));
+  }
+
+  private async resolveEventTime(event: NotificationEvent): Promise<Date> {
+    // 提现模板的字段名称是“申请时间”，必须使用提现申请创建时间，不能把
+    // 打款成功/失败或后台拒绝的处理时间伪装成申请时间。其他事件暂时以
+    // 通知生成时间为准，直到其事件契约提供明确的业务时间。
+    if (event.eventType.startsWith('withdraw.')) {
+      const request = await this.prisma.withdrawRequest.findUnique({
+        where: { id: event.aggregateId },
+        select: { createdAt: true },
+      });
+      if (request?.createdAt) return request.createdAt;
+    }
+    return new Date();
   }
 
   private resolvePage(message: NotificationMessageDraft): string | null {

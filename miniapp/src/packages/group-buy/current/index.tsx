@@ -39,8 +39,8 @@ export default function GroupBuyCurrentPage() {
   });
   const inboundActivityId = typeof router.params.activityId === 'string' ? router.params.activityId : '';
 
-  useShareAppMessage(() => ({ title: current ? `${current.activity.title}｜邀请你参加爱买买团购` : '爱买买精选团购', path: sharePath }));
-  useShareTimeline(() => ({ title: current ? `${current.activity.title}｜爱买买精选团购` : '爱买买精选团购', query: current && code ? `activityId=${encodeURIComponent(current.activity.id)}&shareCode=${encodeURIComponent(code)}` : '' }));
+  useShareAppMessage(() => ({ title: current ? `${current.activity.title}｜邀请你参加 AI爱买买团购` : 'AI爱买买精选团购', path: sharePath }));
+  useShareTimeline(() => ({ title: current ? `${current.activity.title}｜AI爱买买精选团购` : 'AI爱买买精选团购', query: current && code ? `activityId=${encodeURIComponent(current.activity.id)}&shareCode=${encodeURIComponent(code)}` : '' }));
   useDidShow(() => { if (useAuthStore.getState().accessToken) void currentQuery.refetch(); });
   useEffect(() => {
     if (!inboundShareCode) return;

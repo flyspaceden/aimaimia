@@ -28,7 +28,8 @@
     "group-buy:backfill-instant-codes": "ts-node scripts/backfill-group-buy-instant-codes.ts",
     "normal-growth:backfill": "ts-node scripts/backfill-normal-growth.ts",
     "direct-referral:backfill": "ts-node scripts/backfill-direct-referral-relations.ts",
-    "queue-reward:demo": "ts-node scripts/demo-global-queue-reward.ts"
+    "queue-reward:demo": "ts-node scripts/demo-global-queue-reward.ts",
+    "miniapp:runtime-fixtures": "ts-node scripts/miniapp-runtime-fixtures.ts"
   },
   "dependencies": {
     "@alicloud/dysmsapi20170525": "^4.5.0",

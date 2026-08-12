@@ -11,6 +11,7 @@ import {
   canRepurchaseOrder,
   dedupeTrackingEvents,
   groupOrderItems,
+  normalizeOrderDateValue,
   parsePaymentSuccessOrderIds,
   paymentSuccessPresentation,
   repurchasePresentation,
@@ -108,6 +109,12 @@ describe('order page business boundaries', () => {
     expect(parsePaymentSuccessOrderIds('%E0%A4%A')).toEqual([]);
     expect(parsePaymentSuccessOrderIds('order-1,../admin,order%202')).toEqual(['order-1']);
     expect(parsePaymentSuccessOrderIds('x'.repeat(8_193))).toEqual([]);
+  });
+
+  it('normalizes the backend minute-precision timestamp to a WeChat/iOS-safe ISO local timestamp', () => {
+    expect(normalizeOrderDateValue('2026-08-11 00:58')).toBe('2026-08-11T00:58:00');
+    expect(normalizeOrderDateValue('2026-08-11T00:58:00.000Z')).toBe('2026-08-11T00:58:00.000Z');
+    expect(normalizeOrderDateValue('not-a-date')).toBe('not-a-date');
   });
 
   it('explains partial repurchase, low-stock quantity adjustment and virtual skips', () => {

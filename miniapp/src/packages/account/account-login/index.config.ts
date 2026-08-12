@@ -1,1 +1,1 @@
-export default definePageConfig({ navigationBarTitleText: '登录爱买买', backgroundColor: '#FAFCFA' });
+export default definePageConfig({ navigationBarTitleText: '登录AI爱买买', backgroundColor: '#FAFCFA' });

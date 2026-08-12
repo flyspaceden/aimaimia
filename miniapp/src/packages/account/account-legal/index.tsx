@@ -22,14 +22,14 @@ export default function AccountLegalPage() {
   return <View className='account-legal-page'>
     <ScrollView className='account-legal-scroll' scrollY enhanced showScrollbar={false}>
       <View className='account-legal-content'>
-        <Text className='account-legal-title'>{document.title}</Text>
-        <Text className='account-legal-meta'>版本 {document.version} · 生效日期 {document.effectiveAt}</Text>
+        <Text className='account-legal-title' userSelect>{document.title}</Text>
+        <Text className='account-legal-meta' userSelect>版本 {document.version} · 生效日期 {document.effectiveAt}</Text>
         <View className='account-legal-summary'>
-          {document.summary.map((paragraph) => <Text className='account-legal-summary__text' key={paragraph}>{paragraph}</Text>)}
+          {document.summary.map((paragraph) => <Text className='account-legal-summary__text' key={paragraph} userSelect>{paragraph}</Text>)}
         </View>
         {document.sections.map((section) => <View className='account-legal-section aim-card' id={section.id} key={section.id}>
-          <Text className='account-legal-section__title'>{section.title}</Text>
-          {section.blocks.map((block, index) => <Text className={blockClassName(block)} key={`${section.id}-${index}`}>{block.text}</Text>)}
+          <Text className='account-legal-section__title' userSelect>{section.title}</Text>
+          {section.blocks.map((block, index) => <Text className={blockClassName(block)} key={`${section.id}-${index}`} userSelect>{block.text}</Text>)}
         </View>)}
       </View>
     </ScrollView>

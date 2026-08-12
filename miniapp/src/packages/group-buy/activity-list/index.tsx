@@ -27,7 +27,7 @@ export default function GroupBuyActivityListPage() {
       const result = await Taro.scanCode({});
       if (result.scanType === 'WX_CODE') {
         const miniProgramPath = normalizeMiniProgramScanPath(result.path);
-        if (!miniProgramPath) { Taro.showToast({ title: '无效的爱买买小程序码', icon: 'none' }); return; }
+        if (!miniProgramPath) { Taro.showToast({ title: '无效的 AI爱买买小程序码', icon: 'none' }); return; }
         await Taro.navigateTo({ url: miniProgramPath });
         return;
       }
@@ -46,7 +46,7 @@ export default function GroupBuyActivityListPage() {
 
   return <View className='group-buy-page'>
     <View className='group-buy-hero'>
-      <Text className='group-buy-hero__eyebrow'>爱买买 · 指定商品活动</Text>
+      <Text className='group-buy-hero__eyebrow'>AI爱买买 · 指定商品活动</Text>
       <Text className='group-buy-hero__title'>精选团购</Text>
       <Text className='group-buy-hero__copy'>现金购买指定商品，付款成功后生成专属推荐码。团购不退换，仅收货后 24 小时质量问题补发。</Text>
       <View className='group-buy-hero__actions'>

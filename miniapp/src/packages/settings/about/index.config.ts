@@ -1,1 +1,1 @@
-export default definePageConfig({ navigationBarTitleText: '关于爱买买' });
+export default definePageConfig({ navigationBarTitleText: '关于AI爱买买' });

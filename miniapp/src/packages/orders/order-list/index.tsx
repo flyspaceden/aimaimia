@@ -101,7 +101,7 @@ export default function OrderListPage() {
   };
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
-  if (!loggedIn) return <View className='aim-page order-auth'><Text className='order-auth__stamp'>单</Text><Text className='order-auth__title'>登录后查看订单</Text><Text className='order-auth__copy'>使用已有爱买买账号，即可继续查看订单与物流。</Text><Button className='aim-button-primary order-auth__button' onClick={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/orders/order-list/index')}` })}>微信登录</Button></View>;
+  if (!loggedIn) return <View className='aim-page order-auth'><Text className='order-auth__stamp'>单</Text><Text className='order-auth__title'>登录后查看订单</Text><Text className='order-auth__copy'>使用已有 AI爱买买账号，即可继续查看订单与物流。</Text><Button className='aim-button-primary order-auth__button' onClick={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/orders/order-list/index')}` })}>微信登录</Button></View>;
 
   return <View className='order-list-page'>
     <View className='order-list-hero'><View><Text className='order-list-hero__eyebrow'>从下单到收货</Text><Text className='order-list-hero__title'>我的订单</Text></View><Text className='order-list-hero__count'>{orders.length}<Text> 笔订单</Text></Text></View>

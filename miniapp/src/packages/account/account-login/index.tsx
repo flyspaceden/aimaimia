@@ -67,7 +67,7 @@ export default function AccountLoginPage() {
   return <View className='aim-page account-login-page'>
     <View className='account-login-hero'>
       <View className='account-login-hero__orbit'><View className='account-login-hero__core'>爱</View></View>
-      <Text className='account-login-hero__title'>微信登录爱买买</Text>
+      <Text className='account-login-hero__title'>微信登录AI爱买买</Text>
     </View>
 
     <View className='account-login-card aim-card'>

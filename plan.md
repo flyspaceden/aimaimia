@@ -2022,6 +2022,11 @@
 > **权威源**: `docs/architecture/wechat-mini-program.md`
 > **边界**: 与当前买家 App 基本一致，共用现有业务后端；首版排除配送与非微信资金通道。
 
+- [x] **WMP17** 2026-08-10 登录态全量运行时与微信 WebView 兼容复核：自动化连接已打开的开发者工具并复用真实微信登录会话，使用 staging 实际商品/企业及账号已有业务数据，禁止伪造不存在的详情 ID；71 页结果为 56 PASS、15 NO_FIXTURE、0 FAIL，后者明确表示测试账号无订单/售后/发票/团购等详情记录，不能冒充闭环已验收。修复 Taro 4.2.1 最终 `base.wxml` 给所有 ScrollView 注入 WebView 不支持 `padding` 的全局提示：staging/production 构建后 fail-closed 删除并由产物断言锁定；此前报警的 14 页清空控制台后全部 0 错误/0 页面级 warning。法律与会员协议正文显式允许选择复制；Taro 动态模板仍可能触发开发者工具静态长文本建议，记录为工具提示而非运行故障。最终 ESLint 0 警告、TypeScript、47 文件 249/249、双环境构建及 71 页生产产物断言通过（主包 1.255 MiB、总包 2.307 MiB、最大分包 0.213 MiB），并恢复 staging 产物供当前开发者工具继续测试。
+- [x] **WMP18** 2026-08-10 登录态完整 fixture 运行时验收：新增仅允许精确 `testaimaimai`、显式 staging 开关、固定确认短语和 ACTIVE `userId + buyerNo` 匹配时运行的固定 ID 测试数据工具，补齐地址、订单、微信小程序支付记录、物流、售后、发票、拼团待支付和场景跳转。修复订单分钟级时间字符串在微信 iOS 的 `Date` 兼容警告并用新 AppService 复测；开发者工具最终 71/71 PASS、0 NO_FIXTURE、0 AUTH_GATE、0 FAIL、0 warning。结束后地址/抬头/临时身份/订单及历史/支付/物流/Checkout/拼团/售后/发票/场景共 18 类记录全部为 0，服务器临时脚本已删除。最终小程序 ESLint 0 警告、TypeScript、47 文件 250/250、staging/production 双构建和 71 页产物断言通过；后端 fixture 5/5、主库 Prisma validate 与 Nest build 通过。真实支付、退款、提现、订阅、发货与 iOS/Android 真机仍归 WMP00-F。
+- [x] **WMP19** 2026-08-11 小程序名称统一为“AI爱买买”：以 App `app.json` 当前安装名为参考，仅修改 `miniapp/` 与小程序文档；工程名/描述、导航标题、登录/关于页、客服/订单/团购/推荐/扫码文案、分享标题、小程序专属协议和隐私指引默认名称全部统一。旧域名 `app.爱买买.com`、企业法定名称、测试昵称及 App/后台源码不改；新增品牌防回归测试。ESLint 0 警告、TypeScript、48 个测试文件 252/252、staging/production 双构建及 71 页生产产物断言通过（主包 1.255 MiB、总包 2.307 MiB）。微信公众平台中的正式小程序名称仍需在平台侧确认。
+- [x] **WMP20** 2026-08-11 本地代码终审与运行时审计器加固：逐文件复核当前小程序及 staging fixture 支撑改动，修复审计器在开发者工具未返回当前页面路径时误判通过、原始字符串日志未脱敏、过期登录夹具 401/403 中断全程、登录态读取与自动化连接可无限等待四类问题；凭据扫描未发现私钥/AppSecret 写入当前变更。最新开发者工具登录态巡检为 71 页、56 `PASS`、15 `NO_FIXTURE`、0 `FAIL`、0 warning。小程序 ESLint 0 warning、TypeScript、48 文件 255/255、staging/production 双构建和 71 页产物断言通过（主包 1.255 MiB、总包 2.307 MiB、最大分包 0.214 MiB）；后端全量 303 套件/3249 项通过（另 2 套件/5 项按配置跳过），fixture 5/5、Nest build 与主库/配送库 Prisma validate 通过。Taro 4.2.1 仍精确约束 webpack 5.91.0，14 条构建链上游公告不能用 `--force` 破坏 peer contract，继续按 WMPF08 跟踪；真实支付、退款、提现、订阅、发货和真机视觉仍归 WMP00-F。
+
 - [x] **WMP00-A** 建立独立 `miniapp/` Taro 4.2.1 + React 18 + TypeScript 工程、三 Tab 骨架、主题与 staging/production 环境隔离。
 - [x] **WMP00-B** 完成会话安全请求层：单飞刷新、会话 generation、切换账号防旧 Token 回写、退出清 Query 与私有 Store、非标准响应映射。
 - [x] **WMP00-C** 完成五个 POC 的小程序前端适配层和单测：登录合并、JSAPI 支付、商家转账确认、AI 录音上传、客服 WebSocket。
@@ -2031,9 +2036,11 @@
   - [x] 真实 AppID `wx1b33112db0d5267b` 写入工程，AppSecret 仅保存于本地密码本；生产产物自动阻止错误/游客 AppID。
   - [x] 测试后端安全配置 AppID/AppSecret 并关闭 Mock；秘密值不写入前端、Git 或日志（2026-08-10 PM2 已重载）。
   - [ ] 生产后端安全配置 AppID/AppSecret 并完成独立验收。
+  - [ ] 微信公众平台正式名称确认设置为“AI爱买买”（本地工程与页面已完成）。
   - [ ] 完成小程序认证/备案、服务类目、开放平台绑定、微信支付商户号绑定、商家转账与交易发货能力。
   - [ ] 配置 request/upload/download/socket 合法域名、隐私保护指引、订阅消息模板和平台回调。
-  - [ ] 微信开发者工具、iOS/Android 真机及真实小额支付/退款/提现/发货闭环验收。
+  - [x] 微信开发者工具登录态 71 页运行时验收（含完整 staging fixture，71/71、0 warning）。
+  - [ ] iOS/Android 微信真机及真实小额支付/退款/提现/发货闭环验收。
   - [ ] 首次开发者工具完整回归后，把 `project.config.json` 的微信基础库版本从 `latest` 固定为实测通过的具体版本。
 - [x] **WMP01** Phase 1 购物闭环：三个主 Tab、商品/企业/搜索、账号地址、购物车、结算、消费积分/红包、微信支付、支付结果、订单/物流/改址/确认收货/取消/复购全部接入；跨端支付场景、幂等重试和成功页服务端核验已收口。
 - [x] **WMP02** Phase 2 售后、会员与资产：售后/发票、统一钱包与微信提现、优惠券、数字资产、即时注销、VIP/礼包/抽奖/成长/奖励树/队列和团购均已实现并注册真实路由；任务入口按 App 当前隐藏状态不注册，共用后端在行为凭证补齐前 fail-closed；退货运费固定使用当前小程序微信身份支付。

@@ -13,7 +13,7 @@ import './index.scss';
 
 export function MiniappPrivacyAuthorization() {
   const [request, setRequest] = useState<MiniappPrivacyRequest | null>(null);
-  const [contractName, setContractName] = useState('爱买买小程序隐私保护指引');
+  const [contractName, setContractName] = useState('AI爱买买小程序隐私保护指引');
   const requestRef = useRef<MiniappPrivacyRequest | null>(null);
   const generation = useRef(0);
 

@@ -63,7 +63,7 @@ export default function CatalogCompanyPage() {
   });
   useDidShow(() => { if (id && useAuthStore.getState().hydrated) void companyQuery.refetch(); });
   useShareAppMessage(() => ({
-    title: company ? `${company.name} - 爱买买企业专页` : '爱买买企业专页',
+    title: company ? `${company.name} - AI爱买买企业专页` : 'AI爱买买企业专页',
     path: `/packages/commerce/catalog-company/index?id=${encodeURIComponent(id)}`,
     imageUrl: company?.cover,
   }));

@@ -131,7 +131,7 @@ export default function WechatWithdrawPage() {
         if (hasMerchantTransferConfirmation(result.data)) {
           try {
             await requestMerchantTransferConfirmation(result.data);
-            Taro.showToast({ title: '已返回爱买买，正在确认到账状态', icon: 'none', duration: 2600 });
+            Taro.showToast({ title: '已返回 AI爱买买，正在确认到账状态', icon: 'none', duration: 2600 });
           } catch {
             Taro.showToast({ title: '确认页已关闭，可稍后在提现记录查看结果', icon: 'none', duration: 2600 });
           } finally {

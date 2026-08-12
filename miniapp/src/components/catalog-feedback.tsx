@@ -6,7 +6,7 @@ type Props = { kind: 'loading' | 'empty' | 'error'; title?: string; description?
 
 export function CatalogFeedback({ kind, title, description, onRetry, actionLabel }: Props) {
   if (kind === 'loading') {
-    return <View className='catalog-feedback catalog-feedback--loading'><View className='catalog-feedback__spinner' /><Text>正在从爱买买加载...</Text></View>;
+    return <View className='catalog-feedback catalog-feedback--loading'><View className='catalog-feedback__spinner' /><Text>正在从 AI爱买买加载...</Text></View>;
   }
   return (
     <View className='catalog-feedback aim-card'>

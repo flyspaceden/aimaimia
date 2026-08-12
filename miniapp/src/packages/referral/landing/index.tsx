@@ -18,8 +18,8 @@ export default function ReferralLandingPage() {
   const kind = code ? preferredInviteKind(rawKind, code) : 'normal';
   const attemptedRef = useRef(false);
   const sharePath = code ? buildMiniappInvitePath(code, kind) : '/pages/home/index';
-  useShareAppMessage(() => ({ title: '和我一起在爱买买发现产地好物', path: sharePath }));
-  useShareTimeline(() => ({ title: '和我一起在爱买买发现产地好物', query: code ? `code=${encodeURIComponent(code)}&kind=${kind}` : '' }));
+  useShareAppMessage(() => ({ title: '和我一起在 AI爱买买发现产地好物', path: sharePath }));
+  useShareTimeline(() => ({ title: '和我一起在 AI爱买买发现产地好物', query: code ? `code=${encodeURIComponent(code)}&kind=${kind}` : '' }));
 
   const bindMutation = useMutation({
     mutationFn: () => ReferralRepo.bindAuto(code!, kind),
@@ -51,12 +51,12 @@ export default function ReferralLandingPage() {
   if (bindMutation.isPending || bindMutation.isIdle) return <View className='aim-page referral-landing-feedback'><CatalogFeedback kind='loading' /></View>;
   if (bindMutation.data && !bindMutation.data.ok) return <View className='aim-page referral-landing-feedback'>
     <CatalogFeedback kind='error' title='推荐关系未绑定' description={bindMutation.data.error.displayMessage || '分享码无效或当前账户已有推荐关系'} actionLabel={bindMutation.data.error.retryable ? '重试' : undefined} onRetry={bindMutation.data.error.retryable ? () => bindMutation.mutate() : undefined} />
-    <Button className='referral-landing-home' onClick={() => Taro.switchTab({ url: '/pages/home/index' })}>进入爱买买</Button>
+    <Button className='referral-landing-home' onClick={() => Taro.switchTab({ url: '/pages/home/index' })}>进入 AI爱买买</Button>
   </View>;
   return <View className='aim-page referral-landing-page'>
     <View className='referral-landing-orbit referral-landing-orbit--done'><Text>✓</Text></View>
     <Text className='referral-landing-eyebrow'>绑定完成</Text>
-    <Text className='referral-landing-title'>欢迎来到爱买买</Text>
+    <Text className='referral-landing-title'>欢迎来到 AI爱买买</Text>
     <Text className='referral-landing-copy'>推荐关系已确认。现在可以正常浏览、下单和使用会员功能。</Text>
     <Button className='referral-landing-action' onClick={() => Taro.switchTab({ url: '/pages/home/index' })}>开始逛逛</Button>
   </View>;

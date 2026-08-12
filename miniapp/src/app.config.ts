@@ -132,7 +132,7 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#FAFCFA',
-    navigationBarTitleText: '爱买买',
+    navigationBarTitleText: 'AI爱买买',
     navigationBarTextStyle: 'black',
     backgroundColor: '#FAFCFA',
   },

@@ -72,7 +72,7 @@ function accountMismatchResult<T>(): Result<T> {
     error: {
       code: 'WECHAT_ACCOUNT_MISMATCH',
       message: 'the verified WeChat identity belongs to a different user',
-      displayMessage: '当前微信已属于另一个爱买买账号，未切换当前账号，请先联系客服处理',
+      displayMessage: '当前微信已属于另一个 AI爱买买账号，未切换当前账号，请先联系客服处理',
       retryable: false,
     },
   };
