@@ -131,6 +131,26 @@ describe('WechatMiniProgramApiService', () => {
     } satisfies Partial<WechatMiniProgramApiError>);
   });
 
+  it('accepts WeChat JPEG binary responses for unlimited codes', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9]);
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: 'token-1',
+        expires_in: 7200,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(jpeg, {
+        status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
+      }));
+    global.fetch = fetchMock as typeof fetch;
+    const service = makeService({
+      WECHAT_MINIAPP_APP_ID: 'wx-app-id',
+      WECHAT_MINIAPP_APP_SECRET: 'wx-app-secret',
+    });
+
+    await expect(service.postBuffer('/wxa/getwxacodeunlimit', {})).resolves.toEqual(jpeg);
+  });
+
   it('stops reading binary responses larger than one MiB', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({

@@ -6,6 +6,7 @@ const PNG = Buffer.from([
   0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
   0xae, 0x42, 0x60, 0x82,
 ]);
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xff, 0xd9]);
 
 function harness() {
   const prisma: any = {
@@ -62,6 +63,20 @@ describe('MiniProgramCodeService', () => {
       where: { userId: 'user-2', status: 'SHARING' },
     }));
     expect(wechat.postBuffer).not.toHaveBeenCalled();
+  });
+
+  it('accepts the JPEG small-program code currently returned by WeChat', async () => {
+    const { service, prisma, wechat } = harness();
+    prisma.memberProfile.findUnique.mockResolvedValue({ tier: 'VIP', referralCode: 'VIPA1234' });
+    prisma.miniProgramScene.findFirst.mockResolvedValue({
+      id: 'scene-jpeg', token: 'abcdefghijklmnopqrstuv', expiresAt: new Date('2027-01-01T00:00:00Z'),
+    });
+    prisma.miniProgramScene.update.mockResolvedValue({});
+    wechat.postBuffer.mockResolvedValue(JPEG);
+
+    await expect(service.createCode('user-jpeg', 'REFERRAL')).resolves.toMatchObject({
+      mimeType: 'image/jpeg', imageBase64: JPEG.toString('base64'),
+    });
   });
 
   it('rejects an unsupported captain code before storing a scene or calling WeChat', async () => {

@@ -79,5 +79,8 @@ describe('integration review front-end fixes', () => {
     expect(panel).toContain('filePathRef.current = persistedPath');
     expect(panel).toContain('removePersistedMiniProgramCode(previousPath)');
     expect(panel).toContain('removePersistedMiniProgramCode(persistedPath)');
+    expect(panel).toContain('autoGenerationKeyRef.current = key');
+    expect(panel).toContain('void generate()');
+    expect(source('src/platform/miniProgramCode.ts')).toContain("mimeType: 'image/png' | 'image/jpeg'");
   });
 });

@@ -249,7 +249,10 @@ export class WechatMiniProgramApiService implements OnModuleInit {
       this.logger.warn(`微信小程序二进制 API 返回失败: path=${path}, errcode=${errcode}`);
       throw new WechatMiniProgramApiError(errcode, '微信小程序平台接口调用失败');
     }
-    if (!response.ok || bytes.length === 0 || !contentType.includes('image/png')) {
+    const supportedImage = contentType.includes('image/png')
+      || contentType.includes('image/jpeg')
+      || contentType.includes('image/jpg');
+    if (!response.ok || bytes.length === 0 || !supportedImage) {
       throw new ServiceUnavailableException('微信小程序平台响应异常');
     }
     return bytes;

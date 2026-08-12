@@ -7,7 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WechatMiniProgramApiService } from '../wechat-mini-program-platform/wechat-mini-program-api.service';
+import {
+  WechatMiniProgramApiError,
+  WechatMiniProgramApiService,
+} from '../wechat-mini-program-platform/wechat-mini-program-api.service';
 import { MINI_PROGRAM_CODE_KINDS } from './dto/mini-program-code.dto';
 
 type MiniProgramCodeKind = typeof MINI_PROGRAM_CODE_KINDS[number];
@@ -17,6 +20,8 @@ const SCENE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,32}$/;
 const SCENE_PAGE = 'packages/community/scene/index';
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const PNG_IEND = Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+const JPEG_SIGNATURE = Buffer.from([255, 216, 255]);
+const JPEG_EOI = Buffer.from([255, 217]);
 
 @Injectable()
 export class MiniProgramCodeService {
@@ -57,21 +62,31 @@ export class MiniProgramCodeService {
       });
     }
 
-    const png = await this.wechat.postBuffer('/wxa/getwxacodeunlimit', {
-      scene: scene.token,
-      page: SCENE_PAGE,
-      check_path: this.codeCheckPath(),
-      env_version: this.codeEnvVersion(),
-      width: 430,
-      auto_color: false,
-      line_color: { r: 46, g: 125, b: 50 },
-      is_hyaline: false,
-    });
-    if (
-      png.length < PNG_SIGNATURE.length + PNG_IEND.length
-      || !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
-      || !png.subarray(-PNG_IEND.length).equals(PNG_IEND)
-    ) {
+    let image: Buffer;
+    try {
+      image = await this.wechat.postBuffer('/wxa/getwxacodeunlimit', {
+        scene: scene.token,
+        page: SCENE_PAGE,
+        check_path: this.codeCheckPath(),
+        env_version: this.codeEnvVersion(),
+        width: 430,
+        auto_color: false,
+        line_color: { r: 46, g: 125, b: 50 },
+        is_hyaline: false,
+      });
+    } catch (error) {
+      if (error instanceof WechatMiniProgramApiError) {
+        throw new ServiceUnavailableException('微信小程序码生成暂不可用，请稍后重试');
+      }
+      throw error;
+    }
+    const isPng = image.length >= PNG_SIGNATURE.length + PNG_IEND.length
+      && image.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+      && image.subarray(-PNG_IEND.length).equals(PNG_IEND);
+    const isJpeg = image.length >= JPEG_SIGNATURE.length + JPEG_EOI.length
+      && image.subarray(0, JPEG_SIGNATURE.length).equals(JPEG_SIGNATURE)
+      && image.subarray(-JPEG_EOI.length).equals(JPEG_EOI);
+    if (!isPng && !isJpeg) {
       throw new ServiceUnavailableException('微信小程序码响应异常');
     }
     await (this.prisma as any).miniProgramScene.update({
@@ -81,8 +96,8 @@ export class MiniProgramCodeService {
     return {
       scene: scene.token,
       kind,
-      mimeType: 'image/png',
-      imageBase64: png.toString('base64'),
+      mimeType: isPng ? 'image/png' : 'image/jpeg',
+      imageBase64: image.toString('base64'),
       expiresAt: scene.expiresAt,
     };
   }

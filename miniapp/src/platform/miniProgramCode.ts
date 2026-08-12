@@ -6,7 +6,7 @@ export type MiniProgramCodeKind = 'REFERRAL' | 'GROUP_BUY' | 'CAPTAIN';
 export type MiniProgramCodeResult = {
   scene: string;
   kind: MiniProgramCodeKind;
-  mimeType: 'image/png';
+  mimeType: 'image/png' | 'image/jpeg';
   imageBase64: string;
   expiresAt: string;
 };
@@ -28,7 +28,7 @@ function isCodeResult(value: unknown): value is MiniProgramCodeResult {
   const item = value as Record<string, unknown>;
   return SCENE_PATTERN.test(String(item.scene || ''))
     && ['REFERRAL', 'GROUP_BUY', 'CAPTAIN'].includes(String(item.kind))
-    && item.mimeType === 'image/png'
+    && (item.mimeType === 'image/png' || item.mimeType === 'image/jpeg')
     && typeof item.imageBase64 === 'string'
     && item.imageBase64.length >= 12
     && item.imageBase64.length <= 1_500_000
@@ -64,7 +64,8 @@ export const MiniProgramCodeRepo = {
 };
 
 export function persistMiniProgramCode(result: MiniProgramCodeResult): Promise<string> {
-  const filePath = `${Taro.env.USER_DATA_PATH}/aim-mini-code-${result.scene}.png`;
+  const extension = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+  const filePath = `${Taro.env.USER_DATA_PATH}/aim-mini-code-${result.scene}.${extension}`;
   return new Promise((resolve, reject) => {
     Taro.getFileSystemManager().writeFile({
       filePath,

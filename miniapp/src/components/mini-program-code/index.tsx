@@ -1,6 +1,6 @@
 import { Button, Image, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MiniProgramCodeRepo, persistMiniProgramCode, removePersistedMiniProgramCode, type MiniProgramCodeKind } from '@/platform/miniProgramCode';
 import { useAuthStore } from '@/store/auth';
 import './index.scss';
@@ -13,6 +13,7 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
   const mounted = useRef(true);
   const generation = useRef(0);
   const filePathRef = useRef('');
+  const autoGenerationKeyRef = useRef('');
   useEffect(() => () => {
     mounted.current = false;
     generation.current += 1;
@@ -22,6 +23,7 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
   }, []);
   useEffect(() => {
     generation.current += 1;
+    autoGenerationKeyRef.current = '';
     const persistedPath = filePathRef.current;
     filePathRef.current = '';
     setFilePath('');
@@ -29,7 +31,7 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
     if (persistedPath) void removePersistedMiniProgramCode(persistedPath);
   }, [authRevision, userId, kind]);
 
-  const generate = async () => {
+  const generate = useCallback(async () => {
     if (!enabled || busy) return;
     const revisionAtStart = authRevision;
     const userIdAtStart = userId;
@@ -71,7 +73,14 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
         setBusy(false);
       }
     }
-  };
+  }, [authRevision, busy, enabled, kind, userId]);
+  useEffect(() => {
+    if (!enabled || !userId || filePath) return;
+    const key = `${authRevision}:${userId}:${kind}`;
+    if (autoGenerationKeyRef.current === key) return;
+    autoGenerationKeyRef.current = key;
+    void generate();
+  }, [authRevision, enabled, filePath, generate, kind, userId]);
   const save = async () => {
     if (!filePath) return;
     try {
@@ -83,7 +92,7 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
   };
 
   return <View className='mini-code-panel aim-card'>
-    <View className='mini-code-panel__heading'><View><Text>微信小程序码</Text><Text>资格确认后即可生成专属分享码</Text></View><Button disabled={!enabled || busy} loading={busy} onClick={() => { void generate(); }}>{filePath ? '重新生成' : '生成'}</Button></View>
+    <View className='mini-code-panel__heading'><View><Text>微信小程序码</Text><Text>{busy ? '正在生成专属小程序码' : '好友扫码后可打开推荐页并完成绑定'}</Text></View><Button disabled={!enabled || busy} loading={busy} onClick={() => { void generate(); }}>{filePath ? '重新生成' : busy ? '生成中' : '重试'}</Button></View>
     {filePath ? <View className='mini-code-panel__result'><Image src={filePath} mode='aspectFit' /><Text>好友扫码即可打开对应页面，分享码不会展示账号内部信息。</Text><Button onClick={() => { void save(); }}>保存到相册</Button></View> : null}
   </View>;
 }
