@@ -264,6 +264,46 @@ describe('CheckoutService WECHAT_PAY payment params', () => {
     expect((sessions.current.bizMeta as any).paymentParamState.owner).toBeUndefined();
   });
 
+  it('does not retry an UNCERTAIN NOTPAY preorder when the provider omits amount', async () => {
+    const wechatPayService: any = makeWechatPayService();
+    wechatPayService.queryOrder = jest.fn().mockResolvedValue({
+      outcome: 'FOUND',
+      tradeState: 'NOTPAY',
+      outTradeNo: 'CS-NOTPAY-NO-AMOUNT',
+      appId: 'wx-app',
+    });
+    wechatPayService.matchesPaymentScene = jest.fn().mockReturnValue(true);
+    const service = wirePaymentCoordinator(new CheckoutService({} as any, makeBonusConfig() as any));
+    service.setWechatPayService(wechatPayService);
+
+    await expect((service as any).reconcileUncertainWechatPreorder({
+      id: 'session-notpay-no-amount',
+      merchantOrderNo: 'CS-NOTPAY-NO-AMOUNT',
+      expectedTotal: 88,
+    }, 'APP')).rejects.toThrow('支付金额校验失败');
+  });
+
+  it('rejects an UNCERTAIN CLOSED preorder without requiring a provider amount', async () => {
+    const wechatPayService: any = makeWechatPayService();
+    wechatPayService.queryOrder = jest.fn().mockResolvedValue({
+      outcome: 'FOUND',
+      tradeState: 'CLOSED',
+      outTradeNo: 'CS-CLOSED-NO-AMOUNT',
+      appId: 'wx-app',
+    });
+    wechatPayService.matchesPaymentScene = jest.fn().mockReturnValue(true);
+    const service = wirePaymentCoordinator(new CheckoutService({} as any, makeBonusConfig() as any));
+    service.setWechatPayService(wechatPayService);
+
+    await expect((service as any).reconcileUncertainWechatPreorder({
+      id: 'session-closed-no-amount',
+      merchantOrderNo: 'CS-CLOSED-NO-AMOUNT',
+      expectedTotal: 88,
+    }, 'APP')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'IDEMPOTENCY_KEY_REUSED' }),
+    });
+  });
+
   it.each(['EXPIRED', 'FAILED'])('rejects normal idempotency reuse for %s without generating params', async (status) => {
     const existing = {
       id: `normal-${status}`,

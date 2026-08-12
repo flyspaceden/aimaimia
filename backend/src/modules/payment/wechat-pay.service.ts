@@ -52,8 +52,8 @@ export type WechatOrderQueryResult =
       outTradeNo: string;
       appId: string;
       tradeType?: string;
-      totalAmountFen: number;
-      totalAmount: number;
+      totalAmountFen?: number;
+      totalAmount?: number;
       paidAt?: Date;
     }
   | { outcome: 'DEFINITIVE_NOT_FOUND' }
@@ -898,6 +898,12 @@ export class WechatPayService implements OnModuleInit {
           );
           return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_TRADE_TYPE' };
         }
+        if (data?.amount?.total === undefined || data?.amount?.total === null) {
+          this.logger.warn(
+            `微信主动查单成功态缺少订单金额: outTradeNo=${outTradeNoForLog}`,
+          );
+          return { outcome: 'UNKNOWN', code: 'SUCCESS_WITHOUT_AMOUNT' };
+        }
       }
 
       if (data.out_trade_no !== outTradeNo) {
@@ -907,7 +913,9 @@ export class WechatPayService implements OnModuleInit {
         return { outcome: 'UNKNOWN', code: 'OUT_TRADE_NO_MISMATCH' };
       }
 
-      const totalAmountFen = this.validateNotifyAmountFen(data?.amount?.total);
+      const totalAmountFen = data?.amount?.total === undefined || data?.amount?.total === null
+        ? undefined
+        : this.validateNotifyAmountFen(data.amount.total);
       const parsed: {
         outcome: 'FOUND';
         tradeState: string;
@@ -915,17 +923,20 @@ export class WechatPayService implements OnModuleInit {
         outTradeNo: string;
         appId: string;
         tradeType?: string;
-        totalAmountFen: number;
-        totalAmount: number;
+        totalAmountFen?: number;
+        totalAmount?: number;
         paidAt?: Date;
       } = {
         outcome: 'FOUND',
         tradeState: data.trade_state,
         outTradeNo: data.out_trade_no,
         appId: data.appid,
-        totalAmountFen,
-        totalAmount: totalAmountFen / 100,
       };
+
+      if (totalAmountFen !== undefined) {
+        parsed.totalAmountFen = totalAmountFen;
+        parsed.totalAmount = totalAmountFen / 100;
+      }
 
       if (this.isNonEmptyString(data.trade_type)) {
         parsed.tradeType = data.trade_type;

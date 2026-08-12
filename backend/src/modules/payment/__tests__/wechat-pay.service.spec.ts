@@ -472,6 +472,52 @@ describe('WechatPayService', () => {
       expect(result).not.toHaveProperty('tradeType');
     });
 
+    it('returns parsed CLOSED payload when WeChat omits trade_type and amount', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'CLOSED',
+          out_trade_no: 'CS-CLOSED-1',
+          appid: 'wxtest',
+          mchid: '1234567890',
+        },
+      });
+
+      const result = await svc.queryOrder('CS-CLOSED-1');
+
+      expect(result).toEqual({
+        outcome: 'FOUND',
+        tradeState: 'CLOSED',
+        outTradeNo: 'CS-CLOSED-1',
+        appId: 'wxtest',
+      });
+      expect(result).not.toHaveProperty('tradeType');
+      expect(result).not.toHaveProperty('totalAmountFen');
+    });
+
+    it('fails closed when SUCCESS payload omits amount', async () => {
+      const svc = await buildModule(validWechatEnv);
+      const client = (svc as any).client;
+      client.query = jest.fn().mockResolvedValue({
+        status: 200,
+        data: {
+          trade_state: 'SUCCESS',
+          transaction_id: 'WX-TXN-NO-AMOUNT',
+          out_trade_no: 'CS-SUCCESS-NO-AMOUNT',
+          appid: 'wxtest',
+          mchid: '1234567890',
+          trade_type: 'APP',
+        },
+      });
+
+      await expect(svc.queryOrder('CS-SUCCESS-NO-AMOUNT')).resolves.toEqual({
+        outcome: 'UNKNOWN',
+        code: 'SUCCESS_WITHOUT_AMOUNT',
+      });
+    });
+
     it('returns null and warns when SUCCESS payload is missing transaction_id without leaking raw provider payload', async () => {
       const svc = await buildModule(validWechatEnv);
       const client = (svc as any).client;

@@ -1056,11 +1056,11 @@ export class AfterSaleShippingPaymentService {
         if (!this.wechatPayService.matchesPaymentScene(queried, payment.paymentScene)) {
           throw new BadRequestException("退货运费支付场景校验失败");
         }
-        const expectedFen = WechatPayService.yuanToFenAmount(payment.amount, "payment.amount");
-        if (queried.totalAmountFen !== expectedFen) {
-          throw new BadRequestException("退货运费支付金额校验失败");
-        }
         if (queried.tradeState === "SUCCESS") {
+          const expectedFen = WechatPayService.yuanToFenAmount(payment.amount, "payment.amount");
+          if (queried.totalAmountFen !== expectedFen) {
+            throw new BadRequestException("退货运费支付金额校验失败");
+          }
           if (!queried.transactionId) {
             throw new ServiceUnavailableException("正在确认退货运费支付状态");
           }
@@ -1376,11 +1376,11 @@ export class AfterSaleShippingPaymentService {
     if (!this.wechatPayService.matchesPaymentScene(queried, "MINI_PROGRAM")) {
       throw new BadRequestException("退货运费支付场景校验失败");
     }
-    const expectedFen = WechatPayService.yuanToFenAmount(payment.amount, "payment.amount");
-    if (queried.totalAmountFen !== expectedFen) {
-      throw new BadRequestException("退货运费支付金额校验失败");
-    }
     if (queried.tradeState === "SUCCESS") {
+      const expectedFen = WechatPayService.yuanToFenAmount(payment.amount, "payment.amount");
+      if (queried.totalAmountFen !== expectedFen) {
+        throw new BadRequestException("退货运费支付金额校验失败");
+      }
       if (!queried.transactionId) {
         throw new ServiceUnavailableException("正在确认退货运费支付状态");
       }
@@ -1394,7 +1394,13 @@ export class AfterSaleShippingPaymentService {
         message: "退货运费已支付成功",
       });
     }
-    if (queried.tradeState === "NOTPAY") return;
+    if (queried.tradeState === "NOTPAY") {
+      const expectedFen = WechatPayService.yuanToFenAmount(payment.amount, "payment.amount");
+      if (queried.totalAmountFen !== expectedFen) {
+        throw new BadRequestException("退货运费支付金额校验失败");
+      }
+      return;
+    }
     throw new ConflictException("原退货运费支付单已进入不可重复预下单状态");
   }
 

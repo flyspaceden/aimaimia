@@ -212,9 +212,6 @@ describe("AfterSaleShippingPaymentService", () => {
         tradeState: "NOTPAY",
         outTradeNo: payment.merchantPaymentNo,
         appId: "wx-mini",
-        tradeType: "JSAPI",
-        totalAmountFen: 1813,
-        totalAmount: 18.13,
       }),
       matchesPaymentScene: jest.fn().mockReturnValue(true),
       closeOrder: jest.fn().mockResolvedValue({

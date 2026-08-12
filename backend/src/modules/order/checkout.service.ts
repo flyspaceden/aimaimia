@@ -635,13 +635,13 @@ export class CheckoutService {
     if (!this.wechatPayService.matchesPaymentScene(queryResult, requestedScene)) {
       throw new BadRequestException('支付身份校验失败，请联系客服');
     }
-    this.assertWechatAmountMatchesSession(
-      queryResult,
-      session.expectedTotal,
-      '预下单不确定态恢复',
-      session.id,
-    );
     if (queryResult.tradeState === 'SUCCESS') {
+      this.assertWechatAmountMatchesSession(
+        queryResult,
+        session.expectedTotal,
+        '预下单不确定态恢复',
+        session.id,
+      );
       if (!queryResult.transactionId) {
         throw new ServiceUnavailableException('正在确认支付状态，请稍后重试');
       }
@@ -656,7 +656,15 @@ export class CheckoutService {
       });
     }
     // 微信官方允许 NOTPAY 使用完全相同参数和 out_trade_no 重新下单以获取新 prepay_id。
-    if (queryResult.tradeState === 'NOTPAY') return 'RETRY_PREORDER';
+    if (queryResult.tradeState === 'NOTPAY') {
+      this.assertWechatAmountMatchesSession(
+        queryResult,
+        session.expectedTotal,
+        '预下单不确定态恢复',
+        session.id,
+      );
+      return 'RETRY_PREORDER';
+    }
     throw new ConflictException({
       code: 'IDEMPOTENCY_KEY_REUSED',
       message: '原支付单已进入不可重复下单状态，请取消后使用新的请求标识',
