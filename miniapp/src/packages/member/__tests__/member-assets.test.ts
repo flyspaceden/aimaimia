@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemberCouponRepo, MemberDigitalAssetRepo, MemberWalletRepo } from '../repos';
 import {
   ASSET_FILTER_QUERY,
+  calculateWechatWithdrawEstimate,
   createWithdrawIdempotencyKey,
   hasMerchantTransferConfirmation,
   isPendingWithdrawStatus,
@@ -124,6 +125,63 @@ describe('member asset repo contracts', () => {
       { idempotencyKey: 'withdraw-key-001' },
     );
     expect(result.ok && hasMerchantTransferConfirmation(result.data)).toBe(true);
+  });
+
+  it('recovers the original WeChat confirmation package through the authenticated withdrawal endpoint', async () => {
+    postMock.mockResolvedValue({
+      ok: true,
+      data: {
+        withdrawId: 'withdraw-1', grossAmount: 100, taxAmount: 20, taxRate: 0.2,
+        netAmount: 80, status: 'PROCESSING', message: '请在微信中继续确认收款',
+        mchId: '1900000109', appId: 'wx-mini', package: 'saved-confirm-package',
+      },
+    });
+
+    await expect(MemberWalletRepo.continueWechatWithdrawConfirmation('withdraw-1')).resolves.toMatchObject({
+      ok: true,
+      data: { package: 'saved-confirm-package' },
+    });
+    expect(postMock).toHaveBeenCalledWith('/bonus/withdraw/withdraw-1/wechat/confirmation');
+  });
+
+  it('accepts the server confirmationAvailable flag in withdrawal history', async () => {
+    getMock.mockResolvedValue({
+      ok: true,
+      data: [{
+        id: 'withdraw-1', amount: 100, channel: 'WECHAT', status: 'PROCESSING',
+        confirmationAvailable: true, createdAt: '2026-08-12T10:00:00.000Z',
+      }],
+    });
+
+    await expect(MemberWalletRepo.getWithdrawHistory()).resolves.toMatchObject({
+      ok: true,
+      data: [{ confirmationAvailable: true }],
+    });
+  });
+
+  it('reads only a valid server-authoritative WeChat withdrawal policy', async () => {
+    getMock.mockResolvedValue({
+      ok: true,
+      data: {
+        grossSingleMin: 0.12,
+        grossSingleMax: 200,
+        netUserDailyMax: 2000,
+        netPlatformDailyMax: 50000,
+        taxRate: 0.2,
+        providerFeeAmount: 0,
+      },
+    });
+
+    await expect(MemberWalletRepo.getWechatWithdrawPolicy()).resolves.toMatchObject({
+      ok: true,
+      data: { grossSingleMax: 200, netUserDailyMax: 2000, netPlatformDailyMax: 50000 },
+    });
+    expect(getMock).toHaveBeenCalledWith('/bonus/withdraw/wechat/policy');
+  });
+
+  it('uses the server cent-rounding rule for the 20% withdrawal estimate', () => {
+    expect(calculateWechatWithdrawEstimate(200, 0.2, 0)).toEqual({ taxAmount: 40, netAmount: 160 });
+    expect(calculateWechatWithdrawEstimate(0.12, 0.2, 0)).toEqual({ taxAmount: 0.02, netAmount: 0.1 });
   });
 
   it('generates valid independent withdrawal idempotency keys', () => {

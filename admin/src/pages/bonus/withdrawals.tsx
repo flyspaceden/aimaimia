@@ -196,7 +196,7 @@ export default function WithdrawalListPage() {
       ellipsis: true,
     },
     {
-      title: '支付宝单号',
+      title: '渠道转账单号',
       dataIndex: 'providerPayoutId',
       width: 180,
       search: false,

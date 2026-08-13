@@ -21,6 +21,19 @@ describe('BonusController WeChat transfer callback', () => {
   const build = (overrides: { parseError?: Error; handleError?: Error } = {}) => {
     const payout = {
       requestWithdraw: jest.fn(),
+      continueWechatWithdrawConfirmation: jest.fn().mockResolvedValue({
+        withdrawId: 'withdraw-1',
+        status: 'PROCESSING',
+        package: 'saved-confirm-package',
+      }),
+      getWechatMiniappWithdrawPolicy: jest.fn().mockResolvedValue({
+        grossSingleMin: 0.12,
+        grossSingleMax: 200,
+        netUserDailyMax: 2000,
+        netPlatformDailyMax: 50000,
+        taxRate: 0.2,
+        providerFeeAmount: 0,
+      }),
       enqueueWechatTransferNotify: overrides.handleError
         ? jest.fn().mockRejectedValue(overrides.handleError)
         : jest.fn().mockResolvedValue('event-1'),
@@ -64,6 +77,37 @@ describe('BonusController WeChat transfer callback', () => {
     expect(payout.enqueueWechatTransferNotify).toHaveBeenCalledWith(notify);
     expect(payout.processWechatTransferNotifyInbox).toHaveBeenCalledWith('event-1');
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it('returns only the non-sensitive WeChat withdrawal policy read model', async () => {
+    const { controller, payout } = build();
+
+    await expect(controller.getWechatMiniappWithdrawPolicy()).resolves.toEqual({
+      grossSingleMin: 0.12,
+      grossSingleMax: 200,
+      netUserDailyMax: 2000,
+      netPlatformDailyMax: 50000,
+      taxRate: 0.2,
+      providerFeeAmount: 0,
+    });
+    expect(payout.getWechatMiniappWithdrawPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds confirmation recovery to the current user and exact miniapp session identity', async () => {
+    const { controller, payout } = build();
+
+    await expect(controller.continueWechatWithdrawConfirmation(
+      'user-1',
+      'session-mini',
+      'identity-mini',
+      'withdraw-1',
+    )).resolves.toMatchObject({ package: 'saved-confirm-package' });
+
+    expect(payout.continueWechatWithdrawConfirmation).toHaveBeenCalledWith(
+      'user-1',
+      'withdraw-1',
+      { sessionId: 'session-mini', authIdentityId: 'identity-mini' },
+    );
   });
 
   it('rejects missing rawBody before parsing', async () => {

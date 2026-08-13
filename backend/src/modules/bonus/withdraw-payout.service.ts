@@ -91,6 +91,15 @@ type WithdrawResult = {
   package?: string;
 };
 
+export type WechatMiniappWithdrawPolicy = {
+  grossSingleMin: number;
+  grossSingleMax: number;
+  netUserDailyMax: number;
+  netPlatformDailyMax: number;
+  taxRate: number;
+  providerFeeAmount: number;
+};
+
 type WithdrawSplit = {
   source: WithdrawSource;
   fromVipCents: number;
@@ -116,6 +125,14 @@ const WECHAT_CANCEL_RETRY_ATTEMPTS = new Set([3, 6, 9, 12, 15, 18]);
 const WECHAT_NOTIFY_MAX_ATTEMPTS = 8;
 const WITHDRAW_RECONCILE_BATCH_SIZE = 20;
 const WITHDRAW_RECONCILE_BACKOFF_MINUTES = [10, 20, 40, 80, 160, 240] as const;
+// 微信支付商家转账（当前已选“佣金报酬”场景）的平台额度。申请金额仍是
+// 统一钱包的 gross 金额；微信提现的 20% 税费在同一笔事务内计算后，以下
+// 日额度按真正提交给微信的 net 金额裁决，不能由前端或并发请求绕过。
+const WECHAT_MINIAPP_WITHDRAW_MAX_GROSS_CENTS = 20_000;
+const WECHAT_MINIAPP_WITHDRAW_MIN_GROSS_CENTS = 10;
+const WECHAT_TRANSFER_USER_DAILY_MAX_NET_CENTS = 200_000;
+const WECHAT_TRANSFER_PLATFORM_DAILY_MAX_NET_CENTS = 5_000_000;
+const CHINA_TIME_ZONE_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 @Injectable()
 export class WithdrawPayoutService implements OnModuleInit {
@@ -167,6 +184,108 @@ export class WithdrawPayoutService implements OnModuleInit {
     );
   }
 
+  /**
+   * 小程序只读取当前有效规则，不能提现额度余额或任何内部资金来源。
+   * 税率仍以提现创建时服务端再次读取的规则为准，前端仅用于同口径预估。
+   */
+  async getWechatMiniappWithdrawPolicy(): Promise<WechatMiniappWithdrawPolicy> {
+    const rules = await this.rulesService.getRules();
+    return {
+      grossSingleMin: centsToYuan(this.minimumWechatGrossCents(rules)),
+      grossSingleMax: centsToYuan(WECHAT_MINIAPP_WITHDRAW_MAX_GROSS_CENTS),
+      netUserDailyMax: centsToYuan(WECHAT_TRANSFER_USER_DAILY_MAX_NET_CENTS),
+      netPlatformDailyMax: centsToYuan(WECHAT_TRANSFER_PLATFORM_DAILY_MAX_NET_CENTS),
+      taxRate: rules.withdrawTaxRate,
+      providerFeeAmount: rules.withdrawProviderFeeAmount,
+    };
+  }
+
+  /**
+   * 恢复用户关闭的微信收款确认页。绝不新建转账：先验当前小程序
+   * 会话与 OpenID，再查同一 outBillNo，只对仍可确认的原单返回
+   * 已加密保存的 package_info。
+   */
+  async continueWechatWithdrawConfirmation(
+    userId: string,
+    withdrawId: string,
+    authContext?: WithdrawAuthContext,
+  ): Promise<WithdrawResult> {
+    const identity = await this.resolveWechatWithdrawIdentity(
+      this.prisma as any,
+      userId,
+      authContext,
+    );
+    const withdraw = await (this.prisma.withdrawRequest as any).findUnique({
+      where: { id: withdrawId },
+    });
+    if (!withdraw || withdraw.userId !== userId || withdraw.channel !== 'WECHAT') {
+      throw new BadRequestException('微信提现记录不存在');
+    }
+    if (withdraw.status !== 'PROCESSING') {
+      return this.mapWithdrawResult(withdraw, withdraw.status === 'PAID'
+        ? '提现已到账'
+        : '该笔提现已结束');
+    }
+
+    const provider = this.resolveWechatTransferService();
+    const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
+    if (
+      snapshot.channel !== 'WECHAT'
+      || snapshot.account !== identity.openId
+      || snapshot.appId !== identity.appId
+      || !withdraw.outBizNo
+    ) {
+      throw new UnauthorizedException('微信提现身份快照无效');
+    }
+    if (String(withdraw.providerStatus || '').startsWith('RECOVERY_CANCEL_')) {
+      throw new ConflictException('该笔提现正在安全撤销，请稍后查看结果');
+    }
+
+    const query = await provider.queryTransfer(withdraw.outBizNo);
+    if (query.outcome !== 'FOUND') {
+      throw new ServiceUnavailableException('微信原单状态暂时无法确认，请稍后重试');
+    }
+    this.assertWechatQueryMatchesWithdraw(withdraw, query);
+
+    if (query.state === 'SUCCESS') {
+      await this.finalizeWithdrawalPaid(withdraw.id, {
+        providerOrderId: query.transferBillNo,
+        providerStatus: query.state,
+      });
+      return this.mapWithdrawResult(
+        { ...withdraw, status: 'PAID', providerStatus: query.state },
+        '提现已到账',
+      );
+    }
+    if (query.state === 'FAIL' || query.state === 'CANCELLED') {
+      await this.finalizeWithdrawalFailed(withdraw.id, {
+        errorCode: query.state,
+        errorMessage: query.failReason || '微信转账未成功',
+        providerStatus: query.state,
+        providerOrderId: query.transferBillNo,
+      });
+      return this.mapWithdrawResult(
+        { ...withdraw, status: 'FAILED', providerStatus: query.state },
+        '提现未成功，余额已退回',
+      );
+    }
+    if (
+      (query.state !== 'WAIT_USER_CONFIRM' && query.state !== 'TRANSFERING')
+      || !snapshot.packageInfo
+    ) {
+      throw new ConflictException('微信原单当前暂不能重新确认，请稍后重试');
+    }
+
+    const persisted = await this.markWechatProcessingProviderInfo(withdraw, {
+      state: query.state,
+      transferBillNo: query.transferBillNo,
+    });
+    if (!persisted) {
+      throw new ConflictException('提现状态已变化，请刷新后查看');
+    }
+    return this.mapWithdrawResult(withdraw, '请在微信中继续确认收款');
+  }
+
   private async requestWithdrawBySource(
     userId: string,
     input: WithdrawDto,
@@ -185,22 +304,8 @@ export class WithdrawPayoutService implements OnModuleInit {
         )
       : undefined;
 
-    if (amountCents < yuanToCents(rules.withdrawMinAmount)) {
-      throw new BadRequestException(`单笔最低 ¥${rules.withdrawMinAmount}`);
-    }
-    if (amountCents > yuanToCents(rules.withdrawMaxAmount)) {
-      throw new BadRequestException(`单笔最高 ¥${rules.withdrawMaxAmount}`);
-    }
-    if (channel === 'WECHAT') {
-      const expectedNetCents = amountCents
-        - Math.floor(amountCents * rules.withdrawTaxRate)
-        - yuanToCents(rules.withdrawProviderFeeAmount);
-      if (expectedNetCents <= 0) {
-        throw new BadRequestException('提现到账金额必须大于 0');
-      }
-      this.resolveWechatTransferService().assertTransferAmountSupported(expectedNetCents);
-    }
-
+    // 幂等重试必须能返回已创建的历史请求，不能因为后续额度策略变化把
+    // 处理中请求变成“无从查询”的假失败；新请求才进入下面所有额度闸门。
     if (idempotencyKey) {
       const existing = await (this.prisma.withdrawRequest as any).findUnique({
         where: { clientIdempotencyKey: idempotencyKey },
@@ -216,6 +321,32 @@ export class WithdrawPayoutService implements OnModuleInit {
         );
         return this.mapWithdrawResult(existing, '请求已处理');
       }
+    }
+
+    const minimumAmountCents = channel === 'WECHAT'
+      ? this.minimumWechatGrossCents(rules)
+      : yuanToCents(rules.withdrawMinAmount);
+    if (amountCents < minimumAmountCents) {
+      const minimumAmount = channel === 'WECHAT'
+        ? centsToYuan(minimumAmountCents).toFixed(2)
+        : rules.withdrawMinAmount;
+      throw new BadRequestException(`单笔最低 ¥${minimumAmount}`);
+    }
+    if (channel === 'WECHAT') {
+      if (amountCents > WECHAT_MINIAPP_WITHDRAW_MAX_GROSS_CENTS) {
+        throw new BadRequestException('微信提现单笔最高 ¥200');
+      }
+      const expectedNetCents = amountCents
+        - Math.floor(amountCents * rules.withdrawTaxRate)
+        - yuanToCents(rules.withdrawProviderFeeAmount);
+      if (expectedNetCents <= 0) {
+        throw new BadRequestException('提现到账金额必须大于 0');
+      }
+      this.resolveWechatTransferServiceForCreate().assertTransferAmountSupported(expectedNetCents);
+    } else if (amountCents > yuanToCents(rules.withdrawMaxAmount)) {
+      // App / 支付宝继续使用后台可配置的全局单笔上限；
+      // 小程序微信通道严格遵循商家转账产品的独立 ¥200 上限。
+      throw new BadRequestException(`单笔最高 ¥${rules.withdrawMaxAmount}`);
     }
 
     let created: any;
@@ -334,7 +465,7 @@ export class WithdrawPayoutService implements OnModuleInit {
       netAmount: number;
     },
   ): Promise<WithdrawResult> {
-    const provider = this.resolveWechatTransferService();
+    const provider = this.resolveWechatTransferServiceForCreate();
     const snapshot = this.readAccountSnapshot(created.accountSnapshot);
     if (!snapshot.account || snapshot.appId !== provider.getMiniProgramAppId()) {
       throw new UnauthorizedException('微信提现身份快照无效');
@@ -1887,18 +2018,47 @@ export class WithdrawPayoutService implements OnModuleInit {
       const wechatIdentity = channel === 'WECHAT'
         ? await this.resolveWechatWithdrawIdentity(tx, userId, authContext)
         : undefined;
-      const todayStart = new Date();
+      const now = new Date();
+      // Keep the pre-existing shared wallet's daily-count behaviour unchanged.
+      // The WeChat transfer-specific amount caps below deliberately use China
+      // natural days, as required by the provider, without changing Alipay/App.
+      const todayStart = new Date(now);
       todayStart.setHours(0, 0, 0, 0);
 
-      const todayCount = await tx.withdrawRequest.count({
-        where: {
-          userId,
-          createdAt: { gte: todayStart },
-          status: { not: 'FAILED' as any },
-        },
-      });
-      if (todayCount >= rules.withdrawDailyMaxCount) {
-        throw new BadRequestException(`每日最多提现 ${rules.withdrawDailyMaxCount} 次`);
+      // 微信小程序通道受微信按金额的日额度管理；若沿用 App/支付宝的“每天
+      // 3 笔”通用限制，用户不可能触及微信承诺的 ¥2,000 单用户日额度，且
+      // 不能得到统一的“请明日再提”提示。其他通道仍保持既有次数规则。
+      if (channel !== 'WECHAT') {
+        const todayCount = await tx.withdrawRequest.count({
+          where: {
+            userId,
+            createdAt: { gte: todayStart },
+            status: { not: 'FAILED' as any },
+          },
+        });
+        if (todayCount >= rules.withdrawDailyMaxCount) {
+          throw new BadRequestException(`每日最多提现 ${rules.withdrawDailyMaxCount} 次`);
+        }
+      }
+
+      // 微信原单在终态前可能仍等待用户确认或由平台异步处理中。
+      // 同一用户只能保留一笔 PROCESSING 微信提现；否则用户关闭确认页后，
+      // 绕过前端冷却即可再次冻结余额并生成第二个 out_bill_no，产生重复出款风险。
+      // assertActiveUserWriteBarrier 已对当前用户加事务级写屏障，因此该检查与
+      // 后续创建在并发请求下保持串行。
+      if (channel === 'WECHAT') {
+        const existingProcessingWechat = await tx.withdrawRequest.findFirst({
+          where: {
+            userId,
+            channel: 'WECHAT' as any,
+            status: 'PROCESSING' as any,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (existingProcessingWechat) {
+          throw new ConflictException('上一笔微信提现仍在处理中，请先完成确认或稍后查看结果');
+        }
       }
 
       const cooldownAgo = new Date(Date.now() - rules.withdrawCooldownSeconds * 1000);
@@ -1929,15 +2089,22 @@ export class WithdrawPayoutService implements OnModuleInit {
         throw new BadRequestException(`年累计提现已达上限 ¥${rules.withdrawYearlyMaxAmount}`);
       }
 
-      const split = source === 'GROUP_BUY_REBATE'
-        ? await this.deductGroupBuyRebateBalanceForWithdraw(tx, userId, amountCents)
-        : await this.deductBalanceForWithdraw(tx, userId, amountCents);
       const taxCents = Math.floor(amountCents * rules.withdrawTaxRate);
       const providerFeeCents = yuanToCents(rules.withdrawProviderFeeAmount);
       const netCents = amountCents - taxCents - providerFeeCents;
       if (netCents <= 0) {
         throw new BadRequestException('提现到账金额必须大于 0');
       }
+      if (channel === 'WECHAT') {
+        await this.assertWechatTransferDailyLimits(tx, {
+          userId,
+          now,
+          requestedNetCents: netCents,
+        });
+      }
+      const split = source === 'GROUP_BUY_REBATE'
+        ? await this.deductGroupBuyRebateBalanceForWithdraw(tx, userId, amountCents)
+        : await this.deductBalanceForWithdraw(tx, userId, amountCents);
 
       const id = randomUUID();
       // 微信 out_bill_no 只允许数字/字母且最长 32 位。
@@ -1997,6 +2164,74 @@ export class WithdrawPayoutService implements OnModuleInit {
 
       return created;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  /**
+   * 商家转账额度在微信受理原单时即锁定，因此按原单发起日（createdAt）的
+   * 中国自然日归集 PROCESSING/PAID；跨零点后才成功的旧单仍属于原发起日，
+   * 不能迁移到成功日重复占额。先拿全平台日锁，再在同一 Serializable 事务
+   * 内汇总和创建请求，避免并发共同突破 ¥50,000；用户锁已先取得，锁序固定。
+   */
+  private async assertWechatTransferDailyLimits(
+    tx: any,
+    params: { userId: string; now: Date; requestedNetCents: number },
+  ): Promise<void> {
+    const dayStart = this.startOfChinaDay(params.now);
+    const nextDayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const businessDate = this.chinaDateKey(params.now);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`WECHAT_TRANSFER_DAILY:${businessDate}`}))`;
+
+    const dailyWhere = {
+      channel: 'WECHAT' as any,
+      status: { in: ['PROCESSING', 'PAID'] as any },
+      createdAt: { gte: dayStart, lt: nextDayStart },
+    };
+    const userAggregate = await tx.withdrawRequest.aggregate({
+      where: { ...dailyWhere, userId: params.userId },
+      _sum: { netAmount: true },
+    });
+    const userTransferredCents = yuanToCents(userAggregate._sum.netAmount || 0);
+    if (userTransferredCents + params.requestedNetCents > WECHAT_TRANSFER_USER_DAILY_MAX_NET_CENTS) {
+      throw new BadRequestException('今日微信提现额度已用完，请明日再提');
+    }
+
+    const platformAggregate = await tx.withdrawRequest.aggregate({
+      where: dailyWhere,
+      _sum: { netAmount: true },
+    });
+    const platformTransferredCents = yuanToCents(platformAggregate._sum.netAmount || 0);
+    if (platformTransferredCents + params.requestedNetCents > WECHAT_TRANSFER_PLATFORM_DAILY_MAX_NET_CENTS) {
+      throw new BadRequestException('今日微信提现额度已满，请明日再提');
+    }
+  }
+
+  private startOfChinaDay(now: Date): Date {
+    const chinaNow = new Date(now.getTime() + CHINA_TIME_ZONE_OFFSET_MS);
+    return new Date(Date.UTC(
+      chinaNow.getUTCFullYear(),
+      chinaNow.getUTCMonth(),
+      chinaNow.getUTCDate(),
+    ) - CHINA_TIME_ZONE_OFFSET_MS);
+  }
+
+  private chinaDateKey(now: Date): string {
+    return new Date(now.getTime() + CHINA_TIME_ZONE_OFFSET_MS).toISOString().slice(0, 10);
+  }
+
+  /**
+   * 微信限制的是实际向用户发起的转账金额（至少 ¥0.10），而用户输入的是
+   * 税前申请金额。以分为单位逐分计算，避免 ¥0.10 经 20% 预扣后只发出
+   * ¥0.08 的无效请求；当前 20% 且无通道费时的最低申请额为 ¥0.12。
+   */
+  private minimumWechatGrossCents(rules: { withdrawTaxRate: number; withdrawProviderFeeAmount: number }): number {
+    const providerFeeCents = yuanToCents(rules.withdrawProviderFeeAmount);
+    for (let grossCents = WECHAT_MINIAPP_WITHDRAW_MIN_GROSS_CENTS;
+      grossCents <= WECHAT_MINIAPP_WITHDRAW_MAX_GROSS_CENTS;
+      grossCents += 1) {
+      const netCents = grossCents - Math.floor(grossCents * rules.withdrawTaxRate) - providerFeeCents;
+      if (netCents >= WECHAT_MINIAPP_WITHDRAW_MIN_GROSS_CENTS) return grossCents;
+    }
+    throw new ServiceUnavailableException('当前微信提现税费配置不支持微信最低转账金额');
   }
 
   private async createWithdrawLedgers(
@@ -2256,10 +2491,10 @@ export class WithdrawPayoutService implements OnModuleInit {
     const snapshot = this.readAccountSnapshot(withdraw.accountSnapshot);
     if (
       withdraw.status === 'PROCESSING'
-      && withdraw.providerStatus === 'WAIT_USER_CONFIRM'
+      && (withdraw.providerStatus === 'WAIT_USER_CONFIRM' || withdraw.providerStatus === 'TRANSFERING')
       && snapshot.channel === 'WECHAT'
       && snapshot.packageInfo
-      && this.wechatTransferService?.isAvailable()
+      && this.wechatTransferService?.isSettlementAvailable()
     ) {
       result.mchId = this.wechatTransferService.getMerchantId();
       result.appId = this.wechatTransferService.getMiniProgramAppId();
@@ -2450,8 +2685,15 @@ export class WithdrawPayoutService implements OnModuleInit {
   }
 
   private resolveWechatTransferService(): WechatMerchantTransferService {
+    if (!this.wechatTransferService?.isSettlementAvailable()) {
+      throw new ServiceUnavailableException('微信提现结算通道配置不可用');
+    }
+    return this.wechatTransferService;
+  }
+
+  private resolveWechatTransferServiceForCreate(): WechatMerchantTransferService {
     if (!this.wechatTransferService?.isAvailable()) {
-      throw new ServiceUnavailableException('微信提现通道配置不可用');
+      throw new ServiceUnavailableException('微信提现新建通道配置不可用');
     }
     return this.wechatTransferService;
   }

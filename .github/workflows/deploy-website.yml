@@ -350,6 +350,207 @@ jobs:
             echo "✅ 后端部署完成"
           EOF
 
+  # 测试环境微信提现：代码部署成功后才写入非 Git 配置并重载。
+  # WECHAT_TRANSFER_ENABLED 只控制新建；关闭后，后端仍保留查单/回调能力收口存量单据。
+  configure-staging-wechat-transfer:
+    needs: [detect-changes, deploy-backend]
+    if: >-
+      always()
+      && github.ref == 'refs/heads/staging'
+      && needs.detect-changes.outputs.backend == 'true'
+      && needs.deploy-backend.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate protected staging inputs
+        env:
+          PUBLIC_KEY_ID: ${{ secrets.STAGING_WECHAT_PAY_PUBLIC_KEY_ID }}
+          PUBLIC_KEY_PEM: ${{ secrets.STAGING_WECHAT_PAY_PUBLIC_KEY_PEM }}
+          TRANSFER_ENABLED: ${{ secrets.STAGING_WECHAT_TRANSFER_ENABLED }}
+        run: |
+          set -euo pipefail
+          test -n "$PUBLIC_KEY_ID"
+          test -n "$PUBLIC_KEY_PEM"
+          case "$TRANSFER_ENABLED" in true|false) ;; *) exit 1 ;; esac
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload protected WeChat public-key material
+        env:
+          PUBLIC_KEY_ID: ${{ secrets.STAGING_WECHAT_PAY_PUBLIC_KEY_ID }}
+          PUBLIC_KEY_PEM: ${{ secrets.STAGING_WECHAT_PAY_PUBLIC_KEY_PEM }}
+          TRANSFER_ENABLED: ${{ secrets.STAGING_WECHAT_TRANSFER_ENABLED }}
+        run: |
+          set -euo pipefail
+          umask 077
+          TEMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+          printf '%s' "$PUBLIC_KEY_PEM" > "$TEMP_DIR/wechatpay_public_key.pem"
+          printf '%s' "$PUBLIC_KEY_ID" > "$TEMP_DIR/wechatpay_public_key_id"
+          printf '%s' "$TRANSFER_ENABLED" > "$TEMP_DIR/wechat_transfer_enabled"
+          scp "$TEMP_DIR/wechatpay_public_key.pem" \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/aimaimai_wechat_public_key_${GITHUB_RUN_ID}.pem
+          scp "$TEMP_DIR/wechatpay_public_key_id" \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/aimaimai_wechat_public_key_id_${GITHUB_RUN_ID}
+          scp "$TEMP_DIR/wechat_transfer_enabled" \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/aimaimai_wechat_transfer_enabled_${GITHUB_RUN_ID}
+
+      - name: Configure and preflight staging WeChat transfer
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "RUN_ID='${GITHUB_RUN_ID}' bash -s" <<'REMOTE'
+            set -euo pipefail
+            umask 077
+            BACKEND_DIR=/www/wwwroot/aimaimai-staging-src/backend
+            PM2_NAME=aimaimai-api-test
+            PUBLIC_KEY_TMP="/tmp/aimaimai_wechat_public_key_${RUN_ID}.pem"
+            PUBLIC_KEY_ID_TMP="/tmp/aimaimai_wechat_public_key_id_${RUN_ID}"
+            ENABLED_TMP="/tmp/aimaimai_wechat_transfer_enabled_${RUN_ID}"
+            PUBLIC_KEY_TARGET="certs/wechat/wechatpay_public_key.pem"
+
+            cd "$BACKEND_DIR"
+            test -f .env
+            BACKUP_FILE=".env.bak.wechat-transfer.$(date +%Y%m%d%H%M%S)"
+            PUBLIC_KEY_BACKUP="${PUBLIC_KEY_TARGET}.bak.wechat-transfer.$(date +%Y%m%d%H%M%S)"
+            cp -p .env "$BACKUP_FILE"
+            HAD_PUBLIC_KEY=false
+            if [ -f "$PUBLIC_KEY_TARGET" ]; then
+              cp -p "$PUBLIC_KEY_TARGET" "$PUBLIC_KEY_BACKUP"
+              HAD_PUBLIC_KEY=true
+            fi
+            cleanup_or_rollback() {
+              status=$?
+              rm -f "$PUBLIC_KEY_TMP" "$PUBLIC_KEY_ID_TMP" "$ENABLED_TMP"
+              if [ "$status" -ne 0 ]; then
+                echo "staging_wechat_transfer_config=rollback"
+                cp -p "$BACKUP_FILE" .env
+                if [ "$HAD_PUBLIC_KEY" = true ]; then
+                  cp -p "$PUBLIC_KEY_BACKUP" "$PUBLIC_KEY_TARGET"
+                else
+                  rm -f "$PUBLIC_KEY_TARGET"
+                fi
+                pm2 reload "$PM2_NAME" --update-env >/dev/null 2>&1 || true
+              fi
+              exit "$status"
+            }
+            trap cleanup_or_rollback EXIT
+            mkdir -p certs/wechat
+            chmod 700 certs/wechat
+            install -m 600 "$PUBLIC_KEY_TMP" "$PUBLIC_KEY_TARGET"
+
+            node <<'NODE'
+            const fs = require('fs');
+            const keyId = fs.readFileSync(`/tmp/aimaimai_wechat_public_key_id_${process.env.RUN_ID}`, 'utf8').trim();
+            const enabled = fs.readFileSync(`/tmp/aimaimai_wechat_transfer_enabled_${process.env.RUN_ID}`, 'utf8').trim();
+            const reportInfos = JSON.stringify([
+              { info_type: '岗位类型', info_content: '平台推广人员' },
+              { info_type: '报酬说明', info_content: 'AI爱买买平台推广佣金' },
+            ]);
+            const updates = {
+              WECHAT_MINIAPP_APP_ID: 'wx1b33112db0d5267b',
+              WECHAT_PAY_MCH_ID: '1603917538',
+              WECHAT_PAY_PUBLIC_KEY_ID: keyId,
+              WECHAT_PAY_PUBLIC_KEY: '',
+              WECHAT_PAY_PUBLIC_KEY_PATH: 'certs/wechat/wechatpay_public_key.pem',
+              WECHAT_TRANSFER_ENABLED: enabled,
+              WECHAT_TRANSFER_NOTIFY_URL: 'https://test-api.ai-maimai.com/api/v1/bonus/withdraw/wechat/notify',
+              WECHAT_TRANSFER_SCENE_ID: '1005',
+              WECHAT_TRANSFER_REMARK: 'AI爱买买佣金报酬提现',
+              WECHAT_TRANSFER_USER_RECV_PERCEPTION: '劳务报酬',
+              WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: reportInfos,
+            };
+            const targetKeys = new Set(Object.keys(updates));
+            const current = fs.readFileSync('.env', 'utf8').split(/\r?\n/)
+              .filter((line) => !targetKeys.has(line.match(/^([A-Z0-9_]+)=/)?.[1]));
+            const rendered = Object.entries(updates).map(([key, value]) => {
+              if (key === 'WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON') return `${key}='${value}'`;
+              return `${key}=${JSON.stringify(value)}`;
+            });
+            fs.writeFileSync('.env.next', [...current, '', ...rendered, ''].join('\n'), { mode: 0o600 });
+            fs.renameSync('.env.next', '.env');
+            fs.chmodSync('.env', 0o600);
+            NODE
+
+            node <<'NODE'
+            require('dotenv').config({ path: '.env', override: true });
+            const fs = require('fs');
+            const path = require('path');
+            const { createPrivateKey, createPublicKey } = require('crypto');
+            const { PrismaClient } = require('@prisma/client');
+            const fail = (condition, message) => { if (!condition) throw new Error(message); };
+            const readPem = (inlineName, pathName) => {
+              const inline = (process.env[inlineName] || '').trim();
+              if (inline) return inline.replace(/\\n/g, '\n');
+              const configured = (process.env[pathName] || '').trim();
+              return configured ? fs.readFileSync(path.resolve(process.cwd(), configured), 'utf8') : '';
+            };
+
+            fail(process.env.WECHAT_MINIAPP_APP_ID === 'wx1b33112db0d5267b', 'mini program app id mismatch');
+            fail(process.env.WECHAT_PAY_MCH_ID === '1603917538', 'merchant id mismatch');
+            fail((process.env.WECHAT_PAY_API_V3_KEY || '').length === 32, 'APIv3 key invalid');
+            fail(Boolean(process.env.WECHAT_PAY_MERCHANT_CERT_SERIAL), 'merchant certificate serial missing');
+            fail(/^PUB_KEY_ID_\d+$/.test(process.env.WECHAT_PAY_PUBLIC_KEY_ID || ''), 'WeChat public key id invalid');
+            fail(process.env.WECHAT_TRANSFER_SCENE_ID === '1005', 'transfer scene mismatch');
+            fail(process.env.WECHAT_TRANSFER_USER_RECV_PERCEPTION === '劳务报酬', 'recipient perception mismatch');
+            fail(process.env.WECHAT_TRANSFER_NOTIFY_URL === 'https://test-api.ai-maimai.com/api/v1/bonus/withdraw/wechat/notify', 'notify url mismatch');
+            const reports = JSON.parse(process.env.WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON || '[]');
+            const map = new Map(reports.map((item) => [item.info_type, item.info_content]));
+            fail(map.size === 2 && map.get('岗位类型') === '平台推广人员'
+              && map.get('报酬说明') === 'AI爱买买平台推广佣金', 'scene report mismatch');
+            fail(createPrivateKey(readPem('WECHAT_PAY_MERCHANT_PRIVATE_KEY', 'WECHAT_PAY_MERCHANT_PRIVATE_KEY_PATH')).asymmetricKeyType === 'rsa', 'merchant private key invalid');
+            fail(createPublicKey(readPem('WECHAT_PAY_PUBLIC_KEY', 'WECHAT_PAY_PUBLIC_KEY_PATH')).asymmetricKeyType === 'rsa', 'WeChat public key invalid');
+
+            const prisma = new PrismaClient();
+            const unwrap = (value, fallback) => value && typeof value === 'object' && !Array.isArray(value)
+              ? (value.value ?? fallback) : (value ?? fallback);
+            (async () => {
+              const rows = await prisma.ruleConfig.findMany({
+                where: { key: { in: ['WITHDRAW_TAX_RATE', 'WITHDRAW_PROVIDER_FEE_AMOUNT'] } },
+              });
+              const values = new Map(rows.map((row) => [row.key, row.value]));
+              fail(Number(unwrap(values.get('WITHDRAW_TAX_RATE'), 0.2)) === 0.2, 'withdraw tax rate must be 20%');
+              fail(Number(unwrap(values.get('WITHDRAW_PROVIDER_FEE_AMOUNT'), 0)) === 0, 'withdraw provider fee must be zero');
+              const schema = await prisma.$queryRawUnsafe(`
+                SELECT
+                  to_regclass('"WechatTransferNotifyInbox"') IS NOT NULL AS "hasInbox",
+                  EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'WithdrawRequest'
+                      AND column_name = 'nextReconcileAt'
+                  ) AS "hasReconcileSchedule"
+              `);
+              fail(schema[0]?.hasInbox === true, 'WeChat notify inbox migration missing');
+              fail(schema[0]?.hasReconcileSchedule === true, 'withdraw reconcile migration missing');
+              console.log('wechat_transfer_preflight=valid');
+              console.log('withdraw_tax_rate=20%');
+              console.log('withdraw_provider_fee=0');
+            })().finally(() => prisma.$disconnect()).catch((error) => {
+              console.error(error.message);
+              process.exitCode = 1;
+            });
+            NODE
+
+            pm2 reload "$PM2_NAME" --update-env
+            API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
+            case "$API_PORT" in ''|*[!0-9]*) API_PORT=3000 ;; esac
+            for attempt in $(seq 1 15); do
+              if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1" >/dev/null; then
+                echo "staging_wechat_transfer_reload=healthy"
+                exit 0
+              fi
+              sleep 2
+            done
+            pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+            exit 1
+          REMOTE
+
   # 华海农科母公司官网（静态 HTML，只在 main 分支部署到生产）
   deploy-huahai:
     needs: detect-changes

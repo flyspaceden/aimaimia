@@ -33,6 +33,24 @@ export function formatMoney(value: number): string {
   return `¥${Number.isFinite(value) ? value.toFixed(2) : '0.00'}`;
 }
 
+/**
+ * Keep the Mini Program's pre-submit estimate on the same cent rounding as the
+ * server. The server remains authoritative when creating a withdrawal.
+ */
+export function calculateWechatWithdrawEstimate(
+  amount: number,
+  taxRate: number,
+  providerFeeAmount: number,
+): { taxAmount: number; netAmount: number } {
+  const grossCents = Math.max(0, Math.round(amount * 100));
+  const taxCents = Math.floor(grossCents * taxRate);
+  const providerFeeCents = Math.round(providerFeeAmount * 100);
+  return {
+    taxAmount: Math.round(taxCents) / 100,
+    netAmount: Math.round(Math.max(0, grossCents - taxCents - providerFeeCents)) / 100,
+  };
+}
+
 export function formatAsset(value: number): string {
   return Math.round(Number.isFinite(value) ? value : 0).toLocaleString('zh-CN');
 }

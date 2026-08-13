@@ -10,6 +10,7 @@ import { MemberFeedback } from '../MemberFeedback';
 import { MemberWalletRepo } from '../repos';
 import {
   createWithdrawIdempotencyKey,
+  calculateWechatWithdrawEstimate,
   formatDateTime,
   formatMoney,
   hasMerchantTransferConfirmation,
@@ -18,7 +19,7 @@ import {
 import type { WithdrawRecord } from '../types';
 import '../member.scss';
 
-const QUICK_AMOUNTS = [10, 50, 100];
+const QUICK_AMOUNTS = [10, 50, 200];
 const normalizeAmount = (value: string) => {
   const clean = value.replace(/[^\d.]/g, '');
   const [integer = '', ...decimals] = clean.split('.');
@@ -40,10 +41,17 @@ export default function WechatWithdrawPage() {
   const [amount, setAmount] = useState('');
   const [requestingSubscription, setRequestingSubscription] = useState(false);
   const [trackedWithdrawId, setTrackedWithdrawId] = useState<string>();
+  const [continuingWithdrawId, setContinuingWithdrawId] = useState<string>();
   const retainedKey = useRef<{ amount: number; key: string }>();
   const announcedTerminal = useRef<string>();
   const submitLock = useRef(false);
   const walletQuery = useQuery({ queryKey: ['member', 'wallet', authRevision, userId], queryFn: MemberWalletRepo.getWallet, enabled: hydrated && loggedIn && Boolean(userId) });
+  const policyQuery = useQuery({
+    queryKey: ['member', 'wechat-withdraw-policy'],
+    queryFn: MemberWalletRepo.getWechatWithdrawPolicy,
+    enabled: hydrated && loggedIn && Boolean(userId),
+    staleTime: 5 * 60_000,
+  });
   const subscriptionTemplatesQuery = useQuery({
     queryKey: ['mini-program', 'subscription-templates'],
     queryFn: MiniSubscriptionRepo.templates,
@@ -73,6 +81,7 @@ export default function WechatWithdrawPage() {
     setAmount('');
     setRequestingSubscription(false);
     setTrackedWithdrawId(undefined);
+    setContinuingWithdrawId(undefined);
     retainedKey.current = undefined;
     announcedTerminal.current = undefined;
     submitLock.current = false;
@@ -80,7 +89,14 @@ export default function WechatWithdrawPage() {
 
   const wallet = walletQuery.data?.ok ? walletQuery.data.data : undefined;
   const available = wallet?.withdrawableBalance ?? wallet?.balance ?? 0;
+  const policy = policyQuery.data?.ok ? policyQuery.data.data : undefined;
   const numericAmount = Number.parseFloat(amount) || 0;
+  const maxAmount = policy?.grossSingleMax ?? 0;
+  const minimumAmount = policy?.grossSingleMin ?? 0;
+  const taxRate = policy?.taxRate ?? 0;
+  const providerFeeAmount = policy?.providerFeeAmount ?? 0;
+  const estimate = calculateWechatWithdrawEstimate(numericAmount, taxRate, providerFeeAmount);
+  const exceedsSingleLimit = numericAmount > maxAmount;
   const history = useMemo(() => historyQuery.data?.ok ? historyQuery.data.data : [], [historyQuery.data]);
   const existingPendingWechat = useMemo(
     () => history.find((item) => item.channel === 'WECHAT' && isPendingWithdrawStatus(item.status)),
@@ -153,6 +169,39 @@ export default function WechatWithdrawPage() {
     },
   });
 
+  const continueConfirmation = async (record: WithdrawRecord) => {
+    if (continuingWithdrawId) return;
+    if (!await ensureWechatMiniProgramSession('/packages/member/wechat-withdraw/index')) return;
+    const revisionAtStart = useAuthStore.getState().revision;
+    const userIdAtStart = useAuthStore.getState().userId || '';
+    setContinuingWithdrawId(record.id);
+    try {
+      const result = await MemberWalletRepo.continueWechatWithdrawConfirmation(record.id);
+      const current = useAuthStore.getState();
+      if (current.revision !== revisionAtStart || current.userId !== userIdAtStart) return;
+      if (!result.ok) {
+        Taro.showToast({ title: result.error.displayMessage || '暂时无法继续确认', icon: 'none' });
+        return;
+      }
+      if (result.data.status !== 'PROCESSING') {
+        Taro.showToast({ title: result.data.message, icon: 'none' });
+        await Promise.all([historyQuery.refetch(), walletQuery.refetch()]);
+        return;
+      }
+      if (!hasMerchantTransferConfirmation(result.data)) {
+        Taro.showToast({ title: result.data.message || '微信原单暂不能继续确认', icon: 'none' });
+        return;
+      }
+      await requestMerchantTransferConfirmation(result.data);
+      Taro.showToast({ title: '已返回 AI爱买买，正在确认到账状态', icon: 'none', duration: 2600 });
+    } catch {
+      Taro.showToast({ title: '确认页已关闭，可稍后继续确认', icon: 'none', duration: 2600 });
+    } finally {
+      setContinuingWithdrawId(undefined);
+      void historyQuery.refetch();
+    }
+  };
+
   useEffect(() => {
     withdrawMutation.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,12 +212,15 @@ export default function WechatWithdrawPage() {
     if (!await ensureWechatMiniProgramSession('/packages/member/wechat-withdraw/index')) return;
     if (trackedPending) { Taro.showToast({ title: '上一笔提现仍在处理中', icon: 'none' }); return; }
     if (!numericAmount || numericAmount <= 0) { Taro.showToast({ title: '请输入提现金额', icon: 'none' }); return; }
+    if (!policy) { Taro.showToast({ title: '提现规则加载中，请稍后重试', icon: 'none' }); return; }
+    if (numericAmount < minimumAmount) { Taro.showToast({ title: `单笔最低 ${formatMoney(minimumAmount)}`, icon: 'none' }); return; }
+    if (exceedsSingleLimit) { Taro.showToast({ title: `单笔最高 ${formatMoney(maxAmount)}`, icon: 'none' }); return; }
     if (numericAmount > available) { Taro.showToast({ title: '可提现余额不足', icon: 'none' }); return; }
     submitLock.current = true;
     try {
       const modal = await Taro.showModal({
         title: '确认提现到微信零钱',
-        content: `申请金额 ${formatMoney(numericAmount)}。税费和实际到账金额将按当前提现规则计算。`,
+        content: `申请 ${formatMoney(numericAmount)}，预扣税费 ${formatMoney(estimate.taxAmount)}，预计到账 ${formatMoney(estimate.netAmount)}。最终以系统审核与微信确认结果为准。`,
         confirmText: '确认提现',
         confirmColor: '#2E7D32',
       });
@@ -201,8 +253,14 @@ export default function WechatWithdrawPage() {
 
   if (!hydrated) return <View className='aim-page member-page'><MemberFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page member-page'><MemberFeedback kind='login' actionLabel='去登录' onAction={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent('/packages/member/wechat-withdraw/index')}` })} /></View>;
-  if (walletQuery.isLoading) return <View className='aim-page member-page'><MemberFeedback kind='loading' /></View>;
+  if (walletQuery.isLoading || policyQuery.isLoading) return <View className='aim-page member-page'><MemberFeedback kind='loading' /></View>;
   if (!walletQuery.data?.ok) return <View className='aim-page member-page'><MemberFeedback kind='error' description={walletQuery.data?.error.displayMessage} onAction={() => walletQuery.refetch()} /></View>;
+  if (!policyQuery.data?.ok || !policy) {
+    const policyErrorMessage = policyQuery.data && !policyQuery.data.ok
+      ? policyQuery.data.error.displayMessage
+      : '提现规则暂不可用';
+    return <View className='aim-page member-page'><MemberFeedback kind='error' description={policyErrorMessage} onAction={() => policyQuery.refetch()} /></View>;
+  }
 
   return <View className='aim-page member-page withdraw-page'>
     <View className='withdraw-balance-card'>
@@ -213,14 +271,19 @@ export default function WechatWithdrawPage() {
     <View className='withdraw-form aim-card'>
       <Text className='withdraw-form__title'>提现金额</Text>
       <View className='withdraw-input'><Text>¥</Text><Input type='digit' value={amount} placeholder='0.00' onInput={(event) => setAmount(normalizeAmount(event.detail.value))} /></View>
-      <View className='withdraw-quick-row'>{QUICK_AMOUNTS.map((value) => <View key={value} className='withdraw-quick' onClick={() => setAmount(Math.min(value, available).toFixed(2))}>{formatMoney(value)}</View>)}<View className='withdraw-quick withdraw-quick--all' onClick={() => setAmount(available > 0 ? available.toFixed(2) : '')}>全部</View></View>
+      <View className='withdraw-quick-row'>{QUICK_AMOUNTS.map((value) => {
+        const selectable = Math.min(value, available, maxAmount);
+        return <View key={value} className='withdraw-quick' onClick={() => setAmount(selectable > 0 ? selectable.toFixed(2) : '')}>{formatMoney(Math.max(0, selectable))}</View>;
+      })}<View className='withdraw-quick withdraw-quick--all' onClick={() => setAmount(Math.min(available, maxAmount) > 0 ? Math.min(available, maxAmount).toFixed(2) : '')}>本次最多</View></View>
+      {numericAmount > 0 ? <View className='withdraw-estimate'><View><Text>预计到账</Text><Text>{formatMoney(estimate.netAmount)}</Text></View><Text>{`按 ${(taxRate * 100).toFixed(0)}% 税率预扣 ${formatMoney(estimate.taxAmount)}${providerFeeAmount > 0 ? `，含通道费 ${formatMoney(providerFeeAmount)}` : ''}`}</Text></View> : null}
+      {exceedsSingleLimit ? <Text className='withdraw-limit-error'>{`单笔申请最多 ${formatMoney(maxAmount)}，请调整金额后再提交`}</Text> : null}
       <View className='withdraw-channel'><Text className='withdraw-channel__logo'>微</Text><View><Text className='withdraw-channel__title'>微信零钱</Text><Text className='withdraw-channel__meta'>收款身份来自当前微信小程序登录，不需要填写账户</Text></View><Text className='withdraw-channel__check'>✓</Text></View>
-      <View className='withdraw-rule'><Text>资金说明</Text><Text>提现规则、税费、冻结和失败退回与 App 保持一致；最终结果会自动更新到提现记录。</Text></View>
-      <Button className='member-primary-button' disabled={requestingSubscription || withdrawMutation.isPending || trackedPending || numericAmount <= 0} loading={requestingSubscription || withdrawMutation.isPending} onClick={submit}>{trackedPending ? '提现处理中' : requestingSubscription ? '准备提醒...' : withdrawMutation.isPending ? '正在提交...' : '确认提现'}</Button>
+      <View className='withdraw-rule'><Text>资金说明</Text><Text>{`单笔申请 ${formatMoney(minimumAmount)}–${formatMoney(maxAmount)}；同一用户每日实际到账额度 ¥${policy.netUserDailyMax.toFixed(0)}，平台每日额度 ¥${policy.netPlatformDailyMax.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}。当日额度用完请明日再提。提现规则、税费、冻结和失败退回与 App 保持一致。`}</Text></View>
+      <Button className='member-primary-button' disabled={requestingSubscription || withdrawMutation.isPending || trackedPending || numericAmount < minimumAmount || exceedsSingleLimit} loading={requestingSubscription || withdrawMutation.isPending} onClick={submit}>{trackedPending ? '提现处理中' : requestingSubscription ? '准备提醒...' : withdrawMutation.isPending ? '正在提交...' : '确认提现'}</Button>
     </View>
     <View className='member-section-head'><Text>最近提现</Text><Text>{trackedPending ? '正在确认到账' : '最终结果'}</Text></View>
     <View className='withdraw-history aim-card'>
-      {historyQuery.isLoading ? <MemberFeedback kind='loading' /> : history.length ? history.slice(0, 8).map((item: WithdrawRecord) => <View className='withdraw-history__row' key={item.id}><View><Text className='withdraw-history__amount'>{formatMoney(item.amount)}</Text><Text className='withdraw-history__date'>{formatDateTime(item.createdAt)}</Text></View><Text className={`withdraw-history__status withdraw-history__status--${item.status.toLowerCase()}`}>{statusCopy(item.status)}</Text></View>) : <MemberFeedback kind='empty' title='暂无提现记录' description='提交提现申请后可在这里查看进度' />}
+      {historyQuery.isLoading ? <MemberFeedback kind='loading' /> : history.length ? history.slice(0, 8).map((item: WithdrawRecord) => <View className='withdraw-history__row' key={item.id}><View><Text className='withdraw-history__amount'>{formatMoney(item.amount)}</Text><Text className='withdraw-history__date'>{formatDateTime(item.createdAt)}</Text></View><View className='withdraw-history__side'><Text className={`withdraw-history__status withdraw-history__status--${item.status.toLowerCase()}`}>{statusCopy(item.status)}</Text>{item.confirmationAvailable ? <Button className='withdraw-history__continue' disabled={Boolean(continuingWithdrawId)} loading={continuingWithdrawId === item.id} onClick={() => void continueConfirmation(item)}>继续确认收款</Button> : null}</View></View>) : <MemberFeedback kind='empty' title='暂无提现记录' description='提交提现申请后可在这里查看进度' />}
     </View>
   </View>;
 }

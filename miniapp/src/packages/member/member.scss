@@ -68,6 +68,11 @@
 .withdraw-quick-row { display: flex; gap: 7px; margin-top: 10px; }
 .withdraw-quick { display: flex; flex: 1; align-items: center; justify-content: center; height: 38px; color: t.$text-secondary; font-size: 12px; background: #f3f7f4; border: 1px solid t.$border; border-radius: t.$radius-full; }
 .withdraw-quick--all { color: t.$brand-primary; background: t.$brand-soft; border-color: rgba(46,125,50,.22); }
+.withdraw-estimate { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding: 12px 13px; color: #176858; background: #edf8f1; border: 1px solid #cfe8d5; border-radius: 12px; }
+.withdraw-estimate > view text:first-child { display: block; color: t.$text-secondary; font-size: 10px; }
+.withdraw-estimate > view text:last-child { display: block; margin-top: 2px; color: #176858; font-family: 'DIN Alternate', system-ui, sans-serif; font-size: 19px; font-weight: 750; }
+.withdraw-estimate > text { max-width: 165px; color: #4b7657; font-size: 10px; line-height: 16px; text-align: right; }
+.withdraw-limit-error { display: block; margin-top: 7px; color: #a04b42; font-size: 11px; line-height: 16px; }
 .withdraw-channel { display: flex; align-items: center; margin-top: 19px; padding: 14px; background: #f4faf5; border: 1px solid #d9eadc; border-radius: t.$radius-md; }
 .withdraw-channel__logo { display: flex; flex: 0 0 36px; align-items: center; justify-content: center; width: 36px; height: 36px; margin-right: 10px; color: #fff; font-size: 13px; font-weight: 700; background: #07c160; border-radius: 11px; }
 .withdraw-channel > view { flex: 1; }
@@ -86,6 +91,9 @@
 .withdraw-history__status { color: #9a6b00; font-size: 11px; }
 .withdraw-history__status--paid { color: t.$brand-primary; }
 .withdraw-history__status--failed, .withdraw-history__status--rejected { color: #a04b42; }
+.withdraw-history__side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.withdraw-history__continue { height: 30px; margin: 0; padding: 0 12px; color: #176858; font-size: 10px; font-weight: 700; line-height: 30px; background: #edf8f1; border: 1px solid #cfe8d5; border-radius: t.$radius-full; }
+.withdraw-history__continue[disabled] { color: t.$text-tertiary; background: #f2f4f2; border-color: t.$border; }
 
 .records-page { background: linear-gradient(180deg, #eef6f1 0, #fafcfa 245px); }
 .records-intro { margin-bottom: 15px; padding: 6px 2px 2px; }

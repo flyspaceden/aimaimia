@@ -16,6 +16,7 @@ import type {
   WalletSummary,
   WithdrawRecord,
   WithdrawStatus,
+  WechatWithdrawPolicy,
 } from './types';
 
 const invalidContract = <T>(name: string): Result<T> => ({
@@ -84,6 +85,7 @@ function isWithdrawRecord(value: unknown): value is WithdrawRecord {
   if (!isObject(value)) return false;
   return isString(value.id) && isFiniteNumber(value.amount) && isString(value.channel)
     && isString(value.status) && WITHDRAW_STATUSES.has(value.status as WithdrawStatus)
+    && (value.confirmationAvailable === undefined || typeof value.confirmationAvailable === 'boolean')
     && isString(value.createdAt);
 }
 
@@ -96,6 +98,16 @@ function isWithdrawResult(value: unknown): value is WechatWithdrawResult {
     && (value.mchId === undefined || isString(value.mchId))
     && (value.appId === undefined || isString(value.appId))
     && (value.package === undefined || isString(value.package));
+}
+
+function isWechatWithdrawPolicy(value: unknown): value is WechatWithdrawPolicy {
+  if (!isObject(value)) return false;
+  return isFiniteNumber(value.grossSingleMin) && isFiniteNumber(value.grossSingleMax)
+    && isFiniteNumber(value.netUserDailyMax) && isFiniteNumber(value.netPlatformDailyMax)
+    && isFiniteNumber(value.taxRate) && isFiniteNumber(value.providerFeeAmount)
+    && value.grossSingleMin > 0 && value.grossSingleMin <= value.grossSingleMax
+    && value.taxRate >= 0 && value.taxRate <= 0.5
+    && value.providerFeeAmount >= 0;
 }
 
 const COUPON_STATUSES = new Set(['AVAILABLE', 'RESERVED', 'USED', 'EXPIRED', 'REVOKED']);
@@ -173,6 +185,20 @@ export const MemberWalletRepo = {
       await ApiClient.post<unknown>('/bonus/withdraw', { amount, channel: 'wechat' }, { idempotencyKey }),
       isWithdrawResult,
       'wechat withdraw',
+    );
+  },
+  async continueWechatWithdrawConfirmation(withdrawId: string): Promise<Result<WechatWithdrawResult>> {
+    return normalize(
+      await ApiClient.post<unknown>(`/bonus/withdraw/${encodeURIComponent(withdrawId)}/wechat/confirmation`),
+      isWithdrawResult,
+      'wechat withdraw confirmation',
+    );
+  },
+  async getWechatWithdrawPolicy(): Promise<Result<WechatWithdrawPolicy>> {
+    return normalize(
+      await ApiClient.get<unknown>('/bonus/withdraw/wechat/policy'),
+      isWechatWithdrawPolicy,
+      'wechat withdraw policy',
     );
   },
   async getWithdrawHistory(): Promise<Result<WithdrawRecord[]>> {

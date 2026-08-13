@@ -83,7 +83,16 @@ export default function TaxReportingPage() {
       render: (_, record) => record.paidAt ? dayjs(record.paidAt).format('YYYY-MM-DD HH:mm') : '-',
     },
     {
-      title: '支付宝单号',
+      title: '提现渠道',
+      dataIndex: 'channel',
+      width: 100,
+      search: false,
+      render: (_, record) => record.channel === 'WECHAT'
+        ? '微信'
+        : record.channel === 'ALIPAY' ? '支付宝' : (record.channel || '-'),
+    },
+    {
+      title: '渠道转账单号',
       dataIndex: 'providerPayoutId',
       width: 180,
       ellipsis: true,
@@ -116,6 +125,7 @@ export default function TaxReportingPage() {
       'netAmount',
       'taxRate',
       'paidAt',
+      'channel',
       'providerPayoutId',
       'providerFundOrderId',
     ];

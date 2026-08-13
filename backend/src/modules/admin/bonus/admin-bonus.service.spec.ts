@@ -199,4 +199,34 @@ describe('AdminBonusService reward income totals', () => {
       ],
     }));
   });
+
+  it('exports the payout channel without calling a WeChat transfer an Alipay order', async () => {
+    const { service } = makeService();
+    jest.spyOn(service, 'getTaxReportSummary').mockResolvedValue({
+      year: 2026,
+      month: 8,
+      count: 1,
+      grossTotal: 100,
+      taxTotal: 20,
+      netTotal: 80,
+    });
+    jest.spyOn(service, 'getTaxReportDetail').mockResolvedValue([{
+      id: 'withdraw-wechat-1',
+      userId: 'buyer-1',
+      amount: 100,
+      taxAmount: 20,
+      netAmount: 80,
+      taxRate: 0.2,
+      paidAt: '2026-08-13T01:00:00.000Z',
+      channel: 'WECHAT',
+      providerPayoutId: 'wechat-transfer-1',
+      providerFundOrderId: null,
+    }]);
+
+    const voucher = await service.generateTaxVoucher(2026, 8);
+
+    expect(voucher.content).toContain('"提现渠道","渠道转账单号"');
+    expect(voucher.content).toContain('"WECHAT","wechat-transfer-1"');
+    expect(voucher.content).not.toContain('支付宝单号');
+  });
 });

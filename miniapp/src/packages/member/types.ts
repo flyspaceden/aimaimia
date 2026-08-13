@@ -58,6 +58,8 @@ export type WithdrawRecord = {
   amount: number;
   channel: string;
   status: WithdrawStatus;
+  /** 只表示可向后端请求继续确认；后端仍会实时查微信原单。 */
+  confirmationAvailable?: boolean;
   createdAt: string;
 };
 
@@ -72,6 +74,16 @@ export type WechatWithdrawResult = {
   mchId?: string;
   appId?: string;
   package?: string;
+};
+
+/** 小程序微信提现页面的服务端权威规则；余额与当日已用额度不会下发。 */
+export type WechatWithdrawPolicy = {
+  grossSingleMin: number;
+  grossSingleMax: number;
+  netUserDailyMax: number;
+  netPlatformDailyMax: number;
+  taxRate: number;
+  providerFeeAmount: number;
 };
 
 export type CouponInstanceStatus = 'AVAILABLE' | 'RESERVED' | 'USED' | 'EXPIRED' | 'REVOKED';

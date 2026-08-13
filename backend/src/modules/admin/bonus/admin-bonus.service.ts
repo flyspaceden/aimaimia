@@ -526,12 +526,14 @@ export class AdminBonusService {
       hasTaxRate,
       hasPaidAt,
       hasProviderFundOrderId,
+      hasChannel,
     ] = await Promise.all([
       this.hasWithdrawColumn('taxAmount'),
       this.hasWithdrawColumn('netAmount'),
       this.hasWithdrawColumn('taxRate'),
       this.hasWithdrawColumn('paidAt'),
       this.hasWithdrawColumn('providerFundOrderId'),
+      this.hasWithdrawColumn('channel'),
     ]);
     const dateColumn = hasPaidAt ? Prisma.sql`"paidAt"` : Prisma.sql`"updatedAt"`;
     const taxAmountExpr = hasTaxAmount ? Prisma.sql`COALESCE("taxAmount", 0)` : Prisma.sql`0`;
@@ -540,6 +542,7 @@ export class AdminBonusService {
     const providerFundOrderIdExpr = hasProviderFundOrderId
       ? Prisma.sql`"providerFundOrderId"`
       : Prisma.sql`NULL::text`;
+    const channelExpr = hasChannel ? Prisma.sql`"channel"::text` : Prisma.sql`NULL::text`;
 
     const rows = await this.prisma.$queryRaw<Array<{
       id: string;
@@ -551,6 +554,7 @@ export class AdminBonusService {
       paidAt: Date | null;
       providerPayoutId: string | null;
       providerFundOrderId: string | null;
+      channel: string | null;
     }>>(Prisma.sql`
       SELECT
         "id",
@@ -561,7 +565,8 @@ export class AdminBonusService {
         ${taxRateExpr}::float AS "taxRate",
         ${dateColumn} AS "paidAt",
         "providerPayoutId",
-        ${providerFundOrderIdExpr} AS "providerFundOrderId"
+        ${providerFundOrderIdExpr} AS "providerFundOrderId",
+        ${channelExpr} AS "channel"
       FROM "WithdrawRequest"
       WHERE "deletedAt" IS NULL
         AND "status"::text = 'PAID'
@@ -594,7 +599,8 @@ export class AdminBonusService {
       '实际到账',
       '税率',
       '到账时间',
-      '支付宝单号',
+      '提现渠道',
+      '渠道转账单号',
       '资金流水号',
     ];
     const rows = detail.map((row) => [
@@ -605,6 +611,7 @@ export class AdminBonusService {
       row.netAmount.toFixed(2),
       row.taxRate.toString(),
       row.paidAt ?? '',
+      row.channel ?? '',
       row.providerPayoutId ?? '',
       row.providerFundOrderId ?? '',
     ]);

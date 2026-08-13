@@ -35,6 +35,7 @@ const trustedSession = {
 function makeProvider(overrides: Record<string, unknown> = {}) {
   return {
     isAvailable: jest.fn().mockReturnValue(true),
+    isSettlementAvailable: jest.fn().mockReturnValue(true),
     getMiniProgramAppId: jest.fn().mockReturnValue('wx-mini-app'),
     getMerchantId: jest.fn().mockReturnValue('1900000109'),
     assertTransferAmountSupported: jest.fn(),
@@ -56,6 +57,8 @@ function buildService(options: {
   session?: any;
   existing?: any;
   prisma?: any;
+  rules?: Partial<typeof rules>;
+  walletBalance?: number;
 } = {}) {
   let created: any;
   const prisma: any = options.prisma ?? {
@@ -92,7 +95,13 @@ function buildService(options: {
     },
     rewardAccount: {
       findUnique: jest.fn()
-        .mockResolvedValueOnce({ id: 'vip-1', userId: 'u1', type: 'VIP_REWARD', balance: 100, frozen: 0 })
+        .mockResolvedValueOnce({
+          id: 'vip-1',
+          userId: 'u1',
+          type: 'VIP_REWARD',
+          balance: options.walletBalance ?? 100,
+          frozen: 0,
+        })
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null),
@@ -117,7 +126,9 @@ function buildService(options: {
     adminAuditLog: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
   const provider = options.provider ?? makeProvider();
-  const rulesService = { getRules: jest.fn().mockResolvedValue(rules) };
+  const rulesService = {
+    getRules: jest.fn().mockResolvedValue({ ...rules, ...options.rules }),
+  };
   const notificationService = { emit: jest.fn().mockResolvedValue(undefined) };
   const alipayService = { queryTransfer: jest.fn() };
   const moduleRef = {
@@ -148,6 +159,40 @@ function buildService(options: {
 }
 
 describe('WithdrawPayoutService WeChat merchant transfer', () => {
+  it('publishes the tax-aware gross minimum while keeping daily limits private', async () => {
+    const { service } = buildService();
+
+    await expect(service.getWechatMiniappWithdrawPolicy()).resolves.toEqual({
+      grossSingleMin: 0.12,
+      grossSingleMax: 200,
+      netUserDailyMax: 2000,
+      netPlatformDailyMax: 50000,
+      taxRate: 0.2,
+      providerFeeAmount: 0,
+    });
+  });
+
+  it('keeps the WeChat ¥200 gross cap independent from the App/Alipay configurable cap', async () => {
+    const { service, provider } = buildService({
+      rules: {
+        withdrawMaxAmount: 100,
+      },
+      walletBalance: 200,
+    });
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 200, channel: 'wechat' },
+      'wechat-fixed-cap',
+      authContext,
+    )).resolves.toMatchObject({
+      grossAmount: 200,
+      netAmount: 160,
+      status: 'PROCESSING',
+    });
+    expect(provider.createTransfer).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects a session whose exact auth identity is not verified for the miniapp AppID', async () => {
     const { service, prisma, provider } = buildService({
       session: {
@@ -166,22 +211,145 @@ describe('WithdrawPayoutService WeChat merchant transfer', () => {
     expect(provider.createTransfer).not.toHaveBeenCalled();
   });
 
-  it('rejects known unsupported large transfer before freezing any wallet balance', async () => {
+  it('rejects an unavailable WeChat transfer provider before freezing any wallet balance', async () => {
     const provider = makeProvider({
       assertTransferAmountSupported: jest.fn(() => {
-        throw new Error('微信大额提现实名校验尚未就绪');
+        throw new Error('微信提现通道配置不可用');
       }),
     });
     const { service, prisma } = buildService({ provider });
 
     await expect(service.requestWithdraw(
       'u1',
-      { amount: 2_500, channel: 'wechat' },
-      'wechat-large-no-kyc',
+      { amount: 100, channel: 'wechat' },
+      'wechat-unavailable',
       authContext,
-    )).rejects.toThrow('微信大额提现实名校验尚未就绪');
+    )).rejects.toThrow('微信提现通道配置不可用');
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a WeChat gross request above ¥200 before freezing any wallet balance', async () => {
+    const { service, prisma, provider } = buildService();
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 200.01, channel: 'wechat' },
+      'wechat-over-gross-cap',
+      authContext,
+    )).rejects.toThrow('微信提现单笔最高 ¥200');
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(provider.assertTransferAmountSupported).not.toHaveBeenCalled();
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('raises the gross minimum to ¥0.12 when 20% tax must still leave WeChat\'s ¥0.10 transfer minimum', async () => {
+    const { service, prisma, provider } = buildService();
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 0.11, channel: 'wechat' },
+      'wechat-below-net-minimum',
+      authContext,
+    )).rejects.toThrow('单笔最低 ¥0.12');
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(provider.assertTransferAmountSupported).not.toHaveBeenCalled();
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('uses WeChat money limits instead of the App\'s three-withdrawals-per-day count', async () => {
+    const { service, prisma, getCreated } = buildService();
+    prisma.withdrawRequest.count.mockResolvedValue(3);
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 100, channel: 'wechat' },
+      'wechat-money-cap-not-count-cap',
+      authContext,
+    )).resolves.toMatchObject({ grossAmount: 100, netAmount: 80 });
+
+    expect(prisma.withdrawRequest.count).not.toHaveBeenCalled();
+    expect(getCreated()).toMatchObject({ amount: 100, netAmount: 80 });
+  });
+
+  it('rejects a second WeChat withdrawal while the same user still has an original order processing', async () => {
+    const { service, prisma, provider } = buildService();
+    prisma.withdrawRequest.findFirst.mockResolvedValueOnce({ id: 'withdraw-still-processing' });
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 100, channel: 'wechat' },
+      'wechat-second-processing',
+      authContext,
+    )).rejects.toThrow('上一笔微信提现仍在处理中');
+
+    expect(prisma.withdrawRequest.findFirst).toHaveBeenCalledWith({
+      where: {
+        userId: 'u1',
+        channel: 'WECHAT',
+        status: 'PROCESSING',
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('accepts the ¥200 gross maximum and sends its ¥160 post-tax amount to WeChat', async () => {
+    const { service, provider, prisma } = buildService();
+    prisma.rewardAccount.findUnique.mockReset().mockResolvedValue({
+      id: 'vip-1', userId: 'u1', type: 'VIP_REWARD', balance: 200, frozen: 0,
+    });
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 200, channel: 'wechat' },
+      'wechat-gross-maximum',
+      authContext,
+    )).resolves.toMatchObject({ grossAmount: 200, taxAmount: 40, netAmount: 160 });
+
+    expect(provider.createTransfer).toHaveBeenCalledWith(expect.objectContaining({ amountFen: 16_000 }));
+  });
+
+  it('rejects the user when their requested net amount would exceed the ¥2,000 China-day limit', async () => {
+    const { service, prisma, provider } = buildService();
+    // 申请 ¥10，20% 税后实际转账 ¥8；年度、用户日累计、平台日累计依次查询。
+    prisma.withdrawRequest.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { netAmount: 1_999.2 } })
+      .mockResolvedValueOnce({ _sum: { netAmount: 0 } });
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 10, channel: 'wechat' },
+      'wechat-user-daily-cap',
+      authContext,
+    )).rejects.toThrow('今日微信提现额度已用完，请明日再提');
+
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('rejects all users when the platform China-day transfer quota is reserved', async () => {
+    const { service, prisma, provider } = buildService();
+    prisma.withdrawRequest.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { netAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { netAmount: 49_999 } });
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 10, channel: 'wechat' },
+      'wechat-platform-daily-cap',
+      authContext,
+    )).rejects.toThrow('今日微信提现额度已满，请明日再提');
+
+    expect(prisma.rewardAccount.updateMany).not.toHaveBeenCalled();
+    expect(provider.createTransfer).not.toHaveBeenCalled();
   });
 
   it('freezes the unified wallet in Serializable and returns only server-derived confirmation params', async () => {
@@ -258,6 +426,93 @@ describe('WithdrawPayoutService WeChat merchant transfer', () => {
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(provider.createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('reopens only the same queried WAIT_USER_CONFIRM order and never creates a second transfer', async () => {
+    const withdraw = {
+      id: 'withdraw-reopen',
+      userId: 'u1',
+      amount: 100,
+      taxAmount: 20,
+      taxRate: 0.2,
+      netAmount: 80,
+      status: 'PROCESSING',
+      channel: 'WECHAT',
+      providerStatus: 'WAIT_USER_CONFIRM',
+      outBizNo: 'WX123456789012345678901234567890',
+      providerPayoutId: 'wx-transfer-reopen',
+      accountSnapshot: encryptJsonValue({
+        account: 'openid-session-bound',
+        appId: 'wx-mini-app',
+        channel: 'WECHAT',
+        source: 'UNIFIED_POINTS',
+        packageInfo: 'saved-confirm-package',
+      }),
+    };
+    const provider = makeProvider({
+      queryTransfer: jest.fn().mockResolvedValue({
+        outcome: 'FOUND',
+        state: 'WAIT_USER_CONFIRM',
+        mchId: '1900000109',
+        appId: 'wx-mini-app',
+        outBillNo: withdraw.outBizNo,
+        transferBillNo: 'wx-transfer-reopen',
+        openId: 'openid-session-bound',
+        amountFen: 8_000,
+      }),
+    });
+    const { service, prisma } = buildService({ existing: withdraw, provider });
+
+    await expect(service.continueWechatWithdrawConfirmation(
+      'u1',
+      withdraw.id,
+      authContext,
+    )).resolves.toMatchObject({
+      withdrawId: withdraw.id,
+      status: 'PROCESSING',
+      mchId: '1900000109',
+      appId: 'wx-mini-app',
+      package: 'saved-confirm-package',
+    });
+
+    expect(provider.queryTransfer).toHaveBeenCalledWith(withdraw.outBizNo);
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: withdraw.id, status: 'PROCESSING' }),
+      data: expect.objectContaining({ providerStatus: 'WAIT_USER_CONFIRM' }),
+    }));
+  });
+
+  it('does not reopen a confirmation page when the original WeChat order cannot be verified', async () => {
+    const withdraw = {
+      id: 'withdraw-reopen-unknown',
+      userId: 'u1',
+      amount: 100,
+      taxAmount: 20,
+      taxRate: 0.2,
+      netAmount: 80,
+      status: 'PROCESSING',
+      channel: 'WECHAT',
+      providerStatus: 'WAIT_USER_CONFIRM',
+      outBizNo: 'WX123456789012345678901234567890',
+      accountSnapshot: encryptJsonValue({
+        account: 'openid-session-bound', appId: 'wx-mini-app', channel: 'WECHAT',
+        source: 'UNIFIED_POINTS', packageInfo: 'saved-confirm-package',
+      }),
+    };
+    const provider = makeProvider({
+      queryTransfer: jest.fn().mockResolvedValue({ outcome: 'UNKNOWN' }),
+    });
+    const { service, prisma } = buildService({ existing: withdraw, provider });
+
+    await expect(service.continueWechatWithdrawConfirmation(
+      'u1',
+      withdraw.id,
+      authContext,
+    )).rejects.toThrow('微信原单状态暂时无法确认');
+
+    expect(provider.createTransfer).not.toHaveBeenCalled();
+    expect(prisma.withdrawRequest.updateMany).not.toHaveBeenCalled();
   });
 
   it('keeps funds frozen when create plus same-number query are UNKNOWN/404', async () => {

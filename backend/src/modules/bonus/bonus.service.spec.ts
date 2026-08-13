@@ -499,6 +499,7 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 25,
         channel: 'ALIPAY',
         status: 'PROCESSING',
+        confirmationAvailable: false,
         createdAt: unifiedCreatedAt.toISOString(),
       },
       {
@@ -506,6 +507,7 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 20,
         channel: 'ALIPAY',
         status: 'PAID',
+        confirmationAvailable: false,
         createdAt: rewardCreatedAt.toISOString(),
       },
     ]);
@@ -565,8 +567,37 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 25,
         channel: 'ALIPAY',
         status: 'PROCESSING',
+        confirmationAvailable: false,
         createdAt: unifiedCreatedAt.toISOString(),
       },
+    ]);
+  });
+
+  it('exposes confirmation recovery only for a stored, non-terminal WeChat package', async () => {
+    const createdAt = new Date('2026-08-12T10:00:00.000Z');
+    const prismaMock: any = {
+      withdrawRequest: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'w-confirmable', amount: 100, channel: 'WECHAT', status: 'PROCESSING',
+            providerStatus: 'WAIT_USER_CONFIRM',
+            accountSnapshot: { channel: 'WECHAT', source: 'UNIFIED_POINTS', packageInfo: 'saved-package' },
+            createdAt,
+          },
+          {
+            id: 'w-not-confirmable', amount: 100, channel: 'WECHAT', status: 'PROCESSING',
+            providerStatus: 'PROCESSING',
+            accountSnapshot: { channel: 'WECHAT', source: 'UNIFIED_POINTS', packageInfo: 'saved-package' },
+            createdAt,
+          },
+        ]),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    await expect(service.getWithdrawHistory('user-1')).resolves.toEqual([
+      expect.objectContaining({ id: 'w-confirmable', confirmationAvailable: true }),
+      expect.objectContaining({ id: 'w-not-confirmable', confirmationAvailable: false }),
     ]);
   });
 });

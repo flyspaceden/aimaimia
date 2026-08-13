@@ -30,11 +30,12 @@ describe('WechatMerchantTransferService', () => {
     WECHAT_PAY_PUBLIC_KEY_ID: publicKeyId,
     WECHAT_PAY_PUBLIC_KEY: wechatPublicKey,
     WECHAT_TRANSFER_NOTIFY_URL: 'https://api.ai-maimai.com/api/v1/bonus/withdraw/wechat/notify',
-    WECHAT_TRANSFER_SCENE_ID: '1000',
-    WECHAT_TRANSFER_REMARK: '消费积分提现',
-    WECHAT_TRANSFER_USER_RECV_PERCEPTION: '消费积分提现',
+    WECHAT_TRANSFER_SCENE_ID: '1005',
+    WECHAT_TRANSFER_REMARK: 'AI爱买买佣金报酬提现',
+    WECHAT_TRANSFER_USER_RECV_PERCEPTION: '劳务报酬',
     WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
-      { info_type: '岗位类型', info_content: '用户消费积分提现' },
+      { info_type: '岗位类型', info_content: '平台推广人员' },
+      { info_type: '报酬说明', info_content: 'AI爱买买平台推广佣金' },
     ]),
   };
 
@@ -112,6 +113,82 @@ describe('WechatMerchantTransferService', () => {
       openid: 'openid-from-server-session',
       transfer_amount: 8_000,
     });
+  });
+
+  it('requires the exact approved 1005 commission-remuneration scene contents', () => {
+    const incomplete = buildService({
+      WECHAT_TRANSFER_SCENE_ID: '1005',
+      WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
+        { info_type: '岗位类型', info_content: '平台推广人员' },
+      ]),
+    });
+    const complete = buildService({
+      WECHAT_TRANSFER_SCENE_ID: '1005',
+      WECHAT_TRANSFER_USER_RECV_PERCEPTION: '劳务报酬',
+      WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
+        { info_type: '岗位类型', info_content: '平台推广人员' },
+        { info_type: '报酬说明', info_content: 'AI爱买买平台推广佣金' },
+      ]),
+    });
+
+    expect(incomplete.isAvailable()).toBe(false);
+    expect(complete.isAvailable()).toBe(true);
+  });
+
+  it('fails closed when the 1005 user-facing transfer purpose is not an official value', () => {
+    const service = buildService({
+      WECHAT_TRANSFER_SCENE_ID: '1005',
+      WECHAT_TRANSFER_USER_RECV_PERCEPTION: '消费积分提现',
+      WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
+        { info_type: '岗位类型', info_content: '平台推广人员' },
+        { info_type: '报酬说明', info_content: 'AI爱买买平台推广佣金' },
+      ]),
+    });
+
+    expect(service.isAvailable()).toBe(false);
+  });
+
+  it('fails closed for any scene ID or approved report content drift', () => {
+    const wrongScene = buildService({ WECHAT_TRANSFER_SCENE_ID: '1000' });
+    const wrongRole = buildService({
+      WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
+        { info_type: '岗位类型', info_content: '平台推广合作方' },
+        { info_type: '报酬说明', info_content: 'AI爱买买平台推广佣金' },
+      ]),
+    });
+    const wrongDescription = buildService({
+      WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON: JSON.stringify([
+        { info_type: '岗位类型', info_content: '平台推广人员' },
+        { info_type: '报酬说明', info_content: '用户奖励提现' },
+      ]),
+    });
+
+    expect(wrongScene.isAvailable()).toBe(false);
+    expect(wrongRole.isAvailable()).toBe(false);
+    expect(wrongDescription.isAvailable()).toBe(false);
+  });
+
+  it('keeps settlement available after new transfers are disabled', async () => {
+    global.fetch = jest.fn().mockResolvedValue(response(200, {
+      mch_id: '1900000109',
+      appid: 'wx-mini-app',
+      out_bill_no: 'WX123456789012345678901234567890',
+      transfer_bill_no: '2026080200002',
+      openid: 'openid-from-server-session',
+      state: 'SUCCESS',
+      transfer_amount: 8_000,
+    })) as any;
+    const service = buildService({ WECHAT_TRANSFER_ENABLED: 'false' });
+
+    expect(service.isAvailable()).toBe(false);
+    expect(service.isSettlementAvailable()).toBe(true);
+    await expect(service.queryTransfer('WX123456789012345678901234567890'))
+      .resolves.toMatchObject({ outcome: 'FOUND', state: 'SUCCESS' });
+    await expect(service.createTransfer({
+      outBillNo: 'WX123456789012345678901234567890',
+      openId: 'openid-from-server-session',
+      amountFen: 8_000,
+    })).rejects.toThrow('微信提现新建通道配置不可用');
   });
 
   it('on an untrusted create response queries only the same outBillNo and returns UNKNOWN on signed 404', async () => {
@@ -316,7 +393,8 @@ describe('WechatMerchantTransferService', () => {
   it('fails closed when transfer configuration is incomplete', async () => {
     const service = buildService({ WECHAT_PAY_PUBLIC_KEY_ID: '' });
     expect(service.isAvailable()).toBe(false);
+    expect(service.isSettlementAvailable()).toBe(false);
     await expect(service.queryTransfer('WX123456789012345678901234567890'))
-      .rejects.toThrow('微信提现通道配置不可用');
+      .rejects.toThrow('微信提现结算通道配置不可用');
   });
 });

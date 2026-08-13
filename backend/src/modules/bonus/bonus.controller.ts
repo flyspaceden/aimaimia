@@ -6,6 +6,7 @@ import {
   GoneException,
   Headers,
   Logger,
+  Param,
   Post,
   Query,
   Req,
@@ -89,6 +90,12 @@ export class BonusController {
     );
   }
 
+  /** 小程序微信提现页面的公开规则读模型；实际冻结时仍由服务端再次裁决。 */
+  @Get('withdraw/wechat/policy')
+  getWechatMiniappWithdrawPolicy() {
+    return this.withdrawPayoutService.getWechatMiniappWithdrawPolicy();
+  }
+
   /** 申请提现 */
   @Post('withdraw')
   requestWithdraw(
@@ -105,6 +112,24 @@ export class BonusController {
       userId,
       dto,
       idempotencyKey.trim(),
+      { sessionId, authIdentityId },
+    );
+  }
+
+  /**
+   * 用户关闭首次收款确认页后，必须先查询同一微信原单，
+   * 只在原单仍可确认时重新下发已保存的 package_info。
+   */
+  @Post('withdraw/:id/wechat/confirmation')
+  continueWechatWithdrawConfirmation(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | undefined,
+    @CurrentUser('authIdentityId') authIdentityId: string | undefined,
+    @Param('id') withdrawId: string,
+  ) {
+    return this.withdrawPayoutService.continueWechatWithdrawConfirmation(
+      userId,
+      withdrawId,
       { sessionId, authIdentityId },
     );
   }

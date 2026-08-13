@@ -1213,13 +1213,28 @@ export class BonusService {
       skip += pageSize;
     }
 
-    return visibleRequests.map((r) => ({
-      id: r.id,
-      amount: r.amount,
-      channel: r.channel,
-      status: r.status,
-      createdAt: r.createdAt.toISOString(),
-    }));
+    return visibleRequests.map((r) => {
+      const snapshot = decryptJsonValue<any>(r.accountSnapshot);
+      const confirmationAvailable = Boolean(
+        r.channel === 'WECHAT'
+        && r.status === 'PROCESSING'
+        && (r.providerStatus === 'WAIT_USER_CONFIRM' || r.providerStatus === 'TRANSFERING')
+        && snapshot
+        && typeof snapshot === 'object'
+        && !Array.isArray(snapshot)
+        && snapshot.channel === 'WECHAT'
+        && typeof snapshot.packageInfo === 'string'
+        && snapshot.packageInfo.length > 0,
+      );
+      return {
+        id: r.id,
+        amount: r.amount,
+        channel: r.channel,
+        status: r.status,
+        confirmationAvailable,
+        createdAt: r.createdAt.toISOString(),
+      };
+    });
   }
 
   private isLegacyGroupBuyWithdraw(withdraw: any): boolean {

@@ -136,37 +136,46 @@ export class WechatMerchantTransferService implements OnModuleInit {
     this.notifyUrl = this.config.get<string>('WECHAT_TRANSFER_NOTIFY_URL', '').trim();
     this.transferSceneId = this.config.get<string>('WECHAT_TRANSFER_SCENE_ID', '').trim();
     this.transferRemark = this.config
-      .get<string>('WECHAT_TRANSFER_REMARK', '爱买买消费积分提现')
+      .get<string>('WECHAT_TRANSFER_REMARK', 'AI爱买买佣金报酬提现')
       .trim();
     this.userRecvPerception = this.config
-      .get<string>('WECHAT_TRANSFER_USER_RECV_PERCEPTION', '消费积分提现')
+      .get<string>('WECHAT_TRANSFER_USER_RECV_PERCEPTION', '劳务报酬')
       .trim();
     this.transferSceneReportInfos = this.parseSceneReportInfos(
       this.config.get<string>('WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON', ''),
     );
 
-    if (this.enabled && !this.hasCompleteConfig()) {
-      this.logger.error('微信商家转账已开启但配置不完整，该渠道将 fail-closed');
+    if (this.enabled && !this.hasCompleteCreateConfig()) {
+      this.logger.error('微信商家转账新建已开启但配置不完整，该渠道将 fail-closed');
     }
   }
 
+  /** 仅控制是否允许发起新的转账，不影响存量 PROCESSING 单据的安全收口。 */
   isAvailable(): boolean {
-    return this.enabled && this.hasCompleteConfig();
+    return this.enabled && this.hasCompleteCreateConfig();
+  }
+
+  /**
+   * 查单、撤销和回调验签只依赖结算凭据。紧急关闭新建后，存量单据仍必须
+   * 能进入 SUCCESS / FAIL / CANCELLED 终态，避免钱包资金永久冻结。
+   */
+  isSettlementAvailable(): boolean {
+    return this.hasCompleteSettlementConfig();
   }
 
   getMiniProgramAppId(): string {
-    this.assertAvailable();
+    this.assertSettlementAvailable();
     return this.appId;
   }
 
   getMerchantId(): string {
-    this.assertAvailable();
+    this.assertSettlementAvailable();
     return this.mchId;
   }
 
   /** 在冻结钱包资金前调用，避免已知不可出款条件制造永久 PROCESSING。 */
   assertTransferAmountSupported(amountFen: number): void {
-    this.assertAvailable();
+    this.assertCreateAvailable();
     this.assertAmountFen(amountFen);
     // 官方规则：>= 2,000 元必须提供已核验姓名。当前统一钱包没有可信 KYC 姓名，不信任客户端姓名。
     if (amountFen >= 200_000) {
@@ -179,7 +188,7 @@ export class WechatMerchantTransferService implements OnModuleInit {
     openId: string;
     amountFen: number;
   }): Promise<WechatMerchantTransferCreateResult> {
-    this.assertAvailable();
+    this.assertCreateAvailable();
     this.assertOutBillNo(params.outBillNo);
     this.assertOpenId(params.openId);
     this.assertTransferAmountSupported(params.amountFen);
@@ -225,7 +234,7 @@ export class WechatMerchantTransferService implements OnModuleInit {
   }
 
   async queryTransfer(outBillNo: string): Promise<WechatMerchantTransferQueryResult> {
-    this.assertAvailable();
+    this.assertSettlementAvailable();
     this.assertOutBillNo(outBillNo);
     const requestPath = `${QUERY_PATH_PREFIX}${encodeURIComponent(outBillNo)}`;
     try {
@@ -260,7 +269,7 @@ export class WechatMerchantTransferService implements OnModuleInit {
     transferBillNo?: string;
     errorCode?: string;
   }> {
-    this.assertAvailable();
+    this.assertSettlementAvailable();
     this.assertOutBillNo(outBillNo);
     const requestPath = `${QUERY_PATH_PREFIX}${encodeURIComponent(outBillNo)}${CANCEL_PATH_SUFFIX}`;
     try {
@@ -300,7 +309,7 @@ export class WechatMerchantTransferService implements OnModuleInit {
     };
     body: any;
   }): WechatMerchantTransferNotify {
-    this.assertAvailable();
+    this.assertSettlementAvailable();
     const { signature, timestamp, nonce, serial } = args.headers;
     if (!signature || !timestamp || !nonce || !serial) {
       throw new Error('微信转账回调缺少验签头');
@@ -553,13 +562,19 @@ export class WechatMerchantTransferService implements OnModuleInit {
     }
   }
 
-  private assertAvailable(): void {
+  private assertCreateAvailable(): void {
     if (!this.isAvailable()) {
-      throw new ServiceUnavailableException('微信提现通道配置不可用');
+      throw new ServiceUnavailableException('微信提现新建通道配置不可用');
     }
   }
 
-  private hasCompleteConfig(): boolean {
+  private assertSettlementAvailable(): void {
+    if (!this.isSettlementAvailable()) {
+      throw new ServiceUnavailableException('微信提现结算通道配置不可用');
+    }
+  }
+
+  private hasCompleteSettlementConfig(): boolean {
     return Boolean(
       this.appId
       && this.mchId
@@ -568,15 +583,43 @@ export class WechatMerchantTransferService implements OnModuleInit {
       && this.merchantPrivateKey
       && /^PUB_KEY_ID_\d+$/.test(this.wechatPayPublicKeyId)
       && this.wechatPayPublicKey
-      && /^https:\/\/[^?]+$/.test(this.notifyUrl)
-      && /^\d+$/.test(this.transferSceneId)
-      && this.transferRemark
-      && this.transferRemark.length <= 32
-      && this.userRecvPerception
-      && this.userRecvPerception.length <= 32
-      && this.transferSceneReportInfos.length > 0
       && this.hasValidSigningKeys()
     );
+  }
+
+  private hasCompleteCreateConfig(): boolean {
+    return Boolean(
+      this.hasCompleteSettlementConfig()
+      && /^https:\/\/[^?]+$/.test(this.notifyUrl)
+      && this.transferSceneId === '1005'
+      && this.transferRemark
+      && this.transferRemark.length <= 32
+      && this.hasValidUserRecvPerception()
+      && this.hasRequiredSceneReportInfos()
+    );
+  }
+
+  /**
+   * 微信支付“佣金报酬”场景（1005）要求且只允许两条不同的固定报备类型。
+   * 不能把别的场景的一条通用报备误带入 1005，否则宁可 fail-closed。
+   */
+  private hasRequiredSceneReportInfos(): boolean {
+    if (this.transferSceneReportInfos.length !== 2) return false;
+    const reportInfos = new Map(
+      this.transferSceneReportInfos.map((item) => [item.info_type, item.info_content]),
+    );
+    return reportInfos.size === 2
+      && reportInfos.get('岗位类型') === '平台推广人员'
+      && reportInfos.get('报酬说明') === 'AI爱买买平台推广佣金';
+  }
+
+  /**
+   * The 1005 commission-remuneration scenario accepts only the four official
+   * user-facing descriptions. A wrong deployment value must leave the payout
+   * channel unavailable instead of creating transfers that WeChat rejects.
+   */
+  private hasValidUserRecvPerception(): boolean {
+    return this.userRecvPerception === '劳务报酬';
   }
 
   private hasValidSigningKeys(): boolean {
