@@ -4,6 +4,7 @@
 > 创建时间：2026-07-08
 > 基线代码：`origin/staging` @ `9d2bdca1`
 > 适用范围：官网 H5 邀请页 / 后端 Auth / 微信登录 / H5 推荐绑定
+> **2026-08-11 已被产品决策覆盖**：对外 `/invite/{code}` 已改为无登录客户端分流页；不再采用本文“手机号优先、H5 微信登录辅助”的界面或在 H5 建立买家登录态。本文保留为历史实现记录；当前入口规则见 `docs/architecture/frontend.md` 与 `docs/architecture/wechat-mini-program.md`。
 >
 > **For agentic workers:** 本文档是 `2026-07-08-h5-invite-auth-binding-design.md` 的补充。已确认 H5 邀请页采用“手机号验证码优先，微信登录辅助”的界面方向。微信登录只新增授权入口和身份解析，不新建第二套用户体系，登录成功后必须复用 `InviteH5Service.bindAfterAuth()` 完成推荐关系处理。
 

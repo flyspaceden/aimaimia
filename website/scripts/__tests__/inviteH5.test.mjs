@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import {
   apiErrorMessage,
   bindingStatusText,
-  canContinueAfterLandingCodeStatus,
+  inviteKindForCodeStatus,
   normalizeInviteCode,
   submitStateForBindingStatus,
   unwrapApiData,
@@ -43,13 +43,12 @@ test('绑定状态文案不暴露推荐人信息', () => {
   assert.equal(bindingStatusText('INVALID_CODE'), '推荐码无效，未绑定推荐关系')
 })
 
-test('landing 阶段邀请码无效或冲突不阻断手机号登录', () => {
-  assert.equal(canContinueAfterLandingCodeStatus('NORMAL_SHARE'), true)
-  assert.equal(canContinueAfterLandingCodeStatus('VIP_REFERRAL'), true)
-  assert.equal(canContinueAfterLandingCodeStatus('INVALID'), true)
-  assert.equal(canContinueAfterLandingCodeStatus('CONFLICT'), true)
-  assert.equal(canContinueAfterLandingCodeStatus(null), false)
-  assert.equal(canContinueAfterLandingCodeStatus(undefined), false)
+test('只有已解析的普通或 VIP 推荐码可以继续到客户端', () => {
+  assert.equal(inviteKindForCodeStatus('NORMAL_SHARE'), 'normal')
+  assert.equal(inviteKindForCodeStatus('VIP_REFERRAL'), 'vip')
+  assert.equal(inviteKindForCodeStatus('INVALID'), null)
+  assert.equal(inviteKindForCodeStatus('CONFLICT'), null)
+  assert.equal(inviteKindForCodeStatus(null), null)
 })
 
 test('绑定结果状态不会把失败误渲染为成功', () => {
@@ -62,40 +61,46 @@ test('绑定结果状态不会把失败误渲染为成功', () => {
   assert.equal(submitStateForBindingStatus('ERROR'), 'error')
 })
 
-test('H5 页面首屏不自动弹微信下载遮罩，且成功后阻止重复提交', () => {
-  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+test('H5 页面首屏不自动弹下载遮罩，并且只在用户点击时打开小程序', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteChoiceLanding.tsx', import.meta.url), 'utf8')
 
   assert.doesNotMatch(page, /if \(wechat\) setShowWechatGuide\(true\)/)
   assert.match(page, /landingState === 'checking'/)
-  assert.match(page, /authCompleted/)
+  assert.match(page, /onClick=\{handleOpenMiniProgram\}/)
+  assert.match(page, /invite-h5\/mini-program-link/)
 })
 
-test('H5 邀请页保持手机号优先，微信登录只是辅助入口', () => {
-  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+test('H5 邀请页不再收集登录信息，改为小程序和 App 两个客户端选择', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteChoiceLanding.tsx', import.meta.url), 'utf8')
 
-  assert.match(page, /手机号登录/)
-  assert.match(page, /登录并绑定/)
-  assert.match(page, /微信登录/)
-  assert.match(page, /登录并绑定[\s\S]*也可以使用[\s\S]*微信登录\s*<\/button>/)
-  assert.doesNotMatch(page, /登录成功后自动记录推荐关系/)
+  assert.match(page, /打开爱买买小程序/)
+  assert.match(page, /下载爱买买 App/)
+  assert.match(page, /mini-program-link/)
+  assert.match(page, /copyAppReferralToken/)
+  assert.doesNotMatch(page, /auth\/invite-login/)
+  assert.doesNotMatch(page, /h5-wechat/)
+  assert.doesNotMatch(page, /<input/)
 })
 
-test('H5 邀请页支持微信授权 callback 和非微信浏览器 fallback', () => {
-  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
-  const lib = readFileSync(new URL('../../src/lib/inviteH5.ts', import.meta.url), 'utf8')
+test('App 下载在微信内展示浏览器指引前先保存对应类型的推荐口令', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteChoiceLanding.tsx', import.meta.url), 'utf8')
+  const copyIndex = page.indexOf('const copied = await copyAppReferralToken()')
+  const guideIndex = page.indexOf('if (wechat) {')
 
-  assert.match(page, /h5-wechat\/invite-login/)
-  assert.match(page, /buildH5WechatStartUrl/)
-  assert.match(lib, /h5-wechat\/start/)
-  assert.match(page, /请在微信中打开，或使用手机号登录/)
+  assert.ok(copyIndex >= 0, 'download action should copy an App handoff token')
+  assert.ok(guideIndex > copyIndex, 'WeChat guide must appear after copying the handoff token')
+  assert.match(page, /buildNormalShareClipboardText/)
+  assert.match(page, /buildReferralClipboardText/)
+  assert.match(page, /window\.location\.assign\(result\.urlLink\)/)
 })
 
-test('H5 邀请页响应式覆盖窄屏验证码行和桌面窄表单', () => {
-  const page = readFileSync(new URL('../../src/pages/InviteAuthLanding.tsx', import.meta.url), 'utf8')
+test('H5 邀请页在窄屏和键盘无关的选择场景保持可访问', () => {
+  const page = readFileSync(new URL('../../src/pages/InviteChoiceLanding.tsx', import.meta.url), 'utf8')
 
-  assert.match(page, /max-w-\[480px\]/)
-  assert.match(page, /min-\[360px\]:grid-cols-\[1fr_112px\]/)
-  assert.doesNotMatch(page, /text-\[clamp\(/)
+  assert.match(page, /max-w-\[560px\]/)
+  assert.match(page, /focus-visible:outline/)
+  assert.match(page, /aria-live="polite"/)
+  assert.match(page, /showWechatGuide/)
 })
 
 test('invite H5 测试接入 website npm script', () => {

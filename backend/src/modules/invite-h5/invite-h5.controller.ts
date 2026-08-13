@@ -8,6 +8,7 @@ import {
   CreateInviteH5DownloadPassDto,
 } from './dto/download-pass.dto';
 import { InviteH5LandingDto } from './dto/landing-event.dto';
+import { InviteH5MiniProgramLinkDto } from './dto/mini-program-link.dto';
 import { InviteH5Service } from './invite-h5.service';
 
 @Controller('invite-h5')
@@ -22,6 +23,14 @@ export class InviteH5Controller {
     @Req() req: Request,
   ) {
     return this.inviteH5Service.recordLanding(dto, this.getClientIp(req));
+  }
+
+  /** 用户显式点击后才生成短效 URL Link，避免网页自动唤起小程序。 */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Post('mini-program-link')
+  createMiniProgramLink(@Body() dto: InviteH5MiniProgramLinkDto) {
+    return this.inviteH5Service.createMiniProgramLink(dto);
   }
 
   @Get('stats')

@@ -1922,13 +1922,15 @@
 
 > **触发**: 会议/线下推广时，被推荐人现场下载 App 慢且容易放弃；需要扫码后先进入 H5，用手机号验证码注册或登录，后台立即绑定现有普通分享码或 VIP 推荐码，之后同手机号登录 App 直接看到关系。
 > **权威源**: `docs/superpowers/specs/2026-07-08-h5-invite-auth-binding-design.md` + `docs/superpowers/plans/2026-07-08-h5-invite-auth-binding.md`
+> **2026-08-11 产品决定已覆盖此用户路径**：`/invite/{code}` 不再展示 H5 手机号/验证码/微信网页登录，也不在 H5 绑定。扫码后先进入无登录分流页：微信内由用户点击打开小程序并在小程序完成一次微信登录和绑定；或选择 App 下载，网页先保存类型正确的推荐口令，App 登录后沿现有接力机制绑定。原 H5 登录网页、公开 Auth 路由和漏斗统计均已下线；历史落地事件仅保留用于邀请打开记录和 URL Link 可信上下文。
 
 - [x] **H5-INV01** 后端新增 `InviteH5LandingEvent`、邀请码解析器、`POST /invite-h5/landing`、`GET /invite-h5/stats`，普通码/VIP 码按现有 `NormalShareService.bind()` / `BonusService.useReferralCode()` 绑定规则执行，不新增第二套邀请码。
 - [x] **H5-INV02** 后端新增 `POST /auth/invite-login`，复用手机号短信验证码登录/自动注册；登录成功后绑定推荐关系，已有不同推荐关系时返回“已绑定推荐关系，无法覆盖”且不覆盖。
 - [x] **H5-INV03** 官网新增 `/invite/{code}` H5 登录页，并让旧 `/r/{code}`、`/s/{code}` 兼容进入同页；页面不展示推荐人信息，只展示正常手机号验证码登录/注册表单和绑定结果。
 - [x] **H5-INV04** 买家 App 推荐中心和 VIP 页的新二维码/分享链接统一指向 `https://app.ai-maimai.com/invite/{code}`；扫码器和 App Link intake 兼容新 `/invite/{code}`，旧 `/r`、`/s` 继续可解析。
 - [x] **H5-INV05** 买家 App 推荐中心展示 H5 邀请漏斗统计：扫码打开次数、H5 已登录人数、H5 已绑定人数；统计只来自 `InviteH5LandingEvent`，不混入 App 内或历史绑定。
-- [ ] **H5-INV06** Staging 联调/真机验收：普通用户码和 VIP 码各跑一遍“扫码 H5 → 获取短信 → 新手机号自动注册绑定 → 已绑定账号不覆盖 → App 同手机号登录查看关系 → 推荐中心统计增长”。
+- [x] **H5-INV06**（2026-08-11 取消并由 H5-INV07 替代）原“扫码 H5 → 获取短信 → H5 注册绑定”的真机验收不再适用；后续验收改为微信扫码选择小程序、App 下载保存推荐口令、客户端登录后的推荐绑定，以及生产 URL Link 权限/真实设备验证。
+- [ ] **H5-INV07**（2026-08-11，代码完成、待发布验收）无登录分流：`/invite/{code}` 改为小程序优先、App 下载次级的选择页；新增公开限流的 `/invite-h5/mini-program-link`，只接受与已记录 landing session 相同的邀请码，服务端解析普通/VIP 类型后生成一天有效的微信 URL Link，并校验只重定向 `https://*.wxaurl.cn`。App 下载按钮在微信浏览器指引前先保存 `/s/{code}` 或 `/r/{code}` 剪贴板口令；推荐中心移除失真的 H5 登录漏斗。代码验证不等于外部上线：微信 URL Link 仅能指向已发布的小程序页面，且微信内不使用 `trial/develop`；因此仍需先发布包含推荐落地页的小程序版本，再做真实微信/商店安装验收。
 
 ---
 

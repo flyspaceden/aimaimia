@@ -1,5 +1,7 @@
 # H5 Invite Auth Binding Implementation Plan
 
+> **2026-08-11 已被产品决策覆盖**：不再执行或恢复本计划中的 H5 手机号验证码登录和 H5 绑定页面。当前入口改为无登录分流、小程序 URL Link 与 App 剪贴板接力，规则见 `docs/architecture/frontend.md`。
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an H5 scan flow where an invitee can use phone + SMS code to login or auto-register, bind to the inviter immediately if no existing relation exists, and later see the same relation in the App by logging in with the same phone.

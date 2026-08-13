@@ -1,13 +1,10 @@
-import { Controller, Get, Post, Body, Query, Req, Res } from '@nestjs/common';
+import { Controller, Post, Body, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Request, Response } from 'express';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { InviteLoginDto } from './dto/invite-login.dto';
 import { RegisterDto } from './dto/register.dto';
 import {
-  H5WechatInviteLoginDto,
-  H5WechatStartQueryDto,
   SendSmsCodeDto,
   WeChatOAuthDto,
 } from './dto/send-code.dto';
@@ -31,13 +28,6 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
-  }
-
-  @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
-  @Post('invite-login')
-  inviteLogin(@Body() dto: InviteLoginDto) {
-    return this.authService.inviteLogin(dto);
   }
 
   @Public()
@@ -128,20 +118,6 @@ export class AuthController {
       dto.phone,
       dto.code,
     );
-  }
-
-  @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
-  @Get('h5-wechat/start')
-  async startH5WechatLogin(@Query() dto: H5WechatStartQueryDto, @Res() res: Response) {
-    return res.redirect(await this.authService.buildH5WechatAuthUrl(dto));
-  }
-
-  @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
-  @Post('h5-wechat/invite-login')
-  h5WechatInviteLogin(@Body() dto: H5WechatInviteLoginDto) {
-    return this.authService.h5WechatInviteLogin(dto);
   }
 
   @Public()

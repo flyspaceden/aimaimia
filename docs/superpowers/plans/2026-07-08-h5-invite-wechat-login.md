@@ -1,5 +1,7 @@
 # H5 Invite WeChat Login Implementation Plan
 
+> **2026-08-11 已被产品决策覆盖**：`/invite/{code}` 不再承载 H5 手机号或微信网页登录。本计划仅保留已完成的历史实现细节；当前交付改为无登录分流、微信 URL Link 唤起小程序、以及 App 剪贴板接力，规则见 `docs/architecture/frontend.md`。
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add H5 WeChat auxiliary login to the existing invite landing page while keeping phone SMS as the primary path and reusing the existing invite binding service.
