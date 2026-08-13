@@ -24,6 +24,11 @@ on:
         required: true
         default: 'all'
 
+# 同一分支的服务器发布必须串行，避免两个 run 同时 reset、迁移、改 .env 或重载 PM2。
+concurrency:
+  group: deploy-sites-backend-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -302,14 +307,63 @@ jobs:
           PM2_NAME: ${{ needs.detect-changes.outputs.backend_pm2_name }}
           BRANCH: ${{ needs.detect-changes.outputs.backend_branch }}
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash <<EOF
-            set -e
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "SRC_DIR='$SRC_DIR' PM2_NAME='$PM2_NAME' BRANCH='$BRANCH' bash -s" <<'REMOTE'
+            set -euo pipefail
             echo "═══ 1. 切换到源码目录 ═══"
-            cd $SRC_DIR
+            cd "$SRC_DIR"
+            PREVIOUS_SHA=$(git rev-parse HEAD)
+            DEPLOY_COMPLETE=false
+
+            health_check() {
+              API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
+              case "$API_PORT" in
+                ''|*[!0-9]*) API_PORT=3000 ;;
+              esac
+              API_HEALTH_URL="http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1"
+              for attempt in $(seq 1 15); do
+                if curl --fail --silent --show-error "$API_HEALTH_URL" >/dev/null; then
+                  echo "✅ API 健康检查通过（第 $attempt 次）"
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "❌ API 健康检查失败：$API_HEALTH_URL"
+              return 1
+            }
+
+            rollback_backend() {
+              status=$?
+              trap - EXIT
+              if [ "$status" -ne 0 ] && [ "$DEPLOY_COMPLETE" != true ]; then
+                echo "═══ 部署失败，恢复旧代码 $PREVIOUS_SHA ═══"
+                set +e
+                cd "$SRC_DIR"
+                git reset --hard "$PREVIOUS_SHA"
+                cd backend
+                npm ci \
+                  && npx prisma generate \
+                  && npx prisma generate --schema prisma-delivery/schema.prisma \
+                  && npm run build \
+                  && pm2 reload "$PM2_NAME" --update-env \
+                  && health_check
+                rollback_status=$?
+                set -e
+                if [ "$rollback_status" -eq 0 ]; then
+                  echo "backend_rollback=healthy"
+                else
+                  echo "backend_rollback=failed"
+                  pm2 describe "$PM2_NAME" || true
+                  pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+                fi
+              fi
+              exit "$status"
+            }
+            trap rollback_backend EXIT
 
             echo "═══ 2. 拉取最新代码（branch: $BRANCH）═══"
-            git fetch origin $BRANCH
-            git reset --hard origin/$BRANCH
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
 
             echo "═══ 3. 装依赖 ═══"
             cd backend
@@ -325,30 +379,18 @@ jobs:
             npm run build
 
             echo "═══ 6. PM2 reload ═══"
-            pm2 reload $PM2_NAME --update-env
+            pm2 reload "$PM2_NAME" --update-env
 
             echo "═══ 7. 验证健康检查 ═══"
-            API_PORT=\$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r')
-            case "\$API_PORT" in
-              ''|*[!0-9]*) API_PORT=3000 ;;
-            esac
-            API_HEALTH_URL="http://127.0.0.1:\$API_PORT/api/v1/products?page=1&pageSize=1"
-            for attempt in \$(seq 1 15); do
-              if curl --fail --silent --show-error "\$API_HEALTH_URL" >/dev/null; then
-                echo "✅ API 健康检查通过（第 \$attempt 次）"
-                break
-              fi
-              if [ "\$attempt" -eq 15 ]; then
-                echo "❌ API 健康检查失败：\$API_HEALTH_URL"
-                pm2 describe $PM2_NAME || true
-                pm2 logs $PM2_NAME --lines 100 --nostream || true
-                exit 1
-              fi
-              sleep 2
-            done
+            if ! health_check; then
+              pm2 describe "$PM2_NAME" || true
+              pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+              exit 1
+            fi
 
+            DEPLOY_COMPLETE=true
             echo "✅ 后端部署完成"
-          EOF
+          REMOTE
 
   # 测试环境微信提现：代码部署成功后才写入非 Git 配置并重载。
   # WECHAT_TRANSFER_ENABLED 只控制新建；关闭后，后端仍保留查单/回调能力收口存量单据。
@@ -416,8 +458,8 @@ jobs:
 
             cd "$BACKEND_DIR"
             test -f .env
-            BACKUP_FILE=".env.bak.wechat-transfer.$(date +%Y%m%d%H%M%S)"
-            PUBLIC_KEY_BACKUP="${PUBLIC_KEY_TARGET}.bak.wechat-transfer.$(date +%Y%m%d%H%M%S)"
+            BACKUP_FILE=".env.bak.wechat-transfer.${RUN_ID}"
+            PUBLIC_KEY_BACKUP="${PUBLIC_KEY_TARGET}.bak.wechat-transfer.${RUN_ID}"
             cp -p .env "$BACKUP_FILE"
             HAD_PUBLIC_KEY=false
             if [ -f "$PUBLIC_KEY_TARGET" ]; then
@@ -426,6 +468,7 @@ jobs:
             fi
             cleanup_or_rollback() {
               status=$?
+              trap - EXIT
               rm -f "$PUBLIC_KEY_TMP" "$PUBLIC_KEY_ID_TMP" "$ENABLED_TMP"
               if [ "$status" -ne 0 ]; then
                 echo "staging_wechat_transfer_config=rollback"
@@ -435,7 +478,26 @@ jobs:
                 else
                   rm -f "$PUBLIC_KEY_TARGET"
                 fi
-                pm2 reload "$PM2_NAME" --update-env >/dev/null 2>&1 || true
+                if pm2 reload "$PM2_NAME" --update-env >/dev/null 2>&1; then
+                  API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
+                  case "$API_PORT" in ''|*[!0-9]*) API_PORT=3000 ;; esac
+                  rollback_healthy=false
+                  for attempt in $(seq 1 15); do
+                    if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1" >/dev/null; then
+                      rollback_healthy=true
+                      break
+                    fi
+                    sleep 2
+                  done
+                  if [ "$rollback_healthy" = true ]; then
+                    echo "staging_wechat_transfer_rollback=healthy"
+                  else
+                    echo "staging_wechat_transfer_rollback=failed"
+                    pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+                  fi
+                else
+                  echo "staging_wechat_transfer_rollback=reload_failed"
+                fi
               fi
               exit "$status"
             }
