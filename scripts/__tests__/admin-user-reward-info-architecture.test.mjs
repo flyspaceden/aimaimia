@@ -129,6 +129,18 @@ test('admin user table shows each user current recommendation code', () => {
   assert.match(usersService, /normalShareCode:\s*user\.memberProfile\?\.tier === 'VIP' \? null : user\.normalShareProfile\?\.code/);
 });
 
+test('admin user table can filter and inspect deleted buyer accounts', () => {
+  const usersPage = read('admin/src/pages/users/index.tsx');
+  const statusMap = read('admin/src/constants/statusMaps.ts');
+  const usersService = read('backend/src/modules/admin/app-users/admin-app-users.service.ts');
+
+  assert.match(usersPage, /DELETED:\s*\{\s*text:\s*'已注销'\s*\}/);
+  assert.match(usersPage, /record\.status !== 'DELETED'/);
+  assert.match(usersPage, /navigate\(`\/users\/\$\{record\.id\}`\)/);
+  assert.match(statusMap, /DELETED:\s*\{\s*text:\s*'已注销'/);
+  assert.match(usersService, /if \(status\) where\.status = status/);
+});
+
 test('admin user detail shows referral relationship tab', () => {
   const detailPage = read('admin/src/pages/users/detail.tsx');
   const usersTypes = read('admin/src/types/index.ts');
