@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { AuthProvider, Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuthProvider, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { maskContact, maskPhone } from '../../../common/security/privacy-mask';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
@@ -29,7 +29,12 @@ export class AdminAppUsersService {
     const skip = (page - 1) * pageSize;
     const where: any = {};
     const orderBy = this.buildUserOrderBy(sortField, sortOrder);
-    if (status) where.status = status;
+    if (status) {
+      if (!Object.values(UserStatus).includes(status as UserStatus)) {
+        throw new BadRequestException('用户状态参数无效');
+      }
+      where.status = status as UserStatus;
+    }
 
     // 关键词搜索：手机号（AuthIdentity）或昵称（UserProfile）
     if (keyword) {

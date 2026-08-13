@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { AdminAppUsersService } from './admin-app-users.service';
 
 describe('AdminAppUsersService buyer public ids', () => {
@@ -60,6 +61,28 @@ describe('AdminAppUsersService buyer public ids', () => {
       buyerNo: 'AIMM00000000000001',
       nickname: '测试买家',
     });
+  });
+
+  it('filters deleted buyers with the persisted DELETED status', async () => {
+    const { service, prisma } = makeService();
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.user.count.mockResolvedValue(0);
+
+    await service.findAll(1, 20, 'DELETED');
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'DELETED' }),
+    }));
+  });
+
+  it('rejects an invalid buyer status before querying Prisma', async () => {
+    const { service, prisma } = makeService();
+
+    await expect(service.findAll(1, 20, 'INVALID_STATUS')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+    expect(prisma.user.count).not.toHaveBeenCalled();
   });
 
   it('returns the current visible recommendation code for normal and VIP app users', async () => {

@@ -138,7 +138,8 @@ test('admin user table can filter and inspect deleted buyer accounts', () => {
   assert.match(usersPage, /record\.status !== 'DELETED'/);
   assert.match(usersPage, /navigate\(`\/users\/\$\{record\.id\}`\)/);
   assert.match(statusMap, /DELETED:\s*\{\s*text:\s*'已注销'/);
-  assert.match(usersService, /if \(status\) where\.status = status/);
+  assert.match(usersService, /where\.status = status as UserStatus/);
+  assert.match(usersService, /Object\.values\(UserStatus\)\.includes\(status as UserStatus\)/);
 });
 
 test('admin user detail shows referral relationship tab', () => {
