@@ -537,7 +537,7 @@ jobs:
             fs.writeFileSync('.env.next', [...current, '', ...rendered, ''].join('\n'), { mode: 0o600 });
             fs.renameSync('.env.next', '.env');
             fs.chmodSync('.env', 0o600);
-            NODE
+          NODE
 
             node <<'NODE'
             require('dotenv').config({ path: '.env', override: true });
@@ -597,7 +597,7 @@ jobs:
               console.error(error.message);
               process.exitCode = 1;
             });
-            NODE
+          NODE
 
             pm2 reload "$PM2_NAME" --update-env
             API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
