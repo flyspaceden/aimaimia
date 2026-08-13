@@ -207,6 +207,7 @@ export default function UserListPage() {
       valueEnum: {
         ACTIVE: { text: '正常' },
         BANNED: { text: '已封禁' },
+        DELETED: { text: '已注销' },
       },
       render: (_: unknown, r: AppUser) => {
         const s = statusMap[r.status];
