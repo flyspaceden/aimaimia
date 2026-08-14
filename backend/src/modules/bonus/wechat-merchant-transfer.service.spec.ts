@@ -218,7 +218,7 @@ describe('WechatMerchantTransferService', () => {
     );
   });
 
-  it('preserves a verified create rejection code when the original bill is not found', async () => {
+  it('returns REJECTED only for a verified 4xx create response and signed not-found original bill', async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce(response(400, { code: 'NO_AUTH', message: 'merchant transfer is not authorized' }))
       .mockResolvedValueOnce(response(404, { code: 'NOT_FOUND' })) as any;
@@ -229,9 +229,29 @@ describe('WechatMerchantTransferService', () => {
       openId: 'openid-from-server-session',
       amountFen: 800,
     })).resolves.toEqual({
-      outcome: 'UNKNOWN',
+      outcome: 'REJECTED',
       outBillNo: 'WX123456789012345678901234567890',
       errorCode: 'NO_AUTH',
+      errorMessage: 'merchant transfer is not authorized',
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the withdrawal UNKNOWN after a verified 5xx even when the original bill is not found', async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(503, { code: 'SYSTEM_ERROR', message: 'try again later' }))
+      .mockResolvedValueOnce(response(404, { code: 'NOT_FOUND' })) as any;
+    const service = buildService();
+
+    await expect(service.createTransfer({
+      outBillNo: 'WX123456789012345678901234567890',
+      openId: 'openid-from-server-session',
+      amountFen: 800,
+    })).resolves.toEqual({
+      outcome: 'UNKNOWN',
+      outBillNo: 'WX123456789012345678901234567890',
+      errorCode: 'SYSTEM_ERROR',
+      errorMessage: undefined,
     });
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });

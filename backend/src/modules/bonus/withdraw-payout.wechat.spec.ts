@@ -544,6 +544,50 @@ describe('WithdrawPayoutService WeChat merchant transfer', () => {
     }));
   });
 
+  it('returns the frozen gross amount when WeChat signs a create rejection and the original bill is absent', async () => {
+    const provider = makeProvider({
+      createTransfer: jest.fn().mockResolvedValue({
+        outcome: 'REJECTED',
+        outBillNo: 'same-number',
+        errorCode: 'INVALID_REQUEST',
+        errorMessage: 'merchant transfer is restricted',
+      }),
+    });
+    const { service, prisma } = buildService({ provider });
+    prisma.rewardLedger.findMany.mockResolvedValue([{
+      accountId: 'vip-1',
+      amount: 100,
+      account: { type: 'VIP_REWARD' },
+    }]);
+
+    await expect(service.requestWithdraw(
+      'u1',
+      { amount: 100, channel: 'wechat' },
+      'wechat-rejected',
+      authContext,
+    )).resolves.toMatchObject({
+      status: 'FAILED',
+      grossAmount: 100,
+      taxAmount: 20,
+      netAmount: 80,
+    });
+
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: expect.any(String), status: 'PROCESSING' },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        providerStatus: 'REJECTED',
+        providerErrorCode: 'INVALID_REQUEST',
+      }),
+    }));
+    expect(prisma.rewardAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        frozen: { decrement: expect.any(Number) },
+        balance: { increment: expect.any(Number) },
+      }),
+    }));
+  });
+
   it('finalizes SUCCESS only after all queried identity and amount fields match', async () => {
     const withdraw = {
       id: 'withdraw-success',

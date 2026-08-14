@@ -27,12 +27,18 @@ export type WechatMerchantTransferState =
   | 'CANCELLED';
 
 export type WechatMerchantTransferCreateResult = {
-  outcome: 'FOUND' | 'UNKNOWN';
+  /**
+   * REJECTED is safe to settle locally only after two independent signals:
+   * a signed 4xx response for the create call and a signed 404 for the same
+   * out_bill_no.  It must never be used for an unverified/5xx response.
+   */
+  outcome: 'FOUND' | 'UNKNOWN' | 'REJECTED';
   state?: WechatMerchantTransferState;
   outBillNo: string;
   transferBillNo?: string;
   packageInfo?: string;
   errorCode?: string;
+  errorMessage?: string;
 };
 
 export type WechatMerchantTransferQueryResult =
@@ -206,12 +212,19 @@ export class WechatMerchantTransferService implements OnModuleInit {
     };
 
     let createErrorCode: string | undefined;
+    let createErrorMessage: string | undefined;
+    let isVerifiedClientRejection = false;
     try {
       const response = await this.signedRequest('POST', CREATE_PATH, body);
       if (response.status === 200) {
         return this.parseCreateResponse(response.data, params.outBillNo);
       }
       createErrorCode = this.readErrorCode(response.data) || `HTTP_${response.status}`;
+      createErrorMessage = this.readErrorMessage(response.data);
+      // A verified 4xx means WeChat did not accept the create request.  We
+      // still query the exact original bill below before allowing a local
+      // refund, because a retry must never be allowed to create a second bill.
+      isVerifiedClientRejection = response.status >= 400 && response.status < 500;
       this.logger.warn(
         `微信商家转账发起被拒绝: outBillNo=${this.mask(params.outBillNo)} code=${createErrorCode}`,
       );
@@ -233,14 +246,19 @@ export class WechatMerchantTransferService implements OnModuleInit {
       };
     }
     return {
-      outcome: 'UNKNOWN',
       outBillNo: params.outBillNo,
       // A verified HTTP error from the create request is the most useful diagnostic
       // when the follow-up query has no original bill yet. Keep the same outBillNo
       // for every retry; this only preserves the reason, never creates another payout.
+      outcome: queried.outcome === 'NOT_FOUND' && isVerifiedClientRejection
+        ? 'REJECTED'
+        : 'UNKNOWN',
       errorCode: queried.outcome === 'NOT_FOUND'
         ? (createErrorCode || 'NOT_FOUND_AFTER_UNKNOWN_CREATE')
         : queried.errorCode,
+      errorMessage: queried.outcome === 'NOT_FOUND' && isVerifiedClientRejection
+        ? createErrorMessage
+        : undefined,
     };
   }
 
@@ -674,6 +692,13 @@ export class WechatMerchantTransferService implements OnModuleInit {
 
   private readErrorCode(data: any): string | undefined {
     return typeof data?.code === 'string' ? data.code : undefined;
+  }
+
+  private readErrorMessage(data: any): string | undefined {
+    const message = typeof data?.message === 'string' ? data.message.trim() : '';
+    // Provider messages can be stored in the operations record, but keep a
+    // bounded value so an unexpected upstream payload cannot bloat the row.
+    return message ? message.slice(0, 500) : undefined;
   }
 
   private mask(value: string): string {

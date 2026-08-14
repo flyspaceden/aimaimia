@@ -509,6 +509,23 @@ export class WithdrawPayoutService implements OnModuleInit {
       };
     }
 
+    if (transferResult.outcome === 'REJECTED') {
+      await this.finalizeWithdrawalFailed(created.id, {
+        errorCode: transferResult.errorCode,
+        errorMessage: transferResult.errorMessage,
+        providerStatus: 'REJECTED',
+      });
+      return {
+        withdrawId: created.id,
+        ...grossNet,
+        status: 'FAILED',
+        message: this.mapWithdrawFailureMessage(
+          transferResult.errorCode,
+          transferResult.errorMessage,
+        ),
+      };
+    }
+
     if (transferResult.outcome !== 'FOUND' || !transferResult.state) {
       await this.markWechatProcessingProviderInfo(created, {
         state: 'UNKNOWN',
@@ -1694,6 +1711,14 @@ export class WithdrawPayoutService implements OnModuleInit {
     withdraw: any,
     created: WechatMerchantTransferCreateResult,
   ): Promise<string> {
+    if (created.outcome === 'REJECTED') {
+      await this.finalizeWithdrawalFailed(withdraw.id, {
+        errorCode: created.errorCode,
+        errorMessage: created.errorMessage,
+        providerStatus: 'REJECTED',
+      });
+      return 'FAILED';
+    }
     if (created.outcome !== 'FOUND' || !created.state) {
       await this.markWechatProcessingProviderInfo(withdraw, {
         state: 'UNKNOWN',
