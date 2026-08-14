@@ -480,7 +480,16 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 | 流量增长 | 数据库迁移到云 RDS，加 CDN | 日活 > 1000 |
 | 高可用 | 后端多实例 + 负载均衡 | 日活 > 10000 |
 
-## 十一、生产变更记录
+## 十一、变更记录
+
+### 2026-08-14 到店自提 staging 灰度发布
+
+- **范围**：仅 `staging`，未改 `main` / production。功能提交 `9eb5d174 feat(pickup): add store pickup fulfillment`，覆盖普通商品、团购和 VIP 礼包的配送 / 自提双履约，以及小程序、买家 App、卖家中心、管理后台和共享后端。
+- **自动部署**：GitHub Actions `Deploy Sites & Backend` run `31839202973` 成功；`deploy-admin`、`deploy-seller`、`deploy-backend` 和受保护的 staging 微信转账预检均成功。
+- **数据库与服务**：服务器代码 HEAD 为 `9eb5d174d74a7003455136d5869299aca7ca49a4`；主库 114 个迁移均为 up to date，`20260814010000_add_pickup_fulfillment` 已应用。`aimaimai-api-test` PM2 online，重载后的启动窗口首次公网探测短暂返回 502，Nest 启动完成后二次探测恢复 200。
+- **配置**：staging 写入独立 64 字符 `PICKUP_TOKEN_SECRET` 并设置 `PICKUP_FULFILLMENT_ENABLED=true`；密钥未写入 Git 或日志。变更前活跃 `PREPARING/READY` 自提履约为 0，旧 `.env` 备份为 `.env.bak.pickup-9eb5d174`。
+- **验活**：`https://test-api.ai-maimai.com/api/v1/products`、`https://test-admin.ai-maimai.com/`、`https://test-seller.ai-maimai.com/` 均返回 200。微信开发者工具使用 staging 构建重新普通编译后为 0 error；目标路由基础巡检 1 PASS、3 AUTH_GATE、0 FAIL，登录凭证已过期，因此未伪造会员数据，也未执行真实支付/退款。
+- **待验收**：由测试人员完成微信重新登录和卖家后台验证码登录，创建 staging 自提点后再跑普通/团购/VIP 预结算、备货、短码/二维码核销、并发取消与真实小额支付/退款。生产发布前还需完成真实 PostgreSQL 并发集成测试。
 
 ### 2026-07-12 消息详情与互动筛选修复（待发布）
 
