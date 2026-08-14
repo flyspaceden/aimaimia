@@ -1,3 +1,9 @@
+import type {
+  CheckoutFulfillmentSummary,
+  FulfillmentInput,
+  FulfillmentMode,
+} from './fulfillment';
+
 export type PaymentScene = 'APP' | 'MINI_PROGRAM';
 export type CheckoutSessionStatus = 'ACTIVE' | 'PAID' | 'COMPLETED' | 'EXPIRED' | 'FAILED';
 
@@ -16,7 +22,8 @@ export type CheckoutItemInput = {
 export type MiniProgramCheckoutInput = {
   items: CheckoutItemInput[];
   checkoutSource?: 'CART' | 'BUY_NOW';
-  addressId: string;
+  addressId?: string;
+  fulfillment?: FulfillmentInput;
   expectedTotal: number;
   couponInstanceIds?: string[];
   deductionAmount?: number;
@@ -27,7 +34,8 @@ export type MiniProgramCheckoutInput = {
 export type MiniProgramVipCheckoutInput = {
   packageId: string;
   giftOptionId: string;
-  addressId: string;
+  addressId?: string;
+  fulfillment?: FulfillmentInput;
   /** VIP 套餐页展示价，仅作为后端重算时的价格漂移防线。 */
   expectedTotal: number;
   idempotencyKey?: string;
@@ -38,10 +46,13 @@ export type CheckoutPreviewInput = {
   items: CheckoutItemInput[];
   checkoutSource?: 'CART' | 'BUY_NOW';
   addressId?: string;
+  fulfillment?: FulfillmentInput;
   couponInstanceIds?: string[];
 };
 
 export type CheckoutPreview = {
+  fulfillmentMode?: FulfillmentMode;
+  fulfillment?: CheckoutFulfillmentSummary;
   groups: Array<{
     companyId: string;
     companyName: string;
@@ -124,6 +135,7 @@ export type CheckoutSession = {
   couponInstanceIds?: string[];
   paymentScene: 'MINI_PROGRAM';
   paymentParams: MiniProgramPaymentParams;
+  fulfillmentMode?: FulfillmentMode;
   excludedItems?: CheckoutPreview['excludedItems'];
 };
 

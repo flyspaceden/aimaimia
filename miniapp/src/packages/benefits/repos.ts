@@ -64,7 +64,8 @@ function isGiftOption(value: unknown): value is VipGiftOption {
 }
 
 function isPackage(value: unknown): value is VipPackage {
-  return isObject(value) && isString(value.id) && isNumber(value.price) && isNumber(value.sortOrder)
+  return isObject(value) && isString(value.id) && isString(value.companyId)
+    && isNumber(value.price) && isNumber(value.sortOrder)
     && Array.isArray(value.giftOptions) && value.giftOptions.every(isGiftOption);
 }
 

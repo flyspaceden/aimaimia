@@ -18,6 +18,9 @@
 .mini-order-card__unit-price { margin-left: 8px; color: t.$text-secondary; font-size: 11px; }
 .mini-order-card__more { display: block; padding: 0 14px 8px; color: t.$text-tertiary; font-size: 11px; text-align: center; }
 .mini-order-history-note { margin: 0 14px 9px; padding: 9px 11px; color: t.$text-secondary; font-size: 11px; line-height: 18px; background: #f1f4f1; border-radius: 9px; }
+.mini-order-pickup-note { margin: 0 14px 9px; padding: 9px 11px; background: t.$brand-soft; border-left: 3px solid t.$brand-primary; border-radius: 4px 9px 9px 4px; }
+.mini-order-pickup-note text { display: block; color: t.$text-secondary; font-size: 10px; line-height: 16px; }
+.mini-order-pickup-note text:first-child { color: t.$text-primary; font-weight: 700; }
 .mini-order-card__total { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; padding: 10px 14px; color: t.$text-secondary; font-size: 11px; border-top: 1px solid t.$border; }
 .mini-order-card__amount { color: t.$text-primary; font-size: 17px; font-weight: 800; }
 .mini-order-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 14px 13px; }

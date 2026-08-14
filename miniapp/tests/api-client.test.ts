@@ -5,6 +5,7 @@ import { queryClient } from '@/query/client';
 import { logoutAndClearClientState , registerPrivateStateReset } from '@/session/clientState';
 import { useAuthStore } from '@/store/auth';
 import { useCheckoutSelectionStore } from '@/store/checkout-selection';
+import { resolveAppErrorCode } from '@/types/result';
 
 const requestMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
@@ -433,5 +434,31 @@ describe('client state cleanup and Result contract', () => {
     expect(isResultEnvelope({ ok: false, error: { code: 'X', message: 'x' } })).toBe(true);
     expect(isResultEnvelope({ ok: true })).toBe(false);
     expect(isResultEnvelope('<html>bad gateway</html>')).toBe(false);
+  });
+
+  it('preserves and resolves a backend businessCode from the real error envelope', async () => {
+    requestMock.mockResolvedValueOnce(response(400, {
+      ok: false,
+      error: {
+        code: 'INVALID',
+        businessCode: 'PICKUP_POINT_UNAVAILABLE',
+        message: '所选自提点不存在或已停用',
+        displayMessage: '所选自提点不存在或已停用',
+        retryable: false,
+      },
+    }));
+
+    const result = await ApiClient.post('/checkout-sessions', {});
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'INVALID',
+        businessCode: 'PICKUP_POINT_UNAVAILABLE',
+      },
+    });
+    if (!result.ok) {
+      expect(resolveAppErrorCode(result.error)).toBe('PICKUP_POINT_UNAVAILABLE');
+    }
   });
 });

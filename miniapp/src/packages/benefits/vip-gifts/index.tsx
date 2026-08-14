@@ -3,16 +3,27 @@ import Taro, { useDidShow, useRouter } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isUserCancelledPayment } from '@/components/commerce-utils';
+import { FulfillmentModeSwitch, PickupSelectionPanel } from '@/components/pickup-fulfillment';
+import {
+  buildPickupFulfillment,
+  isPickupRecipientValid,
+  pickupPointsAvailable,
+  pickupSelectionsComplete,
+  type PickupSelectionMap,
+} from '@/components/pickup-utils';
 import { requestMiniProgramPayment } from '@/platform/payment';
 import { ensureWechatMiniProgramSession } from '@/platform/auth';
 import { AddressRepo, CheckoutRepo, UserRepo } from '@/repos';
 import { MiniAfterSaleRepo } from '@/packages/after-sales/repo';
 import { queryClient } from '@/query/client';
 import { useAuthStore } from '@/store/auth';
+import { resolveAppErrorCode } from '@/types/result';
 import { useCheckoutSelectionStore } from '@/store/checkout-selection';
 import type {
   CheckoutSession,
   CheckoutStatusResult,
+  FulfillmentInput,
+  FulfillmentMode,
   MiniProgramResumeResult,
   PendingVipCheckout,
 } from '@/types';
@@ -114,6 +125,10 @@ export default function VipGiftsPage() {
   const [visibleGiftIndex, setVisibleGiftIndex] = useState(0);
   const [checkoutMode, setCheckoutMode] = useState(false);
   const [addressId, setAddressId] = useState('');
+  const [fulfillmentMode, setFulfillmentMode] = useState<FulfillmentMode>('DELIVERY');
+  const [pickupRecipientName, setPickupRecipientName] = useState('');
+  const [pickupRecipientPhone, setPickupRecipientPhone] = useState('');
+  const [pickupSelections, setPickupSelections] = useState<PickupSelectionMap>({});
   const [agreed, setAgreed] = useState(false);
   const [returnPolicyAccepted, setReturnPolicyAccepted] = useState(false);
   const [buyerNote, setBuyerNote] = useState('');
@@ -136,6 +151,29 @@ export default function VipGiftsPage() {
   const member = memberQuery.data?.ok ? memberQuery.data.data : undefined;
   const profile = profileQuery.data?.ok ? profileQuery.data.data : undefined;
   const returnPolicyReady = profile?.hasAgreedReturnPolicy === true || returnPolicyAccepted;
+  const packageCompanyIds = useMemo(
+    () => selectedPackage?.companyId ? [selectedPackage.companyId] : [],
+    [selectedPackage?.companyId],
+  );
+  const pickupPointsQuery = useQuery({
+    queryKey: ['benefits', 'vip-pickup-points', selectedPackage?.companyId],
+    queryFn: () => CheckoutRepo.listPickupPoints(packageCompanyIds),
+    enabled: hydrated && loggedIn && checkoutMode && packageCompanyIds.length > 0,
+    staleTime: 30_000,
+  });
+  const pickupGroups = useMemo(
+    () => pickupPointsQuery.data?.ok ? pickupPointsQuery.data.data : [],
+    [pickupPointsQuery.data],
+  );
+  const pickupAvailable = pickupPointsQuery.data?.ok === true
+    && pickupPointsAvailable(pickupGroups, packageCompanyIds);
+  const pickupReady = isPickupRecipientValid(pickupRecipientName, pickupRecipientPhone)
+    && pickupSelectionsComplete(pickupGroups, pickupSelections, packageCompanyIds);
+  const fulfillmentReady = fulfillmentMode === 'DELIVERY' ? Boolean(effectiveAddressId) : pickupReady;
+  const currentFulfillment = useMemo<FulfillmentInput>(() => fulfillmentMode === 'DELIVERY'
+    ? { mode: 'DELIVERY', addressId: effectiveAddressId }
+    : buildPickupFulfillment(pickupRecipientName, pickupRecipientPhone, pickupSelections, packageCompanyIds),
+  [effectiveAddressId, fulfillmentMode, packageCompanyIds, pickupRecipientName, pickupRecipientPhone, pickupSelections]);
 
   useEffect(() => { if (!packageId && packages[0]) setPackageId(packages[0].id); }, [packageId, packages]);
   useEffect(() => {
@@ -145,6 +183,35 @@ export default function VipGiftsPage() {
     setVisibleGiftIndex(nextIndex >= 0 ? nextIndex : 0);
   }, [giftId, selectedPackage]);
   useEffect(() => { if (!addressId && addresses.length) setAddressId((addresses.find((item) => item.isDefault) || addresses[0]).id); }, [addressId, addresses]);
+  useEffect(() => {
+    if (fulfillmentMode !== 'PICKUP') return;
+    const selectedAddress = addresses.find((address) => address.id === effectiveAddressId) || addresses[0];
+    if (!pickupRecipientName && selectedAddress?.receiverName) setPickupRecipientName(selectedAddress.receiverName);
+    if (!pickupRecipientPhone && selectedAddress?.phone) setPickupRecipientPhone(selectedAddress.phone.replace(/\D/g, ''));
+  }, [addresses, effectiveAddressId, fulfillmentMode, pickupRecipientName, pickupRecipientPhone]);
+  useEffect(() => {
+    if (fulfillmentMode !== 'PICKUP' || !pickupPointsQuery.data?.ok) return;
+    setPickupSelections((current) => {
+      const next: PickupSelectionMap = {};
+      for (const companyId of packageCompanyIds) {
+        const group = pickupGroups.find((item) => item.companyId === companyId);
+        const selected = group?.points.find((point) => point.id === current[companyId]);
+        const pointId = selected?.id || group?.points[0]?.id;
+        if (pointId) next[companyId] = pointId;
+      }
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+    });
+  }, [fulfillmentMode, packageCompanyIds, pickupGroups, pickupPointsQuery.data]);
+  useEffect(() => {
+    if (fulfillmentMode !== 'PICKUP' || pickupPointsQuery.isLoading || pickupAvailable) return;
+    setFulfillmentMode('DELIVERY');
+    Taro.showToast({
+      title: pickupPointsQuery.data?.ok === false
+        ? '自提服务暂不可用，已切换为送货上门'
+        : '该礼包暂无自提点，已切换为送货上门',
+      icon: 'none',
+    });
+  }, [fulfillmentMode, pickupAvailable, pickupPointsQuery.data, pickupPointsQuery.isLoading]);
   useEffect(() => {
     if (checkoutSelection.ownerRevision !== authRevision) return;
     if (checkoutSelection.addressId && addresses.some((address) => address.id === checkoutSelection.addressId)) {
@@ -162,6 +229,10 @@ export default function VipGiftsPage() {
 
     // 登录、退出或切换账号时，先清掉上一代账号的全部结算态。
     setAddressId('');
+    setFulfillmentMode('DELIVERY');
+    setPickupRecipientName('');
+    setPickupRecipientPhone('');
+    setPickupSelections({});
     setAgreed(false);
     setReturnPolicyAccepted(false);
     setBuyerNote('');
@@ -186,7 +257,14 @@ export default function VipGiftsPage() {
       setCheckoutDraft(draft);
       setPackageId(draft.packageId);
       setGiftId(draft.giftOptionId);
-      setAddressId(draft.addressId);
+      setFulfillmentMode(draft.fulfillment.mode);
+      if (draft.fulfillment.mode === 'DELIVERY') {
+        setAddressId(draft.fulfillment.addressId);
+      } else {
+        setPickupRecipientName(draft.fulfillment.recipientName);
+        setPickupRecipientPhone(draft.fulfillment.recipientPhone);
+        setPickupSelections(Object.fromEntries(draft.fulfillment.selections.map((selection) => [selection.companyId, selection.pickupPointId])));
+      }
       setBuyerNote(draft.buyerNote || '');
       setPaymentNotice('上次操作尚未确认，正在恢复。');
     }
@@ -210,7 +288,14 @@ export default function VipGiftsPage() {
           setCheckoutDraft(draft);
           setPackageId(draft.packageId);
           setGiftId(draft.giftOptionId);
-          setAddressId(draft.addressId);
+          setFulfillmentMode(draft.fulfillment.mode);
+          if (draft.fulfillment.mode === 'DELIVERY') {
+            setAddressId(draft.fulfillment.addressId);
+          } else {
+            setPickupRecipientName(draft.fulfillment.recipientName);
+            setPickupRecipientPhone(draft.fulfillment.recipientPhone);
+            setPickupSelections(Object.fromEntries(draft.fulfillment.selections.map((selection) => [selection.companyId, selection.pickupPointId])));
+          }
           setBuyerNote(draft.buyerNote || '');
         }
         setPaymentNotice(draft ? '未发现待支付订单，可以继续提交上次选择。' : '');
@@ -263,15 +348,16 @@ export default function VipGiftsPage() {
         if (!userIdAtStart || !ownsCurrentGeneration()) throw new Error('MISSING_USER');
         let draft = checkoutDraft;
         if (!draft) {
-          if (!selectedPackage || !selectedGift || !effectiveAddressId) throw new Error('MISSING_SELECTION');
+          if (!selectedPackage || !selectedGift || !fulfillmentReady) throw new Error('MISSING_SELECTION');
           checkoutKey.current ||= createOperationKey('mini-vip');
-          draft = { userId, idempotencyKey: checkoutKey.current, packageId: selectedPackage.id, giftOptionId: selectedGift.id, addressId: effectiveAddressId, expectedTotal: selectedPackage.price, ...(buyerNote.trim() ? { buyerNote: buyerNote.trim() } : {}), createdAt: new Date().toISOString() };
+          draft = { userId, idempotencyKey: checkoutKey.current, packageId: selectedPackage.id, giftOptionId: selectedGift.id, ...(fulfillmentMode === 'DELIVERY' ? { addressId: effectiveAddressId } : {}), fulfillment: currentFulfillment, expectedTotal: selectedPackage.price, ...(buyerNote.trim() ? { buyerNote: buyerNote.trim() } : {}), createdAt: new Date().toISOString() };
           saveVipCheckoutDraft(draft);
           setCheckoutDraft(draft);
         }
-        const created = await CheckoutRepo.createVip({ packageId: draft.packageId, giftOptionId: draft.giftOptionId, addressId: draft.addressId, expectedTotal: draft.expectedTotal, idempotencyKey: draft.idempotencyKey, ...(draft.buyerNote ? { buyerNote: draft.buyerNote } : {}) });
+        const created = await CheckoutRepo.createVip({ packageId: draft.packageId, giftOptionId: draft.giftOptionId, ...(draft.addressId ? { addressId: draft.addressId } : {}), fulfillment: draft.fulfillment, expectedTotal: draft.expectedTotal, idempotencyKey: draft.idempotencyKey, ...(draft.buyerNote ? { buyerNote: draft.buyerNote } : {}) });
         if (!created.ok) {
-          if (created.error.code === 'PENDING_CHECKOUT_EXISTS') {
+          const errorCode = resolveAppErrorCode(created.error);
+          if (errorCode === 'PENDING_CHECKOUT_EXISTS') {
             const recovered = await CheckoutRepo.getPendingVip();
             if (recovered.ok && recovered.data) {
               return { kind: 'recovered' as const, session: recovered.data };
@@ -282,7 +368,7 @@ export default function VipGiftsPage() {
               retryable: true,
             };
           }
-          return { kind: 'error' as const, message: created.error.displayMessage || '礼包订单创建失败', retryable: created.error.retryable === true };
+          return { kind: 'error' as const, code: errorCode, message: created.error.displayMessage || '礼包订单创建失败', retryable: created.error.retryable === true };
         }
         if (!ownsCurrentGeneration()) return { kind: 'stale' as const };
         session = created.data;
@@ -294,7 +380,7 @@ export default function VipGiftsPage() {
       }
       if (!hasPaymentParams(session)) {
         const resumed = await CheckoutRepo.resume(session.sessionId);
-        if (!resumed.ok) return { kind: 'error' as const, message: resumed.error.displayMessage || '暂时无法继续支付', retryable: resumed.error.retryable === true };
+        if (!resumed.ok) return { kind: 'error' as const, code: resolveAppErrorCode(resumed.error), message: resumed.error.displayMessage || '暂时无法继续支付', retryable: resumed.error.retryable === true };
         if (!ownsCurrentGeneration()) return { kind: 'stale' as const };
         session = resumed.data;
         setPendingSession(session);
@@ -321,6 +407,21 @@ export default function VipGiftsPage() {
         return;
       }
       if (result.kind === 'error') {
+        if (result.code === 'PICKUP_POINT_UNAVAILABLE') {
+          clearVipCheckoutDraft();
+          setCheckoutDraft(undefined);
+          checkoutKey.current = '';
+          setPickupSelections({});
+          const refreshed = await pickupPointsQuery.refetch();
+          const remainsAvailable = refreshed.data?.ok === true
+            && pickupPointsAvailable(refreshed.data.data, packageCompanyIds);
+          if (!remainsAvailable) setFulfillmentMode('DELIVERY');
+          Taro.showToast({
+            title: remainsAvailable ? '自提点状态已变化，请重新选择' : '自提点已不可用，已切换为送货上门',
+            icon: 'none',
+          });
+          return;
+        }
         if (!result.retryable) { clearVipCheckoutDraft(); setCheckoutDraft(undefined); checkoutKey.current = ''; }
         Taro.showToast({ title: result.message, icon: 'none' });
         return;
@@ -361,12 +462,19 @@ export default function VipGiftsPage() {
     checkoutSelection.begin({ ownerRevision: authRevision, addressId: effectiveAddressId, couponIds: [] });
     void Taro.navigateTo({ url: '/packages/commerce/checkout-address/index' });
   };
+  const changeFulfillmentMode = (mode: FulfillmentMode) => {
+    if (checkoutDraft || pendingSession) {
+      Taro.showToast({ title: '请先处理当前未完成的礼包订单', icon: 'none' });
+      return;
+    }
+    setFulfillmentMode(mode);
+  };
   const startPurchase = async (sessionToContinue?: RecoverableVipSession) => {
     if (!await ensureWechatMiniProgramSession(giftReturn)) return;
     if (!sessionToContinue) {
       if (!agreed) { Taro.showToast({ title: '请先阅读并同意会员服务协议', icon: 'none' }); return; }
       if (!returnPolicyReady) { Taro.showToast({ title: '请先阅读并确认退换货规则', icon: 'none' }); return; }
-      if (!effectiveAddressId) { Taro.showToast({ title: '请先选择礼包收货地址', icon: 'none' }); return; }
+      if (!fulfillmentReady) { Taro.showToast({ title: fulfillmentMode === 'PICKUP' ? '请完整填写自提信息' : '请先选择礼包收货地址', icon: 'none' }); return; }
       if (profile?.hasAgreedReturnPolicy !== true) {
         const result = await MiniAfterSaleRepo.agreePolicy();
         if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '退换货规则确认失败', icon: 'none' }); return; }
@@ -406,15 +514,31 @@ export default function VipGiftsPage() {
         <Text className='vip-checkout-summary__title'>{selectedGift?.title || '专属礼包'}</Text>
         <Text className='vip-checkout-summary__price'>¥{formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}</Text>
       </View>
-      <View className='vip-checkout-section-head'><Text>收货地址</Text><Text onClick={openAddressSelection}>{addresses.length ? '切换 ›' : '新增 ›'}</Text></View>
-      {!addressQuery.data?.ok ? <BenefitsFeedback kind={addressQuery.isLoading ? 'loading' : 'error'} description={addressQuery.data && !addressQuery.data.ok ? addressQuery.data.error.displayMessage : '收货地址加载失败'} onAction={() => addressQuery.refetch()} /> : address ? <View className='benefits-address benefits-address--active' onClick={openAddressSelection}><Text className='benefits-address__name'>{address.receiverName}</Text><Text className='benefits-address__phone'>{address.phone}</Text><Text className='benefits-address__detail'>{address.regionText || `${address.province}${address.city}${address.district}`} {address.detail}</Text></View> : <View className='vip-checkout-card'><Text>还没有收货地址</Text><Button className='benefits-secondary' onClick={openAddressSelection}>新增收货地址</Button></View>}
+      <View className='vip-checkout-fulfillment'><FulfillmentModeSwitch mode={fulfillmentMode} onChange={changeFulfillmentMode} pickupAvailable={pickupAvailable} /></View>
+      {pickupPointsQuery.data?.ok === false ? <BenefitsFeedback kind='error' description={pickupPointsQuery.data.error.displayMessage || '自提点加载失败，当前暂时不能选择到店自提'} onAction={() => pickupPointsQuery.refetch()} /> : null}
+      {fulfillmentMode === 'DELIVERY' ? <>
+        <View className='vip-checkout-section-head'><Text>收货地址</Text><Text onClick={openAddressSelection}>{addresses.length ? '切换 ›' : '新增 ›'}</Text></View>
+        {!addressQuery.data?.ok ? <BenefitsFeedback kind={addressQuery.isLoading ? 'loading' : 'error'} description={addressQuery.data && !addressQuery.data.ok ? addressQuery.data.error.displayMessage : '收货地址加载失败'} onAction={() => addressQuery.refetch()} /> : address ? <View className='benefits-address benefits-address--active' onClick={openAddressSelection}><Text className='benefits-address__name'>{address.receiverName}</Text><Text className='benefits-address__phone'>{address.phone}</Text><Text className='benefits-address__detail'>{address.regionText || `${address.province}${address.city}${address.district}`} {address.detail}</Text></View> : <View className='vip-checkout-card'><Text>还没有收货地址</Text><Button className='benefits-secondary' onClick={openAddressSelection}>新增收货地址</Button></View>}
+      </> : <PickupSelectionPanel
+        groups={pickupGroups}
+        selections={pickupSelections}
+        recipientName={pickupRecipientName}
+        recipientPhone={pickupRecipientPhone}
+        onRecipientNameChange={setPickupRecipientName}
+        onRecipientPhoneChange={setPickupRecipientPhone}
+        onSelect={(companyId, pickupPointId) => setPickupSelections((current) => ({ ...current, [companyId]: pickupPointId }))}
+        loading={pickupPointsQuery.isLoading}
+        error={pickupPointsQuery.data && !pickupPointsQuery.data.ok ? pickupPointsQuery.data.error.displayMessage : undefined}
+        onRetry={() => { void pickupPointsQuery.refetch(); }}
+      />}
+      {fulfillmentMode === 'PICKUP' ? <View className='vip-checkout-pickup-note'>付款成功后 VIP 权益立即开通；实物礼包由平台备货，取货码核销后才确认收货。</View> : null}
       <View className='vip-checkout-section-head'><Text>买家留言</Text><Text>{buyerNote.length}/200</Text></View>
       <View className='vip-checkout-card'><Textarea className='vip-checkout-note' value={buyerNote} maxlength={200} placeholder='例如：尽快发货 / 不要冰品' onInput={(event) => setBuyerNote(event.detail.value.slice(0, 200))} /></View>
       <View className='benefits-agreement' onClick={() => setAgreed((value) => !value)}><View className={agreed ? 'benefits-agreement__box benefits-agreement__box--active' : 'benefits-agreement__box'}>{agreed ? '✓' : ''}</View><Text>我已阅读并同意</Text><Text className='vip-checkout-link' onClick={(event) => { event.stopPropagation(); void Taro.navigateTo({ url: '/packages/benefits/member-agreement/index' }); }}>《会员服务协议》</Text></View>
       {profile?.hasAgreedReturnPolicy !== true ? <View className='benefits-agreement' onClick={() => setReturnPolicyAccepted((value) => !value)}><View className={returnPolicyAccepted ? 'benefits-agreement__box benefits-agreement__box--active' : 'benefits-agreement__box'}>{returnPolicyAccepted ? '✓' : ''}</View><Text>我已阅读并确认</Text><Text className='vip-checkout-link' onClick={(event) => { event.stopPropagation(); const policy = returnPolicyQuery.data?.ok ? returnPolicyQuery.data.data : undefined; void Taro.showModal({ title: policy?.title || '退换货规则', content: policy?.content.join('\n') || '礼包中的实物赠品按页面展示的售后资格与费用规则处理。', showCancel: false, confirmText: '知道了' }); }}>《退换货规则》</Text></View> : null}
       <View className='benefits-legal-links'><Text onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=terms' })}>《用户协议》</Text><Text onClick={() => Taro.navigateTo({ url: '/packages/account/account-legal/index?document=privacy' })}>《隐私政策》</Text></View>
       {paymentNotice ? <View className='benefits-payment-state'>{paymentNotice}</View> : null}
-      {pendingSession ? <><Button className='benefits-secondary' disabled={purchaseMutation.isPending || recoveringVip} onClick={queryStatus}>查询当前礼包订单</Button><Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={purchaseMutation.isPending || recoveringVip} onClick={() => { void startPurchase(pendingSession); }}>{recoveringVip ? '正在恢复...' : '继续微信支付'}</Button></> : <Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={recoveringVip || (!checkoutDraft && (!selectedGift || !effectiveAddressId)) || !agreed || !returnPolicyReady || purchaseMutation.isPending} onClick={() => { void startPurchase(); }}>{recoveringVip ? '正在检查未完成订单...' : purchaseMutation.isPending ? '正在确认...' : `微信支付 ¥${formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}`}</Button>}
+      {pendingSession ? <><Button className='benefits-secondary' disabled={purchaseMutation.isPending || recoveringVip} onClick={queryStatus}>查询当前礼包订单</Button><Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={purchaseMutation.isPending || recoveringVip} onClick={() => { void startPurchase(pendingSession); }}>{recoveringVip ? '正在恢复...' : '继续微信支付'}</Button></> : <Button className='benefits-primary benefits-primary--gold' loading={purchaseMutation.isPending || recoveringVip} disabled={recoveringVip || (!checkoutDraft && (!selectedGift || !fulfillmentReady)) || !agreed || !returnPolicyReady || purchaseMutation.isPending} onClick={() => { void startPurchase(); }}>{recoveringVip ? '正在检查未完成订单...' : purchaseMutation.isPending ? '正在确认...' : `微信支付 ¥${formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}`}</Button>}
     </View>;
   }
 

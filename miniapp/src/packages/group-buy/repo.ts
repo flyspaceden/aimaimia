@@ -61,7 +61,8 @@ function normalizePage<T>(value: unknown): GroupBuyLedgerPage | null {
 function checkoutBody(input: GroupBuyCheckoutInput, includeIdempotency = false) {
   return {
     activityId: input.activityId,
-    addressId: input.addressId,
+    ...(input.addressId ? { addressId: input.addressId } : {}),
+    ...(input.fulfillment ? { fulfillment: input.fulfillment } : input.addressId ? { fulfillment: { mode: 'DELIVERY' as const, addressId: input.addressId } } : {}),
     expectedTotal: input.expectedTotal,
     ...(input.shareCode ? { shareCode: input.shareCode } : {}),
     ...(includeIdempotency && input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),

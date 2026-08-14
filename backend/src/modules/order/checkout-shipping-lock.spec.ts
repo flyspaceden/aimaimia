@@ -67,6 +67,7 @@ describe('CheckoutService shipping lock-in', () => {
     isVip: boolean;
     normalFreeShippingThreshold: number;
     vipFreeShippingThreshold: number;
+    pickup?: boolean;
   }) {
     let createdSessionData: any;
     const sku = buildSku({
@@ -126,15 +127,44 @@ describe('CheckoutService shipping lock-in', () => {
     };
     const service = new CheckoutService(prisma, bonusConfig);
     service.setShippingRuleService(shippingRuleService);
+    const pickupService = {
+      validateCheckoutFulfillment: jest.fn().mockResolvedValue({
+        mode: 'PICKUP',
+        recipientSnapshot: { encrypted: 'recipient' },
+        selectionsSnapshot: [{
+          companyId: 'company-threshold',
+          pickupPointId: 'point-threshold',
+          pickupPointSnapshot: {
+            id: 'point-threshold',
+            companyId: 'company-threshold',
+            name: '自提点',
+          },
+        }],
+      }),
+      createForPaidOrder: jest.fn().mockResolvedValue({ id: 'pf1', status: 'PREPARING' }),
+    };
+    (service as any).pickupService = pickupService;
     wirePaymentFixture(service, prisma, () => createdSessionData);
 
     const result = await service.checkout('user1', {
       items: [{ skuId: 'sku-threshold', quantity: 1, cartItemId: 'ci-threshold' }],
-      addressId: 'addr1',
+      ...(input.pickup
+        ? {
+            fulfillment: {
+              mode: 'PICKUP',
+              recipientName: '张三',
+              recipientPhone: '13800000000',
+              selections: [{
+                companyId: 'company-threshold',
+                pickupPointId: 'point-threshold',
+              }],
+            },
+          }
+        : { addressId: 'addr1' }),
       expectedTotal: input.goodsAmount,
     } as any);
 
-    return { result, createdSessionData, shippingRuleService };
+    return { result, createdSessionData, shippingRuleService, pickupService, service, prisma };
   }
 
   function buildPaymentTx(session: any, createdOrders: any[]) {
@@ -167,6 +197,51 @@ describe('CheckoutService shipping lock-in', () => {
       lotteryRecord: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     };
   }
+
+  it('普通商品自提结算锁定 0 运费，支付回调同事务建 PREPARING 履约', async () => {
+    const {
+      result,
+      createdSessionData,
+      shippingRuleService,
+      pickupService,
+      service,
+      prisma,
+    } = await runCheckoutForShippingThreshold({
+      goodsAmount: 20,
+      isVip: false,
+      normalFreeShippingThreshold: 99,
+      vipFreeShippingThreshold: 99,
+      pickup: true,
+    });
+
+    expect(result).toMatchObject({ fulfillmentMode: 'PICKUP', shippingFee: 0 });
+    expect(createdSessionData).toMatchObject({
+      fulfillmentMode: 'PICKUP',
+      shippingFee: 0,
+      addressSnapshot: null,
+      pickupRecipientSnapshot: { encrypted: 'recipient' },
+    });
+    expect(shippingRuleService.calculateShippingDetail).not.toHaveBeenCalled();
+
+    const createdOrders: any[] = [];
+    const paymentTx = buildPaymentTx(createdSessionData, createdOrders);
+    prisma.$transaction = jest.fn(async (cb: any) => cb(paymentTx));
+    await service.handlePaymentSuccess('MO-PICKUP', 'TX-PICKUP');
+
+    expect(createdOrders).toHaveLength(1);
+    expect(createdOrders[0]).toMatchObject({
+      fulfillmentMode: 'PICKUP',
+      shippingFee: 0,
+      addressSnapshot: null,
+    });
+    expect(pickupService.createForPaidOrder).toHaveBeenCalledWith(
+      paymentTx,
+      expect.objectContaining({
+        orderId: createdOrders[0].id,
+        companyId: 'company-threshold',
+      }),
+    );
+  });
 
   it('locks shipping detail at checkout and payment success does not recalculate it', async () => {
     let createdSessionData: any;

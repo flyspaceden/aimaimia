@@ -184,7 +184,10 @@ describe('Phase 1 typed repo contracts', () => {
       ok: true,
       data: miniSession,
     });
-    expect(postMock).toHaveBeenCalledWith('/orders/checkout/mini-program', input);
+    expect(postMock).toHaveBeenCalledWith('/orders/checkout/mini-program', {
+      ...input,
+      fulfillment: { mode: 'DELIVERY', addressId: 'address-1' },
+    });
     const sent = postMock.mock.calls[0][1];
     expect(sent).not.toHaveProperty('paymentChannel');
     expect(sent).not.toHaveProperty('openId');
@@ -205,7 +208,10 @@ describe('Phase 1 typed repo contracts', () => {
       finalAmount: 1,
     };
     await CheckoutRepo.createVip(untrustedVipInput);
-    expect(postMock).toHaveBeenLastCalledWith('/orders/vip-checkout/mini-program', vipInput);
+    expect(postMock).toHaveBeenLastCalledWith('/orders/vip-checkout/mini-program', {
+      ...vipInput,
+      fulfillment: { mode: 'DELIVERY', addressId: 'address-1' },
+    });
   });
 
   it('fails closed when checkout returns non-mini payment parameters', async () => {

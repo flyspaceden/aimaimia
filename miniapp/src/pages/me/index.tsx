@@ -16,7 +16,7 @@ import './index.scss';
 type Entry = { label: string; image: SeafoodImageName; url: string };
 
 const orderEntries: Array<Entry & { countKey: 'PAID' | 'SHIPPED' | 'DELIVERED' | 'afterSale' | 'RECEIVED' }> = [
-  { label: '待发货', image: 'icon-order-lobster', url: '/packages/orders/order-list/index?status=PAID', countKey: 'PAID' },
+  { label: '待履约', image: 'icon-order-lobster', url: '/packages/orders/order-list/index?status=PAID', countKey: 'PAID' },
   { label: '已发货', image: 'icon-order-fish', url: '/packages/orders/order-list/index?status=SHIPPED', countKey: 'SHIPPED' },
   { label: '待收货', image: 'icon-order-crab', url: '/packages/orders/order-list/index?status=DELIVERED', countKey: 'DELIVERED' },
   { label: '换货/售后', image: 'icon-order-scallop', url: '/packages/after-sales/after-sale-list/index', countKey: 'afterSale' },

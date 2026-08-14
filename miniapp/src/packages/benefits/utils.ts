@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro';
+import { isFulfillmentInput } from '@/components/pickup-utils';
 import type { CartMergeItem, CheckoutSession } from '@/types';
 import type { GrowthExchangeRecord, MemberProfile, PendingPrizeClaim, QueueRewardStatus, VipCheckoutDraft } from './types';
 
@@ -126,18 +127,39 @@ export function clearPendingPrize(): void {
   Taro.removeStorageSync(CLAIM_KEY);
 }
 
-export function saveVipCheckoutDraft(draft: VipCheckoutDraft): void {
+type LegacyVipCheckoutDraft = Omit<VipCheckoutDraft, 'fulfillment'> & {
+  addressId: string;
+  fulfillment?: never;
+};
+
+export function saveVipCheckoutDraft(draft: VipCheckoutDraft | LegacyVipCheckoutDraft): void {
   Taro.setStorageSync(VIP_DRAFT_KEY, draft);
 }
 
 export function readVipCheckoutDraft(userId: string): VipCheckoutDraft | undefined {
-  const value = Taro.getStorageSync<VipCheckoutDraft>(VIP_DRAFT_KEY);
+  const value = Taro.getStorageSync<Partial<VipCheckoutDraft>>(VIP_DRAFT_KEY);
   if (!value || typeof value !== 'object' || value.userId !== userId
     || typeof value.idempotencyKey !== 'string' || typeof value.packageId !== 'string'
-    || typeof value.giftOptionId !== 'string' || typeof value.addressId !== 'string'
+    || typeof value.giftOptionId !== 'string'
     || typeof value.expectedTotal !== 'number' || !Number.isFinite(value.expectedTotal)
     || (value.buyerNote !== undefined && (typeof value.buyerNote !== 'string' || value.buyerNote.length > 200))) return undefined;
-  return value;
+  const fulfillment = isFulfillmentInput(value.fulfillment)
+    ? value.fulfillment
+    : typeof value.addressId === 'string' && value.addressId
+      ? { mode: 'DELIVERY' as const, addressId: value.addressId }
+      : undefined;
+  if (!fulfillment) return undefined;
+  return {
+    userId: value.userId,
+    idempotencyKey: value.idempotencyKey,
+    packageId: value.packageId,
+    giftOptionId: value.giftOptionId,
+    expectedTotal: value.expectedTotal,
+    fulfillment,
+    ...(typeof value.addressId === 'string' ? { addressId: value.addressId } : {}),
+    ...(typeof value.buyerNote === 'string' ? { buyerNote: value.buyerNote } : {}),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+  };
 }
 
 export function clearVipCheckoutDraft(): void {

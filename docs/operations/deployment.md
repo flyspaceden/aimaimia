@@ -265,6 +265,10 @@ DELIVERY_SELLER_JWT_SECRET=<配送中心随机密钥>
 # 仅在手动运行配送 seed 时设置；必须强随机，禁止提交到仓库
 DELIVERY_SEED_PASSWORD=<配送 seed 初始账号强密码>
 
+# 正常商城自提：首次部署时保持 false，迁移/点位/staging 验收后再单独授权开启
+PICKUP_FULFILLMENT_ENABLED=false
+PICKUP_TOKEN_SECRET=<自提凭证独立强随机密钥>
+
 # CORS（允许的前端域名；Socket.IO 未单独配置 ALLOWED_ORIGINS 时复用此值）
 CORS_ORIGINS=https://ai-maimai.com,https://www.ai-maimai.com,https://app.ai-maimai.com,https://seller.ai-maimai.com,https://admin.ai-maimai.com,https://delivery-admin.ai-maimai.com,https://delivery-seller.ai-maimai.com
 
@@ -302,11 +306,22 @@ DELIVERY_USER_JWT_SECRET=<STAGING_DELIVERY_USER_JWT_SECRET>
 DELIVERY_ADMIN_JWT_SECRET=<STAGING_DELIVERY_ADMIN_JWT_SECRET>
 DELIVERY_SELLER_JWT_SECRET=<STAGING_DELIVERY_SELLER_JWT_SECRET>
 DELIVERY_SEED_PASSWORD=<STAGING_DELIVERY_SEED_PASSWORD>
+PICKUP_FULFILLMENT_ENABLED=false
+PICKUP_TOKEN_SECRET=<STAGING_PICKUP_TOKEN_SECRET>
 CORS_ORIGINS=https://app.ai-maimai.com,https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com,https://test-delivery-admin.ai-maimai.com,https://test-delivery-seller.ai-maimai.com,https://test-api.ai-maimai.com
 WECHAT_H5_APP_ID=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_ID>
 WECHAT_H5_APP_SECRET=<STAGING_WECHAT_SERVICE_ACCOUNT_APP_SECRET>
 WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 ```
+
+自提灰度开启顺序（staging 先行）：
+
+1. 生成独立 `PICKUP_TOKEN_SECRET`，保持 `PICKUP_FULFILLMENT_ENABLED=false`，先执行迁移、构建和 PM2 重启。
+2. 在卖家中心建立 staging 测试自提点，确认商家归属、脱敏和管理端审计正常。
+3. 仅在 staging 改为 `PICKUP_FULFILLMENT_ENABLED=true`，使用 `pm2 reload <staging-api> --update-env` 生效，完成普通/团购/VIP 的支付、备货、凭证和核销回归。
+4. 任一状态机、退款或凭证异常立即恢复 `false` 并重启 staging API；生产开启必须另行获得发布授权。
+
+凭证密钥轮换限制：当前凭证 digest 没有密钥版本。不得在存在 `PREPARING` 或 `READY` 自提履约时直接替换 `PICKUP_TOKEN_SECRET`，否则这些订单的短码和二维码会失效。轮换前必须先关闭 feature flag、确认活跃自提履约为 0，并完成已有订单核销或受控取消；随后更换密钥、重启、创建新测试订单验证后再重新开启。未来若需要不停机轮换，应先实现 key version 与前一密钥兼容校验，不能只改环境变量。
 
 ### 2.2 GitHub Actions / 服务器后端发布顺序
 

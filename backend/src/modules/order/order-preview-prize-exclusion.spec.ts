@@ -705,4 +705,87 @@ describe('OrderService.previewOrder shipping weight', () => {
     } as any)).rejects.toThrow('请选择有效的收货地址');
     expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
   });
+
+  it('多商家自提 preview 校验全部点位且运费为 0', async () => {
+    const skus = ['c1', 'c2'].map((companyId, index) => ({
+      id: `sku-${companyId}`,
+      productId: `product-${companyId}`,
+      title: `SKU ${index + 1}`,
+      price: 50 + index * 10,
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 500,
+      product: {
+        id: `product-${companyId}`,
+        title: `商品 ${index + 1}`,
+        status: 'ACTIVE',
+        companyId,
+        company: { name: `商家 ${index + 1}` },
+        media: [],
+      },
+    }));
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue(skus) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 99,
+        vipFreeShippingThreshold: 99,
+        defaultShippingFee: 8,
+      }),
+    };
+    const pickupService = {
+      validateCheckoutFulfillment: jest.fn().mockResolvedValue({
+        mode: 'PICKUP',
+        recipientSnapshot: {},
+        selectionsSnapshot: ['c1', 'c2'].map((companyId) => ({
+          companyId,
+          pickupPointId: `point-${companyId}`,
+          pickupPointSnapshot: {
+            id: `point-${companyId}`,
+            companyId,
+            name: `自提点 ${companyId}`,
+            regionText: '北京市',
+            detail: '1 号',
+          },
+        })),
+      }),
+    };
+    const shippingRuleService = { calculateShippingFee: jest.fn().mockResolvedValue(8) };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setPickupService(pickupService as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [
+        { skuId: 'sku-c1', quantity: 1 },
+        { skuId: 'sku-c2', quantity: 1 },
+      ],
+      fulfillment: {
+        mode: 'PICKUP',
+        recipientName: '王五',
+        recipientPhone: '13812345678',
+        selections: [
+          { companyId: 'c1', pickupPointId: 'point-c1' },
+          { companyId: 'c2', pickupPointId: 'point-c2' },
+        ],
+      },
+    } as any);
+
+    expect(pickupService.validateCheckoutFulfillment).toHaveBeenCalledWith(
+      prisma,
+      ['c1', 'c2'],
+      expect.objectContaining({ mode: 'PICKUP' }),
+    );
+    expect(result.fulfillmentMode).toBe('PICKUP');
+    expect(result.pickupSelections).toHaveLength(2);
+    expect(result.summary.totalShippingFee).toBe(0);
+    expect(result.summary.totalPayable).toBe(110);
+    expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
+  });
 });

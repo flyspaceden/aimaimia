@@ -119,6 +119,8 @@
 - `docs/superpowers/plans/2026-06-14-digital-asset-cumulative-spend.md` — 数字资产累计消费实施计划（Schema/核心记账服务/订单与退款接入/历史回填/买家 App 数字资产中心/管理后台数字资产页/安全验证拆分，**数字资产累计消费实施排程**）
 - `docs/superpowers/specs/2026-06-15-buyer-public-id-design.md` — 买家公开编号设计方案（新增 `buyerNo=AIMM+14位数字`，保留内部 `User.id`；历史买家按注册时间回填；App 我的页展示复制；管理后台/卖家中心展示、复制和搜索，**买家公开编号权威来源**）
 - `docs/superpowers/plans/2026-06-15-buyer-public-id.md` — 买家公开编号实施计划（Schema/sequence/回填脚本、买家 Auth 接入、App 我的页复制按钮、管理后台全页展示搜索、卖家中心隐私边界内展示搜索、验证与发布文档，**买家公开编号实施排程**）
+- `docs/superpowers/specs/2026-08-14-miniapp-pickup-fulfillment-design.md` — 商城订单配送 / 到店自提双履约设计（普通商品、团购、VIP，小程序/App/卖家/管理端，点位、凭证、受控退款、顺丰隔离与验收边界，**商城订单自提权威来源；与独立 delivery 业务严格隔离**）
+- `docs/superpowers/plans/2026-08-14-miniapp-pickup-fulfillment.md` — 商城订单自提实施清单（Schema/后端状态机/三端前端/安全审查/微信开发者工具及真实环境验收，**商城订单自提实施排程**）
 - `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 

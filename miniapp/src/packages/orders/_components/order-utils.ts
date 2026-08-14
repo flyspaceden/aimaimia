@@ -1,4 +1,5 @@
 import type { Order, OrderItem, OrderStatus, RepurchaseResult, Shipment, TrackingEvent } from '@/types';
+import { PICKUP_STATUS_META } from '@/components/pickup-utils';
 
 export const ORDER_STATUS_META: Record<OrderStatus, { label: string; hint: string; tone: string }> = {
   PENDING_PAYMENT: { label: '历史待支付', hint: '该记录仅供查看，不再提供支付入口', tone: 'muted' },
@@ -9,6 +10,15 @@ export const ORDER_STATUS_META: Record<OrderStatus, { label: string; hint: strin
   CANCELED: { label: '已取消', hint: '订单已取消，若已付款将按原路径处理', tone: 'muted' },
   REFUNDED: { label: '已退款', hint: '订单款项已退回原支付渠道', tone: 'muted' },
 };
+
+export function orderStatusMeta(order: Order): { label: string; hint: string; tone: string } {
+  if (order.fulfillmentMode === 'PICKUP') {
+    return order.pickupFulfillment
+      ? PICKUP_STATUS_META[order.pickupFulfillment.status]
+      : { label: '自提信息异常', hint: '履约信息暂不可用，请联系客服处理', tone: 'muted' };
+  }
+  return ORDER_STATUS_META[order.status];
+}
 
 export function formatMoney(value?: number | null): string {
   return Number(value || 0).toFixed(2);
@@ -63,11 +73,18 @@ export function canCancelPaidOrder(order: Order): boolean {
   return order.status === 'PAID'
     && order.bizType !== 'VIP_PACKAGE'
     && order.bizType !== 'GROUP_BUY'
-    && order.receiverInfoEditable !== false;
+    && (order.fulfillmentMode === 'PICKUP'
+      ? order.pickupFulfillment?.status === 'PREPARING'
+      : order.receiverInfoEditable !== false);
 }
 
 export function canConfirmOrder(order: Order): boolean {
-  return order.status === 'SHIPPED' || order.status === 'DELIVERED';
+  return order.fulfillmentMode !== 'PICKUP'
+    && (order.status === 'SHIPPED' || order.status === 'DELIVERED');
+}
+
+export function canOpenPickupPass(order: Order): boolean {
+  return order.fulfillmentMode === 'PICKUP' && order.pickupFulfillment?.status === 'READY';
 }
 
 export function canRepurchaseOrder(order: Order): boolean {
@@ -86,24 +103,28 @@ export function paymentSuccessPresentation(orders: Order[]): {
 } {
   const isVip = orders.length > 0 && orders.every((order) => order.bizType === 'VIP_PACKAGE');
   if (isVip) {
+    const pickup = orders.every((order) => order.fulfillmentMode === 'PICKUP');
     return {
       title: 'VIP 开通成功',
-      copy: 'VIP 礼包订单已生成',
+      copy: pickup ? 'VIP 权益已开通，实物礼包备好后可到店自提。' : 'VIP 礼包订单已生成',
       primaryLabel: '查看 VIP 中心',
       destination: 'VIP_CENTER',
     };
   }
   if (orders.length === 1) {
+    const pickup = orders[0].fulfillmentMode === 'PICKUP';
     return {
       title: '支付成功',
-      copy: '订单已生成，可查看发货与物流状态。',
+      copy: pickup ? '订单已进入备货，备好后会生成一次性取货凭证。' : '订单已生成，可查看发货与物流状态。',
       primaryLabel: '查看订单',
       destination: 'ORDER_DETAIL',
     };
   }
   return {
     title: '支付成功',
-    copy: `已为您创建 ${orders.length} 笔商家订单`,
+    copy: orders.every((order) => order.fulfillmentMode === 'PICKUP')
+      ? `已创建 ${orders.length} 笔商家订单，需分别前往对应地点取货。`
+      : `已为您创建 ${orders.length} 笔商家订单`,
     primaryLabel: '查看全部订单',
     destination: 'ORDER_LIST',
   };

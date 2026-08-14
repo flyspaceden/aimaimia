@@ -112,6 +112,27 @@ export class AdminOrdersController {
     return this.ordersService.cancel(id, dto.reason);
   }
 
+  @Post(':id/pickup-cancel-refund')
+  @RequirePermission('orders:refund')
+  @AuditLog({
+    action: 'REFUND',
+    module: 'orders',
+    targetType: 'Order',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  cancelPickupAndRefund(
+    @Param('id') id: string,
+    @Body() dto: CancelOrderDto,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.ordersService.cancelPickupAndRefund(
+      id,
+      adminUserId,
+      dto.reason,
+    );
+  }
+
   @Post(':id/refunds/:refundId/retry')
   @RequirePermission('orders:refund')
   @AuditLog({

@@ -66,6 +66,7 @@ export class OrderAutoConfirmService {
     // L6修复：限制单批次处理数量，防止内存溢出
     const orders = await this.prisma.order.findMany({
       where: {
+        fulfillmentMode: 'DELIVERY',
         status: { in: ['SHIPPED', 'DELIVERED'] },
         autoReceiveAt: { lte: now },
         // 售后进行中订单不做自动确认，避免与售后流程冲突
@@ -108,6 +109,7 @@ export class OrderAutoConfirmService {
           id: true,
           userId: true,
           status: true,
+          fulfillmentMode: true,
           bizType: true,
           goodsAmount: true,
           totalAmount: true,
@@ -119,17 +121,26 @@ export class OrderAutoConfirmService {
           },
         },
       });
-      if (!current || (current.status !== 'SHIPPED' && current.status !== 'DELIVERED')) {
+      if (
+        !current
+        || (current.fulfillmentMode ?? 'DELIVERY') !== 'DELIVERY'
+        || (current.status !== 'SHIPPED' && current.status !== 'DELIVERED')
+      ) {
         return false; // 已被买家手动确认或状态已变更，跳过
       }
       if (current.afterSaleRequests.length > 0) {
         return false; // 事务内二次确认：若窗口期进入售后流程，则不自动确认
       }
 
-      await tx.order.update({
-        where: { id: orderId },
+      const cas = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          fulfillmentMode: 'DELIVERY',
+          status: { in: ['SHIPPED', 'DELIVERED'] },
+        },
         data: { status: 'RECEIVED', receivedAt: new Date() },
       });
+      if (cas.count !== 1) return false;
 
       await tx.orderStatusHistory.create({
         data: {

@@ -1,4 +1,9 @@
-import type { MiniProgramPaymentParams } from '@/types';
+import type {
+  CheckoutFulfillmentSummary,
+  FulfillmentInput,
+  FulfillmentMode,
+  MiniProgramPaymentParams,
+} from '@/types';
 
 export type GroupBuyActivityStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ENDED';
 export type GroupBuyInstanceStatus =
@@ -27,6 +32,7 @@ export type GroupBuyActivityItem = {
 
 export type GroupBuyActivity = {
   id: string;
+  companyId: string;
   status: GroupBuyActivityStatus;
   startAt: string | null;
   endAt: string | null;
@@ -78,7 +84,8 @@ export type GroupBuyLanding = {
 
 export type GroupBuyCheckoutInput = {
   activityId: string;
-  addressId: string;
+  addressId?: string;
+  fulfillment?: FulfillmentInput;
   expectedTotal: number;
   shareCode?: string;
   idempotencyKey?: string;
@@ -89,6 +96,8 @@ export type GroupBuyCheckoutPreview = {
   goodsAmount: number;
   shippingFee: number;
   discountAmount: number;
+  fulfillmentMode?: FulfillmentMode;
+  fulfillment?: CheckoutFulfillmentSummary;
 };
 
 export type GroupBuyCheckoutSession = GroupBuyCheckoutPreview & {

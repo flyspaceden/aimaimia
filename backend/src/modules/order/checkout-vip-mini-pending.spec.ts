@@ -59,6 +59,7 @@ describe('CheckoutService.getPendingVipForMiniProgram', () => {
       checkoutService as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     await expect(controller.getMyPendingVipCheckoutForMiniProgram('jwt-user-1')).resolves.toBeNull();

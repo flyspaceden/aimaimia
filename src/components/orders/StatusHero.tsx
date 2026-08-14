@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Countdown } from '../ui/Countdown';
 import { useTheme } from '../../theme';
-import { OrderStatus } from '../../types';
+import { OrderStatus, PickupFulfillmentStatus } from '../../types';
+import { pickupStatusLabels } from '../../utils';
 
 interface Props {
   status: OrderStatus;
@@ -11,6 +12,8 @@ interface Props {
   subtitle?: string;
   countdownExpiresAt?: string;
   countdownPrefix?: string;
+  fulfillmentMode?: 'DELIVERY' | 'PICKUP';
+  pickupStatus?: PickupFulfillmentStatus;
 }
 
 const STATUS_GRADIENTS: Record<OrderStatus, [string, string]> = {
@@ -31,19 +34,28 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   REFUNDED: '已退款',
 };
 
-export function StatusHero({ status, isVipPackage, subtitle, countdownExpiresAt, countdownPrefix }: Props) {
+export function StatusHero({ status, isVipPackage, subtitle, countdownExpiresAt, countdownPrefix, fulfillmentMode, pickupStatus }: Props) {
   const { typography } = useTheme();
-  const [from, to] = STATUS_GRADIENTS[status];
+  const isPickup = fulfillmentMode === 'PICKUP';
+  const [from, to] = isPickup && !pickupStatus
+    ? ['#7F1D1D', '#DC2626']
+    : isPickup && pickupStatus === 'READY'
+      ? ['#2E7D32', '#3B82F6']
+      : STATUS_GRADIENTS[status];
+  const label = isPickup
+    ? pickupStatus ? pickupStatusLabels[pickupStatus] : '自提信息异常'
+    : STATUS_LABEL[status];
 
   return (
     <LinearGradient colors={[from, to]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.container}>
       <View style={styles.row}>
-        <Text style={[typography.title3, { color: '#fff' }]}>{STATUS_LABEL[status]}</Text>
+        <Text style={[typography.title3, { color: '#fff' }]}>{label}</Text>
         {isVipPackage ? (
           <View style={styles.vipBadge}>
             <Text style={styles.vipBadgeText}>VIP 开通礼包</Text>
           </View>
         ) : null}
+        {isPickup ? <View style={styles.pickupBadge}><Text style={styles.pickupBadgeText}>到店自提</Text></View> : null}
       </View>
       {countdownExpiresAt ? (
         <Countdown
@@ -65,4 +77,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   vipBadge: { marginLeft: 8, backgroundColor: '#C9A96E', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   vipBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  pickupBadge: { marginLeft: 8, backgroundColor: 'rgba(255,255,255,.18)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,.22)' },
+  pickupBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
 });

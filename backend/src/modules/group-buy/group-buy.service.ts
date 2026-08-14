@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { GroupBuyActivityStatus, GroupBuyCodeStatus, GroupBuyInstanceStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_COMPANY_ID } from '../bonus/engine/constants';
 
 type BuyerGroupBuyActivityItem = {
   productId: string;
@@ -317,6 +318,7 @@ export class GroupBuyService {
 
     return {
       id: activity.id,
+      companyId: PLATFORM_COMPANY_ID,
       status: activity.status,
       startAt: activity.startAt ? activity.startAt.toISOString() : null,
       endAt: activity.endAt ? activity.endAt.toISOString() : null,

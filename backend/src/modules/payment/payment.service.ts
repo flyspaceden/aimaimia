@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
   NotImplementedException,
   Optional,
+  ConflictException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
@@ -2414,6 +2415,38 @@ export class PaymentService {
         let profitRefund: ProfitRefundFinalizeResult | null = null;
         if (toStatus === "REFUNDED") {
           await this.restoreAutoCancelDeduction(tx, refundId);
+          const pickupFulfillment = await tx.pickupFulfillment.findUnique({
+            where: { orderId: current.orderId },
+            select: { id: true, status: true },
+          });
+          if (
+            pickupFulfillment
+            && pickupFulfillment.status !== 'VOID'
+            && pickupFulfillment.status !== 'CANCELED'
+          ) {
+            const voidedAt = new Date();
+            const pickupCas = await tx.pickupFulfillment.updateMany({
+              where: { id: pickupFulfillment.id, status: pickupFulfillment.status },
+              data: {
+                status: 'VOID',
+                voidedAt,
+                voidReason: `退款成功: ${refundId}`,
+              },
+            });
+            if (pickupCas.count !== 1) {
+              throw new ConflictException('自提凭证状态已变更，退款闭环请重试');
+            }
+            await tx.pickupFulfillmentEvent.create({
+              data: {
+                fulfillmentId: pickupFulfillment.id,
+                fromStatus: pickupFulfillment.status,
+                toStatus: 'VOID',
+                eventType: 'REFUND_COMPLETED',
+                actorType: 'SYSTEM',
+                meta: { refundId },
+              },
+            });
+          }
           profitRefund = this.orderProfitRefundService
             ? await this.orderProfitRefundService.finalizeSuccessfulRefund(
                 tx,

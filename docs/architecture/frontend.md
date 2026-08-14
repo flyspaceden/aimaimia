@@ -2565,3 +2565,11 @@ src/components/ai/   → 新增目录
 - 2026-08-10 登录态第三轮完整数据复核：用 staging-only、固定 ID、可清理且 fail-closed 的测试工具补齐订单、微信小程序支付记录、物流、售后、发票与拼团详情，71 个运行时页面最终为 71 `PASS`、0 `NO_FIXTURE`、0 `AUTH_GATE`、0 `FAIL`、0 warning。订单后端返回的 `yyyy-MM-dd HH:mm` 先归一化为微信 iOS 支持的 ISO 本地时间，列表/详情不再触发日期兼容警告；审计后 18 类临时记录全部归零。该结果不替代真实资金动作、订阅/相机/录音授权、交易发货或 iOS/Android 真机验收。
 - 2026-08-11 终审加固运行时审计器：`currentPage()` 未返回路径时必须失败，不能因工具缺失证据而默认通过；console/exception 的原始字符串同样脱敏 Bearer、敏感查询参数和手机号；夹具接口仅在认证 401/403 时降级为未登录数据且明确提示，其他 HTTP 错误继续 fail-closed；开发者工具连接和登录态读取均设置硬超时。最新登录态 71 页复验为 56 `PASS`、15 `NO_FIXTURE`、0 `FAIL`、0 warning；静态门禁为 ESLint 0 warning、TypeScript、48 文件 255/255、staging/production 双构建与 71 页产物检查通过。
 - 2026-08-12 VIP 礼包真实支付联调修复：结算页以“有效显式选择 → 默认地址 → 第一条地址”解析唯一有效地址 ID，页面展示、微信支付按钮和提交载荷全部复用该值，不再因认证恢复与地址请求先后顺序导致“已显示地址但按钮灰色”。微信主动查单对已验签 `NOTPAY/CLOSED` 应答兼容真实环境省略 `trade_type/amount`；只有 `SUCCESS` 或同号 `NOTPAY` 重试预下单时要求金额必填且与服务端一致，`SUCCESS` 还必须具备交易流水号和 `JSAPI/APP` 类型，任一缺失均 fail-closed，不得据此建单。
+
+## 2026-08-14：商城订单配送 / 到店自提双履约
+
+静态交互预览位于 `docs/ui-prototypes/2026-08-14-miniapp-pickup-preview.html`，权威规则位于 `docs/superpowers/specs/2026-08-14-miniapp-pickup-fulfillment-design.md`。普通商品、团购和 VIP 礼包的小程序结算均已接入统一 `DELIVERY | PICKUP` 判别式契约：配送继续使用地址与平台顺丰运费，自提按服务端最终商家集合逐店选择点位、填写本单自提人且运费为零。
+
+买家 App 已支持跨端读取自提订单：列表和详情按 `PREPARING / READY / PICKED_UP / VOID / CANCELED` 显示“备货中 / 待自提 / 已取货 / 已失效”，自提订单不展示物流、修改配送地址或买家确认收货。取货凭证卡在回到前台、轮询和二维码到期时刷新；若订单标记为 `PICKUP` 却缺少履约关联，显示明确异常态，不回退成“待发货”。
+
+卖家中心新增自提点管理、自提订单筛选、备货完成和扫码/8 位短码核销；管理后台新增点位启停、履约筛选、事件审计和普通商品异常自提受控取消退款。两个后台在自提订单上隐藏并本地阻断面单、发货、物流重试和修改配送地址。当前完成本地 TypeScript/build 与 Mock API 浏览器页面验证；staging API、真实退款和真机扫码仍属于外部验收门槛。

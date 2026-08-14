@@ -696,3 +696,33 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 ## 16. 已知问题
 
 详见 `tofix.md`（批次 1-5 已全部修复）和 `tofix2.md`（第二轮审计，待修复）。
+
+---
+
+## 17. 商城订单到店自提（2026-08-14）
+
+### 17.1 模块与边界
+
+`src/modules/pickup/` 为普通商城订单新增 `DELIVERY | PICKUP` 履约能力，覆盖普通商品、团购和 VIP 礼包。它属于现有订单、CheckoutSession 和支付回调主链，不得调用独立 `/api/v1/delivery/**` 业务或 delivery 数据库。
+
+- 买家：查询指定商家的启用点位、读取本人 `READY` 凭证；普通订单列表/详情只返回自提摘要，不返回明文凭证。
+- 卖家：OWNER/MANAGER 管理本企业点位；有订单权限的员工可标记备货和使用二维码或 8 位短码核销。
+- 管理员：`orders:read` 查看点位/履约事件，`orders:ship` 启停点位，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款。
+
+### 17.2 状态与资金一致性
+
+支付成功事务从已验证的 CheckoutSession 快照创建 `Order(PAID)` 与 `PickupFulfillment(PREPARING)`。卖家备货使用 CAS 转为 `READY`；核销在 Serializable 事务中转为 `PICKED_UP`，同时把订单转为 `RECEIVED` 并触发现有确认收货后的可靠副作用。自提订单在顺丰面单、发货、轨迹、微信物流上报和自动确认收货入口全部 fail-closed。
+
+管理端受控取消仅支持 `NORMAL_GOODS + PICKUP + PAID + PREPARING/READY`，并按 CheckoutSession 一致取消全部子订单、作废全部凭证、复用现有退款/库存/红包/消费积分/分润/数字资产回滚链。响应返回 `affectedOrderIds` 和每个子订单的 `refunds[{orderId,refundId,status}]`，页面必须提示仍处于 `PROCESSING/FAILED` 的退款，不得把“已创建退款单”表述成全部到账。
+
+### 17.3 凭证、隐私与错误契约
+
+- 短码与二维码 token 使用安全随机源；数据库仅保存 HMAC digest 和加密凭证 blob，生产缺少可用密钥时拒绝启动。
+- 核销输入必须恰好提供一种凭证；短码固定 8 位数字，二维码 payload 有签名和有效期，接口按员工/订单限流并审计。
+- 自提人、点位电话和历史点位使用加密/快照；买家读取明文凭证写去重后的 `BUYER_PASS_VIEWED` 事件，事件不保存码或 token。
+- 业务异常使用 `businessCode`，小程序以 `businessCode ?? code` 判断 `PICKUP_POINT_UNAVAILABLE` 等可恢复错误。
+- 若脏数据中 `fulfillmentMode=PICKUP` 但关联缺失，列表返回 `fulfillmentIssueCode=PICKUP_RELATION_MISSING` 并记录告警，避免一条异常订单拖垮整页；详情和操作继续 fail-closed。
+
+### 17.4 配置与灰度
+
+默认 `PICKUP_FULFILLMENT_ENABLED=false`。部署前为环境生成独立 `PICKUP_TOKEN_SECRET`，先 migrate-deploy，再配置至少一个可用点位，最后仅在 staging 开启开关并回归普通/团购/VIP。真实 PostgreSQL 并发核销、核销与取消竞态、部分退款补偿仍是上线前集成验收门槛。

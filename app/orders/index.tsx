@@ -14,7 +14,7 @@ import { AppError, Order, OrderStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
-  { id: 'PAID', label: '待发货' },
+  { id: 'PAID', label: '待履约' },
   { id: 'SHIPPED', label: '已发货' },
   { id: 'DELIVERED', label: '待收货' },
   { id: 'afterSaleList', label: '售后' },
@@ -71,14 +71,27 @@ function useOrderActions() {
   };
 
   return (order: Order) => {
+    const pickup = order.fulfillmentMode === 'PICKUP';
     switch (order.status) {
       case 'PAID':
+        if (pickup) {
+          return {
+            primaryLabel: order.pickupFulfillment?.status === 'READY' ? '查看取货码' : '查看自提进度',
+            primaryAction: () => router.push({ pathname: '/orders/[id]', params: { id: order.id } }),
+          } as const;
+        }
         return {
           primaryLabel: '联系客服',
           primaryAction: () => router.push(`/cs?source=ORDER_DETAIL&sourceId=${order.id}`),
         } as const;
       case 'SHIPPED':
       case 'DELIVERED':
+        if (pickup) {
+          return {
+            primaryLabel: '查看自提进度',
+            primaryAction: () => router.push({ pathname: '/orders/[id]', params: { id: order.id } }),
+          } as const;
+        }
         return {
           primaryLabel: '确认收货',
           primaryAction: async () => {

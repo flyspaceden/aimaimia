@@ -37,6 +37,7 @@ describe('WeChat DevTools runtime audit resilience', () => {
     expect(source).toContain('defaultSkuId: explicit.product?.skuId || detail.defaultSkuId');
     expect(source).toContain('pendingCheckout: explicit.pendingCheckout ||');
     expect(source).toContain("'packages/orders/order-track/index': { orderId: fixtures.trackingOrder?.id }");
+    expect(source).toContain("'packages/orders/pickup-pass/index': { orderId: fixtures.pickupOrder?.id");
     expect(source).toContain("'packages/group-buy/checkout-pending/index': { sessionId: fixtures.pendingCheckout?.sessionId }");
     expect(source).toContain("'packages/referral/landing/index': { code: fixtures.referralCode");
     expect(source).toContain("'packages/community/captain-landing/index': { code: fixtures.captainCode }");

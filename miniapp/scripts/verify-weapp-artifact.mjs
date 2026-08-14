@@ -44,8 +44,17 @@ const pageWxmlCount = files.filter(({ relativePath }) => (
   && relativePath !== 'comp.wxml'
 )).length;
 
-assert.equal(pageCount, 71, 'app.json 应注册 71 个运行时页面');
+assert.equal(pageCount, 72, 'app.json 应注册 72 个运行时页面');
 assert.equal(pageWxmlCount, pageCount, '每个注册页面都应生成对应 WXML');
+const ordersPackage = appConfig.subPackages.find(({ root }) => root === 'packages/orders');
+assert.ok(
+  ordersPackage?.pages.includes('pickup-pass/index'),
+  '订单分包应注册一次性取货凭证页',
+);
+assert.ok(
+  files.some(({ relativePath }) => relativePath === 'packages/orders/pickup-pass/index.wxml'),
+  '一次性取货凭证页应进入微信小程序产物',
+);
 assert.equal(
   appConfig.subPackages.some(({ root }) => /delivery/i.test(root)),
   false,

@@ -14,6 +14,7 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
           items: [{ isPrize: false }],
           afterSaleRequests: [],
         }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn(),
         count: jest.fn().mockResolvedValue(1),
       },

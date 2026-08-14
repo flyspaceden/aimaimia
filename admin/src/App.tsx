@@ -76,6 +76,7 @@ const CaptainSettlementsPage = lazy(() => import('@/pages/captain/settlements'))
 const CaptainSettingsPage = lazy(() => import('@/pages/captain/settings'));
 const ProfitReconciliationsPage = lazy(() => import('@/pages/captain/reconciliations'));
 const ProfitAdjustmentsPage = lazy(() => import('@/pages/captain/adjustments'));
+const PickupPointListPage = lazy(() => import('@/pages/pickup-points/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -136,6 +137,7 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
+            <Route path="pickup-points" element={<RequirePermission permission={PERMISSIONS.ORDERS_READ}><PickupPointListPage /></RequirePermission>} />
             <Route path="companies" element={<CompanyListPage />} />
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="users" element={<UserListPage />} />

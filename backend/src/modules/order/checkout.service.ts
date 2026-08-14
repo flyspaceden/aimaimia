@@ -42,6 +42,8 @@ import {
   PaymentOperationLockContext,
   withPaymentOperationLock as runWithPaymentOperationLock,
 } from '../../common/payments/payment-operation-lock';
+import { PickupService, ValidatedFulfillment } from '../pickup/pickup.service';
+import { resolveFulfillmentInput } from '../pickup/dto/fulfillment.dto';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -134,6 +136,7 @@ export class CheckoutService {
     private bonusConfig: BonusConfigService,
     private productBundleService: ProductBundleService = new ProductBundleService(),
     @Optional() private redisCoord?: RedisCoordinatorService,
+    @Optional() private pickupService?: PickupService,
   ) {}
 
   /** 测试或显式装配时注入支付会话锁；生产由全局 InfraModule 构造注入。 */
@@ -313,7 +316,7 @@ export class CheckoutService {
         quantity: item.quantity,
         cartItemId: item.cartItemId ?? null,
       })),
-      addressId: dto.addressId,
+      fulfillment: dto.fulfillment ?? { mode: 'DELIVERY', addressId: dto.addressId },
       paymentChannel: requestedScene === 'MINI_PROGRAM'
         ? 'WECHAT_PAY'
         : (dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] ?? dto.paymentChannel : null),
@@ -345,7 +348,7 @@ export class CheckoutService {
     return this.hashOpaqueValue(JSON.stringify({
       packageId: dto.packageId,
       giftOptionId: dto.giftOptionId,
-      addressId: dto.addressId,
+      fulfillment: dto.fulfillment ?? { mode: 'DELIVERY', addressId: dto.addressId },
       requestedScene,
       paymentChannel: this.resolveVipPaymentChannel(dto, requestedScene),
       expectedTotal: dto.expectedTotal ?? null,
@@ -1041,6 +1044,7 @@ export class CheckoutService {
       goodsAmount: current.goodsAmount,
       shippingFee: current.shippingFee,
       discountAmount: current.discountAmount,
+      fulfillmentMode: current.fulfillmentMode ?? 'DELIVERY',
       paymentScene: requestedScene,
       paymentParams: fenced.paymentParams,
     };
@@ -1145,6 +1149,7 @@ export class CheckoutService {
         couponInstanceIds: current.couponInstanceIds ?? [],
         excludedItems,
         paymentScene: requestedScene,
+        fulfillmentMode: (current as any).fulfillmentMode ?? 'DELIVERY',
         paymentParams: fenced.paymentParams,
       };
     };
@@ -1503,12 +1508,13 @@ export class CheckoutService {
       throw new BadRequestException('没有可结算的商品（赠品未解锁或奖品已过期）');
     }
 
-    // 5. 地址快照
+    // 5. 履约方式与地址快照
+    const resolvedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
     let addressSnapshot: any = null;
     let regionCode: string | undefined;
-    if (dto.addressId) {
+    if (resolvedFulfillment.mode === 'DELIVERY') {
       const address = await this.prisma.address.findUnique({
-        where: { id: dto.addressId, userId, deletedAt: null },
+        where: { id: resolvedFulfillment.addressId, userId, deletedAt: null },
       });
       if (address) {
         regionCode = address.regionCode;
@@ -1525,10 +1531,10 @@ export class CheckoutService {
         };
       }
     }
-    if (!addressSnapshot) {
+    if (resolvedFulfillment.mode === 'DELIVERY' && !addressSnapshot) {
       throw new BadRequestException('请选择有效的收货地址');
     }
-    const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
+    const encryptedAddressSnapshot = addressSnapshot ? encryptJsonValue(addressSnapshot) : null;
 
     // 6. 按 companyId 分组
     const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -1557,6 +1563,18 @@ export class CheckoutService {
         ),
       }))
       .sort((a, b) => b.goodsAmount - a.goodsAmount);
+
+    let validatedFulfillment: ValidatedFulfillment;
+    if (resolvedFulfillment.mode === 'PICKUP') {
+      if (!this.pickupService) throw new ServiceUnavailableException('自提履约服务不可用');
+      validatedFulfillment = await this.pickupService.validateCheckoutFulfillment(
+        this.prisma as unknown as Prisma.TransactionClient,
+        companyGroups.map((group) => group.companyId),
+        resolvedFulfillment,
+      );
+    } else {
+      validatedFulfillment = resolvedFulfillment;
+    }
 
     // VIP 折扣计算：VIP 用户对非奖励商品打折（平台补贴）
     let vipDiscountAmount = 0;
@@ -1591,12 +1609,14 @@ export class CheckoutService {
     const totalGoodsForShipping = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
     const totalWeightForShipping = companyGroups.reduce((s, g) => s + g.totalWeight, 0);
     const isVip = !!vipNode;
-    const shippingDetail = await this.calculateShippingDetailForCheckout(
-      totalGoodsForShipping,
-      regionCode,
-      totalWeightForShipping,
-      isVip,
-    );
+    const shippingDetail = resolvedFulfillment.mode === 'PICKUP'
+      ? { fee: 0 }
+      : await this.calculateShippingDetailForCheckout(
+          totalGoodsForShipping,
+          regionCode,
+          totalWeightForShipping,
+          isVip,
+        );
     const totalShippingFee = shippingDetail.fee;
     // 运费统一记录到快照中（每个商品项记录总运费，建单时按比例分配）
     for (const item of snapshotItems) {
@@ -1715,6 +1735,14 @@ export class CheckoutService {
               message: '你有未完成的订单，请先完成支付或取消',
             });
           }
+
+          const trustedFulfillment = resolvedFulfillment.mode === 'PICKUP'
+            ? await this.pickupService!.validateCheckoutFulfillment(
+                tx,
+                companyGroups.map((group) => group.companyId),
+                resolvedFulfillment,
+              )
+            : validatedFulfillment;
 
           // 消费积分抵扣 CAS 预留（在事务内执行，回滚时自动恢复）
           let discountAmount = 0;
@@ -1847,7 +1875,14 @@ export class CheckoutService {
                 checkoutSource,
               } as unknown as Prisma.InputJsonValue,
               itemsSnapshot: snapshotItems as any,
+              fulfillmentMode: trustedFulfillment.mode,
               addressSnapshot: encryptedAddressSnapshot as any,
+              pickupRecipientSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.recipientSnapshot
+                : null,
+              pickupSelectionsSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.selectionsSnapshot as unknown as Prisma.InputJsonValue
+                : null,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
               deductionGroupId,
               groupBuyRebateDeductionGroupId,
@@ -2062,25 +2097,33 @@ export class CheckoutService {
       );
     }
 
-    // 5. 地址快照
-    const address = await this.prisma.address.findUnique({
-      where: { id: dto.addressId, userId, deletedAt: null },
-    });
-    if (!address) {
-      throw new BadRequestException('收货地址无效');
+    // 5. 履约方式与地址快照
+    const resolvedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
+    let encryptedAddressSnapshot: unknown = null;
+    if (resolvedFulfillment.mode === 'DELIVERY') {
+      const address = await this.prisma.address.findUnique({
+        where: { id: resolvedFulfillment.addressId, userId, deletedAt: null },
+      });
+      if (!address) throw new BadRequestException('收货地址无效');
+      const region = parseChineseAddress(address.regionText);
+      encryptedAddressSnapshot = encryptJsonValue({
+        recipientName: address.recipientName,
+        phone: address.phone,
+        regionCode: address.regionCode,
+        regionText: address.regionText,
+        province: region.province,
+        city: region.city,
+        district: region.district,
+        detail: address.detail,
+      });
+    } else {
+      if (!this.pickupService) throw new ServiceUnavailableException('自提履约服务不可用');
+      await this.pickupService.validateCheckoutFulfillment(
+        this.prisma as unknown as Prisma.TransactionClient,
+        [PLATFORM_COMPANY_ID],
+        resolvedFulfillment,
+      );
     }
-    const region = parseChineseAddress(address.regionText);
-    const addressSnapshot = {
-      recipientName: address.recipientName,
-      phone: address.phone,
-      regionCode: address.regionCode,
-      regionText: address.regionText,
-      province: region.province,
-      city: region.city,
-      district: region.district,
-      detail: address.detail,
-    };
-    const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
 
     // 6. 商品快照（多商品组合）
     //    Phase 3 Review Fix 1：嵌套 productSnapshot 结构对齐普通 checkout
@@ -2187,6 +2230,14 @@ export class CheckoutService {
             throw new BadRequestException('您已是 VIP 会员，无需重复购买');
           }
 
+          const trustedFulfillment: ValidatedFulfillment = resolvedFulfillment.mode === 'PICKUP'
+            ? await this.pickupService!.validateCheckoutFulfillment(
+                tx,
+                [PLATFORM_COMPANY_ID],
+                resolvedFulfillment,
+              )
+            : resolvedFulfillment;
+
           // 商户订单号
           const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
           // VIP 会话过期时间（5 分钟）；小程序可在窗口内通过专用端点恢复续付。
@@ -2200,7 +2251,14 @@ export class CheckoutService {
               bizType: 'VIP_PACKAGE',
               bizMeta,
               itemsSnapshot: itemsSnapshot as any,
+              fulfillmentMode: trustedFulfillment.mode,
               addressSnapshot: encryptedAddressSnapshot as any,
+              pickupRecipientSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.recipientSnapshot
+                : null,
+              pickupSelectionsSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.selectionsSnapshot as unknown as Prisma.InputJsonValue
+                : null,
               paymentChannel: paymentChannel as any,
               paymentScene: requestedScene as PaymentScene,
               expectedTotal: vipPrice,
@@ -3008,6 +3066,7 @@ export class CheckoutService {
             // 3. 解析快照
             const items = session.itemsSnapshot as unknown as SnapshotItem[];
             const addressSnapshot = session.addressSnapshot;
+            const fulfillmentMode = (session as any).fulfillmentMode ?? 'DELIVERY';
             const sessionBizType = (session as any).bizType || 'NORMAL_GOODS';
             const isVipPackageSession = sessionBizType === 'VIP_PACKAGE';
             if (isVipPackageSession && (session as any).deductionGroupId) {
@@ -3052,7 +3111,7 @@ export class CheckoutService {
             const totalSessionGoodsAmount = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
             const groupShippingFees = this.allocateShippingFeeByGoodsAmount(
               companyGroups.map((group) => group.goodsAmount),
-              session.shippingFee,
+              fulfillmentMode === 'PICKUP' ? 0 : session.shippingFee,
             );
 
             // 6. 创建订单（含红包抵扣）
@@ -3221,6 +3280,7 @@ export class CheckoutService {
                   userId: session.userId,
                   checkoutSessionId: session.id,
                   status: 'PAID',
+                  fulfillmentMode,
                   // 传递业务类型（VIP_PACKAGE / NORMAL_GOODS）
                   bizType: sessionBizType,
                   bizMeta: (session as any).bizMeta || undefined,
@@ -3251,6 +3311,18 @@ export class CheckoutService {
                   },
                 },
               });
+
+              if (fulfillmentMode === 'PICKUP') {
+                if (!this.pickupService) {
+                  throw new InternalServerErrorException('自提履约服务不可用');
+                }
+                await this.pickupService.createForPaidOrder(tx, {
+                  orderId: order.id,
+                  companyId: group.companyId,
+                  recipientSnapshot: (session as any).pickupRecipientSnapshot,
+                  selectionsSnapshot: (session as any).pickupSelectionsSnapshot,
+                });
+              }
 
               const profitSnapshot = (
                 sessionBizType === 'NORMAL_GOODS'

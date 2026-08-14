@@ -125,6 +125,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       LotteryPrize: 'lotteryPrize',
       VipGiftOption: 'vipGiftOption',
       Invoice: 'invoice',
+      PickupPoint: 'pickupPoint',
     };
 
     const modelName = modelMap[targetType];
@@ -189,6 +190,12 @@ export class AuditLogInterceptor implements NestInterceptor {
       LOGOUT: '登出',
     };
     const actionLabel = actionLabels[meta.action] || meta.action;
-    return `${actionLabel} ${meta.module}${meta.targetType ? ` [${meta.targetType}]` : ''}`;
+    const base = `${actionLabel} ${meta.module}${meta.targetType ? ` [${meta.targetType}]` : ''}`;
+    if (!meta.reasonBodyField) return base;
+
+    const rawReason = request.body?.[meta.reasonBodyField];
+    if (typeof rawReason !== 'string' || !rawReason.trim()) return base;
+    const reason = sanitizeForLog(rawReason.trim(), { maxStringLength: 200 });
+    return `${base}；原因：${String(reason)}`;
   }
 }

@@ -260,6 +260,9 @@ export class SellerShippingService {
       if (!order) {
         throw new NotFoundException('订单不存在');
       }
+      if (order.fulfillmentMode === 'PICKUP') {
+        throw new BadRequestException('自提订单不能生成快递面单');
+      }
 
       const orderItems = await tx.orderItem.findMany({
         where: { orderId, companyId },

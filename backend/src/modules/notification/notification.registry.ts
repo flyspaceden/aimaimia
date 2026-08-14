@@ -37,6 +37,15 @@ export class NotificationRegistry {
           entityType: 'order',
           routeKey: 'ORDER_DETAIL',
         });
+      case 'order.pickupReady':
+        return this.buyer(event, {
+          category: 'order',
+          title: '订单已可自提',
+          body: '商家已备货完成，请凭取货码或二维码到店取货。',
+          severity: 'SUCCESS',
+          entityType: 'order',
+          routeKey: 'ORDER_DETAIL',
+        });
       case 'order.receiverInfoRequired':
         return this.buyer(event, {
           category: 'order',

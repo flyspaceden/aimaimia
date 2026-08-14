@@ -8,7 +8,9 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { FulfillmentInputDto } from '../../pickup/dto/fulfillment.dto';
 
 export class GroupBuyCheckoutDto {
   @IsString()
@@ -16,10 +18,16 @@ export class GroupBuyCheckoutDto {
   @MaxLength(64)
   activityId: string;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  addressId: string;
+  addressId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FulfillmentInputDto)
+  fulfillment?: FulfillmentInputDto;
 
   @IsOptional()
   @IsString()

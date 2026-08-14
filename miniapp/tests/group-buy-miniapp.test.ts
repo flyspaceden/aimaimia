@@ -18,7 +18,8 @@ const postMock = vi.hoisted(() => vi.fn());
 vi.mock('@/api/client', () => ({ ApiClient: { get: getMock, post: postMock } }));
 
 const activity: GroupBuyActivity = {
-  id: 'activity-1',
+      id: 'activity-1',
+      companyId: 'company-1',
   status: 'ACTIVE',
   startAt: null,
   endAt: '2026-08-10T00:00:00.000Z',
@@ -82,6 +83,7 @@ describe('WeChat mini-program group-buy', () => {
     await expect(MiniGroupBuyRepo.createMiniProgramCheckout(untrusted)).resolves.toMatchObject({ ok: true });
     expect(postMock).toHaveBeenCalledWith('/group-buy/checkout/mini-program', {
       activityId: 'activity-1', addressId: 'address-1', expectedTotal: 1012,
+      fulfillment: { mode: 'DELIVERY', addressId: 'address-1' },
       shareCode: 'ABCDEF2345', idempotencyKey: 'group-buy-key-1',
     });
     const sent = postMock.mock.calls[0][1];
@@ -96,6 +98,7 @@ describe('WeChat mini-program group-buy', () => {
     await MiniGroupBuyRepo.previewCheckout(untrusted);
     expect(postMock).toHaveBeenLastCalledWith('/group-buy/checkout/preview', {
       activityId: 'activity-1', addressId: 'address-1', expectedTotal: 1012,
+      fulfillment: { mode: 'DELIVERY', addressId: 'address-1' },
       shareCode: 'ABCDEF2345',
     });
   });

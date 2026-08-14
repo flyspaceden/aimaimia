@@ -245,6 +245,7 @@ export class ShipmentService {
     // 验证订单归属
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order || order.userId !== userId) throw new NotFoundException('订单未找到');
+    if (order.fulfillmentMode === 'PICKUP') return null;
 
     const shipments = await this.prisma.shipment.findMany({
       where: { orderId },
@@ -347,6 +348,13 @@ export class ShipmentService {
         return { ok: true };
       }
       throw new NotFoundException('物流单号未找到');
+    }
+    const shipmentOrder = await this.prisma.order.findUnique({
+      where: { id: shipment.orderId },
+      select: { fulfillmentMode: true },
+    });
+    if (!shipmentOrder || shipmentOrder.fulfillmentMode === 'PICKUP') {
+      throw new ConflictException('自提订单不接收快递物流回调');
     }
 
     const incomingEventCount = events?.length ?? 0;
@@ -482,7 +490,11 @@ export class ShipmentService {
                   rewardSafeWindowMs,
               );
               const casResult = await tx.order.updateMany({
-                where: { id: shipment.orderId, status: 'SHIPPED' },
+                where: {
+                  id: shipment.orderId,
+                  fulfillmentMode: 'DELIVERY',
+                  status: 'SHIPPED',
+                },
                 data: {
                   status: 'DELIVERED',
                   deliveredAt: now,

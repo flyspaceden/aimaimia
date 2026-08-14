@@ -445,6 +445,7 @@ export class WechatShippingOutboxService {
           select: {
             id: true,
             status: true,
+            fulfillmentMode: true,
             addressSnapshot: true,
             items: {
               where: { deletedAt: null },
@@ -479,6 +480,13 @@ export class WechatShippingOutboxService {
     }
     if (!session.miniProgramPayerOpenId) {
       return this.invalid(session.id, 'PAYER_OPENID_MISSING', '小程序支付身份快照缺失');
+    }
+    if (session.orders.some(
+      (order) => order.fulfillmentMode === 'PICKUP'
+        && order.status !== 'CANCELED'
+        && order.status !== 'REFUNDED',
+    )) {
+      return { kind: 'NOT_ELIGIBLE' };
     }
 
     const activeOrders = session.orders.filter(

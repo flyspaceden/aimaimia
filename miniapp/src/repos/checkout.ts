@@ -10,6 +10,8 @@ import type {
   MiniProgramVipCheckoutInput,
   PendingCheckout,
   PendingVipCheckout,
+  PickupPoint,
+  PickupPointGroup,
   Result,
 } from '@/types';
 import { isCheckoutSession, isMiniProgramPaymentParams } from '@/types';
@@ -62,7 +64,8 @@ export const CheckoutRepo = {
         ...(item.cartItemId !== undefined && { cartItemId: item.cartItemId }),
       })),
       ...(input.checkoutSource !== undefined && { checkoutSource: input.checkoutSource }),
-      addressId: input.addressId,
+      ...(input.addressId !== undefined && { addressId: input.addressId }),
+      ...(input.fulfillment ? { fulfillment: input.fulfillment } : input.addressId ? { fulfillment: { mode: 'DELIVERY' as const, addressId: input.addressId } } : {}),
       expectedTotal: input.expectedTotal,
       ...(input.couponInstanceIds !== undefined && {
         couponInstanceIds: input.couponInstanceIds,
@@ -76,7 +79,8 @@ export const CheckoutRepo = {
     createSession('/orders/vip-checkout/mini-program', {
       packageId: input.packageId,
       giftOptionId: input.giftOptionId,
-      addressId: input.addressId,
+      ...(input.addressId !== undefined && { addressId: input.addressId }),
+      ...(input.fulfillment ? { fulfillment: input.fulfillment } : input.addressId ? { fulfillment: { mode: 'DELIVERY' as const, addressId: input.addressId } } : {}),
       expectedTotal: input.expectedTotal,
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.buyerNote !== undefined && { buyerNote: input.buyerNote }),
@@ -117,4 +121,36 @@ export const CheckoutRepo = {
     ApiClient.post<CrossSceneCheckoutResult>(
       `/orders/checkout/${sessionId}/switch-to-mini-program`,
     ),
+
+  async listPickupPoints(companyIds: string[]): Promise<Result<PickupPointGroup[]>> {
+    const result = await ApiClient.get<unknown>('/orders/pickup-points', {
+      companyIds: [...new Set(companyIds)].join(','),
+    });
+    if (!result.ok) return result;
+    const raw = result.data as { items?: unknown };
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.items)) {
+      return invalidContract('pickup points');
+    }
+    const items = raw.items as Array<Record<string, unknown>>;
+    const valid = items.every((group) => typeof group.companyId === 'string'
+      && typeof group.companyName === 'string'
+      && Array.isArray(group.points)
+      && group.points.every((point) => isPickupPoint(point)));
+    return valid
+      ? { ok: true, data: items as unknown as PickupPointGroup[] }
+      : invalidContract('pickup points');
+  },
 };
+
+function isPickupPoint(value: unknown): value is PickupPoint {
+  if (!value || typeof value !== 'object') return false;
+  const point = value as Record<string, unknown>;
+  return typeof point.id === 'string'
+    && typeof point.companyId === 'string'
+    && typeof point.name === 'string'
+    && typeof point.contactName === 'string'
+    && typeof point.contactPhoneMasked === 'string'
+    && typeof point.regionText === 'string'
+    && typeof point.detail === 'string'
+    && Object.prototype.hasOwnProperty.call(point, 'businessHours');
+}

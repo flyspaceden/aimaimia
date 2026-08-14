@@ -27,6 +27,7 @@ import {
 import { PERMISSIONS } from '@/constants/permissions';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import dayjs from 'dayjs';
+import { pickupStatusMap } from '@/utils/pickup';
 
 const { Text } = Typography;
 
@@ -104,6 +105,10 @@ export default function OrderListPage() {
     trackingNo?: string;
   }) => {
     if (!currentOrder) return;
+    if (currentOrder.fulfillmentMode === 'PICKUP') {
+      message.error('到店自提订单不能走快递发货');
+      return;
+    }
     setShipLoading(true);
     try {
       const result = await shipOrder(currentOrder.id, values);
@@ -118,7 +123,7 @@ export default function OrderListPage() {
       shipForm.resetFields();
       actionRef.current?.reload();
       loadStats();
-    } catch (err: any) {
+    } catch (err: unknown) {
       message.error(`发货失败：${getAdminErrorMessage(err, '请检查订单状态后重试')}`);
     } finally {
       setShipLoading(false);
@@ -127,7 +132,10 @@ export default function OrderListPage() {
 
   // 待发货行高亮
   const rowClassName = (record: Order) => {
-    if (record.status === 'PAID') return 'order-row-pending-ship';
+    if (record.fulfillmentMode === 'PICKUP' && record.pickupFulfillment?.status === 'READY') {
+      return 'order-row-pending-pickup';
+    }
+    if (record.fulfillmentMode !== 'PICKUP' && record.status === 'PAID') return 'order-row-pending-ship';
     return '';
   };
 
@@ -251,6 +259,36 @@ export default function OrderListPage() {
       },
     },
     {
+      title: '履约方式',
+      dataIndex: 'fulfillmentMode',
+      width: 110,
+      valueType: 'select',
+      valueEnum: {
+        DELIVERY: { text: '送货上门' },
+        PICKUP: { text: '到店自提' },
+      },
+      render: (_: unknown, record: Order) => (
+        <Tag color={record.fulfillmentMode === 'PICKUP' ? 'green' : 'blue'}>
+          {record.fulfillmentMode === 'PICKUP' ? '到店自提' : '送货上门'}
+        </Tag>
+      ),
+    },
+    {
+      title: '自提状态',
+      dataIndex: 'pickupStatus',
+      width: 105,
+      valueType: 'select',
+      valueEnum: Object.fromEntries(
+        Object.entries(pickupStatusMap).map(([key, value]) => [key, { text: value.text }]),
+      ),
+      render: (_: unknown, record: Order) => {
+        const pickupStatus = record.pickupFulfillment?.status;
+        if (!pickupStatus) return <Text type="secondary">-</Text>;
+        const meta = pickupStatusMap[pickupStatus];
+        return <Tag color={meta.color}>{meta.text}</Tag>;
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 100,
@@ -306,7 +344,7 @@ export default function OrderListPage() {
           </Button>
           {/* Bug 86: VIP_PACKAGE 也允许在管理后台发货（默认 useCarrierAuto） */}
           <PermissionGate permission={PERMISSIONS.ORDERS_SHIP}>
-            {record.status === 'PAID' && (
+            {record.status === 'PAID' && record.fulfillmentMode !== 'PICKUP' && (
               <Button
                 type="link"
                 size="small"
@@ -417,7 +455,20 @@ export default function OrderListPage() {
             paymentMethod: paymentChannel,
             companyId,
             userId,
-          } = params as any;
+            fulfillmentMode,
+            pickupStatus,
+          } = params as {
+            current?: number;
+            pageSize?: number;
+            startDate?: string;
+            endDate?: string;
+            orderNo?: string;
+            paymentMethod?: string;
+            companyId?: string;
+            userId?: string;
+            fulfillmentMode?: 'DELIVERY' | 'PICKUP';
+            pickupStatus?: 'PREPARING' | 'READY' | 'PICKED_UP' | 'VOID' | 'CANCELED';
+          };
           const statusFilter = activeTab !== 'ALL' ? activeTab : undefined;
           const res = await getOrders({
             page: current,
@@ -429,10 +480,12 @@ export default function OrderListPage() {
             companyId: companyId || undefined,
             userId: userId || undefined,
             paymentChannel: paymentChannel || undefined,
+            fulfillmentMode: fulfillmentMode || undefined,
+            pickupStatus: pickupStatus || undefined,
           });
           return { data: res.items, total: res.total, success: true };
         }}
-        scroll={{ x: 1300 }}
+        scroll={{ x: 1500 }}
         search={{ labelWidth: 'auto', defaultCollapsed: false }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true, showQuickJumper: true }}
         rowClassName={rowClassName}
@@ -515,6 +568,12 @@ export default function OrderListPage() {
         }
         .order-row-pending-ship:hover > td {
           background: #bae0ff !important;
+        }
+        .order-row-pending-pickup {
+          background: #f6ffed !important;
+        }
+        .order-row-pending-pickup:hover > td {
+          background: #d9f7be !important;
         }
       `}</style>
     </div>

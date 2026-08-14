@@ -665,7 +665,77 @@ describe("GroupBuyCheckoutService", () => {
       goodsAmount: 1000,
       shippingFee: 12.34,
       discountAmount: 0,
+      fulfillmentMode: 'DELIVERY',
+      pickupSelections: [],
     });
+  });
+
+  it("团购自提 preview/create 都锁定平台点位且运费为 0", async () => {
+    const { tx, service } = buildPrisma();
+    tx.groupBuyActivity.findUnique.mockResolvedValue({
+      ...buildActivity(),
+      freeShipping: false,
+    });
+    const pickupService = {
+      validateCheckoutFulfillment: jest.fn().mockResolvedValue({
+        mode: 'PICKUP',
+        recipientSnapshot: { encrypted: true },
+        selectionsSnapshot: [{
+          companyId: PLATFORM_COMPANY_ID,
+          pickupPointId: 'point-platform',
+          pickupPointSnapshot: {
+            id: 'point-platform',
+            companyId: PLATFORM_COMPANY_ID,
+            name: '平台自提点',
+            regionText: '北京市',
+            detail: '1 号',
+          },
+        }],
+      }),
+    };
+    (service as any).pickupService = pickupService;
+    const pickupDto = {
+      activityId: 'activity_1',
+      expectedTotal: 1000,
+      paymentChannel: 'wechat',
+      fulfillment: {
+        mode: 'PICKUP',
+        recipientName: '王五',
+        recipientPhone: '13812345678',
+        selections: [{
+          companyId: PLATFORM_COMPANY_ID,
+          pickupPointId: 'point-platform',
+        }],
+      },
+    } as any;
+
+    const preview = await service.previewCheckout('user_1', pickupDto);
+    const checkout = await service.createCheckout('user_1', pickupDto);
+
+    expect(preview).toEqual(expect.objectContaining({
+      fulfillmentMode: 'PICKUP',
+      shippingFee: 0,
+      expectedTotal: 1000,
+    }));
+    expect(checkout).toEqual(expect.objectContaining({
+      fulfillmentMode: 'PICKUP',
+      shippingFee: 0,
+      expectedTotal: 1000,
+    }));
+    expect(tx.checkoutSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        fulfillmentMode: 'PICKUP',
+        addressSnapshot: null,
+        pickupRecipientSnapshot: { encrypted: true },
+        pickupSelectionsSnapshot: expect.any(Array),
+        shippingFee: 0,
+      }),
+    }));
+    expect(pickupService.validateCheckoutFulfillment).toHaveBeenCalledWith(
+      tx,
+      [PLATFORM_COMPANY_ID],
+      expect.objectContaining({ mode: 'PICKUP' }),
+    );
   });
 
   it("creates multi-item snapshots whose line totals equal the configured group-buy price", async () => {
@@ -761,6 +831,7 @@ describe("GroupBuyCheckoutService", () => {
 describe("CheckoutService group-buy payment success integration", () => {
   const buildCheckoutHarness = (
     bizMetaOverrides: Record<string, unknown> = {},
+    sessionOverrides: Record<string, unknown> = {},
   ) => {
     const session = {
       id: "session_1",
@@ -812,6 +883,7 @@ describe("CheckoutService group-buy payment success integration", () => {
           },
         },
       ],
+      ...sessionOverrides,
     };
 
     const tx = {
@@ -946,6 +1018,42 @@ describe("CheckoutService group-buy payment success integration", () => {
         select: { id: true },
       }),
     );
+  });
+
+  it("团购自提支付回调建单并在同一事务创建 PREPARING 履约", async () => {
+    const pickupRecipientSnapshot = { encrypted: 'recipient' };
+    const pickupSelectionsSnapshot = [{
+      companyId: PLATFORM_COMPANY_ID,
+      pickupPointId: 'point-platform',
+      pickupPointSnapshot: { id: 'point-platform', companyId: PLATFORM_COMPANY_ID },
+    }];
+    const { service, tx } = buildCheckoutHarness({}, {
+      fulfillmentMode: 'PICKUP',
+      addressSnapshot: null,
+      pickupRecipientSnapshot,
+      pickupSelectionsSnapshot,
+    });
+    const pickupService = {
+      createForPaidOrder: jest.fn().mockResolvedValue({ id: 'pf1', status: 'PREPARING' }),
+    };
+    (service as any).pickupService = pickupService;
+
+    const result = await service.handlePaymentSuccess('GB_ORDER_1', 'provider_txn_1');
+
+    expect(result.orderIds).toEqual(['order_1']);
+    expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        fulfillmentMode: 'PICKUP',
+        addressSnapshot: null,
+        shippingFee: 0,
+      }),
+    }));
+    expect(pickupService.createForPaidOrder).toHaveBeenCalledWith(tx, {
+      orderId: 'order_1',
+      companyId: PLATFORM_COMPANY_ID,
+      recipientSnapshot: pickupRecipientSnapshot,
+      selectionsSnapshot: pickupSelectionsSnapshot,
+    });
   });
 
   it("does not create a second group-buy instance or code on payment callback retry", async () => {

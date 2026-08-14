@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CheckoutSource } from '../checkout-source';
+import { FulfillmentInputDto } from '../../pickup/dto/fulfillment.dto';
 
 export class CreateOrderItemDto {
   @IsString()
@@ -49,6 +50,11 @@ export class CreateOrderDto {
   @IsString()
   @MaxLength(64)
   addressId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FulfillmentInputDto)
+  fulfillment?: FulfillmentInputDto;
 
   /** 选中的奖励 ID（用于抵扣） */
   @IsOptional()

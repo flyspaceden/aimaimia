@@ -1,4 +1,9 @@
 import type { Cart } from './cart';
+import type {
+  FulfillmentMode,
+  PickupFulfillmentSummary,
+  PickupPass,
+} from './fulfillment';
 
 export type FulfillmentOrderStatus =
   | 'PAID'
@@ -55,6 +60,9 @@ export type Order = {
   id: string;
   status: OrderStatus;
   bizType?: OrderBizType;
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
   repurchasable?: boolean;
   totalPrice: number;
   goodsAmount?: number;
@@ -123,6 +131,8 @@ export type Order = {
   } | null;
   items: OrderItem[];
 };
+
+export type { PickupPass };
 
 /** 后端状态计数不为历史 PENDING_PAYMENT 提供新的待付款入口。 */
 export type OrderStatusCounts = Record<FulfillmentOrderStatus, number> & { afterSale: number };

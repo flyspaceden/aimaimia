@@ -9,7 +9,8 @@ describe('money pages follow the authenticated account generation', () => {
     const vip = source('src/packages/benefits/vip-gifts/index.tsx');
 
     expect(vip).toContain('CheckoutRepo.getPendingVip()');
-    expect(vip).toContain("created.error.code === 'PENDING_CHECKOUT_EXISTS'");
+    expect(vip).toContain('const errorCode = resolveAppErrorCode(created.error)');
+    expect(vip).toContain("errorCode === 'PENDING_CHECKOUT_EXISTS'");
     expect(vip).toContain('current.revision === revisionAtStart');
     expect(vip).toContain('current.userId === userIdAtStart');
     expect(vip).toContain("setPendingSession(undefined)");

@@ -1,7 +1,7 @@
 import { BookingStatus, GroupStatus, OrderStatus, AfterSaleDetailStatus, AfterSaleType } from '../types';
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
-  PAID: '待发货',
+  PAID: '待履约',
   SHIPPED: '已发货',
   DELIVERED: '已送达',
   RECEIVED: '已收货',

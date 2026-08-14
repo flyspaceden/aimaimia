@@ -6,7 +6,9 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from "class-validator";
+import { FulfillmentInputDto } from "../../pickup/dto/fulfillment.dto";
 
 /**
  * 小程序团购结算只接受业务选择，不接受支付渠道、OpenID 或优惠字段。
@@ -18,10 +20,16 @@ export class MiniProgramGroupBuyCheckoutDto {
   @MaxLength(64)
   activityId: string;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  addressId: string;
+  addressId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FulfillmentInputDto)
+  fulfillment?: FulfillmentInputDto;
 
   @IsOptional()
   @IsString()

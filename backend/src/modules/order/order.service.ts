@@ -40,6 +40,8 @@ import {
   CaptainReleaseReason,
 } from '../captain/captain-commission.service';
 import { centsToYuan, yuanToCents } from '../profit/money-allocation';
+import { PickupService, ValidatedFulfillment } from '../pickup/pickup.service';
+import { resolveFulfillmentInput } from '../pickup/dto/fulfillment.dto';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -107,6 +109,13 @@ type PostReceiveAssetSettlement = {
   autoVipFailed?: boolean;
 };
 
+type PaidCancellationContext = {
+  actorType: 'BUYER' | 'ADMIN';
+  actorId: string;
+  reason: string;
+  allowReadyPickup: boolean;
+};
+
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
@@ -134,6 +143,7 @@ export class OrderService {
   // GrowthEventService 通过 setter 注入，确认收货后异步发普通积分/成长值
   private growthEventService: GrowthEventService | null = null;
   private captainCommissionService: CaptainCommissionService | null = null;
+  private pickupService: PickupService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -150,6 +160,28 @@ export class OrderService {
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
   setShippingRuleService(service: any) {
     this.shippingRuleService = service;
+  }
+
+  setPickupService(service: PickupService) {
+    this.pickupService = service;
+  }
+
+  private mapPickupFulfillment(order: any) {
+    if ((order.fulfillmentMode ?? 'DELIVERY') !== 'PICKUP') return null;
+    if (!this.pickupService) {
+      throw new Error('[OrderService] PICKUP 自提履约服务未注入');
+    }
+    if (!order.pickupFulfillment) {
+      this.logger.error(`PICKUP 订单缺少履约关联: orderId=${order.id}`);
+      return null;
+    }
+    return this.pickupService.mapOrderPickup(order.pickupFulfillment);
+  }
+
+  private pickupFulfillmentIssueCode(order: any) {
+    return (order.fulfillmentMode ?? 'DELIVERY') === 'PICKUP' && !order.pickupFulfillment
+      ? 'PICKUP_RELATION_MISSING'
+      : null;
   }
 
   /** 注入红包服务（用于 preview 估算优惠券折扣） */
@@ -526,6 +558,7 @@ export class OrderService {
         where,
         include: {
           items: true,
+          pickupFulfillment: true,
           shipments: {
             select: {
               status: true,
@@ -643,6 +676,7 @@ export class OrderService {
         order: {
           include: {
             items: true,
+            pickupFulfillment: true,
             afterSaleRequests: {
               orderBy: { createdAt: 'desc' },
               take: 1,
@@ -676,6 +710,7 @@ export class OrderService {
         order: {
           include: {
             items: true,
+            pickupFulfillment: true,
             afterSaleRequests: {
               orderBy: { createdAt: 'desc' },
               take: 1,
@@ -718,6 +753,7 @@ export class OrderService {
       where: { id },
       include: {
         items: true,
+        pickupFulfillment: true,
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' }, take: 1 },
         refunds: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -784,6 +820,10 @@ export class OrderService {
       const order = await tx.order.findUnique({ where: { id } });
       if (!order) throw new NotFoundException('订单未找到');
       if (order.userId !== userId) throw new NotFoundException('订单未找到');
+
+      if (order.fulfillmentMode === 'PICKUP') {
+        throw new BadRequestException('自提订单不支持修改收货地址');
+      }
 
       if ((order.bizType || 'NORMAL_GOODS') !== 'NORMAL_GOODS') {
         throw new BadRequestException('当前订单类型不支持修改收货信息');
@@ -1270,6 +1310,11 @@ export class OrderService {
         throw new BadRequestException('立即购买不能关联购物车项');
       }
     }
+    const requestedFulfillment = dto.fulfillment
+      ? resolveFulfillmentInput(dto.fulfillment, dto.addressId)
+      : dto.addressId
+        ? ({ mode: 'DELIVERY', addressId: dto.addressId.trim() } as const)
+        : null;
 
     // 查询所有 SKU 信息
     const skuIds = dto.items.map((i) => i.skuId);
@@ -1554,11 +1599,30 @@ export class OrderService {
       }
     }
 
+    // 先完成商家分组，再以同一组 companyIds 校验自提点归属。
+    const fulfillmentCompanyIds = [...new Set(previewItems.map((item) => item.companyId))];
+    let validatedFulfillment: ValidatedFulfillment | null = null;
+    if (requestedFulfillment?.mode === 'PICKUP') {
+      if (!this.pickupService) {
+        throw new BadRequestException('自提服务暂不可用');
+      }
+      validatedFulfillment = await this.pickupService.validateCheckoutFulfillment(
+        this.prisma as unknown as Prisma.TransactionClient,
+        fulfillmentCompanyIds,
+        requestedFulfillment,
+      );
+    } else if (requestedFulfillment?.mode === 'DELIVERY') {
+      validatedFulfillment = requestedFulfillment;
+    }
+
     // 查询收货地址的 regionCode（用于三维运费规则匹配）
     let regionCode: string | undefined;
-    if (dto.addressId) {
+    const deliveryAddressId = validatedFulfillment?.mode === 'DELIVERY'
+      ? validatedFulfillment.addressId
+      : (!requestedFulfillment && dto.addressId ? dto.addressId : undefined);
+    if (deliveryAddressId) {
       const address = await this.prisma.address.findUnique({
-        where: { id: dto.addressId, userId, deletedAt: null },
+        where: { id: deliveryAddressId, userId, deletedAt: null },
         select: { regionCode: true },
       });
       if (!address) {
@@ -1594,9 +1658,12 @@ export class OrderService {
     // 运费：平台统一发货，用整单总金额和总重量计算一次运费（VIP 享受更低免运费门槛）
     const totalGoodsAmountForShipping = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
     const totalWeightForShipping = companyGroups.reduce((s, g) => s + g.totalWeight, 0);
-    const singleShippingFee = await this.calculateShippingFee(
-      '__PLATFORM__', totalGoodsAmountForShipping, undefined, regionCode, totalWeightForShipping, isVip,
-    );
+    const fulfillmentMode = validatedFulfillment?.mode ?? 'DELIVERY';
+    const singleShippingFee = fulfillmentMode === 'PICKUP'
+      ? 0
+      : await this.calculateShippingFee(
+          '__PLATFORM__', totalGoodsAmountForShipping, undefined, regionCode, totalWeightForShipping, isVip,
+        );
     const groups: (typeof companyGroups[0] & { shippingFee: number; discountAmount: number })[] =
       companyGroups.map((g) => ({ ...g, shippingFee: 0, discountAmount: 0 }));
 
@@ -1721,9 +1788,11 @@ export class OrderService {
 
     // 计算免运费门槛提示信息
     const sysConfig = await this.bonusConfig.getSystemConfig();
-    const freeShippingThreshold = isVip
-      ? sysConfig.vipFreeShippingThreshold
-      : sysConfig.normalFreeShippingThreshold;
+    const freeShippingThreshold = fulfillmentMode === 'PICKUP'
+      ? 0
+      : isVip
+        ? sysConfig.vipFreeShippingThreshold
+        : sysConfig.normalFreeShippingThreshold;
     const amountToFreeShipping = freeShippingThreshold === 0
       ? 0
       : Math.max(0, Number((freeShippingThreshold - totalGoodsAmount).toFixed(2)));
@@ -1734,6 +1803,25 @@ export class OrderService {
     );
 
     return {
+      fulfillmentMode,
+      pickupSelections: validatedFulfillment?.mode === 'PICKUP'
+        ? validatedFulfillment.selectionsSnapshot.map((selection) => {
+            const snapshot = selection.pickupPointSnapshot;
+            return {
+              companyId: selection.companyId,
+              pickupPointId: selection.pickupPointId,
+              pickupPoint: {
+                id: snapshot.id,
+                companyId: snapshot.companyId,
+                name: snapshot.name,
+                regionText: snapshot.regionText,
+                detail: snapshot.detail,
+                businessHours: snapshot.businessHours ?? null,
+                pickupNotice: snapshot.pickupNotice ?? null,
+              },
+            };
+          })
+        : [],
       groups,
       summary: {
         totalGoodsAmount,
@@ -1804,6 +1892,9 @@ export class OrderService {
           const current = await tx.order.findUnique({ where: { id } });
           if (!current) throw new NotFoundException('订单未找到');
           if (current.userId !== userId) throw new NotFoundException('订单未找到');
+          if (current.fulfillmentMode === 'PICKUP') {
+            throw new BadRequestException('自提订单由商家核销完成，不能手动确认收货');
+          }
           if (current.status !== 'SHIPPED' && current.status !== 'DELIVERED') {
             throw new BadRequestException('当前订单状态无法确认收货');
           }
@@ -1811,7 +1902,11 @@ export class OrderService {
           // CAS 原子更新：仅当状态仍为 SHIPPED 或 DELIVERED 时才转为 RECEIVED
           const now = new Date();
           const casResult = await tx.order.updateMany({
-            where: { id, status: { in: ['SHIPPED', 'DELIVERED'] } },
+            where: {
+              id,
+              fulfillmentMode: 'DELIVERY',
+              status: { in: ['SHIPPED', 'DELIVERED'] },
+            },
             data: { status: 'RECEIVED', receivedAt: now },
           });
           if (casResult.count === 0) {
@@ -1986,6 +2081,73 @@ export class OrderService {
     }
 
     return this.mapOrder(updated);
+  }
+
+  /**
+   * 自提核销已在 PickupService 的 Serializable 事务内完成 PAID -> RECEIVED。
+   * 这里只处理与买家确认收货相同的幂等副作用。
+   */
+  async handlePickupReceived(updated: any): Promise<void> {
+    const orderId = updated?.id;
+    if (!orderId) return;
+    const freshOrder = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { status: true, fulfillmentMode: true },
+    });
+    if (freshOrder?.status !== 'RECEIVED' || freshOrder.fulfillmentMode !== 'PICKUP') {
+      return;
+    }
+
+    const maxRetries = 3;
+    const attemptBonus = async (attempt: number): Promise<void> => {
+      try {
+        await this.bonusAllocation.allocateForOrder(orderId);
+      } catch (err: any) {
+        const safeErr = sanitizeErrorForLog(err);
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+          return attemptBonus(attempt + 1);
+        }
+        await this.prisma.orderStatusHistory.create({
+          data: {
+            orderId,
+            fromStatus: 'RECEIVED',
+            toStatus: 'RECEIVED',
+            reason: DEAD_LETTER_REASON,
+            meta: {
+              deadLetter: true,
+              source: 'PICKUP_VERIFY',
+              retries: maxRetries,
+              error: safeErr.message,
+              failedAt: new Date().toISOString(),
+            },
+          },
+        }).catch(() => undefined);
+      }
+    };
+    await attemptBonus(1);
+    await this.groupBuyLifecycleService?.evaluateOrderAfterReceive(orderId);
+    const settlement = await this.creditDigitalAssetAfterReceive(orderId, updated.userId);
+    this.triggerGrowthAfterReceive(updated, {
+      skipNormalInviteFirstOrder: settlement.autoVipFailed === true,
+    });
+    await this.releaseCaptainCommissionAfterReceive(orderId, 'BUYER_RECEIVED');
+
+    if (this.couponEngineService) {
+      if (updated._isFirstReceived) {
+        void this.couponEngineService.handleTrigger(updated.userId, 'FIRST_ORDER');
+      }
+      void this.prisma.order.aggregate({
+        where: { userId: updated.userId, status: 'RECEIVED' },
+        _sum: { totalAmount: true },
+      }).then((aggregate) => {
+        const totalSpent = aggregate._sum?.totalAmount ?? 0;
+        if (totalSpent > 0) {
+          return this.couponEngineService.handleTrigger(updated.userId, 'CUMULATIVE_SPEND', { totalSpent });
+        }
+        return undefined;
+      }).catch(() => undefined);
+    }
   }
 
   private async creditDigitalAssetAfterReceive(orderId: string, userId: string): Promise<PostReceiveAssetSettlement> {
@@ -2214,9 +2376,15 @@ export class OrderService {
 
   /** 取消订单（N07修复：CAS 原子状态更新，防止与支付回调并发竞态） */
   async cancelOrder(id: string, userId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id }, include: { items: true } });
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true, pickupFulfillment: true },
+    });
     if (!order) throw new NotFoundException('订单未找到');
     if (order.userId !== userId) throw new NotFoundException('订单未找到');
+    if (order.pickupFulfillment?.status === 'READY') {
+      throw new BadRequestException('自提订单已备货完成，请联系商家或客服取消');
+    }
     if (order.bizType === 'GROUP_BUY') {
       throw new BadRequestException('团购订单支付后不支持取消或退款');
     }
@@ -2254,6 +2422,146 @@ export class OrderService {
     }
 
     throw new BadRequestException('当前订单状态无法取消');
+  }
+
+  /**
+   * 平台受控取消普通商品自提订单并原路退款。
+   * 复用买家 PAID 未发货取消的库存、优惠、分润、渠道退款与 cron 补偿主链；
+   * 唯一放宽是管理员可将 READY 凭证作废。
+   */
+  async adminCancelPickupAndRefund(
+    id: string,
+    adminUserId: string,
+    rawReason: string,
+  ) {
+    const reason = String(rawReason ?? '').trim();
+    if (!reason) throw new BadRequestException('请填写取消原因');
+
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true, pickupFulfillment: true },
+    });
+    if (!order) throw new NotFoundException('订单未找到');
+    if (order.fulfillmentMode !== 'PICKUP') {
+      throw new BadRequestException('该入口仅用于自提订单');
+    }
+    if (order.bizType === 'GROUP_BUY') {
+      throw new BadRequestException('团购自提订单不支持直接取消退款，请走专项履约流程');
+    }
+    if (order.bizType === 'VIP_PACKAGE') {
+      throw new BadRequestException('VIP 礼包自提订单不支持直接取消退款，请走专项履约流程');
+    }
+    if (order.bizType !== 'NORMAL_GOODS') {
+      throw new BadRequestException('当前订单类型不支持平台自提取消退款');
+    }
+
+    const sessionSiblings = order.checkoutSessionId
+      ? await this.prisma.order.findMany({
+          where: { checkoutSessionId: order.checkoutSessionId, id: { not: id } },
+          select: {
+            id: true,
+            status: true,
+            bizType: true,
+            fulfillmentMode: true,
+            pickupFulfillment: { select: { status: true } },
+          },
+        })
+      : [];
+    const affectedOrderIds = [id, ...sessionSiblings.map((s) => s.id)].sort();
+
+    if (order.status === 'CANCELED') {
+      const refunds = await this.getAutoCancelRefundSummaries(affectedOrderIds);
+      this.assertCompleteAutoCancelRefundSummaries(affectedOrderIds, refunds);
+      const refund = refunds.find((item) => item.orderId === id);
+      return {
+        ok: true,
+        orderId: id,
+        affectedOrderIds,
+        alreadyCanceled: true,
+        refund,
+        refunds,
+      };
+    }
+    if (order.status !== 'PAID') {
+      throw new BadRequestException('仅已支付且未完成的自提订单可取消退款');
+    }
+    if (!['PREPARING', 'READY'].includes(order.pickupFulfillment?.status ?? '')) {
+      throw new BadRequestException('仅备货中或待自提的订单可使用受控取消退款');
+    }
+
+    const context: PaidCancellationContext = {
+      actorType: 'ADMIN',
+      actorId: adminUserId,
+      reason: `平台取消自提订单：${reason}`,
+      allowReadyPickup: true,
+    };
+
+    let result: unknown;
+    if (order.checkoutSessionId) {
+      if (sessionSiblings.length > 0) {
+        if (sessionSiblings.some((s) => s.bizType !== 'NORMAL_GOODS' || s.fulfillmentMode !== 'PICKUP')) {
+          throw new BadRequestException('该结算会话含非普通自提订单，不能使用此受控取消入口');
+        }
+        if (sessionSiblings.some((s) => s.status !== 'PAID')) {
+          throw new BadRequestException('该结算会话部分订单状态已变更，无法整单取消');
+        }
+        if (sessionSiblings.some((s) => !['PREPARING', 'READY'].includes(s.pickupFulfillment?.status ?? ''))) {
+          throw new BadRequestException('该结算会话含已核销或异常的自提履约，不能使用受控取消入口');
+        }
+        result = await this.cancelEntireSessionUnshipped(
+          order.checkoutSessionId,
+          order.userId,
+          context,
+        );
+      } else {
+        result = await this.cancelPaidUnshipped(id, order.userId, order, context);
+      }
+    } else {
+      result = await this.cancelPaidUnshipped(id, order.userId, order, context);
+    }
+
+    const refunds = await this.getAutoCancelRefundSummaries(affectedOrderIds);
+    this.assertCompleteAutoCancelRefundSummaries(affectedOrderIds, refunds);
+    return {
+      ok: true,
+      orderId: id,
+      affectedOrderIds,
+      alreadyCanceled: false,
+      order: result,
+      refunds,
+    };
+  }
+
+  private getAutoCancelRefundSummaries(orderIds: string[]) {
+    return this.prisma.refund.findMany({
+      where: {
+        orderId: { in: orderIds },
+        merchantRefundNo: { startsWith: 'AUTO-CANCEL-' },
+      },
+      orderBy: [{ orderId: 'asc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        providerRefundId: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  private assertCompleteAutoCancelRefundSummaries(
+    orderIds: string[],
+    refunds: Array<{ orderId: string }>,
+  ) {
+    const expected = new Set(orderIds);
+    const actual = new Set(refunds.map((refund) => refund.orderId));
+    if (
+      refunds.length !== expected.size
+      || actual.size !== expected.size
+      || [...expected].some((orderId) => !actual.has(orderId))
+    ) {
+      throw new ConflictException('订单已取消但逐单退款记录不完整，请立即人工核查');
+    }
   }
 
   /** PENDING_PAYMENT → CANCELED（旧架构遗留，保留向后兼容） */
@@ -2323,7 +2631,18 @@ export class OrderService {
    * 4. merchantRefundNo 必须 'AUTO-' 前缀，否则 retryStaleAutoRefunds cron 不兜底
    * 5. 退款金额 = order.totalAmount（含运费，因未发货无快递费产生）
    */
-  private async cancelPaidUnshipped(id: string, userId: string, order: any) {
+  private async cancelPaidUnshipped(
+    id: string,
+    userId: string,
+    order: any,
+    cancellationContext?: PaidCancellationContext,
+  ) {
+    const context: PaidCancellationContext = cancellationContext ?? {
+      actorType: 'BUYER',
+      actorId: userId,
+      reason: '买家未发货取消订单',
+      allowReadyPickup: false,
+    };
     // Step 1：事务外预检 Shipment（fast fail，避免持锁过长）
     const existingShipments = await this.prisma.shipment.findMany({
       where: { orderId: id, waybillNo: { not: null } },
@@ -2370,6 +2689,24 @@ export class OrderService {
       if (shipmentCount > 0) {
         throw new BadRequestException('卖家已生成面单，请稍后重试或联系卖家');
       }
+      const currentPickup = order.fulfillmentMode === 'PICKUP'
+        ? await tx.pickupFulfillment.findUnique({
+            where: { orderId: id },
+            select: { status: true },
+          })
+        : null;
+      if (order.fulfillmentMode === 'PICKUP') {
+        const allowedPickupStatuses = context.allowReadyPickup
+          ? ['PREPARING', 'READY']
+          : ['PREPARING'];
+        if (!currentPickup || !allowedPickupStatuses.includes(currentPickup.status)) {
+          throw new BadRequestException(
+            context.allowReadyPickup
+              ? '仅备货中或待自提的订单可使用受控取消退款'
+              : '自提订单已备货或履约状态已变更，请联系商家或客服取消',
+          );
+        }
+      }
 
       // CAS 更新订单 PAID → CANCELED
       const cas = await tx.order.updateMany({
@@ -2378,6 +2715,17 @@ export class OrderService {
       });
       if (cas.count === 0) {
         throw new BadRequestException('订单状态已变更，无法取消');
+      }
+      if (order.fulfillmentMode === 'PICKUP') {
+        if (!this.pickupService) throw new BadRequestException('自提服务暂不可用');
+        await this.pickupService.voidForOrders(
+          tx,
+          [id],
+          'CANCELED',
+          context.reason,
+          context.actorType,
+          context.actorId,
+        );
       }
 
       // 释放库存
@@ -2406,7 +2754,7 @@ export class OrderService {
           amount: order.totalAmount,
           status: 'REFUNDING',
           merchantRefundNo: `AUTO-CANCEL-${id}`,
-          reason: '买家未发货取消订单',
+          reason: context.reason,
         },
       });
       const profitSnapshot = await this.createFullRefundItemsInTx(tx, refund.id, order);
@@ -2416,8 +2764,8 @@ export class OrderService {
         data: {
           refundId: refund.id,
           toStatus: 'REFUNDING',
-          remark: '买家未发货取消订单触发自动退款',
-          operatorId: userId,
+          remark: `${context.reason}触发自动退款`,
+          operatorId: context.actorId,
         },
       });
 
@@ -2426,7 +2774,7 @@ export class OrderService {
           orderId: id,
           fromStatus: 'PAID',
           toStatus: 'CANCELED',
-          reason: '买家未发货取消订单',
+          reason: context.reason,
         },
       });
 
@@ -2475,7 +2823,7 @@ export class OrderService {
                 fromStatus: 'REFUNDING',
                 toStatus: 'REFUNDING',
                 remark: '渠道已受理，等待通知/查询确认',
-                operatorId: userId,
+                operatorId: context.actorId,
               },
             });
           }, {
@@ -2489,7 +2837,7 @@ export class OrderService {
               toStatus: 'REFUNDED',
               remark: '渠道退款成功',
               providerRefundId: result.providerRefundId,
-              operatorId: userId,
+              operatorId: context.actorId,
             });
           } else {
             await this.prisma.$transaction(async (tx) => {
@@ -2506,7 +2854,7 @@ export class OrderService {
                 fromStatus: 'REFUNDING',
                 toStatus: 'REFUNDED',
                 remark: '渠道退款成功',
-                operatorId: userId,
+                operatorId: context.actorId,
               },
             });
             if (this.couponService?.restoreCouponsForOrder) {
@@ -2550,7 +2898,7 @@ export class OrderService {
 
     const updated = await this.prisma.order.findUnique({
       where: { id },
-      include: { items: true },
+      include: { items: true, pickupFulfillment: true },
     });
     return this.mapOrder(updated);
   }
@@ -2565,12 +2913,23 @@ export class OrderService {
    * - 全部 Order 一并 CANCELED + 库存全恢复 + 奖励/红包统一恢复（基于真实 refId/orderId 关联）
    * - 每个 Order 创建独立 Refund 行（merchantRefundNo='AUTO-CANCEL-${orderId}'），调 alipay 逐笔退款
    */
-  private async cancelEntireSessionUnshipped(sessionId: string, userId: string) {
+  private async cancelEntireSessionUnshipped(
+    sessionId: string,
+    userId: string,
+    cancellationContext?: PaidCancellationContext,
+  ) {
+    const context: PaidCancellationContext = cancellationContext ?? {
+      actorType: 'BUYER',
+      actorId: userId,
+      reason: '买家整个结算会话取消',
+      allowReadyPickup: false,
+    };
     // Step 1：拿 session 所有 Order
     const orders = await this.prisma.order.findMany({
       where: { checkoutSessionId: sessionId, userId },
       include: {
         items: { select: { skuId: true, quantity: true, companyId: true, productSnapshot: true } },
+        pickupFulfillment: { select: { status: true } },
       },
     });
     if (orders.length === 0) {
@@ -2581,6 +2940,12 @@ export class OrderService {
     const nonPaid = orders.filter((o) => o.status !== 'PAID');
     if (nonPaid.length > 0) {
       throw new BadRequestException('该批订单部分已发货或已退，无法整单取消，请联系客服');
+    }
+    if (
+      !context.allowReadyPickup
+      && orders.some((order) => (order as any).pickupFulfillment?.status === 'READY')
+    ) {
+      throw new BadRequestException('该批订单已有自提商品备货完成，请联系商家或客服取消');
     }
 
     const orderIds = orders.map((o) => o.id);
@@ -2645,6 +3010,28 @@ export class OrderService {
       if (shipmentCount > 0) {
         throw new BadRequestException('卖家已生成面单，请稍后重试或联系卖家');
       }
+      const pickupOrderIds = orders
+        .filter((order) => order.fulfillmentMode === 'PICKUP')
+        .map((order) => order.id);
+      if (pickupOrderIds.length > 0) {
+        const currentPickups = await tx.pickupFulfillment.findMany({
+          where: { orderId: { in: pickupOrderIds } },
+          select: { orderId: true, status: true },
+        });
+        const allowedPickupStatuses = context.allowReadyPickup
+          ? ['PREPARING', 'READY']
+          : ['PREPARING'];
+        if (
+          currentPickups.length !== pickupOrderIds.length
+          || currentPickups.some((pickup) => !allowedPickupStatuses.includes(pickup.status))
+        ) {
+          throw new BadRequestException(
+            context.allowReadyPickup
+              ? '该批订单含已核销或异常的自提履约，不能使用受控取消入口'
+              : '该批订单已有自提商品备货或履约状态已变更，请联系商家或客服取消',
+          );
+        }
+      }
 
       // CAS 批量 PAID → CANCELED（必须全部更新成功）
       const cas = await tx.order.updateMany({
@@ -2653,6 +3040,17 @@ export class OrderService {
       });
       if (cas.count !== orders.length) {
         throw new BadRequestException('订单状态已变更，无法取消');
+      }
+      if (orders.some((order) => order.fulfillmentMode === 'PICKUP')) {
+        if (!this.pickupService) throw new BadRequestException('自提服务暂不可用');
+        await this.pickupService.voidForOrders(
+          tx,
+          orderIds,
+          'CANCELED',
+          context.reason,
+          context.actorType,
+          context.actorId,
+        );
       }
 
       // 释放每个 Order 的库存
@@ -2693,7 +3091,7 @@ export class OrderService {
             amount: o.totalAmount,
             status: 'REFUNDING',
             merchantRefundNo: `AUTO-CANCEL-${o.id}`,
-            reason: '买家整 session 未发货取消订单',
+            reason: context.reason,
           },
         });
         const profitSnapshot = await this.createFullRefundItemsInTx(tx, refund.id, o);
@@ -2701,8 +3099,8 @@ export class OrderService {
           data: {
             refundId: refund.id,
             toStatus: 'REFUNDING',
-            remark: '买家整 session 取消触发自动退款',
-            operatorId: userId,
+            remark: `${context.reason}触发自动退款`,
+            operatorId: context.actorId,
           },
         });
         await tx.orderStatusHistory.create({
@@ -2710,7 +3108,7 @@ export class OrderService {
             orderId: o.id,
             fromStatus: 'PAID',
             toStatus: 'CANCELED',
-            reason: '买家整 session 取消未发货订单',
+            reason: context.reason,
           },
         });
         refunds.push({
@@ -2768,7 +3166,7 @@ export class OrderService {
                   fromStatus: 'REFUNDING',
                   toStatus: 'REFUNDING',
                   remark: '渠道已受理，等待通知/查询确认',
-                  operatorId: userId,
+                  operatorId: context.actorId,
                 },
               });
             }, {
@@ -2784,7 +3182,7 @@ export class OrderService {
                 toStatus: 'REFUNDED',
                 remark: '渠道退款成功',
                 providerRefundId: result.providerRefundId,
-                operatorId: userId,
+                operatorId: context.actorId,
               });
               successfulGoodsRefundAmount = Number(
                 (successfulGoodsRefundAmount + Number(r.goodsRefundAmount || 0)).toFixed(2),
@@ -2804,7 +3202,7 @@ export class OrderService {
                   fromStatus: 'REFUNDING',
                   toStatus: 'REFUNDED',
                   remark: '渠道退款成功',
-                  operatorId: userId,
+                  operatorId: context.actorId,
                 },
               });
               if (
@@ -2869,7 +3267,7 @@ export class OrderService {
     // 返回 primary order（idx === 0）作为主响应
     const primary = await this.prisma.order.findUnique({
       where: { id: orders[0].id },
-      include: { items: true },
+      include: { items: true, pickupFulfillment: true },
     });
     return this.mapOrder(primary);
   }
@@ -3140,6 +3538,9 @@ export class OrderService {
     return {
       id: order.id,
       status: frontStatus,
+      fulfillmentMode: order.fulfillmentMode ?? 'DELIVERY',
+      pickupFulfillment: this.mapPickupFulfillment(order),
+      fulfillmentIssueCode: this.pickupFulfillmentIssueCode(order),
       bizType,
       invoiceStatus: order.invoice?.status ?? null,
       invoiceEligible: typeof order.invoiceEligible === 'boolean' ? order.invoiceEligible : false,
@@ -3211,6 +3612,7 @@ export class OrderService {
         }
       : null;
     const receiverInfoEditable =
+      order.fulfillmentMode !== 'PICKUP' &&
       (order.bizType || 'NORMAL_GOODS') === 'NORMAL_GOODS' &&
       order.status === 'PAID' &&
       !(order.shipments || []).some((shipment: any) => Boolean(shipment.waybillNo));

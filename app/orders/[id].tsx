@@ -11,6 +11,7 @@ import { ShopGroup } from '../../src/components/orders/ShopGroup';
 import { AmountSummary } from '../../src/components/orders/AmountSummary';
 import { OrderInfoBlock } from '../../src/components/orders/OrderInfoBlock';
 import { StickyCTABar } from '../../src/components/orders/StickyCTABar';
+import { PickupFulfillmentCard } from '../../src/components/orders/PickupFulfillmentCard';
 import { InvoiceSection } from '../../src/components/cards/InvoiceSection';
 import { OrderRepo } from '../../src/repos';
 import { AfterSaleRepo } from '../../src/repos/AfterSaleRepo';
@@ -18,6 +19,7 @@ import { useAuthStore, useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
+import { pickupOrderStatusHint } from '../../src/utils';
 import { GROUP_BUY_AFTER_SALE_NOTICE, isGroupBuyOrderBizType } from '../../src/utils/groupBuyOrderRules';
 
 export default function OrderDetailScreen() {
@@ -83,6 +85,7 @@ export default function OrderDetailScreen() {
   const order = data.data;
   const isVip = order.bizType === 'VIP_PACKAGE';
   const isGroupBuy = isGroupBuyOrderBizType(order.bizType);
+  const isPickup = order.fulfillmentMode === 'PICKUP';
   const refund = order.refundSummary;
   const refundTextMap: Record<RefundStatus, (amount: number) => string> = {
     REQUESTED: () => '退款申请已提交，等待审核',
@@ -206,14 +209,16 @@ export default function OrderDetailScreen() {
   switch (order.status) {
     case 'PAID':
       // 已付款待发货 — 仅允许取消（走退款）
-      if (!isVip && !isGroupBuy) {
+      if (!isVip && !isGroupBuy && (!isPickup || order.pickupFulfillment?.status === 'PREPARING')) {
         secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel, disabled: canceling });
       }
       break;
     case 'SHIPPED':
     case 'DELIVERED':
-      primary = { label: '确认收货', onPress: handleConfirmReceive };
-      secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
+      if (!isPickup) {
+        primary = { label: '确认收货', onPress: handleConfirmReceive };
+        secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
+      }
       break;
     case 'RECEIVED':
       primary = {
@@ -250,7 +255,7 @@ export default function OrderDetailScreen() {
   const latestEvent = summary?.latestEventMessage
     ? { message: summary.latestEventMessage, time: summary.latestEventTime ?? '' }
     : (shipments?.[0]?.trackingEvents?.[0] ?? null);
-  const showLogistics = (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
+  const showLogistics = !isPickup && (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
 
   // 按 companyId 分组商品
   const groups = new Map<string, OrderItem[]>();
@@ -261,12 +266,12 @@ export default function OrderDetailScreen() {
   }
 
   // Phase 2 后端直接给 order.address.fullAddress 拼好的字段，保留 raw fallback 以兼容旧数据
-  const addr = (order as any).address || (order as any).addressSnapshotMasked;
+  const addr = isPickup ? null : (order as any).address || (order as any).addressSnapshotMasked;
   const addrRecipientName = addr?.recipientName || '收件人';
   const addrPhone = addr?.recipientPhone || addr?.phone || '';
   const addrFullText = addr?.fullAddress
     || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
-  const canEditReceiverInfo = Boolean(order.receiverInfoEditable);
+  const canEditReceiverInfo = !isPickup && Boolean(order.receiverInfoEditable);
   const openReceiverInfoEditor = () => {
     router.push({ pathname: '/orders/receiver-info/[id]' as any, params: { id: order.id } });
   };
@@ -282,6 +287,8 @@ export default function OrderDetailScreen() {
         <StatusHero
           status={order.status}
           isVipPackage={isVip}
+          fulfillmentMode={order.fulfillmentMode}
+          pickupStatus={order.pickupFulfillment?.status}
           countdownExpiresAt={order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
           countdownPrefix={order.status === 'DELIVERED' ? '还剩' : undefined}
           subtitle={
@@ -289,7 +296,9 @@ export default function OrderDetailScreen() {
               ? '订单已取消，退款已原路退回'
               : order.status === 'CANCELED'
                 ? '订单已取消，退款处理中'
-                : order.status === 'PAID'
+                : isPickup
+                  ? pickupOrderStatusHint(order)
+                  : order.status === 'PAID'
                   ? '商家正在打包，预计 24 小时内发出'
                   : undefined
           }
@@ -322,6 +331,8 @@ export default function OrderDetailScreen() {
             </View>
           </View>
         ) : null}
+
+        {isPickup ? <View style={{ paddingHorizontal: spacing.md }}><PickupFulfillmentCard order={order} /></View> : null}
 
         {/* ② Logistics card */}
         {showLogistics && latestEvent ? (

@@ -7,6 +7,7 @@ import {
   MAX_TREE_DEPTH,
   MAX_ROOT_NODES,
   NORMAL_ROOT_ID,
+  PLATFORM_COMPANY_ID,
   PLATFORM_USER_ID,
 } from './engine/constants';
 import { CouponEngineService } from '../coupon/coupon-engine.service';
@@ -936,6 +937,7 @@ export class BonusService {
     return {
       packages: packages.map((pkg) => ({
         id: pkg.id,
+        companyId: PLATFORM_COMPANY_ID,
         price: pkg.price,
         sortOrder: pkg.sortOrder,
         giftOptions: pkg.giftOptions.map((opt) => {

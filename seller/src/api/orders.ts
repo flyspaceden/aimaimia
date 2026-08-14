@@ -28,3 +28,32 @@ export const cancelWaybill = (orderId: string): Promise<{ ok: boolean }> =>
 /** 绑定虚拟号 */
 export const bindVirtualCall = (orderId: string): Promise<VirtualCallResult> =>
   client.post(`/seller/orders/${orderId}/virtual-call`);
+
+export interface MarkPickupReadyResult {
+  orderId: string;
+  status: 'READY';
+  readyAt: string;
+  alreadyReady: boolean;
+}
+
+/** 将自提订单从备货中推进为待自提。后端使用来源状态校验并保证幂等。 */
+export const markPickupReady = (orderId: string): Promise<MarkPickupReadyResult> =>
+  client.post(`/seller/orders/${orderId}/pickup/ready`, {});
+
+export type VerifyPickupPayload =
+  | { pickupCode: string; qrPayload?: never }
+  | { pickupCode?: never; qrPayload: string };
+
+export interface VerifyPickupResult {
+  orderId: string;
+  status: 'PICKED_UP';
+  pickedUpAt: string;
+  alreadyPickedUp: boolean;
+}
+
+/** 核销一次性取货凭证；短码与二维码内容二选一。 */
+export const verifyPickup = (
+  orderId: string,
+  data: VerifyPickupPayload,
+): Promise<VerifyPickupResult> =>
+  client.post(`/seller/orders/${orderId}/pickup/verify`, data);

@@ -9,4 +9,5 @@ export * from './checkout';
 export * from './order';
 export * from './logistics';
 export * from './deletion';
+export * from './fulfillment';
 export * from './guards';

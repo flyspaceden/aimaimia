@@ -606,3 +606,19 @@
 | DSF08 | 前端隐藏按钮但接口或路由仍可越权操作 | 🔴 HIGH | 两个配送后台的路由与操作入口统一按权限守门；客服默认配置拆为 `delivery:customer-service:read/write` 专用 Controller，后端强制 scope 为 `CUSTOMER_SERVICE` 并拒绝写入非白名单 key，不能通过构造请求改其他平台配置。 | ✅ 已修复 |
 | DSF09 | 登录恢复或刷新 token 后使用空/旧权限导致错菜单、错操作 | 🟠 HIGH | 配送管理后台和企业配送中心启动时先用 token 拉取权威账号资料；刷新 token 后同步内存和持久化 token。菜单、路由和按钮都以恢复后的最新权限过滤，避免只靠 localStorage 旧 profile 决策。 | ✅ 已修复 |
 | DSF10 | 顺丰成本人工调整被记为手工承运商 | 🟠 HIGH | 审查发现人工调整顺丰月结成本时，流水 `provider` 原写为 `MANUAL`，会污染顺丰成本对账；同时 Schema 仍允许 `MANUAL_OFFLINE`。已将配送承运商枚举固定为 `SF`、付款方式固定为 `PLATFORM_MONTHLY`，人工调整只通过 `MANUAL_ADJUSTMENT` 流水类型表达，新增回归测试锁定。 | ✅ 已修复 |
+
+---
+
+## 2026-08-14 商城订单到店自提安全与一致性检查
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|---|---|---|---|---|
+| PUF01 | 多商家结算伪造点位、归属或停用点，产生错误履约 | 🔴 HIGH | 后端按最终可结算 SKU 的权威 company 集合校验每商家恰好一个启用点；预览允许忽略已被剔除商家的 stale selection，最终会话只冻结服务端校验后的集合；结构化 `PICKUP_POINT_UNAVAILABLE/MISMATCH` 供客户端重载。 | ✅ 单元/契约通过 |
+| PUF02 | 支付回调重读当前点位配置，点位支付后停用导致已扣款不建单 | 🔴 CRITICAL | 支付前校验并冻结 CheckoutSession 快照；支付成功只按冻结快照建单。之后停用只阻止新 checkout，既有订单进入受控履约/退款，不在支付回调抛错。 | ✅ 单元/契约通过 |
+| PUF03 | 短码/token 明文落库、日志泄露或长期重放 | 🔴 HIGH | 安全随机源、HMAC digest、加密 credential blob、签名限时 QR；生产密钥缺失 fail-closed；常规响应/日志不含明文，买家读取事件也不保存凭证。 | ✅ 已检查 |
+| PUF04 | 同一凭证并发核销两次，重复确认收货并重复分润/数字资产 | 🔴 CRITICAL | verify 使用 Serializable + 来源状态 CAS；输入严格 XOR，短码固定 8 位，二维码验签/过期/摘要比对；后续副作用用已有 claim/幂等键补偿。 | 🟡 mock 并发已测；真实 PostgreSQL 双连接竞态待验收 |
+| PUF05 | 核销与 READY 后管理员取消竞态，出现既取货又退款 | 🔴 CRITICAL | 两条路径均事务内重读并 CAS；管理端仅允许 PREPARING/READY，并对整 CheckoutSession 逐单复核后一致取消、批量作废凭证。 | 🟡 状态单测通过；真实 PostgreSQL 竞态待验收 |
+| PUF06 | 自提订单误进顺丰/微信物流/自动确认，或买家自行确认收货 | 🔴 HIGH | seller/admin 发货、面单、Shipment、微信物流 outbox、auto-confirm、地址编辑和 buyer receive 均显式拒绝 PICKUP；前端同步隐藏操作。 | ✅ 回归通过 |
+| PUF07 | READY 异常取消只改订单，不回滚同次支付、退款或权益 | 🔴 CRITICAL | 管理端专用 `orders:refund` 入口要求原因/审计；整 session CAS 取消、批量作废凭证并复用现有退款、库存、红包、Reward、分润和数字资产回滚；首次及重复请求均逐单校验退款记录并返回状态。 | 🟡 单元通过；真实渠道部分 pending/cron 闭环待验收 |
+| PUF08 | 自提人、点位联系人或审计原因泄露个人信息 | 🟠 HIGH | 自提人/点位电话加密，买家/卖家/管理员按最小权限脱敏；管理员点位启停审计保存脱敏 before/after/diff 和截断/脱敏原因。 | ✅ 已检查 |
+| PUF09 | `PICKUP` 脏数据缺履约关联导致订单列表整页 500，或前端误显示为配送 | 🟠 MEDIUM | 三个后端 mapper 对单条异常返回 `fulfillmentIssueCode` 并告警；小程序/App/后台显示履约异常且禁止配送动作。 | ✅ 回归通过 |

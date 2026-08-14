@@ -25,6 +25,8 @@ import { BonusConfigService } from "../bonus/engine/bonus-config.service";
 import { PLATFORM_COMPANY_ID } from "../bonus/engine/constants";
 import { GroupBuyCheckoutDto } from "./dto/group-buy-checkout.dto";
 import { MiniProgramGroupBuyCheckoutDto } from "./dto/mini-program-group-buy-checkout.dto";
+import { PickupService, ValidatedFulfillment } from "../pickup/pickup.service";
+import { resolveFulfillmentInput } from "../pickup/dto/fulfillment.dto";
 
 const CHANNEL_MAP: Record<string, string> = {
   wechat: "WECHAT_PAY",
@@ -69,6 +71,7 @@ export class GroupBuyCheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bonusConfig: BonusConfigService,
+    private readonly pickupService: PickupService,
   ) {}
 
   private alipayService: any = null;
@@ -99,6 +102,7 @@ export class GroupBuyCheckoutService {
 
   async previewCheckout(userId: string, dto: GroupBuyCheckoutDto) {
     this.assertCashOnly(dto);
+    const requestedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
 
     return this.prisma.$transaction(async (tx) => {
       const activity = await tx.groupBuyActivity.findUnique({
@@ -225,25 +229,39 @@ export class GroupBuyCheckoutService {
         await this.resolveShareCode(tx, userId, dto.activityId, dto.shareCode);
       }
 
-      const address = await tx.address.findUnique({
-        where: { id: dto.addressId, userId, deletedAt: null },
-      });
-      if (!address) {
+      const fulfillment = requestedFulfillment.mode === 'DELIVERY'
+        ? requestedFulfillment
+        : await this.requirePickupService().validateCheckoutFulfillment(
+            tx,
+            [PLATFORM_COMPANY_ID],
+            requestedFulfillment,
+          );
+      const address = fulfillment.mode === 'DELIVERY'
+        ? await tx.address.findUnique({
+            where: { id: fulfillment.addressId, userId, deletedAt: null },
+          })
+        : null;
+      if (fulfillment.mode === 'DELIVERY' && !address) {
         throw new BadRequestException("收货地址无效");
       }
 
-      const shippingFee = await this.calculateShippingFee(
-        activity,
-        address,
-        tx,
-        activityItems,
-      );
+      const shippingFee = fulfillment.mode === 'PICKUP'
+        ? 0
+        : await this.calculateShippingFee(activity, address, tx, activityItems);
       const expectedTotal = Number((activity.price + shippingFee).toFixed(2));
       return {
         expectedTotal,
         goodsAmount: activity.price,
         shippingFee,
         discountAmount: 0,
+        fulfillmentMode: fulfillment.mode,
+        pickupSelections: fulfillment.mode === 'PICKUP'
+          ? fulfillment.selectionsSnapshot.map((selection) => ({
+              companyId: selection.companyId,
+              pickupPointId: selection.pickupPointId,
+              pickupPoint: this.mapPickupPointSummary(selection.pickupPointSnapshot),
+            }))
+          : [],
       };
     }, this.serializableTransactionOptions);
   }
@@ -280,6 +298,7 @@ export class GroupBuyCheckoutService {
     miniProgramOpenId?: string,
   ) {
     this.assertCashOnly(dto);
+    const requestedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
     const requestFingerprint = this.buildCheckoutRequestFingerprint(dto);
 
     if (dto.idempotencyKey) {
@@ -457,19 +476,25 @@ export class GroupBuyCheckoutService {
         ? await this.resolveShareCode(tx, userId, dto.activityId, dto.shareCode)
         : null;
 
-      const address = await tx.address.findUnique({
-        where: { id: dto.addressId, userId, deletedAt: null },
-      });
-      if (!address) {
+      const fulfillment: ValidatedFulfillment = requestedFulfillment.mode === 'DELIVERY'
+        ? requestedFulfillment
+        : await this.requirePickupService().validateCheckoutFulfillment(
+            tx,
+            [PLATFORM_COMPANY_ID],
+            requestedFulfillment,
+          );
+      const address = fulfillment.mode === 'DELIVERY'
+        ? await tx.address.findUnique({
+            where: { id: fulfillment.addressId, userId, deletedAt: null },
+          })
+        : null;
+      if (fulfillment.mode === 'DELIVERY' && !address) {
         throw new BadRequestException("收货地址无效");
       }
 
-      const shippingFee = await this.calculateShippingFee(
-        activity,
-        address,
-        tx,
-        activityItems,
-      );
+      const shippingFee = fulfillment.mode === 'PICKUP'
+        ? 0
+        : await this.calculateShippingFee(activity, address, tx, activityItems);
       const expectedTotal = Number((activity.price + shippingFee).toFixed(2));
       if (
         dto.expectedTotal !== undefined &&
@@ -480,17 +505,21 @@ export class GroupBuyCheckoutService {
         );
       }
 
-      const region = parseChineseAddress(address.regionText);
-      const addressSnapshot = encryptJsonValue({
-        recipientName: address.recipientName,
-        phone: address.phone,
-        regionCode: address.regionCode,
-        regionText: address.regionText,
-        province: region.province,
-        city: region.city,
-        district: region.district,
-        detail: address.detail,
-      });
+      const addressSnapshot = address
+        ? (() => {
+            const region = parseChineseAddress(address.regionText);
+            return encryptJsonValue({
+              recipientName: address.recipientName,
+              phone: address.phone,
+              regionCode: address.regionCode,
+              regionText: address.regionText,
+              province: region.province,
+              city: region.city,
+              district: region.district,
+              detail: address.detail,
+            });
+          })()
+        : null;
       const tierSnapshot = activity.tiers.map((tier) => ({
         sequence: tier.sequence,
         basisPoints: tier.basisPoints,
@@ -514,6 +543,11 @@ export class GroupBuyCheckoutService {
           },
           itemsSnapshot: this.buildItemsSnapshot(activity, activityItems),
           addressSnapshot,
+          fulfillmentMode: fulfillment.mode,
+          pickupRecipientSnapshot:
+            fulfillment.mode === 'PICKUP' ? fulfillment.recipientSnapshot : undefined,
+          pickupSelectionsSnapshot:
+            fulfillment.mode === 'PICKUP' ? fulfillment.selectionsSnapshot : undefined,
           rewardId: null,
           deductionGroupId: null,
           expectedTotal,
@@ -911,9 +945,29 @@ export class GroupBuyCheckoutService {
       goodsAmount: session.goodsAmount,
       shippingFee: session.shippingFee,
       discountAmount: session.discountAmount ?? 0,
+      fulfillmentMode: session.fulfillmentMode ?? 'DELIVERY',
       paymentScene: session.paymentScene ?? "APP",
       paymentParams,
     };
+  }
+
+  private mapPickupPointSummary(snapshot: Record<string, unknown>) {
+    return {
+      id: snapshot.id,
+      companyId: snapshot.companyId,
+      name: snapshot.name,
+      regionText: snapshot.regionText,
+      detail: snapshot.detail,
+      businessHours: snapshot.businessHours ?? null,
+      pickupNotice: snapshot.pickupNotice ?? null,
+    };
+  }
+
+  private requirePickupService() {
+    if (!this.pickupService) {
+      throw new ServiceUnavailableException('自提服务暂不可用');
+    }
+    return this.pickupService;
   }
 
   private async buildPaymentParams(
@@ -978,7 +1032,17 @@ export class GroupBuyCheckoutService {
   private buildCheckoutRequestFingerprint(dto: GroupBuyCheckoutInput) {
     return JSON.stringify({
       activityId: dto.activityId.trim(),
-      addressId: dto.addressId.trim(),
+      fulfillment: dto.fulfillment
+        ? {
+            mode: dto.fulfillment.mode,
+            addressId: dto.fulfillment.addressId?.trim() || null,
+            recipientName: dto.fulfillment.recipientName?.trim() || null,
+            recipientPhone: dto.fulfillment.recipientPhone?.trim() || null,
+            selections: (dto.fulfillment.selections ?? [])
+              .map((item) => ({ companyId: item.companyId, pickupPointId: item.pickupPointId }))
+              .sort((a, b) => a.companyId.localeCompare(b.companyId)),
+          }
+        : { mode: 'DELIVERY', addressId: dto.addressId?.trim() || null },
       shareCode: dto.shareCode?.trim() || null,
       expectedTotal:
         dto.expectedTotal === undefined

@@ -27,6 +27,7 @@ export default defineAppConfig({
         'order-track/index',
         'receiver-info/index',
         'payment-success/index',
+        'pickup-pass/index',
       ],
     },
     {

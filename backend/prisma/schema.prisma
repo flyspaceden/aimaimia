@@ -206,6 +206,19 @@ enum OrderStatus {
   REFUNDED
 }
 
+enum FulfillmentMode {
+  DELIVERY
+  PICKUP
+}
+
+enum PickupFulfillmentStatus {
+  PREPARING
+  READY
+  PICKED_UP
+  VOID
+  CANCELED
+}
+
 enum GroupBuyActivityStatus {
   DRAFT
   ACTIVE
@@ -1301,6 +1314,7 @@ model Company {
   buyerAliases        BuyerAlias[] // 买家匿名编号
   virtualCallBindings VirtualCallBinding[] // 虚拟号绑定记录
   shipments           Shipment[]
+  pickupPoints        PickupPoint[]
 
   creditScore                Int                  @default(100) // 企业信用分（初始100，违规扣减）
   virtualCallRestrictedUntil DateTime?
@@ -1741,7 +1755,10 @@ model CheckoutSession {
 
   // 结算快照（创建时冻结）
   itemsSnapshot                  Json // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
-  addressSnapshot                Json // 完整地址快照
+  fulfillmentMode                FulfillmentMode @default(DELIVERY)
+  addressSnapshot                Json? // 完整地址快照；PICKUP 时为 null
+  pickupRecipientSnapshot        Json? // 自提人姓名/手机号加密快照
+  pickupSelectionsSnapshot       Json? // 服务端验证过的 [{companyId,pickupPointId}]
   rewardId                       String? @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
   deductionGroupId               String? // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
   groupBuyRebateDeductionGroupId String? // 团购返还余额抵扣组 ID
@@ -1783,6 +1800,7 @@ model CheckoutSession {
   @@index([status, createdAt])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
+  @@index([fulfillmentMode, status, createdAt])
 }
 
 model Order {
@@ -1792,6 +1810,7 @@ model Order {
   status                OrderStatus      @default(PENDING_PAYMENT)
   bizType               OrderBizType     @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
   bizMeta               Json? // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
+  fulfillmentMode       FulfillmentMode @default(DELIVERY)
   addressSnapshot       Json? // 下单时地址快照
   totalAmount           Float // 总金额（元）
   goodsAmount           Float // 商品金额（元）
@@ -1820,6 +1839,7 @@ model Order {
   invoice           Invoice?
   paymentGroupItems PaymentGroupItem[]
   shippingCosts     OrderShippingCost[]
+  pickupFulfillment PickupFulfillment?
 
   // I 域关系
   vipPurchase            VipPurchase?
@@ -1857,6 +1877,72 @@ model Order {
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
   @@index([createdAt]) // 管理端销售趋势按日期范围查询
+  @@index([fulfillmentMode, status, createdAt])
+}
+
+model PickupPoint {
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String   @db.VarChar(100)
+  contactName   String   @db.VarChar(50)
+  contactPhone  String   @db.VarChar(255)
+  regionCode    String   @db.VarChar(32)
+  regionText    String   @db.VarChar(120)
+  detail        String   @db.VarChar(200)
+  location      Json?
+  businessHours Json
+  pickupNotice  String?  @db.VarChar(500)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fulfillments PickupFulfillment[]
+
+  @@index([companyId, isActive])
+}
+
+model PickupFulfillment {
+  id                        String                  @id @default(cuid())
+  orderId                   String                  @unique
+  pickupPointId             String
+  status                    PickupFulfillmentStatus @default(PREPARING)
+  pickupPointSnapshot       Json
+  recipientSnapshot         Json
+  pickupCodeDigest          String                  @db.VarChar(64)
+  pickupTokenDigest         String                  @db.VarChar(64)
+  pickupCredentialEncrypted Json
+  readyAt                   DateTime?
+  pickedUpAt                DateTime?
+  pickedUpByStaffId         String?
+  voidedAt                  DateTime?
+  voidReason                String?                 @db.VarChar(500)
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+
+  order       Order                    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  pickupPoint PickupPoint              @relation(fields: [pickupPointId], references: [id], onDelete: Restrict)
+  events      PickupFulfillmentEvent[]
+
+  @@index([pickupPointId, status, readyAt])
+  @@index([status, createdAt])
+}
+
+model PickupFulfillmentEvent {
+  id            String                   @id @default(cuid())
+  fulfillmentId String
+  fromStatus    PickupFulfillmentStatus?
+  toStatus      PickupFulfillmentStatus
+  eventType     String                   @db.VarChar(64)
+  actorType     String?                  @db.VarChar(32)
+  actorId       String?
+  meta          Json?
+  createdAt     DateTime                 @default(now())
+
+  fulfillment PickupFulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+
+  @@index([fulfillmentId, createdAt])
+  @@index([eventType, createdAt])
 }
 
 model OrderItem {

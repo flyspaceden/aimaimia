@@ -18,6 +18,7 @@ import { SellerShippingService } from '../shipping/seller-shipping.service';
 import { NotificationService } from '../../notification/notification.service';
 import { normalizeBuyerNo } from '../../../common/utils/buyer-no.util';
 import { WechatShippingOutboxService } from '../../shipment/wechat-shipping-outbox.service';
+import { PickupService } from '../../pickup/pickup.service';
 
 @Injectable()
 export class SellerOrdersService {
@@ -30,6 +31,8 @@ export class SellerOrdersService {
     private notificationService: NotificationService,
     @Optional()
     private wechatShippingOutbox?: WechatShippingOutboxService,
+    @Optional()
+    private pickupService?: PickupService,
   ) {}
 
   /**
@@ -61,6 +64,24 @@ export class SellerOrdersService {
       reason: refund.reason,
       updatedAt: refund.updatedAt?.toISOString?.() ?? refund.updatedAt ?? null,
     };
+  }
+
+  private mapPickupFulfillment(order: any) {
+    if ((order.fulfillmentMode ?? 'DELIVERY') !== 'PICKUP') return null;
+    if (!this.pickupService) {
+      throw new Error('[SellerOrdersService] PICKUP 自提履约服务未注入');
+    }
+    if (!order.pickupFulfillment) {
+      this.logger.error(`PICKUP 订单缺少履约关联: orderId=${order.id}`);
+      return null;
+    }
+    return this.pickupService.mapOrderPickup(order.pickupFulfillment);
+  }
+
+  private pickupFulfillmentIssueCode(order: any) {
+    return (order.fulfillmentMode ?? 'DELIVERY') === 'PICKUP' && !order.pickupFulfillment
+      ? 'PICKUP_RELATION_MISSING'
+      : null;
   }
 
   /**
@@ -99,6 +120,8 @@ export class SellerOrdersService {
     bizType?: string,
     buyerNo?: string,
     staffId?: string,
+    fulfillmentMode?: string,
+    pickupStatus?: string,
   ) {
     const where: any = {
       items: { some: { companyId } },
@@ -126,11 +149,24 @@ export class SellerOrdersService {
     if (buyerNoQuery) {
       where.user = { buyerNo: normalizeBuyerNo(buyerNoQuery) };
     }
+    if (fulfillmentMode) {
+      if (!['DELIVERY', 'PICKUP'].includes(fulfillmentMode)) {
+        throw new BadRequestException('fulfillmentMode 参数无效');
+      }
+      where.fulfillmentMode = fulfillmentMode;
+    }
+    if (pickupStatus) {
+      if (!['PREPARING', 'READY', 'PICKED_UP', 'VOID', 'CANCELED'].includes(pickupStatus)) {
+        throw new BadRequestException('pickupStatus 参数无效');
+      }
+      where.pickupFulfillment = { is: { status: pickupStatus } };
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
         include: {
+          pickupFulfillment: true,
           items: {
             where: { companyId },
             include: { sku: { include: { product: { select: { id: true, title: true, media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1, select: { url: true } } } } } } },
@@ -182,6 +218,9 @@ export class SellerOrdersService {
         return {
           id: order.id,
           status: order.status,
+          fulfillmentMode: order.fulfillmentMode ?? 'DELIVERY',
+          pickupFulfillment: this.mapPickupFulfillment(order),
+          fulfillmentIssueCode: this.pickupFulfillmentIssueCode(order),
           bizType: order.bizType,
           totalAmount: goodsAmount,
           goodsAmount,
@@ -230,6 +269,7 @@ export class SellerOrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
+        pickupFulfillment: true,
         // 只返回属于本公司的订单项
         items: {
           where: { companyId },
@@ -287,6 +327,9 @@ export class SellerOrdersService {
     return {
       id: order.id,
       status: order.status,
+      fulfillmentMode: order.fulfillmentMode ?? 'DELIVERY',
+      pickupFulfillment: this.mapPickupFulfillment(order),
+      fulfillmentIssueCode: this.pickupFulfillmentIssueCode(order),
       bizType: order.bizType,
       totalAmount: goodsAmount,
       goodsAmount,
@@ -353,6 +396,9 @@ export class SellerOrdersService {
 
     if (!order) throw new NotFoundException('订单不存在');
     this.assertCanShipOrder(companyId, order.items);
+    if (order.fulfillmentMode === 'PICKUP') {
+      throw new BadRequestException('自提订单不能走快递发货，请使用备货完成/核销');
+    }
 
     const companyShipment = this.getCompanyShipment(
       order.shipments as Array<{ companyId?: string | null; id: string; status: string; waybillNo: string | null; carrierName: string }>,
@@ -386,6 +432,9 @@ export class SellerOrdersService {
       });
       if (!freshOrder || (freshOrder.status !== 'PAID' && freshOrder.status !== 'SHIPPED')) {
         throw new BadRequestException('只有已付款或部分已发货的订单可以发货');
+      }
+      if (freshOrder.fulfillmentMode === 'PICKUP') {
+        throw new BadRequestException('自提订单不能走快递发货');
       }
       this.assertCanShipOrder(companyId, freshOrder.items);
       const freshShipment = this.getCompanyShipment(

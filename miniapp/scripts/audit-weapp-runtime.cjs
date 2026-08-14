@@ -29,6 +29,7 @@ const AUTH_REQUIRED_ROUTES = new Set([
   'packages/commerce/checkout-pending/index',
   'packages/orders/order-list/index',
   'packages/orders/order-detail/index',
+  'packages/orders/pickup-pass/index',
   'packages/orders/order-track/index',
   'packages/orders/receiver-info/index',
   'packages/orders/payment-success/index',
@@ -214,6 +215,7 @@ function queryFor(route, fixtures) {
     'packages/commerce/checkout/index': { buyNowProductId: productId, buyNowSkuId: skuId, buyNowQuantity: '1' },
     'packages/commerce/checkout-pending/index': { sessionId: fixtures.pendingCheckout?.sessionId },
     'packages/orders/order-detail/index': { id: fixtures.detailOrder?.id || fixtures.order?.id },
+    'packages/orders/pickup-pass/index': { orderId: fixtures.pickupOrder?.id || fixtures.detailOrder?.id || fixtures.order?.id },
     'packages/orders/order-track/index': { orderId: fixtures.trackingOrder?.id },
     'packages/orders/receiver-info/index': { id: fixtures.receiverOrder?.id || fixtures.order?.id },
     'packages/orders/payment-success/index': { orderIds: [fixtures.detailOrder?.id, fixtures.eligibleOrder?.id].filter(Boolean).join(',') || fixtures.order?.id },
@@ -239,6 +241,7 @@ function queryFor(route, fixtures) {
 const REQUIRED_QUERY_KEYS = {
   'packages/commerce/checkout-pending/index': ['sessionId'],
   'packages/orders/order-detail/index': ['id'],
+  'packages/orders/pickup-pass/index': ['orderId'],
   'packages/orders/order-track/index': ['orderId'],
   'packages/orders/receiver-info/index': ['id'],
   'packages/orders/payment-success/index': ['orderIds'],

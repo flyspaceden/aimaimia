@@ -20,7 +20,10 @@ const ADDRESS_SNAPSHOT = {
 // --- Mock 工厂 ---
 function createMocks(configOverrides: Record<string, any> = {}) {
   const prisma: Record<string, any> = {
-    order: { findUnique: jest.fn(), updateMany: jest.fn() },
+    order: {
+      findUnique: jest.fn().mockResolvedValue({ fulfillmentMode: 'DELIVERY' }),
+      updateMany: jest.fn(),
+    },
     shipment: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
@@ -512,7 +515,11 @@ describe('handleCallback — Order 状态联动', () => {
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: ORDER_SHIPPED, status: 'SHIPPED' },
+        where: expect.objectContaining({
+          id: ORDER_SHIPPED,
+          status: 'SHIPPED',
+          fulfillmentMode: 'DELIVERY',
+        }),
         data: expect.objectContaining({
           status: 'DELIVERED',
           deliveredAt: expect.any(Date),
@@ -615,7 +622,11 @@ describe('handleCallback — Order 状态联动', () => {
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: ORDER_SHIPPED, status: 'SHIPPED' },
+        where: expect.objectContaining({
+          id: ORDER_SHIPPED,
+          status: 'SHIPPED',
+          fulfillmentMode: 'DELIVERY',
+        }),
         data: expect.objectContaining({ status: 'DELIVERED' }),
       }),
     );

@@ -1,5 +1,11 @@
 import client from './client';
-import type { Order, OrderQueryParams, OrderStatsMap, PaginatedData } from '@/types';
+import type {
+  Order,
+  OrderQueryParams,
+  OrderStatsMap,
+  PaginatedData,
+  PickupFulfillmentEvent,
+} from '@/types';
 
 export type UpdateOrderReceiverInfoPayload = {
   recipientName: string;
@@ -47,6 +53,23 @@ export const updateOrderReceiverInfo = (
 export const cancelOrder = (id: string, reason: string): Promise<{ ok: boolean }> =>
   client.post(`/admin/orders/${id}/cancel`, { reason });
 
+/** 普通商品自提异常：平台受控取消并按原支付渠道退款。 */
+export const cancelPickupAndRefund = (
+  id: string,
+  reason: string,
+): Promise<{
+  ok: boolean;
+  affectedOrderIds?: string[];
+  refunds?: Array<{
+    id: string;
+    orderId: string;
+    status: string;
+    providerRefundId?: string | null;
+    updatedAt: string;
+  }>;
+}> =>
+  client.post(`/admin/orders/${id}/pickup-cancel-refund`, { reason });
+
 /** 手动重试退款 */
 export const retryRefund = (
   orderId: string,
@@ -59,3 +82,9 @@ export const retryWechatShipping = (
   orderId: string,
 ): Promise<{ ok: boolean; status: 'PENDING' }> =>
   client.post(`/admin/orders/${orderId}/wechat-shipping/retry`);
+
+/** 自提履约只读事件；接口不会返回明文取货码或二维码 token。 */
+export const getPickupEvents = (
+  orderId: string,
+): Promise<{ items: PickupFulfillmentEvent[] }> =>
+  client.get(`/admin/orders/${orderId}/pickup-events`);

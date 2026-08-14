@@ -4,6 +4,9 @@ import {
   ArrayUnique,
   IsArray,
   IsNotEmpty,
+  IsNumberString,
+  IsOptional,
+  IsIn,
   IsString,
   ValidateNested,
 } from 'class-validator';
@@ -11,6 +14,36 @@ import { Type } from 'class-transformer';
 import { InvoiceStatus } from '@prisma/client';
 
 const MAX_BATCH_ORDER_ITEMS = 50;
+
+export class SellerOrderQueryDto {
+  @IsOptional()
+  @IsNumberString()
+  page?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  pageSize?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  bizType?: string;
+
+  @IsOptional()
+  @IsString()
+  buyerNo?: string;
+
+  @IsOptional()
+  @IsIn(['DELIVERY', 'PICKUP'])
+  fulfillmentMode?: 'DELIVERY' | 'PICKUP';
+
+  @IsOptional()
+  @IsIn(['PREPARING', 'READY', 'PICKED_UP', 'VOID', 'CANCELED'])
+  pickupStatus?: 'PREPARING' | 'READY' | 'PICKED_UP' | 'VOID' | 'CANCELED';
+}
 
 /** 发货 */
 export class SellerShipDto {}

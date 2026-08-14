@@ -1539,6 +1539,69 @@ export interface GroupBuyCatalogProduct {
 
 // ========== 订单 ==========
 
+export type FulfillmentMode = 'DELIVERY' | 'PICKUP';
+
+export type PickupFulfillmentStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'PICKED_UP'
+  | 'VOID'
+  | 'CANCELED';
+
+export interface PickupBusinessHours {
+  summary?: string;
+  holidayNotice?: string;
+  [key: string]: unknown;
+}
+
+export interface PickupPointLocation {
+  lng: number;
+  lat: number;
+  provider?: string;
+  poiName?: string;
+}
+
+export interface PickupPoint {
+  id: string;
+  companyId: string;
+  company?: { id: string; name: string } | null;
+  name: string;
+  contactName: string;
+  contactPhone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+  location?: PickupPointLocation | null;
+  businessHours: PickupBusinessHours | Record<string, unknown>;
+  pickupNotice?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PickupFulfillmentSummary {
+  status: PickupFulfillmentStatus;
+  pickupPoint: Pick<
+    PickupPoint,
+    'id' | 'name' | 'regionText' | 'detail' | 'location' | 'businessHours' | 'pickupNotice'
+  >;
+  recipient?: { name: string; phoneMasked: string } | null;
+  readyAt?: string | null;
+  pickedUpAt?: string | null;
+  pickedUpByStaffId?: string | null;
+}
+
+export interface PickupFulfillmentEvent {
+  id: string;
+  eventType: string;
+  fromStatus?: PickupFulfillmentStatus | null;
+  toStatus: PickupFulfillmentStatus;
+  actorType: string;
+  actorId?: string | null;
+  createdAt: string;
+  meta?: Record<string, unknown> | null;
+}
+
 export type OrderStatus =
   | 'PENDING_PAYMENT'
   | 'PAID'
@@ -1635,6 +1698,9 @@ export interface Order {
     meta?: Record<string, unknown> | null;
     createdAt: string;
   }>;
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1647,6 +1713,8 @@ export interface OrderQueryParams extends PaginationParams {
   companyId?: string;
   paymentChannel?: string;
   userId?: string;
+  fulfillmentMode?: FulfillmentMode;
+  pickupStatus?: PickupFulfillmentStatus;
 }
 
 export type OrderStatsMap = Record<string, number>;

@@ -3,6 +3,7 @@ import type {
   Order,
   OrderListFilter,
   OrderStatusCounts,
+  PickupPass,
   PageQuery,
   PageResult,
   RepurchaseResult,
@@ -110,4 +111,7 @@ export const OrderRepo = {
     ApiClient.post<unknown>(`/orders/${orderId}/cancel`),
     'canceled order',
   ),
+
+  getPickupPass: (orderId: string): Promise<Result<PickupPass>> =>
+    ApiClient.get<PickupPass>(`/orders/${orderId}/pickup-pass`),
 };

@@ -40,7 +40,7 @@ export type VipGiftOption = {
   items: VipGiftItem[];
 };
 
-export type VipPackage = { id: string; price: number; sortOrder: number; giftOptions: VipGiftOption[] };
+export type VipPackage = { id: string; companyId: string; price: number; sortOrder: number; giftOptions: VipGiftOption[] };
 export type VipGiftOptionsResponse = { packages: VipPackage[] };
 
 export type VipTreeNode = {
@@ -190,7 +190,8 @@ export type VipCheckoutDraft = {
   idempotencyKey: string;
   packageId: string;
   giftOptionId: string;
-  addressId: string;
+  addressId?: string;
+  fulfillment: import('@/types').FulfillmentInput;
   expectedTotal: number;
   buyerNote?: string;
   createdAt: string;

@@ -96,6 +96,33 @@ export type ShipmentDetail = {
 
 export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE' | 'GROUP_BUY';
 
+export type FulfillmentMode = 'DELIVERY' | 'PICKUP';
+export type PickupFulfillmentStatus = 'PREPARING' | 'READY' | 'PICKED_UP' | 'VOID' | 'CANCELED';
+export type PickupPointSnapshot = {
+  name: string;
+  regionText: string;
+  detail: string;
+  location?: { lng: number; lat: number; provider?: string; poiName?: string } | null;
+  businessHours: unknown;
+  pickupNotice?: string | null;
+};
+export type PickupFulfillmentSummary = {
+  status: PickupFulfillmentStatus;
+  pickupPoint: PickupPointSnapshot;
+  recipient: { name: string; phoneMasked: string };
+  readyAt?: string | null;
+  pickedUpAt?: string | null;
+};
+export type PickupPass = {
+  orderId: string;
+  status: 'READY';
+  pickupCode: string;
+  qrPayload: string;
+  expiresAt: string;
+  pickupPoint: PickupPointSnapshot;
+  recipient: PickupFulfillmentSummary['recipient'];
+};
+
 export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 
 export type RefundSummary = {
@@ -258,6 +285,9 @@ export type Order = {
   id: string;
   status: OrderStatus;
   bizType?: OrderBizType;
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
   repurchasable?: boolean;
   invoiceEligible?: boolean;
   invoiceStatus?: InvoiceStatus | null;

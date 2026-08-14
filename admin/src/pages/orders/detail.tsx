@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Modal, Form, Input } from 'antd';
+import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Modal, Form, Input, Space } from 'antd';
 import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
-import { getOrder, retryRefund, retryWechatShipping, updateOrderReceiverInfo } from '@/api/orders';
+import { cancelPickupAndRefund, getOrder, getPickupEvents, retryRefund, retryWechatShipping, updateOrderReceiverInfo } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
-import type { OrderItem, Refund } from '@/types';
+import type { OrderItem, PickupFulfillmentEvent, Refund } from '@/types';
 import { PERMISSIONS } from '@/constants/permissions';
 import { orderStatusMap, refundStatusMap, shipmentStatusMap } from '@/constants/statusMaps';
 import dayjs from 'dayjs';
+import { formatPickupBusinessHours, pickupFullAddress, pickupStatusMap } from '@/utils/pickup';
+import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 
 // 订单生命周期状态步骤
 const statusSteps = [
@@ -93,6 +95,7 @@ export default function OrderDetailPage() {
   const [receiverInfoModalOpen, setReceiverInfoModalOpen] = useState(false);
   const [receiverInfoSaving, setReceiverInfoSaving] = useState(false);
   const [wechatShippingRetrying, setWechatShippingRetrying] = useState(false);
+  const [pickupCanceling, setPickupCanceling] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
@@ -100,20 +103,36 @@ export default function OrderDetailPage() {
     enabled: !!id,
     refetchInterval: (query) => {
       const status = query.state.data?.wechatShipping?.status;
+      const pickupStatus = query.state.data?.pickupFulfillment?.status;
+      if (pickupStatus === 'PREPARING' || pickupStatus === 'READY') return 15_000;
       return status === 'PENDING' || status === 'PROCESSING' ? 5_000 : false;
     },
     refetchIntervalInBackground: false,
   });
 
+  const { data: pickupEventsResponse, isLoading: pickupEventsLoading } = useQuery({
+    queryKey: ['admin', 'order', id, 'pickup-events'],
+    queryFn: () => getPickupEvents(id!),
+    enabled: Boolean(id && order?.fulfillmentMode === 'PICKUP'),
+    refetchInterval: order?.pickupFulfillment?.status === 'PREPARING'
+      || order?.pickupFulfillment?.status === 'READY'
+      ? 15_000
+      : false,
+  });
+
   const handleWechatShippingRetry = async () => {
     if (!id || wechatShippingRetrying) return;
+    if (order?.fulfillmentMode === 'PICKUP') {
+      message.error('到店自提订单不进入微信物流发货上报');
+      return;
+    }
     setWechatShippingRetrying(true);
     try {
       await retryWechatShipping(id);
       message.success('已重新加入微信发货上报队列');
       await queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
-    } catch (error: any) {
-      message.error(error?.response?.data?.message || error?.message || '重试失败');
+    } catch (error: unknown) {
+      message.error(getAdminErrorMessage(error, '重试失败'));
     } finally {
       setWechatShippingRetrying(false);
     }
@@ -128,6 +147,9 @@ export default function OrderDetailPage() {
   );
 
   const status = orderStatusMap[order.status];
+  const isPickup = order.fulfillmentMode === 'PICKUP';
+  const pickup = order.pickupFulfillment;
+  const pickupStatus = pickup ? pickupStatusMap[pickup.status] : null;
   const shipments = order.shipments?.length
     ? order.shipments
     : order.shipment
@@ -140,7 +162,7 @@ export default function OrderDetailPage() {
   const legacyRegion = `${String(address.province || '')} ${String(address.city || '')} ${String(address.district || '')}`.trim();
   const detail = String(address.detail || '').trim();
   const fullAddress = `${regionText || legacyRegion} ${detail}`.trim() || '-';
-  const canEditReceiverInfo = Boolean(order.receiverInfoEditable);
+  const canEditReceiverInfo = !isPickup && Boolean(order.receiverInfoEditable);
   const openReceiverInfoModal = () => {
     receiverInfoForm.setFieldsValue({
       recipientName: recipientName === '-' ? '' : recipientName,
@@ -156,6 +178,10 @@ export default function OrderDetailPage() {
     receiverInfoForm.resetFields();
   };
   const handleUpdateReceiverInfo = async (values: ReceiverInfoFormValues) => {
+    if (isPickup) {
+      message.error('到店自提订单没有配送地址，不能修改收货信息');
+      return;
+    }
     setReceiverInfoSaving(true);
     try {
       await updateOrderReceiverInfo(order.id, {
@@ -222,13 +248,25 @@ export default function OrderDetailPage() {
         { label: '已取消', time: terminalTime, status: 'error' },
       ];
     }
-    const main: TimelineNode[] = [
-      { label: '下单', time: order.createdAt, status: 'finish' },
-      { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
-      { label: '发货', time: shippedAt, status: reached(shippedAt) },
-      { label: '送达', time: order.deliveredAt, status: reached(order.deliveredAt) },
-      { label: '收货', time: order.receivedAt, status: reached(order.receivedAt) },
-    ];
+    const main: TimelineNode[] = isPickup
+      ? pickup
+        ? [
+            { label: '下单', time: order.createdAt, status: 'finish' },
+            { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+            { label: '备货完成', time: pickup.readyAt, status: reached(pickup.readyAt) },
+            { label: '核销取货', time: pickup.pickedUpAt, status: reached(pickup.pickedUpAt) },
+          ]
+        : [
+            { label: '下单', time: order.createdAt, status: 'finish' },
+            { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+          ]
+      : [
+          { label: '下单', time: order.createdAt, status: 'finish' },
+          { label: '支付', time: order.paidAt, status: reached(order.paidAt) },
+          { label: '发货', time: shippedAt, status: reached(shippedAt) },
+          { label: '送达', time: order.deliveredAt, status: reached(order.deliveredAt) },
+          { label: '收货', time: order.receivedAt, status: reached(order.receivedAt) },
+        ];
     if (isRefunded) {
       main.push({ label: '已退款', time: terminalTime, status: 'error' });
     } else if (refundInProgress) {
@@ -250,6 +288,7 @@ export default function OrderDetailPage() {
 
   // 预计自动收货（仅未收货 + 未到期时提示，已收货后不再有意义）
   const autoReceiveInfo = (() => {
+    if (isPickup) return null;
     if (!order.autoReceiveAt) return null;
     if (order.receivedAt) return null;
     if (isCanceled || isRefunded) return null;
@@ -278,6 +317,63 @@ export default function OrderDetailPage() {
           queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] });
         } catch (err) {
           message.error(err instanceof Error ? err.message : '退款重试失败');
+        }
+      },
+    });
+  };
+
+  const handlePickupCancelRefund = () => {
+    let reason = '';
+    modal.confirm({
+      title: '受控取消自提订单并原路退款？',
+      width: 560,
+      okText: '确认取消并退款',
+      cancelText: '返回检查',
+      okButtonProps: { danger: true },
+      content: (
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Alert
+            type="error"
+            showIcon
+            message="这是资金操作，提交后不能恢复"
+            description="仅用于普通商品自提点闭店、缺货或平台确认的异常。同一结算会话含多商家时，为保证共享红包和积分一致，所有仍待履约的子订单可能一并取消并原路退款。"
+          />
+          <Input.TextArea
+            rows={3}
+            maxLength={500}
+            showCount
+            placeholder="必填：记录闭店、缺货或争议处理依据（至少 5 个字）"
+            onChange={(event) => { reason = event.target.value; }}
+          />
+        </Space>
+      ),
+      onOk: async () => {
+        if (reason.trim().length < 5) {
+          message.error('请填写至少 5 个字的异常处理原因');
+          return Promise.reject(new Error('reason_required'));
+        }
+        setPickupCanceling(true);
+        try {
+          const result = await cancelPickupAndRefund(order.id, reason.trim());
+          const pendingRefunds = result.refunds?.filter((refund) => refund.status !== 'REFUNDED') ?? [];
+          const acceptedCopy = result.affectedOrderIds && result.affectedOrderIds.length > 1
+            ? `已受理 ${result.affectedOrderIds.length} 笔关联订单的原路退款`
+            : '已取消订单并提交原路退款';
+          if (pendingRefunds.length > 0) {
+            message.warning(`${acceptedCopy}，其中 ${pendingRefunds.length} 笔仍在处理，请在退款记录中继续复核`);
+          } else {
+            message.success(`${acceptedCopy}，渠道已全部确认成功`);
+          }
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] }),
+            queryClient.invalidateQueries({ queryKey: ['admin', 'orders'] }),
+            queryClient.invalidateQueries({ queryKey: ['admin', 'order', id, 'pickup-events'] }),
+          ]);
+        } catch (error) {
+          message.error(getAdminErrorMessage(error, '受控取消退款失败'));
+          throw error;
+        } finally {
+          setPickupCanceling(false);
         }
       },
     });
@@ -315,6 +411,16 @@ export default function OrderDetailPage() {
         />
       )}
 
+      {isPickup && !pickup && (
+        <Alert
+          type="error"
+          showIcon
+          message="自提履约记录缺失"
+          description="该订单已标记为到店自提，但没有可读取的自提履约记录。发货、微信物流上报和改地址操作已保持禁用，请检查支付建单和数据一致性。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* 订单状态流转时间线 */}
       <Card style={{ marginBottom: 16 }}>
         {isCanceled || isRefunded ? (
@@ -328,6 +434,19 @@ export default function OrderDetailPage() {
               },
             ]}
           />
+        ) : isPickup ? (
+          pickup ? (
+            <Steps
+              current={pickup.status === 'PICKED_UP' ? 2 : pickup.status === 'READY' ? 1 : 0}
+              items={[
+                { title: '备货中', description: formatDateTime(order.paidAt) },
+                { title: '待自提', description: formatDateTime(pickup.readyAt) },
+                { title: '已取货', description: formatDateTime(pickup.pickedUpAt) },
+              ]}
+            />
+          ) : (
+            <Alert type="error" showIcon message="无法展示自提进度：履约记录缺失" />
+          )
         ) : (
           <Steps
             current={currentStepIndex}
@@ -341,6 +460,10 @@ export default function OrderDetailPage() {
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 3 }}>
           <Descriptions.Item label="订单号">{order.orderNo}</Descriptions.Item>
           <Descriptions.Item label="状态"><Tag color={status?.color}>{status?.text}</Tag></Descriptions.Item>
+          <Descriptions.Item label="履约方式">
+            <Tag color={isPickup ? 'green' : 'blue'}>{isPickup ? '到店自提' : '送货上门'}</Tag>
+            {pickupStatus && <Tag color={pickupStatus.color}>{pickupStatus.text}</Tag>}
+          </Descriptions.Item>
           <Descriptions.Item label="用户">
             <BuyerIdentityText
               buyerNo={order.user?.buyerNo}
@@ -478,7 +601,7 @@ export default function OrderDetailPage() {
         </Descriptions>
       </Card>
 
-      {order.paymentMethod === 'WECHAT_PAY' && order.paymentScene === 'MINI_PROGRAM' && (
+      {!isPickup && order.paymentMethod === 'WECHAT_PAY' && order.paymentScene === 'MINI_PROGRAM' && (
         <Card title="微信小程序交易发货" style={{ marginBottom: 16 }}>
           {order.wechatShipping ? (
             <Descriptions bordered column={{ xs: 1, sm: 2 }}>
@@ -516,6 +639,112 @@ export default function OrderDetailPage() {
           ) : (
             <Alert type="info" showIcon message="订单发货后将自动创建微信发货上报任务" />
           )}
+        </Card>
+      )}
+
+      {isPickup && pickup && (
+        <Card
+          title="自提履约信息"
+          style={{ marginBottom: 16 }}
+          extra={order.bizType === 'NORMAL_GOODS'
+            && order.status === 'PAID'
+            && (pickup.status === 'PREPARING' || pickup.status === 'READY') ? (
+              <PermissionGate permission={PERMISSIONS.ORDERS_REFUND}>
+                <Button danger loading={pickupCanceling} onClick={handlePickupCancelRefund}>
+                  异常取消并退款
+                </Button>
+              </PermissionGate>
+            ) : null}
+        >
+          <Alert
+            type="info"
+            showIcon
+            message="管理端只读展示履约凭证状态"
+            description="明文取货码和二维码 token 不会返回管理后台；核销由订单所属商家完成。"
+            style={{ marginBottom: 16 }}
+          />
+          {(order.bizType === 'VIP_PACKAGE' || order.bizType === 'GROUP_BUY') && order.status === 'PAID' ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前业务类型不开放在线异常退款"
+              description="团购与 VIP 礼包继续遵守各自取消规则；如自提点无法履约，请由客服登记并走专项人工处理，不能直接回滚团购资格或 VIP 身份。"
+              style={{ marginBottom: 16 }}
+            />
+          ) : null}
+          <Descriptions bordered column={{ xs: 1, sm: 2 }}>
+            <Descriptions.Item label="履约状态">
+              <Tag color={pickupStatus?.color}>{pickupStatus?.text || pickup.status}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="自提点">{pickup.pickupPoint.name}</Descriptions.Item>
+            <Descriptions.Item label="地址" span={2}>
+              {pickupFullAddress(pickup.pickupPoint)}
+            </Descriptions.Item>
+            <Descriptions.Item label="营业时间">
+              {formatPickupBusinessHours(pickup.pickupPoint.businessHours)}
+            </Descriptions.Item>
+            <Descriptions.Item label="自提人">
+              {pickup.recipient?.name || '-'} / {pickup.recipient?.phoneMasked || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="备货完成时间">{formatDateTime(pickup.readyAt)}</Descriptions.Item>
+            <Descriptions.Item label="核销时间">{formatDateTime(pickup.pickedUpAt)}</Descriptions.Item>
+            <Descriptions.Item label="核销员工" span={2}>
+              {pickup.pickedUpByStaffId ? (
+                <Typography.Text copyable>{pickup.pickedUpByStaffId}</Typography.Text>
+              ) : '-'}
+            </Descriptions.Item>
+            {pickup.pickupPoint.pickupNotice && (
+              <Descriptions.Item label="取货须知" span={2}>
+                {pickup.pickupPoint.pickupNotice}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        </Card>
+      )}
+
+      {isPickup && (
+        <Card title="自提核销审计" style={{ marginBottom: 16 }}>
+          <Table<PickupFulfillmentEvent>
+            rowKey="id"
+            loading={pickupEventsLoading}
+            pagination={false}
+            size="small"
+            dataSource={pickupEventsResponse?.items || []}
+            locale={{ emptyText: '暂无自提履约事件' }}
+            columns={[
+              { title: '事件', dataIndex: 'eventType', render: (value: string) => value || '-' },
+              {
+                title: '状态变化',
+                render: (_value, event) => (
+                  <span>
+                    {event.fromStatus ? pickupStatusMap[event.fromStatus]?.text || event.fromStatus : '-'}
+                    {' → '}
+                    {pickupStatusMap[event.toStatus]?.text || event.toStatus}
+                  </span>
+                ),
+              },
+              {
+                title: '操作主体',
+                render: (_value, event) => (
+                  <Space direction="vertical" size={0}>
+                    <span>{event.actorType}</span>
+                    {event.actorId && <Typography.Text type="secondary" copyable>{event.actorId}</Typography.Text>}
+                  </Space>
+                ),
+              },
+              {
+                title: '原因 / 详情',
+                render: (_value, event) => {
+                  const meta = event.meta && typeof event.meta === 'object'
+                    ? event.meta as Record<string, unknown>
+                    : null;
+                  const reason = typeof meta?.reason === 'string' ? meta.reason : null;
+                  return reason || (meta ? <Typography.Text code>{JSON.stringify(meta)}</Typography.Text> : '-');
+                },
+              },
+              { title: '时间', dataIndex: 'createdAt', render: (value: string) => formatDateTime(value) },
+            ]}
+          />
         </Card>
       )}
 
@@ -608,7 +837,7 @@ export default function OrderDetailPage() {
       </Card>
 
       {/* 物流信息 */}
-      {shipments.length > 0 && (
+      {!isPickup && shipments.length > 0 && (
         <Card title="物流信息" style={{ marginBottom: 16 }}>
           <Table
             rowKey="id"
@@ -703,7 +932,7 @@ export default function OrderDetailPage() {
       )}
 
       {/* 配送信息 */}
-      {order.address && (
+      {!isPickup && order.address && (
         <Card
           title="配送信息"
           extra={(

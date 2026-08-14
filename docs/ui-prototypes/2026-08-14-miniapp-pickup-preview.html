@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>爱买买小程序 · 自提功能预览</title>
+  <style>
+    :root {
+      --ink: #152431;
+      --muted: #60717d;
+      --paper: #f6f8f4;
+      --jade: #0e766a;
+      --jade-dark: #07554d;
+      --jade-wash: #e4f3ed;
+      --citrus: #d9a928;
+      --coral: #c45e4b;
+      --line: #dbe4dd;
+      --white: #ffffff;
+      --shadow: 0 20px 60px rgba(18, 48, 43, .14);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 18% 4%, rgba(198, 229, 215, .7), transparent 27rem),
+        linear-gradient(125deg, #f8faf7, #f1f5f0 48%, #edf6f3);
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    button { font: inherit; }
+    .shell { max-width: 1220px; margin: 0 auto; padding: 42px 24px 64px; }
+    .eyebrow { margin: 0 0 10px; color: var(--jade); font-size: 12px; font-weight: 800; letter-spacing: .16em; }
+    h1 { max-width: 800px; margin: 0; font-family: "Songti SC", "STSong", serif; font-size: clamp(34px, 5vw, 58px); line-height: 1.08; letter-spacing: -.04em; }
+    .intro { max-width: 640px; margin: 18px 0 0; color: #41505c; font-size: 16px; line-height: 1.8; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 26px 0 30px; }
+    .chip { border: 1px solid #bbd8cb; border-radius: 999px; padding: 7px 12px; color: #326156; background: rgba(255,255,255,.65); font-size: 13px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 30px; align-items: start; }
+    .board { position: relative; min-height: 810px; overflow: hidden; padding: 30px; border: 1px solid rgba(152, 192, 175, .62); border-radius: 30px; background: rgba(255,255,255,.62); box-shadow: var(--shadow); }
+    .board::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(27,103,86,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(27,103,86,.045) 1px, transparent 1px); background-size: 26px 26px; mask-image: linear-gradient(to bottom, black, transparent 78%); }
+    .controls { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .control { border: 1px solid #cddbd3; border-radius: 10px; padding: 9px 12px; color: #4f5f59; background: rgba(255,255,255,.9); cursor: pointer; font-size: 13px; transition: .18s ease; }
+    .control:hover, .control:focus-visible { border-color: var(--jade); outline: 2px solid rgba(14,118,106,.2); outline-offset: 2px; }
+    .control.active { border-color: var(--jade); color: white; background: var(--jade); box-shadow: 0 7px 15px rgba(14,118,106,.2); }
+    .phone { position: relative; z-index: 1; width: min(100%, 372px); min-height: 700px; margin: 0 auto; overflow: hidden; border: 9px solid #173036; border-radius: 39px; background: #f7faf8; box-shadow: 0 26px 54px rgba(17,47,43,.27); }
+    .phone::before { content: ""; position: absolute; top: 10px; left: 50%; z-index: 4; width: 102px; height: 19px; border-radius: 0 0 13px 13px; background: #173036; transform: translateX(-50%); }
+    .phone-head { display: flex; align-items: center; justify-content: space-between; height: 76px; padding: 25px 20px 0; color: #244138; background: rgba(255,255,255,.94); font-size: 15px; font-weight: 800; }
+    .phone-head small { color: #82918a; font-size: 11px; font-weight: 500; }
+    .screen { min-height: 624px; padding: 15px 14px 92px; background: linear-gradient(180deg, #eff7f1, #f9fbfa 42%); }
+    .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 5px; border: 1px solid #d6e3dc; border-radius: 15px; background: rgba(255,255,255,.82); }
+    .mode button { border: 0; border-radius: 11px; padding: 11px 5px; color: #65756e; background: transparent; cursor: pointer; font-size: 13px; font-weight: 800; }
+    .mode button.active { color: #0b665b; background: #dff3ea; box-shadow: inset 0 0 0 1px #bfe0d2; }
+    .notice { display: flex; gap: 10px; margin: 14px 0; padding: 12px; border: 1px solid #b8dacb; border-radius: 14px; background: #e4f4ec; color: #245f50; font-size: 12px; line-height: 1.55; }
+    .notice-mark { display: grid; flex: 0 0 22px; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: white; background: var(--jade); font-size: 13px; }
+    .section-label { display: flex; justify-content: space-between; margin: 19px 4px 8px; color: #60726a; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+    .section-label strong { color: var(--jade); font-size: 11px; letter-spacing: 0; }
+    .card { margin-bottom: 10px; padding: 14px; border: 1px solid #e1eae4; border-radius: 17px; background: white; box-shadow: 0 6px 16px rgba(36,70,61,.05); }
+    .merchant { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+    .merchant-tag { border-radius: 999px; padding: 3px 7px; color: var(--jade); background: #e6f3ed; font-size: 10px; font-weight: 700; }
+    .product { display: grid; grid-template-columns: 41px 1fr auto; gap: 9px; align-items: center; }
+    .product-art { width: 41px; height: 41px; border-radius: 12px; background: linear-gradient(135deg, #9bceb3, #e9c677); }
+    .product-name { color: #33463e; font-size: 12px; font-weight: 700; }
+    .product-sub { margin-top: 3px; color: #839188; font-size: 10px; }
+    .product-price { color: #172f29; font-size: 12px; font-weight: 800; }
+    .address { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .address-icon { display: grid; flex: 0 0 29px; width: 29px; height: 29px; place-items: center; border-radius: 10px; color: var(--jade); background: var(--jade-wash); }
+    .address-copy { flex: 1; color: #54645d; font-size: 11px; line-height: 1.55; }
+    .address-copy b { display: block; color: #243a32; font-size: 12px; }
+    .arrow { color: #96a49e; }
+    .point { position: relative; padding: 13px 13px 13px 42px; cursor: pointer; }
+    .point::before { content: ""; position: absolute; top: 15px; left: 14px; width: 16px; height: 16px; border: 2px solid #b6c8bf; border-radius: 50%; }
+    .point.selected { border-color: #72b79d; background: #fcfffd; }
+    .point.selected::before { border-color: var(--jade); box-shadow: inset 0 0 0 3px white; background: var(--jade); }
+    .point-name { color: #203d34; font-size: 13px; font-weight: 800; }
+    .point-detail { margin-top: 5px; color: #718078; font-size: 11px; line-height: 1.45; }
+    .point-meta { display: flex; gap: 7px; margin-top: 8px; color: #477566; font-size: 10px; }
+    .point-meta span { padding: 3px 5px; border-radius: 5px; background: #edf7f1; }
+    .contact { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .field { padding: 10px; border: 1px solid #deebe4; border-radius: 11px; color: #54645d; background: #fbfdfb; font-size: 11px; }
+    .field b { display: block; margin-top: 4px; color: #1e4035; font-size: 12px; }
+    .summary { margin-top: 16px; padding: 14px; border-top: 1px dashed #c8d9cf; background: white; }
+    .summary-row { display: flex; justify-content: space-between; margin: 7px 0; color: #65746e; font-size: 12px; }
+    .summary-row.total { margin-top: 12px; color: #183a30; font-size: 15px; font-weight: 800; }
+    .summary-row .free { color: var(--jade); font-weight: 800; }
+    .paybar { position: absolute; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 15px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid #dbe7e1; background: rgba(255,255,255,.96); box-shadow: 0 -5px 17px rgba(25,70,57,.06); }
+    .paybar small { display: block; color: #78877f; font-size: 10px; }
+    .paybar b { color: #193b30; font-size: 18px; }
+    .pay { border: 0; border-radius: 12px; padding: 12px 15px; color: white; background: var(--jade); box-shadow: 0 8px 16px rgba(14,118,106,.24); font-size: 13px; font-weight: 800; }
+    .pass-hero { position: relative; overflow: hidden; padding: 18px; border-radius: 18px; color: #f8fcf7; background: linear-gradient(135deg, #075a51, #148374); }
+    .pass-hero::after { content: ""; position: absolute; right: -45px; bottom: -66px; width: 190px; height: 190px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; box-shadow: 0 0 0 25px rgba(255,255,255,.05), 0 0 0 53px rgba(255,255,255,.045); }
+    .pass-eyebrow { position: relative; z-index: 1; color: #c7ebe0; font-size: 11px; letter-spacing: .1em; }
+    .pass-title { position: relative; z-index: 1; margin: 8px 0 2px; font-size: 22px; font-weight: 800; }
+    .pass-sub { position: relative; z-index: 1; color: #d6eee6; font-size: 11px; }
+    .ticket { position: relative; display: grid; grid-template-columns: 1fr 94px; gap: 12px; margin-top: 13px; padding: 15px; overflow: hidden; border: 1px solid #d7e6dd; border-radius: 18px; background: white; }
+    .ticket::after { content: ""; position: absolute; top: 0; bottom: 0; left: calc(100% - 112px); border-left: 1px dashed #bed5c8; }
+    .ticket small { color: #72837a; font-size: 10px; }
+    .ticket h3 { margin: 5px 0; color: #1d3d32; font-size: 14px; }
+    .ticket p { margin: 0; color: #65786e; font-size: 11px; line-height: 1.5; }
+    .pickup-code { margin-top: 12px; color: var(--jade); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 21px; font-weight: 900; letter-spacing: .09em; }
+    .qr { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(11, 1fr); width: 88px; height: 88px; gap: 2px; padding: 5px; background: white; }
+    .qr i { background: transparent; }
+    .qr i.on { background: #143c33; }
+    .ticket-foot { grid-column: 1 / -1; padding-top: 10px; border-top: 1px dashed #d7e5dc; color: #a57224; font-size: 10px; }
+    .timeline { display: grid; grid-template-columns: 20px 1fr; gap: 8px; margin: 18px 6px 0; color: #7b8a82; font-size: 11px; }
+    .timeline-dot { position: relative; width: 12px; height: 12px; margin-top: 2px; border: 2px solid #91baaa; border-radius: 50%; background: white; }
+    .timeline-dot.ready { border-color: var(--jade); background: var(--jade); box-shadow: 0 0 0 4px #d9efe5; }
+    .timeline-dot::after { content: ""; position: absolute; top: 11px; left: 4px; height: 37px; border-left: 1px dashed #c5d7cd; }
+    .timeline:last-child .timeline-dot::after { display: none; }
+    .timeline b { display: block; color: #3e5047; margin-bottom: 2px; }
+    .side { position: sticky; top: 20px; }
+    .side h2 { margin: 0 0 13px; font-size: 18px; }
+    .side-card { margin-bottom: 12px; padding: 18px; border: 1px solid #d7e5dd; border-radius: 19px; background: rgba(255,255,255,.75); }
+    .side-card h3 { margin: 0 0 10px; color: #245f50; font-size: 13px; }
+    .side-card p, .side-card li { color: #60726a; font-size: 12px; line-height: 1.7; }
+    .side-card p { margin: 0; }
+    .side-card ul { margin: 0; padding-left: 18px; }
+    .legend { display: grid; gap: 9px; }
+    .legend div { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 8px; color: #52645c; font-size: 12px; }
+    .swatch { width: 20px; height: 20px; border-radius: 7px; }
+    .swatch.jade { background: var(--jade); }
+    .swatch.ticket { border: 1px dashed #a6c7b7; background: white; }
+    .swatch.delivery { background: #dce8e0; }
+    .footnote { margin-top: 22px; color: #73827a; font-size: 11px; line-height: 1.7; }
+    @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } .side { position: static; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; } .side-card { margin: 0; } }
+    @media (max-width: 580px) { .shell { padding: 26px 14px 45px; } .board { padding: 17px 10px 10px; border-radius: 22px; } .phone { width: 100%; border-width: 7px; border-radius: 30px; } .side { grid-template-columns: 1fr; } h1 { font-size: 34px; } }
+    @media (prefers-reduced-motion: no-preference) { .phone { animation: settle .55s cubic-bezier(.2,.9,.2,1) both; } @keyframes settle { from { opacity: 0; transform: translateY(18px) rotate(.4deg); } to { opacity: 1; transform: translateY(0) rotate(0); } } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="eyebrow">AIMAI MAIMAI · STATIC INTERACTION PREVIEW</p>
+    <h1>自提不是“免运费”，<br />而是一张可核销的到店凭证。</h1>
+    <p class="intro">这是小程序增加自提后的静态交互稿。切换上方场景和配送方式，即可对比结算、团购、VIP 礼包与订单详情的变化。</p>
+    <div class="chips"><span class="chip">普通商品</span><span class="chip">团购</span><span class="chip">VIP 礼包</span><span class="chip">多商家分别自提</span><span class="chip">一次性取货凭证</span></div>
+    <section class="workspace" aria-label="自提功能页面预览">
+      <div class="board">
+        <div class="controls" aria-label="场景切换">
+          <button class="control active" data-scene="normal">普通商品结算</button>
+          <button class="control" data-scene="group">团购结算</button>
+          <button class="control" data-scene="vip">VIP 礼包结算</button>
+          <button class="control" data-scene="order">订单取货凭证</button>
+        </div>
+        <article class="phone" aria-live="polite">
+          <header class="phone-head"><span id="phoneTitle">确认订单</span><small>●●●</small></header>
+          <div class="screen" id="screen"></div>
+        </article>
+      </div>
+      <aside class="side">
+        <div class="side-card">
+          <h2>这次页面变化</h2>
+          <div class="legend"><div><span class="swatch jade"></span><span>绿色为用户主动选择的自提路径</span></div><div><span class="swatch ticket"></span><span>票根式卡片承载地点、凭证和核销状态</span></div><div><span class="swatch delivery"></span><span>配送路径保持原有地址与运费逻辑</span></div></div>
+        </div>
+        <div class="side-card">
+          <h3>结算页的关键变化</h3>
+          <ul><li>配送与自提并列，默认仍是配送。</li><li>多商家订单分别选择自提点，不错误合并地点。</li><li>自提人仅保存本单联系人，不写入地址簿。</li><li>自提时运费为 ¥0，不进入物流轨迹。</li></ul>
+        </div>
+        <div class="side-card">
+          <h3>支付后的关键变化</h3>
+          <p>商家备货完成后，订单展示待自提凭证。卖家扫码或输入取货码完成一次性核销，订单才成为已收货。</p>
+        </div>
+        <p class="footnote">概念稿使用演示地点、金额和二维码样式，不连接真实接口，也不能用于实际核销。</p>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const scenes = {
+      normal: { title: '确认订单', label: '普通商品', total: '168.00', deliveryFee: '12.00', merchants: [
+        { name: '北海渔家直营店', product: '现捕梭子蟹 · 2 斤装', price: '¥128.00', point: '北海海味集散中心 · A 区 08 号', time: '今日 10:00–20:00', distance: '距您 1.8 km' },
+        { name: '岭南果园', product: '妃子笑荔枝 · 精品箱', price: '¥28.00', point: '岭南农品体验店 · 冷链自提柜', time: '今日 09:30–19:30', distance: '距您 3.4 km' }
+      ] },
+      group: { title: '团购结算', label: '团购商品', total: '89.00', deliveryFee: '8.00', group: true, merchants: [
+        { name: '山野菌菇团购', product: '高山羊肚菌拼团礼盒', price: '¥89.00', point: '山野农品城市仓 · 取货台 02', time: '本周五 12:00–20:00', distance: '距您 2.1 km' }
+      ] },
+      vip: { title: 'VIP 礼包结算', label: 'VIP 礼包', total: '399.00', deliveryFee: '18.00', vip: true, merchants: [
+        { name: '爱买买平台礼包', product: '臻选生鲜 VIP 开通礼包', price: '¥399.00', point: '爱买买会员体验站 · 服务台', time: '每日 10:00–21:00', distance: '距您 1.2 km' }
+      ] }
+    };
+    let scene = 'normal';
+    let mode = 'pickup';
+    let selected = new Set();
+    const screen = document.querySelector('#screen');
+    const title = document.querySelector('#phoneTitle');
+    const qrCells = Array.from({ length: 121 }, (_, index) => `<i class="${[0,1,2,11,12,13,22,23,24,96,97,98,107,108,109,118,119,120].includes(index) || ((index * 7 + Math.floor(index / 11) * 3) % 5 === 0) ? 'on' : ''}"></i>`).join('');
+
+    function card(merchant, index, isPickup) {
+      const key = `${scene}-${index}`;
+      const active = selected.has(key);
+      return `<section class="card"><div class="merchant"><span>${merchant.name}</span><span class="merchant-tag">${scenes[scene].label}</span></div><div class="product"><span class="product-art"></span><span><span class="product-name">${merchant.product}</span><span class="product-sub">新鲜现制 · 数量 1</span></span><span class="product-price">${merchant.price}</span></div>${isPickup ? `<div class="card point ${active ? 'selected' : ''}" data-point="${key}"><div class="point-name">${merchant.point}</div><div class="point-detail">自提点已为本商家保留，到店请向工作人员出示取货凭证。</div><div class="point-meta"><span>${merchant.time}</span><span>${merchant.distance}</span></div></div>` : `<div class="card address"><span class="address-icon">⌖</span><span class="address-copy"><b>林晓 · 138****2756</b>广东省广州市越秀区东风东路 85 号</span><span class="arrow">›</span></div>`}</section>`;
+    }
+
+    function checkout() {
+      const data = scenes[scene];
+      const isPickup = mode === 'pickup';
+      title.textContent = data.title;
+      if (isPickup && selected.size === 0) data.merchants.forEach((_, index) => selected.add(`${scene}-${index}`));
+      const delivery = `<div class="notice"><span class="notice-mark">✓</span><span>配送方式不变：填写收货地址，平台按整单重量和地区重新计算顺丰运费。</span></div>`;
+      const pickup = `<div class="notice"><span class="notice-mark">◎</span><span>${data.merchants.length > 1 ? `本单含 ${data.merchants.length} 个商家，需要分别选择 ${data.merchants.length} 个自提点；支付后将生成对应的取货凭证。` : `${data.group ? '团购资格与返还规则不变，取货核销后才算确认收货。' : data.vip ? 'VIP 权益在支付成功后立即开通；礼包的取货与售后独立记录。' : '到店前无需联系商家，备货完成会收到小程序提醒。'}`}</span></div>`;
+      screen.innerHTML = `<div class="mode"><button class="${mode === 'delivery' ? 'active' : ''}" data-mode="delivery">送货上门</button><button class="${mode === 'pickup' ? 'active' : ''}" data-mode="pickup">到店自提</button></div>${isPickup ? pickup : delivery}<div class="section-label"><span>${isPickup ? '为每个商家选择自提点' : '收货信息'} </span><strong>${isPickup ? '支持地图导航' : '可修改地址'}</strong></div>${data.merchants.map((item, index) => card(item, index, isPickup)).join('')}${isPickup ? `<div class="section-label"><span>自提人</span><strong>仅保存到本订单</strong></div><section class="card contact"><div class="field">姓名<b>林晓</b></div><div class="field">手机号码<b>138****2756</b></div></section>` : ''}<section class="summary"><div class="summary-row"><span>商品金额</span><span>¥${data.total}</span></div><div class="summary-row"><span>运费</span><span class="${isPickup ? 'free' : ''}">${isPickup ? '自提免运费' : `¥${data.deliveryFee}`}</span></div><div class="summary-row total"><span>合计</span><span>¥${isPickup ? data.total : (Number(data.total) + Number(data.deliveryFee)).toFixed(2)}</span></div></section><footer class="paybar"><span><small>微信支付</small><b>¥${isPickup ? data.total : (Number(data.total) + Number(data.deliveryFee)).toFixed(2)}</b></span><button class="pay">提交并支付</button></footer>`;
+    }
+
+    function order() {
+      title.textContent = '订单详情';
+      screen.innerHTML = `<section class="pass-hero"><div class="pass-eyebrow">自提订单 · 商家已备货</div><div class="pass-title">待到店取货</div><div class="pass-sub">请在营业时间内出示下方凭证</div></section><div class="section-label"><span>本单取货凭证</span><strong>一次有效</strong></div><section class="ticket"><div><small>北海渔家直营店</small><h3>北海海味集散中心 · A 区 08 号</h3><p>今日 10:00–20:00<br>取货人：林晓 · 138****2756</p><div class="pickup-code">AIMM 4K7P</div></div><div class="qr" aria-label="演示取货码">${qrCells}</div><div class="ticket-foot">演示凭证：卖家扫码或输入取货码后立即失效</div></section><section class="ticket"><div><small>岭南果园</small><h3>岭南农品体验店 · 冷链自提柜</h3><p>今日 09:30–19:30<br>取货人：林晓 · 138****2756</p><div class="pickup-code">AIMM 9M2X</div></div><div class="qr" aria-label="演示取货码">${qrCells}</div><div class="ticket-foot">本单包含两个商家，请分别前往对应地点取货</div></section><div class="section-label"><span>订单进度</span><strong>不显示物流轨迹</strong></div><div class="timeline"><span class="timeline-dot"></span><span><b>支付成功</b>订单已拆分给对应商家</span></div><div class="timeline"><span class="timeline-dot ready"></span><span><b>商家已备货</b>可在营业时间到店取货</span></div><div class="timeline"><span class="timeline-dot"></span><span><b>到店核销</b>核销后订单自动成为已收货</span></div>`;
+    }
+
+    function render() { scene === 'order' ? order() : checkout(); }
+    document.querySelectorAll('[data-scene]').forEach((button) => button.addEventListener('click', () => { scene = button.dataset.scene; selected = new Set(); document.querySelectorAll('[data-scene]').forEach((item) => item.classList.toggle('active', item === button)); render(); }));
+    screen.addEventListener('click', (event) => { const modeButton = event.target.closest('[data-mode]'); const point = event.target.closest('[data-point]'); if (modeButton) { mode = modeButton.dataset.mode; render(); } if (point) { selected.add(point.dataset.point); render(); } });
+    render();
+  </script>
+</body>
+</html>

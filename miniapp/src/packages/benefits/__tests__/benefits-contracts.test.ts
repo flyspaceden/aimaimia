@@ -54,8 +54,8 @@ describe('benefits repository contracts', () => {
 
   it('accepts and preserves multiple server-authoritative VIP packages', async () => {
     getMock.mockResolvedValue({ ok: true, data: { packages: [
-      { id: 'package-399', price: 399, sortOrder: 2, giftOptions: [gift] },
-      { id: 'package-699', price: 699, sortOrder: 1, giftOptions: [{ ...gift, id: 'gift-2' }] },
+      { id: 'package-399', companyId: 'platform-company', price: 399, sortOrder: 2, giftOptions: [gift] },
+      { id: 'package-699', companyId: 'platform-company', price: 699, sortOrder: 1, giftOptions: [{ ...gift, id: 'gift-2' }] },
     ] } });
     await expect(BenefitsRepo.getVipGiftOptions()).resolves.toMatchObject({ ok: true, data: { packages: [{ price: 399 }, { price: 699 }] } });
     expect(getMock).toHaveBeenCalledWith('/bonus/vip/gift-options');
@@ -167,7 +167,8 @@ describe('benefits navigation and claim boundaries', () => {
     expect(source).toContain('saveVipCheckoutDraft');
     expect(source).toContain('readVipCheckoutSession');
     expect(source).toContain('CheckoutRepo.getPendingVip');
-    expect(source).toContain("created.error.code === 'PENDING_CHECKOUT_EXISTS'");
+    expect(source).toContain('const errorCode = resolveAppErrorCode(created.error)');
+    expect(source).toContain("errorCode === 'PENDING_CHECKOUT_EXISTS'");
     expect(source).toContain('authRevision');
     expect(source).toContain('current.userId === userId');
     expect(source).toContain('effectiveAddressId');
@@ -177,7 +178,10 @@ describe('benefits navigation and claim boundaries', () => {
   it('restores VIP checkout attempts only for the owning account', () => {
     const draft = { userId: 'user-1', idempotencyKey: 'vip-key-001', packageId: 'package-1', giftOptionId: 'gift-1', addressId: 'address-1', expectedTotal: 399, createdAt: '2026-08-02' };
     saveVipCheckoutDraft(draft);
-    expect(readVipCheckoutDraft('user-1')).toEqual(draft);
+    expect(readVipCheckoutDraft('user-1')).toEqual({
+      ...draft,
+      fulfillment: { mode: 'DELIVERY', addressId: 'address-1' },
+    });
     expect(readVipCheckoutDraft('user-2')).toBeUndefined();
     clearVipCheckoutDraft();
     expect(readVipCheckoutDraft('user-1')).toBeUndefined();

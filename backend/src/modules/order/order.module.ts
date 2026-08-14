@@ -39,6 +39,8 @@ import { CaptainAttributionService } from '../captain/captain-attribution.servic
 import { CaptainCommissionService } from '../captain/captain-commission.service';
 import { ProfitModule } from '../profit/profit.module';
 import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
+import { PickupModule } from '../pickup/pickup.module';
+import { PickupService } from '../pickup/pickup.service';
 
 @Module({
   imports: [
@@ -54,6 +56,7 @@ import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.serv
     GrowthModule,
     CaptainModule,
     ProfitModule,
+    PickupModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -78,6 +81,12 @@ export class OrderModule implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    const pickupService = this.moduleRef.get(PickupService, { strict: false });
+    if (!pickupService) {
+      throw new Error('[OrderModule] PickupService 未注入，自提履约不可用，启动中止');
+    }
+    this.orderService.setPickupService(pickupService);
+
     // 注入运费规则服务（避免构造函数循环依赖）
     const shippingRuleService = this.moduleRef.get(ShippingRuleService, { strict: false });
     if (shippingRuleService) {

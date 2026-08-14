@@ -479,6 +479,7 @@ describe('PaymentService.initiateRefund', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]),
       },
       checkoutSession: { findUnique: jest.fn() },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue(null) },
       refundStatusHistory: { create: jest.fn() },
     };
     prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));
@@ -533,6 +534,7 @@ describe('PaymentService.initiateRefund', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]),
       },
       checkoutSession: { findUnique: jest.fn() },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue(null) },
       refundStatusHistory: { create: jest.fn() },
     };
     prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));
@@ -547,6 +549,58 @@ describe('PaymentService.initiateRefund', () => {
 
     expect(result).toBe(true);
     expect(digitalAssetService.reverseRefund).toHaveBeenCalledWith('r_auto_1');
+  });
+
+  it('自提订单退款成功时 CAS 作废凭证并写履约事件', async () => {
+    const { service, prisma } = makeService();
+    const updateTx = {
+      refund: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({ id: 'r_pickup_1', status: 'REFUNDING' })
+          .mockResolvedValueOnce({
+            id: 'r_pickup_1',
+            merchantRefundNo: 'AUTO-CANCEL-o-pickup',
+            order: {
+              id: 'o-pickup',
+              checkoutSessionId: null,
+              goodsAmount: 60,
+              discountAmount: 0,
+            },
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([{ orderId: 'o-pickup', status: 'REFUNDED' }]),
+      },
+      order: { findMany: jest.fn().mockResolvedValue([{ id: 'o-pickup' }]) },
+      checkoutSession: { findUnique: jest.fn() },
+      refundStatusHistory: { create: jest.fn() },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'pf1', status: 'READY' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
+    };
+    prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));
+
+    await (service as any).updateAutoRefundRecord({
+      refundId: 'r_pickup_1',
+      toStatus: 'REFUNDED',
+      fromStatuses: ['REFUNDING'],
+      providerRefundId: 'provider-pickup-1',
+      remark: '自提退款成功',
+    });
+
+    expect(updateTx.pickupFulfillment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'pf1', status: 'READY' },
+      data: expect.objectContaining({ status: 'VOID', voidedAt: expect.any(Date) }),
+    }));
+    expect(updateTx.pickupFulfillmentEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fulfillmentId: 'pf1',
+        fromStatus: 'READY',
+        toStatus: 'VOID',
+        eventType: 'REFUND_COMPLETED',
+      }),
+    });
   });
 
   it('AUTO-CANCEL 数字资产扣回失败时记录待重试失败单', async () => {
@@ -581,6 +635,7 @@ describe('PaymentService.initiateRefund', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'o1' }]),
       },
       checkoutSession: { findUnique: jest.fn() },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue(null) },
       refundStatusHistory: { create: jest.fn() },
     };
     prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));
@@ -629,6 +684,7 @@ describe('PaymentService.initiateRefund', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'o1' }, { id: 'o2' }]),
       },
       checkoutSession: { findUnique: jest.fn() },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue(null) },
       refundStatusHistory: { create: jest.fn() },
     };
     prisma.$transaction.mockImplementationOnce(async (callback: any) => callback(updateTx));

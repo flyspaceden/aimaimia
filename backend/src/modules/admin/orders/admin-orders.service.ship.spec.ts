@@ -97,6 +97,15 @@ describe('AdminOrdersService.ship', () => {
     mockSuccessfulTransaction(prisma);
   };
 
+  it('管理端映射遇到 PICKUP 缺关联时返回显式异常标记', () => {
+    const { service } = makeService();
+    service.pickupService = { mapOrderPickup: jest.fn() };
+    const order = { id: 'o-missing', fulfillmentMode: 'PICKUP', pickupFulfillment: null };
+
+    expect(service.mapPickupFulfillment(order)).toBeNull();
+    expect(service.pickupFulfillmentIssueCode(order)).toBe('PICKUP_RELATION_MISSING');
+  });
+
   it('手填发货拒绝 4 位短单号，避免误以为已在顺丰沙箱下单', async () => {
     const { service, prisma, sfExpress } = makeService();
     prisma.order.findUnique.mockResolvedValue({
@@ -209,7 +218,8 @@ describe('AdminOrdersService.ship', () => {
   });
 
   it('管理端人工重试只调用可信快照重建入口', async () => {
-    const { service, wechatShippingOutbox } = makeService();
+    const { service, prisma, wechatShippingOutbox } = makeService();
+    prisma.order.findUnique.mockResolvedValue({ fulfillmentMode: 'DELIVERY' });
 
     await expect(service.retryWechatShipping('order-001')).resolves.toEqual({
       ok: true,

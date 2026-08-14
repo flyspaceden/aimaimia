@@ -393,7 +393,7 @@ describe('CheckoutService WECHAT_PAY payment params', () => {
     });
   });
 
-  it('creates WECHAT_PAY APP params for VIP checkout sessions', async () => {
+  it('creates WECHAT_PAY APP params and locks pickup for VIP checkout sessions', async () => {
     const giftOption = {
       id: 'gift-1',
       packageId: 'pkg-1',
@@ -451,12 +451,36 @@ describe('CheckoutService WECHAT_PAY payment params', () => {
     const wechatPayService = makeWechatPayService();
     const service = wirePaymentCoordinator(new CheckoutService(prisma, makeBonusConfig() as any));
     (service as any).setWechatPayService(wechatPayService);
+    const pickupService = {
+      validateCheckoutFulfillment: jest.fn().mockResolvedValue({
+        mode: 'PICKUP',
+        recipientSnapshot: { encrypted: 'vip-recipient' },
+        selectionsSnapshot: [{
+          companyId: PLATFORM_COMPANY_ID,
+          pickupPointId: 'point-platform',
+          pickupPointSnapshot: {
+            id: 'point-platform',
+            companyId: PLATFORM_COMPANY_ID,
+            name: '平台自提点',
+          },
+        }],
+      }),
+    };
+    (service as any).pickupService = pickupService;
 
     const result = await service.checkoutVipPackage('user-1', {
       packageId: 'pkg-1',
       giftOptionId: 'gift-1',
-      addressId: 'address-1',
       paymentChannel: 'wechat',
+      fulfillment: {
+        mode: 'PICKUP',
+        recipientName: '张三',
+        recipientPhone: '13800000000',
+        selections: [{
+          companyId: PLATFORM_COMPANY_ID,
+          pickupPointId: 'point-platform',
+        }],
+      },
     } as any);
 
     expect(wechatPayService.createAppOrder).toHaveBeenCalledWith({
@@ -466,6 +490,18 @@ describe('CheckoutService WECHAT_PAY payment params', () => {
       timeExpire: sessions.current.expiresAt,
     });
     expect(sessions.current.bizMeta.checkoutRequestFingerprint).toEqual(expect.any(String));
+    expect(sessions.current).toMatchObject({
+      fulfillmentMode: 'PICKUP',
+      shippingFee: 0,
+      addressSnapshot: null,
+      pickupRecipientSnapshot: { encrypted: 'vip-recipient' },
+    });
+    expect(result.fulfillmentMode).toBe('PICKUP');
+    expect(pickupService.validateCheckoutFulfillment).toHaveBeenCalledWith(
+      tx,
+      [PLATFORM_COMPANY_ID],
+      expect.objectContaining({ mode: 'PICKUP' }),
+    );
     expect(result.paymentParams).toEqual({ channel: 'wechat', prepayId: 'wx-prepay', nonceStr: 'nonce' });
   });
 

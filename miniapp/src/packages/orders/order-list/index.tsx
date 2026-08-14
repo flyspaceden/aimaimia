@@ -10,6 +10,7 @@ import { MiniOrderCard } from '../_components/order-card';
 import {
   canCancelPaidOrder,
   canConfirmOrder,
+  canOpenPickupPass,
   canRepurchaseOrder,
   repurchasePresentation,
 } from '../_components/order-utils';
@@ -18,7 +19,7 @@ import './index.scss';
 const PAGE_SIZE = 20;
 const filters: Array<{ value: OrderListFilter | 'all'; label: string }> = [
   { value: 'all', label: '全部' },
-  { value: 'PAID', label: '待发货' },
+  { value: 'PAID', label: '待履约' },
   { value: 'SHIPPED', label: '已发货' },
   { value: 'DELIVERED', label: '待收货' },
   { value: 'afterSale', label: '售后' },
@@ -108,7 +109,7 @@ export default function OrderListPage() {
     <ScrollView className='order-filter-scroll' scrollX enhanced showScrollbar={false}><View className='order-filters'>{filters.map((item) => <View key={item.value} className={filter === item.value ? 'order-filter order-filter--active' : 'order-filter'} onClick={() => setFilter(item.value)}>{item.label}</View>)}</View></ScrollView>
     <ScrollView className='order-list-scroll' scrollY enhanced refresherEnabled refresherTriggered={ordersQuery.isRefetching} onRefresherRefresh={() => ordersQuery.refetch()} onScrollToLower={() => { if (ordersQuery.hasNextPage && !ordersQuery.isFetchingNextPage) void ordersQuery.fetchNextPage(); }} lowerThreshold={180}>
       <View className='order-list-content'>
-        {ordersQuery.isLoading ? <CatalogFeedback kind='loading' /> : ordersQuery.isError ? <CatalogFeedback kind='error' title='订单加载失败' description={(ordersQuery.error as { displayMessage?: string })?.displayMessage || '请稍后重试'} onRetry={() => ordersQuery.refetch()} /> : orders.length === 0 ? <CatalogFeedback kind='empty' title='暂无订单' description='当前筛选下还没有订单记录' /> : orders.map((order) => <MiniOrderCard key={order.id} order={order} busy={busyId === order.id} onOpen={() => Taro.navigateTo({ url: `/packages/orders/order-detail/index?id=${encodeURIComponent(order.id)}` })} onCancel={canCancelPaidOrder(order) ? () => cancelOrder(order) : undefined} onTrack={canConfirmOrder(order) ? () => Taro.navigateTo({ url: `/packages/orders/order-track/index?orderId=${encodeURIComponent(order.id)}` }) : undefined} onConfirm={canConfirmOrder(order) ? () => confirmReceive(order) : undefined} onRepurchase={canRepurchaseOrder(order) ? () => { if (!busyId) repurchaseMutation.mutate(order); } : undefined} />)}
+        {ordersQuery.isLoading ? <CatalogFeedback kind='loading' /> : ordersQuery.isError ? <CatalogFeedback kind='error' title='订单加载失败' description={(ordersQuery.error as { displayMessage?: string })?.displayMessage || '请稍后重试'} onRetry={() => ordersQuery.refetch()} /> : orders.length === 0 ? <CatalogFeedback kind='empty' title='暂无订单' description='当前筛选下还没有订单记录' /> : orders.map((order) => <MiniOrderCard key={order.id} order={order} busy={busyId === order.id} onOpen={() => Taro.navigateTo({ url: `/packages/orders/order-detail/index?id=${encodeURIComponent(order.id)}` })} onCancel={canCancelPaidOrder(order) ? () => cancelOrder(order) : undefined} onTrack={canConfirmOrder(order) ? () => Taro.navigateTo({ url: `/packages/orders/order-track/index?orderId=${encodeURIComponent(order.id)}` }) : undefined} onConfirm={canConfirmOrder(order) ? () => confirmReceive(order) : undefined} onPickupPass={canOpenPickupPass(order) ? () => Taro.navigateTo({ url: `/packages/orders/pickup-pass/index?orderId=${encodeURIComponent(order.id)}` }) : undefined} onRepurchase={canRepurchaseOrder(order) ? () => { if (!busyId) repurchaseMutation.mutate(order); } : undefined} />)}
         {ordersQuery.isFetchingNextPage ? <Text className='order-list-more'>正在加载更多...</Text> : orders.length > 0 && !ordersQuery.hasNextPage ? <Text className='order-list-more'>已经到底了</Text> : null}
       </View>
     </ScrollView>

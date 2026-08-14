@@ -40,6 +40,48 @@ describe('OrderService.mapOrder snapshot', () => {
     expect(out.deliveredAt).toBeNull();
   });
 
+  it('mapOrder 返回判别式自提履约契约', () => {
+    const pickupService = {
+      mapOrderPickup: jest.fn().mockReturnValue({
+        status: 'READY',
+        pickupPoint: { id: 'p1', name: '一号店' },
+        recipient: { name: '王*', phoneMasked: '138****5678' },
+      }),
+    };
+    service.setPickupService(pickupService as any);
+    const order = {
+      id: 'o-pickup', status: 'PAID', bizType: 'NORMAL_GOODS', totalAmount: 100,
+      fulfillmentMode: 'PICKUP', pickupFulfillment: { id: 'pf1', status: 'READY' },
+      createdAt: new Date(), items: [], afterSaleRequests: [], refunds: [], shipments: [],
+    };
+
+    const out = (service as any).mapOrder(order);
+
+    expect(out).toMatchObject({
+      fulfillmentMode: 'PICKUP',
+      pickupFulfillment: {
+        status: 'READY',
+        pickupPoint: { id: 'p1', name: '一号店' },
+        recipient: { name: '王*', phoneMasked: '138****5678' },
+      },
+    });
+  });
+
+  it('mapOrder 遇到 PICKUP 脏数据缺关联时标记异常而不拖垮整个列表', () => {
+    service.setPickupService({ mapOrderPickup: jest.fn() } as any);
+    const order = {
+      id: 'o-pickup-missing', status: 'PAID', bizType: 'NORMAL_GOODS', totalAmount: 100,
+      fulfillmentMode: 'PICKUP', pickupFulfillment: null,
+      createdAt: new Date(), items: [], afterSaleRequests: [], refunds: [], shipments: [],
+    };
+
+    expect((service as any).mapOrder(order)).toMatchObject({
+      fulfillmentMode: 'PICKUP',
+      pickupFulfillment: null,
+      fulfillmentIssueCode: 'PICKUP_RELATION_MISSING',
+    });
+  });
+
   it('mapOrderDetail exposes the server-owned merchant order number for payment receipts', () => {
     const order = {
       id: 'o-receipt', status: 'PAID', bizType: 'NORMAL_GOODS', totalAmount: 100,

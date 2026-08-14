@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SellerOrdersService } from './seller-orders.service';
 
 describe('SellerOrdersService invoice privacy', () => {
@@ -39,6 +39,14 @@ describe('SellerOrdersService invoice privacy', () => {
       notificationService as any,
       wechatShippingOutbox as any,
     );
+  });
+
+  it('卖家映射遇到 PICKUP 缺关联时返回显式异常标记', () => {
+    (service as any).pickupService = { mapOrderPickup: jest.fn() };
+    const order = { id: 'o-missing', fulfillmentMode: 'PICKUP', pickupFulfillment: null };
+
+    expect((service as any).mapPickupFulfillment(order)).toBeNull();
+    expect((service as any).pickupFulfillmentIssueCode(order)).toBe('PICKUP_RELATION_MISSING');
   });
 
   it('returns invoiceStatus only for seller order detail', async () => {
@@ -461,5 +469,19 @@ describe('SellerOrdersService invoice privacy', () => {
       prisma,
       'order-ship-1',
     );
+  });
+
+  it('拒绝将非白名单自提筛选值透传给 Prisma', async () => {
+    await expect(service.findAll(
+      'company-1', 1, 20, undefined, undefined, undefined, undefined,
+      'PICKUP); DROP TABLE',
+      'READY',
+    )).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.findAll(
+      'company-1', 1, 20, undefined, undefined, undefined, undefined,
+      'PICKUP',
+      'UNKNOWN',
+    )).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.order.findMany).not.toHaveBeenCalled();
   });
 });

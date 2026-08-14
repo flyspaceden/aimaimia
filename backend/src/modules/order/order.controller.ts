@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, Query, GoneException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, Query, GoneException, Header } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CheckoutService } from './checkout.service';
 import { PaymentService } from '../payment/payment.service';
@@ -10,6 +10,7 @@ import { AfterSaleDto } from './dto/after-sale.dto';
 import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 import { AfterSaleService } from '../after-sale/after-sale.service';
 import { Throttle } from '@nestjs/throttler';
+import { PickupService } from '../pickup/pickup.service';
 
 @Controller('orders')
 export class OrderController {
@@ -18,6 +19,7 @@ export class OrderController {
     private checkoutService: CheckoutService,
     private afterSaleService: AfterSaleService,
     private paymentService: PaymentService,
+    private pickupService: PickupService,
   ) {}
 
   // ===== F1: 新结算流程 =====
@@ -212,6 +214,11 @@ export class OrderController {
     return this.orderService.getLatestIssue(userId);
   }
 
+  @Get('pickup-points')
+  getPickupPoints(@Query('companyIds') companyIds?: string) {
+    return this.pickupService.listBuyerPoints((companyIds ?? '').split(','));
+  }
+
   @Post(':id/repurchase')
   @Throttle({ user: { ttl: 60000, limit: 10 } })
   repurchase(
@@ -219,6 +226,17 @@ export class OrderController {
     @Param('id') id: string,
   ) {
     return this.orderService.repurchase(id, userId);
+  }
+
+  @Get(':id/pickup-pass')
+  @Header('Cache-Control', 'no-store, private')
+  @Header('Pragma', 'no-cache')
+  @Throttle({ user: { ttl: 60000, limit: 30 } })
+  getPickupPass(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.pickupService.getBuyerPass(userId, id);
   }
 
   @Patch(':id/receiver-info')

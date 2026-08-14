@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../../theme';
 import { OrderItemRow } from './OrderItemRow';
 import { Order, OrderStatus } from '../../types';
+import { pickupOrderStatusLabel } from '../../utils';
 
 interface Props {
   order: Order;
@@ -44,7 +45,9 @@ export function OrderCard({
   secondaryDisabled = false,
 }: Props) {
   const { colors, radius, shadow, typography } = useTheme();
-  const statusColor = STATUS_COLOR[order.status];
+  const pickupLabel = pickupOrderStatusLabel(order);
+  const pickupMissing = order.fulfillmentMode === 'PICKUP' && !order.pickupFulfillment;
+  const statusColor = pickupMissing ? '#DC2626' : pickupLabel ? order.pickupFulfillment?.status === 'READY' ? '#2E7D32' : '#3B82F6' : STATUS_COLOR[order.status];
   const companyName = order.items[0]?.companyName || '商家';
   const isVipPackage = order.bizType === 'VIP_PACKAGE';
 
@@ -55,7 +58,7 @@ export function OrderCard({
           🏪 {companyName}
         </Text>
         <Text style={[typography.caption, { color: statusColor, fontWeight: '600' }]}>
-          {STATUS_LABEL[order.status]}
+          {pickupLabel ?? STATUS_LABEL[order.status]}
         </Text>
       </View>
 
@@ -72,6 +75,13 @@ export function OrderCard({
           priceLabel={isVipPackage ? 'VIP礼包' : undefined}
         />
       ))}
+
+      {order.fulfillmentMode === 'PICKUP' ? (
+        <View style={[styles.pickupRow, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md }]}>
+          <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '600' }]}>到店自提</Text>
+          <Text style={[typography.caption, { color: pickupMissing ? colors.danger : colors.text.secondary, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{order.pickupFulfillment?.pickupPoint.name || '履约信息暂不可用，请联系客服'}</Text>
+        </View>
+      ) : null}
 
       <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <Text style={[typography.caption, { color: colors.text.secondary }]}>
@@ -111,4 +121,5 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingBottom: 6, marginBottom: 4 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
   actionRow: { flexDirection: 'row', alignItems: 'center' },
+  pickupRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, paddingHorizontal: 9, paddingVertical: 7 },
 });

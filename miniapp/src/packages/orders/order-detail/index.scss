@@ -28,6 +28,11 @@
 .order-logistics-brief text:last-child { margin-top: 2px; color: t.$text-tertiary; font-size: 11px; }
 .order-address__name { display: block; color: t.$text-primary; font-size: 12px; font-weight: 700; }
 .order-address__line { display: block; margin-top: 6px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.order-pickup-place { display: flex; align-items: flex-start; gap: 11px; }
+.order-pickup-place__pin { display: flex; flex: 0 0 34px; align-items: center; justify-content: center; width: 34px; height: 34px; color: #fff; font-size: 12px; font-weight: 800; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 12px 12px 12px 4px; }
+.order-pickup-place > view:last-child { flex: 1; min-width: 0; }
+.order-pickup-place > view:last-child text { display: block; margin-top: 3px; color: t.$text-secondary; font-size: 10px; line-height: 17px; }
+.order-pickup-place > view:last-child text:first-child { margin-top: 0; color: t.$text-primary; font-size: 12px; font-weight: 750; }
 .order-detail-empty-line, .order-buyer-note { display: block; color: t.$text-secondary; font-size: 11px; line-height: 19px; }
 .order-detail-service-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .order-detail-service-actions button { min-width: 92px; height: 40px; margin: 0; padding: 0 14px; color: t.$brand-primary; font-size: 12px; font-weight: 650; line-height: 38px; background: t.$brand-soft; border: 1px solid rgba(46, 125, 50, .18); border-radius: t.$radius-full; }

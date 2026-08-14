@@ -38,6 +38,7 @@ import {
   err,
   PendingCheckout,
   RepurchaseResult,
+  PickupPass,
   ReturnShippingPaymentStatus,
 } from '../types';
 import { createAppError, simulateRequest } from './helpers';
@@ -533,6 +534,14 @@ export const OrderRepo = {
     }
 
     return ApiClient.get<Order>(`/orders/${id}`);
+  },
+
+  /** READY 自提订单的一次性凭证；响应由后端设置 no-store。 */
+  getPickupPass: async (orderId: string): Promise<Result<PickupPass>> => {
+    if (USE_MOCK) {
+      return err(createAppError('INVALID', 'mock order has no pickup pass', '取货凭证暂不可用'));
+    }
+    return ApiClient.get<PickupPass>(`/orders/${orderId}/pickup-pass`);
   },
   /**
    * 修改当前订单收货信息

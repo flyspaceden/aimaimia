@@ -27,6 +27,7 @@ import {
   SwapOutlined,
   RiseOutlined,
   CrownOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -105,6 +106,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       permission: PERMISSIONS.ORDERS_READ,
       routes: [
         { path: '/orders', name: '订单管理' },
+        { path: '/pickup-points', name: '自提点管理', icon: <EnvironmentOutlined /> },
         { path: '/invoices', name: '发票管理', permission: PERMISSIONS.INVOICES_READ },
         { path: '/invoices/settings', name: '发票设置', permission: PERMISSIONS.INVOICES_ISSUE },
         { path: '/after-sale', name: '售后仲裁', permission: PERMISSIONS.AFTER_SALE_READ },

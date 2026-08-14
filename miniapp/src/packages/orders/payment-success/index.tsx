@@ -35,6 +35,7 @@ export default function PaymentSuccessPage() {
   const merchantOrderNo = verifiedOrders?.map((order) => order.merchantOrderNo).find((value): value is string => Boolean(value)) || null;
   const paidAt = verifiedOrders?.map((order) => order.paidAt).find((value): value is string => Boolean(value)) || null;
   const presentation = verifiedOrders ? paymentSuccessPresentation(verifiedOrders) : null;
+  const allPickup = Boolean(verifiedOrders?.length && verifiedOrders.every((order) => order.fulfillmentMode === 'PICKUP'));
   const openVerifiedDestination = async () => {
     if (!verifiedOrders?.length || !presentation) return;
     if (presentation.destination === 'VIP_CENTER') {
@@ -77,8 +78,10 @@ export default function PaymentSuccessPage() {
         <View><Text>支付时间</Text><Text>{paidAt ? formatOrderTime(paidAt) : '刚刚'}</Text></View>
         <View><Text>订单数量</Text><Text>{verifiedOrders.length} 笔</Text></View>
       </View>
-      <Button className='payment-success-secondary' onClick={() => { void requestShippingReminder(); }}>授权一次发货微信提醒</Button>
-      <Text className='payment-success-subscription-hint'>一次授权会用于当前账号最先发生的一笔发货事件；多笔订单待发时请按需再次授权。</Text>
+      {allPickup ? <View className='payment-success-pickup-note'><Text>取</Text><View><Text>等待备货完成</Text><Text>商家备好后，订单详情会显示一次性取货凭证；自提订单不会生成物流轨迹。</Text></View></View> : <>
+        <Button className='payment-success-secondary' onClick={() => { void requestShippingReminder(); }}>授权一次发货微信提醒</Button>
+        <Text className='payment-success-subscription-hint'>一次授权会用于当前账号最先发生的一笔发货事件；多笔订单待发时请按需再次授权。</Text>
+      </>}
       <Button className='payment-success-primary' onClick={() => { void openVerifiedDestination(); }}>{presentation!.primaryLabel}</Button>
       <Button className='payment-success-secondary' onClick={() => Taro.switchTab({ url: '/pages/home/index' })}>返回首页</Button>
     </View>
