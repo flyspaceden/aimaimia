@@ -491,6 +491,13 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 - **验活**：`https://test-api.ai-maimai.com/api/v1/products`、`https://test-admin.ai-maimai.com/`、`https://test-seller.ai-maimai.com/` 均返回 200。微信开发者工具使用 staging 构建重新普通编译后为 0 error；目标路由基础巡检 1 PASS、3 AUTH_GATE、0 FAIL，登录凭证已过期，因此未伪造会员数据，也未执行真实支付/退款。
 - **待验收**：由测试人员完成微信重新登录和卖家后台验证码登录，创建 staging 自提点后再跑普通/团购/VIP 预结算、备货、短码/二维码核销、并发取消与真实小额支付/退款。生产发布前还需完成真实 PostgreSQL 并发集成测试。
 
+### 2026-08-14 小程序自提结算首屏 staging 热修
+
+- **范围**：仅 `staging`，未改 `main` / production。代码提交 `f26f8f88 fix(miniapp): restore checkout details and compact note`；恢复普通商品确认订单页的商品、红包、积分与金额展示，修复少量卡片拉伸、禁用自提按钮无反馈和订单备注区域过高，并按履约模式隔离预结算缓存。
+- **CI 结果**：GitHub Actions `WeChat Mini Program CI` run `31843242816` 成功；TypeScript、ESLint、51 个测试文件 / 276 个用例、staging/production 双构建和构建产物上传均通过。工作流只构建并保存产物，不代表已上传微信体验版、提交审核或发布线上版本。
+- **开发者工具**：最终 staging 产物在已登录测试账号下完成确认订单路由巡检，1 PASS、0 FAIL、0 warning；商品、金额与紧凑卡片恢复显示。滚动复查确认订单备注为 56px 逻辑高度；当前商品所属商家仍无可用自提点，因此本轮只能确认禁用态与提示，未伪造点位或执行支付。
+- **审查**：独立复核发现并推动修复配送无地址预览与未完成自提共用 React Query 缓存的问题；修复后二次复核无 Critical / High / Medium。未完成自提只保留商品快照，金额为 `--`，提交仍由有效预览、完整履约信息和用户确认共同守门。
+
 ### 2026-07-12 消息详情与互动筛选修复（待发布）
 
 - **App/API**：消息列表点击先进入按买家鉴权的详情页，详情内再执行商品、客服、订单等目标跳转；移除容易与消息删除混淆的筛选重置按钮，筛选仅由分类和“仅未读”标签控制。
