@@ -18,11 +18,16 @@ import { AddressRepo, CartRepo, CheckoutRepo, CouponRepo, ProductRepo } from '@/
 import { miniProgramCashierFailureMessage, requestMiniProgramPayment } from '@/platform/payment';
 import { ensureWechatMiniProgramSession } from '@/platform/auth';
 import { queryClient } from '@/query/client';
-import type { CartItem, CheckoutStatusResult, FulfillmentInput, FulfillmentMode } from '@/types';
+import type { CartItem, CheckoutPreview, CheckoutStatusResult, FulfillmentInput, FulfillmentMode } from '@/types';
 import { captureAuthSession, useAuthStore } from '@/store/auth';
 import { resolveAppErrorCode } from '@/types/result';
 import { useCartSelectionStore } from '@/store/cart-selection';
 import { useCheckoutSelectionStore } from '@/store/checkout-selection';
+import {
+  buildCheckoutPreviewInput,
+  buildCheckoutPreviewQueryKey,
+  canLoadCheckoutPreview,
+} from './checkout-utils';
 import './index.scss';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +70,7 @@ export default function CheckoutPage() {
   const [deductionInput, setDeductionInput] = useState('');
   const [buyerNote, setBuyerNote] = useState('');
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [lastProductPreview, setLastProductPreview] = useState<{ key: string; value: CheckoutPreview }>();
   const idempotencyKey = useRef(newCheckoutIdempotencyKey());
 
   const cartQuery = useQuery({ queryKey: ['commerce', 'cart'], queryFn: CartRepo.get, enabled: hydrated && loggedIn && !isBuyNow, staleTime: 5_000 });
@@ -180,20 +186,28 @@ export default function CheckoutPage() {
     ? { mode: 'DELIVERY', addressId }
     : buildPickupFulfillment(pickupRecipientName, pickupRecipientPhone, pickupSelections, companyIds),
   [addressId, companyIds, fulfillmentMode, pickupRecipientName, pickupRecipientPhone, pickupSelections]);
-  const previewInput = useMemo(() => ({
+  const previewInput = useMemo(() => buildCheckoutPreviewInput({
     items: items.map((item) => ({ skuId: item.skuId, quantity: item.quantity, ...(!isBuyNow ? { cartItemId: item.id } : {}) })),
-    checkoutSource: isBuyNow ? 'BUY_NOW' as const : 'CART' as const,
-    ...(fulfillmentMode === 'DELIVERY' && addressId ? { addressId } : {}),
+    isBuyNow,
+    fulfillmentMode,
+    fulfillmentReady,
+    addressId,
     fulfillment,
-    ...(couponIds.length ? { couponInstanceIds: couponIds } : {}),
-  }), [addressId, couponIds, fulfillment, fulfillmentMode, isBuyNow, items]);
+    couponIds,
+  }), [addressId, couponIds, fulfillment, fulfillmentMode, fulfillmentReady, isBuyNow, items]);
+  const previewProductKey = previewInput.items.map((item) => `${item.skuId}:${item.quantity}:${item.cartItemId ?? ''}`).join('|');
+  const previewEnabled = canLoadCheckoutPreview(items.length, fulfillmentMode, fulfillmentReady);
   const previewQuery = useQuery({
-    queryKey: ['commerce', 'checkout-preview', previewInput],
+    queryKey: buildCheckoutPreviewQueryKey(fulfillmentMode, previewInput),
     queryFn: () => CheckoutRepo.preview(previewInput),
-    enabled: items.length > 0 && fulfillmentReady,
+    enabled: previewEnabled,
     staleTime: 0,
   });
-  const preview = previewQuery.data?.ok ? previewQuery.data.data : undefined;
+  const preview = previewEnabled && previewQuery.data?.ok ? previewQuery.data.data : undefined;
+  useEffect(() => {
+    if (preview) setLastProductPreview({ key: previewProductKey, value: preview });
+  }, [preview, previewProductKey]);
+  const productPreview = preview ?? (lastProductPreview?.key === previewProductKey ? lastProductPreview.value : undefined);
   const eligibleQuery = useQuery({
     queryKey: ['commerce', 'checkout-coupons', preview?.summary.totalGoodsAmount, items.map((item) => item.skuId).join(',')],
     queryFn: () => CouponRepo.getCheckoutEligible({
@@ -349,6 +363,7 @@ export default function CheckoutPage() {
           setPolicyAccepted(false);
         }}
         pickupAvailable={pickupAvailable}
+        pickupLoading={pickupPointsQuery.isLoading}
       />
       {pickupPointsQuery.data?.ok === false ? <CatalogFeedback kind='error' title='自提点加载失败' description={pickupPointsQuery.data.error.displayMessage || '当前暂时不能选择到店自提'} onRetry={() => pickupPointsQuery.refetch()} /> : null}
       {fulfillmentMode === 'DELIVERY' ? <View className='checkout-address aim-card'>
@@ -372,15 +387,17 @@ export default function CheckoutPage() {
       {previewQuery.data && !previewQuery.data.ok ? <CatalogFeedback kind='error' title='价格校验失败' description={previewQuery.data.error.displayMessage || '请稍后重试'} onRetry={() => previewQuery.refetch()} /> : null}
       {preview ? <>
         {preview.excludedItems?.length ? <View className='checkout-options aim-card'><View className='checkout-section-heading'><Text>结算内容已调整</Text><Text>{preview.excludedItems.length} 项</Text></View><Text className='checkout-muted'>以下失效或不可售内容不会进入订单：{preview.excludedItems.map((item) => item.isPrize ? '奖品' : '商品').join('、')}。支付前还会再次核对库存和价格。</Text></View> : null}
-        <View className='checkout-groups'>
-          {preview.groups.map((group) => <View className='checkout-group aim-card' key={group.companyId}><View className='checkout-section-heading'><Text>{group.companyName}</Text><Text>{group.items.length} 件</Text></View>{group.items.map((item) => {
+      </> : null}
+      {productPreview ? <View className='checkout-groups'>
+          {productPreview.groups.map((group) => <View className='checkout-group aim-card' key={group.companyId}><View className='checkout-section-heading'><Text>{group.companyName}</Text><Text>{group.items.length} 件</Text></View>{group.items.map((item) => {
             const source = items.find((candidate) => candidate.skuId === item.skuId);
             const bundleItems = source?.bundleItems ?? source?.product.bundleItems ?? [];
             const stockText = source ? catalogCardStockText(source.product.stock, lowStockDisplayThreshold) : undefined;
             return <View className='checkout-item' key={item.skuId}><Image className='checkout-item__image' src={item.image} mode='aspectFill' /><View className='checkout-item__copy'><Text className='checkout-item__title'>{item.title}</Text><Text className='checkout-item__quantity'>×{item.quantity}</Text>{stockText ? <Text className={stockText === '已售完' ? 'checkout-item__stock checkout-item__stock--out' : 'checkout-item__stock'}>{stockText}</Text> : null}{bundleItems.length ? <View className='checkout-item__bundle'>{bundleItems.map((bundleItem) => <Text key={`${bundleItem.skuId}-${bundleItem.productTitle}`}>{bundleItem.productTitle}{bundleItem.skuTitle ? ` · ${bundleItem.skuTitle}` : ''} ×{bundleItem.totalQuantity ?? bundleItem.quantityPerBundle ?? 1}</Text>)}</View> : null}</View><Text className='checkout-item__price'>¥{formatMoney(item.unitPrice * item.quantity)}</Text></View>;
-          })}<View className='checkout-group__summary'><Text>商品 ¥{formatMoney(group.goodsAmount)}</Text><Text>{fulfillmentMode === 'PICKUP' ? '自提免运费' : group.shippingFee ? `运费 ¥${formatMoney(group.shippingFee)}` : '包邮'}</Text></View></View>)}
-        </View>
+          })}<View className='checkout-group__summary'><Text>商品 ¥{formatMoney(group.goodsAmount)}</Text><Text>{fulfillmentMode === 'PICKUP' ? fulfillmentReady ? '自提免运费' : '完善自提信息后计算' : group.shippingFee ? `运费 ¥${formatMoney(group.shippingFee)}` : '包邮'}</Text></View></View>)}
+        </View> : null}
 
+      {preview ? <>
         <View className='checkout-options aim-card'>
           <View className='checkout-section-heading checkout-section-heading--clickable' onClick={openCouponSelection}><Text>平台红包</Text><Text>{couponIds.length ? `已选 ${couponIds.length} 张 ›` : '选择红包 ›'}</Text></View>
           {eligibleQuery.isLoading ? <Text className='checkout-muted'>正在计算可用红包...</Text> : null}

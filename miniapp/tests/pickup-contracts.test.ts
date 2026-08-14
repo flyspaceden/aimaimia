@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CheckoutRepo, OrderRepo } from '@/repos';
@@ -13,6 +15,7 @@ import type { Order } from '@/types';
 
 const getMock = vi.hoisted(() => vi.fn());
 const postMock = vi.hoisted(() => vi.fn());
+const source = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8');
 
 vi.mock('@/api/client', () => ({
   ApiClient: {
@@ -170,5 +173,22 @@ describe('pickup API contracts', () => {
       ...order,
       pickupFulfillment: { ...order.pickupFulfillment!, status: 'PREPARING' },
     })).toBe(true);
+  });
+
+  it('keeps an incomplete checkout compact and explains why pickup is unavailable', () => {
+    const switchSource = source('src/components/pickup-fulfillment.tsx');
+    const checkoutStyles = source('src/packages/commerce/checkout/index.scss');
+
+    expect(switchSource).toContain("当前商品暂无可用自提点");
+    expect(switchSource).toContain("pickupLoading ? '正在查询可用自提点'");
+    expect(checkoutStyles).toContain('align-content: start');
+    expect(checkoutStyles).toContain('grid-auto-rows: max-content');
+    for (const page of [
+      'src/packages/commerce/checkout/index.tsx',
+      'src/packages/group-buy/checkout/index.tsx',
+      'src/packages/benefits/vip-gifts/index.tsx',
+    ]) {
+      expect(source(page)).toContain('pickupLoading={pickupPointsQuery.isLoading}');
+    }
   });
 });

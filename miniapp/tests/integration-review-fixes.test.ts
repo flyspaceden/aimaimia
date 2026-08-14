@@ -34,6 +34,7 @@ describe('integration review front-end fixes', () => {
   it('reuses the guarded checkout for buy-now and gates every mini-program money action', () => {
     const product = source('src/packages/commerce/catalog-product/index.tsx');
     const checkout = source('src/packages/commerce/checkout/index.tsx');
+    const checkoutUtils = source('src/packages/commerce/checkout/checkout-utils.ts');
     const moneyPages = [
       checkout,
       source('src/packages/commerce/checkout-pending/index.tsx'),
@@ -48,7 +49,8 @@ describe('integration review front-end fixes', () => {
     expect(product).toContain('立即购买');
     expect(checkout).toContain('ProductRepo.getById(buyNowProductId)');
     expect(checkout).toContain("...(!isBuyNow ? { cartItemId: item.id } : {})");
-    expect(checkout).toContain("checkoutSource: isBuyNow ? 'BUY_NOW'");
+    expect(checkout).toContain('buildCheckoutPreviewInput');
+    expect(checkoutUtils).toContain("checkoutSource: isBuyNow ? 'BUY_NOW'");
     expect(source('src/repos/checkout.ts')).toContain('checkoutSource: input.checkoutSource');
     for (const page of moneyPages) expect(page).toContain('ensureWechatMiniProgramSession');
   });

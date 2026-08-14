@@ -514,7 +514,7 @@ export default function VipGiftsPage() {
         <Text className='vip-checkout-summary__title'>{selectedGift?.title || '专属礼包'}</Text>
         <Text className='vip-checkout-summary__price'>¥{formatMoney(checkoutDraft?.expectedTotal ?? selectedPackage?.price ?? 0)}</Text>
       </View>
-      <View className='vip-checkout-fulfillment'><FulfillmentModeSwitch mode={fulfillmentMode} onChange={changeFulfillmentMode} pickupAvailable={pickupAvailable} /></View>
+      <View className='vip-checkout-fulfillment'><FulfillmentModeSwitch mode={fulfillmentMode} onChange={changeFulfillmentMode} pickupAvailable={pickupAvailable} pickupLoading={pickupPointsQuery.isLoading} /></View>
       {pickupPointsQuery.data?.ok === false ? <BenefitsFeedback kind='error' description={pickupPointsQuery.data.error.displayMessage || '自提点加载失败，当前暂时不能选择到店自提'} onAction={() => pickupPointsQuery.refetch()} /> : null}
       {fulfillmentMode === 'DELIVERY' ? <>
         <View className='vip-checkout-section-head'><Text>收货地址</Text><Text onClick={openAddressSelection}>{addresses.length ? '切换 ›' : '新增 ›'}</Text></View>

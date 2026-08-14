@@ -12,19 +12,38 @@ export function FulfillmentModeSwitch({
   mode,
   onChange,
   pickupAvailable = true,
+  pickupLoading = false,
 }: {
   mode: FulfillmentMode;
   onChange: (mode: FulfillmentMode) => void;
   pickupAvailable?: boolean;
+  pickupLoading?: boolean;
 }) {
+  const pickupOptionClass = [
+    'pickup-mode-option',
+    mode === 'PICKUP' ? 'pickup-mode-option--active' : '',
+    !pickupAvailable ? 'pickup-mode-option--disabled' : '',
+  ].filter(Boolean).join(' ');
+
+  const selectPickup = () => {
+    if (pickupAvailable) {
+      onChange('PICKUP');
+      return;
+    }
+    Taro.showToast({
+      title: pickupLoading ? '正在查询可用自提点' : '当前商品暂无可用自提点',
+      icon: 'none',
+    });
+  };
+
   return <View className='pickup-mode-card aim-card'>
     <View className='pickup-mode-card__heading'><Text>履约方式</Text><Text>配送与自提二选一</Text></View>
     <View className='pickup-mode-switch' role='radiogroup'>
       <View className={mode === 'DELIVERY' ? 'pickup-mode-option pickup-mode-option--active' : 'pickup-mode-option'} onClick={() => onChange('DELIVERY')}>
         <Text className='pickup-mode-option__mark'>送</Text><View><Text>送货上门</Text><Text>平台统一安排顺丰配送</Text></View>
       </View>
-      <View className={mode === 'PICKUP' ? 'pickup-mode-option pickup-mode-option--active' : 'pickup-mode-option'} onClick={() => { if (pickupAvailable) onChange('PICKUP'); }}>
-        <Text className='pickup-mode-option__mark'>取</Text><View><Text>到店自提</Text><Text>{pickupAvailable ? '免运费，备好后凭码取货' : '暂无可用自提点'}</Text></View>
+      <View className={pickupOptionClass} onClick={selectPickup}>
+        <Text className='pickup-mode-option__mark'>取</Text><View><Text>到店自提</Text><Text>{pickupLoading ? '正在查询自提点' : pickupAvailable ? '免运费，备好后凭码取货' : '暂无可用自提点'}</Text></View>
       </View>
     </View>
   </View>;

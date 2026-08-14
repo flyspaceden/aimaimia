@@ -1,6 +1,6 @@
 @use '../../../theme/tokens' as t;
 
-.checkout-page { display: grid; gap: 12px; min-height: 100vh; padding: 14px 16px calc(112px + env(safe-area-inset-bottom)); background: t.$background; }
+.checkout-page { display: grid; align-content: start; gap: 12px; min-height: 100vh; padding: 14px 16px calc(112px + env(safe-area-inset-bottom)); background: t.$background; grid-auto-rows: max-content; }
 .checkout-address, .checkout-group, .checkout-options, .checkout-price { position: relative; overflow: hidden; padding: 16px; }
 .checkout-address__accent { position: absolute; top: 0; right: 0; left: 0; height: 3px; background: linear-gradient(90deg, t.$brand-primary, t.$ai-end); }
 .checkout-section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -42,7 +42,7 @@
 .checkout-deduction input { flex: 1; color: t.$text-primary; font-size: 15px; font-weight: 650; }
 .checkout-deduction text:last-child { padding: 6px 0; color: t.$brand-primary; font-size: 12px; }
 .checkout-option-label { display: block; margin-bottom: 8px; color: t.$text-primary; font-size: 13px; font-weight: 650; }
-.checkout-note { width: 100%; min-height: 76px; padding: 10px; color: t.$text-primary; font-size: 12px; background: t.$background; border-radius: t.$radius-md; }
+.checkout-note { width: 100%; height: 56px; min-height: 56px; padding: 8px 10px; color: t.$text-primary; font-size: 12px; line-height: 18px; background: t.$background; border-radius: t.$radius-md; }
 .checkout-price > view { display: flex; justify-content: space-between; margin-top: 9px; color: t.$text-secondary; font-size: 12px; }
 .checkout-price > view:first-child { margin-top: 0; }
 .checkout-price .checkout-price__minus { color: #a04b42; }

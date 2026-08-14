@@ -35,4 +35,16 @@ describe('mini-program UI guardrails', () => {
     expect(component).toContain("'search'");
     expect(component).not.toMatch(/[🛒🎤🔍👑💰]/u);
   });
+
+  it('keeps the ordinary checkout note field compact despite the native textarea default height', () => {
+    const checkoutStyles = readFileSync(
+      join(srcRoot, 'packages/commerce/checkout/index.scss'),
+      'utf8',
+    );
+    const noteRule = checkoutStyles.match(/\.checkout-note\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(noteRule).toContain('height: 56px');
+    expect(noteRule).toContain('min-height: 56px');
+    expect(noteRule).not.toContain('min-height: 76px');
+  });
 });

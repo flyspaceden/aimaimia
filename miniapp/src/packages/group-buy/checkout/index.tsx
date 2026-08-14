@@ -261,6 +261,7 @@ export default function GroupBuyCheckoutPage() {
         setPolicyAccepted(false);
       }}
       pickupAvailable={pickupAvailable}
+      pickupLoading={pickupPointsQuery.isLoading}
     />
     {pickupPointsQuery.data?.ok === false ? <CatalogFeedback kind='error' title='自提点加载失败' description={pickupPointsQuery.data.error.displayMessage || '当前暂时不能选择到店自提'} onRetry={() => pickupPointsQuery.refetch()} /> : null}
     {fulfillmentMode === 'DELIVERY' ? <View className='group-buy-card aim-card'>
