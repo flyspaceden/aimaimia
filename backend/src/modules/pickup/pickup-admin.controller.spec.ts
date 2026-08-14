@@ -26,7 +26,7 @@ describe('PickupAdminPointController contract', () => {
       pageSize: '10',
       isActive: 'false',
       isDeleted: 'false',
-    });
+    }, { enableImplicitConversion: true });
     expect(validateSync(query)).toHaveLength(0);
     expect(query).toMatchObject({ page: 2, pageSize: 10, isActive: false, isDeleted: false });
   });

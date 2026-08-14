@@ -14,6 +14,17 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+const parseBooleanQueryFlag = ({ value, obj, key }: {
+  value: unknown;
+  obj?: Record<string, unknown>;
+  key: string;
+}) => {
+  const rawValue = obj?.[key] ?? value;
+  if (rawValue === true || rawValue === 'true') return true;
+  if (rawValue === false || rawValue === 'false') return false;
+  return value;
+};
+
 export class PickupLocationDto {
   @Type(() => Number)
   @IsLongitude()
@@ -121,12 +132,12 @@ export class AdminPickupPointQueryDto {
   pageSize = 20;
 
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @Transform(parseBooleanQueryFlag)
   @IsBoolean()
   isActive?: boolean;
 
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @Transform(parseBooleanQueryFlag)
   @IsBoolean()
   isDeleted?: boolean;
 }
