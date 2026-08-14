@@ -1881,25 +1881,28 @@ model Order {
 }
 
 model PickupPoint {
-  id            String   @id @default(cuid())
-  companyId     String
-  name          String   @db.VarChar(100)
-  contactName   String   @db.VarChar(50)
-  contactPhone  String   @db.VarChar(255)
-  regionCode    String   @db.VarChar(32)
-  regionText    String   @db.VarChar(120)
-  detail        String   @db.VarChar(200)
-  location      Json?
-  businessHours Json
-  pickupNotice  String?  @db.VarChar(500)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String    @id @default(cuid())
+  companyId        String
+  name             String    @db.VarChar(100)
+  contactName      String    @db.VarChar(50)
+  contactPhone     String    @db.VarChar(255)
+  regionCode       String    @db.VarChar(32)
+  regionText       String    @db.VarChar(120)
+  detail           String    @db.VarChar(200)
+  location         Json?
+  businessHours    Json
+  pickupNotice     String?   @db.VarChar(500)
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  deletedByAdminId String?
+  deleteReason     String?   @db.VarChar(500)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
   fulfillments PickupFulfillment[]
 
-  @@index([companyId, isActive])
+  @@index([companyId, deletedAt, isActive])
 }
 
 model PickupFulfillment {

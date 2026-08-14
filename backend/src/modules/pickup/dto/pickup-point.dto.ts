@@ -1,13 +1,16 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsInt,
   IsLatitude,
   IsLongitude,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -75,4 +78,62 @@ export class UpdatePickupPointDto {
   @IsOptional() @ValidateNested() @Type(() => PickupBusinessHoursDto) businessHours?: PickupBusinessHoursDto;
   @IsOptional() @IsString() @MaxLength(500) pickupNotice?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class AdminCreatePickupPointDto extends CreatePickupPointDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  companyId!: string;
+}
+
+export class AdminUpdatePickupPointDto extends UpdatePickupPointDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class AdminPickupPointReasonDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class AdminPickupPointQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  companyId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize = 20;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @IsBoolean()
+  isDeleted?: boolean;
+}
+
+export class AdminPickupCompanyOptionQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  keyword?: string;
 }

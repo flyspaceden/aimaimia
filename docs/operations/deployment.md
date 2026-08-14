@@ -317,7 +317,7 @@ WECHAT_H5_AUTH_REDIRECT_BASE=https://app.ai-maimai.com/invite
 自提灰度开启顺序（staging 先行）：
 
 1. 生成独立 `PICKUP_TOKEN_SECRET`，保持 `PICKUP_FULFILLMENT_ENABLED=false`，先执行迁移、构建和 PM2 重启。
-2. 在卖家中心建立 staging 测试自提点，确认商家归属、脱敏和管理端审计正常。
+2. 迁移只自动关联“超级管理员”；经理、员工和自定义角色默认都不获得 `pickup_points:*`，由超级管理员在角色页显式授权，授权后让对应管理员重新登录以刷新前端权限快照。随后在平台管理后台选择正常经营的测试企业，建立 staging 测试自提点，确认独立权限、商家归属、脱敏、软删除/恢复和管理端事务审计正常；卖家中心仍只验证本企业维护边界。
 3. 仅在 staging 改为 `PICKUP_FULFILLMENT_ENABLED=true`，使用 `pm2 reload <staging-api> --update-env` 生效，完成普通/团购/VIP 的支付、备货、凭证和核销回归。
 4. 任一状态机、退款或凭证异常立即恢复 `false` 并重启 staging API；生产开启必须另行获得发布授权。
 

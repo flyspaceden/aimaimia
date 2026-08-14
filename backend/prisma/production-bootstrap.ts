@@ -39,7 +39,7 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 // ──────────────────────────────────────────────────────────────
-// 1. 权限定义（60 条，源自 seed.ts:1341-1410）
+// 1. 权限定义（与 seed.ts 保持一致）
 // ──────────────────────────────────────────────────────────────
 const PERMISSIONS = [
   { code: 'dashboard:read', module: 'dashboard', action: 'read', description: '查看仪表盘' },
@@ -61,6 +61,10 @@ const PERMISSIONS = [
   { code: 'companies:read', module: 'companies', action: 'read', description: '查看企业列表' },
   { code: 'companies:update', module: 'companies', action: 'update', description: '编辑企业' },
   { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
+  { code: 'pickup_points:read', module: 'pickup_points', action: 'read', description: '查看自提点' },
+  { code: 'pickup_points:create', module: 'pickup_points', action: 'create', description: '创建自提点' },
+  { code: 'pickup_points:update', module: 'pickup_points', action: 'update', description: '编辑和启停自提点' },
+  { code: 'pickup_points:delete', module: 'pickup_points', action: 'delete', description: '删除和恢复自提点' },
   { code: 'bonus:read', module: 'bonus', action: 'read', description: '查看会员/奖励' },
   { code: 'bonus:approve_withdraw', module: 'bonus', action: 'approve_withdraw', description: '审批提现' },
   { code: 'bonus:manage_rules', module: 'bonus', action: 'manage_rules', description: '管理提现与抵扣规则' },
@@ -290,7 +294,9 @@ async function main() {
     update: {},
     create: { name: '经理', description: '大部分业务操作权限，无管理员和角色管理权限', isSystem: true },
   });
-  const managerPerms = PERMISSIONS.filter((p) => !p.module.startsWith('admin_')).map((p) => p.code);
+  const managerPerms = PERMISSIONS
+    .filter((p) => !p.module.startsWith('admin_') && p.module !== 'pickup_points')
+    .map((p) => p.code);
   for (const code of managerPerms) {
     await prisma.adminRolePermission.upsert({
       where: { roleId_permissionId: { roleId: managerRole.id, permissionId: permissionIds[code] } },

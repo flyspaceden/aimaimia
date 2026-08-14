@@ -23,12 +23,16 @@ import {
   encryptJsonValue,
   encryptText,
 } from '../../common/security/encryption';
+import { sanitizeForLog } from '../../common/logging/log-sanitizer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderService } from '../order/order.service';
 import {
   ResolvedFulfillmentInput,
 } from './dto/fulfillment.dto';
 import {
+  AdminCreatePickupPointDto,
+  AdminPickupPointQueryDto,
+  AdminUpdatePickupPointDto,
   CreatePickupPointDto,
   UpdatePickupPointDto,
 } from './dto/pickup-point.dto';
@@ -37,6 +41,13 @@ import { getConfigValue, resolveRewardSafeWindowMs } from '../after-sale/after-s
 import { NotificationService } from '../notification/notification.service';
 
 type Tx = Prisma.TransactionClient;
+
+export type AdminPointAuditContext = {
+  adminUserId: string;
+  ip?: string;
+  userAgent?: string;
+  requestId?: string;
+};
 
 type ValidatedPickupSelection = {
   companyId: string;
@@ -131,7 +142,7 @@ export class PickupService implements OnModuleInit {
     }
 
     const points = await tx.pickupPoint.findMany({
-      where: { id: { in: pointIds }, isActive: true },
+      where: { id: { in: pointIds }, isActive: true, deletedAt: null },
       include: { company: { select: { id: true, name: true, status: true } } },
     });
     if (points.length !== relevantSelections.length) {
@@ -179,7 +190,7 @@ export class PickupService implements OnModuleInit {
         id: true,
         name: true,
         pickupPoints: {
-          where: { isActive: true },
+          where: { isActive: true, deletedAt: null },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         },
       },
@@ -200,7 +211,11 @@ export class PickupService implements OnModuleInit {
   async listSellerPoints(companyId: string, page = 1, pageSize = 20, isActive?: boolean) {
     const safePage = Math.max(1, page);
     const safePageSize = Math.min(100, Math.max(1, pageSize));
-    const where = { companyId, ...(typeof isActive === 'boolean' ? { isActive } : {}) };
+    const where = {
+      companyId,
+      deletedAt: null,
+      ...(typeof isActive === 'boolean' ? { isActive } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.pickupPoint.findMany({
         where,
@@ -218,17 +233,13 @@ export class PickupService implements OnModuleInit {
     };
   }
 
-  async listAdminPoints(
-    companyId: string | undefined,
-    page = 1,
-    pageSize = 20,
-    isActive?: boolean,
-  ) {
-    const safePage = Math.max(1, page);
-    const safePageSize = Math.min(100, Math.max(1, pageSize));
-    const where = {
-      ...(companyId ? { companyId } : {}),
-      ...(typeof isActive === 'boolean' ? { isActive } : {}),
+  async listAdminPoints(query: AdminPickupPointQueryDto) {
+    const safePage = Math.max(1, query.page ?? 1);
+    const safePageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
+    const where: Prisma.PickupPointWhereInput = {
+      deletedAt: query.isDeleted ? { not: null } : null,
+      ...(query.companyId ? { companyId: query.companyId } : {}),
+      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.pickupPoint.findMany({
@@ -241,11 +252,27 @@ export class PickupService implements OnModuleInit {
       this.prisma.pickupPoint.count({ where }),
     ]);
     return {
-      items: items.map((point) => ({ ...this.mapPointForOwner(point), company: point.company })),
+      items: items.map((point) => this.mapPointForAdmin(point)),
       total,
       page: safePage,
       pageSize: safePageSize,
     };
+  }
+
+  async listAdminPickupCompanyOptions(keyword?: string) {
+    const normalizedKeyword = keyword?.trim();
+    const items = await this.prisma.company.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(normalizedKeyword
+          ? { name: { contains: normalizedKeyword, mode: 'insensitive' as const } }
+          : {}),
+      },
+      select: { id: true, name: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: 200,
+    });
+    return { items };
   }
 
   async createSellerPoint(companyId: string, dto: CreatePickupPointDto) {
@@ -255,42 +282,176 @@ export class PickupService implements OnModuleInit {
     });
     if (!company) throw new ForbiddenException('当前商家不可配置自提点');
     const point = await this.prisma.pickupPoint.create({
-      data: {
-        companyId,
-        name: dto.name.trim(),
-        contactName: dto.contactName.trim(),
-        contactPhone: encryptText(dto.contactPhone)!,
-        regionCode: dto.regionCode.trim(),
-        regionText: dto.regionText.trim(),
-        detail: dto.detail.trim(),
-        location: dto.location as Prisma.InputJsonValue | undefined,
-        businessHours: dto.businessHours as unknown as Prisma.InputJsonValue,
-        pickupNotice: dto.pickupNotice?.trim() || null,
-        isActive: dto.isActive ?? true,
-      },
+      data: this.pickupPointCreateData(companyId, dto),
     });
     return this.mapPointForOwner(point);
   }
 
   async updateSellerPoint(companyId: string, pointId: string, dto: UpdatePickupPointDto) {
-    const current = await this.prisma.pickupPoint.findFirst({ where: { id: pointId, companyId } });
-    if (!current) throw new NotFoundException('自提点不存在');
-    const point = await this.prisma.pickupPoint.update({
-      where: { id: pointId },
-      data: this.pickupPointUpdateData(dto),
+    const updateData = this.pickupPointUpdateData(dto);
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('至少需要修改一个自提点字段');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.pickupPoint.findFirst({
+        where: { id: pointId, companyId, deletedAt: null },
+      });
+      if (!current) throw new NotFoundException('自提点不存在');
+      const updated = await tx.pickupPoint.updateMany({
+        where: {
+          id: pointId,
+          companyId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
+        data: updateData as Prisma.PickupPointUpdateManyMutationInput,
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException('自提点已被平台删除或修改，请刷新后重试');
+      }
+      const point = await tx.pickupPoint.findUniqueOrThrow({ where: { id: pointId } });
+      return this.mapPointForOwner(point);
     });
-    return this.mapPointForOwner(point);
   }
 
-  async updateAdminPointStatus(pointId: string, isActive: boolean, reason?: string) {
-    const current = await this.prisma.pickupPoint.findUnique({ where: { id: pointId } });
-    if (!current) throw new NotFoundException('自提点不存在');
-    const point = await this.prisma.pickupPoint.update({
-      where: { id: pointId },
-      data: { isActive },
-      include: { company: { select: { id: true, name: true } } },
+  async createAdminPoint(dto: AdminCreatePickupPointDto, audit: AdminPointAuditContext) {
+    const { companyId, ...pointDto } = dto;
+    return this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.findFirst({
+        where: { id: companyId, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!company) throw new BadRequestException('只能为正常经营的企业创建自提点');
+
+      const point = await tx.pickupPoint.create({
+        data: this.pickupPointCreateData(companyId, pointDto),
+        include: { company: { select: { id: true, name: true } } },
+      });
+      await this.writeAdminPointAudit(tx, {
+        action: 'CREATE',
+        after: point,
+        audit,
+      });
+      return this.mapPointForAdmin(point);
     });
-    return { ...this.mapPointForOwner(point), company: point.company, statusReason: reason?.trim() || null };
+  }
+
+  async updateAdminPoint(
+    pointId: string,
+    dto: AdminUpdatePickupPointDto,
+    audit: AdminPointAuditContext,
+  ) {
+    const { reason, ...pointDto } = dto;
+    const updateData = this.pickupPointUpdateData(pointDto);
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('至少需要修改一个自提点字段');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.pickupPoint.findUnique({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      if (!current) throw new NotFoundException('自提点不存在');
+      if (current.deletedAt) throw new ConflictException('已删除的自提点需要先恢复');
+
+      const updated = await tx.pickupPoint.updateMany({
+        where: { id: pointId, deletedAt: null, updatedAt: current.updatedAt },
+        data: updateData as Prisma.PickupPointUpdateManyMutationInput,
+      });
+      if (updated.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
+      const point = await tx.pickupPoint.findUniqueOrThrow({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      await this.writeAdminPointAudit(tx, {
+        action: 'UPDATE',
+        before: current,
+        after: point,
+        reason,
+        audit,
+      });
+      return this.mapPointForAdmin(point);
+    });
+  }
+
+  async deleteAdminPoint(pointId: string, reason: string, audit: AdminPointAuditContext) {
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) throw new BadRequestException('请填写删除原因');
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.pickupPoint.findUnique({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      if (!current) throw new NotFoundException('自提点不存在');
+      if (current.deletedAt) {
+        return { ...this.mapPointForAdmin(current), alreadyDeleted: true };
+      }
+
+      const now = new Date();
+      const deleted = await tx.pickupPoint.updateMany({
+        where: { id: pointId, deletedAt: null, updatedAt: current.updatedAt },
+        data: {
+          isActive: false,
+          deletedAt: now,
+          deletedByAdminId: audit.adminUserId,
+          deleteReason: normalizedReason,
+        },
+      });
+      if (deleted.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
+      const point = await tx.pickupPoint.findUniqueOrThrow({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      await this.writeAdminPointAudit(tx, {
+        action: 'DELETE',
+        before: current,
+        after: point,
+        reason: normalizedReason,
+        audit,
+      });
+      return { ...this.mapPointForAdmin(point), alreadyDeleted: false };
+    });
+  }
+
+  async restoreAdminPoint(pointId: string, reason: string, audit: AdminPointAuditContext) {
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) throw new BadRequestException('请填写恢复原因');
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.pickupPoint.findUnique({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      if (!current) throw new NotFoundException('自提点不存在');
+      if (!current.deletedAt) {
+        return { ...this.mapPointForAdmin(current), alreadyRestored: true };
+      }
+
+      const restored = await tx.pickupPoint.updateMany({
+        where: { id: pointId, deletedAt: current.deletedAt, updatedAt: current.updatedAt },
+        data: {
+          isActive: false,
+          deletedAt: null,
+          deletedByAdminId: null,
+          deleteReason: null,
+        },
+      });
+      if (restored.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
+      const point = await tx.pickupPoint.findUniqueOrThrow({
+        where: { id: pointId },
+        include: { company: { select: { id: true, name: true } } },
+      });
+      await this.writeAdminPointAudit(tx, {
+        action: 'UPDATE',
+        before: current,
+        after: point,
+        reason: `恢复：${normalizedReason}`,
+        audit,
+      });
+      return { ...this.mapPointForAdmin(point), alreadyRestored: false };
+    });
   }
 
   async createForPaidOrder(
@@ -721,6 +882,25 @@ export class PickupService implements OnModuleInit {
     };
   }
 
+  private pickupPointCreateData(
+    companyId: string,
+    dto: CreatePickupPointDto,
+  ): Prisma.PickupPointUncheckedCreateInput {
+    return {
+      companyId,
+      name: dto.name.trim(),
+      contactName: dto.contactName.trim(),
+      contactPhone: encryptText(dto.contactPhone)!,
+      regionCode: dto.regionCode.trim(),
+      regionText: dto.regionText.trim(),
+      detail: dto.detail.trim(),
+      location: dto.location as Prisma.InputJsonValue | undefined,
+      businessHours: dto.businessHours as unknown as Prisma.InputJsonValue,
+      pickupNotice: dto.pickupNotice?.trim() || null,
+      isActive: dto.isActive ?? true,
+    };
+  }
+
   private pickupPointUpdateData(dto: UpdatePickupPointDto): Prisma.PickupPointUpdateInput {
     return {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
@@ -740,6 +920,88 @@ export class PickupService implements OnModuleInit {
       ...(dto.pickupNotice !== undefined ? { pickupNotice: dto.pickupNotice.trim() || null } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
     };
+  }
+
+  private async writeAdminPointAudit(
+    tx: Tx,
+    params: {
+      action: 'CREATE' | 'UPDATE' | 'DELETE';
+      before?: any;
+      after?: any;
+      reason?: string;
+      audit: AdminPointAuditContext;
+    },
+  ) {
+    const before = params.before ? this.adminPointAuditSnapshot(params.before) : undefined;
+    const after = params.after ? this.adminPointAuditSnapshot(params.after) : undefined;
+    const diff = params.before && params.after
+      ? this.adminPointAuditDiff(params.before, params.after)
+      : undefined;
+    const actionLabel = params.action === 'CREATE'
+      ? '创建'
+      : params.action === 'DELETE'
+        ? '删除'
+        : '更新';
+    const safeReason = params.reason?.trim()
+      ? String(sanitizeForLog(params.reason.trim(), { maxStringLength: 200 }))
+      : '';
+
+    await tx.adminAuditLog.create({
+      data: {
+        adminUserId: params.audit.adminUserId,
+        action: params.action,
+        module: 'pickup',
+        targetType: 'PickupPoint',
+        targetId: params.after?.id ?? params.before?.id,
+        summary: `${actionLabel}自提点${safeReason ? `；原因：${safeReason}` : ''}`,
+        before,
+        after,
+        diff,
+        ip: params.audit.ip,
+        userAgent: params.audit.userAgent,
+        requestId: params.audit.requestId,
+        isReversible: false,
+      },
+    });
+  }
+
+  private adminPointAuditSnapshot(point: any): Prisma.InputJsonValue {
+    const snapshot = this.mapPointForAdmin(point);
+    return JSON.parse(JSON.stringify(sanitizeForLog({
+      ...snapshot,
+      contactName: this.maskName(snapshot.contactName),
+    }))) as Prisma.InputJsonValue;
+  }
+
+  private adminPointAuditDiff(beforePoint: any, afterPoint: any): Prisma.InputJsonValue | undefined {
+    // Compare the original owner-visible values first. Comparing already-masked
+    // values would miss a phone change when only the middle four digits differ.
+    const oldValue = this.mapPointForAdmin(beforePoint) as Record<string, unknown>;
+    const newValue = this.mapPointForAdmin(afterPoint) as Record<string, unknown>;
+    const diff: Record<string, {
+      old: Prisma.JsonValue | null;
+      new: Prisma.JsonValue | null;
+      changed: true;
+    }> = {};
+    for (const key of new Set([...Object.keys(oldValue), ...Object.keys(newValue)])) {
+      if (key === 'createdAt' || key === 'updatedAt') continue;
+      if (JSON.stringify(oldValue[key]) !== JSON.stringify(newValue[key])) {
+        diff[key] = {
+          old: this.adminPointAuditValue(key, oldValue[key]),
+          new: this.adminPointAuditValue(key, newValue[key]),
+          changed: true,
+        };
+      }
+    }
+    return Object.keys(diff).length ? diff as unknown as Prisma.InputJsonValue : undefined;
+  }
+
+  private adminPointAuditValue(key: string, value: unknown): Prisma.JsonValue | null {
+    const safeValue = key === 'contactName' && typeof value === 'string'
+      ? this.maskName(value)
+      : sanitizeForLog(value);
+    if (safeValue === undefined) return null;
+    return JSON.parse(JSON.stringify(safeValue)) as Prisma.JsonValue;
   }
 
   private assertSellerOwnsOrder(order: any, companyId: string) {
@@ -850,6 +1112,16 @@ export class PickupService implements OnModuleInit {
       isActive: point.isActive,
       createdAt: point.createdAt,
       updatedAt: point.updatedAt,
+    };
+  }
+
+  private mapPointForAdmin(point: any) {
+    return {
+      ...this.mapPointForOwner(point),
+      company: point.company ?? null,
+      deletedAt: point.deletedAt ?? null,
+      deletedByAdminId: point.deletedByAdminId ?? null,
+      deleteReason: point.deleteReason ?? null,
     };
   }
 

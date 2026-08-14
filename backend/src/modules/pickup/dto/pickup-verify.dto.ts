@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class VerifyPickupDto {
   @IsOptional()
@@ -11,14 +11,4 @@ export class VerifyPickupDto {
   @IsString()
   @MaxLength(1000)
   qrPayload?: string;
-}
-
-export class AdminUpdatePickupPointDto {
-  @IsBoolean()
-  isActive!: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
 }

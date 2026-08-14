@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { decryptJsonValue, decryptText, encryptJsonValue } from '../../common/security/encryption';
+import { decryptJsonValue, decryptText, encryptJsonValue, encryptText } from '../../common/security/encryption';
 import { PickupService } from './pickup.service';
 
 describe('PickupService', () => {
@@ -63,7 +63,7 @@ describe('PickupService', () => {
       expect(result.selectionsSnapshot.map((item) => item.companyId)).toEqual(['c1', 'c2']);
     }
     expect(tx.pickupPoint.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['p1', 'p2'] }, isActive: true },
+      where: { id: { in: ['p1', 'p2'] }, isActive: true, deletedAt: null },
     }));
 
     tx.pickupPoint.findMany.mockResolvedValueOnce([
@@ -258,25 +258,244 @@ describe('PickupService', () => {
   });
 
   it('卖家可以显式清空可选的地图坐标', async () => {
-    const update = jest.fn().mockResolvedValue({
+    const current = {
+      id: 'p1', companyId: 'c1', updatedAt: new Date('2026-08-14T19:00:00Z'),
+    };
+    const findUniqueOrThrow = jest.fn().mockResolvedValue({
       id: 'p1', companyId: 'c1', name: '一号店', contactName: '张三',
       contactPhone: '13812345678', regionCode: '110000', regionText: '北京市',
       detail: '1 号', location: null, businessHours: { summary: '9:00-18:00' },
       pickupNotice: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
     });
-    const prisma = {
+    const tx = {
       pickupPoint: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'p1', companyId: 'c1' }),
-        update,
+        findFirst: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow,
       },
     };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
     const { service } = createService(prisma);
 
     await service.updateSellerPoint('c1', 'p1', { location: null, pickupNotice: '' });
 
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'p1' },
+    expect(tx.pickupPoint.updateMany).toHaveBeenCalledWith({
+      where: { id: 'p1', companyId: 'c1', deletedAt: null, updatedAt: current.updatedAt },
       data: { location: Prisma.DbNull, pickupNotice: null },
+    });
+  });
+
+  it('买家和卖家查询都排除平台已软删除的自提点', async () => {
+    const prisma = {
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+      pickupPoint: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const { service } = createService(prisma);
+
+    await service.listBuyerPoints(['c1']);
+    expect(prisma.company.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({
+        pickupPoints: expect.objectContaining({ where: { isActive: true, deletedAt: null } }),
+      }),
+    }));
+
+    await service.listSellerPoints('c1');
+    expect(prisma.pickupPoint.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { companyId: 'c1', deletedAt: null },
+    }));
+  });
+
+  it('平台创建自提点时校验企业并在同一事务写完整审计', async () => {
+    const createdAt = new Date('2026-08-14T20:00:00Z');
+    const tx = {
+      company: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
+      pickupPoint: {
+        create: jest.fn(async ({ data }: any) => ({
+          id: 'p1', ...data, location: null, pickupNotice: null,
+          deletedAt: null, deletedByAdminId: null, deleteReason: null,
+          createdAt, updatedAt: createdAt,
+          company: { id: 'c1', name: '商家一' },
+        })),
+      },
+      adminAuditLog: { create: jest.fn().mockResolvedValue({ id: 'audit1' }) },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service } = createService(prisma);
+
+    const result = await service.createAdminPoint({
+      companyId: 'c1', name: '平台测试点', contactName: '张三', contactPhone: '13812345678',
+      regionCode: '110000', regionText: '北京市', detail: '朝阳区 1 号',
+      businessHours: { summary: '09:00-18:00' },
+    }, { adminUserId: 'admin1', requestId: 'req1' });
+
+    expect(tx.company.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'c1', status: 'ACTIVE' },
+    }));
+    expect(result.contactPhone).toBe('13812345678');
+    expect(tx.adminAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        adminUserId: 'admin1', action: 'CREATE', module: 'pickup',
+        targetType: 'PickupPoint', targetId: 'p1', requestId: 'req1',
+        after: expect.any(Object), isReversible: false,
+      }),
+    });
+    const auditPayload = JSON.stringify(tx.adminAuditLog.create.mock.calls);
+    expect(auditPayload).not.toContain('13812345678');
+    expect(auditPayload).not.toContain('张三');
+  });
+
+  it('平台列表默认隐藏已删除点位，并可单独筛选回收站', async () => {
+    const prisma = {
+      pickupPoint: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const { service } = createService(prisma);
+
+    await service.listAdminPoints({ page: 1, pageSize: 20 });
+    await service.listAdminPoints({ page: 1, pageSize: 20, isDeleted: true, companyId: 'c1' });
+
+    expect(prisma.pickupPoint.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { deletedAt: null },
+    }));
+    expect(prisma.pickupPoint.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { deletedAt: { not: null }, companyId: 'c1' },
+    }));
+  });
+
+  it('平台点位权限可独立读取最小企业选项，不依赖企业管理权限', async () => {
+    const prisma = {
+      company: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'c1', name: '商家一' }]),
+      },
+    };
+    const { service } = createService(prisma);
+
+    await expect(service.listAdminPickupCompanyOptions(' 商家 ')).resolves.toEqual({
+      items: [{ id: 'c1', name: '商家一' }],
+    });
+    expect(prisma.company.findMany).toHaveBeenCalledWith({
+      where: { status: 'ACTIVE', name: { contains: '商家', mode: 'insensitive' } },
+      select: { id: true, name: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: 200,
+    });
+  });
+
+  it('平台可完整编辑点位但不能绕过软删除和并发版本守门', async () => {
+    const updatedAt = new Date('2026-08-14T20:00:00Z');
+    const current = {
+      id: 'p1', companyId: 'c1', name: '旧名称', contactName: '张三',
+      contactPhone: encryptText('13812345678'), regionCode: '110000',
+      regionText: '北京市', detail: '旧地址', location: { lng: 116, lat: 39 },
+      businessHours: { summary: '09:00-18:00' }, pickupNotice: '旧须知',
+      isActive: true, deletedAt: null, deletedByAdminId: null, deleteReason: null,
+      createdAt: updatedAt, updatedAt, company: { id: 'c1', name: '商家一' },
+    };
+    const updatedPoint = {
+      ...current, name: '新名称', location: null, pickupNotice: null,
+      contactPhone: encryptText('13899995678'),
+      updatedAt: new Date('2026-08-14T20:01:00Z'),
+    };
+    const tx = {
+      pickupPoint: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(updatedPoint),
+      },
+      adminAuditLog: { create: jest.fn().mockResolvedValue({ id: 'audit1' }) },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service } = createService(prisma);
+
+    const result = await service.updateAdminPoint('p1', {
+      name: '新名称', contactPhone: '13899995678', location: null,
+      pickupNotice: '', reason: '平台纠正资料',
+    }, { adminUserId: 'admin1' });
+
+    expect(result.name).toBe('新名称');
+    expect(tx.pickupPoint.updateMany).toHaveBeenCalledWith({
+      where: { id: 'p1', deletedAt: null, updatedAt },
+      data: {
+        name: '新名称', contactPhone: expect.any(String),
+        location: Prisma.DbNull, pickupNotice: null,
+      },
+    });
+    expect(tx.adminAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'UPDATE', summary: expect.stringContaining('平台纠正资料'),
+        before: expect.any(Object), after: expect.any(Object), diff: expect.any(Object),
+      }),
+    });
+    const auditData = tx.adminAuditLog.create.mock.calls[0][0].data;
+    expect(auditData.diff.contactPhone).toEqual({
+      old: '138****5678',
+      new: '138****5678',
+      changed: true,
+    });
+    expect(JSON.stringify(auditData)).not.toContain('13812345678');
+    expect(JSON.stringify(auditData)).not.toContain('13899995678');
+  });
+
+  it('平台软删除和恢复使用更新时间 CAS，恢复后保持停用', async () => {
+    const updatedAt = new Date('2026-08-14T20:00:00Z');
+    const deletedAt = new Date('2026-08-14T20:01:00Z');
+    const base = {
+      id: 'p1', companyId: 'c1', name: '一号店', contactName: '张三',
+      contactPhone: encryptText('13812345678'), regionCode: '110000',
+      regionText: '北京市', detail: '朝阳区 1 号', location: null,
+      businessHours: { summary: '09:00-18:00' }, pickupNotice: null,
+      isActive: true, deletedAt: null, deletedByAdminId: null, deleteReason: null,
+      createdAt: updatedAt, updatedAt, company: { id: 'c1', name: '商家一' },
+    };
+    const deleted = {
+      ...base, isActive: false, deletedAt, deletedByAdminId: 'admin1',
+      deleteReason: '门店停止合作', updatedAt: deletedAt,
+    };
+    const restored = {
+      ...deleted, deletedAt: null, deletedByAdminId: null, deleteReason: null,
+      isActive: false, updatedAt: new Date('2026-08-14T20:02:00Z'),
+    };
+    const tx = {
+      pickupPoint: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce(base)
+          .mockResolvedValueOnce(deleted),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn()
+          .mockResolvedValueOnce(deleted)
+          .mockResolvedValueOnce(restored),
+      },
+      adminAuditLog: { create: jest.fn().mockResolvedValue({ id: 'audit1' }) },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service } = createService(prisma);
+    const audit = { adminUserId: 'admin1' };
+
+    const deleteResult = await service.deleteAdminPoint('p1', '门店停止合作', audit);
+    expect(deleteResult.deletedAt).toEqual(deletedAt);
+    expect(tx.pickupPoint.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'p1', deletedAt: null, updatedAt },
+      data: expect.objectContaining({
+        isActive: false, deletedByAdminId: 'admin1', deleteReason: '门店停止合作',
+      }),
+    });
+
+    const restoreResult = await service.restoreAdminPoint('p1', '重新开放申请', audit);
+    expect(restoreResult.isActive).toBe(false);
+    expect(tx.pickupPoint.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 'p1', deletedAt, updatedAt: deleted.updatedAt },
+      data: { isActive: false, deletedAt: null, deletedByAdminId: null, deleteReason: null },
+    });
+    expect(tx.adminAuditLog.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({ action: 'DELETE', targetId: 'p1' }),
+    });
+    expect(tx.adminAuditLog.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({ action: 'UPDATE', summary: expect.stringContaining('恢复') }),
     });
   });
 

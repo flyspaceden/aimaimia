@@ -104,14 +104,17 @@ model PickupPoint {
   location        Json?    // {lng, lat, provider, poiName}
   businessHours   Json     // 每周营业时间及节假日说明
   pickupNotice    String?  @db.VarChar(500)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  deletedByAdminId String?
+  deleteReason     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   fulfillments    PickupFulfillment[]
 
-  @@index([companyId, isActive])
+  @@index([companyId, deletedAt, isActive])
 }
 ```
 
@@ -169,7 +172,7 @@ model PickupFulfillment {
 1. 给历史 `CheckoutSession` 和 `Order` 回填 `DELIVERY`。
 2. 先添加可空字段，再回填并设置安全默认值；不可因为历史会话没有新字段而阻塞支付结果查询。
 3. 不回填 `PickupFulfillment`，历史订单继续使用原配送行为。
-4. 用 `isActive=false` 停用自提点，不物理删除；历史订单始终读取自己的 `pickupPointSnapshot`。
+4. 企业日常暂停营业使用 `isActive=false`；平台“删除”使用 `deletedAt` 软删除并强制停用，记录操作者和原因。禁止物理删除；历史订单始终读取自己的 `pickupPointSnapshot`。恢复软删除记录后保持停用，必须再次显式启用才能用于新结算。
 
 ## 5. 接口契约
 
@@ -209,7 +212,11 @@ type PickupFulfillmentInput = {
 ### 5.3 管理端
 
 - 管理端可读自提点、订单自提状态、凭证已核销时间、操作者与异常原因；不得返回明文凭证。
-- 平台管理员可按权限停用点、受控取消/退款和处理争议，所有动作使用现有管理端审计日志。
+- 平台管理员是点位管理的最终兜底方：可跨企业选择正常经营的 `Company` 新建点位，完整编辑名称、联系人、电话、地址、坐标、营业时间、取货须知和启停状态；创建后不可改企业归属。
+- 点位 API 使用独立权限 `pickup_points:read/create/update/delete`：`GET/POST/PATCH/DELETE /admin/pickup-points`，以及 `POST /admin/pickup-points/:id/restore`。企业选择器调用同模块的 `GET /admin/pickup-points/company-options`，只返回正常经营企业的 ID/名称，不额外要求或扩大 `companies:read`。超级管理员自动拥有全部权限；其他角色必须显式授权。
+- 平台删除必须二次确认且原因必填，执行带 `updatedAt` 版本条件的软删除 CAS；重复删除/恢复幂等。默认列表隐藏已删除记录，回收站可查看删除原因并恢复。创建、更新、启停、删除和恢复在同一数据库事务写入管理端审计，包含目标 ID、脱敏前后快照、差异和原因。
+- 卖家仍只能查看和维护本企业未删除点位，不能恢复平台已删除记录；买家点位发现和结算校验同时要求 `isActive=true AND deletedAt IS NULL`。
+- 平台管理员也可按权限执行受控取消/退款和处理争议，所有动作使用现有管理端审计日志。
 - `POST /admin/orders/:id/pickup-cancel-refund` 只允许普通商品自提异常单，使用 `orders:refund` 权限，并返回受影响订单 / 退款状态供页面复核；团购和 VIP 必须明确拒绝。
 - 管理端订单发货、顺丰重试、收货信息编辑操作在 `PICKUP` 订单上隐藏并在 API 层拒绝。
 
@@ -249,7 +256,7 @@ type PickupFulfillmentInput = {
 ### 7.3 卖家中心与管理后台
 
 - 卖家中心新增“自提点管理”与“自提订单”视图，操作是备货完成、扫描/输入取货码、查看核销记录；禁止生成/打印顺丰面单。
-- 管理后台订单筛选新增履约方式和自提状态；自提点查看/停用、异常退款、审计查看受权限控制。
+- 管理后台订单筛选新增履约方式和自提状态；自提点页面支持跨企业新建、完整编辑、启停、软删除、回收站和恢复；异常退款、点位操作与审计查看分别受权限控制。
 - 三端只展示后端派生的状态文案，前端不得根据有无 `shippingFee` 或 `addressSnapshot` 猜测履约方式。
 
 ## 8. 后端改动清单
@@ -267,7 +274,8 @@ type PickupFulfillmentInput = {
 ### Phase A：契约与模型
 
 - [x] 建立 Prisma 迁移、默认回填和 feature flag `PICKUP_FULFILLMENT_ENABLED=false`。
-- [x] 建立自提点 CRUD、商家归属/启停校验与最小权限。
+- [x] 建立卖家自提点 CRUD、商家归属/启停校验与最小权限。
+- [x] 建立平台跨企业点位新建/完整编辑/软删除/恢复、独立权限、CAS 与事务审计。
 - [x] 建立普通 / 团购 / VIP 的统一判别式履约 DTO 和预结算服务端校验。
 - [x] 验证 `npx prisma validate`，并在一次性 PostgreSQL 空库完整执行 114 个迁移。
 - [ ] 在 staging 历史数据副本执行 migrate-deploy、回滚前向恢复和数据抽样；未获部署授权前不在真实库执行。
@@ -313,4 +321,4 @@ type PickupFulfillmentInput = {
 - 不把普通订单拆成新的支付方式或手工收款。
 - 不用“零运费 + 假顺丰单号”模拟自提。
 - 不在二维码中携带明文个人资料或永久有效 token。
-- 不将自提点物理删除或覆盖历史订单地点快照。
+- 不将自提点物理删除或覆盖历史订单地点快照；平台“删除”只做可审计、可恢复且默认停用的软删除。

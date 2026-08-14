@@ -137,7 +137,7 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
-            <Route path="pickup-points" element={<RequirePermission permission={PERMISSIONS.ORDERS_READ}><PickupPointListPage /></RequirePermission>} />
+            <Route path="pickup-points" element={<RequirePermission permission={PERMISSIONS.PICKUP_POINTS_READ}><PickupPointListPage /></RequirePermission>} />
             <Route path="companies" element={<CompanyListPage />} />
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="users" element={<UserListPage />} />

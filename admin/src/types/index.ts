@@ -56,6 +56,7 @@ export interface AdminRole {
   isSystem: boolean;
   createdAt: string;
   permissions: AdminPermission[];
+  _count?: { adminUsers: number };
 }
 
 export interface AdminPermission {
@@ -1575,6 +1576,9 @@ export interface PickupPoint {
   businessHours: PickupBusinessHours | Record<string, unknown>;
   pickupNotice?: string | null;
   isActive: boolean;
+  deletedAt?: string | null;
+  deletedByAdminId?: string | null;
+  deleteReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

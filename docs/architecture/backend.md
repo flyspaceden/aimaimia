@@ -707,7 +707,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 
 - 买家：查询指定商家的启用点位、读取本人 `READY` 凭证；普通订单列表/详情只返回自提摘要，不返回明文凭证。
 - 卖家：OWNER/MANAGER 管理本企业点位；有订单权限的员工可标记备货和使用二维码或 8 位短码核销。
-- 管理员：`orders:read` 查看点位/履约事件，`orders:ship` 启停点位，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款。
+- 管理员：独立 `pickup_points:read/create/update/delete` 权限控制跨企业点位查看、新建、完整编辑/启停、软删除/恢复；`orders:read` 查看履约事件，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款。
 
 ### 17.2 状态与资金一致性
 
@@ -720,6 +720,8 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 - 短码与二维码 token 使用安全随机源；数据库仅保存 HMAC digest 和加密凭证 blob，生产缺少可用密钥时拒绝启动。
 - 核销输入必须恰好提供一种凭证；短码固定 8 位数字，二维码 payload 有签名和有效期，接口按员工/订单限流并审计。
 - 自提人、点位电话和历史点位使用加密/快照；买家读取明文凭证写去重后的 `BUYER_PASS_VIEWED` 事件，事件不保存码或 token。
+- 平台点位删除使用 `deletedAt` 软删除并强制 `isActive=false`，保留删除管理员与原因。买家发现、预结算和卖家维护只接受 `deletedAt=null`；恢复后保持停用。平台所有写操作使用 `updatedAt` CAS，并在同一事务写入脱敏前后快照、差异与原因审计。
+- 点位管理页面通过 `pickup_points:read` 保护的最小企业选项接口仅读取正常经营企业的 ID/名称，不要求 `companies:read`，避免点位专职角色获得完整企业管理数据。
 - 业务异常使用 `businessCode`，小程序以 `businessCode ?? code` 判断 `PICKUP_POINT_UNAVAILABLE` 等可恢复错误。
 - 若脏数据中 `fulfillmentMode=PICKUP` 但关联缺失，列表返回 `fulfillmentIssueCode=PICKUP_RELATION_MISSING` 并记录告警，避免一条异常订单拖垮整页；详情和操作继续 fail-closed。
 
