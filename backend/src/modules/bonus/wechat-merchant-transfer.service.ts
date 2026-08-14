@@ -205,14 +205,20 @@ export class WechatMerchantTransferService implements OnModuleInit {
       transfer_scene_report_infos: this.transferSceneReportInfos,
     };
 
+    let createErrorCode: string | undefined;
     try {
       const response = await this.signedRequest('POST', CREATE_PATH, body);
       if (response.status === 200) {
         return this.parseCreateResponse(response.data, params.outBillNo);
       }
-    } catch (error: any) {
+      createErrorCode = this.readErrorCode(response.data) || `HTTP_${response.status}`;
       this.logger.warn(
-        `微信商家转账发起结果不明确: outBillNo=${this.mask(params.outBillNo)} code=${error?.code ?? 'UNKNOWN'}`,
+        `微信商家转账发起被拒绝: outBillNo=${this.mask(params.outBillNo)} code=${createErrorCode}`,
+      );
+    } catch (error: any) {
+      createErrorCode = String(error?.code || 'CREATE_EXCEPTION');
+      this.logger.warn(
+        `微信商家转账发起结果不明确: outBillNo=${this.mask(params.outBillNo)} code=${createErrorCode}`,
       );
     }
 
@@ -229,7 +235,12 @@ export class WechatMerchantTransferService implements OnModuleInit {
     return {
       outcome: 'UNKNOWN',
       outBillNo: params.outBillNo,
-      errorCode: queried.outcome === 'NOT_FOUND' ? 'NOT_FOUND_AFTER_UNKNOWN_CREATE' : queried.errorCode,
+      // A verified HTTP error from the create request is the most useful diagnostic
+      // when the follow-up query has no original bill yet. Keep the same outBillNo
+      // for every retry; this only preserves the reason, never creates another payout.
+      errorCode: queried.outcome === 'NOT_FOUND'
+        ? (createErrorCode || 'NOT_FOUND_AFTER_UNKNOWN_CREATE')
+        : queried.errorCode,
     };
   }
 

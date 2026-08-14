@@ -210,12 +210,30 @@ describe('WechatMerchantTransferService', () => {
     expect(result).toEqual({
       outcome: 'UNKNOWN',
       outBillNo: 'WX123456789012345678901234567890',
-      errorCode: 'NOT_FOUND_AFTER_UNKNOWN_CREATE',
+      errorCode: 'INVALID_WECHATPAY_SIGNATURE',
     });
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(
       'https://api.mch.weixin.qq.com/v3/fund-app/mch-transfer/transfer-bills/out-bill-no/WX123456789012345678901234567890',
     );
+  });
+
+  it('preserves a verified create rejection code when the original bill is not found', async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(400, { code: 'NO_AUTH', message: 'merchant transfer is not authorized' }))
+      .mockResolvedValueOnce(response(404, { code: 'NOT_FOUND' })) as any;
+    const service = buildService();
+
+    await expect(service.createTransfer({
+      outBillNo: 'WX123456789012345678901234567890',
+      openId: 'openid-from-server-session',
+      amountFen: 800,
+    })).resolves.toEqual({
+      outcome: 'UNKNOWN',
+      outBillNo: 'WX123456789012345678901234567890',
+      errorCode: 'NO_AUTH',
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('verifies and parses all identity fields from an out-bill-no query response', async () => {
