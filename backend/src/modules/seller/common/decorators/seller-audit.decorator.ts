@@ -11,6 +11,8 @@ export interface SellerAuditMeta {
   targetType?: string;
   /** 从请求参数中提取 targetId 的路径，如 'params.id' */
   targetIdParam?: string;
+  /** 从成功响应中提取 targetId 的路径，如 'orderId'；不得指向凭证原文。 */
+  targetIdResponseKey?: string;
 }
 
 /**

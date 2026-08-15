@@ -12,37 +12,71 @@ import './index.scss';
 
 const QR_CANVAS_ID = 'pickup-pass-qr';
 
-function drawPickupQr(payload: string) {
-  Taro.nextTick(() => {
-    Taro.createSelectorQuery().select(`#${QR_CANVAS_ID}`).fields({ node: true, size: true }).exec((result) => {
-      const field = result?.[0] as { node?: {
-        width: number;
-        height: number;
-        getContext: (kind: '2d') => CanvasRenderingContext2D;
-      }; width?: number; height?: number } | undefined;
-      const canvas = field?.node;
-      const cssSize = Math.min(field?.width || 224, field?.height || 224);
-      if (!canvas || !cssSize) return;
-      const ratio = Taro.getWindowInfo().pixelRatio || 1;
-      canvas.width = Math.floor(cssSize * ratio);
-      canvas.height = Math.floor(cssSize * ratio);
-      const context = canvas.getContext('2d');
-      context.scale(ratio, ratio);
-      context.fillStyle = '#FFFFFF';
-      context.fillRect(0, 0, cssSize, cssSize);
-      const qr = QRCode.create(payload, { errorCorrectionLevel: 'M' });
-      const quietZone = 4;
-      const moduleSize = cssSize / (qr.modules.size + quietZone * 2);
-      context.fillStyle = '#142C1A';
-      for (let row = 0; row < qr.modules.size; row += 1) {
-        for (let column = 0; column < qr.modules.size; column += 1) {
-          if (!qr.modules.get(row, column)) continue;
-          const left = Math.round((column + quietZone) * moduleSize);
-          const top = Math.round((row + quietZone) * moduleSize);
-          const right = Math.ceil((column + quietZone + 1) * moduleSize);
-          const bottom = Math.ceil((row + quietZone + 1) * moduleSize);
-          context.fillRect(left, top, right - left, bottom - top);
-        }
+type QrCanvasField = {
+  node?: {
+    width: number;
+    height: number;
+    getContext: (kind: '2d') => CanvasRenderingContext2D | null;
+  };
+  width?: number;
+  height?: number;
+};
+
+/**
+ * 使用新版 canvas node API 画二维码。这个 Promise 必须在画布节点存在且绘制成功后才 resolve；
+ * 真机失败时页面会展示取货码和重试操作，而不是留下一个没有内容的白框。
+ */
+function drawPickupQr(payload: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    Taro.nextTick(() => {
+      try {
+        const query = Taro.createSelectorQuery();
+        query.select(`#${QR_CANVAS_ID}`).fields({ node: true, size: true }, (fieldResult) => {
+          try {
+            const field = fieldResult as QrCanvasField | undefined;
+            const canvas = field?.node;
+            const cssSize = Math.min(field?.width || 224, field?.height || 224);
+            if (!canvas || !cssSize) {
+              reject(new Error('二维码画布尚未就绪'));
+              return;
+            }
+            const context = canvas.getContext('2d');
+            if (!context) {
+              reject(new Error('二维码画布不可用'));
+              return;
+            }
+            const ratio = Taro.getWindowInfo().pixelRatio || 1;
+            // 每次刷新凭证都重新设置像素尺寸，避免旧的 scale 叠加导致二维码空白或变形。
+            canvas.width = Math.floor(cssSize * ratio);
+            canvas.height = Math.floor(cssSize * ratio);
+            if (typeof context.setTransform === 'function') {
+              context.setTransform(ratio, 0, 0, ratio, 0, 0);
+            } else {
+              context.scale(ratio, ratio);
+            }
+            context.fillStyle = '#FFFFFF';
+            context.fillRect(0, 0, cssSize, cssSize);
+            const qr = QRCode.create(payload, { errorCorrectionLevel: 'M' });
+            const quietZone = 4;
+            const moduleSize = cssSize / (qr.modules.size + quietZone * 2);
+            context.fillStyle = '#142C1A';
+            for (let row = 0; row < qr.modules.size; row += 1) {
+              for (let column = 0; column < qr.modules.size; column += 1) {
+                if (!qr.modules.get(row, column)) continue;
+                const left = Math.round((column + quietZone) * moduleSize);
+                const top = Math.round((row + quietZone) * moduleSize);
+                const right = Math.ceil((column + quietZone + 1) * moduleSize);
+                const bottom = Math.ceil((row + quietZone + 1) * moduleSize);
+                context.fillRect(left, top, right - left, bottom - top);
+              }
+            }
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        }).exec();
+      } catch (error) {
+        reject(error);
       }
     });
   });
@@ -54,6 +88,7 @@ export default function PickupPassPage() {
   const hydrated = useAuthStore((state) => state.hydrated);
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const [clock, setClock] = useState(() => Date.now());
+  const [qrState, setQrState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const passQuery = useQuery({
     queryKey: ['order', orderId, 'pickup-pass'],
     queryFn: () => OrderRepo.getPickupPass(orderId),
@@ -76,8 +111,25 @@ export default function PickupPassPage() {
     : undefined;
 
   useEffect(() => {
-    if (pickupPass?.qrPayload) drawPickupQr(pickupPass.qrPayload);
+    let mounted = true;
+    if (!pickupPass?.qrPayload) {
+      setQrState('loading');
+      return () => { mounted = false; };
+    }
+    setQrState('loading');
+    void drawPickupQr(pickupPass.qrPayload)
+      .then(() => { if (mounted) setQrState('ready'); })
+      .catch(() => { if (mounted) setQrState('failed'); });
+    return () => { mounted = false; };
   }, [pickupPass?.qrPayload]);
+
+  const retryQr = () => {
+    if (!pickupPass?.qrPayload) return;
+    setQrState('loading');
+    void drawPickupQr(pickupPass.qrPayload)
+      .then(() => setQrState('ready'))
+      .catch(() => setQrState('failed'));
+  };
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
   if (!loggedIn) return <View className='aim-page'><CatalogFeedback kind='empty' title='请先登录' description='登录后才能读取本人取货凭证' /></View>;
@@ -101,7 +153,15 @@ export default function PickupPassPage() {
         <Text>{point.name}</Text>
         <Text>待自提</Text>
       </View>
-      <View className='pickup-pass-qr-wrap'><Canvas type='2d' id={QR_CANVAS_ID} canvasId={QR_CANVAS_ID} className='pickup-pass-qr' /></View>
+      <View className='pickup-pass-qr-wrap'>
+        <Canvas type='2d' id={QR_CANVAS_ID} canvasId={QR_CANVAS_ID} className={`pickup-pass-qr ${qrState === 'failed' ? 'pickup-pass-qr--hidden' : ''}`} />
+        {qrState === 'loading' ? <Text className='pickup-pass-qr-status'>正在生成一次性二维码…</Text> : null}
+        {qrState === 'failed' ? <View className='pickup-pass-qr-fallback'>
+          <Text>二维码未能显示</Text>
+          <Text>请向商家出示下方 8 位取货码</Text>
+          <Text className='pickup-pass-qr-retry' onClick={retryQr}>重新生成二维码</Text>
+        </View> : null}
+      </View>
       <Text className='pickup-pass-code-label'>人工取货码</Text>
       <Text className='pickup-pass-code' onClick={() => Taro.setClipboardData({ data: pickupPass.pickupCode })}>{pickupPass.pickupCode}</Text>
       <Text className='pickup-pass-code-hint'>点击短码可复制 · 仅本订单一次有效</Text>

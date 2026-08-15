@@ -566,11 +566,7 @@ export class PickupService implements OnModuleInit {
   }
 
   async verify(companyId: string, staffId: string, orderId: string, dto: VerifyPickupDto) {
-    const hasPickupCode = typeof dto.pickupCode === 'string' && dto.pickupCode.trim().length > 0;
-    const hasQrPayload = typeof dto.qrPayload === 'string' && dto.qrPayload.trim().length > 0;
-    if (hasPickupCode === hasQrPayload) {
-      throw new BadRequestException('取货码和二维码内容必须且只能提交一项');
-    }
+    this.assertExactlyOneCredential(dto);
     const result = await this.withSerializableRetry(async (tx) => {
       const fulfillment = await tx.pickupFulfillment.findUnique({
         where: { orderId },
@@ -662,6 +658,36 @@ export class PickupService implements OnModuleInit {
     }
     const { order: _order, newlyPickedUp: _newlyPickedUp, ...response } = result;
     return response;
+  }
+
+  /**
+   * 核销台的第一步：只解析并复核凭证，不改变订单或履约状态。
+   * 绝不把短码/二维码内容返回给浏览器，也不把它们写进事件或日志。
+   */
+  async resolveCredential(companyId: string, dto: VerifyPickupDto) {
+    this.assertExactlyOneCredential(dto);
+    const fulfillment = await this.findFulfillmentForCredential(this.prisma, dto, true);
+    if (!fulfillment || fulfillment.order.fulfillmentMode !== 'PICKUP') {
+      throw new NotFoundException('取货凭证不存在或已失效');
+    }
+    this.assertSellerOwnsOrder(fulfillment.order, companyId);
+    const alreadyPickedUp = fulfillment.status === 'PICKED_UP' && fulfillment.order.status === 'RECEIVED';
+    if (!alreadyPickedUp) {
+      if (fulfillment.status !== 'READY' || fulfillment.order.status !== 'PAID') {
+        throw new ConflictException('当前订单未到可核销状态');
+      }
+      this.assertCredential(fulfillment, dto);
+    }
+    return this.toCredentialPreview(fulfillment, alreadyPickedUp);
+  }
+
+  /**
+   * 全局扫码核销入口。解析仅用于定位订单，实际状态变更仍完全复用
+   * 按订单核销的 Serializable/CAS 主链，避免扫码台绕开既有安全守门。
+   */
+  async verifyCredential(companyId: string, staffId: string, dto: VerifyPickupDto) {
+    const preview = await this.resolveCredential(companyId, dto);
+    return this.verify(companyId, staffId, preview.orderId, dto);
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
@@ -1011,30 +1037,128 @@ export class PickupService implements OnModuleInit {
     }
   }
 
+  private assertExactlyOneCredential(dto: VerifyPickupDto) {
+    const hasPickupCode = Boolean(this.pickupCodeFrom(dto));
+    const hasQrPayload = Boolean(this.qrPayloadFrom(dto));
+    if (hasPickupCode === hasQrPayload) {
+      throw new BadRequestException('取货码和二维码内容必须且只能提交一项');
+    }
+  }
+
+  private pickupCodeFrom(dto: VerifyPickupDto) {
+    return typeof dto.pickupCode === 'string' ? dto.pickupCode.trim() : '';
+  }
+
+  private qrPayloadFrom(dto: VerifyPickupDto) {
+    return typeof dto.qrPayload === 'string' ? dto.qrPayload.trim() : '';
+  }
+
+  private async findFulfillmentForCredential(prisma: any, dto: VerifyPickupDto, includePreview: boolean) {
+    const orderInclude = includePreview
+      ? {
+          items: {
+            select: {
+              companyId: true,
+              isPrize: true,
+              quantity: true,
+              productSnapshot: true,
+              sku: {
+                select: {
+                  title: true,
+                  skuCode: true,
+                  barcode: true,
+                  product: { select: { title: true } },
+                },
+              },
+            },
+          },
+        }
+      : { items: { select: { companyId: true, isPrize: true } } };
+    const include = { order: { include: orderInclude } };
+
+    const pickupCode = this.pickupCodeFrom(dto);
+    if (pickupCode) {
+      const candidates = await prisma.pickupFulfillment.findMany({
+        where: {
+          pickupCodeDigest: this.digest(pickupCode),
+          status: { in: ['READY', 'PICKED_UP'] },
+        },
+        include,
+        take: 2,
+      });
+      if (candidates.length > 1) {
+        throw new ConflictException('取货码匹配到多个订单，请从订单详情核销');
+      }
+      return candidates[0] ?? null;
+    }
+
+    const { fulfillmentId } = this.parseQrPayload(this.qrPayloadFrom(dto));
+    return prisma.pickupFulfillment.findUnique({ where: { id: fulfillmentId }, include });
+  }
+
+  private toCredentialPreview(fulfillment: any, alreadyPickedUp: boolean) {
+    return {
+      orderId: fulfillment.orderId,
+      status: fulfillment.status,
+      alreadyPickedUp,
+      pickupPoint: this.mapPointSnapshot(fulfillment.pickupPointSnapshot),
+      recipient: this.mapRecipient(fulfillment.recipientSnapshot),
+      items: (fulfillment.order.items ?? []).map((item: any) => {
+        const snapshot = item.productSnapshot && typeof item.productSnapshot === 'object'
+          ? item.productSnapshot as Record<string, unknown>
+          : {};
+        const title = typeof snapshot.title === 'string'
+          ? snapshot.title
+          : typeof snapshot.productTitle === 'string'
+            ? snapshot.productTitle
+            : item.sku?.product?.title ?? '商品';
+        const skuTitle = typeof snapshot.skuTitle === 'string'
+          ? snapshot.skuTitle
+          : item.sku?.title ?? '';
+        return {
+          title,
+          skuTitle,
+          quantity: item.quantity,
+          // 商品条码只用于卖家现场的第二道“拿对货”核对；它绝不能替代
+          // 买家一次性凭证，也不参与订单状态变更。
+          skuCode: item.sku?.skuCode ?? null,
+          barcode: item.sku?.barcode ?? null,
+        };
+      }),
+    };
+  }
+
   private assertCredential(fulfillment: any, dto: VerifyPickupDto) {
-    if (dto.pickupCode) {
-      if (!this.safeDigestEquals(fulfillment.pickupCodeDigest, this.digest(dto.pickupCode.trim()))) {
+    const pickupCode = this.pickupCodeFrom(dto);
+    if (pickupCode) {
+      if (!this.safeDigestEquals(fulfillment.pickupCodeDigest, this.digest(pickupCode))) {
         throw new BadRequestException('取货码无效');
       }
       return;
     }
-    if (!dto.qrPayload) throw new BadRequestException('请扫描取货二维码或输入取货码');
-    const parts = dto.qrPayload.split('.');
+    const qrPayload = this.qrPayloadFrom(dto);
+    if (!qrPayload) throw new BadRequestException('请扫描取货二维码或输入取货码');
+    const { fulfillmentId, token } = this.parseQrPayload(qrPayload);
+    if (fulfillmentId !== fulfillment.id || !this.safeDigestEquals(fulfillment.pickupTokenDigest, this.digest(token))) {
+      throw new BadRequestException('取货二维码无效');
+    }
+  }
+
+  private parseQrPayload(raw: string) {
+    const parts = raw.trim().split('.');
     if (parts.length !== 6 || parts[0] !== 'AIMMPICKUP' || parts[1] !== '1') {
       throw new BadRequestException('取货二维码无效');
     }
     const [, , fulfillmentId, expiresRaw, token, signature] = parts;
     const expiresAt = Number(expiresRaw);
-    if (fulfillmentId !== fulfillment.id || !Number.isInteger(expiresAt) || expiresAt < Math.floor(Date.now() / 1000)) {
+    if (!fulfillmentId || !token || !Number.isInteger(expiresAt) || expiresAt < Math.floor(Date.now() / 1000)) {
       throw new BadRequestException('取货二维码已过期或无效');
     }
     const expectedSignature = this.signQr(`${fulfillmentId}.${expiresRaw}.${token}`);
-    if (
-      !this.safeDigestEquals(signature, expectedSignature) ||
-      !this.safeDigestEquals(fulfillment.pickupTokenDigest, this.digest(token))
-    ) {
+    if (!this.safeDigestEquals(signature, expectedSignature)) {
       throw new BadRequestException('取货二维码无效');
     }
+    return { fulfillmentId, token };
   }
 
   private buildQrPayload(fulfillmentId: string, token: string, expiresAtSeconds: number) {

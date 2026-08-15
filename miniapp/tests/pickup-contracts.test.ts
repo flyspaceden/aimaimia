@@ -191,4 +191,17 @@ describe('pickup API contracts', () => {
       expect(source(page)).toContain('pickupLoading={pickupPointsQuery.isLoading}');
     }
   });
+
+  it('does not leave a blank pickup QR canvas when the native canvas node fails', () => {
+    const passSource = source('src/packages/orders/pickup-pass/index.tsx');
+    const passStyle = source('src/packages/orders/pickup-pass/index.scss');
+
+    expect(passSource).toContain('function drawPickupQr(payload: string): Promise<void>');
+    expect(passSource).toContain("setQrState('failed')");
+    expect(passSource).toContain('二维码未能显示');
+    expect(passSource).toContain('请向商家出示下方 8 位取货码');
+    expect(passSource).toContain('重新生成二维码');
+    expect(passSource).toContain("fields({ node: true, size: true }, (fieldResult)");
+    expect(passStyle).toContain('.pickup-pass-qr--hidden');
+  });
 });

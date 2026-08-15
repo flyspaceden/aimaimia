@@ -95,3 +95,42 @@ export class PickupSellerOrderController {
     return this.pickupService.verify(companyId, staffId, id, dto);
   }
 }
+
+/**
+ * 门店核销台：可通过扫码枪、电脑摄像头或人工短码定位订单。
+ * 先 resolve 再 verify，避免任何输入一经识别就直接变更为已收货。
+ */
+@Public()
+@UseGuards(SellerAuthGuard, SellerRoleGuard)
+@UseInterceptors(SellerAuditInterceptor)
+@Controller('seller/pickup')
+export class PickupSellerVerificationController {
+  constructor(private readonly pickupService: PickupService) {}
+
+  @SellerAudit({
+    action: 'PICKUP_CREDENTIAL_RESOLVE', module: 'pickup', targetType: 'Order', targetIdResponseKey: 'orderId',
+  })
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 15 } })
+  @Post('resolve')
+  resolve(
+    @CurrentSeller('companyId') companyId: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickupService.resolveCredential(companyId, dto);
+  }
+
+  @SellerAudit({
+    action: 'PICKUP_VERIFY_FROM_STATION', module: 'pickup', targetType: 'Order', targetIdResponseKey: 'orderId',
+  })
+  @SellerRoles('OWNER', 'MANAGER', 'OPERATOR')
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @Post('verify')
+  verify(
+    @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickupService.verifyCredential(companyId, staffId, dto);
+  }
+}

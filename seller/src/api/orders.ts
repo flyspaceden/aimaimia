@@ -51,9 +51,43 @@ export interface VerifyPickupResult {
   alreadyPickedUp: boolean;
 }
 
+export interface PickupCredentialPreview {
+  orderId: string;
+  status: 'READY' | 'PICKED_UP';
+  alreadyPickedUp: boolean;
+  pickupPoint: {
+    name: string;
+    regionText: string;
+    detail: string;
+  };
+  recipient: {
+    name: string;
+    phoneMasked: string;
+  };
+  items: Array<{
+    title: string;
+    skuTitle: string;
+    quantity: number;
+    skuCode: string | null;
+    barcode: string | null;
+  }>;
+}
+
 /** 核销一次性取货凭证；短码与二维码内容二选一。 */
 export const verifyPickup = (
   orderId: string,
   data: VerifyPickupPayload,
 ): Promise<VerifyPickupResult> =>
   client.post(`/seller/orders/${orderId}/pickup/verify`, data);
+
+/** 核销台先识别并展示最小订单摘要，不改变履约状态。 */
+export const resolvePickupCredential = (
+  data: VerifyPickupPayload,
+): Promise<PickupCredentialPreview> =>
+  client.post('/seller/pickup/resolve', data);
+
+/** 核销台二次确认后，复用后端的串行核销状态机。 */
+export const verifyPickupCredential = (
+  data: VerifyPickupPayload,
+): Promise<VerifyPickupResult> =>
+  client.post('/seller/pickup/verify', data);

@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PickupAdminOrderController, PickupAdminPointController } from './pickup-admin.controller';
-import { PickupSellerOrderController, PickupSellerPointController } from './pickup-seller.controller';
+import {
+  PickupSellerOrderController,
+  PickupSellerPointController,
+  PickupSellerVerificationController,
+} from './pickup-seller.controller';
 import { PickupService } from './pickup.service';
 import { NotificationModule } from '../notification/notification.module';
 
@@ -9,6 +13,7 @@ import { NotificationModule } from '../notification/notification.module';
   controllers: [
     PickupSellerPointController,
     PickupSellerOrderController,
+    PickupSellerVerificationController,
     PickupAdminPointController,
     PickupAdminOrderController,
   ],

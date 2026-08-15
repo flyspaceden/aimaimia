@@ -1928,6 +1928,7 @@ model PickupFulfillment {
   events      PickupFulfillmentEvent[]
 
   @@index([pickupPointId, status, readyAt])
+  @@index([pickupCodeDigest, status])
   @@index([status, createdAt])
 }
 

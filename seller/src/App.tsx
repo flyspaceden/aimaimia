@@ -21,6 +21,7 @@ const AfterSaleDetailPage = lazy(() => import('@/pages/after-sale/detail'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const NotificationsPage = lazy(() => import('@/pages/notifications/index'));
 const PickupPointListPage = lazy(() => import('@/pages/pickup-points/index'));
+const PickupVerificationPage = lazy(() => import('@/pages/pickup-verify/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -100,6 +101,7 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
+            <Route path="pickup-verify" element={<RequireRole roles={['OWNER', 'MANAGER', 'OPERATOR']}><PickupVerificationPage /></RequireRole>} />
             <Route path="pickup-points" element={<RequireRole roles={['OWNER', 'MANAGER']}><PickupPointListPage /></RequireRole>} />
             <Route path="after-sale" element={<AfterSaleListPage />} />
             <Route path="after-sale/:id" element={<AfterSaleDetailPage />} />

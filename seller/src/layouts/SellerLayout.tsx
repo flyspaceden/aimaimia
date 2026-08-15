@@ -19,6 +19,7 @@ import {
   SafetyOutlined,
   BranchesOutlined,
   EnvironmentOutlined,
+  ScanOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -42,6 +43,12 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/orders',
       name: '订单管理',
       icon: <FileTextOutlined />,
+    },
+    {
+      path: '/pickup-verify',
+      name: '到店核销台',
+      icon: <ScanOutlined />,
+      roles: ['OWNER', 'MANAGER', 'OPERATOR'],
     },
     {
       path: '/pickup-points',

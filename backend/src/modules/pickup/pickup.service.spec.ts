@@ -611,6 +611,85 @@ describe('PickupService', () => {
       .rejects.toThrow('必须且只能提交一项');
   });
 
+  it('核销台先按买家二维码解析同企业订单，再由原子核销主链完成状态变更', async () => {
+    const token = 'one-time-token-that-must-not-be-returned';
+    const code = '12345678';
+    const prisma = {
+      pickupFulfillment: {
+        findUnique: jest.fn(),
+      },
+    };
+    const { service } = createService(prisma);
+    const fulfillment = {
+      id: 'pf1',
+      orderId: 'o1',
+      status: 'READY',
+      pickupCodeDigest: (service as any).digest(code),
+      pickupTokenDigest: (service as any).digest(token),
+      pickupPointSnapshot: encryptJsonValue({
+        id: 'p1', companyId: 'c1', name: '一号自提点', contactName: '张三',
+        contactPhone: '13812345678', regionText: '北京市', detail: '朝阳区 1 号',
+      }),
+      recipientSnapshot: encryptJsonValue({ recipientName: '王五', phone: '13712345678' }),
+      order: {
+        id: 'o1', status: 'PAID', fulfillmentMode: 'PICKUP',
+        items: [{
+          companyId: 'c1', isPrize: false, quantity: 2,
+          productSnapshot: { title: '番茄', skuTitle: '2斤装' },
+          sku: { title: '2斤装', skuCode: 'SKU-1', barcode: '690000000001', product: { title: '番茄' } },
+        }],
+      },
+    };
+    prisma.pickupFulfillment.findUnique.mockResolvedValue(fulfillment);
+    const qrPayload = (service as any).buildQrPayload(
+      'pf1',
+      token,
+      Math.floor(Date.now() / 1000) + 60,
+    );
+
+    const preview = await service.resolveCredential('c1', { qrPayload });
+
+    expect(preview).toMatchObject({
+      orderId: 'o1', status: 'READY', alreadyPickedUp: false,
+      pickupPoint: { name: '一号自提点' },
+      recipient: { name: '王*', phoneMasked: '137****5678' },
+      items: [{ title: '番茄', skuTitle: '2斤装', quantity: 2, barcode: '690000000001' }],
+    });
+    expect(JSON.stringify(preview)).not.toContain(token);
+    expect(JSON.stringify(preview)).not.toContain(code);
+
+    const verify = jest.spyOn(service, 'verify').mockResolvedValue({
+      orderId: 'o1', status: 'PICKED_UP', pickedUpAt: new Date(), alreadyPickedUp: false,
+    });
+    await service.verifyCredential('c1', 'staff-1', { qrPayload });
+    expect(verify).toHaveBeenCalledWith('c1', 'staff-1', 'o1', { qrPayload });
+  });
+
+  it('核销台全局短码查询对跨企业和短码碰撞均 fail closed', async () => {
+    const { service } = createService({
+      pickupFulfillment: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'pf1', orderId: 'o1', status: 'READY', pickupCodeDigest: 'unused',
+            pickupPointSnapshot: encryptJsonValue({}), recipientSnapshot: encryptJsonValue({}),
+            order: { status: 'PAID', fulfillmentMode: 'PICKUP', items: [{ companyId: 'other-company' }] },
+          },
+        ]),
+      },
+    });
+    await expect(service.resolveCredential('c1', { pickupCode: '12345678' }))
+      .rejects.toThrow('自提订单不存在');
+
+    const collisionPrisma = {
+      pickupFulfillment: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'pf1' }, { id: 'pf2' }]),
+      },
+    };
+    const collisionService = createService(collisionPrisma).service;
+    await expect(collisionService.resolveCredential('c1', { pickupCode: '12345678' }))
+      .rejects.toThrow('匹配到多个订单');
+  });
+
   it('并发收货副作用通过持久化 claim 只执行一次', async () => {
     const events: Array<{ id: string; eventType: string; createdAt: Date }> = [];
     let sequence = 0;
