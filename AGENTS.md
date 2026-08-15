@@ -58,6 +58,7 @@
 - `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
 - `docs/operations/阿里云部署.md` — 阿里云部署实施记录（服务器/域名/SSL/宝塔站点/PostgreSQL 实际配置 + 数据库凭据 + 变更日志 + 常见问题，**实际部署状态权威来源，每次部署动作必须更新**）
 - `docs/operations/版本管理.md` — 版本管理指南（Git 分支策略 dev/staging/main、阿里云双环境规划、GitHub Actions 自动部署规则、App 三阶段发布流程、版本号规范，**版本管理权威来源**）
+- `docs/operations/双客户端版本控制.md` — App 与微信小程序双客户端版本控制协议（干净 worktree、源码 SHA、开发者工具路径、构建/预览/真机证据、共享后端联调与回退，**所有 App/miniapp 代码变更的强制流程，覆盖旧的本地 staging 目录做法**）
 - `docs/operations/github操作.md` — GitHub 日常操作指南（双分支 staging/main 发布流程、自动部署规则、手动触发、紧急场景速查，**测试→生产发布权威来源**）
 - `docs/operations/staging-to-production.md` — 从测试环境切换到生产环境操作手册（main 发布、生产 env、第三方回调、数据库迁移、回滚、首次生产切换，**测试→生产切换执行权威来源**）
 - `docs/operations/新手指南-部署机制详解.md` — 部署/CI/CD 系统全套概念解释（32 个 Q&A，从 workflow 路由到 App 测试，含 PM2/Nginx/Prisma migration/SSH 密钥/回滚/灰度等基础概念，**新手学习部署体系权威入门**）
@@ -268,6 +269,14 @@ admin/                  # 管理后台前端
       - `.github/workflows/deploy-website.yml` — 分支路由、触发路径、部署产物、migrate deploy 时机
       - `docs/operations/github操作.md` — 双分支发布流程、紧急场景
       - `docs/operations/版本管理.md` — App 三阶段发布 + OTA
+      - `docs/operations/双客户端版本控制.md` — App/小程序受控 worktree、源码身份和真机验收
+11. **App 与微信小程序双客户端版本控制（强制）**：
+    - **每次改 `app/`、`miniapp/` 或其共享后端契约前，先登记受影响系统**：`app=是/否`、`miniapp=是/否`、`backend=是/否`、目标环境和最小验收路径；完成后在 `plan.md` 记录提交 SHA、构建/测试证据和未验证项
+    - **只允许从干净、包含最新 `origin/staging` 的 worktree 工作**：先 `git fetch origin staging`，检查 `git status --short` 为空且 HEAD 不落后。脏根目录、历史 `*-staging` clone 和其他 worktree 只能作为迁移来源，禁止直接 pull、编译、导入微信开发者工具或推送
+    - **小程序发布/真机前必须在 `miniapp/` 执行 `npm run verify:release-context`、`npm run verify`、最后一次 `npm run build:staging`**；微信开发者工具导入路径必须是同一 worktree 的 `miniapp/`，并记录 `SOURCE_SHA + SOURCE_PATH + 环境 + 构建时间`
+    - **Git 源码、staging 后端部署、App OTA/构建、微信开发者工具“编译”、预览二维码和真机调试是不同状态**；报告时必须逐项说明，源码有新提交后旧二维码不得继续标记为“最新代码”
+    - **一个功能同时影响 App、小程序或后端时分别做契约和运行时回归**；一端通过不能替代另一端。涉及迁移、feature flag、支付、提现、退款、库存或履约状态机时，必须确认 staging 后端真实部署和测试数据后才可称为联调通过
+    - 完整命令、证据格式、二维码/旧界面排障和回退规则以 `docs/operations/双客户端版本控制.md` 为准
 
 ### 代码约定
 

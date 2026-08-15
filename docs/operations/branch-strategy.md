@@ -9,6 +9,7 @@
 > - `staging-to-production.md` — 上线 main 那一刻的拍板项 + 验证清单
 > - `版本管理.md` — 三个环境的实际清单（域名 / 数据库 / 服务名）
 > - `app-发布与OTA手册.md` — App 的 OTA / Build 决策
+> - `双客户端版本控制.md` — App/小程序的受控 worktree、构建、开发者工具与真机版本证据（强制）
 
 ---
 
@@ -57,7 +58,7 @@ main（生产，永久，受保护）          ← 真实用户在用
 ```
 
 **步骤**：
-1. 切到 staging：`git checkout staging && git pull`
+1. 先 `git fetch origin staging`，从 `origin/staging` 建立干净 worktree；脏目录或历史 clone 不能直接 `checkout`/`pull`
 2. 在本地改代码 + 跑 `npm run start:dev` 在 `localhost` 测
 3. 满意后 commit + `git push origin staging` → 自动部署测试环境
 4. 在 `test-*.ai-maimai.com` 真机验证 1-2 天
@@ -74,10 +75,11 @@ main（生产，永久，受保护）          ← 真实用户在用
 ```
 
 **步骤**：
-1. 从 staging 切 feature 分支：
+1. 从远端 staging 建立 feature worktree：
    ```bash
-   git checkout staging
-   git checkout -b feature/payment-redesign
+   git fetch origin staging
+   git worktree add -b feature/payment-redesign /absolute/path/to/.worktrees/payment-redesign origin/staging
+   cd /absolute/path/to/.worktrees/payment-redesign
    ```
 2. 在本地反复改、commit、push 到 `feature/payment-redesign`（不会触发部署）
 3. 期间如果有别的小改动要上线 → 直接 staging→main，不影响你的 feature

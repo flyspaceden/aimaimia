@@ -13,6 +13,7 @@
 ├── delivery-seller/ → 配送中心（delivery-seller.ai-maimai.com）
 ├── backend/    → 后端 API（api.ai-maimai.com）
 ├── app/        → 买家 App（手机应用，不自动部署）
+├── miniapp/    → 买家微信小程序（Taro，独立构建/开发者工具/预览版本）
 ```
 
 GitHub 仓库：https://github.com/flyspaceden/aimaimia.git
@@ -26,6 +27,8 @@ GitHub 仓库：https://github.com/flyspaceden/aimaimia.git
 
 **铁律：所有改动必须先到 staging 测过，再合并到 main。永远不要直接 push main。**
 
+> App 与微信小程序还必须遵守 [双客户端版本控制协议](双客户端版本控制.md)：不要在脏根目录或历史 `*-staging` clone 中 `pull`、编译、导入微信开发者工具或推送。小程序的代码提交、`dist`、预览二维码和真机调试不是同一个版本状态。
+
 ---
 
 ## 标准发布流程
@@ -36,12 +39,14 @@ GitHub 仓库：https://github.com/flyspaceden/aimaimia.git
 # 进入项目根目录
 cd ~/Desktop/农脉\ -\ AI赋能农业电商平台
 
-# 确认在 staging 分支（如果不在就切过去）
-git checkout staging
-git pull origin staging   # 同步远端最新
+# 先从远端 staging 建立干净 worktree；不要直接在有本地修改的目录 pull
+git fetch origin staging
+git worktree add -b codex/<scope>-YYYYMMDD /absolute/path/to/.worktrees/<scope>-YYYYMMDD origin/staging
+cd /absolute/path/to/.worktrees/<scope>-YYYYMMDD
+git status --short        # 必须为空
 
 # 改完代码后
-git add -A                # 或 git add 具体文件
+git add <本次改动文件>    # 禁止用 git add -A 吸入无关内容
 git commit -m "feat: 你的改动描述"
 ```
 
