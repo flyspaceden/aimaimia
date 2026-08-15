@@ -42,7 +42,10 @@ export default defineConfig(async () => {
       ],
       options: {},
     },
-    cache: { enable: true },
+    // Taro/webpack 的持久化缓存曾把新版推荐中心与旧版小程序码子组件
+    // 混合进同一份 dist。开发态保留增量速度，staging/production 必须
+    // 从源码完整生成，避免源码测试通过但真机仍运行旧组件。
+    cache: { enable: appEnv === 'development' },
     mini: {
       postcss: {
         pxtransform: { enable: true, config: {} },

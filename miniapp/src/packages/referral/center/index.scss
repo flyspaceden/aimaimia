@@ -3,9 +3,11 @@
 .referral-code-card { position: relative; overflow: hidden; padding: 23px 20px; color: t.$text-primary; background: linear-gradient(135deg, #fff, t.$brand-soft); border: 1px solid rgba(46,125,50,.16); border-radius: 22px 22px 22px 7px; box-shadow: 0 12px 30px rgba(46,125,50,.1); }
 .referral-code-card::after { position: absolute; right: -42px; bottom: -52px; width: 150px; height: 150px; content: ''; border: 18px solid rgba(0,137,123,.06); border-radius: 50%; }
 .referral-code-card--vip { color: #fff; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start 60%, t.$ai-end); border-color: transparent; }
+.referral-code-card__credential { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+.referral-code-card__details { flex: 1; min-width: 0; }
 .referral-code-card__label { color: inherit; font-size: 10px; font-weight: 700; letter-spacing: 1px; opacity: .75; }
-.referral-code-card__code { display: block; margin-top: 7px; color: inherit; font-size: 27px; font-weight: 850; letter-spacing: 1px; }
-.referral-code-card__copy { display: block; max-width: 88%; margin-top: 10px; color: inherit; font-size: 11px; line-height: 18px; opacity: .82; }
+.referral-code-card__code { display: block; margin-top: 7px; color: inherit; font-size: 22px; font-weight: 850; letter-spacing: .8px; line-height: 1.15; white-space: nowrap; }
+.referral-code-card__copy { display: block; margin-top: 10px; color: inherit; font-size: 10px; line-height: 17px; opacity: .82; }
 .referral-code-card__actions { position: relative; z-index: 1; display: flex; gap: 9px; margin-top: 18px; }
 .referral-code-card__copy-button, .referral-code-card__share-button { flex: 1; min-height: 42px; margin: 0; padding: 0 10px; color: t.$brand-primary; font-size: 12px; font-weight: 700; line-height: 42px; background: #fff; border-radius: t.$radius-full; }
 .referral-code-card__copy-button { color: inherit; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.34); }
@@ -31,3 +33,11 @@
 .referral-record__time { display: block; margin-top: 3px; color: t.$text-tertiary; font-size: 10px; }
 .referral-record__status { max-width: 150px; color: t.$brand-primary; font-size: 11px; line-height: 17px; text-align: right; }
 .referral-auth { display: flex; align-items: center; justify-content: center; }
+@media (max-width: 360px) {
+  .referral-code-card { padding-right: 16px; padding-left: 16px; }
+  .referral-code-card__credential { gap: 8px; }
+  .referral-code-card__code { font-size: 19px; letter-spacing: .4px; }
+  .referral-code-card__copy { font-size: 9px; line-height: 15px; }
+  .referral-code-card .mini-code-panel--embedded { flex-basis: 102px; width: 102px; }
+  .referral-code-card .mini-code-panel__embedded-image, .referral-code-card .mini-code-panel__embedded-placeholder { width: 96px; height: 96px; }
+}

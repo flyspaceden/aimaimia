@@ -10,3 +10,11 @@
 .mini-code-panel__result image { width: 210px; height: 210px; border: 8px solid #fff; border-radius: 16px; box-shadow: 0 8px 26px rgba(22, 62, 28, .12); }
 .mini-code-panel__result text { max-width: 260px; margin-top: 10px; color: t.$text-secondary; font-size: 11px; line-height: 18px; text-align: center; }
 .mini-code-panel__result button { margin-top: 11px; color: t.$brand-primary; background: t.$brand-soft; }
+.mini-code-panel--embedded { position: relative; z-index: 1; display: flex; align-items: center; flex: 0 0 116px; flex-direction: column; width: 116px; margin: 0; padding: 0; }
+.mini-code-panel__embedded-image, .mini-code-panel__embedded-placeholder { width: 108px; height: 108px; background: #fff; border: 5px solid #fff; border-radius: 15px; box-shadow: 0 8px 24px rgba(22, 62, 28, .13); }
+.mini-code-panel__embedded-placeholder { display: flex; align-items: center; justify-content: center; box-sizing: border-box; color: t.$text-tertiary; font-size: 10px; text-align: center; }
+.mini-code-panel__embedded-actions { display: flex; justify-content: center; gap: 3px; width: 100%; margin-top: 5px; }
+.mini-code-panel__embedded-actions button { min-width: 44px; height: 24px; margin: 0; padding: 0 4px; color: t.$brand-primary; font-size: 9px; line-height: 24px; background: transparent; border-radius: t.$radius-full; }
+.mini-code-panel__embedded-actions button::after { border: 0; }
+.mini-code-panel__embedded-actions button[disabled] { color: t.$text-tertiary; background: transparent; }
+.mini-code-panel--inverse .mini-code-panel__embedded-actions button { color: rgba(255, 255, 255, .82); }

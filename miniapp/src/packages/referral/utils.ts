@@ -1,4 +1,11 @@
-import type { InviteKind, NormalShareRecord, VipReferralRecord } from './types';
+import type { AppError, Result } from '@/types/result';
+import type {
+  InviteKind,
+  NormalShareProfile,
+  NormalShareRecord,
+  ReferralMember,
+  VipReferralRecord,
+} from './types';
 
 export const INVITE_CODE_PATTERN = /^[A-Z0-9]{8}$/;
 
@@ -18,6 +25,22 @@ export function preferredInviteKind(rawKind: string | undefined, code: string): 
 
 export function buildMiniappInvitePath(code: string, kind: InviteKind): string {
   return `/packages/referral/landing/index?code=${encodeURIComponent(code)}&kind=${kind}`;
+}
+
+/**
+ * 推荐中心只消费当前会员身份对应的资料错误。
+ * React Query 会保留刚被禁用查询的最后一次结果，因此 VIP 身份确认后，
+ * 不能再让历史普通分享码错误覆盖整个页面。
+ */
+export function referralCenterProfileError(
+  memberResult: Result<ReferralMember> | undefined,
+  normalProfileResult: Result<NormalShareProfile> | undefined,
+): AppError | null {
+  if (memberResult && !memberResult.ok) return memberResult.error;
+  if (memberResult?.ok && memberResult.data.tier === 'NORMAL' && normalProfileResult && !normalProfileResult.ok) {
+    return normalProfileResult.error;
+  }
+  return null;
 }
 
 export function referralRecordName(record: {

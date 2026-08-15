@@ -13,6 +13,7 @@ import {
   formatReferralDate,
   normalizeInviteCode,
   normalReferralStatusLabel,
+  referralCenterProfileError,
   referralRecordName,
   preferredInviteKind,
   vipReferralStatusLabel,
@@ -91,7 +92,7 @@ export default function ReferralCenterPage() {
   const stats = statsQuery.data?.ok ? statsQuery.data.data : undefined;
   const hasBoundInviter = Boolean(member?.inviterUserId) && !['INVALIDATED_BY_INVITEE_VIP_UPGRADE', 'ADMIN_VOIDED'].includes(member?.directReferralStatus || '');
   const loading = memberQuery.isLoading || (member && !isVip && normalQuery.isLoading);
-  const queryError = memberQuery.data && !memberQuery.data.ok ? memberQuery.data.error : normalQuery.data && !normalQuery.data.ok ? normalQuery.data.error : null;
+  const queryError = referralCenterProfileError(memberQuery.data, normalQuery.data);
   const recordsError = isVip
     ? vipRecordsQuery.data && !vipRecordsQuery.data.ok ? vipRecordsQuery.data.error : null
     : normalRecordsQuery.data && !normalRecordsQuery.data.ok ? normalRecordsQuery.data.error : null;
@@ -106,23 +107,36 @@ export default function ReferralCenterPage() {
     return <View className='aim-page referral-auth'><CatalogFeedback kind='empty' title={incomingCode ? '登录并接受好友邀请' : '登录后查看推荐中心'} description={incomingCode ? '登录后，平台会核验并绑定这次分享中的推荐关系' : '查看自己的分享码和推荐记录'} actionLabel='去登录' onRetry={() => Taro.redirectTo({ url: `/packages/account/account-login/index?returnUrl=${encodeURIComponent(returnUrl)}` })} /></View>;
   }
   if (loading) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
-  if (queryError) return <View className='aim-page'><CatalogFeedback kind='error' title='推荐中心加载失败' description={queryError.displayMessage || '请稍后重试'} onRetry={() => { void memberQuery.refetch(); void normalQuery.refetch(); }} /></View>;
+  if (queryError) {
+    return <View className='aim-page'><CatalogFeedback
+      kind='error'
+      title='推荐中心加载失败'
+      description={queryError.displayMessage || '请稍后重试'}
+      onRetry={() => {
+        void memberQuery.refetch();
+        if (member?.tier === 'NORMAL') void normalQuery.refetch();
+      }}
+    /></View>;
+  }
 
   return (
     <View className='aim-page referral-center-page'>
       <PageHeader title='推荐中心' eyebrow={isVip ? 'VIP 团队邀请' : '普通用户分享'} />
       <View className={isVip ? 'referral-code-card referral-code-card--vip' : 'referral-code-card referral-code-card--normal'}>
-        <Text className='referral-code-card__label'>{isVip ? 'VIP 推荐码' : '普通分享码'}</Text>
-        <Text className='referral-code-card__code'>{shareCode ? shareCode.split('').join(' ') : '暂不可用'}</Text>
-        <Text className='referral-code-card__copy'>{isVip ? `已推荐 ${member?.inviteeVipCount || 0} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。` : '好友从微信卡片进入并登录后，平台会按当前规则绑定普通推荐关系。'}</Text>
+        <View className='referral-code-card__credential'>
+          <View className='referral-code-card__details'>
+            <Text className='referral-code-card__label'>{isVip ? 'VIP 推荐码' : '普通分享码'}</Text>
+            <Text className='referral-code-card__code'>{shareCode || '暂不可用'}</Text>
+            <Text className='referral-code-card__copy'>{isVip ? `已推荐 ${member?.inviteeVipCount || 0} 位 VIP。好友成为 VIP 后进入你的 VIP 团队。` : '好友扫码并登录后，平台会按当前规则绑定普通推荐关系。'}</Text>
+          </View>
+          <MiniProgramCodePanel kind='REFERRAL' enabled={Boolean(shareCode)} variant='embedded' tone={isVip ? 'inverse' : 'default'} />
+        </View>
         <View className='referral-code-card__actions'>
           <Button className='referral-code-card__copy-button' disabled={!shareCode} onClick={() => shareCode && Taro.setClipboardData({ data: shareCode })}>复制分享码</Button>
           <Button className='referral-code-card__share-button' disabled={!shareCode} openType='share'>分享给好友</Button>
         </View>
         <Text className='referral-code-card__timeline'>也可通过右上角菜单分享到朋友圈</Text>
       </View>
-
-      <MiniProgramCodePanel kind='REFERRAL' enabled={Boolean(shareCode)} />
 
       {!hasBoundInviter && !isVip ? <View className='referral-bind aim-card'>
         <Text className='referral-section__title'>绑定分享码</Text>

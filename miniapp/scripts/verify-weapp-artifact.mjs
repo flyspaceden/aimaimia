@@ -91,6 +91,13 @@ for (const [relativePath, needsTimeline] of sharePages) {
   }
 }
 
+const referralCenterOutput = readDist('packages/referral/center/index.js');
+assert.match(
+  referralCenterOutput,
+  /variant:"embedded"/,
+  '推荐中心产物必须把小程序码作为分享码卡片的嵌入内容',
+);
+
 const appOutput = readDist('app.js');
 const baseTemplate = readDist('base.wxml');
 assert.match(appOutput, /openType:"agreePrivacyAuthorization"/, '隐私同意按钮应使用微信专用 open-type');
@@ -123,6 +130,16 @@ assert.match(inspectableOutput, /wss:\/\/api\.ai-maimai\.com/, '生产包应指�
 assert.doesNotMatch(inspectableOutput, /https:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 API');
 assert.doesNotMatch(inspectableOutput, /wss:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 WebSocket');
 assert.doesNotMatch(wxssOutput, /:not\(/, 'WXSS 不得使用开发者工具不支持的 :not() 选择器');
+assert.match(
+  inspectableOutput,
+  /mini-code-panel--embedded/,
+  '小程序码组件产物必须包含嵌入模式，禁止复用旧的独立卡片缓存',
+);
+assert.match(
+  wxssOutput,
+  /\.mini-code-panel--embedded/,
+  'WXSS 产物必须包含嵌入式小程序码布局',
+);
 
 const subpackageRoots = appConfig.subPackages.map(({ root }) => `${root}/`);
 const totalBytes = files.reduce((total, file) => total + file.size, 0);

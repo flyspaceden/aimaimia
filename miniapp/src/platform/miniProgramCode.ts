@@ -33,6 +33,9 @@ function isCodeResult(value: unknown): value is MiniProgramCodeResult {
     && item.imageBase64.length >= 12
     && item.imageBase64.length <= 1_500_000
     && BASE64_PATTERN.test(item.imageBase64)
+    && (item.mimeType === 'image/png'
+      ? item.imageBase64.startsWith('iVBORw0KGgo')
+      : item.imageBase64.startsWith('/9j/'))
     && typeof item.expiresAt === 'string';
 }
 

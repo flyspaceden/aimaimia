@@ -1,7 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ReferralRepo } from '../repo';
-import { buildMiniappInvitePath, normalizeInviteCode, normalReferralStatusLabel, preferredInviteKind, vipReferralStatusLabel } from '../utils';
+import {
+  buildMiniappInvitePath,
+  normalizeInviteCode,
+  normalReferralStatusLabel,
+  preferredInviteKind,
+  referralCenterProfileError,
+  vipReferralStatusLabel,
+} from '../utils';
 
 const getMock = vi.hoisted(() => vi.fn());
 const postMock = vi.hoisted(() => vi.fn());
@@ -18,6 +26,37 @@ describe('miniapp referral contracts', () => {
 
   it('keeps code and kind inside a local miniapp path', () => {
     expect(buildMiniappInvitePath('SABC1234', 'normal')).toBe('/packages/referral/landing/index?code=SABC1234&kind=normal');
+  });
+
+  it('ignores a stale normal-profile error after the account is confirmed as VIP', () => {
+    const staleNormalError = { code: 'BAD_REQUEST', message: 'VIP 用户不使用普通分享码', displayMessage: 'VIP 用户不使用普通分享码' };
+    expect(referralCenterProfileError({
+      ok: true,
+      data: { tier: 'VIP', referralCode: 'VIPX1234', inviterUserId: null, inviteeVipCount: 0 },
+    }, { ok: false, error: staleNormalError })).toBeNull();
+
+    expect(referralCenterProfileError({
+      ok: true,
+      data: { tier: 'NORMAL', referralCode: null, inviterUserId: null, inviteeVipCount: 0 },
+    }, { ok: false, error: staleNormalError })).toEqual(staleNormalError);
+  });
+
+  it('presents the invite code and mini-program code as one credential card', () => {
+    const centerSource = readFileSync(new URL('../center/index.tsx', import.meta.url), 'utf8');
+    const panelSource = readFileSync(new URL('../../../components/mini-program-code/index.tsx', import.meta.url), 'utf8');
+    expect(centerSource).toContain("className='referral-code-card__credential'");
+    expect(centerSource).toContain("variant='embedded'");
+    expect(centerSource.indexOf("variant='embedded'")).toBeLessThan(centerSource.indexOf("referral-code-card__actions"));
+    expect(panelSource).toContain("variant = 'standalone'");
+    expect(panelSource).toContain("variant === 'embedded'");
+  });
+
+  it('disables persistent webpack cache outside development and verifies compiled embedded output', () => {
+    const configSource = readFileSync(new URL('../../../../config/index.ts', import.meta.url), 'utf8');
+    const artifactVerifier = readFileSync(new URL('../../../../scripts/verify-weapp-artifact.mjs', import.meta.url), 'utf8');
+    expect(configSource).toContain("cache: { enable: appEnv === 'development' }");
+    expect(artifactVerifier).toContain('/variant:\"embedded\"/');
+    expect(artifactVerifier).toContain('/mini-code-panel--embedded/');
   });
 
   it('uses the separate normal and VIP binding endpoints', async () => {

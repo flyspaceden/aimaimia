@@ -5,7 +5,19 @@ import { MiniProgramCodeRepo, persistMiniProgramCode, removePersistedMiniProgram
 import { useAuthStore } from '@/store/auth';
 import './index.scss';
 
-export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgramCodeKind; enabled?: boolean }) {
+type MiniProgramCodePanelProps = {
+  kind: MiniProgramCodeKind;
+  enabled?: boolean;
+  variant?: 'standalone' | 'embedded';
+  tone?: 'default' | 'inverse';
+};
+
+export function MiniProgramCodePanel({
+  kind,
+  enabled = true,
+  variant = 'standalone',
+  tone = 'default',
+}: MiniProgramCodePanelProps) {
   const authRevision = useAuthStore((state) => state.revision);
   const userId = useAuthStore((state) => state.userId || '');
   const [filePath, setFilePath] = useState('');
@@ -90,6 +102,18 @@ export function MiniProgramCodePanel({ kind, enabled = true }: { kind: MiniProgr
       await Taro.showToast({ title: '未保存，可在微信设置中管理相册权限', icon: 'none' });
     }
   };
+
+  if (variant === 'embedded') {
+    return <View className={`mini-code-panel mini-code-panel--embedded mini-code-panel--${tone}`}>
+      {filePath
+        ? <Image className='mini-code-panel__embedded-image' src={filePath} mode='aspectFit' />
+        : <View className='mini-code-panel__embedded-placeholder'><Text>{busy ? '生成中' : enabled ? '生成失败' : '暂不可用'}</Text></View>}
+      <View className='mini-code-panel__embedded-actions'>
+        <Button disabled={!enabled || busy} onClick={() => { void generate(); }}>{filePath ? '换一张' : busy ? '生成中' : '重试'}</Button>
+        {filePath ? <Button onClick={() => { void save(); }}>保存</Button> : null}
+      </View>
+    </View>;
+  }
 
   return <View className='mini-code-panel aim-card'>
     <View className='mini-code-panel__heading'><View><Text>微信小程序码</Text><Text>{busy ? '正在生成专属小程序码' : '好友扫码后可打开推荐页并完成绑定'}</Text></View><Button disabled={!enabled || busy} loading={busy} onClick={() => { void generate(); }}>{filePath ? '重新生成' : busy ? '生成中' : '重试'}</Button></View>
