@@ -9,6 +9,7 @@
     "build:staging": "TARO_APP_ENV=staging taro build --type weapp && node scripts/fix-weapp-template.mjs",
     "build:production": "TARO_APP_ENV=production taro build --type weapp && node scripts/fix-weapp-template.mjs",
     "audit:runtime": "npm run build:staging && node scripts/audit-weapp-runtime.cjs",
+    "verify:release-context": "node scripts/verify-release-context.mjs",
     "verify:artifact": "node scripts/verify-weapp-artifact.mjs",
     "lint": "eslint --ext .ts,.tsx src tests",
     "typecheck": "tsc --noEmit",
