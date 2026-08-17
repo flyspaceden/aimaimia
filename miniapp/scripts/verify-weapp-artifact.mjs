@@ -38,7 +38,7 @@ const homePageConfig = JSON.parse(readDist('pages/home/index.json'));
 assert.equal(homePageConfig.navigationBarTitleText, 'AI爱买买', '首页导航标题必须使用 AI爱买买');
 const pageCount = appConfig.pages.length
   + appConfig.subPackages.reduce((total, item) => total + item.pages.length, 0);
-const generatedTemplateFiles = new Set(['base.wxml', 'comp.wxml', 'custom-wrapper.wxml']);
+const generatedTemplateFiles = new Set(['base.wxml', 'comp.wxml']);
 const pageWxmlCount = files.filter(({ relativePath }) => (
   relativePath.endsWith('.wxml')
   && !generatedTemplateFiles.has(relativePath)

@@ -2587,4 +2587,4 @@ src/components/ai/   → 新增目录
 
 2026-08-15 补充：买家小程序取货凭证使用 Canvas node API 异步绘制二维码；画布未就绪或真机绘制失败时不再保留空白白框，而是明确提示并保留 8 位一次性短码及“重新生成二维码”操作。卖家中心新增 `/pickup-verify` “到店自提核销台”，所有 OWNER / MANAGER / OPERATOR 均可使用 USB/蓝牙二维扫码枪、电脑摄像头或人工短码；无论入口如何，先只解析并展示脱敏取货人、点位和商品摘要，员工二次确认后才调用原子核销状态机。商品/SKU 条码被设计为可选的“拿对货”核对，绝不能替代买家凭证或单独改变订单状态；未配置条码时仍需人工核对名称、规格和数量。
 
-2026-08-17 补充：iPhone 真机已证明全局 Canvas SelectorQuery 可能跨 Taro 原生自定义组件边界而取不到 node；取货凭证页改由 `CustomWrapper` ref 的 `.in(scope)` 作用域查询画布。绘制失败只记录不含凭证内容的分类日志（scope / node / context / draw），用户仍保留可核销的 8 位短码和重试入口。此项仅完成小程序 lint、TypeScript、契约测试与 staging 构建；二维码真机重测仍是上线验收条件。
+2026-08-17 补充：iPhone 真机证明普通 SelectorQuery 可能跨 Taro 原生组件边界取不到 Canvas node；首次改用 `CustomWrapper` 后，当前微信基础库又明确报组件未注册并返回 `SCOPE_UNAVAILABLE`，该方案已撤销。最终使用小程序专用的 `.pickup-pass-page >>> #pickup-pass-qr` 跨组件选择器，不再依赖 `CustomWrapper`；release 构建会先安全清理 `miniapp/dist`，防止旧组件模板污染开发者工具。绘制失败日志不含凭证内容，8 位短码和重试入口继续保留；二维码真机重测仍是上线验收条件。
