@@ -24,13 +24,12 @@ const productPricingStub = () => ({
 });
 
 describe('AdminProductsService SKU weight validation', () => {
-  const buildService = () => {
+  const buildService = (productOverrides: Record<string, any> = {}) => {
     const product = {
       id: 'product_1',
       companyId: 'company_1',
       categoryId: 'category_1',
       status: 'ACTIVE',
-      company: { isPlatform: false },
       lotteryPrizes: [],
       skus: [{
         id: 'sku_1',
@@ -39,6 +38,11 @@ describe('AdminProductsService SKU weight validation', () => {
         status: 'ACTIVE',
         vipGiftItems: [],
       }],
+      ...productOverrides,
+      company: {
+        isPlatform: false,
+        ...(productOverrides.company ?? {}),
+      },
     };
     const tx = {
       productSKU: {
