@@ -21,6 +21,9 @@ test('pickup verification station resolves a credential before an explicit verif
   assert.match(page, /verifyPickupCredential/);
   assert.match(page, /先识别凭证，再当面核对商品并确认核销/);
   assert.match(page, /确认交付并核销/);
+  assert.match(page, /const \{ message, modal \} = App\.useApp\(\)/);
+  assert.match(page, /modal\.confirm\(\{/);
+  assert.doesNotMatch(page, /Modal\.confirm\(\{/);
   assert.match(api, /client\.post\('\/seller\/pickup\/resolve', data\)/);
   assert.match(api, /client\.post\('\/seller\/pickup\/verify', data\)/);
 });

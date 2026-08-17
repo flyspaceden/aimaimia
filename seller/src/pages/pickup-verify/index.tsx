@@ -10,7 +10,6 @@ import {
   Divider,
   Input,
   List,
-  Modal,
   Row,
   Segmented,
   Space,
@@ -58,7 +57,7 @@ function errorMessage(error: unknown, fallback: string) {
  * “拿对货”的第二道核对，绝不可以替代一次性取货凭证来改变订单状态。
  */
 export default function PickupVerificationPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [mode, setMode] = useState<StationMode>('scanner');
   const [credentialInput, setCredentialInput] = useState('');
   const [preview, setPreview] = useState<PickupCredentialPreview | null>(null);
@@ -192,7 +191,7 @@ export default function PickupVerificationPage() {
   const verifyPickup = () => {
     const credential = toCredential(mode, credentialInput);
     if (!preview || !credential) return;
-    Modal.confirm({
+    modal.confirm({
       title: '确认交付并核销？',
       width: 480,
       content: (
