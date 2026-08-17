@@ -52,7 +52,7 @@ export const getPickupPointCompanyOptions = (
   });
 
 export const createPickupPoint = (
-  data: PickupPointPayload & { companyId: string },
+  data: PickupPointPayload & { companyId?: string },
 ): Promise<PickupPoint> =>
   client.post('/admin/pickup-points', data);
 

@@ -7,7 +7,7 @@ const read = (path) => readFileSync(path, 'utf8');
 test('admin pickup point client exposes the full cross-company lifecycle contract', () => {
   const api = read('src/api/pickup-points.ts');
 
-  assert.match(api, /companyId:\s*string/);
+  assert.match(api, /companyId\?:\s*string/);
   assert.match(api, /isDeleted\?:\s*boolean/);
   assert.match(api, /client\.get\('\/admin\/pickup-points\/company-options'/);
   assert.match(api, /client\.post\('\/admin\/pickup-points',\s*data\)/);
@@ -39,4 +39,15 @@ test('admin pickup point page is gated by dedicated permissions and protects del
   assert.match(page, /getPickupPointCompanyOptions/);
   assert.doesNotMatch(page, /getCompanies/);
   assert.match(page, /恢复后点位保持停用/);
+});
+
+test('platform center warehouse is a switch in the existing point form and auto-binds its owner', () => {
+  const page = read('src/pages/pickup-points/index.tsx');
+
+  assert.match(page, /name="isPlatformHub"/);
+  assert.match(page, /checkedChildren="中心仓"/);
+  assert.match(page, /打开后由系统自动绑定平台公司/);
+  assert.match(page, /!form\.getFieldValue\('isPlatformHub'\)/);
+  assert.match(page, /平台公司（系统绑定）/);
+  assert.doesNotMatch(page, /name="kind"/);
 });

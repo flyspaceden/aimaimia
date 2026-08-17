@@ -433,21 +433,42 @@ describe('PickupService', () => {
     expect(auditPayload).not.toContain('张三');
   });
 
-  it('拒绝把普通企业点位伪装成平台中心仓', async () => {
+  it('平台中心仓忽略浏览器传入的企业并自动绑定唯一平台公司', async () => {
+    let createdData: any;
+    const now = new Date('2026-08-17T00:00:00Z');
     const tx = {
-      company: { findFirst: jest.fn().mockResolvedValue({ id: 'merchant-1', isPlatform: false }) },
-      pickupPoint: { create: jest.fn() },
+      company: { findMany: jest.fn().mockResolvedValue([{ id: 'platform-1', isPlatform: true }]) },
+      pickupPoint: {
+        create: jest.fn(async ({ data }: any) => {
+          createdData = data;
+          return {
+            id: 'hub-1', ...data, location: null, pickupNotice: null,
+            deletedAt: null, deletedByAdminId: null, deleteReason: null,
+            createdAt: now, updatedAt: now,
+            company: { id: 'platform-1', name: '爱买买app', isPlatform: true },
+            serviceCompanies: [],
+          };
+        }),
+      },
+      adminAuditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
     };
     const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
     const { service } = createService(prisma);
 
     await expect(service.createAdminPoint({
+      // Even a stale/malicious browser value cannot choose the hub owner.
       companyId: 'merchant-1', kind: 'PLATFORM_HUB', coverage: 'ALL_ACTIVE_COMPANIES',
-      name: '冒名中心仓', contactName: '张三', contactPhone: '13812345678',
+      name: '平台中心仓', contactName: '张三', contactPhone: '13812345678',
       regionCode: '110000', regionText: '北京市', detail: '朝阳区 1 号',
       businessHours: { summary: '09:00-18:00' },
-    }, { adminUserId: 'admin1' })).rejects.toThrow('平台中心仓必须归属平台公司');
-    expect(tx.pickupPoint.create).not.toHaveBeenCalled();
+    }, { adminUserId: 'admin1' })).resolves.toEqual(expect.objectContaining({ companyId: 'platform-1' }));
+    expect(createdData.companyId).toBe('platform-1');
+    expect(tx.company.findMany).toHaveBeenCalledWith({
+      where: { isPlatform: true, status: 'ACTIVE' },
+      select: { id: true, isPlatform: true },
+      take: 2,
+      orderBy: { id: 'asc' },
+    });
   });
 
   it('平台列表默认隐藏已删除点位，并可单独筛选回收站', async () => {

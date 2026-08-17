@@ -39,8 +39,8 @@ import type { PickupPoint } from '@/types';
 import { formatPickupBusinessHours, pickupFullAddress } from '@/utils/pickup';
 
 interface PickupPointFormValues {
-  companyId: string;
-  kind: 'MERCHANT' | 'PLATFORM_HUB';
+  companyId?: string;
+  isPlatformHub: boolean;
   coverage: 'OWNER_COMPANY' | 'ALL_ACTIVE_COMPANIES' | 'SELECTED_COMPANIES';
   serviceCompanyIds?: string[];
   name: string;
@@ -121,7 +121,7 @@ export default function PickupPointListPage() {
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ isActive: true, kind: 'MERCHANT', coverage: 'OWNER_COMPANY', serviceCompanyIds: [] });
+    form.setFieldsValue({ isActive: true, isPlatformHub: false, coverage: 'OWNER_COMPANY', serviceCompanyIds: [] });
     setFormOpen(true);
   };
 
@@ -152,7 +152,7 @@ export default function PickupPointListPage() {
     setEditing(point);
     form.setFieldsValue({
       companyId: point.companyId,
-      kind: point.kind || 'MERCHANT',
+      isPlatformHub: point.kind === 'PLATFORM_HUB',
       coverage: point.coverage || 'OWNER_COMPANY',
       serviceCompanyIds: point.serviceCompanies?.map((company) => company.id) || [],
       name: point.name,
@@ -176,6 +176,7 @@ export default function PickupPointListPage() {
 
   const buildPayload = (values: PickupPointFormValues): PickupPointPayload => {
     const hasLocation = typeof values.lng === 'number' && typeof values.lat === 'number';
+    const kind = values.isPlatformHub ? 'PLATFORM_HUB' : 'MERCHANT';
     return {
       name: values.name.trim(),
       contactName: values.contactName.trim(),
@@ -193,13 +194,13 @@ export default function PickupPointListPage() {
       ...(!editing
         ? {
             isActive: values.isActive,
-            kind: values.kind,
-            coverage: values.kind === 'PLATFORM_HUB' ? values.coverage : 'OWNER_COMPANY',
-            serviceCompanyIds: values.kind === 'PLATFORM_HUB' && values.coverage === 'SELECTED_COMPANIES'
+            kind,
+            coverage: kind === 'PLATFORM_HUB' ? values.coverage : 'OWNER_COMPANY',
+            serviceCompanyIds: kind === 'PLATFORM_HUB' && values.coverage === 'SELECTED_COMPANIES'
               ? values.serviceCompanyIds || []
               : [],
           }
-        : values.kind === 'PLATFORM_HUB'
+        : values.isPlatformHub
           ? {
               coverage: values.coverage,
               serviceCompanyIds: values.coverage === 'SELECTED_COMPANIES'
@@ -359,7 +360,14 @@ export default function PickupPointListPage() {
           onSearch={searchCompanyOptions}
         />
       ),
-      render: (_, point) => (
+      render: (_, point) => point.kind === 'PLATFORM_HUB' ? (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>平台公司（系统绑定）</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {point.company?.name || '未配置'}
+          </Typography.Text>
+        </Space>
+      ) : (
         <Space direction="vertical" size={0}>
           <Typography.Text>{point.company?.name || point.companyId}</Typography.Text>
           {point.company?.name && (
@@ -582,37 +590,46 @@ export default function PickupPointListPage() {
       >
         <Form form={form} layout="vertical" onFinish={handleSave} requiredMark="optional">
           <Form.Item
-            name="companyId"
-            label="所属企业"
-            rules={[{ required: true, message: '请选择所属企业' }]}
-            extra={editing ? '所属企业创建后不可更改。' : '该点位将归属所选企业。'}
+            name="isPlatformHub"
+            label="平台中心仓"
+            valuePropName="checked"
+            extra={editing
+              ? '点位创建后不能在企业自有点和平台中心仓之间转换。'
+              : '打开后由系统自动绑定平台公司，无需选择所属企业。'}
           >
-            <Select
+            <Switch
               disabled={Boolean(editing)}
-              showSearch
-              filterOption={false}
-              loading={companyOptionsLoading}
-              placeholder="搜索并选择企业"
-              options={companyOptions}
-              onSearch={searchCompanyOptions}
-            />
-          </Form.Item>
-          <Form.Item
-            name="kind"
-            label="点位类型"
-            rules={[{ required: true, message: '请选择点位类型' }]}
-            extra={editing ? '点位创建后不能在企业自有点和平台中心仓之间转换。' : '平台中心仓只能选择平台公司作为所属企业。'}
-          >
-            <Select
-              disabled={Boolean(editing)}
-              options={[
-                { value: 'MERCHANT', label: '企业自有自提点' },
-                { value: 'PLATFORM_HUB', label: '平台中心仓' },
-              ]}
+              checkedChildren="中心仓"
+              unCheckedChildren="企业自有"
+              onChange={(checked) => {
+                if (checked) {
+                  form.setFieldsValue({ companyId: undefined, coverage: 'ALL_ACTIVE_COMPANIES', serviceCompanyIds: [] });
+                } else {
+                  form.setFieldsValue({ coverage: 'OWNER_COMPANY', serviceCompanyIds: [] });
+                }
+              }}
             />
           </Form.Item>
           <Form.Item shouldUpdate noStyle>
-            {() => form.getFieldValue('kind') === 'PLATFORM_HUB' ? <>
+            {() => !form.getFieldValue('isPlatformHub') ? <Form.Item
+              name="companyId"
+              label="所属企业"
+              rules={[{ required: true, message: '请选择所属企业' }]}
+              extra={editing ? '所属企业创建后不可更改。' : '该点位将归属所选企业。'}
+            >
+              <Select
+                disabled={Boolean(editing)}
+                showSearch
+                filterOption={false}
+                loading={companyOptionsLoading}
+                placeholder="搜索并选择企业"
+                options={companyOptions}
+                onSearch={searchCompanyOptions}
+              />
+            </Form.Item> : null}
+          </Form.Item>
+          <Form.Item shouldUpdate noStyle>
+            {() => form.getFieldValue('isPlatformHub') ? <>
               <Form.Item
                 name="coverage"
                 label="中心仓服务范围"

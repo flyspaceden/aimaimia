@@ -13,6 +13,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PickupPointCoverage, PickupPointKind } from '@prisma/client';
@@ -95,10 +96,11 @@ export class UpdatePickupPointDto {
 }
 
 export class AdminCreatePickupPointDto extends CreatePickupPointDto {
+  @ValidateIf((dto: AdminCreatePickupPointDto) => dto.kind !== PickupPointKind.PLATFORM_HUB)
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  companyId!: string;
+  companyId?: string;
 
   @IsOptional()
   @IsEnum(PickupPointKind)

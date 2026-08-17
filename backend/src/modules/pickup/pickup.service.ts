@@ -412,10 +412,12 @@ export class PickupService implements OnModuleInit {
       ...pointDto
     } = dto;
     return this.prisma.$transaction(async (tx) => {
-      const company = await tx.company.findFirst({
-        where: { id: companyId, status: 'ACTIVE' },
-        select: { id: true, isPlatform: true },
-      });
+      const company = kind === PickupPointKind.PLATFORM_HUB
+        ? await this.resolvePlatformHubOwner(tx)
+        : await tx.company.findFirst({
+            where: { id: companyId, status: 'ACTIVE' },
+            select: { id: true, isPlatform: true },
+          });
       if (!company) throw new BadRequestException('只能为正常经营的企业创建自提点');
       const hubConfig = await this.resolvePlatformHubConfig(tx, {
         owner: company,
@@ -426,7 +428,7 @@ export class PickupService implements OnModuleInit {
 
       const point = await tx.pickupPoint.create({
         data: {
-          ...this.pickupPointCreateData(companyId, pointDto),
+          ...this.pickupPointCreateData(company.id, pointDto),
           kind: hubConfig.kind,
           coverage: hubConfig.coverage,
           ...(hubConfig.serviceCompanyIds.length
@@ -445,6 +447,20 @@ export class PickupService implements OnModuleInit {
       });
       return this.mapPointForAdmin(point);
     });
+  }
+
+  /** Platform hubs never trust a browser-supplied owner company ID. */
+  private async resolvePlatformHubOwner(tx: Tx) {
+    const owners = await tx.company.findMany({
+      where: { isPlatform: true, status: 'ACTIVE' },
+      select: { id: true, isPlatform: true },
+      take: 2,
+      orderBy: { id: 'asc' },
+    });
+    if (owners.length !== 1) {
+      throw new BadRequestException('平台中心仓需要且只能配置一个正常经营的平台公司');
+    }
+    return owners[0];
   }
 
   async updateAdminPoint(
