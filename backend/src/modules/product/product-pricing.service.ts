@@ -224,18 +224,22 @@ export class ProductPricingService {
     tx: Prisma.TransactionClient,
     plan: MarkupRepricePlan,
   ): Promise<MarkupRepricePreview> {
-    const markupRate = plan.preview.nextMarkupRate;
-    await tx.$executeRaw`
-      UPDATE "ProductSKU" AS sku
-      SET "price" = ROUND((sku."cost"::numeric * ${markupRate}::numeric), 2)::double precision,
-          "updatedAt" = CURRENT_TIMESTAMP
-      FROM "Product" AS product
-      JOIN "Company" AS company ON company."id" = product."companyId"
-      WHERE sku."productId" = product."id"
-        AND sku."cost" > 0
-        AND product."status" <> 'DRAFT'
-        AND company."isPlatform" = false
-    `;
+    const affected = plan.items.filter(
+      (item) => Math.abs(item.currentPrice - item.nextPrice) > PRICE_EPSILON,
+    );
+    if (affected.length > 0) {
+      const priceCases = Prisma.join(
+        affected.map((item) => Prisma.sql`WHEN ${item.skuId} THEN ${item.nextPrice}`),
+        ' ',
+      );
+      const skuIds = Prisma.join(affected.map((item) => item.skuId));
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "ProductSKU" AS sku
+        SET "price" = CASE sku."id" ${priceCases} ELSE sku."price" END,
+            "updatedAt" = CURRENT_TIMESTAMP
+        WHERE sku."id" IN (${skuIds})
+      `);
+    }
     await tx.$executeRaw`
       UPDATE "Product" AS product
       SET "basePrice" = rollup.min_price,
