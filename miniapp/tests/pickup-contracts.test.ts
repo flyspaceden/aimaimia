@@ -192,16 +192,20 @@ describe('pickup API contracts', () => {
     }
   });
 
-  it('does not leave a blank pickup QR canvas when the native canvas node fails', () => {
+  it('queries the pickup QR canvas in its native component scope and does not leave a blank fallback', () => {
     const passSource = source('src/packages/orders/pickup-pass/index.tsx');
     const passStyle = source('src/packages/orders/pickup-pass/index.scss');
 
-    expect(passSource).toContain('function drawPickupQr(payload: string): Promise<void>');
+    expect(passSource).toContain('function drawPickupQr(payload: string, scope: CanvasScope | undefined): Promise<void>');
     expect(passSource).toContain("setQrState('failed')");
     expect(passSource).toContain('二维码未能显示');
     expect(passSource).toContain('请向商家出示下方 8 位取货码');
     expect(passSource).toContain('重新生成二维码');
+    expect(passSource).toContain('CustomWrapper');
+    expect(passSource).toContain('query.in(scope)');
     expect(passSource).toContain("fields({ node: true, size: true }, (fieldResult)");
+    expect(passSource).toContain('[pickup-pass] QR canvas draw failed');
     expect(passStyle).toContain('.pickup-pass-qr--hidden');
+    expect(passStyle).toContain('.pickup-pass-qr-scope');
   });
 });
