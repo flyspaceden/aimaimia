@@ -2100,6 +2100,6 @@
 - [x] 卖家编辑页区分当前实际售价与保存后售价；管理端非平台普通商品不再允许手填售价；卖家创建不再接受客户端 `basePrice` 覆盖。
 - [x] 修正种子数据自动定价与默认加价率漂移，新增默认 dry-run、执行时强制 `--execute --expected-markup=<当前值> --preview-token=<dry-run token>` 且复用利润安全协调器的 `npm run products:reprice` 一次性修复脚本及前后端回归测试。
 - [x] 两轮独立只读审查完成；最终复核 Critical/High 均为 0。定价相关后端 6 suites / 81 tests、前端契约 4 tests、Prisma validate、backend/admin/seller build、测试 PostgreSQL 批量 SQL 强制回滚演练均通过。全量后端 Jest 为 308 suites 通过、3 suites 失败；失败集中在未修改的支付/团长自动退款与自动确认旧测试桩，已与本次定价 diff 分离，不冒充全绿。
-- [ ] 提交并部署 staging。
-- [ ] staging 执行价格 dry-run、保存回滚清单、显式修复测试库并复验卖家后台 / App / 结算。
+- [x] 提交 `6df7e37c` 并部署 staging；GitHub Actions run `32053230153` 的 admin / seller / backend 与测试微信配置后置任务全部成功。
+- [x] staging dry-run：50 个普通商品 / 77 个 SKU，38 个商品 / 64 个 SKU 不一致；完整清单与回滚 SQL 保存为 `pricing-artifacts/staging-reprice-dry-run-20260817.jsonl`。携带 `MARKUP_RATE=1.3` 与 dry-run token 显式执行后更新 64 个 SKU，复验剩余不一致为 0；执行清单保存为 `pricing-artifacts/staging-reprice-execute-20260817.jsonl`。公网 App API 已返回有机番茄 ¥10.40、紫薯 ¥7.80，线上 seller/admin 构建已包含价格核对与确认文案。
 - [ ] 生产仅生成 1.35 价格变更和回滚清单；再次确认后才能执行生产价格调整。
