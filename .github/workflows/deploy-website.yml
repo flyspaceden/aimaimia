@@ -378,6 +378,12 @@ jobs:
               fi
             }
 
+            build_backend() {
+              # Nest/TypeScript 全量编译在默认 V8 heap 下会偶发 OOM（exit 134）。
+              # 服务器内存充足，显式给构建进程 4 GiB；运行中的 PM2 进程不继承该值。
+              NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
+            }
+
             rollback_backend() {
               status=$?
               trap - EXIT
@@ -390,7 +396,7 @@ jobs:
                 install_backend_dependencies \
                   && npx --no-install prisma generate \
                   && npx --no-install prisma generate --schema prisma-delivery/schema.prisma \
-                  && npm run build \
+                  && build_backend \
                   && pm2 reload "$PM2_NAME" --update-env \
                   && health_check
                 rollback_status=$?
@@ -422,7 +428,7 @@ jobs:
             npx --no-install prisma migrate deploy --schema prisma-delivery/schema.prisma
 
             echo "═══ 5. 构建 ═══"
-            npm run build
+            build_backend
 
             echo "═══ 6. PM2 reload ═══"
             pm2 reload "$PM2_NAME" --update-env
