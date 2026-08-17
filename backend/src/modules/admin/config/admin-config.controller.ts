@@ -10,7 +10,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminConfigService } from './admin-config.service';
-import { UpdateConfigDto, BatchUpdateConfigDto } from './dto/admin-config.dto';
+import {
+  UpdateConfigDto,
+  BatchUpdateConfigDto,
+  PreviewMarkupRepriceDto,
+  RollbackConfigVersionDto,
+} from './dto/admin-config.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -44,6 +49,12 @@ export class AdminConfigController {
     return this.configService.previewProfitSafety(body);
   }
 
+  @Post('markup-reprice-preview')
+  @RequirePermission('config:update')
+  previewMarkupReprice(@Body() dto: PreviewMarkupRepriceDto) {
+    return this.configService.previewMarkupReprice(dto.markupRate);
+  }
+
   @Get('versions')
   @RequirePermission('config:read')
   findVersions(
@@ -71,9 +82,10 @@ export class AdminConfigController {
   })
   rollbackToVersion(
     @Param('id') id: string,
+    @Body() dto: RollbackConfigVersionDto,
     @CurrentAdmin('sub') adminUserId: string,
   ) {
-    return this.configService.rollbackToVersion(id, adminUserId);
+    return this.configService.rollbackToVersion(id, adminUserId, dto);
   }
 
   @Put('batch')

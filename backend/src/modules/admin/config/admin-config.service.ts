@@ -9,7 +9,15 @@ import {
 } from '../../profit/profit-safety.service';
 import { ProfitSafetyViolationError } from '../../profit/profit-safety-validator';
 import { validateConfigValue } from './config-validation';
-import { BatchUpdateConfigDto, UpdateConfigDto } from './dto/admin-config.dto';
+import {
+  BatchUpdateConfigDto,
+  RollbackConfigVersionDto,
+  UpdateConfigDto,
+} from './dto/admin-config.dto';
+import {
+  MarkupRepricePlan,
+  ProductPricingService,
+} from '../../product/product-pricing.service';
 
 type VersionAssessment = {
   rollbackAllowed: boolean;
@@ -22,6 +30,7 @@ export class AdminConfigService {
     private readonly prisma: PrismaService,
     private readonly bonusConfig: BonusConfigService,
     private readonly profitSafety: ProfitSafetyService,
+    private readonly productPricing: ProductPricingService,
   ) {}
 
   findAll() {
@@ -39,10 +48,22 @@ export class AdminConfigService {
     const validationError = validateConfigValue(key, actualValue);
     if (validationError) throw new BadRequestException(validationError);
 
-    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
-      ruleUpdates: { [key]: actualValue },
-      createdByAdminId: adminUserId,
-      changeNote: dto.changeNote || `更新配置项 ${key}`,
+    let pricingPlan: MarkupRepricePlan | undefined;
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange(async (tx) => {
+      if (key === 'MARKUP_RATE') {
+        pricingPlan = await this.productPricing.buildMarkupRepricePlan(tx, Number(actualValue));
+        this.productPricing.assertMarkupRepriceConfirmed(
+          pricingPlan,
+          dto.repriceExisting,
+          dto.markupPreviewToken,
+        );
+      }
+      return {
+        ruleUpdates: { [key]: actualValue },
+        ...(pricingPlan ? { skuUpserts: pricingPlan.profitSafetySkus } : {}),
+        createdByAdminId: adminUserId,
+        changeNote: dto.changeNote || `更新配置项 ${key}`,
+      };
     }, async (tx, context) => {
       this.validateAfterSaleWindowCoverage(
         context.candidateSnapshot,
@@ -53,11 +74,20 @@ export class AdminConfigService {
         update: { value: dto.value },
         create: { key, value: dto.value },
       });
-      return { ok: true };
+      const markupReprice = pricingPlan
+        ? await this.productPricing.applyMarkupReprice(tx, pricingPlan)
+        : undefined;
+      return { ok: true, markupReprice };
     }));
 
     this.bonusConfig.invalidateCache();
-    return { ok: true, version: (output.ruleVersion as any).version };
+    return {
+      ok: true,
+      version: (output.ruleVersion as any).version,
+      ...(output.result.markupReprice
+        ? { markupReprice: output.result.markupReprice }
+        : {}),
+    };
   }
 
   async batchUpdate(dto: BatchUpdateConfigDto, adminUserId: string) {
@@ -71,11 +101,26 @@ export class AdminConfigService {
       ruleUpdates[update.key] = actualValue;
     }
 
-    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
-      ruleUpdates,
-      createdByAdminId: adminUserId,
-      changeNote: dto.changeNote
-        || `批量更新 ${dto.updates.length} 个配置项：${dto.updates.map((item) => item.key).join(', ')}`,
+    const markupValue = Object.prototype.hasOwnProperty.call(ruleUpdates, 'MARKUP_RATE')
+      ? Number(ruleUpdates.MARKUP_RATE)
+      : undefined;
+    let pricingPlan: MarkupRepricePlan | undefined;
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange(async (tx) => {
+      if (markupValue !== undefined) {
+        pricingPlan = await this.productPricing.buildMarkupRepricePlan(tx, markupValue);
+        this.productPricing.assertMarkupRepriceConfirmed(
+          pricingPlan,
+          dto.repriceExisting,
+          dto.markupPreviewToken,
+        );
+      }
+      return {
+        ruleUpdates,
+        ...(pricingPlan ? { skuUpserts: pricingPlan.profitSafetySkus } : {}),
+        createdByAdminId: adminUserId,
+        changeNote: dto.changeNote
+          || `批量更新 ${dto.updates.length} 个配置项：${dto.updates.map((item) => item.key).join(', ')}`,
+      };
     }, async (tx, context) => {
       this.validateAfterSaleWindowCoverage(
         context.candidateSnapshot,
@@ -88,7 +133,10 @@ export class AdminConfigService {
           create: { key: update.key, value: update.value },
         });
       }
-      return { ok: true };
+      const markupReprice = pricingPlan
+        ? await this.productPricing.applyMarkupReprice(tx, pricingPlan)
+        : undefined;
+      return { ok: true, markupReprice };
     }));
 
     this.bonusConfig.invalidateCache();
@@ -96,6 +144,9 @@ export class AdminConfigService {
       ok: true,
       version: (output.ruleVersion as any).version,
       updated: dto.updates.length,
+      ...(output.result.markupReprice
+        ? { markupReprice: output.result.markupReprice }
+        : {}),
     };
   }
 
@@ -115,6 +166,10 @@ export class AdminConfigService {
     return context.summary;
   }
 
+  previewMarkupReprice(markupRate: number) {
+    return this.productPricing.previewMarkupReprice(markupRate);
+  }
+
   async findVersions(page = 1, pageSize = 20) {
     const skip = (page - 1) * pageSize;
     const [versions, total] = await Promise.all([
@@ -130,9 +185,10 @@ export class AdminConfigService {
       }),
       this.prisma.ruleVersion.count(),
     ]);
+    const pricingPlans = new Map<number, Promise<MarkupRepricePlan>>();
     const items = await Promise.all(versions.map(async (version) => ({
       ...version,
-      ...(await this.assessVersion(version)),
+      ...(await this.assessVersion(version, undefined, pricingPlans)),
     })));
     return { items, total, page, pageSize };
   }
@@ -150,7 +206,11 @@ export class AdminConfigService {
     return { ...version, ...(await this.assessVersion(version)) };
   }
 
-  async rollbackToVersion(versionId: string, adminUserId: string) {
+  async rollbackToVersion(
+    versionId: string,
+    adminUserId: string,
+    dto: RollbackConfigVersionDto = {},
+  ) {
     const version = await this.prisma.ruleVersion.findUnique({ where: { id: versionId } });
     if (!version) throw new NotFoundException('版本不存在');
 
@@ -160,10 +220,23 @@ export class AdminConfigService {
       throw new BadRequestException(assessment.rollbackBlockedReason);
     }
 
-    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange({
-      replaceRuleSnapshot: snapshot,
-      createdByAdminId: adminUserId,
-      changeNote: `回滚到版本 ${version.version}`,
+    const rollbackMarkupRate = Number(snapshot.MARKUP_RATE);
+    let pricingPlan: MarkupRepricePlan | undefined;
+    const output = await this.executeSafety(() => this.profitSafety.withCandidateChange(async (tx) => {
+      if (Number.isFinite(rollbackMarkupRate)) {
+        pricingPlan = await this.productPricing.buildMarkupRepricePlan(tx, rollbackMarkupRate);
+        this.productPricing.assertMarkupRepriceConfirmed(
+          pricingPlan,
+          dto.repriceExisting,
+          dto.markupPreviewToken,
+        );
+      }
+      return {
+        replaceRuleSnapshot: snapshot,
+        ...(pricingPlan ? { skuUpserts: pricingPlan.profitSafetySkus } : {}),
+        createdByAdminId: adminUserId,
+        changeNote: `回滚到版本 ${version.version}`,
+      };
     }, async (tx, context) => {
       this.validateAfterSaleWindowCoverage(
         context.candidateSnapshot,
@@ -173,16 +246,26 @@ export class AdminConfigService {
       for (const [key, value] of Object.entries(context.candidateSnapshot)) {
         await (tx as any).ruleConfig.create({ data: { key, value } });
       }
-      return { ok: true };
+      const markupReprice = pricingPlan
+        ? await this.productPricing.applyMarkupReprice(tx, pricingPlan)
+        : undefined;
+      return { ok: true, markupReprice };
     }));
 
     this.bonusConfig.invalidateCache();
-    return { ok: true, version: (output.ruleVersion as any).version };
+    return {
+      ok: true,
+      version: (output.ruleVersion as any).version,
+      ...(output.result.markupReprice
+        ? { markupReprice: output.result.markupReprice }
+        : {}),
+    };
   }
 
   private async assessVersion(
     version: any,
     preparedSnapshot?: Record<string, unknown>,
+    pricingPlans: Map<number, Promise<MarkupRepricePlan>> = new Map(),
   ): Promise<VersionAssessment> {
     if (version?.isComplete !== true) {
       return { rollbackAllowed: false, rollbackBlockedReason: '该版本是不完整历史快照，不允许回滚' };
@@ -208,7 +291,20 @@ export class AdminConfigService {
       return { rollbackAllowed: false, rollbackBlockedReason: '该版本的利润分配比例总和不合法' };
     }
     try {
-      const summary = await this.profitSafety.preview({ replaceRuleSnapshot: snapshot });
+      const markupRate = Number(snapshot.MARKUP_RATE);
+      let pricingPlan: MarkupRepricePlan | undefined;
+      if (Number.isFinite(markupRate)) {
+        let planPromise = pricingPlans.get(markupRate);
+        if (!planPromise) {
+          planPromise = this.productPricing.previewMarkupRepricePlan(markupRate);
+          pricingPlans.set(markupRate, planPromise);
+        }
+        pricingPlan = await planPromise;
+      }
+      const summary = await this.profitSafety.preview({
+        replaceRuleSnapshot: snapshot,
+        ...(pricingPlan ? { skuUpserts: pricingPlan.profitSafetySkus } : {}),
+      });
       if (!summary.safe) {
         return { rollbackAllowed: false, rollbackBlockedReason: '该版本在当前商品经济数据下会突破利润安全底线' };
       }

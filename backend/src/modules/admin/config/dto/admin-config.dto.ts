@@ -3,6 +3,11 @@ import {
   IsOptional,
   IsDefined,
   IsArray,
+  IsBoolean,
+  IsNumber,
+  Max,
+  MaxLength,
+  Min,
   ValidateNested,
   ArrayMinSize,
 } from 'class-validator';
@@ -16,6 +21,17 @@ export class UpdateConfigDto {
   @IsOptional()
   @IsString()
   changeNote?: string;
+
+  /** MARKUP_RATE 专用：确认将当前普通商品统一重算为新售价 */
+  @IsOptional()
+  @IsBoolean()
+  repriceExisting?: boolean;
+
+  /** MARKUP_RATE 影响预览返回的防并发 token */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  markupPreviewToken?: string;
 }
 
 export class BatchUpdateConfigItem {
@@ -41,4 +57,32 @@ export class BatchUpdateConfigDto {
   @IsOptional()
   @IsString()
   changeNote?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  repriceExisting?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  markupPreviewToken?: string;
+}
+
+export class PreviewMarkupRepriceDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  markupRate: number;
+}
+
+export class RollbackConfigVersionDto {
+  @IsOptional()
+  @IsBoolean()
+  repriceExisting?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  markupPreviewToken?: string;
 }

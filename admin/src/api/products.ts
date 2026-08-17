@@ -30,7 +30,6 @@ export const updateProduct = (id: string, data: {
   title?: string;
   subtitle?: string;
   description?: string;
-  basePrice?: number;
   categoryId?: string;
   origin?: any;
   aiKeywords?: string[];
@@ -49,7 +48,7 @@ export const updateProduct = (id: string, data: {
 export interface SkuUpdateItem {
   id?: string;
   specText?: string;
-  price: number;
+  price?: number;
   cost?: number;
   stock: number;
   weightGram: number;

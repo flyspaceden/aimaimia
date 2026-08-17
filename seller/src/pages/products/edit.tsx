@@ -11,7 +11,8 @@ import type { FormInstance } from 'antd';
 import {
   MinusCircleOutlined, PlusOutlined, ArrowLeftOutlined,
   SaveOutlined, CloudUploadOutlined, DownloadOutlined,
-  DeleteOutlined, CopyOutlined,
+  DeleteOutlined, CopyOutlined, ArrowRightOutlined,
+  CheckCircleOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -311,11 +312,49 @@ function buildCategoryTree(categories: CategoryNode[]): TreeNode[] {
 // ============================================================
 // 共享：售价只读展示组件
 // ============================================================
-function SellingPriceDisplay({ cost, markupRate }: { cost: number | undefined; markupRate: number }) {
-  const computed = cost && cost > 0 ? (cost * markupRate).toFixed(2) : undefined;
+function SellingPriceDisplay({
+  cost,
+  markupRate,
+  currentPrice,
+}: {
+  cost: number | undefined;
+  markupRate: number;
+  currentPrice?: number;
+}) {
+  const computed = cost && cost > 0 ? +(cost * markupRate).toFixed(2) : undefined;
+  const hasCurrentPrice = Number.isFinite(currentPrice) && Number(currentPrice) > 0;
+  if (hasCurrentPrice) {
+    const aligned = computed !== undefined && Math.abs(Number(currentPrice) - computed) < 0.000001;
+    return (
+      <div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <PriceState label="当前实际售价" value={Number(currentPrice)} />
+          <ArrowRightOutlined style={{ color: aligned ? '#52c41a' : '#d48806' }} />
+          <PriceState label="保存后售价" value={computed} highlight={!aligned} />
+        </div>
+        <Text
+          type={aligned ? 'secondary' : 'warning'}
+          style={{ display: 'block', marginTop: 5, fontSize: 12 }}
+        >
+          {aligned ? (
+            <><CheckCircleOutlined /> 当前售价与加价率一致</>
+          ) : (
+            <><WarningOutlined /> 保存后将按成本 × {markupRate} 更新真实成交价</>
+          )}
+        </Text>
+      </div>
+    );
+  }
   return (
     <InputNumber
-      value={computed ? Number(computed) : undefined}
+      value={computed}
       disabled
       prefix="¥"
       precision={2}
@@ -323,6 +362,33 @@ function SellingPriceDisplay({ cost, markupRate }: { cost: number | undefined; m
       placeholder="自动计算"
       addonAfter={`= 成本 × ${markupRate}`}
     />
+  );
+}
+
+function PriceState({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value?: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        padding: '7px 9px',
+        borderRadius: 8,
+        background: highlight ? '#fffbe6' : '#f6f8fa',
+        border: `1px solid ${highlight ? '#ffe58f' : '#e5e7eb'}`,
+      }}
+    >
+      <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>{label}</Text>
+      <Text strong style={{ display: 'block', fontFamily: 'monospace', marginTop: 1 }}>
+        {value === undefined ? '-' : `¥${value.toFixed(2)}`}
+      </Text>
+    </div>
   );
 }
 
@@ -707,7 +773,15 @@ function AiSearchOptimizationContent() {
 // ============================================================
 // 共享：多规格行列表
 // ============================================================
-function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; lowStockThreshold: number }) {
+function MultiSpecRows({
+  markupRate,
+  lowStockThreshold,
+  showCurrentPrice = false,
+}: {
+  markupRate: number;
+  lowStockThreshold: number;
+  showCurrentPrice?: boolean;
+}) {
   return (
     <Form.List name="skus" initialValue={[{ specName: '', stock: 0 }]}>
       {(fields, { add, remove }) => (
@@ -726,6 +800,13 @@ function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; 
                     hidden
                   >
                     <Input />
+                  </Form.Item>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, 'price']}
+                    hidden
+                  >
+                    <InputNumber />
                   </Form.Item>
                   <Form.Item
                     {...field}
@@ -755,9 +836,16 @@ function MultiSpecRows({ markupRate, lowStockThreshold }: { markupRate: number; 
                   <Form.Item shouldUpdate noStyle>
                     {({ getFieldValue }) => {
                       const cost = getFieldValue(['skus', field.name, 'cost']);
+                      const currentPrice = showCurrentPrice
+                        ? getFieldValue(['skus', field.name, 'price'])
+                        : undefined;
                       return (
-                        <Form.Item label="售价（自动计算）" style={{ marginBottom: 0 }}>
-                          <SellingPriceDisplay cost={cost} markupRate={markupRate} />
+                        <Form.Item label={showCurrentPrice ? '价格核对' : '售价（自动计算）'} style={{ marginBottom: 0 }}>
+                          <SellingPriceDisplay
+                            cost={cost}
+                            markupRate={markupRate}
+                            currentPrice={currentPrice}
+                          />
                         </Form.Item>
                       );
                     }}
@@ -993,7 +1081,6 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
 function buildPayload(
   values: Record<string, unknown>,
   skuList: Array<Record<string, unknown>>,
-  markupRate: number,
   fileList: UploadFile[],
   productType: ProductType,
   bundleItems: ProductBundleItem[],
@@ -1021,9 +1108,6 @@ function buildPayload(
     })
     .filter(Boolean) as string[];
 
-  // 计算 basePrice（取 SKU 中最低售价）
-  const basePrice = Math.min(...skuList.map((s) => Number(s.cost) * markupRate));
-
   const skus = skuList.map((s) => ({
     id: s.id as string | undefined,
     specName: normalizeSkuTitle(s.specName as string | undefined),
@@ -1037,7 +1121,6 @@ function buildPayload(
     title: values.title,
     subtitle: values.subtitle || undefined,
     description: values.description,
-    basePrice,
     unit: (values.unit as string | undefined) || undefined,
     categoryId: values.categoryId,
     returnPolicy: values.returnPolicy || 'INHERIT',
@@ -1201,6 +1284,7 @@ function ProductEditForm({ id }: { id: string }) {
       ...(isMulti ? {
         skus: product.skus.map((s) => ({
           id: s.id,
+          price: s.price,
           specName: s.title,
           cost: s.cost,
           stock: s.stock,
@@ -1262,7 +1346,7 @@ function ProductEditForm({ id }: { id: string }) {
         }];
       }
 
-      const payload = buildPayload(values, skuList, markupRate, fileList, productType, bundleItems);
+      const payload = buildPayload(values, skuList, fileList, productType, bundleItems);
       if (productType === 'BUNDLE') {
         await updateProduct(id, payload);
       } else {
@@ -1481,7 +1565,15 @@ function ProductEditForm({ id }: { id: string }) {
                         const maxPerOrder = form.getFieldValue('singleMaxPerOrder');
                         if (cost || stock) {
                           form.setFieldsValue({
-                            skus: [{ specName: specName || '默认规格', cost, stock, weightGram, maxPerOrder }],
+                            skus: [{
+                              id: product?.skus?.[0]?.id,
+                              price: product?.skus?.[0]?.price,
+                              specName: specName || '默认规格',
+                              cost,
+                              stock,
+                              weightGram,
+                              maxPerOrder,
+                            }],
                           });
                         }
                       } else {
@@ -1506,7 +1598,7 @@ function ProductEditForm({ id }: { id: string }) {
           }
         >
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-            售价由平台按成本 × 加价率（{markupRate}）自动计算，卖家只需填写成本价。
+            当前实际售价来自商品数据库；保存后售价由平台按成本 × 加价率（{markupRate}）重新计算。
           </Text>
 
           {productType === 'BUNDLE' ? (
@@ -1545,8 +1637,12 @@ function ProductEditForm({ id }: { id: string }) {
                     {({ getFieldValue }) => {
                       const cost = getFieldValue('singleCost');
                       return (
-                        <Form.Item label="售价（自动计算）">
-                          <SellingPriceDisplay cost={cost} markupRate={markupRate} />
+                        <Form.Item label="价格核对">
+                          <SellingPriceDisplay
+                            cost={cost}
+                            markupRate={markupRate}
+                            currentPrice={product?.skus?.[0]?.price}
+                          />
                         </Form.Item>
                       );
                     }}
@@ -1599,8 +1695,12 @@ function ProductEditForm({ id }: { id: string }) {
                   {({ getFieldValue }) => {
                     const cost = getFieldValue('singleCost');
                     return (
-                      <Form.Item label="售价（自动计算）">
-                        <SellingPriceDisplay cost={cost} markupRate={markupRate} />
+                      <Form.Item label="价格核对">
+                        <SellingPriceDisplay
+                          cost={cost}
+                          markupRate={markupRate}
+                          currentPrice={product?.skus?.[0]?.price}
+                        />
                       </Form.Item>
                     );
                   }}
@@ -1644,7 +1744,11 @@ function ProductEditForm({ id }: { id: string }) {
             </Row>
           ) : (
             /* 多规格模式 */
-            <MultiSpecRows markupRate={markupRate} lowStockThreshold={lowStockThreshold} />
+            <MultiSpecRows
+              markupRate={markupRate}
+              lowStockThreshold={lowStockThreshold}
+              showCurrentPrice
+            />
           )}
         </Card>
 
@@ -2077,7 +2181,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
         await updateDraft(draftId, buildDraftPayload());
         await submitDraft(draftId);
       } else {
-        // 全新商品创建：用 buildPayload（含自动定价 basePrice 计算）
+        // 全新商品创建：只提交成本，basePrice 与 SKU 售价由后端统一计算。
         let skuList: Array<Record<string, unknown>>;
         if (productType === 'BUNDLE') {
           skuList = [{
@@ -2098,7 +2202,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
             maxPerOrder: values.singleMaxPerOrder,
           }];
         }
-        const payload = buildPayload(values, skuList, markupRate, fileList, productType, bundleItems);
+        const payload = buildPayload(values, skuList, fileList, productType, bundleItems);
         await createProduct(payload);
       }
       // 提交成功 → 清 dirty 防止跳转时弹未保存提醒

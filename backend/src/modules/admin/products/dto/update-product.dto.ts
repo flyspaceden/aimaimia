@@ -15,10 +15,6 @@ export class AdminUpdateProductDto {
   description?: string;
 
   @IsOptional()
-  @IsNumber()
-  basePrice?: number;
-
-  @IsOptional()
   @IsString()
   categoryId?: string;
 

@@ -1190,7 +1190,7 @@ export interface Product {
   auditNote: string | null;
   submissionCount?: number;
   companyId: string;
-  company?: { id: string; name: string; status?: CompanyStatus };
+  company?: { id: string; name: string; status?: CompanyStatus; isPlatform?: boolean };
   images: { url: string }[];
   media?: ProductMedia[];
   skus?: ProductSKU[];
@@ -2160,6 +2160,38 @@ export interface RuleConfig {
   key: string;
   value: { value: unknown; description?: string } | unknown;
   updatedAt: string;
+}
+
+export interface MarkupRepriceExample {
+  productId: string;
+  productTitle: string;
+  skuId: string;
+  skuTitle: string;
+  cost: number;
+  currentPrice: number;
+  nextPrice: number;
+  difference: number;
+}
+
+export interface MarkupRepricePreview {
+  currentMarkupRate: number;
+  nextMarkupRate: number;
+  eligibleProductCount: number;
+  eligibleSkuCount: number;
+  affectedProductCount: number;
+  affectedSkuCount: number;
+  priceIncreaseCount: number;
+  priceDecreaseCount: number;
+  unchangedSkuCount: number;
+  previewToken: string;
+  examples: MarkupRepriceExample[];
+}
+
+export interface ConfigUpdateResult {
+  ok: boolean;
+  version: string;
+  updated?: number;
+  markupReprice?: MarkupRepricePreview;
 }
 
 /** 配置值提取 — RuleConfig.value 可能是 { value, description } 或裸值 */

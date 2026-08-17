@@ -133,7 +133,8 @@ export class AdminProductsController {
     module: 'products',
     targetType: 'Product',
     targetIdParam: 'params.id',
-    isReversible: true,
+    // SKU 经济字段没有完整 before 快照；禁止通用审计回滚制造半套价格状态。
+    isReversible: false,
   })
   updateSkus(@Param('id') id: string, @Body() dto: UpdateProductSkusDto) {
     return this.productsService.updateSkus(id, dto);

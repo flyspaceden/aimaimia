@@ -4,6 +4,18 @@ import { ProductBundleService } from '../../product/product-bundle.service';
 import { SellerProductsService } from './seller-products.service';
 
 const passthroughProfitSafety = (prisma: any) => ({
+  withSafetyLock: jest.fn(async (write: (tx: any) => Promise<unknown>) =>
+    prisma.$transaction(async (tx: any) => {
+      tx.ruleConfig ??= {
+        findUnique: jest.fn().mockResolvedValue({ value: { value: 1.3 } }),
+      };
+      tx.company ??= {
+        findUnique: jest.fn().mockResolvedValue({ isPlatform: false }),
+      };
+      return write(tx);
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    })),
   withCandidateChange: jest.fn(async (
     changeOrFactory: any,
     write: (tx: any, context?: any) => Promise<unknown>,
@@ -58,6 +70,9 @@ describe('SellerProductsService SKU weight validation', () => {
 
   const buildDraftService = (productBundleService: any = new ProductBundleService()) => {
     const tx = {
+      company: {
+        findUnique: jest.fn().mockResolvedValue({ isPlatform: false }),
+      },
       product: {
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockResolvedValue({
@@ -846,6 +861,7 @@ describe('SellerProductsService SKU weight validation', () => {
       categoryId: 'category_1',
       origin: { text: '山东烟台' },
       productType: 'BUNDLE',
+      basePrice: 999,
       skus: [{
         specName: '礼盒装',
         cost: 20,
@@ -861,6 +877,7 @@ describe('SellerProductsService SKU weight validation', () => {
 
     const createArg = tx.product.create.mock.calls[0][0];
     expect(createArg.data.type).toBe('BUNDLE');
+    expect(createArg.data.basePrice).toBe(26);
     expect(createArg.data.skus.create).toHaveLength(1);
     expect(createArg.data.skus.create[0]).toMatchObject({
       title: '礼盒装',
@@ -873,6 +890,25 @@ describe('SellerProductsService SKU weight validation', () => {
       { skuId: 'component_sku_1', quantity: 3, sortOrder: 4 },
       { skuId: 'component_sku_2', quantity: 1, sortOrder: 7 },
     ]);
+  });
+
+  it('rejects platform-company writes from seller center', async () => {
+    const { service, tx } = buildBundleCreateService();
+    (tx as any).company = {
+      findUnique: jest.fn().mockResolvedValue({ isPlatform: true }),
+    };
+
+    await expect(service.create('platform-company', {
+      title: '平台奖励商品',
+      description: '平台奖励商品必须通过独立管理入口维护。',
+      categoryId: 'category_1',
+      origin: { text: '深圳' },
+      productType: 'BUNDLE',
+      skus: [{ specName: '奖励规格', cost: 20, stock: 0, weightGram: 1 }],
+      bundleItems: [{ skuId: 'component_sku_1', quantity: 1 }],
+    } as any)).rejects.toThrow('平台奖励商品请使用管理后台');
+
+    expect(tx.product.create).not.toHaveBeenCalled();
   });
 
   it('create rejects BUNDLE product with multiple selling SKUs', async () => {
