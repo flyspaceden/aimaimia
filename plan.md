@@ -2100,7 +2100,7 @@
 - [x] 卖家编辑页区分当前实际售价与保存后售价；管理端非平台普通商品不再允许手填售价；卖家创建不再接受客户端 `basePrice` 覆盖。
 - [x] 修正种子数据自动定价与默认加价率漂移，新增默认 dry-run、执行时强制 `--execute --expected-markup=<当前值> --preview-token=<dry-run token>` 且复用利润安全协调器的 `npm run products:reprice` 一次性修复脚本及前后端回归测试。
 - [x] 两轮独立只读审查完成；最终复核 Critical/High 均为 0。定价相关后端 6 suites / 81 tests、前端契约 4 tests、Prisma validate、backend/admin/seller build、测试 PostgreSQL 批量 SQL 强制回滚演练均通过。全量后端 Jest 为 308 suites 通过、3 suites 失败；失败集中在未修改的支付/团长自动退款与自动确认旧测试桩，已与本次定价 diff 分离，不冒充全绿。
-- [x] 提交 `6df7e37c` 并部署 staging；GitHub Actions run `32053230153` 的 admin / seller / backend 与测试微信配置后置任务全部成功。
+- [x] 提交 `6df7e37c` 并部署 staging；GitHub Actions run `32053230153` 的 admin / seller / backend 与测试微信配置后置任务全部成功。随后发现半分钱舍入边界，提交 `28f02a7e` 改为精确写入预览金额；首次 backend-only run `32054250219` 因服务器 Node 默认 heap OOM 自动健康回滚，提交 `c495df98` / `f232fac6` 设置 4 GiB 构建 heap 并让 workflow 变更自动触发 backend，最终 run `32054810383` 成功部署。
 - [x] staging dry-run：50 个普通商品 / 77 个 SKU，38 个商品 / 64 个 SKU 不一致；完整清单与回滚 SQL 保存为 `pricing-artifacts/staging-reprice-dry-run-20260817.jsonl`。携带 `MARKUP_RATE=1.3` 与 dry-run token 显式执行后更新 64 个 SKU，复验剩余不一致为 0；执行清单保存为 `pricing-artifacts/staging-reprice-execute-20260817.jsonl`。公网 App API 已返回有机番茄 ¥10.40、紫薯 ¥7.80，线上 seller/admin 构建已包含价格核对与确认文案。
-- [x] 生产只读 dry-run 已生成：当前 `MARKUP_RATE=1.35`，17 个普通商品 / 27 个 SKU 全部受影响，其中 25 个涨价、2 个降价；完整新旧价格、preview token 和回滚 SQL 保存为 `pricing-artifacts/production-reprice-dry-run-20260817.jsonl`。生产数据库未写入，公开 API 仍保持原售价。
+- [x] 生产最终代码只读 dry-run 已生成：当前 `MARKUP_RATE=1.35`，17 个普通商品 / 27 个 SKU 全部受影响，其中 25 个涨价、2 个降价；完整新旧价格、preview token 和回滚 SQL 保存为 `pricing-artifacts/production-reprice-dry-run-final-20260817.jsonl`。生产数据库未写入，公开 API 仍保持原售价。
 - [ ] 等用户再次确认生产清单后，才允许把同一 preview token 用于生产执行；未确认前不得推 `main`、不得部署生产代码、不得修改生产价格。
