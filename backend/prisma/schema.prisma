@@ -219,6 +219,17 @@ enum PickupFulfillmentStatus {
   CANCELED
 }
 
+enum PickupPointKind {
+  MERCHANT
+  PLATFORM_HUB
+}
+
+enum PickupPointCoverage {
+  OWNER_COMPANY
+  ALL_ACTIVE_COMPANIES
+  SELECTED_COMPANIES
+}
+
 enum GroupBuyActivityStatus {
   DRAFT
   ACTIVE
@@ -1315,6 +1326,7 @@ model Company {
   virtualCallBindings VirtualCallBinding[] // 虚拟号绑定记录
   shipments           Shipment[]
   pickupPoints        PickupPoint[]
+  pickupPointServices PickupPointServiceCompany[]
 
   creditScore                Int                  @default(100) // 企业信用分（初始100，违规扣减）
   virtualCallRestrictedUntil DateTime?
@@ -1883,6 +1895,8 @@ model Order {
 model PickupPoint {
   id               String    @id @default(cuid())
   companyId        String
+  kind             PickupPointKind @default(MERCHANT)
+  coverage         PickupPointCoverage @default(OWNER_COMPANY)
   name             String    @db.VarChar(100)
   contactName      String    @db.VarChar(50)
   contactPhone     String    @db.VarChar(255)
@@ -1900,9 +1914,23 @@ model PickupPoint {
   updatedAt        DateTime  @updatedAt
 
   company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  serviceCompanies PickupPointServiceCompany[]
   fulfillments PickupFulfillment[]
 
   @@index([companyId, deletedAt, isActive])
+  @@index([kind, coverage, deletedAt, isActive])
+}
+
+model PickupPointServiceCompany {
+  pickupPointId String
+  companyId     String
+  createdAt     DateTime @default(now())
+
+  pickupPoint PickupPoint @relation(fields: [pickupPointId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@id([pickupPointId, companyId])
+  @@index([companyId, pickupPointId])
 }
 
 model PickupFulfillment {

@@ -1,6 +1,8 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsLatitude,
   IsLongitude,
@@ -13,6 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { PickupPointCoverage, PickupPointKind } from '@prisma/client';
 
 const parseBooleanQueryFlag = ({ value, obj, key }: {
   value: unknown;
@@ -96,9 +99,35 @@ export class AdminCreatePickupPointDto extends CreatePickupPointDto {
   @IsNotEmpty()
   @MaxLength(64)
   companyId!: string;
+
+  @IsOptional()
+  @IsEnum(PickupPointKind)
+  kind?: PickupPointKind;
+
+  @IsOptional()
+  @IsEnum(PickupPointCoverage)
+  coverage?: PickupPointCoverage;
+
+  @IsOptional()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  @MaxLength(64, { each: true })
+  serviceCompanyIds?: string[];
 }
 
 export class AdminUpdatePickupPointDto extends UpdatePickupPointDto {
+  @IsOptional()
+  @IsEnum(PickupPointCoverage)
+  coverage?: PickupPointCoverage;
+
+  @IsOptional()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  @MaxLength(64, { each: true })
+  serviceCompanyIds?: string[];
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -140,6 +169,10 @@ export class AdminPickupPointQueryDto {
   @Transform(parseBooleanQueryFlag)
   @IsBoolean()
   isDeleted?: boolean;
+
+  @IsOptional()
+  @IsEnum(PickupPointKind)
+  kind?: PickupPointKind;
 }
 
 export class AdminPickupCompanyOptionQueryDto {

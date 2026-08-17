@@ -65,6 +65,7 @@ const PERMISSIONS = [
   { code: 'pickup_points:create', module: 'pickup_points', action: 'create', description: '创建自提点' },
   { code: 'pickup_points:update', module: 'pickup_points', action: 'update', description: '编辑和启停自提点' },
   { code: 'pickup_points:delete', module: 'pickup_points', action: 'delete', description: '删除和恢复自提点' },
+  { code: 'pickup_fulfillment:operate', module: 'pickup_fulfillment', action: 'operate', description: '平台备货和核销自提订单' },
   { code: 'bonus:read', module: 'bonus', action: 'read', description: '查看会员/奖励' },
   { code: 'bonus:approve_withdraw', module: 'bonus', action: 'approve_withdraw', description: '审批提现' },
   { code: 'bonus:manage_rules', module: 'bonus', action: 'manage_rules', description: '管理提现与抵扣规则' },
@@ -295,7 +296,7 @@ async function main() {
     create: { name: '经理', description: '大部分业务操作权限，无管理员和角色管理权限', isSystem: true },
   });
   const managerPerms = PERMISSIONS
-    .filter((p) => !p.module.startsWith('admin_') && p.module !== 'pickup_points')
+    .filter((p) => !p.module.startsWith('admin_') && p.module !== 'pickup_points' && p.module !== 'pickup_fulfillment')
     .map((p) => p.code);
   for (const code of managerPerms) {
     await prisma.adminRolePermission.upsert({

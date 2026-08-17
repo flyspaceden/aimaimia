@@ -707,13 +707,15 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 
 - 买家：查询指定商家的启用点位、读取本人 `READY` 凭证；普通订单列表/详情只返回自提摘要，不返回明文凭证。
 - 卖家：OWNER/MANAGER 管理本企业点位；有订单权限的员工可标记备货和使用二维码或 8 位短码核销。
-- 管理员：独立 `pickup_points:read/create/update/delete` 权限控制跨企业点位查看、新建、完整编辑/启停、软删除/恢复；`orders:read` 查看履约事件，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款。
+- 管理员：独立 `pickup_points:read/create/update/delete` 权限控制跨企业点位查看、新建、完整编辑/启停、软删除/恢复；平台中心仓由 `PickupPointKind.PLATFORM_HUB` 表示，只能归属平台公司并服务全部正常企业或显式授权企业。`orders:read` 查看履约事件，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款，`pickup_fulfillment:operate` 才可代表平台备货、先解析再核销取货凭证。
 
 ### 17.2 状态与资金一致性
 
 支付成功事务从已验证的 CheckoutSession 快照创建 `Order(PAID)` 与 `PickupFulfillment(PREPARING)`。卖家备货使用 CAS 转为 `READY`；核销在 Serializable 事务中转为 `PICKED_UP`，同时把订单转为 `RECEIVED` 并触发现有确认收货后的可靠副作用。自提订单在顺丰面单、发货、轨迹、微信物流上报和自动确认收货入口全部 fail-closed。
 
 管理端受控取消仅支持 `NORMAL_GOODS + PICKUP + PAID + PREPARING/READY`，并按 CheckoutSession 一致取消全部子订单、作废全部凭证、复用现有退款/库存/红包/消费积分/分润/数字资产回滚链。响应返回 `affectedOrderIds` 和每个子订单的 `refunds[{orderId,refundId,status}]`，页面必须提示仍处于 `PROCESSING/FAILED` 的退款，不得把“已创建退款单”表述成全部到账。
+
+平台中心仓可被多个企业订单同时选择，但不会合并订单或凭证：每个商家订单仍有独立 `PickupFulfillment`、一次性短码/二维码、状态机和退款/收货副作用。企业员工仍仅处理本企业订单；平台管理员的 `ADMIN_READY` / `ADMIN_VERIFIED` 事件和订单历史必须保留真实管理员 ID。
 
 ### 17.3 凭证、隐私与错误契约
 

@@ -24,6 +24,7 @@ const moduleNames: Record<string, string> = {
   products: '商品管理',
   orders: '订单管理',
   pickup_points: '自提点管理',
+  pickup_fulfillment: '平台自提履约',
   companies: '企业管理',
   bonus: '会员奖励',
   digital_assets: '数字资产',

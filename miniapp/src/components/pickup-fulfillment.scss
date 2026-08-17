@@ -35,8 +35,10 @@
 .pickup-point__radio { display: flex; flex: 0 0 20px; align-items: center; justify-content: center; width: 20px; height: 20px; color: #fff; font-size: 10px; background: #fff; border: 1px solid #b8c8b8; border-radius: 50%; }
 .pickup-point--active .pickup-point__radio { background: t.$brand-primary; border-color: t.$brand-primary; }
 .pickup-point__body { flex: 1; min-width: 0; }
-.pickup-point__title text:first-child { color: t.$text-primary; font-size: 12px; font-weight: 700; }
-.pickup-point__title text:last-child { flex: 0 0 auto; padding: 3px 7px; color: t.$ai-start; font-size: 9px; background: t.$ai-soft; border-radius: t.$radius-full; }
+.pickup-point__title-name { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.pickup-point__title-name text:first-child { overflow: hidden; color: t.$text-primary; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.pickup-point__title > text:last-child { flex: 0 0 auto; padding: 3px 7px; color: t.$ai-start; font-size: 9px; background: t.$ai-soft; border-radius: t.$radius-full; }
+.pickup-point__hub-badge { flex: 0 0 auto; padding: 2px 5px; color: #217a3e; font-size: 9px; line-height: 14px; background: #e7f6eb; border-radius: t.$radius-full; }
 .pickup-point__address, .pickup-point__hours, .pickup-point__notice { display: block; margin-top: 4px; color: t.$text-secondary; font-size: 10px; line-height: 16px; }
 .pickup-point__hours { color: t.$brand-primary; }
 .pickup-point__notice { padding-top: 6px; color: t.$text-tertiary; border-top: 1px dashed t.$border; }

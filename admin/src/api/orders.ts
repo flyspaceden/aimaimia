@@ -88,3 +88,14 @@ export const getPickupEvents = (
   orderId: string,
 ): Promise<{ items: PickupFulfillmentEvent[] }> =>
   client.get(`/admin/orders/${orderId}/pickup-events`);
+
+export const markPickupReady = (
+  orderId: string,
+): Promise<{ orderId: string; status: 'READY'; readyAt: string; alreadyReady: boolean }> =>
+  client.post(`/admin/orders/${orderId}/pickup/ready`, {});
+
+export const verifyPickup = (
+  orderId: string,
+  data: { pickupCode: string } | { qrPayload: string },
+): Promise<{ orderId: string; status: 'PICKED_UP'; pickedUpAt: string; alreadyPickedUp: boolean }> =>
+  client.post(`/admin/orders/${orderId}/pickup/verify`, data);

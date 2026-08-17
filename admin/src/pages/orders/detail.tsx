@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Card, Descriptions, Table, Tag, Button, Spin, Breadcrumb, Steps, Alert, Typography, Modal, Form, Input, Space } from 'antd';
 import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
-import { cancelPickupAndRefund, getOrder, getPickupEvents, retryRefund, retryWechatShipping, updateOrderReceiverInfo } from '@/api/orders';
+import { cancelPickupAndRefund, getOrder, getPickupEvents, markPickupReady, retryRefund, retryWechatShipping, updateOrderReceiverInfo, verifyPickup } from '@/api/orders';
 import PermissionGate from '@/components/PermissionGate';
 import BuyerIdentityText from '@/components/BuyerIdentityText';
 import type { OrderItem, PickupFulfillmentEvent, Refund } from '@/types';
@@ -39,6 +39,8 @@ type ReceiverInfoFormValues = {
   regionText: string;
   detail: string;
 };
+
+type PickupVerifyFormValues = { credential: string };
 
 const itemColumns = [
   {
@@ -92,10 +94,14 @@ export default function OrderDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [receiverInfoForm] = Form.useForm<ReceiverInfoFormValues>();
+  const [pickupVerifyForm] = Form.useForm<PickupVerifyFormValues>();
   const [receiverInfoModalOpen, setReceiverInfoModalOpen] = useState(false);
   const [receiverInfoSaving, setReceiverInfoSaving] = useState(false);
   const [wechatShippingRetrying, setWechatShippingRetrying] = useState(false);
   const [pickupCanceling, setPickupCanceling] = useState(false);
+  const [pickupReadySaving, setPickupReadySaving] = useState(false);
+  const [pickupVerifyOpen, setPickupVerifyOpen] = useState(false);
+  const [pickupVerifying, setPickupVerifying] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['admin', 'order', id],
@@ -135,6 +141,48 @@ export default function OrderDetailPage() {
       message.error(getAdminErrorMessage(error, '重试失败'));
     } finally {
       setWechatShippingRetrying(false);
+    }
+  };
+
+  const refreshPickupOrder = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin', 'order', id] }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'order', id, 'pickup-events'] }),
+    ]);
+  };
+
+  const handlePickupReady = async () => {
+    if (!id || pickupReadySaving) return;
+    setPickupReadySaving(true);
+    try {
+      const result = await markPickupReady(id);
+      message.success(result.alreadyReady ? '订单已是待自提状态' : '已标记备货完成，并向买家发送取货提醒');
+      await refreshPickupOrder();
+    } catch (error: unknown) {
+      message.error(getAdminErrorMessage(error, '标记备货完成失败'));
+    } finally {
+      setPickupReadySaving(false);
+    }
+  };
+
+  const submitPickupVerify = async () => {
+    if (!id || pickupVerifying) return;
+    const { credential } = await pickupVerifyForm.validateFields();
+    const normalized = credential.trim();
+    const payload = normalized.startsWith('AIMMPICKUP.')
+      ? { qrPayload: normalized }
+      : { pickupCode: normalized };
+    setPickupVerifying(true);
+    try {
+      const result = await verifyPickup(id, payload);
+      message.success(result.alreadyPickedUp ? '该凭证已完成核销' : '已确认交付并完成核销');
+      setPickupVerifyOpen(false);
+      pickupVerifyForm.resetFields();
+      await refreshPickupOrder();
+    } catch (error: unknown) {
+      message.error(getAdminErrorMessage(error, '核销失败'));
+    } finally {
+      setPickupVerifying(false);
     }
   };
 
@@ -646,21 +694,37 @@ export default function OrderDetailPage() {
         <Card
           title="自提履约信息"
           style={{ marginBottom: 16 }}
-          extra={order.bizType === 'NORMAL_GOODS'
-            && order.status === 'PAID'
-            && (pickup.status === 'PREPARING' || pickup.status === 'READY') ? (
-              <PermissionGate permission={PERMISSIONS.ORDERS_REFUND}>
-                <Button danger loading={pickupCanceling} onClick={handlePickupCancelRefund}>
-                  异常取消并退款
+          extra={<Space wrap>
+            {pickup.status === 'PREPARING' && order.status === 'PAID' ? (
+              <PermissionGate permission={PERMISSIONS.PICKUP_FULFILLMENT_OPERATE}>
+                <Button loading={pickupReadySaving} onClick={handlePickupReady}>
+                  备货完成
                 </Button>
               </PermissionGate>
             ) : null}
+            {pickup.status === 'READY' && order.status === 'PAID' ? (
+              <PermissionGate permission={PERMISSIONS.PICKUP_FULFILLMENT_OPERATE}>
+                <Button type="primary" onClick={() => setPickupVerifyOpen(true)}>
+                  核销取货码
+                </Button>
+              </PermissionGate>
+            ) : null}
+            {order.bizType === 'NORMAL_GOODS'
+              && order.status === 'PAID'
+              && (pickup.status === 'PREPARING' || pickup.status === 'READY') ? (
+                <PermissionGate permission={PERMISSIONS.ORDERS_REFUND}>
+                  <Button danger loading={pickupCanceling} onClick={handlePickupCancelRefund}>
+                    异常取消并退款
+                  </Button>
+                </PermissionGate>
+              ) : null}
+          </Space>}
         >
           <Alert
             type="info"
             showIcon
-            message="管理端只读展示履约凭证状态"
-            description="明文取货码和二维码 token 不会返回管理后台；核销由订单所属商家完成。"
+            message="平台可协助备货和核销"
+            description="平台履约权限与自提点管理、订单查看和发货权限分离。核销时需由买家当面出示一次性短码或二维码，平台不会读取或展示明文凭证。"
             style={{ marginBottom: 16 }}
           />
           {(order.bizType === 'VIP_PACKAGE' || order.bizType === 'GROUP_BUY') && order.status === 'PAID' ? (
@@ -957,6 +1021,48 @@ export default function OrderDetailPage() {
           </Descriptions>
         </Card>
       )}
+
+      <Modal
+        title="确认交付并核销"
+        open={pickupVerifyOpen}
+        onCancel={() => {
+          if (!pickupVerifying) {
+            setPickupVerifyOpen(false);
+            pickupVerifyForm.resetFields();
+          }
+        }}
+        onOk={submitPickupVerify}
+        confirmLoading={pickupVerifying}
+        okText="确认交付并核销"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="核销不可逆"
+          description="请当面核对商品、自提人和取货凭证。核销后订单将变为已收货，并触发关联的售后和奖励状态。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={pickupVerifyForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            name="credential"
+            label="取货码或二维码内容"
+            rules={[
+              { required: true, message: '请输入买家出示的 8 位取货码或扫码内容' },
+              {
+                validator: (_rule, value: string | undefined) => {
+                  const normalized = value?.trim() || '';
+                  if (/^\d{8}$/.test(normalized) || normalized.startsWith('AIMMPICKUP.')) return Promise.resolve();
+                  return Promise.reject(new Error('请输入 8 位取货码，或完整的 AIMMPICKUP 二维码内容'));
+                },
+              },
+            ]}
+          >
+            <Input.TextArea rows={3} maxLength={1000} placeholder="8 位取货码，或扫码枪/摄像头读出的二维码内容" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="修改配送信息"

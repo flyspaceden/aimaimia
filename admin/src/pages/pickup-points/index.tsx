@@ -40,6 +40,9 @@ import { formatPickupBusinessHours, pickupFullAddress } from '@/utils/pickup';
 
 interface PickupPointFormValues {
   companyId: string;
+  kind: 'MERCHANT' | 'PLATFORM_HUB';
+  coverage: 'OWNER_COMPANY' | 'ALL_ACTIVE_COMPANIES' | 'SELECTED_COMPANIES';
+  serviceCompanyIds?: string[];
   name: string;
   contactName: string;
   contactPhone: string;
@@ -78,7 +81,7 @@ export default function PickupPointListPage() {
   const companySearchTimerRef = useRef<number | undefined>(undefined);
   const [form] = Form.useForm<PickupPointFormValues>();
   const [reasonForm] = Form.useForm<LifecycleReasonValues>();
-  const [companyOptions, setCompanyOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const [companyOptions, setCompanyOptions] = useState<Array<{ label: string; value: string; isPlatform: boolean }>>([]);
   const [companyOptionsLoading, setCompanyOptionsLoading] = useState(false);
   const [editing, setEditing] = useState<PickupPoint | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -94,7 +97,7 @@ export default function PickupPointListPage() {
     getPickupPointCompanyOptions()
       .then((response) => {
         setCompanyOptions(
-          response.items.map((company) => ({ label: company.name, value: company.id })),
+          response.items.map((company) => ({ label: company.name, value: company.id, isPlatform: company.isPlatform })),
         );
       })
       .catch(() => {
@@ -118,7 +121,7 @@ export default function PickupPointListPage() {
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ isActive: true });
+    form.setFieldsValue({ isActive: true, kind: 'MERCHANT', coverage: 'OWNER_COMPANY', serviceCompanyIds: [] });
     setFormOpen(true);
   };
 
@@ -133,7 +136,7 @@ export default function PickupPointListPage() {
         setCompanyOptions((current) => {
           const merged = new Map(current.map((option) => [option.value, option]));
           response.items.forEach((company) => {
-            merged.set(company.id, { label: company.name, value: company.id });
+            merged.set(company.id, { label: company.name, value: company.id, isPlatform: company.isPlatform });
           });
           return Array.from(merged.values());
         });
@@ -149,6 +152,9 @@ export default function PickupPointListPage() {
     setEditing(point);
     form.setFieldsValue({
       companyId: point.companyId,
+      kind: point.kind || 'MERCHANT',
+      coverage: point.coverage || 'OWNER_COMPANY',
+      serviceCompanyIds: point.serviceCompanies?.map((company) => company.id) || [],
       name: point.name,
       contactName: point.contactName,
       contactPhone: point.contactPhone,
@@ -184,7 +190,23 @@ export default function PickupPointListPage() {
           : {}),
       },
       pickupNotice: values.pickupNotice?.trim() || '',
-      ...(!editing ? { isActive: values.isActive } : {}),
+      ...(!editing
+        ? {
+            isActive: values.isActive,
+            kind: values.kind,
+            coverage: values.kind === 'PLATFORM_HUB' ? values.coverage : 'OWNER_COMPANY',
+            serviceCompanyIds: values.kind === 'PLATFORM_HUB' && values.coverage === 'SELECTED_COMPANIES'
+              ? values.serviceCompanyIds || []
+              : [],
+          }
+        : values.kind === 'PLATFORM_HUB'
+          ? {
+              coverage: values.coverage,
+              serviceCompanyIds: values.coverage === 'SELECTED_COMPANIES'
+                ? values.serviceCompanyIds || []
+                : [],
+            }
+          : {}),
       location: hasLocation
         ? {
             lng: values.lng!,
@@ -349,6 +371,26 @@ export default function PickupPointListPage() {
       ),
     },
     {
+      title: '点位类型',
+      dataIndex: 'kind',
+      width: 200,
+      valueType: 'select',
+      valueEnum: {
+        MERCHANT: { text: '企业自有' },
+        PLATFORM_HUB: { text: '平台中心仓' },
+      },
+      render: (_, point) => point.kind === 'PLATFORM_HUB' ? (
+        <Space direction="vertical" size={2}>
+          <Tag color="green">平台中心仓</Tag>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {point.coverage === 'ALL_ACTIVE_COMPANIES'
+              ? '全部正常企业可选'
+              : `指定 ${point.serviceCompanies?.length || 0} 家企业`}
+          </Typography.Text>
+        </Space>
+      ) : <Tag>企业自有</Tag>,
+    },
+    {
       title: '地址',
       dataIndex: 'detail',
       width: 300,
@@ -474,7 +516,7 @@ export default function PickupPointListPage() {
         type="info"
         showIcon
         message="平台可跨企业管理自提点"
-        description="新建时必须指定企业；编辑、启停、删除和恢复均受独立权限控制并由后台审计。删除不会覆盖已付款订单中的点位快照，恢复后的点位保持停用，需再次确认后才能启用。"
+        description="企业自有点只服务所属企业。平台中心仓必须归属平台公司，可服务全部正常企业或指定企业；买家结算始终按服务端授权显示。编辑、启停、删除和恢复均受独立权限控制并由后台审计。"
         style={{ marginBottom: 16 }}
       />
       <ProTable<PickupPoint>
@@ -500,7 +542,7 @@ export default function PickupPointListPage() {
         }}
         search={{ labelWidth: 'auto', defaultCollapsed: false }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true, showQuickJumper: true }}
-        scroll={{ x: deletedView ? 1500 : 1300 }}
+        scroll={{ x: deletedView ? 1680 : 1500 }}
         toolBarRender={() => [
           <Segmented
             key="deleted-filter"
@@ -554,6 +596,52 @@ export default function PickupPointListPage() {
               options={companyOptions}
               onSearch={searchCompanyOptions}
             />
+          </Form.Item>
+          <Form.Item
+            name="kind"
+            label="点位类型"
+            rules={[{ required: true, message: '请选择点位类型' }]}
+            extra={editing ? '点位创建后不能在企业自有点和平台中心仓之间转换。' : '平台中心仓只能选择平台公司作为所属企业。'}
+          >
+            <Select
+              disabled={Boolean(editing)}
+              options={[
+                { value: 'MERCHANT', label: '企业自有自提点' },
+                { value: 'PLATFORM_HUB', label: '平台中心仓' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item shouldUpdate noStyle>
+            {() => form.getFieldValue('kind') === 'PLATFORM_HUB' ? <>
+              <Form.Item
+                name="coverage"
+                label="中心仓服务范围"
+                rules={[{ required: true, message: '请选择中心仓服务范围' }]}
+                extra="系统只向获授权企业的订单展示该中心仓；既有已付款订单继续读取下单时冻结的地点快照。"
+              >
+                <Select options={[
+                  { value: 'ALL_ACTIVE_COMPANIES', label: '所有正常经营企业' },
+                  { value: 'SELECTED_COMPANIES', label: '仅指定企业' },
+                ]} />
+              </Form.Item>
+              <Form.Item shouldUpdate noStyle>
+                {() => form.getFieldValue('coverage') === 'SELECTED_COMPANIES' ? <Form.Item
+                  name="serviceCompanyIds"
+                  label="获授权企业"
+                  rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一家企业' }]}
+                >
+                  <Select
+                    mode="multiple"
+                    showSearch
+                    filterOption={false}
+                    loading={companyOptionsLoading}
+                    placeholder="搜索并选择可使用中心仓的企业"
+                    options={companyOptions}
+                    onSearch={searchCompanyOptions}
+                  />
+                </Form.Item> : null}
+              </Form.Item>
+            </> : null}
           </Form.Item>
           <Form.Item
             name="name"

@@ -1219,13 +1219,15 @@ Invoice
 
 - `FulfillmentMode = DELIVERY | PICKUP`；`CheckoutSession.fulfillmentMode` 与 `Order.fulfillmentMode` 默认 `DELIVERY`，历史数据无行为变化。
 - `PickupFulfillmentStatus = PREPARING | READY | PICKED_UP | VOID | CANCELED`。
-- `Company 1—N PickupPoint`；`Order 1—0..1 PickupFulfillment`；`PickupPoint 1—N PickupFulfillment`；`PickupFulfillment 1—N PickupFulfillmentEvent`。
+- `PickupPointKind = MERCHANT | PLATFORM_HUB`；`PickupPointCoverage = OWNER_COMPANY | ALL_ACTIVE_COMPANIES | SELECTED_COMPANIES`。
+- `Company 1—N PickupPoint`；平台中心仓通过 `PickupPointServiceCompany` 与获授权企业多对多关联；`Order 1—0..1 PickupFulfillment`；`PickupPoint 1—N PickupFulfillment`；`PickupFulfillment 1—N PickupFulfillmentEvent`。
 
 ### 7.2 模型口径
 
 | 模型 | 核心字段 | 数据规则 |
 |---|---|---|
-| `PickupPoint` | company、名称、加密联系电话、地区、详细地址、坐标、结构化营业时间、须知、isActive、deletedAt、deletedByAdminId、deleteReason | 企业可启停；平台删除为可审计软删除，恢复后保持停用；历史订单不回查当前文案 |
+| `PickupPoint` | company、kind、coverage、名称、加密联系电话、地区、详细地址、坐标、结构化营业时间、须知、isActive、deletedAt、deletedByAdminId、deleteReason | `MERCHANT` 仅服务所属企业；`PLATFORM_HUB` 必须归属 `isPlatform` 公司，可服务全部正常企业或 `PickupPointServiceCompany` 中的指定企业；停用/撤权只阻止新结算，历史订单读取自身快照 |
+| `PickupPointServiceCompany` | pickupPointId、companyId、createdAt | 仅 `PLATFORM_HUB + SELECTED_COMPANIES` 使用；复合主键保证企业授权不重复，授权由平台后台而非买家/卖家提交 |
 | `CheckoutSession` | fulfillmentMode、nullable addressSnapshot、加密 pickupRecipientSnapshot、pickupSelectionsSnapshot | PICKUP 快照由服务端按最终 SKU 商家集合验证并冻结；支付回调不信任客户端重传 |
 | `PickupFulfillment` | order/pickupPoint unique relation、状态、点位/自提人快照、双 digest、加密凭证 blob、ready/pickedUp/void 信息 | 明文码/token 不单独落库；订单只允许一个自提履约 |
 | `PickupFulfillmentEvent` | from/to、eventType、actor、meta、createdAt | append-only；状态变更、管理员作废和买家凭证读取均不记录明文凭证 |
@@ -1233,7 +1235,7 @@ Invoice
 ### 7.3 索引与删除策略
 
 - `CheckoutSession`、`Order` 按 `(fulfillmentMode,status,createdAt)` 建索引。
-- `PickupPoint` 按 `(companyId,deletedAt,isActive)` 建索引；`PickupFulfillment` 按 `(pickupPointId,status,readyAt)` 与 `(status,createdAt)` 建索引；事件按履约/时间和类型/时间建索引。
+- `PickupPoint` 按 `(companyId,deletedAt,isActive)` 与 `(kind,coverage,deletedAt,isActive)` 建索引；`PickupPointServiceCompany` 按 `(companyId,pickupPointId)` 建索引；`PickupFulfillment` 按 `(pickupPointId,status,readyAt)` 与 `(status,createdAt)` 建索引；事件按履约/时间和类型/时间建索引。
 - 点位、履约和事件关系均使用 `onDelete: Restrict`；平台点位删除写 `deletedAt`，取消与退款通过状态和事件表达，不物理删除点位、凭证或历史快照。
 - migration `20260814010000_add_pickup_fulfillment` 在历史 CheckoutSession/Order 上回填 `DELIVERY`，不为历史订单伪造自提履约。
 

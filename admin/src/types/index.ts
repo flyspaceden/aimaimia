@@ -1549,6 +1549,9 @@ export type PickupFulfillmentStatus =
   | 'VOID'
   | 'CANCELED';
 
+export type PickupPointKind = 'MERCHANT' | 'PLATFORM_HUB';
+export type PickupPointCoverage = 'OWNER_COMPANY' | 'ALL_ACTIVE_COMPANIES' | 'SELECTED_COMPANIES';
+
 export interface PickupBusinessHours {
   summary?: string;
   holidayNotice?: string;
@@ -1565,7 +1568,10 @@ export interface PickupPointLocation {
 export interface PickupPoint {
   id: string;
   companyId: string;
-  company?: { id: string; name: string } | null;
+  company?: { id: string; name: string; isPlatform?: boolean } | null;
+  kind: PickupPointKind;
+  coverage: PickupPointCoverage;
+  serviceCompanies?: Array<{ id: string; name: string }>;
   name: string;
   contactName: string;
   contactPhone: string;

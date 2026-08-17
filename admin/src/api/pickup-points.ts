@@ -3,6 +3,8 @@ import type {
   PaginatedData,
   PickupBusinessHours,
   PickupPoint,
+  PickupPointCoverage,
+  PickupPointKind,
   PickupPointLocation,
 } from '@/types';
 
@@ -17,6 +19,9 @@ export interface PickupPointPayload {
   businessHours: PickupBusinessHours;
   pickupNotice?: string;
   isActive?: boolean;
+  kind?: PickupPointKind;
+  coverage?: PickupPointCoverage;
+  serviceCompanyIds?: string[];
 }
 
 export interface AdminPickupPointQuery {
@@ -25,11 +30,13 @@ export interface AdminPickupPointQuery {
   companyId?: string;
   isActive?: boolean;
   isDeleted?: boolean;
+  kind?: PickupPointKind;
 }
 
 export interface PickupPointCompanyOption {
   id: string;
   name: string;
+  isPlatform: boolean;
 }
 
 export const getPickupPoints = (

@@ -104,7 +104,7 @@ export function PickupSelectionPanel({
         return <View className={selected ? 'pickup-point pickup-point--active' : 'pickup-point'} key={point.id} onClick={() => onSelect(group.companyId, point.id)}>
           <View className='pickup-point__radio'>{selected ? '✓' : ''}</View>
           <View className='pickup-point__body'>
-            <View className='pickup-point__title'><Text>{point.name}</Text><Text onClick={(event) => { event.stopPropagation(); void openPickupPoint(point); }}>导航</Text></View>
+            <View className='pickup-point__title'><View className='pickup-point__title-name'><Text>{point.name}</Text>{point.isPlatformHub ? <Text className='pickup-point__hub-badge'>平台中心仓</Text> : null}</View><Text onClick={(event) => { event.stopPropagation(); void openPickupPoint(point); }}>导航</Text></View>
             <Text className='pickup-point__address'>{point.regionText} {point.detail}</Text>
             <Text className='pickup-point__hours'>{formatPickupBusinessHours(point.businessHours)}</Text>
             {point.pickupNotice ? <Text className='pickup-point__notice'>{point.pickupNotice}</Text> : null}

@@ -24,6 +24,7 @@ describe('PickupService', () => {
 
   it('严格校验每个商家的启用自提点归属', async () => {
     const tx = {
+      company: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }, { id: 'c2' }]) },
       pickupPoint: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -81,6 +82,7 @@ describe('PickupService', () => {
 
   it('结算时自提点不存在或已停用返回结构化刷新码', async () => {
     const tx = {
+      company: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
       pickupPoint: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const { service } = createService({});
@@ -95,6 +97,63 @@ describe('PickupService', () => {
         code: 'PICKUP_POINT_UNAVAILABLE',
         message: '所选自提点不存在或已停用',
       },
+    });
+  });
+
+  it('允许多个企业选择同一平台中心仓，但每个企业仍保留独立 selection 快照', async () => {
+    const hub = {
+      id: 'hub-1', companyId: 'platform-1', kind: 'PLATFORM_HUB', coverage: 'ALL_ACTIVE_COMPANIES',
+      isActive: true, name: '爱买买中心仓', contactName: '仓管', contactPhone: '13812345678',
+      regionCode: '440305', regionText: '广东省深圳市南山区', detail: '中心仓 1 号',
+      businessHours: { summary: '09:00-18:00' }, serviceCompanies: [],
+      company: { id: 'platform-1', name: '爱买买app', status: 'ACTIVE', isPlatform: true },
+    };
+    const tx = {
+      company: { findMany: jest.fn().mockResolvedValue([{ id: 'merchant-a' }, { id: 'merchant-b' }]) },
+      pickupPoint: { findMany: jest.fn().mockResolvedValue([hub]) },
+    };
+    const { service } = createService({});
+
+    const result = await service.validateCheckoutFulfillment(tx as any, ['merchant-a', 'merchant-b'], {
+      mode: 'PICKUP', recipientName: '王五', recipientPhone: '13712345678',
+      selections: [
+        { companyId: 'merchant-a', pickupPointId: 'hub-1' },
+        { companyId: 'merchant-b', pickupPointId: 'hub-1' },
+      ],
+    });
+
+    expect(result.mode).toBe('PICKUP');
+    if (result.mode === 'PICKUP') {
+      expect(result.selectionsSnapshot).toHaveLength(2);
+      expect(result.selectionsSnapshot.map((selection) => selection.pickupPointId)).toEqual(['hub-1', 'hub-1']);
+      expect(result.selectionsSnapshot.map((selection) => selection.companyId)).toEqual(['merchant-a', 'merchant-b']);
+    }
+  });
+
+  it('买家只能看见本企业自有点和明确服务本企业的平台中心仓', async () => {
+    const prisma = {
+      company: { findMany: jest.fn().mockResolvedValue([{ id: 'c1', name: '商家一' }, { id: 'c2', name: '商家二' }]) },
+      pickupPoint: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'own-c1', companyId: 'c1', kind: 'MERCHANT', name: '商家一门店', contactName: '甲', contactPhone: encryptText('13812345678'), regionText: '深圳', detail: '1号', businessHours: {} },
+          { id: 'hub-all', companyId: 'platform', kind: 'PLATFORM_HUB', coverage: 'ALL_ACTIVE_COMPANIES', name: '中心仓', contactName: '乙', contactPhone: encryptText('13912345678'), regionText: '深圳', detail: '2号', businessHours: {}, company: { isPlatform: true }, serviceCompanies: [] },
+          { id: 'hub-c2', companyId: 'platform', kind: 'PLATFORM_HUB', coverage: 'SELECTED_COMPANIES', name: '二号专仓', contactName: '丙', contactPhone: encryptText('13712345678'), regionText: '深圳', detail: '3号', businessHours: {}, company: { isPlatform: true }, serviceCompanies: [{ companyId: 'c2' }] },
+        ]),
+      },
+    };
+    const { service } = createService(prisma);
+
+    await expect(service.listBuyerPoints(['c1', 'c2'])).resolves.toEqual({
+      items: [
+        expect.objectContaining({ companyId: 'c1', points: expect.arrayContaining([
+          expect.objectContaining({ id: 'own-c1', isPlatformHub: false }),
+          expect.objectContaining({ id: 'hub-all', isPlatformHub: true }),
+        ]) }),
+        expect.objectContaining({ companyId: 'c2', points: expect.arrayContaining([
+          expect.objectContaining({ id: 'hub-all', isPlatformHub: true }),
+          expect.objectContaining({ id: 'hub-c2', isPlatformHub: true }),
+        ]) }),
+      ],
     });
   });
 
@@ -133,6 +192,31 @@ describe('PickupService', () => {
     expect(credentials.pickupToken.length).toBeGreaterThan(20);
     expect(serialized).not.toContain(credentials.pickupCode);
     expect(serialized).not.toContain(credentials.pickupToken);
+  });
+
+  it('平台管理员可在不冒充企业员工的情况下标记备货完成，并保留真实审计主体', async () => {
+    const tx = {
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'pf1', status: 'PREPARING', readyAt: null,
+          order: { id: 'o1', fulfillmentMode: 'PICKUP', status: 'PAID', items: [{ companyId: 'merchant-1' }] },
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pickupFulfillmentEvent: { create: jest.fn().mockResolvedValue({ id: 'event-1' }) },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service, notificationService } = createService(prisma);
+
+    await expect(service.markReadyByAdmin('admin-1', 'o1')).resolves.toEqual(expect.objectContaining({
+      orderId: 'o1', status: 'READY', alreadyReady: false,
+    }));
+    expect(tx.pickupFulfillmentEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: 'ADMIN_READY', actorType: 'ADMIN', actorId: 'admin-1' }),
+    }));
+    expect(notificationService.emit).toHaveBeenCalledWith(expect.objectContaining({
+      actor: { kind: 'admin', id: 'admin-1' },
+    }), expect.anything());
   });
 
   it('生产环境缺少凭证 secret 时在建凭证前 fail closed', async () => {
@@ -297,9 +381,11 @@ describe('PickupService', () => {
 
     await service.listBuyerPoints(['c1']);
     expect(prisma.company.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({
-        pickupPoints: expect.objectContaining({ where: { isActive: true, deletedAt: null } }),
-      }),
+      where: { id: { in: ['c1'] }, status: 'ACTIVE' },
+      select: { id: true, name: true },
+    }));
+    expect(prisma.pickupPoint.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ isActive: true, deletedAt: null }),
     }));
 
     await service.listSellerPoints('c1');
@@ -347,6 +433,23 @@ describe('PickupService', () => {
     expect(auditPayload).not.toContain('张三');
   });
 
+  it('拒绝把普通企业点位伪装成平台中心仓', async () => {
+    const tx = {
+      company: { findFirst: jest.fn().mockResolvedValue({ id: 'merchant-1', isPlatform: false }) },
+      pickupPoint: { create: jest.fn() },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service } = createService(prisma);
+
+    await expect(service.createAdminPoint({
+      companyId: 'merchant-1', kind: 'PLATFORM_HUB', coverage: 'ALL_ACTIVE_COMPANIES',
+      name: '冒名中心仓', contactName: '张三', contactPhone: '13812345678',
+      regionCode: '110000', regionText: '北京市', detail: '朝阳区 1 号',
+      businessHours: { summary: '09:00-18:00' },
+    }, { adminUserId: 'admin1' })).rejects.toThrow('平台中心仓必须归属平台公司');
+    expect(tx.pickupPoint.create).not.toHaveBeenCalled();
+  });
+
   it('平台列表默认隐藏已删除点位，并可单独筛选回收站', async () => {
     const prisma = {
       pickupPoint: {
@@ -380,7 +483,7 @@ describe('PickupService', () => {
     });
     expect(prisma.company.findMany).toHaveBeenCalledWith({
       where: { status: 'ACTIVE', name: { contains: '商家', mode: 'insensitive' } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, isPlatform: true },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       take: 200,
     });

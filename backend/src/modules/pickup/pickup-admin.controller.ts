@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
+import { AuditLog } from '../admin/common/decorators/audit-action';
 import { CurrentAdmin } from '../admin/common/decorators/current-admin';
 import { RequirePermission } from '../admin/common/decorators/require-permission';
 import { AdminAuthGuard } from '../admin/common/guards/admin-auth.guard';
@@ -23,6 +25,7 @@ import {
   AdminPickupPointReasonDto,
   AdminUpdatePickupPointDto,
 } from './dto/pickup-point.dto';
+import { VerifyPickupDto } from './dto/pickup-verify.dto';
 import { AdminPointAuditContext, PickupService } from './pickup.service';
 
 @Public()
@@ -122,5 +125,59 @@ export class PickupAdminOrderController {
   @Get(':id/pickup-events')
   events(@Param('id') id: string) {
     return this.pickupService.listAdminEvents(id);
+  }
+
+  @RequirePermission('pickup_fulfillment:operate')
+  @Post(':id/pickup/ready')
+  @AuditLog({ action: 'UPDATE', module: 'pickup', targetType: 'Order', targetIdParam: 'params.id' })
+  ready(
+    @Param('id') id: string,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.pickupService.markReadyByAdmin(adminUserId, id);
+  }
+
+  @RequirePermission('pickup_fulfillment:operate')
+  @Post(':id/pickup/verify')
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @AuditLog({ action: 'UPDATE', module: 'pickup', targetType: 'Order', targetIdParam: 'params.id' })
+  verify(
+    @Param('id') id: string,
+    @CurrentAdmin('sub') adminUserId: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickupService.verifyByAdmin(adminUserId, id, dto);
+  }
+}
+
+/**
+ * Platform warehouse station. Resolve and verify are intentionally split so a
+ * scanned token cannot transition an order before the operator confirms it.
+ */
+@Public()
+@UseGuards(AdminAuthGuard, PermissionGuard)
+@Controller('admin/pickup')
+export class PickupAdminVerificationController {
+  constructor(private readonly pickupService: PickupService) {}
+
+  @RequirePermission('pickup_fulfillment:operate')
+  @Post('resolve')
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 15 } })
+  resolve(
+    @CurrentAdmin('sub') adminUserId: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickupService.resolveCredentialByAdmin(adminUserId, dto);
+  }
+
+  @RequirePermission('pickup_fulfillment:operate')
+  @Post('verify')
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 5 } })
+  @AuditLog({ action: 'UPDATE', module: 'pickup', targetType: 'Order' })
+  verify(
+    @CurrentAdmin('sub') adminUserId: string,
+    @Body() dto: VerifyPickupDto,
+  ) {
+    return this.pickupService.verifyCredentialByAdmin(adminUserId, dto);
   }
 }

@@ -17,6 +17,8 @@ export type PickupPointLocation = {
 export type PickupPoint = {
   id: string;
   companyId: string;
+  kind?: 'MERCHANT' | 'PLATFORM_HUB';
+  isPlatformHub?: boolean;
   name: string;
   contactName: string;
   contactPhoneMasked: string;

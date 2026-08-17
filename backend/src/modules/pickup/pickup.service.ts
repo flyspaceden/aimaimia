@@ -10,7 +10,12 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma, PickupFulfillmentStatus } from '@prisma/client';
+import {
+  Prisma,
+  PickupFulfillmentStatus,
+  PickupPointCoverage,
+  PickupPointKind,
+} from '@prisma/client';
 import {
   createHmac,
   randomBytes,
@@ -54,6 +59,10 @@ type ValidatedPickupSelection = {
   pickupPointId: string;
   pickupPointSnapshot: Record<string, unknown>;
 };
+
+type PickupOperationActor =
+  | { actorType: 'SELLER_STAFF'; actorId: string; companyId: string }
+  | { actorType: 'ADMIN'; actorId: string };
 
 export type ValidatedFulfillment =
   | { mode: 'DELIVERY'; addressId: string }
@@ -128,24 +137,27 @@ export class PickupService implements OnModuleInit {
       throw new BadRequestException('请为每个商家的商品选择自提点');
     }
 
-    const pointIds = relevantSelections.map((item) => item.pickupPointId);
-    if (pointIds.length !== new Set(pointIds).size) {
-      const duplicateAcrossCompanies = relevantSelections.some(
-        (item, index) => relevantSelections.findIndex((other) => other.pickupPointId === item.pickupPointId) !== index,
-      );
-      if (duplicateAcrossCompanies) {
-        throw new BadRequestException({
-          code: 'PICKUP_POINT_MISMATCH',
-          message: '自提点与商家归属不匹配',
-        });
-      }
+    const activeCompanies = await tx.company.findMany({
+      where: { id: { in: expectedCompanyIds }, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (activeCompanies.length !== expectedCompanyIds.length) {
+      throw new BadRequestException({
+        code: 'PICKUP_POINT_MISMATCH',
+        message: '商家不可用，无法选择自提点',
+      });
     }
+
+    const pointIds = [...new Set(relevantSelections.map((item) => item.pickupPointId))];
 
     const points = await tx.pickupPoint.findMany({
       where: { id: { in: pointIds }, isActive: true, deletedAt: null },
-      include: { company: { select: { id: true, name: true, status: true } } },
+      include: {
+        company: { select: { id: true, name: true, status: true, isPlatform: true } },
+        serviceCompanies: { select: { companyId: true } },
+      },
     });
-    if (points.length !== relevantSelections.length) {
+    if (points.length !== pointIds.length) {
       throw new BadRequestException({
         code: 'PICKUP_POINT_UNAVAILABLE',
         message: '所选自提点不存在或已停用',
@@ -155,10 +167,10 @@ export class PickupService implements OnModuleInit {
     const pointMap = new Map(points.map((point) => [point.id, point]));
     const selectionsSnapshot = relevantSelections.map((selection) => {
       const point = pointMap.get(selection.pickupPointId);
-      if (!point || point.companyId !== selection.companyId || point.company.status !== 'ACTIVE') {
+      if (!point || point.company.status !== 'ACTIVE' || !this.pointServesCompany(point, selection.companyId)) {
         throw new BadRequestException({
           code: 'PICKUP_POINT_MISMATCH',
-          message: '自提点与商家归属不匹配或商家不可用',
+          message: '自提点未获该企业授权或商家不可用',
         });
       }
       return {
@@ -186,14 +198,33 @@ export class PickupService implements OnModuleInit {
     }
     const companies = await this.prisma.company.findMany({
       where: { id: { in: ids }, status: 'ACTIVE' },
-      select: {
-        id: true,
-        name: true,
-        pickupPoints: {
-          where: { isActive: true, deletedAt: null },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        },
+      select: { id: true, name: true },
+    });
+    const activeCompanyIds = companies.map((company) => company.id);
+    const points = await this.prisma.pickupPoint.findMany({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        OR: [
+          { kind: PickupPointKind.MERCHANT, companyId: { in: activeCompanyIds } },
+          {
+            kind: PickupPointKind.PLATFORM_HUB,
+            coverage: PickupPointCoverage.ALL_ACTIVE_COMPANIES,
+            company: { isPlatform: true, status: 'ACTIVE' },
+          },
+          {
+            kind: PickupPointKind.PLATFORM_HUB,
+            coverage: PickupPointCoverage.SELECTED_COMPANIES,
+            company: { isPlatform: true, status: 'ACTIVE' },
+            serviceCompanies: { some: { companyId: { in: activeCompanyIds } } },
+          },
+        ],
       },
+      include: {
+        company: { select: { id: true, isPlatform: true } },
+        serviceCompanies: { select: { companyId: true } },
+      },
+      orderBy: [{ kind: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
     const companyMap = new Map(companies.map((company) => [company.id, company]));
     return {
@@ -202,7 +233,9 @@ export class PickupService implements OnModuleInit {
         return {
           companyId,
           companyName: company?.name ?? '',
-          points: (company?.pickupPoints ?? []).map((point) => this.mapPointForBuyer(point)),
+          points: points
+            .filter((point) => Boolean(company) && this.pointServesCompany(point, companyId))
+            .map((point) => this.mapPointForBuyer(point)),
         };
       }),
     };
@@ -240,11 +273,15 @@ export class PickupService implements OnModuleInit {
       deletedAt: query.isDeleted ? { not: null } : null,
       ...(query.companyId ? { companyId: query.companyId } : {}),
       ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      ...(query.kind ? { kind: query.kind } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.pickupPoint.findMany({
         where,
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
         orderBy: [{ createdAt: 'desc' }],
         skip: (safePage - 1) * safePageSize,
         take: safePageSize,
@@ -268,11 +305,63 @@ export class PickupService implements OnModuleInit {
           ? { name: { contains: normalizedKeyword, mode: 'insensitive' as const } }
           : {}),
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, isPlatform: true },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       take: 200,
     });
     return { items };
+  }
+
+  /** Validate point ownership and the explicit companies a platform hub serves. */
+  private async resolvePlatformHubConfig(
+    tx: Tx,
+    input: {
+      owner: { id: string; isPlatform: boolean };
+      kind?: PickupPointKind;
+      coverage?: PickupPointCoverage;
+      serviceCompanyIds?: string[];
+    },
+  ) {
+    const kind = input.kind ?? PickupPointKind.MERCHANT;
+    const coverage = input.coverage ?? PickupPointCoverage.OWNER_COMPANY;
+    const suppliedCompanyIds = [...new Set(
+      (input.serviceCompanyIds ?? []).map((value) => value.trim()).filter(Boolean),
+    )];
+    if (kind === PickupPointKind.MERCHANT) {
+      if (coverage !== PickupPointCoverage.OWNER_COMPANY || suppliedCompanyIds.length) {
+        throw new BadRequestException('企业自有自提点不能配置中心仓服务范围');
+      }
+      return {
+        kind: PickupPointKind.MERCHANT,
+        coverage: PickupPointCoverage.OWNER_COMPANY,
+        serviceCompanyIds: [],
+      };
+    }
+
+    if (!input.owner.isPlatform) {
+      throw new BadRequestException('平台中心仓必须归属平台公司');
+    }
+    if (coverage === PickupPointCoverage.OWNER_COMPANY) {
+      throw new BadRequestException('平台中心仓必须服务全部企业或指定企业');
+    }
+    if (coverage === PickupPointCoverage.ALL_ACTIVE_COMPANIES) {
+      if (suppliedCompanyIds.length) {
+        throw new BadRequestException('服务全部企业时不能同时指定企业名单');
+      }
+      return { kind: PickupPointKind.PLATFORM_HUB, coverage, serviceCompanyIds: [] };
+    }
+
+    const serviceCompanyIds = [...new Set([input.owner.id, ...suppliedCompanyIds])];
+    if (serviceCompanyIds.length === 0) {
+      throw new BadRequestException('请至少选择一个可使用中心仓的企业');
+    }
+    const activeCount = await tx.company.count({
+      where: { id: { in: serviceCompanyIds }, status: 'ACTIVE' },
+    });
+    if (activeCount !== serviceCompanyIds.length) {
+      throw new BadRequestException('中心仓服务企业必须全部为正常经营状态');
+    }
+    return { kind: PickupPointKind.PLATFORM_HUB, coverage, serviceCompanyIds };
   }
 
   async createSellerPoint(companyId: string, dto: CreatePickupPointDto) {
@@ -315,17 +404,39 @@ export class PickupService implements OnModuleInit {
   }
 
   async createAdminPoint(dto: AdminCreatePickupPointDto, audit: AdminPointAuditContext) {
-    const { companyId, ...pointDto } = dto;
+    const {
+      companyId,
+      kind = PickupPointKind.MERCHANT,
+      coverage,
+      serviceCompanyIds,
+      ...pointDto
+    } = dto;
     return this.prisma.$transaction(async (tx) => {
       const company = await tx.company.findFirst({
         where: { id: companyId, status: 'ACTIVE' },
-        select: { id: true },
+        select: { id: true, isPlatform: true },
       });
       if (!company) throw new BadRequestException('只能为正常经营的企业创建自提点');
+      const hubConfig = await this.resolvePlatformHubConfig(tx, {
+        owner: company,
+        kind,
+        coverage,
+        serviceCompanyIds,
+      });
 
       const point = await tx.pickupPoint.create({
-        data: this.pickupPointCreateData(companyId, pointDto),
-        include: { company: { select: { id: true, name: true } } },
+        data: {
+          ...this.pickupPointCreateData(companyId, pointDto),
+          kind: hubConfig.kind,
+          coverage: hubConfig.coverage,
+          ...(hubConfig.serviceCompanyIds.length
+            ? { serviceCompanies: { create: hubConfig.serviceCompanyIds.map((serviceCompanyId) => ({ companyId: serviceCompanyId })) } }
+            : {}),
+        },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       await this.writeAdminPointAudit(tx, {
         action: 'CREATE',
@@ -341,28 +452,52 @@ export class PickupService implements OnModuleInit {
     dto: AdminUpdatePickupPointDto,
     audit: AdminPointAuditContext,
   ) {
-    const { reason, ...pointDto } = dto;
+    const { reason, coverage, serviceCompanyIds, ...pointDto } = dto;
     const updateData = this.pickupPointUpdateData(pointDto);
-    if (Object.keys(updateData).length === 0) {
+    const updatesHubConfiguration = coverage !== undefined || serviceCompanyIds !== undefined;
+    if (Object.keys(updateData).length === 0 && !updatesHubConfiguration) {
       throw new BadRequestException('至少需要修改一个自提点字段');
     }
 
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.pickupPoint.findUnique({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { select: { companyId: true } },
+        },
       });
       if (!current) throw new NotFoundException('自提点不存在');
       if (current.deletedAt) throw new ConflictException('已删除的自提点需要先恢复');
+      const hubConfig = await this.resolvePlatformHubConfig(tx, {
+        owner: current.company,
+        kind: current.kind,
+        coverage: coverage ?? current.coverage,
+        serviceCompanyIds: serviceCompanyIds ?? (current.serviceCompanies ?? []).map((item) => item.companyId),
+      });
 
       const updated = await tx.pickupPoint.updateMany({
         where: { id: pointId, deletedAt: null, updatedAt: current.updatedAt },
-        data: updateData as Prisma.PickupPointUpdateManyMutationInput,
+        data: {
+          ...updateData,
+          ...(updatesHubConfiguration ? { coverage: hubConfig.coverage, updatedAt: new Date() } : {}),
+        } as Prisma.PickupPointUpdateManyMutationInput,
       });
       if (updated.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
+      if (updatesHubConfiguration) {
+        await tx.pickupPointServiceCompany.deleteMany({ where: { pickupPointId: pointId } });
+        if (hubConfig.serviceCompanyIds.length) {
+          await tx.pickupPointServiceCompany.createMany({
+            data: hubConfig.serviceCompanyIds.map((companyId) => ({ pickupPointId: pointId, companyId })),
+          });
+        }
+      }
       const point = await tx.pickupPoint.findUniqueOrThrow({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       await this.writeAdminPointAudit(tx, {
         action: 'UPDATE',
@@ -382,7 +517,10 @@ export class PickupService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.pickupPoint.findUnique({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       if (!current) throw new NotFoundException('自提点不存在');
       if (current.deletedAt) {
@@ -402,7 +540,10 @@ export class PickupService implements OnModuleInit {
       if (deleted.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
       const point = await tx.pickupPoint.findUniqueOrThrow({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       await this.writeAdminPointAudit(tx, {
         action: 'DELETE',
@@ -422,7 +563,10 @@ export class PickupService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.pickupPoint.findUnique({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       if (!current) throw new NotFoundException('自提点不存在');
       if (!current.deletedAt) {
@@ -441,7 +585,10 @@ export class PickupService implements OnModuleInit {
       if (restored.count !== 1) throw new ConflictException('自提点已被其他管理员修改，请刷新后重试');
       const point = await tx.pickupPoint.findUniqueOrThrow({
         where: { id: pointId },
-        include: { company: { select: { id: true, name: true } } },
+        include: {
+          company: { select: { id: true, name: true, isPlatform: true } },
+          serviceCompanies: { include: { company: { select: { id: true, name: true } } } },
+        },
       });
       await this.writeAdminPointAudit(tx, {
         action: 'UPDATE',
@@ -475,11 +622,11 @@ export class PickupService implements OnModuleInit {
 
     const point = await tx.pickupPoint.findUnique({
       where: { id: selection.pickupPointId },
-      select: { id: true, companyId: true },
+      select: { id: true },
     });
     // 支付前 checkout 已校验 isActive 并锁定快照。支付后点位被停用只影响
     // 新结算，不能让已扣款回调因配置变更而建单失败。
-    if (!point || point.companyId !== params.companyId) {
+    if (!point) {
       throw new BadRequestException('结算会话自提点归属异常');
     }
 
@@ -512,6 +659,14 @@ export class PickupService implements OnModuleInit {
   }
 
   async markReady(companyId: string, staffId: string, orderId: string) {
+    return this.markReadyForActor({ actorType: 'SELLER_STAFF', actorId: staffId, companyId }, orderId);
+  }
+
+  async markReadyByAdmin(adminUserId: string, orderId: string) {
+    return this.markReadyForActor({ actorType: 'ADMIN', actorId: adminUserId }, orderId);
+  }
+
+  private async markReadyForActor(actor: PickupOperationActor, orderId: string) {
     return this.withSerializableRetry(async (tx) => {
       const fulfillment = await tx.pickupFulfillment.findUnique({
         where: { orderId },
@@ -520,9 +675,9 @@ export class PickupService implements OnModuleInit {
       if (!fulfillment || fulfillment.order.fulfillmentMode !== 'PICKUP') {
         throw new NotFoundException('自提订单不存在');
       }
-      this.assertSellerOwnsOrder(fulfillment.order, companyId);
+      this.assertActorCanOperateOrder(fulfillment.order, actor);
       if (fulfillment.status === 'READY') {
-        await this.emitReadyOutbox(tx, orderId, staffId);
+        await this.emitReadyOutbox(tx, orderId, actor);
         return {
           orderId,
           status: 'READY' as const,
@@ -544,28 +699,36 @@ export class PickupService implements OnModuleInit {
           fulfillmentId: fulfillment.id,
           fromStatus: 'PREPARING',
           toStatus: 'READY',
-          eventType: 'SELLER_READY',
-          actorType: 'SELLER_STAFF',
-          actorId: staffId,
+          eventType: actor.actorType === 'ADMIN' ? 'ADMIN_READY' : 'SELLER_READY',
+          actorType: actor.actorType,
+          actorId: actor.actorId,
         },
       });
-      await this.emitReadyOutbox(tx, orderId, staffId);
+      await this.emitReadyOutbox(tx, orderId, actor);
       return { orderId, status: 'READY' as const, readyAt: now, alreadyReady: false };
     });
   }
 
-  private emitReadyOutbox(tx: Tx, orderId: string, staffId: string) {
+  private emitReadyOutbox(tx: Tx, orderId: string, actor: PickupOperationActor) {
     return this.notificationService.emit({
       eventType: 'order.pickupReady',
       aggregateType: 'order',
       aggregateId: orderId,
       idempotencyKey: `order.pickup_ready:${orderId}`,
-      actor: { kind: 'seller', id: staffId },
+      actor: { kind: actor.actorType === 'ADMIN' ? 'admin' : 'seller', id: actor.actorId },
       payload: { orderId },
     }, tx as any);
   }
 
   async verify(companyId: string, staffId: string, orderId: string, dto: VerifyPickupDto) {
+    return this.verifyForActor({ actorType: 'SELLER_STAFF', actorId: staffId, companyId }, orderId, dto);
+  }
+
+  async verifyByAdmin(adminUserId: string, orderId: string, dto: VerifyPickupDto) {
+    return this.verifyForActor({ actorType: 'ADMIN', actorId: adminUserId }, orderId, dto);
+  }
+
+  private async verifyForActor(actor: PickupOperationActor, orderId: string, dto: VerifyPickupDto) {
     this.assertExactlyOneCredential(dto);
     const result = await this.withSerializableRetry(async (tx) => {
       const fulfillment = await tx.pickupFulfillment.findUnique({
@@ -575,7 +738,7 @@ export class PickupService implements OnModuleInit {
       if (!fulfillment || fulfillment.order.fulfillmentMode !== 'PICKUP') {
         throw new NotFoundException('自提订单不存在');
       }
-      this.assertSellerOwnsOrder(fulfillment.order, companyId);
+      this.assertActorCanOperateOrder(fulfillment.order, actor);
       if (fulfillment.status === 'PICKED_UP' && fulfillment.order.status === 'RECEIVED') {
         return {
           order: fulfillment.order,
@@ -606,7 +769,7 @@ export class PickupService implements OnModuleInit {
       );
       const pickupCas = await tx.pickupFulfillment.updateMany({
         where: { id: fulfillment.id, status: 'READY' },
-        data: { status: 'PICKED_UP', pickedUpAt: now, pickedUpByStaffId: staffId },
+        data: { status: 'PICKED_UP', pickedUpAt: now, pickedUpByStaffId: actor.actorId },
       });
       if (pickupCas.count !== 1) throw new ConflictException('取货凭证已被核销');
       const orderCas = await tx.order.updateMany({
@@ -624,9 +787,9 @@ export class PickupService implements OnModuleInit {
           fulfillmentId: fulfillment.id,
           fromStatus: 'READY',
           toStatus: 'PICKED_UP',
-          eventType: 'SELLER_VERIFIED',
-          actorType: 'SELLER_STAFF',
-          actorId: staffId,
+          eventType: actor.actorType === 'ADMIN' ? 'ADMIN_VERIFIED' : 'SELLER_VERIFIED',
+          actorType: actor.actorType,
+          actorId: actor.actorId,
         },
       });
       await tx.orderStatusHistory.create({
@@ -634,8 +797,8 @@ export class PickupService implements OnModuleInit {
           orderId,
           fromStatus: 'PAID',
           toStatus: 'RECEIVED',
-          reason: '卖家核销自提凭证',
-          meta: { pickupFulfillmentId: fulfillment.id, staffId },
+          reason: actor.actorType === 'ADMIN' ? '平台管理员核销自提凭证' : '卖家核销自提凭证',
+          meta: { pickupFulfillmentId: fulfillment.id, actorType: actor.actorType, actorId: actor.actorId },
         },
       });
       const receivedCount = await tx.order.count({
@@ -665,12 +828,20 @@ export class PickupService implements OnModuleInit {
    * 绝不把短码/二维码内容返回给浏览器，也不把它们写进事件或日志。
    */
   async resolveCredential(companyId: string, dto: VerifyPickupDto) {
+    return this.resolveCredentialForActor({ actorType: 'SELLER_STAFF', actorId: '', companyId }, dto);
+  }
+
+  async resolveCredentialByAdmin(adminUserId: string, dto: VerifyPickupDto) {
+    return this.resolveCredentialForActor({ actorType: 'ADMIN', actorId: adminUserId }, dto);
+  }
+
+  private async resolveCredentialForActor(actor: PickupOperationActor, dto: VerifyPickupDto) {
     this.assertExactlyOneCredential(dto);
     const fulfillment = await this.findFulfillmentForCredential(this.prisma, dto, true);
     if (!fulfillment || fulfillment.order.fulfillmentMode !== 'PICKUP') {
       throw new NotFoundException('取货凭证不存在或已失效');
     }
-    this.assertSellerOwnsOrder(fulfillment.order, companyId);
+    this.assertActorCanOperateOrder(fulfillment.order, actor);
     const alreadyPickedUp = fulfillment.status === 'PICKED_UP' && fulfillment.order.status === 'RECEIVED';
     if (!alreadyPickedUp) {
       if (fulfillment.status !== 'READY' || fulfillment.order.status !== 'PAID') {
@@ -688,6 +859,11 @@ export class PickupService implements OnModuleInit {
   async verifyCredential(companyId: string, staffId: string, dto: VerifyPickupDto) {
     const preview = await this.resolveCredential(companyId, dto);
     return this.verify(companyId, staffId, preview.orderId, dto);
+  }
+
+  async verifyCredentialByAdmin(adminUserId: string, dto: VerifyPickupDto) {
+    const preview = await this.resolveCredentialByAdmin(adminUserId, dto);
+    return this.verifyByAdmin(adminUserId, preview.orderId, dto);
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
@@ -1030,11 +1206,43 @@ export class PickupService implements OnModuleInit {
     return JSON.parse(JSON.stringify(safeValue)) as Prisma.JsonValue;
   }
 
+  /**
+   * A platform hub is discoverable only for companies in its declared coverage.
+   * This guard is shared by buyer discovery and server-side checkout validation;
+   * the client may never turn a platform-owned point into a cross-company point.
+   */
+  private pointServesCompany(point: {
+    companyId: string;
+    kind?: PickupPointKind;
+    coverage?: PickupPointCoverage;
+    company?: { isPlatform: boolean };
+    serviceCompanies?: Array<{ companyId: string }>;
+  }, companyId: string) {
+    const kind = point.kind ?? PickupPointKind.MERCHANT;
+    if (kind === PickupPointKind.MERCHANT) return point.companyId === companyId;
+    if (!point.company?.isPlatform) return false;
+    const coverage = point.coverage ?? PickupPointCoverage.OWNER_COMPANY;
+    if (coverage === PickupPointCoverage.ALL_ACTIVE_COMPANIES) return true;
+    if (coverage === PickupPointCoverage.SELECTED_COMPANIES) {
+      return Boolean(point.serviceCompanies?.some((item) => item.companyId === companyId));
+    }
+    return false;
+  }
+
   private assertSellerOwnsOrder(order: any, companyId: string) {
     const companyIds = new Set((order.items ?? []).map((item: any) => item.companyId).filter(Boolean));
     if (companyIds.size !== 1 || !companyIds.has(companyId)) {
       throw new NotFoundException('自提订单不存在');
     }
+  }
+
+  private assertActorCanOperateOrder(order: any, actor: PickupOperationActor) {
+    if (actor.actorType === 'SELLER_STAFF') {
+      this.assertSellerOwnsOrder(order, actor.companyId);
+    }
+    // ADMIN is gated by pickup_fulfillment:operate at the controller. The
+    // service deliberately does not infer this authority from point ownership,
+    // shipping permission, or a broad order-read capability.
   }
 
   private assertExactlyOneCredential(dto: VerifyPickupDto) {
@@ -1192,6 +1400,7 @@ export class PickupService implements OnModuleInit {
     return {
       id: point.id,
       companyId: point.companyId,
+      kind: point.kind ?? PickupPointKind.MERCHANT,
       name: point.name,
       contactName: point.contactName,
       contactPhone: point.contactPhone,
@@ -1209,6 +1418,8 @@ export class PickupService implements OnModuleInit {
     return {
       id: point.id,
       companyId: point.companyId,
+      kind: point.kind ?? PickupPointKind.MERCHANT,
+      isPlatformHub: (point.kind ?? PickupPointKind.MERCHANT) === PickupPointKind.PLATFORM_HUB,
       name: point.name,
       contactName: this.maskName(point.contactName),
       contactPhoneMasked: this.maskPhone(phone),
@@ -1224,6 +1435,8 @@ export class PickupService implements OnModuleInit {
     return {
       id: point.id,
       companyId: point.companyId,
+      kind: point.kind ?? PickupPointKind.MERCHANT,
+      coverage: point.coverage ?? PickupPointCoverage.OWNER_COMPANY,
       name: point.name,
       contactName: point.contactName,
       contactPhone: decryptText(point.contactPhone) ?? '',
@@ -1243,6 +1456,10 @@ export class PickupService implements OnModuleInit {
     return {
       ...this.mapPointForOwner(point),
       company: point.company ?? null,
+      serviceCompanies: (point.serviceCompanies ?? []).map((item: any) => ({
+        id: item.company?.id ?? item.companyId,
+        name: item.company?.name ?? '',
+      })),
       deletedAt: point.deletedAt ?? null,
       deletedByAdminId: point.deletedByAdminId ?? null,
       deleteReason: point.deleteReason ?? null,
@@ -1255,6 +1472,8 @@ export class PickupService implements OnModuleInit {
     return {
       id: point.id ?? null,
       companyId: point.companyId ?? null,
+      kind: point.kind ?? PickupPointKind.MERCHANT,
+      isPlatformHub: (point.kind ?? PickupPointKind.MERCHANT) === PickupPointKind.PLATFORM_HUB,
       name: point.name ?? '',
       contactName: this.maskName(point.contactName ?? ''),
       contactPhoneMasked: this.maskPhone(phone),
