@@ -371,6 +371,23 @@ jobs:
 
             echo "═══ 4. Prisma generate + migrate deploy（主库 + 配送库）═══"
             npx prisma generate
+            # 2026-08-17: P3018 was recorded for this exact staging migration
+            # after PostgreSQL rolled its SQL back. Recover only this known
+            # record; any other migration-status error remains fail-closed.
+            set +e
+            MIGRATION_STATUS=$(npx prisma migrate status 2>&1)
+            MIGRATION_STATUS_CODE=$?
+            set -e
+            if [ "$MIGRATION_STATUS_CODE" -ne 0 ]; then
+              if [ "$BRANCH" = "staging" ] && printf '%s' "$MIGRATION_STATUS" | grep -Fq '20260816010000_add_platform_hub_pickup_points'; then
+                echo "═══ 恢复已回滚的 staging 自提迁移记录 ═══"
+                npx prisma migrate resolve --rolled-back 20260816010000_add_platform_hub_pickup_points
+              else
+                printf '%s\n' "$MIGRATION_STATUS"
+                echo "❌ Prisma migration 状态异常，拒绝继续部署"
+                exit "$MIGRATION_STATUS_CODE"
+              fi
+            fi
             npx prisma migrate deploy
             npx prisma generate --schema prisma-delivery/schema.prisma
             npx prisma migrate deploy --schema prisma-delivery/schema.prisma
