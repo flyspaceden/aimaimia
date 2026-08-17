@@ -337,15 +337,45 @@ jobs:
               return 1
             }
 
+            run_npm_ci() {
+              registry="$1"
+              retries="$2"
+              fetch_timeout="$3"
+              attempt_timeout="$4"
+              label="$5"
+              echo "npm_install_attempt=$label registry=$registry started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              if npm_config_registry="$registry" \
+                npm_config_replace_registry_host=always \
+                npm_config_fetch_retries="$retries" \
+                npm_config_fetch_retry_mintimeout=5000 \
+                npm_config_fetch_retry_maxtimeout=30000 \
+                npm_config_fetch_timeout="$fetch_timeout" \
+                  timeout --signal=TERM --kill-after=30s "$attempt_timeout" \
+                  npm ci --no-audit --no-fund --timing --loglevel=notice; then
+                echo "npm_install_attempt=$label completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                return 0
+              else
+                status=$?
+                echo "npm_install_attempt=$label failed_status=$status failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                return "$status"
+              fi
+            }
+
             install_backend_dependencies() {
               echo "npm_install_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              npm_config_fetch_retries=2 \
-              npm_config_fetch_retry_mintimeout=10000 \
-              npm_config_fetch_retry_maxtimeout=60000 \
-              npm_config_fetch_timeout=120000 \
-                timeout --signal=TERM --kill-after=30s 15m \
-                npm ci --no-audit --no-fund --timing --loglevel=notice
-              echo "npm_install_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              if run_npm_ci "https://registry.npmjs.org" 0 45000 3m official; then
+                echo "npm_install_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ) registry=official"
+                return 0
+              fi
+              echo "npm_install_fallback=registry.npmmirror.com"
+              if run_npm_ci "https://registry.npmmirror.com" 2 120000 12m mirror; then
+                echo "npm_install_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ) registry=mirror"
+                return 0
+              else
+                status=$?
+                echo "npm_install_failed_status=$status failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                return "$status"
+              fi
             }
 
             rollback_backend() {
@@ -358,8 +388,8 @@ jobs:
                 git reset --hard "$PREVIOUS_SHA"
                 cd backend
                 install_backend_dependencies \
-                  && npx prisma generate \
-                  && npx prisma generate --schema prisma-delivery/schema.prisma \
+                  && npx --no-install prisma generate \
+                  && npx --no-install prisma generate --schema prisma-delivery/schema.prisma \
                   && npm run build \
                   && pm2 reload "$PM2_NAME" --update-env \
                   && health_check
@@ -386,10 +416,10 @@ jobs:
             install_backend_dependencies
 
             echo "═══ 4. Prisma generate + migrate deploy（主库 + 配送库）═══"
-            npx prisma generate
-            npx prisma migrate deploy
-            npx prisma generate --schema prisma-delivery/schema.prisma
-            npx prisma migrate deploy --schema prisma-delivery/schema.prisma
+            npx --no-install prisma generate
+            npx --no-install prisma migrate deploy
+            npx --no-install prisma generate --schema prisma-delivery/schema.prisma
+            npx --no-install prisma migrate deploy --schema prisma-delivery/schema.prisma
 
             echo "═══ 5. 构建 ═══"
             npm run build
