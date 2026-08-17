@@ -1,7 +1,9 @@
 import client from './client';
 import type {
   CaptainSeafoodConfig,
+  ConfigUpdateResult,
   ConfigVersion,
+  MarkupRepricePreview,
   PaginatedData,
   PaginationParams,
   ProfitSafetySummary,
@@ -20,7 +22,9 @@ export const getConfig = (key: string): Promise<RuleConfig> =>
 export const updateConfig = (key: string, data: {
   value: unknown;
   changeNote?: string;
-}): Promise<RuleConfig> =>
+  repriceExisting?: boolean;
+  markupPreviewToken?: string;
+}): Promise<ConfigUpdateResult> =>
   client.put(`/admin/config/${key}`, data);
 
 /**
@@ -31,8 +35,14 @@ export const updateConfig = (key: string, data: {
 export const batchUpdateConfig = (data: {
   updates: Array<{ key: string; value: unknown }>;
   changeNote?: string;
-}): Promise<{ ok: boolean; version: string; updated: number }> =>
+  repriceExisting?: boolean;
+  markupPreviewToken?: string;
+}): Promise<ConfigUpdateResult> =>
   client.put('/admin/config/batch', data);
+
+/** 加价率变更对现有普通商品的实时影响预览 */
+export const previewMarkupReprice = (markupRate: number): Promise<MarkupRepricePreview> =>
+  client.post('/admin/config/markup-reprice-preview', { markupRate });
 
 /** 当前配置在全部买家/邀请人组合下的服务器利润安全状态 */
 export const getProfitSafetySummary = (): Promise<ProfitSafetySummary> =>
@@ -55,5 +65,13 @@ export const getConfigVersion = (id: string): Promise<ConfigVersion> =>
   client.get(`/admin/config/versions/${id}`);
 
 /** 回滚到指定版本 */
-export const rollbackConfigVersion = (id: string): Promise<RuleConfig> =>
-  client.post(`/admin/config/versions/${id}/rollback`);
+export const rollbackConfigVersion = (
+  id: string,
+): Promise<ConfigUpdateResult> =>
+  client.post(`/admin/config/versions/${id}/rollback`, {});
+
+export const rollbackConfigVersionWithPricing = (
+  id: string,
+  data?: { repriceExisting?: boolean; markupPreviewToken?: string },
+): Promise<ConfigUpdateResult> =>
+  client.post(`/admin/config/versions/${id}/rollback`, data ?? {});

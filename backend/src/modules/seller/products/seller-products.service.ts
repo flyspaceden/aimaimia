@@ -119,6 +119,21 @@ export class SellerProductsService {
     return product;
   }
 
+  private assertSellerManagedProduct(product: { company?: { isPlatform?: boolean } | null }) {
+    if (product.company?.isPlatform === true) {
+      throw new ForbiddenException('平台奖励商品请使用管理后台的奖励商品入口维护');
+    }
+  }
+
+  private async assertSellerManagedCompany(reader: any, companyId: string) {
+    const company = await reader.company.findUnique({
+      where: { id: companyId },
+      select: { isPlatform: true },
+    });
+    if (!company) throw new NotFoundException('企业不存在');
+    this.assertSellerManagedProduct({ company });
+  }
+
   private async loadLockedMarkupRate(tx: Prisma.TransactionClient): Promise<number> {
     const row = await tx.ruleConfig.findUnique({
       where: { key: 'MARKUP_RATE' },
@@ -683,9 +698,9 @@ export class SellerProductsService {
     // 自动定价：售价 = 成本 × markupRate
     // markupRate 在事务内读取，防止 TOCTOU 竞态（读取后被管理员修改导致定价不一致）
     // 事务结果赋值给 product 变量，以便事务提交后触发异步语义填充
-    const product = await this.prisma.$transaction(async (tx) => {
-      const sysConfig = await this.bonusConfig.getSystemConfig();
-      const markupRate = sysConfig.markupRate;
+    const product = await this.profitSafety.withSafetyLock(async (tx) => {
+      await this.assertSellerManagedCompany(tx, companyId);
+      const markupRate = await this.loadLockedMarkupRate(tx);
       const bundleState = this.isBundleType(productType)
         ? await this.buildBundleState(tx, companyId, dto.bundleItems, { requireItems: true })
         : null;
@@ -710,7 +725,7 @@ export class SellerProductsService {
           // 基准价取所有 SKU 自动售价中的最低价
           basePrice: this.isBundleType(productType)
             ? bundlePrice
-            : (dto.basePrice ?? Math.min(...skuPrices)),
+            : Math.min(...skuPrices),
           cost: minCost,
           categoryId: dto.categoryId,
           type: productType,
@@ -834,7 +849,7 @@ export class SellerProductsService {
       });
 
       return product;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      });
 
     // 事务提交后异步触发 AI 语义填充（fire-and-forget）
     this.semanticFillService.fillProduct(product.id).catch((err: Error) => {
@@ -852,6 +867,7 @@ export class SellerProductsService {
     });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    this.assertSellerManagedProduct(product);
     if (product.status === 'DRAFT') {
       throw new BadRequestException('草稿商品请使用草稿更新接口');
     }
@@ -948,7 +964,7 @@ export class SellerProductsService {
         if (dto.skus.length !== 1) {
           throw new BadRequestException('组合商品必须且只能保留一个销售规格');
         }
-        markupRate ??= (await this.bonusConfig.getSystemConfig()).markupRate;
+        markupRate ??= await this.loadLockedMarkupRate(tx);
         bundleCost = dto.skus[0].cost;
         bundlePrice = +(bundleCost * markupRate).toFixed(2);
       }
@@ -959,7 +975,8 @@ export class SellerProductsService {
           title: dto.title,
           subtitle: dto.subtitle,
           description: dto.description,
-          basePrice: bundlePrice ?? dto.basePrice,
+          // 普通商品的 basePrice 只能由 SKU 自动售价汇总，不能接受客户端覆盖。
+          basePrice: this.isBundleType(productType) ? bundlePrice : undefined,
           cost: bundleCost,
           categoryId: dto.categoryId,
           // 计量单位：DTO 提供则更新，否则保持原值（undefined 不写）
@@ -1126,6 +1143,7 @@ export class SellerProductsService {
     });
     if (!candidateProduct) throw new NotFoundException('商品不存在');
     if (candidateProduct.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    this.assertSellerManagedProduct(candidateProduct);
     if (candidateProduct.status === 'DRAFT') {
       throw new BadRequestException('草稿商品需先提交审核后才能上下架');
     }
@@ -1189,10 +1207,14 @@ export class SellerProductsService {
   async remove(companyId: string, productId: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      include: { skus: { select: { id: true } } },
+      include: {
+        company: { select: { isPlatform: true } },
+        skus: { select: { id: true } },
+      },
     });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    this.assertSellerManagedProduct(product);
     // 草稿可直接删除；其他状态必须先下架
     if (product.status !== 'INACTIVE' && product.status !== 'DRAFT') {
       throw new BadRequestException('请先下架商品后再删除');
@@ -1290,6 +1312,7 @@ export class SellerProductsService {
   async updateSkus(companyId: string, productId: string, skus: SkuItemDto[]) {
     const initialProduct = await this.loadProfitSafetyProduct(this.prisma, productId);
     if (initialProduct.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    this.assertSellerManagedProduct(initialProduct);
 
     // 服务层兜底校验：所有 SKU 成本必须大于 0
     for (const sku of skus) {
@@ -1382,27 +1405,6 @@ export class SellerProductsService {
         }
       }
 
-      // 更新商品基准价为最低 SKU 售价 + 触发重新审核（如需）
-      const allActiveSkus = await tx.productSKU.findMany({
-        where: { productId, status: 'ACTIVE' },
-        select: { price: true },
-      });
-      const productUpdateData: Prisma.ProductUncheckedUpdateInput = {};
-      if (allActiveSkus.length > 0) {
-        productUpdateData.basePrice = Math.min(...allActiveSkus.map((s) => s.price));
-      }
-      if (needReAudit) {
-        productUpdateData.auditStatus = 'PENDING';
-        productUpdateData.auditNote = null;
-        productUpdateData.submissionCount = { increment: 1 };
-      }
-      if (Object.keys(productUpdateData).length > 0) {
-        await tx.product.update({
-          where: { id: productId },
-          data: productUpdateData,
-        });
-      }
-
       // 删除不再需要的 SKU（注意：有关联 OrderItem 的不能删除）
       const toDelete = [...existingIds].filter((id) => !newSkuIds.has(id));
       if (toDelete.length > 0) {
@@ -1424,6 +1426,28 @@ export class SellerProductsService {
         await tx.productSKU.updateMany({
           where: { id: { in: toDelete } },
           data: { status: 'INACTIVE' },
+        });
+      }
+
+      // 必须在停用已删除规格之后再汇总，否则删除最低价规格会留下旧 basePrice。
+      const allActiveSkus = await tx.productSKU.findMany({
+        where: { productId, status: 'ACTIVE' },
+        select: { price: true, cost: true },
+      });
+      const productUpdateData: Prisma.ProductUncheckedUpdateInput = {};
+      if (allActiveSkus.length > 0) {
+        productUpdateData.basePrice = Math.min(...allActiveSkus.map((s) => s.price));
+        productUpdateData.cost = Math.min(...allActiveSkus.map((s) => s.cost));
+      }
+      if (needReAudit) {
+        productUpdateData.auditStatus = 'PENDING';
+        productUpdateData.auditNote = null;
+        productUpdateData.submissionCount = { increment: 1 };
+      }
+      if (Object.keys(productUpdateData).length > 0) {
+        await tx.product.update({
+          where: { id: productId },
+          data: productUpdateData,
         });
       }
 
@@ -1492,6 +1516,7 @@ export class SellerProductsService {
     const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
     return this.prisma.$transaction(
       async (tx) => {
+        await this.assertSellerManagedCompany(tx, companyId);
         const draftCount = await tx.product.count({
           where: { companyId, status: 'DRAFT' },
         });
@@ -1598,10 +1623,12 @@ export class SellerProductsService {
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({
         where: { id: productId },
+        include: { company: { select: { isPlatform: true } } },
       });
       if (!product) throw new NotFoundException('商品不存在');
       if (product.companyId !== companyId)
         throw new ForbiddenException('无权操作该商品');
+      this.assertSellerManagedProduct(product);
       if (product.status !== 'DRAFT')
         throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
       this.assertNoTypeConversion(product.type, dto.productType);
@@ -1721,6 +1748,7 @@ export class SellerProductsService {
     });
     if (!candidateProduct) throw new NotFoundException('商品不存在');
     if (candidateProduct.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    this.assertSellerManagedProduct(candidateProduct);
     if (candidateProduct.status !== 'DRAFT') {
       throw new BadRequestException('该商品非草稿状态，不能提交');
     }

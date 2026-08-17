@@ -56,8 +56,13 @@ function createHarness() {
     validateSnapshotRatios: jest.fn(),
     invalidateCache: jest.fn(),
   };
+  const resolvedChanges: any[] = [];
   const profitSafety: any = {
-    withCandidateChange: jest.fn(async (_change: any, write: any) => ({
+    resolvedChanges,
+    withCandidateChange: jest.fn(async (change: any, write: any) => {
+      const resolvedChange = typeof change === 'function' ? await change(tx) : change;
+      resolvedChanges.push(resolvedChange);
+      return {
       result: await write(tx, {
         candidateSnapshot: completeSnapshot(),
         candidateSkus: [],
@@ -67,7 +72,8 @@ function createHarness() {
       candidateSkus: [],
       summary: fourScenarioSummary,
       ruleVersion: { id: 'rv-1', version: 'profit-safety-v1' },
-    })),
+    };
+    }),
     preview: jest.fn().mockResolvedValue(fourScenarioSummary),
     previewContext: jest.fn().mockResolvedValue({
       candidateSnapshot: completeSnapshot(),
@@ -76,12 +82,20 @@ function createHarness() {
     }),
     getCurrentSummary: jest.fn().mockResolvedValue(fourScenarioSummary),
   };
+  const productPricing: any = {
+    buildMarkupRepricePlan: jest.fn(),
+    assertMarkupRepriceConfirmed: jest.fn(),
+    applyMarkupReprice: jest.fn(),
+    previewMarkupReprice: jest.fn(),
+    previewMarkupRepricePlan: jest.fn().mockResolvedValue({ profitSafetySkus: [] }),
+  };
   return {
     tx,
     prisma,
     bonusConfig,
     profitSafety,
-    service: new AdminConfigService(prisma, bonusConfig, profitSafety),
+    productPricing,
+    service: new AdminConfigService(prisma, bonusConfig, profitSafety, productPricing),
   };
 }
 
@@ -94,11 +108,11 @@ describe('AdminConfigService profit safety coordination', () => {
       changeNote: '调整奖励',
     }, 'admin-1');
 
-    expect(profitSafety.withCandidateChange).toHaveBeenCalledWith(expect.objectContaining({
+    expect(profitSafety.resolvedChanges[0]).toEqual(expect.objectContaining({
       ruleUpdates: { VIP_REWARD_PERCENT: 0.3 },
       createdByAdminId: 'admin-1',
       changeNote: '调整奖励',
-    }), expect.any(Function));
+    }));
     expect(tx.ruleConfig.upsert).toHaveBeenCalledWith({
       where: { key: 'VIP_REWARD_PERCENT' },
       update: { value: { value: 0.3, description: 'VIP奖励' } },
@@ -139,13 +153,55 @@ describe('AdminConfigService profit safety coordination', () => {
       changeNote: '联动调整',
     }, 'admin-1');
 
-    expect(profitSafety.withCandidateChange).toHaveBeenCalledWith(expect.objectContaining({
+    expect(profitSafety.resolvedChanges[0]).toEqual(expect.objectContaining({
       ruleUpdates: { VIP_PLATFORM_PERCENT: 0.49, VIP_REWARD_PERCENT: 0.31 },
-    }), expect.any(Function));
+    }));
     expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(2);
     expect(bonusConfig.validateSnapshotRatios).toHaveBeenCalledTimes(1);
     expect(bonusConfig.invalidateCache).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true, version: 'profit-safety-v1', updated: 2 });
+  });
+
+  it('requires a matching preview and reprices seller SKUs in the same markup update', async () => {
+    const { service, tx, productPricing, profitSafety } = createHarness();
+    const preview = {
+      currentMarkupRate: 1.3,
+      nextMarkupRate: 1.35,
+      affectedSkuCount: 2,
+      previewToken: 'token-1',
+    };
+    const plan = { preview, items: [], profitSafetySkus: [{ id: 'sku-1' }] };
+    productPricing.buildMarkupRepricePlan.mockResolvedValue(plan);
+    productPricing.applyMarkupReprice.mockResolvedValue(preview);
+
+    const result = await service.update('MARKUP_RATE', {
+      value: { value: 1.35, description: '加价率' },
+      repriceExisting: true,
+      markupPreviewToken: 'token-1',
+    }, 'admin-1');
+
+    expect(productPricing.assertMarkupRepriceConfirmed).toHaveBeenCalledWith(
+      plan,
+      true,
+      'token-1',
+    );
+    expect(profitSafety.resolvedChanges[0]).toEqual(expect.objectContaining({
+      ruleUpdates: { MARKUP_RATE: 1.35 },
+      skuUpserts: plan.profitSafetySkus,
+    }));
+    expect(tx.ruleConfig.upsert).toHaveBeenCalledTimes(1);
+    expect(productPricing.applyMarkupReprice).toHaveBeenCalledWith(tx, plan);
+    expect(result).toMatchObject({ ok: true, markupReprice: preview });
+  });
+
+  it('delegates markup impact preview without writing configuration', async () => {
+    const { service, productPricing, profitSafety } = createHarness();
+    productPricing.previewMarkupReprice.mockResolvedValue({ affectedSkuCount: 3 });
+
+    await expect(service.previewMarkupReprice(1.35)).resolves.toEqual({ affectedSkuCount: 3 });
+
+    expect(productPricing.previewMarkupReprice).toHaveBeenCalledWith(1.35);
+    expect(profitSafety.withCandidateChange).not.toHaveBeenCalled();
   });
 
   it('rejects a reward release window shorter than the quality after-sale window', async () => {
@@ -209,14 +265,48 @@ describe('AdminConfigService profit safety coordination', () => {
 
     const result = await service.rollbackToVersion('safe-version', 'admin-1');
 
-    expect(profitSafety.withCandidateChange).toHaveBeenCalledWith(expect.objectContaining({
+    expect(profitSafety.resolvedChanges[0]).toEqual(expect.objectContaining({
       replaceRuleSnapshot: snapshot,
       createdByAdminId: 'admin-1',
-    }), expect.any(Function));
+    }));
     expect(tx.ruleConfig.deleteMany).toHaveBeenCalledTimes(1);
     expect(tx.ruleConfig.create).toHaveBeenCalledTimes(snapshot ? Object.keys(snapshot).length : 0);
     expect(bonusConfig.invalidateCache).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true, version: 'profit-safety-v1' });
+  });
+
+  it('reprices products when a version rollback restores a different markup rate', async () => {
+    const { service, prisma, productPricing } = createHarness();
+    const snapshot = { ...completeSnapshot(), MARKUP_RATE: 1.2 };
+    prisma.ruleVersion.findUnique.mockResolvedValue({
+      id: 'safe-version',
+      version: 'safe-v1',
+      isComplete: true,
+      snapshot,
+    });
+    const preview = {
+      currentMarkupRate: 1.3,
+      nextMarkupRate: 1.2,
+      affectedSkuCount: 1,
+      previewToken: 'rollback-token',
+    };
+    const plan = { preview, items: [], profitSafetySkus: [{ id: 'sku-1' }] };
+    productPricing.buildMarkupRepricePlan.mockResolvedValue(plan);
+    productPricing.applyMarkupReprice.mockResolvedValue(preview);
+
+    const result = await service.rollbackToVersion('safe-version', 'admin-1', {
+      repriceExisting: true,
+      markupPreviewToken: 'rollback-token',
+    });
+
+    expect(productPricing.assertMarkupRepriceConfirmed).toHaveBeenCalledWith(
+      plan,
+      true,
+      'rollback-token',
+    );
+    expect(productPricing.previewMarkupRepricePlan).toHaveBeenCalledWith(1.2);
+    expect(productPricing.applyMarkupReprice).toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, markupReprice: preview });
   });
 
   it('returns four-scenario current and preview safety summaries with final snapshot validation', async () => {

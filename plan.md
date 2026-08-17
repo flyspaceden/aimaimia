@@ -1921,3 +1921,16 @@
 - [x] **AA15** 客服/公告第二轮审查：转人工入队不再等待最长 10 秒 AI 摘要，摘要异步回填；转接提示统一落库且只广播一次；App 仅在会话 Socket 房间未就绪时轮询，断线自动恢复；Socket 鉴权账号/会话查询并行；AI 回复纳入会话未读；重要公告在 App 显示“重要”。后端客服测试 15 套件 228/228、通知相关 21/21、客服/公告源码契约 40/40、App Jest 104/104、后端全量 Jest 2164/2164 通过；并补齐 2 个过期的订单/售后测试夹具。
 - [x] **AA16** 公告具体商品跳转与消息中心治理：管理后台新增买家可见商品分页搜索选择器，公告用 `PRODUCT_DETAIL + productId` 跳转 App 商品详情，预览/发布双重校验商品仍为上架且审核通过；App 消息中心“清空筛选”改为分类与仅未读状态一次原子重置，并扩大 Android 触控区域；新增按收件人隔离的消息软删除，支持左滑单条删除、5 秒撤销、清空已读和二次确认清空全部，未读数排除已删除消息；时间改为本地友好格式。App Jest 113/113、根目录契约测试 191/191、后端 2172/2172 通过（2 项既有用例跳过）。
 - [x] **AA17** 消息详情与互动筛选修复：列表点击统一进入消息详情，目标页面改由详情按钮二次跳转；详情 API 按当前买家隔离；主动客服邀请改为 `service` 并迁移历史错分数据；移除容易与删除混淆的筛选重置按钮，筛选摘要显示当前分类；列表增加“消息向左滑动删除”提示。App Jest 118/118、源码/法律契约 194/194、后端 2537/2537 通过（5 项既有用例跳过），App 类型检查、Android export、后端构建和 Prisma 校验通过。
+
+## 商品自动定价一致性（2026-08-17）
+
+- [x] 定位测试 `cost=8 / price=18` 与生产当前加价率 1.35、在售 SKU 仍按 1.30 落库的根因；确认后台列表、App 和结算读取同一 `ProductSKU.price`。
+- [x] 新增统一 `ProductPricingService`：价格舍入、事务内加价率读取、影响预览 token、普通商品批量重算、`Product.basePrice/cost` 汇总。
+- [x] 平台设置修改 / 版本回滚 `MARKUP_RATE` 前展示影响清单，确认后与 SKU 价格在同一利润安全 Serializable 事务内更新；审计日志禁止绕过预览单项回滚加价率。
+- [x] 卖家编辑页区分当前实际售价与保存后售价；管理端非平台普通商品不再允许手填售价；卖家创建不再接受客户端 `basePrice` 覆盖。
+- [x] 修正种子数据自动定价与默认加价率漂移，新增默认 dry-run、执行时强制 `--execute --expected-markup=<当前值> --preview-token=<dry-run token>` 且复用利润安全协调器的 `npm run products:reprice` 一次性修复脚本及前后端回归测试。
+- [x] 两轮独立只读审查完成；最终复核 Critical/High 均为 0。定价相关后端 6 suites / 81 tests、前端契约 4 tests、Prisma validate、backend/admin/seller build、测试 PostgreSQL 批量 SQL 强制回滚演练均通过。全量后端 Jest 为 308 suites 通过、3 suites 失败；失败集中在未修改的支付/团长自动退款与自动确认旧测试桩，已与本次定价 diff 分离，不冒充全绿。
+- [x] 提交 `6df7e37c` 并部署 staging；GitHub Actions run `32053230153` 的 admin / seller / backend 与测试微信配置后置任务全部成功。随后发现半分钱舍入边界，提交 `28f02a7e` 改为精确写入预览金额；首次 backend-only run `32054250219` 因服务器 Node 默认 heap OOM 自动健康回滚，提交 `c495df98` / `f232fac6` 设置 4 GiB 构建 heap 并让 workflow 变更自动触发 backend，最终 run `32054810383` 成功部署。
+- [x] staging dry-run：50 个普通商品 / 77 个 SKU，38 个商品 / 64 个 SKU 不一致；完整清单与回滚 SQL 保存为 `pricing-artifacts/staging-reprice-dry-run-20260817.jsonl`。携带 `MARKUP_RATE=1.3` 与 dry-run token 显式执行后更新 64 个 SKU，复验剩余不一致为 0；执行清单保存为 `pricing-artifacts/staging-reprice-execute-20260817.jsonl`。公网 App API 已返回有机番茄 ¥10.40、紫薯 ¥7.80，线上 seller/admin 构建已包含价格核对与确认文案。
+- [x] 生产最终代码只读 dry-run 已生成：当前 `MARKUP_RATE=1.35`，17 个普通商品 / 27 个 SKU 全部受影响，其中 25 个涨价、2 个降价；完整新旧价格、preview token 和回滚 SQL 保存为 `pricing-artifacts/production-reprice-dry-run-final-20260817.jsonl`。生产数据库未写入，公开 API 仍保持原售价。
+- [ ] 用户已确认生产发布和 27 个 SKU 按 1.35 重算；当前正在将定价修复窄范围合入 `main`，完成生产部署、token 复验、原子执行和公网验证后才标记完成。

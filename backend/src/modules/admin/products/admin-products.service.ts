@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductBundleService } from '../../product/product-bundle.service';
+import { ProductPricingService } from '../../product/product-pricing.service';
 import { ProfitSafetyService } from '../../profit/profit-safety.service';
 import type { ProfitSafetySku } from '../../profit/profit-safety-validator';
 import { AdminUpdateProductDto } from './dto/update-product.dto';
@@ -14,6 +15,7 @@ export class AdminProductsService {
     private prisma: PrismaService,
     private productBundleService: ProductBundleService,
     private profitSafety: ProfitSafetyService,
+    private productPricing: ProductPricingService,
   ) {}
 
   private readonly profitSafetyProductSelect = {
@@ -286,7 +288,7 @@ export class AdminProductsService {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
-        company: { select: { id: true, name: true } },
+        company: { select: { id: true, name: true, isPlatform: true } },
         category: { select: { id: true, name: true } },
         skus: { where: { status: 'ACTIVE' } },
         media: true,
@@ -597,6 +599,10 @@ export class AdminProductsService {
     const output = await this.profitSafety.withCandidateChange(async (tx) => {
       const product = await this.loadProfitSafetyProduct(tx, productId);
       const existingById = new Map((product.skus ?? []).map((sku: any) => [sku.id, sku]));
+      const isPlatformProduct = product.company?.isPlatform === true;
+      const markupRate = isPlatformProduct
+        ? null
+        : await this.productPricing.getCurrentMarkupRate(tx);
       for (const sku of dto.skus) {
         if (sku.id && !existingById.has(sku.id)) {
           throw new NotFoundException('存在不属于该商品的 SKU');
@@ -604,10 +610,20 @@ export class AdminProductsService {
       }
       preparedSkus = dto.skus.map((sku) => {
         const existing: any = sku.id ? existingById.get(sku.id) : undefined;
+        const cost = sku.cost ?? existing?.cost ?? 0;
+        if (!isPlatformProduct && (!Number.isFinite(cost) || cost <= 0)) {
+          throw new BadRequestException('普通商品成本必须大于 0，售价由系统自动计算');
+        }
+        if (isPlatformProduct && (sku.price === undefined || !Number.isFinite(sku.price))) {
+          throw new BadRequestException('平台奖励商品必须填写售价');
+        }
         return {
           ...sku,
           id: sku.id ?? randomUUID(),
-          cost: sku.cost ?? existing?.cost ?? 0,
+          cost,
+          price: isPlatformProduct
+            ? sku.price!
+            : this.productPricing.calculatePrice(cost, markupRate!),
           existing,
         };
       });
@@ -658,13 +674,16 @@ export class AdminProductsService {
         // 同步 Product.basePrice = min(active SKU.price)，与卖家端逻辑保持一致
         const allActiveSkus = await tx.productSKU.findMany({
           where: { productId, status: 'ACTIVE' },
-          select: { price: true },
+          select: { price: true, cost: true },
         });
         if (allActiveSkus.length > 0) {
           const minPrice = Math.min(...allActiveSkus.map((s) => s.price));
           await tx.product.update({
-            where: { id: productId },
-            data: { basePrice: minPrice },
+              where: { id: productId },
+              data: {
+                basePrice: minPrice,
+                cost: Math.min(...allActiveSkus.map((sku) => Number(sku.cost))),
+              },
           });
         }
 

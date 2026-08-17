@@ -18,6 +18,11 @@ const passthroughProfitSafety = (prisma: any) => ({
   })),
 });
 
+const productPricingStub = () => ({
+  getCurrentMarkupRate: jest.fn().mockResolvedValue(1.3),
+  calculatePrice: jest.fn((cost: number, markupRate: number) => +(cost * markupRate).toFixed(2)),
+});
+
 describe('AdminProductsService SKU weight validation', () => {
   const buildService = () => {
     const product = {
@@ -37,11 +42,13 @@ describe('AdminProductsService SKU weight validation', () => {
     };
     const tx = {
       productSKU: {
-        findMany: jest
-          .fn()
-          .mockResolvedValueOnce([{ id: 'sku_1' }])
-          .mockResolvedValueOnce([{ price: 18 }])
-          .mockResolvedValueOnce([{ id: 'sku_1', weightGram: 650 }]),
+        findMany: jest.fn().mockImplementation(async (args: any) => {
+          if (args?.select?.price && args?.select?.cost) {
+            return [{ price: 13, cost: 10 }, { price: 15.6, cost: 12 }];
+          }
+          if (args?.orderBy) return [{ id: 'sku_1', weightGram: 650 }];
+          return [{ id: 'sku_1' }];
+        }),
         update: jest.fn().mockResolvedValue({ id: 'sku_1' }),
         create: jest.fn().mockResolvedValue({ id: 'sku_2' }),
       },
@@ -62,6 +69,7 @@ describe('AdminProductsService SKU weight validation', () => {
         prisma as any,
         new ProductBundleService(),
         passthroughProfitSafety(prisma) as any,
+        productPricingStub() as any,
       ),
       prisma,
       tx,
@@ -157,10 +165,33 @@ describe('AdminProductsService SKU weight validation', () => {
     });
     expect(tx.productSKU.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'sku_1' },
-      data: expect.objectContaining({ weightGram: 650 }),
+      data: expect.objectContaining({ weightGram: 650, price: 13 }),
     }));
     expect(tx.productSKU.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ weightGram: 900 }),
+      data: expect.objectContaining({ weightGram: 900, price: 15.6 }),
+    }));
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 'product_1' },
+      data: { basePrice: 13, cost: 10 },
+    });
+  });
+
+  it('keeps manual price entry only for platform reward products', async () => {
+    const { service, tx } = buildService({ company: { isPlatform: true } });
+
+    await service.updateSkus('product_1', {
+      skus: [{
+        id: 'sku_1',
+        specText: '奖励规格',
+        price: 23,
+        cost: 10,
+        stock: 5,
+        weightGram: 650,
+      }],
+    });
+
+    expect(tx.productSKU.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ price: 23, cost: 10 }),
     }));
   });
 
@@ -366,6 +397,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
         prisma as any,
         new ProductBundleService(),
         passthroughProfitSafety(prisma) as any,
+        productPricingStub() as any,
       ),
       prisma,
       tx,
@@ -590,6 +622,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
       prisma as any,
       new ProductBundleService(),
       passthroughProfitSafety(prisma) as any,
+      productPricingStub() as any,
     );
 
     await expect(service.remove('product_1')).resolves.toEqual({
@@ -630,6 +663,7 @@ describe('AdminProductsService bundle review reads and audit', () => {
       prisma as any,
       new ProductBundleService(),
       passthroughProfitSafety(prisma) as any,
+      productPricingStub() as any,
     );
 
     await expect(service.remove('product_1')).rejects.toMatchObject({

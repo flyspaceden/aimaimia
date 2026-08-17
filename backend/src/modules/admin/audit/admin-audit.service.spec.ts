@@ -76,6 +76,20 @@ function createHarness(log = reversibleLog()) {
 }
 
 describe('AdminAuditService rollback safety', () => {
+  it('blocks MARKUP_RATE audit rollback so pricing cannot bypass the impact preview', async () => {
+    const log = reversibleLog({
+      targetId: 'MARKUP_RATE',
+      before: { key: 'MARKUP_RATE', value: { value: 1.3 } },
+    });
+    const { service, profitSafetyService, safetyTx } = createHarness(log);
+
+    await expect(service.rollback('log-1', 'admin-rollback'))
+      .rejects.toThrow('平台设置 → 版本历史');
+
+    expect(profitSafetyService.withCandidateChange).not.toHaveBeenCalled();
+    expect(safetyTx.ruleConfig.update).not.toHaveBeenCalled();
+  });
+
   it('merges only the historical RuleConfig value and writes rollback audit state inside the safety transaction', async () => {
     const { service, prisma, profitSafetyService, safetyTx, bonusConfig } = createHarness();
 
@@ -131,7 +145,13 @@ describe('AdminAuditService rollback safety', () => {
     const productLog = reversibleLog({
       targetType: 'Product',
       targetId: 'product-1',
-      before: { id: 'product-1', name: '历史商品名', createdAt: 'old-date' },
+      before: {
+        id: 'product-1',
+        name: '历史商品名',
+        basePrice: 18,
+        cost: 8,
+        createdAt: 'old-date',
+      },
       after: { id: 'product-1', name: '当前商品名', createdAt: 'old-date' },
     });
     const { service, prisma, profitSafetyService, safetyTx } = createHarness(productLog);

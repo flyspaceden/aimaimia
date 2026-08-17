@@ -1630,6 +1630,16 @@ enum RewardEntryStatus {
 
 ---
 
+## 10.4 自动定价一致性补强（2026-08-17）
+
+- 普通商品唯一公式为 `SKU.price = round(SKU.cost × MARKUP_RATE, 2)`；`Product.basePrice` 必须取 ACTIVE SKU 最低售价，`Product.cost` 取 ACTIVE SKU 最低成本。
+- `MARKUP_RATE` 的单项更新、批量更新和配置版本回滚必须先生成价格影响预览，并在同一个利润安全 Serializable 事务内完成配置写入与现有非平台、非草稿商品重算。审计日志不得绕过预览直接回滚加价率。
+- 卖家创建、编辑、草稿提交和管理端普通商品 SKU 更新都从事务快照读取加价率；客户端 `basePrice/price` 不能覆盖普通商品自动定价。平台奖励商品继续由独立奖励商品模块人工定价。
+- 已创建 CheckoutSession 和历史 OrderItem 保留各自价格快照；价格重算只影响之后创建的结算会话，不追溯修改历史交易。
+- 一次性数据修复脚本默认 dry-run；dry-run 输出完整清单和 `previewToken`，执行时必须同时传入 `--execute --expected-markup=<当前值> --preview-token=<预览token>`。执行会在同一利润安全锁内重建计划、严格匹配 token、通过利润安全校验、创建 RuleVersion 后才批量写入；ACTIVE/INACTIVE SKU 都重算，`basePrice` 仍只按 ACTIVE SKU 汇总。测试环境先行，生产环境另行确认。
+
+---
+
 ## 十一、文档更新清单（实施完成后）
 
 | 文档 | 更新内容 |

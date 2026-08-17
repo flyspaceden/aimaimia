@@ -20,6 +20,11 @@ import {
 } from '../src/modules/captain/captain.constants';
 
 const prisma = new PrismaClient();
+const SEED_MARKUP_RATE = 1.3;
+
+function sellerSeedPrice(cost: number): number {
+  return +(Number(cost) * SEED_MARKUP_RATE).toFixed(2);
+}
 
 function toRuleConfigJson(value: unknown, description: string): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify({ value, description })) as Prisma.InputJsonValue;
@@ -689,8 +694,8 @@ async function main() {
         id: p.id,
         companyId: p.companyId,
         title: p.title,
-        basePrice: p.basePrice,
-        cost: p.cost, // 商品成本价
+        basePrice: sellerSeedPrice(p.skuCost),
+        cost: p.skuCost, // 商品成本价与 SKU 最低成本保持一致
         status: 'ACTIVE',
         auditStatus: 'APPROVED',
         origin: p.origin,
@@ -698,7 +703,7 @@ async function main() {
           create: {
             id: `sku-${p.id}`,
             title: p.skuTitle,
-            price: p.skuPrice,
+            price: sellerSeedPrice(p.skuCost),
             cost: p.skuCost, // SKU 成本价（分润优先使用 SKU 级别成本）
             stock: p.stock,
             weightGram: inferSeedWeightGram(p.skuTitle),
@@ -1764,7 +1769,7 @@ async function main() {
     // --- VIP冻结过期（新增，原VIP系统无此机制） ---
     { key: 'VIP_FREEZE_DAYS', value: 30, desc: 'VIP冻结奖励过期天数' },
     // --- 定价系统 ---
-    { key: 'MARKUP_RATE', value: 1.35, desc: '卖家商品加价率（售价=成本×此值）' },
+    { key: 'MARKUP_RATE', value: 1.30, desc: '卖家商品加价率（售价=成本×此值）' },
     { key: 'VIP_DISCOUNT_RATE', value: 0.95, desc: 'VIP用户商品折扣率（如0.95表示95折）' },
     { key: 'VIP_REWARD_EXPIRY_DAYS', value: 30, desc: 'VIP已释放奖励有效期（天）' },
     { key: 'NORMAL_REWARD_EXPIRY_DAYS', value: 30, desc: '普通用户已释放奖励有效期（天）' },
@@ -2940,13 +2945,25 @@ async function main() {
 
   for (const p of moreProducts) {
     const { skus, tags, ...productData } = p;
+    const isPlatformReward = p.companyId === 'PLATFORM_COMPANY';
+    const isDraft = p.status === 'DRAFT';
+    const pricedSkus = skus.map((sku) => ({
+      ...sku,
+      price: isDraft ? 0 : (isPlatformReward ? sku.price : sellerSeedPrice(sku.cost)),
+    }));
     await prisma.product.upsert({
       where: { id: p.id },
       update: {},
       create: {
         ...productData,
+        basePrice: isDraft
+          ? 0
+          : (isPlatformReward
+              ? productData.basePrice
+              : Math.min(...pricedSkus.map((sku) => sku.price))),
+        cost: Math.min(...pricedSkus.map((sku) => sku.cost)),
         skus: {
-          create: skus.map((s) => ({
+          create: pricedSkus.map((s) => ({
             id: s.id,
             title: s.title,
             price: s.price,
@@ -4772,13 +4789,19 @@ async function main() {
 
   for (const p of newCompanyProducts) {
     const { skus, tags, ...productData } = p;
+    const pricedSkus = skus.map((sku) => ({
+      ...sku,
+      price: sellerSeedPrice(sku.cost),
+    }));
     await prisma.product.upsert({
       where: { id: p.id },
       update: {},
       create: {
         ...productData,
+        basePrice: Math.min(...pricedSkus.map((sku) => sku.price)),
+        cost: Math.min(...pricedSkus.map((sku) => sku.cost)),
         skus: {
-          create: skus.map((s) => ({
+          create: pricedSkus.map((s) => ({
             id: s.id,
             title: s.title,
             price: s.price,
@@ -4995,13 +5018,19 @@ async function main() {
 
   for (const p of extraProducts) {
     const { skus, tags, image, ...productData } = p;
+    const pricedSkus = skus.map((sku) => ({
+      ...sku,
+      price: sellerSeedPrice(sku.cost),
+    }));
     await prisma.product.upsert({
       where: { id: p.id },
       update: {},
       create: {
         ...productData,
+        basePrice: Math.min(...pricedSkus.map((sku) => sku.price)),
+        cost: Math.min(...pricedSkus.map((sku) => sku.cost)),
         skus: {
-          create: skus.map((s: any) => ({
+          create: pricedSkus.map((s: any) => ({
             id: s.id,
             title: s.title,
             price: s.price,
@@ -5140,7 +5169,7 @@ async function main() {
           id: sku.id,
           productId: item.productId,
           title: sku.title,
-          price: sku.price,
+          price: sellerSeedPrice(sku.cost),
           cost: sku.cost,
           stock: sku.stock,
           weightGram: inferSeedWeightGram(sku.title),
@@ -5148,6 +5177,19 @@ async function main() {
         },
       });
       skuAddedCount++;
+    }
+    const activeSkus = await prisma.productSKU.findMany({
+      where: { productId: item.productId, status: 'ACTIVE' },
+      select: { price: true, cost: true },
+    });
+    if (activeSkus.length > 0) {
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: {
+          basePrice: Math.min(...activeSkus.map((sku) => sku.price)),
+          cost: Math.min(...activeSkus.map((sku) => sku.cost)),
+        },
+      });
     }
   }
   console.log(`✅ ${skuAddedCount} 个额外规格已添加（${multiSkuProducts.length} 个商品增加多规格）`);

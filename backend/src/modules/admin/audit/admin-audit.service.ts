@@ -141,6 +141,11 @@ export class AdminAuditService {
     }
 
     if (log.targetType === 'RuleConfig') {
+      if (log.targetId === 'MARKUP_RATE') {
+        throw new BadRequestException(
+          '加价率不能从审计日志单项回滚，请在“平台设置 → 版本历史”中预览价格影响后回滚',
+        );
+      }
       const beforeData = log.before as Record<string, unknown>;
       if (!Object.prototype.hasOwnProperty.call(beforeData, 'value')) {
         throw new BadRequestException('无法回滚：配置快照缺少历史值');
@@ -167,7 +172,14 @@ export class AdminAuditService {
 
     if (log.targetType === 'Product') {
       const beforeData = log.before as Record<string, unknown>;
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...updateData } = beforeData;
+      const {
+        id: _id,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        basePrice: _basePrice,
+        cost: _cost,
+        ...updateData
+      } = beforeData;
       await this.profitSafetyService.withCandidateChange(async (tx) => {
         const product = await (tx as any).product.findUnique({
           where: { id: log.targetId },

@@ -32,7 +32,10 @@ describe('AdminProductsService profit safety lock', () => {
       productSKU: {
         findMany: jest.fn().mockImplementation(async (args: any) => {
           if (args?.select?.id) return [{ id: 'sku-1' }];
-          if (args?.select?.price) return [{ price: 160 }, { price: 130 }];
+          if (args?.select?.price) return [
+            { price: 130, cost: 100 },
+            { price: 104, cost: 80 },
+          ];
           return product.skus;
         }),
         update: jest.fn().mockResolvedValue({ id: 'sku-1' }),
@@ -54,10 +57,15 @@ describe('AdminProductsService profit safety lock', () => {
     const profitSafety = {
       withCandidateChange: jest.fn().mockRejectedValue(unsafe),
     };
+    const productPricing = {
+      getCurrentMarkupRate: jest.fn().mockResolvedValue(1.3),
+      calculatePrice: jest.fn((cost: number, markupRate: number) => +(cost * markupRate).toFixed(2)),
+    };
     const service = new (AdminProductsService as any)(
       prisma,
       new ProductBundleService(),
       profitSafety,
+      productPricing,
     ) as AdminProductsService;
 
     return { service, prisma, tx, profitSafety, product };
@@ -129,14 +137,14 @@ describe('AdminProductsService profit safety lock', () => {
     expect(change.skuUpserts).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'sku-1',
-        price: 160,
+        price: 130,
         cost: 100,
         categoryId: 'category-old',
         active: true,
       }),
       expect.objectContaining({
         productId: 'product-1',
-        price: 130,
+        price: 104,
         cost: 80,
         categoryId: 'category-old',
         active: true,
@@ -206,11 +214,11 @@ describe('AdminProductsService profit safety lock', () => {
     });
 
     expect(lockedChange.skuUpserts).toEqual([
-      expect.objectContaining({ id: 'sku-1', price: 102, cost: 100, active: true }),
+      expect.objectContaining({ id: 'sku-1', price: 130, cost: 100, active: true }),
     ]);
     expect(tx.productSKU.update).toHaveBeenCalledWith({
       where: { id: 'sku-1' },
-      data: expect.objectContaining({ price: 102, cost: 100 }),
+      data: expect.objectContaining({ price: 130, cost: 100 }),
     });
   });
 });

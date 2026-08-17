@@ -22,6 +22,8 @@ import {
   Row,
   Col,
   Tooltip,
+  Alert,
+  Divider,
 } from 'antd';
 import {
   SaveOutlined,
@@ -30,12 +32,18 @@ import {
   ShoppingCartOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { getConfigs, updateConfig, getConfigVersions, rollbackConfigVersion } from '@/api/config';
+import {
+  batchUpdateConfig,
+  getConfigs,
+  getConfigVersions,
+  previewMarkupReprice,
+  rollbackConfigVersionWithPricing,
+} from '@/api/config';
 import ConfigVersionRollbackButton from '@/components/ConfigVersionRollbackButton';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
-import type { RuleConfig, ConfigVersion } from '@/types';
+import type { RuleConfig, ConfigVersion, MarkupRepricePreview } from '@/types';
 import { extractConfigValue, extractConfigDescription } from '@/types';
 import dayjs from 'dayjs';
 
@@ -91,13 +99,24 @@ function getVal(configs: RuleConfig[], key: string): unknown {
 }
 
 /** 将后端配置列表解析为表单初始值 */
-function configsToFormValues(configs: RuleConfig[]): Record<string, any> {
-  const values: Record<string, any> = {};
+function configsToFormValues(configs: RuleConfig[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
   for (const meta of CONFIG_SCHEMA) {
     const raw = getVal(configs, meta.key);
     values[meta.key] = raw ?? meta.defaultValue ?? meta.min ?? 0;
   }
   return values;
+}
+
+function extractSnapshotValue(snapshot: Record<string, unknown>, key: string): unknown {
+  const stored = snapshot[key];
+  return stored && typeof stored === 'object' && !Array.isArray(stored) && 'value' in stored
+    ? (stored as { value: unknown }).value
+    : stored;
+}
+
+function formatPrice(value: number): string {
+  return `¥${Number(value).toFixed(2)}`;
 }
 
 // ============ 组件 ============
@@ -129,7 +148,11 @@ export default function ConfigPage() {
 
   // 回滚
   const rollbackMutation = useMutation({
-    mutationFn: rollbackConfigVersion,
+    mutationFn: ({ id, previewToken }: { id: string; previewToken: string }) =>
+      rollbackConfigVersionWithPricing(id, {
+        repriceExisting: true,
+        markupPreviewToken: previewToken,
+      }),
     onSuccess: () => {
       message.success('已回滚到指定版本');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
@@ -139,6 +162,35 @@ export default function ConfigPage() {
     },
     onError: (err: Error) => message.error(err.message),
   });
+
+  const confirmMarkupReprice = useCallback((preview: MarkupRepricePreview, action: 'save' | 'rollback') =>
+    new Promise<boolean>((resolve) => {
+      modal.confirm({
+        title: action === 'rollback' ? '确认回滚配置并同步商品售价？' : '确认更新加价率和商品售价？',
+        width: 680,
+        content: <MarkupRepricePanel preview={preview} />,
+        okText: action === 'rollback' ? '确认回滚并更新价格' : '确认并更新价格',
+        cancelText: '取消',
+        okButtonProps: { danger: preview.priceDecreaseCount > 0 },
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    }), [modal]);
+
+  const handleRollback = useCallback(async (version: ConfigVersion) => {
+    const markupRate = Number(extractSnapshotValue(version.snapshot, 'MARKUP_RATE'));
+    if (!Number.isFinite(markupRate)) {
+      message.error('该版本缺少有效加价率，不能安全回滚');
+      return;
+    }
+    try {
+      const preview = await previewMarkupReprice(markupRate);
+      if (!await confirmMarkupReprice(preview, 'rollback')) return;
+      await rollbackMutation.mutateAsync({ id: version.id, previewToken: preview.previewToken });
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '回滚预检失败');
+    }
+  }, [confirmMarkupReprice, message, rollbackMutation]);
 
   // 初始化表单
   useEffect(() => {
@@ -162,8 +214,9 @@ export default function ConfigPage() {
     setSaving(true);
 
     try {
-      // 逐项提交有变更的配置
+      // 先汇总变更，再用一个事务保存，避免出现部分配置已更新的中间状态。
       const note = changeNote || '更新平台设置';
+      const updates: Array<{ key: string; value: unknown }> = [];
       for (const meta of CONFIG_SCHEMA) {
         const oldVal = getVal(configs, meta.key);
         const newVal = values[meta.key];
@@ -173,23 +226,48 @@ export default function ConfigPage() {
 
         const existingConfig = configs.find((c) => c.key === meta.key);
         const desc = existingConfig ? extractConfigDescription(existingConfig) : undefined;
-        await updateConfig(meta.key, {
+        updates.push({
+          key: meta.key,
           value: { value: newVal, description: desc || meta.description || meta.label },
-          changeNote: note,
         });
       }
 
-      message.success('配置保存成功');
+      if (updates.length === 0) {
+        message.info('没有需要保存的配置变更');
+        return;
+      }
+
+      const markupUpdate = updates.find((item) => item.key === 'MARKUP_RATE');
+      let markupPreview: MarkupRepricePreview | undefined;
+      if (markupUpdate) {
+        markupPreview = await previewMarkupReprice(
+          Number((markupUpdate.value as { value: unknown }).value),
+        );
+        if (!await confirmMarkupReprice(markupPreview, 'save')) return;
+      }
+
+      const result = await batchUpdateConfig({
+        updates,
+        changeNote: note,
+        ...(markupPreview ? {
+          repriceExisting: true,
+          markupPreviewToken: markupPreview.previewToken,
+        } : {}),
+      });
+
+      message.success(result.markupReprice
+        ? `配置保存成功，已同步 ${result.markupReprice.affectedSkuCount} 个商品规格售价`
+        : '配置保存成功');
       queryClient.invalidateQueries({ queryKey: ['admin', 'configs'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'profit-safety-summary'] });
       setDirty(false);
       setChangeNote('');
-    } catch (err: any) {
-      message.error(err?.message || '保存失败');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
     }
-  }, [form, configs, changeNote, queryClient]);
+  }, [form, configs, changeNote, queryClient, confirmMarkupReprice, message]);
 
   if (isLoading) {
     return (
@@ -344,21 +422,77 @@ export default function ConfigPage() {
                 <VersionItem
                   key={v.id}
                   version={v}
-                  onRollback={() => {
-                    modal.confirm({
-                      title: '确认回滚到此版本？',
-                      content: '回滚将覆盖当前所有配置，此操作不可撤销',
-                      okText: '确认回滚',
-                      okButtonProps: { danger: true },
-                      onOk: () => rollbackMutation.mutateAsync(v.id),
-                    });
-                  }}
+                  onRollback={() => handleRollback(v)}
                 />
               ),
             }))}
           />
         )}
       </Drawer>
+    </div>
+  );
+}
+
+function MarkupRepricePanel({ preview }: { preview: MarkupRepricePreview }) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Alert
+        type="warning"
+        showIcon
+        message="这会修改当前普通商品的真实成交价"
+        description="历史订单和已创建的结算会话保留原价格；新的购物车结算使用更新后的售价。平台奖励商品不参与自动重算。"
+      />
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gap: 12,
+          marginTop: 16,
+        }}
+      >
+        <PriceImpactMetric label="加价率" value={`${preview.currentMarkupRate} → ${preview.nextMarkupRate}`} />
+        <PriceImpactMetric label="受影响商品" value={`${preview.affectedProductCount} 个`} />
+        <PriceImpactMetric label="受影响规格" value={`${preview.affectedSkuCount} 个`} />
+      </div>
+      {preview.examples.length > 0 && (
+        <>
+          <Divider style={{ margin: '16px 0 10px' }} />
+          <Text strong>价格变化示例</Text>
+          <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+            {preview.examples.map((item) => (
+              <div
+                key={item.skuId}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  gap: 16,
+                  padding: '9px 12px',
+                  borderRadius: 8,
+                  background: '#f6f8fb',
+                  borderLeft: `3px solid ${item.difference >= 0 ? '#1677ff' : '#cf1322'}`,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <Text ellipsis style={{ display: 'block' }}>{item.productTitle}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{item.skuTitle}</Text>
+                </div>
+                <Text strong style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                  {formatPrice(item.currentPrice)} → {formatPrice(item.nextPrice)}
+                </Text>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PriceImpactMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ padding: '10px 12px', borderRadius: 8, background: '#f0f5ff' }}>
+      <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>{label}</Text>
+      <Text strong style={{ display: 'block', marginTop: 2, fontSize: 16 }}>{value}</Text>
     </div>
   );
 }
@@ -448,8 +582,12 @@ function VersionItem({ version, onRollback }: { version: ConfigVersion; onRollba
             .filter(([key]) => PLATFORM_KEYS.includes(key))
             .map(([key, val]) => {
               const meta = CONFIG_SCHEMA.find((m) => m.key === key);
-              const stored = val as any;
-              const displayVal = stored?.value ?? stored;
+              const displayVal = val
+                && typeof val === 'object'
+                && !Array.isArray(val)
+                && 'value' in val
+                ? (val as { value: unknown }).value
+                : val;
               return (
                 <div
                   key={key}

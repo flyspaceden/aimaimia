@@ -23,7 +23,16 @@ import {
   Image,
   Table,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, PlusOutlined, MinusCircleOutlined, SyncOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  SaveOutlined,
+  PlusOutlined,
+  MinusCircleOutlined,
+  SyncOutlined,
+  DownloadOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import { getProduct, updateProduct, updateProductSkus, refillSemanticTags, getCategories, type CategoryNode } from '@/api/products';
 import { getConfigs } from '@/api/config';
 import { getPublicTagCategories } from '@/api/tags';
@@ -53,12 +62,25 @@ import dayjs from 'dayjs';
 const { Text } = Typography;
 
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
+const DEFAULT_MARKUP_RATE = 1.3;
 
 function normalizeLowStockThreshold(value: unknown): number {
   const threshold = Number(value);
   return Number.isInteger(threshold) && threshold >= 0 && threshold <= 999
     ? threshold
     : DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD;
+}
+
+function normalizeMarkupRate(value: unknown): number {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 1 && rate <= 10 ? rate : DEFAULT_MARKUP_RATE;
+}
+
+function calculateSellingPrice(cost: unknown, markupRate: number): number | undefined {
+  const numericCost = Number(cost);
+  return Number.isFinite(numericCost) && numericCost > 0
+    ? +(numericCost * markupRate).toFixed(2)
+    : undefined;
 }
 
 function getStockHint(stockValue: unknown, threshold: number): { type: 'danger' | 'warning'; text: string } | null {
@@ -87,13 +109,40 @@ function StockHint({ value, threshold }: { value: unknown; threshold: number }) 
   );
 }
 
+function PriceValue({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value?: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        minWidth: 112,
+        padding: '6px 9px',
+        borderRadius: 8,
+        background: highlight ? '#fffbe6' : '#f6f8fa',
+        border: `1px solid ${highlight ? '#ffe58f' : '#e5e7eb'}`,
+      }}
+    >
+      <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>{label}</Text>
+      <Text strong style={{ fontFamily: 'monospace' }}>
+        {Number.isFinite(value) ? `¥${Number(value).toFixed(2)}` : '-'}
+      </Text>
+    </div>
+  );
+}
+
 export default function ProductEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [skuForm] = Form.useForm();
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   // 商品图片预览（与卖家端商品编辑页一致）
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
@@ -133,6 +182,10 @@ export default function ProductEditPage() {
   const lowStockConfig = configRows.find((item) => item.key === 'LOW_STOCK_DISPLAY_THRESHOLD');
   const lowStockThreshold = normalizeLowStockThreshold(
     lowStockConfig ? extractConfigValue(lowStockConfig) : undefined,
+  );
+  const markupConfig = configRows.find((item) => item.key === 'MARKUP_RATE');
+  const markupRate = normalizeMarkupRate(
+    markupConfig ? extractConfigValue(markupConfig) : undefined,
   );
 
   const { data: categories } = useQuery({
@@ -182,6 +235,7 @@ export default function ProductEditPage() {
           message.warning('至少保留一条规格');
           return;
         }
+        if (!await confirmSkuPriceChanges(skus)) return;
       }
 
       // 转换产地为 Json 格式
@@ -243,6 +297,7 @@ export default function ProductEditPage() {
   const status = statusMap[product.status];
   const auditStatus = auditStatusMap[product.auditStatus];
   const isBundleProduct = productTypeOf(product) === 'BUNDLE';
+  const isPlatformProduct = product.company?.isPlatform === true;
   const bundleRows = toBundleReviewRows(product.bundleItems);
 
   // 解析产地
@@ -276,6 +331,48 @@ export default function ProductEditPage() {
     maxPerOrder: s.maxPerOrder ?? undefined,
   }));
 
+  const confirmSkuPriceChanges = (skus: Array<Record<string, unknown>>) => {
+    if (isPlatformProduct) return Promise.resolve(true);
+    const changes = skus.flatMap((sku) => {
+      const currentPrice = Number(sku.price);
+      const nextPrice = calculateSellingPrice(sku.cost, markupRate);
+      if (!Number.isFinite(currentPrice) || nextPrice === undefined
+        || Math.abs(currentPrice - nextPrice) < 0.000001) return [];
+      return [{
+        title: String(sku.specText || '默认规格'),
+        currentPrice,
+        nextPrice,
+      }];
+    });
+    if (changes.length === 0) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      modal.confirm({
+        title: '确认同步修改真实售价？',
+        content: (
+          <div>
+            <Text type="warning">
+              <WarningOutlined /> 当前有 {changes.length} 个规格的实际售价与平台加价率不一致，保存会更新 App 与后续结算价格。
+            </Text>
+            <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+              {changes.slice(0, 5).map((change) => (
+                <div key={change.title} style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                  <Text>{change.title}</Text>
+                  <Text strong style={{ fontFamily: 'monospace' }}>
+                    ¥{change.currentPrice.toFixed(2)} → ¥{change.nextPrice.toFixed(2)}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          </div>
+        ),
+        okText: '确认并更新价格',
+        cancelText: '取消',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+  };
+
   // 保存 SKU
   const handleSaveSkus = async () => {
     if (isBundleProduct) return;
@@ -286,6 +383,7 @@ export default function ProductEditPage() {
         message.warning('至少保留一条规格');
         return;
       }
+      if (!await confirmSkuPriceChanges(skus)) return;
       await updateProductSkus(id!, skus);
       message.success('规格已保存');
       queryClient.invalidateQueries({ queryKey: ['admin', 'product', id] });
@@ -759,14 +857,47 @@ export default function ProductEditPage() {
                       >
                         <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
                       </Form.Item>
-                      <Form.Item
-                        {...field}
-                        label="售价（元）"
-                        name={[field.name, 'price']}
-                        rules={[{ required: true, message: '请输入售价' }]}
-                      >
-                        <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
-                      </Form.Item>
+                      {isPlatformProduct ? (
+                        <Form.Item
+                          {...field}
+                          label="售价（元）"
+                          name={[field.name, 'price']}
+                          rules={[{ required: true, message: '请输入售价' }]}
+                        >
+                          <InputNumber min={0} precision={2} style={{ width: 140 }} prefix="¥" />
+                        </Form.Item>
+                      ) : (
+                        <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                          prev.skus?.[field.name]?.cost !== cur.skus?.[field.name]?.cost
+                        }>
+                          {({ getFieldValue }) => {
+                            const currentPrice = Number(getFieldValue(['skus', field.name, 'price']));
+                            const nextPrice = calculateSellingPrice(
+                              getFieldValue(['skus', field.name, 'cost']),
+                              markupRate,
+                            );
+                            const changed = Number.isFinite(currentPrice) && nextPrice !== undefined
+                              && Math.abs(currentPrice - nextPrice) >= 0.000001;
+                            return (
+                              <Form.Item label="价格核对">
+                                <Form.Item {...field} name={[field.name, 'price']} hidden>
+                                  <InputNumber />
+                                </Form.Item>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <PriceValue label="当前实际" value={currentPrice} />
+                                  <ArrowRightOutlined style={{ color: changed ? '#d48806' : '#52c41a' }} />
+                                  <PriceValue label="保存后" value={nextPrice} highlight={changed} />
+                                </div>
+                                {changed && (
+                                  <Text type="warning" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+                                    保存会更新 App 与后续结算售价
+                                  </Text>
+                                )}
+                              </Form.Item>
+                            );
+                          }}
+                        </Form.Item>
+                      )}
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <Form.Item
                           {...field}
@@ -811,7 +942,12 @@ export default function ProductEditPage() {
                   ))}
                   <Button
                     type="dashed"
-                    onClick={() => add({ price: 0, stock: 0, cost: 0, maxPerOrder: undefined })}
+                    onClick={() => add({
+                      price: isPlatformProduct ? 0 : undefined,
+                      stock: 0,
+                      cost: 0,
+                      maxPerOrder: undefined,
+                    })}
                     icon={<PlusOutlined />}
                   >
                     添加规格

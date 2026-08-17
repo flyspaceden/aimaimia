@@ -23,9 +23,10 @@ export class SkuUpdateItem {
   specText?: string;
 
   /** 售价（元） */
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  price: number;
+  price?: number;
 
   /** 成本价（元），选填 */
   @IsOptional()
