@@ -290,6 +290,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -307,7 +308,11 @@ jobs:
           PM2_NAME: ${{ needs.detect-changes.outputs.backend_pm2_name }}
           BRANCH: ${{ needs.detect-changes.outputs.backend_branch }}
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+          ssh \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o TCPKeepAlive=yes \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
             "SRC_DIR='$SRC_DIR' PM2_NAME='$PM2_NAME' BRANCH='$BRANCH' bash -s" <<'REMOTE'
             set -euo pipefail
             echo "═══ 1. 切换到源码目录 ═══"
@@ -332,6 +337,17 @@ jobs:
               return 1
             }
 
+            install_backend_dependencies() {
+              echo "npm_install_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              npm_config_fetch_retries=2 \
+              npm_config_fetch_retry_mintimeout=10000 \
+              npm_config_fetch_retry_maxtimeout=60000 \
+              npm_config_fetch_timeout=120000 \
+                timeout --signal=TERM --kill-after=30s 15m \
+                npm ci --no-audit --no-fund --timing --loglevel=notice
+              echo "npm_install_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }
+
             rollback_backend() {
               status=$?
               trap - EXIT
@@ -341,7 +357,7 @@ jobs:
                 cd "$SRC_DIR"
                 git reset --hard "$PREVIOUS_SHA"
                 cd backend
-                npm ci \
+                install_backend_dependencies \
                   && npx prisma generate \
                   && npx prisma generate --schema prisma-delivery/schema.prisma \
                   && npm run build \
@@ -367,7 +383,7 @@ jobs:
 
             echo "═══ 3. 装依赖 ═══"
             cd backend
-            npm ci
+            install_backend_dependencies
 
             echo "═══ 4. Prisma generate + migrate deploy（主库 + 配送库）═══"
             npx prisma generate

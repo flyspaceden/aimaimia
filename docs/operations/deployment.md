@@ -489,6 +489,11 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 - **部署结果**：run `31994109519` 成功；`deploy-backend`、`deploy-admin`、`deploy-seller` 和 staging 微信转账预检均通过，修正后的 migration 已在 `testaimaimai` 应用，`aimaimai-api-test` 健康检查通过。一次性恢复逻辑随后从部署 workflow 移除，不保留在长期发布链路。
 - **待验收**：尚未在 staging 创建中心仓点位，尚未执行普通/团购/VIP 真实自提、平台核销、真实支付/退款或真机验收。必须先在管理后台创建并启用测试中心仓，再验证买家小程序和卖家/平台后台闭环。
 
+### 2026-08-17 后端依赖安装卡死与 SSH 保活
+
+- staging 提交 `d42cd6fd` 的后端部署在 `npm ci` 输出依赖警告后持续静默，约 132 分钟后由中间网络以 `client_loop: send disconnect: Broken pipe` 中断，GitHub Actions 以 255 失败；Prisma、构建、PM2 reload 和健康检查均未执行，旧 PM2 服务继续返回 200。相同 lockfile 在干净本地 `npm ci --no-audit --no-fund --timing` 中 14 秒完成，新增纯 JS `qrcode` 包约 2.6 秒且无 install script，因此不是 lockfile 或二维码包构建错误，而是服务器安装阶段停滞叠加 SSH 无保活、命令无上限。
+- `deploy-backend` 增加 45 分钟 job 上限（为首次安装失败后的受控回滚预留时间）、30 秒 SSH keepalive、npm fetch 重试/120 秒单次网络超时、15 分钟依赖安装硬上限及 timing 日志；首次部署和回滚统一复用受控安装函数。今后安装卡住会在可回滚、可审计的时间内失败，不再占用 runner 数小时且没有阶段证据。
+
 ### 2026-08-14 到店自提 staging 灰度发布
 
 - **范围**：仅 `staging`，未改 `main` / production。功能提交 `9eb5d174 feat(pickup): add store pickup fulfillment`，覆盖普通商品、团购和 VIP 礼包的配送 / 自提双履约，以及小程序、买家 App、卖家中心、管理后台和共享后端。
