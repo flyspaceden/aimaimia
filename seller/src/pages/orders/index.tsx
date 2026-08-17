@@ -53,7 +53,8 @@ type OrderStatusTab = {
 
 const orderStatusTabs: readonly OrderStatusTab[] = [
   { key: 'all', label: '全部', status: '' },
-  { key: 'pickup', label: '自提订单', status: '', fulfillmentMode: 'PICKUP' },
+  // 已核销的自提订单状态会原子变为 RECEIVED，应只留在“已完成”。
+  { key: 'pickup', label: '自提订单', status: 'PAID', fulfillmentMode: 'PICKUP' },
   { key: 'pending', label: '待发货', status: 'PAID', fulfillmentMode: 'DELIVERY' },
   { key: 'shipped', label: '已发货', status: 'SHIPPED' },
   { key: 'completed', label: '已完成', status: 'DELIVERED,RECEIVED' },
