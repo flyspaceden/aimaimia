@@ -494,6 +494,7 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 - staging 提交 `d42cd6fd` 的后端部署在 `npm ci` 输出依赖警告后持续静默，约 132 分钟后由中间网络以 `client_loop: send disconnect: Broken pipe` 中断，GitHub Actions 以 255 失败；Prisma、构建、PM2 reload 和健康检查均未执行，旧 PM2 服务继续返回 200。相同 lockfile 在干净本地 `npm ci --no-audit --no-fund --timing` 中 14 秒完成，新增纯 JS `qrcode` 包约 2.6 秒且无 install script，因此不是 lockfile 或二维码包构建错误，而是服务器安装阶段停滞叠加 SSH 无保活、命令无上限。
 - 首轮限时改造后，run `32044483456` 精确捕获到主安装与回滚安装都在下载 `https://registry.npmjs.org/which-module/-/which-module-2.0.1.tgz` 时 `ETIMEDOUT`；这将根因收窄为 staging 服务器到 npm 官方 registry 的当前网络超时，而非代码、lockfile 或 `qrcode`。日志同时暴露回滚在 `set +e` 下丢失 `npm ci` 失败码，误继续执行 `npx prisma` 并尝试临时下载 `prisma@7.9.1`。
 - `deploy-backend` 现在保留 45 分钟 job 上限和 30 秒 SSH keepalive；依赖安装先以完整性校验约束的 lockfile 访问官方 registry，45 秒单次网络超时后自动切换 `registry.npmmirror.com`；两次尝试均有独立时间上限与日志。安装失败会原样返回非零状态，Prisma 改用 `npx --no-install` 禁止在部署中隐式联网补包。
+- **复验结果**：提交 `a3f77792` 的手动 backend run `32045939919` 成功。官方 registry 尝试受控超时后，镜像在 23 秒安装 928 个包；主库/配送库 Prisma 均无待执行 migration，Nest 构建、PM2 reload 和服务器内部健康检查通过，公网 `https://test-api.ai-maimai.com/api/v1/products?page=1&pageSize=1` 返回 HTTP 200。服务器源码与本次部署 SHA 为 `a3f777924239ce0051749f172cd448ac3d039815`。
 
 ### 2026-08-14 到店自提 staging 灰度发布
 
