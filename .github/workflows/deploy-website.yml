@@ -238,7 +238,9 @@ jobs:
             npx prisma migrate deploy
 
             echo "═══ 5. 构建 ═══"
-            npm run build
+            # Nest/TypeScript 全量编译在默认 V8 heap 下会偶发 OOM（exit 134）。
+            # 只提高构建进程的 heap，运行中的 PM2 进程不继承该值。
+            NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
 
             echo "═══ 6. PM2 reload ═══"
             pm2 reload $PM2_NAME --update-env
