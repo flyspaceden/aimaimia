@@ -632,6 +632,6 @@
 | APC03 | 卖家创建读取 60 秒缓存或客户端 `basePrice`，管理端普通商品手填 `price`，平台员工又从卖家端覆盖奖励价 | 🔴 HIGH | 卖家创建与配置更新共用利润安全事务锁并直接读事务快照；普通商品 DTO 不再接受客户端 `basePrice/price`，管理端按成本自动计算并展示当前价/保存后价；平台公司所有卖家商品写入口 fail-closed，只能走独立奖励商品模块人工定价。 | ✅ staging 已部署 |
 | APC04 | 删除最低价 SKU 前先汇总 `basePrice`，留下已停用规格的旧最低价 | 🟠 HIGH | SKU 更新先完成新增/更新与旧规格停用，再从剩余 ACTIVE SKU 汇总最低售价和最低成本。 | ✅ staging 已部署 |
 | APC05 | 批量重算追溯覆盖历史订单或已创建付款会话 | 🔴 HIGH | 重算只修改商品与 SKU 当前价；`CheckoutSession.itemsSnapshot` 和 `OrderItem.unitPrice` 不变。旧会话在有效期内继续按锁价支付，新会话读取新价。管理端确认框明确披露。 | ✅ 边界已锁定 |
-| APC06 | 一次性数据修复误触生产、预览与执行集合漂移或失败后留下半套价格 | 🔴 HIGH | `products:reprice` 默认 dry-run，逐 SKU 输出新旧价格、回滚 SQL 和 preview token；执行必须显式携带当前加价率与 dry-run token，在共享利润安全 lock 内重建同一集合并校验最终 SKU 经济数据，token 不一致即拒绝；MARKUP_RATE 缺失/非法一律 fail-closed。ACTIVE/INACTIVE SKU 一起重算，写后再次扫描必须为 0 不一致。 | ✅ staging 已执行并复验；生产未执行 |
+| APC06 | 一次性数据修复误触生产、预览与执行集合漂移或失败后留下半套价格 | 🔴 HIGH | `products:reprice` 默认 dry-run，逐 SKU 输出新旧价格、回滚 SQL 和 preview token；执行必须显式携带当前加价率与 dry-run token，在共享利润安全 lock 内重建同一集合并校验最终 SKU 经济数据，token 不一致即拒绝；MARKUP_RATE 缺失/非法一律 fail-closed。ACTIVE/INACTIVE SKU 一起重算，写后再次扫描必须为 0 不一致。 | ✅ staging 已执行并复验；生产仅完成 dry-run，未执行 |
 
 > 2026-08-17 最终独立复核：Critical / High 均为 0；测试 PostgreSQL 已在 Serializable + advisory lock 下真实执行两条批量 SQL，并在同一会话强制 `ROLLBACK`，事务内不一致数为 0，数据库未保留变更。
