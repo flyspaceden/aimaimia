@@ -71,6 +71,8 @@ describe('PickupAdminPointController contract', () => {
     ), 'utf8');
     const roleGrant = migration.slice(migration.indexOf('INSERT INTO "AdminRolePermission"'));
     expect(migration).toContain(`'pickup_fulfillment:operate'`);
+    expect(roleGrant).toContain('"id", "roleId", "permissionId", "createdAt"');
+    expect(roleGrant).toContain(`'rpf_' || md5(r."id" || ':' || p."id")`);
     expect(roleGrant).toContain(`r."name" = '超级管理员'`);
     expect(roleGrant).not.toContain(`r."name" = '经理'`);
     expect(roleGrant).not.toContain(`r."name" = '员工'`);

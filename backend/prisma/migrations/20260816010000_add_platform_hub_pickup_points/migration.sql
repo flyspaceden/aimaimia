@@ -33,8 +33,12 @@ ON CONFLICT ("code") DO UPDATE SET
   "action" = EXCLUDED."action",
   "description" = EXCLUDED."description";
 
-INSERT INTO "AdminRolePermission" ("roleId", "permissionId")
-SELECT r."id", p."id"
+INSERT INTO "AdminRolePermission" ("id", "roleId", "permissionId", "createdAt")
+SELECT
+  'rpf_' || md5(r."id" || ':' || p."id"),
+  r."id",
+  p."id",
+  CURRENT_TIMESTAMP
 FROM "AdminRole" r
 CROSS JOIN "AdminPermission" p
 WHERE r."name" = '超级管理员' AND p."code" = 'pickup_fulfillment:operate'
