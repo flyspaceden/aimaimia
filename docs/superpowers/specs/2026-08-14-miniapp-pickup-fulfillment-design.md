@@ -210,7 +210,7 @@ type PickupFulfillmentInput = {
 - 服务端根据 SKU / 活动 / 礼包的最终商家集合校验 `selections` 完整、一一匹配、点位归属正确且 `isActive=true`；客户端传入的公司、金额、运费、地点文本都不是可信来源。
 - 可用点通过 `GET /orders/pickup-points?companyIds=...` 按商家加载；预结算响应新增服务端裁决后的 `fulfillment` 摘要，`PICKUP` 时 `totalShippingFee=0`。点位查询或 feature flag 失败时客户端必须关闭自提选择，不能乐观放行。
 - `GET /orders/:id`、订单列表和订单状态统计响应新增 `fulfillmentMode` 和自提摘要；取货凭证只能由订单本人通过 `GET /orders/:id/pickup-pass` 获取，默认列表不返回明文码或 token。
-- 取货凭证接口仅在 `READY` 时返回短码与签名二维码 payload；接口需认证、限流、审计，响应禁止被公共 CDN 缓存。
+- 取货凭证接口仅在 `READY` 时返回短码、签名二维码 payload，以及由同一 payload 服务端生成并校验过的 PNG/Base64；接口需认证、限流、审计，响应禁止被公共 CDN 缓存。二维码图片失败不得阻断 8 位短码返回。
 
 ### 5.2 卖家端
 
@@ -233,7 +233,7 @@ type PickupFulfillmentInput = {
 
 全局核销只接受已认证卖家员工：服务端按二维码内履约 ID 或短码 HMAC digest 定位候选，再在事务内重新校验本企业归属、`READY + PAID`、签名/token 或 digest 和一次性状态。短码出现碰撞或候选不唯一时必须 fail-closed，不得猜测订单。两条新路由分别限流；审计、`PickupFulfillmentEvent` 和错误日志严禁存储明文短码、二维码 payload/token。
 
-买家小程序/App 的凭证页必须把“已取得凭证”与“二维码已成功绘制”分开处理。二维码画布/原生组件失败时显示明确、可操作的回退提示和短码，不能展示无说明的空白白框；凭证仍只在 READY、认证、限流、`no-store` 条件下读取。
+买家小程序/App 的凭证页必须把“已取得凭证”与“二维码图片已成功显示”分开处理。小程序不依赖 Canvas：服务端生成标准 PNG，小程序校验 MIME/Base64/大小后写入私有临时文件并用 `Image` 展示；图片写入或加载失败时显示明确、可操作的回退提示和短码，不能展示无说明的空白白框。凭证仍只在 READY、认证、限流、`no-store` 条件下读取。
 
 商品包装上的 SKU/条码可用于卖家拣货与出库复核，但**不能**替代买家一次性取货凭证：同一 SKU 可被多个订单持有，不能证明本次顾客有权提走商品。后续如接入“扫描商品复核”，仅作为核销前校验项，仍需独立扫码/输入取货凭证后才能变更订单状态。
 

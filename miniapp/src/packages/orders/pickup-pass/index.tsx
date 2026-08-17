@@ -1,96 +1,14 @@
-import { Button, Canvas, Text, View } from '@tarojs/components';
+import { Button, Image, Text, View } from '@tarojs/components';
 import Taro, { useDidShow, useRouter } from '@tarojs/taro';
 import { useQuery } from '@tanstack/react-query';
-import QRCode from 'qrcode';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { formatPickupBusinessHours } from '@/components/pickup-utils';
+import { persistPickupPassQr, removePersistedPickupPassQr } from '@/platform/pickupPassQr';
 import { OrderRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
 import { formatOrderTime } from '../_components/order-utils';
 import './index.scss';
-
-const QR_CANVAS_ID = 'pickup-pass-qr';
-const QR_CANVAS_SELECTOR = `.pickup-pass-page >>> #${QR_CANVAS_ID}`;
-
-type QrCanvasField = {
-  node?: {
-    width: number;
-    height: number;
-    getContext: (kind: '2d') => CanvasRenderingContext2D | null;
-  };
-  width?: number;
-  height?: number;
-};
-
-type QrCanvasFailureCode = 'NODE_UNAVAILABLE' | 'CONTEXT_UNAVAILABLE' | 'DRAW_FAILED';
-
-function qrCanvasFailureCode(error: unknown): QrCanvasFailureCode {
-  if (!(error instanceof Error)) return 'DRAW_FAILED';
-  if (error.message === 'QR_CANVAS_NODE_UNAVAILABLE') return 'NODE_UNAVAILABLE';
-  if (error.message === 'QR_CANVAS_CONTEXT_UNAVAILABLE') return 'CONTEXT_UNAVAILABLE';
-  return 'DRAW_FAILED';
-}
-
-/**
- * 使用新版 canvas node API 画二维码。这个 Promise 必须在画布节点存在且绘制成功后才 resolve；
- * 真机失败时页面会展示取货码和重试操作，而不是留下一个没有内容的白框。
- */
-function drawPickupQr(payload: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    Taro.nextTick(() => {
-      try {
-        const query = Taro.createSelectorQuery();
-        query.select(QR_CANVAS_SELECTOR).fields({ node: true, size: true }, (fieldResult) => {
-          try {
-            const field = fieldResult as QrCanvasField | undefined;
-            const canvas = field?.node;
-            const cssSize = Math.min(field?.width || 224, field?.height || 224);
-            if (!canvas || !cssSize) {
-              reject(new Error('QR_CANVAS_NODE_UNAVAILABLE'));
-              return;
-            }
-            const context = canvas.getContext('2d');
-            if (!context) {
-              reject(new Error('QR_CANVAS_CONTEXT_UNAVAILABLE'));
-              return;
-            }
-            const ratio = Taro.getWindowInfo().pixelRatio || 1;
-            // 每次刷新凭证都重新设置像素尺寸，避免旧的 scale 叠加导致二维码空白或变形。
-            canvas.width = Math.floor(cssSize * ratio);
-            canvas.height = Math.floor(cssSize * ratio);
-            if (typeof context.setTransform === 'function') {
-              context.setTransform(ratio, 0, 0, ratio, 0, 0);
-            } else {
-              context.scale(ratio, ratio);
-            }
-            context.fillStyle = '#FFFFFF';
-            context.fillRect(0, 0, cssSize, cssSize);
-            const qr = QRCode.create(payload, { errorCorrectionLevel: 'M' });
-            const quietZone = 4;
-            const moduleSize = cssSize / (qr.modules.size + quietZone * 2);
-            context.fillStyle = '#142C1A';
-            for (let row = 0; row < qr.modules.size; row += 1) {
-              for (let column = 0; column < qr.modules.size; column += 1) {
-                if (!qr.modules.get(row, column)) continue;
-                const left = Math.round((column + quietZone) * moduleSize);
-                const top = Math.round((row + quietZone) * moduleSize);
-                const right = Math.ceil((column + quietZone + 1) * moduleSize);
-                const bottom = Math.ceil((row + quietZone + 1) * moduleSize);
-                context.fillRect(left, top, right - left, bottom - top);
-              }
-            }
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        }).exec();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  });
-}
 
 export default function PickupPassPage() {
   const router = useRouter();
@@ -99,6 +17,9 @@ export default function PickupPassPage() {
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const [clock, setClock] = useState(() => Date.now());
   const [qrState, setQrState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [qrFilePath, setQrFilePath] = useState('');
+  const qrFilePathRef = useRef('');
+  const qrGenerationRef = useRef(0);
   const passQuery = useQuery({
     queryKey: ['order', orderId, 'pickup-pass'],
     queryFn: () => OrderRepo.getPickupPass(orderId),
@@ -115,36 +36,59 @@ export default function PickupPassPage() {
     const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => () => {
+    qrGenerationRef.current += 1;
+    const currentPath = qrFilePathRef.current;
+    qrFilePathRef.current = '';
+    if (currentPath) void removePersistedPickupPassQr(currentPath);
+  }, []);
   const rawPickupPass = passQuery.data?.ok ? passQuery.data.data : undefined;
   const pickupPass = rawPickupPass && new Date(rawPickupPass.expiresAt).getTime() > clock
     ? rawPickupPass
     : undefined;
+  const qrOrderId = pickupPass?.orderId;
+  const qrExpiresAt = pickupPass?.expiresAt;
+  const qrImageMimeType = pickupPass?.qrImageMimeType ?? null;
+  const qrImageBase64 = pickupPass?.qrImageBase64 ?? null;
 
   useEffect(() => {
-    let mounted = true;
-    if (!pickupPass?.qrPayload) {
+    const generation = qrGenerationRef.current + 1;
+    qrGenerationRef.current = generation;
+    if (!qrOrderId || !qrExpiresAt) {
       setQrState('loading');
-      return () => { mounted = false; };
+      return;
     }
     setQrState('loading');
-    void drawPickupQr(pickupPass.qrPayload)
-      .then(() => { if (mounted) setQrState('ready'); })
-      .catch((error) => {
-        console.warn('[pickup-pass] QR canvas draw failed', { code: qrCanvasFailureCode(error) });
-        if (mounted) setQrState('failed');
-      });
-    return () => { mounted = false; };
-  }, [pickupPass?.qrPayload]);
-
-  const retryQr = () => {
-    if (!pickupPass?.qrPayload) return;
-    setQrState('loading');
-    void drawPickupQr(pickupPass.qrPayload)
-      .then(() => setQrState('ready'))
-      .catch((error) => {
-        console.warn('[pickup-pass] QR canvas draw failed', { code: qrCanvasFailureCode(error) });
+    void persistPickupPassQr({
+      orderId: qrOrderId,
+      expiresAt: qrExpiresAt,
+      qrImageMimeType,
+      qrImageBase64,
+    })
+      .then(async (filePath) => {
+        if (qrGenerationRef.current !== generation) {
+          await removePersistedPickupPassQr(filePath);
+          return;
+        }
+        const previousPath = qrFilePathRef.current;
+        qrFilePathRef.current = filePath;
+        setQrFilePath(filePath);
+        setQrState('ready');
+        if (previousPath && previousPath !== filePath) {
+          await removePersistedPickupPassQr(previousPath);
+        }
+      })
+      .catch(() => {
+        if (qrGenerationRef.current !== generation) return;
+        console.warn('[pickup-pass] QR image persistence failed');
+        setQrFilePath('');
         setQrState('failed');
       });
+  }, [qrExpiresAt, qrImageBase64, qrImageMimeType, qrOrderId]);
+
+  const retryQr = () => {
+    setQrState('loading');
+    void passQuery.refetch();
   };
 
   if (!hydrated) return <View className='aim-page'><CatalogFeedback kind='loading' /></View>;
@@ -170,7 +114,7 @@ export default function PickupPassPage() {
         <Text>待自提</Text>
       </View>
       <View className='pickup-pass-qr-wrap'>
-        <Canvas type='2d' id={QR_CANVAS_ID} canvasId={QR_CANVAS_ID} className={`pickup-pass-qr ${qrState === 'failed' ? 'pickup-pass-qr--hidden' : ''}`} />
+        {qrFilePath && qrState === 'ready' ? <Image className='pickup-pass-qr' src={qrFilePath} mode='aspectFit' onError={() => { console.warn('[pickup-pass] QR image load failed'); setQrState('failed'); }} /> : null}
         {qrState === 'loading' ? <Text className='pickup-pass-qr-status'>正在生成一次性二维码…</Text> : null}
         {qrState === 'failed' ? <View className='pickup-pass-qr-fallback'>
           <Text>二维码未能显示</Text>

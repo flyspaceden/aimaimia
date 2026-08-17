@@ -705,7 +705,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 
 `src/modules/pickup/` 为普通商城订单新增 `DELIVERY | PICKUP` 履约能力，覆盖普通商品、团购和 VIP 礼包。它属于现有订单、CheckoutSession 和支付回调主链，不得调用独立 `/api/v1/delivery/**` 业务或 delivery 数据库。
 
-- 买家：查询指定商家的启用点位、读取本人 `READY` 凭证；普通订单列表/详情只返回自提摘要，不返回明文凭证。
+- 买家：查询指定商家的启用点位、读取本人 `READY` 凭证；普通订单列表/详情只返回自提摘要，不返回明文凭证。凭证接口把同一短时签名 `qrPayload` 在服务端渲染成经过 PNG 签名与大小校验的 Base64 图片，小程序写入私有临时文件并用 `Image` 展示；图片生成失败时仍返回 8 位短码，不让图片故障阻断核销。
 - 卖家：OWNER/MANAGER 管理本企业点位；有订单权限的员工可标记备货和使用二维码或 8 位短码核销。
 - 管理员：独立 `pickup_points:read/create/update/delete` 权限控制跨企业点位查看、新建、完整编辑/启停、软删除/恢复；平台中心仓由 `PickupPointKind.PLATFORM_HUB` 表示，只能归属平台公司并服务全部正常企业或显式授权企业。`orders:read` 查看履约事件，`orders:refund` 对普通商品异常自提订单执行整 CheckoutSession 受控取消退款，`pickup_fulfillment:operate` 才可代表平台备货、先解析再核销取货凭证。
 

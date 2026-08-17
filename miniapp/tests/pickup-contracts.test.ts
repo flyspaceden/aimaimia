@@ -192,26 +192,24 @@ describe('pickup API contracts', () => {
     }
   });
 
-  it('queries the pickup QR canvas across Taro component boundaries without CustomWrapper', () => {
+  it('renders the server-generated pickup QR image without any Canvas dependency', () => {
     const passSource = source('src/packages/orders/pickup-pass/index.tsx');
-    const passStyle = source('src/packages/orders/pickup-pass/index.scss');
+    const imageSource = source('src/platform/pickupPassQr.ts');
     const packageJson = JSON.parse(source('package.json')) as { scripts: Record<string, string> };
     const cleanScript = source('scripts/clean-weapp-dist.mjs');
     const artifactScript = source('scripts/verify-weapp-artifact.mjs');
 
-    expect(passSource).toContain('function drawPickupQr(payload: string): Promise<void>');
-    expect(passSource).toContain("setQrState('failed')");
+    expect(passSource).not.toContain('Canvas');
+    expect(passSource).not.toContain('createSelectorQuery');
+    expect(passSource).not.toContain("from 'qrcode'");
+    expect(passSource).toContain('persistPickupPassQr');
+    expect(passSource).toContain("<Image className='pickup-pass-qr'");
     expect(passSource).toContain('二维码未能显示');
     expect(passSource).toContain('请向商家出示下方 8 位取货码');
     expect(passSource).toContain('重新生成二维码');
-    expect(passSource).not.toContain('CustomWrapper');
-    expect(passSource).not.toContain('query.in(scope)');
-    expect(passSource).toContain("const QR_CANVAS_SELECTOR = `.pickup-pass-page >>> #${QR_CANVAS_ID}`");
-    expect(passSource).toContain('query.select(QR_CANVAS_SELECTOR)');
-    expect(passSource).toContain("fields({ node: true, size: true }, (fieldResult)");
-    expect(passSource).toContain('[pickup-pass] QR canvas draw failed');
-    expect(passStyle).toContain('.pickup-pass-qr--hidden');
-    expect(passStyle).not.toContain('.pickup-pass-qr-scope');
+    expect(imageSource).toContain("encoding: 'base64'");
+    expect(imageSource).toContain("result.qrImageMimeType !== 'image/png'");
+    expect(imageSource).toContain('imageBase64.startsWith(PNG_BASE64_PREFIX)');
     expect(packageJson.scripts['build:staging']).toContain('npm run clean:weapp');
     expect(packageJson.scripts['build:production']).toContain('npm run clean:weapp');
     expect(cleanScript).toContain("path.basename(distRoot), 'dist'");

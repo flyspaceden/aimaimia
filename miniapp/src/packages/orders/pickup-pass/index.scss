@@ -13,7 +13,6 @@
 .pickup-pass-ticket__top text:last-child { padding: 4px 8px; color: #fff; font-size: 9px; font-weight: 750; background: rgba(255,255,255,.17); border: 1px solid rgba(255,255,255,.25); border-radius: t.$radius-full; }
 .pickup-pass-qr-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 244px; height: 244px; margin: 18px auto 0; overflow: hidden; background: #fff; border: 1px solid t.$border; border-radius: 14px; }
 .pickup-pass-qr { width: 224px; height: 224px; }
-.pickup-pass-qr--hidden { visibility: hidden; }
 .pickup-pass-qr-status, .pickup-pass-qr-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 34px; color: t.$text-secondary; font-size: 11px; text-align: center; }
 .pickup-pass-qr-fallback { flex-direction: column; gap: 7px; line-height: 18px; background: rgba(255,255,255,.96); }
 .pickup-pass-qr-fallback text:first-child { color: t.$text-primary; font-weight: 750; }

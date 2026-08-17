@@ -28,7 +28,6 @@
     "@tarojs/shared": "4.2.1",
     "@tarojs/taro": "4.2.1",
     "abort-controller": "3.0.0",
-    "qrcode": "^1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "zustand": "^5.0.8"
@@ -39,7 +38,6 @@
     "@tarojs/taro-loader": "4.2.1",
     "@tarojs/webpack5-runner": "4.2.1",
     "@types/node": "^22.15.3",
-    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.6",
     "babel-preset-taro": "4.2.1",

@@ -74,6 +74,8 @@ export type PickupPass = {
   status: 'READY';
   pickupCode: string;
   qrPayload: string;
+  qrImageMimeType: 'image/png' | null;
+  qrImageBase64: string | null;
   expiresAt: string;
   pickupPoint: PickupFulfillmentSummary['pickupPoint'];
   recipient: PickupFulfillmentSummary['recipient'];

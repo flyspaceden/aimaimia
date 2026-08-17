@@ -44,6 +44,7 @@ import {
 import { VerifyPickupDto } from './dto/pickup-verify.dto';
 import { getConfigValue, resolveRewardSafeWindowMs } from '../after-sale/after-sale.utils';
 import { NotificationService } from '../notification/notification.service';
+import * as QRCode from 'qrcode';
 
 type Tx = Prisma.TransactionClient;
 
@@ -74,6 +75,9 @@ export type ValidatedFulfillment =
 
 const PASS_TTL_SECONDS = 5 * 60;
 const PASS_VIEW_AUDIT_WINDOW_MS = 60 * 1000;
+const PASS_QR_MAX_BYTES = 200_000;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const PNG_IEND = Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
 const SERIALIZABLE_OPTIONS = {
   isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
 } as const;
@@ -1020,15 +1024,41 @@ export class PickupService implements OnModuleInit {
     }
     const expiresAtSeconds = Math.floor(Date.now() / 1000) + PASS_TTL_SECONDS;
     const qrPayload = this.buildQrPayload(fulfillment.id, credentials.pickupToken, expiresAtSeconds);
+    const qrImage = await this.buildBuyerPassQrImage(qrPayload);
     return {
       orderId,
       status: 'READY' as const,
       pickupCode: credentials.pickupCode,
       qrPayload,
+      ...qrImage,
       expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
       pickupPoint: this.mapPointSnapshot(fulfillment.pickupPointSnapshot),
       recipient: this.mapRecipient(fulfillment.recipientSnapshot),
     };
+  }
+
+  private async buildBuyerPassQrImage(qrPayload: string): Promise<{
+    qrImageMimeType: 'image/png' | null;
+    qrImageBase64: string | null;
+  }> {
+    try {
+      const image = await QRCode.toBuffer(qrPayload, {
+        type: 'png',
+        width: 448,
+        margin: 4,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#142C1A', light: '#FFFFFFFF' },
+      });
+      const validPng = image.length >= PNG_SIGNATURE.length + PNG_IEND.length
+        && image.length <= PASS_QR_MAX_BYTES
+        && image.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+        && image.subarray(-PNG_IEND.length).equals(PNG_IEND);
+      if (!validPng) throw new Error('invalid PNG');
+      return { qrImageMimeType: 'image/png', qrImageBase64: image.toString('base64') };
+    } catch {
+      this.logger.warn('取货二维码图片生成失败，买家仍可使用 8 位短码');
+      return { qrImageMimeType: null, qrImageBase64: null };
+    }
   }
 
   async listAdminEvents(orderId: string) {

@@ -291,6 +291,9 @@ describe('PickupService', () => {
     const result = await service.getBuyerPass('u1', 'o1');
 
     expect(result.pickupCode).toBe(pickupCode);
+    expect(result.qrImageMimeType).toBe('image/png');
+    expect(result.qrImageBase64).toMatch(/^iVBORw0KGgo/);
+    expect(Buffer.from(result.qrImageBase64!, 'base64').length).toBeLessThanOrEqual(200_000);
     expect(pickupFulfillmentEvent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         fulfillmentId: 'pf1',
