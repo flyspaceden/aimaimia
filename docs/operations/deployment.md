@@ -482,6 +482,13 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 
 ## 十一、变更记录
 
+### 2026-08-17 平台中心仓与卖家自提工作队列 staging 发布
+
+- **范围**：仅 `staging`，未改 `main` / production。远端源码由 `6a36a154`（中心仓模型）推进到 `864dab38`，包含平台中心仓开关自动绑定唯一平台公司、企业授权范围、平台备货/核销权限，以及卖家“自提订单”只显示 `PICKUP + PAID` 的待处理订单。
+- **首次失败与恢复**：run `31992991707` 在 `20260816010000_add_platform_hub_pickup_points` 给 `AdminRolePermission` 写权限关系时遗漏必填 `id`，PostgreSQL 拒绝迁移；部署脚本自动恢复后端到 `21f85566` 并完成健康检查。随后将迁移修正为稳定 `rpf_ + md5(roleId:permissionId)`，仅当 staging `migrate status` 明确指向该已回滚失败记录时受控执行 `migrate resolve --rolled-back`，其他迁移异常继续 fail-closed。
+- **部署结果**：run `31994109519` 成功；`deploy-backend`、`deploy-admin`、`deploy-seller` 和 staging 微信转账预检均通过，修正后的 migration 已在 `testaimaimai` 应用，`aimaimai-api-test` 健康检查通过。一次性恢复逻辑随后从部署 workflow 移除，不保留在长期发布链路。
+- **待验收**：尚未在 staging 创建中心仓点位，尚未执行普通/团购/VIP 真实自提、平台核销、真实支付/退款或真机验收。必须先在管理后台创建并启用测试中心仓，再验证买家小程序和卖家/平台后台闭环。
+
 ### 2026-08-14 到店自提 staging 灰度发布
 
 - **范围**：仅 `staging`，未改 `main` / production。功能提交 `9eb5d174 feat(pickup): add store pickup fulfillment`，覆盖普通商品、团购和 VIP 礼包的配送 / 自提双履约，以及小程序、买家 App、卖家中心、管理后台和共享后端。
