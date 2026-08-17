@@ -130,4 +130,10 @@ describe('ProductPricingService', () => {
     expect(plan.preview.eligibleSkuCount).toBe(0);
     expect(plan.preview.affectedSkuCount).toBe(0);
   });
+
+  it('uses the same JavaScript two-decimal result for half-cent boundaries', () => {
+    const { service } = createHarness();
+
+    expect(service.calculatePrice(562.9, 1.35)).toBe(759.91);
+  });
 });
