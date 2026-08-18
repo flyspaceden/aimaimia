@@ -94,8 +94,52 @@ export const markPickupReady = (
 ): Promise<{ orderId: string; status: 'READY'; readyAt: string; alreadyReady: boolean }> =>
   client.post(`/admin/orders/${orderId}/pickup/ready`, {});
 
+export type PickupCredentialPayload =
+  | { pickupCode: string; qrPayload?: never }
+  | { pickupCode?: never; qrPayload: string };
+
+export interface PickupCredentialPreview {
+  orderId: string;
+  status: 'READY' | 'PICKED_UP';
+  alreadyPickedUp: boolean;
+  companies: Array<{ id: string; name: string }>;
+  pickupPoint: {
+    id: string | null;
+    companyId: string | null;
+    kind: 'MERCHANT' | 'PLATFORM_HUB';
+    isPlatformHub: boolean;
+    name: string;
+    regionText: string;
+    detail: string;
+    businessHours?: Record<string, unknown> | null;
+  };
+  recipient: {
+    name: string;
+    phoneMasked: string;
+  };
+  items: Array<{
+    title: string;
+    skuTitle: string;
+    quantity: number;
+    skuCode: string | null;
+    barcode: string | null;
+  }>;
+}
+
 export const verifyPickup = (
   orderId: string,
-  data: { pickupCode: string } | { qrPayload: string },
+  data: PickupCredentialPayload,
 ): Promise<{ orderId: string; status: 'PICKED_UP'; pickedUpAt: string; alreadyPickedUp: boolean }> =>
   client.post(`/admin/orders/${orderId}/pickup/verify`, data);
+
+/** 平台核销台先识别凭证并返回最小订单摘要，不改变履约状态。 */
+export const resolvePickupCredential = (
+  data: PickupCredentialPayload,
+): Promise<PickupCredentialPreview> =>
+  client.post('/admin/pickup/resolve', data);
+
+/** 平台操作员二次确认后核销，后端复用 Serializable/CAS 主链。 */
+export const verifyPickupCredential = (
+  data: PickupCredentialPayload,
+): Promise<{ orderId: string; status: 'PICKED_UP'; pickedUpAt: string; alreadyPickedUp: boolean }> =>
+  client.post('/admin/pickup/verify', data);

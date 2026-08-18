@@ -28,6 +28,7 @@ import {
   RiseOutlined,
   CrownOutlined,
   EnvironmentOutlined,
+  ScanOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -106,6 +107,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       permissionAny: [
         PERMISSIONS.ORDERS_READ,
         PERMISSIONS.PICKUP_POINTS_READ,
+        PERMISSIONS.PICKUP_FULFILLMENT_OPERATE,
         PERMISSIONS.INVOICES_READ,
         PERMISSIONS.INVOICES_ISSUE,
         PERMISSIONS.AFTER_SALE_READ,
@@ -113,6 +115,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
       routes: [
         { path: '/orders', name: '订单管理', permission: PERMISSIONS.ORDERS_READ },
+        { path: '/pickup-verify', name: '到店核销台', icon: <ScanOutlined />, permission: PERMISSIONS.PICKUP_FULFILLMENT_OPERATE },
         { path: '/pickup-points', name: '自提点管理', icon: <EnvironmentOutlined />, permission: PERMISSIONS.PICKUP_POINTS_READ },
         { path: '/invoices', name: '发票管理', permission: PERMISSIONS.INVOICES_READ },
         { path: '/invoices/settings', name: '发票设置', permission: PERMISSIONS.INVOICES_ISSUE },

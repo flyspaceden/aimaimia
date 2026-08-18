@@ -869,7 +869,24 @@ export class PickupService implements OnModuleInit {
       }
       this.assertCredential(fulfillment, dto);
     }
-    return this.toCredentialPreview(fulfillment, alreadyPickedUp);
+    const preview = this.toCredentialPreview(fulfillment, alreadyPickedUp);
+    if (actor.actorType !== 'ADMIN') return preview;
+
+    const companyIds = Array.from(new Set<string>(
+      (fulfillment.order.items ?? [])
+        .map((item: any) => item.companyId)
+        .filter((companyId: unknown): companyId is string => typeof companyId === 'string' && Boolean(companyId)),
+    )).sort();
+    if (!companyIds.length) throw new ConflictException('订单企业信息不完整，不能在平台核销台操作');
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    if (companies.length !== companyIds.length) {
+      throw new ConflictException('订单企业信息不完整，不能在平台核销台操作');
+    }
+    return { ...preview, companies };
   }
 
   /**

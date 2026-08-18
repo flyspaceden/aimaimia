@@ -792,6 +792,58 @@ describe('PickupService', () => {
     expect(verify).toHaveBeenCalledWith('c1', 'staff-1', 'o1', { qrPayload });
   });
 
+  it('平台核销台在最小预览中返回订单企业名称且不泄露凭证', async () => {
+    const token = 'admin-one-time-token';
+    const prisma = {
+      pickupFulfillment: { findUnique: jest.fn() },
+      company: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'company-1', name: '澄源生态农业' },
+        ]),
+      },
+    };
+    const { service } = createService(prisma);
+    prisma.pickupFulfillment.findUnique.mockResolvedValue({
+      id: 'pf-admin-1',
+      orderId: 'order-admin-1',
+      status: 'READY',
+      pickupTokenDigest: (service as any).digest(token),
+      pickupPointSnapshot: encryptJsonValue({
+        id: 'hub-1', companyId: 'platform', kind: 'PLATFORM_HUB', name: '平台中心仓',
+        regionText: '深圳市', detail: '南山区 1 号',
+      }),
+      recipientSnapshot: encryptJsonValue({ recipientName: '李四', phone: '13812345678' }),
+      order: {
+        id: 'order-admin-1', status: 'PAID', fulfillmentMode: 'PICKUP',
+        items: [{
+          companyId: 'company-1', isPrize: false, quantity: 1,
+          productSnapshot: { title: '有机番茄', skuTitle: '2斤装' },
+          sku: { title: '2斤装', skuCode: null, barcode: null, product: { title: '有机番茄' } },
+        }],
+      },
+    });
+    const qrPayload = (service as any).buildQrPayload(
+      'pf-admin-1',
+      token,
+      Math.floor(Date.now() / 1000) + 60,
+    );
+
+    const preview = await service.resolveCredentialByAdmin('admin-1', { qrPayload });
+
+    expect(preview).toMatchObject({
+      orderId: 'order-admin-1',
+      companies: [{ id: 'company-1', name: '澄源生态农业' }],
+      pickupPoint: { isPlatformHub: true, name: '平台中心仓' },
+    });
+    expect(prisma.company.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['company-1'] } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    expect(JSON.stringify(preview)).not.toContain(token);
+    expect(JSON.stringify(preview)).not.toContain(qrPayload);
+  });
+
   it('核销台全局短码查询对跨企业和短码碰撞均 fail closed', async () => {
     const { service } = createService({
       pickupFulfillment: {

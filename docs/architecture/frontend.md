@@ -2590,4 +2590,6 @@ src/components/ai/   → 新增目录
 
 2026-08-17 核销台确认弹窗热修：卖家端已运行于 React 19 + Ant Design 5 `App` 上下文，“确认交付并核销”不再调用无上下文的静态 `Modal.confirm`，统一改为 `App.useApp()` 返回的 `modal.confirm`。扫码仍只解析预览，弹窗中的二次确认才发起不可逆核销。
 
+2026-08-17 平台核销入口补齐：管理后台“交易与售后”新增独立 `/pickup-verify` 核销台，使用 `pickup_fulfillment:operate` 与订单查看、自提点管理权限分离。支持扫码枪、电脑摄像头和 8 位短码，先调用平台全局 resolve 自动定位订单，展示中心仓/企业点位、脱敏取货人和商品，再二次确认原子核销。
+
 2026-08-17 补充：iPhone 真机证明 Canvas node 在当前 Taro/微信基础库组合下无法稳定获取；普通 SelectorQuery、`CustomWrapper + .in(scope)` 和 `>>>` 跨组件选择器均未通过真实设备。最终彻底移除小程序 Canvas 与客户端 `qrcode` 依赖：后端使用同一短时签名 `qrPayload` 生成标准 PNG/Base64，小程序复用推荐码的安全写文件方式保存到私有临时目录，再由普通 `Image` 展示。账号或凭证刷新会删除旧临时文件；图片缺失或写入失败时继续展示 8 位短码。release 构建仍先清理限定的 `miniapp/dist`，二维码真机重测仍是上线验收条件。
