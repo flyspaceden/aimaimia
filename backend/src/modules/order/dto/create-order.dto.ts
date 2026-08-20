@@ -1,10 +1,12 @@
 import {
   IsString,
   IsNumber,
+  IsInt,
   IsArray,
   IsOptional,
   ValidateNested,
   Min,
+  Max,
   MaxLength,
   ArrayMinSize,
   ArrayMaxSize,
@@ -23,7 +25,9 @@ export class CreateOrderItemDto {
 
   @Type(() => Number)
   @IsNumber()
+  @IsInt()
   @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
   quantity: number;
 
   /** 购物车项 ID（用于识别奖品项，可选） */

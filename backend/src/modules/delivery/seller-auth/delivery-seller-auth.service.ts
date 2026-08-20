@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -18,6 +19,7 @@ import {
 } from '../../../generated/delivery-client';
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { DeliverySellerJwtPayload } from '../auth/delivery-seller-jwt.strategy';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 import {
   DeliverySellerBindPhoneSmsCodeDto,
   DeliverySellerChangeNicknameDto,
@@ -573,6 +575,7 @@ export class DeliverySellerAuthService {
   }
 
   private async issueOtp(phone: string, purpose: DeliveryOtpPurpose) {
+    const mockEnabled = this.isMockCodeEnabled();
     const recentCount = await this.deliveryPrisma.deliveryPhoneOtp.count({
       where: {
         phone,
@@ -586,19 +589,20 @@ export class DeliverySellerAuthService {
       throw new BadRequestException('请勿频繁获取验证码');
     }
 
-    const code = this.isMockCodeEnabled()
+    const code = mockEnabled
       ? '123456'
       : randomInt(100000, 1000000).toString();
+    const codeHash = this.hashCode(code);
     await this.deliveryPrisma.deliveryPhoneOtp.create({
       data: {
         phone,
         purpose,
-        codeHash: this.hashCode(code),
+        codeHash,
         expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
 
-    if (this.isMockCodeEnabled()) {
+    if (mockEnabled) {
       this.logger.log(
         `[Delivery Seller SMS Mock] purpose=${purpose} code=${code} target=${maskPhone(phone)}`,
       );
@@ -611,6 +615,11 @@ export class DeliverySellerAuthService {
       this.logger.error(
         `[Delivery Seller SMS] 发送失败 target=${maskPhone(phone)}: ${(error as Error).message}`,
       );
+      await this.deliveryPrisma.deliveryPhoneOtp.updateMany({
+        where: { phone, purpose, codeHash, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
     }
   }
 
@@ -700,6 +709,11 @@ export class DeliverySellerAuthService {
   }
 
   private isMockCodeEnabled() {
-    return this.configService.get('DELIVERY_SMS_MOCK') === 'true';
+    return resolveAuthenticationMockMode(
+      this.configService,
+      'DELIVERY_SMS_MOCK',
+      '配送卖家短信验证码服务',
+      false,
+    );
   }
 }

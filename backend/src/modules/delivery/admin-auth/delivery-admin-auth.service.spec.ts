@@ -1,4 +1,5 @@
 import * as bcrypt from 'bcrypt';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
@@ -94,6 +95,46 @@ describe('DeliveryAdminAuthService', () => {
       captchaService as unknown as CaptchaService,
       smsService as unknown as AliyunSmsService,
     );
+  });
+
+  it.each([undefined, 'true'])(
+    'fails closed in production when DELIVERY_SMS_MOCK=%p before writing an admin OTP',
+    async (smsMock) => {
+      configService.get.mockImplementation((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'DELIVERY_SMS_MOCK') return smsMock;
+        if (key === 'DELIVERY_ADMIN_JWT_EXPIRES_IN') return '8h';
+        return fallback;
+      });
+
+      await expect(service.sendSmsCode({ phone: '13800000000' }))
+        .rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(prisma.deliveryPhoneOtp.count).not.toHaveBeenCalled();
+      expect(prisma.deliveryPhoneOtp.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('invalidates admin OTP and returns an error when the real SMS provider fails', async () => {
+    configService.get.mockImplementation((key: string, fallback?: string) => {
+      if (key === 'NODE_ENV') return 'production';
+      if (key === 'DELIVERY_SMS_MOCK') return 'false';
+      if (key === 'DELIVERY_ADMIN_JWT_EXPIRES_IN') return '8h';
+      return fallback;
+    });
+    prisma.deliveryPhoneOtp.create.mockResolvedValue({ id: 'otp-failed' });
+    prisma.deliveryPhoneOtp.updateMany.mockResolvedValue({ count: 1 });
+    prisma.deliveryAdminUser.findUnique.mockResolvedValue({
+      id: 'dadmin_1',
+      status: DeliveryAdminUserStatus.ACTIVE,
+    });
+    smsService.sendVerificationCode.mockRejectedValue(new Error('provider down'));
+
+    await expect(service.sendSmsCode({ phone: '13800000000' }))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.deliveryPhoneOtp.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ phone: '13800000000', consumedAt: null }),
+      data: { consumedAt: expect.any(Date) },
+    }));
   });
 
   it('issues delivery-admin tokens for a valid password login', async () => {

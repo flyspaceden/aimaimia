@@ -18,6 +18,7 @@ import { maskPhone } from '../../common/security/privacy-mask';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 import { pendingQueueClawbackCents } from '../queue-reward/queue-reward-clawback';
+import { calculateLegacyClawbackReservationsByAccountCents } from './legacy-reward-clawback';
 
 const APP_WALLET_OWNER_REWARD_ACCOUNT_TYPES = [
   'VIP_REWARD',
@@ -992,6 +993,7 @@ export class BonusService {
       groupBuyAccount,
       pendingAggregate,
       pendingQueueClawbacks,
+      legacyClawbackReservations,
     ] = await Promise.all([
       this.prisma.rewardAccount.findMany({
         where: {
@@ -1028,6 +1030,7 @@ export class BonusService {
         },
         select: { amount: true, meta: true },
       }),
+      calculateLegacyClawbackReservationsByAccountCents(this.prisma, userId),
     ]);
 
     const vip = accounts.find((a) => a.type === 'VIP_REWARD');
@@ -1037,9 +1040,17 @@ export class BonusService {
     );
     const industry = accounts.find((a) => a.type === 'INDUSTRY_FUND');
 
-    const vipBalance = vip?.balance ?? 0;
+    const vipGrossBalanceCents = yuanToCents(vip?.balance ?? 0);
+    const vipLegacyReservedCents = vip
+      ? legacyClawbackReservations.byAccountId.get(vip.id) ?? 0
+      : 0;
+    const normalGrossBalanceCents = yuanToCents(normal?.balance ?? 0);
+    const normalLegacyReservedCents = normal
+      ? legacyClawbackReservations.byAccountId.get(normal.id) ?? 0
+      : 0;
+    const vipBalance = centsToYuan(vipGrossBalanceCents - vipLegacyReservedCents);
     const vipFrozen = vip?.frozen ?? 0;
-    const normalBalance = normal?.balance ?? 0;
+    const normalBalance = centsToYuan(normalGrossBalanceCents - normalLegacyReservedCents);
     const normalFrozen = normal?.frozen ?? 0;
     const queueGrossBalanceCents = yuanToCents(
       queueReward?.balance ?? 0,
@@ -1061,7 +1072,13 @@ export class BonusService {
     // 队列奖励只有售后期结束后才进入 RewardAccount；这里的 frozen
     // 仅代表用户已发起提现、尚在处理中的金额，不是待释放的队列奖励。
     const queueFrozen = queueReward?.frozen ?? 0;
-    const industryBalance = isSellerOwner ? industry?.balance ?? 0 : 0;
+    const industryGrossBalanceCents = yuanToCents(industry?.balance ?? 0);
+    const industryLegacyReservedCents = industry
+      ? legacyClawbackReservations.byAccountId.get(industry.id) ?? 0
+      : 0;
+    const industryBalance = isSellerOwner
+      ? centsToYuan(Math.max(0, industryGrossBalanceCents - industryLegacyReservedCents))
+      : 0;
     const industryFrozen = isSellerOwner ? industry?.frozen ?? 0 : 0;
     const groupBuyBalance = groupBuyAccount?.balance ?? 0;
     const groupBuyReserved = groupBuyAccount?.reserved ?? 0;
@@ -1084,6 +1101,7 @@ export class BonusService {
       total: balance + frozen,
       deductibleBalance,
       withdrawableBalance: balance,
+      pendingLegacyClawbackAmount: centsToYuan(legacyClawbackReservations.totalCents),
       isSellerOwner,
       // 分账户明细
       vip: { balance: vipBalance, frozen: vipFrozen },

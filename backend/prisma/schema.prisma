@@ -432,6 +432,22 @@ enum WechatShippingOutboxStatus {
   FAILED
 }
 
+enum OrderReceivedEffectKind {
+  BONUS_ALLOCATION
+  DIGITAL_ASSET_CREDIT
+  GROUP_BUY_EVALUATION
+  GROWTH_REWARD
+  CAPTAIN_COMMISSION_RELEASE
+  COUPON_TRIGGERS
+}
+
+enum OrderReceivedEffectStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
 enum ShippingCalcType {
   WEIGHT
   COUNT
@@ -1884,12 +1900,39 @@ model Order {
   profitRefundReversals     OrderProfitRefundReversal[]
   profitReconciliationTasks OrderProfitReconciliationTask[]
   profitAdjustmentDrafts    OrderProfitAdjustmentDraft[]
+  receivedEffectOutbox      OrderReceivedEffectOutbox[]
 
   @@unique([id, userId])
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
   @@index([createdAt]) // 管理端销售趋势按日期范围查询
   @@index([fulfillmentMode, status, createdAt])
+}
+
+/// 确认收货后资金/权益副作用的可靠 outbox。
+/// 与 Order.status=RECEIVED 在同一 Serializable 事务中写入，以租约 + CAS 支持崩溃恢复。
+model OrderReceivedEffectOutbox {
+  id             String                    @id @default(cuid())
+  orderId        String
+  order          Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  userId         String
+  kind           OrderReceivedEffectKind
+  source         String                    @db.VarChar(32)
+  isFirstReceived Boolean                  @default(false)
+  status         OrderReceivedEffectStatus @default(PENDING)
+  attempts       Int                       @default(0)
+  runAt          DateTime                  @default(now())
+  processingAt   DateTime?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([orderId, kind])
+  @@index([status, runAt, createdAt])
+  @@index([status, leaseExpiresAt])
 }
 
 model PickupPoint {
@@ -4304,6 +4347,7 @@ model CouponInstance {
   campaign   CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   userId     String
   user       User           @relation("UserCouponInstances", fields: [userId], references: [id], onDelete: Restrict)
+  triggerIdempotencyKey String? @unique
 
   // 状态
   status CouponInstanceStatus @default(AVAILABLE)

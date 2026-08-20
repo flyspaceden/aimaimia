@@ -1,5 +1,9 @@
 import { OrderProfitSnapshotCalculator } from './order-profit-snapshot-calculator';
-import { allocateCentsByLargestRemainder, yuanToCents } from './money-allocation';
+import {
+  allocateCentsByLargestRemainder,
+  nonNegativeYuanCapacityToCents,
+  yuanToCents,
+} from './money-allocation';
 
 describe('OrderProfitSnapshotCalculator', () => {
   const calculator = new OrderProfitSnapshotCalculator();
@@ -517,6 +521,12 @@ describe('OrderProfitSnapshotCalculator', () => {
     expect(yuanToCents(0.1 + 0.2)).toBe(30);
     expect(() => yuanToCents(Number.NaN)).toThrow();
     expect(() => yuanToCents(Number.MAX_SAFE_INTEGER)).toThrow();
+  });
+
+  it('floors available account capacity so a CAS never debits above the stored Float', () => {
+    expect(nonNegativeYuanCapacityToCents(0.555)).toBe(55);
+    expect(nonNegativeYuanCapacityToCents(0.1 + 0.2)).toBe(30);
+    expect(nonNegativeYuanCapacityToCents(0.004)).toBe(0);
   });
 
   it.each([

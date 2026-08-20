@@ -637,7 +637,7 @@ export class GroupBuyCheckoutService {
           product,
           skuId: item.skuId ?? sku?.id,
           sku,
-          quantity: Math.max(1, Math.floor(Number(item.quantity ?? 1))),
+          quantity: Number(item.quantity ?? 1),
           sortOrder: item.sortOrder ?? index,
         };
       })
@@ -680,7 +680,7 @@ export class GroupBuyCheckoutService {
       if (item.sku.status !== SkuStatus.ACTIVE) {
         throw new BadRequestException("团购活动商品规格已下架");
       }
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
         throw new BadRequestException("团购活动商品数量配置异常");
       }
       if (Number(item.sku.stock ?? 0) < item.quantity) {

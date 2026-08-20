@@ -40,6 +40,17 @@ describe('WechatMiniProgramApiService', () => {
     await expect(service.getAccessToken()).rejects.toThrow('微信小程序平台服务未配置');
   });
 
+  it('fails closed in production when WECHAT_MINIAPP_MOCK is missing', async () => {
+    const service = makeService({
+      NODE_ENV: 'production',
+      WECHAT_MINIAPP_APP_ID: 'wx-real',
+      WECHAT_MINIAPP_APP_SECRET: 'secret-real',
+    });
+    expect(service.isAvailable()).toBe(false);
+    expect(service.getAppId()).toBeNull();
+    await expect(service.getAccessToken()).rejects.toThrow('微信小程序平台服务未配置');
+  });
+
   it('caches stable_token and never includes credentials in the business request body', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({

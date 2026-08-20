@@ -24,6 +24,7 @@ import type { WithdrawRules } from './dto/withdraw-rules.dto';
 import { WithdrawRulesService } from './withdraw-rules.service';
 import { PLATFORM_USER_ID } from './engine/constants';
 import { pendingQueueClawbackCents } from '../queue-reward/queue-reward-clawback';
+import { settleLegacyRewardClawbacksInTransaction } from './legacy-reward-clawback';
 import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
 import {
   WechatMerchantTransferNotify,
@@ -671,6 +672,9 @@ export class WithdrawPayoutService implements OnModuleInit {
     userId: string,
     amountCents: number,
   ): Promise<WithdrawSplit> {
+    // 旧订单退款形成的 VIP/NORMAL 待追偿必须先占用后续收入，
+    // 否则用户可在债务写入后继续提现逃逸。
+    await settleLegacyRewardClawbacksInTransaction(tx, userId);
     // 统一提现优先级：VIP → 普通树 → 全局队列 → 团购返还 → OWNER 产业基金
     const vip = await tx.rewardAccount.findUnique({
       where: { userId_type: { userId, type: 'VIP_REWARD' as any } },

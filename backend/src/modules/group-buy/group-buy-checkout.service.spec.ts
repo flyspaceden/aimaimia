@@ -246,6 +246,30 @@ describe("GroupBuyCheckoutService", () => {
     expect(tx.checkoutSession.create).not.toHaveBeenCalled();
   });
 
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects an unsafe group-buy activity item quantity %p before creating checkout",
+    async (quantity) => {
+      const { tx, service } = buildPrisma();
+      const activity = buildActivity();
+      tx.groupBuyActivity.findUnique.mockResolvedValueOnce({
+        ...activity,
+        items: [{
+          productId: activity.product.id,
+          skuId: activity.sku.id,
+          quantity,
+          sortOrder: 0,
+          product: activity.product,
+          sku: activity.sku,
+        }],
+      });
+
+      await expect(service.createCheckout("user_1", dto as any)).rejects.toThrow(
+        "团购活动商品数量配置异常",
+      );
+      expect(tx.checkoutSession.create).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects checkout when the user already has an active group-buy checkout session", async () => {
     const { tx, service } = buildPrisma();
     tx.checkoutSession.findFirst.mockResolvedValueOnce({

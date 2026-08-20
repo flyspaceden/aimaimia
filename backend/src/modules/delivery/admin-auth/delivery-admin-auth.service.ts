@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -20,6 +21,7 @@ import {
 import { DeliveryPrismaService } from '../../../delivery-prisma/delivery-prisma.service';
 import { CaptchaService } from '../../captcha/captcha.service';
 import { DeliveryAdminJwtPayload } from '../auth/delivery-admin-jwt.strategy';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 import {
   DeliveryAdminBindPhoneSmsCodeDto,
   DeliveryAdminChangePasswordDto,
@@ -101,6 +103,7 @@ export class DeliveryAdminAuthService {
   }
 
   async sendSmsCode(dto: DeliveryAdminSmsCodeDto, _ip?: string) {
+    this.isMockCodeEnabled();
     const admin = await this.deliveryPrisma.deliveryAdminUser.findUnique({
       where: { phone: dto.phone },
     });
@@ -370,6 +373,7 @@ export class DeliveryAdminAuthService {
   }
 
   private async issueOtp(phone: string, purpose: DeliveryOtpPurpose) {
+    const mockEnabled = this.isMockCodeEnabled();
     const recentCount = await this.deliveryPrisma.deliveryPhoneOtp.count({
       where: {
         phone,
@@ -383,19 +387,20 @@ export class DeliveryAdminAuthService {
       throw new BadRequestException('请勿频繁获取验证码');
     }
 
-    const code = this.isMockCodeEnabled()
+    const code = mockEnabled
       ? '123456'
       : randomInt(100000, 1000000).toString();
+    const codeHash = this.hashCode(code);
     await this.deliveryPrisma.deliveryPhoneOtp.create({
       data: {
         phone,
         purpose,
-        codeHash: this.hashCode(code),
+        codeHash,
         expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
 
-    if (this.isMockCodeEnabled()) {
+    if (mockEnabled) {
       this.logger.log(`[Delivery Admin SMS Mock] purpose=${purpose} code=${code}`);
       return;
     }
@@ -404,6 +409,11 @@ export class DeliveryAdminAuthService {
       await this.aliyunSmsService.sendVerificationCode(phone, code);
     } catch (error) {
       this.logger.error(`[Delivery Admin SMS] 发送失败: ${(error as Error).message}`);
+      await this.deliveryPrisma.deliveryPhoneOtp.updateMany({
+        where: { phone, purpose, codeHash, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
     }
   }
 
@@ -482,7 +492,12 @@ export class DeliveryAdminAuthService {
   }
 
   private isMockCodeEnabled() {
-    return this.configService.get('DELIVERY_SMS_MOCK') === 'true';
+    return resolveAuthenticationMockMode(
+      this.configService,
+      'DELIVERY_SMS_MOCK',
+      '配送管理短信验证码服务',
+      false,
+    );
   }
 
   private hashCode(code: string) {

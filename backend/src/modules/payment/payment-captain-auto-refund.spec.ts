@@ -76,6 +76,11 @@ describe('PaymentService captain auto-refund hook', () => {
       refundStatusHistory: {
         create: jest.fn().mockResolvedValue({}),
       },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = {
       $transaction: jest.fn(async (callback: any) => callback(tx)),
@@ -129,6 +134,11 @@ describe('PaymentService captain auto-refund hook', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       refundStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = { $transaction: jest.fn(async (callback: any) => callback(tx)) };
     const captainCommission = { voidForRefund: jest.fn() };
@@ -165,6 +175,11 @@ describe('PaymentService captain auto-refund hook', () => {
         }),
       },
       refundStatusHistory: { create: jest.fn() },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = { $transaction: jest.fn(async (callback: any) => callback(tx)) };
     const profitRefund = {

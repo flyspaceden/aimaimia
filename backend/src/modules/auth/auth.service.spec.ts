@@ -134,7 +134,7 @@ function makeService(prisma: any, configOverrides: Record<string, string> = {}) 
     growthEvents,
     inviteH5,
   );
-  return { service, jwt, couponEngine, growthEvents, inviteH5, redisCoord };
+  return { service, jwt, couponEngine, growthEvents, inviteH5, redisCoord, aliyunSms };
 }
 
 describe('AuthService — 账号注销护栏（身份变更）', () => {
@@ -1141,6 +1141,38 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
     expect(prisma.authIdentity.create).not.toHaveBeenCalled();
   });
 
+  it('生产环境 SMS_MOCK 缺失时买家发码 fail-closed 且不写 OTP', async () => {
+    const prisma = makePrisma();
+    const { service } = makeService(prisma, {
+      NODE_ENV: 'production',
+      SMS_MOCK: undefined as unknown as string,
+      WECHAT_MOCK: 'false',
+    });
+
+    await expect(service.sendSmsCode(PHONE)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(prisma.smsOtp.create).not.toHaveBeenCalled();
+  });
+
+  it('真实短信发送失败时作废已持久化 OTP 并返回失败', async () => {
+    const prisma = makePrisma();
+    const { service, aliyunSms } = makeService(prisma, {
+      NODE_ENV: 'production',
+      SMS_MOCK: 'false',
+      WECHAT_MOCK: 'false',
+    });
+    aliyunSms.sendVerificationCode.mockRejectedValue(new Error('provider down'));
+
+    await expect(service.sendSmsCode(PHONE)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(prisma.smsOtp.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ phone: PHONE, purpose: 'LOGIN', usedAt: null }),
+      data: { usedAt: expect.any(Date) },
+    }));
+  });
+
   it('生产环境 WECHAT_MOCK=true 时旧 App 微信登录 fail-closed 且不创建账号', async () => {
     const prisma = makePrisma();
     const { service } = makeService(prisma, {
@@ -1217,6 +1249,21 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
       NODE_ENV: 'production',
       WECHAT_MINIAPP_MOCK: 'true',
       WECHAT_MINIAPP_APP_ID: 'mini-app-id',
+    });
+
+    await expect(service.loginWithWechatMiniapp('client-controlled-code'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.authIdentity.findFirst).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('生产环境 WECHAT_MINIAPP_MOCK 缺失时小程序登录 fail-closed 且不生成模拟身份', async () => {
+    const prisma = makePrisma();
+    const { service } = makeService(prisma, {
+      NODE_ENV: 'production',
+      WECHAT_MOCK: 'false',
+      WECHAT_MINIAPP_APP_ID: 'mini-app-id',
+      WECHAT_MINIAPP_APP_SECRET: 'mini-app-secret',
     });
 
     await expect(service.loginWithWechatMiniapp('client-controlled-code'))

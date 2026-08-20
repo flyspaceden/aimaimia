@@ -53,13 +53,14 @@ export class WechatMiniProgramApiService implements OnModuleInit {
   onModuleInit(): void {
     this.appId = this.config.get<string>('WECHAT_MINIAPP_APP_ID', '').trim();
     this.appSecret = this.config.get<string>('WECHAT_MINIAPP_APP_SECRET', '').trim();
-    const mockRequested = this.config.get<string>('WECHAT_MINIAPP_MOCK', 'false') === 'true';
+    const mockSetting = this.config.get<string>('WECHAT_MINIAPP_MOCK');
+    const mockRequested = mockSetting === 'true';
     const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
-    this.productionMockRejected = mockRequested && nodeEnv === 'production';
+    this.productionMockRejected = nodeEnv === 'production' && mockSetting !== 'false';
     this.mockEnabled = mockRequested && !this.productionMockRejected;
 
     if (this.productionMockRejected) {
-      this.logger.error('生产环境禁止微信小程序平台 API Mock，相关能力将 fail-closed');
+      this.logger.error('生产环境必须显式设置 WECHAT_MINIAPP_MOCK=false，相关能力将 fail-closed');
     }
 
     if (!this.mockEnabled && (!this.appId || !this.appSecret)) {

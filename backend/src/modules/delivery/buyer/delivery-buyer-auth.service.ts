@@ -10,6 +10,7 @@ import { DeliverySmsCodeDto } from './dto/delivery-sms-code.dto';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 
 const deliveryUserProfileSelect = {
   id: true,
@@ -347,7 +348,12 @@ export class DeliveryBuyerAuthService {
   }
 
   private isWechatMockEnabled() {
-    return this.configService.get('DELIVERY_WECHAT_MOCK') === 'true';
+    return resolveAuthenticationMockMode(
+      this.configService,
+      'DELIVERY_WECHAT_MOCK',
+      '配送买家微信登录服务',
+      false,
+    );
   }
 
   private resolveSessionExpiresAt() {

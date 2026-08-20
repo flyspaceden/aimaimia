@@ -26,6 +26,7 @@ describe('CouponEngineService notifications', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       couponInstance: {
+        findUnique: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockResolvedValue({ id: 'coupon-1' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -71,6 +72,66 @@ describe('CouponEngineService notifications', () => {
         payload: expect.objectContaining({ couponInstanceId: 'coupon-1', userId: 'buyer-1' }),
       }),
       tx,
+    );
+  });
+
+  it('deduplicates a durable order-received coupon trigger by stable event key', async () => {
+    const { service, tx } = makeService();
+
+    await expect((service as any).issueSingle(
+      'campaign-1',
+      'buyer-1',
+      'order-received:order-1:FIRST_ORDER:campaign-1',
+    )).resolves.toBe(true);
+
+    expect(tx.couponInstance.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        triggerIdempotencyKey: 'order-received:order-1:FIRST_ORDER:campaign-1',
+      }),
+    });
+
+    tx.couponInstance.findUnique.mockResolvedValueOnce({ id: 'coupon-existing' });
+    await expect((service as any).issueSingle(
+      'campaign-1',
+      'buyer-1',
+      'order-received:order-1:FIRST_ORDER:campaign-1',
+    )).resolves.toBe(true);
+    expect(tx.couponInstance.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates durable trigger failures so the order outbox remains retryable', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findMany.mockResolvedValueOnce([{
+      ...campaign,
+      triggerType: 'FIRST_ORDER',
+      distributionMode: 'AUTO',
+      triggerConfig: null,
+    }]);
+    jest.spyOn(service as any, 'issueWithRetry').mockRejectedValueOnce(new Error('coupon database down'));
+
+    await expect(service.handleTrigger('buyer-1', 'FIRST_ORDER', {
+      idempotencyKey: 'order-received:order-1:FIRST_ORDER',
+    })).rejects.toThrow('coupon database down');
+  });
+
+  it('passes a campaign-scoped stable key to each durable coupon issuance', async () => {
+    const { service, prisma } = makeService();
+    prisma.couponCampaign.findMany.mockResolvedValueOnce([{
+      ...campaign,
+      triggerType: 'FIRST_ORDER',
+      distributionMode: 'AUTO',
+      triggerConfig: null,
+    }]);
+    const issue = jest.spyOn(service as any, 'issueWithRetry').mockResolvedValueOnce(true);
+
+    await service.handleTrigger('buyer-1', 'FIRST_ORDER', {
+      idempotencyKey: 'order-received:order-1:FIRST_ORDER',
+    });
+
+    expect(issue).toHaveBeenCalledWith(
+      'campaign-1',
+      'buyer-1',
+      'order-received:order-1:FIRST_ORDER:campaign-1',
     );
   });
 

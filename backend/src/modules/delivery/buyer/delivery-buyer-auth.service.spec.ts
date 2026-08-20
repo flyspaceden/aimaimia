@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
@@ -77,6 +77,22 @@ describe('DeliveryBuyerAuthService', () => {
   afterEach(() => {
     global.fetch = originalFetch;
   });
+
+  it.each([undefined, 'true'])(
+    'fails closed before deriving a delivery WeChat identity in production when DELIVERY_WECHAT_MOCK=%p',
+    async (wechatMock) => {
+      configService.get.mockImplementation((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'DELIVERY_WECHAT_MOCK') return wechatMock;
+        return fallback;
+      });
+
+      await expect(service.wechatLogin({ code: 'never-derive-me' } as any))
+        .rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(deliveryPrisma.$transaction).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it('phone OTP login creates a delivery user when no identity exists', async () => {
     tx.deliveryAuthIdentity.findUnique.mockResolvedValue(null);

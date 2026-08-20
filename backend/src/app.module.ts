@@ -52,6 +52,7 @@ import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { InfraModule } from './common/infra/infra.module';
 import { SmsModule } from './common/sms/sms.module';
 import { EmailModule } from './common/email/email.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { EmailModule } from './common/email/email.module';
     InfraModule,
     SmsModule,
     EmailModule,
+    HealthModule,
     PrismaModule,
     AppConfigModule,
     AuthModule,

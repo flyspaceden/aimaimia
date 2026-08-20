@@ -41,6 +41,7 @@ import { ProfitModule } from '../profit/profit.module';
 import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
 import { PickupModule } from '../pickup/pickup.module';
 import { PickupService } from '../pickup/pickup.service';
+import { OrderReceivedEffectsService } from './order-received-effects.service';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { PickupService } from '../pickup/pickup.service';
     OrderAutoConfirmService,
     OrderExpireService,
     BonusCompensationService,
+    OrderReceivedEffectsService,
     RewardDeductionService,
   ],
   exports: [OrderService, CheckoutService],
@@ -78,9 +80,16 @@ export class OrderModule implements OnModuleInit {
     private checkoutService: CheckoutService,
     private checkoutExpireService: CheckoutExpireService,
     private orderAutoConfirmService: OrderAutoConfirmService,
+    private orderReceivedEffectsService: OrderReceivedEffectsService,
   ) {}
 
   onModuleInit() {
+    if (!this.orderReceivedEffectsService) {
+      throw new Error('[OrderModule] OrderReceivedEffectsService 未注入，收货资金副作用不可靠，启动中止');
+    }
+    this.orderService.setOrderReceivedEffectsService(this.orderReceivedEffectsService);
+    this.orderAutoConfirmService.setOrderReceivedEffectsService(this.orderReceivedEffectsService);
+
     const pickupService = this.moduleRef.get(PickupService, { strict: false });
     if (!pickupService) {
       throw new Error('[OrderModule] PickupService 未注入，自提履约不可用，启动中止');

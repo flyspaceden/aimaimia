@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 
 import * as fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, PDFName, PDFString, rgb } from 'pdf-lib';
-import sharp = require('sharp');
+const sharp = require('sharp') as typeof import('sharp').default;
 
 const PDF_PAGE_WIDTH = 612;
 const PDF_PAGE_HEIGHT = 792;

@@ -39,8 +39,13 @@ import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { PLATFORM_USER_ID } from '../../bonus/engine/constants';
 import { QueueRewardService } from '../../queue-reward/queue-reward.service';
 import { acquireUserWriteLock } from '../../../common/transactions/active-user-write-barrier';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
 import { AuthService } from '../../auth/auth.service';
+import {
+  calculateUncoveredLegacyClawbackCents,
+  settleLegacyRewardClawbacksInTransaction,
+} from '../../bonus/legacy-reward-clawback';
 
 type DeletionBlockerCode =
   | 'IS_COMPANY_OWNER'
@@ -48,7 +53,8 @@ type DeletionBlockerCode =
   | 'ACTIVE_CHECKOUT_EXISTS'
   | 'PENDING_PAYMENT_EXISTS'
   | 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS'
-  | 'WITHDRAW_PROCESSING_EXISTS';
+  | 'WITHDRAW_PROCESSING_EXISTS'
+  | 'PENDING_REWARD_CLAWBACK';
 
 type DeletionBlocker = {
   code: DeletionBlockerCode;
@@ -256,15 +262,8 @@ export class DeletionService {
       });
     }
 
-    const smsMock = this.config.get('SMS_MOCK', 'false');
-    const nodeEnv = this.config.get('NODE_ENV', 'development');
-    if (smsMock === 'true' && nodeEnv === 'production') {
-      throw new ServiceUnavailableException({
-        code: 'ACCOUNT_DELETION_SMS_MISCONFIGURED',
-        message: '注销短信服务配置异常，请联系客服',
-      });
-    }
-    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const smsMock = this.isSmsMockEnabled();
+    const code = smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -275,7 +274,7 @@ export class DeletionService {
       SmsPurpose.DELETION,
     );
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(`[SMS Mock] 账号注销验证码=${code}（目标=${this.maskPhone(phoneIdentity.identifier)}）`);
     } else {
       try {
@@ -286,6 +285,19 @@ export class DeletionService {
           `[SMS] 账号注销验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.prisma.smsOtp.updateMany({
+          where: {
+            phone: phoneIdentity.identifier,
+            purpose: SmsPurpose.DELETION,
+            codeHash,
+            usedAt: null,
+          },
+          data: { usedAt: new Date() },
+        });
+        throw new ServiceUnavailableException({
+          code: 'ACCOUNT_DELETION_SMS_UNAVAILABLE',
+          message: '注销短信发送失败，请稍后重试',
+        });
       }
     }
 
@@ -338,6 +350,7 @@ export class DeletionService {
       pendingPaymentGroupCount,
       pendingAfterSaleShippingPaymentCount,
       withdrawProcessingCount,
+      uncoveredLegacyClawbackCents,
     ] = await Promise.all([
       tx.user.findUnique({
         where: { id: userId },
@@ -369,6 +382,7 @@ export class DeletionService {
       tx.withdrawRequest.count({
         where: { userId, status: { in: DeletionService.BLOCKING_WITHDRAW_STATUSES } },
       }),
+      calculateUncoveredLegacyClawbackCents(tx, userId),
     ]);
 
     if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) {
@@ -407,6 +421,13 @@ export class DeletionService {
         code: 'WITHDRAW_PROCESSING_EXISTS',
         message: '您有提现处理中记录，请到账或失败后再注销',
         count: withdrawProcessingCount,
+      });
+    }
+    if (uncoveredLegacyClawbackCents > 0) {
+      blockers.push({
+        code: 'PENDING_REWARD_CLAWBACK',
+        message: '您有退款奖励待追偿，请结清后再注销账号',
+        count: 1,
       });
     }
 
@@ -479,6 +500,9 @@ export class DeletionService {
         tx,
         userId,
       );
+    // 如果当前奖励余额足以覆盖旧退款债权，先完成可审计抵偿，
+    // 再进入资产清理；未覆盖部分已由 getBlockers 阻止注销。
+    await settleLegacyRewardClawbacksInTransaction(tx, userId);
     const cleanup = await this.buildCleanupSnapshot(tx, userId, dto, evidence);
 
     await this.forfeitGroupBuyRebateAssets(tx, userId, cleanup.groupBuyRebateAccount);
@@ -1169,6 +1193,7 @@ export class DeletionService {
     phone: string,
     code: string | undefined,
   ) {
+    this.isSmsMockEnabled();
     if (!code) {
       throw new BadRequestException({ code: 'OTP_REQUIRED', message: '请输入验证码' });
     }
@@ -1217,6 +1242,22 @@ export class DeletionService {
     });
     if (cas.count === 0) {
       throw new BadRequestException({ code: 'OTP_USED', message: '验证码已被使用，请重新获取' });
+    }
+  }
+
+  private isSmsMockEnabled(): boolean {
+    try {
+      return resolveAuthenticationMockMode(
+        this.config,
+        'SMS_MOCK',
+        '账号注销短信服务',
+        true,
+      );
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'ACCOUNT_DELETION_SMS_MISCONFIGURED',
+        message: '注销短信服务配置异常，请联系客服',
+      });
     }
   }
 

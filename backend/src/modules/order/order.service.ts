@@ -42,6 +42,7 @@ import {
 import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 import { PickupService, ValidatedFulfillment } from '../pickup/pickup.service';
 import { resolveFulfillmentInput } from '../pickup/dto/fulfillment.dto';
+import { OrderReceivedEffectsService } from './order-received-effects.service';
 
 // Bug 74 hotfix-2 (2026-05-06): 删 STATUS_MAP / REVERSE_STATUS_MAP
 // 之前 backend 把 schema 大写枚举转成 lowerCamel 再发 App，是历史协议；
@@ -144,6 +145,7 @@ export class OrderService {
   private growthEventService: GrowthEventService | null = null;
   private captainCommissionService: CaptainCommissionService | null = null;
   private pickupService: PickupService | null = null;
+  private orderReceivedEffectsService: OrderReceivedEffectsService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -164,6 +166,10 @@ export class OrderService {
 
   setPickupService(service: PickupService) {
     this.pickupService = service;
+  }
+
+  setOrderReceivedEffectsService(service: OrderReceivedEffectsService) {
+    this.orderReceivedEffectsService = service;
   }
 
   private mapPickupFulfillment(order: any) {
@@ -1301,6 +1307,11 @@ export class OrderService {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空');
     }
+    for (const item of dto.items) {
+      if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException('商品数量必须为正安全整数');
+      }
+    }
     const checkoutSource = dto.checkoutSource ?? CheckoutSource.CART;
     if (checkoutSource === CheckoutSource.BUY_NOW) {
       if (dto.items.length !== 1) {
@@ -1962,17 +1973,33 @@ export class OrderService {
             },
           });
 
-          // 在事务内统计已确认订单数（Serializable 保证一致性，避免异步计数的竞态）
+          // 在事务内统计已确认订单数（Serializable 保证首单标记一致）
           const receivedCount = await tx.order.count({
             where: { userId, status: 'RECEIVED' },
           });
+
+          // RECEIVED 与资金/权益副作用必须同一事务持久化。
+          // 单元测试直接 new OrderService 时可无此 setter；实际 OrderModule
+          // 启动会 fail-closed 注入该服务。
+          if (this.orderReceivedEffectsService) {
+            await this.orderReceivedEffectsService.enqueueInTransaction(tx, {
+              orderId: id,
+              userId,
+              source: 'BUYER_CONFIRM',
+              isFirstReceived: receivedCount === 1,
+            });
+          }
 
           // 返回更新后的订单 + 是否首单标记
           const result = await tx.order.findUnique({
             where: { id },
             include: { items: true },
           });
-          return { ...result, _isFirstReceived: receivedCount === 1 };
+          return {
+            ...result,
+            _isFirstReceived: receivedCount === 1,
+            _receivedEffectsPersisted: Boolean(this.orderReceivedEffectsService),
+          };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         // CAS 成功，跳出重试循环
@@ -1987,7 +2014,14 @@ export class OrderService {
       }
     }
 
-    // I16修复：分润失败增加重试机制
+    const effectsPersisted = updated._receivedEffectsPersisted === true;
+    if (effectsPersisted) {
+      this.orderReceivedEffectsService!.kick(id);
+      return this.mapOrder(updated);
+    }
+
+    // 仅供直接 new OrderService 的旧单测试构造；
+    // 生产 OrderModule fail-closed 注入 durable outbox，不会执行以下快速分支。
     const orderId = id;
     const maxRetries = 3;
     const attemptBonus = async (attempt: number) => {
@@ -2039,7 +2073,6 @@ export class OrderService {
       }
     };
     attemptBonus(1).catch(() => {});
-
     this.evaluateGroupBuyAfterReceive(orderId);
     this.creditDigitalAssetAfterReceive(orderId, updated.userId)
       .then((settlement) => {

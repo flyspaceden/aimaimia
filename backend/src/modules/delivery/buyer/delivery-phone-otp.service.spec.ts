@@ -1,8 +1,73 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { DeliveryPhoneOtpService } from './delivery-phone-otp.service';
 
 describe('DeliveryPhoneOtpService', () => {
   const phone = '13800000000';
+
+  it.each([undefined, 'true'])(
+    'fails closed in production when DELIVERY_SMS_MOCK=%p without writing a fixed OTP',
+    async (smsMock) => {
+      const create = jest.fn();
+      const service = new DeliveryPhoneOtpService(
+        { deliveryPhoneOtp: { count: jest.fn(), create } } as any,
+        { get: jest.fn((key: string, fallback?: string) => {
+          if (key === 'NODE_ENV') return 'production';
+          if (key === 'DELIVERY_SMS_MOCK') return smsMock;
+          return fallback;
+        }) } as any,
+        { sendVerificationCode: jest.fn() } as any,
+      );
+
+      await expect(service.issuePhoneLoginCode(phone)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not accept a persisted fixed OTP when production mock configuration is unsafe', async () => {
+    const transaction = jest.fn();
+    const service = new DeliveryPhoneOtpService(
+      { $transaction: transaction } as any,
+      { get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'DELIVERY_SMS_MOCK') return 'true';
+        return fallback;
+      }) } as any,
+      { sendVerificationCode: jest.fn() } as any,
+    );
+
+    await expect(service.verifyPhoneLoginCode(phone, '123456'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a stored OTP and returns an error when the real SMS provider fails', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const service = new DeliveryPhoneOtpService(
+      {
+        deliveryPhoneOtp: {
+          count: jest.fn().mockResolvedValue(0),
+          create: jest.fn().mockResolvedValue({ id: 'otp-1' }),
+          updateMany,
+        },
+      } as any,
+      { get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        if (key === 'DELIVERY_SMS_MOCK') return 'false';
+        return fallback;
+      }) } as any,
+      { sendVerificationCode: jest.fn().mockRejectedValue(new Error('provider down')) } as any,
+    );
+
+    await expect(service.issuePhoneLoginCode(phone)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ phone, consumedAt: null }),
+      data: { consumedAt: expect.any(Date) },
+    }));
+  });
 
   it('issues delivery-scoped login otp records and uses delivery sms mock code 123456 only when enabled', async () => {
     const create = jest.fn().mockResolvedValue({ id: 'otp-create-1' });

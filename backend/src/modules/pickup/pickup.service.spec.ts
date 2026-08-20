@@ -14,11 +14,16 @@ describe('PickupService', () => {
     process.env.PICKUP_FULFILLMENT_ENABLED = originalFlag;
   });
 
-  function createService(prisma: any, orderService: any = { handlePickupReceived: jest.fn() }) {
+  function createService(
+    prisma: any,
+    orderService: any = { handlePickupReceived: jest.fn() },
+    receivedEffects?: any,
+  ) {
     const notificationService = { emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }) };
     const moduleRef = { get: jest.fn().mockReturnValue(orderService) };
     const service = new PickupService(prisma, moduleRef as any, notificationService as any);
     (service as any).orderService = orderService;
+    (service as any).orderReceivedEffectsService = receivedEffects ?? null;
     return { service, notificationService, orderService };
   }
 
@@ -718,6 +723,49 @@ describe('PickupService', () => {
         returnWindowExpiresAt: expect.any(Date),
       }),
     }));
+    jest.useRealTimers();
+  });
+
+  it('自提核销在 PICKED_UP/RECEIVED 同一 Serializable 事务持久化全部收货副作用', async () => {
+    const now = new Date('2026-08-14T10:00:00Z');
+    jest.useFakeTimers().setSystemTime(now);
+    const receivedEffects = {
+      enqueueInTransaction: jest.fn().mockResolvedValue(undefined),
+      kick: jest.fn(),
+    };
+    const tx: any = {
+      pickupFulfillment: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      order: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+      ruleConfig: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const { service } = createService(prisma, undefined, receivedEffects);
+    const code = '12345678';
+    tx.pickupFulfillment.findUnique.mockResolvedValue({
+      id: 'pf1', status: 'READY', pickupCodeDigest: (service as any).digest(code),
+      order: {
+        id: 'o1', userId: 'u1', fulfillmentMode: 'PICKUP', status: 'PAID',
+        items: [{ companyId: 'c1', isPrize: false }],
+      },
+    });
+
+    await service.verify('c1', 'staff1', 'o1', { pickupCode: code });
+
+    expect(receivedEffects.enqueueInTransaction).toHaveBeenCalledWith(tx, {
+      orderId: 'o1',
+      userId: 'u1',
+      source: 'PICKUP_VERIFY',
+      isFirstReceived: true,
+    });
+    expect(receivedEffects.kick).toHaveBeenCalledWith('o1');
     jest.useRealTimers();
   });
 

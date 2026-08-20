@@ -2084,6 +2084,7 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
       total: 53,
       deductibleBalance: 35,
       withdrawableBalance: 43,
+      pendingLegacyClawbackAmount: 0,
       isSellerOwner: false,
       vip: { balance: 10, frozen: 1 },
       normal: { balance: 20, frozen: 2 },
@@ -2168,6 +2169,35 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
         account: { type: 'QUEUE_REWARD' },
       },
       select: { amount: true, meta: true },
+    });
+  });
+
+  it('钱包从可提现和可抵扣余额中预留旧退款奖励待追偿', async () => {
+    const prismaMock: any = buildWalletPrisma(false);
+    prismaMock.rewardLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where.refType === 'AFTER_SALE_CLAWBACK'
+        ? [{
+            id: 'legacy-clawback-1',
+            accountId: 'acct-vip',
+            userId: 'user-1',
+            entryType: 'VOID',
+            status: 'RETURN_FROZEN',
+            refType: 'AFTER_SALE_CLAWBACK',
+            amount: -15,
+          }]
+        : []
+    ));
+    const service = buildService(prismaMock);
+
+    const result = await service.getWallet('user-1');
+
+    expect(result).toMatchObject({
+      balance: 28,
+      deductibleBalance: 20,
+      withdrawableBalance: 28,
+      pendingLegacyClawbackAmount: 15,
+      vip: { balance: 0, frozen: 1 },
+      normal: { balance: 15, frozen: 2 },
     });
   });
 });

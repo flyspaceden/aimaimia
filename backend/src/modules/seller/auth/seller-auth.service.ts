@@ -6,6 +6,7 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,7 @@ import { maskPhone } from '../../../common/security/privacy-mask';
 import { RedisCoordinatorService } from '../../../common/infra/redis-coordinator.service';
 import { SellerRiskControlService } from '../risk-control/seller-risk-control.service';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 
 @Injectable()
 export class SellerAuthService {
@@ -73,15 +75,15 @@ export class SellerAuthService {
    */
   async sendSmsCode(dto: SellerSmsCodeDto, _ip?: string) {
     const phone = dto.phone;
-    const smsMock = this.config.get('SMS_MOCK', 'true');
+    const smsMock = this.isSmsMockEnabled();
     // 开发模式使用固定验证码 123456
-    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const code = smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await this.createOtpWithRateLimit(phone, codeHash, expiresAt, SmsPurpose.LOGIN);
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(`[SMS Mock][Seller] 固定验证码=${code}（目标=${this.maskContact(phone)}）`);
     } else {
       // 真实短信通道：调用阿里云 SMS API
@@ -89,11 +91,12 @@ export class SellerAuthService {
         await this.aliyunSms.sendVerificationCode(phone, code);
         this.logger.log(`[SMS][Seller] 验证码已发送（目标=${this.maskContact(phone)}）`);
       } catch (err) {
-        // 发送失败仅记录日志，不阻塞流程（OTP 已写入数据库，用户可重试）
         this.logger.error(
           `[SMS][Seller] 验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(phone, codeHash, SmsPurpose.LOGIN);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
@@ -415,6 +418,7 @@ export class SellerAuthService {
     dto: SellerBindPhoneSmsCodeDto,
     userId: string,
   ) {
+    const smsMock = this.isSmsMockEnabled();
     const { phone } = dto;
 
     // 新手机号不能已被其他 User 绑定
@@ -425,9 +429,8 @@ export class SellerAuthService {
       throw new ConflictException('该手机号已被其他用户绑定');
     }
 
-    const smsMock = this.config.get('SMS_MOCK', 'true');
     const code =
-      smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+      smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -469,7 +472,7 @@ export class SellerAuthService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(`[Seller Bind SMS Mock] 固定验证码=${code}（目标 ${maskPhone(phone)}）`);
     } else {
       try {
@@ -479,6 +482,8 @@ export class SellerAuthService {
           `[Seller Bind SMS] 验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(phone, codeHash, SmsPurpose.BIND);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
@@ -557,6 +562,7 @@ export class SellerAuthService {
     code: string,
     purpose: 'LOGIN' | 'BIND',
   ) {
+    this.isSmsMockEnabled();
     const records = await this.prisma.smsOtp.findMany({
       where: {
         phone,
@@ -600,6 +606,7 @@ export class SellerAuthService {
    * 2026-04-23：purpose 改为必填，强制调用方显式声明 scope，防止跨 purpose 误匹配
    */
   private async verifyCode(phone: string, code: string, purpose: SmsPurpose) {
+    this.isSmsMockEnabled();
     const record = await this.prisma.smsOtp.findFirst({
       where: {
         phone,
@@ -725,6 +732,7 @@ export class SellerAuthService {
    * - 判定条件必须与 listCompaniesForReset 完全一致，避免短信发出后列表为空造成死锁
    */
   async sendForgotPasswordCode(dto: SellerSendForgotPasswordCodeDto) {
+    const smsMock = this.isSmsMockEnabled();
     // 1. 图形验证码（一次性消费，CaptchaService.verify 内部原子 getdel）
     const captchaOk = await this.captchaService.verify(dto.captchaId, dto.captchaCode);
     if (!captchaOk) {
@@ -760,14 +768,13 @@ export class SellerAuthService {
     }
 
     // 3. 生成 + 限流 + 写入 OTP（purpose=SELLER_RESET，与 LOGIN 完全隔离）
-    const smsMock = this.config.get('SMS_MOCK', 'true');
-    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const code = smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await this.createOtpWithRateLimit(dto.phone, codeHash, expiresAt, SmsPurpose.SELLER_RESET);
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(
         `[SMS Mock][Seller Reset] 固定验证码=${code}（目标=${this.maskContact(dto.phone)}）`,
       );
@@ -782,6 +789,8 @@ export class SellerAuthService {
           `[SMS][Seller Reset] 验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(dto.phone, codeHash, SmsPurpose.SELLER_RESET);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
@@ -939,6 +948,7 @@ export class SellerAuthService {
     purpose: SmsPurpose,
     scope: 'buyer' | 'seller',
   ) {
+    this.isSmsMockEnabled();
     const records = await this.prisma.smsOtp.findMany({
       where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
@@ -983,6 +993,7 @@ export class SellerAuthService {
     purpose: SmsPurpose,
     scope: 'buyer' | 'seller',
   ) {
+    this.isSmsMockEnabled();
     const records = await tx.smsOtp.findMany({
       where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
@@ -1098,6 +1109,26 @@ export class SellerAuthService {
         throw err;
       }
     }
+  }
+
+  private isSmsMockEnabled(): boolean {
+    return resolveAuthenticationMockMode(
+      this.config,
+      'SMS_MOCK',
+      '卖家短信验证码服务',
+      true,
+    );
+  }
+
+  private async invalidateOtp(
+    phone: string,
+    codeHash: string,
+    purpose: SmsPurpose,
+  ): Promise<void> {
+    await this.prisma.smsOtp.updateMany({
+      where: { phone, purpose, codeHash, usedAt: null },
+      data: { usedAt: new Date() },
+    });
   }
 
   private hashRateKey(value: string): string {

@@ -50,8 +50,40 @@ describe('OrderService digital asset V2 hook', () => {
     service.setDigitalAssetService(digitalAsset as any);
 
     await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
 
     expect(digitalAsset.recordOrderReceived).toHaveBeenCalledWith('order-1', 'ORDER_RECEIVED');
+  });
+
+  it('persists receive effects before the manual RECEIVED transaction can commit', async () => {
+    const { service, tx, digitalAsset } = makeService();
+    const receivedEffects = {
+      enqueueInTransaction: jest.fn().mockResolvedValue(undefined),
+      kick: jest.fn(),
+    };
+    service.setDigitalAssetService(digitalAsset as any);
+    const growth = { receive: jest.fn() };
+    const captain = { releaseForReceivedOrder: jest.fn() };
+    const coupon = { handleTrigger: jest.fn() };
+    service.setGrowthEventService(growth as any);
+    service.setCaptainCommissionService(captain as any);
+    service.setCouponEngineService(coupon as any);
+    service.setOrderReceivedEffectsService(receivedEffects as any);
+
+    await service.confirmReceive('order-1', 'user-1');
+    await flushAsyncTasks();
+
+    expect(receivedEffects.enqueueInTransaction).toHaveBeenCalledWith(tx, {
+      orderId: 'order-1',
+      userId: 'user-1',
+      source: 'BUYER_CONFIRM',
+      isFirstReceived: false,
+    });
+    expect(receivedEffects.kick).toHaveBeenCalledWith('order-1');
+    expect(digitalAsset.recordOrderReceived).not.toHaveBeenCalled();
+    expect(growth.receive).not.toHaveBeenCalled();
+    expect(captain.releaseForReceivedOrder).not.toHaveBeenCalled();
+    expect(coupon.handleTrigger).not.toHaveBeenCalled();
   });
 
   it('activates auto VIP after manual v2 digital asset credit succeeds', async () => {

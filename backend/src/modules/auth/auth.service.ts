@@ -125,7 +125,7 @@ export class AuthService {
   /** 发送短信验证码 */
   async sendSmsCode(phone: string) {
     // B02修复：SMS_MOCK 控制是否走真实短信通道
-    const smsMock = this.config.get('SMS_MOCK', 'false');
+    const smsMock = this.config.get<string>('SMS_MOCK');
     this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     // 开发模式使用固定验证码 123456
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
@@ -148,11 +148,12 @@ export class AuthService {
         await this.aliyunSms.sendVerificationCode(phone, code);
         this.logger.log(`[SMS] 验证码已发送（目标=${this.maskContact(phone)}）`);
       } catch (err) {
-        // 发送失败仅记录日志，不阻塞流程（OTP 已写入数据库，用户可重试）
         this.logger.error(
           `[SMS] 验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(phone, codeHash, SmsPurpose.LOGIN);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
@@ -247,7 +248,7 @@ export class AuthService {
    * IP 维度限流由 controller 的 @Throttle 承载，service 层仅处理手机号维度限流
    */
   async sendForgotPasswordCode(dto: SendForgotPasswordCodeDto) {
-    const smsMock = this.config.get('SMS_MOCK', 'false');
+    const smsMock = this.config.get<string>('SMS_MOCK');
     this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     // 1. 图形验证码校验（verify 内部原子 getdel，防重放）
     const captchaOk = await this.captcha.verify(dto.captchaId, dto.captchaCode);
@@ -285,6 +286,8 @@ export class AuthService {
           `[SMS] 忘记密码验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(dto.phone, codeHash, SmsPurpose.BUYER_RESET);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
@@ -1090,7 +1093,8 @@ export class AuthService {
     code: string,
     source: WechatOAuthSource,
   ): Promise<WechatLoginProfile> {
-    const wechatMock = this.config.get('WECHAT_MOCK', 'false');
+    const wechatMock = this.config.get<string>('WECHAT_MOCK');
+    this.assertProductionMockDisabled('WECHAT_MOCK', wechatMock, '微信登录服务');
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     const appId = source === 'h5'
       ? this.config.get<string>('WECHAT_H5_APP_ID', 'mock-h5-service-account')
@@ -1141,10 +1145,13 @@ export class AuthService {
 
   /** 小程序专用 code2Session；session_key 仅在本地响应对象中出现，解析后立即丢弃。 */
   private async exchangeWechatMiniappCode(code: string): Promise<WechatLoginProfile> {
-    const wechatMock = this.config.get(
+    const configuredMiniappMock = this.config.get<string>('WECHAT_MINIAPP_MOCK');
+    this.assertProductionMockDisabled(
       'WECHAT_MINIAPP_MOCK',
-      this.config.get('WECHAT_MOCK', 'false'),
+      configuredMiniappMock,
+      '微信小程序登录服务',
     );
+    const wechatMock = configuredMiniappMock ?? this.config.get('WECHAT_MOCK', 'false');
     const nodeEnv = this.config.get('NODE_ENV', 'development');
     const configuredAppId = this.config.get<string>('WECHAT_MINIAPP_APP_ID', '').trim();
     const appId = configuredAppId || 'mock-mini-program';
@@ -1957,7 +1964,7 @@ export class AuthService {
   private async verifyCode(target: string, code: string | undefined, purpose: SmsPurpose) {
     this.assertProductionMockDisabled(
       'SMS_MOCK',
-      this.config.get('SMS_MOCK', 'false'),
+      this.config.get<string>('SMS_MOCK'),
       '短信验证码服务',
     );
     if (!code) throw new BadRequestException('请输入验证码');
@@ -2372,15 +2379,15 @@ export class AuthService {
   }
 
   private assertProductionMockDisabled(
-    key: 'SMS_MOCK' | 'WECHAT_MOCK',
+    key: 'SMS_MOCK' | 'WECHAT_MOCK' | 'WECHAT_MINIAPP_MOCK',
     value: string | undefined,
     serviceName: string,
   ): void {
     if (
       this.config.get('NODE_ENV', 'development') === 'production'
-      && value === 'true'
+      && value !== 'false'
     ) {
-      this.logger.error(`[Auth] 生产环境禁止 ${key}=true`);
+      this.logger.error(`[Auth] 生产环境要求显式设置 ${key}=false`);
       throw new ServiceUnavailableException(`${serviceName}配置不可用`);
     }
   }
@@ -2491,7 +2498,7 @@ export class AuthService {
   }
 
   private async issueBindPhoneOtp(phone: string, context: string) {
-    const smsMock = this.config.get('SMS_MOCK', 'false');
+    const smsMock = this.config.get<string>('SMS_MOCK');
     this.assertProductionMockDisabled('SMS_MOCK', smsMock, '短信验证码服务');
     const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
@@ -2514,9 +2521,22 @@ export class AuthService {
           `[SMS] ${context}验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.invalidateOtp(phone, codeHash, SmsPurpose.BIND);
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
     return { ok: true };
+  }
+
+  private async invalidateOtp(
+    phone: string,
+    codeHash: string,
+    purpose: SmsPurpose,
+  ): Promise<void> {
+    await this.prisma.smsOtp.updateMany({
+      where: { phone, purpose, codeHash, usedAt: null },
+      data: { usedAt: new Date() },
+    });
   }
 
   /** 提交"绑定手机号"：校验 OTP + 防占用 + 写 AuthIdentity

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, HttpException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   AfterSaleStatus,
   AuthProvider,
@@ -94,6 +99,7 @@ function makeTx(overrides: Record<string, any> = {}) {
       update: jest.fn().mockResolvedValue({}),
     },
     rewardLedger: {
+      findMany: jest.fn().mockResolvedValue([]),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
@@ -309,6 +315,29 @@ describe('DeletionService.preview blockers', () => {
     expect(result.blockers).toContainEqual({
       code: 'USER_NOT_ACTIVE',
       message: '账号状态不支持注销',
+      count: 1,
+    });
+  });
+
+  it('blocks account deletion while legacy refund clawback debt remains uncovered', async () => {
+    const prisma = makeTx();
+    prisma.rewardLedger.findMany.mockResolvedValue([{
+      id: 'clawback-1',
+      accountId: 'vip-account-1',
+      userId,
+      entryType: 'VOID',
+      status: 'RETURN_FROZEN',
+      refType: 'AFTER_SALE_CLAWBACK',
+      amount: -1.5,
+    }]);
+    prisma.rewardAccount.findMany.mockResolvedValue([{ id: 'vip-account-1', balance: 0 }]);
+    const { service } = makeService({ prisma });
+
+    const blockers = await (service as any).getBlockers(userId, prisma);
+
+    expect(blockers).toContainEqual({
+      code: 'PENDING_REWARD_CLAWBACK',
+      message: '您有退款奖励待追偿，请结清后再注销账号',
       count: 1,
     });
   });
@@ -1136,6 +1165,56 @@ describe('DeletionService.sendCode', () => {
     });
     expect(prisma.smsOtp.create).not.toHaveBeenCalled();
     expect(sms.sendVerificationCode).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when production omits SMS_MOCK and before verifying a legacy fixed OTP', async () => {
+    const prisma = makeTx();
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        return fallback;
+      }),
+    };
+    const { service } = makeService({ prisma, config });
+
+    await expect(service.sendCode(userId)).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.smsOtp.create).not.toHaveBeenCalled();
+
+    await expect((service as any).verifyDeletionOtpInTx(
+      prisma,
+      '13800001234',
+      '123456',
+    )).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.smsOtp.findMany).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the exact deletion OTP and returns 503 when the SMS provider fails', async () => {
+    const prisma = makeTx();
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'SMS_MOCK') return 'false';
+        if (key === 'NODE_ENV') return 'production';
+        return fallback;
+      }),
+    };
+    const { service, sms } = makeService({
+      prisma,
+      config,
+      sms: { sendVerificationCode: jest.fn().mockRejectedValue(new Error('provider down')) },
+    });
+
+    await expect(service.sendCode(userId)).rejects.toThrow(ServiceUnavailableException);
+    const codeHash = prisma.smsOtp.create.mock.calls[0][0].data.codeHash;
+    expect(prisma.smsOtp.updateMany).toHaveBeenCalledWith({
+      where: {
+        phone: '13800001234',
+        purpose: SmsPurpose.DELETION,
+        codeHash,
+        usedAt: null,
+      },
+      data: { usedAt: expect.any(Date) },
+    });
+    expect(sms.sendVerificationCode).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces deletion OTP rate-limit failures as HTTP exceptions', async () => {

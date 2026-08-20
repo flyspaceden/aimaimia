@@ -31,6 +31,7 @@ import {
 import { sanitizeForLog } from '../../common/logging/log-sanitizer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderService } from '../order/order.service';
+import { OrderReceivedEffectsService } from '../order/order-received-effects.service';
 import {
   ResolvedFulfillmentInput,
 } from './dto/fulfillment.dto';
@@ -86,6 +87,7 @@ const SERIALIZABLE_OPTIONS = {
 export class PickupService implements OnModuleInit {
   private readonly logger = new Logger(PickupService.name);
   private orderService: OrderService | null = null;
+  private orderReceivedEffectsService: OrderReceivedEffectsService | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -95,8 +97,12 @@ export class PickupService implements OnModuleInit {
 
   onModuleInit() {
     this.orderService = this.moduleRef.get(OrderService, { strict: false });
+    this.orderReceivedEffectsService = this.moduleRef.get(OrderReceivedEffectsService, { strict: false });
     if (!this.orderService) {
       throw new Error('[PickupService] OrderService 未注入，自提核销后收货副作用无法收口');
+    }
+    if (!this.orderReceivedEffectsService) {
+      throw new Error('[PickupService] OrderReceivedEffectsService 未注入，自提核销副作用不可靠');
     }
   }
 
@@ -824,6 +830,14 @@ export class PickupService implements OnModuleInit {
       const receivedCount = await tx.order.count({
         where: { userId: fulfillment.order.userId, status: 'RECEIVED' },
       });
+      if (this.orderReceivedEffectsService) {
+        await this.orderReceivedEffectsService.enqueueInTransaction(tx, {
+          orderId,
+          userId: fulfillment.order.userId,
+          source: 'PICKUP_VERIFY',
+          isFirstReceived: receivedCount === 1,
+        });
+      }
       return {
         order: { ...fulfillment.order, status: 'RECEIVED', receivedAt: now, _isFirstReceived: receivedCount === 1 },
         orderId,
@@ -831,15 +845,26 @@ export class PickupService implements OnModuleInit {
         pickedUpAt: now,
         alreadyPickedUp: false,
         newlyPickedUp: true,
+        receivedEffectsPersisted: Boolean(this.orderReceivedEffectsService),
       };
     });
 
     if (result.newlyPickedUp) {
-      await this.dispatchPostReceiveSideEffects(result.order).catch((error: unknown) => {
-        this.logger.error(`自提核销后收货副作用执行失败，已保留重试事件: orderId=${orderId}; error=${String((error as any)?.message ?? error)}`);
-      });
+      if (result.receivedEffectsPersisted) {
+        this.orderReceivedEffectsService!.kick(orderId);
+      } else {
+        // 仅供直接 new PickupService 的旧单测试构造；生产 onModuleInit fail-closed。
+        await this.dispatchPostReceiveSideEffects(result.order).catch((error: unknown) => {
+          this.logger.error(`自提核销后收货副作用执行失败: orderId=${orderId}; error=${String((error as any)?.message ?? error)}`);
+        });
+      }
     }
-    const { order: _order, newlyPickedUp: _newlyPickedUp, ...response } = result;
+    const {
+      order: _order,
+      newlyPickedUp: _newlyPickedUp,
+      receivedEffectsPersisted: _receivedEffectsPersisted,
+      ...response
+    } = result;
     return response;
   }
 
@@ -909,6 +934,9 @@ export class PickupService implements OnModuleInit {
       where: {
         status: 'PICKED_UP',
         events: { none: { eventType: 'RECEIVE_SIDE_EFFECTS_COMPLETED' } },
+        // 新链路由 OrderReceivedEffectOutbox 完全托管；这个 cron 只补旧数据，
+        // 禁止与 outbox 并发重放同一副作用。
+        order: { receivedEffectOutbox: { none: {} } },
       },
       include: {
         order: { include: { items: true } },

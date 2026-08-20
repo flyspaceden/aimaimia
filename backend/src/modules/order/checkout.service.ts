@@ -1062,6 +1062,7 @@ export class CheckoutService {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空，请先添加商品');
     }
+    this.assertPositiveSafeItemQuantities(dto.items);
     const miniProgramOpenId = requestedScene === 'MINI_PROGRAM'
       ? await this.resolveMiniProgramOpenId(userId, authContext)
       : null;
@@ -2076,6 +2077,9 @@ export class CheckoutService {
     }
     // 逐项校验库存和状态
     for (const giftItem of giftOption.items) {
+      if (!Number.isSafeInteger(giftItem.quantity) || giftItem.quantity <= 0) {
+        throw new BadRequestException('VIP 赠品数量配置异常');
+      }
       if (giftItem.sku.status !== 'ACTIVE') {
         throw new BadRequestException(`赠品 SKU「${giftItem.sku.title}」已下架`);
       }
@@ -2349,6 +2353,16 @@ export class CheckoutService {
       checkoutRequestFingerprint,
       vipSessionWasReused,
     );
+  }
+
+  private assertPositiveSafeItemQuantities(
+    items: ReadonlyArray<{ quantity: number }>,
+  ): void {
+    for (const item of items) {
+      if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException('商品数量必须为正安全整数');
+      }
+    }
   }
 
   /** F1: 取消结算会话，释放预留奖励和红包 */

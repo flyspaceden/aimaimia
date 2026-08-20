@@ -8,6 +8,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -29,6 +30,7 @@ import { AdminRefreshDto } from './dto/admin-refresh.dto';
 import { maskIp } from '../../../common/security/privacy-mask';
 import { CaptchaService } from '../../captcha/captcha.service';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 
 @Injectable()
 export class AdminAuthService {
@@ -144,6 +146,7 @@ export class AdminAuthService {
    * - 时序防枚举 1-3s 随机延迟
    */
   async sendSmsCode(dto: AdminSendCodeDto, ip?: string) {
+    const smsMock = this.isSmsMockEnabled();
     const { phone } = dto;
 
     // 防时序枚举：不论手机号是否存在，都先做随机延迟（1000-3000ms）
@@ -157,13 +160,12 @@ export class AdminAuthService {
       where: { phone },
     });
 
-    let pendingSms: { code: string } | null = null;
+    let pendingSms: { code: string; codeHash: string } | null = null;
 
     // 即使管理员不存在/禁用也返回通用成功，但只在合法时发送短信
     if (admin && admin.status === 'ACTIVE') {
-      const smsMock = this.config.get('SMS_MOCK', 'true');
       const code =
-        smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+        smsMock ? '123456' : randomInt(100000, 1000000).toString();
       const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -215,7 +217,7 @@ export class AdminAuthService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
 
-      pendingSms = { code };
+      pendingSms = { code, codeHash };
     } else {
       // 不存在或禁用：记录日志但返回通用成功（不做真实发送）
       this.logger.warn(
@@ -225,14 +227,7 @@ export class AdminAuthService {
 
     // 事务提交后再发实际短信（网络调用不能放事务内）
     if (pendingSms) {
-      const smsMock = this.config.get('SMS_MOCK', 'true');
-      const nodeEnv = this.config.get('NODE_ENV', 'development');
-      if (smsMock === 'true') {
-        if (nodeEnv === 'production') {
-          this.logger.warn(
-            '[Admin SMS] 生产环境仍使用 Mock 短信，请设置 SMS_MOCK=false 并配置真实短信服务',
-          );
-        }
+      if (smsMock) {
         this.logger.log(
           `[Admin SMS Mock] 固定验证码=${pendingSms.code}（管理员手机登录）`,
         );
@@ -244,6 +239,12 @@ export class AdminAuthService {
             `[Admin SMS] 验证码发送失败: ${(err as Error)?.message}`,
             (err as Error)?.stack,
           );
+          await this.prisma.smsOtp.updateMany({
+            where: { phone, purpose: 'LOGIN', codeHash: pendingSms.codeHash, usedAt: null },
+            data: { usedAt: new Date() },
+          });
+          await jitter;
+          throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
         }
       }
     }
@@ -259,6 +260,7 @@ export class AdminAuthService {
     ip?: string,
     userAgent?: string,
   ) {
+    this.isSmsMockEnabled();
     // 1. 查找并消费验证码（CAS 原子消费）
     const records = await this.prisma.smsOtp.findMany({
       where: {
@@ -543,6 +545,7 @@ export class AdminAuthService {
     dto: AdminBindPhoneSmsCodeDto,
     adminUserId: string,
   ) {
+    const smsMock = this.isSmsMockEnabled();
     const { phone } = dto;
 
     // 新手机号不能已被其他管理员绑定
@@ -553,9 +556,8 @@ export class AdminAuthService {
       throw new ConflictException('该手机号已被其他管理员绑定');
     }
 
-    const smsMock = this.config.get('SMS_MOCK', 'true');
     const code =
-      smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+      smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -606,7 +608,7 @@ export class AdminAuthService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(
         `[Admin Bind SMS Mock] 固定验证码=${code}（目标手机 ${phone}）`,
       );
@@ -618,10 +620,24 @@ export class AdminAuthService {
           `[Admin Bind SMS] 验证码发送失败: ${(err as Error)?.message}`,
           (err as Error)?.stack,
         );
+        await this.prisma.smsOtp.updateMany({
+          where: { phone, purpose: 'BIND', codeHash, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        throw new ServiceUnavailableException('短信验证码发送失败，请稍后重试');
       }
     }
 
     return { ok: true, message: '验证码已发送' };
+  }
+
+  private isSmsMockEnabled(): boolean {
+    return resolveAuthenticationMockMode(
+      this.config,
+      'SMS_MOCK',
+      '管理员短信验证码服务',
+      true,
+    );
   }
 
   /** 修改手机号：双重 SMS 验证（原手机 LOGIN + 新手机 BIND）*/
@@ -689,6 +705,7 @@ export class AdminAuthService {
     code: string,
     purpose: 'LOGIN' | 'BIND',
   ) {
+    this.isSmsMockEnabled();
     const records = await this.prisma.smsOtp.findMany({
       where: {
         phone,

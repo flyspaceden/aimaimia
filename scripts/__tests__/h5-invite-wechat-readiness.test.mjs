@@ -60,7 +60,8 @@ test('URL Link 使用既有小程序平台凭据并在生产环境拒绝 Mock', 
   assert.match(backendEnv, /WECHAT_MINIAPP_APP_ID/)
   assert.match(backendEnv, /WECHAT_MINIAPP_APP_SECRET/)
   assert.match(api, /productionMockRejected/)
-  assert.match(api, /生产环境禁止微信小程序平台 API Mock/)
+  assert.match(api, /nodeEnv === 'production' && mockSetting !== 'false'/)
+  assert.match(api, /生产环境必须显式设置 WECHAT_MINIAPP_MOCK=false/)
 })
 
 test('认证控制器不再公开 H5 邀请登录或 H5 微信登录入口', () => {
