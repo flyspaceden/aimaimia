@@ -1,6 +1,7 @@
 name: E2E Tests
 
 on:
+  workflow_call:
   pull_request:
     branches: [main, dev, staging]
   push:
@@ -9,7 +10,17 @@ on:
 env:
   NODE_ENV: test
   CAPTCHA_BYPASS_TOKEN: etest1
-  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test?schema=public
+  DELIVERY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test?schema=delivery_ci
+  JWT_SECRET: e2e-buyer-jwt-secret
+  ADMIN_JWT_SECRET: e2e-admin-jwt-secret
+  SELLER_JWT_SECRET: e2e-seller-jwt-secret
+  DELIVERY_USER_JWT_SECRET: e2e-delivery-user-jwt-secret
+  DELIVERY_ADMIN_JWT_SECRET: e2e-delivery-admin-jwt-secret
+  DELIVERY_SELLER_JWT_SECRET: e2e-delivery-seller-jwt-secret
+  DATA_ENCRYPTION_KEY: e2e-data-encryption-key
+  PICKUP_FULFILLMENT_ENABLED: 'true'
+  PICKUP_TOKEN_SECRET: e2e-only-pickup-token-secret-at-least-32-bytes
 
 jobs:
   e2e:
@@ -63,9 +74,12 @@ jobs:
           cd backend
           npx prisma migrate deploy
           npx prisma generate
+          npx prisma migrate deploy --schema prisma-delivery/schema.prisma
+          npx prisma generate --schema prisma-delivery/schema.prisma
           npx prisma db seed
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
+          DELIVERY_DATABASE_URL: ${{ env.DELIVERY_DATABASE_URL }}
 
       # 跑测试（playwright 自动启动 backend + admin + seller）
       - name: Run E2E tests

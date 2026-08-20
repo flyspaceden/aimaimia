@@ -31,7 +31,7 @@
     }
   },
   "compileType": "miniprogram",
-  "libVersion": "latest",
+  "libVersion": "3.17.1",
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [],

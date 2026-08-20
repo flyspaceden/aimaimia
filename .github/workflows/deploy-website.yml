@@ -286,9 +286,79 @@ jobs:
           TARGET: ${{ needs.detect-changes.outputs.delivery_seller_target }}
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
 
-  deploy-backend:
+  # 共享后端承载小程序登录、支付、退款、提现和自提。部署前必须在干净数据库
+  # 上完成两套 migration、编译和全量 Jest，任何红灯都阻止服务器迁移与 PM2 reload。
+  backend-quality-gate:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
+      DELIVERY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=delivery_ci
+      NORMAL_TREE_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
+      PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
+      RUN_DB_CONCURRENCY_TESTS: '1'
+      PICKUP_FULFILLMENT_ENABLED: 'true'
+      PICKUP_TOKEN_SECRET: ci-only-pickup-token-secret-at-least-32-bytes
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aimaimai_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate and migrate clean CI databases
+        working-directory: backend
+        run: |
+          npx --no-install prisma generate
+          npx --no-install prisma validate
+          npx --no-install prisma migrate deploy
+          npx --no-install prisma generate --schema prisma-delivery/schema.prisma
+          npx --no-install prisma validate --schema prisma-delivery/schema.prisma
+          npx --no-install prisma migrate deploy --schema prisma-delivery/schema.prisma
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Run backend test suite
+        working-directory: backend
+        run: npm test -- --runInBand
+
+  backend-e2e-gate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  deploy-backend:
+    needs: [detect-changes, backend-quality-gate, backend-e2e-gate]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.backend == 'true'
+      && needs.backend-quality-gate.result == 'success'
+      && needs.backend-e2e-gate.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -321,14 +391,21 @@ jobs:
             DEPLOY_COMPLETE=false
 
             health_check() {
+              ALLOW_LEGACY="${1:-false}"
               API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
               case "$API_PORT" in
                 ''|*[!0-9]*) API_PORT=3000 ;;
               esac
-              API_HEALTH_URL="http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1"
+              API_HEALTH_URL="http://127.0.0.1:${API_PORT}/api/v1/health/ready"
+              LEGACY_HEALTH_URL="http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1"
               for attempt in $(seq 1 15); do
                 if curl --fail --silent --show-error "$API_HEALTH_URL" >/dev/null; then
                   echo "✅ API 健康检查通过（第 $attempt 次）"
+                  return 0
+                fi
+                if [ "$ALLOW_LEGACY" = true ] \
+                  && curl --fail --silent --show-error "$LEGACY_HEALTH_URL" >/dev/null; then
+                  echo "⚠️ 回滚版本没有 readiness 路由，旧版公开读取健康检查通过（第 $attempt 次）"
                   return 0
                 fi
                 sleep 2
@@ -398,7 +475,7 @@ jobs:
                   && npx --no-install prisma generate --schema prisma-delivery/schema.prisma \
                   && build_backend \
                   && pm2 reload "$PM2_NAME" --update-env \
-                  && health_check
+                  && health_check true
                 rollback_status=$?
                 set -e
                 if [ "$rollback_status" -eq 0 ]; then
@@ -421,19 +498,26 @@ jobs:
             cd backend
             install_backend_dependencies
 
-            echo "═══ 4. Prisma generate + migrate deploy（主库 + 配送库）═══"
-            npx --no-install prisma generate
-            npx --no-install prisma migrate deploy
-            npx --no-install prisma generate --schema prisma-delivery/schema.prisma
-            npx --no-install prisma migrate deploy --schema prisma-delivery/schema.prisma
+            echo "═══ 4. 生产小程序配置预检 ═══"
+            if [ "$BRANCH" = "main" ]; then
+              node scripts/verify-miniapp-production-config.cjs
+            fi
 
-            echo "═══ 5. 构建 ═══"
+            echo "═══ 5. Prisma generate（主库 + 配送库）═══"
+            npx --no-install prisma generate
+            npx --no-install prisma generate --schema prisma-delivery/schema.prisma
+
+            echo "═══ 6. 服务器环境构建（任何数据库写入前）═══"
             build_backend
 
-            echo "═══ 6. PM2 reload ═══"
+            echo "═══ 7. migrate deploy（主库 + 配送库）═══"
+            npx --no-install prisma migrate deploy
+            npx --no-install prisma migrate deploy --schema prisma-delivery/schema.prisma
+
+            echo "═══ 8. PM2 reload ═══"
             pm2 reload "$PM2_NAME" --update-env
 
-            echo "═══ 7. 验证健康检查 ═══"
+            echo "═══ 9. 验证健康检查 ═══"
             if ! health_check; then
               pm2 describe "$PM2_NAME" || true
               pm2 logs "$PM2_NAME" --lines 100 --nostream || true
@@ -535,7 +619,7 @@ jobs:
                   case "$API_PORT" in ''|*[!0-9]*) API_PORT=3000 ;; esac
                   rollback_healthy=false
                   for attempt in $(seq 1 15); do
-                    if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1" >/dev/null; then
+                    if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/health/ready" >/dev/null; then
                       rollback_healthy=true
                       break
                     fi
@@ -655,7 +739,7 @@ jobs:
             API_PORT=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
             case "$API_PORT" in ''|*[!0-9]*) API_PORT=3000 ;; esac
             for attempt in $(seq 1 15); do
-              if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/products?page=1&pageSize=1" >/dev/null; then
+              if curl --fail --silent --show-error "http://127.0.0.1:${API_PORT}/api/v1/health/ready" >/dev/null; then
                 echo "staging_wechat_transfer_reload=healthy"
                 exit 0
               fi

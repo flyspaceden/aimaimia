@@ -13,6 +13,11 @@ assert.equal(
   'wx1b33112db0d5267b',
   '微信开发者工具必须使用 AI爱买买真实小程序 AppID',
 );
+assert.equal(
+  projectConfig.libVersion,
+  '3.17.1',
+  '微信基础库必须固定为已完成开发者工具与真机回归的 3.17.1，禁止使用 latest',
+);
 assert.equal(projectConfig.projectname, 'AI爱买买', '微信开发者工具工程名必须使用 AI爱买买');
 assert.equal(projectConfig.description, 'AI爱买买买家微信小程序', '微信开发者工具工程描述必须使用 AI爱买买');
 assert.equal(appConfig.window?.navigationBarTitleText, 'AI爱买买', '全局导航标题必须使用 AI爱买买');

@@ -32,6 +32,14 @@ describe('AI爱买买 mini-program naming', () => {
     expect(homeConfig).toContain("navigationBarTitleText: 'AI爱买买'");
   });
 
+  it('pins the WeChat base library verified by Developer Tools', () => {
+    const project = JSON.parse(fs.readFileSync(path.resolve('project.config.json'), 'utf8')) as {
+      libVersion: string;
+    };
+
+    expect(project.libVersion).toBe('3.17.1');
+  });
+
   it('does not leave the old unprefixed product name on consumer surfaces', () => {
     const srcRoot = path.resolve('src');
     const legacyDomainFile = path.resolve('src/packages/community/utils.ts');
