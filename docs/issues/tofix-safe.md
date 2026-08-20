@@ -623,6 +623,19 @@
 | PUF08 | 自提人、点位联系人或审计原因泄露个人信息 | 🟠 HIGH | 自提人/点位电话加密，买家/卖家/管理员按最小权限脱敏；管理员点位启停审计保存脱敏 before/after/diff 和截断/脱敏原因。 | ✅ 已检查 |
 | PUF09 | `PICKUP` 脏数据缺履约关联导致订单列表整页 500，或前端误显示为配送 | 🟠 MEDIUM | 三个后端 mapper 对单条异常返回 `fulfillmentIssueCode` 并告警；小程序/App/后台显示履约异常且禁止配送动作。 | ✅ 回归通过 |
 
+## 2026-08-19 微信小程序生产上线 P0 安全收口
+
+| 编号 | 风险 | 级别 | 修复/边界 | 状态 |
+|---|---|---|---|---|
+| WML01 | Checkout 接受小数、`NaN`、无穷或超安全整数数量，渠道扣款后 Prisma `Int` 建单失败 | 🔴 CRITICAL | 普通/团购/VIP 实际入口统一在 DTO 使用 `IsInt + Min + Max`，Service 再执行 `Number.isSafeInteger`；团购不再 `Math.floor` 静默纠正，非法数量在创建支付会话前拒绝。 | ✅ 聚焦回归通过 |
+| WML02 | production 遗漏 Mock 配置时继续生成/接受固定短信码或模拟微信身份 | 🔴 CRITICAL | 核心买家、Admin、Seller、员工邀请、账号注销及 Delivery 三角色认证均要求 production 显式 `mock=false`；send/verify 两端对缺失和 `true` 都在 OTP/身份读写前 503。真实短信失败会精确作废刚写 OTP，不再返回伪成功。 | ✅ 聚焦回归通过 |
+| WML03 | 配送人工/自动确认或自提核销提交 `RECEIVED` 后进程退出，分润、数字资产、成长积分、红包、团购或团长佣金永久漏执行 | 🔴 HIGH | `OrderReceivedEffectOutbox` 六类任务与 `RECEIVED` 在同一 Serializable 事务持久化；唯一键、租约、CAS、指数退避和 cron 恢复。成长/红包使用事件幂等键；团长佣金按 `max(received+freezeDays, returnWindowExpiresAt)` 延迟，未到期保持 PENDING；生产不再同时跑旧快速链路。 | ✅ 聚焦回归通过；真实重启/延迟释放待 staging 验收 |
+| WML04 | LEGACY/无 READY 利润快照订单奖励已提现，渠道退款成功后本地退款因余额不足长期失败或用户继续提现/抵扣/注销逃债 | 🔴 CRITICAL | 源 RewardLedger 先 CAS，全程使用整数分；账户可追回容量向下取整，平台只入实际追回额。不足部分写稳定幂等 `CLAWBACK_PENDING`，后续 VIP/NORMAL/产业基金收入在提现和积分抵扣前自动抵偿；钱包展示净额，注销先抵偿且未覆盖部分 fail-closed。 | ✅ 聚焦回归通过；真实并发由 CI PostgreSQL 套件继续覆盖 |
+| WML05 | backend 代码 push 后未经全量测试/E2E 即执行生产 migration 和 PM2 reload | 🔴 HIGH | 部署 workflow 增加干净双 schema migration、Nest build、全量 Jest（含显式真实 PostgreSQL 并发套件）和可复用后台 Web E2E；任一失败时不连接服务器。服务器执行 production 预检和本机 build 后才运行 migration，降低数据库先行风险。小程序真实资金 E2E 仍必须在 staging 真机完成，不能用后台 Playwright 冒充。 | ✅ 静态门禁通过；首次 CI/真机待推送验收 |
+| WML06 | 小程序基础库使用 `latest`，微信自动升级导致运行时行为漂移 | 🟠 HIGH | 固定已实际验证的基础库 `3.17.1`，单测与生产产物检查双重锁定；后续升级必须单独做 72 页与真机回归。 | ✅ 已修复 |
+| WML07 | backend 生产依赖中的 tar 路径穿越/DoS、Socket 内存耗尽、Multer/Nest 等高危公告可由公开接口触达 | 🔴 CRITICAL | 在不降级框架、不使用 `--force` 的前提下升级 Nest/Prisma/bcrypt/Nodemailer/Socket/UUID/Undici 等；`bcrypt@6` 移除 node-pre-gyp/tar，`sharp@0.35.3` 同步适配 CJS 类型入口。`npm audit --omit=dev` 为 0，完整 build 与图片/面单回归通过。 | ✅ 已修复 |
+| WML08 | 部署只请求公开商品列表，无法发现配送库或 Redis 已坏，仍可能误报 PM2 健康 | 🔴 HIGH | 新增公开 `/health/live` 与 `/health/ready`；ready 并行检查主库、配送库和 Redis，只返回 up/down 不泄露连接串。PM2 发布及配置回滚后的健康检查统一使用 ready。 | ✅ 单测/build 通过；staging 部署后待验活 |
+
 ## 2026-08-17 商品自动定价与配置变更安全检查
 
 | 编号 | 风险 | 级别 | 修复/边界 | 状态 |

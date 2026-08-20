@@ -2048,6 +2048,7 @@
 - [x] **WMP34** 2026-08-17 staging 后端部署卡死治理：`d42cd6fd` 首次部署停在服务器 `npm ci`，约 132 分钟后 SSH Broken pipe；引入 timing/超时后，run `32044483456` 证实主安装和回滚安装均在 npm 官方 registry 下载 `which-module-2.0.1.tgz` 时 `ETIMEDOUT`，排除 lockfile、`qrcode` 和构建代码。另修复 `set +e` 下安装失败码被时间戳覆盖、误触发 `npx` 联网下载 Prisma 的回滚缺陷。workflow 保留 SSH keepalive/job 上限，官方 registry 失败后按 lockfile integrity 自动切 npm 镜像，且 Prisma 使用 `--no-install`。提交 `a3f77792` 的 backend run `32045939919` 已复验通过：镜像 23 秒安装 928 个包，两库 migration、Nest 构建、PM2 reload、内部健康检查和公网 test-api HTTP 200 均通过。
 - [x] **WMP35** 2026-08-17 卖家到店核销台确认弹窗热修：真实 staging 截图确认买家凭证已成功解析，但“确认交付并核销”使用 Ant Design 静态 `Modal.confirm`，在当前 React 19 下无法挂载确认框。改为 `App.useApp()` 上下文 `modal.confirm`，并增加静态守卫防止回归；待 seller build、staging 部署和浏览器二次确认弹窗复测。
 - [x] **WMP36** 2026-08-17 平台管理后台到店核销台：补齐已有 `/admin/pickup/resolve|verify` 后端主链的独立前端入口，新增 `pickup_fulfillment:operate` 权限菜单/路由，支持扫码枪、电脑摄像头和 8 位短码；先展示企业、平台中心仓/企业点位、脱敏取货人和商品，再通过 React 19 上下文弹窗二次确认。解析会话切换防旧请求回写，商品条码仅作可选复核。定向 ESLint、管理端生产构建、平台核销 4/4、后端核销契约 31/31 和两套 Prisma schema validate 通过；管理端其他 60/61 静态测试通过，唯一定价安全正则失败已在未修改 `origin/staging` 复现。完整 lint 的 133 个既有问题与 19 条生产依赖审计债务待独立治理；`@zxing/browser` 未出现在漏洞项。staging 真实管理员权限、摄像头与最终核销状态仍待部署后验收。
+- [x] **WMP37** 2026-08-19 小程序生产上线 P0 代码收口（本地完成、尚未推送）：支付会话前拒绝所有非正安全整数数量；核心买家/后台/配送/账号注销的 production 短信与微信 Mock 必须显式关闭，真实短信失败精确作废 OTP。人工配送、自动确认和自提核销把分润、团购、数字资产/自动 VIP、成长、红包、团长佣金六类任务与 `RECEIVED` 同事务持久化；红包严格幂等，团长按冻结期延迟，digital 成功后才发成长。旧退款奖励不足改为整数分部分追回 + 可执行 `CLAWBACK_PENDING`，后续 VIP/普通/产业基金收入自动抵偿，钱包显示净额并阻止未清债注销。后端生产依赖审计降为 0，微信基础库固定 `3.17.1`；部署在服务器 build 后才 migrate，并增加干净双库 migration、全量 Jest/真实 PG 并发、后台 Web E2E、production 配置预检和双库+Redis readiness。独立复核 Critical/High 为 0；后端 316 suites/3433 tests（另2 suites/5 tests由CI真实PG门禁执行）、小程序 52 files/284 tests与双构建通过。该勾选只代表本地代码完成，staging CI 首跑、数据库副本迁移、真机支付/退款/提现/自提和 main production-integration 仍未完成。
 - [x] **WMP22** 2026-08-12 VIP 礼包真实支付联调热修：微信实查确认 `NOTPAY/CLOSED` 应答会分别省略 `trade_type` 或 `amount`；后端始终校验签名、商户号、AppID 和商户订单号，只有 `SUCCESS` 建单或同号 `NOTPAY` 重试预下单时才强制金额一致，`SUCCESS` 还强制交易流水号和 `JSAPI/APP` 类型；已验签的其他非成功终态只能关单/释放，不得触发建单。VIP 结算统一解析有效显式地址、默认地址或第一条地址，展示、按钮和提交不再分叉；代码与聚焦回归已完成，staging 部署和 iOS/Android 真机复测记录完成后方可视为本轮外部验收结束。
 
 - [ ] **WMP23** 2026-08-12 推荐码与小程序码合卡：推荐中心不再单独显示“微信小程序码”卡片，已登录且分享码可用时自动生成并在分享码右侧显示，保留失败重试、换码和保存。首次源码测试与构建虽通过，但 Taro/webpack 持久化缓存把新版父页面与旧版小程序码子组件混合进 `dist`，开发者工具实际出现文字竖排；现已改为仅 development 使用持久化缓存，并新增父页面入参、子组件分支和 WXSS 的生产产物断言。实际调用测试后端还确认第二个根因：接口已成功返回 JPEG 小程序码，但前端固定只接受 PNG 而误判失败；现已按 MIME+文件魔数同时安全支持 PNG/JPEG。完成全清缓存双环境构建后，仍须在开发者工具完成最终二维码显示与扫码验收，验收前不得标记完成。
@@ -2067,7 +2068,7 @@
   - [ ] 配置 request/upload/download/socket 合法域名、隐私保护指引、订阅消息模板和平台回调。
   - [x] 微信开发者工具登录态 71 页运行时验收（含完整 staging fixture，71/71、0 warning）。
   - [ ] iOS/Android 微信真机及真实小额支付/退款/提现/发货闭环验收。
-  - [ ] 首次开发者工具完整回归后，把 `project.config.json` 的微信基础库版本从 `latest` 固定为实测通过的具体版本。
+  - [x] `project.config.json` 微信基础库已固定为开发者工具与真机实际验证的 `3.17.1`；生产产物检查禁止回退 `latest`（2026-08-19）。
 - [x] **WMP01** Phase 1 购物闭环：三个主 Tab、商品/企业/搜索、账号地址、购物车、结算、消费积分/红包、微信支付、支付结果、订单/物流/改址/确认收货/取消/复购全部接入；跨端支付场景、幂等重试和成功页服务端核验已收口。
 - [x] **WMP02** Phase 2 售后、会员与资产：售后/发票、统一钱包与微信提现、优惠券、数字资产、即时注销、VIP/礼包/抽奖/成长/奖励树/队列和团购均已实现并注册真实路由；任务入口按 App 当前隐藏状态不注册，共用后端在行为凭证补齐前 fail-closed；退货运费固定使用当前小程序微信身份支付。
 - [x] **WMP03** Phase 3 AI、客服与增长：单轮 AI 语音/文字搜索、客服 Socket + REST 降级、消息中心、VIP 推荐/普通分享、推荐用户、团长、关注、设置、扫码、小程序码和一次性订阅消息均已实现；订阅模板和真实平台权限仍归 WMP00-F 联调。

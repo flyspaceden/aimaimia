@@ -667,7 +667,9 @@ AppID `wx1b33112db0d5267b` 已写入 `project.config.json`，可用于开发者�
 
 Phase 0 的代码门槛已通过，因此已按本设计开始逐批实现页面；外部微信能力门槛仍保持为真实联调与发布阻塞项。
 
-开发者工具首次完整回归时记录实际通过的微信基础库版本，并将 `project.config.json` 的 `libVersion` 从 `latest` 固定为该具体版本；在此之前不猜测版本号。以后升级基础库必须单独执行页面、授权、支付和真机回归。
+2026-08-19 已根据开发者工具与真机实际使用版本，将 `project.config.json` 的 `libVersion` 从 `latest` 固定为 `3.17.1`；生产产物检查和单测会阻止回退到 `latest`。以后升级基础库必须作为独立改动，重新执行 72 页巡检、授权、微信支付、取货二维码和 iOS/Android 真机回归。
+
+共享后端是小程序登录、支付、退款、提现和自提的上线组成部分。任何 `backend/**` 发布必须先通过干净 PostgreSQL 的主库/配送库 migration、Nest 编译、全量 Jest 和 Web E2E；正式环境在 migration 前运行 `backend/scripts/verify-miniapp-production-config.cjs`，Mock、测试回调、非 release 小程序码环境、自提关闭或顺丰 UAT 任一命中都会阻止生产部署。该门禁只验证配置完整性，不替代微信真实小额资金、数据库备份和真机验收。
 
 ### Phase 1：购物闭环
 

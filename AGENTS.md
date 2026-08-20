@@ -151,7 +151,7 @@
 | VIP 利润公式 | **与普通用户统一为六分结构**（不再使用 rebatePool 两级分割）。VIP默认：50%平台/30%奖励/10%产业基金/2%慈善/2%科技/6%备用金。100% 利润显式分配，无隐性平台收入 |
 | 普通/VIP系统隔离 | 两套独立参数（`NORMAL_*`/`VIP_*`前缀）、独立树结构、**统一六分利润结构但各自独立配比**、独立冻结过期天数 |
 | 卖家自动定价 | 卖家设成本，售价=成本×MARKUP_RATE（默认1.3），奖励商品例外（管理员手动设价） |
-| 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态 |
+| 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态。人工配送确认、自动确认和自提核销在 `RECEIVED` 同一 Serializable 事务写入六类 `OrderReceivedEffectOutbox`（分润/团购/数字资产与自动VIP/成长/红包/团长佣金）；红包幂等、团长延迟、digital→growth 顺序由持久状态机保证 |
 | 平台运费计价 | **平台统一对接顺丰并承担履约运费**；买家侧保持满额包邮，不满额按平台自定义顺丰风格首重+续重公式收取运费；多商户订单整单只收一次运费，支付后按子订单商品金额比例分摊；顺丰承运实际成本可记录在 `OrderShippingCost` 供平台月结对账，商户协商价不进入代码 |
 | 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
 | 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
@@ -318,6 +318,8 @@ admin/                  # 管理后台前端
 - PostgreSQL 18（数据库，宝塔安装）
 - Redis 7.x（队列/缓存，宝塔安装）
 - Node 20 + PM2（NestJS 后端进程，NodeSource 官方源直装，glibc 无障碍）
+
+**小程序共享后端发布门禁（2026-08-19）**：任何 `backend/**` 部署必须先在 GitHub Runner 的干净 PostgreSQL 双 schema 上完成两套 migration、Nest build、全量 Jest（含显式开启的真实 PostgreSQL 并发套件）与 Web E2E；main 在服务器 migration 前还必须运行 `backend/scripts/verify-miniapp-production-config.cjs`。production 的短信/微信/配送 Mock 配置缺失或非 `false` 一律 fail-closed。PM2 发布健康检查统一使用 `/api/v1/health/ready`（主库、配送库、Redis），旧版本回滚仅允许临时使用公开商品读取作为兼容存活检查。
 
 **所有 npm 包用最新版本**，无需任何降级或兼容补丁。不再使用 Docker（业务 v1.0 未上线，无必要引入容器化复杂度）。
 

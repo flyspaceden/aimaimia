@@ -190,14 +190,17 @@ backend/
 | 变量 | 说明 | 必填 |
 |------|------|------|
 | `DATABASE_URL` | PostgreSQL 连接字符串 | ✅ |
+| `DELIVERY_DATABASE_URL` | 配送域独立 PostgreSQL 连接字符串 | ✅ |
 | `JWT_SECRET` | 买家端 JWT 签名密钥 | ✅ |
 | `ADMIN_JWT_SECRET` | 管理端 JWT 签名密钥 | ✅ |
 | `SELLER_JWT_SECRET` | 卖家端 JWT 签名密钥 | ✅ |
 | `JWT_EXPIRES_IN` | 买家端 Access Token 有效期 | 默认 `15m` |
-| `SMS_MOCK` | 模拟短信（`true` 验证码打印到 console） | 默认 `true` |
+| `SMS_MOCK` | 模拟短信；production 必须显式 `false` | 开发默认 `true` |
+| `WECHAT_MINIAPP_MOCK` | 小程序平台 Mock；production 必须显式 `false` | 开发/测试可开 |
+| `DELIVERY_SMS_MOCK` / `DELIVERY_WECHAT_MOCK` | 配送域认证 Mock；production 必须显式 `false` | 开发/测试可开 |
 | `PORT` | 服务端口 | 默认 `3000` |
 | `CORS_ORIGINS` | 允许的跨域来源（逗号分隔） | 默认 localhost |
-| `REDIS_URL` | Redis 连接字符串（预留） | 可选 |
+| `REDIS_URL` | Redis 连接字符串；身份锁、限流、Socket 与 readiness 使用 | production ✅ |
 
 ---
 
@@ -226,6 +229,13 @@ npm run start:dev
 | `npx prisma migrate dev` | 创建迁移 |
 | `npx prisma db seed` | 填充种子数据 |
 | `npx prisma validate` | 验证 Schema |
+
+### 健康与发布门禁
+
+- `GET /api/v1/health/live` 只证明 Nest 进程可响应。
+- `GET /api/v1/health/ready` 同时检查主库、配送库和 Redis；任一不可用返回 503，且只公开组件 `up/down`，不泄露连接信息。
+- backend push 在 SSH 前必须通过干净双 schema migration、全量 Jest（含真实 PostgreSQL 并发套件）和 Web E2E。
+- main 部署在服务器 migration 前运行 `node scripts/verify-miniapp-production-config.cjs`；微信/短信 Mock、测试域名、非 release 小程序码、自提关闭、Redis 缺失或顺丰 UAT 都会阻止生产部署。
 
 ---
 
@@ -711,7 +721,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 
 ### 17.2 状态与资金一致性
 
-支付成功事务从已验证的 CheckoutSession 快照创建 `Order(PAID)` 与 `PickupFulfillment(PREPARING)`。卖家备货使用 CAS 转为 `READY`；核销在 Serializable 事务中转为 `PICKED_UP`，同时把订单转为 `RECEIVED` 并触发现有确认收货后的可靠副作用。自提订单在顺丰面单、发货、轨迹、微信物流上报和自动确认收货入口全部 fail-closed。
+支付成功事务从已验证的 CheckoutSession 快照创建 `Order(PAID)` 与 `PickupFulfillment(PREPARING)`。卖家备货使用 CAS 转为 `READY`；核销在 Serializable 事务中转为 `PICKED_UP`，同时把订单转为 `RECEIVED`。人工配送确认、自动确认和自提核销都会在同一个 Serializable 事务写入六类 `OrderReceivedEffectOutbox`：分润、团购、数字资产/自动 VIP、成长积分、红包和团长佣金。任务以租约 + CAS + 稳定幂等键重试；成长等待 digital/自动 VIP 完成，红包失败不被吞，团长佣金按退货窗口/冻结期延迟。自提订单在顺丰面单、发货、轨迹、微信物流上报和自动确认收货入口全部 fail-closed。
 
 管理端受控取消仅支持 `NORMAL_GOODS + PICKUP + PAID + PREPARING/READY`，并按 CheckoutSession 一致取消全部子订单、作废全部凭证、复用现有退款/库存/红包/消费积分/分润/数字资产回滚链。响应返回 `affectedOrderIds` 和每个子订单的 `refunds[{orderId,refundId,status}]`，页面必须提示仍处于 `PROCESSING/FAILED` 的退款，不得把“已创建退款单”表述成全部到账。
 
@@ -730,3 +740,5 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 ### 17.4 配置与灰度
 
 默认 `PICKUP_FULFILLMENT_ENABLED=false`。部署前为环境生成独立 `PICKUP_TOKEN_SECRET`，先 migrate-deploy，再配置至少一个可用点位，最后仅在 staging 开启开关并回归普通/团购/VIP。真实 PostgreSQL 并发核销、核销与取消竞态、部分退款补偿仍是上线前集成验收门槛。
+
+LEGACY/无 READY 利润快照退款如果遇到奖励已提现，渠道退款仍必须先收口：以整数分追回现有余额，不足部分写 `AFTER_SALE_CLAWBACK + RETURN_FROZEN` 债权。后续 VIP、普通树或产业基金收入在提现/消费积分抵扣前自动抵偿；钱包只展示扣除债权后的净可用额；账号注销会先抵偿，可用资产仍不足时拒绝注销。账户 Float 容量向下取整到分，禁止把数据库中的 `0.555` 元误判为可 CAS 扣 `0.56` 元。

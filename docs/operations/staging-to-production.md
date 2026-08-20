@@ -418,29 +418,32 @@ git log staging --oneline ^main -- backend/prisma/migrations/
 > ⚠️ **必须先和用户口头确认本次推送内容 + 明确告知回滚路径，再 push**（CLAUDE.md 强制流程 #10）
 
 ```bash
-# 0. 确认本地 staging 是干净的且与远端同步
-git checkout staging
-git pull origin staging
-git status   # 应该 clean
+# 0. 所有发布判断只允许基于远端 tip，禁止使用脏根目录
+git fetch origin main staging
+git rev-list --left-right --count origin/main...origin/staging
+git status --short
 
-# 1. 切到 main，与远端同步
-git checkout main
-git pull origin main
+# 1. 先检查 main/staging 是否可直接合并。出现冲突或双向分叉时，禁止直接 merge/push。
+git merge-tree --write-tree origin/main origin/staging
 
-# 2. 把 staging 合并到 main（推荐 --no-ff 保留合并节点便于回滚）
-git merge --no-ff staging -m "release: 合并 staging → main，包含 v1.0 全量功能"
+# 2A. 只有 merge-tree 成功且发布范围就是 staging 全量时，才允许在干净 release worktree 合并。
+# 2B. 当前分支已出现长期双向分叉时：从 origin/main 新建 production-integration，
+#     按已经在 staging 验收的逻辑批次移植，并逐批解决冲突、跑测试；不得整体硬合并。
+git switch --create codex/production-integration origin/main
 
-# 3. 复述给用户：本次合并包含哪些 commit、改了哪些模块、是否有破坏性迁移
-git log main --oneline ^origin/main
-git diff origin/main...main --stat
+# 3. 复述给用户：本次集成包含哪些 commit/功能、是否有 migration，以及额外回滚步骤。
+git log --oneline origin/main..HEAD
+git diff --stat origin/main...HEAD
 
-# 4. 用户确认后再 push
-git push origin main
+# 4. 所有质量门禁与用户确认完成后才能 push；禁止直接从脏 staging/root 发布。
+# git push origin HEAD:main
 ```
 
 push 后的事情：
-- GitHub Actions 自动跑 `detect-changes` → 选中 `backend` / `admin` / `seller` / `website` 的子 job
-- backend job 会 SSH 到服务器：`git pull` + `npm ci` + `prisma generate` + `prisma migrate deploy` + `npm run build` + `pm2 reload aimaimai-api-prod`
+- GitHub Actions 自动跑 `detect-changes` → 选中 `backend` / `admin` / `seller` / `website` 的子 job。
+- backend 发布先在 GitHub Runner 执行主库/配送库空库 migration、Nest build、全量 Jest 与 Web E2E；任何红灯都不会连接生产服务器。
+- 质量门禁通过后才 SSH：`npm ci` → `node scripts/verify-miniapp-production-config.cjs`（仅 main）→ 两库 Prisma generate → **服务器 build** → 两库 `prisma migrate deploy` → PM2 reload。服务器构建失败时数据库尚未写入。
+- production 小程序预检要求微信登录/支付/提现、自提、顺丰及全部 Mock 开关使用正式配置；检查只输出字段错误，不输出密钥。
 - web 三端构建 + rsync 到对应目录
 - **观察 Actions 全部绿勾后**，再做生产环境验证
 
@@ -449,8 +452,9 @@ push 后的事情：
 ## 八、上线后验证清单
 
 ```bash
-# 1. 后端健康
-curl https://api.ai-maimai.com/api/v1/health   # {"status":"ok"}
+# 1. 后端就绪检查（主库 + 配送库 + Redis）
+curl --fail 'https://api.ai-maimai.com/api/v1/health/ready'
+# 返回 ready 才表示三项基础依赖可用；微信支付、顺丰和资金回调仍须继续按下方专项验证。
 
 # 2. PM2 进程状态（SSH 到服务器）
 pm2 list   # aimaimai-api-prod 状态 online，重启次数没异常涨
@@ -462,7 +466,7 @@ pm2 logs aimaimai-api-prod --lines 100 --nostream
 psql -U aimaimai -d aimaimai -c "select count(*) from \"User\";"
 
 # 5. CORS 实测（在 admin.ai-maimai.com 控制台执行）
-fetch('https://api.ai-maimai.com/api/v1/health').then(r => r.json()).then(console.log)
+fetch('https://api.ai-maimai.com/api/v1/health/ready').then(r => r.json()).then(console.log)
 # 应该返回 200 且无 CORS 错误
 
 # 6. WebSocket（客服）连通（在 admin.ai-maimai.com 客服工作台页面）
