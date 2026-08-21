@@ -91,7 +91,7 @@ export default function AccountForgotPasswordPage() {
     const result = await resetForgotPassword({ phone: phone.trim(), code: smsCode.trim(), newPassword });
     setSubmitting(false);
     if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '密码重置失败', icon: 'none' }); return; }
-    // 服务端已撤销包括当前设备在内的所有会话；同步清理本地 token，避免登录页误判“已登录”。
+    // 密码重置会撤销包括当前设备在内的所有会话；同步清理本地 token，避免登录页误判“已登录”。
     logoutAndClearClientState();
     Taro.showToast({ title: '密码已重置', icon: 'success' });
     const loginUrl = `/packages/account/account-login/index${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`;

@@ -7,24 +7,26 @@ const readSource = (relativePath: string) => fs.readFileSync(
   'utf8',
 );
 
-describe('mini-program WeChat-only authentication boundary', () => {
-  it('keeps the login page to one WeChat action without phone login or registration forms', () => {
+describe('mini-program WeChat-first authentication boundary', () => {
+  it('starts from one WeChat action and only offers phone verification after an unmatched identity chooses account merge', () => {
     const page = readSource('src/packages/account/account-login/index.tsx');
 
     expect(page).toContain('微信登录');
     expect(page).toContain('loginWithWechatMiniProgram');
     expect(page).not.toMatch(/一个微信身份|无需填写手机号|account-login-benefit/);
-    expect(page).not.toMatch(/验证码登录|密码登录|请输入手机号|绑定你的手机号|loginWithPhone|registerWithPhone/);
-    expect(page).not.toMatch(/import\s*\{[^}]*\bInput\b[^}]*\}\s*from '@tarojs\/components'/);
-    expect(page).not.toContain('<Input');
+    expect(page).not.toMatch(/验证码登录|密码登录|loginWithPhone|registerWithPhone/);
+    expect(page).toContain('requiresAccountChoice');
+    expect(page).toContain('合并已有手机号账号');
+    expect(page).toContain('pendingTicket');
   });
 
-  it('does not ship phone login, phone registration, or forced bind-ticket handling in the miniapp auth adapter', () => {
+  it('does not ship phone login or registration, but supports an explicit one-time merge ticket', () => {
     const adapter = readSource('src/platform/auth.ts');
 
     expect(adapter).not.toContain("ApiClient.post<MiniappSession>('/auth/login'");
     expect(adapter).not.toContain("ApiClient.post<MiniappSession>('/auth/register'");
-    expect(adapter).not.toContain('/auth/oauth/wechat-miniapp/bind-phone');
+    expect(adapter).toContain('/auth/oauth/wechat-miniapp/bind-phone');
+    expect(adapter).toContain('PendingMiniappAccountChoice');
     expect(adapter).not.toContain('bindRequired');
   });
 });

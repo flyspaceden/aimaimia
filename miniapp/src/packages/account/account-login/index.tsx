@@ -101,7 +101,7 @@ export default function AccountLoginPage() {
 
   if (pendingTicket) return <View className='aim-page account-login-page'><View className='account-login-card aim-card'>
     <Text className='account-login-hero__title'>选择账号方式</Text>
-    <Text>这个微信尚未关联爱买买账号。可新建微信账号，或验证手机号合并既有账号。</Text>
+    <Text>这个微信尚未关联 AI爱买买账号。可新建账号，或验证手机号合并既有账号。</Text>
     <Button className='account-login-wechat' loading={submitting} onClick={createAccount}>作为新用户继续</Button>
     <View className='account-login-agreement'><Input type='number' maxlength={11} value={phone} placeholder='已有账号的手机号' onInput={(event) => setPhone(event.detail.value.replace(/\D/g, '').slice(0, 11))} /></View>
     <View className='account-login-agreement'><Input type='number' maxlength={6} value={smsCode} placeholder='6 位短信验证码' onInput={(event) => setSmsCode(event.detail.value.replace(/\D/g, '').slice(0, 6))} /><Button disabled={countdown > 0} onClick={sendMergeCode}>{countdown ? `${countdown}s` : '发验证码'}</Button></View>
