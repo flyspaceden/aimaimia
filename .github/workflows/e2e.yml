@@ -1,6 +1,7 @@
 name: E2E Tests
 
 on:
+  workflow_call:
   pull_request:
     branches: [main, dev, staging]
   push:
@@ -44,6 +45,12 @@ jobs:
             seller/package-lock.json
             tests/package-lock.json
 
+      - name: Validate production release contracts
+        run: |
+          node --test \
+            scripts/__tests__/deploy-backend-main-safety.test.mjs \
+            scripts/__tests__/production-delivery-exclusion.test.mjs
+
       # 并行安装依赖
       - name: Install dependencies
         run: |
@@ -57,13 +64,13 @@ jobs:
       - name: Install Playwright browsers
         run: cd tests && npx playwright install chromium --with-deps
 
-      # 数据库 schema + seed
+      # 数据库 migration + seed：发布门禁必须验证真实迁移链，禁止用 db push 掩盖 migration 缺口。
       - name: Setup database
         run: |
           cd backend
-          npx prisma db push --skip-generate
-          npx prisma generate
-          npx prisma db seed
+          npx --no-install prisma migrate deploy
+          npx --no-install prisma generate
+          npx --no-install prisma db seed
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 

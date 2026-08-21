@@ -1946,3 +1946,19 @@
 - [x] staging dry-run：50 个普通商品 / 77 个 SKU，38 个商品 / 64 个 SKU 不一致；完整清单与回滚 SQL 保存为 `pricing-artifacts/staging-reprice-dry-run-20260817.jsonl`。携带 `MARKUP_RATE=1.3` 与 dry-run token 显式执行后更新 64 个 SKU，复验剩余不一致为 0；执行清单保存为 `pricing-artifacts/staging-reprice-execute-20260817.jsonl`。公网 App API 已返回有机番茄 ¥10.40、紫薯 ¥7.80，线上 seller/admin 构建已包含价格核对与确认文案。
 - [x] 生产最终代码只读 dry-run 已生成：当前 `MARKUP_RATE=1.35`，17 个普通商品 / 27 个 SKU 全部受影响，其中 25 个涨价、2 个降价；完整新旧价格、preview token 和回滚 SQL 保存为 `pricing-artifacts/production-reprice-dry-run-final-20260817.jsonl`。生产数据库未写入，公开 API 仍保持原售价。
 - [x] 生产发布与数据修复完成：窄范围生产候选合入 `main` 至 `f52b82a4`，GitHub Actions run `32057943962` 的 admin / seller / backend 全部成功；服务器 SHA 复验一致。部署后 dry-run 仍为 `MARKUP_RATE=1.35`、17 个商品 / 27 个 SKU、原 preview token；在利润安全 lock + Serializable 事务内更新后，写后扫描剩余不一致为 0。生产公开 API 验证帝王蟹 ¥759.91、399 龙虾套装 ¥414.45、苏丹鱼有效规格新价，API health=200；线上管理端/卖家端价格预览与确认文案已验证。执行回执保存为 `pricing-artifacts/production-reprice-execute-20260817.jsonl`。
+
+---
+
+## 微信小程序选择性进入生产（2026-08-21）
+
+> **执行真相源**：`docs/operations/miniapp-production-integration-20260821.md`。以 `origin/main@aa8f5daa` 为基线，禁止整体 merge staging，禁止携带独立 Delivery 系统；每个批次独立 commit、独立审查、独立回滚。
+
+- [x] **MP-PROD00** 冻结 `main/staging/生产后端/staging 后端` SHA，建立干净 `codex/miniapp-production-integration-20260821` worktree；原始脏目录和生产环境未改动。
+- [x] **MP-PROD01**（本地完成，未 push/未部署）发布安全门禁：main push 不自动部署；生产 workflow_dispatch + approval；exact SHA 部署；主库备份；后端质量/E2E/readiness 门禁；后端先于 admin/seller/H5；workflow-only 变更不触发后端。GitHub production/staging environment 已按分支隔离，production 需要用户本人审批。独立终审无阻止本地提交的 Critical/High；Batch 1 前仍必须完成 main protection、维护停写/PITR 与版本化 release 目录。
+- [ ] **MP-PROD02** Delivery 排除守卫：禁止配送门户、配送数据库、DeliveryModule/wiring/配置进入候选，同时保留商城 Shipment/SF/普通送货上门。
+- [ ] **MP-PROD03** 小程序后端兼容闭包与 18 条 migration；main 旧 API 路由零删除，微信支付/退款/提现、自提、通知、购物车与收货副作用完整。
+- [ ] **MP-PROD04** 平台后台与卖家后台最小自提/核销/微信提现界面；解决扫码依赖 Node 版本；后端成功后才部署静态后台。
+- [ ] **MP-PROD05** 完整 miniapp + production release-context + 推荐 H5 双入口；App 不增加自提下单入口，只做经确认的跨端只读兼容。
+- [ ] **MP-PROD06** 生产备份克隆库迁移演练：Booking 重复、默认地址重写、checksum、前后数据守恒和 fail-forward 回退方案全部通过。
+- [ ] **MP-PROD07** 最终组合回归：backend/真实 PG 并发、App 现有版本、admin/seller、miniapp production artifact、H5、微信真机全链路。
+- [ ] **MP-PROD08** 用户再次确认后才 push；按后端 → admin/seller → 小程序体验版 → H5 → 微信审核分阶段发布，每阶段记录 SHA、CI、线上健康与回滚点。

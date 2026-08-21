@@ -2,7 +2,9 @@ name: Deploy Sites & Backend
 
 on:
   push:
-    branches: [main, staging]
+    # staging 仍然按路径自动部署；生产 main 必须通过 workflow_dispatch 手动发布，
+    # 避免 merge/push 后未经最后确认直接修改生产数据库和 PM2。
+    branches: [staging]
     paths:
       - 'website/**'
       - 'admin/**'
@@ -21,6 +23,30 @@ on:
         description: '部署目标 (all/website/admin/seller/backend/huahai)'
         required: true
         default: 'all'
+        type: choice
+        options:
+          - all
+          - backend
+          - admin
+          - seller
+          - website
+          - huahai
+      confirm_production:
+        description: '仅 main 生产发布填写 DEPLOY_PRODUCTION；staging 留空'
+        required: false
+        default: ''
+        type: string
+      migration_rehearsal_sha:
+        description: 'main 的 backend/all 发布必须填写已完成生产克隆迁移演练的候选完整 SHA'
+        required: false
+        default: ''
+        type: string
+
+# 同一分支的服务器发布必须串行。不能取消正在 migrate/reload 的 run，
+# 后来的发布排队等待前一个发布完成或明确失败回滚。
+concurrency:
+  group: deploy-sites-backend-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   detect-changes:
@@ -31,6 +57,8 @@ jobs:
       seller: ${{ steps.changes.outputs.seller }}
       backend: ${{ steps.changes.outputs.backend }}
       huahai: ${{ steps.changes.outputs.huahai }}
+      workflow: ${{ steps.changes.outputs.workflow }}
+      any_deploy: ${{ steps.changes.outputs.any_deploy }}
       env_name: ${{ steps.env.outputs.env_name }}
       api_base: ${{ steps.env.outputs.api_base }}
       ws_base: ${{ steps.env.outputs.ws_base }}
@@ -47,6 +75,28 @@ jobs:
           # （之前 fetch-depth: 2 在「一次 push 多 commit」时会漏识别中间 commit 的改动）
           fetch-depth: 0
 
+      - name: Reject deployment from unsupported branches
+        run: |
+          set -euo pipefail
+          case "${{ github.ref }}" in
+            refs/heads/main|refs/heads/staging) ;;
+            *) echo "Only main or staging may deploy"; exit 1 ;;
+          esac
+
+      - name: Fail closed unless main production deployment is explicitly confirmed
+        if: github.ref == 'refs/heads/main'
+        env:
+          CONFIRM_PRODUCTION: ${{ github.event.inputs.confirm_production }}
+          DEPLOY_TARGET: ${{ github.event.inputs.deploy_target }}
+          MIGRATION_REHEARSAL_SHA: ${{ github.event.inputs.migration_rehearsal_sha }}
+        run: |
+          set -euo pipefail
+          test "${{ github.event_name }}" = "workflow_dispatch"
+          test "$CONFIRM_PRODUCTION" = "DEPLOY_PRODUCTION"
+          if [ "$DEPLOY_TARGET" = "backend" ] || [ "$DEPLOY_TARGET" = "all" ]; then
+            test "$MIGRATION_REHEARSAL_SHA" = "${{ github.sha }}"
+          fi
+
       - name: Detect changed paths
         id: changes
         run: |
@@ -56,7 +106,11 @@ jobs:
             [ "$TARGET" = "all" ] || [ "$TARGET" = "admin" ]   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "seller" ]  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ] && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
-            [ "$TARGET" = "all" ] || [ "$TARGET" = "huahai" ]  && echo "huahai=true"  >> $GITHUB_OUTPUT || echo "huahai=false"  >> $GITHUB_OUTPUT
+            # all 只表示爱买买商城四个目标；华海母公司官网必须单独选择 huahai，
+            # 防止小程序发布夹带无关站点。
+            [ "$TARGET" = "huahai" ] && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
+            echo "workflow=false" >> $GITHUB_OUTPUT
+            echo "any_deploy=true" >> $GITHUB_OUTPUT
           else
             # diff 本次 push 的完整范围（before..after），覆盖一次推多 commit 的情况
             BEFORE="${{ github.event.before }}"
@@ -69,8 +123,11 @@ jobs:
             echo "$CHANGED" | grep -Eq '^(website/|scripts/lib/legal-static-renderer\.mjs$)' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^admin/'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -q '^seller/'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(backend/|\.github/workflows/deploy-website\.yml$)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
+            # workflow-only 变更只验证工作流本身，不得触发后端、migration 或 PM2。
+            echo "$CHANGED" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -q '^\.github/workflows/deploy-website\.yml$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Determine environment (main → 生产 / staging → 测试)
@@ -98,10 +155,33 @@ jobs:
             echo "backend_branch=staging" >> $GITHUB_OUTPUT
           fi
 
-  deploy-website:
+  validate-deployment-workflow:
     needs: detect-changes
+    if: needs.detect-changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate deployment and Delivery-exclusion contracts
+        run: |
+          node --test \
+            scripts/__tests__/deploy-backend-main-safety.test.mjs \
+            scripts/__tests__/production-delivery-exclusion.test.mjs
+
+  deploy-website:
+    needs: [detect-changes, release-approval, deploy-backend]
     # 锁死只有 main 才能部署 website，避免 staging 推送覆盖生产产物（与 deploy-huahai 同处理）
-    if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'
+    if: >-
+      always()
+      && needs.detect-changes.outputs.website == 'true'
+      && github.ref == 'refs/heads/main'
+      && needs.release-approval.result == 'success'
+      && (
+        needs.detect-changes.outputs.backend != 'true'
+        || needs.deploy-backend.result == 'success'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,19 +203,37 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy to server
-        uses: easingthemes/ssh-deploy@v4
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.SERVER_HOST }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          SOURCE: website/dist/
-          TARGET: ${{ needs.detect-changes.outputs.website_target }}
-          ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy website with rollback snapshot
+        env:
+          STATIC_SOURCE: website/dist
+          STATIC_TARGET: ${{ needs.detect-changes.outputs.website_target }}
+          STATIC_SITE: website
+          STATIC_HEALTH_URL: https://app.ai-maimai.com
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: scripts/deploy-static-with-rollback.sh
 
   deploy-admin:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.admin == 'true'
+    needs: [detect-changes, release-approval, deploy-backend]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.admin == 'true'
+      && needs.release-approval.result == 'success'
+      && (
+        needs.detect-changes.outputs.backend != 'true'
+        || needs.deploy-backend.result == 'success'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,19 +254,37 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy to server
-        uses: easingthemes/ssh-deploy@v4
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.SERVER_HOST }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          SOURCE: admin/dist/
-          TARGET: ${{ needs.detect-changes.outputs.admin_target }}
-          ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy admin with rollback snapshot
+        env:
+          STATIC_SOURCE: admin/dist
+          STATIC_TARGET: ${{ needs.detect-changes.outputs.admin_target }}
+          STATIC_SITE: ${{ needs.detect-changes.outputs.env_name == 'production' && 'admin' || 'test-admin' }}
+          STATIC_HEALTH_URL: ${{ needs.detect-changes.outputs.env_name == 'production' && 'https://admin.ai-maimai.com' || 'https://test-admin.ai-maimai.com' }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: scripts/deploy-static-with-rollback.sh
 
   deploy-seller:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.seller == 'true'
+    needs: [detect-changes, release-approval, deploy-backend]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.seller == 'true'
+      && needs.release-approval.result == 'success'
+      && (
+        needs.detect-changes.outputs.backend != 'true'
+        || needs.deploy-backend.result == 'success'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,20 +305,120 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy to server
-        uses: easingthemes/ssh-deploy@v4
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.SERVER_HOST }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          SOURCE: seller/dist/
-          TARGET: ${{ needs.detect-changes.outputs.seller_target }}
-          ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
 
-  deploy-backend:
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy seller with rollback snapshot
+        env:
+          STATIC_SOURCE: seller/dist
+          STATIC_TARGET: ${{ needs.detect-changes.outputs.seller_target }}
+          STATIC_SITE: ${{ needs.detect-changes.outputs.env_name == 'production' && 'seller' || 'test-seller' }}
+          STATIC_HEALTH_URL: ${{ needs.detect-changes.outputs.env_name == 'production' && 'https://seller.ai-maimai.com' || 'https://test-seller.ai-maimai.com' }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: scripts/deploy-static-with-rollback.sh
+
+  # 后端发布前先在干净 PostgreSQL 上跑 migration、编译、全量 Jest 和 Web E2E。
+  # 本次小程序生产集成明确排除独立 Delivery 数据库，因此这里只验证主商城库。
+  backend-quality-gate:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
+      NORMAL_TREE_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
+      PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
+      RUN_DB_CONCURRENCY_TESTS: '1'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aimaimai_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aimaimai_test_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate and migrate clean CI database
+        working-directory: backend
+        run: |
+          npx --no-install prisma generate
+          npx --no-install prisma validate
+          npx --no-install prisma migrate deploy
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Run backend test suite
+        working-directory: backend
+        run: npm test -- --runInBand
+
+  backend-e2e-gate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  # production environment 必须在 GitHub 设置 required reviewer；staging environment 不设 reviewer。
+  # 质量门禁失败时，本 job 不会进入批准阶段，也不会有任何服务器或数据库动作。
+  release-approval:
+    needs: [detect-changes, backend-quality-gate, backend-e2e-gate]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.any_deploy == 'true'
+      && (
+        needs.detect-changes.outputs.backend != 'true'
+        || (
+          needs.backend-quality-gate.result == 'success'
+          && needs.backend-e2e-gate.result == 'success'
+        )
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.detect-changes.outputs.env_name }}
+    steps:
+      - name: Record approved release candidate
+        run: |
+          echo "release_sha=${{ github.sha }}"
+          echo "release_ref=${{ github.ref }}"
+
+  deploy-backend:
+    needs: [detect-changes, backend-quality-gate, backend-e2e-gate, release-approval]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.backend == 'true'
+      && needs.backend-quality-gate.result == 'success'
+      && needs.backend-e2e-gate.result == 'success'
+      && needs.release-approval.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -219,76 +435,158 @@ jobs:
           SRC_DIR: ${{ needs.detect-changes.outputs.backend_src_dir }}
           PM2_NAME: ${{ needs.detect-changes.outputs.backend_pm2_name }}
           BRANCH: ${{ needs.detect-changes.outputs.backend_branch }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} bash <<EOF
-            set -e
+          ssh \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o TCPKeepAlive=yes \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "SRC_DIR='$SRC_DIR' PM2_NAME='$PM2_NAME' BRANCH='$BRANCH' RELEASE_SHA='$RELEASE_SHA' bash -s" <<'REMOTE'
+            set -euo pipefail
             echo "═══ 1. 切换到源码目录 ═══"
-            cd $SRC_DIR
+            cd "$SRC_DIR"
+            PREVIOUS_SHA=$(git rev-parse HEAD)
+            DEPLOY_COMPLETE=false
+
+            health_check() {
+              allow_legacy="${1:-false}"
+              api_port=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
+              case "$api_port" in
+                ''|*[!0-9]*) api_port=3000 ;;
+              esac
+              readiness_url="http://127.0.0.1:${api_port}/api/v1/health/ready"
+              legacy_url="http://127.0.0.1:${api_port}/api/v1/products?page=1&pageSize=1"
+              for attempt in $(seq 1 15); do
+                if curl --fail --silent --show-error "$readiness_url" >/dev/null; then
+                  echo "✅ readiness 健康检查通过（第 $attempt 次）"
+                  return 0
+                fi
+                if [ "$allow_legacy" = true ] \
+                  && curl --fail --silent --show-error "$legacy_url" >/dev/null; then
+                  echo "⚠️ 回滚旧版本无 readiness 路由，公开读取健康检查通过（第 $attempt 次）"
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "❌ API 健康检查失败：$readiness_url"
+              return 1
+            }
+
+            verify_backend_dependencies() {
+              npm ls --depth=0 --omit=optional --loglevel=error >/dev/null \
+                && test -x node_modules/.bin/prisma \
+                && test -x node_modules/.bin/nest \
+                && node -e "require.resolve('@prisma/client'); require.resolve('@nestjs/core'); require.resolve('typescript')"
+            }
+
+            run_npm_ci() {
+              registry="$1"
+              retries="$2"
+              fetch_timeout="$3"
+              attempt_timeout="$4"
+              label="$5"
+              echo "npm_install_attempt=$label registry=$registry started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              npm_config_registry="$registry" \
+                npm_config_replace_registry_host=always \
+                npm_config_fetch_retries="$retries" \
+                npm_config_fetch_retry_mintimeout=5000 \
+                npm_config_fetch_retry_maxtimeout=30000 \
+                npm_config_fetch_timeout="$fetch_timeout" \
+                timeout --signal=TERM --kill-after=30s "$attempt_timeout" \
+                npm ci --no-audit --no-fund --timing --loglevel=notice \
+                && verify_backend_dependencies
+            }
+
+            install_backend_dependencies() {
+              if run_npm_ci "https://registry.npmjs.org" 0 45000 3m official; then
+                return 0
+              fi
+              echo "npm_install_fallback=registry.npmmirror.com"
+              run_npm_ci "https://registry.npmmirror.com" 2 120000 12m mirror
+            }
+
+            build_backend() {
+              NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
+            }
+
+            rollback_backend() {
+              status=$?
+              trap - EXIT
+              if [ "$status" -ne 0 ] && [ "$DEPLOY_COMPLETE" != true ]; then
+                echo "═══ 部署失败，恢复旧代码 $PREVIOUS_SHA ═══"
+                set +e
+                cd "$SRC_DIR"
+                git reset --hard "$PREVIOUS_SHA"
+                cd backend
+                install_backend_dependencies \
+                  && npx --no-install prisma generate \
+                  && build_backend \
+                  && pm2 reload "$PM2_NAME" --update-env \
+                  && health_check true
+                rollback_status=$?
+                set -e
+                if [ "$rollback_status" -eq 0 ]; then
+                  echo "backend_rollback=healthy previous_sha=$PREVIOUS_SHA"
+                else
+                  echo "backend_rollback=failed previous_sha=$PREVIOUS_SHA"
+                  pm2 describe "$PM2_NAME" || true
+                  pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+                fi
+              fi
+              exit "$status"
+            }
+            trap rollback_backend EXIT
 
             echo "═══ 2. 拉取最新代码（branch: $BRANCH）═══"
-            git fetch origin $BRANCH
-            git reset --hard origin/$BRANCH
+            git fetch origin "$BRANCH"
+            git merge-base --is-ancestor "$RELEASE_SHA" "origin/$BRANCH"
+            git cat-file -e "$RELEASE_SHA^{commit}"
+            git reset --hard "$RELEASE_SHA"
+            test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+            echo "release_sha_verified=$RELEASE_SHA"
 
             echo "═══ 3. 装依赖 ═══"
             cd backend
-            # npm CLI 偶发打印内部错误却返回 0；先尝试官方源，再用顶层依赖与关键 CLI
-            # 完整性检查决定是否切镜像，不能只相信 npm 的退出码。
-            timeout --signal=TERM --kill-after=30s 3m \
-              npm ci --no-audit --no-fund --timing --loglevel=notice || true
-            if ! npm ls --depth=0 --omit=optional --loglevel=error >/dev/null \
-              || [ ! -x node_modules/.bin/prisma ] \
-              || [ ! -x node_modules/.bin/nest ]; then
-              npm_config_registry=https://registry.npmmirror.com \
-                npm_config_replace_registry_host=always \
-                timeout --signal=TERM --kill-after=30s 12m \
-                npm ci --no-audit --no-fund --timing --loglevel=notice
-            fi
-            npm ls --depth=0 --omit=optional --loglevel=error >/dev/null
-            test -x node_modules/.bin/prisma
-            test -x node_modules/.bin/nest
-            node -e "require.resolve('@prisma/client'); require.resolve('@nestjs/core'); require.resolve('typescript')"
+            install_backend_dependencies
 
             echo "═══ 4. Prisma generate ═══"
             npx --no-install prisma generate
 
-            echo "═══ 5. 构建 ═══"
-            # Nest/TypeScript 全量编译在默认 V8 heap 下会偶发 OOM（exit 134）。
-            # 只提高构建进程的 heap，运行中的 PM2 进程不继承该值。
-            NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
+            echo "═══ 5. 服务器环境构建（任何数据库写入前）═══"
+            build_backend
 
-            echo "═══ 6. migrate deploy（构建通过后才写数据库）═══"
+            echo "═══ 6. 生产数据库备份（正式环境 migration 前）═══"
+            if [ "$BRANCH" = "main" ]; then
+              DATABASE_BACKUP_LABEL="$(date -u +%Y%m%dT%H%M%SZ)-${PREVIOUS_SHA:0:12}-before-${RELEASE_SHA:0:12}" \
+                node scripts/create-production-database-backup.cjs
+            fi
+
+            echo "═══ 7. migrate deploy（构建与备份通过后才写数据库）═══"
             npx --no-install prisma migrate deploy
 
-            echo "═══ 7. PM2 reload ═══"
-            pm2 reload $PM2_NAME --update-env
+            echo "═══ 8. PM2 reload ═══"
+            pm2 reload "$PM2_NAME" --update-env
 
-            echo "═══ 8. 验证健康检查 ═══"
-            API_PORT=\$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r')
-            case "\$API_PORT" in
-              ''|*[!0-9]*) API_PORT=3000 ;;
-            esac
-            API_HEALTH_URL="http://127.0.0.1:\$API_PORT/api/v1/products?page=1&pageSize=1"
-            for attempt in \$(seq 1 15); do
-              if curl --fail --silent --show-error "\$API_HEALTH_URL" >/dev/null; then
-                echo "✅ API 健康检查通过（第 \$attempt 次）"
-                break
-              fi
-              if [ "\$attempt" -eq 15 ]; then
-                echo "❌ API 健康检查失败：\$API_HEALTH_URL"
-                pm2 describe $PM2_NAME || true
-                pm2 logs $PM2_NAME --lines 100 --nostream || true
-                exit 1
-              fi
-              sleep 2
-            done
+            echo "═══ 9. readiness 健康检查 ═══"
+            if ! health_check; then
+              pm2 describe "$PM2_NAME" || true
+              pm2 logs "$PM2_NAME" --lines 100 --nostream || true
+              exit 1
+            fi
 
+            DEPLOY_COMPLETE=true
             echo "✅ 后端部署完成"
-          EOF
+          REMOTE
 
   # 华海农科母公司官网（静态 HTML，只在 main 分支部署到生产）
   deploy-huahai:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.huahai == 'true' && github.ref == 'refs/heads/main'
+    needs: [detect-changes, release-approval]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.huahai == 'true'
+      && github.ref == 'refs/heads/main'
+      && needs.release-approval.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

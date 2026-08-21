@@ -426,7 +426,8 @@ push 后的事情：
 
 ```bash
 # 1. 后端健康
-curl https://api.ai-maimai.com/api/v1/health   # {"status":"ok"}
+curl https://api.ai-maimai.com/api/v1/health/live    # {"status":"ok"}
+curl https://api.ai-maimai.com/api/v1/health/ready   # {"status":"ready","components":{"database":"up","redis":"up"}}
 
 # 2. PM2 进程状态（SSH 到服务器）
 pm2 list   # aimaimai-api-prod 状态 online，重启次数没异常涨
@@ -438,7 +439,7 @@ pm2 logs aimaimai-api-prod --lines 100 --nostream
 psql -U aimaimai -d aimaimai -c "select count(*) from \"User\";"
 
 # 5. CORS 实测（在 admin.ai-maimai.com 控制台执行）
-fetch('https://api.ai-maimai.com/api/v1/health').then(r => r.json()).then(console.log)
+fetch('https://api.ai-maimai.com/api/v1/health/ready').then(r => r.json()).then(console.log)
 # 应该返回 200 且无 CORS 错误
 
 # 6. WebSocket（客服）连通（在 admin.ai-maimai.com 客服工作台页面）
@@ -623,8 +624,9 @@ pm2 stop aimaimai-api-prod
    pm2 logs aimaimai-api-prod --lines 50 --nostream   # 看启动期强校验是否全过
 
    # ⑥ 健康检查
-   curl http://127.0.0.1:3000/api/v1/health   # {"status":"ok"}
-   curl https://api.ai-maimai.com/api/v1/health   # 走 Nginx 一次端到端
+   curl http://127.0.0.1:3000/api/v1/health/live    # 仅进程存活
+   curl http://127.0.0.1:3000/api/v1/health/ready   # 主库 + Redis 就绪
+   curl https://api.ai-maimai.com/api/v1/health/ready   # 走 Nginx 一次端到端
    ```
 
    完成后才能 push main 让 workflow 的 `pm2 reload --update-env` 接管后续部署。

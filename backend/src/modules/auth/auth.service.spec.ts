@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma, UserStatus } from '@prisma/client';
 import { createHash } from 'crypto';
 
-// CaptchaService 顶层 import 了 ESM-only 的 @paralleldrive/cuid2 / svg-captcha，
+// CaptchaService 顶层 import 了 svg-captcha，
 // ts-jest（commonjs）无法转译。本单测只手工注入 captcha mock，不需要真实实现，
 // 故在 import AuthService 之前 stub 掉该模块，切断 ESM 依赖链。
 jest.mock('../captcha/captcha.service', () => ({ CaptchaService: class {} }));

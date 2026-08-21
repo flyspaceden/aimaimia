@@ -59,6 +59,7 @@
 - `docs/operations/版本管理.md` — 版本管理指南（Git 分支策略 dev/staging/main、阿里云双环境规划、GitHub Actions 自动部署规则、App 三阶段发布流程、版本号规范，**版本管理权威来源**）
 - `docs/operations/github操作.md` — GitHub 日常操作指南（双分支 staging/main 发布流程、自动部署规则、手动触发、紧急场景速查，**测试→生产发布权威来源**）
 - `docs/operations/staging-to-production.md` — 从测试环境切换到生产环境操作手册（main 发布、生产 env、第三方回调、数据库迁移、回滚、首次生产切换，**测试→生产切换执行权威来源**）
+- `docs/operations/miniapp-production-integration-20260821.md` — 微信小程序、自提、微信提现、必要后台和推荐 H5 选择性进入生产的冻结基线、Delivery 排除边界、分批门禁与回滚清单（**本次小程序生产集成执行真相源**）
 - `docs/operations/新手指南-部署机制详解.md` — 部署/CI/CD 系统全套概念解释（32 个 Q&A，从 workflow 路由到 App 测试，含 PM2/Nginx/Prisma migration/SSH 密钥/回滚/灰度等基础概念，**新手学习部署体系权威入门**）
 - `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
 - `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）

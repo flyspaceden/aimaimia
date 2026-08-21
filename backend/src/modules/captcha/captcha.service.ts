@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createId } from '@paralleldrive/cuid2';
+import { randomUUID } from 'crypto';
 import * as svgCaptcha from 'svg-captcha';
 import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 
@@ -26,7 +26,7 @@ export class CaptchaService {
       fontSize: 50,
     });
 
-    const captchaId = createId();
+    const captchaId = randomUUID();
     const key = `${CaptchaService.KEY_PREFIX}${captchaId}`;
     const text = captcha.text.toLowerCase();
 
