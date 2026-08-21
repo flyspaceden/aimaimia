@@ -2,9 +2,17 @@ import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { App, Button, Tag, Modal, Input, Space, Badge, Tabs, Form } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
-import { getCompanies, auditCompany, createCompany } from '@/api/companies';
+import { App, Button, Tag, Modal, Input, Space, Badge, Tabs, Form, Alert, List, Popconfirm, Spin } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
+import {
+  getCompanies,
+  auditCompany,
+  createCompany,
+  getCompanyDeletionCheck,
+  deleteCompany,
+  restoreCompany,
+  type CompanyDeletionCheck,
+} from '@/api/companies';
 import { getMerchantApplicationPendingCount } from '@/api/merchant-applications';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
@@ -13,9 +21,9 @@ import { companyStatusMap as statusMap } from '@/constants/statusMaps';
 import ApplicationsTab from './applications-tab';
 import dayjs from 'dayjs';
 
-type TabKey = 'all' | 'pending' | 'applications';
+type TabKey = 'all' | 'pending' | 'applications' | 'recycle';
 
-const VALID_TABS: TabKey[] = ['all', 'pending', 'applications'];
+const VALID_TABS: TabKey[] = ['all', 'pending', 'applications', 'recycle'];
 
 export default function CompanyListPage() {
   const { message } = App.useApp();
@@ -35,6 +43,11 @@ export default function CompanyListPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createForm] = Form.useForm();
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
+  const [deletionCheck, setDeletionCheck] = useState<CompanyDeletionCheck | null>(null);
+  const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   // URL query 变更时同步 activeTab（处理从其他页面再次点击菜单的情况，组件不卸载仅参数变）
   // 依赖稳定字符串 tabParam 而不是 searchParams 对象，避免 URL 任意变更都触发 effect
@@ -78,6 +91,51 @@ export default function CompanyListPage() {
     getCompanies({ page: 1, pageSize: 1, status: 'PENDING' }).then((r) => setPendingCount(r.total));
   };
 
+  const openDeleteModal = async (company: Company) => {
+    setDeleteTarget(company);
+    setDeletionCheck(null);
+    setDeleteConfirmation('');
+    setDeleteCheckLoading(true);
+    try {
+      setDeletionCheck(await getCompanyDeletionCheck(company.id));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除检查失败');
+      setDeleteTarget(null);
+    } finally {
+      setDeleteCheckLoading(false);
+    }
+  };
+
+  const handleDeleteCompany = async () => {
+    if (!deleteTarget || !deletionCheck?.canDelete) return;
+    setDeleteLoading(true);
+    try {
+      await deleteCompany(deleteTarget.id, deleteConfirmation);
+      message.success('企业已移入回收站');
+      setDeleteTarget(null);
+      setDeletionCheck(null);
+      setDeleteConfirmation('');
+      actionRef.current?.reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败');
+      if (deleteTarget) {
+        setDeletionCheck(await getCompanyDeletionCheck(deleteTarget.id).catch(() => deletionCheck));
+      }
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleRestoreCompany = async (company: Company) => {
+    try {
+      await restoreCompany(company.id);
+      message.success('企业已恢复');
+      actionRef.current?.reload();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '恢复失败');
+    }
+  };
+
   const columns: ProColumns<Company>[] = [
     { title: '企业名称', dataIndex: 'name', width: 200, ellipsis: true },
     { title: '联系人', dataIndex: 'contactName', width: 100, search: false },
@@ -96,7 +154,7 @@ export default function CompanyListPage() {
       valueType: 'select',
       valueEnum: Object.fromEntries(Object.entries(statusMap).map(([k, v]) => [k, { text: v.text }])),
       // 待审核 Tab 下隐藏此筛选
-      hideInSearch: activeTab === 'pending',
+      hideInSearch: activeTab === 'pending' || activeTab === 'recycle',
       render: (_: unknown, r: Company) => {
         const s = statusMap[r.status];
         return <Tag color={s?.color}>{s?.text}</Tag>;
@@ -112,7 +170,7 @@ export default function CompanyListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 220,
       search: false,
       render: (_: unknown, record: Company) => (
         <Space>
@@ -135,6 +193,29 @@ export default function CompanyListPage() {
                 }}
               >
                 审核
+              </Button>
+            )}
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.COMPANIES_DELETE}>
+            {record.status === 'DELETED' ? (
+              <Popconfirm
+                title={`确认恢复「${record.name}」？`}
+                description="恢复后企业回到删除前状态。"
+                onConfirm={() => handleRestoreCompany(record)}
+                okText="恢复"
+                cancelText="取消"
+              >
+                <Button type="link" size="small" icon={<UndoOutlined />}>恢复</Button>
+              </Popconfirm>
+            ) : !record.isPlatform && (
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => openDeleteModal(record)}
+              >
+                删除
               </Button>
             )}
           </PermissionGate>
@@ -163,6 +244,10 @@ export default function CompanyListPage() {
           入驻申请
         </Badge>
       ),
+    },
+    {
+      key: 'recycle',
+      label: '回收站',
     },
   ];
 
@@ -196,12 +281,12 @@ export default function CompanyListPage() {
               const res = await getCompanies({
                 page: current,
                 pageSize,
-                status: activeTab === 'pending' ? 'PENDING' : status,
+                status: activeTab === 'pending' ? 'PENDING' : activeTab === 'recycle' ? 'DELETED' : status,
                 keyword,
               });
               if (activeTab === 'all') {
                 getCompanies({ page: 1, pageSize: 1, status: 'PENDING' }).then((r) => setPendingCount(r.total));
-              } else {
+              } else if (activeTab === 'pending') {
                 setPendingCount(res.total);
               }
               return { data: res.items, total: res.total, success: true };
@@ -271,6 +356,63 @@ export default function CompanyListPage() {
                 <Input.TextArea rows={3} placeholder="选填" />
               </Form.Item>
             </Form>
+          </Modal>
+
+          <Modal
+            title="删除企业"
+            open={!!deleteTarget}
+            onCancel={() => {
+              if (deleteLoading) return;
+              setDeleteTarget(null);
+              setDeletionCheck(null);
+              setDeleteConfirmation('');
+            }}
+            onOk={handleDeleteCompany}
+            okText="移入回收站"
+            cancelText="取消"
+            okButtonProps={{
+              danger: true,
+              disabled: !deletionCheck?.canDelete || deleteConfirmation !== deleteTarget?.name,
+            }}
+            confirmLoading={deleteLoading}
+            destroyOnClose
+          >
+            {deleteCheckLoading ? (
+              <div style={{ padding: 32, textAlign: 'center' }}><Spin tip="正在检查未完成业务" /></div>
+            ) : deletionCheck && !deletionCheck.canDelete ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="该企业暂不能删除"
+                description={(
+                  <List
+                    size="small"
+                    dataSource={deletionCheck.blockers}
+                    renderItem={(item) => <List.Item>{item.label}：{item.count}</List.Item>}
+                  />
+                )}
+              />
+            ) : deletionCheck?.canDelete ? (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Alert
+                  type="error"
+                  showIcon
+                  message="删除后将立即停止企业对外展示和卖家访问"
+                  description="历史订单、资金和审计记录会保留，之后可从回收站恢复。"
+                />
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    请输入完整企业名称 <strong>{deleteTarget?.name}</strong> 以确认：
+                  </div>
+                  <Input
+                    value={deleteConfirmation}
+                    onChange={(event) => setDeleteConfirmation(event.target.value)}
+                    placeholder="输入完整企业名称"
+                    status={deleteConfirmation && deleteConfirmation !== deleteTarget?.name ? 'error' : undefined}
+                  />
+                </div>
+              </Space>
+            ) : null}
           </Modal>
         </>
       )}

@@ -11,7 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AdminCompaniesService } from './admin-companies.service';
-import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
+import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto, AdminDeleteCompanyDto } from './dto/admin-company.dto';
 import { SetCompanyTagsDto } from '../tags/admin-tags.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
@@ -61,6 +61,12 @@ export class AdminCompaniesController {
     return this.companiesService.findById(id);
   }
 
+  @Get(':id/deletion-check')
+  @RequirePermission('companies:delete')
+  getDeletionCheck(@Param('id') id: string) {
+    return this.companiesService.getDeletionCheck(id);
+  }
+
   @Put(':id')
   @RequirePermission('companies:update')
   @AuditLog({
@@ -72,6 +78,32 @@ export class AdminCompaniesController {
   })
   update(@Param('id') id: string, @Body() dto: AdminUpdateCompanyDto) {
     return this.companiesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @RequirePermission('companies:delete')
+  @AuditLog({
+    action: 'DELETE',
+    module: 'companies',
+    targetType: 'Company',
+    targetIdParam: 'params.id',
+    isReversible: true,
+  })
+  remove(@Param('id') id: string, @Body() dto: AdminDeleteCompanyDto) {
+    return this.companiesService.remove(id, dto.confirmationName);
+  }
+
+  @Post(':id/restore')
+  @RequirePermission('companies:delete')
+  @AuditLog({
+    action: 'STATUS_CHANGE',
+    module: 'companies',
+    targetType: 'Company',
+    targetIdParam: 'params.id',
+    isReversible: true,
+  })
+  restore(@Param('id') id: string) {
+    return this.companiesService.restore(id);
   }
 
   @Post(':id/audit')

@@ -31,6 +31,8 @@ export class GroupBuyService {
       where: {
         status: GroupBuyActivityStatus.ACTIVE,
         deletedAt: null,
+        product: { company: { status: 'ACTIVE' } },
+        items: { every: { product: { company: { status: 'ACTIVE' } } } },
         AND: [
           { OR: [{ startAt: null }, { startAt: { lte: now } }] },
           { endAt: { gt: now } },
@@ -231,6 +233,8 @@ export class GroupBuyService {
   private isActivityVisibleForBuyer(activity: any, now: Date) {
     return activity.status === GroupBuyActivityStatus.ACTIVE
       && !activity.deletedAt
+      && (activity.product?.company?.status ?? 'ACTIVE') === 'ACTIVE'
+      && (activity.items || []).every((item: any) => (item.product?.company?.status ?? 'ACTIVE') === 'ACTIVE')
       && (!activity.startAt || activity.startAt <= now)
       && Boolean(activity.endAt)
       && activity.endAt > now;
@@ -261,6 +265,7 @@ export class GroupBuyService {
         select: {
           id: true,
           title: true,
+          company: { select: { status: true } },
           media: {
             select: { id: true, url: true, sortOrder: true },
             orderBy: { sortOrder: 'asc' as const },
@@ -282,6 +287,7 @@ export class GroupBuyService {
             select: {
               id: true,
               title: true,
+              company: { select: { status: true } },
               media: {
                 select: { id: true, url: true, sortOrder: true },
                 orderBy: { sortOrder: 'asc' as const },

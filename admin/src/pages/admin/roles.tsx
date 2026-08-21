@@ -24,6 +24,7 @@ const moduleNames: Record<string, string> = {
   products: '商品管理',
   orders: '订单管理',
   companies: '企业管理',
+  tags: '标签管理',
   bonus: '会员奖励',
   digital_assets: '数字资产',
   trace: '溯源管理',

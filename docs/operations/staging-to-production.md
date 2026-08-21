@@ -638,7 +638,8 @@ pm2 stop aimaimai-api-prod
    ```
 
    脚本内容（全 upsert，幂等可重复跑；详见文件头注释）：
-   - 60 条权限 + 3 角色（超管/经理/员工）+ 角色-权限关联
+   - 当前全部权限 + 3 角色（超管/经理/员工）+ 角色-权限关联；`companies:delete` 只授予超管，`tags:read/manage` 授予超管和经理
+   - 6 类生产标签目录（企业认证/行业标签/产品特色/供应方式/服务区域/商品标签）；缺失则创建，已存在则保留管理员的启停/排序配置，可幂等重跑，不写入 demo 企业或商品
    - 超管账号 `admin`（密码取 `ADMIN_BOOTSTRAP_PASSWORD`，缺省 `123456`；重跑不覆盖已改的密码）
    - 平台用户 `PLATFORM` + 平台公司 `PLATFORM_COMPANY` + 普通树根 `NORMAL_ROOT`
    - VIP 三叉树根 `A1–A10`（即便不预置也能跑：无推荐人 VIP 落位时系统从 A1 起自动建，见 `bonus.service.ts` 的 `assignVipTreeNode`）
@@ -647,6 +648,8 @@ pm2 stop aimaimai-api-prod
    **关键常量来源（核对用，勿凭印象编 ID）**：`backend/src/modules/bonus/engine/constants.ts` —— `PLATFORM_USER_ID='PLATFORM'` / `PLATFORM_COMPANY_ID='PLATFORM_COMPANY'` / `NORMAL_ROOT_ID='NORMAL_ROOT'`。
 
    ⚠️ **已知小缺口**：脚本未含 RuleConfig `DISCOVERY_COMPANY_FILTERS`（发现页企业筛选栏，seed.ts 有）。缺失不报错——`company.service.ts` 读不到时返回空数组（发现页不显示企业筛选栏），上线后在管理后台「发现页筛选配置」配置即可，或手动补该 key（注意它存的是**裸数组** `[]`，不走 `{value, description}` 信封）。
+
+   2026-08-20 补充：`20260821020000_add_company_soft_delete_and_production_tags` 迁移会为已存在的生产库幂等补齐企业/商品标签、标签权限和企业软删除字段；只清理从未使用的空 `COMPANY/PRODUCT/TRACE/AI` 旧占位类别，不删除任何已用标签。
 
 4. **超管账号改密**：默认 `admin / 123456` 必须立即改为强密码并写入 `密码本.md §2.x`
 

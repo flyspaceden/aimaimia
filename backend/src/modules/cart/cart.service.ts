@@ -33,7 +33,7 @@ type MergeResultItem = {
   message?: string;
 };
 
-type CartUnavailableReason = PrizeUnavailableReason | 'OUT_OF_STOCK';
+type CartUnavailableReason = PrizeUnavailableReason | 'OUT_OF_STOCK' | 'COMPANY_INACTIVE';
 const CART_WRITE_MAX_RETRIES = 2;
 
 @Injectable()
@@ -110,6 +110,7 @@ export class CartService {
 
   private getCartProductInclude() {
     return {
+      company: { select: { status: true } },
       media: { where: { type: 'IMAGE' as const }, orderBy: { sortOrder: 'asc' as const }, take: 1 },
       bundleItems: {
         orderBy: { sortOrder: 'asc' as const },
@@ -151,6 +152,10 @@ export class CartService {
 
   private isBundleProduct(product?: { type?: ProductType | string | null } | null) {
     return (product?.type ?? ProductType.SIMPLE) === ProductType.BUNDLE;
+  }
+
+  private isCompanyInactive(product: any): boolean {
+    return Boolean(product?.company?.status && product.company.status !== 'ACTIVE');
   }
 
   private requireProductBundleService() {
@@ -300,6 +305,7 @@ export class CartService {
     if (!sku) throw new NotFoundException('商品规格不存在');
     if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
     if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+    if (this.isCompanyInactive(sku.product)) throw new BadRequestException('商品所属企业已停用');
     const availableStock = this.getAvailableStockForSku(sku);
     if (availableStock <= 0) {
       throw new BadRequestException(this.getOutOfStockMessage(sku, 'add_to_cart'));
@@ -325,6 +331,7 @@ export class CartService {
             if (!freshSku) throw new NotFoundException('商品规格不存在');
             if (freshSku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
             if (freshSku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+            if (this.isCompanyInactive(freshSku.product)) throw new BadRequestException('商品所属企业已停用');
             const freshAvailableStock = this.getAvailableStockForSku(freshSku);
             if (freshAvailableStock <= 0) {
               throw new BadRequestException(this.getOutOfStockMessage(freshSku, 'add_to_cart'));
@@ -399,6 +406,7 @@ export class CartService {
             if (!sku) throw new NotFoundException('商品规格不存在');
             if (sku.status !== 'ACTIVE') throw new BadRequestException('该规格已下架');
             if (sku.product.status !== 'ACTIVE') throw new BadRequestException('商品已下架');
+            if (this.isCompanyInactive(sku.product)) throw new BadRequestException('商品所属企业已停用');
             const availableStock = this.getAvailableStockForSku(sku);
 
             const isIncreasingQuantity = quantity > item.quantity;
@@ -605,6 +613,10 @@ export class CartService {
     return null;
   }
 
+  private getCompanyUnavailableReason(item: any): 'COMPANY_INACTIVE' | null {
+    return this.isCompanyInactive(item.sku?.product) ? 'COMPANY_INACTIVE' : null;
+  }
+
   private isNormalItemOutOfStock(item: any, availableStock?: number) {
     if (item.isPrize) return false;
     const stock = availableStock ?? this.getAvailableStockForSku(item.sku);
@@ -628,7 +640,10 @@ export class CartService {
         },
       },
     });
-    const blocked = items.filter((item) => this.getNormalStockUnavailableReason(item) === 'OUT_OF_STOCK');
+    const blocked = items.filter((item) =>
+      this.getNormalStockUnavailableReason(item) === 'OUT_OF_STOCK'
+      || this.getCompanyUnavailableReason(item) === 'COMPANY_INACTIVE',
+    );
     const ids = blocked.map((item) => item.id);
     if (ids.length === 0) return;
     await this.prisma.cartItem.updateMany({
@@ -654,6 +669,9 @@ export class CartService {
               },
             });
             if (!freshItem) throw new NotFoundException('购物车中没有该商品');
+            if (isSelected && this.isCompanyInactive(freshItem.sku?.product)) {
+              throw new BadRequestException('商品所属企业已停用');
+            }
             const availableStock = this.getAvailableStockForSku(freshItem.sku);
             if (isSelected && (availableStock <= 0 || freshItem.quantity > availableStock)) {
               await tx.cartItem.update({
@@ -800,7 +818,11 @@ export class CartService {
       );
       return false; // 跳过无效 SKU，不阻断整个合并流程
     }
-    if (sku.status !== 'ACTIVE' || sku.product.status !== 'ACTIVE') {
+    if (
+      sku.status !== 'ACTIVE'
+      || sku.product.status !== 'ACTIVE'
+      || this.isCompanyInactive(sku.product)
+    ) {
       this.logger.warn(
         JSON.stringify({
           action: 'cart_merge_rejected',
@@ -839,7 +861,8 @@ export class CartService {
             if (
               !freshSku ||
               freshSku.status !== 'ACTIVE' ||
-              freshSku.product.status !== 'ACTIVE'
+              freshSku.product.status !== 'ACTIVE' ||
+              this.isCompanyInactive(freshSku.product)
             ) {
               merged = false;
               return;
@@ -1189,6 +1212,8 @@ export class CartService {
       unavailableReason = 'SKU_INACTIVE';
     } else if (product?.status !== 'ACTIVE') {
       unavailableReason = 'PRODUCT_INACTIVE';
+    } else if (this.isCompanyInactive(product)) {
+      unavailableReason = 'COMPANY_INACTIVE';
     }
 
     if (item.isPrize && item.prizeRecordId && prizeRecordMap) {

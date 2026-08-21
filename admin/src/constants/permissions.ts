@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   COMPANIES_READ: 'companies:read',
   COMPANIES_UPDATE: 'companies:update',
   COMPANIES_AUDIT: 'companies:audit',
+  COMPANIES_DELETE: 'companies:delete',
 
   // 用户
   USERS_READ: 'users:read',

@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { CompanyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AdminUpdateCompanyDto, AdminAuditCompanyDto, AdminUpdateHighlightsDto, AdminVerifyDocumentDto, BindOwnerDto, AdminUpdateAiSearchProfileDto, AdminCreateCompanyDto, AdminResetStaffPasswordDto, AdminAddStaffDto, AdminUpdateStaffDto, AdminTransferOwnerDto, AdminUpdateStaffNicknameDto, AdminUpdateStaffPhoneDto } from './dto/admin-company.dto';
@@ -14,12 +14,44 @@ const AI_SEARCH_KEYS = [
   'serviceAreas', 'supplyModes',
 ];
 
+type CompanyDeletionBlocker = {
+  code: string;
+  label: string;
+  count: number;
+};
+
+type CompanyDeletionCheck = {
+  canDelete: boolean;
+  company: {
+    id: string;
+    name: string;
+    status: CompanyStatus;
+    isPlatform: boolean;
+  };
+  blockers: CompanyDeletionBlocker[];
+};
+
 @Injectable()
 export class AdminCompaniesService {
   constructor(
     private prisma: PrismaService,
     private companyService: CompanyService,
   ) {}
+
+  private async assertCompanyMutable(
+    db: Prisma.TransactionClient | PrismaService,
+    companyId: string,
+  ) {
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, status: true },
+    });
+    if (!company) throw new NotFoundException('企业不存在');
+    if (company.status === CompanyStatus.DELETED) {
+      throw new BadRequestException('企业已删除，请先从回收站恢复');
+    }
+    return company;
+  }
 
   /** 管理员手动创建企业 */
   async create(dto: AdminCreateCompanyDto) {
@@ -101,7 +133,11 @@ export class AdminCompaniesService {
   async findAll(page = 1, pageSize = 20, status?: string, keyword?: string) {
     const skip = (page - 1) * pageSize;
     const where: any = {};
-    if (status) where.status = status;
+    if (status) {
+      where.status = status;
+    } else {
+      where.status = { not: CompanyStatus.DELETED };
+    }
     if (keyword) {
       where.OR = [
         { name: { contains: keyword, mode: 'insensitive' } },
@@ -163,6 +199,12 @@ export class AdminCompaniesService {
   async update(id: string, dto: AdminUpdateCompanyDto) {
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('企业不存在');
+    if (company.status === CompanyStatus.DELETED) {
+      throw new BadRequestException('企业已删除，请先从回收站恢复');
+    }
+    if (dto.status === CompanyStatus.DELETED) {
+      throw new BadRequestException('请使用企业删除功能');
+    }
 
     // contact 是 Json 列，merge 现有内容以保留未知字段（邮箱/备用电话等未来字段）
     const data: any = { ...dto };
@@ -176,10 +218,247 @@ export class AdminCompaniesService {
     });
   }
 
+  private snapshotContainsCompany(itemsSnapshot: unknown, companyId: string): boolean {
+    if (!Array.isArray(itemsSnapshot)) return false;
+    return itemsSnapshot.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const candidate = item as Record<string, unknown>;
+      return candidate.companyId === companyId
+        || (candidate.productSnapshot as Record<string, unknown> | undefined)?.companyId === companyId;
+    });
+  }
+
+  private async collectDeletionCheck(
+    db: Prisma.TransactionClient | PrismaService,
+    companyId: string,
+  ): Promise<CompanyDeletionCheck> {
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        isPlatform: true,
+      },
+    });
+    if (!company) throw new NotFoundException('企业不存在');
+
+    const blockers: CompanyDeletionBlocker[] = [];
+    if (company.isPlatform) {
+      blockers.push({ code: 'PLATFORM_COMPANY', label: '平台官方企业不能删除', count: 1 });
+      return { canDelete: false, company, blockers };
+    }
+    if (company.status === CompanyStatus.DELETED) {
+      blockers.push({ code: 'ALREADY_DELETED', label: '企业已在回收站中', count: 1 });
+      return { canDelete: false, company, blockers };
+    }
+
+    const [
+      openOrders,
+      openAfterSales,
+      openRefunds,
+      openShipments,
+      activeGroupBuys,
+      activeGroupBuyInstances,
+      activeBookings,
+      activeVisitGroups,
+      futureActivities,
+      frozenIndustryFunds,
+      activeCheckoutSessions,
+    ] = await Promise.all([
+      db.orderItem.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          order: {
+            deletedAt: null,
+            status: { in: ['PENDING_PAYMENT', 'PAID', 'SHIPPED', 'DELIVERED'] },
+          },
+        },
+      }),
+      db.afterSaleRequest.count({
+        where: {
+          status: { notIn: ['REJECTED', 'REFUNDED', 'COMPLETED', 'CLOSED', 'CANCELED'] },
+          order: { items: { some: { companyId } } },
+        },
+      }),
+      db.refund.count({
+        where: {
+          deletedAt: null,
+          status: { notIn: ['REJECTED', 'REFUNDED'] },
+          order: { items: { some: { companyId } } },
+        },
+      }),
+      db.shipment.count({
+        where: { companyId, status: { not: 'DELIVERED' } },
+      }),
+      db.groupBuyActivity.count({
+        where: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          OR: [
+            { product: { companyId } },
+            { items: { some: { product: { companyId } } } },
+          ],
+        },
+      }),
+      db.groupBuyInstance.count({
+        where: {
+          status: { in: ['QUALIFICATION_PENDING', 'SHARING'] },
+          activity: {
+            OR: [
+              { product: { companyId } },
+              { items: { some: { product: { companyId } } } },
+            ],
+          },
+        },
+      }),
+      db.booking.count({
+        where: {
+          companyId,
+          status: { in: ['PENDING', 'APPROVED', 'INVITED', 'JOINED', 'PAID'] },
+        },
+      }),
+      db.group.count({
+        where: { companyId, status: { in: ['FORMING', 'INVITING', 'FULL'] } },
+      }),
+      db.companyActivity.count({
+        where: {
+          companyId,
+          OR: [{ startAt: { gt: new Date() } }, { endAt: { gt: new Date() } }],
+        },
+      }),
+      db.rewardLedger.count({
+        where: {
+          deletedAt: null,
+          status: { in: ['FROZEN', 'RETURN_FROZEN', 'RESERVED'] },
+          AND: [
+            { meta: { path: ['companyId'], equals: companyId } },
+            { meta: { path: ['accountType'], equals: 'INDUSTRY_FUND' } },
+          ],
+        },
+      }),
+      db.checkoutSession.findMany({
+        where: { status: 'ACTIVE' },
+        select: { itemsSnapshot: true },
+      }),
+    ]);
+
+    const activeCheckouts = activeCheckoutSessions.filter((session) =>
+      this.snapshotContainsCompany(session.itemsSnapshot, companyId),
+    ).length;
+
+    const candidates: CompanyDeletionBlocker[] = [
+      { code: 'OPEN_CHECKOUTS', label: '待支付结算会话', count: activeCheckouts },
+      { code: 'OPEN_ORDERS', label: '待履约订单商品', count: openOrders },
+      { code: 'OPEN_AFTER_SALES', label: '未完成售后', count: openAfterSales },
+      { code: 'OPEN_REFUNDS', label: '未完成退款', count: openRefunds },
+      { code: 'OPEN_SHIPMENTS', label: '未签收物流', count: openShipments },
+      { code: 'ACTIVE_GROUP_BUYS', label: '进行中团购活动', count: activeGroupBuys },
+      { code: 'ACTIVE_GROUP_BUY_INSTANCES', label: '进行中团购分享', count: activeGroupBuyInstances },
+      { code: 'ACTIVE_BOOKINGS', label: '未结束企业预约', count: activeBookings },
+      { code: 'ACTIVE_VISIT_GROUPS', label: '进行中考察团', count: activeVisitGroups },
+      { code: 'FUTURE_ACTIVITIES', label: '未结束企业活动', count: futureActivities },
+      { code: 'FROZEN_INDUSTRY_FUNDS', label: '冻结或预留产业基金流水', count: frozenIndustryFunds },
+    ];
+    blockers.push(...candidates.filter((item) => item.count > 0));
+    return { canDelete: blockers.length === 0, company, blockers };
+  }
+
+  async getDeletionCheck(companyId: string) {
+    return this.collectDeletionCheck(this.prisma, companyId);
+  }
+
+  async remove(companyId: string, confirmationName: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const check = await this.collectDeletionCheck(tx, companyId);
+      if (confirmationName.trim() !== check.company.name) {
+        throw new BadRequestException('请输入完整企业名称以确认删除');
+      }
+      if (!check.canDelete) {
+        throw new ConflictException({
+          code: 'COMPANY_DELETE_BLOCKED',
+          message: '企业尚有未完成业务，暂不能删除',
+          blockers: check.blockers,
+        });
+      }
+
+      const now = new Date();
+      const updated = await tx.company.updateMany({
+        where: {
+          id: companyId,
+          status: check.company.status,
+          deletedAt: null,
+          isPlatform: false,
+        },
+        data: {
+          status: CompanyStatus.DELETED,
+          deletedAt: now,
+          deletedFromStatus: check.company.status,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException('企业状态已变化，请刷新后重试');
+      }
+
+      await tx.sellerSession.deleteMany({
+        where: { staff: { companyId } },
+      });
+
+      return { ok: true, companyId, deletedAt: now };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    this.companyService.invalidateListCache();
+    return result;
+  }
+
+  async restore(companyId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.findUnique({
+        where: { id: companyId },
+        select: {
+          id: true,
+          status: true,
+          isPlatform: true,
+          deletedAt: true,
+          deletedFromStatus: true,
+        },
+      });
+      if (!company) throw new NotFoundException('企业不存在');
+      if (company.isPlatform) throw new BadRequestException('平台官方企业不支持此操作');
+      if (company.status !== CompanyStatus.DELETED || !company.deletedAt) {
+        throw new BadRequestException('该企业不在回收站中');
+      }
+
+      const restoreStatus = company.deletedFromStatus
+        && company.deletedFromStatus !== CompanyStatus.DELETED
+        ? company.deletedFromStatus
+        : CompanyStatus.PENDING;
+      const updated = await tx.company.updateMany({
+        where: { id: companyId, status: CompanyStatus.DELETED, deletedAt: company.deletedAt },
+        data: {
+          status: restoreStatus,
+          deletedAt: null,
+          deletedFromStatus: null,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException('企业状态已变化，请刷新后重试');
+      }
+      return { ok: true, companyId, status: restoreStatus };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    this.companyService.invalidateListCache();
+    return result;
+  }
+
   /** 审核企业 */
   async audit(id: string, dto: AdminAuditCompanyDto) {
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('企业不存在');
+    if (company.status === CompanyStatus.DELETED || dto.status === CompanyStatus.DELETED) {
+      throw new BadRequestException('已删除企业不能审核');
+    }
 
     return this.prisma.company.update({
       where: { id },
@@ -229,6 +508,9 @@ export class AdminCompaniesService {
   async bindOwner(companyId: string, dto: BindOwnerDto) {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('企业不存在');
+    if (company.status === CompanyStatus.DELETED) {
+      throw new BadRequestException('企业已删除，请先从回收站恢复');
+    }
 
     // 检查是否已有 OWNER
     const existingOwner = await this.prisma.companyStaff.findFirst({
@@ -303,10 +585,8 @@ export class AdminCompaniesService {
 
   /** 更新企业亮点 */
   async updateHighlights(companyId: string, dto: AdminUpdateHighlightsDto) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('企业不存在');
-
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       const profile = await tx.companyProfile.findUnique({ where: { companyId } });
       const existing = (profile?.highlights as Record<string, any>) ?? {};
       // 从传入数据中移除 AI 搜索字段（防止覆盖）
@@ -351,14 +631,12 @@ export class AdminCompaniesService {
 
   /** 更新 AI 搜索资料（仅 companyType，其他字段已迁移到 CompanyTag） */
   async updateAiSearchProfile(companyId: string, dto: AdminUpdateAiSearchProfileDto) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('企业不存在');
-
     const aiFields: Record<string, any> = {
       companyType: dto.companyType,
     };
 
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       const profile = await tx.companyProfile.findUnique({ where: { companyId } });
       const existing = (profile?.highlights as Record<string, any>) ?? {};
       const merged = { ...existing, ...aiFields };
@@ -405,10 +683,8 @@ export class AdminCompaniesService {
 
   /** 更新企业标签（全量替换） */
   async updateCompanyTags(companyId: string, tagIds: string[]) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('企业不存在');
-
     await this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       // 验证所有 tagIds 存在且 scope 为 COMPANY（在事务内确保一致性）
       if (tagIds.length > 0) {
         const tags = await tx.tag.findMany({
@@ -463,6 +739,7 @@ export class AdminCompaniesService {
 
     // 事务：同时更新密码 + 失效 session（保证安全一致性）
     await this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       await tx.companyStaff.update({
         where: { id: staffId },
         data: { passwordHash },
@@ -496,6 +773,7 @@ export class AdminCompaniesService {
     const nickname = dto.nickname?.trim() || undefined;
 
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       // 通过手机号查 User，不存在则自动创建
       let identity = await tx.authIdentity.findFirst({
         where: { provider: 'PHONE', identifier: dto.phone },
@@ -569,6 +847,7 @@ export class AdminCompaniesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       const updated = await tx.companyStaff.update({
         where: { id: staffId },
         data: {
@@ -603,6 +882,7 @@ export class AdminCompaniesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       // 先失效 session 再删除 staff
       await tx.sellerSession.updateMany({
         where: { staffId, expiresAt: { gt: new Date() } },
@@ -617,12 +897,8 @@ export class AdminCompaniesService {
 
   /** 换 OWNER（原子事务：老 OWNER 降级/移除 + 新 OWNER 上位） */
   async transferOwner(companyId: string, dto: AdminTransferOwnerDto) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-    });
-    if (!company) throw new NotFoundException('企业不存在');
-
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       // 1. 查找现任 OWNER
       const oldOwner = await tx.companyStaff.findFirst({
         where: { companyId, role: 'OWNER' },
@@ -719,6 +995,7 @@ export class AdminCompaniesService {
 
   /** 审核资质文件 */
   async verifyDocument(companyId: string, documentId: string, dto: AdminVerifyDocumentDto) {
+    await this.assertCompanyMutable(this.prisma, companyId);
     const doc = await this.prisma.companyDocument.findFirst({
       where: { id: documentId, companyId },
     });
@@ -737,6 +1014,7 @@ export class AdminCompaniesService {
 
   /** 修改员工昵称（全局生效，影响该 User 在所有企业和买家端的显示） */
   async updateStaffNickname(companyId: string, staffId: string, dto: AdminUpdateStaffNicknameDto) {
+    await this.assertCompanyMutable(this.prisma, companyId);
     const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
     if (!staff) throw new NotFoundException('员工不存在');
     if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
@@ -777,6 +1055,7 @@ export class AdminCompaniesService {
     const newPhone = dto.newPhone.trim();
 
     return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
       // 1. 获取当前 PHONE identity
       const currentIdentity = await tx.authIdentity.findFirst({
         where: { provider: 'PHONE', userId: staff.userId },

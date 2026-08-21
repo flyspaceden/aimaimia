@@ -1644,7 +1644,7 @@ export type OrderStatsMap = Record<string, number>;
 // ========== 企业 ==========
 
 // I28修复：添加 'ACTIVE' 状态，与 companyStatusMap 对齐
-export type CompanyStatus = 'PENDING' | 'ACTIVE' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+export type CompanyStatus = 'PENDING' | 'ACTIVE' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'BANNED' | 'DELETED';
 
 export interface CompanyDocument {
   id: string;
@@ -1664,6 +1664,7 @@ export interface Company {
   name: string;
   shortName: string | null;
   status: CompanyStatus;
+  isPlatform?: boolean;
   description: string | null;
   logo: string | null;
   servicePhone: string | null;
@@ -1677,6 +1678,8 @@ export interface Company {
   _count?: Record<string, number>;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
+  deletedFromStatus?: CompanyStatus | null;
 }
 
 // ========== 企业员工 ==========

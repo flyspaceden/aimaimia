@@ -1490,6 +1490,9 @@ async function main() {
     { code: 'companies:read', module: 'companies', action: 'read', description: '查看企业列表' },
     { code: 'companies:update', module: 'companies', action: 'update', description: '编辑企业' },
     { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
+    { code: 'companies:delete', module: 'companies', action: 'delete', description: '删除与恢复企业' },
+    { code: 'tags:read', module: 'tags', action: 'read', description: '查看标签管理' },
+    { code: 'tags:manage', module: 'tags', action: 'manage', description: '管理标签类别与标签' },
     { code: 'bonus:read', module: 'bonus', action: 'read', description: '查看会员/奖励' },
     { code: 'bonus:approve_withdraw', module: 'bonus', action: 'approve_withdraw', description: '审批提现' },
     { code: 'bonus:manage_rules', module: 'bonus', action: 'manage_rules', description: '管理提现与抵扣规则' },
@@ -1596,7 +1599,10 @@ async function main() {
     },
   });
   const managerPermissions = permissions
-    .filter((p) => !p.module.startsWith('admin_'))
+    .filter((p) =>
+      !p.module.startsWith('admin_')
+      && p.code !== 'companies:delete',
+    )
     .map((p) => p.code);
   for (const code of managerPermissions) {
     const permId = permissionRecords[code];

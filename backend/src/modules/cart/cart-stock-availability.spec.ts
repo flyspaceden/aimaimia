@@ -136,6 +136,30 @@ describe('CartService stock availability', () => {
     await expect(service.addItem('user1', 'sku-zero', 1)).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects adding a product whose company has been deleted', async () => {
+    const deletedCompanySku = {
+      id: 'sku-deleted-company',
+      title: '龙虾',
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      price: 234,
+      product: {
+        id: 'p-deleted-company',
+        title: '龙虾',
+        type: 'SIMPLE',
+        status: 'ACTIVE',
+        company: { status: 'DELETED' },
+        media: [],
+        bundleItems: [],
+      },
+    };
+    const { service } = createService(10, { sku: deletedCompanySku });
+
+    await expect(service.addItem('user1', deletedCompanySku.id, 1))
+      .rejects.toThrow('商品所属企业已停用');
+  });
+
   it('skips zero-stock normal SKU during login cart merge', async () => {
     const { service } = createService(0);
     const merged = await (service as any).mergeNormalItem('user1', { skuId: 'sku-zero', quantity: 1 });

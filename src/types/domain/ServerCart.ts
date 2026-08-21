@@ -47,6 +47,7 @@ export interface ServerCartItem {
     | 'PRIZE_INACTIVE'
     | 'SKU_MISSING'
     | 'PRODUCT_MISSING'
+    | 'COMPANY_INACTIVE'
     | 'OUT_OF_STOCK'
     | null;
   stockStatus?: 'NORMAL' | 'LOW_STOCK' | 'OUT_OF_STOCK';
