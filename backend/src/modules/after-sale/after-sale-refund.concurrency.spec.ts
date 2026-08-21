@@ -32,12 +32,14 @@ describeDb('AfterSaleRefundService DB concurrency', () => {
     };
     const rewardService = {
       voidRewardsForOrder: jest.fn().mockResolvedValue(undefined),
+      voidRewardsForOrderInTransaction: jest.fn().mockResolvedValue(undefined),
       voidQueueRewardsForOrderInTransaction:
         jest.fn().mockResolvedValue(undefined),
       checkAndMarkOrderRefunded: jest.fn().mockResolvedValue(undefined),
     };
     const inboxService = {
       send: jest.fn().mockResolvedValue(undefined),
+      emit: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new AfterSaleRefundService(

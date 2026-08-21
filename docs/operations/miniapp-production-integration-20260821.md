@@ -143,7 +143,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 - 18 条 staging-derived 主库 migration 与冻结的 `origin/staging@053f385e` 对应 SQL 对象哈希逐条一致；另有 1 条本次生产集成新增的自动退款副作用 outbox migration，合计 19 条；没有复制配送库 migration。
 - Prisma schema validate / client generate、Nest production build 通过。
-- 后端全量 Jest：239 suites / 2937 tests 通过；2 suites / 5 tests 仅因需要显式真实 PostgreSQL 并发环境而跳过。
+- 启用真实 PostgreSQL 门禁后的后端全量 Jest：241 suites / 2942 tests 通过，0 skip。
 - `npm audit --omit=dev --audit-level=high` 为 0；图片处理升级后编译和上传/图片扫描冒烟通过。
 - 固化 `origin/main@aa8f5daa` 的 627 条 HTTP 路由，并纳入 Batch 0 新增的 `/health/live`、`/health/ready`，合计 629 条生产集成基线路由；当前候选零删除，小程序登录、普通/VIP/团购结算、自提凭证、平台/卖家核销路由均以并列接口增加。
 - Delivery 排除测试确认：无 `DeliveryModule`、配送数据库、配送门户、配送 JWT/SMS/微信配置；商城 `ShipmentModule`、顺丰和送货上门仍保留。
@@ -153,6 +153,8 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 - 微信支付/提现回调必须精确匹配正式路径；商户材料必须是可解析的 X.509 证书、RSA 私钥且公钥和证书序列号均匹配，裸公钥或虚构序列号不能通过门禁。
 
 本节只证明本地代码闭包。Batch 1 仍不得发布，直到生产备份恢复到隔离 PostgreSQL 后完成全部 19 条 migration 演练、真实数据库并发套件、生产 PM2 只读预检、PITR/离机备份确认和用户再次批准。
+
+本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration，`prisma migrate status` 无待执行项；售后退款、普通树和利润安全三组真实数据库并发测试 7/7，通过同一环境的后端全量为 241 suites / 2942 tests。当前会话没有生产服务器 SSH 私钥，生产历史数据备份克隆、Booking/默认地址真实分布和 PM2 只读预检仍未执行。
 
 ## 9. Batch 2 本地后台证据（未 push / 未部署）
 
