@@ -257,6 +257,7 @@ jobs:
         run: |
           cd admin
           npm ci
+          npm test
           npm run build
 
       - name: Setup SSH agent
@@ -308,6 +309,7 @@ jobs:
         run: |
           cd seller
           npm ci
+          npm test
           npm run build
 
       - name: Setup SSH agent

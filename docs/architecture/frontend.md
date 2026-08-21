@@ -2516,3 +2516,6 @@ src/components/ai/   → 新增目录
 | WheelPointer | `src/components/effects/WheelPointer.tsx` | 金色倒三角指针，旋转时±3°摆动模拟物理弹片 |
 | Confetti | `src/components/effects/Confetti.tsx` | 25粒子庆祝爆发，随机方向弹射+重力下落+淡出，设计令牌颜色 |
 | OrderNoReveal | `src/components/orders/OrderNoReveal.tsx` | 订单号脱敏展示：默认后6位(`…`前缀等宽)+眼睛展开完整号+复制全号(toast)，Pressable hitSlop 触控热区+accessibilityLabel，订单详情/支付成功/物流追踪三页复用 |
+## 微信小程序自提的后台协同边界（2026-08-21）
+
+买家 App 本批不增加自提下单入口。微信小程序创建的自提订单由共享后端保存履约方式，平台/卖家后台负责点位、备货和核销；现有 App 的购物车、配送结算和支付接口保持不变。后台扫码依赖只存在于 Web 管理端，不进入 React Native App 包。

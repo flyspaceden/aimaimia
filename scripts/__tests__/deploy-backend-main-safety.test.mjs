@@ -87,6 +87,15 @@ test('web consoles wait for a changed backend to deploy successfully', () => {
   }
 });
 
+test('admin and seller contract tests run before their production builds', () => {
+  for (const job of ['deploy-admin', 'deploy-seller']) {
+    const block = jobBlock(job);
+    const testIndex = block.indexOf('npm test');
+    const buildIndex = block.indexOf('npm run build');
+    assert.ok(testIndex >= 0 && buildIndex > testIndex, `${job} must test before build`);
+  }
+});
+
 test('production backend deployment verifies dependencies and builds before migration', () => {
   assert.ok(deployBlockStart >= 0 && deployBlockEnd > deployBlockStart, 'backend deploy block must exist');
   assert.match(deployBlock, /scripts\/deploy-backend-versioned\.sh/);

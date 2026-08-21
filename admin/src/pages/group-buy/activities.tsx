@@ -273,8 +273,8 @@ export default function GroupBuyActivitiesPage() {
       status: values.status,
       displayOrder: Number(values.displayOrder ?? 0),
       tiers: toTierPayloadValues(values.tiers || []),
-      startAt: values.timeRange?.[0]?.toISOString() ?? null,
-      endAt: values.timeRange?.[1]?.toISOString() ?? null,
+      startAt: values.timeRange?.[0]?.toISOString(),
+      endAt: values.timeRange?.[1]?.toISOString(),
     };
   };
 
@@ -394,8 +394,8 @@ export default function GroupBuyActivitiesPage() {
       width: 210,
       render: (_: unknown, record) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{record.startAt ? dayjs(record.startAt).format('YYYY-MM-DD HH:mm') : '不限开始'}</Typography.Text>
-          <Typography.Text type="secondary">{record.endAt ? dayjs(record.endAt).format('YYYY-MM-DD HH:mm') : '不限结束'}</Typography.Text>
+          <Typography.Text>{record.startAt ? dayjs(record.startAt).format('YYYY-MM-DD HH:mm') : '未设置开始'}</Typography.Text>
+          <Typography.Text type="secondary">{record.endAt ? dayjs(record.endAt).format('YYYY-MM-DD HH:mm') : '未设置结束'}</Typography.Text>
         </Space>
       ),
     },
@@ -496,8 +496,12 @@ export default function GroupBuyActivitiesPage() {
               />
             </Form.Item>
           </Space>
-          <Form.Item name="timeRange" label="活动时间">
-            <DatePicker.RangePicker showTime style={{ width: '100%' }} allowEmpty={[true, true]} />
+          <Form.Item
+            name="timeRange"
+            label="活动时间"
+            rules={[{ required: true, message: '请选择活动开始和结束时间' }]}
+          >
+            <DatePicker.RangePicker showTime style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="displayOrder" label="排序值">
             <InputNumber style={{ width: 160 }} />

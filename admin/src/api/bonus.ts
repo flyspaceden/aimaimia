@@ -64,6 +64,7 @@ export interface TaxReportDetailRow {
   netAmount: number;
   taxRate: number;
   paidAt: string | null;
+  channel: string | null;
   providerPayoutId: string | null;
   providerFundOrderId: string | null;
 }

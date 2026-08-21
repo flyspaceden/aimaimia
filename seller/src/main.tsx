@@ -55,6 +55,8 @@ globalStyle.textContent = `
   /* 待发货订单行高亮 */
   .row-pending-ship td { background-color: #fff7e6 !important; }
   .row-pending-ship:hover td { background-color: #fff1d6 !important; }
+  .row-pending-pickup td { background-color: #f6ffed !important; }
+  .row-pending-pickup:hover td { background-color: #d9f7be !important; }
   /* 展开行丝滑动画 */
   @keyframes expandRowIn {
     from { opacity: 0; transform: translateY(-8px); }

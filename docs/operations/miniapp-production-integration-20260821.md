@@ -155,3 +155,16 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 - 微信支付/提现回调必须精确匹配正式路径；商户材料必须是可解析的 X.509 证书、RSA 私钥且公钥和证书序列号均匹配，裸公钥或虚构序列号不能通过门禁。
 
 本节只证明本地代码闭包。Batch 1 仍不得发布，直到生产备份恢复到隔离 PostgreSQL 后完成全部 19 条 migration 演练、真实数据库并发套件、生产 PM2 只读预检、PITR/离机备份确认和用户再次批准。
+
+## 9. Batch 2 本地后台证据（未 push / 未部署）
+
+- 平台后台新增跨企业自提点管理、平台统一自提点、到店核销台、订单自提筛选/详情/备货/核销、微信提现与微信交易发货状态；页面和菜单按独立权限控制。
+- 卖家后台新增企业自提点管理、到店核销台、订单自提队列/详情/备货/核销；OWNER/MANAGER 管点位，OPERATOR 可核销但不可管理点位。
+- 两端均支持 8 位短码、扫码枪/粘贴二维码内容和浏览器摄像头；商品/SKU 条码只用于可选货品核对，不能替代买家一次性取货凭证。
+- 所有“切换配送管理后台/配送中心”入口已排除；本批没有 `delivery-admin`、`delivery-seller` 或独立 Delivery 配置。
+- 扫码依赖固定为 `@zxing/browser@0.1.5` + `@zxing/library@0.21.3`，支持现有 Node 20 CI；两份 lock 只新增 4 个 ZXing 节点并把 `path-to-regexp 8.2.0→8.4.0`，没有顺带升级 Axios、React Router、Vite、Rollup 或 esbuild。
+- Admin production CI 契约 12/12、build、修改文件定向 ESLint 通过；Seller production CI 契约 12/12、build、修改文件 `--max-warnings=0` 通过。Node 24 本地扩展源文件契约为 Admin 28/28、Seller 35/35。Seller 全量 lint 从“无配置无法启动”恢复为 0 error，仍有 28 个既有 warning 待独立治理。两端 `npm test` 已进入 production deploy job 并在 build 前执行。
+- 卖家核销台将解析成功的凭证保存为不可变 `resolvedCredentialRef`，以 resolve session 丢弃过期响应；确认核销只提交产生当前预览的凭证，输入框后续变化不能造成“展示 A、核销 B”。
+- 为控制现有后台回归面，本批没有同时解决 main 已存在的全部依赖漏洞；最小 lock 下 production audit 仍为 Admin 12 high、Seller 10 high。该债务必须通过独立依赖提交 + 全后台浏览器 E2E 治理，或由生产发布决策明确接受现有基线，不能在本批声称 audit 0。
+
+Batch 2 只完成本地静态产物验证。必须等待 Batch 1 后端生产健康后，再登录 staging/production 角色账号完成浏览器摄像头权限、短码、错企业凭证、重复核销和无权限拒绝的真实 HTTP E2E。
