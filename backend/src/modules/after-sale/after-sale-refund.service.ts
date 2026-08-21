@@ -34,7 +34,7 @@ import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
-const SERIALIZABLE_MAX_RETRIES = 3;
+const SERIALIZABLE_MAX_RETRIES = 6;
 
 type StartRefundLease = {
   refund: Refund;
@@ -126,7 +126,7 @@ export class AfterSaleRefundService {
   }
 
   async createOrGetRefund(afterSaleId: string): Promise<Refund> {
-    return this.prisma.$transaction(
+    return this.withSerializableRetry(
       async (tx) => {
         const { refund } = await this.createOrGetRefundInTx(tx, afterSaleId);
         await tx.afterSaleRequest.update({
@@ -135,7 +135,6 @@ export class AfterSaleRefundService {
         });
         return refund;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -147,7 +146,7 @@ export class AfterSaleRefundService {
       merchantRefundNo,
       shouldInitiate,
       shouldCloseSuccess,
-    } = await this.prisma.$transaction(
+    } = await this.withSerializableRetry(
       async (tx): Promise<StartRefundLease> => {
         const created = await this.createOrGetRefundInTx(tx, afterSaleId);
         const { request, refund } = created;
@@ -215,7 +214,6 @@ export class AfterSaleRefundService {
           shouldCloseSuccess: false,
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     if (!shouldInitiate) {
@@ -1089,6 +1087,8 @@ export class AfterSaleRefundService {
         });
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          const delayMs = 25 * 2 ** attempt + Math.floor(Math.random() * 25);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
           continue;
         }
         throw err;

@@ -168,8 +168,8 @@ test.describe('运费规则 CRUD', () => {
     // 填写规则名称（ProFormText name="name"）
     await modal.locator('#name').fill(ruleName);
 
-    // 填写运费（ProFormDigit name="fee"）
-    await modal.locator('#fee').fill('8.5');
+    // 填写首重价（当前表单以 firstFee 为权威字段，保存时同步兼容 fee）
+    await modal.locator('#firstFee').fill('8.5');
 
     // 提交（ModalForm 的确认按钮在 footer 中）
     await page.locator('.ant-modal').locator('.ant-modal-footer .ant-btn-primary').click();
