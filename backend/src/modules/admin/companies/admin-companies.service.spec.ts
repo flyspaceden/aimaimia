@@ -45,6 +45,13 @@ describe('AdminCompaniesService company lifecycle', () => {
       },
       blockers: [],
     });
+    expect(prisma.checkoutSession.findMany).toHaveBeenCalledWith({
+      where: {
+        status: 'ACTIVE',
+        expiresAt: { gt: expect.any(Date) },
+      },
+      select: { itemsSnapshot: true },
+    });
   });
 
   it('blocks platform companies and companies with unfinished orders', async () => {

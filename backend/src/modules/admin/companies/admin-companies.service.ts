@@ -339,7 +339,8 @@ export class AdminCompaniesService {
         },
       }),
       db.checkoutSession.findMany({
-        where: { status: 'ACTIVE' },
+        // 过期会话即使异步清理尚未改状态，也已不能继续支付，不应永久阻塞企业删除。
+        where: { status: 'ACTIVE', expiresAt: { gt: new Date() } },
         select: { itemsSnapshot: true },
       }),
     ]);
