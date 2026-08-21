@@ -11,6 +11,7 @@ function createPrismaMock() {
         status: CompanyStatus.ACTIVE,
         isPlatform: false,
       }),
+      update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'company-1', ...data })),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     orderItem: { count: jest.fn().mockResolvedValue(0) },
@@ -151,5 +152,35 @@ describe('AdminCompaniesService company lifecycle', () => {
 
     await expect(service.updateCompanyTags('company-1', []))
       .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.update('company-1', { name: '不应写入' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.audit('company-1', { status: 'APPROVED' }))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('serializes company edits and maps audit decisions to persisted lifecycle states', async () => {
+    const prisma = createPrismaMock();
+    const service = new AdminCompaniesService(prisma, {} as any);
+
+    await service.update('company-1', { name: '新名称' });
+    await service.audit('company-1', { status: 'APPROVED' });
+    await service.audit('company-1', { status: 'REJECTED' });
+
+    expect(prisma.company.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'company-1' },
+      data: { name: '新名称' },
+    });
+    expect(prisma.company.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'company-1' },
+      data: { status: CompanyStatus.ACTIVE },
+    });
+    expect(prisma.company.update).toHaveBeenNthCalledWith(3, {
+      where: { id: 'company-1' },
+      data: { status: CompanyStatus.BANNED },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: 'Serializable' },
+    );
   });
 });
