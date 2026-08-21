@@ -635,6 +635,10 @@
 | WML06 | 小程序基础库使用 `latest`，微信自动升级导致运行时行为漂移 | 🟠 HIGH | 固定已实际验证的基础库 `3.17.1`，单测与生产产物检查双重锁定；后续升级必须单独做 72 页与真机回归。 | ✅ 已修复 |
 | WML07 | backend 生产依赖中的 tar 路径穿越/DoS、Socket 内存耗尽、Multer/Nest 等高危公告可由公开接口触达 | 🔴 CRITICAL | 在不降级框架、不使用 `--force` 的前提下升级 Nest/Prisma/bcrypt/Nodemailer/Socket/UUID/Undici 等；`bcrypt@6` 移除 node-pre-gyp/tar，`sharp@0.35.3` 同步适配 CJS 类型入口。`npm audit --omit=dev` 为 0，完整 build 与图片/面单回归通过。 | ✅ 已修复 |
 | WML08 | 部署只请求公开商品列表，无法发现配送库或 Redis 已坏，仍可能误报 PM2 健康 | 🔴 HIGH | 新增公开 `/health/live` 与 `/health/ready`；ready 并行检查主库、配送库和 Redis，只返回 up/down 不泄露连接串。PM2 发布及配置回滚后的健康检查统一使用 ready。 | ✅ 单测/build 通过；staging 部署后待验活 |
+| WML09 | 售后退款首次创建在真实 PostgreSQL 五并发下抛 `P2034`，造成已仲裁但请求失败 | 🔴 CRITICAL | `createOrGetRefund` / `startRefund` 统一走 Serializable 重试器，同一售后单使用 advisory lock、五次有界指数退避与稳定商户退款号；渠道租约在事务成功后才使用，不重复调用支付渠道。 | ✅ 本机 PostgreSQL 16 五并发通过，只生成一张退款单/一次渠道调用 |
+| WML10 | E2E 使用固定图形验证码但后端未实现隔离绕过，使登录门禁永远假红；若实现不当又会引入生产绕过 | 🔴 HIGH | 只在 `NODE_ENV=test` 且显式配置长度不小于 6 的 `CAPTCHA_BYPASS_TOKEN` 时接受精确匹配；production 即使配了同一 token 也必须走 Redis/内存验证码。 | ✅ 生产拒绝回归与真实 E2E 登录通过 |
+| WML11 | 测试种子订单项缺 `companyId`、退货单缺退款金额，导致跨企业隔离/并发仲裁 E2E 无法检验真实语义 | 🟠 HIGH | seed 从 SKU 当前商品归属派生并回填每个演示 `OrderItem.companyId`，缺归属时 fail-closed；`rr-002` 补齐 29.90 退款快照。 | ✅ 跨企业列表/越权详情/仲裁双并发通过 |
+| WML12 | 配送清单 PDF 的隐藏中文层无 `ToUnicode`，Linux Poppler 无法搜索/复制常用中文 | 🟠 HIGH | 保留高清图像渲染和小于 4MB 体积上限，为轻量 CJK 文本层增加标准 Identity `ToUnicode` CMap；扩展字符仍由子集字体映射。 | ✅ macOS/Linux Poppler 提取、分页、渲染和体积回归通过 |
 
 ## 2026-08-17 商品自动定价与配置变更安全检查
 

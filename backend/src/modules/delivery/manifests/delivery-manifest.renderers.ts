@@ -103,14 +103,11 @@ function toUtf16BeHex(value: string) {
 
   for (const symbol of value) {
     const codePoint = symbol.codePointAt(0);
-    if (codePoint === undefined) {
-      continue;
-    }
+    if (codePoint === undefined) continue;
     if (codePoint <= 0xffff) {
       codeUnits.push(codePoint);
       continue;
     }
-
     const adjusted = codePoint - 0x10000;
     codeUnits.push(0xd800 + (adjusted >> 10));
     codeUnits.push(0xdc00 + (adjusted & 0x3ff));
@@ -133,6 +130,26 @@ function createBuiltInCjkFontRef(pdfDoc: PDFDocument) {
       DW: 1000,
     }),
   );
+  const toUnicodeRef = pdfDoc.context.register(
+    pdfDoc.context.stream(`
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfrange
+<0000> <FFFF> <0000>
+endbfrange
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+`.trim()),
+  );
 
   return pdfDoc.context.register(
     pdfDoc.context.obj({
@@ -141,6 +158,7 @@ function createBuiltInCjkFontRef(pdfDoc: PDFDocument) {
       BaseFont: 'STSong-Light',
       Encoding: 'UniGB-UCS2-H',
       DescendantFonts: [cidFontRef],
+      ToUnicode: toUnicodeRef,
     }),
   );
 }
@@ -151,13 +169,10 @@ function addBuiltInCjkTextOverlay(
   builtInCjkFontRef: any,
   lines: PdfOverlayLine[],
 ) {
-  if (!lines.length) {
-    return;
-  }
+  if (!lines.length) return;
 
   page.node.setFontDictionary(PDFName.of(PDF_BUILT_IN_CJK_FONT_NAME), builtInCjkFontRef);
-
-  const content = ['BT', '3 Tr', `/${PDF_BUILT_IN_CJK_FONT_NAME} ${PDF_FONT_SIZE} Tf`, `${PDF_LINE_HEIGHT} TL`];
+  const content = ['BT', '3 Tr', `/${PDF_BUILT_IN_CJK_FONT_NAME} ${PDF_FONT_SIZE} Tf`];
 
   let previousIndex = 0;
   lines.forEach((line, index) => {
@@ -169,11 +184,11 @@ function addBuiltInCjkTextOverlay(
     content.push(`<FEFF${toUtf16BeHex(normalizePdfLine(line.text))}> Tj`);
     previousIndex = line.index;
   });
-
   content.push('ET');
 
-  const contentRef = pdfDoc.context.register(pdfDoc.context.stream(content.join('\n')));
-  page.node.addContentStream(contentRef);
+  page.node.addContentStream(
+    pdfDoc.context.register(pdfDoc.context.stream(content.join('\n'))),
+  );
 }
 
 async function renderPdfPageJpeg(lines: string[]) {
@@ -220,7 +235,6 @@ export async function buildSimplePdf(lines: string[]): Promise<Buffer> {
   );
   const pages = chunkPdfLines(wrappedLines);
   const builtInCjkFontRef = createBuiltInCjkFontRef(pdfDoc);
-
   for (const pageLines of pages) {
     const page = pdfDoc.addPage([PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT]);
     const pageJpeg = await renderPdfPageJpeg(pageLines);
@@ -244,15 +258,10 @@ export async function buildSimplePdf(lines: string[]): Promise<Buffer> {
           color: PDF_TEXT_COLOR,
           opacity: 0,
         });
-        continue;
+      } else {
+        builtInOverlayLines.push({ index, text: pageLines[index] });
       }
-
-      builtInOverlayLines.push({
-        index,
-        text: pageLines[index],
-      });
     }
-
     addBuiltInCjkTextOverlay(pdfDoc, page, builtInCjkFontRef, builtInOverlayLines);
   }
 

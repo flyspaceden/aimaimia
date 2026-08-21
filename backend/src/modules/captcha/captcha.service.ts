@@ -46,10 +46,13 @@ export class CaptchaService {
   async verify(captchaId: string, input: string): Promise<boolean> {
     // E2E 只允许在明确的 test 进程中使用固定 bypass。
     // 生产/测试部署即使误配 token，也不会进入此分支。
-    const bypassToken = process.env.NODE_ENV === 'test'
-      ? process.env.CAPTCHA_BYPASS_TOKEN
-      : undefined;
-    if (bypassToken && input === bypassToken) {
+    const bypassToken = process.env.CAPTCHA_BYPASS_TOKEN;
+    if (
+      process.env.NODE_ENV === 'test' &&
+      typeof bypassToken === 'string' &&
+      bypassToken.length >= 6 &&
+      input === bypassToken
+    ) {
       return true;
     }
 

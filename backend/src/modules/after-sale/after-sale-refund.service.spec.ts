@@ -226,6 +226,21 @@ describe('AfterSaleRefundService', () => {
     );
   });
 
+  it('startRefund retries a Serializable P2034 before acquiring the provider lease', async () => {
+    tx.refund.findUnique.mockResolvedValueOnce(null);
+    prisma.$transaction
+      .mockImplementationOnce(async () => {
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce((cb: any) => cb(tx));
+
+    await service.startRefund('as_001', { type: AfterSaleOperatorType.SYSTEM });
+
+    // 首次 P2034 + 取得发起租约的重试 + 渠道成功后的本地收口事务。
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(paymentService.initiateRefund).toHaveBeenCalledTimes(1);
+  });
+
   it('persists the full requested non-prize line with discounted goods amount from the profit snapshot', async () => {
     tx.afterSaleRequest.findUnique.mockResolvedValue({
       id: 'as_001', orderId: 'order_001', userId: 'user_001', status: 'RECEIVED_BY_SELLER',

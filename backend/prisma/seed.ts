@@ -903,6 +903,23 @@ async function main() {
     detail: '翠湖路 88 号爱买买大厦 12 楼',
   };
 
+  const withSeedOrderItemCompanyIds = async <T extends { skuId: string }>(items: T[]) => {
+    const skuRows = await prisma.productSKU.findMany({
+      where: { id: { in: items.map((item) => item.skuId) } },
+      select: { id: true, product: { select: { companyId: true } } },
+    });
+    const companyBySkuId = new Map(
+      skuRows.map((sku) => [sku.id, sku.product.companyId]),
+    );
+    return items.map((item) => {
+      const companyId = companyBySkuId.get(item.skuId);
+      if (!companyId) {
+        throw new Error(`种子订单项缺少 SKU 企业归属: ${item.skuId}`);
+      }
+      return { ...item, companyId };
+    });
+  };
+
   const ordersData = [
     {
       id: 'o-001',
@@ -984,16 +1001,23 @@ async function main() {
 
   for (const order of ordersData) {
     const { items, ...orderData } = order;
+    const itemsWithCompanyIds = await withSeedOrderItemCompanyIds(items);
     await prisma.order.upsert({
       where: { id: order.id },
       update: { addressSnapshot: orderData.addressSnapshot || undefined },
       create: {
         ...orderData,
         items: {
-          create: items,
+          create: itemsWithCompanyIds,
         },
       },
     });
+    for (const item of itemsWithCompanyIds) {
+      await prisma.orderItem.updateMany({
+        where: { id: item.id, orderId: order.id },
+        data: { companyId: item.companyId },
+      });
+    }
   }
   console.log(`✅ ${ordersData.length} 个订单已创建`);
 
@@ -3485,14 +3509,21 @@ async function main() {
 
   for (const order of moreOrders) {
     const { items, ...orderData } = order;
+    const itemsWithCompanyIds = await withSeedOrderItemCompanyIds(items);
     await prisma.order.upsert({
       where: { id: order.id },
       update: {},
       create: {
         ...orderData,
-        items: { create: items },
+        items: { create: itemsWithCompanyIds },
       },
     });
+    for (const item of itemsWithCompanyIds) {
+      await prisma.orderItem.updateMany({
+        where: { id: item.id, orderId: order.id },
+        data: { companyId: item.companyId },
+      });
+    }
   }
   console.log(`✅ ${moreOrders.length} 个新订单已创建（覆盖所有状态）`);
 
@@ -3813,7 +3844,7 @@ async function main() {
       afterSaleType: 'QUALITY_RETURN' as const, reasonType: 'QUALITY_ISSUE' as const,
       reason: '鸡蛋新鲜度不达标',
       photos: ['https://placehold.co/400x300/png'],
-      status: 'UNDER_REVIEW' as const,
+      status: 'UNDER_REVIEW' as const, refundAmount: 29.9, requiresReturn: false,
     },
     {
       id: 'rr-003', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-024',
@@ -3840,7 +3871,9 @@ async function main() {
   for (const rr of afterSaleRequests) {
     await prisma.afterSaleRequest.upsert({
       where: { id: rr.id },
-      update: {},
+      update: rr.id === 'rr-002'
+        ? { refundAmount: rr.refundAmount, requiresReturn: rr.requiresReturn }
+        : {},
       create: rr,
     });
   }

@@ -1087,6 +1087,8 @@ export class AfterSaleRefundService {
         });
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          // 同一售后单的并发事务会在 advisory lock 后持有旧快照；
+          // 有界退避后以新快照重试，渠道租约仍只会被成功事务取得一次。
           const delayMs = 25 * 2 ** attempt + Math.floor(Math.random() * 25);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
           continue;

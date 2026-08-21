@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, type APIRequestContext } from '@playwright/test';
 import { CAPTCHA_BYPASS_TOKEN } from '../../playwright.config';
 
 /**
@@ -55,9 +55,7 @@ async function loginAs(page: Page, phone: string, password: string) {
  * 先获取图形验证码 id（需要一次 Redis 记录），然后用 bypass token。
  */
 async function apiLogin(
-  request: ReturnType<typeof test.extend>['request'] extends (...args: any[]) => any
-    ? any
-    : any,
+  request: APIRequestContext,
   phone: string,
   password: string,
 ): Promise<string> {

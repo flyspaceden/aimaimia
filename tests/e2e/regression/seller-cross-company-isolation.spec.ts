@@ -74,6 +74,8 @@ test.describe('跨商户数据隔离（c-001 OWNER）', () => {
     }
 
     expect(Array.isArray(orders), '订单列表必须返回数组').toBe(true);
+    expect(orders.length, '种子数据必须返回至少 1 个本企业订单用于隔离断言')
+      .toBeGreaterThan(0);
 
     // 注意：后端 GET /seller/orders 响应里 items 可能不暴露 companyId 字段（DTO 精简）
     // 但查询时已按 companyId=c-001 过滤，返回的订单集合语义上必然属于 c-001
