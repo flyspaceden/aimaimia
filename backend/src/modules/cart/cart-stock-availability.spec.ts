@@ -175,6 +175,19 @@ function createService(
 }
 
 describe('CartService stock availability', () => {
+  it('queries cart rows in a stable createdAt and id order', async () => {
+    const { service, prisma } = createService(10, { mockGetCart: false });
+    jest.spyOn(service as any, 'cleanExpiredPrizeItems').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'forceOutOfStockNormalItemsUnselected').mockResolvedValue(undefined);
+
+    await service.getCart('user1');
+
+    expect(prisma.cartItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { cartId: 'cart1' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }));
+  });
+
   it('rejects adding zero-stock normal SKU', async () => {
     const { service } = createService(0);
     await expect(service.addItem('user1', 'sku-zero', 1)).rejects.toBeInstanceOf(BadRequestException);

@@ -228,6 +228,7 @@ export class CartService {
 
     const items = await this.prisma.cartItem.findMany({
       where: { cartId: cart.id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: {
         sku: {
           include: this.getCartSkuInclude(),

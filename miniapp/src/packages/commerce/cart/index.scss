@@ -13,7 +13,7 @@
 .cart-pending__meta { margin-top: 2px; color: t.$text-secondary; font-size: 11px; }
 .cart-pending__action { flex: 0 0 auto; color: #d86a19; font-size: 11px; font-weight: 650; }
 .cart-select-bar { display: flex; align-items: center; min-height: 45px; margin-bottom: 12px; padding: 0 13px; }
-.cart-check--header { margin: 0 8px 0 0; }
+.cart-check.cart-check--header { align-self: center; margin: 0 8px 0 0; }
 .cart-select-bar__all { color: t.$text-primary; font-size: 13px; font-weight: 650; }
 .cart-select-bar__count { flex: 1; color: t.$text-secondary; font-size: 11px; text-align: right; }
 .cart-select-bar__delete { margin-left: 12px; color: #a04b42; font-size: 11px; }
