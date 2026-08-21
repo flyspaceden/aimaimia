@@ -332,7 +332,7 @@ jobs:
       - name: Install PDF verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends poppler-utils
+          sudo apt-get install -y --no-install-recommends poppler-utils poppler-data
 
       - name: Validate and migrate clean CI databases
         working-directory: backend

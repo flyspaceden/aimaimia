@@ -15,6 +15,7 @@ test('backend deployment bounds dependency install, fails over registry, and kee
   assert.match(workflow, /NORMAL_TREE_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_test_ci\?schema=public/);
   assert.match(workflow, /PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_test_ci\?schema=public/);
   assert.match(workflow, /Install PDF verification tools[\s\S]*poppler-utils/);
+  assert.match(workflow, /Install PDF verification tools[\s\S]*poppler-data/);
   assert.match(playwrightConfig, /npm run start:e2e/);
   assert.match(workflow, /RUN_DB_CONCURRENCY_TESTS: '1'/);
   assert.match(e2eWorkflow, /workflow_call:/);
