@@ -7,15 +7,23 @@ export class TraceService {
 
   /** 查询商品溯源链 */
   async getProductTrace(productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        status: 'ACTIVE',
+        auditStatus: 'APPROVED',
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
       select: { id: true, title: true },
     });
     if (!product) throw new NotFoundException('商品不存在');
 
     // 通过 ProductTraceLink 查找关联的 TraceBatch
     const traceLinks = await this.prisma.productTraceLink.findMany({
-      where: { productId },
+      where: {
+        productId,
+        batch: { company: { status: 'ACTIVE', isPlatform: false } },
+      },
       include: {
         batch: {
           include: {
@@ -76,8 +84,20 @@ export class TraceService {
 
   /** 查询溯源批次详情 */
   async getBatchDetail(batchId: string) {
-    const batch = await this.prisma.traceBatch.findUnique({
-      where: { id: batchId },
+    const batch = await this.prisma.traceBatch.findFirst({
+      where: {
+        id: batchId,
+        company: { status: 'ACTIVE', isPlatform: false },
+        productTraceLinks: {
+          some: {
+            product: {
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              company: { status: 'ACTIVE', isPlatform: false },
+            },
+          },
+        },
+      },
       include: {
         events: { orderBy: { occurredAt: 'asc' } },
         ownershipClaim: true,
@@ -91,8 +111,20 @@ export class TraceService {
 
   /** 通过批次码查询 */
   async getBatchByCode(batchCode: string) {
-    const batch = await this.prisma.traceBatch.findUnique({
-      where: { batchCode },
+    const batch = await this.prisma.traceBatch.findFirst({
+      where: {
+        batchCode,
+        company: { status: 'ACTIVE', isPlatform: false },
+        productTraceLinks: {
+          some: {
+            product: {
+              status: 'ACTIVE',
+              auditStatus: 'APPROVED',
+              company: { status: 'ACTIVE', isPlatform: false },
+            },
+          },
+        },
+      },
       include: {
         events: { orderBy: { occurredAt: 'asc' } },
         ownershipClaim: true,

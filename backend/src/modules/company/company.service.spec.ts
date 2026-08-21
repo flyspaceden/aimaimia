@@ -58,7 +58,7 @@ describe('CompanyService', () => {
       const createdAt = new Date('2026-06-02T03:04:05.000Z');
       const prisma = {
         company: {
-          findUnique: jest.fn().mockResolvedValue({
+          findFirst: jest.fn().mockResolvedValue({
             id: 'c-1',
             name: '测试企业',
             status: 'ACTIVE',
@@ -116,9 +116,9 @@ describe('CompanyService', () => {
 
       const result = await service.getById('c-1');
 
-      expect(prisma.company.findUnique).toHaveBeenCalledWith(
+      expect(prisma.company.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'c-1' },
+          where: { id: 'c-1', status: 'ACTIVE', isPlatform: false },
           include: expect.objectContaining({
             documents: expect.objectContaining({
               where: expect.objectContaining({

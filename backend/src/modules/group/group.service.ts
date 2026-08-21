@@ -10,6 +10,7 @@ export class GroupService {
   /** 考察团列表 */
   async list() {
     const groups = await this.prisma.group.findMany({
+      where: { company: { status: 'ACTIVE', isPlatform: false } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -19,7 +20,7 @@ export class GroupService {
   /** 企业考察团列表 */
   async listByCompany(companyId: string) {
     const groups = await this.prisma.group.findMany({
-      where: { companyId },
+      where: { companyId, company: { status: 'ACTIVE', isPlatform: false } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -28,7 +29,9 @@ export class GroupService {
 
   /** 考察团详情 */
   async getById(id: string) {
-    const group = await this.prisma.group.findUnique({ where: { id } });
+    const group = await this.prisma.group.findFirst({
+      where: { id, company: { status: 'ACTIVE', isPlatform: false } },
+    });
     if (!group) throw new NotFoundException('考察团不存在');
 
     return this.mapGroup(group);
@@ -36,8 +39,8 @@ export class GroupService {
 
   /** 创建考察团 */
   async create(dto: CreateGroupDto) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: dto.companyId },
+    const company = await this.prisma.company.findFirst({
+      where: { id: dto.companyId, status: 'ACTIVE', isPlatform: false },
     });
     if (!company) throw new BadRequestException('企业不存在');
 
@@ -58,7 +61,9 @@ export class GroupService {
 
   /** 一键参团（H1修复：注入 userId，按用户去重，每次固定 +1） */
   async join(id: string, userId: string) {
-    const group = await this.prisma.group.findUnique({ where: { id } });
+    const group = await this.prisma.group.findFirst({
+      where: { id, company: { status: 'ACTIVE', isPlatform: false } },
+    });
     if (!group) throw new NotFoundException('考察团不存在');
 
     if (group.status !== 'FORMING') {

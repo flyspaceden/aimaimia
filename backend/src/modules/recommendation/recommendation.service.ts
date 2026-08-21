@@ -10,7 +10,8 @@ export class RecommendationService {
     const products = await this.prisma.product.findMany({
       where: {
         status: 'ACTIVE',
-        company: { isPlatform: { not: true } },
+        auditStatus: 'APPROVED',
+        company: { status: 'ACTIVE', isPlatform: false },
       },
       orderBy: { createdAt: 'desc' },
       take: 6,

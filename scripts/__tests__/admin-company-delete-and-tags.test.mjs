@@ -41,6 +41,10 @@ test('删除企业不能通过旧商品或旧购物车绕过', async () => {
   const followService = await read('backend/src/modules/follow/follow.service.ts');
   const bookingService = await read('backend/src/modules/booking/booking.service.ts');
   const groupService = await read('backend/src/modules/group/group.service.ts');
+  const companyService = await read('backend/src/modules/company/company.service.ts');
+  const recommendationService = await read('backend/src/modules/recommendation/recommendation.service.ts');
+  const traceService = await read('backend/src/modules/trace/trace.service.ts');
+  const aiService = await read('backend/src/modules/ai/ai.service.ts');
   assert.match(productService, /company: \{ status: 'ACTIVE', isPlatform: false \}/);
   assert.match(productService, /product\.company\?\.status !== 'ACTIVE'/);
   assert.match(checkoutService, /companyStatus !== 'ACTIVE'/);
@@ -51,4 +55,8 @@ test('删除企业不能通过旧商品或旧购物车绕过', async () => {
   assert.match(bookingService, /status: 'ACTIVE'/);
   assert.match(bookingService, /isPlatform: false/);
   assert.match(groupService, /company: \{ status: 'ACTIVE', isPlatform: false \}/);
+  assert.match(companyService, /where: \{ id, status: 'ACTIVE', isPlatform: false \}/);
+  assert.match(recommendationService, /company: \{ status: 'ACTIVE', isPlatform: false \}/);
+  assert.match(traceService, /company: \{ status: 'ACTIVE', isPlatform: false \}/);
+  assert.match(aiService, /company: \{ status: 'ACTIVE', isPlatform: false \}/);
 });

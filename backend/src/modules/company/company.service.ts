@@ -20,7 +20,7 @@ export class CompanyService {
     const cached = this.listCache.get(cacheKey);
     if (cached) return cached;
 
-    const where: any = {};
+    const where: any = { status: 'ACTIVE', isPlatform: false };
     if (tagId) {
       where.companyTags = { some: { tagId } };
     }
@@ -125,8 +125,8 @@ export class CompanyService {
   /** 企业详情 */
   async getById(id: string, userId?: string) {
     const now = new Date();
-    const company = await this.prisma.company.findUnique({
-      where: { id },
+    const company = await this.prisma.company.findFirst({
+      where: { id, status: 'ACTIVE', isPlatform: false },
       include: {
         profile: true,
         companyTags: {
@@ -199,6 +199,7 @@ export class CompanyService {
       status: 'ACTIVE',
       auditStatus: 'APPROVED',
       lotteryPrizes: { none: {} },
+      company: { status: 'ACTIVE', isPlatform: false },
     };
 
     if (options.category) {
@@ -240,6 +241,7 @@ export class CompanyService {
         status: 'ACTIVE',
         auditStatus: 'APPROVED',
         lotteryPrizes: { none: {} },
+        company: { status: 'ACTIVE', isPlatform: false },
       },
       select: { category: { select: { name: true } } },
       distinct: ['categoryId'],
@@ -310,7 +312,7 @@ export class CompanyService {
   /** 企业活动列表 */
   async listActivities(companyId: string) {
     const activities = await this.prisma.companyActivity.findMany({
-      where: { companyId },
+      where: { companyId, company: { status: 'ACTIVE', isPlatform: false } },
       orderBy: { startAt: 'asc' },
     });
 
@@ -334,8 +336,8 @@ export class CompanyService {
 
   /** 获取单个活动详情 */
   async getActivityById(id: string) {
-    const activity = await this.prisma.companyActivity.findUnique({
-      where: { id },
+    const activity = await this.prisma.companyActivity.findFirst({
+      where: { id, company: { status: 'ACTIVE', isPlatform: false } },
     });
     if (!activity) throw new NotFoundException('活动不存在');
 

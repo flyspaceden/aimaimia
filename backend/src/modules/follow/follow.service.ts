@@ -37,7 +37,7 @@ export class FollowService {
     const [companies, users] = await Promise.all([
       companyIds.length > 0
         ? this.prisma.company.findMany({
-            where: { id: { in: companyIds } },
+            where: { id: { in: companyIds }, status: 'ACTIVE', isPlatform: false },
             include: { profile: true },
           })
         : [],
@@ -138,7 +138,9 @@ export class FollowService {
 
   /** 判断 authorId 是 user 还是 company */
   private async resolveAuthorType(authorId: string): Promise<FollowType> {
-    const company = await this.prisma.company.findUnique({ where: { id: authorId } });
+    const company = await this.prisma.company.findFirst({
+      where: { id: authorId, status: 'ACTIVE', isPlatform: false },
+    });
     if (company) return FollowType.COMPANY;
 
     const user = await this.prisma.user.findUnique({ where: { id: authorId } });
@@ -159,8 +161,8 @@ export class FollowService {
     });
 
     if (authorType === 'COMPANY' || authorType === 'company') {
-      const company = await this.prisma.company.findUnique({
-        where: { id: authorId },
+      const company = await this.prisma.company.findFirst({
+        where: { id: authorId, status: 'ACTIVE', isPlatform: false },
         include: { profile: true },
       });
       if (!company) throw new NotFoundException('企业不存在');

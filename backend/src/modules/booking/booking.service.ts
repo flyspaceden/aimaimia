@@ -23,7 +23,7 @@ export class BookingService {
   /** 企业预约列表 */
   async listByCompany(companyId: string) {
     const bookings = await this.prisma.booking.findMany({
-      where: { companyId },
+      where: { companyId, company: { status: 'ACTIVE', isPlatform: false } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -32,8 +32,8 @@ export class BookingService {
 
   /** 提交预约 */
   async create(userId: string, dto: CreateBookingDto) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: dto.companyId },
+    const company = await this.prisma.company.findFirst({
+      where: { id: dto.companyId, status: 'ACTIVE', isPlatform: false },
     });
     if (!company) throw new BadRequestException('企业不存在');
 
@@ -96,8 +96,8 @@ export class BookingService {
       throw new ForbiddenException('无权操作其他企业的预约');
     }
 
-    const group = await this.prisma.group.findUnique({
-      where: { id: dto.groupId },
+    const group = await this.prisma.group.findFirst({
+      where: { id: dto.groupId, company: { status: 'ACTIVE', isPlatform: false } },
     });
     if (!group) throw new BadRequestException('考察团不存在');
 
@@ -128,8 +128,8 @@ export class BookingService {
 
   /** 一键参团入口 */
   async joinGroup(userId: string, dto: JoinGroupDto) {
-    const group = await this.prisma.group.findUnique({
-      where: { id: dto.groupId },
+    const group = await this.prisma.group.findFirst({
+      where: { id: dto.groupId, company: { status: 'ACTIVE', isPlatform: false } },
     });
     if (!group) throw new BadRequestException('考察团不存在');
 
