@@ -43,6 +43,10 @@ test('backend deployment bounds dependency install, fails over registry, and kee
   assert.match(workflow, /health_check true/);
   assert.match(workflow, /npm_config_replace_registry_host=always/);
   assert.match(workflow, /run_npm_ci "https:\/\/registry\.npmjs\.org" 0 45000 3m official/);
+  assert.match(workflow, /verify_backend_dependencies/);
+  assert.match(workflow, /npm ls --depth=0 --omit=optional --loglevel=error/);
+  assert.match(workflow, /test -x node_modules\/\.bin\/prisma/);
+  assert.match(workflow, /dependency_verification_failed_status=\$status/);
   assert.match(workflow, /npm_install_fallback=registry\.npmmirror\.com/);
   assert.match(workflow, /run_npm_ci "https:\/\/registry\.npmmirror\.com" 2 120000 12m mirror/);
   assert.match(workflow, /npm ci --no-audit --no-fund --timing --loglevel=notice/);

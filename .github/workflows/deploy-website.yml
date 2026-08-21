@@ -419,6 +419,15 @@ jobs:
               return 1
             }
 
+            verify_backend_dependencies() {
+              # npm 可能在打印 "Exit handler never called" 后仍返回 0。不能只信退出码，
+              # 必须确认 lockfile 中的顶层依赖和部署所需 CLI 都完整落盘。
+              npm ls --depth=0 --omit=optional --loglevel=error >/dev/null \
+                && test -x node_modules/.bin/prisma \
+                && test -x node_modules/.bin/nest \
+                && node -e "require.resolve('@prisma/client'); require.resolve('@nestjs/core'); require.resolve('typescript')"
+            }
+
             run_npm_ci() {
               registry="$1"
               retries="$2"
@@ -434,8 +443,14 @@ jobs:
                 npm_config_fetch_timeout="$fetch_timeout" \
                   timeout --signal=TERM --kill-after=30s "$attempt_timeout" \
                   npm ci --no-audit --no-fund --timing --loglevel=notice; then
-                echo "npm_install_attempt=$label completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                return 0
+                if verify_backend_dependencies; then
+                  echo "npm_install_attempt=$label completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  return 0
+                else
+                  status=$?
+                  echo "npm_install_attempt=$label dependency_verification_failed_status=$status failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  return "$status"
+                fi
               else
                 status=$?
                 echo "npm_install_attempt=$label failed_status=$status failed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

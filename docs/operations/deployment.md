@@ -482,6 +482,11 @@ POST /api/v1/merchant-applications（公开接口，无需登录）
 
 ## 十一、变更记录
 
+### 2026-08-21 npm 安装假成功防护
+
+- staging run `32447100931` 的官方 registry 安装输出 `Exit handler never called`，但 npm CLI 错误返回 0；部署脚本因而误判安装成功，随后本地 Prisma CLI 不存在，`npx --no-install` 受控失败。失败发生在 Prisma generate 之前，数据库迁移、PM2 新版本重载均未执行；自动回滚到旧 SHA 并通过公开读取健康检查。
+- `deploy-backend` 的每次 `npm ci` 现在除退出码外，还必须通过 `npm ls --depth=0 --omit=optional`、Prisma/Nest CLI 可执行文件以及 Prisma Client/Nest/TypeScript 模块解析检查。完整性检查失败会把本次 registry 尝试判为失败并进入既有镜像重试，继续保持迁移前构建和失败自动回滚边界。
+
 ### 2026-08-17 平台中心仓与卖家自提工作队列 staging 发布
 
 - **范围**：仅 `staging`，未改 `main` / production。远端源码由 `6a36a154`（中心仓模型）推进到 `864dab38`，包含平台中心仓开关自动绑定唯一平台公司、企业授权范围、平台备货/核销权限，以及卖家“自提订单”只显示 `PICKUP + PAID` 的待处理订单。
