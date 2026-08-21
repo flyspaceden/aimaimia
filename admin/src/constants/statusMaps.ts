@@ -40,8 +40,6 @@ export const shipmentStatusMap: Record<string, StatusEntry> = {
 export const companyStatusMap: Record<string, StatusEntry> = {
   PENDING: { text: '待审核', color: 'orange' },
   ACTIVE: { text: '正常', color: 'green' },
-  APPROVED: { text: '已通过', color: 'green' },
-  REJECTED: { text: '已拒绝', color: 'red' },
   SUSPENDED: { text: '已暂停', color: 'default' },
   BANNED: { text: '已封禁', color: 'red' },
   DELETED: { text: '已删除', color: 'default' },

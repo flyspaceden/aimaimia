@@ -197,25 +197,28 @@ export class AdminCompaniesService {
 
   /** 更新企业 */
   async update(id: string, dto: AdminUpdateCompanyDto) {
-    const company = await this.prisma.company.findUnique({ where: { id } });
-    if (!company) throw new NotFoundException('企业不存在');
-    if (company.status === CompanyStatus.DELETED) {
-      throw new BadRequestException('企业已删除，请先从回收站恢复');
-    }
     if (dto.status === CompanyStatus.DELETED) {
       throw new BadRequestException('请使用企业删除功能');
     }
 
-    // contact 是 Json 列，merge 现有内容以保留未知字段（邮箱/备用电话等未来字段）
-    const data: any = { ...dto };
-    if (dto.contact) {
-      data.contact = { ...((company.contact as Record<string, any>) || {}), ...dto.contact };
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.findUnique({ where: { id } });
+      if (!company) throw new NotFoundException('企业不存在');
+      if (company.status === CompanyStatus.DELETED) {
+        throw new BadRequestException('企业已删除，请先从回收站恢复');
+      }
 
-    return this.prisma.company.update({
-      where: { id },
-      data,
-    });
+      // contact 是 Json 列，merge 现有内容以保留未知字段（邮箱/备用电话等未来字段）
+      const data: any = { ...dto };
+      if (dto.contact) {
+        data.contact = { ...((company.contact as Record<string, any>) || {}), ...dto.contact };
+      }
+
+      return tx.company.update({
+        where: { id },
+        data,
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private snapshotContainsCompany(itemsSnapshot: unknown, companyId: string): boolean {
@@ -455,16 +458,17 @@ export class AdminCompaniesService {
 
   /** 审核企业 */
   async audit(id: string, dto: AdminAuditCompanyDto) {
-    const company = await this.prisma.company.findUnique({ where: { id } });
-    if (!company) throw new NotFoundException('企业不存在');
-    if (company.status === CompanyStatus.DELETED || dto.status === CompanyStatus.DELETED) {
-      throw new BadRequestException('已删除企业不能审核');
-    }
-
-    return this.prisma.company.update({
-      where: { id },
-      data: { status: dto.status },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, id);
+      return tx.company.update({
+        where: { id },
+        data: {
+          status: dto.status === 'APPROVED'
+            ? CompanyStatus.ACTIVE
+            : CompanyStatus.BANNED,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /** 企业员工列表 */
@@ -507,81 +511,79 @@ export class AdminCompaniesService {
 
   /** 绑定企业创始人 */
   async bindOwner(companyId: string, dto: BindOwnerDto) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('企业不存在');
-    if (company.status === CompanyStatus.DELETED) {
-      throw new BadRequestException('企业已删除，请先从回收站恢复');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
 
-    // 检查是否已有 OWNER
-    const existingOwner = await this.prisma.companyStaff.findFirst({
-      where: { companyId, role: 'OWNER' },
-    });
-    if (existingOwner) throw new BadRequestException('该企业已有创始人');
-
-    // 根据手机号查找用户
-    const identity = await this.prisma.authIdentity.findFirst({
-      where: { provider: 'PHONE', identifier: dto.phone },
-    });
-    if (!identity) throw new NotFoundException('未找到该手机号对应的用户');
-
-    // 检查用户是否已在该企业
-    const existingStaff = await this.prisma.companyStaff.findUnique({
-      where: { userId_companyId: { userId: identity.userId, companyId } },
-    });
-    if (existingStaff) throw new BadRequestException('该用户已在该企业中');
-
-    // 可选昵称：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
-    const nickname = dto.nickname?.trim();
-    if (nickname) {
-      const profile = await this.prisma.userProfile.findUnique({
-        where: { userId: identity.userId },
-        select: { nickname: true },
+      // 检查是否已有 OWNER
+      const existingOwner = await tx.companyStaff.findFirst({
+        where: { companyId, role: 'OWNER' },
       });
-      const current = profile?.nickname?.trim();
-      if (!current || current === dto.phone) {
-        await this.prisma.userProfile.update({
-          where: { userId: identity.userId },
-          data: { nickname },
-        });
-      }
-    }
+      if (existingOwner) throw new BadRequestException('该企业已有创始人');
 
-    const created = await this.prisma.companyStaff.create({
-      data: {
-        userId: identity.userId,
-        companyId,
-        role: 'OWNER',
-        status: 'ACTIVE',
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            profile: { select: { nickname: true } },
-            authIdentities: {
-              where: { provider: 'PHONE' },
-              select: { identifier: true },
-              take: 1,
+      // 根据手机号查找用户
+      const identity = await tx.authIdentity.findFirst({
+        where: { provider: 'PHONE', identifier: dto.phone },
+      });
+      if (!identity) throw new NotFoundException('未找到该手机号对应的用户');
+
+      // 检查用户是否已在该企业
+      const existingStaff = await tx.companyStaff.findUnique({
+        where: { userId_companyId: { userId: identity.userId, companyId } },
+      });
+      if (existingStaff) throw new BadRequestException('该用户已在该企业中');
+
+      // 可选昵称：仅在昵称为空或等于手机号（自动默认值）时覆盖，保护买家已设的自定义昵称
+      const nickname = dto.nickname?.trim();
+      if (nickname) {
+        const profile = await tx.userProfile.findUnique({
+          where: { userId: identity.userId },
+          select: { nickname: true },
+        });
+        const current = profile?.nickname?.trim();
+        if (!current || current === dto.phone) {
+          await tx.userProfile.update({
+            where: { userId: identity.userId },
+            data: { nickname },
+          });
+        }
+      }
+
+      const created = await tx.companyStaff.create({
+        data: {
+          userId: identity.userId,
+          companyId,
+          role: 'OWNER',
+          status: 'ACTIVE',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              profile: { select: { nickname: true } },
+              authIdentities: {
+                where: { provider: 'PHONE' },
+                select: { identifier: true },
+                take: 1,
+              },
             },
           },
         },
-      },
-    });
+      });
 
-    return {
-      ...created,
-      user: created.user
-        ? {
-            ...created.user,
-            authIdentities: (created.user.authIdentities || []).map((identity) => ({
-              ...identity,
-              identifierMasked: maskPhone(identity.identifier || null),
-            })),
-            phoneMasked: maskPhone(created.user.authIdentities?.[0]?.identifier || null),
-          }
-        : created.user,
-    };
+      return {
+        ...created,
+        user: created.user
+          ? {
+              ...created.user,
+              authIdentities: (created.user.authIdentities || []).map((ownerIdentity) => ({
+                ...ownerIdentity,
+                identifierMasked: maskPhone(ownerIdentity.identifier || null),
+              })),
+              phoneMasked: maskPhone(created.user.authIdentities?.[0]?.identifier || null),
+            }
+          : created.user,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /** 更新企业亮点 */
@@ -996,55 +998,59 @@ export class AdminCompaniesService {
 
   /** 审核资质文件 */
   async verifyDocument(companyId: string, documentId: string, dto: AdminVerifyDocumentDto) {
-    await this.assertCompanyMutable(this.prisma, companyId);
-    const doc = await this.prisma.companyDocument.findFirst({
-      where: { id: documentId, companyId },
-    });
-    if (!doc) throw new NotFoundException('资质文件不存在');
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
+      const doc = await tx.companyDocument.findFirst({
+        where: { id: documentId, companyId },
+      });
+      if (!doc) throw new NotFoundException('资质文件不存在');
 
-    return this.prisma.companyDocument.update({
-      where: { id: documentId },
-      data: {
-        verifyStatus: dto.verifyStatus,
-        verifyNote: dto.verifyNote,
-      },
-    });
+      return tx.companyDocument.update({
+        where: { id: documentId },
+        data: {
+          verifyStatus: dto.verifyStatus,
+          verifyNote: dto.verifyNote,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   // ===================== 员工昵称 / 手机号直接编辑 =====================
 
   /** 修改员工昵称（全局生效，影响该 User 在所有企业和买家端的显示） */
   async updateStaffNickname(companyId: string, staffId: string, dto: AdminUpdateStaffNicknameDto) {
-    await this.assertCompanyMutable(this.prisma, companyId);
-    const staff = await this.prisma.companyStaff.findUnique({ where: { id: staffId } });
-    if (!staff) throw new NotFoundException('员工不存在');
-    if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCompanyMutable(tx, companyId);
+      const staff = await tx.companyStaff.findUnique({ where: { id: staffId } });
+      if (!staff) throw new NotFoundException('员工不存在');
+      if (staff.companyId !== companyId) throw new BadRequestException('员工不属于该企业');
 
-    const nickname = dto.nickname.trim();
-    if (!nickname) throw new BadRequestException('昵称不能为空');
+      const nickname = dto.nickname.trim();
+      if (!nickname) throw new BadRequestException('昵称不能为空');
 
-    await this.prisma.userProfile.upsert({
-      where: { userId: staff.userId },
-      create: { userId: staff.userId, nickname },
-      update: { nickname },
-    });
+      await tx.userProfile.upsert({
+        where: { userId: staff.userId },
+        create: { userId: staff.userId, nickname },
+        update: { nickname },
+      });
 
-    return this.prisma.companyStaff.findUnique({
-      where: { id: staffId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            profile: { select: { nickname: true } },
-            authIdentities: {
-              where: { provider: 'PHONE' },
-              select: { identifier: true },
-              take: 1,
+      return tx.companyStaff.findUnique({
+        where: { id: staffId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              profile: { select: { nickname: true } },
+              authIdentities: {
+                where: { provider: 'PHONE' },
+                select: { identifier: true },
+                take: 1,
+              },
             },
           },
         },
-      },
-    });
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   /** 修改员工手机号（替换 AuthIdentity.identifier；用户下次用新号登录） */

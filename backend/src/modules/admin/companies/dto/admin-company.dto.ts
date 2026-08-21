@@ -36,8 +36,8 @@ export class AdminUpdateCompanyDto {
 }
 
 export class AdminAuditCompanyDto {
-  @IsEnum(CompanyStatus)
-  status: CompanyStatus;
+  @IsIn(['APPROVED', 'REJECTED'])
+  status: 'APPROVED' | 'REJECTED';
 
   @IsOptional()
   @IsString()

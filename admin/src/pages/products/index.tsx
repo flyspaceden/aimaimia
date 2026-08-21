@@ -330,7 +330,7 @@ export default function ProductListPage() {
       render: (_: unknown, r: Product) => {
         if (!r.company) return <Text type="secondary">-</Text>;
         const companyStatus = r.company.status;
-        const isSuspended = companyStatus === 'SUSPENDED' || companyStatus === 'REJECTED';
+        const isSuspended = companyStatus !== undefined && companyStatus !== 'ACTIVE';
         return (
           <Space size={4}>
             <Text

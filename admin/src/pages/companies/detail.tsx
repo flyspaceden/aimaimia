@@ -69,8 +69,6 @@ import dayjs from 'dayjs';
 const statusMap: Record<string, { text: string; color: string }> = {
   PENDING: { text: '待审核', color: 'orange' },
   ACTIVE: { text: '正常', color: 'green' },
-  APPROVED: { text: '已通过', color: 'green' },
-  REJECTED: { text: '已拒绝', color: 'red' },
   SUSPENDED: { text: '已暂停', color: 'default' },
   BANNED: { text: '已封禁', color: 'red' },
   DELETED: { text: '已删除', color: 'default' },
@@ -830,9 +828,9 @@ export default function CompanyDetailPage() {
               value={status?.text}
               valueStyle={{
                 color:
-                  company.status === 'APPROVED'
+                  company.status === 'ACTIVE'
                     ? '#2E7D32'
-                    : company.status === 'REJECTED'
+                    : company.status === 'BANNED'
                       ? '#f5222d'
                       : '#faad14',
               }}
