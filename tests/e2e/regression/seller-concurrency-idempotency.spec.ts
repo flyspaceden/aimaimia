@@ -140,6 +140,15 @@ test.describe('并发与幂等性回归', () => {
       (s) => s === 409 || s === 400 || s === 422 || s === 500,
     ).length;
 
+    // CI 不配置真实顺丰凭据；这种情况只能验证 API fail-closed。
+    // 真实 PostgreSQL + mock carrier 的并发租约、单面单和单次渠道调用
+    // 由 seller-shipping.concurrency.spec.ts 在 backend-quality-gate 强制执行。
+    if (bodies.some((body) => body.includes('顺丰丰桥服务未配置'))) {
+      expect(statuses.every((status) => [400, 409, 422, 500].includes(status))).toBe(true);
+      test.skip(true, 'CI 未配置顺丰，面单并发由真实 PG service suite 覆盖');
+      return;
+    }
+
     expect(okCount, '至少应有一个成功').toBeGreaterThanOrEqual(1);
 
     // 理想情况：只有一个成功，另一个冲突

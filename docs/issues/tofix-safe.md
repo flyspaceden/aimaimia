@@ -639,6 +639,7 @@
 | WML10 | E2E 使用固定图形验证码但后端未实现隔离绕过，使登录门禁永远假红；若实现不当又会引入生产绕过 | 🔴 HIGH | 只在 `NODE_ENV=test` 且显式配置长度不小于 6 的 `CAPTCHA_BYPASS_TOKEN` 时接受精确匹配；production 即使配了同一 token 也必须走 Redis/内存验证码。 | ✅ 生产拒绝回归与真实 E2E 登录通过 |
 | WML11 | 测试种子订单项缺 `companyId`、退货单缺退款金额，导致跨企业隔离/并发仲裁 E2E 无法检验真实语义 | 🟠 HIGH | seed 从 SKU 当前商品归属派生并回填每个演示 `OrderItem.companyId`，缺归属时 fail-closed；`rr-002` 补齐 29.90 退款快照。 | ✅ 跨企业列表/越权详情/仲裁双并发通过 |
 | WML12 | 配送清单 PDF 的隐藏中文层无 `ToUnicode`，Linux Poppler 无法搜索/复制常用中文 | 🟠 HIGH | 保留高清图像渲染和小于 4MB 体积上限，为轻量 CJK 文本层增加标准 Identity `ToUnicode` CMap；扩展字符仍由子集字体映射。 | ✅ macOS/Linux Poppler 提取、分页、渲染和体积回归通过 |
+| WML13 | 同一订单并发预留电子面单时 `P2034` 直接返回 500，可能让商家误以为未请求或重复操作 | 🔴 HIGH | 预留、最终落库、失败清理统一使用 6 次有界 Serializable 指数退避；advisory lock + `orderId/companyId` 唯一约束 + JSON 生成租约 CAS 保证只有一个请求调用顺丰。 | ✅ 单测通过；真实 PostgreSQL 并发 suite 纳入上线门禁 |
 
 ## 2026-08-17 商品自动定价与配置变更安全检查
 
