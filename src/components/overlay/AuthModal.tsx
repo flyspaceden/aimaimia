@@ -19,16 +19,18 @@ import { useTheme } from '../../theme';
 import { useToast } from '../feedback';
 import { AuthRepo } from '../../repos';
 import { requestWechatAuth } from '../../services/wechat';
+import { logoutAndClearClientState } from '../../utils/logout';
 import { AuthSession, LoginMode } from '../../types';
 
 type AuthModalProps = {
   open: boolean;
   onClose: () => void;
   onSuccess?: (session: AuthSession) => void | Promise<void>;
+  startForgotPassword?: boolean;
 };
 
 // 登录/注册弹窗：手机号为主要方式，微信为底部快捷入口
-export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
+export const AuthModal = ({ open, onClose, onSuccess, startForgotPassword = false }: AuthModalProps) => {
   const { colors, radius, spacing, typography, shadow } = useTheme();
   const { show: showToast } = useToast();
   const router = useRouter();
@@ -60,6 +62,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
   const [fpCode, setFpCode] = useState('');
   const [fpNewPwd, setFpNewPwd] = useState('');
   const [fpConfirmPwd, setFpConfirmPwd] = useState('');
+  useEffect(() => { if (open && startForgotPassword) setFlowMode('forgotPassword'); }, [open, startForgotPassword]);
 
   // 组件卸载时清理所有定时器，防止内存泄漏
   useEffect(() => {
@@ -296,6 +299,7 @@ export const AuthModal = ({ open, onClose, onSuccess }: AuthModalProps) => {
         showError(r.error.displayMessage ?? '密码重置失败');
         return;
       }
+      logoutAndClearClientState();
       // 成功：回到登录态，预填手机号到密码登录表单
       setFlowMode('auth');
       setTab('login');

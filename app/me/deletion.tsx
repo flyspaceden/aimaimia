@@ -14,7 +14,8 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { ErrorState, Skeleton, useToast } from '../../src/components/feedback';
-import { AccountDeletionRepo } from '../../src/repos';
+import { AccountDeletionRepo, AuthRepo } from '../../src/repos';
+import { requestWechatAuth } from '../../src/services/wechat';
 import { logoutAndClearClientState } from '../../src/utils/logout';
 import { compactActionTextProps, fitTextProps, useBottomInset, useTheme } from '../../src/theme';
 import type {
@@ -140,6 +141,7 @@ export default function AccountDeletionScreen() {
   const [sendingCode, setSendingCode] = useState(false);
   // Step 2 - WECHAT：确认四字输入
   const [wechatInput, setWechatInput] = useState('');
+  const [wechatDeletionProof, setWechatDeletionProof] = useState('');
   // 提交中态：防重复提交
   const [submitting, setSubmitting] = useState(false);
   // 错误播报（assertive live region）
@@ -188,7 +190,7 @@ export default function AccountDeletionScreen() {
     identityVerify === 'SMS'
       ? smsCode.trim().length === 6
       : identityVerify === 'WECHAT_MODAL'
-        ? wechatInput.trim() === WECHAT_CONFIRM_TEXT
+        ? wechatInput.trim() === WECHAT_CONFIRM_TEXT && Boolean(wechatDeletionProof)
         : false;
 
   // 执行注销
@@ -200,10 +202,12 @@ export default function AccountDeletionScreen() {
       confirmationMethod: identityVerify,
       smsCode: identityVerify === 'SMS' ? smsCode.trim() : undefined,
       modalConfirmText: identityVerify === 'WECHAT_MODAL' ? wechatInput.trim() : undefined,
+      wechatDeletionProof: identityVerify === 'WECHAT_MODAL' ? wechatDeletionProof : undefined,
       acknowledgedNotice: true,
     });
     setSubmitting(false);
     if (!r.ok) {
+      if (identityVerify === 'WECHAT_MODAL') setWechatDeletionProof('');
       const msg = r.error.displayMessage ?? '注销失败，请稍后重试';
       setStepError(msg);
       AccessibilityInfo.announceForAccessibility?.(msg);
@@ -213,6 +217,15 @@ export default function AccountDeletionScreen() {
     show({ message: '账号已注销', type: 'success' });
     logoutAndClearClientState();
     router.replace('/(tabs)/home');
+  };
+
+  const handleWechatDeletionVerify = async () => {
+    try {
+      const result = await AuthRepo.createWechatDeletionProof(await requestWechatAuth());
+      if (!result.ok) { show({ message: result.error.displayMessage ?? '微信验证失败', type: 'error' }); return; }
+      setWechatDeletionProof(result.data.wechatDeletionProof);
+      show({ message: '微信身份已验证，请确认注销', type: 'success' });
+    } catch { show({ message: '微信验证失败，请重试', type: 'error' }); }
   };
 
   // ==================== 渲染分支 ====================
@@ -380,6 +393,9 @@ export default function AccountDeletionScreen() {
                     </Text>
                   </Pressable>
                 </View>
+                <Pressable onPress={handleWechatDeletionVerify} style={{ marginTop: spacing.md, alignSelf: 'flex-start', paddingVertical: 8 }} accessibilityRole="button">
+                  <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>{wechatDeletionProof ? '重新验证当前微信身份' : '验证当前微信身份'}</Text>
+                </Pressable>
               </>
             ) : (
               <>

@@ -15,6 +15,8 @@ import { RefreshDto } from './dto/refresh.dto';
 import { SendForgotPasswordCodeDto, ResetForgotPasswordDto } from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { WechatDeletionProofDto } from './dto/wechat-deletion-proof.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -78,6 +80,18 @@ export class AuthController {
   ) {
     const token = req.headers.authorization?.replace('Bearer ', '');
     return this.authService.logout(userId, token);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('change-password')
+  changePassword(@CurrentUser('sub') userId: string, @CurrentUser('sessionId') sessionId: string | undefined, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(userId, dto, sessionId);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat/deletion-proof')
+  createWechatDeletionProof(@CurrentUser('sub') userId: string, @Body() dto: WechatDeletionProofDto) {
+    return this.authService.createWechatDeletionProof(userId, dto.code);
   }
 
   @Public()

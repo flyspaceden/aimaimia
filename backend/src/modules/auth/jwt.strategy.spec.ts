@@ -35,7 +35,7 @@ describe('JwtStrategy.validate — 账号状态拦截', () => {
 
     const result = await strategy.validate({ sub: 'user-1', sessionId: 'session-1' });
 
-    expect(result).toEqual({ sub: 'user-1' });
+    expect(result).toEqual({ sub: 'user-1', sessionId: 'session-1' });
   });
 
   it('用户不存在 → UnauthorizedException', async () => {

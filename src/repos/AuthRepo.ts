@@ -60,6 +60,10 @@ export const AuthRepo = {
     if (USE_MOCK) return simulateRequest({ ok: true }, { delay: 400 });
     return ApiClient.post<{ ok: boolean }>('/auth/change-password', payload);
   },
+  createWechatDeletionProof: async (code: string): Promise<Result<{ wechatDeletionProof: string; expiresInSeconds: number }>> => {
+    if (USE_MOCK) return simulateRequest({ wechatDeletionProof: 'a'.repeat(64), expiresInSeconds: 300 }, { delay: 300 });
+    return ApiClient.post('/auth/oauth/wechat/deletion-proof', { code });
+  },
   // 注销账号：旧的 /auth/delete-account 端点已废弃，改用 AccountDeletionRepo（/me/deletion/*）
   // 获取图形验证码（用于忘记密码流程的 send-code 前置防刷）
   getCaptcha: async (): Promise<Result<{ captchaId: string; svg: string }>> => {

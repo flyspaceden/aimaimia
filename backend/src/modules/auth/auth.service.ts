@@ -30,6 +30,8 @@ import { GrowthEventService } from '../growth/growth-event.service';
 import { pickUniqueNormalShareCode } from '../normal-share/normal-share-code.util';
 import { InviteH5Service } from '../invite-h5/invite-h5.service';
 import { H5WechatInviteLoginDto, H5WechatStartQueryDto } from './dto/send-code.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { acquireUserWriteLock } from '../../common/transactions/active-user-write-barrier';
 
 type WechatOAuthSource = 'mobile' | 'h5';
 
@@ -52,6 +54,9 @@ const PHONE_AUTH_APP_ID = 'PHONE';
 const H5_WECHAT_STATE_TTL_MS = 10 * 60_000;
 const H5_WECHAT_STATE_KEY_PREFIX = 'auth:h5-wechat:state';
 const WECHAT_UNION_LOCK_TTL_MS = 10_000;
+const WECHAT_DELETION_PROOF_TTL_MS = 5 * 60_000;
+const WECHAT_DELETION_PROOF_PREFIX = 'auth:wechat-deletion-proof';
+const wechatDeletionProofMemoryStore = new Map<string, { value: string; expiresAt: number }>();
 const h5WechatStateMemoryStore = new Map<string, { value: string; expiresAt: number }>();
 
 @Injectable()
@@ -331,6 +336,66 @@ export class AuthService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto, currentSessionId?: string) {
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/.test(dto.newPassword)) throw new BadRequestException('新密码至少 6 位且必须包含大写字母、小写字母和数字');
+    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    return this.prisma.$transaction(async (tx) => {
+      await acquireUserWriteLock(tx, userId);
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { status: true, deletionExecutedAt: true } });
+      if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) throw new ForbiddenException('账号已注销，不能修改密码');
+      const identity = await tx.authIdentity.findFirst({ where: { userId, provider: 'PHONE' } });
+      const meta: Prisma.JsonObject = identity?.meta && typeof identity.meta === 'object' && !Array.isArray(identity.meta) ? identity.meta as Prisma.JsonObject : {};
+      const passwordHash = typeof meta.passwordHash === 'string' ? meta.passwordHash : null;
+      if (!identity || !passwordHash) throw new BadRequestException('该账号尚未设置密码，请使用忘记密码流程设置');
+      if (!await bcrypt.compare(dto.oldPassword, passwordHash)) throw new UnauthorizedException('旧密码不正确');
+      if (await bcrypt.compare(dto.newPassword, passwordHash)) throw new BadRequestException('新密码不能与旧密码相同');
+      await tx.authIdentity.update({ where: { id: identity.id }, data: { meta: { ...meta, passwordHash: newHash } } });
+      await tx.session.updateMany({ where: { userId, status: 'ACTIVE', ...(currentSessionId ? { id: { not: currentSessionId } } : {}) }, data: { status: 'REVOKED', expiresAt: new Date() } });
+      await tx.loginEvent.create({ data: { userId, provider: 'PHONE', phone: identity.identifier, success: true, meta: { action: 'PASSWORD_CHANGED', otherSessionsRevoked: true } } });
+      return { ok: true };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async createWechatDeletionProof(userId: string, code: string) {
+    const profile = await this.exchangeWechatOAuthCode(code, 'mobile');
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: {
+        userId,
+        provider: 'WECHAT',
+        verified: true,
+        OR: [
+          { identifier: profile.openId, OR: [{ appId: profile.appId }, { appId: null }] },
+          ...(profile.unionId ? [{ unionId: profile.unionId }, { meta: { path: ['unionId'], equals: profile.unionId } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (!identity) throw new ForbiddenException('当前微信与登录账号不一致，请重新登录后再试');
+    const proof = randomBytes(32).toString('hex');
+    const key = `${WECHAT_DELETION_PROOF_PREFIX}:${this.hashKey(proof)}`;
+    const value = JSON.stringify({ userId, expiresAt: Date.now() + WECHAT_DELETION_PROOF_TTL_MS });
+    const stored = await this.redisCoord.set(key, value, WECHAT_DELETION_PROOF_TTL_MS);
+    if (!stored) {
+      if (this.config.get('NODE_ENV', 'development') === 'production') throw new HttpException('微信验证服务繁忙，请稍后重试', HttpStatus.SERVICE_UNAVAILABLE);
+      wechatDeletionProofMemoryStore.set(key, { value, expiresAt: Date.now() + WECHAT_DELETION_PROOF_TTL_MS });
+    }
+    return { wechatDeletionProof: proof, expiresInSeconds: 300 };
+  }
+
+  async consumeWechatDeletionProof(userId: string, proof: string) {
+    if (!/^[a-f0-9]{64}$/.test(proof)) throw new BadRequestException('微信注销证明无效，请重新验证');
+    const key = `${WECHAT_DELETION_PROOF_PREFIX}:${this.hashKey(proof)}`;
+    let value = await this.redisCoord.getdel(key);
+    if (!value) {
+      const fallback = wechatDeletionProofMemoryStore.get(key);
+      if (fallback?.expiresAt && fallback.expiresAt > Date.now()) value = fallback.value;
+      wechatDeletionProofMemoryStore.delete(key);
+    }
+    if (!value) throw new BadRequestException('微信注销证明无效或已过期，请重新验证');
+    const payload = JSON.parse(value) as { userId?: string; expiresAt?: number };
+    if (payload.userId !== userId || !payload.expiresAt || payload.expiresAt <= Date.now()) throw new ForbiddenException('微信注销证明不匹配，请重新验证');
   }
 
   /**

@@ -80,6 +80,7 @@ export interface AccountDeletionExecutePayload {
   smsCode?: string;
   /** 弹窗确认文案（WECHAT_MODAL 必填，须 === '确认注销'） */
   modalConfirmText?: string;
+  wechatDeletionProof?: string;
   /** 须显式 true：用户已阅读并同意注销须知 */
   acknowledgedNotice: true;
 }

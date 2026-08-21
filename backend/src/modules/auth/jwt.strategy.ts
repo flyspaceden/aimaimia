@@ -76,6 +76,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
-    return { sub: payload.sub };
+    // 控制器需要精确识别当前 Session，改密等操作只能撤销“其他设备”。
+    return { sub: payload.sub, sessionId: payload.sessionId };
   }
 }

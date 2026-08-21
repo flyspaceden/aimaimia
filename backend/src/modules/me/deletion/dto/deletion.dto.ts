@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -29,6 +30,9 @@ export class ExecuteDeletionDto {
   @IsString()
   @MaxLength(20)
   modalConfirmText?: string;
+
+  @IsOptional() @IsString() @Matches(/^[a-f0-9]{64}$/)
+  wechatDeletionProof?: string;
 
   @IsBoolean()
   @Equals(true)

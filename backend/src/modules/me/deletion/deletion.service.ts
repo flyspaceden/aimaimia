@@ -37,6 +37,7 @@ import { DigitalAssetService } from '../../digital-asset/digital-asset.service';
 import { PLATFORM_USER_ID } from '../../bonus/engine/constants';
 import { QueueRewardService } from '../../queue-reward/queue-reward.service';
 import { AccountDeletionConfirmMethod, ExecuteDeletionDto } from './dto/deletion.dto';
+import { AuthService } from '../../auth/auth.service';
 
 type DeletionBlockerCode =
   | 'IS_COMPANY_OWNER'
@@ -102,6 +103,7 @@ export class DeletionService {
     private readonly redisCoord: RedisCoordinatorService,
     private readonly aliyunSms: AliyunSmsService,
     private readonly digitalAssetService: DigitalAssetService,
+    private readonly authService: AuthService,
     private readonly queueRewardService?: QueueRewardService,
   ) {}
 
@@ -379,6 +381,7 @@ export class DeletionService {
       if (dto.modalConfirmText !== DeletionService.DELETION_CONFIRM_TEXT) {
         throw new BadRequestException({ code: 'WECHAT_CONFIRM_TEXT_INVALID', message: '请输入“确认注销”' });
       }
+      if (!dto.wechatDeletionProof) throw new BadRequestException('请先重新验证当前微信身份');
       const wechatIdentity = await tx.authIdentity.findFirst({
         where: { userId, provider: AuthProvider.WECHAT, verified: true },
         select: { id: true },
@@ -389,6 +392,7 @@ export class DeletionService {
           message: '当前账号未绑定微信，请使用短信验证码确认注销',
         });
       }
+      await this.authService.consumeWechatDeletionProof(userId, dto.wechatDeletionProof);
       return;
     }
 
