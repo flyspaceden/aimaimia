@@ -77,6 +77,8 @@ function unavailableText(reason?: string | null) {
       return '规格不存在';
     case 'PRODUCT_MISSING':
       return '商品不存在';
+    case 'COMPANY_INACTIVE':
+      return '企业已停用';
     case 'OUT_OF_STOCK':
       return '无库存';
     default:

@@ -44,6 +44,13 @@ export class AdminAuditCompanyDto {
   note?: string;
 }
 
+export class AdminDeleteCompanyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  confirmationName: string;
+}
+
 export class AdminUpdateHighlightsDto {
   @IsObject()
   highlights: Record<string, string>;

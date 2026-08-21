@@ -2,9 +2,10 @@
  * 爱买买生产环境基础数据 Bootstrap 脚本
  *
  * 用途：首次部署生产环境后跑一次，建立后端能正常运行的最小基础数据：
- *   - 60 个权限定义（AdminPermission）
+ *   - 当前全部权限定义（AdminPermission）
  *   - 3 个默认角色（超级管理员 / 经理 / 员工）+ 角色-权限关联
  *   - 1 个超级管理员账号（admin / 默认密码 123456，**部署后必须立刻改密**）
+ *   - 6 类企业/商品标签目录（不含任何 demo 企业/商品）
  *   - 平台系统用户（PLATFORM）+ 平台公司（PLATFORM_COMPANY）
  *   - 普通用户树根节点（NORMAL_ROOT）
  *   - VIP 三叉树根节点 A1-A10
@@ -25,7 +26,7 @@
  * 幂等性：所有 INSERT 都用 upsert，重复运行不会报错也不会重置已有数据。
  *
  * 来源对照（脚本内容必须与 backend/prisma/seed.ts 中对应章节保持一致）：
- *   - permissions（60 条）  : seed.ts:1341-1410
+ *   - permissions            : seed.ts 权限定义章节
  *   - 3 个默认角色          : seed.ts:1417-1487
  *   - 超级管理员            : seed.ts:1490-1508
  *   - 平台用户/公司/根节点  : seed.ts:1511-1570
@@ -61,6 +62,9 @@ const PERMISSIONS = [
   { code: 'companies:read', module: 'companies', action: 'read', description: '查看企业列表' },
   { code: 'companies:update', module: 'companies', action: 'update', description: '编辑企业' },
   { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
+  { code: 'companies:delete', module: 'companies', action: 'delete', description: '删除与恢复企业' },
+  { code: 'tags:read', module: 'tags', action: 'read', description: '查看标签管理' },
+  { code: 'tags:manage', module: 'tags', action: 'manage', description: '管理标签类别与标签' },
   { code: 'pickup_points:read', module: 'pickup_points', action: 'read', description: '查看自提点' },
   { code: 'pickup_points:create', module: 'pickup_points', action: 'create', description: '创建自提点' },
   { code: 'pickup_points:update', module: 'pickup_points', action: 'update', description: '编辑和启停自提点' },
@@ -143,6 +147,33 @@ const STAFF_PERMISSIONS = [
   'config:read',
   'audit:read',
 ];
+
+const TAG_CATALOG = [
+  {
+    code: 'company_cert', name: '企业认证', scope: 'COMPANY' as const, sortOrder: 1,
+    tags: ['圳品', '出口认证', '绿色食品', '地理标志', 'GAP认证', 'SC认证', 'ISO22000', 'HACCP', '优选基地', '品质认证', '产地直供', '低碳种植', '冷链保障', '源头工厂'],
+  },
+  {
+    code: 'industry', name: '行业标签', scope: 'COMPANY' as const, sortOrder: 3,
+    tags: ['水果', '蔬菜', '粮油', '肉禽', '水产', '茶叶', '蜂蜜', '乳制品', '干货', '调味品'],
+  },
+  {
+    code: 'product_feature', name: '产品特色', scope: 'COMPANY' as const, sortOrder: 4,
+    tags: ['可溯源', '冷链', '无添加', '非转基因', '手工制作', '当季采摘'],
+  },
+  {
+    code: 'supply_mode', name: '供应方式', scope: 'COMPANY' as const, sortOrder: 5,
+    tags: ['批发', '零售', '直供', '同城配送', '可预约考察', '一件代发'],
+  },
+  {
+    code: 'service_area', name: '服务区域', scope: 'COMPANY' as const, sortOrder: 6,
+    tags: ['本地', '全省', '全国', '华东', '华南', '华北', '华中', '西南', '西北', '东北'],
+  },
+  {
+    code: 'product_tag', name: '商品标签', scope: 'PRODUCT' as const, sortOrder: 7,
+    tags: ['可信溯源', '检测报告', '圳品认证', '地理标志', '当季鲜采', '冷链直达', '非转基因'],
+  },
+] as const;
 
 // ──────────────────────────────────────────────────────────────
 // 3. RuleConfig 初始值（源自 seed.ts:1575-1675）
@@ -261,7 +292,7 @@ async function main() {
   // ────────────────────────────────────────────────────
   // 1. 创建权限
   // ────────────────────────────────────────────────────
-  console.log('[1/8] 创建权限...');
+  console.log('[1/9] 创建权限...');
   const permissionIds: Record<string, string> = {};
   for (const p of PERMISSIONS) {
     const rec = await prisma.adminPermission.upsert({
@@ -276,7 +307,7 @@ async function main() {
   // ────────────────────────────────────────────────────
   // 2. 创建 3 个默认角色 + 角色-权限关联
   // ────────────────────────────────────────────────────
-  console.log('[2/8] 创建默认角色（超级管理员 / 经理 / 员工）...');
+  console.log('[2/9] 创建默认角色（超级管理员 / 经理 / 员工）...');
   const superAdminRole = await prisma.adminRole.upsert({
     where: { name: '超级管理员' },
     update: {},
@@ -296,7 +327,12 @@ async function main() {
     create: { name: '经理', description: '大部分业务操作权限，无管理员和角色管理权限', isSystem: true },
   });
   const managerPerms = PERMISSIONS
-    .filter((p) => !p.module.startsWith('admin_') && p.module !== 'pickup_points' && p.module !== 'pickup_fulfillment')
+    .filter((p) =>
+      !p.module.startsWith('admin_')
+      && p.module !== 'pickup_points'
+      && p.module !== 'pickup_fulfillment'
+      && p.code !== 'companies:delete',
+    )
     .map((p) => p.code);
   for (const code of managerPerms) {
     await prisma.adminRolePermission.upsert({
@@ -320,8 +356,40 @@ async function main() {
   }
   console.log('     ✅ 3 个默认角色已创建');
 
+  console.log('[3/9] 创建企业/商品标签目录...');
+  for (const catalog of TAG_CATALOG) {
+    const category = await prisma.tagCategory.upsert({
+      where: { code: catalog.code },
+      update: {},
+      create: {
+        code: catalog.code,
+        name: catalog.name,
+        scope: catalog.scope,
+        sortOrder: catalog.sortOrder,
+      },
+    });
+    for (let index = 0; index < catalog.tags.length; index++) {
+      const name = catalog.tags[index];
+      await prisma.tag.upsert({
+        where: { name_categoryId: { name, categoryId: category.id } },
+        update: {},
+        create: { name, categoryId: category.id, sortOrder: index, isActive: true },
+      });
+    }
+  }
+  const legacyCategories = await prisma.tagCategory.findMany({
+    where: { code: { in: ['COMPANY', 'PRODUCT', 'TRACE', 'AI'] } },
+    include: { _count: { select: { tags: true } } },
+  });
+  for (const legacyCategory of legacyCategories) {
+    if (legacyCategory._count.tags === 0) {
+      await prisma.tagCategory.delete({ where: { id: legacyCategory.id } });
+    }
+  }
+  console.log(`     ✅ ${TAG_CATALOG.length} 类企业/商品标签已创建/对齐`);
+
   // ────────────────────────────────────────────────────
-  // 3. 超级管理员账号
+  // 4. 超级管理员账号
   // ────────────────────────────────────────────────────
   const initPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || '123456';
   if (initPassword === '123456') {
@@ -329,7 +397,7 @@ async function main() {
       '     ⚠️  使用默认密码 123456。强烈建议用 ADMIN_BOOTSTRAP_PASSWORD env 自定义，或部署后立刻在管理后台改密。',
     );
   }
-  console.log('[3/8] 创建超级管理员账号 admin...');
+  console.log('[4/9] 创建超级管理员账号 admin...');
   const passwordHash = await bcrypt.hash(initPassword, 10);
   const superAdmin = await prisma.adminUser.upsert({
     where: { username: 'admin' },
@@ -350,9 +418,9 @@ async function main() {
   console.log(`     ✅ 超级管理员 admin / ${initPassword === '123456' ? '123456（请立即改密）' : '(自定义密码)'}`);
 
   // ────────────────────────────────────────────────────
-  // 4. 平台系统用户 PLATFORM
+  // 5. 平台系统用户 PLATFORM
   // ────────────────────────────────────────────────────
-  console.log('[4/8] 创建平台系统用户 PLATFORM...');
+  console.log('[5/9] 创建平台系统用户 PLATFORM...');
   await prisma.user.upsert({
     where: { id: 'PLATFORM' },
     update: {},
@@ -367,9 +435,9 @@ async function main() {
   console.log('     ✅ PLATFORM 用户已创建');
 
   // ────────────────────────────────────────────────────
-  // 5. 平台公司 PLATFORM_COMPANY
+  // 6. 平台公司 PLATFORM_COMPANY
   // ────────────────────────────────────────────────────
-  console.log('[5/8] 创建平台公司 PLATFORM_COMPANY...');
+  console.log('[6/9] 创建平台公司 PLATFORM_COMPANY...');
   await prisma.company.upsert({
     where: { id: 'PLATFORM_COMPANY' },
     update: { name: '爱买买app', isPlatform: true },
@@ -393,9 +461,9 @@ async function main() {
   console.log('     ✅ PLATFORM_COMPANY 平台公司已创建');
 
   // ────────────────────────────────────────────────────
-  // 6. 普通用户树根节点 NORMAL_ROOT
+  // 7. 普通用户树根节点 NORMAL_ROOT
   // ────────────────────────────────────────────────────
-  console.log('[6/8] 创建普通用户树根节点 NORMAL_ROOT...');
+  console.log('[7/9] 创建普通用户树根节点 NORMAL_ROOT...');
   await prisma.normalTreeNode.upsert({
     where: { id: 'NORMAL_ROOT' },
     update: {},
@@ -412,9 +480,9 @@ async function main() {
   console.log('     ✅ NORMAL_ROOT 已创建');
 
   // ────────────────────────────────────────────────────
-  // 7. VIP 三叉树根节点 A1-A10
+  // 8. VIP 三叉树根节点 A1-A10
   // ────────────────────────────────────────────────────
-  console.log('[7/8] 创建 VIP 三叉树根节点 A1-A10...');
+  console.log('[8/9] 创建 VIP 三叉树根节点 A1-A10...');
   for (let i = 1; i <= 10; i++) {
     await prisma.vipTreeNode.upsert({
       where: { id: `sys-a${i}` },
@@ -433,9 +501,9 @@ async function main() {
   console.log('     ✅ A1-A10 共 10 个 VIP 系统根节点已创建');
 
   // ────────────────────────────────────────────────────
-  // 8. RuleConfig + 初始快照
+  // 9. RuleConfig + 初始快照
   // ────────────────────────────────────────────────────
-  console.log('[8/8] 写入 RuleConfig...');
+  console.log('[9/9] 写入 RuleConfig...');
   for (const rc of RULE_CONFIGS) {
     await prisma.ruleConfig.upsert({
       where: { key: rc.key },

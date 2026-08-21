@@ -43,6 +43,8 @@ export const companyStatusMap: Record<string, StatusEntry> = {
   APPROVED: { text: '已通过', color: 'green' },
   REJECTED: { text: '已拒绝', color: 'red' },
   SUSPENDED: { text: '已暂停', color: 'default' },
+  BANNED: { text: '已封禁', color: 'red' },
+  DELETED: { text: '已删除', color: 'default' },
 };
 
 // 买家用户状态

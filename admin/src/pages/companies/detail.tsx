@@ -68,9 +68,12 @@ import dayjs from 'dayjs';
 
 const statusMap: Record<string, { text: string; color: string }> = {
   PENDING: { text: '待审核', color: 'orange' },
+  ACTIVE: { text: '正常', color: 'green' },
   APPROVED: { text: '已通过', color: 'green' },
   REJECTED: { text: '已拒绝', color: 'red' },
   SUSPENDED: { text: '已暂停', color: 'default' },
+  BANNED: { text: '已封禁', color: 'red' },
+  DELETED: { text: '已删除', color: 'default' },
 };
 
 const verifyStatusMap: Record<string, { text: string; color: string }> = {
@@ -189,7 +192,11 @@ export default function CompanyDetailPage() {
     enabled: !!id,
   });
 
-  const { data: tagCategories = [] } = useQuery({
+  const {
+    data: tagCategories = [],
+    isLoading: tagCategoriesLoading,
+    isError: tagCategoriesError,
+  } = useQuery({
     queryKey: ['tag-categories-company'],
     queryFn: () => getPublicTagCategories('COMPANY'),
   });
@@ -200,6 +207,13 @@ export default function CompanyDetailPage() {
     enabled: !!id,
   });
 
+  const selectableTagCategories = tagCategories.filter(
+    (category) => category.scope === 'COMPANY' && category.tags.length > 0,
+  );
+  const selectableTagIds = new Set(
+    selectableTagCategories.flatMap((category) => category.tags.map((tag) => tag.id)),
+  );
+
   // 初始化标签选中状态
   useEffect(() => {
     if (companyTagGroups.length > 0 && aiFormRef.current) {
@@ -207,7 +221,7 @@ export default function CompanyDetailPage() {
         aiFormRef.current.setFieldValue(`tag_${group.categoryCode}`, group.tags.map(t => t.id));
       }
     }
-  }, [companyTagGroups]);
+  }, [aiProfile, companyTagGroups, tagCategories]);
 
   const handleAudit = async (status: 'APPROVED' | 'REJECTED') => {
     if (!company) return;
@@ -282,11 +296,15 @@ export default function CompanyDetailPage() {
       });
       // 收集所有标签 ID
       const allTagIds: string[] = [];
-      for (const cat of tagCategories) {
+      for (const cat of selectableTagCategories) {
         const fieldValue = values[`tag_${cat.code}`] || [];
         allTagIds.push(...fieldValue);
       }
-      await updateCompanyTags(id!, allTagIds);
+      // 保留已绑定但当前不在可选目录中的历史/停用标签，避免保存其他字段时意外删除。
+      const preservedTagIds = companyTagGroups
+        .flatMap((group) => group.tags.map((tag) => tag.id))
+        .filter((tagId) => !selectableTagIds.has(tagId));
+      await updateCompanyTags(id!, [...new Set([...allTagIds, ...preservedTagIds])]);
       message.success('AI 搜索资料已更新');
       refetchAiProfile();
       queryClient.invalidateQueries({ queryKey: ['company-tags', id] });
@@ -458,6 +476,7 @@ export default function CompanyDetailPage() {
 
   if (!company) return null;
 
+  const isDeleted = company.status === 'DELETED';
   const status = statusMap[company.status];
   const documents: CompanyDocument[] = company.documents || [];
   const counts = company._count as { products: number; bookings: number } || {
@@ -536,7 +555,7 @@ export default function CompanyDetailPage() {
       width: 100,
       render: (_: unknown, record: CompanyDocument) => (
         <PermissionGate permission={PERMISSIONS.COMPANIES_AUDIT}>
-          {record.verifyStatus === 'PENDING' && (
+          {!isDeleted && record.verifyStatus === 'PENDING' && (
             <Button
               type="link"
               size="small"
@@ -563,17 +582,19 @@ export default function CompanyDetailPage() {
         return (
           <Space size={4}>
             <span>{nickname}</span>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              title="修改昵称"
-              onClick={() => {
-                setEditNicknameTarget(r);
-                editNicknameForm.setFieldsValue({ nickname: nickname === '-' ? '' : nickname });
-              }}
-              style={{ color: '#8c8c8c' }}
-            />
+            {!isDeleted && (
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                title="修改昵称"
+                onClick={() => {
+                  setEditNicknameTarget(r);
+                  editNicknameForm.setFieldsValue({ nickname: nickname === '-' ? '' : nickname });
+                }}
+                style={{ color: '#8c8c8c' }}
+              />
+            )}
             {phone && <span style={{ color: '#8c8c8c' }}>({phone})</span>}
           </Space>
         );
@@ -610,7 +631,7 @@ export default function CompanyDetailPage() {
       width: 380,
       render: (_: unknown, record: CompanyStaff) => (
         <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-          <Space size="small" wrap>
+          {!isDeleted && <Space size="small" wrap>
             <Button
               type="link"
               size="small"
@@ -665,7 +686,7 @@ export default function CompanyDetailPage() {
                 </Popconfirm>
               </>
             )}
-          </Space>
+          </Space>}
         </PermissionGate>
       ),
     },
@@ -780,6 +801,16 @@ export default function CompanyDetailPage() {
         </PermissionGate>
       </Space>
 
+      {isDeleted && (
+        <Alert
+          type="warning"
+          showIcon
+          message="该企业已删除，当前为只读状态"
+          description="历史订单、资金、员工和审计资料仍保留。请先从企业列表的回收站恢复，再进行修改。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
@@ -817,7 +848,7 @@ export default function CompanyDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-            {!editing && (
+            {!isDeleted && !editing && (
               <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>
                 编辑
               </Button>
@@ -959,13 +990,30 @@ export default function CompanyDetailPage() {
             layout="vertical"
             style={{ maxWidth: 600 }}
             key={JSON.stringify(aiProfile)}
+            disabled={isDeleted}
+            submitter={isDeleted ? false : undefined}
           >
             <ProForm.Item name="companyType" label="企业类型" rules={[{ required: true, message: '请选择企业类型' }]}>
               <Select placeholder="请选择企业类型" options={COMPANY_TYPE_OPTIONS} />
             </ProForm.Item>
-            {tagCategories
-              .filter(cat => cat.code !== 'product_tag')
-              .map(cat => (
+            {tagCategoriesLoading ? (
+              <div style={{ padding: '12px 0' }}><Spin size="small" /> <span style={{ marginLeft: 8 }}>正在加载企业标签</span></div>
+            ) : tagCategoriesError ? (
+              <Alert type="error" showIcon message="企业标签加载失败" description="请刷新页面后重试。" />
+            ) : selectableTagCategories.length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="暂无可用企业标签"
+                description="请先在标签管理中创建企业标签选项，再回到此处选择。"
+                action={(
+                  <PermissionGate permission={PERMISSIONS.TAGS_READ}>
+                    <Button size="small" onClick={() => navigate('/tags')}>前往标签管理</Button>
+                  </PermissionGate>
+                )}
+                style={{ marginBottom: 16 }}
+              />
+            ) : selectableTagCategories.map(cat => (
                 <ProForm.Item
                   key={cat.code}
                   name={`tag_${cat.code}`}
@@ -991,7 +1039,7 @@ export default function CompanyDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-            <Space>
+            {!isDeleted && <Space>
               {!hasOwner && (
                 <Button
                   type="primary"
@@ -1022,7 +1070,7 @@ export default function CompanyDetailPage() {
               >
                 添加员工
               </Button>
-            </Space>
+            </Space>}
           </PermissionGate>
         }
       >
@@ -1036,14 +1084,14 @@ export default function CompanyDetailPage() {
             style={{ marginBottom: 16 }}
             action={
               <PermissionGate permission={PERMISSIONS.COMPANIES_UPDATE}>
-                <Button
+                {!isDeleted && <Button
                   type="primary"
                   size="small"
                   icon={<UserAddOutlined />}
                   onClick={() => setBindModalOpen(true)}
                 >
                   绑定创始人
-                </Button>
+                </Button>}
               </PermissionGate>
             }
           />

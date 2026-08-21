@@ -114,6 +114,7 @@ export class GroupBuyCheckoutService {
               title: true,
               type: true,
               companyId: true,
+              company: { select: { status: true } },
               status: true,
               media: {
                 select: { url: true },
@@ -156,6 +157,7 @@ export class GroupBuyCheckoutService {
                   title: true,
                   type: true,
                   companyId: true,
+                  company: { select: { status: true } },
                   status: true,
                   media: {
                     select: { url: true },
@@ -361,6 +363,7 @@ export class GroupBuyCheckoutService {
               title: true,
               type: true,
               companyId: true,
+              company: { select: { status: true } },
               status: true,
               media: {
                 select: { url: true },
@@ -403,6 +406,7 @@ export class GroupBuyCheckoutService {
                   title: true,
                   type: true,
                   companyId: true,
+                  company: { select: { status: true } },
                   status: true,
                   media: {
                     select: { url: true },
@@ -673,6 +677,9 @@ export class GroupBuyCheckoutService {
       }
       if (item.product.companyId !== PLATFORM_COMPANY_ID) {
         throw new BadRequestException("团购活动商品配置异常");
+      }
+      if (item.product.company?.status && item.product.company.status !== 'ACTIVE') {
+        throw new BadRequestException('团购商品所属企业已停用');
       }
       if (item.product.status !== ProductStatus.ACTIVE) {
         throw new BadRequestException("团购活动商品已下架");

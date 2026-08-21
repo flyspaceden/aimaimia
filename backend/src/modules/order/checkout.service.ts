@@ -1179,6 +1179,7 @@ export class CheckoutService {
       include: {
         product: {
           include: {
+            company: { select: { id: true, status: true } },
             media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
             bundleItems: {
               orderBy: { sortOrder: 'asc' },
@@ -1212,6 +1213,7 @@ export class CheckoutService {
         include: {
           product: {
             include: {
+              company: { select: { id: true, status: true } },
               media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
               bundleItems: {
                 orderBy: { sortOrder: 'asc' },
@@ -1317,7 +1319,12 @@ export class CheckoutService {
         }
       }
 
-      if (sku.status !== 'ACTIVE' || sku.product.status !== 'ACTIVE') {
+      const companyStatus = sku.product.company?.status ?? 'ACTIVE';
+      if (
+        sku.status !== 'ACTIVE'
+        || sku.product.status !== 'ACTIVE'
+        || companyStatus !== 'ACTIVE'
+      ) {
         if (prizeCartItem) {
           excludedItems.push({
             cartItemId: prizeCartItem.id,
@@ -1327,6 +1334,9 @@ export class CheckoutService {
             prizeRecordId: prizeCartItem.prizeRecordId ?? null,
           });
           continue;
+        }
+        if (companyStatus !== 'ACTIVE') {
+          throw new BadRequestException(`商品「${sku.product.title}」所属企业已停用`);
         }
         if (sku.status !== 'ACTIVE') throw new BadRequestException(`商品规格 ${sku.title} 已下架`);
         throw new BadRequestException(`商品 ${sku.product.title} 已下架`);
@@ -1724,6 +1734,18 @@ export class CheckoutService {
       try {
         const session = await this.prisma.$transaction(async (tx) => {
           await assertActiveUserWriteBarrier(tx, userId);
+          const checkoutCompanyIds = companyGroups
+            .map((group) => group.companyId)
+            .filter((companyId) => companyId && companyId !== '__NO_COMPANY__');
+          const companyModel = (tx as any).company;
+          if (companyModel?.count) {
+            const activeCompanyCount = await companyModel.count({
+              where: { id: { in: checkoutCompanyIds }, status: 'ACTIVE' },
+            });
+            if (activeCompanyCount !== checkoutCompanyIds.length) {
+              throw new BadRequestException('部分商品所属企业已停用，请刷新购物车后重试');
+            }
+          }
           // Task 18 修正：防重锁按 bizType 隔离 — 普通商品 session 间互斥；
           // 不影响 VIP session（用户可以同时有一个普通 + 一个 VIP ACTIVE session）
           const activeSession = await tx.checkoutSession.findFirst({

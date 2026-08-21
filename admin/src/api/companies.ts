@@ -6,6 +6,18 @@ interface CompanyQueryParams extends PaginationParams {
   keyword?: string;
 }
 
+export interface CompanyDeletionBlocker {
+  code: string;
+  label: string;
+  count: number;
+}
+
+export interface CompanyDeletionCheck {
+  canDelete: boolean;
+  company: Pick<Company, 'id' | 'name' | 'status'> & { isPlatform: boolean };
+  blockers: CompanyDeletionBlocker[];
+}
+
 /** 企业列表 */
 export const getCompanies = (params?: CompanyQueryParams): Promise<PaginatedData<Company>> =>
   client.get('/admin/companies', { params });
@@ -33,6 +45,23 @@ export const auditCompany = (id: string, data: {
   note?: string;
 }): Promise<Company> =>
   client.post(`/admin/companies/${id}/audit`, data);
+
+/** 删除前检查未完成业务 */
+export const getCompanyDeletionCheck = (id: string): Promise<CompanyDeletionCheck> =>
+  client.get(`/admin/companies/${id}/deletion-check`);
+
+/** 软删除企业（需输入完整企业名称） */
+export const deleteCompany = (
+  id: string,
+  confirmationName: string,
+): Promise<{ ok: boolean; companyId: string; deletedAt: string }> =>
+  client.delete(`/admin/companies/${id}`, { data: { confirmationName } });
+
+/** 从回收站恢复企业 */
+export const restoreCompany = (
+  id: string,
+): Promise<{ ok: boolean; companyId: string; status: string }> =>
+  client.post(`/admin/companies/${id}/restore`);
 
 /** 获取企业亮点 */
 export const getCompanyHighlights = (companyId: string): Promise<Record<string, string>> =>

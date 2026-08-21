@@ -1490,6 +1490,9 @@ async function main() {
     { code: 'companies:read', module: 'companies', action: 'read', description: '查看企业列表' },
     { code: 'companies:update', module: 'companies', action: 'update', description: '编辑企业' },
     { code: 'companies:audit', module: 'companies', action: 'audit', description: '审核企业' },
+    { code: 'companies:delete', module: 'companies', action: 'delete', description: '删除与恢复企业' },
+    { code: 'tags:read', module: 'tags', action: 'read', description: '查看标签管理' },
+    { code: 'tags:manage', module: 'tags', action: 'manage', description: '管理标签类别与标签' },
     { code: 'pickup_points:read', module: 'pickup_points', action: 'read', description: '查看自提点' },
     { code: 'pickup_points:create', module: 'pickup_points', action: 'create', description: '创建自提点' },
     { code: 'pickup_points:update', module: 'pickup_points', action: 'update', description: '编辑和启停自提点' },
@@ -1601,7 +1604,12 @@ async function main() {
     },
   });
   const managerPermissions = permissions
-    .filter((p) => !p.module.startsWith('admin_') && p.module !== 'pickup_points' && p.module !== 'pickup_fulfillment')
+    .filter((p) =>
+      !p.module.startsWith('admin_')
+      && p.module !== 'pickup_points'
+      && p.module !== 'pickup_fulfillment'
+      && p.code !== 'companies:delete',
+    )
     .map((p) => p.code);
   for (const code of managerPermissions) {
     const permId = permissionRecords[code];

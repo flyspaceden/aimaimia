@@ -26,6 +26,7 @@ const moduleNames: Record<string, string> = {
   pickup_points: '自提点管理',
   pickup_fulfillment: '平台自提履约',
   companies: '企业管理',
+  tags: '标签管理',
   bonus: '会员奖励',
   digital_assets: '数字资产',
   trace: '溯源管理',
