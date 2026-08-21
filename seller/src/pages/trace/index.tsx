@@ -13,11 +13,11 @@ import dayjs from 'dayjs';
 
 // 常用溯源属性模板
 const META_KEYS = [
-  { key: 'origin', label: '产地' },
-  { key: 'farmingMethod', label: '种植/养殖方式' },
-  { key: 'feed', label: '饲料/肥料' },
-  { key: 'inspection', label: '检验报告摘要' },
-  { key: 'harvestDate', label: '采收日期' },
+  { key: 'origin', label: '来源地' },
+  { key: 'farmingMethod', label: '生产方式' },
+  { key: 'feed', label: '原料 / 组成' },
+  { key: 'inspection', label: '检验 / 检测摘要' },
+  { key: 'harvestDate', label: '生产 / 获取日期' },
   { key: 'certification', label: '认证信息' },
 ];
 

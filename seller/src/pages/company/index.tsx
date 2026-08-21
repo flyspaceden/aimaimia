@@ -306,7 +306,7 @@ export default function CompanySettingsPage() {
                 { required: true, message: '请填写企业简介' },
                 { min: 20, message: '简介至少 20 字，让 AI 能更好地向买家介绍您的企业' },
               ]}
-              placeholder="请详细描述企业经营范围、特色产品、种植理念等。AI 语音助手会根据描述向买家推荐您的企业"
+              placeholder="请详细描述企业经营范围、特色产品、经营理念等。AI 语音助手会根据描述向买家推荐您的企业"
               fieldProps={{ rows: 4 }}
             />
             {/* 结构化发货地址（省/市/区/详细），顺丰快递 API 必需 */}
