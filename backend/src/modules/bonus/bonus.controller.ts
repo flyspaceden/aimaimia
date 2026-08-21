@@ -1,16 +1,35 @@
-import { BadRequestException, Body, Controller, Get, GoneException, Headers, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  GoneException,
+  Headers,
+  Logger,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { BonusService } from './bonus.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { UseReferralDto } from './dto/use-referral.dto';
 import { WithdrawDto } from './dto/withdraw.dto';
 import { WithdrawPayoutService } from './withdraw-payout.service';
+import { WechatMerchantTransferService } from './wechat-merchant-transfer.service';
 
 @Controller('bonus')
 export class BonusController {
+  private readonly logger = new Logger(BonusController.name);
+
   constructor(
     private bonusService: BonusService,
     private withdrawPayoutService: WithdrawPayoutService,
+    private wechatMerchantTransferService: WechatMerchantTransferService,
   ) {}
 
   // ========== 会员信息 ==========
@@ -71,17 +90,110 @@ export class BonusController {
     );
   }
 
+  /** 小程序微信提现页面的公开规则读模型；实际冻结时仍由服务端再次裁决。 */
+  @Get('withdraw/wechat/policy')
+  getWechatMiniappWithdrawPolicy() {
+    return this.withdrawPayoutService.getWechatMiniappWithdrawPolicy();
+  }
+
   /** 申请提现 */
   @Post('withdraw')
   requestWithdraw(
     @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | undefined,
+    @CurrentUser('authIdentityId') authIdentityId: string | undefined,
     @Body() dto: WithdrawDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
       throw new BadRequestException('Idempotency-Key header required');
     }
-    return this.withdrawPayoutService.requestWithdraw(userId, dto, idempotencyKey.trim());
+    return this.withdrawPayoutService.requestWithdraw(
+      userId,
+      dto,
+      idempotencyKey.trim(),
+      { sessionId, authIdentityId },
+    );
+  }
+
+  /**
+   * 用户关闭首次收款确认页后，必须先查询同一微信原单，
+   * 只在原单仍可确认时重新下发已保存的 package_info。
+   */
+  @Post('withdraw/:id/wechat/confirmation')
+  continueWechatWithdrawConfirmation(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | undefined,
+    @CurrentUser('authIdentityId') authIdentityId: string | undefined,
+    @Param('id') withdrawId: string,
+  ) {
+    return this.withdrawPayoutService.continueWechatWithdrawConfirmation(
+      userId,
+      withdrawId,
+      { sessionId, authIdentityId },
+    );
+  }
+
+  /** 微信商家转账终态通知：rawBody 验签后，再按原 outBillNo 查单完成 appid/资金身份核验。 */
+  @Public()
+  @Throttle({
+    default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 600 },
+    user: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 600 },
+  })
+  @Post('withdraw/wechat/notify')
+  async handleWechatTransferNotify(
+    @Body() body: Record<string, any>,
+    @Req() req: Request & { rawBody?: Buffer | string },
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Res() res: Response,
+  ) {
+    const rawBody = Buffer.isBuffer(req.rawBody)
+      ? req.rawBody.toString('utf8')
+      : typeof req.rawBody === 'string' && req.rawBody.length > 0
+        ? req.rawBody
+        : null;
+    if (!rawBody) {
+      res.status(401).send({ code: 'FAIL', message: '微信转账通知缺少 rawBody' });
+      return;
+    }
+
+    let notify;
+    try {
+      const readHeader = (name: string): string | undefined => {
+        const value = headers[name] ?? headers[name.toLowerCase()];
+        return Array.isArray(value) ? value[0] : value;
+      };
+      notify = this.wechatMerchantTransferService.parseNotify({
+        body,
+        rawBody,
+        headers: {
+          signature: readHeader('wechatpay-signature'),
+          timestamp: readHeader('wechatpay-timestamp'),
+          nonce: readHeader('wechatpay-nonce'),
+          serial: readHeader('wechatpay-serial'),
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`微信转账通知验签或解密失败: ${error?.message || 'UNKNOWN'}`);
+      res.status(401).send({ code: 'FAIL', message: '微信转账通知验证失败' });
+      return;
+    }
+
+    try {
+      const eventId = await this.withdrawPayoutService.enqueueWechatTransferNotify(notify);
+      res.status(204).send();
+      // 已验签事件先持久化再快速 ACK；异步处理失败由分钟级 inbox 重试兜底。
+      void this.withdrawPayoutService.processWechatTransferNotifyInbox(eventId).catch((error: any) => {
+        this.logger.error(
+          `微信提现通知异步处理失败: eventId=${eventId.slice(0, 4)}*** error=${error?.message || 'UNKNOWN'}`,
+        );
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `微信转账通知落库失败: eventId=${notify.eventId.slice(0, 4)}*** error=${error?.message || 'UNKNOWN'}`,
+      );
+      res.status(500).send({ code: 'FAIL', message: '微信转账通知暂未保存' });
+    }
   }
 
   /** 提现记录 */

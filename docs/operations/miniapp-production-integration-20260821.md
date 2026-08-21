@@ -53,7 +53,7 @@
 
 回退：`git revert <batch-0-sha>`。本批无数据库、服务器、App 或微信平台状态变化。
 
-### Batch 1：后端兼容与 18 条主库 migration
+### Batch 1：后端兼容与 19 条主库 migration
 
 目标：在保留全部 main 旧路由的前提下，加入小程序认证/支付/提现/自提/通知/购物车/收货副作用闭包。
 
@@ -138,3 +138,20 @@ production integration PR 全绿
 gh api --method DELETE repos/flyspaceden/aimaimia/environments/production
 gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 ```
+
+## 8. Batch 1 本地集成证据（未 push / 未部署）
+
+截至 2026-08-21，本地生产集成分支已完成后端兼容切片，但没有连接或修改生产数据库，也没有触发服务器部署：
+
+- 18 条 staging-derived 主库 migration 与冻结的 `origin/staging@053f385e` 对应 SQL 对象哈希逐条一致；另有 1 条本次生产集成新增的自动退款副作用 outbox migration，合计 19 条；没有复制配送库 migration。
+- Prisma schema validate / client generate、Nest production build 通过。
+- 后端全量 Jest：239 suites / 2937 tests 通过；2 suites / 5 tests 仅因需要显式真实 PostgreSQL 并发环境而跳过。
+- `npm audit --omit=dev --audit-level=high` 为 0；图片处理升级后编译和上传/图片扫描冒烟通过。
+- 固化 `origin/main@aa8f5daa` 的 627 条 HTTP 路由，并纳入 Batch 0 新增的 `/health/live`、`/health/ready`，合计 629 条生产集成基线路由；当前候选零删除，小程序登录、普通/VIP/团购结算、自提凭证、平台/卖家核销路由均以并列接口增加。
+- Delivery 排除测试确认：无 `DeliveryModule`、配送数据库、配送门户、配送 JWT/SMS/微信配置；商城 `ShipmentModule`、顺丰和送货上门仍保留。
+- 正式服务器候选在 build 和 migration 前运行主商城专用生产配置检查；该检查只要求小程序/微信支付与提现/自提/短信/顺丰，不要求独立配送系统配置。
+- 自动退款达到 `REFUNDED` 时，数字资产扣回和非 V3 旧团长佣金冲回任务与退款状态同一 Serializable 事务进入 `RefundSideEffectOutbox`；租约/CAS/指数退避/cron 可在进程崩溃后恢复，migration 会幂等回填历史成功自动退款。
+- 微信商家转账生产门禁严格校验 1005 佣金报酬场景的两项 `WECHAT_TRANSFER_SCENE_REPORT_INFOS_JSON`，避免部署成功但微信提现运行时 fail-closed。
+- 微信支付/提现回调必须精确匹配正式路径；商户材料必须是可解析的 X.509 证书、RSA 私钥且公钥和证书序列号均匹配，裸公钥或虚构序列号不能通过门禁。
+
+本节只证明本地代码闭包。Batch 1 仍不得发布，直到生产备份恢复到隔离 PostgreSQL 后完成全部 19 条 migration 演练、真实数据库并发套件、生产 PM2 只读预检、PITR/离机备份确认和用户再次批准。

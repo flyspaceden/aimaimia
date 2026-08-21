@@ -245,6 +245,7 @@ export class ShipmentService {
     // 验证订单归属
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order || order.userId !== userId) throw new NotFoundException('订单未找到');
+    if (order.fulfillmentMode === 'PICKUP') return null;
 
     const shipments = await this.prisma.shipment.findMany({
       where: { orderId },
@@ -256,24 +257,29 @@ export class ShipmentService {
 
     if (shipments.length === 0) return null;
 
-    const mappedShipments = shipments.map((shipment) => ({
-      id: shipment.id,
-      companyId: shipment.companyId,
-      carrierCode: shipment.carrierCode,
-      carrierName: shipment.carrierName,
-      trackingNo: shipment.trackingNo,
-      trackingNoMasked: maskTrackingNo(shipment.trackingNo) ?? null,
-      status: shipment.status,
-      shippedAt: shipment.shippedAt?.toISOString() || null,
-      deliveredAt: shipment.deliveredAt?.toISOString() || null,
-      events: shipment.trackingEvents.map((e) => ({
-        id: e.id,
-        occurredAt: e.occurredAt.toISOString(),
-        message: e.message,
-        location: e.location,
-        statusCode: e.statusCode,
-      })),
-    }));
+    const mappedShipments = shipments.map((shipment) => {
+      // 顺丰自动取号写 waybillNo，手工录单写 trackingNo；买家端必须与
+      // OrderService 的统一口径一致，否则自动取号订单会显示“暂无运单号”。
+      const effectiveTrackingNo = shipment.waybillNo || shipment.trackingNo || null;
+      return {
+        id: shipment.id,
+        companyId: shipment.companyId,
+        carrierCode: shipment.carrierCode,
+        carrierName: shipment.carrierName,
+        trackingNo: effectiveTrackingNo,
+        trackingNoMasked: maskTrackingNo(effectiveTrackingNo) ?? null,
+        status: shipment.status,
+        shippedAt: shipment.shippedAt?.toISOString() || null,
+        deliveredAt: shipment.deliveredAt?.toISOString() || null,
+        events: shipment.trackingEvents.map((e) => ({
+          id: e.id,
+          occurredAt: e.occurredAt.toISOString(),
+          message: e.message,
+          location: e.location,
+          statusCode: e.statusCode,
+        })),
+      };
+    });
     const primaryShipment = mappedShipments[0];
     const allEvents = mappedShipments
       .flatMap((shipment) =>
@@ -342,6 +348,13 @@ export class ShipmentService {
         return { ok: true };
       }
       throw new NotFoundException('物流单号未找到');
+    }
+    const shipmentOrder = await this.prisma.order.findUnique({
+      where: { id: shipment.orderId },
+      select: { fulfillmentMode: true },
+    });
+    if (!shipmentOrder || shipmentOrder.fulfillmentMode === 'PICKUP') {
+      throw new ConflictException('自提订单不接收快递物流回调');
     }
 
     const incomingEventCount = events?.length ?? 0;
@@ -477,7 +490,11 @@ export class ShipmentService {
                   rewardSafeWindowMs,
               );
               const casResult = await tx.order.updateMany({
-                where: { id: shipment.orderId, status: 'SHIPPED' },
+                where: {
+                  id: shipment.orderId,
+                  fulfillmentMode: 'DELIVERY',
+                  status: 'SHIPPED',
+                },
                 data: {
                   status: 'DELIVERED',
                   deliveredAt: now,

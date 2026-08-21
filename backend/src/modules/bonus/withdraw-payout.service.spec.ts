@@ -31,6 +31,8 @@ function buildService(overrides: {
   if (!prisma) {
     prisma = {
       $transaction: jest.fn(async (fn: any, _options?: any): Promise<any> => fn(prisma)),
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
       rewardAccount: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -1278,22 +1280,78 @@ describe('WithdrawPayoutService.finalize', () => {
   });
 });
 
+describe('WithdrawPayoutService.manualReconcileWithdrawal', () => {
+  const makeProcessingWithdraw = () => ({
+    id: 'w-manual',
+    status: 'PROCESSING',
+    channel: 'ALIPAY',
+    outBizNo: 'WD-manual',
+    queryAttempts: 2,
+    lastQueriedAt: null,
+  });
+
+  it('claims the reconciliation lease before querying the provider', async () => {
+    const processingWithdraw = makeProcessingWithdraw();
+    const { service, prisma, alipayService } = buildService();
+    prisma.withdrawRequest.findUnique.mockResolvedValue(processingWithdraw);
+    alipayService.queryTransfer.mockResolvedValue({ status: 'PROCESSING' });
+
+    await expect(service.manualReconcileWithdrawal(processingWithdraw.id)).resolves.toEqual({
+      status: 'PROCESSING',
+      channel: 'ALIPAY',
+      providerStatus: 'PROCESSING',
+    });
+
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: processingWithdraw.id,
+        status: 'PROCESSING',
+        lastQueriedAt: null,
+      },
+      data: {
+        lastQueriedAt: expect.any(Date),
+        nextReconcileAt: expect.any(Date),
+        queryAttempts: { increment: 1 },
+      },
+    });
+    expect(alipayService.queryTransfer).toHaveBeenCalledWith({ outBizNo: 'WD-manual' });
+  });
+
+  it('does not query the provider when another reconciler won the lease', async () => {
+    const processingWithdraw = makeProcessingWithdraw();
+    const { service, prisma, alipayService } = buildService();
+    prisma.withdrawRequest.findUnique
+      .mockResolvedValueOnce(processingWithdraw)
+      .mockResolvedValueOnce({ ...processingWithdraw, lastQueriedAt: new Date() });
+    prisma.withdrawRequest.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.manualReconcileWithdrawal(processingWithdraw.id))
+      .rejects.toThrow(ConflictException);
+    expect(alipayService.queryTransfer).not.toHaveBeenCalled();
+  });
+});
+
 describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
   it('uses a Redis lock, increments query attempts first, and finalizes stale PROCESSING withdrawals by Alipay query result', async () => {
     const { service, prisma, alipayService, redisCoordinator } = buildService();
     prisma.withdrawRequest.findMany.mockResolvedValue([
-      { id: 'w-success', outBizNo: 'WD-success', queryAttempts: 0 },
-      { id: 'w-fail', outBizNo: 'WD-fail', queryAttempts: 1 },
-      { id: 'w-not-found', outBizNo: 'WD-not-found', queryAttempts: 9 },
+      { id: 'w-success', outBizNo: 'WD-success', queryAttempts: 0, channel: 'ALIPAY', netAmount: 80 },
+      { id: 'w-fail', outBizNo: 'WD-fail', queryAttempts: 1, channel: 'ALIPAY', netAmount: 80 },
+      { id: 'w-not-found', outBizNo: 'WD-not-found', queryAttempts: 9, channel: 'ALIPAY' },
     ]);
     alipayService.queryTransfer
       .mockResolvedValueOnce({
         status: 'SUCCESS',
+        outBizNo: 'WD-success',
+        transAmount: '80.00',
         orderId: 'po-success',
         payFundOrderId: 'pf-success',
       })
       .mockResolvedValueOnce({
         status: 'FAIL',
+        outBizNo: 'WD-fail',
+        transAmount: '80.00',
+        orderId: 'po-fail',
         errorCode: 'PAYEE_NOT_EXIST',
         errorMessage: '收款账户不存在',
       })
@@ -1313,16 +1371,34 @@ describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
     expect(prisma.withdrawRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         status: 'PROCESSING',
+        OR: [
+          { nextReconcileAt: null },
+          { nextReconcileAt: { lte: expect.any(Date) } },
+        ],
       }),
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { nextReconcileAt: { sort: 'asc', nulls: 'first' } },
+        { createdAt: 'asc' },
+      ],
       take: 20,
     }));
     const findArgs = prisma.withdrawRequest.findMany.mock.calls[0][0];
     expect(findArgs.where).not.toHaveProperty('queryAttempts');
-    expect(prisma.withdrawRequest.update).toHaveBeenCalledTimes(3);
-    expect(prisma.withdrawRequest.update).toHaveBeenNthCalledWith(1, {
-      where: { id: 'w-success' },
-      data: { lastQueriedAt: expect.any(Date), queryAttempts: { increment: 1 } },
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenCalledTimes(3);
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'w-success',
+        status: 'PROCESSING',
+        OR: [
+          { nextReconcileAt: null },
+          { nextReconcileAt: { lte: expect.any(Date) } },
+        ],
+      },
+      data: {
+        lastQueriedAt: expect.any(Date),
+        nextReconcileAt: expect.any(Date),
+        queryAttempts: { increment: 1 },
+      },
     });
     expect(alipayService.queryTransfer).toHaveBeenCalledWith({ outBizNo: 'WD-success' });
     expect(paidSpy).toHaveBeenCalledWith('w-success', {
@@ -1334,6 +1410,7 @@ describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
       errorCode: 'PAYEE_NOT_EXIST',
       errorMessage: '收款账户不存在',
       providerStatus: 'FAIL',
+      providerOrderId: 'po-fail',
     });
     expect(failedSpy).toHaveBeenCalledWith('w-not-found', {
       errorCode: 'NOT_FOUND_MAX_ATTEMPTS',
@@ -1349,7 +1426,7 @@ describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
   it('keeps querying stale PROCESSING withdrawals after the tenth non-terminal attempt', async () => {
     const { service, prisma, alipayService } = buildService();
     prisma.withdrawRequest.findMany.mockResolvedValue([
-      { id: 'w-processing', outBizNo: 'WD-processing', queryAttempts: 10 },
+      { id: 'w-processing', outBizNo: 'WD-processing', queryAttempts: 10, channel: 'ALIPAY' },
     ]);
     alipayService.queryTransfer.mockResolvedValue({
       status: 'PROCESSING',
@@ -1363,11 +1440,44 @@ describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
 
     const findArgs = prisma.withdrawRequest.findMany.mock.calls[0][0];
     expect(findArgs.where).not.toHaveProperty('queryAttempts');
-    expect(prisma.withdrawRequest.update).toHaveBeenCalledWith({
-      where: { id: 'w-processing' },
-      data: { lastQueriedAt: expect.any(Date), queryAttempts: { increment: 1 } },
+    expect(prisma.withdrawRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'w-processing',
+        status: 'PROCESSING',
+        OR: [
+          { nextReconcileAt: null },
+          { nextReconcileAt: { lte: expect.any(Date) } },
+        ],
+      },
+      data: {
+        lastQueriedAt: expect.any(Date),
+        nextReconcileAt: expect.any(Date),
+        queryAttempts: { increment: 1 },
+      },
     });
     expect(alipayService.queryTransfer).toHaveBeenCalledWith({ outBizNo: 'WD-processing' });
+    expect(paidSpy).not.toHaveBeenCalled();
+    expect(failedSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses to settle an Alipay terminal query whose bill, amount, or provider identity mismatches', async () => {
+    const { service, prisma, alipayService } = buildService();
+    prisma.withdrawRequest.findMany.mockResolvedValue([{
+      id: 'w-mismatch', outBizNo: 'WD-mismatch', queryAttempts: 0, channel: 'ALIPAY',
+      netAmount: 80, providerPayoutId: 'expected-order', providerFundOrderId: 'expected-fund',
+    }]);
+    alipayService.queryTransfer.mockResolvedValue({
+      status: 'SUCCESS',
+      outBizNo: 'WD-another',
+      transAmount: '81.00',
+      orderId: 'another-order',
+      payFundOrderId: 'another-fund',
+    });
+    const paidSpy = jest.spyOn(service, 'finalizeWithdrawalPaid').mockResolvedValue(undefined);
+    const failedSpy = jest.spyOn(service, 'finalizeWithdrawalFailed').mockResolvedValue(undefined);
+
+    await (service as any).retryProcessingWithdrawals();
+
     expect(paidSpy).not.toHaveBeenCalled();
     expect(failedSpy).not.toHaveBeenCalled();
   });
@@ -1384,5 +1494,26 @@ describe('WithdrawPayoutService.retryProcessingWithdrawals', () => {
     expect(prisma.withdrawRequest.findMany).not.toHaveBeenCalled();
     expect(alipayService.queryTransfer).not.toHaveBeenCalled();
     expect(redisCoordinator.releaseLock).not.toHaveBeenCalled();
+  });
+
+  it('backs off repeated provider queries and skips a candidate lost to the PROCESSING CAS', async () => {
+    const { service, prisma, alipayService } = buildService();
+    prisma.withdrawRequest.findMany.mockResolvedValue([
+      { id: 'w-lost', outBizNo: 'WD-lost', queryAttempts: 4, channel: 'ALIPAY' },
+      { id: 'w-owned', outBizNo: 'WD-owned', queryAttempts: 4, channel: 'ALIPAY' },
+    ]);
+    prisma.withdrawRequest.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    alipayService.queryTransfer.mockResolvedValue({ status: 'PROCESSING' });
+
+    await (service as any).retryProcessingWithdrawals();
+
+    expect(alipayService.queryTransfer).toHaveBeenCalledTimes(1);
+    expect(alipayService.queryTransfer).toHaveBeenCalledWith({ outBizNo: 'WD-owned' });
+    const schedule = prisma.withdrawRequest.updateMany.mock.calls[1][0].data;
+    expect(schedule.nextReconcileAt.getTime() - schedule.lastQueriedAt.getTime()).toBe(
+      160 * 60 * 1000,
+    );
   });
 });

@@ -13,6 +13,8 @@ export interface AuditActionMeta {
   targetIdValue?: string;
   /** 该操作是否可回滚 */
   isReversible?: boolean;
+  /** 可选：把请求体中的原因字段经脱敏后追加到审计摘要 */
+  reasonBodyField?: string;
 }
 
 /** 标记端点的审计元数据 */

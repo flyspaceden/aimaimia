@@ -22,6 +22,10 @@ const backendDeployScript = await readFile(
   new URL('../deploy-backend-versioned.sh', import.meta.url),
   'utf8',
 );
+const miniappProductionVerifier = await readFile(
+  new URL('../../backend/scripts/verify-miniapp-production-config.cjs', import.meta.url),
+  'utf8',
+);
 
 const deployBlockStart = workflow.indexOf('      - name: Deploy backend on server');
 const deployBlockEnd = workflow.indexOf('  # 华海农科母公司官网', deployBlockStart);
@@ -91,15 +95,30 @@ test('production backend deployment verifies dependencies and builds before migr
   assert.match(backendDeployScript, /https:\/\/registry\.npmmirror\.com/);
   assert.match(backendDeployScript, /npx --no-install prisma generate/);
   assert.match(backendDeployScript, /npx --no-install prisma migrate deploy/);
+  assert.match(backendDeployScript, /node scripts\/verify-miniapp-production-config\.cjs/);
+  assert.match(backendDeployScript, /unsupported_node_version=/);
+  assert.match(backendDeployScript, /required=>=20\.9\.0/);
 
   const candidateIndex = backendDeployScript.indexOf('git worktree add --detach');
+  const configIndex = backendDeployScript.indexOf('node scripts/verify-miniapp-production-config.cjs', candidateIndex);
   const buildIndex = backendDeployScript.indexOf('\nbuild_backend', candidateIndex);
   const preparedIndex = backendDeployScript.indexOf('record_stage PREPARED', buildIndex);
   const stopIndex = backendDeployScript.indexOf('pm2 stop "$old_pm_id"', preparedIndex);
   const migrateIndex = backendDeployScript.indexOf('npx --no-install prisma migrate deploy');
-  assert.ok(candidateIndex >= 0 && buildIndex > candidateIndex, 'candidate must build in a versioned worktree');
+  assert.ok(candidateIndex >= 0 && configIndex > candidateIndex, 'candidate must verify production configuration');
+  assert.ok(buildIndex > configIndex, 'candidate must verify production configuration before build');
   assert.ok(migrateIndex > buildIndex, 'database migration must run only after a successful build');
   assert.ok(preparedIndex > buildIndex && stopIndex > preparedIndex && migrateIndex > stopIndex, 'maintenance stop must happen after build and before migration');
+});
+
+test('miniapp production verifier excludes the independent Delivery system', () => {
+  assert.doesNotMatch(
+    miniappProductionVerifier,
+    /DELIVERY_DATABASE_URL|DELIVERY_USER_JWT_SECRET|DELIVERY_ADMIN_JWT_SECRET|DELIVERY_SELLER_JWT_SECRET|DELIVERY_SMS_MOCK|DELIVERY_WECHAT_MOCK/,
+  );
+  assert.match(miniappProductionVerifier, /PICKUP_FULFILLMENT_ENABLED/);
+  assert.match(miniappProductionVerifier, /WECHAT_MINIAPP_CODE_ENV_VERSION/);
+  assert.match(miniappProductionVerifier, /SF_API_URL/);
 });
 
 test('backend deployment records previous SHA and automatically restores code on failure', () => {

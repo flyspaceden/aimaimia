@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, GoneException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, Query, GoneException, Header } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CheckoutService } from './checkout.service';
 import { PaymentService } from '../payment/payment.service';
@@ -10,6 +10,7 @@ import { AfterSaleDto } from './dto/after-sale.dto';
 import { UpdateOrderReceiverInfoDto } from './dto/update-order-receiver-info.dto';
 import { AfterSaleService } from '../after-sale/after-sale.service';
 import { Throttle } from '@nestjs/throttler';
+import { PickupService } from '../pickup/pickup.service';
 
 @Controller('orders')
 export class OrderController {
@@ -18,6 +19,7 @@ export class OrderController {
     private checkoutService: CheckoutService,
     private afterSaleService: AfterSaleService,
     private paymentService: PaymentService,
+    private pickupService: PickupService,
   ) {}
 
   // ===== F1: 新结算流程 =====
@@ -31,6 +33,20 @@ export class OrderController {
     return this.checkoutService.checkout(userId, dto);
   }
 
+  /** 微信小程序结算：服务端强制 WECHAT_PAY + MINI_PROGRAM 场景。 */
+  @Post('checkout/mini-program')
+  checkoutMiniProgram(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | null,
+    @CurrentUser('authIdentityId') authIdentityId: string | null,
+    @Body() dto: CheckoutDto,
+  ) {
+    return this.checkoutService.checkout(userId, dto, 'MINI_PROGRAM', {
+      sessionId,
+      authIdentityId,
+    });
+  }
+
   /** VIP 礼包结算（独立于普通商品 checkout） */
   @Post('vip-checkout')
   vipCheckout(
@@ -38,6 +54,20 @@ export class OrderController {
     @Body() dto: VipCheckoutDto,
   ) {
     return this.checkoutService.checkoutVipPackage(userId, dto);
+  }
+
+  /** 微信小程序 VIP 礼包结算，只生成 JSAPI/小程序支付参数。 */
+  @Post('vip-checkout/mini-program')
+  vipCheckoutMiniProgram(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') sessionId: string | null,
+    @CurrentUser('authIdentityId') authIdentityId: string | null,
+    @Body() dto: VipCheckoutDto,
+  ) {
+    return this.checkoutService.checkoutVipPackage(userId, dto, 'MINI_PROGRAM', {
+      sessionId,
+      authIdentityId,
+    });
   }
 
   /** F1: 取消结算会话 */
@@ -64,6 +94,18 @@ export class OrderController {
     return this.checkoutService.getPendingForUser(userId);
   }
 
+  /** 小程序查看待支付摘要；返回是否能在当前场景直接续付。 */
+  @Get('checkout/me/pending/mini-program')
+  getMyPendingCheckoutForMiniProgram(@CurrentUser('sub') userId: string) {
+    return this.checkoutService.getPendingForUser(userId, 'MINI_PROGRAM');
+  }
+
+  /** 小程序恢复当前用户未完成的 VIP 礼包结算；不返回 App 场景会话。 */
+  @Get('vip-checkout/me/pending/mini-program')
+  getMyPendingVipCheckoutForMiniProgram(@CurrentUser('sub') userId: string) {
+    return this.checkoutService.getPendingVipForMiniProgram(userId);
+  }
+
   /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
   @Post('checkout/:sessionId/resume')
   resumeCheckout(
@@ -71,6 +113,40 @@ export class OrderController {
     @Param('sessionId') sessionId: string,
   ) {
     return this.checkoutService.resumeSession(userId, sessionId);
+  }
+
+  /** 小程序续付，仅允许原本就是 MINI_PROGRAM 场景的支付单。 */
+  @Post('checkout/:sessionId/resume/mini-program')
+  resumeMiniProgramCheckout(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('sessionId') authSessionId: string | null,
+    @CurrentUser('authIdentityId') authIdentityId: string | null,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.checkoutService.resumeSession(userId, sessionId, 'MINI_PROGRAM', {
+      sessionId: authSessionId,
+      authIdentityId,
+    });
+  }
+
+  /**
+   * App → 小程序跨端重付前置：查单、必要时建单，否则关单并安全取消旧会话。
+   */
+  @Post('checkout/:sessionId/switch-to-mini-program')
+  switchCheckoutToMiniProgram(
+    @CurrentUser('sub') userId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.checkoutService.prepareMiniProgramRecheckout(userId, sessionId);
+  }
+
+  /** 小程序 → App 对称流程，同样先安全关闭原小程序交易。 */
+  @Post('checkout/:sessionId/switch-to-app')
+  switchCheckoutToApp(
+    @CurrentUser('sub') userId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.checkoutService.prepareAppRecheckout(userId, sessionId);
   }
 
   /**
@@ -138,6 +214,11 @@ export class OrderController {
     return this.orderService.getLatestIssue(userId);
   }
 
+  @Get('pickup-points')
+  getPickupPoints(@Query('companyIds') companyIds?: string) {
+    return this.pickupService.listBuyerPoints((companyIds ?? '').split(','));
+  }
+
   @Post(':id/repurchase')
   @Throttle({ user: { ttl: 60000, limit: 10 } })
   repurchase(
@@ -147,8 +228,29 @@ export class OrderController {
     return this.orderService.repurchase(id, userId);
   }
 
+  @Get(':id/pickup-pass')
+  @Header('Cache-Control', 'no-store, private')
+  @Header('Pragma', 'no-cache')
+  @Throttle({ user: { ttl: 60000, limit: 30 } })
+  getPickupPass(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.pickupService.getBuyerPass(userId, id);
+  }
+
   @Patch(':id/receiver-info')
   updateReceiverInfo(
+    @CurrentUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderReceiverInfoDto,
+  ) {
+    return this.orderService.updateReceiverInfo(id, userId, dto);
+  }
+
+  /** 微信小程序 wx.request 不支持 PATCH。 */
+  @Put(':id/receiver-info')
+  updateReceiverInfoFromMiniProgram(
     @CurrentUser('sub') userId: string,
     @Param('id') id: string,
     @Body() dto: UpdateOrderReceiverInfoDto,

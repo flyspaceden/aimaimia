@@ -6,15 +6,19 @@ import {
   ConflictException,
   ServiceUnavailableException,
   InternalServerErrorException,
+  UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
-import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
+import { GroupBuyActivityStatus, PaymentScene, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisCoordinatorService } from '../../common/infra/redis-coordinator.service';
 import { BonusConfigService } from '../bonus/engine/bonus-config.service';
 import { RewardDeductionService } from '../bonus/reward-deduction.service';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
 import { CheckoutDto } from './checkout.dto';
+import { CheckoutSource } from './checkout-source';
 import { VipCheckoutDto } from './vip-checkout.dto';
 import { VipDirectReferralCommissionService } from '../bonus/engine/vip-direct-referral-commission.service';
 import { sanitizeErrorForLog } from '../../common/logging/log-sanitizer';
@@ -33,6 +37,13 @@ import { generateUniqueGroupBuyCode } from '../group-buy/group-buy-code.util';
 import { NotificationService } from '../notification/notification.service';
 import { CaptainAttributionService } from '../captain/captain-attribution.service';
 import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
+import {
+  PaymentOperationLockContext,
+  withPaymentOperationLock as runWithPaymentOperationLock,
+} from '../../common/payments/payment-operation-lock';
+import { PickupService, ValidatedFulfillment } from '../pickup/pickup.service';
+import { resolveFulfillmentInput } from '../pickup/dto/fulfillment.dto';
 
 // 前端支付方式 → Prisma PaymentChannel 枚举
 const CHANNEL_MAP: Record<string, string> = {
@@ -44,6 +55,24 @@ const CHANNEL_MAP: Record<string, string> = {
 // 默认运费规则（ShippingRule 无匹配时的 fallback）
 const DEFAULT_FREE_THRESHOLD = 99;
 const DEFAULT_BASE_FEE = 8;
+
+type TrustedPaymentScene = 'APP' | 'MINI_PROGRAM';
+
+type PaymentParamMeta = {
+  version: 1;
+  state: 'CREATING' | 'READY' | 'UNCERTAIN';
+  requestFingerprint: string;
+  owner?: string;
+  params?: Record<string, unknown>;
+  startedAt?: string;
+  updatedAt: string;
+};
+
+const PAYMENT_PARAM_META_KEY = 'paymentParamState';
+export type TrustedAuthSessionContext = {
+  sessionId?: string | null;
+  authIdentityId?: string | null;
+};
 
 /** 快照中每一条购物车项的结构 */
 interface SnapshotItem {
@@ -106,7 +135,14 @@ export class CheckoutService {
     private prisma: PrismaService,
     private bonusConfig: BonusConfigService,
     private productBundleService: ProductBundleService = new ProductBundleService(),
+    @Optional() private redisCoord?: RedisCoordinatorService,
+    @Optional() private pickupService?: PickupService,
   ) {}
+
+  /** 测试或显式装配时注入支付会话锁；生产由全局 InfraModule 构造注入。 */
+  setPaymentOperationCoordinator(service: RedisCoordinatorService) {
+    this.redisCoord = service;
+  }
 
   /** 注入运费规则服务（由 OrderModule 在 onModuleInit 时调用） */
   setShippingRuleService(service: any) {
@@ -174,6 +210,585 @@ export class CheckoutService {
     this.groupBuyRebateService = service;
   }
 
+  /**
+   * 支付参数生成、取消与过期必须共用同一个跨实例互斥锁。
+   *
+   * 这里不持有数据库事务跨第三方 HTTP；Redis owner 锁负责互斥，CheckoutSession.bizMeta
+   * 中的 CREATING owner 则是持久化 fence。Redis 不可用或续租失败时一律 fail-closed。
+   */
+  async withPaymentOperationLock<T>(
+    sessionId: string,
+    operation: (context: PaymentOperationLockContext) => Promise<T>,
+  ): Promise<T> {
+    return runWithPaymentOperationLock({
+      coordinator: this.redisCoord,
+      namespace: 'checkout:payment-operation',
+      subjectId: sessionId,
+      operation,
+    });
+  }
+
+  /**
+   * 为已经落库的 CheckoutSession 生成可恢复的支付参数。
+   * 团购结算与普通/VIP 结算必须共用同一 Redis owner 锁、持久化 fence
+   * 与 UNCERTAIN 查单逻辑，禁止各自直连预下单。
+   */
+  async createPaymentParamsForExistingCheckout(input: {
+    userId: string;
+    sessionId: string;
+    requestedScene: TrustedPaymentScene;
+    miniProgramOpenId?: string | null;
+    description: string;
+  }): Promise<{ session: any; paymentParams: Record<string, any> }> {
+    return this.withPaymentOperationLock(input.sessionId, (lock) =>
+      this.createFencedPaymentParams({
+        ...input,
+        lock,
+      }));
+  }
+
+  private hashOpaqueValue(value: string): string {
+    return createHash('sha256').update(value).digest('hex').slice(0, 32);
+  }
+
+  private normalizeBizMeta(meta: unknown): Record<string, any> {
+    return meta && typeof meta === 'object' && !Array.isArray(meta)
+      ? { ...(meta as Record<string, any>) }
+      : {};
+  }
+
+  private getPaymentParamMeta(session: { bizMeta?: unknown }): PaymentParamMeta | null {
+    const meta = this.normalizeBizMeta(session.bizMeta)[PAYMENT_PARAM_META_KEY];
+    if (
+      !meta
+      || typeof meta !== 'object'
+      || meta.version !== 1
+      || !['CREATING', 'READY', 'UNCERTAIN'].includes(meta.state)
+      || typeof meta.requestFingerprint !== 'string'
+    ) {
+      return null;
+    }
+    return meta as PaymentParamMeta;
+  }
+
+  private hasPaymentParamCreationFence(session: { bizMeta?: unknown }): boolean {
+    return this.getPaymentParamMeta(session)?.state === 'CREATING';
+  }
+
+  /** 调用方必须已持有 payment-operation Redis 锁。把崩溃遗留 fence 转为待查单状态。 */
+  async recoverStalePaymentParamFence(sessionId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const session = await tx.checkoutSession.findUnique({ where: { id: sessionId } });
+      if (!session) return;
+      const current = this.getPaymentParamMeta(session);
+      if (current?.state !== 'CREATING' || !current.owner) return;
+      const bizMeta = this.normalizeBizMeta(session.bizMeta);
+      const next: PaymentParamMeta = {
+        version: 1,
+        state: 'UNCERTAIN',
+        requestFingerprint: current.requestFingerprint,
+        updatedAt: new Date().toISOString(),
+      };
+      await tx.checkoutSession.updateMany({
+        where: {
+          id: sessionId,
+          status: 'ACTIVE',
+          AND: [
+            { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'state'], equals: 'CREATING' } },
+            { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'owner'], equals: current.owner } },
+          ],
+        },
+        data: {
+          bizMeta: {
+            ...bizMeta,
+            [PAYMENT_PARAM_META_KEY]: next,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private buildNormalCheckoutFingerprint(dto: CheckoutDto, requestedScene: TrustedPaymentScene): string {
+    const canonical = {
+      checkoutSource: dto.checkoutSource ?? CheckoutSource.CART,
+      items: dto.items.map((item) => ({
+        skuId: item.skuId,
+        quantity: item.quantity,
+        cartItemId: item.cartItemId ?? null,
+      })),
+      fulfillment: dto.fulfillment ?? { mode: 'DELIVERY', addressId: dto.addressId },
+      paymentChannel: requestedScene === 'MINI_PROGRAM'
+        ? 'WECHAT_PAY'
+        : (dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] ?? dto.paymentChannel : null),
+      requestedScene,
+      deductionAmount: dto.deductionAmount ?? 0,
+      groupBuyRebateDeductionAmount: dto.groupBuyRebateDeductionAmount ?? 0,
+      rewardId: dto.rewardId ?? null,
+      couponInstanceIds: [...(dto.couponInstanceIds ?? [])].sort(),
+      expectedTotal: dto.expectedTotal ?? null,
+      buyerNote: dto.buyerNote ?? null,
+    };
+    return this.hashOpaqueValue(JSON.stringify(canonical));
+  }
+
+  private resolveVipPaymentChannel(
+    dto: VipCheckoutDto,
+    requestedScene: TrustedPaymentScene,
+  ): string {
+    if (requestedScene === 'MINI_PROGRAM') return 'WECHAT_PAY';
+    return dto.paymentChannel
+      ? CHANNEL_MAP[dto.paymentChannel] || dto.paymentChannel
+      : 'WECHAT_PAY';
+  }
+
+  private buildVipCheckoutFingerprint(
+    dto: VipCheckoutDto,
+    requestedScene: TrustedPaymentScene,
+  ): string {
+    return this.hashOpaqueValue(JSON.stringify({
+      packageId: dto.packageId,
+      giftOptionId: dto.giftOptionId,
+      fulfillment: dto.fulfillment ?? { mode: 'DELIVERY', addressId: dto.addressId },
+      requestedScene,
+      paymentChannel: this.resolveVipPaymentChannel(dto, requestedScene),
+      expectedTotal: dto.expectedTotal ?? null,
+      buyerNote: dto.buyerNote || null,
+    }));
+  }
+
+  private buildProviderRequestFingerprint(input: {
+    paymentChannel: string;
+    scene: TrustedPaymentScene;
+    merchantOrderNo: string;
+    expectedTotal: number;
+    description: string;
+    expiresAt: Date;
+    miniProgramOpenId?: string | null;
+  }): string {
+    return this.hashOpaqueValue(JSON.stringify({
+      paymentChannel: input.paymentChannel,
+      scene: input.scene,
+      merchantOrderNo: input.merchantOrderNo,
+      expectedFen: WechatPayService.yuanToFenAmount(input.expectedTotal, 'expectedTotal'),
+      description: input.description,
+      expiresAt: input.expiresAt.toISOString(),
+      payerHash: input.miniProgramOpenId
+        ? this.hashOpaqueValue(input.miniProgramOpenId)
+        : null,
+    }));
+  }
+
+  private assertReusableNormalIdempotentSession(
+    session: {
+      status: string;
+      expiresAt: Date;
+      paymentScene?: unknown;
+      bizMeta?: unknown;
+      itemsSnapshot?: unknown;
+      paymentChannel?: string | null;
+      expectedTotal?: number;
+    },
+    dto: CheckoutDto,
+    requestedScene: TrustedPaymentScene,
+    expectedFingerprint: string,
+  ): void {
+    if (session.status !== 'ACTIVE' || session.expiresAt.getTime() <= Date.now()) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: '该幂等请求已结束或过期，请使用新的请求标识重新结算',
+      });
+    }
+    this.assertPaymentSceneMatches(session.paymentScene, requestedScene);
+
+    const storedFingerprint = this.normalizeBizMeta(session.bizMeta).checkoutRequestFingerprint;
+    if (typeof storedFingerprint === 'string') {
+      if (storedFingerprint !== expectedFingerprint) {
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: '该请求标识已用于其他结算内容，请使用新的请求标识',
+        });
+      }
+      return;
+    }
+
+    // 兼容改造前创建的短生命周期会话：至少验证商品数量、渠道与客户端金额快照。
+    const storedItems = Array.isArray(session.itemsSnapshot)
+      ? session.itemsSnapshot as Array<Record<string, any>>
+      : [];
+    const requestedItems = dto.items.map((item) => `${item.skuId}:${item.quantity}`).sort();
+    const snapshotItems = storedItems.map((item) => `${item.skuId}:${item.quantity}`).sort();
+    const requestedChannel = requestedScene === 'MINI_PROGRAM'
+      ? 'WECHAT_PAY'
+      : (dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] ?? dto.paymentChannel : null);
+    const amountMismatch = dto.expectedTotal != null
+      && session.expectedTotal != null
+      && Math.abs(dto.expectedTotal - session.expectedTotal) > 0.001;
+    if (
+      requestedItems.length !== snapshotItems.length
+      || requestedItems.some((value, index) => value !== snapshotItems[index])
+      || requestedChannel !== (session.paymentChannel ?? null)
+      || amountMismatch
+    ) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: '该请求标识已用于其他结算内容，请使用新的请求标识',
+      });
+    }
+  }
+
+  private async claimPaymentParamFence(input: {
+    sessionId: string;
+    userId: string;
+    requestFingerprint: string;
+    owner: string;
+  }): Promise<{
+    session: any;
+    previousState: 'NONE' | 'UNCERTAIN';
+    readyParams?: Record<string, any>;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      // 幂等重放与首次支付参数生成同样是用户资金写路径。
+      // 必须先与账号注销共用同一用户锁，再读取/更新 CheckoutSession fence。
+      await assertActiveUserWriteBarrier(tx, input.userId);
+      const session = await tx.checkoutSession.findFirst({
+        where: { id: input.sessionId, userId: input.userId },
+      });
+      if (!session) throw new NotFoundException('结算会话不存在');
+      if (session.status !== 'ACTIVE' || session.expiresAt.getTime() <= Date.now()) {
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: '该结算已结束或过期，请使用新的请求标识重新结算',
+        });
+      }
+
+      const existing = this.getPaymentParamMeta(session);
+      if (existing && existing.requestFingerprint !== input.requestFingerprint) {
+        throw new ConflictException({
+          code: 'PAYMENT_REQUEST_SNAPSHOT_MISMATCH',
+          message: '支付请求快照不一致，请取消原结算后重新下单',
+        });
+      }
+      if (existing?.state === 'READY') {
+        if (!existing.params || Object.keys(existing.params).length === 0) {
+          throw new ServiceUnavailableException('支付参数快照异常，请稍后重试');
+        }
+        return {
+          session,
+          previousState: 'NONE' as const,
+          readyParams: existing.params as Record<string, any>,
+        };
+      }
+
+      // 新 owner 能拿到 Redis 锁，说明旧 CREATING owner 已不再持锁。旧调用结果未知，
+      // 必须先按 UNCERTAIN 查原商户单号，禁止直接重复预下单。
+      const previousState = existing?.state === 'UNCERTAIN' || existing?.state === 'CREATING'
+        ? 'UNCERTAIN' as const
+        : 'NONE' as const;
+      const now = new Date().toISOString();
+      const bizMeta = this.normalizeBizMeta(session.bizMeta);
+      const nextMeta: PaymentParamMeta = {
+        version: 1,
+        state: 'CREATING',
+        requestFingerprint: input.requestFingerprint,
+        owner: input.owner,
+        startedAt: now,
+        updatedAt: now,
+      };
+      const where: Prisma.CheckoutSessionWhereInput = {
+        id: session.id,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      };
+      if (existing?.state === 'CREATING' && existing.owner) {
+        where.AND = [
+          { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'state'], equals: 'CREATING' } },
+          { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'owner'], equals: existing.owner } },
+        ];
+      }
+      const claimed = await tx.checkoutSession.updateMany({
+        where,
+        data: {
+          bizMeta: {
+            ...bizMeta,
+            [PAYMENT_PARAM_META_KEY]: nextMeta,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new ServiceUnavailableException('支付会话状态已变化，请稍后重试');
+      }
+      return {
+        session: { ...session, bizMeta: { ...bizMeta, [PAYMENT_PARAM_META_KEY]: nextMeta } },
+        previousState,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private async finishPaymentParamFence(input: {
+    sessionId: string;
+    owner: string;
+    requestFingerprint: string;
+    state: 'READY' | 'UNCERTAIN';
+    params?: Record<string, any>;
+    miniProgramPayerOpenId?: string | null;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const session = await tx.checkoutSession.findUnique({
+        where: { id: input.sessionId },
+      });
+      if (!session) throw new NotFoundException('结算会话不存在');
+      const current = this.getPaymentParamMeta(session);
+      if (
+        current?.state !== 'CREATING'
+        || current.owner !== input.owner
+        || current.requestFingerprint !== input.requestFingerprint
+      ) {
+        throw new ServiceUnavailableException('支付会话协调状态已变化，请稍后重试');
+      }
+      if (
+        input.miniProgramPayerOpenId
+        && session.miniProgramPayerOpenId
+        && session.miniProgramPayerOpenId !== input.miniProgramPayerOpenId
+      ) {
+        throw new BadRequestException('小程序支付身份快照不一致，请联系客服');
+      }
+      const bizMeta = this.normalizeBizMeta(session.bizMeta);
+      const next: PaymentParamMeta = {
+        version: 1,
+        state: input.state,
+        requestFingerprint: input.requestFingerprint,
+        ...(input.state === 'READY' ? { params: input.params ?? {} } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      const updated = await tx.checkoutSession.updateMany({
+        where: {
+          id: input.sessionId,
+          status: 'ACTIVE',
+          AND: [
+            { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'state'], equals: 'CREATING' } },
+            { bizMeta: { path: [PAYMENT_PARAM_META_KEY, 'owner'], equals: input.owner } },
+          ],
+        },
+        data: {
+          bizMeta: {
+            ...bizMeta,
+            [PAYMENT_PARAM_META_KEY]: next,
+          } as Prisma.InputJsonValue,
+          ...(input.state === 'READY' && input.miniProgramPayerOpenId
+            ? { miniProgramPayerOpenId: input.miniProgramPayerOpenId }
+            : {}),
+        },
+      });
+      if (updated.count !== 1) {
+        throw new ServiceUnavailableException('支付会话状态已变化，请稍后重试');
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private async persistReadyMiniProgramPayerIdentity(
+    sessionId: string,
+    openId: string,
+  ): Promise<void> {
+    const updated = await this.prisma.checkoutSession.updateMany({
+      where: {
+        id: sessionId,
+        paymentChannel: 'WECHAT_PAY',
+        paymentScene: 'MINI_PROGRAM',
+        miniProgramPayerOpenId: null,
+      },
+      data: { miniProgramPayerOpenId: openId },
+    });
+    if (updated.count === 1) return;
+
+    const current = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        paymentChannel: true,
+        paymentScene: true,
+        miniProgramPayerOpenId: true,
+      },
+    });
+    if (
+      !current
+      || current.paymentChannel !== 'WECHAT_PAY'
+      || current.paymentScene !== 'MINI_PROGRAM'
+      || current.miniProgramPayerOpenId !== openId
+    ) {
+      throw new BadRequestException('小程序支付身份快照不一致，请联系客服');
+    }
+  }
+
+  private async reconcileUncertainWechatPreorder(
+    session: any,
+    requestedScene: TrustedPaymentScene,
+  ): Promise<'RETRY_PREORDER'> {
+    let queryResult: any;
+    try {
+      queryResult = await this.wechatPayService.queryOrder(session.merchantOrderNo);
+    } catch (error: any) {
+      this.logger.warn(
+        `微信预下单不确定态查单异常: sessionId=${session.id}, error=${error?.message}`,
+      );
+      throw new ServiceUnavailableException('正在确认支付状态，请稍后重试');
+    }
+    if (!queryResult || queryResult.outcome === 'UNKNOWN') {
+      throw new ServiceUnavailableException('正在确认支付状态，请稍后重试');
+    }
+    if (queryResult.outcome === 'DEFINITIVE_NOT_FOUND') return 'RETRY_PREORDER';
+    if (!this.wechatPayService.matchesPaymentScene(queryResult, requestedScene)) {
+      throw new BadRequestException('支付身份校验失败，请联系客服');
+    }
+    if (queryResult.tradeState === 'SUCCESS') {
+      this.assertWechatAmountMatchesSession(
+        queryResult,
+        session.expectedTotal,
+        '预下单不确定态恢复',
+        session.id,
+      );
+      if (!queryResult.transactionId) {
+        throw new ServiceUnavailableException('正在确认支付状态，请稍后重试');
+      }
+      await this.handlePaymentSuccess(
+        session.merchantOrderNo,
+        queryResult.transactionId,
+        queryResult.paidAt?.toISOString?.() ?? queryResult.paidAt ?? new Date().toISOString(),
+      );
+      throw new ConflictException({
+        code: 'PAYMENT_ALREADY_COMPLETED',
+        message: '支付已完成，订单已自动创建，请查看订单',
+      });
+    }
+    // 微信官方允许 NOTPAY 使用完全相同参数和 out_trade_no 重新下单以获取新 prepay_id。
+    if (queryResult.tradeState === 'NOTPAY') {
+      this.assertWechatAmountMatchesSession(
+        queryResult,
+        session.expectedTotal,
+        '预下单不确定态恢复',
+        session.id,
+      );
+      return 'RETRY_PREORDER';
+    }
+    throw new ConflictException({
+      code: 'IDEMPOTENCY_KEY_REUSED',
+      message: '原支付单已进入不可重复下单状态，请取消后使用新的请求标识',
+    });
+  }
+
+  private async createFencedPaymentParams(input: {
+    userId: string;
+    sessionId: string;
+    requestedScene: TrustedPaymentScene;
+    miniProgramOpenId?: string | null;
+    description: string;
+    lock: PaymentOperationLockContext;
+  }): Promise<{ session: any; paymentParams: Record<string, any> }> {
+    await input.lock.assertOwned();
+    const initial = await this.prisma.checkoutSession.findFirst({
+      where: { id: input.sessionId, userId: input.userId },
+    });
+    if (!initial) throw new NotFoundException('结算会话不存在');
+    if (!initial.merchantOrderNo || !initial.paymentChannel) {
+      throw new ServiceUnavailableException('支付参数缺失，请重新结算');
+    }
+    this.assertPaymentSceneMatches(initial.paymentScene, input.requestedScene);
+    const requestFingerprint = this.buildProviderRequestFingerprint({
+      paymentChannel: initial.paymentChannel,
+      scene: input.requestedScene,
+      merchantOrderNo: initial.merchantOrderNo,
+      expectedTotal: initial.expectedTotal,
+      description: input.description,
+      expiresAt: initial.expiresAt,
+      miniProgramOpenId: input.miniProgramOpenId,
+    });
+    const claimed = await this.claimPaymentParamFence({
+      sessionId: initial.id,
+      userId: input.userId,
+      requestFingerprint,
+      owner: input.lock.owner,
+    });
+    if (claimed.readyParams) {
+      if (input.requestedScene === 'MINI_PROGRAM' && input.miniProgramOpenId) {
+        await this.persistReadyMiniProgramPayerIdentity(
+          claimed.session.id,
+          input.miniProgramOpenId,
+        );
+      }
+      await input.lock.assertOwned();
+      return { session: claimed.session, paymentParams: claimed.readyParams };
+    }
+
+    const session = claimed.session;
+    try {
+      if (claimed.previousState === 'UNCERTAIN' && session.paymentChannel === 'WECHAT_PAY') {
+        await this.reconcileUncertainWechatPreorder(session, input.requestedScene);
+        await input.lock.assertOwned();
+      }
+
+      let paymentParams: Record<string, any>;
+      if (session.paymentChannel === 'ALIPAY') {
+        if (!this.alipayService?.isAvailable()) {
+          throw new ServiceUnavailableException('支付宝支付服务暂不可用');
+        }
+        const orderStr = await this.alipayService.createAppPayOrder({
+          merchantOrderNo: session.merchantOrderNo,
+          totalAmount: session.expectedTotal,
+          subject: input.description,
+          timeExpire: session.expiresAt,
+        });
+        paymentParams = { channel: 'alipay', orderStr };
+      } else if (session.paymentChannel === 'WECHAT_PAY') {
+        if (!this.wechatPayService?.isAvailable()) {
+          throw new ServiceUnavailableException('微信支付服务暂不可用');
+        }
+        paymentParams = await this.createWechatPaymentParams({
+          userId: input.userId,
+          scene: input.requestedScene,
+          merchantOrderNo: session.merchantOrderNo,
+          amount: session.expectedTotal,
+          description: input.description,
+          expiresAt: session.expiresAt,
+          miniProgramOpenId: input.miniProgramOpenId,
+        });
+      } else {
+        throw new ServiceUnavailableException('暂不支持该支付方式');
+      }
+
+      // 只有 owner 仍持有 Redis 锁时才能把第三方明确成功结果写成 READY。
+      await input.lock.assertOwned();
+      await this.finishPaymentParamFence({
+        sessionId: session.id,
+        owner: input.lock.owner,
+        requestFingerprint,
+        state: 'READY',
+        params: paymentParams,
+        miniProgramPayerOpenId: input.requestedScene === 'MINI_PROGRAM'
+          ? input.miniProgramOpenId
+          : null,
+      });
+      return { session, paymentParams };
+    } catch (error) {
+      // 外部调用已经结束但是否到达渠道未知。旧 owner 只能条件写回自己的 fence，
+      // 若 fence 已被新 owner 接管则更新失败，绝不能覆盖新状态。
+      await this.finishPaymentParamFence({
+        sessionId: session.id,
+        owner: input.lock.owner,
+        requestFingerprint,
+        state: 'UNCERTAIN',
+      }).catch(() => undefined);
+      if (
+        error instanceof ConflictException
+        || error instanceof BadRequestException
+        || error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      this.logger.error(
+        `生成支付参数失败: sessionId=${session.id}, error=${sanitizeErrorForLog(error).message}`,
+      );
+      throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
+    }
+  }
+
   private extractWechatAmountFen(queryResult: any): number | null {
     const rawFen = queryResult?.totalAmountFen ?? queryResult?.amountFen;
     return (
@@ -200,68 +815,343 @@ export class CheckoutService {
     }
   }
 
+  private normalizeStoredPaymentScene(value: unknown): TrustedPaymentScene {
+    // migration 前创建的历史会话全部来自 App；默认值保持旧数据向后兼容。
+    return value === PaymentScene.MINI_PROGRAM ? 'MINI_PROGRAM' : 'APP';
+  }
+
+  private assertPaymentSceneMatches(
+    storedScene: unknown,
+    requestedScene: TrustedPaymentScene,
+  ): void {
+    const currentScene = this.normalizeStoredPaymentScene(storedScene);
+    if (currentScene !== requestedScene) {
+      throw new ConflictException({
+        code: 'PAYMENT_SCENE_MISMATCH',
+        message: '该支付由另一端发起，请先取消原支付后重新结算',
+        currentScene,
+        requestedScene,
+      });
+    }
+  }
+
+  /**
+   * 只从服务端用户身份表解析当前小程序 OpenID。
+   * Controller/DTO 不接收 openId，客户端无法指定付款人身份。
+   */
+  private async resolveMiniProgramOpenId(
+    userId: string,
+    authContext?: TrustedAuthSessionContext,
+  ): Promise<string> {
+    if (!this.wechatPayService?.isMiniProgramAvailable?.()) {
+      throw new ServiceUnavailableException('微信小程序支付暂不可用');
+    }
+    const miniProgramAppId = this.wechatPayService.getMiniProgramAppId?.();
+    if (!miniProgramAppId) {
+      throw new ServiceUnavailableException('微信小程序支付暂不可用');
+    }
+
+    if (!authContext?.sessionId || !authContext.authIdentityId) {
+      throw new UnauthorizedException('小程序登录会话已失效，请重新登录');
+    }
+
+    // 必须沿当前 JWT 精确命中的 Session 取身份；禁止从 userId 下任意选择一个
+    // 微信 AuthIdentity，否则多微信身份账号可能让其他 OpenID 代付。
+    const session = await this.prisma.session.findFirst({
+      where: {
+        id: authContext.sessionId,
+        userId,
+        authIdentityId: authContext.authIdentityId,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      },
+      select: {
+        authIdentity: {
+          select: {
+            userId: true,
+            provider: true,
+            identifier: true,
+            appId: true,
+            verified: true,
+          },
+        },
+      },
+    });
+    const identity = session?.authIdentity;
+    if (
+      !identity
+      || identity.userId !== userId
+      || identity.provider !== 'WECHAT'
+      || identity.appId !== miniProgramAppId
+      || !identity.verified
+      || !identity.identifier?.trim()
+    ) {
+      throw new BadRequestException('当前账号未绑定微信小程序身份，请重新登录');
+    }
+    return identity.identifier.trim();
+  }
+
+  private async createWechatPaymentParams(args: {
+    userId: string;
+    scene: TrustedPaymentScene;
+    merchantOrderNo: string;
+    amount: number;
+    description: string;
+    expiresAt: Date;
+    miniProgramOpenId?: string | null;
+    authContext?: TrustedAuthSessionContext;
+  }): Promise<Record<string, any>> {
+    if (args.scene === 'MINI_PROGRAM') {
+      const openId = args.miniProgramOpenId
+        ?? await this.resolveMiniProgramOpenId(args.userId, args.authContext);
+      const wxParams = await this.wechatPayService.createMiniProgramOrder({
+        outTradeNo: args.merchantOrderNo,
+        amount: args.amount,
+        description: args.description,
+        openId,
+        timeExpire: args.expiresAt,
+      });
+      return { channel: 'wechat', scene: 'mini_program', ...wxParams };
+    }
+
+    const wxParams = await this.wechatPayService.createAppOrder({
+      outTradeNo: args.merchantOrderNo,
+      amount: args.amount,
+      description: args.description,
+      timeExpire: args.expiresAt,
+    });
+    return { channel: 'wechat', ...wxParams };
+  }
+
+  private assertReusableVipIdempotentSession(
+    session: {
+      status: string;
+      expiresAt: Date;
+      paymentScene?: unknown;
+      paymentChannel?: string | null;
+      expectedTotal?: number;
+      buyerNote?: string | null;
+      bizMeta?: unknown;
+    },
+    dto: VipCheckoutDto,
+    requestedScene: TrustedPaymentScene,
+    expectedFingerprint: string,
+  ): void {
+    if (session.status !== 'ACTIVE' || session.expiresAt.getTime() <= Date.now()) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: '该幂等请求已结束或过期，请使用新的请求标识重新结算',
+      });
+    }
+    this.assertPaymentSceneMatches(session.paymentScene, requestedScene);
+
+    const bizMeta = this.normalizeBizMeta(session.bizMeta);
+    const storedFingerprint = bizMeta.checkoutRequestFingerprint;
+    if (typeof storedFingerprint === 'string') {
+      if (storedFingerprint !== expectedFingerprint) {
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: '该请求标识已用于其他 VIP 礼包结算，请使用新的请求标识',
+        });
+      }
+      return;
+    }
+
+    // 兼容改造前的短生命周期 VIP 会话：仅在历史快照可验证的边界内复用。
+    const requestedChannel = this.resolveVipPaymentChannel(dto, requestedScene);
+    const snapshotPrice = Number(bizMeta.snapshotPrice);
+    const amountMismatch = dto.expectedTotal != null
+      && session.expectedTotal != null
+      && Math.abs(dto.expectedTotal - session.expectedTotal) > 0.001;
+    const snapshotAmountCorrupted = Number.isFinite(snapshotPrice)
+      && session.expectedTotal != null
+      && Math.abs(snapshotPrice - session.expectedTotal) > 0.001;
+    const storedBuyerNote = session.buyerNote === undefined ? undefined : (session.buyerNote ?? null);
+    const requestedBuyerNote = dto.buyerNote || null;
+    if (
+      (typeof bizMeta.vipPackageId === 'string' && bizMeta.vipPackageId !== dto.packageId)
+      || (typeof bizMeta.vipGiftOptionId === 'string' && bizMeta.vipGiftOptionId !== dto.giftOptionId)
+      || (session.paymentChannel != null && session.paymentChannel !== requestedChannel)
+      || amountMismatch
+      || snapshotAmountCorrupted
+      || (storedBuyerNote !== undefined && storedBuyerNote !== requestedBuyerNote)
+    ) {
+      throw new ConflictException({
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: '该请求标识已用于其他 VIP 礼包结算，请使用新的请求标识',
+      });
+    }
+  }
+
+  /** VIP 幂等重试必须完全复用原会话金额、商户单号与商品标题快照。 */
+  private async buildVipCheckoutResponse(
+    userId: string,
+    session: any,
+    requestedScene: TrustedPaymentScene,
+    miniProgramOpenId: string | null,
+    dto: VipCheckoutDto,
+    checkoutRequestFingerprint: string,
+    validateReusable = true,
+  ) {
+    if (validateReusable) {
+      this.assertReusableVipIdempotentSession(
+        session,
+        dto,
+        requestedScene,
+        checkoutRequestFingerprint,
+      );
+    } else {
+      this.assertPaymentSceneMatches(session.paymentScene, requestedScene);
+    }
+    const fenced = await this.withPaymentOperationLock(session.id, async (lock) => {
+      const current = await this.prisma.checkoutSession.findFirst({
+        where: { id: session.id, userId },
+      });
+      if (!current) throw new NotFoundException('结算会话不存在');
+      if (validateReusable) {
+        this.assertReusableVipIdempotentSession(
+          current,
+          dto,
+          requestedScene,
+          checkoutRequestFingerprint,
+        );
+      } else if (current.status !== 'ACTIVE' || current.expiresAt.getTime() <= Date.now()) {
+        throw new ConflictException({
+          code: 'CHECKOUT_SESSION_NOT_ACTIVE',
+          message: '结算已结束或过期，请重新结算',
+        });
+      }
+      this.assertPaymentSceneMatches(current.paymentScene, requestedScene);
+      const currentBizMeta = this.normalizeBizMeta(current.bizMeta);
+      const giftTitle = typeof currentBizMeta.giftTitle === 'string' && currentBizMeta.giftTitle.trim()
+        ? currentBizMeta.giftTitle.trim()
+        : '会员礼包';
+      return this.createFencedPaymentParams({
+        userId,
+        sessionId: current.id,
+        requestedScene,
+        miniProgramOpenId,
+        description: `爱买买VIP礼包-${giftTitle}`,
+        lock,
+      });
+    });
+    const current = fenced.session;
+
+    return {
+      sessionId: current.id,
+      merchantOrderNo: current.merchantOrderNo,
+      expectedTotal: current.expectedTotal,
+      goodsAmount: current.goodsAmount,
+      shippingFee: current.shippingFee,
+      discountAmount: current.discountAmount,
+      fulfillmentMode: current.fulfillmentMode ?? 'DELIVERY',
+      paymentScene: requestedScene,
+      paymentParams: fenced.paymentParams,
+    };
+  }
+
   // ---------- 公开方法 ----------
 
   /** F1: 创建 CheckoutSession（校验库存+计算总额+预留奖励+返回支付参数） */
-  async checkout(userId: string, dto: CheckoutDto) {
+  async checkout(
+    userId: string,
+    dto: CheckoutDto,
+    requestedScene: TrustedPaymentScene = 'APP',
+    authContext?: TrustedAuthSessionContext,
+  ) {
     if (dto.items.length === 0) {
       throw new BadRequestException('购物车为空，请先添加商品');
     }
+    this.assertPositiveSafeItemQuantities(dto.items);
+    const miniProgramOpenId = requestedScene === 'MINI_PROGRAM'
+      ? await this.resolveMiniProgramOpenId(userId, authContext)
+      : null;
     const excludedItems: ExcludedCheckoutItem[] = [];
+    const checkoutSource = dto.checkoutSource ?? CheckoutSource.CART;
+    if (checkoutSource === CheckoutSource.BUY_NOW) {
+      if (dto.items.length !== 1) {
+        throw new BadRequestException('立即购买每次只能结算一个商品规格');
+      }
+      if (dto.items[0].cartItemId) {
+        throw new BadRequestException('立即购买不能关联购物车项');
+      }
+    }
+    const checkoutRequestFingerprint = this.buildNormalCheckoutFingerprint(dto, requestedScene);
 
     const toCheckoutResponse = async (session: {
       id: string;
+      status?: string;
+      expiresAt?: Date;
       merchantOrderNo: string | null;
       expectedTotal: number;
       goodsAmount: number;
       shippingFee: number;
       discountAmount: number;
       paymentChannel?: string | null;
+      paymentScene?: string | null;
       vipDiscountAmount?: number;
       totalCouponDiscount?: number;
       couponInstanceIds?: string[];
       groupBuyRebateDeductionAmount?: number;
-    }) => {
-      let paymentParams: Record<string, any> = {};
-
-      // 支付宝渠道：生成 APP 支付参数
-      if (session.paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
-        try {
-          const orderStr = await this.alipayService.createAppPayOrder({
-            merchantOrderNo: session.merchantOrderNo,
-            totalAmount: session.expectedTotal,
-            subject: `爱买买订单-${session.merchantOrderNo}`,
-          });
-          paymentParams = { channel: 'alipay', orderStr };
-        } catch (err: any) {
-          this.logger.error(`生成支付宝支付参数失败: ${err.message}`);
-        }
-      } else if (session.paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
-        try {
-          const wxParams = await this.wechatPayService.createAppOrder({
-            outTradeNo: session.merchantOrderNo,
-            amount: session.expectedTotal,
-            description: `爱买买订单-${session.merchantOrderNo}`,
-          });
-          paymentParams = { channel: 'wechat', ...wxParams };
-        } catch (err: any) {
-          this.logger.error(`生成微信支付参数失败: ${err.message}`);
-        }
+      bizMeta?: unknown;
+      itemsSnapshot?: unknown;
+    }, validateIdempotentReuse = true) => {
+      if (validateIdempotentReuse) {
+        this.assertReusableNormalIdempotentSession(
+          session as any,
+          dto,
+          requestedScene,
+          checkoutRequestFingerprint,
+        );
+      } else {
+        this.assertPaymentSceneMatches(session.paymentScene, requestedScene);
       }
 
+      const fenced = await this.withPaymentOperationLock(session.id, async (lock) => {
+        const current = await this.prisma.checkoutSession.findFirst({
+          where: { id: session.id, userId },
+        });
+        if (!current) throw new NotFoundException('结算会话不存在');
+        if (validateIdempotentReuse) {
+          this.assertReusableNormalIdempotentSession(
+            current,
+            dto,
+            requestedScene,
+            checkoutRequestFingerprint,
+          );
+        } else if (current.status !== 'ACTIVE' || current.expiresAt.getTime() <= Date.now()) {
+          throw new ConflictException({
+            code: 'CHECKOUT_SESSION_NOT_ACTIVE',
+            message: '结算已结束或过期，请重新结算',
+          });
+        }
+        this.assertPaymentSceneMatches(current.paymentScene, requestedScene);
+        return this.createFencedPaymentParams({
+          userId,
+          sessionId: current.id,
+          requestedScene,
+          miniProgramOpenId,
+          description: `爱买买订单-${current.merchantOrderNo}`,
+          lock,
+        });
+      });
+      const current = fenced.session;
+
       return {
-        sessionId: session.id,
-        merchantOrderNo: session.merchantOrderNo,
-        expectedTotal: session.expectedTotal,
-        goodsAmount: session.goodsAmount,
-        shippingFee: session.shippingFee,
-        discountAmount: session.discountAmount,
-        groupBuyRebateDeductionAmount: session.groupBuyRebateDeductionAmount ?? 0,
-        vipDiscountAmount: session.vipDiscountAmount ?? 0,
-        totalCouponDiscount: session.totalCouponDiscount ?? 0,
-        couponInstanceIds: session.couponInstanceIds ?? [],
+        sessionId: current.id,
+        merchantOrderNo: current.merchantOrderNo,
+        expectedTotal: current.expectedTotal,
+        goodsAmount: current.goodsAmount,
+        shippingFee: current.shippingFee,
+        discountAmount: current.discountAmount,
+        groupBuyRebateDeductionAmount: current.groupBuyRebateDeductionAmount ?? 0,
+        vipDiscountAmount: current.vipDiscountAmount ?? 0,
+        totalCouponDiscount: current.totalCouponDiscount ?? 0,
+        couponInstanceIds: current.couponInstanceIds ?? [],
         excludedItems,
-        paymentParams,
+        paymentScene: requestedScene,
+        fulfillmentMode: (current as any).fulfillmentMode ?? 'DELIVERY',
+        paymentParams: fenced.paymentParams,
       };
     };
 
@@ -275,7 +1165,7 @@ export class CheckoutService {
         },
       });
       if (existing) {
-        return await toCheckoutResponse(existing);
+        return await toCheckoutResponse(existing, true);
       }
     }
 
@@ -362,7 +1252,9 @@ export class CheckoutService {
     }
 
     // 2. 查询用户购物车中的所有项（用于匹配 cartItemId + 奖品识别）
-    const userCart = await this.prisma.cart.findUnique({ where: { userId } });
+    const userCart = checkoutSource === CheckoutSource.CART
+      ? await this.prisma.cart.findUnique({ where: { userId } })
+      : null;
     const allCartItems = userCart
       ? await this.prisma.cartItem.findMany({
           where: { cartId: userCart.id },
@@ -389,6 +1281,7 @@ export class CheckoutService {
     // 3. 校验 SKU 有效性、匹配奖品项、构建快照
     const matchedPrizeCartItemIds = new Set<string>();
     const snapshotItems: SnapshotItem[] = [];
+    const firstSnapshotBySkuId = new Map<string, SnapshotItem>();
 
     for (const item of dto.items) {
       const sku = skuMap.get(item.skuId);
@@ -410,7 +1303,12 @@ export class CheckoutService {
           }
         }
       }
-      if (!item.cartItemId && !prizeCartItem && cartPrizeBySkuId.has(resolvedSkuId)) {
+      if (
+        checkoutSource === CheckoutSource.CART
+        && !item.cartItemId
+        && !prizeCartItem
+        && cartPrizeBySkuId.has(resolvedSkuId)
+      ) {
         const candidates = cartPrizeBySkuId.get(resolvedSkuId)!;
         for (const c of candidates) {
           if (!matchedPrizeCartItemIds.has(c.id)) {
@@ -520,15 +1418,19 @@ export class CheckoutService {
       }
 
       // C3修复：为普通商品项也记录 cartItemId，避免支付回调时按 skuId 批量删除误伤
-      const normalCartItem = !isPrize ? normalCartBySkuId.get(resolvedSkuId) || normalCartBySkuId.get(item.skuId) : undefined;
+      const normalCartItem = checkoutSource === CheckoutSource.CART && !isPrize
+        ? normalCartBySkuId.get(resolvedSkuId) || normalCartBySkuId.get(item.skuId)
+        : undefined;
       const bundleSnapshot = sku.product?.type === 'BUNDLE'
         ? await this.buildBundleSnapshotItem(sku, item.quantity)
         : null;
       const snapshotCompanyId = bundleSnapshot?.companyId ?? sku.product.companyId;
-      snapshotItems.push({
+      const snapshotItem: SnapshotItem = {
         skuId: resolvedSkuId,
         quantity: item.quantity,
-        cartItemId: prizeCartItem?.id || normalCartItem?.id || item.cartItemId,
+        cartItemId: checkoutSource === CheckoutSource.BUY_NOW
+          ? undefined
+          : prizeCartItem?.id || normalCartItem?.id || item.cartItemId,
         isPrize,
         prizeRecordId: prizeRecordId || undefined,
         prizeType: prizeType || undefined,
@@ -558,7 +1460,25 @@ export class CheckoutService {
               isPrize,
               prizeType,
             },
-      });
+      };
+
+      const firstForSku = firstSnapshotBySkuId.get(resolvedSkuId);
+      if (firstForSku) {
+        const distinctExactPrizeRows = checkoutSource === CheckoutSource.CART
+          && firstForSku.isPrize
+          && snapshotItem.isPrize
+          && typeof firstForSku.cartItemId === 'string'
+          && typeof snapshotItem.cartItemId === 'string'
+          && firstForSku.cartItemId !== snapshotItem.cartItemId;
+        if (!distinctExactPrizeRows) {
+          throw new BadRequestException(
+            '同一商品规格不能拆分为多行结算，请合并数量后重试',
+          );
+        }
+      } else {
+        firstSnapshotBySkuId.set(resolvedSkuId, snapshotItem);
+      }
+      snapshotItems.push(snapshotItem);
     }
 
     // 4. F2: THRESHOLD_GIFT 门槛校验
@@ -599,12 +1519,13 @@ export class CheckoutService {
       throw new BadRequestException('没有可结算的商品（赠品未解锁或奖品已过期）');
     }
 
-    // 5. 地址快照
+    // 5. 履约方式与地址快照
+    const resolvedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
     let addressSnapshot: any = null;
     let regionCode: string | undefined;
-    if (dto.addressId) {
+    if (resolvedFulfillment.mode === 'DELIVERY') {
       const address = await this.prisma.address.findUnique({
-        where: { id: dto.addressId, userId, deletedAt: null },
+        where: { id: resolvedFulfillment.addressId, userId, deletedAt: null },
       });
       if (address) {
         regionCode = address.regionCode;
@@ -621,10 +1542,10 @@ export class CheckoutService {
         };
       }
     }
-    if (!addressSnapshot) {
+    if (resolvedFulfillment.mode === 'DELIVERY' && !addressSnapshot) {
       throw new BadRequestException('请选择有效的收货地址');
     }
-    const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
+    const encryptedAddressSnapshot = addressSnapshot ? encryptJsonValue(addressSnapshot) : null;
 
     // 6. 按 companyId 分组
     const itemsByCompany = new Map<string, SnapshotItem[]>();
@@ -653,6 +1574,18 @@ export class CheckoutService {
         ),
       }))
       .sort((a, b) => b.goodsAmount - a.goodsAmount);
+
+    let validatedFulfillment: ValidatedFulfillment;
+    if (resolvedFulfillment.mode === 'PICKUP') {
+      if (!this.pickupService) throw new ServiceUnavailableException('自提履约服务不可用');
+      validatedFulfillment = await this.pickupService.validateCheckoutFulfillment(
+        this.prisma as unknown as Prisma.TransactionClient,
+        companyGroups.map((group) => group.companyId),
+        resolvedFulfillment,
+      );
+    } else {
+      validatedFulfillment = resolvedFulfillment;
+    }
 
     // VIP 折扣计算：VIP 用户对非奖励商品打折（平台补贴）
     let vipDiscountAmount = 0;
@@ -687,12 +1620,14 @@ export class CheckoutService {
     const totalGoodsForShipping = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
     const totalWeightForShipping = companyGroups.reduce((s, g) => s + g.totalWeight, 0);
     const isVip = !!vipNode;
-    const shippingDetail = await this.calculateShippingDetailForCheckout(
-      totalGoodsForShipping,
-      regionCode,
-      totalWeightForShipping,
-      isVip,
-    );
+    const shippingDetail = resolvedFulfillment.mode === 'PICKUP'
+      ? { fee: 0 }
+      : await this.calculateShippingDetailForCheckout(
+          totalGoodsForShipping,
+          regionCode,
+          totalWeightForShipping,
+          isVip,
+        );
     const totalShippingFee = shippingDetail.fee;
     // 运费统一记录到快照中（每个商品项记录总运费，建单时按比例分配）
     for (const item of snapshotItems) {
@@ -781,7 +1716,10 @@ export class CheckoutService {
 
     // 10. 生成 merchantOrderNo（在事务外生成，事务内使用）
     const merchantOrderNo = `CS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const paymentChannel = dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] : null;
+    // 小程序端点由服务端强制微信支付；不信任客户端 paymentChannel 选择场景。
+    const paymentChannel = requestedScene === 'MINI_PROGRAM'
+      ? 'WECHAT_PAY'
+      : (dto.paymentChannel ? CHANNEL_MAP[dto.paymentChannel] : null);
 
     // 红包抵扣金额（来自独立事务的锁定结果）
     const totalCouponDiscount = couponReservation?.totalDiscount ?? 0;
@@ -795,6 +1733,7 @@ export class CheckoutService {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const session = await this.prisma.$transaction(async (tx) => {
+          await assertActiveUserWriteBarrier(tx, userId);
           const checkoutCompanyIds = companyGroups
             .map((group) => group.companyId)
             .filter((companyId) => companyId && companyId !== '__NO_COMPANY__');
@@ -819,6 +1758,14 @@ export class CheckoutService {
               message: '你有未完成的订单，请先完成支付或取消',
             });
           }
+
+          const trustedFulfillment = resolvedFulfillment.mode === 'PICKUP'
+            ? await this.pickupService!.validateCheckoutFulfillment(
+                tx,
+                companyGroups.map((group) => group.companyId),
+                resolvedFulfillment,
+              )
+            : validatedFulfillment;
 
           // 消费积分抵扣 CAS 预留（在事务内执行，回滚时自动恢复）
           let discountAmount = 0;
@@ -945,11 +1892,20 @@ export class CheckoutService {
             data: {
               userId,
               status: 'ACTIVE',
-              bizMeta: excludedPrizeItems.length > 0
-                ? ({ excludedPrizeItems } as unknown as Prisma.InputJsonValue)
-                : undefined,
+              bizMeta: {
+                ...(excludedPrizeItems.length > 0 ? { excludedPrizeItems } : {}),
+                checkoutRequestFingerprint,
+                checkoutSource,
+              } as unknown as Prisma.InputJsonValue,
               itemsSnapshot: snapshotItems as any,
+              fulfillmentMode: trustedFulfillment.mode,
               addressSnapshot: encryptedAddressSnapshot as any,
+              pickupRecipientSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.recipientSnapshot
+                : null,
+              pickupSelectionsSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.selectionsSnapshot as unknown as Prisma.InputJsonValue
+                : null,
               rewardId: reservedRewardId && discountAmount > 0 ? reservedRewardId : null,
               deductionGroupId,
               groupBuyRebateDeductionGroupId,
@@ -965,6 +1921,7 @@ export class CheckoutService {
               couponPerAmounts: effectiveCouponPerAmounts as any,
               merchantOrderNo,
               paymentChannel: paymentChannel as any,
+              paymentScene: requestedScene as PaymentScene,
               idempotencyKey: dto.idempotencyKey || null,
               buyerNote: dto.buyerNote || null,
               expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 分钟过期
@@ -980,7 +1937,7 @@ export class CheckoutService {
           ((session.totalCouponDiscount ?? 0) > 0 ? `, 红包抵扣=${session.totalCouponDiscount}` : ''),
         );
 
-        return await toCheckoutResponse(session);
+        return await toCheckoutResponse(session, false);
       } catch (err: any) {
         // P2034 序列化冲突重试（不释放红包，重试即可）
         if (err?.code === 'P2034' && attempt < MAX_RETRIES - 1) {
@@ -995,7 +1952,7 @@ export class CheckoutService {
             where: { userId, bizType: 'NORMAL_GOODS', idempotencyKey: dto.idempotencyKey },
           });
           if (existing) {
-            return await toCheckoutResponse(existing);
+            return await toCheckoutResponse(existing, true);
           }
         }
         // 事务失败（非重试情况）：释放已锁定的红包，防止 RESERVED 泄漏
@@ -1029,7 +1986,69 @@ export class CheckoutService {
    * VIP 礼包结算（Phase 3）
    * 独立于普通商品 checkout，无购物车、无红包、无分润奖励、包邮。
    */
-  async checkoutVipPackage(userId: string, dto: VipCheckoutDto) {
+  async checkoutVipPackage(
+    userId: string,
+    dto: VipCheckoutDto,
+    requestedScene: TrustedPaymentScene = 'APP',
+    authContext?: TrustedAuthSessionContext,
+  ) {
+    const miniProgramOpenId = requestedScene === 'MINI_PROGRAM'
+      ? await this.resolveMiniProgramOpenId(userId, authContext)
+      : null;
+    const checkoutRequestFingerprint = this.buildVipCheckoutFingerprint(dto, requestedScene);
+
+    // 优先处理精确幂等重试；不得用当前套餐价格覆盖原会话金额快照。
+    if (dto.idempotencyKey) {
+      const existing = await this.prisma.checkoutSession.findFirst({
+        where: { userId, bizType: 'VIP_PACKAGE', idempotencyKey: dto.idempotencyKey },
+      });
+      if (existing) {
+        return this.buildVipCheckoutResponse(
+          userId,
+          existing,
+          requestedScene,
+          miniProgramOpenId,
+          dto,
+          checkoutRequestFingerprint,
+        );
+      }
+    }
+
+    // 新 VIP 会话不得在创建事务中直接清理旧的过期会话。
+    // 旧支付串可能仍在客户端；必须先拿支付操作锁，查单并关单，
+    // 如果已支付则主动建单，绝不能把 ACTIVE 直接改成 EXPIRED。
+    const expiredVipSessions = await this.prisma.checkoutSession.findMany({
+      where: {
+        userId,
+        bizType: 'VIP_PACKAGE',
+        status: 'ACTIVE',
+        expiresAt: { lte: new Date() },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const expired of expiredVipSessions) {
+      try {
+        await this.cancelSession(userId, expired.id);
+      } catch (error) {
+        // 并发请求可能已安全处理同一旧会话；只有终态才可忽略。
+        const current = await this.prisma.checkoutSession.findUnique({
+          where: { id: expired.id },
+          select: { status: true },
+        });
+        if (!current || current.status === 'EXPIRED' || current.status === 'FAILED') {
+          continue;
+        }
+        if (current.status === 'PAID' || current.status === 'COMPLETED') {
+          throw new ConflictException({
+            code: 'VIP_PAYMENT_ALREADY_COMPLETED',
+            message: '原 VIP 支付已完成，请刷新会员状态',
+          });
+        }
+        throw error;
+      }
+    }
+
     // 1. 读取 VIP 档位信息（价格来自 VipPackage 而非全局配置）
     const pkg = await this.prisma.vipPackage.findUnique({
       where: { id: dto.packageId },
@@ -1038,23 +2057,6 @@ export class CheckoutService {
       throw new BadRequestException('VIP 档位不存在或已下架');
     }
     const vipPrice = pkg.price;
-
-    // 2. 幂等检查（按 bizType 过滤，避免与普通订单 idempotencyKey 冲突）
-    if (dto.idempotencyKey) {
-      const existing = await this.prisma.checkoutSession.findFirst({
-        where: { userId, bizType: 'VIP_PACKAGE', idempotencyKey: dto.idempotencyKey },
-      });
-      if (existing) {
-        return {
-          sessionId: existing.id,
-          merchantOrderNo: existing.merchantOrderNo,
-          expectedTotal: existing.expectedTotal,
-          goodsAmount: vipPrice,
-          shippingFee: 0,
-          discountAmount: 0,
-        };
-      }
-    }
 
     // Task 18 修正：防重锁挪进 Serializable 事务内执行（见步骤 9），
     // 避免两个并发请求都通过事务外检查再各自创建 ACTIVE session
@@ -1097,6 +2099,9 @@ export class CheckoutService {
     }
     // 逐项校验库存和状态
     for (const giftItem of giftOption.items) {
+      if (!Number.isSafeInteger(giftItem.quantity) || giftItem.quantity <= 0) {
+        throw new BadRequestException('VIP 赠品数量配置异常');
+      }
       if (giftItem.sku.status !== 'ACTIVE') {
         throw new BadRequestException(`赠品 SKU「${giftItem.sku.title}」已下架`);
       }
@@ -1118,25 +2123,33 @@ export class CheckoutService {
       );
     }
 
-    // 5. 地址快照
-    const address = await this.prisma.address.findUnique({
-      where: { id: dto.addressId, userId, deletedAt: null },
-    });
-    if (!address) {
-      throw new BadRequestException('收货地址无效');
+    // 5. 履约方式与地址快照
+    const resolvedFulfillment = resolveFulfillmentInput(dto.fulfillment, dto.addressId);
+    let encryptedAddressSnapshot: unknown = null;
+    if (resolvedFulfillment.mode === 'DELIVERY') {
+      const address = await this.prisma.address.findUnique({
+        where: { id: resolvedFulfillment.addressId, userId, deletedAt: null },
+      });
+      if (!address) throw new BadRequestException('收货地址无效');
+      const region = parseChineseAddress(address.regionText);
+      encryptedAddressSnapshot = encryptJsonValue({
+        recipientName: address.recipientName,
+        phone: address.phone,
+        regionCode: address.regionCode,
+        regionText: address.regionText,
+        province: region.province,
+        city: region.city,
+        district: region.district,
+        detail: address.detail,
+      });
+    } else {
+      if (!this.pickupService) throw new ServiceUnavailableException('自提履约服务不可用');
+      await this.pickupService.validateCheckoutFulfillment(
+        this.prisma as unknown as Prisma.TransactionClient,
+        [PLATFORM_COMPANY_ID],
+        resolvedFulfillment,
+      );
     }
-    const region = parseChineseAddress(address.regionText);
-    const addressSnapshot = {
-      recipientName: address.recipientName,
-      phone: address.phone,
-      regionCode: address.regionCode,
-      regionText: address.regionText,
-      province: region.province,
-      city: region.city,
-      district: region.district,
-      detail: address.detail,
-    };
-    const encryptedAddressSnapshot = encryptJsonValue(addressSnapshot);
 
     // 6. 商品快照（多商品组合）
     //    Phase 3 Review Fix 1：嵌套 productSnapshot 结构对齐普通 checkout
@@ -1182,6 +2195,7 @@ export class CheckoutService {
 
     // 7. bizMeta（VIP 礼包专用元数据）
     const bizMeta = {
+      checkoutRequestFingerprint,
       vipPackageId: pkg.id,
       referralBonusRate: pkg.referralBonusRate,
       vipGiftOptionId: giftOption.id,
@@ -1196,18 +2210,18 @@ export class CheckoutService {
     };
 
     // 8. 支付渠道
-    const paymentChannel = dto.paymentChannel
-      ? CHANNEL_MAP[dto.paymentChannel] || dto.paymentChannel
-      : 'WECHAT_PAY';
+    const paymentChannel = this.resolveVipPaymentChannel(dto, requestedScene);
 
     // 9. Serializable 事务：VIP 状态检查 + 活跃会话检查 + 创建会话（原子操作）
     //    Fix 2：与普通 checkout 一致，加 P2034 序列化冲突重试（指数退避）
     const VIP_MAX_RETRIES = 3;
     let vipSession: any = null;
+    let vipSessionWasReused = false;
     let vipLastErr: any = null;
     for (let attempt = 0; attempt < VIP_MAX_RETRIES; attempt++) {
       try {
         vipSession = await this.prisma.$transaction(async (tx) => {
+          await assertActiveUserWriteBarrier(tx, userId);
           // Task 18 修正：防重锁按 bizType 隔离 — VIP session 间互斥；
           // 不影响普通商品 session（跨类型不互斥）
           const globalActiveSession = await tx.checkoutSession.findFirst({
@@ -1223,6 +2237,16 @@ export class CheckoutService {
               message: '你有未完成的订单，请先完成支付或取消',
             });
           }
+          if (globalActiveSession) {
+            this.assertReusableVipIdempotentSession(
+              globalActiveSession,
+              dto,
+              requestedScene,
+              checkoutRequestFingerprint,
+            );
+            vipSessionWasReused = true;
+            return globalActiveSession;
+          }
 
           // 事务内校验用户不是 VIP（防止检查到创建之间的竞态）
           const member = await tx.memberProfile.findUnique({
@@ -1232,32 +2256,18 @@ export class CheckoutService {
             throw new BadRequestException('您已是 VIP 会员，无需重复购买');
           }
 
-          // 清理并释放当前用户已过期的 VIP 会话，避免过期预留阻塞再次下单
-          const expiredVipSessions = await tx.checkoutSession.findMany({
-            where: {
-              userId,
-              bizType: 'VIP_PACKAGE',
-              status: 'ACTIVE',
-              expiresAt: { lt: new Date() },
-            },
-            select: {
-              id: true,
-              bizType: true,
-              itemsSnapshot: true,
-            },
-          });
-          for (const expiredSession of expiredVipSessions) {
-            await this.releaseVipReservation(tx, expiredSession);
-            await tx.checkoutSession.update({
-              where: { id: expiredSession.id },
-              data: { status: 'EXPIRED' },
-            });
-          }
+          const trustedFulfillment: ValidatedFulfillment = resolvedFulfillment.mode === 'PICKUP'
+            ? await this.pickupService!.validateCheckoutFulfillment(
+                tx,
+                [PLATFORM_COMPANY_ID],
+                resolvedFulfillment,
+              )
+            : resolvedFulfillment;
 
           // 商户订单号
           const merchantOrderNo = `VIP${Date.now()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-          // VIP 会话过期时间（5 分钟）— VIP 不需要"未完成订单"概念，用户取消后可立即重下单；
-          // 5min 仅作为前端 cancel 调用失败时的后端兜底超时
+          // VIP 会话过期时间（5 分钟）；小程序可在窗口内通过专用端点恢复续付。
+          // 5min 同时作为支付取消或客户端中断后的服务端兜底超时。
           const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
           const txSession = await tx.checkoutSession.create({
@@ -1267,8 +2277,16 @@ export class CheckoutService {
               bizType: 'VIP_PACKAGE',
               bizMeta,
               itemsSnapshot: itemsSnapshot as any,
+              fulfillmentMode: trustedFulfillment.mode,
               addressSnapshot: encryptedAddressSnapshot as any,
+              pickupRecipientSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.recipientSnapshot
+                : null,
+              pickupSelectionsSnapshot: trustedFulfillment.mode === 'PICKUP'
+                ? trustedFulfillment.selectionsSnapshot as unknown as Prisma.InputJsonValue
+                : null,
               paymentChannel: paymentChannel as any,
+              paymentScene: requestedScene as PaymentScene,
               expectedTotal: vipPrice,
               goodsAmount: vipPrice,
               shippingFee: 0,
@@ -1312,6 +2330,22 @@ export class CheckoutService {
         break; // 成功跳出重试循环
       } catch (err: any) {
         vipLastErr = err;
+        if (err?.code === 'P2002' && dto.idempotencyKey) {
+          const existing = await this.prisma.checkoutSession.findFirst({
+            where: { userId, bizType: 'VIP_PACKAGE', idempotencyKey: dto.idempotencyKey },
+          });
+          if (existing) {
+            this.assertReusableVipIdempotentSession(
+              existing,
+              dto,
+              requestedScene,
+              checkoutRequestFingerprint,
+            );
+            vipSession = existing;
+            vipSessionWasReused = true;
+            break;
+          }
+        }
         // P2034 序列化冲突 → 指数退避重试
         if (err?.code === 'P2034' && attempt < VIP_MAX_RETRIES - 1) {
           this.logger.warn(
@@ -1332,45 +2366,39 @@ export class CheckoutService {
       `VIP 礼包 CheckoutSession 已创建：sessionId=${session.id}, userId=${userId}, giftOption=${giftOption.title}`,
     );
 
-    // 支付宝渠道：生成 APP 支付参数
-    let paymentParams: Record<string, any> = {};
-    if (paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
-      try {
-        const orderStr = await this.alipayService.createAppPayOrder({
-          merchantOrderNo: session.merchantOrderNo,
-          totalAmount: vipPrice,
-          subject: `爱买买VIP礼包-${giftOption.title}`,
-        });
-        paymentParams = { channel: 'alipay', orderStr };
-      } catch (err: any) {
-        this.logger.error(`VIP 结账生成支付宝参数失败: ${err.message}`);
-      }
-    } else if (paymentChannel === 'WECHAT_PAY' && this.wechatPayService?.isAvailable() && session.merchantOrderNo) {
-      try {
-        const wxParams = await this.wechatPayService.createAppOrder({
-          outTradeNo: session.merchantOrderNo,
-          amount: vipPrice,
-          description: `爱买买VIP礼包-${giftOption.title}`,
-        });
-        paymentParams = { channel: 'wechat', ...wxParams };
-      } catch (err: any) {
-        this.logger.error(`VIP 结账生成微信支付参数失败: ${err.message}`);
+    return this.buildVipCheckoutResponse(
+      userId,
+      session,
+      requestedScene,
+      miniProgramOpenId,
+      dto,
+      checkoutRequestFingerprint,
+      vipSessionWasReused,
+    );
+  }
+
+  private assertPositiveSafeItemQuantities(
+    items: ReadonlyArray<{ quantity: number }>,
+  ): void {
+    for (const item of items) {
+      if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException('商品数量必须为正安全整数');
       }
     }
-
-    return {
-      sessionId: session.id,
-      merchantOrderNo: session.merchantOrderNo,
-      expectedTotal: vipPrice,
-      goodsAmount: vipPrice,
-      shippingFee: 0,
-      discountAmount: 0,
-      paymentParams,
-    };
   }
 
   /** F1: 取消结算会话，释放预留奖励和红包 */
   async cancelSession(userId: string, sessionId: string) {
+    return this.withPaymentOperationLock(sessionId, (lock) =>
+      this.cancelSessionLocked(userId, sessionId, lock));
+  }
+
+  private async cancelSessionLocked(
+    userId: string,
+    sessionId: string,
+    lock: PaymentOperationLockContext,
+  ) {
+    await lock.assertOwned();
     const session = await this.prisma.checkoutSession.findUnique({
       where: { id: sessionId },
     });
@@ -1379,14 +2407,19 @@ export class CheckoutService {
     if (session.status !== 'ACTIVE') {
       throw new BadRequestException(`当前会话状态 ${session.status} 不允许取消`);
     }
+    if (this.hasPaymentParamCreationFence(session)) {
+      await this.recoverStalePaymentParamFence(session.id);
+    }
 
     // 资金安全：取消前先查支付宝，避免误删已付款 session
     // （场景：支付宝侧已 TRADE_SUCCESS 但 notify 还没到，cancel 会让 notify 抵达后被拒绝）
-    if (
-      session.merchantOrderNo &&
-      session.paymentChannel === 'ALIPAY' &&
-      this.alipayService?.isAvailable()
-    ) {
+    if (session.merchantOrderNo && session.paymentChannel === 'ALIPAY') {
+      if (!this.alipayService?.isAvailable()) {
+        this.logger.warn(
+          `cancelSession 支付宝服务不可用，拒绝取消：sessionId=${sessionId}`,
+        );
+        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      }
       let queryResult: { tradeStatus: string } | null = null;
       try {
         queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
@@ -1517,14 +2550,25 @@ export class CheckoutService {
         throw new BadRequestException('正在确认支付状态，请稍后再试');
       }
 
-      if (!queryResult) {
+      if (!queryResult || queryResult.outcome === 'UNKNOWN') {
         this.logger.warn(
-          `cancelSession 查微信无结果，拒绝取消：sessionId=${sessionId}`,
+          `cancelSession 查微信结果不确定，拒绝取消：sessionId=${sessionId}`,
         );
         throw new BadRequestException('正在确认支付状态，请稍后再试');
       }
 
-      if (queryResult?.tradeState === 'SUCCESS') {
+      if (
+        queryResult.outcome === 'FOUND'
+        && !this.wechatPayService.matchesPaymentScene(
+          queryResult,
+          this.normalizeStoredPaymentScene((session as any).paymentScene),
+        )
+      ) {
+        this.logger.error(`cancelSession 微信交易场景校验失败：sessionId=${sessionId}`);
+        throw new BadRequestException('支付身份校验失败，请联系客服');
+      }
+
+      if (queryResult.outcome === 'FOUND' && queryResult.tradeState === 'SUCCESS') {
         this.logger.warn(
           `cancelSession 检测到微信已支付，主动建单：sessionId=${sessionId}, tradeState=${queryResult.tradeState}`,
         );
@@ -1557,14 +2601,21 @@ export class CheckoutService {
         }
       }
 
-      let closeResult: any;
-      try {
-        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
-      } catch (closeErr: any) {
-        this.logger.warn(
-          `cancelSession 微信 close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
-        );
-        throw new BadRequestException('正在确认支付状态，请稍后再试');
+      // ORDER_NOT_EXIST 是微信明确终态，可安全释放；仅 FOUND 的未支付交易需要关单。
+      let closeResult: any = {
+        success: true,
+        terminal: true,
+        alreadyPaid: false,
+      };
+      if (queryResult.outcome === 'FOUND') {
+        try {
+          closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+        } catch (closeErr: any) {
+          this.logger.warn(
+            `cancelSession 微信 close 异常，拒绝取消：sessionId=${sessionId}, error=${closeErr.message}`,
+          );
+          throw new BadRequestException('正在确认支付状态，请稍后再试');
+        }
       }
 
       if (closeResult?.alreadyPaid) {
@@ -1574,7 +2625,16 @@ export class CheckoutService {
         } catch {
           throw new BadRequestException('支付状态异常，请稍后再试');
         }
-        if (queryAfterClose?.tradeState === 'SUCCESS') {
+        if (!queryAfterClose || queryAfterClose.outcome !== 'FOUND') {
+          throw new BadRequestException('支付状态异常，请稍后再试');
+        }
+        if (!this.wechatPayService.matchesPaymentScene(
+          queryAfterClose,
+          this.normalizeStoredPaymentScene((session as any).paymentScene),
+        )) {
+          throw new BadRequestException('支付身份校验失败，请联系客服');
+        }
+        if (queryAfterClose.tradeState === 'SUCCESS') {
           if (!queryAfterClose.transactionId) {
             this.logger.error(`cancelSession 微信 close-paid 成功态缺少交易流水号：sessionId=${sessionId}`);
             throw new BadRequestException('正在确认支付状态，请稍后再试');
@@ -1614,10 +2674,13 @@ export class CheckoutService {
       }
     }
 
+    // 渠道已明确关闭/不存在后仍需确认当前请求继续持有 owner 锁，随后才允许释放资金资源。
+    await lock.assertOwned();
     // H8修复：Serializable 隔离级别 + P2034 重试，防止与 handlePaymentSuccess 竞态
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
+        await lock.assertOwned();
         await this.prisma.$transaction(async (tx) => {
           // CAS: ACTIVE → EXPIRED
           const result = await tx.checkoutSession.updateMany({
@@ -1769,19 +2832,23 @@ export class CheckoutService {
   }
 
   /** Task 16: 查询当前用户最新的 ACTIVE CheckoutSession（用于"未完成订单"入口） */
-  async getPendingForUser(userId: string) {
+  async getPendingForUser(
+    userId: string,
+    requestedScene: TrustedPaymentScene = 'APP',
+  ) {
     const session = await this.prisma.checkoutSession.findFirst({
       where: {
         userId,
         status: 'ACTIVE',
         expiresAt: { gt: new Date() },
-        bizType: { not: 'VIP_PACKAGE' },  // VIP 没有"未完成订单"概念，pending API 不返 VIP session
+        bizType: { not: 'VIP_PACKAGE' },  // 通用 pending 保持非 VIP 合同；VIP 只由小程序专用端点按场景恢复。
       },
       orderBy: { createdAt: 'desc' },
     });
     if (!session) return null;
     const items = (session.itemsSnapshot as any[]) || [];
     const first = items[0];
+    const paymentScene = this.normalizeStoredPaymentScene((session as any).paymentScene);
     return {
       sessionId: session.id,
       merchantOrderNo: session.merchantOrderNo,
@@ -1791,6 +2858,8 @@ export class CheckoutService {
       expiresAt: session.expiresAt.toISOString(),
       itemCount: items.reduce((s, i) => s + (i.quantity || 1), 0),
       bizType: session.bizType,
+      paymentScene,
+      canResumeInCurrentScene: paymentScene === requestedScene,
       preview: {
         firstItemImage: first?.productSnapshot?.image || '',
         firstItemTitle: first?.productSnapshot?.title || '',
@@ -1806,51 +2875,168 @@ export class CheckoutService {
     };
   }
 
-  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
-  async resumeSession(userId: string, sessionId: string) {
+  /**
+   * 查询当前用户在微信小程序场景下唯一可恢复的 ACTIVE VIP 结算会话。
+   *
+   * 这里只返回续付所需的最小摘要；新的微信支付参数仍必须通过 resumeSession
+   * 在原有分布式锁、场景校验和当前微信身份校验内生成。
+   */
+  async getPendingVipForMiniProgram(userId: string) {
     const session = await this.prisma.checkoutSession.findFirst({
-      where: { id: sessionId, userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+      where: {
+        userId,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+        bizType: 'VIP_PACKAGE',
+        paymentScene: PaymentScene.MINI_PROGRAM,
+        paymentChannel: 'WECHAT_PAY',
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        merchantOrderNo: true,
+        expectedTotal: true,
+        expiresAt: true,
+        bizType: true,
+        paymentScene: true,
+      },
     });
-    if (!session) throw new NotFoundException('订单不存在或已过期');
-    if (!session.merchantOrderNo) throw new BadRequestException('支付参数缺失');
-
-    let paymentParams: Record<string, any> = {};
-    if (session.paymentChannel === 'ALIPAY' && this.alipayService?.isAvailable() && session.merchantOrderNo) {
-      try {
-        const orderStr = await this.alipayService.createAppPayOrder({
-          merchantOrderNo: session.merchantOrderNo,
-          totalAmount: session.expectedTotal,
-          subject: `爱买买订单-${session.merchantOrderNo}`,
-        });
-        paymentParams = { channel: 'alipay', orderStr };
-      } catch (err: any) {
-        this.logger.error(`续付生成支付宝参数失败: ${err.message}`);
-        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
-      }
-    } else if (session.paymentChannel === 'WECHAT_PAY') {
-      if (!this.wechatPayService?.isAvailable()) {
-        this.logger.error(`续付生成微信支付参数失败: 微信支付服务未启用`);
-        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
-      }
-      try {
-        const wxParams = await this.wechatPayService.createAppOrder({
-          outTradeNo: session.merchantOrderNo,
-          amount: session.expectedTotal,
-          description: `爱买买订单-${session.merchantOrderNo}`,
-        });
-        paymentParams = { channel: 'wechat', ...wxParams };
-      } catch (err: any) {
-        this.logger.error(`续付生成微信支付参数失败: ${err.message}`);
-        throw new ServiceUnavailableException('支付服务暂不可用，请稍后重试');
-      }
-    }
+    if (!session) return null;
 
     return {
       sessionId: session.id,
       merchantOrderNo: session.merchantOrderNo,
       expectedTotal: session.expectedTotal,
-      paymentParams,
+      expiresAt: session.expiresAt.toISOString(),
+      bizType: session.bizType,
+      paymentScene: session.paymentScene,
     };
+  }
+
+  /** Task 17: 续付未完成的 CheckoutSession（重新生成支付参数） */
+  async resumeSession(
+    userId: string,
+    sessionId: string,
+    requestedScene: TrustedPaymentScene = 'APP',
+    authContext?: TrustedAuthSessionContext,
+  ) {
+    const fenced = await this.withPaymentOperationLock(sessionId, async (lock) => {
+      const current = await this.prisma.checkoutSession.findFirst({
+        where: { id: sessionId, userId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+      });
+      if (!current) throw new NotFoundException('订单不存在或已过期');
+      if (!current.merchantOrderNo) throw new BadRequestException('支付参数缺失');
+      this.assertPaymentSceneMatches(current.paymentScene, requestedScene);
+      const miniProgramOpenId = requestedScene === 'MINI_PROGRAM'
+        ? await this.resolveMiniProgramOpenId(userId, authContext)
+        : null;
+      return this.createFencedPaymentParams({
+        userId,
+        sessionId: current.id,
+        requestedScene,
+        miniProgramOpenId,
+        description: `爱买买订单-${current.merchantOrderNo}`,
+        lock,
+      });
+    });
+    const session = fenced.session;
+
+    return {
+      sessionId: session.id,
+      merchantOrderNo: session.merchantOrderNo,
+      expectedTotal: session.expectedTotal,
+      paymentScene: requestedScene,
+      paymentParams: fenced.paymentParams,
+    };
+  }
+
+  /**
+   * 跨端支付切换的安全闸门。
+   *
+   * cancelSession 已覆盖：主动查单 → 已支付则幂等建单；未支付则关单；
+   * 只有渠道明确关单后才以 Serializable + CAS 将旧会话置为 EXPIRED。
+   * 本方法不会克隆旧商户单号，也不会直接生成第二笔支付。
+   */
+  private async prepareCrossSceneRecheckout(
+    userId: string,
+    sessionId: string,
+    targetScene: TrustedPaymentScene,
+  ) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { id: sessionId, userId },
+      include: { orders: { select: { id: true } } },
+    });
+    if (!session) throw new NotFoundException('结算会话不存在');
+
+    const currentScene = this.normalizeStoredPaymentScene((session as any).paymentScene);
+    if (session.status === 'COMPLETED' || session.status === 'PAID') {
+      return {
+        status: session.status,
+        orderIds: session.orders.map((order) => order.id),
+        recheckoutRequired: false,
+        targetScene,
+      };
+    }
+    if (session.status !== 'ACTIVE') {
+      return {
+        status: session.status,
+        orderIds: session.orders.map((order) => order.id),
+        recheckoutRequired: true,
+        targetScene,
+      };
+    }
+    if (currentScene === targetScene) {
+      return {
+        status: session.status,
+        orderIds: [] as string[],
+        recheckoutRequired: false,
+        canResume: true,
+        targetScene,
+      };
+    }
+
+    try {
+      await this.cancelSession(userId, sessionId);
+    } catch (error) {
+      // cancelSession 发现已支付时会先按既有幂等逻辑建单再拒绝“取消”。
+      // 这里仅在数据库已进入支付完成态时把它转换成成功响应；不吞掉查询/关单不确定错误。
+      const latest = await this.prisma.checkoutSession.findFirst({
+        where: { id: sessionId, userId },
+        include: { orders: { select: { id: true } } },
+      });
+      if (latest && (latest.status === 'COMPLETED' || latest.status === 'PAID')) {
+        return {
+          status: latest.status,
+          orderIds: latest.orders.map((order) => order.id),
+          recheckoutRequired: false,
+          targetScene,
+        };
+      }
+      if (latest && (latest.status === 'EXPIRED' || latest.status === 'FAILED')) {
+        return {
+          status: latest.status,
+          orderIds: latest.orders.map((order) => order.id),
+          recheckoutRequired: true,
+          targetScene,
+        };
+      }
+      throw error;
+    }
+
+    return {
+      status: 'EXPIRED' as const,
+      orderIds: [] as string[],
+      recheckoutRequired: true,
+      targetScene,
+    };
+  }
+
+  async prepareMiniProgramRecheckout(userId: string, sessionId: string) {
+    return this.prepareCrossSceneRecheckout(userId, sessionId, 'MINI_PROGRAM');
+  }
+
+  async prepareAppRecheckout(userId: string, sessionId: string) {
+    return this.prepareCrossSceneRecheckout(userId, sessionId, 'APP');
   }
 
   /** F1: 查找 CheckoutSession（payment callback 路由用） */
@@ -1916,6 +3102,7 @@ export class CheckoutService {
             // 3. 解析快照
             const items = session.itemsSnapshot as unknown as SnapshotItem[];
             const addressSnapshot = session.addressSnapshot;
+            const fulfillmentMode = (session as any).fulfillmentMode ?? 'DELIVERY';
             const sessionBizType = (session as any).bizType || 'NORMAL_GOODS';
             const isVipPackageSession = sessionBizType === 'VIP_PACKAGE';
             if (isVipPackageSession && (session as any).deductionGroupId) {
@@ -1960,7 +3147,7 @@ export class CheckoutService {
             const totalSessionGoodsAmount = companyGroups.reduce((s, g) => s + g.goodsAmount, 0);
             const groupShippingFees = this.allocateShippingFeeByGoodsAmount(
               companyGroups.map((group) => group.goodsAmount),
-              session.shippingFee,
+              fulfillmentMode === 'PICKUP' ? 0 : session.shippingFee,
             );
 
             // 6. 创建订单（含红包抵扣）
@@ -2129,6 +3316,7 @@ export class CheckoutService {
                   userId: session.userId,
                   checkoutSessionId: session.id,
                   status: 'PAID',
+                  fulfillmentMode,
                   // 传递业务类型（VIP_PACKAGE / NORMAL_GOODS）
                   bizType: sessionBizType,
                   bizMeta: (session as any).bizMeta || undefined,
@@ -2159,6 +3347,18 @@ export class CheckoutService {
                   },
                 },
               });
+
+              if (fulfillmentMode === 'PICKUP') {
+                if (!this.pickupService) {
+                  throw new InternalServerErrorException('自提履约服务不可用');
+                }
+                await this.pickupService.createForPaidOrder(tx, {
+                  orderId: order.id,
+                  companyId: group.companyId,
+                  recipientSnapshot: (session as any).pickupRecipientSnapshot,
+                  selectionsSnapshot: (session as any).pickupSelectionsSnapshot,
+                });
+              }
 
               const profitSnapshot = (
                 sessionBizType === 'NORMAL_GOODS'
@@ -2759,8 +3959,12 @@ export class CheckoutService {
       where: { id: bizMeta.referredByInstanceId },
       select: {
         id: true,
+        userId: true,
         status: true,
         tierSnapshot: true,
+        user: {
+          select: { status: true, deletionExecutedAt: true },
+        },
         activity: {
           select: {
             id: true,
@@ -2775,6 +3979,8 @@ export class CheckoutService {
     if (
       !referrerInstance
       || referrerInstance.status !== 'SHARING'
+      || referrerInstance.user.status !== 'ACTIVE'
+      || Boolean(referrerInstance.user.deletionExecutedAt)
       || this.isGroupBuyActivityEnded(referrerInstance.activity, now)
     ) {
       const invalidReason = referrerInstance?.status === 'SHARING'
@@ -2847,11 +4053,14 @@ export class CheckoutService {
           },
         });
         if (this.groupBuyRebateService) {
-          await this.groupBuyRebateService.createPendingReferralAfterPayment(
+          const pendingRebate = await this.groupBuyRebateService.createPendingReferralAfterPayment(
             tx,
             referral.id,
             now,
           );
+          if (pendingRebate?.status === 'BENEFICIARY_INACTIVE') {
+            return;
+          }
         } else {
           throw new InternalServerErrorException('团购推荐返还服务不可用');
         }

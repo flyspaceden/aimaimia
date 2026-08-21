@@ -833,6 +833,7 @@ enum NormalShareCodeStatus {
 enum NormalShareBindingSource {
   LANDING
   APP
+  MINI_PROGRAM
   DEFERRED
   ADMIN
 }
@@ -964,6 +965,11 @@ model User {
   couponTriggerEvents CouponTriggerEvent[] @relation("UserCouponTriggerEvents")
   couponClaimableSeenState CouponClaimableSeenState?
 
+  // 微信小程序一次性订阅授权与发送审计
+  miniProgramSubscriptionConsents MiniProgramSubscriptionConsent[] @relation("MiniSubscriptionConsentUser")
+  miniProgramSubscriptionOutbox   MiniProgramSubscriptionOutbox[]  @relation("MiniSubscriptionOutboxUser")
+  miniProgramScenes               MiniProgramScene[]               @relation("MiniProgramSceneOwner")
+
   // 卖家域关系
   companyStaffs CompanyStaff[] // 一个用户可以是多家企业的员工
   buyerAliases  BuyerAlias[] // 在各店铺的匿名编号
@@ -1011,6 +1017,8 @@ model AuthIdentity {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
+  sessions Session[]
+
   @@unique([provider, identifier, appId])
   @@index([userId, provider])
 }
@@ -1035,6 +1043,8 @@ model Session {
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   deviceId          String?
   device            Device?       @relation(fields: [deviceId], references: [id])
+  authIdentityId    String?
+  authIdentity      AuthIdentity?  @relation(fields: [authIdentityId], references: [id], onDelete: SetNull)
   accessTokenHash   String? // 不存明文
   refreshTokenHash  String // 不存明文
   status            SessionStatus @default(ACTIVE)
@@ -1045,6 +1055,7 @@ model Session {
 
   @@index([userId, status])
   @@index([expiresAt])
+  @@index([authIdentityId])
 }
 
 model Device {
@@ -1277,6 +1288,8 @@ model Company {
   products          Product[]
   traceBatches      TraceBatch[]
   shippingTemplates ShippingTemplate[]
+  pickupPoints        PickupPoint[]
+  pickupPointServices PickupPointServiceCompany[]
 
   // 保留模块关系
   groups   Group[]
@@ -1724,10 +1737,13 @@ model CheckoutSession {
   status  CheckoutSessionStatus @default(ACTIVE)
   bizType CheckoutBizType       @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
   bizMeta Json? // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
+  fulfillmentMode          FulfillmentMode @default(DELIVERY)
 
   // 结算快照（创建时冻结）
   itemsSnapshot                  Json // [{skuId, quantity, cartItemId?, isPrize, prizeRecordId?, unitPrice, companyId}]
-  addressSnapshot                Json // 完整地址快照
+  addressSnapshot                Json? // 完整地址快照；PICKUP 时为 null
+  pickupRecipientSnapshot        Json? // 自提人姓名/手机号加密快照
+  pickupSelectionsSnapshot       Json? // 服务端验证过的 [{companyId,pickupPointId}]
   rewardId                       String? @map("redPackId") // 选用的分润奖励 ID（列名兼容旧 redPackId）
   deductionGroupId               String? // 跨账户抵扣组 ID（关联 VIP+NORMAL 两条 DEDUCT ledger）
   groupBuyRebateDeductionGroupId String? // 团购返还余额抵扣组 ID
@@ -1741,7 +1757,9 @@ model CheckoutSession {
   // 支付信息
   merchantOrderNo String?         @unique // 预生成的商户订单号
   paymentChannel  PaymentChannel?
+  paymentScene    PaymentScene    @default(APP) // App 与小程序支付参数禁止跨场景复用
   providerTxnId   String?         @unique // 支付渠道返回的交易号
+  miniProgramPayerOpenId String? // 小程序预下单时锁定的 payer.openid
 
   // 平台红包
   couponInstanceIds   String[] @default([]) // 选中的平台红包实例 ID 列表
@@ -1759,12 +1777,15 @@ model CheckoutSession {
   updatedAt DateTime  @updatedAt
 
   orders Order[] // 支付成功后创建的订单
+  wechatShippingOutbox WechatShippingOutbox?
 
   @@unique([userId, bizType, idempotencyKey])
   @@index([userId, status])
   @@index([status, createdAt])
   @@index([merchantOrderNo])
   @@index([expiresAt, status])
+  @@index([userId, status, paymentScene])
+  @@index([fulfillmentMode, status, createdAt])
 }
 
 model Order {
@@ -1774,6 +1795,7 @@ model Order {
   status                OrderStatus      @default(PENDING_PAYMENT)
   bizType               OrderBizType     @default(NORMAL_GOODS) // 业务类型：普通商品 / VIP 礼包
   bizMeta               Json? // 业务元数据，VIP_PACKAGE 时存储 {vipGiftOptionId, giftTitle, giftCoverMode, giftCoverUrl, giftBadge, itemCount, snapshotPrice, shippingFeeMode, inventoryReserved}
+  fulfillmentMode       FulfillmentMode @default(DELIVERY)
   addressSnapshot       Json? // 下单时地址快照
   totalAmount           Float // 总金额（元）
   goodsAmount           Float // 商品金额（元）
@@ -1802,6 +1824,7 @@ model Order {
   invoice           Invoice?
   paymentGroupItems PaymentGroupItem[]
   shippingCosts     OrderShippingCost[]
+  pickupFulfillment PickupFulfillment?
 
   // I 域关系
   vipPurchase        VipPurchase?
@@ -1834,11 +1857,13 @@ model Order {
   profitRefundReversals     OrderProfitRefundReversal[]
   profitReconciliationTasks OrderProfitReconciliationTask[]
   profitAdjustmentDrafts    OrderProfitAdjustmentDraft[]
+  receivedEffectOutbox      OrderReceivedEffectOutbox[]
 
   @@unique([id, userId])
   @@index([userId, status, createdAt]) // 买家订单列表查询
   @@index([status, createdAt]) // 管理端按状态+时间查询
   @@index([createdAt]) // 管理端销售趋势按日期范围查询
+  @@index([fulfillmentMode, status, createdAt])
 }
 
 model OrderItem {
@@ -2538,6 +2563,7 @@ model Refund {
   afterSaleRequestsByRefundId AfterSaleRequest[]    @relation("AfterSaleRefundByRefundId")
   digitalAssetLedgers         DigitalAssetLedger[]
   profitRefundReversals       OrderProfitRefundReversal[]
+  sideEffectOutbox            RefundSideEffectOutbox[]
 
   @@index([orderId])
   @@unique([id, orderId])
@@ -2844,6 +2870,9 @@ model InviteH5LandingEvent {
   bindingType      String?
   boundAt          DateTime?
   errorCode        String?
+  miniProgramUrlLink           String?
+  miniProgramUrlLinkExpiresAt  DateTime?
+  miniProgramUrlLinkClaimUntil DateTime?
   // 微信内 H5 登录完成后，交给系统浏览器直接下载的短时一次性凭证（只存哈希）。
   // 它不代表买家登录态，也不参与推荐关系绑定。
   downloadPassHash      String?   @unique
@@ -3233,10 +3262,12 @@ model WithdrawRequest {
   clientIdempotencyKey String?         @unique
   providerFundOrderId  String?
   providerStatus       String?
+  providerStateUpdatedAt DateTime?
   providerErrorCode    String?
   providerErrorMessage String?
   paidAt               DateTime?
   lastQueriedAt        DateTime?
+  nextReconcileAt      DateTime?
   queryAttempts        Int             @default(0)
   rejectReason         String?
   reviewerAdminId      String?
@@ -3249,6 +3280,7 @@ model WithdrawRequest {
   @@index([status, createdAt])
   @@index([providerFundOrderId])
   @@index([userId, createdAt])
+  @@index([status, nextReconcileAt, createdAt])
 }
 
 // ============================================================
@@ -3278,6 +3310,7 @@ model Booking {
 
   @@index([userId])
   @@index([companyId])
+  @@unique([userId, groupId])
 }
 
 model Group {
@@ -3933,6 +3966,9 @@ model AfterSaleShippingPayment {
   merchantPaymentNo String                         @unique
   providerPaymentNo String?
   provider          String                         @default("ALIPAY")
+  paymentScene      PaymentScene                   @default(APP)
+  miniProgramPayerOpenId String?
+  paymentParamState Json?
   paidAt            DateTime?
   refundedAt        DateTime?
   failureReason     String?
@@ -4031,6 +4067,7 @@ model CouponInstance {
 
   // 状态
   status CouponInstanceStatus @default(AVAILABLE)
+  triggerIdempotencyKey String? @unique
 
   // 冗余抵扣信息（快照，避免活动修改后影响已发放红包）
   discountType      CouponDiscountType
@@ -4416,6 +4453,329 @@ model CsRating {
   tags      String[]
   comment   String?
   createdAt DateTime  @default(now())
+}
+
+// =============================================
+// 微信小程序、自提与收货副作用（2026-08）
+// =============================================
+
+enum FulfillmentMode {
+  DELIVERY
+  PICKUP
+}
+
+enum MiniProgramSubscriptionConsentStatus {
+  ACCEPTED
+  REJECTED
+  BANNED
+  FILTERED
+}
+
+enum MiniProgramSubscriptionOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum OrderReceivedEffectKind {
+  BONUS_ALLOCATION
+  DIGITAL_ASSET_CREDIT
+  GROUP_BUY_EVALUATION
+  GROWTH_REWARD
+  CAPTAIN_COMMISSION_RELEASE
+  COUPON_TRIGGERS
+}
+
+enum OrderReceivedEffectStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum RefundSideEffectKind {
+  DIGITAL_ASSET_REVERSAL
+  CAPTAIN_COMMISSION_VOID
+}
+
+enum RefundSideEffectStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum PickupFulfillmentStatus {
+  PREPARING
+  READY
+  PICKED_UP
+  VOID
+  CANCELED
+}
+
+enum PickupPointCoverage {
+  OWNER_COMPANY
+  ALL_ACTIVE_COMPANIES
+  SELECTED_COMPANIES
+}
+
+enum PickupPointKind {
+  MERCHANT
+  PLATFORM_HUB
+}
+
+enum WechatShippingOutboxStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+model MiniProgramScene {
+  id              String   @id @default(cuid())
+  token           String   @unique
+  ownerUserId     String
+  owner           User     @relation("MiniProgramSceneOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  kind            String
+  payload         Json
+  payloadHash     String
+  targetPath      String
+  expiresAt       DateTime
+  generatedCount  Int      @default(0)
+  lastGeneratedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerUserId, kind, payloadHash, expiresAt])
+  @@index([expiresAt])
+}
+
+model MiniProgramSubscriptionConsent {
+  id               String                               @id @default(cuid())
+  userId           String
+  user             User                                 @relation("MiniSubscriptionConsentUser", fields: [userId], references: [id], onDelete: Cascade)
+  authIdentityId   String
+  appId            String
+  templateKey      String
+  templateId       String
+  status           MiniProgramSubscriptionConsentStatus
+  clientRequestId  String
+  reservedOutboxId String?                              @unique
+  reservedAt       DateTime?
+  consumedAt       DateTime?
+  createdAt        DateTime                             @default(now())
+  updatedAt        DateTime                             @updatedAt
+
+  @@unique([userId, clientRequestId, templateKey])
+  @@index([userId, templateKey, status, consumedAt, createdAt])
+  @@index([authIdentityId, appId])
+}
+
+model MiniProgramSubscriptionOutbox {
+  id             String                              @id @default(cuid())
+  userId         String
+  user           User                                @relation("MiniSubscriptionOutboxUser", fields: [userId], references: [id], onDelete: Cascade)
+  consentId      String?                             @unique
+  eventType      String
+  aggregateType  String
+  aggregateId    String
+  templateKey    String
+  templateId     String?
+  page           String?
+  data           Json
+  idempotencyKey String                              @unique
+  status         MiniProgramSubscriptionOutboxStatus @default(PENDING)
+  attempts       Int                                 @default(0)
+  runAt          DateTime                            @default(now())
+  processingAt   DateTime?
+  processedAt    DateTime?
+  lastErrorCode  String?
+  lastError      String?
+  createdAt      DateTime                            @default(now())
+  updatedAt      DateTime                            @updatedAt
+
+  @@index([status, runAt])
+  @@index([userId, templateKey, createdAt])
+  @@index([aggregateType, aggregateId])
+}
+
+model OrderReceivedEffectOutbox {
+  id              String                    @id @default(cuid())
+  orderId         String
+  order           Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  userId          String
+  kind            OrderReceivedEffectKind
+  source          String                    @db.VarChar(32)
+  isFirstReceived Boolean                   @default(false)
+  status          OrderReceivedEffectStatus @default(PENDING)
+  attempts        Int                       @default(0)
+  runAt           DateTime                  @default(now())
+  processingAt    DateTime?
+  leaseToken      String?
+  leaseExpiresAt  DateTime?
+  completedAt     DateTime?
+  lastError       String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([orderId, kind])
+  @@index([status, runAt, createdAt])
+  @@index([status, leaseExpiresAt])
+}
+
+/// 自动退款成功后的可靠副作用 outbox。
+/// Refund.status=REFUNDED 与任务在同一 Serializable 事务中提交。
+model RefundSideEffectOutbox {
+  id             String                 @id @default(cuid())
+  refundId       String
+  refund         Refund                 @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  orderId        String
+  refundAmount   Float
+  kind           RefundSideEffectKind
+  source         String                 @db.VarChar(32)
+  status         RefundSideEffectStatus @default(PENDING)
+  attempts       Int                    @default(0)
+  runAt          DateTime               @default(now())
+  processingAt   DateTime?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([refundId, kind])
+  @@index([status, runAt, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([orderId, status])
+}
+
+model PickupPoint {
+  id               String              @id @default(cuid())
+  companyId        String
+  kind             PickupPointKind     @default(MERCHANT)
+  coverage         PickupPointCoverage @default(OWNER_COMPANY)
+  name             String              @db.VarChar(100)
+  contactName      String              @db.VarChar(50)
+  contactPhone     String              @db.VarChar(255)
+  regionCode       String              @db.VarChar(32)
+  regionText       String              @db.VarChar(120)
+  detail           String              @db.VarChar(200)
+  location         Json?
+  businessHours    Json
+  pickupNotice     String?             @db.VarChar(500)
+  isActive         Boolean             @default(true)
+  deletedAt        DateTime?
+  deletedByAdminId String?
+  deleteReason     String?             @db.VarChar(500)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  company          Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  serviceCompanies PickupPointServiceCompany[]
+  fulfillments     PickupFulfillment[]
+
+  @@index([companyId, deletedAt, isActive])
+  @@index([kind, coverage, deletedAt, isActive])
+}
+
+model PickupPointServiceCompany {
+  pickupPointId String
+  companyId     String
+  createdAt     DateTime @default(now())
+
+  pickupPoint PickupPoint @relation(fields: [pickupPointId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@id([pickupPointId, companyId])
+  @@index([companyId, pickupPointId])
+}
+
+model PickupFulfillment {
+  id                        String                  @id @default(cuid())
+  orderId                   String                  @unique
+  pickupPointId             String
+  status                    PickupFulfillmentStatus @default(PREPARING)
+  pickupPointSnapshot       Json
+  recipientSnapshot         Json
+  pickupCodeDigest          String                  @db.VarChar(64)
+  pickupTokenDigest         String                  @db.VarChar(64)
+  pickupCredentialEncrypted Json
+  readyAt                   DateTime?
+  pickedUpAt                DateTime?
+  pickedUpByStaffId         String?
+  voidedAt                  DateTime?
+  voidReason                String?                 @db.VarChar(500)
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+
+  order       Order                    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  pickupPoint PickupPoint              @relation(fields: [pickupPointId], references: [id], onDelete: Restrict)
+  events      PickupFulfillmentEvent[]
+
+  @@index([pickupPointId, status, readyAt])
+  @@index([pickupCodeDigest, status])
+  @@index([status, createdAt])
+}
+
+model PickupFulfillmentEvent {
+  id            String                   @id @default(cuid())
+  fulfillmentId String
+  fromStatus    PickupFulfillmentStatus?
+  toStatus      PickupFulfillmentStatus
+  eventType     String                   @db.VarChar(64)
+  actorType     String?                  @db.VarChar(32)
+  actorId       String?
+  meta          Json?
+  createdAt     DateTime                 @default(now())
+
+  fulfillment PickupFulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Restrict)
+
+  @@index([fulfillmentId, createdAt])
+  @@index([eventType, createdAt])
+}
+
+model WechatShippingOutbox {
+  id                String                     @id @default(cuid())
+  checkoutSessionId String                     @unique
+  checkoutSession   CheckoutSession            @relation(fields: [checkoutSessionId], references: [id], onDelete: Restrict)
+  status            WechatShippingOutboxStatus @default(PENDING)
+  generation        Int                        @default(1)
+  payloadHash       String
+  payload           Json
+  attemptCount      Int                        @default(0)
+  nextAttemptAt     DateTime                   @default(now())
+  leaseToken        String?
+  leaseExpiresAt    DateTime?
+  lastErrorCode     String?
+  lastError         String?
+  succeededAt       DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([status, leaseExpiresAt])
+}
+
+model WechatTransferNotifyInbox {
+  id            String   @id @default(cuid())
+  eventId       String   @unique
+  outBillNo     String
+  payload       Json
+  status        String   @default("PENDING")
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+  processedAt   DateTime?
+  deadAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([outBillNo])
 }
 
 // =============================================

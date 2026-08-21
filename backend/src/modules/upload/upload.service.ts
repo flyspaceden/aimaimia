@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
-import sharp = require('sharp');
+const sharp = require('sharp') as typeof import('sharp').default;
 import OSS = require('ali-oss');
 import {
   UPLOAD_ALLOWED_MIME_TYPES,

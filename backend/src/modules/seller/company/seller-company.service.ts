@@ -16,6 +16,7 @@ import { PLATFORM_COMPANY_ID } from '../../bonus/engine/constants';
 import { pickUniqueReferralCode } from '../../../common/utils/referral-code.util';
 import { CompanyService } from '../../company/company.service';
 import { AliyunSmsService } from '../../../common/sms/aliyun-sms.service';
+import { resolveAuthenticationMockMode } from '../../../common/security/production-mock-mode';
 
 @Injectable()
 export class SellerCompanyService {
@@ -329,8 +330,13 @@ export class SellerCompanyService {
 
   /** 发送邀请短信（内部方法，fire-and-forget） */
   private async sendInviteSms(phone: string) {
-    const smsMock = this.config.get('SMS_MOCK', 'true');
-    const code = smsMock === 'true' ? '123456' : randomInt(100000, 1000000).toString();
+    const smsMock = resolveAuthenticationMockMode(
+      this.config,
+      'SMS_MOCK',
+      '卖家邀请短信验证码服务',
+      true,
+    );
+    const code = smsMock ? '123456' : randomInt(100000, 1000000).toString();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -339,15 +345,23 @@ export class SellerCompanyService {
       data: { phone, codeHash, purpose: 'LOGIN', expiresAt },
     });
 
-    if (smsMock === 'true') {
+    if (smsMock) {
       this.logger.log(
         `[InviteStaff SMS Mock] 固定 code=${code}（目标 ${maskPhone(phone)}），员工可用此 code 登录`,
       );
     } else {
-      await this.aliyunSms.sendVerificationCode(phone, code);
-      this.logger.log(
-        `[InviteStaff SMS] 已发送（目标 ${maskPhone(phone)}），签名【深圳华海农业科技集团】+ code 5 分钟内可登录`,
-      );
+      try {
+        await this.aliyunSms.sendVerificationCode(phone, code);
+        this.logger.log(
+          `[InviteStaff SMS] 已发送（目标 ${maskPhone(phone)}），签名【深圳华海农业科技集团】+ code 5 分钟内可登录`,
+        );
+      } catch (error) {
+        await this.prisma.smsOtp.updateMany({
+          where: { phone, purpose: 'LOGIN', codeHash, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        throw error;
+      }
     }
   }
 

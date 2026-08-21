@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, HttpException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   AfterSaleStatus,
   AuthProvider,
@@ -50,6 +55,10 @@ function wechatIdentity(identifier = 'wx-openid-1234567890') {
 function makeTx(overrides: Record<string, any> = {}) {
   const tx: any = {
     $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([{
+      status: UserStatus.ACTIVE,
+      deletionExecutedAt: null,
+    }]),
     user: {
       findUnique: jest.fn().mockResolvedValue({
         status: UserStatus.ACTIVE,
@@ -67,6 +76,7 @@ function makeTx(overrides: Record<string, any> = {}) {
     checkoutSession: { count: jest.fn().mockResolvedValue(0) },
     payment: { count: jest.fn().mockResolvedValue(0) },
     paymentGroup: { count: jest.fn().mockResolvedValue(0) },
+    afterSaleShippingPayment: { count: jest.fn().mockResolvedValue(0) },
     withdrawRequest: {
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
@@ -89,6 +99,7 @@ function makeTx(overrides: Record<string, any> = {}) {
       update: jest.fn().mockResolvedValue({}),
     },
     rewardLedger: {
+      findMany: jest.fn().mockResolvedValue([]),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
@@ -99,6 +110,37 @@ function makeTx(overrides: Record<string, any> = {}) {
     },
     order: { count: jest.fn().mockResolvedValue(0) },
     afterSaleRequest: { count: jest.fn().mockResolvedValue(0) },
+    digitalAssetAccount: { findUnique: jest.fn().mockResolvedValue(null) },
+    groupBuyRebateAccount: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+      upsert: jest.fn().mockResolvedValue({ id: 'platform-group-buy-account' }),
+    },
+    groupBuyRebateLedger: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      create: jest.fn().mockResolvedValue({}),
+    },
+    groupBuyInstance: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    groupBuyCode: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    groupBuyReferral: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    captainAccount: {
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+      upsert: jest.fn().mockResolvedValue({ id: 'platform-captain-account' }),
+    },
+    captainCommissionLedger: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      create: jest.fn().mockResolvedValue({}),
+    },
+    captainProfile: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    captainRelation: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    captainMonthlySettlement: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    miniProgramScene: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    miniProgramSubscriptionConsent: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    miniProgramSubscriptionOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     authIdentity: {
       findFirst: jest.fn().mockResolvedValue(phoneIdentity()),
     },
@@ -129,8 +171,8 @@ function makeService(overrides: {
   redis?: any;
   sms?: any;
   digitalAsset?: any;
-  auth?: any;
   queueReward?: any;
+  auth?: any;
 } = {}) {
   const prisma = overrides.prisma ?? makeTx();
   const config = overrides.config ?? {
@@ -149,10 +191,8 @@ function makeService(overrides: {
   const digitalAsset = overrides.digitalAsset ?? {
     clearAccountAssets: jest.fn().mockResolvedValue(undefined),
   };
-  const auth = overrides.auth ?? {
-    consumeWechatDeletionProof: jest.fn().mockResolvedValue(undefined),
-  };
   const queueReward = overrides.queueReward;
+  const auth = overrides.auth ?? { consumeWechatMiniappDeletionProof: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
     config,
@@ -279,6 +319,29 @@ describe('DeletionService.preview blockers', () => {
     });
   });
 
+  it('blocks account deletion while legacy refund clawback debt remains uncovered', async () => {
+    const prisma = makeTx();
+    prisma.rewardLedger.findMany.mockResolvedValue([{
+      id: 'clawback-1',
+      accountId: 'vip-account-1',
+      userId,
+      entryType: 'VOID',
+      status: 'RETURN_FROZEN',
+      refType: 'AFTER_SALE_CLAWBACK',
+      amount: -1.5,
+    }]);
+    prisma.rewardAccount.findMany.mockResolvedValue([{ id: 'vip-account-1', balance: 0 }]);
+    const { service } = makeService({ prisma });
+
+    const blockers = await (service as any).getBlockers(userId, prisma);
+
+    expect(blockers).toContainEqual({
+      code: 'PENDING_REWARD_CLAWBACK',
+      message: '您有退款奖励待追偿，请结清后再注销账号',
+      count: 1,
+    });
+  });
+
   it('returns IS_COMPANY_OWNER for an active merchant owner', async () => {
     const prisma = makeTx();
     prisma.companyStaff.count.mockResolvedValue(1);
@@ -337,6 +400,50 @@ describe('DeletionService.preview blockers', () => {
     });
     expect(prisma.paymentGroup.count).toHaveBeenCalledWith({
       where: { userId, status: { in: [PaymentStatus.INIT, PaymentStatus.PENDING] } },
+    });
+  });
+
+  it('blocks on an unresolved return-shipping payment and releases after it is safely CLOSED', async () => {
+    const blocked = makeTx();
+    blocked.afterSaleShippingPayment.count.mockResolvedValue(1);
+    const blockedResult = await makeService({ prisma: blocked }).service.preview(userId);
+    expect(blockedResult.blockers).toContainEqual({
+      code: 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS',
+      message: '您有退货运费支付正在进行，请先完成、关单或等待支付结果',
+      count: 1,
+    });
+
+    const closed = makeTx();
+    closed.afterSaleShippingPayment.count.mockResolvedValue(0);
+    const closedResult = await makeService({ prisma: closed }).service.preview(userId);
+    expect(closedResult.blockers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'PENDING_AFTER_SALE_SHIPPING_PAYMENT_EXISTS' }),
+    ]));
+  });
+
+  it('discloses every balance family that irreversible cleanup forfeits', async () => {
+    const prisma = makeTx();
+    prisma.digitalAssetAccount.findUnique.mockResolvedValue({
+      seedAssetBalance: 12,
+      creditAssetBalance: 3,
+    });
+    prisma.groupBuyRebateAccount.findUnique.mockResolvedValue({
+      balance: 8,
+      reserved: 2,
+    });
+    prisma.captainAccount.findMany.mockResolvedValue([
+      { balance: 5, frozen: 1 },
+      { balance: 4, frozen: 0.5 },
+    ]);
+
+    const result = await makeService({ prisma }).service.preview(userId);
+    expect(result.assets).toMatchObject({
+      digitalAssetSeedBalance: 12,
+      digitalAssetCreditBalance: 3,
+      groupBuyRebateBalance: 8,
+      groupBuyRebateReserved: 2,
+      captainBalance: 9,
+      captainFrozen: 1.5,
     });
   });
 
@@ -1038,6 +1145,76 @@ describe('DeletionService.sendCode', () => {
     const { service } = makeService({ prisma });
 
     await expect(service.sendCode(userId)).rejects.toThrow(BadRequestException);
+  });
+
+  it('fails closed before storing a fixed deletion OTP when production enables SMS mock', async () => {
+    const prisma = makeTx();
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'SMS_MOCK') return 'true';
+        if (key === 'NODE_ENV') return 'production';
+        return fallback;
+      }),
+    };
+    const { service, sms } = makeService({ prisma, config });
+
+    await expect(service.sendCode(userId)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'ACCOUNT_DELETION_SMS_MISCONFIGURED',
+      }),
+    });
+    expect(prisma.smsOtp.create).not.toHaveBeenCalled();
+    expect(sms.sendVerificationCode).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when production omits SMS_MOCK and before verifying a legacy fixed OTP', async () => {
+    const prisma = makeTx();
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'NODE_ENV') return 'production';
+        return fallback;
+      }),
+    };
+    const { service } = makeService({ prisma, config });
+
+    await expect(service.sendCode(userId)).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.smsOtp.create).not.toHaveBeenCalled();
+
+    await expect((service as any).verifyDeletionOtpInTx(
+      prisma,
+      '13800001234',
+      '123456',
+    )).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.smsOtp.findMany).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the exact deletion OTP and returns 503 when the SMS provider fails', async () => {
+    const prisma = makeTx();
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'SMS_MOCK') return 'false';
+        if (key === 'NODE_ENV') return 'production';
+        return fallback;
+      }),
+    };
+    const { service, sms } = makeService({
+      prisma,
+      config,
+      sms: { sendVerificationCode: jest.fn().mockRejectedValue(new Error('provider down')) },
+    });
+
+    await expect(service.sendCode(userId)).rejects.toThrow(ServiceUnavailableException);
+    const codeHash = prisma.smsOtp.create.mock.calls[0][0].data.codeHash;
+    expect(prisma.smsOtp.updateMany).toHaveBeenCalledWith({
+      where: {
+        phone: '13800001234',
+        purpose: SmsPurpose.DELETION,
+        codeHash,
+        usedAt: null,
+      },
+      data: { usedAt: expect.any(Date) },
+    });
+    expect(sms.sendVerificationCode).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces deletion OTP rate-limit failures as HTTP exceptions', async () => {

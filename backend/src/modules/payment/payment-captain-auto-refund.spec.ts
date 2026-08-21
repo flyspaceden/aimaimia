@@ -1,6 +1,14 @@
 import { PaymentService } from './payment.service';
 
 describe('PaymentService captain auto-refund hook', () => {
+  it('fails module startup when the durable refund side-effect outbox is not wired', () => {
+    const service = new PaymentService({} as any, {} as any, {} as any);
+
+    expect(() => service.onModuleInit()).toThrow(
+      'RefundSideEffectsService is required for durable automatic-refund finalization',
+    );
+  });
+
   it('routes an after-sale success through AfterSaleRefundService', async () => {
     const prisma: any = {
       refund: { findUnique: jest.fn().mockResolvedValue({
@@ -72,6 +80,11 @@ describe('PaymentService captain auto-refund hook', () => {
       refundStatusHistory: {
         create: jest.fn().mockResolvedValue({}),
       },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = {
       $transaction: jest.fn(async (callback: any) => callback(tx)),
@@ -124,6 +137,11 @@ describe('PaymentService captain auto-refund hook', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       refundStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = { $transaction: jest.fn(async (callback: any) => callback(tx)) };
     const captainCommission = { voidForRefund: jest.fn() };
@@ -160,6 +178,11 @@ describe('PaymentService captain auto-refund hook', () => {
         }),
       },
       refundStatusHistory: { create: jest.fn() },
+      pickupFulfillment: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn(),
+      },
+      pickupFulfillmentEvent: { create: jest.fn() },
     };
     const prisma: any = { $transaction: jest.fn(async (callback: any) => callback(tx)) };
     const profitRefund = {
@@ -167,6 +190,11 @@ describe('PaymentService captain auto-refund hook', () => {
     };
     const service = new PaymentService(prisma, {} as any, {} as any);
     service.setOrderProfitRefundService(profitRefund as any);
+    const effects = {
+      enqueueInTransaction: jest.fn().mockResolvedValue(undefined),
+      kick: jest.fn(),
+    };
+    service.setRefundSideEffectsService(effects as any);
     const params = {
       refundId: 'refund-1', fromStatuses: ['REFUNDING'], toStatus: 'REFUNDED' as const,
       remark: '渠道退款成功',
@@ -177,5 +205,56 @@ describe('PaymentService captain auto-refund hook', () => {
 
     expect(profitRefund.finalizeSuccessfulRefund).toHaveBeenCalledTimes(1);
     expect(tx.refundStatusHistory.create).toHaveBeenCalledTimes(1);
+    expect(effects.enqueueInTransaction).toHaveBeenCalledTimes(1);
+    expect(effects.enqueueInTransaction).toHaveBeenCalledWith(tx, {
+      refundId: 'refund-1', orderId: 'order-1', refundAmount: 80, profitMode: 'V3',
+    });
+    expect(effects.kick).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists auto-refund effects before the REFUNDED Serializable transaction commits and does not double-run fast hooks', async () => {
+    const tx: any = {
+      refund: {
+        findUnique: jest.fn()
+          .mockResolvedValueOnce({
+            id: 'refund-1', status: 'REFUNDING', orderId: 'order-1', amount: 80,
+            merchantRefundNo: 'AUTO-CANCEL-order-1', providerRefundId: null,
+          })
+          .mockResolvedValueOnce({
+            id: 'refund-1', merchantRefundNo: 'AUTO-CANCEL-order-1',
+            order: { id: 'order-1', checkoutSessionId: null, goodsAmount: 80, discountAmount: 0 },
+          }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      refundStatusHistory: { create: jest.fn() },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue(null), updateMany: jest.fn() },
+      pickupFulfillmentEvent: { create: jest.fn() },
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: any) => callback(tx)) };
+    const digital = { reverseRefund: jest.fn() };
+    const captain = { voidForRefund: jest.fn() };
+    const effects = {
+      enqueueInTransaction: jest.fn().mockResolvedValue(undefined),
+      kick: jest.fn(),
+    };
+    const profitRefund = {
+      finalizeSuccessfulRefund: jest.fn().mockResolvedValue({ mode: 'LEGACY', orderId: 'order-1' }),
+    };
+    const service = new PaymentService(prisma, {} as any, {} as any);
+    service.setDigitalAssetService(digital as any);
+    service.setCaptainCommissionService(captain as any);
+    service.setOrderProfitRefundService(profitRefund as any);
+    service.setRefundSideEffectsService(effects as any);
+
+    await expect(service.finalizeAutoRefundRecord({
+      refundId: 'refund-1', fromStatuses: ['REFUNDING'], toStatus: 'REFUNDED', remark: '退款成功',
+    })).resolves.toBe(true);
+
+    expect(effects.enqueueInTransaction).toHaveBeenCalledWith(tx, {
+      refundId: 'refund-1', orderId: 'order-1', refundAmount: 80, profitMode: 'LEGACY',
+    });
+    expect(effects.kick).toHaveBeenCalledWith('refund-1');
+    expect(digital.reverseRefund).not.toHaveBeenCalled();
+    expect(captain.voidForRefund).not.toHaveBeenCalled();
   });
 });

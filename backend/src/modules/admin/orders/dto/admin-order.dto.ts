@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   MaxLength,
   IsBoolean,
+  IsIn,
   Matches,
 } from 'class-validator';
 
@@ -78,6 +79,14 @@ export class AdminOrderQueryDto {
   @IsOptional()
   @IsString()
   paymentChannel?: string;
+
+  @IsOptional()
+  @IsIn(['DELIVERY', 'PICKUP'])
+  fulfillmentMode?: 'DELIVERY' | 'PICKUP';
+
+  @IsOptional()
+  @IsIn(['PREPARING', 'READY', 'PICKED_UP', 'VOID', 'CANCELED'])
+  pickupStatus?: 'PREPARING' | 'READY' | 'PICKED_UP' | 'VOID' | 'CANCELED';
 }
 
 export class AdminUpdateOrderReceiverInfoDto {

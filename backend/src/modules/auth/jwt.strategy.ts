@@ -46,37 +46,29 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new ForbiddenException('账号不可用');
     }
 
-    // M06修复：精确校验当前 token 对应的 Session，而非用户的任意活跃会话
-    // 使用 JWT payload 中的 sessionId 精确匹配，确保设备 1 注销后 token 立即失效，
-    // 不会因为设备 2 存在活跃会话而被放行
-    if (payload.sessionId) {
-      // 新版 token：包含 sessionId，精确匹配
-      const session = await this.prisma.session.findFirst({
-        where: {
-          id: payload.sessionId,
-          userId: payload.sub,
-          status: 'ACTIVE',
-          expiresAt: { gt: new Date() },
-        },
-      });
-      if (!session) {
-        throw new UnauthorizedException('会话已过期或已注销');
-      }
-    } else {
-      // 兼容旧版 token（无 sessionId）：回退到用户级别检查
-      const session = await this.prisma.session.findFirst({
-        where: {
-          userId: payload.sub,
-          status: 'ACTIVE',
-          expiresAt: { gt: new Date() },
-        },
-      });
-      if (!session) {
-        throw new UnauthorizedException('会话已过期或已注销');
-      }
+    // 所有现行买家 access token 都由 issueTokens/refresh 写入 sessionId，且默认
+    // 15 分钟过期。无 sessionId 的历史 token 无法证明所属设备会话；若继续按
+    // “该用户任意活跃会话”放行，设备 A 退出后仍可能借设备 B 的会话继续访问。
+    // 因此直接要求客户端走现有 refresh 流程换取精确绑定的新 token。
+    if (!payload.sessionId) {
+      throw new UnauthorizedException('登录凭证版本过旧，请刷新后重试');
     }
 
-    // 控制器需要精确识别当前 Session，改密等操作只能撤销“其他设备”。
-    return { sub: payload.sub, sessionId: payload.sessionId };
+    const session = await this.prisma.session.findFirst({
+      where: {
+        id: payload.sessionId,
+        userId: payload.sub,
+        status: 'ACTIVE',
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!session) {
+      throw new UnauthorizedException('会话已过期或已注销');
+    }
+    return {
+      sub: payload.sub,
+      sessionId: session.id,
+      authIdentityId: session.authIdentityId ?? null,
+    };
   }
 }

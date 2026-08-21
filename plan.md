@@ -1955,8 +1955,8 @@
 
 - [x] **MP-PROD00** 冻结 `main/staging/生产后端/staging 后端` SHA，建立干净 `codex/miniapp-production-integration-20260821` worktree；原始脏目录和生产环境未改动。
 - [x] **MP-PROD01**（本地完成，未 push/未部署）发布安全门禁：main push 不自动部署；production workflow_dispatch + approval；exact SHA；主库备份；后端质量/E2E/readiness；后端先于 admin/seller/H5；workflow-only 不触发后端。后端候选在不可变 worktree 安装/编译，PM2 停止后才备份/migrate，按旧绝对 cwd/entrypoint 回退；flock、阶段 journal、运行 SHA、公网 health、App 旧登录/商品/购物车/普通+VIP+团购结算/钱包/售后探针和 `pm2 save` 均已接入。GitHub production/staging environment 已按分支隔离。独立终审无 Critical/High；Batch 1 正式发布前仍必须完成 main protection、PITR/离机恢复证明和首次服务器 PM2 只读预检。
-- [ ] **MP-PROD02** Delivery 排除守卫：禁止配送门户、配送数据库、DeliveryModule/wiring/配置进入候选，同时保留商城 Shipment/SF/普通送货上门。
-- [ ] **MP-PROD03** 小程序后端兼容闭包与 18 条 migration；main 旧 API 路由零删除，微信支付/退款/提现、自提、通知、购物车与收货副作用完整。
+- [x] **MP-PROD02**（本地完成，未 push/未部署）Delivery 排除守卫：禁止配送门户、配送数据库、DeliveryModule/wiring/配置进入候选，同时保留商城 Shipment/SF/普通送货上门；静态排除与路由守卫 5/5 通过。
+- [x] **MP-PROD03**（本地完成，未 push/未部署/未迁移生产库）小程序后端兼容闭包与 19 条 migration（18 条 staging-derived 同哈希 + 1 条生产集成自动退款副作用 outbox）；629 条生产集成基线路由（含 Batch 0 readiness）零删除，小程序新增路由为并列接口；微信支付/退款/提现、自提、通知、购物车、六类收货副作用 outbox 与自动退款数字资产/旧团长佣金冲回 outbox 已接入。Prisma validate/generate、Nest build、生产依赖 audit 0、后端 239 suites / 2937 tests 通过（2 suites / 5 tests 因需真实 PostgreSQL 条件跳过）。生产备份克隆库演练仍由 MP-PROD06 单独阻断。
 - [ ] **MP-PROD04** 平台后台与卖家后台最小自提/核销/微信提现界面；解决扫码依赖 Node 版本；后端成功后才部署静态后台。
 - [ ] **MP-PROD05** 完整 miniapp + production release-context + 推荐 H5 双入口；App 不增加自提下单入口，只做经确认的跨端只读兼容。
 - [ ] **MP-PROD06** 生产备份克隆库迁移演练：Booking 重复、默认地址重写、checksum、前后数据守恒和 fail-forward 回退方案全部通过。

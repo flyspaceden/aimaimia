@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { InviteH5Service } from './invite-h5.service';
 
@@ -32,9 +32,23 @@ const makeHarness = () => {
   const bonus = {
     useReferralCode: jest.fn(),
   };
-  const service = new InviteH5Service(prisma, resolver as any, normalShare as any, bonus as any);
+  const wechatMiniProgram = {
+    isAvailable: jest.fn().mockReturnValue(true),
+    postJson: jest.fn(),
+  };
+  const config = {
+    get: jest.fn((_key: string, fallback: string) => fallback),
+  };
+  const service = new InviteH5Service(
+    prisma,
+    resolver as any,
+    normalShare as any,
+    bonus as any,
+    wechatMiniProgram as any,
+    config as any,
+  );
 
-  return { prisma, resolver, normalShare, bonus, service };
+  return { prisma, resolver, normalShare, bonus, wechatMiniProgram, config, service };
 };
 
 describe('InviteH5Service', () => {
@@ -279,6 +293,168 @@ describe('InviteH5Service', () => {
     expect(prisma.normalShareBinding.count).not.toHaveBeenCalled();
     expect(prisma.referralLink.count).not.toHaveBeenCalled();
     expect(result).toEqual({ openCount: 6, authedCount: 2, boundCount: 1 });
+  });
+
+  it('creates a one-day URL Link for the landing event’s resolved mini-program referral path', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'SABC1234' });
+    resolver.resolve.mockResolvedValue({
+      status: 'NORMAL_SHARE',
+      code: 'SABC1234',
+      inviterUserId: 'inviter-1',
+    });
+    wechatMiniProgram.postJson.mockResolvedValue({
+      url_link: 'https://wxaurl.cn/AbCdEf',
+    });
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'sabc1234',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).resolves.toEqual({ urlLink: 'https://wxaurl.cn/AbCdEf' });
+
+    expect(wechatMiniProgram.postJson).toHaveBeenCalledWith('/wxa/generate_urllink', {
+      path: 'packages/referral/landing/index',
+      query: 'code=SABC1234&kind=normal',
+      expire_type: 1,
+      expire_interval: 1,
+      env_version: 'release',
+    });
+  });
+
+  it('holds the URL Link claim for one minute so a token-refresh retry cannot be reclaimed', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-11T12:00:00.000Z'));
+    try {
+      const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+      prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'SABC1234' });
+      resolver.resolve.mockResolvedValue({
+        status: 'NORMAL_SHARE',
+        code: 'SABC1234',
+        inviterUserId: 'inviter-1',
+      });
+      wechatMiniProgram.postJson.mockResolvedValue({ url_link: 'https://wxaurl.cn/OneMinuteLease' });
+
+      await service.createMiniProgramLink({
+        inviteCode: 'SABC1234',
+        landingSessionId: 'ih5_0123456789abcdef01234567',
+      });
+
+      expect(prisma.inviteH5LandingEvent.updateMany.mock.calls[0][0]).toEqual(expect.objectContaining({
+        data: { miniProgramUrlLinkClaimUntil: new Date('2026-08-11T12:01:00.000Z') },
+      }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the configured trial or development environment when issuing a URL Link outside production', async () => {
+    const { prisma, resolver, wechatMiniProgram, config, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'VIPCODE1' });
+    resolver.resolve.mockResolvedValue({
+      status: 'VIP_REFERRAL',
+      code: 'VIPCODE1',
+      inviterUserId: 'inviter-1',
+    });
+    config.get.mockReturnValue('trial');
+    wechatMiniProgram.postJson.mockResolvedValue({ url_link: 'https://wxaurl.cn/TrialLink' });
+
+    await service.createMiniProgramLink({
+      inviteCode: 'VIPCODE1',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    });
+
+    expect(wechatMiniProgram.postJson).toHaveBeenCalledWith('/wxa/generate_urllink', expect.objectContaining({
+      query: 'code=VIPCODE1&kind=vip',
+      env_version: 'trial',
+    }));
+  });
+
+  it('reuses an unexpired URL Link for the same landing session without another WeChat request', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({
+      inviteCode: 'SABC1234',
+      miniProgramUrlLink: 'https://wxaurl.cn/ReusableLink',
+      miniProgramUrlLinkExpiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).resolves.toEqual({ urlLink: 'https://wxaurl.cn/ReusableLink' });
+
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(wechatMiniProgram.postJson).not.toHaveBeenCalled();
+    expect(prisma.inviteH5LandingEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not make a duplicate WeChat request while another request is generating the same URL Link', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique
+      .mockResolvedValueOnce({
+        inviteCode: 'SABC1234',
+        miniProgramUrlLink: null,
+        miniProgramUrlLinkExpiresAt: null,
+      })
+      .mockResolvedValueOnce({
+        miniProgramUrlLink: null,
+        miniProgramUrlLinkExpiresAt: null,
+      });
+    prisma.inviteH5LandingEvent.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(wechatMiniProgram.postJson).not.toHaveBeenCalled();
+  });
+
+  it('does not generate a mini-program URL Link when the supplied code differs from its landing event', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'SABC1234' });
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'VIPCODE1',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(wechatMiniProgram.postJson).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without calling WeChat when the mini-program platform is unavailable', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'SABC1234' });
+    resolver.resolve.mockResolvedValue({
+      status: 'NORMAL_SHARE',
+      code: 'SABC1234',
+      inviterUserId: 'inviter-1',
+    });
+    wechatMiniProgram.isAvailable.mockReturnValue(false);
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'SABC1234',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(wechatMiniProgram.postJson).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when WeChat returns a URL Link outside wxaurl.cn', async () => {
+    const { prisma, resolver, wechatMiniProgram, service } = makeHarness();
+    prisma.inviteH5LandingEvent.findUnique.mockResolvedValue({ inviteCode: 'VIPCODE1' });
+    resolver.resolve.mockResolvedValue({
+      status: 'VIP_REFERRAL',
+      code: 'VIPCODE1',
+      inviterUserId: 'inviter-1',
+    });
+    wechatMiniProgram.postJson.mockResolvedValue({ url_link: 'https://example.com/not-wechat' });
+
+    await expect(service.createMiniProgramLink({
+      inviteCode: 'VIPCODE1',
+      landingSessionId: 'ih5_0123456789abcdef01234567',
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('issues a ten-minute client-generated download pass only to the authenticated H5 user', async () => {

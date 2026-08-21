@@ -21,6 +21,9 @@ import { decryptJsonValue, encryptJsonValue } from '../../../common/security/enc
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { parseChineseAddress } from '../../../common/utils/parse-region';
 import { normalizeBuyerNo, resolveBuyerUserId } from '../../../common/utils/buyer-no.util';
+import { WechatShippingOutboxService } from '../../shipment/wechat-shipping-outbox.service';
+import { PickupService } from '../../pickup/pickup.service';
+import { OrderService } from '../../order/order.service';
 
 @Injectable()
 export class AdminOrdersService {
@@ -34,6 +37,12 @@ export class AdminOrdersService {
     private paymentService: PaymentService,
     @Optional()
     private shippingCost?: OrderShippingCostService,
+    @Optional()
+    private wechatShippingOutbox?: WechatShippingOutboxService,
+    @Optional()
+    private pickupService?: PickupService,
+    @Optional()
+    private orderService?: OrderService,
   ) {}
 
   private normalizeTrackingNo(value?: string | null): string {
@@ -64,6 +73,24 @@ export class AdminOrdersService {
       createdAt: refund.createdAt?.toISOString?.() ?? refund.createdAt ?? null,
       updatedAt: refund.updatedAt?.toISOString?.() ?? refund.updatedAt ?? null,
     };
+  }
+
+  private mapPickupFulfillment(order: any) {
+    if ((order.fulfillmentMode ?? 'DELIVERY') !== 'PICKUP') return null;
+    if (!this.pickupService) {
+      throw new Error('[AdminOrdersService] PICKUP 自提履约服务未注入');
+    }
+    if (!order.pickupFulfillment) {
+      this.logger.error(`PICKUP 订单缺少履约关联: orderId=${order.id}`);
+      return null;
+    }
+    return this.pickupService.mapOrderPickup(order.pickupFulfillment);
+  }
+
+  private pickupFulfillmentIssueCode(order: any) {
+    return (order.fulfillmentMode ?? 'DELIVERY') === 'PICKUP' && !order.pickupFulfillment
+      ? 'PICKUP_RELATION_MISSING'
+      : null;
   }
 
   /** 订单列表 */
@@ -105,6 +132,10 @@ export class AdminOrdersService {
     if (query.paymentChannel) {
       where.checkoutSession = { paymentChannel: query.paymentChannel };
     }
+    if (query.fulfillmentMode) where.fulfillmentMode = query.fulfillmentMode;
+    if (query.pickupStatus) {
+      where.pickupFulfillment = { is: { status: query.pickupStatus } };
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -113,6 +144,7 @@ export class AdminOrdersService {
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
+          pickupFulfillment: true,
           user: {
             select: {
               id: true,
@@ -181,6 +213,8 @@ export class AdminOrdersService {
 
         return {
           ...o,
+          pickupFulfillment: this.mapPickupFulfillment(o),
+          fulfillmentIssueCode: this.pickupFulfillmentIssueCode(o),
           orderNo: o.id,
           paymentMethod: o.checkoutSession?.paymentChannel || null,
           paymentAmount: o.totalAmount - (o.discountAmount ?? 0),
@@ -226,6 +260,7 @@ export class AdminOrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
+        pickupFulfillment: true,
         user: {
           select: {
             id: true,
@@ -258,7 +293,22 @@ export class AdminOrdersService {
           },
         },
         checkoutSession: {
-          select: { paymentChannel: true, providerTxnId: true },
+          select: {
+            paymentChannel: true,
+            paymentScene: true,
+            providerTxnId: true,
+            wechatShippingOutbox: {
+              select: {
+                status: true,
+                attemptCount: true,
+                nextAttemptAt: true,
+                lastErrorCode: true,
+                lastError: true,
+                succeededAt: true,
+                updatedAt: true,
+              },
+            },
+          },
         },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         payments: true,
@@ -291,6 +341,8 @@ export class AdminOrdersService {
     // 映射字段以匹配前端 Order 类型
     return {
       ...order,
+      pickupFulfillment: this.mapPickupFulfillment(order),
+      fulfillmentIssueCode: this.pickupFulfillmentIssueCode(order),
       orderNo: order.id,
       paymentAmount: order.totalAmount - (order.discountAmount ?? 0),
       address: addressSnapshot,
@@ -299,7 +351,9 @@ export class AdminOrdersService {
       receiverInfoEditable: this.canUpdateReceiverInfo(order, shipments),
       company,
       paymentMethod,
+      paymentScene: order.checkoutSession?.paymentScene ?? null,
       transactionId,
+      wechatShipping: order.checkoutSession?.wechatShippingOutbox ?? null,
       user: {
         ...order.user,
         authIdentities: (order.user?.authIdentities || []).map((identity) => ({
@@ -333,6 +387,43 @@ export class AdminOrdersService {
     };
   }
 
+  async retryWechatShipping(orderId: string) {
+    if (!this.wechatShippingOutbox) {
+      throw new ConflictException('微信发货上报服务未启用');
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { fulfillmentMode: true },
+    });
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.fulfillmentMode === 'PICKUP') {
+      throw new BadRequestException('自提订单不上报微信快递发货信息');
+    }
+    const result = await this.wechatShippingOutbox.retryForOrder(orderId);
+    if (!result.enqueued) {
+      if (result.reason === 'NOT_MINI_PROGRAM_WECHAT_PAYMENT') {
+        throw new BadRequestException('该订单不是微信小程序支付订单');
+      }
+      throw new BadRequestException(`微信发货快照暂不可重试：${result.reason || 'UNKNOWN'}`);
+    }
+    return { ok: true, status: 'PENDING' as const };
+  }
+
+  async cancelPickupAndRefund(
+    orderId: string,
+    adminUserId: string,
+    reason: string,
+  ) {
+    if (!this.orderService) {
+      throw new ConflictException('订单取消退款服务未启用');
+    }
+    return this.orderService.adminCancelPickupAndRefund(
+      orderId,
+      adminUserId,
+      reason,
+    );
+  }
+
   async updateReceiverInfo(id: string, dto: AdminUpdateOrderReceiverInfoDto) {
     const snapshot = this.buildReceiverInfoSnapshot(dto);
 
@@ -342,6 +433,9 @@ export class AdminOrdersService {
         include: { items: { select: { companyId: true } } },
       });
       if (!order) throw new NotFoundException('订单不存在');
+      if (order.fulfillmentMode === 'PICKUP') {
+        throw new BadRequestException('自提订单不支持修改配送信息');
+      }
 
       if (!this.isReceiverInfoBizTypeSupported((order.bizType || 'NORMAL_GOODS') as string)) {
         throw new BadRequestException('当前订单类型不支持修改配送信息');
@@ -381,7 +475,8 @@ export class AdminOrdersService {
   }
 
   private canUpdateReceiverInfo(order: any, shipments: Array<{ waybillNo?: string | null }>): boolean {
-    return this.isReceiverInfoBizTypeSupported(order.bizType || 'NORMAL_GOODS')
+    return order.fulfillmentMode !== 'PICKUP'
+      && this.isReceiverInfoBizTypeSupported(order.bizType || 'NORMAL_GOODS')
       && order.status === 'PAID'
       && !shipments.some((shipment) => Boolean(shipment.waybillNo));
   }
@@ -631,6 +726,9 @@ export class AdminOrdersService {
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
+    if (order.fulfillmentMode === 'PICKUP') {
+      throw new BadRequestException('自提订单不能走快递发货');
+    }
     if (order.status !== 'PAID') throw new BadRequestException('仅已支付订单可发货');
     const companyIds = [...new Set(order.items.map((i) => i.companyId).filter(Boolean))];
     if (companyIds.length !== 1) {
@@ -797,6 +895,9 @@ export class AdminOrdersService {
               reason: `发货 ${resolvedCarrierName} ${reasonNo}${dto.useCarrierAuto ? '（自动取号）' : ''}`,
             },
           });
+
+          // 发货事务只写 durable outbox；不得在 Serializable 事务内请求微信。
+          await this.wechatShippingOutbox?.enqueueForOrderTx(tx, orderId);
 
           return { ok: true, waybillNo: resolvedWaybillNo, waybillUrl: resolvedWaybillUrl };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

@@ -433,7 +433,7 @@ describe('AfterSaleRewardService direct referral voiding', () => {
     expect(tx.rewardAccount.update).not.toHaveBeenCalled();
   });
 
-  it('rejects FROZEN VIP_DIRECT_REFERRAL voiding when receiver frozen balance cannot be debited', async () => {
+  it('records a recoverable clawback instead of blocking a legacy refund when reward funds were withdrawn', async () => {
     const { service, tx } = makeHarness([
       {
         id: 'direct-ledger-insufficient',
@@ -447,12 +447,197 @@ describe('AfterSaleRewardService direct referral voiding', () => {
         meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
       },
     ]);
-    tx.rewardAccount.updateMany.mockResolvedValueOnce({ count: 0 });
+    tx.rewardAccount.findUnique.mockImplementation(async ({ where }: any) =>
+      where.userId_type
+        ? { id: 'platform-account-1' }
+        : { id: where.id, balance: 0, frozen: 0 },
+    );
 
-    await expect(service.voidRewardsForOrder('order-1'))
-      .rejects.toThrow('奖励账户余额异常');
+    await expect(service.voidRewardsForOrder('order-1')).resolves.toBeUndefined();
 
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'inviter-1',
+        entryType: 'VOID',
+        amount: -2,
+        status: 'RETURN_FROZEN',
+        idempotencyKey: 'legacy-refund-clawback:order-1:direct-ledger-insufficient',
+        meta: expect.objectContaining({
+          clawbackStatus: 'CLAWBACK_PENDING',
+          recoveredAmount: 0,
+          clawbackAmount: 2,
+        }),
+      }),
+    });
+    expect(tx.rewardAccount.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'platform-account-1' },
+    }));
+  });
+
+  it('does not debit an account when a duplicate refund callback loses the source-ledger CAS', async () => {
+    const { service, tx } = makeHarness([], [{
+      id: 'released-ledger-race',
+      userId: 'inviter-1',
+      accountId: 'vip-account-1',
+      entryType: 'RELEASE',
+      amount: 2,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+    }]);
+    tx.rewardLedger.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.voidRewardsForOrder('order-1')).resolves.toBeUndefined();
+
+    expect(tx.rewardAccount.updateMany).not.toHaveBeenCalled();
     expect(tx.rewardLedger.create).not.toHaveBeenCalled();
     expect(tx.rewardAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('recovers the available part and persists only the shortfall as legacy clawback debt', async () => {
+    const { service, tx } = makeHarness([], [{
+      id: 'released-ledger-partial',
+      userId: 'inviter-1',
+      accountId: 'vip-account-1',
+      entryType: 'RELEASE',
+      amount: 2,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+    }]);
+    tx.rewardAccount.findUnique.mockImplementation(async ({ where }: any) =>
+      where.userId_type
+        ? { id: 'platform-account-1' }
+        : { id: where.id, balance: 0.5, frozen: 0 },
+    );
+
+    await service.voidRewardsForOrder('order-1');
+
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'inviter-1', type: 'VIP_REWARD', balance: { gte: 0.5 } },
+      data: { balance: { decrement: 0.5 } },
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: 'PLATFORM', amount: 0.5 }),
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'inviter-1',
+        amount: -1.5,
+        status: 'RETURN_FROZEN',
+        meta: expect.objectContaining({
+          recoveredAmount: 0.5,
+          clawbackAmount: 1.5,
+          clawbackStatus: 'CLAWBACK_PENDING',
+        }),
+      }),
+    });
+    expect(tx.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'platform-account-1' },
+      data: { balance: { increment: 0.5 } },
+    });
+  });
+
+  it('keeps recovered and pending legacy amounts conserved in integer cents', async () => {
+    const { service, tx } = makeHarness([], [{
+      id: 'released-ledger-cent-boundary',
+      userId: 'inviter-1',
+      accountId: 'vip-account-1',
+      entryType: 'RELEASE',
+      amount: 0.555,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+    }]);
+    tx.rewardAccount.findUnique.mockImplementation(async ({ where }: any) =>
+      where.userId_type
+        ? { id: 'platform-account-1' }
+        : { id: where.id, balance: 0.1 + 0.1, frozen: 0 },
+    );
+
+    await service.voidRewardsForOrder('order-1');
+
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: 'PLATFORM', amount: 0.2 }),
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'inviter-1',
+        amount: -0.36,
+        meta: expect.objectContaining({
+          originalAmount: 0.555,
+          recoveredAmount: 0.2,
+          clawbackAmount: 0.36,
+        }),
+      }),
+    });
+  });
+
+  it('rounds a fully recoverable legacy amount to cents before account and platform writes', async () => {
+    const { service, tx } = makeHarness([], [{
+      id: 'released-ledger-full-cent-boundary',
+      userId: 'inviter-1',
+      accountId: 'vip-account-1',
+      entryType: 'RELEASE',
+      amount: 0.555,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+    }]);
+    tx.rewardAccount.findUnique.mockImplementation(async ({ where }: any) =>
+      where.userId_type
+        ? { id: 'platform-account-1' }
+        : { id: where.id, balance: 1, frozen: 0 },
+    );
+
+    await service.voidRewardsForOrder('order-1');
+
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'inviter-1', type: 'VIP_REWARD', balance: { gte: 0.56 } },
+      data: { balance: { decrement: 0.56 } },
+    });
+    expect(tx.rewardAccount.update).toHaveBeenCalledWith({
+      where: { id: 'platform-account-1' },
+      data: { balance: { increment: 0.56 } },
+    });
+  });
+
+  it('never rounds account capacity above the Float actually stored in the database', async () => {
+    const { service, tx } = makeHarness([], [{
+      id: 'released-ledger-float-capacity',
+      userId: 'inviter-1',
+      accountId: 'vip-account-1',
+      entryType: 'RELEASE',
+      amount: 0.555,
+      status: 'AVAILABLE',
+      refType: 'ORDER',
+      refId: 'order-1',
+      meta: { scheme: 'VIP_DIRECT_REFERRAL', accountType: 'VIP_REWARD' },
+    }]);
+    tx.rewardAccount.findUnique.mockImplementation(async ({ where }: any) =>
+      where.userId_type
+        ? { id: 'platform-account-1' }
+        : { id: where.id, balance: 0.555, frozen: 0 },
+    );
+    tx.rewardAccount.updateMany.mockImplementation(async ({ where }: any) => ({
+      count: 0.555 >= Number(where.balance?.gte ?? where.frozen?.gte ?? Infinity) ? 1 : 0,
+    }));
+
+    await service.voidRewardsForOrder('order-1');
+
+    expect(tx.rewardAccount.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'inviter-1', type: 'VIP_REWARD', balance: { gte: 0.55 } },
+      data: { balance: { decrement: 0.55 } },
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: 'PLATFORM', amount: 0.55 }),
+    });
+    expect(tx.rewardLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: 'inviter-1', amount: -0.01 }),
+    });
   });
 });

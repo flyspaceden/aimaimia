@@ -17,6 +17,13 @@ case "$BRANCH:$SRC_DIR:$PM2_NAME" in
 esac
 [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'invalid_release_sha' >&2; exit 1; }
 [[ "$RELEASE_RUN_KEY" =~ ^[0-9]+-[0-9]+$ ]] || { echo 'invalid_release_run_key' >&2; exit 1; }
+node -e '
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 20 || (major === 20 && minor < 9)) {
+    console.error(`unsupported_node_version=${process.versions.node} required=>=20.9.0`);
+    process.exit(1);
+  }
+'
 
 live_backend="$SRC_DIR/backend"
 release_id="${RELEASE_SHA:0:12}-$RELEASE_RUN_KEY"
@@ -331,6 +338,7 @@ ln -s "$live_backend/uploads" "$candidate_backend/uploads"
 
 cd "$candidate_backend"
 install_backend_dependencies
+node scripts/verify-miniapp-production-config.cjs
 npx --no-install prisma generate
 npx --no-install prisma validate
 build_backend

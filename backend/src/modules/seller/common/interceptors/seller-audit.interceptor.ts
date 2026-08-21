@@ -39,11 +39,11 @@ export class SellerAuditInterceptor implements NestInterceptor {
 
     const request = context.switchToHttp().getRequest();
     const seller = request.user;
-    const targetId = this.extractTargetId(request, meta.targetIdParam);
+    const requestTargetId = this.extractTargetId(request, meta.targetIdParam);
 
     return next.handle().pipe(
       tap({
-        next: async () => {
+        next: async (response) => {
           try {
             await this.prisma.sellerAuditLog.create({
               data: {
@@ -52,7 +52,9 @@ export class SellerAuditInterceptor implements NestInterceptor {
                 action: meta.action,
                 module: meta.module,
                 targetType: meta.targetType,
-                targetId,
+                targetId: requestTargetId
+                  ?? this.extractTargetId(response, meta.targetIdResponseKey)
+                  ?? this.extractTargetId(response?.data, meta.targetIdResponseKey),
                 ip: maskIp(request.ip),
                 userAgent: request.headers?.['user-agent'],
               },

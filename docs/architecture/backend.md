@@ -680,3 +680,15 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 ## 16. 已知问题
 
 详见 `tofix.md`（批次 1-5 已全部修复）和 `tofix2.md`（第二轮审计，待修复）。
+
+---
+
+## 17. 微信小程序共享后端兼容层（2026-08-21）
+
+- 小程序与现有 App 共用主商城 NestJS 服务和 PostgreSQL，但使用并列认证、结算与支付场景接口；现有 App 的购物车、普通/VIP 结算、支付、退款和售后路由不得删除或改名。
+- 小程序新增微信登录、普通/VIP/团购 JSAPI checkout、微信商家转账提现、自提、订阅消息、小程序码与微信交易发货 outbox。
+- 配送与自提由 `FulfillmentMode` 区分；自提订单禁止进入快递发货/面单/物流回调，配送订单继续使用现有 `ShipmentModule` 与顺丰链路。
+- 收货后的分润、团购、数字资产、成长、红包、团长佣金使用数据库 outbox 持久化；进程崩溃后由租约/CAS 任务恢复，避免订单已收货但权益永久漏记。
+- 自动退款成功后的数字资产扣回与 legacy 团长佣金冲回使用独立 `RefundSideEffectOutbox`；`Refund=REFUNDED` 与任务同事务提交，V3 利润快照不执行 legacy 整单团长冲回。
+- 生产集成明确排除独立 Delivery 产品、第二数据库和其后台门户。发布守卫见 `scripts/__tests__/production-delivery-exclusion.test.mjs`，旧路由兼容守卫见 `scripts/__tests__/backend-route-compatibility.test.mjs`。
+- 正式发布前运行 `backend/scripts/verify-miniapp-production-config.cjs`；任何微信/短信 Mock、测试回调、非 release 小程序环境、自提关闭、Redis 缺失或顺丰 UAT 都会 fail-closed。

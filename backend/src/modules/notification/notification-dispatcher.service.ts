@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationRegistry } from './notification.registry';
 import { NotificationEvent } from './notification.types';
+import { MiniProgramSubscriptionService } from '../mini-program/mini-program-subscription.service';
 
 type OutboxRow = {
   id: string;
@@ -21,6 +22,7 @@ export class NotificationDispatcherService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: NotificationRegistry,
+    @Optional() private readonly miniProgramSubscriptions?: MiniProgramSubscriptionService,
   ) {}
 
   @Cron('*/10 * * * * *')
@@ -127,6 +129,9 @@ export class NotificationDispatcherService {
             metadata: (message.metadata ?? null) as never,
           },
         });
+        if (this.miniProgramSubscriptions) {
+          await this.miniProgramSubscriptions.enqueueFromNotification(event, message);
+        }
       }
 
       await this.prisma.notificationOutbox.update({

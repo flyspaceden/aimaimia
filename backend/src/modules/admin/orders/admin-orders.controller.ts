@@ -70,6 +70,19 @@ export class AdminOrdersController {
     return this.ordersService.ship(id, dto);
   }
 
+  @Post(':id/wechat-shipping/retry')
+  @RequirePermission('orders:ship')
+  @AuditLog({
+    action: 'UPDATE',
+    module: 'orders',
+    targetType: 'WechatShippingOutbox',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  retryWechatShipping(@Param('id') id: string) {
+    return this.ordersService.retryWechatShipping(id);
+  }
+
   @Patch(':id/receiver-info')
   @RequirePermission('orders:ship')
   @AuditLog({
@@ -97,6 +110,27 @@ export class AdminOrdersController {
   })
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto) {
     return this.ordersService.cancel(id, dto.reason);
+  }
+
+  @Post(':id/pickup-cancel-refund')
+  @RequirePermission('orders:refund')
+  @AuditLog({
+    action: 'REFUND',
+    module: 'orders',
+    targetType: 'Order',
+    targetIdParam: 'params.id',
+    isReversible: false,
+  })
+  cancelPickupAndRefund(
+    @Param('id') id: string,
+    @Body() dto: CancelOrderDto,
+    @CurrentAdmin('sub') adminUserId: string,
+  ) {
+    return this.ordersService.cancelPickupAndRefund(
+      id,
+      adminUserId,
+      dto.reason,
+    );
   }
 
   @Post(':id/refunds/:refundId/retry')

@@ -2,6 +2,21 @@ import { BadRequestException } from '@nestjs/common';
 import { CheckoutExpireService } from './checkout-expire.service';
 import { CheckoutService } from './checkout.service';
 
+function makePaymentCoordinator() {
+  let owner: string | null = null;
+  return {
+    acquireLock: jest.fn(async (_key: string, candidate: string) => {
+      if (owner) return false;
+      owner = candidate;
+      return true;
+    }),
+    renewLock: jest.fn(async (_key: string, candidate: string) => owner === candidate),
+    releaseLock: jest.fn(async (_key: string, candidate: string) => {
+      if (owner === candidate) owner = null;
+    }),
+  };
+}
+
 function buildCheckoutSession(overrides: Partial<any> = {}) {
   return {
     id: 'S1',
@@ -45,6 +60,7 @@ function buildCheckoutServiceForMoneySafety(overrides: Partial<{
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
   const svc = new CheckoutService(prisma, {} as any);
+  svc.setPaymentOperationCoordinator(makePaymentCoordinator() as any);
   return { svc, prisma, tx, session };
 }
 
@@ -67,10 +83,52 @@ function buildCheckoutExpireServiceForMoneySafety(overrides: Partial<{
     },
   };
   const prisma = overrides.prisma ?? {
+    checkoutSession: {
+      findUnique: jest.fn(async ({ where }: any) => {
+        const suffix = where.id === 'S3' ? '3' : String(where.id).replace(/^S-/, '');
+        return buildCheckoutSession({
+          id: where.id,
+          merchantOrderNo: `CS-${suffix}`,
+          expiresAt: new Date(Date.now() - 60_000),
+          paymentScene: 'APP',
+        });
+      }),
+    },
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
   const svc = new CheckoutExpireService(prisma);
-  return { svc, prisma, tx };
+  const checkoutFacade: any = {
+    withPaymentOperationLock: jest.fn(async (_sessionId: string, operation: any) => operation({
+      owner: 'expire-test-owner',
+      assertOwned: jest.fn().mockResolvedValue(undefined),
+    })),
+    recoverStalePaymentParamFence: jest.fn().mockResolvedValue(undefined),
+    handlePaymentSuccess: jest.fn(),
+  };
+  svc.setCheckoutService(checkoutFacade);
+  jest.spyOn(svc, 'setCheckoutService').mockImplementation((service: any) => {
+    Object.assign(checkoutFacade, service);
+  });
+  return { svc, prisma, tx, checkoutFacade };
+}
+
+function wireWechatPayMock(service: any) {
+  const queryOrder = service.queryOrder;
+  service.queryOrder = jest.fn(async (...args: any[]) => {
+    const result = await queryOrder(...args);
+    if (result?.outcome) return result;
+    if (result === null || result === undefined) {
+      return { outcome: 'UNKNOWN', code: 'TEST_UNKNOWN' };
+    }
+    return {
+      outcome: 'FOUND',
+      appId: 'wx-test-app',
+      tradeType: 'APP',
+      ...result,
+    };
+  });
+  service.matchesPaymentScene = jest.fn().mockReturnValue(true);
+  return service;
 }
 
 describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
@@ -87,7 +145,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       closeOrder: jest.fn(),
     };
     const { svc } = buildCheckoutServiceForMoneySafety();
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest
       .spyOn(svc, 'handlePaymentSuccess')
       .mockResolvedValue({ orderIds: ['O1'] } as any);
@@ -124,7 +182,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         expectedTotal: 88,
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest
       .spyOn(svc, 'handlePaymentSuccess')
       .mockResolvedValue({ orderIds: ['O-bad'] } as any);
@@ -161,7 +219,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         expectedTotal: 88,
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest
       .spyOn(svc, 'handlePaymentSuccess')
       .mockResolvedValue({ orderIds: ['O-no-fen'] } as any);
@@ -192,7 +250,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         expectedTotal: 88,
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest
       .spyOn(svc, 'handlePaymentSuccess')
       .mockResolvedValue({ orderIds: ['O-missing'] } as any);
@@ -228,7 +286,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         merchantOrderNo: 'CS-2',
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
 
     await svc.cancelSession('U1', 'S2');
 
@@ -254,7 +312,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         merchantOrderNo: 'CS-query-null',
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
 
     await expect(svc.cancelSession('U1', 'S-query-null')).rejects.toThrow(
       '正在确认支付状态，请稍后再试',
@@ -263,6 +321,82 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     expect(wechatPay.queryOrder).toHaveBeenCalledWith('CS-query-null');
     expect(wechatPay.closeOrder).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('cancelSession safely releases when WeChat definitively returns ORDER_NOT_EXIST', async () => {
+    const wechatPay = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      queryOrder: jest.fn().mockResolvedValue({ outcome: 'DEFINITIVE_NOT_FOUND' }),
+      closeOrder: jest.fn(),
+    };
+    const { svc, prisma } = buildCheckoutServiceForMoneySafety({
+      session: buildCheckoutSession({ id: 'S-not-found', merchantOrderNo: 'CS-not-found' }),
+    });
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
+
+    await expect(svc.cancelSession('U1', 'S-not-found')).resolves.toEqual({ success: true });
+
+    expect(wechatPay.closeOrder).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes definitive-not-found cancel against resume so no prepay can be created before EXPIRED CAS', async () => {
+    const session = buildCheckoutSession({
+      id: 'S-race',
+      merchantOrderNo: 'CS-race',
+      paymentScene: 'APP',
+      expiresAt: new Date(Date.now() + 60_000),
+      bizMeta: {},
+    });
+    let releaseQuery!: (value: any) => void;
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => { markQueryStarted = resolve; });
+    const queryResult = new Promise<any>((resolve) => { releaseQuery = resolve; });
+    const tx = {
+      checkoutSession: {
+        updateMany: jest.fn(async () => {
+          session.status = 'EXPIRED';
+          return { count: 1 };
+        }),
+      },
+      rewardLedger: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const prisma: any = {
+      checkoutSession: {
+        findUnique: jest.fn().mockImplementation(async () => session),
+        findFirst: jest.fn().mockImplementation(async ({ where }: any) => {
+          if (where.id !== session.id || where.userId !== session.userId) return null;
+          if (where.status === 'ACTIVE' && session.status !== 'ACTIVE') return null;
+          return session;
+        }),
+      },
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const coordinator = makePaymentCoordinator();
+    const wechatPay: any = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      queryOrder: jest.fn(async () => {
+        markQueryStarted();
+        return queryResult;
+      }),
+      closeOrder: jest.fn(),
+      createAppOrder: jest.fn().mockResolvedValue({ prepayId: 'must-not-exist' }),
+      matchesPaymentScene: jest.fn().mockReturnValue(true),
+    };
+    const svc = new CheckoutService(prisma, {} as any);
+    svc.setPaymentOperationCoordinator(coordinator as any);
+    svc.setWechatPayService(wechatPay);
+
+    const cancelPromise = svc.cancelSession('U1', 'S-race');
+    await queryStarted;
+    const resumePromise = svc.resumeSession('U1', 'S-race');
+    await Promise.resolve();
+    releaseQuery({ outcome: 'DEFINITIVE_NOT_FOUND' });
+
+    await expect(cancelPromise).resolves.toEqual({ success: true });
+    await expect(resumePromise).rejects.toThrow('订单不存在或已过期');
+    expect(wechatPay.createAppOrder).not.toHaveBeenCalled();
+    expect(session.status).toBe('EXPIRED');
   });
 
   it('cancelSession rejects WECHAT_PAY cancel when service is unavailable', async () => {
@@ -277,7 +411,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
         merchantOrderNo: 'CS-unavailable',
       }),
     });
-    svc.setWechatPayService(wechatPay);
+    svc.setWechatPayService(wireWechatPayMock(wechatPay));
 
     await expect(svc.cancelSession('U1', 'S-unavailable')).rejects.toThrow(
       '正在确认支付状态，请稍后再试',
@@ -314,7 +448,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       }),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest.fn().mockResolvedValue({ orderIds: ['O3'] });
     svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
     const notifySpy = jest
@@ -345,7 +479,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       closeOrder: jest.fn(),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest.fn().mockResolvedValue({ orderIds: ['O-exp-missing'] });
     svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
 
@@ -372,7 +506,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       closeOrder: jest.fn(),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     const buildSpy = jest.fn().mockResolvedValue({ orderIds: ['O-exp-bad'] });
     svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
 
@@ -399,7 +533,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       }),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     svc.setCheckoutService({ handlePaymentSuccess: jest.fn() });
 
     await (svc as any).expireSession(buildCheckoutSession({
@@ -411,6 +545,24 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
     expect(wechatPay.queryOrder).toHaveBeenCalledWith('CS-exp-query-null');
     expect(wechatPay.closeOrder).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('expireSession safely expires when WeChat definitively returns ORDER_NOT_EXIST', async () => {
+    const wechatPay = {
+      isAvailable: jest.fn().mockReturnValue(true),
+      queryOrder: jest.fn().mockResolvedValue({ outcome: 'DEFINITIVE_NOT_FOUND' }),
+      closeOrder: jest.fn(),
+    };
+    const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
+
+    await (svc as any).expireSession(buildCheckoutSession({
+      id: 'S-exp-not-found',
+      merchantOrderNo: 'CS-exp-not-found',
+    }));
+
+    expect(wechatPay.closeOrder).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it('expireSession skips local expiry when WECHAT_PAY close fails non-terminally', async () => {
@@ -429,7 +581,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       }),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     svc.setCheckoutService({ handlePaymentSuccess: jest.fn() });
 
     await (svc as any).expireSession(buildCheckoutSession({
@@ -449,7 +601,7 @@ describe('Checkout WECHAT_PAY cancel/expire money safety', () => {
       closeOrder: jest.fn(),
     };
     const { svc, prisma } = buildCheckoutExpireServiceForMoneySafety();
-    (svc as any).setWechatPayService(wechatPay);
+    (svc as any).setWechatPayService(wireWechatPayMock(wechatPay));
     svc.setCheckoutService({ handlePaymentSuccess: jest.fn() });
 
     await (svc as any).expireSession(buildCheckoutSession({

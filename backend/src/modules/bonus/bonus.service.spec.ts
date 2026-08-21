@@ -499,6 +499,7 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 25,
         channel: 'ALIPAY',
         status: 'PROCESSING',
+        confirmationAvailable: false,
         createdAt: unifiedCreatedAt.toISOString(),
       },
       {
@@ -506,6 +507,7 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 20,
         channel: 'ALIPAY',
         status: 'PAID',
+        confirmationAvailable: false,
         createdAt: rewardCreatedAt.toISOString(),
       },
     ]);
@@ -565,8 +567,37 @@ describe('BonusService.getWithdrawHistory — unified consumption point source f
         amount: 25,
         channel: 'ALIPAY',
         status: 'PROCESSING',
+        confirmationAvailable: false,
         createdAt: unifiedCreatedAt.toISOString(),
       },
+    ]);
+  });
+
+  it('exposes confirmation recovery only for a stored, non-terminal WeChat package', async () => {
+    const createdAt = new Date('2026-08-12T10:00:00.000Z');
+    const prismaMock: any = {
+      withdrawRequest: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'w-confirmable', amount: 100, channel: 'WECHAT', status: 'PROCESSING',
+            providerStatus: 'WAIT_USER_CONFIRM',
+            accountSnapshot: { channel: 'WECHAT', source: 'UNIFIED_POINTS', packageInfo: 'saved-package' },
+            createdAt,
+          },
+          {
+            id: 'w-not-confirmable', amount: 100, channel: 'WECHAT', status: 'PROCESSING',
+            providerStatus: 'PROCESSING',
+            accountSnapshot: { channel: 'WECHAT', source: 'UNIFIED_POINTS', packageInfo: 'saved-package' },
+            createdAt,
+          },
+        ]),
+      },
+    };
+    const service = buildService(prismaMock);
+
+    await expect(service.getWithdrawHistory('user-1')).resolves.toEqual([
+      expect.objectContaining({ id: 'w-confirmable', confirmationAvailable: true }),
+      expect.objectContaining({ id: 'w-not-confirmable', confirmationAvailable: false }),
     ]);
   });
 });
@@ -2053,6 +2084,7 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
       total: 53,
       deductibleBalance: 35,
       withdrawableBalance: 43,
+      pendingLegacyClawbackAmount: 0,
       isSellerOwner: false,
       vip: { balance: 10, frozen: 1 },
       normal: { balance: 20, frozen: 2 },
@@ -2137,6 +2169,35 @@ describe('BonusService.getWallet — 团购返利统一读模型', () => {
         account: { type: 'QUEUE_REWARD' },
       },
       select: { amount: true, meta: true },
+    });
+  });
+
+  it('钱包从可提现和可抵扣余额中预留旧退款奖励待追偿', async () => {
+    const prismaMock: any = buildWalletPrisma(false);
+    prismaMock.rewardLedger.findMany.mockImplementation(async ({ where }: any) => (
+      where.refType === 'AFTER_SALE_CLAWBACK'
+        ? [{
+            id: 'legacy-clawback-1',
+            accountId: 'acct-vip',
+            userId: 'user-1',
+            entryType: 'VOID',
+            status: 'RETURN_FROZEN',
+            refType: 'AFTER_SALE_CLAWBACK',
+            amount: -15,
+          }]
+        : []
+    ));
+    const service = buildService(prismaMock);
+
+    const result = await service.getWallet('user-1');
+
+    expect(result).toMatchObject({
+      balance: 28,
+      deductibleBalance: 20,
+      withdrawableBalance: 28,
+      pendingLegacyClawbackAmount: 15,
+      vip: { balance: 0, frozen: 1 },
+      normal: { balance: 15, frozen: 2 },
     });
   });
 });
@@ -2239,7 +2300,6 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
       items: [
         {
           id: 'gb-mid',
-          sourceLedgerId: 'gb-mid',
           source: 'GROUP_BUY_REBATE',
           accountType: 'GROUP_BUY_REBATE',
           type: 'RELEASE',
@@ -2248,13 +2308,11 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
           amount: 4,
           balanceAfter: 4,
           refType: 'GROUP_BUY_REFERRAL',
-          refId: 'ref-gb-mid',
-          meta: { tierSequence: 1 },
+          meta: null,
           createdAt: '2026-06-22T09:00:00.000Z',
         },
         {
           id: 'reward-vip',
-          sourceLedgerId: 'reward-vip',
           source: 'REWARD',
           accountType: 'VIP_REWARD',
           type: 'RELEASE',
@@ -2262,8 +2320,7 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
           status: 'AVAILABLE',
           amount: 10,
           refType: 'ORDER',
-          refId: 'order-reward-vip',
-          meta: { accountType: 'VIP_REWARD' },
+          meta: null,
           createdAt: '2026-06-22T08:00:00.000Z',
         },
       ],
@@ -2436,16 +2493,55 @@ describe('BonusService.getWalletLedger — 奖励和团购返利统一流水', (
 
     const result = await service.getWalletLedger('user-1', 1, 20);
 
-    expect(result.items[0]).toMatchObject({
-      id: 'reward-withdraw',
-      scheme: 'POINTS_WITHDRAW',
-    });
+    expect(result.items[0]).toMatchObject({ id: 'reward-withdraw', meta: null });
+    expect(result.items[0]).not.toHaveProperty('scheme');
     expect(result.items[0]).not.toHaveProperty('sourceLabel');
-    expect(result.items[1]).toMatchObject({
-      id: 'reward-deduct',
-      scheme: 'POINTS_DEDUCTION',
-    });
+    expect(result.items[1]).toMatchObject({ id: 'reward-deduct', meta: null });
+    expect(result.items[1]).not.toHaveProperty('scheme');
     expect(result.items[1]).not.toHaveProperty('sourceLabel');
+  });
+
+  it('钱包流水只输出允许的展示 meta，不暴露内部 ID、路由或配置快照', async () => {
+    const reward = rewardLedger('reward-public-meta', 'NORMAL_REWARD', '2026-06-22T12:00:00.000Z', 8, {
+      meta: {
+        orderNo: 'AIMM202606220001',
+        requiredLevel: 3,
+        expiresAt: '2026-07-22T12:00:00.000Z',
+        scheme: 'NORMAL_TREE',
+        sourceLedgerId: 'ledger-secret',
+        ancestorNodeId: 'node-secret',
+        routing: { recipientUserId: 'user-secret' },
+        configSnapshot: { platformRatio: 0.5 },
+      },
+    });
+    const prismaMock: any = {
+      companyStaff: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: {
+        findMany: jest.fn().mockResolvedValue([reward]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      groupBuyRebateLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+
+    const result = await buildService(prismaMock).getWalletLedger('user-1', 1, 20);
+
+    expect(result.items[0]).toMatchObject({
+      id: 'reward-public-meta',
+      scheme: 'NORMAL_TREE',
+      sourceLabel: '普通树分润',
+      meta: {
+        orderNo: 'AIMM202606220001',
+        requiredLevel: 3,
+        expiresAt: '2026-07-22T12:00:00.000Z',
+      },
+    });
+    expect(result.items[0]).not.toHaveProperty('sourceLedgerId');
+    expect(result.items[0]).not.toHaveProperty('refId');
+    expect(JSON.stringify(result.items[0])).not.toContain('secret');
+    expect(JSON.stringify(result.items[0])).not.toContain('configSnapshot');
   });
 
   it('对非法页码和过大 pageSize 做夹紧后再查询并计算 nextPage', async () => {

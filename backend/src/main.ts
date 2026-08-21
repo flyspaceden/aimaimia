@@ -2,7 +2,6 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
-import { json, urlencoded } from 'express';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { ResultWrapperInterceptor } from './common/interceptors/result-wrapper.interceptor';
@@ -10,6 +9,7 @@ import { PaginationInterceptor } from './common/interceptors/pagination.intercep
 import { AppExceptionFilter } from './common/filters/app-exception.filter';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
 import { RedisIoAdapter } from './common/adapters/redis-io.adapter';
+import { configureBodyParsers } from './common/http/configure-body-parsers';
 
 function parseTrustProxy(value: string): boolean | number | string | string[] {
   const normalized = value.trim();
@@ -77,9 +77,9 @@ async function bootstrap() {
   }));
 
   // 请求体大小限制（防 JSON 深度/体积攻击）
+  // 通过 Nest useBodyParser 保留 rawBody，供微信 APIv3 回调验签。
   const bodyLimit = process.env.BODY_LIMIT || '1mb';
-  app.use(json({ limit: bodyLimit }));
-  app.use(urlencoded({ extended: true, limit: bodyLimit }));
+  configureBodyParsers(app, bodyLimit);
 
   // 全局前缀：/api/v1
   app.setGlobalPrefix('api/v1');

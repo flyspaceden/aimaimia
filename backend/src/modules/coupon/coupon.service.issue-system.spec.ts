@@ -26,6 +26,8 @@ const makeHarness = (options: {
   updateCount?: number;
 } = {}) => {
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
     couponCampaign: {
       findUnique: jest.fn().mockResolvedValue(options.campaign ?? activeCampaign()),
       updateMany: jest.fn().mockResolvedValue({ count: options.updateCount ?? 1 }),
@@ -97,6 +99,8 @@ describe('CouponService.issueSystemCoupon', () => {
       discountType: 'FIXED',
       discountValue: 5,
     });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 

@@ -5,16 +5,19 @@ import { ShipmentMonitorService } from './shipment-monitor.service';
 import { SfExpressService } from './sf-express.service';
 import { OrderShippingCostService } from './order-shipping-cost.service';
 import { NotificationModule } from '../notification/notification.module';
+import { WechatMiniProgramPlatformModule } from '../wechat-mini-program-platform/wechat-mini-program-platform.module';
+import { WechatShippingOutboxService } from './wechat-shipping-outbox.service';
 
 @Module({
-  imports: [NotificationModule],
+  imports: [NotificationModule, WechatMiniProgramPlatformModule],
   controllers: [ShipmentController],
   providers: [
     ShipmentService,
     ShipmentMonitorService,
     SfExpressService,
     OrderShippingCostService,
+    WechatShippingOutboxService,
   ],
-  exports: [SfExpressService, OrderShippingCostService],
+  exports: [SfExpressService, OrderShippingCostService, WechatShippingOutboxService],
 })
 export class ShipmentModule {}

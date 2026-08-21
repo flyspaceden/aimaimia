@@ -13,9 +13,10 @@ import { BonusModule } from '../bonus/bonus.module';
 import { AlipayService } from '../payment/alipay.service';
 import { WechatPayService } from '../payment/wechat-pay.service';
 import { NotificationModule } from '../notification/notification.module';
+import { PickupModule } from '../pickup/pickup.module';
 
 @Module({
-  imports: [BonusModule, ShippingRuleModule, NotificationModule],
+  imports: [BonusModule, ShippingRuleModule, NotificationModule, PickupModule],
   controllers: [GroupBuyController],
   providers: [
     GroupBuyService,

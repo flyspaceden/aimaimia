@@ -2,6 +2,22 @@ import { CheckoutService } from './checkout.service';
 import { CheckoutExpireService } from './checkout-expire.service';
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 
+function wireTestPaymentLock<T extends CheckoutService>(service: T): T {
+  service.setPaymentOperationCoordinator({
+    acquireLock: jest.fn().mockResolvedValue(true),
+    renewLock: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
+  } as any);
+  return service;
+}
+
+function activeUserBarrierTx() {
+  return {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
+  };
+}
+
 /**
  * 资金安全回归测试
  *
@@ -37,7 +53,7 @@ describe('CheckoutService cancelSession 资金安全', () => {
     const prisma: any = {
       checkoutSession: { findUnique: async () => session },
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     const alipay = {
       isAvailable: () => true,
       queryOrder: jest.fn(async () => ({
@@ -75,7 +91,7 @@ describe('CheckoutService cancelSession 资金安全', () => {
     const prisma: any = {
       checkoutSession: { findUnique: async () => session },
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     svc.setAlipayService({
       isAvailable: () => true,
       queryOrder: async () => ({
@@ -123,7 +139,7 @@ describe('CheckoutService cancelSession 资金安全', () => {
         return cb(tx);
       },
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     const alipay = {
       isAvailable: () => true,
       queryOrder: async () => ({
@@ -161,7 +177,7 @@ describe('CheckoutService cancelSession 资金安全', () => {
         return cb(tx);
       },
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     svc.setAlipayService({
       isAvailable: () => true,
       queryOrder: async () => ({
@@ -184,12 +200,31 @@ describe('CheckoutService cancelSession 资金安全', () => {
     expect(casCalled).toBe(false); // close 失败 → 不应进入事务
   });
 
+  it('支付宝服务不可用时 fail-closed，不释放本地会话', async () => {
+    const session = buildSession();
+    const prisma: any = {
+      checkoutSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      $transaction: jest.fn(),
+    };
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
+    svc.setAlipayService({
+      isAvailable: jest.fn().mockReturnValue(false),
+      queryOrder: jest.fn(),
+      closeOrder: jest.fn(),
+    });
+
+    await expect(svc.cancelSession('user1', 'sess1')).rejects.toThrow(
+      '正在确认支付状态，请稍后再试',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('close 返 alreadyPaid 时重新 query 并主动建单', async () => {
     const session = buildSession({ expectedTotal: 100 });
     const prisma: any = {
       checkoutSession: { findUnique: async () => session },
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     const queryMock = jest
       .fn()
       .mockResolvedValueOnce({
@@ -243,7 +278,7 @@ describe('CheckoutService cancelSession 资金安全', () => {
       checkoutSession: { findUnique: async () => session },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
-    const svc = new CheckoutService(prisma, {} as any);
+    const svc = wireTestPaymentLock(new CheckoutService(prisma, {} as any));
     (svc as any).setGroupBuyRebateDeductionService({ releaseDeduction });
 
     await svc.cancelSession('user1', 'sess1');
@@ -610,9 +645,14 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
       },
       rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
       company: { findMany: jest.fn().mockResolvedValue([]) },
-      checkoutSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      checkoutSession: {
+        findFirst: jest.fn(async (args: any) => (
+          args?.where?.id ? createdSessionData ?? null : null
+        )),
+      },
       $transaction: jest.fn(async (cb: any) => {
         transactionTx = {
+          ...activeUserBarrierTx(),
           checkoutSession: {
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn(async ({ data }: any) => {
@@ -631,14 +671,19 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
         return cb(transactionTx);
       }),
     };
-    const service = new CheckoutService(prisma, {
+    const service = wireTestPaymentLock(new CheckoutService(prisma, {
       getSystemConfig: jest.fn().mockResolvedValue({
         vipDiscountRate: options.vipDiscountRate ?? 1,
         normalFreeShippingThreshold: 999,
         vipFreeShippingThreshold: 999,
         defaultShippingFee: 0,
       }),
-    } as any);
+    } as any));
+    // 本组只断言金额分配；支付参数围栏由专项测试覆盖。
+    (service as any).createFencedPaymentParams = jest.fn(async () => ({
+      session: createdSessionData,
+      paymentParams: {},
+    }));
     service.setShippingRuleService({
       calculateShippingDetail: jest.fn().mockResolvedValue({ fee: options.shippingFee ?? 0 }),
     });
@@ -1019,6 +1064,7 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
         findUnique: jest.fn().mockResolvedValue({
           id: 'instance_referrer',
           status: 'SHARING',
+          user: { status: 'ACTIVE', deletionExecutedAt: null },
           activity: {
             id: 'activity_1',
             status: 'ACTIVE',
@@ -1153,6 +1199,7 @@ describe('CheckoutService group-buy rebate deduction on ordinary checkout', () =
         findUnique: jest.fn().mockResolvedValue({
           id: 'instance_referrer',
           status: 'SHARING',
+          user: { status: 'ACTIVE', deletionExecutedAt: null },
           activity: {
             id: 'activity_1',
             status: 'ACTIVE',
@@ -1188,6 +1235,9 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
   function buildSession(overrides: Partial<any> = {}) {
     return {
       id: 'sess-x',
+      status: 'ACTIVE',
+      expiresAt: new Date(Date.now() - 60_000),
+      bizMeta: {},
       rewardId: null,
       couponInstanceIds: [],
       bizType: 'NORMAL_GOODS',
@@ -1197,6 +1247,27 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       expectedTotal: 100,
       ...overrides,
     };
+  }
+
+  async function expireWithTestLock(
+    service: CheckoutExpireService,
+    prisma: any,
+    session: any,
+    handlePaymentSuccess: jest.Mock = jest.fn(),
+  ) {
+    prisma.checkoutSession = {
+      ...(prisma.checkoutSession ?? {}),
+      findUnique: jest.fn().mockResolvedValue(session),
+    };
+    service.setCheckoutService({
+      withPaymentOperationLock: async (_sessionId: string, operation: any) => operation({
+        owner: 'money-safety-test-owner',
+        assertOwned: async () => undefined,
+      }),
+      recoverStalePaymentParamFence: jest.fn().mockResolvedValue(undefined),
+      handlePaymentSuccess,
+    });
+    await (service as any).expireSession(session);
   }
 
   it('查到 TRADE_SUCCESS 时调用 checkoutService.handlePaymentSuccess 建单（不再仅 return）', async () => {
@@ -1214,13 +1285,25 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       closeOrder: jest.fn(),
     });
     const buildSpy = jest.fn().mockResolvedValue({ orderIds: ['o-late'] });
-    svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
-
-    await (svc as any).expireSession(buildSession());
+    await expireWithTestLock(svc, prisma, buildSession(), buildSpy);
 
     expect(buildSpy).toHaveBeenCalledTimes(1);
     expect(buildSpy).toHaveBeenCalledWith('M-EXP-001', 'tx-expire', expect.any(String));
     // 不应进入 EXPIRED 事务
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('支付宝服务不可用时跳过本地过期', async () => {
+    const prisma: any = { $transaction: jest.fn() };
+    const svc = new CheckoutExpireService(prisma);
+    svc.setAlipayService({
+      isAvailable: jest.fn().mockReturnValue(false),
+      queryOrder: jest.fn(),
+      closeOrder: jest.fn(),
+    });
+
+    await expireWithTestLock(svc, prisma, buildSession());
+
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -1239,9 +1322,12 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       closeOrder: jest.fn(),
     });
     const buildSpy = jest.fn();
-    svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
-
-    await (svc as any).expireSession(buildSession({ expectedTotal: 100 }));
+    await expireWithTestLock(
+      svc,
+      prisma,
+      buildSession({ expectedTotal: 100 }),
+      buildSpy,
+    );
 
     expect(buildSpy).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled(); // 不走 EXPIRED
@@ -1261,9 +1347,7 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       }),
       closeOrder: async () => ({ success: false }),
     });
-    svc.setCheckoutService({ handlePaymentSuccess: jest.fn() });
-
-    await (svc as any).expireSession(buildSession());
+    await expireWithTestLock(svc, prisma, buildSession());
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -1291,9 +1375,12 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       closeOrder: async () => ({ success: false, alreadyPaid: true }),
     });
     const buildSpy = jest.fn().mockResolvedValue({ orderIds: ['o-late'] });
-    svc.setCheckoutService({ handlePaymentSuccess: buildSpy });
-
-    await (svc as any).expireSession(buildSession({ expectedTotal: 100 }));
+    await expireWithTestLock(
+      svc,
+      prisma,
+      buildSession({ expectedTotal: 100 }),
+      buildSpy,
+    );
 
     expect(queryMock).toHaveBeenCalledTimes(2);
     expect(buildSpy).toHaveBeenCalledTimes(1);
@@ -1320,9 +1407,7 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
       }),
       closeOrder: async () => ({ success: true }),
     });
-    svc.setCheckoutService({ handlePaymentSuccess: jest.fn() });
-
-    await (svc as any).expireSession(buildSession());
+    await expireWithTestLock(svc, prisma, buildSession());
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1); // close 成功后走 EXPIRED
   });
@@ -1339,7 +1424,7 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
     const svc = new CheckoutExpireService(prisma);
     (svc as any).setRewardDeductionService({ releaseDeduction });
 
-    await (svc as any).expireSession(buildSession({
+    await expireWithTestLock(svc, prisma, buildSession({
       paymentChannel: null,
       merchantOrderNo: null,
       rewardId: 'legacy-ledger',
@@ -1362,7 +1447,7 @@ describe('CheckoutExpireService expireSession 资金安全', () => {
     const svc = new CheckoutExpireService(prisma);
     (svc as any).setGroupBuyRebateDeductionService({ releaseDeduction });
 
-    await (svc as any).expireSession(buildSession({
+    await expireWithTestLock(svc, prisma, buildSession({
       paymentChannel: null,
       merchantOrderNo: null,
       rewardId: null,

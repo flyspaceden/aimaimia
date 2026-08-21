@@ -20,7 +20,10 @@ const ADDRESS_SNAPSHOT = {
 // --- Mock 工厂 ---
 function createMocks(configOverrides: Record<string, any> = {}) {
   const prisma: Record<string, any> = {
-    order: { findUnique: jest.fn(), updateMany: jest.fn() },
+    order: {
+      findUnique: jest.fn().mockResolvedValue({ fulfillmentMode: 'DELIVERY' }),
+      updateMany: jest.fn(),
+    },
     shipment: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
@@ -512,7 +515,11 @@ describe('handleCallback — Order 状态联动', () => {
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: ORDER_SHIPPED, status: 'SHIPPED' },
+        where: expect.objectContaining({
+          id: ORDER_SHIPPED,
+          status: 'SHIPPED',
+          fulfillmentMode: 'DELIVERY',
+        }),
         data: expect.objectContaining({
           status: 'DELIVERED',
           deliveredAt: expect.any(Date),
@@ -615,7 +622,11 @@ describe('handleCallback — Order 状态联动', () => {
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: ORDER_SHIPPED, status: 'SHIPPED' },
+        where: expect.objectContaining({
+          id: ORDER_SHIPPED,
+          status: 'SHIPPED',
+          fulfillmentMode: 'DELIVERY',
+        }),
         data: expect.objectContaining({ status: 'DELIVERED' }),
       }),
     );
@@ -1191,6 +1202,27 @@ describe('getByOrderId — 查看物流信息', () => {
     expect(result!.trackingNoMasked).toBe('SF12***7890');
     // 原始 trackingNo 也返回（用于复制）
     expect(result!.trackingNo).toBe('SF1234567890');
+  });
+
+  it('顺丰自动取号仅写 waybillNo 时仍返回可复制的统一运单号', async () => {
+    const { service, prisma } = createMocks();
+    prisma.order.findUnique.mockResolvedValue({
+      id: ORDER_SHIPPED,
+      userId: BUYER_USER_ID,
+    });
+    prisma.shipment.findMany.mockResolvedValue([
+      makeShipment({
+        trackingNo: null,
+        waybillNo: 'SF9876543210',
+        trackingEvents: [],
+      }),
+    ]);
+
+    const result = await service.getByOrderId(ORDER_SHIPPED, BUYER_USER_ID);
+
+    expect(result!.trackingNo).toBe('SF9876543210');
+    expect(result!.trackingNoMasked).toBe('SF98***3210');
+    expect(result!.shipments[0].trackingNo).toBe('SF9876543210');
   });
 });
 

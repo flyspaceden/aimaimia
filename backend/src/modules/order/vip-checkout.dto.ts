@@ -5,8 +5,10 @@ import {
   IsNumber,
   Min,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { FulfillmentInputDto } from '../pickup/dto/fulfillment.dto';
 
 /** VIP 礼包结算请求 */
 export class VipCheckoutDto {
@@ -23,10 +25,16 @@ export class VipCheckoutDto {
   giftOptionId: string;
 
   /** 收货地址 ID */
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  addressId: string;
+  addressId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FulfillmentInputDto)
+  fulfillment?: FulfillmentInputDto;
 
   /** 支付渠道: wechat / alipay / bankcard */
   @IsOptional()
