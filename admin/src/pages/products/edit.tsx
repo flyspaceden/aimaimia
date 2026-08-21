@@ -470,7 +470,7 @@ export default function ProductEditPage() {
           <Descriptions.Item label="商品分类">
             {product.category?.name || '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="产地 / 产区">
+          <Descriptions.Item label="来源地 / 生产地">
             {originText || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="基础价格（起步价）">
@@ -541,8 +541,8 @@ export default function ProductEditPage() {
           <Form.Item label="商品描述" name="description" rules={[{ required: true, message: '请输入描述' }]}>
             <Input.TextArea rows={4} placeholder="请输入商品描述" />
           </Form.Item>
-          <Form.Item label="产地 / 产区" name="originText">
-            <Input placeholder="如：黑龙江省五常市" style={{ width: 300 }} />
+          <Form.Item label="来源地 / 生产地" name="originText">
+            <Input placeholder="如：广东深圳、浙江杭州" style={{ width: 300 }} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Collapse
@@ -572,28 +572,28 @@ export default function ProductEditPage() {
                   children: (
                     <>
                       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                        后台优先维护买家真实会说的别名和搜索语义，不再重复录入产地/标签。
+                        后台优先维护买家真实会说的别名和搜索描述，不再重复录入来源地或运营标签。
                       </Text>
                       <Form.Item label="别名 / 俗称 / 常见搜索词" name="aiKeywords">
                         <Select
                           mode="tags"
-                          placeholder="输入后按回车添加，如：毛尖、绿茶、春茶"
+                          placeholder="输入后按回车添加，如：运动手表、腕带、礼盒"
                           style={{ width: '100%' }}
                           tokenSeparators={[',']}
                         />
                       </Form.Item>
-                      <Form.Item name="flavorTags" label="口味标签">
+                      <Form.Item name="flavorTags" label="标签">
                         <Select
                           mode="tags"
-                          placeholder="如：甜、脆、鲜、香辣"
+                          placeholder="如：便携、防水、耐用、清甜"
                           tokenSeparators={[',', '，']}
                           style={{ width: '100%' }}
                         />
                       </Form.Item>
-                      <Form.Item name="seasonalMonths" label="应季月份">
+                      <Form.Item name="seasonalMonths" label="月份（选填）">
                         <Select
                           mode="multiple"
-                          placeholder="选择应季月份"
+                          placeholder="选择月份"
                           options={Array.from({ length: 12 }, (_, i) => ({
                             label: `${i + 1}月`,
                             value: i + 1,
@@ -601,18 +601,18 @@ export default function ProductEditPage() {
                           style={{ width: '100%' }}
                         />
                       </Form.Item>
-                      <Form.Item name="usageScenarios" label="适用场景">
+                      <Form.Item name="usageScenarios" label="场景">
                         <Select
                           mode="tags"
-                          placeholder="如：做饭、送礼、火锅、沙拉"
+                          placeholder="如：通勤、运动、送礼、做饭"
                           tokenSeparators={[',', '，']}
                           style={{ width: '100%' }}
                         />
                       </Form.Item>
-                      <Form.Item name="dietaryTags" label="饮食属性">
+                      <Form.Item name="dietaryTags" label="属性">
                         <Select
                           mode="tags"
-                          placeholder="如：有机、低糖、高蛋白、素食"
+                          placeholder="如：蓝牙、防水、有机、低糖"
                           tokenSeparators={[',', '，']}
                           style={{ width: '100%' }}
                         />
@@ -779,7 +779,7 @@ export default function ProductEditPage() {
 
       {/* 5. 商品规格 / 销售规格 */}
       <Card
-        title={isBundleProduct ? '销售规格（只读）' : '商品规格（不同包装/重量/口味等销售单元）'}
+        title={isBundleProduct ? '销售规格（只读）' : '商品规格（不同型号 / 包装 / 配置等销售单元）'}
         style={{ marginBottom: 16 }}
         extra={(
           <Space>

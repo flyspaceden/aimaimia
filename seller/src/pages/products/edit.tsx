@@ -713,18 +713,18 @@ function BundleItemsEditor({
 function SemanticTagFields() {
   return (
     <>
-      <Form.Item name="flavorTags" label="口味标签">
+      <Form.Item name="flavorTags" label="标签">
         <Select
           mode="tags"
-          placeholder="如：甜、脆、鲜、香辣"
+          placeholder="如：便携、防水、耐用、清甜"
           tokenSeparators={[',', '，']}
           style={{ width: '100%' }}
         />
       </Form.Item>
-      <Form.Item name="seasonalMonths" label="应季月份">
+      <Form.Item name="seasonalMonths" label="月份（选填）">
         <Select
           mode="multiple"
-          placeholder="选择应季月份"
+          placeholder="选择月份"
           options={Array.from({ length: 12 }, (_, i) => ({
             label: `${i + 1}月`,
             value: i + 1,
@@ -732,18 +732,18 @@ function SemanticTagFields() {
           style={{ width: '100%' }}
         />
       </Form.Item>
-      <Form.Item name="usageScenarios" label="适用场景">
+      <Form.Item name="usageScenarios" label="场景">
         <Select
           mode="tags"
-          placeholder="如：做饭、送礼、火锅、沙拉"
+          placeholder="如：通勤、运动、送礼、做饭"
           tokenSeparators={[',', '，']}
           style={{ width: '100%' }}
         />
       </Form.Item>
-      <Form.Item name="dietaryTags" label="饮食属性">
+      <Form.Item name="dietaryTags" label="属性">
         <Select
           mode="tags"
-          placeholder="如：有机、低糖、高蛋白、素食"
+          placeholder="如：蓝牙、防水、有机、低糖"
           tokenSeparators={[',', '，']}
           style={{ width: '100%' }}
         />
@@ -756,14 +756,14 @@ function AiSearchOptimizationContent() {
   return (
     <>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        只填写买家真实会说出来的搜索表达。标题写正式商品名，这里补充别名、俗称、常见说法和适用场景即可。
+        只填写买家真实会说出来的搜索表达。标题写正式商品名，这里补充别名、常见说法和便于搜索的描述即可。
       </Text>
       <Form.Item
         label="别名 / 俗称 / 常见搜索词"
         name="aiKeywords"
         tooltip="用于补充买家常说的叫法、地方叫法、同义词。不要重复填写标题原词。"
       >
-        <Input placeholder="逗号分隔，如：毛尖,绿茶,春茶" />
+        <Input placeholder="逗号分隔，如：运动手表,腕带,礼盒" />
       </Form.Item>
       <SemanticTagFields />
     </>
@@ -1053,10 +1053,10 @@ function AdvancedSettingsContent({ productTagOptions }: { productTagOptions: { v
               {fields.map((field) => (
                 <Space key={field.key} align="start" style={{ display: 'flex', marginBottom: 8 }}>
                   <Form.Item {...field} name={[field.name, 'key']} rules={[{ required: true, message: '属性名' }]}>
-                    <Input placeholder="属性名（如：种植方式）" style={{ width: 180 }} />
+                    <Input placeholder="属性名（如：材质）" style={{ width: 180 }} />
                   </Form.Item>
                   <Form.Item {...field} name={[field.name, 'value']} rules={[{ required: true, message: '属性值' }]}>
-                    <Input placeholder="属性值（如：有机种植）" style={{ width: 240 }} />
+                    <Input placeholder="属性值（如：铝合金）" style={{ width: 240 }} />
                   </Form.Item>
                   <MinusCircleOutlined style={{ marginTop: 8, color: '#999' }} onClick={() => remove(field.name)} />
                 </Space>
@@ -1515,14 +1515,14 @@ function ProductEditForm({ id }: { id: string }) {
               { min: 10, message: '描述至少 10 字' },
             ]}
           >
-            <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
+            <Input.TextArea rows={4} placeholder="请详细描述商品特点、功能、材质、使用方式等信息" />
           </Form.Item>
           <Form.Item
-            label="产地 / 产区"
+            label="来源地 / 生产地"
             name="originText"
-            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+            rules={[{ required: true, message: '请输入来源地 / 生产地' }]}
           >
-            <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
+            <Input placeholder="如：广东深圳、浙江杭州" style={{ width: 300 }} />
           </Form.Item>
         </Card>
 
@@ -2350,14 +2350,14 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
               { min: 10, message: '描述至少 10 字' },
             ]}
           >
-            <Input.TextArea rows={4} placeholder="请详细描述商品特点、产地、种植方式、口感等信息" />
+            <Input.TextArea rows={4} placeholder="请详细描述商品特点、功能、材质、使用方式等信息" />
           </Form.Item>
           <Form.Item
-            label="产地 / 产区"
+            label="来源地 / 生产地"
             name="originText"
-            rules={[{ required: true, message: '请输入产地 / 产区' }]}
+            rules={[{ required: true, message: '请输入来源地 / 生产地' }]}
           >
-            <Input placeholder="如：黑龙江五常、山东烟台、云南昆明" style={{ width: 300 }} />
+            <Input placeholder="如：广东深圳、浙江杭州" style={{ width: 300 }} />
           </Form.Item>
         </Card>
 
