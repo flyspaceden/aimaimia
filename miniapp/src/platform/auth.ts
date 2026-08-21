@@ -16,6 +16,10 @@ export type MiniappSession = {
 };
 
 export type MiniappLoginResult = MiniappSession;
+export type PendingMiniappAccountChoice = {
+  requiresAccountChoice: true;
+  miniLoginTicket: string;
+};
 
 function isSession(value: unknown): value is MiniappSession {
   if (!value || typeof value !== 'object') return false;
@@ -25,6 +29,12 @@ function isSession(value: unknown): value is MiniappSession {
     && typeof session.userId === 'string' && session.userId.length > 0
     && typeof session.expiresAt === 'string'
     && (session.loginMethod === 'wechat-miniapp' || session.loginMethod === 'phone');
+}
+
+function isPendingAccountChoice(value: unknown): value is PendingMiniappAccountChoice {
+  return Boolean(value && typeof value === 'object'
+    && (value as Record<string, unknown>).requiresAccountChoice === true
+    && typeof (value as Record<string, unknown>).miniLoginTicket === 'string');
 }
 
 type AuthAttempt = { id: number; revision: number };
@@ -92,7 +102,7 @@ function persistSession(
   return result;
 }
 
-export async function loginWithWechatMiniProgram(expectedUserId?: string): Promise<Result<MiniappLoginResult>> {
+export async function loginWithWechatMiniProgram(expectedUserId?: string): Promise<Result<MiniappLoginResult | PendingMiniappAccountChoice>> {
   const attempt = beginAuthAttempt();
   try {
     const { code } = await Taro.login({ timeout: 10_000 });
@@ -103,10 +113,12 @@ export async function loginWithWechatMiniProgram(expectedUserId?: string): Promi
       };
     }
     if (!isCurrentAuthAttempt(attempt)) return supersededAuthResult();
-    return persistSession(await ApiClient.post<MiniappLoginResult>(
+    const result = await ApiClient.post<MiniappLoginResult | PendingMiniappAccountChoice>(
       '/auth/oauth/wechat-miniapp',
       { code },
-    ), attempt, expectedUserId);
+    );
+    if (result.ok && isPendingAccountChoice(result.data)) return result;
+    return persistSession(result as Result<MiniappLoginResult>, attempt, expectedUserId);
   } catch (error) {
     const message = error && typeof error === 'object' && 'errMsg' in error
       ? String((error as { errMsg?: unknown }).errMsg || '')
@@ -120,6 +132,32 @@ export async function loginWithWechatMiniProgram(expectedUserId?: string): Promi
         retryable: true,
       },
     };
+  }
+}
+
+export async function completeWechatMiniappRegistration(miniLoginTicket: string): Promise<Result<MiniappLoginResult>> {
+  const result = await ApiClient.post<MiniappLoginResult>('/auth/oauth/wechat-miniapp/complete-registration', { miniLoginTicket });
+  if (result.ok && isSession(result.data)) replaceTrustedSession(result.data);
+  return result;
+}
+
+export function sendWechatMiniappBindPhoneCode(miniLoginTicket: string, phone: string): Promise<Result<{ ok: boolean }>> {
+  return ApiClient.post<{ ok: boolean }>('/auth/oauth/wechat-miniapp/bind-phone/sms/code', { miniLoginTicket, phone });
+}
+
+export async function bindWechatMiniappPhone(miniLoginTicket: string, phone: string, code: string): Promise<Result<MiniappLoginResult>> {
+  const result = await ApiClient.post<MiniappLoginResult>('/auth/oauth/wechat-miniapp/bind-phone', { miniLoginTicket, phone, code });
+  if (result.ok && isSession(result.data)) replaceTrustedSession(result.data);
+  return result;
+}
+
+export async function createWechatMiniappDeletionProof(): Promise<Result<{ wechatDeletionProof: string; expiresInSeconds: number }>> {
+  try {
+    const { code } = await Taro.login({ timeout: 10_000 });
+    if (!code) return { ok: false, error: { code: 'WECHAT_CODE_EMPTY', message: 'wx.login returned empty code', displayMessage: '微信验证失败，请重试' } };
+    return ApiClient.post('/auth/oauth/wechat-miniapp/deletion-proof', { code });
+  } catch {
+    return { ok: false, error: { code: 'WECHAT_LOGIN_FAILED', message: 'wx.login failed', displayMessage: '微信验证失败，请重试', retryable: true } };
   }
 }
 

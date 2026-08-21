@@ -15,6 +15,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
   WechatMiniappBindPhoneCodeDto,
   WechatMiniappBindPhoneDto,
+  WechatMiniappCompleteRegistrationDto,
+  WechatMiniappDeletionProofDto,
   WechatMiniappLoginDto,
 } from './dto/wechat-miniapp.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -100,6 +102,13 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp/complete-registration')
+  completeWechatMiniappRegistration(@Body() dto: WechatMiniappCompleteRegistrationDto) {
+    return this.authService.completeWechatMiniappRegistration(dto.miniLoginTicket);
+  }
+
+  @Public()
   @Throttle({ default: { ttl: 60_000, limit: 3 } })
   @Post('oauth/wechat-miniapp/bind-phone/sms/code')
   sendWechatMiniappBindPhoneCode(@Body() dto: WechatMiniappBindPhoneCodeDto) {
@@ -118,6 +127,25 @@ export class AuthController {
       dto.phone,
       dto.code,
     );
+  }
+
+  /** 仅已登录用户可为不可逆注销换取一次性微信证明。 */
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat-miniapp/deletion-proof')
+  createWechatMiniappDeletionProof(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: WechatMiniappDeletionProofDto,
+  ) {
+    return this.authService.createWechatMiniappDeletionProof(userId, dto.code);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat/deletion-proof')
+  createWechatDeletionProof(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: WechatMiniappDeletionProofDto,
+  ) {
+    return this.authService.createWechatDeletionProof(userId, dto.code);
   }
 
   @Public()

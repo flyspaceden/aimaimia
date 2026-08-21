@@ -39,6 +39,7 @@ export type AccountDeletionExecuteInput = {
   confirmationMethod: 'SMS' | 'WECHAT_MODAL';
   smsCode?: string;
   modalConfirmText?: string;
+  wechatDeletionProof?: string;
   acknowledgedNotice: true;
 };
 

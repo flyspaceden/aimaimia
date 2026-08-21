@@ -44,8 +44,10 @@ type WechatLoginProfile = {
   accessToken: string | null;
 };
 
+type MiniappLoginTicketPurpose = 'WECHAT_MINIAPP_BIND_PHONE' | 'WECHAT_MINIAPP_CREATE_ACCOUNT' | 'WECHAT_MINIAPP_DELETION';
+
 type MiniappLoginTicketPayload = {
-  purpose: 'WECHAT_MINIAPP_BIND_PHONE';
+  purpose: MiniappLoginTicketPurpose;
   appId: string;
   openId: string;
   unionId: string;
@@ -588,7 +590,6 @@ export class AuthService {
    */
   async loginWithWechatMiniapp(code: string) {
     const profile = await this.exchangeWechatMiniappCode(code);
-    const profileData = await this.fetchWechatUserProfile(profile.accessToken, profile.openId);
     const lockKey = this.wechatIdentityLockKey(profile);
     const lockOwner = randomBytes(16).toString('hex');
     const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
@@ -609,55 +610,7 @@ export class AuthService {
       // 可能先把同一 unionId 绑到其他用户，旧事务再错误回填第二个用户。
       const resolved = await this.withWechatIdentitySerializableRetry(async (tx) => {
         const identity = await this.findWechatMiniappIdentity(profile, tx);
-        if (!identity) {
-          await lockLease.assertHeld();
-          const user = await tx.user.create({
-            data: {
-              buyerNo: await nextBuyerNo(tx),
-              profile: { create: profileData },
-              memberProfile: {
-                create: { referralCode: await pickUniqueReferralCode(tx) },
-              },
-              growthAccount: {
-                create: {
-                  pointsBalance: 0,
-                  pointsTotalEarned: 0,
-                  pointsTotalSpent: 0,
-                  growthValue: 0,
-                },
-              },
-              normalShareProfile: {
-                create: {
-                  code: await pickUniqueNormalShareCode(tx as any),
-                  status: 'ACTIVE',
-                },
-              },
-            },
-            select: { id: true },
-          });
-          const authIdentity = await tx.authIdentity.create({
-            data: {
-              userId: user.id,
-              provider: 'WECHAT',
-              identifier: profile.openId,
-              unionId: profile.unionId || null,
-              appId: profile.appId,
-              verified: true,
-              meta: {
-                unionId: profile.unionId,
-                appId: profile.appId,
-                appType: profile.appType,
-                nickname: profileData.nickname,
-                avatarUrl: profileData.avatarUrl,
-              },
-            },
-          });
-          return {
-            userId: user.id,
-            authIdentityId: authIdentity.id,
-            created: true,
-          };
-        }
+        if (!identity) return null;
 
         // 身份补建与用户活动状态复核必须在同一 Serializable 事务内，
         // 使并发注销与重新绑定发生可检测冲突，禁止注销后身份复活。
@@ -675,19 +628,18 @@ export class AuthService {
           true,
           tx,
         );
-        return { userId: identity.userId, authIdentityId, created: false };
+        return { userId: identity.userId, authIdentityId };
       });
 
-      await this.ensureBuyerNoForBuyer(resolved.userId);
-      if (resolved.created) {
-        this.couponEngine.handleTrigger(resolved.userId, 'REGISTER').catch((err: any) => {
-          this.logger.warn(
-            `REGISTER 红包触发失败: userId=${resolved.userId}, error=${err?.message}`,
-          );
-        });
-        this.triggerRegisterGrowth(resolved.userId);
+      // 不能在身份未匹配时先创建第二个账号。客户端必须明确选择“新建”或
+      // 持有手机号短信验证码合并到已有账号；ticket 仅保存微信身份且 5 分钟失效。
+      if (!resolved) {
+        return {
+          requiresAccountChoice: true,
+          miniLoginTicket: await this.createMiniappLoginTicket(profile, 'WECHAT_MINIAPP_CREATE_ACCOUNT'),
+        };
       }
-
+      await this.ensureBuyerNoForBuyer(resolved.userId);
       await lockLease.assertHeld();
       return await this.issueTokens(
         resolved.userId,
@@ -704,9 +656,127 @@ export class AuthService {
     }
   }
 
+  /** 用户明确选择“作为新用户继续”后，使用一次性微信登录凭证创建账号。 */
+  async completeWechatMiniappRegistration(miniLoginTicket: string) {
+    const initialTicket = await this.readMiniappLoginTicket(
+      miniLoginTicket,
+      false,
+      'WECHAT_MINIAPP_CREATE_ACCOUNT',
+    );
+    const profile: WechatLoginProfile = {
+      openId: initialTicket.openId,
+      unionId: initialTicket.unionId,
+      appId: initialTicket.appId,
+      appType: 'MINI_PROGRAM',
+      accessToken: null,
+    };
+    const lockKey = this.wechatIdentityLockKey(profile);
+    const lockOwner = randomBytes(16).toString('hex');
+    const locked = await this.redisCoord.acquireLock(lockKey, lockOwner, WECHAT_UNION_LOCK_TTL_MS);
+    if (locked === false) throw new BadRequestException('微信账号处理中，请稍后重试');
+    if (locked === null && this.config.get('NODE_ENV', 'development') === 'production') {
+      throw new ServiceUnavailableException('微信登录服务繁忙，请稍后重试');
+    }
+    const lockLease = locked ? this.startWechatIdentityLockRenewal(lockKey, lockOwner) : this.createNoopWechatIdentityLockLease();
+    try {
+      await this.readMiniappLoginTicket(miniLoginTicket, false, 'WECHAT_MINIAPP_CREATE_ACCOUNT');
+      await lockLease.assertHeld();
+      const ticket = await this.readMiniappLoginTicket(miniLoginTicket, true, 'WECHAT_MINIAPP_CREATE_ACCOUNT');
+      const profileData = await this.fetchWechatUserProfile(null, ticket.openId);
+      const resolved = await this.withWechatIdentitySerializableRetry(async (tx) => {
+        const existing = await this.findWechatMiniappIdentity(profile, tx);
+        if (existing) {
+          const user = await tx.user.findUnique({ where: { id: existing.userId }, select: { status: true, deletionExecutedAt: true } });
+          if (!user || user.status !== UserStatus.ACTIVE || user.deletionExecutedAt) throw new ForbiddenException('账号不可用');
+          return { userId: existing.userId, authIdentityId: await this.ensureWechatIdentityForProfile(existing, profile, true, tx), created: false };
+        }
+        await lockLease.assertHeld();
+        const user = await tx.user.create({
+          data: {
+            buyerNo: await nextBuyerNo(tx),
+            profile: { create: profileData },
+            memberProfile: { create: { referralCode: await pickUniqueReferralCode(tx) } },
+            growthAccount: { create: { pointsBalance: 0, pointsTotalEarned: 0, pointsTotalSpent: 0, growthValue: 0 } },
+            normalShareProfile: { create: { code: await pickUniqueNormalShareCode(tx as any), status: 'ACTIVE' } },
+          },
+          select: { id: true },
+        });
+        const identity = await tx.authIdentity.create({
+          data: { userId: user.id, provider: 'WECHAT', identifier: profile.openId, unionId: profile.unionId || null, appId: profile.appId, verified: true, meta: this.mergeWechatIdentityMeta(null, profile) },
+        });
+        return { userId: user.id, authIdentityId: identity.id, created: true };
+      });
+      await this.ensureBuyerNoForBuyer(resolved.userId);
+      if (resolved.created) {
+        this.couponEngine.handleTrigger(resolved.userId, 'REGISTER').catch(() => undefined);
+        this.triggerRegisterGrowth(resolved.userId);
+      }
+      await lockLease.assertHeld();
+      return this.issueTokens(resolved.userId, 'wechat-miniapp', undefined, resolved.authIdentityId, () => lockLease.assertHeld());
+    } finally {
+      lockLease.stop();
+      if (locked) await this.redisCoord.releaseLock(lockKey, lockOwner);
+    }
+  }
+
+  /** 为无手机号账号的注销生成一次性微信身份证明，不能以确认文字替代。 */
+  async createWechatMiniappDeletionProof(userId: string, code: string) {
+    await this.assertActiveUserForIdentityMutation(userId);
+    const profile = await this.exchangeWechatMiniappCode(code);
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: {
+        userId,
+        provider: 'WECHAT',
+        verified: true,
+        OR: [
+          { identifier: profile.openId, appId: profile.appId },
+          ...(profile.unionId ? [{ unionId: profile.unionId }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (!identity) {
+      throw new ForbiddenException('当前微信与登录账号不一致，请重新登录后再试');
+    }
+    return {
+      wechatDeletionProof: await this.createMiniappLoginTicket(profile, 'WECHAT_MINIAPP_DELETION'),
+      expiresInSeconds: Math.floor(MINIAPP_LOGIN_TICKET_TTL_MS / 1000),
+    };
+  }
+
+  /** 原生 App 使用 OAuth code 进行同等的一次性微信注销验证。 */
+  async createWechatDeletionProof(userId: string, code: string) {
+    await this.assertActiveUserForIdentityMutation(userId);
+    const profile = await this.exchangeWechatOAuthCode(code, 'mobile');
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: { userId, provider: 'WECHAT', verified: true, OR: [{ identifier: profile.openId, appId: profile.appId }, ...(profile.unionId ? [{ unionId: profile.unionId }] : [])] },
+      select: { id: true },
+    });
+    if (!identity) throw new ForbiddenException('当前微信与登录账号不一致，请重新登录后再试');
+    return { wechatDeletionProof: await this.createMiniappLoginTicket(profile, 'WECHAT_MINIAPP_DELETION'), expiresInSeconds: Math.floor(MINIAPP_LOGIN_TICKET_TTL_MS / 1000) };
+  }
+
+  /** 在注销事务提交前原子消费微信证明并确认其仍归属当前账号。 */
+  async consumeWechatMiniappDeletionProof(userId: string, proof: string) {
+    const ticket = await this.readMiniappLoginTicket(proof, true, 'WECHAT_MINIAPP_DELETION');
+    const identity = await this.prisma.authIdentity.findFirst({
+      where: {
+        userId,
+        provider: 'WECHAT',
+        verified: true,
+        OR: [
+          { identifier: ticket.openId, appId: ticket.appId },
+          ...(ticket.unionId ? [{ unionId: ticket.unionId }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (!identity) throw new ForbiddenException('微信身份已变化，请重新验证后再试');
+  }
+
   /** 为未匹配的小程序身份发送手机号验证短信，不泄露手机号是否已注册。 */
   async sendWechatMiniappBindPhoneCode(miniLoginTicket: string, phone: string) {
-    await this.readMiniappLoginTicket(miniLoginTicket, false);
+    await this.readMiniappLoginTicket(miniLoginTicket, false, ['WECHAT_MINIAPP_BIND_PHONE', 'WECHAT_MINIAPP_CREATE_ACCOUNT']);
     return this.issueBindPhoneOtp(phone, '小程序账号合并');
   }
 
@@ -716,7 +786,7 @@ export class AuthService {
    */
   async bindWechatMiniappPhone(miniLoginTicket: string, phone: string, code: string) {
     // 先窥视票据并获取与 App/H5 共用的微信统一身份锁，避免跨渠道并发创建两个 User。
-    const initialTicket = await this.readMiniappLoginTicket(miniLoginTicket, false);
+    const initialTicket = await this.readMiniappLoginTicket(miniLoginTicket, false, ['WECHAT_MINIAPP_BIND_PHONE', 'WECHAT_MINIAPP_CREATE_ACCOUNT']);
     const profile: WechatLoginProfile = {
       openId: initialTicket.openId,
       unionId: initialTicket.unionId,
@@ -739,9 +809,9 @@ export class AuthService {
 
     try {
     // 获锁后再次确认 ticket 尚未消费，再消费 OTP，最后以 GETDEL 原子消费 ticket。
-    await this.readMiniappLoginTicket(miniLoginTicket, false);
+    await this.readMiniappLoginTicket(miniLoginTicket, false, ['WECHAT_MINIAPP_BIND_PHONE', 'WECHAT_MINIAPP_CREATE_ACCOUNT']);
     await this.verifyCode(phone, code, SmsPurpose.BIND);
-    const ticket = await this.readMiniappLoginTicket(miniLoginTicket, true);
+    const ticket = await this.readMiniappLoginTicket(miniLoginTicket, true, ['WECHAT_MINIAPP_BIND_PHONE', 'WECHAT_MINIAPP_CREATE_ACCOUNT']);
     if (
       ticket.appId !== profile.appId ||
       ticket.openId !== profile.openId ||
@@ -1182,11 +1252,14 @@ export class AuthService {
     return exactIdentity ?? unionIdentity;
   }
 
-  private async createMiniappLoginTicket(profile: WechatLoginProfile): Promise<string> {
+  private async createMiniappLoginTicket(
+    profile: WechatLoginProfile,
+    purpose: MiniappLoginTicketPurpose = 'WECHAT_MINIAPP_BIND_PHONE',
+  ): Promise<string> {
     const ticket = randomBytes(32).toString('hex');
     const now = Date.now();
     const payload: MiniappLoginTicketPayload = {
-      purpose: 'WECHAT_MINIAPP_BIND_PHONE',
+      purpose,
       appId: profile.appId,
       openId: profile.openId,
       unionId: profile.unionId,
@@ -1208,6 +1281,7 @@ export class AuthService {
   private async readMiniappLoginTicket(
     ticket: string,
     consume: boolean,
+    expectedPurpose: MiniappLoginTicketPurpose | MiniappLoginTicketPurpose[] = 'WECHAT_MINIAPP_BIND_PHONE',
   ): Promise<MiniappLoginTicketPayload> {
     if (!/^[a-f0-9]{64}$/.test(ticket)) {
       throw new BadRequestException('小程序登录凭证无效，请重新登录');
@@ -1238,7 +1312,7 @@ export class AuthService {
     }
     const now = Date.now();
     if (
-      payload.purpose !== 'WECHAT_MINIAPP_BIND_PHONE' ||
+      !(Array.isArray(expectedPurpose) ? expectedPurpose : [expectedPurpose]).includes(payload.purpose) ||
       typeof payload.appId !== 'string' ||
       !payload.appId ||
       typeof payload.openId !== 'string' ||

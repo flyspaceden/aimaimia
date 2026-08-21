@@ -941,25 +941,15 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
 
     const result = await service.loginWithWechatMiniapp('one-time-wechat-code');
 
-    expect(result).toMatchObject({
-      userId: 'new-user',
-      loginMethod: 'wechat-miniapp',
-    });
+    expect(result).toMatchObject({ requiresAccountChoice: true, miniLoginTicket: expect.any(String) });
     const responseText = JSON.stringify(result);
     expect(responseText).not.toContain('one-time-wechat-code');
     expect(responseText).not.toContain('wechat-session-key-secret');
     expect(responseText).not.toContain('mini-openid-secret');
     expect(responseText).not.toContain('mini-union-secret');
     expect(responseText).not.toContain('mini-app-secret');
-    expect(redisCoord.set).not.toHaveBeenCalled();
-    expect(prisma.authIdentity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 'new-user',
-        identifier: 'mini-openid-secret',
-        unionId: 'mini-union-secret',
-        appId: 'mini-app-id',
-      }),
-    });
+    expect(redisCoord.set).toHaveBeenCalled();
+    expect(prisma.authIdentity.create).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
@@ -1119,38 +1109,12 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
 
     const session = await service.loginWithWechatMiniapp('new-mini-user');
 
-    expect(session).toMatchObject({
-      userId: 'new-user',
-      loginMethod: 'wechat-miniapp',
-    });
-    expect(session).not.toHaveProperty('bindRequired');
-    expect(session).not.toHaveProperty('miniLoginTicket');
-    expect(prisma.user.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        buyerNo: 'AIMM00000000000001',
-        profile: { create: expect.objectContaining({ nickname: expect.any(String) }) },
-        memberProfile: { create: expect.objectContaining({ referralCode: expect.any(String) }) },
-        growthAccount: { create: expect.any(Object) },
-        normalShareProfile: { create: expect.objectContaining({ status: 'ACTIVE' }) },
-      }),
-      select: { id: true },
-    });
-    expect(prisma.authIdentity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 'new-user',
-        provider: 'WECHAT',
-        appId: 'mini-app-id',
-        verified: true,
-      }),
-    });
-    expect(prisma.session.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: 'new-user',
-        authIdentityId: 'identity-new',
-      }),
-    });
-    expect(couponEngine.handleTrigger).toHaveBeenCalledWith('new-user', 'REGISTER');
-    expect(growthEvents.receive).toHaveBeenCalled();
+    expect(session).toMatchObject({ requiresAccountChoice: true, miniLoginTicket: expect.any(String) });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.authIdentity.create).not.toHaveBeenCalled();
+    expect(prisma.session.create).not.toHaveBeenCalled();
+    expect(couponEngine.handleTrigger).not.toHaveBeenCalled();
+    expect(growthEvents.receive).not.toHaveBeenCalled();
   });
 
   it('生产环境 SMS_MOCK=true 时小程序绑定发码与身份写入均 fail-closed', async () => {

@@ -11,6 +11,7 @@ import { useAuthStore } from '../src/store';
 import { useTheme } from '../src/theme';
 import { logoutAndClearClientState } from '../src/utils/logout';
 import { requestWechatAuth } from '../src/services/wechat';
+import { AuthModal } from '../src/components/overlay';
 
 // 手机号脱敏：138****5678
 const maskPhone = (phone?: string) => {
@@ -69,6 +70,7 @@ export default function AccountSecurityScreen() {
   const [changingPwd, setChangingPwd] = useState(false);
   const [showOldPwd, setShowOldPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
   const handleChangePassword = async () => {
     if (!oldPwd.trim()) {
@@ -187,11 +189,19 @@ export default function AccountSecurityScreen() {
           <View style={[styles.card, shadow.md, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
             {/* 修改密码 */}
             <Pressable
-              onPress={() => setShowPasswordForm(!showPasswordForm)}
+              onPress={() => {
+                if (profile?.hasPassword) { setShowPasswordForm(!showPasswordForm); return; }
+                if (!profile?.phone) {
+                  show({ message: '请先绑定手机号，才能设置密码', type: 'info' });
+                  router.push('/bind-phone');
+                  return;
+                }
+                setForgotPasswordOpen(true);
+              }}
               style={[styles.row, { borderBottomColor: showPasswordForm ? 'transparent' : colors.border }]}
             >
               <MaterialCommunityIcons name="lock-outline" size={20} color={colors.text.secondary} />
-              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>修改密码</Text>
+              <Text style={[typography.body, { color: colors.text.primary, marginLeft: spacing.sm }]}>{profile?.hasPassword ? '修改密码' : '设置密码'}</Text>
               <View style={styles.spacer} />
               <MaterialCommunityIcons
                 name={showPasswordForm ? 'chevron-up' : 'chevron-right'}
@@ -309,6 +319,7 @@ export default function AccountSecurityScreen() {
           </View>
         </Animated.View>
       </ScrollView>
+      <AuthModal open={forgotPasswordOpen} startForgotPassword onClose={() => setForgotPasswordOpen(false)} />
     </Screen>
   );
 }

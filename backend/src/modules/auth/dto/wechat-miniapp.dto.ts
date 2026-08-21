@@ -25,3 +25,17 @@ export class WechatMiniappBindPhoneDto extends WechatMiniappBindPhoneCodeDto {
   @Matches(SMS_CODE_PATTERN, { message: '短信验证码应为 6 位数字' })
   code!: string;
 }
+
+/** 未关联微信选择“作为新用户继续”时提交的一次性登录凭证。 */
+export class WechatMiniappCompleteRegistrationDto {
+  @IsString()
+  @Matches(MINI_LOGIN_TICKET_PATTERN, { message: '小程序登录凭证格式不正确' })
+  miniLoginTicket!: string;
+}
+
+/** 注销前重新校验当前小程序微信身份。 */
+export class WechatMiniappDeletionProofDto {
+  @IsString()
+  @Length(1, 256)
+  code!: string;
+}

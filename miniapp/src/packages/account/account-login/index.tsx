@@ -1,13 +1,17 @@
-import { Button, Text, View } from '@tarojs/components';
+import { Button, Input, Text, View } from '@tarojs/components';
 import Taro, { useRouter } from '@tarojs/taro';
 import { useState } from 'react';
 import { AccountFeedback } from '@/components/account-feedback';
 import {
   completeAuthNavigation,
+  bindWechatMiniappPhone,
+  completeWechatMiniappRegistration,
   loginWithWechatMiniProgram,
   normalizeAuthReturnUrl,
+  sendWechatMiniappBindPhoneCode,
 } from '@/platform/auth';
 import { useAuthStore } from '@/store/auth';
+import { isMainlandPhone, isSmsCode } from '@/components/account-utils';
 import './index.scss';
 
 export default function AccountLoginPage() {
@@ -19,6 +23,10 @@ export default function AccountLoginPage() {
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingTicket, setPendingTicket] = useState('');
+  const [phone, setPhone] = useState('');
+  const [smsCode, setSmsCode] = useState('');
+  const [countdown, setCountdown] = useState(0);
 
   const openLegal = (document: 'terms' | 'privacy') => {
     void Taro.navigateTo({
@@ -42,12 +50,39 @@ export default function AccountLoginPage() {
       Taro.showToast({ title: result.error.displayMessage || '微信登录失败，请稍后重试', icon: 'none' });
       return;
     }
+    if ('requiresAccountChoice' in result.data) {
+      setPendingTicket(result.data.miniLoginTicket);
+      return;
+    }
 
     Taro.showToast({
       title: '登录成功',
       icon: 'success',
     });
     setTimeout(() => { void completeAuthNavigation(returnUrl); }, 420);
+  };
+
+  const createAccount = async () => {
+    setSubmitting(true);
+    const result = await completeWechatMiniappRegistration(pendingTicket);
+    setSubmitting(false);
+    if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '创建账号失败', icon: 'none' }); return; }
+    void completeAuthNavigation(returnUrl);
+  };
+  const sendMergeCode = async () => {
+    if (!isMainlandPhone(phone)) { Taro.showToast({ title: '请输入正确的手机号', icon: 'none' }); return; }
+    const result = await sendWechatMiniappBindPhoneCode(pendingTicket, phone.trim());
+    if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '验证码发送失败', icon: 'none' }); return; }
+    setCountdown(60);
+    const timer = setInterval(() => setCountdown((value) => { if (value <= 1) { clearInterval(timer); return 0; } return value - 1; }), 1000);
+  };
+  const mergeAccount = async () => {
+    if (!isMainlandPhone(phone) || !isSmsCode(smsCode)) { Taro.showToast({ title: '请输入手机号和 6 位验证码', icon: 'none' }); return; }
+    setSubmitting(true);
+    const result = await bindWechatMiniappPhone(pendingTicket, phone.trim(), smsCode.trim());
+    setSubmitting(false);
+    if (!result.ok) { Taro.showToast({ title: result.error.displayMessage || '账号合并失败', icon: 'none' }); return; }
+    void completeAuthNavigation(returnUrl);
   };
 
   if (!hydrated) {
@@ -63,6 +98,16 @@ export default function AccountLoginPage() {
       </View>
     </View>;
   }
+
+  if (pendingTicket) return <View className='aim-page account-login-page'><View className='account-login-card aim-card'>
+    <Text className='account-login-hero__title'>选择账号方式</Text>
+    <Text>这个微信尚未关联爱买买账号。可新建微信账号，或验证手机号合并既有账号。</Text>
+    <Button className='account-login-wechat' loading={submitting} onClick={createAccount}>作为新用户继续</Button>
+    <View className='account-login-agreement'><Input type='number' maxlength={11} value={phone} placeholder='已有账号的手机号' onInput={(event) => setPhone(event.detail.value.replace(/\D/g, '').slice(0, 11))} /></View>
+    <View className='account-login-agreement'><Input type='number' maxlength={6} value={smsCode} placeholder='6 位短信验证码' onInput={(event) => setSmsCode(event.detail.value.replace(/\D/g, '').slice(0, 6))} /><Button disabled={countdown > 0} onClick={sendMergeCode}>{countdown ? `${countdown}s` : '发验证码'}</Button></View>
+    <Button className='account-login-done__button' loading={submitting} onClick={mergeAccount}>合并已有手机号账号</Button>
+    <Text onClick={() => setPendingTicket('')}>返回重新选择微信</Text>
+  </View></View>;
 
   return <View className='aim-page account-login-page'>
     <View className='account-login-hero'>

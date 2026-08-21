@@ -35,6 +35,8 @@ export default function SettingsPage() {
     void templatesQuery.refetch();
   };
   const openWechatSettings = async () => {
+    const modal = await Taro.showModal({ title: '微信授权说明', content: '本小程序不会请求定位权限；相机和相册只会在您主动拍照或选图时申请。若微信原生页面为空，表示近期尚未发生可管理的授权记录。', confirmText: '打开微信设置', cancelText: '我知道了' });
+    if (!modal.confirm) return;
     try { await Taro.openSetting(); } catch { await Taro.showToast({ title: '请在微信的小程序设置中管理权限', icon: 'none' }); }
   };
   const logout = async () => {
@@ -49,7 +51,7 @@ export default function SettingsPage() {
     <View className='settings-heading'><Text>账号</Text><Text>{loggedIn ? '已登录' : '未登录'}</Text></View>
     <View className='settings-card aim-card'>
       <SettingRow mark='锁' title='账号与安全' description='登录身份、修改密码、注销账号' onClick={() => Taro.navigateTo({ url: '/packages/account/account-security/index' })} />
-      <SettingRow mark='微' title='微信权限设置' description='摄像头、位置等权限由微信管理' onClick={openWechatSettings} />
+      <SettingRow mark='微' title='微信授权说明' description='相机/相册按使用时向微信申请' onClick={openWechatSettings} />
     </View>
     <View className='settings-heading'><Text>消息能力</Text><Text>按真实接入状态</Text></View>
     <View className='settings-capability aim-card'>

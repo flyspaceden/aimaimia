@@ -14,6 +14,7 @@ export type UserProfile = {
   phone?: string;
   wechatBound: boolean;
   wechatNickname?: string;
+  hasPassword: boolean;
   hasAgreedReturnPolicy: boolean;
   avatar: string;
   gender: Gender;

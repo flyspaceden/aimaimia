@@ -16,6 +16,7 @@ export type UserProfile = {
   /** 微信是否已绑定（绑定状态权威判定字段，与昵称解耦） */
   wechatBound?: boolean;
   wechatNickname?: string;
+  hasPassword?: boolean;
   avatar: string;
   gender?: Gender;
   birthday?: string | null;

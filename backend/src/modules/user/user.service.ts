@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from '../auth/auth.service';
@@ -82,7 +83,11 @@ export class UserService {
     // 手机号存在 AuthIdentity{provider:PHONE, identifier:phone}
     // 微信昵称沿用 UserProfile.nickname（与管理后台 admin-app-users.service.ts:137 行为一致）
     const phoneIdentity = user.authIdentities.find((i) => i.provider === 'PHONE');
-    const hasWechat = user.authIdentities.some((i) => i.provider === 'WECHAT');
+    const wechatIdentity = user.authIdentities.find((i) => i.provider === 'WECHAT');
+    const hasWechat = Boolean(wechatIdentity);
+    const wechatMeta = wechatIdentity?.meta && typeof wechatIdentity.meta === 'object' && !Array.isArray(wechatIdentity.meta)
+      ? wechatIdentity.meta as Prisma.JsonObject
+      : {};
 
     return {
       id: user.id,
@@ -92,7 +97,8 @@ export class UserService {
       // wechatBound 是绑定状态判定字段（昵称仅作展示）
       // 避免微信已绑但 fetchWechatUserProfile 失败导致 nickname 空时被误判"未绑定"
       wechatBound: hasWechat,
-      wechatNickname: hasWechat ? profile.nickname : undefined,
+      wechatNickname: typeof wechatMeta.nickname === 'string' ? wechatMeta.nickname : undefined,
+      hasPassword: typeof (phoneIdentity?.meta as Prisma.JsonObject | null)?.passwordHash === 'string',
       // 退换货政策同意状态（前端 checkout.tsx 用于决定是否弹首次下单弹窗）
       // P1 commit 11ed366 漏补此字段，导致 Bug 6 用户退出 checkout 后重进仍弹窗
       hasAgreedReturnPolicy: user.hasAgreedReturnPolicy,

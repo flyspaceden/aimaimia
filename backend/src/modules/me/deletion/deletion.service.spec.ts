@@ -166,6 +166,7 @@ function makeService(overrides: {
   sms?: any;
   digitalAsset?: any;
   queueReward?: any;
+  auth?: any;
 } = {}) {
   const prisma = overrides.prisma ?? makeTx();
   const config = overrides.config ?? {
@@ -185,6 +186,7 @@ function makeService(overrides: {
     clearAccountAssets: jest.fn().mockResolvedValue(undefined),
   };
   const queueReward = overrides.queueReward;
+  const auth = overrides.auth ?? { consumeWechatMiniappDeletionProof: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
     config,
@@ -198,6 +200,7 @@ function makeService(overrides: {
       redis,
       sms,
       digitalAsset,
+      auth,
       queueReward,
     ),
   };
@@ -207,6 +210,7 @@ function executeDto(overrides: Partial<ExecuteDeletionDto> = {}): ExecuteDeletio
   return {
     confirmationMethod: AccountDeletionConfirmMethod.WECHAT_MODAL,
     modalConfirmText: '确认注销',
+    wechatDeletionProof: 'a'.repeat(64),
     acknowledgedNotice: true,
     ...overrides,
   } as ExecuteDeletionDto;
