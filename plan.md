@@ -1954,7 +1954,7 @@
 > **执行真相源**：`docs/operations/miniapp-production-integration-20260821.md`。以 `origin/main@aa8f5daa` 为基线，禁止整体 merge staging，禁止携带独立 Delivery 系统；每个批次独立 commit、独立审查、独立回滚。
 
 - [x] **MP-PROD00** 冻结 `main/staging/生产后端/staging 后端` SHA，建立干净 `codex/miniapp-production-integration-20260821` worktree；原始脏目录和生产环境未改动。
-- [x] **MP-PROD01**（本地完成，未 push/未部署）发布安全门禁：main push 不自动部署；生产 workflow_dispatch + approval；exact SHA 部署；主库备份；后端质量/E2E/readiness 门禁；后端先于 admin/seller/H5；workflow-only 变更不触发后端。GitHub production/staging environment 已按分支隔离，production 需要用户本人审批。独立终审无阻止本地提交的 Critical/High；Batch 1 前仍必须完成 main protection、维护停写/PITR 与版本化 release 目录。
+- [x] **MP-PROD01**（本地完成，未 push/未部署）发布安全门禁：main push 不自动部署；production workflow_dispatch + approval；exact SHA；主库备份；后端质量/E2E/readiness；后端先于 admin/seller/H5；workflow-only 不触发后端。后端候选在不可变 worktree 安装/编译，PM2 停止后才备份/migrate，按旧绝对 cwd/entrypoint 回退；flock、阶段 journal、运行 SHA、公网 health、App 旧登录/商品/购物车/普通+VIP+团购结算/钱包/售后探针和 `pm2 save` 均已接入。GitHub production/staging environment 已按分支隔离。独立终审无 Critical/High；Batch 1 正式发布前仍必须完成 main protection、PITR/离机恢复证明和首次服务器 PM2 只读预检。
 - [ ] **MP-PROD02** Delivery 排除守卫：禁止配送门户、配送数据库、DeliveryModule/wiring/配置进入候选，同时保留商城 Shipment/SF/普通送货上门。
 - [ ] **MP-PROD03** 小程序后端兼容闭包与 18 条 migration；main 旧 API 路由零删除，微信支付/退款/提现、自提、通知、购物车与收货副作用完整。
 - [ ] **MP-PROD04** 平台后台与卖家后台最小自提/核销/微信提现界面；解决扫码依赖 Node 版本；后端成功后才部署静态后台。

@@ -15,6 +15,10 @@ on:
       - 'scripts/lib/legal-static-renderer.mjs'
       - 'scripts/sync-huahai-legal.mjs'
       - '.github/workflows/deploy-website.yml'
+      - 'scripts/deploy-backend-versioned.sh'
+      - 'scripts/deploy-static-with-rollback.sh'
+      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
+      - 'scripts/__tests__/production-delivery-exclusion.test.mjs'
 
   # 手动触发
   workflow_dispatch:
@@ -109,7 +113,8 @@ jobs:
             # all 只表示爱买买商城四个目标；华海母公司官网必须单独选择 huahai，
             # 防止小程序发布夹带无关站点。
             [ "$TARGET" = "huahai" ] && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
-            echo "workflow=false" >> $GITHUB_OUTPUT
+            # 手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。
+            echo "workflow=true" >> $GITHUB_OUTPUT
             echo "any_deploy=true" >> $GITHUB_OUTPUT
           else
             # diff 本次 push 的完整范围（before..after），覆盖一次推多 commit 的情况
@@ -126,7 +131,7 @@ jobs:
             # workflow-only 变更只验证工作流本身，不得触发后端、migration 或 PM2。
             echo "$CHANGED" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -q '^\.github/workflows/deploy-website\.yml$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-website\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
           fi
 
@@ -389,10 +394,14 @@ jobs:
   # production environment 必须在 GitHub 设置 required reviewer；staging environment 不设 reviewer。
   # 质量门禁失败时，本 job 不会进入批准阶段，也不会有任何服务器或数据库动作。
   release-approval:
-    needs: [detect-changes, backend-quality-gate, backend-e2e-gate]
+    needs: [detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate]
     if: >-
       always()
       && needs.detect-changes.outputs.any_deploy == 'true'
+      && (
+        needs.detect-changes.outputs.workflow != 'true'
+        || needs.validate-deployment-workflow.result == 'success'
+      )
       && (
         needs.detect-changes.outputs.backend != 'true'
         || (
@@ -420,6 +429,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -436,148 +447,15 @@ jobs:
           PM2_NAME: ${{ needs.detect-changes.outputs.backend_pm2_name }}
           BRANCH: ${{ needs.detect-changes.outputs.backend_branch }}
           RELEASE_SHA: ${{ github.sha }}
+          RELEASE_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           ssh \
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=10 \
             -o TCPKeepAlive=yes \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "SRC_DIR='$SRC_DIR' PM2_NAME='$PM2_NAME' BRANCH='$BRANCH' RELEASE_SHA='$RELEASE_SHA' bash -s" <<'REMOTE'
-            set -euo pipefail
-            echo "═══ 1. 切换到源码目录 ═══"
-            cd "$SRC_DIR"
-            PREVIOUS_SHA=$(git rev-parse HEAD)
-            DEPLOY_COMPLETE=false
-
-            health_check() {
-              allow_legacy="${1:-false}"
-              api_port=$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r"')
-              case "$api_port" in
-                ''|*[!0-9]*) api_port=3000 ;;
-              esac
-              readiness_url="http://127.0.0.1:${api_port}/api/v1/health/ready"
-              legacy_url="http://127.0.0.1:${api_port}/api/v1/products?page=1&pageSize=1"
-              for attempt in $(seq 1 15); do
-                if curl --fail --silent --show-error "$readiness_url" >/dev/null; then
-                  echo "✅ readiness 健康检查通过（第 $attempt 次）"
-                  return 0
-                fi
-                if [ "$allow_legacy" = true ] \
-                  && curl --fail --silent --show-error "$legacy_url" >/dev/null; then
-                  echo "⚠️ 回滚旧版本无 readiness 路由，公开读取健康检查通过（第 $attempt 次）"
-                  return 0
-                fi
-                sleep 2
-              done
-              echo "❌ API 健康检查失败：$readiness_url"
-              return 1
-            }
-
-            verify_backend_dependencies() {
-              npm ls --depth=0 --omit=optional --loglevel=error >/dev/null \
-                && test -x node_modules/.bin/prisma \
-                && test -x node_modules/.bin/nest \
-                && node -e "require.resolve('@prisma/client'); require.resolve('@nestjs/core'); require.resolve('typescript')"
-            }
-
-            run_npm_ci() {
-              registry="$1"
-              retries="$2"
-              fetch_timeout="$3"
-              attempt_timeout="$4"
-              label="$5"
-              echo "npm_install_attempt=$label registry=$registry started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              npm_config_registry="$registry" \
-                npm_config_replace_registry_host=always \
-                npm_config_fetch_retries="$retries" \
-                npm_config_fetch_retry_mintimeout=5000 \
-                npm_config_fetch_retry_maxtimeout=30000 \
-                npm_config_fetch_timeout="$fetch_timeout" \
-                timeout --signal=TERM --kill-after=30s "$attempt_timeout" \
-                npm ci --no-audit --no-fund --timing --loglevel=notice \
-                && verify_backend_dependencies
-            }
-
-            install_backend_dependencies() {
-              if run_npm_ci "https://registry.npmjs.org" 0 45000 3m official; then
-                return 0
-              fi
-              echo "npm_install_fallback=registry.npmmirror.com"
-              run_npm_ci "https://registry.npmmirror.com" 2 120000 12m mirror
-            }
-
-            build_backend() {
-              NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
-            }
-
-            rollback_backend() {
-              status=$?
-              trap - EXIT
-              if [ "$status" -ne 0 ] && [ "$DEPLOY_COMPLETE" != true ]; then
-                echo "═══ 部署失败，恢复旧代码 $PREVIOUS_SHA ═══"
-                set +e
-                cd "$SRC_DIR"
-                git reset --hard "$PREVIOUS_SHA"
-                cd backend
-                install_backend_dependencies \
-                  && npx --no-install prisma generate \
-                  && build_backend \
-                  && pm2 reload "$PM2_NAME" --update-env \
-                  && health_check true
-                rollback_status=$?
-                set -e
-                if [ "$rollback_status" -eq 0 ]; then
-                  echo "backend_rollback=healthy previous_sha=$PREVIOUS_SHA"
-                else
-                  echo "backend_rollback=failed previous_sha=$PREVIOUS_SHA"
-                  pm2 describe "$PM2_NAME" || true
-                  pm2 logs "$PM2_NAME" --lines 100 --nostream || true
-                fi
-              fi
-              exit "$status"
-            }
-            trap rollback_backend EXIT
-
-            echo "═══ 2. 拉取最新代码（branch: $BRANCH）═══"
-            git fetch origin "$BRANCH"
-            git merge-base --is-ancestor "$RELEASE_SHA" "origin/$BRANCH"
-            git cat-file -e "$RELEASE_SHA^{commit}"
-            git reset --hard "$RELEASE_SHA"
-            test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
-            echo "release_sha_verified=$RELEASE_SHA"
-
-            echo "═══ 3. 装依赖 ═══"
-            cd backend
-            install_backend_dependencies
-
-            echo "═══ 4. Prisma generate ═══"
-            npx --no-install prisma generate
-
-            echo "═══ 5. 服务器环境构建（任何数据库写入前）═══"
-            build_backend
-
-            echo "═══ 6. 生产数据库备份（正式环境 migration 前）═══"
-            if [ "$BRANCH" = "main" ]; then
-              DATABASE_BACKUP_LABEL="$(date -u +%Y%m%dT%H%M%SZ)-${PREVIOUS_SHA:0:12}-before-${RELEASE_SHA:0:12}" \
-                node scripts/create-production-database-backup.cjs
-            fi
-
-            echo "═══ 7. migrate deploy（构建与备份通过后才写数据库）═══"
-            npx --no-install prisma migrate deploy
-
-            echo "═══ 8. PM2 reload ═══"
-            pm2 reload "$PM2_NAME" --update-env
-
-            echo "═══ 9. readiness 健康检查 ═══"
-            if ! health_check; then
-              pm2 describe "$PM2_NAME" || true
-              pm2 logs "$PM2_NAME" --lines 100 --nostream || true
-              exit 1
-            fi
-
-            DEPLOY_COMPLETE=true
-            echo "✅ 后端部署完成"
-          REMOTE
+            "SRC_DIR='$SRC_DIR' PM2_NAME='$PM2_NAME' BRANCH='$BRANCH' RELEASE_SHA='$RELEASE_SHA' RELEASE_RUN_KEY='$RELEASE_RUN_KEY' bash -s" \
+            < scripts/deploy-backend-versioned.sh
 
   # 华海农科母公司官网（静态 HTML，只在 main 分支部署到生产）
   deploy-huahai:

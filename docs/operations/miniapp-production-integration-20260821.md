@@ -67,7 +67,9 @@
 6. 手动生产发布输入的 `migration_rehearsal_sha` 必须与候选完整 SHA 完全相同，否则 workflow fail-closed。
 7. 正式环境在执行 `prisma migrate deploy` 前自动运行 `pg_dump` custom-format 备份、`pg_restore --list` TOC 校验和二次读取 SHA-256 一致性校验；任何一步失败都禁止 migration。本机保留最近 10 份，正式发布前还必须确认 PITR/离机备份。
 8. Batch 1 正式 migration 必须安排维护停写窗口，或已经具备经验证的 PITR；仅有在线 `pg_dump` 不足以保证整库恢复后的新订单/支付零丢失。
-9. Batch 1 前必须把后端构建改为版本化 release 目录并在维护窗口原子切换，禁止继续在 PM2 live checkout 中原地覆盖 `node_modules/dist`。
+9. 后端候选必须在不可变版本目录完成 `npm ci`、Prisma generate/validate、build 和 Delivery 排除检查；PM2 停止后才备份/migrate，再从候选绝对路径启动。不得在 PM2 live checkout 中原地覆盖 `node_modules/dist`。
+10. 部署脚本必须以服务器 `flock` 防并发，校验旧 PM2 唯一、online、fork-mode、cwd/entrypoint/args，持久化阶段 journal；新版本通过本机 readiness、Nginx readiness 和 App 旧 `/cart`、`/orders/checkout` 路由 smoke 后才 `pm2 save`。
+11. 迁移回退采用 expand/fail-forward：新版本失败时恢复旧 PM2 的原始绝对 cwd/entrypoint，保留新表/新枚举；任何非向后兼容 migration 都不得进入本批。若克隆演练发现必须整库恢复，则上线前另行配置维护门禁/PITR，不得依靠运行中自动恢复覆盖新交易。
 
 回退：
 

@@ -7,8 +7,13 @@ describe('HealthService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.RELEASE_SHA = 'a'.repeat(40);
     mainPrisma.$queryRaw.mockResolvedValue([{ ok: 1 }]);
     redis.ping.mockResolvedValue(true);
+  });
+
+  afterAll(() => {
+    delete process.env.RELEASE_SHA;
   });
 
   it('reports ready only when the marketplace database and Redis are reachable', async () => {
@@ -16,6 +21,7 @@ describe('HealthService', () => {
 
     await expect(service.readiness()).resolves.toEqual({
       status: 'ready',
+      releaseSha: 'a'.repeat(40),
       components: { database: 'up', redis: 'up' },
     });
   });

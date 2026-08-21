@@ -12,7 +12,10 @@ export class HealthService {
   ) {}
 
   liveness() {
-    return { status: 'ok' as const };
+    return {
+      status: 'ok' as const,
+      releaseSha: process.env.RELEASE_SHA || null,
+    };
   }
 
   async readiness() {
@@ -33,6 +36,10 @@ export class HealthService {
       });
     }
 
-    return { status: 'ready' as const, components };
+    return {
+      status: 'ready' as const,
+      releaseSha: process.env.RELEASE_SHA || null,
+      components,
+    };
   }
 }

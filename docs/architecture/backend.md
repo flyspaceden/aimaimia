@@ -8,7 +8,7 @@
 ### 生产健康检查（2026-08-21）
 
 - `GET /api/v1/health/live` 只证明 NestJS 进程可响应，不读取外部依赖。
-- `GET /api/v1/health/ready` 并行检查商城主 PostgreSQL 与 Redis；任一依赖不可用时返回 `503 SERVICE_NOT_READY`，响应只包含 `database/redis` 的 `up/down`，不得泄露连接地址或凭据。
+- `GET /api/v1/health/ready` 并行检查商城主 PostgreSQL 与 Redis；任一依赖不可用时返回 `503 SERVICE_NOT_READY`，响应包含非敏感 `releaseSha` 和 `database/redis` 的 `up/down`，不得泄露连接地址或凭据。部署脚本必须校验该 SHA 等于已审批候选，避免其他监听进程或旧版本误报健康。
 - 独立 Delivery 数据库不属于本次小程序生产集成，readiness 不得依赖 `DELIVERY_DATABASE_URL`。
 - 部署 workflow 在 PM2 reload 后必须以 readiness 为成功条件；仅回滚到尚无 HealthModule 的历史版本时允许使用公开商品读取作为兼容检查。
 

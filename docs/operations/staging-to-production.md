@@ -427,7 +427,7 @@ push 后的事情：
 ```bash
 # 1. 后端健康
 curl https://api.ai-maimai.com/api/v1/health/live    # {"status":"ok"}
-curl https://api.ai-maimai.com/api/v1/health/ready   # {"status":"ready","components":{"database":"up","redis":"up"}}
+curl https://api.ai-maimai.com/api/v1/health/ready   # {"status":"ready","releaseSha":"<DEPLOYED_SHA>","components":{"database":"up","redis":"up"}}
 
 # 2. PM2 进程状态（SSH 到服务器）
 pm2 list   # aimaimai-api-prod 状态 online，重启次数没异常涨
