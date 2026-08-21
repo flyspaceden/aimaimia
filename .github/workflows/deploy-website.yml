@@ -231,21 +231,38 @@ jobs:
 
             echo "═══ 3. 装依赖 ═══"
             cd backend
-            npm ci
+            # npm CLI 偶发打印内部错误却返回 0；先尝试官方源，再用顶层依赖与关键 CLI
+            # 完整性检查决定是否切镜像，不能只相信 npm 的退出码。
+            timeout --signal=TERM --kill-after=30s 3m \
+              npm ci --no-audit --no-fund --timing --loglevel=notice || true
+            if ! npm ls --depth=0 --omit=optional --loglevel=error >/dev/null \
+              || [ ! -x node_modules/.bin/prisma ] \
+              || [ ! -x node_modules/.bin/nest ]; then
+              npm_config_registry=https://registry.npmmirror.com \
+                npm_config_replace_registry_host=always \
+                timeout --signal=TERM --kill-after=30s 12m \
+                npm ci --no-audit --no-fund --timing --loglevel=notice
+            fi
+            npm ls --depth=0 --omit=optional --loglevel=error >/dev/null
+            test -x node_modules/.bin/prisma
+            test -x node_modules/.bin/nest
+            node -e "require.resolve('@prisma/client'); require.resolve('@nestjs/core'); require.resolve('typescript')"
 
-            echo "═══ 4. Prisma generate + migrate deploy ═══"
-            npx prisma generate
-            npx prisma migrate deploy
+            echo "═══ 4. Prisma generate ═══"
+            npx --no-install prisma generate
 
             echo "═══ 5. 构建 ═══"
             # Nest/TypeScript 全量编译在默认 V8 heap 下会偶发 OOM（exit 134）。
             # 只提高构建进程的 heap，运行中的 PM2 进程不继承该值。
             NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
 
-            echo "═══ 6. PM2 reload ═══"
+            echo "═══ 6. migrate deploy（构建通过后才写数据库）═══"
+            npx --no-install prisma migrate deploy
+
+            echo "═══ 7. PM2 reload ═══"
             pm2 reload $PM2_NAME --update-env
 
-            echo "═══ 7. 验证健康检查 ═══"
+            echo "═══ 8. 验证健康检查 ═══"
             API_PORT=\$(sed -n 's/^PORT=//p' .env | tail -n 1 | tr -d '\r')
             case "\$API_PORT" in
               ''|*[!0-9]*) API_PORT=3000 ;;
