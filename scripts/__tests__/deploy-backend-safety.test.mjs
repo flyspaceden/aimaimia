@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const workflow = readFileSync(new URL('../../.github/workflows/deploy-website.yml', import.meta.url), 'utf8');
 const e2eWorkflow = readFileSync(new URL('../../.github/workflows/e2e.yml', import.meta.url), 'utf8');
+const playwrightConfig = readFileSync(new URL('../../tests/playwright.config.ts', import.meta.url), 'utf8');
 
 test('backend deployment bounds dependency install, fails over registry, and keeps SSH alive', () => {
   assert.match(workflow, /backend-quality-gate:[\s\S]*services:[\s\S]*postgres:/);
@@ -11,8 +12,10 @@ test('backend deployment bounds dependency install, fails over registry, and kee
   assert.match(workflow, /backend-quality-gate:[\s\S]*npx --no-install prisma migrate deploy/);
   assert.match(workflow, /backend-quality-gate:[\s\S]*npm run build/);
   assert.match(workflow, /backend-quality-gate:[\s\S]*npm test -- --runInBand/);
-  assert.match(workflow, /NORMAL_TREE_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_ci\?schema=public/);
-  assert.match(workflow, /PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_ci\?schema=public/);
+  assert.match(workflow, /NORMAL_TREE_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_test_ci\?schema=public/);
+  assert.match(workflow, /PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/aimaimai_test_ci\?schema=public/);
+  assert.match(workflow, /Install PDF verification tools[\s\S]*poppler-utils/);
+  assert.match(playwrightConfig, /npm run start:e2e/);
   assert.match(workflow, /RUN_DB_CONCURRENCY_TESTS: '1'/);
   assert.match(e2eWorkflow, /workflow_call:/);
   assert.match(e2eWorkflow, /DELIVERY_DATABASE_URL: postgresql:\/\/postgres:postgres@localhost:5432\/aimaimai_test\?schema=delivery_ci/);

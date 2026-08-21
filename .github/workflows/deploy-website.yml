@@ -295,10 +295,10 @@ jobs:
     timeout-minutes: 35
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
-      DELIVERY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=delivery_ci
-      NORMAL_TREE_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
-      PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_ci?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
+      DELIVERY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=delivery_ci
+      NORMAL_TREE_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
+      PROFIT_SAFETY_POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/aimaimai_test_ci?schema=public
       RUN_DB_CONCURRENCY_TESTS: '1'
       PICKUP_FULFILLMENT_ENABLED: 'true'
       PICKUP_TOKEN_SECRET: ci-only-pickup-token-secret-at-least-32-bytes
@@ -308,11 +308,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: aimaimai_ci
+          POSTGRES_DB: aimaimai_test_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d aimaimai_test_ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -328,6 +328,11 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
+
+      - name: Install PDF verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
 
       - name: Validate and migrate clean CI databases
         working-directory: backend

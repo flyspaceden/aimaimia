@@ -63,7 +63,9 @@ export default defineConfig({
 
   webServer: [
     {
-      command: `NODE_ENV=test CAPTCHA_BYPASS_TOKEN=${CAPTCHA_BYPASS_TOKEN} npm run start:dev`,
+      // E2E 必须启动与部署一致的构建产物。backend build 还会将配送 Prisma
+      // client 复制到 dist；直接 nest start --watch 会在运行时缺少该模块。
+      command: `NODE_ENV=test CAPTCHA_BYPASS_TOKEN=${CAPTCHA_BYPASS_TOKEN} npm run start:e2e`,
       cwd: BACKEND_DIR,
       url: 'http://localhost:3000/api/v1/admin/auth/captcha',
       reuseExistingServer: false,
