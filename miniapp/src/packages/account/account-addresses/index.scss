@@ -1,0 +1,25 @@
+@use '../../../theme/tokens' as t;
+
+.account-addresses-intro { position: relative; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding: 7px 3px 11px; }
+.account-addresses-intro__title { display: block; color: t.$text-primary; font-size: 22px; font-weight: 750; }
+.account-addresses-intro__meta { display: block; margin-top: 3px; color: t.$text-tertiary; font-size: 11px; }
+.account-addresses-intro__mark { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; color: #fff; font-size: 14px; font-weight: 700; background: linear-gradient(145deg, t.$brand-primary, t.$ai-end); border-radius: 17px 17px 17px 5px; box-shadow: 0 8px 18px rgba(46,125,50,.17); }
+.account-address-list { display: grid; gap: 12px; }
+.account-address-card { position: relative; padding: 0; overflow: hidden; }
+.account-address-card--default { border-color: rgba(46,125,50,.35); }
+.account-address-card__rail { position: absolute; z-index: 1; top: 0; bottom: 0; left: 0; width: 4px; background: linear-gradient(t.$brand-primary, t.$ai-end); }
+.account-address-card__top { display: flex; align-items: center; padding: 16px 15px 13px 18px; }
+.account-address-card__copy { flex: 1; min-width: 0; }
+.account-address-card__name-row { display: flex; align-items: center; min-width: 0; }
+.account-address-card__name { color: t.$text-primary; font-size: 15px; font-weight: 650; }
+.account-address-card__phone { margin-left: 11px; color: t.$text-secondary; font-size: 12px; }
+.account-address-card__badge { margin-left: 8px; padding: 2px 7px; color: t.$brand-primary; font-size: 9px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.account-address-card__line { display: -webkit-box; margin-top: 7px; overflow: hidden; color: t.$text-secondary; font-size: 12px; line-height: 19px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.account-address-card__arrow { margin-left: 8px; color: t.$text-tertiary; font-size: 24px; }
+.account-address-card__actions { display: flex; align-items: center; justify-content: space-between; min-height: 43px; margin: 0 15px 0 18px; border-top: 1px solid t.$border; }
+.account-address-card__default-copy { color: t.$brand-primary; font-size: 10px; }
+.account-address-card__default-button { min-height: 40px; margin: 0; padding: 0 8px; color: t.$ai-start; font-size: 12px; line-height: 40px; background: transparent; }
+.account-address-card__action-group { display: flex; align-items: center; }
+.account-address-card__delete { min-height: 40px; padding: 10px 15px; color: #c62828; font-size: 12px; }
+.account-address-card__edit { min-height: 40px; padding: 10px 0 10px 15px; color: t.$text-secondary; font-size: 12px; }
+.account-addresses-add { width: 100%; min-height: 47px; margin: 20px 0 3px; color: #fff; font-size: 14px; font-weight: 650; line-height: 47px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; box-shadow: 0 8px 18px rgba(46,125,50,.18); }

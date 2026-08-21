@@ -1,0 +1,21 @@
+@use '../../../theme/tokens' as t;
+
+.pending-page { display: flex; align-items: center; flex-direction: column; padding-top: 45px; text-align: center; }
+.pending-orb { position: relative; display: flex; align-items: center; justify-content: center; width: 82px; height: 82px; color: #fff; font-size: 24px; font-weight: 800; background: radial-gradient(circle at 32% 25%, t.$ai-glow, t.$ai-start 45%, t.$brand-primary); border-radius: 50%; box-shadow: 0 14px 35px rgba(0,137,123,.26); }
+.pending-orb__ring { position: absolute; inset: -8px; border: 1px solid rgba(0,137,123,.22); border-radius: 50%; animation: pending-pulse 2s ease-out infinite; }
+.pending-title { margin-top: 24px; color: t.$text-primary; font-size: 21px; font-weight: 750; }
+.pending-time { margin-top: 5px; color: t.$ai-start; font-size: 12px; }
+.pending-card { display: flex; align-items: center; width: 100%; margin-top: 24px; padding: 14px; text-align: left; }
+.pending-card__image { flex: 0 0 58px; width: 58px; height: 58px; margin-right: 11px; background: t.$skeleton; border-radius: t.$radius-md; }
+.pending-card__copy { flex: 1; min-width: 0; }
+.pending-card__title { display: block; overflow: hidden; color: t.$text-primary; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.pending-card__meta { display: block; margin-top: 4px; color: t.$text-tertiary; font-size: 11px; }
+.pending-card__price { color: t.$brand-primary; font-size: 18px; font-weight: 750; }
+.pending-hint { margin-top: 12px; color: #a04b42; font-size: 11px; }
+.pending-cross { width: 100%; margin-top: 12px; padding: 14px; text-align: left; }
+.pending-cross text { display: block; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.pending-cross text:last-child { margin-top: 5px; color: t.$text-secondary; font-size: 11px; font-weight: 400; line-height: 18px; }
+.pending-primary, .pending-secondary { width: 100%; height: 46px; margin-top: 22px; color: #fff; font-size: 14px; font-weight: 650; line-height: 46px; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.pending-secondary { margin-top: 10px; color: #a04b42; background: #fff; border: 1px solid #ead7d5; }
+.pending-orders { margin-top: 18px; color: t.$brand-primary; font-size: 12px; }
+@keyframes pending-pulse { from { opacity: .9; transform: scale(.92); } to { opacity: 0; transform: scale(1.25); } }

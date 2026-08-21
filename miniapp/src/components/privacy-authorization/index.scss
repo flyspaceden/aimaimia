@@ -1,0 +1,15 @@
+@use '../../theme/tokens' as t;
+
+.privacy-authorization { position: fixed; z-index: 1000; inset: 0; display: flex; align-items: flex-end; justify-content: center; }
+.privacy-authorization__mask { position: absolute; inset: 0; background: rgba(13, 30, 17, .54); }
+.privacy-authorization__panel { position: relative; width: 100%; padding: 24px 20px calc(20px + env(safe-area-inset-bottom)); background: t.$surface; border-radius: 24px 24px 0 0; box-shadow: 0 -16px 44px rgba(13, 30, 17, .18); }
+.privacy-authorization__mark { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: #fff; font-size: 18px; font-weight: 800; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border-radius: 15px; }
+.privacy-authorization__title { display: block; margin-top: 14px; color: t.$text-primary; font-size: 19px; font-weight: 800; line-height: 28px; }
+.privacy-authorization__copy { display: block; margin-top: 9px; color: t.$text-secondary; font-size: 13px; line-height: 21px; }
+.privacy-authorization__contract { display: block; margin-top: 10px; color: t.$brand-primary; font-size: 13px; font-weight: 700; line-height: 20px; }
+.privacy-authorization__actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 10px; margin-top: 20px; }
+.privacy-authorization__actions button { min-width: 0; min-height: 46px; margin: 0; font-size: 14px; font-weight: 750; line-height: 46px; border-radius: t.$radius-full; }
+.privacy-authorization__actions button::after { display: none; }
+.privacy-authorization__secondary { color: t.$text-secondary; background: t.$brand-soft; }
+.privacy-authorization__primary { color: #fff; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); box-shadow: 0 9px 22px rgba(46, 125, 50, .22); }
+.privacy-authorization__hint { display: block; margin-top: 12px; color: t.$text-tertiary; font-size: 11px; line-height: 18px; text-align: center; }

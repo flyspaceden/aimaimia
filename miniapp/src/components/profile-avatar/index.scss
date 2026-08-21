@@ -1,0 +1,14 @@
+@use '../../theme/tokens' as t;
+
+.profile-avatar { position: relative; display: flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: visible; color: #fff; font-weight: 750; background: linear-gradient(145deg, t.$brand-primary, t.$ai-end); border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px t.$ai-end; }
+.profile-avatar--small { width: 60px; height: 60px; font-size: 21px; }
+.profile-avatar--large { width: 96px; height: 96px; font-size: 29px; }
+.profile-avatar__image { width: 100%; height: 100%; overflow: hidden; border-radius: 50%; }
+.profile-avatar__glyph { text-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.profile-avatar--sprout, .profile-avatar--leaf, .profile-avatar--rice { color: #1b5e20; background: linear-gradient(145deg, #e8f5e9, #81c784); }
+.profile-avatar--wheat { color: #795a11; background: linear-gradient(145deg, #fff8e1, #ffd54f); }
+.profile-avatar--sun, .profile-avatar--carrot { color: #a43a13; background: linear-gradient(145deg, #fff3e0, #ff9e63); }
+.profile-avatar--mountain { color: #0d5794; background: linear-gradient(145deg, #e3f2fd, #64b5f6); }
+.profile-avatar--tractor { color: #3e2723; background: linear-gradient(145deg, #efebe9, #a1887f); }
+.profile-avatar--vip { box-shadow: 0 0 0 3px #c89b32, 0 0 0 6px rgba(200,155,50,.18); }
+.profile-avatar__vip { position: absolute; right: -8px; bottom: -5px; padding: 2px 5px; color: #5f4210; font-size: 8px; font-weight: 800; line-height: 12px; background: linear-gradient(120deg, #fff3b0, #d9a82e); border: 1px solid #fff; border-radius: 8px; }

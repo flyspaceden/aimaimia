@@ -1,0 +1,16 @@
+@use '../../../theme/tokens' as t;
+
+.member-agreement-page { height: 100vh; padding: 0; background: #fffdf7; }
+.member-agreement-scroll { height: 100%; }
+.member-agreement-content { padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); }
+.member-agreement-title { display: block; color: #3d2e1a; font-size: 23px; font-weight: 750; line-height: 32px; }
+.member-agreement-meta { display: block; margin-top: 6px; color: #8b7957; font-size: 11px; }
+.member-agreement-summary { margin-top: 15px; padding: 15px; background: #fbf1cc; border: 1px solid #ebd99d; border-radius: t.$radius-md; }
+.member-agreement-summary__text { display: block; margin-top: 7px; color: #695839; font-size: 12px; line-height: 21px; }
+.member-agreement-summary__text:first-child { margin-top: 0; }
+.member-agreement-section { margin-top: 18px; padding: 17px; border-color: #eadfb9; }
+.member-agreement-section__title { display: block; margin-bottom: 10px; color: #3d2e1a; font-size: 16px; font-weight: 700; line-height: 24px; }
+.member-agreement-block { display: block; margin-top: 8px; color: #685b43; font-size: 12px; line-height: 21px; overflow-wrap: anywhere; }
+.member-agreement-block--strong { color: #4b391b; font-weight: 650; }
+.member-agreement-block--bullet { padding-left: 10px; }
+.member-agreement-block--note { padding: 9px 10px; color: #755c18; background: #fbf5dd; border-radius: 9px; }

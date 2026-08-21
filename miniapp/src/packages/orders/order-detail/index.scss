@@ -1,0 +1,59 @@
+@use '../../../theme/tokens' as t;
+
+.order-detail-page { min-height: 100vh; background: t.$background; }
+.order-detail-scroll { height: 100vh; }
+.order-detail-hero { position: relative; overflow: hidden; padding: 25px 20px 29px; color: #fff; background: linear-gradient(125deg, t.$brand-primary, t.$ai-start); }
+.order-detail-hero::after { position: absolute; right: -24px; bottom: -48px; width: 145px; height: 145px; content: ''; border: 1px solid rgba(255,255,255,.2); border-radius: 52% 48% 50% 18%; transform: rotate(-20deg); }
+.order-detail-hero--gold { background: linear-gradient(125deg, #9a6b00, #c38c13); }
+.order-detail-hero--muted { background: linear-gradient(125deg, #627063, #89958a); }
+.order-detail-hero__eyebrow { display: block; font-size: 9px; font-weight: 700; letter-spacing: 2px; opacity: .8; }
+.order-detail-hero__status { display: block; margin-top: 5px; font-size: 29px; font-weight: 850; }
+.order-detail-hero__hint { display: block; max-width: 280px; margin-top: 6px; font-size: 11px; line-height: 18px; opacity: .9; }
+.order-detail-hero__history { display: inline-flex; margin-top: 13px; padding: 8px 11px; font-size: 11px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); border-radius: 9px; }
+.order-detail-content { padding: 12px 14px calc(102px + env(safe-area-inset-bottom)); }
+.order-refund-card { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 11px; padding: 13px 15px; border-color: rgba(46,125,50,.18); }
+.order-refund-card__icon { display: flex; flex: 0 0 30px; align-items: center; justify-content: center; width: 30px; height: 30px; color: t.$brand-primary; font-size: 10px; font-weight: 800; background: t.$brand-soft; border-radius: 50%; }
+.order-refund-card__title { display: block; color: t.$text-primary; font-size: 12px; font-weight: 700; line-height: 18px; }
+.order-refund-card__reason { display: block; margin-top: 3px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.order-refund-card--alert { border-color: rgba(160,75,66,.24); }
+.order-refund-card--alert .order-refund-card__icon { color: #a04b42; background: #fff1ef; }
+.order-detail-section { margin-bottom: 11px; padding: 15px; }
+.order-detail-section__head { display: flex; align-items: center; margin-bottom: 12px; }
+.order-detail-section__index { display: flex; align-items: center; justify-content: center; width: 27px; height: 27px; margin-right: 8px; color: t.$brand-primary; font-size: 9px; font-weight: 800; background: linear-gradient(135deg, t.$brand-soft, t.$ai-soft); border-radius: 9px 9px 9px 3px; }
+.order-detail-section__title { flex: 1; color: t.$text-primary; font-size: 14px; font-weight: 750; }
+.order-detail-section__link { padding: 6px 0; color: t.$brand-primary; font-size: 12px; }
+.order-logistics-brief { display: flex; align-items: flex-start; padding: 10px; background: t.$background; border-radius: 10px; }
+.order-logistics-brief__dot { flex: 0 0 10px; width: 10px; height: 10px; margin: 5px 10px 0 1px; background: t.$ai-start; border: 3px solid t.$ai-soft; border-radius: 50%; }
+.order-logistics-brief text { display: block; color: t.$text-primary; font-size: 11px; line-height: 18px; }
+.order-logistics-brief text:last-child { margin-top: 2px; color: t.$text-tertiary; font-size: 11px; }
+.order-address__name { display: block; color: t.$text-primary; font-size: 12px; font-weight: 700; }
+.order-address__line { display: block; margin-top: 6px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.order-pickup-place { display: flex; align-items: flex-start; gap: 11px; }
+.order-pickup-place__pin { display: flex; flex: 0 0 34px; align-items: center; justify-content: center; width: 34px; height: 34px; color: #fff; font-size: 12px; font-weight: 800; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 12px 12px 12px 4px; }
+.order-pickup-place > view:last-child { flex: 1; min-width: 0; }
+.order-pickup-place > view:last-child text { display: block; margin-top: 3px; color: t.$text-secondary; font-size: 10px; line-height: 17px; }
+.order-pickup-place > view:last-child text:first-child { margin-top: 0; color: t.$text-primary; font-size: 12px; font-weight: 750; }
+.order-detail-empty-line, .order-buyer-note { display: block; color: t.$text-secondary; font-size: 11px; line-height: 19px; }
+.order-detail-service-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.order-detail-service-actions button { min-width: 92px; height: 40px; margin: 0; padding: 0 14px; color: t.$brand-primary; font-size: 12px; font-weight: 650; line-height: 38px; background: t.$brand-soft; border: 1px solid rgba(46, 125, 50, .18); border-radius: t.$radius-full; }
+.order-shop + .order-shop { margin-top: 13px; padding-top: 13px; border-top: 1px solid t.$border; }
+.order-shop__name { display: block; margin-bottom: 5px; color: t.$text-primary; font-size: 11px; font-weight: 750; }
+.order-detail-item { display: flex; align-items: center; padding: 8px 0; }
+.order-detail-item__image { flex: 0 0 58px; width: 58px; height: 58px; margin-right: 9px; background: t.$skeleton; border-radius: 9px; }
+.order-detail-item__copy { flex: 1; min-width: 0; }
+.order-detail-item__title { display: -webkit-box; overflow: hidden; color: t.$text-primary; font-size: 11px; font-weight: 650; line-height: 17px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.order-detail-item__sku { display: block; margin-top: 3px; color: t.$text-tertiary; font-size: 11px; }
+.order-detail-item__price { margin-left: 8px; text-align: right; }
+.order-detail-item__price text { display: block; color: t.$text-primary; font-size: 11px; }
+.order-detail-item__price text:last-child { margin-top: 3px; color: t.$text-tertiary; font-size: 10px; }
+.order-amount-row, .order-info-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 6px 0; color: t.$text-secondary; font-size: 11px; }
+.order-amount-row text:last-child, .order-info-row text:last-child { color: t.$text-primary; text-align: right; }
+.order-amount-row--discount text:last-child { color: #a04b42; }
+.order-amount-row--coupon text:last-child { color: #a04b42; }
+.order-amount-row--total { margin-top: 5px; padding-top: 11px; border-top: 1px dashed t.$border; }
+.order-amount-row--total text:last-child { color: t.$brand-primary; font-size: 18px; font-weight: 800; }
+.order-info-row__copy { max-width: 235px; overflow-wrap: anywhere; }
+.order-detail-bar { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; display: flex; gap: 9px; padding: 10px 15px calc(10px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.98); border-top: 1px solid t.$border; box-shadow: 0 -8px 24px rgba(26,46,26,.08); }
+.order-detail-bar__secondary, .order-detail-bar__primary { flex: 1; height: 44px; margin: 0; color: t.$text-primary; font-size: 12px; font-weight: 650; line-height: 44px; background: #fff; border: 1px solid t.$border; border-radius: t.$radius-full; }
+.order-detail-bar__primary { color: #fff; background: linear-gradient(105deg, t.$brand-primary, t.$ai-start); border-color: transparent; }
+.order-detail-bar__primary--wide { flex: 1 1 100%; }

@@ -1,6 +1,6 @@
 # 微信小程序生产集成与可回退发布清单（2026-08-21）
 
-> 本文是本次“小程序 + 自提 + 微信支付/提现 + 必要后台 + 推荐 H5”进入生产的执行真相源。任何代码、数据库或外部平台动作都必须按批次记录证据；未满足当前批次门禁时不得进入下一批。
+> 本文是本次“小程序 + 自提 + 微信支付/提现 + 必要后台”进入生产的执行真相源。推荐 H5 双入口已移出当前发布批次，任何代码、数据库或外部平台动作都必须按批次记录证据。
 
 ## 1. 冻结基线
 
@@ -22,7 +22,7 @@
 - 微信提现、确认收款、通知收件箱与补偿任务。
 - 商城普通送货上门与到店自提并列履约；平台/企业自提点、备货、凭证、核销和审计。
 - 小程序码、推荐落地页、订阅消息和微信交易发货信息。
-- 推荐 H5 的“小程序 / 下载 App”双入口；移动端保持两个按钮，不增加二次二维码。
+- 推荐 H5 双入口仅保留为后续方案，本批不修改或发布 website。
 - 小程序按购物车行更新和稳定排序；App 旧购物车与结算接口必须继续兼容。
 - 平台管理后台、卖家后台中支撑上述功能的最小页面与权限。
 - App 不新增自提下单入口；只允许加入避免跨端订单误显示的最小只读兼容。
@@ -86,15 +86,14 @@
 
 回退：部署前保存当前静态产物目录的带 SHA 归档；失败时恢复旧归档。后台回退不得回滚已经进入履约中的订单数据。
 
-### Batch 3：小程序与推荐 H5
+### Batch 3：微信小程序
 
-目标：从干净 `main` 构建 production 小程序，上传微信体验版；后端和小程序正式落地页就绪后再发布 H5 双入口。
+目标：从干净 `main` 构建 production 小程序，上传微信体验版并完成真机闭环；本批不发布 H5、不执行 App OTA。
 
 门禁：production artifact 只能包含 `api.ai-maimai.com`/生产 WSS；不得包含测试域名或 Mock；真实设备完成普通/VIP/团购、配送/自提、退款、微信提现和核销闭环。
 
 回退：
 
-- H5 部署前保存旧静态产物，异常时恢复旧版本；HTTP 200 不算成功，必须读到本次 release SHA marker 和构建资源。
 - 小程序先使用体验版；提交审核前不影响线上用户。
 - 已发布版本异常时使用微信公众平台版本管理回退至上一正式版本；后端仍保持向后兼容。
 - 本批不执行 App OTA/EAS Build；App 发布继续走独立批准流程。
@@ -109,7 +108,6 @@ production integration PR 全绿
   -> 现有 App / 支付 / 退款 / 购物车生产冒烟
   -> 手动批准 Batch 2 admin + seller
   -> 小程序 production 体验版与真机闭环
-  -> 发布推荐 H5
   -> 提交微信审核
 ```
 
@@ -168,3 +166,18 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 - 为控制现有后台回归面，本批没有同时解决 main 已存在的全部依赖漏洞；最小 lock 下 production audit 仍为 Admin 12 high、Seller 10 high。该债务必须通过独立依赖提交 + 全后台浏览器 E2E 治理，或由生产发布决策明确接受现有基线，不能在本批声称 audit 0。
 
 Batch 2 只完成本地静态产物验证。必须等待 Batch 1 后端生产健康后，再登录 staging/production 角色账号完成浏览器摄像头权限、短码、错企业凭证、重复核销和无权限拒绝的真实 HTTP E2E。
+
+## 10. Batch 3 小程序本地证据（未 push / 未上传微信）
+
+- `miniapp/` 从冻结的 staging 快照逐文件移植；正式构建只使用独立 Taro 页面，不修改 React Native `app/` 或根 `src/`。
+- release-context 必须显式选择 channel：production fetch/校验 `origin/main`，staging fetch/校验 `origin/staging`；脏工作区、旧目标分支或未显式指定 channel 均 fail-closed。
+- 小程序 CI 在 main/staging 的 miniapp 变更上执行 npm ci、typecheck、lint、test，并分别构建 staging/production artifact；CI artifact 不等于微信上传、体验版或正式发布。
+- 本地 `npm run verify`：lint、TypeScript、55 个测试文件/302 个测试、staging+production 双构建和 72 页产物校验全部通过；总包 2.41 MiB，主包 1.262 MiB。
+- production artifact 只包含 `https://api.ai-maimai.com/api/v1` 与 `wss://api.ai-maimai.com`，未发现 test-api、test-ws、localhost、Delivery portal/module/config。
+- Swiper 从受影响的 11.1.15 最小覆盖为 12.1.2，Critical 审计项归零且小程序双构建通过。当前仍有 Vite 1 high + 12 moderate，来自 Taro 的 Vite/esbuild/webpack/uuid 构建工具链；不得用破坏性 `npm audit fix --force` 改变 Taro 主版本，需独立升级并做微信运行时回归。
+
+Batch 3 仍未上传微信开发者工具。必须在后端生产兼容层上线并通过现有 App 冒烟后，才可从干净 main commit 生成 production 体验版并进行真机支付/自提/提现验收。
+
+推荐 H5 双入口本批明确延期。原因是现有 App 仍展示“H5 扫码打开 / 已登录 / 已绑定”漏斗，而不登录的双入口页面无法在 App 源码 0 的约束下保持后两项统计语义。生产继续保留当前稳定的手机号/微信 H5 登录绑定页；新 InviteChoice 不进入本批 commit 或静态发布。后续如需上线，必须单独批准 App 统计/自提只读兼容或补全跨客户端 landingSession 归因。
+
+App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小程序创建到店自提订单后，当前生产 App 不识别 `fulfillmentMode=PICKUP`，可能继续显示普通 PAID 的待发货、物流或取消语义。它不会改变小程序订单的后端状态，但属于用户可见误导。生产发布前必须由用户明确接受，或另批批准只读兼容 OTA；本项目不得写成“App 完全不受影响”。

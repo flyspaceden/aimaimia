@@ -1,0 +1,25 @@
+@use '../../../theme/tokens' as t;
+
+.catalog-search-bar { display: flex; align-items: center; height: 50px; padding: 0 7px 0 14px; }
+.catalog-search-bar__icon { width: 22px; height: 22px; margin-right: 9px; color: t.$ai-start; }
+.catalog-search-bar__input { flex: 1; min-width: 0; height: 42px; color: t.$text-primary; font-size: 14px; }
+.catalog-search-bar__clear { padding: 5px 8px; color: t.$text-tertiary; font-size: 19px; }
+.catalog-search-bar__button { flex: 0 0 auto; min-height: 40px; margin: 0; padding: 0 16px; color: #fff; font-size: 13px; line-height: 40px; background: t.$brand-primary; border-radius: t.$radius-full; }
+.catalog-search-empty { display: flex; flex-direction: column; align-items: center; padding: 76px 22px 20px; text-align: center; }
+.catalog-search-empty__mark { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; color: #fff; font-size: 15px; font-weight: 800; background: radial-gradient(circle at 30% 25%, #8bffe8, t.$ai-end 40%, t.$ai-start); border-radius: 50%; box-shadow: 0 0 0 9px t.$ai-soft, 0 14px 28px rgba(0,137,123,.2); }
+.catalog-search-empty__title { max-width: 280px; margin-top: 27px; color: t.$text-primary; font-size: 18px; font-weight: 650; line-height: 27px; }
+.catalog-search-empty__caption { margin-top: 8px; color: t.$text-tertiary; font-size: 12px; }
+.catalog-search-recent { width: 100%; margin-top: 26px; }
+.catalog-search-recent__head { display: flex; justify-content: space-between; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.catalog-search-recent__head text:last-child { color: t.$text-tertiary; font-size: 11px; font-weight: 400; }
+.catalog-search-hot { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 25px; }
+.catalog-search-hot--recent { justify-content: flex-start; margin-top: 10px; }
+.catalog-search-hot__item { padding: 7px 12px; color: t.$text-secondary; font-size: 12px; background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-full; }
+.catalog-search-summary { display: flex; align-items: center; gap: 7px; margin: 16px 2px 0; color: t.$text-secondary; font-size: 11px; }
+.catalog-search-summary__ai { padding: 2px 7px; color: t.$ai-start; font-weight: 700; background: t.$ai-soft; border-radius: t.$radius-full; }
+.catalog-search-tabs { display: grid; grid-template-columns: 1fr 1fr; margin: 13px 0 16px; border-bottom: 1px solid t.$border; }
+.catalog-search-tab { position: relative; padding: 10px 0 11px; color: t.$text-secondary; font-size: 14px; font-weight: 600; text-align: center; }
+.catalog-search-tab--active { color: t.$brand-primary; }
+.catalog-search-tab--active::after { position: absolute; right: 32%; bottom: -1px; left: 32%; height: 3px; background: linear-gradient(90deg, t.$brand-primary, t.$ai-end); border-radius: 3px; content: ''; }
+.catalog-search-products, .catalog-search-companies { display: grid; gap: 12px; }
+.catalog-search-more { min-height: 42px; margin: 20px auto 0; padding: 0 24px; color: t.$brand-primary; font-size: 13px; line-height: 42px; background: t.$brand-soft; border-radius: t.$radius-full; }
