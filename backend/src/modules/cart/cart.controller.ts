@@ -44,6 +44,19 @@ export class CartController {
     return this.cartService.updateItemQuantity(userId, skuId, dto.quantity);
   }
 
+  /**
+   * 小程序购物车按具体行更新，避免不同商品并发写回整车快照时串行。
+   * 旧 SKU 路由继续保留给 App 和已发布客户端。
+   */
+  @Put('item-ids/:cartItemId')
+  updateItemQuantityById(
+    @CurrentUser('sub') userId: string,
+    @Param('cartItemId') cartItemId: string,
+    @Body() dto: UpdateCartItemQuantityDto,
+  ) {
+    return this.cartService.updateItemQuantityById(userId, cartItemId, dto.quantity);
+  }
+
   @Delete('items/:skuId')
   removeItem(
     @CurrentUser('sub') userId: string,

@@ -406,6 +406,7 @@ describe('Phase 1 typed repo contracts', () => {
       avatarFrame: { id: 'frame-vip', type: 'vip', label: 'VIP' },
     };
     await UserRepo.updateProfile(untrustedProfileInput);
+    await CartRepo.updateQuantity('cart-item-1', 3);
     await CartRepo.toggleSelected('sku-1', true);
     await AddressRepo.setDefault('address-1');
     await OrderRepo.confirmReceive('order-1');
@@ -414,6 +415,7 @@ describe('Phase 1 typed repo contracts', () => {
 
     expect(getMock).toHaveBeenCalledWith('/me');
     expect(putMock).toHaveBeenCalledWith('/me', { avatarFrameId: 'vip' });
+    expect(putMock).toHaveBeenCalledWith('/cart/item-ids/cart-item-1', { quantity: 3 });
     expect(putMock).toHaveBeenCalledWith('/cart/items/sku-1/select', { isSelected: true });
     expect(putMock).toHaveBeenCalledWith('/addresses/address-1/default');
     expect(postMock).toHaveBeenCalledWith('/orders/order-1/receive');

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CartService } from './cart.service';
 
 function buildBundleAvailability(items: Array<{
@@ -563,6 +563,45 @@ describe('CartService stock availability', () => {
       where: { id: 'ci1' },
       data: { quantity: 1 },
     });
+  });
+
+  it('updates the exact normal cart row by cartItemId and returns an isolated acknowledgement', async () => {
+    const { service, prisma } = createService(10);
+
+    await expect(service.updateItemQuantityById('user1', 'ci1', 4)).resolves.toEqual({
+      cartItemId: 'ci1',
+      skuId: 'sku-zero',
+      quantity: 4,
+    });
+
+    expect(prisma.cartItem.findFirst).toHaveBeenCalledWith({
+      where: { id: 'ci1', cartId: 'cart1', isPrize: false },
+    });
+    expect(prisma.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci1' },
+      data: { quantity: 4 },
+    });
+    expect(service.getCart).not.toHaveBeenCalled();
+  });
+
+  it('does not expose or update another cart or prize row through cartItemId', async () => {
+    const { service, prisma } = createService(10);
+    prisma.cartItem.findFirst.mockResolvedValue(null);
+
+    await expect(service.updateItemQuantityById('user1', 'foreign-or-prize', 2))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.cartItem.update).not.toHaveBeenCalled();
+  });
+
+  it('retries cartItemId quantity updates when Serializable transaction hits P2034', async () => {
+    const { service, prisma } = createService(10, {
+      transactionFailures: [{ code: 'P2034' }],
+    });
+
+    await service.updateItemQuantityById('user1', 'ci1', 3);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.cartItem.update).toHaveBeenCalledTimes(1);
   });
 
   it('retries selecting when Serializable transaction hits P2034', async () => {

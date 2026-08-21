@@ -58,6 +58,12 @@ export type CartMergeItem = {
   claimToken?: string;
 };
 
+export type CartQuantityAck = {
+  cartItemId: string;
+  skuId: string;
+  quantity: number;
+};
+
 export type Cart = {
   id: string;
   items: CartItem[];

@@ -1,7 +1,7 @@
 import { Button, Image, ScrollView, Text, View } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CatalogFeedback } from '@/components/catalog-feedback';
 import { formatMoney, isCartItemPurchasable, isCartItemSelected, selectedCartItems, selectedCartTotal } from '@/components/commerce-utils';
 import { SeafoodImage } from '@/components/SeafoodImage';
@@ -18,10 +18,13 @@ import {
   getCartCheckboxState,
   selectableNormalCartItems,
 } from './cart-utils';
+import {
+  CartQuantityCoordinator,
+  patchCartQuantity,
+} from './cart-quantity-coordinator';
 import './index.scss';
 
 type CartAction =
-  | { kind: 'quantity'; skuId: string; quantity: number }
   | { kind: 'select'; skuId: string; selected: boolean }
   | { kind: 'remove'; skuId: string }
   | { kind: 'removePrize'; cartItemId: string }
@@ -33,7 +36,6 @@ type BatchResult = {
 };
 
 function executeCartAction(action: CartAction): Promise<Result<Cart | void>> {
-  if (action.kind === 'quantity') return CartRepo.updateQuantity(action.skuId, action.quantity);
   if (action.kind === 'select') return CartRepo.toggleSelected(action.skuId, action.selected);
   if (action.kind === 'remove') return CartRepo.removeItem(action.skuId);
   if (action.kind === 'removePrize') return CartRepo.removePrizeItem(action.cartItemId);
@@ -76,14 +78,67 @@ export default function CartPage() {
     staleTime: 60_000,
   });
   const { lowStockDisplayThreshold: lowStockThreshold } = useAppConfig();
+  const [pendingQuantityIds, setPendingQuantityIds] = useState<Set<string>>(() => new Set());
+  const structuralWriteRef = useRef(false);
+  const quantityCoordinatorRef = useRef<CartQuantityCoordinator | null>(null);
+  if (!quantityCoordinatorRef.current) {
+    quantityCoordinatorRef.current = new CartQuantityCoordinator(
+      CartRepo.updateQuantity,
+      {
+        onOptimistic: (cartItemId, quantity) => {
+          queryClient.setQueryData<Result<Cart>>(
+            ['commerce', 'cart'],
+            (previous) => patchCartQuantity(previous, cartItemId, quantity),
+          );
+        },
+        onAcknowledged: (ack) => {
+          queryClient.setQueryData<Result<Cart>>(
+            ['commerce', 'cart'],
+            (previous) => patchCartQuantity(previous, ack.cartItemId, ack.quantity),
+          );
+        },
+        onRollback: (cartItemId, quantity) => {
+          queryClient.setQueryData<Result<Cart>>(
+            ['commerce', 'cart'],
+            (previous) => patchCartQuantity(previous, cartItemId, quantity),
+          );
+        },
+        onFailure: (_cartItemId, result) => {
+          if (!result.ok) {
+            Taro.showToast({
+              title: result.error.displayMessage || '购物车更新失败',
+              icon: 'none',
+            });
+          }
+        },
+        onPendingChange: (cartItemId, pending) => {
+          setPendingQuantityIds((current) => {
+            const next = new Set(current);
+            if (pending) next.add(cartItemId);
+            else next.delete(cartItemId);
+            return next;
+          });
+        },
+        // Only a query started after every row queue is idle may replace the
+        // full cart. A new tap cancels this reconciliation before patching.
+        onIdle: () => {
+          void queryClient.invalidateQueries({ queryKey: ['commerce', 'cart'] });
+        },
+      },
+    );
+  }
+  const quantityCoordinator = quantityCoordinatorRef.current;
   useDidShow(() => {
     if (!useAuthStore.getState().accessToken) return;
-    void cartQuery.refetch();
+    if (!quantityCoordinator.isPending() && !structuralWriteRef.current) {
+      void cartQuery.refetch();
+    }
     void pendingQuery.refetch();
   });
   useEffect(() => {
     if (userId) beginCartSelection(userId);
   }, [beginCartSelection, userId]);
+  useEffect(() => () => quantityCoordinator.dispose(), [quantityCoordinator]);
 
   const [now, setNow] = useState(Date.now());
   const hasExpiringPrize = Boolean(cartQuery.data?.ok && cartQuery.data.data.items.some((item) => Boolean(item.expiresAt)));
@@ -163,26 +218,66 @@ export default function CartPage() {
     },
     onError: () => Taro.showToast({ title: '网络开小差了，请重试', icon: 'none' }),
   });
-  const cartMutating = actionMutation.isPending || batchMutation.isPending;
+  const structuralMutating = actionMutation.isPending || batchMutation.isPending;
+  const cartMutating = structuralMutating || pendingQuantityIds.size > 0;
+
+  const hasActiveCartWrite = () => (
+    structuralWriteRef.current || quantityCoordinator.isPending()
+  );
+
+  const startCartAction = (action: CartAction) => {
+    if (hasActiveCartWrite()) return;
+    structuralWriteRef.current = true;
+    actionMutation.mutate(action, {
+      onSettled: () => { structuralWriteRef.current = false; },
+    });
+  };
+
+  const startCartBatch = (actions: CartAction[]) => {
+    if (hasActiveCartWrite()) return;
+    structuralWriteRef.current = true;
+    batchMutation.mutate(actions, {
+      onSettled: () => { structuralWriteRef.current = false; },
+    });
+  };
+
+  const changeQuantity = (
+    cartItemId: string,
+    renderedQuantity: number,
+    max: number,
+    delta: number,
+  ) => {
+    if (structuralWriteRef.current) return;
+    // cancelQueries prevents a GET that started before this tap from painting
+    // an older whole-cart snapshot over the optimistic row value.
+    void queryClient.cancelQueries({ queryKey: ['commerce', 'cart'] });
+    quantityCoordinator.enqueueDelta(
+      cartItemId,
+      renderedQuantity,
+      1,
+      max,
+      delta,
+    );
+  };
 
   const remove = async (isPrize: boolean | undefined, id: string, skuId: string) => {
-    if (cartMutating) return;
+    if (hasActiveCartWrite()) return;
     const modal = await Taro.showModal({ title: '移除商品', content: isPrize ? '移除后本次购物车将不再保留该奖品；仍在有效期内的已解锁奖品可回到奖品记录。确定继续吗？' : '确定从购物车移除这件商品吗？', confirmColor: '#A04B42' });
-    if (modal.confirm) {
+    if (modal.confirm && !hasActiveCartWrite()) {
       if (isPrize) forgetPrize(id);
-      actionMutation.mutate(isPrize ? { kind: 'removePrize', cartItemId: id } : { kind: 'remove', skuId });
+      startCartAction(isPrize ? { kind: 'removePrize', cartItemId: id } : { kind: 'remove', skuId });
     }
   };
 
   const toggleSelectAll = () => {
-    if (!displaySelectableItems.length || cartMutating) return;
+    if (!displaySelectableItems.length || hasActiveCartWrite()) return;
     const nextSelected = !allSelected;
     const localPrizeIds = displaySelectableItems
       .filter((item) => item.isPrize && !item.threshold)
       .map((item) => item.id);
     if (localPrizeIds.length) selectPrizes(localPrizeIds, nextSelected);
     if (!selectableNormalItems.length) return;
-    batchMutation.mutate(selectableNormalItems.map((item) => ({
+    startCartBatch(selectableNormalItems.map((item) => ({
       kind: 'select' as const,
       skuId: item.skuId,
       selected: nextSelected,
@@ -190,7 +285,7 @@ export default function CartPage() {
   };
 
   const removeSelected = async () => {
-    if (!selected.length || cartMutating) return;
+    if (!selected.length || hasActiveCartWrite()) return;
     const removable = selected.filter((item) => !item.isLocked);
     if (!removable.length) return;
     const modal = await Taro.showModal({
@@ -199,8 +294,8 @@ export default function CartPage() {
       confirmText: '删除',
       confirmColor: '#A04B42',
     });
-    if (!modal.confirm) return;
-    batchMutation.mutate(removable.map((item) => item.isPrize
+    if (!modal.confirm || hasActiveCartWrite()) return;
+    startCartBatch(removable.map((item) => item.isPrize
       ? { kind: 'removePrize' as const, cartItemId: item.id }
       : { kind: 'remove' as const, skuId: item.skuId }));
   };
@@ -225,7 +320,7 @@ export default function CartPage() {
 
   return (
     <View className='cart-page'>
-      <View className='cart-heading'><View><Text className='cart-heading__eyebrow'>本次选择</Text><Text className='cart-heading__title'>购物车</Text></View><Text className='cart-heading__clear' onClick={async () => { if (cartMutating) return; const modal = await Taro.showModal({ title: '清空购物车', content: '普通商品和已解锁奖品会被移除；仍未解锁的锁定赠品会保留。', confirmColor: '#A04B42' }); if (modal.confirm) actionMutation.mutate({ kind: 'clear' }); }}>清空</Text></View>
+      <View className='cart-heading'><View><Text className='cart-heading__eyebrow'>本次选择</Text><Text className='cart-heading__title'>购物车</Text></View><Text className='cart-heading__clear' onClick={async () => { if (hasActiveCartWrite()) return; const modal = await Taro.showModal({ title: '清空购物车', content: '普通商品和已解锁奖品会被移除；仍未解锁的锁定赠品会保留。', confirmColor: '#A04B42' }); if (modal.confirm && !hasActiveCartWrite()) startCartAction({ kind: 'clear' }); }}>清空</Text></View>
       {pending ? (
         <View className='cart-pending aim-card' hoverClass='cart-pending--pressed' onClick={() => Taro.navigateTo({ url: `/packages/commerce/checkout-pending/index?sessionId=${encodeURIComponent(pending.sessionId)}` })}>
           <View className='cart-pending__mark'>待</View>
@@ -257,9 +352,9 @@ export default function CartPage() {
               <View
                 className={checked ? 'cart-check cart-check--active' : !selectionCanChange ? 'cart-check cart-check--disabled' : 'cart-check'}
                 onClick={() => {
-                  if (cartMutating || !selectionCanChange) return;
+                  if (hasActiveCartWrite() || !selectionCanChange) return;
                   if (item.isPrize) selectPrize(item.id, !checked);
-                  else actionMutation.mutate({ kind: 'select', skuId: item.skuId, selected: !checked });
+                  else startCartAction({ kind: 'select', skuId: item.skuId, selected: !checked });
                 }}
               >{checked ? '✓' : ''}</View>
               <Image className='cart-row__image' src={item.product.image || ''} mode='aspectFill' />
@@ -272,7 +367,7 @@ export default function CartPage() {
                 {expiryText ? <Text className={expiryText === '已过期' ? 'cart-row__expiry cart-row__expiry--expired' : 'cart-row__expiry'}>{expiryText}</Text> : null}
                 <View className='cart-row__footer'>
                   <View className='cart-row__price-line'><Text className='cart-row__price'>¥{formatMoney(item.product.price)}</Text>{item.isPrize && item.product.originalPrice != null && item.product.originalPrice > item.product.price ? <Text className='cart-row__original-price'>¥{formatMoney(item.product.originalPrice)}</Text> : null}</View>
-                  {!item.isPrize ? <View className='cart-quantity'><Text className={item.quantity <= 1 || cartMutating ? 'cart-quantity__button cart-quantity__button--disabled' : 'cart-quantity__button'} onClick={() => { if (!cartMutating && item.quantity > 1) actionMutation.mutate({ kind: 'quantity', skuId: item.skuId, quantity: item.quantity - 1 }); }}>−</Text><Text className='cart-quantity__value'>{item.quantity}</Text><Text className={item.quantity >= max || cartMutating ? 'cart-quantity__button cart-quantity__button--disabled' : 'cart-quantity__button'} onClick={() => { if (!cartMutating && item.quantity < max) actionMutation.mutate({ kind: 'quantity', skuId: item.skuId, quantity: item.quantity + 1 }); }}>+</Text></View> : <Text className='cart-row__quantity'>×{item.quantity}</Text>}
+                  {!item.isPrize ? <View className='cart-quantity'><Text className={item.quantity <= 1 || structuralMutating ? 'cart-quantity__button cart-quantity__button--disabled' : 'cart-quantity__button'} onClick={() => changeQuantity(item.id, item.quantity, max, -1)}>−</Text><Text className='cart-quantity__value'>{item.quantity}</Text><Text className={item.quantity >= max || structuralMutating ? 'cart-quantity__button cart-quantity__button--disabled' : 'cart-quantity__button'} onClick={() => changeQuantity(item.id, item.quantity, max, 1)}>+</Text></View> : <Text className='cart-row__quantity'>×{item.quantity}</Text>}
                 </View>
                 <Text className='cart-row__remove' onClick={() => remove(item.isPrize, item.id, item.skuId)}>移除</Text>
               </View>
@@ -297,7 +392,7 @@ export default function CartPage() {
       </View> : null}
       <View className='cart-bar'>
         <View><Text className='cart-bar__label'>已选 {selectedQuantity} 件商品</Text><Text className='cart-bar__price'>¥{formatMoney(total)}</Text></View>
-        <Button className={selected.length && !cartMutating ? 'cart-bar__button' : 'cart-bar__button cart-bar__button--disabled'} disabled={!selected.length || cartMutating} onClick={() => Taro.navigateTo({ url: '/packages/commerce/checkout/index' })}>去结算</Button>
+        <Button className={selected.length && !cartMutating ? 'cart-bar__button' : 'cart-bar__button cart-bar__button--disabled'} disabled={!selected.length || cartMutating} onClick={() => { if (!hasActiveCartWrite()) Taro.navigateTo({ url: '/packages/commerce/checkout/index' }); }}>去结算</Button>
       </View>
     </View>
   );

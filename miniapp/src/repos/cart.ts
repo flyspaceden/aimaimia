@@ -1,5 +1,5 @@
 import { ApiClient } from '@/api/client';
-import type { Cart, CartMergeItem, Result } from '@/types';
+import type { Cart, CartMergeItem, CartQuantityAck, Result } from '@/types';
 
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
@@ -48,8 +48,8 @@ export const CartRepo = {
   addItem: (skuId: string, quantity: number): Promise<Result<Cart>> =>
     ApiClient.post<Cart>('/cart/items', { skuId, quantity }),
 
-  updateQuantity: (skuId: string, quantity: number): Promise<Result<Cart>> =>
-    ApiClient.put<Cart>(`/cart/items/${skuId}`, { quantity }),
+  updateQuantity: (cartItemId: string, quantity: number): Promise<Result<CartQuantityAck>> =>
+    ApiClient.put<CartQuantityAck>(`/cart/item-ids/${cartItemId}`, { quantity }),
 
   toggleSelected: (skuId: string, isSelected: boolean): Promise<Result<Cart>> =>
     ApiClient.put<Cart>(`/cart/items/${skuId}/select`, { isSelected }),
