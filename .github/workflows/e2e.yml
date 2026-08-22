@@ -11,6 +11,9 @@ env:
   NODE_ENV: test
   CAPTCHA_BYPASS_TOKEN: etest1
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test
+  JWT_SECRET: e2e-buyer-jwt-secret-20260822-0001
+  ADMIN_JWT_SECRET: e2e-admin-jwt-secret-20260822-0002
+  SELLER_JWT_SECRET: e2e-seller-jwt-secret-20260822-0003
 
 jobs:
   e2e:

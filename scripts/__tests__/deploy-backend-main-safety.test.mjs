@@ -92,6 +92,17 @@ test('backend quality and E2E gates run before deployment', () => {
   assert.match(e2eWorkflow, /workflow_call:/);
 });
 
+test('E2E backend boot uses three explicit independent test JWT secrets', () => {
+  const secrets = ['JWT_SECRET', 'ADMIN_JWT_SECRET', 'SELLER_JWT_SECRET'].map((key) => {
+    const match = e2eWorkflow.match(new RegExp(`^  ${key}: (.+)$`, 'm'));
+    assert.ok(match, `${key} must be explicit in E2E`);
+    return match[1];
+  });
+  assert.equal(new Set(secrets).size, 3);
+  assert.ok(secrets.every((secret) => secret.length >= 24));
+  assert.match(e2eWorkflow, /NODE_ENV: test/);
+});
+
 test('independent Delivery system is excluded from production workflow', () => {
   assert.doesNotMatch(workflow, /delivery-admin|delivery-seller|prisma-delivery|DELIVERY_DATABASE_URL/);
 });
