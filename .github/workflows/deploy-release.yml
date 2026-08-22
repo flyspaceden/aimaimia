@@ -1,5 +1,7 @@
 name: Deploy Release Train
 
+# 独立 workflow 身份：旧 deploy-website workflow 已停用；本文件统一承担受控测试与生产发布。
+
 on:
   push:
     # 分支收敛期只允许 staging-next 自动写测试环境；旧 staging 已冻结，

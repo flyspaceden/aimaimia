@@ -8,6 +8,7 @@ on:
       - 'assets/seafood/**'
       - 'app/**'
       - 'src/content/legal/**'
+      - '.github/workflows/deploy-release.yml'
       - '.github/workflows/miniapp-ci.yml'
   push:
     branches: [main, staging, staging-next]
@@ -16,6 +17,7 @@ on:
       - 'assets/seafood/**'
       - 'app/**'
       - 'src/content/legal/**'
+      - '.github/workflows/deploy-release.yml'
       - '.github/workflows/miniapp-ci.yml'
   workflow_dispatch:
     inputs:
