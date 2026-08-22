@@ -103,6 +103,12 @@ test('backend quality and E2E gates run before deployment', () => {
   assert.match(workflow, /release-approval:/);
   assert.match(workflow, /needs: \[detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate\]/);
   assert.match(workflow, /needs\.validate-deployment-workflow\.result == 'success'/);
+  const lightweightValidation = jobBlock('validate-deployment-workflow');
+  const backendQuality = jobBlock('backend-quality-gate');
+  assert.doesNotMatch(lightweightValidation, /prepare-miniapp-staging-env\.test\.mjs/);
+  const installIndex = backendQuality.indexOf('Install backend dependencies');
+  const preparationTestIndex = backendQuality.indexOf('prepare-miniapp-staging-env.test.mjs');
+  assert.ok(installIndex >= 0 && preparationTestIndex > installIndex, 'staging env test must run after backend npm ci');
   assert.match(workflow, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
   assert.match(e2eWorkflow, /workflow_call:/);
 });
