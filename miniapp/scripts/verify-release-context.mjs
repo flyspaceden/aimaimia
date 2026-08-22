@@ -20,7 +20,16 @@ const channel = process.env.MINIAPP_RELEASE_CHANNEL;
 if (channel !== 'staging' && channel !== 'production') {
   fail('必须显式设置 MINIAPP_RELEASE_CHANNEL=staging 或 production。');
 }
-const targetBranch = channel === 'production' ? 'main' : 'staging';
+const requestedBranch = String(process.env.MINIAPP_RELEASE_BRANCH || '').trim();
+if (channel === 'production' && requestedBranch && requestedBranch !== 'main') {
+  fail('production 只允许从 main 生成正式产物。');
+}
+const targetBranch = channel === 'production'
+  ? 'main'
+  : requestedBranch || 'staging';
+if (channel === 'staging' && !['staging', 'staging-next'].includes(targetBranch)) {
+  fail('staging 产物只允许来自 staging 或 staging-next。');
+}
 const originRef = `origin/${targetBranch}`;
 
 try {

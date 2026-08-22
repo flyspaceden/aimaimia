@@ -190,8 +190,8 @@ Batch 2 只完成本地静态产物验证。必须等待 Batch 1 后端生产健
 ## 10. Batch 3 小程序证据（Draft PR #1 已 push / 未合并 main / 未上传微信）
 
 - `miniapp/` 从冻结的 staging 快照逐文件移植；正式构建只使用独立 Taro 页面，不修改 React Native `app/` 或根 `src/`。
-- release-context 必须显式选择 channel：production fetch/校验 `origin/main`，staging fetch/校验 `origin/staging`；脏工作区、旧目标分支或未显式指定 channel 均 fail-closed。
-- 小程序 CI 在 main/staging 的 miniapp 变更上执行 npm ci、typecheck、lint、test，并分别构建 staging/production artifact；CI artifact 不等于微信上传、体验版或正式发布。
+- release-context 必须显式选择 channel：production 只允许 fetch/校验 `origin/main`；测试产物允许显式选择 `origin/staging` 或临时 `origin/staging-next`。脏工作区、错误目标分支或未显式指定 channel 均 fail-closed。
+- 小程序 CI 在 main/staging/staging-next 的 miniapp 变更上执行 npm ci、typecheck、lint、test，并分别构建 staging/production artifact；CI artifact 不等于微信上传、体验版或正式发布。
 - 本地 `npm run verify`：lint、TypeScript、55 个测试文件/303 个测试、staging+production 双构建和 72 页产物校验全部通过；总包 2.41 MiB，主包 1.262 MiB；已吸收 `origin/staging@acc0e08c` 删除无实际管理能力微信授权入口的最新小程序修复。
 - production artifact 只包含 `https://api.ai-maimai.com/api/v1` 与 `wss://api.ai-maimai.com`，未发现 test-api、test-ws、localhost、Delivery portal/module/config。
 - Swiper 从受影响的 11.1.15 最小覆盖为 12.1.2，Critical 审计项归零且小程序双构建通过。当前仍有 Vite 1 high + 12 moderate，来自 Taro 的 Vite/esbuild/webpack/uuid 构建工具链；不得用破坏性 `npm audit fix --force` 改变 Taro 主版本，需独立升级并做微信运行时回归。
@@ -213,3 +213,11 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 - 恢复 staging 已有的地址默认并发、预约/参团权限、客服资源归属、头像 URL/头像框、组合商品库存/返回结构、微信提现渠道查询、注销账号资金受益人围栏、团购返还、推荐来源、订单/支付/退款等测试；候选特有的可靠收货/退款 outbox 测试继续保留。
 
 验证证据：后端 260 suites / 3134 tests；真实 PostgreSQL 120 migrations + 5 suites / 9 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
+
+## 12. staging-next 隔离验收通道（2026-08-22）
+
+- 旧 `origin/staging@acc0e08c` 已同时保存在受保护 archive branch、annotated tag 和 `delivery/staging`，且原 staging 指针保持不动。
+- 当前生产候选通过临时 `staging-next` 部署到测试环境；该分支只承载 exact candidate SHA，不接受直接开发，也不代表已经合入 main 或发布生产。
+- 测试环境的后端、Admin、Seller 与小程序 staging 构建均可选择 `staging-next`；GitHub 测试 environment 在验收窗口只允许该分支写入共享测试服务器，旧 staging 已 locked，旧 deployment workflow 已全局停用；新 `Deploy Release Train` 是唯一发布入口。Production 构建仍强制只来自 `main`。
+- 固定微信目录仅在 `staging-next` Actions 成功、API `releaseSha` 与 Admin/Seller release marker 均精确等于候选 SHA 后，通过受控 `--rebind` 切换；依赖安装、release-context 和构建先在旁路 clone 完成，原目录按旧 SHA 保留，可恢复。
+- 验收失败时删除或废弃 `staging-next` 即可，旧 staging 和 Delivery lane 不受影响；验收通过后仍需单独完成 main 合入、exact-SHA attestation、生产 approval 和微信正式发布。

@@ -46,7 +46,7 @@ test('independent Delivery product paths stay out of the production candidate', 
 
 test('production runtime wiring has no independent Delivery database or portal', async () => {
   const files = [
-    '.github/workflows/deploy-website.yml',
+    '.github/workflows/deploy-release.yml',
     '.github/workflows/e2e.yml',
     'backend/package.json',
     'backend/src/app.module.ts',

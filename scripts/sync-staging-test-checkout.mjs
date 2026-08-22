@@ -7,6 +7,8 @@ const sourceRoot = git(process.cwd(), ['rev-parse', '--show-toplevel']);
 const targetRoot = path.resolve(process.env.AIMAI_STAGING_TEST_CHECKOUT || DEFAULT_TARGET);
 const rebindRequested = process.argv.includes('--rebind');
 const REBIND_CONFIRMATION = 'RECREATE_STAGING_TEST_CHECKOUT_FROM_ARCHIVED_REMOTE';
+const targetBranch = String(process.env.AIMAI_STAGING_TEST_BRANCH || 'staging').trim();
+const expectedOldBranch = String(process.env.AIMAI_STAGING_EXPECTED_OLD_BRANCH || 'staging').trim();
 
 function fail(message) {
   process.stderr.write(`测试目录同步失败：${message}\n`);
@@ -28,11 +30,15 @@ function git(cwd, args) {
   }
 }
 
-function run(cwd, command, args) {
+function run(cwd, command, args, envOverrides = {}) {
   try {
-    execFileSync(command, args, { cwd, stdio: 'inherit' });
+    execFileSync(command, args, {
+      cwd,
+      env: { ...process.env, ...envOverrides },
+      stdio: 'inherit',
+    });
   } catch {
-    fail(`${command} ${args.join(' ')} 未通过；固定测试目录没有被标记为可测试。`);
+    fail(`${command} ${args.join(' ')} 未通过；固定测试目录没有被标记为可测试。失败目录保留供检查：${cwd}`);
   }
 }
 
@@ -57,8 +63,67 @@ function remoteRefSha(cwd, remote, ref) {
   return lines[0].split(/\s+/)[0].toLowerCase();
 }
 
+async function fetchDeploymentText(url, expectedSha) {
+  try {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await fetch(`${url}${separator}release=${expectedSha}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) fail(`测试部署证据不可用：${url} 返回 HTTP ${response.status}。`);
+    return await response.text();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    fail(`无法核验测试部署证据 ${url}：${detail}`);
+  }
+}
+
+async function verifyStagingNextDeployment(expectedSha) {
+  const readyText = await fetchDeploymentText(
+    'https://test-api.ai-maimai.com/api/v1/health/ready',
+    expectedSha,
+  );
+  let body;
+  try {
+    body = JSON.parse(readyText);
+  } catch {
+    fail('测试 API readiness 不是有效 JSON，禁止切换固定微信目录。');
+  }
+  const data = body?.data && typeof body.data === 'object' ? body.data : body;
+  if (!data || data.releaseSha !== expectedSha) {
+    fail(`测试 API 仍运行 ${data?.releaseSha || '<unknown>'}，不是 staging-next ${expectedSha}。`);
+  }
+
+  for (const markerUrl of [
+    'https://test-admin.ai-maimai.com/release-sha.txt',
+    'https://test-seller.ai-maimai.com/release-sha.txt',
+  ]) {
+    const marker = (await fetchDeploymentText(markerUrl, expectedSha)).trim();
+    if (marker !== expectedSha) fail(`${markerUrl} 仍是 ${marker || '<empty>'}，禁止切换固定微信目录。`);
+  }
+}
+
+function prepareMiniappCheckout(checkoutRoot) {
+  const miniappRoot = path.join(checkoutRoot, 'miniapp');
+  if (!existsSync(path.join(miniappRoot, 'package-lock.json'))) {
+    fail(`固定测试目录不含小程序工程：${miniappRoot}`);
+  }
+  run(miniappRoot, 'npm', ['ci']);
+  run(miniappRoot, 'npm', ['run', 'verify:release-context'], {
+    MINIAPP_RELEASE_CHANNEL: 'staging',
+    MINIAPP_RELEASE_BRANCH: targetBranch,
+  });
+  run(miniappRoot, 'npm', ['run', 'build:staging']);
+  if (git(checkoutRoot, ['status', '--porcelain'])) {
+    fail('依赖安装或构建后固定测试目录出现未提交改动，禁止标记为可测试。');
+  }
+}
+
 if (targetRoot === sourceRoot) {
   fail('目标不能是当前开发 worktree；请保留开发与微信开发者工具测试目录隔离。');
+}
+if (!['staging', 'staging-next'].includes(targetBranch)) {
+  fail('AIMAI_STAGING_TEST_BRANCH 只允许 staging 或 staging-next。');
 }
 if (!existsSync(path.join(targetRoot, '.git'))) {
   fail(`目标不是 Git checkout：${targetRoot}`);
@@ -66,20 +131,26 @@ if (!existsSync(path.join(targetRoot, '.git'))) {
 if (git(targetRoot, ['status', '--porcelain'])) {
   fail('固定测试目录存在本地改动。先将改动整理到独立分支，禁止覆盖、stash 或 reset。');
 }
-if (git(targetRoot, ['branch', '--show-current']) !== 'staging') {
-  fail('固定测试目录必须停留在 staging 分支，禁止将功能分支直接导入微信开发者工具。');
+const currentBranch = git(targetRoot, ['branch', '--show-current']);
+if ((!rebindRequested && currentBranch !== targetBranch)
+  || (rebindRequested && currentBranch !== expectedOldBranch)) {
+  fail(`固定测试目录分支不符合受控切换：当前=${currentBranch || '<detached>'}，期望=${rebindRequested ? expectedOldBranch : targetBranch}。`);
 }
 
-git(targetRoot, ['fetch', '--quiet', 'origin', 'staging']);
+git(targetRoot, ['fetch', '--quiet', 'origin', targetBranch]);
 const oldSha = git(targetRoot, ['rev-parse', 'HEAD']);
-const remoteSha = git(targetRoot, ['rev-parse', 'origin/staging']);
-const canFastForward = gitSucceeds(targetRoot, ['merge-base', '--is-ancestor', 'HEAD', 'origin/staging']);
+const remoteRef = `origin/${targetBranch}`;
+const remoteSha = git(targetRoot, ['rev-parse', remoteRef]);
+const canFastForward = gitSucceeds(targetRoot, ['merge-base', '--is-ancestor', 'HEAD', remoteRef]);
+if (targetBranch === 'staging-next') {
+  await verifyStagingNextDeployment(remoteSha);
+}
 if (rebindRequested && canFastForward) {
   fail('--rebind 只允许处理已批准的非快进 staging 重建；当前目录可正常快进，请去掉该参数。');
 }
 if (!canFastForward) {
   if (!rebindRequested) {
-    fail('固定测试目录与 origin/staging 已分叉。日常同步禁止强制更新；仅在远端三重归档和用户批准均完成后使用 --rebind。');
+    fail(`固定测试目录与 ${remoteRef} 已分叉。日常同步禁止强制更新；仅在远端三重归档和用户批准均完成后使用 --rebind。`);
   }
 
   if (process.env.AIMAI_STAGING_REBIND_CONFIRM !== REBIND_CONFIRMATION) {
@@ -88,7 +159,7 @@ if (!canFastForward) {
   const expectedOldSha = requireSha('AIMAI_STAGING_EXPECTED_OLD_SHA', process.env.AIMAI_STAGING_EXPECTED_OLD_SHA);
   const expectedNewSha = requireSha('AIMAI_STAGING_EXPECTED_NEW_SHA', process.env.AIMAI_STAGING_EXPECTED_NEW_SHA);
   if (oldSha.toLowerCase() !== expectedOldSha) fail('固定测试目录 HEAD 与批准的旧 staging SHA 不一致。');
-  if (remoteSha.toLowerCase() !== expectedNewSha) fail('origin/staging 与批准的新 staging SHA 不一致。');
+  if (remoteSha.toLowerCase() !== expectedNewSha) fail(`${remoteRef} 与批准的新 SHA 不一致。`);
 
   const archiveRef = process.env.AIMAI_STAGING_ARCHIVE_REF || 'refs/heads/archive/staging-pre-main-20260822';
   const deliveryRef = process.env.AIMAI_STAGING_DELIVERY_REF || 'refs/heads/delivery/staging';
@@ -100,16 +171,24 @@ if (!canFastForward) {
   }
 
   const parentRoot = path.dirname(targetRoot);
-  const cloneRoot = `${targetRoot}-rebind-${expectedNewSha.slice(0, 12)}`;
+  const cloneRoot = `${targetRoot}-rebind-${expectedNewSha.slice(0, 12)}-${process.pid}`;
   const backupRoot = `${targetRoot}-legacy-${expectedOldSha.slice(0, 12)}`;
   if (existsSync(cloneRoot) || existsSync(backupRoot)) fail('rebind 临时目录或旧目录备份已存在，禁止覆盖。');
 
   const originUrl = git(targetRoot, ['remote', 'get-url', 'origin']);
-  run(parentRoot, 'git', ['clone', '--branch', 'staging', '--single-branch', originUrl, cloneRoot]);
+  run(parentRoot, 'git', ['clone', '--branch', targetBranch, '--single-branch', originUrl, cloneRoot]);
   if (git(cloneRoot, ['rev-parse', 'HEAD']).toLowerCase() !== expectedNewSha) {
     fail('新克隆的 staging HEAD 与批准的新 SHA 不一致；旧测试目录尚未移动。');
   }
-  if (git(cloneRoot, ['status', '--porcelain'])) fail('新克隆的 staging 工作树不干净；旧测试目录尚未移动。');
+  if (git(cloneRoot, ['status', '--porcelain'])) fail(`新克隆的 ${targetBranch} 工作树不干净；旧测试目录尚未移动。`);
+
+  // 所有依赖安装、发布来源校验和构建必须在旁路 clone 完成；失败时旧固定目录不动。
+  prepareMiniappCheckout(cloneRoot);
+  const liveTargetSha = remoteRefSha(targetRoot, 'origin', `refs/heads/${targetBranch}`);
+  if (liveTargetSha !== expectedNewSha) {
+    fail(`${targetBranch} 在旁路构建期间已漂移到 ${liveTargetSha}，旧固定目录尚未移动。`);
+  }
+  if (targetBranch === 'staging-next') await verifyStagingNextDeployment(expectedNewSha);
 
   try {
     renameSync(targetRoot, backupRoot);
@@ -120,26 +199,20 @@ if (!canFastForward) {
   }
 }
 
-if (canFastForward && oldSha !== remoteSha) run(targetRoot, 'git', ['merge', '--ff-only', 'origin/staging']);
-
-const miniappRoot = path.join(targetRoot, 'miniapp');
-if (!existsSync(path.join(miniappRoot, 'package-lock.json'))) {
-  fail(`固定测试目录不含小程序工程：${miniappRoot}`);
-}
-
-// 每次同步均用 lockfile 重建依赖，避免开发者工具继续使用上一版本的二维码、Taro 或 API 依赖。
-run(miniappRoot, 'npm', ['ci']);
-run(miniappRoot, 'npm', ['run', 'verify:release-context']);
-run(miniappRoot, 'npm', ['run', 'build:staging']);
-if (git(targetRoot, ['status', '--porcelain'])) {
-  fail('依赖安装或构建后固定测试目录出现未提交改动，禁止标记为可测试。');
+if (canFastForward && oldSha !== remoteSha) run(targetRoot, 'git', ['merge', '--ff-only', remoteRef]);
+if (!rebindRequested) {
+  prepareMiniappCheckout(targetRoot);
+  const finalRemoteSha = remoteRefSha(targetRoot, 'origin', `refs/heads/${targetBranch}`);
+  if (finalRemoteSha !== remoteSha) fail(`${targetBranch} 在本地构建期间从 ${remoteSha} 漂移到 ${finalRemoteSha}。`);
+  if (targetBranch === 'staging-next') await verifyStagingNextDeployment(remoteSha);
 }
 
 process.stdout.write(`${JSON.stringify({
-  sourcePath: miniappRoot,
+  sourcePath: path.join(targetRoot, 'miniapp'),
   sourceSha: git(targetRoot, ['rev-parse', '--short=12', 'HEAD']),
   previousSha: oldSha.slice(0, 12),
-  remoteStaging: remoteSha.slice(0, 12),
+  remoteBranch: targetBranch,
+  remoteCommit: remoteSha.slice(0, 12),
   rebind: rebindRequested,
   backupPath: rebindRequested ? `${targetRoot}-legacy-${oldSha.slice(0, 12)}` : null,
   clean: true,

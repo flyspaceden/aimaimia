@@ -2,7 +2,7 @@ name: WeChat Mini Program CI
 
 on:
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, staging-next]
     paths:
       - 'miniapp/**'
       - 'assets/seafood/**'
@@ -10,7 +10,7 @@ on:
       - 'src/content/legal/**'
       - '.github/workflows/miniapp-ci.yml'
   push:
-    branches: [main, staging]
+    branches: [main, staging, staging-next]
     paths:
       - 'miniapp/**'
       - 'assets/seafood/**'
@@ -57,11 +57,11 @@ jobs:
   build-staging:
     needs: checks
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/staging')
+      (github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next'))
       || (
         github.event_name == 'workflow_dispatch'
         && inputs.environment == 'staging'
-        && github.ref == 'refs/heads/staging'
+        && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -79,6 +79,7 @@ jobs:
         working-directory: miniapp
         env:
           MINIAPP_RELEASE_CHANNEL: staging
+          MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}
         run: npm run verify:release-context
       - name: Build staging mini program
         working-directory: miniapp

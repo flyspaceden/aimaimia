@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 const workflow = await readFile(
-  new URL('../../.github/workflows/deploy-website.yml', import.meta.url),
+  new URL('../../.github/workflows/deploy-release.yml', import.meta.url),
   'utf8',
 );
 const e2eWorkflow = await readFile(
@@ -63,13 +63,21 @@ function runScript(scriptUrl, env) {
 }
 
 test('main production deployment is manual and fail-closed', () => {
-  assert.match(workflow, /branches: \[staging\]/);
-  assert.doesNotMatch(workflow, /branches: \[main, staging\]/);
+  assert.match(workflow, /branches: \[staging-next\]/);
+  assert.doesNotMatch(workflow, /branches: \[main,/);
   assert.match(workflow, /confirm_production:/);
   assert.match(workflow, /DEPLOY_PRODUCTION/);
   assert.match(workflow, /migration_rehearsal_sha:/);
   assert.match(workflow, /test "\$MIGRATION_REHEARSAL_SHA" = "\$\{\{ github\.sha \}\}"/);
-  assert.match(workflow, /Only main or staging may deploy/);
+  assert.match(workflow, /Only main or staging-next may deploy during staging convergence/);
+  assert.match(workflow, /git fetch --no-tags origin main/);
+  assert.match(workflow, /git diff --name-only origin\/main\.\.\.HEAD/);
+  assert.match(workflow, /'miniapp\/\*\*'/);
+  assert.match(workflow, /\^\(backend\/\|miniapp\/\)/);
+  assert.match(workflow, /\^\(admin\/\|miniapp\/\)/);
+  assert.match(workflow, /\^\(seller\/\|miniapp\/\)/);
+  assert.match(workflow, /backend_branch=\$\{\{ github\.ref_name \}\}/);
+  assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /\[ "\$TARGET" = "huahai" \] && echo "huahai=true"/);
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
@@ -80,8 +88,8 @@ test('workflow-only changes cannot trigger backend deployment', () => {
     .split('\n')
     .find((line) => line.includes('echo "$CHANGED"') && line.includes('backend=true'));
   assert.ok(changedPathLine, 'backend changed-path detector must exist');
-  assert.match(changedPathLine, /\^backend\//);
-  assert.doesNotMatch(changedPathLine, /deploy-website/);
+  assert.match(changedPathLine, /\^\(backend\/\|miniapp\/\)/);
+  assert.doesNotMatch(changedPathLine, /deploy-release/);
   assert.match(workflow, /手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。[\s\S]*echo "workflow=true"/);
 });
 

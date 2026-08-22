@@ -10,13 +10,14 @@
 |---|---|---|
 | `main` | 生产代码唯一真相源 | 只接收已审查、已在测试环境验证的候选；不直接开发 |
 | `staging` | 测试环境当前候选的指针 | 只承载本轮明确批准的 release train；不作为长期开发主干 |
+| `staging-next` | 分支收敛期间的临时测试指针 | 在不移动旧 `staging` 的前提下部署待验证候选；验收结束后必须收敛或删除，不得成为第二个长期主干 |
 | `feature/*` / `codex/*` | 短期开发分支 | 必须从最新 `origin/main` 创建；一个分支只处理一个需求或一组不可拆分改动 |
 | `hotfix/*` | 生产紧急修复 | 必须从最新 `origin/main` 创建；上线后立即同步到当前测试候选 |
 | `archive/*` 或 tag | 历史保护点 | 在重写或替换分支指针前保存旧 SHA，禁止继续开发 |
 
 `main` 是唯一长期代码基线。`staging` 是可部署的测试快照，不是另一个长期产品，也不能隐藏只存在于它上面的功能。尚未发布的功能必须保留在独立 feature 分支中。
 
-GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 要求 PR、Required Checks 和 review；`staging` 只允许已审候选的 promotion，当前一次性重建例外必须由用户批准并使用 exact lease；`delivery/staging` 禁止删除和强推。代码中的规范不能替代 GitHub 服务端保护。
+GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 要求 PR、Required Checks 和 review；`delivery/staging` 禁止删除和强推。当前旧 `staging` 已设为 locked、禁止删除/强推且管理员不绕过，GitHub `staging` environment 只允许临时 `staging-next`；旧 workflow `Deploy Sites & Backend`（ID `255149831`）已全局停用，避免历史 staging ref 绕过新门禁写共享测试服务器。`Digital Asset Backfill`（ID `297985401`）在本次验收窗口也已停用，避免维护任务造成源码锁或测试数据漂移。当前发布统一走新 `.github/workflows/deploy-release.yml`。代码中的规范不能替代 GitHub 服务端保护。
 
 ## 二、客户端边界
 
@@ -34,9 +35,9 @@ GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 
 
 - 写代码：在从最新远端基线创建的短期干净 worktree 中完成。
 - 微信开发者工具固定打开：`/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging/miniapp`。
-- 上述固定 staging 目录只用于编译和真机测试，不作为开发源；只能通过仓库同步脚本更新到已验证的 `origin/staging`。
+- 上述固定 staging 目录只用于编译和真机测试，不作为开发源；只能通过仓库同步脚本更新到已验证的 `origin/staging`。分支收敛期间可显式选择已部署并批准的 `origin/staging-next`，但必须记录目标分支和 exact SHA。
 - 原始主项目目录存在脏改动或历史分叉时，不得作为发布源。
-- 同步前后必须证明固定目录 `HEAD == origin/staging`、工作树干净；失败时停止，不允许用复制文件掩盖版本差异。
+- 同步前后必须证明固定目录 `HEAD == origin/<选定测试分支>`、工作树干净；失败时停止，不允许用复制文件掩盖版本差异。
 
 ## 四、标准发布流程
 
@@ -86,10 +87,11 @@ GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 
 1. **现在不能**整体 merge staging → main。
 2. **现在不能**直接用 main 覆盖 staging，否则会丢失 Delivery 和其他未发布工作。
 3. 先完成当前“小程序选择性进入生产”PR，只把审查清单内的商城后端、后台和小程序提交带入 main。
-4. 在任何 staging 指针变更前，把 `acc0e08c` 同时保存为远端 `archive/staging-pre-main-20260822`、annotated tag 和受保护的 `delivery/staging`；三个引用都必须复验为同一 SHA。
+4. 在任何 staging 指针变更前，把 `acc0e08c` 同时保存为远端 `archive/staging-pre-main-20260822`、annotated tag 和受保护的 `delivery/staging`；三个引用都必须复验为同一 SHA。该三重保全已在 2026-08-22 完成，`origin/staging` 本身仍保持 `acc0e08c` 未移动。
 5. 从新的 main 创建 `codex/staging-v2-from-main`。`delivery/staging` 先保留全部旧 Delivery 工作；后续再从新 main 建立干净 Delivery reintegration 分支，按直接文件和共享 wiring 清单逐批移植、解决语义冲突并验证。
-6. 在新的**通用商城 staging** 候选完整部署，并完成商城后端、Admin/Seller、小程序和现有 App 兼容回归后，才可经用户单独批准替换 `origin/staging`。Delivery 不重新夹入通用 staging；它在受保护的 `delivery/staging` 独立保留并单独回归。
-7. 替换必须使用明确旧 SHA 的 `--force-with-lease`，先证明三个远端保护引用可恢复；完成后通过 `scripts/sync-staging-test-checkout.mjs --rebind` 的显式旧/新 SHA、确认短语和旁路克隆流程重建固定微信目录。普通同步仍只允许 fast-forward。
+6. 当前获批方案是不替换 `origin/staging`：先把 GitHub `staging` environment 的允许分支收口为仅 `staging-next`，冻结旧 staging 对共享测试环境的部署权；再建立临时 `staging-next` 指向生产候选 exact SHA并部署，创建后立即启用禁止删除/强推和 Required Checks 的分支保护。只有测试 API/两个后台 release marker 都等于该 SHA 后，才将固定微信目录受控重绑到 `staging-next` 做差异回归。旧 `staging@acc0e08c`、三重保护引用和 Delivery lane 全部保留。
+7. 只有 `staging-next` 完整验收、候选进入 `main` 且用户再次单独批准后，才讨论将通用 `staging` 收敛到新 `main`。Delivery 不重新夹入通用 staging；它在受保护的 `delivery/staging` 独立保留并单独回归。
+8. 若未来确需替换 `origin/staging`，必须另行批准并使用明确旧 SHA 的 `--force-with-lease`；当前 `staging-next` 测试不修改 `origin/staging`。固定微信目录通过 `scripts/sync-staging-test-checkout.mjs --rebind` 的显式旧/新 SHA、目标分支、确认短语和旁路克隆流程切换，普通同步仍只允许 fast-forward。
 
 这是一项独立的分支治理任务，不与生产 PR 合并动作绑在一起，也不在本次审查中自动执行。
 

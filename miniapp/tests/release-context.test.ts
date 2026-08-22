@@ -8,7 +8,9 @@ describe('mini-program release source guard', () => {
   it('maps production to origin/main and staging to origin/staging', () => {
     const source = read('scripts/verify-release-context.mjs');
 
-    expect(source).toContain("channel === 'production' ? 'main' : 'staging'");
+    expect(source).toContain("requestedBranch || 'staging'");
+    expect(source).toContain("!['staging', 'staging-next'].includes(targetBranch)");
+    expect(source).toContain("production 只允许从 main 生成正式产物");
     expect(source).toContain('const originRef = `origin/${targetBranch}`');
     expect(source).toContain('MINIAPP_RELEASE_CHANNEL=staging 或 production');
     expect(source).toContain('headFull !== originFull');
@@ -30,11 +32,12 @@ describe('mini-program release source guard', () => {
       'MINIAPP_RELEASE_CHANNEL=production',
     );
     expect(workflow).toContain("(github.event_name == 'push' && github.ref == 'refs/heads/main')");
-    expect(workflow).toContain("(github.event_name == 'push' && github.ref == 'refs/heads/staging')");
+    expect(workflow).toContain("github.ref == 'refs/heads/staging-next'");
     expect(workflow).toContain("inputs.environment == 'production'");
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
     expect(workflow).toContain("inputs.environment == 'staging'");
     expect(workflow).toContain("github.ref == 'refs/heads/staging'");
+    expect(workflow).toContain('MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}');
     expect(workflow).toContain('build-production:');
     expect(workflow).toContain('MINIAPP_RELEASE_CHANNEL: production');
     expect(workflow).toContain('build-staging:');

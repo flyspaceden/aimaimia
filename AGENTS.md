@@ -257,22 +257,22 @@ admin/                  # 管理后台前端
 
 10. **推送 GitHub 前必须向用户确认 + 保持版本可回退**：
     - **不自动推送**：代码改完可以先本地 commit，但 `git push` 必须先向用户复述改动内容 + 询问是否推送。用户明确说"推 / push / 上测试 / 上生产"才执行
-    - **App（`app/` 下）OTA 同样要先问**：push 只触发 GitHub Actions（workflow 中没有 app 部署，见 `.github/workflows/deploy-website.yml`），买家 App 上线必须走 EAS，是否发 OTA 由用户决定
+    - **App（`app/` 下）OTA 同样要先问**：push 只触发 GitHub Actions（workflow 中没有 app 部署，见 `.github/workflows/deploy-release.yml`），买家 App 上线必须走 EAS，是否发 OTA 由用户决定
     - **版本回退友好**：
       - 一个逻辑改动一个 commit，禁止把不相关改动塞一起（线上出事才能只 revert 一项）
       - commit message 沿用 `type(scope): 描述` 风格（如 `fix(admin/companies): xxx`）方便日后定位
       - 推 `main` 前主动告诉用户回滚路径（`git revert <SHA> && git push`）
       - **破坏性改动醒目提醒**：数据库 migration（`backend/prisma/migrations/` —— 注意 workflow 里 backend 部署会自动跑 `prisma migrate deploy`，回滚需手写反向 SQL）、删字段、改枚举值、改利润公式等，推送前必须用显著提示告知用户"此改动回滚需额外步骤"，不能只说一句 push 了
     - **具体操作规则不在此重复**，以下文件为真相源：
-      - `.github/workflows/deploy-website.yml` — 分支路由、触发路径、部署产物、migrate deploy 时机
+      - `.github/workflows/deploy-release.yml` — 当前唯一受控发布入口：分支路由、触发路径、部署产物、migrate deploy 时机；历史 `deploy-website.yml` 对应 workflow 已全局停用
       - `docs/operations/github操作.md` — main-based 候选、staging 验收、手动生产发布与紧急场景
       - `docs/operations/版本管理.md` — App 三阶段发布 + OTA
 
 11. **版本唯一真相源与分支收敛纪律（App + 小程序并存后强制执行）**：
     - `origin/main` 是唯一长期产品基线；`origin/staging` 只表示当前测试 release train，禁止当作长期开发主干。
     - 所有需求从最新 `origin/main` 建立短期干净 `feature/*` / `codex/*` worktree；禁止直接在 `main`、`staging`、原始脏目录或固定微信测试目录写业务代码。
-    - 微信开发者工具固定打开 `/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging/miniapp`；日常只允许在远端 staging 已验证后由 `scripts/sync-staging-test-checkout.mjs` fast-forward 更新。一次性 staging 重建必须先完成远端三重保全并取得用户批准，再用该脚本的 `--rebind` 精确旧/新 SHA 模式旁路克隆和保留旧目录；同步后必须 `HEAD == origin/staging`、工作树干净。
-    - 禁止整体 merge/覆盖长期分叉的 `staging` 与 `main`，禁止用目录级 ours/theirs 隐藏语义冲突。当前旧 staging 含独立 Delivery，必须先远端 archive branch + tag + `delivery/staging` 三重保全，再按 `docs/operations/branch-strategy.md §五` 重建通用 staging；任何 force-with-lease 都需用户单独批准。
+    - 微信开发者工具固定打开 `/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging/miniapp`；日常只允许在远端测试候选已部署后由 `scripts/sync-staging-test-checkout.mjs` fast-forward 更新。当前分支收敛期可显式选择临时 `staging-next`；切换必须先完成远端三重保全并取得用户批准，再用该脚本的 `--rebind` 精确旧/新 SHA、旧/新分支模式旁路克隆并保留旧目录；同步后必须 `HEAD == origin/<选定测试分支>`、工作树干净。
+    - 禁止整体 merge/覆盖长期分叉的 `staging` 与 `main`，禁止用目录级 ours/theirs 隐藏语义冲突。旧 staging 的 archive branch + tag + `delivery/staging` 三重保全已经完成；当前获批保留 `staging@acc0e08c` 不动并设为 locked，历史 deployment workflow 已全局停用，GitHub 测试 environment 只允许临时 `staging-next` 验收。未来任何 staging force-with-lease 或解锁仍需用户单独批准。
     - 小程序改动默认只触及 `miniapp/`；App 改动默认只触及 `app/` 与根 `src/`。若共享后端改变，两端都必须做兼容审查，但不得因此偷带另一个客户端源码或发布。
     - PR、CI、staging 部署、数据库演练、微信真机、main 合并、production approval、服务器部署、小程序审核/发布、App EAS/商店发布必须分别报告；SHA 变化后旧测试、旧 attestation 和旧真机结论不得复用。
     - 发布后立即审计 `main..staging` 与 `staging..main`。已发布 hotfix 必须同步回 staging 和所有活跃候选；未发布功能必须有独立 feature 分支，不能只存在于 staging。
