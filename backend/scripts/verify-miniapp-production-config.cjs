@@ -127,6 +127,35 @@ if (miniappSecret && miniappSecret.length < 16) {
 requireExact('WECHAT_MINIAPP_SUBSCRIBE_STATE', 'formal');
 requireExact('WECHAT_MINIAPP_CODE_ENV_VERSION', 'release');
 requireTrue('WECHAT_MINIAPP_CODE_CHECK_PATH');
+const subscriptionTemplates = {
+  ORDER_SHIPPED: {
+    templateId: 'AaefuI_Uqp1qvX7fNuGbEe3w6Qe4b4M5SUpboeLXvNQ',
+    fields: { reference: 'character_string6', status: 'phrase18', remark: 'thing5', time: 'date4' },
+  },
+  AFTER_SALE_RESULT: {
+    templateId: 'sAQM7NcmYHH6x1nxlqr_Fy2EBushICGBCt42XPsG04Q',
+    fields: { reference: 'character_string7', status: 'thing2', remark: 'thing5', time: 'time12' },
+  },
+  WITHDRAW_RESULT: {
+    templateId: '2zKL7siL8vg7U8t31koS272-CQBxTz9ePaXoi1vXAYU',
+    fields: { status: 'phrase2', remark: 'thing4', time: 'time3' },
+  },
+};
+for (const [key, expected] of Object.entries(subscriptionTemplates)) {
+  requireExact(`WECHAT_MINIAPP_SUBSCRIBE_${key}_TEMPLATE_ID`, expected.templateId);
+  const rawFields = requireValue(`WECHAT_MINIAPP_SUBSCRIBE_${key}_FIELDS`);
+  if (!rawFields) continue;
+  try {
+    const fields = JSON.parse(rawFields);
+    const expectedEntries = Object.entries(expected.fields).sort();
+    const actualEntries = Object.entries(fields).sort();
+    if (JSON.stringify(actualEntries) !== JSON.stringify(expectedEntries)) {
+      errors.push(`WECHAT_MINIAPP_SUBSCRIBE_${key}_FIELDS 与微信模板字段约定不一致`);
+    }
+  } catch {
+    errors.push(`WECHAT_MINIAPP_SUBSCRIBE_${key}_FIELDS 不是合法 JSON`);
+  }
+}
 
 const payAppId = requireValue('WECHAT_PAY_APP_ID');
 if (payAppId && !/^wx[0-9A-Za-z]{16}$/.test(payAppId)) errors.push('WECHAT_PAY_APP_ID 格式无效');

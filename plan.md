@@ -1963,7 +1963,9 @@
 - [ ] **MP-PROD05B** 推荐 H5 双入口延期：为保持 App 源码 0 和现有“H5 打开/登录/绑定”漏斗语义，本批继续使用生产旧 H5 登录绑定页，不发布 InviteChoice。后续必须二选一并独立审批：接受并修改 App 统计/自提只读显示，或为小程序/App补 landingSession 归因闭环；不得随小程序上线偷带 App OTA。
 - [ ] **MP-PROD05C** 生产前用户决策门禁：App 源码 0 意味着同账号在小程序创建的自提订单，当前 App 仍可能按普通 PAID 订单显示“待发货/物流/取消”语义。必须由用户明确接受该跨端已知限制，或另批批准只读兼容 OTA；未决前不得宣称 App 无影响或全系统正常。
 - [ ] **MP-PROD05A** 小程序既有 Taro 构建工具链审计债务：Swiper 已最小覆盖到 12.1.2，Critical 从 3 降为 0；仍有 Vite 1 high + 12 moderate（Vite/esbuild/webpack/uuid 构建或开发服务器链）。不得运行会把 Taro 4.2.1 降到 3.x/强升 Vite 8 的 `npm audit fix --force`；生产前记录为独立工具链升级/E2E 门禁，微信运行产物不得包含这些 Node 构建模块。
-- [ ] **MP-PROD06** 生产备份克隆库迁移演练：Booking 重复、默认地址重写、checksum、前后数据守恒和 fail-forward 回退方案全部通过。
+- [🟡] **MP-PROD06** 生产备份克隆库迁移演练：生产只读预检确认 101 条成功/0 条失败 migration、Booking 重复组 0、默认地址异常 0；早期 flat custom-format 备份通过 TOC+双 SHA-256 校验并恢复为同集群 rehearsal 库 `aimaimai_rehearsal_2879f7c7_20260822`。候选 19 条 migration 全部成功，迁移后 120 条完成/0 失败；初步 21 表 count 与退款任务总数核对通过。剩余硬门禁：最终提交后重新生成含 source identity/migration baseline 的原子 manifest 备份，恢复带 provenance 的 baseline+target，做 23 表主键/稳定整行哈希、历史默认值、退款逐条、120/101 migration checksum 和 final Git HEAD/clean/tree 核对，生成最终 attestation，并验证生产配置。演练后正式业务库仍为 101/0、生产 SHA `a0f47810`、PM2 online、商品接口 200；同集群 rehearsal 会占用生产 PostgreSQL 资源，发布后需清理。
+- [🟡] **MP-PROD06C** 生产配置门禁：现网 `.env` 已通过数据库/Redis/JWT/证书/短信/顺丰等既有校验，但缺少正式订阅状态与 3 组模板、代码路径检测、微信提现 1005 场景、自提开关和独立自提密钥。已实现备份优先、原子写入且不重启的准备脚本；尚未因 SSH 登录限流执行，执行并再次通过完整 preflight 前不得部署。
+- [ ] **MP-PROD06K** 微信支付 APIv3 密钥轮换：密码本已明确当前密钥曾在历史对话中出现；正式小程序放量前必须在微信商户平台重置、同步生产 `.env` 与密码本，并重新验证证书/私钥/平台公钥/支付与提现回调。不得仅以当前 preflight 格式正确替代密钥轮换。
 - [x] **MP-PROD06L** 本地 PostgreSQL 18 空库与并发门禁：120 条主库 migration 全量 deploy/status 通过；售后退款、普通树、利润安全真实数据库并发 7/7；全量真实 PG 后端 241 suites / 2942 tests 通过。该结果不替代 MP-PROD06 的生产历史数据副本演练。
 - [ ] **MP-PROD07** 最终组合回归：backend/真实 PG 并发、App 现有版本、admin/seller、miniapp production artifact、H5、微信真机全链路。
 - [ ] **MP-PROD07A** Swiper 12 真机门禁：商品详情图片轮播、VIP 礼包轮播的滑动、current/onChange、侧边距和返回恢复必须在微信真机通过；WeApp 使用原生 `<swiper>`、无 Swiper JS bundle只能降低风险，不能替代真机。

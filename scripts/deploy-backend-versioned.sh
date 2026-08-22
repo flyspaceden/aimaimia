@@ -344,6 +344,9 @@ npx --no-install prisma validate
 build_backend
 test -f dist/src/main.js -o -f dist/main.js
 node --test ../scripts/__tests__/production-delivery-exclusion.test.mjs
+if [ "$BRANCH" = main ]; then
+  RELEASE_SHA="$RELEASE_SHA" node scripts/verify-production-rehearsal-attestation.cjs
+fi
 record_stage PREPARED
 
 pm2_stopped=true
@@ -366,6 +369,10 @@ fi
 rm -f -- "$stopped_snapshot"
 stopped_snapshot=''
 record_stage PM2_STOPPED
+
+if [ "$BRANCH" = main ]; then
+  RELEASE_SHA="$RELEASE_SHA" node scripts/inspect-miniapp-migration-readiness.cjs
+fi
 
 if [ "$BRANCH" = main ]; then
   backup_result=$(DATABASE_BACKUP_LABEL="$(date -u +%Y%m%dT%H%M%SZ)-${previous_sha:0:12}-before-${RELEASE_SHA:0:12}" \

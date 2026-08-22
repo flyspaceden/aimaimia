@@ -9,13 +9,50 @@ const {
   readdirSync,
   chmodSync,
   statSync,
-  unlinkSync,
   writeFileSync,
+  accessSync,
+  constants,
+  renameSync,
+  rmSync,
+  openSync,
+  fsyncSync,
+  closeSync,
 } = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const BACKUP_ROOT = '/www/backup/database/aimaimai';
+
+function resolvePostgresBinary(name) {
+  const configuredDir = String(process.env.PG_BIN_DIR || '').trim();
+  const candidates = [
+    configuredDir && path.join(configuredDir, name),
+    path.join('/www/server/pgsql/bin', name),
+    path.join('/usr/local/pgsql/bin', name),
+    path.join('/usr/bin', name),
+    name,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate === name) return candidate;
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue to the next known installation location.
+    }
+  }
+  return name;
+}
+
+function fsyncPath(target) {
+  const descriptor = openSync(target, 'r');
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
 
 function readDatabaseUrl() {
   const fromProcess = String(process.env.DATABASE_URL || '').trim();
@@ -76,8 +113,15 @@ async function main() {
 
   mkdirSync(BACKUP_ROOT, { recursive: true, mode: 0o700 });
   chmodSync(BACKUP_ROOT, 0o700);
-  const backupPath = path.join(BACKUP_ROOT, `${label}.dump`);
-  if (existsSync(backupPath)) throw new Error('backup file already exists');
+  const backupDir = path.join(BACKUP_ROOT, label);
+  const partialDir = path.join(BACKUP_ROOT, `${label}.partial-${process.pid}`);
+  const backupPath = path.join(backupDir, 'database.dump');
+  const manifestPath = path.join(backupDir, 'backup-manifest.json');
+  const partialBackupPath = path.join(partialDir, 'database.dump');
+  const partialChecksumPath = `${partialBackupPath}.sha256`;
+  const partialManifestPath = path.join(partialDir, 'backup-manifest.json');
+  if (existsSync(backupDir) || existsSync(partialDir)) throw new Error('backup label already exists');
+  mkdirSync(partialDir, { mode: 0o700 });
 
   const pgEnv = {
     ...process.env,
@@ -90,37 +134,98 @@ async function main() {
   const sslMode = parsed.searchParams.get('sslmode');
   if (sslMode) pgEnv.PGSSLMODE = sslMode;
 
-  run('pg_dump', [
-    '--format=custom',
-    '--no-owner',
-    '--no-privileges',
-    '--file', backupPath,
-  ], pgEnv, 15 * 60 * 1000);
-  chmodSync(backupPath, 0o600);
-  if (statSync(backupPath).size === 0) throw new Error('database backup is empty');
-  run('pg_restore', ['--list', backupPath], process.env, 2 * 60 * 1000);
+  const pgDump = resolvePostgresBinary('pg_dump');
+  const pgRestore = resolvePostgresBinary('pg_restore');
+  const psql = resolvePostgresBinary('psql');
+  let published = false;
+  try {
+    run(pgDump, [
+      '--format=custom',
+      '--no-owner',
+      '--no-privileges',
+      '--file', partialBackupPath,
+    ], pgEnv, 15 * 60 * 1000);
+    chmodSync(partialBackupPath, 0o600);
+    if (statSync(partialBackupPath).size === 0) throw new Error('database backup is empty');
+    run(pgRestore, ['--list', partialBackupPath], process.env, 2 * 60 * 1000);
 
-  const digest = await sha256(backupPath);
-  const verifiedDigest = await sha256(backupPath);
-  if (verifiedDigest !== digest) throw new Error('database backup checksum changed during verification');
-  writeFileSync(`${backupPath}.sha256`, `${digest}  ${path.basename(backupPath)}\n`, { mode: 0o600 });
+    const digest = await sha256(partialBackupPath);
+    const verifiedDigest = await sha256(partialBackupPath);
+    if (verifiedDigest !== digest) throw new Error('database backup checksum changed during verification');
+    writeFileSync(partialChecksumPath, `${digest}  ${path.basename(backupPath)}\n`, { mode: 0o600 });
+    const sourceIdentityHash = createHash('sha256')
+      .update(`${parsed.hostname}:${parsed.port || '5432'}/${database}`)
+      .digest('hex');
+    const migrationResult = spawnSync(psql, ['-X', '-v', 'ON_ERROR_STOP=1', '-At', '-c', `SELECT json_build_object(
+      'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
+      'failed', count(*) FILTER (WHERE finished_at IS NULL AND rolled_back_at IS NULL),
+      'latest', (SELECT migration_name FROM "_prisma_migrations"
+        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY finished_at DESC LIMIT 1)
+    )::text FROM "_prisma_migrations"`], {
+      env: { ...pgEnv, PGOPTIONS: '-c default_transaction_read_only=on' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    });
+    if (migrationResult.error || migrationResult.status !== 0) throw new Error('backup source migration query failed');
+    const migrationState = JSON.parse(migrationResult.stdout.trim());
+    if (Number(migrationState.failed) !== 0) throw new Error('backup source has an unfinished migration');
+    writeFileSync(partialManifestPath, `${JSON.stringify({
+      version: 1,
+      label,
+      sourceIdentityHash,
+      backupSha256: digest,
+      sourceMigrationCount: Number(migrationState.complete),
+      sourceMigrationHead: String(migrationState.latest || ''),
+      createdAt: new Date().toISOString(),
+    }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    fsyncPath(partialBackupPath);
+    fsyncPath(partialChecksumPath);
+    fsyncPath(partialManifestPath);
+    fsyncPath(partialDir);
+    renameSync(partialDir, backupDir);
+    fsyncPath(BACKUP_ROOT);
+    published = true;
 
-  // 本机只保留最近 10 份可恢复备份；离机/PITR 由正式发布前的独立门禁确认。
-  const oldBackups = readdirSync(BACKUP_ROOT)
-    .filter((name) => name.endsWith('.dump'))
-    .map((name) => ({ name, mtimeMs: statSync(path.join(BACKUP_ROOT, name)).mtimeMs }))
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .slice(10);
-  for (const oldBackup of oldBackups) {
-    const oldPath = path.join(BACKUP_ROOT, oldBackup.name);
-    unlinkSync(oldPath);
-    if (existsSync(`${oldPath}.sha256`)) unlinkSync(`${oldPath}.sha256`);
+    // Rotate only verified dump/checksum pairs. Partial or mismatched files never
+    // displace a known-restorable backup.
+    const verifiedBackups = [];
+    for (const entry of readdirSync(BACKUP_ROOT, { withFileTypes: true }).filter((item) => item.isDirectory() && !item.name.includes('.partial-'))) {
+      const currentPath = path.join(BACKUP_ROOT, entry.name, 'database.dump');
+      const currentChecksumPath = `${currentPath}.sha256`;
+      const currentManifestPath = path.join(BACKUP_ROOT, entry.name, 'backup-manifest.json');
+      if (!existsSync(currentPath) || !existsSync(currentChecksumPath) || !existsSync(currentManifestPath)) continue;
+      try {
+        const recorded = readFileSync(currentChecksumPath, 'utf8').trim().split(/\s+/)[0];
+        const manifest = JSON.parse(readFileSync(currentManifestPath, 'utf8'));
+        if (
+          !/^[0-9a-f]{64}$/.test(recorded)
+          || await sha256(currentPath) !== recorded
+          || manifest.version !== 1
+          || manifest.backupSha256 !== recorded
+          || !/^[0-9a-f]{64}$/.test(String(manifest.sourceIdentityHash || ''))
+        ) continue;
+        verifiedBackups.push({ name: entry.name, mtimeMs: statSync(currentPath).mtimeMs });
+      } catch {
+        // A damaged historical entry must never prevent publishing a new,
+        // independently verified backup. It is left in place for manual review.
+      }
+    }
+    for (const oldBackup of verifiedBackups.sort((left, right) => right.mtimeMs - left.mtimeMs).slice(10)) {
+      rmSync(path.join(BACKUP_ROOT, oldBackup.name), { recursive: true });
+    }
+    process.stdout.write(`${JSON.stringify({
+      database_backup: 'verified',
+      file: backupPath,
+      sha256: digest,
+      manifest: manifestPath,
+    })}\n`);
+  } finally {
+    if (!published) {
+      if (existsSync(partialDir)) rmSync(partialDir, { recursive: true });
+      if (existsSync(backupDir)) rmSync(backupDir, { recursive: true });
+    }
   }
-  process.stdout.write(`${JSON.stringify({
-    database_backup: 'verified',
-    file: backupPath,
-    sha256: digest,
-  })}\n`);
 }
 
 main().catch((error) => {

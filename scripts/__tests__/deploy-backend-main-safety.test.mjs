@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 const workflow = await readFile(
@@ -14,10 +16,20 @@ const staticDeployScript = await readFile(
   new URL('../deploy-static-with-rollback.sh', import.meta.url),
   'utf8',
 );
-const databaseBackupScript = await readFile(
-  new URL('../../backend/scripts/create-production-database-backup.cjs', import.meta.url),
-  'utf8',
-);
+const databaseBackupScriptUrl = new URL('../../backend/scripts/create-production-database-backup.cjs', import.meta.url);
+const databaseBackupScript = await readFile(databaseBackupScriptUrl, 'utf8');
+const migrationReadinessScriptUrl = new URL('../../backend/scripts/inspect-miniapp-migration-readiness.cjs', import.meta.url);
+const migrationReadinessScript = await readFile(migrationReadinessScriptUrl, 'utf8');
+const databaseRehearsalScriptUrl = new URL('../../backend/scripts/create-database-rehearsal.cjs', import.meta.url);
+const databaseRehearsalScript = await readFile(databaseRehearsalScriptUrl, 'utf8');
+const rehearsalMigrationScriptUrl = new URL('../../backend/scripts/run-database-rehearsal-migrations.cjs', import.meta.url);
+const rehearsalMigrationScript = await readFile(rehearsalMigrationScriptUrl, 'utf8');
+const rehearsalDataVerifierUrl = new URL('../../backend/scripts/verify-database-rehearsal-data.cjs', import.meta.url);
+const rehearsalDataVerifier = await readFile(rehearsalDataVerifierUrl, 'utf8');
+const rehearsalAttestationVerifierUrl = new URL('../../backend/scripts/verify-production-rehearsal-attestation.cjs', import.meta.url);
+const rehearsalAttestationVerifier = await readFile(rehearsalAttestationVerifierUrl, 'utf8');
+const productionEnvPreparationScriptUrl = new URL('../../backend/scripts/prepare-miniapp-production-env.cjs', import.meta.url);
+const productionEnvPreparationScript = await readFile(productionEnvPreparationScriptUrl, 'utf8');
 const backendDeployScript = await readFile(
   new URL('../deploy-backend-versioned.sh', import.meta.url),
   'utf8',
@@ -37,6 +49,13 @@ function jobBlock(name) {
   const remaining = workflow.slice(start + name.length + 3);
   const nextMatch = remaining.match(/\n  [a-zA-Z0-9_-]+:\n/);
   return workflow.slice(start, nextMatch ? start + name.length + 3 + nextMatch.index : undefined);
+}
+
+function runScript(scriptUrl, env) {
+  return spawnSync(process.execPath, [fileURLToPath(scriptUrl)], {
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+  });
 }
 
 test('main production deployment is manual and fail-closed', () => {
@@ -175,13 +194,145 @@ test('production migration creates and verifies a secret-safe database backup fi
   const migrateIndex = backendDeployScript.indexOf('npx --no-install prisma migrate deploy');
   assert.ok(backupIndex >= 0 && migrateIndex > backupIndex);
   assert.match(databaseBackupScript, /const BACKUP_ROOT = '\/www\/backup\/database\/aimaimai'/);
-  assert.match(databaseBackupScript, /run\('pg_dump'/);
-  assert.match(databaseBackupScript, /run\('pg_restore'/);
+  assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_dump'\)/);
+  assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_restore'\)/);
+  assert.match(databaseBackupScript, /\/www\/server\/pgsql\/bin/);
   assert.match(databaseBackupScript, /PGPASSWORD/);
   assert.match(databaseBackupScript, /sha256/);
   assert.match(databaseBackupScript, /verifiedDigest !== digest/);
+  assert.match(databaseBackupScript, /partialDir/);
+  assert.match(databaseBackupScript, /renameSync\(partialDir, backupDir\)/);
+  assert.match(databaseBackupScript, /fsyncPath\(BACKUP_ROOT\)/);
+  assert.match(databaseBackupScript, /backup-manifest\.json/);
+  assert.match(databaseBackupScript, /sourceIdentityHash/);
   assert.match(databaseBackupScript, /\.slice\(10\)/);
   assert.doesNotMatch(databaseBackupScript, /console\.log\([^\n]*DATABASE_URL/);
+});
+
+test('production migration readiness probe is read-only and covers destructive preconditions', () => {
+  assert.match(migrationReadinessScript, /\/www\/server\/pgsql\/bin\/psql/);
+  assert.match(migrationReadinessScript, /booking_duplicate_groups/);
+  assert.match(migrationReadinessScript, /address_users_multiple_active_defaults/);
+  assert.match(migrationReadinessScript, /address_users_active_without_default/);
+  assert.match(migrationReadinessScript, /default_transaction_read_only=on/);
+});
+
+test('database rehearsal can only restore into an explicitly isolated database', () => {
+  assert.match(databaseRehearsalScript, /\^aimaimai_rehearsal_/);
+  assert.match(databaseRehearsalScript, /\/www\/backup\/database\/aimaimai\//);
+  assert.match(databaseRehearsalScript, /rehearsal database already exists/);
+  assert.match(databaseRehearsalScript, /database backup checksum verification failed/);
+  assert.match(databaseRehearsalScript, /database backup was created from a different source database/);
+  assert.match(databaseRehearsalScript, /_aimaimai_rehearsal_provenance/);
+  assert.match(databaseRehearsalScript, /I_UNDERSTAND_THIS_USES_PRODUCTION_CLUSTER/);
+  assert.match(databaseRehearsalScript, /requiredFreeBytes/);
+  assert.match(databaseRehearsalScript, /pg_tablespace_location/);
+  assert.match(databaseRehearsalScript, /CREATE DATABASE/);
+  assert.match(databaseRehearsalScript, /OWNER \$\{quoteIdentifier\(appUser\)\}/);
+  assert.match(databaseRehearsalScript, /--exit-on-error/);
+  assert.match(databaseRehearsalScript, /DROP DATABASE/);
+  assert.doesNotMatch(databaseRehearsalScript, /DROP DATABASE.*current_database/i);
+});
+
+test('migration rehearsal cannot target the live production database name', () => {
+  assert.match(rehearsalMigrationScript, /\^aimaimai_rehearsal_/);
+  assert.match(rehearsalMigrationScript, /databaseUrl\.pathname = `\/\$\{rehearsalDatabase\}`/);
+  assert.match(rehearsalMigrationScript, /prisma', 'migrate', 'deploy/);
+  assert.match(rehearsalMigrationScript, /Following migrations have not yet been applied:/);
+  assert.match(rehearsalMigrationScript, /migration_count=/);
+  assert.match(rehearsalMigrationScript, /failed_migration_count=/);
+});
+
+test('rehearsal verifier checks business-row conservation and exact refund backfill', () => {
+  assert.match(rehearsalDataVerifier, /\^aimaimai_rehearsal_/);
+  assert.match(rehearsalDataVerifier, /baseline and migrated rehearsal databases must differ/);
+  assert.match(rehearsalDataVerifier, /primaryKeyHash/);
+  assert.match(rehearsalDataVerifier, /rowHash/);
+  assert.match(rehearsalDataVerifier, /business primary keys or stable row fields changed/);
+  assert.match(rehearsalDataVerifier, /refund side-effect historical backfill rows mismatch/);
+  assert.match(rehearsalDataVerifier, /default_transaction_read_only=on/);
+  assert.match(rehearsalDataVerifier, /migrationTreeSha256/);
+  assert.match(rehearsalDataVerifier, /migrationTreeGitObject/);
+  assert.match(rehearsalDataVerifier, /REHEARSAL_CANDIDATE_SHA/);
+  assert.match(rehearsalDataVerifier, /rehearsal checkout does not match/);
+  assert.match(rehearsalDataVerifier, /historical compatibility defaults were not preserved/);
+  assert.match(rehearsalDataVerifier, /rehearsal database provenance does not match/);
+  assert.match(rehearsalDataVerifier, /rehearsal migration checksums do not match/);
+  assert.match(rehearsalDataVerifier, /baseline migration checksums are not a valid subset/);
+  assert.match(rehearsalDataVerifier, /complete\) !== 120/);
+  assert.match(rehearsalDataVerifier, /failed\) !== 0/);
+});
+
+test('production deploy requires a fresh SHA-bound rehearsal attestation', () => {
+  assert.match(backendDeployScript, /RELEASE_SHA="\$RELEASE_SHA" node scripts\/verify-production-rehearsal-attestation\.cjs/);
+  assert.match(rehearsalAttestationVerifier, /candidate checkout does not match RELEASE_SHA/);
+  assert.match(rehearsalAttestationVerifier, /migration tree does not match the release candidate/);
+  assert.match(rehearsalAttestationVerifier, /migration Git tree does not match the release candidate/);
+  assert.match(rehearsalAttestationVerifier, /backup checksum no longer matches/);
+  assert.match(rehearsalAttestationVerifier, /backup source manifest no longer matches/);
+  assert.match(rehearsalAttestationVerifier, /older than 14 days/);
+  assert.match(rehearsalAttestationVerifier, /stableTableFingerprints/);
+  const stoppedIndex = backendDeployScript.indexOf('record_stage PM2_STOPPED');
+  const readinessIndex = backendDeployScript.indexOf('node scripts/inspect-miniapp-migration-readiness.cjs');
+  const backupIndex = backendDeployScript.indexOf('node scripts/create-production-database-backup.cjs');
+  assert.ok(stoppedIndex >= 0 && readinessIndex > stoppedIndex && backupIndex > readinessIndex);
+  assert.match(migrationReadinessScript, /active_connections\) !== 1/);
+  assert.match(migrationReadinessScript, /source database does not match production/);
+});
+
+test('database tools reject unsafe targets before opening a database connection', () => {
+  const invalidBackup = runScript(databaseBackupScriptUrl, { DATABASE_BACKUP_LABEL: 'bad' });
+  assert.notEqual(invalidBackup.status, 0);
+  assert.match(invalidBackup.stderr, /DATABASE_BACKUP_LABEL is invalid/);
+
+  const invalidRestoreTarget = runScript(databaseRehearsalScriptUrl, { REHEARSAL_DATABASE_NAME: 'aimaimai' });
+  assert.notEqual(invalidRestoreTarget.status, 0);
+  assert.match(invalidRestoreTarget.stderr, /isolated aimaimai_rehearsal_ prefix/);
+
+  const unapprovedBackup = runScript(databaseRehearsalScriptUrl, {
+    REHEARSAL_DATABASE_NAME: 'aimaimai_rehearsal_12345678',
+    DATABASE_BACKUP_PATH: '/tmp/not-an-approved-production-backup.dump',
+  });
+  assert.notEqual(unapprovedBackup.status, 0);
+  assert.match(unapprovedBackup.stderr, /outside the approved backup root or missing/);
+
+  const invalidMigrationTarget = runScript(rehearsalMigrationScriptUrl, { REHEARSAL_DATABASE_NAME: 'production' });
+  assert.notEqual(invalidMigrationTarget.status, 0);
+  assert.match(invalidMigrationTarget.stderr, /isolated aimaimai_rehearsal_ prefix/);
+
+  const identicalComparisonTargets = runScript(rehearsalDataVerifierUrl, {
+    BASELINE_DATABASE_NAME: 'aimaimai_rehearsal_12345678',
+    REHEARSAL_DATABASE_NAME: 'aimaimai_rehearsal_12345678',
+  });
+  assert.notEqual(identicalComparisonTargets.status, 0);
+  assert.match(identicalComparisonTargets.stderr, /baseline and migrated rehearsal databases must differ/);
+
+  const rehearsalAsProduction = runScript(migrationReadinessScriptUrl, {
+    DATABASE_URL: 'postgresql://user:secret@127.0.0.1:5432/aimaimai_rehearsal_12345678',
+  });
+  assert.notEqual(rehearsalAsProduction.status, 0);
+  assert.match(rehearsalAsProduction.stderr, /non-rehearsal production database/);
+  assert.doesNotMatch(rehearsalAsProduction.stderr, /secret/);
+
+  const invalidAttestationSha = runScript(rehearsalAttestationVerifierUrl, { RELEASE_SHA: 'not-a-full-sha' });
+  assert.notEqual(invalidAttestationSha.status, 0);
+  assert.match(invalidAttestationSha.stderr, /RELEASE_SHA must be a full commit SHA/);
+
+  const missingEnvConfirmation = runScript(productionEnvPreparationScriptUrl, {});
+  assert.notEqual(missingEnvConfirmation.status, 0);
+  assert.match(missingEnvConfirmation.stderr, /explicit production env preparation confirmation is missing/);
+});
+
+test('production miniapp env preparation is backup-first, atomic and does not restart PM2', () => {
+  assert.match(productionEnvPreparationScript, /before-miniapp-production/);
+  assert.match(productionEnvPreparationScript, /production env backup checksum changed/);
+  assert.match(productionEnvPreparationScript, /renameSync\(partialBackupDir, backupDir\)/);
+  assert.match(productionEnvPreparationScript, /fsyncPath\(BACKUP_ROOT\)/);
+  assert.match(productionEnvPreparationScript, /renameSync\(temporaryPath, ENV_PATH\)/);
+  assert.match(productionEnvPreparationScript, /chownSync\(temporaryPath, originalStat\.uid, originalStat\.gid\)/);
+  assert.match(productionEnvPreparationScript, /PREPARE_WITHOUT_RESTART/);
+  assert.match(productionEnvPreparationScript, /randomBytes\(32\)/);
+  assert.doesNotMatch(productionEnvPreparationScript, /node:child_process|\bpm2\b/i);
 });
 
 test('website, admin and seller keep rollback snapshots before static deployment', () => {

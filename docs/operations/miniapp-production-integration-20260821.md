@@ -154,7 +154,22 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 本节只证明本地代码闭包。Batch 1 仍不得发布，直到生产备份恢复到隔离 PostgreSQL 后完成全部 19 条 migration 演练、真实数据库并发套件、生产 PM2 只读预检、PITR/离机备份确认和用户再次批准。
 
-本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration，`prisma migrate status` 无待执行项；售后退款、普通树和利润安全三组真实数据库并发测试 7/7，通过同一环境的后端全量为 241 suites / 2942 tests。当前会话没有生产服务器 SSH 私钥，生产历史数据备份克隆、Booking/默认地址真实分布和 PM2 只读预检仍未执行。
+本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration，`prisma migrate status` 无待执行项；售后退款、普通树和利润安全三组真实数据库并发测试 7/7，通过同一环境的后端全量为 241 suites / 2942 tests。
+
+2026-08-22 生产只读/隔离演练证据（仍未 push、未部署、未迁移生产库）：
+
+- SSH 核对生产后端仍运行 `a0f478106995...`，PM2 `aimaimai-api-prod` 为 `online`、`NODE_ENV=production`，现网源目录无已跟踪修改；Node.js `20.20.2` 满足候选 `>=20.9.0` 门禁。
+- 生产库有 101 条成功 migration、0 条失败 migration；Booking 重复组为 0；多个活跃默认地址为 0；有活跃地址但无默认地址的用户为 0；活跃地址共 85 条。
+- 已生成 custom-format 生产备份 `20260822T000600Z-a0f478106995-before-2879f7c7de98-rehearsal.dump`，并通过 `pg_restore --list` 与双重 SHA-256 校验；备份目录权限 700、文件权限 600。
+- 已从该备份恢复 rehearsal 库 `aimaimai_rehearsal_2879f7c7_20260822`，且数据库所有者/恢复执行者使用正式应用数据库账号，以保证权限与正式 migration 一致。该库位于生产 PostgreSQL 同一集群，只隔离数据库名、不隔离主机资源；本次源库约 34 MB、操作前 `/www` 可用约 65 GB，未观察到 PM2 或公网商品接口异常。后续同集群演练必须显式确认并通过至少 5 GB / 源库 5 倍可用空间门禁，发布后按明确目标清理。
+- 宝塔 PostgreSQL CLI 位于 `/www/server/pgsql/bin` 而不在默认 PATH；备份、只读预检与 rehearsal 脚本已增加受控二进制定位、数据库级只读查询、目标前缀/备份 checksum/空间门禁和负向行为测试。
+- 隔离库已用候选锁文件安装 Prisma 工具，`prisma validate` 通过；迁移前准确识别 19 条待执行 migration，`migrate deploy` 全部成功，迁移后为 120 条完成、0 条失败、`migrate status` 无待执行项。
+- 初步核对显示迁移后 rehearsal 与当时在线生产库的 21 张核心业务表行数一致，`RefundSideEffectOutbox` 生成 10 个任务且两类总数一致；这不是同一快照的严格守恒证明，不能作为最终门禁。
+- 最终门禁必须在最终提交后重新生成带原子 `backup-manifest.json` 的新备份；现有 flat dump 只保留为早期演练证据，不能生成最终 attestation。新备份分别恢复未迁移 baseline 和 migrated target，对 23 张表做主键集合及去除预期新增列后的整行哈希，单独断言旧数据新增字段的 `APP`/`DELIVERY`/null 默认值，并逐条核对退款 ID、订单 ID、金额、类型、来源和状态。两库 provenance、120/101 条 migration checksum、最终 Git HEAD/clean/tree、备份 SHA/源数据库身份全部通过后，才生成 600 权限 attestation；生产部署缺少或不匹配时必须 fail-closed。
+- 演练后反查正式库仍为 101 条完成、0 条失败 migration，生产 Git SHA 仍为 `a0f478106995...`，PM2 为 `online`，正式商品接口 HTTP 200；本轮没有迁移正式库、没有重启 PM2、没有部署候选代码。
+- 生产备份、rehearsal 库和受限 rehearsal 目录暂时保留到最终基线核对与正式发布完成，便于复核；清理必须在发布完成后按明确目标单独执行。
+- 候选生产配置校验在现网 `.env` 上 fail-closed：缺正式订阅状态/代码路径检测、3 组订阅模板配置、微信提现 1005 场景配置、自提开关和独立自提密钥。仓库已提供备份优先、原子写入且不重启 PM2 的准备脚本；执行后仍必须重跑完整 preflight，不能只看配置文件文本。
+- 微信支付 APIv3 密钥虽然当前格式和既有支付链可用，但密码本已记录其历史暴露风险；正式放量前必须在微信商户平台完成轮换并同步生产配置。这是外部 provider 门禁，不能由代码测试替代。
 
 ## 9. Batch 2 本地后台证据（未 push / 未部署）
 

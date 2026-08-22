@@ -35,6 +35,12 @@ const validEnv = {
   WECHAT_MINIAPP_APP_ID: 'wx1b33112db0d5267b',
   WECHAT_MINIAPP_APP_SECRET: 'ci-only-miniapp-secret-never-log',
   WECHAT_MINIAPP_SUBSCRIBE_STATE: 'formal',
+  WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID: 'AaefuI_Uqp1qvX7fNuGbEe3w6Qe4b4M5SUpboeLXvNQ',
+  WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_FIELDS: JSON.stringify({ reference: 'character_string6', status: 'phrase18', remark: 'thing5', time: 'date4' }),
+  WECHAT_MINIAPP_SUBSCRIBE_AFTER_SALE_RESULT_TEMPLATE_ID: 'sAQM7NcmYHH6x1nxlqr_Fy2EBushICGBCt42XPsG04Q',
+  WECHAT_MINIAPP_SUBSCRIBE_AFTER_SALE_RESULT_FIELDS: JSON.stringify({ reference: 'character_string7', status: 'thing2', remark: 'thing5', time: 'time12' }),
+  WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_TEMPLATE_ID: '2zKL7siL8vg7U8t31koS272-CQBxTz9ePaXoi1vXAYU',
+  WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_FIELDS: JSON.stringify({ status: 'phrase2', remark: 'thing4', time: 'time3' }),
   WECHAT_MINIAPP_CODE_ENV_VERSION: 'release',
   WECHAT_MINIAPP_CODE_CHECK_PATH: 'true',
   WECHAT_PAY_APP_ID: 'wx0000000000000001',
@@ -108,6 +114,14 @@ test('miniapp production preflight rejects missing or mock provider configuratio
     ]),
   });
   assert.notEqual(wrongTransferReport.status, 0);
+
+  const missingSubscriptionTemplate = run({ WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID: '' });
+  assert.notEqual(missingSubscriptionTemplate.status, 0);
+
+  const mismatchedSubscriptionFields = run({
+    WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_FIELDS: JSON.stringify({ status: 'phrase2', time: 'time3' }),
+  });
+  assert.notEqual(mismatchedSubscriptionFields.status, 0);
 
   const sandboxSfEndpoint = run({ SF_API_URL: 'https://sfapi-sbox.sf-express.com/std/service' });
   assert.notEqual(sandboxSfEndpoint.status, 0);
