@@ -207,6 +207,12 @@ export class SellerProductsService {
     }
   }
 
+  private assertBundleSellingSkuCount(skus: Array<unknown>) {
+    if (skus.length !== 1) {
+      throw new BadRequestException('组合商品只能设置一个销售规格');
+    }
+  }
+
   private normalizeBundleItemsInput(
     bundleItems?: Array<{ skuId: string; quantity: number; sortOrder?: number }>,
   ): BundleItemInput[] {
@@ -292,6 +298,9 @@ export class SellerProductsService {
         validatedItems.map((item) => ({
           stock: skuMap.get(item.skuId)?.stock ?? 0,
           quantity: item.quantity,
+          skuStatus: item.sku.status,
+          productStatus: item.sku.product.status,
+          productAuditStatus: item.sku.product.auditStatus,
         })),
       );
       const bundleTotalWeightGram = this.productBundleService.calculateTotalWeightGram(
@@ -397,6 +406,9 @@ export class SellerProductsService {
           bundleItems.map((item: any) => ({
             stock: item.sku?.stock ?? 0,
             quantity: item.quantity,
+            skuStatus: item.sku?.status,
+            productStatus: item.sku?.product?.status,
+            productAuditStatus: item.sku?.product?.auditStatus,
           })),
         );
 
@@ -691,7 +703,9 @@ export class SellerProductsService {
 
     // 服务层兜底校验：所有 SKU 成本必须大于 0（DTO 已有 @Min(0.01)，此处防止绕过）
     this.assertPositiveSkuCosts(dto.skus);
-    if (!this.isBundleType(productType)) {
+    if (this.isBundleType(productType)) {
+      this.assertBundleSellingSkuCount(dto.skus);
+    } else {
       this.assertPositiveSkuWeights(dto.skus);
     }
 
@@ -1826,6 +1840,9 @@ export class SellerProductsService {
         }
 
         const bundleSeedSku = product.skus[0];
+        if (isBundleProduct) {
+          this.assertBundleSellingSkuCount(product.skus);
+        }
 
         // 组装 CreateProductDto 形状跑全量校验
         const candidate = {

@@ -179,6 +179,21 @@ function setupHappyPath(prisma: any, sfExpress: any, overrides?: {
 /* ================================================================== */
 
 describe('generateWaybill — 面单生成', () => {
+  it('reserve 遇到 P2034 时重试，顺丰创单仍只调用一次', async () => {
+    const { service, prisma, sfExpress } = createMocks();
+    setupHappyPath(prisma, sfExpress);
+    prisma.$transaction
+      .mockImplementationOnce(async () => {
+        throw { code: 'P2034' };
+      })
+      .mockImplementation((fn: any) => fn(prisma));
+
+    await service.generateWaybill(COMPANY_ID, STAFF_ID, ORDER_PAID, 'SF');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(sfExpress.createOrder).toHaveBeenCalledTimes(1);
+  });
+
   it('正常流程：PAID 订单生成面单，返回 waybillNo + printUrl', async () => {
     const { service, prisma, sfExpress } = createMocks();
     setupHappyPath(prisma, sfExpress);

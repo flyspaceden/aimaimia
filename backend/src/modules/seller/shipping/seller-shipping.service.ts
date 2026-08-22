@@ -21,6 +21,8 @@ import { NotificationService } from '../../notification/notification.service';
 import { fetchBinaryWithLimit } from '../../../common/utils/remote-binary-fetch.util';
 import { DEFAULT_SKU_WEIGHT_GRAM, GRAMS_PER_KG } from '../../../common/constants/shipping.constants';
 
+const WAYBILL_SERIALIZABLE_MAX_RETRIES = 6;
+
 export type CarrierWaybillAddress = {
   name: string;
   tel: string;
@@ -247,7 +249,7 @@ export class SellerShippingService {
     orderId: string,
     carrierCode: string,
   ): Promise<WaybillGenerationContext> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.withSerializableRetry(async (tx) => {
       await this.acquireWaybillGenerationLock(
         tx,
         `${companyId}:${orderId}`,
@@ -259,6 +261,9 @@ export class SellerShippingService {
 
       if (!order) {
         throw new NotFoundException('订单不存在');
+      }
+      if (order.fulfillmentMode === 'PICKUP') {
+        throw new BadRequestException('自提订单不能生成快递面单');
       }
 
       const orderItems = await tx.orderItem.findMany({
@@ -353,14 +358,14 @@ export class SellerShippingService {
         items,
         carrierCode,
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   private async persistGeneratedWaybill(
     context: WaybillGenerationContext,
     waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>,
   ): Promise<void> {
-    const cas = await this.prisma.$transaction(
+    const cas = await this.withSerializableRetry(
       (tx) => tx.shipment.updateMany({
         where: {
           id: context.shipmentId,
@@ -380,7 +385,6 @@ export class SellerShippingService {
           rawCarrierPayload: this.createCompletedWaybillGenerationPayload(context),
         },
       }),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     if (cas.count > 0) return;
@@ -545,7 +549,7 @@ export class SellerShippingService {
   private async clearWaybillGenerationMarker(
     context: WaybillGenerationContext,
   ): Promise<void> {
-    await this.prisma.$transaction(
+    await this.withSerializableRetry(
       (tx) => tx.shipment.updateMany({
         where: {
           id: context.shipmentId,
@@ -556,7 +560,6 @@ export class SellerShippingService {
         },
         data: { rawCarrierPayload: Prisma.DbNull },
       }),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -565,7 +568,7 @@ export class SellerShippingService {
     waybillResult: Awaited<ReturnType<SellerShippingService['createCarrierWaybill']>>,
     error: Error,
   ): Promise<void> {
-    await this.prisma.$transaction(
+    await this.withSerializableRetry(
       (tx) => tx.shipment.updateMany({
         where: {
           id: context.shipmentId,
@@ -588,8 +591,33 @@ export class SellerShippingService {
           } as Prisma.InputJsonValue,
         },
       }),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  private async withSerializableRetry<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 0; attempt < WAYBILL_SERIALIZABLE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 30_000,
+        });
+      } catch (error: any) {
+        if (
+          error?.code === 'P2034' &&
+          attempt < WAYBILL_SERIALIZABLE_MAX_RETRIES - 1
+        ) {
+          // advisory lock 可以串行同订单预留，但等锁事务可能已持有旧快照。
+          // 使用新事务退避重试，且仅在取得本地生成租约后才调用顺丰。
+          const delayMs = 25 * 2 ** attempt + Math.floor(Math.random() * 25);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('Waybill Serializable transaction retry exhausted');
   }
 
   private createCompletedWaybillGenerationPayload(
