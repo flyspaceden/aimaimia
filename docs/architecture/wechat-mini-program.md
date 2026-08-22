@@ -136,6 +136,7 @@
 - staging/production 双构建和 72 页 artifact 通过。
 - 总包 2.41 MiB，主包 1.262 MiB。
 - production artifact 仅含正式 API/WSS。
+- 小程序地址、默认地址、发票抬头和个人资料的 4 个 `PUT` 兼容路由与前端调用保持一致；App 原有 `PATCH` 路由并列保留。
 - Swiper 覆盖到 12.1.2，已消除对应 Critical；Taro 的 Vite/esbuild/webpack/uuid 构建工具链仍有 1 high + 12 moderate，需独立升级。
 - H5 InviteChoice 与 App 只读兼容均延期，不在本批 commit。
 - 候选已推送到 Draft PR #1，但尚未合并 `main`、部署生产后端、执行生产 migration、上传微信体验版或完成真机验收。

@@ -1972,4 +1972,5 @@
 - [ ] **MP-PROD07A** Swiper 12 真机门禁：商品详情图片轮播、VIP 礼包轮播的滑动、current/onChange、侧边距和返回恢复必须在微信真机通过；WeApp 使用原生 `<swiper>`、无 Swiper JS bundle只能降低风险，不能替代真机。
 - [ ] **MP-PROD08** 用户再次确认后才 push；按后端 → admin/seller → 小程序体验版 → H5 → 微信审核分阶段发布，每阶段记录 SHA、CI、线上健康与回滚点。
 - [x] **MP-PROD09** 双客户端与分支治理规范：`main` 设为唯一长期基线、`staging` 仅作测试 release train；AGENTS/branch-strategy/github操作/版本管理已禁止在固定目录开发和整体合并长期分叉。固定微信目录同步/重绑脚本与 zsh refspec 防回归已纳入候选，共 5 条 fail-closed 契约测试；旧 `staging@acc0e08c` 的远端 archive branch + annotated tag + `delivery/staging` 三重保全及通用 staging 重建仍需用户单独批准后执行。
-- [ ] **MP-PROD09A** GitHub 服务端分支保护：只读 API 复验 `main` 与 `staging` 当前均返回 `Branch not protected`。正式合并前必须单独配置 ruleset/branch protection：main 禁止删除/强推并要求 PR+Required Checks+review；staging 禁止直接开发/删除/普通强推；创建后再保护 `delivery/staging`。该外部状态变更需用户批准，不能由文档规则冒充完成。
+- [x] **MP-PROD09A** GitHub 服务端分支保护：main 已要求 PR、`e2e` + `checks`、对话解决，禁止删除/强推且管理员不绕过；仓库只有 1 名管理员，required approval 设为 0，避免自锁。staging 已要求同两项检查与线性历史，禁止删除/强推且管理员不绕过，同时保留已通过检查的同 SHA fast-forward promotion。当前 Delivery 保护将在 `delivery/staging` 经用户批准创建后立即启用；一次性 staging 重建前需另行临时调整 exact-lease 权限并在完成后恢复。
+- [x] **MP-PROD09B** staging 业务语义差异审查：逐路由比较发现生产候选遗漏 staging 的 4 个微信小程序 `PUT` 兼容接口（修改地址、设默认地址、修改发票抬头、修改个人资料），而 miniapp Repo 仍调用 PUT。已恢复与 staging 相同的并列 Controller 路由，保留 App 原 `PATCH` 不变，并把 4 条加入 backend route compatibility 守卫；修复前不得以文件分类审查冒充小程序功能完整。

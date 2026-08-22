@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Put, Patch, Post, Body, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
@@ -24,6 +24,15 @@ export class UserController {
 
   @Patch()
   updateProfile(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.userService.updateProfile(userId, dto);
+  }
+
+  /** 微信小程序 wx.request 不支持 PATCH。 */
+  @Put()
+  updateProfileFromMiniProgram(
     @CurrentUser('sub') userId: string,
     @Body() dto: UpdateProfileDto,
   ) {
