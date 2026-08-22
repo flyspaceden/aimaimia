@@ -10,6 +10,8 @@ on:
       - 'src/content/legal/**'
       - '.github/workflows/deploy-release.yml'
       - '.github/workflows/miniapp-ci.yml'
+      - 'scripts/deploy-backend-versioned.sh'
+      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
   push:
     branches: [main, staging, staging-next]
     paths:
@@ -19,6 +21,8 @@ on:
       - 'src/content/legal/**'
       - '.github/workflows/deploy-release.yml'
       - '.github/workflows/miniapp-ci.yml'
+      - 'scripts/deploy-backend-versioned.sh'
+      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
   workflow_dispatch:
     inputs:
       environment:
