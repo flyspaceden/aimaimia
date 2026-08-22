@@ -144,7 +144,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 - 18 条 staging-derived 主库 migration 与冻结的 `origin/staging@053f385e` 对应 SQL 对象哈希逐条一致；另有 1 条本次生产集成新增的自动退款副作用 outbox migration，合计 19 条；没有复制配送库 migration。
 - Prisma schema validate / client generate、Nest production build 通过。
-- staging 语义收口后的后端全量 Jest：260 suites / 3133 tests 通过；另 4 suites / 7 tests 按真实数据库配置跳过，并已在独立 PostgreSQL 18 临时库按 120 条 migration 全量部署后执行 5 suites / 9 tests 全部通过。
+- staging 语义收口后的后端全量 Jest：260 suites / 3134 tests 通过；另 4 suites / 7 tests 按真实数据库配置跳过，并已在独立 PostgreSQL 18 临时库按 120 条 migration 全量部署后执行 5 suites / 9 tests 全部通过。
 - `npm audit --omit=dev --audit-level=high` 为 0；图片处理升级后编译和上传/图片扫描冒烟通过。
 - 固化 `origin/main@aa8f5daa` 的 627 条 HTTP 路由，并纳入 Batch 0 新增的 `/health/live`、`/health/ready`，合计 629 条生产集成基线路由；当前候选零删除，小程序登录、普通/VIP/团购结算、自提凭证、平台/卖家核销路由均以并列接口增加。
 - Delivery 排除测试确认：无 `DeliveryModule`、配送数据库、配送门户、配送 JWT/SMS/微信配置；商城 `ShipmentModule`、顺丰和送货上门仍保留。
@@ -212,4 +212,4 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 - `scripts/__tests__/miniapp-staging-semantic-parity.json` 固定来源 SHA、42 个 blob 和允许差异清单；CI 使用完整 Git 历史，逐项验证 manifest blob 确实来自该 staging commit，并自动计算所有非 Delivery/非测试运行时差异必须精确等于 allowlist。未来改 JSON、漏列文件或核心 Service 偏离都会直接失败，不能再靠人工记忆。
 - 恢复 staging 已有的地址默认并发、预约/参团权限、客服资源归属、头像 URL/头像框、组合商品库存/返回结构、微信提现渠道查询、注销账号资金受益人围栏、团购返还、推荐来源、订单/支付/退款等测试；候选特有的可靠收货/退款 outbox 测试继续保留。
 
-验证证据：后端 260 suites / 3133 tests；真实 PostgreSQL 120 migrations + 5 suites / 9 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
+验证证据：后端 260 suites / 3134 tests；真实 PostgreSQL 120 migrations + 5 suites / 9 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
