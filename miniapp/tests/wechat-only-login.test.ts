@@ -42,4 +42,12 @@ describe('mini-program WeChat-first authentication boundary', () => {
     expect(adapter.match(/const attempt = beginAuthAttempt\(\)/g)).toHaveLength(3);
     expect(adapter).toContain('return persistSession(result, attempt)');
   });
+
+  it('does not expose an empty native authorization page as an account setting', () => {
+    const settings = readSource('src/packages/settings/index/index.tsx');
+
+    expect(settings).not.toContain('微信授权说明');
+    expect(settings).not.toContain('openWechatSettings');
+    expect(settings).not.toContain('Taro.openSetting');
+  });
 });

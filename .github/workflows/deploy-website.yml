@@ -173,7 +173,8 @@ jobs:
         run: |
           node --test \
             scripts/__tests__/deploy-backend-main-safety.test.mjs \
-            scripts/__tests__/production-delivery-exclusion.test.mjs
+            scripts/__tests__/production-delivery-exclusion.test.mjs \
+            scripts/__tests__/sync-staging-test-checkout.test.mjs
 
   deploy-website:
     needs: [detect-changes, release-approval, deploy-backend]

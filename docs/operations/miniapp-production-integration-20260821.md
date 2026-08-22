@@ -137,7 +137,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/production
 gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 ```
 
-## 8. Batch 1 本地集成证据（未 push / 未部署）
+## 8. Batch 1 集成证据（Draft PR #1 已 push / 未合并 main / 未部署）
 
 截至 2026-08-21，本地生产集成分支已完成后端兼容切片，但没有连接或修改生产数据库，也没有触发服务器部署：
 
@@ -156,7 +156,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration，`prisma migrate status` 无待执行项；售后退款、普通树和利润安全三组真实数据库并发测试 7/7，通过同一环境的后端全量为 241 suites / 2942 tests。
 
-2026-08-22 生产只读/隔离演练证据（仍未 push、未部署、未迁移生产库）：
+2026-08-22 生产只读/隔离演练证据（候选已 push，仍未合并 main、未部署、未迁移生产库）：
 
 - SSH 核对生产后端仍运行 `a0f478106995...`，PM2 `aimaimai-api-prod` 为 `online`、`NODE_ENV=production`，现网源目录无已跟踪修改；Node.js `20.20.2` 满足候选 `>=20.9.0` 门禁。
 - 生产库有 101 条成功 migration、0 条失败 migration；Booking 重复组为 0；多个活跃默认地址为 0；有活跃地址但无默认地址的用户为 0；活跃地址共 85 条。
@@ -167,13 +167,13 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 - 早期 flat dump 只保留为初步证据，不参与最终 attestation。最终候选已重新生成目录级原子 manifest 备份 `20260822T030000Z-a0f478106995-before-ca5e945f665a-final-rehearsal/database.dump`；manifest 绑定正式库 source identity、dump SHA-256、101 条 migration 基线和最新 migration。
 - 同一最终备份分别恢复 `aimaimai_rehearsal_baseline_ca5e945f_20260822` 与 `aimaimai_rehearsal_target_ca5e945f_20260822`，两库 provenance 均精确匹配该备份。target 的 19 条新增 migration 全部成功，最终为 120 条完成、0 条失败。
 - 最终严格核对通过：23 张表主键集合与去除预期新增列后的整行哈希一致；旧数据新增字段保持 `APP`/`DELIVERY`/null；10 个退款副作用任务按退款 ID、订单 ID、金额、类型、来源和状态逐条一致；target 120 条 checksum 等于最终候选，baseline 101 条为其合法子集。
-- 最终候选 Git HEAD/tracked-clean/migration tree、备份 manifest/SHA/source identity、双库 provenance 和数据守恒全部绑定，600 权限 attestation 已创建并验证。生产部署缺少、不匹配或超过有效期时必须 fail-closed。
+- `ca5e945f` 中间候选的 Git HEAD/tracked-clean/migration tree、备份 manifest/SHA/source identity、双库 provenance 和数据守恒曾全部绑定，600 权限 attestation 已创建并验证。此后候选 HEAD 已变化，因此该 attestation **不能**授权当前最终部署；最终 SHA 确定后必须复用同一可信备份/双库 provenance 重新运行数据 verifier 并签发 exact-head attestation。生产部署缺少、不匹配或超过有效期时必须 fail-closed。
 - 演练后反查正式库仍为 101 条完成、0 条失败 migration，生产 Git SHA 仍为 `a0f478106995...`，PM2 为 `online`，正式商品接口 HTTP 200；本轮没有迁移正式库、没有重启 PM2、没有部署候选代码。
 - 生产备份、rehearsal 库和受限 rehearsal 目录暂时保留到最终基线核对与正式发布完成，便于复核；清理必须在发布完成后按明确目标单独执行。
 - 生产 `.env` 已先做目录级原子备份，再补齐正式订阅状态/3 组模板、代码路径检测、微信提现 1005 场景、自提开关和独立随机自提密钥；实际 `dotenv` round-trip 与完整 production preflight 均通过。该动作没有重启 PM2，现网仍运行旧进程；发布时由不可变候选再次执行相同 preflight。
 - 微信支付 APIv3 密钥虽然当前格式和既有支付链可用，但密码本已记录其历史暴露风险；正式放量前必须在微信商户平台完成轮换并同步生产配置。这是外部 provider 门禁，不能由代码测试替代。
 
-## 9. Batch 2 本地后台证据（未 push / 未部署）
+## 9. Batch 2 后台证据（Draft PR #1 已 push / 未合并 main / 未部署）
 
 - 平台后台新增跨企业自提点管理、平台统一自提点、到店核销台、订单自提筛选/详情/备货/核销、微信提现与微信交易发货状态；页面和菜单按独立权限控制。
 - 卖家后台新增企业自提点管理、到店核销台、订单自提队列/详情/备货/核销；OWNER/MANAGER 管点位，OPERATOR 可核销但不可管理点位。
@@ -186,12 +186,12 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 Batch 2 只完成本地静态产物验证。必须等待 Batch 1 后端生产健康后，再登录 staging/production 角色账号完成浏览器摄像头权限、短码、错企业凭证、重复核销和无权限拒绝的真实 HTTP E2E。
 
-## 10. Batch 3 小程序本地证据（未 push / 未上传微信）
+## 10. Batch 3 小程序证据（Draft PR #1 已 push / 未合并 main / 未上传微信）
 
 - `miniapp/` 从冻结的 staging 快照逐文件移植；正式构建只使用独立 Taro 页面，不修改 React Native `app/` 或根 `src/`。
 - release-context 必须显式选择 channel：production fetch/校验 `origin/main`，staging fetch/校验 `origin/staging`；脏工作区、旧目标分支或未显式指定 channel 均 fail-closed。
 - 小程序 CI 在 main/staging 的 miniapp 变更上执行 npm ci、typecheck、lint、test，并分别构建 staging/production artifact；CI artifact 不等于微信上传、体验版或正式发布。
-- 本地 `npm run verify`：lint、TypeScript、55 个测试文件/302 个测试、staging+production 双构建和 72 页产物校验全部通过；总包 2.41 MiB，主包 1.262 MiB。
+- 本地 `npm run verify`：lint、TypeScript、55 个测试文件/303 个测试、staging+production 双构建和 72 页产物校验全部通过；总包 2.41 MiB，主包 1.262 MiB；已吸收 `origin/staging@acc0e08c` 删除无实际管理能力微信授权入口的最新小程序修复。
 - production artifact 只包含 `https://api.ai-maimai.com/api/v1` 与 `wss://api.ai-maimai.com`，未发现 test-api、test-ws、localhost、Delivery portal/module/config。
 - Swiper 从受影响的 11.1.15 最小覆盖为 12.1.2，Critical 审计项归零且小程序双构建通过。当前仍有 Vite 1 high + 12 moderate，来自 Taro 的 Vite/esbuild/webpack/uuid 构建工具链；不得用破坏性 `npm audit fix --force` 改变 Taro 主版本，需独立升级并做微信运行时回归。
 

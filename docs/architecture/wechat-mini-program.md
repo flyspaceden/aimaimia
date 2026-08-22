@@ -132,10 +132,10 @@
 
 2026-08-21 production-integration 本地验证：
 
-- 55 个测试文件、298 个测试通过。
+- 55 个测试文件、303 个测试通过；设置页不暴露没有实际可管理授权记录的微信原生授权入口。
 - staging/production 双构建和 72 页 artifact 通过。
 - 总包 2.41 MiB，主包 1.262 MiB。
 - production artifact 仅含正式 API/WSS。
 - Swiper 覆盖到 12.1.2，已消除对应 Critical；Taro 的 Vite/esbuild/webpack/uuid 构建工具链仍有 1 high + 12 moderate，需独立升级。
 - H5 InviteChoice 与 App 只读兼容均延期，不在本批 commit。
-- 尚未 push、部署生产后端、执行生产 migration、上传微信体验版或完成真机验收。
+- 候选已推送到 Draft PR #1，但尚未合并 `main`、部署生产后端、执行生产 migration、上传微信体验版或完成真机验收。
