@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProductBundleService } from '../product/product-bundle.service';
 
 @Injectable()
 export class RecommendationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private productBundleService: ProductBundleService,
+  ) {}
 
   /** 获取个性推荐（占位：返回最新上架商品 + 推荐理由） */
   async getForUser(userId: string) {
@@ -16,6 +20,7 @@ export class RecommendationService {
       orderBy: { createdAt: 'desc' },
       take: 6,
       include: {
+        company: { select: { name: true } },
         media: { where: { type: 'IMAGE' }, orderBy: { sortOrder: 'asc' }, take: 1 },
         tags: { include: { tag: true } },
         // 与 ProductService.list 保持一致：取全部 ACTIVE SKU + price/stock/maxPerOrder，
@@ -24,6 +29,19 @@ export class RecommendationService {
           where: { status: 'ACTIVE' },
           orderBy: { price: 'asc' },
           select: { id: true, price: true, stock: true, maxPerOrder: true },
+        },
+        bundleItems: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            quantity: true,
+            sku: {
+              select: {
+                stock: true,
+                status: true,
+                product: { select: { status: true, auditStatus: true } },
+              },
+            },
+          },
         },
       },
     });
@@ -41,11 +59,24 @@ export class RecommendationService {
       const firstImage = p.media?.[0]?.url || '';
       const activeSkus = p.skus || [];
       const firstSku = activeSkus[0];
+      const prices = activeSkus.map((sku) => sku.price).filter((price) => Number.isFinite(price));
+      const minPrice = prices.length ? Math.min(...prices) : p.basePrice;
+      const maxPrice = prices.length ? Math.max(...prices) : p.basePrice;
+      const cheapestSku = activeSkus.find((sku) => sku.price === minPrice) || firstSku;
       const tagNames = (p.tags || []).map((pt: any) => pt.tag?.name).filter(Boolean);
       const origin = p.origin as any;
 
       // 聚合库存 + 单笔限购（口径同 ProductService.mapToListItem）
       const stock = activeSkus.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+      const bundleAvailableStock = p.type === 'BUNDLE'
+        ? this.productBundleService.calculateAvailability((p.bundleItems || []).map((item) => ({
+            stock: item.sku?.stock ?? 0,
+            quantity: item.quantity,
+            skuStatus: item.sku?.status,
+            productStatus: item.sku?.product?.status,
+            productAuditStatus: item.sku?.product?.auditStatus,
+          })))
+        : null;
       let maxPerOrder: number | null = null;
       if (activeSkus.length > 0) {
         const limits = activeSkus.map((s) =>
@@ -60,15 +91,20 @@ export class RecommendationService {
         id: `rec-${p.id}`,
         product: {
           id: p.id,
+          type: p.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE',
           title: p.title,
-          price: firstSku?.price ?? p.basePrice,
-          defaultSkuId: firstSku?.id ?? null,
-          unit: origin?.unit || '斤',
+          price: minPrice,
+          defaultSkuId: cheapestSku?.id ?? null,
+          priceFrom: maxPrice > minPrice,
+          unit: p.unit || '斤',
           origin: origin?.text || origin?.name || '',
           image: firstImage,
           tags: tagNames.length > 0 ? tagNames : p.aiKeywords || [],
+          categoryId: p.categoryId,
           companyId: p.companyId,
+          companyName: p.company?.name || undefined,
           stock,
+          bundleAvailableStock,
           maxPerOrder,
         },
         reason: reasons[i % reasons.length],

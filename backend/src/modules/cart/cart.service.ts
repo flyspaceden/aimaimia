@@ -121,12 +121,15 @@ export class CartService {
             select: {
               id: true,
               title: true,
+              status: true,
               stock: true,
               weightGram: true,
               product: {
                 select: {
                   id: true,
                   title: true,
+                  status: true,
+                  auditStatus: true,
                   media: {
                     where: { type: 'IMAGE' as const },
                     orderBy: { sortOrder: 'asc' as const },
@@ -180,6 +183,9 @@ export class CartService {
       bundleItems.map((item: any) => ({
         stock: Number(item.sku?.stock ?? 0),
         quantity: Number(item.quantity ?? 0),
+        skuStatus: item.sku?.status,
+        productStatus: item.sku?.product?.status,
+        productAuditStatus: item.sku?.product?.auditStatus,
       })),
     );
   }
@@ -205,18 +211,10 @@ export class CartService {
   private mapBundleItems(bundleItems: any[] = []) {
     return bundleItems.map((item: any) => ({
       skuId: item.skuId,
-      quantity: item.quantity,
-      sku: {
-        id: item.sku?.id ?? '',
-        title: item.sku?.title ?? '',
-        stock: item.sku?.stock ?? 0,
-        weightGram: item.sku?.weightGram ?? 0,
-        product: {
-          id: item.sku?.product?.id ?? '',
-          title: item.sku?.product?.title ?? '',
-          image: item.sku?.product?.media?.[0]?.url ?? null,
-        },
-      },
+      productTitle: item.sku?.product?.title ?? '',
+      skuTitle: item.sku?.title ?? '',
+      quantityPerBundle: item.quantity,
+      image: item.sku?.product?.media?.[0]?.url ?? '',
     }));
   }
 
@@ -391,7 +389,7 @@ export class CartService {
     return this.getCart(userId);
   }
 
-  /** 小程序按购物车行精确更新，仅返回该行确认，避免并发响应覆盖整车。 */
+  /** 小程序按购物车行精确更新，仅返回该行确认，禁止并发响应覆盖整车。 */
   async updateItemQuantityById(userId: string, cartItemId: string, quantity: number) {
     return this.updateNormalItemQuantity(userId, { cartItemId }, quantity);
   }

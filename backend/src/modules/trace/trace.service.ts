@@ -7,6 +7,7 @@ export class TraceService {
 
   /** 查询商品溯源链 */
   async getProductTrace(productId: string) {
+    // 单次查询完成商品可见性校验和批次回读，避免两段查询之间状态变化。
     const product = await this.prisma.product.findFirst({
       where: {
         id: productId,
@@ -14,31 +15,31 @@ export class TraceService {
         auditStatus: 'APPROVED',
         company: { status: 'ACTIVE', isPlatform: false },
       },
-      select: { id: true, title: true },
-    });
-    if (!product) throw new NotFoundException('商品不存在');
-
-    // 通过 ProductTraceLink 查找关联的 TraceBatch
-    const traceLinks = await this.prisma.productTraceLink.findMany({
-      where: {
-        productId,
-        batch: { company: { status: 'ACTIVE', isPlatform: false } },
-      },
-      include: {
-        batch: {
+      select: {
+        id: true,
+        title: true,
+        productTraceLinks: {
+          where: {
+            batch: { company: { status: 'ACTIVE', isPlatform: false } },
+          },
           include: {
-            events: { orderBy: { occurredAt: 'asc' } },
-            ownershipClaim: true,
-            company: { select: { id: true, name: true } },
+            batch: {
+              include: {
+                events: { orderBy: { occurredAt: 'asc' } },
+                ownershipClaim: true,
+                company: { select: { id: true, name: true } },
+              },
+            },
           },
         },
       },
     });
+    if (!product) throw new NotFoundException('商品不存在');
 
     return {
       productId: product.id,
       productTitle: product.title,
-      batches: traceLinks.map((link) => this.mapBatch(link.batch, link.note)),
+      batches: product.productTraceLinks.map((link) => this.mapBatch(link.batch, link.note)),
     };
   }
 

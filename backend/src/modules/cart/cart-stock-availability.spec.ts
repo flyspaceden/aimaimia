@@ -1,14 +1,49 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CartService } from './cart.service';
 
-function buildBundleAvailability(items: Array<{ stock: number; quantity: number }>) {
+function buildBundleAvailability(items: Array<{
+  stock: number;
+  quantity: number;
+  skuStatus?: string;
+  productStatus?: string;
+  productAuditStatus?: string;
+}>) {
   if (items.length === 0) return 0;
   return Math.max(
     0,
     items.reduce(
-      (minAvailability, item) => Math.min(minAvailability, Math.floor(item.stock / item.quantity)),
+      (minAvailability, item) => {
+        const sellable =
+          (item.skuStatus === undefined || item.skuStatus === 'ACTIVE') &&
+          (item.productStatus === undefined || item.productStatus === 'ACTIVE') &&
+          (item.productAuditStatus === undefined || item.productAuditStatus === 'APPROVED');
+        return Math.min(minAvailability, Math.floor((sellable ? item.stock : 0) / item.quantity));
+      },
       Number.POSITIVE_INFINITY,
     ),
+  );
+}
+
+type BundleAvailabilityExpectation = {
+  stock: number;
+  quantity: number;
+  skuStatus?: string;
+  productStatus?: string;
+  productAuditStatus?: string;
+};
+
+function expectBundleAvailabilityCall(
+  productBundleService: { calculateAvailability: jest.Mock },
+  items: BundleAvailabilityExpectation[],
+) {
+  expect(productBundleService.calculateAvailability).toHaveBeenCalledWith(
+    items.map((item) => ({
+      stock: item.stock,
+      quantity: item.quantity,
+      skuStatus: item.skuStatus,
+      productStatus: item.productStatus,
+      productAuditStatus: item.productAuditStatus,
+    })),
   );
 }
 
@@ -16,11 +51,17 @@ function createBundleSku(options: {
   sellingStock?: number;
   componentStocks: number[];
   componentQuantities?: number[];
+  componentSkuStatuses?: string[];
+  componentProductStatuses?: string[];
+  componentProductAuditStatuses?: string[];
 }) {
   const {
     sellingStock = 0,
     componentStocks,
     componentQuantities = componentStocks.map(() => 1),
+    componentSkuStatuses = [],
+    componentProductStatuses = [],
+    componentProductAuditStatuses = [],
   } = options;
 
   return {
@@ -42,12 +83,15 @@ function createBundleSku(options: {
         sku: {
           id: `component-sku-${index + 1}`,
           title: `组件规格 ${index + 1}`,
+          ...(componentSkuStatuses[index] ? { status: componentSkuStatuses[index] } : {}),
           price: 100 + index,
           stock,
           weightGram: 200 + index,
           product: {
             id: `component-product-${index + 1}`,
             title: `组件商品 ${index + 1}`,
+            ...(componentProductStatuses[index] ? { status: componentProductStatuses[index] } : {}),
+            ...(componentProductAuditStatuses[index] ? { auditStatus: componentProductAuditStatuses[index] } : {}),
             media: [{ url: `https://img/${index + 1}.png` }],
           },
         },
@@ -131,6 +175,19 @@ function createService(
 }
 
 describe('CartService stock availability', () => {
+  it('queries cart rows in a stable createdAt and id order', async () => {
+    const { service, prisma } = createService(10, { mockGetCart: false });
+    jest.spyOn(service as any, 'cleanExpiredPrizeItems').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'forceOutOfStockNormalItemsUnselected').mockResolvedValue(undefined);
+
+    await service.getCart('user1');
+
+    expect(prisma.cartItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { cartId: 'cart1' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }));
+  });
+
   it('rejects adding zero-stock normal SKU', async () => {
     const { service } = createService(0);
     await expect(service.addItem('user1', 'sku-zero', 1)).rejects.toBeInstanceOf(BadRequestException);
@@ -183,7 +240,7 @@ describe('CartService stock availability', () => {
       items: [],
     });
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 2, quantity: 1 },
       { stock: 4, quantity: 2 },
     ]);
@@ -205,7 +262,7 @@ describe('CartService stock availability', () => {
 
     await expect(service.addItem('user1', 'bundle-sku', 1)).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 0, quantity: 1 },
       { stock: 10, quantity: 1 },
     ]);
@@ -238,7 +295,7 @@ describe('CartService stock availability', () => {
 
     await expect(service.toggleSelect('user1', 'bundle-sku', true)).rejects.toThrow('暂无库存');
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 0, quantity: 1 },
       { stock: 10, quantity: 1 },
     ]);
@@ -269,7 +326,7 @@ describe('CartService stock availability', () => {
 
     await expect(service.toggleSelect('user1', 'bundle-sku', true)).rejects.toThrow('暂无库存');
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 1, quantity: 1 },
       { stock: 10, quantity: 1 },
     ]);
@@ -312,7 +369,7 @@ describe('CartService stock availability', () => {
       BadRequestException,
     );
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 1, quantity: 1 },
       { stock: 2, quantity: 2 },
     ]);
@@ -397,7 +454,7 @@ describe('CartService stock availability', () => {
 
     const cart = await service.getCart('user1');
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 0, quantity: 1 },
       { stock: 8, quantity: 1 },
     ]);
@@ -414,35 +471,56 @@ describe('CartService stock availability', () => {
     expect((cart.items[0].product as any).bundleItems).toEqual([
       {
         skuId: 'component-sku-1',
-        quantity: 1,
-        sku: {
-          id: 'component-sku-1',
-          title: '组件规格 1',
-          stock: 0,
-          weightGram: 200,
-          product: {
-            id: 'component-product-1',
-            title: '组件商品 1',
-            image: 'https://img/1.png',
-          },
-        },
+        productTitle: '组件商品 1',
+        skuTitle: '组件规格 1',
+        quantityPerBundle: 1,
+        image: 'https://img/1.png',
       },
       {
         skuId: 'component-sku-2',
-        quantity: 1,
-        sku: {
-          id: 'component-sku-2',
-          title: '组件规格 2',
-          stock: 8,
-          weightGram: 201,
-          product: {
-            id: 'component-product-2',
-            title: '组件商品 2',
-            image: 'https://img/2.png',
-          },
-        },
+        productTitle: '组件商品 2',
+        skuTitle: '组件规格 2',
+        quantityPerBundle: 1,
+        image: 'https://img/2.png',
       },
     ]);
+  });
+
+  it('marks bundle cart item OUT_OF_STOCK when a component SKU is inactive', async () => {
+    const bundleSku = createBundleSku({
+      sellingStock: 99,
+      componentStocks: [8, 8],
+      componentSkuStatuses: ['INACTIVE', 'ACTIVE'],
+    });
+    const bundleItem = {
+      id: 'ci-bundle',
+      cartId: 'cart1',
+      skuId: 'bundle-sku',
+      quantity: 1,
+      isPrize: false,
+      isSelected: true,
+      sku: bundleSku,
+    };
+    const { service, prisma, productBundleService } = createService(0, {
+      mockGetCart: false,
+      sku: bundleSku,
+      cartItem: bundleItem,
+    });
+    prisma.cartItem.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([bundleItem])
+      .mockResolvedValueOnce([{ ...bundleItem, isSelected: false }]);
+
+    const cart = await service.getCart('user1');
+
+    expectBundleAvailabilityCall(productBundleService, [
+      { stock: 8, quantity: 1, skuStatus: 'INACTIVE', productStatus: undefined, productAuditStatus: undefined },
+      { stock: 8, quantity: 1, skuStatus: 'ACTIVE', productStatus: undefined, productAuditStatus: undefined },
+    ]);
+    expect(cart.items[0].stockStatus).toBe('OUT_OF_STOCK');
+    expect(cart.items[0].unavailableReason).toBe('OUT_OF_STOCK');
+    expect(cart.items[0].selectable).toBe(false);
+    expect(cart.items[0].product.stock).toBe(0);
   });
 
   it('marks bundle cart item OUT_OF_STOCK when cart quantity exceeds positive component-derived availability', async () => {
@@ -471,7 +549,7 @@ describe('CartService stock availability', () => {
 
     const cart = await service.getCart('user1');
 
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 1, quantity: 1 },
       { stock: 8, quantity: 1 },
     ]);
@@ -498,6 +576,45 @@ describe('CartService stock availability', () => {
       where: { id: 'ci1' },
       data: { quantity: 1 },
     });
+  });
+
+  it('updates the exact normal cart row by cartItemId and returns an isolated acknowledgement', async () => {
+    const { service, prisma } = createService(10);
+
+    await expect(service.updateItemQuantityById('user1', 'ci1', 4)).resolves.toEqual({
+      cartItemId: 'ci1',
+      skuId: 'sku-zero',
+      quantity: 4,
+    });
+
+    expect(prisma.cartItem.findFirst).toHaveBeenCalledWith({
+      where: { id: 'ci1', cartId: 'cart1', isPrize: false },
+    });
+    expect(prisma.cartItem.update).toHaveBeenCalledWith({
+      where: { id: 'ci1' },
+      data: { quantity: 4 },
+    });
+    expect(service.getCart).not.toHaveBeenCalled();
+  });
+
+  it('does not expose or update another cart or prize row through cartItemId', async () => {
+    const { service, prisma } = createService(10);
+    prisma.cartItem.findFirst.mockResolvedValue(null);
+
+    await expect(service.updateItemQuantityById('user1', 'foreign-or-prize', 2))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.cartItem.update).not.toHaveBeenCalled();
+  });
+
+  it('retries cartItemId quantity updates when Serializable transaction hits P2034', async () => {
+    const { service, prisma } = createService(10, {
+      transactionFailures: [{ code: 'P2034' }],
+    });
+
+    await service.updateItemQuantityById('user1', 'ci1', 3);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.cartItem.update).toHaveBeenCalledTimes(1);
   });
 
   it('retries selecting when Serializable transaction hits P2034', async () => {
@@ -530,7 +647,7 @@ describe('CartService stock availability', () => {
     });
 
     expect(merged).toBe(false);
-    expect(productBundleService.calculateAvailability).toHaveBeenCalledWith([
+    expectBundleAvailabilityCall(productBundleService, [
       { stock: 0, quantity: 1 },
       { stock: 3, quantity: 1 },
     ]);

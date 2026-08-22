@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { CsSessionStatus, CsMessageSender, CsContentType } from '@prisma/client';
+import { CsSessionStatus, CsMessageSender, CsContentType, CsSessionSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CsRoutingService } from './cs-routing.service';
 import { CsAgentService } from './cs-agent.service';
@@ -13,6 +13,11 @@ type BuyerSessionScope = 'active' | 'history' | 'all';
 
 const BUYER_ACTIVE_SESSION_STATUSES: CsSessionStatus[] = ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'];
 const BUYER_UNREAD_SENDERS: CsMessageSender[] = ['AI', 'AGENT', 'SYSTEM'];
+const BUYER_CREATABLE_SESSION_SOURCES: CsSessionSource[] = [
+  'MY_PAGE',
+  'ORDER_DETAIL',
+  'AFTERSALE_DETAIL',
+];
 
 @Injectable()
 export class CsService {
@@ -41,15 +46,18 @@ export class CsService {
    * - 同一用户多端同时点客服 → 两个事务争抢，一个成功，另一个收到序列化冲突错误
    * - 失败的事务重试一次，第二次会找到已创建的会话并复用
    */
-  async createSession(userId: string, source: string, sourceId?: string) {
+  async createSession(userId: string, source: CsSessionSource, sourceId?: string) {
+    const normalizedSourceId = sourceId?.trim() || undefined;
     const tryCreate = async (): Promise<{ sessionId: string; isExisting: boolean }> => {
       return this.prisma.$transaction(
         async (tx) => {
+          await this.assertBuyerCanCreateSession(tx, userId, source, normalizedSourceId);
+
           const existing = await tx.csSession.findFirst({
             where: {
               userId,
-              source: source as any,
-              sourceId: sourceId || null,
+              source,
+              sourceId: normalizedSourceId || null,
               status: { in: ['AI_HANDLING', 'QUEUING', 'AGENT_HANDLING'] },
             },
             include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -89,7 +97,7 @@ export class CsService {
           }
 
           const session = await tx.csSession.create({
-            data: { userId, source: source as any, sourceId: sourceId || null },
+            data: { userId, source, sourceId: normalizedSourceId || null },
           });
 
           return { sessionId: session.id, isExisting: false };
@@ -103,10 +111,57 @@ export class CsService {
     } catch (err: any) {
       // Postgres 序列化冲突（并发创建会话）→ 重试一次，第二次会找到已创建的会话
       if (err?.code === 'P2034' || err?.message?.includes('serialization')) {
-        this.logger.warn(`createSession 序列化冲突，重试: ${userId}/${source}/${sourceId}`);
+        this.logger.warn(`createSession 序列化冲突，重试: ${userId}/${source}/${normalizedSourceId}`);
         return await tryCreate();
       }
       throw err;
+    }
+  }
+
+  /**
+   * 买家创建客服会话的权威入口校验。ADMIN_OUTREACH 只能由管理端专用服务创建。
+   * 订单和售后同时约束 ID 与 userId，对“不存在”和“非本人”统一返回 NotFound。
+   */
+  private async assertBuyerCanCreateSession(
+    tx: any,
+    userId: string,
+    source: CsSessionSource,
+    sourceId?: string,
+  ): Promise<void> {
+    if (!BUYER_CREATABLE_SESSION_SOURCES.includes(source)) {
+      throw new BadRequestException('不允许创建此来源的客服会话');
+    }
+
+    if (source === 'MY_PAGE') {
+      if (sourceId) throw new BadRequestException('我的咨询不接受关联编号');
+      return;
+    }
+
+    if (!sourceId) throw new BadRequestException('关联编号缺失');
+
+    if (source === 'ORDER_DETAIL') {
+      const order = await tx.order.findFirst({
+        where: { id: sourceId, userId },
+        select: { id: true },
+      });
+      if (!order) throw new NotFoundException('关联资源不存在');
+      return;
+    }
+
+    const afterSale = await tx.afterSaleRequest.findFirst({
+      where: {
+        id: sourceId,
+        userId,
+        order: { userId },
+      },
+      select: {
+        id: true,
+        userId: true,
+        order: { select: { userId: true } },
+      },
+    });
+    if (!afterSale || afterSale.userId !== userId || afterSale.order.userId !== userId) {
+      throw new NotFoundException('关联资源不存在');
     }
   }
 
@@ -197,6 +252,15 @@ export class CsService {
         sourceId: true,
         agentId: true,
         closedAt: true,
+        rating: {
+          select: {
+            id: true,
+            score: true,
+            tags: true,
+            comment: true,
+            createdAt: true,
+          },
+        },
       },
     });
     if (!session) throw new NotFoundException('会话不存在');
@@ -521,11 +585,33 @@ export class CsService {
 
   /** 提交满意度评价 */
   async submitRating(sessionId: string, userId: string, score: number, tags: string[], comment?: string) {
-    const session = await this.prisma.csSession.findUnique({ where: { id: sessionId } });
-    if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "CsSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const session = await tx.csSession.findUnique({
+        where: { id: sessionId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          rating: {
+            select: {
+              id: true,
+              score: true,
+              tags: true,
+              comment: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+      if (!session || session.userId !== userId) throw new NotFoundException('会话不存在');
+      if (session.status !== 'CLOSED') throw new BadRequestException('会话结束后才能评价');
+      if (session.rating) return { ...session.rating, alreadyRated: true };
 
-    return this.prisma.csRating.create({
-      data: { sessionId, userId, score, tags, comment },
+      const rating = await tx.csRating.create({
+        data: { sessionId, userId, score, tags, comment },
+      });
+      return { ...rating, alreadyRated: false };
     });
   }
 
@@ -636,8 +722,8 @@ export class CsService {
     if (session.source === 'ORDER_DETAIL' && session.sourceId) {
       context.orderId = session.sourceId;
       try {
-        const order = await this.prisma.order.findUnique({
-          where: { id: session.sourceId },
+        const order = await this.prisma.order.findFirst({
+          where: { id: session.sourceId, userId: session.userId },
           select: {
             id: true,
             status: true,
@@ -684,62 +770,62 @@ export class CsService {
           },
         });
 
-        if (order) {
-          // 精简成 AI 友好的结构：去掉冗余字段，提取商品名称
-          const items = order.items.map((item: any) => {
-            const snapshot = item.productSnapshot as any;
-            return {
-              name: snapshot?.title ?? snapshot?.name ?? '商品',
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-            };
-          });
+        if (!order) throw new NotFoundException('关联资源不存在');
+        // 精简成 AI 友好的结构：去掉冗余字段，提取商品名称
+        const items = order.items.map((item: any) => {
+          const snapshot = item.productSnapshot as any;
+          return {
+            name: snapshot?.title ?? snapshot?.name ?? '商品',
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          };
+        });
 
-          const address = order.addressSnapshot as any;
-          const addressSummary = address
-            ? `${address.province ?? ''}${address.city ?? ''}${address.district ?? ''}`.trim() || null
-            : null;
+        const address = order.addressSnapshot as any;
+        const addressSummary = address
+          ? `${address.province ?? ''}${address.city ?? ''}${address.district ?? ''}`.trim() || null
+          : null;
 
-          const shipment = order.shipments?.[0];
-          const shipmentInfo = shipment
+        const shipment = order.shipments?.[0];
+        const shipmentInfo = shipment
+          ? {
+              carrier: shipment.carrierName,
+              carrierCompany: shipment.company?.name,
+              trackingNo: shipment.trackingNo || shipment.waybillNo,
+              status: shipment.status,
+              shippedAt: shipment.shippedAt,
+              deliveredAt: shipment.deliveredAt,
+            }
+          : null;
+
+        const afterSale = order.afterSaleRequests?.[0];
+
+        context.orderInfo = {
+          id: order.id,
+          status: order.status,
+          totalAmount: order.totalAmount,
+          goodsAmount: order.goodsAmount,
+          shippingFee: order.shippingFee,
+          discountAmount: order.discountAmount,
+          paidAt: order.paidAt,
+          deliveredAt: order.deliveredAt,
+          createdAt: order.createdAt,
+          itemCount: items.length,
+          items,
+          address: addressSummary,
+          shipment: shipmentInfo,
+          pendingAfterSale: afterSale
             ? {
-                carrier: shipment.carrierName,
-                carrierCompany: shipment.company?.name,
-                trackingNo: shipment.trackingNo || shipment.waybillNo,
-                status: shipment.status,
-                shippedAt: shipment.shippedAt,
-                deliveredAt: shipment.deliveredAt,
+                id: afterSale.id,
+                status: afterSale.status,
+                type: afterSale.afterSaleType,
+                reason: afterSale.reason,
+                refundAmount: afterSale.refundAmount,
               }
-            : null;
-
-          const afterSale = order.afterSaleRequests?.[0];
-
-          context.orderInfo = {
-            id: order.id,
-            status: order.status,
-            totalAmount: order.totalAmount,
-            goodsAmount: order.goodsAmount,
-            shippingFee: order.shippingFee,
-            discountAmount: order.discountAmount,
-            paidAt: order.paidAt,
-            deliveredAt: order.deliveredAt,
-            createdAt: order.createdAt,
-            itemCount: items.length,
-            items,
-            address: addressSummary,
-            shipment: shipmentInfo,
-            pendingAfterSale: afterSale
-              ? {
-                  id: afterSale.id,
-                  status: afterSale.status,
-                  type: afterSale.afterSaleType,
-                  reason: afterSale.reason,
-                  refundAmount: afterSale.refundAmount,
-                }
-              : null,
-          } as any;
-        }
+            : null,
+        } as any;
       } catch (e: any) {
+        if (e instanceof NotFoundException) throw e;
         this.logger.warn(`构建订单上下文失败 ${session.sourceId}: ${e?.message}`);
       }
     }
@@ -747,8 +833,12 @@ export class CsService {
     if (session.source === 'AFTERSALE_DETAIL' && session.sourceId) {
       context.afterSaleId = session.sourceId;
       try {
-        const afterSale = await this.prisma.afterSaleRequest.findUnique({
-          where: { id: session.sourceId },
+        const afterSale = await this.prisma.afterSaleRequest.findFirst({
+          where: {
+            id: session.sourceId,
+            userId: session.userId,
+            order: { userId: session.userId },
+          },
           select: {
             id: true,
             status: true,
@@ -771,27 +861,27 @@ export class CsService {
             },
           },
         });
-        if (afterSale) {
-          const items = afterSale.order?.items.map((item: any) => {
-            const snapshot = item.productSnapshot as any;
-            return {
-              name: snapshot?.title ?? snapshot?.name ?? '商品',
-              quantity: item.quantity,
-            };
-          }) ?? [];
-          context.afterSaleInfo = {
-            id: afterSale.id,
-            status: afterSale.status,
-            type: afterSale.afterSaleType,
-            reason: afterSale.reason,
-            refundAmount: afterSale.refundAmount,
-            createdAt: afterSale.createdAt,
-            orderId: afterSale.order?.id,
-            orderStatus: afterSale.order?.status,
-            orderItems: items,
-          } as any;
-        }
+        if (!afterSale) throw new NotFoundException('关联资源不存在');
+        const items = afterSale.order?.items.map((item: any) => {
+          const snapshot = item.productSnapshot as any;
+          return {
+            name: snapshot?.title ?? snapshot?.name ?? '商品',
+            quantity: item.quantity,
+          };
+        }) ?? [];
+        context.afterSaleInfo = {
+          id: afterSale.id,
+          status: afterSale.status,
+          type: afterSale.afterSaleType,
+          reason: afterSale.reason,
+          refundAmount: afterSale.refundAmount,
+          createdAt: afterSale.createdAt,
+          orderId: afterSale.order?.id,
+          orderStatus: afterSale.order?.status,
+          orderItems: items,
+        } as any;
       } catch (e: any) {
+        if (e instanceof NotFoundException) throw e;
         this.logger.warn(`构建售后上下文失败 ${session.sourceId}: ${e?.message}`);
       }
     }

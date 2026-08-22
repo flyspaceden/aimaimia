@@ -136,6 +136,11 @@ function createHarness(options: {
   const metrics: any[] = [];
 
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([{
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+    }]),
     captainProfile: { findMany: jest.fn() },
     captainOrderAttribution: {
       findMany: jest.fn(async ({ where, distinct }: any = {}) => {

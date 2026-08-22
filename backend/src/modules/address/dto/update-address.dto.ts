@@ -25,7 +25,7 @@ export class UpdateAddressDto {
 
   @IsOptional()
   @IsString({ message: 'regionCode 必须为字符串' })
-  @MaxLength(32, { message: 'regionCode 不能超过 32 个字符' })
+  @Matches(/^\d{6}$/, { message: 'regionCode 必须为 6 位行政区划代码' })
   regionCode?: string;
 
   @IsOptional()

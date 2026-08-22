@@ -44,11 +44,14 @@ type ListableProduct = {
       id: string;
       title?: string | null;
       price?: number | null;
+      status?: string | null;
       stock?: number | null;
       weightGram?: number | null;
       product?: {
         id: string;
         title?: string | null;
+        status?: string | null;
+        auditStatus?: string | null;
         media?: Array<{ url: string }>;
       } | null;
     } | null;
@@ -105,7 +108,9 @@ export class ProductService {
     const where: any = {
       status: 'ACTIVE',
       auditStatus: 'APPROVED',
-      company: { status: 'ACTIVE', isPlatform: false }, // F4 + 企业停用/删除可见性隔离
+      // 买家端只能看到正常营业的非平台企业商品。仅过滤商品本身
+      // 会让已停业/封禁企业的旧商品继续通过搜索和深链暴露。
+      company: { status: 'ACTIVE', isPlatform: false },
     };
 
     if (categoryScopeIds.length > 0) {
@@ -172,12 +177,15 @@ export class ProductService {
               id: true,
               title: true,
               price: true,
+              status: true,
               stock: true,
               weightGram: true,
               product: {
                 select: {
                   id: true,
                   title: true,
+                  status: true,
+                  auditStatus: true,
                   media: {
                     where: { type: 'IMAGE' as const },
                     orderBy: { sortOrder: 'asc' as const },
@@ -293,6 +301,8 @@ export class ProductService {
             this.logger.log(`[PinyinFallback] "${normalizedKeyword}" → 拼音匹配到 ${pinyinMatches.length} 个商品: ${pinyinMatches.map(p => p.title).join(', ')}`);
             const pinyinIds = pinyinMatches.map((p) => p.id);
             const pinyinProducts = await this.prisma.product.findMany({
+              // 二段查询再次带完整可见性条件，防止企业暂停/商品下架
+              // 恰好发生在候选 ID 查询与详情回读之间。
               where: {
                 id: { in: pinyinIds },
                 status: 'ACTIVE',
@@ -381,12 +391,15 @@ export class ProductService {
                 id: true,
                 title: true,
                 price: true,
+                status: true,
                 stock: true,
                 weightGram: true,
                 product: {
                   select: {
                     id: true,
                     title: true,
+                    status: true,
+                    auditStatus: true,
                     media: {
                       where: { type: 'IMAGE' as const },
                       orderBy: { sortOrder: 'asc' as const },
@@ -1108,6 +1121,9 @@ export class ProductService {
       bundleItems.map((item: any) => ({
         stock: item.sku?.stock ?? 0,
         quantity: item.quantity,
+        skuStatus: item.sku?.status,
+        productStatus: item.sku?.product?.status,
+        productAuditStatus: item.sku?.product?.auditStatus,
       })),
     );
 

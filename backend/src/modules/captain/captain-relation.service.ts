@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  acquireUserWriteLock,
+  assertActiveUserWriteBarrier,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 import { CAPTAIN_SEAFOOD_PROGRAM_CODE } from './captain.constants';
 
 interface CreateCaptainProfileInput {
@@ -30,6 +35,7 @@ export class CaptainRelationService {
     tx: Prisma.TransactionClient,
     input: CreateCaptainProfileInput,
   ) {
+    await assertActiveUserWriteBarrier(tx, input.userId);
     const captainCode = this.normalizeCaptainCode(input.captainCode || this.generateCaptainCode());
 
     const user = await tx.user.findUnique({
@@ -109,6 +115,18 @@ export class CaptainRelationService {
       });
       if (!directCaptain) {
         throw new NotFoundException('团长码无效或已停用');
+      }
+      const lockedUserIds = [
+        ...new Set([input.buyerUserId, directCaptain.userId]),
+      ].sort();
+      for (const lockedUserId of lockedUserIds) {
+        await acquireUserWriteLock(tx, lockedUserId);
+      }
+      if (
+        !(await isActiveUserInTransaction(tx, input.buyerUserId))
+        || !(await isActiveUserInTransaction(tx, directCaptain.userId))
+      ) {
+        throw new BadRequestException('团长码无效或账号状态不允许绑定');
       }
       if (directCaptain.userId === input.buyerUserId) {
         throw new BadRequestException('不能绑定自己为团长');

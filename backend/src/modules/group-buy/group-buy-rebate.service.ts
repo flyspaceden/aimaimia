@@ -4,6 +4,10 @@ import { GroupBuyActivityStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { decryptJsonValue } from '../../common/security/encryption';
 import { NotificationService } from '../notification/notification.service';
+import {
+  acquireUserWriteLock,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 
 type WithdrawSnapshotSource = 'UNIFIED_POINTS' | 'GROUP_BUY_REBATE_LEGACY';
 
@@ -249,6 +253,22 @@ export class GroupBuyRebateService {
     }
 
     const instance = referral.instance as any;
+    await acquireUserWriteLock(tx, instance.userId);
+    if (!(await isActiveUserInTransaction(tx, instance.userId))) {
+      await tx.groupBuyReferral.update({
+        where: { id: referral.id },
+        data: {
+          status: 'INVALID',
+          invalidReason: 'BENEFICIARY_ACCOUNT_INACTIVE',
+          invalidatedAt: now,
+        },
+      });
+      return {
+        status: 'BENEFICIARY_INACTIVE',
+        candidateSequence: Number((referral as any).candidateSequence),
+        amount: 0,
+      };
+    }
     const rebateSourceInstance = this.getRebateSourceInstance(referral);
     const candidateSequence = Number((referral as any).candidateSequence);
     const tier = this.findTierByCandidateSequence(
@@ -342,6 +362,16 @@ export class GroupBuyRebateService {
     }
 
     const instance = referral.instance as any;
+    await acquireUserWriteLock(tx, instance.userId);
+    if (!(await isActiveUserInTransaction(tx, instance.userId))) {
+      return this.invalidateCandidate(
+        tx,
+        referral.id,
+        instance.id,
+        'BENEFICIARY_ACCOUNT_INACTIVE',
+        now,
+      );
+    }
     if (this.hasActivityEnded(instance.activity, now)) {
       return this.invalidateCandidate(
         tx,

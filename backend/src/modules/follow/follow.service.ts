@@ -37,7 +37,11 @@ export class FollowService {
     const [companies, users] = await Promise.all([
       companyIds.length > 0
         ? this.prisma.company.findMany({
-            where: { id: { in: companyIds }, status: 'ACTIVE', isPlatform: false },
+            where: {
+              id: { in: companyIds },
+              status: 'ACTIVE',
+              isPlatform: false,
+            },
             include: { profile: true },
           })
         : [],
@@ -161,6 +165,7 @@ export class FollowService {
     });
 
     if (authorType === 'COMPANY' || authorType === 'company') {
+      // 重复可见性条件，关闭 resolveAuthorType 与详情回读之间的 TOCTOU 窗口。
       const company = await this.prisma.company.findFirst({
         where: { id: authorId, status: 'ACTIVE', isPlatform: false },
         include: { profile: true },

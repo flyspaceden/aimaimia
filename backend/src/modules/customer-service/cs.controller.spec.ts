@@ -30,9 +30,9 @@ describe('CsController', () => {
     const { controller, csService } = createMocks();
     csService.createSession.mockResolvedValue({ sessionId: 'sess-1', isExisting: false });
 
-    const result = await controller.createSession('user-1', { source: 'GENERAL' } as any);
+    const result = await controller.createSession('user-1', { source: 'MY_PAGE' } as any);
 
-    expect(csService.createSession).toHaveBeenCalledWith('user-1', 'GENERAL', undefined);
+    expect(csService.createSession).toHaveBeenCalledWith('user-1', 'MY_PAGE', undefined);
     expect(result).toEqual({ sessionId: 'sess-1', isExisting: false });
   });
 
