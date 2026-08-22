@@ -133,7 +133,7 @@
 2026-08-21 production-integration 本地验证：
 
 - 55 个测试文件、303 个测试通过；设置页不暴露没有实际可管理授权记录的微信原生授权入口。
-- 40 个核心商城/后台 Service 或 DTO 的 Git blob 与已验收 `staging@acc0e08c` 精确一致；9 个生产允许差异均有 manifest 说明与 Delivery 排除断言。
+- 42 个核心商城/后台 Service 或 DTO 的 Git blob 与已验收 `staging@acc0e08c` 精确一致；20 个生产允许差异均由 Git 自动枚举并有 manifest 说明与 Delivery 排除断言；无服务端行为证据的任务奖励保持 staging fail-closed。
 - staging/production 双构建和 72 页 artifact 通过。
 - 总包 2.41 MiB，主包 1.262 MiB。
 - production artifact 仅含正式 API/WSS。

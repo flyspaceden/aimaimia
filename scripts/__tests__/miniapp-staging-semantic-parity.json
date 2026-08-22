@@ -156,6 +156,14 @@
       "gitBlob": "d75166e5f12de82735e24a96ac82c691db593ed1"
     },
     {
+      "path": "backend/src/modules/task/task.module.ts",
+      "gitBlob": "7eed8a1ac5d62cf6f9e7879f118cab7d5353bd5b"
+    },
+    {
+      "path": "backend/src/modules/task/task.service.ts",
+      "gitBlob": "2a6aa0ec452183f8db2a69a3a0bb772730e74892"
+    },
+    {
       "path": "backend/src/modules/trace/trace.service.ts",
       "gitBlob": "25bea97bc22ffa1a107a88251062dc572e792c45"
     },
@@ -166,8 +174,48 @@
   ],
   "intentionalCandidateDifferences": [
     {
-      "path": "backend/src/modules/payment/payment.service.ts",
-      "reason": "exclude Delivery payment routing and add durable refund side-effect outbox"
+      "path": "backend/prisma/schema.prisma",
+      "reason": "retain staging mini-program and pickup schema plus production RefundSideEffectOutbox"
+    },
+    {
+      "path": "backend/src/app.module.ts",
+      "reason": "exclude independent DeliveryModule while preserving all marketplace modules"
+    },
+    {
+      "path": "backend/src/main.ts",
+      "reason": "documentation-only clarification around Nest raw-body-preserving parser registration"
+    },
+    {
+      "path": "backend/src/modules/auth/auth.controller.ts",
+      "reason": "retain staging mini-program routes plus current main H5 invite-login routes"
+    },
+    {
+      "path": "backend/src/modules/auth/dto/change-password.dto.ts",
+      "reason": "formatting-only difference; password validation rules remain identical"
+    },
+    {
+      "path": "backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts",
+      "reason": "retain main App WeChat deletion proof DTO alongside mini-program proof DTO"
+    },
+    {
+      "path": "backend/src/modules/cart/cart.controller.ts",
+      "reason": "comment-only clarification for the item-id quantity endpoint"
+    },
+    {
+      "path": "backend/src/modules/company/company.service.ts",
+      "reason": "retain staging behavior plus inspection preview defense-in-depth"
+    },
+    {
+      "path": "backend/src/modules/health/health.module.ts",
+      "reason": "exclude Delivery database readiness dependency from marketplace production"
+    },
+    {
+      "path": "backend/src/modules/health/health.service.ts",
+      "reason": "exclude Delivery database probe and expose exact production release SHA"
+    },
+    {
+      "path": "backend/src/modules/payment/dto/payment-callback.dto.ts",
+      "reason": "remove Delivery-only callback channel and amount claims from marketplace callback DTO"
     },
     {
       "path": "backend/src/modules/payment/payment.controller.ts",
@@ -178,8 +226,20 @@
       "reason": "exclude DeliveryModule and wire RefundSideEffectsService"
     },
     {
-      "path": "backend/src/modules/company/company.service.ts",
-      "reason": "retain staging behavior plus inspection preview defense-in-depth"
+      "path": "backend/src/modules/payment/payment.service.ts",
+      "reason": "exclude Delivery payment routing and add durable refund side-effect outbox"
+    },
+    {
+      "path": "backend/src/modules/payment/refund-side-effects.service.ts",
+      "reason": "candidate-only durable automatic-refund side-effect outbox worker"
+    },
+    {
+      "path": "backend/src/modules/profit/money-allocation.ts",
+      "reason": "comment-only clarification for flooring Float account capacity to integer cents"
+    },
+    {
+      "path": "backend/src/modules/shipment/delivery-sf-callback.service.ts",
+      "reason": "remove independent Delivery database callback fallback from marketplace production"
     },
     {
       "path": "backend/src/modules/shipment/sf-express.service.ts",
@@ -192,14 +252,6 @@
     {
       "path": "backend/src/modules/shipment/shipment.module.ts",
       "reason": "exclude Delivery callback provider"
-    },
-    {
-      "path": "backend/src/modules/auth/auth.controller.ts",
-      "reason": "retain staging mini-program routes plus current main H5 invite-login routes"
-    },
-    {
-      "path": "backend/prisma/schema.prisma",
-      "reason": "retain staging mini-program and pickup schema plus production RefundSideEffectOutbox"
     }
   ]
 }

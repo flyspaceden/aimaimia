@@ -207,9 +207,9 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 用户明确要求保留此前在 staging 已完成的微信支付、微信提现、购买/付款/发货/收货/退款、分润和推荐测试价值，不接受生产集成重新形成另一套业务实现。为此完成以下收口：
 
 - 逐路由比较确认候选曾遗漏 4 个微信小程序 `PUT` 兼容接口：修改地址、设默认地址、修改发票抬头、修改个人资料；已恢复并加入 route compatibility 守卫，App 原 `PATCH` 路由并列保留。
-- 40 个核心商城/后台 Service 或 DTO 以 Git blob 固定为 `origin/staging@acc0e08c` 的精确内容，覆盖登录、结算、订单、微信支付适配器、提现、售后退款、利润、普通推荐、购物车、地址、预约/参团、商品/组合商品、推荐、客服、个人资料、数字资产、团长、团购返还、成长、溯源/关注、团购后台、商品后台和商城物流。
-- 允许不同的 9 个生产表面在 manifest 中逐项解释：Payment service/controller/module 删除独立 Delivery 路由并增加自动退款 outbox；CompanyService 在 staging 行为上保留检测报告防御；SF/Shipment 删除 Delivery 回调；AuthController 保留 main 的 H5 邀请登录；Prisma schema 增加退款副作用 outbox。
-- `scripts/__tests__/miniapp-staging-semantic-parity.json` 固定来源 SHA、40 个 blob 和允许差异清单；CI 测试同时验证允许差异仍不含 Delivery。未来任一核心 Service 偏离都会直接失败，不能再靠人工记忆。
+- 42 个核心商城/后台 Service 或 DTO 以 Git blob 固定为 `origin/staging@acc0e08c` 的精确内容，覆盖登录、结算、订单、微信支付适配器、提现、售后退款、利润、普通推荐、购物车、地址、预约/参团、商品/组合商品、推荐、客服、个人资料、数字资产、团长、团购返还、成长、溯源/关注、团购后台、商品后台、商城物流和任务奖励关闭策略。
+- 允许不同的 20 个生产运行时表面由 Git diff 自动枚举并在 manifest 逐项解释：Payment service/controller/module/DTO 删除独立 Delivery 路由并增加自动退款 outbox；CompanyService 在 staging 行为上保留检测报告防御；App/Health/SF/Shipment 删除 Delivery 模块、数据库和回调；AuthController 保留 main 的 H5 邀请登录；Prisma schema 增加退款副作用 outbox；另有 4 个纯格式/注释差异和 App 微信注销 DTO 兼容。
+- `scripts/__tests__/miniapp-staging-semantic-parity.json` 固定来源 SHA、42 个 blob 和允许差异清单；CI 使用完整 Git 历史，逐项验证 manifest blob 确实来自该 staging commit，并自动计算所有非 Delivery/非测试运行时差异必须精确等于 allowlist。未来改 JSON、漏列文件或核心 Service 偏离都会直接失败，不能再靠人工记忆。
 - 恢复 staging 已有的地址默认并发、预约/参团权限、客服资源归属、头像 URL/头像框、组合商品库存/返回结构、微信提现渠道查询、注销账号资金受益人围栏、团购返还、推荐来源、订单/支付/退款等测试；候选特有的可靠收货/退款 outbox 测试继续保留。
 
 验证证据：后端 260 suites / 3133 tests；真实 PostgreSQL 120 migrations + 5 suites / 9 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
