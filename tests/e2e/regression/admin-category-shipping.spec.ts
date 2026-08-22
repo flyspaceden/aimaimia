@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { collectConsoleErrors, expectNoFatalConsole } from '../helpers/console';
 
 /**
@@ -127,7 +127,31 @@ test.describe('分类管理 CRUD', () => {
 test.describe('运费规则 CRUD', () => {
   const uniqueSuffix = Date.now();
   const ruleName = `E2E-运费-${uniqueSuffix}`;
+  const editSourceName = `E2E-运费编辑源-${uniqueSuffix}`;
   const ruleNameEdited = `E2E-运费改-${uniqueSuffix}`;
+
+  const createRuleFromModal = async (page: Page, name: string) => {
+    const addBtn = page.getByRole('button', { name: /新增规则/ });
+    await expect(addBtn).toBeVisible({ timeout: 5_000 });
+    await addBtn.click();
+
+    const modal = page.locator('.ant-modal-content');
+    await expect(modal).toBeVisible({ timeout: 5_000 });
+    await modal.locator('#name').fill(name);
+    const firstFeeInput = modal.getByRole('spinbutton', { name: '首重价（元）' });
+    await expect(firstFeeInput).toBeVisible();
+    await firstFeeInput.fill('8.5');
+
+    const createResponse = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/v1/admin/shipping-rules'
+    ));
+    await page.locator('.ant-modal').locator('.ant-modal-footer .ant-btn-primary').click();
+    const response = await createResponse;
+    expect(response.ok(), `创建运费规则失败 status=${response.status()}`).toBe(true);
+    await expect(page.locator('.ant-modal-content')).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(name).first()).toBeVisible({ timeout: 10_000 });
+  };
 
   test('列表加载 — 运费规则表格渲染', async ({ page }) => {
     const getErrors = collectConsoleErrors(page);
@@ -156,29 +180,7 @@ test.describe('运费规则 CRUD', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.ant-pro-table, .ant-table').first()).toBeVisible({ timeout: 10_000 });
 
-    // 点击 "新增规则" 按钮
-    const addBtn = page.getByRole('button', { name: /新增规则/ });
-    await expect(addBtn).toBeVisible({ timeout: 5_000 });
-    await addBtn.click();
-
-    // ModalForm 打开（ProComponents ModalForm 渲染为 .ant-modal）
-    const modal = page.locator('.ant-modal-content');
-    await expect(modal).toBeVisible({ timeout: 5_000 });
-
-    // 填写规则名称（ProFormText name="name"）
-    await modal.locator('#name').fill(ruleName);
-
-    // 填写运费（ProFormDigit name="fee"）
-    await modal.locator('#fee').fill('8.5');
-
-    // 提交（ModalForm 的确认按钮在 footer 中）
-    await page.locator('.ant-modal').locator('.ant-modal-footer .ant-btn-primary').click();
-
-    // 等待弹窗关闭
-    await expect(page.locator('.ant-modal-content')).not.toBeVisible({ timeout: 10_000 });
-
-    // 列表中出现新规则
-    await expect(page.getByText(ruleName).first()).toBeVisible({ timeout: 10_000 });
+    await createRuleFromModal(page, ruleName);
 
     expectNoFatalConsole(getErrors());
   });
@@ -190,8 +192,11 @@ test.describe('运费规则 CRUD', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.ant-pro-table, .ant-table').first()).toBeVisible({ timeout: 10_000 });
 
+    // 每条测试自建 fixture，禁止依赖上一测试或重试留下的数据库状态。
+    await createRuleFromModal(page, editSourceName);
+
     // 找到刚创建的规则行
-    const row = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: ruleName });
+    const row = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: editSourceName });
     await expect(row.first()).toBeVisible({ timeout: 10_000 });
 
     // 点击 "编辑" 操作（Button type="link"）
