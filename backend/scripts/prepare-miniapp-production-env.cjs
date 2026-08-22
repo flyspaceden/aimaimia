@@ -19,7 +19,6 @@ const {
   writeFileSync,
 } = require('node:fs');
 const path = require('node:path');
-const dotenv = require('dotenv');
 
 const ENV_PATH = '/www/wwwroot/aimaimai-prod-src/backend/.env';
 const BACKUP_ROOT = '/www/backup/config/aimaimai';
@@ -38,6 +37,7 @@ function fsyncPath(target) {
 }
 
 function parseValue(raw) {
+  const dotenv = require('dotenv');
   return dotenv.parse(Buffer.from(`VALUE=${raw}\n`)).VALUE ?? '';
 }
 
@@ -53,6 +53,7 @@ function main() {
     throw new Error('explicit production env preparation confirmation is missing');
   }
   if (!existsSync(ENV_PATH)) throw new Error('production env file is missing');
+  const dotenv = require('dotenv');
   const originalStat = statSync(ENV_PATH);
   const original = readFileSync(ENV_PATH, 'utf8');
   const existing = dotenv.parse(Buffer.from(original));
