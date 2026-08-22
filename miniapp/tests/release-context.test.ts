@@ -38,6 +38,7 @@ describe('mini-program release source guard', () => {
     expect(workflow).toContain("inputs.environment == 'staging'");
     expect(workflow).toContain("github.ref == 'refs/heads/staging'");
     expect(workflow).toContain('MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}');
+    expect(workflow).toContain("'.github/workflows/deploy-release.yml'");
     expect(workflow).toContain('build-production:');
     expect(workflow).toContain('MINIAPP_RELEASE_CHANNEL: production');
     expect(workflow).toContain('build-staging:');

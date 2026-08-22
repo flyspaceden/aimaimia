@@ -79,6 +79,7 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(workflow, /backend_branch=\$\{\{ github\.ref_name \}\}/);
   assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(e2eWorkflow, /branches: \[main, dev, staging, staging-next\]/);
   assert.match(workflow, /\[ "\$TARGET" = "huahai" \] && echo "huahai=true"/);
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
 });
