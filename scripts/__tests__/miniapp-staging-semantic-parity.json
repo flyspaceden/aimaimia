@@ -214,6 +214,10 @@
       "reason": "exclude Delivery database probe and expose exact production release SHA"
     },
     {
+      "path": "backend/src/modules/mini-program/mini-program-subscription.service.ts",
+      "reason": "normalize the legacy staging value develop to WeChat developer state instead of falling back to formal"
+    },
+    {
       "path": "backend/src/modules/payment/dto/payment-callback.dto.ts",
       "reason": "remove Delivery-only callback channel and amount claims from marketplace callback DTO"
     },

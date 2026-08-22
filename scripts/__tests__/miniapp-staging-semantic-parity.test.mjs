@@ -103,6 +103,7 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/company/company.service.ts',
     'backend/src/modules/health/health.module.ts',
     'backend/src/modules/health/health.service.ts',
+    'backend/src/modules/mini-program/mini-program-subscription.service.ts',
     'backend/src/modules/payment/dto/payment-callback.dto.ts',
     'backend/src/modules/payment/payment.controller.ts',
     'backend/src/modules/payment/payment.module.ts',

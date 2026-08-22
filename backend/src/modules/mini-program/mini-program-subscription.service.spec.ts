@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { MiniProgramSubscriptionService } from './mini-program-subscription.service';
 
-const env = {
+const env: Record<string, string> = {
   WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID: 'tmpl-order',
   WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_FIELDS: JSON.stringify({
     reference: 'character_string1', status: 'phrase2', remark: 'thing3', time: 'time4',
@@ -53,6 +53,13 @@ const message: any = {
 };
 
 describe('MiniProgramSubscriptionService', () => {
+  it('maps the legacy staging value develop to the WeChat developer state', () => {
+    env.WECHAT_MINIAPP_SUBSCRIBE_STATE = 'develop';
+    const { service } = harness();
+    expect((service as any).miniProgramState()).toBe('developer');
+    delete env.WECHAT_MINIAPP_SUBSCRIBE_STATE;
+  });
+
   it('only records a consent for the exact verified mini-program auth identity', async () => {
     const { service, prisma } = harness();
     prisma.authIdentity.findFirst.mockResolvedValue(null);
