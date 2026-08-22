@@ -15,6 +15,9 @@ test('staging env preparation is confirmation-gated, backup-first and secret-saf
     const backupRoot = join(root, 'backups');
     const original = [
       "SECRET_VALUE='must-not-print'",
+      "SF_PUSH_SECRET='0123456789abcdef0123456789abcdef'",
+      "SF_CALLBACK_URL='https://api.ai-maimai.com/api/v1/shipments/sf/callback'",
+      "CORS_ORIGINS='https://test-admin.ai-maimai.com/'",
       "WECHAT_MINIAPP_SUBSCRIBE_STATE='develop'",
       "WECHAT_MINIAPP_CODE_ENV_VERSION='develop'",
       "WECHAT_MINIAPP_CODE_CHECK_PATH='false'",
@@ -42,6 +45,8 @@ test('staging env preparation is confirmation-gated, backup-first and secret-saf
     assert.match(updated, /WECHAT_MINIAPP_SUBSCRIBE_STATE='developer'/);
     assert.match(updated, /WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID=/);
     assert.match(updated, /WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_FIELDS=/);
+    assert.match(updated, /CORS_ORIGINS='https:\/\/app\.ai-maimai\.com,https:\/\/test-api\.ai-maimai\.com,https:\/\/test-admin\.ai-maimai\.com,https:\/\/test-seller\.ai-maimai\.com'/);
+    assert.match(updated, /SF_CALLBACK_URL='https:\/\/test-api\.ai-maimai\.com\/api\/v1\/shipments\/sf\/callback\/0123456789abcdef0123456789abcdef'/);
     assert.match(updated, /SECRET_VALUE='must-not-print'/);
     assert.equal(statSync(envPath).mode & 0o777, 0o600);
 

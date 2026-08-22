@@ -52,7 +52,13 @@ function main() {
 
   const original = readFileSync(ENV_PATH, 'utf8');
   const originalStat = statSync(ENV_PATH);
+  const existing = require('dotenv').parse(Buffer.from(original));
+  const sfPushSecret = String(existing.SF_PUSH_SECRET || '').trim();
+  if (!/^[0-9a-fA-F]{32,}$/.test(sfPushSecret)) {
+    throw new Error('SF_PUSH_SECRET must be an existing 32+ hex staging secret');
+  }
   const values = {
+    CORS_ORIGINS: 'https://app.ai-maimai.com,https://test-api.ai-maimai.com,https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com',
     WECHAT_MINIAPP_SUBSCRIBE_STATE: 'developer',
     WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID: 'AaefuI_Uqp1qvX7fNuGbEe3w6Qe4b4M5SUpboeLXvNQ',
     WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_FIELDS: '{"reference":"character_string6","status":"phrase18","remark":"thing5","time":"date4"}',
@@ -62,6 +68,7 @@ function main() {
     WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_FIELDS: '{"status":"phrase2","remark":"thing4","time":"time3"}',
     WECHAT_MINIAPP_CODE_ENV_VERSION: 'develop',
     WECHAT_MINIAPP_CODE_CHECK_PATH: 'false',
+    SF_CALLBACK_URL: `https://test-api.ai-maimai.com/api/v1/shipments/sf/callback/${sfPushSecret}`,
   };
 
   const seen = new Set();
