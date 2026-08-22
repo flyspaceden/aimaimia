@@ -38,6 +38,10 @@ const miniappProductionVerifier = await readFile(
   new URL('../../backend/scripts/verify-miniapp-production-config.cjs', import.meta.url),
   'utf8',
 );
+const sfExpressService = await readFile(
+  new URL('../../backend/src/modules/shipment/sf-express.service.ts', import.meta.url),
+  'utf8',
+);
 
 const deployBlockStart = workflow.indexOf('      - name: Deploy backend on server');
 const deployBlockEnd = workflow.indexOf('  # 华海农科母公司官网', deployBlockStart);
@@ -101,6 +105,12 @@ test('E2E backend boot uses three explicit independent test JWT secrets', () => 
   assert.equal(new Set(secrets).size, 3);
   assert.ok(secrets.every((secret) => secret.length >= 24));
   assert.match(e2eWorkflow, /NODE_ENV: test/);
+  assert.match(e2eWorkflow, /^  SF_ENV: UAT$/m);
+  assert.match(e2eWorkflow, /^  SF_ALLOW_E2E_MOCK: "true"$/m);
+  assert.match(
+    sfExpressService,
+    /this\.sfEnv !== 'PROD'[\s\S]*process\.env\.NODE_ENV !== 'production'[\s\S]*SF_ALLOW_E2E_MOCK/,
+  );
 });
 
 test('independent Delivery system is excluded from production workflow', () => {
