@@ -12,7 +12,7 @@ for key in "${required[@]}"; do
 done
 
 case "$BRANCH:$SRC_DIR:$PM2_NAME" in
-  main:/www/wwwroot/aimaimai-prod-src:aimaimai-api-prod|staging:/www/wwwroot/aimaimai-staging-src:aimaimai-api-test) ;;
+  main:/www/wwwroot/aimaimai-prod-src:aimaimai-api-prod|staging:/www/wwwroot/aimaimai-staging-src:aimaimai-api-test|staging-next:/www/wwwroot/aimaimai-staging-src:aimaimai-api-test) ;;
   *) echo "unsupported_backend_target=$BRANCH:$SRC_DIR:$PM2_NAME" >&2; exit 1 ;;
 esac
 [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'invalid_release_sha' >&2; exit 1; }

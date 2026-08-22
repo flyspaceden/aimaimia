@@ -180,6 +180,10 @@ test('miniapp production verifier excludes the independent Delivery system', () 
 });
 
 test('backend deployment records previous SHA and automatically restores code on failure', () => {
+  assert.match(
+    backendDeployScript,
+    /staging-next:\/www\/wwwroot\/aimaimai-staging-src:aimaimai-api-test/,
+  );
   assert.match(backendDeployScript, /trap restore_old_release EXIT/);
   assert.match(backendDeployScript, /pm2 jlist > "\$pm2_snapshot"/);
   assert.match(backendDeployScript, /PM2 process must be unique/);
