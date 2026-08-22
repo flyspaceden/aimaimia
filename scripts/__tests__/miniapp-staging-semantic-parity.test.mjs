@@ -17,7 +17,7 @@ const gitBlob = (content) => createHash('sha1')
 
 test('tested mini-program marketplace services remain byte-identical to the frozen staging baseline', async () => {
   assert.equal(manifest.sourceStagingCommit, 'acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2');
-  assert.ok(manifest.exactFiles.length >= 34);
+  assert.ok(manifest.exactFiles.length >= 40);
   for (const entry of manifest.exactFiles) {
     assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
   }

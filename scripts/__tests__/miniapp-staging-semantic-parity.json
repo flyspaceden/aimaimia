@@ -4,20 +4,40 @@
   "scope": "miniapp tested marketplace behavior; excludes independent Delivery",
   "exactFiles": [
     {
+      "path": "backend/src/modules/address/address.service.ts",
+      "gitBlob": "677b670dfb32ecb03497c843fa1b51a1c939c67c"
+    },
+    {
+      "path": "backend/src/modules/admin/bonus/admin-bonus.service.ts",
+      "gitBlob": "ecb564fd8fe72eaf878835a3d72a571eb3cd5d24"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.dto.ts",
+      "gitBlob": "0537c0269685143bdf4697466f73b08ccd5f9fdc"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.module.ts",
+      "gitBlob": "594efc58a073c144e410ae6e8a45bf1ea52a7bd4"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.service.ts",
+      "gitBlob": "c22cdecbd4284e8879e52b84ba6ca8acc06d8476"
+    },
+    {
+      "path": "backend/src/modules/admin/products/admin-products.service.ts",
+      "gitBlob": "ca8dd02b271b502a15407c8eabe7618edf66501f"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale-refund.service.ts",
+      "gitBlob": "35c1dd59fe2f271ef9611978f283c2f796c1ece2"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale.service.ts",
+      "gitBlob": "8f876819f232a4e5111aa93c412b5c3362b04b08"
+    },
+    {
       "path": "backend/src/modules/auth/auth.service.ts",
       "gitBlob": "9ae09bdb51451774b51f75d90928119431f8f2ce"
-    },
-    {
-      "path": "backend/src/modules/order/checkout.service.ts",
-      "gitBlob": "9eb138f6c7d036993fef3464f69ad86c9f363fb1"
-    },
-    {
-      "path": "backend/src/modules/order/order.service.ts",
-      "gitBlob": "022ae510c4e5b96dd8217d62a630d1ee67ca0c95"
-    },
-    {
-      "path": "backend/src/modules/payment/wechat-pay.service.ts",
-      "gitBlob": "b3ef3bb8996c7c775b574daeb845566d366fe6a1"
     },
     {
       "path": "backend/src/modules/bonus/bonus.controller.ts",
@@ -32,72 +52,8 @@
       "gitBlob": "266a2b2a8d3db1c5afca7fd9b113f6669c1b7527"
     },
     {
-      "path": "backend/src/modules/admin/bonus/admin-bonus.service.ts",
-      "gitBlob": "ecb564fd8fe72eaf878835a3d72a571eb3cd5d24"
-    },
-    {
-      "path": "backend/src/modules/after-sale/after-sale-refund.service.ts",
-      "gitBlob": "35c1dd59fe2f271ef9611978f283c2f796c1ece2"
-    },
-    {
-      "path": "backend/src/modules/after-sale/after-sale.service.ts",
-      "gitBlob": "8f876819f232a4e5111aa93c412b5c3362b04b08"
-    },
-    {
-      "path": "backend/src/modules/profit/order-profit-snapshot.service.ts",
-      "gitBlob": "fbaff3b19cd8e0db4fe89843b5ccb1f8408f3527"
-    },
-    {
-      "path": "backend/src/modules/profit/order-profit-refund.service.ts",
-      "gitBlob": "03866f888a42f7d948ed7ff61f9a4f5905fe7021"
-    },
-    {
-      "path": "backend/src/modules/normal-share/normal-share.service.ts",
-      "gitBlob": "92a56500c9b59a3a222c431a46e104d3ac40eb64"
-    },
-    {
-      "path": "backend/src/modules/normal-share/normal-share.controller.ts",
-      "gitBlob": "dc29697ec281b543bdc3018119c0e18a2d701d36"
-    },
-    {
-      "path": "backend/src/modules/cart/cart.service.ts",
-      "gitBlob": "fe4bbbcc9d0331dff0f1460656737609adb0ed94"
-    },
-    {
-      "path": "backend/src/modules/address/address.service.ts",
-      "gitBlob": "677b670dfb32ecb03497c843fa1b51a1c939c67c"
-    },
-    {
       "path": "backend/src/modules/booking/booking.service.ts",
       "gitBlob": "7ce7360dbd01372af8d33a7b8c8c8c6b732bb6c4"
-    },
-    {
-      "path": "backend/src/modules/group/group.service.ts",
-      "gitBlob": "5c929f313ad061a70728f4f546dbdc5df5e2ba3d"
-    },
-    {
-      "path": "backend/src/modules/product/product-bundle.service.ts",
-      "gitBlob": "cbc99f3e7691b0ef116d888b9d67f5b848cf4763"
-    },
-    {
-      "path": "backend/src/modules/product/product.service.ts",
-      "gitBlob": "3eb35c4d4a8d5a7b7aa2aecfb765a3349f42dc5d"
-    },
-    {
-      "path": "backend/src/modules/recommendation/recommendation.service.ts",
-      "gitBlob": "296a15d91600c8cf16c7552f7e8edf27a8866f98"
-    },
-    {
-      "path": "backend/src/modules/customer-service/cs.service.ts",
-      "gitBlob": "eb195ddf591aa4511b2ef6c80382adb4d5bae08b"
-    },
-    {
-      "path": "backend/src/modules/user/user.service.ts",
-      "gitBlob": "9d73eae83c1f802897614c72ab9b0b023d2695ea"
-    },
-    {
-      "path": "backend/src/modules/digital-asset/digital-asset.service.ts",
-      "gitBlob": "b554e55f09f9ad6df2c8db5881d85cfed4e40769"
     },
     {
       "path": "backend/src/modules/captain/captain-attribution.service.ts",
@@ -116,28 +72,96 @@
       "gitBlob": "897199fbfb82a79d0968ee89a83260eec83e9c1d"
     },
     {
-      "path": "backend/src/modules/group-buy/group-buy-rebate.service.ts",
-      "gitBlob": "1445a3d16c7dc550bde58f96ebc8f501300f1fe0"
+      "path": "backend/src/modules/cart/cart.service.ts",
+      "gitBlob": "fe4bbbcc9d0331dff0f1460656737609adb0ed94"
     },
     {
-      "path": "backend/src/modules/group-buy/group-buy-rebate-deduction.service.ts",
-      "gitBlob": "29ce51780e000541517c6ad2712ba4734c1abe8a"
+      "path": "backend/src/modules/customer-service/cs.service.ts",
+      "gitBlob": "eb195ddf591aa4511b2ef6c80382adb4d5bae08b"
     },
     {
-      "path": "backend/src/modules/growth/growth-exchange.service.ts",
-      "gitBlob": "2d8fceff65855f94139e5587cdaf13c38fda2c1a"
-    },
-    {
-      "path": "backend/src/modules/trace/trace.service.ts",
-      "gitBlob": "25bea97bc22ffa1a107a88251062dc572e792c45"
+      "path": "backend/src/modules/digital-asset/digital-asset.service.ts",
+      "gitBlob": "b554e55f09f9ad6df2c8db5881d85cfed4e40769"
     },
     {
       "path": "backend/src/modules/follow/follow.service.ts",
       "gitBlob": "46f0f07298463dbd2d333b9e4e95743cc05755c7"
     },
     {
+      "path": "backend/src/modules/group-buy/group-buy-rebate-deduction.service.ts",
+      "gitBlob": "29ce51780e000541517c6ad2712ba4734c1abe8a"
+    },
+    {
+      "path": "backend/src/modules/group-buy/group-buy-rebate.service.ts",
+      "gitBlob": "1445a3d16c7dc550bde58f96ebc8f501300f1fe0"
+    },
+    {
+      "path": "backend/src/modules/group/group.service.ts",
+      "gitBlob": "5c929f313ad061a70728f4f546dbdc5df5e2ba3d"
+    },
+    {
+      "path": "backend/src/modules/growth/growth-exchange.service.ts",
+      "gitBlob": "2d8fceff65855f94139e5587cdaf13c38fda2c1a"
+    },
+    {
+      "path": "backend/src/modules/normal-share/normal-share.controller.ts",
+      "gitBlob": "dc29697ec281b543bdc3018119c0e18a2d701d36"
+    },
+    {
+      "path": "backend/src/modules/normal-share/normal-share.service.ts",
+      "gitBlob": "92a56500c9b59a3a222c431a46e104d3ac40eb64"
+    },
+    {
+      "path": "backend/src/modules/order/checkout.service.ts",
+      "gitBlob": "9eb138f6c7d036993fef3464f69ad86c9f363fb1"
+    },
+    {
+      "path": "backend/src/modules/order/order.service.ts",
+      "gitBlob": "022ae510c4e5b96dd8217d62a630d1ee67ca0c95"
+    },
+    {
+      "path": "backend/src/modules/payment/wechat-pay.service.ts",
+      "gitBlob": "b3ef3bb8996c7c775b574daeb845566d366fe6a1"
+    },
+    {
+      "path": "backend/src/modules/product/product-bundle.service.ts",
+      "gitBlob": "cbc99f3e7691b0ef116d888b9d67f5b848cf4763"
+    },
+    {
+      "path": "backend/src/modules/product/product.service.ts",
+      "gitBlob": "3eb35c4d4a8d5a7b7aa2aecfb765a3349f42dc5d"
+    },
+    {
+      "path": "backend/src/modules/profit/order-profit-refund.service.ts",
+      "gitBlob": "03866f888a42f7d948ed7ff61f9a4f5905fe7021"
+    },
+    {
+      "path": "backend/src/modules/profit/order-profit-snapshot.service.ts",
+      "gitBlob": "fbaff3b19cd8e0db4fe89843b5ccb1f8408f3527"
+    },
+    {
+      "path": "backend/src/modules/recommendation/recommendation.service.ts",
+      "gitBlob": "296a15d91600c8cf16c7552f7e8edf27a8866f98"
+    },
+    {
+      "path": "backend/src/modules/seller/products/seller-products.service.ts",
+      "gitBlob": "b012d1d1e676b29d23a9dcebf8d2cce42c45b69f"
+    },
+    {
+      "path": "backend/src/modules/seller/shipping/seller-shipping.service.ts",
+      "gitBlob": "c6fd200a5da614e23d61cf92863ff503b51aa7a5"
+    },
+    {
       "path": "backend/src/modules/shipment/shipment.service.ts",
       "gitBlob": "d75166e5f12de82735e24a96ac82c691db593ed1"
+    },
+    {
+      "path": "backend/src/modules/trace/trace.service.ts",
+      "gitBlob": "25bea97bc22ffa1a107a88251062dc572e792c45"
+    },
+    {
+      "path": "backend/src/modules/user/user.service.ts",
+      "gitBlob": "9d73eae83c1f802897614c72ab9b0b023d2695ea"
     }
   ],
   "intentionalCandidateDifferences": [

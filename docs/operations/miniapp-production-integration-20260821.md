@@ -144,7 +144,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 - 18 条 staging-derived 主库 migration 与冻结的 `origin/staging@053f385e` 对应 SQL 对象哈希逐条一致；另有 1 条本次生产集成新增的自动退款副作用 outbox migration，合计 19 条；没有复制配送库 migration。
 - Prisma schema validate / client generate、Nest production build 通过。
-- staging 语义收口后的后端全量 Jest：260 suites / 3125 tests 通过；另 3 suites / 6 tests 按真实数据库配置跳过，并已在独立 PostgreSQL 18 临时库按 120 条 migration 全量部署后执行 4 suites / 8 tests 全部通过。
+- staging 语义收口后的后端全量 Jest：260 suites / 3133 tests 通过；另 4 suites / 7 tests 按真实数据库配置跳过，并已在独立 PostgreSQL 18 临时库按 120 条 migration 全量部署后执行 5 suites / 9 tests 全部通过。
 - `npm audit --omit=dev --audit-level=high` 为 0；图片处理升级后编译和上传/图片扫描冒烟通过。
 - 固化 `origin/main@aa8f5daa` 的 627 条 HTTP 路由，并纳入 Batch 0 新增的 `/health/live`、`/health/ready`，合计 629 条生产集成基线路由；当前候选零删除，小程序登录、普通/VIP/团购结算、自提凭证、平台/卖家核销路由均以并列接口增加。
 - Delivery 排除测试确认：无 `DeliveryModule`、配送数据库、配送门户、配送 JWT/SMS/微信配置；商城 `ShipmentModule`、顺丰和送货上门仍保留。
@@ -155,7 +155,7 @@ gh api --method DELETE repos/flyspaceden/aimaimia/environments/staging
 
 本节只证明本地代码闭包。Batch 1 仍不得发布，直到生产备份恢复到隔离 PostgreSQL 后完成全部 19 条 migration 演练、真实数据库并发套件、生产 PM2 只读预检、PITR/离机备份确认和用户再次批准。
 
-本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration；售后退款、购物车数量、普通树和利润安全四组真实数据库并发测试 8/8。临时库使用明确测试库名，测试完成后已删除；正式库未连接、未迁移。
+本地补充证据：PostgreSQL 18 临时空库已完整执行当前 120 条主库 migration；售后退款、购物车数量、普通树、利润安全和卖家面单租约五组真实数据库并发测试 9/9。临时库使用明确测试库名，测试完成后已删除；正式库未连接、未迁移。
 
 2026-08-22 生产只读/隔离演练证据（候选已 push，仍未合并 main、未部署、未迁移生产库）：
 
@@ -207,9 +207,9 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 用户明确要求保留此前在 staging 已完成的微信支付、微信提现、购买/付款/发货/收货/退款、分润和推荐测试价值，不接受生产集成重新形成另一套业务实现。为此完成以下收口：
 
 - 逐路由比较确认候选曾遗漏 4 个微信小程序 `PUT` 兼容接口：修改地址、设默认地址、修改发票抬头、修改个人资料；已恢复并加入 route compatibility 守卫，App 原 `PATCH` 路由并列保留。
-- 34 个核心商城 Service 以 Git blob 固定为 `origin/staging@acc0e08c` 的精确内容，覆盖登录、结算、订单、微信支付适配器、提现、售后退款、利润、普通推荐、购物车、地址、预约/参团、商品/组合商品、推荐、客服、个人资料、数字资产、团长、团购返还、成长、溯源/关注和商城物流。
+- 40 个核心商城/后台 Service 或 DTO 以 Git blob 固定为 `origin/staging@acc0e08c` 的精确内容，覆盖登录、结算、订单、微信支付适配器、提现、售后退款、利润、普通推荐、购物车、地址、预约/参团、商品/组合商品、推荐、客服、个人资料、数字资产、团长、团购返还、成长、溯源/关注、团购后台、商品后台和商城物流。
 - 允许不同的 9 个生产表面在 manifest 中逐项解释：Payment service/controller/module 删除独立 Delivery 路由并增加自动退款 outbox；CompanyService 在 staging 行为上保留检测报告防御；SF/Shipment 删除 Delivery 回调；AuthController 保留 main 的 H5 邀请登录；Prisma schema 增加退款副作用 outbox。
-- `scripts/__tests__/miniapp-staging-semantic-parity.json` 固定来源 SHA、34 个 blob 和允许差异清单；CI 测试同时验证允许差异仍不含 Delivery。未来任一核心 Service 偏离都会直接失败，不能再靠人工记忆。
+- `scripts/__tests__/miniapp-staging-semantic-parity.json` 固定来源 SHA、40 个 blob 和允许差异清单；CI 测试同时验证允许差异仍不含 Delivery。未来任一核心 Service 偏离都会直接失败，不能再靠人工记忆。
 - 恢复 staging 已有的地址默认并发、预约/参团权限、客服资源归属、头像 URL/头像框、组合商品库存/返回结构、微信提现渠道查询、注销账号资金受益人围栏、团购返还、推荐来源、订单/支付/退款等测试；候选特有的可靠收货/退款 outbox 测试继续保留。
 
-验证证据：后端 260 suites / 3125 tests；真实 PostgreSQL 120 migrations + 4 suites / 8 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
+验证证据：后端 260 suites / 3133 tests；真实 PostgreSQL 120 migrations + 5 suites / 9 tests；App TypeScript + 30 suites / 127 tests；Admin 12/12 + build；Seller 12/12 + build；小程序 55 files / 303 tests + 双构建 + 72 页产物；根脚本 256/256。App/根 `src` 与独立 Delivery 路径改动为 0。
