@@ -19,6 +19,7 @@ const {
   writeFileSync,
 } = require('node:fs');
 const path = require('node:path');
+const dotenv = require('dotenv');
 
 const ENV_PATH = '/www/wwwroot/aimaimai-prod-src/backend/.env';
 const BACKUP_ROOT = '/www/backup/config/aimaimai';
@@ -37,11 +38,14 @@ function fsyncPath(target) {
 }
 
 function parseValue(raw) {
-  let value = raw.trim();
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    value = value.slice(1, -1);
+  return dotenv.parse(Buffer.from(`VALUE=${raw}\n`)).VALUE ?? '';
+}
+
+function serializeValue(value) {
+  if (value.includes("'") || /[\r\n]/.test(value)) {
+    throw new Error('env value contains an unsupported quote or line break');
   }
-  return value.replace(/\\n/g, '\n');
+  return `'${value}'`;
 }
 
 function main() {
@@ -51,13 +55,7 @@ function main() {
   if (!existsSync(ENV_PATH)) throw new Error('production env file is missing');
   const originalStat = statSync(ENV_PATH);
   const original = readFileSync(ENV_PATH, 'utf8');
-  const existing = {};
-  for (const rawLine of original.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const separator = line.indexOf('=');
-    if (separator > 0) existing[line.slice(0, separator).trim()] = parseValue(line.slice(separator + 1));
-  }
+  const existing = dotenv.parse(Buffer.from(original));
 
   const pickupSecret = existing.PICKUP_TOKEN_SECRET && Buffer.byteLength(existing.PICKUP_TOKEN_SECRET, 'utf8') >= 32
     ? existing.PICKUP_TOKEN_SECRET
@@ -94,13 +92,13 @@ function main() {
       continue;
     }
     if (seen.has(key)) continue;
-    nextLines.push(`${key}=${JSON.stringify(values[key])}`);
+    nextLines.push(`${key}=${serializeValue(values[key])}`);
     seen.add(key);
   }
   const missing = Object.keys(values).filter((key) => !seen.has(key));
   if (missing.length) {
     nextLines.push('', '# Mini-program production launch settings');
-    for (const key of missing) nextLines.push(`${key}=${JSON.stringify(values[key])}`);
+    for (const key of missing) nextLines.push(`${key}=${serializeValue(values[key])}`);
   }
   const next = `${nextLines.join('\n').replace(/\n+$/, '')}\n`;
 
@@ -150,9 +148,13 @@ function main() {
   process.stdout.write(`miniapp_production_env_changed_keys=${changed.join(',')}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`miniapp_production_env=failed reason=${error instanceof Error ? error.message : 'unknown'}\n`);
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`miniapp_production_env=failed reason=${error instanceof Error ? error.message : 'unknown'}\n`);
+    process.exit(1);
+  }
 }
+
+module.exports = { parseValue, serializeValue };

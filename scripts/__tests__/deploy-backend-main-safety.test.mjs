@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const workflow = await readFile(
@@ -30,6 +31,10 @@ const rehearsalAttestationVerifierUrl = new URL('../../backend/scripts/verify-pr
 const rehearsalAttestationVerifier = await readFile(rehearsalAttestationVerifierUrl, 'utf8');
 const productionEnvPreparationScriptUrl = new URL('../../backend/scripts/prepare-miniapp-production-env.cjs', import.meta.url);
 const productionEnvPreparationScript = await readFile(productionEnvPreparationScriptUrl, 'utf8');
+const require = createRequire(import.meta.url);
+const productionEnvPreparation = require(fileURLToPath(productionEnvPreparationScriptUrl));
+const backendRequire = createRequire(new URL('../../backend/package.json', import.meta.url));
+const dotenv = backendRequire('dotenv');
 const backendDeployScript = await readFile(
   new URL('../deploy-backend-versioned.sh', import.meta.url),
   'utf8',
@@ -332,7 +337,17 @@ test('production miniapp env preparation is backup-first, atomic and does not re
   assert.match(productionEnvPreparationScript, /chownSync\(temporaryPath, originalStat\.uid, originalStat\.gid\)/);
   assert.match(productionEnvPreparationScript, /PREPARE_WITHOUT_RESTART/);
   assert.match(productionEnvPreparationScript, /randomBytes\(32\)/);
+  assert.match(productionEnvPreparationScript, /return `'\$\{value\}'`/);
+  assert.doesNotMatch(productionEnvPreparationScript, /nextLines\.push\(`\$\{key\}=\$\{JSON\.stringify/);
   assert.doesNotMatch(productionEnvPreparationScript, /node:child_process|\bpm2\b/i);
+  const nestedJson = '{"reference":"character_string6","status":"phrase18"}';
+  for (const value of [nestedJson, 'hex-secret-0123456789', 'contains\\nslash-n', 'contains"double']) {
+    const encoded = productionEnvPreparation.serializeValue(value);
+    assert.equal(dotenv.parse(Buffer.from(`VALUE=${encoded}\n`)).VALUE, value);
+    assert.equal(productionEnvPreparation.parseValue(encoded), value);
+  }
+  assert.throws(() => productionEnvPreparation.serializeValue("contains'single"));
+  assert.throws(() => productionEnvPreparation.serializeValue('contains\nline-break'));
 });
 
 test('website, admin and seller keep rollback snapshots before static deployment', () => {
