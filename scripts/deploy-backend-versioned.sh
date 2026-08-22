@@ -338,7 +338,13 @@ ln -s "$live_backend/uploads" "$candidate_backend/uploads"
 
 cd "$candidate_backend"
 install_backend_dependencies
-node scripts/verify-miniapp-production-config.cjs
+if [ "$BRANCH" = main ]; then
+  node scripts/verify-miniapp-production-config.cjs
+else
+  CONFIRM_MINIAPP_STAGING_ENV=PREPARE_STAGING_WITHOUT_RESTART \
+    node scripts/prepare-miniapp-staging-env.cjs
+  node scripts/verify-miniapp-staging-config.cjs
+fi
 npx --no-install prisma generate
 npx --no-install prisma validate
 build_backend

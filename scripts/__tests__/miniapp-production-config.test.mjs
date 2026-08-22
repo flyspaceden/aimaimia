@@ -1,24 +1,31 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 const script = fileURLToPath(new URL('../../backend/scripts/verify-miniapp-production-config.cjs', import.meta.url));
+const stagingScript = fileURLToPath(new URL('../../backend/scripts/verify-miniapp-staging-config.cjs', import.meta.url));
 const { publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
-const merchantPrivateKey = readFileSync(
-  new URL('./fixtures/wechat-test-merchant-key.pem', import.meta.url),
-  'utf8',
-);
-const merchantCertificate = readFileSync(
-  new URL('./fixtures/wechat-test-merchant-cert.pem', import.meta.url),
-  'utf8',
-);
+const certificateDir = mkdtempSync(join(tmpdir(), 'aimaimai-wechat-config-test-'));
+const merchantKeyPath = join(certificateDir, 'merchant-key.pem');
+const merchantCertPath = join(certificateDir, 'merchant-cert.pem');
+const certificateResult = spawnSync('openssl', [
+  'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '1',
+  '-subj', '/CN=aimaimai-config-test', '-keyout', merchantKeyPath, '-out', merchantCertPath,
+], { encoding: 'utf8' });
+assert.equal(certificateResult.status, 0, certificateResult.stderr);
+const merchantPrivateKey = readFileSync(merchantKeyPath, 'utf8');
+const merchantCertificate = readFileSync(merchantCertPath, 'utf8');
+const merchantCertificateSerial = new X509Certificate(merchantCertificate).serialNumber;
+after(() => rmSync(certificateDir, { recursive: true, force: true }));
 
 const validEnv = {
   NODE_ENV: 'production',
@@ -46,7 +53,7 @@ const validEnv = {
   WECHAT_PAY_APP_ID: 'wx0000000000000001',
   WECHAT_PAY_MCH_ID: '1603917538',
   WECHAT_PAY_API_V3_KEY: '12345678901234567890123456789012',
-  WECHAT_PAY_MERCHANT_CERT_SERIAL: 'ABC123456789',
+  WECHAT_PAY_MERCHANT_CERT_SERIAL: merchantCertificateSerial,
   WECHAT_PAY_MERCHANT_CERT: merchantCertificate,
   WECHAT_PAY_MERCHANT_PRIVATE_KEY: merchantPrivateKey,
   WECHAT_PAY_PUBLIC_KEY_ID: 'PUB_KEY_ID_123456789',
@@ -77,10 +84,35 @@ const validEnv = {
   SF_CALLBACK_URL: 'https://api.ai-maimai.com/api/v1/shipments/sf/callback/0123456789abcdef0123456789abcdef',
 };
 
+const validStagingEnv = {
+  ...validEnv,
+  NODE_ENV: 'staging',
+  DATABASE_URL: 'postgresql://test-user:test-pass@db.internal:5432/testaimaimai',
+  CORS_ORIGINS: 'https://test-api.ai-maimai.com,https://test-admin.ai-maimai.com,https://test-seller.ai-maimai.com',
+  DATA_ENCRYPTION_KEY: '',
+  TRUST_PROXY: '',
+  WECHAT_MINIAPP_SUBSCRIBE_STATE: 'developer',
+  WECHAT_MINIAPP_CODE_ENV_VERSION: 'develop',
+  WECHAT_MINIAPP_CODE_CHECK_PATH: 'false',
+  WECHAT_PAY_NOTIFY_URL: 'https://test-api.ai-maimai.com/api/v1/payments/wechat/notify',
+  WECHAT_TRANSFER_NOTIFY_URL: 'https://test-api.ai-maimai.com/api/v1/bonus/withdraw/wechat/notify',
+  SF_ENV: 'UAT',
+  SF_API_URL_UAT: 'https://sfapi-sbox.sf-express.com/std/service',
+  SF_MONTHLY_ACCOUNT_UAT: 'ci-uat-monthly-account',
+  SF_CALLBACK_URL: 'https://test-api.ai-maimai.com/api/v1/shipments/sf/callback/0123456789abcdef0123456789abcdef',
+};
+
 function run(overrides = {}) {
   return spawnSync(process.execPath, [script], {
     encoding: 'utf8',
     env: { ...validEnv, ...overrides },
+  });
+}
+
+function runStaging(overrides = {}) {
+  return spawnSync(process.execPath, [stagingScript], {
+    encoding: 'utf8',
+    env: { ...validStagingEnv, ...overrides },
   });
 }
 
@@ -156,4 +188,37 @@ test('miniapp production preflight accepts a complete release configuration with
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /miniapp_production_config=valid/);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /ci-only-miniapp-secret|12345678901234567890123456789012/);
+
+  const cannotDowngrade = run({
+    MINIAPP_CONFIG_PROFILE: 'staging',
+    DATABASE_URL: validStagingEnv.DATABASE_URL,
+  });
+  assert.notEqual(cannotDowngrade.status, 0);
+  assert.match(cannotDowngrade.stderr, /DATABASE_URL 必须指向 aimaimai 数据库/);
+});
+
+test('miniapp staging preflight keeps payment and withdrawal material checks while isolating test resources', () => {
+  const valid = runStaging();
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, /miniapp_staging_config=valid/);
+
+  for (const overrides of [
+    { DATABASE_URL: 'postgresql://prod-user:prod-pass@db.internal:5432/aimaimai' },
+    { WECHAT_PAY_NOTIFY_URL: 'https://api.ai-maimai.com/api/v1/payments/wechat/notify' },
+    { WECHAT_PAY_API_V3_KEY: '' },
+    { WECHAT_PAY_MERCHANT_CERT: '' },
+    { WECHAT_TRANSFER_ENABLED: 'false' },
+    { WECHAT_TRANSFER_SCENE_ID: '1000' },
+    { SF_ENV: 'PROD' },
+    { SF_API_URL_UAT: 'https://sfapi.sf-express.com/std/service' },
+    { WECHAT_MINIAPP_CODE_ENV_VERSION: 'release' },
+    { WECHAT_MINIAPP_SUBSCRIBE_STATE: 'formal' },
+    { WECHAT_MINIAPP_SUBSCRIBE_ORDER_SHIPPED_TEMPLATE_ID: '' },
+    { WECHAT_MINIAPP_SUBSCRIBE_WITHDRAW_RESULT_FIELDS: '' },
+  ]) {
+    assert.notEqual(runStaging(overrides).status, 0, JSON.stringify(overrides));
+  }
+
+  const legacyDevelop = runStaging({ WECHAT_MINIAPP_SUBSCRIBE_STATE: 'develop' });
+  assert.equal(legacyDevelop.status, 0, legacyDevelop.stderr);
 });

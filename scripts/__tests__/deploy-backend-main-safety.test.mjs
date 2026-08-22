@@ -38,6 +38,10 @@ const miniappProductionVerifier = await readFile(
   new URL('../../backend/scripts/verify-miniapp-production-config.cjs', import.meta.url),
   'utf8',
 );
+const miniappConfigVerifier = await readFile(
+  new URL('../../backend/scripts/verify-miniapp-config.cjs', import.meta.url),
+  'utf8',
+);
 const sfExpressService = await readFile(
   new URL('../../backend/src/modules/shipment/sf-express.service.ts', import.meta.url),
   'utf8',
@@ -73,9 +77,7 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(workflow, /git fetch --no-tags origin main/);
   assert.match(workflow, /git diff --name-only origin\/main\.\.\.HEAD/);
   assert.match(workflow, /'miniapp\/\*\*'/);
-  assert.match(workflow, /\^\(backend\/\|miniapp\/\)/);
-  assert.match(workflow, /\^\(admin\/\|miniapp\/\)/);
-  assert.match(workflow, /\^\(seller\/\|miniapp\/\)/);
+  assert.match(workflow, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
   assert.match(workflow, /backend_branch=\$\{\{ github\.ref_name \}\}/);
   assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -89,7 +91,7 @@ test('workflow-only changes cannot trigger backend deployment', () => {
     .split('\n')
     .find((line) => line.includes('echo "$CHANGED"') && line.includes('backend=true'));
   assert.ok(changedPathLine, 'backend changed-path detector must exist');
-  assert.match(changedPathLine, /\^\(backend\/\|miniapp\/\)/);
+  assert.match(changedPathLine, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
   assert.doesNotMatch(changedPathLine, /deploy-release/);
   assert.match(workflow, /手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。[\s\S]*echo "workflow=true"/);
 });
@@ -154,29 +156,41 @@ test('production backend deployment verifies dependencies and builds before migr
   assert.match(backendDeployScript, /npx --no-install prisma generate/);
   assert.match(backendDeployScript, /npx --no-install prisma migrate deploy/);
   assert.match(backendDeployScript, /node scripts\/verify-miniapp-production-config\.cjs/);
+  assert.match(backendDeployScript, /node scripts\/verify-miniapp-staging-config\.cjs/);
+  assert.match(backendDeployScript, /CONFIRM_MINIAPP_STAGING_ENV=PREPARE_STAGING_WITHOUT_RESTART/);
+  assert.match(backendDeployScript, /node scripts\/prepare-miniapp-staging-env\.cjs/);
+  assert.match(
+    backendDeployScript,
+    /if \[ "\$BRANCH" = main \]; then\s+node scripts\/verify-miniapp-production-config\.cjs\s+else\s+CONFIRM_MINIAPP_STAGING_ENV=PREPARE_STAGING_WITHOUT_RESTART\s+\\\s+node scripts\/prepare-miniapp-staging-env\.cjs\s+node scripts\/verify-miniapp-staging-config\.cjs\s+fi/,
+  );
   assert.match(backendDeployScript, /unsupported_node_version=/);
   assert.match(backendDeployScript, /required=>=20\.9\.0/);
 
   const candidateIndex = backendDeployScript.indexOf('git worktree add --detach');
   const configIndex = backendDeployScript.indexOf('node scripts/verify-miniapp-production-config.cjs', candidateIndex);
+  const stagingPrepareIndex = backendDeployScript.indexOf('node scripts/prepare-miniapp-staging-env.cjs', candidateIndex);
+  const stagingConfigIndex = backendDeployScript.indexOf('node scripts/verify-miniapp-staging-config.cjs', candidateIndex);
   const buildIndex = backendDeployScript.indexOf('\nbuild_backend', candidateIndex);
   const preparedIndex = backendDeployScript.indexOf('record_stage PREPARED', buildIndex);
   const stopIndex = backendDeployScript.indexOf('pm2 stop "$old_pm_id"', preparedIndex);
   const migrateIndex = backendDeployScript.indexOf('npx --no-install prisma migrate deploy');
   assert.ok(candidateIndex >= 0 && configIndex > candidateIndex, 'candidate must verify production configuration');
-  assert.ok(buildIndex > configIndex, 'candidate must verify production configuration before build');
+  assert.ok(stagingPrepareIndex > configIndex, 'staging config preparation must stay outside the production branch');
+  assert.ok(stagingConfigIndex > stagingPrepareIndex, 'staging config must be verified after backup-first preparation');
+  assert.ok(buildIndex > stagingConfigIndex, 'candidate must verify the selected environment configuration before build');
   assert.ok(migrateIndex > buildIndex, 'database migration must run only after a successful build');
   assert.ok(preparedIndex > buildIndex && stopIndex > preparedIndex && migrateIndex > stopIndex, 'maintenance stop must happen after build and before migration');
 });
 
 test('miniapp production verifier excludes the independent Delivery system', () => {
+  assert.match(miniappProductionVerifier, /MINIAPP_CONFIG_PROFILE = 'production'/);
   assert.doesNotMatch(
-    miniappProductionVerifier,
+    miniappConfigVerifier,
     /DELIVERY_DATABASE_URL|DELIVERY_USER_JWT_SECRET|DELIVERY_ADMIN_JWT_SECRET|DELIVERY_SELLER_JWT_SECRET|DELIVERY_SMS_MOCK|DELIVERY_WECHAT_MOCK/,
   );
-  assert.match(miniappProductionVerifier, /PICKUP_FULFILLMENT_ENABLED/);
-  assert.match(miniappProductionVerifier, /WECHAT_MINIAPP_CODE_ENV_VERSION/);
-  assert.match(miniappProductionVerifier, /SF_API_URL/);
+  assert.match(miniappConfigVerifier, /PICKUP_FULFILLMENT_ENABLED/);
+  assert.match(miniappConfigVerifier, /WECHAT_MINIAPP_CODE_ENV_VERSION/);
+  assert.match(miniappConfigVerifier, /SF_API_URL/);
 });
 
 test('backend deployment records previous SHA and automatically restores code on failure', () => {

@@ -26,6 +26,8 @@ on:
       - 'scripts/__tests__/miniapp-staging-semantic-parity.test.mjs'
       - 'scripts/__tests__/miniapp-staging-semantic-parity.json'
       - 'scripts/__tests__/sync-staging-test-checkout.test.mjs'
+      - 'scripts/__tests__/miniapp-production-config.test.mjs'
+      - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
 
   # 手动触发
   workflow_dispatch:
@@ -135,13 +137,13 @@ jobs:
               CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
             fi
             echo "$CHANGED" | grep -Eq '^(website/|scripts/lib/legal-static-renderer\.mjs$)' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(admin/|miniapp/)'   && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(seller/|miniapp/)'  && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             # workflow-only 变更只验证工作流本身，不得触发后端、migration 或 PM2。
             # miniapp-only 更新仍重发三个测试组件，使 release-sha 与小程序 source SHA 保持一致。
-            echo "$CHANGED" | grep -Eq '^(backend/|miniapp/)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-release\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs|scripts/__tests__/miniapp-staging-semantic-parity\.(test\.mjs|json)|scripts/__tests__/sync-staging-test-checkout\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-release\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|backend/scripts/(verify-miniapp-(config|production-config|staging-config)|prepare-miniapp-staging-env)\.cjs|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs|scripts/__tests__/miniapp-staging-semantic-parity\.(test\.mjs|json)|scripts/__tests__/sync-staging-test-checkout\.test\.mjs|scripts/__tests__/(miniapp-production-config|prepare-miniapp-staging-env)\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|miniapp/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
           fi
 
@@ -187,7 +189,9 @@ jobs:
             scripts/__tests__/deploy-backend-main-safety.test.mjs \
             scripts/__tests__/production-delivery-exclusion.test.mjs \
             scripts/__tests__/miniapp-staging-semantic-parity.test.mjs \
-            scripts/__tests__/sync-staging-test-checkout.test.mjs
+            scripts/__tests__/sync-staging-test-checkout.test.mjs \
+            scripts/__tests__/miniapp-production-config.test.mjs \
+            scripts/__tests__/prepare-miniapp-staging-env.test.mjs
 
   deploy-website:
     needs: [detect-changes, release-approval, deploy-backend]

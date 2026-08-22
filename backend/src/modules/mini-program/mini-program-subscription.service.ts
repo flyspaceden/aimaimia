@@ -455,6 +455,7 @@ export class MiniProgramSubscriptionService {
 
   private miniProgramState(): 'developer' | 'trial' | 'formal' {
     const value = this.config.get<string>('WECHAT_MINIAPP_SUBSCRIBE_STATE', 'formal').trim();
+    if (value === 'develop') return 'developer';
     return value === 'developer' || value === 'trial' ? value : 'formal';
   }
 
