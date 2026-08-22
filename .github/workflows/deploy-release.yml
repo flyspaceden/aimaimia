@@ -190,8 +190,7 @@ jobs:
             scripts/__tests__/production-delivery-exclusion.test.mjs \
             scripts/__tests__/miniapp-staging-semantic-parity.test.mjs \
             scripts/__tests__/sync-staging-test-checkout.test.mjs \
-            scripts/__tests__/miniapp-production-config.test.mjs \
-            scripts/__tests__/prepare-miniapp-staging-env.test.mjs
+            scripts/__tests__/miniapp-production-config.test.mjs
 
   deploy-website:
     needs: [detect-changes, release-approval, deploy-backend]
@@ -390,6 +389,9 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
+
+      - name: Validate staging env preparation contract
+        run: node --test scripts/__tests__/prepare-miniapp-staging-env.test.mjs
 
       - name: Validate and migrate clean CI database
         working-directory: backend
