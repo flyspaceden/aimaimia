@@ -1,0 +1,25 @@
+@use '../../../theme/tokens' as t;
+
+.deletion-page { padding-bottom: 40px; }
+.deletion-alert { padding: 18px; color: #fff; background: linear-gradient(135deg, #8c3f38, #bd6459); border-radius: t.$radius-lg; }
+.deletion-alert text { display: block; }
+.deletion-alert text:first-child { font-size: 18px; font-weight: 800; }
+.deletion-alert text:last-child { margin-top: 7px; font-size: 12px; line-height: 19px; opacity: .92; }
+.deletion-card { margin-top: 14px; padding: 16px; }
+.deletion-card__title { display: block; margin-bottom: 10px; color: t.$text-primary; font-size: 15px; font-weight: 750; }
+.deletion-row { display: flex; justify-content: space-between; padding: 9px 0; color: t.$text-secondary; font-size: 12px; border-bottom: 1px solid t.$border; }
+.deletion-row:last-of-type { border-bottom: 0; }
+.deletion-row text:last-child { color: t.$text-primary; font-weight: 650; }
+.deletion-blocker { margin-top: 8px; padding: 10px; background: #fff5f3; border-radius: t.$radius-md; }
+.deletion-blocker text { display: block; color: #8c3f38; font-size: 12px; }
+.deletion-blocker text:last-child { margin-top: 3px; color: t.$text-secondary; }
+.deletion-copy { display: block; margin-top: 8px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.deletion-agreement { display: flex; align-items: flex-start; gap: 9px; margin: 16px 2px; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
+.deletion-check { flex: 0 0 18px; width: 18px; height: 18px; color: #fff; text-align: center; line-height: 18px; border: 1px solid t.$border; border-radius: 50%; }
+.deletion-check--active { background: #a04b42; border-color: #a04b42; }
+.deletion-code { display: flex; gap: 10px; margin-top: 12px; }
+.deletion-code input, .deletion-confirm-input { flex: 1; height: 42px; padding: 0 12px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.deletion-code button { width: 112px; height: 42px; margin: 0; color: t.$brand-primary; font-size: 12px; line-height: 42px; background: #fff; border: 1px solid t.$brand-primary; border-radius: t.$radius-full; }
+.deletion-confirm-input { box-sizing: border-box; width: 100%; margin-top: 12px; }
+.deletion-submit { height: 46px; margin-top: 18px; color: #fff; font-size: 14px; line-height: 46px; background: #a04b42; border-radius: t.$radius-full; }
+.deletion-submit[disabled] { color: #fff; background: #ccb4b0; }

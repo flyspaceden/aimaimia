@@ -76,6 +76,8 @@ const CaptainSettlementsPage = lazy(() => import('@/pages/captain/settlements'))
 const CaptainSettingsPage = lazy(() => import('@/pages/captain/settings'));
 const ProfitReconciliationsPage = lazy(() => import('@/pages/captain/reconciliations'));
 const ProfitAdjustmentsPage = lazy(() => import('@/pages/captain/adjustments'));
+const PickupPointListPage = lazy(() => import('@/pages/pickup-points/index'));
+const PickupVerificationPage = lazy(() => import('@/pages/pickup-verify/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -136,6 +138,8 @@ export default function App() {
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
+            <Route path="pickup-points" element={<RequirePermission permission={PERMISSIONS.PICKUP_POINTS_READ}><PickupPointListPage /></RequirePermission>} />
+            <Route path="pickup-verify" element={<RequirePermission permission={PERMISSIONS.PICKUP_FULFILLMENT_OPERATE}><PickupVerificationPage /></RequirePermission>} />
             <Route path="companies" element={<CompanyListPage />} />
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="users" element={<UserListPage />} />

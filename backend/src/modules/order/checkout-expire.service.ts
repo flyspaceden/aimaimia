@@ -83,6 +83,13 @@ export class CheckoutExpireService {
     return claimedFen !== null && claimedFen === WechatPayService.yuanToFenAmount(expectedTotal, 'expectedTotal');
   }
 
+  private hasPaymentParamCreationFence(session: { bizMeta?: unknown }): boolean {
+    const meta = session.bizMeta && typeof session.bizMeta === 'object' && !Array.isArray(session.bizMeta)
+      ? (session.bizMeta as Record<string, any>).paymentParamState
+      : null;
+    return meta?.version === 1 && meta?.state === 'CREATING';
+  }
+
   @Cron('0 * * * * *')
   async handleExpire() {
     const now = new Date();
@@ -104,6 +111,7 @@ export class CheckoutExpireService {
         itemsSnapshot: true,
         merchantOrderNo: true,
         paymentChannel: true,
+        paymentScene: true,
         expectedTotal: true,
       } as any,
       take: 200,
@@ -259,7 +267,7 @@ export class CheckoutExpireService {
     }
   }
 
-  private async expireSession(session: {
+  private async expireSession(selectedSession: {
     id: string;
     rewardId: string | null;
     deductionGroupId?: string | null;
@@ -270,15 +278,60 @@ export class CheckoutExpireService {
     itemsSnapshot: unknown;
     merchantOrderNo: string | null;
     paymentChannel: string | null;
+    paymentScene?: string | null;
     expectedTotal: number;
   }) {
+    if (!this.checkoutService?.withPaymentOperationLock) {
+      this.logger.error(
+        `expireSession 缺少支付会话互斥服务，fail-closed：sessionId=${selectedSession.id}`,
+      );
+      return;
+    }
+    return this.checkoutService.withPaymentOperationLock(
+      selectedSession.id,
+      async (lock: { assertOwned(): Promise<void> }) => {
+        await lock.assertOwned();
+        const session = await this.prisma.checkoutSession.findUnique({
+          where: { id: selectedSession.id },
+        });
+        if (
+          !session
+          || session.status !== 'ACTIVE'
+          || session.expiresAt.getTime() >= Date.now()
+        ) {
+          return;
+        }
+        if (this.hasPaymentParamCreationFence(session)) {
+          await this.checkoutService.recoverStalePaymentParamFence(session.id);
+        }
+        return this.expireSessionLocked(session as any, lock);
+      },
+    );
+  }
+
+  private async expireSessionLocked(session: {
+    id: string;
+    rewardId: string | null;
+    deductionGroupId?: string | null;
+    groupBuyRebateDeductionGroupId?: string | null;
+    groupBuyRebateDeductionAmount?: number | null;
+    couponInstanceIds: string[];
+    bizType: string;
+    itemsSnapshot: unknown;
+    merchantOrderNo: string | null;
+    paymentChannel: string | null;
+    paymentScene?: string | null;
+    expectedTotal: number;
+  }, lock: { assertOwned(): Promise<void> }) {
     // 资金安全：查支付宝，已付款则主动建单（不能仅 return — 否则 session 永远 ACTIVE）
     // expire cron 是被动触发，与 cancelSession 不同 — 异常时不抛错，跳过本次让下次 cron 再试。
-    if (
-      session.merchantOrderNo &&
-      session.paymentChannel === 'ALIPAY' &&
-      this.alipayService?.isAvailable()
-    ) {
+    if (session.merchantOrderNo && session.paymentChannel === 'ALIPAY') {
+      if (!this.alipayService?.isAvailable()) {
+        this.logger.warn(
+          `expireSession 支付宝服务不可用，跳过本次 sessionId=${session.id}`,
+        );
+        return;
+      }
       let queryResult: { tradeStatus: string; tradeNo: string; totalAmount: string } | null = null;
       try {
         queryResult = await this.alipayService.queryOrder(session.merchantOrderNo);
@@ -419,12 +472,21 @@ export class CheckoutExpireService {
         return;
       }
 
-      if (!queryResult) {
-        this.logger.warn(`expireSession 查微信无结果，跳过本次 sessionId=${session.id}`);
+      if (!queryResult || queryResult.outcome === 'UNKNOWN') {
+        this.logger.warn(`expireSession 查微信结果不确定，跳过本次 sessionId=${session.id}`);
         return;
       }
 
-      if (queryResult?.tradeState === 'SUCCESS') {
+      const expectedScene = session.paymentScene === 'MINI_PROGRAM' ? 'MINI_PROGRAM' : 'APP';
+      if (
+        queryResult.outcome === 'FOUND'
+        && !this.wechatPayService.matchesPaymentScene(queryResult, expectedScene)
+      ) {
+        this.logger.error(`expireSession 微信交易场景校验失败，sessionId=${session.id}`);
+        return;
+      }
+
+      if (queryResult.outcome === 'FOUND' && queryResult.tradeState === 'SUCCESS') {
         if (!this.checkoutService) {
           this.logger.error(`expireSession 微信已支付但 CheckoutService 未注入，sessionId=${session.id}`);
           return;
@@ -456,14 +518,16 @@ export class CheckoutExpireService {
         return;
       }
 
-      let closeResult: any;
-      try {
-        closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
-      } catch (err: any) {
-        this.logger.warn(
-          `expireSession 微信关单异常，跳过本次 sessionId=${session.id}：${err.message}`,
-        );
-        return;
+      let closeResult: any = { success: true, terminal: true, alreadyPaid: false };
+      if (queryResult.outcome === 'FOUND') {
+        try {
+          closeResult = await this.wechatPayService.closeOrder(session.merchantOrderNo);
+        } catch (err: any) {
+          this.logger.warn(
+            `expireSession 微信关单异常，跳过本次 sessionId=${session.id}：${err.message}`,
+          );
+          return;
+        }
       }
 
       if (closeResult?.alreadyPaid) {
@@ -477,7 +541,11 @@ export class CheckoutExpireService {
           return;
         }
 
-        if (queryAfterClose?.tradeState === 'SUCCESS') {
+        if (
+          queryAfterClose?.outcome === 'FOUND'
+          && this.wechatPayService.matchesPaymentScene(queryAfterClose, expectedScene)
+          && queryAfterClose.tradeState === 'SUCCESS'
+        ) {
           if (!this.checkoutService) {
             this.logger.error(`expireSession 微信 close-paid 无法建单（CheckoutService 未注入），sessionId=${session.id}`);
             return;
@@ -520,6 +588,7 @@ export class CheckoutExpireService {
       }
     }
 
+    await lock.assertOwned();
     await this.prisma.$transaction(
       async (tx) => {
         // CAS: 仅 ACTIVE → EXPIRED（防止与支付回调并发竞态）

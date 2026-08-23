@@ -15,6 +15,13 @@ export const PERMISSIONS = {
   ORDERS_REFUND: 'orders:refund',
   ORDERS_CANCEL: 'orders:cancel',
 
+  // 自提点
+  PICKUP_POINTS_READ: 'pickup_points:read',
+  PICKUP_POINTS_CREATE: 'pickup_points:create',
+  PICKUP_POINTS_UPDATE: 'pickup_points:update',
+  PICKUP_POINTS_DELETE: 'pickup_points:delete',
+  PICKUP_FULFILLMENT_OPERATE: 'pickup_fulfillment:operate',
+
   // 企业
   COMPANIES_READ: 'companies:read',
   COMPANIES_UPDATE: 'companies:update',

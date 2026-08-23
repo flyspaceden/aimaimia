@@ -33,6 +33,18 @@ export const centsToYuan = (value: number): number => {
   return value / 100;
 };
 
+/** Float 余额能被数据库 CAS 安全扣减的最大整数分；容量必须向下取整。 */
+export const nonNegativeYuanCapacityToCents = (value: number): number => {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error('yuan capacity must be a finite non-negative value');
+  }
+  const [whole, fraction = ''] = value.toFixed(10).split('.');
+  const cents = BigInt(whole) * 100n + BigInt(`${fraction}00`.slice(0, 2));
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (cents > max) throw new Error('yuan capacity exceeds the safe cent range');
+  return Number(cents);
+};
+
 export const isNonNegativeIntegerCents = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0;
 

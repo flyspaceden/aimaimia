@@ -28,9 +28,21 @@ describe('PaymentService.confirmCheckout 幂等与状态机覆盖', () => {
       checkoutSession: { findUnique: findUniqueMock },
       afterSaleShippingPayment: { findUnique: jest.fn() },
     };
+    const rawWechatQueryResult = overrides.wechatQueryResult;
+    const normalizedWechatQueryResult = rawWechatQueryResult?.outcome
+      ? rawWechatQueryResult
+      : rawWechatQueryResult == null
+        ? { outcome: 'DEFINITIVE_NOT_FOUND' }
+        : {
+            outcome: 'FOUND',
+            appId: 'wx-test-app',
+            tradeType: 'APP',
+            ...rawWechatQueryResult,
+          };
     const wechatPayService = {
       isAvailable: jest.fn().mockReturnValue(true),
-      queryOrder: jest.fn().mockResolvedValue(overrides.wechatQueryResult ?? null),
+      matchesPaymentScene: jest.fn().mockReturnValue(true),
+      queryOrder: jest.fn().mockResolvedValue(normalizedWechatQueryResult),
     };
     const handlePaymentCallback = jest.fn().mockResolvedValue({ code: 'SUCCESS' });
 

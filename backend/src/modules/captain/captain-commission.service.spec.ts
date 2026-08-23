@@ -67,6 +67,11 @@ function makeAttribution(overrides: any = {}) {
 
 function createHarness(attribution: any = makeAttribution(), priorVoidLedgers: any[] = []) {
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([{
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+    }]),
     captainOrderAttribution: {
       findUnique: jest.fn().mockResolvedValue(attribution),
       update: jest.fn().mockResolvedValue({}),

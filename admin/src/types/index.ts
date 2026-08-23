@@ -56,6 +56,7 @@ export interface AdminRole {
   isSystem: boolean;
   createdAt: string;
   permissions: AdminPermission[];
+  _count?: { adminUsers: number };
 }
 
 export interface AdminPermission {
@@ -1539,6 +1540,78 @@ export interface GroupBuyCatalogProduct {
 
 // ========== 订单 ==========
 
+export type FulfillmentMode = 'DELIVERY' | 'PICKUP';
+
+export type PickupFulfillmentStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'PICKED_UP'
+  | 'VOID'
+  | 'CANCELED';
+
+export type PickupPointKind = 'MERCHANT' | 'PLATFORM_HUB';
+export type PickupPointCoverage = 'OWNER_COMPANY' | 'ALL_ACTIVE_COMPANIES' | 'SELECTED_COMPANIES';
+
+export interface PickupBusinessHours {
+  summary?: string;
+  holidayNotice?: string;
+  [key: string]: unknown;
+}
+
+export interface PickupPointLocation {
+  lng: number;
+  lat: number;
+  provider?: string;
+  poiName?: string;
+}
+
+export interface PickupPoint {
+  id: string;
+  companyId: string;
+  company?: { id: string; name: string; isPlatform?: boolean } | null;
+  kind: PickupPointKind;
+  coverage: PickupPointCoverage;
+  serviceCompanies?: Array<{ id: string; name: string }>;
+  name: string;
+  contactName: string;
+  contactPhone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+  location?: PickupPointLocation | null;
+  businessHours: PickupBusinessHours | Record<string, unknown>;
+  pickupNotice?: string | null;
+  isActive: boolean;
+  deletedAt?: string | null;
+  deletedByAdminId?: string | null;
+  deleteReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PickupFulfillmentSummary {
+  status: PickupFulfillmentStatus;
+  pickupPoint: Pick<
+    PickupPoint,
+    'id' | 'name' | 'regionText' | 'detail' | 'location' | 'businessHours' | 'pickupNotice'
+  >;
+  recipient?: { name: string; phoneMasked: string } | null;
+  readyAt?: string | null;
+  pickedUpAt?: string | null;
+  pickedUpByStaffId?: string | null;
+}
+
+export interface PickupFulfillmentEvent {
+  id: string;
+  eventType: string;
+  fromStatus?: PickupFulfillmentStatus | null;
+  toStatus: PickupFulfillmentStatus;
+  actorType: string;
+  actorId?: string | null;
+  createdAt: string;
+  meta?: Record<string, unknown> | null;
+}
+
 export type OrderStatus =
   | 'PENDING_PAYMENT'
   | 'PAID'
@@ -1571,8 +1644,18 @@ export interface Order {
   discountAmount?: number;
   shippingFee?: number;
   paymentMethod?: string;
+  paymentScene?: 'APP' | 'MINI_PROGRAM' | null;
   paidAt?: string;
   transactionId?: string;
+  wechatShipping?: {
+    status: 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED';
+    attemptCount: number;
+    nextAttemptAt?: string | null;
+    lastErrorCode?: string | null;
+    lastError?: string | null;
+    succeededAt?: string | null;
+    updatedAt: string;
+  } | null;
   remark?: string;
   items: OrderItem[];
   itemsSummary?: string;
@@ -1625,6 +1708,9 @@ export interface Order {
     meta?: Record<string, unknown> | null;
     createdAt: string;
   }>;
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1637,6 +1723,8 @@ export interface OrderQueryParams extends PaginationParams {
   companyId?: string;
   paymentChannel?: string;
   userId?: string;
+  fulfillmentMode?: FulfillmentMode;
+  pickupStatus?: PickupFulfillmentStatus;
 }
 
 export type OrderStatsMap = Record<string, number>;

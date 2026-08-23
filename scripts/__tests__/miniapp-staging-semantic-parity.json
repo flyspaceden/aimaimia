@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "sourceStagingCommit": "acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2",
+  "scope": "miniapp tested marketplace behavior; excludes independent Delivery",
+  "exactFiles": [
+    {
+      "path": "backend/src/modules/address/address.service.ts",
+      "gitBlob": "677b670dfb32ecb03497c843fa1b51a1c939c67c"
+    },
+    {
+      "path": "backend/src/modules/admin/bonus/admin-bonus.service.ts",
+      "gitBlob": "ecb564fd8fe72eaf878835a3d72a571eb3cd5d24"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.dto.ts",
+      "gitBlob": "0537c0269685143bdf4697466f73b08ccd5f9fdc"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.module.ts",
+      "gitBlob": "594efc58a073c144e410ae6e8a45bf1ea52a7bd4"
+    },
+    {
+      "path": "backend/src/modules/admin/group-buy/admin-group-buy.service.ts",
+      "gitBlob": "c22cdecbd4284e8879e52b84ba6ca8acc06d8476"
+    },
+    {
+      "path": "backend/src/modules/admin/products/admin-products.service.ts",
+      "gitBlob": "ca8dd02b271b502a15407c8eabe7618edf66501f"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale-refund.service.ts",
+      "gitBlob": "35c1dd59fe2f271ef9611978f283c2f796c1ece2"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale.service.ts",
+      "gitBlob": "8f876819f232a4e5111aa93c412b5c3362b04b08"
+    },
+    {
+      "path": "backend/src/modules/auth/auth.service.ts",
+      "gitBlob": "9ae09bdb51451774b51f75d90928119431f8f2ce"
+    },
+    {
+      "path": "backend/src/modules/bonus/bonus.controller.ts",
+      "gitBlob": "371108113e84fedc9ff0f840602bb9ef8984bbaa"
+    },
+    {
+      "path": "backend/src/modules/bonus/bonus.service.ts",
+      "gitBlob": "e13662548667bd052733d0831b21aec025efa214"
+    },
+    {
+      "path": "backend/src/modules/bonus/withdraw-payout.service.ts",
+      "gitBlob": "266a2b2a8d3db1c5afca7fd9b113f6669c1b7527"
+    },
+    {
+      "path": "backend/src/modules/booking/booking.service.ts",
+      "gitBlob": "7ce7360dbd01372af8d33a7b8c8c8c6b732bb6c4"
+    },
+    {
+      "path": "backend/src/modules/captain/captain-attribution.service.ts",
+      "gitBlob": "4057181a9e0cecefd759d1233322cc975b09e0eb"
+    },
+    {
+      "path": "backend/src/modules/captain/captain-commission.service.ts",
+      "gitBlob": "39d3a80d131213f49a14b518e02409ea0b4b94cf"
+    },
+    {
+      "path": "backend/src/modules/captain/captain-monthly-settlement.service.ts",
+      "gitBlob": "8731faa8613b3e546899b77bf191d984f2c9173e"
+    },
+    {
+      "path": "backend/src/modules/captain/captain-relation.service.ts",
+      "gitBlob": "897199fbfb82a79d0968ee89a83260eec83e9c1d"
+    },
+    {
+      "path": "backend/src/modules/cart/cart.service.ts",
+      "gitBlob": "fe4bbbcc9d0331dff0f1460656737609adb0ed94"
+    },
+    {
+      "path": "backend/src/modules/customer-service/cs.service.ts",
+      "gitBlob": "eb195ddf591aa4511b2ef6c80382adb4d5bae08b"
+    },
+    {
+      "path": "backend/src/modules/digital-asset/digital-asset.service.ts",
+      "gitBlob": "b554e55f09f9ad6df2c8db5881d85cfed4e40769"
+    },
+    {
+      "path": "backend/src/modules/follow/follow.service.ts",
+      "gitBlob": "46f0f07298463dbd2d333b9e4e95743cc05755c7"
+    },
+    {
+      "path": "backend/src/modules/group-buy/group-buy-rebate-deduction.service.ts",
+      "gitBlob": "29ce51780e000541517c6ad2712ba4734c1abe8a"
+    },
+    {
+      "path": "backend/src/modules/group-buy/group-buy-rebate.service.ts",
+      "gitBlob": "1445a3d16c7dc550bde58f96ebc8f501300f1fe0"
+    },
+    {
+      "path": "backend/src/modules/group/group.service.ts",
+      "gitBlob": "5c929f313ad061a70728f4f546dbdc5df5e2ba3d"
+    },
+    {
+      "path": "backend/src/modules/growth/growth-exchange.service.ts",
+      "gitBlob": "2d8fceff65855f94139e5587cdaf13c38fda2c1a"
+    },
+    {
+      "path": "backend/src/modules/normal-share/normal-share.controller.ts",
+      "gitBlob": "dc29697ec281b543bdc3018119c0e18a2d701d36"
+    },
+    {
+      "path": "backend/src/modules/normal-share/normal-share.service.ts",
+      "gitBlob": "92a56500c9b59a3a222c431a46e104d3ac40eb64"
+    },
+    {
+      "path": "backend/src/modules/order/checkout.service.ts",
+      "gitBlob": "9eb138f6c7d036993fef3464f69ad86c9f363fb1"
+    },
+    {
+      "path": "backend/src/modules/order/order.service.ts",
+      "gitBlob": "022ae510c4e5b96dd8217d62a630d1ee67ca0c95"
+    },
+    {
+      "path": "backend/src/modules/payment/wechat-pay.service.ts",
+      "gitBlob": "b3ef3bb8996c7c775b574daeb845566d366fe6a1"
+    },
+    {
+      "path": "backend/src/modules/product/product-bundle.service.ts",
+      "gitBlob": "cbc99f3e7691b0ef116d888b9d67f5b848cf4763"
+    },
+    {
+      "path": "backend/src/modules/product/product.service.ts",
+      "gitBlob": "3eb35c4d4a8d5a7b7aa2aecfb765a3349f42dc5d"
+    },
+    {
+      "path": "backend/src/modules/profit/order-profit-refund.service.ts",
+      "gitBlob": "03866f888a42f7d948ed7ff61f9a4f5905fe7021"
+    },
+    {
+      "path": "backend/src/modules/profit/order-profit-snapshot.service.ts",
+      "gitBlob": "fbaff3b19cd8e0db4fe89843b5ccb1f8408f3527"
+    },
+    {
+      "path": "backend/src/modules/recommendation/recommendation.service.ts",
+      "gitBlob": "296a15d91600c8cf16c7552f7e8edf27a8866f98"
+    },
+    {
+      "path": "backend/src/modules/seller/products/seller-products.service.ts",
+      "gitBlob": "b012d1d1e676b29d23a9dcebf8d2cce42c45b69f"
+    },
+    {
+      "path": "backend/src/modules/seller/shipping/seller-shipping.service.ts",
+      "gitBlob": "c6fd200a5da614e23d61cf92863ff503b51aa7a5"
+    },
+    {
+      "path": "backend/src/modules/shipment/shipment.service.ts",
+      "gitBlob": "d75166e5f12de82735e24a96ac82c691db593ed1"
+    },
+    {
+      "path": "backend/src/modules/task/task.module.ts",
+      "gitBlob": "7eed8a1ac5d62cf6f9e7879f118cab7d5353bd5b"
+    },
+    {
+      "path": "backend/src/modules/task/task.service.ts",
+      "gitBlob": "2a6aa0ec452183f8db2a69a3a0bb772730e74892"
+    },
+    {
+      "path": "backend/src/modules/trace/trace.service.ts",
+      "gitBlob": "25bea97bc22ffa1a107a88251062dc572e792c45"
+    },
+    {
+      "path": "backend/src/modules/user/user.service.ts",
+      "gitBlob": "9d73eae83c1f802897614c72ab9b0b023d2695ea"
+    }
+  ],
+  "intentionalCandidateDifferences": [
+    {
+      "path": "backend/prisma/schema.prisma",
+      "reason": "retain staging mini-program and pickup schema plus production RefundSideEffectOutbox"
+    },
+    {
+      "path": "backend/src/app.module.ts",
+      "reason": "exclude independent DeliveryModule while preserving all marketplace modules"
+    },
+    {
+      "path": "backend/src/main.ts",
+      "reason": "documentation-only clarification around Nest raw-body-preserving parser registration"
+    },
+    {
+      "path": "backend/src/modules/auth/auth.controller.ts",
+      "reason": "retain staging mini-program routes plus current main H5 invite-login routes"
+    },
+    {
+      "path": "backend/src/modules/auth/dto/change-password.dto.ts",
+      "reason": "formatting-only difference; password validation rules remain identical"
+    },
+    {
+      "path": "backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts",
+      "reason": "retain main App WeChat deletion proof DTO alongside mini-program proof DTO"
+    },
+    {
+      "path": "backend/src/modules/cart/cart.controller.ts",
+      "reason": "comment-only clarification for the item-id quantity endpoint"
+    },
+    {
+      "path": "backend/src/modules/company/company.service.ts",
+      "reason": "retain staging behavior plus inspection preview defense-in-depth"
+    },
+    {
+      "path": "backend/src/modules/health/health.module.ts",
+      "reason": "exclude Delivery database readiness dependency from marketplace production"
+    },
+    {
+      "path": "backend/src/modules/health/health.service.ts",
+      "reason": "exclude Delivery database probe and expose exact production release SHA"
+    },
+    {
+      "path": "backend/src/modules/mini-program/mini-program-subscription.service.ts",
+      "reason": "normalize the legacy staging value develop to WeChat developer state instead of falling back to formal"
+    },
+    {
+      "path": "backend/src/modules/payment/dto/payment-callback.dto.ts",
+      "reason": "remove Delivery-only callback channel and amount claims from marketplace callback DTO"
+    },
+    {
+      "path": "backend/src/modules/payment/payment.controller.ts",
+      "reason": "exclude Delivery callbacks while retaining marketplace App and mini-program callbacks"
+    },
+    {
+      "path": "backend/src/modules/payment/payment.module.ts",
+      "reason": "exclude DeliveryModule and wire RefundSideEffectsService"
+    },
+    {
+      "path": "backend/src/modules/payment/payment.service.ts",
+      "reason": "exclude Delivery payment routing and add durable refund side-effect outbox"
+    },
+    {
+      "path": "backend/src/modules/payment/refund-side-effects.service.ts",
+      "reason": "candidate-only durable automatic-refund side-effect outbox worker"
+    },
+    {
+      "path": "backend/src/modules/profit/money-allocation.ts",
+      "reason": "comment-only clarification for flooring Float account capacity to integer cents"
+    },
+    {
+      "path": "backend/src/modules/shipment/delivery-sf-callback.service.ts",
+      "reason": "remove independent Delivery database callback fallback from marketplace production"
+    },
+    {
+      "path": "backend/src/modules/shipment/sf-express.service.ts",
+      "reason": "retain marketplace single-waybill adapter; Delivery multi-waybill remains outside production candidate"
+    },
+    {
+      "path": "backend/src/modules/shipment/shipment.controller.ts",
+      "reason": "exclude Delivery database callback fallback"
+    },
+    {
+      "path": "backend/src/modules/shipment/shipment.module.ts",
+      "reason": "exclude Delivery callback provider"
+    }
+  ]
+}

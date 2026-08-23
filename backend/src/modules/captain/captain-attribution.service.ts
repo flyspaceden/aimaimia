@@ -10,6 +10,10 @@ import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
 } from './captain.constants';
 import type { CaptainSeafoodConfigV3 } from './captain.types';
+import {
+  acquireUserWriteLock,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 
 export type CaptainAttributionResult = 'credited' | 'skipped';
 
@@ -142,6 +146,11 @@ export class CaptainAttributionService {
       || snapshot.order.bizType !== 'NORMAL_GOODS'
       || paidAt < effectiveAt
     ) {
+      return 'skipped';
+    }
+
+    await acquireUserWriteLock(tx, directCaptainUserId);
+    if (!(await isActiveUserInTransaction(tx, directCaptainUserId))) {
       return 'skipped';
     }
 

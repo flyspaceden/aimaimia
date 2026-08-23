@@ -19,10 +19,12 @@ describe('PaymentController.handleAlipayTransferNotify', () => {
     };
     const prisma = {
       withdrawRequest: {
-        findFirst: jest.fn().mockResolvedValue(overrides?.withdraw ?? {
+        findFirst: jest.fn().mockResolvedValue(overrides?.withdraw === undefined ? {
           id: 'w-1',
           status: 'PROCESSING',
-        }),
+          channel: 'ALIPAY',
+          netAmount: 80,
+        } : overrides.withdraw),
       },
     };
     const withdrawPayoutService = overrides?.withdrawPayoutService ?? {
@@ -75,17 +77,19 @@ describe('PaymentController.handleAlipayTransferNotify', () => {
         status: 'SUCCESS',
         order_id: 'O1',
         pay_fund_order_id: 'F1',
+        trans_amount: '80.00',
       }),
     };
 
     await (controller as any).handleAlipayTransferNotify(body, res as any);
 
     expect(prisma.withdrawRequest.findFirst).toHaveBeenCalledWith({
-      where: { outBizNo: 'WD-1' },
+      where: { outBizNo: 'WD-1', channel: 'ALIPAY' },
     });
     expect(withdrawPayoutService.finalizeWithdrawalPaid).toHaveBeenCalledWith('w-1', {
       providerOrderId: 'O1',
       providerFundOrderId: 'F1',
+      providerStatus: 'SUCCESS',
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('success');
@@ -98,8 +102,10 @@ describe('PaymentController.handleAlipayTransferNotify', () => {
       biz_content: JSON.stringify({
         out_biz_no: 'WD-1',
         status: 'FAIL',
+        order_id: 'O1',
         error_code: 'PAYEE_NOT_EXIST',
         fail_reason: '收款方账户不存在',
+        trans_amount: '80.00',
       }),
     };
 
@@ -109,6 +115,7 @@ describe('PaymentController.handleAlipayTransferNotify', () => {
       errorCode: 'PAYEE_NOT_EXIST',
       errorMessage: '收款方账户不存在',
       providerStatus: 'FAIL',
+      providerOrderId: 'O1',
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('success');
@@ -128,6 +135,111 @@ describe('PaymentController.handleAlipayTransferNotify', () => {
     expect(withdrawPayoutService.finalizeWithdrawalFailed).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('success');
+  });
+
+  it('cannot match or finalize a WeChat withdrawal through the Alipay callback', async () => {
+    const { controller, prisma, withdrawPayoutService, res } = buildController({
+      withdraw: null,
+    });
+
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WX123', status: 'SUCCESS', trans_amount: '80.00', order_id: 'O1',
+      }),
+    }, res as any);
+
+    expect(prisma.withdrawRequest.findFirst).toHaveBeenCalledWith({
+      where: { outBizNo: 'WX123', channel: 'ALIPAY' },
+    });
+    expect(withdrawPayoutService.finalizeWithdrawalPaid).not.toHaveBeenCalled();
+    expect(res.send).toHaveBeenCalledWith('success');
+  });
+
+  it('rejects signed callbacks whose amount or provider order identity differs', async () => {
+    const { controller, withdrawPayoutService, res } = buildController({
+      withdraw: {
+        id: 'w-1', status: 'PROCESSING', channel: 'ALIPAY', netAmount: 80,
+        providerPayoutId: 'EXPECTED-ORDER',
+      },
+    });
+
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WD-1', status: 'SUCCESS', trans_amount: '81.00', order_id: 'EXPECTED-ORDER',
+      }),
+    }, res as any);
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WD-1', status: 'SUCCESS', trans_amount: '80.00', order_id: 'OTHER-ORDER',
+      }),
+    }, res as any);
+
+    expect(withdrawPayoutService.finalizeWithdrawalPaid).not.toHaveBeenCalled();
+    expect(res.send).toHaveBeenCalledWith('failure');
+  });
+
+  it('requires order_id on every terminal callback', async () => {
+    const { controller, withdrawPayoutService, res } = buildController();
+
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WD-1', status: 'FAIL', trans_amount: '80.00',
+      }),
+    }, res as any);
+
+    expect(withdrawPayoutService.finalizeWithdrawalFailed).not.toHaveBeenCalled();
+    expect(res.send).toHaveBeenCalledWith('failure');
+  });
+
+  it('requires and matches pay_fund_order_id before finalizing SUCCESS', async () => {
+    const { controller, withdrawPayoutService, res } = buildController({
+      withdraw: {
+        id: 'w-1', status: 'PROCESSING', channel: 'ALIPAY', netAmount: 80,
+        providerPayoutId: 'O1', providerFundOrderId: 'EXPECTED-FUND',
+      },
+    });
+
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WD-1', status: 'SUCCESS', trans_amount: '80.00', order_id: 'O1',
+      }),
+    }, res as any);
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: 'WD-1', status: 'SUCCESS', trans_amount: '80.00', order_id: 'O1',
+        pay_fund_order_id: 'OTHER-FUND',
+      }),
+    }, res as any);
+
+    expect(withdrawPayoutService.finalizeWithdrawalPaid).not.toHaveBeenCalled();
+    expect(res.send).toHaveBeenCalledWith('failure');
+  });
+
+  it('masks an unmatched out_biz_no in logs', async () => {
+    const { controller, res } = buildController({ withdraw: null });
+    const logger = (controller as any).logger;
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const outBizNo = 'WITHDRAW1234567890SECRET';
+
+    await (controller as any).handleAlipayTransferNotify({
+      msg_method: 'alipay.fund.trans.order.changed',
+      biz_content: JSON.stringify({
+        out_biz_no: outBizNo,
+        status: 'SUCCESS',
+        trans_amount: '80.00',
+        order_id: 'O1',
+        pay_fund_order_id: 'F1',
+      }),
+    }, res as any);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('WITH***CRET'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining(outBizNo));
   });
 });
 

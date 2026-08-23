@@ -1,0 +1,54 @@
+@use 'tokens' as t;
+
+page {
+  min-height: 100%;
+  color: t.$text-primary;
+  background: t.$background;
+  font-family: 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+view,
+text,
+button,
+input,
+textarea,
+scroll-view {
+  box-sizing: border-box;
+}
+
+button::after {
+  border: 0;
+}
+
+.aim-page {
+  min-height: 100vh;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.aim-card {
+  background: t.$surface;
+  border: 1px solid t.$border;
+  border-radius: t.$radius-lg;
+  box-shadow: 0 4px 16px rgba(27, 94, 32, 0.06);
+}
+
+.aim-section-title {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.aim-button-primary {
+  min-height: 44px;
+  padding: 0 18px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 44px;
+  background: t.$brand-primary;
+  border-radius: t.$radius-full;
+}

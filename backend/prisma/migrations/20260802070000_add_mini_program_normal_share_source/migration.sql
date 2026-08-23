@@ -1,0 +1,1 @@
+ALTER TYPE "NormalShareBindingSource" ADD VALUE IF NOT EXISTS 'MINI_PROGRAM';

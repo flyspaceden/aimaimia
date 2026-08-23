@@ -14,15 +14,23 @@ export class CompanyService {
     private config: ConfigService,
   ) {}
 
-  /** 企业列表（3 分钟内存缓存，含每家企业 top 8 商品） */
-  async list(tagId?: string) {
-    const cacheKey = tagId ? `companies:tag:${tagId}` : 'companies:all';
-    const cached = this.listCache.get(cacheKey);
-    if (cached) return cached;
+  /** 企业列表（含每家企业 top 8 商品） */
+  async list(tagId?: string, keyword?: string) {
+    const normalizedKeyword = keyword?.trim() || '';
 
-    const where: any = { status: 'ACTIVE', isPlatform: false };
+    const where: any = {
+      status: 'ACTIVE',
+      isPlatform: false,
+    };
     if (tagId) {
       where.companyTags = { some: { tagId } };
+    }
+    if (normalizedKeyword) {
+      where.OR = [
+        { name: { contains: normalizedKeyword, mode: 'insensitive' } },
+        { shortName: { contains: normalizedKeyword, mode: 'insensitive' } },
+        { description: { contains: normalizedKeyword, mode: 'insensitive' } },
+      ];
     }
 
     const companies = await this.prisma.company.findMany({
@@ -64,7 +72,6 @@ export class CompanyService {
         defaultSkuId: p.skus[0]?.id ?? null,
       })),
     }));
-    this.listCache.set(cacheKey, result);
     return result;
   }
 
@@ -155,10 +162,8 @@ export class CompanyService {
 
     return {
       ...this.mapToFrontend(company),
-      inspectionReports: this.mapInspectionReports(
-        company.documents,
-        company.status === 'ACTIVE' && company.isPlatform === false,
-      ),
+      // 查询本身已限定 ACTIVE 且非平台企业；保留默认 true 以兼容精简 select/mock。
+      inspectionReports: this.mapInspectionReports(company.documents),
       servicePhone: company.servicePhone ?? null,
       isFollowed,
     };
@@ -254,6 +259,9 @@ export class CompanyService {
     return {
       items: items.map((p) => {
         const activeSkus = p.skus || [];
+        const prices = activeSkus.map((sku) => sku.price).filter((price) => Number.isFinite(price));
+        const minPrice = prices.length ? Math.min(...prices) : p.basePrice ?? 0;
+        const maxPrice = prices.length ? Math.max(...prices) : p.basePrice ?? 0;
         // 聚合库存 + 单笔限购（口径同 ProductService.mapToListItem）
         const stock = this.resolveProductCardStock(p, activeSkus);
         let maxPerOrder: number | null = null;
@@ -267,8 +275,10 @@ export class CompanyService {
         }
         return {
           id: p.id,
+          type: p.type === 'BUNDLE' ? 'BUNDLE' : 'SIMPLE',
           title: p.title,
-          price: activeSkus[0]?.price ?? p.basePrice ?? 0,
+          price: minPrice,
+          priceFrom: activeSkus.length > 1 && maxPrice > minPrice,
           image: p.media[0]?.url ?? '',
           defaultSkuId: activeSkus[0]?.id ?? '',
           tags: p.tags.map((pt) => pt.tag.name),
@@ -276,6 +286,7 @@ export class CompanyService {
           origin: (p.origin as any)?.text ?? p.originRegion ?? '',
           categoryName: p.category?.name ?? '',
           stock,
+          bundleAvailableStock: p.type === 'BUNDLE' ? stock : null,
           maxPerOrder,
         };
       }),
@@ -312,7 +323,10 @@ export class CompanyService {
   /** 企业活动列表 */
   async listActivities(companyId: string) {
     const activities = await this.prisma.companyActivity.findMany({
-      where: { companyId, company: { status: 'ACTIVE', isPlatform: false } },
+      where: {
+        companyId,
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
       orderBy: { startAt: 'asc' },
     });
 
@@ -337,7 +351,10 @@ export class CompanyService {
   /** 获取单个活动详情 */
   async getActivityById(id: string) {
     const activity = await this.prisma.companyActivity.findFirst({
-      where: { id, company: { status: 'ACTIVE', isPlatform: false } },
+      where: {
+        id,
+        company: { status: 'ACTIVE', isPlatform: false },
+      },
     });
     if (!activity) throw new NotFoundException('活动不存在');
 

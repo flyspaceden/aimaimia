@@ -1,387 +1,121 @@
-# 爱买买 — 分支维护策略（上线前后通用）
+# 爱买买 Git 分支与版本收敛策略
 
-> **本文回答 4 个问题**：开发版/测试版/正式版长什么样？日常什么时候切分支？紧急情况怎么修？怎么防止两个分支越走越远？
+> 本文是 Git 分支、候选版本、测试版本和生产版本的权威来源。若旧文档或历史命令与本文冲突，以本文为准。
 >
-> **本文不讲**：具体 `git push` 命令（去看 `docs/operations/github操作.md`）/ 上线那一刻的 checklist（去看 `staging-to-production.md`）/ App OTA vs Build 决策（去看 `app-发布与OTA手册.md`）
->
-> **配套文档**：
-> - `github操作.md` — 日常 push staging / merge main 的具体命令
-> - `staging-to-production.md` — 上线 main 那一刻的拍板项 + 验证清单
-> - `版本管理.md` — 三个环境的实际清单（域名 / 数据库 / 服务名）
-> - `app-发布与OTA手册.md` — App 的 OTA / Build 决策
-
----
-
-## 一、三个"版本"长什么样
-
-很多人以为"开发版 / 测试版 / 正式版"必须对应三个 GitHub 分支。**不是**。爱买买的三层环境是这样：
-
-| 层 | 在哪 | 对应分支 | 用什么数据库 / 第三方 | 给谁用 |
-|---|---|---|---|---|
-| **开发层** | 你的 Mac（`localhost:3000`）| 任意分支当前签出的代码 | 本地 PG / SMS_MOCK / 支付宝沙箱 | **只有你自己** |
-| **测试层** | `test-*.ai-maimai.com` | `staging` | 测试库 `testaimaimai` / 真实 SMS / 支付宝沙箱 / 顺丰 UAT | 你 + 测试人员 + 蒲公英 APK 测试者 |
-| **生产层** | `*.ai-maimai.com` | `main` | 生产库 `aimaimai` / 真实 SMS / 支付宝生产 / 顺丰生产 | 全部真实用户 |
-
-**关键：本地就是"开发版"**。你不需要 dev 分支。多一层分支只会让你心智负担更重——单人 + AI 协作的小项目用不上。
-
----
-
-## 二、分支结构
-
-```
-main（生产，永久，受保护）          ← 真实用户在用
-  ↑
-  └─ staging（测试，永久）          ← 日常开发主战场
-       ↑
-       ├─ feature/<名字>（短期）    ← 大功能（>3 天）才切，可选
-       └─ hotfix/<名字>（短期）     ← 紧急修复生产 bug
-```
-
-| 分支 | 永久/短期 | 谁创建 | 推送后会发生什么 |
-|---|---|---|---|
-| `main` | 永久 | 仓库已有 | **自动部署到生产**（`api.ai-maimai.com`）|
-| `staging` | 永久 | 仓库已有 | **自动部署到测试**（`test-api.ai-maimai.com`）|
-| `feature/<名字>` | 短期（1-7 天）| 你按需切 | **不自动部署** |
-| `hotfix/<名字>` | 短期（几小时-1 天）| 紧急时切 | **不自动部署** |
-
----
-
-## 三、日常工作流（4 种典型场景）
-
-### 场景 1：开发新功能（小到中型）
-
-> 例：加一个"商品收藏夹"按钮
-
-```
-本地 → staging → main
-```
-
-**步骤**：
-1. 切到 staging：`git checkout staging && git pull`
-2. 在本地改代码 + 跑 `npm run start:dev` 在 `localhost` 测
-3. 满意后 commit + `git push origin staging` → 自动部署测试环境
-4. 在 `test-*.ai-maimai.com` 真机验证 1-2 天
-5. 决定上线时：`git checkout main && git merge --no-ff staging && git push origin main`
-
-**关键**：每个 commit 一个逻辑改动（CLAUDE.md 强制流程 #10）。
-
-### 场景 2：开发大功能（复杂改动，>3 天）
-
-> 例：重做整个支付流程，期间不想阻塞别的小修复上线
-
-```
-本地 → feature 分支 → staging → main
-```
-
-**步骤**：
-1. 从 staging 切 feature 分支：
-   ```bash
-   git checkout staging
-   git checkout -b feature/payment-redesign
-   ```
-2. 在本地反复改、commit、push 到 `feature/payment-redesign`（不会触发部署）
-3. 期间如果有别的小改动要上线 → 直接 staging→main，不影响你的 feature
-4. feature 完成后：
-   ```bash
-   git checkout staging
-   git merge --no-ff feature/payment-redesign
-   git push origin staging  # 触发测试环境部署
-   ```
-5. 在 staging 测试 OK 后，按场景 1 第 5 步走 main
-
-**何时该切 feature**：
-- 改动跨越多个模块（前后端 + Schema）
-- 预计开发周期 > 3 天
-- 半成品不想污染 staging（让 staging 始终接近"可上线"状态）
-
-**何时不必切**：
-- 单文件小修复
-- 文案 / 配置调整
-- 紧凑的 bug fix
-
-### 场景 3：紧急修复生产 bug（hotfix）
-
-> 例：上线后 3 天，用户报"VIP 礼包下单白屏"。staging 上还有未测完的新功能，不能直接合 staging→main
-
-```
-main → hotfix 分支 → main + staging（双合）
-```
-
-**步骤**：
-1. 从 main 切 hotfix（**不是从 staging**）：
-   ```bash
-   git checkout main
-   git pull origin main
-   git checkout -b hotfix/vip-checkout-white-screen
-   ```
-2. 修 + 本地测试 + commit
-3. 合到 main 紧急上线：
-   ```bash
-   git checkout main
-   git merge --no-ff hotfix/vip-checkout-white-screen
-   git push origin main  # 触发生产部署
-   ```
-4. **★ 关键**：立刻合回 staging，否则两个分支永久分化：
-   ```bash
-   git checkout staging
-   git merge main  # 把 hotfix 拉回 staging
-   git push origin staging
-   ```
-5. 删 hotfix 分支：
-   ```bash
-   git branch -d hotfix/vip-checkout-white-screen
-   git push origin --delete hotfix/vip-checkout-white-screen
-   ```
+> 核心目标：任何时刻都能回答“哪一个 SHA 是生产、哪一个 SHA 在测试、这次准备发布哪些改动、如何回退”。
 
-**为什么必须从 main 切**：staging 上可能有还没准备好的新功能，从 staging 切的 hotfix 合到 main 会把那些功能一起带上线。
+## 一、唯一真相源
 
-### 场景 4：只改 App 端 JS（OTA 路径）
-
-> 例：上线一周后想改首页 banner 文案
-
-如果改动**只是 App 端 JS**（页面、文案、Repo 调用方式），可以**完全跳过 main 部署**，直接走 OTA：
-
-```bash
-# 在 staging 上改、commit、push
-git checkout staging
-# 改 app/index.tsx
-git add app/index.tsx
-git commit -m "update(app): 调整首页 banner 文案"
-git push origin staging
+| 对象 | 定义 | 允许的用途 |
+|---|---|---|
+| `main` | 生产代码唯一真相源 | 只接收已审查、已在测试环境验证的候选；不直接开发 |
+| `staging` | 测试环境当前候选的指针 | 只承载本轮明确批准的 release train；不作为长期开发主干 |
+| `staging-next` | 分支收敛期间的临时测试指针 | 在不移动旧 `staging` 的前提下部署待验证候选；验收结束后必须收敛或删除，不得成为第二个长期主干 |
+| `feature/*` / `codex/*` | 短期开发分支 | 必须从最新 `origin/main` 创建；一个分支只处理一个需求或一组不可拆分改动 |
+| `hotfix/*` | 生产紧急修复 | 必须从最新 `origin/main` 创建；上线后立即同步到当前测试候选 |
+| `archive/*` 或 tag | 历史保护点 | 在重写或替换分支指针前保存旧 SHA，禁止继续开发 |
 
-# 推 OTA 给 production channel（不走 main 部署）
-eas update --branch production --message "调整首页 banner 文案"
-```
+`main` 是唯一长期代码基线。`staging` 是可部署的测试快照，不是另一个长期产品，也不能隐藏只存在于它上面的功能。尚未发布的功能必须保留在独立 feature 分支中。
 
-**只能 OTA 的改动**：
-- App 页面 / 文案
-- App 内 API 调用
-- App 内业务逻辑（不涉及原生模块）
+GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 要求 PR、Required Checks 和 review；`delivery/staging` 禁止删除和强推。当前旧 `staging` 已设为 locked、禁止删除/强推且管理员不绕过，GitHub `staging` environment 只允许临时 `staging-next`；旧 workflow `Deploy Sites & Backend`（ID `255149831`）已全局停用，避免历史 staging ref 绕过新门禁写共享测试服务器。`Digital Asset Backfill`（ID `297985401`）在本次验收窗口也已停用，避免维护任务造成源码锁或测试数据漂移。当前发布统一走新 `.github/workflows/deploy-release.yml`。代码中的规范不能替代 GitHub 服务端保护。
 
-**必须 Build 不能 OTA 的改动**（见 `app-发布与OTA手册.md` 决策表）：
-- 改 `app.json` / `eas.json`
-- 新依赖
-- 改原生权限 / 包名
-- 关闭沙箱开关（`EXPO_PUBLIC_ALIPAY_SANDBOX=true → false`）
+## 二、客户端边界
 
-**重要**：OTA 改动**仍然要 commit 到 staging**，否则下次 staging→main 时这个改动会从 production channel 上"消失"。
+本仓库同时包含 App、小程序、后台和共享后端。路径相邻不代表必须一起发布。
 
----
+| 改动范围 | 必须验证 | 禁止顺带做的事 |
+|---|---|---|
+| `miniapp/` | 小程序 lint/typecheck/tests、staging/production build、微信开发者工具和真机 | 不修改 `app/`、`src/`，除非需求明确包含 App |
+| `app/`、根 `src/` | App TypeScript、Expo/EAS/OTA 对应门禁和真机 | 不以“小程序共用后端”为理由顺带发布 App |
+| `backend/` | Prisma、Nest build、真实 PostgreSQL 测试、API/E2E；资金/状态/鉴权需并发与失败路径 | 不把独立 Delivery 数据库或门户夹带进商城生产候选 |
+| `admin/`、`seller/` | 类型、lint、build、权限和 API 契约、浏览器测试 | 不把未批准的独立后台一起发布 |
+| migration/资金/支付/退款/提现 | 备份、克隆库迁移演练、幂等/回滚方案、exact SHA attestation | 不把本地编译成功当成生产可发布 |
 
-## 四、切换时机判断（什么时候按按钮）
+## 三、固定目录与工作目录
 
-### staging → main 应该满足
+- 写代码：在从最新远端基线创建的短期干净 worktree 中完成。
+- 微信开发者工具固定打开：`/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging/miniapp`。
+- 上述固定 staging 目录只用于编译和真机测试，不作为开发源；只能通过仓库同步脚本更新到已验证的 `origin/staging`。分支收敛期间可显式选择已部署并批准的 `origin/staging-next`，但必须记录目标分支和 exact SHA。
+- 原始主项目目录存在脏改动或历史分叉时，不得作为发布源。
+- 同步前后必须证明固定目录 `HEAD == origin/<选定测试分支>`、工作树干净；失败时停止，不允许用复制文件掩盖版本差异。
 
-- ✅ staging 上的功能在测试环境真机跑过**至少 48 小时**
-- ✅ 没有 P0 / P1 bug
-- ✅ 钱链路（付款 / 退款 / 提现 / 分润）至少做过一次端到端验证
-- ✅ 已经按 `staging-to-production.md §〇` 的拍板清单逐项过
-- ✅ 已经向你自己（或 Claude）口头复述本次上线包含哪些 commit + 回滚路径
-- ✅ **当前不是周五下午 / 深夜 / 大促期间**
+## 四、标准发布流程
 
-### 不要 staging → main 的情况
+### 1. 建立候选
 
-- ❌ staging 上有半成品功能（用 feature 分支隔离它）
-- ❌ 大版本改动当天还没准备好回滚 SQL
-- ❌ 用户活动期间（618、双十一等）—— 冻结上线窗口
-- ❌ 你自己在出差 / 度假 / 没法值守的时段
+1. `git fetch --prune origin`。
+2. 记录 `origin/main`、`origin/staging` 和线上运行 SHA。
+3. 从最新 `origin/main` 建立短期 worktree 和 feature/candidate 分支。
+4. 只引入本需求文件；先做路径清单和 `main...candidate` diff 审查。
+5. 一个逻辑改动一个 commit，数据库 migration 与相应代码同一可追踪发布批次。
 
-### 一周节奏建议
+### 2. 本地与 CI 门禁
 
-| 何时 | 做什么 |
-|---|---|
-| 周一-周三 | 在 staging 上开发 + 真机测试 |
-| 周四 | 上线（staging→main）+ 上午观察 |
-| 周五 | 监控 + 处理紧急问题 + **不做新发布** |
-| 周末 | 不上线（出问题没人处理） |
+1. 按受影响端执行类型、lint、单测、build、契约/E2E。
+2. 资金、认证、状态转换、库存与 migration 执行安全/并发/失败回滚检查。
+3. 创建 PR；Required Checks 全绿，且至少一次独立代码审查无未解决 Critical/High。
+4. 测试后不得 squash、rebase 或补提交却沿用旧测试结果；SHA 变化就重新验证。
 
-紧急 hotfix 不受此节奏限制（按场景 3 走）。
+### 3. 测试环境
 
----
+1. 只把本轮批准的候选以 fast-forward 方式提升到 `staging`，禁止直接在 `staging` 编码；若 `staging` 不是候选祖先，先停止并重建候选，禁止现场 merge 制造未审查的新 SHA。
+2. 记录候选 SHA、staging 部署 SHA、Git tree、migration 数量、构建产物 digest 和 CI run；正常情况下 candidate SHA 必须等于 staging SHA。
+3. 同步固定 staging 目录，在微信开发者工具、浏览器和真实设备完成对应验收。
+4. 测试发现问题时回候选分支修复，再重新经过 PR、CI 和 staging；不能只在固定目录热改。
 
-## 五、防止 staging 和 main 分化（最容易踩坑）
+### 4. 进入生产
 
-### 问题怎么产生
+1. 确认 `main...staging` 只包含本轮发布清单；发现 Delivery、App 或其他未批准路径立即停止。
+2. 生产 PR 保留已测试提交历史；不得用“整体 merge staging”代替路径与语义审查。若 GitHub 生成新的 main merge SHA，必须证明其 tree 与已测试 staging tree 相同；base 变化或 tree 不同就退回 staging 重测。
+3. 合入 `main` 不等于生产已部署。无论 main 是否保留候选 SHA，最终 `origin/main` exact SHA 都必须重新运行 production CI/E2E/build，并重新签发该 SHA 的 migration attestation；通过后才能手动触发 production approval。
+4. 按后端 → 管理/卖家后台 → H5/小程序体验版的依赖顺序验证；每阶段保留回滚点。
+5. 线上验证运行 SHA、health、关键业务探针和数据库 migration，再记录为完成。
 
-```
-上线 2 周后假设：
-- staging 累积了 3 个新功能 commit（还没上线）
-- main 累积了 1 个 hotfix commit（紧急修复）
+### 5. 发布后收敛
 
-如果 hotfix 没合回 staging：
-→ staging 缺这个 fix
-→ 下次合 staging→main 时可能"重新引入这个 bug"
-```
+- 若 `staging` 本轮所有内容都已进入 `main`，立即把 `main` 同步回 `staging`，最终要求二者业务 diff 为 0。
+- 若下一轮候选已经开始，`staging` 可以暂时等于 `main + 下一轮明确 release train`；未发布功能仍必须有独立 feature 分支，不能只剩在 staging。
+- `main` 出现 hotfix 后，必须在同一发布窗口同步到 staging/当前 release 分支并重跑门禁。
+- 禁止长期保持双向分叉；每次发布后保存 `main..staging` 与 `staging..main` 审计结果。
 
-### 预防 1：hotfix 流程包含"双合"
+## 五、当前旧 staging 的一次性收敛（2026-08-22）
 
-场景 3 的步骤 4 是**必做**的——hotfix 修完同时合到 main 和 staging。**不要把它当成可选项**。
+当前 `origin/staging@acc0e08c` 与 `origin/main@aa8f5daa` 已长期双向分叉，并且 staging 包含尚未批准进入生产的独立 Delivery 系统。因此：
 
-### 预防 2：每周 review 一次差异
+在候选 `7627a54f` 的只读审计快照中，staging 与候选左右独有 commit object 为 `647 / 389`，共同 merge-base 仍是 `15f05427`，模拟 merge 有 118 处冲突；旧 staging 至少包含 343 个直接 Delivery 文件及多处共享 wiring。该规模已经不能用普通“同步一下”处理。
 
-```bash
-# 看 main 上有哪些 staging 没有的 commit（应该是 hotfix）
-git log staging..main --oneline
+1. **现在不能**整体 merge staging → main。
+2. **现在不能**直接用 main 覆盖 staging，否则会丢失 Delivery 和其他未发布工作。
+3. 先完成当前“小程序选择性进入生产”PR，只把审查清单内的商城后端、后台和小程序提交带入 main。
+4. 在任何 staging 指针变更前，把 `acc0e08c` 同时保存为远端 `archive/staging-pre-main-20260822`、annotated tag 和受保护的 `delivery/staging`；三个引用都必须复验为同一 SHA。该三重保全已在 2026-08-22 完成，`origin/staging` 本身仍保持 `acc0e08c` 未移动。
+5. 从新的 main 创建 `codex/staging-v2-from-main`。`delivery/staging` 先保留全部旧 Delivery 工作；后续再从新 main 建立干净 Delivery reintegration 分支，按直接文件和共享 wiring 清单逐批移植、解决语义冲突并验证。
+6. 当前获批方案是不替换 `origin/staging`：先把 GitHub `staging` environment 的允许分支收口为仅 `staging-next`，冻结旧 staging 对共享测试环境的部署权；再建立临时 `staging-next` 指向生产候选 exact SHA并部署，创建后立即启用禁止删除/强推和 Required Checks 的分支保护。只有测试 API/两个后台 release marker 都等于该 SHA 后，才将固定微信目录受控重绑到 `staging-next` 做差异回归。旧 `staging@acc0e08c`、三重保护引用和 Delivery lane 全部保留。
+7. 只有 `staging-next` 完整验收、候选进入 `main` 且用户再次单独批准后，才讨论将通用 `staging` 收敛到新 `main`。Delivery 不重新夹入通用 staging；它在受保护的 `delivery/staging` 独立保留并单独回归。
+8. 若未来确需替换 `origin/staging`，必须另行批准并使用明确旧 SHA 的 `--force-with-lease`；当前 `staging-next` 测试不修改 `origin/staging`。固定微信目录通过 `scripts/sync-staging-test-checkout.mjs --rebind` 的显式旧/新 SHA、目标分支、确认短语和旁路克隆流程切换，普通同步仍只允许 fast-forward。
 
-# 看 staging 上有哪些 main 没有的 commit（应该是待上线的新功能）
-git log main..staging --oneline
-```
+这是一项独立的分支治理任务，不与生产 PR 合并动作绑在一起，也不在本次审查中自动执行。
 
-如果第一条命令显示**有 commit 是几周前的**而 staging 没有 → 立刻合回。
+## 六、Hotfix
 
-### 预防 3：每次 staging→main 之前先反向合一次
+1. 从最新 `origin/main` 创建 `hotfix/*`。
+2. 只修生产故障，完成最小充分测试和 PR。
+3. 手动发布 exact SHA，验证线上后记录回滚点。
+4. 立即把同一补丁同步到 `staging` 和所有仍活跃的 release/feature 分支；有冲突必须人工解决并复测。
+5. 禁止为“省事”把整个 staging 合入 hotfix。
 
-```bash
-# 准备上线前，先把 main 的 hotfix 拉回 staging
-git checkout staging
-git pull origin staging
-git merge main --no-edit  # 把 main 的 hotfix 同步过来
-# 在 staging 测试 OK 后再走 main
-```
-
-这样能保证 staging 永远 ⊇ main（staging 包含 main 的所有改动 + 自己的新功能）。
-
----
-
-## 六、上线后第一个月的特殊节奏
-
-### 第 1 周：稳定优先
-
-- ❌ **不开发新功能**——专注稳定，让用户跑一周
-- ✅ 每天看一遍 PM2 日志、订单数据、提现状态（见 `staging-to-production.md §十二` 监控清单）
-- ✅ 有紧急 bug → 走 hotfix 流程
-- ✅ 有小调整 → 在 staging 改，攒着不急上线
-
-### 第 2-4 周：正常迭代
-
-- ✅ 可以开新功能，但保持 staging 接近"可上线"状态
-- ✅ 每周一次 staging→main 发布窗口（周二 / 周四）
-- ✅ 持续真机验证 + 用户反馈跟进
-
-### 大版本（v1.1+）：考虑 feature 分支
-
-- 当一个版本要包含 5+ 个互不相关的大功能时，**每个大功能切一个 feature 分支**
-- 完成的合到 staging，未完成的留在 feature 分支
-- 这样上线粒度更细，回滚更精准
-
----
-
-## 七、应急 / 异常情况
-
-### 情况 1：staging 改坏了想完全重置
-
-```bash
-git checkout staging
-git fetch origin
-git reset --hard origin/main  # 让 staging 回到和 main 一样的状态
-git push origin staging --force-with-lease  # 强推（小心，会丢 staging 上未合的改动）
-```
-
-**慎用**——会丢失 staging 上所有还没合到 main 的改动。
-
-### 情况 2：刚 push main 发现是错的，没人用到
-
-```bash
-git checkout main
-git revert -m 1 <MERGE_SHA>  # 用 -m 1 因为是 merge commit
-git push origin main  # 自动重新部署
-```
-
-详见 `staging-to-production.md §九 回滚预案`。
-
-### 情况 3：main 上有改动忘了同步到 staging
-
-```bash
-git checkout staging
-git pull origin staging
-git merge main --no-edit
-git push origin staging
-```
-
-**应该每周做一次**作为习惯，不要等到出问题才同步。
-
-### 情况 4：feature 分支落后 staging 太多
-
-```bash
-git checkout feature/payment-redesign
-git rebase staging  # 把 feature 重新基于 staging 最新
-# 或者
-git merge staging --no-edit  # 把 staging 合到 feature
-```
-
-`rebase` 历史更干净，`merge` 更安全。如果 feature 已经 push 过 + 有别人在看，**只能用 merge**。
-
----
-
-## 八、常见误区
-
-### 误区 1：以为本地 = 测试环境
-
-❌ 错：在本地（localhost）测过就直接 push main
-✅ 对：本地只是开发层，必须先 push staging 跑真机测试，再合 main
-
-### 误区 2：以为 staging→main 不会出错
-
-❌ 错：staging 测过了就一定能上 main
-✅ 对：staging 用沙箱第三方（支付宝沙箱 / 顺丰 UAT），切到生产连真实第三方会出新问题——必须按 `staging-to-production.md §八` 验证清单实测
-
-### 误区 3：紧急时直接改 main 跳过 staging
-
-❌ 错：先 push main 救火，过几天再补 staging
-✅ 对：永远走 hotfix 分支，修完同时合 main 和 staging，**不留分化**
-
-### 误区 4：以为合并 staging→main 会"覆盖"main
-
-❌ 错：合并就是把 main 替换成 staging
-✅ 对：Git merge 是把两个分支的历史合并起来——如果 main 上有 staging 没有的 commit（比如 hotfix），不会丢失
-
-### 误区 5：以为切回 staging 就清空了 main 的改动
-
-❌ 错：`git checkout staging` 把工作目录"切回"staging 的版本
-✅ 对：`git checkout staging` 只是切换 HEAD 指针，main 分支的 commit 还在仓库里完整保留
-
----
-
-## 九、维护规则速查
-
-| 规则 | 强制级别 |
-|---|---|
-| 永远不直接在 main 写代码 | 🔴 铁律 |
-| hotfix 修完必须合回 staging | 🔴 铁律 |
-| staging→main 前必须复述改动 + 回滚路径 | 🔴 铁律（CLAUDE.md #10）|
-| 一个 commit 一个逻辑改动 | 🔴 铁律（CLAUDE.md #10）|
-| 大功能用 feature 分支隔离 | 🟡 强烈建议 |
-| 每周 review `git log staging..main` 同步差异 | 🟡 强烈建议 |
-| 不在周五下午 / 深夜上线 | 🟡 强烈建议 |
-| 上线前先 `git merge main` 反向同步到 staging | 🟢 推荐习惯 |
-
----
-
-## 十、决策树速查
-
-```
-要改代码了，怎么走？
-
-├─ 是否紧急生产 bug？
-│   ├─ 是 → 从 main 切 hotfix → 修 → 合 main → 合 staging
-│   └─ 否 → 继续
-│
-├─ 改动周期是否 > 3 天 或跨多模块？
-│   ├─ 是 → 从 staging 切 feature 分支
-│   └─ 否 → 直接在 staging 上改
-│
-├─ 改动是否只涉及 App 端 JS（无原生层 / 无 env）？
-│   ├─ 是 → commit 到 staging + 立刻 `eas update --branch production`
-│   └─ 否 → 走标准 staging → main 部署流程
-│
-└─ 准备上 main 了？
-    ├─ 是 → 走 staging-to-production.md §〇 拍板清单
-    └─ 否 → 在 staging 继续打磨
-
-```
-
-每次上线前的最后一步：和 Claude（或自己）口头复述：
-1. 本次上线包含哪些 commit（`git log main..staging --oneline`）
-2. 是否包含破坏性 migration（如有，反向 SQL 在哪）
-3. 回滚命令是什么（`git revert -m 1 <MERGE_SHA>`）
-4. 上线后第一时间要验证的 5 件事
+## 七、禁止事项
+
+- 禁止直接在 `main`、`staging` 或固定微信测试目录写业务代码。
+- 禁止 `git add -A` 后不检查 staged files 就提交。
+- 禁止用脏工作区、旧 checkout 或未拉取远端的目录发布。
+- 禁止把 CI 绿灯、PR 合并、服务器 health 200、微信体验版上传中的任意一个单独称为“上线完成”。
+- 禁止无 archive、无用户批准重写远端分支。
+- 禁止在已验证 SHA 上补提交后复用旧 attestation、旧 migration 演练或旧真机结论。
+
+## 八、每次交付必须报告
+
+- 基线 SHA、候选 SHA、目标分支和 PR。
+- 精确文件/路径范围，以及明确排除的 App/Delivery/其他系统。
+- 本地测试、CI、测试部署、数据库演练、真机、生产部署分别处于什么状态。
+- migration/资金/第三方密钥等不可仅靠代码 revert 回退的事项。
+- 回滚 commit、数据库恢复点、静态产物和服务器旧版本目录。

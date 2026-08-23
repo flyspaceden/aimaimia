@@ -1,0 +1,16 @@
+@use '../../../theme/tokens' as t;
+
+.account-legal-page { height: 100vh; padding: 0; }
+.account-legal-scroll { height: 100%; }
+.account-legal-content { padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); }
+.account-legal-title { display: block; color: t.$text-primary; font-size: 23px; font-weight: 750; line-height: 32px; }
+.account-legal-meta { display: block; margin-top: 6px; color: t.$text-tertiary; font-size: 11px; }
+.account-legal-summary { margin-top: 15px; padding: 15px; background: t.$brand-soft; border-radius: t.$radius-md; }
+.account-legal-summary__text { display: block; margin-top: 7px; color: t.$text-secondary; font-size: 12px; line-height: 21px; }
+.account-legal-summary__text:first-child { margin-top: 0; }
+.account-legal-section { margin-top: 18px; padding: 17px; }
+.account-legal-section__title { display: block; margin-bottom: 10px; color: t.$text-primary; font-size: 16px; font-weight: 700; line-height: 24px; }
+.account-legal-block { display: block; margin-top: 8px; color: t.$text-secondary; font-size: 12px; line-height: 21px; overflow-wrap: anywhere; }
+.account-legal-block--strong { color: t.$text-primary; font-weight: 650; }
+.account-legal-block--bullet { padding-left: 10px; }
+.account-legal-block--note { padding: 9px 10px; color: t.$brand-primary; background: t.$ai-soft; border-radius: 9px; }

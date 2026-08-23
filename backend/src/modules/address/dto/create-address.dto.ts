@@ -22,15 +22,13 @@ export class CreateAddressDto {
   @MaxLength(20, { message: 'phone 不能超过 20 个字符' })
   phone: string;
 
-  @IsOptional()
   @IsString({ message: 'regionCode 必须为字符串' })
-  @MaxLength(32, { message: 'regionCode 不能超过 32 个字符' })
-  regionCode?: string;
+  @Matches(/^\d{6}$/, { message: 'regionCode 必须为 6 位行政区划代码' })
+  regionCode!: string;
 
-  @IsOptional()
   @IsString({ message: 'regionText 必须为字符串' })
   @MaxLength(120, { message: 'regionText 不能超过 120 个字符' })
-  regionText?: string;
+  regionText!: string;
 
   @IsOptional()
   @IsString({ message: 'province 必须为字符串' })

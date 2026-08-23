@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  calculatePendingLegacyClawbackCents,
+  settleLegacyRewardClawbacksInTransaction,
+} from './legacy-reward-clawback';
 
 const DEFAULT_DEDUCTION_RULES = {
   deductionRatioNormal: 0.1,
@@ -77,6 +81,8 @@ export class RewardDeductionService {
     const requestedCents = yuanToCents(requestedAmount);
     if (requestedCents <= 0) return null;
 
+    await settleLegacyRewardClawbacksInTransaction(tx, userId);
+
     const max = await this.calculateMaxDeductibleWithClient(tx, userId, goodsAmount);
     if (requestedCents > yuanToCents(max.maxDeductible)) {
       throw new BadRequestException('抵扣金额超出上限');
@@ -93,6 +99,8 @@ export class RewardDeductionService {
   ): Promise<ReservedDeduction | null> {
     const requestedCents = yuanToCents(requestedAmount);
     if (requestedCents <= 0) return null;
+
+    await settleLegacyRewardClawbacksInTransaction(tx, userId);
 
     const max = await this.calculateMaxDeductibleWithClient(tx, userId, goodsAmount);
     const reservableCents = Math.min(requestedCents, yuanToCents(max.maxDeductible));
@@ -368,7 +376,9 @@ export class RewardDeductionService {
       ? rules.deductionRatioVip
       : rules.deductionRatioNormal;
     const [vip, normal] = await this.getRewardAccounts(client, userId);
-    const balanceCents = yuanToCents(vip?.balance) + yuanToCents(normal?.balance);
+    const rawBalanceCents = yuanToCents(vip?.balance) + yuanToCents(normal?.balance);
+    const pendingClawbackCents = await calculatePendingLegacyClawbackCents(client, userId);
+    const balanceCents = Math.max(0, rawBalanceCents - pendingClawbackCents);
     const goodsCents = yuanToCents(goodsAmount);
     const minOrderCents = yuanToCents(rules.deductionMinOrderAmount);
     const maxByRatioCents = goodsCents < minOrderCents

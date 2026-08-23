@@ -20,6 +20,7 @@ import {
   ManualIssueTargetMode,
 } from './dto/manual-issue.dto';
 import { resolveBuyerUserId } from '../../common/utils/buyer-no.util';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
 
 const DISABLED_TRIGGER_TYPES = new Set(['CHECK_IN', 'REVIEW']);
 
@@ -826,6 +827,7 @@ export class CouponService {
     tx: Prisma.TransactionClient,
     params: IssueSystemCouponParams,
   ) {
+    await assertActiveUserWriteBarrier(tx, params.userId);
     const now = new Date();
     const campaign = await tx.couponCampaign.findUnique({
       where: { id: params.campaignId },
@@ -911,6 +913,7 @@ export class CouponService {
 
     return this.prisma.$transaction(
       async (tx) => {
+        await assertActiveUserWriteBarrier(tx, userId);
         // 1. 查询活动（事务内读取，确保隔离性）
         const campaign = await tx.couponCampaign.findUnique({
           where: { id: campaignId },

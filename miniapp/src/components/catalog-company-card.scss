@@ -1,0 +1,14 @@
+@use '../theme/tokens' as t;
+
+.catalog-company-card { position: relative; min-height: 202px; padding: 0; overflow: hidden; background: #163d2b; }
+.catalog-company-card--pressed { opacity: .84; transform: scale(.99); }
+.catalog-company-card__cover, .catalog-company-card__shade { position: absolute; inset: 0; width: 100%; height: 100%; }
+.catalog-company-card__shade { background: linear-gradient(180deg, rgba(8, 38, 25, .08) 5%, rgba(8, 38, 25, .88) 100%); }
+.catalog-company-card__content { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: flex-end; min-height: 202px; padding: 18px; }
+.catalog-company-card__verified { align-self: flex-start; margin-bottom: 20px; padding: 3px 9px; color: #dffdf5; font-size: 10px; font-weight: 600; line-height: 16px; background: rgba(0, 137, 123, .76); border: 1px solid rgba(255,255,255,.22); border-radius: t.$radius-full; }
+.catalog-company-card__name { color: #fff; font-size: 19px; font-weight: 700; line-height: 27px; }
+.catalog-company-card__business { margin-top: 3px; overflow: hidden; color: rgba(255,255,255,.82); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-company-card__meta { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: rgba(255,255,255,.72); }
+.catalog-company-card__location, .catalog-company-card__distance { font-size: 11px; }
+.catalog-company-card__badges { display: flex; gap: 6px; margin-top: 9px; overflow: hidden; }
+.catalog-company-card__badge { flex: 0 0 auto; padding: 2px 7px; color: #fff; font-size: 10px; background: rgba(255,255,255,.14); border-radius: t.$radius-full; }

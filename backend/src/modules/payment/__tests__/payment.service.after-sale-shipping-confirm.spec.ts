@@ -1,48 +1,54 @@
-import { BadRequestException } from '@nestjs/common';
-import { PaymentService } from '../payment.service';
+import { BadRequestException } from "@nestjs/common";
+import { PaymentService } from "../payment.service";
 
-describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', () => {
-  const userId = 'user-1';
-  const merchantPaymentNo = 'AS_SHIP_PAY_after_sale_1';
+describe("PaymentService.confirmCheckout after-sale shipping payment dispatch", () => {
+  const userId = "user-1";
+  const merchantPaymentNo = "AS_SHIP_PAY_after_sale_1";
 
   const baseShippingPayment = {
-    id: 'ship-pay-1',
+    id: "ship-pay-1",
     amount: 18.13,
-    status: 'UNPAID',
+    status: "UNPAID",
     merchantPaymentNo,
+    paymentScene: "APP",
     afterSale: { userId },
   };
 
-  const buildService = (overrides: {
-    shippingPayment?: any;
-    alipayQueryResult?: any;
-    alipayQueryShouldThrow?: boolean;
-    wechatAvailable?: boolean;
-    wechatQueryResult?: any;
-    wechatQueryShouldThrow?: boolean;
-  } = {}) => {
-    const shippingPaymentFindUnique = jest
-      .fn()
-      .mockResolvedValue(overrides.shippingPayment ?? {
+  const buildService = (
+    overrides: {
+      shippingPayment?: any;
+      alipayQueryResult?: any;
+      alipayQueryShouldThrow?: boolean;
+      wechatAvailable?: boolean;
+      wechatQueryResult?: any;
+      wechatQueryShouldThrow?: boolean;
+    } = {},
+  ) => {
+    const shippingPaymentFindUnique = jest.fn().mockResolvedValue(
+      overrides.shippingPayment ?? {
         ...baseShippingPayment,
-        provider: 'ALIPAY',
-      });
+        provider: "ALIPAY",
+      },
+    );
     const prisma = {
       checkoutSession: { findUnique: jest.fn() },
       afterSaleShippingPayment: { findUnique: shippingPaymentFindUnique },
     };
     const alipayService = {
       queryOrder: overrides.alipayQueryShouldThrow
-        ? jest.fn().mockRejectedValue(new Error('alipay gateway unavailable'))
+        ? jest.fn().mockRejectedValue(new Error("alipay gateway unavailable"))
         : jest.fn().mockResolvedValue(overrides.alipayQueryResult ?? null),
     };
     const wechatPayService = {
       isAvailable: jest.fn().mockReturnValue(overrides.wechatAvailable ?? true),
       queryOrder: overrides.wechatQueryShouldThrow
-        ? jest.fn().mockRejectedValue(new Error('wechat gateway unavailable'))
+        ? jest.fn().mockRejectedValue(new Error("wechat gateway unavailable"))
         : jest.fn().mockResolvedValue(overrides.wechatQueryResult ?? null),
+      matchesPaymentScene: jest.fn().mockReturnValue(true),
     };
-    const handlePaymentCallback = jest.fn().mockResolvedValue({ code: 'SUCCESS' });
+    const handlePaymentCallback = jest
+      .fn()
+      .mockResolvedValue({ code: "SUCCESS" });
 
     const service = new PaymentService(
       prisma as any,
@@ -64,16 +70,22 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     };
   };
 
-  it('keeps ALIPAY after-sale shipping active query behavior unchanged', async () => {
-    const { service, prisma, alipayService, wechatPayService, handlePaymentCallback } = buildService({
+  it("keeps ALIPAY after-sale shipping active query behavior unchanged", async () => {
+    const {
+      service,
+      prisma,
+      alipayService,
+      wechatPayService,
+      handlePaymentCallback,
+    } = buildService({
       shippingPayment: {
         ...baseShippingPayment,
-        provider: 'ALIPAY',
+        provider: "ALIPAY",
       },
       alipayQueryResult: {
-        tradeStatus: 'TRADE_SUCCESS',
-        tradeNo: 'alipay-ship-tx-1',
-        totalAmount: '18.13',
+        tradeStatus: "TRADE_SUCCESS",
+        tradeNo: "alipay-ship-tx-1",
+        totalAmount: "18.13",
       },
     });
 
@@ -85,27 +97,28 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     expect(handlePaymentCallback).toHaveBeenCalledWith(
       expect.objectContaining({
         merchantOrderNo: merchantPaymentNo,
-        providerTxnId: 'alipay-ship-tx-1',
-        status: 'SUCCESS',
+        providerTxnId: "alipay-ship-tx-1",
+        status: "SUCCESS",
         skipSignatureVerification: true,
       }),
     );
     expect(result).toEqual({
-      status: 'PAID',
+      status: "PAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'active-query-success',
+      confirmedBy: "active-query-success",
     });
   });
 
-  it('returns query-error for WECHAT_PAY after-sale shipping when unavailable without calling alipay', async () => {
-    const { service, alipayService, wechatPayService, handlePaymentCallback } = buildService({
-      shippingPayment: {
-        ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
-      },
-      wechatAvailable: false,
-    });
+  it("returns query-error for WECHAT_PAY after-sale shipping when unavailable without calling alipay", async () => {
+    const { service, alipayService, wechatPayService, handlePaymentCallback } =
+      buildService({
+        shippingPayment: {
+          ...baseShippingPayment,
+          provider: "WECHAT_PAY",
+        },
+        wechatAvailable: false,
+      });
 
     const result = await service.confirmCheckout(merchantPaymentNo, userId);
 
@@ -114,21 +127,22 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     expect(alipayService.queryOrder).not.toHaveBeenCalled();
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result).toEqual({
-      status: 'UNPAID',
+      status: "UNPAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'query-error',
+      confirmedBy: "query-error",
     });
   });
 
-  it('returns not-found for WECHAT_PAY after-sale shipping when provider has no order', async () => {
-    const { service, alipayService, wechatPayService, handlePaymentCallback } = buildService({
-      shippingPayment: {
-        ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
-      },
-      wechatQueryResult: null,
-    });
+  it("returns not-found for WECHAT_PAY after-sale shipping when provider has no order", async () => {
+    const { service, alipayService, wechatPayService, handlePaymentCallback } =
+      buildService({
+        shippingPayment: {
+          ...baseShippingPayment,
+          provider: "WECHAT_PAY",
+        },
+        wechatQueryResult: null,
+      });
 
     const result = await service.confirmCheckout(merchantPaymentNo, userId);
 
@@ -136,21 +150,21 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     expect(alipayService.queryOrder).not.toHaveBeenCalled();
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result).toEqual({
-      status: 'UNPAID',
+      status: "UNPAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'not-found',
+      confirmedBy: "not-found",
     });
   });
 
-  it('returns provider state for WECHAT_PAY after-sale shipping non-success without callback', async () => {
+  it("returns provider state for WECHAT_PAY after-sale shipping non-success without callback", async () => {
     const { service, wechatPayService, handlePaymentCallback } = buildService({
       shippingPayment: {
         ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
+        provider: "WECHAT_PAY",
       },
       wechatQueryResult: {
-        tradeState: 'NOTPAY',
+        tradeState: "NOTPAY",
         outTradeNo: merchantPaymentNo,
         totalAmountFen: 1813,
       },
@@ -161,21 +175,21 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     expect(wechatPayService.queryOrder).toHaveBeenCalledWith(merchantPaymentNo);
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result).toEqual({
-      status: 'UNPAID',
+      status: "UNPAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'wechat-notpay',
+      confirmedBy: "wechat-notpay",
     });
   });
 
-  it('returns query-error for WECHAT_PAY after-sale shipping SUCCESS missing transactionId', async () => {
+  it("returns query-error for WECHAT_PAY after-sale shipping SUCCESS missing transactionId", async () => {
     const { service, handlePaymentCallback } = buildService({
       shippingPayment: {
         ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
+        provider: "WECHAT_PAY",
       },
       wechatQueryResult: {
-        tradeState: 'SUCCESS',
+        tradeState: "SUCCESS",
         outTradeNo: merchantPaymentNo,
         totalAmountFen: 1813,
       },
@@ -185,41 +199,42 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
 
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result).toEqual({
-      status: 'UNPAID',
+      status: "UNPAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'query-error',
+      confirmedBy: "query-error",
     });
   });
 
-  it('rejects WECHAT_PAY after-sale shipping SUCCESS amount mismatch before callback', async () => {
+  it("rejects WECHAT_PAY after-sale shipping SUCCESS amount mismatch before callback", async () => {
     const { service, handlePaymentCallback } = buildService({
       shippingPayment: {
         ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
+        provider: "WECHAT_PAY",
       },
       wechatQueryResult: {
-        tradeState: 'SUCCESS',
-        transactionId: 'wx-ship-tx-1',
+        tradeState: "SUCCESS",
+        transactionId: "wx-ship-tx-1",
         outTradeNo: merchantPaymentNo,
         totalAmountFen: 1812,
       },
     });
 
-    await expect(service.confirmCheckout(merchantPaymentNo, userId))
-      .rejects.toThrow(BadRequestException);
+    await expect(
+      service.confirmCheckout(merchantPaymentNo, userId),
+    ).rejects.toThrow(BadRequestException);
     expect(handlePaymentCallback).not.toHaveBeenCalled();
   });
 
-  it('returns query-error for WECHAT_PAY after-sale shipping SUCCESS missing fen amount', async () => {
+  it("returns query-error for WECHAT_PAY after-sale shipping SUCCESS missing fen amount", async () => {
     const { service, handlePaymentCallback } = buildService({
       shippingPayment: {
         ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
+        provider: "WECHAT_PAY",
       },
       wechatQueryResult: {
-        tradeState: 'SUCCESS',
-        transactionId: 'wx-ship-tx-1',
+        tradeState: "SUCCESS",
+        transactionId: "wx-ship-tx-1",
         outTradeNo: merchantPaymentNo,
       },
     });
@@ -228,28 +243,29 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
 
     expect(handlePaymentCallback).not.toHaveBeenCalled();
     expect(result).toEqual({
-      status: 'UNPAID',
+      status: "UNPAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'query-error',
+      confirmedBy: "query-error",
     });
   });
 
-  it('confirms WECHAT_PAY after-sale shipping SUCCESS with integer fen amount', async () => {
-    const paidAt = new Date('2026-05-24T10:00:00.000Z');
-    const { service, alipayService, wechatPayService, handlePaymentCallback } = buildService({
-      shippingPayment: {
-        ...baseShippingPayment,
-        provider: 'WECHAT_PAY',
-      },
-      wechatQueryResult: {
-        tradeState: 'SUCCESS',
-        transactionId: 'wx-ship-tx-1',
-        outTradeNo: merchantPaymentNo,
-        totalAmountFen: 1813,
-        paidAt,
-      },
-    });
+  it("confirms WECHAT_PAY after-sale shipping SUCCESS with integer fen amount", async () => {
+    const paidAt = new Date("2026-05-24T10:00:00.000Z");
+    const { service, alipayService, wechatPayService, handlePaymentCallback } =
+      buildService({
+        shippingPayment: {
+          ...baseShippingPayment,
+          provider: "WECHAT_PAY",
+        },
+        wechatQueryResult: {
+          tradeState: "SUCCESS",
+          transactionId: "wx-ship-tx-1",
+          outTradeNo: merchantPaymentNo,
+          totalAmountFen: 1813,
+          paidAt,
+        },
+      });
 
     const result = await service.confirmCheckout(merchantPaymentNo, userId);
 
@@ -257,22 +273,48 @@ describe('PaymentService.confirmCheckout after-sale shipping payment dispatch', 
     expect(alipayService.queryOrder).not.toHaveBeenCalled();
     expect(handlePaymentCallback).toHaveBeenCalledWith({
       merchantOrderNo: merchantPaymentNo,
-      providerTxnId: 'wx-ship-tx-1',
-      status: 'SUCCESS',
+      providerTxnId: "wx-ship-tx-1",
+      status: "SUCCESS",
       paidAt: paidAt.toISOString(),
       rawPayload: expect.objectContaining({
-        source: 'active-query',
-        tradeState: 'SUCCESS',
-        transactionId: 'wx-ship-tx-1',
+        source: "active-query",
+        tradeState: "SUCCESS",
+        transactionId: "wx-ship-tx-1",
         totalAmountFen: 1813,
       }),
       skipSignatureVerification: true,
     });
     expect(result).toEqual({
-      status: 'PAID',
+      status: "PAID",
       orderIds: [],
       expectedTotal: 18.13,
-      confirmedBy: 'active-query-success',
+      confirmedBy: "active-query-success",
     });
+  });
+
+  it("validates MINI_PROGRAM scene during after-sale shipping active query", async () => {
+    const { service, wechatPayService, handlePaymentCallback } = buildService({
+      shippingPayment: {
+        ...baseShippingPayment,
+        provider: "WECHAT_PAY",
+        paymentScene: "MINI_PROGRAM",
+      },
+      wechatQueryResult: {
+        outcome: "FOUND",
+        tradeState: "NOTPAY",
+        outTradeNo: merchantPaymentNo,
+        appId: "wx-mini",
+        tradeType: "JSAPI",
+        totalAmountFen: 1813,
+      },
+    });
+
+    await service.confirmCheckout(merchantPaymentNo, userId);
+
+    expect(wechatPayService.matchesPaymentScene).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "wx-mini", tradeType: "JSAPI" }),
+      "MINI_PROGRAM",
+    );
+    expect(handlePaymentCallback).not.toHaveBeenCalled();
   });
 });

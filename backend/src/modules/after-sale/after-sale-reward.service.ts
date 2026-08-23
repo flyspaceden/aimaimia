@@ -4,6 +4,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PLATFORM_USER_ID, getAccountTypeForLedger } from '../bonus/engine/constants';
 import { QueueRewardService } from '../queue-reward/queue-reward.service';
 import type { QueueRewardVoidOptions } from '../queue-reward/queue-reward.service';
+import {
+  centsToYuan,
+  nonNegativeYuanCapacityToCents,
+  yuanToCents,
+} from '../profit/money-allocation';
 
 /** P2034 序列化冲突重试次数 */
 const MAX_RETRIES = 3;
@@ -170,6 +175,9 @@ export class AfterSaleRewardService {
     for (const ledger of allLedgers) {
       const originalStatus = ledger.status;
       const originalEntryType = ledger.entryType;
+
+      // 先抢占源流水。只有 CAS 成功的事务才可以扣账户，
+      // 避免并发回调在源流水已处理时仍重复扣款。
       const cas = await tx.rewardLedger.updateMany({
         where: {
           id: ledger.id,
@@ -187,78 +195,116 @@ export class AfterSaleRewardService {
         continue;
       }
 
-      // 3. 扣减用户账户余额（meta.accountType 优先）
-      const accountType = getAccountTypeForLedger(ledger.meta);
+      // LEGACY/无 READY 利润快照订单可能在退款时奖励已释放甚至已提现。
+      // 渠道退款一旦成功不可撤销，因此这里必须“能追多少追多少”，
+      // 不足部分转为持久化 CLAWBACK_PENDING，不得抛错回滚 REFUNDED。
+      const originalAmountCents = yuanToCents(Number(ledger.amount));
+      let recoveredAmountCents = originalAmountCents;
+      if (originalStatus === 'AVAILABLE' || originalStatus === 'FROZEN') {
+        const account = await tx.rewardAccount.findUnique({
+          where: { id: ledger.accountId },
+        });
+        const recoverableCents = nonNegativeYuanCapacityToCents(originalStatus === 'AVAILABLE'
+          ? Number(account?.balance ?? 0)
+          : Number(account?.frozen ?? 0));
+        recoveredAmountCents = Math.min(originalAmountCents, Math.max(0, recoverableCents));
+        if (recoveredAmountCents > 0) {
+          const recoveredAmount = centsToYuan(recoveredAmountCents);
+          const accountType = getAccountTypeForLedger(ledger.meta);
+          const field = originalStatus === 'AVAILABLE' ? 'balance' : 'frozen';
+          const debit = await tx.rewardAccount.updateMany({
+            where: {
+              userId: ledger.userId,
+              type: accountType,
+              [field]: { gte: recoveredAmount },
+            },
+            data: { [field]: { decrement: recoveredAmount } },
+          });
+          if (debit.count !== 1) {
+            // 余额刚被并发提现/消费占用：不阻断已成功的渠道退款，
+            // 保守地将本次全额转入 CLAWBACK_PENDING。
+            recoveredAmountCents = 0;
+          }
+        }
+      }
+      const recoveredAmount = centsToYuan(recoveredAmountCents);
+      const clawbackAmountCents = originalAmountCents - recoveredAmountCents;
+      const clawbackAmount = centsToYuan(clawbackAmountCents);
+
+      // 3. 账户可追回部分已在 CAS 之前扣减（同一 Serializable 事务）。
       const scheme = (ledger.meta as any)?.scheme;
       const isDirectReferral =
         DIRECT_REFERRAL_ORIGINAL_SCHEMES.has(scheme);
 
-      if (originalStatus === 'AVAILABLE') {
-        const debit = await tx.rewardAccount.updateMany({
-          where: {
-            userId: ledger.userId,
-            type: accountType,
-            balance: { gte: ledger.amount },
+      // 4. 平台只记已实际追回的金额，不将未追偿债权虚增为平台可用余额。
+      if (recoveredAmount > 0) {
+        await tx.rewardLedger.create({
+          data: {
+            accountId: platformAccount.id,
+            userId: PLATFORM_USER_ID,
+            entryType: 'RELEASE',
+            amount: recoveredAmount,
+            status: 'AVAILABLE',
+            refType: 'AFTER_SALE',
+            refId: orderId,
+            meta: isDirectReferral
+              ? this.buildDirectReferralVoidMeta(
+                  ledger,
+                  orderId,
+                  originalStatus,
+                  scheme,
+                )
+              : {
+                  scheme: 'AFTER_SALE_VOID',
+                  originalUserId: ledger.userId,
+                  originalLedgerId: ledger.id,
+                  originalStatus,
+                  originalScheme: scheme,
+                  reason: '售后成功，已追回奖励归平台',
+                },
           },
-          data: { balance: { decrement: ledger.amount } },
         });
-        if (debit.count === 0) {
-          throw new Error(
-            `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
-          );
-        }
-      } else if (originalStatus === 'FROZEN') {
-        const debit = await tx.rewardAccount.updateMany({
-          where: {
-            userId: ledger.userId,
-            type: accountType,
-            frozen: { gte: ledger.amount },
-          },
-          data: { frozen: { decrement: ledger.amount } },
+
+        await tx.rewardAccount.update({
+          where: { id: platformAccount.id },
+          data: { balance: { increment: recoveredAmount } },
         });
-        if (debit.count === 0) {
-          throw new Error(
-            `奖励账户余额异常：userId=${ledger.userId}, accountType=${accountType}, amount=${ledger.amount}`,
-          );
-        }
       }
 
-      // 4. 创建平台收入 VOID 记录
-      await tx.rewardLedger.create({
-        data: {
-          accountId: platformAccount.id,
-          userId: PLATFORM_USER_ID,
-          entryType: 'RELEASE',
-          amount: ledger.amount,
-          status: 'AVAILABLE',
-          refType: 'AFTER_SALE',
-          refId: orderId,
-          meta: isDirectReferral
-            ? this.buildDirectReferralVoidMeta(
-                ledger,
-                orderId,
-                originalStatus,
-                scheme,
-              )
-            : {
-                scheme: 'AFTER_SALE_VOID',
-                originalUserId: ledger.userId,
-                originalLedgerId: ledger.id,
-                originalStatus,
-                originalScheme: scheme,
-                reason: '售后成功，奖励归平台',
-              },
-        },
-      });
-
-      await tx.rewardAccount.update({
-        where: { id: platformAccount.id },
-        data: { balance: { increment: ledger.amount } },
-      });
+      // 5. 余额/冻结不足部分形成稳定幂等键的待追偿流水。
+      if (clawbackAmount > 0) {
+        await tx.rewardLedger.create({
+          data: {
+            allocationId: ledger.allocationId ?? undefined,
+            accountId: ledger.accountId,
+            userId: ledger.userId,
+            entryType: 'VOID',
+            amount: -clawbackAmount,
+            status: 'RETURN_FROZEN',
+            refType: 'AFTER_SALE_CLAWBACK',
+            refId: orderId,
+            sourceLedgerId: ledger.id,
+            idempotencyKey: `legacy-refund-clawback:${orderId}:${ledger.id}`,
+            meta: {
+              scheme: 'LEGACY_REFUND_CLAWBACK',
+              clawbackStatus: 'CLAWBACK_PENDING',
+              originalLedgerId: ledger.id,
+              originalStatus,
+              originalAmount: ledger.amount,
+              originalAmountCents,
+              recoveredAmount,
+              recoveredAmountCents,
+              clawbackAmount,
+              clawbackAmountCents,
+              reason: '渠道退款已成功，奖励余额不足，转待追偿',
+            },
+          },
+        });
+      }
 
       this.logger.log(
         `作废奖励：ledger ${ledger.id}，${ledger.amount} 元（${originalStatus}→VOIDED），` +
-        `用户 ${ledger.userId} → 平台`,
+        `已追回=${recoveredAmount}，待追偿=${clawbackAmount}`,
       );
     }
   }

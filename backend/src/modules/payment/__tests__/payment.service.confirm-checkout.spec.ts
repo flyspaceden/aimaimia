@@ -39,11 +39,23 @@ describe('PaymentService.confirmCheckout channel dispatch', () => {
     const alipayService = {
       queryOrder: jest.fn().mockResolvedValue(overrides.alipayQueryResult ?? null),
     };
+    const rawWechatQueryResult = overrides.wechatQueryResult;
+    const normalizedWechatQueryResult = rawWechatQueryResult?.outcome
+      ? rawWechatQueryResult
+      : rawWechatQueryResult == null
+        ? { outcome: 'DEFINITIVE_NOT_FOUND' }
+        : {
+            outcome: 'FOUND',
+            appId: 'wx-test-app',
+            tradeType: 'APP',
+            ...rawWechatQueryResult,
+          };
     const wechatPayService = {
       isAvailable: jest.fn().mockReturnValue(overrides.wechatAvailable ?? true),
+      matchesPaymentScene: jest.fn().mockReturnValue(true),
       queryOrder: overrides.wechatQueryShouldThrow
         ? jest.fn().mockRejectedValue(new Error('wechat gateway unavailable'))
-        : jest.fn().mockResolvedValue(overrides.wechatQueryResult ?? null),
+        : jest.fn().mockResolvedValue(normalizedWechatQueryResult),
     };
     const handlePaymentCallback = jest.fn().mockResolvedValue({ code: 'SUCCESS' });
 
@@ -278,6 +290,37 @@ describe('PaymentService.confirmCheckout channel dispatch', () => {
 
     await expect(service.confirmCheckout(sessionId, userId))
       .rejects.toThrow(BadRequestException);
+    expect(handlePaymentCallback).not.toHaveBeenCalled();
+  });
+
+  it('blocks active-query when provider AppID/trade_type does not match CheckoutSession.paymentScene', async () => {
+    const { service, wechatPayService, handlePaymentCallback } = buildService({
+      session: {
+        ...baseSession,
+        paymentChannel: 'WECHAT_PAY',
+        paymentScene: 'MINI_PROGRAM',
+      },
+      wechatQueryResult: {
+        outcome: 'FOUND',
+        tradeState: 'SUCCESS',
+        transactionId: 'wechat-tx-wrong-scene',
+        outTradeNo: merchantOrderNo,
+        appId: 'wx-app',
+        tradeType: 'APP',
+        totalAmountFen: 12850,
+        totalAmount: 128.5,
+      },
+    });
+    wechatPayService.matchesPaymentScene.mockReturnValue(false);
+
+    await expect(service.confirmCheckout(sessionId, userId)).resolves.toMatchObject({
+      status: 'ACTIVE',
+      confirmedBy: 'query-error',
+    });
+    expect(wechatPayService.matchesPaymentScene).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'wx-app', tradeType: 'APP' }),
+      'MINI_PROGRAM',
+    );
     expect(handlePaymentCallback).not.toHaveBeenCalled();
   });
 });

@@ -11,7 +11,7 @@
 **用户手机上的 App 不会因为你 `git push` 而自动更新。**
 
 - 网站：`git push` → GitHub Actions → 服务器自动 `git pull` + 重启 → 用户刷新就看到新版
-- App：`git push` → GitHub Actions **不部署 App**（workflow 里故意没配，见 `.github/workflows/deploy-website.yml`）→ 用户什么都看不到
+- App：`git push` → GitHub Actions **不部署 App**（workflow 里故意没配，见当前 `.github/workflows/deploy-release.yml`）→ 用户什么都看不到
 
 App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么重新打包（覆盖 native 改动）。
 

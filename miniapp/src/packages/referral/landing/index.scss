@@ -1,0 +1,10 @@
+@use '../../../theme/tokens' as t;
+.referral-landing-page, .referral-landing-feedback { display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+.referral-landing-orbit { display: flex; align-items: center; justify-content: center; width: 104px; height: 104px; color: #fff; font-size: 28px; font-weight: 850; background: linear-gradient(145deg, t.$brand-primary, t.$ai-start); border: 13px solid t.$ai-soft; border-radius: 50% 50% 50% 23px; box-shadow: 0 14px 36px rgba(0,137,123,.22); }
+.referral-landing-orbit--done { background: linear-gradient(145deg, t.$ai-start, t.$ai-end); border-radius: 50%; }
+.referral-landing-eyebrow { margin-top: 25px; color: t.$ai-start; font-size: 10px; font-weight: 800; letter-spacing: 2px; }
+.referral-landing-title { margin-top: 6px; color: t.$text-primary; font-size: 25px; font-weight: 850; }
+.referral-landing-copy { max-width: 290px; margin-top: 11px; color: t.$text-secondary; font-size: 12px; line-height: 20px; }
+.referral-landing-action { width: 82%; min-height: 46px; margin: 28px 0 0; color: #fff; font-size: 13px; font-weight: 750; line-height: 46px; background: linear-gradient(100deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.referral-landing-ghost, .referral-landing-home { margin: 10px 0 0; color: t.$text-secondary; font-size: 11px; background: transparent; }
+.referral-landing-home { min-width: 160px; min-height: 42px; color: #fff; line-height: 42px; background: t.$brand-primary; border-radius: t.$radius-full; }

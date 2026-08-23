@@ -1,0 +1,27 @@
+.functional-icon { position: relative; display: inline-flex; flex: 0 0 auto; width: 24px; height: 24px; color: inherit; }
+
+.functional-icon__cart-handle { position: absolute; top: 4px; left: 1px; width: 8px; height: 2px; background: currentColor; border-radius: 2px; }
+.functional-icon__cart-basket { position: absolute; top: 7px; left: 7px; width: 16px; height: 10px; border: 2px solid currentColor; border-radius: 3px 3px 5px 5px; box-sizing: border-box; transform: skewX(-7deg); }
+.functional-icon__cart-basket::before { position: absolute; top: -5px; left: -5px; width: 2px; height: 9px; background: currentColor; border-radius: 2px; transform: rotate(-13deg); content: ''; }
+.functional-icon__cart-wheel { position: absolute; bottom: 2px; width: 4px; height: 4px; background: currentColor; border-radius: 50%; }
+.functional-icon__cart-wheel--left { left: 9px; }
+.functional-icon__cart-wheel--right { right: 2px; }
+
+.functional-icon__mic-capsule { position: absolute; top: 1px; left: 8px; width: 8px; height: 13px; border: 2px solid currentColor; border-radius: 6px; }
+.functional-icon__mic-arc { position: absolute; top: 7px; left: 5px; width: 14px; height: 10px; border: 2px solid currentColor; border-top: 0; border-radius: 0 0 9px 9px; }
+.functional-icon__mic-stem { position: absolute; top: 17px; left: 11px; width: 2px; height: 4px; background: currentColor; border-radius: 2px; }
+.functional-icon__mic-base { position: absolute; bottom: 1px; left: 7px; width: 10px; height: 2px; background: currentColor; border-radius: 2px; }
+
+.functional-icon__search-lens { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border: 2px solid currentColor; border-radius: 50%; }
+.functional-icon__search-handle { position: absolute; top: 15px; left: 15px; width: 8px; height: 2px; background: currentColor; border-radius: 2px; transform: rotate(45deg); transform-origin: left center; }
+
+.functional-icon__wallet-body { position: absolute; top: 5px; left: 2px; width: 20px; height: 15px; border: 2px solid currentColor; border-radius: 4px; }
+.functional-icon__wallet-body::before { position: absolute; top: 2px; left: 2px; width: 13px; height: 2px; background: currentColor; border-radius: 2px; content: ''; opacity: .58; }
+.functional-icon__wallet-clasp { position: absolute; top: 10px; right: 0; display: flex; align-items: center; justify-content: center; width: 8px; height: 7px; background: currentColor; border-radius: 3px 0 0 3px; }
+.functional-icon__wallet-clasp view { width: 2px; height: 2px; background: #fff; border-radius: 50%; }
+
+.functional-icon__crown-body { position: absolute; right: 3px; bottom: 3px; left: 3px; height: 7px; border: 2px solid currentColor; border-top: 0; border-radius: 0 0 4px 4px; }
+.functional-icon__crown-spike { position: absolute; top: 4px; width: 9px; height: 9px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
+.functional-icon__crown-spike--left { left: 3px; }
+.functional-icon__crown-spike--middle { top: 1px; left: 8px; }
+.functional-icon__crown-spike--right { right: 2px; transform: rotate(-45deg) scale(.82); }

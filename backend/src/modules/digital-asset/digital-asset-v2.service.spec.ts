@@ -719,6 +719,34 @@ describe('DigitalAssetService V2 semantics', () => {
     expect(data.ledgers).toHaveLength(0);
   });
 
+  it('GROUP_BUY order is ignored by paid and received-order digital asset accounting', async () => {
+    const { data, service } = makeHarness({
+      memberProfiles: [{ userId: 'vip-user', tier: 'VIP' }],
+      orders: [{
+        id: 'order-group-buy',
+        userId: 'vip-user',
+        bizType: 'GROUP_BUY',
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        goodsAmount: 1000,
+        shippingFee: 0,
+        discountAmount: 0,
+        vipDiscountAmount: 0,
+        totalCouponDiscount: 0,
+        items: [
+          { id: 'item-1', skuId: 'sku-group-buy', quantity: 1, unitPrice: 1000, isPrize: false, createdAt: new Date('2026-06-04') },
+        ],
+      }],
+    });
+
+    await service.recordOrderPaid('order-group-buy');
+    const result = await service.recordOrderReceived('order-group-buy', 'ORDER_RECEIVED');
+
+    expect(result).toEqual({ recorded: false, reason: 'GROUP_BUY' });
+    expect(data.accounts).toHaveLength(0);
+    expect(data.ledgers).toHaveLength(0);
+  });
+
   it('zero effective cumulative spend returns recorded false', async () => {
     const { data, service } = makeHarness({
       memberProfiles: [{ userId: 'normal-user', tier: 'NORMAL' }],

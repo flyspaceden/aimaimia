@@ -26,10 +26,11 @@ import { NotificationService } from '../notification/notification.service';
 import { CartModule } from '../cart/cart.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { DigitalAssetService } from '../digital-asset/digital-asset.service';
-import { ProductModule } from '../product/product.module';
 import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.service';
+import { ProductModule } from '../product/product.module';
 import { GroupBuyRebateDeductionService } from '../group-buy/group-buy-rebate-deduction.service';
 import { GroupBuyRebateService } from '../group-buy/group-buy-rebate.service';
+import { GroupBuyCheckoutService } from '../group-buy/group-buy-checkout.service';
 import { GroupBuyModule } from '../group-buy/group-buy.module';
 import { GrowthModule } from '../growth/growth.module';
 import { GrowthEventService } from '../growth/growth-event.service';
@@ -38,6 +39,9 @@ import { CaptainAttributionService } from '../captain/captain-attribution.servic
 import { CaptainCommissionService } from '../captain/captain-commission.service';
 import { ProfitModule } from '../profit/profit.module';
 import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.service';
+import { PickupModule } from '../pickup/pickup.module';
+import { PickupService } from '../pickup/pickup.service';
+import { OrderReceivedEffectsService } from './order-received-effects.service';
 
 @Module({
   imports: [
@@ -53,6 +57,7 @@ import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.serv
     GrowthModule,
     CaptainModule,
     ProfitModule,
+    PickupModule,
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrderController],
@@ -63,6 +68,7 @@ import { OrderProfitSnapshotService } from '../profit/order-profit-snapshot.serv
     OrderAutoConfirmService,
     OrderExpireService,
     BonusCompensationService,
+    OrderReceivedEffectsService,
     RewardDeductionService,
   ],
   exports: [OrderService, CheckoutService],
@@ -74,9 +80,22 @@ export class OrderModule implements OnModuleInit {
     private checkoutService: CheckoutService,
     private checkoutExpireService: CheckoutExpireService,
     private orderAutoConfirmService: OrderAutoConfirmService,
+    private orderReceivedEffectsService: OrderReceivedEffectsService,
   ) {}
 
   onModuleInit() {
+    if (!this.orderReceivedEffectsService) {
+      throw new Error('[OrderModule] OrderReceivedEffectsService 未注入，收货资金副作用不可靠，启动中止');
+    }
+    this.orderService.setOrderReceivedEffectsService(this.orderReceivedEffectsService);
+    this.orderAutoConfirmService.setOrderReceivedEffectsService(this.orderReceivedEffectsService);
+
+    const pickupService = this.moduleRef.get(PickupService, { strict: false });
+    if (!pickupService) {
+      throw new Error('[OrderModule] PickupService 未注入，自提履约不可用，启动中止');
+    }
+    this.orderService.setPickupService(pickupService);
+
     // 注入运费规则服务（避免构造函数循环依赖）
     const shippingRuleService = this.moduleRef.get(ShippingRuleService, { strict: false });
     if (shippingRuleService) {
@@ -195,6 +214,13 @@ export class OrderModule implements OnModuleInit {
       this.checkoutService.setGroupBuyRebateService(groupBuyRebateService);
     } else {
       throw new Error('[OrderModule] GroupBuyRebateService 未注入，团购推荐返还冻结不可用，启动中止');
+    }
+
+    const groupBuyCheckoutService = this.moduleRef.get(GroupBuyCheckoutService, { strict: false });
+    if (groupBuyCheckoutService) {
+      groupBuyCheckoutService.setCheckoutPaymentService(this.checkoutService);
+    } else {
+      throw new Error('[OrderModule] GroupBuyCheckoutService 未注入，团购支付 fence 不可用，启动中止');
     }
 
     const notificationService = this.moduleRef.get(NotificationService, { strict: false });

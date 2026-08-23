@@ -4,13 +4,18 @@ import {
   IsArray,
   ValidateNested,
   IsNumber,
+  IsInt,
   Min,
+  Max,
   MaxLength,
   ArrayMinSize,
   ArrayMaxSize,
   IsNotEmpty,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CheckoutSource } from './checkout-source';
+import { FulfillmentInputDto } from '../pickup/dto/fulfillment.dto';
 
 export class CheckoutItemDto {
   @IsString()
@@ -20,7 +25,9 @@ export class CheckoutItemDto {
 
   @Type(() => Number)
   @IsNumber()
+  @IsInt()
   @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
   quantity: number;
 
   /** 购物车项 ID（用于识别奖品项，可选） */
@@ -38,10 +45,21 @@ export class CheckoutDto {
   @Type(() => CheckoutItemDto)
   items: CheckoutItemDto[];
 
+  /** 结算来源；立即购买必须显式声明，禁止后端猜测购物车语义。 */
+  @IsOptional()
+  @IsEnum(CheckoutSource)
+  checkoutSource?: CheckoutSource;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  addressId: string;
+  addressId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FulfillmentInputDto)
+  fulfillment?: FulfillmentInputDto;
 
   /** 选中的奖励 ID（用于抵扣） */
   @IsOptional()

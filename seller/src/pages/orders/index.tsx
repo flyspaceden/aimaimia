@@ -5,7 +5,9 @@ import {
   Badge,
   Button,
   Card,
+  Input,
   Modal,
+  Segmented,
   Space,
   Statistic,
   Tag,
@@ -20,6 +22,9 @@ import {
   ShoppingOutlined,
   DollarOutlined,
   InboxOutlined,
+  EnvironmentOutlined,
+  QrcodeOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -30,19 +35,31 @@ import {
   batchGenerateWaybill,
   batchShipOrders,
   getOrders,
+  markPickupReady,
+  verifyPickup,
 } from '@/api/orders';
 import { getOverview } from '@/api/analytics';
 import { orderStatusMap, refundStatusMap } from '@/constants/statusMaps';
 import type { Order } from '@/types';
 import useAuthStore from '@/store/useAuthStore';
+import { pickupStatusMap } from '@/utils/pickup';
 
-const orderStatusTabs = [
+type OrderStatusTab = {
+  key: 'all' | 'pickup' | 'pending' | 'shipped' | 'completed' | 'cancelled';
+  label: string;
+  status: string;
+  fulfillmentMode?: 'DELIVERY' | 'PICKUP';
+};
+
+const orderStatusTabs: readonly OrderStatusTab[] = [
   { key: 'all', label: '全部', status: '' },
-  { key: 'pending', label: '待发货', status: 'PAID' },
+  // 已核销的自提订单状态会原子变为 RECEIVED，应只留在“已完成”。
+  { key: 'pickup', label: '自提订单', status: 'PAID', fulfillmentMode: 'PICKUP' },
+  { key: 'pending', label: '待发货', status: 'PAID', fulfillmentMode: 'DELIVERY' },
   { key: 'shipped', label: '已发货', status: 'SHIPPED' },
   { key: 'completed', label: '已完成', status: 'DELIVERED,RECEIVED' },
   { key: 'cancelled', label: '已取消', status: 'CANCELED,REFUNDED' },
-] as const;
+];
 
 function escapeHtml(text: string): string {
   return text
@@ -54,11 +71,12 @@ function escapeHtml(text: string): string {
 }
 
 function isWaybillPending(order: Order): boolean {
-  return order.status === 'PAID' && !order.shipment?.waybillNo;
+  return order.fulfillmentMode !== 'PICKUP' && order.status === 'PAID' && !order.shipment?.waybillNo;
 }
 
 function canBatchShip(order: Order): boolean {
   return (
+    order.fulfillmentMode !== 'PICKUP' &&
     ['PAID', 'SHIPPED'].includes(order.status) &&
     order.shipment?.status === 'INIT' &&
     Boolean(order.shipment?.waybillNo)
@@ -82,6 +100,10 @@ export default function OrderListPage() {
   const [carrierModalOpen, setCarrierModalOpen] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchShipping, setBatchShipping] = useState(false);
+  const [verifyOrder, setVerifyOrder] = useState<Order | null>(null);
+  const [verifyMode, setVerifyMode] = useState<'CODE' | 'QR'>('CODE');
+  const [verifyValue, setVerifyValue] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
   const activeOrderStatusTab = orderStatusTabs.some(
     (tab) => tab.key === searchParams.get('statusTab'),
@@ -90,6 +112,9 @@ export default function OrderListPage() {
     : 'all';
   const currentStatusFilter =
     orderStatusTabs.find((tab) => tab.key === activeOrderStatusTab)?.status || '';
+  const currentFulfillmentMode = orderStatusTabs.find(
+    (tab) => tab.key === activeOrderStatusTab,
+  )?.fulfillmentMode;
   const canBatchManage = useAuthStore((s) => s.hasRole('OWNER', 'MANAGER'));
   const selectedOrders = orders.filter((order) => selectedRowKeys.includes(order.id));
 
@@ -107,7 +132,9 @@ export default function OrderListPage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [queryClient]);
   const pendingWaybillOrders = selectedOrders.filter(isWaybillPending);
-  const printableOrders = selectedOrders.filter((order) => order.shipment?.waybillPrintUrl);
+  const printableOrders = selectedOrders.filter(
+    (order) => order.fulfillmentMode !== 'PICKUP' && order.shipment?.waybillPrintUrl,
+  );
   const shippableOrders = selectedOrders.filter(canBatchShip);
 
   // 概览统计数据
@@ -124,7 +151,12 @@ export default function OrderListPage() {
     queryFn: async () => {
       const responses = await Promise.all(
         orderStatusTabs.map((tab) =>
-          getOrders({ page: 1, pageSize: 1, status: tab.status }),
+          getOrders({
+            page: 1,
+            pageSize: 1,
+            status: tab.status,
+            ...(tab.fulfillmentMode ? { fulfillmentMode: tab.fulfillmentMode } : {}),
+          }),
         ),
       );
       return Object.fromEntries(
@@ -290,8 +322,83 @@ export default function OrderListPage() {
     };
   };
 
+  const refreshOrderViews = () => {
+    actionRef.current?.reload();
+    queryClient.invalidateQueries({ queryKey: ['seller-order-tab-counts'] });
+    queryClient.invalidateQueries({ queryKey: ['seller-analytics-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['seller-analytics-orders'] });
+  };
+
+  const handleMarkPickupReady = (order: Order) => {
+    modal.confirm({
+      title: '确认备货完成？',
+      content: '确认后买家会看到待自提状态，并可打开一次性取货凭证。',
+      okText: '确认备货完成',
+      onOk: async () => {
+        try {
+          await markPickupReady(order.id);
+          message.success('已标记备货完成');
+          refreshOrderViews();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '更新自提状态失败');
+        }
+      },
+    });
+  };
+
+  const openVerifyPickup = (order: Order) => {
+    setVerifyOrder(order);
+    setVerifyMode('CODE');
+    setVerifyValue('');
+  };
+
+  const handleVerifyPickup = async () => {
+    if (!verifyOrder) return;
+    const credential = verifyValue.trim();
+    if (!credential) {
+      message.warning(verifyMode === 'CODE' ? '请输入取货码' : '请扫描或粘贴二维码内容');
+      return;
+    }
+    setVerifying(true);
+    try {
+      const result = await verifyPickup(
+        verifyOrder.id,
+        verifyMode === 'CODE' ? { pickupCode: credential } : { qrPayload: credential },
+      );
+      message.success(result.alreadyPickedUp ? '该订单此前已核销' : '取货核销成功');
+      setVerifyOrder(null);
+      setVerifyValue('');
+      refreshOrderViews();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '核销失败，请检查凭证和订单状态');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   // 获取订单商品操作按钮
   const getActionButton = (record: Order) => {
+    if (record.fulfillmentMode === 'PICKUP') {
+      if (record.pickupFulfillment?.status === 'PREPARING') {
+        return (
+          <Button size="small" type="primary" onClick={() => handleMarkPickupReady(record)}>
+            备货完成
+          </Button>
+        );
+      }
+      if (record.pickupFulfillment?.status === 'READY') {
+        return (
+          <Button size="small" icon={<QrcodeOutlined />} onClick={() => openVerifyPickup(record)}>
+            核销取货
+          </Button>
+        );
+      }
+      return (
+        <Button type="link" size="small" onClick={() => navigate(`/orders/${record.id}`)}>
+          查看自提详情
+        </Button>
+      );
+    }
     if (record.status === 'PAID' && !record.shipment?.waybillNo) {
       return (
         <Button
@@ -446,6 +553,36 @@ export default function OrderListPage() {
       ),
     },
     {
+      title: '履约方式',
+      dataIndex: 'fulfillmentMode',
+      width: 105,
+      valueType: 'select',
+      valueEnum: {
+        DELIVERY: { text: '送货上门' },
+        PICKUP: { text: '到店自提' },
+      },
+      render: (_, record) => (
+        <Tag color={record.fulfillmentMode === 'PICKUP' ? 'green' : 'blue'}>
+          {record.fulfillmentMode === 'PICKUP' ? '到店自提' : '送货上门'}
+        </Tag>
+      ),
+    },
+    {
+      title: '自提状态',
+      dataIndex: 'pickupStatus',
+      width: 100,
+      valueType: 'select',
+      valueEnum: Object.fromEntries(
+        Object.entries(pickupStatusMap).map(([key, value]) => [key, { text: value.text }]),
+      ),
+      render: (_, record) => {
+        const pickupStatus = record.pickupFulfillment?.status;
+        if (!pickupStatus) return '-';
+        const statusMeta = pickupStatusMap[pickupStatus];
+        return <Tag color={statusMeta.color}>{statusMeta.text}</Tag>;
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 90,
@@ -489,6 +626,10 @@ export default function OrderListPage() {
     ? {
         selectedRowKeys,
         onChange: (keys) => setSelectedRowKeys(keys),
+        getCheckboxProps: (record) => ({
+          disabled: record.fulfillmentMode === 'PICKUP',
+          title: record.fulfillmentMode === 'PICKUP' ? '自提订单不进入批量面单和发货操作' : undefined,
+        }),
       }
     : undefined;
 
@@ -500,7 +641,7 @@ export default function OrderListPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: 16,
           marginBottom: 16,
         }}
@@ -513,7 +654,7 @@ export default function OrderListPage() {
         >
           <Statistic
             title="待发货"
-            value={overview?.today.pendingShipCount ?? orderTabCounts?.pending ?? 0}
+            value={orderTabCounts?.pending ?? 0}
             prefix={<ClockCircleOutlined style={{ color: '#fa8c16' }} />}
             valueStyle={{ color: '#fa8c16', fontSize: 28 }}
           />
@@ -524,6 +665,19 @@ export default function OrderListPage() {
             value={orderTabCounts?.shipped ?? 0}
             prefix={<SendOutlined style={{ color: '#1677ff' }} />}
             valueStyle={{ color: '#1677ff', fontSize: 28 }}
+          />
+        </Card>
+        <Card
+          size="small"
+          hoverable
+          style={{ cursor: 'pointer' }}
+          onClick={() => handleOrderStatusTabChange('pickup')}
+        >
+          <Statistic
+            title="自提订单"
+            value={orderTabCounts?.pickup ?? 0}
+            prefix={<EnvironmentOutlined style={{ color: '#2E7D32' }} />}
+            valueStyle={{ color: '#2E7D32', fontSize: 28 }}
           />
         </Card>
         <Card size="small">
@@ -592,10 +746,16 @@ export default function OrderListPage() {
         actionRef={actionRef}
         columns={columns}
         rowKey="id"
-        scroll={{ x: 900 }}
+        scroll={{ x: 1120 }}
         rowSelection={rowSelection}
         tableAlertRender={false}
-        rowClassName={(record) => record.status === 'PAID' ? 'row-pending-ship' : ''}
+        rowClassName={(record) =>
+          record.fulfillmentMode === 'PICKUP' && record.pickupFulfillment?.status === 'READY'
+            ? 'row-pending-pickup'
+            : record.fulfillmentMode !== 'PICKUP' && record.status === 'PAID'
+              ? 'row-pending-ship'
+              : ''
+        }
         params={{ statusScope: activeOrderStatusTab }}
         // 30s 自动轮询，配合 visibilitychange 回前台立即拉，覆盖买家 app 付款后卖家需要手动刷新的场景
         polling={30_000}
@@ -606,6 +766,8 @@ export default function OrderListPage() {
             status: currentStatusFilter,
             bizType: params.bizType || '',
             buyerNo: params.buyerNo ? String(params.buyerNo).trim() : undefined,
+            fulfillmentMode: currentFulfillmentMode || params.fulfillmentMode,
+            pickupStatus: params.pickupStatus || undefined,
           });
           setOrders(res.items);
           return { data: res.items, total: res.total, success: true };
@@ -695,6 +857,47 @@ export default function OrderListPage() {
         <Typography.Text type="secondary">
           当前可生成面单的已选订单：{pendingWaybillOrders.length} 条，快递公司：顺丰速运
         </Typography.Text>
+      </Modal>
+
+      <Modal
+        title="核销到店自提"
+        open={Boolean(verifyOrder)}
+        onCancel={() => {
+          if (verifying) return;
+          setVerifyOrder(null);
+          setVerifyValue('');
+        }}
+        onOk={handleVerifyPickup}
+        okText="确认核销"
+        confirmLoading={verifying}
+        maskClosable={!verifying}
+        okButtonProps={{ icon: <CheckCircleOutlined /> }}
+      >
+        <Typography.Paragraph type="secondary">
+          核销成功后订单立即变为已收货，并触发收货后的分润、数字资产和售后时间点。请当面核对商品后操作。
+        </Typography.Paragraph>
+        <Segmented
+          block
+          value={verifyMode}
+          onChange={(value) => {
+            setVerifyMode(value as 'CODE' | 'QR');
+            setVerifyValue('');
+          }}
+          options={[
+            { label: '输入取货码', value: 'CODE' },
+            { label: '扫码器 / 二维码内容', value: 'QR' },
+          ]}
+          style={{ marginBottom: 16 }}
+        />
+        <Input
+          autoFocus
+          value={verifyValue}
+          onChange={(event) => setVerifyValue(event.target.value)}
+          onPressEnter={handleVerifyPickup}
+          prefix={<QrcodeOutlined />}
+          maxLength={verifyMode === 'CODE' ? 16 : 1000}
+          placeholder={verifyMode === 'CODE' ? '请输入买家出示的一次性取货码' : '请用扫码器扫描，或粘贴二维码完整内容'}
+        />
       </Modal>
     </div>
   );

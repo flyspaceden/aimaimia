@@ -1,0 +1,151 @@
+name: WeChat Mini Program CI
+
+on:
+  pull_request:
+    branches: [main, staging, staging-next]
+    paths:
+      - 'miniapp/**'
+      - 'assets/seafood/**'
+      - 'app/**'
+      - 'src/content/legal/**'
+      - '.github/workflows/deploy-release.yml'
+      - '.github/workflows/miniapp-ci.yml'
+      - 'scripts/deploy-backend-versioned.sh'
+      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
+      - 'backend/scripts/verify-miniapp-staging-config.cjs'
+      - 'backend/scripts/verify-miniapp-production-config.cjs'
+      - 'backend/scripts/verify-miniapp-config.cjs'
+      - 'backend/scripts/prepare-miniapp-staging-env.cjs'
+      - 'scripts/__tests__/miniapp-production-config.test.mjs'
+      - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
+  push:
+    branches: [main, staging, staging-next]
+    paths:
+      - 'miniapp/**'
+      - 'assets/seafood/**'
+      - 'app/**'
+      - 'src/content/legal/**'
+      - '.github/workflows/deploy-release.yml'
+      - '.github/workflows/miniapp-ci.yml'
+      - 'scripts/deploy-backend-versioned.sh'
+      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
+      - 'backend/scripts/verify-miniapp-staging-config.cjs'
+      - 'backend/scripts/verify-miniapp-production-config.cjs'
+      - 'backend/scripts/verify-miniapp-config.cjs'
+      - 'backend/scripts/prepare-miniapp-staging-env.cjs'
+      - 'scripts/__tests__/miniapp-production-config.test.mjs'
+      - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Build target
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Typecheck
+        working-directory: miniapp
+        run: npm run typecheck
+      - name: Lint
+        working-directory: miniapp
+        run: npm run lint -- --max-warnings=0
+      - name: Test
+        working-directory: miniapp
+        run: npm test
+
+  build-staging:
+    needs: checks
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next'))
+      || (
+        github.event_name == 'workflow_dispatch'
+        && inputs.environment == 'staging'
+        && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Verify release source
+        working-directory: miniapp
+        env:
+          MINIAPP_RELEASE_CHANNEL: staging
+          MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}
+        run: npm run verify:release-context
+      - name: Build staging mini program
+        working-directory: miniapp
+        run: npm run build:staging
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimai-miniapp-staging-${{ github.sha }}
+          path: miniapp/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  build-production:
+    needs: checks
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (
+        github.event_name == 'workflow_dispatch'
+        && inputs.environment == 'production'
+        && github.ref == 'refs/heads/main'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Verify release source
+        working-directory: miniapp
+        env:
+          MINIAPP_RELEASE_CHANNEL: production
+        run: npm run verify:release-context
+      - name: Build production mini program
+        working-directory: miniapp
+        run: npm run build:production
+      - name: Verify production artifact
+        working-directory: miniapp
+        run: npm run verify:artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimai-miniapp-production-${{ github.sha }}
+          path: miniapp/dist/
+          if-no-files-found: error
+          retention-days: 14

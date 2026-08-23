@@ -6,6 +6,10 @@ import {
   CAPTAIN_SEAFOOD_PROGRAM_CODE,
   DEFAULT_CAPTAIN_SEAFOOD_CONFIG,
 } from './captain.constants';
+import {
+  acquireUserWriteLock,
+  isActiveUserInTransaction,
+} from '../../common/transactions/active-user-write-barrier';
 
 export type CaptainCommissionResult = 'released' | 'voided' | 'skipped';
 export type CaptainReleaseReason =
@@ -76,6 +80,8 @@ export class CaptainCommissionService {
       for (const ledger of ledgers) {
         const amount = this.roundMoney(Number(ledger.amount || 0));
         if (amount <= 0) continue;
+        await acquireUserWriteLock(tx, ledger.userId);
+        if (!(await isActiveUserInTransaction(tx, ledger.userId))) continue;
         const account = await (tx as any).captainAccount.findUnique({
           where: { id: ledger.accountId },
         });

@@ -23,7 +23,7 @@ export interface QueryParams {
   auditStatus?: string;
   productType?: 'SIMPLE' | 'BUNDLE';
   returnPolicy?: string;
-  [key: string]: string | number | undefined;
+  [key: string]: string | number | boolean | undefined;
 }
 
 // ============================================================
@@ -148,6 +148,57 @@ export interface ProductMedia {
 /** 与后端 Prisma OrderStatus 对齐（付款后建单，无 PENDING_PAYMENT） */
 export type OrderStatus = 'PAID' | 'SHIPPED' | 'DELIVERED' | 'RECEIVED' | 'CANCELED' | 'REFUNDED';
 
+export type FulfillmentMode = 'DELIVERY' | 'PICKUP';
+
+export type PickupFulfillmentStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'PICKED_UP'
+  | 'VOID'
+  | 'CANCELED';
+
+export interface PickupBusinessHours {
+  summary?: string;
+  holidayNotice?: string;
+  [key: string]: unknown;
+}
+
+export interface PickupPointLocation {
+  lng: number;
+  lat: number;
+  provider?: string;
+  poiName?: string;
+}
+
+export interface PickupPoint {
+  id: string;
+  companyId: string;
+  name: string;
+  contactName: string;
+  contactPhone: string;
+  regionCode: string;
+  regionText: string;
+  detail: string;
+  location?: PickupPointLocation | null;
+  businessHours: PickupBusinessHours | Record<string, unknown>;
+  pickupNotice?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PickupFulfillmentSummary {
+  status: PickupFulfillmentStatus;
+  pickupPoint: Pick<
+    PickupPoint,
+    'id' | 'name' | 'regionText' | 'detail' | 'location' | 'businessHours' | 'pickupNotice'
+  >;
+  recipient?: { name: string; phoneMasked: string } | null;
+  readyAt?: string | null;
+  pickedUpAt?: string | null;
+  pickedUpByStaffId?: string | null;
+}
+
 export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 
 export interface RefundSummary {
@@ -174,6 +225,9 @@ export interface Order {
   refundSummary?: RefundSummary | null;
   /** 发票状态（只读，仅订单详情返回） */
   invoiceStatus?: 'REQUESTED' | 'ISSUED' | 'FAILED' | 'CANCELED' | null;
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
 }
 
 export interface OrderItem {

@@ -10,6 +10,7 @@ import { GroupBuyLifecycleService } from '../group-buy/group-buy-lifecycle.servi
 import { GrowthEventService } from '../growth/growth-event.service';
 import { CaptainCommissionService } from '../captain/captain-commission.service';
 import { DEAD_LETTER_REASON } from '../bonus/engine/constants';
+import { OrderReceivedEffectsService } from './order-received-effects.service';
 
 type AutoVipBySpendActivator = {
   activateVipByCumulativeSpend(userId: string, sourceOrderId: string): Promise<unknown>;
@@ -31,6 +32,7 @@ export class OrderAutoConfirmService {
   private groupBuyLifecycleService: GroupBuyLifecycleService | null = null;
   private growthEventService: GrowthEventService | null = null;
   private captainCommissionService: CaptainCommissionService | null = null;
+  private orderReceivedEffectsService: OrderReceivedEffectsService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -57,6 +59,10 @@ export class OrderAutoConfirmService {
     this.captainCommissionService = service;
   }
 
+  setOrderReceivedEffectsService(service: OrderReceivedEffectsService) {
+    this.orderReceivedEffectsService = service;
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async handleAutoConfirm() {
     const now = new Date();
@@ -66,6 +72,7 @@ export class OrderAutoConfirmService {
     // L6修复：限制单批次处理数量，防止内存溢出
     const orders = await this.prisma.order.findMany({
       where: {
+        fulfillmentMode: 'DELIVERY',
         status: { in: ['SHIPPED', 'DELIVERED'] },
         autoReceiveAt: { lte: now },
         // 售后进行中订单不做自动确认，避免与售后流程冲突
@@ -108,6 +115,7 @@ export class OrderAutoConfirmService {
           id: true,
           userId: true,
           status: true,
+          fulfillmentMode: true,
           bizType: true,
           goodsAmount: true,
           totalAmount: true,
@@ -119,17 +127,26 @@ export class OrderAutoConfirmService {
           },
         },
       });
-      if (!current || (current.status !== 'SHIPPED' && current.status !== 'DELIVERED')) {
+      if (
+        !current
+        || (current.fulfillmentMode ?? 'DELIVERY') !== 'DELIVERY'
+        || (current.status !== 'SHIPPED' && current.status !== 'DELIVERED')
+      ) {
         return false; // 已被买家手动确认或状态已变更，跳过
       }
       if (current.afterSaleRequests.length > 0) {
         return false; // 事务内二次确认：若窗口期进入售后流程，则不自动确认
       }
 
-      await tx.order.update({
-        where: { id: orderId },
+      const cas = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          fulfillmentMode: 'DELIVERY',
+          status: { in: ['SHIPPED', 'DELIVERED'] },
+        },
         data: { status: 'RECEIVED', receivedAt: new Date() },
       });
+      if (cas.count !== 1) return false;
 
       await tx.orderStatusHistory.create({
         data: {
@@ -144,7 +161,20 @@ export class OrderAutoConfirmService {
         where: { userId: current.userId, status: 'RECEIVED' },
       });
 
-      return { ...current, _isFirstReceived: receivedCount === 1 };
+      if (this.orderReceivedEffectsService) {
+        await this.orderReceivedEffectsService.enqueueInTransaction(tx, {
+          orderId,
+          userId: current.userId,
+          source: 'AUTO_CONFIRM',
+          isFirstReceived: receivedCount === 1,
+        });
+      }
+
+      return {
+        ...current,
+        _isFirstReceived: receivedCount === 1,
+        _receivedEffectsPersisted: Boolean(this.orderReceivedEffectsService),
+      };
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
@@ -165,8 +195,13 @@ export class OrderAutoConfirmService {
       return;
     }
 
-    // 自动确认与人工确认使用同一套“重试 + 持久化死信”保障，
-    // 最终失败后由 BonusCompensationService 定时恢复。
+    if (confirmedOrder._receivedEffectsPersisted) {
+      this.orderReceivedEffectsService!.kick(orderId);
+      this.logger.log(`订单 ${orderId} 已自动确认收货`);
+      return;
+    }
+
+    // 仅供直接 new service 的旧单测试构造。生产一定走 durable outbox。
     void this.allocateBonusWithRetry(orderId);
     this.evaluateGroupBuyAfterReceive(orderId);
     this.creditDigitalAssetAfterReceive(orderId, confirmedOrder.userId)

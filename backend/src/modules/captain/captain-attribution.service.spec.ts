@@ -94,6 +94,11 @@ function makeSnapshot(overrides: any = {}) {
 
 function createHarness(snapshot = makeSnapshot()) {
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([{
+      status: 'ACTIVE',
+      deletionExecutedAt: null,
+    }]),
     orderProfitSnapshot: {
       findFirst: jest.fn().mockResolvedValue(snapshot),
     },

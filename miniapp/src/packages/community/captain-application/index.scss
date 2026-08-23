@@ -1,0 +1,28 @@
+@use '../../../theme/tokens' as t;
+
+.captain-form-page { min-height: 100vh; box-sizing: border-box; padding: 16px 16px calc(42px + env(safe-area-inset-bottom)); background: t.$background; }
+.captain-form-intro { padding: 20px; color: #fff; background: linear-gradient(135deg, #153f39, #087d6f); border-radius: 22px; }
+.captain-form-intro text { display: block; font-size: 21px; font-weight: 800; }
+.captain-form-intro text:last-child { margin-top: 8px; font-size: 11px; font-weight: 400; line-height: 1.7; opacity: .78; }
+.captain-form-rejected { margin-top: 12px; padding: 13px; color: #8f4039; background: #fff1ef; border: 1px solid #efd1cd; border-radius: t.$radius-lg; }
+.captain-form-rejected text { display: block; font-size: 12px; font-weight: 700; }
+.captain-form-rejected text:last-child { margin-top: 4px; font-size: 11px; font-weight: 400; }
+.captain-form-section { margin-top: 13px; padding: 15px; }
+.captain-form-section__title { display: block; margin-bottom: 14px; color: #087d6f; font-family: Georgia, serif; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
+.captain-form__label { display: block; margin: 14px 0 7px; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.captain-form__input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; color: t.$text-primary; font-size: 13px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.captain-form__choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.captain-form__choice { min-height: 34px; box-sizing: border-box; padding: 8px 12px; color: t.$text-secondary; font-size: 11px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-full; }
+.captain-form__choice--active { color: #076b5f; font-weight: 650; background: #e1f6f1; border-color: #65b8a9; }
+.captain-form__textarea { box-sizing: border-box; width: 100%; min-height: 128px; padding: 12px; color: t.$text-primary; font-size: 12px; line-height: 1.6; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.captain-form__count { display: block; margin-top: 5px; color: t.$text-tertiary; font-size: 10px; text-align: right; }
+.captain-form__agreement { display: flex; align-items: flex-start; margin: 17px 4px; }
+.captain-form__check { display: grid; flex: 0 0 18px; height: 18px; margin: 1px 8px 0 0; color: #fff; font-size: 11px; place-items: center; border: 1px solid #9cb1a5; border-radius: 5px; }
+.captain-form__check--active { background: #087d6f; border-color: #087d6f; }
+.captain-form__agreement text { color: t.$text-secondary; font-size: 11px; line-height: 1.7; }
+.captain-form__submit { width: 100%; height: 46px; color: #fff; font-size: 13px; line-height: 46px; background: #087d6f; border-radius: t.$radius-full; }
+.captain-application-status { padding-top: 82px; text-align: center; }
+.captain-application-status__mark { display: grid; width: 70px; height: 70px; margin: 0 auto; color: #fff; font-family: serif; font-size: 28px; place-items: center; background: #087d6f; border: 5px double #c5eee4; border-radius: 20px; }
+.captain-application-status__mark--pending { color: #674b00; background: #f6d777; border-color: #fff1b9; }
+.captain-application-status > text { display: block; margin-top: 20px; color: t.$text-primary; font-size: 20px; font-weight: 800; }
+.captain-application-status > text:nth-child(3) { max-width: 280px; margin: 9px auto 24px; color: t.$text-secondary; font-size: 12px; font-weight: 400; line-height: 1.8; }

@@ -1,10 +1,11 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SellerOrdersService } from './seller-orders.service';
 
 describe('SellerOrdersService invoice privacy', () => {
   let prisma: any;
   let bonusConfig: any;
   let notificationService: any;
+  let wechatShippingOutbox: any;
   let service: SellerOrdersService;
 
   beforeEach(() => {
@@ -28,12 +29,24 @@ describe('SellerOrdersService invoice privacy', () => {
     notificationService = {
       emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
     };
+    wechatShippingOutbox = {
+      enqueueForOrderTx: jest.fn().mockResolvedValue({ enqueued: true }),
+    };
     service = new SellerOrdersService(
       prisma,
       bonusConfig as any,
       { getWaybillPrintUrl: jest.fn(() => 'http://localhost/waybill.pdf') } as any,
       notificationService as any,
+      wechatShippingOutbox as any,
     );
+  });
+
+  it('卖家映射遇到 PICKUP 缺关联时返回显式异常标记', () => {
+    (service as any).pickupService = { mapOrderPickup: jest.fn() };
+    const order = { id: 'o-missing', fulfillmentMode: 'PICKUP', pickupFulfillment: null };
+
+    expect((service as any).mapPickupFulfillment(order)).toBeNull();
+    expect((service as any).pickupFulfillmentIssueCode(order)).toBe('PICKUP_RELATION_MISSING');
   });
 
   it('returns invoiceStatus only for seller order detail', async () => {
@@ -452,5 +465,23 @@ describe('SellerOrdersService invoice privacy', () => {
         buyerUserId: 'buyer-ship-1',
       },
     }, prisma);
+    expect(wechatShippingOutbox.enqueueForOrderTx).toHaveBeenCalledWith(
+      prisma,
+      'order-ship-1',
+    );
+  });
+
+  it('拒绝将非白名单自提筛选值透传给 Prisma', async () => {
+    await expect(service.findAll(
+      'company-1', 1, 20, undefined, undefined, undefined, undefined,
+      'PICKUP); DROP TABLE',
+      'READY',
+    )).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.findAll(
+      'company-1', 1, 20, undefined, undefined, undefined, undefined,
+      'PICKUP',
+      'UNKNOWN',
+    )).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.order.findMany).not.toHaveBeenCalled();
   });
 });

@@ -14,7 +14,10 @@ import {
   RefundStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PaymentService } from '../payment/payment.service';
+import {
+  PaymentService,
+  type WechatRefundNotifyAuthorityClaim,
+} from '../payment/payment.service';
 import { AfterSaleRewardService } from './after-sale-reward.service';
 import { AfterSaleStatusHistoryService } from './after-sale-status-history.service';
 import { NotificationService } from '../notification/notification.service';
@@ -31,7 +34,7 @@ import { centsToYuan, yuanToCents } from '../profit/money-allocation';
 
 type Operator = { type: AfterSaleOperatorType; id?: string };
 type Tx = Prisma.TransactionClient;
-const SERIALIZABLE_MAX_RETRIES = 3;
+const SERIALIZABLE_MAX_RETRIES = 6;
 
 type StartRefundLease = {
   refund: Refund;
@@ -123,7 +126,7 @@ export class AfterSaleRefundService {
   }
 
   async createOrGetRefund(afterSaleId: string): Promise<Refund> {
-    return this.prisma.$transaction(
+    return this.withSerializableRetry(
       async (tx) => {
         const { refund } = await this.createOrGetRefundInTx(tx, afterSaleId);
         await tx.afterSaleRequest.update({
@@ -132,7 +135,6 @@ export class AfterSaleRefundService {
         });
         return refund;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -144,7 +146,7 @@ export class AfterSaleRefundService {
       merchantRefundNo,
       shouldInitiate,
       shouldCloseSuccess,
-    } = await this.prisma.$transaction(
+    } = await this.withSerializableRetry(
       async (tx): Promise<StartRefundLease> => {
         const created = await this.createOrGetRefundInTx(tx, afterSaleId);
         const { request, refund } = created;
@@ -212,7 +214,6 @@ export class AfterSaleRefundService {
           shouldCloseSuccess: false,
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     if (!shouldInitiate) {
@@ -256,11 +257,22 @@ export class AfterSaleRefundService {
   async handleRefundSuccess(
     refundId: string,
     providerRefundId?: string | null,
+    wechatNotifyAuthority?: WechatRefundNotifyAuthorityClaim,
   ): Promise<void> {
     const completed = await this.withSerializableRetry(
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
+        if (
+          wechatNotifyAuthority &&
+          !(await this.paymentService.isWechatRefundNotifyAuthorityValidInTx(
+            tx,
+            refund,
+            wechatNotifyAuthority,
+          ))
+        ) {
+          return null;
+        }
         if (!refund.afterSaleId) {
           throw new BadRequestException('退款单未关联售后申请');
         }
@@ -756,11 +768,25 @@ export class AfterSaleRefundService {
     );
   }
 
-  async handleRefundFailure(refundId: string, reason: string): Promise<void> {
+  async handleRefundFailure(
+    refundId: string,
+    reason: string,
+    wechatNotifyAuthority?: WechatRefundNotifyAuthorityClaim,
+  ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
         const refund = await tx.refund.findUnique({ where: { id: refundId } });
         if (!refund) throw new NotFoundException('退款单不存在');
+        if (
+          wechatNotifyAuthority &&
+          !(await this.paymentService.isWechatRefundNotifyAuthorityValidInTx(
+            tx,
+            refund,
+            wechatNotifyAuthority,
+          ))
+        ) {
+          return;
+        }
         if (refund.status === 'FAILED' || refund.status === 'REFUNDED') return;
 
         const updated = await tx.refund.updateMany({
@@ -1061,6 +1087,10 @@ export class AfterSaleRefundService {
         });
       } catch (err: any) {
         if (err?.code === 'P2034' && attempt < SERIALIZABLE_MAX_RETRIES - 1) {
+          // 同一售后单的并发事务会在 advisory lock 后持有旧快照；
+          // 有界退避后以新快照重试，渠道租约仍只会被成功事务取得一次。
+          const delayMs = 25 * 2 ** attempt + Math.floor(Math.random() * 25);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
           continue;
         }
         throw err;

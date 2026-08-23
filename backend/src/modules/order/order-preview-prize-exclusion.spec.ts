@@ -402,6 +402,96 @@ describe('OrderService.previewOrder shipping weight', () => {
     );
   });
 
+  it('excludes a bundle selling sku when a component sku is inactive', async () => {
+    const bundleSku = {
+      id: 'bundle-sku',
+      productId: 'bundle-product',
+      title: '水果礼盒',
+      price: 66,
+      stock: 0,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 1,
+      product: {
+        id: 'bundle-product',
+        type: 'BUNDLE',
+        title: '水果礼盒',
+        status: 'ACTIVE',
+        companyId: 'bundle-company',
+        company: { name: '礼盒商户' },
+        media: [{ type: 'IMAGE', url: 'https://img.example.com/bundle.jpg' }],
+        bundleItems: [
+          {
+            skuId: 'component-apple',
+            quantity: 2,
+            sortOrder: 0,
+            sku: {
+              id: 'component-apple',
+              stock: 9,
+              status: 'INACTIVE',
+              weightGram: 500,
+              product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+            },
+          },
+          {
+            skuId: 'component-orange',
+            quantity: 1,
+            sortOrder: 1,
+            sku: {
+              id: 'component-orange',
+              stock: 4,
+              status: 'ACTIVE',
+              weightGram: 300,
+              product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+            },
+          },
+        ],
+      },
+    };
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue([bundleSku]) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      address: { findUnique: jest.fn().mockResolvedValue({ userId: 'user1', regionCode: '110000' }) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      rewardLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 999,
+        vipFreeShippingThreshold: 999,
+        defaultShippingFee: 8,
+      }),
+    };
+    const shippingRuleService = {
+      calculateShippingFee: jest.fn().mockResolvedValue(12),
+    };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [{ skuId: 'bundle-sku', quantity: 1, cartItemId: 'ci-bundle' }],
+      addressId: 'addr1',
+    } as any);
+
+    expect(result.groups).toEqual([]);
+    expect((result as any).excludedItems).toEqual([
+      expect.objectContaining({
+        cartItemId: 'ci-bundle',
+        skuId: 'bundle-sku',
+        reason: '商品暂无库存',
+        isPrize: false,
+      }),
+    ]);
+    expect(shippingRuleService.calculateShippingFee).toHaveBeenCalledWith(
+      0,
+      '110000',
+      0,
+      undefined,
+    );
+  });
+
   it('adds bundle derived weight into mixed-cart preview shipping totals', async () => {
     const bundleSku = {
       id: 'bundle-sku',
@@ -613,6 +703,89 @@ describe('OrderService.previewOrder shipping weight', () => {
       items: [{ skuId: 'sku-real', quantity: 2 }],
       addressId: 'addr1',
     } as any)).rejects.toThrow('请选择有效的收货地址');
+    expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
+  });
+
+  it('多商家自提 preview 校验全部点位且运费为 0', async () => {
+    const skus = ['c1', 'c2'].map((companyId, index) => ({
+      id: `sku-${companyId}`,
+      productId: `product-${companyId}`,
+      title: `SKU ${index + 1}`,
+      price: 50 + index * 10,
+      stock: 10,
+      status: 'ACTIVE',
+      maxPerOrder: null,
+      weightGram: 500,
+      product: {
+        id: `product-${companyId}`,
+        title: `商品 ${index + 1}`,
+        status: 'ACTIVE',
+        companyId,
+        company: { name: `商家 ${index + 1}` },
+        media: [],
+      },
+    }));
+    const prisma: any = {
+      productSKU: { findMany: jest.fn().mockResolvedValue(skus) },
+      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart1', userId: 'user1' }) },
+      cartItem: { findMany: jest.fn().mockResolvedValue([]) },
+      vipTreeNode: { findFirst: jest.fn().mockResolvedValue(null) },
+      company: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const bonusConfig: any = {
+      getSystemConfig: jest.fn().mockResolvedValue({
+        normalFreeShippingThreshold: 99,
+        vipFreeShippingThreshold: 99,
+        defaultShippingFee: 8,
+      }),
+    };
+    const pickupService = {
+      validateCheckoutFulfillment: jest.fn().mockResolvedValue({
+        mode: 'PICKUP',
+        recipientSnapshot: {},
+        selectionsSnapshot: ['c1', 'c2'].map((companyId) => ({
+          companyId,
+          pickupPointId: `point-${companyId}`,
+          pickupPointSnapshot: {
+            id: `point-${companyId}`,
+            companyId,
+            name: `自提点 ${companyId}`,
+            regionText: '北京市',
+            detail: '1 号',
+          },
+        })),
+      }),
+    };
+    const shippingRuleService = { calculateShippingFee: jest.fn().mockResolvedValue(8) };
+    const service = new OrderService(prisma, {} as any, bonusConfig, {} as any, {} as any);
+    service.setPickupService(pickupService as any);
+    service.setShippingRuleService(shippingRuleService);
+
+    const result = await service.previewOrder('user1', {
+      items: [
+        { skuId: 'sku-c1', quantity: 1 },
+        { skuId: 'sku-c2', quantity: 1 },
+      ],
+      fulfillment: {
+        mode: 'PICKUP',
+        recipientName: '王五',
+        recipientPhone: '13812345678',
+        selections: [
+          { companyId: 'c1', pickupPointId: 'point-c1' },
+          { companyId: 'c2', pickupPointId: 'point-c2' },
+        ],
+      },
+    } as any);
+
+    expect(pickupService.validateCheckoutFulfillment).toHaveBeenCalledWith(
+      prisma,
+      ['c1', 'c2'],
+      expect.objectContaining({ mode: 'PICKUP' }),
+    );
+    expect(result.fulfillmentMode).toBe('PICKUP');
+    expect(result.pickupSelections).toHaveLength(2);
+    expect(result.summary.totalShippingFee).toBe(0);
+    expect(result.summary.totalPayable).toBe(110);
     expect(shippingRuleService.calculateShippingFee).not.toHaveBeenCalled();
   });
 });

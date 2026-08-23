@@ -1637,3 +1637,9 @@ async approveReplacement() { ... }
 | `seller/src/pages/analytics/` | `seller/analytics/seller-analytics.controller.ts` | `seller/analytics/seller-analytics.service.ts` |
 | `seller/src/pages/trace/` | `seller/trace/seller-trace.controller.ts` | `seller/trace/seller-trace.service.ts` |
 | `seller/src/pages/company/` | `seller/company/seller-company.controller.ts` | `seller/company/seller-company.service.ts` |
+## 到店自提工作台（2026-08-21）
+
+- 企业 OWNER/MANAGER 可在 `/pickup-points` 管理本企业点位；OPERATOR 不可管理点位。
+- OWNER/MANAGER/OPERATOR 可使用 `/pickup-verify`，通过短码、扫码枪/粘贴二维码或浏览器摄像头解析买家凭证。
+- 核销采用“解析 → 脱敏预览 → 当面核对商品 → 确认交付并核销”，避免扫码即收货；买家凭证与商品/SKU 条码职责严格分离。
+- 订单页的自提队列仅查询已付款且未完成的自提订单；核销完成后进入已完成，不再停留在活跃自提队列。

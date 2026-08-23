@@ -1,0 +1,24 @@
+@use '../../../theme/tokens' as t;
+
+.bind-phone-page { padding-top: 18px; }
+.bind-phone-intro { display: flex; align-items: center; gap: 11px; padding: 14px; background: linear-gradient(135deg, t.$brand-soft, #fff); border-color: rgba(46, 125, 50, .2); }
+.bind-phone-intro__mark { display: flex; flex: 0 0 42px; align-items: center; justify-content: center; width: 42px; height: 42px; color: #fff; font-size: 14px; font-weight: 750; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 50%; }
+.bind-phone-intro text { display: block; color: t.$text-primary; font-size: 14px; font-weight: 650; }
+.bind-phone-intro text:last-child { margin-top: 3px; color: t.$text-secondary; font-size: 11px; font-weight: 400; }
+.bind-phone-card { margin-top: 16px; padding: 14px; }
+.bind-phone-field { padding: 8px 0 13px; }
+.bind-phone-field + .bind-phone-field { padding-top: 13px; border-top: 1px solid t.$border; }
+.bind-phone-field > text { display: block; margin-bottom: 7px; color: t.$text-secondary; font-size: 11px; }
+.bind-phone-field input { height: 44px; padding: 0 12px; color: t.$text-primary; font-size: 14px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.bind-phone-code { display: flex; align-items: center; gap: 9px; }
+.bind-phone-code input { flex: 1; min-width: 0; }
+.bind-phone-code button { flex: 0 0 auto; height: 42px; margin: 0; padding: 0 13px; color: t.$brand-primary; font-size: 12px; line-height: 42px; background: t.$brand-soft; border-radius: t.$radius-full; }
+.bind-phone-code button[disabled] { color: t.$text-tertiary; background: t.$skeleton; }
+.bind-phone-submit { height: 48px; margin-top: 20px; color: #fff; font-size: 14px; font-weight: 700; line-height: 48px; background: linear-gradient(110deg, t.$brand-primary, t.$ai-start); border-radius: t.$radius-full; }
+.bind-phone-submit[disabled] { background: #aab9ad; }
+.bind-phone-note { display: block; margin: 14px 4px 0; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
+.bind-phone-finished { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.bind-phone-finished__mark { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; color: #fff; font-size: 28px; background: t.$brand-primary; border-radius: 50%; }
+.bind-phone-finished__title { display: block; margin-top: 16px; color: t.$text-primary; font-size: 20px; font-weight: 750; }
+.bind-phone-finished__copy { display: block; max-width: 280px; margin-top: 8px; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
+.bind-phone-finished button { width: 210px; height: 44px; margin-top: 22px; color: #fff; font-size: 13px; line-height: 44px; background: t.$brand-primary; border-radius: t.$radius-full; }

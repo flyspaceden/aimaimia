@@ -1,0 +1,11 @@
+@use '../../../theme/tokens' as t;
+
+.captain-landing { min-height: 100vh; box-sizing: border-box; padding: 74px 28px calc(40px + env(safe-area-inset-bottom)); text-align: center; background: radial-gradient(circle at 50% 22%, #e0f6ee 0, t.$background 38%); }
+.captain-landing__orbit { display: grid; width: 82px; height: 82px; margin: 0 auto; color: #fff; font-family: serif; font-size: 34px; place-items: center; background: #123f39; border: 6px double #bfe9d4; border-radius: 24px; transform: rotate(-3deg); box-shadow: 0 12px 26px rgba(12, 89, 76, .22); }
+.captain-landing__orbit--done { background: #087d6f; transform: none; }
+.captain-landing__eyebrow { display: block; margin-top: 25px; color: #087d6f; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+.captain-landing__title { display: block; margin-top: 9px; color: t.$text-primary; font-size: 24px; font-weight: 850; }
+.captain-landing__code { display: block; margin-top: 12px; color: #123f39; font-family: Georgia, serif; font-size: 20px; font-weight: 800; letter-spacing: 2px; }
+.captain-landing__copy { display: block; max-width: 290px; margin: 13px auto 27px; color: t.$text-secondary; font-size: 12px; line-height: 1.85; }
+.captain-landing__primary, .captain-landing__ghost { width: 100%; height: 46px; color: #fff; font-size: 13px; line-height: 46px; background: #087d6f; border-radius: t.$radius-full; }
+.captain-landing__ghost { margin-top: 10px; color: t.$text-secondary; background: transparent; border: 1px solid t.$border; }

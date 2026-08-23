@@ -13,6 +13,7 @@ import {
 } from '@/api/bonus';
 import PermissionGate from '@/components/PermissionGate';
 import { PERMISSIONS } from '@/constants/permissions';
+import { useQuery } from '@tanstack/react-query';
 
 function formatMoney(value: number | null | undefined): string {
   return `¥${(value ?? 0).toFixed(2)}`;
@@ -26,11 +27,15 @@ export default function TaxReportingPage() {
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const [monthValue, setMonthValue] = useState<Dayjs>(dayjs().startOf('month'));
-  const [summary, setSummary] = useState<TaxReportSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-
   const year = monthValue.year();
   const month = monthValue.month() + 1;
+  const {
+    data: summary = null,
+    isFetching: summaryLoading,
+  } = useQuery<TaxReportSummary>({
+    queryKey: ['admin-tax-report-summary', year, month],
+    queryFn: () => getTaxReportSummary(year, month),
+  });
 
   const columns = useMemo<ProColumns<TaxReportDetailRow>[]>(() => [
     {
@@ -83,7 +88,16 @@ export default function TaxReportingPage() {
       render: (_, record) => record.paidAt ? dayjs(record.paidAt).format('YYYY-MM-DD HH:mm') : '-',
     },
     {
-      title: '支付宝单号',
+      title: '提现渠道',
+      dataIndex: 'channel',
+      width: 100,
+      search: false,
+      render: (_, record) => record.channel === 'WECHAT'
+        ? '微信'
+        : record.channel === 'ALIPAY' ? '支付宝' : (record.channel || '-'),
+    },
+    {
+      title: '渠道转账单号',
       dataIndex: 'providerPayoutId',
       width: 180,
       ellipsis: true,
@@ -99,10 +113,6 @@ export default function TaxReportingPage() {
   ], []);
 
   useEffect(() => {
-    setSummaryLoading(true);
-    getTaxReportSummary(year, month)
-      .then(setSummary)
-      .finally(() => setSummaryLoading(false));
     actionRef.current?.reload();
   }, [year, month]);
 
@@ -116,6 +126,7 @@ export default function TaxReportingPage() {
       'netAmount',
       'taxRate',
       'paidAt',
+      'channel',
       'providerPayoutId',
       'providerFundOrderId',
     ];

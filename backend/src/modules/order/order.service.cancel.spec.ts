@@ -116,6 +116,86 @@ describe('OrderService cancel PAID orders', () => {
     await expect(service.cancelOrder('o1', 'u1')).rejects.toThrow(BadRequestException);
   });
 
+  it('READY 自提订单拒绝买家直接取消', async () => {
+    const { service, prisma } = makeService();
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o-pickup-ready',
+      userId: 'u1',
+      status: 'PAID',
+      fulfillmentMode: 'PICKUP',
+      pickupFulfillment: { status: 'READY' },
+      items: [{ skuId: 'sku1', quantity: 1, companyId: 'c1' }],
+    });
+
+    await expect(service.cancelOrder('o-pickup-ready', 'u1')).rejects.toThrow(
+      '自提订单已备货完成',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('PREPARING 自提订单取消与订单 CAS 在同一事务作废凭证', async () => {
+    const { service, prisma } = makeService();
+    const order = {
+      id: 'o-pickup-preparing',
+      userId: 'u1',
+      status: 'PAID',
+      fulfillmentMode: 'PICKUP',
+      pickupFulfillment: { status: 'PREPARING' },
+      checkoutSessionId: null,
+      totalAmount: 50,
+      goodsAmount: 50,
+      discountAmount: 0,
+      items: [{ skuId: 'sku1', quantity: 1, companyId: 'c1', productSnapshot: null }],
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      shipment: { count: jest.fn().mockResolvedValue(0) },
+      pickupFulfillment: { findUnique: jest.fn().mockResolvedValue({ status: 'PREPARING' }) },
+      order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productSKU: { update: jest.fn() },
+      inventoryLedger: { create: jest.fn() },
+      refund: { create: jest.fn().mockResolvedValue({ id: 'r1', merchantRefundNo: 'AUTO-CANCEL-o-pickup-preparing' }) },
+      refundStatusHistory: { create: jest.fn() },
+      orderStatusHistory: { create: jest.fn() },
+    };
+    const pickupService = {
+      voidForOrders: jest.fn().mockResolvedValue(undefined),
+      mapOrderPickup: jest.fn().mockReturnValue({ status: 'CANCELED' }),
+    };
+    service.setPickupService(pickupService as any);
+    jest.spyOn(service as any, 'createFullRefundItemsInTx').mockResolvedValue(null);
+    jest.spyOn(service as any, 'buildDeductionRefundRestoreParams').mockResolvedValue(null);
+    prisma.order.findUnique
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce({
+        ...order,
+        status: 'CANCELED',
+        pickupFulfillment: { status: 'CANCELED' },
+        createdAt: new Date(),
+        afterSaleRequests: [],
+        refunds: [],
+        shipments: [],
+      });
+    prisma.order.findMany.mockResolvedValue([]);
+    prisma.shipment.findMany.mockResolvedValue([]);
+    prisma.refund.findFirst.mockResolvedValue(null);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.cancelOrder(order.id, order.userId);
+
+    expect(pickupService.voidForOrders).toHaveBeenCalledWith(
+      tx,
+      [order.id],
+      'CANCELED',
+      '买家未发货取消订单',
+      'BUYER',
+      order.userId,
+    );
+    expect(tx.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: order.id, userId: order.userId, status: 'PAID' },
+    }));
+  });
+
   it('PAID 未发货单订单取消会恢复库存、红包并在退款成功后返还抵扣积分', async () => {
     const { service, prisma, bonusAllocation } = makeService();
     const order = {

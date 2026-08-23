@@ -56,7 +56,11 @@ describe('CheckoutService active session guard', () => {
 
     const prisma: any = {
       // 幂等检查：未命中
-      checkoutSession: { findFirst: async () => null },
+      checkoutSession: {
+        findFirst: async () => null,
+        // VIP 新建流程会先收口本用户已过期的 VIP 会话；本用例没有旧会话。
+        findMany: async () => [],
+      },
       // SKU 查询：返回有效 SKU
       productSKU: { findMany: async () => [validSku] },
       // 用户购物车
@@ -78,6 +82,8 @@ describe('CheckoutService active session guard', () => {
       // 事务内：guard 第一步 findFirst 返回 active session → 触发 ConflictException
       $transaction: async (cb: any) => {
         const tx = {
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [{ status: 'ACTIVE', deletionExecutedAt: null }],
           checkoutSession: {
             findFirst: async (args: any) => {
               if (args?.where?.status === 'ACTIVE') return activeSession;
@@ -180,6 +186,8 @@ describe('CheckoutService active session guard', () => {
       lotteryRecord: { findUnique: async () => null },
       $transaction: async (cb: any) => {
         const tx = {
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [{ status: 'ACTIVE', deletionExecutedAt: null }],
           checkoutSession: {
             findFirst: async (args: any) => {
               bizTypeFilterSeen = args?.where?.bizType;
@@ -277,13 +285,18 @@ describe('CheckoutService active session guard', () => {
 
     let bizTypeFilterSeen: string | undefined;
     const prisma: any = {
-      checkoutSession: { findFirst: async () => null },
+      checkoutSession: {
+        findFirst: async () => null,
+        findMany: async () => [],
+      },
       vipPackage: { findUnique: async () => vipPackage },
       vipGiftOption: { findUnique: async () => giftOption },
       address: { findUnique: async () => validAddress },
       memberProfile: { findUnique: async () => null },
       $transaction: async (cb: any) => {
         const tx = {
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [{ status: 'ACTIVE', deletionExecutedAt: null }],
           checkoutSession: {
             findFirst: async (args: any) => {
               bizTypeFilterSeen = args?.where?.bizType;

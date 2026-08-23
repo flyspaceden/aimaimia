@@ -46,7 +46,6 @@ interface PhoneLoginForm {
 // 环境标识：根据 VITE_APP_ENV 或 Vite 内置 MODE 判断
 const appEnv = import.meta.env.VITE_APP_ENV || import.meta.env.MODE;
 const isProduction = appEnv === 'production';
-
 /**
  * 将登录/获取权限过程中的异常转为用户友好的错误提示
  */
@@ -116,12 +115,12 @@ export default function LoginPage() {
       const res = await getCaptcha();
       setCaptchaId(res.captchaId);
       setCaptchaSvg(res.svg);
-    } catch (err) {
+    } catch {
       message.error('验证码加载失败，请刷新重试');
     } finally {
       setCaptchaLoading(false);
     }
-  }, []);
+  }, [message]);
 
   // 初始化/切换 tab 时拉取验证码（账号登录 + 手机登录都需要）
   useEffect(() => {
@@ -192,10 +191,17 @@ export default function LoginPage() {
       await sendSmsCode(values.phone);
       message.success('验证码已发送');
       startCountdown();
-    } catch (err: any) {
-      if (err?.errorFields) {
+    } catch (err: unknown) {
+      const errorFields = (
+        typeof err === 'object'
+        && err !== null
+        && 'errorFields' in err
+      )
+        ? (err as { errorFields?: Array<{ errors?: string[] }> }).errorFields
+        : undefined;
+      if (errorFields) {
         // 表单校验错误：显式 toast 提示（仅靠字段下方小红字容易被忽略）
-        const firstMsg = err.errorFields?.[0]?.errors?.[0] || '请填写完整信息';
+        const firstMsg = errorFields[0]?.errors?.[0] || '请填写完整信息';
         message.warning(firstMsg);
         return;
       }

@@ -1,8 +1,9 @@
 name: E2E Tests
 
 on:
+  workflow_call:
   pull_request:
-    branches: [main, dev, staging]
+    branches: [main, dev, staging, staging-next]
   push:
     branches: [dev]
 
@@ -10,6 +11,11 @@ env:
   NODE_ENV: test
   CAPTCHA_BYPASS_TOKEN: etest1
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aimaimai_test
+  JWT_SECRET: e2e-buyer-jwt-secret-20260822-0001
+  ADMIN_JWT_SECRET: e2e-admin-jwt-secret-20260822-0002
+  SELLER_JWT_SECRET: e2e-seller-jwt-secret-20260822-0003
+  SF_ENV: UAT
+  SF_ALLOW_E2E_MOCK: "true"
 
 jobs:
   e2e:
@@ -33,6 +39,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -43,6 +51,14 @@ jobs:
             admin/package-lock.json
             seller/package-lock.json
             tests/package-lock.json
+
+      - name: Validate production release contracts
+        run: |
+          node --test \
+            scripts/__tests__/deploy-backend-main-safety.test.mjs \
+            scripts/__tests__/production-delivery-exclusion.test.mjs \
+            scripts/__tests__/miniapp-staging-semantic-parity.test.mjs \
+            scripts/__tests__/sync-staging-test-checkout.test.mjs
 
       # 并行安装依赖
       - name: Install dependencies
@@ -57,13 +73,13 @@ jobs:
       - name: Install Playwright browsers
         run: cd tests && npx playwright install chromium --with-deps
 
-      # 数据库 schema + seed
+      # 数据库 migration + seed：发布门禁必须验证真实迁移链，禁止用 db push 掩盖 migration 缺口。
       - name: Setup database
         run: |
           cd backend
-          npx prisma db push --skip-generate
-          npx prisma generate
-          npx prisma db seed
+          npx --no-install prisma migrate deploy
+          npx --no-install prisma generate
+          npx --no-install prisma db seed
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 

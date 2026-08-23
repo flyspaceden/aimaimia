@@ -526,12 +526,14 @@ export class AdminBonusService {
       hasTaxRate,
       hasPaidAt,
       hasProviderFundOrderId,
+      hasChannel,
     ] = await Promise.all([
       this.hasWithdrawColumn('taxAmount'),
       this.hasWithdrawColumn('netAmount'),
       this.hasWithdrawColumn('taxRate'),
       this.hasWithdrawColumn('paidAt'),
       this.hasWithdrawColumn('providerFundOrderId'),
+      this.hasWithdrawColumn('channel'),
     ]);
     const dateColumn = hasPaidAt ? Prisma.sql`"paidAt"` : Prisma.sql`"updatedAt"`;
     const taxAmountExpr = hasTaxAmount ? Prisma.sql`COALESCE("taxAmount", 0)` : Prisma.sql`0`;
@@ -540,6 +542,7 @@ export class AdminBonusService {
     const providerFundOrderIdExpr = hasProviderFundOrderId
       ? Prisma.sql`"providerFundOrderId"`
       : Prisma.sql`NULL::text`;
+    const channelExpr = hasChannel ? Prisma.sql`"channel"::text` : Prisma.sql`NULL::text`;
 
     const rows = await this.prisma.$queryRaw<Array<{
       id: string;
@@ -551,6 +554,7 @@ export class AdminBonusService {
       paidAt: Date | null;
       providerPayoutId: string | null;
       providerFundOrderId: string | null;
+      channel: string | null;
     }>>(Prisma.sql`
       SELECT
         "id",
@@ -561,7 +565,8 @@ export class AdminBonusService {
         ${taxRateExpr}::float AS "taxRate",
         ${dateColumn} AS "paidAt",
         "providerPayoutId",
-        ${providerFundOrderIdExpr} AS "providerFundOrderId"
+        ${providerFundOrderIdExpr} AS "providerFundOrderId",
+        ${channelExpr} AS "channel"
       FROM "WithdrawRequest"
       WHERE "deletedAt" IS NULL
         AND "status"::text = 'PAID'
@@ -594,7 +599,8 @@ export class AdminBonusService {
       '实际到账',
       '税率',
       '到账时间',
-      '支付宝单号',
+      '提现渠道',
+      '渠道转账单号',
       '资金流水号',
     ];
     const rows = detail.map((row) => [
@@ -605,6 +611,7 @@ export class AdminBonusService {
       row.netAmount.toFixed(2),
       row.taxRate.toString(),
       row.paidAt ?? '',
+      row.channel ?? '',
       row.providerPayoutId ?? '',
       row.providerFundOrderId ?? '',
     ]);
@@ -628,54 +635,17 @@ export class AdminBonusService {
   }
 
   async manualQueryWithdrawStatus(withdrawId: string) {
-    const hasOutBizNo = await this.hasWithdrawColumn('outBizNo');
-    const outBizNoExpr = hasOutBizNo ? Prisma.sql`"outBizNo"` : Prisma.sql`NULL::text`;
-    const rows = await this.prisma.$queryRaw<Array<{
-      id: string;
-      status: string;
-      outBizNo: string | null;
-    }>>(Prisma.sql`
-      SELECT "id", "status"::text AS "status", ${outBizNoExpr} AS "outBizNo"
-      FROM "WithdrawRequest"
-      WHERE "id" = ${withdrawId}
-      LIMIT 1
-    `);
-    const withdraw = rows[0];
-    if (!withdraw) throw new NotFoundException('提现记录不存在');
-    if (withdraw.status !== 'PROCESSING') {
-      return {
-        ok: true,
-        message: `当前状态 ${withdraw.status}，无需查询`,
-        newStatus: withdraw.status,
-      };
-    }
-    if (!withdraw.outBizNo) {
-      throw new BadRequestException('提现记录缺 outBizNo，无法查询');
-    }
-
-    const alipayService = this.resolveAlipayService();
-    const queryResult = await alipayService.queryTransfer({ outBizNo: withdraw.outBizNo });
-    await this.markWithdrawQueried(withdrawId);
-
-    if (queryResult.status === 'SUCCESS') {
-      await this.finalizeWithdrawalPaid(withdrawId, {
-        providerOrderId: queryResult.orderId,
-        providerFundOrderId: queryResult.payFundOrderId,
-      });
-      return { ok: true, message: '已确认支付宝转账成功，状态更新为 PAID', newStatus: 'PAID' };
-    }
-    if (queryResult.status === 'FAIL') {
-      await this.finalizeWithdrawalFailed(withdrawId, {
-        errorCode: queryResult.errorCode,
-        errorMessage: queryResult.errorMessage,
-      });
-      return { ok: true, message: '支付宝查询返回失败，已退款', newStatus: 'FAILED' };
-    }
-
+    const result = await this.resolveWithdrawPayoutService()
+      .manualReconcileWithdrawal(withdrawId);
+    const channelLabel = result.channel === 'WECHAT' ? '微信' : '支付宝';
     return {
       ok: true,
-      message: `支付宝侧仍为 ${queryResult.status ?? 'PROCESSING'}，请稍后再查或等 cron 兜底`,
-      newStatus: 'PROCESSING',
+      message: result.status === 'PAID'
+        ? `已确认${channelLabel}转账成功，状态更新为 PAID`
+        : result.status === 'FAILED'
+          ? `${channelLabel}查询返回失败，已退款`
+          : `${channelLabel}侧仍在处理中，请稍后再查或等待补偿任务`,
+      newStatus: result.status,
     };
   }
 

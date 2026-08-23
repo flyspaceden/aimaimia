@@ -52,6 +52,7 @@ describe('Order captain commission release hooks', () => {
           id: 'order-1',
           userId: 'user-1',
           status: 'DELIVERED',
+          fulfillmentMode: 'DELIVERY',
           bizType: 'NORMAL',
           goodsAmount: 100,
           totalAmount: 100,
@@ -59,6 +60,7 @@ describe('Order captain commission release hooks', () => {
           afterSaleRequests: [],
         }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         count: jest.fn().mockResolvedValue(1),
       },
       orderStatusHistory: {

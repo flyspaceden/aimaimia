@@ -121,12 +121,15 @@ export class CartService {
             select: {
               id: true,
               title: true,
+              status: true,
               stock: true,
               weightGram: true,
               product: {
                 select: {
                   id: true,
                   title: true,
+                  status: true,
+                  auditStatus: true,
                   media: {
                     where: { type: 'IMAGE' as const },
                     orderBy: { sortOrder: 'asc' as const },
@@ -180,6 +183,9 @@ export class CartService {
       bundleItems.map((item: any) => ({
         stock: Number(item.sku?.stock ?? 0),
         quantity: Number(item.quantity ?? 0),
+        skuStatus: item.sku?.status,
+        productStatus: item.sku?.product?.status,
+        productAuditStatus: item.sku?.product?.auditStatus,
       })),
     );
   }
@@ -205,18 +211,10 @@ export class CartService {
   private mapBundleItems(bundleItems: any[] = []) {
     return bundleItems.map((item: any) => ({
       skuId: item.skuId,
-      quantity: item.quantity,
-      sku: {
-        id: item.sku?.id ?? '',
-        title: item.sku?.title ?? '',
-        stock: item.sku?.stock ?? 0,
-        weightGram: item.sku?.weightGram ?? 0,
-        product: {
-          id: item.sku?.product?.id ?? '',
-          title: item.sku?.product?.title ?? '',
-          image: item.sku?.product?.media?.[0]?.url ?? null,
-        },
-      },
+      productTitle: item.sku?.product?.title ?? '',
+      skuTitle: item.sku?.title ?? '',
+      quantityPerBundle: item.quantity,
+      image: item.sku?.product?.media?.[0]?.url ?? '',
     }));
   }
 
@@ -230,6 +228,7 @@ export class CartService {
 
     const items = await this.prisma.cartItem.findMany({
       where: { cartId: cart.id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: {
         sku: {
           include: this.getCartSkuInclude(),
@@ -386,21 +385,44 @@ export class CartService {
 
   /** 更新购物车项数量 */
   async updateItemQuantity(userId: string, skuId: string, quantity: number) {
-    if (quantity <= 0) throw new BadRequestException('数量必须大于 0');
+    await this.updateNormalItemQuantity(userId, { skuId }, quantity);
+    return this.getCart(userId);
+  }
+
+  /** 小程序按购物车行精确更新，仅返回该行确认，禁止并发响应覆盖整车。 */
+  async updateItemQuantityById(userId: string, cartItemId: string, quantity: number) {
+    return this.updateNormalItemQuantity(userId, { cartItemId }, quantity);
+  }
+
+  private async updateNormalItemQuantity(
+    userId: string,
+    locator: { skuId: string } | { cartItemId: string },
+    quantity: number,
+  ) {
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw new BadRequestException('数量必须为大于 0 的整数');
+    }
 
     const cart = await this.ensureCart(userId);
+    let acknowledgement: { cartItemId: string; skuId: string; quantity: number } | undefined;
 
     for (let attempt = 0; attempt <= CART_WRITE_MAX_RETRIES; attempt++) {
       try {
         await this.prisma.$transaction(
           async (tx) => {
             const item = await tx.cartItem.findFirst({
-              where: { cartId: cart.id, skuId, isPrize: false },
+              where: {
+                cartId: cart.id,
+                isPrize: false,
+                ...('cartItemId' in locator
+                  ? { id: locator.cartItemId }
+                  : { skuId: locator.skuId }),
+              },
             });
             if (!item) throw new NotFoundException('购物车中没有该商品');
 
             const sku = await tx.productSKU.findUnique({
-              where: { id: skuId },
+              where: { id: item.skuId },
               include: this.getCartSkuInclude(),
             });
             if (!sku) throw new NotFoundException('商品规格不存在');
@@ -424,6 +446,11 @@ export class CartService {
               where: { id: item.id },
               data: { quantity },
             });
+            acknowledgement = {
+              cartItemId: item.id,
+              skuId: item.skuId,
+              quantity,
+            };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
@@ -436,7 +463,10 @@ export class CartService {
       }
     }
 
-    return this.getCart(userId);
+    if (!acknowledgement) {
+      throw new Error('购物车数量更新未生成确认结果');
+    }
+    return acknowledgement;
   }
 
   /** 删除购物车项（普通商品按 skuId 删除） */

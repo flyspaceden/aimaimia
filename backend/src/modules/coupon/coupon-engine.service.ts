@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { assertActiveUserWriteBarrier } from '../../common/transactions/active-user-write-barrier';
 
 /**
  * 红包触发类型（与 Prisma enum CouponTriggerType 保持一致）
@@ -81,6 +82,8 @@ export class CouponEngineService {
     triggerType: CouponTriggerType,
     context?: Record<string, any>,
   ): Promise<void> {
+    const durableTrigger = typeof context?.idempotencyKey === 'string'
+      && context.idempotencyKey.length > 0;
     this.logger.log(
       `处理触发事件：userId=${userId}, type=${triggerType}, context=${JSON.stringify(context ?? {})}`,
     );
@@ -127,18 +130,24 @@ export class CouponEngineService {
             continue;
           }
 
-          await this.issueWithRetry(campaign.id, userId);
+          const triggerIdempotencyKey = typeof context?.idempotencyKey === 'string'
+            && context.idempotencyKey.length > 0
+            ? `${context.idempotencyKey}:${campaign.id}`
+            : undefined;
+          await this.issueWithRetry(campaign.id, userId, triggerIdempotencyKey);
         } catch (err) {
           // 单个活动发放失败不影响其他活动
           this.logger.error(
             `活动 ${campaign.id} 发放失败：userId=${userId}, error=${(err as Error).message}`,
           );
+          if (durableTrigger) throw err;
         }
       }
     } catch (err) {
       this.logger.error(
         `handleTrigger 异常：userId=${userId}, type=${triggerType}, error=${(err as Error).message}`,
       );
+      if (durableTrigger) throw err;
     }
   }
 
@@ -408,10 +417,11 @@ export class CouponEngineService {
   private async issueWithRetry(
     campaignId: string,
     userId: string,
+    triggerIdempotencyKey?: string,
   ): Promise<boolean> {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.issueSingle(campaignId, userId);
+        return await this.issueSingle(campaignId, userId, triggerIdempotencyKey);
       } catch (err) {
         const isPrismaSerializationError =
           err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -425,6 +435,15 @@ export class CouponEngineService {
           await this.sleep(50 * attempt + Math.random() * 100);
           continue;
         }
+
+        const target = (err as any)?.meta?.target;
+        const duplicateTrigger = err instanceof Prisma.PrismaClientKnownRequestError
+          && err.code === 'P2002'
+          && triggerIdempotencyKey
+          && (Array.isArray(target)
+            ? target.includes('triggerIdempotencyKey')
+            : String(target ?? '').includes('triggerIdempotencyKey'));
+        if (duplicateTrigger) return true;
 
         throw err;
       }
@@ -447,10 +466,20 @@ export class CouponEngineService {
   private async issueSingle(
     campaignId: string,
     userId: string,
+    triggerIdempotencyKey?: string,
   ): Promise<boolean> {
     return this.prisma.$transaction(
       async (tx) => {
+        await assertActiveUserWriteBarrier(tx, userId);
         const now = new Date();
+
+        if (triggerIdempotencyKey) {
+          const existing = await tx.couponInstance.findUnique({
+            where: { triggerIdempotencyKey },
+            select: { id: true },
+          });
+          if (existing) return true;
+        }
 
         // 1. 查询活动并校验
         const campaign = await tx.couponCampaign.findUnique({
@@ -535,6 +564,7 @@ export class CouponEngineService {
           data: {
             campaignId,
             userId,
+            triggerIdempotencyKey,
             status: 'AVAILABLE',
             discountType: campaign.discountType,
             discountValue: campaign.discountValue,

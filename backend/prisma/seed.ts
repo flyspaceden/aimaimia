@@ -3489,6 +3489,34 @@ async function main() {
   }
   console.log(`✅ ${moreOrders.length} 个新订单已创建（覆盖所有状态）`);
 
+  // 卖家订单隔离以 OrderItem.companyId 为数据库边界。历史演示订单早于该冗余字段，
+  // 必须按 SKU 的权威 Product.companyId 幂等回填，避免 seed 环境出现“商品存在但卖家订单为空”。
+  const orderItemsMissingCompany = await prisma.orderItem.findMany({
+    where: { companyId: null },
+    select: {
+      id: true,
+      sku: { select: { product: { select: { companyId: true } } } },
+    },
+  });
+  if (orderItemsMissingCompany.length > 0) {
+    await prisma.$transaction(orderItemsMissingCompany.map((item) => {
+      const companyId = item.sku.product.companyId;
+      if (!companyId) throw new Error(`OrderItem ${item.id} 的 SKU 缺少企业归属`);
+      return prisma.orderItem.update({ where: { id: item.id }, data: { companyId } });
+    }));
+  }
+  const [remainingCompanylessItems, c001OrderCount, foreignOrderCount] = await Promise.all([
+    prisma.orderItem.count({ where: { companyId: null } }),
+    prisma.order.count({ where: { items: { some: { companyId: 'c-001' } } } }),
+    prisma.order.count({ where: { items: { some: { companyId: { in: ['c-002', 'c-003', 'c-004', 'c-005'] } } } } }),
+  ]);
+  if (remainingCompanylessItems !== 0 || c001OrderCount === 0 || foreignOrderCount === 0) {
+    throw new Error(
+      `OrderItem 企业归属种子校验失败: null=${remainingCompanylessItems}, c001=${c001OrderCount}, foreign=${foreignOrderCount}`,
+    );
+  }
+  console.log(`✅ OrderItem.companyId 已按 SKU 归属校准（${orderItemsMissingCompany.length} 条）`);
+
   // ============================================================
   // 更多支付记录
   // ============================================================
@@ -3806,7 +3834,7 @@ async function main() {
       afterSaleType: 'QUALITY_RETURN' as const, reasonType: 'QUALITY_ISSUE' as const,
       reason: '鸡蛋新鲜度不达标',
       photos: ['https://placehold.co/400x300/png'],
-      status: 'UNDER_REVIEW' as const,
+      status: 'UNDER_REVIEW' as const, refundAmount: 29.9,
     },
     {
       id: 'rr-003', orderId: 'o-012', userId: 'u-008', orderItemId: 'oi-024',
@@ -3830,10 +3858,53 @@ async function main() {
       status: 'REPLACEMENT_SHIPPED' as const, reviewNote: '同意换货', reviewedAt: new Date('2026-02-19'), replacementShipmentId: 'SF-REPLACE-002',
     },
   ];
+  const rr002ExistingRefund = await prisma.refund.findFirst({
+    where: { afterSaleId: 'rr-002' },
+    select: { id: true },
+  });
+  if (!rr002ExistingRefund) {
+    await prisma.$transaction([
+      prisma.afterSaleStatusHistory.deleteMany({ where: { afterSaleId: 'rr-002' } }),
+      prisma.afterSaleRequest.updateMany({
+        where: { id: 'rr-002' },
+        data: {
+          status: 'UNDER_REVIEW',
+          refundAmount: 29.9,
+          refundId: null,
+          reviewerId: null,
+          reviewNote: null,
+          reviewedAt: null,
+          approvedAt: null,
+          arbitrationSource: null,
+          arbitrationSourceStatus: null,
+          manualReviewReason: null,
+          manualReviewRequestedAt: null,
+          manualReviewResolvedAt: null,
+        },
+      }),
+    ]);
+  }
   for (const rr of afterSaleRequests) {
     await prisma.afterSaleRequest.upsert({
       where: { id: rr.id },
-      update: {},
+      update: rr.id === 'rr-002'
+        ? rr002ExistingRefund
+          ? { refundAmount: 29.9 }
+          : {
+              refundAmount: 29.9,
+              status: 'UNDER_REVIEW',
+              reviewerId: null,
+              reviewNote: null,
+              reviewedAt: null,
+              approvedAt: null,
+              refundId: null,
+              arbitrationSource: null,
+              arbitrationSourceStatus: null,
+              manualReviewReason: null,
+              manualReviewRequestedAt: null,
+              manualReviewResolvedAt: null,
+            }
+        : {},
       create: rr,
     });
   }

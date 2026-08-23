@@ -331,6 +331,8 @@ describe('CouponService claim eligibility rules', () => {
 
   const makeClaimService = (campaign = activeClaimCampaign, totalSpent = 100) => {
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
       couponCampaign: {
         findUnique: jest.fn().mockResolvedValue(campaign),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -1161,6 +1163,8 @@ describe('CouponEngineService nullable activity end time', () => {
       minOrderAmount: 0,
     };
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
       couponCampaign: {
         findUnique: jest.fn().mockResolvedValue(campaign),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),

@@ -1,15 +1,66 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AuthService } from '../auth/auth.service';
-import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class UserService {
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
+    private config: ConfigService,
   ) {}
+
+  private assertAvatarUrlAllowed(value: string): void {
+    if (/^preset:\/\/(sprout|leaf|wheat|rice|sun|mountain|carrot|tractor)$/.test(value)) {
+      return;
+    }
+
+    let candidate: URL;
+    try {
+      candidate = new URL(value);
+    } catch {
+      throw new BadRequestException('头像必须来自爱买买上传服务或内置头像');
+    }
+    const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
+    if (
+      (candidate.protocol !== 'https:' && nodeEnv === 'production')
+      || !['http:', 'https:'].includes(candidate.protocol)
+      || candidate.username
+      || candidate.password
+      || candidate.hash
+    ) {
+      throw new BadRequestException('头像必须来自爱买买上传服务或内置头像');
+    }
+
+    const prefixes: string[] = [];
+    const appendAvatarPrefix = (raw?: string | null) => {
+      const normalized = raw?.trim().replace(/\/+$/, '');
+      if (normalized) prefixes.push(`${normalized}/avatars/`);
+    };
+    appendAvatarPrefix(this.config.get<string>('UPLOAD_BASE_URL', 'http://localhost:3000/uploads'));
+    appendAvatarPrefix(this.config.get<string>('UPLOAD_PRIVATE_BASE_URL', ''));
+    const bucket = this.config.get<string>('OSS_BUCKET', '').trim();
+    const region = this.config.get<string>('OSS_REGION', '').trim();
+    if (bucket && region) prefixes.push(`https://${bucket}.${region}.aliyuncs.com/avatars/`);
+    const extra = this.config.get<string>('AVATAR_ALLOWED_URL_PREFIXES', '');
+    prefixes.push(...extra.split(',').map((item) => item.trim()).filter(Boolean));
+
+    const allowed = prefixes.some((prefix) => {
+      try {
+        const trusted = new URL(prefix);
+        const trustedPath = trusted.pathname.endsWith('/') ? trusted.pathname : `${trusted.pathname}/`;
+        return candidate.origin === trusted.origin
+          && candidate.pathname.startsWith(trustedPath)
+          && candidate.pathname.length > trustedPath.length;
+      } catch {
+        return false;
+      }
+    });
+    if (!allowed) throw new BadRequestException('头像必须来自爱买买上传服务或内置头像');
+  }
 
   /** 获取当前用户资料（映射为前端 UserProfile 格式） */
   async getProfile(userId: string) {
@@ -35,7 +86,8 @@ export class UserService {
     const wechatIdentity = user.authIdentities.find((i) => i.provider === 'WECHAT');
     const hasWechat = Boolean(wechatIdentity);
     const wechatMeta = wechatIdentity?.meta && typeof wechatIdentity.meta === 'object' && !Array.isArray(wechatIdentity.meta)
-      ? wechatIdentity.meta as Prisma.JsonObject : {};
+      ? wechatIdentity.meta as Prisma.JsonObject
+      : {};
 
     return {
       id: user.id,
@@ -74,7 +126,7 @@ export class UserService {
   /** 更新个人资料 */
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     // 确保 UserProfile 存在
-    await this.prisma.userProfile.upsert({
+    const currentProfile = await this.prisma.userProfile.upsert({
       where: { userId },
       create: { userId },
       update: {},
@@ -84,7 +136,12 @@ export class UserService {
     if (dto.name !== undefined) data.nickname = dto.name;
     if (dto.location !== undefined) data.city = dto.location;
     if (dto.interests !== undefined) data.interests = dto.interests;
-    if (dto.avatar !== undefined) data.avatarUrl = dto.avatar;
+    if (dto.avatar !== undefined) {
+      // 存量账号可能是早期微信头像或旧 CDN URL。允许原值不变，避免用户
+      // 只修改昵称/头像框时被阻断；任何新 URL 仍必须来自当前可信上传源。
+      if (dto.avatar !== currentProfile.avatarUrl) this.assertAvatarUrlAllowed(dto.avatar);
+      data.avatarUrl = dto.avatar;
+    }
     if (dto.gender !== undefined) data.gender = dto.gender;
     if (dto.birthday !== undefined) data.birthday = new Date(dto.birthday);
     // 前端可能传 avatarFrame 对象或 avatarFrameId 字符串
@@ -100,8 +157,10 @@ export class UserService {
         data.avatarFrameType = null;
       }
     } else if (dto.avatarFrameId !== undefined) {
-      nextFrameType = dto.avatarFrameId;
-      data.avatarFrameType = dto.avatarFrameId;
+      nextFrameType = dto.avatarFrameId === 'default' ? null : dto.avatarFrameId;
+      data.avatarFrameType = nextFrameType;
+      data.avatarFrameLabel = nextFrameType === 'vip' ? 'VIP' : null;
+      if (nextFrameType === null) data.avatarFrameExpiresAt = null;
     }
 
     // 头像框权限校验：VIP 框必须当前账号是 VIP 才能戴

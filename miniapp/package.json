@@ -1,0 +1,64 @@
+{
+  "name": "@aimai/buyer-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI爱买买买家微信小程序",
+  "scripts": {
+    "dev:weapp": "TARO_APP_ENV=development taro build --type weapp --watch",
+    "build:weapp": "npm run build:staging",
+    "clean:weapp": "node scripts/clean-weapp-dist.mjs",
+    "build:staging": "npm run clean:weapp && TARO_APP_ENV=staging taro build --type weapp && node scripts/fix-weapp-template.mjs",
+    "build:production": "npm run clean:weapp && TARO_APP_ENV=production taro build --type weapp && node scripts/fix-weapp-template.mjs",
+    "audit:runtime": "npm run build:staging && node scripts/audit-weapp-runtime.cjs",
+    "verify:release-context": "node scripts/verify-release-context.mjs",
+    "verify:release-context:staging": "MINIAPP_RELEASE_CHANNEL=staging npm run verify:release-context",
+    "verify:release-context:production": "MINIAPP_RELEASE_CHANNEL=production npm run verify:release-context",
+    "verify:artifact": "node scripts/verify-weapp-artifact.mjs",
+    "lint": "eslint --ext .ts,.tsx src tests",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run lint -- --max-warnings=0 && npm run typecheck && npm run test && npm run build:staging && npm run build:production && npm run verify:artifact"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.85.5",
+    "@tarojs/components": "4.2.1",
+    "@tarojs/helper": "4.2.1",
+    "@tarojs/plugin-framework-react": "4.2.1",
+    "@tarojs/plugin-platform-weapp": "4.2.1",
+    "@tarojs/react": "4.2.1",
+    "@tarojs/runtime": "4.2.1",
+    "@tarojs/shared": "4.2.1",
+    "@tarojs/taro": "4.2.1",
+    "abort-controller": "3.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.24.7",
+    "@tarojs/cli": "4.2.1",
+    "@tarojs/taro-loader": "4.2.1",
+    "@tarojs/webpack5-runner": "4.2.1",
+    "@types/node": "^22.15.3",
+    "@types/react": "^18.3.20",
+    "@types/react-dom": "^18.3.6",
+    "babel-preset-taro": "4.2.1",
+    "eslint": "8.57.1",
+    "eslint-config-taro": "4.2.1",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "4.6.2",
+    "eslint-plugin-vue": "8.7.1",
+    "miniprogram-automator": "^0.12.1",
+    "sass": "^1.86.3",
+    "typescript": "^5.8.3",
+    "vite": "^4.5.14",
+    "vitest": "^3.1.2",
+    "webpack": "5.91.0"
+  },
+  "overrides": {
+    "swiper": "12.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,4 +1,4 @@
-import sharp = require('sharp');
+const sharp = require('sharp') as typeof import('sharp').default;
 
 type PrintWatermarkOptions = {
   documentLabel: string;

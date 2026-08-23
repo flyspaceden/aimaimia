@@ -14,6 +14,7 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
           items: [{ isPrize: false }],
           afterSaleRequests: [],
         }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn(),
         count: jest.fn().mockResolvedValue(1),
       },
@@ -35,11 +36,34 @@ describe('OrderAutoConfirmService digital asset V2 hook', () => {
     return {
       service,
       prisma,
+      tx,
       bonusAllocation,
       digitalAsset,
       bonusService,
     };
   };
+
+  it('persists receive effects in the same automatic RECEIVED transaction', async () => {
+    const { service, tx, digitalAsset } = makeService();
+    const receivedEffects = {
+      enqueueInTransaction: jest.fn().mockResolvedValue(undefined),
+      kick: jest.fn(),
+    };
+    service.setDigitalAssetService(digitalAsset as any);
+    service.setOrderReceivedEffectsService(receivedEffects as any);
+
+    await (service as any).confirmOrder('order-1', 'DELIVERED');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(receivedEffects.enqueueInTransaction).toHaveBeenCalledWith(tx, {
+      orderId: 'order-1',
+      userId: 'user-1',
+      source: 'AUTO_CONFIRM',
+      isFirstReceived: true,
+    });
+    expect(receivedEffects.kick).toHaveBeenCalledWith('order-1');
+    expect(digitalAsset.recordOrderReceived).not.toHaveBeenCalled();
+  });
 
   it('calls recordOrderReceived after automatic confirm receive succeeds', async () => {
     const { service, digitalAsset } = makeService();

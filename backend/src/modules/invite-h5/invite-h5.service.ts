@@ -1,8 +1,17 @@
-import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonusService } from '../bonus/bonus.service';
 import { NormalShareService } from '../normal-share/normal-share.service';
+import { WechatMiniProgramApiService } from '../wechat-mini-program-platform/wechat-mini-program-api.service';
 import { InviteH5LandingDto } from './dto/landing-event.dto';
 import { InviteCodeResolverService } from './invite-code-resolver.service';
 import {
@@ -19,6 +28,23 @@ type BindAfterAuthInput = {
   landingSessionId?: string;
 };
 
+type CreateMiniProgramLinkInput = {
+  inviteCode: string;
+  landingSessionId: string;
+};
+
+type WechatMiniProgramUrlLinkResponse = {
+  url_link?: unknown;
+};
+
+const MINI_PROGRAM_REFERRAL_PAGE = 'packages/referral/landing/index';
+const WECHAT_URL_LINK_HOST_SUFFIX = '.wxaurl.cn';
+const MINI_PROGRAM_URL_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+// postJson 最多可能经过：取 token、URL Link 请求、token 失效后的重取与重试。
+// 平台客户端为每次请求设置 10 秒超时；保留 60 秒租约，避免一次完整重试期间
+// 同一 landing session 被第二个请求重新认领，进而重复消耗微信 URL Link 配额。
+const MINI_PROGRAM_URL_LINK_CLAIM_MS = 60 * 1000;
+
 @Injectable()
 export class InviteH5Service {
   private readonly logger = new Logger(InviteH5Service.name);
@@ -29,6 +55,8 @@ export class InviteH5Service {
     private readonly resolver: InviteCodeResolverService,
     private readonly normalShare: NormalShareService,
     private readonly bonus: BonusService,
+    private readonly wechatMiniProgram: WechatMiniProgramApiService,
+    private readonly config: ConfigService,
   ) {}
 
   async recordLanding(dto: InviteH5LandingDto, ipAddress: string) {
@@ -139,6 +167,106 @@ export class InviteH5Service {
       authedCount: authedUsers.length,
       boundCount: boundUsers.length,
     };
+  }
+
+  /**
+   * URL Link 必须由用户点击后才生成和跳转。这里从已记录的落地事件取回推荐码，
+   * 不接受网页提交的任意 code 去生成跳转地址，也不把微信返回的任意地址重定向给用户。
+   */
+  async createMiniProgramLink(input: CreateMiniProgramLinkInput) {
+    const landing = await this.landingForMiniProgramLink(input);
+    const now = new Date();
+    if (
+      landing.miniProgramUrlLink
+      && landing.miniProgramUrlLinkExpiresAt
+      && landing.miniProgramUrlLinkExpiresAt > now
+    ) {
+      return { urlLink: this.validWechatMiniProgramUrlLink(landing.miniProgramUrlLink) };
+    }
+
+    const claimUntil = new Date(now.getTime() + MINI_PROGRAM_URL_LINK_CLAIM_MS);
+    const claimed = await this.prisma.inviteH5LandingEvent.updateMany({
+      where: {
+        landingSessionId: input.landingSessionId,
+        inviteCode: landing.inviteCode,
+        OR: [
+          { miniProgramUrlLinkClaimUntil: null },
+          { miniProgramUrlLinkClaimUntil: { lte: now } },
+        ],
+      },
+      data: { miniProgramUrlLinkClaimUntil: claimUntil },
+    });
+    if (claimed.count !== 1) {
+      const settled = await this.prisma.inviteH5LandingEvent.findUnique({
+        where: { landingSessionId: input.landingSessionId },
+        select: {
+          miniProgramUrlLink: true,
+          miniProgramUrlLinkExpiresAt: true,
+        },
+      });
+      if (
+        settled?.miniProgramUrlLink
+        && settled.miniProgramUrlLinkExpiresAt
+        && settled.miniProgramUrlLinkExpiresAt > now
+      ) {
+        return { urlLink: this.validWechatMiniProgramUrlLink(settled.miniProgramUrlLink) };
+      }
+      throw new ServiceUnavailableException('微信小程序链接正在生成，请稍后重试');
+    }
+
+    try {
+      return await this.createAndCacheMiniProgramLink(landing.inviteCode, input.landingSessionId, claimUntil);
+    } catch (error) {
+      await this.prisma.inviteH5LandingEvent.updateMany({
+        where: {
+          landingSessionId: input.landingSessionId,
+          miniProgramUrlLinkClaimUntil: claimUntil,
+        },
+        data: { miniProgramUrlLinkClaimUntil: null },
+      });
+      throw error;
+    }
+  }
+
+  private async createAndCacheMiniProgramLink(
+    inviteCode: string,
+    landingSessionId: string,
+    claimUntil: Date,
+  ) {
+    const resolved = await this.resolver.resolve(inviteCode);
+    if (resolved.status !== 'NORMAL_SHARE' && resolved.status !== 'VIP_REFERRAL') {
+      throw new BadRequestException('邀请链接不可用，请重新扫码');
+    }
+    if (!this.wechatMiniProgram.isAvailable()) {
+      throw new ServiceUnavailableException('微信小程序暂不可打开，请下载 App');
+    }
+
+    const inviteKind = resolved.status === 'NORMAL_SHARE' ? 'normal' : 'vip';
+    const response = await this.wechatMiniProgram.postJson<WechatMiniProgramUrlLinkResponse>(
+      '/wxa/generate_urllink',
+      {
+        path: MINI_PROGRAM_REFERRAL_PAGE,
+        query: `code=${encodeURIComponent(resolved.code)}&kind=${inviteKind}`,
+        expire_type: 1,
+        expire_interval: 1,
+        env_version: this.miniProgramUrlLinkEnvironment(),
+      },
+    );
+
+    const urlLink = this.validWechatMiniProgramUrlLink(response.url_link);
+    const expiresAt = new Date(Date.now() + MINI_PROGRAM_URL_LINK_TTL_MS);
+    const saved = await this.prisma.inviteH5LandingEvent.updateMany({
+      where: { landingSessionId, miniProgramUrlLinkClaimUntil: claimUntil },
+      data: {
+        miniProgramUrlLink: urlLink,
+        miniProgramUrlLinkExpiresAt: expiresAt,
+        miniProgramUrlLinkClaimUntil: null,
+      },
+    });
+    if (saved.count !== 1) {
+      throw new ServiceUnavailableException('微信小程序链接生成失败，请稍后重试');
+    }
+    return { urlLink };
   }
 
   /**
@@ -323,6 +451,46 @@ export class InviteH5Service {
       return normalBinding.effectiveInviterUserId ?? normalBinding.inviterUserId;
     }
     return member?.inviterUserId ?? null;
+  }
+
+  private async landingForMiniProgramLink(input: CreateMiniProgramLinkInput) {
+    const requestedCode = input.inviteCode.trim().toUpperCase();
+    const landing = await this.prisma.inviteH5LandingEvent.findUnique({
+      where: { landingSessionId: input.landingSessionId },
+      select: {
+        inviteCode: true,
+        miniProgramUrlLink: true,
+        miniProgramUrlLinkExpiresAt: true,
+      },
+    });
+    if (!landing || landing.inviteCode !== requestedCode) {
+      throw new BadRequestException('邀请链接已失效，请重新扫码');
+    }
+    return landing;
+  }
+
+  private validWechatMiniProgramUrlLink(value: unknown): string {
+    if (typeof value !== 'string' || value.length > 2048) {
+      throw new ServiceUnavailableException('微信小程序暂不可打开，请下载 App');
+    }
+    try {
+      const url = new URL(value);
+      const host = url.hostname.toLowerCase();
+      if (
+        url.protocol !== 'https:'
+        || (host !== 'wxaurl.cn' && !host.endsWith(WECHAT_URL_LINK_HOST_SUFFIX))
+      ) {
+        throw new Error('unexpected URL Link host');
+      }
+      return url.toString();
+    } catch {
+      throw new ServiceUnavailableException('微信小程序暂不可打开，请下载 App');
+    }
+  }
+
+  private miniProgramUrlLinkEnvironment(): 'release' | 'trial' | 'develop' {
+    const value = this.config.get<string>('WECHAT_MINIAPP_CODE_ENV_VERSION', 'release');
+    return value === 'trial' || value === 'develop' ? value : 'release';
   }
 
   private async finishBinding(

@@ -9,7 +9,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { SellerOrdersService } from './seller-orders.service';
-import { SellerShipDto, BatchShipDto } from './seller-orders.dto';
+import { SellerShipDto, BatchShipDto, SellerOrderQueryDto } from './seller-orders.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { SellerAuthGuard } from '../common/guards/seller-auth.guard';
 import { SellerRoleGuard, SellerRoles } from '../common/guards/seller-role.guard';
@@ -29,20 +29,18 @@ export class SellerOrdersController {
   findAll(
     @CurrentSeller('companyId') companyId: string,
     @CurrentSeller('sub') staffId: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-    @Query('status') status?: string,
-    @Query('bizType') bizType?: string,
-    @Query('buyerNo') buyerNo?: string,
+    @Query() query?: SellerOrderQueryDto,
   ) {
     return this.ordersService.findAll(
       companyId,
-      page ? parseInt(page) : 1,
-      pageSize ? parseInt(pageSize) : 20,
-      status,
-      bizType,
-      buyerNo,
+      query?.page ? parseInt(query.page) : 1,
+      query?.pageSize ? parseInt(query.pageSize) : 20,
+      query?.status,
+      query?.bizType,
+      query?.buyerNo,
       staffId,
+      query?.fulfillmentMode,
+      query?.pickupStatus,
     );
   }
 

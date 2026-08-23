@@ -6,7 +6,7 @@ const EMAIL_REGEX = /([A-Za-z0-9._%+-]{1,64})@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
 const JWT_REGEX = /\b([A-Za-z0-9_-]{8,})\.([A-Za-z0-9_-]{8,})\.([A-Za-z0-9_-]{8,})\b/g;
 const BEARER_REGEX = /\bBearer\s+[A-Za-z0-9\-._~+/=]{16,}\b/gi;
 
-const SENSITIVE_KEY_REGEX = /(?:^|_|-)(password|token|secret|authorization|cookie|set-cookie|accesskey|refreshkey|apikey)(?:$|_|-)/i;
+const SENSITIVE_KEY_REGEX = /(?:^|_|-)(password|passcode|token|secret|authorization|cookie|set_cookie|access_key|refresh_key|api_key|accesskey|refreshkey|apikey|ticket|otp|sms_code|verification_code|captcha_code)(?:$|_|-)/i;
 
 type SanitizeOptions = {
   maxDepth?: number;
@@ -19,6 +19,24 @@ export type SanitizedErrorLog = {
   message: string;
   stack?: string;
 };
+
+/**
+ * Convert camelCase/PascalCase log keys to the same tokenized shape as
+ * snake_case/kebab-case before applying the sensitive-key deny list.
+ * Without this step, keys such as accessToken and miniLoginTicket bypass the
+ * separator-aware regular expression.
+ */
+function normalizeLogKey(key: string): string {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
+}
+
+function isSensitiveLogKey(key: string): boolean {
+  return SENSITIVE_KEY_REGEX.test(normalizeLogKey(key));
+}
 
 export function sanitizeForLog(value: unknown, options: SanitizeOptions = {}, depth = 0): unknown {
   const maxDepth = options.maxDepth ?? 4;
@@ -58,7 +76,7 @@ export function sanitizeForLog(value: unknown, options: SanitizeOptions = {}, de
     if (depth >= maxDepth) return '<Object>';
     const out: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEY_REGEX.test(key)) {
+      if (isSensitiveLogKey(key)) {
         out[key] = redactValue(raw);
         continue;
       }

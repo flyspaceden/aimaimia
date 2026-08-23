@@ -6,6 +6,8 @@ describe('GroupBuyRebateService concurrency safeguards', () => {
   const now = new Date('2026-06-22T12:00:00.000Z');
 
   const buildTx = () => ({
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([{ status: 'ACTIVE', deletionExecutedAt: null }]),
     groupBuyReferral: {
       findUnique: jest.fn().mockResolvedValue({
         id: 'referral_1',

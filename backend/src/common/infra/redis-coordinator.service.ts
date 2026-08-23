@@ -42,6 +42,18 @@ export class RedisCoordinatorService implements OnModuleDestroy {
     return !!this.client;
   }
 
+  /** 发布就绪检查专用：不降级、不吞掉不可用状态，也不暴露连接信息。 */
+  async ping(): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      await this.ensureConnected();
+      return await this.client.ping() === 'PONG';
+    } catch (err: any) {
+      this.logRedisFallbackOnce(err);
+      return false;
+    }
+  }
+
   async consumeFixedWindow(
     rawKey: string,
     limit: number,
@@ -145,6 +157,31 @@ export class RedisCoordinatorService implements OnModuleDestroy {
       );
     } catch (err: any) {
       this.logRedisFallbackOnce(err);
+    }
+  }
+
+  /** 仅锁 owner 仍匹配时续租，避免旧请求误延长后来者持有的锁。 */
+  async renewLock(rawKey: string, owner: string, ttlMs: number): Promise<boolean | null> {
+    if (!this.client) return null;
+    const key = this.key(rawKey);
+    try {
+      await this.ensureConnected();
+      const result = await this.client.eval(
+        `
+          if redis.call('GET', KEYS[1]) == ARGV[1] then
+            return redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+          end
+          return 0
+        `,
+        1,
+        key,
+        owner,
+        String(ttlMs),
+      );
+      return Number(result ?? 0) === 1;
+    } catch (err: any) {
+      this.logRedisFallbackOnce(err);
+      return null;
     }
   }
 

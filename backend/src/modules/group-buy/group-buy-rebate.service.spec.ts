@@ -74,6 +74,11 @@ describe('GroupBuyRebateService', () => {
     const referral = buildReferral(overrides.referral);
     const releaseLedgerFindResults = [...(overrides.releaseLedgerFindResults ?? [])];
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(undefined),
+      $queryRaw: jest.fn().mockResolvedValue([{
+        status: 'ACTIVE',
+        deletionExecutedAt: null,
+      }]),
       groupBuyReferral: {
         findUnique: jest.fn().mockResolvedValue(referral),
         findFirst: jest.fn().mockResolvedValue(referral),

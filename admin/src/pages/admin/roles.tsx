@@ -23,6 +23,8 @@ const moduleNames: Record<string, string> = {
   users: '用户管理',
   products: '商品管理',
   orders: '订单管理',
+  pickup_points: '自提点管理',
+  pickup_fulfillment: '平台自提履约',
   companies: '企业管理',
   tags: '标签管理',
   bonus: '会员奖励',
@@ -156,7 +158,7 @@ export default function RolesPage() {
       title: '成员数',
       key: 'memberCount',
       width: 80,
-      render: (_: unknown, r: AdminRole) => (r as any)._count?.adminUsers ?? '-',
+      render: (_: unknown, r: AdminRole) => r._count?.adminUsers ?? '-',
     },
     {
       title: '操作',

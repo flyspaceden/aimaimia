@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsEnum, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsEnum, IsDateString, IsIn, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -16,11 +16,12 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2048)
   avatar?: string;
 
   @IsOptional()
-  @IsString()
-  avatarFrameId?: string;
+  @IsIn(['default', 'vip'])
+  avatarFrameId?: 'default' | 'vip';
 
   @IsOptional()
   @IsEnum(['UNKNOWN', 'MALE', 'FEMALE'])

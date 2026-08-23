@@ -10,6 +10,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { DigitalAssetModule } from '../digital-asset/digital-asset.module';
 import { CaptainModule } from '../captain/captain.module';
 import { ProfitModule } from '../profit/profit.module';
+import { RefundSideEffectsService } from './refund-side-effects.service';
 
 @Module({
   imports: [
@@ -21,7 +22,13 @@ import { ProfitModule } from '../profit/profit.module';
     ProfitModule,
   ],
   controllers: [PaymentController],
-  providers: [PaymentService, AlipayService, WechatPayService, WebhookIpGuard],
+  providers: [
+    PaymentService,
+    AlipayService,
+    WechatPayService,
+    WebhookIpGuard,
+    RefundSideEffectsService,
+  ],
   exports: [PaymentService, AlipayService, WechatPayService],
 })
 export class PaymentModule {}

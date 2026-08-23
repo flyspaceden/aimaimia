@@ -172,6 +172,11 @@ describe('GroupBuyRebateDeductionService', () => {
   describe('refundDeduction', () => {
     it('restores proportional group-buy rebate deduction for ordinary order refunds', async () => {
       const tx = {
+        $executeRaw: jest.fn().mockResolvedValue(undefined),
+        $queryRaw: jest.fn().mockResolvedValue([{
+          status: 'ACTIVE',
+          deletionExecutedAt: null,
+        }]),
         groupBuyRebateLedger: {
           findFirst: jest.fn().mockResolvedValue(null),
           findMany: jest.fn()

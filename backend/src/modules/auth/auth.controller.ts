@@ -17,6 +17,13 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { WechatDeletionProofDto } from './dto/wechat-deletion-proof.dto';
+import {
+  WechatMiniappBindPhoneCodeDto,
+  WechatMiniappBindPhoneDto,
+  WechatMiniappCompleteRegistrationDto,
+  WechatMiniappDeletionProofDto,
+  WechatMiniappLoginDto,
+} from './dto/wechat-miniapp.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -98,6 +105,43 @@ export class AuthController {
   @Post('oauth/wechat')
   loginWithWeChat(@Body() dto: WeChatOAuthDto) {
     return this.authService.loginWithWeChat(dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp')
+  loginWithWechatMiniapp(@Body() dto: WechatMiniappLoginDto) {
+    return this.authService.loginWithWechatMiniapp(dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp/complete-registration')
+  completeWechatMiniappRegistration(@Body() dto: WechatMiniappCompleteRegistrationDto) {
+    return this.authService.completeWechatMiniappRegistration(dto.miniLoginTicket);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat-miniapp/bind-phone/sms/code')
+  sendWechatMiniappBindPhoneCode(@Body() dto: WechatMiniappBindPhoneCodeDto) {
+    return this.authService.sendWechatMiniappBindPhoneCode(dto.miniLoginTicket, dto.phone);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('oauth/wechat-miniapp/bind-phone')
+  bindWechatMiniappPhone(@Body() dto: WechatMiniappBindPhoneDto) {
+    return this.authService.bindWechatMiniappPhone(dto.miniLoginTicket, dto.phone, dto.code);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @Post('oauth/wechat-miniapp/deletion-proof')
+  createWechatMiniappDeletionProof(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: WechatMiniappDeletionProofDto,
+  ) {
+    return this.authService.createWechatMiniappDeletionProof(userId, dto.code);
   }
 
   @Public()

@@ -582,6 +582,76 @@ describe('OrderService.repurchase', () => {
     expect(tx.cartItem.update).not.toHaveBeenCalled();
   });
 
+  it('returns virtual out-of-stock for a bundle when a component sku is inactive', async () => {
+    const bundleSku = makeSku({
+      id: 'bundle-selling-sku',
+      title: '水果组合默认规格',
+      price: 39.8,
+      stock: 999,
+      productId: 'bundle-product',
+      productTitle: '水果组合',
+      productType: 'BUNDLE',
+      bundleItems: [
+        {
+          skuId: 'component-sku-a',
+          quantity: 2,
+          sortOrder: 1,
+          sku: {
+            stock: 6,
+            status: 'INACTIVE',
+            product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+          },
+        },
+        {
+          skuId: 'component-sku-b',
+          quantity: 1,
+          sortOrder: 2,
+          sku: {
+            stock: 10,
+            status: 'ACTIVE',
+            product: { status: 'ACTIVE', auditStatus: 'APPROVED' },
+          },
+        },
+      ],
+    });
+    const { service, tx } = createHarness({
+      order: makeOrder({
+        items: [{
+          id: 'oi-bundle',
+          skuId: 'bundle-selling-sku',
+          unitPrice: 39.8,
+          quantity: 1,
+          isPrize: false,
+          productSnapshot: {
+            title: '水果组合',
+            productType: 'BUNDLE',
+            bundleItems: [
+              { skuId: 'component-sku-a', quantityPerBundle: 2 },
+              { skuId: 'component-sku-b', quantityPerBundle: 1 },
+            ],
+          },
+        }],
+      }),
+      skus: [bundleSku],
+      cartItems: [],
+    });
+
+    const result = await service.repurchase('order-1', 'user-1');
+
+    expect(result.addedQuantity).toBe(0);
+    expect(result.skippedQuantity).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      skuId: 'bundle-selling-sku',
+      status: 'SKIPPED',
+      reason: 'OUT_OF_STOCK_VIRTUAL',
+      stockStatus: 'OUT_OF_STOCK',
+      stock: 0,
+      virtual: true,
+    });
+    expect(tx.cartItem.create).not.toHaveBeenCalled();
+    expect(tx.cartItem.update).not.toHaveBeenCalled();
+  });
+
   it('preserves duplicate cart quantity and unselects kept row when stock is zero', async () => {
     const { service, tx } = createHarness({
       order: makeOrder({ items: [{ id: 'oi-1', skuId: 'sku-1', unitPrice: 234, quantity: 3, isPrize: false, productSnapshot: { title: '龙虾' } }] }),

@@ -33,7 +33,7 @@
 | **顺丰丰桥后台推送配置** | ✅ | 2026-05-26 已在丰桥后台为 RoutePushService + PushOrderState 两个推送接口配置生产 URL（都带 token 段，状态"已上线"）。两推送共享后端同一 endpoint `/sf/callback/:token`，按 body 结构自动分发 |
 | **App 渠道** | ⏳ | 本次切换是否需要同步发 App OTA / Build？走 EAS `production` profile，与 web 部署是两件事。**关沙箱开关（`EXPO_PUBLIC_ALIPAY_SANDBOX=false`）属 env 改动必须 Build，不能 OTA** |
 | **微信支付入口** | ⏳ | v1.0 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 留空 → 微信入口灰掉。开启前置：①微信商户 APP 支付权限审核 **✅ 2026-05-29 通过** ②生产凭据 **✅ 已齐**（商户号/APIv3/证书序列号/cert/key，2026-05-24）+ AppID **✅ 已绑** `wxeb8e8dc219da02dd`，**剩写进生产 .env**（部署时）③真金联调 ⬜ ④改 eas.json 加 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true` 重新 Build（仅 Android）⬜。注：notify URL 微信 v3 无后台设置，后端按单传；提现仍仅支付宝（微信商家转账未开通）。详见密码本 §5.2 |
-| **website main 锁** | ✅ | 2026-05-23 commit `8905a6d` 已 revert 临时去掉的状态，恢复 `&& github.ref == 'refs/heads/main'` 锁。当前 `.github/workflows/deploy-website.yml:101`（website 站点）+ line 255（huahai 站点）两个共用物理目录的站点都已上锁，admin/seller/backend 按分支分流不需要锁 |
+| **website main 锁** | ✅ | 历史 `deploy-website.yml` 已全局停用；当前 `.github/workflows/deploy-release.yml` 继续把 website 与 huahai 锁定为仅 `main`，测试候选不能覆盖生产静态站点。 |
 | **法律合规文本** | ❌ | `src/content/legal/privacyPolicy.ts` + `termsOfService.ts` 是否已填实？两份文件目前是起草模板，含大量【待填】字段（公司全称 / 注册地址 / 统一社会信用代码 / 联系方式），文件头部明确写"**正式上线前必须经法律顾问审核**"。App 上架审核（U06）+ 上架合规（`app-compliance-guide.md`）也会卡这一项 |
 | **回滚预案** | ⏳ | 已确认回滚命令（见末尾「九、回滚预案」）+ 5 条破坏性 migration 的 fail-forward 策略 |
 | **环境共用资源已知** | ⏳ | 是否已 review §1.1「staging↔prod 共用资源风险表」？特别是 Redis 单实例共用、阿里云配额按账户级共享。OSS 已 2026-05-26 启用硬隔离独立 bucket ✅ |
@@ -45,7 +45,7 @@
 
 ## 一、整体差异速查（staging vs production）
 
-> 来源：`.github/workflows/deploy-website.yml:69-92`（按分支 detect-changes 输出 + Determine environment）
+> 当前执行来源：`.github/workflows/deploy-release.yml`（按分支 detect-changes 输出 + Determine environment）。历史 `deploy-website.yml` 已停用，不得重新启用。
 
 | 维度 | Staging（测试） | Production（生产） |
 |------|----------------|-------------------|
@@ -229,16 +229,16 @@
 
 ### 4.1 自动化部分（GitHub Actions 已处理）
 
-`.github/workflows/deploy-website.yml` 已按分支注入构建变量（line 72-91）：
+`.github/workflows/deploy-release.yml` 已按分支注入构建变量：
 
 - 推 `main` → `VITE_API_BASE_URL=https://api.ai-maimai.com/api/v1` + `VITE_WS_BASE_URL=https://api.ai-maimai.com`，部署到 `/www/wwwroot/admin/` `/www/wwwroot/seller/` `/www/wwwroot/website/`
-- 推 `staging` → `VITE_API_BASE_URL=https://test-api.ai-maimai.com/api/v1`，部署到 `/www/wwwroot/test-admin/` `/www/wwwroot/test-seller/` + **临时**也部署到 `/www/wwwroot/website/`
+- 当前推 `staging-next` → `VITE_API_BASE_URL=https://test-api.ai-maimai.com/api/v1`，部署到 `/www/wwwroot/test-admin/` `/www/wwwroot/test-seller/`；website/huahai 仍只允许 `main`
 
 `admin/.env` `seller/.env` 里写的是**本地开发值**（`http://localhost:3000/api/v1`），**不会**进生产构建产物——构建时由 workflow 用 inline env 覆盖。**不需要手动改这两个文件**。
 
 ### 4.2 website main 锁（✅ 2026-05-23 已恢复）
 
-`.github/workflows/deploy-website.yml:101` 当前是：
+`.github/workflows/deploy-release.yml` 当前保留等价 main 锁：
 ```yaml
 if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'
 ```
@@ -305,7 +305,7 @@ if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/
 
 ### 6.1 自动化部分
 
-GitHub Actions backend job（`deploy-website.yml:233-238`）会按顺序跑：
+GitHub Actions backend job（当前见 `deploy-release.yml` 与 `scripts/deploy-backend-versioned.sh`）会按受控顺序运行：
 ```
 npx prisma generate
 npx prisma migrate deploy
@@ -426,7 +426,8 @@ push 后的事情：
 
 ```bash
 # 1. 后端健康
-curl https://api.ai-maimai.com/api/v1/health   # {"status":"ok"}
+curl https://api.ai-maimai.com/api/v1/health/live    # {"status":"ok"}
+curl https://api.ai-maimai.com/api/v1/health/ready   # {"status":"ready","releaseSha":"<DEPLOYED_SHA>","components":{"database":"up","redis":"up"}}
 
 # 2. PM2 进程状态（SSH 到服务器）
 pm2 list   # aimaimai-api-prod 状态 online，重启次数没异常涨
@@ -438,7 +439,7 @@ pm2 logs aimaimai-api-prod --lines 100 --nostream
 psql -U aimaimai -d aimaimai -c "select count(*) from \"User\";"
 
 # 5. CORS 实测（在 admin.ai-maimai.com 控制台执行）
-fetch('https://api.ai-maimai.com/api/v1/health').then(r => r.json()).then(console.log)
+fetch('https://api.ai-maimai.com/api/v1/health/ready').then(r => r.json()).then(console.log)
 # 应该返回 200 且无 CORS 错误
 
 # 6. WebSocket（客服）连通（在 admin.ai-maimai.com 客服工作台页面）
@@ -581,10 +582,9 @@ pm2 stop aimaimai-api-prod
 
 只需要做一次的事情，做完即归档：
 
-1. ✅ **`deploy-website.yml` 的 main 锁已恢复**（2026-05-23 commit `8905a6d`）
-   - 当前 line 101：`if: needs.detect-changes.outputs.website == 'true' && github.ref == 'refs/heads/main'` ✅
-   - huahai 站点 line 255 同样有锁 ✅
-   - 此步骤已完成，归档保留作历史记录
+1. ✅ **历史 `deploy-website.yml` 的 main 锁记录**（2026-05-23 commit `8905a6d`）
+   - 该旧 workflow 现已全局停用，仅保留历史审计记录
+   - 当前执行入口 `deploy-release.yml` 对 website/huahai 继续强制 `main` ✅
 
 2. **首次服务器初始化**（**push main 之前必做，workflow 不会替你做**）
 
@@ -623,8 +623,9 @@ pm2 stop aimaimai-api-prod
    pm2 logs aimaimai-api-prod --lines 50 --nostream   # 看启动期强校验是否全过
 
    # ⑥ 健康检查
-   curl http://127.0.0.1:3000/api/v1/health   # {"status":"ok"}
-   curl https://api.ai-maimai.com/api/v1/health   # 走 Nginx 一次端到端
+   curl http://127.0.0.1:3000/api/v1/health/live    # 仅进程存活
+   curl http://127.0.0.1:3000/api/v1/health/ready   # 主库 + Redis 就绪
+   curl https://api.ai-maimai.com/api/v1/health/ready   # 走 Nginx 一次端到端
    ```
 
    完成后才能 push main 让 workflow 的 `pm2 reload --update-env` 接管后续部署。

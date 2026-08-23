@@ -18,6 +18,8 @@ import {
   LogoutOutlined,
   SafetyOutlined,
   BranchesOutlined,
+  EnvironmentOutlined,
+  ScanOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -41,6 +43,18 @@ const menuRoutes: ProLayoutProps['route'] = {
       path: '/orders',
       name: '订单管理',
       icon: <FileTextOutlined />,
+    },
+    {
+      path: '/pickup-verify',
+      name: '到店核销台',
+      icon: <ScanOutlined />,
+      roles: ['OWNER', 'MANAGER', 'OPERATOR'],
+    },
+    {
+      path: '/pickup-points',
+      name: '自提点管理',
+      icon: <EnvironmentOutlined />,
+      roles: ['OWNER', 'MANAGER'],
     },
     // 退款记录暂时隐藏，当前售后以换货为主，后续需要时恢复
     // { path: '/refunds', name: '退款记录', icon: <RollbackOutlined /> },
@@ -157,7 +171,6 @@ export default function SellerLayout() {
           if (!item.path) return;
           event.preventDefault();
           if (isGlobalDirty()) {
-            // eslint-disable-next-line no-restricted-globals
             const confirmed = confirm('你有未保存的更改，确定离开吗？离开后更改将丢失。');
             if (!confirmed) return;
           }
