@@ -46,6 +46,10 @@ const sfExpressService = await readFile(
   new URL('../../backend/src/modules/shipment/sf-express.service.ts', import.meta.url),
   'utf8',
 );
+const deployedReleaseShaVerifier = await readFile(
+  new URL('../verify-deployed-release-sha.mjs', import.meta.url),
+  'utf8',
+);
 
 const deployBlockStart = workflow.indexOf('      - name: Deploy backend on server');
 const deployBlockEnd = workflow.indexOf('  # 华海农科母公司官网', deployBlockStart);
@@ -151,8 +155,11 @@ test('static-only deployments require the already deployed backend to match the 
     assert.match(block, /if: needs\.detect-changes\.outputs\.backend != 'true'/);
     assert.match(block, /READY_URL: \$\{\{ needs\.detect-changes\.outputs\.api_base \}\}\/health\/ready/);
     assert.match(block, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
-    assert.match(block, /data\.releaseSha !== process\.env\.EXPECTED_SHA/);
+    assert.match(block, /node scripts\/verify-deployed-release-sha\.mjs/);
   }
+  assert.match(deployedReleaseShaVerifier, /payload\?\.data/);
+  assert.match(deployedReleaseShaVerifier, /readiness\.releaseSha !== expectedSha/);
+  assert.match(deployedReleaseShaVerifier, /AbortSignal\.timeout\(20_000\)/);
 });
 
 test('admin and seller contract tests run before their production builds', () => {
