@@ -214,6 +214,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: website/package-lock.json
 
+      - name: Require exact backend SHA for static-only deploy
+        if: needs.detect-changes.outputs.backend != 'true'
+        env:
+          READY_URL: ${{ needs.detect-changes.outputs.api_base }}/health/ready
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const response = await fetch(process.env.READY_URL);
+          const data = await response.json();
+          if (!response.ok || data.status !== 'ready' || data.releaseSha !== process.env.EXPECTED_SHA) {
+            throw new Error(`static-only deploy requires backend ${process.env.EXPECTED_SHA}; got ${data.releaseSha || '<unknown>'}`);
+          }
+          NODE
+
       # 2026-06-04：生产 backend 已上线，website build 恢复动态 api_base（main→api.ai-maimai.com / staging→test-api）。
       # 历史：2026-04-22 生产 backend 未上线、生产 api 502 时曾临时写死指向 test-api，现已恢复（plan.md C40）。
       - name: Build website
@@ -266,6 +281,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: admin/package-lock.json
 
+      - name: Require exact backend SHA for static-only deploy
+        if: needs.detect-changes.outputs.backend != 'true'
+        env:
+          READY_URL: ${{ needs.detect-changes.outputs.api_base }}/health/ready
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const response = await fetch(process.env.READY_URL);
+          const data = await response.json();
+          if (!response.ok || data.status !== 'ready' || data.releaseSha !== process.env.EXPECTED_SHA) {
+            throw new Error(`static-only deploy requires backend ${process.env.EXPECTED_SHA}; got ${data.releaseSha || '<unknown>'}`);
+          }
+          NODE
+
       - name: Build admin
         env:
           VITE_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
@@ -317,6 +347,21 @@ jobs:
           node-version: 20
           cache: 'npm'
           cache-dependency-path: seller/package-lock.json
+
+      - name: Require exact backend SHA for static-only deploy
+        if: needs.detect-changes.outputs.backend != 'true'
+        env:
+          READY_URL: ${{ needs.detect-changes.outputs.api_base }}/health/ready
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const response = await fetch(process.env.READY_URL);
+          const data = await response.json();
+          if (!response.ok || data.status !== 'ready' || data.releaseSha !== process.env.EXPECTED_SHA) {
+            throw new Error(`static-only deploy requires backend ${process.env.EXPECTED_SHA}; got ${data.releaseSha || '<unknown>'}`);
+          }
+          NODE
 
       - name: Build seller
         env:

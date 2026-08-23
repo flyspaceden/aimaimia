@@ -207,6 +207,8 @@ describe('pickup API contracts', () => {
     expect(passSource).toContain('二维码未能显示');
     expect(passSource).toContain('请向商家出示下方 8 位取货码');
     expect(passSource).toContain('重新生成二维码');
+    expect(passSource).toContain('setQrRetryVersion((version) => version + 1)');
+    expect(passSource).toContain('qrOrderId, qrRetryVersion]);');
     expect(imageSource).toContain("encoding: 'base64'");
     expect(imageSource).toContain("result.qrImageMimeType !== 'image/png'");
     expect(imageSource).toContain('imageBase64.startsWith(PNG_BASE64_PREFIX)');
