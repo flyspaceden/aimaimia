@@ -18,6 +18,7 @@ export default function PickupPassPage() {
   const [clock, setClock] = useState(() => Date.now());
   const [qrState, setQrState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [qrFilePath, setQrFilePath] = useState('');
+  const [qrRetryVersion, setQrRetryVersion] = useState(0);
   const qrFilePathRef = useRef('');
   const qrGenerationRef = useRef(0);
   const passQuery = useQuery({
@@ -84,10 +85,11 @@ export default function PickupPassPage() {
         setQrFilePath('');
         setQrState('failed');
       });
-  }, [qrExpiresAt, qrImageBase64, qrImageMimeType, qrOrderId]);
+  }, [qrExpiresAt, qrImageBase64, qrImageMimeType, qrOrderId, qrRetryVersion]);
 
   const retryQr = () => {
     setQrState('loading');
+    setQrRetryVersion((version) => version + 1);
     void passQuery.refetch();
   };
 
