@@ -2,10 +2,11 @@ name: E2E Tests
 
 on:
   workflow_call:
+  workflow_dispatch:
   pull_request:
     branches: [main, dev, staging, staging-next]
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 env:
   NODE_ENV: test
