@@ -144,6 +144,17 @@ test('web consoles wait for a changed backend to deploy successfully', () => {
   }
 });
 
+test('static-only deployments require the already deployed backend to match the exact release SHA', () => {
+  for (const job of ['deploy-website', 'deploy-admin', 'deploy-seller']) {
+    const block = jobBlock(job);
+    assert.match(block, /name: Require exact backend SHA for static-only deploy/);
+    assert.match(block, /if: needs\.detect-changes\.outputs\.backend != 'true'/);
+    assert.match(block, /READY_URL: \$\{\{ needs\.detect-changes\.outputs\.api_base \}\}\/health\/ready/);
+    assert.match(block, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
+    assert.match(block, /data\.releaseSha !== process\.env\.EXPECTED_SHA/);
+  }
+});
+
 test('admin and seller contract tests run before their production builds', () => {
   for (const job of ['deploy-admin', 'deploy-seller']) {
     const block = jobBlock(job);
