@@ -12,6 +12,10 @@ const e2eWorkflow = await readFile(
   new URL('../../.github/workflows/e2e.yml', import.meta.url),
   'utf8',
 );
+const miniappWorkflow = await readFile(
+  new URL('../../.github/workflows/miniapp-ci.yml', import.meta.url),
+  'utf8',
+);
 const staticDeployScript = await readFile(
   new URL('../deploy-static-with-rollback.sh', import.meta.url),
   'utf8',
@@ -86,6 +90,9 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(e2eWorkflow, /branches: \[main, dev, staging, staging-next\]/);
+  assert.match(e2eWorkflow, /workflow_dispatch:/);
+  assert.match(e2eWorkflow, /push:\s+branches: \[dev, main\]/);
+  assert.match(miniappWorkflow, /'\.github\/workflows\/e2e\.yml'/);
   assert.match(workflow, /\[ "\$TARGET" = "huahai" \] && echo "huahai=true"/);
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
 });
