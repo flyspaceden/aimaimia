@@ -19,6 +19,8 @@ on:
       - 'backend/scripts/prepare-miniapp-staging-env.cjs'
       - 'scripts/__tests__/miniapp-production-config.test.mjs'
       - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
+      - 'docs/operations/**'
+      - 'plan.md'
   push:
     branches: [main, staging, staging-next]
     paths:
@@ -37,6 +39,8 @@ on:
       - 'backend/scripts/prepare-miniapp-staging-env.cjs'
       - 'scripts/__tests__/miniapp-production-config.test.mjs'
       - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
+      - 'docs/operations/**'
+      - 'plan.md'
   workflow_dispatch:
     inputs:
       environment:
