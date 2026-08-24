@@ -1,8 +1,9 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useTheme } from '../../theme';
+import { fitTextProps, useTheme } from '../../theme';
 import { OrderItemRow } from './OrderItemRow';
 import { Order, OrderStatus } from '../../types';
+import { isPickupOrder, pickupOrderPresentation } from '../../utils/pickupOrder';
 
 interface Props {
   order: Order;
@@ -44,9 +45,19 @@ export function OrderCard({
   secondaryDisabled = false,
 }: Props) {
   const { colors, radius, shadow, typography } = useTheme();
-  const statusColor = STATUS_COLOR[order.status];
+  const pickupPresentation = pickupOrderPresentation(order);
+  const pickupToneColor = pickupPresentation?.tone === 'warning'
+    ? colors.gold.primary
+    : pickupPresentation?.tone === 'brand'
+      ? colors.brand.primary
+      : pickupPresentation?.tone === 'success'
+        ? colors.success
+        : colors.muted;
+  const statusColor = pickupPresentation ? pickupToneColor : STATUS_COLOR[order.status];
+  const statusLabel = pickupPresentation?.label ?? STATUS_LABEL[order.status];
   const companyName = order.items[0]?.companyName || '商家';
   const isVipPackage = order.bizType === 'VIP_PACKAGE';
+  const pickup = order.pickupFulfillment;
 
   return (
     <Pressable onPress={onPress} style={[styles.card, shadow.sm, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
@@ -54,8 +65,8 @@ export function OrderCard({
         <Text style={[typography.bodyStrong, { color: colors.text.primary, flex: 1 }]} numberOfLines={1}>
           🏪 {companyName}
         </Text>
-        <Text style={[typography.caption, { color: statusColor, fontWeight: '600' }]}>
-          {STATUS_LABEL[order.status]}
+        <Text {...fitTextProps} style={[typography.caption, { color: statusColor, fontWeight: '600' }]}>
+          {statusLabel}
         </Text>
       </View>
 
@@ -72,6 +83,20 @@ export function OrderCard({
           priceLabel={isVipPackage ? 'VIP礼包' : undefined}
         />
       ))}
+
+      {isPickupOrder(order) ? (
+        <View style={[styles.pickupSummary, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md }]}>
+          <Text style={[typography.caption, { color: colors.brand.primary, fontWeight: '700' }]}>到店自提</Text>
+          <Text style={[typography.caption, { color: colors.text.primary, marginTop: 2 }]} numberOfLines={1}>
+            {pickup?.pickupPoint.name || '自提信息暂不可用'}
+          </Text>
+          <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 1 }]} numberOfLines={2}>
+            {pickup
+              ? `${pickup.pickupPoint.regionText} ${pickup.pickupPoint.detail}`.trim()
+              : '系统不会将本单改按快递展示，请联系订单客服处理。'}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <Text style={[typography.caption, { color: colors.text.secondary }]}>
@@ -111,4 +136,5 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingBottom: 6, marginBottom: 4 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
   actionRow: { flexDirection: 'row', alignItems: 'center' },
+  pickupSummary: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 8 },
 });

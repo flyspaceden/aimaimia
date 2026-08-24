@@ -24,7 +24,7 @@ import { buildMeReferralToolEntry } from '../../src/utils/referralRelation';
 // 付款后建单架构：无 PENDING_PAYMENT 状态，未完成支付走 CheckoutSession 续付横幅
 // 售后入口为 UI 派生（'afterSaleList' 路由参数），不是真实 OrderStatus
 const orderEntries: Array<{ id: OrderStatus | 'afterSaleList'; label: string; icon: SeafoodIconName }> = [
-  { id: 'PAID', label: '待发货', icon: 'lobster' },
+  { id: 'PAID', label: '待履约', icon: 'lobster' },
   { id: 'SHIPPED', label: '已发货', icon: 'fish' },
   { id: 'DELIVERED', label: '待收货', icon: 'crab' },
   { id: 'afterSaleList', label: '换货/售后', icon: 'scallop' },

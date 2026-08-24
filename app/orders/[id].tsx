@@ -19,6 +19,12 @@ import { useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
 import { GROUP_BUY_AFTER_SALE_NOTICE, isGroupBuyOrderBizType } from '../../src/utils/groupBuyOrderRules';
+import {
+  canCancelPickupOrder,
+  formatPickupBusinessHours,
+  isPickupOrder,
+  pickupOrderPresentation,
+} from '../../src/utils/pickupOrder';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -83,6 +89,9 @@ export default function OrderDetailScreen() {
   const order = data.data;
   const isVip = order.bizType === 'VIP_PACKAGE';
   const isGroupBuy = isGroupBuyOrderBizType(order.bizType);
+  const isPickup = isPickupOrder(order);
+  const pickup = order.pickupFulfillment;
+  const pickupPresentation = pickupOrderPresentation(order);
   const refund = order.refundSummary;
   const refundTextMap: Record<RefundStatus, (amount: number) => string> = {
     REQUESTED: () => '退款申请已提交，等待审核',
@@ -206,14 +215,16 @@ export default function OrderDetailScreen() {
   switch (order.status) {
     case 'PAID':
       // 已付款待发货 — 仅允许取消（走退款）
-      if (!isVip && !isGroupBuy) {
+      if (isPickup ? canCancelPickupOrder(order) : !isVip && !isGroupBuy) {
         secondary.push({ label: canceling ? '取消中...' : '取消订单', onPress: handleCancel, disabled: canceling });
       }
       break;
     case 'SHIPPED':
     case 'DELIVERED':
-      primary = { label: '确认收货', onPress: handleConfirmReceive };
-      secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
+      if (!isPickup) {
+        primary = { label: '确认收货', onPress: handleConfirmReceive };
+        secondary.push({ label: '查看物流', onPress: () => router.push({ pathname: '/orders/track', params: { orderId: order.id } }) });
+      }
       break;
     case 'RECEIVED':
       primary = {
@@ -250,7 +261,8 @@ export default function OrderDetailScreen() {
   const latestEvent = summary?.latestEventMessage
     ? { message: summary.latestEventMessage, time: summary.latestEventTime ?? '' }
     : (shipments?.[0]?.trackingEvents?.[0] ?? null);
-  const showLogistics = (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
+  const showLogistics = !isPickup
+    && (['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] as OrderStatus[]).includes(order.status);
 
   // 按 companyId 分组商品
   const groups = new Map<string, OrderItem[]>();
@@ -266,7 +278,7 @@ export default function OrderDetailScreen() {
   const addrPhone = addr?.recipientPhone || addr?.phone || '';
   const addrFullText = addr?.fullAddress
     || [addr?.province, addr?.city, addr?.district, addr?.detail].filter(Boolean).join(' ');
-  const canEditReceiverInfo = Boolean(order.receiverInfoEditable);
+  const canEditReceiverInfo = !isPickup && Boolean(order.receiverInfoEditable);
   const openReceiverInfoEditor = () => {
     router.push({ pathname: '/orders/receiver-info/[id]' as any, params: { id: order.id } });
   };
@@ -281,11 +293,15 @@ export default function OrderDetailScreen() {
         {/* ① StatusHero */}
         <StatusHero
           status={order.status}
+          statusLabel={pickupPresentation?.label}
+          tone={pickupPresentation?.tone}
           isVipPackage={isVip}
-          countdownExpiresAt={order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
-          countdownPrefix={order.status === 'DELIVERED' ? '还剩' : undefined}
+          countdownExpiresAt={!isPickup && order.status === 'DELIVERED' && autoReceiveAt ? autoReceiveAt : undefined}
+          countdownPrefix={!isPickup && order.status === 'DELIVERED' ? '还剩' : undefined}
           subtitle={
-            order.status === 'CANCELED' && refund?.status === 'REFUNDED'
+            pickupPresentation
+              ? pickupPresentation.hint
+              : order.status === 'CANCELED' && refund?.status === 'REFUNDED'
               ? '订单已取消，退款已原路退回'
               : order.status === 'CANCELED'
                 ? '订单已取消，退款处理中'
@@ -294,6 +310,60 @@ export default function OrderDetailScreen() {
                   : undefined
           }
         />
+
+        {isPickup ? (
+          <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.md }]}>
+            <View style={styles.pickupTitleRow}>
+              <MaterialCommunityIcons name="map-marker" size={20} color={colors.brand.primary} />
+              <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 8 }]}>到店自提</Text>
+            </View>
+            {pickup ? (
+              <>
+                <View style={styles.pickupInfoRow}>
+                  <Text style={[typography.caption, styles.pickupInfoLabel, { color: colors.text.secondary }]}>自提地点</Text>
+                  <View style={styles.pickupInfoValue}>
+                    <Text style={[typography.bodyStrong, { color: colors.text.primary }]}>{pickup.pickupPoint.name}</Text>
+                    <Text style={[typography.caption, { color: colors.text.secondary, marginTop: 3 }]}>
+                      {`${pickup.pickupPoint.regionText} ${pickup.pickupPoint.detail}`.trim()}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.pickupInfoRow}>
+                  <Text style={[typography.caption, styles.pickupInfoLabel, { color: colors.text.secondary }]}>营业时间</Text>
+                  <Text style={[typography.caption, styles.pickupInfoValue, { color: colors.text.primary }]}>
+                    {formatPickupBusinessHours(pickup.pickupPoint.businessHours)}
+                  </Text>
+                </View>
+                <View style={styles.pickupInfoRow}>
+                  <Text style={[typography.caption, styles.pickupInfoLabel, { color: colors.text.secondary }]}>自提人</Text>
+                  <Text style={[typography.caption, styles.pickupInfoValue, { color: colors.text.primary }]}>
+                    {pickup.recipient.name}　{pickup.recipient.phoneMasked}
+                  </Text>
+                </View>
+                {pickup.pickupPoint.pickupNotice ? (
+                  <View style={[styles.pickupNotice, { backgroundColor: colors.brand.primarySoft, borderRadius: radius.md }]}>
+                    <Text style={[typography.caption, { color: colors.text.secondary }]}>{pickup.pickupPoint.pickupNotice}</Text>
+                  </View>
+                ) : null}
+                {pickup.status === 'PREPARING' || pickup.status === 'READY' ? (
+                  <View style={[styles.pickupNotice, { backgroundColor: colors.gold.light, borderRadius: radius.md }]}>
+                    <Text style={[typography.caption, { color: colors.text.primary }]}>
+                      {pickup.status === 'READY'
+                        ? '商品已备好。当前 App 暂不展示取货二维码，请在微信小程序中查看一次性取货凭证。'
+                        : '商家正在备货。备货完成后，请在微信小程序中查看一次性取货凭证。'}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <View style={[styles.pickupNotice, { backgroundColor: colors.gold.light, borderRadius: radius.md }]}>
+                <Text style={[typography.caption, { color: colors.text.primary }]}>
+                  自提履约信息暂不可用。系统不会将本单改按快递展示，请联系订单客服处理。
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
 
         {isGroupBuy ? (
           <View style={[styles.sectionRow, { backgroundColor: colors.surface }]}>
@@ -339,7 +409,7 @@ export default function OrderDetailScreen() {
         ) : null}
 
         {/* ③ Address */}
-        {addr ? (
+        {!isPickup && addr ? (
           <View style={[styles.section, { backgroundColor: colors.surface, paddingHorizontal: spacing.md }]}>
             <AddressCard
               recipientName={addrRecipientName}
@@ -443,4 +513,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  pickupTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  pickupInfoRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 6 },
+  pickupInfoLabel: { width: 68 },
+  pickupInfoValue: { flex: 1, minWidth: 0 },
+  pickupNotice: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 9 },
 });
