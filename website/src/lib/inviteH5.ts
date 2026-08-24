@@ -9,6 +9,14 @@ export type InviteBindingStatus =
 
 export type InviteSubmitState = 'success' | 'warning' | 'error'
 
+export type InviteCodeStatus = 'NORMAL_SHARE' | 'VIP_REFERRAL' | 'INVALID' | 'CONFLICT'
+
+export function inviteKindForCodeStatus(status?: string | null): 'normal' | 'vip' | null {
+  if (status === 'NORMAL_SHARE') return 'normal'
+  if (status === 'VIP_REFERRAL') return 'vip'
+  return null
+}
+
 export function normalizeInviteCode(code?: string | null): string | null {
   const normalized = code?.trim().toUpperCase() ?? ''
   return /^[A-Z0-9]{8}$/.test(normalized) ? normalized : null

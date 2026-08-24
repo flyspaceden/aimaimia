@@ -20,7 +20,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
 import { Tag } from '../../src/components/ui';
-import { BonusRepo, CouponRepo, GrowthRepo, InviteH5Repo } from '../../src/repos';
+import { BonusRepo, CouponRepo, GrowthRepo } from '../../src/repos';
 import { useAuthStore } from '../../src/store';
 import { compactActionTextProps, useBottomInset, useTheme } from '../../src/theme';
 import { monoFamily } from '../../src/theme/typography';
@@ -105,12 +105,6 @@ export default function ReferralScreen() {
     queryFn: () => BonusRepo.getReferralRecords(),
     enabled: vipReferralEnabled,
   });
-  const inviteH5StatsQuery = useQuery({
-    queryKey: ['invite-h5-stats'],
-    queryFn: () => InviteH5Repo.getStats(),
-    enabled: isLoggedIn,
-  });
-
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active' || !isLoggedIn) return;
@@ -118,7 +112,6 @@ export default function ReferralScreen() {
       queryClient.invalidateQueries({ queryKey: ['normal-share-records'] });
       queryClient.invalidateQueries({ queryKey: ['normal-share-stats'] });
       queryClient.invalidateQueries({ queryKey: ['vip-referral-records'] });
-      queryClient.invalidateQueries({ queryKey: ['invite-h5-stats'] });
     });
     return () => subscription.remove();
   }, [isLoggedIn, queryClient]);
@@ -143,10 +136,6 @@ export default function ReferralScreen() {
 
   const shareProfile = shareQuery.data?.ok ? shareQuery.data.data : null;
   const normalStats = statsQuery.data?.ok ? statsQuery.data.data : null;
-  const inviteH5Stats = inviteH5StatsQuery.data?.ok ? inviteH5StatsQuery.data.data : null;
-  const inviteH5StatsError = inviteH5StatsQuery.data && !inviteH5StatsQuery.data.ok
-    ? (inviteH5StatsQuery.data.error.displayMessage ?? 'H5 邀请数据加载失败')
-    : null;
   const normalRecords = normalRecordsQuery.data?.ok ? normalRecordsQuery.data.data : [];
   const vipRecords = vipRecordsQuery.data?.ok ? vipRecordsQuery.data.data : [];
   const referralCode = isVip ? (member?.referralCode ?? '') : '';
@@ -171,8 +160,6 @@ export default function ReferralScreen() {
   const recentVipRecords = vipRecords.slice(0, 5);
   const recentCount = isVip ? recentVipRecords.length : recentNormalRecords.length;
   const inviteeVipCount = member?.inviteeVipCount ?? 0;
-  const formatH5StatValue = (value?: number | null) => inviteH5StatsError ? '--' : String(value ?? 0);
-
   const loading =
     memberQuery.isLoading ||
     (normalShareEnabled && (shareQuery.isLoading || statsQuery.isLoading || normalRecordsQuery.isLoading)) ||
@@ -182,8 +169,7 @@ export default function ReferralScreen() {
     shareQuery.isFetching ||
     statsQuery.isFetching ||
     normalRecordsQuery.isFetching ||
-    vipRecordsQuery.isFetching ||
-    inviteH5StatsQuery.isFetching;
+    vipRecordsQuery.isFetching;
 
   const refresh = async () => {
     const tasks: Array<Promise<unknown>> = [memberQuery.refetch()];
@@ -193,7 +179,6 @@ export default function ReferralScreen() {
     if (vipReferralEnabled) {
       tasks.push(vipRecordsQuery.refetch());
     }
-    tasks.push(inviteH5StatsQuery.refetch());
     await Promise.all(tasks);
   };
 
@@ -213,7 +198,7 @@ export default function ReferralScreen() {
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，用我的普通分享码 ${shareProfile.code} 注册登录：${normalInviteUrl}`,
+        message: `我在爱买买发现了优质农产品，用我的普通分享码 ${shareProfile.code} 打开：${normalInviteUrl}`,
       });
       if (result.action === Share.sharedAction) {
         CouponRepo.reportShareEvent({ scene: 'NORMAL_SHARE', targetId: shareProfile.code }).catch(() => {});
@@ -239,7 +224,7 @@ export default function ReferralScreen() {
     }
     try {
       const result = await Share.share({
-        message: `我在爱买买发现了优质农产品，使用我的 VIP 推荐码 ${referralCode} 注册：${vipInviteUrl}`,
+        message: `我在爱买买发现了优质农产品，使用我的 VIP 推荐码 ${referralCode} 打开：${vipInviteUrl}`,
       });
       if (result.action === Share.sharedAction) {
         CouponRepo.reportShareEvent({ scene: 'REFERRAL', targetId: referralCode }).catch(() => {});
@@ -386,35 +371,6 @@ export default function ReferralScreen() {
                   </View>
                 </View>
               )}
-            </Animated.View>
-
-            <Animated.View
-              entering={FadeInDown.duration(300).delay(60)}
-              style={[styles.sectionCard, { backgroundColor: colors.surface, borderRadius: radius.lg, marginTop: spacing.lg }, shadow.sm]}
-            >
-              <View style={styles.sectionTitleRow}>
-                <Text style={[typography.headingSm, { color: colors.text.primary }]}>H5 邀请数据</Text>
-                <Tag label="扫码页" tone="accent" />
-              </View>
-              <View style={[styles.h5StatsRow, { marginTop: spacing.md }]}>
-                <View style={styles.statCell}>
-                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>扫码打开</Text>
-                  <Text style={[typography.title3, { color: colors.text.primary }]}>{formatH5StatValue(inviteH5Stats?.openCount)}</Text>
-                </View>
-                <View style={styles.statCell}>
-                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已登录</Text>
-                  <Text style={[typography.title3, { color: colors.brand.primary }]}>{formatH5StatValue(inviteH5Stats?.authedCount)}</Text>
-                </View>
-                <View style={styles.statCell}>
-                  <Text style={[typography.captionSm, { color: colors.text.secondary }]}>已绑定</Text>
-                  <Text style={[typography.title3, { color: colors.success }]}>{formatH5StatValue(inviteH5Stats?.boundCount)}</Text>
-                </View>
-              </View>
-              {inviteH5StatsError ? (
-                <Text style={[typography.captionSm, { color: colors.danger, marginTop: spacing.sm }]}>
-                  {inviteH5StatsError}
-                </Text>
-              ) : null}
             </Animated.View>
 
             <Animated.View
@@ -650,9 +606,6 @@ const styles = StyleSheet.create({
   statsCard: {
     flexDirection: 'row',
     padding: 16,
-  },
-  h5StatsRow: {
-    flexDirection: 'row',
   },
   statCell: {
     flex: 1,

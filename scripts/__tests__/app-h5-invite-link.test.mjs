@@ -77,19 +77,12 @@ test('app URL intake recognizes the unified H5 invite URL before legacy links', 
   assert.match(layout, /const code = extractReferralCodeFromURL\(url\)/);
 });
 
-test('referral center reads and displays H5 invite funnel stats', () => {
+test('referral center does not display the retired H5 login funnel', () => {
   const referral = read('app/me/referral.tsx');
-  const repo = read('src/repos/InviteH5Repo.ts');
-  const repoIndex = read('src/repos/index.ts');
 
-  assert.match(repo, /getStats:\s*async \(\)/);
-  assert.match(repo, /ApiClient\.get<InviteH5Stats>\('\/invite-h5\/stats'\)/);
-  assert.match(repoIndex, /InviteH5Repo/);
-  assert.match(referral, /\['invite-h5-stats'\]/);
-  assert.match(referral, /扫码打开/);
-  assert.match(referral, /已登录/);
-  assert.match(referral, /已绑定/);
-  assert.match(referral, /inviteH5StatsError/);
-  assert.match(referral, /H5 邀请数据加载失败/);
+  assert.doesNotMatch(referral, /InviteH5Repo/);
+  assert.doesNotMatch(referral, /\['invite-h5-stats'\]/);
+  assert.doesNotMatch(referral, /H5 邀请数据/);
+  assert.doesNotMatch(referral, /inviteH5Stats/);
   assert.match(referral, /AppState\.addEventListener\('change'/);
 });
