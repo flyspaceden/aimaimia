@@ -96,6 +96,46 @@ export type ShipmentDetail = {
 
 export type OrderBizType = 'NORMAL_GOODS' | 'VIP_PACKAGE' | 'GROUP_BUY';
 
+export type FulfillmentMode = 'DELIVERY' | 'PICKUP';
+
+export type PickupFulfillmentStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'PICKED_UP'
+  | 'VOID'
+  | 'CANCELED';
+
+export type PickupFulfillmentSummary = {
+  status: PickupFulfillmentStatus;
+  pickupPoint: {
+    id?: string | null;
+    companyId?: string | null;
+    kind?: 'MERCHANT' | 'PLATFORM_HUB';
+    isPlatformHub?: boolean;
+    name: string;
+    contactName?: string;
+    contactPhoneMasked?: string;
+    regionCode?: string;
+    regionText: string;
+    detail: string;
+    location?: {
+      lng: number;
+      lat: number;
+      provider?: string;
+      poiName?: string;
+    } | null;
+    businessHours: unknown;
+    pickupNotice?: string | null;
+  };
+  recipient: {
+    name: string;
+    phoneMasked: string;
+  };
+  readyAt?: string | null;
+  pickedUpAt?: string | null;
+  pickedUpByStaffId?: string | null;
+};
+
 export type RefundStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'REFUNDING' | 'REFUNDED' | 'FAILED';
 
 export type RefundSummary = {
@@ -258,6 +298,10 @@ export type Order = {
   id: string;
   status: OrderStatus;
   bizType?: OrderBizType;
+  /** 配送与到店自提共用订单接口；旧订单未返回时按 DELIVERY 兼容。 */
+  fulfillmentMode?: FulfillmentMode;
+  pickupFulfillment?: PickupFulfillmentSummary | null;
+  fulfillmentIssueCode?: 'PICKUP_RELATION_MISSING' | null;
   repurchasable?: boolean;
   invoiceEligible?: boolean;
   invoiceStatus?: InvoiceStatus | null;

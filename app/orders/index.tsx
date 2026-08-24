@@ -12,9 +12,10 @@ import { useAuthStore, useCartStore } from '../../src/store';
 import { useBottomInset, useTheme } from '../../src/theme';
 import { AppError, Order, OrderStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
+import { isPickupOrder } from '../../src/utils/pickupOrder';
 
 const statusOptions: Array<{ id: OrderStatus | 'afterSaleList'; label: string }> = [
-  { id: 'PAID', label: '待发货' },
+  { id: 'PAID', label: '待履约' },
   { id: 'SHIPPED', label: '已发货' },
   { id: 'DELIVERED', label: '待收货' },
   { id: 'afterSaleList', label: '售后' },
@@ -71,6 +72,13 @@ function useOrderActions() {
   };
 
   return (order: Order) => {
+    // 自提单由商家核销完成，App 当前只展示履约信息，不提供物流或买家确认收货入口。
+    if (isPickupOrder(order) && ['PAID', 'SHIPPED', 'DELIVERED'].includes(order.status)) {
+      return {
+        primaryLabel: '查看自提信息',
+        primaryAction: () => router.push({ pathname: '/orders/[id]', params: { id: order.id } }),
+      } as const;
+    }
     switch (order.status) {
       case 'PAID':
         return {

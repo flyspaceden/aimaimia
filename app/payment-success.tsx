@@ -88,7 +88,7 @@ export default function PaymentSuccessScreen() {
       return;
     }
     if (orderCount > 1) {
-      // 多商户：跳订单列表，带"待发货"筛选直达刚下的订单
+      // 多商户：跳订单列表，带“待履约”筛选直达刚下的配送或自提订单
       // Bug 74 hotfix: orders 页接受 schema 大写枚举，pendingShip → PAID
       router.replace('/orders?status=PAID');
       return;

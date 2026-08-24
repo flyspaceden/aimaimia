@@ -2,11 +2,13 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Countdown } from '../ui/Countdown';
-import { useTheme } from '../../theme';
+import { fitTextProps, useTheme } from '../../theme';
 import { OrderStatus } from '../../types';
 
 interface Props {
   status: OrderStatus;
+  statusLabel?: string;
+  tone?: 'warning' | 'brand' | 'success' | 'muted';
   isVipPackage?: boolean;
   subtitle?: string;
   countdownExpiresAt?: string;
@@ -22,6 +24,13 @@ const STATUS_GRADIENTS: Record<OrderStatus, [string, string]> = {
   REFUNDED: ['#DC2626', '#EF4444'],
 };
 
+const TONE_GRADIENTS: Record<NonNullable<Props['tone']>, [string, string]> = {
+  warning: ['#B7791F', '#D4A017'],
+  brand: ['#2E7D32', '#00897B'],
+  success: ['#2E7D32', '#4CAF50'],
+  muted: ['#6B7280', '#9CA3AF'],
+};
+
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PAID: '待发货',
   SHIPPED: '已发货',
@@ -31,14 +40,14 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   REFUNDED: '已退款',
 };
 
-export function StatusHero({ status, isVipPackage, subtitle, countdownExpiresAt, countdownPrefix }: Props) {
+export function StatusHero({ status, statusLabel, tone, isVipPackage, subtitle, countdownExpiresAt, countdownPrefix }: Props) {
   const { typography } = useTheme();
-  const [from, to] = STATUS_GRADIENTS[status];
+  const [from, to] = tone ? TONE_GRADIENTS[tone] : STATUS_GRADIENTS[status];
 
   return (
     <LinearGradient colors={[from, to]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.container}>
       <View style={styles.row}>
-        <Text style={[typography.title3, { color: '#fff' }]}>{STATUS_LABEL[status]}</Text>
+        <Text {...fitTextProps} style={[typography.title3, { color: '#fff' }]}>{statusLabel ?? STATUS_LABEL[status]}</Text>
         {isVipPackage ? (
           <View style={styles.vipBadge}>
             <Text style={styles.vipBadgeText}>VIP 开通礼包</Text>
