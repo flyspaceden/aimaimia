@@ -223,3 +223,13 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 - 测试环境的后端、Admin、Seller 与小程序 staging 构建均可选择 `staging-next`；GitHub 测试 environment 在验收窗口只允许该分支写入共享测试服务器，旧 staging 已 locked，旧 deployment workflow 已全局停用；新 `Deploy Release Train` 是唯一发布入口。Production 构建仍强制只来自 `main`。
 - 固定微信目录仅在 `staging-next` Actions 成功、API `releaseSha` 与 Admin/Seller release marker 均精确等于候选 SHA 后，通过受控 `--rebind` 切换；依赖安装、release-context 和构建先在旁路 clone 完成，原目录按旧 SHA 保留，可恢复。
 - 验收失败时删除或废弃 `staging-next` 即可，旧 staging 和 Delivery lane 不受影响；验收通过后仍需单独完成 main 合入、exact-SHA attestation、生产 approval 和微信正式发布。
+
+## 13. 推荐 H5 无登录双入口正式发布（2026-08-24）
+
+- 主线候选经 Draft PR #10 的 `checks` 与 E2E required checks 全绿后，以 rebase 合入 `main@98511babd53bac270d5ec73328afd71bd5acc319`。
+- 本次只选择 `deploy_target=website`，GitHub Actions run `32754481192` 在 production environment 人工批准后成功；Backend、数据库、Admin、Seller、华海站点、App OTA 和微信小程序上传全部跳过。
+- Website-only 门禁读取生产 readiness，确认线上后端仍为 `6ca27f5c664b6c6139bfef4cc6bf19bce5b97582`；再以完整 Git 历史证明线上 SHA 与新 main 的 `backend/` tree 均为 `43b1c0d830f6ce0c96a38d492a08c3ecb439d1b0`，因此未为纯网页变化重启后端。
+- 静态部署前创建回滚快照 `/www/backup/releases/website/20260824T170559Z-98511babd53b.tar.gz`；部署后 marker `https://app.ai-maimai.com/release-sha.txt` 精确返回本次 main SHA，远端静态资源校验通过。
+- 线上入口资源为 `InviteChoiceLanding-CF7XIZEh.js`，入口 bundle 不再引用 `InviteAuthLanding`；实际产物包含手机端“小程序 / App”按钮、桌面“按需生成小程序二维码 / App 推荐交接二维码”，且不包含手机号登录、验证码或旧 H5 Auth 端点字符串。
+- `https://app.ai-maimai.com/`、`/invite/SABC1234` 与生产 readiness 均返回 HTTP 200；生产 API 组件状态为 database/redis up。`SABC1234` 为无效测试码，只验证错误路径，不代表普通/VIP 真实推荐绑定验收完成。
+- 待完成：使用真实有效 VIP 推荐码（如仍保留普通分享码，再补普通码）在真实微信中验证 URL Link 打开已发布小程序页面、App 下载交接、客户端登录绑定和已有关系不可覆盖；通过后再关闭 `H5-INV07`。
