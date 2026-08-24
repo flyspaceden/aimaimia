@@ -155,8 +155,8 @@ test('web consoles wait for a changed backend to deploy successfully', () => {
   }
 });
 
-test('static-only deployments require the already deployed backend to match the exact release SHA', () => {
-  for (const job of ['deploy-website', 'deploy-admin', 'deploy-seller']) {
+test('static-only admin and seller deployments require the exact deployed backend SHA', () => {
+  for (const job of ['deploy-admin', 'deploy-seller']) {
     const block = jobBlock(job);
     assert.match(block, /name: Require exact backend SHA for static-only deploy/);
     assert.match(block, /if: needs\.detect-changes\.outputs\.backend != 'true'/);
@@ -164,8 +164,20 @@ test('static-only deployments require the already deployed backend to match the 
     assert.match(block, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
     assert.match(block, /node scripts\/verify-deployed-release-sha\.mjs/);
   }
+});
+
+test('website-only deployment accepts an older backend SHA only when the backend Git tree is identical', () => {
+  const block = jobBlock('deploy-website');
+  assert.match(block, /fetch-depth: 0/);
+  assert.match(block, /name: Require compatible backend source for website-only deploy/);
+  assert.match(block, /if: needs\.detect-changes\.outputs\.backend != 'true'/);
+  assert.match(block, /READY_URL: \$\{\{ needs\.detect-changes\.outputs\.api_base \}\}\/health\/ready/);
+  assert.match(block, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
+  assert.match(block, /ALLOW_BACKEND_TREE_EQUIVALENT: 'true'/);
+  assert.match(block, /node scripts\/verify-deployed-release-sha\.mjs/);
   assert.match(deployedReleaseShaVerifier, /payload\?\.data/);
-  assert.match(deployedReleaseShaVerifier, /readiness\.releaseSha !== expectedSha/);
+  assert.match(deployedReleaseShaVerifier, /verificationMode: 'backend-tree-equivalent'/);
+  assert.match(deployedReleaseShaVerifier, /execFileSync\('git', \['rev-parse', `\$\{sha\}:backend`\]/);
   assert.match(deployedReleaseShaVerifier, /AbortSignal\.timeout\(20_000\)/);
 });
 

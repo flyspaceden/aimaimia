@@ -28,6 +28,41 @@ test('rejects a wrapped health response with a different release SHA', () => {
   );
 });
 
+test('website-only verification accepts a different release SHA only when backend trees are identical', () => {
+  const deployedSha = 'b'.repeat(40);
+  const backendTree = 'c'.repeat(40);
+  const resolved = [];
+  const readiness = assertReadinessPayload(
+    { ok: true, data: { status: 'ready', releaseSha: deployedSha } },
+    EXPECTED_SHA,
+    {
+      allowBackendTreeEquivalent: true,
+      resolveBackendTree: (sha) => {
+        resolved.push(sha);
+        return backendTree;
+      },
+    },
+  );
+  assert.equal(readiness.verificationMode, 'backend-tree-equivalent');
+  assert.equal(readiness.backendTree, backendTree);
+  assert.deepEqual(resolved, [EXPECTED_SHA, deployedSha]);
+});
+
+test('website-only verification rejects a different backend tree', () => {
+  const deployedSha = 'b'.repeat(40);
+  assert.throws(
+    () => assertReadinessPayload(
+      { status: 'ready', releaseSha: deployedSha },
+      EXPECTED_SHA,
+      {
+        allowBackendTreeEquivalent: true,
+        resolveBackendTree: (sha) => sha === EXPECTED_SHA ? 'c'.repeat(40) : 'd'.repeat(40),
+      },
+    ),
+    /deployed backend is b{40}/,
+  );
+});
+
 test('fetch verification accepts the production response envelope and uses a bounded no-store request', async () => {
   let observedOptions;
   const readiness = await verifyDeployedReleaseSha({

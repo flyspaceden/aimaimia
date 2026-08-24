@@ -204,6 +204,8 @@ node scripts/sync-staging-test-checkout.mjs --rebind
 2. 合并前重新 fetch，确认 PR base 仍为预期 `origin/main`；base 变化则重跑受影响门禁。
 3. 合入 `main` 后只表示生产代码分支已更新。若 GitHub 生成新的 merge SHA，先比较 main 与已测试 staging 的 Git tree；tree 不同就回 staging 重测，tree 相同也必须在 exact main SHA 上重跑 production CI/E2E/build 和 migration attestation。
 4. 生产发布通过新的 `Deploy Release Train`（`.github/workflows/deploy-release.yml`）的 `workflow_dispatch` 手动触发，并填写显式生产确认；workflow 绑定 exact SHA 和 production environment approval。旧 `Deploy Sites & Backend` 已停用，禁止重新启用。
+
+Website-only 生产发布允许一个严格例外：如果 readiness 返回的线上后端 SHA 与候选 SHA 不同，workflow 必须在完整 Git 历史中解析两者的 `backend/` tree；只有 tree SHA 完全相同才允许继续构建和发布 Website。线上 SHA 无效、对象不可解析或 backend tree 不同均 fail-closed。Admin/Seller 仍要求线上后端 exact SHA，不适用此例外。
 5. 后端成功后才允许发布依赖它的 admin/seller/H5；小程序另走 production artifact、体验版、审核和发布。
 6. 核对线上 SHA、PM2、health、migration 与业务探针后，才能记录“生产完成”。
 
