@@ -941,7 +941,12 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
 
     const result = await service.loginWithWechatMiniapp('one-time-wechat-code');
 
-    expect(result).toMatchObject({ requiresAccountChoice: true, miniLoginTicket: expect.any(String) });
+    expect(result).toMatchObject({
+      requiresAccountChoice: true,
+      requiresPhoneBinding: true,
+      allowWechatOnlyRegistration: true,
+      miniLoginTicket: expect.any(String),
+    });
     const responseText = JSON.stringify(result);
     expect(responseText).not.toContain('one-time-wechat-code');
     expect(responseText).not.toContain('wechat-session-key-secret');
@@ -949,6 +954,46 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
     expect(responseText).not.toContain('mini-union-secret');
     expect(responseText).not.toContain('mini-app-secret');
     expect(redisCoord.set).toHaveBeenCalled();
+    expect(JSON.parse(redisCoord.set.mock.calls[0][1])).toMatchObject({
+      purpose: 'WECHAT_MINIAPP_CREATE_ACCOUNT',
+    });
+    expect(prisma.authIdentity.create).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('真实 code2Session 未返回 unionId 时只允许手机号绑定，禁止微信直接建号', async () => {
+    const prisma = makePrisma();
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        openid: 'mini-openid-without-union',
+        session_key: 'wechat-session-key-secret',
+      }),
+    } as any);
+    const { service, redisCoord } = makeService(prisma, {
+      WECHAT_MOCK: 'false',
+      WECHAT_MINIAPP_MOCK: 'false',
+      WECHAT_MINIAPP_APP_ID: 'mini-app-id',
+      WECHAT_MINIAPP_APP_SECRET: 'mini-app-secret',
+    });
+
+    const result = await service.loginWithWechatMiniapp('missing-union-code');
+
+    expect(result).toMatchObject({
+      requiresAccountChoice: true,
+      requiresPhoneBinding: true,
+      allowWechatOnlyRegistration: false,
+      miniLoginTicket: expect.any(String),
+    });
+    expect(JSON.parse(redisCoord.set.mock.calls[0][1])).toMatchObject({
+      purpose: 'WECHAT_MINIAPP_BIND_PHONE',
+      unionId: '',
+    });
+    await expect(service.completeWechatMiniappRegistration(
+      (result as { miniLoginTicket: string }).miniLoginTicket,
+    )).rejects.toThrow('为避免重复账号，请验证手机号后登录');
+    expect(redisCoord.del).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
     expect(prisma.authIdentity.create).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -1098,7 +1143,7 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
 
-  it('无法匹配 App 或既有小程序身份时直接创建微信买家账号，不要求手机号', async () => {
+  it('无法匹配 App 或既有小程序身份时要求手机号绑定，不创建无手机号账号', async () => {
     const prisma = makePrisma();
     prisma.authIdentity.findFirst.mockImplementation((args: any) =>
       Promise.resolve(args?.where?.id === 'identity-new' ? { id: 'identity-new' } : null),
@@ -1109,7 +1154,12 @@ describe('AuthService — 微信小程序登录与手机号安全合并', () => 
 
     const session = await service.loginWithWechatMiniapp('new-mini-user');
 
-    expect(session).toMatchObject({ requiresAccountChoice: true, miniLoginTicket: expect.any(String) });
+    expect(session).toMatchObject({
+      requiresAccountChoice: true,
+      requiresPhoneBinding: true,
+      allowWechatOnlyRegistration: true,
+      miniLoginTicket: expect.any(String),
+    });
     expect(prisma.user.create).not.toHaveBeenCalled();
     expect(prisma.authIdentity.create).not.toHaveBeenCalled();
     expect(prisma.session.create).not.toHaveBeenCalled();

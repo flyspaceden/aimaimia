@@ -16,8 +16,11 @@ export type MiniappSession = {
 };
 
 export type MiniappLoginResult = MiniappSession;
-export type PendingMiniappAccountChoice = {
-  requiresAccountChoice: true;
+export type PendingMiniappPhoneBinding = {
+  /** 旧字段保留用于兼容当前已上传体验版。 */
+  requiresAccountChoice?: true;
+  requiresPhoneBinding: true;
+  allowWechatOnlyRegistration: boolean;
   miniLoginTicket: string;
 };
 
@@ -31,10 +34,11 @@ function isSession(value: unknown): value is MiniappSession {
     && (session.loginMethod === 'wechat-miniapp' || session.loginMethod === 'phone');
 }
 
-function isPendingAccountChoice(value: unknown): value is PendingMiniappAccountChoice {
-  return Boolean(value && typeof value === 'object'
-    && (value as Record<string, unknown>).requiresAccountChoice === true
-    && typeof (value as Record<string, unknown>).miniLoginTicket === 'string');
+function isPendingPhoneBinding(value: unknown): value is PendingMiniappPhoneBinding {
+  if (!value || typeof value !== 'object') return false;
+  const pending = value as Record<string, unknown>;
+  return (pending.requiresPhoneBinding === true || pending.requiresAccountChoice === true)
+    && typeof pending.miniLoginTicket === 'string';
 }
 
 type AuthAttempt = { id: number; revision: number };
@@ -106,7 +110,7 @@ function persistSession(
   return result;
 }
 
-export async function loginWithWechatMiniProgram(expectedUserId?: string): Promise<Result<MiniappLoginResult | PendingMiniappAccountChoice>> {
+export async function loginWithWechatMiniProgram(expectedUserId?: string): Promise<Result<MiniappLoginResult | PendingMiniappPhoneBinding>> {
   const attempt = beginAuthAttempt();
   try {
     const { code } = await Taro.login({ timeout: 10_000 });
@@ -117,11 +121,20 @@ export async function loginWithWechatMiniProgram(expectedUserId?: string): Promi
       };
     }
     if (!isCurrentAuthAttempt(attempt)) return supersededAuthResult();
-    const result = await ApiClient.post<MiniappLoginResult | PendingMiniappAccountChoice>(
+    const result = await ApiClient.post<MiniappLoginResult | PendingMiniappPhoneBinding>(
       '/auth/oauth/wechat-miniapp',
       { code },
     );
-    if (result.ok && isPendingAccountChoice(result.data)) return result;
+    if (result.ok && isPendingPhoneBinding(result.data)) {
+      return {
+        ok: true,
+        data: {
+          ...result.data,
+          requiresPhoneBinding: true,
+          allowWechatOnlyRegistration: result.data.allowWechatOnlyRegistration === true,
+        },
+      };
+    }
     return persistSession(result as Result<MiniappLoginResult>, attempt, expectedUserId);
   } catch (error) {
     const message = error && typeof error === 'object' && 'errMsg' in error

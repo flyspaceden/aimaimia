@@ -26,7 +26,7 @@ export class WechatMiniappBindPhoneDto extends WechatMiniappBindPhoneCodeDto {
   code!: string;
 }
 
-/** 未关联微信选择“作为新用户继续”时提交的一次性登录凭证。 */
+/** 旧客户端兼容端点的一次性登录凭证；新客户端不再提供无手机号建号入口。 */
 export class WechatMiniappCompleteRegistrationDto {
   @IsString()
   @Matches(MINI_LOGIN_TICKET_PATTERN, { message: '小程序登录凭证格式不正确' })

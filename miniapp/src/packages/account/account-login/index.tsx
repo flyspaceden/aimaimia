@@ -25,6 +25,7 @@ export default function AccountLoginPage() {
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingTicket, setPendingTicket] = useState('');
+  const [allowWechatOnlyRegistration, setAllowWechatOnlyRegistration] = useState(false);
   const [phone, setPhone] = useState('');
   const [smsCode, setSmsCode] = useState('');
   const [countdown, setCountdown] = useState(0);
@@ -55,8 +56,9 @@ export default function AccountLoginPage() {
       Taro.showToast({ title: result.error.displayMessage || '微信登录失败，请稍后重试', icon: 'none' });
       return;
     }
-    if ('requiresAccountChoice' in result.data) {
+    if ('requiresPhoneBinding' in result.data) {
       setPendingTicket(result.data.miniLoginTicket);
+      setAllowWechatOnlyRegistration(result.data.allowWechatOnlyRegistration);
       return;
     }
 
@@ -68,7 +70,7 @@ export default function AccountLoginPage() {
   };
 
   const createAccount = async () => {
-    if (submitting || !pendingTicket) return;
+    if (submitting || !pendingTicket || !allowWechatOnlyRegistration) return;
     setSubmitting(true);
     try {
       const result = await completeWechatMiniappRegistration(pendingTicket);
@@ -78,6 +80,7 @@ export default function AccountLoginPage() {
       setSubmitting(false);
     }
   };
+
   const sendMergeCode = async () => {
     if (submitting || countdown > 0 || !pendingTicket) return;
     if (!isMainlandPhone(phone)) { Taro.showToast({ title: '请输入正确的手机号', icon: 'none' }); return; }
@@ -118,15 +121,42 @@ export default function AccountLoginPage() {
     </View>;
   }
 
-  if (pendingTicket) return <View className='aim-page account-login-page'><View className='account-login-card aim-card'>
-    <Text className='account-login-hero__title'>选择账号方式</Text>
-    <Text>这个微信尚未关联 AI爱买买账号。可新建账号，或验证手机号合并既有账号。</Text>
-    <Button className='account-login-wechat' loading={submitting} disabled={submitting} onClick={createAccount}>作为新用户继续</Button>
-    <View className='account-login-agreement'><Input type='number' maxlength={11} value={phone} placeholder='已有账号的手机号' onInput={(event) => setPhone(event.detail.value.replace(/\D/g, '').slice(0, 11))} /></View>
-    <View className='account-login-agreement'><Input type='number' maxlength={6} value={smsCode} placeholder='6 位短信验证码' onInput={(event) => setSmsCode(event.detail.value.replace(/\D/g, '').slice(0, 6))} /><Button disabled={submitting || countdown > 0} onClick={sendMergeCode}>{countdown ? `${countdown}s` : '发验证码'}</Button></View>
-    <Button className='account-login-done__button' loading={submitting} disabled={submitting} onClick={mergeAccount}>合并已有手机号账号</Button>
-    <Text onClick={() => { if (!submitting) setPendingTicket(''); }}>返回重新选择微信</Text>
-  </View></View>;
+  if (pendingTicket) return <View className='aim-page account-login-page'>
+    <View className='account-login-bind aim-card'>
+      <View className='account-login-bind__verified'>
+        <View className='account-login-bind__verified-mark'>微</View>
+        <View>
+          <Text className='account-login-bind__verified-title'>微信身份已确认</Text>
+          <Text className='account-login-bind__verified-copy'>继续验证手机号，避免和 AI爱买买 App 账号重复</Text>
+        </View>
+      </View>
+
+      <Text className='account-login-bind__title'>绑定手机号并登录</Text>
+      <Text className='account-login-bind__copy'>{allowWechatOnlyRegistration
+        ? '如果你曾在 AI爱买买 App 使用手机号登录，请先验证该手机号，避免产生重复账号。未注册手机号会创建一个同时绑定微信和手机号的新账号。'
+        : '为了避免和 App 里的原账号重复，当前微信必须先验证手机号。已注册手机号会登录原账号；未注册手机号会创建一个同时绑定微信和手机号的新账号。'}</Text>
+
+      <View className='account-login-bind__field'>
+        <Text className='account-login-bind__label'>手机号</Text>
+        <Input className='account-login-bind__input' type='number' maxlength={11} value={phone} placeholder='请输入本人手机号' onInput={(event) => setPhone(event.detail.value.replace(/\D/g, '').slice(0, 11))} />
+      </View>
+      <View className='account-login-bind__field'>
+        <Text className='account-login-bind__label'>短信验证码</Text>
+        <View className='account-login-bind__code'>
+          <Input className='account-login-bind__input' type='number' maxlength={6} value={smsCode} placeholder='请输入 6 位验证码' onInput={(event) => setSmsCode(event.detail.value.replace(/\D/g, '').slice(0, 6))} />
+          <Button className='account-login-bind__send' disabled={submitting || countdown > 0 || !isMainlandPhone(phone)} onClick={sendMergeCode}>{countdown ? `${countdown}s 后重发` : '发送验证码'}</Button>
+        </View>
+      </View>
+
+      <Button className='account-login-bind__submit' loading={submitting} disabled={submitting || !isMainlandPhone(phone) || !isSmsCode(smsCode)} onClick={mergeAccount}>{submitting ? '正在绑定...' : '绑定手机号并登录'}</Button>
+      <Text className='account-login-bind__note'>一个手机号只对应一个 AI爱买买账号；验证成功后，App 与小程序将使用同一账号。</Text>
+      {allowWechatOnlyRegistration ? <View className='account-login-bind__new'>
+        <Text className='account-login-bind__new-divider'>没有使用手机号注册过 AI爱买买？</Text>
+        <Button className='account-login-bind__new-button' loading={submitting} disabled={submitting} onClick={createAccount}>直接使用微信创建账号</Button>
+      </View> : null}
+      <Text className='account-login-bind__back' onClick={() => { if (!submitting) { setPendingTicket(''); setAllowWechatOnlyRegistration(false); } }}>重新验证微信身份</Text>
+    </View>
+  </View>;
 
   return <View className='aim-page account-login-page'>
     <View className='account-login-hero'>

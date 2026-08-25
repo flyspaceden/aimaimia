@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '@/query/client';
 import {
   changePassword,
-  completeWechatMiniappRegistration,
   bindWechatMiniappPhone,
   completeAuthNavigation,
   ensureWechatMiniProgramSession,
@@ -102,6 +101,50 @@ describe('miniapp auth adapter', () => {
       refreshToken: 'refresh-1',
       userId: 'user-1',
     });
+  });
+
+  it('normalizes an unmatched identity into mandatory phone binding without trusting a session', async () => {
+    loginMock.mockResolvedValue({ code: 'unmatched-code' });
+    postMock.mockResolvedValue({
+      ok: true,
+      data: {
+        requiresAccountChoice: true,
+        miniLoginTicket: 'binding-ticket',
+      },
+    });
+
+    await expect(loginWithWechatMiniProgram()).resolves.toEqual({
+      ok: true,
+      data: {
+        requiresAccountChoice: true,
+        requiresPhoneBinding: true,
+        allowWechatOnlyRegistration: false,
+        miniLoginTicket: 'binding-ticket',
+      },
+    });
+    expect(useAuthStore.getState().accessToken).toBeUndefined();
+  });
+
+  it('preserves the server decision when a verified UnionID allows direct WeChat registration', async () => {
+    loginMock.mockResolvedValue({ code: 'new-wechat-code' });
+    postMock.mockResolvedValue({
+      ok: true,
+      data: {
+        requiresAccountChoice: true,
+        requiresPhoneBinding: true,
+        allowWechatOnlyRegistration: true,
+        miniLoginTicket: 'registration-ticket',
+      },
+    });
+
+    await expect(loginWithWechatMiniProgram()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        requiresPhoneBinding: true,
+        allowWechatOnlyRegistration: true,
+      },
+    });
+    expect(useAuthStore.getState().accessToken).toBeUndefined();
   });
 
   it('does not replace a phone session when reverified WeChat belongs to another user', async () => {
@@ -214,10 +257,10 @@ describe('miniapp auth adapter', () => {
     expect(useAuthStore.getState().userId).toBe('user-b');
   });
 
-  it('does not let a late registration completion overwrite a newer WeChat login', async () => {
-    const staleRegistration = deferred<any>();
+  it('does not let a late phone binding overwrite a newer WeChat login', async () => {
+    const staleBinding = deferred<any>();
     postMock
-      .mockReturnValueOnce(staleRegistration.promise)
+      .mockReturnValueOnce(staleBinding.promise)
       .mockResolvedValueOnce({
         ok: true,
         data: {
@@ -227,10 +270,10 @@ describe('miniapp auth adapter', () => {
       });
     loginMock.mockResolvedValueOnce({ code: 'new-login-code' });
 
-    const registration = completeWechatMiniappRegistration('stale-ticket');
+    const binding = bindWechatMiniappPhone('stale-ticket', '13800138000', '123456');
     await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
     await expect(loginWithWechatMiniProgram()).resolves.toMatchObject({ ok: true });
-    staleRegistration.resolve({
+    staleBinding.resolve({
       ok: true,
       data: {
         accessToken: 'stale-access', refreshToken: 'stale-refresh', userId: 'stale-user',
@@ -238,7 +281,7 @@ describe('miniapp auth adapter', () => {
       },
     });
 
-    await expect(registration).resolves.toMatchObject({
+    await expect(binding).resolves.toMatchObject({
       ok: false, error: { code: 'AUTH_ATTEMPT_SUPERSEDED' },
     });
     expect(useAuthStore.getState().userId).toBe('new-user');
@@ -267,13 +310,13 @@ describe('miniapp auth adapter', () => {
   });
 
   it('does not let an authentication response replace the session after the login page was left', async () => {
-    const staleRegistration = deferred<any>();
-    postMock.mockReturnValueOnce(staleRegistration.promise);
+    const staleBinding = deferred<any>();
+    postMock.mockReturnValueOnce(staleBinding.promise);
 
-    const registration = completeWechatMiniappRegistration('leaving-ticket');
+    const binding = bindWechatMiniappPhone('leaving-ticket', '13800138000', '123456');
     await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
     supersedePendingMiniappAuthAttempts();
-    staleRegistration.resolve({
+    staleBinding.resolve({
       ok: true,
       data: {
         accessToken: 'late-access', refreshToken: 'late-refresh', userId: 'late-user',
@@ -281,7 +324,7 @@ describe('miniapp auth adapter', () => {
       },
     });
 
-    await expect(registration).resolves.toMatchObject({
+    await expect(binding).resolves.toMatchObject({
       ok: false, error: { code: 'AUTH_ATTEMPT_SUPERSEDED' },
     });
     expect(useAuthStore.getState().accessToken).toBeUndefined();
