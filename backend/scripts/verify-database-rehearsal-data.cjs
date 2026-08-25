@@ -173,9 +173,9 @@ function candidateMigrationChecksums(root) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function fingerprintSql() {
+function fingerprintSql(includeExpectedMigrationColumns = false) {
   const selects = FINGERPRINT_TABLES.map(([key, table, excluded]) => {
-    const exclusions = excluded.length
+    const exclusions = !includeExpectedMigrationColumns && excluded.length
       ? `ARRAY[${excluded.map((column) => `'${column}'`).join(',')}]::text[]`
       : 'ARRAY[]::text[]';
     return `SELECT '${key}' AS key, json_build_object(
@@ -252,33 +252,6 @@ function main() {
     throw new Error('business primary keys or stable row fields changed during rehearsal migration');
   }
 
-  const expected = queryJson(baselineUrl.toString(), `SELECT COALESCE(json_agg(row_to_json(expected) ORDER BY "refundId", kind), '[]'::json)::text
-    FROM (
-      SELECT r."id" AS "refundId", 'DIGITAL_ASSET_REVERSAL' AS kind, r."orderId" AS "orderId",
-        r."amount" AS "refundAmount", 'HISTORICAL_BACKFILL' AS source, 'PENDING' AS status
-      FROM "Refund" r
-      WHERE r."status" = 'REFUNDED' AND r."deletedAt" IS NULL AND r."afterSaleId" IS NULL
-        AND r."merchantRefundNo" NOT LIKE 'AS-%'
-      UNION ALL
-      SELECT r."id" AS "refundId", 'CAPTAIN_COMMISSION_VOID' AS kind, r."orderId" AS "orderId",
-        r."amount" AS "refundAmount", 'HISTORICAL_BACKFILL' AS source, 'PENDING' AS status
-      FROM "Refund" r
-      WHERE r."status" = 'REFUNDED' AND r."deletedAt" IS NULL AND r."afterSaleId" IS NULL
-        AND r."merchantRefundNo" NOT LIKE 'AS-%'
-        AND NOT EXISTS (
-          SELECT 1 FROM "OrderProfitSnapshot" s
-          WHERE s."orderId" = r."orderId" AND s."isCurrent" = true AND s."status" = 'READY'
-        )
-    ) expected`);
-  const actual = queryJson(rehearsalUrl.toString(), `SELECT COALESCE(json_agg(row_to_json(actual) ORDER BY "refundId", kind), '[]'::json)::text
-    FROM (
-      SELECT "refundId", "kind"::text AS kind, "orderId", "refundAmount", source, "status"::text AS status
-      FROM "RefundSideEffectOutbox"
-    ) actual`);
-  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
-    throw new Error('refund side-effect historical backfill rows mismatch');
-  }
-
   const migrationState = queryJson(rehearsalUrl.toString(), `SELECT json_build_object(
     'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
     'failed', count(*) FILTER (WHERE finished_at IS NULL AND rolled_back_at IS NULL)
@@ -286,8 +259,65 @@ function main() {
   if (Number(migrationState.complete) !== 120 || Number(migrationState.failed) !== 0) {
     throw new Error('rehearsal migration history is not 120 complete and 0 failed');
   }
+  const baselineMigrationState = queryJson(baselineUrl.toString(), `SELECT json_build_object(
+    'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
+    'failed', count(*) FILTER (WHERE finished_at IS NULL AND rolled_back_at IS NULL),
+    'latest', (SELECT migration_name FROM "_prisma_migrations"
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY finished_at DESC LIMIT 1)
+  )::text FROM "_prisma_migrations"`);
+  if (Number(baselineMigrationState.failed) !== 0 || Number(baselineMigrationState.complete) > Number(migrationState.complete)) {
+    throw new Error('baseline migration history is invalid');
+  }
+  if (
+    Number(backupManifest.sourceMigrationCount) !== Number(baselineMigrationState.complete)
+    || backupManifest.sourceMigrationHead !== baselineMigrationState.latest
+  ) {
+    throw new Error('baseline migration history does not match the backup source manifest');
+  }
+  const migrationMode = Number(baselineMigrationState.complete) === Number(migrationState.complete)
+    ? 'NO_OP'
+    : 'UPGRADE';
+  if (migrationMode === 'NO_OP') {
+    const baselineFullFingerprint = queryJson(baselineUrl.toString(), fingerprintSql(true));
+    const rehearsalFullFingerprint = queryJson(rehearsalUrl.toString(), fingerprintSql(true));
+    if (JSON.stringify(baselineFullFingerprint) !== JSON.stringify(rehearsalFullFingerprint)) {
+      throw new Error('full business rows changed during no-op rehearsal');
+    }
+  }
 
-  const compatibilityDefaults = queryJson(rehearsalUrl.toString(), `SELECT json_build_object(
+  const outboxRowsSql = `SELECT COALESCE(json_agg(row_to_json(actual) ORDER BY "refundId", kind), '[]'::json)::text
+    FROM (
+      SELECT "refundId", "kind"::text AS kind, "orderId", "refundAmount", source, "status"::text AS status
+      FROM "RefundSideEffectOutbox"
+    ) actual`;
+  const expected = migrationMode === 'NO_OP'
+    ? queryJson(baselineUrl.toString(), outboxRowsSql)
+    : queryJson(baselineUrl.toString(), `SELECT COALESCE(json_agg(row_to_json(expected) ORDER BY "refundId", kind), '[]'::json)::text
+      FROM (
+        SELECT r."id" AS "refundId", 'DIGITAL_ASSET_REVERSAL' AS kind, r."orderId" AS "orderId",
+          r."amount" AS "refundAmount", 'HISTORICAL_BACKFILL' AS source, 'PENDING' AS status
+        FROM "Refund" r
+        WHERE r."status" = 'REFUNDED' AND r."deletedAt" IS NULL AND r."afterSaleId" IS NULL
+          AND r."merchantRefundNo" NOT LIKE 'AS-%'
+        UNION ALL
+        SELECT r."id" AS "refundId", 'CAPTAIN_COMMISSION_VOID' AS kind, r."orderId" AS "orderId",
+          r."amount" AS "refundAmount", 'HISTORICAL_BACKFILL' AS source, 'PENDING' AS status
+        FROM "Refund" r
+        WHERE r."status" = 'REFUNDED' AND r."deletedAt" IS NULL AND r."afterSaleId" IS NULL
+          AND r."merchantRefundNo" NOT LIKE 'AS-%'
+          AND NOT EXISTS (
+            SELECT 1 FROM "OrderProfitSnapshot" s
+            WHERE s."orderId" = r."orderId" AND s."isCurrent" = true AND s."status" = 'READY'
+          )
+      ) expected`);
+  const actual = queryJson(rehearsalUrl.toString(), outboxRowsSql);
+  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+    throw new Error(migrationMode === 'NO_OP'
+      ? 'refund side-effect rows changed during no-op rehearsal'
+      : 'refund side-effect historical backfill rows mismatch');
+  }
+
+  const compatibilitySql = `SELECT json_build_object(
     'session', (SELECT count(*) FROM "Session" WHERE "authIdentityId" IS NOT NULL),
     'checkout', (SELECT count(*) FROM "CheckoutSession" WHERE "paymentScene" <> 'APP'
       OR "miniProgramPayerOpenId" IS NOT NULL OR "fulfillmentMode" <> 'DELIVERY'
@@ -299,25 +329,15 @@ function main() {
       OR "miniProgramPayerOpenId" IS NOT NULL OR "paymentParamState" IS NOT NULL),
     'inviteH5', (SELECT count(*) FROM "InviteH5LandingEvent" WHERE "miniProgramUrlLink" IS NOT NULL
       OR "miniProgramUrlLinkExpiresAt" IS NOT NULL OR "miniProgramUrlLinkClaimUntil" IS NOT NULL)
-  )::text`);
-  if (Object.values(compatibilityDefaults).some((count) => Number(count) !== 0)) {
+  )::text`;
+  const compatibilityValues = queryJson(rehearsalUrl.toString(), compatibilitySql);
+  if (migrationMode === 'NO_OP') {
+    const baselineCompatibilityValues = queryJson(baselineUrl.toString(), compatibilitySql);
+    if (JSON.stringify(baselineCompatibilityValues) !== JSON.stringify(compatibilityValues)) {
+      throw new Error('compatibility fields changed during no-op rehearsal');
+    }
+  } else if (Object.values(compatibilityValues).some((count) => Number(count) !== 0)) {
     throw new Error('historical compatibility defaults were not preserved');
-  }
-
-  const baselineMigrationState = queryJson(baselineUrl.toString(), `SELECT json_build_object(
-    'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
-    'failed', count(*) FILTER (WHERE finished_at IS NULL AND rolled_back_at IS NULL),
-    'latest', (SELECT migration_name FROM "_prisma_migrations"
-      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY finished_at DESC LIMIT 1)
-  )::text FROM "_prisma_migrations"`);
-  if (Number(baselineMigrationState.failed) !== 0 || Number(baselineMigrationState.complete) >= Number(migrationState.complete)) {
-    throw new Error('baseline migration history is invalid');
-  }
-  if (
-    Number(backupManifest.sourceMigrationCount) !== Number(baselineMigrationState.complete)
-    || backupManifest.sourceMigrationHead !== baselineMigrationState.latest
-  ) {
-    throw new Error('baseline migration history does not match the backup source manifest');
   }
 
   const candidateSha = required('REHEARSAL_CANDIDATE_SHA');
@@ -363,6 +383,7 @@ function main() {
   const attestation = {
     version: 1,
     status: 'complete',
+    migrationMode,
     candidateSha,
     migrationTreeGitObject,
     migrationTreeSha256: migrationSha256,
@@ -387,6 +408,7 @@ function main() {
 
   process.stdout.write(`rehearsal_data_conservation=ok tables=${FINGERPRINT_TABLES.length}\n`);
   process.stdout.write(`rehearsal_refund_backfill=ok tasks=${actual.length}\n`);
+  process.stdout.write(`rehearsal_migration_mode=${migrationMode}\n`);
   process.stdout.write(`rehearsal_attestation=created candidate_sha=${candidateSha}\n`);
 }
 

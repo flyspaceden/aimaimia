@@ -247,3 +247,9 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 
 - 生产体验版推荐中心连续三次生成失败，服务端日志精确记录微信 `/wxa/getwxacodeunlimit` 返回 `errcode=41030`。生产配置为 `release + check_path=true`，但场景页尚未进入正式发布版；同一 AppID/Secret 探针使用 `trial + check_path=false` 成功返回 57,807 字节 JPEG，证明不是凭据、网络或前端文件写入问题。
 - 服务端仍优先请求正式版 `release + check_path=true`。仅当微信明确返回 41030，且目标页仍为服务端固定 `packages/community/scene/index`、业务目标路径已通过 allowlist 时，回退一次 `trial + check_path=false`；其他错误不得降级。正式版页面发布后首请求直接成功，回退自动停止。
+
+## 16. 已完成迁移后的无迁移发布演练（2026-08-25）
+
+- `main@5029a0c8` 的代码、生产小程序构建和 E2E 全部通过，但生产部署被 readiness 正确阻断：历史演练证明的 baseline 为 101 条 migration，而正式库在首次小程序发布后已是 120 条；旧证明不能授权当前 120 → 120 的代码发布。
+- 演练 verifier 增加显式 `migrationMode`：`UPGRADE` 继续要求 baseline 小于 target，并验证历史兼容默认值和精确退款回填；`NO_OP` 仅允许 baseline 与 target migration 数相等，且要求23张表包含兼容字段在内的完整行哈希、退款 outbox、兼容字段计数和全部 migration checksum 完全一致。
+- production attestation verifier 会根据 baseline/target 数量独立计算期望模式并与 attestation 对比，禁止把升级伪装成无迁移。当前修复只有在独立PR/CI/main合并后，才能基于新的正式库备份恢复两套隔离库并签发新 main SHA 证明；不得复制旧 attestation 或手写绕过。

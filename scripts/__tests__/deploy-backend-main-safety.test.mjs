@@ -347,6 +347,12 @@ test('rehearsal verifier checks business-row conservation and exact refund backf
   assert.match(rehearsalDataVerifier, /REHEARSAL_CANDIDATE_SHA/);
   assert.match(rehearsalDataVerifier, /rehearsal checkout does not match/);
   assert.match(rehearsalDataVerifier, /historical compatibility defaults were not preserved/);
+  assert.match(rehearsalDataVerifier, /compatibility fields changed during no-op rehearsal/);
+  assert.match(rehearsalDataVerifier, /refund side-effect rows changed during no-op rehearsal/);
+  assert.match(rehearsalDataVerifier, /full business rows changed during no-op rehearsal/);
+  assert.match(rehearsalDataVerifier, /fingerprintSql\(true\)/);
+  assert.match(rehearsalDataVerifier, /migrationMode === 'NO_OP'/);
+  assert.doesNotMatch(rehearsalDataVerifier, /baselineMigrationState\.complete\) >= Number\(migrationState\.complete/);
   assert.match(rehearsalDataVerifier, /rehearsal database provenance does not match/);
   assert.match(rehearsalDataVerifier, /rehearsal migration checksums do not match/);
   assert.match(rehearsalDataVerifier, /baseline migration checksums are not a valid subset/);
@@ -363,6 +369,8 @@ test('production deploy requires a fresh SHA-bound rehearsal attestation', () =>
   assert.match(rehearsalAttestationVerifier, /backup source manifest no longer matches/);
   assert.match(rehearsalAttestationVerifier, /older than 14 days/);
   assert.match(rehearsalAttestationVerifier, /stableTableFingerprints/);
+  assert.match(rehearsalAttestationVerifier, /expectedMigrationMode/);
+  assert.match(rehearsalAttestationVerifier, /rehearsal migration mode is inconsistent/);
   const stoppedIndex = backendDeployScript.indexOf('record_stage PM2_STOPPED');
   const readinessIndex = backendDeployScript.indexOf('node scripts/inspect-miniapp-migration-readiness.cjs');
   const backupIndex = backendDeployScript.indexOf('node scripts/create-production-database-backup.cjs');

@@ -100,6 +100,15 @@ function main() {
   ) {
     throw new Error('rehearsal attestation result is incomplete');
   }
+  const baselineMigrationCount = Number(attestation.baselineMigrationCount);
+  const rehearsalMigrationCount = Number(attestation.rehearsalMigrationCount);
+  const expectedMigrationMode = baselineMigrationCount === rehearsalMigrationCount ? 'NO_OP' : 'UPGRADE';
+  if (
+    baselineMigrationCount > rehearsalMigrationCount
+    || attestation.migrationMode !== expectedMigrationMode
+  ) {
+    throw new Error('rehearsal migration mode is inconsistent');
+  }
   process.stdout.write(`rehearsal_attestation=verified candidate_sha=${releaseSha}\n`);
 }
 
