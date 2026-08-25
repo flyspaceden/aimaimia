@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { WechatMiniProgramApiError } from '../wechat-mini-program-platform/wechat-mini-program-api.service';
 import { MiniProgramCodeService } from './mini-program-code.service';
 
 const PNG = Buffer.from([
@@ -77,6 +78,40 @@ describe('MiniProgramCodeService', () => {
     await expect(service.createCode('user-jpeg', 'REFERRAL')).resolves.toMatchObject({
       mimeType: 'image/jpeg', imageBase64: JPEG.toString('base64'),
     });
+  });
+
+  it('falls back from an unpublished release page to the trial version only for WeChat 41030', async () => {
+    const { service, prisma, wechat } = harness();
+    prisma.memberProfile.findUnique.mockResolvedValue({ tier: 'VIP', referralCode: 'VIPA1234' });
+    prisma.miniProgramScene.findFirst.mockResolvedValue({
+      id: 'scene-trial', token: 'abcdefghijklmnopqrstuv', expiresAt: new Date('2027-01-01T00:00:00Z'),
+    });
+    prisma.miniProgramScene.update.mockResolvedValue({});
+    wechat.postBuffer
+      .mockRejectedValueOnce(new WechatMiniProgramApiError(41030, 'invalid page'))
+      .mockResolvedValueOnce(JPEG);
+
+    await expect(service.createCode('user-trial', 'REFERRAL')).resolves.toMatchObject({
+      mimeType: 'image/jpeg',
+    });
+    expect(wechat.postBuffer).toHaveBeenNthCalledWith(1, '/wxa/getwxacodeunlimit', expect.objectContaining({
+      env_version: 'release', check_path: true,
+    }));
+    expect(wechat.postBuffer).toHaveBeenNthCalledWith(2, '/wxa/getwxacodeunlimit', expect.objectContaining({
+      env_version: 'trial', check_path: false,
+    }));
+  });
+
+  it('does not downgrade to trial for unrelated WeChat platform errors', async () => {
+    const { service, prisma, wechat } = harness();
+    prisma.memberProfile.findUnique.mockResolvedValue({ tier: 'VIP', referralCode: 'VIPA1234' });
+    prisma.miniProgramScene.findFirst.mockResolvedValue({
+      id: 'scene-error', token: 'abcdefghijklmnopqrstuv', expiresAt: new Date('2027-01-01T00:00:00Z'),
+    });
+    wechat.postBuffer.mockRejectedValue(new WechatMiniProgramApiError(40001, 'invalid token'));
+
+    await expect(service.createCode('user-error', 'REFERRAL')).rejects.toMatchObject({ status: 503 });
+    expect(wechat.postBuffer).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unsupported captain code before storing a scene or calling WeChat', async () => {

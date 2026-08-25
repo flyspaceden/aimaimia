@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -25,6 +26,8 @@ const JPEG_EOI = Buffer.from([255, 217]);
 
 @Injectable()
 export class MiniProgramCodeService {
+  private readonly logger = new Logger(MiniProgramCodeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -62,23 +65,47 @@ export class MiniProgramCodeService {
       });
     }
 
+    const envVersion = this.codeEnvVersion();
+    const checkPath = this.codeCheckPath();
+    const request = {
+      scene: scene.token,
+      page: SCENE_PAGE,
+      check_path: checkPath,
+      env_version: envVersion,
+      width: 430,
+      auto_color: false,
+      line_color: { r: 46, g: 125, b: 50 },
+      is_hyaline: false,
+    };
     let image: Buffer;
     try {
-      image = await this.wechat.postBuffer('/wxa/getwxacodeunlimit', {
-        scene: scene.token,
-        page: SCENE_PAGE,
-        check_path: this.codeCheckPath(),
-        env_version: this.codeEnvVersion(),
-        width: 430,
-        auto_color: false,
-        line_color: { r: 46, g: 125, b: 50 },
-        is_hyaline: false,
-      });
+      image = await this.wechat.postBuffer('/wxa/getwxacodeunlimit', request);
     } catch (error) {
-      if (error instanceof WechatMiniProgramApiError) {
+      // 正式版首次发布前，固定场景页只存在于体验版。微信会对
+      // release + check_path=true 返回 41030（page 不存在）。目标页和落地路径
+      // 均由服务端常量/白名单生成，因此只对这一明确错误安全回退一次 trial。
+      if (error instanceof WechatMiniProgramApiError
+        && error.errcode === 41030
+        && envVersion === 'release'
+        && checkPath) {
+        this.logger.warn('正式版场景页尚未发布，小程序码临时回退到体验版');
+        try {
+          image = await this.wechat.postBuffer('/wxa/getwxacodeunlimit', {
+            ...request,
+            check_path: false,
+            env_version: 'trial',
+          });
+        } catch (fallbackError) {
+          if (fallbackError instanceof WechatMiniProgramApiError) {
+            throw new ServiceUnavailableException('微信小程序码生成暂不可用，请稍后重试');
+          }
+          throw fallbackError;
+        }
+      } else if (error instanceof WechatMiniProgramApiError) {
         throw new ServiceUnavailableException('微信小程序码生成暂不可用，请稍后重试');
+      } else {
+        throw error;
       }
-      throw error;
     }
     const isPng = image.length >= PNG_SIGNATURE.length + PNG_IEND.length
       && image.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)

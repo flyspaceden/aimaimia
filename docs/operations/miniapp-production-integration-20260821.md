@@ -242,3 +242,8 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 - 账号数据修复必须单独备份、校验主账号与误建账号业务关系后执行；禁止物理删除用户或覆盖原 App 订单、余额、VIP、提现和推荐关系。
 - 2026-08-25 已完成首例生产误建账号修复：主账号 `AIMM00000000000001` 保持 ACTIVE，误建账号 `AIMM00000000000217` 经只读全外键审计确认无订单、支付、提现、Reward、数字资产、VIP、推荐或售后记录后标记为 DELETED；小程序微信身份迁移到主账号并与 App 微信身份使用同一 `unionId`。误建账号的未使用新人红包撤回、未消费中奖记录过期、购物车/小程序场景清理、全部会话撤销，原账号既有业务数据不变。
 - 数据修复前完整生产库备份为 `/root/aimaimai-account-repair-backups/aimaimai-before-duplicate-account-repair-20260825T1200CST.dump`，权限 `0600`，SHA-256 `20140d2f634dcca66aea3d745075905649b788a7b93853716c5f51c98d40c189`；`pg_restore --list` 校验通过。相同 SQL 先以强制 ROLLBACK 干跑，再以 fail-closed 前置/后置断言提交；修复后 API health 正常、主账号拥有 PHONE + App WECHAT + Mini Program WECHAT 三个身份、误建账号无身份和活跃会话。
+
+## 15. 体验版小程序码回归（2026-08-25）
+
+- 生产体验版推荐中心连续三次生成失败，服务端日志精确记录微信 `/wxa/getwxacodeunlimit` 返回 `errcode=41030`。生产配置为 `release + check_path=true`，但场景页尚未进入正式发布版；同一 AppID/Secret 探针使用 `trial + check_path=false` 成功返回 57,807 字节 JPEG，证明不是凭据、网络或前端文件写入问题。
+- 服务端仍优先请求正式版 `release + check_path=true`。仅当微信明确返回 41030，且目标页仍为服务端固定 `packages/community/scene/index`、业务目标路径已通过 allowlist 时，回退一次 `trial + check_path=false`；其他错误不得降级。正式版页面发布后首请求直接成功，回退自动停止。
