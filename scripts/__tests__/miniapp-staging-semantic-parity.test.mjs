@@ -20,7 +20,7 @@ const gitBlob = (content) => createHash('sha1')
 
 test('tested mini-program marketplace services remain byte-identical to the frozen staging baseline', async () => {
   assert.equal(manifest.sourceStagingCommit, 'acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2');
-  assert.ok(manifest.exactFiles.length >= 42);
+  assert.ok(manifest.exactFiles.length >= 41);
   for (const entry of manifest.exactFiles) {
     const sourceBlob = execFileSync(
       'git',
@@ -43,6 +43,8 @@ test('intentional production differences strengthen marketplace behavior without
   const shipmentModule = await readText('backend/src/modules/shipment/shipment.module.ts');
   const taskService = await readText('backend/src/modules/task/task.service.ts');
   const authController = await readText('backend/src/modules/auth/auth.controller.ts');
+  const authService = await readText('backend/src/modules/auth/auth.service.ts');
+  const miniProgramCodeService = await readText('backend/src/modules/mini-program/mini-program-code.service.ts');
   const schema = await readText('backend/prisma/schema.prisma');
 
   assert.match(paymentService, /RefundSideEffectsService/);
@@ -63,6 +65,11 @@ test('intentional production differences strengthen marketplace behavior without
 
   assert.match(authController, /oauth\/wechat-miniapp/);
   assert.match(authController, /h5-wechat\/invite-login/);
+  assert.match(authService, /allowWechatOnlyRegistration/);
+  assert.match(authService, /WECHAT_MINIAPP_BIND_PHONE/);
+  assert.match(miniProgramCodeService, /error\.errcode === 41030/);
+  assert.match(miniProgramCodeService, /env_version: 'trial'/);
+  assert.match(miniProgramCodeService, /check_path: false/);
   for (const symbol of [
     'enum FulfillmentMode',
     'model PickupPoint',
@@ -97,12 +104,15 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/app.module.ts',
     'backend/src/main.ts',
     'backend/src/modules/auth/auth.controller.ts',
+    'backend/src/modules/auth/auth.service.ts',
     'backend/src/modules/auth/dto/change-password.dto.ts',
     'backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts',
+    'backend/src/modules/auth/dto/wechat-miniapp.dto.ts',
     'backend/src/modules/cart/cart.controller.ts',
     'backend/src/modules/company/company.service.ts',
     'backend/src/modules/health/health.module.ts',
     'backend/src/modules/health/health.service.ts',
+    'backend/src/modules/mini-program/mini-program-code.service.ts',
     'backend/src/modules/mini-program/mini-program-subscription.service.ts',
     'backend/src/modules/payment/dto/payment-callback.dto.ts',
     'backend/src/modules/payment/payment.controller.ts',

@@ -36,10 +36,6 @@
       "gitBlob": "8f876819f232a4e5111aa93c412b5c3362b04b08"
     },
     {
-      "path": "backend/src/modules/auth/auth.service.ts",
-      "gitBlob": "9ae09bdb51451774b51f75d90928119431f8f2ce"
-    },
-    {
       "path": "backend/src/modules/bonus/bonus.controller.ts",
       "gitBlob": "371108113e84fedc9ff0f840602bb9ef8984bbaa"
     },
@@ -190,12 +186,20 @@
       "reason": "retain staging mini-program routes plus current main H5 invite-login routes"
     },
     {
+      "path": "backend/src/modules/auth/auth.service.ts",
+      "reason": "prevent duplicate App and mini-program users with UnionID-aware phone-binding eligibility"
+    },
+    {
       "path": "backend/src/modules/auth/dto/change-password.dto.ts",
       "reason": "formatting-only difference; password validation rules remain identical"
     },
     {
       "path": "backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts",
       "reason": "retain main App WeChat deletion proof DTO alongside mini-program proof DTO"
+    },
+    {
+      "path": "backend/src/modules/auth/dto/wechat-miniapp.dto.ts",
+      "reason": "document the guarded legacy registration endpoint after removing unconditional mini-program account creation"
     },
     {
       "path": "backend/src/modules/cart/cart.controller.ts",
@@ -212,6 +216,10 @@
     {
       "path": "backend/src/modules/health/health.service.ts",
       "reason": "exclude Delivery database probe and expose exact production release SHA"
+    },
+    {
+      "path": "backend/src/modules/mini-program/mini-program-code.service.ts",
+      "reason": "retry WeChat 41030 with the fixed allowlisted scene page in trial before the first formal release"
     },
     {
       "path": "backend/src/modules/mini-program/mini-program-subscription.service.ts",
