@@ -634,12 +634,22 @@ export class AuthService {
         return { userId: identity.userId, authIdentityId };
       });
 
-      // 不能在身份未匹配时先创建第二个账号。客户端必须明确选择“新建”或
-      // 持有手机号短信验证码合并到已有账号；ticket 仅保存微信身份且 5 分钟失效。
+      // 未匹配时按 UnionID 可用性 fail-safe 分流：
+      // - 有 UnionID 且全部候选均未命中，才允许用户明确选择微信直接建号；
+      // - 无 UnionID 时无法排除“同一微信已在 App 注册”，只能验证手机号，禁止静默建号。
+      // requiresAccountChoice 暂保留给已上传旧客户端识别。
       if (!resolved) {
+        const allowWechatOnlyRegistration = Boolean(profile.unionId);
         return {
           requiresAccountChoice: true,
-          miniLoginTicket: await this.createMiniappLoginTicket(profile, 'WECHAT_MINIAPP_CREATE_ACCOUNT'),
+          requiresPhoneBinding: true,
+          allowWechatOnlyRegistration,
+          miniLoginTicket: await this.createMiniappLoginTicket(
+            profile,
+            allowWechatOnlyRegistration
+              ? 'WECHAT_MINIAPP_CREATE_ACCOUNT'
+              : 'WECHAT_MINIAPP_BIND_PHONE',
+          ),
         };
       }
       await this.ensureBuyerNoForBuyer(resolved.userId);
@@ -664,8 +674,13 @@ export class AuthService {
     const initialTicket = await this.readMiniappLoginTicket(
       miniLoginTicket,
       false,
-      'WECHAT_MINIAPP_CREATE_ACCOUNT',
+      ['WECHAT_MINIAPP_CREATE_ACCOUNT', 'WECHAT_MINIAPP_BIND_PHONE'],
     );
+    // 当前线上旧体验版仍可能展示“作为新用户继续”。缺少 UnionID 时后端只签发
+    // BIND_PHONE ticket；旧按钮必须被明确拒绝，但不能销毁 ticket，用户仍可改走手机号绑定。
+    if (initialTicket.purpose !== 'WECHAT_MINIAPP_CREATE_ACCOUNT') {
+      throw new BadRequestException('为避免重复账号，请验证手机号后登录');
+    }
     const profile: WechatLoginProfile = {
       openId: initialTicket.openId,
       unionId: initialTicket.unionId,

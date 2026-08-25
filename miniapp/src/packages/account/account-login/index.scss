@@ -19,3 +19,27 @@
 .account-login-done__title { margin-top: 18px; color: t.$text-primary; font-size: 18px; font-weight: 650; }
 .account-login-done__copy { max-width: 280px; margin-top: 9px; color: t.$text-secondary; font-size: 11px; line-height: 18px; }
 .account-login-done__button { min-height: 42px; margin: 20px 0 0; padding: 0 22px; color: #fff; font-size: 13px; line-height: 42px; background: t.$brand-primary; border-radius: t.$radius-full; }
+
+.account-login-bind { margin-top: 34px; padding: 20px; }
+.account-login-bind__verified { display: flex; align-items: center; gap: 11px; padding: 13px 14px; background: linear-gradient(110deg, t.$brand-soft, rgba(7,169,130,.08)); border: 1px solid rgba(46,125,50,.16); border-radius: t.$radius-lg; }
+.account-login-bind__verified-mark { display: flex; flex: 0 0 40px; align-items: center; justify-content: center; width: 40px; height: 40px; color: #fff; font-size: 15px; font-weight: 750; background: linear-gradient(135deg, t.$brand-primary, t.$ai-start); border-radius: 50%; }
+.account-login-bind__verified-title, .account-login-bind__verified-copy { display: block; }
+.account-login-bind__verified-title { color: t.$text-primary; font-size: 14px; font-weight: 700; line-height: 21px; }
+.account-login-bind__verified-copy { margin-top: 2px; color: t.$text-secondary; font-size: 11px; line-height: 17px; }
+.account-login-bind__title { display: block; margin-top: 20px; color: t.$text-primary; font-size: 21px; font-weight: 750; line-height: 30px; }
+.account-login-bind__copy { display: block; margin-top: 7px; color: t.$text-secondary; font-size: 12px; line-height: 19px; }
+.account-login-bind__field { margin-top: 17px; }
+.account-login-bind__label { display: block; margin-bottom: 7px; color: t.$text-primary; font-size: 12px; font-weight: 650; }
+.account-login-bind__input { box-sizing: border-box; width: 100%; height: 46px; padding: 0 13px; color: t.$text-primary; font-size: 14px; line-height: 46px; background: t.$background; border: 1px solid t.$border; border-radius: t.$radius-md; }
+.account-login-bind__code { display: flex; align-items: stretch; gap: 9px; }
+.account-login-bind__code .account-login-bind__input { flex: 1; min-width: 0; }
+.account-login-bind__send { flex: 0 0 auto; min-width: 104px; height: 46px; margin: 0; padding: 0 12px; color: t.$brand-primary; font-size: 12px; font-weight: 650; line-height: 46px; background: t.$brand-soft; border: 0; border-radius: t.$radius-md; }
+.account-login-bind__send[disabled] { color: t.$text-tertiary; background: t.$skeleton; }
+.account-login-bind__submit { width: 100%; min-height: 49px; margin: 22px 0 0; color: #fff; font-size: 14px; font-weight: 700; line-height: 49px; background: linear-gradient(105deg, #228b3a, #07a982); border: 0; border-radius: t.$radius-full; box-shadow: 0 9px 20px rgba(46,125,50,.2); }
+.account-login-bind__submit[disabled] { opacity: .58; box-shadow: none; }
+.account-login-bind__note { display: block; margin-top: 12px; color: t.$text-secondary; font-size: 11px; line-height: 18px; text-align: center; }
+.account-login-bind__new { margin-top: 18px; padding-top: 16px; border-top: 1px dashed t.$border; }
+.account-login-bind__new-divider { display: block; color: t.$text-secondary; font-size: 11px; line-height: 18px; text-align: center; }
+.account-login-bind__new-button { width: 100%; min-height: 44px; margin: 10px 0 0; color: t.$brand-primary; font-size: 13px; font-weight: 650; line-height: 44px; background: #fff; border: 1px solid rgba(46,125,50,.28); border-radius: t.$radius-full; }
+.account-login-bind__new-button[disabled] { opacity: .58; }
+.account-login-bind__back { display: block; margin-top: 16px; color: t.$brand-primary; font-size: 12px; line-height: 20px; text-align: center; }

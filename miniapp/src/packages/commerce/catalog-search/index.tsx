@@ -11,6 +11,7 @@ import { addRecentSearch, clearRecentSearches, loadRecentSearches } from '@/comp
 import { CartRepo, CompanyRepo, ProductRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
 import type { Company, Product } from '@/types';
+import { decodeRouteCsv, decodeRouteText } from './route-utils';
 import './index.scss';
 
 const PAGE_SIZE = 12;
@@ -18,28 +19,16 @@ const hotKeywords = ['时令水果', '产地鲜选', '绿色蔬菜', '米面粮�
 const openProduct = (product: Product) => Taro.navigateTo({ url: `/packages/commerce/catalog-product/index?id=${encodeURIComponent(product.id)}` });
 const openCompany = (company: Company) => Taro.navigateTo({ url: `/packages/commerce/catalog-company/index?id=${encodeURIComponent(company.id)}` });
 
-function routeText(value: unknown, maxLength = 128): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim();
-  return normalized ? normalized.slice(0, maxLength) : undefined;
-}
-
-function routeCsv(value: unknown, maxItems = 8): string[] {
-  const normalized = routeText(value, 256);
-  if (!normalized) return [];
-  return Array.from(new Set(normalized.split(',').map((item) => item.trim().slice(0, 32)).filter(Boolean))).slice(0, maxItems);
-}
-
 export default function CatalogSearchPage() {
   const router = useRouter();
   const hydrated = useAuthStore((state) => state.hydrated);
   const loggedIn = useAuthStore((state) => Boolean(state.accessToken));
   const queryClient = useQueryClient();
-  const initial = typeof router.params.q === 'string' ? router.params.q : '';
-  const categoryId = routeText(router.params.categoryId, 64);
-  const constraints = useMemo(() => routeCsv(router.params.constraints), [router.params.constraints]);
+  const initial = decodeRouteText(router.params.q) || '';
+  const categoryId = decodeRouteText(router.params.categoryId, 64);
+  const constraints = useMemo(() => decodeRouteCsv(router.params.constraints), [router.params.constraints]);
   const recommendThemes = useMemo(
-    () => routeCsv(router.params.recommendThemes).filter(
+    () => decodeRouteCsv(router.params.recommendThemes).filter(
       (item): item is 'hot' | 'discount' | 'tasty' | 'seasonal' | 'recent' => ['hot', 'discount', 'tasty', 'seasonal', 'recent'].includes(item),
     ),
     [router.params.recommendThemes],
@@ -47,11 +36,11 @@ export default function CatalogSearchPage() {
   const rawMaxPrice = Number(router.params.maxPrice);
   const maxPrice = Number.isFinite(rawMaxPrice) && rawMaxPrice > 0 ? Math.min(rawMaxPrice, 1_000_000) : undefined;
   const preferRecommended = router.params.preferRecommended === '1' || recommendThemes.length > 0;
-  const usageScenario = routeText(router.params.usageScenario);
-  const originPreference = routeText(router.params.originPreference);
-  const dietaryPreference = routeText(router.params.dietaryPreference);
-  const flavorPreference = routeText(router.params.flavorPreference);
-  const categoryHint = routeText(router.params.categoryHint);
+  const usageScenario = decodeRouteText(router.params.usageScenario);
+  const originPreference = decodeRouteText(router.params.originPreference);
+  const dietaryPreference = decodeRouteText(router.params.dietaryPreference);
+  const flavorPreference = decodeRouteText(router.params.flavorPreference);
+  const categoryHint = decodeRouteText(router.params.categoryHint);
   const hasSemanticFilter = Boolean(categoryId || preferRecommended || constraints.length || maxPrice || usageScenario || originPreference || dietaryPreference || flavorPreference || categoryHint);
   const [input, setInput] = useState(initial);
   const [keyword, setKeyword] = useState(initial);

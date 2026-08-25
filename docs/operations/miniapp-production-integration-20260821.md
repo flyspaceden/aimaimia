@@ -233,3 +233,17 @@ App 源码 0 还有一个必须显式接受的跨端限制：同一账号在小�
 - 线上入口资源为 `InviteChoiceLanding-CF7XIZEh.js`，入口 bundle 不再引用 `InviteAuthLanding`；实际产物包含手机端“小程序 / App”按钮、桌面“按需生成小程序二维码 / App 推荐交接二维码”，且不包含手机号登录、验证码或旧 H5 Auth 端点字符串。
 - `https://app.ai-maimai.com/`、`/invite/SABC1234` 与生产 readiness 均返回 HTTP 200；生产 API 组件状态为 database/redis up。`SABC1234` 为无效测试码，只验证错误路径，不代表普通/VIP 真实推荐绑定验收完成。
 - 待完成：使用真实有效 VIP 推荐码（如仍保留普通分享码，再补普通码）在真实微信中验证 URL Link 打开已发布小程序页面、App 下载交接、客户端登录绑定和已有关系不可覆盖；通过后再关闭 `H5-INV07`。
+
+## 14. 小程序跨端微信账号防重复修复（2026-08-25）
+
+- 生产体验版发现同一自然人使用 App 微信与小程序微信时，小程序 `code2Session` 未返回 `unionId`，因此 App `openid` 与小程序 `openid` 无法自动归并，测试人员误点“作为新用户继续”后生成第二个 `User`。
+- 修复后的后端仍先按小程序 `appId + openid` 和全部 `unionId` 候选查找既有用户：命中直接登录；未命中且有 `unionId` 时允许明确的微信新建；未命中且无 `unionId` 时只签发手机号绑定 ticket，旧客户端的新建端点也不能消费该 ticket。
+- 新小程序页面以手机号验证为主操作，显示清晰输入框与“绑定手机号并登录”；只有后端明确返回 `allowWechatOnlyRegistration=true` 才显示低层级微信建号按钮。
+- 账号数据修复必须单独备份、校验主账号与误建账号业务关系后执行；禁止物理删除用户或覆盖原 App 订单、余额、VIP、提现和推荐关系。
+- 2026-08-25 已完成首例生产误建账号修复：主账号 `AIMM00000000000001` 保持 ACTIVE，误建账号 `AIMM00000000000217` 经只读全外键审计确认无订单、支付、提现、Reward、数字资产、VIP、推荐或售后记录后标记为 DELETED；小程序微信身份迁移到主账号并与 App 微信身份使用同一 `unionId`。误建账号的未使用新人红包撤回、未消费中奖记录过期、购物车/小程序场景清理、全部会话撤销，原账号既有业务数据不变。
+- 数据修复前完整生产库备份为 `/root/aimaimai-account-repair-backups/aimaimai-before-duplicate-account-repair-20260825T1200CST.dump`，权限 `0600`，SHA-256 `20140d2f634dcca66aea3d745075905649b788a7b93853716c5f51c98d40c189`；`pg_restore --list` 校验通过。相同 SQL 先以强制 ROLLBACK 干跑，再以 fail-closed 前置/后置断言提交；修复后 API health 正常、主账号拥有 PHONE + App WECHAT + Mini Program WECHAT 三个身份、误建账号无身份和活跃会话。
+
+## 15. 体验版小程序码回归（2026-08-25）
+
+- 生产体验版推荐中心连续三次生成失败，服务端日志精确记录微信 `/wxa/getwxacodeunlimit` 返回 `errcode=41030`。生产配置为 `release + check_path=true`，但场景页尚未进入正式发布版；同一 AppID/Secret 探针使用 `trial + check_path=false` 成功返回 57,807 字节 JPEG，证明不是凭据、网络或前端文件写入问题。
+- 服务端仍优先请求正式版 `release + check_path=true`。仅当微信明确返回 41030，且目标页仍为服务端固定 `packages/community/scene/index`、业务目标路径已通过 allowlist 时，回退一次 `trial + check_path=false`；其他错误不得降级。正式版页面发布后首请求直接成功，回退自动停止。

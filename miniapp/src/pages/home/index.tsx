@@ -315,7 +315,7 @@ export default function HomePage() {
 
         {voiceIntent ? (
         <View className='home-ai-result aim-card'>
-          <Text className='home-ai-result__heard'>我听到 “{voiceIntent.transcript}”</Text>
+          <Text className='home-ai-result__heard'>{voiceIntent.transcript}</Text>
           <Text className='home-ai-result__reply'>{aiReply(voiceIntent)}</Text>
           {voiceIntent.type === 'clarify' && voiceIntent.clarify?.candidates.length ? (
             <View className='home-ai-result__choices'>
