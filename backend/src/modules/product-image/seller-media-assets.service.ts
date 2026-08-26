@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { ProductImageQualityService } from './product-image-quality.service';
@@ -21,6 +21,7 @@ export class SellerMediaAssetsService {
       file,
       { preserveQrCodes: true, preserveEvidencePixels: true },
       'phase-a-evidence-v2',
+      SellerMediaAssetStatus.AVAILABLE,
     );
   }
 
@@ -31,6 +32,7 @@ export class SellerMediaAssetsService {
       file,
       { preserveQrCodes: true, preserveLosslessImage: true },
       'phase-b-deterministic-v1',
+      SellerMediaAssetStatus.CANDIDATE,
     );
   }
 
@@ -40,6 +42,7 @@ export class SellerMediaAssetsService {
     file: Express.Multer.File,
     uploadOptions: { preserveQrCodes: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean },
     diagnosisVersion: string,
+    assetStatus: SellerMediaAssetStatus,
   ) {
     if (!file?.mimetype?.startsWith('image/')) {
       throw new BadRequestException('商品视觉 Agent 仅接受图片文件');
@@ -54,6 +57,7 @@ export class SellerMediaAssetsService {
         companyId,
         uploadedByStaffId: staffId,
         purpose: 'PRODUCT_IMAGE',
+        status: assetStatus,
         objectKey: uploaded.key,
         canonicalSha256: uploaded.canonicalSha256,
         mimeType: uploaded.mimeType,
@@ -100,16 +104,30 @@ export class SellerMediaAssetsService {
     return this.uploadService.createProductMediaUrl(objectKey);
   }
 
-  async assertOwnedProductImageAssets(companyId: string, assetIds: string[]) {
+  async assertOwnedProductImageAssets(
+    companyId: string,
+    assetIds: string[],
+    options: { allowedAdoptedAssetIds?: string[] } = {},
+  ) {
     const uniqueIds = [...new Set(assetIds)];
     if (uniqueIds.length !== assetIds.length) {
       throw new BadRequestException('商品图片不能重复引用同一资产');
     }
     const assets = await this.prisma.sellerMediaAsset.findMany({
-      where: { id: { in: uniqueIds }, companyId, purpose: 'PRODUCT_IMAGE', deletedAt: null },
+      where: {
+        id: { in: uniqueIds },
+        companyId,
+        purpose: 'PRODUCT_IMAGE',
+        status: { in: [SellerMediaAssetStatus.AVAILABLE, SellerMediaAssetStatus.ADOPTED] },
+        deletedAt: null,
+      },
     });
     if (assets.length !== uniqueIds.length) {
       throw new ForbiddenException('图片资产不属于当前商户或已不可用');
+    }
+    const allowedAdoptedIds = new Set(options.allowedAdoptedAssetIds ?? []);
+    if (assets.some((asset) => asset.status === SellerMediaAssetStatus.ADOPTED && !allowedAdoptedIds.has(asset.id))) {
+      throw new ForbiddenException('已采用的优化图片只能保留在当前已关联商品中');
     }
     if (assets.some((asset) => (asset.scanSummary as { needsReview?: boolean } | null)?.needsReview === true)) {
       throw new ConflictException('图片仍需人工安全复核，暂不能用于商品展示');

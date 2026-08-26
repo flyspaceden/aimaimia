@@ -25,6 +25,31 @@ describe('SellerMediaAssetsService derived deterministic assets', () => {
     }));
   });
 
+  it('does not let an unapplied candidate pass the ordinary mediaAssetIds gate', async () => {
+    const prisma = {
+      sellerMediaAsset: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const service = new SellerMediaAssetsService(prisma as any, {} as any, {} as any, {} as any);
+
+    await expect(service.assertOwnedProductImageAssets('company-1', ['candidate-asset'])).rejects.toThrow('不属于当前商户或已不可用');
+    expect(prisma.sellerMediaAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ['AVAILABLE', 'ADOPTED'] } }),
+    }));
+  });
+
+  it('does not let an adopted candidate be attached to a different product through the ordinary gate', async () => {
+    const prisma = {
+      sellerMediaAsset: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'adopted-asset', status: 'ADOPTED', scanSummary: null }]),
+      },
+    };
+    const service = new SellerMediaAssetsService(prisma as any, {} as any, {} as any, {} as any);
+
+    await expect(service.assertOwnedProductImageAssets('company-1', ['adopted-asset'])).rejects.toThrow('只能保留在当前已关联商品中');
+  });
+
   it('writes a renderer candidate through the managed, lossless upload path', async () => {
     const prisma = {
       sellerMediaAsset: {

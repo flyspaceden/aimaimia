@@ -43,6 +43,22 @@ describe('SellerProductsService SKU weight validation', () => {
     calculateTotalWeightGram: jest.fn(),
   });
 
+  it('requires the original evidence image whenever an adopted optimization media list is replaced', () => {
+    const service = buildService();
+    const existing = [
+      { assetId: 'candidate', optimizationId: 'optimization-1', isEvidenceImage: false },
+      { assetId: 'source', optimizationId: null, isEvidenceImage: true },
+    ];
+
+    expect(() => (service as any).assertOptimizationEvidenceRetained(existing, [
+      { assetId: 'candidate', optimizationId: 'optimization-1' },
+    ])).toThrow('必须保留原实拍证据图');
+    expect(() => (service as any).assertOptimizationEvidenceRetained(existing, [
+      { assetId: 'candidate', optimizationId: 'optimization-1' },
+      { assetId: 'source', optimizationId: null },
+    ])).not.toThrow();
+  });
+
   const buildService = () => {
     const prisma = {
       product: {
@@ -851,6 +867,17 @@ describe('SellerProductsService SKU weight validation', () => {
     expect(tx.productTag.createMany).not.toHaveBeenCalled();
   });
 
+  it('rejects legacy media URLs before any product write', async () => {
+    const { service, prisma } = buildDraftService();
+
+    await expect(service.updateDraft('company_1', 'draft_1', {
+      mediaUrls: ['https://example.com/unmanaged.jpg'],
+    })).rejects.toThrow('只能提交受管图片资产');
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
   it('creates BUNDLE product with one selling SKU, zero stock, and normalized bundleItems', async () => {
     const { service, tx } = buildBundleCreateService();
 

@@ -132,6 +132,13 @@ enum SellerMediaAssetPurpose {
   PRODUCT_IMAGE
 }
 
+enum SellerMediaAssetStatus {
+  AVAILABLE
+  CANDIDATE
+  ADOPTED
+  RETIRED
+}
+
 enum ProductMediaRevisionStatus {
   PENDING_REVIEW
   APPROVED
@@ -1671,6 +1678,7 @@ model SellerMediaAsset {
   uploadedByStaffId String
   uploadedByStaff   CompanyStaff            @relation(fields: [uploadedByStaffId], references: [id], onDelete: Restrict)
   purpose           SellerMediaAssetPurpose
+  status            SellerMediaAssetStatus  @default(AVAILABLE)
   objectKey         String                  @unique
   canonicalSha256   String
   mimeType          String
@@ -1691,6 +1699,7 @@ model SellerMediaAsset {
   @@index([companyId, createdAt])
   @@index([companyId, canonicalSha256])
   @@index([uploadedByStaffId, createdAt])
+  @@index([companyId, status, createdAt])
 }
 
 model ProductImageOptimization {
@@ -1731,6 +1740,7 @@ model ProductImageOptimization {
   artifacts            ProductImageArtifact[]
   lineage              ProductImageAssetLineage[]
   productMedia         ProductMedia[]
+  mediaRevisions       ProductMediaRevision[]
 
   @@unique([companyId, idempotencyKey])
   // 同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING 任务由 migration 中的
@@ -1787,6 +1797,8 @@ model ProductMediaRevision {
   product              Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
   companyId            String
   company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  optimizationId       String?
+  optimization         ProductImageOptimization?  @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
   expectedMediaVersion Int
   proposedMedia        Json
   status               ProductMediaRevisionStatus @default(PENDING_REVIEW)
@@ -1806,6 +1818,7 @@ model ProductMediaRevision {
   @@index([productId, status, createdAt])
   @@index([companyId, createdAt])
   @@index([expiresAt])
+  @@index([optimizationId])
 }
 
 model ProductTag {

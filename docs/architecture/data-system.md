@@ -451,6 +451,7 @@ SellerUserRole
 #### SellerMediaAsset（受管商品图片资产）
 - id (uuid, PK), companyId (uuid FK Company), uploadedByStaffId (uuid FK CompanyStaff)
 - purpose (enum: PRODUCT_IMAGE), objectKey (text unique), canonicalSha256 (text)
+- status (enum: AVAILABLE/CANDIDATE/ADOPTED/RETIRED) — `CANDIDATE` 和 `ADOPTED` 均不能经普通 `mediaAssetIds` 写入商品，只能走任务 adopt/专用既有媒体校验；采用后转为 `ADOPTED`，保留其优化来源
 - mimeType, byteSize, width, height
 - scanSummary (jsonb nullable) — 联系方式/二维码检测和 `needsReview`；为真时不得用于展示或封面审核
 - diagnosis / diagnosisVersion / diagnosedAt — 免费质量诊断及其版本
@@ -461,6 +462,7 @@ SellerUserRole
 - expectedMediaVersion (int), proposedMedia (jsonb), status (enum: PENDING_REVIEW/APPROVED/REJECTED/WITHDRAWN/EXPIRED)
 - requestedByStaffId (uuid FK CompanyStaff), attestation (jsonb), idempotencyKey
 - reviewedByAdminId, reviewedAt, reviewNote, appliedAt, expiresAt, createdAt, updatedAt
+- optimizationId (nullable FK ProductImageOptimization) — 候选采用审核通过时才将任务转为 ADOPTED
 - unique(companyId, idempotencyKey)；同一 product 同时最多一条 PENDING_REVIEW
 
 #### ProductImageOptimization（商品视觉任务）

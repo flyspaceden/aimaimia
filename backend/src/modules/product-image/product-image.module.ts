@@ -8,11 +8,13 @@ import { ProductMediaRevisionsService } from './product-media-revisions.service'
 import { AdminProductMediaRevisionsController } from './admin-product-media-revisions.controller';
 import { ProductImageCompositionService } from './product-image-composition.service';
 import { DisabledProductImageBackgroundProvider } from './product-image-background.provider';
+import { ProductImageOptimizationService } from './product-image-optimization.service';
+import { ProductImageOptimizationController } from './product-image-optimization.controller';
 
 @Module({
   imports: [UploadModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, DisabledProductImageBackgroundProvider],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}

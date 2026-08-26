@@ -58,7 +58,8 @@ export class SellerProductsService {
     companyId: string,
     mediaAssetIds: string[] | undefined,
     mediaUrls: string[] | undefined,
-  ): Promise<Array<{ type: 'IMAGE'; url: string; sortOrder: number; assetId?: string }> | undefined> {
+    existingMedia: Array<{ assetId?: string | null; visualOrigin?: any; optimizationId?: string | null; isEvidenceImage?: boolean }> = [],
+  ): Promise<Array<{ type: 'IMAGE'; url: string; sortOrder: number; assetId?: string; visualOrigin?: any; optimizationId?: string | null; isEvidenceImage?: boolean }> | undefined> {
     if (mediaUrls !== undefined) {
       throw new BadRequestException('商品图片只能提交受管图片资产，请重新上传图片后再保存');
     }
@@ -68,12 +69,54 @@ export class SellerProductsService {
         throw new BadRequestException('商品图片资产服务暂不可用');
       }
       if (mediaAssetIds.length > 9) throw new BadRequestException('商品最多上传 9 张图片');
-      const assets = await mediaAssets.assertOwnedProductImageAssets(companyId, mediaAssetIds);
+      const existingByAssetId = new Map<string, typeof existingMedia[number]>();
+      for (const media of existingMedia) {
+        if (typeof media.assetId === 'string') existingByAssetId.set(media.assetId, media);
+      }
+      const assets = await mediaAssets.assertOwnedProductImageAssets(companyId, mediaAssetIds, {
+        allowedAdoptedAssetIds: [...existingByAssetId.keys()],
+      });
       return Promise.all(assets.map(async (asset, index) => {
-        return { type: 'IMAGE' as const, url: mediaAssets.getStableProductMediaUrl(asset.objectKey), sortOrder: index, assetId: asset.id };
+        const previous = existingByAssetId.get(asset.id);
+        return {
+          type: 'IMAGE' as const,
+          url: mediaAssets.getStableProductMediaUrl(asset.objectKey),
+          sortOrder: index,
+          assetId: asset.id,
+          ...(previous && {
+            visualOrigin: previous.visualOrigin,
+            optimizationId: previous.optimizationId ?? null,
+            isEvidenceImage: previous.isEvidenceImage === true,
+          }),
+        };
       }));
     }
     return undefined;
+  }
+
+  private assertOptimizationEvidenceRetained(
+    existingMedia: Array<{ assetId?: string | null; optimizationId?: string | null; isEvidenceImage?: boolean }>,
+    replacementMedia: Array<{ assetId?: string; optimizationId?: string | null }> | undefined,
+  ) {
+    if (replacementMedia === undefined) return;
+    const optimizationPresent = existingMedia.some((media) => media.optimizationId)
+      || replacementMedia.some((media) => media.optimizationId);
+    if (!optimizationPresent) return;
+    const evidenceAssetIds = existingMedia
+      .filter((media): media is typeof media & { assetId: string } => media.isEvidenceImage === true && typeof media.assetId === 'string')
+      .map((media) => media.assetId);
+    if (evidenceAssetIds.length === 0
+      || evidenceAssetIds.some((assetId) => !replacementMedia.some((media) => media.assetId === assetId))) {
+      throw new ConflictException('优化图片必须保留原实拍证据图，不能只保存候选图片');
+    }
+  }
+
+  private assertPersistedOptimizationEvidence(
+    media: Array<{ assetId?: string | null; optimizationId?: string | null; isEvidenceImage?: boolean }>,
+  ) {
+    if (media.some((item) => item.optimizationId) && !media.some((item) => item.isEvidenceImage === true && item.assetId)) {
+      throw new BadRequestException('提交审核前必须保留一张原实拍证据图');
+    }
   }
 
 
@@ -100,6 +143,9 @@ export class SellerProductsService {
         status: true,
         vipGiftItems: { select: { id: true }, take: 1 },
       },
+    },
+    media: {
+      select: { assetId: true, visualOrigin: true, optimizationId: true, isEvidenceImage: true },
     },
   } as const;
 
@@ -898,13 +944,14 @@ export class SellerProductsService {
 
   /** 编辑商品 */
   async update(companyId: string, productId: string, dto: UpdateProductDto) {
-    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
       select: this.profitSafetyProductSelect,
     });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls, product.media);
+    this.assertOptimizationEvidenceRetained(product.media, mediaCreateData);
     if (mediaCreateData !== undefined && product.status === 'ACTIVE' && product.auditStatus === 'APPROVED') {
       throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
     }
@@ -994,11 +1041,12 @@ export class SellerProductsService {
       if (mediaCreateData !== undefined) {
         const currentMediaState = await tx.product.findUnique({
           where: { id: productId },
-          select: { status: true, auditStatus: true },
+          select: { status: true, auditStatus: true, media: { select: { assetId: true, optimizationId: true, isEvidenceImage: true } } },
         });
         if (currentMediaState?.status === 'ACTIVE' && currentMediaState.auditStatus === 'APPROVED') {
           throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
         }
+        this.assertOptimizationEvidenceRetained(currentMediaState?.media ?? [], mediaCreateData);
       }
       this.assertLockedMarkupRate(context, preparedMarkupRate);
       // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
@@ -1666,11 +1714,10 @@ export class SellerProductsService {
    * 全量覆盖写：skus 和 media 传了就整体替换，tagIds 传了就整体替换。
    */
   async updateDraft(companyId: string, productId: string, dto: UpdateDraftDto) {
-    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({
         where: { id: productId },
-        include: { company: { select: { isPlatform: true } } },
+        include: { company: { select: { isPlatform: true } }, media: true },
       });
       if (!product) throw new NotFoundException('商品不存在');
       if (product.companyId !== companyId)
@@ -1678,6 +1725,8 @@ export class SellerProductsService {
       this.assertSellerManagedProduct(product);
       if (product.status !== 'DRAFT')
         throw new BadRequestException('该商品非草稿状态，不能用此接口更新');
+      const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls, product.media);
+      this.assertOptimizationEvidenceRetained(product.media, mediaCreateData);
       this.assertNoTypeConversion(product.type, dto.productType);
       const productType = (dto.productType ?? product.type ?? ProductType.SIMPLE) as ProductType;
 
@@ -1874,6 +1923,27 @@ export class SellerProductsService {
         if (isBundleProduct) {
           this.assertBundleSellingSkuCount(product.skus);
         }
+
+        const mediaAssetIds = product.media.map((media: any) => media.assetId).filter((id: unknown): id is string => typeof id === 'string');
+        if (mediaAssetIds.length !== product.media.length) {
+          throw new BadRequestException('草稿含有历史图片，请重新上传为受管图片后再提交审核');
+        }
+        if (mediaAssetIds.length > 0) {
+          const assets = await tx.sellerMediaAsset.findMany({
+            where: {
+              id: { in: mediaAssetIds },
+              companyId,
+              purpose: 'PRODUCT_IMAGE',
+              status: { in: ['AVAILABLE', 'ADOPTED'] },
+              deletedAt: null,
+            },
+            select: { id: true, scanSummary: true, status: true },
+          });
+          if (assets.length !== mediaAssetIds.length || assets.some((asset) => (asset.scanSummary as any)?.needsReview === true)) {
+            throw new BadRequestException('草稿图片不可用或仍需人工安全复核');
+          }
+        }
+        this.assertPersistedOptimizationEvidence(product.media);
 
         // 组装 CreateProductDto 形状跑全量校验
         const candidate = {
