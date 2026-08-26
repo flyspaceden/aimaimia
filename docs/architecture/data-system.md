@@ -478,6 +478,10 @@ SellerUserRole
 - assetId (nullable FK SellerMediaAsset), objectKey（可复用同一受管源图，不作全局唯一）, sha256, mimeType, byteSize, width, height
 - isAigc, metadata, createdAt
 
+#### ProductImageBudgetLedger（付费背景预算账本）
+- companyId、optimizationId、type (RESERVED/RELEASED/SETTLED)、amountCents、budgetVersion、idempotencyKey、createdAt
+- 每个任务只有一笔预占和一笔终态流水；每日正预算上限在写入预占前计算。开关开启但日上限缺失或为零时拒绝请求。
+
 #### ProductImageAssetLineage（来源谱系）
 - optimizationId (FK), sourceAssetId (FK SellerMediaAsset), artifactId (FK ProductImageArtifact)
 - role (PRIMARY_SOURCE/ADDITIONAL_SOURCE/FOREGROUND_REFERENCE), createdAt

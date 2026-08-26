@@ -2,16 +2,24 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 
 export type ProductImageBackgroundPreset = 'NEUTRAL_STUDIO' | 'COLD_CHAIN' | 'ORIGIN_SCENE';
 
-export type ProductImageBackgroundRequest = {
-  foregroundUrl: string;
+export type ProductImageBackgroundSubmission = {
+  /** Server-held, verified transparent foreground; never an arbitrary URL. */
+  foregroundPng: Buffer;
+  foregroundCanonicalSha256: string;
+  maskArtifactId: string;
   preset: ProductImageBackgroundPreset;
+  idempotencyKey: string;
 };
 
 export type ProductImageBackgroundTask = { providerTaskId: string };
+export type ProductImageBackgroundTaskState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
+export type ProductImageBackgroundResult = { image: Buffer; mimeType: 'image/png'; providerUsageCents: number };
 
 export interface ProductImageBackgroundProvider {
   isAvailable(): boolean;
-  create(request: ProductImageBackgroundRequest): Promise<ProductImageBackgroundTask>;
+  submit(request: ProductImageBackgroundSubmission): Promise<ProductImageBackgroundTask>;
+  query(providerTaskId: string): Promise<{ state: ProductImageBackgroundTaskState }>;
+  fetchVerifiedResult(providerTaskId: string): Promise<ProductImageBackgroundResult>;
 }
 
 /**
@@ -28,9 +36,17 @@ export class DisabledProductImageBackgroundProvider implements ProductImageBackg
     return false;
   }
 
-  async create(_request: ProductImageBackgroundRequest): Promise<ProductImageBackgroundTask> {
+  async submit(_request: ProductImageBackgroundSubmission): Promise<ProductImageBackgroundTask> {
     throw new ServiceUnavailableException(
       'AI 商品背景生成尚未配置。请先在 staging 配置开关、百炼北京地域业务空间、预算和透明前景链路。',
     );
+  }
+
+  async query(_providerTaskId: string): Promise<{ state: ProductImageBackgroundTaskState }> {
+    throw new ServiceUnavailableException('AI 商品背景生成尚未配置。');
+  }
+
+  async fetchVerifiedResult(_providerTaskId: string): Promise<ProductImageBackgroundResult> {
+    throw new ServiceUnavailableException('AI 商品背景生成尚未配置。');
   }
 }

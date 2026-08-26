@@ -10,11 +10,12 @@ import { ProductImageCompositionService } from './product-image-composition.serv
 import { DisabledProductImageBackgroundProvider } from './product-image-background.provider';
 import { ProductImageOptimizationService } from './product-image-optimization.service';
 import { ProductImageOptimizationController } from './product-image-optimization.controller';
+import { ProductImageBudgetService } from './product-image-budget.service';
 
 @Module({
   imports: [UploadModule],
   controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, DisabledProductImageBackgroundProvider],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}

@@ -170,6 +170,12 @@ enum ProductImageOptimizationCostTier {
   PAID
 }
 
+enum ProductImageBudgetLedgerType {
+  RESERVED
+  RELEASED
+  SETTLED
+}
+
 enum ProductImageArtifactKind {
   MASK
   FOREGROUND_REFERENCE
@@ -1370,6 +1376,7 @@ model Company {
   sellerMediaAssets          SellerMediaAsset[]
   productMediaRevisions      ProductMediaRevision[]
   productImageOptimizations  ProductImageOptimization[]
+  productImageBudgetEntries  ProductImageBudgetLedger[]
 }
 
 model CompanyProfile {
@@ -1741,6 +1748,7 @@ model ProductImageOptimization {
   lineage              ProductImageAssetLineage[]
   productMedia         ProductMedia[]
   mediaRevisions       ProductMediaRevision[]
+  budgetLedgerEntries  ProductImageBudgetLedger[]
 
   @@unique([companyId, idempotencyKey])
   // 同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING 任务由 migration 中的
@@ -1773,6 +1781,23 @@ model ProductImageArtifact {
   @@index([optimizationId, kind, createdAt])
   @@index([assetId])
   @@index([objectKey])
+}
+
+model ProductImageBudgetLedger {
+  id             String                       @id @default(cuid())
+  companyId      String
+  company        Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  optimizationId String
+  optimization   ProductImageOptimization     @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
+  type           ProductImageBudgetLedgerType
+  amountCents    Int
+  budgetVersion  String
+  idempotencyKey String                       @unique
+  createdAt      DateTime                     @default(now())
+
+  @@unique([optimizationId, type])
+  @@index([companyId, createdAt])
+  @@index([optimizationId, createdAt])
 }
 
 model ProductImageAssetLineage {

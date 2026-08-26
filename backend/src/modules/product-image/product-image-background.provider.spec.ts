@@ -4,6 +4,12 @@ describe('DisabledProductImageBackgroundProvider', () => {
   it('fails closed even if provider-shaped configuration is present', async () => {
     const provider = new DisabledProductImageBackgroundProvider();
     expect(provider.isAvailable()).toBe(false);
-    await expect(provider.create({ foregroundUrl: 'https://example.invalid/a.png', preset: 'NEUTRAL_STUDIO' })).rejects.toThrow('尚未配置');
+    await expect(provider.submit({
+      foregroundPng: Buffer.from('transparent foreground'),
+      foregroundCanonicalSha256: 'source-sha',
+      maskArtifactId: 'mask-artifact',
+      preset: 'NEUTRAL_STUDIO',
+      idempotencyKey: 'background-task-1',
+    })).rejects.toThrow('尚未配置');
   });
 });
