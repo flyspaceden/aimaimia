@@ -4,6 +4,7 @@ import {
   ProductImageArtifactKind,
   ProductImageAssetLineageRole,
   ProductImageOptimizationStatus,
+  ProductMediaRevisionStatus,
   ProductMediaVisualOrigin,
   SellerMediaAssetStatus,
 } from '@prisma/client';
@@ -99,6 +100,12 @@ export class ProductImageOptimizationService {
           where: { kind: ProductImageArtifactKind.CANDIDATE },
           include: { asset: true },
           orderBy: { createdAt: 'asc' },
+        },
+        mediaRevisions: {
+          where: { status: ProductMediaRevisionStatus.PENDING_REVIEW },
+          select: { id: true, status: true, productId: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     });
@@ -571,6 +578,7 @@ export class ProductImageOptimizationService {
         expiresAt: access?.expiresAt,
         integrityProof: (candidate.metadata as { integrityProof?: unknown } | null)?.integrityProof ?? null,
       } : null,
+      pendingReview: task.mediaRevisions?.[0] ?? null,
     };
   }
 

@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { ProductMediaRevisionStatus } from '@prisma/client';
+import { ProductImageOptimizationStatus, ProductMediaRevisionStatus, SellerMediaAssetStatus } from '@prisma/client';
 import { ProductMediaRevisionsService } from './product-media-revisions.service';
 
 function buildService(mediaVersionUpdateCount = 1) {
@@ -16,7 +16,12 @@ function buildService(mediaVersionUpdateCount = 1) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: jest.fn(),
     },
-    sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([{ id: 'asset-1', objectKey: 'seller-product-assets/a.webp', status: 'AVAILABLE' }]) },
+    productImageArtifact: { findFirst: jest.fn().mockResolvedValue({ assetId: 'candidate-asset' }) },
+    productImageOptimization: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    sellerMediaAsset: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'asset-1', objectKey: 'seller-product-assets/a.webp', status: 'AVAILABLE' }]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     product: { updateMany: jest.fn().mockResolvedValue({ count: mediaVersionUpdateCount }) },
     productMedia: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
@@ -34,6 +39,30 @@ function buildService(mediaVersionUpdateCount = 1) {
 }
 
 describe('ProductMediaRevisionsService approval', () => {
+  it('returns the existing pending adoption review instead of creating a duplicate', async () => {
+    const existingRevision = { id: 'revision-1', status: ProductMediaRevisionStatus.PENDING_REVIEW };
+    const prisma = {
+      product: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2, media: [],
+        }),
+      },
+      productImageOptimization: { findFirst: jest.fn() },
+      sellerMediaAsset: { findMany: jest.fn() },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(existingRevision), create: jest.fn() },
+    };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, {} as any);
+
+    await expect(service.requestOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    })).resolves.toBe(existingRevision);
+
+    expect(prisma.productImageOptimization.findFirst).not.toHaveBeenCalled();
+    expect(prisma.productMediaRevision.create).not.toHaveBeenCalled();
+  });
+
   it('keeps an adopted image only when it is already attached to this product and preserves its evidence metadata', async () => {
     const adoptedMedia = { assetId: 'adopted-asset', visualOrigin: 'DETERMINISTIC_COMPOSITE', optimizationId: 'optimization-1', isEvidenceImage: false, sortOrder: 0 };
     const evidenceMedia = { assetId: 'source-asset', visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: true, sortOrder: 1 };
@@ -102,6 +131,27 @@ describe('ProductMediaRevisionsService approval', () => {
     await expect(service.reject('rev-1', 'admin-1', '包装文字不清晰')).resolves.toMatchObject({ status: ProductMediaRevisionStatus.REJECTED });
     expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
     expect(tx.productMedia.createMany).not.toHaveBeenCalled();
+  });
+
+  it('marks the linked candidate terminal and retires it when its review is rejected', async () => {
+    const { service, tx } = buildService(1);
+    tx.productMediaRevision.findUnique.mockResolvedValue({
+      id: 'rev-1', status: ProductMediaRevisionStatus.PENDING_REVIEW, optimizationId: 'task-1',
+    });
+    tx.productMediaRevision.findUniqueOrThrow.mockResolvedValue({ id: 'rev-1', status: ProductMediaRevisionStatus.REJECTED });
+
+    await expect(service.reject('rev-1', 'admin-1', '包装型号不清晰')).resolves.toMatchObject({
+      status: ProductMediaRevisionStatus.REJECTED,
+    });
+
+    expect(tx.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-1', status: ProductImageOptimizationStatus.SUCCEEDED },
+      data: expect.objectContaining({ status: ProductImageOptimizationStatus.REJECTED, failureCode: 'MEDIA_REVISION_REJECTED' }),
+    }));
+    expect(tx.sellerMediaAsset.updateMany).toHaveBeenCalledWith({
+      where: { id: 'candidate-asset', status: SellerMediaAssetStatus.CANDIDATE },
+      data: { status: SellerMediaAssetStatus.RETIRED },
+    });
   });
 
   it('returns a short-lived candidate preview only to the admin review endpoint', async () => {

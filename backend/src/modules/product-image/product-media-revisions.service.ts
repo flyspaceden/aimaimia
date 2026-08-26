@@ -102,6 +102,15 @@ export class ProductMediaRevisionsService {
     if (product.status !== 'ACTIVE' || product.auditStatus !== 'APPROVED') {
       throw new ConflictException('仅已上架且审核通过的商品需提交封面变更审核');
     }
+    const existingPending = await this.prisma.productMediaRevision.findFirst({
+      where: {
+        companyId: input.companyId,
+        productId: input.productId,
+        optimizationId: input.optimizationId,
+        status: ProductMediaRevisionStatus.PENDING_REVIEW,
+      },
+    });
+    if (existingPending) return existingPending;
     const task = await this.prisma.productImageOptimization.findFirst({
       where: {
         id: input.optimizationId,
@@ -181,6 +190,15 @@ export class ProductMediaRevisionsService {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const racedPending = await this.prisma.productMediaRevision.findFirst({
+          where: {
+            companyId: input.companyId,
+            productId: input.productId,
+            optimizationId: input.optimizationId,
+            status: ProductMediaRevisionStatus.PENDING_REVIEW,
+          },
+        });
+        if (racedPending) return racedPending;
         throw new ConflictException('该候选已提交审核或商品已有待审核封面变更');
       }
       throw error;
@@ -307,12 +325,40 @@ export class ProductMediaRevisionsService {
 
   async reject(revisionId: string, adminUserId: string, reviewNote: string) {
     if (!reviewNote.trim()) throw new BadRequestException('请填写驳回原因');
-    const updated = await this.prisma.productMediaRevision.updateMany({
-      where: { id: revisionId, status: ProductMediaRevisionStatus.PENDING_REVIEW },
-      data: { status: ProductMediaRevisionStatus.REJECTED, reviewedByAdminId: adminUserId, reviewedAt: new Date(), reviewNote },
-    });
-    if (updated.count !== 1) throw new ConflictException('该封面变更申请已处理或不存在');
-    return this.prisma.productMediaRevision.findUniqueOrThrow({ where: { id: revisionId } });
+    return this.prisma.$transaction(async (tx) => {
+      const revision = await tx.productMediaRevision.findUnique({ where: { id: revisionId } });
+      if (!revision || revision.status !== ProductMediaRevisionStatus.PENDING_REVIEW) {
+        throw new ConflictException('该封面变更申请已处理或不存在');
+      }
+      const updated = await tx.productMediaRevision.updateMany({
+        where: { id: revisionId, status: ProductMediaRevisionStatus.PENDING_REVIEW },
+        data: { status: ProductMediaRevisionStatus.REJECTED, reviewedByAdminId: adminUserId, reviewedAt: new Date(), reviewNote },
+      });
+      if (updated.count !== 1) throw new ConflictException('该封面变更申请已处理或不存在');
+      if (revision.optimizationId) {
+        const candidateArtifact = await tx.productImageArtifact.findFirst({
+          where: { optimizationId: revision.optimizationId, kind: ProductImageArtifactKind.CANDIDATE },
+          select: { assetId: true },
+        });
+        const rejected = await tx.productImageOptimization.updateMany({
+          where: { id: revision.optimizationId, status: ProductImageOptimizationStatus.SUCCEEDED },
+          data: {
+            status: ProductImageOptimizationStatus.REJECTED,
+            failureCode: 'MEDIA_REVISION_REJECTED',
+            failureDetail: reviewNote.slice(0, 400),
+            completedAt: new Date(),
+          },
+        });
+        if (rejected.count !== 1) throw new ConflictException('候选任务状态已变化，不能驳回审核');
+        if (candidateArtifact?.assetId) {
+          await tx.sellerMediaAsset.updateMany({
+            where: { id: candidateArtifact.assetId, status: SellerMediaAssetStatus.CANDIDATE },
+            data: { status: SellerMediaAssetStatus.RETIRED },
+          });
+        }
+      }
+      return tx.productMediaRevision.findUniqueOrThrow({ where: { id: revisionId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async listPendingForAdmin() {

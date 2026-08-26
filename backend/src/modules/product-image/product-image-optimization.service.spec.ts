@@ -142,6 +142,18 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     expect(result).toMatchObject({ id: 'task-1', status: ProductImageOptimizationStatus.SUCCEEDED });
   });
 
+  it('returns an existing pending review with a successful candidate task', async () => {
+    const { service, prisma } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue({
+      ...completedTask,
+      mediaRevisions: [{ id: 'revision-1', status: 'PENDING_REVIEW', productId: 'product-1', createdAt: new Date() }],
+    });
+
+    await expect(service.getForSeller('company-1', 'task-1')).resolves.toMatchObject({
+      pendingReview: { id: 'revision-1', status: 'PENDING_REVIEW' },
+    });
+  });
+
   it('recovers expired free leases and quarantines paid leases for reconciliation', async () => {
     const taskUpdates = jest.fn()
       .mockResolvedValueOnce({ count: 2 })
