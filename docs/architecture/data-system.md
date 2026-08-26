@@ -466,7 +466,7 @@ SellerUserRole
 - unique(companyId, idempotencyKey)；同一 product 同时最多一条 PENDING_REVIEW
 
 #### ProductImageOptimization（商品视觉任务）
-- id (cuid, PK), companyId (FK), productId (nullable FK；商品删除时置空保留任务审计), kind, status
+- id (cuid, PK), companyId (FK), productId (nullable FK；商品删除前先终止或转入费用对账并退役候选，随后置空保留任务审计), kind, status
 - processingContract / contractHash / inputFingerprint / templateVersion — 固定处理合同与缓存指纹
 - provider / modelVersion 仅记录服务端选定模型；`costTier` 与 `reservedCostCents/actualCostCents` 使用整数分
 - requestedByStaffId / adoptedByStaffId / adoptedAt、idempotencyKey、dedupeKey

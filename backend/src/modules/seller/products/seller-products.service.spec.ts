@@ -257,6 +257,15 @@ describe('SellerProductsService SKU weight validation', () => {
       productTraceLink: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      productImageArtifact: {
+        findMany: jest.fn().mockResolvedValue([{ assetId: 'candidate_1' }]),
+      },
+      sellerMediaAsset: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      productImageOptimization: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       product: {
         delete: jest.fn().mockResolvedValue({ id: 'product_1' }),
       },
@@ -292,6 +301,14 @@ describe('SellerProductsService SKU weight validation', () => {
     });
 
     expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({ where: { skuId: { in: ['sku_1'] } } });
+    expect(tx.sellerMediaAsset.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['candidate_1'] }, status: 'CANDIDATE' },
+      data: { status: 'RETIRED' },
+    });
+    expect(tx.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ productId: 'product_1', status: { in: ['REQUESTED', 'QUEUED'] } }),
+      data: expect.objectContaining({ status: 'CANCELLED', failureCode: 'PRODUCT_DELETED' }),
+    }));
     expect(tx.product.delete).toHaveBeenCalledWith({ where: { id: 'product_1' } });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

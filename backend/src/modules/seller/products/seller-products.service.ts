@@ -8,7 +8,16 @@ import {
   Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy, SkuStatus } from '@prisma/client';
+import {
+  CheckoutSessionStatus,
+  Prisma,
+  ProductImageArtifactKind,
+  ProductImageOptimizationStatus,
+  ProductType,
+  ReturnPolicy,
+  SellerMediaAssetStatus,
+  SkuStatus,
+} from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -1396,6 +1405,73 @@ export class SellerProductsService {
       }
       // ProductTraceLink 无 Cascade，手动清理
       await tx.productTraceLink.deleteMany({ where: { productId } });
+      // ProductImageOptimization keeps audit history after Product is deleted
+      // (productId FK is SET NULL), so terminalize every non-terminal task and
+      // retire its CANDIDATE artifacts before that unlink can occur.
+      const candidateArtifacts = await tx.productImageArtifact.findMany({
+        where: {
+          optimization: { productId },
+          kind: ProductImageArtifactKind.CANDIDATE,
+          asset: { is: { status: SellerMediaAssetStatus.CANDIDATE } },
+        },
+        select: { assetId: true },
+      });
+      const candidateAssetIds = candidateArtifacts
+        .map((artifact) => artifact.assetId)
+        .filter((assetId): assetId is string => !!assetId);
+      if (candidateAssetIds.length > 0) {
+        await tx.sellerMediaAsset.updateMany({
+          where: { id: { in: candidateAssetIds }, status: SellerMediaAssetStatus.CANDIDATE },
+          data: { status: SellerMediaAssetStatus.RETIRED },
+        });
+      }
+      await tx.productImageOptimization.updateMany({
+        where: {
+          productId,
+          status: { in: [ProductImageOptimizationStatus.REQUESTED, ProductImageOptimizationStatus.QUEUED] },
+        },
+        data: {
+          status: ProductImageOptimizationStatus.CANCELLED,
+          failureCode: 'PRODUCT_DELETED',
+          failureDetail: '关联商品已删除，任务不再执行',
+          completedAt: new Date(),
+        },
+      });
+      await tx.productImageOptimization.updateMany({
+        where: {
+          productId,
+          kind: 'WHITE_BACKGROUND',
+          costTier: 'FREE',
+          status: ProductImageOptimizationStatus.RUNNING,
+        },
+        data: {
+          status: ProductImageOptimizationStatus.FAILED,
+          failureCode: 'PRODUCT_DELETED',
+          failureDetail: '关联商品已删除，免费渲染任务已终止',
+          completedAt: new Date(),
+          leaseToken: null,
+          leaseExpiresAt: null,
+        },
+      });
+      await tx.productImageOptimization.updateMany({
+        where: { productId, costTier: 'PAID', status: ProductImageOptimizationStatus.RUNNING },
+        data: {
+          status: ProductImageOptimizationStatus.RECONCILING,
+          failureCode: 'PRODUCT_DELETED_RECONCILIATION_REQUIRED',
+          failureDetail: '关联商品已删除，供应商请求和费用仍需对账',
+          leaseToken: null,
+          leaseExpiresAt: null,
+        },
+      });
+      await tx.productImageOptimization.updateMany({
+        where: { productId, status: ProductImageOptimizationStatus.SUCCEEDED },
+        data: {
+          status: ProductImageOptimizationStatus.REJECTED,
+          failureCode: 'PRODUCT_DELETED',
+          failureDetail: '关联商品已删除，候选不可采用',
+          completedAt: new Date(),
+        },
+      });
       // Product 删除时 SKU/Media/Tag 会自动 Cascade
       await tx.product.delete({ where: { id: productId } });
     }, {

@@ -534,7 +534,17 @@ export class ProductImageOptimizationService {
         status: SellerMediaAssetStatus.CANDIDATE,
         deletedAt: null,
         createdAt: { lt: staleBefore },
-        imageArtifacts: { none: {} },
+        OR: [
+          { imageArtifacts: { none: {} } },
+          {
+            imageArtifacts: {
+              some: {
+                kind: ProductImageArtifactKind.CANDIDATE,
+                optimization: { is: { productId: null } },
+              },
+            },
+          },
+        ],
       },
       data: { status: SellerMediaAssetStatus.RETIRED },
     });

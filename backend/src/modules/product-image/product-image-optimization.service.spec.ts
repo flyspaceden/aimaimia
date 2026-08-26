@@ -168,7 +168,13 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.RECONCILING }),
     }));
     expect(candidateUpdates).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: 'CANDIDATE', imageArtifacts: { none: {} } }),
+      where: expect.objectContaining({
+        status: 'CANDIDATE',
+        OR: expect.arrayContaining([
+          { imageArtifacts: { none: {} } },
+          expect.objectContaining({ imageArtifacts: expect.anything() }),
+        ]),
+      }),
       data: { status: 'RETIRED' },
     }));
   });
