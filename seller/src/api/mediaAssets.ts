@@ -7,6 +7,7 @@ export type ProductImageQualityAdvisory = {
 
 export type SellerProductMediaAsset = {
   id: string;
+  status?: 'AVAILABLE' | 'CANDIDATE' | 'ADOPTED' | 'RETIRED';
   objectKey: string;
   width: number;
   height: number;

@@ -200,6 +200,14 @@ export class ProductImageOptimizationService {
       if (activeProduct.status === 'ACTIVE' && activeProduct.auditStatus === 'APPROVED') {
         throw new ConflictException('商品已上架，请重新提交封面变更审核');
       }
+      const sourceIsAttached = activeProduct.media.some((media) => media.assetId === sourceAsset.id);
+      if (!sourceIsAttached) {
+        throw new ConflictException('原实拍图已不再属于该商品，不能采用候选');
+      }
+      const finalMediaCount = activeProduct.media.length + 1;
+      if (finalMediaCount > 9) {
+        throw new ConflictException('采用候选后商品图片将超过 9 张，请先移除一张非证据图片');
+      }
       const assetRows = await tx.sellerMediaAsset.findMany({
         where: {
           id: { in: [candidateAsset.id, sourceAsset.id] },
@@ -215,14 +223,6 @@ export class ProductImageOptimizationService {
         throw new ConflictException('候选或原实拍资产状态已变化');
       }
       await tx.productMedia.updateMany({ where: { productId: activeProduct.id }, data: { sortOrder: { increment: 1 } } });
-      const sourceIsAttached = activeProduct.media.some((media) => media.assetId === sourceAsset.id);
-      if (!sourceIsAttached) {
-        throw new ConflictException('原实拍图已不再属于该商品，不能采用候选');
-      }
-      const finalMediaCount = activeProduct.media.length + 1;
-      if (finalMediaCount > 9) {
-        throw new ConflictException('采用候选后商品图片将超过 9 张，请先移除一张非证据图片');
-      }
       await tx.productMedia.updateMany({
         where: { productId: activeProduct.id, assetId: sourceAsset.id },
         data: { isEvidenceImage: true },

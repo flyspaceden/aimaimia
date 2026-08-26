@@ -243,7 +243,10 @@ export class SellerProductsService {
   private sellerProductInclude(): any {
     return {
       skus: { where: { status: SkuStatus.ACTIVE } },
-      media: { orderBy: { sortOrder: 'asc' as const } },
+      media: {
+        orderBy: { sortOrder: 'asc' as const },
+        include: { asset: { select: { status: true } } },
+      },
       tags: { include: { tag: true } },
       category: {
         select: {
@@ -521,9 +524,21 @@ export class SellerProductsService {
     if (!product) {
       throw new NotFoundException('商品不存在');
     }
-    return this.decorateProductForSeller(product);
+    return this.attachSellerMediaPreviews(product.companyId, this.decorateProductForSeller(product));
   }
 
+  private async attachSellerMediaPreviews(
+    companyId: string,
+    product: any,
+  ): Promise<any> {
+    if (!this.mediaAssets || !product.media?.some((media: any) => media.assetId)) return product;
+    const media = await Promise.all(product.media.map(async (item: any) => {
+      if (!item.assetId) return item;
+      const preview = await this.mediaAssets!.getProductImageAsset(companyId, item.assetId);
+      return { ...item, url: preview.displayUrl, assetStatus: preview.asset.status };
+    }));
+    return { ...product, media };
+  }
   private assertPositiveSkuWeights(
     skus: Array<{ specName?: string; title?: string; weightGram?: number }>,
   ) {
@@ -775,7 +790,7 @@ export class SellerProductsService {
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权访问该商品');
 
-    return this.decorateProductForSeller(product);
+    return this.attachSellerMediaPreviews(companyId, this.decorateProductForSeller(product));
   }
 
   /** 创建商品 */

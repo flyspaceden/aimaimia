@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   App, Card, Button, Space, InputNumber, Input, Form,
-  TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
+  TreeSelect, Upload, Typography, Descriptions, Tag, Spin, Alert,
   Breadcrumb, Select, Collapse, Switch, Row, Col, Checkbox,
   Modal, Image, Segmented, Table, Tooltip, Popover,
 } from 'antd';
@@ -43,6 +43,12 @@ import {
 } from '@/utils/productSkuDisplay';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
 import { uploadProductImageAsset, type UploadedProductImageAsset } from '@/api/mediaAssets';
+import {
+  adoptProductImageOptimization,
+  getProductImageOptimization,
+  requestWhiteBackground,
+  type ProductImageOptimizationTask,
+} from '@/api/productImageOptimizations';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
 import { buildBundleCatalogQuery } from './bundleCatalog';
@@ -952,13 +958,22 @@ function MultiSpecRows({
 function ImageUploadSection({
   fileList,
   setFileList,
+  productId,
+  onOptimizationAdopted,
 }: {
   fileList: UploadFile[];
   setFileList: (list: UploadFile[]) => void;
+  productId?: string | null;
+  onOptimizationAdopted?: () => void;
 }) {
   const { message } = App.useApp();
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [optimizationTask, setOptimizationTask] = useState<ProductImageOptimizationTask | null>(null);
+  const [optimizationSource, setOptimizationSource] = useState<{ asset: UploadedProductImageAsset; url: string; name: string } | null>(null);
+  const [optimizationSubmitting, setOptimizationSubmitting] = useState(false);
+  const [adopting, setAdopting] = useState(false);
+  const [truthChecks, setTruthChecks] = useState({ quantity: false, labels: false, facts: false });
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
@@ -982,6 +997,105 @@ function ImageUploadSection({
     } finally {
       // 浏览器接管下载流程，无需等待回调
       setTimeout(() => setDownloading(false), 500);
+    }
+  };
+
+  const startWhiteBackground = async (file: UploadFile) => {
+    const asset = getManagedAsset(file);
+    const url = getFileUrl(file);
+    if (!asset || !url) {
+      message.warning('请等待图片上传完成后再优化');
+      return;
+    }
+    if (!productId) {
+      message.info('请先保存为草稿，再制作真实白底主图');
+      return;
+    }
+    setOptimizationSubmitting(true);
+    setOptimizationSource({ asset, url, name: file.name || '商品图片' });
+    try {
+      const task = await requestWhiteBackground({
+        sourceAssetId: asset.asset.id,
+        productId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setOptimizationTask(task);
+      if (task.status === 'FAILED') message.warning(task.failureDetail || '当前图片不能在保真条件下制作白底图');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建真实白底任务失败');
+      setOptimizationSource(null);
+    } finally {
+      setOptimizationSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!optimizationTask) return;
+    if (['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status)) {
+      const timer = window.setInterval(async () => {
+        try {
+          setOptimizationTask(await getProductImageOptimization(optimizationTask.id));
+        } catch {
+          // Keep the last known state; the seller can retry from the image card.
+        }
+      }, 1500);
+      return () => window.clearInterval(timer);
+    }
+    if (optimizationTask.status !== 'SUCCEEDED' || !optimizationTask.candidate?.expiresAt) return;
+    const renewInMs = Math.max(1000, new Date(optimizationTask.candidate.expiresAt).getTime() - Date.now() - 30_000);
+    const timer = window.setTimeout(async () => {
+      try {
+        setOptimizationTask(await getProductImageOptimization(optimizationTask.id));
+      } catch {
+        // Keep the displayed comparison; a later retry will obtain a new URL.
+      }
+    }, renewInMs);
+    return () => window.clearTimeout(timer);
+  }, [optimizationTask]);
+
+  const adoptOptimization = async () => {
+    if (!optimizationTask || !productId) return;
+    if (fileList.filter((file) => file.status === 'done').length >= 9) {
+      message.warning('采用候选会保留原实拍证据图，当前已达 9 张上限。请先移除一张非证据图片。');
+      return;
+    }
+    setAdopting(true);
+    try {
+      const result = await adoptProductImageOptimization(optimizationTask.id, {
+        productId,
+        quantityConfirmed: truthChecks.quantity,
+        labelsConfirmed: truthChecks.labels,
+        factsConfirmed: truthChecks.facts,
+      });
+      if (result.mode === 'PENDING_REVIEW') {
+        message.success('候选封面已提交审核，买家继续看到当前已审核图片');
+      } else {
+        const candidate = optimizationTask.candidate;
+        if (candidate?.assetId && candidate.displayUrl) {
+          if (!fileList.some((file) => getManagedAsset(file)?.asset.id === candidate.assetId)) {
+            setFileList([{
+              uid: `optimization-${optimizationTask.id}`,
+              name: '真实白底候选.png',
+              status: 'done',
+              url: candidate.displayUrl,
+              response: {
+                asset: { id: candidate.assetId, status: 'ADOPTED' },
+                displayUrl: candidate.displayUrl,
+                expiresAt: candidate.expiresAt || null,
+              },
+            } as UploadFile, ...fileList]);
+          }
+        }
+        message.success('已采用候选，并保留原实拍证据图');
+      }
+      setOptimizationTask(null);
+      setOptimizationSource(null);
+      setTruthChecks({ quantity: false, labels: false, facts: false });
+      onOptimizationAdopted?.();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '采用候选失败');
+    } finally {
+      setAdopting(false);
     }
   };
 
@@ -1013,6 +1127,28 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
+      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#f6ffed', border: '1px solid #b7eb8f' }}>
+        <Space direction="vertical" size={6} style={{ width: '100%' }}>
+          <Text strong style={{ color: '#237804' }}>真实白底主图</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            仅处理已带透明前景的图片；不会重画商品、包装文字、型号、数量或二维码。普通实拍图会提示等待分割能力，而不会冒险美化。
+          </Text>
+          <Space wrap>
+            {fileList.filter((file) => file.status === 'done' && getManagedAsset(file) && getManagedAsset(file)?.asset.status !== 'ADOPTED').map((file) => (
+              <Button
+                key={`optimize-${file.uid}`}
+                size="small"
+                loading={optimizationSubmitting && optimizationSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
+                disabled={!productId || optimizationSubmitting}
+                onClick={() => startWhiteBackground(file)}
+              >
+                制作白底图：{file.name || '图片'}
+              </Button>
+            ))}
+          </Space>
+          {!productId && <Text type="warning" style={{ fontSize: 12 }}>先保存草稿，才能创建可审计的白底候选。</Text>}
+        </Space>
+      </div>
       {hasMixedSourceImages && (
         <Text type="warning" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
           当前同时存在历史图片和新上传图片。请重新上传历史图片后再保存，才能保留每张图片的来源和审核记录。
@@ -1062,6 +1198,60 @@ function ImageUploadSection({
                 style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
               />
             </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        title="真实白底候选"
+        open={!!optimizationTask}
+        onCancel={() => {
+          if (!adopting) {
+            setOptimizationTask(null);
+            setOptimizationSource(null);
+          }
+        }}
+        okText={optimizationTask?.status === 'SUCCEEDED' ? '确认采用候选' : '关闭'}
+        cancelText="返回图片"
+        okButtonProps={{
+          loading: adopting,
+          disabled: optimizationTask?.status === 'SUCCEEDED' && (!truthChecks.quantity || !truthChecks.labels || !truthChecks.facts),
+        }}
+        onOk={optimizationTask?.status === 'SUCCEEDED' ? adoptOptimization : () => {
+          setOptimizationTask(null);
+          setOptimizationSource(null);
+        }}
+        width={920}
+        destroyOnClose
+      >
+        {optimizationTask && optimizationSource && (
+          <>
+            {['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status) && <Alert type="info" showIcon message="正在进行保真白底合成…" description="只会在透明前景基础上合成固定白底，不会调用生成模型。" />}
+            {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message="这张图片暂不能安全制作白底图" description={optimizationTask.failureDetail || '请上传带透明背景的 PNG/WebP，或等待分割能力开放。'} />}
+            {optimizationTask.status === 'SUCCEEDED' && optimizationTask.candidate && (
+              <>
+                <Row gutter={16} style={{ marginTop: 4 }}>
+                  <Col span={12}>
+                    <Card size="small" title="规范安全源">
+                      <Image src={optimizationSource.url} alt={optimizationSource.name} style={{ width: '100%', maxHeight: 360, objectFit: 'contain' }} />
+                    </Card>
+                  </Col>
+                  <Col span={12}>
+                    <Card size="small" title="真实白底候选" styles={{ body: { background: '#fafafa' } }}>
+                      <Image src={optimizationTask.candidate.displayUrl || ''} alt="真实白底候选" style={{ width: '100%', maxHeight: 360, objectFit: 'contain' }} />
+                    </Card>
+                  </Col>
+                </Row>
+                <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                  候选尚未发布。采用后会保留原实拍证据图；已上架商品还需管理员审核。
+                </Text>
+                <Space direction="vertical" style={{ marginTop: 12 }}>
+                  <Checkbox checked={truthChecks.quantity} onChange={(event) => setTruthChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
+                  <Checkbox checked={truthChecks.labels} onChange={(event) => setTruthChecks((value) => ({ ...value, labels: event.target.checked }))}>包装、型号、文字和二维码未变化</Checkbox>
+                  <Checkbox checked={truthChecks.facts} onChange={(event) => setTruthChecks((value) => ({ ...value, facts: event.target.checked }))}>颜色、规格、材质和实物一致</Checkbox>
+                </Space>
+              </>
+            )}
           </>
         )}
       </Modal>
@@ -1200,6 +1390,7 @@ export default function ProductEditPage() {
 function ProductEditForm({ id }: { id: string }) {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1349,7 +1540,7 @@ function ProductEditForm({ id }: { id: string }) {
           name: `图片${i + 1}`,
           status: 'done' as const,
           url: m.url,
-          response: m.assetId ? { asset: { id: m.assetId }, displayUrl: m.url } : undefined,
+          response: m.assetId ? { asset: { id: m.assetId, status: m.assetStatus }, displayUrl: m.url } : undefined,
         })),
       );
     }
@@ -1829,7 +2020,12 @@ function ProductEditForm({ id }: { id: string }) {
           ) : null}
           style={{ marginBottom: 16 }}
         >
-          <ImageUploadSection fileList={fileList} setFileList={setFileList} />
+          <ImageUploadSection
+            fileList={fileList}
+            setFileList={setFileList}
+            productId={product?.id}
+            onOptimizationAdopted={() => { void queryClient.invalidateQueries({ queryKey: ['seller-product', id] }); }}
+          />
         </Card>
 
         <Modal
@@ -2044,7 +2240,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           name: `图片${i + 1}`,
           status: 'done' as const,
           url: m.url,
-          response: m.assetId ? { asset: { id: m.assetId }, displayUrl: m.url } : undefined,
+          response: m.assetId ? { asset: { id: m.assetId, status: m.assetStatus }, displayUrl: m.url } : undefined,
         })),
       );
     }
@@ -2657,7 +2853,12 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
 
         {/* 3. 商品图片 */}
         <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={updateFileList} />
+          <ImageUploadSection
+            fileList={fileList}
+            setFileList={updateFileList}
+            productId={draftId}
+            onOptimizationAdopted={() => { if (draftId) void queryClient.invalidateQueries({ queryKey: ['seller-product', draftId] }); }}
+          />
         </Card>
 
         <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>

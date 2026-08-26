@@ -272,4 +272,33 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     })).rejects.toThrow('商品已上架');
     expect(tx.productMedia.create).not.toHaveBeenCalled();
   });
+
+  it('refuses adoption before adding a tenth media item', async () => {
+    const candidate = { id: 'candidate-asset', status: 'CANDIDATE', objectKey: 'seller-product-assets/candidate.png' };
+    const sourceAsset = { id: 'source-asset', status: 'AVAILABLE', objectKey: 'seller-product-assets/source.webp' };
+    const task = {
+      id: 'task-1', companyId: 'company-1', productId: 'product-1', status: ProductImageOptimizationStatus.SUCCEEDED,
+      artifacts: [
+        { kind: ProductImageArtifactKind.CANDIDATE, asset: candidate },
+        { kind: ProductImageArtifactKind.FOREGROUND_REFERENCE, asset: sourceAsset },
+      ],
+    };
+    const tx = {
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ id: 'task-1' }), updateMany: jest.fn() },
+      product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', status: 'INACTIVE', auditStatus: 'PENDING', media: Array.from({ length: 9 }, (_value, index) => ({ assetId: index === 0 ? 'source-asset' : `asset-${index}` })) }) },
+      sellerMediaAsset: { findMany: jest.fn(), updateMany: jest.fn() },
+      productMedia: { updateMany: jest.fn(), create: jest.fn() },
+    };
+    const prisma = {
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue(task) },
+      product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', status: 'INACTIVE', auditStatus: 'PENDING' }) },
+      $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    };
+    const service = new ProductImageOptimizationService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+
+    await expect(service.adopt('company-1', 'staff-1', 'task-1', {
+      productId: 'product-1', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true,
+    })).rejects.toThrow('超过 9 张');
+    expect(tx.productMedia.create).not.toHaveBeenCalled();
+  });
 });
