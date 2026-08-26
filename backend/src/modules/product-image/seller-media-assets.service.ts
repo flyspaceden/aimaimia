@@ -15,11 +15,37 @@ export class SellerMediaAssetsService {
   ) {}
 
   async createProductImageAsset(companyId: string, staffId: string, file: Express.Multer.File) {
+    return this.createManagedProductImageAsset(
+      companyId,
+      staffId,
+      file,
+      { preserveQrCodes: true, preserveEvidencePixels: true },
+      'phase-a-evidence-v2',
+    );
+  }
+
+  async createDerivedProductImageAsset(companyId: string, staffId: string, file: Express.Multer.File) {
+    return this.createManagedProductImageAsset(
+      companyId,
+      staffId,
+      file,
+      { preserveQrCodes: true, preserveLosslessImage: true },
+      'phase-b-deterministic-v1',
+    );
+  }
+
+  private async createManagedProductImageAsset(
+    companyId: string,
+    staffId: string,
+    file: Express.Multer.File,
+    uploadOptions: { preserveQrCodes: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean },
+    diagnosisVersion: string,
+  ) {
     if (!file?.mimetype?.startsWith('image/')) {
       throw new BadRequestException('商品视觉 Agent 仅接受图片文件');
     }
     const diagnosis = await this.qualityService.analyze(file.buffer);
-    const uploaded = await this.uploadService.uploadFile(file, 'seller-product-assets');
+    const uploaded = await this.uploadService.uploadFile(file, 'seller-product-assets', uploadOptions);
     if (!uploaded.canonicalSha256 || !uploaded.width || !uploaded.height) {
       throw new BadRequestException('图片规范化结果不完整，无法建立受管资产');
     }
@@ -34,9 +60,13 @@ export class SellerMediaAssetsService {
         byteSize: uploaded.size,
         width: uploaded.width,
         height: uploaded.height,
-        scanSummary: { needsReview: uploaded.needsReview === true },
+        scanSummary: {
+          needsReview: uploaded.needsReview === true,
+          qrCodesDetected: uploaded.qrCodesDetected ?? 0,
+          qrLocked: (uploaded.qrCodesDetected ?? 0) > 0,
+        },
         diagnosis: diagnosis as unknown as Prisma.InputJsonValue,
-        diagnosisVersion: 'phase-a-v1',
+        diagnosisVersion,
         diagnosedAt: new Date(),
       },
     });
@@ -51,9 +81,10 @@ export class SellerMediaAssetsService {
       throw new ConflictException('图片仍需人工安全复核，不能合成白底图');
     }
     const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
-    const composed = await this.composition.composeWhiteBackground(sourceBuffer, { width: 800, height: 1000 });
-    const file = { buffer: composed, size: composed.length, mimetype: 'image/webp', originalname: 'white-background.webp' } as Express.Multer.File;
-    return this.createProductImageAsset(companyId, staffId, file);
+    const composed = await this.composition.composeWhiteBackgroundWithProof(sourceBuffer, { width: 800, height: 1000 });
+    const file = { buffer: composed.buffer, size: composed.buffer.length, mimetype: 'image/png', originalname: 'white-background.png' } as Express.Multer.File;
+    const candidate = await this.createDerivedProductImageAsset(companyId, staffId, file);
+    return { ...candidate, integrityProof: composed.proof };
   }
 
   async getProductImageAsset(companyId: string, assetId: string) {

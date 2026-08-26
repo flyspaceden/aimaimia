@@ -81,6 +81,7 @@ export class UploadService {
   async uploadFile(
     file: Express.Multer.File,
     folder: string = 'general',
+    options: { preserveQrCodes?: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean } = {},
   ): Promise<{
     url: string;
     key: string;
@@ -91,8 +92,19 @@ export class UploadService {
     width?: number;
     height?: number;
     needsReview?: boolean;
+    qrCodesDetected?: number;
+    contactInfoDetected?: boolean;
   }> {
     const safeFolder = this.normalizeFolder(folder);
+    if (options.preserveLosslessImage && safeFolder !== 'seller-product-assets') {
+      throw new BadRequestException('无损图片仅允许由受管商品视觉渲染器写入');
+    }
+    if (options.preserveEvidencePixels && safeFolder !== 'seller-product-assets') {
+      throw new BadRequestException('商品证据源仅允许由受管商品图片接口写入');
+    }
+    if (options.preserveLosslessImage && file.mimetype !== 'image/png') {
+      throw new BadRequestException('无损商品视觉候选仅接受 PNG 输出');
+    }
 
     // 校验文件类型
     if (!UPLOAD_ALLOWED_MIME_TYPES.includes(file.mimetype as any)) {
@@ -115,17 +127,25 @@ export class UploadService {
     // Sharp 默认不会保留 EXIF/ICC 等元数据（未调用 withMetadata 时），可降低隐私泄露风险。
     let finalBuffer = file.buffer;
     let finalMimeType = file.mimetype;
-    if (this.isTranscodableImage(file.mimetype)) {
+    if (options.preserveEvidencePixels) {
+      const normalized = await this.normalizeEvidenceImage(file.buffer);
+      finalBuffer = normalized.buffer;
+      finalMimeType = normalized.mimeType;
+    } else if (this.isTranscodableImage(file.mimetype) && !options.preserveLosslessImage) {
       const normalized = await this.normalizeImage(file.buffer);
       finalBuffer = normalized.buffer;
       finalMimeType = normalized.mimeType;
     }
 
     let needsReview = false;
+    let qrCodesDetected = 0;
+    let contactInfoDetected = false;
     if (finalMimeType.startsWith('image/')) {
-      const scanResult = await this.imageContentScanner.scanAndProcess(finalBuffer);
+      const scanResult = await this.imageContentScanner.scanAndProcess(finalBuffer, options);
       finalBuffer = scanResult.processedBuffer;
       needsReview = scanResult.needsReview;
+      qrCodesDetected = scanResult.qrCodesDetected;
+      contactInfoDetected = scanResult.contactInfoDetected;
 
       if (!scanResult.safe && !scanResult.needsReview) {
         throw new BadRequestException('图片中包含联系方式或二维码，请处理后重新上传');
@@ -184,6 +204,8 @@ export class UploadService {
         width: imageMetadata?.width,
         height: imageMetadata?.height,
         needsReview,
+        qrCodesDetected,
+        contactInfoDetected,
       };
     } else {
       // 阿里云 OSS 存储
@@ -213,6 +235,8 @@ export class UploadService {
         width: imageMetadata?.width,
         height: imageMetadata?.height,
         needsReview,
+        qrCodesDetected,
+        contactInfoDetected,
       };
     }
   }
@@ -679,6 +703,31 @@ export class UploadService {
     } catch (error) {
       this.logger.warn(`图片转码失败，拒绝上传：${(error as Error)?.message || 'unknown error'}`);
       throw new BadRequestException('图片处理失败，请检查图片内容是否损坏');
+    }
+  }
+
+  /**
+   * Canonicalize seller product evidence without another lossy encode. The
+   * stored WebP is lossless relative to the decoded, orientation-corrected
+   * source raster; metadata is intentionally stripped.
+   */
+  private async normalizeEvidenceImage(
+    buffer: Buffer,
+  ): Promise<{ buffer: Buffer; mimeType: 'image/webp' }> {
+    const maxDimension = this.getPositiveIntEnv('UPLOAD_IMAGE_MAX_DIMENSION', 4096);
+    const maxPixels = this.getPositiveIntEnv('UPLOAD_IMAGE_MAX_PIXELS', 40_000_000);
+    try {
+      const pipeline = sharp(buffer, { failOn: 'error', limitInputPixels: maxPixels }).rotate();
+      const meta = await pipeline.metadata();
+      if ((meta.width && meta.width > maxDimension) || (meta.height && meta.height > maxDimension)) {
+        throw new BadRequestException(`商品证据图尺寸超过 ${maxDimension}px，请缩小后重新上传`);
+      }
+      const output = await pipeline.webp({ lossless: true, effort: 4 }).toBuffer();
+      return { buffer: output, mimeType: 'image/webp' };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.warn(`商品证据图无损规范化失败，拒绝上传：${(error as Error)?.message || 'unknown error'}`);
+      throw new BadRequestException('商品证据图处理失败，请检查图片内容是否损坏');
     }
   }
 

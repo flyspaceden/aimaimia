@@ -72,43 +72,73 @@ export class ImageContentScannerService {
     }
   }
 
-  private async detectQrCodes(buffer: Buffer): Promise<ImageScanResult['details']> {
+  private async detectQrCodes(buffer: Buffer): Promise<{ details: ImageScanResult['details']; failed: boolean }> {
     try {
       const { data, info } = await sharp(buffer)
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
-      const qr = jsQR(new Uint8ClampedArray(data), info.width, info.height);
-      if (!qr) {
-        return [];
+      const pixels = new Uint8ClampedArray(data);
+      const details: ImageScanResult['details'] = [];
+
+      // jsQR returns one symbol per invocation. Mask each detected rectangle
+      // before the next pass so a package image with several QR codes cannot
+      // hide a contact QR behind the first traceability code.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const qr = this.decodeQr(pixels, info.width, info.height);
+        if (!qr) break;
+        const points = [
+          qr.location.topLeftCorner,
+          qr.location.topRightCorner,
+          qr.location.bottomLeftCorner,
+          qr.location.bottomRightCorner,
+        ];
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const region = {
+          x: Math.max(0, Math.floor(Math.min(...xs))),
+          y: Math.max(0, Math.floor(Math.min(...ys))),
+          width: Math.ceil(Math.max(...xs) - Math.min(...xs)),
+          height: Math.ceil(Math.max(...ys) - Math.min(...ys)),
+        };
+        details.push({ type: 'qrcode', text: qr.data, region });
+        this.maskQrRegion(pixels, info.width, info.height, region);
       }
 
-      const points = [
-        qr.location.topLeftCorner,
-        qr.location.topRightCorner,
-        qr.location.bottomLeftCorner,
-        qr.location.bottomRightCorner,
-      ];
-      const xs = points.map((point) => point.x);
-      const ys = points.map((point) => point.y);
-
-      return [
-        {
-          type: 'qrcode',
-          text: qr.data,
-          region: {
-            x: Math.max(0, Math.floor(Math.min(...xs))),
-            y: Math.max(0, Math.floor(Math.min(...ys))),
-            width: Math.ceil(Math.max(...xs) - Math.min(...xs)),
-            height: Math.ceil(Math.max(...ys) - Math.min(...ys)),
-          },
-        },
-      ];
+      // More symbols than the bounded inspection limit are an unknown safety
+      // state, not evidence that the ninth and later payloads are harmless.
+      const overflowQr = details.length === 8 ? this.decodeQr(pixels, info.width, info.height) : null;
+      return { details, failed: overflowQr !== null };
     } catch (err) {
       this.logger.warn(
         `二维码检测失败，回退为人工复核: ${(err as Error).message}`,
       );
-      return [];
+      return { details: [], failed: true };
+    }
+  }
+
+  private decodeQr(pixels: Uint8ClampedArray, width: number, height: number) {
+    return jsQR(pixels, width, height);
+  }
+
+  private maskQrRegion(
+    pixels: Uint8ClampedArray,
+    imageWidth: number,
+    imageHeight: number,
+    region: { x: number; y: number; width: number; height: number },
+  ) {
+    const left = Math.max(0, region.x - 3);
+    const top = Math.max(0, region.y - 3);
+    const right = Math.min(imageWidth, region.x + region.width + 3);
+    const bottom = Math.min(imageHeight, region.y + region.height + 3);
+    for (let y = top; y < bottom; y += 1) {
+      for (let x = left; x < right; x += 1) {
+        const offset = (y * imageWidth + x) * 4;
+        pixels[offset] = 255;
+        pixels[offset + 1] = 255;
+        pixels[offset + 2] = 255;
+        pixels[offset + 3] = 255;
+      }
     }
   }
 
@@ -181,7 +211,8 @@ export class ImageContentScannerService {
   async scan(buffer: Buffer): Promise<ImageScanResult> {
     this.logger.debug(`图片内容扫描: size=${buffer.length} bytes`);
 
-    const qrDetails = await this.detectQrCodes(buffer);
+    const qrDetection = await this.detectQrCodes(buffer);
+    const qrDetails = qrDetection.details;
     const qrTextMatches = qrDetails
       .filter((detail) => detail.type === 'qrcode' && detail.text)
       .flatMap((detail) => this.scanForContactInfo(detail.text || ''))
@@ -192,8 +223,11 @@ export class ImageContentScannerService {
 
     const qrCodesDetected = qrDetails.length;
     const contactInfoDetected = qrTextMatches.length > 0;
-    const needsReview = this.scanEnabled && qrCodesDetected === 0;
-    const safe = qrCodesDetected === 0 && !contactInfoDetected;
+    // OCR remains a stub. Until it returns evidence, flag only concrete QR
+    // decode coverage failures rather than permanently blocking every QR-free
+    // product image when IMAGE_SCAN_ENABLED is true.
+    const needsReview = qrDetection.failed;
+    const safe = !qrDetection.failed && qrCodesDetected === 0 && !contactInfoDetected;
 
     if (qrCodesDetected > 0) {
       this.logger.warn(`检测到 ${qrCodesDetected} 个二维码，已标记为不安全`);
@@ -204,6 +238,7 @@ export class ImageContentScannerService {
       qrCodesDetected,
       contactInfoDetected,
       needsReview,
+      qrDetectionFailed: qrDetection.failed,
       processedBuffer: buffer, // 占位：直接返回原 buffer
       ocrText: null, // TODO: 接入 OCR 后填充真实识别文本
       details: [...qrDetails, ...qrTextMatches],
@@ -220,14 +255,33 @@ export class ImageContentScannerService {
    * @param buffer 原始图片 Buffer
    * @returns 处理后的 Buffer + 扫描报告
    */
-  async scanAndProcess(buffer: Buffer): Promise<ImageScanResult> {
+  async scanAndProcess(
+    buffer: Buffer,
+    options: { preserveQrCodes?: boolean } = {},
+  ): Promise<ImageScanResult> {
     const result = await this.scan(buffer);
+    if (result.qrDetectionFailed) {
+      // A managed product asset is product evidence. If QR coverage is
+      // unknown, reject it rather than falsely preserving or redacting it.
+      return options.preserveQrCodes
+        ? { ...result, safe: false, needsReview: false, processedBuffer: buffer }
+        : { ...result, safe: false, needsReview: true, processedBuffer: buffer };
+    }
     const qrRegions = result.details
       .filter((detail) => detail.type === 'qrcode' && detail.region)
       .map((detail) => detail.region as NonNullable<typeof detail.region>);
 
     if (qrRegions.length === 0) {
       return result;
+    }
+
+    // Product package QR codes are factual evidence, not cosmetic pixels. A
+    // safe non-contact code is retained exactly; a contact QR is rejected.
+    if (options.preserveQrCodes) {
+      if (result.contactInfoDetected) {
+        return { ...result, safe: false, needsReview: false, processedBuffer: buffer };
+      }
+      return { ...result, safe: true, needsReview: false, processedBuffer: buffer };
     }
 
     try {
@@ -327,6 +381,8 @@ export interface ImageScanResult {
   contactInfoDetected: boolean;
   /** 是否需要人工复核 */
   needsReview: boolean;
+  /** QR decoder could not prove complete coverage. */
+  qrDetectionFailed?: boolean;
   /** 处理后的图片 Buffer（打码后） */
   processedBuffer: Buffer;
   /** OCR 识别出的原始文字（占位实现为 null） */

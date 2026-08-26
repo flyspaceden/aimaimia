@@ -58,7 +58,13 @@ export class UploadController {
   }
 
   private assertNotManagedProductAssetKey(key: string) {
-    if (key.replace(/^\/+/, '').startsWith('seller-product-assets/')) {
+    let normalized: string;
+    try {
+      normalized = decodeURIComponent(key).replace(/\\/g, '/').replace(/^\/+/, '');
+    } catch {
+      throw new BadRequestException('非法文件 key');
+    }
+    if (normalized.startsWith('seller-product-assets/')) {
       throw new BadRequestException('受管商品图片只能通过卖家预览、管理员审核或已审核商品展示读取');
     }
   }
