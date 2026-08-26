@@ -3,7 +3,7 @@ import client from './client';
 export type ProductImageOptimizationTask = {
   id: string;
   status: 'REQUESTED' | 'QUEUED' | 'RUNNING' | 'RECONCILING' | 'SUCCEEDED' | 'FAILED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'ADOPTED';
-  kind: 'WHITE_BACKGROUND';
+  kind: 'WHITE_BACKGROUND' | 'FREE_TUNE';
   productId?: string | null;
   failureCode?: string | null;
   failureDetail?: string | null;
@@ -28,6 +28,16 @@ export const requestWhiteBackground = (data: {
 }): Promise<ProductImageOptimizationTask> => client.post('/seller/product-image-optimizations', {
   ...data,
   intent: 'WHITE_BACKGROUND',
+});
+
+export const requestFreeTune = (data: {
+  sourceAssetId: string;
+  productId: string;
+  planId: string;
+  idempotencyKey: string;
+}): Promise<ProductImageOptimizationTask> => client.post('/seller/product-image-optimizations', {
+  ...data,
+  intent: 'FREE_TUNE',
 });
 
 export const getProductImageOptimization = (id: string): Promise<ProductImageOptimizationTask> =>

@@ -352,9 +352,10 @@ export class ProductImageFactScanService {
       textDetected: scan.textDetected,
       qrCodesDetected: scan.qrCodesDetected,
       barcodeStatus: scan.barcodeStatus,
-      // Always false until barcode detection is implemented and merged with
-      // this evidence. Never expose raw OCR text/hash to a seller browser.
-      freeTuneEligible: false,
+      // The browser learns only whether a server-side, current scan permits
+      // the zero-model route; it never receives OCR plaintext or its hash.
+      freeTuneEligible: scan.status === ProductImageFactScanStatus.VERIFIED_EMPTY
+        && scan.emptyTextQrVerified,
       emptyTextQrVerified: scan.emptyTextQrVerified,
       failureCode: scan.failureCode,
       completedAt: scan.completedAt,

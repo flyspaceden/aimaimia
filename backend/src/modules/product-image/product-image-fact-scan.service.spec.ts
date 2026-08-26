@@ -92,6 +92,20 @@ describe('ProductImageFactScanService', () => {
     expect(result).toMatchObject({ status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: false, freeTuneEligible: false });
   });
 
+  it('exposes free-tune eligibility only for a completed server-side verified-empty scan', async () => {
+    const { service, tx } = build();
+    tx.productImageFactScan.update.mockResolvedValue({
+      ...scanningRecord(), status: ProductImageFactScanStatus.VERIFIED_EMPTY, emptyTextQrVerified: true,
+      textDetected: false, completedAt: new Date(),
+    });
+    (service as any).ocrRunner.recognizeFactScan.mockResolvedValue({ kind: 'KNOWN', text: '', usage: { totalTokens: 10 } });
+    (service as any).barcodeScanner.scan.mockResolvedValue({ status: 'NONE', detectedCount: 0, formats: [] });
+
+    const result = await service.request('company-1', 'staff-1', 'asset-1', { productId: 'product-1', idempotencyKey: 'scan-verified-empty' });
+
+    expect(result).toMatchObject({ status: ProductImageFactScanStatus.VERIFIED_EMPTY, emptyTextQrVerified: true, freeTuneEligible: true });
+  });
+
   it('does not create a scan or model reservation when the OCR runner is disabled by policy', async () => {
     const { service, prisma, ocrRunner } = build();
     ocrRunner.reserveFactScanInvocation.mockRejectedValue(new ServiceUnavailableException('OCR disabled'));

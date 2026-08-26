@@ -46,9 +46,17 @@ import { uploadProductImageAsset, type UploadedProductImageAsset } from '@/api/m
 import {
   adoptProductImageOptimization,
   getProductImageOptimization,
+  requestFreeTune,
   requestWhiteBackground,
   type ProductImageOptimizationTask,
 } from '@/api/productImageOptimizations';
+import {
+  getProductImageFactScan,
+  requestProductImageFactScan,
+  requestProductVisualPlan,
+  type ProductImageFactScan,
+  type ProductVisualPlan,
+} from '@/api/productImageVisualPlans';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
 import { buildBundleCatalogQuery } from './bundleCatalog';
@@ -81,6 +89,26 @@ function buildMediaPayload(fileList: UploadFile[]) {
     throw new Error('当前商品仍有历史图片。请将历史图片重新上传后，再与新图片一起保存，避免图片来源和排序丢失。');
   }
   return {};
+}
+
+const visualRiskLabels: Record<string, { label: string; color: string }> = {
+  STRICT_FACTS: { label: '事实敏感', color: 'red' },
+  CONSERVATIVE_FACTS: { label: '谨慎处理', color: 'orange' },
+  STANDARD_FACTS: { label: '可评估优化', color: 'blue' },
+  ORGANIC_FACTS: { label: '保留实景', color: 'green' },
+  RETAKE_REQUIRED: { label: '建议重拍', color: 'volcano' },
+  MARKETING_ONLY: { label: '仅营销图', color: 'purple' },
+};
+
+const visualModeLabels: Record<string, string> = {
+  PRESERVE_REAL_SCENE: '保留真实场景',
+  CATALOG_STUDIO: '商品棚拍风格',
+  PRODUCT_RETOUCH: '受控细节修图',
+  MARKETING_SCENE: '营销展示图',
+};
+
+function optimizationTitle(kind?: ProductImageOptimizationTask['kind']) {
+  return kind === 'FREE_TUNE' ? '实景优化候选' : '真实白底候选';
 }
 
 /**
@@ -974,6 +1002,11 @@ function ImageUploadSection({
   const [optimizationSubmitting, setOptimizationSubmitting] = useState(false);
   const [adopting, setAdopting] = useState(false);
   const [truthChecks, setTruthChecks] = useState({ quantity: false, labels: false, facts: false });
+  const [visualPlan, setVisualPlan] = useState<ProductVisualPlan | null>(null);
+  const [visualPlanSource, setVisualPlanSource] = useState<{ asset: UploadedProductImageAsset; url: string; name: string } | null>(null);
+  const [visualPlanSubmitting, setVisualPlanSubmitting] = useState(false);
+  const [factScan, setFactScan] = useState<ProductImageFactScan | null>(null);
+  const [factScanSubmitting, setFactScanSubmitting] = useState(false);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
@@ -1029,6 +1062,67 @@ function ImageUploadSection({
     }
   };
 
+  const startVisualPlan = async (file: UploadFile) => {
+    const asset = getManagedAsset(file);
+    const url = getFileUrl(file);
+    if (!asset || !url) {
+      message.warning('请等待图片上传完成后再查看美化建议');
+      return;
+    }
+    if (!productId) {
+      message.info('请先保存为草稿，再生成可追溯的图片美化建议');
+      return;
+    }
+    setVisualPlanSubmitting(true);
+    setVisualPlanSource({ asset, url, name: file.name || '商品图片' });
+    setFactScan(null);
+    try {
+      setVisualPlan(await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id }));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '生成图片美化建议失败');
+      setVisualPlanSource(null);
+    } finally {
+      setVisualPlanSubmitting(false);
+    }
+  };
+
+  const startFactScan = async () => {
+    if (!productId || !visualPlanSource) return;
+    setFactScanSubmitting(true);
+    try {
+      const scan = await requestProductImageFactScan(visualPlanSource.asset.asset.id, {
+        productId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setFactScan(scan);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '商品事实检查未能完成');
+    } finally {
+      setFactScanSubmitting(false);
+    }
+  };
+
+  const startFreeTune = async () => {
+    if (!productId || !visualPlan || !visualPlanSource || !factScan?.freeTuneEligible) return;
+    setOptimizationSubmitting(true);
+    setOptimizationSource(visualPlanSource);
+    try {
+      const task = await requestFreeTune({
+        sourceAssetId: visualPlanSource.asset.asset.id,
+        productId,
+        planId: visualPlan.id,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setOptimizationTask(task);
+      setVisualPlan(null);
+      if (task.status === 'FAILED') message.warning(task.failureDetail || '当前图片暂不能安全进行实景优化');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建实景优化候选失败');
+    } finally {
+      setOptimizationSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!optimizationTask) return;
     if (['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status)) {
@@ -1053,6 +1147,18 @@ function ImageUploadSection({
     return () => window.clearTimeout(timer);
   }, [optimizationTask]);
 
+  useEffect(() => {
+    if (!factScan || !['SCANNING', 'RECONCILING'].includes(factScan.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        setFactScan(await getProductImageFactScan(factScan.id));
+      } catch {
+        // Preserve the last known conclusion; the seller can request a new plan.
+      }
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [factScan]);
+
   const adoptOptimization = async () => {
     if (!optimizationTask || !productId) return;
     if (fileList.filter((file) => file.status === 'done').length >= 9) {
@@ -1075,7 +1181,7 @@ function ImageUploadSection({
           if (!fileList.some((file) => getManagedAsset(file)?.asset.id === candidate.assetId)) {
             setFileList([{
               uid: `optimization-${optimizationTask.id}`,
-              name: '真实白底候选.png',
+              name: `${optimizationTitle(optimizationTask.kind)}.png`,
               status: 'done',
               url: candidate.displayUrl,
               response: {
@@ -1098,6 +1204,13 @@ function ImageUploadSection({
       setAdopting(false);
     }
   };
+
+  const freeTuneAvailable = visualPlan?.riskProfile === 'STANDARD_FACTS'
+    && visualPlan.allowedModes.includes('PRESERVE_REAL_SCENE')
+    && factScan?.sourceAssetId === visualPlan.sourceAssetId
+    && factScan.freeTuneEligible === true;
+  const risk = visualPlan ? visualRiskLabels[visualPlan.riskProfile] : null;
+  const candidateTitle = optimizationTitle(optimizationTask?.kind);
 
   return (
     <>
@@ -1127,26 +1240,43 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
-      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#f6ffed', border: '1px solid #b7eb8f' }}>
-        <Space direction="vertical" size={6} style={{ width: '100%' }}>
-          <Text strong style={{ color: '#237804' }}>真实白底主图</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            仅处理已带透明前景的图片；不会重画商品、包装文字、型号、数量或二维码。普通实拍图会提示等待分割能力，而不会冒险美化。
+      <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg, #f6ffed 0%, #ffffff 72%)', border: '1px solid #b7eb8f', borderLeft: '4px solid #52c41a' }}>
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Space align="center" wrap>
+            <Text strong style={{ color: '#1f5f2c', letterSpacing: '0.02em' }}>AI 图片美化</Text>
+            <Tag color="green">先建议，后生成</Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>原图始终保留，候选不会自动发布</Text>
+          </Space>
+          <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.7 }}>
+            先为每张图生成免费的美化建议：实景好看就保留，图片不清晰就建议重拍；只有满足事实保护条件时，才会提供可预览的候选图。
           </Text>
           <Space wrap>
             {fileList.filter((file) => file.status === 'done' && getManagedAsset(file) && getManagedAsset(file)?.asset.status !== 'ADOPTED').map((file) => (
-              <Button
-                key={`optimize-${file.uid}`}
-                size="small"
-                loading={optimizationSubmitting && optimizationSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
-                disabled={!productId || optimizationSubmitting}
-                onClick={() => startWhiteBackground(file)}
-              >
-                制作白底图：{file.name || '图片'}
-              </Button>
+              <Space key={`visual-actions-${file.uid}`} size={4} wrap>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  loading={visualPlanSubmitting && visualPlanSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
+                  disabled={!productId || visualPlanSubmitting || optimizationSubmitting}
+                  onClick={() => startVisualPlan(file)}
+                >
+                  查看美化建议：{file.name || '图片'}
+                </Button>
+                <Tooltip title="仅适用于已经带透明前景的商品图，不会尝试抠图或重画商品">
+                  <Button
+                    size="small"
+                    loading={optimizationSubmitting && optimizationSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
+                    disabled={!productId || optimizationSubmitting || visualPlanSubmitting}
+                    onClick={() => startWhiteBackground(file)}
+                  >
+                    制作白底图
+                  </Button>
+                </Tooltip>
+              </Space>
             ))}
           </Space>
-          {!productId && <Text type="warning" style={{ fontSize: 12 }}>先保存草稿，才能创建可审计的白底候选。</Text>}
+          {!productId && <Text type="warning" style={{ fontSize: 12 }}>先保存草稿，才能创建可审计的图片建议和候选。</Text>}
         </Space>
       </div>
       {hasMixedSourceImages && (
@@ -1203,7 +1333,94 @@ function ImageUploadSection({
       </Modal>
 
       <Modal
-        title="真实白底候选"
+        title="AI 图片美化建议"
+        open={!!visualPlan}
+        onCancel={() => {
+          if (!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting) {
+            setVisualPlan(null);
+            setVisualPlanSource(null);
+            setFactScan(null);
+          }
+        }}
+        footer={<Button onClick={() => {
+          setVisualPlan(null);
+          setVisualPlanSource(null);
+          setFactScan(null);
+        }}>返回图片</Button>}
+        width={760}
+        destroyOnClose
+      >
+        {visualPlan && visualPlanSource && (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f7f8fa', borderLeft: `4px solid ${risk?.color === 'green' ? '#52c41a' : risk?.color === 'red' ? '#ff4d4f' : '#1677ff'}` }}>
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Space wrap>
+                  <Text strong>{visualPlanSource.name}</Text>
+                  {risk && <Tag color={risk.color}>{risk.label}</Tag>}
+                  {visualPlan.recommendedMode && <Tag>{visualModeLabels[visualPlan.recommendedMode]}</Tag>}
+                </Space>
+                <Text type="secondary">
+                  {(visualPlan.sceneAnalysis?.reasons || ['系统会优先保护商品真实外观和可读信息。']).join('；')}
+                </Text>
+              </Space>
+            </div>
+
+            {visualPlan.riskProfile === 'RETAKE_REQUIRED' ? (
+              <Alert type="warning" showIcon message="建议补拍原图" description="当前清晰度不足，继续处理可能制造不存在的细节。请在更稳定的光线下重新拍摄商品。" />
+            ) : (
+              <Alert type="info" showIcon message="当前建议" description={visualPlan.recommendedMode === 'PRESERVE_REAL_SCENE'
+                ? '保留真实场景优先。餐桌、厨房台面、床单等自然环境不需要被强行换成白底。'
+                : `建议方向：${visualPlan.recommendedMode ? visualModeLabels[visualPlan.recommendedMode] : '先保留原图'}。生成式路线尚未自动开启。`} />
+            )}
+
+            {visualPlan.riskProfile === 'STANDARD_FACTS' && visualPlan.allowedModes.includes('PRESERVE_REAL_SCENE') && (
+              <Card size="small" title="免费实景调优" styles={{ body: { background: '#fcfcfc' } }}>
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  <Text type="secondary">
+                    只会进行固定、轻量的亮度、对比度和锐化调优，不裁切、不替换背景、不改变商品形状。开始前会先检查图片中是否有包装文字、二维码或条码。
+                  </Text>
+                  {!factScan && (
+                    <Button loading={factScanSubmitting} onClick={startFactScan}>
+                      检查图片中的商品事实
+                    </Button>
+                  )}
+                  {factScan && ['SCANNING', 'RECONCILING'].includes(factScan.status) && (
+                    <Alert type="info" showIcon message="正在核对商品事实" description="检查尚未得出可靠结论前，不会生成美化候选。" />
+                  )}
+                  {factScan?.status === 'VERIFIED_EMPTY' && factScan.freeTuneEligible && (
+                    <Alert type="success" showIcon message="可进行免费实景调优" description="没有发现需要保护的文字、二维码或条码。仍会保留原图，并在生成后要求你逐项核对。" />
+                  )}
+                  {factScan && !['SCANNING', 'RECONCILING', 'VERIFIED_EMPTY'].includes(factScan.status) && (
+                    <Alert type="warning" showIcon message="这张图暂不自动调优" description={factScan.status === 'FACTS_DETECTED'
+                      ? '检测到需要保护的商品事实。请保留原实拍图，或使用适用的白底候选。'
+                      : '当前无法可靠证明图片没有需保护的信息，因此不会自动调优。'} />
+                  )}
+                  <Button
+                    type="primary"
+                    loading={optimizationSubmitting}
+                    disabled={!freeTuneAvailable || optimizationSubmitting}
+                    onClick={startFreeTune}
+                  >
+                    生成免费实景优化候选
+                  </Button>
+                  {!freeTuneAvailable && factScan?.status === 'VERIFIED_EMPTY' && !factScan.freeTuneEligible && (
+                    <Text type="warning" style={{ fontSize: 12 }}>扫描结论尚未完成对账，暂不生成候选。</Text>
+                  )}
+                </Space>
+              </Card>
+            )}
+
+            {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && visualPlan.riskProfile !== 'STANDARD_FACTS' && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                当前风险档只提供建议。涉及包装、型号、条码或天然食材的图片，不会以“美化”为名改动商品事实。
+              </Text>
+            )}
+          </Space>
+        )}
+      </Modal>
+
+      <Modal
+        title={candidateTitle}
         open={!!optimizationTask}
         onCancel={() => {
           if (!adopting) {
@@ -1226,8 +1443,8 @@ function ImageUploadSection({
       >
         {optimizationTask && optimizationSource && (
           <>
-            {['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status) && <Alert type="info" showIcon message="正在进行保真白底合成…" description="只会在透明前景基础上合成固定白底，不会调用生成模型。" />}
-            {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message="这张图片暂不能安全制作白底图" description={optimizationTask.failureDetail || '请上传带透明背景的 PNG/WebP，或等待分割能力开放。'} />}
+            {['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status) && <Alert type="info" showIcon message={optimizationTask.kind === 'FREE_TUNE' ? '正在生成实景优化候选…' : '正在进行保真白底合成…'} description={optimizationTask.kind === 'FREE_TUNE' ? '只会执行固定的轻量调优，不会调用生成模型或修改商品结构。' : '只会在透明前景基础上合成固定白底，不会调用生成模型。'} />}
+            {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message={`这张图片暂不能安全${optimizationTask.kind === 'FREE_TUNE' ? '进行实景优化' : '制作白底图'}`} description={optimizationTask.failureDetail || (optimizationTask.kind === 'FREE_TUNE' ? '请保留原图，或重新生成图片美化建议。' : '请上传带透明背景的 PNG/WebP，或等待分割能力开放。')} />}
             {optimizationTask.status === 'SUCCEEDED' && optimizationTask.candidate && (
               <>
                 <Row gutter={16} style={{ marginTop: 4 }}>
@@ -1237,8 +1454,8 @@ function ImageUploadSection({
                     </Card>
                   </Col>
                   <Col span={12}>
-                    <Card size="small" title="真实白底候选" styles={{ body: { background: '#fafafa' } }}>
-                      <Image src={optimizationTask.candidate.displayUrl || ''} alt="真实白底候选" style={{ width: '100%', maxHeight: 360, objectFit: 'contain' }} />
+                    <Card size="small" title={candidateTitle} styles={{ body: { background: '#fafafa' } }}>
+                      <Image src={optimizationTask.candidate.displayUrl || ''} alt={candidateTitle} style={{ width: '100%', maxHeight: 360, objectFit: 'contain' }} />
                     </Card>
                   </Col>
                 </Row>
