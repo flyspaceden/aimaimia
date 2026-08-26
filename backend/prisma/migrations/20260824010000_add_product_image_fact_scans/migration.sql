@@ -2,6 +2,7 @@
 CREATE TYPE "ProductImageFactScanStatus" AS ENUM (
   'SCANNING',
   'FACTS_DETECTED',
+  'VERIFIED_EMPTY',
   'INCONCLUSIVE',
   'RECONCILING',
   'FAILED',
@@ -49,7 +50,7 @@ CREATE INDEX "ProductImageFactScan_requestedByStaffId_createdAt_idx"
 CREATE INDEX "ProductImageFactScan_expiresAt_idx" ON "ProductImageFactScan"("expiresAt");
 CREATE UNIQUE INDEX "ProductImageFactScan_active_source_key"
   ON "ProductImageFactScan"("companyId", "productId", "sourceAssetId", "sourceCanonicalHash")
-  WHERE "status" IN ('SCANNING', 'FACTS_DETECTED', 'INCONCLUSIVE', 'RECONCILING');
+  WHERE "status" IN ('SCANNING', 'FACTS_DETECTED', 'VERIFIED_EMPTY', 'INCONCLUSIVE', 'RECONCILING');
 ALTER TABLE "ProductImageFactScan"
   ADD CONSTRAINT "ProductImageFactScan_qrCodesDetected_nonnegative" CHECK ("qrCodesDetected" >= 0),
   ADD CONSTRAINT "ProductImageFactScan_ocrTextLength_nonnegative" CHECK ("ocrTextLength" IS NULL OR "ocrTextLength" >= 0);

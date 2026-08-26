@@ -1710,6 +1710,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；没有 Core controller 或接入系统 Adapter 时不可被业务前端调用，Provider 仍默认关闭。
 - 受控 OCR Provider（本地）：固定版本 OCR 只能由 Core 已持久化的调用租约触发，Provider 用量独立记录；无 Core 授权、开关、正数预算策略或可验证结果时均 fail-closed。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
+- 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。
 - 尚未完成：受控 OCR/分割事实扫描、可结算预算账本、真实背景 Provider、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
 
 ## 18. 已知问题与调试记录

@@ -10,6 +10,7 @@ import { VisualProviderSource } from '../visual-agent/providers/visual-image-edi
 import { VisualAgentOcrRunnerService } from '../visual-agent/visual-agent-ocr-runner.service';
 import { VisualAgentInvocationService } from '../visual-agent/visual-agent-invocation.service';
 import { RequestProductImageFactScanDto } from './product-image-fact-scan.dto';
+import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
 
 const AIMAI_PRODUCT_ADAPTER_CLIENT = 'aimai-product-adapter-v1';
 const AIMAI_PRODUCT_ADAPTER_NAMESPACE = 'aimai-product';
@@ -30,6 +31,7 @@ export class ProductImageFactScanService {
     private readonly ocrRunner: VisualAgentOcrRunnerService,
     private readonly invocations: VisualAgentInvocationService,
     private readonly config: ConfigService,
+    private readonly barcodeScanner: ProductImageBarcodeScannerService,
   ) {}
 
   async request(companyId: string, staffId: string, sourceAssetId: string, dto: RequestProductImageFactScanDto) {
@@ -54,7 +56,7 @@ export class ProductImageFactScanService {
         productId: product.id,
         sourceAssetId: source.id,
         sourceCanonicalHash: source.canonicalSha256,
-        status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
+        status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.VERIFIED_EMPTY, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
         expiresAt: { lte: now },
       },
       data: { status: ProductImageFactScanStatus.EXPIRED, failureCode: 'SCAN_EXPIRED', completedAt: now },
@@ -76,7 +78,7 @@ export class ProductImageFactScanService {
         productId: product.id,
         sourceAssetId: source.id,
         sourceCanonicalHash: source.canonicalSha256,
-        status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
+        status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.VERIFIED_EMPTY, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
         expiresAt: { gt: now },
       },
       orderBy: { createdAt: 'desc' },
@@ -146,7 +148,7 @@ export class ProductImageFactScanService {
             productId: product.id,
             sourceAssetId: source.id,
             sourceCanonicalHash: source.canonicalSha256,
-            status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
+            status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.VERIFIED_EMPTY, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
             expiresAt: { gt: now },
           },
           orderBy: { createdAt: 'desc' },
@@ -164,7 +166,7 @@ export class ProductImageFactScanService {
       throw error;
     }
     try {
-      return await this.persistOutcome(scan.id, source, outcome);
+      return await this.persistOutcome(scan.id, source, buffer, outcome);
     } catch (error) {
       await this.markReconciliation(scan.id, 'FACT_SCAN_PERSISTENCE_CONFLICT');
       try {
@@ -183,7 +185,7 @@ export class ProductImageFactScanService {
     return this.toResponse(scan);
   }
 
-  private async persistOutcome(scanId: string, source: { canonicalSha256: string; scanSummary: unknown }, outcome: QwenOcrResult) {
+  private async persistOutcome(scanId: string, source: { id: string; companyId: string; canonicalSha256: string; scanSummary: unknown }, buffer: Buffer, outcome: QwenOcrResult) {
     if (outcome.kind === 'UNKNOWN') return this.markReconciliation(scanId, outcome.code);
     if (outcome.kind === 'DECLINED') {
       const scan = await this.prisma.productImageFactScan.update({
@@ -195,9 +197,13 @@ export class ProductImageFactScanService {
     const text = outcome.text.trim();
     const textDetected = text.length > 0;
     const qrCodesDetected = Number((source.scanSummary as ScanSummary | null)?.qrCodesDetected ?? 0);
-    const status = textDetected || qrCodesDetected > 0
+    const barcode = await this.barcodeScanner.scan(buffer);
+    const emptyTextQrVerified = !textDetected && qrCodesDetected === 0 && barcode.status === 'NONE';
+    const status = textDetected || qrCodesDetected > 0 || barcode.status === 'DETECTED'
       ? ProductImageFactScanStatus.FACTS_DETECTED
-      : ProductImageFactScanStatus.INCONCLUSIVE;
+      : emptyTextQrVerified
+        ? ProductImageFactScanStatus.VERIFIED_EMPTY
+        : ProductImageFactScanStatus.INCONCLUSIVE;
     const scan = await this.prisma.$transaction(async (tx) => {
       const current = await tx.productImageFactScan.findFirst({
         where: { id: scanId, status: ProductImageFactScanStatus.SCANNING, sourceCanonicalHash: source.canonicalSha256 },
@@ -212,14 +218,13 @@ export class ProductImageFactScanService {
           ocrTextLength: text.length,
           textDetected,
           qrCodesDetected,
-          // Barcode detection is not yet implemented, therefore no scan can
-          // unlock FREE_TUNE merely because OCR and QR happened to be empty.
-          barcodeStatus: 'NOT_IMPLEMENTED',
-          emptyTextQrVerified: !textDetected && qrCodesDetected === 0,
+          barcodeStatus: barcode.status,
+          emptyTextQrVerified,
           resultSummary: {
             hasText: textDetected,
             qrCodesDetected,
-            barcodeStatus: 'NOT_IMPLEMENTED',
+            barcodeStatus: barcode.status,
+            barcodeFormats: barcode.formats,
             providerRequestId: outcome.providerRequestId ?? null,
             usage: outcome.usage ?? null,
           } as Prisma.InputJsonValue,
@@ -234,13 +239,23 @@ export class ProductImageFactScanService {
       await this.markReconciliation(scan.id, 'INVOCATION_COMPLETION_CONFLICT');
       throw error;
     }
+    if (emptyTextQrVerified) {
+      try {
+        await this.persistFreeTuneEvidence(source, scan.id);
+      } catch {
+        return this.markReconciliation(scan.id, 'FREE_TUNE_EVIDENCE_WRITE_FAILED');
+      }
+    }
     return this.toResponse(scan);
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async expireStaleScans() {
     return this.prisma.productImageFactScan.updateMany({
-      where: { status: ProductImageFactScanStatus.SCANNING, expiresAt: { lte: new Date() } },
+      where: {
+        status: { in: [ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.FACTS_DETECTED, ProductImageFactScanStatus.VERIFIED_EMPTY, ProductImageFactScanStatus.INCONCLUSIVE, ProductImageFactScanStatus.RECONCILING] },
+        expiresAt: { lte: new Date() },
+      },
       data: { status: ProductImageFactScanStatus.EXPIRED, failureCode: 'SCAN_EXPIRED', completedAt: new Date() },
     });
   }
@@ -271,6 +286,50 @@ export class ProductImageFactScanService {
       data: { status: ProductImageFactScanStatus.RECONCILING, failureCode: code, completedAt: new Date() },
     });
     return this.toResponse(scan);
+  }
+
+  private async persistFreeTuneEvidence(source: { id: string; companyId: string; canonicalSha256: string; scanSummary: unknown }, scanId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const scan = await tx.productImageFactScan.findFirst({
+        where: {
+          id: scanId,
+          companyId: source.companyId,
+          sourceAssetId: source.id,
+          sourceCanonicalHash: source.canonicalSha256,
+          status: ProductImageFactScanStatus.VERIFIED_EMPTY,
+          emptyTextQrVerified: true,
+          policyVersion: FACT_SCAN_POLICY_VERSION,
+          expiresAt: { gt: new Date() },
+          invocation: { is: { provider: BAILIAN_QWEN_OCR_PROVIDER, status: 'SUCCEEDED' } },
+        },
+        select: { id: true },
+      });
+      if (!scan) throw new ConflictException('OCR 事实扫描尚未完成可用验真');
+      const asset = await tx.sellerMediaAsset.findFirst({
+        where: {
+          id: source.id,
+          companyId: source.companyId,
+          canonicalSha256: source.canonicalSha256,
+          status: SellerMediaAssetStatus.AVAILABLE,
+          deletedAt: null,
+        },
+        select: { id: true, scanSummary: true },
+      });
+      if (!asset) throw new ConflictException('OCR 证据写入时原图状态已变化');
+      const updated = await tx.sellerMediaAsset.updateMany({
+        where: { id: asset.id, canonicalSha256: source.canonicalSha256, status: SellerMediaAssetStatus.AVAILABLE },
+        data: {
+          scanSummary: {
+            ...((asset.scanSummary ?? {}) as Record<string, unknown>),
+            ocrTextVerifiedEmpty: true,
+            ocrFactScanId: scan.id,
+            ocrFactScanSourceHash: source.canonicalSha256,
+            ocrFactScanPolicyVersion: FACT_SCAN_POLICY_VERSION,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      if (updated.count !== 1) throw new ConflictException('OCR 证据写入时原图状态已变化');
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private toOcrSource(buffer: Buffer, mimeType: string): VisualProviderSource {

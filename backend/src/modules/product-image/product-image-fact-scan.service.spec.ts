@@ -28,9 +28,16 @@ function build() {
         resultSummary: { hasText: true }, completedAt: new Date(),
       }),
     },
+    sellerMediaAsset: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'asset-1', scanSummary: source.scanSummary }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
   const prisma = {
-    sellerMediaAsset: { findFirst: jest.fn().mockResolvedValue(source) },
+    sellerMediaAsset: {
+      findFirst: jest.fn().mockResolvedValue(source),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1' }) },
     productImageFactScan: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -47,8 +54,9 @@ function build() {
     recognizeFactScan: jest.fn().mockResolvedValue({ kind: 'KNOWN', text: 'PRODUCT-123', providerRequestId: 'request-1', usage: { totalTokens: 237 } }),
   };
   const invocations = { completeSynchronousVerification: jest.fn().mockResolvedValue(undefined) };
+  const barcodeScanner = { scan: jest.fn().mockResolvedValue({ status: 'INCONCLUSIVE', detectedCount: 0, formats: [] }) };
   const config = { get: jest.fn((key: string, fallback?: string) => key === 'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET' ? 'test-hmac-secret' : fallback) };
-  return { service: new ProductImageFactScanService(prisma as any, upload as any, ocrRunner as any, invocations as any, config as any), prisma, tx, upload, ocrRunner, invocations, config };
+  return { service: new ProductImageFactScanService(prisma as any, upload as any, ocrRunner as any, invocations as any, config as any, barcodeScanner as any), prisma, tx, upload, ocrRunner, invocations, config, barcodeScanner };
 }
 
 describe('ProductImageFactScanService', () => {
@@ -68,10 +76,10 @@ describe('ProductImageFactScanService', () => {
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_QWEN_OCR');
   });
 
-  it('keeps an empty OCR plus no QR result inconclusive until barcode verification exists', async () => {
+  it('keeps an empty OCR plus no QR result inconclusive when barcode absence is not proven', async () => {
     const { service, tx } = build();
     tx.productImageFactScan.update.mockResolvedValue({
-      ...scanningRecord(), status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: true,
+      ...scanningRecord(), status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: false,
       textDetected: false, completedAt: new Date(),
     });
     (service as any).ocrRunner.recognizeFactScan.mockResolvedValue({ kind: 'KNOWN', text: '', usage: { totalTokens: 10 } });
@@ -79,9 +87,9 @@ describe('ProductImageFactScanService', () => {
     const result = await service.request('company-1', 'staff-1', 'asset-1', { productId: 'product-1', idempotencyKey: 'scan-empty' });
 
     expect(tx.productImageFactScan.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: true, barcodeStatus: 'NOT_IMPLEMENTED' }),
+      data: expect.objectContaining({ status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: false, barcodeStatus: 'INCONCLUSIVE' }),
     }));
-    expect(result).toMatchObject({ status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: true, freeTuneEligible: false });
+    expect(result).toMatchObject({ status: ProductImageFactScanStatus.INCONCLUSIVE, emptyTextQrVerified: false, freeTuneEligible: false });
   });
 
   it('does not create a scan or model reservation when the OCR runner is disabled by policy', async () => {
@@ -132,7 +140,7 @@ describe('ProductImageFactScanService', () => {
 
     await expect(service.expireStaleScans()).resolves.toEqual({ count: 1 });
     expect(prisma.productImageFactScan.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: ProductImageFactScanStatus.SCANNING, expiresAt: { lte: expect.any(Date) } }),
+      where: expect.objectContaining({ status: { in: expect.arrayContaining([ProductImageFactScanStatus.SCANNING, ProductImageFactScanStatus.VERIFIED_EMPTY]) }, expiresAt: { lte: expect.any(Date) } }),
       data: expect.objectContaining({ status: ProductImageFactScanStatus.EXPIRED, failureCode: 'SCAN_EXPIRED' }),
     }));
   });

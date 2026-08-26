@@ -172,6 +172,7 @@ enum ProductVisualRiskProfile {
 enum ProductImageFactScanStatus {
   SCANNING
   FACTS_DETECTED
+  VERIFIED_EMPTY
   INCONCLUSIVE
   RECONCILING
   FAILED

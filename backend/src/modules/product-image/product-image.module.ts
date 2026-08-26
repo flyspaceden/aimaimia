@@ -16,11 +16,12 @@ import { ProductVisualPlanningService } from './product-visual-planning.service'
 import { VisualAgentModule } from '../visual-agent/visual-agent.module';
 import { ProductImageFactScanController } from './product-image-fact-scan.controller';
 import { ProductImageFactScanService } from './product-image-fact-scan.service';
+import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
 
 @Module({
   imports: [UploadModule, VisualAgentModule],
   controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, DisabledProductImageBackgroundProvider],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}
