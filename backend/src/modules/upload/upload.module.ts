@@ -4,6 +4,7 @@ import { memoryStorage } from 'multer';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
 import { ImageContentScannerService } from './image-content-scanner.service';
+import { ProductMediaAccessService } from './product-media-access.service';
 import { AnyAuthGuard } from '../../common/guards/any-auth.guard';
 
 @Module({
@@ -17,7 +18,7 @@ import { AnyAuthGuard } from '../../common/guards/any-auth.guard';
     }),
   ],
   controllers: [UploadController],
-  providers: [UploadService, ImageContentScannerService, AnyAuthGuard],
+  providers: [UploadService, ImageContentScannerService, ProductMediaAccessService, AnyAuthGuard],
   exports: [UploadService, ImageContentScannerService],
 })
 export class UploadModule {}

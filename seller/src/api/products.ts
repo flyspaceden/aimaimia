@@ -62,3 +62,14 @@ export const updateDraft = (id: string, data: ProductDraftPayload): Promise<Prod
 
 export const submitDraft = (id: string): Promise<Product> =>
   client.post(`/seller/products/${id}/submit`);
+
+export const requestProductMediaRevision = (
+  id: string,
+  data: {
+    mediaAssetIds: string[];
+    idempotencyKey: string;
+    quantityConfirmed: boolean;
+    labelsConfirmed: boolean;
+    factsConfirmed: boolean;
+  },
+): Promise<unknown> => client.post(`/seller/products/${id}/media-revisions`, data);

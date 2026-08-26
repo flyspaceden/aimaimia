@@ -836,7 +836,6 @@ describe('SellerProductsService SKU weight validation', () => {
     await expect(service.updateDraft('company_1', 'draft_1', {
       title: '不能覆盖正式商品',
       skus: [{ specName: '默认规格', cost: 10, stock: 5, weightGram: 750 }],
-      mediaUrls: ['https://example.com/a.jpg'],
       tagIds: ['tag_1'],
     })).rejects.toBeInstanceOf(BadRequestException);
 

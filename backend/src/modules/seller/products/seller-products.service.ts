@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { CheckoutSessionStatus, Prisma, ProductType, ReturnPolicy, SkuStatus } from '@prisma/client';
@@ -18,6 +19,7 @@ import {
   ValidatedSellerBundleItem,
 } from '../../product/product-bundle.service';
 import { SemanticFillService } from '../../product/semantic-fill.service';
+import { SellerMediaAssetsService } from '../../product-image/seller-media-assets.service';
 import {
   ProfitSafetyService,
   type ProfitSafetyWriteContext,
@@ -49,7 +51,31 @@ export class SellerProductsService {
     private semanticFillService: SemanticFillService,
     private productBundleService: ProductBundleService,
     private profitSafety: ProfitSafetyService,
+    @Optional() private mediaAssets?: SellerMediaAssetsService,
   ) {}
+
+  private async resolveMediaCreateData(
+    companyId: string,
+    mediaAssetIds: string[] | undefined,
+    mediaUrls: string[] | undefined,
+  ): Promise<Array<{ type: 'IMAGE'; url: string; sortOrder: number; assetId?: string }> | undefined> {
+    if (mediaUrls !== undefined) {
+      throw new BadRequestException('商品图片只能提交受管图片资产，请重新上传图片后再保存');
+    }
+    if (mediaAssetIds !== undefined) {
+      const mediaAssets = this.mediaAssets;
+      if (!mediaAssets) {
+        throw new BadRequestException('商品图片资产服务暂不可用');
+      }
+      if (mediaAssetIds.length > 9) throw new BadRequestException('商品最多上传 9 张图片');
+      const assets = await mediaAssets.assertOwnedProductImageAssets(companyId, mediaAssetIds);
+      return Promise.all(assets.map(async (asset, index) => {
+        return { type: 'IMAGE' as const, url: mediaAssets.getStableProductMediaUrl(asset.objectKey), sortOrder: index, assetId: asset.id };
+      }));
+    }
+    return undefined;
+  }
+
 
   private readonly profitSafetyProductSelect = {
     id: true,
@@ -700,6 +726,7 @@ export class SellerProductsService {
   /** 创建商品 */
   async create(companyId: string, dto: CreateProductDto) {
     const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
+    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
 
     // 服务层兜底校验：所有 SKU 成本必须大于 0（DTO 已有 @Min(0.01)，此处防止绕过）
     this.assertPositiveSkuCosts(dto.skus);
@@ -780,13 +807,9 @@ export class SellerProductsService {
                 create: this.bundleItemsCreateData(bundleState.validatedItems),
               }
             : undefined,
-          media: dto.mediaUrls
+          media: mediaCreateData
             ? {
-                create: dto.mediaUrls.map((url, i) => ({
-                  type: 'IMAGE' as const,
-                  url,
-                  sortOrder: i,
-                })),
+                create: mediaCreateData,
               }
             : undefined,
         },
@@ -875,12 +898,16 @@ export class SellerProductsService {
 
   /** 编辑商品 */
   async update(companyId: string, productId: string, dto: UpdateProductDto) {
+    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
       select: this.profitSafetyProductSelect,
     });
     if (!product) throw new NotFoundException('商品不存在');
     if (product.companyId !== companyId) throw new ForbiddenException('无权操作该商品');
+    if (mediaCreateData !== undefined && product.status === 'ACTIVE' && product.auditStatus === 'APPROVED') {
+      throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
+    }
     this.assertSellerManagedProduct(product);
     if (product.status === 'DRAFT') {
       throw new BadRequestException('草稿商品请使用草稿更新接口');
@@ -964,6 +991,15 @@ export class SellerProductsService {
       tx: Prisma.TransactionClient,
       context?: ProfitSafetyWriteContext,
     ) => {
+      if (mediaCreateData !== undefined) {
+        const currentMediaState = await tx.product.findUnique({
+          where: { id: productId },
+          select: { status: true, auditStatus: true },
+        });
+        if (currentMediaState?.status === 'ACTIVE' && currentMediaState.auditStatus === 'APPROVED') {
+          throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
+        }
+      }
       this.assertLockedMarkupRate(context, preparedMarkupRate);
       // 编辑已审核通过或已驳回的商品需重新进入审核队列；PENDING 状态编辑不计次
       const needReAudit =
@@ -1011,6 +1047,7 @@ export class SellerProductsService {
             auditNote: null,
             submissionCount: { increment: 1 },
           }),
+          ...(mediaCreateData !== undefined && { mediaVersion: { increment: 1 } }),
         },
         include: { skus: { where: { status: 'ACTIVE' } }, media: true, tags: { include: { tag: true } }, bundleItems: true },
       });
@@ -1045,15 +1082,13 @@ export class SellerProductsService {
       }
 
       // 更新媒体
-      if (dto.mediaUrls) {
+      if (mediaCreateData !== undefined) {
         await tx.productMedia.deleteMany({ where: { productId } });
-        if (dto.mediaUrls.length > 0) {
+        if (mediaCreateData.length > 0) {
           await tx.productMedia.createMany({
-            data: dto.mediaUrls.map((url, i) => ({
+            data: mediaCreateData.map((media) => ({
               productId,
-              type: 'IMAGE' as const,
-              url,
-              sortOrder: i,
+              ...media,
             })),
           });
         }
@@ -1528,6 +1563,7 @@ export class SellerProductsService {
    */
   async createDraft(companyId: string, dto: CreateDraftDto) {
     const productType = (dto.productType ?? ProductType.SIMPLE) as ProductType;
+    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertSellerManagedCompany(tx, companyId);
@@ -1586,13 +1622,9 @@ export class SellerProductsService {
                 }
               : undefined,
             media:
-              dto.mediaUrls && dto.mediaUrls.length > 0
+              mediaCreateData && mediaCreateData.length > 0
                 ? {
-                    create: dto.mediaUrls.map((url, i) => ({
-                      type: 'IMAGE' as const,
-                      url,
-                      sortOrder: i,
-                    })),
+                    create: mediaCreateData,
                   }
                 : undefined,
           },
@@ -1634,6 +1666,7 @@ export class SellerProductsService {
    * 全量覆盖写：skus 和 media 传了就整体替换，tagIds 传了就整体替换。
    */
   async updateDraft(companyId: string, productId: string, dto: UpdateDraftDto) {
+    const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls);
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({
         where: { id: productId },
@@ -1706,15 +1739,13 @@ export class SellerProductsService {
       }
 
       // media 全量替换
-      if (dto.mediaUrls !== undefined) {
+      if (mediaCreateData !== undefined) {
         await tx.productMedia.deleteMany({ where: { productId } });
-        if (dto.mediaUrls.length > 0) {
+        if (mediaCreateData.length > 0) {
           await tx.productMedia.createMany({
-            data: dto.mediaUrls.map((url, i) => ({
+            data: mediaCreateData.map((media) => ({
               productId,
-              type: 'IMAGE' as const,
-              url,
-              sortOrder: i,
+              ...media,
             })),
           });
         }

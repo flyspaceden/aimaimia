@@ -139,6 +139,7 @@ export interface ProductMedia {
   type: string;
   url: string;
   sortOrder: number;
+  assetId?: string | null;
 }
 
 // ============================================================

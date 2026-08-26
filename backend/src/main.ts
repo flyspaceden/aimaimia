@@ -10,6 +10,7 @@ import { AppExceptionFilter } from './common/filters/app-exception.filter';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
 import { RedisIoAdapter } from './common/adapters/redis-io.adapter';
 import { configureBodyParsers } from './common/http/configure-body-parsers';
+import { blockManagedProductAssetStaticRead } from './common/http/protected-upload-static.middleware';
 
 function parseTrustProxy(value: string): boolean | number | string | string[] {
   const normalized = value.trim();
@@ -61,6 +62,10 @@ async function bootstrap() {
   // 公开资源：URL 嵌在商品详情/订单详情/审核页里多端共享）。
   const uploadLocalPrivate = process.env.UPLOAD_LOCAL_PRIVATE === 'true';
   if (!uploadLocalPrivate) {
+    // Managed product-image assets must pass the database-backed public-media
+    // gate. Normalize within the broader mount to defeat %2F and // static
+    // path variants before express.static decodes and resolves a file.
+    app.use('/uploads', blockManagedProductAssetStaticRead);
     app.useStaticAssets(join(process.cwd(), 'uploads'), {
       prefix: '/uploads/',
       setHeaders: (res) => {

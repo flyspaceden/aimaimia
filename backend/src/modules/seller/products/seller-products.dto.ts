@@ -141,6 +141,12 @@ export class CreateProductDto {
   @IsString({ each: true })
   mediaUrls?: string[];
 
+  /** 新写路径：只能引用当前商户受管商品图片资产。 */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaAssetIds?: string[];
+
   @IsOptional()
   @IsArray()
   flavorTags?: string[];
@@ -221,6 +227,11 @@ export class UpdateProductDto {
   @IsArray()
   @IsString({ each: true })
   mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaAssetIds?: string[];
 
   @IsOptional()
   @IsArray()
@@ -407,6 +418,11 @@ export class CreateDraftDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
+  mediaAssetIds?: string[];
+
+  @IsOptional()
+  @IsArray()
   flavorTags?: string[];
 
   @IsOptional()
@@ -497,6 +513,11 @@ export class UpdateDraftDto {
   @IsArray()
   @IsString({ each: true })
   mediaUrls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mediaAssetIds?: string[];
 
   @IsOptional()
   @IsArray()

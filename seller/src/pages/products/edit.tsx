@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   App, Card, Button, Space, InputNumber, Input, Form,
   TreeSelect, Upload, Typography, Descriptions, Tag, Spin,
-  Breadcrumb, Select, Collapse, Switch, Row, Col,
+  Breadcrumb, Select, Collapse, Switch, Row, Col, Checkbox,
   Modal, Image, Segmented, Table, Tooltip, Popover,
 } from 'antd';
 import type { FormInstance } from 'antd';
@@ -27,6 +27,7 @@ import {
   createDraft,
   updateDraft,
   submitDraft,
+  requestProductMediaRevision,
   type CategoryNode,
 } from '@/api/products';
 import { getMarkupRate, getPublicAppConfig } from '@/api/config';
@@ -34,7 +35,6 @@ import { getProductUnits } from '@/api/productUnits';
 import { getTagCategories } from '@/api/tags';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { productStatusMap, auditStatusMap } from '@/constants/statusMaps';
-import useAuthStore from '@/store/useAuthStore';
 import {
   buildBundleSkuOptionLabel,
   buildSkuMetaText,
@@ -42,6 +42,7 @@ import {
   normalizeSkuTitle,
 } from '@/utils/productSkuDisplay';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
+import { uploadProductImageAsset, type UploadedProductImageAsset } from '@/api/mediaAssets';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
 import { buildBundleCatalogQuery } from './bundleCatalog';
@@ -52,6 +53,29 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
 /** 新建商品时的默认计量单位 */
 const DEFAULT_PRODUCT_UNIT = '斤';
+
+function getManagedAsset(file: UploadFile): UploadedProductImageAsset | undefined {
+  const response = file.response as UploadedProductImageAsset | undefined;
+  return response?.asset?.id && response.displayUrl ? response : undefined;
+}
+
+function getFileUrl(file: UploadFile): string | undefined {
+  const asset = getManagedAsset(file);
+  const response = file.response as { url?: string; data?: { url?: string } } | undefined;
+  return file.url || asset?.displayUrl || response?.data?.url || response?.url;
+}
+
+function buildMediaPayload(fileList: UploadFile[]) {
+  const completed = fileList.filter((file) => file.status === 'done');
+  const managedAssets = completed.map(getManagedAsset);
+  if (completed.length > 0 && managedAssets.every(Boolean)) {
+    return { mediaAssetIds: managedAssets.map((asset) => asset!.asset.id) };
+  }
+  if (managedAssets.some(Boolean)) {
+    throw new Error('当前商品仍有历史图片。请将历史图片重新上传后，再与新图片一起保存，避免图片来源和排序丢失。');
+  }
+  return {};
+}
 
 /**
  * 计量单位下拉选项。
@@ -928,22 +952,18 @@ function MultiSpecRows({
 function ImageUploadSection({
   fileList,
   setFileList,
-  token,
 }: {
   fileList: UploadFile[];
   setFileList: (list: UploadFile[]) => void;
-  token: string | null;
 }) {
   const { message } = App.useApp();
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
+  const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
   const handlePreview = (file: UploadFile) => {
-    const response = file.response as { url?: string; data?: { url?: string } } | undefined;
-    const url = file.url
-      || file.thumbUrl
-      || response?.data?.url
-      || response?.url;
+    const url = getFileUrl(file) || file.thumbUrl;
     if (!url) return;
     setPreviewFile({ url, name: file.name || '商品图片' });
   };
@@ -969,8 +989,14 @@ function ImageUploadSection({
     <>
       <Upload
         name="file"
-        action={`${API_BASE}/upload?folder=products`}
-        headers={{ Authorization: `Bearer ${token || ''}` }}
+        customRequest={async ({ file, onSuccess, onError }) => {
+          try {
+            const result = await uploadProductImageAsset(file as File);
+            onSuccess?.(result);
+          } catch (error) {
+            onError?.(error as Error);
+          }
+        }}
         listType="picture-card"
         fileList={fileList}
         onChange={({ fileList: newList }) => setFileList(newList)}
@@ -987,6 +1013,27 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
+      {hasMixedSourceImages && (
+        <Text type="warning" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+          当前同时存在历史图片和新上传图片。请重新上传历史图片后再保存，才能保留每张图片的来源和审核记录。
+        </Text>
+      )}
+      {fileList.some((file) => getManagedAsset(file)?.asset.diagnosis?.advisories?.length) && (
+        <div style={{ marginTop: 10 }}>
+          {fileList.map((file) => {
+            const advisories = getManagedAsset(file)?.asset.diagnosis?.advisories || [];
+            if (advisories.length === 0) return null;
+            const labels: Record<string, string> = {
+              IMAGE_TOO_SMALL: '分辨率偏低，建议补拍更清晰的原图',
+              PORTRAIT_CROP_RISK: '竖图在商品流可能裁掉主体，建议查看 4:5 裁切效果',
+              TOO_DARK: '画面偏暗，建议补光后重拍',
+              TOO_BRIGHT: '画面偏亮，建议避免强反光后重拍',
+              LOW_CONTRAST: '主体与背景对比偏低，建议换更干净的背景补拍',
+            };
+            return <Text key={file.uid} type="warning" style={{ display: 'block', fontSize: 12 }}>{file.name}：{advisories.map((item) => labels[item.code]).join('；')}</Text>;
+          })}
+        </div>
+      )}
 
       <Modal
         title={previewFile ? `预览：${previewFile.name}` : '预览'}
@@ -1100,13 +1147,7 @@ function buildPayload(
     : undefined;
 
   // 处理图片
-  const mediaUrls = fileList
-    .filter((f) => f.status === 'done')
-    .map((f) => {
-      const response = f.response as { url?: string; data?: { url?: string } } | undefined;
-      return f.url || response?.data?.url || response?.url;
-    })
-    .filter(Boolean) as string[];
+  const media = buildMediaPayload(fileList);
 
   const skus = skuList.map((s) => ({
     id: s.id as string | undefined,
@@ -1128,7 +1169,7 @@ function buildPayload(
     tagIds,
     aiKeywords,
     attributes,
-    mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+    ...(media.mediaAssetIds ? { mediaAssetIds: media.mediaAssetIds } : {}),
     flavorTags: (values.flavorTags as string[] | undefined) || undefined,
     seasonalMonths: (values.seasonalMonths as number[] | undefined) || undefined,
     usageScenarios: (values.usageScenarios as string[] | undefined) || undefined,
@@ -1160,13 +1201,15 @@ function ProductEditForm({ id }: { id: string }) {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const [form] = Form.useForm();
-  const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [multiSpec, setMultiSpec] = useState(false);
   const [productType, setProductType] = useState<ProductType>('SIMPLE');
   const [bundleItems, setBundleItems] = useState<ProductBundleItem[]>([]);
   const [bundleCatalogKeyword, setBundleCatalogKeyword] = useState('');
+  const [revisionModalOpen, setRevisionModalOpen] = useState(false);
+  const [revisionSubmitting, setRevisionSubmitting] = useState(false);
+  const [revisionChecks, setRevisionChecks] = useState({ quantity: false, labels: false, facts: false });
 
   // 监听表单变化以跟踪未保存更改
   Form.useWatch([], form);
@@ -1306,6 +1349,7 @@ function ProductEditForm({ id }: { id: string }) {
           name: `图片${i + 1}`,
           status: 'done' as const,
           url: m.url,
+          response: m.assetId ? { asset: { id: m.assetId }, displayUrl: m.url } : undefined,
         })),
       );
     }
@@ -1378,6 +1422,31 @@ function ProductEditForm({ id }: { id: string }) {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const submitMediaRevision = async () => {
+    const assetIds = fileList.filter((file) => file.status === 'done').map((file) => getManagedAsset(file)?.asset.id);
+    if (assetIds.length === 0 || assetIds.some((assetId) => !assetId)) {
+      message.warning('请先将当前全部商品图片重新上传为受管图片后，再提交封面变更审核');
+      return;
+    }
+    setRevisionSubmitting(true);
+    try {
+      await requestProductMediaRevision(id, {
+        mediaAssetIds: assetIds as string[],
+        idempotencyKey: crypto.randomUUID(),
+        quantityConfirmed: revisionChecks.quantity,
+        labelsConfirmed: revisionChecks.labels,
+        factsConfirmed: revisionChecks.facts,
+      });
+      message.success('封面变更已提交审核，买家继续看到当前已审核封面');
+      setRevisionModalOpen(false);
+      setRevisionChecks({ quantity: false, labels: false, facts: false });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '提交封面变更审核失败');
+    } finally {
+      setRevisionSubmitting(false);
     }
   };
 
@@ -1753,9 +1822,34 @@ function ProductEditForm({ id }: { id: string }) {
         </Card>
 
         {/* 4. 商品图片 */}
-        <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={setFileList} token={token} />
+        <Card
+          title="商品图片"
+          extra={product?.status === 'ACTIVE' && product?.auditStatus === 'APPROVED' ? (
+            <Button onClick={() => setRevisionModalOpen(true)}>提交封面变更审核</Button>
+          ) : null}
+          style={{ marginBottom: 16 }}
+        >
+          <ImageUploadSection fileList={fileList} setFileList={setFileList} />
         </Card>
+
+        <Modal
+          title="提交封面变更审核"
+          open={revisionModalOpen}
+          onCancel={() => setRevisionModalOpen(false)}
+          okText="提交审核"
+          okButtonProps={{
+            loading: revisionSubmitting,
+            disabled: !revisionChecks.quantity || !revisionChecks.labels || !revisionChecks.facts,
+          }}
+          onOk={submitMediaRevision}
+        >
+          <Text type="secondary">审核通过前，买家仍会看到当前已审核封面。</Text>
+          <Space direction="vertical" style={{ marginTop: 16 }}>
+            <Checkbox checked={revisionChecks.quantity} onChange={(event) => setRevisionChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
+            <Checkbox checked={revisionChecks.labels} onChange={(event) => setRevisionChecks((value) => ({ ...value, labels: event.target.checked }))}>包装、型号、文字和二维码未变化</Checkbox>
+            <Checkbox checked={revisionChecks.facts} onChange={(event) => setRevisionChecks((value) => ({ ...value, facts: event.target.checked }))}>颜色、规格、材质和实物一致</Checkbox>
+          </Space>
+        </Modal>
 
         <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>
           <AiSearchOptimizationContent />
@@ -1789,7 +1883,6 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
-  const token = useAuthStore((s) => s.token);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [multiSpec, setMultiSpec] = useState(false);
@@ -1951,6 +2044,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
           name: `图片${i + 1}`,
           status: 'done' as const,
           url: m.url,
+          response: m.assetId ? { asset: { id: m.assetId }, displayUrl: m.url } : undefined,
         })),
       );
     }
@@ -2025,13 +2119,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
     );
 
     // 媒体：始终发数组（清空发 []）
-    const mediaUrls = fileList
-      .filter((f) => f.status === 'done')
-      .map((f) => {
-        const response = f.response as { url?: string; data?: { url?: string } } | undefined;
-        return f.url || response?.data?.url || response?.url;
-      })
-      .filter(Boolean) as string[];
+    const media = buildMediaPayload(fileList);
 
     const aiKeywords = typeof values.aiKeywords === 'string'
       ? values.aiKeywords.split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -2051,7 +2139,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
       tagIds: (values.tagIds as string[] | undefined) ?? [],
       aiKeywords,
       attributes,
-      mediaUrls,
+      ...(media.mediaAssetIds ? { mediaAssetIds: media.mediaAssetIds } : {}),
       flavorTags: (values.flavorTags as string[] | undefined) ?? [],
       seasonalMonths: (values.seasonalMonths as number[] | undefined) ?? [],
       usageScenarios: (values.usageScenarios as string[] | undefined) ?? [],
@@ -2569,7 +2657,7 @@ function ProductCreateForm({ draftInitialId }: { draftInitialId?: string } = {})
 
         {/* 3. 商品图片 */}
         <Card title="商品图片" style={{ marginBottom: 16 }}>
-          <ImageUploadSection fileList={fileList} setFileList={updateFileList} token={token} />
+          <ImageUploadSection fileList={fileList} setFileList={updateFileList} />
         </Card>
 
         <Card title="AI 搜索优化" style={{ marginBottom: 16 }}>

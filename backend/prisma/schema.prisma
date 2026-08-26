@@ -128,6 +128,18 @@ enum MediaType {
   VIDEO
 }
 
+enum SellerMediaAssetPurpose {
+  PRODUCT_IMAGE
+}
+
+enum ProductMediaRevisionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
 enum TagScope {
   COMPANY
   PRODUCT
@@ -1306,6 +1318,8 @@ model Company {
   suspendedUntil             DateTime?
   creditEvents               CompanyCreditEvent[]
   companyTags                CompanyTag[]
+  sellerMediaAssets          SellerMediaAsset[]
+  productMediaRevisions      ProductMediaRevision[]
 }
 
 model CompanyProfile {
@@ -1407,6 +1421,8 @@ model CompanyStaff {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有员工关联的企业
 
   sellerSessions SellerSession[]
+  uploadedMediaAssets SellerMediaAsset[]
+  requestedMediaRevisions ProductMediaRevision[]
 
   @@unique([userId, companyId]) // 同一用户在同一企业只有一个角色
   @@index([companyId])
@@ -1511,11 +1527,13 @@ model Product {
   returnPolicy       ReturnPolicy       @default(INHERIT) // 退货政策：继承品类/支持/不支持
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+  mediaVersion       Int                @default(1)
 
   // 关系
   skus                  ProductSKU[]
   bundleItems           ProductBundleItem[]    @relation("ProductBundleItems")
   media                 ProductMedia[]
+  mediaRevisions        ProductMediaRevision[]
   tags                  ProductTag[]
   productTraceLinks     ProductTraceLink[]
   lotteryPrizes         LotteryPrize[]
@@ -1588,8 +1606,65 @@ model ProductMedia {
   url       String
   sortOrder Int       @default(0)
   alt       String?
+  assetId   String?
+  asset     SellerMediaAsset? @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@index([productId]) // M5: 外键索引，加速商品媒体查询
+  @@index([assetId])
+}
+
+model SellerMediaAsset {
+  id                String                  @id @default(cuid())
+  companyId         String
+  company           Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  uploadedByStaffId String
+  uploadedByStaff   CompanyStaff            @relation(fields: [uploadedByStaffId], references: [id], onDelete: Restrict)
+  purpose           SellerMediaAssetPurpose
+  objectKey         String                  @unique
+  canonicalSha256   String
+  mimeType          String
+  byteSize          Int
+  width             Int
+  height            Int
+  scanSummary       Json?
+  diagnosis         Json?
+  diagnosisVersion  String?
+  diagnosedAt       DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  productMedia      ProductMedia[]
+
+  @@index([companyId, createdAt])
+  @@index([companyId, canonicalSha256])
+  @@index([uploadedByStaffId, createdAt])
+}
+
+model ProductMediaRevision {
+  id                   String                     @id @default(cuid())
+  productId            String
+  product              Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  companyId            String
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  expectedMediaVersion Int
+  proposedMedia        Json
+  status               ProductMediaRevisionStatus @default(PENDING_REVIEW)
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff               @relation(fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  attestation          Json
+  idempotencyKey       String
+  reviewedByAdminId    String?
+  reviewedAt           DateTime?
+  reviewNote           String?
+  appliedAt            DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([productId, status, createdAt])
+  @@index([companyId, createdAt])
+  @@index([expiresAt])
 }
 
 model ProductTag {

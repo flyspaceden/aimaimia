@@ -16,6 +16,7 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { UploadService } from './upload.service';
+import { ProductMediaAccessService } from './product-media-access.service';
 import { UploadQueryDto } from './dto/upload-query.dto';
 import { UPLOAD_ALLOWED_MIME_TYPES, UPLOAD_MAX_FILE_SIZE } from './upload.constants';
 import { Public } from '../../common/decorators/public.decorator';
@@ -45,7 +46,22 @@ function buildContentDisposition(filename: string): string {
 
 @Controller('upload')
 export class UploadController {
-  constructor(private uploadService: UploadService) {}
+  constructor(
+    private uploadService: UploadService,
+    private readonly productMediaAccess: ProductMediaAccessService,
+  ) {}
+
+  private assertNotReservedFolder(folder?: string) {
+    if ((folder || '').replace(/^\/+|\/+$/g, '') === 'seller-product-assets') {
+      throw new BadRequestException('该上传目录仅允许卖家商品图片受管接口使用');
+    }
+  }
+
+  private assertNotManagedProductAssetKey(key: string) {
+    if (key.replace(/^\/+/, '').startsWith('seller-product-assets/')) {
+      throw new BadRequestException('受管商品图片只能通过卖家预览、管理员审核或已审核商品展示读取');
+    }
+  }
 
   /**
    * 上传单个文件
@@ -64,6 +80,7 @@ export class UploadController {
     if (!file) {
       throw new BadRequestException('请选择要上传的文件');
     }
+    this.assertNotReservedFolder(query.folder);
     return this.uploadService.uploadFile(file, query.folder || 'general');
   }
 
@@ -84,6 +101,7 @@ export class UploadController {
     if (!files || files.length === 0) {
       throw new BadRequestException('请选择要上传的文件');
     }
+    this.assertNotReservedFolder(query.folder);
     return this.uploadService.uploadFiles(files, query.folder || 'general');
   }
 
@@ -99,8 +117,21 @@ export class UploadController {
     @Query('expiresSec') expiresSec?: string,
   ) {
     if (!key) throw new BadRequestException('请提供文件 key');
+    this.assertNotManagedProductAssetKey(key);
     const ttl = expiresSec ? Number.parseInt(expiresSec, 10) : undefined;
     return this.uploadService.createAccessUrl(key, ttl);
+  }
+
+  /** Product images are public after product approval; object keys stay opaque. */
+  @Public()
+  @Get('product-media/*key')
+  async getProductMedia(@Param('key') key: string, @Res() res: Response) {
+    await this.productMediaAccess.assertPublicReadable(key);
+    const file = await this.uploadService.getProductMediaFile(key);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    if ('filePath' in file) return res.sendFile(file.filePath);
+    return file.stream.pipe(res);
   }
 
   /**
@@ -150,6 +181,7 @@ export class UploadController {
     @Res() res: Response,
   ) {
     if (!key) throw new BadRequestException('请提供文件 key');
+    this.assertNotManagedProductAssetKey(key);
     const file = await this.uploadService.getFileForDownload(key);
     // RFC 5987 兼容写法：filename* 用 UTF-8 编码支持中文文件名
     res.setHeader('Content-Type', file.mimeType);
@@ -169,6 +201,7 @@ export class UploadController {
   @UseGuards(AdminAuthGuard)
   @Delete('*key')
   async deleteFile(@Param('key') key: string) {
+    this.assertNotManagedProductAssetKey(key);
     await this.uploadService.deleteFile(key);
     return { ok: true };
   }

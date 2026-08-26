@@ -1,0 +1,18 @@
+import { Module } from '@nestjs/common';
+import { UploadModule } from '../upload/upload.module';
+import { ProductImageQualityService } from './product-image-quality.service';
+import { SellerMediaAssetsController } from './seller-media-assets.controller';
+import { SellerMediaAssetsService } from './seller-media-assets.service';
+import { ProductMediaRevisionsController } from './product-media-revisions.controller';
+import { ProductMediaRevisionsService } from './product-media-revisions.service';
+import { AdminProductMediaRevisionsController } from './admin-product-media-revisions.controller';
+import { ProductImageCompositionService } from './product-image-composition.service';
+import { DisabledProductImageBackgroundProvider } from './product-image-background.provider';
+
+@Module({
+  imports: [UploadModule],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, DisabledProductImageBackgroundProvider],
+  exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
+})
+export class ProductImageModule {}

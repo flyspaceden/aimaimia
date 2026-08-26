@@ -11,6 +11,7 @@ const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
 const ProductListPage = lazy(() => import('@/pages/products/index'));
 const ProductEditPage = lazy(() => import('@/pages/products/edit'));
 const ProductUnitsPage = lazy(() => import('@/pages/products/units'));
+const ProductMediaRevisionPage = lazy(() => import('@/pages/products/media-revisions'));
 const OrderListPage = lazy(() => import('@/pages/orders/index'));
 const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
 const CompanyListPage = lazy(() => import('@/pages/companies/index'));
@@ -135,6 +136,7 @@ export default function App() {
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="products" element={<ProductListPage />} />
             <Route path="products/units" element={<ProductUnitsPage />} />
+            <Route path="products/media-revisions" element={<RequirePermission permission={PERMISSIONS.PRODUCTS_AUDIT}><ProductMediaRevisionPage /></RequirePermission>} />
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
