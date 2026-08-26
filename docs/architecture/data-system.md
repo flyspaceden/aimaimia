@@ -440,8 +440,46 @@ SellerUserRole
 - productId (uuid FK Product)
 - type (enum: IMAGE/VIDEO)
 - url (text)
+- assetId (uuid nullable FK SellerMediaAsset) — 新写入的商品图必须引用受管资产；历史 URL 仅为兼容读取
+- visualOrigin (enum: ORIGINAL/DETERMINISTIC_COMPOSITE/AI_BACKGROUND)
+- optimizationId (uuid nullable FK ProductImageOptimization), isEvidenceImage (boolean default false)
 - sortOrder (int)
 - alt (text nullable)
+
+### 商品视觉 Agent 资产与任务（候选，未迁移/未部署）
+
+#### SellerMediaAsset（受管商品图片资产）
+- id (uuid, PK), companyId (uuid FK Company), uploadedByStaffId (uuid FK CompanyStaff)
+- purpose (enum: PRODUCT_IMAGE), objectKey (text unique), canonicalSha256 (text)
+- mimeType, byteSize, width, height
+- scanSummary (jsonb nullable) — 联系方式/二维码检测和 `needsReview`；为真时不得用于展示或封面审核
+- diagnosis / diagnosisVersion / diagnosedAt — 免费质量诊断及其版本
+- deletedAt, createdAt, updatedAt
+
+#### ProductMediaRevision（已上架商品封面变更审核）
+- id (uuid, PK), productId (uuid FK Product), companyId (uuid FK Company)
+- expectedMediaVersion (int), proposedMedia (jsonb), status (enum: PENDING_REVIEW/APPROVED/REJECTED/WITHDRAWN/EXPIRED)
+- requestedByStaffId (uuid FK CompanyStaff), attestation (jsonb), idempotencyKey
+- reviewedByAdminId, reviewedAt, reviewNote, appliedAt, expiresAt, createdAt, updatedAt
+- unique(companyId, idempotencyKey)；同一 product 同时最多一条 PENDING_REVIEW
+
+#### ProductImageOptimization（商品视觉任务）
+- id (cuid, PK), companyId (FK), productId (nullable FK；商品删除时置空保留任务审计), kind, status
+- processingContract / contractHash / inputFingerprint / templateVersion — 固定处理合同与缓存指纹
+- provider / modelVersion 仅记录服务端选定模型；`costTier` 与 `reservedCostCents/actualCostCents` 使用整数分
+- requestedByStaffId / adoptedByStaffId / adoptedAt、idempotencyKey、dedupeKey
+- leaseGeneration / leaseToken / leaseExpiresAt / attemptCount — worker 条件领取与超时对账；同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING/RECONCILING 任务由部分唯一索引互斥。付费请求在供应商结果或账单未确定时必须进入 RECONCILING，禁止释放去重锁后再次发起收费请求
+- failureCode / failureDetail / startedAt / completedAt / expiresAt
+
+#### ProductImageArtifact（私有任务产物）
+- optimizationId (FK), kind (MASK/FOREGROUND_REFERENCE/CANDIDATE/INTEGRITY_PROOF)
+- assetId (nullable FK SellerMediaAsset), objectKey（可复用同一受管源图，不作全局唯一）, sha256, mimeType, byteSize, width, height
+- isAigc, metadata, createdAt
+
+#### ProductImageAssetLineage（来源谱系）
+- optimizationId (FK), sourceAssetId (FK SellerMediaAsset), artifactId (FK ProductImageArtifact)
+- role (PRIMARY_SOURCE/ADDITIONAL_SOURCE/FOREGROUND_REFERENCE), createdAt
+- unique(optimizationId, sourceAssetId, artifactId, role)，支持多件套而不丢失任一来源
 
 ## E6. ProductTag
 - productId (uuid FK Product)

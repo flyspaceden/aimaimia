@@ -123,12 +123,13 @@ ProductMedia (展示顺序；保留原实拍与 AI 优化标识)
 
 ```text
 REQUESTED → QUEUED → RUNNING → SUCCEEDED → ADOPTED
-                              └→ FAILED | REJECTED | EXPIRED
+                              ├→ FAILED | REJECTED | EXPIRED
+                              └→ RECONCILING → SUCCEEDED | FAILED | EXPIRED
 ```
 
 - `原图 hash + 处理合同版本 + 模板版本 + 模型版本` 是缓存键。
 - 同键运行中任务只能有一个；超时先查供应商任务状态，不可直接重试。
-- 额度预占、任务创建和幂等键在同一事务；失败/拒绝释放预占，成功后结算。
+- 额度预占、任务创建和幂等键在同一事务；失败/拒绝释放预占，成功后结算。`QUEUED` 可因尚未提交而过期；但付费供应商在 `RUNNING` 租约到期时若可能已经受理请求，必须先进入 `RECONCILING` 并查询任务/费用，绝不能直接过期、释放去重锁或再次提交。
 - 采用也必须条件更新，防止多端双击把同一候选写入两次。
 
 ## 7. 卖家、买家与管理端

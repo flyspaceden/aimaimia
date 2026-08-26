@@ -140,6 +140,48 @@ enum ProductMediaRevisionStatus {
   EXPIRED
 }
 
+enum ProductImageOptimizationKind {
+  WHITE_BACKGROUND
+  BACKGROUND_GENERATION
+}
+
+enum ProductImageOptimizationStatus {
+  REQUESTED
+  QUEUED
+  RUNNING
+  RECONCILING
+  SUCCEEDED
+  FAILED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  ADOPTED
+}
+
+enum ProductImageOptimizationCostTier {
+  FREE
+  PAID
+}
+
+enum ProductImageArtifactKind {
+  MASK
+  FOREGROUND_REFERENCE
+  CANDIDATE
+  INTEGRITY_PROOF
+}
+
+enum ProductImageAssetLineageRole {
+  PRIMARY_SOURCE
+  ADDITIONAL_SOURCE
+  FOREGROUND_REFERENCE
+}
+
+enum ProductMediaVisualOrigin {
+  ORIGINAL
+  DETERMINISTIC_COMPOSITE
+  AI_BACKGROUND
+}
+
 enum TagScope {
   COMPANY
   PRODUCT
@@ -1320,6 +1362,7 @@ model Company {
   companyTags                CompanyTag[]
   sellerMediaAssets          SellerMediaAsset[]
   productMediaRevisions      ProductMediaRevision[]
+  productImageOptimizations  ProductImageOptimization[]
 }
 
 model CompanyProfile {
@@ -1423,6 +1466,8 @@ model CompanyStaff {
   sellerSessions SellerSession[]
   uploadedMediaAssets SellerMediaAsset[]
   requestedMediaRevisions ProductMediaRevision[]
+  requestedImageOptimizations ProductImageOptimization[] @relation("ProductImageOptimizationRequestedBy")
+  adoptedImageOptimizations   ProductImageOptimization[] @relation("ProductImageOptimizationAdoptedBy")
 
   @@unique([userId, companyId]) // 同一用户在同一企业只有一个角色
   @@index([companyId])
@@ -1534,6 +1579,7 @@ model Product {
   bundleItems           ProductBundleItem[]    @relation("ProductBundleItems")
   media                 ProductMedia[]
   mediaRevisions        ProductMediaRevision[]
+  imageOptimizations    ProductImageOptimization[]
   tags                  ProductTag[]
   productTraceLinks     ProductTraceLink[]
   lotteryPrizes         LotteryPrize[]
@@ -1599,18 +1645,23 @@ model ProductBundleItem {
 }
 
 model ProductMedia {
-  id        String    @id @default(cuid())
-  productId String
-  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  type      MediaType
-  url       String
-  sortOrder Int       @default(0)
-  alt       String?
-  assetId   String?
-  asset     SellerMediaAsset? @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  id           String                   @id @default(cuid())
+  productId    String
+  product      Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type         MediaType
+  url          String
+  sortOrder    Int                      @default(0)
+  alt          String?
+  assetId      String?
+  asset        SellerMediaAsset?        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  visualOrigin ProductMediaVisualOrigin @default(ORIGINAL)
+  optimizationId String?
+  optimization ProductImageOptimization? @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
+  isEvidenceImage Boolean               @default(false)
 
   @@index([productId]) // M5: 外键索引，加速商品媒体查询
   @@index([assetId])
+  @@index([optimizationId])
 }
 
 model SellerMediaAsset {
@@ -1634,10 +1685,100 @@ model SellerMediaAsset {
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
   productMedia      ProductMedia[]
+  imageArtifacts    ProductImageArtifact[]
+  imageLineage      ProductImageAssetLineage[]
 
   @@index([companyId, createdAt])
   @@index([companyId, canonicalSha256])
   @@index([uploadedByStaffId, createdAt])
+}
+
+model ProductImageOptimization {
+  id                   String                           @id @default(cuid())
+  companyId            String
+  company              Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId            String?
+  product              Product?                         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  kind                 ProductImageOptimizationKind
+  status               ProductImageOptimizationStatus   @default(REQUESTED)
+  processingContract   Json
+  contractHash         String
+  inputFingerprint     String
+  templateVersion      String
+  provider             String?
+  modelVersion         String?
+  costTier             ProductImageOptimizationCostTier @default(FREE)
+  reservedCostCents    Int                              @default(0)
+  actualCostCents      Int?
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff                     @relation("ProductImageOptimizationRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  adoptedByStaffId     String?
+  adoptedByStaff       CompanyStaff?                    @relation("ProductImageOptimizationAdoptedBy", fields: [adoptedByStaffId], references: [id], onDelete: Restrict)
+  adoptedAt            DateTime?
+  idempotencyKey       String
+  dedupeKey            String
+  leaseGeneration      Int                              @default(0)
+  leaseToken           String?
+  leaseExpiresAt       DateTime?
+  attemptCount         Int                              @default(0)
+  failureCode          String?
+  failureDetail        String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+  artifacts            ProductImageArtifact[]
+  lineage              ProductImageAssetLineage[]
+  productMedia         ProductMedia[]
+
+  @@unique([companyId, idempotencyKey])
+  // 同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING 任务由 migration 中的
+  // PostgreSQL 部分唯一索引约束；Prisma schema 无法表达该 WHERE 条件。
+  @@index([companyId, status, createdAt])
+  @@index([productId, createdAt])
+  @@index([requestedByStaffId, createdAt])
+  @@index([leaseExpiresAt])
+  @@index([expiresAt])
+}
+
+model ProductImageArtifact {
+  id             String                   @id @default(cuid())
+  optimizationId String
+  optimization   ProductImageOptimization @relation(fields: [optimizationId], references: [id], onDelete: Cascade)
+  kind           ProductImageArtifactKind
+  assetId        String?
+  asset          SellerMediaAsset?        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  objectKey      String
+  sha256         String
+  mimeType       String
+  byteSize       Int
+  width          Int
+  height         Int
+  isAigc         Boolean                  @default(false)
+  metadata       Json?
+  createdAt      DateTime                 @default(now())
+  lineage        ProductImageAssetLineage[]
+
+  @@index([optimizationId, kind, createdAt])
+  @@index([assetId])
+  @@index([objectKey])
+}
+
+model ProductImageAssetLineage {
+  id             String                   @id @default(cuid())
+  optimizationId String
+  optimization   ProductImageOptimization @relation(fields: [optimizationId], references: [id], onDelete: Cascade)
+  sourceAssetId  String
+  sourceAsset    SellerMediaAsset         @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  artifactId     String
+  artifact       ProductImageArtifact     @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  role           ProductImageAssetLineageRole
+  createdAt      DateTime                 @default(now())
+
+  @@unique([optimizationId, sourceAssetId, artifactId, role])
+  @@index([sourceAssetId, createdAt])
+  @@index([artifactId])
 }
 
 model ProductMediaRevision {
