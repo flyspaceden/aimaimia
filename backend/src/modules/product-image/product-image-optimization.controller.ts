@@ -23,7 +23,9 @@ export class ProductImageOptimizationController {
     @CurrentSeller('sub') staffId: string,
     @Body() dto: RequestProductImageOptimizationDto,
   ) {
-    return this.optimizations.requestWhiteBackground(companyId, staffId, dto);
+    return dto.intent === 'FREE_TUNE'
+      ? this.optimizations.requestFreeTune(companyId, staffId, dto)
+      : this.optimizations.requestWhiteBackground(companyId, staffId, dto);
   }
 
   @Get(':id')

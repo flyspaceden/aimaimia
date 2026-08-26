@@ -3,6 +3,34 @@ import { BadRequestException } from '@nestjs/common';
 import { ProductImageCompositionService } from './product-image-composition.service';
 
 describe('ProductImageCompositionService', () => {
+  it('free-tunes a standard real-scene image without moving its pixel coordinate system', async () => {
+    const service = new ProductImageCompositionService();
+    const source = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#7a726a' } }).jpeg().toBuffer();
+
+    const result = await service.enhanceStandardRealScene(source);
+
+    expect((await sharp(result.buffer).metadata())).toMatchObject({ width: 320, height: 180, format: 'png' });
+    expect(result.proof).toMatchObject({
+      algorithm: 'pixel-aligned-deterministic-free-tune-v1',
+      geometryIdentity: true,
+      source: { width: 320, height: 180 },
+      output: { width: 320, height: 180 },
+      parameters: { brightness: 1.025, contrast: 1.015, saturation: 1, sharpenSigma: 0.35 },
+    });
+    expect(result.proof.sourceSha256).not.toBe(result.proof.outputSha256);
+  });
+
+  it('rejects animation rather than silently collapsing multiple frames into a static candidate', async () => {
+    const service = new ProductImageCompositionService();
+    const [first, second] = await Promise.all([
+      sharp({ create: { width: 32, height: 32, channels: 3, background: '#bb3333' } }).png().toBuffer(),
+      sharp({ create: { width: 32, height: 32, channels: 3, background: '#3333bb' } }).png().toBuffer(),
+    ]);
+    const animatedGif = await sharp([first, second], { join: { animated: true } }).gif().toBuffer();
+
+    await expect(service.enhanceStandardRealScene(animatedGif)).rejects.toThrow('不支持动画图片');
+  });
+
   const service = new ProductImageCompositionService();
 
   it('requires a transparent foreground rather than silently redrawing a full image', async () => {

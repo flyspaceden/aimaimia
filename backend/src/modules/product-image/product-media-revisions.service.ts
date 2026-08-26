@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ProductImageArtifactKind, ProductImageOptimizationStatus, ProductMediaRevisionStatus, ProductMediaVisualOrigin, SellerMediaAssetStatus } from '@prisma/client';
+import { Prisma, ProductImageArtifactKind, ProductImageOptimizationKind, ProductImageOptimizationStatus, ProductMediaRevisionStatus, ProductMediaVisualOrigin, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
@@ -10,6 +10,12 @@ const directlyUsableAssetStatuses: SellerMediaAssetStatus[] = [
   SellerMediaAssetStatus.AVAILABLE,
   SellerMediaAssetStatus.ADOPTED,
 ];
+
+function visualOriginForOptimization(kind: ProductImageOptimizationKind): ProductMediaVisualOrigin {
+  return kind === ProductImageOptimizationKind.FREE_TUNE
+    ? ProductMediaVisualOrigin.DETERMINISTIC_ENHANCEMENT
+    : ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE;
+}
 
 @Injectable()
 export class ProductMediaRevisionsService {
@@ -166,7 +172,7 @@ export class ProductMediaRevisionsService {
         assetId: input.candidateAssetId,
         sortOrder: 0,
         type: 'IMAGE',
-        visualOrigin: ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE,
+        visualOrigin: visualOriginForOptimization(task.kind),
         optimizationId: input.optimizationId,
         isEvidenceImage: false,
       },
@@ -236,7 +242,7 @@ export class ProductMediaRevisionsService {
               kind: { in: [ProductImageArtifactKind.CANDIDATE, ProductImageArtifactKind.FOREGROUND_REFERENCE] },
               optimization: { status: ProductImageOptimizationStatus.SUCCEEDED },
             },
-            select: { assetId: true, kind: true },
+            select: { assetId: true, kind: true, optimization: { select: { kind: true } } },
           })
         : [];
       const candidateArtifact = optimizationArtifacts.find((artifact) => artifact.kind === ProductImageArtifactKind.CANDIDATE);
@@ -254,8 +260,11 @@ export class ProductMediaRevisionsService {
       }
       if (candidateAssetId) {
         const candidateProposal = proposed.filter((item) => item.assetId === candidateAssetId);
+        const candidateOrigin = candidateArtifact?.optimization?.kind
+          ? visualOriginForOptimization(candidateArtifact.optimization.kind)
+          : null;
         if (candidateProposal.length !== 1
-          || candidateProposal[0].visualOrigin !== ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE
+          || candidateProposal[0].visualOrigin !== candidateOrigin
           || candidateProposal[0].optimizationId !== revision.optimizationId
           || !proposed.some((item) => item.isEvidenceImage === true && item.assetId === foregroundArtifact!.assetId)) {
           throw new ConflictException('候选采用必须保留一张原实拍证据图');

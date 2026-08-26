@@ -150,6 +150,7 @@ enum ProductMediaRevisionStatus {
 enum ProductImageOptimizationKind {
   WHITE_BACKGROUND
   BACKGROUND_GENERATION
+  FREE_TUNE
 }
 
 enum ProductVisualMode {
@@ -245,6 +246,7 @@ enum ProductImageAssetLineageRole {
 enum ProductMediaVisualOrigin {
   ORIGINAL
   DETERMINISTIC_COMPOSITE
+  DETERMINISTIC_ENHANCEMENT
   AI_BACKGROUND
 }
 

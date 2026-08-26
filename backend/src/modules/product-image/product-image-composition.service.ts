@@ -14,9 +14,65 @@ export type ProductImageIntegrityProof = {
 };
 
 export type ProductImageCompositionResult = { buffer: Buffer; proof: ProductImageIntegrityProof };
+export type ProductImageFreeTuneProof = {
+  algorithm: 'pixel-aligned-deterministic-free-tune-v1';
+  sourceSha256: string;
+  outputSha256: string;
+  source: { width: number; height: number };
+  output: { width: number; height: number };
+  parameters: { brightness: number; contrast: number; saturation: number; sharpenSigma: number };
+  geometryIdentity: true;
+};
+
+export type ProductImageFreeTuneResult = { buffer: Buffer; proof: ProductImageFreeTuneProof };
 
 @Injectable()
 export class ProductImageCompositionService {
+  /**
+   * The first FREE_TUNE profile deliberately stays small and globally fixed.
+   * It changes only photometric values, never dimensions, crop, orientation,
+   * object geometry, text content, or source-to-output coordinate mapping.
+   */
+  async enhanceStandardRealScene(source: Buffer): Promise<ProductImageFreeTuneResult> {
+    const parameters = { brightness: 1.025, contrast: 1.015, saturation: 1, sharpenSigma: 0.35 };
+    let metadata: import('sharp').Metadata;
+    try {
+      metadata = await sharp(source, { failOn: 'error', limitInputPixels: 40_000_000 }).metadata();
+    } catch {
+      throw new BadRequestException('免费图片增强无法安全解码源图');
+    }
+    if (!metadata.width || !metadata.height) throw new BadRequestException('免费图片增强缺少源图尺寸');
+    if ((metadata.pages ?? 1) > 1) {
+      throw new BadRequestException('免费图片增强不支持动画图片，避免将多帧商品事实压缩为静态候选');
+    }
+
+    // No rotate/resize/extract/composite operation is permitted in this path.
+    const buffer = await sharp(source, { failOn: 'error', limitInputPixels: 40_000_000 })
+      .linear(parameters.contrast, (1 - parameters.contrast) * 128)
+      .modulate({ brightness: parameters.brightness, saturation: parameters.saturation })
+      .sharpen({ sigma: parameters.sharpenSigma, m1: 0, m2: 1 })
+      // Preserve the deterministic candidate byte-for-byte after tuning; a
+      // later upload normalizer must not silently apply a second lossy pass.
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toBuffer();
+    const output = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 }).metadata();
+    if (output.width !== metadata.width || output.height !== metadata.height) {
+      throw new BadRequestException('免费图片增强违反了像素对齐约束');
+    }
+    return {
+      buffer,
+      proof: {
+        algorithm: 'pixel-aligned-deterministic-free-tune-v1',
+        sourceSha256: this.sha256(source),
+        outputSha256: this.sha256(buffer),
+        source: { width: metadata.width, height: metadata.height },
+        output: { width: output.width, height: output.height },
+        parameters,
+        geometryIdentity: true,
+      },
+    };
+  }
+
   /**
    * Deterministic Phase-B renderer. `foreground` must already be a transparent
    * source asset; this method never attempts to infer or redraw a product.

@@ -7,7 +7,7 @@ function buildService(mediaVersionUpdateCount = 1) {
     id: 'rev-1', productId: 'product-1', companyId: 'company-1', expectedMediaVersion: 2,
     status: ProductMediaRevisionStatus.PENDING_REVIEW,
     proposedMedia: [{ assetId: 'asset-1', sortOrder: 0, type: 'IMAGE' }],
-    product: { id: 'product-1', companyId: 'company-1', mediaVersion: 2 },
+    product: { id: 'product-1', companyId: 'company-1', mediaVersion: 2, status: 'ACTIVE', auditStatus: 'APPROVED', media: [] },
   };
   const tx = {
     productMediaRevision: {
@@ -16,7 +16,7 @@ function buildService(mediaVersionUpdateCount = 1) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: jest.fn(),
     },
-    productImageArtifact: { findFirst: jest.fn().mockResolvedValue({ assetId: 'candidate-asset' }) },
+    productImageArtifact: { findFirst: jest.fn().mockResolvedValue({ assetId: 'candidate-asset' }), findMany: jest.fn() },
     productImageOptimization: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     sellerMediaAsset: {
       findMany: jest.fn().mockResolvedValue([{ id: 'asset-1', objectKey: 'seller-product-assets/a.webp', status: 'AVAILABLE' }]),
@@ -35,10 +35,91 @@ function buildService(mediaVersionUpdateCount = 1) {
     createProductMediaUrl: jest.fn().mockReturnValue('https://api.example/api/v1/upload/product-media/seller-product-assets/a.webp'),
     createPrivateAccessUrl: jest.fn().mockResolvedValue({ url: 'https://api.example/api/v1/upload/private/seller-product-assets/a.webp?sig=preview', expiresAt: '2026-08-21T12:05:00.000Z' }),
   };
-  return { service: new ProductMediaRevisionsService(prisma as any, assets as any, upload as any), tx, upload };
+  return { service: new ProductMediaRevisionsService(prisma as any, assets as any, upload as any), tx, prisma, upload };
 }
 
 describe('ProductMediaRevisionsService approval', () => {
+  it('binds an optimization adoption review to the product recorded on the task', async () => {
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2,
+      media: [{ assetId: 'source-asset', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }],
+    };
+    const task = { kind: 'WHITE_BACKGROUND', artifacts: [{ assetId: 'candidate-asset' }] };
+    const prisma = {
+      product: { findFirst: jest.fn().mockResolvedValue(product) },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue(task) },
+      sellerMediaAsset: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'candidate-asset', status: 'CANDIDATE' },
+          { id: 'source-asset', status: 'AVAILABLE' },
+        ]),
+      },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'revision-1' }) },
+    };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, {} as any);
+
+    await service.requestOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    });
+
+    expect(prisma.productImageOptimization.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'task-1', productId: 'product-1' }),
+    }));
+  });
+
+  it('records FREE_TUNE as deterministic enhancement rather than a white-background composite', async () => {
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2,
+      media: [{ assetId: 'source-asset', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }],
+    };
+    const prisma = {
+      product: { findFirst: jest.fn().mockResolvedValue(product) },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ kind: 'FREE_TUNE', artifacts: [{ assetId: 'candidate-asset' }] }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([{ id: 'candidate-asset', status: 'CANDIDATE' }, { id: 'source-asset', status: 'AVAILABLE' }]) },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'revision-1' }) },
+    };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, {} as any);
+
+    await service.requestOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    });
+
+    expect(prisma.productMediaRevision.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        proposedMedia: expect.arrayContaining([expect.objectContaining({
+          assetId: 'candidate-asset', visualOrigin: 'DETERMINISTIC_ENHANCEMENT', optimizationId: 'task-1',
+        })]),
+      }),
+    }));
+  });
+
+  it('does not create an adoption review after the original source is removed from the product', async () => {
+    const prisma = {
+      product: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2, media: [],
+        }),
+      },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ artifacts: [{ assetId: 'candidate-asset' }] }) },
+      sellerMediaAsset: { findMany: jest.fn() },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, {} as any);
+
+    await expect(service.requestOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    })).rejects.toThrow('原实拍图已不再属于该商品');
+
+    expect(prisma.sellerMediaAsset.findMany).not.toHaveBeenCalled();
+    expect(prisma.productMediaRevision.create).not.toHaveBeenCalled();
+  });
+
   it('returns the existing pending adoption review instead of creating a duplicate', async () => {
     const existingRevision = { id: 'revision-1', status: ProductMediaRevisionStatus.PENDING_REVIEW };
     const prisma = {
@@ -67,12 +148,7 @@ describe('ProductMediaRevisionsService approval', () => {
     const adoptedMedia = { assetId: 'adopted-asset', visualOrigin: 'DETERMINISTIC_COMPOSITE', optimizationId: 'optimization-1', isEvidenceImage: false, sortOrder: 0 };
     const evidenceMedia = { assetId: 'source-asset', visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: true, sortOrder: 1 };
     const prisma = {
-      product: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2,
-          media: [adoptedMedia, evidenceMedia],
-        }),
-      },
+      product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2, media: [adoptedMedia, evidenceMedia] }) },
       productMediaRevision: { create: jest.fn().mockResolvedValue({ id: 'revision-2' }) },
     };
     const assets = {
@@ -117,12 +193,59 @@ describe('ProductMediaRevisionsService approval', () => {
     expect(tx.productMedia.createMany).toHaveBeenCalledWith({ data: [{ productId: 'product-1', assetId: 'asset-1', type: 'IMAGE', url: 'https://api.example/api/v1/upload/product-media/seller-product-assets/a.webp', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }] });
   });
 
+  it('approves an enhancement candidate only when its persisted optimization kind matches enhancement origin', async () => {
+    const { service, tx } = buildService(1);
+    tx.productMediaRevision.findUnique.mockResolvedValue({
+      id: 'rev-1', productId: 'product-1', companyId: 'company-1', expectedMediaVersion: 2,
+      status: ProductMediaRevisionStatus.PENDING_REVIEW, optimizationId: 'task-1',
+      proposedMedia: [
+        { assetId: 'candidate-asset', sortOrder: 0, type: 'IMAGE', visualOrigin: 'DETERMINISTIC_ENHANCEMENT', optimizationId: 'task-1', isEvidenceImage: false },
+        { assetId: 'source-asset', sortOrder: 1, type: 'IMAGE', visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: true },
+      ],
+      product: { id: 'product-1', companyId: 'company-1', mediaVersion: 2 },
+    });
+    tx.productImageArtifact.findMany = jest.fn().mockResolvedValue([
+      { assetId: 'candidate-asset', kind: 'CANDIDATE', optimization: { kind: 'FREE_TUNE' } },
+      { assetId: 'source-asset', kind: 'FOREGROUND_REFERENCE', optimization: { kind: 'FREE_TUNE' } },
+    ]);
+    tx.sellerMediaAsset.findMany.mockResolvedValue([
+      { id: 'candidate-asset', objectKey: 'seller-product-assets/candidate.png', status: 'CANDIDATE', scanSummary: null },
+      { id: 'source-asset', objectKey: 'seller-product-assets/source.webp', status: 'AVAILABLE', scanSummary: null },
+    ]);
+
+    await expect(service.approve('rev-1', 'admin-1')).resolves.toMatchObject({ status: ProductMediaRevisionStatus.APPROVED });
+    expect(tx.productMedia.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([expect.objectContaining({
+        assetId: 'candidate-asset', visualOrigin: 'DETERMINISTIC_ENHANCEMENT', optimizationId: 'task-1',
+      })]),
+    }));
+  });
+
   it('expires a revision on media-version conflict without deleting public media', async () => {
-    const { service, tx } = buildService(0);
+    const { service, tx, prisma } = buildService(0);
+    prisma.$transaction.mockImplementation(async (work: (client: typeof tx) => Promise<unknown>) => {
+      const outcome = await work(tx);
+      expect(outcome).toEqual({ kind: 'EXPIRED' });
+      return outcome;
+    });
     await expect(service.approve('rev-1', 'admin-1')).rejects.toBeInstanceOf(ConflictException);
     expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
     expect(tx.productMedia.createMany).not.toHaveBeenCalled();
     expect(tx.productMediaRevision.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: ProductMediaRevisionStatus.EXPIRED }) }));
+  });
+
+  it('does not approve an asset that still requires a safety review', async () => {
+    const { service, tx } = buildService(1);
+    tx.sellerMediaAsset.findMany.mockResolvedValueOnce([{
+      id: 'asset-1',
+      objectKey: 'seller-product-assets/a.webp',
+      scanSummary: { needsReview: true },
+    }]);
+
+    await expect(service.approve('rev-1', 'admin-1')).rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
+    expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
   });
 
   it('rejects without touching public media', async () => {
