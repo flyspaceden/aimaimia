@@ -1,424 +1,288 @@
-# 全能商品视觉提升 Agent 设计
+# AI Visual Agent v2：全品类、可计费、可接入的商品与菜品视觉服务
 
-> 状态：**本地候选实现；免费计划、受控调用合同与预算隔离已写入代码，但 Provider 默认关闭、未部署、未运行迁移、未调用真实模型。本设计不能被视为任何 Provider、价格、额度或账单已验证的声明。**
+> 状态：**v2 设计稿，待按本设计重构实现。**
 >
-> 本文是可独立接入的 **AI Visual Agent** 设计权威来源。它不属于爱买买、餐厅或任何单一业务系统；这些系统通过各自适配器接入。它补充并覆盖 [2026-08-21 商品图片优化设计](2026-08-21-product-image-optimization-design.md) 中“只做白底候选”的产品方向：默认保留合理实景，并可在可验证的边界内优化对象的光线、反光、噪声、清晰度、构图与轻微视觉瑕疵；绝不允许语义性地改业务事实。
+> 本文覆盖此前“商品图片优化”与“通用 Visual Agent”设计中关于产品目标、模型路由、商家付费、公共 API、Adapter、验真和上线门禁的部分。现有本地代码仅可作为受管资产、候选审核、预算/调用账本和 Client Key 的基础；它**不是**已经具备强大生成式美化能力的上线服务。
+>
+> 本文不授权数据库迁移、创建真实 Client Key、开通/订阅模型、真实付费调用、push、staging 部署或生产发布。
 
-## 1. 产品定义
+## 1. 一句话定义与成功标准
 
-这不是“让模型随意重画商品”的美图按钮，也不是“所有图变白底”。它是一个独立的 **AI Visual Agent**：识别图片和业务事实风险，推荐合适美化方向，按成本路由执行，再验证事实并将候选交回接入系统确认。
+`AI Visual Agent` 是一个独立、可通过 API 接入的视觉服务：它理解一张业务图片应该保留真实场景、改成电商主图，还是只适合作营销图；给出清晰报价；在商家明确确认后调用受控模型；验证商品/菜品事实；把候选与完整审计记录交回接入系统审核采用。
 
-```text
-接入系统的受管规范安全源
-  → AI Visual Agent：免费诊断 / 风险档案 / 场景理解
-  → 视觉计划（推荐方向、允许操作、预算、验真规则）
-  → 免费确定性增强 或 受控图像编辑
-  → OCR / QR / 主体 / 数量 / 颜色 / 结构验证
-  → 候选对比、接入系统确认、审核、采用或回退
-```
-
-目标：
-
-1. 大多数随手拍的业务图片看起来更专业、更有购买欲，同时保留真实感。
-2. 床单上的手环、餐桌或厨房台上的虾等合理实景默认保留；白底只是一个选项。
-3. 将模型成本压到“商家明确请求且免费处理不足”的图片上。
-4. 所有候选保留源图、处理合同、模型/模板版本、验证报告和采用记录，并按租户隔离。
-
-非目标：
-
-- 不把严重模糊、遮挡、缺主体的图片伪造成可信商品图。
-- 不添加/删除对象、配件、人物、认证、价格或功能。
-- 不改由接入系统声明为事实保护区的文字、型号、条码、二维码、数量、颜色、材质、可见瑕疵或新鲜度。
-- 不自动发布或替换接入系统中的正式媒体。
-
-### 1.1 核心服务与业务适配器
+它不是爱买买内部的“白底图按钮”。爱买买、华海餐厅和未来第三方系统都只是 Adapter。
 
 ```text
-爱买买商品适配器 ─────┐
-餐厅菜品/菜单适配器 ──┼→ AI Visual Agent Core → 百炼 / 其他 Provider
-其他系统适配器 ──────┘
+爱买买商品 Adapter ─┐
+餐厅菜品 Adapter ───┼─> AI Visual Agent API / Core
+第三方系统 Adapter ─┘       │
+                                ├─ 免费诊断与规划
+                                ├─ 图片额度报价 / 冻结 / 对账
+                                ├─ 百炼图像编辑 Provider
+                                ├─ 事实验证与风险路由
+                                └─ 候选、审核、采用回调
 ```
 
-| 层 | 责任 | 不知道什么 |
+成功不是“所有图片变白底”，而是：
+
+1. 普通商家上传随手拍商品图后，能获得看起来更专业、能提升购买欲的候选。
+2. 虾在厨房台、手环在床单、菜品在餐桌等合理实景默认保留生活感，不被粗暴改成白底。
+3. 包装、型号、文字、价格、条码、二维码、数量、颜色、材质、可见瑕疵与食材新鲜度不被模型伪造或改变。
+4. 每次付费调用都在调用前向付费商家说明档位、候选数和额度；调用后的费用、失败、未知结果可追溯。
+5. 外部系统可用自己的 Client Key 接入，不能看到其他系统的图片、任务、余额或百炼 Provider Key。
+
+## 2. 明确边界
+
+### 2.1 允许实现的强效果
+
+| 模式 | 商家看到的目标 | 是否可成为主图 |
 |---|---|---|
-| `AI Visual Agent Core` | 多租户认证、资产隔离、视觉计划、模型路由、预算、候选、验真、审计 | 不知道“商品/菜单/订单”的业务表结构 |
-| Domain Adapter | 提供受管源图、业务事实策略、对象版本、采用/审核/回滚回调 | 不接触百炼 Key，不决定模型费用 |
-| Provider Adapter | 百炼/其他模型的 submit/query/fetch、限流与用量 | 不知道租户业务事实或发布逻辑 |
+| `REAL_SCENE_ENHANCE` | 保留餐桌/厨房/床单等实景，改善光线、反光、杂物干扰、构图与质感 | 验真通过后可以 |
+| `CATALOG_STUDIO` | 干净棚拍、白底或中性电商背景、自然阴影 | 验真通过后可以 |
+| `PRODUCT_RETOUCH` | 对明确允许的区域做受控反光/灰尘/曝光修复 | 严格验真后可以 |
+| `MARKETING_SCENE` | 活动页、详情页、社媒图的氛围与创意场景 | **不能**取代事实主图，必须标记 AIGC |
 
-当前爱买买的 `ProductVisualPlan` 是 **爱买买商品适配器的过渡实现**，不是未来 Agent Core 的公共数据模型。餐厅将以 `DishVisualAdapter` 提供菜名、摆盘事实、菜单价格文字和菜单发布规则；其他系统可实现同一 Adapter 合同。
+### 2.2 永不允许的行为
 
-## 2. 商家体验：一个入口，三种推荐方向
+- 自动发布、自动覆盖正式商品/菜单媒体。
+- 以补光、去反光、美化为名改变包装文字、型号、条码、二维码、数量、颜色、材质、功能或可见瑕疵。
+- 将严重模糊、遮挡、缺主体的图片“补造”为可信商品图；这类图只提示重拍。
+- 让商家输入自由 prompt、模型 ID、Provider URL 或费用参数。
+- 将百炼 Key 发给浏览器、卖家后台、餐厅前端、接入方或其用户。
+- 以图片额度账户名义提供提现、转账或买家支付抵扣。
 
-商品图片卡从“真实白底主图”升级为 **AI 美化**。上传后先返回免费诊断和推荐，只有点击“生成候选”才可能触发付费模型。
+## 3. 商家体验：一个入口，先免费分析，再明确付费
 
-| 方向 | 适用场景 | 处理目标 | 发布边界 |
-|---|---|---|---|
-| `PRESERVE_REAL_SCENE`（默认） | 合理厨房台、餐桌、床单、户外、使用环境 | 补光、白平衡、轻度降噪/去反光/构图、减少干扰 | 可作为主图候选，需验真与确认 |
-| `CATALOG_STUDIO` | 背景明显干扰、列表图需要统一 | 主体突出、干净棚拍/白底/中性背景、自然接触阴影 | 包装和电子产品走严格验真 |
-| `PRODUCT_RETOUCH` | 主体清楚但偏暗、偏色、轻微灰尘/指纹/反光 | 先做有参数上限的确定性恢复；生成式主体精修只能是待人工确认的展示候选 | 禁止补造结构、文字、磨损事实 |
-| `MARKETING_SCENE` | 详情页、活动页、社交传播 | 氛围、留白、创意场景 | 仅营销附图，标识 AIGC，人工审核 |
+### 3.1 爱买买商家端
 
-示例：
+1. 商家上传原图，平台创建受管源资产并完成免费诊断。
+2. 点击“AI 美化”，系统展示建议卡，而不是直接调用模型：推荐方向、将改善什么、不会改变什么、档位/候选数/额度/余额，以及是否只能做营销图或必须重拍。
+3. 商家选择方案，勾选“我理解将扣除 X 图片额度”，点击“确认生成”。
+4. 服务端冻结额度并提交模型任务；商家可离开页面，回来查看状态。
+5. 成功后展示原图与候选的并列比较、处理说明和事实确认项。
+6. 草稿/未上架商品可显式采用；上架商品只提交 `ProductMediaRevision`，管理员审核通过才替换买家可见图。
 
-- **虾在厨房台面**：推荐保留实景增强，减少无关杂物、纠正偏黄光、让虾的纹理更清楚；不得增减数量、改变品种特征、包装或“新鲜度”事实。
-- **黑色手环在床单上**：推荐保留实景/商品局部优化，保留生活感，降低屏幕反光、校正角度、压低过度褶皱干扰；表盘、腕带颜色、孔位和结构不可变。
-- **料理机在杂乱桌面**：可推荐目录主图；若发现型号、刻度、控制面板，必须 OCR/结构核验通过后才可采用。
-
-商家只选择方向和候选，不输入自由提示词、模型名或费用参数。系统展示“为什么推荐”“将改变什么”“不允许改变什么”“预计是否扣费”。
-
-## 3. 真实性分级与验真
-
-“可优化商品本体”不等于“允许改变商品”。本设计把摄影级恢复与语义性改物分开。
-
-| 风险等级 | 典型商品 | 允许 | 禁止 |
-|---|---|---|---|
-| `STRICT_FACTS` | 包装食品、美妆、型号电子、条码/二维码图、二手瑕疵图 | 有参数上限的全局摄影变换，或原主体像素回贴后只编辑背景 | 任何文字、包装、型号、颜色、结构、瑕疵变化 |
-| `CONSERVATIVE_FACTS` | 手环、家电、鞋包、珠宝、多件套 | 有参数上限的去反光、光线/透视改善、原主体回贴棚拍 | 改接口、孔位、屏幕、材质、配件数量 |
-| `STANDARD_FACTS` | 杯具、厨具、普通日用品 | 实景增强、背景整理、目录主图 | 改品牌、结构、颜色、功能 |
-| `ORGANIC_FACTS` | 果蔬、鱼虾、肉类、散装农品 | 光线、卫生感、构图、背景干扰改善 | 改数量、色泽、新鲜度、品种特征 |
-| `MARKETING_ONLY` | 服饰搭配、生活方式图 | 创意候选 | 不能直接用作商品事实主图 |
-| `RETAKE_REQUIRED` | 严重模糊、遮挡、多主体无法识别 | 重拍引导 | 不调用生成模型 |
-
-每个候选至少经过：
-
-1. 原图/候选 OCR 比对：型号、规格、容量和包装文字不一致即拒绝。
-2. 二维码和一维条码均用本地专用解码器与区域比对：解码值变化即拒绝；疑似条码但无法解码时转人工，不能让 OCR 或生成模型替代条码事实判断。
-3. 商品主体、配件与连通域数量检查：缺失、裁切或新增主体即拒绝。
-4. 主体颜色、边缘、关键区域差异检查；低置信度转人工复核。
-5. 视觉理解模型只输出“可能变化清单”，不能当作真实性证明。
-6. 通过后仍需商家确认数量/配件、文字/二维码、颜色/规格/材质和可见瑕疵。
-
-## 4. 免费优先与模型路由
-
-### 4.1 免费层
-
-所有上传图先运行现有受管资产、哈希、安全扫描与 `ProductImageQualityService`，扩展为场景适配、主体占比、曝光、色温、噪声、眩光、倾斜、背景干扰和重拍建议。
-
-`FREE_TUNE` 只允许确定性处理：EXIF 校正、4:5 裁切预览、小范围亮度/白平衡/对比度、降噪、轻微锐化、压缩伪影抑制。每个风险等级要在处理合同中记录算子、强度、色相/饱和度上限、作用区域和 mask 版本；包装、电子、食品和二手商品不能以“补光”名义放宽可见瑕疵、屏幕/文字或色泽事实。
-
-首期 `FreeTunePolicy` 的默认硬边界如下；未命中任一策略时只做诊断和重拍建议：
-
-| 风险等级 | 允许算子/区域 | 禁止与上限 |
+| 上传图 | 推荐 | 商家可选项 |
 |---|---|---|
-| `STRICT_FACTS` | 方向校正、等比例缩放、裁切；仅背景可做有限亮度调整 | 受保护主体区域像素必须 0 改动；不得做白平衡、锐化、降噪或局部修瑕 |
-| `ORGANIC_FACTS` | 主体可做全局亮度曲线，背景可做降噪 | 主体曝光不超过 ±0.15 EV、对比度不超过 5%、色相/饱和度必须为 0；白平衡仅在有高置信中性锚点时允许 |
-| `CONSERVATIVE_FACTS` | 几何校正、背景降噪、受保护主体有限全局亮度 | 主体曝光不超过 ±0.20 EV、色相/饱和度必须为 0；不得做局部去瑕/锐化/生成补全 |
-| `STANDARD_FACTS` | 有界亮度、白平衡、降噪、锐化和背景整理 | 每个算子需记录参数；不允许生成式主体改造，超过策略值转 `DISPLAY_ENHANCED` 或人工审核 |
+| 虾在厨房台面 | 保留真实场景、校正黄光、降低杂乱感 | 标准实景美化 15 额度；高质量实景 35 额度 |
+| 智能手环在床单 | 保留生活场景、降低反光、突出手环 | 标准实景美化 15；专业精修 50 |
+| 有完整包装、型号、条码的食品 | 严格保护包装事实 | 白底/棚拍 25；不允许自由主体重绘 |
+| 严重模糊的商品 | 重拍 | 0 额度，不调用模型 |
 
-### 4.2 百炼模型组合（启用时重新核验）
+### 3.2 餐厅与第三方体验
 
-Agent 编排留在本系统后端；**不使用百炼 Managed Agents**，因为图片任务无状态且异步，托管 Agent 还会产生会话时长费用。
+- 餐厅 Adapter 把“菜品名、摆盘、过敏原、价格文字、菜单版本、可发布位置”作为事实策略传给 Core；结果回到餐厅审核页，不进入爱买买商品表。
+- 第三方先创建 Agent Client、获得一次性 Client Key，再实现 Adapter 或使用未来 SDK；其 Key 只能访问本 Client scope。
+- 所有接入系统都遵循同一报价、冻结、结果、验真和 Webhook 状态机；业务发布规则由各自 Adapter 决定。
 
-| 层 | 建议能力 | 模型/服务 | 路由理由 |
+## 4. 图片额度与商家付费
+
+### 4.1 账户定义
+
+新增独立的 `VisualCreditAccount` / `VisualCreditLedger`，与以下系统**完全隔离**：买家 `RewardAccount` / `RewardLedger`、平台红包/优惠券、买家支付/提现/消费积分，以及接入系统自己的收入或结算账户。
+
+图片额度仅表示购买/获赠的 Agent 服务额度，不可提现、转赠或抵扣商品订单。账户绑定 `tenantId + billingOwnerType + billingOwnerId`：爱买买映射到商户 Company，餐厅映射到餐厅经营主体，第三方由其 Adapter 显式提供受控账单主体。
+
+### 4.2 欢迎额度与汇率
+
+- 平台默认可为审核通过的新商家赠送 **200 图片额度**，展示服务价值为 **¥20**，即 `10 额度 = ¥1 服务面值`。
+- 赠送通过幂等业务键 `WELCOME_200_V1:{tenant}:{billingOwner}` 完成，一名付费主体只可获得一次；是否过期由平台配置并在发放时写入不可变快照。
+- `creditsPerCNY`、赠送数、适用 Tenant、有效期、启停都由平台后台管理；历史流水不因新汇率改写。
+
+### 4.3 初始商家报价目录
+
+以下是面向商家的**产品报价**，不是百炼成本承诺；平台管理员可按 Tenant、地区、分辨率、候选数和模型版本配置/停用。任何变更只作用于新 Quote。
+
+| 档位 | 适用效果 | 默认候选 | 初始报价 | 建议模型路由 |
+|---|---|---:|---:|---|
+| 免费分析 | 质量、风险、推荐方向、重拍建议 | 0 | 0 | 本地规则 + 可选低成本视觉规划 |
+| 标准美化 | 实景补光、背景整理、自然构图 | 1 | 15 额度 | `wan2.7-image` |
+| 电商主图 | 棚拍/白底/中性电商背景 | 1 | 25 额度 | `wan2.7-image` 或受控 `qwen-image-3.0` |
+| 高质量美化 | 多参考图、复杂场景、较强真实感 | 1 | 35 额度 | `wan2.7-image-pro` |
+| 专业精修 | 文字/材质敏感图的高风险候选 | 1 | 50 额度 | `qwen-image-3.0-pro` 或 `wan2.7-image-pro` |
+| 额外候选 | 同一已确认方案再生成一张 | 1 | 10–25 额度 | 与原方案相同 |
+
+北京业务空间当前官方页面列出 `wan2.7-image` / `wan2.7-image-pro` 输出价约 ¥0.20 / ¥0.50 每张；Qwen 图像档位按模型与分辨率分别计费。Provider 价格、免费额度、地区与模型可见性会变化，因此**只能在启用日通过官方模型列表和价格页重新同步为 Provider 成本，不得直接把这些价格写死为商家报价**。参考：[万相 2.7 API](https://help.aliyun.com/zh/model-studio/wan-image-generation-and-editing-api-reference)、[万相编辑说明](https://help.aliyun.com/zh/model-studio/wan-image-edit)、[Qwen Image](https://help.aliyun.com/zh/model-studio/qwen-image-api)、[官方价格](https://help.aliyun.com/zh/model-studio/model-pricing)。
+
+### 4.4 资金与任务状态机
+
+```text
+可用额度
+  → QUOTE_ISSUED（报价有效，未扣费）
+  → MERCHANT_CONFIRMED
+  → RESERVED（冻结报价额度，任务获得同一报价快照）
+  → PROVIDER_SUBMITTED / RUNNING
+  → SUCCEEDED + VERIFIED → SETTLED（按已锁定商家报价扣除）
+  → DECLINED_BEFORE_ACCEPT → RELEASED（全额释放）
+  → UNKNOWN / Provider failed with billing unknown → RECONCILING（继续冻结，不可重发）
+  → 对账明确未计费 → RELEASED；明确已计费 → SETTLED；异常 → BILLING_EXCEPTION
+```
+
+规则：
+
+1. 余额不足时不能创建付费任务；不允许负额度或平台静默垫付。
+2. Quote 必须包含 `rateCardVersion`、额度、候选数、模型档位、输出规格、有效期、展示文案和风险类别；商家确认的正是这个不可变 Quote。
+3. Provider 成本与商家扣费分别记账：前者是 `ProviderCostRecord`，后者是 `VisualCreditLedger`；不能用其中一项推断另一项。
+4. Provider 已接受任务或结果/费用未知时不可重复发起同一生成；只允许用同一 Provider idempotency key 查询与对账。
+5. 验真拒绝不自动等于退款：若 Provider 已成功计费，按商家展示的“已生成但未采用”规则结算；若 Provider 未接受或明确未计费则释放。投诉/人工补偿必须另写 `MANUAL_ADJUST` 流水和原因。
+
+### 4.5 平台后台能力
+
+平台后台新增“AI Visual Agent 管理”：
+
+- Tenant / Client / 可撤销 Client Key（Key 仅显示一次）；
+- 商家图片额度账户、赠送、充值记录、冻结、结算、释放、异常与人工调整；
+- 新商家 200 额度活动的适用范围、幂等发放、有效期与暂停；
+- 模型白名单、地区/业务空间、Rate Card、每档报价、每次候选数和总预算；
+- Provider 成本、商家扣费、`RECONCILING` 队列、失败原因与对账证据；
+- 任务质量、采用率、投诉率、模型/场景/类目维度效果与成本报表。
+
+所有额度调整和 Key 管理要求专用高权限、原因、审计日志与双人复核策略；不能由普通商品审核员或商家自行改价。
+
+## 5. 模型路由：百炼优先，Provider 可插拔
+
+### 5.1 为什么百炼是首选
+
+当前平台在阿里云，北京业务空间可使用独立业务空间 endpoint 和同地域 Key；万相 2.7 支持图像编辑、多图参考、交互式框选编辑，编辑模式输出可选 1K/2K。它最适合作为默认强效果模型。千问图像 3.0 同时支持图生图/编辑，文字渲染、真实材质与语义遵循能力更强，适合包装/电子/材质敏感的专业档。
+
+首期不使用百炼托管 Agent：本服务需要自己的异步任务、费用冻结、验真、审核和跨系统回调，托管会话 Agent 不能替代这些控制点。
+
+### 5.2 Provider 目录与路由原则
+
+| Provider profile | 默认用途 | 输入/输出 | 绝不用于 |
 |---|---|---|---|
-| 视觉计划 | 类目、场景质量、风险等级、推荐方向、禁止区 JSON | `qwen3.7-flash` | 支持图像输入和结构化输出，低成本，仅作计划不生成图 |
-| 事实保护 | 包装/型号/规格前后文字比对 | P3 固定 `qwen-vl-ocr-2025-11-20` | 专门 OCR；只在文字风险图和验真阶段调用；`latest` 只能作为重新评测后的显式配置变更 |
-| 默认真实美化 | 保留实景补光、去轻微干扰、反光改善、构图、图生图候选 | `wan2.7-image` | 支持图生图、编辑、多图参考与边界框，适合“保留床单/餐桌/厨房台面” |
-| 文字/材质敏感对照 | 包装、电子细节的受控编辑候选 | `qwen-image-3.0` | 文字渲染、真实材质和指令遵循更强，但必须走严格验真 |
-| 人工高质量档 | 高价值商品、多角度参考、复杂局部编辑 | `wan2.7-image-pro` | 仅商家主动选择，不做默认自动升级 |
-| 主体/局部试点 | 精确 mask、低风险杂物去除 | `image-instance-segmentation` + `image-erase-completion` | 当前免费体验且限流低，只做试点评估，不作为生产主链路 |
+| `BAILIAN_WAN_STANDARD` | 标准实景、目录主图、低成本多参考 | 受管图 + 服务端模板；1K/2K | 文字/型号高风险图的自动主图 |
+| `BAILIAN_WAN_PRO` | 高质量实景、复杂融合、专业场景 | 受管源图 + 可选参考图；最高 2K 编辑 | 自动升级、营销图替换事实主图 |
+| `BAILIAN_QWEN_IMAGE` | 文字/材质/说明书敏感候选 | 受管源图 + 严格模板 | 未经 OCR/结构验真的包装主图 |
+| `BAILIAN_QWEN_OCR` | 前后文字/型号/规格核验 | 私有受管图 | 向浏览器返回 OCR 原文 |
+| 未来外部 Provider | 仅在适配器与预算/验真通过后 | 同一 Provider Contract | 绕过 Quote、账本或隔离 |
 
-官方资料（价格、可见模型、配额和地区均会变化，**在启用当天以北京业务空间和官方列表为准**）：
+模型选择完全由服务器根据风险档、模式、地区、Rate Card、预算和评测结果确定。商家只看到“标准美化 / 电商主图 / 高质量 / 专业精修”，看不到可被滥用的自由 prompt。
 
-- [图像模型能力](https://help.aliyun.com/zh/model-studio/image-model)
-- [Qwen 图像编辑 API](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)
-- [Qwen Image Edit 使用指南](https://help.aliyun.com/zh/model-studio/qwen-image-edit-guide)
-- [Qwen OCR](https://help.aliyun.com/zh/model-studio/qwenvl-ocr)
-- [模型价格](https://help.aliyun.com/zh/model-studio/model-pricing)
-- [模型限流](https://help.aliyun.com/zh/model-studio/rate-limit)
-- [查询模型列表 API](https://help.aliyun.com/zh/model-studio/list-models)
-
-设计估算（非账户承诺）：北京当前官方页面列出 `wan2.7-image` 约 0.20 元/成功图、`wan2.7-image-pro` 约 0.50 元/成功图；两者当前按 5 RPS / 5 个处理中任务保守排队。`qwen-image-3.0` 单输入单 1K 候选约为 0.02 元输入加 0.18 元输出，当前以 20 次/分钟和最多 10 个异步处理中任务作为上限。`qwen3.7-flash` 当前按输入 0.2 元/百万 Token、输出 0.8 元/百万 Token，容量以 30,000 RPM / 5,000,000 TPM 为上限；OCR 固定版本的限流和 Token 计费以启用日官方页为准。OCR 按 Token 计费，不能在没有实际图片分辨率和输出长度时伪造固定单价。
-
-### 4.3 硬成本门禁
-
-1. 默认只产 **1 个** 候选；二次候选必须商家主动点击。
-2. 免费诊断和 `FREE_TUNE` 不调用模型；仅在 Provider 明确未接受且未计费时释放预占。Provider 已有用量/成功结果时，即使本平台验真拒绝也结算；超时、取消或查询未知进入 `RECONCILING` 后再对账。
-3. 默认标准候选按 20 分预占，Pro 按 50 分预占；账本继续使用现有 `RESERVED → SETTLED | RELEASED`。
-4. Platform、Provider、Agent Tenant、Client、外部对象、调用主体、日/周所有适用层的上限均必须是正数才允许调用；任一层缺失或为 0 均拒绝调用，不解释为不限额。爱买买的企业/商品/员工只是该映射的一种实现。
-5. 初期建议：每任务上限 0.50 元、staging 每日上限 30 元、生产每日上限 100 元；这些是待负责人确认的建议，不能在本次设计直接写入环境变量。
-6. 队列保守低于 Provider 限流，429 指数退避；同一源图 + 意图 + 模型 + 参数复用幂等键，不能重复扣费。
-
-开源分割、超分、去噪模型只能作为 `ProductSegmenter` / `FreeTuneEngine` 插件候选。它们仍有 GPU、许可证、隐私、冷启动和运维成本，未经审查不得以“免费模型”名义直接部署生产。百炼 `image-instance-segmentation` 和 `image-erase-completion` 的免费试点额度耗尽后必须停止该路线或回退重拍；不得自动降级到未经批准的生成模型。
-
-## 5. 架构、数据与接口
-
-### 5.0 多租户 Agent Core
-
-AI Visual Agent 以单独服务/模块运行，使用自己的服务级身份、客户 API Key、租户预算和审计边界。**阿里云百炼 Key 永远只由 Agent Core 持有；爱买买、餐厅和其他系统只持有自己的 Agent Client Key。**
-
-```text
-AgentTenant
-  id, name, status, defaultPolicyVersion, budgetScope
-
-AgentClient
-  tenantId, adapterNamespace, name, allowedAdapters, rateLimit, status
-
-AgentClientKey
-  clientId, keyPrefix, keyHash, expiresAt, revokedAt, lastUsedAt
-
-VisualAssetRef
-  tenantId, ownerClientId, adapterNamespace, externalObjectId, sourceHash, isolatedObjectKey, metadata
-
-VisualPlan / VisualTask / VisualCandidate / VisualInvocationLedger
-  tenantId, ownerClientId, adapterNamespace, externalObjectId, policy/version snapshots, audit links
-```
-
-- Client Key 仅用于调用 Agent Core API，按租户、**Client、Adapter namespace**、额度和限流隔离；只存 hash，创建时仅显示一次。
-- `AgentClient.allowedAdapters`、`adapterNamespace` 与 `DomainVisualAdapter.adapterType` 必须精确匹配。Core 只加载认证 Client allowlist 中、namespace 相同的 Adapter；其他 Adapter 类型或 namespace 一律拒绝，不能因同租户而互调。
-- Core 的每一条 Asset/Plan/Task/Candidate/Invocation 都绑定 `tenantId + ownerClientId + adapterNamespace`。任一 Client 的按 ID 读取、取消、采用或下载都必须由认证 Key 派生这三个 scope 过滤；不匹配一律返回 404，不能因为知道 taskId 跨系统读取。
-- 外部系统不能传任意公开 URL。可使用 Agent 的受管上传接口，或传由 Adapter 服务身份签发、短时、白名单校验的读取引用；Core 必须**立即**下载、限大小解码、扫描、规范化、重算哈希并转存到自己的隔离对象。结果 `sourceHash` 必须与 `AdapterEvidenceEnvelope.sourceHash` 完全一致，否则拒绝并不落库，之后不依赖外部 URL。
-- 跨 Adapter 的 `sourceHash` 固定为 `normalizedSourceSha256`：`normalized-rgba-srgb-v1`。输入是图像解码后、按 EXIF 方向旋转、转换到 sRGB、去除元数据后的 `width || height || unpremultiplied RGBA pixel bytes`；头部字段使用固定大端编码。Adapter SDK 与 Core 使用同一规范化库/版本，Envelope 签署该 hash 和算法版本；Core 重算不一致即拒绝，不允许用原文件 bytes、JPEG 重编码 bytes 或对象存储 ETag 代替。
-- `externalObjectId` 由业务系统解释；Core 只将它用于幂等、审计和回调关联。
-- 任何租户不得查看另一租户的源图、候选、计划、账本、模型用量或错误详情。
-
-本地候选已实现 `VisualAgentTenant`、`VisualAgentClient`、`VisualAgentClientKey` 三张独立表。Key 只保存 prefix 和 SHA-256 verifier，原始 `vag_live_*` / `vag_test_*` 值只在平台级 `admin_visual_agent:manage` 权限保护的签发响应中出现一次，且响应带 `Cache-Control: no-store`；列表、审计上下文和后续读取均不返回原值或 verifier。该权限归入 `admin_visual_agent` 模块，默认不会因普通 `config:update` 或经理角色而获得。`GET /visual-agent/v1/session` 只验证 Key 并返回该 Client 的 scope/Adapter allowlist，**不**接受任意 URL、prompt 或 Provider 提交。可信 Adapter 在进程内经 `VisualAgentTrustedAdapterService` 取得预算 reservation，所有 tenant/client/namespace 均由认证 principal 派生，不能由接入方覆盖。
-
-### 5.1 复用已有安全底座
-
-爱买买现有 `SellerMediaAsset`、`ProductImageOptimization`、`ProductImageArtifact`、`ProductImageAssetLineage`、`ProductImageBudgetLedger`、`ProductMediaRevision` 已具备资产归属、候选、租约、幂等、预算、审核和回滚基础，必须作为 **爱买买 Adapter** 复用。当前可执行实现仅包括透明前景的确定性白底候选，以及事实扫描严格放行后的确定性 `FREE_TUNE`；仍不能误称为任意生成式商品美化或已开放的通用 Provider 服务。
-
-扩展 `ProductImageOptimization`，而非另建绕开审计的任务表：
-
-```text
-kind: FREE_TUNE | REAL_SCENE_ENHANCE | CATALOG_STUDIO | PRODUCT_RETOUCH | MARKETING_SCENE
-visualMode: PRESERVE_REAL_SCENE | CATALOG_STUDIO | PRODUCT_RETOUCH | MARKETING_SCENE
-riskTreatment: FACT_PRESERVING | DISPLAY_ENHANCED
-riskProfile: STRICT_FACTS | CONSERVATIVE_FACTS | STANDARD_FACTS | ORGANIC_FACTS | ...
-sceneAnalysis: Json
-verificationReport: Json
-providerTaskId: String?                 # 永不下发浏览器
-providerRequestHash: String?
-candidateClass: MAIN_IMAGE | DETAIL_IMAGE | MARKETING_IMAGE
-```
-
-新增 Artifact 语义：`ANALYSIS_SNAPSHOT`、`SEGMENT_MASK`、`PROTECTED_REGION`、`MODEL_OUTPUT_RAW`、`VERIFIED_CANDIDATE`。Provider 原始输出永远不能直接成为可采用媒体；只有重新下载、解码、扫描并验真后才能成为 `VERIFIED_CANDIDATE`。
-
-`ProductMediaVisualOrigin` 后续增加 `AI_REAL_SCENE_ENHANCED`、`AI_CATALOG_STUDIO`、`AI_DISPLAY_ENHANCED`、`AI_MARKETING`。`DISPLAY_ENHANCED` 是“模型直接动过商品本体、不能被自动证明事实未变”的持久化风险类别：只能是 `DETAIL_IMAGE` 或 `MARKETING_IMAGE`，必须标识 AIGC 且人工审核，不能设为 `MAIN_IMAGE`。营销图也不得设为主图；已上架商品仍由 `ProductMediaRevision` 和 `mediaVersion` CAS 发布。
-
-### 5.2 服务端 Provider 合同
+### 5.3 Provider 安全合同
 
 ```ts
-interface ProductVisualEditProvider {
-  isAvailable(): boolean;
-  submit(input: {
-    source: Buffer;                 // 服务端验证后的受管资产，不接受任意 URL
-    protectedMask?: Buffer;
-    visualPlan: ServerOnlyPlan;     // 固定模板、风险规则与已批准参数
-    idempotencyKey: string;
-  }): Promise<{ providerTaskId: string }>;
-  query(id: string): Promise<'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'>;
-  fetch(id: string): Promise<{ output: Buffer; mimeType: string; usageCents: number }>;
+interface ImageEditProvider {
+  readonly provider: string;
+  preflight(input: ProviderInput): Promise<void>;
+  submit(input: ServerOnlyEditRequest): Promise<ProviderSubmission>;
+  query(providerTaskId: string): Promise<ProviderTaskState>;
+  fetch(providerTaskId: string): Promise<ProviderOutput>;
+  reconcile(input: ReconciliationRequest): Promise<ProviderBillingEvidence>;
 }
 ```
 
-Provider URL 仅允许官方白名单域名、短期下载、大小限制和服务端读取。结果必须重新走 MIME/解码/规范化/安全扫描/验证，模型 Key、原始任务响应、自由 prompt 和对象存储 URL 一律不下发浏览器。
+- 只传服务端重新下载、规范化和扫描后的受管图片；禁止客户端任意 URL。
+- 百炼 Key、业务空间 ID、Provider 原始 URL、原始响应和提示词只在服务端密钥管理/审计脱敏区保存。
+- Provider 允许域名白名单、短期下载、20MB/像素上限、MIME 解码、重定向限制和 SSRF 防护为必经步骤。
+- `submit/query/fetch/reconcile` 都使用持久化 Provider idempotency key 与租约；网络超时进入 `RECONCILING`，不能“再试一次”造成重复收费。
 
-### 5.3 Agent Core API 与系统适配器
+## 6. 通用 API 与 Adapter 合同
 
-Agent Core 的公共 API 采用版本化、域中性契约：
-
-```text
-POST /v1/assets
-  externalObjectRef, source upload 或 adapter-signed shortFetchRef
-  # Client 不能提交 factPolicy/objectVersion；Core 在同步导入时向可信 Adapter 解析
-
-POST /v1/visual-plans
-  assetId, requestedDirection?
-  # Core 从受管 Asset 和 Adapter 获取事实策略、对象版本与当前规则
-
-POST /v1/visual-tasks
-  planId, visualMode, idempotencyKey
-
-GET /v1/visual-tasks/:id
-POST /v1/visual-tasks/:id/adopt-intent
-```
-
-认证后的 Client Key 只可访问自身 scope 的资源。所有 `GET` / `POST` / 采用操作隐式加：
+### 6.1 API 形态
 
 ```text
-WHERE tenantId = auth.tenantId
-  AND ownerClientId = auth.clientId
-  AND adapterNamespace = auth.adapterNamespace
-```
-
-任何 scope 不匹配都返回 404，审计记录不泄露资源是否存在。Core 对 `(tenantId, ownerClientId, adapterNamespace, externalObjectId, sourceHash)` 建索引，对每个有效计划/任务使用相同 scope 的幂等约束。
-
-Provider 回调不属于 Client API：
-
-```text
+POST /visual-agent/v1/assets
+POST /visual-agent/v1/visual-plans
+POST /visual-agent/v1/quotes
+POST /visual-agent/v1/tasks/:taskId/confirm
+GET  /visual-agent/v1/tasks/:taskId
+POST /visual-agent/v1/tasks/:taskId/adopt-intents
+GET  /visual-agent/v1/credits
 POST /internal/providers/:provider/callback
-  # 仅 Provider 身份可调用：验签、mTLS/来源限制、eventId 去重、task scope 校验
 ```
 
-Client Key 无权写入结果、用量、账本或任务终态。
+认证使用 `X-Visual-Agent-Key` 或 `Authorization: VisualAgent ...`。请求 scope 永远由 Key 推导：`tenantId + clientId + adapterNamespace`。任一资源读取、取消、采用、下载和 Webhook 关联都必须带这三个条件；scope 不匹配统一返回 404，不泄露资源是否存在。
 
-每个 Adapter 至少实现：
+当前代码中 `GET /visual-agent/v1/session` 仅完成 Key scope 验证；上述资产、报价、任务、额度 API 是本设计要求的后续实现，不能把尚未存在的 HTTP 路由称为完成。
+
+### 6.2 Adapter 合同
 
 ```ts
 interface DomainVisualAdapter {
-  adapterType: string;
-  resolveSource(input: ExternalAssetRef): Promise<VerifiedSource>;
-  getFactPolicy(externalObjectId: string): Promise<FactPolicy>;
-  getObjectVersion(externalObjectId: string): Promise<string>;
-  prepareAdoption(input: VerifiedCandidate): Promise<AdoptionIntent>;
+  readonly adapterType: string;
+  resolveSource(ref: ExternalAssetRef): Promise<VerifiedSource>;
+  getFactPolicy(objectId: string): Promise<FactPolicy>;
+  getObjectVersion(objectId: string): Promise<string>;
+  verifyCandidate(input: CandidateForVerification): Promise<AdapterVerification>;
+  createAdoptIntent(input: AdoptIntent): Promise<AdapterAdoptIntent>;
   applyApprovedCandidate(input: ApprovedCandidate): Promise<void>;
 }
 ```
 
-Adapter 以受信服务身份提供不可篡改的 `AdapterEvidenceEnvelope`：`tenantId, clientId, adapterNamespace, externalObjectId, objectVersion, factPolicy, sourceHash, issuedAt, expiresAt, signature`。Core 验证签名、时效、Client/namespace 对应关系后才导入资产；计划、执行与采用均重新向 Adapter 查询对象版本和事实策略，拒绝陈旧或规则放宽的请求。
+- 爱买买 Adapter 映射 `Company` 图片额度账户、`Product`、SKU、包装/二维码、`ProductMediaRevision + mediaVersion` CAS。
+- 餐厅 Adapter 映射餐厅经营主体额度、菜品、摆盘、菜单价格文字、过敏原和菜单发布版本。
+- 外部 Adapter 必须提供服务端签名的 `AdapterEvidenceEnvelope`：`tenantId/clientId/namespace/objectId/objectVersion/sourceHash/factPolicy/issuedAt/expiresAt/signature`。Core 复算源哈希并验证签名后才落库。
+- Client Key 不能伪造事实策略、对象版本、验真结果、结算、任务终态或采用结果。
 
-- `AimaiProductVisualAdapter` 映射商品、SKU、包装/二维码、`ProductMediaRevision` 与 `mediaVersion` CAS。
-- `RestaurantDishVisualAdapter` 映射菜品、摆盘、菜单价格文字、过敏原/菜品名称和餐厅菜单发布版本。
-- 适配器的采用回调必须重验业务对象版本，不能因 Agent 候选成功而直接覆盖业务媒体。
-
-### 5.4 爱买买过渡 API 与 UI
-
-```text
-POST /seller/products/:productId/visual-enhancements/plan
-  sourceAssetId, requestedDirection?       # 仅诊断/计划，不扣模型费用
-
-POST /seller/products/:productId/visual-enhancements
-  sourceAssetId, visualMode, planVersion, idempotencyKey
-  # 后端重算计划；浏览器不能指定模型、prompt、费用
-
-GET /seller/product-visual-enhancements/:id
-  # 状态、私有候选、验证摘要、预计/实际费用、审核状态
-
-POST /seller/product-visual-enhancements/:id/adopt
-  # 事实确认 + candidateClass；上架商品创建 revision
-```
-
-旧白底 API 保持兼容。爱买买 UI 先显示“自然实景 / 极简主图 / 商品精修 / 营销图”与 Agent 推荐理由；不让模型、提示词和预算细节暴露成商家自由输入。它未来通过 `AimaiProductVisualAdapter` 转发到 Core，而不是把百炼逻辑复制到卖家后台。
-
-## 6. 状态、审核与管理
+## 7. 数据模型与不可变证据
 
 ```text
-REQUESTED → PLANNED → QUEUED → RUNNING → VERIFYING → SUCCEEDED
-                      │                    ├→ REJECTED | FAILED | EXPIRED | CANCELLED
-                      └→ RECONCILING ──────┘
-SUCCEEDED → AdapterReview(PENDING) → ADOPTED | REJECTED
+VisualAgentTenant / VisualAgentClient / VisualAgentClientKey
+VisualAsset                  # 隔离源图、规范化哈希、来源 envelope
+VisualPlan                   # 场景/风险/允许模式/禁止区/模型候选
+VisualQuote                  # 商家已看到的档位、额度、模型 profile、候选数、有效期
+VisualTask                   # provider、租约、状态、idempotency、quote snapshot
+VisualCandidate              # 输出、AIGC 标识、来源、验真报告、角色
+VisualTaskEvidence           # OCR、二维码、条码、数量、颜色、结构、mask、版本
+VisualCreditAccount / Ledger # 商家图片额度
+VisualRateCard               # 管理后台配置的商家报价
+VisualBudgetPolicy           # 平台/Provider/Tenant/Client/Object/Actor 六层上限
+VisualProviderCostRecord     # Provider 原始成本与对账证据（脱敏）
 ```
 
-`RECONCILING` 是提交/查询结果未知的不可重发活跃状态：保留同源图去重锁和预算预占，不会被普通 lease reaper 标为失败；只能用同一 provider idempotency key 查询到明确计费/终态后离开。实现前不宣称上述新枚举已经存在；现阶段可复用当前任务状态和关联 revision。每个状态转移须有 lease token、条件更新、幂等键和预算终态。
+`FactPolicy` 至少声明：保护文本区域、二维码/条码区域、商品主体/配件数量、颜色锚点、结构关键点、可见瑕疵和允许发布位置。
 
-Core 管理端新增：策略/模型白名单/预算配置、资产谱系与验证报告、候选审核、投诉/恢复、租户/Client/模型/样式维度成本与采用率。各 Adapter 的业务客户端仅展示已采用结果，并按自身 `MediaPolicy` 显示 AIGC 标识和证据入口规则。爱买买的 `ProductMediaRevision + mediaVersion` CAS 是其中一个 Adapter 实例。
+候选角色固定为：
 
-## 7. 分期和验收
+- `FACT_MAIN_IMAGE`：可成为主图，必须通过最高级事实验证并保留原图证据。
+- `DETAIL_IMAGE`：可展示局部但仍需验真。
+- `MARKETING_IMAGE`：必须 AIGC 标识，不可成为事实主图。
+- `EVIDENCE_IMAGE`：原实拍证据，不被替换或压缩丢失。
 
-| 阶段 | 交付 | 不做什么 | 验收 |
+## 8. 强效果必须配套的验真
+
+生成能力越强，验真越不能弱。每个候选必须至少经历：
+
+1. 源图/候选 OCR 的文字、型号、规格、容量、价格与包装信息比对。
+2. 二维码与一维条码的区域/值比对；疑似但不可解码时只能转人工。
+3. 主体实例、配件和连通域数量比对；新增、缺失或裁切商品拒绝。
+4. 关键结构、边缘、屏幕、孔位、按钮、标签、瑕疵和颜色锚点差异检查。
+5. 有机品类（鱼虾、肉、水果）不得用视觉“新鲜度提升”掩盖原始色泽、损伤或数量。
+6. 低置信、冲突或 Provider 输出无法获取时拒绝自动采用；营销图可保留为待人工审核，但不能升格主图。
+7. 商家确认与接入系统审核是最后一道门，不替代算法验证。
+
+## 9. 管理、监控与质量评测
+
+上线前必须准备至少 40 张已授权 shadow 样本，覆盖：厨房台海鲜、包装食品、手环/手表、家电、鞋包、美妆、菜品、强反光、低光、密集文字/二维码、多件套和真实背景。
+
+对每个模型/模式记录商业美感评分、商品主体保真评分、文字/条码准确率、错误拒绝率、单图耗时、Provider 实际成本、商家额度报价、采用率、投诉/回滚率，以及“真实场景被不必要白底化”的比例。
+
+任何一个严格事实样本出现未拦截的文字/数量/型号变化，相关模型 profile 立即自动停用，并保留未完成任务在 `RECONCILING` 或人工队列，不能静默重试。
+
+## 10. 分阶段实现与完成定义
+
+| 阶段 | 交付 | 完成定义 | 当前状态 |
 |---|---|---|---|
-| P0 | 本设计、模型/成本/评测决策 | 不开通模型 | 文档审查 |
-| P1a（已开始） | 免费场景推荐、保留实景 UI、计划快照 | 不修改图片、不调用模型 | 合理实景不被误导为白底 |
-| P1b | `FREE_TUNE` 确定性执行与参数合同 | 不调用生成模型 | 风险等级参数边界、原图/候选/回滚验证 |
-| P2（进行中） | Provider、持久化调用/六层预算/租约与验真合同，默认关闭 | 不写部署 Key/不计费 | 账务 Mock、并发、SSRF、账本测试 |
-| P3 | 百炼北京小样 shadow 评测 | 不给普通商家开放 | 至少 40 张授权样本、成本/事实错误报告 |
-| P4 | 白名单商家试点 | 不自动发布 | 转化、退款、投诉指标达标 |
-| P5 | Pro/营销图/其他 Provider 插件 | 不降低主图真实性 | 分品类审批 |
+| A | 受管资产、私有候选、审核/回滚、基础 Core | 原图可追溯，候选不自动发布 | 已有基础代码 |
+| B | `VisualCredit*`、Rate Card、200 欢迎额度、Quote/冻结/对账 | 商家看到报价后才能付费生成，账务可审计 | 待实现 |
+| C | 万相/Qwen 实际 Provider 任务、下载、验真、回调/轮询 | 真实付费调用不会重复计费或越权发布 | 待实现，需授权 |
+| D | 卖家/管理员完整额度与候选 UI | 商家可充值/查看流水，平台可配置模型、价目和预算 | 待实现 |
+| E | 餐厅 Adapter 与公共 SDK/API | 不复用爱买买表/权限，Client Key scope 隔离通过 | 待实现 |
+| F | shadow 评测、staging、真实账单和人工验收 | 同一 exact SHA 完成端到端验证 | 待授权 |
 
-评测样本至少覆盖：厨房台/餐桌海鲜、包装食品、美妆、手环、家电、鞋包、多件套、强反光、低光、文字/二维码密集图。逐张人工记录商品事实是否变化、实景是否被不必要白底化、可用性评分、时间与实际成本。
+## 11. 启用门禁
 
-### 7.1 P1b `FREE_TUNE` 确定性执行合同
+下列条件全部满足并由负责人确认前，`AI_VISUAL_AGENT_ENABLED`、具体 Provider 开关和付费任务入口必须保持关闭：
 
-`FREE_TUNE` 是零模型、零额度预占的候选生成，不是自由滤镜。首个可执行单元只处理 `STANDARD_FACTS + PRESERVE_REAL_SCENE` 的未过期计划，且源资产必须有服务端 OCR/QR/条码证据 `ocrTextVerifiedEmpty=true`，证明没有可读文字、条码或二维码；无该证据时当前版本一律只给出建议、不产生候选。`STRICT_FACTS`、`CONSERVATIVE_FACTS`、`ORGANIC_FACTS`、`RETAKE_REQUIRED` 也一律不执行，继续只给出计划或要求重拍。现有本地条码扫描不会把解码失败判为缺失，因此 P1b 默认 fail-closed，待具备可证明缺失的扫描或人工复核后才可向商家开放。满足该证据条件时，它使用固定版本的 Sharp 管线，且只允许像素对齐、无裁切/无缩放的轻量亮度、对比度、饱和度保持中性和微弱锐化；绝不移动、添加、删除、重绘商品或修改文字。
+1. 北京业务空间、模型列表、区域 endpoint、Provider Key、限流与实时价格复核。
+2. `VisualCredit` 账户/Quote/冻结/释放/对账/人工补偿已完成独立审查。
+3. 40 张授权 shadow 样本和商家/管理员流程完成验收。
+4. 平台/Provider/Tenant/Client/Object/Actor 六层预算都配置正整数上限，且异常自动停用。
+5. staging 用同一候选 SHA 完成真实 Provider 请求、成本对账、候选审核、回滚和错误恢复；生产发布另获授权。
 
-执行时服务端重验商品–源资产绑定、源哈希、计划哈希、计划有效期、风险档、允许方向和固定参数版本。输出必须与源图宽高完全相同，并记录源/输出哈希、固定参数、几何恒等证明和处理版本。候选仍为私有 `CANDIDATE`，走原图证据、三项事实确认、上架商品审核 CAS 与回滚；不自动替换正式媒体。`FREE_TUNE` 不读取百炼 Key、不会调用网络模型，失败不会降级到任何生成模型。
+## 12. 当前代码与本设计的差距
 
-## 8. 真实性、异步计费与回滚执行附录（实施前置条件）
+当前本地候选已具备：受管媒体、质量计划、确定性白底与轻调、候选审核、部分 OCR/条码门禁、调用账本、预算策略、Provider 适配骨架、Client Key 与可信 Adapter reservation bridge。
 
-本节是 P1/P2 的硬约束，不是可选优化。
-
-### 8.1 规范坐标、受保护区与最终合成
-
-上传规范安全源是唯一坐标原点，所有框、OCR、二维码、条码、主体 mask、多件套连通域均按其 `width × height` 的归一化坐标保存。任何裁切、旋转、透视、缩放都必须产生可逆几何变换矩阵。
-
-```text
-规范源
-  → OCR/QR/条码框 + 主体/配件 mask + 连通域快照
-  → ProtectedRegion Artifact（版本、坐标、哈希、几何矩阵）
-  → 模型输入：保护区遮罩/替换后的副本，或仅允许背景输入
-  → Provider 原始输出（隔离）
-  → 最终合成：丢弃输出保护区 + 原规范源像素按矩阵回贴
-  → 在同一坐标系验证文字、QR/条码、主体与配件
-```
-
-- `STRICT_FACTS` / `ORGANIC_FACTS` 的模型路径必须是“原主体像素回贴 + 只编辑背景/非保护区”；模型不得接触可读文字、二维码、条码和受保护主体像素。
-- 商品本体的生成式精修不可能被自动证明“绝未改变”。它只能是带风险提示的 `DISPLAY_ENHANCED` 候选，经商家明确确认与人工审核后才能作为展示图；包装、二手、食品和高风险电子默认禁止这一路径。
-- 多件套必须保存每个组件连通域；任一组件被裁掉、合并、复制或新增时直接拒绝。
-
-### 8.2 原始输出隔离
-
-`MODEL_OUTPUT_RAW` 只作为 Core 私有 Artifact/隔离对象存在，不能创建为可被任何 Client 预览的 Adapter 候选资产。只有完成下载、解码、内容扫描、保护区回贴和验证后，才创建 `VERIFIED_CANDIDATE` 受管资产。
-
-Client 预览、业务媒体、审核页和公开媒体路由必须拒绝 `QUARANTINED_RAW` / 未验证 Artifact；任何原始输出过期、外部对象删除或验证失败均按留存策略隔离或清理，不能绕过私有访问门禁。
-
-### 8.3 异步队列、租约和供应商对账
-
-P2 必须使用独立异步 worker（Redis 队列或等价可靠队列），不能在 HTTP 请求内等待模型完成。任务有 provider idempotency key、providerTaskId、lease token/generation、心跳/续租、指数退避、死信与人工恢复入口。
-
-```text
-未提交 Provider                         → RELEASED
-Provider 明确未接受且未计费             → RELEASED
-Provider 返回成功/用量/可下载结果       → SETTLED（即使本平台验真 REJECTED）
-提交或查询结果未知                      → RECONCILING，继续占用预算且禁止重发
-实际费用 > 预占                          → BILLING_EXCEPTION，关闭该 Provider 并人工对账
-取消/超时                               → 先 query Provider；不得假设未收费
-```
-
-网络超时和回调丢失不能直接释放或创建新任务；只能使用同一 provider idempotency key 查询并收口。Provider callback 若存在，必须验签、去重和限制来源；否则 worker 轮询到终态。
-
-### 8.4 调用级账本与预算策略
-
-Core 的通用账本不能使用爱买买的 `ProductImageBudgetLedger` 作为公共模型；后者仅是 `AimaiProductVisualAdapter` 的过渡账本。Core 需要支撑多模型、多次 OCR/分割/生成与租户/Client/外部对象/Actor/日/周限制，因此 P2 新增：
-
-```text
-VisualBudgetPolicy
-  scope: PLATFORM | PROVIDER | TENANT | CLIENT | EXTERNAL_OBJECT | ACTOR
-  provider/model/mode, perTask/day/week cap, timezone, effectiveFrom/version
-
-VisualInvocationLedger
-  visualTaskId, tenantId, ownerClientId, adapterNamespace, externalObjectId, actorId, provider, model, operation
-  state: RESERVED | RECONCILING | SETTLED | RELEASED | BILLING_EXCEPTION
-  reservedCents, actualCents, providerTaskId, policyVersion, createdAt
-```
-
-中国业务预算周期统一以 `Asia/Shanghai` 计算。每一次计划、OCR、分割、生成或重试都单独记调用级流水；在 Serializable 事务内检查全部适用 policy，再创建预占。Actor 必须来自认证 Client + AdapterEvidenceEnvelope/Adapter 查询，不能由 Client body 自报。任一 `BILLING_EXCEPTION` 自动关闭对应 Provider 与模式，保留审计，不自动透支。Core 同时强制平台/Provider/Client 总预算，避免单个接入系统耗尽共享模型容量；每个 Adapter 将自身的 Company/Product/Staff 等字段映射为 Core 的 Tenant/External Object/Actor。
-
-### 8.5 计划快照、候选数与九图上限
-
-`/plan` 返回并持久化 `planId + planHash + visualAssetId + sourceHash + externalObjectId + riskProfile + allowedOperations + protectedRegionVersion + modelPolicyVersion + expiresAt`。执行端重新验证全部字段；源图、对象版本、Adapter 事实策略、规则、预算收紧或计划过期时拒绝执行，不能只信任浏览器传来的 `planVersion`。
-
-- 默认一张候选；再次生成是新的有成本 variant，必须商家主动确认且有独立幂等键。
-- 同一源图/意图/模型/参数命中已验证成功缓存时可复用；验真失败不复用为可采用候选。
-- Core 不假设“商品”或固定图数。Adapter 必须声明 `MediaPolicy`（主图/详情/营销/证据角色、最大数量、排序限制）；候选采用前由 Adapter 模拟最终媒体集合，超限时明确要求业务用户选择保留/移除，而不是静默丢图。爱买买当前 `MediaPolicy` 的最大值为 9。
-- 多图多任务用任务中心按源图聚合，不再只恢复一个任务。
-
-### 8.6 媒体用途、不可变版本与买家契约
-
-Core 的通用候选角色为 `PRIMARY_DISPLAY`、`SUPPORTING_DISPLAY`、`MARKETING_DISPLAY`、`EVIDENCE`；Adapter 映射为自身媒体字段和排序规则。爱买买的映射为 `MAIN_IMAGE`、`DETAIL_IMAGE`、`MARKETING_IMAGE`、`EVIDENCE_IMAGE`。约束：
-
-1. `MARKETING_DISPLAY` 不能成为 `PRIMARY_DISPLAY`，不能取代任何事实主展示图；爱买买 Adapter 将此实现为 `MARKETING_IMAGE` 不能是 `sortOrder=0`。
-2. 每个 AI 的 `PRIMARY_DISPLAY` 至少关联一张原始 `EVIDENCE`；爱买买 Adapter 映射为 `EVIDENCE_IMAGE`。
-3. Adapter 的采用事务必须在通过前写入不可变 `baseMediaSnapshot` 和 `ApprovedMediaVersionSnapshot`，包含完整旧/新媒体、处理任务、审核人和时间。对爱买买而言，这些快照、候选采用、媒体删除/创建、`mediaVersion` CAS、`ProductMediaRevision` 状态必须在**同一个 Serializable 事务**内提交；任一 CAS/快照写入失败则整笔回滚。
-4. 具备权限的接入系统管理端可恢复任一已批准快照，恢复也走新的 Adapter CAS/revision，绝不原地覆盖审计。
-5. 接入系统的公开 DTO、客户端类型和详情页同步下发来源/角色/AIGC 标识；不得暴露原始 Provider 输出或 Core 内部验证数据。
-
-### 8.7 留存和删除
-
-规范安全源、采用记录、预算与审核快照按平台合规留存策略保存；隔离 raw 输出、mask、OCR/验证中间件、失败候选有明确访问权限和保留期。外部对象删除后，任务保留审计但失效，未采用候选和 raw 输出不可预览；若 Provider 仍处于 `RECONCILING`，其账务责任继续由平台对账 worker 收口。
-
-## 9. Agent 服务与 Provider 开通门槛
-
-以下全部得到负责人明确确认前，Core 的 `AI_VISUAL_AGENT_ENABLED`、每个 Adapter 的执行开关与具体 Provider 开关继续为 `false`：
-
-1. 北京业务空间实际可见模型、Core 专用 Provider API Key、配额、账单和告警。
-2. Provider Key 仅保存到 Core 的本地密码本/部署密钥管理，不写入 Git、日志、截图或本文档；它的 staging 名称使用中性 `ai-visual-agent-staging`，绝不使用接入系统名称。
-3. 所有适用 scope（`PLATFORM`、`PROVIDER`、`TENANT`、`CLIENT`、`EXTERNAL_OBJECT`、`ACTOR`）的 per-task/day/week 正整数预算，以及异常自动关闭策略；任一必需层缺失即拒绝调用。
-4. 授权评测样本、商品事实人工验收人和试点企业。
-5. staging 的下载、扫描、验真、失败释放、审核、回滚及真实账单验证。
-
-创建 API Key 只解决 Core → Provider 的权限；爱买买、餐厅和其他系统必须再各自创建可撤销的 Agent Client Key，不能共享 Provider Key。本文不授权任何生产部署、迁移、模型订阅、费用支出或自动发布。
-
-### 9.1 2026-08-22 本地 P2.2 账务边界
-
-`VisualAgentInvocation`、`VisualAgentBudgetPolicy`、`VisualAgentBudgetReservation` 和对应 migration 已写入本地代码，但**未执行 migration、未导入 AppModule、未部署**。每次提交须先持久化同一个 scope/idempotency 记录、六份预算预占和单次 lease；价格只能从六份策略一致的 `reserveCents` 得出，任何金额策略缺失/冲突/非正数均拒绝。提交前再次验证规范源哈希、计划哈希、方向、租约与策略熔断；`UNKNOWN` 不释放预占也不能再次 acquire，submit/query lease 过期进入 `RECONCILING`。实际成本超过预占或人工账单异常会关闭该 Provider/model 策略，旧的 `RESERVED` 任务在出网前被释放。百炼尚未提供被本设计依赖的 submit 幂等承诺，因此 submit 超时但未知 taskId 的记录只能 `RECONCILING` 并人工对账。Provider 原始输出下载器在受控 egress/固定连接与隔离 Artifact 到位前故意不实现，不能把短期 URL 直接交给业务系统或浏览器。
+但它尚未实现本设计定义的 `VisualCreditAccount/Ledger`、商家报价与确认、真实模型执行闭环、模型输出验真、餐厅 Adapter、公共资产/任务 API、40 张评测或真实 Provider 成本对账。因此不得把当前基础候选描述为“强大的全品类 AI 美化服务已上线”。
