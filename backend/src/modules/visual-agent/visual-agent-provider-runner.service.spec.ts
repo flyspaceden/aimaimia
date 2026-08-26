@@ -3,7 +3,7 @@ const sharp = require('sharp') as typeof import('sharp').default;
 import { VisualAgentProviderRunnerService } from './visual-agent-provider-runner.service';
 
 const authorization = {
-  invocationId: 'invocation-1', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
+  invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
   adapterExecutionApproved: true as const, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
 };
 

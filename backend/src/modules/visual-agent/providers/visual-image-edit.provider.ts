@@ -35,6 +35,7 @@ export type VisualProviderServerPlan = {
 /** Evidence that the Core has already persisted all scope budget reservations. */
 export type VisualProviderAuthorization = {
   invocationId: string;
+  provider: string;
   policySnapshotVersion: string;
   reservedCostCents: number;
   adapterExecutionApproved: true;

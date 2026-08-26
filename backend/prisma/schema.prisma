@@ -1864,6 +1864,7 @@ model VisualAgentInvocation {
   providerTaskId         String?                     @unique
   providerRequestId      String?
   providerOutputUrl      String?
+  providerUsage          Json?
   reconciliationReason   String?
   leaseToken             String?
   leaseGeneration        Int                         @default(0)

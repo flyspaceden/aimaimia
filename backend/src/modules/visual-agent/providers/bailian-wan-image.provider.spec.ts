@@ -20,7 +20,7 @@ async function submitInput(overrides: Partial<VisualProviderSubmitInput> = {}): 
     },
     model: 'wan2.7-image',
     authorization: {
-      invocationId: 'invocation-1', policySnapshotVersion: 'policy-v1', reservedCostCents: 20,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'policy-v1', reservedCostCents: 20,
       adapterExecutionApproved: true, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
     },
     ...overrides,
@@ -186,7 +186,7 @@ describe('BailianWanImageProvider', () => {
     const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
 
     await expect(provider.submit(await submitInput({ authorization: {
-      invocationId: 'invocation-1', policySnapshotVersion: 'policy-v1', reservedCostCents: 0,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'policy-v1', reservedCostCents: 0,
       adapterExecutionApproved: true, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
     } }))).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(global.fetch).not.toHaveBeenCalled();

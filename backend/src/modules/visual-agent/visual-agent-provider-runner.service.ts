@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BailianWanImageProvider } from './providers/bailian-wan-image.provider';
+import { BAILIAN_WAN_PROVIDER } from './providers/bailian-wan-image.provider';
 import {
   VisualProviderQueryResult,
   VisualProviderServerPlan,
@@ -37,6 +38,7 @@ export class VisualAgentProviderRunnerService {
     const authorization = await this.invocations.acquireForSubmit(
       input.invocationId,
       input.model,
+      BAILIAN_WAN_PROVIDER,
       sourceHash,
       planHash,
       input.visualPlan.direction,

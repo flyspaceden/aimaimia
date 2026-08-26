@@ -5,7 +5,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   VisualProviderAuthorization,
-  VisualProviderModel,
   VisualProviderQueryResult,
   VisualProviderSubmitResult,
 } from './providers/visual-image-edit.provider';
@@ -45,14 +44,14 @@ const COST_SETTLEABLE_STATUSES: VisualAgentInvocationStatus[] = [
   VisualAgentInvocationStatus.RECONCILING,
 ];
 
-type ReserveInvocationInput = {
+export type ReserveVisualAgentInvocationInput = {
   tenantId: string;
   ownerClientId: string;
   adapterNamespace: string;
   externalObjectId: string;
   actorId: string;
   provider: string;
-  model: VisualProviderModel;
+  model: string;
   visualMode: string;
   sourceHash: string;
   visualPlanHash: string;
@@ -62,6 +61,7 @@ type ReserveInvocationInput = {
 
 type InvocationForAuthorization = {
   id: string;
+  provider: string;
   policySnapshotVersion: string;
   reservedCostCents: number;
   leaseToken: string | null;
@@ -77,6 +77,11 @@ export type VisualAgentReservedInvocation = {
   status: VisualAgentInvocationStatus;
 };
 
+export type VisualSynchronousProviderOutcome =
+  | { kind: 'KNOWN'; providerRequestId?: string; usage?: Record<string, number | undefined> }
+  | { kind: 'DECLINED'; code: string; providerRequestId?: string }
+  | { kind: 'UNKNOWN'; code: string; providerRequestId?: string; requiresReconciliation: true };
+
 /**
  * Durable billing and reconciliation fence for the domain-neutral Core.
  * There is no controller yet: only a future trusted Adapter/Core orchestrator
@@ -86,7 +91,7 @@ export type VisualAgentReservedInvocation = {
 export class VisualAgentInvocationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async reserve(input: ReserveInvocationInput): Promise<VisualAgentReservedInvocation> {
+  async reserve(input: ReserveVisualAgentInvocationInput): Promise<VisualAgentReservedInvocation> {
     this.assertReserveInput(input);
     const now = new Date();
     const scopeKeys = this.scopeKeys(input);
@@ -208,7 +213,8 @@ export class VisualAgentInvocationService {
 
   async acquireForSubmit(
     invocationId: string,
-    model: VisualProviderModel,
+    model: string,
+    provider: string,
     sourceHash: string,
     visualPlanHash: string,
     visualMode: string,
@@ -226,7 +232,7 @@ export class VisualAgentInvocationService {
         where: { id: invocationId },
         include: { reservations: { include: { policy: { select: { enabled: true, effectiveFrom: true, effectiveUntil: true } } } } },
       });
-      if (!invocation || invocation.model !== model || invocation.sourceHash !== sourceHash
+      if (!invocation || invocation.provider !== provider || invocation.model !== model || invocation.sourceHash !== sourceHash
         || invocation.visualPlanHash !== visualPlanHash || invocation.visualMode !== visualMode
         || invocation.status !== VisualAgentInvocationStatus.RESERVED) {
         throw new ConflictException('AI Visual Agent 调用不能重新提交或不存在');
@@ -263,7 +269,7 @@ export class VisualAgentInvocationService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async assertProviderAuthorization(authorization: VisualProviderAuthorization, model: VisualProviderModel): Promise<void> {
+  async assertProviderAuthorization(authorization: VisualProviderAuthorization, provider: string, model: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findUnique({
         where: { id: authorization.invocationId },
@@ -275,7 +281,7 @@ export class VisualAgentInvocationService {
         where: { id: authorization.invocationId },
         include: { reservations: { include: { policy: { select: { enabled: true, effectiveFrom: true, effectiveUntil: true } } } } },
       });
-      if (!invocation || invocation.status !== VisualAgentInvocationStatus.SUBMITTING || invocation.model !== model
+      if (!invocation || invocation.status !== VisualAgentInvocationStatus.SUBMITTING || invocation.provider !== provider || invocation.model !== model
         || invocation.policySnapshotVersion !== authorization.policySnapshotVersion
         || invocation.reservedCostCents !== authorization.reservedCostCents
         || invocation.leaseToken !== authorization.leaseToken
@@ -306,6 +312,7 @@ export class VisualAgentInvocationService {
   async recordSubmitOutcome(authorization: VisualProviderAuthorization, outcome: VisualProviderSubmitResult) {
     const where = {
       id: authorization.invocationId,
+      provider: authorization.provider,
       status: VisualAgentInvocationStatus.SUBMITTING,
       leaseToken: authorization.leaseToken,
       leaseGeneration: authorization.leaseGeneration,
@@ -331,6 +338,40 @@ export class VisualAgentInvocationService {
         : { status: VisualAgentInvocationStatus.RECONCILING, reconciliationReason: outcome.code, providerRequestId: outcome.providerRequestId, leaseToken: null, leaseExpiresAt: null },
     });
     if (updated.count !== 1) throw new ConflictException('AI Visual Agent Provider 提交租约已失效');
+  }
+
+  /** Closes a synchronous (for example OCR) Provider request under its lease. */
+  async recordSynchronousProviderOutcome(authorization: VisualProviderAuthorization, outcome: VisualSynchronousProviderOutcome) {
+    const where = {
+      id: authorization.invocationId,
+      provider: authorization.provider,
+      status: VisualAgentInvocationStatus.SUBMITTING,
+      leaseToken: authorization.leaseToken,
+      leaseGeneration: authorization.leaseGeneration,
+    };
+    if (outcome.kind === 'KNOWN') {
+      const providerUsage = Object.fromEntries(Object.entries(outcome.usage ?? {})
+        .filter(([, value]) => Number.isInteger(value) && (value as number) >= 0));
+      const updated = await this.prisma.visualAgentInvocation.updateMany({
+        where,
+        data: {
+          status: VisualAgentInvocationStatus.VERIFYING,
+          providerRequestId: outcome.providerRequestId,
+          providerUsage: providerUsage as Prisma.InputJsonValue,
+          leaseToken: null,
+          leaseExpiresAt: null,
+        },
+      });
+      if (updated.count !== 1) throw new ConflictException('AI Visual Agent 同步 Provider 提交租约已失效');
+      return;
+    }
+    const updated = await this.prisma.visualAgentInvocation.updateMany({
+      where,
+      data: outcome.kind === 'DECLINED'
+        ? { status: VisualAgentInvocationStatus.RELEASED, reconciliationReason: outcome.code, leaseToken: null, leaseExpiresAt: null }
+        : { status: VisualAgentInvocationStatus.RECONCILING, reconciliationReason: outcome.code, providerRequestId: outcome.providerRequestId, leaseToken: null, leaseExpiresAt: null },
+    });
+    if (updated.count !== 1) throw new ConflictException('AI Visual Agent 同步 Provider 提交租约已失效');
   }
 
   async acquireForQuery(invocationId: string): Promise<VisualProviderAuthorization & { providerTaskId: string }> {
@@ -364,6 +405,7 @@ export class VisualAgentInvocationService {
       const updated = await this.prisma.visualAgentInvocation.updateMany({
         where: {
           id: authorization.invocationId,
+          provider: authorization.provider,
           providerTaskId: authorization.providerTaskId,
           leaseToken: authorization.leaseToken,
           leaseGeneration: authorization.leaseGeneration,
@@ -385,6 +427,7 @@ export class VisualAgentInvocationService {
     const updated = await this.prisma.visualAgentInvocation.updateMany({
       where: {
         id: authorization.invocationId,
+        provider: authorization.provider,
         providerTaskId: authorization.providerTaskId,
         leaseToken: authorization.leaseToken,
         leaseGeneration: authorization.leaseGeneration,
@@ -496,7 +539,7 @@ export class VisualAgentInvocationService {
     });
   }
 
-  private scopeKeys(input: ReserveInvocationInput): Record<VisualAgentBudgetScope, string> {
+  private scopeKeys(input: ReserveVisualAgentInvocationInput): Record<VisualAgentBudgetScope, string> {
     const part = (value: string) => `${value.length}:${value}`;
     return {
       [VisualAgentBudgetScope.PLATFORM]: 'GLOBAL',
@@ -517,6 +560,7 @@ export class VisualAgentInvocationService {
     }
     return {
       invocationId: invocation.id,
+      provider: invocation.provider,
       policySnapshotVersion: invocation.policySnapshotVersion,
       reservedCostCents: invocation.reservedCostCents,
       adapterExecutionApproved: true,
@@ -562,7 +606,7 @@ export class VisualAgentInvocationService {
     return { dayStart, weekStart: new Date(dayStart.getTime() - mondayOffset * 24 * 60 * 60 * 1000) };
   }
 
-  private assertReserveInput(input: ReserveInvocationInput) {
+  private assertReserveInput(input: ReserveVisualAgentInvocationInput) {
     const scoped = [input.tenantId, input.ownerClientId, input.adapterNamespace, input.externalObjectId, input.actorId, input.provider, input.visualMode, input.idempotencyKey];
     if (scoped.some((value) => !/^[A-Za-z0-9._:/-]{1,200}$/.test(value))
       || !/^[a-f0-9]{64}$/.test(input.sourceHash)
@@ -575,7 +619,7 @@ export class VisualAgentInvocationService {
   private assertIdempotentInputMatches(existing: {
     tenantId: string; ownerClientId: string; adapterNamespace: string; externalObjectId: string; actorId: string;
     provider: string; model: string; visualMode: string; sourceHash: string; visualPlanHash: string;
-  }, input: ReserveInvocationInput) {
+  }, input: ReserveVisualAgentInvocationInput) {
     if (existing.tenantId !== input.tenantId || existing.ownerClientId !== input.ownerClientId
       || existing.adapterNamespace !== input.adapterNamespace || existing.externalObjectId !== input.externalObjectId
       || existing.actorId !== input.actorId || existing.provider !== input.provider || existing.model !== input.model

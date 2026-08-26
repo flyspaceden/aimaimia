@@ -30,6 +30,7 @@ type BailianTaskResponse = {
 };
 
 const allowedModels = new Set<VisualProviderModel>(['wan2.7-image', 'wan2.7-image-pro']);
+export const BAILIAN_WAN_PROVIDER = 'BAILIAN_WAN';
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 const MIN_EDGE = 240;
 const MAX_EDGE = 8000;
@@ -184,7 +185,7 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
       || authorization.expiresAt.getTime() <= Date.now()) {
       throw new ServiceUnavailableException('AI Visual Agent 调用未取得有效的 Core 预算与适配器授权');
     }
-    await this.invocations.assertProviderAuthorization(authorization, input.model);
+    await this.invocations.assertProviderAuthorization(authorization, BAILIAN_WAN_PROVIDER, input.model);
   }
 
   private assertAllowedModel(model: VisualProviderModel) {

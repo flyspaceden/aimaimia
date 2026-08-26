@@ -129,7 +129,7 @@ describe('VisualAgentInvocationService', () => {
 
   it('verifies that an authorization is bound to one persisted SUBMITTING lease and all six reservations', async () => {
     const authorization = {
-      invocationId: 'invocation-1', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
       adapterExecutionApproved: true as const, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
     };
     const goodInvocation = {
@@ -142,9 +142,10 @@ describe('VisualAgentInvocationService', () => {
     } } });
     const service = new VisualAgentInvocationService(prisma as any);
 
-    await expect(service.assertProviderAuthorization(authorization, 'wan2.7-image')).resolves.toBeUndefined();
+    await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image')).resolves.toBeUndefined();
+    await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_QWEN_OCR', 'wan2.7-image')).rejects.toBeInstanceOf(ServiceUnavailableException);
     prisma.tx.visualAgentInvocation.findUnique.mockResolvedValue({ ...goodInvocation, reservations: goodInvocation.reservations.slice(1) });
-    await expect(service.assertProviderAuthorization(authorization, 'wan2.7-image')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('moves a transport-unknown submission to durable reconciliation and blocks a second acquire', async () => {
@@ -153,7 +154,7 @@ describe('VisualAgentInvocationService', () => {
     }) } } });
     const service = new VisualAgentInvocationService(prisma as any);
     const authorization = {
-      invocationId: 'invocation-1', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
       adapterExecutionApproved: true as const, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
     };
 
@@ -161,7 +162,7 @@ describe('VisualAgentInvocationService', () => {
     expect(prisma.visualAgentInvocation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: VisualAgentInvocationStatus.RECONCILING }),
     }));
-    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', sourceHash, planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'BAILIAN_WAN', sourceHash, planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects a submit whose recomputed source or plan hash differs from the reserved invocation', async () => {
@@ -175,8 +176,9 @@ describe('VisualAgentInvocationService', () => {
     } } });
     const service = new VisualAgentInvocationService(prisma as any);
 
-    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'c'.repeat(64), planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ConflictException);
-    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', sourceHash, planHash, 'MARKETING_SCENE')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'BAILIAN_WAN', 'c'.repeat(64), planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'BAILIAN_QWEN_OCR', sourceHash, planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'BAILIAN_WAN', sourceHash, planHash, 'MARKETING_SCENE')).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.tx.visualAgentInvocation.update).not.toHaveBeenCalled();
   });
 
@@ -194,7 +196,7 @@ describe('VisualAgentInvocationService', () => {
     } } });
     const service = new VisualAgentInvocationService(prisma as any);
 
-    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', sourceHash, planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(service.acquireForSubmit('invocation-1', 'wan2.7-image', 'BAILIAN_WAN', sourceHash, planHash, 'PRESERVE_REAL_SCENE')).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(prisma.tx.visualAgentInvocation.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: VisualAgentInvocationStatus.RELEASED }),
     }));
@@ -237,7 +239,7 @@ describe('VisualAgentInvocationService', () => {
     const prisma = prismaMock({ root: { visualAgentInvocation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } });
     const service = new VisualAgentInvocationService(prisma as any);
     const authorization = {
-      invocationId: 'invocation-1', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', policySnapshotVersion: 'snapshot-1', reservedCostCents: 20,
       adapterExecutionApproved: true as const, leaseToken: 'query-lease-1', leaseGeneration: 3,
       providerTaskId: 'provider-task-1', expiresAt: new Date(Date.now() + 60_000),
     };
