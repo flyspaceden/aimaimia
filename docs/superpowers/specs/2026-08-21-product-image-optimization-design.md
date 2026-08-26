@@ -117,7 +117,7 @@ ProductImageOptimization (合同、任务、成本预占、候选、审核结论
 ProductMedia (展示顺序；保留原实拍与 AI 优化标识)
 ```
 
-`SellerMediaAsset` 至少记录 `companyId/uploaderId/objectKey/canonicalSha256/purpose/width/height`；其中 `objectKey/canonicalSha256` 指经 EXIF 剥离、转码和联系方式安全处理后的规范安全源，不是原始未处理上传。`ProductImageOptimization` 至少记录来源资产、商品/草稿可选关联、处理合同、provider/model/promptVersion、幂等键、状态、成本预占/结算、候选资产、采用人和时间。
+`SellerMediaAsset` 至少记录 `companyId/uploaderId/objectKey/canonicalSha256/purpose/width/height`；其中 `objectKey/canonicalSha256` 指经 EXIF 剥离、转码和联系方式安全处理后的**规范安全源**，不是原始未处理上传。`ProductImageOptimization` 必须记录已关联源图的目标商品（草稿需先保存）、处理合同、provider/model/promptVersion、幂等键、状态、成本预占/结算、候选资产、采用人和时间。Artifact 是每次任务的审计快照，允许多个任务引用同一不可变 `objectKey`；存储对象的唯一性由 `SellerMediaAsset.objectKey` 保证。
 
 任务状态：
 

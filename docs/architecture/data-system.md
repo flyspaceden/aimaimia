@@ -475,7 +475,7 @@ SellerUserRole
 
 #### ProductImageArtifact（私有任务产物）
 - optimizationId (FK), kind (MASK/FOREGROUND_REFERENCE/CANDIDATE/INTEGRITY_PROOF)
-- assetId (nullable FK SellerMediaAsset), objectKey（可复用同一受管源图，不作全局唯一）, sha256, mimeType, byteSize, width, height
+- assetId (nullable FK SellerMediaAsset), objectKey（非唯一；同一受管原图可在失败/过期后建立新的任务审计记录）, sha256, mimeType, byteSize, width, height
 - isAigc, metadata, createdAt
 
 #### ProductImageBudgetLedger（付费背景预算账本）

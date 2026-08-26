@@ -1767,6 +1767,9 @@ model ProductImageArtifact {
   kind           ProductImageArtifactKind
   assetId        String?
   asset          SellerMediaAsset?        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  // The same immutable source file may be referenced by artifacts in several
+  // retry tasks. Storage-object uniqueness belongs to SellerMediaAsset, not
+  // to this per-task audit record.
   objectKey      String
   sha256         String
   mimeType       String
