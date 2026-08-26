@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ProductImageArtifactKind, ProductImageOptimizationKind, ProductImageOptimizationStatus, ProductMediaRevisionStatus, ProductMediaVisualOrigin, SellerMediaAssetStatus } from '@prisma/client';
+import { Prisma, ProductImageArtifactKind, ProductImageFactScanStatus, ProductImageOptimizationKind, ProductImageOptimizationStatus, ProductMediaRevisionStatus, ProductMediaVisualOrigin, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
@@ -396,11 +396,33 @@ export class ProductMediaRevisionsService {
           },
         },
         company: { select: { id: true, name: true } },
+        optimization: {
+          select: {
+            id: true,
+            kind: true,
+            status: true,
+            provider: true,
+            costTier: true,
+            templateVersion: true,
+            processingContract: true,
+            createdAt: true,
+            artifacts: {
+              where: { kind: { in: [ProductImageArtifactKind.CANDIDATE, ProductImageArtifactKind.FOREGROUND_REFERENCE] } },
+              select: { kind: true, assetId: true, metadata: true },
+            },
+          },
+        },
       },
     });
     if (!revision) throw new NotFoundException('封面变更申请不存在');
 
-    const proposed = revision.proposedMedia as Array<{ assetId?: string; sortOrder?: number; type?: string }>;
+    const proposed = revision.proposedMedia as Array<{
+      assetId?: string;
+      sortOrder?: number;
+      type?: string;
+      visualOrigin?: ProductMediaVisualOrigin;
+      isEvidenceImage?: boolean;
+    }>;
     if (!Array.isArray(proposed) || proposed.length === 0 || proposed.length > 9) {
       throw new BadRequestException('封面变更媒体快照无效');
     }
@@ -417,6 +439,31 @@ export class ProductMediaRevisionsService {
       throw new ConflictException('候选图片仍需人工安全复核');
     }
     const byId = new Map(assets.map((asset) => [asset.id, asset]));
+    const candidateArtifact = revision.optimization?.artifacts.find((artifact) => artifact.kind === ProductImageArtifactKind.CANDIDATE);
+    const sourceArtifact = revision.optimization?.artifacts.find((artifact) => artifact.kind === ProductImageArtifactKind.FOREGROUND_REFERENCE);
+    const factEvidenceId = this.factEvidenceId(candidateArtifact?.metadata)
+      ?? this.factEvidenceId(revision.optimization?.processingContract);
+    const factScan = factEvidenceId && sourceArtifact?.assetId
+      ? await this.prisma.productImageFactScan.findFirst({
+          where: {
+            id: factEvidenceId,
+            companyId: revision.companyId,
+            productId: revision.productId,
+            sourceAssetId: sourceArtifact.assetId,
+          },
+          select: {
+            id: true,
+            status: true,
+            textDetected: true,
+            qrCodesDetected: true,
+            barcodeStatus: true,
+            emptyTextQrVerified: true,
+            failureCode: true,
+            completedAt: true,
+            expiresAt: true,
+          },
+        })
+      : null;
     const proposedMedia = await Promise.all(proposed.map(async (item, index) => {
       const asset = byId.get(item.assetId!)!;
       const access = await this.uploadService.createPrivateAccessUrl(asset.objectKey, 300);
@@ -427,6 +474,8 @@ export class ProductMediaRevisionsService {
         height: asset.height,
         displayUrl: access.url,
         expiresAt: access.expiresAt,
+        visualOrigin: item.visualOrigin ?? ProductMediaVisualOrigin.ORIGINAL,
+        isEvidenceImage: item.isEvidenceImage === true,
       };
     }));
 
@@ -442,6 +491,40 @@ export class ProductMediaRevisionsService {
       product: revision.product,
       company: revision.company,
       proposedMedia,
+      reviewContext: {
+        optimization: revision.optimization ? {
+          id: revision.optimization.id,
+          kind: revision.optimization.kind,
+          status: revision.optimization.status,
+          provider: revision.optimization.provider,
+          costTier: revision.optimization.costTier,
+          templateVersion: revision.optimization.templateVersion,
+          createdAt: revision.optimization.createdAt,
+        } : null,
+        factScan: factScan ? {
+          id: factScan.id,
+          status: factScan.status,
+          textDetected: factScan.textDetected,
+          qrCodesDetected: factScan.qrCodesDetected,
+          barcodeStatus: factScan.barcodeStatus,
+          emptyTextQrVerified: factScan.emptyTextQrVerified,
+          freeTuneEligible: factScan.status === ProductImageFactScanStatus.VERIFIED_EMPTY
+            && factScan.emptyTextQrVerified
+            && factScan.expiresAt > new Date(),
+          failureCode: factScan.failureCode,
+          completedAt: factScan.completedAt,
+          expiresAt: factScan.expiresAt,
+        } : null,
+      },
     };
+  }
+
+  /** Extracts a safe pointer only; never return OCR output or hash material. */
+  private factEvidenceId(value: unknown): string | null {
+    if (!value || typeof value !== 'object') return null;
+    const factEvidence = (value as { factEvidence?: unknown }).factEvidence;
+    if (!factEvidence || typeof factEvidence !== 'object') return null;
+    const id = (factEvidence as { id?: unknown }).id;
+    return typeof id === 'string' && id.length > 0 ? id : null;
   }
 }

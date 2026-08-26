@@ -29,6 +29,7 @@ function buildService(mediaVersionUpdateCount = 1) {
     $transaction: jest.fn((fn: (tx: any) => unknown) => fn(tx)),
     productMediaRevision: tx.productMediaRevision,
     sellerMediaAsset: tx.sellerMediaAsset,
+    productImageFactScan: { findFirst: jest.fn() },
   };
   const assets = { assertOwnedProductImageAssets: jest.fn() };
   const upload = {
@@ -286,5 +287,53 @@ describe('ProductMediaRevisionsService approval', () => {
     });
 
     expect(upload.createPrivateAccessUrl).toHaveBeenCalledWith('seller-product-assets/a.webp', 300);
+  });
+
+  it('returns only the bound free-tune fact-scan summary to an admin reviewer', async () => {
+    const { service, tx, prisma } = buildService(1);
+    tx.productMediaRevision.findUnique.mockResolvedValue({
+      id: 'rev-1', productId: 'product-1', companyId: 'company-1', expectedMediaVersion: 2,
+      status: ProductMediaRevisionStatus.PENDING_REVIEW,
+      proposedMedia: [
+        { assetId: 'candidate-asset', sortOrder: 0, type: 'IMAGE', visualOrigin: 'DETERMINISTIC_ENHANCEMENT', isEvidenceImage: false },
+        { assetId: 'source-asset', sortOrder: 1, type: 'IMAGE', visualOrigin: 'ORIGINAL', isEvidenceImage: true },
+      ],
+      optimization: {
+        id: 'task-1', kind: 'FREE_TUNE', status: ProductImageOptimizationStatus.SUCCEEDED,
+        provider: 'deterministic-sharp', costTier: 'FREE', templateVersion: 'phase-p1b-free-tune-v1', processingContract: {}, createdAt: new Date(),
+        artifacts: [
+          { kind: 'CANDIDATE', assetId: 'candidate-asset', metadata: { factEvidence: { id: 'fact-scan-1' } } },
+          { kind: 'FOREGROUND_REFERENCE', assetId: 'source-asset', metadata: null },
+        ],
+      },
+      product: { id: 'product-1', title: '智能手环', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2, media: [] },
+      company: { id: 'company-1', name: '测试商户' }, attestation: {}, createdAt: new Date(), reviewNote: null,
+    });
+    tx.sellerMediaAsset.findMany.mockResolvedValue([
+      { id: 'candidate-asset', objectKey: 'seller-product-assets/candidate.png', width: 800, height: 800, scanSummary: null },
+      { id: 'source-asset', objectKey: 'seller-product-assets/source.webp', width: 800, height: 800, scanSummary: null },
+    ]);
+    prisma.productImageFactScan.findFirst.mockResolvedValue({
+      id: 'fact-scan-1', status: 'VERIFIED_EMPTY', textDetected: false, qrCodesDetected: 0,
+      barcodeStatus: 'NONE', emptyTextQrVerified: true, failureCode: null,
+      completedAt: new Date(), expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const detail = await service.getForAdmin('rev-1');
+
+    expect(detail).toMatchObject({
+      reviewContext: {
+        optimization: { id: 'task-1', kind: 'FREE_TUNE', costTier: 'FREE' },
+        factScan: { id: 'fact-scan-1', status: 'VERIFIED_EMPTY', freeTuneEligible: true, barcodeStatus: 'NONE' },
+      },
+      proposedMedia: [
+        { assetId: 'candidate-asset', visualOrigin: 'DETERMINISTIC_ENHANCEMENT', isEvidenceImage: false },
+        { assetId: 'source-asset', visualOrigin: 'ORIGINAL', isEvidenceImage: true },
+      ],
+    });
+    expect(JSON.stringify(detail)).not.toContain('ocrTextHash');
+    expect(prisma.productImageFactScan.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'fact-scan-1', sourceAssetId: 'source-asset' }),
+    }));
   });
 });

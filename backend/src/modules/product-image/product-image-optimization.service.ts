@@ -132,7 +132,7 @@ export class ProductImageOptimizationService {
       select: { id: true },
     });
     if (!product) throw new NotFoundException('关联商品不存在，或该原图尚未用于该商品');
-    await this.assertFreeTuneFactEvidence(companyId, product.id, source);
+    const factEvidence = await this.assertFreeTuneFactEvidence(companyId, product.id, source);
     const plan = await this.prisma.productVisualPlan.findFirst({
       where: {
         id: dto.planId,
@@ -154,6 +154,11 @@ export class ProductImageOptimizationService {
     const contract: DeterministicProductImageContract = {
       ...FREE_TUNE_CONTRACT,
       plan: { id: plan.id, hash: plan.planHash, sourceHash: source.canonicalSha256 },
+      factEvidence: {
+        id: factEvidence.id,
+        sourceHash: source.canonicalSha256,
+        policyVersion: 'product-image-fact-scan-v1',
+      },
     };
     const contractHash = this.sha256(JSON.stringify(contract));
     const inputFingerprint = this.sha256(`${source.id}:${source.canonicalSha256}:${contractHash}:${product.id}`);
@@ -173,7 +178,11 @@ export class ProductImageOptimizationService {
     });
     if (task.status !== ProductImageOptimizationStatus.REQUESTED) return this.getForSeller(companyId, task.id);
     if (!await this.queue(task.id)) return this.getForSeller(companyId, task.id);
-    await this.runFreeTune(task.id, companyId, staffId, product.id, source, { id: plan.id, hash: plan.planHash });
+    await this.runFreeTune(task.id, companyId, staffId, product.id, source, {
+      id: plan.id,
+      hash: plan.planHash,
+      factScanId: factEvidence.id,
+    });
     return this.getForSeller(companyId, task.id);
   }
 
@@ -463,7 +472,7 @@ export class ProductImageOptimizationService {
     companyId: string,
     productId: string,
     source: { id: string; canonicalSha256: string; scanSummary: unknown },
-  ) {
+  ): Promise<{ id: string; createdAt: Date }> {
     const summary = source.scanSummary as {
       ocrTextVerifiedEmpty?: boolean;
       ocrFactScanId?: string;
@@ -510,6 +519,7 @@ export class ProductImageOptimizationService {
       select: { id: true },
     });
     if (newerScan) throw new ConflictException('存在更新的 OCR、QR 或条码事实扫描结论，旧证据不能继续放行免费增强');
+    return evidence;
   }
 
   private async queue(taskId: string): Promise<boolean> {
@@ -655,7 +665,7 @@ export class ProductImageOptimizationService {
     staffId: string,
     productId: string,
     source: { id: string; objectKey: string; canonicalSha256: string },
-    planRef: { id: string; hash: string },
+    planRef: { id: string; hash: string; factScanId: string },
   ) {
     const leaseToken = randomUUID();
     const claimed = await this.prisma.productImageOptimization.updateMany({
@@ -712,10 +722,13 @@ export class ProductImageOptimizationService {
       // The request-side check closes the fast path; repeat the immutable
       // database-backed evidence check after the lease is claimed so a newer
       // scan conclusion cannot race a queued deterministic render.
-      await this.assertFreeTuneFactEvidence(companyId, productId, {
+      const currentFactEvidence = await this.assertFreeTuneFactEvidence(companyId, productId, {
         ...source,
         scanSummary: currentSource.scanSummary,
       });
+      if (currentFactEvidence.id !== planRef.factScanId) {
+        throw new ConflictException('免费实景增强所依据的事实扫描已变化');
+      }
       const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
       const enhanced = await this.composition.enhanceStandardRealScene(sourceBuffer);
       const candidate = await this.mediaAssets.createDerivedProductImageAsset(
@@ -756,7 +769,15 @@ export class ProductImageOptimizationService {
             width: candidate.asset.width,
             height: candidate.asset.height,
             isAigc: false,
-            metadata: { integrityProof: enhanced.proof, contractVersion: FREE_TUNE_CONTRACT.version } as Prisma.InputJsonValue,
+            metadata: {
+              integrityProof: enhanced.proof,
+              contractVersion: FREE_TUNE_CONTRACT.version,
+              factEvidence: {
+                id: planRef.factScanId,
+                sourceHash: source.canonicalSha256,
+                policyVersion: 'product-image-fact-scan-v1',
+              },
+            } as Prisma.InputJsonValue,
           },
         });
         const sourceArtifact = await tx.productImageArtifact.findFirstOrThrow({

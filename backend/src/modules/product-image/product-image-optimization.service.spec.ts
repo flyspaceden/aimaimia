@@ -139,7 +139,12 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       where: expect.objectContaining({ id: 'plan-1', sourceAssetId: 'source-asset', sourceHash: 'source-sha' }),
     }));
     expect(tx.productImageOptimization.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ kind: 'FREE_TUNE', costTier: 'FREE', reservedCostCents: 0 }),
+      data: expect.objectContaining({
+        kind: 'FREE_TUNE',
+        costTier: 'FREE',
+        reservedCostCents: 0,
+        processingContract: expect.objectContaining({ factEvidence: expect.objectContaining({ id: 'fact-scan-1' }) }),
+      }),
     }));
     expect(composition.enhanceStandardRealScene).toHaveBeenCalledWith(Buffer.from('transparent-source'));
     expect(composition.composeWhiteBackgroundWithProof).not.toHaveBeenCalled();
@@ -194,6 +199,38 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     expect(tx.productImageArtifact.create).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ kind: ProductImageArtifactKind.CANDIDATE }),
     }));
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: ProductImageOptimizationStatus.FAILED, failureCode: 'FREE_TUNE_RENDER_FAILED' }),
+    }));
+  });
+
+  it('pins the candidate to the exact fact scan recorded in its processing contract', async () => {
+    const { service, prisma, tx, composition } = build();
+    const firstEvidence = { id: 'fact-scan-1', createdAt: new Date('2026-08-24T12:00:00.000Z') };
+    const replacementEvidence = { id: 'fact-scan-2', createdAt: new Date('2026-08-24T12:01:00.000Z') };
+    prisma.sellerMediaAsset.findFirst
+      .mockResolvedValueOnce(source)
+      .mockResolvedValueOnce({
+        ...source,
+        scanSummary: {
+          ...source.scanSummary,
+          ocrFactScanId: 'fact-scan-2',
+        },
+      });
+    const findFactScan = prisma.productImageFactScan.findFirst as jest.Mock;
+    findFactScan
+      .mockReset()
+      .mockResolvedValueOnce(firstEvidence)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(replacementEvidence)
+      .mockResolvedValueOnce(null);
+
+    await service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: 'source-asset', productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'free-tune-new-evidence',
+    });
+
+    expect(composition.enhanceStandardRealScene).not.toHaveBeenCalled();
+    expect(tx.productImageArtifact.create).toHaveBeenCalledTimes(1);
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.FAILED, failureCode: 'FREE_TUNE_RENDER_FAILED' }),
     }));
