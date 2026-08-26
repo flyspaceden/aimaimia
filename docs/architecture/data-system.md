@@ -482,6 +482,10 @@ SellerUserRole
 - companyId、optimizationId、type (RESERVED/RELEASED/SETTLED)、amountCents、budgetVersion、idempotencyKey、createdAt
 - 每个任务只有一笔预占和一笔终态流水；每日正预算上限在写入预占前计算。开关开启但日上限缺失或为零时拒绝请求。
 
+#### ProductVisualPlan（免费视觉建议）
+- companyId、productId（删除产品后置空保留审计）、sourceAssetId/sourceHash、requestedByStaffId、riskProfile、recommendedMode、allowedModes/allowedOperations、sceneAnalysis、processingPlan、planHash、策略版本与 expiresAt
+- 计划不可调用模型、不可预占费用、不可直接发布；执行时必须重新验证商品、源图、策略与有效期。
+
 #### ProductImageAssetLineage（来源谱系）
 - optimizationId (FK), sourceAssetId (FK SellerMediaAsset), artifactId (FK ProductImageArtifact)
 - role (PRIMARY_SOURCE/ADDITIONAL_SOURCE/FOREGROUND_REFERENCE), createdAt

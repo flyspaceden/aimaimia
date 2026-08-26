@@ -152,6 +152,22 @@ enum ProductImageOptimizationKind {
   BACKGROUND_GENERATION
 }
 
+enum ProductVisualMode {
+  PRESERVE_REAL_SCENE
+  CATALOG_STUDIO
+  PRODUCT_RETOUCH
+  MARKETING_SCENE
+}
+
+enum ProductVisualRiskProfile {
+  STRICT_FACTS
+  CONSERVATIVE_FACTS
+  STANDARD_FACTS
+  ORGANIC_FACTS
+  MARKETING_ONLY
+  RETAKE_REQUIRED
+}
+
 enum ProductImageOptimizationStatus {
   REQUESTED
   QUEUED
@@ -1377,6 +1393,7 @@ model Company {
   productMediaRevisions      ProductMediaRevision[]
   productImageOptimizations  ProductImageOptimization[]
   productImageBudgetEntries  ProductImageBudgetLedger[]
+  productVisualPlans         ProductVisualPlan[]
 }
 
 model CompanyProfile {
@@ -1482,6 +1499,7 @@ model CompanyStaff {
   requestedMediaRevisions ProductMediaRevision[]
   requestedImageOptimizations ProductImageOptimization[] @relation("ProductImageOptimizationRequestedBy")
   adoptedImageOptimizations   ProductImageOptimization[] @relation("ProductImageOptimizationAdoptedBy")
+  requestedVisualPlans        ProductVisualPlan[]        @relation("ProductVisualPlanRequestedBy")
 
   @@unique([userId, companyId]) // 同一用户在同一企业只有一个角色
   @@index([companyId])
@@ -1594,6 +1612,7 @@ model Product {
   media                 ProductMedia[]
   mediaRevisions        ProductMediaRevision[]
   imageOptimizations    ProductImageOptimization[]
+  visualPlans           ProductVisualPlan[]
   tags                  ProductTag[]
   productTraceLinks     ProductTraceLink[]
   lotteryPrizes         LotteryPrize[]
@@ -1702,6 +1721,7 @@ model SellerMediaAsset {
   productMedia      ProductMedia[]
   imageArtifacts    ProductImageArtifact[]
   imageLineage      ProductImageAssetLineage[]
+  visualPlans       ProductVisualPlan[]
 
   @@index([companyId, createdAt])
   @@index([companyId, canonicalSha256])
@@ -1758,6 +1778,40 @@ model ProductImageOptimization {
   @@index([requestedByStaffId, createdAt])
   @@index([leaseExpiresAt])
   @@index([expiresAt])
+}
+
+/// Immutable, no-cost visual recommendation for one managed product image.
+/// The execution endpoint will re-check source/product/policy/expiry before it
+/// can create a visual task; a plan is never an authorization to spend.
+model ProductVisualPlan {
+  id                 String                   @id @default(cuid())
+  companyId          String
+  company            Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId          String?
+  product            Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sourceAssetId      String
+  sourceAsset        SellerMediaAsset         @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  sourceHash         String
+  requestedByStaffId String
+  requestedByStaff   CompanyStaff             @relation("ProductVisualPlanRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  riskProfile        ProductVisualRiskProfile
+  recommendedMode    ProductVisualMode?
+  allowedModes       ProductVisualMode[]
+  allowedOperations  String[]
+  sceneAnalysis      Json
+  processingPlan     Json
+  planHash           String
+  policyVersion      String
+  modelPolicyVersion String
+  protectedRegionVersion String               @default("NOT_CREATED")
+  expiresAt          DateTime
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([companyId, productId, sourceAssetId, planHash, expiresAt])
+  @@index([companyId, productId, createdAt])
+  @@index([sourceAssetId, expiresAt])
+  @@index([requestedByStaffId, createdAt])
 }
 
 model ProductImageArtifact {

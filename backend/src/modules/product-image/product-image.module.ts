@@ -11,11 +11,13 @@ import { DisabledProductImageBackgroundProvider } from './product-image-backgrou
 import { ProductImageOptimizationService } from './product-image-optimization.service';
 import { ProductImageOptimizationController } from './product-image-optimization.controller';
 import { ProductImageBudgetService } from './product-image-budget.service';
+import { ProductVisualPlanningController } from './product-visual-planning.controller';
+import { ProductVisualPlanningService } from './product-visual-planning.service';
 
 @Module({
   imports: [UploadModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, DisabledProductImageBackgroundProvider],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}
