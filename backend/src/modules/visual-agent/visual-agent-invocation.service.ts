@@ -84,8 +84,9 @@ export type VisualSynchronousProviderOutcome =
 
 /**
  * Durable billing and reconciliation fence for the domain-neutral Core.
- * There is no controller yet: only a future trusted Adapter/Core orchestrator
- * can create an invocation, and a missing policy rejects before Provider I/O.
+ * There is no direct provider-execution controller: only a trusted
+ * Adapter/Core orchestrator can create an invocation, and a missing policy
+ * rejects before Provider I/O.
  */
 @Injectable()
 export class VisualAgentInvocationService {

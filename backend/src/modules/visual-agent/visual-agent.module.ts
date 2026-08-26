@@ -4,14 +4,19 @@ import { BailianQwenOcrProvider } from './providers/bailian-qwen-ocr.provider';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 import { VisualAgentProviderRunnerService } from './visual-agent-provider-runner.service';
 import { VisualAgentOcrRunnerService } from './visual-agent-ocr-runner.service';
+import { VisualAgentClientKeyService } from './visual-agent-client-key.service';
+import { VisualAgentClientKeyGuard } from './visual-agent-client-key.guard';
+import { VisualAgentSessionController } from './visual-agent-session.controller';
+import { VisualAgentTrustedAdapterService } from './visual-agent-trusted-adapter.service';
 
 /**
- * Domain-neutral AI Visual Agent Core foundation. It is deliberately not
- * imported by a business module until task quarantine, verification and
- * call-level budgets are implemented.
+ * Domain-neutral AI Visual Agent Core. Business modules may use only the
+ * exported, scoped services; direct public provider execution remains absent
+ * until a trusted domain adapter and full verification path are enabled.
  */
 @Module({
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService],
-  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService],
+  controllers: [VisualAgentSessionController],
+  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService],
+  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService],
 })
 export class VisualAgentModule {}

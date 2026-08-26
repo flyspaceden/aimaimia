@@ -172,9 +172,11 @@ VisualPlan / VisualTask / VisualCandidate / VisualInvocationLedger
 - `externalObjectId` 由业务系统解释；Core 只将它用于幂等、审计和回调关联。
 - 任何租户不得查看另一租户的源图、候选、计划、账本、模型用量或错误详情。
 
+本地候选已实现 `VisualAgentTenant`、`VisualAgentClient`、`VisualAgentClientKey` 三张独立表。Key 只保存 prefix 和 SHA-256 verifier，原始 `vag_live_*` / `vag_test_*` 值只在平台级 `admin_visual_agent:manage` 权限保护的签发响应中出现一次，且响应带 `Cache-Control: no-store`；列表、审计上下文和后续读取均不返回原值或 verifier。该权限归入 `admin_visual_agent` 模块，默认不会因普通 `config:update` 或经理角色而获得。`GET /visual-agent/v1/session` 只验证 Key 并返回该 Client 的 scope/Adapter allowlist，**不**接受任意 URL、prompt 或 Provider 提交。可信 Adapter 在进程内经 `VisualAgentTrustedAdapterService` 取得预算 reservation，所有 tenant/client/namespace 均由认证 principal 派生，不能由接入方覆盖。
+
 ### 5.1 复用已有安全底座
 
-爱买买现有 `SellerMediaAsset`、`ProductImageOptimization`、`ProductImageArtifact`、`ProductImageAssetLineage`、`ProductImageBudgetLedger`、`ProductMediaRevision` 已具备资产归属、候选、租约、幂等、预算、审核和回滚基础，必须作为 **爱买买 Adapter** 复用。当前真实实现仍仅是透明前景的确定性白底候选，不能误称为通用美化或通用 Core。
+爱买买现有 `SellerMediaAsset`、`ProductImageOptimization`、`ProductImageArtifact`、`ProductImageAssetLineage`、`ProductImageBudgetLedger`、`ProductMediaRevision` 已具备资产归属、候选、租约、幂等、预算、审核和回滚基础，必须作为 **爱买买 Adapter** 复用。当前可执行实现仅包括透明前景的确定性白底候选，以及事实扫描严格放行后的确定性 `FREE_TUNE`；仍不能误称为任意生成式商品美化或已开放的通用 Provider 服务。
 
 扩展 `ProductImageOptimization`，而非另建绕开审计的任务表：
 

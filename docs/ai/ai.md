@@ -1707,7 +1707,8 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 仅从当前商品已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证计划。
 - 卖家图片卡接入“真实白底主图”：只可选择与当前商品绑定的受管资产，候选以短期私有 URL 并列预览；前端不提供提示词、模型名或 URL 输入，采用成功后才刷新商品媒体。
 - Phase C 预备合同：付费背景调用必须先写整数分 `RESERVED` 流水，成功才以实际成本 `SETTLED`、失败 `RELEASED`；即使开关未来被打开，`AI_PRODUCT_IMAGE_DAILY_BUDGET_CENTS` 也必须显式为正整数分，缺失或 `0` 不会解释为不限额。
-- 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；没有 Core controller 或接入系统 Adapter 时不可被业务前端调用，Provider 仍默认关闭。
+- 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；公开端点目前只验证 Client Key scope，没有直接 Provider 执行、任意 URL 导入或自由 prompt 接口，Provider 仍默认关闭。
+- 通用 Agent Client Key（本地）：`VisualAgentTenant → VisualAgentClient → VisualAgentClientKey` 已支持 API Key 的一次性签发、哈希存储、过期、撤销与 `tenant/client/adapterNamespace` 认证范围；餐厅等接入系统不需要也不允许持有百炼 Provider Key。公开会话端点只验证 scope，不接受任意 URL、prompt 或模型提交。
 - 受控 OCR Provider（本地）：固定版本 OCR 只能由 Core 已持久化的调用租约触发，Provider 用量独立记录；无 Core 授权、开关、正数预算策略或可验证结果时均 fail-closed。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
 - 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。

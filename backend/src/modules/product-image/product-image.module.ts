@@ -17,10 +17,11 @@ import { VisualAgentModule } from '../visual-agent/visual-agent.module';
 import { ProductImageFactScanController } from './product-image-fact-scan.controller';
 import { ProductImageFactScanService } from './product-image-fact-scan.service';
 import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
+import { AdminVisualAgentClientController } from '../visual-agent/admin-visual-agent-client.controller';
 
 @Module({
   imports: [UploadModule, VisualAgentModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController],
   providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })

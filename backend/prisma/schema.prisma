@@ -206,6 +206,23 @@ enum VisualAgentBudgetScope {
   ACTOR
 }
 
+/// Independent of any product/restaurant domain. A tenant owns one or more
+/// API clients and cannot infer another tenant's Core resources from an ID.
+enum VisualAgentTenantStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum VisualAgentClientStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum VisualAgentClientKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
 enum ProductImageOptimizationStatus {
   REQUESTED
   QUEUED
@@ -1983,6 +2000,59 @@ model VisualAgentBudgetReservation {
   @@unique([invocationId, scope])
   @@index([policyId, createdAt])
   @@index([scope, scopeKey, createdAt])
+}
+
+/// Generic Core ownership boundary. `id` is intentionally caller-managed so
+/// existing in-process adapters can use a stable, cross-system identifier.
+model VisualAgentTenant {
+  id        String                  @id
+  name      String
+  status    VisualAgentTenantStatus @default(ACTIVE)
+  metadata  Json?
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  clients   VisualAgentClient[]
+
+  @@index([status, createdAt])
+}
+
+/// A client is one integration surface (for example an e-commerce product
+/// adapter or a restaurant menu adapter), never a human seller/admin account.
+model VisualAgentClient {
+  id                  String                  @id
+  tenantId            String
+  tenant              VisualAgentTenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name                String
+  adapterNamespace    String
+  allowedAdapterTypes String[]
+  status              VisualAgentClientStatus @default(ACTIVE)
+  metadata            Json?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  keys                VisualAgentClientKey[]
+
+  @@unique([tenantId, adapterNamespace])
+  @@index([tenantId, status, createdAt])
+}
+
+/// Only a prefix and SHA-256 verifier are stored. The raw value is returned
+/// exactly once by the controlled issuing API and is never recoverable later.
+model VisualAgentClientKey {
+  id                  String                        @id @default(cuid())
+  clientId            String
+  client              VisualAgentClient             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  keyPrefix           String                        @unique
+  keyHash             String                        @unique
+  status              VisualAgentClientKeyStatus    @default(ACTIVE)
+  expiresAt           DateTime?
+  lastUsedAt          DateTime?
+  revokedAt           DateTime?
+  issuedByOperatorId  String?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+
+  @@index([clientId, status, createdAt])
+  @@index([expiresAt])
 }
 
 model ProductImageArtifact {
