@@ -1707,6 +1707,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 仅从当前商品已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证计划。
 - 卖家图片卡接入“真实白底主图”：只可选择与当前商品绑定的受管资产，候选以短期私有 URL 并列预览；前端不提供提示词、模型名或 URL 输入，采用成功后才刷新商品媒体。
 - Phase C 预备合同：付费背景调用必须先写整数分 `RESERVED` 流水，成功才以实际成本 `SETTLED`、失败 `RELEASED`；即使开关未来被打开，`AI_PRODUCT_IMAGE_DAILY_BUDGET_CENTS` 也必须显式为正整数分，缺失或 `0` 不会解释为不限额。
+- 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；没有 Core controller 或接入系统 Adapter 时不可被业务前端调用，Provider 仍默认关闭。
 - 尚未完成：受控 OCR/分割事实扫描、可结算预算账本、真实背景 Provider、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
 
 ## 18. 已知问题与调试记录

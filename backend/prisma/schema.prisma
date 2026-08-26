@@ -168,6 +168,32 @@ enum ProductVisualRiskProfile {
   RETAKE_REQUIRED
 }
 
+/// Generic Core state. Domain adapters map their own product/menu review
+/// lifecycles onto this record; no business table is referenced here.
+enum VisualAgentInvocationStatus {
+  RESERVED
+  SUBMITTING
+  QUEUED
+  RUNNING
+  RECONCILING
+  VERIFYING
+  SUCCEEDED
+  FAILED
+  REJECTED
+  RELEASED
+  BILLING_EXCEPTION
+  CANCELLED
+}
+
+enum VisualAgentBudgetScope {
+  PLATFORM
+  PROVIDER
+  TENANT
+  CLIENT
+  EXTERNAL_OBJECT
+  ACTOR
+}
+
 enum ProductImageOptimizationStatus {
   REQUESTED
   QUEUED
@@ -1812,6 +1838,90 @@ model ProductVisualPlan {
   @@index([companyId, productId, createdAt])
   @@index([sourceAssetId, expiresAt])
   @@index([requestedByStaffId, createdAt])
+}
+
+/// A durable, domain-neutral record of one potentially billable Provider call.
+/// It is intentionally keyed by Agent scope strings rather than 爱买买 Product
+/// IDs so restaurant and future adapters use exactly the same billing fence.
+model VisualAgentInvocation {
+  id                     String                      @id @default(cuid())
+  tenantId               String
+  ownerClientId          String
+  adapterNamespace       String
+  externalObjectId       String
+  actorId                String
+  provider               String
+  model                  String
+  visualMode             String
+  sourceHash             String
+  visualPlanHash         String
+  idempotencyKey         String
+  providerIdempotencyKey String                      @unique
+  status                 VisualAgentInvocationStatus @default(RESERVED)
+  reservedCostCents      Int
+  actualCostCents        Int?
+  policySnapshotVersion  String
+  providerTaskId         String?                     @unique
+  providerRequestId      String?
+  providerOutputUrl      String?
+  reconciliationReason   String?
+  leaseToken             String?
+  leaseGeneration        Int                         @default(0)
+  leaseExpiresAt         DateTime?
+  attemptCount           Int                         @default(0)
+  expiresAt              DateTime
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  reservations           VisualAgentBudgetReservation[]
+
+  @@unique([tenantId, ownerClientId, adapterNamespace, idempotencyKey])
+  @@index([tenantId, ownerClientId, adapterNamespace, externalObjectId, status])
+  @@index([provider, model, status, createdAt])
+  @@index([leaseExpiresAt])
+}
+
+/// Every scope has a positive cap. Missing, duplicate-active, or zero policy
+/// means deny; it never means unlimited spend.
+model VisualAgentBudgetPolicy {
+  id               String                 @id @default(cuid())
+  scope            VisualAgentBudgetScope
+  scopeKey         String
+  provider         String
+  model            String
+  visualMode       String
+  reserveCents     Int
+  perTaskCapCents  Int
+  dailyCapCents    Int
+  weeklyCapCents   Int
+  timezone         String                 @default("Asia/Shanghai")
+  policyVersion    String
+  enabled          Boolean                @default(true)
+  effectiveFrom    DateTime
+  effectiveUntil   DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  reservations     VisualAgentBudgetReservation[]
+
+  @@unique([scope, scopeKey, provider, model, visualMode, policyVersion])
+  @@index([scope, scopeKey, provider, model, visualMode, enabled, effectiveFrom])
+}
+
+/// One reservation row per required Core budget scope, retained through
+/// RECONCILING so an uncertain request cannot quietly free capacity.
+model VisualAgentBudgetReservation {
+  id             String                   @id @default(cuid())
+  invocationId   String
+  invocation     VisualAgentInvocation    @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  policyId       String
+  policy         VisualAgentBudgetPolicy  @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  scope          VisualAgentBudgetScope
+  scopeKey       String
+  amountCents    Int
+  createdAt      DateTime                 @default(now())
+
+  @@unique([invocationId, scope])
+  @@index([policyId, createdAt])
+  @@index([scope, scopeKey, createdAt])
 }
 
 model ProductImageArtifact {
