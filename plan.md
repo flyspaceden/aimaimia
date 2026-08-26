@@ -1942,6 +1942,7 @@
 - [ ] **PVA02** Phase B：在受控 OCR/分割事实扫描及保真合成通过独立审查后，开放白底/模板候选；不得改写商品主体。当前本地候选已包含透明前景白底、受事实扫描门禁的 `FREE_TUNE`（固定、零模型、像素坐标不变的实景画质调优），以及卖家端“建议 → 事实检查 → 候选预览 → 三项确认/审核”的可见流程；条码缺失仍不作推断，因此不能把未解码图片放行。
 - [ ] **PVA03** Phase C：仅白名单低风险品类在明确预算、私有 Key、对账与回滚都就绪后，试点背景生成；上线前必须另行获得授权。
 - [ ] **PVA04** 通用 Agent 接入层：本地候选已实现 Tenant / Client / 一次性可撤销 Client Key、scope 验证和可信 Adapter reservation bridge；尚未配置任何 Client、签发真实 Key、运行迁移、开放直接 Provider 提交或接入餐厅系统。
+- [x] **PVA05** 本地候选代码收口（`a06ff958`）：18 个 main-based 逻辑提交已完成受管资产、免费计划、OCR/条码事实门禁、确定性候选、商家/管理员审核、预算/对账 Core 和 Client Key 边界。精确 HEAD 已通过后端相关 25 suites / 172 tests、Core 4 suites / 24 tests、Admin 14/14、Seller 15/15、Prisma validate、Nest/Admin/Seller builds 与范围审查；**未**运行数据库迁移、签发真实 Key、调用真实模型、推送、staging 部署或生产发布。
 
 ## 商品自动定价一致性（2026-08-17）
 
