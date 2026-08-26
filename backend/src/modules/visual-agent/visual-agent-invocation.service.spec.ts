@@ -229,10 +229,11 @@ describe('VisualAgentInvocationService', () => {
 
     await service.reapExpiredLeases();
     const calls = prisma.visualAgentInvocation.updateMany.mock.calls;
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
     expect(calls[0][0].data.status).toBe(VisualAgentInvocationStatus.RELEASED);
     expect(calls[1][0].data.status).toBe(VisualAgentInvocationStatus.RECONCILING);
     expect(calls[2][0].data.status).toBe(VisualAgentInvocationStatus.RECONCILING);
+    expect(calls[3][0].data.status).toBe(VisualAgentInvocationStatus.RECONCILING);
   });
 
   it('keeps an acknowledged Provider FAILED state in reconciliation until billing evidence is available', async () => {

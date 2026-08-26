@@ -486,6 +486,10 @@ SellerUserRole
 - companyId、productId（删除产品后置空保留审计）、sourceAssetId/sourceHash、requestedByStaffId、riskProfile、recommendedMode、allowedModes/allowedOperations、sceneAnalysis、processingPlan、planHash、策略版本与 expiresAt
 - 计划不可调用模型、不可预占费用、不可直接发布；执行时必须重新验证商品、源图、策略与有效期。
 
+#### ProductImageFactScan（商品事实扫描）
+- companyId、productId、sourceAssetId/sourceHash、受控 OCR invocation、状态、文本/条码/事实摘要、置信度与审计时间
+- 扫描是增强与候选验真的证据门；空、失败或不确定结果不能推断为“图片不存在受保护事实”。
+
 #### ProductImageAssetLineage（来源谱系）
 - optimizationId (FK), sourceAssetId (FK SellerMediaAsset), artifactId (FK ProductImageArtifact)
 - role (PRIMARY_SOURCE/ADDITIONAL_SOURCE/FOREGROUND_REFERENCE), createdAt

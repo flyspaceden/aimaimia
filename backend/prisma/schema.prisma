@@ -168,6 +168,16 @@ enum ProductVisualRiskProfile {
   RETAKE_REQUIRED
 }
 
+/// Private server-side fact evidence for one managed product image.
+enum ProductImageFactScanStatus {
+  SCANNING
+  FACTS_DETECTED
+  INCONCLUSIVE
+  RECONCILING
+  FAILED
+  EXPIRED
+}
+
 /// Generic Core state. Domain adapters map their own product/menu review
 /// lifecycles onto this record; no business table is referenced here.
 enum VisualAgentInvocationStatus {
@@ -1420,6 +1430,7 @@ model Company {
   productImageOptimizations  ProductImageOptimization[]
   productImageBudgetEntries  ProductImageBudgetLedger[]
   productVisualPlans         ProductVisualPlan[]
+  productImageFactScans      ProductImageFactScan[]
 }
 
 model CompanyProfile {
@@ -1526,6 +1537,7 @@ model CompanyStaff {
   requestedImageOptimizations ProductImageOptimization[] @relation("ProductImageOptimizationRequestedBy")
   adoptedImageOptimizations   ProductImageOptimization[] @relation("ProductImageOptimizationAdoptedBy")
   requestedVisualPlans        ProductVisualPlan[]        @relation("ProductVisualPlanRequestedBy")
+  requestedImageFactScans     ProductImageFactScan[]     @relation("ProductImageFactScanRequestedBy")
 
   @@unique([userId, companyId]) // 同一用户在同一企业只有一个角色
   @@index([companyId])
@@ -1639,6 +1651,7 @@ model Product {
   mediaRevisions        ProductMediaRevision[]
   imageOptimizations    ProductImageOptimization[]
   visualPlans           ProductVisualPlan[]
+  factScans             ProductImageFactScan[]
   tags                  ProductTag[]
   productTraceLinks     ProductTraceLink[]
   lotteryPrizes         LotteryPrize[]
@@ -1748,6 +1761,7 @@ model SellerMediaAsset {
   imageArtifacts    ProductImageArtifact[]
   imageLineage      ProductImageAssetLineage[]
   visualPlans       ProductVisualPlan[]
+  factScans         ProductImageFactScan[]
 
   @@index([companyId, createdAt])
   @@index([companyId, canonicalSha256])
@@ -1840,6 +1854,48 @@ model ProductVisualPlan {
   @@index([requestedByStaffId, createdAt])
 }
 
+/// Core-private OCR/QR/Barcode evidence. OCR plaintext is never stored here;
+/// only a hash, length, and minimally necessary risk summary are retained.
+model ProductImageFactScan {
+  id                   String                     @id @default(cuid())
+  companyId            String
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId            String?
+  product              Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sourceAssetId        String
+  sourceAsset          SellerMediaAsset           @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  sourceCanonicalHash  String
+  normalizedSourceHash String
+  invocationId         String                     @unique
+  invocation           VisualAgentInvocation      @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  status               ProductImageFactScanStatus @default(SCANNING)
+  model                String
+  policyVersion        String
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff               @relation("ProductImageFactScanRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  ocrTextHash          String?
+  ocrTextHashKeyVersion String?
+  ocrTextLength        Int?
+  textDetected         Boolean                    @default(false)
+  qrCodesDetected      Int                        @default(0)
+  barcodeStatus        String                     @default("NOT_IMPLEMENTED")
+  emptyTextQrVerified  Boolean                    @default(false)
+  resultSummary        Json?
+  failureCode          String?
+  failureDetail        String?
+  idempotencyKey       String
+  completedAt          DateTime?
+  expiresAt            DateTime
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, productId, sourceAssetId, status, createdAt])
+  @@index([sourceAssetId, normalizedSourceHash, createdAt])
+  @@index([requestedByStaffId, createdAt])
+  @@index([expiresAt])
+}
+
 /// A durable, domain-neutral record of one potentially billable Provider call.
 /// It is intentionally keyed by Agent scope strings rather than 爱买买 Product
 /// IDs so restaurant and future adapters use exactly the same billing fence.
@@ -1874,6 +1930,7 @@ model VisualAgentInvocation {
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
   reservations           VisualAgentBudgetReservation[]
+  productImageFactScan   ProductImageFactScan?
 
   @@unique([tenantId, ownerClientId, adapterNamespace, idempotencyKey])
   @@index([tenantId, ownerClientId, adapterNamespace, externalObjectId, status])

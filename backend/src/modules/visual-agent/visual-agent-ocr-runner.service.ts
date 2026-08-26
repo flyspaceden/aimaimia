@@ -25,6 +25,35 @@ export class VisualAgentOcrRunnerService {
     private readonly qwenOcr: BailianQwenOcrProvider,
   ) {}
 
+  async reserveFactScanInvocation(input: {
+    tenantId: string;
+    ownerClientId: string;
+    adapterNamespace: string;
+    externalObjectId: string;
+    actorId: string;
+    idempotencyKey: string;
+    expiresAt: Date;
+    source: VisualProviderSource;
+  }) {
+    await this.qwenOcr.preflight(input.source);
+    const normalizedSourceHash = await normalizedSourceSha256(input.source);
+    const invocation = await this.invocations.reserve({
+      tenantId: input.tenantId,
+      ownerClientId: input.ownerClientId,
+      adapterNamespace: input.adapterNamespace,
+      externalObjectId: input.externalObjectId,
+      actorId: input.actorId,
+      provider: BAILIAN_QWEN_OCR_PROVIDER,
+      model: QWEN_OCR_MODEL,
+      visualMode: OCR_FACT_SCAN_MODE,
+      sourceHash: normalizedSourceHash,
+      visualPlanHash: OCR_FACT_SCAN_PLAN_HASH,
+      idempotencyKey: input.idempotencyKey,
+      expiresAt: input.expiresAt,
+    });
+    return { ...invocation, normalizedSourceHash };
+  }
+
   async recognizeFactScan(input: { invocationId: string; source: VisualProviderSource }): Promise<QwenOcrResult> {
     await this.qwenOcr.preflight(input.source);
     const sourceHash = await normalizedSourceSha256(input.source);

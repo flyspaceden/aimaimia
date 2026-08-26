@@ -12,5 +12,6 @@ import { VisualAgentOcrRunnerService } from './visual-agent-ocr-runner.service';
  */
 @Module({
   providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService],
+  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService],
 })
 export class VisualAgentModule {}

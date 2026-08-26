@@ -13,11 +13,14 @@ import { ProductImageOptimizationController } from './product-image-optimization
 import { ProductImageBudgetService } from './product-image-budget.service';
 import { ProductVisualPlanningController } from './product-visual-planning.controller';
 import { ProductVisualPlanningService } from './product-visual-planning.service';
+import { VisualAgentModule } from '../visual-agent/visual-agent.module';
+import { ProductImageFactScanController } from './product-image-fact-scan.controller';
+import { ProductImageFactScanService } from './product-image-fact-scan.service';
 
 @Module({
-  imports: [UploadModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, DisabledProductImageBackgroundProvider],
+  imports: [UploadModule, VisualAgentModule],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}

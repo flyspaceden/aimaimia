@@ -374,6 +374,22 @@ export class VisualAgentInvocationService {
     if (updated.count !== 1) throw new ConflictException('AI Visual Agent 同步 Provider 提交租约已失效');
   }
 
+  async completeSynchronousVerification(invocationId: string, provider: string) {
+    const completed = await this.prisma.visualAgentInvocation.updateMany({
+      where: { id: invocationId, provider, status: VisualAgentInvocationStatus.VERIFYING },
+      data: { status: VisualAgentInvocationStatus.SUCCEEDED },
+    });
+    if (completed.count !== 1) throw new ConflictException('AI Visual Agent 同步调用当前不能完成验真');
+  }
+
+  async moveVerificationToReconciliation(invocationId: string, provider: string, reason: string) {
+    const updated = await this.prisma.visualAgentInvocation.updateMany({
+      where: { id: invocationId, provider, status: VisualAgentInvocationStatus.VERIFYING },
+      data: { status: VisualAgentInvocationStatus.RECONCILING, reconciliationReason: reason.slice(0, 120) },
+    });
+    if (updated.count !== 1) throw new ConflictException('AI Visual Agent 调用当前不能进入对账');
+  }
+
   async acquireForQuery(invocationId: string): Promise<VisualProviderAuthorization & { providerTaskId: string }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`VISUAL_AGENT_QUERY:${invocationId}`}))`);
@@ -528,6 +544,10 @@ export class VisualAgentInvocationService {
     await this.prisma.visualAgentInvocation.updateMany({
       where: { status: VisualAgentInvocationStatus.SUBMITTING, leaseExpiresAt: { lte: now } },
       data: { status: VisualAgentInvocationStatus.RECONCILING, reconciliationReason: 'SUBMIT_LEASE_EXPIRED', leaseToken: null, leaseExpiresAt: null },
+    });
+    await this.prisma.visualAgentInvocation.updateMany({
+      where: { status: VisualAgentInvocationStatus.VERIFYING, expiresAt: { lte: now } },
+      data: { status: VisualAgentInvocationStatus.RECONCILING, reconciliationReason: 'VERIFICATION_EXPIRED' },
     });
     await this.prisma.visualAgentInvocation.updateMany({
       where: {
