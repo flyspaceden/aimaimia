@@ -60,9 +60,9 @@ CREATE UNIQUE INDEX "VisualAgentInvocation_providerIdempotencyKey_key"
   ON "VisualAgentInvocation"("providerIdempotencyKey");
 CREATE UNIQUE INDEX "VisualAgentInvocation_providerTaskId_key"
   ON "VisualAgentInvocation"("providerTaskId");
-CREATE UNIQUE INDEX "VisualAgentInvocation_tenantId_ownerClientId_adapterNamespace_idempotencyKey_key"
+CREATE UNIQUE INDEX "VAInvocation_scope_idempotency_key"
   ON "VisualAgentInvocation"("tenantId", "ownerClientId", "adapterNamespace", "idempotencyKey");
-CREATE INDEX "VisualAgentInvocation_tenantId_ownerClientId_adapterNamespace_externalObjectId_status_idx"
+CREATE INDEX "VAInvocation_scope_object_status_idx"
   ON "VisualAgentInvocation"("tenantId", "ownerClientId", "adapterNamespace", "externalObjectId", "status");
 CREATE INDEX "VisualAgentInvocation_provider_model_status_createdAt_idx"
   ON "VisualAgentInvocation"("provider", "model", "status", "createdAt");
@@ -95,9 +95,9 @@ CREATE TABLE "VisualAgentBudgetPolicy" (
   CONSTRAINT "VisualAgentBudgetPolicy_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "VisualAgentBudgetPolicy_scope_scopeKey_provider_model_visualMode_policyVersion_key"
+CREATE UNIQUE INDEX "VABudgetPolicy_scope_route_version_key"
   ON "VisualAgentBudgetPolicy"("scope", "scopeKey", "provider", "model", "visualMode", "policyVersion");
-CREATE INDEX "VisualAgentBudgetPolicy_scope_scopeKey_provider_model_visualMode_enabled_effectiveFrom_idx"
+CREATE INDEX "VABudgetPolicy_scope_route_active_idx"
   ON "VisualAgentBudgetPolicy"("scope", "scopeKey", "provider", "model", "visualMode", "enabled", "effectiveFrom");
 ALTER TABLE "VisualAgentBudgetPolicy"
   ADD CONSTRAINT "VisualAgentBudgetPolicy_positive_caps"

@@ -101,17 +101,17 @@ CREATE TABLE "VisualCreditLedger" (
   CONSTRAINT "VisualCreditLedger_balances_nonnegative" CHECK ("availableBalanceAfter" >= 0 AND "reservedBalanceAfter" >= 0)
 );
 
-CREATE UNIQUE INDEX "VisualCreditAccount_tenantId_billingOwnerType_billingOwnerId_key" ON "VisualCreditAccount"("tenantId", "billingOwnerType", "billingOwnerId");
+CREATE UNIQUE INDEX "VCAccount_tenant_owner_key" ON "VisualCreditAccount"("tenantId", "billingOwnerType", "billingOwnerId");
 CREATE INDEX "VisualCreditAccount_tenantId_updatedAt_idx" ON "VisualCreditAccount"("tenantId", "updatedAt");
 CREATE UNIQUE INDEX "VisualCreditWelcomePolicy_tenantId_key" ON "VisualCreditWelcomePolicy"("tenantId");
 CREATE INDEX "VisualCreditWelcomePolicy_enabled_effectiveFrom_idx" ON "VisualCreditWelcomePolicy"("enabled", "effectiveFrom");
-CREATE UNIQUE INDEX "VisualRateCard_tenantId_clientId_adapterNamespace_code_version_key" ON "VisualRateCard"("tenantId", "clientId", "adapterNamespace", "code", "version");
-CREATE INDEX "VisualRateCard_tenantId_clientId_adapterNamespace_status_effectiveFrom_idx" ON "VisualRateCard"("tenantId", "clientId", "adapterNamespace", "status", "effectiveFrom");
+CREATE UNIQUE INDEX "VRateCard_scope_code_version_key" ON "VisualRateCard"("tenantId", "clientId", "adapterNamespace", "code", "version");
+CREATE INDEX "VRateCard_scope_status_effective_idx" ON "VisualRateCard"("tenantId", "clientId", "adapterNamespace", "status", "effectiveFrom");
 CREATE UNIQUE INDEX "VisualRateCard_one_active_code"
   ON "VisualRateCard"("tenantId", "clientId", "adapterNamespace", "code") WHERE "status" = 'ACTIVE';
-CREATE UNIQUE INDEX "VisualCreditQuote_tenantId_clientId_adapterNamespace_idempotencyKey_key" ON "VisualCreditQuote"("tenantId", "clientId", "adapterNamespace", "idempotencyKey");
+CREATE UNIQUE INDEX "VCQuote_scope_idempotency_key" ON "VisualCreditQuote"("tenantId", "clientId", "adapterNamespace", "idempotencyKey");
 CREATE INDEX "VisualCreditQuote_billingAccountId_status_createdAt_idx" ON "VisualCreditQuote"("billingAccountId", "status", "createdAt");
-CREATE INDEX "VisualCreditQuote_tenantId_clientId_adapterNamespace_externalObjectId_status_idx" ON "VisualCreditQuote"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "status");
+CREATE INDEX "VCQuote_scope_object_status_idx" ON "VisualCreditQuote"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "status");
 CREATE INDEX "VisualCreditQuote_expiresAt_idx" ON "VisualCreditQuote"("expiresAt");
 CREATE UNIQUE INDEX "VisualCreditLedger_idempotencyKey_key" ON "VisualCreditLedger"("idempotencyKey");
 CREATE INDEX "VisualCreditLedger_accountId_createdAt_idx" ON "VisualCreditLedger"("accountId", "createdAt");

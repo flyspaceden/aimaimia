@@ -41,9 +41,9 @@ CREATE TABLE "ProductImageFactScan" (
 
 CREATE UNIQUE INDEX "ProductImageFactScan_invocationId_key" ON "ProductImageFactScan"("invocationId");
 CREATE UNIQUE INDEX "ProductImageFactScan_companyId_idempotencyKey_key" ON "ProductImageFactScan"("companyId", "idempotencyKey");
-CREATE INDEX "ProductImageFactScan_companyId_productId_sourceAssetId_status_createdAt_idx"
+CREATE INDEX "PIFactScan_scope_status_created_idx"
   ON "ProductImageFactScan"("companyId", "productId", "sourceAssetId", "status", "createdAt");
-CREATE INDEX "ProductImageFactScan_sourceAssetId_normalizedSourceHash_createdAt_idx"
+CREATE INDEX "PIFactScan_source_hash_created_idx"
   ON "ProductImageFactScan"("sourceAssetId", "normalizedSourceHash", "createdAt");
 CREATE INDEX "ProductImageFactScan_requestedByStaffId_createdAt_idx"
   ON "ProductImageFactScan"("requestedByStaffId", "createdAt");

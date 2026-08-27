@@ -84,7 +84,7 @@ CREATE INDEX "ProductImageOptimization_expiresAt_idx" ON "ProductImageOptimizati
 CREATE INDEX "ProductImageArtifact_objectKey_idx" ON "ProductImageArtifact"("objectKey");
 CREATE INDEX "ProductImageArtifact_optimizationId_kind_createdAt_idx" ON "ProductImageArtifact"("optimizationId", "kind", "createdAt");
 CREATE INDEX "ProductImageArtifact_assetId_idx" ON "ProductImageArtifact"("assetId");
-CREATE UNIQUE INDEX "ProductImageAssetLineage_optimizationId_sourceAssetId_artifactId_role_key" ON "ProductImageAssetLineage"("optimizationId", "sourceAssetId", "artifactId", "role");
+CREATE UNIQUE INDEX "PIAssetLineage_task_source_artifact_role_key" ON "ProductImageAssetLineage"("optimizationId", "sourceAssetId", "artifactId", "role");
 CREATE INDEX "ProductImageAssetLineage_sourceAssetId_createdAt_idx" ON "ProductImageAssetLineage"("sourceAssetId", "createdAt");
 CREATE INDEX "ProductImageAssetLineage_artifactId_idx" ON "ProductImageAssetLineage"("artifactId");
 CREATE INDEX "ProductMedia_optimizationId_idx" ON "ProductMedia"("optimizationId");

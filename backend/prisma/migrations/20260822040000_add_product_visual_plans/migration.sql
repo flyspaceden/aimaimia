@@ -39,7 +39,7 @@ CREATE TABLE "ProductVisualPlan" (
   CONSTRAINT "ProductVisualPlan_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "ProductVisualPlan_companyId_productId_sourceAssetId_planHash_expiresAt_idx"
+CREATE INDEX "ProductVisualPlan_scope_hash_exp_idx"
   ON "ProductVisualPlan"("companyId", "productId", "sourceAssetId", "planHash", "expiresAt");
 CREATE INDEX "ProductVisualPlan_companyId_productId_createdAt_idx"
   ON "ProductVisualPlan"("companyId", "productId", "createdAt");

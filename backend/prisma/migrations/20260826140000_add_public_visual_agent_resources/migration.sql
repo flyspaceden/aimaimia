@@ -81,17 +81,17 @@ CREATE TABLE "VisualAgentCandidate" (
 );
 
 CREATE UNIQUE INDEX "VisualAgentAsset_objectKey_key" ON "VisualAgentAsset"("objectKey");
-CREATE UNIQUE INDEX "VisualAgentAsset_tenantId_clientId_adapterNamespace_evidenceNonce_key" ON "VisualAgentAsset"("tenantId", "clientId", "adapterNamespace", "evidenceNonce");
-CREATE INDEX "VisualAgentAsset_tenantId_clientId_adapterNamespace_externalObjectId_status_createdAt_idx" ON "VisualAgentAsset"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "status", "createdAt");
+CREATE UNIQUE INDEX "VAAsset_scope_nonce_key" ON "VisualAgentAsset"("tenantId", "clientId", "adapterNamespace", "evidenceNonce");
+CREATE INDEX "VAAsset_scope_object_status_idx" ON "VisualAgentAsset"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "status", "createdAt");
 CREATE INDEX "VisualAgentAsset_billingOwnerType_billingOwnerId_createdAt_idx" ON "VisualAgentAsset"("billingOwnerType", "billingOwnerId", "createdAt");
 CREATE INDEX "VisualAgentAsset_evidenceExpiresAt_idx" ON "VisualAgentAsset"("evidenceExpiresAt");
-CREATE INDEX "VisualAgentPlan_tenantId_clientId_adapterNamespace_externalObjectId_assetId_expiresAt_idx" ON "VisualAgentPlan"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "assetId", "expiresAt");
+CREATE INDEX "VAPlan_scope_object_asset_exp_idx" ON "VisualAgentPlan"("tenantId", "clientId", "adapterNamespace", "externalObjectId", "assetId", "expiresAt");
 CREATE INDEX "VisualAgentPlan_assetId_planHash_expiresAt_idx" ON "VisualAgentPlan"("assetId", "planHash", "expiresAt");
 CREATE INDEX "VisualAgentPlan_expiresAt_idx" ON "VisualAgentPlan"("expiresAt");
 CREATE UNIQUE INDEX "VisualAgentCandidate_quoteId_key" ON "VisualAgentCandidate"("quoteId");
 CREATE UNIQUE INDEX "VisualAgentCandidate_invocationId_key" ON "VisualAgentCandidate"("invocationId");
 CREATE UNIQUE INDEX "VisualAgentCandidate_objectKey_key" ON "VisualAgentCandidate"("objectKey");
-CREATE INDEX "VisualAgentCandidate_tenantId_clientId_adapterNamespace_status_createdAt_idx" ON "VisualAgentCandidate"("tenantId", "clientId", "adapterNamespace", "status", "createdAt");
+CREATE INDEX "VACandidate_scope_status_created_idx" ON "VisualAgentCandidate"("tenantId", "clientId", "adapterNamespace", "status", "createdAt");
 CREATE INDEX "VisualAgentCandidate_planId_createdAt_idx" ON "VisualAgentCandidate"("planId", "createdAt");
 
 ALTER TABLE "VisualAgentAsset" ADD CONSTRAINT "VisualAgentAsset_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "VisualAgentTenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
