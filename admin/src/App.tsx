@@ -79,6 +79,7 @@ const ProfitReconciliationsPage = lazy(() => import('@/pages/captain/reconciliat
 const ProfitAdjustmentsPage = lazy(() => import('@/pages/captain/adjustments'));
 const PickupPointListPage = lazy(() => import('@/pages/pickup-points/index'));
 const PickupVerificationPage = lazy(() => import('@/pages/pickup-verify/index'));
+const VisualAgentPage = lazy(() => import('@/pages/visual-agent/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -191,6 +192,7 @@ export default function App() {
             <Route path="tags" element={<TagManagementPage />} />
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
+            <Route path="visual-agent" element={<RequirePermission permission={PERMISSIONS.ADMIN_VISUAL_AGENT_MANAGE}><VisualAgentPage /></RequirePermission>} />
             <Route path="discovery-filters" element={<DiscoveryFiltersPage />} />
             <Route path="cs/workstation" element={<CsWorkstationPage />} />
             <Route path="cs/tickets" element={<CsTicketsPage />} />
