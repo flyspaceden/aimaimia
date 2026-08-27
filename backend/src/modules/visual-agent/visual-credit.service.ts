@@ -71,6 +71,11 @@ export class VisualCreditService {
     });
   }
 
+  async getWelcomePolicy(tenantId: string) {
+    this.assertId(tenantId, 'Tenant');
+    return this.prisma.visualCreditWelcomePolicy.findUnique({ where: { tenantId } });
+  }
+
   async upsertRateCard(input: {
     tenantId: string;
     clientId: string;
@@ -136,6 +141,14 @@ export class VisualCreditService {
         },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async listRateCards(input: { tenantId: string; clientId: string; adapterNamespace: string }) {
+    [input.tenantId, input.clientId, input.adapterNamespace].forEach((value) => this.assertId(value, 'Rate Card scope'));
+    return this.prisma.visualRateCard.findMany({
+      where: input,
+      orderBy: [{ code: 'asc' }, { effectiveFrom: 'desc' }],
+    });
   }
 
   async grantWelcomeCredits(input: VisualBillingOwner & {
@@ -366,10 +379,79 @@ export class VisualCreditService {
   async getAccount(input: { tenantId: string } & VisualBillingOwner) {
     this.assertTenantOwner(input.tenantId, input);
     const account = await this.prisma.visualCreditAccount.findUnique({
-      where: { tenantId_billingOwnerType_billingOwnerId: input },
+      where: {
+        tenantId_billingOwnerType_billingOwnerId: {
+          tenantId: input.tenantId,
+          billingOwnerType: input.billingOwnerType,
+          billingOwnerId: input.billingOwnerId,
+        },
+      },
     });
     if (!account) return { availableCredits: 0, reservedCredits: 0, exists: false };
     return { ...this.toAccountResponse(account), exists: true };
+  }
+
+  async listLedger(input: { tenantId: string } & VisualBillingOwner & { take?: number }) {
+    const account = await this.prisma.visualCreditAccount.findUnique({
+      where: {
+        tenantId_billingOwnerType_billingOwnerId: {
+          tenantId: input.tenantId,
+          billingOwnerType: input.billingOwnerType,
+          billingOwnerId: input.billingOwnerId,
+        },
+      },
+      select: { id: true },
+    });
+    if (!account) return [];
+    const rows = await this.prisma.visualCreditLedger.findMany({
+      where: { accountId: account.id },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(input.take ?? 50, 1), 200),
+    });
+    return rows.map((row) => this.toLedgerResponse(row));
+  }
+
+  async adminAdjust(input: { tenantId: string } & VisualBillingOwner & {
+    availableDelta: number;
+    reason: string;
+    idempotencyKey: string;
+    operatorId: string;
+  }) {
+    this.assertTenantOwner(input.tenantId, input);
+    this.assertId(input.idempotencyKey, '额度调整幂等键');
+    this.assertId(input.operatorId, '额度调整操作人');
+    if (!Number.isInteger(input.availableDelta) || input.availableDelta === 0 || !input.reason.trim()) {
+      throw new ConflictException('图片额度调整必须给出非零整数额度和原因');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${input.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
+      const account = await this.ensureAccountTx(tx, input.tenantId, input);
+      const existing = await tx.visualCreditLedger.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+      if (existing) {
+        if (existing.accountId !== account.id) throw new ConflictException('额度调整幂等键已被另一个账户使用');
+        return this.toAccountResult(account, existing);
+      }
+      const availableAfter = account.availableCredits + input.availableDelta;
+      if (availableAfter < 0) throw new ConflictException('图片额度不足，不能执行本次人工扣减');
+      const updated = await tx.visualCreditAccount.update({
+        where: { id: account.id },
+        data: { availableCredits: availableAfter, version: { increment: 1 } },
+      });
+      const ledger = await tx.visualCreditLedger.create({
+        data: {
+          accountId: account.id,
+          type: VisualCreditLedgerType.ADMIN_ADJUST,
+          availableDelta: input.availableDelta,
+          reservedDelta: 0,
+          availableBalanceAfter: availableAfter,
+          reservedBalanceAfter: account.reservedCredits,
+          idempotencyKey: input.idempotencyKey,
+          reason: input.reason.trim().slice(0, 400),
+          metadata: { operatorId: input.operatorId } as Prisma.InputJsonValue,
+        },
+      });
+      return this.toAccountResult(updated, ledger);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

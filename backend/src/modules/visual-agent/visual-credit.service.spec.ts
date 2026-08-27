@@ -79,6 +79,7 @@ function build() {
     visualRateCard: { upsert: jest.fn() },
     visualCreditAccount: { findUnique: jest.fn() },
     visualCreditQuote: { updateMany: jest.fn() },
+    visualCreditLedger: { findMany: jest.fn() },
   };
   return { service: new VisualCreditService(prisma as any), prisma, tx };
 }
@@ -172,6 +173,48 @@ describe('VisualCreditService', () => {
       where: { status: VisualCreditQuoteStatus.ISSUED, expiresAt: { lte: expect.any(Date) } },
       data: { status: VisualCreditQuoteStatus.EXPIRED, failureReason: 'QUOTE_EXPIRED' },
     }));
+  });
+
+  it('allows an audited platform adjustment but never lets it make a credit account negative', async () => {
+    const { service, tx } = build();
+    tx.visualCreditAccount.update.mockResolvedValue(account({ availableCredits: 250, version: 1 }));
+    tx.visualCreditLedger.create.mockResolvedValue({
+      id: 'ledger-adjust', type: 'ADMIN_ADJUST', availableDelta: 50, reservedDelta: 0,
+      availableBalanceAfter: 250, reservedBalanceAfter: 0, createdAt: now,
+    });
+
+    await expect(service.adminAdjust({
+      tenantId: principal.tenantId, ...owner, availableDelta: 50,
+      reason: '首批人工补发额度', idempotencyKey: 'admin-adjust-1', operatorId: 'admin-1',
+    })).resolves.toMatchObject({ account: { availableCredits: 250 }, ledger: { type: 'ADMIN_ADJUST', availableDelta: 50 } });
+
+    tx.visualCreditAccount.upsert.mockResolvedValue(account({ availableCredits: 10 }));
+    await expect(service.adminAdjust({
+      tenantId: principal.tenantId, ...owner, availableDelta: -11,
+      reason: '错误回收', idempotencyKey: 'admin-adjust-2', operatorId: 'admin-1',
+    })).rejects.toThrow('图片额度不足');
+  });
+
+  it('keeps pagination outside the account composite key when reading ledger history', async () => {
+    const { service, prisma } = build();
+    prisma.visualCreditAccount.findUnique.mockResolvedValue({ id: 'account-1' });
+    prisma.visualCreditLedger.findMany.mockResolvedValue([{
+      id: 'ledger-1', type: 'WELCOME_GRANT', availableDelta: 200, reservedDelta: 0,
+      availableBalanceAfter: 200, reservedBalanceAfter: 0, createdAt: now,
+    }]);
+
+    await expect(service.listLedger({ tenantId: principal.tenantId, ...owner, take: 10 }))
+      .resolves.toMatchObject([{ id: 'ledger-1', type: 'WELCOME_GRANT' }]);
+    expect(prisma.visualCreditAccount.findUnique).toHaveBeenCalledWith({
+      where: {
+        tenantId_billingOwnerType_billingOwnerId: {
+          tenantId: principal.tenantId,
+          billingOwnerType: 'COMPANY',
+          billingOwnerId: 'company-1',
+        },
+      },
+      select: { id: true },
+    });
   });
 
   it('settles a billed success and releases a known-unbilled failure without a duplicate debit', async () => {

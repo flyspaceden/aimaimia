@@ -18,10 +18,11 @@ import { ProductImageFactScanController } from './product-image-fact-scan.contro
 import { ProductImageFactScanService } from './product-image-fact-scan.service';
 import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
 import { AdminVisualAgentClientController } from '../visual-agent/admin-visual-agent-client.controller';
+import { AdminVisualCreditController } from '../visual-agent/admin-visual-credit.controller';
 
 @Module({
   imports: [UploadModule, VisualAgentModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController],
   providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, DisabledProductImageBackgroundProvider],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
