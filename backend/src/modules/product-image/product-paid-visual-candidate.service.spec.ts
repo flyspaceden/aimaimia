@@ -31,7 +31,7 @@ function build() {
     product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1' }) },
     productImageOptimization: {
       findUnique: jest.fn().mockResolvedValue(null),
-      findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1' }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1', processingContract: {}, artifacts: [{ assetId: 'candidate-asset' }] }),
       findMany: jest.fn().mockResolvedValue([{ id: 'optimization-1' }]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
@@ -57,7 +57,7 @@ describe('ProductPaidVisualCandidateService', () => {
       quote, output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
     });
 
-    expect(result).toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING, candidateAssetId: 'candidate-asset' });
+    expect(result).toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING, candidateAssetId: 'candidate-asset', candidateObjectKey: 'seller-product-assets/candidate.png' });
     expect(assets.createDerivedProductImageAsset).toHaveBeenCalledWith('company-1', 'staff-1', expect.objectContaining({ mimetype: 'image/png' }));
     expect(tx.productImageOptimization.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -84,14 +84,27 @@ describe('ProductPaidVisualCandidateService', () => {
     });
   });
 
-  it('makes a pending candidate adoptable only after credit settlement is confirmed', async () => {
+  it('moves a locally clean paid candidate to human review and persists only its minimal verification report', async () => {
     const { service, prisma } = build();
-    await expect(service.markVerifiedAndSettled('company-1', 'quote-1', true)).resolves.toEqual({
+    await expect(service.finalizeLocalVerification('company-1', 'quote-1', {
+      version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: {} as any, qr: {} as any, barcode: {} as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW',
+    })).resolves.toEqual({
       id: 'optimization-1', status: ProductImageOptimizationStatus.PENDING_REVIEW,
     });
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING },
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.PENDING_REVIEW }),
+    }));
+  });
+
+  it('retires a candidate that local checks prove lost a protected fact', async () => {
+    const { service, prisma } = build();
+    await expect(service.finalizeLocalVerification('company-1', 'quote-1', {
+      version: 'candidate-local-verification-v1', disposition: 'REJECT', geometry: {} as any, qr: {} as any, barcode: {} as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW',
+    })).resolves.toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.REJECTED });
+    expect(prisma.sellerMediaAsset.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['candidate-asset'] }, companyId: 'company-1', status: 'CANDIDATE' },
+      data: { status: 'RETIRED' },
     }));
   });
 

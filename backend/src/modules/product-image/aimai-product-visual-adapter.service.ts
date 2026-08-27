@@ -10,6 +10,7 @@ import { visualPlanSha256 } from '../visual-agent/visual-agent-integrity';
 import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
 import { UploadService } from '../upload/upload.service';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
+import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
 const sharp = require('sharp') as typeof import('sharp').default;
 
 export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
@@ -44,6 +45,7 @@ export class AimaiProductVisualAdapterService {
     private readonly uploadService: UploadService,
     private readonly invocations: VisualAgentInvocationService,
     private readonly candidates: ProductPaidVisualCandidateService,
+    private readonly localVerification: ProductImageCandidateLocalVerificationService,
   ) {}
 
   async issueQuote(input: IssueQuoteInput) {
@@ -269,15 +271,37 @@ export class AimaiProductVisualAdapterService {
         quote,
         output: polled.output,
       });
+      if (!candidate.candidateObjectKey) {
+        throw new ConflictException('付费图片候选缺少受管存储证据');
+      }
+      const source = await this.prisma.sellerMediaAsset.findFirst({
+        where: {
+          id: quote.sourceAssetRef,
+          companyId: input.companyId,
+          purpose: 'PRODUCT_IMAGE',
+          status: SellerMediaAssetStatus.AVAILABLE,
+          canonicalSha256: quote.sourceHash,
+          deletedAt: null,
+        },
+        select: { objectKey: true },
+      });
+      if (!source) throw new NotFoundException('商品原图已变化，不能完成候选事实验证');
+      const local = await this.localVerification.verify(
+        await this.uploadService.getBuffer(source.objectKey),
+        await this.uploadService.getBuffer(candidate.candidateObjectKey),
+      );
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家与管理员事实审核');
-      const requiresHumanReview = (quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
-      const optimization = await this.candidates.markVerifiedAndSettled(input.companyId, quote.id, requiresHumanReview);
+      const optimization = await this.candidates.finalizeLocalVerification(input.companyId, quote.id, local);
       return {
         ...polled,
         candidate,
         optimizationId: optimization.id,
-        status: optimization.status === ProductImageOptimizationStatus.PENDING_REVIEW ? 'PENDING_REVIEW' as const : 'SUCCEEDED' as const,
+        status: optimization.status === ProductImageOptimizationStatus.PENDING_REVIEW
+          ? 'PENDING_REVIEW' as const
+          : optimization.status === ProductImageOptimizationStatus.REJECTED
+            ? 'REJECTED' as const
+            : 'SUCCEEDED' as const,
       };
     } catch (error) {
       await this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');

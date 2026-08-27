@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
+import { LocalCandidateVerificationReport } from './product-image-candidate-local-verification.service';
 
 type PersistPaidCandidateInput = {
   companyId: string;
@@ -167,20 +168,49 @@ export class ProductPaidVisualCandidateService {
     }
   }
 
-  async markVerifiedAndSettled(companyId: string, quoteId: string, requiresHumanReview: boolean) {
+  async finalizeLocalVerification(companyId: string, quoteId: string, local: LocalCandidateVerificationReport) {
     const task = await this.prisma.productImageOptimization.findFirst({
       where: { companyId, idempotencyKey: `paid-quote:${quoteId}`, status: ProductImageOptimizationStatus.RECONCILING },
-      select: { id: true },
+      select: {
+        id: true,
+        processingContract: true,
+        artifacts: { where: { kind: ProductImageArtifactKind.CANDIDATE }, select: { assetId: true } },
+      },
     });
     if (!task) throw new ConflictException('付费图片候选当前不能完成验证');
-    const status = requiresHumanReview
-      ? ProductImageOptimizationStatus.PENDING_REVIEW
-      : ProductImageOptimizationStatus.SUCCEEDED;
+    const status = local.disposition === 'REJECT'
+      ? ProductImageOptimizationStatus.REJECTED
+      : ProductImageOptimizationStatus.PENDING_REVIEW;
+    const processingContract = {
+      ...((task.processingContract as Record<string, unknown> | null) ?? {}),
+      verification: {
+        local,
+        state: status === ProductImageOptimizationStatus.REJECTED ? 'LOCAL_FACT_MISMATCH_REJECTED' : 'LOCAL_CHECKS_COMPLETE_AWAITING_OCR_OR_HUMAN_REVIEW',
+      },
+    };
     const updated = await this.prisma.productImageOptimization.updateMany({
       where: { id: task.id, status: ProductImageOptimizationStatus.RECONCILING },
-      data: { status, completedAt: new Date() },
+      data: {
+        status,
+        completedAt: new Date(),
+        processingContract: processingContract as Prisma.InputJsonValue,
+        contractHash: this.sha256(JSON.stringify(processingContract)),
+        ...(status === ProductImageOptimizationStatus.REJECTED ? {
+          failureCode: 'LOCAL_FACT_VERIFICATION_REJECTED',
+          failureDetail: '候选图的二维码、条码格式或构图与原图存在明确不一致',
+        } : {}),
+      },
     });
     if (updated.count !== 1) throw new ConflictException('付费图片候选状态已变化');
+    if (status === ProductImageOptimizationStatus.REJECTED) {
+      const candidateAssetIds = task.artifacts.map((artifact) => artifact.assetId).filter((id): id is string => !!id);
+      if (candidateAssetIds.length) {
+        await this.prisma.sellerMediaAsset.updateMany({
+          where: { id: { in: candidateAssetIds }, companyId, status: SellerMediaAssetStatus.CANDIDATE },
+          data: { status: SellerMediaAssetStatus.RETIRED },
+        });
+      }
+    }
     return { id: task.id, status };
   }
 
@@ -280,6 +310,6 @@ export class ProductPaidVisualCandidateService {
 
   private toResult(task: any) {
     const candidate = task.artifacts?.find((artifact: any) => artifact.kind === ProductImageArtifactKind.CANDIDATE)?.asset;
-    return { id: task.id, status: task.status, candidateAssetId: candidate?.id ?? null };
+    return { id: task.id, status: task.status, candidateAssetId: candidate?.id ?? null, candidateObjectKey: candidate?.objectKey ?? null };
   }
 }
