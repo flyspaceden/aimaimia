@@ -11,6 +11,7 @@ import {
   VisualProviderSource,
   VisualProviderSubmitInput,
   VisualProviderSubmitResult,
+  VisualProviderOutput,
   VisualProviderTaskState,
   VisualProviderUnknownResult,
 } from './visual-image-edit.provider';
@@ -155,6 +156,31 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
       successfulImageCount: payload.usage?.image_count,
     };
     return result;
+  }
+
+  async fetchOutput(outputUrl: string): Promise<VisualProviderOutput> {
+    this.assertAvailable();
+    if (!this.isAllowedProviderResultUrl(outputUrl)) {
+      throw new ServiceUnavailableException('百炼万相输出地址不在允许域名范围内');
+    }
+    let response: Response;
+    try {
+      response = await this.fetchWithDeadline(outputUrl, { redirect: 'error' }, REQUEST_TIMEOUT_MS);
+    } catch {
+      throw new ServiceUnavailableException('无法安全下载百炼万相输出');
+    }
+    const contentLength = Number(response.headers.get('content-length') || '0');
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+    if (!response.ok || !contentType || !allowedMimeTypes.has(contentType as VisualProviderSource['mimeType'])
+      || (Number.isFinite(contentLength) && contentLength > MAX_SOURCE_BYTES)) {
+      throw new ServiceUnavailableException('百炼万相输出格式或大小无效');
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length === 0 || buffer.length > MAX_SOURCE_BYTES) {
+      throw new ServiceUnavailableException('百炼万相输出大小无效');
+    }
+    await this.assertDecodedImage(buffer, contentType as VisualProviderSource['mimeType'], '百炼万相输出');
+    return { buffer, mimeType: contentType as VisualProviderSource['mimeType'] };
   }
 
   private endpoint(path: string) {

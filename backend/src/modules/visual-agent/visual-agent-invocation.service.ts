@@ -281,6 +281,22 @@ export class VisualAgentInvocationService {
     }
   }
 
+  async getOutputForVerification(invocationId: string) {
+    const invocation = await this.prisma.visualAgentInvocation.findFirst({
+      where: {
+        id: invocationId,
+        provider: 'BAILIAN_WAN',
+        status: VisualAgentInvocationStatus.VERIFYING,
+        providerOutputUrl: { not: null },
+      },
+      select: { id: true, providerOutputUrl: true, providerTaskId: true, sourceHash: true, visualPlanHash: true },
+    });
+    if (!invocation?.providerOutputUrl || !invocation.providerTaskId) {
+      throw new ConflictException('AI Visual Agent 调用当前没有可验证的 Provider 输出');
+    }
+    return invocation;
+  }
+
   async assertProviderAuthorization(authorization: VisualProviderAuthorization, provider: string, model: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findUnique({

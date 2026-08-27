@@ -78,4 +78,9 @@ export class VisualAgentProviderRunnerService {
     await this.invocations.recordQueryOutcome(authorization, outcome);
     return outcome;
   }
+
+  async fetchBailianOutput(invocationId: string) {
+    const invocation = await this.invocations.getOutputForVerification(invocationId);
+    return this.bailian.fetchOutput(invocation.providerOutputUrl!);
+  }
 }

@@ -8,7 +8,8 @@ const transitions: Record<ProductImageOptimizationStatus, readonly ProductImageO
   // A paid provider may have accepted a request when a worker lease expires.
   // Keep the task and its dedupe lock alive until billing/provider status is
   // reconciled; never enqueue a second potentially chargeable request first.
-  RECONCILING: [ProductImageOptimizationStatus.SUCCEEDED, ProductImageOptimizationStatus.FAILED, ProductImageOptimizationStatus.EXPIRED],
+  RECONCILING: [ProductImageOptimizationStatus.PENDING_REVIEW, ProductImageOptimizationStatus.SUCCEEDED, ProductImageOptimizationStatus.FAILED, ProductImageOptimizationStatus.EXPIRED],
+  PENDING_REVIEW: [ProductImageOptimizationStatus.SUCCEEDED, ProductImageOptimizationStatus.REJECTED, ProductImageOptimizationStatus.EXPIRED],
   SUCCEEDED: [ProductImageOptimizationStatus.ADOPTED, ProductImageOptimizationStatus.REJECTED, ProductImageOptimizationStatus.EXPIRED],
   FAILED: [],
   REJECTED: [],

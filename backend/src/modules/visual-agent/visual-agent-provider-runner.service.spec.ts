@@ -92,4 +92,18 @@ describe('VisualAgentProviderRunnerService', () => {
       kind: 'UNKNOWN', code: 'TRANSPORT_FAILURE', requiresReconciliation: true,
     });
   });
+
+  it('fetches a Provider output only after Core confirms a VERIFYING invocation reference', async () => {
+    const invocations = {
+      getOutputForVerification: jest.fn().mockResolvedValue({
+        id: 'invocation-1', providerOutputUrl: 'https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg',
+      }),
+    };
+    const bailian = { fetchOutput: jest.fn().mockResolvedValue({ buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' }) };
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+
+    await expect(service.fetchBailianOutput('invocation-1')).resolves.toMatchObject({ mimeType: 'image/jpeg' });
+    expect(invocations.getOutputForVerification).toHaveBeenCalledWith('invocation-1');
+    expect(bailian.fetchOutput).toHaveBeenCalledWith('https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg');
+  });
 });

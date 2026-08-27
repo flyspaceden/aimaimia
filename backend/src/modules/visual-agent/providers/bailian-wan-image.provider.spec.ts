@@ -191,4 +191,19 @@ describe('BailianWanImageProvider', () => {
     } }))).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('downloads only an allowlisted, size-bounded, decodable Provider result', async () => {
+    const image = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#2288aa' } }).jpeg().toBuffer();
+    global.fetch = jest.fn().mockResolvedValue(new Response(image, {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg', 'content-length': String(image.length) },
+    })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await expect(provider.fetchOutput('https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg')).resolves.toMatchObject({
+      mimeType: 'image/jpeg', buffer: expect.any(Buffer),
+    });
+    await expect(provider.fetchOutput('https://attacker.example/result.jpg')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });

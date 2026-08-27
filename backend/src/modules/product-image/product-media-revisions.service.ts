@@ -12,9 +12,9 @@ const directlyUsableAssetStatuses: SellerMediaAssetStatus[] = [
 ];
 
 function visualOriginForOptimization(kind: ProductImageOptimizationKind): ProductMediaVisualOrigin {
-  return kind === ProductImageOptimizationKind.FREE_TUNE
-    ? ProductMediaVisualOrigin.DETERMINISTIC_ENHANCEMENT
-    : ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE;
+  if (kind === ProductImageOptimizationKind.FREE_TUNE) return ProductMediaVisualOrigin.DETERMINISTIC_ENHANCEMENT;
+  if (kind === ProductImageOptimizationKind.BACKGROUND_GENERATION) return ProductMediaVisualOrigin.AI_BACKGROUND;
+  return ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE;
 }
 
 @Injectable()

@@ -98,6 +98,32 @@ describe('ProductMediaRevisionsService approval', () => {
     }));
   });
 
+  it('records a paid generated candidate as AIGC background rather than a deterministic composite', async () => {
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2,
+      media: [{ assetId: 'source-asset', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }],
+    };
+    const prisma = {
+      product: { findFirst: jest.fn().mockResolvedValue(product) },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ kind: 'BACKGROUND_GENERATION', artifacts: [{ assetId: 'candidate-asset' }] }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([{ id: 'candidate-asset', status: 'CANDIDATE' }, { id: 'source-asset', status: 'AVAILABLE' }]) },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'revision-1' }) },
+    };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, {} as any);
+
+    await service.requestOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    });
+
+    expect(prisma.productMediaRevision.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ proposedMedia: expect.arrayContaining([
+        expect.objectContaining({ assetId: 'candidate-asset', visualOrigin: 'AI_BACKGROUND', optimizationId: 'task-1' }),
+      ]) }),
+    }));
+  });
+
   it('does not create an adoption review after the original source is removed from the product', async () => {
     const prisma = {
       product: {

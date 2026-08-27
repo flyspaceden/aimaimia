@@ -1,13 +1,16 @@
 import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetStatus } from '@prisma/client';
+import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { VisualAgentClientKeyService } from '../visual-agent/visual-agent-client-key.service';
 import { VisualAgentTrustedAdapterService } from '../visual-agent/visual-agent-trusted-adapter.service';
 import { VisualCreditService } from '../visual-agent/visual-credit.service';
 import { VisualPaidExecutionService } from '../visual-agent/visual-paid-execution.service';
+import { VisualAgentInvocationService } from '../visual-agent/visual-agent-invocation.service';
 import { visualPlanSha256 } from '../visual-agent/visual-agent-integrity';
 import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
+import { BAILIAN_WAN_PROVIDER } from '../visual-agent/providers/bailian-wan-image.provider';
 import { UploadService } from '../upload/upload.service';
+import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 const sharp = require('sharp') as typeof import('sharp').default;
 
 export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
@@ -40,6 +43,8 @@ export class AimaiProductVisualAdapterService {
     private readonly credits: VisualCreditService,
     private readonly execution: VisualPaidExecutionService,
     private readonly uploadService: UploadService,
+    private readonly invocations: VisualAgentInvocationService,
+    private readonly candidates: ProductPaidVisualCandidateService,
   ) {}
 
   async issueQuote(input: IssueQuoteInput) {
@@ -183,6 +188,42 @@ export class AimaiProductVisualAdapterService {
       billingOwnerType: 'COMPANY',
       billingOwnerId: companyId,
     });
+  }
+
+  async pollAndPersistCandidate(input: {
+    companyId: string;
+    staffId: string;
+    productId: string;
+    quoteId: string;
+  }) {
+    const principal = await this.resolveAimaiPrincipal();
+    const polled = await this.execution.pollForOutput({ principal, quoteId: input.quoteId });
+    if (polled.status !== 'VERIFYING') return polled;
+    const quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
+    try {
+      const candidate = await this.candidates.persistPendingVerification({
+        companyId: input.companyId,
+        staffId: input.staffId,
+        productId: input.productId,
+        sourceAssetId: quote.sourceAssetRef,
+        sourceCanonicalHash: quote.sourceHash,
+        quote,
+        output: polled.output,
+      });
+      await this.invocations.completeSynchronousVerification(polled.invocationId, BAILIAN_WAN_PROVIDER);
+      await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家与管理员事实审核');
+      const requiresHumanReview = (quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
+      const optimization = await this.candidates.markVerifiedAndSettled(input.companyId, quote.id, requiresHumanReview);
+      return {
+        ...polled,
+        candidate,
+        optimizationId: optimization.id,
+        status: optimization.status === ProductImageOptimizationStatus.PENDING_REVIEW ? 'PENDING_REVIEW' as const : 'SUCCEEDED' as const,
+      };
+    } catch (error) {
+      await this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+      throw error;
+    }
   }
 
   private toProviderPlan(

@@ -126,6 +126,37 @@ export class VisualPaidExecutionService {
     }
   }
 
+  async pollForOutput(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
+    const quote = await this.credits.getReservedQuoteForExecution(input);
+    if (!quote.visualAgentInvocationId) {
+      throw new ConflictException('图片美化报价尚未绑定模型调用');
+    }
+    if (quote.status === VisualCreditQuoteStatus.RECONCILING) {
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
+    }
+    let outcome;
+    try {
+      outcome = await this.runner.queryBailian(quote.visualAgentInvocationId);
+    } catch (error) {
+      await this.credits.markReconciliation(quote.id, 'PROVIDER_QUERY_EXCEPTION');
+      throw error;
+    }
+    if (outcome.kind !== 'KNOWN' || outcome.state === 'FAILED' || outcome.state === 'CANCELED') {
+      await this.credits.markReconciliation(quote.id, outcome.kind === 'KNOWN' ? `PROVIDER_${outcome.state}` : `PROVIDER_QUERY_${outcome.code}`);
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
+    }
+    if (outcome.state === 'QUEUED' || outcome.state === 'RUNNING') {
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: outcome.state };
+    }
+    try {
+      const output = await this.runner.fetchBailianOutput(quote.visualAgentInvocationId);
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'VERIFYING' as const, output };
+    } catch (error) {
+      await this.credits.markReconciliation(quote.id, 'PROVIDER_OUTPUT_FETCH_FAILED');
+      throw error;
+    }
+  }
+
   private modelForProfile(profile: string): 'wan2.7-image' | 'wan2.7-image-pro' {
     if (profile === 'BAILIAN_WAN_STANDARD') return 'wan2.7-image';
     if (profile === 'BAILIAN_WAN_PRO') return 'wan2.7-image-pro';

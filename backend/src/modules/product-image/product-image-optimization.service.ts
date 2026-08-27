@@ -338,7 +338,9 @@ export class ProductImageOptimizationService {
           sortOrder: 0,
           visualOrigin: task.kind === ProductImageOptimizationKind.FREE_TUNE
             ? ProductMediaVisualOrigin.DETERMINISTIC_ENHANCEMENT
-            : ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE,
+            : task.kind === ProductImageOptimizationKind.BACKGROUND_GENERATION
+              ? ProductMediaVisualOrigin.AI_BACKGROUND
+              : ProductMediaVisualOrigin.DETERMINISTIC_COMPOSITE,
           optimizationId,
           isEvidenceImage: false,
         },

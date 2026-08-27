@@ -37,12 +37,22 @@ function build() {
       },
     }),
     releaseReservedQuote: jest.fn(),
+    settleReservedQuote: jest.fn(),
+    markReconciliation: jest.fn(),
   };
-  const execution = { executeReservedQuote: jest.fn().mockResolvedValue({ invocationId: 'invocation-1', status: 'QUEUED' }) };
+  const execution = {
+    executeReservedQuote: jest.fn().mockResolvedValue({ invocationId: 'invocation-1', status: 'QUEUED' }),
+    pollForOutput: jest.fn(),
+  };
   const upload = { getBuffer: jest.fn().mockResolvedValue(Buffer.from('source')) };
+  const invocations = { completeSynchronousVerification: jest.fn().mockResolvedValue(undefined) };
+  const candidates = {
+    persistPendingVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'RECONCILING', candidateAssetId: 'candidate-1' }),
+    markVerifiedAndSettled: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'PENDING_REVIEW' }),
+  };
   return {
-    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any),
-    prisma, clients, trusted, credits, execution, upload,
+    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any),
+    prisma, clients, trusted, credits, execution, upload, invocations, candidates,
   };
 }
 
@@ -116,5 +126,26 @@ describe('AimaiProductVisualAdapterService', () => {
       visualPlan: expect.objectContaining({ direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS' }),
     }));
     expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {
+    const { service, execution, credits, candidates, invocations } = build();
+    execution.pollForOutput.mockResolvedValue({
+      quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
+    });
+    credits.settleReservedQuote = jest.fn().mockResolvedValue({});
+
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .resolves.toMatchObject({ status: 'PENDING_REVIEW', candidate: { candidateAssetId: 'candidate-1' }, optimizationId: 'optimization-1' });
+    expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ quote: expect.objectContaining({ id: 'quote-1' }) }));
+    expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
+    expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
+    expect(candidates.markVerifiedAndSettled).toHaveBeenCalledWith('company-1', 'quote-1', true);
+
+    candidates.persistPendingVerification.mockRejectedValueOnce(new Error('storage failed'));
+    credits.markReconciliation = jest.fn().mockResolvedValue(undefined);
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .rejects.toThrow('storage failed');
+    expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
   });
 });

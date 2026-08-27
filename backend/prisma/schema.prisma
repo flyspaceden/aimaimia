@@ -257,6 +257,7 @@ enum ProductImageOptimizationStatus {
   QUEUED
   RUNNING
   RECONCILING
+  PENDING_REVIEW
   SUCCEEDED
   FAILED
   REJECTED

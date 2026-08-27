@@ -45,4 +45,16 @@ export class ProductVisualCommerceController {
   ) {
     return this.visual.confirmAndExecute({ companyId, staffId, productId, quoteId, quoteHash: dto.quoteHash });
   }
+
+  @Post(':id/visual-quotes/:quoteId/poll')
+  @SellerRoles('OWNER', 'MANAGER')
+  @SellerAudit({ action: 'POLL_PRODUCT_VISUAL_QUOTE', module: 'product-images', targetType: 'VisualCreditQuote', targetIdParam: 'params.quoteId' })
+  pollQuote(
+    @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
+    @Param('id') productId: string,
+    @Param('quoteId') quoteId: string,
+  ) {
+    return this.visual.pollAndPersistCandidate({ companyId, staffId, productId, quoteId });
+  }
 }

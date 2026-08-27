@@ -47,7 +47,11 @@ function build(overrides: { quote?: Record<string, unknown> } = {}) {
     reserve: jest.fn().mockResolvedValue({ invocationId: 'invocation-1', status: VisualAgentInvocationStatus.RESERVED }),
     releaseBeforeSubmit: jest.fn().mockResolvedValue(undefined),
   };
-  const runner = { submitBailian: jest.fn().mockResolvedValue({ kind: 'ACCEPTED', providerTaskId: 'wan-task-1', state: 'QUEUED' }) };
+  const runner = {
+    submitBailian: jest.fn().mockResolvedValue({ kind: 'ACCEPTED', providerTaskId: 'wan-task-1', state: 'QUEUED' }),
+    queryBailian: jest.fn(),
+    fetchBailianOutput: jest.fn(),
+  };
   const wan = { preflight: jest.fn().mockResolvedValue(undefined) };
   return { service: new VisualPaidExecutionService(credits as any, invocations as any, runner as any, wan as any), credits, invocations, runner, wan };
 }
@@ -129,5 +133,26 @@ describe('VisualPaidExecutionService', () => {
     })).rejects.toThrow('尚未配置可执行');
     expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'PROVIDER_PREFLIGHT_DECLINED');
     expect(invocations.reserve).not.toHaveBeenCalled();
+  });
+
+  it('polls a bound task and downloads output only once the Core has recorded success for verification', async () => {
+    const { service, credits, runner } = build({ quote: { visualAgentInvocationId: 'invocation-1' } });
+    runner.queryBailian.mockResolvedValue({ kind: 'KNOWN', providerTaskId: 'wan-task-1', state: 'SUCCEEDED', outputUrl: 'https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg' });
+    runner.fetchBailianOutput.mockResolvedValue({ buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' });
+
+    await expect(service.pollForOutput({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({
+      quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', output: { mimeType: 'image/jpeg' },
+    });
+    expect(runner.fetchBailianOutput).toHaveBeenCalledWith('invocation-1');
+    expect(credits.markReconciliation).not.toHaveBeenCalled();
+  });
+
+  it('never releases credits after an accepted task has an unknown/failed query result', async () => {
+    const { service, credits, runner } = build({ quote: { visualAgentInvocationId: 'invocation-1' } });
+    runner.queryBailian.mockResolvedValue({ kind: 'UNKNOWN', code: 'AMBIGUOUS_PROVIDER_RESPONSE', requiresReconciliation: true });
+
+    await expect(service.pollForOutput({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ status: 'RECONCILING' });
+    expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'PROVIDER_QUERY_AMBIGUOUS_PROVIDER_RESPONSE');
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
   });
 });

@@ -86,9 +86,15 @@ export type VisualProviderSubmitResult =
 
 export type VisualProviderQueryResult = VisualProviderKnownTaskResult | VisualProviderDeclinedResult | VisualProviderUnknownResult;
 
+export type VisualProviderOutput = {
+  buffer: Buffer;
+  mimeType: VisualProviderSource['mimeType'];
+};
+
 /** Provider adapters do not decide verification, publication, or retries. */
 export interface VisualImageEditProvider {
   isAvailable(): boolean;
   submit(input: VisualProviderSubmitInput): Promise<VisualProviderSubmitResult>;
   query(providerTaskId: string): Promise<VisualProviderQueryResult>;
+  fetchOutput(outputUrl: string): Promise<VisualProviderOutput>;
 }

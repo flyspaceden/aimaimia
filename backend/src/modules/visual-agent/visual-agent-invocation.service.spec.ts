@@ -93,6 +93,21 @@ describe('VisualAgentInvocationService', () => {
     expect(prisma.tx.visualAgentInvocation.create).not.toHaveBeenCalled();
   });
 
+  it('returns a Provider output reference only from a persisted VERIFYING invocation', async () => {
+    const prisma = prismaMock({ root: { visualAgentInvocation: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'invocation-1', providerOutputUrl: 'https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg',
+        providerTaskId: 'wan-task-1', sourceHash, visualPlanHash: planHash,
+      }),
+    } } });
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.getOutputForVerification('invocation-1')).resolves.toMatchObject({ id: 'invocation-1', providerTaskId: 'wan-task-1' });
+    expect(prisma.visualAgentInvocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: VisualAgentInvocationStatus.VERIFYING, provider: 'BAILIAN_WAN' }),
+    }));
+  });
+
   it('derives the reserve from policy rather than a caller-supplied low amount, and rejects disagreeing scopes', async () => {
     const prisma = prismaMock();
     const policies = [
