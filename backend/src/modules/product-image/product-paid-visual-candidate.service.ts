@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
 import { LocalCandidateVerificationReport } from './product-image-candidate-local-verification.service';
+import { CandidateOcrVerificationReport } from './product-image-candidate-ocr-verification.service';
 
 type PersistPaidCandidateInput = {
   companyId: string;
@@ -168,7 +169,12 @@ export class ProductPaidVisualCandidateService {
     }
   }
 
-  async finalizeLocalVerification(companyId: string, quoteId: string, local: LocalCandidateVerificationReport) {
+  async finalizeVerification(
+    companyId: string,
+    quoteId: string,
+    verification: { local: LocalCandidateVerificationReport; ocr: CandidateOcrVerificationReport },
+    requiresHumanReview: boolean,
+  ) {
     const task = await this.prisma.productImageOptimization.findFirst({
       where: { companyId, idempotencyKey: `paid-quote:${quoteId}`, status: ProductImageOptimizationStatus.RECONCILING },
       select: {
@@ -178,14 +184,23 @@ export class ProductPaidVisualCandidateService {
       },
     });
     if (!task) throw new ConflictException('付费图片候选当前不能完成验证');
+    const local = verification.local;
+    const localPasses = local.geometry.verdict === 'PASS' && local.qr.verdict === 'PASS' && local.barcode.verdict === 'PASS';
     const status = local.disposition === 'REJECT'
       ? ProductImageOptimizationStatus.REJECTED
-      : ProductImageOptimizationStatus.PENDING_REVIEW;
+      : !requiresHumanReview && localPasses && verification.ocr.verdict === 'AUTO_PASS'
+        ? ProductImageOptimizationStatus.SUCCEEDED
+        : ProductImageOptimizationStatus.PENDING_REVIEW;
     const processingContract = {
       ...((task.processingContract as Record<string, unknown> | null) ?? {}),
       verification: {
         local,
-        state: status === ProductImageOptimizationStatus.REJECTED ? 'LOCAL_FACT_MISMATCH_REJECTED' : 'LOCAL_CHECKS_COMPLETE_AWAITING_OCR_OR_HUMAN_REVIEW',
+        ocr: verification.ocr,
+        state: status === ProductImageOptimizationStatus.REJECTED
+          ? 'LOCAL_FACT_MISMATCH_REJECTED'
+          : status === ProductImageOptimizationStatus.SUCCEEDED
+            ? 'LOCAL_AND_OCR_FACTS_VERIFIED'
+            : 'AWAITING_HUMAN_FACT_REVIEW',
       },
     };
     const updated = await this.prisma.productImageOptimization.updateMany({

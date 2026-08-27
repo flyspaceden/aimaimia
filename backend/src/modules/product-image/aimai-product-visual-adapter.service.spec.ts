@@ -57,12 +57,13 @@ function build() {
   const invocations = { completeSynchronousVerification: jest.fn().mockResolvedValue(undefined) };
   const candidates = {
     persistPendingVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'RECONCILING', candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp' }),
-    finalizeLocalVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'PENDING_REVIEW' }),
+    finalizeVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'PENDING_REVIEW' }),
   };
   const localVerification = { verify: jest.fn().mockResolvedValue({ disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {} }) };
+  const ocrVerification = { verify: jest.fn().mockResolvedValue({ state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW' }) };
   return {
-    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any),
-    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification,
+    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any),
+    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification,
   };
 }
 
@@ -159,7 +160,7 @@ describe('AimaiProductVisualAdapterService', () => {
   });
 
   it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {
-    const { service, execution, credits, candidates, invocations, localVerification, upload } = build();
+    const { service, execution, credits, candidates, invocations, localVerification, ocrVerification, upload } = build();
     execution.pollForOutput.mockResolvedValue({
       quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
     });
@@ -169,9 +170,13 @@ describe('AimaiProductVisualAdapterService', () => {
       .resolves.toMatchObject({ status: 'PENDING_REVIEW', candidate: { candidateAssetId: 'candidate-1' }, optimizationId: 'optimization-1' });
     expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ provider: 'BAILIAN_WAN', quote: expect.objectContaining({ id: 'quote-1' }) }));
     expect(localVerification.verify).toHaveBeenCalledWith(Buffer.from('source'), Buffer.from('source'));
+    expect(ocrVerification.verify).toHaveBeenCalledWith(expect.objectContaining({ quoteId: 'quote-1', allowAutoPass: false }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
-    expect(candidates.finalizeLocalVerification).toHaveBeenCalledWith('company-1', 'quote-1', expect.objectContaining({ disposition: 'MANUAL_REVIEW' }));
+    expect(candidates.finalizeVerification).toHaveBeenCalledWith('company-1', 'quote-1', expect.objectContaining({
+      local: expect.objectContaining({ disposition: 'MANUAL_REVIEW' }),
+      ocr: expect.objectContaining({ verdict: 'MANUAL_REVIEW' }),
+    }), true);
     expect(upload.getBuffer).toHaveBeenCalledWith('seller-product-assets/candidate.webp');
 
     candidates.persistPendingVerification.mockRejectedValueOnce(new Error('storage failed'));

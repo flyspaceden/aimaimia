@@ -24,11 +24,12 @@ import { ProductVisualCommerceController } from './product-visual-commerce.contr
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 import { AdminProductPaidVisualCandidatesController } from './admin-product-paid-visual-candidates.controller';
 import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
+import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 
 @Module({
   imports: [UploadModule, VisualAgentModule],
   controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController, ProductVisualCommerceController, AdminProductPaidVisualCandidatesController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, ProductImageCandidateLocalVerificationService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService, ProductPaidVisualCandidateService],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, ProductImageCandidateLocalVerificationService, ProductImageCandidateOcrVerificationService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService, ProductPaidVisualCandidateService],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}

@@ -11,6 +11,7 @@ import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProvider
 import { UploadService } from '../upload/upload.service';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
+import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 const sharp = require('sharp') as typeof import('sharp').default;
 
 export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
@@ -46,6 +47,7 @@ export class AimaiProductVisualAdapterService {
     private readonly invocations: VisualAgentInvocationService,
     private readonly candidates: ProductPaidVisualCandidateService,
     private readonly localVerification: ProductImageCandidateLocalVerificationService,
+    private readonly ocrVerification: ProductImageCandidateOcrVerificationService,
   ) {}
 
   async issueQuote(input: IssueQuoteInput) {
@@ -286,13 +288,24 @@ export class AimaiProductVisualAdapterService {
         select: { objectKey: true },
       });
       if (!source) throw new NotFoundException('商品原图已变化，不能完成候选事实验证');
-      const local = await this.localVerification.verify(
-        await this.uploadService.getBuffer(source.objectKey),
-        await this.uploadService.getBuffer(candidate.candidateObjectKey),
-      );
+      const [sourceBuffer, candidateBuffer] = await Promise.all([
+        this.uploadService.getBuffer(source.objectKey),
+        this.uploadService.getBuffer(candidate.candidateObjectKey),
+      ]);
+      const local = await this.localVerification.verify(sourceBuffer, candidateBuffer);
+      const requiresHumanReview = (quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
+      const ocr = await this.ocrVerification.verify({
+        companyId: input.companyId,
+        staffId: input.staffId,
+        productId: input.productId,
+        quoteId: quote.id,
+        sourceBuffer,
+        candidateBuffer,
+        allowAutoPass: !requiresHumanReview && local.disposition !== 'REJECT',
+      });
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家与管理员事实审核');
-      const optimization = await this.candidates.finalizeLocalVerification(input.companyId, quote.id, local);
+      const optimization = await this.candidates.finalizeVerification(input.companyId, quote.id, { local, ocr }, requiresHumanReview);
       return {
         ...polled,
         candidate,
