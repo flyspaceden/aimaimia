@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentSeller } from '../seller/common/decorators/current-seller.decorator';
 import { SellerAudit } from '../seller/common/decorators/seller-audit.decorator';
@@ -6,7 +6,7 @@ import { SellerAuthGuard } from '../seller/common/guards/seller-auth.guard';
 import { SellerRoleGuard, SellerRoles } from '../seller/common/guards/seller-role.guard';
 import { SellerAuditInterceptor } from '../seller/common/interceptors/seller-audit.interceptor';
 import { AimaiProductVisualAdapterService } from './aimai-product-visual-adapter.service';
-import { ConfirmProductVisualQuoteDto, IssueProductVisualQuoteDto } from './product-visual-commerce.dto';
+import { ConfirmProductVisualQuoteDto, IssueProductVisualQuoteDto, ListProductVisualRateCardsQueryDto } from './product-visual-commerce.dto';
 
 @Public()
 @UseGuards(SellerAuthGuard, SellerRoleGuard)
@@ -19,6 +19,26 @@ export class ProductVisualCommerceController {
   @SellerRoles('OWNER', 'MANAGER')
   account(@CurrentSeller('companyId') companyId: string) {
     return this.visual.getAccount(companyId);
+  }
+
+  @Get(':id/visual-rate-cards')
+  @SellerRoles('OWNER', 'MANAGER')
+  listRateCards(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') productId: string,
+    @Query() query: ListProductVisualRateCardsQueryDto,
+  ) {
+    return this.visual.listEligibleRateCards({ companyId, productId, ...query });
+  }
+
+  @Get(':id/visual-quotes/:quoteId')
+  @SellerRoles('OWNER', 'MANAGER')
+  getQuote(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') productId: string,
+    @Param('quoteId') quoteId: string,
+  ) {
+    return this.visual.getQuote(companyId, productId, quoteId);
   }
 
   @Post(':id/visual-quotes')
