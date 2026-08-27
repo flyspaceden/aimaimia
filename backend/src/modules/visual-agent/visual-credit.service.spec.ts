@@ -10,6 +10,10 @@ const owner = { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' };
 const sourceHash = 'a'.repeat(64);
 const planHash = 'b'.repeat(64);
 const now = new Date('2026-08-26T12:00:00.000Z');
+const visualPlan = {
+  direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS',
+  protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'],
+};
 
 function account(overrides: Record<string, unknown> = {}) {
   return {
@@ -23,7 +27,9 @@ function rateCard(overrides: Record<string, unknown> = {}) {
   return {
     id: 'rate-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
     code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留真实场景',
-    modelProfile: 'BAILIAN_WAN_STANDARD', outputSpec: { size: '1K' }, candidateCount: 1,
+    modelProfile: 'BAILIAN_WAN_STANDARD', outputSpec: { size: '1K' },
+    allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
+    candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: true, candidateCount: 1,
     creditCost: 15, status: VisualRateCardStatus.ACTIVE, version: 'v1',
     effectiveFrom: new Date(0), effectiveUntil: null,
     ...overrides,
@@ -34,7 +40,8 @@ function quote(overrides: Record<string, unknown> = {}) {
   return {
     id: 'quote-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
     billingAccountId: 'account-1', externalObjectId: 'product-1', actorId: 'staff-1', sourceHash, visualPlanHash: planHash,
-    creditCost: 15, candidateCount: 1, rateCardSnapshot: { code: 'STANDARD_REAL_SCENE' }, quoteHash: 'q'.repeat(64),
+    creditCost: 15, candidateCount: 1, rateCardSnapshot: { code: 'STANDARD_REAL_SCENE' },
+    visualPlanSnapshot: visualPlan, quoteHash: 'q'.repeat(64),
     status: VisualCreditQuoteStatus.ISSUED, expiresAt: new Date(Date.now() + 15 * 60_000),
     confirmedAt: null, settledAt: null, releasedAt: null, failureReason: null,
     billingAccount: account(),
@@ -124,7 +131,7 @@ describe('VisualCreditService', () => {
     const { service, tx } = build();
     const result = await service.issueQuote({
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
-      sourceHash, visualPlanHash: planHash, idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 20 * 60_000),
+      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 20 * 60_000),
     });
 
     expect(result).toMatchObject({ creditCost: 15, candidateCount: 1, rateCardSnapshot: expect.objectContaining({ modelProfile: 'BAILIAN_WAN_STANDARD' }) });
@@ -139,8 +146,19 @@ describe('VisualCreditService', () => {
 
     await expect(service.issueQuote({
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
-      sourceHash, visualPlanHash: planHash, idempotencyKey: 'quote-no-rate', expiresAt: new Date(Date.now() + 20 * 60_000),
+      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-no-rate', expiresAt: new Date(Date.now() + 20 * 60_000),
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('refuses a rate card whose direction or risk allowlist does not match the verified plan', async () => {
+    const { service, tx } = build();
+    tx.visualRateCard.findFirst.mockResolvedValue(rateCard({ allowedRiskProfiles: ['STRICT_FACTS'] }));
+
+    await expect(service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
+      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-wrong-risk', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('风险档不允许');
+    expect(tx.visualCreditQuote.create).not.toHaveBeenCalled();
   });
 
   it('reserves a confirmed quote exactly once and moves credits from available to reserved', async () => {

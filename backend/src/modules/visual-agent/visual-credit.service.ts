@@ -25,6 +25,13 @@ export type VisualCreditScope = VisualBillingOwner & {
   actorId: string;
 };
 
+export type VerifiedVisualPlanForQuote = {
+  direction: string;
+  riskProfile: string;
+  protectedRegionVersion: string;
+  allowedOperations: string[];
+};
+
 /**
  * Domain-neutral merchant image-credit ledger. It deliberately has no
  * dependency on buyer Rewards, Coupons, wallet withdrawals, or an individual
@@ -85,6 +92,10 @@ export class VisualCreditService {
     description: string;
     modelProfile: string;
     outputSpec: Prisma.InputJsonValue;
+    allowedDirections: string[];
+    allowedRiskProfiles: string[];
+    candidateRole: string;
+    requiresHumanReview: boolean;
     candidateCount: number;
     creditCost: number;
     status: VisualRateCardStatus;
@@ -92,11 +103,14 @@ export class VisualCreditService {
     effectiveFrom: Date;
     effectiveUntil?: Date | null;
   }) {
-    [input.tenantId, input.clientId, input.adapterNamespace, input.code, input.modelProfile, input.version]
+    [input.tenantId, input.clientId, input.adapterNamespace, input.code, input.modelProfile, input.version, input.candidateRole]
       .forEach((value) => this.assertId(value, 'Rate Card 字段'));
     if (!input.displayName.trim() || !input.description.trim()
       || !Number.isInteger(input.candidateCount) || input.candidateCount <= 0
-      || !Number.isInteger(input.creditCost) || input.creditCost < 0) {
+      || !Number.isInteger(input.creditCost) || input.creditCost < 0
+      || input.allowedDirections.length === 0 || input.allowedRiskProfiles.length === 0
+      || input.allowedDirections.some((value) => !SAFE_ID.test(value))
+      || input.allowedRiskProfiles.some((value) => !SAFE_ID.test(value))) {
       throw new ConflictException('图片额度价目不合法');
     }
     return this.prisma.$transaction(async (tx) => {
@@ -133,6 +147,10 @@ export class VisualCreditService {
           description: input.description,
           modelProfile: input.modelProfile,
           outputSpec: input.outputSpec,
+          allowedDirections: input.allowedDirections,
+          allowedRiskProfiles: input.allowedRiskProfiles,
+          candidateRole: input.candidateRole,
+          requiresHumanReview: input.requiresHumanReview,
           candidateCount: input.candidateCount,
           creditCost: input.creditCost,
           status: input.status,
@@ -206,6 +224,7 @@ export class VisualCreditService {
     rateCode: string;
     sourceHash: string;
     visualPlanHash: string;
+    visualPlan: VerifiedVisualPlanForQuote;
     idempotencyKey: string;
     expiresAt: Date;
   }) {
@@ -213,6 +232,7 @@ export class VisualCreditService {
     this.assertId(input.rateCode, 'Rate Card code');
     this.assertId(input.idempotencyKey, '报价幂等键');
     this.assertHashes(input.sourceHash, input.visualPlanHash);
+    this.assertVisualPlan(input.visualPlan);
     const now = new Date();
     if (input.expiresAt <= now || input.expiresAt.getTime() - now.getTime() > MAX_QUOTE_TTL_MS) {
       throw new ConflictException('图片美化报价有效期必须在未来 60 分钟内');
@@ -248,12 +268,20 @@ export class VisualCreditService {
         orderBy: { createdAt: 'desc' },
       });
       if (!rateCard) throw new ServiceUnavailableException('当前没有可用的图片美化报价档位');
+      if (!rateCard.allowedDirections.includes(input.visualPlan.direction)
+        || !rateCard.allowedRiskProfiles.includes(input.visualPlan.riskProfile)) {
+        throw new ConflictException('该图片风险档不允许使用所选美化报价');
+      }
       const snapshot = {
         code: rateCard.code,
         displayName: rateCard.displayName,
         description: rateCard.description,
         modelProfile: rateCard.modelProfile,
         outputSpec: rateCard.outputSpec,
+        allowedDirections: rateCard.allowedDirections,
+        allowedRiskProfiles: rateCard.allowedRiskProfiles,
+        candidateRole: rateCard.candidateRole,
+        requiresHumanReview: rateCard.requiresHumanReview,
         candidateCount: rateCard.candidateCount,
         creditCost: rateCard.creditCost,
         version: rateCard.version,
@@ -267,6 +295,7 @@ export class VisualCreditService {
         actorId: input.actorId,
         sourceHash: input.sourceHash,
         visualPlanHash: input.visualPlanHash,
+        visualPlan: input.visualPlan,
         snapshot,
       }));
       const quote = await tx.visualCreditQuote.create({
@@ -280,6 +309,7 @@ export class VisualCreditService {
           actorId: input.actorId,
           sourceHash: input.sourceHash,
           visualPlanHash: input.visualPlanHash,
+          visualPlanSnapshot: input.visualPlan as Prisma.InputJsonValue,
           rateCardSnapshot: snapshot as Prisma.InputJsonValue,
           creditCost: rateCard.creditCost,
           candidateCount: rateCard.candidateCount,
@@ -549,6 +579,15 @@ export class VisualCreditService {
     }
   }
 
+  private assertVisualPlan(plan: VerifiedVisualPlanForQuote) {
+    if (!SAFE_ID.test(plan.direction) || !SAFE_ID.test(plan.riskProfile)
+      || !SAFE_ID.test(plan.protectedRegionVersion)
+      || plan.allowedOperations.length === 0
+      || plan.allowedOperations.some((operation) => !SAFE_ID.test(operation))) {
+      throw new ConflictException('视觉计划报价快照无效');
+    }
+  }
+
   private assertQuoteInputMatches(existing: {
     externalObjectId: string; actorId: string; sourceHash: string; visualPlanHash: string; billingAccountId: string;
   }, input: VisualCreditScope & { sourceHash: string; visualPlanHash: string }, billingAccountId: string) {
@@ -570,6 +609,7 @@ export class VisualCreditService {
       creditCost: quote.creditCost,
       candidateCount: quote.candidateCount,
       rateCardSnapshot: quote.rateCardSnapshot,
+      visualPlanSnapshot: quote.visualPlanSnapshot,
       quoteHash: quote.quoteHash,
       expiresAt: quote.expiresAt,
       confirmedAt: quote.confirmedAt,

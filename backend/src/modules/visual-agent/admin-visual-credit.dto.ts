@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { VisualRateCardStatus } from '@prisma/client';
 
 export class ConfigureVisualCreditWelcomePolicyDto {
@@ -58,6 +58,27 @@ export class UpsertVisualRateCardDto {
 
   @IsObject()
   outputSpec: Record<string, unknown>;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  allowedDirections: string[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  allowedRiskProfiles: string[];
+
+  @IsString()
+  @MaxLength(120)
+  candidateRole: string;
+
+  @IsBoolean()
+  requiresHumanReview: boolean;
 
   @Type(() => Number)
   @IsInt()

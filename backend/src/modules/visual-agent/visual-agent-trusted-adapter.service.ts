@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { VisualAgentClientKeyService, VisualAgentClientPrincipal } from './visual-agent-client-key.service';
 import { ReserveVisualAgentInvocationInput, VisualAgentInvocationService } from './visual-agent-invocation.service';
-import { VisualBillingOwner, VisualCreditService } from './visual-credit.service';
+import { VerifiedVisualPlanForQuote, VisualBillingOwner, VisualCreditService } from './visual-credit.service';
 
 /**
  * Internal bridge for a reviewed domain adapter. It is intentionally not a
@@ -57,6 +57,7 @@ export class VisualAgentTrustedAdapterService {
     rateCode: string;
     sourceHash: string;
     visualPlanHash: string;
+    visualPlan: VerifiedVisualPlanForQuote;
     idempotencyKey: string;
     expiresAt: Date;
   }) {
@@ -69,6 +70,7 @@ export class VisualAgentTrustedAdapterService {
       rateCode: input.rateCode,
       sourceHash: input.sourceHash,
       visualPlanHash: input.visualPlanHash,
+      visualPlan: input.visualPlan,
       idempotencyKey: input.idempotencyKey,
       expiresAt: input.expiresAt,
     });

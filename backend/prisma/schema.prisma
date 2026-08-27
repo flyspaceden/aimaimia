@@ -2139,6 +2139,10 @@ model VisualRateCard {
   description      String
   modelProfile     String
   outputSpec       Json
+  allowedDirections String[]
+  allowedRiskProfiles String[]
+  candidateRole     String
+  requiresHumanReview Boolean          @default(true)
   candidateCount   Int
   creditCost       Int
   status           VisualRateCardStatus @default(ACTIVE)
@@ -2168,6 +2172,7 @@ model VisualCreditQuote {
   actorId          String
   sourceHash       String
   visualPlanHash   String
+  visualPlanSnapshot Json
   rateCardSnapshot Json
   creditCost       Int
   candidateCount   Int
