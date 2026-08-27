@@ -22,6 +22,12 @@ test('AI Visual Agent management is restricted and exposes rate, credit, and leg
   assert.match(page, /当前每次报价固定交付 1 张已验真候选/);
   assert.match(page, /max=\{1\}/);
   assert.match(page, /wan2\.7-image-pro/);
+  assert.match(api, /\/admin\/visual-agent\/budget-policies/);
+  assert.match(api, /\/admin\/visual-agent\/reconciliations/);
+  assert.match(page, /Provider 六层预算策略/);
+  assert.match(page, /模型调用人工对账/);
+  assert.match(page, /六层 reserveCents 必须一致/);
+  assert.match(page, /按证据关闭对账/);
   assert.match(app, /PERMISSIONS\.ADMIN_VISUAL_AGENT_MANAGE/);
   assert.match(layout, /path: '\/visual-agent', name: 'AI Visual Agent'/);
   assert.match(page, /PERMISSIONS\.PRODUCTS_AUDIT/);

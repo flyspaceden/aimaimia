@@ -286,4 +286,6 @@ VisualProviderCostRecord     # Provider 原始成本与对账证据（脱敏）
 
 当前本地候选已具备：受管媒体、质量计划、确定性白底与轻调、`VisualCreditAccount/Ledger`、商家报价/冻结/结算/释放、受控万相/Qwen 路由骨架、候选前后几何/二维码/条码和可选 OCR 验真、Client Key、可信 Adapter reservation bridge、公共资产/任务 API，以及爱买买上架图片的即时发布历史/CAS 回滚基础。
 
+2026-08-27 深度审查后补齐：平台端六层 Provider 预算策略管理、模型白名单/单候选报价约束、`RECONCILING` 队列和证据化人工关闭；人工结论会在同一事务同步 Provider 预算熔断、Invocation、商家 Quote/Account/Ledger，避免模型状态已关闭但商家额度永久冻结。商家端已确认任务可在刷新/离开商品页后恢复，不能重复冻结或重复提交。
+
 但它尚未完成真实模型执行与成本对账验收、颜色/数量/关键结构的深度评测、餐厅具体 Adapter、第三方 SDK/Webhook、40 张授权 shadow 样本或 staging 端到端验收。因此不得把当前基础候选描述为“强大的全品类 AI 美化服务已上线”。

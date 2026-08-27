@@ -1,5 +1,5 @@
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
-import { VisualAgentBudgetScope, VisualAgentInvocationStatus } from '@prisma/client';
+import { VisualAgentBudgetScope, VisualAgentInvocationStatus, VisualCreditQuoteStatus } from '@prisma/client';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 
 const scopes = [
@@ -36,18 +36,23 @@ function prismaMock(overrides: Record<string, any> = {}) {
     $executeRaw: jest.fn(),
     visualAgentInvocation: {
       findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn(),
       create: jest.fn().mockResolvedValue({ id: 'invocation-1', status: VisualAgentInvocationStatus.RESERVED, reservations: scopes.map((scope) => ({ scope })) }),
       update: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    visualAgentBudgetPolicy: { findMany: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    visualAgentBudgetPolicy: { findMany: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }), upsert: jest.fn() },
     visualAgentBudgetReservation: { aggregate: jest.fn().mockResolvedValue({ _sum: { amountCents: 0 } }) },
+    visualCreditAccount: { update: jest.fn() },
+    visualCreditQuote: { update: jest.fn() },
+    visualCreditLedger: { create: jest.fn() },
     ...overrides.tx,
   };
   return {
     $transaction: jest.fn(async (callback: any) => callback(tx)),
-    visualAgentInvocation: { ...tx.visualAgentInvocation, ...(overrides.root?.visualAgentInvocation ?? {}) },
-    ...Object.fromEntries(Object.entries(overrides.root ?? {}).filter(([key]) => key !== 'visualAgentInvocation')),
+    visualAgentInvocation: { ...tx.visualAgentInvocation, findMany: jest.fn(), ...(overrides.root?.visualAgentInvocation ?? {}) },
+    visualAgentBudgetPolicy: { findMany: jest.fn(), ...(overrides.root?.visualAgentBudgetPolicy ?? {}) },
+    ...Object.fromEntries(Object.entries(overrides.root ?? {}).filter(([key]) => !['visualAgentInvocation', 'visualAgentBudgetPolicy'].includes(key))),
     tx,
   };
 }
@@ -285,5 +290,94 @@ describe('VisualAgentInvocationService', () => {
       where: expect.objectContaining({ provider: 'BAILIAN_WAN', model: 'wan2.7-image', enabled: true }),
       data: { enabled: false },
     }));
+  });
+
+  it('activates only one budget-policy version for an exact scope and model route', async () => {
+    const prisma = prismaMock();
+    prisma.tx.visualAgentBudgetPolicy.upsert.mockResolvedValue({ id: 'policy-v2' });
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.upsertBudgetPolicy({
+      scope: VisualAgentBudgetScope.PLATFORM,
+      scopeKey: 'GLOBAL',
+      provider: 'BAILIAN_WAN',
+      model: 'wan2.7-image',
+      visualMode: 'PRESERVE_REAL_SCENE',
+      reserveCents: 20,
+      perTaskCapCents: 50,
+      dailyCapCents: 500,
+      weeklyCapCents: 2000,
+      policyVersion: 'v2',
+      enabled: true,
+      effectiveFrom: new Date(0),
+    })).resolves.toEqual({ id: 'policy-v2' });
+
+    expect(prisma.tx.visualAgentBudgetPolicy.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ scope: VisualAgentBudgetScope.PLATFORM, scopeKey: 'GLOBAL', policyVersion: { not: 'v2' } }),
+      data: { enabled: false },
+    }));
+    expect(prisma.tx.visualAgentBudgetPolicy.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ timezone: 'Asia/Shanghai', reserveCents: 20 }),
+    }));
+  });
+
+  it('rejects a budget policy whose route or caps cannot authorize a real task', async () => {
+    const prisma = prismaMock();
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.upsertBudgetPolicy({
+      scope: VisualAgentBudgetScope.PLATFORM,
+      scopeKey: 'GLOBAL',
+      provider: 'BAILIAN_WAN',
+      model: 'unsupported-model',
+      visualMode: 'PRESERVE_REAL_SCENE',
+      reserveCents: 20,
+      perTaskCapCents: 10,
+      dailyCapCents: 100,
+      weeklyCapCents: 50,
+      policyVersion: 'v1',
+      enabled: true,
+      effectiveFrom: new Date(0),
+    })).rejects.toThrow('预算策略不合法');
+    expect(prisma.tx.visualAgentBudgetPolicy.upsert).not.toHaveBeenCalled();
+  });
+
+  it('releases a linked merchant quote and frozen credits in the same manual reconciliation transaction', async () => {
+    const prisma = prismaMock();
+    prisma.tx.visualAgentInvocation.findFirst
+      .mockResolvedValueOnce({ provider: 'BAILIAN_WAN' })
+      .mockResolvedValueOnce({
+        id: 'invocation-1', provider: 'BAILIAN_WAN', model: 'wan2.7-image',
+        creditQuote: {
+          id: 'quote-1', tenantId: 'tenant-1', status: VisualCreditQuoteStatus.RECONCILING, creditCost: 15, quoteHash: 'c'.repeat(64),
+          billingAccount: { id: 'account-1', billingOwnerType: 'COMPANY', billingOwnerId: 'company-1', availableCredits: 185, reservedCredits: 15 },
+        },
+      });
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await service.resolveReconciliation({
+      invocationId: 'invocation-1', decision: 'RELEASED', creditDecision: 'RELEASE', operatorId: 'admin-1', evidenceRef: 'provider:no-charge-1',
+    });
+
+    expect(prisma.tx.visualCreditAccount.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ availableCredits: 200, reservedCredits: 0 }) }));
+    expect(prisma.tx.visualCreditQuote.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: VisualCreditQuoteStatus.RELEASED }) }));
+    expect(prisma.tx.visualCreditLedger.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'RELEASE', availableDelta: 15, reservedDelta: -15 }) }));
+  });
+
+  it('requires an explicit merchant-credit decision and opens the provider circuit for billing exceptions', async () => {
+    const prisma = prismaMock();
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.resolveReconciliation({
+      invocationId: 'invocation-1', decision: 'RELEASED', creditDecision: 'SETTLE', operatorId: 'admin-1', evidenceRef: 'provider:no-charge-1',
+    })).rejects.toThrow('必须释放商家冻结图片额度');
+
+    prisma.tx.visualAgentInvocation.findFirst
+      .mockResolvedValueOnce({ provider: 'BAILIAN_WAN' })
+      .mockResolvedValueOnce({ id: 'invocation-1', provider: 'BAILIAN_WAN', model: 'wan2.7-image', creditQuote: null });
+    await service.resolveReconciliation({
+      invocationId: 'invocation-1', decision: 'BILLING_EXCEPTION', creditDecision: 'SETTLE', operatorId: 'admin-1', evidenceRef: 'provider:bill-1',
+    });
+    expect(prisma.tx.visualAgentBudgetPolicy.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { enabled: false } }));
   });
 });

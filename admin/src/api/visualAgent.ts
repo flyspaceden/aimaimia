@@ -83,6 +83,44 @@ export type PaidVisualCandidateDetail = {
   candidate: { assetId: string; displayUrl: string; expiresAt: string; isAigc: true };
 };
 
+export type VisualBudgetPolicy = {
+  id: string;
+  scope: 'PLATFORM' | 'PROVIDER' | 'TENANT' | 'CLIENT' | 'EXTERNAL_OBJECT' | 'ACTOR';
+  scopeKey: string;
+  provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
+  model: 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro';
+  visualMode: 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH';
+  reserveCents: number;
+  perTaskCapCents: number;
+  dailyCapCents: number;
+  weeklyCapCents: number;
+  timezone: 'Asia/Shanghai';
+  policyVersion: string;
+  enabled: boolean;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+};
+
+export type VisualReconciliation = {
+  id: string;
+  tenantId: string;
+  ownerClientId: string;
+  adapterNamespace: string;
+  externalObjectId: string;
+  actorId: string;
+  provider: string;
+  model: string;
+  visualMode: string;
+  providerTaskId: string | null;
+  providerRequestId: string | null;
+  reservedCostCents: number;
+  actualCostCents: number | null;
+  reconciliationReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  creditQuote: { id: string; status: string; creditCost: number } | null;
+};
+
 const tenantBase = (tenantId: string) => `/admin/visual-agent/tenants/${encodeURIComponent(tenantId)}`;
 const accountBase = (tenantId: string, ownerType: string, ownerId: string) => `${tenantBase(tenantId)}/credit-accounts/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}`;
 
@@ -121,3 +159,15 @@ export const approvePaidVisualCandidateFacts = (id: string): Promise<{ approved:
 
 export const rejectPaidVisualCandidateFacts = (id: string, reason: string): Promise<{ rejected: true }> =>
   client.post(`/admin/product-paid-visual-candidates/${id}/reject-facts`, { reason });
+
+export const listVisualBudgetPolicies = (): Promise<VisualBudgetPolicy[]> =>
+  client.get('/admin/visual-agent/budget-policies');
+
+export const saveVisualBudgetPolicy = (data: Omit<VisualBudgetPolicy, 'id' | 'timezone' | 'effectiveFrom' | 'effectiveUntil'>): Promise<VisualBudgetPolicy> =>
+  client.post('/admin/visual-agent/budget-policies', data);
+
+export const listVisualReconciliations = (): Promise<VisualReconciliation[]> =>
+  client.get('/admin/visual-agent/reconciliations', { params: { take: 100 } });
+
+export const resolveVisualReconciliation = (id: string, data: { decision: 'RELEASED' | 'BILLING_EXCEPTION'; creditDecision: 'RELEASE' | 'SETTLE'; evidenceRef: string }): Promise<{ resolved: true }> =>
+  client.post(`/admin/visual-agent/reconciliations/${id}/resolve`, data);

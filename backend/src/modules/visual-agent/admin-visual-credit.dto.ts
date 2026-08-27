@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { VisualRateCardStatus } from '@prisma/client';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { VisualAgentBudgetScope, VisualRateCardStatus } from '@prisma/client';
 
 export class ConfigureVisualCreditWelcomePolicyDto {
   @IsBoolean()
@@ -123,4 +123,76 @@ export class AdminVisualCreditAdjustmentDto {
   @IsString()
   @MaxLength(160)
   idempotencyKey: string;
+}
+
+export class UpsertVisualAgentBudgetPolicyDto {
+  @IsEnum(VisualAgentBudgetScope)
+  scope: VisualAgentBudgetScope;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(240)
+  scopeKey: string;
+
+  @IsIn(['BAILIAN_WAN', 'BAILIAN_QWEN_IMAGE'])
+  provider: string;
+
+  @IsIn(['wan2.7-image', 'wan2.7-image-pro', 'qwen-image-3.0', 'qwen-image-3.0-pro'])
+  model: string;
+
+  @IsIn(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH'])
+  visualMode: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000_000)
+  reserveCents: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000_000)
+  perTaskCapCents: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000)
+  dailyCapCents: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000_000)
+  weeklyCapCents: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  policyVersion: string;
+
+  @IsBoolean()
+  enabled: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  effectiveFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  effectiveUntil?: string;
+}
+
+export class ResolveVisualAgentReconciliationDto {
+  @IsIn(['RELEASED', 'BILLING_EXCEPTION'])
+  decision: 'RELEASED' | 'BILLING_EXCEPTION';
+
+  @IsIn(['RELEASE', 'SETTLE'])
+  creditDecision: 'RELEASE' | 'SETTLE';
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  evidenceRef: string;
 }

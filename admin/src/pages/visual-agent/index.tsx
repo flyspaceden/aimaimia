@@ -11,11 +11,17 @@ import {
   getVisualCreditLedger,
   getVisualWelcomePolicy,
   grantVisualWelcomeCredits,
+  listVisualBudgetPolicies,
+  listVisualReconciliations,
   listVisualRateCards,
   rejectPaidVisualCandidateFacts,
+  resolveVisualReconciliation,
+  saveVisualBudgetPolicy,
   saveVisualRateCard,
   saveVisualWelcomePolicy,
   type PaidVisualCandidateQueueItem,
+  type VisualBudgetPolicy,
+  type VisualReconciliation,
   type VisualRateCard,
 } from '@/api/visualAgent';
 import useAuthStore from '@/store/useAuthStore';
@@ -31,8 +37,37 @@ const modelOptions = [
   { value: 'BAILIAN_QWEN_IMAGE', label: '千问图像 · qwen-image-3.0' },
   { value: 'BAILIAN_QWEN_IMAGE_PRO', label: '千问图像专业 · qwen-image-3.0-pro' },
 ];
+const budgetRouteOptions = [
+  { value: 'BAILIAN_WAN|wan2.7-image', label: '万相标准 · wan2.7-image' },
+  { value: 'BAILIAN_WAN|wan2.7-image-pro', label: '万相专业 · wan2.7-image-pro' },
+  { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0', label: '千问图像 · qwen-image-3.0' },
+  { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0-pro', label: '千问图像专业 · qwen-image-3.0-pro' },
+];
+const budgetScopeOptions = ['PLATFORM', 'PROVIDER', 'TENANT', 'CLIENT', 'EXTERNAL_OBJECT', 'ACTOR'].map((value) => ({ value }));
 
 type Scope = typeof DEFAULT_SCOPE;
+
+function canonicalBudgetScopeKey(values: { scope?: VisualBudgetPolicy['scope']; route?: string; targetId?: string }, scope: Scope) {
+  const part = (value: string) => `${value.length}:${value}`;
+  const provider = String(values.route || '').split('|')[0];
+  if (values.scope === 'PLATFORM') return 'GLOBAL';
+  if (values.scope === 'PROVIDER') return provider ? `provider:${part(provider)}` : '';
+  if (values.scope === 'TENANT') return `tenant:${part(scope.tenantId)}`;
+  if (values.scope === 'CLIENT') return `tenant:${part(scope.tenantId)}:client:${part(scope.clientId)}`;
+  if (values.scope === 'EXTERNAL_OBJECT' && values.targetId) return `tenant:${part(scope.tenantId)}:client:${part(scope.clientId)}:adapter:${part(scope.adapterNamespace)}:object:${part(values.targetId)}`;
+  if (values.scope === 'ACTOR' && values.targetId) return `tenant:${part(scope.tenantId)}:client:${part(scope.clientId)}:adapter:${part(scope.adapterNamespace)}:actor:${part(values.targetId)}`;
+  return '';
+}
+
+function budgetTargetId(policy: VisualBudgetPolicy) {
+  const marker = policy.scope === 'EXTERNAL_OBJECT' ? ':object:' : policy.scope === 'ACTOR' ? ':actor:' : null;
+  if (!marker) return '';
+  const suffix = policy.scopeKey.split(marker).at(-1) || '';
+  const separator = suffix.indexOf(':');
+  const length = Number(suffix.slice(0, separator));
+  const value = suffix.slice(separator + 1);
+  return Number.isInteger(length) && length >= 0 ? value.slice(0, length) : '';
+}
 
 function QueueItem({ item, selected, onSelect }: { item: PaidVisualCandidateQueueItem; selected: boolean; onSelect: () => void }) {
   return (
@@ -52,14 +87,20 @@ export default function VisualAgentPage() {
   const [scopeForm] = Form.useForm<Scope>();
   const [policyForm] = Form.useForm();
   const [rateCardForm] = Form.useForm();
+  const [budgetForm] = Form.useForm();
+  const [reconciliationForm] = Form.useForm();
   const [accountForm] = Form.useForm<{ ownerType: string; ownerId: string }>();
   const [rateCardOpen, setRateCardOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  const [selectedReconciliation, setSelectedReconciliation] = useState<VisualReconciliation>();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>();
   const [accountScope, setAccountScope] = useState<{ ownerType: string; ownerId: string }>();
   const canReviewCandidates = useAuthStore((state) => state.hasPermission(PERMISSIONS.PRODUCTS_AUDIT));
 
   const policy = useQuery({ queryKey: ['visual-agent', 'welcome-policy', scope.tenantId], queryFn: () => getVisualWelcomePolicy(scope.tenantId) });
   const rateCards = useQuery({ queryKey: ['visual-agent', 'rate-cards', scope], queryFn: () => listVisualRateCards(scope.tenantId, scope.clientId, scope.adapterNamespace) });
+  const budgetPolicies = useQuery({ queryKey: ['visual-agent', 'budget-policies'], queryFn: listVisualBudgetPolicies });
+  const reconciliations = useQuery({ queryKey: ['visual-agent', 'reconciliations'], queryFn: listVisualReconciliations, refetchInterval: 30_000 });
   const candidates = useQuery({ queryKey: ['visual-agent', 'paid-candidates'], queryFn: getPendingPaidVisualCandidates, enabled: canReviewCandidates, refetchInterval: 30_000 });
   const selectedCandidate = selectedCandidateId && candidates.data?.some((item) => item.id === selectedCandidateId)
     ? selectedCandidateId
@@ -143,6 +184,40 @@ export default function VisualAgentPage() {
     onSuccess: async () => { message.success('已驳回候选并保留审计原因'); await refreshCandidates(); },
     onError: (error) => message.error(error instanceof Error ? error.message : '候选驳回失败'),
   });
+  const saveBudget = useMutation({
+    mutationFn: (values: Record<string, unknown>) => {
+      const [provider, model] = String(values.route).split('|');
+      return saveVisualBudgetPolicy({
+        scope: values.scope as VisualBudgetPolicy['scope'],
+        scopeKey: canonicalBudgetScopeKey(values, scope),
+        provider: provider as VisualBudgetPolicy['provider'],
+        model: model as VisualBudgetPolicy['model'],
+        visualMode: values.visualMode as VisualBudgetPolicy['visualMode'],
+        reserveCents: Number(values.reserveCents),
+        perTaskCapCents: Number(values.perTaskCapCents),
+        dailyCapCents: Number(values.dailyCapCents),
+        weeklyCapCents: Number(values.weeklyCapCents),
+        policyVersion: String(values.policyVersion),
+        enabled: Boolean(values.enabled),
+      });
+    },
+    onSuccess: async () => {
+      message.success('预算策略已保存；同范围旧活动版本已自动停用');
+      setBudgetOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ['visual-agent', 'budget-policies'] });
+    },
+    onError: (error) => message.error(error instanceof Error ? error.message : '预算策略保存失败'),
+  });
+  const resolveReconciliation = useMutation({
+    mutationFn: (values: { decision: 'RELEASED' | 'BILLING_EXCEPTION'; creditDecision: 'RELEASE' | 'SETTLE'; evidenceRef: string }) =>
+      resolveVisualReconciliation(selectedReconciliation!.id, values),
+    onSuccess: async () => {
+      message.success('对账已关闭，模型调用、预算和商家冻结额度已同步处理');
+      setSelectedReconciliation(undefined);
+      await queryClient.invalidateQueries({ queryKey: ['visual-agent', 'reconciliations'] });
+    },
+    onError: (error) => message.error(error instanceof Error ? error.message : '人工对账失败'),
+  });
 
   const accountStats = creditAccount.data;
   const selectedRateCards = useMemo(() => rateCards.data ?? [], [rateCards.data]);
@@ -164,6 +239,22 @@ export default function VisualAgentPage() {
       allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
     });
     setRateCardOpen(true);
+  };
+  const openBudget = (policy?: VisualBudgetPolicy) => {
+    budgetForm.setFieldsValue(policy ? {
+      ...policy,
+      route: `${policy.provider}|${policy.model}`,
+      targetId: budgetTargetId(policy),
+    } : {
+      scope: 'PLATFORM', targetId: '', route: 'BAILIAN_WAN|wan2.7-image', visualMode: 'PRESERVE_REAL_SCENE',
+      reserveCents: 20, perTaskCapCents: 50, dailyCapCents: 500, weeklyCapCents: 2000,
+      policyVersion: 'v1', enabled: false,
+    });
+    setBudgetOpen(true);
+  };
+  const openReconciliation = (item: VisualReconciliation) => {
+    reconciliationForm.setFieldsValue({ decision: 'RELEASED', creditDecision: 'RELEASE', evidenceRef: '' });
+    setSelectedReconciliation(item);
   };
   const askAdjustment = () => {
     if (!accountScope) return;
@@ -256,6 +347,52 @@ export default function VisualAgentPage() {
         <Table style={{ marginTop: 12 }} rowKey="id" loading={rateCards.isLoading} dataSource={selectedRateCards} pagination={false} locale={{ emptyText: rateCards.isError ? '费率卡加载失败，请先重新加载配置' : '暂无费率卡' }} columns={[{ title: '商家方案', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.displayName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{row.code} · {row.version}</Text></Space> }, { title: '额度 / 候选', render: (_, row) => `${row.creditCost} / ${row.candidateCount}` }, { title: '模型档', dataIndex: 'modelProfile' }, { title: '巡检策略', dataIndex: 'requiresHumanReview', render: (value) => value ? <Tag color="gold">发布后优先巡检</Tag> : <Tag color="green">按策略自动验真</Tag> }, { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'ACTIVE' ? 'green' : value === 'PAUSED' ? 'orange' : 'default'}>{value}</Tag> }, { title: '操作', render: (_, row) => <Button type="link" onClick={() => openRateCard(row)}>编辑</Button> }]} />
       </Card>
 
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} xl={14}>
+          <Card title="Provider 六层预算策略" extra={<Button type="primary" onClick={() => openBudget()}>新增预算策略</Button>} style={{ height: '100%' }}>
+            <Alert type="info" showIcon message="真实模型调用必须同时命中六层活动策略" description="PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 缺一不可；六层 reserveCents 必须一致。保存活动版本时会自动停用同一精确范围的旧版本。" style={{ marginBottom: 12 }} />
+            {budgetPolicies.isError && <Alert type="error" showIcon message="预算策略加载失败" action={<Button size="small" onClick={() => budgetPolicies.refetch()}>重新加载</Button>} style={{ marginBottom: 12 }} />}
+            <Table<VisualBudgetPolicy>
+              size="small"
+              rowKey="id"
+              loading={budgetPolicies.isLoading}
+              dataSource={budgetPolicies.data}
+              pagination={{ pageSize: 8 }}
+              scroll={{ x: 980 }}
+              columns={[
+                { title: '范围', dataIndex: 'scope', width: 130, render: (value, row) => <Space direction="vertical" size={0}><Tag>{value}</Tag><Text type="secondary" ellipsis style={{ maxWidth: 180, fontSize: 11 }}>{row.scopeKey}</Text></Space> },
+                { title: '模型路线', width: 210, render: (_, row) => <Space direction="vertical" size={0}><Text>{row.provider}</Text><Text type="secondary">{row.model}</Text></Space> },
+                { title: '模式', dataIndex: 'visualMode', width: 170 },
+                { title: '预占 / 单次', width: 110, render: (_, row) => `${row.reserveCents} / ${row.perTaskCapCents} 分` },
+                { title: '日 / 周上限', width: 130, render: (_, row) => `${row.dailyCapCents} / ${row.weeklyCapCents} 分` },
+                { title: '版本', width: 100, render: (_, row) => <Space><Tag color={row.enabled ? 'green' : 'default'}>{row.enabled ? '启用' : '停用'}</Tag>{row.policyVersion}</Space> },
+                { title: '操作', width: 70, fixed: 'right', render: (_, row) => <Button type="link" onClick={() => openBudget(row)}>编辑</Button> },
+              ]}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} xl={10}>
+          <Card title="模型调用人工对账" extra={<Tag color={reconciliations.data?.length ? 'red' : 'green'}>{reconciliations.data?.length ?? 0} 项待处理</Tag>} style={{ height: '100%' }}>
+            <Text type="secondary">只处理 Provider 控制台或账单已经给出证据的调用。释放/结算商家冻结额度与调用状态在同一事务收口。</Text>
+            {reconciliations.isError && <Alert type="error" showIcon message="对账队列加载失败" action={<Button size="small" onClick={() => reconciliations.refetch()}>重新加载</Button>} style={{ marginTop: 12 }} />}
+            <Table<VisualReconciliation>
+              size="small"
+              rowKey="id"
+              loading={reconciliations.isLoading}
+              dataSource={reconciliations.data}
+              pagination={{ pageSize: 6 }}
+              style={{ marginTop: 12 }}
+              columns={[
+                { title: '调用', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.model}</Text><Text type="secondary" style={{ fontSize: 11 }}>{row.externalObjectId}</Text></Space> },
+                { title: '原因', dataIndex: 'reconciliationReason', ellipsis: true },
+                { title: '冻结', width: 72, render: (_, row) => row.creditQuote ? `${row.creditQuote.creditCost} 额度` : '无' },
+                { title: '操作', width: 90, render: (_, row) => <Button danger size="small" onClick={() => openReconciliation(row)}>处理对账</Button> },
+              ]}
+            />
+          </Card>
+        </Col>
+      </Row>
+
       <Card title="历史付费候选处理" extra={<Tag color="gold">新候选不做发布前预审批</Tag>}>
         {canReviewCandidates ? <><Text type="secondary">这里只兼容已存在的待复核候选。新候选在未发现明确事实不一致时可由商家显式采用；已上架商品采用后立即发布，并由商品图片巡检台承接事后回滚。</Text>
         <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 16, marginTop: 14 }}>
@@ -285,6 +422,53 @@ export default function VisualAgentPage() {
           <Row gutter={12}><Col span={12}><Form.Item name="candidateRole" label="候选角色" rules={[{ required: true }]}><Select options={[{ value: 'FACT_MAIN_IMAGE', label: 'FACT_MAIN_IMAGE' }, { value: 'DETAIL_IMAGE', label: 'DETAIL_IMAGE' }, { value: 'MARKETING_IMAGE', label: 'MARKETING_IMAGE' }]} /></Form.Item></Col><Col span={12}><Form.Item name="requiresHumanReview" label="巡检优先策略" valuePropName="checked"><Checkbox>无法完全自动确认时提升事后巡检优先级</Checkbox></Form.Item></Col></Row>
           <Form.Item name="outputSpec" label="输出规格 JSON" rules={[{ required: true }]}><Input.TextArea rows={4} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }} /></Form.Item>
         </Form>
+      </Modal>
+
+      <Modal title="Provider 预算策略" open={budgetOpen} onCancel={() => setBudgetOpen(false)} onOk={() => budgetForm.submit()} confirmLoading={saveBudget.isPending} width={820} okText="保存预算策略">
+        <Form form={budgetForm} layout="vertical" onFinish={(values) => saveBudget.mutate(values)}>
+          <Alert type="warning" showIcon message="预算策略不会自动开通模型" description="只有六层精确策略、Provider Key、运行时开关和真实验收同时就绪，模型任务才可能执行。" style={{ marginBottom: 14 }} />
+          <Row gutter={12}><Col span={8}><Form.Item name="scope" label="预算层级" rules={[{ required: true }]}><Select options={budgetScopeOptions} /></Form.Item></Col><Col span={16}><Form.Item name="targetId" label="业务对象 / 操作人 ID" extra="仅 EXTERNAL_OBJECT 和 ACTOR 层级需要填写" dependencies={['scope']} rules={[({ getFieldValue }) => ({ validator: async (_, value) => { if (['EXTERNAL_OBJECT', 'ACTOR'].includes(getFieldValue('scope')) && !String(value || '').trim()) throw new Error('该预算层级必须填写目标 ID'); } })]}><Input placeholder="例如 Product ID 或 Staff ID" /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="route" label="Provider 模型路线" rules={[{ required: true }]}><Select options={budgetRouteOptions} /></Form.Item></Col><Col span={12}><Form.Item name="visualMode" label="视觉模式" rules={[{ required: true }]}><Select options={directionOptions.map((value) => ({ value }))} /></Form.Item></Col></Row>
+          <Form.Item noStyle shouldUpdate>{({ getFieldsValue }) => <Alert type="info" showIcon message="将保存到精确范围键" description={canonicalBudgetScopeKey(getFieldsValue(), scope) || '请先补齐预算层级、模型路线和目标 ID'} style={{ marginBottom: 14 }} />}</Form.Item>
+          <Row gutter={12}>
+            <Col span={6}><Form.Item name="reserveCents" label="预占成本（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="perTaskCapCents" label="单次上限（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="dailyCapCents" label="每日上限（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={6}><Form.Item name="weeklyCapCents" label="每周上限（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
+          </Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="policyVersion" label="策略版本" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="enabled" label="是否启用" valuePropName="checked"><Checkbox>启用该精确范围版本</Checkbox></Form.Item></Col></Row>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="关闭模型调用对账"
+        open={Boolean(selectedReconciliation)}
+        onCancel={() => setSelectedReconciliation(undefined)}
+        confirmLoading={resolveReconciliation.isPending}
+        okText="按证据关闭对账"
+        okButtonProps={{ danger: true }}
+        onOk={async () => {
+          const values = await reconciliationForm.validateFields();
+          if (values.decision === 'RELEASED' && values.creditDecision !== 'RELEASE') {
+            message.warning('Provider 明确未计费时，必须把商家冻结图片额度退回');
+            return;
+          }
+          await resolveReconciliation.mutateAsync(values);
+        }}
+      >
+        {selectedReconciliation && <>
+          <Descriptions size="small" column={2} style={{ marginBottom: 14 }}>
+            <Descriptions.Item label="Provider / 模型">{selectedReconciliation.provider} / {selectedReconciliation.model}</Descriptions.Item>
+            <Descriptions.Item label="业务对象">{selectedReconciliation.externalObjectId}</Descriptions.Item>
+            <Descriptions.Item label="Provider Task">{selectedReconciliation.providerTaskId || '未取得'}</Descriptions.Item>
+            <Descriptions.Item label="商家冻结额度">{selectedReconciliation.creditQuote?.creditCost ?? 0}</Descriptions.Item>
+          </Descriptions>
+          <Form form={reconciliationForm} layout="vertical">
+            <Form.Item name="decision" label="Provider 调用结论" rules={[{ required: true }]}><Select options={[{ value: 'RELEASED', label: '明确未计费，释放 Provider 预算' }, { value: 'BILLING_EXCEPTION', label: '存在计费异常，停用该 Provider 模型策略' }]} /></Form.Item>
+            <Form.Item name="creditDecision" label="商家图片额度结论" rules={[{ required: true }]}><Select options={[{ value: 'RELEASE', label: '退回冻结图片额度' }, { value: 'SETTLE', label: '按已生成/已计费规则结算图片额度' }]} /></Form.Item>
+            <Form.Item name="evidenceRef" label="Provider 控制台或账单证据编号" rules={[{ required: true, message: '必须填写可追溯的证据编号' }, { pattern: /^[A-Za-z0-9._:/-]{1,200}$/, message: '证据编号只能使用字母、数字和 . _ : / -' }]}><Input placeholder="例如 provider:task-123:no-charge" /></Form.Item>
+          </Form>
+        </>}
       </Modal>
     </div>
   );

@@ -1,4 +1,4 @@
-import { VisualRateCardStatus } from '@prisma/client';
+import { VisualAgentBudgetScope, VisualRateCardStatus } from '@prisma/client';
 import { AdminVisualCreditController } from './admin-visual-credit.controller';
 
 describe('AdminVisualCreditController', () => {
@@ -13,7 +13,13 @@ describe('AdminVisualCreditController', () => {
       listLedger: jest.fn(),
       adminAdjust: jest.fn().mockResolvedValue({ ledger: { id: 'ledger-1' } }),
     };
-    return { controller: new AdminVisualCreditController(credits as any), credits };
+    const invocations = {
+      listBudgetPolicies: jest.fn().mockResolvedValue([{ id: 'budget-1' }]),
+      upsertBudgetPolicy: jest.fn().mockResolvedValue({ id: 'budget-1' }),
+      listReconciliations: jest.fn().mockResolvedValue([{ id: 'invocation-1' }]),
+      resolveReconciliation: jest.fn().mockResolvedValue(undefined),
+    };
+    return { controller: new AdminVisualCreditController(credits as any, invocations as any), credits, invocations };
   }
 
   it('maps platform welcome-policy fields without using a buyer reward account', async () => {
@@ -50,6 +56,26 @@ describe('AdminVisualCreditController', () => {
     expect(credits.adminAdjust).toHaveBeenCalledWith({
       tenantId: 'aimai-tenant', billingOwnerType: 'COMPANY', billingOwnerId: 'company-1',
       availableDelta: 30, reason: '售后补偿', idempotencyKey: 'adjust-1', operatorId: 'admin-1',
+    });
+  });
+
+  it('maps budget policy and reconciliation controls to the invocation service', async () => {
+    const { controller, invocations } = build();
+    await expect(controller.upsertBudgetPolicy({
+      scope: VisualAgentBudgetScope.PLATFORM,
+      scopeKey: 'GLOBAL', provider: 'BAILIAN_WAN', model: 'wan2.7-image', visualMode: 'PRESERVE_REAL_SCENE',
+      reserveCents: 20, perTaskCapCents: 50, dailyCapCents: 500, weeklyCapCents: 2000,
+      policyVersion: 'v1', enabled: true,
+    })).resolves.toEqual({ id: 'budget-1' });
+    expect(invocations.upsertBudgetPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      scope: VisualAgentBudgetScope.PLATFORM, scopeKey: 'GLOBAL', effectiveFrom: expect.any(Date),
+    }));
+
+    await expect(controller.resolveReconciliation('invocation-1', {
+      decision: 'RELEASED', creditDecision: 'RELEASE', evidenceRef: 'provider:no-charge-1',
+    }, 'admin-1')).resolves.toEqual({ resolved: true });
+    expect(invocations.resolveReconciliation).toHaveBeenCalledWith({
+      invocationId: 'invocation-1', decision: 'RELEASED', creditDecision: 'RELEASE', evidenceRef: 'provider:no-charge-1', operatorId: 'admin-1',
     });
   });
 });

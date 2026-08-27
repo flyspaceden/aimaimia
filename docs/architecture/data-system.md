@@ -473,6 +473,11 @@ SellerUserRole
 - leaseGeneration / leaseToken / leaseExpiresAt / attemptCount — worker 条件领取与超时对账；同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING/RECONCILING 任务由部分唯一索引互斥。付费请求在供应商结果或账单未确定时必须进入 RECONCILING，禁止释放去重锁后再次发起收费请求
 - failureCode / failureDetail / startedAt / completedAt / expiresAt
 
+#### VisualAgentBudgetPolicy / RECONCILING 运行治理（2026-08-27）
+- 每次真实模型调用必须同时命中 PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 六层、同 Provider/模型/visualMode 且当前有效的唯一活动策略；六层 `reserveCents` 必须一致。
+- 平台只可通过高权限 API 写入白名单 Provider/模型与正整数 `reserveCents / perTaskCapCents / dailyCapCents / weeklyCapCents`；启用同范围新版本时服务端收口旧版本，避免并行活动策略导致调用永久 fail-closed。
+- `VisualAgentInvocation(RECONCILING)` 的人工关闭必须携带外部证据编号，并在一个 Serializable 事务中同步 Invocation 终态、Provider 模型预算熔断（如适用）、关联 `VisualCreditQuote`、`VisualCreditAccount` 和 `VisualCreditLedger`。未计费结论必须 `RELEASE` 商家冻结额度；不得只改 Invocation 而遗留冻结余额。
+
 #### ProductImageArtifact（私有任务产物）
 - optimizationId (FK), kind (MASK/FOREGROUND_REFERENCE/CANDIDATE/INTEGRITY_PROOF)
 - assetId (nullable FK SellerMediaAsset), objectKey（非唯一；同一受管原图可在失败/过期后建立新的任务审计记录）, sha256, mimeType, byteSize, width, height

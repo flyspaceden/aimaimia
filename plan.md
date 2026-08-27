@@ -1947,7 +1947,7 @@
 - [x] **PVA-Demo** 角色体验演示（本地静态原型）：`docs/ui-prototypes/2026-08-27-ai-visual-agent-role-demo.html` 以商家与管理员两种视角交互展示“实拍 → 免费分析 → 报价/冻结 → 候选 → 自动验真/巡检优先 → 显式采用 → 事后回滚”的当前代码流程；页面不连接 API、Key、额度或模型，不代表 staging/生产效果。
 - [x] **PVA-Governance** 商品图片治理改为“即时发布、事后巡检”：按 `docs/superpowers/specs/2026-08-27-product-media-post-publication-governance.md`，已取消新已上架商品的预审批；保留系统事实硬门禁、历史媒体快照、CAS、管理员回滚和含原因的商家通知。定向后端 38 suites / 226 tests、卖家 17/17、管理端 16/16、三端 build、Prisma validate 和范围审查均通过。**未**运行迁移、push、部署、真实模型或真实费用测试。
 - [x] **PVA-Audit01** 商家/管理员真实按钮与资金状态深审第一批：修复普通保存误带公开媒体、图片变更正确引导、确认任务刷新恢复、轮询错误可见、回滚通知事务一致、幂等键错绑、Provider 前置失败释放额度、模型档/候选数报价失真、管理端加载/写入错误不可见和旧菜单名称。相关后端 38 suites / 234 tests、Seller 19/19、Admin 16/16、三端 build 通过；本地浏览器以隔离 mock API 实际点击商家和管理员关键路径。未运行迁移、push、部署或真实付费模型。
-- [ ] **PVA-Audit02** 平台运行控制缺口：补齐六层 Provider 预算策略管理、`RECONCILING` 调用队列和带证据的人工关闭，并确保 Invocation、图片额度 Quote 和 Provider 预算在同一业务结论下收口；完成后再做第二轮按钮验收。
+- [x] **PVA-Audit02** 平台运行控制缺口：已补齐六层 Provider 预算策略管理、canonical scope key 生成、`RECONCILING` 调用队列和带证据的人工关闭；Invocation、图片额度 Quote/Account/Ledger 与 Provider 预算在同一 Serializable 事务收口，未计费强制退回商家额度，计费异常熔断相关模型预算。后端定向 22/22、Admin 16/16 和 build 通过；本地浏览器实际验证预算新增/保存、证据必填、对账关闭与队列归零。仍未运行 migration、push、部署或真实 Provider 对账。
 
 ## 商品自动定价一致性（2026-08-17）
 

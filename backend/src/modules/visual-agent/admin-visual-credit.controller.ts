@@ -7,15 +7,57 @@ import { AuditLog } from '../admin/common/decorators/audit-action';
 import { AdminAuthGuard } from '../admin/common/guards/admin-auth.guard';
 import { PermissionGuard } from '../admin/common/guards/permission.guard';
 import { AuditLogInterceptor } from '../admin/common/interceptors/audit-log.interceptor';
-import { AdminVisualCreditAdjustmentDto, ConfigureVisualCreditWelcomePolicyDto, UpsertVisualRateCardDto } from './admin-visual-credit.dto';
+import { AdminVisualCreditAdjustmentDto, ConfigureVisualCreditWelcomePolicyDto, ResolveVisualAgentReconciliationDto, UpsertVisualAgentBudgetPolicyDto, UpsertVisualRateCardDto } from './admin-visual-credit.dto';
 import { VisualCreditService } from './visual-credit.service';
+import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 
 @Public()
 @UseGuards(AdminAuthGuard, PermissionGuard)
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin/visual-agent')
 export class AdminVisualCreditController {
-  constructor(private readonly credits: VisualCreditService) {}
+  constructor(
+    private readonly credits: VisualCreditService,
+    private readonly invocations: VisualAgentInvocationService,
+  ) {}
+
+  @Get('budget-policies')
+  @RequirePermission('admin_visual_agent:manage')
+  listBudgetPolicies(
+    @Query('provider') provider?: string,
+    @Query('model') model?: string,
+  ) {
+    return this.invocations.listBudgetPolicies({ provider, model });
+  }
+
+  @Post('budget-policies')
+  @RequirePermission('admin_visual_agent:manage')
+  @AuditLog({ action: 'CONFIG_CHANGE', module: 'visual-agent', isReversible: false })
+  upsertBudgetPolicy(@Body() dto: UpsertVisualAgentBudgetPolicyDto) {
+    return this.invocations.upsertBudgetPolicy({
+      ...dto,
+      effectiveFrom: dto.effectiveFrom ? new Date(dto.effectiveFrom) : new Date(),
+      effectiveUntil: dto.effectiveUntil ? new Date(dto.effectiveUntil) : null,
+    });
+  }
+
+  @Get('reconciliations')
+  @RequirePermission('admin_visual_agent:manage')
+  listReconciliations(@Query('take') take?: string) {
+    return this.invocations.listReconciliations(take ? Number(take) : 100);
+  }
+
+  @Post('reconciliations/:invocationId/resolve')
+  @RequirePermission('admin_visual_agent:manage')
+  @AuditLog({ action: 'CONFIG_CHANGE', module: 'visual-agent-reconciliation', targetType: 'VisualAgentInvocation', targetIdParam: 'params.invocationId', isReversible: false, reasonBodyField: 'evidenceRef' })
+  async resolveReconciliation(
+    @Param('invocationId') invocationId: string,
+    @Body() dto: ResolveVisualAgentReconciliationDto,
+    @CurrentAdmin('sub') operatorId: string,
+  ) {
+    await this.invocations.resolveReconciliation({ invocationId, operatorId, ...dto });
+    return { resolved: true };
+  }
 
   @Get('tenants/:tenantId/welcome-credit-policy')
   @RequirePermission('admin_visual_agent:manage')

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma, VisualAgentBudgetScope, VisualAgentInvocationStatus } from '@prisma/client';
+import { Prisma, VisualAgentBudgetScope, VisualAgentInvocationStatus, VisualCreditLedgerType, VisualCreditQuoteStatus } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -43,6 +43,13 @@ const COST_SETTLEABLE_STATUSES: VisualAgentInvocationStatus[] = [
   VisualAgentInvocationStatus.SUCCEEDED,
   VisualAgentInvocationStatus.RECONCILING,
 ];
+const SUPPORTED_PROVIDER_MODELS = new Set([
+  'BAILIAN_WAN:wan2.7-image',
+  'BAILIAN_WAN:wan2.7-image-pro',
+  'BAILIAN_QWEN_IMAGE:qwen-image-3.0',
+  'BAILIAN_QWEN_IMAGE:qwen-image-3.0-pro',
+]);
+const SUPPORTED_VISUAL_MODES = new Set(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH']);
 
 export type ReserveVisualAgentInvocationInput = {
   tenantId: string;
@@ -91,6 +98,115 @@ export type VisualSynchronousProviderOutcome =
 @Injectable()
 export class VisualAgentInvocationService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listBudgetPolicies(input: { provider?: string; model?: string; take?: number } = {}) {
+    return this.prisma.visualAgentBudgetPolicy.findMany({
+      where: {
+        ...(input.provider ? { provider: input.provider } : {}),
+        ...(input.model ? { model: input.model } : {}),
+      },
+      orderBy: [{ provider: 'asc' }, { model: 'asc' }, { visualMode: 'asc' }, { scope: 'asc' }, { effectiveFrom: 'desc' }],
+      take: Math.min(Math.max(input.take ?? 200, 1), 500),
+    });
+  }
+
+  async upsertBudgetPolicy(input: {
+    scope: VisualAgentBudgetScope;
+    scopeKey: string;
+    provider: string;
+    model: string;
+    visualMode: string;
+    reserveCents: number;
+    perTaskCapCents: number;
+    dailyCapCents: number;
+    weeklyCapCents: number;
+    policyVersion: string;
+    enabled: boolean;
+    effectiveFrom: Date;
+    effectiveUntil?: Date | null;
+  }) {
+    const identifiers = [input.scopeKey, input.provider, input.model, input.visualMode, input.policyVersion];
+    if (identifiers.some((value) => !/^[A-Za-z0-9._:/-]{1,240}$/.test(value))
+      || !SUPPORTED_PROVIDER_MODELS.has(`${input.provider}:${input.model}`)
+      || !SUPPORTED_VISUAL_MODES.has(input.visualMode)
+      || !Number.isInteger(input.reserveCents) || input.reserveCents <= 0
+      || !Number.isInteger(input.perTaskCapCents) || input.perTaskCapCents < input.reserveCents
+      || !Number.isInteger(input.dailyCapCents) || input.dailyCapCents < input.reserveCents
+      || !Number.isInteger(input.weeklyCapCents) || input.weeklyCapCents < input.dailyCapCents
+      || (input.effectiveUntil && input.effectiveUntil <= input.effectiveFrom)) {
+      throw new ConflictException('AI Visual Agent 预算策略不合法');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = `VISUAL_AGENT_BUDGET_POLICY:${input.scope}:${input.scopeKey}:${input.provider}:${input.model}:${input.visualMode}`;
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      if (input.enabled) {
+        const activatesInFuture = input.effectiveFrom > new Date();
+        await tx.visualAgentBudgetPolicy.updateMany({
+          where: {
+            scope: input.scope,
+            scopeKey: input.scopeKey,
+            provider: input.provider,
+            model: input.model,
+            visualMode: input.visualMode,
+            enabled: true,
+            policyVersion: { not: input.policyVersion },
+          },
+          data: activatesInFuture ? { effectiveUntil: input.effectiveFrom } : { enabled: false },
+        });
+      }
+      return tx.visualAgentBudgetPolicy.upsert({
+        where: {
+          scope_scopeKey_provider_model_visualMode_policyVersion: {
+            scope: input.scope,
+            scopeKey: input.scopeKey,
+            provider: input.provider,
+            model: input.model,
+            visualMode: input.visualMode,
+            policyVersion: input.policyVersion,
+          },
+        },
+        create: { ...input, timezone: 'Asia/Shanghai', effectiveUntil: input.effectiveUntil ?? null },
+        update: {
+          reserveCents: input.reserveCents,
+          perTaskCapCents: input.perTaskCapCents,
+          dailyCapCents: input.dailyCapCents,
+          weeklyCapCents: input.weeklyCapCents,
+          enabled: input.enabled,
+          effectiveFrom: input.effectiveFrom,
+          effectiveUntil: input.effectiveUntil ?? null,
+          timezone: 'Asia/Shanghai',
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async listReconciliations(take = 100) {
+    const safeTake = Number.isInteger(take) ? take : 100;
+    return this.prisma.visualAgentInvocation.findMany({
+      where: { status: VisualAgentInvocationStatus.RECONCILING },
+      orderBy: { updatedAt: 'asc' },
+      take: Math.min(Math.max(safeTake, 1), 200),
+      select: {
+        id: true,
+        tenantId: true,
+        ownerClientId: true,
+        adapterNamespace: true,
+        externalObjectId: true,
+        actorId: true,
+        provider: true,
+        model: true,
+        visualMode: true,
+        providerTaskId: true,
+        providerRequestId: true,
+        reservedCostCents: true,
+        actualCostCents: true,
+        reconciliationReason: true,
+        createdAt: true,
+        updatedAt: true,
+        creditQuote: { select: { id: true, status: true, creditCost: true } },
+      },
+    });
+  }
 
   async reserve(input: ReserveVisualAgentInvocationInput): Promise<VisualAgentReservedInvocation> {
     this.assertReserveInput(input);
@@ -491,11 +607,15 @@ export class VisualAgentInvocationService {
   async resolveReconciliation(input: {
     invocationId: string;
     decision: 'RELEASED' | 'BILLING_EXCEPTION';
+    creditDecision: 'RELEASE' | 'SETTLE';
     operatorId: string;
     evidenceRef: string;
   }) {
     if (![input.invocationId, input.operatorId, input.evidenceRef].every((value) => /^[A-Za-z0-9._:/-]{1,200}$/.test(value))) {
       throw new ConflictException('AI Visual Agent 对账证据格式不合法');
+    }
+    if (input.decision === 'RELEASED' && input.creditDecision !== 'RELEASE') {
+      throw new ConflictException('Provider 明确未计费时必须释放商家冻结图片额度');
     }
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findFirst({
@@ -506,7 +626,12 @@ export class VisualAgentInvocationService {
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${this.providerBudgetLockKey(providerRef.provider)}))`);
       const invocation = await tx.visualAgentInvocation.findFirst({
         where: { id: input.invocationId, status: VisualAgentInvocationStatus.RECONCILING },
-        select: { id: true, provider: true, model: true },
+        select: {
+          id: true,
+          provider: true,
+          model: true,
+          creditQuote: { include: { billingAccount: true } },
+        },
       });
       if (!invocation) throw new ConflictException('AI Visual Agent 不在可人工对账状态');
       await tx.visualAgentInvocation.update({
@@ -523,6 +648,9 @@ export class VisualAgentInvocationService {
           where: { provider: invocation.provider, model: invocation.model, enabled: true },
           data: { enabled: false },
         });
+      }
+      if (invocation.creditQuote) {
+        await this.closeCreditQuoteForReconciliation(tx, invocation.creditQuote, input);
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
@@ -623,6 +751,68 @@ export class VisualAgentInvocationService {
 
   private providerBudgetLockKey(provider: string) {
     return `VISUAL_AGENT_BUDGET:PROVIDER:${this.providerBudgetScopeKey(provider)}`;
+  }
+
+  private async closeCreditQuoteForReconciliation(
+    tx: any,
+    quote: {
+      id: string;
+      tenantId: string;
+      status: VisualCreditQuoteStatus;
+      creditCost: number;
+      quoteHash: string;
+      billingAccount: {
+        id: string;
+        billingOwnerType: string;
+        billingOwnerId: string;
+        availableCredits: number;
+        reservedCredits: number;
+      };
+    },
+    input: { creditDecision: 'RELEASE' | 'SETTLE'; operatorId: string; evidenceRef: string },
+  ) {
+    const targetStatus = input.creditDecision === 'RELEASE' ? VisualCreditQuoteStatus.RELEASED : VisualCreditQuoteStatus.SETTLED;
+    if (quote.status === VisualCreditQuoteStatus.RELEASED || quote.status === VisualCreditQuoteStatus.SETTLED) {
+      if (quote.status !== targetStatus) throw new ConflictException('Provider 对账结论与已关闭的商家额度状态冲突');
+      return;
+    }
+    if (quote.status !== VisualCreditQuoteStatus.RESERVED && quote.status !== VisualCreditQuoteStatus.RECONCILING) {
+      throw new ConflictException('关联商家图片额度报价当前不能人工关闭');
+    }
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`VISUAL_CREDIT_ACCOUNT:${quote.tenantId}:${quote.billingAccount.billingOwnerType}:${quote.billingAccount.billingOwnerId}`}))`);
+    if (quote.billingAccount.reservedCredits < quote.creditCost) {
+      throw new ConflictException('关联商家图片额度冻结余额异常，不能完成人工对账');
+    }
+    const release = input.creditDecision === 'RELEASE';
+    const availableAfter = quote.billingAccount.availableCredits + (release ? quote.creditCost : 0);
+    const reservedAfter = quote.billingAccount.reservedCredits - quote.creditCost;
+    await tx.visualCreditAccount.update({
+      where: { id: quote.billingAccount.id },
+      data: { availableCredits: availableAfter, reservedCredits: reservedAfter, version: { increment: 1 } },
+    });
+    await tx.visualCreditQuote.update({
+      where: { id: quote.id },
+      data: {
+        status: targetStatus,
+        releasedAt: release ? new Date() : null,
+        settledAt: release ? null : new Date(),
+        failureReason: `MANUAL_RECONCILIATION:${input.evidenceRef}`.slice(0, 160),
+      },
+    });
+    await tx.visualCreditLedger.create({
+      data: {
+        accountId: quote.billingAccount.id,
+        quoteId: quote.id,
+        type: release ? VisualCreditLedgerType.RELEASE : VisualCreditLedgerType.SETTLE,
+        availableDelta: release ? quote.creditCost : 0,
+        reservedDelta: -quote.creditCost,
+        availableBalanceAfter: availableAfter,
+        reservedBalanceAfter: reservedAfter,
+        idempotencyKey: `quote:${quote.id}:${release ? 'release' : 'settle'}`,
+        reason: `人工对账 ${input.operatorId}：${input.evidenceRef}`.slice(0, 400),
+        metadata: { quoteHash: quote.quoteHash, operatorId: input.operatorId, evidenceRef: input.evidenceRef } as Prisma.InputJsonValue,
+      },
+    });
   }
 
   private hasPositiveCaps(policy: { perTaskCapCents: number; dailyCapCents: number; weeklyCapCents: number }) {
