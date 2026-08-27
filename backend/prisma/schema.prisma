@@ -145,6 +145,8 @@ enum ProductMediaRevisionStatus {
   REJECTED
   WITHDRAWN
   EXPIRED
+  APPLIED_BY_SELLER
+  ROLLED_BACK_BY_ADMIN
 }
 
 enum ProductImageOptimizationKind {
@@ -2420,6 +2422,8 @@ model ProductMediaRevision {
   optimizationId       String?
   optimization         ProductImageOptimization?  @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
   expectedMediaVersion Int
+  appliedMediaVersion  Int?
+  previousMedia        Json?
   proposedMedia        Json
   status               ProductMediaRevisionStatus @default(PENDING_REVIEW)
   requestedByStaffId   String
@@ -2430,6 +2434,7 @@ model ProductMediaRevision {
   reviewedAt           DateTime?
   reviewNote           String?
   appliedAt            DateTime?
+  rolledBackAt         DateTime?
   expiresAt            DateTime?
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt

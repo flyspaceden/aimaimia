@@ -85,7 +85,7 @@ describe('ProductImageOptimizationService deterministic white-background task', 
         proof: { algorithm: 'pixel-aligned-deterministic-free-tune-v1', geometryIdentity: true, outputSha256: 'candidate-sha' },
       }),
     };
-    const revisions = { requestOptimizationAdoption: jest.fn() };
+    const revisions = { applyOptimizationAdoption: jest.fn() };
     return {
       service: new ProductImageOptimizationService(prisma as any, upload as any, mediaAssets as any, composition as any, revisions as any),
       prisma, tx, upload, mediaAssets, composition,
@@ -456,7 +456,7 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     expect(prisma.product.findFirst).not.toHaveBeenCalled();
   });
 
-  it('does not directly write candidate media if the product becomes active and approved during adoption', async () => {
+  it('uses the immediate-publication history path if the product becomes active during adoption', async () => {
     const candidate = { id: 'candidate-asset', status: 'CANDIDATE', objectKey: 'seller-product-assets/candidate.png' };
     const sourceAsset = { id: 'source-asset', status: 'AVAILABLE', objectKey: 'seller-product-assets/source.webp' };
     const tx = {
@@ -477,12 +477,16 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', status: 'INACTIVE', auditStatus: 'PENDING' }) },
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
-    const service = new ProductImageOptimizationService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    const revisions = { applyOptimizationAdoption: jest.fn().mockResolvedValue({ id: 'revision-1' }) };
+    const service = new ProductImageOptimizationService(prisma as any, {} as any, {} as any, {} as any, revisions as any);
 
     await expect(service.adopt('company-1', 'staff-1', 'task-1', {
       productId: 'product-1', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true,
-    })).rejects.toThrow('商品已上架');
+    })).resolves.toEqual({ mode: 'APPLIED', revisionId: 'revision-1', taskId: 'task-1' });
     expect(tx.productMedia.create).not.toHaveBeenCalled();
+    expect(revisions.applyOptimizationAdoption).toHaveBeenCalledWith(expect.objectContaining({
+      productId: 'product-1', optimizationId: 'task-1', candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+    }));
   });
 
   it('refuses adoption before adding a tenth media item', async () => {

@@ -304,18 +304,16 @@ export class AimaiProductVisualAdapterService {
         allowAutoPass: !requiresHumanReview && local.disposition !== 'REJECT',
       });
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
-      await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家与管理员事实审核');
+      await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家确认采用');
       const optimization = await this.candidates.finalizeVerification(input.companyId, quote.id, { local, ocr }, requiresHumanReview);
       return {
         ...polled,
         candidate,
         optimizationId: optimization.id,
         verification: optimization.verification,
-        status: optimization.status === ProductImageOptimizationStatus.PENDING_REVIEW
-          ? 'PENDING_REVIEW' as const
-          : optimization.status === ProductImageOptimizationStatus.REJECTED
-            ? 'REJECTED' as const
-            : 'SUCCEEDED' as const,
+        status: optimization.status === ProductImageOptimizationStatus.REJECTED
+          ? 'REJECTED' as const
+          : 'SUCCEEDED' as const,
       };
     } catch (error) {
       await this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');

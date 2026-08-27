@@ -23,9 +23,10 @@ test('seller API uses product-bound planning, fact scanning, and explicit FREE_T
   assert.match(optimizationApi, /planId: string/);
 });
 
-test('seller UI keeps original evidence and never promises an automatic publish', () => {
+test('seller UI keeps original evidence and makes the immediate-publication rule explicit', () => {
   assert.match(editPage, /原图始终保留，候选不会自动发布/);
-  assert.match(editPage, /候选尚未发布。采用后会保留原实拍证据图/);
+  assert.match(editPage, /候选尚未发布。采用后会保留原实拍证据图；已上架商品会立即更新公开图片/);
+  assert.match(editPage, /公开商品图已更新；系统已保留历史版本/);
   assert.match(editPage, /商品数量、配件和比例完整/);
   assert.match(editPage, /包装、型号、文字和二维码未变化/);
   assert.match(editPage, /颜色、规格、材质和实物一致/);
@@ -40,9 +41,9 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);
-  assert.match(editPage, /候选已生成，等待管理员事实复核/);
+  assert.match(editPage, /候选可采用；系统已保留验真摘要/);
   assert.match(editPage, /候选未通过系统事实检查/);
-  assert.match(editPage, /系统未达到自动通过条件/);
+  assert.match(editPage, /新候选不会等待平台预审批/);
 });
 
 test('seller paid visual API remains product-bound and cannot send a free-form provider prompt', () => {

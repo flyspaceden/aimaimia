@@ -48,5 +48,5 @@ export const adoptProductImageOptimization = (id: string, data: {
   quantityConfirmed: boolean;
   labelsConfirmed: boolean;
   factsConfirmed: boolean;
-}): Promise<{ mode: 'PENDING_REVIEW' | 'APPLIED_TO_UNPUBLISHED_PRODUCT'; revisionId?: string; taskId?: string }> =>
+}): Promise<{ mode: 'APPLIED' | 'APPLIED_TO_UNPUBLISHED_PRODUCT'; revisionId?: string; taskId?: string }> =>
   client.post(`/seller/product-image-optimizations/${id}/adopt`, data);

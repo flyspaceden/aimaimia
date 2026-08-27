@@ -5,13 +5,14 @@ import { readFileSync } from 'node:fs';
 const page = readFileSync(new URL('../src/pages/products/media-revisions.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../src/api/productMediaRevisions.ts', import.meta.url), 'utf8');
 
-test('admin image review shows a bounded fact-scan summary for generated candidates', () => {
-  assert.match(page, /生成与事实凭证/);
-  assert.match(page, /免费实景调优/);
-  assert.match(page, /最小事实摘要，不展示 OCR 原文/);
-  assert.match(page, /扫描结论不确定/);
+test('admin image inspection compares history and current published media without exposing OCR details', () => {
+  assert.match(page, /商品图片巡检与回滚/);
+  assert.match(page, /商家变更前的历史图片/);
+  assert.match(page, /商家采用后发布的图片/);
+  assert.match(page, /恢复到变更前图片并通知商家/);
   assert.match(api, /reviewContext:/);
   assert.match(api, /freeTuneEligible: boolean/);
+  assert.match(api, /previousMedia:/);
 });
 
 test('admin browser contract does not expose OCR plaintext or hashes', () => {

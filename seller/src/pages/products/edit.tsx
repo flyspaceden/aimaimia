@@ -1261,8 +1261,8 @@ function ImageUploadSection({
         labelsConfirmed: truthChecks.labels,
         factsConfirmed: truthChecks.facts,
       });
-      if (result.mode === 'PENDING_REVIEW') {
-        message.success('候选封面已提交审核，买家继续看到当前已审核图片');
+      if (result.mode === 'APPLIED') {
+        message.success('公开商品图已更新；系统已保留历史版本，平台可事后巡检并在必要时回滚。');
       } else {
         const candidate = optimizationTask.candidate;
         if (candidate?.assetId && candidate.displayUrl) {
@@ -1512,7 +1512,7 @@ function ImageUploadSection({
                             <Space direction="vertical" size={8} style={{ width: '100%' }}>
                               <Space wrap><Text strong>{card.displayName}</Text><Tag color="gold">{card.creditCost} 图片额度</Tag><Tag>{card.candidateCount} 张候选</Tag></Space>
                               <Text type="secondary" style={{ fontSize: 12 }}>{card.description}</Text>
-                              {card.requiresHumanReview && <Text type="warning" style={{ fontSize: 12 }}>生成后需管理员事实复核，候选不会自动发布。</Text>}
+                              {card.requiresHumanReview && <Text type="warning" style={{ fontSize: 12 }}>无法完全自动确认的候选会提升平台事后巡检优先级；候选仍须由商家显式采用。</Text>}
                               <Button size="small" type="primary" loading={quoteSubmitting} onClick={() => issuePaidQuote(card)}>获取本方案报价</Button>
                             </Space>
                           </Card>
@@ -1532,7 +1532,7 @@ function ImageUploadSection({
                       </Space>
                     </div>
                   )}
-                  {paidExecution && <Alert type={paidExecution.status === 'REJECTED' ? 'error' : paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'REJECTED' ? '候选未通过系统事实检查' : paidExecution.status === 'PENDING_REVIEW' ? '候选已生成，等待管理员事实复核' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选已通过系统验证，可继续核对并采用' : '模型任务处理中'} description={paidExecution.status === 'REJECTED' ? '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' : paidExecution.status === 'PENDING_REVIEW' ? paidExecution.verification?.ocr?.state === 'MATCHED' ? '系统已完成前后文字核对；仍需管理员确认包装、型号、数量、颜色和可见事实。' : '系统未达到自动通过条件，管理员会继续核对包装、型号、数量、颜色和可见事实。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '候选始终保留原图证据，且不会自动发布。'} />}
+                  {paidExecution && <Alert type={paidExecution.status === 'REJECTED' ? 'error' : paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'REJECTED' ? '候选未通过系统事实检查' : paidExecution.status === 'PENDING_REVIEW' ? '旧候选仍在历史人工审核流程中' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选可采用；系统已保留验真摘要' : '模型任务处理中'} description={paidExecution.status === 'REJECTED' ? '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' : paidExecution.status === 'PENDING_REVIEW' ? '此状态仅用于旧流程记录；新候选不会等待平台预审批。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '商家确认采用后会立即更新公开图片；未能完全自动验真的候选会进入平台事后巡检优先队列。'} />}
                 </Space>
               </Card>
             )}
@@ -1587,7 +1587,7 @@ function ImageUploadSection({
                   </Col>
                 </Row>
                 <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-                  候选尚未发布。采用后会保留原实拍证据图；已上架商品还需管理员审核。
+                  候选尚未发布。采用后会保留原实拍证据图；已上架商品会立即更新公开图片，并保留历史版本供平台事后巡检和必要时回滚。
                 </Text>
                 <Space direction="vertical" style={{ marginTop: 12 }}>
                   <Checkbox checked={truthChecks.quantity} onChange={(event) => setTruthChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
@@ -1963,7 +1963,7 @@ function ProductEditForm({ id }: { id: string }) {
   const submitMediaRevision = async () => {
     const assetIds = fileList.filter((file) => file.status === 'done').map((file) => getManagedAsset(file)?.asset.id);
     if (assetIds.length === 0 || assetIds.some((assetId) => !assetId)) {
-      message.warning('请先将当前全部商品图片重新上传为受管图片后，再提交封面变更审核');
+      message.warning('请先将当前全部商品图片重新上传为受管图片后，再更新公开商品图片');
       return;
     }
     setRevisionSubmitting(true);
@@ -1975,11 +1975,11 @@ function ProductEditForm({ id }: { id: string }) {
         labelsConfirmed: revisionChecks.labels,
         factsConfirmed: revisionChecks.facts,
       });
-      message.success('封面变更已提交审核，买家继续看到当前已审核封面');
+      message.success('公开商品图已更新；系统已保留历史版本，平台可事后巡检并在必要时回滚。');
       setRevisionModalOpen(false);
       setRevisionChecks({ quantity: false, labels: false, facts: false });
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '提交封面变更审核失败');
+      message.error(error instanceof Error ? error.message : '更新公开商品图片失败');
     } finally {
       setRevisionSubmitting(false);
     }
@@ -2360,7 +2360,7 @@ function ProductEditForm({ id }: { id: string }) {
         <Card
           title="商品图片"
           extra={product?.status === 'ACTIVE' && product?.auditStatus === 'APPROVED' ? (
-            <Button onClick={() => setRevisionModalOpen(true)}>提交封面变更审核</Button>
+            <Button onClick={() => setRevisionModalOpen(true)}>更新公开图片</Button>
           ) : null}
           style={{ marginBottom: 16 }}
         >
@@ -2373,17 +2373,17 @@ function ProductEditForm({ id }: { id: string }) {
         </Card>
 
         <Modal
-          title="提交封面变更审核"
+          title="更新公开商品图片"
           open={revisionModalOpen}
           onCancel={() => setRevisionModalOpen(false)}
-          okText="提交审核"
+          okText="立即更新"
           okButtonProps={{
             loading: revisionSubmitting,
             disabled: !revisionChecks.quantity || !revisionChecks.labels || !revisionChecks.facts,
           }}
           onOk={submitMediaRevision}
         >
-          <Text type="secondary">审核通过前，买家仍会看到当前已审核封面。</Text>
+          <Text type="secondary">确认后会立即替换买家看到的图片，并保留当前版本供平台事后巡检和必要时回滚。</Text>
           <Space direction="vertical" style={{ marginTop: 16 }}>
             <Checkbox checked={revisionChecks.quantity} onChange={(event) => setRevisionChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
             <Checkbox checked={revisionChecks.labels} onChange={(event) => setRevisionChecks((value) => ({ ...value, labels: event.target.checked }))}>包装、型号、文字和二维码未变化</Checkbox>

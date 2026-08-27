@@ -17,8 +17,8 @@ export class AdminProductMediaRevisionsController {
 
   @Get()
   @RequirePermission('products:audit')
-  listPending() {
-    return this.revisions.listPendingForAdmin();
+  listPublished() {
+    return this.revisions.listPublishedForAdmin();
   }
 
   @Get(':id')
@@ -39,5 +39,12 @@ export class AdminProductMediaRevisionsController {
   @AuditLog({ action: 'REJECT', module: 'product-images', targetType: 'ProductMediaRevision', targetIdParam: 'params.id', isReversible: false })
   reject(@Param('id') id: string, @CurrentAdmin('sub') adminUserId: string, @Body('reviewNote') reviewNote: string) {
     return this.revisions.reject(id, adminUserId, reviewNote || '');
+  }
+
+  @Post(':id/rollback')
+  @RequirePermission('products:audit')
+  @AuditLog({ action: 'ROLLBACK', module: 'product-images', targetType: 'ProductMediaRevision', targetIdParam: 'params.id', isReversible: false, reasonBodyField: 'reason' })
+  rollback(@Param('id') id: string, @CurrentAdmin('sub') adminUserId: string, @Body('reason') reason: string) {
+    return this.revisions.rollbackPublished(id, adminUserId, reason || '');
   }
 }

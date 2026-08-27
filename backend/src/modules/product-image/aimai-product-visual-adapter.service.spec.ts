@@ -57,7 +57,7 @@ function build() {
   const invocations = { completeSynchronousVerification: jest.fn().mockResolvedValue(undefined) };
   const candidates = {
     persistPendingVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'RECONCILING', candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp' }),
-    finalizeVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'PENDING_REVIEW' }),
+    finalizeVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }),
   };
   const localVerification = { verify: jest.fn().mockResolvedValue({ disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {} }) };
   const ocrVerification = { verify: jest.fn().mockResolvedValue({ state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW' }) };
@@ -167,7 +167,7 @@ describe('AimaiProductVisualAdapterService', () => {
     credits.settleReservedQuote = jest.fn().mockResolvedValue({});
 
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
-      .resolves.toMatchObject({ status: 'PENDING_REVIEW', candidate: { candidateAssetId: 'candidate-1' }, optimizationId: 'optimization-1' });
+      .resolves.toMatchObject({ status: 'SUCCEEDED', candidate: { candidateAssetId: 'candidate-1' }, optimizationId: 'optimization-1' });
     expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ provider: 'BAILIAN_WAN', quote: expect.objectContaining({ id: 'quote-1' }) }));
     expect(localVerification.verify).toHaveBeenCalledWith(Buffer.from('source'), Buffer.from('source'));
     expect(ocrVerification.verify).toHaveBeenCalledWith(expect.objectContaining({ quoteId: 'quote-1', allowAutoPass: false }));

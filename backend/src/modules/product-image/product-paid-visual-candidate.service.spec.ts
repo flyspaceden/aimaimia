@@ -84,17 +84,22 @@ describe('ProductPaidVisualCandidateService', () => {
     });
   });
 
-  it('moves a locally clean paid candidate to human review and persists only its minimal verification report', async () => {
+  it('makes a non-rejected paid candidate available for seller adoption and marks it for post-publication inspection', async () => {
     const { service, prisma } = build();
     await expect(service.finalizeVerification('company-1', 'quote-1', {
       local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
       ocr: { version: 'candidate-ocr-verification-v1', state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW', sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null },
     }, true)).resolves.toMatchObject({
-      id: 'optimization-1', status: ProductImageOptimizationStatus.PENDING_REVIEW,
+      id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED,
     });
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING },
-      data: expect.objectContaining({ status: ProductImageOptimizationStatus.PENDING_REVIEW }),
+      data: expect.objectContaining({
+        status: ProductImageOptimizationStatus.SUCCEEDED,
+        processingContract: expect.objectContaining({
+          verification: expect.objectContaining({ state: 'ELIGIBLE_FOR_SELLER_ADOPTION_WITH_POST_PUBLICATION_INSPECTION', inspectionPriority: 'HIGH' }),
+        }),
+      }),
     }));
   });
 

@@ -14,6 +14,7 @@ import { ProductImageBudgetService } from './product-image-budget.service';
 import { ProductVisualPlanningController } from './product-visual-planning.controller';
 import { ProductVisualPlanningService } from './product-visual-planning.service';
 import { VisualAgentModule } from '../visual-agent/visual-agent.module';
+import { NotificationModule } from '../notification/notification.module';
 import { ProductImageFactScanController } from './product-image-fact-scan.controller';
 import { ProductImageFactScanService } from './product-image-fact-scan.service';
 import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
@@ -27,7 +28,7 @@ import { ProductImageCandidateLocalVerificationService } from './product-image-c
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 
 @Module({
-  imports: [UploadModule, VisualAgentModule],
+  imports: [UploadModule, VisualAgentModule, NotificationModule],
   controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController, ProductVisualCommerceController, AdminProductPaidVisualCandidatesController],
   providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, ProductImageCandidateLocalVerificationService, ProductImageCandidateOcrVerificationService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService, ProductPaidVisualCandidateService],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],

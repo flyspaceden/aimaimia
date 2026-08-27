@@ -2,8 +2,9 @@ import client from './client';
 
 export type ProductMediaRevisionQueueItem = {
   id: string;
-  status: 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN' | 'EXPIRED';
+  status: 'APPLIED_BY_SELLER' | 'ROLLED_BACK_BY_ADMIN';
   expectedMediaVersion: number;
+  appliedMediaVersion?: number | null;
   attestation: { quantityConfirmed?: boolean; labelsConfirmed?: boolean; factsConfirmed?: boolean };
   createdAt: string;
   product: { id: string; title: string; mediaVersion: number };
@@ -11,7 +12,11 @@ export type ProductMediaRevisionQueueItem = {
 };
 
 export type ProductMediaRevisionDetail = {
-  revision: Pick<ProductMediaRevisionQueueItem, 'id' | 'status' | 'expectedMediaVersion' | 'attestation' | 'createdAt'> & { reviewNote?: string | null };
+  revision: Pick<ProductMediaRevisionQueueItem, 'id' | 'status' | 'expectedMediaVersion' | 'appliedMediaVersion' | 'attestation' | 'createdAt'> & {
+    reviewNote?: string | null;
+    appliedAt?: string | null;
+    rolledBackAt?: string | null;
+  };
   product: {
     id: string;
     title: string;
@@ -21,6 +26,16 @@ export type ProductMediaRevisionDetail = {
     media: Array<{ id: string; url: string; sortOrder: number }>;
   };
   company: { id: string; name: string };
+  previousMedia: Array<{
+    assetId: string;
+    sortOrder: number;
+    width: number;
+    height: number;
+    displayUrl: string;
+    expiresAt: string | null;
+    visualOrigin: 'ORIGINAL' | 'DETERMINISTIC_COMPOSITE' | 'DETERMINISTIC_ENHANCEMENT' | 'AI_BACKGROUND';
+    isEvidenceImage: boolean;
+  }>;
   proposedMedia: Array<{
     assetId: string;
     sortOrder: number;
@@ -56,14 +71,11 @@ export type ProductMediaRevisionDetail = {
   };
 };
 
-export const getPendingProductMediaRevisions = (): Promise<ProductMediaRevisionQueueItem[]> =>
+export const getPublishedProductMediaRevisions = (): Promise<ProductMediaRevisionQueueItem[]> =>
   client.get('/admin/product-media-revisions');
 
 export const getProductMediaRevision = (id: string): Promise<ProductMediaRevisionDetail> =>
   client.get(`/admin/product-media-revisions/${id}`);
 
-export const approveProductMediaRevision = (id: string): Promise<unknown> =>
-  client.post(`/admin/product-media-revisions/${id}/approve`);
-
-export const rejectProductMediaRevision = (id: string, reviewNote: string): Promise<unknown> =>
-  client.post(`/admin/product-media-revisions/${id}/reject`, { reviewNote });
+export const rollbackProductMediaRevision = (id: string, reason: string): Promise<unknown> =>
+  client.post(`/admin/product-media-revisions/${id}/rollback`, { reason });

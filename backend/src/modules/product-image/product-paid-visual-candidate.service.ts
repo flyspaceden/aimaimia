@@ -188,9 +188,12 @@ export class ProductPaidVisualCandidateService {
     const localPasses = local.geometry.verdict === 'PASS' && local.qr.verdict === 'PASS' && local.barcode.verdict === 'PASS';
     const status = local.disposition === 'REJECT'
       ? ProductImageOptimizationStatus.REJECTED
-      : !requiresHumanReview && localPasses && verification.ocr.verdict === 'AUTO_PASS'
-        ? ProductImageOptimizationStatus.SUCCEEDED
-        : ProductImageOptimizationStatus.PENDING_REVIEW;
+      // A warning or an inconclusive automated check is never a platform
+      // pre-publication review. It remains evidence and is marked for
+      // post-publication inspection after explicit merchant adoption. Only a
+      // known fact mismatch is a hard block.
+      : ProductImageOptimizationStatus.SUCCEEDED;
+    const automaticallyVerified = !requiresHumanReview && localPasses && verification.ocr.verdict === 'AUTO_PASS';
     const processingContract = {
       ...((task.processingContract as Record<string, unknown> | null) ?? {}),
       verification: {
@@ -198,9 +201,12 @@ export class ProductPaidVisualCandidateService {
         ocr: verification.ocr,
         state: status === ProductImageOptimizationStatus.REJECTED
           ? 'LOCAL_FACT_MISMATCH_REJECTED'
-          : status === ProductImageOptimizationStatus.SUCCEEDED
+          : automaticallyVerified
             ? 'LOCAL_AND_OCR_FACTS_VERIFIED'
-            : 'AWAITING_HUMAN_FACT_REVIEW',
+            : 'ELIGIBLE_FOR_SELLER_ADOPTION_WITH_POST_PUBLICATION_INSPECTION',
+        inspectionPriority: status === ProductImageOptimizationStatus.REJECTED
+          ? null
+          : automaticallyVerified ? 'NORMAL' : 'HIGH',
       },
     };
     const updated = await this.prisma.productImageOptimization.updateMany({

@@ -1699,19 +1699,19 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 
 设计权威来源：[AI Visual Agent v2](../superpowers/specs/2026-08-22-universal-product-visual-agent-design.md)。目标是构建可接入爱买买、餐厅和第三方系统的强大视觉 Agent；商家在确认报价后使用独立图片额度调用模型，商品事实始终受保护。
 
-- 已在本地候选实现：受管资产、质量诊断、短期预览、`mediaAssetIds` 新写边界、上架商品封面变更 CAS 与管理员并列审核。候选/草稿资产不会因知道 object key 而公开；未绑定真实实现的背景 Provider 永远 `fail-closed`。
+- 已在本地候选实现：受管资产、质量诊断、短期预览、`mediaAssetIds` 新写边界、上架商品图片即时发布 CAS、不可变历史快照与管理员事后巡检/回滚。候选/草稿资产不会因知道 object key 而公开；未绑定真实实现的背景 Provider 永远 `fail-closed`。
 - 本次数据合同：`ProductImageOptimization`、私有 Artifact、来源谱系、候选媒体来源标记、整数分成本预占字段及 worker 租约；付费供应商结果不确定时必须保持 `RECONCILING`，不能释放去重锁后重发收费请求。它们先于渲染器和供应商接入落库，不代表模型可用。
 - 保真白底候选：商品证据源先经方向校正、去元数据、无损 WebP 规范化，再做 QR 扫描；仅实际含透明像素的证据源可使用最近邻几何变换、无损 PNG 和白色画布 alpha 合成校验。候选通过受控任务 API 以短期私有 URL 返回，未采用的候选不能写入普通商品媒体。
-- 采用需要商家三项事实确认：草稿/未上架商品才在事务内写入候选与原图证据；已上架商品只创建封面审核申请，管理员 CAS 批准后才将候选改为采用状态。
-- 上架商品的候选采用请求是幂等的：同一待审申请会复用而非重复创建；管理员驳回时，关联任务改为 `REJECTED`，候选资产同步退役，不能再次采用。
+- 采用需要商家三项事实确认：草稿/未上架商品在事务内写入候选与原图证据；已上架商品采用成功后在同一 Serializable 事务中创建 `APPLIED_BY_SELLER` 历史、CAS 替换公开媒体并递增 `mediaVersion`，不等待平台预审批。
+- 上架商品的候选采用请求按 `optimizationId` 幂等；平台巡检若发现违规，只能在 `mediaVersion == appliedMediaVersion` 时 CAS 恢复 `previousMedia`。回滚会把记录标为 `ROLLED_BACK_BY_ADMIN`、保留原因/操作人/时间并通知商家；若商家之后已换图，回滚冲突而不会覆盖新图。
 - 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 仅从当前商品已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证计划。
 - 卖家图片卡接入“真实白底主图”：只可选择与当前商品绑定的受管资产，候选以短期私有 URL 并列预览；前端不提供提示词、模型名或 URL 输入，采用成功后才刷新商品媒体。
 - Phase C 预备合同：付费背景调用必须先写整数分 `RESERVED` 流水，成功才以实际成本 `SETTLED`、失败 `RELEASED`；即使开关未来被打开，`AI_PRODUCT_IMAGE_DAILY_BUDGET_CENTS` 也必须显式为正整数分，缺失或 `0` 不会解释为不限额。
 - 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；`/visual-agent/v1/assets / visual-plans / quotes / tasks / credits` 已使用 Key scope 和独立 Adapter Evidence HMAC 提供通用资源 API。它只接受二进制受管图和签名后的对象版本/账单主体/事实策略/源摘要，不接受任意 URL、自由 prompt、模型或费用；成功候选私有返回，外部 adopt intent 不会自动发布。Provider 仍默认关闭。
 - 通用 Agent Client Key（本地）：`VisualAgentTenant → VisualAgentClient → VisualAgentClientKey` 已支持 API Key 的一次性签发、哈希存储、过期、撤销与 `tenant/client/adapterNamespace` 认证范围；餐厅等接入系统不需要也不允许持有百炼 Provider Key。公开会话端点只验证 scope，不接受任意 URL、prompt 或模型提交。
 - VisualCredit 商业控制（本地）：`VisualCreditAccount / VisualCreditLedger / VisualCreditQuote / VisualRateCard` 已实现独立账户、200 额度欢迎策略、服务端固定报价、显式冻结、结算/释放/对账与管理员调整；卖家端必须再次提交产品绑定的 `quoteId + quoteHash`，浏览器不能选择模型、费用或 Provider 参数。管理员 `/visual-agent` 仅限高权限角色配置范围/策略/费率和查看账本，默认不启用任何模型。
-- 付费候选事实复核（本地）：受管 Provider 输出先写为 AIGC 私有候选，再在结算后进入 `PENDING_REVIEW`；管理员对原图和候选图并列复核，批准后才转为可由商家显式采用，驳回会退役候选资产。付费候选也不会自动覆盖已上架商品媒体。
-- 候选前后验真（本地、默认不增加模型费用）：先进行零模型的图像几何、二维码和一维条码格式比对；明确缺失/变化的事实候选自动拒绝，任何解码不确定保持人工复核。仅当费率卡明确允许自动验真、`AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED=true` 且 Qwen OCR 预算/开关均就绪时，才会对原图和候选图分别执行受控 OCR；只持久化文字是否一致、长度和 Provider 状态，不保存 OCR/二维码/条码原文。全部一致才可自动通过，仍不会自动发布。
+- 付费候选事实与发布治理（本地）：受管 Provider 输出先写为 AIGC 私有候选，再在结算后完成系统验真。明确事实错误的候选自动拒绝并退役；其余候选可由商家显式采用，不进入发布前人工审批。商家采用已上架商品候选时会立即更新公开图，平台在事后巡检中可按版本保护规则恢复历史图。
+- 候选前后验真（本地、默认不增加模型费用）：先进行零模型的图像几何、二维码和一维条码格式比对；明确缺失/变化的事实候选自动拒绝，任何解码不确定不会被误判为“无事实”，而是持久化为高优先级巡检摘要。仅当费率卡明确允许自动验真、`AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED=true` 且 Qwen OCR 预算/开关均就绪时，才会对原图和候选图分别执行受控 OCR；只持久化文字是否一致、长度和 Provider 状态，不保存 OCR/二维码/条码原文。系统验真从不自动发布，仍须商家明确采用。
 - 百炼图像执行路由（本地、默认关闭）：万相 `wan2.7-image / -pro` 与 Qwen `qwen-image-3.0 / -pro` 均通过同一 Provider runner、租约、预算和对账状态机；Qwen 固定使用 3.0 图生图异步接口、服务端保真模板且关闭 prompt 智能改写，限制为单张受管源图和白名单 PNG 输出下载。费率卡的模型档只在服务端映射，商家不能传入模型、提示词或 URL。Qwen 输入尺寸不达官方约束时在 Provider I/O 前失败并释放本次冻结额度。
 - 受控 OCR Provider（本地）：固定版本 OCR 只能由 Core 已持久化的调用租约触发，Provider 用量独立记录；无 Core 授权、开关、正数预算策略或可验证结果时均 fail-closed。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。

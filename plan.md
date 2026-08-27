@@ -1938,13 +1938,14 @@
 
 ## AI Visual Agent v2（2026-08-26，重写设计，待实现）
 
-- [ ] **PVA01** Phase A 候选：受管商品资产、免费质量诊断、私有预览、上架图片 CAS 审核与管理端逐项比对。管理端现额外展示候选处理器/费用与受限事实扫描摘要，不暴露 OCR 原文、哈希或供应商响应，且不能在页面覆盖扫描结论。当前仅为本地 main-based 候选；尚未推送、运行迁移、部署或接入真实模型。
-- [ ] **PVA02** Phase B：在受控 OCR/分割事实扫描及保真合成通过独立审查后，开放白底/模板候选；不得改写商品主体。当前本地候选已包含透明前景白底、受事实扫描门禁的 `FREE_TUNE`（固定、零模型、像素坐标不变的实景画质调优），以及卖家端“建议 → 事实检查 → 候选预览 → 三项确认/审核”的可见流程；条码缺失仍不作推断，因此不能把未解码图片放行。
+- [ ] **PVA01** Phase A 候选：受管商品资产、免费质量诊断、私有预览、上架图片即时 CAS、历史快照与管理端事后巡检/回滚。管理端展示候选处理器/费用与受限事实扫描摘要，不暴露 OCR 原文、哈希或供应商响应，且不能在页面覆盖扫描结论。当前仅为本地 main-based 候选；尚未推送、运行迁移、部署或接入真实模型。
+- [ ] **PVA02** Phase B：在受控 OCR/分割事实扫描及保真合成通过独立审查后，开放白底/模板候选；不得改写商品主体。当前本地候选已包含透明前景白底、受事实扫描门禁的 `FREE_TUNE`（固定、零模型、像素坐标不变的实景画质调优），以及卖家端“建议 → 事实检查 → 候选预览 → 三项确认 → 立即采用/事后巡检”的可见流程；条码缺失仍不作推断，因此不能把未解码图片放行。
 - [ ] **PVA03** Phase C：仅白名单低风险品类在明确预算、私有 Key、对账与回滚都就绪后，试点背景生成；上线前必须另行获得授权。
 - [ ] **PVA04** 通用 Agent 接入层：本地候选已实现 Tenant / Client / 一次性可撤销 Client Key、scope 验证和可信 Adapter reservation bridge；尚未配置任何 Client、签发真实 Key、运行迁移、开放直接 Provider 提交或接入餐厅系统。
 - [x] **PVA05** 本地候选代码收口（`a06ff958`）：18 个 main-based 逻辑提交已完成受管资产、免费计划、OCR/条码事实门禁、确定性候选、商家/管理员审核、预算/对账 Core 和 Client Key 边界。精确 HEAD 已通过后端相关 25 suites / 172 tests、Core 4 suites / 24 tests、Admin 14/14、Seller 15/15、Prisma validate、Nest/Admin/Seller builds 与范围审查；**未**运行数据库迁移、签发真实 Key、调用真实模型、推送、staging 部署或生产发布。
-- [ ] **PVA06** v2 商家付费强效果重构：按 `docs/superpowers/specs/2026-08-22-universal-product-visual-agent-design.md` 新增独立 `VisualCredit` 账户/流水、200 欢迎额度、Rate Card/Quote/冻结/对账、万相/Qwen 真实任务与验真、完整平台管理、餐厅与公共 API Adapter；本地已完成额度报价/确认入口、产品绑定 quote hash、模型未受理自动释放、未知结果对账、平台/商家端复核 UI、默认关闭的万相/Qwen 受控异步任务路由、受 Client scope + Adapter Evidence HMAC 约束的通用 API，以及候选原图/生成图的几何、二维码、条码和可选 Qwen OCR 前后文字验证。真实 workspace/Key 启用、颜色/数量/关键结构深度评测、餐厅具体 Adapter/SDK/Webhook 与部署仍未完成；未经单独授权不得启用模型、扣费或部署。
-- [x] **PVA-Demo** 角色体验演示（本地静态原型）：`docs/ui-prototypes/2026-08-27-ai-visual-agent-role-demo.html` 以商家与管理员两种视角交互展示“实拍 → 免费分析 → 报价/冻结 → 候选 → 自动验真/人工复核 → 显式采用”的当前代码流程；页面不连接 API、Key、额度或模型，不代表 staging/生产效果。
+- [ ] **PVA06** v2 商家付费强效果重构：按 `docs/superpowers/specs/2026-08-22-universal-product-visual-agent-design.md` 新增独立 `VisualCredit` 账户/流水、200 欢迎额度、Rate Card/Quote/冻结/对账、万相/Qwen 真实任务与验真、完整平台管理、餐厅与公共 API Adapter；本地已完成额度报价/确认入口、产品绑定 quote hash、模型未受理自动释放、未知结果对账、商家采用/平台事后巡检 UI、默认关闭的万相/Qwen 受控异步任务路由、受 Client scope + Adapter Evidence HMAC 约束的通用 API，以及候选原图/生成图的几何、二维码、条码和可选 Qwen OCR 前后文字验证。真实 workspace/Key 启用、颜色/数量/关键结构深度评测、餐厅具体 Adapter/SDK/Webhook 与部署仍未完成；未经单独授权不得启用模型、扣费或部署。
+- [x] **PVA-Demo** 角色体验演示（本地静态原型）：`docs/ui-prototypes/2026-08-27-ai-visual-agent-role-demo.html` 以商家与管理员两种视角交互展示“实拍 → 免费分析 → 报价/冻结 → 候选 → 自动验真/巡检优先 → 显式采用 → 事后回滚”的当前代码流程；页面不连接 API、Key、额度或模型，不代表 staging/生产效果。
+- [x] **PVA-Governance** 商品图片治理改为“即时发布、事后巡检”：按 `docs/superpowers/specs/2026-08-27-product-media-post-publication-governance.md`，已取消新已上架商品的预审批；保留系统事实硬门禁、历史媒体快照、CAS、管理员回滚和含原因的商家通知。定向后端 38 suites / 226 tests、卖家 17/17、管理端 16/16、三端 build、Prisma validate 和范围审查均通过。**未**运行迁移、push、部署、真实模型或真实费用测试。
 
 ## 商品自动定价一致性（2026-08-17）
 

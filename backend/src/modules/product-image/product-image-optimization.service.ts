@@ -277,7 +277,7 @@ export class ProductImageOptimizationService {
       factsConfirmed: true,
     };
     if (product.status === 'ACTIVE' && product.auditStatus === 'APPROVED') {
-      const revision = await this.mediaRevisions.requestOptimizationAdoption({
+      const revision = await this.mediaRevisions.applyOptimizationAdoption({
         companyId,
         staffId,
         productId: product.id,
@@ -286,10 +286,10 @@ export class ProductImageOptimizationService {
         sourceAssetId: sourceAsset.id,
         attestation,
       });
-      return { mode: 'PENDING_REVIEW' as const, revisionId: revision.id, taskId: optimizationId };
+      return { mode: 'APPLIED' as const, revisionId: revision.id, taskId: optimizationId };
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    const unpublishedOutcome = await this.prisma.$transaction(async (tx) => {
       const activeTask = await tx.productImageOptimization.findFirst({
         where: { id: optimizationId, companyId, productId: dto.productId, status: ProductImageOptimizationStatus.SUCCEEDED },
         select: { id: true },
@@ -300,7 +300,10 @@ export class ProductImageOptimizationService {
       });
       if (!activeTask || !activeProduct) throw new ConflictException('任务或商品状态已变化，请刷新后重试');
       if (activeProduct.status === 'ACTIVE' && activeProduct.auditStatus === 'APPROVED') {
-        throw new ConflictException('商品已上架，请重新提交封面变更审核');
+        // The product crossed the publication boundary after the first read.
+        // Leave media untouched in this transaction, then use the dedicated
+        // immediate-publication path with its own CAS and history record.
+        return { kind: 'NOW_PUBLIC' as const };
       }
       const sourceIsAttached = activeProduct.media.some((media) => media.assetId === sourceAsset.id);
       if (!sourceIsAttached) {
@@ -355,7 +358,20 @@ export class ProductImageOptimizationService {
         data: { status: ProductImageOptimizationStatus.ADOPTED, adoptedAt: new Date(), adoptedByStaffId: staffId },
       });
       if (adopted.count !== 1) throw new ConflictException('任务状态已变化，不能采用');
+      return { kind: 'UNPUBLISHED_APPLIED' as const };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (unpublishedOutcome.kind === 'NOW_PUBLIC') {
+      const revision = await this.mediaRevisions.applyOptimizationAdoption({
+        companyId,
+        staffId,
+        productId: dto.productId,
+        optimizationId,
+        candidateAssetId: candidateAsset.id,
+        sourceAssetId: sourceAsset.id,
+        attestation,
+      });
+      return { mode: 'APPLIED' as const, revisionId: revision.id, taskId: optimizationId };
+    }
     return { mode: 'APPLIED_TO_UNPUBLISHED_PRODUCT' as const, task: await this.getForSeller(companyId, optimizationId) };
   }
 

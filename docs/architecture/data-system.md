@@ -457,13 +457,13 @@ SellerUserRole
 - diagnosis / diagnosisVersion / diagnosedAt — 免费质量诊断及其版本
 - deletedAt, createdAt, updatedAt
 
-#### ProductMediaRevision（已上架商品封面变更审核）
+#### ProductMediaRevision（已上架商品图片发布历史与回滚）
 - id (uuid, PK), productId (uuid FK Product), companyId (uuid FK Company)
-- expectedMediaVersion (int), proposedMedia (jsonb), status (enum: PENDING_REVIEW/APPROVED/REJECTED/WITHDRAWN/EXPIRED)
+- expectedMediaVersion (int), appliedMediaVersion (int nullable), previousMedia (jsonb nullable), proposedMedia (jsonb), status (enum: APPLIED_BY_SELLER/ROLLED_BACK_BY_ADMIN + PENDING_REVIEW/APPROVED/REJECTED/WITHDRAWN/EXPIRED legacy)
 - requestedByStaffId (uuid FK CompanyStaff), attestation (jsonb), idempotencyKey
-- reviewedByAdminId, reviewedAt, reviewNote, appliedAt, expiresAt, createdAt, updatedAt
-- optimizationId (nullable FK ProductImageOptimization) — 候选采用审核通过时才将任务转为 ADOPTED
-- unique(companyId, idempotencyKey)；同一 product 同时最多一条 PENDING_REVIEW
+- reviewedByAdminId, reviewedAt, reviewNote, appliedAt, rolledBackAt, expiresAt, createdAt, updatedAt
+- optimizationId (nullable FK ProductImageOptimization) — 上架商品候选采用时，在同一事务中将任务转为 ADOPTED 并写入发布历史
+- `APPLIED_BY_SELLER` 记录以 `expectedMediaVersion → appliedMediaVersion` CAS 立即发布；管理员只有在当前 `mediaVersion == appliedMediaVersion` 时才可恢复 `previousMedia` 并标记 `ROLLED_BACK_BY_ADMIN`，避免覆盖更晚的商家修改。`PENDING_REVIEW` 仅为历史兼容。
 
 #### ProductImageOptimization（商品视觉任务）
 - id (cuid, PK), companyId (FK), productId (nullable FK；商品删除前先终止或转入费用对账并退役候选，随后置空保留任务审计), kind, status
