@@ -88,7 +88,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/companies', name: '企业管理', permission: PERMISSIONS.COMPANIES_READ },
         { path: '/categories', name: '分类管理', permission: PERMISSIONS.CATEGORIES_READ },
         { path: '/products', name: '商家商品' },
-        { path: '/products/media-revisions', name: '封面变更审核', icon: <FileSearchOutlined />, permission: PERMISSIONS.PRODUCTS_AUDIT },
+        { path: '/products/media-revisions', name: '图片巡检与回滚', icon: <FileSearchOutlined />, permission: PERMISSIONS.PRODUCTS_AUDIT },
         { path: '/products/units', name: '单位管理', icon: <AppstoreOutlined />, permission: PERMISSIONS.PRODUCTS_READ },
         { path: '/reward-products', name: '奖励商品', permission: PERMISSIONS.REWARD_PRODUCTS_READ },
         { path: '/tags', name: '标签管理', icon: <TagsOutlined />, permission: PERMISSIONS.TAGS_READ },

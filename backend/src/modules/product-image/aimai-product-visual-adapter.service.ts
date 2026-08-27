@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetStatus } from '@prisma/client';
+import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetStatus, VisualCreditQuoteStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { VisualAgentClientKeyService } from '../visual-agent/visual-agent-client-key.service';
 import { VisualAgentTrustedAdapterService } from '../visual-agent/visual-agent-trusted-adapter.service';
@@ -7,7 +7,7 @@ import { VisualCreditService } from '../visual-agent/visual-credit.service';
 import { VisualPaidExecutionService } from '../visual-agent/visual-paid-execution.service';
 import { VisualAgentInvocationService } from '../visual-agent/visual-agent-invocation.service';
 import { visualPlanSha256 } from '../visual-agent/visual-agent-integrity';
-import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
+import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan, VisualProviderSource } from '../visual-agent/providers/visual-image-edit.provider';
 import { UploadService } from '../upload/upload.service';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
@@ -18,6 +18,7 @@ export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
 export const AIMAI_VISUAL_CLIENT_ID = 'aimai-product-adapter-v1';
 export const AIMAI_VISUAL_ADAPTER_TYPE = 'aimai-product-v1';
 const QUOTE_TTL_MS = 15 * 60_000;
+const EXECUTABLE_RATE_MODELS = new Set(['BAILIAN_WAN_STANDARD', 'BAILIAN_WAN_PRO', 'BAILIAN_QWEN_IMAGE', 'BAILIAN_QWEN_IMAGE_PRO']);
 
 type IssueQuoteInput = {
   companyId: string;
@@ -151,6 +152,12 @@ export class AimaiProductVisualAdapterService {
     const confirmed = await this.confirmQuote(input);
     const principal = await this.resolveAimaiPrincipal();
     const quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
+    if (quote.status === VisualCreditQuoteStatus.RECONCILING) {
+      return { confirmed, execution: { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const } };
+    }
+    if (quote.visualAgentInvocationId) {
+      return { confirmed, execution: { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'ALREADY_BOUND' as const } };
+    }
     const source = await this.prisma.sellerMediaAsset.findFirst({
       where: {
         id: quote.sourceAssetRef,
@@ -170,9 +177,15 @@ export class AimaiProductVisualAdapterService {
       await this.credits.releaseReservedQuote(quote.id, 'SOURCE_OR_PRODUCT_CHANGED_BEFORE_EXECUTION');
       throw new NotFoundException('商品原图已变化，已释放本次图片美化额度');
     }
-    const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
-    const providerSource = await this.toOpaqueProviderSource(sourceBuffer);
     const providerPlan = this.providerPlanFromQuoteSnapshot(quote.visualPlanSnapshot);
+    let providerSource: VisualProviderSource;
+    try {
+      const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
+      providerSource = await this.toOpaqueProviderSource(sourceBuffer);
+    } catch (error) {
+      await this.credits.releaseReservedQuote(quote.id, 'SOURCE_PREPARATION_FAILED_BEFORE_PROVIDER_SUBMIT');
+      throw error;
+    }
     const execution = await this.execution.executeReservedQuote({
       principal,
       quoteId: quote.id,
@@ -228,6 +241,8 @@ export class AimaiProductVisualAdapterService {
     });
     return cards
       .filter((card) => card.status === 'ACTIVE'
+        && card.candidateCount === 1
+        && EXECUTABLE_RATE_MODELS.has(card.modelProfile)
         && card.allowedDirections.includes(input.direction)
         && card.allowedRiskProfiles.includes(plan.riskProfile))
       .map((card) => ({
@@ -249,7 +264,11 @@ export class AimaiProductVisualAdapterService {
       || result.quote.externalObjectId !== productId) {
       throw new NotFoundException('图片美化报价不存在');
     }
-    return result;
+    const optimization = await this.prisma.productImageOptimization.findFirst({
+      where: { companyId, productId, idempotencyKey: `paid-quote:${quoteId}` },
+      select: { id: true, status: true },
+    });
+    return { ...result, optimization };
   }
 
   async pollAndPersistCandidate(input: {

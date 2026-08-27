@@ -127,6 +127,16 @@ describe('VisualCreditService', () => {
     }));
   });
 
+  it('rejects unsupported model profiles and misleading multi-candidate price cards', async () => {
+    const { service, tx } = build();
+
+    await expect(service.upsertRateCard({ ...rateCard(), modelProfile: 'UNKNOWN_MODEL' }))
+      .rejects.toThrow('图片额度价目不合法');
+    await expect(service.upsertRateCard({ ...rateCard(), candidateCount: 2 }))
+      .rejects.toThrow('图片额度价目不合法');
+    expect(tx.visualRateCard.upsert).not.toHaveBeenCalled();
+  });
+
   it('issues an immutable rate-card quote bound to Client, billing owner, image and plan hashes', async () => {
     const { service, tx } = build();
     const result = await service.issueQuote({
@@ -148,6 +158,28 @@ describe('VisualCreditService', () => {
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
       sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-no-rate', expiresAt: new Date(Date.now() + 20 * 60_000),
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('fails closed on an incompatible active card that predates the one-candidate and model whitelist rules', async () => {
+    const { service, tx } = build();
+    tx.visualRateCard.findFirst.mockResolvedValue(rateCard({ candidateCount: 2 }));
+
+    await expect(service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-old-card', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('执行能力不匹配');
+    expect(tx.visualCreditQuote.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects reusing a quote idempotency key for a different rate card', async () => {
+    const { service, tx } = build();
+    tx.visualCreditQuote.findUnique.mockResolvedValue(quote());
+
+    await expect(service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'PRO_REAL_SCENE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('幂等键已用于另一张图片或业务对象');
+    expect(tx.visualRateCard.findFirst).not.toHaveBeenCalled();
   });
 
   it('refuses a rate card whose direction or risk allowlist does not match the verified plan', async () => {

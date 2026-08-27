@@ -52,6 +52,7 @@ import {
 } from '@/api/productImageOptimizations';
 import {
   confirmProductVisualQuote,
+  getProductVisualQuote,
   getProductImageFactScan,
   issueProductVisualQuote,
   listProductVisualRateCards,
@@ -98,6 +99,16 @@ function buildMediaPayload(fileList: UploadFile[]) {
   return {};
 }
 
+function sameMediaAssetOrder(current: Array<{ assetId?: string | null }>, next: string[]): boolean {
+  return current.length === next.length && current.every((media, index) => media.assetId === next[index]);
+}
+
+function omitMediaAssetIds<T extends { mediaAssetIds?: string[] }>(payload: T): Omit<T, 'mediaAssetIds'> {
+  const copy = { ...payload };
+  delete copy.mediaAssetIds;
+  return copy;
+}
+
 const visualRiskLabels: Record<string, { label: string; color: string }> = {
   STRICT_FACTS: { label: '事实敏感', color: 'red' },
   CONSERVATIVE_FACTS: { label: '谨慎处理', color: 'orange' },
@@ -116,6 +127,20 @@ const visualModeLabels: Record<string, string> = {
 
 function optimizationTitle(kind?: ProductImageOptimizationTask['kind']) {
   return kind === 'FREE_TUNE' ? '实景优化候选' : '真实白底候选';
+}
+
+function activePaidQuoteStorageKey(productId: string) {
+  return `ai-visual-agent:active-quote:${productId}`;
+}
+
+function paidExecutionPresentation(execution: ProductVisualQuoteStatus) {
+  if (execution.status === 'REJECTED') return { type: 'error' as const, message: '候选未通过系统事实检查', description: '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' };
+  if (execution.status === 'RELEASED') return { type: 'warning' as const, message: '模型未受理，本次冻结额度已释放', description: '你可以重新获取报价；系统不会为这次未受理任务扣除图片额度。' };
+  if (execution.status === 'RECONCILING') return { type: 'info' as const, message: '模型结果或费用正在对账', description: '为避免重复扣费，系统不会重新提交同一个模型任务；平台完成对账后才能继续。' };
+  if (execution.status === 'ALREADY_BOUND') return { type: 'info' as const, message: '任务已存在，正在恢复原任务状态', description: '系统不会重复冻结额度或重复提交模型。' };
+  if (execution.status === 'PENDING_REVIEW') return { type: 'warning' as const, message: '旧候选仍在历史人工审核流程中', description: '此状态仅用于旧流程记录；新候选不会等待平台预审批。' };
+  if (execution.status === 'SUCCEEDED') return { type: 'success' as const, message: '候选可采用；系统已保留验真摘要', description: '商家确认采用后会立即更新公开图片；未能完全自动验真的候选会进入平台事后巡检优先队列。' };
+  return { type: 'info' as const, message: '模型任务处理中', description: '可以停留在本页等待；系统不会因为轮询或刷新重复扣费。' };
 }
 
 /**
@@ -1020,6 +1045,10 @@ function ImageUploadSection({
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteConfirmed, setQuoteConfirmed] = useState(false);
   const [paidExecution, setPaidExecution] = useState<ProductVisualQuoteStatus | null>(null);
+  const [paidPollWarning, setPaidPollWarning] = useState<string | null>(null);
+  const [optimizationPollWarning, setOptimizationPollWarning] = useState<string | null>(null);
+  const [factScanPollWarning, setFactScanPollWarning] = useState<string | null>(null);
+  const restoredPaidQuoteRef = useRef<string | null>(null);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
@@ -1059,6 +1088,7 @@ function ImageUploadSection({
     }
     setOptimizationSubmitting(true);
     setOptimizationSource({ asset, url, name: file.name || '商品图片' });
+    setOptimizationPollWarning(null);
     try {
       const task = await requestWhiteBackground({
         sourceAssetId: asset.asset.id,
@@ -1086,9 +1116,19 @@ function ImageUploadSection({
       message.info('请先保存为草稿，再生成可追溯的图片美化建议');
       return;
     }
+    if (localStorage.getItem(activePaidQuoteStorageKey(productId))) {
+      message.info('这个商品已有已确认的 AI 图片任务，系统正在恢复原任务；不会重复冻结额度。');
+      return;
+    }
     setVisualPlanSubmitting(true);
     setVisualPlanSource({ asset, url, name: file.name || '商品图片' });
     setFactScan(null);
+    setRateCards(null);
+    setVisualQuote(null);
+    setPaidExecution(null);
+    setQuoteConfirmed(false);
+    setPaidPollWarning(null);
+    setFactScanPollWarning(null);
     try {
       setVisualPlan(await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id }));
     } catch (error) {
@@ -1108,6 +1148,7 @@ function ImageUploadSection({
         idempotencyKey: crypto.randomUUID(),
       });
       setFactScan(scan);
+      setFactScanPollWarning(null);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '商品事实检查未能完成');
     } finally {
@@ -1127,6 +1168,7 @@ function ImageUploadSection({
         idempotencyKey: crypto.randomUUID(),
       });
       setOptimizationTask(task);
+      setOptimizationPollWarning(null);
       setVisualPlan(null);
       if (task.status === 'FAILED') message.warning(task.failureDetail || '当前图片暂不能安全进行实景优化');
     } catch (error) {
@@ -1172,6 +1214,8 @@ function ImageUploadSection({
       });
       setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits });
       setQuoteConfirmed(false);
+      setPaidExecution(null);
+      setPaidPollWarning(null);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '创建图片美化报价失败');
     } finally {
@@ -1185,6 +1229,8 @@ function ImageUploadSection({
     try {
       const result = await confirmProductVisualQuote(productId, visualQuote.quote.id, visualQuote.quote.quoteHash);
       setPaidExecution(result.execution);
+      setPaidPollWarning(null);
+      localStorage.setItem(activePaidQuoteStorageKey(productId), visualQuote.quote.id);
       message.success('已确认图片额度，正在提交受控模型任务');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '模型任务未能提交，未接受的任务会自动释放额度');
@@ -1195,12 +1241,13 @@ function ImageUploadSection({
 
   useEffect(() => {
     if (!optimizationTask) return;
-    if (['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status)) {
+    if (['REQUESTED', 'QUEUED', 'RUNNING', 'RECONCILING'].includes(optimizationTask.status)) {
       const timer = window.setInterval(async () => {
         try {
           setOptimizationTask(await getProductImageOptimization(optimizationTask.id));
-        } catch {
-          // Keep the last known state; the seller can retry from the image card.
+          setOptimizationPollWarning(null);
+        } catch (error) {
+          setOptimizationPollWarning(error instanceof Error ? error.message : '候选状态刷新失败，请稍后重试');
         }
       }, 1500);
       return () => window.clearInterval(timer);
@@ -1222,30 +1269,97 @@ function ImageUploadSection({
     const timer = window.setInterval(async () => {
       try {
         setFactScan(await getProductImageFactScan(factScan.id));
-      } catch {
-        // Preserve the last known conclusion; the seller can request a new plan.
+        setFactScanPollWarning(null);
+      } catch (error) {
+        setFactScanPollWarning(error instanceof Error ? error.message : '商品事实检查状态刷新失败');
       }
     }, 1500);
     return () => window.clearInterval(timer);
   }, [factScan]);
 
   useEffect(() => {
-    if (!productId || !visualQuote || !paidExecution || !['QUEUED', 'RUNNING', 'VERIFYING'].includes(paidExecution.status)) return;
+    if (!productId || !visualQuote || !paidExecution || !['QUEUED', 'RUNNING', 'VERIFYING', 'ALREADY_BOUND'].includes(paidExecution.status)) return;
     const timer = window.setInterval(async () => {
       try {
         const next = await pollProductVisualQuote(productId, visualQuote.quote.id);
         setPaidExecution(next);
+        setPaidPollWarning(null);
         if (next.status === 'SUCCEEDED' && next.optimizationId && visualPlanSource) {
           setOptimizationSource(visualPlanSource);
           setOptimizationTask(await getProductImageOptimization(next.optimizationId));
           setVisualPlan(null);
         }
-      } catch {
-        // Server-side reconciliation intentionally suppresses a paid retry.
+      } catch (error) {
+        setPaidPollWarning(error instanceof Error ? error.message : '模型任务状态刷新失败；系统不会重复提交或重复扣费');
       }
     }, 2000);
     return () => window.clearInterval(timer);
   }, [paidExecution, productId, visualPlanSource, visualQuote]);
+
+  useEffect(() => {
+    if (!productId) return;
+    const quoteId = localStorage.getItem(activePaidQuoteStorageKey(productId));
+    const loadingMarker = `loading:${quoteId}`;
+    if (!quoteId || restoredPaidQuoteRef.current === quoteId || restoredPaidQuoteRef.current === loadingMarker) return;
+    restoredPaidQuoteRef.current = loadingMarker;
+    let cancelled = false;
+    let completed = false;
+    void (async () => {
+      try {
+        const result = await getProductVisualQuote(productId, quoteId);
+        if (cancelled) return;
+        const sourceFile = fileList.find((file) => getManagedAsset(file)?.asset.id === result.quote.sourceAssetRef);
+        const sourceAsset = sourceFile ? getManagedAsset(sourceFile) : undefined;
+        const sourceUrl = sourceFile ? getFileUrl(sourceFile) : undefined;
+        if (!sourceFile || !sourceAsset || !sourceUrl) {
+          restoredPaidQuoteRef.current = null;
+          return;
+        }
+        completed = true;
+        restoredPaidQuoteRef.current = quoteId;
+        setVisualPlanSource({ asset: sourceAsset, url: sourceUrl, name: sourceFile.name || '商品图片' });
+        setVisualQuote({
+          quote: result.quote,
+          availableCredits: result.billingAccount.availableCredits,
+          reservedCredits: result.billingAccount.reservedCredits,
+        });
+        if (result.optimization?.status === 'SUCCEEDED') {
+          setOptimizationSource({ asset: sourceAsset, url: sourceUrl, name: sourceFile.name || '商品图片' });
+          setOptimizationTask(await getProductImageOptimization(result.optimization.id));
+          setPaidExecution({ quoteId, optimizationId: result.optimization.id, status: 'SUCCEEDED' });
+          return;
+        }
+        if (result.optimization?.status === 'ADOPTED') {
+          localStorage.removeItem(activePaidQuoteStorageKey(productId));
+          return;
+        }
+        if (result.optimization?.status === 'REJECTED') {
+          setPaidExecution({ quoteId, optimizationId: result.optimization.id, status: 'REJECTED' });
+          localStorage.removeItem(activePaidQuoteStorageKey(productId));
+          return;
+        }
+        if (result.quote.status === 'RELEASED' || result.quote.status === 'EXPIRED' || result.quote.status === 'CANCELLED') {
+          setPaidExecution({ quoteId, status: 'RELEASED' });
+          localStorage.removeItem(activePaidQuoteStorageKey(productId));
+          return;
+        }
+        setPaidExecution({ quoteId, status: result.quote.status === 'RECONCILING' ? 'RECONCILING' : 'ALREADY_BOUND' });
+      } catch (error) {
+        if (cancelled) return;
+        localStorage.removeItem(activePaidQuoteStorageKey(productId));
+        setPaidPollWarning(error instanceof Error ? error.message : '无法恢复之前的 AI 图片任务');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (!completed && restoredPaidQuoteRef.current === loadingMarker) restoredPaidQuoteRef.current = null;
+    };
+  }, [fileList, productId]);
+
+  useEffect(() => {
+    if (!productId || !paidExecution || !['REJECTED', 'RELEASED'].includes(paidExecution.status)) return;
+    localStorage.removeItem(activePaidQuoteStorageKey(productId));
+  }, [paidExecution, productId]);
 
   const adoptOptimization = async () => {
     if (!optimizationTask || !productId) return;
@@ -1285,6 +1399,7 @@ function ImageUploadSection({
       setOptimizationTask(null);
       setOptimizationSource(null);
       setTruthChecks({ quantity: false, labels: false, facts: false });
+      localStorage.removeItem(activePaidQuoteStorageKey(productId));
       onOptimizationAdopted?.();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '采用候选失败');
@@ -1299,6 +1414,7 @@ function ImageUploadSection({
     && factScan.freeTuneEligible === true;
   const risk = visualPlan ? visualRiskLabels[visualPlan.riskProfile] : null;
   const candidateTitle = optimizationTitle(optimizationTask?.kind);
+  const paidPresentation = paidExecution ? paidExecutionPresentation(paidExecution) : null;
 
   return (
     <>
@@ -1364,6 +1480,8 @@ function ImageUploadSection({
               </Space>
             ))}
           </Space>
+          {paidExecution && !visualPlan && paidPresentation && <Alert type={paidPresentation.type} showIcon message={paidPresentation.message} description={paidPresentation.description} />}
+          {paidPollWarning && !visualPlan && <Alert type="warning" showIcon message="AI 图片任务状态需要刷新" description={paidPollWarning} />}
           {!productId && <Text type="warning" style={{ fontSize: 12 }}>先保存草稿，才能创建可审计的图片建议和候选。</Text>}
         </Space>
       </div>
@@ -1475,6 +1593,7 @@ function ImageUploadSection({
                   {factScan && ['SCANNING', 'RECONCILING'].includes(factScan.status) && (
                     <Alert type="info" showIcon message="正在核对商品事实" description="检查尚未得出可靠结论前，不会生成美化候选。" />
                   )}
+                  {factScanPollWarning && <Alert type="warning" showIcon message="商品事实检查状态暂时无法刷新" description={factScanPollWarning} />}
                   {factScan?.status === 'VERIFIED_EMPTY' && factScan.freeTuneEligible && (
                     <Alert type="success" showIcon message="可进行免费实景调优" description="没有发现需要保护的文字、二维码或条码。仍会保留原图，并在生成后要求你逐项核对。" />
                   )}
@@ -1523,7 +1642,7 @@ function ImageUploadSection({
                   {visualQuote && (
                     <div style={{ borderLeft: '4px solid #d4a72c', padding: '10px 12px', background: '#fffdf2', borderRadius: 8 }}>
                       <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || 'AI 图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag></Space>
+                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || 'AI 图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>{visualQuote.quote.rateCardSnapshot.description || '将按当前受控图片计划生成候选。'} 报价有效至 {new Date(visualQuote.quote.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。</Text>
                         {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片额度不足" description="请联系平台管理员补充图片额度。" /> : <>
                           <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片额度生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>
@@ -1532,7 +1651,8 @@ function ImageUploadSection({
                       </Space>
                     </div>
                   )}
-                  {paidExecution && <Alert type={paidExecution.status === 'REJECTED' ? 'error' : paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'REJECTED' ? '候选未通过系统事实检查' : paidExecution.status === 'PENDING_REVIEW' ? '旧候选仍在历史人工审核流程中' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选可采用；系统已保留验真摘要' : '模型任务处理中'} description={paidExecution.status === 'REJECTED' ? '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' : paidExecution.status === 'PENDING_REVIEW' ? '此状态仅用于旧流程记录；新候选不会等待平台预审批。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '商家确认采用后会立即更新公开图片；未能完全自动验真的候选会进入平台事后巡检优先队列。'} />}
+                  {paidExecution && paidPresentation && <Alert type={paidPresentation.type} showIcon message={paidPresentation.message} description={paidPresentation.description} />}
+                  {paidPollWarning && <Alert type="warning" showIcon message="模型任务状态暂时无法刷新" description={paidPollWarning} />}
                 </Space>
               </Card>
             )}
@@ -1570,8 +1690,12 @@ function ImageUploadSection({
       >
         {optimizationTask && optimizationSource && (
           <>
+            {optimizationPollWarning && <Alert type="warning" showIcon message="候选状态暂时无法刷新" description={optimizationPollWarning} style={{ marginBottom: 12 }} />}
             {['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status) && <Alert type="info" showIcon message={optimizationTask.kind === 'FREE_TUNE' ? '正在生成实景优化候选…' : '正在进行保真白底合成…'} description={optimizationTask.kind === 'FREE_TUNE' ? '只会执行固定的轻量调优，不会调用生成模型或修改商品结构。' : '只会在透明前景基础上合成固定白底，不会调用生成模型。'} />}
+            {optimizationTask.status === 'RECONCILING' && <Alert type="info" showIcon message="候选任务正在核对状态" description="系统不会重复执行同一任务；状态确认后会继续显示结果。" />}
             {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message={`这张图片暂不能安全${optimizationTask.kind === 'FREE_TUNE' ? '进行实景优化' : '制作白底图'}`} description={optimizationTask.failureDetail || (optimizationTask.kind === 'FREE_TUNE' ? '请保留原图，或重新生成图片美化建议。' : '请上传带透明背景的 PNG/WebP，或等待分割能力开放。')} />}
+            {['REJECTED', 'EXPIRED', 'CANCELLED'].includes(optimizationTask.status) && <Alert type="warning" showIcon message="该候选任务不能继续采用" description={optimizationTask.failureDetail || '请返回图片重新获取美化建议。'} />}
+            {optimizationTask.status === 'ADOPTED' && <Alert type="success" showIcon message="该候选已经采用" description="商品图片已按当时的商品状态完成更新。" />}
             {optimizationTask.status === 'SUCCEEDED' && optimizationTask.candidate && (
               <>
                 <Row gutter={16} style={{ marginTop: 4 }}>
@@ -1926,10 +2050,20 @@ function ProductEditForm({ id }: { id: string }) {
       }
 
       const payload = buildPayload(values, skuList, fileList, productType, bundleItems);
+      const activePublicProduct = product?.status === 'ACTIVE' && product?.auditStatus === 'APPROVED';
+      if (activePublicProduct && payload.mediaAssetIds && !sameMediaAssetOrder(product.media ?? [], payload.mediaAssetIds)) {
+        message.warning('商品图片已变化。请先在“商品图片”卡片中确认“更新公开图片”；更新成功后再保存其他商品信息。');
+        setRevisionModalOpen(true);
+        return;
+      }
+      // Public image changes use the dedicated versioned endpoint. Keeping an
+      // unchanged mediaAssetIds array in the ordinary product update would
+      // make every title/SKU save fail as if the merchant had changed images.
+      const productPayload = activePublicProduct ? omitMediaAssetIds(payload) : payload;
       if (productType === 'BUNDLE') {
-        await updateProduct(id, payload);
+        await updateProduct(id, productPayload);
       } else {
-        const { skus, ...productData } = payload;
+        const { skus, ...productData } = productPayload;
         await updateProduct(id, productData);
         await updateProductSkus(id, skus);
       }
@@ -1976,6 +2110,7 @@ function ProductEditForm({ id }: { id: string }) {
         factsConfirmed: revisionChecks.facts,
       });
       message.success('公开商品图已更新；系统已保留历史版本，平台可事后巡检并在必要时回滚。');
+      await queryClient.invalidateQueries({ queryKey: ['seller-product', id] });
       setRevisionModalOpen(false);
       setRevisionChecks({ quantity: false, labels: false, facts: false });
     } catch (error) {

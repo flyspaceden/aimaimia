@@ -53,3 +53,18 @@ test('seller paid visual API remains product-bound and cannot send a free-form p
   assert.doesNotMatch(visualApi, /prompt:/);
   assert.doesNotMatch(visualApi, /providerUrl/);
 });
+
+test('ordinary product save never resubmits unchanged public media and redirects changed media to the explicit publish action', () => {
+  assert.match(editPage, /sameMediaAssetOrder\(product\.media \?\? \[\], payload\.mediaAssetIds\)/);
+  assert.match(editPage, /setRevisionModalOpen\(true\)/);
+  assert.match(editPage, /const productPayload = activePublicProduct \? omitMediaAssetIds\(payload\) : payload/);
+  assert.match(editPage, /商品图片已变化。请先在“商品图片”卡片中确认“更新公开图片”/);
+});
+
+test('confirmed paid tasks survive page navigation without a second freeze or Provider submission', () => {
+  assert.match(editPage, /ai-visual-agent:active-quote:/);
+  assert.match(editPage, /getProductVisualQuote\(productId, quoteId\)/);
+  assert.match(editPage, /已有已确认的 AI 图片任务，系统正在恢复原任务/);
+  assert.match(editPage, /ALREADY_BOUND/);
+  assert.match(editPage, /重新选择方案/);
+});

@@ -210,8 +210,35 @@ export class VisualAgentPublicService {
       quoteId: input.quoteId,
       quoteHash: input.quoteHash,
     });
+    const reservedQuote = await this.credits.getReservedQuoteForExecution({ principal: input.principal, quoteId: input.quoteId });
+    if (reservedQuote.status === VisualCreditQuoteStatus.RECONCILING) {
+      return {
+        confirmed: {
+          quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
+          account: 'account' in confirmed ? confirmed.account : null,
+          ledger: 'ledger' in confirmed ? confirmed.ledger : null,
+        },
+        execution: this.publicExecution({ quoteId: reservedQuote.id, status: 'RECONCILING' as const }),
+      };
+    }
+    if (reservedQuote.visualAgentInvocationId) {
+      return {
+        confirmed: {
+          quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
+          account: 'account' in confirmed ? confirmed.account : null,
+          ledger: 'ledger' in confirmed ? confirmed.ledger : null,
+        },
+        execution: this.publicExecution({ quoteId: reservedQuote.id, status: 'ALREADY_BOUND' as const }),
+      };
+    }
     const asset = await this.findAsset(input.principal, plan.assetId);
-    const source = await this.toOpaqueProviderSource(await this.upload.getBuffer(asset.objectKey));
+    let source: VisualProviderSource;
+    try {
+      source = await this.toOpaqueProviderSource(await this.upload.getBuffer(asset.objectKey));
+    } catch (error) {
+      await this.credits.releaseReservedQuote(input.quoteId, 'SOURCE_PREPARATION_FAILED_BEFORE_PROVIDER_SUBMIT');
+      throw error;
+    }
     const execution = await this.execution.executeReservedQuote({
       principal: input.principal,
       quoteId: input.quoteId,

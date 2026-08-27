@@ -977,7 +977,7 @@ export class SellerProductsService {
     const mediaCreateData = await this.resolveMediaCreateData(companyId, dto.mediaAssetIds, dto.mediaUrls, product.media);
     this.assertOptimizationEvidenceRetained(product.media, mediaCreateData);
     if (mediaCreateData !== undefined && product.status === 'ACTIVE' && product.auditStatus === 'APPROVED') {
-      throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
+      throw new ConflictException('已上架商品图片请使用“更新公开图片”操作，不能随普通商品信息一起保存');
     }
     this.assertSellerManagedProduct(product);
     if (product.status === 'DRAFT') {
@@ -1068,7 +1068,7 @@ export class SellerProductsService {
           select: { status: true, auditStatus: true, media: { select: { assetId: true, optimizationId: true, isEvidenceImage: true } } },
         });
         if (currentMediaState?.status === 'ACTIVE' && currentMediaState.auditStatus === 'APPROVED') {
-          throw new ConflictException('已上架商品请提交封面变更审核，不能直接保存商品图片');
+          throw new ConflictException('已上架商品图片请使用“更新公开图片”操作，不能随普通商品信息一起保存');
         }
         this.assertOptimizationEvidenceRetained(currentMediaState?.media ?? [], mediaCreateData);
       }

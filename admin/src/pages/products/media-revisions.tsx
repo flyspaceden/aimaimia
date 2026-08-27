@@ -70,6 +70,7 @@ export default function ProductMediaRevisionPage() {
       message.success('公开商品图已恢复到商家变更前的历史版本，商家已收到通知。');
       await refresh();
     },
+    onError: (error) => message.error(error instanceof Error ? error.message : '图片回滚失败，请刷新后重试'),
   });
   const selected = useMemo(() => queue.data?.find((item) => item.id === selectedRevisionId), [queue.data, selectedRevisionId]);
   const askRollback = () => {
@@ -81,13 +82,17 @@ export default function ProductMediaRevisionPage() {
       okText: '恢复历史图片',
       okButtonProps: { danger: true, loading: rollback.isPending },
       onOk: async () => {
-        if (!reason.trim()) return Promise.reject(new Error('请填写回滚原因'));
+        if (!reason.trim()) {
+          message.warning('请填写回滚原因');
+          return Promise.reject(new Error('请填写回滚原因'));
+        }
         await rollback.mutateAsync({ id: selectedRevisionId, reason: reason.trim() });
       },
     });
   };
 
-  const canRollback = detail.data?.revision.status === 'APPLIED_BY_SELLER';
+  const canRollback = detail.data?.revision.status === 'APPLIED_BY_SELLER'
+    && detail.data.product.mediaVersion === detail.data.revision.appliedMediaVersion;
   return (
     <div style={{ maxWidth: 1440, margin: '0 auto', padding: '4px 0 24px' }}>
       <div style={{ marginBottom: 18 }}>
@@ -96,10 +101,10 @@ export default function ProductMediaRevisionPage() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 16 }}>
         <Card title={`图片变更记录 ${queue.data?.length ?? 0}`} bodyStyle={{ padding: 0 }}>
-          {queue.isLoading ? <div style={{ padding: 28, textAlign: 'center' }}><Spin /></div> : queue.data?.length ? <List dataSource={queue.data} renderItem={(item) => <RevisionLabel item={item} selected={item.id === selectedRevisionId} onSelect={() => setSelectedId(item.id)} />} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无需要巡检的已发布图片变更" style={{ margin: '44px 0' }} />}
+          {queue.isError ? <Alert type="error" showIcon message="图片变更记录加载失败" description={queue.error instanceof Error ? queue.error.message : '请检查网络后重试'} action={<Button size="small" onClick={() => queue.refetch()}>重新加载</Button>} style={{ margin: 12 }} /> : queue.isLoading ? <div style={{ padding: 28, textAlign: 'center' }}><Spin /></div> : queue.data?.length ? <List dataSource={queue.data} renderItem={(item) => <RevisionLabel item={item} selected={item.id === selectedRevisionId} onSelect={() => setSelectedId(item.id)} />} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无需要巡检的已发布图片变更" style={{ margin: '44px 0' }} />}
         </Card>
         <Card>
-          {detail.isLoading ? <div style={{ padding: 72, textAlign: 'center' }}><Spin /></div> : detail.data ? <>
+          {detail.isError ? <Alert type="error" showIcon message="图片变更详情加载失败" description={detail.error instanceof Error ? detail.error.message : '请刷新后重试'} action={<Button size="small" onClick={() => detail.refetch()}>重新加载</Button>} /> : detail.isLoading ? <div style={{ padding: 72, textAlign: 'center' }}><Spin /></div> : detail.data ? <>
             <Descriptions size="small" column={{ xs: 1, sm: 3 }} style={{ marginBottom: 16 }}>
               <Descriptions.Item label="商品">{detail.data.product.title}</Descriptions.Item>
               <Descriptions.Item label="商户">{detail.data.company.name}</Descriptions.Item>
@@ -122,7 +127,7 @@ export default function ProductMediaRevisionPage() {
             </Card>}
             <Space style={{ marginTop: 18 }}>
               <Button danger type="primary" icon={<RollbackOutlined />} disabled={!canRollback} loading={rollback.isPending} onClick={askRollback}>恢复到变更前图片并通知商家</Button>
-              {!canRollback && <Text type="secondary">该记录已经回滚，或当前商品已被更新到更新版本。</Text>}
+              {!canRollback && <Text type="secondary">该记录已经回滚，或商家后来又更新了图片；平台不会覆盖较新的版本。</Text>}
             </Space>
           </> : <Empty description={selected ? '该历史图片已不可预览' : '从左侧选择一项图片变更'} />}
         </Card>

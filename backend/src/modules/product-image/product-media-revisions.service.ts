@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MediaType, Prisma, ProductImageArtifactKind, ProductImageFactScanStatus, ProductImageOptimizationKind, ProductImageOptimizationStatus, ProductMediaRevisionStatus, ProductMediaVisualOrigin, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SellerMediaAssetsService } from './seller-media-assets.service';
@@ -23,7 +23,7 @@ export class ProductMediaRevisionsService {
     private readonly prisma: PrismaService,
     private readonly assets: SellerMediaAssetsService,
     private readonly uploadService: UploadService,
-    @Optional() private readonly notifications?: NotificationService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async request(companyId: string, staffId: string, productId: string, dto: RequestProductMediaRevisionDto) {
@@ -70,7 +70,10 @@ export class ProductMediaRevisionsService {
       const existing = await tx.productMediaRevision.findFirst({
         where: { companyId, idempotencyKey: dto.idempotencyKey },
       });
-      if (existing) return existing;
+      if (existing) {
+        this.assertRevisionReplay(existing, { productId, proposedMedia });
+        return existing;
+      }
       const fresh = await tx.product.findFirst({
         where: { id: productId, companyId },
         include: { media: { orderBy: { sortOrder: 'asc' } } },
@@ -162,7 +165,12 @@ export class ProductMediaRevisionsService {
       const existing = await tx.productMediaRevision.findFirst({
         where: { companyId: input.companyId, idempotencyKey: `optimization-apply:${input.optimizationId}` },
       });
-      if (existing) return { kind: 'EXISTING' as const, revision: existing };
+      if (existing) {
+        if (existing.productId !== input.productId || existing.optimizationId !== input.optimizationId) {
+          throw new ConflictException('该候选采用幂等记录与当前商品不匹配');
+        }
+        return { kind: 'EXISTING' as const, revision: existing };
+      }
       const task = await tx.productImageOptimization.findFirst({
         where: {
           id: input.optimizationId,
@@ -503,18 +511,16 @@ export class ProductMediaRevisionsService {
         },
       });
       if (rolledBack.count !== 1) throw new ConflictException('图片历史状态已变化，不能回滚');
-      return { revision, productId: revision.productId, companyId: revision.companyId };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    if (this.notifications) {
       await this.notifications.emit({
         eventType: 'product.mediaRolledBackForSeller',
         aggregateType: 'productMediaRevision',
-        aggregateId: result.revision.id,
-        idempotencyKey: `product-media:${result.revision.id}:rollback`,
+        aggregateId: revision.id,
+        idempotencyKey: `product-media:${revision.id}:rollback`,
         actor: { kind: 'admin', id: adminUserId },
-        payload: { companyId: result.companyId, productId: result.productId, revisionId: result.revision.id, reason: reason.trim().slice(0, 400) },
-      });
-    }
+        payload: { companyId: revision.companyId, productId: revision.productId, revisionId: revision.id, reason: reason.trim().slice(0, 400) },
+      }, tx);
+      return { revision, productId: revision.productId };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return { rolledBack: true, revisionId: result.revision.id, productId: result.productId };
   }
 
@@ -569,6 +575,43 @@ export class ProductMediaRevisionsService {
     if (media.some((item) => item.type !== MediaType.IMAGE || !item.assetId)) {
       throw new ConflictException('当前商品含视频或未受管媒体，暂不能使用即时图片替换；请先在商品媒体管理中整理后重试');
     }
+  }
+
+  private assertRevisionReplay(
+    existing: { productId: string; proposedMedia: unknown },
+    input: { productId: string; proposedMedia: unknown },
+  ) {
+    if (existing.productId !== input.productId
+      || this.mediaSnapshotIdentity(existing.proposedMedia) !== this.mediaSnapshotIdentity(input.proposedMedia)) {
+      throw new ConflictException('图片更新幂等键已用于另一项商品图片变更');
+    }
+  }
+
+  private mediaSnapshotIdentity(value: unknown): string | null {
+    if (!Array.isArray(value)) return null;
+    const normalized: Array<{
+      assetId: string;
+      sortOrder: number;
+      type: string;
+      visualOrigin: string;
+      optimizationId: string | null;
+      isEvidenceImage: boolean;
+    } | null> = value.map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const media = item as Record<string, unknown>;
+      if (typeof media.assetId !== 'string' || !Number.isInteger(media.sortOrder)) return null;
+      return {
+        assetId: media.assetId,
+        sortOrder: media.sortOrder as number,
+        type: typeof media.type === 'string' ? media.type : 'IMAGE',
+        visualOrigin: typeof media.visualOrigin === 'string' ? media.visualOrigin : ProductMediaVisualOrigin.ORIGINAL,
+        optimizationId: typeof media.optimizationId === 'string' ? media.optimizationId : null,
+        isEvidenceImage: media.isEvidenceImage === true,
+      };
+    });
+    const valid = normalized.filter((item): item is NonNullable<typeof item> => item !== null);
+    if (valid.length !== normalized.length) return null;
+    return JSON.stringify(valid.sort((left, right) => left.sortOrder - right.sortOrder));
   }
 
   async getForAdmin(revisionId: string) {

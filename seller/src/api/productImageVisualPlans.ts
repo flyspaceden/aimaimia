@@ -1,4 +1,5 @@
 import client from './client';
+import type { ProductImageOptimizationTask } from './productImageOptimizations';
 
 export type ProductVisualRiskProfile =
   | 'STRICT_FACTS'
@@ -76,6 +77,12 @@ export type ProductVisualQuote = {
     creditCost?: number;
     requiresHumanReview?: boolean;
   };
+  visualPlanSnapshot?: {
+    direction?: ProductVisualMode;
+    riskProfile?: ProductVisualRiskProfile;
+    allowedOperations?: string[];
+    protectedRegionVersion?: string;
+  };
   quoteHash: string;
   expiresAt: string;
   failureReason?: string | null;
@@ -138,4 +145,5 @@ export const pollProductVisualQuote = (productId: string, quoteId: string): Prom
 export const getProductVisualQuote = (productId: string, quoteId: string): Promise<{
   quote: ProductVisualQuote;
   billingAccount: ProductVisualCreditAccount;
+  optimization?: { id: string; status: ProductImageOptimizationTask['status'] } | null;
 }> => client.get(`/seller/products/${productId}/visual-quotes/${quoteId}`);

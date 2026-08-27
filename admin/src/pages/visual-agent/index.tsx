@@ -25,6 +25,12 @@ const { Text, Title } = Typography;
 const DEFAULT_SCOPE = { tenantId: 'aimai-product-agent', clientId: 'aimai-product-adapter-v1', adapterNamespace: 'aimai-product' };
 const directionOptions = ['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH'];
 const riskOptions = ['STRICT_FACTS', 'CONSERVATIVE_FACTS', 'ORGANIC_FACTS', 'STANDARD_FACTS'];
+const modelOptions = [
+  { value: 'BAILIAN_WAN_STANDARD', label: '万相标准 · wan2.7-image' },
+  { value: 'BAILIAN_WAN_PRO', label: '万相专业 · wan2.7-image-pro' },
+  { value: 'BAILIAN_QWEN_IMAGE', label: '千问图像 · qwen-image-3.0' },
+  { value: 'BAILIAN_QWEN_IMAGE_PRO', label: '千问图像专业 · qwen-image-3.0-pro' },
+];
 
 type Scope = typeof DEFAULT_SCOPE;
 
@@ -91,6 +97,7 @@ export default function VisualAgentPage() {
   const savePolicy = useMutation({
     mutationFn: (values: { enabled: boolean; grantCredits: number; creditValueCents: number; policyVersion: string }) => saveVisualWelcomePolicy(scope.tenantId, values),
     onSuccess: async () => { message.success('欢迎额度策略已保存；不会自动向商家发放额度'); await refreshConfiguration(); },
+    onError: (error) => message.error(error instanceof Error ? error.message : '欢迎额度策略保存失败'),
   });
   const saveRateCard = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
@@ -119,18 +126,22 @@ export default function VisualAgentPage() {
       });
     },
     onSuccess: async () => { message.success('费率卡已保存；仅新报价采用该版本'); setRateCardOpen(false); await refreshConfiguration(); },
+    onError: (error) => message.error(error instanceof Error ? error.message : '费率卡保存失败'),
   });
   const grantWelcome = useMutation({
     mutationFn: () => grantVisualWelcomeCredits(scope.tenantId, accountScope!.ownerType, accountScope!.ownerId),
     onSuccess: async () => { message.success('欢迎图片额度已按幂等规则发放'); await refreshAccount(); },
+    onError: (error) => message.error(error instanceof Error ? error.message : '欢迎图片额度发放失败'),
   });
   const approveCandidate = useMutation({
     mutationFn: () => approvePaidVisualCandidateFacts(selectedCandidate!),
     onSuccess: async () => { message.success('历史候选已处理；候选仍需由商家显式采用'); await refreshCandidates(); },
+    onError: (error) => message.error(error instanceof Error ? error.message : '历史候选处理失败'),
   });
   const rejectCandidate = useMutation({
     mutationFn: (reason: string) => rejectPaidVisualCandidateFacts(selectedCandidate!, reason),
     onSuccess: async () => { message.success('已驳回候选并保留审计原因'); await refreshCandidates(); },
+    onError: (error) => message.error(error instanceof Error ? error.message : '候选驳回失败'),
   });
 
   const accountStats = creditAccount.data;
@@ -164,10 +175,18 @@ export default function VisualAgentPage() {
       okText: '确认调整',
       okButtonProps: { danger: availableDelta < 0 },
       onOk: async () => {
-        if (!Number.isInteger(availableDelta) || availableDelta === 0 || !reason.trim()) return Promise.reject(new Error('请输入非零整数额度和调整原因'));
-        await adjustVisualCredits(scope.tenantId, accountScope.ownerType, accountScope.ownerId, { availableDelta, reason: reason.trim(), idempotencyKey: crypto.randomUUID() });
-        message.success('图片额度已调整');
-        await refreshAccount();
+        if (!Number.isInteger(availableDelta) || availableDelta === 0 || !reason.trim()) {
+          message.warning('请输入非零整数额度和调整原因');
+          return Promise.reject(new Error('请输入非零整数额度和调整原因'));
+        }
+        try {
+          await adjustVisualCredits(scope.tenantId, accountScope.ownerType, accountScope.ownerId, { availableDelta, reason: reason.trim(), idempotencyKey: crypto.randomUUID() });
+          message.success('图片额度已调整');
+          await refreshAccount();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '图片额度调整失败');
+          throw error;
+        }
       },
     });
   };
@@ -180,7 +199,10 @@ export default function VisualAgentPage() {
       okText: '确认驳回',
       okButtonProps: { danger: true, loading: rejectCandidate.isPending },
       onOk: async () => {
-        if (!reason.trim()) return Promise.reject(new Error('请填写驳回原因'));
+        if (!reason.trim()) {
+          message.warning('请填写驳回原因');
+          return Promise.reject(new Error('请填写驳回原因'));
+        }
         await rejectCandidate.mutateAsync(reason.trim());
       },
     });
@@ -193,6 +215,7 @@ export default function VisualAgentPage() {
         <Text type="secondary">管理商家图片额度、对外报价和事后巡检策略。这里不会显示 Provider Key，也不能直接启用真实模型。</Text>
       </div>
       <Alert showIcon type="warning" icon={<SafetyCertificateOutlined />} message="配置不等于开通" description="费率卡只控制面向商家的报价；真实百炼模型、额度发放、数据库迁移和任何扣费调用仍需独立发布授权与运行时开关。" style={{ marginBottom: 16 }} />
+      {(policy.isError || rateCards.isError) && <Alert showIcon type="error" message="AI Visual Agent 配置加载失败" description="当前页面不能确认真实策略或费率卡，请重新加载后再操作。" action={<Button size="small" onClick={() => { void policy.refetch(); void rateCards.refetch(); }}>重新加载配置</Button>} style={{ marginBottom: 16 }} />}
 
       <Card size="small" title="管理范围" extra={<Tag color="blue">所有资源按 Tenant / Client / Adapter 隔离</Tag>} style={{ marginBottom: 16 }}>
         <Form form={scopeForm} layout="inline" initialValues={scope} onFinish={(values) => setScope(values as Scope)}>
@@ -205,12 +228,12 @@ export default function VisualAgentPage() {
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={10}>
-          <Card title="新商家欢迎额度" extra={<Tag color={policy.data?.enabled ? 'green' : 'default'}>{policy.data?.enabled ? '启用中' : '未启用'}</Tag>} style={{ height: '100%' }}>
+          <Card loading={policy.isLoading} title="新商家欢迎额度" extra={<Tag color={policy.data?.enabled ? 'green' : 'default'}>{policy.isError ? '加载失败' : policy.data?.enabled ? '启用中' : '未启用'}</Tag>} style={{ height: '100%' }}>
             <Text type="secondary">默认建议为 200 图片额度（展示服务面值 ¥20）。保存策略不会自动发放；每个账单主体的实际发放走幂等流水。</Text>
             <Form form={policyForm} layout="vertical" initialValues={{ enabled: policy.data?.enabled ?? false, grantCredits: policy.data?.grantCredits ?? 200, creditValueCents: policy.data?.creditValueCents ?? 2000, policyVersion: policy.data?.policyVersion ?? 'WELCOME_200_V1' }} onFinish={(values) => savePolicy.mutate(values)} style={{ marginTop: 12 }}>
               <Row gutter={12}><Col span={8}><Form.Item name="grantCredits" label="赠送额度" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="creditValueCents" label="服务面值（分）" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="enabled" label="是否启用" valuePropName="checked"><Checkbox>启用策略</Checkbox></Form.Item></Col></Row>
               <Form.Item name="policyVersion" label="策略版本" rules={[{ required: true }]}><Input /></Form.Item>
-              <Button type="primary" htmlType="submit" loading={savePolicy.isPending}>保存欢迎额度策略</Button>
+              <Button type="primary" htmlType="submit" loading={savePolicy.isPending} disabled={policy.isError}>保存欢迎额度策略</Button>
             </Form>
           </Card>
         </Col>
@@ -221,7 +244,7 @@ export default function VisualAgentPage() {
               <Form.Item name="ownerId" label="主体 ID" rules={[{ required: true, message: '请输入受控账单主体 ID' }]}><Input style={{ width: 260 }} placeholder="例如 Company ID" /></Form.Item>
               <Form.Item><Button htmlType="submit">查询账户</Button></Form.Item>
             </Form>
-            {accountScope && <><Row gutter={12} style={{ marginTop: 18 }}><Col span={8}><Statistic title="可用额度" value={accountStats?.availableCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Statistic title="冻结额度" value={accountStats?.reservedCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Space direction="vertical"><Button loading={grantWelcome.isPending} onClick={() => grantWelcome.mutate()}>发放欢迎额度</Button><Button danger onClick={askAdjustment}>人工调整</Button></Space></Col></Row>
+            {accountScope && <>{(creditAccount.isError || creditLedger.isError) && <Alert type="error" showIcon message="额度账户加载失败" description="无法确认当前余额，已暂停发放和人工调整。" action={<Button size="small" onClick={() => { void creditAccount.refetch(); void creditLedger.refetch(); }}>重新加载</Button>} style={{ marginTop: 12 }} />}<Row gutter={12} style={{ marginTop: 18 }}><Col span={8}><Statistic title="可用额度" value={accountStats?.availableCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Statistic title="冻结额度" value={accountStats?.reservedCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Space direction="vertical"><Button disabled={creditAccount.isError || creditAccount.isLoading} loading={grantWelcome.isPending} onClick={() => grantWelcome.mutate()}>发放欢迎额度</Button><Button disabled={creditAccount.isError || creditAccount.isLoading} danger onClick={askAdjustment}>人工调整</Button></Space></Col></Row>
               <Table size="small" rowKey="id" pagination={false} loading={creditLedger.isLoading} style={{ marginTop: 12 }} dataSource={creditLedger.data} columns={[{ title: '时间', dataIndex: 'createdAt', render: (value) => new Date(value).toLocaleString('zh-CN') }, { title: '类型', dataIndex: 'type', render: (value) => <Tag>{value}</Tag> }, { title: '可用变化', dataIndex: 'availableDelta' }, { title: '冻结变化', dataIndex: 'reservedDelta' }, { title: '余额', render: (_, row) => `${row.availableBalanceAfter} / ${row.reservedBalanceAfter}` }, { title: '原因', dataIndex: 'reason', ellipsis: true }]} />
             </>}
           </Card>
@@ -230,17 +253,17 @@ export default function VisualAgentPage() {
 
       <Card title="费率卡（面向商家的固定报价）" extra={<Button type="primary" onClick={() => openRateCard()}>新增费率卡</Button>} style={{ marginBottom: 16 }}>
         <Text type="secondary">新报价才使用新版本；默认“暂停”，由平台在完成模型白名单、预算和验收后明确启用。</Text>
-        <Table style={{ marginTop: 12 }} rowKey="id" loading={rateCards.isLoading} dataSource={selectedRateCards} pagination={false} columns={[{ title: '商家方案', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.displayName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{row.code} · {row.version}</Text></Space> }, { title: '额度 / 候选', render: (_, row) => `${row.creditCost} / ${row.candidateCount}` }, { title: '模型档', dataIndex: 'modelProfile' }, { title: '巡检策略', dataIndex: 'requiresHumanReview', render: (value) => value ? <Tag color="gold">发布后优先巡检</Tag> : <Tag color="green">按策略自动验真</Tag> }, { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'ACTIVE' ? 'green' : value === 'PAUSED' ? 'orange' : 'default'}>{value}</Tag> }, { title: '操作', render: (_, row) => <Button type="link" onClick={() => openRateCard(row)}>编辑</Button> }]} />
+        <Table style={{ marginTop: 12 }} rowKey="id" loading={rateCards.isLoading} dataSource={selectedRateCards} pagination={false} locale={{ emptyText: rateCards.isError ? '费率卡加载失败，请先重新加载配置' : '暂无费率卡' }} columns={[{ title: '商家方案', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.displayName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{row.code} · {row.version}</Text></Space> }, { title: '额度 / 候选', render: (_, row) => `${row.creditCost} / ${row.candidateCount}` }, { title: '模型档', dataIndex: 'modelProfile' }, { title: '巡检策略', dataIndex: 'requiresHumanReview', render: (value) => value ? <Tag color="gold">发布后优先巡检</Tag> : <Tag color="green">按策略自动验真</Tag> }, { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'ACTIVE' ? 'green' : value === 'PAUSED' ? 'orange' : 'default'}>{value}</Tag> }, { title: '操作', render: (_, row) => <Button type="link" onClick={() => openRateCard(row)}>编辑</Button> }]} />
       </Card>
 
       <Card title="历史付费候选处理" extra={<Tag color="gold">新候选不做发布前预审批</Tag>}>
         {canReviewCandidates ? <><Text type="secondary">这里只兼容已存在的待复核候选。新候选在未发现明确事实不一致时可由商家显式采用；已上架商品采用后立即发布，并由商品图片巡检台承接事后回滚。</Text>
         <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 16, marginTop: 14 }}>
           <Card size="small" title={`待复核 ${candidates.data?.length ?? 0}`} bodyStyle={{ padding: 0 }}>
-            {candidates.isLoading ? <div style={{ padding: 28, textAlign: 'center' }}><Spin /></div> : candidates.data?.length ? <List dataSource={candidates.data} renderItem={(item) => <QueueItem item={item} selected={item.id === selectedCandidate} onSelect={() => setSelectedCandidateId(item.id)} />} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待复核付费候选" style={{ margin: '44px 0' }} />}
+            {candidates.isError ? <Alert type="error" showIcon message="历史候选加载失败" action={<Button size="small" onClick={() => candidates.refetch()}>重新加载</Button>} style={{ margin: 12 }} /> : candidates.isLoading ? <div style={{ padding: 28, textAlign: 'center' }}><Spin /></div> : candidates.data?.length ? <List dataSource={candidates.data} renderItem={(item) => <QueueItem item={item} selected={item.id === selectedCandidate} onSelect={() => setSelectedCandidateId(item.id)} />} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待复核付费候选" style={{ margin: '44px 0' }} />}
           </Card>
           <Card size="small">
-            {candidateDetail.isLoading ? <div style={{ padding: 72, textAlign: 'center' }}><Spin /></div> : candidateDetail.data ? <>
+            {candidateDetail.isError ? <Alert type="error" showIcon message="历史候选详情加载失败" action={<Button size="small" onClick={() => candidateDetail.refetch()}>重新加载</Button>} /> : candidateDetail.isLoading ? <div style={{ padding: 72, textAlign: 'center' }}><Spin /></div> : candidateDetail.data ? <>
               <Descriptions size="small" column={{ xs: 1, sm: 3 }} style={{ marginBottom: 16 }}><Descriptions.Item label="商品">{candidateDetail.data.product.title}</Descriptions.Item><Descriptions.Item label="商户">{candidateDetail.data.company.name}</Descriptions.Item><Descriptions.Item label="生成时间">{new Date(candidateDetail.data.task.createdAt).toLocaleString('zh-CN')}</Descriptions.Item></Descriptions>
               {candidateDetail.data.task.verification && <Alert type={candidateDetail.data.task.verification.state === 'LOCAL_AND_OCR_FACTS_VERIFIED' ? 'success' : 'warning'} showIcon message={candidateDetail.data.task.verification.state === 'LOCAL_AND_OCR_FACTS_VERIFIED' ? '系统已通过结构与文字一致性核对' : '系统会将不确定结果提升为事后巡检优先'} description={candidateDetail.data.task.verification.ocr?.state === 'MATCHED' ? '前后文字核对一致；仍请复核包装、型号、数量、颜色、规格与可见瑕疵。' : '系统不会把二维码、条码或 OCR 的不确定结果当作“没有商品事实”。'} style={{ marginBottom: 16 }} />}
               <Alert showIcon type="warning" icon={<FundProjectionScreenOutlined />} message="事实复核不是美感投票" description="改善光线、反光、构图可以接受；任何包装文字、型号、数量、颜色、规格、材质或可见瑕疵的不一致都应驳回。" style={{ marginBottom: 16 }} />
@@ -255,10 +278,10 @@ export default function VisualAgentPage() {
       <Modal title="费率卡" open={rateCardOpen} onCancel={() => setRateCardOpen(false)} onOk={() => rateCardForm.submit()} confirmLoading={saveRateCard.isPending} width={760} okText="保存费率卡">
         <Form form={rateCardForm} layout="vertical" onFinish={(values) => saveRateCard.mutate(values)}>
           <Row gutter={12}><Col span={12}><Form.Item name="code" label="稳定编码" rules={[{ required: true }]}><Input placeholder="STANDARD_REAL_SCENE" /></Form.Item></Col><Col span={12}><Form.Item name="version" label="版本" rules={[{ required: true }]}><Input /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={12}><Form.Item name="displayName" label="商家看到的方案名" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="modelProfile" label="服务器模型档" rules={[{ required: true }]}><Input /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="displayName" label="商家看到的方案名" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="modelProfile" label="服务器模型档" rules={[{ required: true }]}><Select options={modelOptions} /></Form.Item></Col></Row>
           <Form.Item name="description" label="商家说明" rules={[{ required: true }]}><Input.TextArea rows={2} /></Form.Item>
           <Row gutter={12}><Col span={12}><Form.Item name="allowedDirections" label="允许方向" rules={[{ required: true }]}><Select mode="multiple" options={directionOptions.map((value) => ({ value }))} /></Form.Item></Col><Col span={12}><Form.Item name="allowedRiskProfiles" label="允许风险档" rules={[{ required: true }]}><Select mode="multiple" options={riskOptions.map((value) => ({ value }))} /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={8}><Form.Item name="creditCost" label="图片额度" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="candidateCount" label="候选张数" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={[{ value: 'PAUSED', label: 'PAUSED（默认）' }, { value: 'ACTIVE', label: 'ACTIVE' }, { value: 'RETIRED', label: 'RETIRED' }]} /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={8}><Form.Item name="creditCost" label="图片额度" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="candidateCount" label="候选张数" extra="当前每次报价固定交付 1 张已验真候选" rules={[{ required: true }]}><InputNumber min={1} max={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={[{ value: 'PAUSED', label: 'PAUSED（默认）' }, { value: 'ACTIVE', label: 'ACTIVE' }, { value: 'RETIRED', label: 'RETIRED' }]} /></Form.Item></Col></Row>
           <Row gutter={12}><Col span={12}><Form.Item name="candidateRole" label="候选角色" rules={[{ required: true }]}><Select options={[{ value: 'FACT_MAIN_IMAGE', label: 'FACT_MAIN_IMAGE' }, { value: 'DETAIL_IMAGE', label: 'DETAIL_IMAGE' }, { value: 'MARKETING_IMAGE', label: 'MARKETING_IMAGE' }]} /></Form.Item></Col><Col span={12}><Form.Item name="requiresHumanReview" label="巡检优先策略" valuePropName="checked"><Checkbox>无法完全自动确认时提升事后巡检优先级</Checkbox></Form.Item></Col></Row>
           <Form.Item name="outputSpec" label="输出规格 JSON" rules={[{ required: true }]}><Input.TextArea rows={4} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }} /></Form.Item>
         </Form>

@@ -83,7 +83,7 @@ export class UpsertVisualRateCardDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(1)
   candidateCount: number;
 
   @Type(() => Number)

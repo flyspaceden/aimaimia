@@ -17,6 +17,11 @@ test('AI Visual Agent management is restricted and exposes rate, credit, and leg
   assert.match(page, /历史付费候选处理/);
   assert.match(page, /系统会将不确定结果提升为事后巡检优先/);
   assert.match(page, /新候选不做发布前预审批/);
+  assert.match(page, /AI Visual Agent 配置加载失败/);
+  assert.match(page, /欢迎额度策略保存失败/);
+  assert.match(page, /当前每次报价固定交付 1 张已验真候选/);
+  assert.match(page, /max=\{1\}/);
+  assert.match(page, /wan2\.7-image-pro/);
   assert.match(app, /PERMISSIONS\.ADMIN_VISUAL_AGENT_MANAGE/);
   assert.match(layout, /path: '\/visual-agent', name: 'AI Visual Agent'/);
   assert.match(page, /PERMISSIONS\.PRODUCTS_AUDIT/);

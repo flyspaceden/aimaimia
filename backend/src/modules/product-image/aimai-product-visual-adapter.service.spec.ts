@@ -22,6 +22,7 @@ function build() {
     productVisualPlan: { findFirst: jest.fn().mockResolvedValue(plan) },
     sellerMediaAsset: { findFirst: jest.fn().mockResolvedValue({ id: 'asset-1', objectKey: 'seller-product-assets/asset-1.webp', canonicalSha256: 'a'.repeat(64) }) },
     product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1' }) },
+    productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }) },
   };
   const clients = { resolveInternalClientPrincipal: jest.fn().mockResolvedValue(principal) };
   const trusted = {
@@ -41,7 +42,7 @@ function build() {
     markReconciliation: jest.fn(),
     listRateCards: jest.fn().mockResolvedValue([{
       code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
-      candidateCount: 1, creditCost: 15, requiresHumanReview: true, status: 'ACTIVE',
+      modelProfile: 'BAILIAN_WAN_STANDARD', candidateCount: 1, creditCost: 15, requiresHumanReview: true, status: 'ACTIVE',
       allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
     }]),
     getQuoteForClient: jest.fn().mockResolvedValue({
@@ -117,6 +118,19 @@ describe('AimaiProductVisualAdapterService', () => {
     await expect(service.getQuote('company-1', 'product-1', 'quote-1')).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('returns the product-bound optimization state so a merchant can resume a confirmed task', async () => {
+    const { service, prisma } = build();
+
+    await expect(service.getQuote('company-1', 'product-1', 'quote-1')).resolves.toMatchObject({
+      quote: { id: 'quote-1' },
+      optimization: { id: 'optimization-1', status: 'SUCCEEDED' },
+    });
+    expect(prisma.productImageOptimization.findFirst).toHaveBeenCalledWith({
+      where: { companyId: 'company-1', productId: 'product-1', idempotencyKey: 'paid-quote:quote-1' },
+      select: { id: true, status: true },
+    });
+  });
+
   it('refuses a quote if the exact managed source is no longer attached to the product', async () => {
     const { service, prisma, trusted } = build();
     prisma.product.findFirst.mockResolvedValue(null);
@@ -157,6 +171,17 @@ describe('AimaiProductVisualAdapterService', () => {
       visualPlan: expect.objectContaining({ direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS' }),
     }));
     expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('releases frozen credits when the managed source cannot be prepared before Provider submission', async () => {
+    const { service, credits, execution, upload } = build();
+    upload.getBuffer.mockRejectedValue(new Error('source unavailable'));
+
+    await expect(service.confirmAndExecute({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1', quoteHash: 'q'.repeat(64),
+    })).rejects.toThrow('source unavailable');
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'SOURCE_PREPARATION_FAILED_BEFORE_PROVIDER_SUBMIT');
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
 
   it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {

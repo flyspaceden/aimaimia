@@ -52,7 +52,16 @@ function build() {
     uploadFile: jest.fn().mockResolvedValue({ key: 'visual-agent-assets/source.webp', canonicalSha256: 'a'.repeat(64), mimeType: 'image/webp', size: 100, width: 800, height: 800, needsReview: false, contactInfoDetected: false }),
     deleteFile: jest.fn(), createPrivateAccessUrl: jest.fn().mockResolvedValue({ url: 'https://private.example/image', expiresAt: '2026-08-26T12:00:00.000Z' }), getBuffer: jest.fn(),
   };
-  const credits = { issueQuote: jest.fn().mockResolvedValue({ id: 'quote-1', status: 'ISSUED', creditCost: 15, candidateCount: 1, externalObjectId: 'menu-item-1', quoteHash: 'q'.repeat(64), rateCardSnapshot: { displayName: '标准美化', modelProfile: 'BAILIAN_WAN_STANDARD' } }), getAccount: jest.fn().mockResolvedValue({ availableCredits: 200, reservedCredits: 0 }), getQuoteForClient: jest.fn(), confirmAndReserve: jest.fn(), settleReservedQuote: jest.fn(), markReconciliation: jest.fn() };
+  const credits = {
+    issueQuote: jest.fn().mockResolvedValue({ id: 'quote-1', status: 'ISSUED', creditCost: 15, candidateCount: 1, externalObjectId: 'menu-item-1', quoteHash: 'q'.repeat(64), rateCardSnapshot: { displayName: '标准美化', modelProfile: 'BAILIAN_WAN_STANDARD' } }),
+    getAccount: jest.fn().mockResolvedValue({ availableCredits: 200, reservedCredits: 0 }),
+    getQuoteForClient: jest.fn(),
+    getReservedQuoteForExecution: jest.fn().mockResolvedValue({ id: 'quote-1', status: 'RESERVED', visualAgentInvocationId: null }),
+    confirmAndReserve: jest.fn(),
+    settleReservedQuote: jest.fn(),
+    releaseReservedQuote: jest.fn(),
+    markReconciliation: jest.fn(),
+  };
   const execution = { executeReservedQuote: jest.fn(), pollForOutput: jest.fn() };
   const invocations = { completeSynchronousVerification: jest.fn() };
   const config = { get: jest.fn((key: string) => key === 'AI_VISUAL_AGENT_ADAPTER_EVIDENCE_SECRET_EXTERNALCLIENT_KEY1' ? secret : undefined) };
@@ -106,6 +115,27 @@ describe('VisualAgentPublicService', () => {
       candidateId: 'candidate-1', status: 'ADOPT_INTENT', publication: 'EXTERNAL_ADAPTER_MUST_APPLY_EXPLICITLY',
     });
     expect(prisma.visualAgentCandidate.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'ADOPT_INTENT' }) }));
+  });
+
+  it('releases frozen credits when source preparation fails before any Provider submission', async () => {
+    const { service, prisma, upload, credits, execution } = build();
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: {
+        id: 'quote-1', sourceAssetRef: 'asset-1',
+        visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1' },
+      },
+    });
+    credits.confirmAndReserve.mockResolvedValue({ quote: { id: 'quote-1', status: 'RESERVED' }, account: {}, ledger: {} });
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', externalObjectVersion: 'menu-v3', actorId: 'operator-1',
+      billingOwnerType: 'RESTAURANT', billingOwnerId: 'restaurant-1', recommendedDirection: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS',
+      allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', planHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 60_000),
+    });
+    upload.getBuffer.mockRejectedValue(new Error('source unavailable'));
+
+    await expect(service.confirmTask({ principal, quoteId: 'quote-1', quoteHash: 'q'.repeat(64) })).rejects.toThrow('source unavailable');
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'SOURCE_PREPARATION_FAILED_BEFORE_PROVIDER_SUBMIT');
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
 
   it('never exposes or adopts a persisted candidate until the associated credit quote is settled', async () => {

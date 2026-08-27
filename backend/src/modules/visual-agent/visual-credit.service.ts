@@ -13,6 +13,12 @@ import { VisualAgentClientPrincipal } from './visual-agent-client-key.service';
 const SAFE_ID = /^[A-Za-z0-9._:/-]{1,200}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const MAX_QUOTE_TTL_MS = 60 * 60_000;
+const SUPPORTED_MODEL_PROFILES = new Set([
+  'BAILIAN_WAN_STANDARD',
+  'BAILIAN_WAN_PRO',
+  'BAILIAN_QWEN_IMAGE',
+  'BAILIAN_QWEN_IMAGE_PRO',
+]);
 
 export type VisualBillingOwner = {
   billingOwnerType: string;
@@ -106,7 +112,11 @@ export class VisualCreditService {
     [input.tenantId, input.clientId, input.adapterNamespace, input.code, input.modelProfile, input.version, input.candidateRole]
       .forEach((value) => this.assertId(value, 'Rate Card 字段'));
     if (!input.displayName.trim() || !input.description.trim()
-      || !Number.isInteger(input.candidateCount) || input.candidateCount <= 0
+      || !SUPPORTED_MODEL_PROFILES.has(input.modelProfile)
+      // The current Provider and persistence contract returns one candidate
+      // per quote. Refuse a misleading multi-candidate price until the Core
+      // supports multiple independently verified outputs.
+      || input.candidateCount !== 1
       || !Number.isInteger(input.creditCost) || input.creditCost < 0
       || input.allowedDirections.length === 0 || input.allowedRiskProfiles.length === 0
       || input.allowedDirections.some((value) => !SAFE_ID.test(value))
@@ -270,6 +280,9 @@ export class VisualCreditService {
         orderBy: { createdAt: 'desc' },
       });
       if (!rateCard) throw new ServiceUnavailableException('当前没有可用的图片美化报价档位');
+      if (!SUPPORTED_MODEL_PROFILES.has(rateCard.modelProfile) || rateCard.candidateCount !== 1) {
+        throw new ServiceUnavailableException('该图片美化档位与当前执行能力不匹配，请联系平台管理员更新配置');
+      }
       if (!rateCard.allowedDirections.includes(input.visualPlan.direction)
         || !rateCard.allowedRiskProfiles.includes(input.visualPlan.riskProfile)) {
         throw new ConflictException('该图片风险档不允许使用所选美化报价');
@@ -658,11 +671,14 @@ export class VisualCreditService {
   }
 
   private assertQuoteInputMatches(existing: {
-    externalObjectId: string; actorId: string; sourceAssetRef: string; sourceHash: string; visualPlanHash: string; billingAccountId: string;
-  }, input: VisualCreditScope & { sourceAssetRef: string; sourceHash: string; visualPlanHash: string }, billingAccountId: string) {
+    externalObjectId: string; actorId: string; sourceAssetRef: string; sourceHash: string; visualPlanHash: string; billingAccountId: string; rateCardSnapshot: unknown;
+  }, input: VisualCreditScope & { rateCode: string; sourceAssetRef: string; sourceHash: string; visualPlanHash: string }, billingAccountId: string) {
+    const existingRateCode = existing.rateCardSnapshot && typeof existing.rateCardSnapshot === 'object'
+      ? (existing.rateCardSnapshot as { code?: unknown }).code
+      : null;
     if (existing.externalObjectId !== input.externalObjectId || existing.actorId !== input.actorId
       || existing.sourceAssetRef !== input.sourceAssetRef || existing.sourceHash !== input.sourceHash || existing.visualPlanHash !== input.visualPlanHash
-      || existing.billingAccountId !== billingAccountId) {
+      || existing.billingAccountId !== billingAccountId || existingRateCode !== input.rateCode) {
       throw new ConflictException('图片美化报价幂等键已用于另一张图片或业务对象');
     }
   }

@@ -1946,6 +1946,8 @@
 - [ ] **PVA06** v2 商家付费强效果重构：按 `docs/superpowers/specs/2026-08-22-universal-product-visual-agent-design.md` 新增独立 `VisualCredit` 账户/流水、200 欢迎额度、Rate Card/Quote/冻结/对账、万相/Qwen 真实任务与验真、完整平台管理、餐厅与公共 API Adapter；本地已完成额度报价/确认入口、产品绑定 quote hash、模型未受理自动释放、未知结果对账、商家采用/平台事后巡检 UI、默认关闭的万相/Qwen 受控异步任务路由、受 Client scope + Adapter Evidence HMAC 约束的通用 API，以及候选原图/生成图的几何、二维码、条码和可选 Qwen OCR 前后文字验证。真实 workspace/Key 启用、颜色/数量/关键结构深度评测、餐厅具体 Adapter/SDK/Webhook 与部署仍未完成；未经单独授权不得启用模型、扣费或部署。
 - [x] **PVA-Demo** 角色体验演示（本地静态原型）：`docs/ui-prototypes/2026-08-27-ai-visual-agent-role-demo.html` 以商家与管理员两种视角交互展示“实拍 → 免费分析 → 报价/冻结 → 候选 → 自动验真/巡检优先 → 显式采用 → 事后回滚”的当前代码流程；页面不连接 API、Key、额度或模型，不代表 staging/生产效果。
 - [x] **PVA-Governance** 商品图片治理改为“即时发布、事后巡检”：按 `docs/superpowers/specs/2026-08-27-product-media-post-publication-governance.md`，已取消新已上架商品的预审批；保留系统事实硬门禁、历史媒体快照、CAS、管理员回滚和含原因的商家通知。定向后端 38 suites / 226 tests、卖家 17/17、管理端 16/16、三端 build、Prisma validate 和范围审查均通过。**未**运行迁移、push、部署、真实模型或真实费用测试。
+- [x] **PVA-Audit01** 商家/管理员真实按钮与资金状态深审第一批：修复普通保存误带公开媒体、图片变更正确引导、确认任务刷新恢复、轮询错误可见、回滚通知事务一致、幂等键错绑、Provider 前置失败释放额度、模型档/候选数报价失真、管理端加载/写入错误不可见和旧菜单名称。相关后端 38 suites / 234 tests、Seller 19/19、Admin 16/16、三端 build 通过；本地浏览器以隔离 mock API 实际点击商家和管理员关键路径。未运行迁移、push、部署或真实付费模型。
+- [ ] **PVA-Audit02** 平台运行控制缺口：补齐六层 Provider 预算策略管理、`RECONCILING` 调用队列和带证据的人工关闭，并确保 Invocation、图片额度 Quote 和 Provider 预算在同一业务结论下收口；完成后再做第二轮按钮验收。
 
 ## 商品自动定价一致性（2026-08-17）
 

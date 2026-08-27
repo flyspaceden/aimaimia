@@ -36,7 +36,7 @@ function buildService(mediaVersionUpdateCount = 1) {
     createProductMediaUrl: jest.fn().mockReturnValue('https://api.example/api/v1/upload/product-media/seller-product-assets/a.webp'),
     createPrivateAccessUrl: jest.fn().mockResolvedValue({ url: 'https://api.example/api/v1/upload/private/seller-product-assets/a.webp?sig=preview', expiresAt: '2026-08-21T12:05:00.000Z' }),
   };
-  return { service: new ProductMediaRevisionsService(prisma as any, assets as any, upload as any), tx, prisma, upload };
+  return { service: new ProductMediaRevisionsService(prisma as any, assets as any, upload as any, { emit: jest.fn() } as any), tx, prisma, upload };
 }
 
 describe('ProductMediaRevisionsService publication governance', () => {
@@ -61,7 +61,7 @@ describe('ProductMediaRevisionsService publication governance', () => {
       ]),
     };
     const upload = { createProductMediaUrl: jest.fn((key: string) => `https://api.example/${key}`) };
-    const service = new ProductMediaRevisionsService(prisma as any, assets as any, upload as any);
+    const service = new ProductMediaRevisionsService(prisma as any, assets as any, upload as any, { emit: jest.fn() } as any);
 
     await expect(service.request('company-1', 'staff-1', 'product-1', {
       mediaAssetIds: ['adopted-asset', 'source-asset'],
@@ -82,6 +82,35 @@ describe('ProductMediaRevisionsService publication governance', () => {
       }),
     }));
     expect(tx.product.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ mediaVersion: 2 }) }));
+  });
+
+  it('rejects reusing a manual image-update idempotency key for a different product or media snapshot', async () => {
+    const product = {
+      id: 'product-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 2,
+      media: [{ assetId: 'source-asset', type: 'IMAGE', visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false, sortOrder: 0 }],
+    };
+    const existing = {
+      id: 'revision-other', productId: 'product-other',
+      proposedMedia: [{ assetId: 'other-asset', sortOrder: 0, type: 'IMAGE' }],
+    };
+    const tx = {
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() },
+      product: { findFirst: jest.fn(), updateMany: jest.fn() },
+      sellerMediaAsset: { findMany: jest.fn() },
+      productMedia: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const prisma = {
+      product: { findFirst: jest.fn().mockResolvedValue(product) },
+      $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    };
+    const assets = { assertOwnedProductImageAssets: jest.fn().mockResolvedValue([{ id: 'source-asset' }]) };
+    const service = new ProductMediaRevisionsService(prisma as any, assets as any, {} as any, { emit: jest.fn() } as any);
+
+    await expect(service.request('company-1', 'staff-1', 'product-1', {
+      mediaAssetIds: ['source-asset'], idempotencyKey: 'shared-key', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true,
+    })).rejects.toThrow('幂等键已用于另一项商品图片变更');
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
+    expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
   });
 
   it('atomically replaces public media only after a matching media-version CAS', async () => {
@@ -261,7 +290,7 @@ describe('ProductMediaRevisionsService publication governance', () => {
     };
     const prisma = { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) };
     const upload = { createProductMediaUrl: jest.fn((key: string) => `https://media.example/${key}`) };
-    const service = new ProductMediaRevisionsService(prisma as any, {} as any, upload as any);
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, upload as any, { emit: jest.fn() } as any);
 
     await expect(service.applyOptimizationAdoption({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1', candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
@@ -297,7 +326,7 @@ describe('ProductMediaRevisionsService publication governance', () => {
       ]), updateMany: jest.fn() },
       productMedia: { deleteMany: jest.fn(), createMany: jest.fn() },
     };
-    const service = new ProductMediaRevisionsService({ $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any, {} as any, { createProductMediaUrl: jest.fn() } as any);
+    const service = new ProductMediaRevisionsService({ $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any, {} as any, { createProductMediaUrl: jest.fn() } as any, { emit: jest.fn() } as any);
 
     await expect(service.applyOptimizationAdoption({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1', candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
@@ -324,7 +353,10 @@ describe('ProductMediaRevisionsService publication governance', () => {
     await expect(service.rollbackPublished('revision-1', 'admin-1', '包装型号与商品不符')).resolves.toEqual({ rolledBack: true, revisionId: 'revision-1', productId: 'product-1' });
     expect(tx.product.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ mediaVersion: 9 }) }));
     expect(tx.productMedia.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: [expect.objectContaining({ assetId: 'source-asset', isEvidenceImage: true })] }));
-    expect(notifications.emit).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'product.mediaRolledBackForSeller', payload: expect.objectContaining({ companyId: 'company-1', productId: 'product-1' }) }));
+    expect(notifications.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'product.mediaRolledBackForSeller', payload: expect.objectContaining({ companyId: 'company-1', productId: 'product-1' }) }),
+      tx,
+    );
   });
 
   it('refuses an administrative rollback after a newer merchant picture change', async () => {
@@ -347,9 +379,30 @@ describe('ProductMediaRevisionsService publication governance', () => {
     expect(notifications.emit).not.toHaveBeenCalled();
   });
 
+  it('writes the seller rollback notification inside the same transaction', async () => {
+    const revision = {
+      id: 'revision-1', productId: 'product-1', companyId: 'company-1', status: ProductMediaRevisionStatus.APPLIED_BY_SELLER, appliedMediaVersion: 9,
+      previousMedia: [{ assetId: 'source-asset', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: true }],
+      product: { id: 'product-1', companyId: 'company-1', mediaVersion: 9, status: 'ACTIVE', auditStatus: 'APPROVED' },
+    };
+    const tx = {
+      productMediaRevision: { findUnique: jest.fn().mockResolvedValue(revision), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([{ id: 'source-asset', status: SellerMediaAssetStatus.AVAILABLE, objectKey: 'source.webp' }]) },
+      product: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMedia: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const notifications = { emit: jest.fn().mockRejectedValue(new Error('outbox unavailable')) };
+    const prisma = { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) };
+    const service = new ProductMediaRevisionsService(prisma as any, {} as any, { createProductMediaUrl: jest.fn() } as any, notifications as any);
+
+    await expect(service.rollbackPublished('revision-1', 'admin-1', '规则不符')).rejects.toThrow('outbox unavailable');
+    expect(notifications.emit).toHaveBeenCalledWith(expect.any(Object), tx);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
   it('lists only minimal inspection metadata and does not return a raw processing contract', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
-    const service = new ProductMediaRevisionsService({ productMediaRevision: { findMany } } as any, {} as any, {} as any);
+    const service = new ProductMediaRevisionsService({ productMediaRevision: { findMany } } as any, {} as any, {} as any, { emit: jest.fn() } as any);
 
     await expect(service.listPublishedForAdmin()).resolves.toEqual([]);
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
