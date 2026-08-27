@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { VisualAgentClientKeyService, VisualAgentClientPrincipal } from './visual-agent-client-key.service';
 import { ReserveVisualAgentInvocationInput, VisualAgentInvocationService } from './visual-agent-invocation.service';
+import { VisualBillingOwner, VisualCreditService } from './visual-credit.service';
 
 /**
  * Internal bridge for a reviewed domain adapter. It is intentionally not a
@@ -13,6 +14,7 @@ export class VisualAgentTrustedAdapterService {
   constructor(
     private readonly clientKeys: VisualAgentClientKeyService,
     private readonly invocations: VisualAgentInvocationService,
+    private readonly credits: VisualCreditService,
   ) {}
 
   reserveFromTrustedAdapter(input: {
@@ -44,5 +46,49 @@ export class VisualAgentTrustedAdapterService {
       expiresAt: input.expiresAt,
     };
     return this.invocations.reserve(reservation);
+  }
+
+  issueQuoteFromTrustedAdapter(input: {
+    principal: VisualAgentClientPrincipal;
+    adapterType: string;
+    billingOwner: VisualBillingOwner;
+    externalObjectId: string;
+    actorId: string;
+    rateCode: string;
+    sourceHash: string;
+    visualPlanHash: string;
+    idempotencyKey: string;
+    expiresAt: Date;
+  }) {
+    this.clientKeys.assertAdapterAccess(input.principal, input.adapterType);
+    return this.credits.issueQuote({
+      principal: input.principal,
+      ...input.billingOwner,
+      externalObjectId: input.externalObjectId,
+      actorId: input.actorId,
+      rateCode: input.rateCode,
+      sourceHash: input.sourceHash,
+      visualPlanHash: input.visualPlanHash,
+      idempotencyKey: input.idempotencyKey,
+      expiresAt: input.expiresAt,
+    });
+  }
+
+  confirmQuoteFromTrustedAdapter(input: {
+    principal: VisualAgentClientPrincipal;
+    adapterType: string;
+    billingOwner: VisualBillingOwner;
+    externalObjectId: string;
+    actorId: string;
+    quoteId: string;
+  }) {
+    this.clientKeys.assertAdapterAccess(input.principal, input.adapterType);
+    return this.credits.confirmAndReserve({
+      principal: input.principal,
+      ...input.billingOwner,
+      externalObjectId: input.externalObjectId,
+      actorId: input.actorId,
+      quoteId: input.quoteId,
+    });
   }
 }
