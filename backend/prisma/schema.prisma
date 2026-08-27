@@ -223,6 +223,35 @@ enum VisualAgentClientKeyStatus {
   REVOKED
 }
 
+/// A tenant-managed public tariff. The Provider's cost is recorded elsewhere;
+/// this is the immutable merchant-facing credit price used by a quote.
+enum VisualRateCardStatus {
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+enum VisualCreditQuoteStatus {
+  ISSUED
+  RESERVED
+  RECONCILING
+  SETTLED
+  RELEASED
+  EXPIRED
+  CANCELLED
+}
+
+enum VisualCreditLedgerType {
+  WELCOME_GRANT
+  PURCHASE
+  RESERVE
+  SETTLE
+  RELEASE
+  EXPIRE
+  ADMIN_ADJUST
+  REVERSAL
+}
+
 enum ProductImageOptimizationStatus {
   REQUESTED
   QUEUED
@@ -2012,6 +2041,9 @@ model VisualAgentTenant {
   createdAt DateTime                @default(now())
   updatedAt DateTime                @updatedAt
   clients   VisualAgentClient[]
+  creditAccounts      VisualCreditAccount[]
+  welcomeCreditPolicy VisualCreditWelcomePolicy?
+  rateCards           VisualRateCard[]
 
   @@index([status, createdAt])
 }
@@ -2053,6 +2085,131 @@ model VisualAgentClientKey {
 
   @@index([clientId, status, createdAt])
   @@index([expiresAt])
+}
+
+/// Non-cash image-service credits. A billing owner is resolved by an Adapter
+/// (Company for 爱买买, restaurant operator for a restaurant integration), so
+/// the Core never needs a foreign key to any product-specific table.
+model VisualCreditAccount {
+  id               String             @id @default(cuid())
+  tenantId         String
+  tenant           VisualAgentTenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  billingOwnerType String
+  billingOwnerId   String
+  availableCredits Int                @default(0)
+  reservedCredits  Int                @default(0)
+  version          Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  ledgers          VisualCreditLedger[]
+  quotes           VisualCreditQuote[]
+
+  @@unique([tenantId, billingOwnerType, billingOwnerId])
+  @@index([tenantId, updatedAt])
+}
+
+/// Per-tenant welcome policy. The grant is still idempotent on the ledger;
+/// changing this policy never changes historical grant snapshots.
+model VisualCreditWelcomePolicy {
+  id                String             @id @default(cuid())
+  tenantId          String             @unique
+  tenant            VisualAgentTenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  enabled           Boolean            @default(true)
+  grantCredits      Int                @default(200)
+  creditValueCents  Int                @default(2000)
+  policyVersion     String
+  effectiveFrom     DateTime
+  effectiveUntil    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([enabled, effectiveFrom])
+}
+
+/// Merchant-facing model tier and quote source. Client/namespace are part of
+/// the key so a restaurant or external integration never inherits 爱买买 rates.
+model VisualRateCard {
+  id               String               @id @default(cuid())
+  tenantId         String
+  tenant           VisualAgentTenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId         String
+  adapterNamespace String
+  code             String
+  displayName      String
+  description      String
+  modelProfile     String
+  outputSpec       Json
+  candidateCount   Int
+  creditCost       Int
+  status           VisualRateCardStatus @default(ACTIVE)
+  version          String
+  effectiveFrom    DateTime
+  effectiveUntil   DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  quotes           VisualCreditQuote[]
+
+  @@unique([tenantId, clientId, adapterNamespace, code, version])
+  @@index([tenantId, clientId, adapterNamespace, status, effectiveFrom])
+}
+
+/// An immutable merchant-visible price commitment. The later model task must
+/// use this snapshot; it may not recompute a cheaper/more-expensive tariff.
+model VisualCreditQuote {
+  id               String                  @id @default(cuid())
+  tenantId         String
+  clientId         String
+  adapterNamespace String
+  billingAccountId String
+  billingAccount   VisualCreditAccount     @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  rateCardId       String
+  rateCard         VisualRateCard           @relation(fields: [rateCardId], references: [id], onDelete: Restrict)
+  externalObjectId String
+  actorId          String
+  sourceHash       String
+  visualPlanHash   String
+  rateCardSnapshot Json
+  creditCost       Int
+  candidateCount   Int
+  status           VisualCreditQuoteStatus @default(ISSUED)
+  idempotencyKey   String
+  quoteHash        String
+  quotedAt         DateTime                @default(now())
+  confirmedAt      DateTime?
+  settledAt        DateTime?
+  releasedAt       DateTime?
+  expiresAt        DateTime
+  failureReason    String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  ledgers          VisualCreditLedger[]
+
+  @@unique([tenantId, clientId, adapterNamespace, idempotencyKey])
+  @@index([billingAccountId, status, createdAt])
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, status])
+  @@index([expiresAt])
+}
+
+/// Append-only account movement. Both deltas and resulting balances are
+/// stored, so balance repair/audit never needs to reinterpret a mutable rate.
+model VisualCreditLedger {
+  id                      String                 @id @default(cuid())
+  accountId               String
+  account                 VisualCreditAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  quoteId                 String?
+  quote                   VisualCreditQuote?     @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  type                    VisualCreditLedgerType
+  availableDelta          Int
+  reservedDelta           Int
+  availableBalanceAfter   Int
+  reservedBalanceAfter    Int
+  idempotencyKey          String                 @unique
+  reason                  String?
+  metadata                Json?
+  createdAt               DateTime               @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([quoteId, createdAt])
 }
 
 model ProductImageArtifact {
