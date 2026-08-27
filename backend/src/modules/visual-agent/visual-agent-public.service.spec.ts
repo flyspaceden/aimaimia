@@ -56,7 +56,8 @@ function build() {
   const execution = { executeReservedQuote: jest.fn(), pollForOutput: jest.fn() };
   const invocations = { completeSynchronousVerification: jest.fn() };
   const config = { get: jest.fn((key: string) => key === 'AI_VISUAL_AGENT_ADAPTER_EVIDENCE_SECRET_EXTERNALCLIENT_KEY1' ? secret : undefined) };
-  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any), prisma, upload, credits, execution, invocations };
+  const verification = { verify: jest.fn().mockResolvedValue({ version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {}, ocr: {} }) };
+  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any, verification as any), prisma, upload, credits, execution, invocations, verification };
 }
 
 describe('VisualAgentPublicService', () => {
@@ -125,7 +126,7 @@ describe('VisualAgentPublicService', () => {
   });
 
   it('persists a Provider output privately and returns a review candidate without exposing its model route', async () => {
-    const { service, prisma, upload, credits, execution, invocations } = build();
+    const { service, prisma, upload, credits, execution, invocations, verification } = build();
     const plan = {
       id: 'plan-1', assetId: 'asset-1', riskProfile: 'CONSERVATIVE_FACTS', recommendedDirection: 'PRESERVE_REAL_SCENE',
       allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', planHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 10 * 60_000),
@@ -141,6 +142,7 @@ describe('VisualAgentPublicService', () => {
 
     await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ quoteId: 'quote-1', status: 'PENDING_REVIEW', candidate: { id: 'candidate-1' } });
     expect(upload.uploadFile).toHaveBeenCalledWith(expect.objectContaining({ mimetype: 'image/png' }), 'visual-agent-assets', { preserveQrCodes: true, preserveProviderOutput: true });
+    expect(verification.verify).toHaveBeenCalledWith(expect.objectContaining({ verificationId: 'quote-1', allowAutoPass: false }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_QWEN_IMAGE');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
   });

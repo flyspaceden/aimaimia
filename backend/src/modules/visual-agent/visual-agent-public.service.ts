@@ -10,6 +10,7 @@ import { visualPlanSha256 } from './visual-agent-integrity';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 import { VisualCreditService } from './visual-credit.service';
 import { VisualPaidExecutionService } from './visual-paid-execution.service';
+import { VisualAgentCandidateVerificationService, VisualAgentCandidateVerificationReport } from './visual-agent-candidate-verification.service';
 import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan, VisualProviderSource } from './providers/visual-image-edit.provider';
 
 const EVIDENCE_MAX_AGE_MS = 15 * 60_000;
@@ -54,6 +55,7 @@ export class VisualAgentPublicService {
     private readonly execution: VisualPaidExecutionService,
     private readonly invocations: VisualAgentInvocationService,
     private readonly config: ConfigService,
+    private readonly verification: VisualAgentCandidateVerificationService,
   ) {}
 
   async createAsset(input: { principal: VisualAgentClientPrincipal; evidenceJson: string; signature: string; file: Express.Multer.File }) {
@@ -244,7 +246,18 @@ export class VisualAgentPublicService {
     const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot));
     const asset = await this.findAsset(input.principal, plan.assetId);
     try {
-      const candidate = await this.persistCandidate({ principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset, invocationId: polled.invocationId, provider: polled.provider, output: polled.output });
+      const sourceBuffer = await this.upload.getBuffer(asset.objectKey);
+      const requiresHumanReview = (quoteInfo.quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
+      const verification = await this.verification.verify({
+        principal: input.principal,
+        externalObjectId: plan.externalObjectId,
+        actorId: plan.actorId,
+        verificationId: quoteInfo.quote.id,
+        sourceBuffer,
+        candidateBuffer: polled.output.buffer,
+        allowAutoPass: !requiresHumanReview,
+      });
+      const candidate = await this.persistCandidate({ principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset, invocationId: polled.invocationId, provider: polled.provider, output: polled.output, verification });
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quoteInfo.quote.id, '模型结果已受管存储，等待外部 Adapter 显式采用');
       return { quoteId: quoteInfo.quote.id, invocationId: polled.invocationId, status: candidate.status, candidate: await this.candidateResponse(candidate) };
@@ -319,6 +332,7 @@ export class VisualAgentPublicService {
     invocationId: string;
     provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
     output: { buffer: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' };
+    verification: VisualAgentCandidateVerificationReport;
   }) {
     const existing = await this.prisma.visualAgentCandidate.findUnique({ where: { quoteId: input.quoteId } });
     if (existing) return existing;
@@ -345,6 +359,8 @@ export class VisualAgentPublicService {
           width: uploaded.width,
           height: uploaded.height,
           provider: input.provider,
+          status: input.verification.disposition === 'REJECT' ? VisualAgentCandidateStatus.REJECTED : VisualAgentCandidateStatus.PENDING_REVIEW,
+          verificationSummary: input.verification as Prisma.InputJsonValue,
         },
       });
     } catch (error) {
@@ -404,6 +420,7 @@ export class VisualAgentPublicService {
     return {
       id: candidate.id, status: candidate.status, mimeType: candidate.mimeType,
       width: candidate.width, height: candidate.height, displayUrl: preview.url, expiresAt: preview.expiresAt,
+      verification: candidate.verificationSummary ?? null,
     };
   }
 

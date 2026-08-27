@@ -2342,6 +2342,7 @@ model VisualAgentCandidate {
   height              Int
   provider            String
   status              VisualAgentCandidateStatus @default(PENDING_REVIEW)
+  verificationSummary Json?
   adoptionAttestation Json?
   rejectionReason     String?
   createdAt           DateTime                   @default(now())

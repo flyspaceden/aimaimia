@@ -14,6 +14,7 @@ import { VisualCreditService } from './visual-credit.service';
 import { VisualPaidExecutionService } from './visual-paid-execution.service';
 import { VisualAgentPublicController } from './visual-agent-public.controller';
 import { VisualAgentPublicService } from './visual-agent-public.service';
+import { VisualAgentCandidateVerificationService } from './visual-agent-candidate-verification.service';
 
 /**
  * Domain-neutral AI Visual Agent Core. Business modules may use only the
@@ -23,7 +24,7 @@ import { VisualAgentPublicService } from './visual-agent-public.service';
 @Module({
   imports: [UploadModule],
   controllers: [VisualAgentSessionController, VisualAgentPublicController],
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService],
-  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService],
+  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService],
+  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService],
 })
 export class VisualAgentModule {}
