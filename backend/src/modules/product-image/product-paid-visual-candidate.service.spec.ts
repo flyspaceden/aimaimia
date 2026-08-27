@@ -1,4 +1,4 @@
-import { ProductImageArtifactKind, ProductImageOptimizationStatus } from '@prisma/client';
+import { ProductImageArtifactKind, ProductImageOptimizationKind, ProductImageOptimizationStatus } from '@prisma/client';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 
 const quote = {
@@ -32,6 +32,7 @@ function build() {
     productImageOptimization: {
       findUnique: jest.fn().mockResolvedValue(null),
       findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1' }),
+      findMany: jest.fn().mockResolvedValue([{ id: 'optimization-1' }]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
@@ -91,6 +92,17 @@ describe('ProductPaidVisualCandidateService', () => {
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING },
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.PENDING_REVIEW }),
+    }));
+  });
+
+  it('lists only paid candidates that still need human fact review, without leaking provider artifacts', async () => {
+    const { service, prisma } = build();
+
+    await expect(service.listPendingForAdmin()).resolves.toEqual([{ id: 'optimization-1' }]);
+    expect(prisma.productImageOptimization.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { kind: ProductImageOptimizationKind.BACKGROUND_GENERATION, status: ProductImageOptimizationStatus.PENDING_REVIEW },
+      take: 200,
+      select: expect.objectContaining({ product: expect.anything(), company: expect.anything() }),
     }));
   });
 

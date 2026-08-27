@@ -212,6 +212,27 @@ export class ProductPaidVisualCandidateService {
     };
   }
 
+  async listPendingForAdmin() {
+    return this.prisma.productImageOptimization.findMany({
+      where: {
+        kind: ProductImageOptimizationKind.BACKGROUND_GENERATION,
+        status: ProductImageOptimizationStatus.PENDING_REVIEW,
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        provider: true,
+        modelVersion: true,
+        costTier: true,
+        product: { select: { id: true, title: true } },
+        company: { select: { id: true, name: true } },
+      },
+    });
+  }
+
   async approveHumanFactReview(optimizationId: string) {
     const updated = await this.prisma.productImageOptimization.updateMany({
       where: {

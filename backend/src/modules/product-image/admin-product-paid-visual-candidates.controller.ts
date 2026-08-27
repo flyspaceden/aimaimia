@@ -15,6 +15,12 @@ import { ProductPaidVisualCandidateService } from './product-paid-visual-candida
 export class AdminProductPaidVisualCandidatesController {
   constructor(private readonly candidates: ProductPaidVisualCandidateService) {}
 
+  @Get()
+  @RequirePermission('products:audit')
+  list() {
+    return this.candidates.listPendingForAdmin();
+  }
+
   @Get(':id')
   @RequirePermission('products:audit')
   get(@Param('id') id: string) {
