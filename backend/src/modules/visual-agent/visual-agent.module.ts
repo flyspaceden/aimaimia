@@ -9,6 +9,7 @@ import { VisualAgentClientKeyGuard } from './visual-agent-client-key.guard';
 import { VisualAgentSessionController } from './visual-agent-session.controller';
 import { VisualAgentTrustedAdapterService } from './visual-agent-trusted-adapter.service';
 import { VisualCreditService } from './visual-credit.service';
+import { VisualPaidExecutionService } from './visual-paid-execution.service';
 
 /**
  * Domain-neutral AI Visual Agent Core. Business modules may use only the
@@ -17,7 +18,7 @@ import { VisualCreditService } from './visual-credit.service';
  */
 @Module({
   controllers: [VisualAgentSessionController],
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService],
-  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService],
+  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
+  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
 })
 export class VisualAgentModule {}

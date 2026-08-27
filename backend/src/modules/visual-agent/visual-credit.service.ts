@@ -406,6 +406,52 @@ export class VisualCreditService {
     if (updated.count !== 1) throw new ConflictException('图片美化报价当前不能进入对账');
   }
 
+  async getReservedQuoteForExecution(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
+    this.assertId(input.quoteId, '报价 ID');
+    const quote = await this.prisma.visualCreditQuote.findFirst({
+      where: {
+        id: input.quoteId,
+        tenantId: input.principal.tenantId,
+        clientId: input.principal.clientId,
+        adapterNamespace: input.principal.adapterNamespace,
+        status: { in: [VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING] },
+      },
+      include: { billingAccount: true, rateCard: true },
+    });
+    if (!quote) throw new ConflictException('图片美化报价未冻结、已过期或不属于当前接入系统');
+    return quote;
+  }
+
+  async attachInvocation(input: { principal: VisualAgentClientPrincipal; quoteId: string; invocationId: string }) {
+    this.assertId(input.quoteId, '报价 ID');
+    this.assertId(input.invocationId, '调用 ID');
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, `VISUAL_CREDIT_QUOTE_ID:${input.quoteId}`);
+      const quote = await tx.visualCreditQuote.findFirst({
+        where: {
+          id: input.quoteId,
+          tenantId: input.principal.tenantId,
+          clientId: input.principal.clientId,
+          adapterNamespace: input.principal.adapterNamespace,
+        },
+        select: { id: true, status: true, visualAgentInvocationId: true },
+      });
+      if (!quote || (quote.status !== VisualCreditQuoteStatus.RESERVED && quote.status !== VisualCreditQuoteStatus.RECONCILING)) {
+        throw new ConflictException('图片美化报价当前不能绑定模型调用');
+      }
+      if (quote.visualAgentInvocationId) {
+        if (quote.visualAgentInvocationId !== input.invocationId) {
+          throw new ConflictException('图片美化报价已绑定到另一个模型调用');
+        }
+        return quote;
+      }
+      return tx.visualCreditQuote.update({
+        where: { id: quote.id },
+        data: { visualAgentInvocationId: input.invocationId },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   async settleReservedQuote(quoteId: string, reason = '模型任务已完成并通过验真') {
     return this.closeReservedQuote(quoteId, 'SETTLE', reason);
   }

@@ -4,8 +4,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { VisualAgentClientKeyService } from '../visual-agent/visual-agent-client-key.service';
 import { VisualAgentTrustedAdapterService } from '../visual-agent/visual-agent-trusted-adapter.service';
 import { VisualCreditService } from '../visual-agent/visual-credit.service';
+import { VisualPaidExecutionService } from '../visual-agent/visual-paid-execution.service';
 import { visualPlanSha256 } from '../visual-agent/visual-agent-integrity';
-import { VisualProviderAllowedOperation, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
+import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
+import { UploadService } from '../upload/upload.service';
+const sharp = require('sharp') as typeof import('sharp').default;
 
 export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
 export const AIMAI_VISUAL_CLIENT_ID = 'aimai-product-adapter-v1';
@@ -35,6 +38,8 @@ export class AimaiProductVisualAdapterService {
     private readonly clients: VisualAgentClientKeyService,
     private readonly trusted: VisualAgentTrustedAdapterService,
     private readonly credits: VisualCreditService,
+    private readonly execution: VisualPaidExecutionService,
+    private readonly uploadService: UploadService,
   ) {}
 
   async issueQuote(input: IssueQuoteInput) {
@@ -128,6 +133,49 @@ export class AimaiProductVisualAdapterService {
     });
   }
 
+  async confirmAndExecute(input: {
+    companyId: string;
+    staffId: string;
+    productId: string;
+    quoteId: string;
+    quoteHash: string;
+  }) {
+    const confirmed = await this.confirmQuote(input);
+    const principal = await this.resolveAimaiPrincipal();
+    const quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
+    const source = await this.prisma.sellerMediaAsset.findFirst({
+      where: {
+        id: quote.sourceAssetRef,
+        companyId: input.companyId,
+        purpose: 'PRODUCT_IMAGE',
+        status: SellerMediaAssetStatus.AVAILABLE,
+        canonicalSha256: quote.sourceHash,
+        deletedAt: null,
+      },
+      select: { id: true, objectKey: true, canonicalSha256: true },
+    });
+    const product = await this.prisma.product.findFirst({
+      where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: quote.sourceAssetRef } } },
+      select: { id: true },
+    });
+    if (!source || !product) {
+      await this.credits.releaseReservedQuote(quote.id, 'SOURCE_OR_PRODUCT_CHANGED_BEFORE_EXECUTION');
+      throw new NotFoundException('商品原图已变化，已释放本次图片美化额度');
+    }
+    const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
+    const providerSource = await this.toOpaqueProviderSource(sourceBuffer);
+    const providerPlan = this.providerPlanFromQuoteSnapshot(quote.visualPlanSnapshot);
+    const execution = await this.execution.executeReservedQuote({
+      principal,
+      quoteId: quote.id,
+      sourceAssetRef: source.id,
+      sourceCanonicalHash: source.canonicalSha256,
+      source: providerSource,
+      visualPlan: providerPlan,
+    });
+    return { confirmed, execution };
+  }
+
   async getAccount(companyId: string) {
     const principal = await this.resolveAimaiPrincipal();
     return this.credits.getAccount({
@@ -199,6 +247,67 @@ export class AimaiProductVisualAdapterService {
       allowedOperations: plan.allowedOperations,
       protectedRegionVersion: plan.protectedRegionVersion,
     };
+  }
+
+  private async toOpaqueProviderSource(buffer: Buffer) {
+    try {
+      const flattened = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
+        .rotate()
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
+        .toBuffer();
+      return {
+        buffer: flattened,
+        mimeType: 'image/jpeg' as const,
+        normalizedVersion: 'normalized-rgba-srgb-v1' as const,
+        opaque: true as const,
+      };
+    } catch {
+      throw new ConflictException('商品原图无法安全转换为模型输入');
+    }
+  }
+
+  private providerPlanFromQuoteSnapshot(snapshot: unknown): VisualProviderServerPlan {
+    const value = snapshot as {
+      direction?: unknown;
+      riskProfile?: unknown;
+      protectedRegionVersion?: string;
+      allowedOperations?: unknown;
+    };
+    if (!value || typeof value !== 'object' || !value.direction || !value.riskProfile
+      || !value.protectedRegionVersion || !Array.isArray(value.allowedOperations)
+      || !this.isProviderDirection(value.direction) || !this.isProviderRiskProfile(value.riskProfile)
+      || value.allowedOperations.some((operation) => !this.isProviderOperation(operation))) {
+      throw new ConflictException('图片美化报价的视觉计划快照无效');
+    }
+    return {
+      templateVersion: 'truth-preserving-v1',
+      direction: value.direction,
+      riskProfile: value.riskProfile,
+      allowedOperations: value.allowedOperations,
+      protectedRegionVersion: value.protectedRegionVersion,
+    };
+  }
+
+  private isProviderDirection(value: unknown): value is VisualProviderDirection {
+    return value === ProductVisualMode.PRESERVE_REAL_SCENE
+      || value === ProductVisualMode.CATALOG_STUDIO
+      || value === ProductVisualMode.PRODUCT_RETOUCH
+      || value === ProductVisualMode.MARKETING_SCENE;
+  }
+
+  private isProviderRiskProfile(value: unknown): value is VisualProviderRiskProfile {
+    return value === ProductVisualRiskProfile.STRICT_FACTS
+      || value === ProductVisualRiskProfile.CONSERVATIVE_FACTS
+      || value === ProductVisualRiskProfile.STANDARD_FACTS
+      || value === ProductVisualRiskProfile.ORGANIC_FACTS
+      || value === ProductVisualRiskProfile.MARKETING_ONLY;
+  }
+
+  private isProviderOperation(value: unknown): value is VisualProviderAllowedOperation {
+    return value === 'LIGHTING' || value === 'WHITE_BALANCE' || value === 'DENOISE'
+      || value === 'DEGLARE' || value === 'COMPOSITION' || value === 'BACKGROUND_SIMPLIFY'
+      || value === 'BACKGROUND_REPLACE';
   }
 
   private async resolveAimaiPrincipal() {

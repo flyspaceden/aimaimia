@@ -270,6 +270,17 @@ export class VisualAgentInvocationService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  /** Safe only before Provider submission; used to unwind a failed Quote bind. */
+  async releaseBeforeSubmit(invocationId: string, reason: string) {
+    const released = await this.prisma.visualAgentInvocation.updateMany({
+      where: { id: invocationId, status: VisualAgentInvocationStatus.RESERVED },
+      data: { status: VisualAgentInvocationStatus.RELEASED, reconciliationReason: reason.slice(0, 160) },
+    });
+    if (released.count !== 1) {
+      throw new ConflictException('AI Visual Agent 调用已不能安全释放');
+    }
+  }
+
   async assertProviderAuthorization(authorization: VisualProviderAuthorization, provider: string, model: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findUnique({

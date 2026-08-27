@@ -43,6 +43,6 @@ export class ProductVisualCommerceController {
     @Param('quoteId') quoteId: string,
     @Body() dto: ConfirmProductVisualQuoteDto,
   ) {
-    return this.visual.confirmQuote({ companyId, staffId, productId, quoteId, quoteHash: dto.quoteHash });
+    return this.visual.confirmAndExecute({ companyId, staffId, productId, quoteId, quoteHash: dto.quoteHash });
   }
 }
