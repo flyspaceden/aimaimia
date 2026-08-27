@@ -226,7 +226,7 @@ export class ProductPaidVisualCandidateService {
         });
       }
     }
-    return { id: task.id, status };
+    return { id: task.id, status, verification: processingContract.verification };
   }
 
   async getForAdmin(optimizationId: string) {
@@ -250,7 +250,13 @@ export class ProductPaidVisualCandidateService {
       this.uploadService.createPrivateAccessUrl(candidate.objectKey, 300),
     ]);
     return {
-      task: { id: task.id, status: task.status, productId: task.productId, createdAt: task.createdAt },
+      task: {
+        id: task.id,
+        status: task.status,
+        productId: task.productId,
+        createdAt: task.createdAt,
+        verification: (task.processingContract as { verification?: unknown } | null)?.verification ?? null,
+      },
       product: task.product,
       company: task.company,
       source: { assetId: source.id, displayUrl: sourceAccess.url, expiresAt: sourceAccess.expiresAt },

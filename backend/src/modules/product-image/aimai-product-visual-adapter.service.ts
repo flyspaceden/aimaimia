@@ -310,6 +310,7 @@ export class AimaiProductVisualAdapterService {
         ...polled,
         candidate,
         optimizationId: optimization.id,
+        verification: optimization.verification,
         status: optimization.status === ProductImageOptimizationStatus.PENDING_REVIEW
           ? 'PENDING_REVIEW' as const
           : optimization.status === ProductImageOptimizationStatus.REJECTED

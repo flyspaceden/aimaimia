@@ -41,6 +41,8 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);
   assert.match(editPage, /候选已生成，等待管理员事实复核/);
+  assert.match(editPage, /候选未通过系统事实检查/);
+  assert.match(editPage, /系统未达到自动通过条件/);
 });
 
 test('seller paid visual API remains product-bound and cannot send a free-form provider prompt', () => {

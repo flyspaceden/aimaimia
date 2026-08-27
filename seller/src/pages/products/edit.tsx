@@ -1532,7 +1532,7 @@ function ImageUploadSection({
                       </Space>
                     </div>
                   )}
-                  {paidExecution && <Alert type={paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'PENDING_REVIEW' ? '候选已生成，等待管理员事实复核' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选已通过系统验证，可继续核对并采用' : '模型任务处理中'} description={paidExecution.status === 'PENDING_REVIEW' ? '管理员会核对包装、型号、数量、颜色和可见事实；通过前不能采用。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '候选始终保留原图证据，且不会自动发布。'} />}
+                  {paidExecution && <Alert type={paidExecution.status === 'REJECTED' ? 'error' : paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'REJECTED' ? '候选未通过系统事实检查' : paidExecution.status === 'PENDING_REVIEW' ? '候选已生成，等待管理员事实复核' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选已通过系统验证，可继续核对并采用' : '模型任务处理中'} description={paidExecution.status === 'REJECTED' ? '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' : paidExecution.status === 'PENDING_REVIEW' ? paidExecution.verification?.ocr?.state === 'MATCHED' ? '系统已完成前后文字核对；仍需管理员确认包装、型号、数量、颜色和可见事实。' : '系统未达到自动通过条件，管理员会继续核对包装、型号、数量、颜色和可见事实。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '候选始终保留原图证据，且不会自动发布。'} />}
                 </Space>
               </Card>
             )}

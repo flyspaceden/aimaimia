@@ -66,7 +66,17 @@ export type PaidVisualCandidateQueueItem = {
 };
 
 export type PaidVisualCandidateDetail = {
-  task: { id: string; status: string; productId: string; createdAt: string };
+  task: {
+    id: string;
+    status: string;
+    productId: string;
+    createdAt: string;
+    verification?: {
+      state?: string;
+      local?: { geometry?: { verdict?: string }; qr?: { verdict?: string }; barcode?: { verdict?: string } };
+      ocr?: { state?: string; verdict?: string; normalizedTextMatch?: boolean | null };
+    } | null;
+  };
   product: { id: string; title: string };
   company: { id: string; name: string };
   source: { assetId: string; displayUrl: string; expiresAt: string };

@@ -15,6 +15,7 @@ test('AI Visual Agent management is restricted and exposes rate, credit, and can
   assert.match(page, /新商家欢迎额度/);
   assert.match(page, /费率卡（面向商家的固定报价）/);
   assert.match(page, /付费候选事实复核/);
+  assert.match(page, /系统验真要求继续人工复核/);
   assert.match(page, /候选不会自动发布/);
   assert.match(app, /PERMISSIONS\.ADMIN_VISUAL_AGENT_MANAGE/);
   assert.match(layout, /path: '\/visual-agent', name: 'AI Visual Agent'/);

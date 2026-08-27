@@ -1943,7 +1943,7 @@
 - [ ] **PVA03** Phase C：仅白名单低风险品类在明确预算、私有 Key、对账与回滚都就绪后，试点背景生成；上线前必须另行获得授权。
 - [ ] **PVA04** 通用 Agent 接入层：本地候选已实现 Tenant / Client / 一次性可撤销 Client Key、scope 验证和可信 Adapter reservation bridge；尚未配置任何 Client、签发真实 Key、运行迁移、开放直接 Provider 提交或接入餐厅系统。
 - [x] **PVA05** 本地候选代码收口（`a06ff958`）：18 个 main-based 逻辑提交已完成受管资产、免费计划、OCR/条码事实门禁、确定性候选、商家/管理员审核、预算/对账 Core 和 Client Key 边界。精确 HEAD 已通过后端相关 25 suites / 172 tests、Core 4 suites / 24 tests、Admin 14/14、Seller 15/15、Prisma validate、Nest/Admin/Seller builds 与范围审查；**未**运行数据库迁移、签发真实 Key、调用真实模型、推送、staging 部署或生产发布。
-- [ ] **PVA06** v2 商家付费强效果重构：按 `docs/superpowers/specs/2026-08-22-universal-product-visual-agent-design.md` 新增独立 `VisualCredit` 账户/流水、200 欢迎额度、Rate Card/Quote/冻结/对账、万相/Qwen 真实任务与验真、完整平台管理、餐厅与公共 API Adapter；本地已完成额度报价/确认入口、产品绑定 quote hash、模型未受理自动释放、未知结果对账、默认管理员事实复核、高权限 `/visual-agent` 的欢迎额度/费率卡/账本 UI、默认关闭的万相/Qwen 受控异步任务路由，以及受 Client scope + Adapter Evidence HMAC 约束的通用 assets/plans/quotes/tasks/credits API。真实 workspace/Key 启用、完整验真、餐厅具体 Adapter/SDK/Webhook 与部署仍未完成；未经单独授权不得启用模型、扣费或部署。
+- [ ] **PVA06** v2 商家付费强效果重构：按 `docs/superpowers/specs/2026-08-22-universal-product-visual-agent-design.md` 新增独立 `VisualCredit` 账户/流水、200 欢迎额度、Rate Card/Quote/冻结/对账、万相/Qwen 真实任务与验真、完整平台管理、餐厅与公共 API Adapter；本地已完成额度报价/确认入口、产品绑定 quote hash、模型未受理自动释放、未知结果对账、平台/商家端复核 UI、默认关闭的万相/Qwen 受控异步任务路由、受 Client scope + Adapter Evidence HMAC 约束的通用 API，以及候选原图/生成图的几何、二维码、条码和可选 Qwen OCR 前后文字验证。真实 workspace/Key 启用、颜色/数量/关键结构深度评测、餐厅具体 Adapter/SDK/Webhook 与部署仍未完成；未经单独授权不得启用模型、扣费或部署。
 
 ## 商品自动定价一致性（2026-08-17）
 

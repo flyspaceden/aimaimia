@@ -89,7 +89,7 @@ describe('ProductPaidVisualCandidateService', () => {
     await expect(service.finalizeVerification('company-1', 'quote-1', {
       local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
       ocr: { version: 'candidate-ocr-verification-v1', state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW', sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null },
-    }, true)).resolves.toEqual({
+    }, true)).resolves.toMatchObject({
       id: 'optimization-1', status: ProductImageOptimizationStatus.PENDING_REVIEW,
     });
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -103,7 +103,7 @@ describe('ProductPaidVisualCandidateService', () => {
     await expect(service.finalizeVerification('company-1', 'quote-1', {
       local: { version: 'candidate-local-verification-v1', disposition: 'REJECT', geometry: {} as any, qr: {} as any, barcode: {} as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
       ocr: { version: 'candidate-ocr-verification-v1', state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW', sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null },
-    }, true)).resolves.toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.REJECTED });
+    }, true)).resolves.toMatchObject({ id: 'optimization-1', status: ProductImageOptimizationStatus.REJECTED });
     expect(prisma.sellerMediaAsset.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ['candidate-asset'] }, companyId: 'company-1', status: 'CANDIDATE' },
       data: { status: 'RETIRED' },
@@ -115,7 +115,7 @@ describe('ProductPaidVisualCandidateService', () => {
     await expect(service.finalizeVerification('company-1', 'quote-1', {
       local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
       ocr: { version: 'candidate-ocr-verification-v1', state: 'MATCHED', verdict: 'AUTO_PASS', sourceTextDetected: true, candidateTextDetected: true, sourceTextLength: 12, candidateTextLength: 12, normalizedTextMatch: true },
-    }, false)).resolves.toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED });
+    }, false)).resolves.toMatchObject({ id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED });
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.SUCCEEDED }),
     }));

@@ -86,8 +86,13 @@ export type ProductVisualQuoteStatus = {
   invocationId?: string | null;
   providerTaskId?: string;
   optimizationId?: string;
-  status: 'QUEUED' | 'RUNNING' | 'VERIFYING' | 'PENDING_REVIEW' | 'SUCCEEDED' | 'RECONCILING' | 'RELEASED' | 'ALREADY_BOUND';
+  status: 'QUEUED' | 'RUNNING' | 'VERIFYING' | 'PENDING_REVIEW' | 'SUCCEEDED' | 'REJECTED' | 'RECONCILING' | 'RELEASED' | 'ALREADY_BOUND';
   candidate?: { candidateAssetId: string | null };
+  verification?: {
+    state?: string;
+    local?: { geometry?: { verdict?: string }; qr?: { verdict?: string }; barcode?: { verdict?: string } };
+    ocr?: { state?: string; verdict?: string; normalizedTextMatch?: boolean | null };
+  };
 };
 
 export const requestProductVisualPlan = (productId: string, data: {
