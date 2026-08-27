@@ -104,7 +104,8 @@ describe('VisualAgentInvocationService', () => {
 
     await expect(service.getOutputForVerification('invocation-1')).resolves.toMatchObject({ id: 'invocation-1', providerTaskId: 'wan-task-1' });
     expect(prisma.visualAgentInvocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: VisualAgentInvocationStatus.VERIFYING, provider: 'BAILIAN_WAN' }),
+      where: expect.objectContaining({ status: VisualAgentInvocationStatus.VERIFYING }),
+      select: expect.objectContaining({ provider: true }),
     }));
   });
 

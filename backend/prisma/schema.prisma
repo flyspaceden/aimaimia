@@ -223,6 +223,21 @@ enum VisualAgentClientKeyStatus {
   REVOKED
 }
 
+/// A public API source is private, scoped to one Client, and may only be
+/// created from a server-signed Adapter Evidence envelope.
+enum VisualAgentAssetStatus {
+  AVAILABLE
+  RETIRED
+}
+
+/// The Core never publishes into an external system. A Client must explicitly
+/// record an adoption intent after it reviews a generated candidate.
+enum VisualAgentCandidateStatus {
+  PENDING_REVIEW
+  ADOPT_INTENT
+  REJECTED
+}
+
 /// A tenant-managed public tariff. The Provider's cost is recorded elsewhere;
 /// this is the immutable merchant-facing credit price used by a quote.
 enum VisualRateCardStatus {
@@ -1982,6 +1997,7 @@ model VisualAgentInvocation {
   reservations           VisualAgentBudgetReservation[]
   productImageFactScan   ProductImageFactScan?
   creditQuote            VisualCreditQuote?
+  publicCandidate        VisualAgentCandidate?
 
   @@unique([tenantId, ownerClientId, adapterNamespace, idempotencyKey])
   @@index([tenantId, ownerClientId, adapterNamespace, externalObjectId, status])
@@ -2046,6 +2062,9 @@ model VisualAgentTenant {
   creditAccounts      VisualCreditAccount[]
   welcomeCreditPolicy VisualCreditWelcomePolicy?
   rateCards           VisualRateCard[]
+  publicAssets        VisualAgentAsset[]
+  publicPlans         VisualAgentPlan[]
+  publicCandidates    VisualAgentCandidate[]
 
   @@index([status, createdAt])
 }
@@ -2064,6 +2083,9 @@ model VisualAgentClient {
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
   keys                VisualAgentClientKey[]
+  publicAssets        VisualAgentAsset[]
+  publicPlans         VisualAgentPlan[]
+  publicCandidates    VisualAgentCandidate[]
 
   @@unique([tenantId, adapterNamespace])
   @@index([tenantId, status, createdAt])
@@ -2193,6 +2215,7 @@ model VisualCreditQuote {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   ledgers          VisualCreditLedger[]
+  publicCandidate  VisualAgentCandidate?
 
   @@unique([tenantId, clientId, adapterNamespace, idempotencyKey])
   @@index([billingAccountId, status, createdAt])
@@ -2220,6 +2243,112 @@ model VisualCreditLedger {
 
   @@index([accountId, createdAt])
   @@index([quoteId, createdAt])
+}
+
+/// Domain-neutral private source asset for the public Visual Agent API. The
+/// external object's version, billing owner and fact policy are protected by
+/// an Adapter Evidence HMAC before this row can be written.
+model VisualAgentAsset {
+  id                    String                 @id @default(cuid())
+  tenantId              String
+  tenant                VisualAgentTenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                VisualAgentClient      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace      String
+  externalObjectId      String
+  externalObjectVersion String
+  actorId               String
+  billingOwnerType      String
+  billingOwnerId        String
+  objectKey             String                 @unique
+  canonicalSha256       String
+  originalSha256        String
+  mimeType              String
+  byteSize              Int
+  width                 Int
+  height                Int
+  factPolicy            Json
+  evidenceNonce         String
+  evidenceIssuedAt      DateTime
+  evidenceExpiresAt     DateTime
+  evidenceKeyId         String
+  status                VisualAgentAssetStatus @default(AVAILABLE)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  plans                 VisualAgentPlan[]
+  sourceCandidates      VisualAgentCandidate[] @relation("VisualAgentCandidateSource")
+
+  @@unique([tenantId, clientId, adapterNamespace, evidenceNonce])
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, status, createdAt])
+  @@index([billingOwnerType, billingOwnerId, createdAt])
+  @@index([evidenceExpiresAt])
+}
+
+/// A short-lived Core plan derived only from a signed fact policy and one
+/// immutable private asset. It contains no free-form prompt or Provider URL.
+model VisualAgentPlan {
+  id                    String                 @id @default(cuid())
+  tenantId              String
+  tenant                VisualAgentTenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                VisualAgentClient      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace      String
+  assetId               String
+  asset                 VisualAgentAsset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  externalObjectId      String
+  externalObjectVersion String
+  actorId               String
+  billingOwnerType      String
+  billingOwnerId        String
+  riskProfile           String
+  recommendedDirection  String?
+  allowedDirections     String[]
+  allowedOperations     String[]
+  protectedRegionVersion String
+  factPolicy            Json
+  planHash              String
+  expiresAt             DateTime
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  candidates            VisualAgentCandidate[]
+
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, assetId, expiresAt])
+  @@index([assetId, planHash, expiresAt])
+  @@index([expiresAt])
+}
+
+/// A generated output for a public-API task. The candidate remains private
+/// until the external system records its own explicit adoption intent.
+model VisualAgentCandidate {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  tenant              VisualAgentTenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId            String
+  client              VisualAgentClient          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace    String
+  quoteId             String                     @unique
+  quote               VisualCreditQuote          @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  invocationId        String                     @unique
+  invocation          VisualAgentInvocation      @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  planId              String
+  plan                VisualAgentPlan            @relation(fields: [planId], references: [id], onDelete: Restrict)
+  sourceAssetId       String
+  sourceAsset         VisualAgentAsset           @relation("VisualAgentCandidateSource", fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  objectKey           String                     @unique
+  canonicalSha256     String
+  mimeType            String
+  byteSize            Int
+  width               Int
+  height              Int
+  provider            String
+  status              VisualAgentCandidateStatus @default(PENDING_REVIEW)
+  adoptionAttestation Json?
+  rejectionReason     String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([tenantId, clientId, adapterNamespace, status, createdAt])
+  @@index([planId, createdAt])
 }
 
 model ProductImageArtifact {

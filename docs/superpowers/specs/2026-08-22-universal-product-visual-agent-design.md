@@ -185,16 +185,17 @@ interface ImageEditProvider {
 POST /visual-agent/v1/assets
 POST /visual-agent/v1/visual-plans
 POST /visual-agent/v1/quotes
-POST /visual-agent/v1/tasks/:taskId/confirm
-GET  /visual-agent/v1/tasks/:taskId
-POST /visual-agent/v1/tasks/:taskId/adopt-intents
+POST /visual-agent/v1/tasks/:quoteId/confirm
+POST /visual-agent/v1/tasks/:quoteId/poll
+GET  /visual-agent/v1/tasks/:quoteId
+POST /visual-agent/v1/tasks/:quoteId/adopt-intents
 GET  /visual-agent/v1/credits
 POST /internal/providers/:provider/callback
 ```
 
 认证使用 `X-Visual-Agent-Key` 或 `Authorization: VisualAgent ...`。请求 scope 永远由 Key 推导：`tenantId + clientId + adapterNamespace`。任一资源读取、取消、采用、下载和 Webhook 关联都必须带这三个条件；scope 不匹配统一返回 404，不泄露资源是否存在。
 
-当前代码中 `GET /visual-agent/v1/session` 仅完成 Key scope 验证；上述资产、报价、任务、额度 API 是本设计要求的后续实现，不能把尚未存在的 HTTP 路由称为完成。
+本地候选现已实现上述 assets / plans / quotes / tasks / credits 路由以及原有 `session` scope 检查；没有实现 Provider 回调入口。`POST /assets` 只接收 multipart 二进制图片和 `X-Visual-Agent-Evidence-Signature`，不接收任意 URL；其 Evidence 必须由接入系统服务端使用独立 HMAC 密钥签名，且绑定 Client scope、源图原始 SHA-256、账单主体、对象版本、事实策略、nonce 与最多 15 分钟有效期。只有验证后，Core 才写入私有资源、生成服务端计划、签发报价和进入同一账本/任务状态机。公开 task 成功只返回私有候选和 `PENDING_REVIEW`，`adopt-intent` 只是外部 Adapter 的显式信号，**不会**由 Core 发布图片到第三方系统。所有真实 Provider 开关仍默认关闭，未运行迁移或配置任何 HMAC/百炼密钥时 fail-closed。
 
 ### 6.2 Adapter 合同
 
@@ -212,8 +213,8 @@ interface DomainVisualAdapter {
 
 - 爱买买 Adapter 映射 `Company` 图片额度账户、`Product`、SKU、包装/二维码、`ProductMediaRevision + mediaVersion` CAS。
 - 餐厅 Adapter 映射餐厅经营主体额度、菜品、摆盘、菜单价格文字、过敏原和菜单发布版本。
-- 外部 Adapter 必须提供服务端签名的 `AdapterEvidenceEnvelope`：`tenantId/clientId/namespace/objectId/objectVersion/sourceHash/factPolicy/issuedAt/expiresAt/signature`。Core 复算源哈希并验证签名后才落库。
-- Client Key 不能伪造事实策略、对象版本、验真结果、结算、任务终态或采用结果。
+- 外部 Adapter 必须提供服务端签名的 `AdapterEvidenceEnvelope`：scope 由 Client Key 推导，信封绑定 `keyId/nonce/objectId/objectVersion/actorId/billingOwner/sourceSha256/factPolicy/issuedAt/expiresAt`，签名密钥与 Client Key 分离；Core 复算上传二进制 SHA-256 并验证签名后才落库。
+- Client Key 不能单独伪造事实策略、对象版本、账单主体、验真结果、结算、任务终态或采用结果；缺少对应服务端 HMAC 密钥的 Client 不能上传资源。
 
 ## 7. 数据模型与不可变证据
 

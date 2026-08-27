@@ -81,7 +81,7 @@ export class UploadService {
   async uploadFile(
     file: Express.Multer.File,
     folder: string = 'general',
-    options: { preserveQrCodes?: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean } = {},
+    options: { preserveQrCodes?: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean; preserveProviderOutput?: boolean } = {},
   ): Promise<{
     url: string;
     key: string;
@@ -96,14 +96,18 @@ export class UploadService {
     contactInfoDetected?: boolean;
   }> {
     const safeFolder = this.normalizeFolder(folder);
-    if (options.preserveLosslessImage && safeFolder !== 'seller-product-assets') {
+    const trustedVisualAssetFolder = safeFolder === 'seller-product-assets' || safeFolder === 'visual-agent-assets';
+    if (options.preserveLosslessImage && !trustedVisualAssetFolder) {
       throw new BadRequestException('无损图片仅允许由受管商品视觉渲染器写入');
     }
-    if (options.preserveEvidencePixels && safeFolder !== 'seller-product-assets') {
-      throw new BadRequestException('商品证据源仅允许由受管商品图片接口写入');
+    if (options.preserveEvidencePixels && !trustedVisualAssetFolder) {
+      throw new BadRequestException('受管视觉证据源仅允许由内部视觉接口写入');
+    }
+    if (options.preserveProviderOutput && safeFolder !== 'visual-agent-assets') {
+      throw new BadRequestException('Provider 原始输出仅允许由通用视觉 Agent 写入');
     }
     if (options.preserveLosslessImage && file.mimetype !== 'image/png') {
-      throw new BadRequestException('无损商品视觉候选仅接受 PNG 输出');
+      throw new BadRequestException('无损视觉候选仅接受 PNG 输出');
     }
 
     // 校验文件类型
@@ -131,7 +135,7 @@ export class UploadService {
       const normalized = await this.normalizeEvidenceImage(file.buffer);
       finalBuffer = normalized.buffer;
       finalMimeType = normalized.mimeType;
-    } else if (this.isTranscodableImage(file.mimetype) && !options.preserveLosslessImage) {
+    } else if (this.isTranscodableImage(file.mimetype) && !options.preserveLosslessImage && !options.preserveProviderOutput) {
       const normalized = await this.normalizeImage(file.buffer);
       finalBuffer = normalized.buffer;
       finalMimeType = normalized.mimeType;
@@ -631,7 +635,7 @@ export class UploadService {
   }
 
   private isManagedProductAssetKey(key: string): boolean {
-    return key.startsWith('seller-product-assets/');
+    return key.startsWith('seller-product-assets/') || key.startsWith('visual-agent-assets/');
   }
 
   private signLocalAccess(key: string, expiresAtSec: number): string {

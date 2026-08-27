@@ -1707,7 +1707,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 仅从当前商品已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证计划。
 - 卖家图片卡接入“真实白底主图”：只可选择与当前商品绑定的受管资产，候选以短期私有 URL 并列预览；前端不提供提示词、模型名或 URL 输入，采用成功后才刷新商品媒体。
 - Phase C 预备合同：付费背景调用必须先写整数分 `RESERVED` 流水，成功才以实际成本 `SETTLED`、失败 `RELEASED`；即使开关未来被打开，`AI_PRODUCT_IMAGE_DAILY_BUDGET_CENTS` 也必须显式为正整数分，缺失或 `0` 不会解释为不限额。
-- 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；公开端点目前只验证 Client Key scope，没有直接 Provider 执行、任意 URL 导入或自由 prompt 接口，Provider 仍默认关闭。
+- 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；`/visual-agent/v1/assets / visual-plans / quotes / tasks / credits` 已使用 Key scope 和独立 Adapter Evidence HMAC 提供通用资源 API。它只接受二进制受管图和签名后的对象版本/账单主体/事实策略/源摘要，不接受任意 URL、自由 prompt、模型或费用；成功候选私有返回，外部 adopt intent 不会自动发布。Provider 仍默认关闭。
 - 通用 Agent Client Key（本地）：`VisualAgentTenant → VisualAgentClient → VisualAgentClientKey` 已支持 API Key 的一次性签发、哈希存储、过期、撤销与 `tenant/client/adapterNamespace` 认证范围；餐厅等接入系统不需要也不允许持有百炼 Provider Key。公开会话端点只验证 scope，不接受任意 URL、prompt 或模型提交。
 - VisualCredit 商业控制（本地）：`VisualCreditAccount / VisualCreditLedger / VisualCreditQuote / VisualRateCard` 已实现独立账户、200 额度欢迎策略、服务端固定报价、显式冻结、结算/释放/对账与管理员调整；卖家端必须再次提交产品绑定的 `quoteId + quoteHash`，浏览器不能选择模型、费用或 Provider 参数。管理员 `/visual-agent` 仅限高权限角色配置范围/策略/费率和查看账本，默认不启用任何模型。
 - 付费候选事实复核（本地）：受管 Provider 输出先写为 AIGC 私有候选，再在结算后进入 `PENDING_REVIEW`；管理员对原图和候选图并列复核，批准后才转为可由商家显式采用，驳回会退役候选资产。付费候选也不会自动覆盖已上架商品媒体。
@@ -1716,7 +1716,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
 - 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。
 - 免费实景增强（本地）：`FREE_TUNE` 只使用固定、零模型的亮度/对比度/锐化参数，并保持原图像素坐标和尺寸；必须绑定未过期的 `STANDARD_FACTS` 计划，以及同源、已完成对账的“无 OCR/QR/条码事实”扫描。排队任务在渲染前会再次核验该证据；任意新扫描、过期或不确定结论都会阻断候选。当前本地条码扫描不会把解码失败当作“无条码”，因此不会错误解锁这一路线。
-- 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、完整 OCR/结构/颜色验真闭环、餐厅/第三方 Adapter、shadow 样本评测、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
+- 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、完整 OCR/结构/颜色验真闭环、餐厅的具体 HMAC Adapter/发布回调、第三方 SDK/Webhook、shadow 样本评测、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
 
 ## 18. 已知问题与调试记录
 

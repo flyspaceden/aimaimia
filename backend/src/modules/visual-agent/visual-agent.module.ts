@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { UploadModule } from '../upload/upload.module';
 import { BailianWanImageProvider } from './providers/bailian-wan-image.provider';
 import { BailianQwenImageProvider } from './providers/bailian-qwen-image.provider';
 import { BailianQwenOcrProvider } from './providers/bailian-qwen-ocr.provider';
@@ -11,6 +12,8 @@ import { VisualAgentSessionController } from './visual-agent-session.controller'
 import { VisualAgentTrustedAdapterService } from './visual-agent-trusted-adapter.service';
 import { VisualCreditService } from './visual-credit.service';
 import { VisualPaidExecutionService } from './visual-paid-execution.service';
+import { VisualAgentPublicController } from './visual-agent-public.controller';
+import { VisualAgentPublicService } from './visual-agent-public.service';
 
 /**
  * Domain-neutral AI Visual Agent Core. Business modules may use only the
@@ -18,8 +21,9 @@ import { VisualPaidExecutionService } from './visual-paid-execution.service';
  * until a trusted domain adapter and full verification path are enabled.
  */
 @Module({
-  controllers: [VisualAgentSessionController],
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
-  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
+  imports: [UploadModule],
+  controllers: [VisualAgentSessionController, VisualAgentPublicController],
+  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService],
+  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService],
 })
 export class VisualAgentModule {}
