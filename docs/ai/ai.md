@@ -1716,10 +1716,11 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 受控 OCR Provider（本地）：固定版本 OCR 只能由 Core 已持久化的调用租约触发，Provider 用量独立记录；无 Core 授权、开关、正数预算策略或可验证结果时均 fail-closed。
 - 深度状态审查（2026-08-27，本地）：商品图片变更和 quote 幂等键现在会校验产品/图片/费率档绑定，不能把同一键误用于另一项操作；回滚与商家通知 outbox 在同一事务提交。模型输入在 Provider 提交前读取/解码失败时自动释放已冻结图片额度；已绑定或对账中的调用直接恢复原任务，不做第二次 Provider 提交。费率卡只允许当前执行器支持的四个百炼模型档和单候选合同，旧的不兼容活动档位不会下发给商家。
 - 平台预算与对账闭环（2026-08-27，本地）：`admin_visual_agent:manage` 可管理 PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 六层精确预算策略；同范围启用新版本时即时版本会停用旧版本，未来生效版本会为旧版本设置截止时间，避免策略冲突或空窗。平台可查看最小化的 `RECONCILING` 调用摘要，并以 Provider 控制台/账单证据决定未计费释放或计费异常；Invocation、Provider 预算、关联 `VisualCreditQuote`、账户余额和 Ledger 在同一 Serializable 事务关闭。明确未计费时强制退回商家冻结额度，计费异常会关闭对应 Provider/模型活动预算策略。
+- staging 交付准备（2026-08-27，本地）：补齐默认全关闭的 Visual Agent 环境变量模板；在隔离 PostgreSQL 18 空库从第 1 个开始成功应用 138 个迁移，并修复 PostgreSQL 63-byte 标识符截断导致两个预算索引重名的部署阻塞。迁移库与 Prisma Schema 的 AI 图片域已无漂移；剩余 AuthProvider、MiniProgram、QueueReward 等差异属于 main 既有历史漂移，未混入本功能修复。验收/回滚手册、40 张授权 shadow 样本矩阵和逐笔效果/费用模板已建立，但尚未 push、迁移 staging、写入 secret 或付费执行样本。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
 - 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。
 - 免费实景增强（本地）：`FREE_TUNE` 只使用固定、零模型的亮度/对比度/锐化参数，并保持原图像素坐标和尺寸；必须绑定未过期的 `STANDARD_FACTS` 计划，以及同源、已完成对账的“无 OCR/QR/条码事实”扫描。排队任务在渲染前会再次核验该证据；任意新扫描、过期或不确定结论都会阻断候选。当前本地条码扫描不会把解码失败当作“无条码”，因此不会错误解锁这一路线。
-- 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、颜色/实例数量/关键结构的模型级深度评测、餐厅的具体 HMAC Adapter/发布回调、第三方 SDK/Webhook、shadow 样本评测、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
+- 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、颜色/实例数量/关键结构的模型级深度评测、餐厅的具体 HMAC Adapter/发布回调、第三方 SDK/Webhook、40 张授权 shadow 样本实际执行、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
 
 ## 18. 已知问题与调试记录
 
