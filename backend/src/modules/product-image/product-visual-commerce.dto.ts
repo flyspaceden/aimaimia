@@ -27,3 +27,16 @@ export class ConfirmProductVisualQuoteDto {
   @MaxLength(128)
   quoteHash: string;
 }
+
+export class ListProductVisualRateCardsQueryDto {
+  @IsString()
+  @MaxLength(120)
+  sourceAssetId: string;
+
+  @IsString()
+  @MaxLength(120)
+  planId: string;
+
+  @IsEnum(ProductVisualMode)
+  direction: ProductVisualMode;
+}

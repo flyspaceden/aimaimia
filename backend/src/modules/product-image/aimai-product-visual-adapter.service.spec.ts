@@ -39,6 +39,15 @@ function build() {
     releaseReservedQuote: jest.fn(),
     settleReservedQuote: jest.fn(),
     markReconciliation: jest.fn(),
+    listRateCards: jest.fn().mockResolvedValue([{
+      code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
+      candidateCount: 1, creditCost: 15, requiresHumanReview: true, status: 'ACTIVE',
+      allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
+    }]),
+    getQuoteForClient: jest.fn().mockResolvedValue({
+      quote: { id: 'quote-1', externalObjectId: 'product-1', creditCost: 15, status: 'ISSUED' },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1', availableCredits: 200, reservedCredits: 0 },
+    }),
   };
   const execution = {
     executeReservedQuote: jest.fn().mockResolvedValue({ invocationId: 'invocation-1', status: 'QUEUED' }),
@@ -84,6 +93,26 @@ describe('AimaiProductVisualAdapterService', () => {
     const { service, trusted } = build();
     await expect(service.issueQuote({ ...input, direction: ProductVisualMode.MARKETING_SCENE })).rejects.toBeInstanceOf(ConflictException);
     expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+  });
+
+  it('lists only active rate cards compatible with the current product plan and owner scope', async () => {
+    const { service, credits } = build();
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+    })).resolves.toEqual([{
+      code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
+      candidateCount: 1, creditCost: 15, requiresHumanReview: true,
+    }]);
+    expect(credits.listRateCards).toHaveBeenCalledWith({ tenantId: 'aimai-product-agent', clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product' });
+  });
+
+  it('does not disclose a quote from a different merchant or product', async () => {
+    const { service, credits } = build();
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: { id: 'quote-1', externalObjectId: 'product-other' },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-other', availableCredits: 200, reservedCredits: 0 },
+    });
+    await expect(service.getQuote('company-1', 'product-1', 'quote-1')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('refuses a quote if the exact managed source is no longer attached to the product', async () => {

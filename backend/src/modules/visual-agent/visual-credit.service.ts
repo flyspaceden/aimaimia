@@ -422,6 +422,21 @@ export class VisualCreditService {
     return quote;
   }
 
+  async getQuoteForClient(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
+    this.assertId(input.quoteId, '报价 ID');
+    const quote = await this.prisma.visualCreditQuote.findFirst({
+      where: {
+        id: input.quoteId,
+        tenantId: input.principal.tenantId,
+        clientId: input.principal.clientId,
+        adapterNamespace: input.principal.adapterNamespace,
+      },
+      include: { billingAccount: { select: { billingOwnerType: true, billingOwnerId: true, availableCredits: true, reservedCredits: true } } },
+    });
+    if (!quote) throw new NotFoundException('图片美化报价不存在');
+    return { quote: this.toQuoteResponse(quote), billingAccount: this.toAccountResponse({ id: '', tenantId: input.principal.tenantId, ...quote.billingAccount, version: 0 }) };
+  }
+
   async attachInvocation(input: { principal: VisualAgentClientPrincipal; quoteId: string; invocationId: string }) {
     this.assertId(input.quoteId, '报价 ID');
     this.assertId(input.invocationId, '调用 ID');
@@ -660,6 +675,7 @@ export class VisualCreditService {
     return {
       id: quote.id,
       status: quote.status,
+      externalObjectId: quote.externalObjectId,
       sourceAssetRef: quote.sourceAssetRef,
       creditCost: quote.creditCost,
       candidateCount: quote.candidateCount,

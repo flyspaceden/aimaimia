@@ -190,6 +190,65 @@ export class AimaiProductVisualAdapterService {
     });
   }
 
+  async listEligibleRateCards(input: {
+    companyId: string;
+    productId: string;
+    sourceAssetId: string;
+    planId: string;
+    direction: ProductVisualMode;
+  }) {
+    const [principal, plan] = await Promise.all([
+      this.resolveAimaiPrincipal(),
+      this.prisma.productVisualPlan.findFirst({
+        where: {
+          id: input.planId,
+          companyId: input.companyId,
+          productId: input.productId,
+          sourceAssetId: input.sourceAssetId,
+          expiresAt: { gt: new Date() },
+        },
+        select: { riskProfile: true, allowedModes: true },
+      }),
+    ]);
+    if (!plan || !plan.allowedModes.includes(input.direction) || input.direction === ProductVisualMode.MARKETING_SCENE) {
+      throw new ConflictException('当前图片计划不允许查看该美化方向的报价');
+    }
+    const attached = await this.prisma.product.findFirst({
+      where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: input.sourceAssetId } } },
+      select: { id: true },
+    });
+    if (!attached) throw new NotFoundException('商品原图已变化，不能查看图片美化报价');
+    const cards = await this.credits.listRateCards({
+      tenantId: principal.tenantId,
+      clientId: principal.clientId,
+      adapterNamespace: principal.adapterNamespace,
+    });
+    return cards
+      .filter((card) => card.status === 'ACTIVE'
+        && card.allowedDirections.includes(input.direction)
+        && card.allowedRiskProfiles.includes(plan.riskProfile))
+      .map((card) => ({
+        code: card.code,
+        displayName: card.displayName,
+        description: card.description,
+        outputSpec: card.outputSpec,
+        candidateCount: card.candidateCount,
+        creditCost: card.creditCost,
+        requiresHumanReview: card.requiresHumanReview,
+      }));
+  }
+
+  async getQuote(companyId: string, productId: string, quoteId: string) {
+    const principal = await this.resolveAimaiPrincipal();
+    const result = await this.credits.getQuoteForClient({ principal, quoteId });
+    if (result.billingAccount.billingOwnerType !== 'COMPANY'
+      || result.billingAccount.billingOwnerId !== companyId
+      || result.quote.externalObjectId !== productId) {
+      throw new NotFoundException('图片美化报价不存在');
+    }
+    return result;
+  }
+
   async pollAndPersistCandidate(input: {
     companyId: string;
     staffId: string;
