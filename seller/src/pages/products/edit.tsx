@@ -51,10 +51,17 @@ import {
   type ProductImageOptimizationTask,
 } from '@/api/productImageOptimizations';
 import {
+  confirmProductVisualQuote,
   getProductImageFactScan,
+  issueProductVisualQuote,
+  listProductVisualRateCards,
+  pollProductVisualQuote,
   requestProductImageFactScan,
   requestProductVisualPlan,
   type ProductImageFactScan,
+  type ProductVisualQuote,
+  type ProductVisualQuoteStatus,
+  type ProductVisualRateCard,
   type ProductVisualPlan,
 } from '@/api/productImageVisualPlans';
 import dayjs from 'dayjs';
@@ -1007,6 +1014,12 @@ function ImageUploadSection({
   const [visualPlanSubmitting, setVisualPlanSubmitting] = useState(false);
   const [factScan, setFactScan] = useState<ProductImageFactScan | null>(null);
   const [factScanSubmitting, setFactScanSubmitting] = useState(false);
+  const [rateCards, setRateCards] = useState<ProductVisualRateCard[] | null>(null);
+  const [rateCardsLoading, setRateCardsLoading] = useState(false);
+  const [visualQuote, setVisualQuote] = useState<{ quote: ProductVisualQuote; availableCredits: number; reservedCredits: number } | null>(null);
+  const [quoteSubmitting, setQuoteSubmitting] = useState(false);
+  const [quoteConfirmed, setQuoteConfirmed] = useState(false);
+  const [paidExecution, setPaidExecution] = useState<ProductVisualQuoteStatus | null>(null);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
@@ -1123,6 +1136,63 @@ function ImageUploadSection({
     }
   };
 
+  const paidDirection = (): 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' => {
+    if (visualPlan?.recommendedMode === 'CATALOG_STUDIO' || visualPlan?.recommendedMode === 'PRODUCT_RETOUCH') {
+      return visualPlan.recommendedMode;
+    }
+    return 'PRESERVE_REAL_SCENE';
+  };
+
+  const loadPaidRateCards = async () => {
+    if (!productId || !visualPlan || !visualPlanSource) return;
+    setRateCardsLoading(true);
+    try {
+      setRateCards(await listProductVisualRateCards(productId, {
+        sourceAssetId: visualPlanSource.asset.asset.id,
+        planId: visualPlan.id,
+        direction: paidDirection(),
+      }));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '暂时无法取得图片美化报价');
+    } finally {
+      setRateCardsLoading(false);
+    }
+  };
+
+  const issuePaidQuote = async (rateCard: ProductVisualRateCard) => {
+    if (!productId || !visualPlan || !visualPlanSource) return;
+    setQuoteSubmitting(true);
+    try {
+      const result = await issueProductVisualQuote(productId, {
+        sourceAssetId: visualPlanSource.asset.asset.id,
+        planId: visualPlan.id,
+        direction: paidDirection(),
+        rateCode: rateCard.code,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits });
+      setQuoteConfirmed(false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建图片美化报价失败');
+    } finally {
+      setQuoteSubmitting(false);
+    }
+  };
+
+  const confirmPaidQuote = async () => {
+    if (!productId || !visualQuote || !quoteConfirmed) return;
+    setQuoteSubmitting(true);
+    try {
+      const result = await confirmProductVisualQuote(productId, visualQuote.quote.id, visualQuote.quote.quoteHash);
+      setPaidExecution(result.execution);
+      message.success('已确认图片额度，正在提交受控模型任务');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '模型任务未能提交，未接受的任务会自动释放额度');
+    } finally {
+      setQuoteSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!optimizationTask) return;
     if (['REQUESTED', 'QUEUED', 'RUNNING'].includes(optimizationTask.status)) {
@@ -1158,6 +1228,24 @@ function ImageUploadSection({
     }, 1500);
     return () => window.clearInterval(timer);
   }, [factScan]);
+
+  useEffect(() => {
+    if (!productId || !visualQuote || !paidExecution || !['QUEUED', 'RUNNING', 'VERIFYING'].includes(paidExecution.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await pollProductVisualQuote(productId, visualQuote.quote.id);
+        setPaidExecution(next);
+        if (next.status === 'SUCCEEDED' && next.optimizationId && visualPlanSource) {
+          setOptimizationSource(visualPlanSource);
+          setOptimizationTask(await getProductImageOptimization(next.optimizationId));
+          setVisualPlan(null);
+        }
+      } catch {
+        // Server-side reconciliation intentionally suppresses a paid retry.
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [paidExecution, productId, visualPlanSource, visualQuote]);
 
   const adoptOptimization = async () => {
     if (!optimizationTask || !productId) return;
@@ -1406,6 +1494,45 @@ function ImageUploadSection({
                   {!freeTuneAvailable && factScan?.status === 'VERIFIED_EMPTY' && !factScan.freeTuneEligible && (
                     <Text type="warning" style={{ fontSize: 12 }}>扫描结论尚未完成对账，暂不生成候选。</Text>
                   )}
+                </Space>
+              </Card>
+            )}
+
+            {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && (
+              <Card size="small" title="付费 AI 强效果" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Text type="secondary">方案、候选数和图片额度均由平台按当前风险档返回。确认后才冻结额度；模型未接受时自动释放，结果未知时进入对账。</Text>
+                  {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与额度</Button>}
+                  {rateCards && rateCards.length === 0 && <Alert type="info" showIcon message="当前没有可用的付费方案" description="平台尚未为这类图片配置可执行模型。" />}
+                  {rateCards && rateCards.length > 0 && !visualQuote && (
+                    <Row gutter={[10, 10]}>
+                      {rateCards.map((card) => (
+                        <Col key={card.code} xs={24} md={12}>
+                          <Card size="small" style={{ height: '100%', borderColor: '#f0d77c' }}>
+                            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                              <Space wrap><Text strong>{card.displayName}</Text><Tag color="gold">{card.creditCost} 图片额度</Tag><Tag>{card.candidateCount} 张候选</Tag></Space>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{card.description}</Text>
+                              {card.requiresHumanReview && <Text type="warning" style={{ fontSize: 12 }}>生成后需管理员事实复核，候选不会自动发布。</Text>}
+                              <Button size="small" type="primary" loading={quoteSubmitting} onClick={() => issuePaidQuote(card)}>获取本方案报价</Button>
+                            </Space>
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  )}
+                  {visualQuote && (
+                    <div style={{ borderLeft: '4px solid #d4a72c', padding: '10px 12px', background: '#fffdf2', borderRadius: 8 }}>
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || 'AI 图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag></Space>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{visualQuote.quote.rateCardSnapshot.description || '将按当前受控图片计划生成候选。'} 报价有效至 {new Date(visualQuote.quote.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。</Text>
+                        {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片额度不足" description="请联系平台管理员补充图片额度。" /> : <>
+                          <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片额度生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>
+                          <Button type="primary" loading={quoteSubmitting} disabled={!quoteConfirmed} onClick={confirmPaidQuote}>确认额度并生成候选</Button>
+                        </>}
+                      </Space>
+                    </div>
+                  )}
+                  {paidExecution && <Alert type={paidExecution.status === 'PENDING_REVIEW' ? 'warning' : paidExecution.status === 'RECONCILING' ? 'info' : 'success'} showIcon message={paidExecution.status === 'PENDING_REVIEW' ? '候选已生成，等待管理员事实复核' : paidExecution.status === 'RECONCILING' ? '模型结果或费用正在对账' : paidExecution.status === 'SUCCEEDED' ? '候选已通过系统验证，可继续核对并采用' : '模型任务处理中'} description={paidExecution.status === 'PENDING_REVIEW' ? '管理员会核对包装、型号、数量、颜色和可见事实；通过前不能采用。' : paidExecution.status === 'RECONCILING' ? '为避免重复扣费，系统不会自动重新提交同一模型任务。' : '候选始终保留原图证据，且不会自动发布。'} />}
                 </Space>
               </Card>
             )}

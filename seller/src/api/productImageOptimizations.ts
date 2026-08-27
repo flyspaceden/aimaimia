@@ -3,7 +3,7 @@ import client from './client';
 export type ProductImageOptimizationTask = {
   id: string;
   status: 'REQUESTED' | 'QUEUED' | 'RUNNING' | 'RECONCILING' | 'SUCCEEDED' | 'FAILED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'ADOPTED';
-  kind: 'WHITE_BACKGROUND' | 'FREE_TUNE';
+  kind: 'WHITE_BACKGROUND' | 'FREE_TUNE' | 'BACKGROUND_GENERATION';
   productId?: string | null;
   failureCode?: string | null;
   failureDetail?: string | null;

@@ -30,3 +30,23 @@ test('seller UI keeps original evidence and never promises an automatic publish'
   assert.match(editPage, /包装、型号、文字和二维码未变化/);
   assert.match(editPage, /颜色、规格、材质和实物一致/);
 });
+
+test('seller paid image flow shows a server quote and requires an explicit credit confirmation', () => {
+  assert.match(editPage, /付费 AI 强效果/);
+  assert.match(editPage, /先报价，后生成/);
+  assert.match(editPage, /查看可用方案与额度/);
+  assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片额度/);
+  assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片额度生成/);
+  assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
+  assert.match(editPage, /confirmProductVisualQuote\(/);
+  assert.match(editPage, /pollProductVisualQuote\(/);
+  assert.match(editPage, /候选已生成，等待管理员事实复核/);
+});
+
+test('seller paid visual API remains product-bound and cannot send a free-form provider prompt', () => {
+  assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-rate-cards/);
+  assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-quotes/);
+  assert.match(visualApi, /quoteHash/);
+  assert.doesNotMatch(visualApi, /prompt:/);
+  assert.doesNotMatch(visualApi, /providerUrl/);
+});
