@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BailianWanImageProvider } from './providers/bailian-wan-image.provider';
+import { BailianQwenImageProvider } from './providers/bailian-qwen-image.provider';
 import { BailianQwenOcrProvider } from './providers/bailian-qwen-ocr.provider';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 import { VisualAgentProviderRunnerService } from './visual-agent-provider-runner.service';
@@ -18,7 +19,7 @@ import { VisualPaidExecutionService } from './visual-paid-execution.service';
  */
 @Module({
   controllers: [VisualAgentSessionController],
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
+  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
   exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService],
 })
 export class VisualAgentModule {}

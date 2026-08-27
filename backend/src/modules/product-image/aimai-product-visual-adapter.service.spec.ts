@@ -160,13 +160,13 @@ describe('AimaiProductVisualAdapterService', () => {
   it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {
     const { service, execution, credits, candidates, invocations } = build();
     execution.pollForOutput.mockResolvedValue({
-      quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
+      quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
     });
     credits.settleReservedQuote = jest.fn().mockResolvedValue({});
 
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
       .resolves.toMatchObject({ status: 'PENDING_REVIEW', candidate: { candidateAssetId: 'candidate-1' }, optimizationId: 'optimization-1' });
-    expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ quote: expect.objectContaining({ id: 'quote-1' }) }));
+    expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ provider: 'BAILIAN_WAN', quote: expect.objectContaining({ id: 'quote-1' }) }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
     expect(candidates.markVerifiedAndSettled).toHaveBeenCalledWith('company-1', 'quote-1', true);

@@ -8,7 +8,6 @@ import { VisualPaidExecutionService } from '../visual-agent/visual-paid-executio
 import { VisualAgentInvocationService } from '../visual-agent/visual-agent-invocation.service';
 import { visualPlanSha256 } from '../visual-agent/visual-agent-integrity';
 import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan } from '../visual-agent/providers/visual-image-edit.provider';
-import { BAILIAN_WAN_PROVIDER } from '../visual-agent/providers/bailian-wan-image.provider';
 import { UploadService } from '../upload/upload.service';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 const sharp = require('sharp') as typeof import('sharp').default;
@@ -266,10 +265,11 @@ export class AimaiProductVisualAdapterService {
         productId: input.productId,
         sourceAssetId: quote.sourceAssetRef,
         sourceCanonicalHash: quote.sourceHash,
+        provider: polled.provider,
         quote,
         output: polled.output,
       });
-      await this.invocations.completeSynchronousVerification(polled.invocationId, BAILIAN_WAN_PROVIDER);
+      await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家与管理员事实审核');
       const requiresHumanReview = (quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
       const optimization = await this.candidates.markVerifiedAndSettled(input.companyId, quote.id, requiresHumanReview);

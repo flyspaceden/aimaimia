@@ -53,7 +53,7 @@ describe('ProductPaidVisualCandidateService', () => {
   it('persists a paid output as an AIGC candidate that cannot be adopted until settlement finalizes', async () => {
     const { service, tx, assets } = build();
     const result = await service.persistPendingVerification({
-      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64),
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN',
       quote, output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
     });
 
@@ -75,7 +75,7 @@ describe('ProductPaidVisualCandidateService', () => {
     (prisma.$transaction as jest.Mock).mockRejectedValue(new Error('transaction failed'));
 
     await expect(service.persistPendingVerification({
-      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64),
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN',
       quote, output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
     })).rejects.toThrow('transaction failed');
     expect(prisma.sellerMediaAsset.updateMany).toHaveBeenCalledWith({

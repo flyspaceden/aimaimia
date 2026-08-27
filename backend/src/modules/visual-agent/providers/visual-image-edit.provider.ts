@@ -7,7 +7,7 @@
  * remain RECONCILING; it may never be retried as a fresh generation.
  */
 export type VisualProviderTaskState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'UNKNOWN';
-export type VisualProviderModel = 'wan2.7-image' | 'wan2.7-image-pro';
+export type VisualProviderModel = 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro';
 export type VisualProviderDirection = 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' | 'MARKETING_SCENE';
 export type VisualProviderRiskProfile = 'STRICT_FACTS' | 'CONSERVATIVE_FACTS' | 'STANDARD_FACTS' | 'ORGANIC_FACTS' | 'MARKETING_ONLY';
 export type VisualProviderAllowedOperation = 'LIGHTING' | 'WHITE_BALANCE' | 'DENOISE' | 'DEGLARE' | 'COMPOSITION' | 'BACKGROUND_SIMPLIFY' | 'BACKGROUND_REPLACE';
@@ -94,6 +94,7 @@ export type VisualProviderOutput = {
 /** Provider adapters do not decide verification, publication, or retries. */
 export interface VisualImageEditProvider {
   isAvailable(): boolean;
+  preflight(input: Pick<VisualProviderSubmitInput, 'source' | 'visualPlan' | 'model'>): Promise<void>;
   submit(input: VisualProviderSubmitInput): Promise<VisualProviderSubmitResult>;
   query(providerTaskId: string): Promise<VisualProviderQueryResult>;
   fetchOutput(outputUrl: string): Promise<VisualProviderOutput>;

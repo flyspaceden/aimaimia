@@ -11,6 +11,7 @@ type PersistPaidCandidateInput = {
   productId: string;
   sourceAssetId: string;
   sourceCanonicalHash: string;
+  provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
   quote: {
     id: string;
     quoteHash: string;
@@ -95,7 +96,7 @@ export class ProductPaidVisualCandidateService {
             contractHash: this.sha256(JSON.stringify(contract)),
             inputFingerprint: this.sha256(`${input.quote.id}:${source.id}:${source.canonicalSha256}`),
             templateVersion: 'paid-visual-candidate-v2',
-            provider: 'BAILIAN_WAN',
+            provider: input.provider,
             modelVersion: this.modelProfile(input.quote.rateCardSnapshot),
             costTier: 'PAID',
             reservedCostCents: 0,

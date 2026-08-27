@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { VisualAgentInvocationStatus, VisualCreditQuoteStatus } from '@prisma/client';
-import { BailianWanImageProvider, BAILIAN_WAN_PROVIDER } from './providers/bailian-wan-image.provider';
-import { VisualProviderServerPlan, VisualProviderSource } from './providers/visual-image-edit.provider';
+import { BAILIAN_QWEN_IMAGE_PROVIDER } from './providers/bailian-qwen-image.provider';
+import { BAILIAN_WAN_PROVIDER } from './providers/bailian-wan-image.provider';
+import { VisualProviderModel, VisualProviderServerPlan, VisualProviderSource } from './providers/visual-image-edit.provider';
 import { normalizedSourceSha256, visualPlanSha256 } from './visual-agent-integrity';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 import { VisualAgentClientPrincipal } from './visual-agent-client-key.service';
@@ -17,6 +18,11 @@ type PaidExecutionInput = {
   visualPlan: VisualProviderServerPlan;
 };
 
+type ExecutableProvider = {
+  provider: typeof BAILIAN_WAN_PROVIDER | typeof BAILIAN_QWEN_IMAGE_PROVIDER;
+  model: VisualProviderModel;
+};
+
 /**
  * Only a trusted Adapter may call this service after it has re-read the source
  * asset and the business object's current version. It is intentionally not an
@@ -28,7 +34,6 @@ export class VisualPaidExecutionService {
     private readonly credits: VisualCreditService,
     private readonly invocations: VisualAgentInvocationService,
     private readonly runner: VisualAgentProviderRunnerService,
-    private readonly wan: BailianWanImageProvider,
   ) {}
 
   async executeReservedQuote(input: PaidExecutionInput) {
@@ -52,12 +57,17 @@ export class VisualPaidExecutionService {
       return { quoteId: quote.id, invocationId: null, status: 'RECONCILING' as const };
     }
 
-    let model: 'wan2.7-image' | 'wan2.7-image-pro';
+    let executable: ExecutableProvider;
     try {
-      model = this.modelForProfile(quote.rateCard.modelProfile);
+      executable = this.providerForProfile(quote.rateCard.modelProfile);
       // This checks enable flags, workspace/key shape, source constraints and
       // fixed prompt template before the quote can become provider-billable.
-      await this.wan.preflight({ source: input.source, visualPlan: input.visualPlan, model });
+      await this.runner.preflightProvider({
+        provider: executable.provider,
+        source: input.source,
+        visualPlan: input.visualPlan,
+        model: executable.model,
+      });
     } catch (error) {
       await this.credits.releaseReservedQuote(quote.id, 'PROVIDER_PREFLIGHT_DECLINED');
       throw error;
@@ -72,8 +82,8 @@ export class VisualPaidExecutionService {
         adapterNamespace: input.principal.adapterNamespace,
         externalObjectId: quote.externalObjectId,
         actorId: quote.actorId,
-        provider: BAILIAN_WAN_PROVIDER,
-        model,
+        provider: executable.provider,
+        model: executable.model,
         visualMode: input.visualPlan.direction,
         sourceHash,
         visualPlanHash: actualPlanHash,
@@ -100,9 +110,10 @@ export class VisualPaidExecutionService {
     }
 
     try {
-      const outcome = await this.runner.submitBailian({
+      const outcome = await this.runner.submitProvider({
         invocationId: reservation.invocationId,
-        model,
+        provider: executable.provider,
+        model: executable.model,
         source: input.source,
         visualPlan: input.visualPlan,
       });
@@ -134,9 +145,16 @@ export class VisualPaidExecutionService {
     if (quote.status === VisualCreditQuoteStatus.RECONCILING) {
       return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
     }
+    let executable: ExecutableProvider;
+    try {
+      executable = this.providerForProfile(quote.rateCard.modelProfile);
+    } catch (error) {
+      await this.credits.markReconciliation(quote.id, 'RATE_CARD_PROVIDER_PROFILE_INVALID');
+      throw error;
+    }
     let outcome;
     try {
-      outcome = await this.runner.queryBailian(quote.visualAgentInvocationId);
+      outcome = await this.runner.queryProvider(quote.visualAgentInvocationId);
     } catch (error) {
       await this.credits.markReconciliation(quote.id, 'PROVIDER_QUERY_EXCEPTION');
       throw error;
@@ -146,20 +164,22 @@ export class VisualPaidExecutionService {
       return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
     }
     if (outcome.state === 'QUEUED' || outcome.state === 'RUNNING') {
-      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: outcome.state };
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, provider: executable.provider, status: outcome.state };
     }
     try {
-      const output = await this.runner.fetchBailianOutput(quote.visualAgentInvocationId);
-      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'VERIFYING' as const, output };
+      const output = await this.runner.fetchProviderOutput(quote.visualAgentInvocationId);
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, provider: executable.provider, status: 'VERIFYING' as const, output };
     } catch (error) {
       await this.credits.markReconciliation(quote.id, 'PROVIDER_OUTPUT_FETCH_FAILED');
       throw error;
     }
   }
 
-  private modelForProfile(profile: string): 'wan2.7-image' | 'wan2.7-image-pro' {
-    if (profile === 'BAILIAN_WAN_STANDARD') return 'wan2.7-image';
-    if (profile === 'BAILIAN_WAN_PRO') return 'wan2.7-image-pro';
+  private providerForProfile(profile: string): ExecutableProvider {
+    if (profile === 'BAILIAN_WAN_STANDARD') return { provider: BAILIAN_WAN_PROVIDER, model: 'wan2.7-image' };
+    if (profile === 'BAILIAN_WAN_PRO') return { provider: BAILIAN_WAN_PROVIDER, model: 'wan2.7-image-pro' };
+    if (profile === 'BAILIAN_QWEN_IMAGE') return { provider: BAILIAN_QWEN_IMAGE_PROVIDER, model: 'qwen-image-3.0' };
+    if (profile === 'BAILIAN_QWEN_IMAGE_PRO') return { provider: BAILIAN_QWEN_IMAGE_PROVIDER, model: 'qwen-image-3.0-pro' };
     throw new ServiceUnavailableException('当前图片美化报价尚未配置可执行的百炼模型');
   }
 

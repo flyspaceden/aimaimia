@@ -31,7 +31,7 @@ describe('VisualAgentProviderRunnerService', () => {
       preflight: jest.fn().mockRejectedValue(new ServiceUnavailableException('disabled')),
       submit: jest.fn(),
     };
-    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any, {} as any);
 
     await expect(service.submitBailian({ invocationId: 'invocation-1', model: 'wan2.7-image', source: await source(), visualPlan })).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(invocations.acquireForSubmit).not.toHaveBeenCalled();
@@ -50,7 +50,7 @@ describe('VisualAgentProviderRunnerService', () => {
       preflight: jest.fn().mockResolvedValue(undefined),
       submit: jest.fn().mockResolvedValue({ kind: 'UNKNOWN', code: 'TRANSPORT_TIMEOUT', requiresReconciliation: true }),
     };
-    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any, {} as any);
 
     await expect(service.submitBailian({ invocationId: 'invocation-1', model: 'wan2.7-image', source: await source(), visualPlan })).resolves.toEqual({
       kind: 'UNKNOWN', code: 'TRANSPORT_TIMEOUT', requiresReconciliation: true,
@@ -69,7 +69,7 @@ describe('VisualAgentProviderRunnerService', () => {
       preflight: jest.fn().mockResolvedValue(undefined),
       submit: jest.fn().mockRejectedValue(new ServiceUnavailableException('unexpected provider exception')),
     };
-    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any, {} as any);
 
     await expect(service.submitBailian({ invocationId: 'invocation-1', model: 'wan2.7-image', source: await source(), visualPlan })).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(invocations.recordSubmitOutcome).toHaveBeenCalledWith(authorization, {
@@ -85,7 +85,7 @@ describe('VisualAgentProviderRunnerService', () => {
       recordQueryOutcome: jest.fn().mockResolvedValue(undefined),
     };
     const bailian = { query: jest.fn().mockRejectedValue(new ServiceUnavailableException('provider unavailable')) };
-    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any, {} as any);
 
     await expect(service.queryBailian('invocation-1')).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(invocations.recordQueryOutcome).toHaveBeenCalledWith(queryAuthorization, {
@@ -96,11 +96,11 @@ describe('VisualAgentProviderRunnerService', () => {
   it('fetches a Provider output only after Core confirms a VERIFYING invocation reference', async () => {
     const invocations = {
       getOutputForVerification: jest.fn().mockResolvedValue({
-        id: 'invocation-1', providerOutputUrl: 'https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg',
+        id: 'invocation-1', provider: 'BAILIAN_WAN', providerOutputUrl: 'https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg',
       }),
     };
     const bailian = { fetchOutput: jest.fn().mockResolvedValue({ buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' }) };
-    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any);
+    const service = new VisualAgentProviderRunnerService(invocations as any, bailian as any, {} as any);
 
     await expect(service.fetchBailianOutput('invocation-1')).resolves.toMatchObject({ mimeType: 'image/jpeg' });
     expect(invocations.getOutputForVerification).toHaveBeenCalledWith('invocation-1');

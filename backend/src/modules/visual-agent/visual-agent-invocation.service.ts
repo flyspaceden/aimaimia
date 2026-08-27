@@ -285,11 +285,10 @@ export class VisualAgentInvocationService {
     const invocation = await this.prisma.visualAgentInvocation.findFirst({
       where: {
         id: invocationId,
-        provider: 'BAILIAN_WAN',
         status: VisualAgentInvocationStatus.VERIFYING,
         providerOutputUrl: { not: null },
       },
-      select: { id: true, providerOutputUrl: true, providerTaskId: true, sourceHash: true, visualPlanHash: true },
+      select: { id: true, provider: true, providerOutputUrl: true, providerTaskId: true, sourceHash: true, visualPlanHash: true },
     });
     if (!invocation?.providerOutputUrl || !invocation.providerTaskId) {
       throw new ConflictException('AI Visual Agent 调用当前没有可验证的 Provider 输出');

@@ -1711,11 +1711,12 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 通用 Agent Client Key（本地）：`VisualAgentTenant → VisualAgentClient → VisualAgentClientKey` 已支持 API Key 的一次性签发、哈希存储、过期、撤销与 `tenant/client/adapterNamespace` 认证范围；餐厅等接入系统不需要也不允许持有百炼 Provider Key。公开会话端点只验证 scope，不接受任意 URL、prompt 或模型提交。
 - VisualCredit 商业控制（本地）：`VisualCreditAccount / VisualCreditLedger / VisualCreditQuote / VisualRateCard` 已实现独立账户、200 额度欢迎策略、服务端固定报价、显式冻结、结算/释放/对账与管理员调整；卖家端必须再次提交产品绑定的 `quoteId + quoteHash`，浏览器不能选择模型、费用或 Provider 参数。管理员 `/visual-agent` 仅限高权限角色配置范围/策略/费率和查看账本，默认不启用任何模型。
 - 付费候选事实复核（本地）：受管 Provider 输出先写为 AIGC 私有候选，再在结算后进入 `PENDING_REVIEW`；管理员对原图和候选图并列复核，批准后才转为可由商家显式采用，驳回会退役候选资产。付费候选也不会自动覆盖已上架商品媒体。
+- 百炼图像执行路由（本地、默认关闭）：万相 `wan2.7-image / -pro` 与 Qwen `qwen-image-3.0 / -pro` 均通过同一 Provider runner、租约、预算和对账状态机；Qwen 固定使用 3.0 图生图异步接口、服务端保真模板且关闭 prompt 智能改写，限制为单张受管源图和白名单 PNG 输出下载。费率卡的模型档只在服务端映射，商家不能传入模型、提示词或 URL。Qwen 输入尺寸不达官方约束时在 Provider I/O 前失败并释放本次冻结额度。
 - 受控 OCR Provider（本地）：固定版本 OCR 只能由 Core 已持久化的调用租约触发，Provider 用量独立记录；无 Core 授权、开关、正数预算策略或可验证结果时均 fail-closed。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
 - 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。
 - 免费实景增强（本地）：`FREE_TUNE` 只使用固定、零模型的亮度/对比度/锐化参数，并保持原图像素坐标和尺寸；必须绑定未过期的 `STANDARD_FACTS` 计划，以及同源、已完成对账的“无 OCR/QR/条码事实”扫描。排队任务在渲染前会再次核验该证据；任意新扫描、过期或不确定结论都会阻断候选。当前本地条码扫描不会把解码失败当作“无条码”，因此不会错误解锁这一路线。
-- 尚未完成：真实 Qwen/万相模型执行与完整 OCR/结构/颜色验真闭环、餐厅/第三方 Adapter、shadow 样本评测、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
+- 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、完整 OCR/结构/颜色验真闭环、餐厅/第三方 Adapter、shadow 样本评测、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
 
 ## 18. 已知问题与调试记录
 
