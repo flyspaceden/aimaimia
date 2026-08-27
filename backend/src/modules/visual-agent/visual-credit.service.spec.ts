@@ -39,9 +39,9 @@ function rateCard(overrides: Record<string, unknown> = {}) {
 function quote(overrides: Record<string, unknown> = {}) {
   return {
     id: 'quote-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
-    billingAccountId: 'account-1', externalObjectId: 'product-1', actorId: 'staff-1', sourceHash, visualPlanHash: planHash,
+    billingAccountId: 'account-1', externalObjectId: 'product-1', actorId: 'staff-1', sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash,
     creditCost: 15, candidateCount: 1, rateCardSnapshot: { code: 'STANDARD_REAL_SCENE' },
-    visualPlanSnapshot: visualPlan, quoteHash: 'q'.repeat(64),
+    visualPlanSnapshot: visualPlan, quoteHash: 'c'.repeat(64),
     status: VisualCreditQuoteStatus.ISSUED, expiresAt: new Date(Date.now() + 15 * 60_000),
     confirmedAt: null, settledAt: null, releasedAt: null, failureReason: null,
     billingAccount: account(),
@@ -131,12 +131,12 @@ describe('VisualCreditService', () => {
     const { service, tx } = build();
     const result = await service.issueQuote({
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
-      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 20 * 60_000),
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 20 * 60_000),
     });
 
     expect(result).toMatchObject({ creditCost: 15, candidateCount: 1, rateCardSnapshot: expect.objectContaining({ modelProfile: 'BAILIAN_WAN_STANDARD' }) });
     expect(tx.visualCreditQuote.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ tenantId: principal.tenantId, clientId: principal.clientId, billingAccountId: 'account-1', sourceHash, visualPlanHash: planHash }),
+      data: expect.objectContaining({ tenantId: principal.tenantId, clientId: principal.clientId, billingAccountId: 'account-1', sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash }),
     }));
   });
 
@@ -146,7 +146,7 @@ describe('VisualCreditService', () => {
 
     await expect(service.issueQuote({
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
-      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-no-rate', expiresAt: new Date(Date.now() + 20 * 60_000),
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-no-rate', expiresAt: new Date(Date.now() + 20 * 60_000),
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
@@ -156,7 +156,7 @@ describe('VisualCreditService', () => {
 
     await expect(service.issueQuote({
       principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
-      sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-wrong-risk', expiresAt: new Date(Date.now() + 20 * 60_000),
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan, idempotencyKey: 'quote-wrong-risk', expiresAt: new Date(Date.now() + 20 * 60_000),
     })).rejects.toThrow('风险档不允许');
     expect(tx.visualCreditQuote.create).not.toHaveBeenCalled();
   });
@@ -165,7 +165,7 @@ describe('VisualCreditService', () => {
     const { service, tx } = build();
     tx.visualCreditQuote.findFirst.mockResolvedValue(quote());
 
-    const result = await service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1' });
+    const result = await service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) });
 
     expect(result).toMatchObject({ quote: { status: VisualCreditQuoteStatus.RESERVED }, account: { availableCredits: 185, reservedCredits: 15 }, ledger: { type: 'RESERVE' } });
     expect(tx.visualCreditAccount.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -177,8 +177,18 @@ describe('VisualCreditService', () => {
     const { service, tx } = build();
     tx.visualCreditQuote.findFirst.mockResolvedValue(quote({ billingAccount: account({ availableCredits: 14 }) }));
 
-    await expect(service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1' }))
+    await expect(service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) }))
       .rejects.toThrow('图片额度不足');
+    expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('requires the merchant-confirmed quote hash before freezing credits', async () => {
+    const { service, tx } = build();
+    tx.visualCreditQuote.findFirst.mockResolvedValue(quote());
+
+    await expect(service.confirmAndReserve({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'd'.repeat(64),
+    })).rejects.toThrow('报价已变化');
     expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
   });
 

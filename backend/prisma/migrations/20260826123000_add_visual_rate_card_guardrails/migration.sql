@@ -7,7 +7,12 @@ ALTER TABLE "VisualRateCard"
   ADD COLUMN "requiresHumanReview" BOOLEAN NOT NULL DEFAULT true;
 
 ALTER TABLE "VisualCreditQuote"
-  ADD COLUMN "visualPlanSnapshot" JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN "visualPlanSnapshot" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN "sourceAssetRef" TEXT NOT NULL DEFAULT 'LEGACY_UNBOUND';
 
 ALTER TABLE "VisualRateCard"
   ADD CONSTRAINT "VisualRateCard_candidate_role_nonempty" CHECK (length("candidateRole") > 0);
+ALTER TABLE "VisualCreditQuote"
+  ADD CONSTRAINT "VisualCreditQuote_source_asset_ref_nonempty" CHECK (length("sourceAssetRef") > 0);
+ALTER TABLE "VisualCreditQuote"
+  ALTER COLUMN "sourceAssetRef" DROP DEFAULT;

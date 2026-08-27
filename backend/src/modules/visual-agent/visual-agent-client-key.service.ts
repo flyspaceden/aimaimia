@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { Prisma, VisualAgentClientKeyStatus, VisualAgentClientStatus, VisualAgentTenantStatus } from '@prisma/client';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -170,6 +170,29 @@ export class VisualAgentClientKeyService {
     };
   }
 
+  /**
+   * For a reviewed in-process Adapter only. It uses the same active tenant /
+   * client state as API-Key authentication but never manufactures or exposes a
+   * raw Client Key.
+   */
+  async resolveInternalClientPrincipal(clientId: string): Promise<VisualAgentClientPrincipal> {
+    this.assertId(clientId, 'AI Visual Agent Client ID');
+    const client = await this.prisma.visualAgentClient.findUnique({
+      where: { id: clientId },
+      include: { tenant: { select: { status: true } } },
+    });
+    if (!client || client.status !== VisualAgentClientStatus.ACTIVE || client.tenant.status !== VisualAgentTenantStatus.ACTIVE) {
+      throw new ServiceUnavailableException('AI Visual Agent 接入 Client 尚未完成平台配置或已停用');
+    }
+    return {
+      tenantId: client.tenantId,
+      clientId: client.id,
+      adapterNamespace: client.adapterNamespace,
+      allowedAdapterTypes: client.allowedAdapterTypes,
+      keyId: `internal:${client.id}`,
+    };
+  }
+
   assertAdapterAccess(principal: VisualAgentClientPrincipal, adapterType: string) {
     if (!ADAPTER_PATTERN.test(adapterType) || !principal.allowedAdapterTypes.includes(adapterType)) {
       throw new ForbiddenException('当前 AI Visual Agent Client 无权使用该 Adapter');
@@ -187,6 +210,10 @@ export class VisualAgentClientKeyService {
     if (new Set(input.allowedAdapterTypes).size !== input.allowedAdapterTypes.length) {
       throw new ConflictException('AI Visual Agent Adapter 类型不能重复');
     }
+  }
+
+  private assertId(value: string, label: string) {
+    if (!ID_PATTERN.test(value)) throw new ConflictException(`${label} 格式无效`);
   }
 
   private keyHash(rawKey: string) {

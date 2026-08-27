@@ -222,6 +222,7 @@ export class VisualCreditService {
 
   async issueQuote(input: VisualCreditScope & {
     rateCode: string;
+    sourceAssetRef: string;
     sourceHash: string;
     visualPlanHash: string;
     visualPlan: VerifiedVisualPlanForQuote;
@@ -230,6 +231,7 @@ export class VisualCreditService {
   }) {
     this.assertScope(input);
     this.assertId(input.rateCode, 'Rate Card code');
+    this.assertId(input.sourceAssetRef, '视觉源资产标识');
     this.assertId(input.idempotencyKey, '报价幂等键');
     this.assertHashes(input.sourceHash, input.visualPlanHash);
     this.assertVisualPlan(input.visualPlan);
@@ -293,6 +295,7 @@ export class VisualCreditService {
         billingAccountId: account.id,
         externalObjectId: input.externalObjectId,
         actorId: input.actorId,
+        sourceAssetRef: input.sourceAssetRef,
         sourceHash: input.sourceHash,
         visualPlanHash: input.visualPlanHash,
         visualPlan: input.visualPlan,
@@ -307,6 +310,7 @@ export class VisualCreditService {
           rateCardId: rateCard.id,
           externalObjectId: input.externalObjectId,
           actorId: input.actorId,
+          sourceAssetRef: input.sourceAssetRef,
           sourceHash: input.sourceHash,
           visualPlanHash: input.visualPlanHash,
           visualPlanSnapshot: input.visualPlan as Prisma.InputJsonValue,
@@ -322,9 +326,10 @@ export class VisualCreditService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async confirmAndReserve(input: VisualCreditScope & { quoteId: string }) {
+  async confirmAndReserve(input: VisualCreditScope & { quoteId: string; quoteHash: string }) {
     this.assertScope(input);
     this.assertId(input.quoteId, '报价 ID');
+    if (!SHA256.test(input.quoteHash)) throw new ConflictException('报价确认凭证无效');
     const now = new Date();
     const { principal } = input;
     return this.prisma.$transaction(async (tx) => {
@@ -343,6 +348,9 @@ export class VisualCreditService {
         || quote.externalObjectId !== input.externalObjectId
         || quote.actorId !== input.actorId) {
         throw new NotFoundException('图片美化报价不存在');
+      }
+      if (quote.quoteHash !== input.quoteHash) {
+        throw new ConflictException('图片美化报价已变化，请重新查看费用后确认');
       }
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${principal.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
       if (quote.status === VisualCreditQuoteStatus.RESERVED || quote.status === VisualCreditQuoteStatus.RECONCILING) {
@@ -589,10 +597,10 @@ export class VisualCreditService {
   }
 
   private assertQuoteInputMatches(existing: {
-    externalObjectId: string; actorId: string; sourceHash: string; visualPlanHash: string; billingAccountId: string;
-  }, input: VisualCreditScope & { sourceHash: string; visualPlanHash: string }, billingAccountId: string) {
+    externalObjectId: string; actorId: string; sourceAssetRef: string; sourceHash: string; visualPlanHash: string; billingAccountId: string;
+  }, input: VisualCreditScope & { sourceAssetRef: string; sourceHash: string; visualPlanHash: string }, billingAccountId: string) {
     if (existing.externalObjectId !== input.externalObjectId || existing.actorId !== input.actorId
-      || existing.sourceHash !== input.sourceHash || existing.visualPlanHash !== input.visualPlanHash
+      || existing.sourceAssetRef !== input.sourceAssetRef || existing.sourceHash !== input.sourceHash || existing.visualPlanHash !== input.visualPlanHash
       || existing.billingAccountId !== billingAccountId) {
       throw new ConflictException('图片美化报价幂等键已用于另一张图片或业务对象');
     }
@@ -606,6 +614,7 @@ export class VisualCreditService {
     return {
       id: quote.id,
       status: quote.status,
+      sourceAssetRef: quote.sourceAssetRef,
       creditCost: quote.creditCost,
       candidateCount: quote.candidateCount,
       rateCardSnapshot: quote.rateCardSnapshot,

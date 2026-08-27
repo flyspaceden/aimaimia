@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { VisualAgentClientKeyService } from './visual-agent-client-key.service';
 
@@ -77,6 +77,18 @@ describe('VisualAgentClientKeyService', () => {
     expect(prisma.visualAgentClientKey.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'key-1', status: 'ACTIVE' }, data: expect.objectContaining({ lastUsedAt: expect.any(Date) }),
     }));
+  });
+
+  it('resolves an in-process adapter principal only from an enabled tenant/client record', async () => {
+    const { service, prisma } = build();
+    prisma.visualAgentClient.findUnique.mockResolvedValue(clientRecord());
+
+    await expect(service.resolveInternalClientPrincipal('restaurant-client')).resolves.toEqual({
+      tenantId: 'restaurant-tenant', clientId: 'restaurant-client', adapterNamespace: 'restaurant-menu',
+      allowedAdapterTypes: ['restaurant-menu-v1'], keyId: 'internal:restaurant-client',
+    });
+    prisma.visualAgentClient.findUnique.mockResolvedValue({ ...clientRecord(), status: 'DISABLED' });
+    await expect(service.resolveInternalClientPrincipal('restaurant-client')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('rejects malformed, revoked/expired, or verifier-mismatched key material without leaking why', async () => {

@@ -55,6 +55,7 @@ export class VisualAgentTrustedAdapterService {
     externalObjectId: string;
     actorId: string;
     rateCode: string;
+    sourceAssetRef: string;
     sourceHash: string;
     visualPlanHash: string;
     visualPlan: VerifiedVisualPlanForQuote;
@@ -68,6 +69,7 @@ export class VisualAgentTrustedAdapterService {
       externalObjectId: input.externalObjectId,
       actorId: input.actorId,
       rateCode: input.rateCode,
+      sourceAssetRef: input.sourceAssetRef,
       sourceHash: input.sourceHash,
       visualPlanHash: input.visualPlanHash,
       visualPlan: input.visualPlan,
@@ -83,6 +85,7 @@ export class VisualAgentTrustedAdapterService {
     externalObjectId: string;
     actorId: string;
     quoteId: string;
+    quoteHash: string;
   }) {
     this.clientKeys.assertAdapterAccess(input.principal, input.adapterType);
     return this.credits.confirmAndReserve({
@@ -91,6 +94,7 @@ export class VisualAgentTrustedAdapterService {
       externalObjectId: input.externalObjectId,
       actorId: input.actorId,
       quoteId: input.quoteId,
+      quoteHash: input.quoteHash,
     });
   }
 }

@@ -2170,6 +2170,7 @@ model VisualCreditQuote {
   rateCard         VisualRateCard           @relation(fields: [rateCardId], references: [id], onDelete: Restrict)
   externalObjectId String
   actorId          String
+  sourceAssetRef   String
   sourceHash       String
   visualPlanHash   String
   visualPlanSnapshot Json

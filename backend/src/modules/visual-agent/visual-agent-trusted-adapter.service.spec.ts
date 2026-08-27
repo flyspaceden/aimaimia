@@ -49,11 +49,11 @@ describe('VisualAgentTrustedAdapterService', () => {
     };
 
     await expect(service.issueQuoteFromTrustedAdapter({
-      ...common, rateCode: 'STANDARD_REAL_SCENE', sourceHash: 'a'.repeat(64), visualPlanHash: 'b'.repeat(64),
+      ...common, rateCode: 'STANDARD_REAL_SCENE', sourceAssetRef: 'dish-image-1', sourceHash: 'a'.repeat(64), visualPlanHash: 'b'.repeat(64),
       visualPlan: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'] },
       idempotencyKey: 'quote-1', expiresAt: new Date(Date.now() + 60_000),
     })).resolves.toMatchObject({ id: 'quote-1', creditCost: 15 });
-    await expect(service.confirmQuoteFromTrustedAdapter({ ...common, quoteId: 'quote-1' }))
+    await expect(service.confirmQuoteFromTrustedAdapter({ ...common, quoteId: 'quote-1', quoteHash: 'q'.repeat(64) }))
       .resolves.toMatchObject({ quote: { status: 'RESERVED' } });
     expect(credits.issueQuote).toHaveBeenCalledWith(expect.objectContaining({
       principal, billingOwnerType: 'RESTAURANT', billingOwnerId: 'restaurant-1',

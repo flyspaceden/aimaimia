@@ -19,11 +19,13 @@ import { ProductImageFactScanService } from './product-image-fact-scan.service';
 import { ProductImageBarcodeScannerService } from './product-image-barcode-scanner.service';
 import { AdminVisualAgentClientController } from '../visual-agent/admin-visual-agent-client.controller';
 import { AdminVisualCreditController } from '../visual-agent/admin-visual-credit.controller';
+import { AimaiProductVisualAdapterService } from './aimai-product-visual-adapter.service';
+import { ProductVisualCommerceController } from './product-visual-commerce.controller';
 
 @Module({
   imports: [UploadModule, VisualAgentModule],
-  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, DisabledProductImageBackgroundProvider],
+  controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController, ProductVisualCommerceController],
+  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}
