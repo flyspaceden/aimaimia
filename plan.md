@@ -1948,6 +1948,7 @@
 - [x] **PVA-Governance** 商品图片治理改为“即时发布、事后巡检”：按 `docs/superpowers/specs/2026-08-27-product-media-post-publication-governance.md`，已取消新已上架商品的预审批；保留系统事实硬门禁、历史媒体快照、CAS、管理员回滚和含原因的商家通知。定向后端 38 suites / 226 tests、卖家 17/17、管理端 16/16、三端 build、Prisma validate 和范围审查均通过。**未**运行迁移、push、部署、真实模型或真实费用测试。
 - [x] **PVA-Audit01** 商家/管理员真实按钮与资金状态深审第一批：修复普通保存误带公开媒体、图片变更正确引导、确认任务刷新恢复、轮询错误可见、回滚通知事务一致、幂等键错绑、Provider 前置失败释放额度、模型档/候选数报价失真、管理端加载/写入错误不可见和旧菜单名称。相关后端 38 suites / 234 tests、Seller 19/19、Admin 16/16、三端 build 通过；本地浏览器以隔离 mock API 实际点击商家和管理员关键路径。未运行迁移、push、部署或真实付费模型。
 - [x] **PVA-Audit02** 平台运行控制缺口：已补齐六层 Provider 预算策略管理、canonical scope key 生成、`RECONCILING` 调用队列和带证据的人工关闭；Invocation、图片额度 Quote/Account/Ledger 与 Provider 预算在同一 Serializable 事务收口，未计费强制退回商家额度，计费异常熔断相关模型预算。后端定向 22/22、Admin 16/16 和 build 通过；本地浏览器实际验证预算新增/保存、证据必填、对账关闭与队列归零。仍未运行 migration、push、部署或真实 Provider 对账。
+- [x] **PVA-Audit-Final** 深度审查最终回归：全后端 298 suites / 3365 tests 通过（另 4 suites / 7 tests 按仓库既有标记跳过）；AI/图片/通知定向 38 suites / 239 tests、Seller 19/19、Admin 16/16、backend/seller/admin build、Prisma validate、`git diff --check` 和敏感返回字段审查通过。真实浏览器通过隔离 mock API 覆盖商家普通保存、即时换图、免费/付费候选、刷新恢复，以及平台错误态、费率、预算、巡检、回滚和对账。未运行 migration、push、部署、真实百炼付费调用或 40 张授权 shadow 样本。
 
 ## 商品自动定价一致性（2026-08-17）
 
