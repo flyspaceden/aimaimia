@@ -54,6 +54,10 @@ const deployedReleaseShaVerifier = await readFile(
   new URL('../verify-deployed-release-sha.mjs', import.meta.url),
   'utf8',
 );
+const aiVisualStagingConfigScript = await readFile(
+  new URL('../configure-ai-visual-agent-staging-env.sh', import.meta.url),
+  'utf8',
+);
 
 const deployBlockStart = workflow.indexOf('      - name: Deploy backend on server');
 const deployBlockEnd = workflow.indexOf('  # 华海农科母公司官网', deployBlockStart);
@@ -122,6 +126,34 @@ test('backend quality and E2E gates run before deployment', () => {
   assert.ok(installIndex >= 0 && preparationTestIndex > installIndex, 'staging env test must run after backend npm ci');
   assert.match(workflow, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
   assert.match(e2eWorkflow, /workflow_call:/);
+});
+
+test('staging AI Visual Agent secrets are synced after approval without exposing values', () => {
+  const approval = jobBlock('release-approval');
+  assert.match(approval, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
+  assert.match(approval, /github\.ref == 'refs\/heads\/staging-next' && needs\.detect-changes\.outputs\.backend == 'true'/);
+  for (const secret of [
+    'AI_VISUAL_AGENT_BAILIAN_API_KEY',
+    'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
+    'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET',
+  ]) assert.match(approval, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`));
+  for (const flag of [
+    'AI_VISUAL_AGENT_ENABLED',
+    'AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED',
+    'AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED',
+    'AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED',
+  ]) assert.match(approval, new RegExp(`${flag}: \\$\\{\\{ vars\\.${flag} \\}\\}`));
+  assert.match(approval, /Buffer\.from\(JSON\.stringify\(config\), 'utf8'\)\.toString\('base64'\)/);
+  assert.match(approval, /cat scripts\/configure-ai-visual-agent-staging-env\.sh/);
+  assert.match(approval, /IFS= read -r CONFIG_B64/);
+  assert.match(approval, /base64 --decode > \\"\\\$CONFIG_FILE\\"/);
+  assert.doesNotMatch(approval, /echo .*AI_VISUAL_AGENT_BAILIAN_API_KEY/);
+
+  assert.match(aiVisualStagingConfigScript, /install -m 600 "\$ENV_FILE" "\$BACKUP_FILE"/);
+  assert.match(aiVisualStagingConfigScript, /AI_VISUAL_AGENT_BAILIAN_API_KEY/);
+  assert.match(aiVisualStagingConfigScript, /provider_flags=from_staging_environment/);
+  assert.doesNotMatch(aiVisualStagingConfigScript, /pm2 (restart|reload|start|stop)/);
+  assert.match(workflow, /scripts\/__tests__\/configure-ai-visual-agent-staging-env\.test\.mjs/);
 });
 
 test('E2E backend boot uses three explicit independent test JWT secrets', () => {

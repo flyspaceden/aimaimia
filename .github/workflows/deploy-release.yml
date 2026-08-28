@@ -22,6 +22,7 @@ on:
       - 'scripts/deploy-backend-versioned.sh'
       - 'scripts/deploy-static-with-rollback.sh'
       - 'scripts/verify-deployed-release-sha.mjs'
+      - 'scripts/configure-ai-visual-agent-staging-env.sh'
       - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
       - 'scripts/__tests__/production-delivery-exclusion.test.mjs'
       - 'scripts/__tests__/miniapp-staging-semantic-parity.test.mjs'
@@ -30,6 +31,7 @@ on:
       - 'scripts/__tests__/miniapp-production-config.test.mjs'
       - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
       - 'scripts/__tests__/verify-deployed-release-sha.test.mjs'
+      - 'scripts/__tests__/configure-ai-visual-agent-staging-env.test.mjs'
 
   # 手动触发
   workflow_dispatch:
@@ -145,7 +147,7 @@ jobs:
             # miniapp-only 更新仍重发三个测试组件，使 release-sha 与小程序 source SHA 保持一致。
             echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-release\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|scripts/verify-deployed-release-sha\.mjs|backend/scripts/(verify-miniapp-(config|production-config|staging-config)|prepare-miniapp-staging-env)\.cjs|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs|scripts/__tests__/miniapp-staging-semantic-parity\.(test\.mjs|json)|scripts/__tests__/sync-staging-test-checkout\.test\.mjs|scripts/__tests__/(miniapp-production-config|prepare-miniapp-staging-env|verify-deployed-release-sha)\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-release\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|scripts/verify-deployed-release-sha\.mjs|scripts/configure-ai-visual-agent-staging-env\.sh|backend/scripts/(verify-miniapp-(config|production-config|staging-config)|prepare-miniapp-staging-env)\.cjs|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs|scripts/__tests__/miniapp-staging-semantic-parity\.(test\.mjs|json)|scripts/__tests__/sync-staging-test-checkout\.test\.mjs|scripts/__tests__/(miniapp-production-config|prepare-miniapp-staging-env|verify-deployed-release-sha|configure-ai-visual-agent-staging-env)\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|miniapp/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
           fi
 
@@ -193,7 +195,8 @@ jobs:
             scripts/__tests__/miniapp-staging-semantic-parity.test.mjs \
             scripts/__tests__/sync-staging-test-checkout.test.mjs \
             scripts/__tests__/miniapp-production-config.test.mjs \
-            scripts/__tests__/verify-deployed-release-sha.test.mjs
+            scripts/__tests__/verify-deployed-release-sha.test.mjs \
+            scripts/__tests__/configure-ai-visual-agent-staging-env.test.mjs
 
   deploy-website:
     needs: [detect-changes, release-approval, deploy-backend]
@@ -468,10 +471,87 @@ jobs:
     environment:
       name: ${{ needs.detect-changes.outputs.env_name }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Record approved release candidate
         run: |
           echo "release_sha=${{ github.sha }}"
           echo "release_ref=${{ github.ref }}"
+
+      - name: Setup SSH agent for staging AI Visual Agent secrets
+        if: github.ref == 'refs/heads/staging-next' && needs.detect-changes.outputs.backend == 'true'
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Add staging server to known_hosts for AI Visual Agent secrets
+        if: github.ref == 'refs/heads/staging-next' && needs.detect-changes.outputs.backend == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Configure staging AI Visual Agent secrets and flags
+        if: github.ref == 'refs/heads/staging-next' && needs.detect-changes.outputs.backend == 'true'
+        env:
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SRC_DIR: ${{ needs.detect-changes.outputs.backend_src_dir }}
+          AI_VISUAL_AGENT_BAILIAN_API_KEY: ${{ secrets.AI_VISUAL_AGENT_BAILIAN_API_KEY }}
+          AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID: ${{ secrets.AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID }}
+          AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET: ${{ secrets.AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET }}
+          AI_VISUAL_AGENT_ENABLED: ${{ vars.AI_VISUAL_AGENT_ENABLED }}
+          AI_VISUAL_AGENT_WAN_ENABLED: ${{ vars.AI_VISUAL_AGENT_WAN_ENABLED }}
+          AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED: ${{ vars.AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED }}
+          AI_VISUAL_AGENT_WAN_ALLOWED_MODELS: ${{ vars.AI_VISUAL_AGENT_WAN_ALLOWED_MODELS }}
+          AI_VISUAL_AGENT_QWEN_IMAGE_ENABLED: ${{ vars.AI_VISUAL_AGENT_QWEN_IMAGE_ENABLED }}
+          AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED: ${{ vars.AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED }}
+          AI_VISUAL_AGENT_QWEN_IMAGE_ALLOWED_MODELS: ${{ vars.AI_VISUAL_AGENT_QWEN_IMAGE_ALLOWED_MODELS }}
+          AI_VISUAL_AGENT_QWEN_OCR_ENABLED: ${{ vars.AI_VISUAL_AGENT_QWEN_OCR_ENABLED }}
+          AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED: ${{ vars.AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED }}
+          AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED: ${{ vars.AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED }}
+          AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES: ${{ vars.AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES }}
+          AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION: ${{ vars.AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION }}
+        run: |
+          set -euo pipefail
+          CONFIG_B64="$(node - <<'NODE'
+          const names = [
+            'AI_VISUAL_AGENT_BAILIAN_API_KEY',
+            'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
+            'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET',
+            'AI_VISUAL_AGENT_ENABLED',
+            'AI_VISUAL_AGENT_WAN_ENABLED',
+            'AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED',
+            'AI_VISUAL_AGENT_WAN_ALLOWED_MODELS',
+            'AI_VISUAL_AGENT_QWEN_IMAGE_ENABLED',
+            'AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED',
+            'AI_VISUAL_AGENT_QWEN_IMAGE_ALLOWED_MODELS',
+            'AI_VISUAL_AGENT_QWEN_OCR_ENABLED',
+            'AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED',
+            'AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED',
+            'AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES',
+            'AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION',
+          ];
+          const config = Object.fromEntries(names.map((name) => [name, process.env[name] || '']));
+          process.stdout.write(Buffer.from(JSON.stringify(config), 'utf8').toString('base64'));
+          NODE
+          )"
+          {
+            printf '%s\n' "$CONFIG_B64"
+            cat scripts/configure-ai-visual-agent-staging-env.sh
+          } | ssh \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o TCPKeepAlive=yes \
+            "$SERVER_USER@$SERVER_HOST" \
+            "SRC_DIR='$SRC_DIR' bash -c 'set -euo pipefail
+            IFS= read -r CONFIG_B64
+            umask 077
+            CONFIG_FILE=\$(mktemp)
+            cleanup() { rm -f \"\$CONFIG_FILE\"; }
+            trap cleanup EXIT
+            printf \"%s\" \"\$CONFIG_B64\" | base64 --decode > \"\$CONFIG_FILE\"
+            unset CONFIG_B64
+            bash -s -- \"\$CONFIG_FILE\"'"
 
   deploy-backend:
     needs: [detect-changes, backend-quality-gate, backend-e2e-gate, release-approval]
