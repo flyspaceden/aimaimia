@@ -33,7 +33,7 @@ test('seller UI keeps original evidence and makes the immediate-publication rule
 });
 
 test('seller paid image flow shows a server quote and requires an explicit credit confirmation', () => {
-  assert.match(editPage, /付费 AI 强效果/);
+  assert.match(editPage, /付费智能精修/);
   assert.match(editPage, /先报价，后生成/);
   assert.match(editPage, /查看可用方案与额度/);
   assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片额度/);
@@ -64,7 +64,14 @@ test('ordinary product save never resubmits unchanged public media and redirects
 test('confirmed paid tasks survive page navigation without a second freeze or Provider submission', () => {
   assert.match(editPage, /ai-visual-agent:active-quote:/);
   assert.match(editPage, /getProductVisualQuote\(productId, quoteId\)/);
-  assert.match(editPage, /已有已确认的 AI 图片任务，系统正在恢复原任务/);
+  assert.match(editPage, /已有已确认的智能图片任务，系统正在恢复原任务/);
   assert.match(editPage, /ALREADY_BOUND/);
   assert.match(editPage, /重新选择方案/);
+});
+
+test('seller image enhancement copy is Chinese-first', () => {
+  assert.match(editPage, /智能图片美化/);
+  assert.match(editPage, /智能图片美化建议/);
+  assert.match(editPage, /智能图片美化报价/);
+  assert.doesNotMatch(editPage, /AI 图片美化|付费 AI 强效果|AI 图片任务状态/);
 });

@@ -1951,6 +1951,8 @@
 - [x] **PVA-Audit-Final** 深度审查最终回归：全后端 298 suites / 3365 tests 通过（另 4 suites / 7 tests 按仓库既有标记跳过）；AI/图片/通知定向 38 suites / 239 tests、Seller 19/19、Admin 16/16、backend/seller/admin build、Prisma validate、`git diff --check` 和敏感返回字段审查通过。真实浏览器通过隔离 mock API 覆盖商家普通保存、即时换图、免费/付费候选、刷新恢复，以及平台错误态、费率、预算、巡检、回滚和对账。未运行 migration、push、部署、真实百炼付费调用或 40 张授权 shadow 样本。
 - [x] **PVA-Staging-Pack** 本地交付包：PostgreSQL 18 全新空库从第 1 个成功应用 138 个迁移，修复 AI 预算索引超长截断重名并使 AI 图片域 migration/schema 无漂移；新增默认全关闭的 staging 配置模板、exact-SHA 发布/回滚手册、40 张授权样本矩阵和逐笔效果/成本 CSV。修复后 AI 图片模块 34 suites / 201 tests、Nest build、Prisma validate 通过。当前没有连接手机/模拟器，也没有部署测试 URL；未 push、未迁移 staging、未配置真实 secret、未调用或扣费。
 - [ ] **PVA-Staging-Acceptance** 用户再次批准后：只 push feature branch 并创建 base=`main` Draft PR；CI/独立审查通过后以同一 exact SHA 临时提升到 `staging-next`。先在模型全关闭状态完成迁移与三端回归，再以 8 张标准档 + 4 张高质量档 canary 逐步启用百炼；完成 40 张授权样本、逐笔费用对账和手机真实浏览器验收。staging 验收不等于 main 合并或生产发布。
+- [x] **PVA-Staging-Infra** 测试基础设施：`staging-next@4247b1a9` 已部署 Backend/Admin/Seller，138 个 migration 无待执行项，API/Admin/Seller marker、PM2、数据库与 Redis 正常；密码本中的现有 DashScope Key、默认业务空间和 OCR 哈希 secret 已通过 GitHub staging environment 安全同步到测试后端，备份优先且日志无明文。所有模型总开关/执行开关仍为 `false`，尚未发生真实模型调用或费用。
+- [x] **PVA-UI-ZH** 中文界面修复（本地待推送）：平台后台侧栏与页面改为“商品图片智能美化”，租户/客户端/适配器、预算层级、状态、主体和对账说明使用中文；商家端使用“智能图片美化 / 付费智能精修 / 智能图片任务”。模型型号、API Key、OCR、JSON 和稳定编码仅作为必要技术标识保留。Admin 16/16、Seller 20/20 及两个 production build 通过；尚未 push 或部署本次文案提交。
 
 ## 商品自动定价一致性（2026-08-17）
 

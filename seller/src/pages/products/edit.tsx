@@ -1117,7 +1117,7 @@ function ImageUploadSection({
       return;
     }
     if (localStorage.getItem(activePaidQuoteStorageKey(productId))) {
-      message.info('这个商品已有已确认的 AI 图片任务，系统正在恢复原任务；不会重复冻结额度。');
+      message.info('这个商品已有已确认的智能图片任务，系统正在恢复原任务；不会重复冻结额度。');
       return;
     }
     setVisualPlanSubmitting(true);
@@ -1347,7 +1347,7 @@ function ImageUploadSection({
       } catch (error) {
         if (cancelled) return;
         localStorage.removeItem(activePaidQuoteStorageKey(productId));
-        setPaidPollWarning(error instanceof Error ? error.message : '无法恢复之前的 AI 图片任务');
+        setPaidPollWarning(error instanceof Error ? error.message : '无法恢复之前的智能图片任务');
       }
     })();
     return () => {
@@ -1447,7 +1447,7 @@ function ImageUploadSection({
       <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg, #f6ffed 0%, #ffffff 72%)', border: '1px solid #b7eb8f', borderLeft: '4px solid #52c41a' }}>
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Space align="center" wrap>
-            <Text strong style={{ color: '#1f5f2c', letterSpacing: '0.02em' }}>AI 图片美化</Text>
+            <Text strong style={{ color: '#1f5f2c', letterSpacing: '0.02em' }}>智能图片美化</Text>
             <Tag color="green">先建议，后生成</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>原图始终保留，候选不会自动发布</Text>
           </Space>
@@ -1481,7 +1481,7 @@ function ImageUploadSection({
             ))}
           </Space>
           {paidExecution && !visualPlan && paidPresentation && <Alert type={paidPresentation.type} showIcon message={paidPresentation.message} description={paidPresentation.description} />}
-          {paidPollWarning && !visualPlan && <Alert type="warning" showIcon message="AI 图片任务状态需要刷新" description={paidPollWarning} />}
+          {paidPollWarning && !visualPlan && <Alert type="warning" showIcon message="智能图片任务状态需要刷新" description={paidPollWarning} />}
           {!productId && <Text type="warning" style={{ fontSize: 12 }}>先保存草稿，才能创建可审计的图片建议和候选。</Text>}
         </Space>
       </div>
@@ -1539,7 +1539,7 @@ function ImageUploadSection({
       </Modal>
 
       <Modal
-        title="AI 图片美化建议"
+        title="智能图片美化建议"
         open={!!visualPlan}
         onCancel={() => {
           if (!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting) {
@@ -1618,7 +1618,7 @@ function ImageUploadSection({
             )}
 
             {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && (
-              <Card size="small" title="付费 AI 强效果" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
+              <Card size="small" title="付费智能精修" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                   <Text type="secondary">方案、候选数和图片额度均由平台按当前风险档返回。确认后才冻结额度；模型未接受时自动释放，结果未知时进入对账。</Text>
                   {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与额度</Button>}
@@ -1642,7 +1642,7 @@ function ImageUploadSection({
                   {visualQuote && (
                     <div style={{ borderLeft: '4px solid #d4a72c', padding: '10px 12px', background: '#fffdf2', borderRadius: 8 }}>
                       <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || 'AI 图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
+                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || '智能图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>{visualQuote.quote.rateCardSnapshot.description || '将按当前受控图片计划生成候选。'} 报价有效至 {new Date(visualQuote.quote.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。</Text>
                         {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片额度不足" description="请联系平台管理员补充图片额度。" /> : <>
                           <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片额度生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>

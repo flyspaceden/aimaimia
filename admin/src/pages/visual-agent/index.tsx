@@ -29,8 +29,17 @@ import { PERMISSIONS } from '@/constants/permissions';
 
 const { Text, Title } = Typography;
 const DEFAULT_SCOPE = { tenantId: 'aimai-product-agent', clientId: 'aimai-product-adapter-v1', adapterNamespace: 'aimai-product' };
-const directionOptions = ['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH'];
-const riskOptions = ['STRICT_FACTS', 'CONSERVATIVE_FACTS', 'ORGANIC_FACTS', 'STANDARD_FACTS'];
+const directionOptions = [
+  { value: 'PRESERVE_REAL_SCENE', label: '保留真实场景' },
+  { value: 'CATALOG_STUDIO', label: '商品棚拍风格' },
+  { value: 'PRODUCT_RETOUCH', label: '受控细节修图' },
+];
+const riskOptions = [
+  { value: 'STRICT_FACTS', label: '事实严格保护' },
+  { value: 'CONSERVATIVE_FACTS', label: '事实谨慎保护' },
+  { value: 'ORGANIC_FACTS', label: '天然实物保护' },
+  { value: 'STANDARD_FACTS', label: '标准事实保护' },
+];
 const modelOptions = [
   { value: 'BAILIAN_WAN_STANDARD', label: '万相标准 · wan2.7-image' },
   { value: 'BAILIAN_WAN_PRO', label: '万相专业 · wan2.7-image-pro' },
@@ -43,7 +52,26 @@ const budgetRouteOptions = [
   { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0', label: '千问图像 · qwen-image-3.0' },
   { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0-pro', label: '千问图像专业 · qwen-image-3.0-pro' },
 ];
-const budgetScopeOptions = ['PLATFORM', 'PROVIDER', 'TENANT', 'CLIENT', 'EXTERNAL_OBJECT', 'ACTOR'].map((value) => ({ value }));
+const budgetScopeOptions = [
+  { value: 'PLATFORM', label: '平台总预算' },
+  { value: 'PROVIDER', label: '模型服务商预算' },
+  { value: 'TENANT', label: '平台租户预算' },
+  { value: 'CLIENT', label: '接入客户端预算' },
+  { value: 'EXTERNAL_OBJECT', label: '业务对象预算' },
+  { value: 'ACTOR', label: '操作人员预算' },
+];
+const directionLabels = Object.fromEntries(directionOptions.map((item) => [item.value, item.label]));
+const budgetScopeLabels = Object.fromEntries(budgetScopeOptions.map((item) => [item.value, item.label]));
+const rateCardStatusLabels: Record<string, string> = { ACTIVE: '启用', PAUSED: '暂停', RETIRED: '已停用' };
+const modelProfileLabels = Object.fromEntries(modelOptions.map((item) => [item.value, item.label]));
+const providerLabels: Record<string, string> = { BAILIAN_WAN: '百炼万相', BAILIAN_QWEN_IMAGE: '百炼千问图像' };
+const creditLedgerTypeLabels: Record<string, string> = {
+  WELCOME_GRANT: '欢迎额度发放',
+  MANUAL_ADJUSTMENT: '平台人工调整',
+  RESERVE: '生成任务冻结',
+  SETTLE: '生成任务结算',
+  RELEASE: '未执行额度退回',
+};
 
 type Scope = typeof DEFAULT_SCOPE;
 
@@ -302,17 +330,17 @@ export default function VisualAgentPage() {
   return (
     <div style={{ maxWidth: 1480, margin: '0 auto', padding: '4px 0 28px' }}>
       <div style={{ marginBottom: 18 }}>
-        <Space align="baseline" wrap><Title level={3} style={{ marginBottom: 4 }}>AI Visual Agent 管理</Title><Tag color="purple">平台高权限</Tag></Space>
-        <Text type="secondary">管理商家图片额度、对外报价和事后巡检策略。这里不会显示 Provider Key，也不能直接启用真实模型。</Text>
+        <Space align="baseline" wrap><Title level={3} style={{ marginBottom: 4 }}>商品图片智能美化管理</Title><Tag color="purple">平台高权限</Tag></Space>
+        <Text type="secondary">管理商家图片额度、服务报价和事后巡检策略。这里不会显示模型服务密钥，也不能直接启用真实模型。</Text>
       </div>
       <Alert showIcon type="warning" icon={<SafetyCertificateOutlined />} message="配置不等于开通" description="费率卡只控制面向商家的报价；真实百炼模型、额度发放、数据库迁移和任何扣费调用仍需独立发布授权与运行时开关。" style={{ marginBottom: 16 }} />
-      {(policy.isError || rateCards.isError) && <Alert showIcon type="error" message="AI Visual Agent 配置加载失败" description="当前页面不能确认真实策略或费率卡，请重新加载后再操作。" action={<Button size="small" onClick={() => { void policy.refetch(); void rateCards.refetch(); }}>重新加载配置</Button>} style={{ marginBottom: 16 }} />}
+      {(policy.isError || rateCards.isError) && <Alert showIcon type="error" message="商品图片智能美化配置加载失败" description="当前页面不能确认真实策略或费率卡，请重新加载后再操作。" action={<Button size="small" onClick={() => { void policy.refetch(); void rateCards.refetch(); }}>重新加载配置</Button>} style={{ marginBottom: 16 }} />}
 
-      <Card size="small" title="管理范围" extra={<Tag color="blue">所有资源按 Tenant / Client / Adapter 隔离</Tag>} style={{ marginBottom: 16 }}>
+      <Card size="small" title="管理范围" extra={<Tag color="blue">所有资源按租户、接入客户端和适配器隔离</Tag>} style={{ marginBottom: 16 }}>
         <Form form={scopeForm} layout="inline" initialValues={scope} onFinish={(values) => setScope(values as Scope)}>
-          <Form.Item name="tenantId" label="Tenant" rules={[{ required: true }]}><Input style={{ width: 220 }} /></Form.Item>
-          <Form.Item name="clientId" label="Client" rules={[{ required: true }]}><Input style={{ width: 240 }} /></Form.Item>
-          <Form.Item name="adapterNamespace" label="Adapter" rules={[{ required: true }]}><Input style={{ width: 190 }} /></Form.Item>
+          <Form.Item name="tenantId" label="平台租户编号" rules={[{ required: true }]}><Input style={{ width: 220 }} /></Form.Item>
+          <Form.Item name="clientId" label="接入客户端编号" rules={[{ required: true }]}><Input style={{ width: 240 }} /></Form.Item>
+          <Form.Item name="adapterNamespace" label="适配器命名空间" rules={[{ required: true }]}><Input style={{ width: 190 }} /></Form.Item>
           <Form.Item><Button htmlType="submit">切换范围</Button></Form.Item>
         </Form>
       </Card>
@@ -331,12 +359,12 @@ export default function VisualAgentPage() {
         <Col xs={24} xl={14}>
           <Card title="商家图片额度账户" extra={<Tag color="gold">独立于奖励积分 / 红包 / 订单支付</Tag>} style={{ height: '100%' }}>
             <Form form={accountForm} layout="inline" initialValues={{ ownerType: 'COMPANY' }} onFinish={(values) => setAccountScope(values)}>
-              <Form.Item name="ownerType" label="主体类型" rules={[{ required: true }]}><Select style={{ width: 130 }} options={[{ value: 'COMPANY', label: '商户 Company' }, { value: 'RESTAURANT', label: '餐厅主体' }, { value: 'EXTERNAL', label: '外部主体' }]} /></Form.Item>
-              <Form.Item name="ownerId" label="主体 ID" rules={[{ required: true, message: '请输入受控账单主体 ID' }]}><Input style={{ width: 260 }} placeholder="例如 Company ID" /></Form.Item>
+              <Form.Item name="ownerType" label="主体类型" rules={[{ required: true }]}><Select style={{ width: 150 }} options={[{ value: 'COMPANY', label: '平台商户' }, { value: 'RESTAURANT', label: '餐厅主体' }, { value: 'EXTERNAL', label: '外部接入主体' }]} /></Form.Item>
+              <Form.Item name="ownerId" label="主体编号" rules={[{ required: true, message: '请输入受控账单主体编号' }]}><Input style={{ width: 260 }} placeholder="例如商户编号" /></Form.Item>
               <Form.Item><Button htmlType="submit">查询账户</Button></Form.Item>
             </Form>
             {accountScope && <>{(creditAccount.isError || creditLedger.isError) && <Alert type="error" showIcon message="额度账户加载失败" description="无法确认当前余额，已暂停发放和人工调整。" action={<Button size="small" onClick={() => { void creditAccount.refetch(); void creditLedger.refetch(); }}>重新加载</Button>} style={{ marginTop: 12 }} />}<Row gutter={12} style={{ marginTop: 18 }}><Col span={8}><Statistic title="可用额度" value={accountStats?.availableCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Statistic title="冻结额度" value={accountStats?.reservedCredits ?? 0} loading={creditAccount.isLoading} /></Col><Col span={8}><Space direction="vertical"><Button disabled={creditAccount.isError || creditAccount.isLoading} loading={grantWelcome.isPending} onClick={() => grantWelcome.mutate()}>发放欢迎额度</Button><Button disabled={creditAccount.isError || creditAccount.isLoading} danger onClick={askAdjustment}>人工调整</Button></Space></Col></Row>
-              <Table size="small" rowKey="id" pagination={false} loading={creditLedger.isLoading} style={{ marginTop: 12 }} dataSource={creditLedger.data} columns={[{ title: '时间', dataIndex: 'createdAt', render: (value) => new Date(value).toLocaleString('zh-CN') }, { title: '类型', dataIndex: 'type', render: (value) => <Tag>{value}</Tag> }, { title: '可用变化', dataIndex: 'availableDelta' }, { title: '冻结变化', dataIndex: 'reservedDelta' }, { title: '余额', render: (_, row) => `${row.availableBalanceAfter} / ${row.reservedBalanceAfter}` }, { title: '原因', dataIndex: 'reason', ellipsis: true }]} />
+              <Table size="small" rowKey="id" pagination={false} loading={creditLedger.isLoading} style={{ marginTop: 12 }} dataSource={creditLedger.data} columns={[{ title: '时间', dataIndex: 'createdAt', render: (value) => new Date(value).toLocaleString('zh-CN') }, { title: '类型', dataIndex: 'type', render: (value) => <Tag>{creditLedgerTypeLabels[value] || '其他变动'}</Tag> }, { title: '可用变化', dataIndex: 'availableDelta' }, { title: '冻结变化', dataIndex: 'reservedDelta' }, { title: '余额', render: (_, row) => `${row.availableBalanceAfter} / ${row.reservedBalanceAfter}` }, { title: '原因', dataIndex: 'reason', ellipsis: true }]} />
             </>}
           </Card>
         </Col>
@@ -344,13 +372,13 @@ export default function VisualAgentPage() {
 
       <Card title="费率卡（面向商家的固定报价）" extra={<Button type="primary" onClick={() => openRateCard()}>新增费率卡</Button>} style={{ marginBottom: 16 }}>
         <Text type="secondary">新报价才使用新版本；默认“暂停”，由平台在完成模型白名单、预算和验收后明确启用。</Text>
-        <Table style={{ marginTop: 12 }} rowKey="id" loading={rateCards.isLoading} dataSource={selectedRateCards} pagination={false} locale={{ emptyText: rateCards.isError ? '费率卡加载失败，请先重新加载配置' : '暂无费率卡' }} columns={[{ title: '商家方案', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.displayName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{row.code} · {row.version}</Text></Space> }, { title: '额度 / 候选', render: (_, row) => `${row.creditCost} / ${row.candidateCount}` }, { title: '模型档', dataIndex: 'modelProfile' }, { title: '巡检策略', dataIndex: 'requiresHumanReview', render: (value) => value ? <Tag color="gold">发布后优先巡检</Tag> : <Tag color="green">按策略自动验真</Tag> }, { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'ACTIVE' ? 'green' : value === 'PAUSED' ? 'orange' : 'default'}>{value}</Tag> }, { title: '操作', render: (_, row) => <Button type="link" onClick={() => openRateCard(row)}>编辑</Button> }]} />
+        <Table style={{ marginTop: 12 }} rowKey="id" loading={rateCards.isLoading} dataSource={selectedRateCards} pagination={false} locale={{ emptyText: rateCards.isError ? '费率卡加载失败，请先重新加载配置' : '暂无费率卡' }} columns={[{ title: '商家方案', render: (_, row) => <Space direction="vertical" size={0}><Text strong>{row.displayName}</Text><Text type="secondary" style={{ fontSize: 12 }}>{row.code} · {row.version}</Text></Space> }, { title: '额度 / 候选', render: (_, row) => `${row.creditCost} / ${row.candidateCount}` }, { title: '模型档', dataIndex: 'modelProfile', render: (value) => modelProfileLabels[value] || value }, { title: '巡检策略', dataIndex: 'requiresHumanReview', render: (value) => value ? <Tag color="gold">发布后优先巡检</Tag> : <Tag color="green">按策略自动验真</Tag> }, { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'ACTIVE' ? 'green' : value === 'PAUSED' ? 'orange' : 'default'}>{rateCardStatusLabels[value] || '未知状态'}</Tag> }, { title: '操作', render: (_, row) => <Button type="link" onClick={() => openRateCard(row)}>编辑</Button> }]} />
       </Card>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={14}>
-          <Card title="Provider 六层预算策略" extra={<Button type="primary" onClick={() => openBudget()}>新增预算策略</Button>} style={{ height: '100%' }}>
-            <Alert type="info" showIcon message="真实模型调用必须同时命中六层活动策略" description="PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 缺一不可；六层 reserveCents 必须一致。保存活动版本时会自动停用同一精确范围的旧版本。" style={{ marginBottom: 12 }} />
+          <Card title="模型服务六层预算策略" extra={<Button type="primary" onClick={() => openBudget()}>新增预算策略</Button>} style={{ height: '100%' }}>
+            <Alert type="info" showIcon message="真实模型调用必须同时命中六层活动策略" description="平台、模型服务商、平台租户、接入客户端、业务对象和操作人员缺一不可；六层的每次预占成本必须一致。保存活动版本时会自动停用同一精确范围的旧版本。" style={{ marginBottom: 12 }} />
             {budgetPolicies.isError && <Alert type="error" showIcon message="预算策略加载失败" action={<Button size="small" onClick={() => budgetPolicies.refetch()}>重新加载</Button>} style={{ marginBottom: 12 }} />}
             <Table<VisualBudgetPolicy>
               size="small"
@@ -360,9 +388,9 @@ export default function VisualAgentPage() {
               pagination={{ pageSize: 8 }}
               scroll={{ x: 980 }}
               columns={[
-                { title: '范围', dataIndex: 'scope', width: 130, render: (value, row) => <Space direction="vertical" size={0}><Tag>{value}</Tag><Text type="secondary" ellipsis style={{ maxWidth: 180, fontSize: 11 }}>{row.scopeKey}</Text></Space> },
-                { title: '模型路线', width: 210, render: (_, row) => <Space direction="vertical" size={0}><Text>{row.provider}</Text><Text type="secondary">{row.model}</Text></Space> },
-                { title: '模式', dataIndex: 'visualMode', width: 170 },
+                { title: '范围', dataIndex: 'scope', width: 150, render: (value, row) => <Space direction="vertical" size={0}><Tag>{budgetScopeLabels[value] || '未知范围'}</Tag><Text type="secondary" ellipsis style={{ maxWidth: 180, fontSize: 11 }}>{row.scopeKey}</Text></Space> },
+                { title: '模型路线', width: 210, render: (_, row) => <Space direction="vertical" size={0}><Text>{providerLabels[row.provider] || row.provider}</Text><Text type="secondary">{row.model}</Text></Space> },
+                { title: '模式', dataIndex: 'visualMode', width: 170, render: (value) => directionLabels[value] || '未知模式' },
                 { title: '预占 / 单次', width: 110, render: (_, row) => `${row.reserveCents} / ${row.perTaskCapCents} 分` },
                 { title: '日 / 周上限', width: 130, render: (_, row) => `${row.dailyCapCents} / ${row.weeklyCapCents} 分` },
                 { title: '版本', width: 100, render: (_, row) => <Space><Tag color={row.enabled ? 'green' : 'default'}>{row.enabled ? '启用' : '停用'}</Tag>{row.policyVersion}</Space> },
@@ -373,7 +401,7 @@ export default function VisualAgentPage() {
         </Col>
         <Col xs={24} xl={10}>
           <Card title="模型调用人工对账" extra={<Tag color={reconciliations.data?.length ? 'red' : 'green'}>{reconciliations.data?.length ?? 0} 项待处理</Tag>} style={{ height: '100%' }}>
-            <Text type="secondary">只处理 Provider 控制台或账单已经给出证据的调用。释放/结算商家冻结额度与调用状态在同一事务收口。</Text>
+            <Text type="secondary">只处理模型服务控制台或账单已经给出证据的调用。释放或结算商家冻结额度与调用状态会在同一事务中完成。</Text>
             {reconciliations.isError && <Alert type="error" showIcon message="对账队列加载失败" action={<Button size="small" onClick={() => reconciliations.refetch()}>重新加载</Button>} style={{ marginTop: 12 }} />}
             <Table<VisualReconciliation>
               size="small"
@@ -404,7 +432,7 @@ export default function VisualAgentPage() {
               <Descriptions size="small" column={{ xs: 1, sm: 3 }} style={{ marginBottom: 16 }}><Descriptions.Item label="商品">{candidateDetail.data.product.title}</Descriptions.Item><Descriptions.Item label="商户">{candidateDetail.data.company.name}</Descriptions.Item><Descriptions.Item label="生成时间">{new Date(candidateDetail.data.task.createdAt).toLocaleString('zh-CN')}</Descriptions.Item></Descriptions>
               {candidateDetail.data.task.verification && <Alert type={candidateDetail.data.task.verification.state === 'LOCAL_AND_OCR_FACTS_VERIFIED' ? 'success' : 'warning'} showIcon message={candidateDetail.data.task.verification.state === 'LOCAL_AND_OCR_FACTS_VERIFIED' ? '系统已通过结构与文字一致性核对' : '系统会将不确定结果提升为事后巡检优先'} description={candidateDetail.data.task.verification.ocr?.state === 'MATCHED' ? '前后文字核对一致；仍请复核包装、型号、数量、颜色、规格与可见瑕疵。' : '系统不会把二维码、条码或 OCR 的不确定结果当作“没有商品事实”。'} style={{ marginBottom: 16 }} />}
               <Alert showIcon type="warning" icon={<FundProjectionScreenOutlined />} message="事实复核不是美感投票" description="改善光线、反光、构图可以接受；任何包装文字、型号、数量、颜色、规格、材质或可见瑕疵的不一致都应驳回。" style={{ marginBottom: 16 }} />
-              <Row gutter={[16, 16]}><Col xs={24} md={12}><Card size="small" title="受管原图证据"><Image src={candidateDetail.data.source.displayUrl} width="100%" style={{ maxHeight: 360, objectFit: 'contain', background: '#fafafa' }} /></Card></Col><Col xs={24} md={12}><Card size="small" title="AI 候选（未公开）"><Image src={candidateDetail.data.candidate.displayUrl} width="100%" style={{ maxHeight: 360, objectFit: 'contain', background: '#fafafa' }} /></Card></Col></Row>
+              <Row gutter={[16, 16]}><Col xs={24} md={12}><Card size="small" title="受管原图证据"><Image src={candidateDetail.data.source.displayUrl} width="100%" style={{ maxHeight: 360, objectFit: 'contain', background: '#fafafa' }} /></Card></Col><Col xs={24} md={12}><Card size="small" title="智能美化候选（未公开）"><Image src={candidateDetail.data.candidate.displayUrl} width="100%" style={{ maxHeight: 360, objectFit: 'contain', background: '#fafafa' }} /></Card></Col></Row>
               <Space style={{ marginTop: 16 }}><Button type="primary" icon={<CheckCircleOutlined />} loading={approveCandidate.isPending} onClick={() => approveCandidate.mutate()}>处理历史候选</Button><Button danger icon={<CloseCircleOutlined />} onClick={askRejectCandidate}>拒绝历史候选</Button></Space>
             </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="从左侧选择一个待复核候选" />}
           </Card>
@@ -417,18 +445,18 @@ export default function VisualAgentPage() {
           <Row gutter={12}><Col span={12}><Form.Item name="code" label="稳定编码" rules={[{ required: true }]}><Input placeholder="STANDARD_REAL_SCENE" /></Form.Item></Col><Col span={12}><Form.Item name="version" label="版本" rules={[{ required: true }]}><Input /></Form.Item></Col></Row>
           <Row gutter={12}><Col span={12}><Form.Item name="displayName" label="商家看到的方案名" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="modelProfile" label="服务器模型档" rules={[{ required: true }]}><Select options={modelOptions} /></Form.Item></Col></Row>
           <Form.Item name="description" label="商家说明" rules={[{ required: true }]}><Input.TextArea rows={2} /></Form.Item>
-          <Row gutter={12}><Col span={12}><Form.Item name="allowedDirections" label="允许方向" rules={[{ required: true }]}><Select mode="multiple" options={directionOptions.map((value) => ({ value }))} /></Form.Item></Col><Col span={12}><Form.Item name="allowedRiskProfiles" label="允许风险档" rules={[{ required: true }]}><Select mode="multiple" options={riskOptions.map((value) => ({ value }))} /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={8}><Form.Item name="creditCost" label="图片额度" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="candidateCount" label="候选张数" extra="当前每次报价固定交付 1 张已验真候选" rules={[{ required: true }]}><InputNumber min={1} max={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={[{ value: 'PAUSED', label: 'PAUSED（默认）' }, { value: 'ACTIVE', label: 'ACTIVE' }, { value: 'RETIRED', label: 'RETIRED' }]} /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={12}><Form.Item name="candidateRole" label="候选角色" rules={[{ required: true }]}><Select options={[{ value: 'FACT_MAIN_IMAGE', label: 'FACT_MAIN_IMAGE' }, { value: 'DETAIL_IMAGE', label: 'DETAIL_IMAGE' }, { value: 'MARKETING_IMAGE', label: 'MARKETING_IMAGE' }]} /></Form.Item></Col><Col span={12}><Form.Item name="requiresHumanReview" label="巡检优先策略" valuePropName="checked"><Checkbox>无法完全自动确认时提升事后巡检优先级</Checkbox></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="allowedDirections" label="允许的美化方向" rules={[{ required: true }]}><Select mode="multiple" options={directionOptions} /></Form.Item></Col><Col span={12}><Form.Item name="allowedRiskProfiles" label="允许的事实保护级别" rules={[{ required: true }]}><Select mode="multiple" options={riskOptions} /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={8}><Form.Item name="creditCost" label="图片额度" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="candidateCount" label="候选张数" extra="当前每次报价固定交付 1 张已验真候选" rules={[{ required: true }]}><InputNumber min={1} max={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={[{ value: 'PAUSED', label: '暂停（默认）' }, { value: 'ACTIVE', label: '启用' }, { value: 'RETIRED', label: '已停用' }]} /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="candidateRole" label="候选用途" rules={[{ required: true }]}><Select options={[{ value: 'FACT_MAIN_IMAGE', label: '商品主图（FACT_MAIN_IMAGE）' }, { value: 'DETAIL_IMAGE', label: '商品详情图（DETAIL_IMAGE）' }, { value: 'MARKETING_IMAGE', label: '营销展示图（MARKETING_IMAGE）' }]} /></Form.Item></Col><Col span={12}><Form.Item name="requiresHumanReview" label="巡检优先策略" valuePropName="checked"><Checkbox>无法完全自动确认时提升事后巡检优先级</Checkbox></Form.Item></Col></Row>
           <Form.Item name="outputSpec" label="输出规格 JSON" rules={[{ required: true }]}><Input.TextArea rows={4} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }} /></Form.Item>
         </Form>
       </Modal>
 
-      <Modal title="Provider 预算策略" open={budgetOpen} onCancel={() => setBudgetOpen(false)} onOk={() => budgetForm.submit()} confirmLoading={saveBudget.isPending} width={820} okText="保存预算策略">
+      <Modal title="模型服务预算策略" open={budgetOpen} onCancel={() => setBudgetOpen(false)} onOk={() => budgetForm.submit()} confirmLoading={saveBudget.isPending} width={820} okText="保存预算策略">
         <Form form={budgetForm} layout="vertical" onFinish={(values) => saveBudget.mutate(values)}>
-          <Alert type="warning" showIcon message="预算策略不会自动开通模型" description="只有六层精确策略、Provider Key、运行时开关和真实验收同时就绪，模型任务才可能执行。" style={{ marginBottom: 14 }} />
-          <Row gutter={12}><Col span={8}><Form.Item name="scope" label="预算层级" rules={[{ required: true }]}><Select options={budgetScopeOptions} /></Form.Item></Col><Col span={16}><Form.Item name="targetId" label="业务对象 / 操作人 ID" extra="仅 EXTERNAL_OBJECT 和 ACTOR 层级需要填写" dependencies={['scope']} rules={[({ getFieldValue }) => ({ validator: async (_, value) => { if (['EXTERNAL_OBJECT', 'ACTOR'].includes(getFieldValue('scope')) && !String(value || '').trim()) throw new Error('该预算层级必须填写目标 ID'); } })]}><Input placeholder="例如 Product ID 或 Staff ID" /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={12}><Form.Item name="route" label="Provider 模型路线" rules={[{ required: true }]}><Select options={budgetRouteOptions} /></Form.Item></Col><Col span={12}><Form.Item name="visualMode" label="视觉模式" rules={[{ required: true }]}><Select options={directionOptions.map((value) => ({ value }))} /></Form.Item></Col></Row>
+          <Alert type="warning" showIcon message="预算策略不会自动开通模型" description="只有六层精确策略、模型服务密钥、运行时开关和真实验收同时就绪，模型任务才可能执行。" style={{ marginBottom: 14 }} />
+          <Row gutter={12}><Col span={8}><Form.Item name="scope" label="预算层级" rules={[{ required: true }]}><Select options={budgetScopeOptions} /></Form.Item></Col><Col span={16}><Form.Item name="targetId" label="业务对象或操作人员编号" extra="仅业务对象和操作人员层级需要填写" dependencies={['scope']} rules={[({ getFieldValue }) => ({ validator: async (_, value) => { if (['EXTERNAL_OBJECT', 'ACTOR'].includes(getFieldValue('scope')) && !String(value || '').trim()) throw new Error('该预算层级必须填写目标编号'); } })]}><Input placeholder="例如商品编号或员工编号" /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="route" label="模型服务路线" rules={[{ required: true }]}><Select options={budgetRouteOptions} /></Form.Item></Col><Col span={12}><Form.Item name="visualMode" label="美化模式" rules={[{ required: true }]}><Select options={directionOptions} /></Form.Item></Col></Row>
           <Form.Item noStyle shouldUpdate>{({ getFieldsValue }) => <Alert type="info" showIcon message="将保存到精确范围键" description={canonicalBudgetScopeKey(getFieldsValue(), scope) || '请先补齐预算层级、模型路线和目标 ID'} style={{ marginBottom: 14 }} />}</Form.Item>
           <Row gutter={12}>
             <Col span={6}><Form.Item name="reserveCents" label="预占成本（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
@@ -450,7 +478,7 @@ export default function VisualAgentPage() {
         onOk={async () => {
           const values = await reconciliationForm.validateFields();
           if (values.decision === 'RELEASED' && values.creditDecision !== 'RELEASE') {
-            message.warning('Provider 明确未计费时，必须把商家冻结图片额度退回');
+            message.warning('模型服务商明确未计费时，必须把商家冻结图片额度退回');
             return;
           }
           await resolveReconciliation.mutateAsync(values);
@@ -458,15 +486,15 @@ export default function VisualAgentPage() {
       >
         {selectedReconciliation && <>
           <Descriptions size="small" column={2} style={{ marginBottom: 14 }}>
-            <Descriptions.Item label="Provider / 模型">{selectedReconciliation.provider} / {selectedReconciliation.model}</Descriptions.Item>
+            <Descriptions.Item label="模型服务商 / 模型">{providerLabels[selectedReconciliation.provider] || selectedReconciliation.provider} / {selectedReconciliation.model}</Descriptions.Item>
             <Descriptions.Item label="业务对象">{selectedReconciliation.externalObjectId}</Descriptions.Item>
-            <Descriptions.Item label="Provider Task">{selectedReconciliation.providerTaskId || '未取得'}</Descriptions.Item>
+            <Descriptions.Item label="模型任务编号">{selectedReconciliation.providerTaskId || '未取得'}</Descriptions.Item>
             <Descriptions.Item label="商家冻结额度">{selectedReconciliation.creditQuote?.creditCost ?? 0}</Descriptions.Item>
           </Descriptions>
           <Form form={reconciliationForm} layout="vertical">
-            <Form.Item name="decision" label="Provider 调用结论" rules={[{ required: true }]}><Select options={[{ value: 'RELEASED', label: '明确未计费，释放 Provider 预算' }, { value: 'BILLING_EXCEPTION', label: '存在计费异常，停用该 Provider 模型策略' }]} /></Form.Item>
+            <Form.Item name="decision" label="模型调用结论" rules={[{ required: true }]}><Select options={[{ value: 'RELEASED', label: '明确未计费，释放模型服务预算' }, { value: 'BILLING_EXCEPTION', label: '存在计费异常，停用对应模型策略' }]} /></Form.Item>
             <Form.Item name="creditDecision" label="商家图片额度结论" rules={[{ required: true }]}><Select options={[{ value: 'RELEASE', label: '退回冻结图片额度' }, { value: 'SETTLE', label: '按已生成/已计费规则结算图片额度' }]} /></Form.Item>
-            <Form.Item name="evidenceRef" label="Provider 控制台或账单证据编号" rules={[{ required: true, message: '必须填写可追溯的证据编号' }, { pattern: /^[A-Za-z0-9._:/-]{1,200}$/, message: '证据编号只能使用字母、数字和 . _ : / -' }]}><Input placeholder="例如 provider:task-123:no-charge" /></Form.Item>
+            <Form.Item name="evidenceRef" label="模型服务控制台或账单证据编号" rules={[{ required: true, message: '必须填写可追溯的证据编号' }, { pattern: /^[A-Za-z0-9._:/-]{1,200}$/, message: '证据编号只能使用字母、数字和 . _ : / -' }]}><Input placeholder="例如 provider:task-123:no-charge" /></Form.Item>
           </Form>
         </>}
       </Modal>

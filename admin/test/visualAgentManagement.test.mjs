@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(path, 'utf8');
 
-test('AI Visual Agent management is restricted and exposes rate, credit, and legacy-candidate paths', () => {
+test('商品图片智能美化管理受权限保护并提供费率、额度和历史候选链路', () => {
   const api = read('src/api/visualAgent.ts');
   const page = read('src/pages/visual-agent/index.tsx');
   const app = read('src/App.tsx');
@@ -17,19 +17,25 @@ test('AI Visual Agent management is restricted and exposes rate, credit, and leg
   assert.match(page, /历史付费候选处理/);
   assert.match(page, /系统会将不确定结果提升为事后巡检优先/);
   assert.match(page, /新候选不做发布前预审批/);
-  assert.match(page, /AI Visual Agent 配置加载失败/);
+  assert.match(page, /商品图片智能美化配置加载失败/);
   assert.match(page, /欢迎额度策略保存失败/);
   assert.match(page, /当前每次报价固定交付 1 张已验真候选/);
   assert.match(page, /max=\{1\}/);
   assert.match(page, /wan2\.7-image-pro/);
   assert.match(api, /\/admin\/visual-agent\/budget-policies/);
   assert.match(api, /\/admin\/visual-agent\/reconciliations/);
-  assert.match(page, /Provider 六层预算策略/);
+  assert.match(page, /模型服务六层预算策略/);
   assert.match(page, /模型调用人工对账/);
-  assert.match(page, /六层 reserveCents 必须一致/);
+  assert.match(page, /六层的每次预占成本必须一致/);
   assert.match(page, /按证据关闭对账/);
   assert.match(app, /PERMISSIONS\.ADMIN_VISUAL_AGENT_MANAGE/);
-  assert.match(layout, /path: '\/visual-agent', name: 'AI Visual Agent'/);
+  assert.match(layout, /path: '\/visual-agent', name: '商品图片智能美化'/);
+  assert.match(page, /平台租户编号/);
+  assert.match(page, /接入客户端编号/);
+  assert.match(page, /适配器命名空间/);
+  assert.match(page, /暂停（默认）/);
+  assert.match(page, /商品主图（FACT_MAIN_IMAGE）/);
+  assert.doesNotMatch(page, /AI Visual Agent|label="(?:Tenant|Client|Adapter|Provider)/);
   assert.match(page, /PERMISSIONS\.PRODUCTS_AUDIT/);
 });
 
