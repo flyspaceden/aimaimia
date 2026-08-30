@@ -413,7 +413,7 @@ export class VisualCreditService {
   async markReconciliation(quoteId: string, reason: string) {
     this.assertId(quoteId, '报价 ID');
     const updated = await this.prisma.visualCreditQuote.updateMany({
-      where: { id: quoteId, status: VisualCreditQuoteStatus.RESERVED },
+      where: { id: quoteId, status: { in: [VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING] } },
       data: { status: VisualCreditQuoteStatus.RECONCILING, failureReason: reason.slice(0, 160) },
     });
     if (updated.count !== 1) throw new ConflictException('图片美化报价当前不能进入对账');

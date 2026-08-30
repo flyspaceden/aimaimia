@@ -197,6 +197,23 @@ describe('VisualCreditService', () => {
     expect(tx.visualRateCard.findFirst).not.toHaveBeenCalled();
   });
 
+  it('marks an already reconciling quote idempotently without masking the original recovery path', async () => {
+    const { service, prisma } = build();
+    prisma.visualCreditQuote.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.markReconciliation('quote-1', 'CANDIDATE_PERSISTENCE_FAILED')).resolves.toBeUndefined();
+    expect(prisma.visualCreditQuote.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'quote-1',
+        status: { in: [VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING] },
+      },
+      data: {
+        status: VisualCreditQuoteStatus.RECONCILING,
+        failureReason: 'CANDIDATE_PERSISTENCE_FAILED',
+      },
+    });
+  });
+
   it('refuses a rate card whose direction or risk allowlist does not match the verified plan', async () => {
     const { service, tx } = build();
     tx.visualRateCard.findFirst.mockResolvedValue(rateCard({ allowedRiskProfiles: ['STRICT_FACTS'] }));

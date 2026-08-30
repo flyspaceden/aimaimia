@@ -50,6 +50,7 @@ const SUPPORTED_PROVIDER_MODELS = new Set([
   'BAILIAN_QWEN_IMAGE:qwen-image-3.0-pro',
 ]);
 const SUPPORTED_VISUAL_MODES = new Set(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH']);
+const VERIFICATION_TTL_MS = 15 * 60_000;
 
 export type ReserveVisualAgentInvocationInput = {
   tenantId: string;
@@ -595,6 +596,13 @@ export class VisualAgentInvocationService {
         status,
         providerRequestId: outcome.providerRequestId,
         providerOutputUrl: outcome.outputUrl,
+        // A successful re-query may recover a Provider task after the
+        // invocation's original execution TTL. Give the same immutable task a
+        // fresh, bounded verification window so the lease reaper cannot move
+        // it back to reconciliation while its output is being persisted.
+        ...(status === VisualAgentInvocationStatus.VERIFYING && {
+          expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
+        }),
         reconciliationReason: status === VisualAgentInvocationStatus.RECONCILING ? `QUERY_${outcome.state}` : null,
         leaseToken: null,
         leaseExpiresAt: null,

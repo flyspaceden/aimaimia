@@ -240,8 +240,10 @@ describe('VisualAgentInvocationService', () => {
     await service.recordQueryOutcome(authorization, { kind: 'KNOWN', providerTaskId: 'provider-task-1', state: 'SUCCEEDED' });
     expect(prisma.visualAgentInvocation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ leaseToken: 'query-lease-2', leaseGeneration: 2 }),
-      data: expect.objectContaining({ status: VisualAgentInvocationStatus.VERIFYING }),
+      data: expect.objectContaining({ status: VisualAgentInvocationStatus.VERIFYING, expiresAt: expect.any(Date) }),
     }));
+    const verificationExpiry = prisma.visualAgentInvocation.updateMany.mock.calls[0][0].data.expiresAt as Date;
+    expect(verificationExpiry.getTime()).toBeGreaterThan(Date.now() + 14 * 60_000);
   });
 
   it('reaps only unsubmitted expiry; expired submit and query leases remain reconcilable', async () => {
