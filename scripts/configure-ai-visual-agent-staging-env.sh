@@ -79,7 +79,12 @@ const wanModels = new Set(config.AI_VISUAL_AGENT_WAN_ALLOWED_MODELS.split(',').m
 if (!wanModels.size || [...wanModels].some((value) => !['wan2.7-image', 'wan2.7-image-pro'].includes(value))) throw new Error('invalid Wan model allowlist');
 const qwenModels = new Set(config.AI_VISUAL_AGENT_QWEN_IMAGE_ALLOWED_MODELS.split(',').map((value) => value.trim()).filter(Boolean));
 if (!qwenModels.size || [...qwenModels].some((value) => !['qwen-image-3.0', 'qwen-image-3.0-pro'].includes(value))) throw new Error('invalid Qwen Image model allowlist');
-if (config.AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES !== 'oss-cn-beijing.aliyuncs.com') throw new Error('result host suffix must be the exact Beijing OSS host');
+const resultHostSuffixes = new Set(config.AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES.split(',').map((value) => value.trim()).filter(Boolean));
+const requiredResultHostSuffixes = ['oss-cn-beijing.aliyuncs.com', 'oss-accelerate.aliyuncs.com'];
+if (resultHostSuffixes.size !== requiredResultHostSuffixes.length
+  || requiredResultHostSuffixes.some((value) => !resultHostSuffixes.has(value))) {
+  throw new Error('result host suffixes must be the exact Beijing OSS and official OSS acceleration hosts');
+}
 if (!/^[A-Za-z0-9._-]{1,32}$/.test(config.AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION)) throw new Error('invalid fact-scan hash key version');
 
 const managed = new Set(orderedKeys);

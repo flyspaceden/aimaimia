@@ -142,9 +142,9 @@ export class VisualPaidExecutionService {
     if (!quote.visualAgentInvocationId) {
       throw new ConflictException('图片美化报价尚未绑定模型调用');
     }
-    if (quote.status === VisualCreditQuoteStatus.RECONCILING) {
-      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
-    }
+    // A reconciling quote may still have an accepted, immutable Provider task
+    // id. Re-querying that same task is safe and non-billable; it must never
+    // route back through submitProvider or create a second invocation.
     let executable: ExecutableProvider;
     try {
       executable = this.providerForProfile(quote.rateCard.modelProfile);

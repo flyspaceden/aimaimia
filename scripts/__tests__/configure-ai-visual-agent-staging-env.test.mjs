@@ -23,7 +23,7 @@ function validConfig(overrides = {}) {
     AI_VISUAL_AGENT_QWEN_OCR_ENABLED: 'false',
     AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED: 'false',
     AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED: 'false',
-    AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES: 'oss-cn-beijing.aliyuncs.com',
+    AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES: 'oss-cn-beijing.aliyuncs.com,oss-accelerate.aliyuncs.com',
     AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION: 'v1',
     ...overrides,
   };

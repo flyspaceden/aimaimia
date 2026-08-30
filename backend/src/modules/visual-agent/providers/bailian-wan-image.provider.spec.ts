@@ -172,6 +172,24 @@ describe('BailianWanImageProvider', () => {
     });
   });
 
+  it('accepts the exact official OSS acceleration suffix returned by Bailian', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: {
+        task_id: 'wan-task-1', task_status: 'SUCCEEDED',
+        choices: [{ message: { content: [{ type: 'image', image: 'https://dashscope-463f.oss-accelerate.aliyuncs.com/result.png' }] } }],
+      },
+      usage: { image_count: 1 },
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES: 'oss-cn-beijing.aliyuncs.com,oss-accelerate.aliyuncs.com',
+    }) as any, invocationVerifier() as any);
+
+    await expect(provider.query('wan-task-1')).resolves.toEqual({
+      kind: 'KNOWN', providerTaskId: 'wan-task-1', state: 'SUCCEEDED',
+      outputUrl: 'https://dashscope-463f.oss-accelerate.aliyuncs.com/result.png', successfulImageCount: 1,
+    });
+  });
+
   it.each([404, 429, 503])('never releases an accepted task when a later query returns %i', async (status) => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ request_id: 'request-1' }), { status })) as any;
     const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);

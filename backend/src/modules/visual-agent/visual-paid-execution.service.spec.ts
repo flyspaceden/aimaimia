@@ -148,6 +148,26 @@ describe('VisualPaidExecutionService', () => {
     expect(credits.markReconciliation).not.toHaveBeenCalled();
   });
 
+  it('recovers a reconciling quote by querying only its already accepted Provider task', async () => {
+    const { service, credits, runner } = build({ quote: {
+      status: VisualCreditQuoteStatus.RECONCILING,
+      visualAgentInvocationId: 'invocation-1',
+    } });
+    runner.queryProvider.mockResolvedValue({
+      kind: 'KNOWN', providerTaskId: 'wan-task-1', state: 'SUCCEEDED',
+      outputUrl: 'https://dashscope-463f.oss-accelerate.aliyuncs.com/result.jpg',
+    });
+    runner.fetchProviderOutput.mockResolvedValue({ buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' });
+
+    await expect(service.pollForOutput({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({
+      quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', output: { mimeType: 'image/jpeg' },
+    });
+    expect(runner.queryProvider).toHaveBeenCalledWith('invocation-1');
+    expect(runner.fetchProviderOutput).toHaveBeenCalledWith('invocation-1');
+    expect(runner.submitProvider).not.toHaveBeenCalled();
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
   it('never releases credits after an accepted task has an unknown/failed query result', async () => {
     const { service, credits, runner } = build({ quote: { visualAgentInvocationId: 'invocation-1' } });
     runner.queryProvider.mockResolvedValue({ kind: 'UNKNOWN', code: 'AMBIGUOUS_PROVIDER_RESPONSE', requiresReconciliation: true });
