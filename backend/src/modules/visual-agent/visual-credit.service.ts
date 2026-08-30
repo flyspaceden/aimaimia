@@ -630,9 +630,17 @@ export class VisualCreditService {
   }
 
   private async ensureAccountTx(tx: any, tenantId: string, owner: VisualBillingOwner) {
+    // Callers often carry the billing owner together with quote scope,
+    // principal, hashes, and idempotency fields. Never spread that wider
+    // object into Prisma: only the three columns in the account identity are
+    // valid persistence input.
+    const accountOwner = {
+      billingOwnerType: owner.billingOwnerType,
+      billingOwnerId: owner.billingOwnerId,
+    };
     return tx.visualCreditAccount.upsert({
-      where: { tenantId_billingOwnerType_billingOwnerId: { tenantId, ...owner } },
-      create: { tenantId, ...owner },
+      where: { tenantId_billingOwnerType_billingOwnerId: { tenantId, ...accountOwner } },
+      create: { tenantId, ...accountOwner },
       update: {},
     });
   }

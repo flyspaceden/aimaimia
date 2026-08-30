@@ -145,6 +145,21 @@ describe('VisualCreditService', () => {
     });
 
     expect(result).toMatchObject({ creditCost: 15, candidateCount: 1, rateCardSnapshot: expect.objectContaining({ modelProfile: 'BAILIAN_WAN_STANDARD' }) });
+    expect(tx.visualCreditAccount.upsert).toHaveBeenCalledWith({
+      where: {
+        tenantId_billingOwnerType_billingOwnerId: {
+          tenantId: principal.tenantId,
+          billingOwnerType: owner.billingOwnerType,
+          billingOwnerId: owner.billingOwnerId,
+        },
+      },
+      create: {
+        tenantId: principal.tenantId,
+        billingOwnerType: owner.billingOwnerType,
+        billingOwnerId: owner.billingOwnerId,
+      },
+      update: {},
+    });
     expect(tx.visualCreditQuote.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ tenantId: principal.tenantId, clientId: principal.clientId, billingAccountId: 'account-1', sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash }),
     }));
