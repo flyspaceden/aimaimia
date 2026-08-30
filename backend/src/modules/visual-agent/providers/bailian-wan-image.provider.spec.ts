@@ -224,4 +224,22 @@ describe('BailianWanImageProvider', () => {
     await expect(provider.fetchOutput('https://attacker.example/result.jpg')).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('removes only a near-opaque Provider alpha channel and rejects real transparency', async () => {
+    const nearOpaque = await sharp({
+      create: { width: 300, height: 300, channels: 4, background: { r: 210, g: 45, b: 30, alpha: 0.99 } },
+    }).png().toBuffer();
+    const transparent = await sharp({
+      create: { width: 300, height: 300, channels: 4, background: { r: 210, g: 45, b: 30, alpha: 0.5 } },
+    }).png().toBuffer();
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(new Response(nearOpaque, { status: 200, headers: { 'content-type': 'image/png' } }))
+      .mockResolvedValueOnce(new Response(transparent, { status: 200, headers: { 'content-type': 'image/png' } })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    const normalized = await provider.fetchOutput('https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.png');
+    await expect(sharp(normalized.buffer).metadata()).resolves.toMatchObject({ format: 'png', hasAlpha: false });
+    await expect(provider.fetchOutput('https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.png'))
+      .rejects.toThrow('含真实透明像素');
+  });
 });

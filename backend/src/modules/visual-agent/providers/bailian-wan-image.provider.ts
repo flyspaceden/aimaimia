@@ -35,6 +35,7 @@ export const BAILIAN_WAN_PROVIDER = 'BAILIAN_WAN';
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 const MIN_EDGE = 240;
 const MAX_EDGE = 8000;
+const MIN_NEAR_OPAQUE_ALPHA = 250;
 const REQUEST_TIMEOUT_MS = 20_000;
 const allowedMimeTypes = new Set<VisualProviderSource['mimeType']>(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -179,8 +180,7 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
     if (buffer.length === 0 || buffer.length > MAX_SOURCE_BYTES) {
       throw new ServiceUnavailableException('百炼万相输出大小无效');
     }
-    await this.assertDecodedImage(buffer, contentType as VisualProviderSource['mimeType'], '百炼万相输出');
-    return { buffer, mimeType: contentType as VisualProviderSource['mimeType'] };
+    return this.normalizeDecodedOutput(buffer, contentType as VisualProviderSource['mimeType']);
   }
 
   private endpoint(path: string) {
@@ -251,6 +251,42 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
       || (expectedMimeType !== 'image/jpeg' && metadata.hasAlpha)) {
       throw new ServiceUnavailableException(`${label}不满足百炼万相输入约束`);
     }
+  }
+
+  private async normalizeDecodedOutput(
+    buffer: Buffer,
+    expectedMimeType: VisualProviderSource['mimeType'],
+  ): Promise<VisualProviderOutput> {
+    let metadata: import('sharp').Metadata;
+    try {
+      metadata = await sharp(buffer, { failOn: 'error', limitInputPixels: MAX_EDGE * MAX_EDGE }).metadata();
+    } catch {
+      throw new ServiceUnavailableException('百炼万相输出无法安全解码');
+    }
+    const actualMimeType = this.formatToMimeType(metadata.format);
+    if (!actualMimeType || actualMimeType !== expectedMimeType || !metadata.width || !metadata.height
+      || metadata.width < MIN_EDGE || metadata.height < MIN_EDGE
+      || metadata.width > MAX_EDGE || metadata.height > MAX_EDGE
+      || metadata.width / metadata.height > 8 || metadata.height / metadata.width > 8) {
+      throw new ServiceUnavailableException('百炼万相输出不满足图片约束');
+    }
+    if (!metadata.hasAlpha) return { buffer, mimeType: expectedMimeType };
+
+    let alphaMinimum = 0;
+    try {
+      const statistics = await sharp(buffer, { failOn: 'error', limitInputPixels: MAX_EDGE * MAX_EDGE }).ensureAlpha().stats();
+      alphaMinimum = statistics.channels[3]?.min ?? 0;
+    } catch {
+      throw new ServiceUnavailableException('百炼万相输出 Alpha 通道无法验证');
+    }
+    if (alphaMinimum < MIN_NEAR_OPAQUE_ALPHA) {
+      throw new ServiceUnavailableException('百炼万相输出含真实透明像素，不能作为商品候选');
+    }
+    const opaque = await sharp(buffer, { failOn: 'error', limitInputPixels: MAX_EDGE * MAX_EDGE })
+      .removeAlpha()
+      .png()
+      .toBuffer();
+    return { buffer: opaque, mimeType: 'image/png' };
   }
 
   private renderFixedPrompt(plan: VisualProviderServerPlan) {
