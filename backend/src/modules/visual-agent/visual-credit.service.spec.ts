@@ -131,9 +131,9 @@ describe('VisualCreditService', () => {
     const { service, tx } = build();
 
     await expect(service.upsertRateCard({ ...rateCard(), modelProfile: 'UNKNOWN_MODEL' }))
-      .rejects.toThrow('图片额度价目不合法');
+      .rejects.toThrow('图片积分价目不合法');
     await expect(service.upsertRateCard({ ...rateCard(), candidateCount: 2 }))
-      .rejects.toThrow('图片额度价目不合法');
+      .rejects.toThrow('图片积分价目不合法');
     expect(tx.visualRateCard.upsert).not.toHaveBeenCalled();
   });
 
@@ -242,7 +242,7 @@ describe('VisualCreditService', () => {
     tx.visualCreditQuote.findFirst.mockResolvedValue(quote({ billingAccount: account({ availableCredits: 14 }) }));
 
     await expect(service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) }))
-      .rejects.toThrow('图片额度不足');
+      .rejects.toThrow('图片积分不足');
     expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe('VisualCreditService', () => {
     await expect(service.adminAdjust({
       tenantId: principal.tenantId, ...owner, availableDelta: -11,
       reason: '错误回收', idempotencyKey: 'admin-adjust-2', operatorId: 'admin-1',
-    })).rejects.toThrow('图片额度不足');
+    })).rejects.toThrow('图片积分不足');
   });
 
   it('keeps pagination outside the account composite key when reading ledger history', async () => {

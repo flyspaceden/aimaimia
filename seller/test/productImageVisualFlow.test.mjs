@@ -35,9 +35,9 @@ test('seller UI keeps original evidence and makes the immediate-publication rule
 test('seller paid image flow shows a server quote and requires an explicit credit confirmation', () => {
   assert.match(editPage, /付费智能精修/);
   assert.match(editPage, /先报价，后生成/);
-  assert.match(editPage, /查看可用方案与额度/);
-  assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片额度/);
-  assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片额度生成/);
+  assert.match(editPage, /查看可用方案与图片积分/);
+  assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片积分/);
+  assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片积分生成/);
   assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);

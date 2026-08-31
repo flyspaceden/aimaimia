@@ -623,7 +623,7 @@ export class VisualAgentInvocationService {
       throw new ConflictException('AI Visual Agent 对账证据格式不合法');
     }
     if (input.decision === 'RELEASED' && input.creditDecision !== 'RELEASE') {
-      throw new ConflictException('Provider 明确未计费时必须释放商家冻结图片额度');
+      throw new ConflictException('Provider 明确未计费时必须释放商家冻结图片积分');
     }
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findFirst({
@@ -781,15 +781,15 @@ export class VisualAgentInvocationService {
   ) {
     const targetStatus = input.creditDecision === 'RELEASE' ? VisualCreditQuoteStatus.RELEASED : VisualCreditQuoteStatus.SETTLED;
     if (quote.status === VisualCreditQuoteStatus.RELEASED || quote.status === VisualCreditQuoteStatus.SETTLED) {
-      if (quote.status !== targetStatus) throw new ConflictException('Provider 对账结论与已关闭的商家额度状态冲突');
+      if (quote.status !== targetStatus) throw new ConflictException('Provider 对账结论与已关闭的商家图片积分状态冲突');
       return;
     }
     if (quote.status !== VisualCreditQuoteStatus.RESERVED && quote.status !== VisualCreditQuoteStatus.RECONCILING) {
-      throw new ConflictException('关联商家图片额度报价当前不能人工关闭');
+      throw new ConflictException('关联商家图片积分报价当前不能人工关闭');
     }
     await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`VISUAL_CREDIT_ACCOUNT:${quote.tenantId}:${quote.billingAccount.billingOwnerType}:${quote.billingAccount.billingOwnerId}`}))`);
     if (quote.billingAccount.reservedCredits < quote.creditCost) {
-      throw new ConflictException('关联商家图片额度冻结余额异常，不能完成人工对账');
+      throw new ConflictException('关联商家图片积分冻结余额异常，不能完成人工对账');
     }
     const release = input.creditDecision === 'RELEASE';
     const availableAfter = quote.billingAccount.availableCredits + (release ? quote.creditCost : 0);

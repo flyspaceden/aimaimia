@@ -372,7 +372,7 @@ describe('VisualAgentInvocationService', () => {
 
     await expect(service.resolveReconciliation({
       invocationId: 'invocation-1', decision: 'RELEASED', creditDecision: 'SETTLE', operatorId: 'admin-1', evidenceRef: 'provider:no-charge-1',
-    })).rejects.toThrow('必须释放商家冻结图片额度');
+    })).rejects.toThrow('必须释放商家冻结图片积分');
 
     prisma.tx.visualAgentInvocation.findFirst
       .mockResolvedValueOnce({ provider: 'BAILIAN_WAN' })

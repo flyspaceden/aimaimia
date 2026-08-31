@@ -347,7 +347,7 @@ export class VisualAgentPublicService {
       },
       select: { id: true },
     });
-    if (!bound) throw new NotFoundException('图片额度账户不存在');
+    if (!bound) throw new NotFoundException('图片积分账户不存在');
     return this.credits.getAccount({ tenantId: principal.tenantId, billingOwnerType, billingOwnerId });
   }
 

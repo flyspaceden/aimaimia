@@ -12,13 +12,13 @@ test('商品图片智能美化管理受权限保护并提供费率、额度和�
 
   assert.match(api, /\/admin\/visual-agent\/tenants/);
   assert.match(api, /\/admin\/product-paid-visual-candidates/);
-  assert.match(page, /新商家欢迎额度/);
+  assert.match(page, /新商家欢迎图片积分/);
   assert.match(page, /费率卡（面向商家的固定报价）/);
   assert.match(page, /历史付费候选处理/);
   assert.match(page, /系统会将不确定结果提升为事后巡检优先/);
   assert.match(page, /新候选不做发布前预审批/);
   assert.match(page, /商品图片智能美化配置加载失败/);
-  assert.match(page, /欢迎额度策略保存失败/);
+  assert.match(page, /欢迎图片积分策略保存失败/);
   assert.match(page, /当前每次报价固定交付 1 张已验真候选/);
   assert.match(page, /max=\{1\}/);
   assert.match(page, /wan2\.7-image-pro/);

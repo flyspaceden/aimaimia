@@ -135,9 +135,9 @@ function activePaidQuoteStorageKey(productId: string) {
 
 function paidExecutionPresentation(execution: ProductVisualQuoteStatus) {
   if (execution.status === 'REJECTED') return { type: 'error' as const, message: '候选未通过系统事实检查', description: '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' };
-  if (execution.status === 'RELEASED') return { type: 'warning' as const, message: '模型未受理，本次冻结额度已释放', description: '你可以重新获取报价；系统不会为这次未受理任务扣除图片额度。' };
+  if (execution.status === 'RELEASED') return { type: 'warning' as const, message: '模型未受理，本次冻结图片积分已释放', description: '你可以重新获取报价；系统不会为这次未受理任务扣除图片积分。' };
   if (execution.status === 'RECONCILING') return { type: 'info' as const, message: '模型结果或费用正在对账', description: '为避免重复扣费，系统不会重新提交同一个模型任务；平台完成对账后才能继续。' };
-  if (execution.status === 'ALREADY_BOUND') return { type: 'info' as const, message: '任务已存在，正在恢复原任务状态', description: '系统不会重复冻结额度或重复提交模型。' };
+  if (execution.status === 'ALREADY_BOUND') return { type: 'info' as const, message: '任务已存在，正在恢复原任务状态', description: '系统不会重复冻结图片积分或重复提交模型。' };
   if (execution.status === 'PENDING_REVIEW') return { type: 'warning' as const, message: '旧候选仍在历史人工审核流程中', description: '此状态仅用于旧流程记录；新候选不会等待平台预审批。' };
   if (execution.status === 'SUCCEEDED') return { type: 'success' as const, message: '候选可采用；系统已保留验真摘要', description: '商家确认采用后会立即更新公开图片；未能完全自动验真的候选会进入平台事后巡检优先队列。' };
   return { type: 'info' as const, message: '模型任务处理中', description: '可以停留在本页等待；系统不会因为轮询或刷新重复扣费。' };
@@ -1117,7 +1117,7 @@ function ImageUploadSection({
       return;
     }
     if (localStorage.getItem(activePaidQuoteStorageKey(productId))) {
-      message.info('这个商品已有已确认的智能图片任务，系统正在恢复原任务；不会重复冻结额度。');
+      message.info('这个商品已有已确认的智能图片任务，系统正在恢复原任务；不会重复冻结图片积分。');
       return;
     }
     setVisualPlanSubmitting(true);
@@ -1231,9 +1231,9 @@ function ImageUploadSection({
       setPaidExecution(result.execution);
       setPaidPollWarning(null);
       localStorage.setItem(activePaidQuoteStorageKey(productId), visualQuote.quote.id);
-      message.success('已确认图片额度，正在提交受控模型任务');
+      message.success('已确认图片积分，正在提交受控模型任务');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '模型任务未能提交，未接受的任务会自动释放额度');
+      message.error(error instanceof Error ? error.message : '模型任务未能提交，未接受的任务会自动释放图片积分');
     } finally {
       setQuoteSubmitting(false);
     }
@@ -1620,8 +1620,8 @@ function ImageUploadSection({
             {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && (
               <Card size="small" title="付费智能精修" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Text type="secondary">方案、候选数和图片额度均由平台按当前风险档返回。确认后才冻结额度；模型未接受时自动释放，结果未知时进入对账。</Text>
-                  {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与额度</Button>}
+                  <Text type="secondary">方案、候选数和图片积分均由平台按当前风险档返回。确认后才冻结图片积分；模型未接受时自动释放，结果未知时进入对账。</Text>
+                  {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与图片积分</Button>}
                   {rateCards && rateCards.length === 0 && <Alert type="info" showIcon message="当前没有可用的付费方案" description="平台尚未为这类图片配置可执行模型。" />}
                   {rateCards && rateCards.length > 0 && !visualQuote && (
                     <Row gutter={[10, 10]}>
@@ -1629,7 +1629,7 @@ function ImageUploadSection({
                         <Col key={card.code} xs={24} md={12}>
                           <Card size="small" style={{ height: '100%', borderColor: '#f0d77c' }}>
                             <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                              <Space wrap><Text strong>{card.displayName}</Text><Tag color="gold">{card.creditCost} 图片额度</Tag><Tag>{card.candidateCount} 张候选</Tag></Space>
+                              <Space wrap><Text strong>{card.displayName}</Text><Tag color="gold">{card.creditCost} 图片积分</Tag><Tag>{card.candidateCount} 张候选</Tag></Space>
                               <Text type="secondary" style={{ fontSize: 12 }}>{card.description}</Text>
                               {card.requiresHumanReview && <Text type="warning" style={{ fontSize: 12 }}>无法完全自动确认的候选会提升平台事后巡检优先级；候选仍须由商家显式采用。</Text>}
                               <Button size="small" type="primary" loading={quoteSubmitting} onClick={() => issuePaidQuote(card)}>获取本方案报价</Button>
@@ -1642,11 +1642,11 @@ function ImageUploadSection({
                   {visualQuote && (
                     <div style={{ borderLeft: '4px solid #d4a72c', padding: '10px 12px', background: '#fffdf2', borderRadius: 8 }}>
                       <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || '智能图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片额度</Tag><Tag>剩余 {visualQuote.availableCredits} 额度</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
+                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || '智能图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片积分</Tag><Tag>剩余 {visualQuote.availableCredits} 图片积分</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>{visualQuote.quote.rateCardSnapshot.description || '将按当前受控图片计划生成候选。'} 报价有效至 {new Date(visualQuote.quote.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。</Text>
-                        {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片额度不足" description="请联系平台管理员补充图片额度。" /> : <>
-                          <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片额度生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>
-                          <Button type="primary" loading={quoteSubmitting} disabled={!quoteConfirmed} onClick={confirmPaidQuote}>确认额度并生成候选</Button>
+                        {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片积分不足" description="请联系平台管理员补充图片积分。" /> : <>
+                          <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片积分生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>
+                          <Button type="primary" loading={quoteSubmitting} disabled={!quoteConfirmed} onClick={confirmPaidQuote}>确认图片积分并生成候选</Button>
                         </>}
                       </Space>
                     </div>

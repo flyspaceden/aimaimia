@@ -57,10 +57,10 @@ export class VisualCreditService {
     effectiveUntil?: Date | null;
   }) {
     this.assertId(input.tenantId, 'Tenant');
-    this.assertId(input.policyVersion, '欢迎额度策略版本');
+    this.assertId(input.policyVersion, '欢迎图片积分策略版本');
     if (!Number.isInteger(input.grantCredits) || input.grantCredits <= 0
       || !Number.isInteger(input.creditValueCents) || input.creditValueCents < 0) {
-      throw new ConflictException('欢迎图片额度策略不合法');
+      throw new ConflictException('欢迎图片积分策略不合法');
     }
     return this.prisma.visualCreditWelcomePolicy.upsert({
       where: { tenantId: input.tenantId },
@@ -121,7 +121,7 @@ export class VisualCreditService {
       || input.allowedDirections.length === 0 || input.allowedRiskProfiles.length === 0
       || input.allowedDirections.some((value) => !SAFE_ID.test(value))
       || input.allowedRiskProfiles.some((value) => !SAFE_ID.test(value))) {
-      throw new ConflictException('图片额度价目不合法');
+      throw new ConflictException('图片积分价目不合法');
     }
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `VISUAL_RATE_CARD:${input.tenantId}:${input.clientId}:${input.adapterNamespace}:${input.code}`);
@@ -187,19 +187,19 @@ export class VisualCreditService {
     this.assertTenantOwner(input.tenantId, input);
     const now = input.now ?? new Date();
     const grantKey = input.idempotencyKey ?? `WELCOME_200_V1:${input.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`;
-    this.assertId(grantKey, '欢迎额度幂等键');
+    this.assertId(grantKey, '欢迎图片积分幂等键');
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${input.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
       const policy = await tx.visualCreditWelcomePolicy.findUnique({ where: { tenantId: input.tenantId } });
       if (!policy || !policy.enabled || policy.effectiveFrom > now
         || (policy.effectiveUntil && policy.effectiveUntil <= now)) {
-        throw new ServiceUnavailableException('当前没有可用的新商家图片额度赠送策略');
+        throw new ServiceUnavailableException('当前没有可用的新商家图片积分赠送策略');
       }
       const account = await this.ensureAccountTx(tx, input.tenantId, input);
       const existing = await tx.visualCreditLedger.findUnique({ where: { idempotencyKey: grantKey } });
       if (existing) {
         if (existing.accountId !== account.id) {
-          throw new ConflictException('欢迎额度幂等键已被另一个图片额度账户使用');
+          throw new ConflictException('欢迎图片积分幂等键已被另一个图片积分账户使用');
         }
         return this.toAccountResult(account, existing);
       }
@@ -218,7 +218,7 @@ export class VisualCreditService {
           availableBalanceAfter: availableAfter,
           reservedBalanceAfter: account.reservedCredits,
           idempotencyKey: grantKey,
-          reason: '新商家图片额度赠送',
+          reason: '新商家图片积分赠送',
           metadata: {
             policyVersion: policy.policyVersion,
             grantCredits: policy.grantCredits,
@@ -380,7 +380,7 @@ export class VisualCreditService {
         throw new ConflictException('图片美化报价已过期，请重新获取报价');
       }
       if (quote.billingAccount.availableCredits < quote.creditCost) {
-        throw new ConflictException('图片额度不足，请先充值或使用免费分析');
+        throw new ConflictException('图片积分不足，请先充值或使用免费分析');
       }
       const availableAfter = quote.billingAccount.availableCredits - quote.creditCost;
       const reservedAfter = quote.billingAccount.reservedCredits + quote.creditCost;
@@ -402,7 +402,7 @@ export class VisualCreditService {
           availableBalanceAfter: availableAfter,
           reservedBalanceAfter: reservedAfter,
           idempotencyKey: `quote:${quote.id}:reserve`,
-          reason: '商家确认图片美化报价，冻结额度',
+          reason: '商家确认图片美化报价，冻结图片积分',
           metadata: { quoteHash: quote.quoteHash, rateCardSnapshot: quote.rateCardSnapshot } as Prisma.InputJsonValue,
         },
       });
@@ -530,21 +530,21 @@ export class VisualCreditService {
     operatorId: string;
   }) {
     this.assertTenantOwner(input.tenantId, input);
-    this.assertId(input.idempotencyKey, '额度调整幂等键');
-    this.assertId(input.operatorId, '额度调整操作人');
+    this.assertId(input.idempotencyKey, '图片积分调整幂等键');
+    this.assertId(input.operatorId, '图片积分调整操作人');
     if (!Number.isInteger(input.availableDelta) || input.availableDelta === 0 || !input.reason.trim()) {
-      throw new ConflictException('图片额度调整必须给出非零整数额度和原因');
+      throw new ConflictException('图片积分调整必须给出非零整数积分和原因');
     }
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${input.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
       const account = await this.ensureAccountTx(tx, input.tenantId, input);
       const existing = await tx.visualCreditLedger.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
       if (existing) {
-        if (existing.accountId !== account.id) throw new ConflictException('额度调整幂等键已被另一个账户使用');
+        if (existing.accountId !== account.id) throw new ConflictException('图片积分调整幂等键已被另一个账户使用');
         return this.toAccountResult(account, existing);
       }
       const availableAfter = account.availableCredits + input.availableDelta;
-      if (availableAfter < 0) throw new ConflictException('图片额度不足，不能执行本次人工扣减');
+      if (availableAfter < 0) throw new ConflictException('图片积分不足，不能执行本次人工扣减');
       const updated = await tx.visualCreditAccount.update({
         where: { id: account.id },
         data: { availableCredits: availableAfter, version: { increment: 1 } },
@@ -591,7 +591,7 @@ export class VisualCreditService {
       }
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${quote.tenantId}:${quote.billingAccount.billingOwnerType}:${quote.billingAccount.billingOwnerId}`);
       if (quote.billingAccount.reservedCredits < quote.creditCost) {
-        throw new ConflictException('图片额度冻结余额异常，不能自动结算');
+        throw new ConflictException('图片积分冻结余额异常，不能自动结算');
       }
       const availableAfter = action === 'RELEASE'
         ? quote.billingAccount.availableCredits + quote.creditCost
@@ -652,11 +652,11 @@ export class VisualCreditService {
   private assertScope(input: VisualCreditScope) {
     this.assertTenantOwner(input.principal.tenantId, input);
     [input.principal.clientId, input.principal.adapterNamespace, input.externalObjectId, input.actorId]
-      .forEach((value) => this.assertId(value, '图片额度 scope'));
+      .forEach((value) => this.assertId(value, '图片积分 scope'));
   }
 
   private assertTenantOwner(tenantId: string, owner: VisualBillingOwner) {
-    [tenantId, owner.billingOwnerType, owner.billingOwnerId].forEach((value) => this.assertId(value, '图片额度账户标识'));
+    [tenantId, owner.billingOwnerType, owner.billingOwnerId].forEach((value) => this.assertId(value, '图片积分账户标识'));
   }
 
   private assertId(value: string, label: string) {
