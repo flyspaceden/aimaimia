@@ -277,10 +277,22 @@ export class AimaiProductVisualAdapterService {
     productId: string;
     quoteId: string;
   }) {
+    const completed = await this.findTerminalPaidOptimization(input.companyId, input.productId, input.quoteId);
+    if (completed) return this.toTerminalPollResult(input.quoteId, completed);
     const principal = await this.resolveAimaiPrincipal();
     const polled = await this.execution.pollForOutput({ principal, quoteId: input.quoteId });
     if (polled.status !== 'VERIFYING') return polled;
-    const quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
+    let quote;
+    try {
+      quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
+    } catch (error) {
+      // A second browser poll can arrive after the first poll has persisted the
+      // candidate and settled the quote. Return the terminal optimization
+      // instead of misreporting the now-settled quote as invalid.
+      const settled = await this.findTerminalPaidOptimization(input.companyId, input.productId, input.quoteId);
+      if (settled) return this.toTerminalPollResult(input.quoteId, settled);
+      throw error;
+    }
     try {
       const candidate = await this.candidates.persistPendingVerification({
         companyId: input.companyId,
@@ -338,6 +350,35 @@ export class AimaiProductVisualAdapterService {
       await this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
       throw error;
     }
+  }
+
+  private async findTerminalPaidOptimization(companyId: string, productId: string, quoteId: string) {
+    return this.prisma.productImageOptimization.findFirst({
+      where: {
+        companyId,
+        productId,
+        idempotencyKey: `paid-quote:${quoteId}`,
+        status: { in: [
+          ProductImageOptimizationStatus.SUCCEEDED,
+          ProductImageOptimizationStatus.REJECTED,
+          ProductImageOptimizationStatus.ADOPTED,
+        ] },
+      },
+      select: { id: true, status: true },
+    });
+  }
+
+  private toTerminalPollResult(
+    quoteId: string,
+    optimization: { id: string; status: ProductImageOptimizationStatus },
+  ) {
+    return {
+      quoteId,
+      optimizationId: optimization.id,
+      status: optimization.status === ProductImageOptimizationStatus.REJECTED
+        ? 'REJECTED' as const
+        : 'SUCCEEDED' as const,
+    };
   }
 
   private toProviderPlan(

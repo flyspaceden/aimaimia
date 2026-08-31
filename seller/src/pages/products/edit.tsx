@@ -1049,6 +1049,7 @@ function ImageUploadSection({
   const [optimizationPollWarning, setOptimizationPollWarning] = useState<string | null>(null);
   const [factScanPollWarning, setFactScanPollWarning] = useState<string | null>(null);
   const restoredPaidQuoteRef = useRef<string | null>(null);
+  const paidPollInFlightRef = useRef(false);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
 
@@ -1280,6 +1281,8 @@ function ImageUploadSection({
   useEffect(() => {
     if (!productId || !visualQuote || !paidExecution || !['QUEUED', 'RUNNING', 'VERIFYING', 'ALREADY_BOUND'].includes(paidExecution.status)) return;
     const timer = window.setInterval(async () => {
+      if (paidPollInFlightRef.current) return;
+      paidPollInFlightRef.current = true;
       try {
         const next = await pollProductVisualQuote(productId, visualQuote.quote.id);
         setPaidExecution(next);
@@ -1291,6 +1294,8 @@ function ImageUploadSection({
         }
       } catch (error) {
         setPaidPollWarning(error instanceof Error ? error.message : '模型任务状态刷新失败；系统不会重复提交或重复扣费');
+      } finally {
+        paidPollInFlightRef.current = false;
       }
     }, 2000);
     return () => window.clearInterval(timer);

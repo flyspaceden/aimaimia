@@ -1954,6 +1954,7 @@
 - [x] **PVA-Staging-Infra** 测试基础设施：`staging-next@4247b1a9` 已部署 Backend/Admin/Seller，138 个 migration 无待执行项，API/Admin/Seller marker、PM2、数据库与 Redis 正常；密码本中的现有 DashScope Key、默认业务空间和 OCR 哈希 secret 已通过 GitHub staging environment 安全同步到测试后端，备份优先且日志无明文。所有模型总开关/执行开关仍为 `false`，尚未发生真实模型调用或费用。
 - [x] **PVA-UI-ZH** 中文界面修复（本地待推送）：平台后台侧栏与页面改为“商品图片智能美化”，租户/客户端/适配器、预算层级、状态、主体和对账说明使用中文；商家端使用“智能图片美化 / 付费智能精修 / 智能图片任务”。模型型号、API Key、OCR、JSON 和稳定编码仅作为必要技术标识保留。Admin 16/16、Seller 20/20 及两个 production build 通过；尚未 push 或部署本次文案提交。
 - [x] **PVA-UI-CREDIT-NAME** 商家端、平台管理端和用户可见服务错误统一使用“图片积分”作为计费单位；底层 `VisualCredit*` 账本、数据库字段和公共 API 协议保持不变。
+- [x] **PVA-POLL-RACE** 修复真实模型快速完成时的重叠轮询竞态：前端禁止同报价并发轮询，后端对已成功/拒绝/采用的候选幂等返回终态，并覆盖“另一轮询刚结算报价”的窗口。
 
 ## 商品自动定价一致性（2026-08-17）
 

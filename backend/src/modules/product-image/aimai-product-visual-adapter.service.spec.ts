@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductVisualMode, ProductVisualRiskProfile } from '@prisma/client';
+import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile } from '@prisma/client';
 const sharp = require('sharp') as typeof import('sharp').default;
 import {
   AimaiProductVisualAdapterService,
@@ -185,7 +185,8 @@ describe('AimaiProductVisualAdapterService', () => {
   });
 
   it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {
-    const { service, execution, credits, candidates, invocations, localVerification, ocrVerification, upload } = build();
+    const { service, prisma, execution, credits, candidates, invocations, localVerification, ocrVerification, upload } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
     execution.pollForOutput.mockResolvedValue({
       quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
     });
@@ -209,5 +210,31 @@ describe('AimaiProductVisualAdapterService', () => {
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
       .rejects.toThrow('storage failed');
     expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+  });
+
+  it('returns an already completed paid candidate without polling or touching the settled quote', async () => {
+    const { service, prisma, execution, credits } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue({ id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED });
+
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .resolves.toEqual({ quoteId: 'quote-1', optimizationId: 'optimization-1', status: 'SUCCEEDED' });
+    expect(execution.pollForOutput).not.toHaveBeenCalled();
+    expect(credits.getReservedQuoteForExecution).not.toHaveBeenCalled();
+  });
+
+  it('recovers when another overlapping poll settles the quote before this poll reads it', async () => {
+    const { service, prisma, execution, credits } = build();
+    prisma.productImageOptimization.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED });
+    execution.pollForOutput.mockResolvedValue({
+      quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING',
+      output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
+    });
+    credits.getReservedQuoteForExecution.mockRejectedValue(new ConflictException('图片美化报价未冻结、已过期或不属于当前接入系统'));
+
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .resolves.toEqual({ quoteId: 'quote-1', optimizationId: 'optimization-1', status: 'SUCCEEDED' });
+    expect(credits.markReconciliation).not.toHaveBeenCalled();
   });
 });

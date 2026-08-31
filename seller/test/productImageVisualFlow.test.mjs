@@ -63,6 +63,7 @@ test('ordinary product save never resubmits unchanged public media and redirects
 
 test('confirmed paid tasks survive page navigation without a second freeze or Provider submission', () => {
   assert.match(editPage, /ai-visual-agent:active-quote:/);
+  assert.match(editPage, /paidPollInFlightRef/);
   assert.match(editPage, /getProductVisualQuote\(productId, quoteId\)/);
   assert.match(editPage, /已有已确认的智能图片任务，系统正在恢复原任务/);
   assert.match(editPage, /ALREADY_BOUND/);
