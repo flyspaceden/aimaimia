@@ -36,6 +36,7 @@ export type VerifiedVisualPlanForQuote = {
   riskProfile: string;
   protectedRegionVersion: string;
   allowedOperations: string[];
+  presentationPreset?: string;
 };
 
 /**
@@ -286,6 +287,9 @@ export class VisualCreditService {
       if (!rateCard.allowedDirections.includes(input.visualPlan.direction)
         || !rateCard.allowedRiskProfiles.includes(input.visualPlan.riskProfile)) {
         throw new ConflictException('该图片风险档不允许使用所选美化报价');
+      }
+      if ((input.visualPlan.direction === 'MARKETING_SCENE') !== (rateCard.candidateRole === 'MARKETING_IMAGE')) {
+        throw new ConflictException('营销场景只能使用营销展示图报价，且不能作为事实主图');
       }
       const snapshot = {
         code: rateCard.code,

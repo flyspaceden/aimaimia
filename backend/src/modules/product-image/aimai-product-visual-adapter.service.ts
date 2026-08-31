@@ -72,7 +72,7 @@ export class AimaiProductVisualAdapterService {
       }),
     ]);
     if (!plan) throw new ConflictException('图片美化计划已过期、已变更或不属于当前商品图片');
-    if (!plan.allowedModes.includes(input.direction) || input.direction === ProductVisualMode.MARKETING_SCENE) {
+    if (!plan.allowedModes.includes(input.direction)) {
       throw new ConflictException('当前商品风险档不允许使用所选图片美化方向');
     }
     const [source, product] = await Promise.all([
@@ -111,6 +111,7 @@ export class AimaiProductVisualAdapterService {
         riskProfile: providerPlan.riskProfile,
         protectedRegionVersion: providerPlan.protectedRegionVersion,
         allowedOperations: [...providerPlan.allowedOperations],
+        presentationPreset: providerPlan.presentationPreset,
       },
       idempotencyKey: input.idempotencyKey,
       expiresAt: new Date(Date.now() + QUOTE_TTL_MS),
@@ -226,7 +227,7 @@ export class AimaiProductVisualAdapterService {
         select: { riskProfile: true, allowedModes: true },
       }),
     ]);
-    if (!plan || !plan.allowedModes.includes(input.direction) || input.direction === ProductVisualMode.MARKETING_SCENE) {
+    if (!plan || !plan.allowedModes.includes(input.direction)) {
       throw new ConflictException('当前图片计划不允许查看该美化方向的报价');
     }
     const attached = await this.prisma.product.findFirst({
@@ -244,7 +245,10 @@ export class AimaiProductVisualAdapterService {
         && card.candidateCount === 1
         && EXECUTABLE_RATE_MODELS.has(card.modelProfile)
         && card.allowedDirections.includes(input.direction)
-        && card.allowedRiskProfiles.includes(plan.riskProfile))
+        && card.allowedRiskProfiles.includes(plan.riskProfile)
+        && (input.direction === ProductVisualMode.MARKETING_SCENE
+          ? card.candidateRole === 'MARKETING_IMAGE'
+          : card.candidateRole !== 'MARKETING_IMAGE'))
       .map((card) => ({
         code: card.code,
         displayName: card.displayName,
@@ -253,6 +257,7 @@ export class AimaiProductVisualAdapterService {
         candidateCount: card.candidateCount,
         creditCost: card.creditCost,
         requiresHumanReview: card.requiresHumanReview,
+        candidateRole: card.candidateRole,
       }));
   }
 
@@ -386,17 +391,21 @@ export class AimaiProductVisualAdapterService {
     direction: ProductVisualMode,
     protectedRegionVersion: string,
   ): VisualProviderServerPlan {
-    if (riskProfile === ProductVisualRiskProfile.RETAKE_REQUIRED || riskProfile === ProductVisualRiskProfile.MARKETING_ONLY) {
+    if (riskProfile === ProductVisualRiskProfile.RETAKE_REQUIRED
+      || (riskProfile === ProductVisualRiskProfile.MARKETING_ONLY && direction !== ProductVisualMode.MARKETING_SCENE)) {
       throw new ConflictException('当前图片风险档不能生成可付费的商品主图候选');
     }
     const operations = this.allowedOperations(riskProfile, direction);
     if (operations.length === 0) throw new ConflictException('当前风险档没有可安全执行的图片美化操作');
     return {
-      templateVersion: 'truth-preserving-v1',
+      templateVersion: direction === ProductVisualMode.MARKETING_SCENE ? 'marketing-restage-v1' : 'truth-preserving-v1',
       direction,
       riskProfile,
       allowedOperations: operations,
-      protectedRegionVersion,
+      protectedRegionVersion: direction === ProductVisualMode.MARKETING_SCENE ? 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE' : protectedRegionVersion,
+      ...(direction === ProductVisualMode.MARKETING_SCENE ? {
+        presentationPreset: riskProfile === ProductVisualRiskProfile.ORGANIC_FACTS ? 'HARVEST_PLATE' as const : 'LIFESTYLE_TABLETOP' as const,
+      } : {}),
     };
   }
 
@@ -425,6 +434,8 @@ export class AimaiProductVisualAdapterService {
         ? ['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY']
         : direction === ProductVisualMode.CATALOG_STUDIO
           ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY']
+          : direction === ProductVisualMode.MARKETING_SCENE
+            ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE']
           : [];
     }
     return direction === ProductVisualMode.PRESERVE_REAL_SCENE
@@ -433,6 +444,8 @@ export class AimaiProductVisualAdapterService {
         ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE']
         : direction === ProductVisualMode.PRODUCT_RETOUCH
           ? ['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'DEGLARE', 'COMPOSITION']
+          : direction === ProductVisualMode.MARKETING_SCENE
+            ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE']
           : [];
   }
 
@@ -442,6 +455,7 @@ export class AimaiProductVisualAdapterService {
       riskProfile: plan.riskProfile,
       allowedOperations: plan.allowedOperations,
       protectedRegionVersion: plan.protectedRegionVersion,
+      presentationPreset: plan.presentationPreset,
     };
   }
 
@@ -469,19 +483,27 @@ export class AimaiProductVisualAdapterService {
       riskProfile?: unknown;
       protectedRegionVersion?: string;
       allowedOperations?: unknown;
+      presentationPreset?: unknown;
     };
+    const presentationPreset = value?.presentationPreset === 'HARVEST_PLATE'
+      || value?.presentationPreset === 'HANDHELD_HARVEST'
+      || value?.presentationPreset === 'LIFESTYLE_TABLETOP'
+      ? value.presentationPreset
+      : null;
     if (!value || typeof value !== 'object' || !value.direction || !value.riskProfile
       || !value.protectedRegionVersion || !Array.isArray(value.allowedOperations)
       || !this.isProviderDirection(value.direction) || !this.isProviderRiskProfile(value.riskProfile)
-      || value.allowedOperations.some((operation) => !this.isProviderOperation(operation))) {
+      || value.allowedOperations.some((operation) => !this.isProviderOperation(operation))
+      || (value.direction === ProductVisualMode.MARKETING_SCENE && !presentationPreset)) {
       throw new ConflictException('图片美化报价的视觉计划快照无效');
     }
     return {
-      templateVersion: 'truth-preserving-v1',
+      templateVersion: value.direction === ProductVisualMode.MARKETING_SCENE ? 'marketing-restage-v1' : 'truth-preserving-v1',
       direction: value.direction,
       riskProfile: value.riskProfile,
       allowedOperations: value.allowedOperations,
       protectedRegionVersion: value.protectedRegionVersion,
+      ...(value.direction === ProductVisualMode.MARKETING_SCENE ? { presentationPreset: presentationPreset! } : {}),
     };
   }
 
@@ -503,7 +525,7 @@ export class AimaiProductVisualAdapterService {
   private isProviderOperation(value: unknown): value is VisualProviderAllowedOperation {
     return value === 'LIGHTING' || value === 'WHITE_BALANCE' || value === 'DENOISE'
       || value === 'DEGLARE' || value === 'COMPOSITION' || value === 'BACKGROUND_SIMPLIFY'
-      || value === 'BACKGROUND_REPLACE';
+      || value === 'BACKGROUND_REPLACE' || value === 'SCENE_RESTAGE';
   }
 
   private async resolveAimaiPrincipal() {

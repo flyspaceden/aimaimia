@@ -83,6 +83,25 @@ describe('BailianWanImageProvider', () => {
     expect(JSON.stringify(request.body)).not.toContain('safe prompt');
   });
 
+  it('uses the fixed harvest-plate marketing template without accepting caller prompt text', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'wan-marketing-1', task_status: 'PENDING' }, request_id: 'request-marketing-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'marketing-restage-v1', direction: 'MARKETING_SCENE', riskProfile: 'ORGANIC_FACTS',
+      allowedOperations: ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE'],
+      protectedRegionVersion: 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE', presentationPreset: 'HARVEST_PLATE',
+    } }));
+
+    const request = (global.fetch as jest.Mock).mock.calls[0][1];
+    const body = JSON.stringify(request.body);
+    expect(body).toContain('white ceramic plate');
+    expect(body).toContain('must not imply package quantity or weight');
+    expect(body).toContain('not a factual main image');
+  });
+
   it('marks a submit transport failure as unknown and never as a retryable reject', async () => {
     global.fetch = jest.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')) as any;
     const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);

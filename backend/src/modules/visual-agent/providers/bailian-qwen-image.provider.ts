@@ -236,11 +236,28 @@ export class BailianQwenImageProvider implements VisualImageEditProvider {
   }
 
   private renderFixedPrompt(plan: VisualProviderServerPlan) {
-    if (plan.templateVersion !== 'truth-preserving-v1' || plan.allowedOperations.length === 0) {
+    if (!['truth-preserving-v1', 'marketing-restage-v1'].includes(plan.templateVersion) || plan.allowedOperations.length === 0) {
       throw new ServiceUnavailableException('视觉计划不是已批准的服务端模板');
     }
-    const allowed = new Set(['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'DEGLARE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE']);
+    const allowed = new Set(['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'DEGLARE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE']);
     if (plan.allowedOperations.some((operation) => !allowed.has(operation))) throw new ServiceUnavailableException('视觉计划包含未批准的操作');
+    if (plan.templateVersion === 'marketing-restage-v1') {
+      if (plan.direction !== 'MARKETING_SCENE' || !plan.allowedOperations.includes('SCENE_RESTAGE') || !plan.presentationPreset) {
+        throw new ServiceUnavailableException('营销场景计划缺少受控摆拍模板');
+      }
+      const preset = {
+        HARVEST_PLATE: 'Show the same produce as freshly harvested and elegantly arranged on a refined white ceramic plate on a clean wooden kitchen table, with soft natural daylight and a subtle farm-fresh atmosphere. Remove the vine setting; stems may be naturally trimmed. The exact display count is illustrative and must not imply package quantity or weight.',
+        HANDHELD_HARVEST: 'Show the same produce freshly harvested and gently held in two clean hands in soft greenhouse daylight. The exact display count is illustrative and must not imply package quantity or weight.',
+        LIFESTYLE_TABLETOP: 'Restage the same product as a clearly secondary lifestyle tabletop marketing image with soft natural commercial light and a tasteful uncluttered setting.',
+      }[plan.presentationPreset];
+      if (!preset) throw new ServiceUnavailableException('营销场景摆拍模板未获批准');
+      return [
+        'Create one photorealistic secondary AIGC marketing image from the supplied product photo.', preset,
+        'Preserve product identity, variety, ripeness range, characteristic shape, surface texture, and natural color. Do not turn it into another product or exaggerate freshness.',
+        'Do not add labels, text, watermark, border, collage, price, certificate, promotion, packaging claim, or extra product category.',
+        'This is not a factual main image and must remain a marketing presentation. Return one image only.',
+      ].join(' ');
+    }
     const direction = {
       PRESERVE_REAL_SCENE: 'Keep the authentic real-life setting and improve only light, color balance, clarity, glare, and minor non-product distractions.',
       CATALOG_STUDIO: 'Create a clean neutral catalog presentation while preserving the exact product, packaging, labels, count, and proportions.',

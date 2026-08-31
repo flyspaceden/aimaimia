@@ -10,7 +10,8 @@ export type VisualProviderTaskState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAIL
 export type VisualProviderModel = 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro';
 export type VisualProviderDirection = 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' | 'MARKETING_SCENE';
 export type VisualProviderRiskProfile = 'STRICT_FACTS' | 'CONSERVATIVE_FACTS' | 'STANDARD_FACTS' | 'ORGANIC_FACTS' | 'MARKETING_ONLY';
-export type VisualProviderAllowedOperation = 'LIGHTING' | 'WHITE_BALANCE' | 'DENOISE' | 'DEGLARE' | 'COMPOSITION' | 'BACKGROUND_SIMPLIFY' | 'BACKGROUND_REPLACE';
+export type VisualProviderAllowedOperation = 'LIGHTING' | 'WHITE_BALANCE' | 'DENOISE' | 'DEGLARE' | 'COMPOSITION' | 'BACKGROUND_SIMPLIFY' | 'BACKGROUND_REPLACE' | 'SCENE_RESTAGE';
+export type VisualProviderPresentationPreset = 'HARVEST_PLATE' | 'HANDHELD_HARVEST' | 'LIFESTYLE_TABLETOP';
 
 /** A Core-normalized, non-transparent image. The provider revalidates it. */
 export type VisualProviderSource = {
@@ -25,11 +26,12 @@ export type VisualProviderSource = {
  * absent: each provider owns a reviewed fixed template for this plan shape.
  */
 export type VisualProviderServerPlan = {
-  templateVersion: 'truth-preserving-v1';
+  templateVersion: 'truth-preserving-v1' | 'marketing-restage-v1';
   direction: VisualProviderDirection;
   riskProfile: VisualProviderRiskProfile;
   allowedOperations: readonly VisualProviderAllowedOperation[];
   protectedRegionVersion: string;
+  presentationPreset?: VisualProviderPresentationPreset;
 };
 
 /** Evidence that the Core has already persisted all scope budget reservations. */

@@ -42,7 +42,7 @@ function build() {
     markReconciliation: jest.fn(),
     listRateCards: jest.fn().mockResolvedValue([{
       code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
-      modelProfile: 'BAILIAN_WAN_STANDARD', candidateCount: 1, creditCost: 15, requiresHumanReview: true, status: 'ACTIVE',
+      modelProfile: 'BAILIAN_WAN_STANDARD', candidateCount: 1, creditCost: 15, requiresHumanReview: true, status: 'ACTIVE', candidateRole: 'FACT_MAIN_IMAGE',
       allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
     }]),
     getQuoteForClient: jest.fn().mockResolvedValue({
@@ -98,13 +98,38 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
   });
 
+  it('offers an organic harvest restage only through a marketing-image rate card', async () => {
+    const { service, prisma, credits, trusted } = build();
+    prisma.productVisualPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.ORGANIC_FACTS,
+      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE],
+      protectedRegionVersion: 'mask-v1',
+    });
+    credits.listRateCards.mockResolvedValue([{
+      code: 'HARVEST_PLATE_PRO', displayName: '采摘摆盘营销图', description: '陶瓷盘自然光', outputSpec: { size: '1K' },
+      modelProfile: 'BAILIAN_WAN_PRO', candidateCount: 1, creditCost: 10, requiresHumanReview: true, status: 'ACTIVE',
+      candidateRole: 'MARKETING_IMAGE', allowedDirections: ['MARKETING_SCENE'], allowedRiskProfiles: ['ORGANIC_FACTS'],
+    }]);
+
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.MARKETING_SCENE,
+    })).resolves.toEqual([expect.objectContaining({ code: 'HARVEST_PLATE_PRO', candidateRole: 'MARKETING_IMAGE' })]);
+    await service.issueQuote({ ...input, direction: ProductVisualMode.MARKETING_SCENE, rateCode: 'HARVEST_PLATE_PRO' });
+    expect(trusted.issueQuoteFromTrustedAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      visualPlan: expect.objectContaining({
+        direction: 'MARKETING_SCENE', riskProfile: 'ORGANIC_FACTS', presentationPreset: 'HARVEST_PLATE',
+        allowedOperations: expect.arrayContaining(['SCENE_RESTAGE']),
+      }),
+    }));
+  });
+
   it('lists only active rate cards compatible with the current product plan and owner scope', async () => {
     const { service, credits } = build();
     await expect(service.listEligibleRateCards({
       companyId: 'company-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
     })).resolves.toEqual([{
       code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
-      candidateCount: 1, creditCost: 15, requiresHumanReview: true,
+      candidateCount: 1, creditCost: 15, requiresHumanReview: true, candidateRole: 'FACT_MAIN_IMAGE',
     }]);
     expect(credits.listRateCards).toHaveBeenCalledWith({ tenantId: 'aimai-product-agent', clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product' });
   });

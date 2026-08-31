@@ -19,7 +19,7 @@ const SAFE_ID = /^[A-Za-z0-9._:/-]{1,200}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const DIRECTIONS = new Set<VisualProviderDirection>(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE']);
 const RISKS = new Set<VisualProviderRiskProfile>(['STRICT_FACTS', 'CONSERVATIVE_FACTS', 'STANDARD_FACTS', 'ORGANIC_FACTS', 'MARKETING_ONLY']);
-const OPERATIONS = new Set<VisualProviderAllowedOperation>(['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'DEGLARE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE']);
+const OPERATIONS = new Set<VisualProviderAllowedOperation>(['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'DEGLARE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE']);
 
 export type AdapterEvidenceEnvelope = {
   version: 'adapter-evidence-v1';
@@ -126,12 +126,14 @@ export class VisualAgentPublicService {
       ? this.assertDirection(input.requestedDirection)
       : this.recommendedDirection(evidence.allowedDirections);
     if (!evidence.allowedDirections.includes(direction)) throw new ConflictException('该视觉源证据不允许所选图片美化方向');
+    const marketing = direction === 'MARKETING_SCENE';
     const providerPlan: VisualProviderServerPlan = {
-      templateVersion: 'truth-preserving-v1',
+      templateVersion: marketing ? 'marketing-restage-v1' : 'truth-preserving-v1',
       direction,
       riskProfile: evidence.riskProfile,
       allowedOperations: evidence.allowedOperations,
-      protectedRegionVersion: evidence.protectedRegionVersion,
+      protectedRegionVersion: marketing ? 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE' : evidence.protectedRegionVersion,
+      ...(marketing ? { presentationPreset: evidence.riskProfile === 'ORGANIC_FACTS' ? 'HARVEST_PLATE' : 'LIFESTYLE_TABLETOP' } : {}),
     };
     const planHash = visualPlanSha256(providerPlan);
     const now = new Date();
@@ -453,24 +455,32 @@ export class VisualAgentPublicService {
 
   private providerPlanFromPlan(plan: { recommendedDirection: string | null; riskProfile: string; allowedOperations: string[]; protectedRegionVersion: string }): VisualProviderServerPlan {
     if (!plan.recommendedDirection) throw new ConflictException('图片计划没有可执行方向');
+    const direction = this.assertDirection(plan.recommendedDirection);
+    const riskProfile = this.assertRisk(plan.riskProfile);
+    const marketing = direction === 'MARKETING_SCENE';
     return {
-      templateVersion: 'truth-preserving-v1',
-      direction: this.assertDirection(plan.recommendedDirection),
-      riskProfile: this.assertRisk(plan.riskProfile),
+      templateVersion: marketing ? 'marketing-restage-v1' : 'truth-preserving-v1',
+      direction,
+      riskProfile,
       allowedOperations: plan.allowedOperations.map((value) => this.assertOperation(value)),
-      protectedRegionVersion: this.assertId(plan.protectedRegionVersion, '保护区域版本'),
+      protectedRegionVersion: marketing ? 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE' : this.assertId(plan.protectedRegionVersion, '保护区域版本'),
+      ...(marketing ? { presentationPreset: riskProfile === 'ORGANIC_FACTS' ? 'HARVEST_PLATE' : 'LIFESTYLE_TABLETOP' } : {}),
     };
   }
 
   private planHashFromQuoteSnapshot(snapshot: unknown) {
-    const value = snapshot as { direction?: unknown; riskProfile?: unknown; allowedOperations?: unknown; protectedRegionVersion?: unknown } | null;
+    const value = snapshot as { direction?: unknown; riskProfile?: unknown; allowedOperations?: unknown; protectedRegionVersion?: unknown; presentationPreset?: unknown } | null;
     if (!value || !Array.isArray(value.allowedOperations)) throw new ConflictException('报价缺少可验证的视觉计划快照');
+    const direction = this.assertDirection(value.direction);
+    const riskProfile = this.assertRisk(value.riskProfile);
+    const marketing = direction === 'MARKETING_SCENE';
     return visualPlanSha256({
-      templateVersion: 'truth-preserving-v1',
-      direction: this.assertDirection(value.direction),
-      riskProfile: this.assertRisk(value.riskProfile),
+      templateVersion: marketing ? 'marketing-restage-v1' : 'truth-preserving-v1',
+      direction,
+      riskProfile,
       allowedOperations: this.assertOperations(value.allowedOperations),
       protectedRegionVersion: this.assertId(value.protectedRegionVersion, '保护区域版本'),
+      ...(marketing ? { presentationPreset: riskProfile === 'ORGANIC_FACTS' ? 'HARVEST_PLATE' : 'LIFESTYLE_TABLETOP' } : {}),
     });
   }
 

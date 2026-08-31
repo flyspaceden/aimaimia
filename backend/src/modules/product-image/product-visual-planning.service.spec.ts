@@ -39,7 +39,7 @@ describe('ProductVisualPlanningService', () => {
     expect(result).toMatchObject({
       riskProfile: ProductVisualRiskProfile.ORGANIC_FACTS,
       recommendedMode: ProductVisualMode.PRESERVE_REAL_SCENE,
-      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO],
+      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE],
       sourceHash: 'sha-1',
       protectedRegionVersion: 'NOT_CREATED',
       processingPlan: expect.objectContaining({ requiresModel: false }),
@@ -59,6 +59,20 @@ describe('ProductVisualPlanningService', () => {
     expect(second.id).toBe('plan-1');
     expect((prisma as any).$transaction).toHaveBeenCalledTimes(2);
     expect(prisma.productVisualPlan.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows an organic product to request a secondary marketing scene without changing the default recommendation', async () => {
+    const { service } = build();
+
+    const result = await service.createPlan('company-1', 'staff-1', 'product-1', {
+      sourceAssetId: 'asset-1', requestedMode: ProductVisualMode.MARKETING_SCENE,
+    });
+
+    expect(result).toMatchObject({
+      riskProfile: ProductVisualRiskProfile.ORGANIC_FACTS,
+      recommendedMode: ProductVisualMode.MARKETING_SCENE,
+      allowedModes: expect.arrayContaining([ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.MARKETING_SCENE]),
+    });
   });
 
   it('does not allow a requested product retouch for QR/packaging strict images', async () => {

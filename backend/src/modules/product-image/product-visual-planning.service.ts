@@ -150,8 +150,9 @@ export class ProductVisualPlanningService {
       case ProductVisualRiskProfile.RETAKE_REQUIRED:
         return [];
       case ProductVisualRiskProfile.STRICT_FACTS:
-      case ProductVisualRiskProfile.ORGANIC_FACTS:
         return [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO];
+      case ProductVisualRiskProfile.ORGANIC_FACTS:
+        return [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE];
       case ProductVisualRiskProfile.CONSERVATIVE_FACTS:
         return [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.PRODUCT_RETOUCH];
       case ProductVisualRiskProfile.MARKETING_ONLY:

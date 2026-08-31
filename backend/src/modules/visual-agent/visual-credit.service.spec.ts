@@ -225,6 +225,30 @@ describe('VisualCreditService', () => {
     expect(tx.visualCreditQuote.create).not.toHaveBeenCalled();
   });
 
+  it('requires marketing scenes and marketing-image rate cards to match in both directions', async () => {
+    const marketingPlan = {
+      direction: 'MARKETING_SCENE', riskProfile: 'ORGANIC_FACTS', protectedRegionVersion: 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE',
+      allowedOperations: ['LIGHTING', 'SCENE_RESTAGE'], presentationPreset: 'HARVEST_PLATE',
+    };
+    const first = build();
+    first.tx.visualRateCard.findFirst.mockResolvedValue(rateCard({
+      allowedDirections: ['MARKETING_SCENE'], allowedRiskProfiles: ['ORGANIC_FACTS'], candidateRole: 'FACT_MAIN_IMAGE',
+    }));
+    await expect(first.service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'MARKETING_WRONG_ROLE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan: marketingPlan,
+      idempotencyKey: 'quote-marketing-wrong-role', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('营销场景只能使用营销展示图报价');
+
+    const second = build();
+    second.tx.visualRateCard.findFirst.mockResolvedValue(rateCard({ candidateRole: 'MARKETING_IMAGE' }));
+    await expect(second.service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'FACT_WRONG_ROLE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash, visualPlan,
+      idempotencyKey: 'quote-fact-wrong-role', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('营销场景只能使用营销展示图报价');
+  });
+
   it('reserves a confirmed quote exactly once and moves credits from available to reserved', async () => {
     const { service, tx } = build();
     tx.visualCreditQuote.findFirst.mockResolvedValue(quote());
