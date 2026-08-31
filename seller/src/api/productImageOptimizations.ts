@@ -7,6 +7,8 @@ export type ProductImageOptimizationTask = {
   productId?: string | null;
   failureCode?: string | null;
   failureDetail?: string | null;
+  candidateRole?: 'FACT_MAIN_IMAGE' | 'DETAIL_IMAGE' | 'MARKETING_IMAGE' | null;
+  adoptionAllowed?: boolean;
   pendingReview?: {
     id: string;
     status: 'PENDING_REVIEW';

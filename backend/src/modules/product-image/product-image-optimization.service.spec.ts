@@ -456,6 +456,23 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     expect(prisma.product.findFirst).not.toHaveBeenCalled();
   });
 
+  it('keeps a marketing-scene candidate preview-only and never publishes it as a fact image', async () => {
+    const task = {
+      id: 'task-1', companyId: 'company-1', productId: 'product-1', status: ProductImageOptimizationStatus.SUCCEEDED,
+      processingContract: { rateCard: { candidateRole: 'MARKETING_IMAGE' } }, artifacts: [],
+    };
+    const prisma = {
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue(task) },
+      product: { findFirst: jest.fn() },
+    };
+    const service = new ProductImageOptimizationService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+
+    await expect(service.adopt('company-1', 'staff-1', 'task-1', {
+      productId: 'product-1', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true,
+    })).rejects.toThrow('AI 营销场景图目前仅供预览');
+    expect(prisma.product.findFirst).not.toHaveBeenCalled();
+  });
+
   it('uses the immediate-publication history path if the product becomes active during adoption', async () => {
     const candidate = { id: 'candidate-asset', status: 'CANDIDATE', objectKey: 'seller-product-assets/candidate.png' };
     const sourceAsset = { id: 'source-asset', status: 'AVAILABLE', objectKey: 'seller-product-assets/source.webp' };

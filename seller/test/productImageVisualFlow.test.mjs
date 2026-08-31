@@ -39,7 +39,11 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片积分/);
   assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片积分生成/);
   assert.match(editPage, /原图片美化计划已过期，系统已自动刷新并生成新报价/);
-  assert.match(editPage, /createQuote\(refreshedPlan\)/);
+  assert.match(editPage, /createQuote\(refreshedPlan, selectedDirection\)/);
+  assert.match(editPage, /AI 营销场景图仅供预览/);
+  assert.match(editPage, /展示数量不代表包装规格/);
+  assert.match(editPage, /candidateRole === 'MARKETING_IMAGE'/);
+  assert.match(editPage, /当前不能采用或替换商品公开图片/);
   assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);

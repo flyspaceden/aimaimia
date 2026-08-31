@@ -64,6 +64,7 @@ import {
   type ProductVisualQuoteStatus,
   type ProductVisualRateCard,
   type ProductVisualPlan,
+  type ProductVisualMode,
 } from '@/api/productImageVisualPlans';
 import dayjs from 'dayjs';
 import type { Product, ProductBundleItem, ProductType } from '@/types';
@@ -125,7 +126,8 @@ const visualModeLabels: Record<string, string> = {
   MARKETING_SCENE: '营销展示图',
 };
 
-function optimizationTitle(kind?: ProductImageOptimizationTask['kind']) {
+function optimizationTitle(kind?: ProductImageOptimizationTask['kind'], candidateRole?: ProductImageOptimizationTask['candidateRole']) {
+  if (candidateRole === 'MARKETING_IMAGE') return 'AI 营销场景候选（仅预览）';
   return kind === 'FREE_TUNE' ? '实景优化候选' : '真实白底候选';
 }
 
@@ -1035,6 +1037,7 @@ function ImageUploadSection({
   const [adopting, setAdopting] = useState(false);
   const [truthChecks, setTruthChecks] = useState({ quantity: false, labels: false, facts: false });
   const [visualPlan, setVisualPlan] = useState<ProductVisualPlan | null>(null);
+  const [selectedPaidDirection, setSelectedPaidDirection] = useState<ProductVisualMode | null>(null);
   const [visualPlanSource, setVisualPlanSource] = useState<{ asset: UploadedProductImageAsset; url: string; name: string } | null>(null);
   const [visualPlanSubmitting, setVisualPlanSubmitting] = useState(false);
   const [factScan, setFactScan] = useState<ProductImageFactScan | null>(null);
@@ -1131,7 +1134,9 @@ function ImageUploadSection({
     setPaidPollWarning(null);
     setFactScanPollWarning(null);
     try {
-      setVisualPlan(await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id }));
+      const plan = await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id });
+      setVisualPlan(plan);
+      setSelectedPaidDirection(plan.recommendedMode);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '生成图片美化建议失败');
       setVisualPlanSource(null);
@@ -1179,11 +1184,10 @@ function ImageUploadSection({
     }
   };
 
-  const paidDirection = (plan: ProductVisualPlan | null = visualPlan): 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' => {
-    if (plan?.recommendedMode === 'CATALOG_STUDIO' || plan?.recommendedMode === 'PRODUCT_RETOUCH') {
-      return plan.recommendedMode;
-    }
-    return 'PRESERVE_REAL_SCENE';
+  const paidDirection = (plan: ProductVisualPlan | null = visualPlan): ProductVisualMode => {
+    if (selectedPaidDirection && plan?.allowedModes.includes(selectedPaidDirection)) return selectedPaidDirection;
+    if (plan?.recommendedMode && plan.allowedModes.includes(plan.recommendedMode)) return plan.recommendedMode;
+    return plan?.allowedModes[0] ?? 'PRESERVE_REAL_SCENE';
   };
 
   const loadPaidRateCards = async () => {
@@ -1206,24 +1210,27 @@ function ImageUploadSection({
     if (!productId || !visualPlan || !visualPlanSource) return;
     setQuoteSubmitting(true);
     try {
-      const createQuote = (plan: ProductVisualPlan) => issueProductVisualQuote(productId, {
+      const selectedDirection = paidDirection();
+      const createQuote = (plan: ProductVisualPlan, direction: ProductVisualMode) => issueProductVisualQuote(productId, {
         sourceAssetId: visualPlanSource.asset.asset.id,
         planId: plan.id,
-        direction: paidDirection(plan),
+        direction,
         rateCode: rateCard.code,
         idempotencyKey: crypto.randomUUID(),
       });
       let result;
       try {
-        result = await createQuote(visualPlan);
+        result = await createQuote(visualPlan, selectedDirection);
       } catch (error) {
         if (!(error instanceof Error) || !error.message.includes('图片美化计划已过期')) throw error;
         const refreshedPlan = await requestProductVisualPlan(productId, {
           sourceAssetId: visualPlanSource.asset.asset.id,
+          requestedMode: selectedDirection,
         });
         setVisualPlan(refreshedPlan);
+        setSelectedPaidDirection(selectedDirection);
         setRateCards(null);
-        result = await createQuote(refreshedPlan);
+        result = await createQuote(refreshedPlan, selectedDirection);
         message.info('原图片美化计划已过期，系统已自动刷新并生成新报价');
       }
       setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits });
@@ -1431,7 +1438,9 @@ function ImageUploadSection({
     && factScan?.sourceAssetId === visualPlan.sourceAssetId
     && factScan.freeTuneEligible === true;
   const risk = visualPlan ? visualRiskLabels[visualPlan.riskProfile] : null;
-  const candidateTitle = optimizationTitle(optimizationTask?.kind);
+  const candidateTitle = optimizationTitle(optimizationTask?.kind, optimizationTask?.candidateRole);
+  const marketingPreviewOnly = optimizationTask?.candidateRole === 'MARKETING_IMAGE' || optimizationTask?.adoptionAllowed === false;
+  const candidateCanBeAdopted = optimizationTask?.status === 'SUCCEEDED' && !marketingPreviewOnly;
   const paidPresentation = paidExecution ? paidExecutionPresentation(paidExecution) : null;
 
   return (
@@ -1639,6 +1648,23 @@ function ImageUploadSection({
               <Card size="small" title="付费智能精修" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                   <Text type="secondary">方案、候选数和图片积分均由平台按当前风险档返回。确认后才冻结图片积分；模型未接受时自动释放，结果未知时进入对账。</Text>
+                  <Space wrap>
+                    <Text strong>生成方向</Text>
+                    <Select
+                      value={paidDirection()}
+                      style={{ minWidth: 200 }}
+                      disabled={Boolean(paidExecution)}
+                      options={visualPlan.allowedModes.map((mode) => ({ value: mode, label: visualModeLabels[mode] || mode }))}
+                      onChange={(mode: ProductVisualMode) => {
+                        setSelectedPaidDirection(mode);
+                        setRateCards(null);
+                        setVisualQuote(null);
+                        setQuoteConfirmed(false);
+                        setPaidPollWarning(null);
+                      }}
+                    />
+                  </Space>
+                  {paidDirection() === 'MARKETING_SCENE' && <Alert type="warning" showIcon message="AI 营销场景图仅供预览" description="系统会按受控模板重新布置展示场景，例如把采摘后的农产品放入陶瓷盘。展示数量不代表包装规格，候选不能替换商品事实主图。" />}
                   {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与图片积分</Button>}
                   {rateCards && rateCards.length === 0 && <Alert type="info" showIcon message="当前没有可用的付费方案" description="平台尚未为这类图片配置可执行模型。" />}
                   {rateCards && rateCards.length > 0 && !visualQuote && (
@@ -1675,7 +1701,7 @@ function ImageUploadSection({
               </Card>
             )}
 
-            {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && visualPlan.riskProfile !== 'STANDARD_FACTS' && (
+            {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && visualPlan.riskProfile !== 'STANDARD_FACTS' && paidDirection() !== 'MARKETING_SCENE' && (
               <Text type="secondary" style={{ fontSize: 12 }}>
                 当前风险档只提供建议。涉及包装、型号、条码或天然食材的图片，不会以“美化”为名改动商品事实。
               </Text>
@@ -1693,13 +1719,13 @@ function ImageUploadSection({
             setOptimizationSource(null);
           }
         }}
-        okText={optimizationTask?.status === 'SUCCEEDED' ? '确认采用候选' : '关闭'}
+        okText={candidateCanBeAdopted ? '确认采用候选' : '关闭'}
         cancelText="返回图片"
         okButtonProps={{
           loading: adopting,
-          disabled: optimizationTask?.status === 'SUCCEEDED' && (!truthChecks.quantity || !truthChecks.labels || !truthChecks.facts),
+          disabled: candidateCanBeAdopted && (!truthChecks.quantity || !truthChecks.labels || !truthChecks.facts),
         }}
-        onOk={optimizationTask?.status === 'SUCCEEDED' ? adoptOptimization : () => {
+        onOk={candidateCanBeAdopted ? adoptOptimization : () => {
           setOptimizationTask(null);
           setOptimizationSource(null);
         }}
@@ -1714,6 +1740,7 @@ function ImageUploadSection({
             {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message={`这张图片暂不能安全${optimizationTask.kind === 'FREE_TUNE' ? '进行实景优化' : '制作白底图'}`} description={optimizationTask.failureDetail || (optimizationTask.kind === 'FREE_TUNE' ? '请保留原图，或重新生成图片美化建议。' : '请上传带透明背景的 PNG/WebP，或等待分割能力开放。')} />}
             {['REJECTED', 'EXPIRED', 'CANCELLED'].includes(optimizationTask.status) && <Alert type="warning" showIcon message="该候选任务不能继续采用" description={optimizationTask.failureDetail || '请返回图片重新获取美化建议。'} />}
             {optimizationTask.status === 'ADOPTED' && <Alert type="success" showIcon message="该候选已经采用" description="商品图片已按当时的商品状态完成更新。" />}
+            {optimizationTask.status === 'SUCCEEDED' && marketingPreviewOnly && <Alert type="warning" showIcon message="这是 AI 营销场景图，只能预览" description="场景、摆放方式和展示数量可能由模型重构，不能作为商品数量、包装规格或事实主图证据。原图始终保留。" style={{ marginBottom: 12 }} />}
             {optimizationTask.status === 'SUCCEEDED' && optimizationTask.candidate && (
               <>
                 <Row gutter={16} style={{ marginTop: 4 }}>
@@ -1728,14 +1755,18 @@ function ImageUploadSection({
                     </Card>
                   </Col>
                 </Row>
-                <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-                  候选尚未发布。采用后会保留原实拍证据图；已上架商品会立即更新公开图片，并保留历史版本供平台事后巡检和必要时回滚。
-                </Text>
-                <Space direction="vertical" style={{ marginTop: 12 }}>
-                  <Checkbox checked={truthChecks.quantity} onChange={(event) => setTruthChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
-                  <Checkbox checked={truthChecks.labels} onChange={(event) => setTruthChecks((value) => ({ ...value, labels: event.target.checked }))}>包装、型号、文字和二维码未变化</Checkbox>
-                  <Checkbox checked={truthChecks.facts} onChange={(event) => setTruthChecks((value) => ({ ...value, facts: event.target.checked }))}>颜色、规格、材质和实物一致</Checkbox>
-                </Space>
+                {marketingPreviewOnly ? <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                  候选保持私有，仅用于评估营销效果；当前不能采用或替换商品公开图片。
+                </Text> : <>
+                  <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                    候选尚未发布。采用后会保留原实拍证据图；已上架商品会立即更新公开图片，并保留历史版本供平台事后巡检和必要时回滚。
+                  </Text>
+                  <Space direction="vertical" style={{ marginTop: 12 }}>
+                    <Checkbox checked={truthChecks.quantity} onChange={(event) => setTruthChecks((value) => ({ ...value, quantity: event.target.checked }))}>商品数量、配件和比例完整</Checkbox>
+                    <Checkbox checked={truthChecks.labels} onChange={(event) => setTruthChecks((value) => ({ ...value, labels: event.target.checked }))}>包装、型号、文字和二维码未变化</Checkbox>
+                    <Checkbox checked={truthChecks.facts} onChange={(event) => setTruthChecks((value) => ({ ...value, facts: event.target.checked }))}>颜色、规格、材质和实物一致</Checkbox>
+                  </Space>
+                </>}
               </>
             )}
           </>

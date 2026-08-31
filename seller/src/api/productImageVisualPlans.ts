@@ -55,6 +55,7 @@ export type ProductVisualRateCard = {
   candidateCount: number;
   creditCost: number;
   requiresHumanReview: boolean;
+  candidateRole: 'FACT_MAIN_IMAGE' | 'DETAIL_IMAGE' | 'MARKETING_IMAGE';
 };
 
 export type ProductVisualCreditAccount = {

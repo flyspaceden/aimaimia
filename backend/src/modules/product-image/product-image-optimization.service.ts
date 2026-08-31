@@ -253,6 +253,10 @@ export class ProductImageOptimizationService {
       },
     });
     if (!task) throw new NotFoundException('可采用的商品视觉任务不存在');
+    const candidateRole = (task.processingContract as { rateCard?: { candidateRole?: unknown } } | null)?.rateCard?.candidateRole;
+    if (candidateRole === 'MARKETING_IMAGE') {
+      throw new ConflictException('AI 营销场景图目前仅供预览，不能替换商品事实主图');
+    }
     if (task.productId !== dto.productId) {
       throw new ConflictException('该候选仅可用于创建任务时绑定的商品');
     }
@@ -941,6 +945,10 @@ export class ProductImageOptimizationService {
     const access = candidate?.asset
       ? await this.uploadService.createPrivateAccessUrl(candidate.asset.objectKey, 300)
       : null;
+    const candidateRole = (task.processingContract as { rateCard?: { candidateRole?: unknown } } | null)?.rateCard?.candidateRole;
+    const safeCandidateRole = candidateRole === 'MARKETING_IMAGE' || candidateRole === 'DETAIL_IMAGE' || candidateRole === 'FACT_MAIN_IMAGE'
+      ? candidateRole
+      : null;
     return {
       id: task.id,
       status: task.status,
@@ -950,6 +958,8 @@ export class ProductImageOptimizationService {
       failureDetail: task.failureDetail,
       createdAt: task.createdAt,
       completedAt: task.completedAt,
+      candidateRole: safeCandidateRole,
+      adoptionAllowed: safeCandidateRole !== 'MARKETING_IMAGE',
       candidate: candidate ? {
         assetId: candidate.asset.id,
         displayUrl: access?.url,
