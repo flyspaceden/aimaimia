@@ -140,7 +140,7 @@ export class UpsertVisualAgentBudgetPolicyDto {
   @IsIn(['wan2.7-image', 'wan2.7-image-pro', 'qwen-image-3.0', 'qwen-image-3.0-pro'])
   model: string;
 
-  @IsIn(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH'])
+  @IsIn(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE'])
   visualMode: string;
 
   @Type(() => Number)

@@ -1958,6 +1958,7 @@
 - [x] **PVA-PLAN-RECOVERY** 商家获取报价时若图片计划过期，自动用同一受管原图刷新计划并签发新报价；不冻结图片积分、不调用模型，也不再要求商家手动返回图片重复操作。
 - [x] **PVA-MARKETING-SCENE-CORE** 新增受控营销场景合约：农产品可选择 `HARVEST_PLATE` 采摘摆盘模板；`MARKETING_SCENE` 必须匹配 `MARKETING_IMAGE` 费率卡和六层预算，计划哈希绑定摆拍模板，不接受自由提示词。
 - [x] **PVA-MARKETING-SCENE-PREVIEW** 商家端可选择“营销展示图”并查看 AI 私有候选；营销候选明确标记展示数量不代表包装规格，第一版只预览，前后端共同禁止替换事实主图。
+- [x] **PVA-MARKETING-BUDGET-DTO** staging 配置验收修复：管理员六层预算 DTO 同步允许 `MARKETING_SCENE`，避免 Core 支持营销模式但管理 API 在写库前 400 拒绝；新增 class-validator 回归测试。
 
 ## 商品自动定价一致性（2026-08-17）
 

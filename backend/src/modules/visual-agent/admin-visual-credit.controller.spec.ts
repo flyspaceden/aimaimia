@@ -1,5 +1,7 @@
 import { VisualAgentBudgetScope, VisualRateCardStatus } from '@prisma/client';
+import { validate } from 'class-validator';
 import { AdminVisualCreditController } from './admin-visual-credit.controller';
+import { UpsertVisualAgentBudgetPolicyDto } from './admin-visual-credit.dto';
 
 describe('AdminVisualCreditController', () => {
   function build() {
@@ -77,5 +79,16 @@ describe('AdminVisualCreditController', () => {
     expect(invocations.resolveReconciliation).toHaveBeenCalledWith({
       invocationId: 'invocation-1', decision: 'RELEASED', creditDecision: 'RELEASE', evidenceRef: 'provider:no-charge-1', operatorId: 'admin-1',
     });
+  });
+
+  it('accepts the controlled marketing-scene mode in the admin budget DTO', async () => {
+    const dto = Object.assign(new UpsertVisualAgentBudgetPolicyDto(), {
+      scope: VisualAgentBudgetScope.PLATFORM,
+      scopeKey: 'GLOBAL', provider: 'BAILIAN_WAN', model: 'wan2.7-image-pro', visualMode: 'MARKETING_SCENE',
+      reserveCents: 50, perTaskCapCents: 50, dailyCapCents: 50, weeklyCapCents: 50,
+      policyVersion: 'marketing-canary-v1', enabled: true,
+    });
+
+    await expect(validate(dto)).resolves.toEqual([]);
   });
 });
