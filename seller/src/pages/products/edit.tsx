@@ -1179,9 +1179,9 @@ function ImageUploadSection({
     }
   };
 
-  const paidDirection = (): 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' => {
-    if (visualPlan?.recommendedMode === 'CATALOG_STUDIO' || visualPlan?.recommendedMode === 'PRODUCT_RETOUCH') {
-      return visualPlan.recommendedMode;
+  const paidDirection = (plan: ProductVisualPlan | null = visualPlan): 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' => {
+    if (plan?.recommendedMode === 'CATALOG_STUDIO' || plan?.recommendedMode === 'PRODUCT_RETOUCH') {
+      return plan.recommendedMode;
     }
     return 'PRESERVE_REAL_SCENE';
   };
@@ -1206,13 +1206,26 @@ function ImageUploadSection({
     if (!productId || !visualPlan || !visualPlanSource) return;
     setQuoteSubmitting(true);
     try {
-      const result = await issueProductVisualQuote(productId, {
+      const createQuote = (plan: ProductVisualPlan) => issueProductVisualQuote(productId, {
         sourceAssetId: visualPlanSource.asset.asset.id,
-        planId: visualPlan.id,
-        direction: paidDirection(),
+        planId: plan.id,
+        direction: paidDirection(plan),
         rateCode: rateCard.code,
         idempotencyKey: crypto.randomUUID(),
       });
+      let result;
+      try {
+        result = await createQuote(visualPlan);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('图片美化计划已过期')) throw error;
+        const refreshedPlan = await requestProductVisualPlan(productId, {
+          sourceAssetId: visualPlanSource.asset.asset.id,
+        });
+        setVisualPlan(refreshedPlan);
+        setRateCards(null);
+        result = await createQuote(refreshedPlan);
+        message.info('原图片美化计划已过期，系统已自动刷新并生成新报价');
+      }
       setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits });
       setQuoteConfirmed(false);
       setPaidExecution(null);

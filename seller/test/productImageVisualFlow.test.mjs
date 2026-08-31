@@ -38,6 +38,8 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /查看可用方案与图片积分/);
   assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片积分/);
   assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片积分生成/);
+  assert.match(editPage, /原图片美化计划已过期，系统已自动刷新并生成新报价/);
+  assert.match(editPage, /createQuote\(refreshedPlan\)/);
   assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);
