@@ -34,6 +34,7 @@ const fs = require('node:fs');
 
 const [envPath, configPath, outputPath] = process.argv.slice(2);
 const orderedKeys = [
+  'PUBLIC_API_BASE_URL',
   'AI_VISUAL_AGENT_BAILIAN_API_KEY',
   'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
   'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET',
@@ -64,6 +65,7 @@ for (const key of orderedKeys) {
 if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(config.AI_VISUAL_AGENT_BAILIAN_API_KEY)) throw new Error('invalid Bailian API key');
 if (!/^ws-[A-Za-z0-9-]{5,}$/.test(config.AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID)) throw new Error('invalid Bailian workspace ID');
 if (!/^[a-f0-9]{64}$/.test(config.AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET)) throw new Error('invalid fact-scan hash secret');
+if (config.PUBLIC_API_BASE_URL !== 'https://test-api.ai-maimai.com/api/v1') throw new Error('invalid staging public API base URL');
 
 for (const key of [
   'AI_VISUAL_AGENT_ENABLED',

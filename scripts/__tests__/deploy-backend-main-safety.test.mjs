@@ -89,7 +89,7 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(workflow, /git fetch --no-tags origin main/);
   assert.match(workflow, /git diff --name-only origin\/main\.\.\.HEAD/);
   assert.match(workflow, /'miniapp\/\*\*'/);
-  assert.match(workflow, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
+  assert.match(workflow, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\|scripts\/configure-ai-visual-agent-staging-env/);
   assert.match(workflow, /backend_branch=\$\{\{ github\.ref_name \}\}/);
   assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -101,13 +101,16 @@ test('main production deployment is manual and fail-closed', () => {
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
 });
 
-test('workflow-only changes cannot trigger backend deployment', () => {
-  const changedPathLine = workflow
-    .split('\n')
-    .find((line) => line.includes('echo "$CHANGED"') && line.includes('backend=true'));
-  assert.ok(changedPathLine, 'backend changed-path detector must exist');
-  assert.match(changedPathLine, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
-  assert.doesNotMatch(changedPathLine, /deploy-release/);
+test('workflow-only changes cannot trigger backend deployment, while staging runtime config changes do', () => {
+  for (const output of ['admin', 'seller', 'backend', 'any_deploy']) {
+    const changedPathLine = workflow
+      .split('\n')
+      .find((line) => line.includes('echo "$CHANGED"') && line.includes(`${output}=true`));
+    assert.ok(changedPathLine, `${output} changed-path detector must exist`);
+    assert.match(changedPathLine, /scripts\/configure-ai-visual-agent-staging-env/);
+    assert.match(changedPathLine, /scripts\/__tests__\/configure-ai-visual-agent-staging-env/);
+    assert.doesNotMatch(changedPathLine, /deploy-release/);
+  }
   assert.match(workflow, /手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。[\s\S]*echo "workflow=true"/);
 });
 
@@ -132,6 +135,8 @@ test('staging AI Visual Agent secrets are synced after approval without exposing
   const approval = jobBlock('release-approval');
   assert.match(approval, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
   assert.match(approval, /github\.ref == 'refs\/heads\/staging-next' && needs\.detect-changes\.outputs\.backend == 'true'/);
+  assert.match(approval, /PUBLIC_API_BASE_URL: \$\{\{ needs\.detect-changes\.outputs\.api_base \}\}/);
+  assert.match(approval, /const names = \[\s*'PUBLIC_API_BASE_URL',/);
   for (const secret of [
     'AI_VISUAL_AGENT_BAILIAN_API_KEY',
     'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',

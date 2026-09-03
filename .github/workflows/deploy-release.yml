@@ -141,14 +141,17 @@ jobs:
               CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
             fi
             echo "$CHANGED" | grep -Eq '^(website/|scripts/lib/legal-static-renderer\.mjs$)' && echo "website=true" >> $GITHUB_OUTPUT || echo "website=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
+            # AI Visual Agent staging env preparation is backend runtime configuration even
+            # though its guarded writer lives under scripts/. Treat it like backend code so a
+            # push cannot validate the writer without actually applying the new runtime env.
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/|scripts/configure-ai-visual-agent-staging-env\.sh$|scripts/__tests__/configure-ai-visual-agent-staging-env\.test\.mjs$)' && echo "admin=true"   >> $GITHUB_OUTPUT || echo "admin=false"   >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/|scripts/configure-ai-visual-agent-staging-env\.sh$|scripts/__tests__/configure-ai-visual-agent-staging-env\.test\.mjs$)' && echo "seller=true"  >> $GITHUB_OUTPUT || echo "seller=false"  >> $GITHUB_OUTPUT
             # workflow-only 变更只验证工作流本身，不得触发后端、migration 或 PM2。
             # miniapp-only 更新仍重发三个测试组件，使 release-sha 与小程序 source SHA 保持一致。
-            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(backend/|admin/|seller/|miniapp/|scripts/configure-ai-visual-agent-staging-env\.sh$|scripts/__tests__/configure-ai-visual-agent-staging-env\.test\.mjs$)' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
             echo "$CHANGED" | grep -Eq '^(\.github/workflows/deploy-release\.yml|scripts/deploy-backend-versioned\.sh|scripts/deploy-static-with-rollback\.sh|scripts/verify-deployed-release-sha\.mjs|scripts/configure-ai-visual-agent-staging-env\.sh|backend/scripts/(verify-miniapp-(config|production-config|staging-config)|prepare-miniapp-staging-env)\.cjs|scripts/__tests__/deploy-backend-main-safety\.test\.mjs|scripts/__tests__/production-delivery-exclusion\.test\.mjs|scripts/__tests__/miniapp-staging-semantic-parity\.(test\.mjs|json)|scripts/__tests__/sync-staging-test-checkout\.test\.mjs|scripts/__tests__/(miniapp-production-config|prepare-miniapp-staging-env|verify-deployed-release-sha|configure-ai-visual-agent-staging-env)\.test\.mjs)$' && echo "workflow=true" >> $GITHUB_OUTPUT || echo "workflow=false" >> $GITHUB_OUTPUT
-            echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|miniapp/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
+            echo "$CHANGED" | grep -Eq '^(website/|admin/|seller/|backend/|miniapp/|huahai-corporate-site/|src/content/legal/|scripts/lib/legal-static-renderer\.mjs$|scripts/sync-huahai-legal\.mjs$|scripts/configure-ai-visual-agent-staging-env\.sh$|scripts/__tests__/configure-ai-visual-agent-staging-env\.test\.mjs$)' && echo "any_deploy=true" >> $GITHUB_OUTPUT || echo "any_deploy=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Determine environment (main → 生产 / staging* → 测试)
@@ -496,6 +499,7 @@ jobs:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SRC_DIR: ${{ needs.detect-changes.outputs.backend_src_dir }}
+          PUBLIC_API_BASE_URL: ${{ needs.detect-changes.outputs.api_base }}
           AI_VISUAL_AGENT_BAILIAN_API_KEY: ${{ secrets.AI_VISUAL_AGENT_BAILIAN_API_KEY }}
           AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID: ${{ secrets.AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID }}
           AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET: ${{ secrets.AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET }}
@@ -517,6 +521,7 @@ jobs:
           set -euo pipefail
           CONFIG_B64="$(node - <<'NODE'
           const names = [
+            'PUBLIC_API_BASE_URL',
             'AI_VISUAL_AGENT_BAILIAN_API_KEY',
             'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
             'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET',

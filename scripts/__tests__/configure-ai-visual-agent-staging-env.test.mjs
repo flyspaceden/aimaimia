@@ -10,6 +10,7 @@ const script = fileURLToPath(new URL('../configure-ai-visual-agent-staging-env.s
 
 function validConfig(overrides = {}) {
   return {
+    PUBLIC_API_BASE_URL: 'https://test-api.ai-maimai.com/api/v1',
     AI_VISUAL_AGENT_BAILIAN_API_KEY: `sk-${'a'.repeat(32)}`,
     AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID: `ws-${'b'.repeat(16)}`,
     AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET: 'c'.repeat(64),
@@ -80,6 +81,25 @@ test('invalid staging AI Visual Agent config leaves the target env unchanged', a
       encoding: 'utf8',
     });
     assert.notEqual(result.status, 0);
+    assert.equal(await readFile(f.envFile, 'utf8'), original);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('production API hostname is rejected without changing staging env', async () => {
+  const f = await fixture();
+  const original = await readFile(f.envFile, 'utf8');
+  try {
+    await writeFile(f.configFile, JSON.stringify(validConfig({
+      PUBLIC_API_BASE_URL: 'https://api.ai-maimai.com/api/v1',
+    })), { mode: 0o600 });
+    const result = spawnSync('bash', [script, f.configFile], {
+      env: { ...process.env, SRC_DIR: f.root, AI_VISUAL_AGENT_BACKUP_DIR: f.backup },
+      encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /invalid staging public API base URL/);
     assert.equal(await readFile(f.envFile, 'utf8'), original);
   } finally {
     await rm(f.root, { recursive: true, force: true });
