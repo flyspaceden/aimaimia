@@ -1,6 +1,7 @@
 import { Prisma, ProductImageArtifactKind, ProductImageOptimizationStatus } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { ProductImageOptimizationService } from './product-image-optimization.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 describe('ProductImageOptimizationService deterministic white-background task', () => {
   const source = {
@@ -404,7 +405,7 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     const adoptedTask = { ...succeededTask, status: ProductImageOptimizationStatus.ADOPTED };
     const tx = {
       productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ id: 'task-1' }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', media: [{ assetId: 'source-asset' }] }) },
+      product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1', media: [] }) },
       sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([candidate, sourceAsset]), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       productMedia: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn().mockResolvedValue({ id: 'media' }) },
     };
@@ -427,6 +428,9 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       where: { productId: 'product-1', assetId: 'source-asset' },
       data: { isEvidenceImage: true },
     });
+    expect(tx.productMedia.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ assetId: 'source-asset', sortOrder: 1, isEvidenceImage: true, visualOrigin: 'ORIGINAL' }),
+    }));
     expect(tx.productMedia.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ assetId: 'candidate-asset', optimizationId: 'task-1', visualOrigin: 'DETERMINISTIC_COMPOSITE' }),
     }));
@@ -454,6 +458,37 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     })).rejects.toThrow('仅可用于创建任务时绑定的商品');
 
     expect(prisma.product.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt a paid candidate after the saved product facts have changed', async () => {
+    const originalFacts = {
+      title: '原商品', subtitle: null, description: '原说明', categoryId: 'category-1',
+      updatedAt: new Date('2026-09-02T00:00:00.000Z'), mediaVersion: 1,
+    };
+    const candidate = { id: 'candidate-asset', status: 'CANDIDATE', objectKey: 'candidate.png' };
+    const sourceAsset = { id: 'source-asset', status: 'AVAILABLE', objectKey: 'source.webp' };
+    const task = {
+      id: 'task-1', companyId: 'company-1', productId: 'product-1', status: ProductImageOptimizationStatus.SUCCEEDED,
+      processingContract: { visualPlan: { adapterFactVersion: productVisualFactHash(originalFacts) } },
+      artifacts: [
+        { kind: ProductImageArtifactKind.CANDIDATE, asset: candidate },
+        { kind: ProductImageArtifactKind.FOREGROUND_REFERENCE, asset: sourceAsset },
+      ],
+    };
+    const prisma = {
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue(task) },
+      product: { findFirst: jest.fn().mockResolvedValue({
+        id: 'product-1', status: 'ACTIVE', auditStatus: 'APPROVED',
+        ...originalFacts, title: '已经修改的商品', updatedAt: new Date('2026-09-02T00:01:00.000Z'),
+      }) },
+    };
+    const revisions = { applyOptimizationAdoption: jest.fn() };
+    const service = new ProductImageOptimizationService(prisma as any, {} as any, {} as any, {} as any, revisions as any);
+
+    await expect(service.adopt('company-1', 'staff-1', 'task-1', {
+      productId: 'product-1', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true,
+    })).rejects.toThrow('商品资料已在候选生成后变化');
+    expect(revisions.applyOptimizationAdoption).not.toHaveBeenCalled();
   });
 
   it('keeps a marketing-scene candidate preview-only and never publishes it as a fact image', async () => {

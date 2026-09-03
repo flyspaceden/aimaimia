@@ -40,7 +40,7 @@ describe('AdminVisualCreditController', () => {
     await expect(controller.upsertRateCard('aimai-tenant', {
       clientId: 'aimai-product-client', adapterNamespace: 'aimai-product', code: 'STANDARD_REAL_SCENE',
       displayName: '标准实景美化', description: '保留实景', modelProfile: 'BAILIAN_WAN_STANDARD',
-      outputSpec: { size: '1K' }, allowedDirections: ['PRESERVE_REAL_SCENE'],
+      outputSpec: { providerManaged: true }, allowedDirections: ['PRESERVE_REAL_SCENE'],
       allowedRiskProfiles: ['STANDARD_FACTS'], candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: true,
       candidateCount: 1, creditCost: 15,
       status: VisualRateCardStatus.ACTIVE, version: 'v1',

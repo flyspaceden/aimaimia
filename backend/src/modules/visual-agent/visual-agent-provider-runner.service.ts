@@ -38,6 +38,12 @@ export class VisualAgentProviderRunnerService {
     await this.providerFor(input.provider).preflight({ source: input.source, visualPlan: input.visualPlan, model: input.model });
   }
 
+  isProviderRouteAvailable(provider: string, model: VisualProviderModel) {
+    if (provider === BAILIAN_WAN_PROVIDER) return this.wan.isModelAvailable(model);
+    if (provider === BAILIAN_QWEN_IMAGE_PROVIDER) return this.qwen.isModelAvailable(model);
+    return false;
+  }
+
   async submitProvider(input: SubmitProviderInvocationInput): Promise<VisualProviderSubmitResult> {
     const provider = this.providerFor(input.provider);
     await provider.preflight({ source: input.source, visualPlan: input.visualPlan, model: input.model });

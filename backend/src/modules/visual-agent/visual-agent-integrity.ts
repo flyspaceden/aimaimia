@@ -57,6 +57,7 @@ export function visualPlanSha256(plan: VisualProviderServerPlan): string {
     riskProfile: plan.riskProfile,
     allowedOperations: [...plan.allowedOperations].sort(),
     protectedRegionVersion: plan.protectedRegionVersion,
+    adapterFactVersion: plan.adapterFactVersion ?? null,
     presentationPreset: plan.presentationPreset ?? null,
   });
   return createHash('sha256').update(canonical).digest('hex');

@@ -3,6 +3,7 @@ import { Prisma, ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetSt
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductVisualPlanDto } from './product-visual-planning.dto';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 const POLICY_VERSION = 'product-visual-plan-v1';
 const MODEL_POLICY_VERSION = 'model-policy-disabled-v1';
@@ -54,22 +55,28 @@ export class ProductVisualPlanningService {
     }
 
     const product = await this.prisma.product.findFirst({
-      where: { id: productId, companyId, media: { some: { assetId: source.id } } },
+      where: { id: productId, companyId },
       select: {
         id: true,
         title: true,
         subtitle: true,
         description: true,
+        categoryId: true,
+        updatedAt: true,
+        mediaVersion: true,
         category: { select: { name: true } },
       },
     });
-    if (!product) throw new NotFoundException('关联商品不存在，或该原图尚未用于该商品');
+    if (!product) throw new NotFoundException('关联商品不存在');
 
     const diagnosis = (source.diagnosis ?? {}) as QualityDiagnosis;
     const riskProfile = this.deriveRiskProfile(product, source, diagnosis);
     const allowedModes = this.allowedModes(riskProfile);
     const recommendedMode = this.recommendMode(riskProfile, diagnosis, dto.requestedMode, allowedModes);
-    const sceneAnalysis = this.buildSceneAnalysis(product, source, diagnosis, riskProfile);
+    const sceneAnalysis = {
+      ...this.buildSceneAnalysis(product, source, diagnosis, riskProfile),
+      productFactHash: productVisualFactHash(product),
+    };
     const processingPlan = this.buildProcessingPlan(riskProfile, recommendedMode, allowedModes, sceneAnalysis);
     const allowedOperations = processingPlan.freeTunePolicy.allowed;
     const planHash = this.sha256(JSON.stringify({

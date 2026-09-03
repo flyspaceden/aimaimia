@@ -31,6 +31,8 @@ export type VisualProviderServerPlan = {
   riskProfile: VisualProviderRiskProfile;
   allowedOperations: readonly VisualProviderAllowedOperation[];
   protectedRegionVersion: string;
+  /** Adapter-owned business-fact version; hashed into the immutable plan and never interpolated into prompts. */
+  adapterFactVersion?: string;
   presentationPreset?: VisualProviderPresentationPreset;
 };
 

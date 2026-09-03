@@ -55,7 +55,7 @@ export class ProductPaidVisualCandidateService {
       select: { id: true, objectKey: true, canonicalSha256: true, mimeType: true, byteSize: true, width: true, height: true },
     });
     const product = await this.prisma.product.findFirst({
-      where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: input.sourceAssetId } } },
+      where: { id: input.productId, companyId: input.companyId },
       select: { id: true },
     });
     if (!source || !product) throw new NotFoundException('商品原图已变化，不能保存付费图片候选');

@@ -12,6 +12,7 @@ import { UploadService } from '../upload/upload.service';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
 import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 const sharp = require('sharp') as typeof import('sharp').default;
 
 export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
@@ -68,6 +69,7 @@ export class AimaiProductVisualAdapterService {
           riskProfile: true,
           allowedModes: true,
           protectedRegionVersion: true,
+          sceneAnalysis: true,
         },
       }),
     ]);
@@ -88,13 +90,29 @@ export class AimaiProductVisualAdapterService {
         select: { id: true, canonicalSha256: true },
       }),
       this.prisma.product.findFirst({
-        where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: input.sourceAssetId } } },
-        select: { id: true },
+        where: { id: input.productId, companyId: input.companyId },
+        select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
       }),
     ]);
-    if (!source || !product) throw new NotFoundException('商品原图已变化，不能创建图片美化报价');
+    if (!source || !product) throw new NotFoundException('商品或原图已变化，不能创建图片美化报价');
+    const factVersion = this.planFactVersion(plan.sceneAnalysis);
+    if (!factVersion || productVisualFactHash(product) !== factVersion) {
+      throw new ConflictException('商品标题、分类或图片版本已变化，请重新查看美化建议');
+    }
 
-    const providerPlan = this.toProviderPlan(plan.riskProfile, input.direction, plan.protectedRegionVersion);
+    const eligibleCards = await this.listEligibleRateCards({
+      companyId: input.companyId,
+      staffId: input.staffId,
+      productId: input.productId,
+      sourceAssetId: input.sourceAssetId,
+      planId: input.planId,
+      direction: input.direction,
+    });
+    if (!eligibleCards.some((card) => card.code === input.rateCode)) {
+      throw new ServiceUnavailableException('当前测试授权未包含所选图片美化报价');
+    }
+
+    const providerPlan = this.toProviderPlan(plan.riskProfile, input.direction, plan.protectedRegionVersion, factVersion);
     const visualPlanHash = visualPlanSha256(providerPlan);
     const quote = await this.trusted.issueQuoteFromTrustedAdapter({
       principal,
@@ -110,6 +128,7 @@ export class AimaiProductVisualAdapterService {
         direction: providerPlan.direction,
         riskProfile: providerPlan.riskProfile,
         protectedRegionVersion: providerPlan.protectedRegionVersion,
+        adapterFactVersion: providerPlan.adapterFactVersion,
         allowedOperations: [...providerPlan.allowedOperations],
         presentationPreset: providerPlan.presentationPreset,
       },
@@ -171,14 +190,18 @@ export class AimaiProductVisualAdapterService {
       select: { id: true, objectKey: true, canonicalSha256: true },
     });
     const product = await this.prisma.product.findFirst({
-      where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: quote.sourceAssetRef } } },
-      select: { id: true },
+      where: { id: input.productId, companyId: input.companyId },
+      select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
     });
     if (!source || !product) {
       await this.credits.releaseReservedQuote(quote.id, 'SOURCE_OR_PRODUCT_CHANGED_BEFORE_EXECUTION');
       throw new NotFoundException('商品原图已变化，已释放本次图片美化额度');
     }
     const providerPlan = this.providerPlanFromQuoteSnapshot(quote.visualPlanSnapshot);
+    if (!providerPlan.adapterFactVersion || productVisualFactHash(product) !== providerPlan.adapterFactVersion) {
+      await this.credits.releaseReservedQuote(quote.id, 'PRODUCT_FACTS_CHANGED_BEFORE_PROVIDER_SUBMIT');
+      throw new ConflictException('商品资料已变化，已释放本次图片积分；请重新查看美化建议');
+    }
     let providerSource: VisualProviderSource;
     try {
       const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
@@ -209,6 +232,7 @@ export class AimaiProductVisualAdapterService {
 
   async listEligibleRateCards(input: {
     companyId: string;
+    staffId: string;
     productId: string;
     sourceAssetId: string;
     planId: string;
@@ -231,7 +255,7 @@ export class AimaiProductVisualAdapterService {
       throw new ConflictException('当前图片计划不允许查看该美化方向的报价');
     }
     const attached = await this.prisma.product.findFirst({
-      where: { id: input.productId, companyId: input.companyId, media: { some: { assetId: input.sourceAssetId } } },
+      where: { id: input.productId, companyId: input.companyId },
       select: { id: true },
     });
     if (!attached) throw new NotFoundException('商品原图已变化，不能查看图片美化报价');
@@ -240,7 +264,7 @@ export class AimaiProductVisualAdapterService {
       clientId: principal.clientId,
       adapterNamespace: principal.adapterNamespace,
     });
-    return cards
+    const compatible = cards
       .filter((card) => card.status === 'ACTIVE'
         && card.candidateCount === 1
         && EXECUTABLE_RATE_MODELS.has(card.modelProfile)
@@ -248,27 +272,42 @@ export class AimaiProductVisualAdapterService {
         && card.allowedRiskProfiles.includes(plan.riskProfile)
         && (input.direction === ProductVisualMode.MARKETING_SCENE
           ? card.candidateRole === 'MARKETING_IMAGE'
-          : card.candidateRole !== 'MARKETING_IMAGE'))
-      .map((card) => ({
-        code: card.code,
-        displayName: card.displayName,
-        description: card.description,
-        outputSpec: card.outputSpec,
-        candidateCount: card.candidateCount,
-        creditCost: card.creditCost,
-        requiresHumanReview: card.requiresHumanReview,
-        candidateRole: card.candidateRole,
-      }));
+          : card.candidateRole !== 'MARKETING_IMAGE'));
+    const ready = await Promise.all(compatible.map(async (card) => {
+      const route = this.routeForModelProfile(card.modelProfile);
+      if (!route || !this.execution.isModelProfileAvailable(card.modelProfile)) return null;
+      const hasBudget = await this.invocations.hasActiveBudgetCoverage({
+        tenantId: principal.tenantId,
+        ownerClientId: principal.clientId,
+        adapterNamespace: principal.adapterNamespace,
+        externalObjectId: input.productId,
+        actorId: input.staffId,
+        provider: route.provider,
+        model: route.model,
+        visualMode: input.direction,
+        expectedPolicyVersions: {
+          EXTERNAL_OBJECT: this.ratePolicyVersion(card.code),
+          ACTOR: this.ratePolicyVersion(card.code),
+        },
+      });
+      return hasBudget ? card : null;
+    }));
+    return ready.filter((card): card is NonNullable<typeof card> => !!card).map((card) => ({
+      code: card.code,
+      displayName: card.displayName,
+      description: card.description,
+      outputSpec: card.outputSpec,
+      candidateCount: card.candidateCount,
+      creditCost: card.creditCost,
+      requiresHumanReview: card.requiresHumanReview,
+      candidateRole: card.candidateRole,
+    }));
   }
 
   async getQuote(companyId: string, productId: string, quoteId: string) {
     const principal = await this.resolveAimaiPrincipal();
     const result = await this.credits.getQuoteForClient({ principal, quoteId });
-    if (result.billingAccount.billingOwnerType !== 'COMPANY'
-      || result.billingAccount.billingOwnerId !== companyId
-      || result.quote.externalObjectId !== productId) {
-      throw new NotFoundException('图片美化报价不存在');
-    }
+    this.assertMerchantQuoteAccess(result, companyId, productId);
     const optimization = await this.prisma.productImageOptimization.findFirst({
       where: { companyId, productId, idempotencyKey: `paid-quote:${quoteId}` },
       select: { id: true, status: true },
@@ -285,6 +324,8 @@ export class AimaiProductVisualAdapterService {
     const completed = await this.findTerminalPaidOptimization(input.companyId, input.productId, input.quoteId);
     if (completed) return this.toTerminalPollResult(input.quoteId, completed);
     const principal = await this.resolveAimaiPrincipal();
+    const access = await this.credits.getQuoteForClient({ principal, quoteId: input.quoteId });
+    this.assertMerchantQuoteAccess(access, input.companyId, input.productId);
     const polled = await this.execution.pollForOutput({ principal, quoteId: input.quoteId });
     if (polled.status !== 'VERIFYING') return polled;
     let quote;
@@ -373,6 +414,21 @@ export class AimaiProductVisualAdapterService {
     });
   }
 
+  private assertMerchantQuoteAccess(
+    result: {
+      billingAccount: { billingOwnerType: string; billingOwnerId: string };
+      quote: { externalObjectId: string };
+    },
+    companyId: string,
+    productId: string,
+  ) {
+    if (result.billingAccount.billingOwnerType !== 'COMPANY'
+      || result.billingAccount.billingOwnerId !== companyId
+      || result.quote.externalObjectId !== productId) {
+      throw new NotFoundException('图片美化报价不存在');
+    }
+  }
+
   private toTerminalPollResult(
     quoteId: string,
     optimization: { id: string; status: ProductImageOptimizationStatus },
@@ -390,6 +446,7 @@ export class AimaiProductVisualAdapterService {
     riskProfile: ProductVisualRiskProfile,
     direction: ProductVisualMode,
     protectedRegionVersion: string,
+    adapterFactVersion: string,
   ): VisualProviderServerPlan {
     if (riskProfile === ProductVisualRiskProfile.RETAKE_REQUIRED
       || (riskProfile === ProductVisualRiskProfile.MARKETING_ONLY && direction !== ProductVisualMode.MARKETING_SCENE)) {
@@ -403,6 +460,7 @@ export class AimaiProductVisualAdapterService {
       riskProfile,
       allowedOperations: operations,
       protectedRegionVersion: direction === ProductVisualMode.MARKETING_SCENE ? 'MARKETING_SCENE_NO_FACT_MAIN_IMAGE' : protectedRegionVersion,
+      adapterFactVersion,
       ...(direction === ProductVisualMode.MARKETING_SCENE ? {
         presentationPreset: riskProfile === ProductVisualRiskProfile.ORGANIC_FACTS ? 'HARVEST_PLATE' as const : 'LIFESTYLE_TABLETOP' as const,
       } : {}),
@@ -459,6 +517,23 @@ export class AimaiProductVisualAdapterService {
     };
   }
 
+  private planFactVersion(sceneAnalysis: unknown) {
+    const value = (sceneAnalysis as { productFactHash?: unknown } | null)?.productFactHash;
+    return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null;
+  }
+
+  private routeForModelProfile(modelProfile: string) {
+    if (modelProfile === 'BAILIAN_WAN_STANDARD') return { provider: 'BAILIAN_WAN', model: 'wan2.7-image' };
+    if (modelProfile === 'BAILIAN_WAN_PRO') return { provider: 'BAILIAN_WAN', model: 'wan2.7-image-pro' };
+    if (modelProfile === 'BAILIAN_QWEN_IMAGE') return { provider: 'BAILIAN_QWEN_IMAGE', model: 'qwen-image-3.0' };
+    if (modelProfile === 'BAILIAN_QWEN_IMAGE_PRO') return { provider: 'BAILIAN_QWEN_IMAGE', model: 'qwen-image-3.0-pro' };
+    return null;
+  }
+
+  private ratePolicyVersion(rateCode: string) {
+    return `rate-${rateCode}`;
+  }
+
   private async toOpaqueProviderSource(buffer: Buffer) {
     try {
       const flattened = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
@@ -484,16 +559,21 @@ export class AimaiProductVisualAdapterService {
       protectedRegionVersion?: string;
       allowedOperations?: unknown;
       presentationPreset?: unknown;
+      adapterFactVersion?: unknown;
     };
     const presentationPreset = value?.presentationPreset === 'HARVEST_PLATE'
       || value?.presentationPreset === 'HANDHELD_HARVEST'
       || value?.presentationPreset === 'LIFESTYLE_TABLETOP'
       ? value.presentationPreset
       : null;
+    const adapterFactVersion = typeof value?.adapterFactVersion === 'string' && /^[a-f0-9]{64}$/.test(value.adapterFactVersion)
+      ? value.adapterFactVersion
+      : null;
     if (!value || typeof value !== 'object' || !value.direction || !value.riskProfile
       || !value.protectedRegionVersion || !Array.isArray(value.allowedOperations)
       || !this.isProviderDirection(value.direction) || !this.isProviderRiskProfile(value.riskProfile)
       || value.allowedOperations.some((operation) => !this.isProviderOperation(operation))
+      || !adapterFactVersion
       || (value.direction === ProductVisualMode.MARKETING_SCENE && !presentationPreset)) {
       throw new ConflictException('图片美化报价的视觉计划快照无效');
     }
@@ -503,6 +583,7 @@ export class AimaiProductVisualAdapterService {
       riskProfile: value.riskProfile,
       allowedOperations: value.allowedOperations,
       protectedRegionVersion: value.protectedRegionVersion,
+      adapterFactVersion,
       ...(value.direction === ProductVisualMode.MARKETING_SCENE ? { presentationPreset: presentationPreset! } : {}),
     };
   }

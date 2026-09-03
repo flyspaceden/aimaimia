@@ -20,6 +20,7 @@ import { ProductImageCompositionService } from './product-image-composition.serv
 import { AdoptProductImageOptimizationDto, RequestProductImageOptimizationDto } from './product-image-optimization.dto';
 import { assertProductImageOptimizationTransition } from './product-image-optimization-state';
 import { ProductMediaRevisionsService } from './product-media-revisions.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 const WHITE_BACKGROUND_CONTRACT = {
   version: 'phase-b-white-background-v1',
@@ -271,9 +272,13 @@ export class ProductImageOptimizationService {
     }
     const product = await this.prisma.product.findFirst({
       where: { id: dto.productId, companyId },
-      select: { id: true, status: true, auditStatus: true },
+      select: { id: true, status: true, auditStatus: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
     });
     if (!product) throw new NotFoundException('关联商品不存在');
+    const expectedProductFactHash = this.taskProductFactHash(task.processingContract);
+    if (expectedProductFactHash && productVisualFactHash(product) !== expectedProductFactHash) {
+      throw new ConflictException('商品资料已在候选生成后变化，请重新生成候选');
+    }
 
     const attestation = {
       quantityConfirmed: true,
@@ -288,6 +293,7 @@ export class ProductImageOptimizationService {
         optimizationId,
         candidateAssetId: candidateAsset.id,
         sourceAssetId: sourceAsset.id,
+        expectedProductFactHash,
         attestation,
       });
       return { mode: 'APPLIED' as const, revisionId: revision.id, taskId: optimizationId };
@@ -303,6 +309,9 @@ export class ProductImageOptimizationService {
         include: { media: { orderBy: { sortOrder: 'asc' } } },
       });
       if (!activeTask || !activeProduct) throw new ConflictException('任务或商品状态已变化，请刷新后重试');
+      if (expectedProductFactHash && productVisualFactHash(activeProduct) !== expectedProductFactHash) {
+        throw new ConflictException('商品资料已在候选生成后变化，请重新生成候选');
+      }
       if (activeProduct.status === 'ACTIVE' && activeProduct.auditStatus === 'APPROVED') {
         // The product crossed the publication boundary after the first read.
         // Leave media untouched in this transaction, then use the dedicated
@@ -310,10 +319,7 @@ export class ProductImageOptimizationService {
         return { kind: 'NOW_PUBLIC' as const };
       }
       const sourceIsAttached = activeProduct.media.some((media) => media.assetId === sourceAsset.id);
-      if (!sourceIsAttached) {
-        throw new ConflictException('原实拍图已不再属于该商品，不能采用候选');
-      }
-      const finalMediaCount = activeProduct.media.length + 1;
+      const finalMediaCount = activeProduct.media.length + 1 + (sourceIsAttached ? 0 : 1);
       if (finalMediaCount > 9) {
         throw new ConflictException('采用候选后商品图片将超过 9 张，请先移除一张非证据图片');
       }
@@ -331,11 +337,25 @@ export class ProductImageOptimizationService {
         || assetsById.get(sourceAsset.id)?.status !== SellerMediaAssetStatus.AVAILABLE) {
         throw new ConflictException('候选或原实拍资产状态已变化');
       }
-      await tx.productMedia.updateMany({ where: { productId: activeProduct.id }, data: { sortOrder: { increment: 1 } } });
+      await tx.productMedia.updateMany({ where: { productId: activeProduct.id }, data: { sortOrder: { increment: sourceIsAttached ? 1 : 2 } } });
       await tx.productMedia.updateMany({
         where: { productId: activeProduct.id, assetId: sourceAsset.id },
         data: { isEvidenceImage: true },
       });
+      if (!sourceIsAttached) {
+        await tx.productMedia.create({
+          data: {
+            productId: activeProduct.id,
+            assetId: sourceAsset.id,
+            type: 'IMAGE',
+            url: this.uploadService.createProductMediaUrl(assetsById.get(sourceAsset.id)!.objectKey),
+            sortOrder: 1,
+            visualOrigin: ProductMediaVisualOrigin.ORIGINAL,
+            optimizationId: null,
+            isEvidenceImage: true,
+          },
+        });
+      }
       await tx.productMedia.create({
         data: {
           productId: activeProduct.id,
@@ -372,11 +392,17 @@ export class ProductImageOptimizationService {
         optimizationId,
         candidateAssetId: candidateAsset.id,
         sourceAssetId: sourceAsset.id,
+        expectedProductFactHash,
         attestation,
       });
       return { mode: 'APPLIED' as const, revisionId: revision.id, taskId: optimizationId };
     }
     return { mode: 'APPLIED_TO_UNPUBLISHED_PRODUCT' as const, task: await this.getForSeller(companyId, optimizationId) };
+  }
+
+  private taskProductFactHash(processingContract: unknown) {
+    const value = (processingContract as { visualPlan?: { adapterFactVersion?: unknown } } | null)?.visualPlan?.adapterFactVersion;
+    return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null;
   }
 
   private async createOrReuseTask(input: {

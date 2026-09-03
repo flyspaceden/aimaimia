@@ -36,6 +36,15 @@ export class VisualPaidExecutionService {
     private readonly runner: VisualAgentProviderRunnerService,
   ) {}
 
+  isModelProfileAvailable(profile: string) {
+    try {
+      const executable = this.providerForProfile(profile);
+      return this.runner.isProviderRouteAvailable(executable.provider, executable.model);
+    } catch {
+      return false;
+    }
+  }
+
   async executeReservedQuote(input: PaidExecutionInput) {
     const quote = await this.credits.getReservedQuoteForExecution({ principal: input.principal, quoteId: input.quoteId });
     if (quote.sourceAssetRef !== input.sourceAssetRef || quote.sourceHash !== input.sourceCanonicalHash) {
@@ -188,6 +197,7 @@ export class VisualPaidExecutionService {
     return snapshot.direction === plan.direction
       && snapshot.riskProfile === plan.riskProfile
       && snapshot.protectedRegionVersion === plan.protectedRegionVersion
+      && (snapshot.adapterFactVersion ?? null) === (plan.adapterFactVersion ?? null)
       && Array.isArray(operations)
       && operations.length === plan.allowedOperations.length
       && [...operations].sort().every((value, index) => value === [...plan.allowedOperations].sort()[index]);

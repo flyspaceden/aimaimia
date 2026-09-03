@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { ProductImageOptimizationStatus, ProductMediaRevisionStatus, SellerMediaAssetStatus } from '@prisma/client';
 import { ProductMediaRevisionsService } from './product-media-revisions.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 function buildService(mediaVersionUpdateCount = 1) {
   const revision = {
@@ -311,6 +312,42 @@ describe('ProductMediaRevisionsService publication governance', () => {
     ]) }));
   });
 
+  it('publishes a newly uploaded source beside its adopted candidate without losing existing public media', async () => {
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 3,
+      media: [{ assetId: 'old-public', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }],
+    };
+    const tx = {
+      product: { findFirst: jest.fn().mockResolvedValue(product), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'revision-new-source' }) },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ kind: 'BACKGROUND_GENERATION', artifacts: [{ assetId: 'candidate-asset' }] }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([
+        { id: 'old-public', status: SellerMediaAssetStatus.AVAILABLE, objectKey: 'old.webp', scanSummary: null },
+        { id: 'source-asset', status: SellerMediaAssetStatus.AVAILABLE, objectKey: 'source.webp', scanSummary: null },
+        { id: 'candidate-asset', status: SellerMediaAssetStatus.CANDIDATE, objectKey: 'candidate.webp', scanSummary: null },
+      ]), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMedia: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }), createMany: jest.fn().mockResolvedValue({ count: 3 }) },
+    };
+    const service = new ProductMediaRevisionsService(
+      { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any,
+      {} as any,
+      { createProductMediaUrl: jest.fn((key: string) => `https://media.example/${key}`) } as any,
+      { emit: jest.fn() } as any,
+    );
+
+    await service.applyOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    });
+
+    expect(tx.productMedia.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: [
+      expect.objectContaining({ assetId: 'candidate-asset', sortOrder: 0, isEvidenceImage: false }),
+      expect.objectContaining({ assetId: 'source-asset', sortOrder: 1, isEvidenceImage: true, visualOrigin: 'ORIGINAL' }),
+      expect.objectContaining({ assetId: 'old-public', sortOrder: 2 }),
+    ] }));
+  });
+
   it('does not replace public media when immediate AI adoption loses the media-version CAS', async () => {
     const product = {
       id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 8,
@@ -333,6 +370,33 @@ describe('ProductMediaRevisionsService publication governance', () => {
       attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
     })).rejects.toThrow('商品图片已被其他操作更新');
     expect(tx.productMedia.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the saved product fact hash inside the public-image adoption transaction', async () => {
+    const originalFacts = {
+      title: '原商品', subtitle: null, description: '原说明', categoryId: 'category-1',
+      updatedAt: new Date('2026-09-02T00:00:00.000Z'), mediaVersion: 8,
+    };
+    const tx = {
+      product: { findFirst: jest.fn().mockResolvedValue({
+        id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', media: [],
+        ...originalFacts, title: '事务前已变化', updatedAt: new Date('2026-09-02T00:01:00.000Z'),
+      }) },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const service = new ProductMediaRevisionsService(
+      { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(service.applyOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      expectedProductFactHash: productVisualFactHash(originalFacts),
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    })).rejects.toThrow('商品资料已在候选生成后变化');
   });
 
   it('restores only the exact published version and emits one seller notification', async () => {

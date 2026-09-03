@@ -8,7 +8,8 @@ function build(overrides: { source?: unknown; product?: unknown } = {}) {
     diagnosis: { advisories: [] }, scanSummary: { qrCodesDetected: 0 },
   };
   const product = Object.prototype.hasOwnProperty.call(overrides, 'product') ? overrides.product : {
-    id: 'product-1', title: '厨房鲜虾', subtitle: null, description: '餐桌实拍的新鲜虾', category: { name: '海鲜' },
+    id: 'product-1', title: '厨房鲜虾', subtitle: null, description: '餐桌实拍的新鲜虾', categoryId: 'category-1',
+    updatedAt: new Date('2026-08-22T00:00:00.000Z'), mediaVersion: 1, category: { name: '海鲜' },
   };
   const prisma = {
     sellerMediaAsset: { findFirst: jest.fn().mockResolvedValue(source) },
@@ -42,6 +43,7 @@ describe('ProductVisualPlanningService', () => {
       allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE],
       sourceHash: 'sha-1',
       protectedRegionVersion: 'NOT_CREATED',
+      sceneAnalysis: expect.objectContaining({ productFactHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
       processingPlan: expect.objectContaining({ requiresModel: false }),
     });
     expect(prisma.productVisualPlan.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -81,7 +83,7 @@ describe('ProductVisualPlanningService', () => {
         id: 'asset-1', canonicalSha256: 'sha-1', width: 1200, height: 900,
         diagnosis: { advisories: [] }, scanSummary: { qrCodesDetected: 1 },
       },
-      product: { id: 'product-1', title: '智能手环', subtitle: null, description: '带包装和型号', category: { name: '数码' } },
+      product: { id: 'product-1', title: '智能手环', subtitle: null, description: '带包装和型号', categoryId: 'category-2', updatedAt: new Date('2026-08-22T00:00:00.000Z'), mediaVersion: 1, category: { name: '数码' } },
     });
 
     const result = await service.createPlan('company-1', 'staff-1', 'product-1', {
@@ -110,11 +112,21 @@ describe('ProductVisualPlanningService', () => {
     });
   });
 
-  it('does not plan an asset that is not attached to the requested product', async () => {
+  it('does not plan an owned asset for a product outside the current company', async () => {
     const { service, prisma } = build({ product: null });
 
     await expect(service.createPlan('company-1', 'staff-1', 'product-1', { sourceAssetId: 'asset-1' }))
       .rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.productVisualPlan.create).not.toHaveBeenCalled();
+  });
+
+  it('allows a newly uploaded owned asset to be planned before the draft autosave attaches it', async () => {
+    const { service, prisma } = build();
+
+    await expect(service.createPlan('company-1', 'staff-1', 'product-1', { sourceAssetId: 'asset-1' }))
+      .resolves.toMatchObject({ productId: 'product-1', sourceAssetId: 'asset-1' });
+    expect(prisma.product.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'product-1', companyId: 'company-1' },
+    }));
   });
 });

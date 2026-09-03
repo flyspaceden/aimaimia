@@ -60,6 +60,20 @@ describe('BailianWanImageProvider', () => {
     await expect(provider.submit(await submitInput())).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
+  it('can recover an already accepted task after new Wan submissions are paused', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'wan-task-1', task_status: 'RUNNING' }, request_id: 'request-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_ENABLED: 'false',
+      AI_VISUAL_AGENT_WAN_ENABLED: 'false',
+      AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED: 'false',
+    }) as any, invocationVerifier() as any);
+
+    await expect(provider.query('wan-task-1')).resolves.toMatchObject({ kind: 'KNOWN', state: 'RUNNING' });
+    await expect(provider.submit(await submitInput())).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
   it('submits one asynchronous Wan task with a fixed Core template, never a caller prompt', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       output: { task_id: 'wan-task-1', task_status: 'PENDING' }, request_id: 'request-1',
@@ -235,7 +249,10 @@ describe('BailianWanImageProvider', () => {
       status: 200,
       headers: { 'content-type': 'image/jpeg', 'content-length': String(image.length) },
     })) as any;
-    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+    const provider = new BailianWanImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_ENABLED: 'false',
+      AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED: 'false',
+    }) as any, invocationVerifier() as any);
 
     await expect(provider.fetchOutput('https://wanx-v1.oss-cn-beijing.aliyuncs.com/result.jpg')).resolves.toMatchObject({
       mimeType: 'image/jpeg', buffer: expect.any(Buffer),

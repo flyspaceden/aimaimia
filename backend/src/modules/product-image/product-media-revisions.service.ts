@@ -5,6 +5,7 @@ import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
 import { RequestProductMediaRevisionDto } from './product-media-revision.dto';
 import { NotificationService } from '../notification/notification.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 const directlyUsableAssetStatuses: SellerMediaAssetStatus[] = [
   SellerMediaAssetStatus.AVAILABLE,
@@ -147,6 +148,7 @@ export class ProductMediaRevisionsService {
     optimizationId: string;
     candidateAssetId: string;
     sourceAssetId: string;
+    expectedProductFactHash?: string | null;
     attestation: { quantityConfirmed: boolean; labelsConfirmed: boolean; factsConfirmed: boolean };
   }) {
     if (!input.attestation.quantityConfirmed || !input.attestation.labelsConfirmed || !input.attestation.factsConfirmed) {
@@ -171,6 +173,9 @@ export class ProductMediaRevisionsService {
         }
         return { kind: 'EXISTING' as const, revision: existing };
       }
+      if (input.expectedProductFactHash && productVisualFactHash(product) !== input.expectedProductFactHash) {
+        throw new ConflictException('商品资料已在候选生成后变化，请重新生成候选');
+      }
       const task = await tx.productImageOptimization.findFirst({
         where: {
           id: input.optimizationId,
@@ -183,13 +188,11 @@ export class ProductMediaRevisionsService {
       if (!task || task.artifacts[0]?.assetId !== input.candidateAssetId) {
         throw new ConflictException('候选图片不属于可即时采用的成功任务');
       }
-      if (!product.media.some((media) => media.assetId === input.sourceAssetId)) {
-        throw new ConflictException('原实拍图已不再属于该商品，不能采用候选');
-      }
+      const sourceIsAttached = product.media.some((media) => media.assetId === input.sourceAssetId);
       const previousMedia = this.mediaSnapshot(product.media);
       const current = product.media.map((media) => ({
         assetId: media.assetId,
-        sortOrder: media.sortOrder + 1,
+        sortOrder: media.sortOrder + (sourceIsAttached ? 1 : 2),
         type: media.type,
         visualOrigin: media.visualOrigin,
         optimizationId: media.optimizationId,
@@ -204,6 +207,14 @@ export class ProductMediaRevisionsService {
           optimizationId: input.optimizationId,
           isEvidenceImage: false,
         },
+        ...(!sourceIsAttached ? [{
+          assetId: input.sourceAssetId,
+          sortOrder: 1,
+          type: 'IMAGE' as const,
+          visualOrigin: ProductMediaVisualOrigin.ORIGINAL,
+          optimizationId: null,
+          isEvidenceImage: true,
+        }] : []),
         ...current,
       ];
       if (proposedMedia.length > 9) throw new ConflictException('采用候选后商品图片将超过 9 张，请先移除一张非证据图片');

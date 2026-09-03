@@ -70,6 +70,20 @@ describe('ProductPaidVisualCandidateService', () => {
     }));
   });
 
+  it('persists a candidate for a newly uploaded owned source before that source is public product media', async () => {
+    const { service, prisma } = build();
+
+    await service.persistPendingVerification({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset',
+      sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN', quote,
+      output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
+    });
+    expect(prisma.product.findFirst).toHaveBeenCalledWith({
+      where: { id: 'product-1', companyId: 'company-1' },
+      select: { id: true },
+    });
+  });
+
   it('retires an unlinked candidate if persistence fails after output storage', async () => {
     const { service, prisma } = build();
     (prisma.$transaction as jest.Mock).mockRejectedValue(new Error('transaction failed'));

@@ -25,10 +25,11 @@ export class ProductVisualCommerceController {
   @SellerRoles('OWNER', 'MANAGER')
   listRateCards(
     @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
     @Param('id') productId: string,
     @Query() query: ListProductVisualRateCardsQueryDto,
   ) {
-    return this.visual.listEligibleRateCards({ companyId, productId, ...query });
+    return this.visual.listEligibleRateCards({ companyId, staffId, productId, ...query });
   }
 
   @Get(':id/visual-quotes/:quoteId')

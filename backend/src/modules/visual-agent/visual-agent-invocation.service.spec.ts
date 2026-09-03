@@ -52,6 +52,7 @@ function prismaMock(overrides: Record<string, any> = {}) {
     $transaction: jest.fn(async (callback: any) => callback(tx)),
     visualAgentInvocation: { ...tx.visualAgentInvocation, findMany: jest.fn(), ...(overrides.root?.visualAgentInvocation ?? {}) },
     visualAgentBudgetPolicy: { findMany: jest.fn(), ...(overrides.root?.visualAgentBudgetPolicy ?? {}) },
+    visualAgentBudgetReservation: { aggregate: jest.fn().mockResolvedValue({ _sum: { amountCents: 0 } }), ...(overrides.root?.visualAgentBudgetReservation ?? {}) },
     ...Object.fromEntries(Object.entries(overrides.root ?? {}).filter(([key]) => !['visualAgentInvocation', 'visualAgentBudgetPolicy'].includes(key))),
     tx,
   };
@@ -67,6 +68,48 @@ describe('VisualAgentInvocationService', () => {
     expect((service as any).providerBudgetLockKey(input.provider)).toBe(
       `VISUAL_AGENT_BUDGET:PROVIDER:${scopeKeys[VisualAgentBudgetScope.PROVIDER]}`,
     );
+  });
+
+  it('reports rate-card readiness only when all six exact active budget scopes exist', async () => {
+    const input = reserveInput();
+    const prisma = prismaMock();
+    prisma.visualAgentBudgetPolicy.findMany.mockResolvedValue([
+      policy(VisualAgentBudgetScope.PLATFORM, 'GLOBAL'),
+      policy(VisualAgentBudgetScope.PROVIDER, 'provider:11:BAILIAN_WAN'),
+      policy(VisualAgentBudgetScope.TENANT, 'tenant:8:tenant-1'),
+      policy(VisualAgentBudgetScope.CLIENT, 'tenant:8:tenant-1:client:8:client-1'),
+      policy(VisualAgentBudgetScope.EXTERNAL_OBJECT, 'tenant:8:tenant-1:client:8:client-1:adapter:13:aimai-product:object:9:product-1'),
+      policy(VisualAgentBudgetScope.ACTOR, 'tenant:8:tenant-1:client:8:client-1:adapter:13:aimai-product:actor:7:staff-1'),
+    ]);
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.hasActiveBudgetCoverage(input)).resolves.toBe(true);
+    await expect(service.hasActiveBudgetCoverage({
+      ...input,
+      expectedPolicyVersions: { [VisualAgentBudgetScope.ACTOR]: 'different-rate' },
+    })).resolves.toBe(false);
+    prisma.visualAgentBudgetPolicy.findMany.mockResolvedValueOnce([]);
+    await expect(service.hasActiveBudgetCoverage(input)).resolves.toBe(false);
+  });
+
+  it('does not advertise a rate card when exact budgets disagree or are exhausted', async () => {
+    const input = reserveInput();
+    const prisma = prismaMock();
+    const exact = [
+      policy(VisualAgentBudgetScope.PLATFORM, 'GLOBAL'),
+      policy(VisualAgentBudgetScope.PROVIDER, 'provider:11:BAILIAN_WAN'),
+      policy(VisualAgentBudgetScope.TENANT, 'tenant:8:tenant-1'),
+      policy(VisualAgentBudgetScope.CLIENT, 'tenant:8:tenant-1:client:8:client-1'),
+      policy(VisualAgentBudgetScope.EXTERNAL_OBJECT, 'tenant:8:tenant-1:client:8:client-1:adapter:13:aimai-product:object:9:product-1'),
+      policy(VisualAgentBudgetScope.ACTOR, 'tenant:8:tenant-1:client:8:client-1:adapter:13:aimai-product:actor:7:staff-1'),
+    ];
+    prisma.visualAgentBudgetPolicy.findMany.mockResolvedValue([{ ...exact[0], reserveCents: 10 }, ...exact.slice(1)]);
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.hasActiveBudgetCoverage(input)).resolves.toBe(false);
+    prisma.visualAgentBudgetPolicy.findMany.mockResolvedValue(exact);
+    prisma.visualAgentBudgetReservation.aggregate.mockResolvedValue({ _sum: { amountCents: 500 } });
+    await expect(service.hasActiveBudgetCoverage(input)).resolves.toBe(false);
   });
 
   it('requires one positive, current policy at every budget scope before creating a durable reservation', async () => {

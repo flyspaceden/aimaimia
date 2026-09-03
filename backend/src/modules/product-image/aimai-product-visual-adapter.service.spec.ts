@@ -6,6 +6,7 @@ import {
   AIMAI_VISUAL_ADAPTER_TYPE,
   AIMAI_VISUAL_CLIENT_ID,
 } from './aimai-product-visual-adapter.service';
+import { productVisualFactHash } from './product-visual-fact-hash';
 
 const principal = {
   tenantId: 'aimai-product-agent', clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product',
@@ -13,15 +14,21 @@ const principal = {
 };
 
 function build() {
+  const product = {
+    id: 'product-1', title: '测试商品', subtitle: null, description: null, categoryId: 'category-1',
+    updatedAt: new Date('2026-08-26T00:00:00.000Z'), mediaVersion: 1,
+  };
+  const factVersion = productVisualFactHash(product);
   const plan = {
     id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.STANDARD_FACTS,
     allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO],
     protectedRegionVersion: 'mask-v1',
+    sceneAnalysis: { productFactHash: factVersion },
   };
   const prisma = {
     productVisualPlan: { findFirst: jest.fn().mockResolvedValue(plan) },
     sellerMediaAsset: { findFirst: jest.fn().mockResolvedValue({ id: 'asset-1', objectKey: 'seller-product-assets/asset-1.webp', canonicalSha256: 'a'.repeat(64) }) },
-    product: { findFirst: jest.fn().mockResolvedValue({ id: 'product-1' }) },
+    product: { findFirst: jest.fn().mockResolvedValue(product) },
     productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }) },
   };
   const clients = { resolveInternalClientPrincipal: jest.fn().mockResolvedValue(principal) };
@@ -34,7 +41,7 @@ function build() {
     getReservedQuoteForExecution: jest.fn().mockResolvedValue({
       id: 'quote-1', sourceAssetRef: 'asset-1', sourceHash: 'a'.repeat(64),
       visualPlanSnapshot: {
-        direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'],
+        direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'], adapterFactVersion: factVersion,
       },
     }),
     releaseReservedQuote: jest.fn(),
@@ -51,11 +58,15 @@ function build() {
     }),
   };
   const execution = {
+    isModelProfileAvailable: jest.fn().mockReturnValue(true),
     executeReservedQuote: jest.fn().mockResolvedValue({ invocationId: 'invocation-1', status: 'QUEUED' }),
     pollForOutput: jest.fn(),
   };
   const upload = { getBuffer: jest.fn().mockResolvedValue(Buffer.from('source')) };
-  const invocations = { completeSynchronousVerification: jest.fn().mockResolvedValue(undefined) };
+  const invocations = {
+    completeSynchronousVerification: jest.fn().mockResolvedValue(undefined),
+    hasActiveBudgetCoverage: jest.fn().mockResolvedValue(true),
+  };
   const candidates = {
     persistPendingVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'RECONCILING', candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp' }),
     finalizeVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }),
@@ -98,12 +109,27 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
   });
 
+  it('refuses to quote when saved product facts changed after the visual plan was created', async () => {
+    const { service, prisma, trusted } = build();
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1', title: '已修改商品', subtitle: null, description: null, categoryId: 'category-1',
+      updatedAt: new Date('2026-08-26T00:01:00.000Z'), mediaVersion: 1,
+    });
+
+    await expect(service.issueQuote(input)).rejects.toThrow('商品标题、分类或图片版本已变化');
+    expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+  });
+
   it('offers an organic harvest restage only through a marketing-image rate card', async () => {
     const { service, prisma, credits, trusted } = build();
     prisma.productVisualPlan.findFirst.mockResolvedValue({
       id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.ORGANIC_FACTS,
       allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE],
       protectedRegionVersion: 'mask-v1',
+      sceneAnalysis: { productFactHash: productVisualFactHash({
+        title: '测试商品', subtitle: null, description: null, categoryId: 'category-1',
+        updatedAt: new Date('2026-08-26T00:00:00.000Z'), mediaVersion: 1,
+      }) },
     });
     credits.listRateCards.mockResolvedValue([{
       code: 'HARVEST_PLATE_PRO', displayName: '采摘摆盘营销图', description: '陶瓷盘自然光', outputSpec: { size: '1K' },
@@ -112,7 +138,7 @@ describe('AimaiProductVisualAdapterService', () => {
     }]);
 
     await expect(service.listEligibleRateCards({
-      companyId: 'company-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.MARKETING_SCENE,
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.MARKETING_SCENE,
     })).resolves.toEqual([expect.objectContaining({ code: 'HARVEST_PLATE_PRO', candidateRole: 'MARKETING_IMAGE' })]);
     await service.issueQuote({ ...input, direction: ProductVisualMode.MARKETING_SCENE, rateCode: 'HARVEST_PLATE_PRO' });
     expect(trusted.issueQuoteFromTrustedAdapter).toHaveBeenCalledWith(expect.objectContaining({
@@ -126,12 +152,35 @@ describe('AimaiProductVisualAdapterService', () => {
   it('lists only active rate cards compatible with the current product plan and owner scope', async () => {
     const { service, credits } = build();
     await expect(service.listEligibleRateCards({
-      companyId: 'company-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1', planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
     })).resolves.toEqual([{
       code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留实景', outputSpec: { size: '1K' },
       candidateCount: 1, creditCost: 15, requiresHumanReview: true, candidateRole: 'FACT_MAIN_IMAGE',
     }]);
     expect(credits.listRateCards).toHaveBeenCalledWith({ tenantId: 'aimai-product-agent', clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product' });
+  });
+
+  it('hides a global rate card until the exact test company, product and staff budgets are authorized', async () => {
+    const { service, invocations } = build();
+    invocations.hasActiveBudgetCoverage.mockResolvedValue(false);
+
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
+      planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+    })).resolves.toEqual([]);
+    expect(invocations.hasActiveBudgetCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      externalObjectId: 'product-1', actorId: 'staff-1', provider: 'BAILIAN_WAN', model: 'wan2.7-image',
+    }));
+  });
+
+  it('hides an authorized rate card while its real Provider route is paused', async () => {
+    const { service, execution } = build();
+    execution.isModelProfileAvailable.mockReturnValue(false);
+
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
+      planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+    })).resolves.toEqual([]);
   });
 
   it('does not disclose a quote from a different merchant or product', async () => {
@@ -156,11 +205,20 @@ describe('AimaiProductVisualAdapterService', () => {
     });
   });
 
-  it('refuses a quote if the exact managed source is no longer attached to the product', async () => {
+  it('refuses a quote if the product or exact managed source is no longer owned by the merchant', async () => {
     const { service, prisma, trusted } = build();
     prisma.product.findFirst.mockResolvedValue(null);
     await expect(service.issueQuote(input)).rejects.toBeInstanceOf(NotFoundException);
     expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+  });
+
+  it('allows a newly uploaded managed source to be quoted before draft autosave', async () => {
+    const { service, prisma } = build();
+
+    await expect(service.issueQuote(input)).resolves.toMatchObject({ quote: { id: 'quote-1' } });
+    expect(prisma.product.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'product-1', companyId: 'company-1' },
+    }));
   });
 
   it('fails closed when the configured internal Client belongs to another tenant or namespace', async () => {
@@ -196,6 +254,20 @@ describe('AimaiProductVisualAdapterService', () => {
       visualPlan: expect.objectContaining({ direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS' }),
     }));
     expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('releases frozen image points if saved product facts change after quote issuance', async () => {
+    const { service, prisma, credits, execution } = build();
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1', title: '报价后已修改', subtitle: null, description: null, categoryId: 'category-1',
+      updatedAt: new Date('2026-08-26T00:02:00.000Z'), mediaVersion: 2,
+    });
+
+    await expect(service.confirmAndExecute({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1', quoteHash: 'q'.repeat(64),
+    })).rejects.toThrow('商品资料已变化');
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'PRODUCT_FACTS_CHANGED_BEFORE_PROVIDER_SUBMIT');
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
 
   it('releases frozen credits when the managed source cannot be prepared before Provider submission', async () => {
@@ -235,6 +307,21 @@ describe('AimaiProductVisualAdapterService', () => {
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
       .rejects.toThrow('storage failed');
     expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+  });
+
+  it('rejects cross-company polling before touching the Provider or quote state', async () => {
+    const { service, prisma, credits, execution } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: { id: 'quote-1', externalObjectId: 'product-1' },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-other' },
+    });
+
+    await expect(service.pollAndPersistCandidate({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+    expect(execution.pollForOutput).not.toHaveBeenCalled();
+    expect(credits.markReconciliation).not.toHaveBeenCalled();
   });
 
   it('returns an already completed paid candidate without polling or touching the settled quote', async () => {

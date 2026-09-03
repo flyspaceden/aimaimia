@@ -60,6 +60,10 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
       && this.allowedResultHostSuffixes().length > 0;
   }
 
+  isModelAvailable(model: VisualProviderModel): boolean {
+    return this.isAvailable() && allowedModels.has(model) && this.allowedModels().has(model);
+  }
+
   /** Pure local gate; the runner invokes it before reserving or leasing. */
   async preflight(input: Pick<VisualProviderSubmitInput, 'source' | 'visualPlan' | 'model'>): Promise<void> {
     this.assertAvailable();
@@ -120,7 +124,7 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
   }
 
   async query(providerTaskId: string): Promise<VisualProviderQueryResult> {
-    this.assertAvailable();
+    this.assertRecoveryAvailable();
     if (!this.isValidTaskId(providerTaskId)) {
       return { kind: 'DECLINED', code: 'INVALID_REQUEST' };
     }
@@ -160,7 +164,7 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
   }
 
   async fetchOutput(outputUrl: string): Promise<VisualProviderOutput> {
-    this.assertAvailable();
+    this.assertRecoveryAvailable();
     if (!this.isAllowedProviderResultUrl(outputUrl)) {
       throw new ServiceUnavailableException('百炼万相输出地址不在允许域名范围内');
     }
@@ -199,6 +203,12 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
   private assertAvailable() {
     if (!this.isAvailable()) {
       throw new ServiceUnavailableException('AI Visual Agent 百炼万相 Provider 尚未启用或未完成 staging 配置');
+    }
+  }
+
+  private assertRecoveryAvailable() {
+    if (!this.workspaceId() || !this.apiKey() || this.allowedResultHostSuffixes().length === 0) {
+      throw new ServiceUnavailableException('AI Visual Agent 百炼万相 Provider 缺少在途任务恢复配置');
     }
   }
 

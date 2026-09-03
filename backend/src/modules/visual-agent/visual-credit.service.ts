@@ -35,6 +35,7 @@ export type VerifiedVisualPlanForQuote = {
   direction: string;
   riskProfile: string;
   protectedRegionVersion: string;
+  adapterFactVersion?: string;
   allowedOperations: string[];
   presentationPreset?: string;
 };
@@ -112,6 +113,7 @@ export class VisualCreditService {
   }) {
     [input.tenantId, input.clientId, input.adapterNamespace, input.code, input.modelProfile, input.version, input.candidateRole]
       .forEach((value) => this.assertId(value, 'Rate Card 字段'));
+    const outputSpec = input.outputSpec as { providerManaged?: unknown; size?: unknown; resolution?: unknown; width?: unknown; height?: unknown } | null;
     if (!input.displayName.trim() || !input.description.trim()
       || !SUPPORTED_MODEL_PROFILES.has(input.modelProfile)
       // The current Provider and persistence contract returns one candidate
@@ -121,7 +123,10 @@ export class VisualCreditService {
       || !Number.isInteger(input.creditCost) || input.creditCost < 0
       || input.allowedDirections.length === 0 || input.allowedRiskProfiles.length === 0
       || input.allowedDirections.some((value) => !SAFE_ID.test(value))
-      || input.allowedRiskProfiles.some((value) => !SAFE_ID.test(value))) {
+      || input.allowedRiskProfiles.some((value) => !SAFE_ID.test(value))
+      || !outputSpec || outputSpec.providerManaged !== true
+      || outputSpec.size !== undefined || outputSpec.resolution !== undefined
+      || outputSpec.width !== undefined || outputSpec.height !== undefined) {
       throw new ConflictException('图片积分价目不合法');
     }
     return this.prisma.$transaction(async (tx) => {
@@ -676,6 +681,7 @@ export class VisualCreditService {
   private assertVisualPlan(plan: VerifiedVisualPlanForQuote) {
     if (!SAFE_ID.test(plan.direction) || !SAFE_ID.test(plan.riskProfile)
       || !SAFE_ID.test(plan.protectedRegionVersion)
+      || (plan.adapterFactVersion !== undefined && !SHA256.test(plan.adapterFactVersion))
       || plan.allowedOperations.length === 0
       || plan.allowedOperations.some((operation) => !SAFE_ID.test(operation))) {
       throw new ConflictException('视觉计划报价快照无效');

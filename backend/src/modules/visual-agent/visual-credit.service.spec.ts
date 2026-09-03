@@ -27,7 +27,7 @@ function rateCard(overrides: Record<string, unknown> = {}) {
   return {
     id: 'rate-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
     code: 'STANDARD_REAL_SCENE', displayName: '标准实景美化', description: '保留真实场景',
-    modelProfile: 'BAILIAN_WAN_STANDARD', outputSpec: { size: '1K' },
+    modelProfile: 'BAILIAN_WAN_STANDARD', outputSpec: { providerManaged: true },
     allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
     candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: true, candidateCount: 1,
     creditCost: 15, status: VisualRateCardStatus.ACTIVE, version: 'v1',
@@ -133,6 +133,8 @@ describe('VisualCreditService', () => {
     await expect(service.upsertRateCard({ ...rateCard(), modelProfile: 'UNKNOWN_MODEL' }))
       .rejects.toThrow('图片积分价目不合法');
     await expect(service.upsertRateCard({ ...rateCard(), candidateCount: 2 }))
+      .rejects.toThrow('图片积分价目不合法');
+    await expect(service.upsertRateCard({ ...rateCard(), outputSpec: { resolution: '1K' } }))
       .rejects.toThrow('图片积分价目不合法');
     expect(tx.visualRateCard.upsert).not.toHaveBeenCalled();
   });

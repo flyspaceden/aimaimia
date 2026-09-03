@@ -55,6 +55,20 @@ describe('BailianQwenImageProvider', () => {
     await expect(provider.submit(await submitInput())).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
+  it('can recover an accepted Qwen task while new submissions are paused', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'qwen-task-1', task_status: 'RUNNING' }, request_id: 'request-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianQwenImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_ENABLED: 'false',
+      AI_VISUAL_AGENT_QWEN_IMAGE_ENABLED: 'false',
+      AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED: 'false',
+    }) as any, invocationVerifier() as any);
+
+    await expect(provider.query('qwen-task-1')).resolves.toMatchObject({ kind: 'KNOWN', state: 'RUNNING' });
+    await expect(provider.submit(await submitInput())).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
   it('submits one asynchronous Qwen task with a fixed truth-preserving template and no prompt extension', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       output: { task_id: 'qwen-task-1', task_status: 'PENDING' }, request_id: 'request-1',
@@ -77,7 +91,10 @@ describe('BailianQwenImageProvider', () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       output: { task_id: 'qwen-task-1', task_status: 'SUCCEEDED', results: [{ url: 'https://attacker.example/result.png' }] }, request_id: 'request-1',
     }), { status: 200 })) as any;
-    const provider = new BailianQwenImageProvider(enabledConfig() as any, invocationVerifier() as any);
+    const provider = new BailianQwenImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_ENABLED: 'false',
+      AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED: 'false',
+    }) as any, invocationVerifier() as any);
 
     await expect(provider.query('qwen-task-1')).resolves.toEqual({
       kind: 'UNKNOWN', code: 'AMBIGUOUS_PROVIDER_RESPONSE', requiresReconciliation: true, providerRequestId: 'request-1',
@@ -89,7 +106,10 @@ describe('BailianQwenImageProvider', () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(image, {
       status: 200, headers: { 'content-type': 'image/png', 'content-length': String(image.length) },
     })) as any;
-    const provider = new BailianQwenImageProvider(enabledConfig() as any, invocationVerifier() as any);
+    const provider = new BailianQwenImageProvider(enabledConfig({
+      AI_VISUAL_AGENT_ENABLED: 'false',
+      AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED: 'false',
+    }) as any, invocationVerifier() as any);
 
     await expect(provider.fetchOutput('https://qwen-image.oss-cn-beijing.aliyuncs.com/result.png')).resolves.toMatchObject({ mimeType: 'image/png' });
     await expect(provider.fetchOutput('https://attacker.example/result.png')).rejects.toBeInstanceOf(ServiceUnavailableException);

@@ -111,6 +111,70 @@ export class VisualAgentInvocationService {
     });
   }
 
+  async hasActiveBudgetCoverage(input: {
+    tenantId: string;
+    ownerClientId: string;
+    adapterNamespace: string;
+    externalObjectId: string;
+    actorId: string;
+    provider: string;
+    model: string;
+    visualMode: string;
+    expectedPolicyVersions?: Partial<Record<VisualAgentBudgetScope, string>>;
+  }) {
+    const now = new Date();
+    const scopeKeys = this.scopeKeys({
+      ...input,
+      sourceHash: '0'.repeat(64),
+      visualPlanHash: '0'.repeat(64),
+      idempotencyKey: 'budget-readiness-check',
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    const policies = await this.prisma.visualAgentBudgetPolicy.findMany({
+      where: {
+        enabled: true,
+        provider: input.provider,
+        model: input.model,
+        visualMode: input.visualMode,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+        scope: { in: [...REQUIRED_SCOPES] },
+      },
+    });
+    const selected = REQUIRED_SCOPES.map((scope) => {
+      const matches = policies.filter((policy) => policy.scope === scope && policy.scopeKey === scopeKeys[scope]);
+      const expectedVersion = input.expectedPolicyVersions?.[scope];
+      return matches.length === 1
+        && (!expectedVersion || matches[0].policyVersion === expectedVersion)
+        && matches[0].timezone === 'Asia/Shanghai' && this.hasPositiveCaps(matches[0])
+        ? matches[0]
+        : null;
+    });
+    if (selected.some((policy) => !policy)) return false;
+    let reserveCents: number;
+    try {
+      reserveCents = this.requiredConsistentReserveCents(selected as Array<NonNullable<typeof selected[number]>>);
+    } catch {
+      return false;
+    }
+    const { dayStart, weekStart } = this.shanghaiBudgetWindow(now);
+    const remaining = await Promise.all((selected as Array<NonNullable<typeof selected[number]>>).map(async (policy) => {
+      const [daily, weekly] = await Promise.all([
+        this.prisma.visualAgentBudgetReservation.aggregate({
+          where: { policyId: policy.id, createdAt: { gte: dayStart }, invocation: { status: { in: COMMITTED_STATUSES } } },
+          _sum: { amountCents: true },
+        }),
+        this.prisma.visualAgentBudgetReservation.aggregate({
+          where: { policyId: policy.id, createdAt: { gte: weekStart }, invocation: { status: { in: COMMITTED_STATUSES } } },
+          _sum: { amountCents: true },
+        }),
+      ]);
+      return (daily._sum.amountCents ?? 0) + reserveCents <= policy.dailyCapCents
+        && (weekly._sum.amountCents ?? 0) + reserveCents <= policy.weeklyCapCents;
+    }));
+    return remaining.every(Boolean);
+  }
+
   async upsertBudgetPolicy(input: {
     scope: VisualAgentBudgetScope;
     scopeKey: string;
