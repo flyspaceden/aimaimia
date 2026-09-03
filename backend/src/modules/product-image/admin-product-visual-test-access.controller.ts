@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuditLog } from '../admin/common/decorators/audit-action';
 import { RequirePermission } from '../admin/common/decorators/require-permission';
@@ -14,6 +14,12 @@ import { ProductVisualTestAccessService } from './product-visual-test-access.ser
 @Controller('admin/visual-agent/test-authorizations')
 export class AdminProductVisualTestAccessController {
   constructor(private readonly access: ProductVisualTestAccessService) {}
+
+  @Get('status')
+  @RequirePermission('admin_visual_agent:manage')
+  status() {
+    return this.access.status();
+  }
 
   @Post()
   @RequirePermission('admin_visual_agent:manage')

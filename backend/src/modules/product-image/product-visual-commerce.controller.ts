@@ -32,6 +32,18 @@ export class ProductVisualCommerceController {
     return this.visual.listEligibleRateCards({ companyId, staffId, productId, ...query });
   }
 
+  @Post(':id/visual-test-access')
+  @SellerRoles('OWNER', 'MANAGER')
+  @SellerAudit({ action: 'ENABLE_PRODUCT_VISUAL_TEST_ACCESS', module: 'product-images', targetType: 'Product', targetIdParam: 'params.id' })
+  ensureDefaultTestAccess(
+    @CurrentSeller('companyId') companyId: string,
+    @CurrentSeller('sub') staffId: string,
+    @Param('id') productId: string,
+    @Body() dto: ListProductVisualRateCardsQueryDto,
+  ) {
+    return this.visual.ensureDefaultTestAccess({ companyId, staffId, productId, ...dto });
+  }
+
   @Get(':id/visual-quotes/:quoteId')
   @SellerRoles('OWNER', 'MANAGER')
   getQuote(

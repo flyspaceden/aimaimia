@@ -144,6 +144,18 @@ export type ProductVisualTestAccessResult = ProductVisualTestAccessInput & {
   account: VisualCreditAccount;
 };
 
+export type ProductVisualTestAccessStatus = {
+  stagingAccessEnabled: boolean;
+  allMerchantsEnabled: boolean;
+  providerReady: boolean;
+  model: string;
+  creditCost: number;
+  merchantConfirmationRequired: boolean;
+};
+
+export const getProductVisualTestAccessStatus = (): Promise<ProductVisualTestAccessStatus> =>
+  client.get('/admin/visual-agent/test-authorizations/status');
+
 export const grantProductVisualTestAccess = (data: ProductVisualTestAccessInput): Promise<ProductVisualTestAccessResult> =>
   client.post('/admin/visual-agent/test-authorizations', data);
 

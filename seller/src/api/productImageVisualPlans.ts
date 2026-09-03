@@ -126,6 +126,13 @@ export const listProductVisualRateCards = (productId: string, params: {
 }): Promise<ProductVisualRateCard[]> =>
   client.get(`/seller/products/${productId}/visual-rate-cards`, { params });
 
+export const ensureProductVisualTestAccess = (productId: string, data: {
+  sourceAssetId: string;
+  planId: string;
+  direction: ProductVisualMode;
+}): Promise<{ enabled: boolean; created: boolean }> =>
+  client.post(`/seller/products/${productId}/visual-test-access`, data);
+
 export const issueProductVisualQuote = (productId: string, data: {
   sourceAssetId: string;
   planId: string;

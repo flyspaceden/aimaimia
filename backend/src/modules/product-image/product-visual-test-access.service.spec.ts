@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { ProductVisualMode, VisualAgentBudgetScope } from '@prisma/client';
+import { ProductVisualMode, VisualAgentBudgetScope, VisualCreditQuoteStatus } from '@prisma/client';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
 
 function build(overrides: { staff?: unknown; product?: unknown } = {}) {
@@ -7,6 +7,7 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
     company: { findFirst: jest.fn().mockResolvedValue({ id: 'company-1' }) },
     companyStaff: { findFirst: jest.fn().mockResolvedValue(Object.prototype.hasOwnProperty.call(overrides, 'staff') ? overrides.staff : { id: 'staff-1' }) },
     product: { findFirst: jest.fn().mockResolvedValue(Object.prototype.hasOwnProperty.call(overrides, 'product') ? overrides.product : { id: 'product-1' }) },
+    visualCreditQuote: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const invocations = {
     upsertBudgetPolicy: jest.fn().mockResolvedValue({ id: 'policy-1' }),
@@ -16,6 +17,7 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
     upsertRateCard: jest.fn().mockResolvedValue({ code: 'STAGING_WAN_PRO_MARKETING_V1', creditCost: 10 }),
     grantWelcomeCredits: jest.fn().mockResolvedValue({}),
     getAccount: jest.fn().mockResolvedValue({ availableCredits: 200, reservedCredits: 0 }),
+    releaseUnboundReservedQuote: jest.fn().mockResolvedValue({}),
   };
   return {
     service: new ProductVisualTestAccessService(
@@ -134,5 +136,52 @@ describe('ProductVisualTestAccessService', () => {
 
     await expect(service.grant(input)).rejects.toThrow('只允许在 staging 环境使用');
     expect(invocations.upsertBudgetPolicy).not.toHaveBeenCalled();
+  });
+
+  it('auto-provisions exact but effectively unlimited access for every active staging merchant', async () => {
+    const { prisma, invocations, credits } = build();
+    const service = new ProductVisualTestAccessService(
+      prisma as any,
+      invocations as any,
+      credits as any,
+      { get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'PUBLIC_API_BASE_URL') return 'https://test-api.ai-maimai.com/api/v1';
+        if (key === 'AI_VISUAL_AGENT_TEST_ACCESS_ENABLED' || key === 'AI_VISUAL_AGENT_TEST_ALL_MERCHANTS_ENABLED') return 'true';
+        return fallback;
+      }) } as any,
+      { isModelProfileAvailable: jest.fn().mockReturnValue(true) } as any,
+    );
+
+    expect(service.isAllMerchantMode()).toBe(true);
+    await expect(service.ensureDefaultAccess({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', visualMode: ProductVisualMode.MARKETING_SCENE,
+    })).resolves.toMatchObject({ unlimited: true, providerReady: true });
+    expect(invocations.upsertBudgetPolicy).toHaveBeenCalledTimes(6);
+    for (const call of invocations.upsertBudgetPolicy.mock.calls) {
+      expect(call[0]).toMatchObject({ dailyCapCents: 2_000_000_000, weeklyCapCents: 2_000_000_000 });
+    }
+    expect(credits.grantWelcomeCredits).toHaveBeenCalled();
+  });
+
+  it('releases only unbound automatic reservations after all-merchant access is disabled', async () => {
+    const { prisma, invocations, credits } = build();
+    prisma.visualCreditQuote.findMany.mockResolvedValue([
+      { id: 'auto-quote', rateCardSnapshot: { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1' } },
+      { id: 'manual-quote', rateCardSnapshot: { code: 'STAGING_WAN_PRO_MARKETING_V1' } },
+    ]);
+    const service = new ProductVisualTestAccessService(
+      prisma as any,
+      invocations as any,
+      credits as any,
+      { get: jest.fn((key: string, fallback?: string) => key === 'PUBLIC_API_BASE_URL' ? 'https://test-api.ai-maimai.com/api/v1' : key === 'AI_VISUAL_AGENT_TEST_ACCESS_ENABLED' ? 'true' : fallback) } as any,
+      { isModelProfileAvailable: jest.fn().mockReturnValue(true) } as any,
+    );
+
+    await expect(service.releaseDisabledAutomaticReservations()).resolves.toBe(1);
+    expect(prisma.visualCreditQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: VisualCreditQuoteStatus.RESERVED, visualAgentInvocationId: null },
+    }));
+    expect(credits.releaseUnboundReservedQuote).toHaveBeenCalledWith('auto-quote', 'ALL_TEST_MERCHANT_ACCESS_DISABLED');
+    expect(credits.releaseUnboundReservedQuote).not.toHaveBeenCalledWith('manual-quote', expect.anything());
   });
 });

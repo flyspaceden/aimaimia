@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile } from '@prisma/client';
+import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile, VisualCreditQuoteStatus } from '@prisma/client';
 const sharp = require('sharp') as typeof import('sharp').default;
 import {
   AimaiProductVisualAdapterService,
@@ -45,6 +45,7 @@ function build() {
       },
     }),
     releaseReservedQuote: jest.fn(),
+    releaseUnboundReservedQuote: jest.fn().mockResolvedValue({ releaseSkipped: false }),
     settleReservedQuote: jest.fn(),
     markReconciliation: jest.fn(),
     listRateCards: jest.fn().mockResolvedValue([{
@@ -73,9 +74,10 @@ function build() {
   };
   const localVerification = { verify: jest.fn().mockResolvedValue({ disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {} }) };
   const ocrVerification = { verify: jest.fn().mockResolvedValue({ state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW' }) };
+  const testAccess = { isAllMerchantMode: jest.fn().mockReturnValue(false), ensureDefaultAccess: jest.fn() };
   return {
-    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any),
-    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification,
+    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any, testAccess as any),
+    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification, testAccess,
   };
 }
 
@@ -183,6 +185,37 @@ describe('AimaiProductVisualAdapterService', () => {
     })).resolves.toEqual([]);
   });
 
+  it('auto-provisions exact access for every active staging merchant before listing its plans', async () => {
+    const { service, testAccess } = build();
+    testAccess.isAllMerchantMode.mockReturnValue(true);
+    testAccess.ensureDefaultAccess.mockResolvedValue({ unlimited: true });
+
+    await service.ensureDefaultTestAccess({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
+      planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+    });
+    expect(testAccess.ensureDefaultAccess).toHaveBeenCalledWith({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', visualMode: ProductVisualMode.PRESERVE_REAL_SCENE,
+    });
+  });
+
+  it('hides automatic-all-merchant cards immediately after the global test switch is disabled', async () => {
+    const { service, credits, testAccess, invocations } = build();
+    credits.listRateCards.mockResolvedValue([{
+      code: 'STAGING_AUTO_WAN_PRO_PRESERVE_REAL_SCENE_V1', displayName: '自动测试方案', description: '测试',
+      outputSpec: { providerManaged: true }, modelProfile: 'BAILIAN_WAN_PRO', candidateCount: 1, creditCost: 10,
+      requiresHumanReview: true, status: 'ACTIVE', candidateRole: 'FACT_MAIN_IMAGE',
+      allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
+    }]);
+    testAccess.isAllMerchantMode.mockReturnValue(false);
+
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
+      planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
+    })).resolves.toEqual([]);
+    expect(invocations.hasActiveBudgetCoverage).not.toHaveBeenCalled();
+  });
+
   it('does not disclose a quote from a different merchant or product', async () => {
     const { service, credits } = build();
     credits.getQuoteForClient.mockResolvedValue({
@@ -236,6 +269,60 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(trusted.confirmQuoteFromTrustedAdapter).toHaveBeenCalledWith(expect.objectContaining({
       principal, adapterType: AIMAI_VISUAL_ADAPTER_TYPE, quoteId: 'quote-1', quoteHash: 'q'.repeat(64),
     }));
+  });
+
+  it('blocks an automatic tester quote before reserve when the all-merchant switch is disabled', async () => {
+    const { service, credits, trusted, testAccess } = build();
+    testAccess.isAllMerchantMode.mockReturnValue(false);
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: {
+        id: 'quote-auto', externalObjectId: 'product-1', status: VisualCreditQuoteStatus.ISSUED,
+        rateCardSnapshot: { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1' },
+      },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' },
+    });
+
+    await expect(service.confirmQuote({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-auto', quoteHash: 'q'.repeat(64),
+    })).rejects.toThrow('全部测试商家图片美化已暂停');
+    expect(trusted.confirmQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('releases an already reserved automatic tester quote when the global switch is disabled before submission', async () => {
+    const { service, credits, trusted, testAccess } = build();
+    testAccess.isAllMerchantMode.mockReturnValue(false);
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: {
+        id: 'quote-auto', externalObjectId: 'product-1', status: VisualCreditQuoteStatus.RESERVED,
+        rateCardSnapshot: { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1' }, providerSubmissionStarted: false,
+      },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' },
+    });
+
+    await expect(service.confirmQuote({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-auto', quoteHash: 'q'.repeat(64),
+    })).rejects.toThrow('全部测试商家图片美化已暂停');
+    expect(credits.releaseUnboundReservedQuote).toHaveBeenCalledWith('quote-auto', 'ALL_TEST_MERCHANT_ACCESS_DISABLED');
+    expect(trusted.confirmQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+  });
+
+  it('allows recovery of an already submitted automatic quote after the all-merchant switch is disabled', async () => {
+    const { service, credits, trusted, testAccess } = build();
+    testAccess.isAllMerchantMode.mockReturnValue(false);
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: {
+        id: 'quote-auto', externalObjectId: 'product-1', status: VisualCreditQuoteStatus.RESERVED,
+        rateCardSnapshot: { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1' }, providerSubmissionStarted: true,
+      },
+      billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' },
+    });
+
+    await expect(service.confirmQuote({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-auto', quoteHash: 'q'.repeat(64),
+    })).resolves.toMatchObject({ quote: { status: 'RESERVED' } });
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+    expect(trusted.confirmQuoteFromTrustedAdapter).toHaveBeenCalled();
   });
 
   it('rechecks the source then runs the fixed provider plan only after quote confirmation', async () => {

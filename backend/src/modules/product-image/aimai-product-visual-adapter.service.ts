@@ -13,11 +13,11 @@ import { ProductPaidVisualCandidateService } from './product-paid-visual-candida
 import { ProductImageCandidateLocalVerificationService } from './product-image-candidate-local-verification.service';
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 import { productVisualFactHash } from './product-visual-fact-hash';
+import { ProductVisualTestAccessService } from './product-visual-test-access.service';
+import { AIMAI_VISUAL_ADAPTER_TYPE, AIMAI_VISUAL_CLIENT_ID, AIMAI_VISUAL_TENANT_ID } from './aimai-product-visual.constants';
 const sharp = require('sharp') as typeof import('sharp').default;
 
-export const AIMAI_VISUAL_TENANT_ID = 'aimai-product-agent';
-export const AIMAI_VISUAL_CLIENT_ID = 'aimai-product-adapter-v1';
-export const AIMAI_VISUAL_ADAPTER_TYPE = 'aimai-product-v1';
+export { AIMAI_VISUAL_ADAPTER_TYPE, AIMAI_VISUAL_CLIENT_ID, AIMAI_VISUAL_TENANT_ID } from './aimai-product-visual.constants';
 const QUOTE_TTL_MS = 15 * 60_000;
 const EXECUTABLE_RATE_MODELS = new Set(['BAILIAN_WAN_STANDARD', 'BAILIAN_WAN_PRO', 'BAILIAN_QWEN_IMAGE', 'BAILIAN_QWEN_IMAGE_PRO']);
 
@@ -50,6 +50,7 @@ export class AimaiProductVisualAdapterService {
     private readonly candidates: ProductPaidVisualCandidateService,
     private readonly localVerification: ProductImageCandidateLocalVerificationService,
     private readonly ocrVerification: ProductImageCandidateOcrVerificationService,
+    private readonly testAccess: ProductVisualTestAccessService,
   ) {}
 
   async issueQuote(input: IssueQuoteInput) {
@@ -151,6 +152,28 @@ export class AimaiProductVisualAdapterService {
     quoteHash: string;
   }) {
     const principal = await this.resolveAimaiPrincipal();
+    const access = await this.credits.getQuoteForClient({ principal, quoteId: input.quoteId });
+    this.assertMerchantQuoteAccess(access, input.companyId, input.productId);
+    const rateCode = (access.quote.rateCardSnapshot as { code?: unknown } | null)?.code;
+    if (typeof rateCode === 'string' && rateCode.startsWith('STAGING_AUTO_') && !this.testAccess.isAllMerchantMode()) {
+      if (access.quote.status === VisualCreditQuoteStatus.RESERVED && !access.quote.providerSubmissionStarted) {
+        const released = await this.credits.releaseUnboundReservedQuote(input.quoteId, 'ALL_TEST_MERCHANT_ACCESS_DISABLED');
+        if ((released as { releaseSkipped?: boolean }).releaseSkipped) {
+          return this.trusted.confirmQuoteFromTrustedAdapter({
+            principal,
+            adapterType: AIMAI_VISUAL_ADAPTER_TYPE,
+            billingOwner: { billingOwnerType: 'COMPANY', billingOwnerId: input.companyId },
+            externalObjectId: input.productId,
+            actorId: input.staffId,
+            quoteId: input.quoteId,
+            quoteHash: input.quoteHash,
+          });
+        }
+      }
+      if (!access.quote.providerSubmissionStarted) {
+        throw new ServiceUnavailableException('全部测试商家图片美化已暂停，本次不会调用模型');
+      }
+    }
     return this.trusted.confirmQuoteFromTrustedAdapter({
       principal,
       adapterType: AIMAI_VISUAL_ADAPTER_TYPE,
@@ -266,6 +289,7 @@ export class AimaiProductVisualAdapterService {
     });
     const compatible = cards
       .filter((card) => card.status === 'ACTIVE'
+        && (!card.code.startsWith('STAGING_AUTO_') || this.testAccess.isAllMerchantMode())
         && card.candidateCount === 1
         && EXECUTABLE_RATE_MODELS.has(card.modelProfile)
         && card.allowedDirections.includes(input.direction)
@@ -302,6 +326,37 @@ export class AimaiProductVisualAdapterService {
       requiresHumanReview: card.requiresHumanReview,
       candidateRole: card.candidateRole,
     }));
+  }
+
+  async ensureDefaultTestAccess(input: {
+    companyId: string;
+    staffId: string;
+    productId: string;
+    sourceAssetId: string;
+    planId: string;
+    direction: ProductVisualMode;
+  }) {
+    if (!this.testAccess.isAllMerchantMode()) return { enabled: false, created: false };
+    const plan = await this.prisma.productVisualPlan.findFirst({
+      where: {
+        id: input.planId,
+        companyId: input.companyId,
+        productId: input.productId,
+        sourceAssetId: input.sourceAssetId,
+        expiresAt: { gt: new Date() },
+      },
+      select: { allowedModes: true },
+    });
+    if (!plan || !plan.allowedModes.includes(input.direction)) {
+      throw new ConflictException('当前图片计划不允许开通该美化方向');
+    }
+    const access = await this.testAccess.ensureDefaultAccess({
+      companyId: input.companyId,
+      staffId: input.staffId,
+      productId: input.productId,
+      visualMode: input.direction,
+    });
+    return { enabled: true, created: true, access };
   }
 
   async getQuote(companyId: string, productId: string, quoteId: string) {

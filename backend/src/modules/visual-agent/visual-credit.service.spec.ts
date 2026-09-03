@@ -116,6 +116,33 @@ describe('VisualCreditService', () => {
       .rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('returns an existing welcome grant even after the welcome policy is paused', async () => {
+    const { service, tx } = build();
+    tx.visualCreditWelcomePolicy.findUnique.mockResolvedValue({ enabled: false });
+    tx.visualCreditLedger.findUnique.mockResolvedValue({
+      id: 'welcome-ledger', accountId: 'account-1', type: 'WELCOME_GRANT', availableDelta: 200,
+      reservedDelta: 0, availableBalanceAfter: 200, reservedBalanceAfter: 0,
+    });
+
+    await expect(service.grantWelcomeCredits({ tenantId: principal.tenantId, ...owner, now }))
+      .resolves.toMatchObject({ account: { id: 'account-1' }, ledger: { id: 'welcome-ledger' } });
+    expect(tx.visualCreditWelcomePolicy.findUnique).not.toHaveBeenCalled();
+    expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('never releases an unbound reservation after a Provider invocation was attached concurrently', async () => {
+    const { service, tx } = build();
+    tx.visualCreditQuote.findUnique.mockResolvedValue(quote({
+      status: VisualCreditQuoteStatus.RESERVED,
+      visualAgentInvocationId: 'invocation-1',
+    }));
+
+    await expect(service.releaseUnboundReservedQuote('quote-1', 'AUTO_ACCESS_DISABLED'))
+      .resolves.toMatchObject({ releaseSkipped: true });
+    expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+    expect(tx.visualCreditLedger.create).not.toHaveBeenCalled();
+  });
+
   it('pauses an older active rate card before activating a new version', async () => {
     const { service, tx } = build();
 

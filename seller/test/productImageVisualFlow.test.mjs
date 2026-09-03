@@ -23,6 +23,8 @@ test('seller image flow creates a local plan before it exposes a free real-scene
 test('seller API uses product-bound planning, fact scanning, and explicit FREE_TUNE intents', () => {
   assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-enhancements\/plan/);
   assert.match(visualApi, /\/seller\/media-assets\/\$\{sourceAssetId\}\/fact-scan/);
+  assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-test-access/);
+  assert.match(editPage, /await ensureProductVisualTestAccess\(productId, request\)/);
   assert.match(optimizationApi, /intent: 'FREE_TUNE'/);
   assert.match(optimizationApi, /planId: string/);
 });

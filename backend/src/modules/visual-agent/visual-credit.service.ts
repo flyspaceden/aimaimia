@@ -196,11 +196,6 @@ export class VisualCreditService {
     this.assertId(grantKey, '欢迎图片积分幂等键');
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${input.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
-      const policy = await tx.visualCreditWelcomePolicy.findUnique({ where: { tenantId: input.tenantId } });
-      if (!policy || !policy.enabled || policy.effectiveFrom > now
-        || (policy.effectiveUntil && policy.effectiveUntil <= now)) {
-        throw new ServiceUnavailableException('当前没有可用的新商家图片积分赠送策略');
-      }
       const account = await this.ensureAccountTx(tx, input.tenantId, input);
       const existing = await tx.visualCreditLedger.findUnique({ where: { idempotencyKey: grantKey } });
       if (existing) {
@@ -208,6 +203,11 @@ export class VisualCreditService {
           throw new ConflictException('欢迎图片积分幂等键已被另一个图片积分账户使用');
         }
         return this.toAccountResult(account, existing);
+      }
+      const policy = await tx.visualCreditWelcomePolicy.findUnique({ where: { tenantId: input.tenantId } });
+      if (!policy || !policy.enabled || policy.effectiveFrom > now
+        || (policy.effectiveUntil && policy.effectiveUntil <= now)) {
+        throw new ServiceUnavailableException('当前没有可用的新商家图片积分赠送策略');
       }
 
       const availableAfter = account.availableCredits + policy.grantCredits;
@@ -497,6 +497,10 @@ export class VisualCreditService {
     return this.closeReservedQuote(quoteId, 'RELEASE', reason);
   }
 
+  async releaseUnboundReservedQuote(quoteId: string, reason: string) {
+    return this.closeReservedQuote(quoteId, 'RELEASE', reason, { requireNoInvocation: true });
+  }
+
   async getAccount(input: { tenantId: string } & VisualBillingOwner) {
     this.assertTenantOwner(input.tenantId, input);
     const account = await this.prisma.visualCreditAccount.findUnique({
@@ -583,7 +587,12 @@ export class VisualCreditService {
     });
   }
 
-  private async closeReservedQuote(quoteId: string, action: 'SETTLE' | 'RELEASE', reason: string) {
+  private async closeReservedQuote(
+    quoteId: string,
+    action: 'SETTLE' | 'RELEASE',
+    reason: string,
+    options: { requireNoInvocation?: boolean } = {},
+  ) {
     this.assertId(quoteId, '报价 ID');
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, `VISUAL_CREDIT_QUOTE_ID:${quoteId}`);
@@ -594,6 +603,9 @@ export class VisualCreditService {
       if (!quote) throw new NotFoundException('图片美化报价不存在');
       if (quote.status === VisualCreditQuoteStatus.SETTLED || quote.status === VisualCreditQuoteStatus.RELEASED) {
         return this.toQuoteResponse(quote);
+      }
+      if (options.requireNoInvocation && quote.visualAgentInvocationId) {
+        return { quote: this.toQuoteResponse(quote), releaseSkipped: true };
       }
       if (quote.status !== VisualCreditQuoteStatus.RESERVED && quote.status !== VisualCreditQuoteStatus.RECONCILING) {
         throw new ConflictException('图片美化报价当前不能结算或释放');
@@ -721,6 +733,7 @@ export class VisualCreditService {
       settledAt: quote.settledAt,
       releasedAt: quote.releasedAt,
       failureReason: quote.failureReason,
+      providerSubmissionStarted: Boolean(quote.visualAgentInvocationId),
     };
   }
 

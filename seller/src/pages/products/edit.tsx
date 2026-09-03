@@ -55,6 +55,7 @@ import {
   confirmProductVisualQuote,
   getProductVisualQuote,
   getProductImageFactScan,
+  ensureProductVisualTestAccess,
   issueProductVisualQuote,
   listProductVisualRateCards,
   pollProductVisualQuote,
@@ -1293,11 +1294,13 @@ function ImageUploadSection({
     if (!productId || !visualPlan || !visualPlanSource) return;
     setRateCardsLoading(true);
     try {
-      setRateCards(await listProductVisualRateCards(productId, {
+      const request = {
         sourceAssetId: visualPlanSource.asset.asset.id,
         planId: visualPlan.id,
         direction: paidDirection(),
-      }));
+      };
+      await ensureProductVisualTestAccess(productId, request);
+      setRateCards(await listProductVisualRateCards(productId, request));
     } catch (error) {
       message.error(error instanceof Error ? error.message : '暂时无法取得图片美化报价');
     } finally {

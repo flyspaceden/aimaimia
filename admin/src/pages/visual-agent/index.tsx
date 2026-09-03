@@ -6,6 +6,7 @@ import {
   adjustVisualCredits,
   approvePaidVisualCandidateFacts,
   getPaidVisualCandidate,
+  getProductVisualTestAccessStatus,
   getPendingPaidVisualCandidates,
   getVisualCreditAccount,
   getVisualCreditLedger,
@@ -136,6 +137,11 @@ export default function VisualAgentPage() {
   const isStaging = import.meta.env.VITE_APP_ENV === 'staging';
 
   const policy = useQuery({ queryKey: ['visual-agent', 'welcome-policy', scope.tenantId], queryFn: () => getVisualWelcomePolicy(scope.tenantId) });
+  const testAccessStatus = useQuery({
+    queryKey: ['visual-agent', 'test-access-status'],
+    queryFn: getProductVisualTestAccessStatus,
+    enabled: isStaging,
+  });
   const rateCards = useQuery({ queryKey: ['visual-agent', 'rate-cards', scope], queryFn: () => listVisualRateCards(scope.tenantId, scope.clientId, scope.adapterNamespace) });
   const budgetPolicies = useQuery({ queryKey: ['visual-agent', 'budget-policies'], queryFn: listVisualBudgetPolicies });
   const reconciliations = useQuery({ queryKey: ['visual-agent', 'reconciliations'], queryFn: listVisualReconciliations, refetchInterval: 30_000 });
@@ -369,6 +375,15 @@ export default function VisualAgentPage() {
       </div>
       <Alert showIcon type="warning" icon={<SafetyCertificateOutlined />} message="配置不等于开通" description="费率卡只控制面向商家的报价；真实百炼模型、图片积分发放、数据库迁移和任何扣费调用仍需独立发布授权与运行时开关。" style={{ marginBottom: 16 }} />
       {(policy.isError || rateCards.isError) && <Alert showIcon type="error" message="商品图片智能美化配置加载失败" description="当前页面不能确认真实策略或费率卡，请重新加载后再操作。" action={<Button size="small" onClick={() => { void policy.refetch(); void rateCards.refetch(); }}>重新加载配置</Button>} style={{ marginBottom: 16 }} />}
+      {isStaging && testAccessStatus.data && <Alert
+        showIcon
+        type={testAccessStatus.data.allMerchantsEnabled && testAccessStatus.data.providerReady ? 'success' : 'warning'}
+        message={testAccessStatus.data.allMerchantsEnabled ? '所有测试商家已默认开放' : '测试商家仍需逐个开通'}
+        description={testAccessStatus.data.allMerchantsEnabled
+          ? `ACTIVE 商家的 OWNER/MANAGER 可直接为自有商品查看付费方案；不限制每日、每周或平台共享调用预算。每次仍需商家确认 ${testAccessStatus.data.creditCost} 图片积分。`
+          : '可使用下方表单为指定商家、人员和商品开通测试权限。'}
+        style={{ marginBottom: 16 }}
+      />}
 
       <Card size="small" title="管理范围" extra={<Tag color="blue">所有资源按租户、接入客户端和适配器隔离</Tag>} style={{ marginBottom: 16 }}>
         <Form form={scopeForm} layout="inline" initialValues={scope} onFinish={(values) => setScope(values as Scope)}>
