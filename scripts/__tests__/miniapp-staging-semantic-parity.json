@@ -278,8 +278,16 @@
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
     },
     {
+      "path": "backend/src/modules/product-image/admin-product-visual-test-access.controller.ts",
+      "reason": "approved staging-only administration endpoint for explicit and all-merchant AI image test access status"
+    },
+    {
       "path": "backend/src/modules/product-image/aimai-product-visual-adapter.service.ts",
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/aimai-product-visual.constants.ts",
+      "reason": "centralize the AI image tenant, client, and adapter identities without creating an adapter-to-test-access dependency cycle"
     },
     {
       "path": "backend/src/modules/product-image/product-image-background.provider.ts",
@@ -366,6 +374,10 @@
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
     },
     {
+      "path": "backend/src/modules/product-image/product-visual-fact-hash.ts",
+      "reason": "bind paid AI image plans and quotes to the current product facts so stale edits cannot be generated or adopted"
+    },
+    {
       "path": "backend/src/modules/product-image/product-visual-planning.controller.ts",
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
     },
@@ -376,6 +388,22 @@
     {
       "path": "backend/src/modules/product-image/product-visual-planning.service.ts",
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-test-access.dto.ts",
+      "reason": "validate platform administration input for exact staging merchant test authorization without wildcard scope"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-test-access.service.ts",
+      "reason": "default-off and exact-test-hostname-gated staging access opens all eligible test merchants, removes practical daily, weekly, and shared provider-budget restrictions with 2,000,000,000-cent caps, retains the 30-day authorization window plus merchant image-credit balance and per-call confirmation, grants welcome credits, safely releases unbound reservations when disabled, and keeps production closed",
+      "riskTags": [
+        "default_off",
+        "exact_test_hostname",
+        "all_test_merchants",
+        "effectively_unlimited_provider_budget",
+        "credit_confirmation_required",
+        "production_closed"
+      ]
     },
     {
       "path": "backend/src/modules/product-image/seller-media-assets.controller.ts",

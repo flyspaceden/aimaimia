@@ -161,4 +161,16 @@ test('the parity manifest documents every intentional non-identical production s
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
   }
+
+  const testAccessEntry = manifest.intentionalCandidateDifferences.find(
+    (entry) => entry.path === 'backend/src/modules/product-image/product-visual-test-access.service.ts',
+  );
+  assert.deepEqual(testAccessEntry?.riskTags, [
+    'default_off',
+    'exact_test_hostname',
+    'all_test_merchants',
+    'effectively_unlimited_provider_budget',
+    'credit_confirmation_required',
+    'production_closed',
+  ], 'staging auto-access entry must retain its explicit environment and cost risk disclosures');
 });
