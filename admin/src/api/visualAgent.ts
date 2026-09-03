@@ -89,7 +89,7 @@ export type VisualBudgetPolicy = {
   scopeKey: string;
   provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
   model: 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro';
-  visualMode: 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH';
+  visualMode: 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' | 'MARKETING_SCENE';
   reserveCents: number;
   perTaskCapCents: number;
   dailyCapCents: number;
@@ -123,6 +123,29 @@ export type VisualReconciliation = {
 
 const tenantBase = (tenantId: string) => `/admin/visual-agent/tenants/${encodeURIComponent(tenantId)}`;
 const accountBase = (tenantId: string, ownerType: string, ownerId: string) => `${tenantBase(tenantId)}/credit-accounts/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}`;
+
+export type ProductVisualTestAccessInput = {
+  companyId: string;
+  staffId: string;
+  productId: string;
+  visualMode: VisualBudgetPolicy['visualMode'];
+  dailyCallLimit: number;
+  weeklyCallLimit: number;
+  expiresAt: string;
+  grantWelcomeCredits: boolean;
+};
+
+export type ProductVisualTestAccessResult = ProductVisualTestAccessInput & {
+  provider: string;
+  model: string;
+  reserveCents: number;
+  providerReady: boolean;
+  rateCard: { code: string; creditCost: number };
+  account: VisualCreditAccount;
+};
+
+export const grantProductVisualTestAccess = (data: ProductVisualTestAccessInput): Promise<ProductVisualTestAccessResult> =>
+  client.post('/admin/visual-agent/test-authorizations', data);
 
 export const getVisualWelcomePolicy = (tenantId: string): Promise<VisualWelcomePolicy | null> =>
   client.get(`${tenantBase(tenantId)}/welcome-credit-policy`);

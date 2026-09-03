@@ -14,6 +14,7 @@ function validConfig(overrides = {}) {
     AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID: `ws-${'b'.repeat(16)}`,
     AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET: 'c'.repeat(64),
     AI_VISUAL_AGENT_ENABLED: 'false',
+    AI_VISUAL_AGENT_TEST_ACCESS_ENABLED: 'false',
     AI_VISUAL_AGENT_WAN_ENABLED: 'false',
     AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED: 'false',
     AI_VISUAL_AGENT_WAN_ALLOWED_MODELS: 'wan2.7-image',

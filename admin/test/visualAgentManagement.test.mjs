@@ -14,6 +14,10 @@ test('商品图片智能美化管理受权限保护并提供费率、额度和�
   assert.match(api, /\/admin\/product-paid-visual-candidates/);
   assert.match(page, /新商家欢迎图片积分/);
   assert.match(page, /费率卡（面向商家的固定报价）/);
+  assert.match(page, /开通指定测试商家/);
+  assert.match(page, /只授权指定商家、人员和商品/);
+  assert.match(page, /营销展示图/);
+  assert.match(api, /\/admin\/visual-agent\/test-authorizations/);
   assert.match(page, /历史付费候选处理/);
   assert.match(page, /系统会将不确定结果提升为事后巡检优先/);
   assert.match(page, /新候选不做发布前预审批/);

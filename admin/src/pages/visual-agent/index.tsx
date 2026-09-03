@@ -10,6 +10,7 @@ import {
   getVisualCreditAccount,
   getVisualCreditLedger,
   getVisualWelcomePolicy,
+  grantProductVisualTestAccess,
   grantVisualWelcomeCredits,
   listVisualBudgetPolicies,
   listVisualReconciliations,
@@ -20,6 +21,7 @@ import {
   saveVisualRateCard,
   saveVisualWelcomePolicy,
   type PaidVisualCandidateQueueItem,
+  type ProductVisualTestAccessInput,
   type VisualBudgetPolicy,
   type VisualReconciliation,
   type VisualRateCard,
@@ -33,6 +35,7 @@ const directionOptions = [
   { value: 'PRESERVE_REAL_SCENE', label: '保留真实场景' },
   { value: 'CATALOG_STUDIO', label: '商品棚拍风格' },
   { value: 'PRODUCT_RETOUCH', label: '受控细节修图' },
+  { value: 'MARKETING_SCENE', label: '营销展示图' },
 ];
 const riskOptions = [
   { value: 'STRICT_FACTS', label: '事实严格保护' },
@@ -74,6 +77,11 @@ const creditLedgerTypeLabels: Record<string, string> = {
 };
 
 type Scope = typeof DEFAULT_SCOPE;
+
+function localDateTimeInputValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function canonicalBudgetScopeKey(values: { scope?: VisualBudgetPolicy['scope']; route?: string; targetId?: string }, scope: Scope) {
   const part = (value: string) => `${value.length}:${value}`;
@@ -118,12 +126,14 @@ export default function VisualAgentPage() {
   const [budgetForm] = Form.useForm();
   const [reconciliationForm] = Form.useForm();
   const [accountForm] = Form.useForm<{ ownerType: string; ownerId: string }>();
+  const [testAccessForm] = Form.useForm<ProductVisualTestAccessInput>();
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [selectedReconciliation, setSelectedReconciliation] = useState<VisualReconciliation>();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>();
   const [accountScope, setAccountScope] = useState<{ ownerType: string; ownerId: string }>();
   const canReviewCandidates = useAuthStore((state) => state.hasPermission(PERMISSIONS.PRODUCTS_AUDIT));
+  const isStaging = import.meta.env.VITE_APP_ENV === 'staging';
 
   const policy = useQuery({ queryKey: ['visual-agent', 'welcome-policy', scope.tenantId], queryFn: () => getVisualWelcomePolicy(scope.tenantId) });
   const rateCards = useQuery({ queryKey: ['visual-agent', 'rate-cards', scope], queryFn: () => listVisualRateCards(scope.tenantId, scope.clientId, scope.adapterNamespace) });
@@ -168,14 +178,29 @@ export default function VisualAgentPage() {
     onSuccess: async () => { message.success('欢迎图片积分策略已保存；不会自动向商家发放图片积分'); await refreshConfiguration(); },
     onError: (error) => message.error(error instanceof Error ? error.message : '欢迎图片积分策略保存失败'),
   });
+  const grantTestAccess = useMutation({
+    mutationFn: (values: ProductVisualTestAccessInput) => grantProductVisualTestAccess({
+      ...values,
+      expiresAt: new Date(values.expiresAt).toISOString(),
+    }),
+    onSuccess: async (result) => {
+      if (result.providerReady) {
+        message.success(`已为指定测试商品开通；商家当前可用 ${result.account.availableCredits} 图片积分`);
+      } else {
+        message.warning('测试权限和图片积分已配置，但真实模型运行开关尚未开启');
+      }
+      setAccountScope({ ownerType: 'COMPANY', ownerId: result.companyId });
+      accountForm.setFieldsValue({ ownerType: 'COMPANY', ownerId: result.companyId });
+      await Promise.all([
+        refreshConfiguration(),
+        queryClient.invalidateQueries({ queryKey: ['visual-agent', 'budget-policies'] }),
+        refreshAccount(),
+      ]);
+    },
+    onError: (error) => message.error(error instanceof Error ? error.message : '测试商家开通失败'),
+  });
   const saveRateCard = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
-      let outputSpec: Record<string, unknown>;
-      try {
-        outputSpec = JSON.parse(String(values.outputSpec || '{}'));
-      } catch {
-        throw new Error('输出规格必须是合法 JSON');
-      }
       return saveVisualRateCard(scope.tenantId, {
         clientId: scope.clientId,
         adapterNamespace: scope.adapterNamespace,
@@ -183,7 +208,7 @@ export default function VisualAgentPage() {
         displayName: String(values.displayName),
         description: String(values.description),
         modelProfile: String(values.modelProfile),
-        outputSpec,
+        outputSpec: { providerManaged: true },
         allowedDirections: values.allowedDirections as string[],
         allowedRiskProfiles: values.allowedRiskProfiles as string[],
         candidateRole: String(values.candidateRole),
@@ -257,13 +282,22 @@ export default function VisualAgentPage() {
       policyVersion: policy.data?.policyVersion ?? 'WELCOME_200_V1',
     });
   }, [policy.data, policyForm]);
+  useEffect(() => {
+    testAccessForm.setFieldsValue({
+      visualMode: 'MARKETING_SCENE',
+      dailyCallLimit: 2,
+      weeklyCallLimit: 5,
+      expiresAt: localDateTimeInputValue(new Date(Date.now() + 7 * 24 * 60 * 60_000)),
+      grantWelcomeCredits: true,
+    });
+  }, [testAccessForm]);
   const openRateCard = (card?: VisualRateCard) => {
     rateCardForm.setFieldsValue(card ? {
       ...card,
       outputSpec: JSON.stringify(card.outputSpec, null, 2),
     } : {
       modelProfile: 'BAILIAN_WAN_STANDARD', candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: true,
-      candidateCount: 1, creditCost: 15, status: 'PAUSED', version: 'v1', outputSpec: '{\n  "resolution": "1K"\n}',
+      candidateCount: 1, creditCost: 15, status: 'PAUSED', version: 'v1',
       allowedDirections: ['PRESERVE_REAL_SCENE'], allowedRiskProfiles: ['STANDARD_FACTS'],
     });
     setRateCardOpen(true);
@@ -344,6 +378,45 @@ export default function VisualAgentPage() {
           <Form.Item><Button htmlType="submit">切换范围</Button></Form.Item>
         </Form>
       </Card>
+
+      {isStaging && <Card
+        title="开通指定测试商家"
+        extra={<Tag color="orange">只授权指定商家、人员和商品</Tag>}
+        style={{ marginBottom: 16, borderColor: '#f0c36b' }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="开通后仍由商家确认图片积分才会调用模型"
+          description="系统会为所选商品和操作人员创建精确预算权限，并按欢迎策略幂等发放图片积分；不会把权限开放给其他商家。"
+          style={{ marginBottom: 14 }}
+        />
+        <Form<ProductVisualTestAccessInput>
+          form={testAccessForm}
+          layout="vertical"
+          initialValues={{
+            visualMode: 'MARKETING_SCENE',
+            dailyCallLimit: 2,
+            weeklyCallLimit: 5,
+            grantWelcomeCredits: true,
+          }}
+          onFinish={(values) => grantTestAccess.mutate(values)}
+        >
+          <Row gutter={12}>
+            <Col xs={24} md={8}><Form.Item name="companyId" label="测试商家编号" rules={[{ required: true, message: '请输入商家编号' }]}><Input placeholder="Company ID" /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="staffId" label="测试操作人员编号" rules={[{ required: true, message: '请输入操作人员编号' }]}><Input placeholder="CompanyStaff ID" /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="productId" label="测试商品编号" rules={[{ required: true, message: '请输入商品编号' }]}><Input placeholder="Product ID" /></Form.Item></Col>
+            <Col xs={24} md={6}><Form.Item name="visualMode" label="允许的美化方向" rules={[{ required: true }]}><Select options={directionOptions} /></Form.Item></Col>
+            <Col xs={24} md={5}><Form.Item name="dailyCallLimit" label="该商品每日最多调用" rules={[{ required: true }]}><InputNumber min={1} max={10} precision={0} style={{ width: '100%' }} addonAfter="次" /></Form.Item></Col>
+            <Col xs={24} md={5}><Form.Item name="weeklyCallLimit" label="该商品每周最多调用" rules={[{ required: true }]}><InputNumber min={1} max={50} precision={0} style={{ width: '100%' }} addonAfter="次" /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="expiresAt" label="测试权限到期时间" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item></Col>
+          </Row>
+          <Space wrap>
+            <Form.Item name="grantWelcomeCredits" valuePropName="checked" noStyle><Checkbox>按欢迎策略发放图片积分</Checkbox></Form.Item>
+            <Button type="primary" htmlType="submit" loading={grantTestAccess.isPending}>开通这个测试商品</Button>
+          </Space>
+        </Form>
+      </Card>}
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={10}>
@@ -448,7 +521,7 @@ export default function VisualAgentPage() {
           <Row gutter={12}><Col span={12}><Form.Item name="allowedDirections" label="允许的美化方向" rules={[{ required: true }]}><Select mode="multiple" options={directionOptions} /></Form.Item></Col><Col span={12}><Form.Item name="allowedRiskProfiles" label="允许的事实保护级别" rules={[{ required: true }]}><Select mode="multiple" options={riskOptions} /></Form.Item></Col></Row>
           <Row gutter={12}><Col span={8}><Form.Item name="creditCost" label="图片积分" rules={[{ required: true }]}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="candidateCount" label="候选张数" extra="当前每次报价固定交付 1 张已验真候选" rules={[{ required: true }]}><InputNumber min={1} max={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="状态" rules={[{ required: true }]}><Select options={[{ value: 'PAUSED', label: '暂停（默认）' }, { value: 'ACTIVE', label: '启用' }, { value: 'RETIRED', label: '已停用' }]} /></Form.Item></Col></Row>
           <Row gutter={12}><Col span={12}><Form.Item name="candidateRole" label="候选用途" rules={[{ required: true }]}><Select options={[{ value: 'FACT_MAIN_IMAGE', label: '商品主图（FACT_MAIN_IMAGE）' }, { value: 'DETAIL_IMAGE', label: '商品详情图（DETAIL_IMAGE）' }, { value: 'MARKETING_IMAGE', label: '营销展示图（MARKETING_IMAGE）' }]} /></Form.Item></Col><Col span={12}><Form.Item name="requiresHumanReview" label="巡检优先策略" valuePropName="checked"><Checkbox>无法完全自动确认时提升事后巡检优先级</Checkbox></Form.Item></Col></Row>
-          <Form.Item name="outputSpec" label="输出规格 JSON" rules={[{ required: true }]}><Input.TextArea rows={4} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }} /></Form.Item>
+          <Alert type="info" showIcon message="输出尺寸由当前模型安全能力控制" description="平台暂不向商家承诺后台尚未真实传递给模型的分辨率或比例；每次报价固定生成 1 张候选。" />
         </Form>
       </Modal>
 

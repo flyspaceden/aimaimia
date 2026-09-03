@@ -1704,7 +1704,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 保真白底候选：商品证据源先经方向校正、去元数据、无损 WebP 规范化，再做 QR 扫描；仅实际含透明像素的证据源可使用最近邻几何变换、无损 PNG 和白色画布 alpha 合成校验。候选通过受控任务 API 以短期私有 URL 返回，未采用的候选不能写入普通商品媒体。
 - 采用需要商家三项事实确认：草稿/未上架商品在事务内写入候选与原图证据；已上架商品采用成功后在同一 Serializable 事务中创建 `APPLIED_BY_SELLER` 历史、CAS 替换公开媒体并递增 `mediaVersion`，不等待平台预审批。
 - 上架商品的候选采用请求按 `optimizationId` 幂等；平台巡检若发现违规，只能在 `mediaVersion == appliedMediaVersion` 时 CAS 恢复 `previousMedia`。回滚会把记录标为 `ROLLED_BACK_BY_ADMIN`、保留原因/操作人/时间并通知商家；若商家之后已换图，回滚冲突而不会覆盖新图。
-- 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 仅从当前商品已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证计划。
+- 免费视觉计划：`POST /seller/products/:id/visual-enhancements/plan` 从当前商家新上传或已关联的受管源图、现有质量诊断与风险关键词生成并持久化建议、允许模式和 30 分钟处理合同；不调用模型、不预占预算、不生成候选，执行端仍须重新验证商品、商家、源哈希和计划。新图不再为了等待草稿自动保存而进入必败路径。
 - 卖家图片卡接入“真实白底主图”：只可选择与当前商品绑定的受管资产，候选以短期私有 URL 并列预览；前端不提供提示词、模型名或 URL 输入，采用成功后才刷新商品媒体。
 - Phase C 预备合同：付费背景调用必须先写整数分 `RESERVED` 流水，成功才以实际成本 `SETTLED`、失败 `RELEASED`；即使开关未来被打开，`AI_PRODUCT_IMAGE_DAILY_BUDGET_CENTS` 也必须显式为正整数分，缺失或 `0` 不会解释为不限额。
 - 通用 AI Visual Agent Core（本地）：独立的调用账本、六层预算策略、单次 submit 租约、Provider 不确定结果 `RECONCILING` 与完整性哈希已实现；`/visual-agent/v1/assets / visual-plans / quotes / tasks / credits` 已使用 Key scope 和独立 Adapter Evidence HMAC 提供通用资源 API。它只接受二进制受管图和签名后的对象版本/账单主体/事实策略/源摘要，不接受任意 URL、自由 prompt、模型或费用；成功候选私有返回，外部 adopt intent 不会自动发布。Provider 仍默认关闭。
@@ -1718,6 +1718,7 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 - 平台预算与对账闭环（2026-08-27，本地）：`admin_visual_agent:manage` 可管理 PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 六层精确预算策略；同范围启用新版本时即时版本会停用旧版本，未来生效版本会为旧版本设置截止时间，避免策略冲突或空窗。平台可查看最小化的 `RECONCILING` 调用摘要，并以 Provider 控制台/账单证据决定未计费释放或计费异常；Invocation、Provider 预算、关联 `VisualCreditQuote`、账户余额和 Ledger 在同一 Serializable 事务关闭。明确未计费时强制退回商家冻结额度，计费异常会关闭对应 Provider/模型活动预算策略。
 - staging 交付准备（2026-08-27，本地）：补齐默认全关闭的 Visual Agent 环境变量模板；在隔离 PostgreSQL 18 空库从第 1 个开始成功应用 138 个迁移，并修复 PostgreSQL 63-byte 标识符截断导致两个预算索引重名的部署阻塞。迁移库与 Prisma Schema 的 AI 图片域已无漂移；剩余 AuthProvider、MiniProgram、QueueReward 等差异属于 main 既有历史漂移，未混入本功能修复。验收/回滚手册、40 张授权 shadow 样本矩阵和逐笔效果/费用模板已建立，但尚未 push、迁移 staging、写入 secret 或付费执行样本。
 - 商品事实扫描（本地）：OCR/事实摘要被持久化为 `ProductImageFactScan`，绑定商品、源资产、源哈希与受控调用；扫描未完成、失败或低置信度时不允许将其当作可自由增强的证据。
+- 2026-09-02 多测试商家与上传收口（本地候选）：商品证据图上传使用 120 秒独立超时，前端显示尺寸检查、网络上传和服务器安全处理三阶段进度；超过 4096px/4000 万像素的 JPG/PNG/WebP 先生成不修改本地原图的兼容副本，同公司同规范化哈希的重试在 PostgreSQL advisory lock 内只复用安全扫描通过的既有资产。平台后台 staging 专属“开通指定测试商家”受独立默认关闭开关和精确测试域名双门禁，按公司、ACTIVE OWNER/MANAGER、商品、美化模式、费率卡和有效期创建六层精确预算并幂等发放欢迎图片积分；费率卡只对模型开关、指定费率版本、六层预算一致性和日周余额均就绪的操作人员显示。禁止使用 object/actor 通配符。商品标题、分类、说明、更新时间和媒体版本哈希进入不可变视觉计划，报价及 Provider 提交前再次核对；变化时拒绝或释放冻结图片积分。Provider 暂停新提交后仍允许凭据完整的在途任务查询和结果取回。
 - 一维条码保护（本地）：服务器只记录条码是否检测到和格式，不保存条码 payload；解码失败不能证明“没有条码”，会保持 `INCONCLUSIVE` 并要求人工审核。
 - 免费实景增强（本地）：`FREE_TUNE` 只使用固定、零模型的亮度/对比度/锐化参数，并保持原图像素坐标和尺寸；必须绑定未过期的 `STANDARD_FACTS` 计划，以及同源、已完成对账的“无 OCR/QR/条码事实”扫描。排队任务在渲染前会再次核验该证据；任意新扫描、过期或不确定结论都会阻断候选。当前本地条码扫描不会把解码失败当作“无条码”，因此不会错误解锁这一路线。
 - 尚未完成：真实百炼 workspace/Key 启用后的 Qwen/万相验收、颜色/实例数量/关键结构的模型级深度评测、餐厅的具体 HMAC Adapter/发布回调、第三方 SDK/Webhook、40 张授权 shadow 样本实际执行、staging 迁移与端到端验收。本候选没有自动调用模型或修改生产图片。
