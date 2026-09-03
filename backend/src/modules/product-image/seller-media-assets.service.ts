@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, SellerMediaAssetStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
@@ -7,6 +7,8 @@ import { ProductImageCompositionService } from './product-image-composition.serv
 
 @Injectable()
 export class SellerMediaAssetsService {
+  private readonly logger = new Logger(SellerMediaAssetsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
@@ -52,29 +54,56 @@ export class SellerMediaAssetsService {
     if (!uploaded.canonicalSha256 || !uploaded.width || !uploaded.height) {
       throw new BadRequestException('图片规范化结果不完整，无法建立受管资产');
     }
-    const asset = await this.prisma.sellerMediaAsset.create({
-      data: {
-        companyId,
-        uploadedByStaffId: staffId,
-        purpose: 'PRODUCT_IMAGE',
-        status: assetStatus,
-        objectKey: uploaded.key,
-        canonicalSha256: uploaded.canonicalSha256,
-        mimeType: uploaded.mimeType,
-        byteSize: uploaded.size,
-        width: uploaded.width,
-        height: uploaded.height,
-        scanSummary: {
-          needsReview: uploaded.needsReview === true,
-          qrCodesDetected: uploaded.qrCodesDetected ?? 0,
-          qrLocked: (uploaded.qrCodesDetected ?? 0) > 0,
-        },
-        diagnosis: diagnosis as unknown as Prisma.InputJsonValue,
-        diagnosisVersion,
-        diagnosedAt: new Date(),
+    const data: Prisma.SellerMediaAssetUncheckedCreateInput = {
+      companyId,
+      uploadedByStaffId: staffId,
+      purpose: 'PRODUCT_IMAGE',
+      status: assetStatus,
+      objectKey: uploaded.key,
+      canonicalSha256: uploaded.canonicalSha256,
+      mimeType: uploaded.mimeType,
+      byteSize: uploaded.size,
+      width: uploaded.width,
+      height: uploaded.height,
+      scanSummary: {
+        needsReview: uploaded.needsReview === true,
+        qrCodesDetected: uploaded.qrCodesDetected ?? 0,
+        qrLocked: (uploaded.qrCodesDetected ?? 0) > 0,
       },
-    });
-    const access = await this.uploadService.createPrivateAccessUrl(uploaded.key);
+      diagnosis: diagnosis as unknown as Prisma.InputJsonValue,
+      diagnosisVersion,
+      diagnosedAt: new Date(),
+    };
+    let reused = false;
+    const asset = assetStatus === SellerMediaAssetStatus.AVAILABLE
+      ? await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`SELLER_MEDIA_ASSET:${companyId}:${uploaded.canonicalSha256}`}))`);
+        const existing = uploaded.needsReview === true ? null : await tx.sellerMediaAsset.findFirst({
+          where: {
+            companyId,
+            purpose: 'PRODUCT_IMAGE',
+            status: SellerMediaAssetStatus.AVAILABLE,
+            canonicalSha256: uploaded.canonicalSha256,
+            scanSummary: { path: ['needsReview'], equals: false },
+            deletedAt: null,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (existing) {
+          reused = true;
+          return existing;
+        }
+        return tx.sellerMediaAsset.create({ data });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      : await this.prisma.sellerMediaAsset.create({ data });
+    if (reused) {
+      try {
+        await this.uploadService.deleteFile(uploaded.key);
+      } catch (error) {
+        this.logger.warn(`相同商品图片重试复用成功，但临时对象清理失败: ${(error as Error)?.message || 'unknown error'}`);
+      }
+    }
+    const access = await this.uploadService.createPrivateAccessUrl(asset.objectKey);
     return { asset, displayUrl: access.url, expiresAt: access.expiresAt };
   }
 

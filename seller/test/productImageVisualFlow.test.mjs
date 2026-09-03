@@ -8,6 +8,10 @@ const optimizationApi = readFileSync(new URL('../src/api/productImageOptimizatio
 
 test('seller image flow creates a local plan before it exposes a free real-scene candidate', () => {
   assert.match(editPage, /查看美化建议/);
+  assert.match(editPage, /正在上传并完成安全扫描和素材登记/);
+  assert.match(editPage, /重新上传/);
+  assert.match(editPage, /image\/jpeg,image\/png,image\/webp/);
+  assert.match(editPage, /onProgress\?\.\(\{ percent \}\)/);
   assert.match(editPage, /requestProductVisualPlan\(productId, \{ sourceAssetId:/);
   assert.match(editPage, /检查图片中的商品事实/);
   assert.match(editPage, /const freeTuneAvailable = visualPlan\?\.riskProfile === 'STANDARD_FACTS'/);

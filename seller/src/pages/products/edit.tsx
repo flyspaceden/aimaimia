@@ -42,6 +42,7 @@ import {
   normalizeSkuTitle,
 } from '@/utils/productSkuDisplay';
 import { buildUploadDownloadRequest, triggerBrowserDownload } from '@/utils/uploadDownload';
+import { prepareProductImageForUpload } from '@/utils/productImageUpload';
 import { uploadProductImageAsset, type UploadedProductImageAsset } from '@/api/mediaAssets';
 import {
   adoptProductImageOptimization,
@@ -134,6 +135,11 @@ function optimizationTitle(kind?: ProductImageOptimizationTask['kind'], candidat
 function activePaidQuoteStorageKey(productId: string) {
   return `ai-visual-agent:active-quote:${productId}`;
 }
+
+type ProductImageUploadFeedback = {
+  type: 'error' | 'info';
+  message: string;
+};
 
 function paidExecutionPresentation(execution: ProductVisualQuoteStatus) {
   if (execution.status === 'REJECTED') return { type: 'error' as const, message: '候选未通过系统事实检查', description: '系统发现二维码、条码格式或构图存在明确不一致，候选已停止采用。' };
@@ -1051,10 +1057,103 @@ function ImageUploadSection({
   const [paidPollWarning, setPaidPollWarning] = useState<string | null>(null);
   const [optimizationPollWarning, setOptimizationPollWarning] = useState<string | null>(null);
   const [factScanPollWarning, setFactScanPollWarning] = useState<string | null>(null);
+  const [uploadFeedback, setUploadFeedback] = useState<Record<string, ProductImageUploadFeedback>>({});
   const restoredPaidQuoteRef = useRef<string | null>(null);
   const paidPollInFlightRef = useRef(false);
+  const fileListRef = useRef(fileList);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
+
+  useEffect(() => {
+    fileListRef.current = fileList;
+  }, [fileList]);
+
+  const updateUploadFile = (uid: string, changes: Partial<UploadFile>) => {
+    const next = fileListRef.current.map((item) => item.uid === uid ? { ...item, ...changes } : item);
+    fileListRef.current = next;
+    setFileList(next);
+  };
+
+  const uploadManagedProductImage = async (
+    file: File & { uid?: string },
+    feedbackUid = file.uid,
+    onProgress?: (percent: number) => void,
+  ) => {
+    if (feedbackUid) {
+      setUploadFeedback((current) => ({
+        ...current,
+        [feedbackUid]: { type: 'info', message: '正在检查图片尺寸，请不要重复选择同一文件。' },
+      }));
+    }
+    onProgress?.(5);
+    const prepared = await prepareProductImageForUpload(file);
+    onProgress?.(15);
+    if (feedbackUid) {
+      setUploadFeedback((current) => ({
+        ...current,
+        [feedbackUid]: { type: 'info', message: '正在上传并完成安全扫描和素材登记。' },
+      }));
+    }
+    let displayedPercent = 15;
+    const processingProgress = window.setInterval(() => {
+      displayedPercent = Math.min(95, displayedPercent + (displayedPercent < 80 ? 2 : 1));
+      onProgress?.(displayedPercent);
+    }, 1000);
+    let result: UploadedProductImageAsset;
+    try {
+      result = await uploadProductImageAsset(prepared.file, (networkPercent) => {
+        if (displayedPercent < 80) {
+          displayedPercent = Math.max(displayedPercent, 15 + Math.round(networkPercent * 0.65));
+          onProgress?.(Math.min(80, displayedPercent));
+        }
+      });
+    } finally {
+      window.clearInterval(processingProgress);
+    }
+    onProgress?.(100);
+    if (feedbackUid) {
+      setUploadFeedback((current) => ({
+        ...current,
+        [feedbackUid]: prepared.resized
+          ? {
+            type: 'info',
+            message: `图片尺寸较大，已创建 ${prepared.width} × ${prepared.height} 的上传副本；你电脑里的原图没有被修改。`,
+          }
+          : { type: 'info', message: '图片上传成功，可以查看美化建议。' },
+      }));
+    }
+    return result;
+  };
+
+  const recordUploadFailure = (uid: string | undefined, error: unknown) => {
+    if (!uid) return;
+    const raw = error instanceof Error && error.message ? error.message : '';
+    const detail = /timeout|timed out|超时/i.test(raw)
+      ? '图片安全处理时间较长，当前上传结果尚未确认。请稍后重试一次，系统会复用已成功处理的相同图片。'
+      : raw || '上传失败，请检查图片后重试';
+    setUploadFeedback((current) => ({
+      ...current,
+      [uid]: { type: 'error', message: detail },
+    }));
+  };
+
+  const retryProductImageUpload = async (file: UploadFile) => {
+    const original = file.originFileObj as (File & { uid?: string }) | undefined;
+    if (!original) {
+      message.warning('原始图片已不可用，请移除后重新选择图片');
+      return;
+    }
+    updateUploadFile(file.uid, { status: 'uploading', percent: 0, error: undefined });
+    try {
+      const result = await uploadManagedProductImage(original, file.uid, (percent) => {
+        updateUploadFile(file.uid, { percent });
+      });
+      updateUploadFile(file.uid, { status: 'done', percent: 100, response: result, url: result.displayUrl, error: undefined });
+    } catch (error) {
+      recordUploadFailure(file.uid, error);
+      updateUploadFile(file.uid, { status: 'error', percent: 0, error: error as Error });
+    }
+  };
 
   const handlePreview = (file: UploadFile) => {
     const url = getFileUrl(file) || file.thumbUrl;
@@ -1447,21 +1546,35 @@ function ImageUploadSection({
     <>
       <Upload
         name="file"
-        customRequest={async ({ file, onSuccess, onError }) => {
+        customRequest={async ({ file, onSuccess, onError, onProgress }) => {
+          const uploadFile = file as File & { uid?: string };
           try {
-            const result = await uploadProductImageAsset(file as File);
+            const result = await uploadManagedProductImage(uploadFile, uploadFile.uid, (percent) => {
+              onProgress?.({ percent });
+            });
             onSuccess?.(result);
           } catch (error) {
+            recordUploadFailure(uploadFile.uid, error);
             onError?.(error as Error);
           }
         }}
         listType="picture-card"
         fileList={fileList}
-        onChange={({ fileList: newList }) => setFileList(newList)}
+        onChange={({ file, fileList: newList }) => {
+          fileListRef.current = newList;
+          setFileList(newList);
+          if (file.status === 'removed') {
+            setUploadFeedback((current) => {
+              const next = { ...current };
+              delete next[file.uid];
+              return next;
+            });
+          }
+        }}
         onPreview={handlePreview}
         multiple
         maxCount={9}
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
       >
         {fileList.length >= 9 ? null : (
           <div>
@@ -1471,6 +1584,35 @@ function ImageUploadSection({
         )}
       </Upload>
       <Text type="secondary">最多 9 张，支持 JPG / PNG / WebP，单张最大 10MB</Text>
+      {fileList.filter((file) => file.status === 'error').map((file) => (
+        <Alert
+          key={`upload-error-${file.uid}`}
+          style={{ marginTop: 10 }}
+          type="error"
+          showIcon
+          message={`${file.name || '商品图片'}上传失败`}
+          description={uploadFeedback[file.uid]?.message || '图片没有进入商品素材库，因此暂时不能美化。'}
+          action={<Button size="small" danger onClick={() => retryProductImageUpload(file)}>重新上传</Button>}
+        />
+      ))}
+      {fileList.filter((file) => file.status === 'done' && uploadFeedback[file.uid]?.type === 'info').map((file) => (
+        <Alert
+          key={`upload-info-${file.uid}`}
+          style={{ marginTop: 10 }}
+          type="success"
+          showIcon
+          message={uploadFeedback[file.uid].message}
+        />
+      ))}
+      {fileList.filter((file) => file.status === 'uploading' && uploadFeedback[file.uid]?.type === 'info').map((file) => (
+        <Alert
+          key={`upload-progress-${file.uid}`}
+          style={{ marginTop: 10 }}
+          type="info"
+          showIcon
+          message={uploadFeedback[file.uid].message}
+        />
+      ))}
       <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg, #f6ffed 0%, #ffffff 72%)', border: '1px solid #b7eb8f', borderLeft: '4px solid #52c41a' }}>
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Space align="center" wrap>
@@ -1594,6 +1736,9 @@ function ImageUploadSection({
                 </Space>
                 <Text type="secondary">
                   {(visualPlan.sceneAnalysis?.reasons || ['系统会优先保护商品真实外观和可读信息。']).join('；')}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  建议依据当前已保存的商品标题、分类和说明；这些资料变化后，系统会要求重新分析，避免按旧商品事实调用模型。
                 </Text>
               </Space>
             </div>
