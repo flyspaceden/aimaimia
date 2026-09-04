@@ -1,10 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   CompanyStaffRole,
   CompanyStaffStatus,
   CompanyStatus,
+  Prisma,
   ProductVisualMode,
   ProductVisualRiskProfile,
   VisualAgentBudgetScope,
@@ -18,7 +19,6 @@ import { VisualPaidExecutionService } from '../visual-agent/visual-paid-executio
 import { AIMAI_VISUAL_CLIENT_ID, AIMAI_VISUAL_TENANT_ID } from './aimai-product-visual.constants';
 
 const ADAPTER_NAMESPACE = 'aimai-product';
-const PROVIDER = 'BAILIAN_WAN';
 const MODEL = 'wan2.7-image-pro';
 const MODEL_PROFILE = 'BAILIAN_WAN_PRO';
 const RESERVE_CENTS = 50;
@@ -154,29 +154,19 @@ export class ProductVisualTestAccessService {
           billingOwnerId: input.companyId,
         }),
       ]);
-      const existingRateCard = existingCards.find((card) => card.code === automaticRateCode
-        && card.status === VisualRateCardStatus.ACTIVE
-        && card.modelProfile === MODEL_PROFILE
-        && card.displayName === expectedDisplayName
-        && card.description === expectedDescription
-        && card.creditCost === CREDIT_COST
-        && card.candidateCount === 1
-        && card.version === 'staging-test-access-v1'
-        && card.requiresHumanReview === true
-        && card.candidateRole === expectedCandidateRole
-        && (card.outputSpec as { providerManaged?: unknown } | null)?.providerManaged === true
-        && card.effectiveFrom <= now
-        && card.effectiveUntil === null
-        && this.sameValues(card.allowedDirections, [input.visualMode])
-        && this.sameValues(card.allowedRiskProfiles, expectedRiskProfiles));
+      const matchingCards = existingCards.filter((card) => card.code === automaticRateCode);
+      const existingRateCard = matchingCards.find((card) => card.status === VisualRateCardStatus.ACTIVE
+        && card.effectiveFrom <= now && (!card.effectiveUntil || card.effectiveUntil > now))
+        ?? matchingCards[0];
+      const route = this.routeForProfile(existingRateCard?.modelProfile ?? MODEL_PROFILE);
       if (existingRateCard && existingAccount.exists && await this.invocations.hasActiveBudgetCoverage({
         tenantId: AIMAI_VISUAL_TENANT_ID,
         ownerClientId: AIMAI_VISUAL_CLIENT_ID,
         adapterNamespace: ADAPTER_NAMESPACE,
         externalObjectId: input.productId,
         actorId: input.staffId,
-        provider: PROVIDER,
-        model: MODEL,
+        provider: route.provider,
+        model: route.model,
         visualMode: input.visualMode,
         expectedPolicyVersions: {
           EXTERNAL_OBJECT: this.ratePolicyVersion(automaticRateCode),
@@ -188,14 +178,14 @@ export class ProductVisualTestAccessService {
           staffId: input.staffId,
           productId: input.productId,
           visualMode: input.visualMode,
-          provider: PROVIDER,
-          model: MODEL,
+          provider: route.provider,
+          model: route.model,
           reserveCents: RESERVE_CENTS,
           dailyCallLimit: EFFECTIVELY_UNLIMITED_BUDGET_CENTS / RESERVE_CENTS,
           weeklyCallLimit: EFFECTIVELY_UNLIMITED_BUDGET_CENTS / RESERVE_CENTS,
           expiresAt: null,
           rateCard: { code: existingRateCard.code, creditCost: existingRateCard.creditCost },
-          providerReady: this.execution.isModelProfileAvailable(MODEL_PROFILE),
+          providerReady: this.execution.isModelProfileAvailable(existingRateCard.modelProfile),
           unlimited: true,
           automaticAllMerchants: true,
           account: existingAccount,
@@ -203,7 +193,7 @@ export class ProductVisualTestAccessService {
       }
     }
 
-    const rateCard = await this.credits.upsertRateCard({
+    const rateCard = await this.ensureInitialRateCard({
       tenantId: AIMAI_VISUAL_TENANT_ID,
       clientId: AIMAI_VISUAL_CLIENT_ID,
       adapterNamespace: ADAPTER_NAMESPACE,
@@ -224,9 +214,10 @@ export class ProductVisualTestAccessService {
       effectiveUntil: null,
     });
 
-    const keys = this.scopeKeys(input);
+    const route = this.routeForProfile(rateCard.modelProfile);
+    const keys = this.scopeKeys(input, route.provider);
     const testRatePolicyVersion = this.ratePolicyVersion(rateCard.code);
-    const existingObjectPolicy = (await this.invocations.listBudgetPolicies({ provider: PROVIDER, model: MODEL, take: 500 }))
+    const existingObjectPolicy = (await this.invocations.listBudgetPolicies({ provider: route.provider, model: route.model, take: 500 }))
       .find((policy) => policy.scope === VisualAgentBudgetScope.EXTERNAL_OBJECT
         && policy.scopeKey === keys[VisualAgentBudgetScope.EXTERNAL_OBJECT]
         && policy.visualMode === input.visualMode
@@ -254,8 +245,8 @@ export class ProductVisualTestAccessService {
       await this.invocations.upsertBudgetPolicy({
         scope,
         scopeKey: keys[scope],
-        provider: PROVIDER,
-        model: MODEL,
+        provider: route.provider,
+        model: route.model,
         visualMode: input.visualMode,
         reserveCents: RESERVE_CENTS,
         perTaskCapCents: RESERVE_CENTS,
@@ -273,11 +264,21 @@ export class ProductVisualTestAccessService {
     }
 
     if (input.grantWelcomeCredits) {
-      await this.credits.grantWelcomeCredits({
-        tenantId: AIMAI_VISUAL_TENANT_ID,
-        billingOwnerType: 'COMPANY',
-        billingOwnerId: input.companyId,
-      });
+      const policy = await this.credits.getWelcomePolicy(AIMAI_VISUAL_TENANT_ID);
+      if (policy?.enabled && policy.effectiveFrom <= now
+        && (!policy.effectiveUntil || policy.effectiveUntil > now)) {
+        try {
+          await this.credits.grantWelcomeCredits({
+            tenantId: AIMAI_VISUAL_TENANT_ID,
+            billingOwnerType: 'COMPANY',
+            billingOwnerId: input.companyId,
+          });
+        } catch (error) {
+          // 活动可能在读策略后被暂停；仅忽略该明确业务状态，数据库错误继续暴露。
+          if (!(error instanceof ServiceUnavailableException)
+            || error.message !== '当前没有可用的新商家图片积分赠送策略') throw error;
+        }
+      }
     }
     const account = await this.credits.getAccount({
       tenantId: AIMAI_VISUAL_TENANT_ID,
@@ -289,14 +290,14 @@ export class ProductVisualTestAccessService {
       staffId: input.staffId,
       productId: input.productId,
       visualMode: input.visualMode,
-      provider: PROVIDER,
-      model: MODEL,
+      provider: route.provider,
+      model: route.model,
       reserveCents: RESERVE_CENTS,
       dailyCallLimit: objectDailyCapCents / RESERVE_CENTS,
       weeklyCallLimit: objectWeeklyCapCents / RESERVE_CENTS,
       expiresAt: objectEffectiveUntil,
       rateCard: { code: rateCard.code, creditCost: rateCard.creditCost },
-      providerReady: this.execution.isModelProfileAvailable(MODEL_PROFILE),
+      providerReady: this.execution.isModelProfileAvailable(rateCard.modelProfile),
       unlimited: input.unlimited === true,
       automaticAllMerchants: input.automaticAllMerchants === true,
       account,
@@ -340,21 +341,41 @@ export class ProductVisualTestAccessService {
     ];
   }
 
-  private sameValues<T extends string>(left: T[], right: T[]) {
-    if (left.length !== right.length) return false;
-    const sortedLeft = [...left].sort();
-    const sortedRight = [...right].sort();
-    return sortedLeft.every((value, index) => value === sortedRight[index]);
+  private async ensureInitialRateCard(input: Parameters<VisualCreditService['upsertRateCard']>[0]) {
+    // 与管理员编辑使用相同锁；商家请求只能创建缺失项，不能恢复已暂停版本。
+    return this.prisma.$transaction(async (tx) => {
+      const key = `VISUAL_RATE_CARD:${input.tenantId}:${input.clientId}:${input.adapterNamespace}:${input.code}`;
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
+      const cards = await tx.visualRateCard.findMany({
+        where: { tenantId: input.tenantId, clientId: input.clientId, adapterNamespace: input.adapterNamespace, code: input.code },
+        orderBy: { effectiveFrom: 'desc' },
+      });
+      const now = new Date();
+      const existing = cards.find((card) => card.status === VisualRateCardStatus.ACTIVE
+        && card.effectiveFrom <= now && (!card.effectiveUntil || card.effectiveUntil > now)) ?? cards[0];
+      if (existing) return existing;
+      return tx.visualRateCard.create({ data: { ...input, effectiveUntil: input.effectiveUntil ?? null } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  private scopeKeys(input: { productId: string; staffId: string }) {
+  private routeForProfile(profile: string) {
+    switch (profile) {
+      case 'BAILIAN_WAN_STANDARD': return { provider: 'BAILIAN_WAN', model: 'wan2.7-image' };
+      case 'BAILIAN_WAN_PRO': return { provider: 'BAILIAN_WAN', model: 'wan2.7-image-pro' };
+      case 'BAILIAN_QWEN_IMAGE': return { provider: 'BAILIAN_QWEN_IMAGE', model: 'qwen-image-3.0' };
+      case 'BAILIAN_QWEN_IMAGE_PRO': return { provider: 'BAILIAN_QWEN_IMAGE', model: 'qwen-image-3.0-pro' };
+      default: throw new ConflictException('该图片方案尚未配置可用模型，请联系平台管理员');
+    }
+  }
+
+  private scopeKeys(input: { productId: string; staffId: string }, provider: string) {
     const part = (value: string) => `${value.length}:${value}`;
     const tenant = `tenant:${part(AIMAI_VISUAL_TENANT_ID)}`;
     const client = `${tenant}:client:${part(AIMAI_VISUAL_CLIENT_ID)}`;
     const adapter = `${client}:adapter:${part(ADAPTER_NAMESPACE)}`;
     return {
       [VisualAgentBudgetScope.PLATFORM]: 'GLOBAL',
-      [VisualAgentBudgetScope.PROVIDER]: `provider:${part(PROVIDER)}`,
+      [VisualAgentBudgetScope.PROVIDER]: `provider:${part(provider)}`,
       [VisualAgentBudgetScope.TENANT]: tenant,
       [VisualAgentBudgetScope.CLIENT]: client,
       [VisualAgentBudgetScope.EXTERNAL_OBJECT]: `${adapter}:object:${part(input.productId)}`,

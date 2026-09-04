@@ -32,6 +32,7 @@ function quote(overrides: Record<string, unknown> = {}) {
     visualAgentInvocationId: null,
     externalObjectId: 'product-1', actorId: 'staff-1',
     rateCard: { modelProfile: 'BAILIAN_WAN_STANDARD' },
+    rateCardSnapshot: { modelProfile: 'BAILIAN_WAN_STANDARD' },
     ...overrides,
   };
 }
@@ -57,6 +58,27 @@ function build(overrides: { quote?: Record<string, unknown> } = {}) {
 }
 
 describe('VisualPaidExecutionService', () => {
+  it('keeps the confirmed model when an administrator changes the live rate card', async () => {
+    const { service, runner, invocations } = build({ quote: { rateCard: { modelProfile: 'BAILIAN_QWEN_IMAGE' } } });
+    await service.executeReservedQuote({ principal, quoteId: 'quote-1', sourceAssetRef: 'asset-1', sourceCanonicalHash: 'raw-source-hash', source: await source(), visualPlan: plan });
+    expect(runner.submitProvider).toHaveBeenCalledWith(expect.objectContaining({ model: 'wan2.7-image', provider: 'BAILIAN_WAN' }));
+    expect(invocations.reserve).toHaveBeenCalledWith(expect.objectContaining({ model: 'wan2.7-image' }));
+  });
+
+  it('labels recovered output by the quote snapshot rather than a changed live model', async () => {
+    const { service, runner } = build({ quote: { visualAgentInvocationId: 'invocation-1', rateCard: { modelProfile: 'BAILIAN_QWEN_IMAGE' } } });
+    runner.queryProvider.mockResolvedValue({ kind: 'KNOWN', state: 'SUCCEEDED', providerTaskId: 'wan-task-1' });
+    runner.fetchProviderOutput.mockResolvedValue({ buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' });
+    await expect(service.pollForOutput({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ provider: 'BAILIAN_WAN', status: 'VERIFYING' });
+    expect(runner.submitProvider).not.toHaveBeenCalled();
+  });
+
+  it('does not silently substitute a live model when a legacy quote lacks its snapshot', async () => {
+    const { service, runner, credits } = build({ quote: { rateCardSnapshot: {} } });
+    await expect(service.executeReservedQuote({ principal, quoteId: 'quote-1', sourceAssetRef: 'asset-1', sourceCanonicalHash: 'raw-source-hash', source: await source(), visualPlan: plan })).rejects.toThrow('缺少模型快照');
+    expect(runner.submitProvider).not.toHaveBeenCalled();
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'PROVIDER_PREFLIGHT_DECLINED');
+  });
   it('submits only a reserved quote whose source reference and fixed plan still match', async () => {
     const { service, credits, invocations, runner } = build();
     const result = await service.executeReservedQuote({
@@ -127,7 +149,7 @@ describe('VisualPaidExecutionService', () => {
   });
 
   it('routes a Qwen rate card through the same quote, budget, and Provider-runner guardrails', async () => {
-    const { service, credits, invocations, runner } = build({ quote: { rateCard: { modelProfile: 'BAILIAN_QWEN_IMAGE' } } });
+    const { service, credits, invocations, runner } = build({ quote: { rateCardSnapshot: { modelProfile: 'BAILIAN_QWEN_IMAGE' } } });
     await expect(service.executeReservedQuote({
       principal, quoteId: 'quote-1', sourceAssetRef: 'asset-1', sourceCanonicalHash: 'raw-source-hash', source: await source(), visualPlan: plan,
     })).resolves.toMatchObject({ status: 'QUEUED' });

@@ -68,7 +68,7 @@ export class VisualPaidExecutionService {
 
     let executable: ExecutableProvider;
     try {
-      executable = this.providerForProfile(quote.rateCard.modelProfile);
+      executable = this.providerForSnapshot(quote.rateCardSnapshot);
       // This checks enable flags, workspace/key shape, source constraints and
       // fixed prompt template before the quote can become provider-billable.
       await this.runner.preflightProvider({
@@ -156,7 +156,7 @@ export class VisualPaidExecutionService {
     // route back through submitProvider or create a second invocation.
     let executable: ExecutableProvider;
     try {
-      executable = this.providerForProfile(quote.rateCard.modelProfile);
+      executable = this.providerForSnapshot(quote.rateCardSnapshot);
     } catch (error) {
       await this.credits.markReconciliation(quote.id, 'RATE_CARD_PROVIDER_PROFILE_INVALID');
       throw error;
@@ -182,6 +182,15 @@ export class VisualPaidExecutionService {
       await this.credits.markReconciliation(quote.id, 'PROVIDER_OUTPUT_FETCH_FAILED');
       throw error;
     }
+  }
+
+  private providerForSnapshot(snapshot: unknown): ExecutableProvider {
+    const profile = snapshot && typeof snapshot === 'object'
+      ? (snapshot as { modelProfile?: unknown }).modelProfile : undefined;
+    if (typeof profile !== 'string') {
+      throw new ServiceUnavailableException('图片美化报价缺少模型快照，请重新获取报价或核对历史任务');
+    }
+    return this.providerForProfile(profile);
   }
 
   private providerForProfile(profile: string): ExecutableProvider {

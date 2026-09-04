@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ProductVisualMode, ProductVisualRiskProfile, VisualAgentBudgetScope, VisualCreditQuoteStatus } from '@prisma/client';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
 
@@ -8,6 +8,12 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
     companyStaff: { findFirst: jest.fn().mockResolvedValue(Object.prototype.hasOwnProperty.call(overrides, 'staff') ? overrides.staff : { id: 'staff-1' }) },
     product: { findFirst: jest.fn().mockResolvedValue(Object.prototype.hasOwnProperty.call(overrides, 'product') ? overrides.product : { id: 'product-1' }) },
     visualCreditQuote: { findMany: jest.fn().mockResolvedValue([]) },
+    visualRateCard: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockImplementation(async ({ data }) => data),
+    },
+    $executeRaw: jest.fn(),
+    $transaction: jest.fn(),
   };
   const invocations = {
     upsertBudgetPolicy: jest.fn().mockResolvedValue({ id: 'policy-1' }),
@@ -20,7 +26,9 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
     getAccount: jest.fn().mockResolvedValue({ availableCredits: 200, reservedCredits: 0 }),
     releaseUnboundReservedQuote: jest.fn().mockResolvedValue({}),
     listRateCards: jest.fn().mockResolvedValue([]),
+    getWelcomePolicy: jest.fn().mockResolvedValue({ enabled: true, effectiveFrom: new Date(0), effectiveUntil: null }),
   };
+  prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return {
     service: new ProductVisualTestAccessService(
       prisma as any,
@@ -204,13 +212,13 @@ describe('ProductVisualTestAccessService', () => {
     expect(credits.grantWelcomeCredits).not.toHaveBeenCalled();
   });
 
-  it('repairs a drifted automatic rate card instead of taking the no-write fast path', async () => {
+  it('preserves administrator changes instead of restoring the bootstrap configuration', async () => {
     const { prisma, invocations, credits } = build();
     credits.listRateCards.mockResolvedValue([{
       code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1', status: 'ACTIVE', modelProfile: 'BAILIAN_WAN_PRO',
       displayName: 'Pro 营销场景图（测试）',
       description: '按受控模板重新布置营销展示场景；仅供私密预览，不能替换商品事实主图。',
-      creditCost: 10, candidateCount: 1, version: 'staging-test-access-v1', requiresHumanReview: true,
+      creditCost: 27, candidateCount: 1, version: 'admin-version-2', requiresHumanReview: true,
       candidateRole: 'DETAIL_IMAGE', outputSpec: { providerManaged: true },
       effectiveFrom: new Date(Date.now() - 60_000), effectiveUntil: null,
       allowedDirections: [ProductVisualMode.MARKETING_SCENE],
@@ -233,8 +241,9 @@ describe('ProductVisualTestAccessService', () => {
     await service.ensureDefaultAccess({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', visualMode: ProductVisualMode.MARKETING_SCENE,
     });
-    expect(credits.upsertRateCard).toHaveBeenCalledWith(expect.objectContaining({ candidateRole: 'MARKETING_IMAGE' }));
-    expect(invocations.upsertBudgetPolicy).toHaveBeenCalledTimes(6);
+    expect(credits.upsertRateCard).not.toHaveBeenCalled();
+    expect(prisma.visualRateCard.create).not.toHaveBeenCalled();
+    expect(invocations.upsertBudgetPolicy).not.toHaveBeenCalled();
   });
 
   it('retries all idempotent budget steps after a partial provisioning failure', async () => {
@@ -257,8 +266,77 @@ describe('ProductVisualTestAccessService', () => {
     };
     await expect(service.ensureDefaultAccess(request)).rejects.toThrow('temporary database error');
     await expect(service.ensureDefaultAccess(request)).resolves.toMatchObject({ unlimited: true });
-    expect(credits.upsertRateCard).toHaveBeenCalledTimes(2);
+    expect(credits.upsertRateCard).not.toHaveBeenCalled();
     expect(invocations.upsertBudgetPolicy.mock.calls.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it.each(['PAUSED', 'ACTIVE'])('does not overwrite an administrator %s card while provisioning a new merchant', async (status) => {
+    const { service, prisma, credits, invocations } = build();
+    const card = {
+      code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1', status,
+      displayName: '管理员自定义方案', description: '管理员说明',
+      modelProfile: 'BAILIAN_QWEN_IMAGE', creditCost: 23,
+      version: 'admin-v3', effectiveFrom: new Date(0), effectiveUntil: null,
+    };
+    // 模拟列表读取后管理员刚保存；锁内重读才是初始化依据。
+    credits.listRateCards.mockResolvedValue([]);
+    prisma.visualRateCard.findMany.mockResolvedValue([card]);
+
+    await expect(service.grant({ ...input, unlimited: true, automaticAllMerchants: true }))
+      .resolves.toMatchObject({
+        model: 'qwen-image-3.0', provider: 'BAILIAN_QWEN_IMAGE',
+        rateCard: { creditCost: 23 },
+      });
+    expect(prisma.visualRateCard.create).not.toHaveBeenCalled();
+    expect(credits.upsertRateCard).not.toHaveBeenCalled();
+    expect(card.status).toBe(status);
+    expect(invocations.upsertBudgetPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'BAILIAN_QWEN_IMAGE', model: 'qwen-image-3.0',
+      scope: VisualAgentBudgetScope.PROVIDER, scopeKey: 'provider:18:BAILIAN_QWEN_IMAGE',
+    }));
+  });
+
+  it('uses the active administrator version instead of resurrecting the paused initial version', async () => {
+    const { service, prisma, credits } = build();
+    prisma.visualRateCard.findMany.mockResolvedValue([
+      { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1', status: 'PAUSED', modelProfile: 'BAILIAN_WAN_PRO', creditCost: 10, effectiveFrom: new Date(0) },
+      { code: 'STAGING_AUTO_WAN_PRO_MARKETING_V1', status: 'ACTIVE', modelProfile: 'BAILIAN_WAN_STANDARD', creditCost: 7, effectiveFrom: new Date(0), effectiveUntil: null },
+    ]);
+    await expect(service.grant({ ...input, unlimited: true, automaticAllMerchants: true }))
+      .resolves.toMatchObject({ model: 'wan2.7-image', rateCard: { creditCost: 7 } });
+    expect(prisma.visualRateCard.create).not.toHaveBeenCalled();
+    expect(credits.upsertRateCard).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { enabled: false, effectiveFrom: new Date(0) },
+    { enabled: true, effectiveFrom: new Date(0), effectiveUntil: new Date(1) }])(
+    'allows an existing funded merchant when the welcome policy is unavailable: %j', async (policy) => {
+      const { service, credits } = build();
+      credits.getWelcomePolicy.mockResolvedValue(policy as any);
+      credits.getAccount.mockResolvedValue({ exists: true, availableCredits: 90, reservedCredits: 0 });
+      await expect(service.grant({ ...input, unlimited: true, automaticAllMerchants: true }))
+        .resolves.toMatchObject({ account: { availableCredits: 90 } });
+      expect(credits.grantWelcomeCredits).not.toHaveBeenCalled();
+    },
+  );
+
+  it('tolerates welcome policy pause during provisioning but propagates storage failures', async () => {
+    const { service, credits } = build();
+    credits.grantWelcomeCredits.mockRejectedValueOnce(new ServiceUnavailableException('当前没有可用的新商家图片积分赠送策略'));
+    await expect(service.grant(input)).resolves.toMatchObject({ account: { availableCredits: 200 } });
+    credits.grantWelcomeCredits.mockRejectedValueOnce(new Error('database unavailable'));
+    await expect(service.grant(input)).rejects.toThrow('database unavailable');
+  });
+
+  it('creates only absent initial rate cards using the shared administrator lock and serializable transaction', async () => {
+    const { service, prisma } = build();
+    await service.grant(input);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.visualRateCard.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      code: 'STAGING_WAN_PRO_MARKETING_V1', creditCost: 10, status: 'ACTIVE',
+      tenantId: 'aimai-product-agent', clientId: 'aimai-product-adapter-v1', adapterNamespace: 'aimai-product',
+    }) });
   });
 
   it('releases only unbound automatic reservations after all-merchant access is disabled', async () => {
