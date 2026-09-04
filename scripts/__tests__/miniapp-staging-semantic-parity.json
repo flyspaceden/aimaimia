@@ -338,6 +338,10 @@
       "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
     },
     {
+      "path": "backend/src/modules/product-image/product-image-structure-verification.service.ts",
+      "reason": "approved product quote-bound structural verification, pending recovery, and immutable inspection focus; no buyer or Delivery changes"
+    },
+    {
       "path": "backend/src/modules/product-image/product-image-candidate-download.service.ts",
       "reason": "approved AI image candidate download with seller ownership and immutable managed artifact checks; no publication changes"
     },

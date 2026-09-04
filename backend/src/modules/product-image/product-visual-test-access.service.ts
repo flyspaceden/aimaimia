@@ -53,6 +53,39 @@ export class ProductVisualTestAccessService {
     };
   }
 
+  /** Test infrastructure, not a per-merchant permission grant or an extra credit charge. */
+  async ensureStructureTestBudget(input: { companyId: string; productId: string; staffId: string }) {
+    if (!this.isAllMerchantMode()
+      || this.config.get('AI_VISUAL_AGENT_STRUCTURE_VERIFY_ENABLED', 'false') !== 'true'
+      || this.config.get('AI_VISUAL_AGENT_STRUCTURE_VERIFY_EXECUTION_ENABLED', 'false') !== 'true') return;
+    const product = await this.prisma.product.findFirst({ where: { id: input.productId, companyId: input.companyId }, select: { id: true } });
+    if (!product) throw new NotFoundException('图片任务所属商品不存在');
+    const provider = 'BAILIAN_QWEN_STRUCTURE';
+    const keys = this.scopeKeys(input, provider);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          for (const scope of Object.values(VisualAgentBudgetScope)) {
+            const scopeKey = keys[scope];
+            if (!scopeKey) throw new ConflictException('结构检查预算范围不完整');
+            const where = { scope, scopeKey, provider, model: 'qwen3-vl-flash', visualMode: 'STRUCTURE_VERIFY' };
+            const lock = `VISUAL_AGENT_BUDGET_POLICY:${scope}:${scopeKey}:${provider}:${where.model}:${where.visualMode}`;
+            await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lock}))`);
+            // An administrator's paused/expired policy is authoritative as well.
+            if (await tx.visualAgentBudgetPolicy.findFirst({ where, select: { id: true } })) continue;
+            await tx.visualAgentBudgetPolicy.create({ data: { ...where, policyVersion: 'staging-structure-v1',
+              reserveCents: 1, perTaskCapCents: 1, dailyCapCents: EFFECTIVELY_UNLIMITED_BUDGET_CENTS,
+              weeklyCapCents: EFFECTIVELY_UNLIMITED_BUDGET_CENTS, enabled: true, effectiveFrom: new Date(), effectiveUntil: null } });
+          }
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+        if (attempt >= 4) throw new ServiceUnavailableException('结构检查配置暂时繁忙，请稍后重试');
+      }
+    }
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async releaseDisabledAutomaticReservations() {
     if (this.isAllMerchantMode()) return 0;

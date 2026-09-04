@@ -223,6 +223,34 @@ describe('VisualCreditService', () => {
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
+  it('binds the server-derived structure focus into the quote hash', async () => {
+    const { service, tx } = build();
+    await service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash,
+      visualPlan: { ...visualPlan, structureFocus: 'GENERAL_PRODUCT' }, idempotencyKey: 'quote-focus-general', expiresAt: new Date(Date.now() + 20 * 60_000),
+    });
+    await service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash,
+      visualPlan: { ...visualPlan, structureFocus: 'WATCH_STRUCTURE' }, idempotencyKey: 'quote-focus-watch', expiresAt: new Date(Date.now() + 20 * 60_000),
+    });
+    const [general, watch] = (tx.visualCreditQuote.create as jest.Mock).mock.calls.map(([value]) => value.data);
+    expect(general.visualPlanSnapshot.structureFocus).toBe('GENERAL_PRODUCT');
+    expect(watch.visualPlanSnapshot.structureFocus).toBe('WATCH_STRUCTURE');
+    expect(watch.quoteHash).not.toBe(general.quoteHash);
+  });
+
+  it('rejects a non-enum structure focus instead of accepting it as GENERAL', async () => {
+    const { service, tx } = build();
+    await expect(service.issueQuote({
+      principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', rateCode: 'STANDARD_REAL_SCENE',
+      sourceAssetRef: 'asset-1', sourceHash, visualPlanHash: planHash,
+      visualPlan: { ...visualPlan, structureFocus: 'FREE_TEXT' as any }, idempotencyKey: 'quote-focus-invalid', expiresAt: new Date(Date.now() + 20 * 60_000),
+    })).rejects.toThrow('视觉计划报价快照无效');
+    expect(tx.visualCreditQuote.create).not.toHaveBeenCalled();
+  });
+
   it('fails closed on an incompatible active card that predates the one-candidate and model whitelist rules', async () => {
     const { service, tx } = build();
     tx.visualRateCard.findFirst.mockResolvedValue(rateCard({ candidateCount: 2 }));

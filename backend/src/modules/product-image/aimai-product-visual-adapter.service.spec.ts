@@ -83,9 +83,10 @@ function build() {
   const ocrVerification = { verify: jest.fn().mockResolvedValue({ state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW' }) };
   const testAccess = { isAllMerchantMode: jest.fn().mockReturnValue(false), ensureDefaultAccess: jest.fn() };
   const tasks = { registerHandler: jest.fn() };
+  const structureVerification = { verify: jest.fn().mockResolvedValue({ state: 'DISABLED', report: null, invocationId: null }) };
   return {
-    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any, testAccess as any, tasks as any),
-    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification, testAccess, tasks,
+    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any, testAccess as any, tasks as any, structureVerification as any),
+    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification, testAccess, tasks, structureVerification,
   };
 }
 
@@ -180,9 +181,30 @@ describe('AimaiProductVisualAdapterService', () => {
       adapterType: AIMAI_VISUAL_ADAPTER_TYPE,
       billingOwner: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' },
       externalObjectId: 'product-1', actorId: 'staff-1', sourceAssetRef: 'asset-1', sourceHash: 'a'.repeat(64),
-      visualPlan: expect.objectContaining({ direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', allowedOperations: expect.arrayContaining(['LIGHTING']) }),
+      visualPlan: expect.objectContaining({ direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', allowedOperations: expect.arrayContaining(['LIGHTING']), structureFocus: 'GENERAL_PRODUCT' }),
     }));
     expect(credits.getAccount).toHaveBeenCalledWith({ tenantId: 'aimai-product-agent', billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' });
+  });
+
+  it('binds a server-derived watch focus into a real-length quote snapshot without forwarding product text', async () => {
+    const { service, prisma, trusted } = build();
+    const watchProduct = {
+      id: 'product-1', title: 'Classic Watches', subtitle: null, description: null, categoryId: 'category-1',
+      updatedAt: new Date('2026-08-26T00:00:00.000Z'), mediaVersion: 1, category: { name: '饰品' },
+    };
+    prisma.product.findFirst.mockResolvedValue(watchProduct);
+    prisma.productVisualPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.STANDARD_FACTS,
+      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE], protectedRegionVersion: 'mask-v1',
+      sceneAnalysis: { productFactHash: productVisualFactHash(watchProduct) },
+    });
+    trusted.issueQuoteFromTrustedAdapter.mockResolvedValue({ id: 'ckzv8zc5h0000qzrmn831m1ab', quoteHash: 'q'.repeat(64), creditCost: 15 });
+    await service.issueQuote({ ...input, idempotencyKey: 'ckzv8zc5h0000qzrmn831m1ac' });
+    expect(trusted.issueQuoteFromTrustedAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      visualPlan: expect.objectContaining({ structureFocus: 'WATCH_STRUCTURE' }),
+    }));
+    const visualPlan = (trusted.issueQuoteFromTrustedAdapter as jest.Mock).mock.calls[0][0].visualPlan;
+    expect(JSON.stringify(visualPlan)).not.toContain('Classic Watches');
   });
 
   it('refuses a direction that the verified product plan did not allow before a quote is created', async () => {
@@ -516,7 +538,7 @@ describe('AimaiProductVisualAdapterService', () => {
   });
 
   it('settles a downloaded candidate only after Core verification and keeps persistence failures reconcilable', async () => {
-    const { service, prisma, execution, credits, candidates, invocations, localVerification, ocrVerification, upload } = build();
+    const { service, prisma, execution, credits, candidates, invocations, localVerification, ocrVerification, upload, structureVerification } = build();
     prisma.productImageOptimization.findFirst.mockResolvedValue(null);
     execution.pollForOutput.mockResolvedValue({
       quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
@@ -528,6 +550,7 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(candidates.persistPendingVerification).toHaveBeenCalledWith(expect.objectContaining({ provider: 'BAILIAN_WAN', quote: expect.objectContaining({ id: 'quote-1' }) }));
     expect(localVerification.verify).toHaveBeenCalledWith(Buffer.from('source'), Buffer.from('source'));
     expect(ocrVerification.verify).toHaveBeenCalledWith(expect.objectContaining({ quoteId: 'quote-1', allowAutoPass: false }));
+    expect(structureVerification.verify).toHaveBeenCalledWith(expect.objectContaining({ quote: expect.objectContaining({ id: 'quote-1' }) }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
     expect(candidates.finalizeVerification).toHaveBeenCalledWith('company-1', 'quote-1', expect.objectContaining({
@@ -542,6 +565,65 @@ describe('AimaiProductVisualAdapterService', () => {
       .rejects.toThrow('storage failed');
     expect(invocations.moveVerificationToReconciliation).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
     expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+  });
+
+  it('does not call the paid structure comparison after a local hard rejection', async () => {
+    const { service, prisma, execution, candidates, localVerification, structureVerification } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    execution.pollForOutput.mockResolvedValue({
+      quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
+    });
+    localVerification.verify.mockResolvedValue({ disposition: 'REJECT', geometry: {}, qr: {}, barcode: {} });
+
+    await service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' });
+
+    expect(structureVerification.verify).not.toHaveBeenCalled();
+    expect(candidates.finalizeVerification).toHaveBeenCalledWith('company-1', 'quote-1', expect.objectContaining({
+      structure: { state: 'UNCERTAIN', report: null, invocationId: null },
+    }), true);
+  });
+
+  it('keeps a candidate and its parent quote open while structure execution is pending', async () => {
+    const { service, prisma, execution, credits, candidates, invocations, structureVerification } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    execution.pollForOutput.mockResolvedValue({
+      quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('candidate'), mimeType: 'image/jpeg' },
+    });
+    structureVerification.verify.mockResolvedValue({ state: 'PENDING', report: null, invocationId: 'structure-1' });
+
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .resolves.toMatchObject({ status: 'VERIFYING', candidate: { id: 'optimization-1' } });
+    expect(invocations.completeSynchronousVerification).not.toHaveBeenCalled();
+    expect(credits.settleReservedQuote).not.toHaveBeenCalled();
+    expect(candidates.finalizeVerification).not.toHaveBeenCalled();
+  });
+
+  it('does not let a concurrent pending structure replay settle ahead of the original FAIL', async () => {
+    const { service, candidates, credits, invocations, structureVerification } = build();
+    candidates.finalizeVerification.mockResolvedValue({ id: 'optimization-1', status: ProductImageOptimizationStatus.REJECTED });
+    let resolveFirst!: (value: unknown) => void;
+    structureVerification.verify
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({ state: 'PENDING', report: null, invocationId: 'structure-1' });
+    const quote = {
+      id: 'quote-1', sourceAssetRef: 'asset-1', sourceHash: 'a'.repeat(64),
+      visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE' }, rateCardSnapshot: { requiresHumanReview: true },
+    };
+    const candidate = { id: 'optimization-1', candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp' };
+    const input = { companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' };
+    const first = (service as any).finalizePersistedCandidate(input, quote, candidate, 'invocation-1', 'BAILIAN_WAN');
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect((service as any).finalizePersistedCandidate(input, quote, candidate, 'invocation-1', 'BAILIAN_WAN'))
+      .resolves.toMatchObject({ status: 'VERIFYING' });
+    expect(credits.settleReservedQuote).not.toHaveBeenCalled();
+    expect(candidates.finalizeVerification).not.toHaveBeenCalled();
+    resolveFirst({ state: 'FAIL', report: { verdict: 'FAIL' }, invocationId: 'structure-1' });
+    await expect(first).resolves.toMatchObject({ status: 'REJECTED' });
+    expect(invocations.completeSynchronousVerification).toHaveBeenCalledTimes(1);
+    expect(credits.settleReservedQuote).toHaveBeenCalledTimes(1);
+    expect(candidates.finalizeVerification).toHaveBeenCalledWith('company-1', 'quote-1', expect.objectContaining({
+      structure: expect.objectContaining({ state: 'FAIL' }),
+    }), true);
   });
 
   it('rejects cross-company polling before touching the Provider or quote state', async () => {

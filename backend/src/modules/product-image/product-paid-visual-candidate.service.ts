@@ -6,6 +6,7 @@ import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
 import { LocalCandidateVerificationReport } from './product-image-candidate-local-verification.service';
 import { CandidateOcrVerificationReport } from './product-image-candidate-ocr-verification.service';
+import type { ProductImageStructureVerificationResult } from './product-image-structure-verification.service';
 import { VisualAgentManagedOutputService } from '../visual-agent/visual-agent-managed-output.service';
 
 type PersistPaidCandidateInput = {
@@ -184,9 +185,12 @@ export class ProductPaidVisualCandidateService {
   async finalizeVerification(
     companyId: string,
     quoteId: string,
-    verification: { local: LocalCandidateVerificationReport; ocr: CandidateOcrVerificationReport },
+    verification: { local: LocalCandidateVerificationReport; ocr: CandidateOcrVerificationReport; structure?: ProductImageStructureVerificationResult },
     requiresHumanReview: boolean,
   ) {
+    if (verification.structure?.state === 'PENDING') {
+      throw new ConflictException('商品结构检查仍在确认中，不能完成候选验证');
+    }
     const task = await this.prisma.productImageOptimization.findFirst({
       where: { companyId, idempotencyKey: `paid-quote:${quoteId}`, status: ProductImageOptimizationStatus.RECONCILING },
       select: {
@@ -198,23 +202,32 @@ export class ProductPaidVisualCandidateService {
     if (!task) throw new ConflictException('付费图片候选当前不能完成验证');
     const local = verification.local;
     const localPasses = local.geometry.verdict === 'PASS' && local.qr.verdict === 'PASS' && local.barcode.verdict === 'PASS';
-    const status = local.disposition === 'REJECT'
+    const structureFailed = verification.structure?.state === 'FAIL' || verification.structure?.report?.verdict === 'FAIL';
+    const ocrFailed = verification.ocr.state === 'MISMATCH';
+    const status = local.disposition === 'REJECT' || structureFailed || ocrFailed
       ? ProductImageOptimizationStatus.REJECTED
       // A warning or an inconclusive automated check is never a platform
       // pre-publication review. It remains evidence and is marked for
       // post-publication inspection after explicit merchant adoption. Only a
       // known fact mismatch is a hard block.
       : ProductImageOptimizationStatus.SUCCEEDED;
-    const automaticallyVerified = !requiresHumanReview && localPasses && verification.ocr.verdict === 'AUTO_PASS';
+    const automaticallyVerified = !requiresHumanReview && localPasses && verification.ocr.verdict === 'AUTO_PASS'
+      && verification.structure?.state === 'PASS' && verification.structure.report?.verdict === 'PASS';
+    const structure = this.structureEvidence(verification.structure);
     const processingContract = {
       ...((task.processingContract as Record<string, unknown> | null) ?? {}),
       verification: {
         local,
         ocr: verification.ocr,
+        structure,
         state: status === ProductImageOptimizationStatus.REJECTED
-          ? 'LOCAL_FACT_MISMATCH_REJECTED'
+          ? structureFailed
+            ? 'STRUCTURE_FACT_MISMATCH_REJECTED'
+            : ocrFailed
+              ? 'OCR_FACT_MISMATCH_REJECTED'
+              : 'LOCAL_FACT_MISMATCH_REJECTED'
           : automaticallyVerified
-            ? 'LOCAL_AND_OCR_FACTS_VERIFIED'
+            ? 'LOCAL_OCR_AND_STRUCTURE_FACTS_VERIFIED'
             : 'ELIGIBLE_FOR_SELLER_ADOPTION_WITH_POST_PUBLICATION_INSPECTION',
         inspectionPriority: status === ProductImageOptimizationStatus.REJECTED
           ? null
@@ -229,8 +242,11 @@ export class ProductPaidVisualCandidateService {
         processingContract: processingContract as Prisma.InputJsonValue,
         contractHash: this.sha256(JSON.stringify(processingContract)),
         ...(status === ProductImageOptimizationStatus.REJECTED ? {
-          failureCode: 'LOCAL_FACT_VERIFICATION_REJECTED',
-          failureDetail: '候选图的二维码、条码格式或构图与原图存在明确不一致',
+          failureCode: structureFailed ? 'STRUCTURE_FACT_VERIFICATION_REJECTED'
+            : ocrFailed ? 'OCR_FACT_VERIFICATION_REJECTED' : 'LOCAL_FACT_VERIFICATION_REJECTED',
+          failureDetail: structureFailed ? '候选图商品结构与原图存在明确不一致'
+            : ocrFailed ? '候选图文字事实与原图存在明确不一致'
+              : '候选图的二维码、条码格式或构图与原图存在明确不一致',
         } : {}),
       },
     });
@@ -345,6 +361,33 @@ export class ProductPaidVisualCandidateService {
 
   private sha256(value: string) {
     return createHash('sha256').update(value).digest('hex');
+  }
+
+  /** Persist only finite runner evidence; never arbitrary provider/error text. */
+  private structureEvidence(value: ProductImageStructureVerificationResult | undefined) {
+    const state = value?.state === 'PASS' || value?.state === 'FAIL' || value?.state === 'UNCERTAIN'
+      || value?.state === 'PENDING' || value?.state === 'DISABLED' ? value.state : 'UNCERTAIN';
+    const invocationId = typeof value?.invocationId === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(value.invocationId)
+      ? value.invocationId : null;
+    const report = value?.report;
+    const safeReport = report && report.version === 'product-structure-compare-v1' && report.scope === 'VISUAL_STRUCTURE'
+      && ['PASS', 'FAIL', 'UNCERTAIN'].includes(report.verdict) && Array.isArray(report.reasons)
+      ? {
+        version: report.version,
+        scope: report.scope,
+        verdict: report.verdict,
+        reasons: [...report.reasons],
+        sourcePairHash: report.sourcePairHash,
+        planHash: report.planHash,
+        observations: report.observations,
+      }
+      : null;
+    return {
+      state,
+      report: safeReport,
+      invocationId,
+      ...(value?.billingStatus === 'BILLING_EXCEPTION' ? { billingStatus: 'BILLING_EXCEPTION' as const } : {}),
+    };
   }
 
   private toResult(task: any) {

@@ -53,6 +53,7 @@ const budgetRouteOptions = [
   { value: 'BAILIAN_WAN|wan2.7-image-pro', label: '万相专业 · wan2.7-image-pro' },
   { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0', label: '千问图像 · qwen-image-3.0' },
   { value: 'BAILIAN_QWEN_IMAGE|qwen-image-3.0-pro', label: '千问图像专业 · qwen-image-3.0-pro' },
+  { value: 'BAILIAN_QWEN_STRUCTURE|qwen3-vl-flash', label: '商品结构检查 · qwen3-vl-flash' },
 ];
 const budgetScopeOptions = [
   { value: 'PLATFORM', label: '平台总预算' },
@@ -62,11 +63,11 @@ const budgetScopeOptions = [
   { value: 'EXTERNAL_OBJECT', label: '业务对象预算' },
   { value: 'ACTOR', label: '操作人员预算' },
 ];
-const directionLabels = Object.fromEntries(directionOptions.map((item) => [item.value, item.label]));
+const directionLabels = Object.fromEntries([...directionOptions, { value: 'STRUCTURE_VERIFY', label: '商品结构检查' }].map((item) => [item.value, item.label]));
 const budgetScopeLabels = Object.fromEntries(budgetScopeOptions.map((item) => [item.value, item.label]));
 const rateCardStatusLabels: Record<string, string> = { ACTIVE: '启用', PAUSED: '暂停', RETIRED: '已停用' };
 const modelProfileLabels = Object.fromEntries(modelOptions.map((item) => [item.value, item.label]));
-const providerLabels: Record<string, string> = { BAILIAN_WAN: '百炼万相', BAILIAN_QWEN_IMAGE: '百炼千问图像' };
+const providerLabels: Record<string, string> = { BAILIAN_WAN: '百炼万相', BAILIAN_QWEN_IMAGE: '百炼千问图像', BAILIAN_QWEN_STRUCTURE: '百炼千问结构检查' };
 const creditLedgerTypeLabels: Record<string, string> = {
   WELCOME_GRANT: '欢迎图片积分发放',
   MANUAL_ADJUSTMENT: '平台人工调整',
@@ -118,6 +119,7 @@ export default function VisualAgentPage() {
   const [policyForm] = Form.useForm();
   const [rateCardForm] = Form.useForm();
   const [budgetForm] = Form.useForm();
+  const selectedBudgetRoute = Form.useWatch('route', budgetForm) as string | undefined;
   const [reconciliationForm] = Form.useForm();
   const [accountForm] = Form.useForm<{ ownerType: string; ownerId: string }>();
   const [rateCardOpen, setRateCardOpen] = useState(false);
@@ -354,7 +356,7 @@ export default function VisualAgentPage() {
             ? '无需单独授权，但模型服务尚未就绪'
             : '测试模型服务暂未开放'}
         description={testAccessStatus.data.allMerchantsEnabled && testAccessStatus.data.providerReady
-          ? `所有 ACTIVE 商家的 OWNER/MANAGER 无需单独授权；拥有图片积分即可为自有商品使用模型，每次仍需确认 ${testAccessStatus.data.creditCost} 图片积分。`
+          ? '正常经营的测试商家无需单独开通；拥有足够图片积分即可选择可用方案，每次费用以商家确认的当前报价为准。'
           : testAccessStatus.data.allMerchantsEnabled
             ? '商家权限已统一开放，但模型、费率或平台成本保护尚未全部就绪；图片积分不是唯一门槛。'
             : '请先完成模型、费率和平台总成本保护配置；不需要逐个设置商家权限。'}
@@ -481,7 +483,7 @@ export default function VisualAgentPage() {
         <Form form={budgetForm} layout="vertical" onFinish={(values) => saveBudget.mutate(values)}>
           <Alert type="warning" showIcon message="预算策略不会自动开通模型" description="只有六层精确策略、模型服务密钥、运行时开关和真实验收同时就绪，模型任务才可能执行。" style={{ marginBottom: 14 }} />
           <Row gutter={12}><Col span={8}><Form.Item name="scope" label="预算层级" rules={[{ required: true }]}><Select options={budgetScopeOptions} /></Form.Item></Col><Col span={16}><Form.Item name="targetId" label="业务对象或操作人员编号" extra="仅业务对象和操作人员层级需要填写" dependencies={['scope']} rules={[({ getFieldValue }) => ({ validator: async (_, value) => { if (['EXTERNAL_OBJECT', 'ACTOR'].includes(getFieldValue('scope')) && !String(value || '').trim()) throw new Error('该预算层级必须填写目标编号'); } })]}><Input placeholder="例如商品编号或员工编号" /></Form.Item></Col></Row>
-          <Row gutter={12}><Col span={12}><Form.Item name="route" label="模型服务路线" rules={[{ required: true }]}><Select options={budgetRouteOptions} /></Form.Item></Col><Col span={12}><Form.Item name="visualMode" label="美化模式" rules={[{ required: true }]}><Select options={directionOptions} /></Form.Item></Col></Row>
+          <Row gutter={12}><Col span={12}><Form.Item name="route" label="模型服务路线" rules={[{ required: true }]}><Select options={budgetRouteOptions} onChange={(route: string) => budgetForm.setFieldValue('visualMode', route.startsWith('BAILIAN_QWEN_STRUCTURE|') ? 'STRUCTURE_VERIFY' : 'PRESERVE_REAL_SCENE')} /></Form.Item></Col><Col span={12}><Form.Item name="visualMode" label="处理模式" rules={[{ required: true }]}><Select options={selectedBudgetRoute?.startsWith('BAILIAN_QWEN_STRUCTURE|') ? [{ value: 'STRUCTURE_VERIFY', label: '商品结构检查' }] : directionOptions} /></Form.Item></Col></Row>
           <Form.Item noStyle shouldUpdate>{({ getFieldsValue }) => <Alert type="info" showIcon message="将保存到精确范围键" description={canonicalBudgetScopeKey(getFieldsValue(), scope) || '请先补齐预算层级、模型路线和目标 ID'} style={{ marginBottom: 14 }} />}</Form.Item>
           <Row gutter={12}>
             <Col span={6}><Form.Item name="reserveCents" label="预占成本（分）" rules={[{ required: true }]}><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item></Col>

@@ -195,8 +195,53 @@ describe('ProductPaidVisualCandidateService', () => {
       ocr: { version: 'candidate-ocr-verification-v1', state: 'MATCHED', verdict: 'AUTO_PASS', sourceTextDetected: true, candidateTextDetected: true, sourceTextLength: 12, candidateTextLength: 12, normalizedTextMatch: true },
     }, false)).resolves.toMatchObject({ id: 'optimization-1', status: ProductImageOptimizationStatus.SUCCEEDED });
     expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: ProductImageOptimizationStatus.SUCCEEDED }),
+      data: expect.objectContaining({ status: ProductImageOptimizationStatus.SUCCEEDED, processingContract: expect.objectContaining({
+        verification: expect.objectContaining({ state: 'ELIGIBLE_FOR_SELLER_ADOPTION_WITH_POST_PUBLICATION_INSPECTION', inspectionPriority: 'HIGH' }),
+      }) }),
     }));
+  });
+
+  it('rejects a structural failure even when local and OCR checks otherwise pass', async () => {
+    const { service, prisma } = build();
+    await service.finalizeVerification('company-1', 'quote-1', {
+      local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
+      ocr: { version: 'candidate-ocr-verification-v1', state: 'MATCHED', verdict: 'AUTO_PASS', sourceTextDetected: true, candidateTextDetected: true, sourceTextLength: 1, candidateTextLength: 1, normalizedTextMatch: true },
+      structure: { state: 'FAIL', invocationId: 'structure-1', report: { version: 'product-structure-compare-v1', scope: 'VISUAL_STRUCTURE', verdict: 'FAIL', reasons: ['COMPONENTS_CHANGED'], sourcePairHash: 'a'.repeat(64), planHash: 'b'.repeat(64), observations: null } },
+    }, false);
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: ProductImageOptimizationStatus.REJECTED,
+      failureCode: 'STRUCTURE_FACT_VERIFICATION_REJECTED',
+      processingContract: expect.objectContaining({ verification: expect.objectContaining({ structure: expect.objectContaining({
+        state: 'FAIL', invocationId: 'structure-1', report: expect.objectContaining({ verdict: 'FAIL' }),
+      }) }) }),
+    }) }));
+  });
+
+  it('keeps a known structure billing exception as independent finite candidate evidence', async () => {
+    const { service, prisma } = build();
+    await service.finalizeVerification('company-1', 'quote-1', {
+      local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
+      ocr: { version: 'candidate-ocr-verification-v1', state: 'MATCHED', verdict: 'AUTO_PASS', sourceTextDetected: true, candidateTextDetected: true, sourceTextLength: 1, candidateTextLength: 1, normalizedTextMatch: true },
+      structure: { state: 'PASS', invocationId: 'structure-1', billingStatus: 'BILLING_EXCEPTION', report: { version: 'product-structure-compare-v1', scope: 'VISUAL_STRUCTURE', verdict: 'PASS', reasons: ['NO_MATERIAL_CONFLICT'], sourcePairHash: 'a'.repeat(64), planHash: 'b'.repeat(64), observations: null } },
+    }, false);
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      processingContract: expect.objectContaining({ verification: expect.objectContaining({ structure: {
+        state: 'PASS', invocationId: 'structure-1', billingStatus: 'BILLING_EXCEPTION', report: expect.objectContaining({ verdict: 'PASS' }),
+      } }) }),
+    }) }));
+  });
+
+  it('rejects a known OCR mismatch rather than leaving it for merchant adoption', async () => {
+    const { service, prisma } = build();
+    await service.finalizeVerification('company-1', 'quote-1', {
+      local: { version: 'candidate-local-verification-v1', disposition: 'MANUAL_REVIEW', geometry: { verdict: 'PASS' } as any, qr: { verdict: 'PASS' } as any, barcode: { verdict: 'PASS' } as any, nextStep: 'QWEN_OCR_OR_HUMAN_FACT_REVIEW' },
+      ocr: { version: 'candidate-ocr-verification-v1', state: 'MISMATCH', verdict: 'MANUAL_REVIEW', sourceTextDetected: true, candidateTextDetected: true, sourceTextLength: 1, candidateTextLength: 1, normalizedTextMatch: false },
+      structure: { state: 'PASS', invocationId: 'structure-1', report: { verdict: 'PASS' } as any },
+    }, false);
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: ProductImageOptimizationStatus.REJECTED,
+      failureCode: 'OCR_FACT_VERIFICATION_REJECTED',
+    }) }));
   });
 
   it('lists only paid candidates that still need human fact review, without leaking provider artifacts', async () => {

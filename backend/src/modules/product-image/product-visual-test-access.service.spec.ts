@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductVisualMode, ProductVisualRiskProfile, VisualAgentBudgetScope, VisualCreditQuoteStatus } from '@prisma/client';
+import { Prisma, ProductVisualMode, ProductVisualRiskProfile, VisualAgentBudgetScope, VisualCreditQuoteStatus } from '@prisma/client';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
 
 function build(overrides: { staff?: unknown; product?: unknown } = {}) {
@@ -41,6 +41,48 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
     invocations,
     credits,
   };
+}
+
+const structureBudgetInput = { companyId: 'company-1', productId: 'product-1', staffId: 'staff-1' };
+
+function buildStructure(overrides: {
+  publicApiBaseUrl?: string;
+  testAccessEnabled?: string;
+  allMerchantsEnabled?: string;
+  structureVerifyEnabled?: string;
+  structureVerifyExecutionEnabled?: string;
+  product?: unknown;
+  existingPolicy?: (scope: string) => unknown;
+} = {}) {
+  const configValues: Record<string, string> = {
+    PUBLIC_API_BASE_URL: overrides.publicApiBaseUrl ?? 'https://test-api.ai-maimai.com/api/v1',
+    AI_VISUAL_AGENT_TEST_ACCESS_ENABLED: overrides.testAccessEnabled ?? 'true',
+    AI_VISUAL_AGENT_TEST_ALL_MERCHANTS_ENABLED: overrides.allMerchantsEnabled ?? 'true',
+    AI_VISUAL_AGENT_STRUCTURE_VERIFY_ENABLED: overrides.structureVerifyEnabled ?? 'true',
+    AI_VISUAL_AGENT_STRUCTURE_VERIFY_EXECUTION_ENABLED: overrides.structureVerifyExecutionEnabled ?? 'true',
+  };
+  const config = {
+    get: jest.fn((key: string, fallback?: string) => Object.prototype.hasOwnProperty.call(configValues, key) ? configValues[key] : fallback),
+  };
+  const tx = {
+    $executeRaw: jest.fn(),
+    visualAgentBudgetPolicy: {
+      findFirst: jest.fn().mockImplementation(({ where }: { where: { scope: string } }) => overrides.existingPolicy?.(where.scope) ?? null),
+      create: jest.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: `policy-${data.scope}`, ...data })),
+    },
+  };
+  const prisma = {
+    product: { findFirst: jest.fn().mockResolvedValue(Object.prototype.hasOwnProperty.call(overrides, 'product') ? overrides.product : { id: 'product-1' }) },
+    $transaction: jest.fn().mockImplementation(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
+  };
+  const service = new ProductVisualTestAccessService(
+    prisma as any,
+    {} as any,
+    {} as any,
+    config as any,
+    {} as any,
+  );
+  return { service, prisma, tx, config };
 }
 
 describe('ProductVisualTestAccessService', () => {
@@ -359,5 +401,112 @@ describe('ProductVisualTestAccessService', () => {
     }));
     expect(credits.releaseUnboundReservedQuote).toHaveBeenCalledWith('auto-quote', 'ALL_TEST_MERCHANT_ACCESS_DISABLED');
     expect(credits.releaseUnboundReservedQuote).not.toHaveBeenCalledWith('manual-quote', expect.anything());
+  });
+
+  it.each([
+    ['staging all-merchant access is disabled', { allMerchantsEnabled: 'false' }],
+    ['structure verification is disabled', { structureVerifyEnabled: 'false' }],
+    ['structure execution is disabled', { structureVerifyExecutionEnabled: 'false' }],
+    ['the API uses a production hostname', { publicApiBaseUrl: 'https://api.ai-maimai.com/api/v1' }],
+  ])('does not write a structure budget when %s', async (_description, options) => {
+    const { service, prisma, tx } = buildStructure(options);
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).resolves.toBeUndefined();
+    expect(prisma.product.findFirst).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.visualAgentBudgetPolicy.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a product that is missing from the requesting company before opening a transaction', async () => {
+    const { service, prisma, tx } = buildStructure({ product: null });
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.product.findFirst).toHaveBeenCalledWith({
+      where: { id: 'product-1', companyId: 'company-1' },
+      select: { id: true },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.visualAgentBudgetPolicy.create).not.toHaveBeenCalled();
+  });
+
+  it('creates exactly one one-cent policy for each of the six exact structure scopes in Serializable isolation', async () => {
+    const { service, prisma, tx } = buildStructure();
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).resolves.toBeUndefined();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(6);
+    expect(tx.visualAgentBudgetPolicy.findFirst).toHaveBeenCalledTimes(6);
+    expect(tx.visualAgentBudgetPolicy.create).toHaveBeenCalledTimes(6);
+
+    const created = tx.visualAgentBudgetPolicy.create.mock.calls.map((call: [{ data: Record<string, unknown> }]) => call[0].data);
+    expect(created.map((data) => data.scope).sort()).toEqual(Object.values(VisualAgentBudgetScope).sort());
+    for (const data of created) {
+      expect(data).toMatchObject({
+        provider: 'BAILIAN_QWEN_STRUCTURE',
+        model: 'qwen3-vl-flash',
+        visualMode: 'STRUCTURE_VERIFY',
+        reserveCents: 1,
+        perTaskCapCents: 1,
+        dailyCapCents: 2_000_000_000,
+        weeklyCapCents: 2_000_000_000,
+        policyVersion: 'staging-structure-v1',
+        enabled: true,
+        effectiveUntil: null,
+      });
+      expect(data.scopeKey).toEqual(expect.any(String));
+    }
+  });
+
+  it('does not overwrite an existing paused policy while creating the remaining structure scopes', async () => {
+    const { service, tx } = buildStructure({
+      existingPolicy: (scope) => scope === VisualAgentBudgetScope.PLATFORM ? { id: 'paused-platform-policy', status: 'PAUSED' } : null,
+    });
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).resolves.toBeUndefined();
+    expect(tx.visualAgentBudgetPolicy.create).toHaveBeenCalledTimes(5);
+    expect(tx.visualAgentBudgetPolicy.create.mock.calls.map((call: [{ data: Record<string, unknown> }]) => call[0].data.scope))
+      .not.toContain(VisualAgentBudgetScope.PLATFORM);
+    expect(tx.visualAgentBudgetPolicy.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ scope: VisualAgentBudgetScope.PLATFORM, provider: 'BAILIAN_QWEN_STRUCTURE', model: 'qwen3-vl-flash', visualMode: 'STRUCTURE_VERIFY' }),
+      select: { id: true },
+    }));
+  });
+
+  it('retries a real Prisma P2034 once without duplicating a partial transaction', async () => {
+    const { service, prisma, tx } = buildStructure();
+    const conflict = new Prisma.PrismaClientKnownRequestError('serialization conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    prisma.$transaction.mockReset()
+      .mockRejectedValueOnce(conflict)
+      .mockImplementationOnce(async (callback: (transaction: typeof tx) => unknown) => callback(tx));
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).resolves.toBeUndefined();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.visualAgentBudgetPolicy.create).toHaveBeenCalledTimes(6);
+  });
+
+  it('stops after five consecutive Prisma P2034 conflicts with a retryable service error', async () => {
+    const { service, prisma } = buildStructure();
+    const conflict = new Prisma.PrismaClientKnownRequestError('serialization conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    prisma.$transaction.mockReset().mockRejectedValue(conflict);
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput))
+      .rejects.toMatchObject({ response: { message: '结构检查配置暂时繁忙，请稍后重试' } });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+  });
+
+  it('does not swallow an ordinary database error or retry it', async () => {
+    const { service, prisma } = buildStructure();
+    const databaseError = new Error('database unavailable');
+    prisma.$transaction.mockReset().mockRejectedValue(databaseError);
+
+    await expect(service.ensureStructureTestBudget(structureBudgetInput)).rejects.toBe(databaseError);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

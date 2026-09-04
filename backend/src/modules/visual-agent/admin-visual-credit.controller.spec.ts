@@ -91,4 +91,31 @@ describe('AdminVisualCreditController', () => {
 
     await expect(validate(dto)).resolves.toEqual([]);
   });
+
+  it('accepts the structure-check route through the real DTO and rejects unsupported route values', async () => {
+    const dto = Object.assign(new UpsertVisualAgentBudgetPolicyDto(), {
+      scope: VisualAgentBudgetScope.PLATFORM,
+      scopeKey: 'GLOBAL', provider: 'BAILIAN_QWEN_STRUCTURE', model: 'qwen3-vl-flash', visualMode: 'STRUCTURE_VERIFY',
+      reserveCents: 1, perTaskCapCents: 1, dailyCapCents: 1, weeklyCapCents: 1,
+      policyVersion: 'staging-structure-v1', enabled: true,
+    });
+    const { controller, invocations } = build();
+
+    await expect(validate(dto)).resolves.toEqual([]);
+    await expect(controller.upsertBudgetPolicy(dto)).resolves.toEqual({ id: 'budget-1' });
+    expect(invocations.upsertBudgetPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'BAILIAN_QWEN_STRUCTURE', model: 'qwen3-vl-flash', visualMode: 'STRUCTURE_VERIFY',
+      reserveCents: 1, perTaskCapCents: 1, dailyCapCents: 1, weeklyCapCents: 1,
+    }));
+
+    for (const [field, value] of [
+      ['provider', 'UNSUPPORTED_PROVIDER'],
+      ['model', 'unsupported-model'],
+      ['visualMode', 'UNSUPPORTED_MODE'],
+    ] as const) {
+      const invalid = Object.assign(new UpsertVisualAgentBudgetPolicyDto(), dto, { [field]: value });
+      const errors = await validate(invalid);
+      expect(errors.some((error) => error.property === field)).toBe(true);
+    }
+  });
 });

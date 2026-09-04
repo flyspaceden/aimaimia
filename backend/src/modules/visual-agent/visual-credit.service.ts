@@ -38,6 +38,8 @@ export type VerifiedVisualPlanForQuote = {
   adapterFactVersion?: string;
   allowedOperations: string[];
   presentationPreset?: string;
+  /** Server-derived comparison metadata; bound by quoteHash, not sent as image-edit prompt text. */
+  structureFocus?: 'WATCH_STRUCTURE' | 'GENERAL_PRODUCT';
 };
 
 /**
@@ -731,6 +733,7 @@ export class VisualCreditService {
     if (!SAFE_ID.test(plan.direction) || !SAFE_ID.test(plan.riskProfile)
       || !SAFE_ID.test(plan.protectedRegionVersion)
       || (plan.adapterFactVersion !== undefined && !SHA256.test(plan.adapterFactVersion))
+      || (plan.structureFocus !== undefined && !['WATCH_STRUCTURE', 'GENERAL_PRODUCT'].includes(plan.structureFocus))
       || plan.allowedOperations.length === 0
       || plan.allowedOperations.some((operation) => !SAFE_ID.test(operation))) {
       throw new ConflictException('视觉计划报价快照无效');

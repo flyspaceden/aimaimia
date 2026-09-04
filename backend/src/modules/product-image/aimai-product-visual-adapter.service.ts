@@ -14,6 +14,7 @@ import { ProductImageCandidateLocalVerificationService } from './product-image-c
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 import { productVisualFactHash } from './product-visual-fact-hash';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
+import { ProductImageStructureVerificationService } from './product-image-structure-verification.service';
 import { VisualTaskExecutionService } from '../visual-agent/visual-task-execution.service';
 import { AIMAI_VISUAL_ADAPTER_TYPE, AIMAI_VISUAL_CLIENT_ID, AIMAI_VISUAL_TENANT_ID } from './aimai-product-visual.constants';
 const sharp = require('sharp') as typeof import('sharp').default;
@@ -53,6 +54,7 @@ export class AimaiProductVisualAdapterService implements OnModuleInit {
     private readonly ocrVerification: ProductImageCandidateOcrVerificationService,
     private readonly testAccess: ProductVisualTestAccessService,
     @Optional() private readonly tasks?: VisualTaskExecutionService,
+    @Optional() private readonly structureVerification?: ProductImageStructureVerificationService,
   ) {}
 
   onModuleInit() {
@@ -175,6 +177,9 @@ export class AimaiProductVisualAdapterService implements OnModuleInit {
         adapterFactVersion: providerPlan.adapterFactVersion,
         allowedOperations: [...providerPlan.allowedOperations],
         presentationPreset: providerPlan.presentationPreset,
+        // The immutable quote records only the enum. Product/category text is
+        // classification input here, never a structure-provider prompt.
+        structureFocus: this.structureFocus(product),
       },
       idempotencyKey: input.idempotencyKey,
       expiresAt: new Date(Date.now() + QUOTE_TTL_MS),
@@ -557,9 +562,31 @@ export class AimaiProductVisualAdapterService implements OnModuleInit {
         candidateBuffer,
         allowAutoPass: !requiresHumanReview && local.disposition !== 'REJECT',
       });
+      // A locally proven mismatch does not spend an additional provider
+      // comparison budget. It is already a hard candidate rejection.
+      const structure = local.disposition === 'REJECT'
+        ? { state: 'UNCERTAIN' as const, report: null, invocationId: null }
+        : this.structureVerification
+          ? await this.structureVerification.verify({
+            companyId: input.companyId,
+            staffId: input.staffId,
+            productId: input.productId,
+            quote: { id: quote.id, visualPlanSnapshot: quote.visualPlanSnapshot, rateCardSnapshot: quote.rateCardSnapshot },
+            sourceBuffer,
+            candidateBuffer,
+          })
+          // Tests and a narrowly staggered deployment may have no domain
+          // wrapper yet. That state is explicitly non-automatic, never PASS.
+          : { state: 'UNCERTAIN' as const, report: null, invocationId: null };
+      // A runner UNKNOWN is an execution/reconciliation state, not an
+      // inconclusive comparison. Keep the paid candidate and parent quote
+      // open so a later poll can replay its durable structure invocation.
+      if (structure.state === 'PENDING') {
+        return { quoteId: quote.id, invocationId, candidate, status: 'VERIFYING' as const };
+      }
       await this.invocations.completeSynchronousVerification(invocationId, provider);
       await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家确认采用');
-      const optimization = await this.candidates.finalizeVerification(input.companyId, quote.id, { local, ocr }, requiresHumanReview);
+      const optimization = await this.candidates.finalizeVerification(input.companyId, quote.id, { local, ocr, structure }, requiresHumanReview);
       return {
         quoteId: quote.id,
         invocationId,
@@ -713,6 +740,11 @@ export class AimaiProductVisualAdapterService implements OnModuleInit {
 
   private ratePolicyVersion(rateCode: string) {
     return `rate-${rateCode}`;
+  }
+
+  private structureFocus(product: { title: string; category?: { name: string } | null }) {
+    const terms = [product.title, product.category?.name].filter((value): value is string => typeof value === 'string').join(' ');
+    return /手表|腕表|\bwatch(?:es)?\b/i.test(terms) ? 'WATCH_STRUCTURE' as const : 'GENERAL_PRODUCT' as const;
   }
 
   private async toOpaqueProviderSource(buffer: Buffer) {

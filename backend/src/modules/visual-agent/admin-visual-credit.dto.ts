@@ -134,13 +134,13 @@ export class UpsertVisualAgentBudgetPolicyDto {
   @MaxLength(240)
   scopeKey: string;
 
-  @IsIn(['BAILIAN_WAN', 'BAILIAN_QWEN_IMAGE'])
+  @IsIn(['BAILIAN_WAN', 'BAILIAN_QWEN_IMAGE', 'BAILIAN_QWEN_STRUCTURE'])
   provider: string;
 
-  @IsIn(['wan2.7-image', 'wan2.7-image-pro', 'qwen-image-3.0', 'qwen-image-3.0-pro'])
+  @IsIn(['wan2.7-image', 'wan2.7-image-pro', 'qwen-image-3.0', 'qwen-image-3.0-pro', 'qwen3-vl-flash'])
   model: string;
 
-  @IsIn(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE'])
+  @IsIn(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE', 'STRUCTURE_VERIFY'])
   visualMode: string;
 
   @Type(() => Number)

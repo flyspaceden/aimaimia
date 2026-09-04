@@ -87,9 +87,9 @@ export type VisualBudgetPolicy = {
   id: string;
   scope: 'PLATFORM' | 'PROVIDER' | 'TENANT' | 'CLIENT' | 'EXTERNAL_OBJECT' | 'ACTOR';
   scopeKey: string;
-  provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
-  model: 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro';
-  visualMode: 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' | 'MARKETING_SCENE';
+  provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE' | 'BAILIAN_QWEN_STRUCTURE';
+  model: 'wan2.7-image' | 'wan2.7-image-pro' | 'qwen-image-3.0' | 'qwen-image-3.0-pro' | 'qwen3-vl-flash';
+  visualMode: 'PRESERVE_REAL_SCENE' | 'CATALOG_STUDIO' | 'PRODUCT_RETOUCH' | 'MARKETING_SCENE' | 'STRUCTURE_VERIFY';
   reserveCents: number;
   perTaskCapCents: number;
   dailyCapCents: number;
