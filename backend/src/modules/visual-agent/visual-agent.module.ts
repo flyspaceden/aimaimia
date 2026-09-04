@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { VisualTaskExecutionService } from './visual-task-execution.service';
 import { UploadModule } from '../upload/upload.module';
 import { BailianWanImageProvider } from './providers/bailian-wan-image.provider';
 import { BailianQwenImageProvider } from './providers/bailian-qwen-image.provider';
@@ -25,7 +26,7 @@ import { VisualAgentManagedOutputService } from './visual-agent-managed-output.s
 @Module({
   imports: [UploadModule],
   controllers: [VisualAgentSessionController, VisualAgentPublicController],
-  providers: [VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
-  exports: [VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
+  providers: [VisualTaskExecutionService, VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
+  exports: [VisualTaskExecutionService, VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
 })
 export class VisualAgentModule {}

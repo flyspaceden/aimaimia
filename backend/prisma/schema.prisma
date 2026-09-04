@@ -2218,11 +2218,32 @@ model VisualCreditQuote {
   updatedAt        DateTime                @updatedAt
   ledgers          VisualCreditLedger[]
   publicCandidate  VisualAgentCandidate?
+  taskExecution    VisualTaskExecution?
 
   @@unique([tenantId, clientId, adapterNamespace, idempotencyKey], map: "VCQuote_scope_idempotency_key")
   @@index([billingAccountId, status, createdAt])
   @@index([tenantId, clientId, adapterNamespace, externalObjectId, status], map: "VCQuote_scope_object_status_idx")
   @@index([expiresAt])
+}
+
+/// Durable, non-billable orchestration lease. Provider submission retains its
+/// separate invocation lease and can never be retried based on this lease alone.
+model VisualTaskExecution {
+  id              String @id @default(cuid())
+  quoteId         String @unique
+  quote           VisualCreditQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  version         Int @default(1)
+  state           String @default("PENDING")
+  nextAttemptAt   DateTime @default(now())
+  attemptCount    Int @default(0)
+  leaseToken      String?
+  leaseGeneration Int @default(0)
+  leaseExpiresAt  DateTime?
+  lastErrorCode   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([state, nextAttemptAt, leaseExpiresAt])
 }
 
 /// Append-only account movement. Both deltas and resulting balances are

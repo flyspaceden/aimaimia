@@ -44,6 +44,8 @@ function asset(overrides: Record<string, unknown> = {}) {
 
 function build() {
   const prisma = {
+    visualAgentInvocation: { findUnique: jest.fn() },
+    visualCreditQuote: { findFirst: jest.fn(), findUnique: jest.fn() },
     visualAgentAsset: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(asset()), create: jest.fn().mockImplementation(({ data }) => ({ id: 'asset-1', status: 'AVAILABLE', ...data })) },
     visualAgentPlan: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(({ data }) => ({ id: 'plan-1', ...data })) },
     visualAgentCandidate: { findFirst: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn(), updateMany: jest.fn() },
@@ -63,7 +65,7 @@ function build() {
     markReconciliation: jest.fn(),
   };
   const execution = { executeReservedQuote: jest.fn(), pollForOutput: jest.fn() };
-  const invocations = { completeSynchronousVerification: jest.fn(), moveVerificationToReconciliation: jest.fn() };
+  const invocations = { completeSynchronousVerification: jest.fn(), moveVerificationToReconciliation: jest.fn(), releaseBeforeSubmit: jest.fn() };
   const config = { get: jest.fn((key: string) => key === 'AI_VISUAL_AGENT_ADAPTER_EVIDENCE_SECRET_EXTERNALCLIENT_KEY1' ? secret : undefined) };
   const verification = { verify: jest.fn().mockResolvedValue({ version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {}, ocr: {} }) };
   const managedOutputs = {
@@ -77,6 +79,39 @@ function build() {
 }
 
 describe('VisualAgentPublicService', () => {
+  it.each(['CANCELLED', 'RELEASED', 'EXPIRED'])('finishes a %s task without provider or billing work', async (status) => {
+    const { service, prisma, execution, credits } = build();
+    await expect(service.advanceConfirmedTask({ id: 'quote-1', ...principal, status } as any)).resolves.toEqual({ done: true });
+    expect(prisma.visualAgentInvocation.findUnique).not.toHaveBeenCalled();
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
+    expect(execution.pollForOutput).not.toHaveBeenCalled();
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+  it.each(['SUBMITTING', 'RECONCILING'])('does not resubmit %s without a provider task ID', async (status) => {
+    const { service, prisma, execution, credits } = build();
+    prisma.visualAgentInvocation.findUnique.mockResolvedValue({ id: 'invocation-1', status, providerTaskId: null });
+    await expect(service.advanceConfirmedTask({ id: 'quote-1', ...principal, visualAgentInvocationId: 'invocation-1', status: 'RESERVED' } as any))
+      .resolves.toMatchObject({ done: false, retryAfterMs: 300_000 });
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('releases a crash-before-submit reservation rather than leaving it pending or resubmitting', async () => {
+    const { service, prisma, execution, credits, invocations } = build();
+    prisma.visualAgentInvocation.findUnique.mockResolvedValue({ id: 'invocation-1', status: 'RESERVED', providerTaskId: null });
+    await expect(service.advanceConfirmedTask({ id: 'quote-1', ...principal, visualAgentInvocationId: 'invocation-1', status: 'RESERVED' } as any)).resolves.toEqual({ done: true });
+    expect(invocations.releaseBeforeSubmit).toHaveBeenCalledWith('invocation-1', 'WORKER_RECOVERY_NOT_SUBMITTED');
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'WORKER_RECOVERY_NOT_SUBMITTED');
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('does not release credits if submit won the invocation CAS during recovery', async () => {
+    const { service, prisma, credits, invocations } = build();
+    prisma.visualAgentInvocation.findUnique.mockResolvedValue({ id: 'invocation-1', status: 'RESERVED', providerTaskId: null });
+    invocations.releaseBeforeSubmit.mockRejectedValue(new ConflictException('already submitting'));
+    await expect(service.advanceConfirmedTask({ id: 'quote-1', ...principal, visualAgentInvocationId: 'invocation-1', status: 'RESERVED' } as any)).rejects.toThrow('already submitting');
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+  });
   it('accepts a scoped binary asset only when its separate Adapter Evidence HMAC and source digest both verify', async () => {
     const { service, prisma, upload } = build();
     const envelope = evidence();
@@ -124,7 +159,7 @@ describe('VisualAgentPublicService', () => {
     expect(prisma.visualAgentCandidate.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'ADOPT_INTENT' }) }));
   });
 
-  it('releases frozen credits when source preparation fails before any Provider submission', async () => {
+  it('queues confirmation without source or provider I/O; worker handles later source failure', async () => {
     const { service, prisma, upload, credits, execution } = build();
     credits.getQuoteForClient.mockResolvedValue({
       quote: {
@@ -140,7 +175,12 @@ describe('VisualAgentPublicService', () => {
     });
     upload.getBuffer.mockRejectedValue(new Error('source unavailable'));
 
-    await expect(service.confirmTask({ principal, quoteId: 'quote-1', quoteHash: 'q'.repeat(64) })).rejects.toThrow('source unavailable');
+    await expect(service.confirmTask({ principal, quoteId: 'quote-1', quoteHash: 'q'.repeat(64) })).resolves.toMatchObject({ execution: { quoteId: 'quote-1', status: 'QUEUED' } });
+    expect(upload.getBuffer).not.toHaveBeenCalled();
+    credits.getReservedQuoteForExecution.mockResolvedValue({ id: 'quote-1', status: 'RESERVED', sourceAssetRef: 'asset-1', visualPlanSnapshot: {
+      direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1',
+    } });
+    await expect(service.advanceConfirmedTask({ id: 'quote-1', ...principal, status: 'RESERVED' } as any)).rejects.toThrow('source unavailable');
     expect(credits.releaseReservedQuote).toHaveBeenCalledWith('quote-1', 'SOURCE_PREPARATION_FAILED_BEFORE_PROVIDER_SUBMIT');
     expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
@@ -167,11 +207,11 @@ describe('VisualAgentPublicService', () => {
     expect(credits.getAccount).toHaveBeenCalledWith({ tenantId: principal.tenantId, billingOwnerType: 'RESTAURANT', billingOwnerId: 'restaurant-1' });
   });
 
-  it('persists a Provider output privately and returns a review candidate without exposing its model route', async () => {
+  it('recovers output after plan expiry without exposing the model route', async () => {
     const { service, prisma, upload, credits, execution, invocations, verification } = build();
     const plan = {
       id: 'plan-1', assetId: 'asset-1', riskProfile: 'CONSERVATIVE_FACTS', recommendedDirection: 'PRESERVE_REAL_SCENE',
-      allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', planHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 10 * 60_000),
+      allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', planHash: 'b'.repeat(64), expiresAt: new Date(Date.now() - 10 * 60_000),
     };
     credits.getQuoteForClient.mockResolvedValue({
       quote: { id: 'quote-1', sourceAssetRef: 'asset-1', visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1' } },
@@ -183,6 +223,7 @@ describe('VisualAgentPublicService', () => {
     upload.uploadFile.mockResolvedValueOnce({ key: 'visual-agent-assets/candidate.png', canonicalSha256: 'b'.repeat(64), mimeType: 'image/png', size: 200, width: 800, height: 800, needsReview: false, contactInfoDetected: false });
 
     await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ quoteId: 'quote-1', status: 'PENDING_REVIEW', candidate: { id: 'candidate-1' } });
+    expect(prisma.visualAgentPlan.findFirst.mock.calls[0][0].where).not.toHaveProperty('expiresAt');
     expect(upload.uploadFile).toHaveBeenCalledWith(expect.objectContaining({ mimetype: 'image/png' }), 'visual-agent-assets', { preserveQrCodes: true, preserveProviderOutput: true });
     expect(verification.verify).toHaveBeenCalledWith(expect.objectContaining({ verificationId: 'quote-1', allowAutoPass: false }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_QWEN_IMAGE');

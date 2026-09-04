@@ -50,7 +50,7 @@ export class VisualAgentPublicController {
 
   @Post('tasks/:quoteId/poll')
   pollTask(@Req() request: VisualRequest, @Param('quoteId') quoteId: string) {
-    return this.visual.pollTask({ principal: this.principal(request), quoteId });
+    return this.visual.getTask(this.principal(request), quoteId);
   }
 
   @Get('tasks/:quoteId')

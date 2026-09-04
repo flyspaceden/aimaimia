@@ -349,6 +349,22 @@ export class VisualCreditService {
   }
 
   async confirmAndReserve(input: VisualCreditScope & { quoteId: string; quoteHash: string }) {
+    // Concurrent requests can acquire their Serializable snapshot before
+    // waiting for the quote/account advisory lock. Retry only PostgreSQL's
+    // confirmed transaction abort; the same quote remains the idempotency key.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.confirmAndReserveOnce(input);
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+        if (attempt >= 4) {
+          throw new ServiceUnavailableException({ code: 'VISUAL_CREDIT_BUSY', message: '图片积分确认暂时繁忙，请稍后重试或查看任务记录' });
+        }
+      }
+    }
+  }
+
+  private async confirmAndReserveOnce(input: VisualCreditScope & { quoteId: string; quoteHash: string }) {
     this.assertScope(input);
     this.assertId(input.quoteId, '报价 ID');
     if (!SHA256.test(input.quoteHash)) throw new ConflictException('报价确认凭证无效');
@@ -372,21 +388,23 @@ export class VisualCreditService {
         throw new NotFoundException('图片美化报价不存在');
       }
       if (quote.quoteHash !== input.quoteHash) {
-        throw new ConflictException('图片美化报价已变化，请重新查看费用后确认');
+        throw new ConflictException({ code: 'QUOTE_CHANGED', message: '图片美化报价已变化，请重新查看费用后确认' });
       }
       await this.lock(tx, `VISUAL_CREDIT_ACCOUNT:${principal.tenantId}:${input.billingOwnerType}:${input.billingOwnerId}`);
       if (quote.status === VisualCreditQuoteStatus.RESERVED || quote.status === VisualCreditQuoteStatus.RECONCILING) {
+        await tx.visualTaskExecution.upsert({ where: { quoteId: quote.id }, create: { quoteId: quote.id }, update: {} });
         return this.toQuoteResponse(quote);
       }
       if (quote.status !== VisualCreditQuoteStatus.ISSUED) {
+        if (quote.status === VisualCreditQuoteStatus.EXPIRED) {
+          throw new ConflictException({ code: 'QUOTE_EXPIRED', message: '图片美化报价已过期，请重新获取报价' });
+        }
         throw new ConflictException('该图片美化报价不能再确认');
       }
       if (quote.expiresAt <= now) {
-        await tx.visualCreditQuote.update({
-          where: { id: quote.id },
-          data: { status: VisualCreditQuoteStatus.EXPIRED, failureReason: 'QUOTE_EXPIRED' },
-        });
-        throw new ConflictException('图片美化报价已过期，请重新获取报价');
+        // The periodic expiry job persists EXPIRED; a throw here rolls back
+        // this transaction, so do not pretend an update would survive it.
+        throw new ConflictException({ code: 'QUOTE_EXPIRED', message: '图片美化报价已过期，请重新获取报价' });
       }
       if (quote.billingAccount.availableCredits < quote.creditCost) {
         throw new ConflictException('图片积分不足，请先充值或使用免费分析');
@@ -401,6 +419,7 @@ export class VisualCreditService {
         where: { id: quote.id },
         data: { status: VisualCreditQuoteStatus.RESERVED, confirmedAt: now },
       });
+      await tx.visualTaskExecution.upsert({ where: { quoteId: quote.id }, create: { quoteId: quote.id }, update: {} });
       const ledger = await tx.visualCreditLedger.create({
         data: {
           accountId: account.id,

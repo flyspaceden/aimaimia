@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentSeller } from '../seller/common/decorators/current-seller.decorator';
 import { SellerAudit } from '../seller/common/decorators/seller-audit.decorator';
@@ -6,7 +6,7 @@ import { SellerAuthGuard } from '../seller/common/guards/seller-auth.guard';
 import { SellerRoleGuard, SellerRoles } from '../seller/common/guards/seller-role.guard';
 import { SellerAuditInterceptor } from '../seller/common/interceptors/seller-audit.interceptor';
 import { AimaiProductVisualAdapterService } from './aimai-product-visual-adapter.service';
-import { ConfirmProductVisualQuoteDto, IssueProductVisualQuoteDto, ListProductVisualRateCardsQueryDto } from './product-visual-commerce.dto';
+import { ConfirmProductVisualQuoteDto, IssueProductVisualQuoteDto, ListProductVisualRateCardsQueryDto, ListProductVisualTasksQueryDto } from './product-visual-commerce.dto';
 
 @Public()
 @UseGuards(SellerAuthGuard, SellerRoleGuard)
@@ -14,6 +14,16 @@ import { ConfirmProductVisualQuoteDto, IssueProductVisualQuoteDto, ListProductVi
 @Controller('seller/products')
 export class ProductVisualCommerceController {
   constructor(private readonly visual: AimaiProductVisualAdapterService) {}
+
+  @Get(':id/visual-tasks')
+  @SellerRoles('OWNER', 'MANAGER')
+  listTasks(
+    @CurrentSeller('companyId') companyId: string,
+    @Param('id') productId: string,
+    @Query() query: ListProductVisualTasksQueryDto,
+  ) {
+    return this.visual.listTasks(companyId, productId, query);
+  }
 
   @Get(':id/visual-credit-account')
   @SellerRoles('OWNER', 'MANAGER')
@@ -65,7 +75,7 @@ export class ProductVisualCommerceController {
     @Param('quoteId') quoteId: string,
     @Body() dto: ConfirmProductVisualQuoteDto,
   ) {
-    return this.visual.confirmAndExecute({ companyId, staffId, productId, quoteId, quoteHash: dto.quoteHash });
+    return this.visual.enqueueConfirmedTask({ companyId, staffId, productId, quoteId, quoteHash: dto.quoteHash });
   }
 
   @Post(':id/visual-quotes/:quoteId/poll')
@@ -77,6 +87,6 @@ export class ProductVisualCommerceController {
     @Param('id') productId: string,
     @Param('quoteId') quoteId: string,
   ) {
-    return this.visual.pollAndPersistCandidate({ companyId, staffId, productId, quoteId });
+    return this.visual.readTaskStatus(companyId, productId, quoteId);
   }
 }

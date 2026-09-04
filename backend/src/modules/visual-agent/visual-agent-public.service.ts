@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, VisualAgentAssetStatus, VisualAgentCandidateStatus, VisualCreditQuoteStatus } from '@prisma/client';
+import { Prisma, VisualAgentAssetStatus, VisualAgentCandidateStatus, VisualCreditQuote, VisualCreditQuoteStatus } from '@prisma/client';
+import { VisualTaskExecutionService } from './visual-task-execution.service';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 const sharp = require('sharp') as typeof import('sharp').default;
 import { PrismaService } from '../../prisma/prisma.service';
@@ -48,7 +49,7 @@ export type AdapterEvidenceEnvelope = {
  * version, source digest, billing owner or fact policy.
  */
 @Injectable()
-export class VisualAgentPublicService {
+export class VisualAgentPublicService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly upload: UploadService,
@@ -58,7 +59,46 @@ export class VisualAgentPublicService {
     private readonly config: ConfigService,
     private readonly verification: VisualAgentCandidateVerificationService,
     private readonly managedOutputs: VisualAgentManagedOutputService,
+    @Optional() private readonly tasks?: VisualTaskExecutionService,
   ) {}
+
+  onModuleInit() {
+    this.tasks?.registerHandler('PUBLIC', {
+      accepts: async (quote) => Boolean(await this.prisma.visualAgentAsset.findFirst({ where: {
+        id: quote.sourceAssetRef, tenantId: quote.tenantId, clientId: quote.clientId, adapterNamespace: quote.adapterNamespace,
+      }, select: { id: true } })),
+      advance: (quote) => this.advanceConfirmedTask(quote),
+    });
+  }
+
+  async advanceConfirmedTask(quote: VisualCreditQuote) {
+    if (['RELEASED', 'EXPIRED', 'CANCELLED'].includes(quote.status)) return { done: true };
+    const principal: VisualAgentClientPrincipal = { tenantId: quote.tenantId, clientId: quote.clientId,
+      adapterNamespace: quote.adapterNamespace, allowedAdapterTypes: [], keyId: 'durable-task' };
+    if (!quote.visualAgentInvocationId) {
+      if (quote.status !== VisualCreditQuoteStatus.RESERVED) return { done: false, retryAfterMs: 300_000 };
+      await this.submitConfirmedTask({ principal, quoteId: quote.id });
+      return { done: false };
+    }
+    const invocation = await this.prisma.visualAgentInvocation.findUnique({ where: { id: quote.visualAgentInvocationId } });
+    if (!invocation?.providerTaskId) {
+      if (invocation?.status === 'RESERVED' && quote.status === VisualCreditQuoteStatus.RESERVED) {
+        await this.invocations.releaseBeforeSubmit(invocation.id, 'WORKER_RECOVERY_NOT_SUBMITTED');
+        await this.credits.releaseReservedQuote(quote.id, 'WORKER_RECOVERY_NOT_SUBMITTED');
+        return { done: true };
+      }
+      if (invocation?.status === 'RELEASED') {
+        await this.credits.releaseReservedQuote(quote.id, 'WORKER_RECOVERY_PROVIDER_NOT_ACCEPTED');
+        return { done: true };
+      }
+      // A bound invocation is not proof that a provider never saw the request.
+      // Unknown submission is never automatically sent again.
+      return { done: false, retryAfterMs: 300_000 };
+    }
+    await this.pollTask({ principal, quoteId: quote.id });
+    const current = await this.prisma.visualCreditQuote.findUnique({ where: { id: quote.id }, select: { status: true } });
+    return { done: current?.status === VisualCreditQuoteStatus.SETTLED || current?.status === VisualCreditQuoteStatus.RELEASED };
+  }
 
   async createAsset(input: { principal: VisualAgentClientPrincipal; evidenceJson: string; signature: string; file: Express.Multer.File }) {
     if (!input.file) throw new BadRequestException('请选择视觉源图片');
@@ -204,7 +244,7 @@ export class VisualAgentPublicService {
 
   async confirmTask(input: { principal: VisualAgentClientPrincipal; quoteId: string; quoteHash: string }) {
     const quoteInfo = await this.credits.getQuoteForClient({ principal: input.principal, quoteId: input.quoteId });
-    const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot));
+    const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot), quoteInfo.quote.status !== VisualCreditQuoteStatus.ISSUED);
     const confirmed = await this.credits.confirmAndReserve({
       principal: input.principal,
       billingOwnerType: plan.billingOwnerType,
@@ -214,24 +254,23 @@ export class VisualAgentPublicService {
       quoteId: input.quoteId,
       quoteHash: input.quoteHash,
     });
-    const reservedQuote = await this.credits.getReservedQuoteForExecution({ principal: input.principal, quoteId: input.quoteId });
+    return { confirmed: {
+      quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
+      account: 'account' in confirmed ? confirmed.account : null,
+      ledger: 'ledger' in confirmed ? confirmed.ledger : null,
+    }, execution: this.publicExecution({ quoteId: input.quoteId, status: 'QUEUED' }) };
+  }
+
+  private async submitConfirmedTask(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
+    const reservedQuote = await this.credits.getReservedQuoteForExecution(input);
+    const plan = await this.findPlanForQuote(input.principal, reservedQuote.sourceAssetRef, this.planHashFromQuoteSnapshot(reservedQuote.visualPlanSnapshot), true);
     if (reservedQuote.status === VisualCreditQuoteStatus.RECONCILING) {
       return {
-        confirmed: {
-          quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
-          account: 'account' in confirmed ? confirmed.account : null,
-          ledger: 'ledger' in confirmed ? confirmed.ledger : null,
-        },
         execution: this.publicExecution({ quoteId: reservedQuote.id, status: 'RECONCILING' as const }),
       };
     }
     if (reservedQuote.visualAgentInvocationId) {
       return {
-        confirmed: {
-          quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
-          account: 'account' in confirmed ? confirmed.account : null,
-          ledger: 'ledger' in confirmed ? confirmed.ledger : null,
-        },
         execution: this.publicExecution({ quoteId: reservedQuote.id, status: 'ALREADY_BOUND' as const }),
       };
     }
@@ -252,11 +291,6 @@ export class VisualAgentPublicService {
       visualPlan: this.providerPlanFromPlan(plan),
     });
     return {
-      confirmed: {
-        quote: this.publicQuote('quote' in confirmed ? confirmed.quote : confirmed),
-        account: 'account' in confirmed ? confirmed.account : null,
-        ledger: 'ledger' in confirmed ? confirmed.ledger : null,
-      },
       execution: this.publicExecution(execution),
     };
   }
@@ -284,7 +318,7 @@ export class VisualAgentPublicService {
     }
     const polled = await this.execution.pollForOutput({ principal: input.principal, quoteId: input.quoteId });
     if (polled.status !== 'VERIFYING') return this.publicExecution(polled);
-    const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot));
+    const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot), true);
     const asset = await this.findAsset(input.principal, plan.assetId);
     try {
       const sourceBuffer = await this.upload.getBuffer(asset.objectKey);
@@ -314,7 +348,19 @@ export class VisualAgentPublicService {
     const candidate = await this.prisma.visualAgentCandidate.findFirst({
       where: { quoteId: quoteInfo.quote.id, tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace },
     });
+    const persisted = await this.prisma.visualCreditQuote.findFirst({
+      where: { id: quoteId, tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace },
+      select: { visualAgentInvocation: { select: { status: true } } },
+    });
+    const executionStatus = persisted?.visualAgentInvocation?.status;
+    const status = candidate && quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED ? candidate.status
+      : ['RELEASED', 'EXPIRED', 'CANCELLED'].includes(quoteInfo.quote.status) ? 'RELEASED'
+        : quoteInfo.quote.status === 'RECONCILING' || executionStatus === 'RECONCILING' ? 'RECONCILING'
+          : executionStatus === 'VERIFYING' || executionStatus === 'SUCCEEDED' ? 'VERIFYING'
+            : executionStatus === 'RUNNING' || executionStatus === 'SUBMITTING' ? 'RUNNING'
+              : quoteInfo.quote.status === 'ISSUED' ? 'ISSUED' : 'QUEUED';
     return {
+      quoteId, status,
       quote: this.publicQuote(quoteInfo.quote),
       billingAccount: quoteInfo.billingAccount,
       candidate: candidate && quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED
@@ -436,11 +482,11 @@ export class VisualAgentPublicService {
     return plan;
   }
 
-  private async findPlanForQuote(principal: VisualAgentClientPrincipal, sourceAssetRef: string, planHash: string) {
+  private async findPlanForQuote(principal: VisualAgentClientPrincipal, sourceAssetRef: string, planHash: string, historical = false) {
     const plan = await this.prisma.visualAgentPlan.findFirst({
       where: {
         tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
-        assetId: sourceAssetRef, planHash, expiresAt: { gt: new Date() },
+        assetId: sourceAssetRef, planHash, ...(historical ? {} : { expiresAt: { gt: new Date() } }),
       },
       orderBy: { createdAt: 'desc' },
     });

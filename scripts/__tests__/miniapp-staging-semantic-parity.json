@@ -538,6 +538,10 @@
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
     },
     {
+      "path": "backend/src/modules/visual-agent/visual-task-execution.service.ts",
+      "reason": "approved Visual Agent v3 durable execution and recovery; no miniapp or Delivery business behavior changes"
+    },
+    {
       "path": "backend/src/typings/ali-oss.d.ts",
       "reason": "provide OSS type declarations required by protected managed image asset operations"
     }

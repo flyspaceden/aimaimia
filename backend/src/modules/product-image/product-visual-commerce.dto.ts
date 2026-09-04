@@ -1,5 +1,20 @@
-import { IsEnum, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsString, MaxLength, IsOptional, IsInt, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ProductVisualMode } from '@prisma/client';
+
+export class ListProductVisualTasksQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+}
 
 export class IssueProductVisualQuoteDto {
   @IsString()

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, ServiceUnavailableException, OnModuleInit, Optional } from '@nestjs/common';
 import { ProductImageOptimizationStatus, ProductVisualMode, ProductVisualRiskProfile, SellerMediaAssetStatus, VisualCreditQuoteStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { VisualAgentClientKeyService } from '../visual-agent/visual-agent-client-key.service';
@@ -14,6 +14,7 @@ import { ProductImageCandidateLocalVerificationService } from './product-image-c
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 import { productVisualFactHash } from './product-visual-fact-hash';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
+import { VisualTaskExecutionService } from '../visual-agent/visual-task-execution.service';
 import { AIMAI_VISUAL_ADAPTER_TYPE, AIMAI_VISUAL_CLIENT_ID, AIMAI_VISUAL_TENANT_ID } from './aimai-product-visual.constants';
 const sharp = require('sharp') as typeof import('sharp').default;
 
@@ -38,7 +39,7 @@ type IssueQuoteInput = {
  * Client Key can choose arbitrary prompt text, Provider fields or billing IDs.
  */
 @Injectable()
-export class AimaiProductVisualAdapterService {
+export class AimaiProductVisualAdapterService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clients: VisualAgentClientKeyService,
@@ -51,7 +52,49 @@ export class AimaiProductVisualAdapterService {
     private readonly localVerification: ProductImageCandidateLocalVerificationService,
     private readonly ocrVerification: ProductImageCandidateOcrVerificationService,
     private readonly testAccess: ProductVisualTestAccessService,
+    @Optional() private readonly tasks?: VisualTaskExecutionService,
   ) {}
+
+  onModuleInit() {
+    this.tasks?.registerHandler('PRODUCT', {
+      accepts: async (quote) => quote.tenantId === AIMAI_VISUAL_TENANT_ID && quote.clientId === AIMAI_VISUAL_CLIENT_ID && quote.adapterNamespace === 'aimai-product'
+        && Boolean(await this.prisma.sellerMediaAsset.findUnique({ where: { id: quote.sourceAssetRef }, select: { id: true } })),
+      advance: async (quote) => {
+        const account = await this.prisma.visualCreditAccount.findUnique({ where: { id: quote.billingAccountId }, select: { billingOwnerType: true, billingOwnerId: true } });
+        if (!account || account.billingOwnerType !== 'COMPANY') throw new ConflictException('任务账单主体无效');
+        const input = { companyId: account.billingOwnerId, staffId: quote.actorId, productId: quote.externalObjectId, quoteId: quote.id };
+        if (quote.status === 'RELEASED' || quote.status === 'CANCELLED' || quote.status === 'EXPIRED') return { done: true };
+        const terminal = await this.findTerminalPaidOptimization(input.companyId, input.productId, input.quoteId);
+        if (terminal && quote.status === 'SETTLED') return { done: true };
+        if (!quote.visualAgentInvocationId) {
+          if (quote.status !== 'RESERVED') return { done: false, retryAfterMs: 300_000 };
+          await this.executeConfirmedQuote(input);
+          return { done: false };
+        }
+        const invocation = await this.prisma.visualAgentInvocation.findUnique({ where: { id: quote.visualAgentInvocationId }, select: { providerTaskId: true, status: true } });
+        if (!invocation?.providerTaskId) {
+          if (invocation?.status === 'RESERVED') {
+            await this.invocations.releaseBeforeSubmit(quote.visualAgentInvocationId, 'WORKER_RECOVERED_BEFORE_PROVIDER_SUBMIT');
+            await this.credits.releaseReservedQuote(quote.id, 'WORKER_RECOVERED_BEFORE_PROVIDER_SUBMIT');
+            return { done: true };
+          }
+          if (invocation?.status === 'RELEASED') {
+            await this.credits.releaseReservedQuote(quote.id, 'PROVIDER_NOT_SUBMITTED');
+            return { done: true };
+          }
+          return { done: false, retryAfterMs: 300_000 };
+        }
+        const result = await this.pollAndPersistCandidate(input);
+        return { done: result.status === 'SUCCEEDED' || result.status === 'REJECTED' };
+      },
+    });
+  }
+
+  async enqueueConfirmedTask(input: { companyId: string; staffId: string; productId: string; quoteId: string; quoteHash: string }) {
+    if (!this.tasks) throw new ServiceUnavailableException('图片任务执行服务未就绪');
+    const confirmed = await this.confirmQuote(input);
+    return { confirmed, execution: await this.readTaskStatus(input.companyId, input.productId, input.quoteId) };
+  }
 
   async issueQuote(input: IssueQuoteInput) {
     const [principal, plan] = await Promise.all([
@@ -74,7 +117,7 @@ export class AimaiProductVisualAdapterService {
         },
       }),
     ]);
-    if (!plan) throw new ConflictException('图片美化计划已过期、已变更或不属于当前商品图片');
+    if (!plan) throw new ConflictException({ code: 'PLAN_STALE', message: '图片美化计划已过期、已变更或不属于当前商品图片' });
     if (!plan.allowedModes.includes(input.direction)) {
       throw new ConflictException('当前商品风险档不允许使用所选图片美化方向');
     }
@@ -98,7 +141,7 @@ export class AimaiProductVisualAdapterService {
     if (!source || !product) throw new NotFoundException('商品或原图已变化，不能创建图片美化报价');
     const factVersion = this.planFactVersion(plan.sceneAnalysis);
     if (!factVersion || productVisualFactHash(product) !== factVersion) {
-      throw new ConflictException('商品标题、分类或图片版本已变化，请重新查看美化建议');
+      throw new ConflictException({ code: 'PLAN_STALE', message: '商品标题、分类或图片版本已变化，请重新查看美化建议' });
     }
 
     const eligibleCards = await this.listEligibleRateCards({
@@ -193,13 +236,18 @@ export class AimaiProductVisualAdapterService {
     quoteHash: string;
   }) {
     const confirmed = await this.confirmQuote(input);
+    const execution = await this.executeConfirmedQuote(input);
+    return { confirmed, execution };
+  }
+
+  async executeConfirmedQuote(input: { companyId: string; staffId: string; productId: string; quoteId: string }) {
     const principal = await this.resolveAimaiPrincipal();
     const quote = await this.credits.getReservedQuoteForExecution({ principal, quoteId: input.quoteId });
     if (quote.status === VisualCreditQuoteStatus.RECONCILING) {
-      return { confirmed, execution: { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const } };
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'RECONCILING' as const };
     }
     if (quote.visualAgentInvocationId) {
-      return { confirmed, execution: { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'ALREADY_BOUND' as const } };
+      return { quoteId: quote.id, invocationId: quote.visualAgentInvocationId, status: 'ALREADY_BOUND' as const };
     }
     const source = await this.prisma.sellerMediaAsset.findFirst({
       where: {
@@ -218,12 +266,12 @@ export class AimaiProductVisualAdapterService {
     });
     if (!source || !product) {
       await this.credits.releaseReservedQuote(quote.id, 'SOURCE_OR_PRODUCT_CHANGED_BEFORE_EXECUTION');
-      throw new NotFoundException('商品原图已变化，已释放本次图片美化额度');
+      throw new NotFoundException({ code: 'SOURCE_CHANGED', message: '商品原图已变化，已释放本次图片美化额度' });
     }
     const providerPlan = this.providerPlanFromQuoteSnapshot(quote.visualPlanSnapshot);
     if (!providerPlan.adapterFactVersion || productVisualFactHash(product) !== providerPlan.adapterFactVersion) {
       await this.credits.releaseReservedQuote(quote.id, 'PRODUCT_FACTS_CHANGED_BEFORE_PROVIDER_SUBMIT');
-      throw new ConflictException('商品资料已变化，已释放本次图片积分；请重新查看美化建议');
+      throw new ConflictException({ code: 'PLAN_STALE', message: '商品资料已变化，已释放本次图片积分；请重新查看美化建议' });
     }
     let providerSource: VisualProviderSource;
     try {
@@ -241,7 +289,7 @@ export class AimaiProductVisualAdapterService {
       source: providerSource,
       visualPlan: providerPlan,
     });
-    return { confirmed, execution };
+    return execution;
   }
 
   async getAccount(companyId: string) {
@@ -353,6 +401,69 @@ export class AimaiProductVisualAdapterService {
       select: { id: true, status: true },
     });
     return { ...result, optimization };
+  }
+
+  async listTasks(companyId: string, productId: string, query: { cursor?: string; limit?: number } = {}) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, companyId }, select: { id: true } });
+    if (!product) throw new NotFoundException('商品不存在');
+    const principal = await this.resolveAimaiPrincipal();
+    const limit = Number.isInteger(query.limit) ? Math.min(50, Math.max(1, query.limit!)) : 20;
+    const scope = {
+      tenantId: principal.tenantId, clientId: principal.clientId,
+      adapterNamespace: principal.adapterNamespace, externalObjectId: productId,
+      billingAccount: { billingOwnerType: 'COMPANY' as const, billingOwnerId: companyId },
+      confirmedAt: { not: null },
+    };
+    const cursor = query.cursor ? await this.prisma.visualCreditQuote.findFirst({
+      where: { ...scope, id: query.cursor }, select: { id: true, createdAt: true },
+    }) : null;
+    if (query.cursor && !cursor) throw new NotFoundException('图片任务分页记录不存在');
+    const rows = await this.prisma.visualCreditQuote.findMany({
+      where: { ...scope, ...(cursor ? { OR: [
+        { createdAt: { lt: cursor.createdAt } },
+        { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+      ] } : {}) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+      select: { id: true, sourceAssetRef: true, status: true, creditCost: true, candidateCount: true,
+        createdAt: true, confirmedAt: true, settledAt: true, visualPlanSnapshot: true,
+        rateCardSnapshot: true, visualAgentInvocation: { select: { status: true } } },
+    });
+    const page = rows.slice(0, limit);
+    const optimizations = page.length ? await this.prisma.productImageOptimization.findMany({
+      where: { companyId, productId, idempotencyKey: { in: page.map((row) => `paid-quote:${row.id}`) } },
+      select: { id: true, idempotencyKey: true, status: true },
+    }) : [];
+    return {
+      items: page.map((row) => {
+        const optimization = optimizations.find((item) => item.idempotencyKey === `paid-quote:${row.id}`);
+        const plan = row.visualPlanSnapshot as { direction?: string } | null;
+        const rate = row.rateCardSnapshot as { displayName?: string } | null;
+        return { quoteId: row.id, sourceAssetRef: row.sourceAssetRef, billingStatus: row.status,
+          executionStatus: row.visualAgentInvocation?.status ?? (row.status === 'RESERVED' ? 'QUEUED' : row.status === 'SETTLED' ? 'SUCCEEDED' : row.status),
+          optimization: optimization ? { id: optimization.id, status: optimization.status } : null,
+          direction: plan?.direction ?? null, displayName: rate?.displayName ?? '图片美化任务',
+          creditCost: row.creditCost, candidateCount: row.candidateCount,
+          createdAt: row.createdAt, confirmedAt: row.confirmedAt, settledAt: row.settledAt };
+      }),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    };
+  }
+
+  async readTaskStatus(companyId: string, productId: string, quoteId: string) {
+    const result = await this.getQuote(companyId, productId, quoteId);
+    if (result.optimization && ['SUCCEEDED', 'ADOPTED', 'REJECTED'].includes(result.optimization.status)) {
+      return { quoteId, optimizationId: result.optimization.id, status: result.optimization.status === 'REJECTED' ? 'REJECTED' as const : 'SUCCEEDED' as const };
+    }
+    if (['RELEASED', 'EXPIRED', 'CANCELLED'].includes(result.quote.status)) return { quoteId, status: 'RELEASED' as const };
+    if (result.quote.status === 'ISSUED') throw new ConflictException({ code: 'QUOTE_NOT_CONFIRMED', message: '请先确认图片积分报价' });
+    const quote = await this.prisma.visualCreditQuote.findFirst({
+      where: { id: quoteId, tenantId: AIMAI_VISUAL_TENANT_ID, clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product' },
+      select: { visualAgentInvocation: { select: { status: true } } },
+    });
+    const execution = quote?.visualAgentInvocation?.status;
+    return { quoteId, status: result.quote.status === 'RECONCILING' || execution === 'RECONCILING' ? 'RECONCILING' as const
+      : execution === 'VERIFYING' || execution === 'SUCCEEDED' ? 'VERIFYING' as const
+        : execution === 'RUNNING' || execution === 'SUBMITTING' ? 'RUNNING' as const : 'QUEUED' as const };
   }
 
   async pollAndPersistCandidate(input: {

@@ -30,6 +30,7 @@ function build() {
     sellerMediaAsset: { findFirst: jest.fn().mockResolvedValue({ id: 'asset-1', objectKey: 'seller-product-assets/asset-1.webp', canonicalSha256: 'a'.repeat(64) }) },
     product: { findFirst: jest.fn().mockResolvedValue(product) },
     productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }) },
+    visualCreditQuote: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
   };
   const clients = { resolveInternalClientPrincipal: jest.fn().mockResolvedValue(principal) };
   const trusted = {
@@ -81,13 +82,86 @@ function build() {
   const localVerification = { verify: jest.fn().mockResolvedValue({ disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {} }) };
   const ocrVerification = { verify: jest.fn().mockResolvedValue({ state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW' }) };
   const testAccess = { isAllMerchantMode: jest.fn().mockReturnValue(false), ensureDefaultAccess: jest.fn() };
+  const tasks = { registerHandler: jest.fn() };
   return {
-    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any, testAccess as any),
-    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification, testAccess,
+    service: new AimaiProductVisualAdapterService(prisma as any, clients as any, trusted as any, credits as any, execution as any, upload as any, invocations as any, candidates as any, localVerification as any, ocrVerification as any, testAccess as any, tasks as any),
+    prisma, clients, trusted, credits, execution, upload, invocations, candidates, localVerification, ocrVerification, testAccess, tasks,
   };
 }
 
 describe('AimaiProductVisualAdapterService', () => {
+  it('lets the background handler advance an accepted task without confirming or submitting again', async () => {
+    const { service, prisma, tasks } = build();
+    Object.assign(prisma, {
+      visualCreditAccount: { findUnique: jest.fn().mockResolvedValue({ billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' }) },
+      visualAgentInvocation: { findUnique: jest.fn().mockResolvedValue({ status: 'RUNNING', providerTaskId: 'task-1' }) },
+    });
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    const advance = jest.spyOn(service, 'pollAndPersistCandidate').mockResolvedValue({ quoteId: 'q1', status: 'SUCCEEDED', optimizationId: 'opt1' } as any);
+    const submit = jest.spyOn(service, 'executeConfirmedQuote');
+    service.onModuleInit();
+    const handler = tasks.registerHandler.mock.calls[0][1];
+    await expect(handler.advance({ id: 'q1', billingAccountId: 'acc1', actorId: 'staff-1', externalObjectId: 'product-1', status: 'RESERVED', visualAgentInvocationId: 'inv1' })).resolves.toEqual({ done: true });
+    expect(advance).toHaveBeenCalledWith({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'q1' });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('releases a definitely unsubmitted bound invocation after restart, but never resubmits an unknown one', async () => {
+    const { service, prisma, tasks, credits, invocations } = build();
+    const invocation = { findUnique: jest.fn().mockResolvedValue({ status: 'RESERVED', providerTaskId: null }) };
+    Object.assign(prisma, { visualCreditAccount: { findUnique: jest.fn().mockResolvedValue({ billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' }) }, visualAgentInvocation: invocation });
+    Object.assign(invocations, { releaseBeforeSubmit: jest.fn().mockResolvedValue(undefined) });
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    const submit = jest.spyOn(service, 'executeConfirmedQuote');
+    service.onModuleInit();
+    const handler = tasks.registerHandler.mock.calls[0][1];
+    const quote = { id: 'q1', billingAccountId: 'acc1', actorId: 'staff-1', externalObjectId: 'product-1', status: 'RESERVED', visualAgentInvocationId: 'inv1' };
+    await expect(handler.advance(quote)).resolves.toEqual({ done: true });
+    expect(credits.releaseReservedQuote).toHaveBeenCalledWith('q1', 'WORKER_RECOVERED_BEFORE_PROVIDER_SUBMIT');
+    credits.releaseReservedQuote.mockClear();
+    invocation.findUnique.mockResolvedValue({ status: 'SUBMITTING', providerTaskId: null });
+    await expect(handler.advance(quote)).resolves.toEqual({ done: false, retryAfterMs: 300_000 });
+    expect(credits.releaseReservedQuote).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+  it('rejects a task history cursor outside the merchant scope', async () => {
+    const { service, prisma } = build();
+    await expect(service.listTasks('company-1', 'product-1', { cursor: 'other-quote' })).rejects.toThrow('分页记录不存在');
+    expect(prisma.visualCreditQuote.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      id: 'other-quote', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
+      externalObjectId: 'product-1', billingAccount: { billingOwnerType: 'COMPANY', billingOwnerId: 'company-1' },
+    }) }));
+    expect(prisma.visualCreditQuote.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns a released preflight task as terminal and paginates same-date rows by id', async () => {
+    const { service, prisma } = build();
+    const createdAt = new Date('2026-09-04T00:00:00Z');
+    prisma.visualCreditQuote.findFirst.mockResolvedValue({ id: 'quote-z', createdAt });
+    const row = { id: 'quote-b', sourceAssetRef: 'asset-1', status: 'RELEASED', creditCost: 10, candidateCount: 1,
+      confirmedAt: createdAt, createdAt, settledAt: null, visualAgentInvocation: null,
+      rateCardSnapshot: { displayName: '旧价格方案' }, visualPlanSnapshot: { direction: 'CATALOG_STUDIO' } };
+    prisma.visualCreditQuote.findMany.mockResolvedValue([row, { ...row, id: 'quote-a' }]);
+    Object.assign(prisma.productImageOptimization, { findMany: jest.fn().mockResolvedValue([]) });
+    const result = await service.listTasks('company-1', 'product-1', { cursor: 'quote-z', limit: 1 });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ quoteId: 'quote-b', executionStatus: 'RELEASED', billingStatus: 'RELEASED' });
+    expect(result.nextCursor).toBe('quote-b');
+    expect(prisma.visualCreditQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      take: 2, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      where: expect.objectContaining({ OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: 'quote-z' } }] }),
+    }));
+  });
+
+  it('bounds history reads and rejects a product owned by another merchant before reading tasks', async () => {
+    const { service, prisma } = build();
+    await service.listTasks('company-1', 'product-1', { limit: 999 });
+    expect(prisma.visualCreditQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 51 }));
+    prisma.product.findFirst.mockResolvedValue(null);
+    prisma.visualCreditQuote.findMany.mockClear();
+    await expect(service.listTasks('other-company', 'product-1')).rejects.toThrow('商品不存在');
+    expect(prisma.visualCreditQuote.findMany).not.toHaveBeenCalled();
+  });
   const input = {
     companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
     planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,

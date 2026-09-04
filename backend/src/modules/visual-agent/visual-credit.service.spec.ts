@@ -1,5 +1,5 @@
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
-import { VisualCreditQuoteStatus, VisualRateCardStatus } from '@prisma/client';
+import { Prisma, VisualCreditQuoteStatus, VisualRateCardStatus } from '@prisma/client';
 import { VisualCreditService } from './visual-credit.service';
 
 const principal = {
@@ -51,6 +51,7 @@ function quote(overrides: Record<string, unknown> = {}) {
 
 function build() {
   const tx = {
+    visualTaskExecution: { upsert: jest.fn().mockResolvedValue({ quoteId: 'quote-1' }) },
     $executeRaw: jest.fn(),
     visualCreditWelcomePolicy: { findUnique: jest.fn().mockResolvedValue({
       id: 'welcome-1', enabled: true, grantCredits: 200, creditValueCents: 2000,
@@ -81,7 +82,7 @@ function build() {
     },
   };
   const prisma = {
-    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    $transaction: jest.fn(async (work: (client: typeof tx) => unknown) => work(tx)),
     visualCreditWelcomePolicy: { upsert: jest.fn().mockResolvedValue({ id: 'welcome-1' }) },
     visualRateCard: { upsert: jest.fn() },
     visualCreditAccount: { findUnique: jest.fn() },
@@ -92,6 +93,24 @@ function build() {
 }
 
 describe('VisualCreditService', () => {
+  it('retries a confirmed serialization abort using the same quote', async () => {
+    const { service, prisma, tx } = build();
+    prisma.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('serialization abort', { code: 'P2034', clientVersion: 'test' }));
+    await service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.visualTaskExecution.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds serialization retries and does not retry an unknown transport failure', async () => {
+    const { service, prisma } = build();
+    const input = { principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) };
+    prisma.$transaction.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('serialization abort', { code: 'P2034', clientVersion: 'test' }));
+    await expect(service.confirmAndReserve(input)).rejects.toMatchObject({ response: { code: 'VISUAL_CREDIT_BUSY', message: expect.stringContaining('稍后重试') } });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+    prisma.$transaction.mockClear().mockRejectedValue({ code: 'P1001' });
+    await expect(service.confirmAndReserve(input)).rejects.toMatchObject({ code: 'P1001' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
   it('grants the configured 200 welcome credits once and records a separate non-cash ledger', async () => {
     const { service, tx } = build();
     tx.visualCreditAccount.update.mockResolvedValue(account({ availableCredits: 400, version: 1 }));
@@ -285,6 +304,7 @@ describe('VisualCreditService', () => {
     const result = await service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) });
 
     expect(result).toMatchObject({ quote: { status: VisualCreditQuoteStatus.RESERVED }, account: { availableCredits: 185, reservedCredits: 15 }, ledger: { type: 'RESERVE' } });
+    expect(tx.visualTaskExecution.upsert).toHaveBeenCalledWith({ where: { quoteId: 'quote-1' }, create: { quoteId: 'quote-1' }, update: {} });
     expect(tx.visualCreditAccount.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ availableCredits: 185, reservedCredits: 15 }),
     }));
@@ -297,6 +317,24 @@ describe('VisualCreditService', () => {
     await expect(service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) }))
       .rejects.toThrow('图片积分不足');
     expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('reconfirms an existing reservation by ensuring durable work without another credit movement', async () => {
+    const { service, tx } = build();
+    tx.visualCreditQuote.findFirst.mockResolvedValue(quote({ status: 'RESERVED' }));
+    await service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) });
+    expect(tx.visualTaskExecution.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+    expect(tx.visualCreditLedger.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['ISSUED', 'EXPIRED'])('returns structured expiry for %s without freezing credits', async (status) => {
+    const { service, tx } = build();
+    tx.visualCreditQuote.findFirst.mockResolvedValue(quote({ status, expiresAt: new Date(Date.now() - 1) }));
+    await expect(service.confirmAndReserve({ principal, ...owner, externalObjectId: 'product-1', actorId: 'staff-1', quoteId: 'quote-1', quoteHash: 'c'.repeat(64) }))
+      .rejects.toMatchObject({ response: { code: 'QUOTE_EXPIRED' } });
+    expect(tx.visualCreditAccount.update).not.toHaveBeenCalled();
+    expect(tx.visualTaskExecution.upsert).not.toHaveBeenCalled();
   });
 
   it('requires the merchant-confirmed quote hash before freezing credits', async () => {
