@@ -11,7 +11,6 @@ import {
   getVisualCreditAccount,
   getVisualCreditLedger,
   getVisualWelcomePolicy,
-  grantProductVisualTestAccess,
   grantVisualWelcomeCredits,
   listVisualBudgetPolicies,
   listVisualReconciliations,
@@ -22,7 +21,6 @@ import {
   saveVisualRateCard,
   saveVisualWelcomePolicy,
   type PaidVisualCandidateQueueItem,
-  type ProductVisualTestAccessInput,
   type VisualBudgetPolicy,
   type VisualReconciliation,
   type VisualRateCard,
@@ -79,11 +77,6 @@ const creditLedgerTypeLabels: Record<string, string> = {
 
 type Scope = typeof DEFAULT_SCOPE;
 
-function localDateTimeInputValue(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function canonicalBudgetScopeKey(values: { scope?: VisualBudgetPolicy['scope']; route?: string; targetId?: string }, scope: Scope) {
   const part = (value: string) => `${value.length}:${value}`;
   const provider = String(values.route || '').split('|')[0];
@@ -127,7 +120,6 @@ export default function VisualAgentPage() {
   const [budgetForm] = Form.useForm();
   const [reconciliationForm] = Form.useForm();
   const [accountForm] = Form.useForm<{ ownerType: string; ownerId: string }>();
-  const [testAccessForm] = Form.useForm<ProductVisualTestAccessInput>();
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [selectedReconciliation, setSelectedReconciliation] = useState<VisualReconciliation>();
@@ -183,27 +175,6 @@ export default function VisualAgentPage() {
     mutationFn: (values: { enabled: boolean; grantCredits: number; creditValueCents: number; policyVersion: string }) => saveVisualWelcomePolicy(scope.tenantId, values),
     onSuccess: async () => { message.success('欢迎图片积分策略已保存；不会自动向商家发放图片积分'); await refreshConfiguration(); },
     onError: (error) => message.error(error instanceof Error ? error.message : '欢迎图片积分策略保存失败'),
-  });
-  const grantTestAccess = useMutation({
-    mutationFn: (values: ProductVisualTestAccessInput) => grantProductVisualTestAccess({
-      ...values,
-      expiresAt: new Date(values.expiresAt).toISOString(),
-    }),
-    onSuccess: async (result) => {
-      if (result.providerReady) {
-        message.success(`已为指定测试商品开通；商家当前可用 ${result.account.availableCredits} 图片积分`);
-      } else {
-        message.warning('测试权限和图片积分已配置，但真实模型运行开关尚未开启');
-      }
-      setAccountScope({ ownerType: 'COMPANY', ownerId: result.companyId });
-      accountForm.setFieldsValue({ ownerType: 'COMPANY', ownerId: result.companyId });
-      await Promise.all([
-        refreshConfiguration(),
-        queryClient.invalidateQueries({ queryKey: ['visual-agent', 'budget-policies'] }),
-        refreshAccount(),
-      ]);
-    },
-    onError: (error) => message.error(error instanceof Error ? error.message : '测试商家开通失败'),
   });
   const saveRateCard = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
@@ -288,15 +259,6 @@ export default function VisualAgentPage() {
       policyVersion: policy.data?.policyVersion ?? 'WELCOME_200_V1',
     });
   }, [policy.data, policyForm]);
-  useEffect(() => {
-    testAccessForm.setFieldsValue({
-      visualMode: 'MARKETING_SCENE',
-      dailyCallLimit: 2,
-      weeklyCallLimit: 5,
-      expiresAt: localDateTimeInputValue(new Date(Date.now() + 7 * 24 * 60 * 60_000)),
-      grantWelcomeCredits: true,
-    });
-  }, [testAccessForm]);
   const openRateCard = (card?: VisualRateCard) => {
     rateCardForm.setFieldsValue(card ? {
       ...card,
@@ -375,13 +337,27 @@ export default function VisualAgentPage() {
       </div>
       <Alert showIcon type="warning" icon={<SafetyCertificateOutlined />} message="配置不等于开通" description="费率卡只控制面向商家的报价；真实百炼模型、图片积分发放、数据库迁移和任何扣费调用仍需独立发布授权与运行时开关。" style={{ marginBottom: 16 }} />
       {(policy.isError || rateCards.isError) && <Alert showIcon type="error" message="商品图片智能美化配置加载失败" description="当前页面不能确认真实策略或费率卡，请重新加载后再操作。" action={<Button size="small" onClick={() => { void policy.refetch(); void rateCards.refetch(); }}>重新加载配置</Button>} style={{ marginBottom: 16 }} />}
-      {isStaging && testAccessStatus.data && <Alert
+      {isStaging && testAccessStatus.isError && <Alert
+        showIcon
+        type="error"
+        message="图片积分使用状态读取失败"
+        description="当前无法确认商家是否能调用模型，请重新加载后再判断。"
+        action={<Button size="small" onClick={() => void testAccessStatus.refetch()}>重新加载状态</Button>}
+        style={{ marginBottom: 16 }}
+      />}
+      {isStaging && !testAccessStatus.isError && testAccessStatus.data && <Alert
         showIcon
         type={testAccessStatus.data.allMerchantsEnabled && testAccessStatus.data.providerReady ? 'success' : 'warning'}
-        message={testAccessStatus.data.allMerchantsEnabled ? '所有测试商家已默认开放' : '测试商家仍需逐个开通'}
-        description={testAccessStatus.data.allMerchantsEnabled
-          ? `ACTIVE 商家的 OWNER/MANAGER 可直接为自有商品查看付费方案；不限制每日、每周或平台共享调用预算。每次仍需商家确认 ${testAccessStatus.data.creditCost} 图片积分。`
-          : '可使用下方表单为指定商家、人员和商品开通测试权限。'}
+        message={testAccessStatus.data.allMerchantsEnabled && testAccessStatus.data.providerReady
+          ? '有图片积分即可使用'
+          : testAccessStatus.data.allMerchantsEnabled
+            ? '无需单独授权，但模型服务尚未就绪'
+            : '测试模型服务暂未开放'}
+        description={testAccessStatus.data.allMerchantsEnabled && testAccessStatus.data.providerReady
+          ? `所有 ACTIVE 商家的 OWNER/MANAGER 无需单独授权；拥有图片积分即可为自有商品使用模型，每次仍需确认 ${testAccessStatus.data.creditCost} 图片积分。`
+          : testAccessStatus.data.allMerchantsEnabled
+            ? '商家权限已统一开放，但模型、费率或平台成本保护尚未全部就绪；图片积分不是唯一门槛。'
+            : '请先完成模型、费率和平台总成本保护配置；不需要逐个设置商家权限。'}
         style={{ marginBottom: 16 }}
       />}
 
@@ -393,45 +369,6 @@ export default function VisualAgentPage() {
           <Form.Item><Button htmlType="submit">切换范围</Button></Form.Item>
         </Form>
       </Card>
-
-      {isStaging && <Card
-        title="开通指定测试商家"
-        extra={<Tag color="orange">只授权指定商家、人员和商品</Tag>}
-        style={{ marginBottom: 16, borderColor: '#f0c36b' }}
-      >
-        <Alert
-          type="info"
-          showIcon
-          message="开通后仍由商家确认图片积分才会调用模型"
-          description="系统会为所选商品和操作人员创建精确预算权限，并按欢迎策略幂等发放图片积分；不会把权限开放给其他商家。"
-          style={{ marginBottom: 14 }}
-        />
-        <Form<ProductVisualTestAccessInput>
-          form={testAccessForm}
-          layout="vertical"
-          initialValues={{
-            visualMode: 'MARKETING_SCENE',
-            dailyCallLimit: 2,
-            weeklyCallLimit: 5,
-            grantWelcomeCredits: true,
-          }}
-          onFinish={(values) => grantTestAccess.mutate(values)}
-        >
-          <Row gutter={12}>
-            <Col xs={24} md={8}><Form.Item name="companyId" label="测试商家编号" rules={[{ required: true, message: '请输入商家编号' }]}><Input placeholder="Company ID" /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="staffId" label="测试操作人员编号" rules={[{ required: true, message: '请输入操作人员编号' }]}><Input placeholder="CompanyStaff ID" /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="productId" label="测试商品编号" rules={[{ required: true, message: '请输入商品编号' }]}><Input placeholder="Product ID" /></Form.Item></Col>
-            <Col xs={24} md={6}><Form.Item name="visualMode" label="允许的美化方向" rules={[{ required: true }]}><Select options={directionOptions} /></Form.Item></Col>
-            <Col xs={24} md={5}><Form.Item name="dailyCallLimit" label="该商品每日最多调用" rules={[{ required: true }]}><InputNumber min={1} max={10} precision={0} style={{ width: '100%' }} addonAfter="次" /></Form.Item></Col>
-            <Col xs={24} md={5}><Form.Item name="weeklyCallLimit" label="该商品每周最多调用" rules={[{ required: true }]}><InputNumber min={1} max={50} precision={0} style={{ width: '100%' }} addonAfter="次" /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="expiresAt" label="测试权限到期时间" rules={[{ required: true }]}><Input type="datetime-local" /></Form.Item></Col>
-          </Row>
-          <Space wrap>
-            <Form.Item name="grantWelcomeCredits" valuePropName="checked" noStyle><Checkbox>按欢迎策略发放图片积分</Checkbox></Form.Item>
-            <Button type="primary" htmlType="submit" loading={grantTestAccess.isPending}>开通这个测试商品</Button>
-          </Space>
-        </Form>
-      </Card>}
 
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} xl={10}>
