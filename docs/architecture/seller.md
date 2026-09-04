@@ -13,6 +13,7 @@
 - 切历史任务时使旧分析响应失效；恢复的所有读取完成后统一提交状态，父表单更新不打断 ISSUED 报价恢复。
 - 真实 Chromium 挂载既有 React/AntD 图片组件、受控拦截网络的两个用例组通过：跨图延迟响应、恢复期间父表单更新、免费失败重试、过期更新、确认丢响应、关窗查询、暂不采用、历史读取失败重试。17 项专项契约/辅助行为测试及 TypeScript 通过。
 - 可复现：在 seller 目录设置 `PLAYWRIGHT_MODULE_PATH` 指向已安装的 `playwright/index.mjs` 后运行 `node --test test/productVisualMount.test.mjs`。未提供浏览器依赖时明确跳过，不算浏览器测试通过。网络受控测试不替代真实后端/模型验收；本次没有宣称逐一验证全部商品管理按钮。
+- 完整图片浏览器回归使用 `npm run test:visual-browser`：四组已实跑通过。测试按文件串行，避免Vite共享依赖缓存互相覆盖；带loading图标的按钮按完整中文标签末尾定位，仍保留可点击等待、请求次数、幂等、失败重试和真实下载字节断言。
 
 > **权威来源**：卖家后台前端页面设计、隐私保护策略、安全架构、API 改造计划
 > **关联文档**：`sales.md`（原卖家系统数据模型与 API 设计）、`data-system.md`（Schema 权威来源）、`security-audit.md`（全面安全审计）

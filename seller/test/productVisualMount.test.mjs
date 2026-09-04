@@ -44,7 +44,7 @@ test('real mounted image flow isolates historical task and completes ISSUED reco
     await page.getByText('B已生成任务').waitFor();
     // Dispatch the actual underlying React button while history is open to model
     // an already-queued image action; history switching must invalidate its response.
-    await page.getByRole('button', { name: '查看美化建议：原图A.png', exact: true }).evaluate((button) => button.click());
+    await page.getByRole('button', { name: /查看美化建议：原图A\.png$/ }).evaluate((button) => button.click());
     await started.promise;
     await page.getByRole('button', { name: '查看任务', exact: true }).click();
     await page.locator('img[src="/candidate-B.png"]').waitFor();
@@ -113,7 +113,7 @@ test('real mounted free, quote expiry, lost confirmation, close, defer and histo
   try {
     const port = server.httpServer.address().port;
     await page.goto(`http://127.0.0.1:${port}/test/visual-flow-mount.html`);
-    await page.getByRole('button', { name: '查看美化建议：原图A.png', exact: true }).click();
+    await page.getByRole('button', { name: /查看美化建议：原图A\.png$/ }).click();
     // AntD's exiting loading icon remains in the accessible name briefly;
     // match the stable Chinese label while retaining Playwright actionability.
     const freeButton = page.getByRole('button', { name: /生成免费实景优化候选/ });
@@ -130,16 +130,16 @@ test('real mounted free, quote expiry, lost confirmation, close, defer and histo
     assert.equal(freeRequests, 2);
     assert.equal(confirmRequests, 0);
 
-    await page.getByRole('button', { name: '查看美化建议：原图A.png', exact: true }).click();
-    await page.getByRole('button', { name: '查看可用方案与图片积分', exact: true }).click();
-    await page.getByRole('button', { name: '获取本方案报价', exact: true }).click();
+    await page.getByRole('button', { name: /查看美化建议：原图A\.png$/ }).click();
+    await page.getByRole('button', { name: /查看可用方案与图片积分$/ }).click();
+    await page.getByRole('button', { name: /获取本方案报价$/ }).click();
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: '更新报价', exact: true }).waitFor();
     assert.equal(await page.getByRole('checkbox').isChecked(), false);
     assert.equal(confirmRequests, 0);
     await page.getByRole('button', { name: '更新报价', exact: true }).click();
-    await page.getByRole('button', { name: '查看可用方案与图片积分', exact: true }).click();
-    await page.getByRole('button', { name: '获取本方案报价', exact: true }).click();
+    await page.getByRole('button', { name: /查看可用方案与图片积分$/ }).click();
+    await page.getByRole('button', { name: /获取本方案报价$/ }).click();
     assert.equal(await page.getByRole('checkbox').isChecked(), false);
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: '确认图片积分并生成候选', exact: true }).click();
@@ -155,7 +155,7 @@ test('real mounted free, quote expiry, lost confirmation, close, defer and histo
     await page.locator('img[src="/output-A.png"]').waitFor();
     await page.getByRole('button', { name: '暂不采用，选择其他方案', exact: true }).click();
     assert.equal(await page.evaluate(() => localStorage.getItem('ai-visual-agent:active-quote:product-1')), null);
-    await page.getByRole('button', { name: '查看美化建议：原图A.png', exact: true }).click();
+    await page.getByRole('button', { name: /查看美化建议：原图A\.png$/ }).click();
     await page.getByRole('dialog', { name: '智能图片美化建议', exact: true }).waitFor();
     assert.equal(confirmRequests, 1);
     await page.getByRole('button', { name: '返回图片', exact: true }).click();

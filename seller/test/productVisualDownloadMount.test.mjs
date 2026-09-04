@@ -184,13 +184,12 @@ test('real Chromium restores a SUCCEEDED marketing candidate and retries its att
     assert.equal(await dialog.getByRole('button', { name: '确认采用候选', exact: true }).count(), 0);
     assert.equal(await dialog.getByRole('button', { name: '下载图片', exact: true }).count(), 1);
 
-    await dialog.getByRole('button', { name: '下载图片', exact: true }).click();
+    const downloadButton = dialog.getByRole('button', { name: /下载图片$/ });
+    await downloadButton.click();
     await page.getByText('图片下载失败，请稍后重试；不会再次扣除图片积分。', { exact: true }).waitFor();
     assert.equal(downloadRequests, 1);
 
-    const downloadPromise = page.waitForEvent('download');
-    await dialog.getByRole('button', { name: '下载图片', exact: true }).click();
-    const download = await downloadPromise;
+    const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
     assert.equal(download.suggestedFilename(), '商品美化图片.png');
     const downloadPath = await download.path();
     assert.ok(downloadPath);
