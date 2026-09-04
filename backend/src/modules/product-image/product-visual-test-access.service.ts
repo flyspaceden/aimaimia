@@ -46,7 +46,8 @@ export class ProductVisualTestAccessService {
     return {
       stagingAccessEnabled,
       allMerchantsEnabled: stagingAccessEnabled && this.isAllMerchantMode(),
-      providerReady: this.execution.isModelProfileAvailable(MODEL_PROFILE),
+      providerReady: ['BAILIAN_WAN_STANDARD', 'BAILIAN_WAN_PRO', 'BAILIAN_QWEN_IMAGE', 'BAILIAN_QWEN_IMAGE_PRO']
+        .some((profile) => this.execution.isModelProfileAvailable(profile)),
       model: MODEL,
       creditCost: CREDIT_COST,
       merchantConfirmationRequired: true,

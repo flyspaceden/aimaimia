@@ -45,6 +45,17 @@ function build(overrides: { staff?: unknown; product?: unknown } = {}) {
 
 const structureBudgetInput = { companyId: 'company-1', productId: 'product-1', staffId: 'staff-1' };
 
+it('reports an available Qwen-only setup without requiring the default Wan profile', () => {
+  const { prisma, invocations, credits } = build();
+  const execution = { isModelProfileAvailable: jest.fn((profile: string) => profile === 'BAILIAN_QWEN_IMAGE_PRO') };
+  const service = new ProductVisualTestAccessService(prisma as any, invocations as any, credits as any,
+    { get: (_key: string, fallback?: string) => fallback } as any, execution as any);
+  expect(service.status().providerReady).toBe(true);
+  execution.isModelProfileAvailable.mockImplementation(() => false);
+  expect(service.status().providerReady).toBe(false);
+  expect(prisma.$transaction).not.toHaveBeenCalled();
+});
+
 function buildStructure(overrides: {
   publicApiBaseUrl?: string;
   testAccessEnabled?: string;
