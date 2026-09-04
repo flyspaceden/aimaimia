@@ -130,20 +130,91 @@ export class ProductVisualTestAccessService {
       throw new NotFoundException('测试商家、操作人员或商品不存在，或不属于同一商家');
     }
 
+    const automaticRateCode = this.rateCode(input.visualMode, input.automaticAllMerchants === true);
+    const expectedDisplayName = input.visualMode === ProductVisualMode.MARKETING_SCENE
+      ? 'Pro 营销场景图（测试）'
+      : 'Pro 商品图片精修（测试）';
+    const expectedDescription = input.visualMode === ProductVisualMode.MARKETING_SCENE
+      ? '按受控模板重新布置营销展示场景；仅供私密预览，不能替换商品事实主图。'
+      : '使用百炼万相专业模型改善光线、构图和背景，同时执行商品事实保护检查。';
+    const expectedRiskProfiles = this.allowedRiskProfiles(input.visualMode);
+    const expectedCandidateRole = input.visualMode === ProductVisualMode.MARKETING_SCENE
+      ? 'MARKETING_IMAGE'
+      : 'FACT_MAIN_IMAGE';
+    if (input.automaticAllMerchants && input.unlimited) {
+      const [existingCards, existingAccount] = await Promise.all([
+        this.credits.listRateCards({
+          tenantId: AIMAI_VISUAL_TENANT_ID,
+          clientId: AIMAI_VISUAL_CLIENT_ID,
+          adapterNamespace: ADAPTER_NAMESPACE,
+        }),
+        this.credits.getAccount({
+          tenantId: AIMAI_VISUAL_TENANT_ID,
+          billingOwnerType: 'COMPANY',
+          billingOwnerId: input.companyId,
+        }),
+      ]);
+      const existingRateCard = existingCards.find((card) => card.code === automaticRateCode
+        && card.status === VisualRateCardStatus.ACTIVE
+        && card.modelProfile === MODEL_PROFILE
+        && card.displayName === expectedDisplayName
+        && card.description === expectedDescription
+        && card.creditCost === CREDIT_COST
+        && card.candidateCount === 1
+        && card.version === 'staging-test-access-v1'
+        && card.requiresHumanReview === true
+        && card.candidateRole === expectedCandidateRole
+        && (card.outputSpec as { providerManaged?: unknown } | null)?.providerManaged === true
+        && card.effectiveFrom <= now
+        && card.effectiveUntil === null
+        && this.sameValues(card.allowedDirections, [input.visualMode])
+        && this.sameValues(card.allowedRiskProfiles, expectedRiskProfiles));
+      if (existingRateCard && existingAccount.exists && await this.invocations.hasActiveBudgetCoverage({
+        tenantId: AIMAI_VISUAL_TENANT_ID,
+        ownerClientId: AIMAI_VISUAL_CLIENT_ID,
+        adapterNamespace: ADAPTER_NAMESPACE,
+        externalObjectId: input.productId,
+        actorId: input.staffId,
+        provider: PROVIDER,
+        model: MODEL,
+        visualMode: input.visualMode,
+        expectedPolicyVersions: {
+          EXTERNAL_OBJECT: this.ratePolicyVersion(automaticRateCode),
+          ACTOR: this.ratePolicyVersion(automaticRateCode),
+        },
+      })) {
+        return {
+          companyId: input.companyId,
+          staffId: input.staffId,
+          productId: input.productId,
+          visualMode: input.visualMode,
+          provider: PROVIDER,
+          model: MODEL,
+          reserveCents: RESERVE_CENTS,
+          dailyCallLimit: EFFECTIVELY_UNLIMITED_BUDGET_CENTS / RESERVE_CENTS,
+          weeklyCallLimit: EFFECTIVELY_UNLIMITED_BUDGET_CENTS / RESERVE_CENTS,
+          expiresAt: null,
+          rateCard: { code: existingRateCard.code, creditCost: existingRateCard.creditCost },
+          providerReady: this.execution.isModelProfileAvailable(MODEL_PROFILE),
+          unlimited: true,
+          automaticAllMerchants: true,
+          account: existingAccount,
+        };
+      }
+    }
+
     const rateCard = await this.credits.upsertRateCard({
       tenantId: AIMAI_VISUAL_TENANT_ID,
       clientId: AIMAI_VISUAL_CLIENT_ID,
       adapterNamespace: ADAPTER_NAMESPACE,
-      code: this.rateCode(input.visualMode, input.automaticAllMerchants === true),
-      displayName: input.visualMode === ProductVisualMode.MARKETING_SCENE ? 'Pro 营销场景图（测试）' : 'Pro 商品图片精修（测试）',
-      description: input.visualMode === ProductVisualMode.MARKETING_SCENE
-        ? '按受控模板重新布置营销展示场景；仅供私密预览，不能替换商品事实主图。'
-        : '使用百炼万相专业模型改善光线、构图和背景，同时执行商品事实保护检查。',
+      code: automaticRateCode,
+      displayName: expectedDisplayName,
+      description: expectedDescription,
       modelProfile: MODEL_PROFILE,
       outputSpec: { providerManaged: true },
       allowedDirections: [input.visualMode],
-      allowedRiskProfiles: this.allowedRiskProfiles(input.visualMode),
-      candidateRole: input.visualMode === ProductVisualMode.MARKETING_SCENE ? 'MARKETING_IMAGE' : 'FACT_MAIN_IMAGE',
+      allowedRiskProfiles: expectedRiskProfiles,
+      candidateRole: expectedCandidateRole,
       requiresHumanReview: true,
       candidateCount: 1,
       creditCost: CREDIT_COST,
@@ -165,9 +236,11 @@ export class ProductVisualTestAccessService {
     const requestedWeeklyCapCents = input.unlimited ? EFFECTIVELY_UNLIMITED_BUDGET_CENTS : input.weeklyCallLimit * RESERVE_CENTS;
     const objectDailyCapCents = Math.max(existingObjectPolicy?.dailyCapCents ?? 0, requestedDailyCapCents);
     const objectWeeklyCapCents = Math.max(existingObjectPolicy?.weeklyCapCents ?? 0, requestedWeeklyCapCents);
-    const objectEffectiveUntil = existingObjectPolicy?.effectiveUntil && existingObjectPolicy.effectiveUntil > input.expiresAt
-      ? existingObjectPolicy.effectiveUntil
-      : input.expiresAt;
+    const objectEffectiveUntil = input.automaticAllMerchants
+      ? null
+      : existingObjectPolicy?.effectiveUntil && existingObjectPolicy.effectiveUntil > input.expiresAt
+        ? existingObjectPolicy.effectiveUntil
+        : input.expiresAt;
     for (const scope of [
       VisualAgentBudgetScope.PLATFORM,
       VisualAgentBudgetScope.PROVIDER,
@@ -265,6 +338,13 @@ export class ProductVisualTestAccessService {
       ProductVisualRiskProfile.ORGANIC_FACTS,
       ProductVisualRiskProfile.STANDARD_FACTS,
     ];
+  }
+
+  private sameValues<T extends string>(left: T[], right: T[]) {
+    if (left.length !== right.length) return false;
+    const sortedLeft = [...left].sort();
+    const sortedRight = [...right].sort();
+    return sortedLeft.every((value, index) => value === sortedRight[index]);
   }
 
   private scopeKeys(input: { productId: string; staffId: string }) {

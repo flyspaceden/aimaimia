@@ -224,41 +224,52 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(credits.listRateCards).toHaveBeenCalledWith({ tenantId: 'aimai-product-agent', clientId: AIMAI_VISUAL_CLIENT_ID, adapterNamespace: 'aimai-product' });
   });
 
-  it('hides a global rate card until the exact test company, product and staff budgets are authorized', async () => {
+  it('returns an explicit service error when exact budget coverage is unavailable', async () => {
     const { service, invocations } = build();
     invocations.hasActiveBudgetCoverage.mockResolvedValue(false);
 
     await expect(service.listEligibleRateCards({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
       planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
-    })).resolves.toEqual([]);
+    })).rejects.toThrow('当前没有可用的图片美化方案');
     expect(invocations.hasActiveBudgetCoverage).toHaveBeenCalledWith(expect.objectContaining({
       externalObjectId: 'product-1', actorId: 'staff-1', provider: 'BAILIAN_WAN', model: 'wan2.7-image',
     }));
   });
 
-  it('hides an authorized rate card while its real Provider route is paused', async () => {
+  it('returns an explicit service error while its real Provider route is paused', async () => {
     const { service, execution } = build();
     execution.isModelProfileAvailable.mockReturnValue(false);
 
     await expect(service.listEligibleRateCards({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
       planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
-    })).resolves.toEqual([]);
+    })).rejects.toThrow('当前没有可用的图片美化方案');
   });
 
-  it('auto-provisions exact access for every active staging merchant before listing its plans', async () => {
+  it('auto-provisions internal budgets for every active staging merchant while listing plans', async () => {
     const { service, testAccess } = build();
     testAccess.isAllMerchantMode.mockReturnValue(true);
     testAccess.ensureDefaultAccess.mockResolvedValue({ unlimited: true });
 
-    await service.ensureDefaultTestAccess({
+    await expect(service.listEligibleRateCards({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
       planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
-    });
+    })).resolves.toHaveLength(1);
     expect(testAccess.ensureDefaultAccess).toHaveBeenCalledWith({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', visualMode: ProductVisualMode.PRESERVE_REAL_SCENE,
     });
+  });
+
+  it('does not provision internal budgets for an invalid plan or direction', async () => {
+    const { service, testAccess } = build();
+    testAccess.isAllMerchantMode.mockReturnValue(true);
+
+    await expect(service.listEligibleRateCards({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
+      planId: 'plan-1', direction: ProductVisualMode.MARKETING_SCENE,
+    })).rejects.toThrow('当前图片计划不允许');
+    expect(testAccess.ensureDefaultAccess).not.toHaveBeenCalled();
   });
 
   it('hides automatic-all-merchant cards immediately after the global test switch is disabled', async () => {
@@ -274,7 +285,7 @@ describe('AimaiProductVisualAdapterService', () => {
     await expect(service.listEligibleRateCards({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'asset-1',
       planId: 'plan-1', direction: ProductVisualMode.PRESERVE_REAL_SCENE,
-    })).resolves.toEqual([]);
+    })).rejects.toThrow('当前没有可用的图片美化方案');
     expect(invocations.hasActiveBudgetCoverage).not.toHaveBeenCalled();
   });
 

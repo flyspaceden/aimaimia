@@ -56,7 +56,6 @@ import {
   getProductVisualQuote,
   getProductImageFactScan,
   getProductVisualCreditAccount,
-  ensureProductVisualTestAccess,
   issueProductVisualQuote,
   listProductVisualRateCards,
   pollProductVisualQuote,
@@ -1405,8 +1404,6 @@ function ImageUploadSection({
         planId,
         direction: paidDirection(),
       };
-      await ensureProductVisualTestAccess(productId, request);
-      if (visualFlowGenerationRef.current !== flowGeneration) return;
       const [cards] = await Promise.all([
         listProductVisualRateCards(productId, request),
         refreshVisualCreditAccount(),
@@ -1457,8 +1454,6 @@ function ImageUploadSection({
           planId: refreshedPlan.id,
           direction: refreshedDirection,
         };
-        await ensureProductVisualTestAccess(productId, refreshedRequest);
-        if (visualFlowGenerationRef.current !== flowGeneration) return;
         const [refreshedCards] = await Promise.all([
           listProductVisualRateCards(productId, refreshedRequest),
           refreshVisualCreditAccount(),

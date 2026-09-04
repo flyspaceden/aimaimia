@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentSeller } from '../seller/common/decorators/current-seller.decorator';
 import { SellerAudit } from '../seller/common/decorators/seller-audit.decorator';
@@ -21,27 +21,16 @@ export class ProductVisualCommerceController {
     return this.visual.getAccount(companyId);
   }
 
-  @Get(':id/visual-rate-cards')
+  @Post(':id/visual-rate-cards/resolve')
   @SellerRoles('OWNER', 'MANAGER')
+  @SellerAudit({ action: 'RESOLVE_PRODUCT_VISUAL_RATE_CARDS', module: 'product-images', targetType: 'Product', targetIdParam: 'params.id' })
   listRateCards(
     @CurrentSeller('companyId') companyId: string,
     @CurrentSeller('sub') staffId: string,
     @Param('id') productId: string,
-    @Query() query: ListProductVisualRateCardsQueryDto,
+    @Body() query: ListProductVisualRateCardsQueryDto,
   ) {
     return this.visual.listEligibleRateCards({ companyId, staffId, productId, ...query });
-  }
-
-  @Post(':id/visual-test-access')
-  @SellerRoles('OWNER', 'MANAGER')
-  @SellerAudit({ action: 'ENABLE_PRODUCT_VISUAL_TEST_ACCESS', module: 'product-images', targetType: 'Product', targetIdParam: 'params.id' })
-  ensureDefaultTestAccess(
-    @CurrentSeller('companyId') companyId: string,
-    @CurrentSeller('sub') staffId: string,
-    @Param('id') productId: string,
-    @Body() dto: ListProductVisualRateCardsQueryDto,
-  ) {
-    return this.visual.ensureDefaultTestAccess({ companyId, staffId, productId, ...dto });
   }
 
   @Get(':id/visual-quotes/:quoteId')

@@ -25,8 +25,8 @@ test('seller image flow creates a local plan before it exposes a free real-scene
 test('seller API uses product-bound planning, fact scanning, and explicit FREE_TUNE intents', () => {
   assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-enhancements\/plan/);
   assert.match(visualApi, /\/seller\/media-assets\/\$\{sourceAssetId\}\/fact-scan/);
-  assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-test-access/);
-  assert.match(editPage, /await ensureProductVisualTestAccess\(productId, request\)/);
+  assert.doesNotMatch(visualApi, /visual-test-access/);
+  assert.doesNotMatch(editPage, /ensureProductVisualTestAccess/);
   assert.match(optimizationApi, /intent: 'FREE_TUNE'/);
   assert.match(optimizationApi, /planId: string/);
 });
@@ -64,7 +64,7 @@ test('seller paid image flow shows a server quote and requires an explicit credi
 });
 
 test('seller paid visual API remains product-bound and cannot send a free-form provider prompt', () => {
-  assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-rate-cards/);
+  assert.match(visualApi, /client\.post\(`\/seller\/products\/\$\{productId\}\/visual-rate-cards\/resolve`, params\)/);
   assert.match(visualApi, /\/seller\/products\/\$\{productId\}\/visual-quotes/);
   assert.match(visualApi, /quoteHash/);
   assert.doesNotMatch(visualApi, /prompt:/);

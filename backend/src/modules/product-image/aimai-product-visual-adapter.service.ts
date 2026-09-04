@@ -282,6 +282,18 @@ export class AimaiProductVisualAdapterService {
       select: { id: true },
     });
     if (!attached) throw new NotFoundException('商品原图已变化，不能查看图片美化报价');
+    // In all-merchant staging mode this is infrastructure provisioning, not a
+    // merchant permission grant. Run it only after validating the immutable
+    // plan and product ownership; the seller still makes a single request and
+    // "has credits" remains the only merchant-facing gate.
+    if (this.testAccess.isAllMerchantMode()) {
+      await this.testAccess.ensureDefaultAccess({
+        companyId: input.companyId,
+        staffId: input.staffId,
+        productId: input.productId,
+        visualMode: input.direction,
+      });
+    }
     const cards = await this.credits.listRateCards({
       tenantId: principal.tenantId,
       clientId: principal.clientId,
@@ -316,7 +328,7 @@ export class AimaiProductVisualAdapterService {
       });
       return hasBudget ? card : null;
     }));
-    return ready.filter((card): card is NonNullable<typeof card> => !!card).map((card) => ({
+    const eligible = ready.filter((card): card is NonNullable<typeof card> => !!card).map((card) => ({
       code: card.code,
       displayName: card.displayName,
       description: card.description,
@@ -326,37 +338,10 @@ export class AimaiProductVisualAdapterService {
       requiresHumanReview: card.requiresHumanReview,
       candidateRole: card.candidateRole,
     }));
-  }
-
-  async ensureDefaultTestAccess(input: {
-    companyId: string;
-    staffId: string;
-    productId: string;
-    sourceAssetId: string;
-    planId: string;
-    direction: ProductVisualMode;
-  }) {
-    if (!this.testAccess.isAllMerchantMode()) return { enabled: false, created: false };
-    const plan = await this.prisma.productVisualPlan.findFirst({
-      where: {
-        id: input.planId,
-        companyId: input.companyId,
-        productId: input.productId,
-        sourceAssetId: input.sourceAssetId,
-        expiresAt: { gt: new Date() },
-      },
-      select: { allowedModes: true },
-    });
-    if (!plan || !plan.allowedModes.includes(input.direction)) {
-      throw new ConflictException('当前图片计划不允许开通该美化方向');
+    if (eligible.length === 0) {
+      throw new ServiceUnavailableException('当前没有可用的图片美化方案，请稍后重试');
     }
-    const access = await this.testAccess.ensureDefaultAccess({
-      companyId: input.companyId,
-      staffId: input.staffId,
-      productId: input.productId,
-      visualMode: input.direction,
-    });
-    return { enabled: true, created: true, access };
+    return eligible;
   }
 
   async getQuote(companyId: string, productId: string, quoteId: string) {
