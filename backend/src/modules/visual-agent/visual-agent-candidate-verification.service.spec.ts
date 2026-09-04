@@ -1,4 +1,5 @@
 import { VisualAgentCandidateVerificationService } from './visual-agent-candidate-verification.service';
+import { productEan13Fixture } from '../../../test/fixtures/product-ean13';
 const sharp = require('sharp') as typeof import('sharp').default;
 
 async function image(width = 800, height = 1000) {
@@ -18,6 +19,17 @@ function build(enabled = 'false') {
 }
 
 describe('VisualAgentCandidateVerificationService', () => {
+  it('detects real EAN pixels in both source and candidate through the public verification path', async () => {
+    const { service } = build('false');
+    (service as any).scanBarcode.mockRestore();
+    const buffer = await productEan13Fixture();
+    const result = await service.verify({
+      principal: { tenantId: 'tenant-1', clientId: 'client-1', adapterNamespace: 'external', allowedAdapterTypes: [], keyId: 'key-1' },
+      externalObjectId: 'object-1', actorId: 'actor-1', verificationId: 'quote-1',
+      sourceBuffer: buffer, candidateBuffer: buffer, allowAutoPass: false,
+    });
+    expect(result.barcode).toMatchObject({ sourceStatus: 'DETECTED', candidateStatus: 'DETECTED', sourceFormats: ['EAN_13'], candidateFormats: ['EAN_13'] });
+  });
   const input = async () => ({
     principal: { tenantId: 'tenant-1', clientId: 'client-1', adapterNamespace: 'external', allowedAdapterTypes: [], keyId: 'key-1' },
     externalObjectId: 'object-1', actorId: 'actor-1', verificationId: 'quote-1', sourceBuffer: await image(), candidateBuffer: await image(), allowAutoPass: true,

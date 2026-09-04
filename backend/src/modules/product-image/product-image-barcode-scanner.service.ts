@@ -29,9 +29,10 @@ export class ProductImageBarcodeScannerService {
       const { data, info } = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
         .resize({ width: MAX_SCAN_EDGE, height: MAX_SCAN_EDGE, fit: 'inside', withoutEnlargement: true })
         .removeAlpha()
+        .greyscale()
         .raw()
         .toBuffer({ resolveWithObject: true });
-      if (!info.width || !info.height || info.channels !== 3) {
+      if (!info.width || !info.height || info.channels !== 1) {
         return { status: 'INCONCLUSIVE', detectedCount: 0, formats: [] };
       }
       const bitmap = new BinaryBitmap(

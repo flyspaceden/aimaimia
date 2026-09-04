@@ -141,8 +141,8 @@ export class VisualAgentCandidateVerificationService {
   private async scanBarcode(buffer: Buffer): Promise<BarcodeScan> {
     try {
       const { data, info } = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
-        .resize({ width: MAX_SCAN_EDGE, height: MAX_SCAN_EDGE, fit: 'inside', withoutEnlargement: true }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-      if (!info.width || !info.height || info.channels !== 3) return { status: 'INCONCLUSIVE', formats: [] };
+        .resize({ width: MAX_SCAN_EDGE, height: MAX_SCAN_EDGE, fit: 'inside', withoutEnlargement: true }).removeAlpha().greyscale().raw().toBuffer({ resolveWithObject: true });
+      if (!info.width || !info.height || info.channels !== 1) return { status: 'INCONCLUSIVE', formats: [] };
       const bitmap = new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(new Uint8ClampedArray(data), info.width, info.height)));
       const hints = new Map<DecodeHintType, unknown>([[DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93, BarcodeFormat.CODABAR, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.ITF, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E]], [DecodeHintType.TRY_HARDER, true]]);
       try {
