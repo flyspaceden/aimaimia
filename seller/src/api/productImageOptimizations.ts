@@ -45,6 +45,9 @@ export const requestFreeTune = (data: {
 export const getProductImageOptimization = (id: string): Promise<ProductImageOptimizationTask> =>
   client.get(`/seller/product-image-optimizations/${id}`);
 
+export const downloadProductImageCandidate = (id: string): Promise<Blob> =>
+  client.get(`/seller/product-image-optimizations/${encodeURIComponent(id)}/download`, { responseType: 'blob', timeout: 60_000 });
+
 export const adoptProductImageOptimization = (id: string, data: {
   productId: string;
   quantityConfirmed: boolean;

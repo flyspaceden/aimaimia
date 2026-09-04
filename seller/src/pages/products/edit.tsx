@@ -47,6 +47,7 @@ import { readVisualRecovery, visualExecutionNeedsQuery, visualQuoteExpired, conf
 import { uploadProductImageAsset, type UploadedProductImageAsset } from '@/api/mediaAssets';
 import {
   adoptProductImageOptimization,
+  downloadProductImageCandidate,
   getProductImageOptimization,
   requestFreeTune,
   requestWhiteBackground,
@@ -1085,6 +1086,8 @@ function ImageUploadSection({
   const [factScanSubmitting, setFactScanSubmitting] = useState(false);
   const [factScanUnavailableReason, setFactScanUnavailableReason] = useState<string | null>(null);
   const [freeTuneError, setFreeTuneError] = useState<string | null>(null);
+  const [candidateDownloading, setCandidateDownloading] = useState(false);
+  const [candidateDownloadError, setCandidateDownloadError] = useState<{ taskId: string; message: string } | null>(null);
   const [visualCreditAccount, setVisualCreditAccount] = useState<ProductVisualCreditAccount | null>(null);
   const [visualCreditAccountLoading, setVisualCreditAccountLoading] = useState(false);
   const [visualCreditAccountError, setVisualCreditAccountError] = useState<string | null>(null);
@@ -1851,6 +1854,29 @@ function ImageUploadSection({
     message.info('已暂不采用，可以为图片选择其他方案');
   };
 
+  useEffect(() => { setCandidateDownloadError(null); }, [optimizationTask?.id]);
+
+  const downloadCandidate = async () => {
+    if (!optimizationTask || candidateDownloading) return;
+    setCandidateDownloading(true);
+    setCandidateDownloadError(null);
+    try {
+      const blob = await downloadProductImageCandidate(optimizationTask.id);
+      const extension = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as Record<string, string>)[blob.type];
+      if (!extension || !blob.size) throw new Error('INVALID_CANDIDATE_DOWNLOAD');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `商品美化图片.${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setCandidateDownloadError({ taskId: optimizationTask.id, message: '图片下载失败，请稍后重试；不会再次扣除图片积分。' });
+    } finally { setCandidateDownloading(false); }
+  };
+
   return (
     <>
       <Upload
@@ -2216,7 +2242,11 @@ function ImageUploadSection({
             {optimizationTask.status === 'FAILED' && <Alert type="warning" showIcon message={`这张图片暂不能安全${optimizationTask.kind === 'FREE_TUNE' ? '进行实景优化' : '制作白底图'}`} description={optimizationTask.failureDetail || (optimizationTask.kind === 'FREE_TUNE' ? '请保留原图，或重新生成图片美化建议。' : '请上传带透明背景的 PNG/WebP，或等待分割能力开放。')} />}
             {['REJECTED', 'EXPIRED', 'CANCELLED'].includes(optimizationTask.status) && <Alert type="warning" showIcon message="该候选任务不能继续采用" description={optimizationTask.failureDetail || '请返回图片重新获取美化建议。'} />}
             {optimizationTask.status === 'ADOPTED' && <Alert type="success" showIcon message="该候选已经采用" description="商品图片已按当时的商品状态完成更新。" />}
-            {optimizationTask.status === 'SUCCEEDED' && marketingPreviewOnly && <Alert type="warning" showIcon message="这是 AI 营销场景图，只能预览" description="场景、摆放方式和展示数量可能由模型重构，不能作为商品数量、包装规格或事实主图证据。原图始终保留。" style={{ marginBottom: 12 }} />}
+            {optimizationTask.status === 'SUCCEEDED' && marketingPreviewOnly && <Alert type="info" showIcon message="AI 营销场景图" description="可下载用于营销展示，请标注 AI 生成；不能作为商品数量或包装规格的实物证据。" style={{ marginBottom: 12 }} />}
+            {['SUCCEEDED', 'ADOPTED'].includes(optimizationTask.status) && optimizationTask.candidate && <Space direction="vertical" style={{ marginBottom: 12 }}>
+              <Button loading={candidateDownloading} disabled={candidateDownloading} onClick={downloadCandidate}>下载图片</Button>
+              {candidateDownloadError?.taskId === optimizationTask.id && <Alert type="warning" showIcon message={candidateDownloadError.message} />}
+            </Space>}
             {optimizationTask.status === 'SUCCEEDED' && optimizationTask.candidate && (
               <>
                 {currentPaidOptimization && <Button style={{ marginBottom: 12 }} onClick={deferPaidCandidate}>暂不采用，选择其他方案</Button>}

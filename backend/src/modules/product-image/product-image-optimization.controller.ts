@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentSeller } from '../seller/common/decorators/current-seller.decorator';
 import { SellerAudit } from '../seller/common/decorators/seller-audit.decorator';
@@ -7,13 +8,29 @@ import { SellerRoleGuard, SellerRoles } from '../seller/common/guards/seller-rol
 import { SellerAuditInterceptor } from '../seller/common/interceptors/seller-audit.interceptor';
 import { AdoptProductImageOptimizationDto, RequestProductImageOptimizationDto } from './product-image-optimization.dto';
 import { ProductImageOptimizationService } from './product-image-optimization.service';
+import { ProductImageCandidateDownloadService } from './product-image-candidate-download.service';
 
 @Public()
 @UseGuards(SellerAuthGuard, SellerRoleGuard)
 @UseInterceptors(SellerAuditInterceptor)
 @Controller('seller/product-image-optimizations')
 export class ProductImageOptimizationController {
-  constructor(private readonly optimizations: ProductImageOptimizationService) {}
+  constructor(
+    private readonly optimizations: ProductImageOptimizationService,
+    private readonly downloads: ProductImageCandidateDownloadService,
+  ) {}
+
+  @Get(':id/download')
+  @SellerRoles('OWNER', 'MANAGER')
+  async download(@CurrentSeller('companyId') companyId: string, @Param('id') id: string, @Res() res: Response) {
+    const file = await this.downloads.download(companyId, id);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Content-Length', file.buffer.length);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(file.buffer);
+  }
 
   @Post()
   @SellerRoles('OWNER', 'MANAGER')

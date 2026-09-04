@@ -28,11 +28,12 @@ import { ProductImageCandidateLocalVerificationService } from './product-image-c
 import { ProductImageCandidateOcrVerificationService } from './product-image-candidate-ocr-verification.service';
 import { AdminProductVisualTestAccessController } from './admin-product-visual-test-access.controller';
 import { ProductVisualTestAccessService } from './product-visual-test-access.service';
+import { ProductImageCandidateDownloadService } from './product-image-candidate-download.service';
 
 @Module({
   imports: [UploadModule, VisualAgentModule, NotificationModule],
   controllers: [SellerMediaAssetsController, ProductMediaRevisionsController, AdminProductMediaRevisionsController, ProductImageOptimizationController, ProductVisualPlanningController, ProductImageFactScanController, AdminVisualAgentClientController, AdminVisualCreditController, ProductVisualCommerceController, AdminProductPaidVisualCandidatesController, AdminProductVisualTestAccessController],
-  providers: [ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, ProductImageCandidateLocalVerificationService, ProductImageCandidateOcrVerificationService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService, ProductPaidVisualCandidateService, ProductVisualTestAccessService],
+  providers: [ProductImageCandidateDownloadService, ProductImageQualityService, SellerMediaAssetsService, ProductMediaRevisionsService, ProductImageCompositionService, ProductImageOptimizationService, ProductImageBudgetService, ProductVisualPlanningService, ProductImageFactScanService, ProductImageBarcodeScannerService, ProductImageCandidateLocalVerificationService, ProductImageCandidateOcrVerificationService, DisabledProductImageBackgroundProvider, AimaiProductVisualAdapterService, ProductPaidVisualCandidateService, ProductVisualTestAccessService],
   exports: [ProductImageQualityService, SellerMediaAssetsService, ProductImageCompositionService],
 })
 export class ProductImageModule {}
