@@ -56,6 +56,7 @@ export class ProductMediaRevisionsService {
           visualOrigin: previous.visualOrigin,
           optimizationId: previous.optimizationId ?? null,
           isEvidenceImage: previous.isEvidenceImage === true,
+          alt: previous.alt ?? null,
         }),
       };
     });
@@ -128,6 +129,7 @@ export class ProductMediaRevisionsService {
             visualOrigin: media.visualOrigin ?? ProductMediaVisualOrigin.ORIGINAL,
             optimizationId: media.optimizationId ?? null,
             isEvidenceImage: media.isEvidenceImage === true,
+            alt: media.alt ?? null,
           };
         }),
       });
@@ -163,7 +165,7 @@ export class ProductMediaRevisionsService {
       if (product.status !== 'ACTIVE' || product.auditStatus !== 'APPROVED') {
         throw new ConflictException('仅已上架且审核通过的商品可即时采用候选');
       }
-      this.assertImageOnlyManagedMedia(product.media);
+      this.assertOptimizationAdoptionMedia(product.media);
       const existing = await tx.productMediaRevision.findFirst({
         where: { companyId: input.companyId, idempotencyKey: `optimization-apply:${input.optimizationId}` },
       });
@@ -190,13 +192,14 @@ export class ProductMediaRevisionsService {
       }
       const sourceIsAttached = product.media.some((media) => media.assetId === input.sourceAssetId);
       const previousMedia = this.mediaSnapshot(product.media);
-      const current = product.media.map((media) => ({
-        assetId: media.assetId,
+      const current = product.media.filter((media) => !!media.assetId).map((media) => ({
+        assetId: media.assetId!,
         sortOrder: media.sortOrder + (sourceIsAttached ? 1 : 2),
         type: media.type,
         visualOrigin: media.visualOrigin,
         optimizationId: media.optimizationId,
         isEvidenceImage: media.isEvidenceImage || media.assetId === input.sourceAssetId,
+        alt: media.alt ?? null,
       }));
       const proposedMedia = [
         {
@@ -206,6 +209,7 @@ export class ProductMediaRevisionsService {
           visualOrigin: visualOriginForOptimization(task.kind),
           optimizationId: input.optimizationId,
           isEvidenceImage: false,
+          alt: null,
         },
         ...(!sourceIsAttached ? [{
           assetId: input.sourceAssetId,
@@ -214,6 +218,7 @@ export class ProductMediaRevisionsService {
           visualOrigin: ProductMediaVisualOrigin.ORIGINAL,
           optimizationId: null,
           isEvidenceImage: true,
+          alt: null,
         }] : []),
         ...current,
       ];
@@ -270,6 +275,7 @@ export class ProductMediaRevisionsService {
             visualOrigin: media.visualOrigin,
             optimizationId: media.optimizationId,
             isEvidenceImage: media.isEvidenceImage,
+            alt: media.alt,
           };
         }),
       });
@@ -304,6 +310,7 @@ export class ProductMediaRevisionsService {
         visualOrigin?: ProductMediaVisualOrigin;
         optimizationId?: string | null;
         isEvidenceImage?: boolean;
+        alt?: string | null;
       }>;
       if (!Array.isArray(proposed) || proposed.length === 0 || proposed.length > 9) {
         throw new BadRequestException('封面变更媒体快照无效');
@@ -462,17 +469,26 @@ export class ProductMediaRevisionsService {
       }
       const previous = revision.previousMedia as Array<{
         assetId?: string;
+        url?: string;
         sortOrder?: number;
         type?: MediaType;
         visualOrigin?: ProductMediaVisualOrigin;
         optimizationId?: string | null;
         isEvidenceImage?: boolean;
+        alt?: string | null;
       }> | null;
       if (!Array.isArray(previous) || previous.length === 0 || previous.length > 9) {
         throw new ConflictException('该图片历史缺少可恢复的上一版本');
       }
+      if (previous.some((media) => media.type && media.type !== MediaType.IMAGE)) {
+        throw new ConflictException('历史图片快照包含不可恢复的非图片媒体');
+      }
+      const legacy = previous.filter((media) => !media.assetId);
+      if (legacy.some((media) => !this.isSafeLegacySnapshotUrl(media.url))) {
+        throw new ConflictException('历史图片 URL 快照无效');
+      }
       const assetIds = previous.map((media) => media.assetId).filter((id): id is string => !!id);
-      if (assetIds.length !== previous.length || new Set(assetIds).size !== assetIds.length) {
+      if (new Set(assetIds).size !== assetIds.length) {
         throw new ConflictException('历史图片资产快照无效');
       }
       const assets = await tx.sellerMediaAsset.findMany({
@@ -498,16 +514,17 @@ export class ProductMediaRevisionsService {
       await tx.productMedia.deleteMany({ where: { productId: revision.productId } });
       await tx.productMedia.createMany({
         data: previous.map((media, index) => {
-          const asset = byId.get(media.assetId!)!;
+          const asset = media.assetId ? byId.get(media.assetId) : null;
           return {
             productId: revision.productId,
-            assetId: asset.id,
+            assetId: asset?.id ?? null,
             type: 'IMAGE' as const,
-            url: this.uploadService.createProductMediaUrl(asset.objectKey),
+            url: asset ? this.uploadService.createProductMediaUrl(asset.objectKey) : this.legacySnapshotUrl(media.url),
             sortOrder: media.sortOrder ?? index,
             visualOrigin: media.visualOrigin ?? ProductMediaVisualOrigin.ORIGINAL,
             optimizationId: media.optimizationId ?? null,
             isEvidenceImage: media.isEvidenceImage === true,
+            alt: media.alt ?? null,
           };
         }),
       });
@@ -561,19 +578,23 @@ export class ProductMediaRevisionsService {
 
   private mediaSnapshot(media: Array<{
     assetId: string | null;
+    url: string;
     sortOrder: number;
     type: MediaType;
     visualOrigin: ProductMediaVisualOrigin;
     optimizationId: string | null;
     isEvidenceImage: boolean;
+    alt: string | null;
   }>) {
     return media.map((item) => ({
       assetId: item.assetId,
+      url: item.url,
       sortOrder: item.sortOrder,
       type: item.type,
       visualOrigin: item.visualOrigin,
       optimizationId: item.optimizationId,
       isEvidenceImage: item.isEvidenceImage,
+      alt: item.alt,
     }));
   }
 
@@ -586,6 +607,32 @@ export class ProductMediaRevisionsService {
     if (media.some((item) => item.type !== MediaType.IMAGE || !item.assetId)) {
       throw new ConflictException('当前商品含视频或未受管媒体，暂不能使用即时图片替换；请先在商品媒体管理中整理后重试');
     }
+  }
+
+  private assertOptimizationAdoptionMedia(media: Array<{ assetId: string | null; type: MediaType; url: string }>) {
+    if (media.some((item) => item.type !== MediaType.IMAGE)) {
+      throw new ConflictException('当前商品含视频，暂不能使用即时图片替换');
+    }
+    const legacy = media.filter((item) => !item.assetId);
+    if (legacy.length === 0) return;
+    if (media.length !== 1 || legacy.length !== 1 || !this.isSafeLegacySnapshotUrl(legacy[0].url)) {
+      throw new ConflictException('当前商品含多张或无效的历史 URL 图片，请先在商品媒体管理中整理后重试');
+    }
+  }
+
+  private isSafeLegacySnapshotUrl(value: unknown): value is string {
+    if (typeof value !== 'string' || value.length === 0 || value.length > 2048 || value !== value.trim() || /[\u0000-\u001F\u007F]/.test(value)) return false;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }
+
+  private legacySnapshotUrl(value: unknown) {
+    if (!this.isSafeLegacySnapshotUrl(value)) throw new ConflictException('历史图片 URL 快照无效');
+    return value;
   }
 
   private assertRevisionReplay(
@@ -607,6 +654,7 @@ export class ProductMediaRevisionsService {
       visualOrigin: string;
       optimizationId: string | null;
       isEvidenceImage: boolean;
+      alt: string | null;
     } | null> = value.map((item) => {
       if (!item || typeof item !== 'object') return null;
       const media = item as Record<string, unknown>;
@@ -618,6 +666,7 @@ export class ProductMediaRevisionsService {
         visualOrigin: typeof media.visualOrigin === 'string' ? media.visualOrigin : ProductMediaVisualOrigin.ORIGINAL,
         optimizationId: typeof media.optimizationId === 'string' ? media.optimizationId : null,
         isEvidenceImage: media.isEvidenceImage === true,
+        alt: typeof media.alt === 'string' ? media.alt : null,
       };
     });
     const valid = normalized.filter((item): item is NonNullable<typeof item> => item !== null);
@@ -666,22 +715,28 @@ export class ProductMediaRevisionsService {
       type?: string;
       visualOrigin?: ProductMediaVisualOrigin;
       isEvidenceImage?: boolean;
+      alt?: string | null;
     }>;
     const previous = revision.previousMedia as Array<{
       assetId?: string;
+      url?: string;
       sortOrder?: number;
       type?: string;
       visualOrigin?: ProductMediaVisualOrigin;
       isEvidenceImage?: boolean;
+      alt?: string | null;
     }> | null;
     if (!Array.isArray(proposed) || proposed.length === 0 || proposed.length > 9) {
       throw new BadRequestException('封面变更媒体快照无效');
     }
-    const snapshotItems = previous ? [...previous, ...proposed] : proposed;
-    const assetIds = snapshotItems.map((item) => item.assetId).filter((id): id is string => !!id);
-    if (assetIds.length !== snapshotItems.length) {
+    const proposedAssetIds = proposed.map((item) => item.assetId).filter((id): id is string => !!id);
+    if (proposedAssetIds.length !== proposed.length) {
       throw new BadRequestException('封面变更媒体资产无效');
     }
+    const legacyPrevious = (previous ?? []).filter((item) => !item.assetId);
+    if (legacyPrevious.some((item) => !this.isSafeLegacySnapshotUrl(item.url))) throw new BadRequestException('封面变更历史 URL 无效');
+    const snapshotItems = previous ? [...previous, ...proposed] : proposed;
+    const assetIds = snapshotItems.map((item) => item.assetId).filter((id): id is string => !!id);
     const assets = await this.prisma.sellerMediaAsset.findMany({
       where: { id: { in: assetIds }, companyId: revision.companyId, purpose: 'PRODUCT_IMAGE', deletedAt: null },
       select: { id: true, scanSummary: true, objectKey: true, width: true, height: true },
@@ -728,20 +783,22 @@ export class ProductMediaRevisionsService {
         expiresAt: access.expiresAt,
         visualOrigin: item.visualOrigin ?? ProductMediaVisualOrigin.ORIGINAL,
         isEvidenceImage: item.isEvidenceImage === true,
+        alt: item.alt ?? null,
       };
     }));
     const previousMedia = await Promise.all((previous ?? []).map(async (item, index) => {
-      const asset = byId.get(item.assetId!)!;
-      const access = await this.uploadService.createPrivateAccessUrl(asset.objectKey, 300);
+      const asset = item.assetId ? byId.get(item.assetId) : null;
+      const access = asset ? await this.uploadService.createPrivateAccessUrl(asset.objectKey, 300) : null;
       return {
-        assetId: asset.id,
+        assetId: asset?.id ?? null,
         sortOrder: item.sortOrder ?? index,
-        width: asset.width,
-        height: asset.height,
-        displayUrl: access.url,
-        expiresAt: access.expiresAt,
+        width: asset?.width ?? null,
+        height: asset?.height ?? null,
+        displayUrl: access?.url ?? this.legacySnapshotUrl(item.url),
+        expiresAt: access?.expiresAt ?? null,
         visualOrigin: item.visualOrigin ?? ProductMediaVisualOrigin.ORIGINAL,
         isEvidenceImage: item.isEvidenceImage === true,
+        alt: item.alt ?? null,
       };
     }));
 

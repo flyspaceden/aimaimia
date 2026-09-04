@@ -38,10 +38,10 @@ function RevisionLabel({ item, selected, onSelect }: { item: ProductMediaRevisio
   );
 }
 
-function MediaGallery({ title, media, tone }: { title: string; media: Array<{ assetId: string; displayUrl: string; isEvidenceImage: boolean }>; tone: 'before' | 'after' }) {
+function MediaGallery({ title, media, tone }: { title: string; media: Array<{ assetId: string | null; displayUrl: string; alt?: string | null; isEvidenceImage: boolean }>; tone: 'before' | 'after' }) {
   return (
     <Card size="small" title={title} styles={{ body: { background: tone === 'before' ? '#fafafa' : '#f6ffed' } }}>
-      {media.length ? <Image.PreviewGroup>{media.map((item) => <Space key={item.assetId} direction="vertical" size={4} style={{ marginRight: 8, marginBottom: 8 }}><Image src={item.displayUrl} width={128} height={160} style={{ objectFit: 'cover' }} />{item.isEvidenceImage && <Tag color="blue">原实拍证据</Tag>}</Space>)}</Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无可恢复图片" />}
+      {media.length ? <Image.PreviewGroup>{media.map((item) => <Space key={item.assetId ?? item.displayUrl} direction="vertical" size={4} style={{ marginRight: 8, marginBottom: 8 }}><Image src={item.displayUrl} alt={item.alt || title} width={128} height={160} style={{ objectFit: 'cover' }} />{item.isEvidenceImage && <Tag color="blue">原实拍证据</Tag>}</Space>)}</Image.PreviewGroup> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无可恢复图片" />}
     </Card>
   );
 }

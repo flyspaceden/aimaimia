@@ -27,12 +27,13 @@ export type ProductMediaRevisionDetail = {
   };
   company: { id: string; name: string };
   previousMedia: Array<{
-    assetId: string;
+    assetId: string | null;
     sortOrder: number;
-    width: number;
-    height: number;
+    width: number | null;
+    height: number | null;
     displayUrl: string;
     expiresAt: string | null;
+    alt: string | null;
     visualOrigin: 'ORIGINAL' | 'DETERMINISTIC_COMPOSITE' | 'DETERMINISTIC_ENHANCEMENT' | 'AI_BACKGROUND';
     isEvidenceImage: boolean;
   }>;
@@ -43,6 +44,7 @@ export type ProductMediaRevisionDetail = {
     height: number;
     displayUrl: string;
     expiresAt: string | null;
+    alt: string | null;
     visualOrigin: 'ORIGINAL' | 'DETERMINISTIC_COMPOSITE' | 'DETERMINISTIC_ENHANCEMENT' | 'AI_BACKGROUND';
     isEvidenceImage: boolean;
   }>;

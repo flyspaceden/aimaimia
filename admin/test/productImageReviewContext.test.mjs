@@ -25,3 +25,12 @@ test('admin browser contract does not expose OCR plaintext or hashes', () => {
   assert.doesNotMatch(api, /ocrTextHash/);
   assert.doesNotMatch(page, /providerOutputUrl/);
 });
+
+test('admin inspection renders legacy history images with nullable asset metadata and a stable fallback key', () => {
+  assert.match(api, /assetId: string \| null/);
+  assert.match(api, /width: number \| null/);
+  assert.match(api, /height: number \| null/);
+  assert.match(api, /alt: string \| null/);
+  assert.match(page, /key=\{item\.assetId \?\? item\.displayUrl\}/);
+  assert.match(page, /alt=\{item\.alt \|\| title\}/);
+});

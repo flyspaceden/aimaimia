@@ -312,6 +312,84 @@ describe('ProductMediaRevisionsService publication governance', () => {
     ]) }));
   });
 
+  it('migrates one legacy public image into an immutable rollback snapshot while publishing only managed candidate evidence', async () => {
+    const legacyUrl = 'https://images.example/legacy-tomato.jpg';
+    const legacyAlt = '藤上成熟小番茄';
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 4,
+      media: [{ assetId: null, url: legacyUrl, type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false, alt: legacyAlt }],
+    };
+    const tx = {
+      product: { findFirst: jest.fn().mockResolvedValue(product), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'legacy-revision' }) },
+      productImageOptimization: { findFirst: jest.fn().mockResolvedValue({ kind: 'BACKGROUND_GENERATION', artifacts: [{ assetId: 'candidate-asset' }] }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([
+        { id: 'source-asset', status: SellerMediaAssetStatus.AVAILABLE, objectKey: 'source.webp', scanSummary: null },
+        { id: 'candidate-asset', status: SellerMediaAssetStatus.CANDIDATE, objectKey: 'candidate.webp', scanSummary: null },
+      ]), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMedia: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const service = new ProductMediaRevisionsService(
+      { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any,
+      {} as any,
+      { createProductMediaUrl: jest.fn((key: string) => `https://media.example/${key}`) } as any,
+      { emit: jest.fn() } as any,
+    );
+
+    await expect(service.applyOptimizationAdoption({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    })).resolves.toEqual({ id: 'legacy-revision' });
+
+    expect(tx.productMediaRevision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      previousMedia: [expect.objectContaining({ assetId: null, url: legacyUrl, type: 'IMAGE', alt: legacyAlt })],
+      proposedMedia: expect.arrayContaining([
+        expect.objectContaining({ assetId: 'candidate-asset', sortOrder: 0 }),
+        expect.objectContaining({ assetId: 'source-asset', sortOrder: 1, isEvidenceImage: true }),
+      ]),
+    }) }));
+    expect(tx.productMedia.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.not.arrayContaining([
+      expect.objectContaining({ url: legacyUrl }),
+    ]) }));
+  });
+
+  it('still rejects videos and multiple unmanaged legacy images during AI adoption', async () => {
+    const product = {
+      id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 4,
+      media: [
+        { assetId: null, url: 'https://images.example/one.jpg', type: 'IMAGE', sortOrder: 0 },
+        { assetId: null, url: 'https://images.example/two.jpg', type: 'IMAGE', sortOrder: 1 },
+      ],
+    };
+    const tx = { product: { findFirst: jest.fn().mockResolvedValue(product) }, productMediaRevision: { findFirst: jest.fn() } };
+    const service = new ProductMediaRevisionsService(
+      { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any,
+      {} as any, {} as any, { emit: jest.fn() } as any,
+    );
+    const input = {
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1',
+      candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
+    };
+    await expect(service.applyOptimizationAdoption(input)).rejects.toThrow('多张或无效的历史 URL 图片');
+    product.media = [{ assetId: null, url: 'https://videos.example/demo.mp4', type: 'VIDEO', sortOrder: 0 }];
+    await expect(service.applyOptimizationAdoption(input)).rejects.toThrow('当前商品含视频');
+  });
+
+  it('accepts only canonical credential-free HTTPS legacy snapshot URLs', () => {
+    const service = new ProductMediaRevisionsService({} as any, {} as any, {} as any, {} as any);
+    expect((service as any).isSafeLegacySnapshotUrl('https://images.example/photo.jpg?auto=compress&w=600')).toBe(true);
+    for (const unsafe of [
+      'http://images.example/photo.jpg',
+      'javascript:alert(1)',
+      'https://user:secret@images.example/photo.jpg',
+      ' https://images.example/photo.jpg',
+      'https://images.example/photo.jpg\n',
+      `https://images.example/${'a'.repeat(2050)}`,
+    ]) expect((service as any).isSafeLegacySnapshotUrl(unsafe)).toBe(false);
+  });
+
   it('publishes a newly uploaded source beside its adopted candidate without losing existing public media', async () => {
     const product = {
       id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 3,
@@ -421,6 +499,35 @@ describe('ProductMediaRevisionsService publication governance', () => {
       expect.objectContaining({ eventType: 'product.mediaRolledBackForSeller', payload: expect.objectContaining({ companyId: 'company-1', productId: 'product-1' }) }),
       tx,
     );
+  });
+
+  it('restores a single legacy HTTPS image from the immutable pre-adoption snapshot', async () => {
+    const legacyUrl = 'https://images.example/legacy-tomato.jpg';
+    const legacyAlt = '藤上成熟小番茄';
+    const revision = {
+      id: 'revision-legacy', productId: 'product-1', companyId: 'company-1', status: ProductMediaRevisionStatus.APPLIED_BY_SELLER, appliedMediaVersion: 5,
+      previousMedia: [{ assetId: null, url: legacyUrl, type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false, alt: legacyAlt }],
+      product: { id: 'product-1', companyId: 'company-1', mediaVersion: 5, status: 'ACTIVE', auditStatus: 'APPROVED' },
+    };
+    const tx = {
+      productMediaRevision: { findUnique: jest.fn().mockResolvedValue(revision), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      sellerMediaAsset: { findMany: jest.fn().mockResolvedValue([]) },
+      product: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      productMedia: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const notifications = { emit: jest.fn().mockResolvedValue(undefined) };
+    const service = new ProductMediaRevisionsService(
+      { $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)) } as any,
+      {} as any,
+      { createProductMediaUrl: jest.fn() } as any,
+      notifications as any,
+    );
+
+    await expect(service.rollbackPublished('revision-legacy', 'admin-1', '测试回退历史图片')).resolves.toEqual({
+      rolledBack: true, revisionId: 'revision-legacy', productId: 'product-1',
+    });
+    expect(tx.productMedia.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ assetId: null, url: legacyUrl, type: 'IMAGE', alt: legacyAlt })] });
+    expect(notifications.emit).toHaveBeenCalled();
   });
 
   it('refuses an administrative rollback after a newer merchant picture change', async () => {
