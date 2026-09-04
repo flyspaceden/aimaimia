@@ -16,8 +16,8 @@ test('seller image flow creates a local plan before it exposes a free real-scene
   assert.match(editPage, /hasTransparentPixels \? '免费合成白底图' : '智能白底 \/ 棚拍'/);
   assert.match(editPage, /startVisualPlan\(file, 'CATALOG_STUDIO'\)/);
   assert.match(editPage, /检查图片中的商品事实/);
-  assert.match(editPage, /const freeTuneAvailable = visualPlan\?\.riskProfile === 'STANDARD_FACTS'/);
-  assert.match(editPage, /factScan\.freeTuneEligible === true/);
+  assert.match(editPage, /const freeTuneAvailable = freeTuneEligibility\(visualPlan, factScan\)/);
+  assert.match(editPage, /visualPlan\.processingPlan\?\.freeTunePolicy/);
   assert.match(editPage, /disabled=\{!freeTuneAvailable \|\| optimizationSubmitting\}/);
   assert.match(editPage, /requestFreeTune\(\{/);
 });
@@ -56,7 +56,7 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /candidateRole === 'MARKETING_IMAGE'/);
   assert.match(editPage, /当前不能采用或替换商品公开图片/);
   assert.match(editPage, /disabled=\{!quoteConfirmed \|\| Boolean\(paidExecution\)\}/);
-  assert.match(editPage, /disabled=\{Boolean\(paidExecution\) \|\| quoteSubmitting\}/);
+  assert.match(editPage, /disabled=\{quoteExpired \|\| Boolean\(paidExecution\) \|\| quoteSubmitting\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);
   assert.match(editPage, /候选可采用；系统已保留验真摘要/);
@@ -91,8 +91,8 @@ test('ordinary product save never resubmits unchanged public media and redirects
 test('confirmed paid tasks survive page navigation without a second freeze or Provider submission', () => {
   assert.match(editPage, /ai-visual-agent:active-quote:/);
   assert.match(editPage, /paidPollInFlightRef/);
-  assert.match(editPage, /getProductVisualQuote\(productId, quoteId\)/);
-  assert.match(editPage, /已有已确认的智能图片任务，系统正在恢复原任务/);
+  assert.match(editPage, /getProductVisualQuote\(productId, id\)/);
+  assert.match(editPage, /正在查询已有任务，不会重复扣除图片积分/);
   assert.match(editPage, /ALREADY_BOUND/);
   assert.match(editPage, /重新选择方案/);
 });

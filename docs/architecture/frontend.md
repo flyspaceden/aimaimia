@@ -3,6 +3,8 @@
 > 版本：1.0 | 创建时间：2026-02-18
 > 技术栈：React Native 0.81 + Expo 54 + expo-router 6 + react-native-reanimated
 
+> 2026-09-04 关联前端任务：卖家图片 Agent v3 的历史任务、过期报价、断网恢复与免费合约入口已本地实现，详见 `seller.md` 和图片 Agent spec。本轮没有修改买家 App；代码与浏览器受控交互测试通过不等于测试站部署或模型效果验收。
+
 ---
 
 ## 1. 设计理念

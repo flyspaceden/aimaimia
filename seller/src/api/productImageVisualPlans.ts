@@ -1,5 +1,17 @@
 import client from './client';
 import type { ProductImageOptimizationTask } from './productImageOptimizations';
+import type { UploadedProductImageAsset } from './mediaAssets';
+
+export const getVisualSourceAsset = (assetId: string): Promise<UploadedProductImageAsset> => client.get(`/seller/media-assets/${assetId}`);
+
+export type ProductVisualHistoryItem = {
+  quoteId: string; sourceAssetRef: string; billingStatus: string; executionStatus: string;
+  optimization: { id: string; status: string } | null; direction: string | null;
+  displayName: string; creditCost: number; candidateCount: number; createdAt: string;
+  confirmedAt: string | null; settledAt: string | null;
+};
+export const listProductVisualTasks = (productId: string, cursor?: string): Promise<{ items: ProductVisualHistoryItem[]; nextCursor: string | null }> =>
+  client.get(`/seller/products/${productId}/visual-tasks`, { params: { cursor, limit: 20 } });
 
 export type ProductVisualRiskProfile =
   | 'STRICT_FACTS'
@@ -24,6 +36,9 @@ export type ProductVisualPlan = {
   recommendedMode: ProductVisualMode | null;
   allowedModes: ProductVisualMode[];
   allowedOperations: string[];
+  processingPlan?: {
+    freeTunePolicy?: { contractVersion?: string; available?: boolean; requiresFactScan?: boolean; billingStatus?: string };
+  } | null;
   sceneAnalysis?: {
     reasons?: string[];
     sceneAssessment?: string;
