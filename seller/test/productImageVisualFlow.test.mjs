@@ -8,7 +8,8 @@ const optimizationApi = readFileSync(new URL('../src/api/productImageOptimizatio
 
 test('seller image flow creates a local plan before it exposes a free real-scene candidate', () => {
   assert.match(editPage, /查看美化建议/);
-  assert.match(editPage, /正在上传并完成安全扫描和素材登记/);
+  assert.match(editPage, /正在上传图片/);
+  assert.match(editPage, /图片已传输，服务器正在处理/);
   assert.match(editPage, /重新上传/);
   assert.match(editPage, /image\/jpeg,image\/png,image\/webp/);
   assert.match(editPage, /onProgress\?\.\(\{ percent \}\)/);
