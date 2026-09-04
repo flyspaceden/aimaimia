@@ -78,7 +78,7 @@ export class ProductMediaRevisionsService {
       }
       const fresh = await tx.product.findFirst({
         where: { id: productId, companyId },
-        include: { media: { orderBy: { sortOrder: 'asc' } } },
+        include: { media: { orderBy: { sortOrder: 'asc' } }, category: { select: { name: true } } },
       });
       if (!fresh || fresh.status !== 'ACTIVE' || fresh.auditStatus !== 'APPROVED') {
         throw new ConflictException('商品状态已变化，不能即时替换公开图片');
@@ -159,7 +159,7 @@ export class ProductMediaRevisionsService {
     const outcome = await this.prisma.$transaction(async (tx) => {
       const product = await tx.product.findFirst({
         where: { id: input.productId, companyId: input.companyId },
-        include: { media: { orderBy: { sortOrder: 'asc' } } },
+        include: { media: { orderBy: { sortOrder: 'asc' } }, category: { select: { name: true } } },
       });
       if (!product) throw new NotFoundException('商品不存在');
       if (product.status !== 'ACTIVE' || product.auditStatus !== 'APPROVED') {

@@ -157,7 +157,12 @@ export class BailianQwenOcrProvider {
   }
 
   private assertAvailable() {
-    if (!this.isAvailable()) throw new ServiceUnavailableException('AI Visual Agent Qwen OCR Provider 尚未启用');
+    if (!this.isAvailable()) {
+      throw new ServiceUnavailableException({
+        code: 'PRODUCT_FACT_SCAN_OCR_DISABLED',
+        message: '商品文字识别服务暂未开启，当前不能检查图片中的商品事实',
+      });
+    }
   }
 
   private async fetchJsonWithDeadline(input: RequestInfo | URL, init: RequestInit): Promise<{ response: Response; payload: QwenOcrResponse }> {

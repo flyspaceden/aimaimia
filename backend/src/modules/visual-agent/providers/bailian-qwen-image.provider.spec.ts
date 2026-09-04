@@ -87,6 +87,52 @@ describe('BailianQwenImageProvider', () => {
     expect(verifier.assertProviderAuthorization).toHaveBeenCalledWith(expect.anything(), BAILIAN_QWEN_IMAGE_PROVIDER, 'qwen-image-3.0');
   });
 
+  it.each([
+    {
+      label: 'authorized replacement',
+      operations: ['LIGHTING', 'COMPOSITION', 'BACKGROUND_REPLACE'] as const,
+      contains: 'pure white or very light neutral seamless studio background',
+      excludes: 'without replacing it',
+    },
+    {
+      label: 'strict background simplification',
+      operations: ['LIGHTING', 'COMPOSITION', 'BACKGROUND_SIMPLIFY'] as const,
+      contains: 'without replacing it',
+      excludes: 'pure white or very light neutral seamless studio background',
+    },
+  ])('keeps catalog prompt within server operations: $label', async ({ operations, contains, excludes }) => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'qwen-catalog-1', task_status: 'PENDING' }, request_id: 'request-catalog-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianQwenImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'truth-preserving-v1', direction: 'CATALOG_STUDIO', riskProfile: 'STRICT_FACTS',
+      allowedOperations: [...operations], protectedRegionVersion: 'protected-region-v1',
+    } }));
+
+    const body = (global.fetch as jest.Mock).mock.calls[0][1].body;
+    expect(body).toContain(contains);
+    expect(body).not.toContain(excludes);
+  });
+
+  it('keeps the background unchanged when the server plan authorizes no background operation', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'qwen-no-background-1', task_status: 'PENDING' }, request_id: 'request-no-background-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianQwenImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'truth-preserving-v1', direction: 'CATALOG_STUDIO', riskProfile: 'STRICT_FACTS',
+      allowedOperations: ['LIGHTING', 'DEGLARE'], protectedRegionVersion: 'protected-region-v1',
+    } }));
+
+    const body = (global.fetch as jest.Mock).mock.calls[0][1].body;
+    expect(body).toContain('keep the existing background pixels and scene unchanged');
+    expect(body).not.toContain('simplifying the existing background');
+    expect(body).not.toContain('pure white or very light neutral seamless studio background');
+  });
+
   it('keeps unallowlisted output locations and query ambiguity in reconciliation', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       output: { task_id: 'qwen-task-1', task_status: 'SUCCEEDED', results: [{ url: 'https://attacker.example/result.png' }] }, request_id: 'request-1',

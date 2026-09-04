@@ -116,6 +116,57 @@ describe('BailianWanImageProvider', () => {
     expect(body).toContain('not a factual main image');
   });
 
+  it('uses a fixed white-or-neutral studio instruction for catalog background generation', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'wan-catalog-1', task_status: 'PENDING' }, request_id: 'request-catalog-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'truth-preserving-v1', direction: 'CATALOG_STUDIO', riskProfile: 'ORGANIC_FACTS',
+      allowedOperations: ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE'],
+      protectedRegionVersion: 'protected-region-v1',
+    } }));
+
+    const body = JSON.stringify((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toContain('pure white or very light neutral seamless studio background');
+    expect(body).toContain('preserving the exact product, packaging, labels, count, and proportions');
+  });
+
+  it('does not instruct a background replacement when the strict server plan did not authorize it', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'wan-strict-catalog-1', task_status: 'PENDING' }, request_id: 'request-strict-catalog-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'truth-preserving-v1', direction: 'CATALOG_STUDIO', riskProfile: 'STRICT_FACTS',
+      allowedOperations: ['LIGHTING', 'COMPOSITION', 'BACKGROUND_SIMPLIFY'],
+      protectedRegionVersion: 'protected-region-v1',
+    } }));
+
+    const body = JSON.stringify((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toContain('without replacing it');
+    expect(body).not.toContain('pure white or very light neutral seamless studio background');
+  });
+
+  it('keeps the background unchanged when the server plan authorizes no background operation', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      output: { task_id: 'wan-no-background-1', task_status: 'PENDING' }, request_id: 'request-no-background-1',
+    }), { status: 200 })) as any;
+    const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);
+
+    await provider.submit(await submitInput({ visualPlan: {
+      templateVersion: 'truth-preserving-v1', direction: 'CATALOG_STUDIO', riskProfile: 'STRICT_FACTS',
+      allowedOperations: ['LIGHTING', 'DEGLARE'], protectedRegionVersion: 'protected-region-v1',
+    } }));
+
+    const body = JSON.stringify((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body).toContain('keep the existing background pixels and scene unchanged');
+    expect(body).not.toContain('simplifying the existing background');
+    expect(body).not.toContain('pure white or very light neutral seamless studio background');
+  });
+
   it('marks a submit transport failure as unknown and never as a retryable reject', async () => {
     global.fetch = jest.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')) as any;
     const provider = new BailianWanImageProvider(enabledConfig() as any, invocationVerifier() as any);

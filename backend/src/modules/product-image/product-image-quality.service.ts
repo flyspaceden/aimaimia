@@ -35,6 +35,7 @@ export interface ProductImageQualityAnalysis {
   aspectRatio: number;
   tooSmall: boolean;
   portraitCropRisk: boolean;
+  hasTransparentPixels: boolean;
   brightness: {
     mean: number;
     advisory: ImageBrightnessAdvisory;
@@ -118,6 +119,7 @@ export class ProductImageQualityService {
       aspectRatio: this.round(aspectRatio),
       tooSmall,
       portraitCropRisk,
+      hasTransparentPixels: metadata.hasAlpha === true && stats.isOpaque === false,
       brightness: {
         mean: brightnessMean,
         advisory: brightnessAdvisory,

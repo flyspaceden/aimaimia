@@ -13,6 +13,8 @@ test('seller image flow creates a local plan before it exposes a free real-scene
   assert.match(editPage, /image\/jpeg,image\/png,image\/webp/);
   assert.match(editPage, /onProgress\?\.\(\{ percent \}\)/);
   assert.match(editPage, /requestProductVisualPlan\(productId, \{ sourceAssetId:/);
+  assert.match(editPage, /hasTransparentPixels \? '免费合成白底图' : '智能白底 \/ 棚拍'/);
+  assert.match(editPage, /startVisualPlan\(file, 'CATALOG_STUDIO'\)/);
   assert.match(editPage, /检查图片中的商品事实/);
   assert.match(editPage, /const freeTuneAvailable = visualPlan\?\.riskProfile === 'STANDARD_FACTS'/);
   assert.match(editPage, /factScan\.freeTuneEligible === true/);
@@ -44,10 +46,13 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /查看可用方案与图片积分/);
   assert.match(editPage, /本次 \{visualQuote\.quote\.creditCost\} 图片积分/);
   assert.match(editPage, /我确认使用 \{visualQuote\.quote\.creditCost\} 图片积分生成/);
-  assert.match(editPage, /原图片美化计划已过期，系统已自动刷新并生成新报价/);
-  assert.match(editPage, /createQuote\(refreshedPlan, selectedDirection\)/);
-  assert.match(editPage, /AI 营销场景图仅供预览/);
-  assert.match(editPage, /展示数量不代表包装规格/);
+  assert.match(editPage, /商品资料或图片版本已变化，系统已自动刷新并生成新报价/);
+  assert.match(editPage, /visualPlanNeedsRefresh\(error\)/);
+  assert.match(editPage, /商品标题、分类或图片版本已变化/);
+  assert.match(editPage, /listProductVisualRateCards\(productId, refreshedRequest\)/);
+  assert.match(editPage, /createQuote\(refreshedPlan, refreshedDirection, refreshedCard\.code\)/);
+  assert.match(editPage, /营销场景图仅供展示/);
+  assert.match(editPage, /不能替换商品事实主图/);
   assert.match(editPage, /candidateRole === 'MARKETING_IMAGE'/);
   assert.match(editPage, /当前不能采用或替换商品公开图片/);
   assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
@@ -87,4 +92,34 @@ test('seller image enhancement copy is Chinese-first', () => {
   assert.match(editPage, /智能图片美化建议/);
   assert.match(editPage, /智能图片美化报价/);
   assert.doesNotMatch(editPage, /AI 图片美化|付费 AI 强效果|AI 图片任务状态/);
+});
+
+test('seller fact scan hides disabled provider internals and prevents repeated clicks', () => {
+  assert.match(editPage, /function productFactScanFailure/);
+  assert.match(editPage, /商品文字识别服务暂未开启，当前不能进行免费实景调优/);
+  assert.match(editPage, /免费实景调优暂不可用/);
+  assert.match(editPage, /disabled=\{Boolean\(factScanUnavailableReason\)\}/);
+  assert.match(editPage, /setFactScanUnavailableReason\(feedback\.message\)/);
+  assert.match(editPage, /PRODUCT_FACT_SCAN_OCR_DISABLED/);
+  assert.doesNotMatch(editPage, /error\.status === 503/);
+});
+
+test('seller paid section shows image-credit balance and an honest acquisition entry before quoting', () => {
+  assert.match(editPage, /可用 \{visualCreditAccount\?\.availableCredits \?\? 0\}/);
+  assert.match(editPage, /冻结 \{visualCreditAccount\?\.reservedCredits \?\? 0\}/);
+  assert.match(editPage, /获取图片积分/);
+  assert.match(editPage, /在线购买暂未开放/);
+  assert.match(editPage, /生成后预计剩余/);
+  assert.match(editPage, /当前可用 \{visualQuote\.availableCredits\} 图片积分/);
+  assert.match(editPage, /生成后预计 \{Math\.max\(0, visualQuote\.availableCredits - visualQuote\.quote\.creditCost\)\}/);
+  assert.match(editPage, /visualCreditRequestRef/);
+});
+
+test('seller visual requests cannot write an old image quote into a newer image flow', () => {
+  assert.match(editPage, /visualFlowGenerationRef/);
+  assert.match(editPage, /visualFlowGenerationRef\.current !== flowGeneration/);
+  assert.match(editPage, /result\.quote\.sourceAssetRef !== sourceSnapshot\.asset\.asset\.id/);
+  assert.match(editPage, /setOptimizationSource\(visualQuote\.source\)/);
+  assert.match(editPage, /closable=\{!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting && !rateCardsLoading && !quoteSubmitting\}/);
+  assert.match(editPage, /disabled=\{Boolean\(paidExecution\) \|\| rateCardsLoading \|\| quoteSubmitting\}/);
 });

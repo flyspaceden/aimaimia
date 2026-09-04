@@ -28,11 +28,28 @@ describe('ProductImageQualityService', () => {
       aspectRatio: 0.8,
       tooSmall: false,
       portraitCropRisk: false,
+      hasTransparentPixels: false,
       brightness: { mean: 128, advisory: null },
       contrast: { standardDeviation: 0, advisory: 'LOW_CONTRAST' },
     });
     expect(result.advisories).toEqual([{ code: 'LOW_CONTRAST', severity: 'warning' }]);
     expect(source.equals(snapshot)).toBe(true);
+  });
+
+  it('reports actual transparent pixels for the free alpha-composite path', async () => {
+    const source = await sharp({
+      create: { width: 800, height: 1000, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0.5 } },
+    }).png().toBuffer();
+
+    await expect(service.analyze(source)).resolves.toMatchObject({ hasTransparentPixels: true });
+  });
+
+  it('does not treat an opaque four-channel PNG as a transparent foreground', async () => {
+    const source = await sharp({
+      create: { width: 800, height: 1000, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
+    }).png().toBuffer();
+
+    await expect(service.analyze(source)).resolves.toMatchObject({ hasTransparentPixels: false });
   });
 
   it('warns when a tall image will crop in the 4:5 product-card frame', async () => {

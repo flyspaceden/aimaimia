@@ -55,6 +55,7 @@ import {
   confirmProductVisualQuote,
   getProductVisualQuote,
   getProductImageFactScan,
+  getProductVisualCreditAccount,
   ensureProductVisualTestAccess,
   issueProductVisualQuote,
   listProductVisualRateCards,
@@ -65,6 +66,7 @@ import {
   type ProductVisualQuote,
   type ProductVisualQuoteStatus,
   type ProductVisualRateCard,
+  type ProductVisualCreditAccount,
   type ProductVisualPlan,
   type ProductVisualMode,
 } from '@/api/productImageVisualPlans';
@@ -78,6 +80,28 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const DEFAULT_LOW_STOCK_DISPLAY_THRESHOLD = 10;
 /** 新建商品时的默认计量单位 */
 const DEFAULT_PRODUCT_UNIT = '斤';
+
+function productFactScanFailure(error: unknown) {
+  const raw = error instanceof Error ? error.message.trim() : '';
+  const unavailable = (error instanceof ApiError && error.businessCode === 'PRODUCT_FACT_SCAN_OCR_DISABLED')
+    || /(?:Qwen\s+OCR|OCR\s+Provider|OCR\s+disabled|文字识别服务.*未开启)/i.test(raw);
+  if (unavailable) {
+    return {
+      unavailable: true,
+      message: '商品文字识别服务暂未开启，当前不能进行免费实景调优。你仍可使用付费智能精修，或稍后再试。',
+    };
+  }
+  return {
+    unavailable: false,
+    message: /[\u3400-\u9fff]/.test(raw) ? raw : '商品事实检查未能完成，请稍后重试',
+  };
+}
+
+function visualPlanNeedsRefresh(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('图片美化计划已过期')
+    || error.message.includes('商品标题、分类或图片版本已变化');
+}
 
 function getManagedAsset(file: UploadFile): UploadedProductImageAsset | undefined {
   const response = file.response as UploadedProductImageAsset | undefined;
@@ -1035,7 +1059,7 @@ function ImageUploadSection({
   productId?: string | null;
   onOptimizationAdopted?: () => void;
 }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [optimizationTask, setOptimizationTask] = useState<ProductImageOptimizationTask | null>(null);
@@ -1049,9 +1073,18 @@ function ImageUploadSection({
   const [visualPlanSubmitting, setVisualPlanSubmitting] = useState(false);
   const [factScan, setFactScan] = useState<ProductImageFactScan | null>(null);
   const [factScanSubmitting, setFactScanSubmitting] = useState(false);
+  const [factScanUnavailableReason, setFactScanUnavailableReason] = useState<string | null>(null);
+  const [visualCreditAccount, setVisualCreditAccount] = useState<ProductVisualCreditAccount | null>(null);
+  const [visualCreditAccountLoading, setVisualCreditAccountLoading] = useState(false);
+  const [visualCreditAccountError, setVisualCreditAccountError] = useState<string | null>(null);
   const [rateCards, setRateCards] = useState<ProductVisualRateCard[] | null>(null);
   const [rateCardsLoading, setRateCardsLoading] = useState(false);
-  const [visualQuote, setVisualQuote] = useState<{ quote: ProductVisualQuote; availableCredits: number; reservedCredits: number } | null>(null);
+  const [visualQuote, setVisualQuote] = useState<{
+    quote: ProductVisualQuote;
+    availableCredits: number;
+    reservedCredits: number;
+    source: { asset: UploadedProductImageAsset; url: string; name: string };
+  } | null>(null);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteConfirmed, setQuoteConfirmed] = useState(false);
   const [paidExecution, setPaidExecution] = useState<ProductVisualQuoteStatus | null>(null);
@@ -1061,6 +1094,8 @@ function ImageUploadSection({
   const [uploadFeedback, setUploadFeedback] = useState<Record<string, ProductImageUploadFeedback>>({});
   const restoredPaidQuoteRef = useRef<string | null>(null);
   const paidPollInFlightRef = useRef(false);
+  const visualCreditRequestRef = useRef(0);
+  const visualFlowGenerationRef = useRef(0);
   const fileListRef = useRef(fileList);
   const managedCount = fileList.filter((file) => file.status === 'done' && getManagedAsset(file)).length;
   const hasMixedSourceImages = managedCount > 0 && managedCount < fileList.filter((file) => file.status === 'done').length;
@@ -1209,7 +1244,7 @@ function ImageUploadSection({
     }
   };
 
-  const startVisualPlan = async (file: UploadFile) => {
+  const startVisualPlan = async (file: UploadFile, requestedMode?: ProductVisualMode) => {
     const asset = getManagedAsset(file);
     const url = getFileUrl(file);
     if (!asset || !url) {
@@ -1224,9 +1259,13 @@ function ImageUploadSection({
       message.info('这个商品已有已确认的智能图片任务，系统正在恢复原任务；不会重复冻结图片积分。');
       return;
     }
+    const flowGeneration = visualFlowGenerationRef.current + 1;
+    visualFlowGenerationRef.current = flowGeneration;
+    const sourceSnapshot = { asset, url, name: file.name || '商品图片' };
     setVisualPlanSubmitting(true);
-    setVisualPlanSource({ asset, url, name: file.name || '商品图片' });
+    setVisualPlanSource(sourceSnapshot);
     setFactScan(null);
+    setFactScanUnavailableReason(null);
     setRateCards(null);
     setVisualQuote(null);
     setPaidExecution(null);
@@ -1234,15 +1273,75 @@ function ImageUploadSection({
     setPaidPollWarning(null);
     setFactScanPollWarning(null);
     try {
-      const plan = await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id });
+      const plan = await requestProductVisualPlan(productId, { sourceAssetId: asset.asset.id, requestedMode });
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
       setVisualPlan(plan);
-      setSelectedPaidDirection(plan.recommendedMode);
+      setSelectedPaidDirection(requestedMode && plan.allowedModes.includes(requestedMode) ? requestedMode : plan.recommendedMode);
+      void refreshVisualCreditAccount();
     } catch (error) {
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
       message.error(error instanceof Error ? error.message : '生成图片美化建议失败');
       setVisualPlanSource(null);
     } finally {
-      setVisualPlanSubmitting(false);
+      if (visualFlowGenerationRef.current === flowGeneration) setVisualPlanSubmitting(false);
     }
+  };
+
+  const closeVisualPlan = () => {
+    if (visualPlanSubmitting || factScanSubmitting || optimizationSubmitting || rateCardsLoading || quoteSubmitting) return;
+    visualFlowGenerationRef.current += 1;
+    setVisualPlan(null);
+    setVisualPlanSource(null);
+    setFactScan(null);
+    setFactScanUnavailableReason(null);
+    setRateCards(null);
+    setVisualQuote(null);
+    setQuoteConfirmed(false);
+  };
+
+  const applyVisualCreditAccount = useCallback((account: ProductVisualCreditAccount) => {
+    visualCreditRequestRef.current += 1;
+    setVisualCreditAccount(account);
+    setVisualCreditAccountError(null);
+    setVisualCreditAccountLoading(false);
+  }, []);
+
+  const refreshVisualCreditAccount = useCallback(async () => {
+    if (!productId) return null;
+    const requestId = visualCreditRequestRef.current + 1;
+    visualCreditRequestRef.current = requestId;
+    setVisualCreditAccountLoading(true);
+    setVisualCreditAccountError(null);
+    try {
+      const account = await getProductVisualCreditAccount(productId);
+      if (visualCreditRequestRef.current === requestId) {
+        setVisualCreditAccount(account);
+        setVisualCreditAccountError(null);
+      }
+      return account;
+    } catch {
+      if (visualCreditRequestRef.current === requestId) {
+        setVisualCreditAccountError('图片积分余额暂时无法读取');
+      }
+      return null;
+    } finally {
+      if (visualCreditRequestRef.current === requestId) {
+        setVisualCreditAccountLoading(false);
+      }
+    }
+  }, [productId]);
+
+  const showVisualCreditHelp = () => {
+    modal.info({
+      title: '获取图片积分',
+      content: (
+        <Space direction="vertical" size={8}>
+          <Text>测试期间，首次查看可用方案会自动领取平台赠送的图片积分。</Text>
+          <Text type="secondary">在线购买暂未开放；需要更多图片积分时，请联系平台管理员补充。</Text>
+        </Space>
+      ),
+      okText: '知道了',
+    });
   };
 
   const startFactScan = async () => {
@@ -1254,9 +1353,13 @@ function ImageUploadSection({
         idempotencyKey: crypto.randomUUID(),
       });
       setFactScan(scan);
+      setFactScanUnavailableReason(null);
       setFactScanPollWarning(null);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '商品事实检查未能完成');
+      const feedback = productFactScanFailure(error);
+      if (feedback.unavailable) setFactScanUnavailableReason(feedback.message);
+      if (feedback.unavailable) message.warning(feedback.message);
+      else message.error(feedback.message);
     } finally {
       setFactScanSubmitting(false);
     }
@@ -1292,57 +1395,100 @@ function ImageUploadSection({
 
   const loadPaidRateCards = async () => {
     if (!productId || !visualPlan || !visualPlanSource) return;
+    const flowGeneration = visualFlowGenerationRef.current;
+    const sourceAssetId = visualPlanSource.asset.asset.id;
+    const planId = visualPlan.id;
     setRateCardsLoading(true);
     try {
       const request = {
-        sourceAssetId: visualPlanSource.asset.asset.id,
-        planId: visualPlan.id,
+        sourceAssetId,
+        planId,
         direction: paidDirection(),
       };
       await ensureProductVisualTestAccess(productId, request);
-      setRateCards(await listProductVisualRateCards(productId, request));
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
+      const [cards] = await Promise.all([
+        listProductVisualRateCards(productId, request),
+        refreshVisualCreditAccount(),
+      ]);
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
+      setRateCards(cards);
     } catch (error) {
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
       message.error(error instanceof Error ? error.message : '暂时无法取得图片美化报价');
     } finally {
-      setRateCardsLoading(false);
+      if (visualFlowGenerationRef.current === flowGeneration) setRateCardsLoading(false);
     }
   };
 
   const issuePaidQuote = async (rateCard: ProductVisualRateCard) => {
     if (!productId || !visualPlan || !visualPlanSource) return;
+    const flowGeneration = visualFlowGenerationRef.current;
+    const sourceSnapshot = visualPlanSource;
+    const planSnapshot = visualPlan;
     setQuoteSubmitting(true);
     try {
-      const selectedDirection = paidDirection();
-      const createQuote = (plan: ProductVisualPlan, direction: ProductVisualMode) => issueProductVisualQuote(productId, {
-        sourceAssetId: visualPlanSource.asset.asset.id,
+      const selectedDirection = paidDirection(planSnapshot);
+      const createQuote = (plan: ProductVisualPlan, direction: ProductVisualMode, rateCode = rateCard.code) => issueProductVisualQuote(productId, {
+        sourceAssetId: sourceSnapshot.asset.asset.id,
         planId: plan.id,
         direction,
-        rateCode: rateCard.code,
+        rateCode,
         idempotencyKey: crypto.randomUUID(),
       });
       let result;
       try {
-        result = await createQuote(visualPlan, selectedDirection);
+        result = await createQuote(planSnapshot, selectedDirection);
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
+        if (result.quote.sourceAssetRef !== sourceSnapshot.asset.asset.id) {
+          throw new Error('图片美化报价与当前图片不匹配，请重新查看美化建议');
+        }
       } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes('图片美化计划已过期')) throw error;
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
+        if (!visualPlanNeedsRefresh(error)) throw error;
         const refreshedPlan = await requestProductVisualPlan(productId, {
-          sourceAssetId: visualPlanSource.asset.asset.id,
+          sourceAssetId: sourceSnapshot.asset.asset.id,
           requestedMode: selectedDirection,
         });
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
+        const refreshedDirection = paidDirection(refreshedPlan);
+        const refreshedRequest = {
+          sourceAssetId: sourceSnapshot.asset.asset.id,
+          planId: refreshedPlan.id,
+          direction: refreshedDirection,
+        };
+        await ensureProductVisualTestAccess(productId, refreshedRequest);
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
+        const [refreshedCards] = await Promise.all([
+          listProductVisualRateCards(productId, refreshedRequest),
+          refreshVisualCreditAccount(),
+        ]);
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
         setVisualPlan(refreshedPlan);
-        setSelectedPaidDirection(selectedDirection);
-        setRateCards(null);
-        result = await createQuote(refreshedPlan, selectedDirection);
-        message.info('原图片美化计划已过期，系统已自动刷新并生成新报价');
+        setSelectedPaidDirection(refreshedDirection);
+        setRateCards(refreshedCards);
+        const refreshedCard = refreshedCards.find((card) => card.code === rateCard.code);
+        if (!refreshedCard) {
+          message.info('商品资料已变化，美化建议和可用方案已刷新，请重新选择方案');
+          return;
+        }
+        result = await createQuote(refreshedPlan, refreshedDirection, refreshedCard.code);
+        if (visualFlowGenerationRef.current !== flowGeneration) return;
+        if (result.quote.sourceAssetRef !== sourceSnapshot.asset.asset.id) {
+          throw new Error('图片美化报价与当前图片不匹配，请重新查看美化建议');
+        }
+        message.info('商品资料或图片版本已变化，系统已自动刷新并生成新报价');
       }
-      setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits });
+      setVisualQuote({ quote: result.quote, availableCredits: result.account.availableCredits, reservedCredits: result.account.reservedCredits, source: sourceSnapshot });
+      applyVisualCreditAccount(result.account);
       setQuoteConfirmed(false);
       setPaidExecution(null);
       setPaidPollWarning(null);
     } catch (error) {
+      if (visualFlowGenerationRef.current !== flowGeneration) return;
       message.error(error instanceof Error ? error.message : '创建图片美化报价失败');
     } finally {
-      setQuoteSubmitting(false);
+      if (visualFlowGenerationRef.current === flowGeneration) setQuoteSubmitting(false);
     }
   };
 
@@ -1355,6 +1501,7 @@ function ImageUploadSection({
       setPaidPollWarning(null);
       localStorage.setItem(activePaidQuoteStorageKey(productId), visualQuote.quote.id);
       message.success('已确认图片积分，正在提交受控模型任务');
+      void refreshVisualCreditAccount();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '模型任务未能提交，未接受的任务会自动释放图片积分');
     } finally {
@@ -1409,8 +1556,11 @@ function ImageUploadSection({
         const next = await pollProductVisualQuote(productId, visualQuote.quote.id);
         setPaidExecution(next);
         setPaidPollWarning(null);
-        if (next.status === 'SUCCEEDED' && next.optimizationId && visualPlanSource) {
-          setOptimizationSource(visualPlanSource);
+        if (!['QUEUED', 'RUNNING', 'VERIFYING', 'ALREADY_BOUND'].includes(next.status)) {
+          void refreshVisualCreditAccount();
+        }
+        if (next.status === 'SUCCEEDED' && next.optimizationId) {
+          setOptimizationSource(visualQuote.source);
           setOptimizationTask(await getProductImageOptimization(next.optimizationId));
           setVisualPlan(null);
         }
@@ -1421,7 +1571,7 @@ function ImageUploadSection({
       }
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [paidExecution, productId, visualPlanSource, visualQuote]);
+  }, [paidExecution, productId, refreshVisualCreditAccount, visualQuote]);
 
   useEffect(() => {
     if (!productId) return;
@@ -1449,7 +1599,9 @@ function ImageUploadSection({
           quote: result.quote,
           availableCredits: result.billingAccount.availableCredits,
           reservedCredits: result.billingAccount.reservedCredits,
+          source: { asset: sourceAsset, url: sourceUrl, name: sourceFile.name || '商品图片' },
         });
+        applyVisualCreditAccount(result.billingAccount);
         if (result.optimization?.status === 'SUCCEEDED') {
           setOptimizationSource({ asset: sourceAsset, url: sourceUrl, name: sourceFile.name || '商品图片' });
           setOptimizationTask(await getProductImageOptimization(result.optimization.id));
@@ -1481,7 +1633,7 @@ function ImageUploadSection({
       cancelled = true;
       if (!completed && restoredPaidQuoteRef.current === loadingMarker) restoredPaidQuoteRef.current = null;
     };
-  }, [fileList, productId]);
+  }, [applyVisualCreditAccount, fileList, productId]);
 
   useEffect(() => {
     if (!productId || !paidExecution || !['REJECTED', 'RELEASED'].includes(paidExecution.status)) return;
@@ -1623,9 +1775,7 @@ function ImageUploadSection({
             <Tag color="green">先建议，后生成</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>原图始终保留，候选不会自动发布</Text>
           </Space>
-          <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.7 }}>
-            先为每张图生成免费的美化建议：实景好看就保留，图片不清晰就建议重拍；只有满足事实保护条件时，才会提供可预览的候选图。
-          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>选择图片查看建议或生成效果。原图不会被自动替换。</Text>
           <Space wrap>
             {fileList.filter((file) => file.status === 'done' && getManagedAsset(file) && getManagedAsset(file)?.asset.status !== 'ADOPTED').map((file) => (
               <Space key={`visual-actions-${file.uid}`} size={4} wrap>
@@ -1634,19 +1784,25 @@ function ImageUploadSection({
                   type="primary"
                   ghost
                   loading={visualPlanSubmitting && visualPlanSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
-                  disabled={!productId || visualPlanSubmitting || optimizationSubmitting}
+                  disabled={!productId || visualPlanSubmitting || optimizationSubmitting || rateCardsLoading || quoteSubmitting}
                   onClick={() => startVisualPlan(file)}
                 >
                   查看美化建议：{file.name || '图片'}
                 </Button>
-                <Tooltip title="仅适用于已经带透明前景的商品图，不会尝试抠图或重画商品">
+                <Tooltip title={!productId
+                  ? '先保存草稿后再处理图片'
+                  : getManagedAsset(file)?.asset.diagnosis?.hasTransparentPixels
+                    ? '透明前景图可免费合成白底'
+                    : '普通照片使用智能白底或棚拍方案，确认报价后生成'}>
                   <Button
                     size="small"
                     loading={optimizationSubmitting && optimizationSource?.asset.asset.id === getManagedAsset(file)?.asset.id}
-                    disabled={!productId || optimizationSubmitting || visualPlanSubmitting}
-                    onClick={() => startWhiteBackground(file)}
+                    disabled={!productId || optimizationSubmitting || visualPlanSubmitting || rateCardsLoading || quoteSubmitting}
+                    onClick={() => getManagedAsset(file)?.asset.diagnosis?.hasTransparentPixels
+                      ? startWhiteBackground(file)
+                      : startVisualPlan(file, 'CATALOG_STUDIO')}
                   >
-                    制作白底图
+                    {getManagedAsset(file)?.asset.diagnosis?.hasTransparentPixels ? '免费合成白底图' : '智能白底 / 棚拍'}
                   </Button>
                 </Tooltip>
               </Space>
@@ -1713,36 +1869,23 @@ function ImageUploadSection({
       <Modal
         title="智能图片美化建议"
         open={!!visualPlan}
-        onCancel={() => {
-          if (!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting) {
-            setVisualPlan(null);
-            setVisualPlanSource(null);
-            setFactScan(null);
-          }
-        }}
-        footer={<Button onClick={() => {
-          setVisualPlan(null);
-          setVisualPlanSource(null);
-          setFactScan(null);
-        }}>返回图片</Button>}
+        onCancel={closeVisualPlan}
+        closable={!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting && !rateCardsLoading && !quoteSubmitting}
+        maskClosable={!visualPlanSubmitting && !factScanSubmitting && !optimizationSubmitting && !rateCardsLoading && !quoteSubmitting}
+        footer={<Button
+          disabled={visualPlanSubmitting || factScanSubmitting || optimizationSubmitting || rateCardsLoading || quoteSubmitting}
+          onClick={closeVisualPlan}
+        >返回图片</Button>}
         width={760}
         destroyOnClose
       >
         {visualPlan && visualPlanSource && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f7f8fa', borderLeft: `4px solid ${risk?.color === 'green' ? '#52c41a' : risk?.color === 'red' ? '#ff4d4f' : '#1677ff'}` }}>
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                <Space wrap>
-                  <Text strong>{visualPlanSource.name}</Text>
-                  {risk && <Tag color={risk.color}>{risk.label}</Tag>}
-                  {visualPlan.recommendedMode && <Tag>{visualModeLabels[visualPlan.recommendedMode]}</Tag>}
-                </Space>
-                <Text type="secondary">
-                  {(visualPlan.sceneAnalysis?.reasons || ['系统会优先保护商品真实外观和可读信息。']).join('；')}
-                </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  建议依据当前已保存的商品标题、分类和说明；这些资料变化后，系统会要求重新分析，避免按旧商品事实调用模型。
-                </Text>
+              <Space wrap>
+                <Text strong>{visualPlanSource.name}</Text>
+                {risk && <Tag color={risk.color}>{risk.label}</Tag>}
+                {visualPlan.recommendedMode && <Tag>{visualModeLabels[visualPlan.recommendedMode]}</Tag>}
               </Space>
             </div>
 
@@ -1750,20 +1893,23 @@ function ImageUploadSection({
               <Alert type="warning" showIcon message="建议补拍原图" description="当前清晰度不足，继续处理可能制造不存在的细节。请在更稳定的光线下重新拍摄商品。" />
             ) : (
               <Alert type="info" showIcon message="当前建议" description={visualPlan.recommendedMode === 'PRESERVE_REAL_SCENE'
-                ? '保留真实场景优先。餐桌、厨房台面、床单等自然环境不需要被强行换成白底。'
-                : `建议方向：${visualPlan.recommendedMode ? visualModeLabels[visualPlan.recommendedMode] : '先保留原图'}。生成式路线尚未自动开启。`} />
+                ? '保留真实场景，改善画面即可。'
+                : `建议使用${visualPlan.recommendedMode ? visualModeLabels[visualPlan.recommendedMode] : '原图'}。`} />
             )}
 
             {visualPlan.riskProfile === 'STANDARD_FACTS' && visualPlan.allowedModes.includes('PRESERVE_REAL_SCENE') && (
               <Card size="small" title="免费实景调优" styles={{ body: { background: '#fcfcfc' } }}>
                 <Space direction="vertical" size={10} style={{ width: '100%' }}>
                   <Text type="secondary">
-                    只会进行固定、轻量的亮度、对比度和锐化调优，不裁切、不替换背景、不改变商品形状。开始前会先检查图片中是否有包装文字、二维码或条码。
+                    免费改善亮度、对比度和清晰度，不更换背景。开始前需要检查图片中的商品信息。
                   </Text>
                   {!factScan && (
-                    <Button loading={factScanSubmitting} onClick={startFactScan}>
+                    <Button loading={factScanSubmitting} disabled={Boolean(factScanUnavailableReason)} onClick={startFactScan}>
                       检查图片中的商品事实
                     </Button>
+                  )}
+                  {factScanUnavailableReason && (
+                    <Alert type="warning" showIcon message="免费实景调优暂不可用" description={factScanUnavailableReason} />
                   )}
                   {factScan && ['SCANNING', 'RECONCILING'].includes(factScan.status) && (
                     <Alert type="info" showIcon message="正在核对商品事实" description="检查尚未得出可靠结论前，不会生成美化候选。" />
@@ -1795,15 +1941,27 @@ function ImageUploadSection({
             {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && (
               <Card size="small" title="付费智能精修" extra={<Tag color="gold">先报价，后生成</Tag>} styles={{ body: { background: 'linear-gradient(135deg, #fffbe6 0%, #ffffff 80%)' } }}>
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Text type="secondary">方案、候选数和图片积分均由平台按当前风险档返回。确认后才冻结图片积分；模型未接受时自动释放，结果未知时进入对账。</Text>
+                  <div style={{ padding: '10px 12px', border: '1px solid #f0d77c', borderRadius: 8, background: '#fffdf2' }}>
+                    <Space wrap size={12}>
+                      <Text strong>图片积分</Text>
+                      {visualCreditAccountLoading ? <Spin size="small" /> : <>
+                        <Text>可用 {visualCreditAccount?.availableCredits ?? 0}</Text>
+                        <Text type="secondary">冻结 {visualCreditAccount?.reservedCredits ?? 0}</Text>
+                      </>}
+                      <Button type="link" size="small" onClick={showVisualCreditHelp}>获取图片积分</Button>
+                    </Space>
+                    {visualCreditAccountError && <Alert style={{ marginTop: 8 }} type="warning" showIcon message={visualCreditAccountError} action={<Button size="small" onClick={() => void refreshVisualCreditAccount()}>重新加载</Button>} />}
+                  </div>
+                  <Text type="secondary">选择效果并查看价格，确认后才会扣除图片积分。</Text>
                   <Space wrap>
                     <Text strong>生成方向</Text>
                     <Select
                       value={paidDirection()}
                       style={{ minWidth: 200 }}
-                      disabled={Boolean(paidExecution)}
+                      disabled={Boolean(paidExecution) || rateCardsLoading || quoteSubmitting}
                       options={visualPlan.allowedModes.map((mode) => ({ value: mode, label: visualModeLabels[mode] || mode }))}
                       onChange={(mode: ProductVisualMode) => {
+                        visualFlowGenerationRef.current += 1;
                         setSelectedPaidDirection(mode);
                         setRateCards(null);
                         setVisualQuote(null);
@@ -1812,7 +1970,7 @@ function ImageUploadSection({
                       }}
                     />
                   </Space>
-                  {paidDirection() === 'MARKETING_SCENE' && <Alert type="warning" showIcon message="AI 营销场景图仅供预览" description="系统会按受控模板重新布置展示场景，例如把采摘后的农产品放入陶瓷盘。展示数量不代表包装规格，候选不能替换商品事实主图。" />}
+                  {paidDirection() === 'MARKETING_SCENE' && <Alert type="warning" showIcon message="营销场景图仅供展示" description="不能替换商品事实主图。" />}
                   {!rateCards && !visualQuote && <Button type="primary" ghost loading={rateCardsLoading} onClick={loadPaidRateCards}>查看可用方案与图片积分</Button>}
                   {rateCards && rateCards.length === 0 && <Alert type="info" showIcon message="当前没有可用的付费方案" description="平台尚未为这类图片配置可执行模型。" />}
                   {rateCards && rateCards.length > 0 && !visualQuote && (
@@ -1823,7 +1981,7 @@ function ImageUploadSection({
                             <Space direction="vertical" size={8} style={{ width: '100%' }}>
                               <Space wrap><Text strong>{card.displayName}</Text><Tag color="gold">{card.creditCost} 图片积分</Tag><Tag>{card.candidateCount} 张候选</Tag></Space>
                               <Text type="secondary" style={{ fontSize: 12 }}>{card.description}</Text>
-                              {card.requiresHumanReview && <Text type="warning" style={{ fontSize: 12 }}>无法完全自动确认的候选会提升平台事后巡检优先级；候选仍须由商家显式采用。</Text>}
+                              {visualCreditAccount && <Text type="secondary" style={{ fontSize: 12 }}>生成后预计剩余 {Math.max(0, visualCreditAccount.availableCredits - card.creditCost)} 图片积分</Text>}
                               <Button size="small" type="primary" loading={quoteSubmitting} onClick={() => issuePaidQuote(card)}>获取本方案报价</Button>
                             </Space>
                           </Card>
@@ -1834,7 +1992,7 @@ function ImageUploadSection({
                   {visualQuote && (
                     <div style={{ borderLeft: '4px solid #d4a72c', padding: '10px 12px', background: '#fffdf2', borderRadius: 8 }}>
                       <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || '智能图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片积分</Tag><Tag>剩余 {visualQuote.availableCredits} 图片积分</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
+                        <Space wrap><Text strong>{visualQuote.quote.rateCardSnapshot.displayName || '智能图片美化报价'}</Text><Tag color="gold">本次 {visualQuote.quote.creditCost} 图片积分</Tag><Tag>当前可用 {visualQuote.availableCredits} 图片积分</Tag><Tag>生成后预计 {Math.max(0, visualQuote.availableCredits - visualQuote.quote.creditCost)} 图片积分</Tag>{!paidExecution && <Button type="link" size="small" onClick={() => { setVisualQuote(null); setQuoteConfirmed(false); }}>重新选择方案</Button>}</Space>
                         <Text type="secondary" style={{ fontSize: 12 }}>{visualQuote.quote.rateCardSnapshot.description || '将按当前受控图片计划生成候选。'} 报价有效至 {new Date(visualQuote.quote.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。</Text>
                         {visualQuote.availableCredits < visualQuote.quote.creditCost ? <Alert type="warning" showIcon message="图片积分不足" description="请联系平台管理员补充图片积分。" /> : <>
                           <Checkbox checked={quoteConfirmed} onChange={(event) => setQuoteConfirmed(event.target.checked)}>我确认使用 {visualQuote.quote.creditCost} 图片积分生成 {visualQuote.quote.candidateCount} 张候选；模型已生成的结果即使未采用也可能产生费用。</Checkbox>
@@ -1849,11 +2007,6 @@ function ImageUploadSection({
               </Card>
             )}
 
-            {visualPlan.riskProfile !== 'RETAKE_REQUIRED' && visualPlan.riskProfile !== 'STANDARD_FACTS' && paidDirection() !== 'MARKETING_SCENE' && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                当前风险档只提供建议。涉及包装、型号、条码或天然食材的图片，不会以“美化”为名改动商品事实。
-              </Text>
-            )}
           </Space>
         )}
       </Modal>

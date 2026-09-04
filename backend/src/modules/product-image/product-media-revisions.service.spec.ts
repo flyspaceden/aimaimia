@@ -277,6 +277,7 @@ describe('ProductMediaRevisionsService publication governance', () => {
   it('immediately applies an AI candidate with a pre-change snapshot and one media-version CAS', async () => {
     const product = {
       id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', mediaVersion: 8,
+      title: '有机番茄', subtitle: null, description: '当季番茄', categoryId: 'category-1', category: { name: '新鲜蔬果' },
       media: [{ assetId: 'source-asset', type: 'IMAGE', sortOrder: 0, visualOrigin: 'ORIGINAL', optimizationId: null, isEvidenceImage: false }],
     };
     const tx = {
@@ -295,6 +296,7 @@ describe('ProductMediaRevisionsService publication governance', () => {
 
     await expect(service.applyOptimizationAdoption({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', optimizationId: 'task-1', candidateAssetId: 'candidate-asset', sourceAssetId: 'source-asset',
+      expectedProductFactHash: productVisualFactHash(product),
       attestation: { quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true },
     })).resolves.toEqual({ id: 'revision-1' });
 
@@ -453,12 +455,12 @@ describe('ProductMediaRevisionsService publication governance', () => {
   it('rechecks the saved product fact hash inside the public-image adoption transaction', async () => {
     const originalFacts = {
       title: '原商品', subtitle: null, description: '原说明', categoryId: 'category-1',
-      updatedAt: new Date('2026-09-02T00:00:00.000Z'), mediaVersion: 8,
+      categoryName: '普通食品', updatedAt: new Date('2026-09-02T00:00:00.000Z'), mediaVersion: 8,
     };
     const tx = {
       product: { findFirst: jest.fn().mockResolvedValue({
         id: 'product-1', companyId: 'company-1', status: 'ACTIVE', auditStatus: 'APPROVED', media: [],
-        ...originalFacts, title: '事务前已变化', updatedAt: new Date('2026-09-02T00:01:00.000Z'),
+        ...originalFacts, categoryName: undefined, category: { name: '智能设备' }, updatedAt: new Date('2026-09-02T00:01:00.000Z'),
       }) },
       productMediaRevision: { findFirst: jest.fn().mockResolvedValue(null) },
     };

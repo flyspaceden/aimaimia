@@ -128,6 +128,35 @@ describe('AimaiProductVisualAdapterService', () => {
     expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
   });
 
+  it('does not invalidate a plan when only unrelated product update metadata changed', async () => {
+    const { service, prisma, trusted } = build();
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1', title: '测试商品', subtitle: null, description: null, categoryId: 'category-1',
+      updatedAt: new Date('2026-08-26T00:05:00.000Z'), mediaVersion: 1,
+    });
+
+    await expect(service.issueQuote(input)).resolves.toMatchObject({ quote: { id: 'quote-1' } });
+    expect(trusted.issueQuoteFromTrustedAdapter).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates a plan when the category name changes in place', async () => {
+    const { service, prisma, trusted } = build();
+    prisma.productVisualPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.STANDARD_FACTS,
+      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE], protectedRegionVersion: 'mask-v1',
+      sceneAnalysis: { productFactHash: productVisualFactHash({
+        title: '测试商品', subtitle: null, description: null, categoryId: 'category-1', categoryName: '日用品', mediaVersion: 1,
+      }) },
+    });
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1', title: '测试商品', subtitle: null, description: null, categoryId: 'category-1',
+      category: { name: '智能设备' }, updatedAt: new Date('2026-08-26T00:05:00.000Z'), mediaVersion: 1,
+    });
+
+    await expect(service.issueQuote(input)).rejects.toThrow('商品标题、分类或图片版本已变化');
+    expect(trusted.issueQuoteFromTrustedAdapter).not.toHaveBeenCalled();
+  });
+
   it('offers an organic harvest restage only through a marketing-image rate card', async () => {
     const { service, prisma, credits, trusted } = build();
     prisma.productVisualPlan.findFirst.mockResolvedValue({
@@ -153,6 +182,33 @@ describe('AimaiProductVisualAdapterService', () => {
       visualPlan: expect.objectContaining({
         direction: 'MARKETING_SCENE', riskProfile: 'ORGANIC_FACTS', presentationPreset: 'HARVEST_PLATE',
         allowedOperations: expect.arrayContaining(['SCENE_RESTAGE']),
+      }),
+    }));
+  });
+
+  it('allows an organic catalog plan to replace only the background for a studio candidate', async () => {
+    const { service, prisma, credits, trusted } = build();
+    prisma.productVisualPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', sourceHash: 'a'.repeat(64), riskProfile: ProductVisualRiskProfile.ORGANIC_FACTS,
+      allowedModes: [ProductVisualMode.PRESERVE_REAL_SCENE, ProductVisualMode.CATALOG_STUDIO, ProductVisualMode.MARKETING_SCENE],
+      protectedRegionVersion: 'mask-v1',
+      sceneAnalysis: { productFactHash: productVisualFactHash({
+        title: '测试商品', subtitle: null, description: null, categoryId: 'category-1', mediaVersion: 1,
+      }) },
+    });
+    credits.listRateCards.mockResolvedValue([{
+      code: 'CATALOG_PRO', displayName: '智能白底棚拍', description: '白色棚拍背景', outputSpec: { providerManaged: true },
+      modelProfile: 'BAILIAN_WAN_PRO', candidateCount: 1, creditCost: 10, requiresHumanReview: true, status: 'ACTIVE',
+      candidateRole: 'FACT_MAIN_IMAGE', allowedDirections: ['CATALOG_STUDIO'], allowedRiskProfiles: ['ORGANIC_FACTS'],
+    }]);
+
+    await service.issueQuote({ ...input, direction: ProductVisualMode.CATALOG_STUDIO, rateCode: 'CATALOG_PRO' });
+
+    expect(trusted.issueQuoteFromTrustedAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      visualPlan: expect.objectContaining({
+        direction: 'CATALOG_STUDIO',
+        riskProfile: 'ORGANIC_FACTS',
+        allowedOperations: expect.arrayContaining(['BACKGROUND_REPLACE']),
       }),
     }));
   });

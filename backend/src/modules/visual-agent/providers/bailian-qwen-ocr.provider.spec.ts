@@ -42,7 +42,12 @@ describe('BailianQwenOcrProvider', () => {
   it('fails closed until all OCR execution flags and credentials are configured', async () => {
     const provider = new BailianQwenOcrProvider(config({}) as any, { assertProviderAuthorization: jest.fn() } as any);
 
-    await expect(provider.recognize(await source(), authorization)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(provider.recognize(await source(), authorization)).rejects.toMatchObject({
+      response: {
+        code: 'PRODUCT_FACT_SCAN_OCR_DISABLED',
+        message: '商品文字识别服务暂未开启，当前不能检查图片中的商品事实',
+      },
+    });
   });
 
   it('uses the fixed OCR model, low pixel cap, and server-held image bytes only', async () => {

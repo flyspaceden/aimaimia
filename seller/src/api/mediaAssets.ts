@@ -11,7 +11,7 @@ export type SellerProductMediaAsset = {
   objectKey: string;
   width: number;
   height: number;
-  diagnosis?: { advisories?: ProductImageQualityAdvisory[] } | null;
+  diagnosis?: { advisories?: ProductImageQualityAdvisory[]; hasTransparentPixels?: boolean } | null;
 };
 
 export type UploadedProductImageAsset = {

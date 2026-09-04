@@ -325,9 +325,14 @@ export class BailianWanImageProvider implements VisualImageEditProvider {
         'This is not a factual main image and must remain a marketing presentation. Return one image only.',
       ].join(' ');
     }
+    const catalogDirection = plan.allowedOperations.includes('BACKGROUND_REPLACE')
+      ? 'Create a clean e-commerce catalog presentation on a pure white or very light neutral seamless studio background with a natural contact shadow, while preserving the exact product, packaging, labels, count, and proportions.'
+      : plan.allowedOperations.includes('BACKGROUND_SIMPLIFY')
+        ? 'Create a clean uncluttered catalog presentation by improving light and simplifying the existing background without replacing it, while preserving every product pixel, packaging label, count, and proportion.'
+        : 'Improve only the explicitly allowed catalog presentation properties and keep the existing background pixels and scene unchanged, while preserving every product pixel, packaging label, count, and proportion.';
     const direction = {
       PRESERVE_REAL_SCENE: 'Keep the authentic real-life setting and improve only light, color balance, clarity, glare, and minor non-product distractions.',
-      CATALOG_STUDIO: 'Create a clean neutral catalog presentation while preserving the exact product, packaging, labels, count, and proportions.',
+      CATALOG_STUDIO: catalogDirection,
       PRODUCT_RETOUCH: 'Apply conservative product retouching only within the approved non-protected regions; do not redraw product structure.',
       MARKETING_SCENE: 'Create a clearly secondary marketing presentation while preserving all protected product facts exactly.',
     }[plan.direction];

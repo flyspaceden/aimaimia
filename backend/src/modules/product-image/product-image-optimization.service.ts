@@ -272,7 +272,7 @@ export class ProductImageOptimizationService {
     }
     const product = await this.prisma.product.findFirst({
       where: { id: dto.productId, companyId },
-      select: { id: true, status: true, auditStatus: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
+      select: { id: true, status: true, auditStatus: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true, category: { select: { name: true } } },
     });
     if (!product) throw new NotFoundException('关联商品不存在');
     const expectedProductFactHash = this.taskProductFactHash(task.processingContract);
@@ -306,7 +306,7 @@ export class ProductImageOptimizationService {
       });
       const activeProduct = await tx.product.findFirst({
         where: { id: dto.productId, companyId },
-        include: { media: { orderBy: { sortOrder: 'asc' } } },
+        include: { media: { orderBy: { sortOrder: 'asc' } }, category: { select: { name: true } } },
       });
       if (!activeTask || !activeProduct) throw new ConflictException('任务或商品状态已变化，请刷新后重试');
       if (expectedProductFactHash && productVisualFactHash(activeProduct) !== expectedProductFactHash) {

@@ -92,7 +92,7 @@ export class AimaiProductVisualAdapterService {
       }),
       this.prisma.product.findFirst({
         where: { id: input.productId, companyId: input.companyId },
-        select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
+        select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true, category: { select: { name: true } } },
       }),
     ]);
     if (!source || !product) throw new NotFoundException('商品或原图已变化，不能创建图片美化报价');
@@ -214,7 +214,7 @@ export class AimaiProductVisualAdapterService {
     });
     const product = await this.prisma.product.findFirst({
       where: { id: input.productId, companyId: input.companyId },
-      select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true },
+      select: { id: true, title: true, subtitle: true, description: true, categoryId: true, updatedAt: true, mediaVersion: true, category: { select: { name: true } } },
     });
     if (!source || !product) {
       await this.credits.releaseReservedQuote(quote.id, 'SOURCE_OR_PRODUCT_CHANGED_BEFORE_EXECUTION');
@@ -576,7 +576,7 @@ export class AimaiProductVisualAdapterService {
       return direction === ProductVisualMode.PRESERVE_REAL_SCENE
         ? ['LIGHTING', 'WHITE_BALANCE', 'DENOISE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY']
         : direction === ProductVisualMode.CATALOG_STUDIO
-          ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY']
+          ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_SIMPLIFY', 'BACKGROUND_REPLACE']
           : direction === ProductVisualMode.MARKETING_SCENE
             ? ['LIGHTING', 'WHITE_BALANCE', 'COMPOSITION', 'BACKGROUND_REPLACE', 'SCENE_RESTAGE']
           : [];
