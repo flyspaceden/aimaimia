@@ -44,6 +44,14 @@ const FREE_TUNE_CONTRACT = {
   costTier: 'FREE',
 } as const;
 
+const LOCAL_PHOTOMETRIC_CONTRACT = {
+  version: 'local-photometric-v2', intent: 'FREE_TUNE', provider: 'deterministic-sharp',
+  allowedOperations: FREE_TUNE_CONTRACT.allowedOperations,
+  forbiddenOperations: FREE_TUNE_CONTRACT.forbiddenOperations,
+  parameters: { brightness: 1.025, contrast: 1.015, saturation: 1, sharpenSigma: 0.35 },
+  geometryIdentity: true, factScanRequired: false, billingStatus: 'NOT_REQUIRED', costTier: 'FREE',
+} as const;
+
 type DeterministicProductImageContract = {
   version: string;
   intent: string;
@@ -128,42 +136,44 @@ export class ProductImageOptimizationService {
     if ((source.scanSummary as { needsReview?: boolean } | null)?.needsReview) {
       throw new ConflictException('图片仍需人工安全复核，不能执行免费实景增强');
     }
-    const product = await this.prisma.product.findFirst({
-      where: { id: dto.productId, companyId, media: { some: { assetId: source.id } } },
-      select: { id: true },
-    });
-    if (!product) throw new NotFoundException('关联商品不存在，或该原图尚未用于该商品');
-    const factEvidence = await this.assertFreeTuneFactEvidence(companyId, product.id, source);
     const plan = await this.prisma.productVisualPlan.findFirst({
       where: {
         id: dto.planId,
         companyId,
-        productId: product.id,
+        productId: dto.productId,
         sourceAssetId: source.id,
         sourceHash: source.canonicalSha256,
         expiresAt: { gt: new Date() },
       },
-      select: { id: true, planHash: true, riskProfile: true, allowedModes: true, modelPolicyVersion: true, protectedRegionVersion: true },
+      select: { id: true, planHash: true, riskProfile: true, allowedModes: true, modelPolicyVersion: true, protectedRegionVersion: true, processingPlan: true },
     });
     if (!plan) throw new ConflictException('AI 美化计划已过期、已变更或不属于当前商品图片');
-    if (plan.riskProfile !== 'STANDARD_FACTS'
+    const localV2 = this.isLocalPhotometricPlan(plan.processingPlan);
+    // 新上传资产以同商家计划绑定目标商品；生成候选不先写商品公开媒体。
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, companyId, ...(!localV2 ? { media: { some: { assetId: source.id } } } : {}) },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('关联商品不存在，或该原图尚未用于该商品');
+    if (!localV2 && (plan.riskProfile !== 'STANDARD_FACTS'
       || !plan.allowedModes.includes('PRESERVE_REAL_SCENE')
       || plan.modelPolicyVersion !== 'model-policy-disabled-v1'
-      || plan.protectedRegionVersion !== 'NOT_CREATED') {
+      || plan.protectedRegionVersion !== 'NOT_CREATED')) {
       throw new ConflictException('当前风险档不允许无保护区的免费实景增强，请保留原图或等待后续受控验真路线');
     }
+    const factEvidence = localV2 ? null : await this.assertFreeTuneFactEvidence(companyId, product.id, source);
     const contract: DeterministicProductImageContract = {
-      ...FREE_TUNE_CONTRACT,
+      ...(localV2 ? LOCAL_PHOTOMETRIC_CONTRACT : FREE_TUNE_CONTRACT),
       plan: { id: plan.id, hash: plan.planHash, sourceHash: source.canonicalSha256 },
-      factEvidence: {
+      factEvidence: factEvidence ? {
         id: factEvidence.id,
         sourceHash: source.canonicalSha256,
         policyVersion: 'product-image-fact-scan-v1',
-      },
+      } : { status: 'NOT_REQUIRED', detectionConclusion: 'NOT_EVALUATED', sourceHash: source.canonicalSha256 },
     };
     const contractHash = this.sha256(JSON.stringify(contract));
     const inputFingerprint = this.sha256(`${source.id}:${source.canonicalSha256}:${contractHash}:${product.id}`);
-    const dedupeKey = this.sha256(`${inputFingerprint}:deterministic-free-tune-v1`);
+    const dedupeKey = this.sha256(`${inputFingerprint}:${localV2 ? LOCAL_PHOTOMETRIC_CONTRACT.version : 'deterministic-free-tune-v1'}`);
     await this.expireLeases({ companyId, dedupeKey });
     const { task } = await this.createOrReuseTask({
       companyId,
@@ -182,7 +192,7 @@ export class ProductImageOptimizationService {
     await this.runFreeTune(task.id, companyId, staffId, product.id, source, {
       id: plan.id,
       hash: plan.planHash,
-      factScanId: factEvidence.id,
+      factScanId: factEvidence?.id,
     });
     return this.getForSeller(companyId, task.id);
   }
@@ -403,6 +413,11 @@ export class ProductImageOptimizationService {
   private taskProductFactHash(processingContract: unknown) {
     const value = (processingContract as { visualPlan?: { adapterFactVersion?: unknown } } | null)?.visualPlan?.adapterFactVersion;
     return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null;
+  }
+
+  private isLocalPhotometricPlan(processingPlan: unknown) {
+    const policy = (processingPlan as { freeTunePolicy?: { contractVersion?: unknown; available?: unknown } } | null)?.freeTunePolicy;
+    return policy?.contractVersion === LOCAL_PHOTOMETRIC_CONTRACT.version && policy.available === true;
   }
 
   private async createOrReuseTask(input: {
@@ -713,7 +728,7 @@ export class ProductImageOptimizationService {
     staffId: string,
     productId: string,
     source: { id: string; objectKey: string; canonicalSha256: string },
-    planRef: { id: string; hash: string; factScanId: string },
+    planRef: { id: string; hash: string; factScanId?: string },
   ) {
     const leaseToken = randomUUID();
     const claimed = await this.prisma.productImageOptimization.updateMany({
@@ -730,54 +745,70 @@ export class ProductImageOptimizationService {
     if (claimed.count !== 1) return;
     const lease = await this.prisma.productImageOptimization.findFirst({
       where: { id: taskId, companyId, productId, kind: ProductImageOptimizationKind.FREE_TUNE, status: ProductImageOptimizationStatus.RUNNING, leaseToken },
-      select: { leaseGeneration: true },
+      select: { leaseGeneration: true, templateVersion: true, processingContract: true },
     });
     if (!lease) return;
 
     let uncommittedCandidateAssetId: string | null = null;
     try {
-      const [currentPlan, sourceStillAttached] = await Promise.all([
+      const storedContract = lease.processingContract as { version?: string; plan?: { id?: string; hash?: string; sourceHash?: string }; factEvidence?: { id?: string } } | null;
+      const localV2 = lease.templateVersion === LOCAL_PHOTOMETRIC_CONTRACT.version;
+      if (lease.templateVersion !== FREE_TUNE_CONTRACT.version && !localV2) {
+        throw new ConflictException('免费调优处理合约版本无效');
+      }
+      if (storedContract?.version !== lease.templateVersion
+        || storedContract.plan?.id !== planRef.id || storedContract.plan?.hash !== planRef.hash
+        || storedContract.plan?.sourceHash !== source.canonicalSha256) {
+        throw new ConflictException('免费调优任务的计划或原图证据不匹配');
+      }
+      const [currentPlan, currentProduct] = await Promise.all([
         this.prisma.productVisualPlan.findFirst({
           where: {
             id: planRef.id,
             companyId,
+            productId,
             sourceAssetId: source.id,
             sourceHash: source.canonicalSha256,
             planHash: planRef.hash,
-            riskProfile: 'STANDARD_FACTS',
+            ...(!localV2 ? { riskProfile: 'STANDARD_FACTS' as const } : {}),
             expiresAt: { gt: new Date() },
           },
-          select: { id: true, allowedModes: true, modelPolicyVersion: true, protectedRegionVersion: true },
+          select: { id: true, allowedModes: true, modelPolicyVersion: true, protectedRegionVersion: true, processingPlan: true },
         }),
         this.prisma.product.findFirst({
-          where: { id: productId, companyId, media: { some: { assetId: source.id } } },
+          where: { id: productId, companyId, ...(!localV2 ? { media: { some: { assetId: source.id } } } : {}) },
           select: { id: true },
         }),
       ]);
       const currentSource = await this.prisma.sellerMediaAsset.findFirst({
-        where: { id: source.id, companyId, canonicalSha256: source.canonicalSha256, status: SellerMediaAssetStatus.AVAILABLE, deletedAt: null },
+        where: { id: source.id, companyId, purpose: 'PRODUCT_IMAGE', canonicalSha256: source.canonicalSha256, status: SellerMediaAssetStatus.AVAILABLE, deletedAt: null },
         select: { id: true, scanSummary: true },
       });
-      if (!currentPlan || !currentPlan.allowedModes.includes('PRESERVE_REAL_SCENE')
+      if (!currentPlan || (localV2 ? !this.isLocalPhotometricPlan(currentPlan.processingPlan) : (!currentPlan.allowedModes.includes('PRESERVE_REAL_SCENE')
         || currentPlan.modelPolicyVersion !== 'model-policy-disabled-v1'
-        || currentPlan.protectedRegionVersion !== 'NOT_CREATED'
-        || !sourceStillAttached) {
+        || currentPlan.protectedRegionVersion !== 'NOT_CREATED'))
+        || !currentProduct) {
         throw new ConflictException('免费实景增强计划或商品原图绑定已失效');
       }
-      if (!currentSource) {
+      if (!currentSource || (currentSource.scanSummary as { needsReview?: boolean } | null)?.needsReview) {
         throw new ConflictException('免费实景增强原图已失效');
       }
       // The request-side check closes the fast path; repeat the immutable
       // database-backed evidence check after the lease is claimed so a newer
       // scan conclusion cannot race a queued deterministic render.
-      const currentFactEvidence = await this.assertFreeTuneFactEvidence(companyId, productId, {
-        ...source,
-        scanSummary: currentSource.scanSummary,
-      });
-      if (currentFactEvidence.id !== planRef.factScanId) {
-        throw new ConflictException('免费实景增强所依据的事实扫描已变化');
+      if (!localV2) {
+        const currentFactEvidence = await this.assertFreeTuneFactEvidence(companyId, productId, {
+          ...source,
+          scanSummary: currentSource.scanSummary,
+        });
+        if (currentFactEvidence.id !== planRef.factScanId || currentFactEvidence.id !== storedContract.factEvidence?.id) {
+          throw new ConflictException('免费实景增强所依据的事实扫描已变化');
+        }
       }
       const sourceBuffer = await this.uploadService.getBuffer(source.objectKey);
+      if (localV2 && createHash('sha256').update(sourceBuffer).digest('hex') !== source.canonicalSha256) {
+        throw new ConflictException('免费调优原图内容已变化，请重新上传');
+      }
       const enhanced = await this.composition.enhanceStandardRealScene(sourceBuffer);
       const candidate = await this.mediaAssets.createDerivedProductImageAsset(
         companyId,
@@ -819,8 +850,9 @@ export class ProductImageOptimizationService {
             isAigc: false,
             metadata: {
               integrityProof: enhanced.proof,
-              contractVersion: FREE_TUNE_CONTRACT.version,
-              factEvidence: {
+              contractVersion: lease.templateVersion,
+              billingStatus: 'NOT_REQUIRED',
+              factEvidence: localV2 ? { status: 'NOT_REQUIRED', detectionConclusion: 'NOT_EVALUATED', sourceHash: source.canonicalSha256 } : {
                 id: planRef.factScanId,
                 sourceHash: source.canonicalSha256,
                 policyVersion: 'product-image-fact-scan-v1',

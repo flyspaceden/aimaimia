@@ -221,7 +221,7 @@ export class ProductVisualPlanningService {
     allowedModes: ProductVisualMode[],
     sceneAnalysis: Record<string, unknown>,
   ) {
-    const freeTunePolicy = this.freeTunePolicy(riskProfile);
+    const freeTunePolicy = this.freeTunePolicy();
     return {
       version: POLICY_VERSION,
       riskProfile,
@@ -239,19 +239,15 @@ export class ProductVisualPlanningService {
     };
   }
 
-  private freeTunePolicy(riskProfile: ProductVisualRiskProfile) {
-    switch (riskProfile) {
-      case ProductVisualRiskProfile.STRICT_FACTS:
-        return { allowed: ['ORIENTATION', 'CROP_PREVIEW', 'BACKGROUND_LUMINANCE'], protectedRegionPixelChanges: 0 };
-      case ProductVisualRiskProfile.ORGANIC_FACTS:
-        return { allowed: ['ORIENTATION', 'CROP_PREVIEW', 'LIMITED_LUMINANCE', 'BACKGROUND_DENOISE'], exposureEvLimit: 0.15, contrastPercentLimit: 5, hueDelta: 0, saturationDelta: 0 };
-      case ProductVisualRiskProfile.CONSERVATIVE_FACTS:
-        return { allowed: ['ORIENTATION', 'CROP_PREVIEW', 'LIMITED_LUMINANCE', 'BACKGROUND_DENOISE'], exposureEvLimit: 0.2, hueDelta: 0, saturationDelta: 0, localProductRetouch: false };
-      case ProductVisualRiskProfile.STANDARD_FACTS:
-        return { allowed: ['ORIENTATION', 'CROP_PREVIEW', 'LIMITED_LUMINANCE', 'WHITE_BALANCE', 'DENOISE', 'LIGHT_SHARPEN'], requiresRecordedParameters: true };
-      default:
-        return { allowed: [] };
-    }
+  private freeTunePolicy() {
+    // 本地轻调不等于生成式编辑授权；不扩展 allowedModes 或声称扫描无文字。
+    return {
+      contractVersion: 'local-photometric-v2', available: true,
+      allowed: ['PIXEL_ALIGNED_BRIGHTNESS', 'PIXEL_ALIGNED_CONTRAST', 'NEUTRAL_SATURATION', 'LIGHT_SHARPEN'],
+      parameters: { brightness: 1.025, contrast: 1.015, saturation: 1, sharpenSigma: 0.35 },
+      geometryIdentity: true, requiresFactScan: false, requiresModel: false,
+      billingStatus: 'NOT_REQUIRED', requiresRecordedParameters: true,
+    };
   }
 
   private toResponse(plan: {

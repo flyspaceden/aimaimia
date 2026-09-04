@@ -91,6 +91,9 @@ describe('ProductVisualPlanningService', () => {
     });
 
     expect(result.riskProfile).toBe(ProductVisualRiskProfile.STRICT_FACTS);
+    expect(result.processingPlan).toMatchObject({ freeTunePolicy: {
+      contractVersion: 'local-photometric-v2', available: true, requiresFactScan: false, billingStatus: 'NOT_REQUIRED',
+    } });
     expect(result.allowedModes).not.toContain(ProductVisualMode.PRODUCT_RETOUCH);
     expect(result.recommendedMode).toBe(ProductVisualMode.PRESERVE_REAL_SCENE);
   });
@@ -109,6 +112,7 @@ describe('ProductVisualPlanningService', () => {
       riskProfile: ProductVisualRiskProfile.RETAKE_REQUIRED,
       recommendedMode: null,
       allowedModes: [],
+      processingPlan: expect.objectContaining({ freeTunePolicy: expect.objectContaining({ available: true, geometryIdentity: true }) }),
     });
   });
 

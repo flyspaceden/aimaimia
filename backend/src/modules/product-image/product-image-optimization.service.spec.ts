@@ -2,6 +2,9 @@ import { Prisma, ProductImageArtifactKind, ProductImageOptimizationStatus } from
 import { BadRequestException } from '@nestjs/common';
 import { ProductImageOptimizationService } from './product-image-optimization.service';
 import { productVisualFactHash } from './product-visual-fact-hash';
+const sharp = require('sharp') as typeof import('sharp').default;
+import { createHash } from 'crypto';
+import { ProductImageCompositionService } from './product-image-composition.service';
 
 describe('ProductImageOptimizationService deterministic white-background task', () => {
   const source = {
@@ -32,11 +35,12 @@ describe('ProductImageOptimizationService deterministic white-background task', 
   };
 
   const build = () => {
+    let persistedFields: Record<string, unknown> = {};
     const tx = {
       productImageOptimization: {
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'task-1' }),
-        create: jest.fn().mockResolvedValue(createdTask),
+        create: jest.fn().mockImplementation(({ data }) => { persistedFields = data; return { ...createdTask, ...data }; }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       productImageArtifact: {
@@ -63,7 +67,7 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       },
       productImageOptimization: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        findFirst: jest.fn().mockResolvedValue(completedTask),
+        findFirst: jest.fn().mockImplementation(async () => ({ ...completedTask, ...persistedFields, status: ProductImageOptimizationStatus.SUCCEEDED })),
       },
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
@@ -151,6 +155,152 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     expect(composition.composeWhiteBackgroundWithProof).not.toHaveBeenCalled();
     expect(mediaAssets.createDerivedProductImageAsset).toHaveBeenCalledWith('company-1', 'staff-1', expect.objectContaining({ mimetype: 'image/png' }));
     expect(result).toMatchObject({ status: ProductImageOptimizationStatus.SUCCEEDED, candidate: { assetId: 'candidate-asset' } });
+  });
+
+  const buildLocalV2 = async (riskProfile = 'STRICT_FACTS') => {
+    const context = build();
+    const width = 48;
+    const height = 36;
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 3;
+        pixels[offset] = 30 + x * 3;
+        pixels[offset + 1] = 45 + y * 3;
+        pixels[offset + 2] = 80;
+      }
+    }
+    const buffer = await sharp(pixels, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    const currentSource = { ...source, width, height,
+      canonicalSha256: createHash('sha256').update(buffer).digest('hex'),
+      scanSummary: { needsReview: false, qrCodesDetected: 1, barcodeStatus: 'INCONCLUSIVE' },
+    };
+    context.prisma.sellerMediaAsset.findFirst.mockResolvedValue(currentSource as any);
+    context.prisma.productVisualPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', planHash: 'plan-v2-sha', riskProfile,
+      allowedModes: riskProfile === 'RETAKE_REQUIRED' ? [] : ['PRESERVE_REAL_SCENE'],
+      modelPolicyVersion: 'model-policy-disabled-v1', protectedRegionVersion: 'NOT_CREATED',
+      processingPlan: { freeTunePolicy: { contractVersion: 'local-photometric-v2', available: true } },
+    } as any);
+    context.upload.getBuffer.mockResolvedValue(buffer);
+    context.composition.enhanceStandardRealScene.mockImplementation((input) => new ProductImageCompositionService().enhanceStandardRealScene(input) as any);
+    context.prisma.productImageFactScan.findFirst.mockImplementation(() => { throw new Error('v2 must not require OCR evidence'); });
+    return { ...context, currentSource, buffer, width, height };
+  };
+
+  it.each(['STRICT_FACTS', 'ORGANIC_FACTS', 'CONSERVATIVE_FACTS', 'STANDARD_FACTS', 'RETAKE_REQUIRED'])(
+    'renders a real image through local-photometric-v2 for %s without OCR or model billing', async (riskProfile) => {
+      const { service, prisma, tx, mediaAssets, composition, buffer, width, height } = await buildLocalV2(riskProfile);
+      const result = await service.requestFreeTune('company-1', 'staff-1', {
+        sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: `v2-${riskProfile}`,
+      });
+      expect(result.status).toBe('SUCCEEDED');
+      expect(prisma.productImageFactScan.findFirst).not.toHaveBeenCalled();
+      expect(composition.composeWhiteBackgroundWithProof).not.toHaveBeenCalled();
+      expect(tx.productImageOptimization.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+        templateVersion: 'local-photometric-v2', reservedCostCents: 0, costTier: 'FREE',
+        processingContract: expect.objectContaining({ billingStatus: 'NOT_REQUIRED', factEvidence: { status: 'NOT_REQUIRED', detectionConclusion: 'NOT_EVALUATED', sourceHash: expect.any(String) } }),
+      }) });
+      const rendered = mediaAssets.createDerivedProductImageAsset.mock.calls[0][2].buffer;
+      expect(await sharp(rendered).metadata()).toMatchObject({ width, height, format: 'png' });
+      expect(rendered.equals(buffer)).toBe(false);
+      expect(tx.productImageArtifact.create).toHaveBeenLastCalledWith({ data: expect.objectContaining({
+        isAigc: false,
+        metadata: expect.objectContaining({ contractVersion: 'local-photometric-v2', integrityProof: expect.objectContaining({ geometryIdentity: true, parameters: { brightness: 1.025, contrast: 1.015, saturation: 1, sharpenSigma: 0.35 } }) }),
+      }) });
+      expect(prisma.sellerMediaAsset.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses changed source bytes even when the v2 plan still exists', async () => {
+    const { service, upload, composition, prisma } = await buildLocalV2();
+    upload.getBuffer.mockResolvedValue(Buffer.from('different image'));
+    await service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-changed-content',
+    });
+    expect(composition.enhanceStandardRealScene).not.toHaveBeenCalled();
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', failureDetail: expect.stringContaining('内容已变化') }),
+    }));
+  });
+
+  it('rechecks safety-review state after claiming a v2 task', async () => {
+    const { service, prisma, currentSource, composition } = await buildLocalV2();
+    prisma.sellerMediaAsset.findFirst.mockResolvedValueOnce(currentSource as any)
+      .mockResolvedValueOnce({ ...currentSource, scanSummary: { needsReview: true } } as any);
+    await service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-review-changed',
+    });
+    expect(composition.enhanceStandardRealScene).not.toHaveBeenCalled();
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) }));
+  });
+
+  it('does not store a candidate when stable source bytes cannot be decoded', async () => {
+    const { service, prisma, upload, currentSource, mediaAssets } = await buildLocalV2();
+    const invalid = Buffer.from('not an image');
+    prisma.sellerMediaAsset.findFirst.mockResolvedValue({ ...currentSource, canonicalSha256: createHash('sha256').update(invalid).digest('hex') } as any);
+    upload.getBuffer.mockResolvedValue(invalid);
+    await service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-invalid-image',
+    });
+    expect(mediaAssets.createDerivedProductImageAsset).not.toHaveBeenCalled();
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', failureDetail: expect.stringContaining('解码') }),
+    }));
+  });
+
+  it('rejects a v2 request for a product outside the merchant scope', async () => {
+    const { service, prisma, tx } = await buildLocalV2();
+    prisma.product.findFirst.mockResolvedValue(null);
+    await expect(service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-unattached',
+    })).rejects.toThrow('原图尚未用于该商品');
+    expect(tx.productImageOptimization.create).not.toHaveBeenCalled();
+  });
+
+  it('renders a newly uploaded v2 image without attaching or publishing it first', async () => {
+    const { service, prisma, tx, currentSource, mediaAssets } = await buildLocalV2();
+    prisma.product.findFirst.mockImplementation(async ({ where }: any) => where.media ? null : { id: 'product-1' });
+    await expect(service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-new-upload',
+    })).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    expect(prisma.product.findFirst).toHaveBeenCalledTimes(2);
+    for (const [query] of prisma.product.findFirst.mock.calls) {
+      expect(query.where).toEqual({ id: 'product-1', companyId: 'company-1' });
+    }
+    expect(prisma.productVisualPlan.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      productId: 'product-1', companyId: 'company-1', sourceAssetId: currentSource.id, sourceHash: currentSource.canonicalSha256,
+    }) }));
+    expect(mediaAssets.createDerivedProductImageAsset).toHaveBeenCalledTimes(1);
+    expect(tx.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'SUCCEEDED' }) }));
+    expect(prisma.sellerMediaAsset.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('still rejects an unbound legacy image and refuses an asset from another company', async () => {
+    const legacy = build();
+    legacy.prisma.product.findFirst.mockImplementation(async ({ where }: any) => where.media ? null : { id: 'product-1' });
+    await expect(legacy.service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'legacy-unattached',
+    })).rejects.toThrow('原图尚未用于该商品');
+    expect(legacy.tx.productImageOptimization.create).not.toHaveBeenCalled();
+
+    const local = await buildLocalV2();
+    local.prisma.sellerMediaAsset.findFirst.mockImplementation(async ({ where }: any) => where.companyId === 'company-other' ? local.currentSource : null);
+    await expect(local.service.requestFreeTune('company-1', 'staff-1', {
+      sourceAssetId: source.id, productId: 'product-1', intent: 'FREE_TUNE', planId: 'plan-1', idempotencyKey: 'v2-cross-company',
+    })).rejects.toThrow('商品图片资产不存在');
+    expect(local.tx.productImageOptimization.create).not.toHaveBeenCalled();
+  });
+
+  it('does not upgrade a persisted legacy free task merely because the current plan advertises v2', async () => {
+    const { service, prisma, currentSource, composition } = await buildLocalV2();
+    prisma.productImageOptimization.findFirst.mockResolvedValue({
+      ...completedTask, templateVersion: 'phase-p1b-free-tune-v1',
+      processingContract: { version: 'phase-p1b-free-tune-v1', plan: { id: 'plan-1', hash: 'plan-v2-sha', sourceHash: currentSource.canonicalSha256 }, factEvidence: { id: 'legacy-fact-scan' } },
+    } as any);
+    await (service as any).runFreeTune('task-1', 'company-1', 'staff-1', 'product-1', currentSource, { id: 'plan-1', hash: 'plan-v2-sha', factScanId: 'legacy-fact-scan' });
+    expect(composition.enhanceStandardRealScene).not.toHaveBeenCalled();
+    expect(prisma.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED', failureDetail: expect.stringContaining('OCR') }) }));
   });
 
   it('refuses FREE_TUNE for a strict-facts plan until protected-region verification exists', async () => {
@@ -392,11 +542,15 @@ describe('ProductImageOptimizationService deterministic white-background task', 
     }));
   });
 
-  it('adopts a candidate into an unpublished product only through an evidence-preserving transaction', async () => {
+  it.each([
+    { kind: 'WHITE_BACKGROUND', templateVersion: 'phase-b-white-background-v1', visualOrigin: 'DETERMINISTIC_COMPOSITE' },
+    { kind: 'FREE_TUNE', templateVersion: 'local-photometric-v2', visualOrigin: 'DETERMINISTIC_ENHANCEMENT' },
+  ])('adopts a $templateVersion candidate with an unattached source only through an explicit evidence-preserving transaction', async ({ kind, templateVersion, visualOrigin }) => {
     const candidate = { id: 'candidate-asset', status: 'CANDIDATE', objectKey: 'seller-product-assets/candidate.png' };
     const sourceAsset = { id: 'source-asset', status: 'AVAILABLE', objectKey: 'seller-product-assets/source.webp' };
     const succeededTask = {
       id: 'task-1', companyId: 'company-1', productId: 'product-1', status: ProductImageOptimizationStatus.SUCCEEDED,
+      kind, templateVersion, processingContract: { version: templateVersion },
       artifacts: [
         { kind: ProductImageArtifactKind.CANDIDATE, asset: candidate },
         { kind: ProductImageArtifactKind.FOREGROUND_REFERENCE, asset: sourceAsset },
@@ -432,7 +586,7 @@ describe('ProductImageOptimizationService deterministic white-background task', 
       data: expect.objectContaining({ assetId: 'source-asset', sortOrder: 1, isEvidenceImage: true, visualOrigin: 'ORIGINAL' }),
     }));
     expect(tx.productMedia.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ assetId: 'candidate-asset', optimizationId: 'task-1', visualOrigin: 'DETERMINISTIC_COMPOSITE' }),
+      data: expect.objectContaining({ assetId: 'candidate-asset', optimizationId: 'task-1', visualOrigin }),
     }));
     expect(tx.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: ProductImageOptimizationStatus.ADOPTED, adoptedByStaffId: 'staff-1' }),
