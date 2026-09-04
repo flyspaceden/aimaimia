@@ -466,6 +466,10 @@
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
     },
     {
+      "path": "backend/src/modules/visual-agent/providers/bailian-structure-verification.provider.ts",
+      "reason": "approved two-image structure comparison with durable authorization and bounded evidence; no buyer or Delivery changes"
+    },
+    {
       "path": "backend/src/modules/visual-agent/providers/bailian-qwen-ocr.provider.ts",
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
     },
@@ -540,6 +544,10 @@
     {
       "path": "backend/src/modules/visual-agent/visual-paid-execution.service.ts",
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-structure-runner.service.ts",
+      "reason": "approved durable structure verification reports and no-repeat-charge recovery; distinct from billing and publication"
     },
     {
       "path": "backend/src/modules/visual-agent/visual-task-execution.service.ts",

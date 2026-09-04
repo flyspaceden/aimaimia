@@ -197,6 +197,7 @@ describe('VisualAgentInvocationService', () => {
       adapterExecutionApproved: true as const, leaseToken: 'lease-1', leaseGeneration: 1, expiresAt: new Date(Date.now() + 60_000),
     };
     const goodInvocation = {
+      sourceHash, visualPlanHash: planHash, visualMode: 'PRESERVE_REAL_SCENE',
       provider: 'BAILIAN_WAN', status: VisualAgentInvocationStatus.SUBMITTING, model: 'wan2.7-image', policySnapshotVersion: 'snapshot-1',
       reservedCostCents: 20, leaseToken: 'lease-1', leaseGeneration: 1, leaseExpiresAt: new Date(Date.now() + 60_000),
       reservations: scopes.map((scope) => ({ scope, policy: { enabled: true, effectiveFrom: new Date(0), effectiveUntil: null } })),
@@ -207,6 +208,14 @@ describe('VisualAgentInvocationService', () => {
     const service = new VisualAgentInvocationService(prisma as any);
 
     await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image')).resolves.toBeUndefined();
+    await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image', {
+      sourceHash, visualPlanHash: planHash, visualMode: 'PRESERVE_REAL_SCENE',
+    })).resolves.toBeUndefined();
+    for (const mismatch of [{ sourceHash: 'c'.repeat(64) }, { visualPlanHash: 'c'.repeat(64) }, { visualMode: 'STRUCTURE_VERIFY' }]) {
+      await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image', {
+        sourceHash, visualPlanHash: planHash, visualMode: 'PRESERVE_REAL_SCENE', ...mismatch,
+      })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    }
     await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_QWEN_OCR', 'wan2.7-image')).rejects.toBeInstanceOf(ServiceUnavailableException);
     prisma.tx.visualAgentInvocation.findUnique.mockResolvedValue({ ...goodInvocation, reservations: goodInvocation.reservations.slice(1) });
     await expect(service.assertProviderAuthorization(authorization, 'BAILIAN_WAN', 'wan2.7-image')).rejects.toBeInstanceOf(ServiceUnavailableException);

@@ -1,5 +1,12 @@
 # 爱买买 AI 赋能农业电商平台 — 数据库设计（NestJS + Prisma + PostgreSQL｜中国区 iOS/Android 上线版｜完整版）
 
+## 2026-09-04 图片 Agent v3 本地增量（未部署）
+
+- `VisualTaskExecution` 是报价一对一的非计费后台调度记录；确认冻结同事务建立任务，维护租约 token/generation/expiry 和下一次执行时间，不能替代供应商提交租约。
+- `VisualAgentInvocation.verificationReport Json?` 保存两图结构检查的有限枚举证据、输入对/计划哈希；与供应商 requestId/usage 在原提交租约 CAS 下同事务写入。旧调用默认 null，不回填虚构证据。
+- 检查结论与账务独立：BILLING_EXCEPTION 不抹掉既有 FAIL。actualCostCents 仍是供应商账单成本，不能用缺失usage或粗略token估算填0。
+- 两个新增迁移分别为 `20260904000100_visual_task_execution` 与 `20260904000200_visual_structure_report`。回滚代码时保留表/可空字段和在途记录，禁止清空任务或重发未知收费请求。
+
 > 覆盖三端：App（买家）/ 卖家后台（公司）/ 平台后台（运营）  
 > 中国区本地化：微信/支付宝/银行卡支付，高德/腾讯地图，顺丰等物流对接  
 > 核心商业：分润奖励（普通广播 X + VIP 三叉树上溯分配）可审计、可回滚、可版本化

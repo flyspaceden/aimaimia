@@ -7,6 +7,8 @@ import { BailianQwenOcrProvider } from './providers/bailian-qwen-ocr.provider';
 import { VisualAgentInvocationService } from './visual-agent-invocation.service';
 import { VisualAgentProviderRunnerService } from './visual-agent-provider-runner.service';
 import { VisualAgentOcrRunnerService } from './visual-agent-ocr-runner.service';
+import { VisualAgentStructureRunnerService } from './visual-agent-structure-runner.service';
+import { BailianStructureVerificationProvider } from './providers/bailian-structure-verification.provider';
 import { VisualAgentClientKeyService } from './visual-agent-client-key.service';
 import { VisualAgentClientKeyGuard } from './visual-agent-client-key.guard';
 import { VisualAgentSessionController } from './visual-agent-session.controller';
@@ -26,7 +28,7 @@ import { VisualAgentManagedOutputService } from './visual-agent-managed-output.s
 @Module({
   imports: [UploadModule],
   controllers: [VisualAgentSessionController, VisualAgentPublicController],
-  providers: [VisualTaskExecutionService, VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
-  exports: [VisualTaskExecutionService, VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
+  providers: [VisualTaskExecutionService, VisualAgentInvocationService, BailianWanImageProvider, BailianQwenImageProvider, BailianQwenOcrProvider, BailianStructureVerificationProvider, VisualAgentStructureRunnerService, VisualAgentProviderRunnerService, VisualAgentOcrRunnerService, VisualAgentClientKeyService, VisualAgentClientKeyGuard, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
+  exports: [VisualTaskExecutionService, VisualAgentStructureRunnerService, VisualAgentOcrRunnerService, VisualAgentInvocationService, VisualAgentClientKeyService, VisualAgentTrustedAdapterService, VisualCreditService, VisualPaidExecutionService, VisualAgentPublicService, VisualAgentCandidateVerificationService, VisualAgentManagedOutputService],
 })
 export class VisualAgentModule {}

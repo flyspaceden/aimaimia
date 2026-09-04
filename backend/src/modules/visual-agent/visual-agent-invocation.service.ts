@@ -48,8 +48,9 @@ const SUPPORTED_PROVIDER_MODELS = new Set([
   'BAILIAN_WAN:wan2.7-image-pro',
   'BAILIAN_QWEN_IMAGE:qwen-image-3.0',
   'BAILIAN_QWEN_IMAGE:qwen-image-3.0-pro',
+  'BAILIAN_QWEN_STRUCTURE:qwen3-vl-flash',
 ]);
-const SUPPORTED_VISUAL_MODES = new Set(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE']);
+const SUPPORTED_VISUAL_MODES = new Set(['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE', 'STRUCTURE_VERIFY']);
 const VERIFICATION_TTL_MS = 15 * 60_000;
 
 export type ReserveVisualAgentInvocationInput = {
@@ -194,6 +195,7 @@ export class VisualAgentInvocationService {
     if (identifiers.some((value) => !/^[A-Za-z0-9._:/-]{1,240}$/.test(value))
       || !SUPPORTED_PROVIDER_MODELS.has(`${input.provider}:${input.model}`)
       || !SUPPORTED_VISUAL_MODES.has(input.visualMode)
+      || ((input.provider === 'BAILIAN_QWEN_STRUCTURE') !== (input.visualMode === 'STRUCTURE_VERIFY'))
       || !Number.isInteger(input.reserveCents) || input.reserveCents <= 0
       || !Number.isInteger(input.perTaskCapCents) || input.perTaskCapCents < input.reserveCents
       || !Number.isInteger(input.dailyCapCents) || input.dailyCapCents < input.reserveCents
@@ -477,7 +479,12 @@ export class VisualAgentInvocationService {
     return invocation;
   }
 
-  async assertProviderAuthorization(authorization: VisualProviderAuthorization, provider: string, model: string): Promise<void> {
+  async assertProviderAuthorization(
+    authorization: VisualProviderAuthorization,
+    provider: string,
+    model: string,
+    expectedBinding?: { sourceHash: string; visualPlanHash: string; visualMode: string },
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const providerRef = await tx.visualAgentInvocation.findUnique({
         where: { id: authorization.invocationId },
@@ -490,6 +497,8 @@ export class VisualAgentInvocationService {
         include: { reservations: { include: { policy: { select: { enabled: true, effectiveFrom: true, effectiveUntil: true } } } } },
       });
       if (!invocation || invocation.status !== VisualAgentInvocationStatus.SUBMITTING || invocation.provider !== provider || invocation.model !== model
+        || (expectedBinding && (invocation.sourceHash !== expectedBinding.sourceHash
+          || invocation.visualPlanHash !== expectedBinding.visualPlanHash || invocation.visualMode !== expectedBinding.visualMode))
         || invocation.policySnapshotVersion !== authorization.policySnapshotVersion
         || invocation.reservedCostCents !== authorization.reservedCostCents
         || invocation.leaseToken !== authorization.leaseToken

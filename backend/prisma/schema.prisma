@@ -1988,6 +1988,7 @@ model VisualAgentInvocation {
   providerRequestId      String?
   providerOutputUrl      String?
   providerUsage          Json?
+  verificationReport     Json?
   reconciliationReason   String?
   leaseToken             String?
   leaseGeneration        Int                         @default(0)
