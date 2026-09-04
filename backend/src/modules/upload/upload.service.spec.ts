@@ -8,7 +8,7 @@ describe('UploadService download files', () => {
     const service = new UploadService({ get: jest.fn((_key: string, fallback?: string) => fallback) } as any, {} as any);
     const file = { mimetype: 'image/jpeg' } as Express.Multer.File;
 
-    await expect(service.uploadFile(file, 'seller-product-assets', { preserveLosslessImage: true })).rejects.toThrow('仅接受 PNG');
+    await expect(service.uploadFile(file, 'seller-product-assets', { preserveManagedImage: true })).rejects.toThrow('仅接受 PNG');
   });
 
   it('does not transcode a lossless renderer PNG before recording its integrity proof', async () => {
@@ -28,10 +28,10 @@ describe('UploadService download files', () => {
 
     const result = await service.uploadFile({
       buffer, size: buffer.length, mimetype: 'image/png', originalname: 'candidate.png',
-    } as Express.Multer.File, 'seller-product-assets', { preserveLosslessImage: true, preserveQrCodes: true });
+    } as Express.Multer.File, 'seller-product-assets', { preserveManagedImage: true, preserveQrCodes: true });
 
     expect(normalizeImage).not.toHaveBeenCalled();
-    expect(scanner.scanAndProcess).toHaveBeenCalledWith(buffer, { preserveLosslessImage: true, preserveQrCodes: true });
+    expect(scanner.scanAndProcess).toHaveBeenCalledWith(buffer, { preserveManagedImage: true, preserveQrCodes: true });
     expect(put).toHaveBeenCalledWith(expect.stringMatching(/^seller-product-assets\//), buffer, expect.anything());
     expect(result.mimeType).toBe('image/png');
   });

@@ -381,6 +381,15 @@ export class AimaiProductVisualAdapterService {
     const principal = await this.resolveAimaiPrincipal();
     const access = await this.credits.getQuoteForClient({ principal, quoteId: input.quoteId });
     this.assertMerchantQuoteAccess(access, input.companyId, input.productId);
+    const pending = await this.candidates.getPendingVerification(input.companyId, input.quoteId);
+    if (pending) {
+      if (pending.provider !== 'BAILIAN_WAN' && pending.provider !== 'BAILIAN_QWEN_IMAGE') {
+        throw new ConflictException('付费图片候选缺少可恢复的模型服务标识');
+      }
+      const recoveryQuote = await this.credits.getQuoteForCandidateFinalization({ principal, quoteId: input.quoteId });
+      if (!recoveryQuote.visualAgentInvocationId) throw new ConflictException('付费图片候选缺少可恢复的模型调用');
+      return this.finalizePersistedCandidate(input, recoveryQuote, pending, recoveryQuote.visualAgentInvocationId, pending.provider);
+    }
     const polled = await this.execution.pollForOutput({ principal, quoteId: input.quoteId });
     if (polled.status !== 'VERIFYING') return polled;
     let quote;
@@ -394,8 +403,9 @@ export class AimaiProductVisualAdapterService {
       if (settled) return this.toTerminalPollResult(input.quoteId, settled);
       throw error;
     }
+    let candidate;
     try {
-      const candidate = await this.candidates.persistPendingVerification({
+      candidate = await this.candidates.persistPendingVerification({
         companyId: input.companyId,
         staffId: input.staffId,
         productId: input.productId,
@@ -405,9 +415,25 @@ export class AimaiProductVisualAdapterService {
         quote,
         output: polled.output,
       });
-      if (!candidate.candidateObjectKey) {
-        throw new ConflictException('付费图片候选缺少受管存储证据');
-      }
+    } catch (error) {
+      await Promise.allSettled([
+        this.invocations.moveVerificationToReconciliation(polled.invocationId, polled.provider, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED'),
+        this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED'),
+      ]);
+      throw error;
+    }
+    return this.finalizePersistedCandidate(input, quote, candidate, polled.invocationId, polled.provider);
+  }
+
+  private async finalizePersistedCandidate(
+    input: { companyId: string; staffId: string; productId: string; quoteId: string },
+    quote: any,
+    candidate: { id: string; candidateAssetId?: string | null; candidateObjectKey?: string | null },
+    invocationId: string,
+    provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE',
+  ) {
+    try {
+      if (!candidate.candidateObjectKey) throw new ConflictException('付费图片候选缺少受管存储证据');
       const source = await this.prisma.sellerMediaAsset.findFirst({
         where: {
           id: quote.sourceAssetRef,
@@ -435,11 +461,12 @@ export class AimaiProductVisualAdapterService {
         candidateBuffer,
         allowAutoPass: !requiresHumanReview && local.disposition !== 'REJECT',
       });
-      await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
+      await this.invocations.completeSynchronousVerification(invocationId, provider);
       await this.credits.settleReservedQuote(quote.id, '模型结果已受管存储，等待商家确认采用');
       const optimization = await this.candidates.finalizeVerification(input.companyId, quote.id, { local, ocr }, requiresHumanReview);
       return {
-        ...polled,
+        quoteId: quote.id,
+        invocationId,
         candidate,
         optimizationId: optimization.id,
         verification: optimization.verification,
@@ -448,7 +475,10 @@ export class AimaiProductVisualAdapterService {
           : 'SUCCEEDED' as const,
       };
     } catch (error) {
-      await this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+      await Promise.allSettled([
+        this.invocations.moveVerificationToReconciliation(invocationId, provider, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED'),
+        this.credits.markReconciliation(quote.id, 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED'),
+      ]);
       throw error;
     }
   }

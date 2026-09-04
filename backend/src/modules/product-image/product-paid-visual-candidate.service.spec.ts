@@ -1,11 +1,18 @@
 import { ProductImageArtifactKind, ProductImageOptimizationKind, ProductImageOptimizationStatus } from '@prisma/client';
 import { ProductPaidVisualCandidateService } from './product-paid-visual-candidate.service';
+import { UPLOAD_MAX_FILE_SIZE } from '../upload/upload.constants';
+import { VisualAgentManagedOutputService } from '../visual-agent/visual-agent-managed-output.service';
+const sharp = require('sharp') as typeof import('sharp').default;
 
 const quote = {
   id: 'quote-1', quoteHash: 'c'.repeat(64), sourceAssetRef: 'source-asset', sourceHash: 'a'.repeat(64),
   visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'] },
   rateCardSnapshot: { modelProfile: 'BAILIAN_WAN_STANDARD' }, visualAgentInvocationId: 'invocation-1',
 };
+
+function samplePng() {
+  return sharp({ create: { width: 320, height: 240, channels: 3, background: '#bb6655' } }).png().toBuffer();
+}
 
 function build() {
   const tx = {
@@ -46,18 +53,20 @@ function build() {
     }),
   };
   const upload = { createPrivateAccessUrl: jest.fn().mockResolvedValue({ url: 'https://preview.example/image', expiresAt: '2026-08-26T12:05:00.000Z' }) };
-  return { service: new ProductPaidVisualCandidateService(prisma as any, assets as any, upload as any), prisma, tx, assets, upload };
+  const managedOutputs = new VisualAgentManagedOutputService();
+  return { service: new ProductPaidVisualCandidateService(prisma as any, assets as any, upload as any, managedOutputs), prisma, tx, assets, upload };
 }
 
 describe('ProductPaidVisualCandidateService', () => {
   it('persists a paid output as an AIGC candidate that cannot be adopted until settlement finalizes', async () => {
     const { service, tx, assets } = build();
+    const buffer = await samplePng();
     const result = await service.persistPendingVerification({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN',
-      quote, output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
+      quote, output: { buffer, mimeType: 'image/png' },
     });
 
-    expect(result).toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING, candidateAssetId: 'candidate-asset', candidateObjectKey: 'seller-product-assets/candidate.png' });
+    expect(result).toEqual({ id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING, provider: null, candidateAssetId: 'candidate-asset', candidateObjectKey: 'seller-product-assets/candidate.png' });
     expect(assets.createDerivedProductImageAsset).toHaveBeenCalledWith('company-1', 'staff-1', expect.objectContaining({ mimetype: 'image/png' }));
     expect(tx.productImageOptimization.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -72,11 +81,12 @@ describe('ProductPaidVisualCandidateService', () => {
 
   it('persists a candidate for a newly uploaded owned source before that source is public product media', async () => {
     const { service, prisma } = build();
+    const buffer = await samplePng();
 
     await service.persistPendingVerification({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset',
       sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN', quote,
-      output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
+      output: { buffer, mimeType: 'image/png' },
     });
     expect(prisma.product.findFirst).toHaveBeenCalledWith({
       where: { id: 'product-1', companyId: 'company-1' },
@@ -84,13 +94,62 @@ describe('ProductPaidVisualCandidateService', () => {
     });
   });
 
+  it('returns a persisted reconciling candidate for idempotent finalization recovery', async () => {
+    const { service, prisma } = build();
+    prisma.productImageOptimization.findUnique.mockResolvedValue({
+      id: 'optimization-1', status: ProductImageOptimizationStatus.RECONCILING, provider: 'BAILIAN_WAN',
+      artifacts: [{ kind: ProductImageArtifactKind.CANDIDATE, asset: { id: 'candidate-asset', objectKey: 'seller-product-assets/candidate.webp' } }],
+    });
+
+    await expect(service.getPendingVerification('company-1', 'quote-1')).resolves.toMatchObject({
+      id: 'optimization-1', provider: 'BAILIAN_WAN', candidateObjectKey: 'seller-product-assets/candidate.webp',
+    });
+  });
+
+  it('losslessly normalizes an oversized Provider PNG below the managed candidate limit', async () => {
+    const { service, assets } = build();
+    const oversized = await sharp({
+      create: { width: 2100, height: 2100, channels: 3, background: '#bb3322' },
+    }).png({ compressionLevel: 0 }).toBuffer();
+    expect(oversized.length).toBeGreaterThan(UPLOAD_MAX_FILE_SIZE);
+
+    await service.persistPendingVerification({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset',
+      sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN', quote,
+      output: { buffer: oversized, mimeType: 'image/png' },
+    });
+
+    const managedFile = (assets.createDerivedProductImageAsset as jest.Mock).mock.calls[0][2];
+    expect(managedFile.mimetype).toBe('image/webp');
+    expect(managedFile.size).toBeLessThanOrEqual(UPLOAD_MAX_FILE_SIZE);
+    await expect(sharp(managedFile.buffer).metadata()).resolves.toMatchObject({ format: 'webp', width: 2100, height: 2100 });
+  });
+
+  it('normalizes a Provider JPEG to a lossless managed WebP candidate', async () => {
+    const { service, assets } = build();
+    const jpeg = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: '#448866' },
+    }).jpeg({ quality: 95 }).toBuffer();
+
+    await service.persistPendingVerification({
+      companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset',
+      sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN', quote,
+      output: { buffer: jpeg, mimeType: 'image/jpeg' },
+    });
+
+    const managedFile = (assets.createDerivedProductImageAsset as jest.Mock).mock.calls[0][2];
+    expect(managedFile.mimetype).toBe('image/webp');
+    expect(managedFile.size).toBeLessThanOrEqual(UPLOAD_MAX_FILE_SIZE);
+  });
+
   it('retires an unlinked candidate if persistence fails after output storage', async () => {
     const { service, prisma } = build();
+    const buffer = await samplePng();
     (prisma.$transaction as jest.Mock).mockRejectedValue(new Error('transaction failed'));
 
     await expect(service.persistPendingVerification({
       companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', sourceAssetId: 'source-asset', sourceCanonicalHash: 'a'.repeat(64), provider: 'BAILIAN_WAN',
-      quote, output: { buffer: Buffer.from('candidate'), mimeType: 'image/png' },
+      quote, output: { buffer, mimeType: 'image/png' },
     })).rejects.toThrow('transaction failed');
     expect(prisma.sellerMediaAsset.updateMany).toHaveBeenCalledWith({
       where: { id: 'candidate-asset', companyId: 'company-1', status: 'CANDIDATE' },

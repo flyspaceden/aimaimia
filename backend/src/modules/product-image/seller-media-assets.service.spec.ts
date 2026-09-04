@@ -144,7 +144,7 @@ describe('SellerMediaAssetsService derived deterministic assets', () => {
 
     expect(upload.uploadFile).toHaveBeenCalledWith(file, 'seller-product-assets', {
       preserveQrCodes: true,
-      preserveLosslessImage: true,
+      preserveManagedImage: true,
     });
     expect(prisma.sellerMediaAsset.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ diagnosisVersion: 'phase-b-deterministic-v1', mimeType: 'image/png' }),

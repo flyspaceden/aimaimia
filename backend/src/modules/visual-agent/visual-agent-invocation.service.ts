@@ -584,10 +584,21 @@ export class VisualAgentInvocationService {
 
   async completeSynchronousVerification(invocationId: string, provider: string) {
     const completed = await this.prisma.visualAgentInvocation.updateMany({
-      where: { id: invocationId, provider, status: VisualAgentInvocationStatus.VERIFYING },
+      where: {
+        id: invocationId,
+        provider,
+        status: { in: [VisualAgentInvocationStatus.VERIFYING, VisualAgentInvocationStatus.RECONCILING] },
+        providerOutputUrl: { not: null },
+      },
       data: { status: VisualAgentInvocationStatus.SUCCEEDED },
     });
-    if (completed.count !== 1) throw new ConflictException('AI Visual Agent 同步调用当前不能完成验真');
+    if (completed.count === 1) return;
+    const existing = await this.prisma.visualAgentInvocation.findUnique({
+      where: { id: invocationId },
+      select: { provider: true, status: true, providerOutputUrl: true },
+    });
+    if (existing?.provider === provider && existing.status === VisualAgentInvocationStatus.SUCCEEDED && existing.providerOutputUrl) return;
+    throw new ConflictException('AI Visual Agent 同步调用当前不能完成验真');
   }
 
   async moveVerificationToReconciliation(invocationId: string, provider: string, reason: string) {

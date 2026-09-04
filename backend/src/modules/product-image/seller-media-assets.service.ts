@@ -32,7 +32,7 @@ export class SellerMediaAssetsService {
       companyId,
       staffId,
       file,
-      { preserveQrCodes: true, preserveLosslessImage: true },
+      { preserveQrCodes: true, preserveManagedImage: true },
       'phase-b-deterministic-v1',
       SellerMediaAssetStatus.CANDIDATE,
     );
@@ -42,7 +42,7 @@ export class SellerMediaAssetsService {
     companyId: string,
     staffId: string,
     file: Express.Multer.File,
-    uploadOptions: { preserveQrCodes: boolean; preserveLosslessImage?: boolean; preserveEvidencePixels?: boolean },
+    uploadOptions: { preserveQrCodes: boolean; preserveManagedImage?: boolean; preserveEvidencePixels?: boolean },
     diagnosisVersion: string,
     assetStatus: SellerMediaAssetStatus,
   ) {

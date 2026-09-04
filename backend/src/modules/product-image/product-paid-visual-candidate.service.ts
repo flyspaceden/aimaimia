@@ -6,6 +6,7 @@ import { SellerMediaAssetsService } from './seller-media-assets.service';
 import { UploadService } from '../upload/upload.service';
 import { LocalCandidateVerificationReport } from './product-image-candidate-local-verification.service';
 import { CandidateOcrVerificationReport } from './product-image-candidate-ocr-verification.service';
+import { VisualAgentManagedOutputService } from '../visual-agent/visual-agent-managed-output.service';
 
 type PersistPaidCandidateInput = {
   companyId: string;
@@ -37,6 +38,7 @@ export class ProductPaidVisualCandidateService {
     private readonly prisma: PrismaService,
     private readonly assets: SellerMediaAssetsService,
     private readonly uploadService: UploadService,
+    private readonly managedOutputs: VisualAgentManagedOutputService,
   ) {}
 
   async persistPendingVerification(input: PersistPaidCandidateInput) {
@@ -66,11 +68,12 @@ export class ProductPaidVisualCandidateService {
     });
     if (existing) return this.toResult(existing);
 
+    const managedOutput = await this.managedOutputs.normalize(input.output);
     const candidate = await this.assets.createDerivedProductImageAsset(input.companyId, input.staffId, {
-      buffer: input.output.buffer,
-      size: input.output.buffer.length,
-      mimetype: input.output.mimeType,
-      originalname: 'paid-visual-candidate.png',
+      buffer: managedOutput.buffer,
+      size: managedOutput.buffer.length,
+      mimetype: managedOutput.mimeType,
+      originalname: managedOutput.mimeType === 'image/png' ? 'paid-visual-candidate.png' : 'paid-visual-candidate.webp',
     } as Express.Multer.File);
     try {
       const contract = {
@@ -83,8 +86,7 @@ export class ProductPaidVisualCandidateService {
         rateCard: input.quote.rateCardSnapshot,
         verification: {
           state: 'PENDING_CORE_COMPLETION_AND_HUMAN_FACT_REVIEW',
-          outputMimeType: input.output.mimeType,
-          outputByteSize: input.output.buffer.length,
+          managedOutput: managedOutput.audit,
         },
       };
       const task = await this.prisma.$transaction(async (tx) => {
@@ -167,6 +169,16 @@ export class ProductPaidVisualCandidateService {
       });
       throw error;
     }
+  }
+
+  async getPendingVerification(companyId: string, quoteId: string) {
+    const task = await this.prisma.productImageOptimization.findUnique({
+      where: { companyId_idempotencyKey: { companyId, idempotencyKey: `paid-quote:${quoteId}` } },
+      include: { artifacts: { where: { kind: ProductImageArtifactKind.CANDIDATE }, include: { asset: true } } },
+    });
+    if (!task || task.status !== ProductImageOptimizationStatus.RECONCILING) return null;
+    const result = this.toResult(task);
+    return result.candidateObjectKey ? result : null;
   }
 
   async finalizeVerification(
@@ -337,6 +349,6 @@ export class ProductPaidVisualCandidateService {
 
   private toResult(task: any) {
     const candidate = task.artifacts?.find((artifact: any) => artifact.kind === ProductImageArtifactKind.CANDIDATE)?.asset;
-    return { id: task.id, status: task.status, candidateAssetId: candidate?.id ?? null, candidateObjectKey: candidate?.objectKey ?? null };
+    return { id: task.id, status: task.status, provider: task.provider ?? null, candidateAssetId: candidate?.id ?? null, candidateObjectKey: candidate?.objectKey ?? null };
   }
 }

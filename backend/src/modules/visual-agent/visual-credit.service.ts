@@ -444,6 +444,24 @@ export class VisualCreditService {
     return quote;
   }
 
+  async getQuoteForCandidateFinalization(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
+    this.assertId(input.quoteId, '报价 ID');
+    const quote = await this.prisma.visualCreditQuote.findFirst({
+      where: {
+        id: input.quoteId,
+        tenantId: input.principal.tenantId,
+        clientId: input.principal.clientId,
+        adapterNamespace: input.principal.adapterNamespace,
+        status: { in: [VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING, VisualCreditQuoteStatus.SETTLED] },
+      },
+      include: { billingAccount: true, rateCard: true },
+    });
+    if (!quote?.visualAgentInvocationId) {
+      throw new ConflictException('图片美化报价尚未绑定可恢复的模型调用');
+    }
+    return quote;
+  }
+
   async getQuoteForClient(input: { principal: VisualAgentClientPrincipal; quoteId: string }) {
     this.assertId(input.quoteId, '报价 ID');
     const quote = await this.prisma.visualCreditQuote.findFirst({

@@ -85,7 +85,7 @@ function build() {
     visualCreditWelcomePolicy: { upsert: jest.fn().mockResolvedValue({ id: 'welcome-1' }) },
     visualRateCard: { upsert: jest.fn() },
     visualCreditAccount: { findUnique: jest.fn() },
-    visualCreditQuote: { updateMany: jest.fn() },
+    visualCreditQuote: { updateMany: jest.fn(), findFirst: jest.fn() },
     visualCreditLedger: { findMany: jest.fn() },
   };
   return { service: new VisualCreditService(prisma as any), prisma, tx };
@@ -389,5 +389,23 @@ describe('VisualCreditService', () => {
     });
     const released = await service.releaseReservedQuote('quote-1');
     expect(released).toMatchObject({ quote: { status: VisualCreditQuoteStatus.RELEASED }, account: { availableCredits: 200, reservedCredits: 0 }, ledger: { type: 'RELEASE' } });
+  });
+
+  it('loads a bound reserved, reconciling, or settled quote for idempotent candidate finalization only', async () => {
+    const { service, prisma } = build();
+    prisma.visualCreditQuote.findFirst.mockResolvedValue(quote({
+      status: VisualCreditQuoteStatus.SETTLED,
+      visualAgentInvocationId: 'invocation-1',
+      rateCard: rateCard(),
+    }));
+
+    await expect(service.getQuoteForCandidateFinalization({ principal, quoteId: 'quote-1' }))
+      .resolves.toMatchObject({ id: 'quote-1', status: VisualCreditQuoteStatus.SETTLED, visualAgentInvocationId: 'invocation-1' });
+    expect(prisma.visualCreditQuote.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: { in: [VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING, VisualCreditQuoteStatus.SETTLED] },
+      }),
+      include: { billingAccount: true, rateCard: true },
+    }));
   });
 });

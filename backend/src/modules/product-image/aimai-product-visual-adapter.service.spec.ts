@@ -44,6 +44,10 @@ function build() {
         direction: 'PRESERVE_REAL_SCENE', riskProfile: 'STANDARD_FACTS', protectedRegionVersion: 'mask-v1', allowedOperations: ['LIGHTING'], adapterFactVersion: factVersion,
       },
     }),
+    getQuoteForCandidateFinalization: jest.fn().mockResolvedValue({
+      id: 'quote-1', sourceAssetRef: 'asset-1', sourceHash: 'a'.repeat(64), visualAgentInvocationId: 'invocation-1',
+      rateCardSnapshot: { requiresHumanReview: true },
+    }),
     releaseReservedQuote: jest.fn(),
     releaseUnboundReservedQuote: jest.fn().mockResolvedValue({ releaseSkipped: false }),
     settleReservedQuote: jest.fn(),
@@ -66,9 +70,11 @@ function build() {
   const upload = { getBuffer: jest.fn().mockResolvedValue(Buffer.from('source')) };
   const invocations = {
     completeSynchronousVerification: jest.fn().mockResolvedValue(undefined),
+    moveVerificationToReconciliation: jest.fn().mockResolvedValue(undefined),
     hasActiveBudgetCoverage: jest.fn().mockResolvedValue(true),
   };
   const candidates = {
+    getPendingVerification: jest.fn().mockResolvedValue(null),
     persistPendingVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'RECONCILING', candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp' }),
     finalizeVerification: jest.fn().mockResolvedValue({ id: 'optimization-1', status: 'SUCCEEDED' }),
   };
@@ -393,6 +399,7 @@ describe('AimaiProductVisualAdapterService', () => {
     credits.markReconciliation = jest.fn().mockResolvedValue(undefined);
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
       .rejects.toThrow('storage failed');
+    expect(invocations.moveVerificationToReconciliation).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
     expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
   });
 
@@ -435,5 +442,21 @@ describe('AimaiProductVisualAdapterService', () => {
     await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
       .resolves.toEqual({ quoteId: 'quote-1', optimizationId: 'optimization-1', status: 'SUCCEEDED' });
     expect(credits.markReconciliation).not.toHaveBeenCalled();
+  });
+
+  it('resumes an already persisted candidate without submitting or fetching the Provider output again', async () => {
+    const { service, prisma, execution, credits, candidates, invocations } = build();
+    prisma.productImageOptimization.findFirst.mockResolvedValue(null);
+    candidates.getPendingVerification.mockResolvedValue({
+      id: 'optimization-1', status: 'RECONCILING', provider: 'BAILIAN_WAN',
+      candidateAssetId: 'candidate-1', candidateObjectKey: 'seller-product-assets/candidate.webp',
+    });
+
+    await expect(service.pollAndPersistCandidate({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quoteId: 'quote-1' }))
+      .resolves.toMatchObject({ quoteId: 'quote-1', invocationId: 'invocation-1', status: 'SUCCEEDED', optimizationId: 'optimization-1' });
+    expect(execution.pollForOutput).not.toHaveBeenCalled();
+    expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
+    expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
+    expect(candidates.finalizeVerification).toHaveBeenCalled();
   });
 });

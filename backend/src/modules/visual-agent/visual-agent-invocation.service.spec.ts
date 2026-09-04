@@ -289,6 +289,24 @@ describe('VisualAgentInvocationService', () => {
     expect(verificationExpiry.getTime()).toBeGreaterThan(Date.now() + 14 * 60_000);
   });
 
+  it('idempotently completes verification from a recoverable invocation without another Provider submission', async () => {
+    const prisma = prismaMock({ root: { visualAgentInvocation: {
+      updateMany: jest.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 }),
+      findUnique: jest.fn().mockResolvedValue({ provider: 'BAILIAN_WAN', status: VisualAgentInvocationStatus.SUCCEEDED, providerOutputUrl: 'https://example.com/output.png' }),
+    } } });
+    const service = new VisualAgentInvocationService(prisma as any);
+
+    await expect(service.completeSynchronousVerification('invocation-1', 'BAILIAN_WAN')).resolves.toBeUndefined();
+    expect(prisma.visualAgentInvocation.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: expect.objectContaining({
+        status: { in: [VisualAgentInvocationStatus.VERIFYING, VisualAgentInvocationStatus.RECONCILING] },
+        providerOutputUrl: { not: null },
+      }),
+      data: { status: VisualAgentInvocationStatus.SUCCEEDED },
+    }));
+    await expect(service.completeSynchronousVerification('invocation-1', 'BAILIAN_WAN')).resolves.toBeUndefined();
+  });
+
   it('reaps only unsubmitted expiry; expired submit and query leases remain reconcilable', async () => {
     const prisma = prismaMock({ root: { visualAgentInvocation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } });
     const service = new VisualAgentInvocationService(prisma as any);

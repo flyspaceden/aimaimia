@@ -494,6 +494,10 @@
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
     },
     {
+      "path": "backend/src/modules/visual-agent/visual-agent-managed-output.service.ts",
+      "reason": "shared Core normalization safely bounds large Provider outputs and preserves audit hashes for every business adapter"
+    },
+    {
       "path": "backend/src/modules/visual-agent/visual-agent-invocation.service.ts",
       "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
     },

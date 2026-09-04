@@ -63,10 +63,17 @@ function build() {
     markReconciliation: jest.fn(),
   };
   const execution = { executeReservedQuote: jest.fn(), pollForOutput: jest.fn() };
-  const invocations = { completeSynchronousVerification: jest.fn() };
+  const invocations = { completeSynchronousVerification: jest.fn(), moveVerificationToReconciliation: jest.fn() };
   const config = { get: jest.fn((key: string) => key === 'AI_VISUAL_AGENT_ADAPTER_EVIDENCE_SECRET_EXTERNALCLIENT_KEY1' ? secret : undefined) };
   const verification = { verify: jest.fn().mockResolvedValue({ version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {}, ocr: {} }) };
-  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any, verification as any), prisma, upload, credits, execution, invocations, verification };
+  const managedOutputs = {
+    normalize: jest.fn().mockImplementation(async (output) => ({
+      buffer: output.buffer,
+      mimeType: output.mimeType,
+      audit: { version: 'visual-agent-managed-output-v1', normalization: 'provider-png-preserved-v1' },
+    })),
+  };
+  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any, verification as any, managedOutputs as any), prisma, upload, credits, execution, invocations, verification, managedOutputs };
 }
 
 describe('VisualAgentPublicService', () => {
@@ -138,12 +145,17 @@ describe('VisualAgentPublicService', () => {
     expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
 
-  it('never exposes or adopts a persisted candidate until the associated credit quote is settled', async () => {
-    const { service, prisma, credits } = build();
+  it('idempotently completes and settles a persisted candidate before exposing it', async () => {
+    const { service, prisma, credits, invocations } = build();
     credits.getQuoteForClient.mockResolvedValue({ quote: { id: 'quote-1', status: 'RECONCILING' } });
-    prisma.visualAgentCandidate.findFirst.mockResolvedValue({ id: 'candidate-1', status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png' });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue({
+      id: 'candidate-1', status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png',
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', width: 800, height: 800,
+    });
 
-    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toEqual({ quoteId: 'quote-1', status: 'RECONCILING', candidate: null });
+    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ quoteId: 'quote-1', status: 'PENDING_REVIEW', candidate: { id: 'candidate-1' } });
+    expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN');
+    expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
   });
 
   it('requires a Client-scoped signed-asset binding before it can read a tenant-level credit account', async () => {
@@ -175,5 +187,24 @@ describe('VisualAgentPublicService', () => {
     expect(verification.verify).toHaveBeenCalledWith(expect.objectContaining({ verificationId: 'quote-1', allowAutoPass: false }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_QWEN_IMAGE');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
+  });
+
+  it('moves the same Provider invocation and quote into reconciliation when candidate persistence fails', async () => {
+    const { service, prisma, upload, credits, execution, invocations } = build();
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: { id: 'quote-1', sourceAssetRef: 'asset-1', visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1' } },
+    });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue(null);
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', assetId: 'asset-1', riskProfile: 'CONSERVATIVE_FACTS', recommendedDirection: 'PRESERVE_REAL_SCENE',
+      allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', planHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    execution.pollForOutput.mockResolvedValue({ quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('provider-output'), mimeType: 'image/png' } });
+    upload.uploadFile.mockRejectedValueOnce(new Error('storage failed'));
+
+    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).rejects.toThrow('storage failed');
+    expect(invocations.moveVerificationToReconciliation).toHaveBeenCalledWith('invocation-1', 'BAILIAN_WAN', 'PUBLIC_CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+    expect(credits.markReconciliation).toHaveBeenCalledWith('quote-1', 'PUBLIC_CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+    expect(execution.executeReservedQuote).not.toHaveBeenCalled();
   });
 });

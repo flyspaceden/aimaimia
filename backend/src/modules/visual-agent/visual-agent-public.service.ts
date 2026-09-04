@@ -12,6 +12,7 @@ import { VisualCreditService } from './visual-credit.service';
 import { VisualPaidExecutionService } from './visual-paid-execution.service';
 import { VisualAgentCandidateVerificationService, VisualAgentCandidateVerificationReport } from './visual-agent-candidate-verification.service';
 import { VisualProviderAllowedOperation, VisualProviderDirection, VisualProviderRiskProfile, VisualProviderServerPlan, VisualProviderSource } from './providers/visual-image-edit.provider';
+import { VisualAgentManagedOutput, VisualAgentManagedOutputService } from './visual-agent-managed-output.service';
 
 const EVIDENCE_MAX_AGE_MS = 15 * 60_000;
 const PLAN_TTL_MS = 15 * 60_000;
@@ -56,6 +57,7 @@ export class VisualAgentPublicService {
     private readonly invocations: VisualAgentInvocationService,
     private readonly config: ConfigService,
     private readonly verification: VisualAgentCandidateVerificationService,
+    private readonly managedOutputs: VisualAgentManagedOutputService,
   ) {}
 
   async createAsset(input: { principal: VisualAgentClientPrincipal; evidenceJson: string; signature: string; file: Express.Multer.File }) {
@@ -268,6 +270,16 @@ export class VisualAgentPublicService {
       if (quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED) {
         return { quoteId: quoteInfo.quote.id, status: existing.status, candidate: await this.candidateResponse(existing) };
       }
+      if ([VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING].includes(quoteInfo.quote.status)) {
+        try {
+          await this.invocations.completeSynchronousVerification(existing.invocationId, existing.provider);
+          await this.credits.settleReservedQuote(quoteInfo.quote.id, '已存储的模型候选恢复结算，等待外部 Adapter 显式采用');
+          return { quoteId: quoteInfo.quote.id, invocationId: existing.invocationId, status: existing.status, candidate: await this.candidateResponse(existing) };
+        } catch (error) {
+          await this.movePollingFailureToReconciliation(existing.invocationId, existing.provider, quoteInfo.quote.id, 'PUBLIC_CANDIDATE_FINALIZATION_RECOVERY_FAILED');
+          throw error;
+        }
+      }
       return { quoteId: quoteInfo.quote.id, status: quoteInfo.quote.status, candidate: null };
     }
     const polled = await this.execution.pollForOutput({ principal: input.principal, quoteId: input.quoteId });
@@ -276,6 +288,7 @@ export class VisualAgentPublicService {
     const asset = await this.findAsset(input.principal, plan.assetId);
     try {
       const sourceBuffer = await this.upload.getBuffer(asset.objectKey);
+      const managedOutput = await this.managedOutputs.normalize(polled.output);
       const requiresHumanReview = (quoteInfo.quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
       const verification = await this.verification.verify({
         principal: input.principal,
@@ -283,15 +296,15 @@ export class VisualAgentPublicService {
         actorId: plan.actorId,
         verificationId: quoteInfo.quote.id,
         sourceBuffer,
-        candidateBuffer: polled.output.buffer,
+        candidateBuffer: managedOutput.buffer,
         allowAutoPass: !requiresHumanReview,
       });
-      const candidate = await this.persistCandidate({ principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset, invocationId: polled.invocationId, provider: polled.provider, output: polled.output, verification });
+      const candidate = await this.persistCandidate({ principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset, invocationId: polled.invocationId, provider: polled.provider, output: managedOutput, verification });
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quoteInfo.quote.id, '模型结果已受管存储，等待外部 Adapter 显式采用');
       return { quoteId: quoteInfo.quote.id, invocationId: polled.invocationId, status: candidate.status, candidate: await this.candidateResponse(candidate) };
     } catch (error) {
-      await this.credits.markReconciliation(quoteInfo.quote.id, 'PUBLIC_CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
+      await this.movePollingFailureToReconciliation(polled.invocationId, polled.provider, quoteInfo.quote.id, 'PUBLIC_CANDIDATE_PERSISTENCE_OR_SETTLEMENT_FAILED');
       throw error;
     }
   }
@@ -360,12 +373,12 @@ export class VisualAgentPublicService {
     asset: any;
     invocationId: string;
     provider: 'BAILIAN_WAN' | 'BAILIAN_QWEN_IMAGE';
-    output: { buffer: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' };
+    output: VisualAgentManagedOutput;
     verification: VisualAgentCandidateVerificationReport;
   }) {
     const existing = await this.prisma.visualAgentCandidate.findUnique({ where: { quoteId: input.quoteId } });
     if (existing) return existing;
-    const file = { buffer: input.output.buffer, size: input.output.buffer.length, mimetype: input.output.mimeType, originalname: 'visual-agent-candidate.png' } as Express.Multer.File;
+    const file = { buffer: input.output.buffer, size: input.output.buffer.length, mimetype: input.output.mimeType, originalname: input.output.mimeType === 'image/png' ? 'visual-agent-candidate.png' : 'visual-agent-candidate.webp' } as Express.Multer.File;
     const uploaded = await this.upload.uploadFile(file, 'visual-agent-assets', { preserveQrCodes: true, preserveProviderOutput: true });
     if (!uploaded.canonicalSha256 || !uploaded.width || !uploaded.height || !uploaded.mimeType.startsWith('image/')) {
       await this.upload.deleteFile(uploaded.key);
@@ -389,13 +402,20 @@ export class VisualAgentPublicService {
           height: uploaded.height,
           provider: input.provider,
           status: input.verification.disposition === 'REJECT' ? VisualAgentCandidateStatus.REJECTED : VisualAgentCandidateStatus.PENDING_REVIEW,
-          verificationSummary: input.verification as Prisma.InputJsonValue,
+          verificationSummary: { ...input.verification, managedOutput: input.output.audit } as Prisma.InputJsonValue,
         },
       });
     } catch (error) {
       await this.upload.deleteFile(uploaded.key);
       throw error;
     }
+  }
+
+  private async movePollingFailureToReconciliation(invocationId: string, provider: string, quoteId: string, reason: string) {
+    await Promise.allSettled([
+      this.invocations.moveVerificationToReconciliation(invocationId, provider, reason),
+      this.credits.markReconciliation(quoteId, reason),
+    ]);
   }
 
   private async findAsset(principal: VisualAgentClientPrincipal, assetId: string) {
