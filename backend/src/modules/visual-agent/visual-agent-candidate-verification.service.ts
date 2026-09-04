@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { BarcodeFormat, BinaryBitmap, DecodeHintType, HybridBinarizer, MultiFormatReader, RGBLuminanceSource } from '@zxing/library';
 import { ImageContentScannerService } from '../upload/image-content-scanner.service';
@@ -7,18 +8,33 @@ import { VisualAgentClientPrincipal } from './visual-agent-client-key.service';
 import { QwenOcrResult } from './providers/bailian-qwen-ocr.provider';
 import { VisualProviderSource } from './providers/visual-image-edit.provider';
 import { VisualAgentOcrRunnerService } from './visual-agent-ocr-runner.service';
+import { VisualAgentStructureRunnerService } from './visual-agent-structure-runner.service';
+import {
+  STRUCTURE_VERIFICATION_VERSION,
+  StructureVerificationPlan,
+  StructureVerificationReport,
+  structureVerificationPairHash,
+  structureVerificationPlanHash,
+} from './providers/bailian-structure-verification.provider';
 
 type Verdict = 'PASS' | 'MANUAL_REVIEW' | 'REJECT';
 type QrScan = { qrCodesDetected?: number; qrDetectionFailed?: boolean; details?: Array<{ type?: string; text?: string | null }> };
 type BarcodeScan = { status: 'NONE' | 'DETECTED' | 'INCONCLUSIVE'; formats: string[] };
 
 export type VisualAgentCandidateVerificationReport = {
-  version: 'visual-agent-candidate-verification-v1';
-  disposition: 'AUTO_PASS' | 'MANUAL_REVIEW' | 'REJECT';
-  geometry: { aspectRatioDelta: number | null; verdict: Verdict };
-  qr: { sourceCount: number; candidateCount: number; verdict: Verdict };
-  barcode: { sourceStatus: BarcodeScan['status']; candidateStatus: BarcodeScan['status']; sourceFormats: string[]; candidateFormats: string[]; verdict: Verdict };
-  ocr: { state: 'SKIPPED_DISABLED' | 'UNAVAILABLE' | 'INCONCLUSIVE' | 'MATCHED' | 'MISMATCH'; verdict: 'AUTO_PASS' | 'MANUAL_REVIEW'; sourceTextDetected: boolean | null; candidateTextDetected: boolean | null; sourceTextLength: number | null; candidateTextLength: number | null; normalizedTextMatch: boolean | null };
+  version: 'visual-agent-candidate-verification-v2';
+  stage: 'MANAGED_OUTPUT_STORED' | 'CHECKS_RUN';
+  disposition: 'PENDING' | 'AUTO_PASS' | 'MANUAL_REVIEW' | 'REJECT';
+  geometry: { aspectRatioDelta: number | null; verdict: Verdict } | null;
+  qr: { sourceCount: number; candidateCount: number; verdict: Verdict } | null;
+  barcode: { sourceStatus: BarcodeScan['status']; candidateStatus: BarcodeScan['status']; sourceFormats: string[]; candidateFormats: string[]; verdict: Verdict } | null;
+  ocr: { state: 'SKIPPED_DISABLED' | 'SKIPPED_STRUCTURE_PENDING' | 'SKIPPED_STRUCTURE_REJECT' | 'UNAVAILABLE' | 'INCONCLUSIVE' | 'MATCHED' | 'MISMATCH'; verdict: 'AUTO_PASS' | 'MANUAL_REVIEW'; sourceTextDetected: boolean | null; candidateTextDetected: boolean | null; sourceTextLength: number | null; candidateTextLength: number | null; normalizedTextMatch: boolean | null } | null;
+  structure: {
+    state: 'PASS' | 'FAIL' | 'UNCERTAIN' | 'PENDING' | 'DISABLED' | 'SKIPPED_LOCAL_REJECT';
+    report: StructureVerificationReport | null;
+    invocationId: string | null;
+    billingStatus?: 'BILLING_EXCEPTION';
+  };
 };
 
 const MAX_SCAN_EDGE = 2048;
@@ -35,6 +51,7 @@ export class VisualAgentCandidateVerificationService {
     private readonly config: ConfigService,
     private readonly scanner: ImageContentScannerService,
     private readonly ocrRunner: VisualAgentOcrRunnerService,
+    private readonly structureRunner: VisualAgentStructureRunnerService,
   ) {}
 
   async verify(input: {
@@ -45,6 +62,7 @@ export class VisualAgentCandidateVerificationService {
     sourceBuffer: Buffer;
     candidateBuffer: Buffer;
     allowAutoPass: boolean;
+    quote: { id: string; visualPlanSnapshot: unknown; rateCardSnapshot: unknown };
   }): Promise<VisualAgentCandidateVerificationReport> {
     const [sourceMeta, candidateMeta, sourceQr, candidateQr, sourceBarcode, candidateBarcode] = await Promise.all([
       this.metadata(input.sourceBuffer), this.metadata(input.candidateBuffer),
@@ -55,15 +73,139 @@ export class VisualAgentCandidateVerificationService {
     const qr = this.qr(sourceQr, candidateQr);
     const barcode = this.barcode(sourceBarcode, candidateBarcode);
     if ([geometry.verdict, qr.verdict, barcode.verdict].includes('REJECT')) {
-      return { version: 'visual-agent-candidate-verification-v1', disposition: 'REJECT', geometry, qr, barcode, ocr: this.manualOcr('SKIPPED_DISABLED') };
+      return {
+        version: 'visual-agent-candidate-verification-v2', stage: 'CHECKS_RUN', disposition: 'REJECT', geometry, qr, barcode,
+        ocr: this.manualOcr('SKIPPED_DISABLED'),
+        structure: { state: 'SKIPPED_LOCAL_REJECT', report: null, invocationId: null },
+      };
+    }
+    const structure = await this.structure(input);
+    if (structure.state === 'PENDING') {
+      return {
+        version: 'visual-agent-candidate-verification-v2', stage: 'CHECKS_RUN', disposition: 'PENDING', geometry, qr, barcode,
+        ocr: this.manualOcr('SKIPPED_STRUCTURE_PENDING'), structure,
+      };
+    }
+    if (structure.state === 'FAIL') {
+      return {
+        version: 'visual-agent-candidate-verification-v2', stage: 'CHECKS_RUN', disposition: 'REJECT', geometry, qr, barcode,
+        ocr: this.manualOcr('SKIPPED_STRUCTURE_REJECT'), structure,
+      };
     }
     const ocr = await this.ocr(input);
     const localPass = geometry.verdict === 'PASS' && qr.verdict === 'PASS' && barcode.verdict === 'PASS';
+    const disposition = ocr.state === 'MISMATCH' ? 'REJECT' as const
+      : input.allowAutoPass && localPass && ocr.verdict === 'AUTO_PASS' && structure.state === 'PASS'
+        ? 'AUTO_PASS' as const : 'MANUAL_REVIEW' as const;
     return {
-      version: 'visual-agent-candidate-verification-v1',
-      disposition: input.allowAutoPass && localPass && ocr.verdict === 'AUTO_PASS' ? 'AUTO_PASS' : 'MANUAL_REVIEW',
-      geometry, qr, barcode, ocr,
+      version: 'visual-agent-candidate-verification-v2',
+      stage: 'CHECKS_RUN',
+      disposition,
+      geometry, qr, barcode, ocr, structure,
     };
+  }
+
+  private async structure(input: {
+    principal: VisualAgentClientPrincipal;
+    externalObjectId: string;
+    actorId: string;
+    quote: { id: string; visualPlanSnapshot: unknown; rateCardSnapshot: unknown };
+    sourceBuffer: Buffer;
+    candidateBuffer: Buffer;
+  }): Promise<VisualAgentCandidateVerificationReport['structure']> {
+    let source: VisualProviderSource;
+    let candidate: VisualProviderSource;
+    try {
+      [source, candidate] = await Promise.all([
+        this.toStructureSource(input.sourceBuffer),
+        this.toStructureSource(input.candidateBuffer),
+      ]);
+    } catch {
+      // Undecodable comparison evidence is a content limitation. It can be
+      // reviewed manually, but can never produce AUTO_PASS.
+      return { state: 'UNCERTAIN', report: null, invocationId: null };
+    }
+
+    let plan: StructureVerificationPlan;
+    try { plan = this.structurePlan(input.quote.visualPlanSnapshot, input.quote.rateCardSnapshot); }
+    catch {
+      // A malformed immutable quote is an operational/configuration failure,
+      // not evidence that the candidate is safe for review or adoption.
+      return { state: 'PENDING', report: null, invocationId: null };
+    }
+    const pairHash = structureVerificationPairHash({ source, candidate });
+    const planHash = structureVerificationPlanHash(plan);
+    const idempotencyKey = `public-candidate-structure:${createHash('sha256')
+      .update(`${input.quote.id}:${STRUCTURE_VERIFICATION_VERSION}:${pairHash}:${planHash}`).digest('hex')}`;
+    try {
+      // Always enter the runner, even while disabled: it replays a durable
+      // scoped report before provider preflight, so a cached FAIL stays a FAIL.
+      const result = await this.structureRunner.verifyStructure({
+        tenantId: input.principal.tenantId,
+        ownerClientId: input.principal.clientId,
+        adapterNamespace: input.principal.adapterNamespace,
+        externalObjectId: input.externalObjectId,
+        actorId: input.actorId,
+        idempotencyKey,
+        expiresAt: new Date(Date.now() + OCR_TTL_MS),
+        source,
+        candidate,
+        plan,
+      });
+      if (result.kind === 'UNKNOWN') {
+        return { state: 'PENDING', report: null, invocationId: result.invocationId ?? null };
+      }
+      if (result.kind === 'DECLINED') {
+        // DECLINED is a durable, not-accepted terminal invocation. It is not a
+        // content PASS/FAIL and therefore remains explicitly non-automatic.
+        return { state: 'UNCERTAIN', report: null, invocationId: result.invocationId ?? null };
+      }
+      return {
+        state: result.report.verdict,
+        report: result.report,
+        invocationId: result.invocationId,
+        ...(result.billingStatus === 'BILLING_EXCEPTION' ? { billingStatus: 'BILLING_EXCEPTION' as const } : {}),
+      };
+    } catch (error) {
+      if (this.isStructureDisabled(error)) {
+        return { state: 'DISABLED', report: null, invocationId: null };
+      }
+      // Missing/ambiguous budget policy, DB/lease errors and transport-state
+      // failures have no content verdict. Keep the parent task open.
+      return { state: 'PENDING', report: null, invocationId: null };
+    }
+  }
+
+  private structurePlan(visualPlanSnapshot: unknown, rateCardSnapshot: unknown): StructureVerificationPlan {
+    const visualPlan = visualPlanSnapshot as { direction?: unknown; allowedOperations?: unknown; structureFocus?: unknown } | null;
+    const rateCard = rateCardSnapshot as { candidateRole?: unknown } | null;
+    const direction = visualPlan?.direction;
+    const role = rateCard?.candidateRole;
+    if (!['PRESERVE_REAL_SCENE', 'CATALOG_STUDIO', 'PRODUCT_RETOUCH', 'MARKETING_SCENE'].includes(direction as string)
+      || !['FACT_MAIN_IMAGE', 'DETAIL_IMAGE', 'MARKETING_IMAGE'].includes(role as string)) throw new Error('invalid structure quote');
+    const operations = Array.isArray(visualPlan?.allowedOperations) ? visualPlan.allowedOperations : [];
+    const marketing = direction === 'MARKETING_SCENE';
+    if (marketing !== (role === 'MARKETING_IMAGE')) throw new Error('incompatible structure role');
+    const focus = visualPlan?.structureFocus === undefined ? 'GENERAL_PRODUCT'
+      : visualPlan.structureFocus === 'WATCH_STRUCTURE' || visualPlan.structureFocus === 'GENERAL_PRODUCT'
+        ? visualPlan.structureFocus : null;
+    if (!focus) throw new Error('invalid structure focus');
+    return {
+      version: STRUCTURE_VERIFICATION_VERSION,
+      candidateRole: role as StructureVerificationPlan['candidateRole'],
+      focus,
+      changeAllowances: {
+        background: direction !== 'PRESERVE_REAL_SCENE'
+          && operations.some((item) => item === 'BACKGROUND_REPLACE' || item === 'SCENE_RESTAGE'),
+        layout: marketing || operations.includes('COMPOSITION'),
+        count: marketing,
+      },
+    };
+  }
+
+  private isStructureDisabled(error: unknown) {
+    return error instanceof ServiceUnavailableException
+      && (error.getResponse() as { code?: unknown })?.code === 'STRUCTURE_VERIFY_DISABLED';
   }
 
   private async ocr(input: { principal: VisualAgentClientPrincipal; externalObjectId: string; actorId: string; verificationId: string; sourceBuffer: Buffer; candidateBuffer: Buffer; allowAutoPass: boolean }) {
@@ -163,10 +305,23 @@ export class VisualAgentCandidateVerificationService {
 
   private qrValues(scan: QrScan) { return (scan.details ?? []).filter((entry) => entry.type === 'qrcode' && typeof entry.text === 'string').map((entry) => entry.text!).sort(); }
   private same(left: string[], right: string[]) { return left.length === right.length && left.every((value, index) => value === right[index]); }
-  private manualOcr(state: 'SKIPPED_DISABLED' | 'UNAVAILABLE' | 'INCONCLUSIVE') { return { state, verdict: 'MANUAL_REVIEW' as const, sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null }; }
+  private manualOcr(state: 'SKIPPED_DISABLED' | 'SKIPPED_STRUCTURE_PENDING' | 'SKIPPED_STRUCTURE_REJECT' | 'UNAVAILABLE' | 'INCONCLUSIVE') { return { state, verdict: 'MANUAL_REVIEW' as const, sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null }; }
   private normalize(text: string) { return text.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase('zh-CN'); }
   private async toOcrSource(buffer: Buffer): Promise<VisualProviderSource> {
     const normalized = await sharp(buffer, { failOn: 'error', limitInputPixels: 40_000_000 }).rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer();
     return { buffer: normalized, mimeType: 'image/jpeg', normalizedVersion: 'normalized-rgba-srgb-v1', opaque: true };
+  }
+
+  private async toStructureSource(buffer: Buffer): Promise<VisualProviderSource> {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('empty structure image');
+    const image = sharp(buffer, { failOn: 'error', limitInputPixels: 64_000_000 });
+    const metadata = await image.metadata();
+    if (!metadata.width || !metadata.height || metadata.width < 64 || metadata.height < 64
+      || metadata.width > 8000 || metadata.height > 8000 || metadata.width / metadata.height > 8 || metadata.height / metadata.width > 8
+      || (metadata.pages ?? 1) > 1) throw new Error('invalid structure image');
+    const normalized = await image.rotate().flatten({ background: '#ffffff' }).toColourspace('srgb')
+      .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+      .removeAlpha().png().toBuffer();
+    return { buffer: normalized, mimeType: 'image/png', normalizedVersion: 'normalized-rgba-srgb-v1', opaque: true };
   }
 }

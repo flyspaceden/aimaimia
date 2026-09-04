@@ -230,7 +230,13 @@ export class VisualAgentPublicService implements OnModuleInit {
       sourceAssetRef: asset.id,
       sourceHash: asset.canonicalSha256,
       visualPlanHash: plan.planHash,
-      visualPlan: { ...visualPlan, allowedOperations: [...visualPlan.allowedOperations] },
+      visualPlan: {
+        ...visualPlan,
+        allowedOperations: [...visualPlan.allowedOperations],
+        // This enum comes from the HMAC-bound asset fact policy. It is not a
+        // public prompt or a caller-selected provider parameter.
+        structureFocus: this.structureFocusFromFactPolicy(plan.factPolicy),
+      },
       idempotencyKey: input.idempotencyKey,
       expiresAt: new Date(Math.min(plan.expiresAt.getTime(), Date.now() + PLAN_TTL_MS)),
     });
@@ -301,14 +307,20 @@ export class VisualAgentPublicService implements OnModuleInit {
       where: { quoteId: quoteInfo.quote.id, tenantId: input.principal.tenantId, clientId: input.principal.clientId, adapterNamespace: input.principal.adapterNamespace },
     });
     if (existing) {
-      if (quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED) {
+      if (this.isCandidateUsable(existing.verificationSummary, quoteInfo.quote.status)) {
         return { quoteId: quoteInfo.quote.id, status: existing.status, candidate: await this.candidateResponse(existing) };
       }
-      if ([VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING].includes(quoteInfo.quote.status)) {
+      if ([VisualCreditQuoteStatus.RESERVED, VisualCreditQuoteStatus.RECONCILING, VisualCreditQuoteStatus.SETTLED].includes(quoteInfo.quote.status)) {
         try {
-          await this.invocations.completeSynchronousVerification(existing.invocationId, existing.provider);
-          await this.credits.settleReservedQuote(quoteInfo.quote.id, '已存储的模型候选恢复结算，等待外部 Adapter 显式采用');
-          return { quoteId: quoteInfo.quote.id, invocationId: existing.invocationId, status: existing.status, candidate: await this.candidateResponse(existing) };
+          const verified = await this.ensurePersistedCandidateVerification(input.principal, quoteInfo.quote, existing);
+          if (!this.isVerificationTerminal(verified.verificationSummary, quoteInfo.quote.status)) {
+            return { quoteId: quoteInfo.quote.id, invocationId: verified.invocationId, status: 'VERIFYING', candidate: null };
+          }
+          await this.invocations.completeSynchronousVerification(verified.invocationId, verified.provider);
+          if (quoteInfo.quote.status !== VisualCreditQuoteStatus.SETTLED) {
+            await this.credits.settleReservedQuote(quoteInfo.quote.id, '已存储的模型候选恢复结算，等待外部 Adapter 显式采用');
+          }
+          return { quoteId: quoteInfo.quote.id, invocationId: verified.invocationId, status: verified.status, candidate: await this.candidateResponse(verified) };
         } catch (error) {
           await this.movePollingFailureToReconciliation(existing.invocationId, existing.provider, quoteInfo.quote.id, 'PUBLIC_CANDIDATE_FINALIZATION_RECOVERY_FAILED');
           throw error;
@@ -321,19 +333,20 @@ export class VisualAgentPublicService implements OnModuleInit {
     const plan = await this.findPlanForQuote(input.principal, quoteInfo.quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quoteInfo.quote.visualPlanSnapshot), true);
     const asset = await this.findAsset(input.principal, plan.assetId);
     try {
-      const sourceBuffer = await this.upload.getBuffer(asset.objectKey);
       const managedOutput = await this.managedOutputs.normalize(polled.output);
-      const requiresHumanReview = (quoteInfo.quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
-      const verification = await this.verification.verify({
-        principal: input.principal,
-        externalObjectId: plan.externalObjectId,
-        actorId: plan.actorId,
-        verificationId: quoteInfo.quote.id,
-        sourceBuffer,
-        candidateBuffer: managedOutput.buffer,
-        allowAutoPass: !requiresHumanReview,
+      // Persist the exact managed bytes before any comparison-model I/O. A
+      // short-lived Provider output URL is never the recovery source.
+      const pending = await this.persistCandidate({
+        principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset,
+        invocationId: polled.invocationId, provider: polled.provider, output: managedOutput,
+        verification: this.pendingCandidateVerification(),
       });
-      const candidate = await this.persistCandidate({ principal: input.principal, quoteId: quoteInfo.quote.id, plan, asset, invocationId: polled.invocationId, provider: polled.provider, output: managedOutput, verification });
+      const candidate = await this.ensurePersistedCandidateVerification(input.principal, quoteInfo.quote, pending);
+      if (!this.isVerificationTerminal(candidate.verificationSummary, quoteInfo.quote.status)) {
+        // The managed output is durable, but UNKNOWN/infrastructure structure
+        // state is not a content conclusion. Keep the parent quote reserved.
+        return { quoteId: quoteInfo.quote.id, invocationId: polled.invocationId, status: 'VERIFYING', candidate: null };
+      }
       await this.invocations.completeSynchronousVerification(polled.invocationId, polled.provider);
       await this.credits.settleReservedQuote(quoteInfo.quote.id, '模型结果已受管存储，等待外部 Adapter 显式采用');
       return { quoteId: quoteInfo.quote.id, invocationId: polled.invocationId, status: candidate.status, candidate: await this.candidateResponse(candidate) };
@@ -353,8 +366,10 @@ export class VisualAgentPublicService implements OnModuleInit {
       select: { visualAgentInvocation: { select: { status: true } } },
     });
     const executionStatus = persisted?.visualAgentInvocation?.status;
-    const status = candidate && quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED ? candidate.status
+    const candidateUsable = candidate && this.isCandidateUsable(candidate.verificationSummary, quoteInfo.quote.status);
+    const status = candidateUsable ? candidate.status
       : ['RELEASED', 'EXPIRED', 'CANCELLED'].includes(quoteInfo.quote.status) ? 'RELEASED'
+        : quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED ? 'VERIFYING'
         : quoteInfo.quote.status === 'RECONCILING' || executionStatus === 'RECONCILING' ? 'RECONCILING'
           : executionStatus === 'VERIFYING' || executionStatus === 'SUCCEEDED' ? 'VERIFYING'
             : executionStatus === 'RUNNING' || executionStatus === 'SUBMITTING' ? 'RUNNING'
@@ -363,7 +378,7 @@ export class VisualAgentPublicService implements OnModuleInit {
       quoteId, status,
       quote: this.publicQuote(quoteInfo.quote),
       billingAccount: quoteInfo.billingAccount,
-      candidate: candidate && quoteInfo.quote.status === VisualCreditQuoteStatus.SETTLED
+      candidate: candidateUsable
         ? await this.candidateResponse(candidate)
         : null,
     };
@@ -378,6 +393,7 @@ export class VisualAgentPublicService implements OnModuleInit {
       include: { plan: { select: { externalObjectVersion: true } }, quote: { select: { status: true } } },
     });
     if (!candidate || candidate.quote.status !== VisualCreditQuoteStatus.SETTLED
+      || !this.isCandidateUsable(candidate.verificationSummary, candidate.quote.status)
       || candidate.status !== VisualAgentCandidateStatus.PENDING_REVIEW || candidate.plan.externalObjectVersion !== input.externalObjectVersion) {
       throw new ConflictException('候选当前不能记录采用意图，或外部对象版本已变化');
     }
@@ -422,8 +438,13 @@ export class VisualAgentPublicService implements OnModuleInit {
     output: VisualAgentManagedOutput;
     verification: VisualAgentCandidateVerificationReport;
   }) {
-    const existing = await this.prisma.visualAgentCandidate.findUnique({ where: { quoteId: input.quoteId } });
-    if (existing) return existing;
+    const existing = await this.prisma.visualAgentCandidate.findFirst({ where: {
+      quoteId: input.quoteId,
+      tenantId: input.principal.tenantId,
+      clientId: input.principal.clientId,
+      adapterNamespace: input.principal.adapterNamespace,
+    } });
+    if (existing) return this.updateCandidateVerification(existing, input.verification, input.output.audit);
     const file = { buffer: input.output.buffer, size: input.output.buffer.length, mimetype: input.output.mimeType, originalname: input.output.mimeType === 'image/png' ? 'visual-agent-candidate.png' : 'visual-agent-candidate.webp' } as Express.Multer.File;
     const uploaded = await this.upload.uploadFile(file, 'visual-agent-assets', { preserveQrCodes: true, preserveProviderOutput: true });
     if (!uploaded.canonicalSha256 || !uploaded.width || !uploaded.height || !uploaded.mimeType.startsWith('image/')) {
@@ -453,8 +474,159 @@ export class VisualAgentPublicService implements OnModuleInit {
       });
     } catch (error) {
       await this.upload.deleteFile(uploaded.key);
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const raced = await this.prisma.visualAgentCandidate.findFirst({ where: {
+          quoteId: input.quoteId,
+          tenantId: input.principal.tenantId,
+          clientId: input.principal.clientId,
+          adapterNamespace: input.principal.adapterNamespace,
+        } });
+        if (raced) return this.updateCandidateVerification(raced, input.verification, input.output.audit);
+      }
       throw error;
     }
+  }
+
+  private async ensurePersistedCandidateVerification(principal: VisualAgentClientPrincipal, quote: any, candidate: any) {
+    const recorded = this.readCandidateVerification(candidate.verificationSummary);
+    if (recorded && recorded.disposition !== 'PENDING') return candidate;
+    const plan = await this.findPlanForQuote(principal, quote.sourceAssetRef, this.planHashFromQuoteSnapshot(quote.visualPlanSnapshot), true);
+    const asset = await this.findAsset(principal, plan.assetId);
+    const [sourceBuffer, candidateBuffer] = await Promise.all([
+      this.upload.getBuffer(asset.objectKey),
+      this.upload.getBuffer(candidate.objectKey),
+    ]);
+    const requiresHumanReview = (quote.rateCardSnapshot as { requiresHumanReview?: unknown } | null)?.requiresHumanReview !== false;
+    const verification = await this.verification.verify({
+      principal,
+      externalObjectId: plan.externalObjectId,
+      actorId: plan.actorId,
+      verificationId: quote.id,
+      sourceBuffer,
+      candidateBuffer,
+      allowAutoPass: !requiresHumanReview,
+      quote: { id: quote.id, visualPlanSnapshot: quote.visualPlanSnapshot, rateCardSnapshot: quote.rateCardSnapshot },
+    });
+    return this.updateCandidateVerification(candidate, verification);
+  }
+
+  private async updateCandidateVerification(candidate: any, verification: VisualAgentCandidateVerificationReport, managedOutput?: unknown, attempt = 0): Promise<any> {
+    const current = this.readCandidateVerification(candidate.verificationSummary);
+    // A terminal v2 report is immutable. In particular, a concurrent UNKNOWN
+    // worker cannot overwrite a cached FAIL that another worker just stored.
+    if (current && current.disposition !== 'PENDING') return candidate;
+    if (candidate.status === VisualAgentCandidateStatus.REJECTED && verification.disposition !== 'REJECT') return candidate;
+    const previousAudit = (candidate.verificationSummary as { managedOutput?: unknown } | null)?.managedOutput;
+    const summary = {
+      ...verification,
+      ...((managedOutput ?? previousAudit) !== undefined ? { managedOutput: managedOutput ?? previousAudit } : {}),
+    } as Prisma.InputJsonValue;
+    const status = verification.disposition === 'REJECT'
+      ? VisualAgentCandidateStatus.REJECTED : VisualAgentCandidateStatus.PENDING_REVIEW;
+    const updated = await this.prisma.visualAgentCandidate.updateMany({
+      where: {
+        id: candidate.id,
+        status: candidate.status,
+        ...(candidate.updatedAt instanceof Date ? { updatedAt: candidate.updatedAt } : {}),
+      },
+      data: { status, verificationSummary: summary },
+    });
+    if (updated.count === 1) return { ...candidate, status, verificationSummary: summary, updatedAt: new Date() };
+    const raced = await this.prisma.visualAgentCandidate.findFirst({ where: {
+      id: candidate.id,
+      tenantId: candidate.tenantId,
+      clientId: candidate.clientId,
+      adapterNamespace: candidate.adapterNamespace,
+    } });
+    if (!raced) throw new ConflictException('通用图片候选验证状态已变化');
+    const racedReport = this.readCandidateVerification(raced.verificationSummary);
+    if (verification.disposition !== 'PENDING' && racedReport?.disposition === 'PENDING' && attempt < 2) {
+      return this.updateCandidateVerification(raced, verification, managedOutput, attempt + 1);
+    }
+    return raced;
+  }
+
+  private readCandidateVerification(value: unknown): VisualAgentCandidateVerificationReport | null {
+    if (!value || typeof value !== 'object') return null;
+    const report = value as VisualAgentCandidateVerificationReport;
+    if (report.version !== 'visual-agent-candidate-verification-v2'
+      || !['MANAGED_OUTPUT_STORED', 'CHECKS_RUN'].includes(report.stage)
+      || !['PENDING', 'AUTO_PASS', 'MANUAL_REVIEW', 'REJECT'].includes(report.disposition)
+      || !report.structure || !['PASS', 'FAIL', 'UNCERTAIN', 'PENDING', 'DISABLED', 'SKIPPED_LOCAL_REJECT'].includes(report.structure.state)) return null;
+    if ((report.disposition === 'PENDING') !== (report.structure.state === 'PENDING')) return null;
+    if (report.stage === 'MANAGED_OUTPUT_STORED'
+      && (report.disposition !== 'PENDING' || report.geometry !== null || report.qr !== null || report.barcode !== null || report.ocr !== null)) return null;
+    if (report.stage === 'CHECKS_RUN' && report.disposition !== 'PENDING') {
+      if (!report.geometry || !report.qr || !report.barcode || !report.ocr) return null;
+      const localVerdicts = ['PASS', 'MANUAL_REVIEW', 'REJECT'];
+      const barcodeStates = ['NONE', 'DETECTED', 'INCONCLUSIVE'];
+      const ocrStates = ['SKIPPED_DISABLED', 'SKIPPED_STRUCTURE_PENDING', 'SKIPPED_STRUCTURE_REJECT', 'UNAVAILABLE', 'INCONCLUSIVE', 'MATCHED', 'MISMATCH'];
+      if (!localVerdicts.includes(report.geometry.verdict)
+        || !localVerdicts.includes(report.qr.verdict)
+        || !localVerdicts.includes(report.barcode.verdict)
+        || !barcodeStates.includes(report.barcode.sourceStatus)
+        || !barcodeStates.includes(report.barcode.candidateStatus)
+        || !Array.isArray(report.barcode.sourceFormats) || !Array.isArray(report.barcode.candidateFormats)
+        || !ocrStates.includes(report.ocr.state)
+        || !['AUTO_PASS', 'MANUAL_REVIEW'].includes(report.ocr.verdict)) return null;
+    }
+    if (report.disposition === 'AUTO_PASS' && report.structure.state !== 'PASS') return null;
+    if (report.ocr?.state === 'MISMATCH' && report.disposition !== 'REJECT') return null;
+    if (report.structure.state === 'FAIL' && report.disposition !== 'REJECT') return null;
+    if ((report.structure.state === 'PASS' || report.structure.state === 'FAIL')
+      && (!report.structure.report
+        || report.structure.report.version !== 'product-structure-compare-v1'
+        || report.structure.report.scope !== 'VISUAL_STRUCTURE'
+        || report.structure.report.verdict !== report.structure.state)) return null;
+    return report;
+  }
+
+  private pendingCandidateVerification(): VisualAgentCandidateVerificationReport {
+    return {
+      version: 'visual-agent-candidate-verification-v2',
+      stage: 'MANAGED_OUTPUT_STORED',
+      disposition: 'PENDING',
+      geometry: null,
+      qr: null,
+      barcode: null,
+      ocr: null,
+      structure: { state: 'PENDING', report: null, invocationId: null },
+    };
+  }
+
+  private verificationLifecycle(value: unknown): 'V2_PENDING' | 'V2_TERMINAL' | 'LEGACY_V1_TERMINAL' | 'INVALID' {
+    const current = this.readCandidateVerification(value);
+    if (current) return current.disposition === 'PENDING' ? 'V2_PENDING' : 'V2_TERMINAL';
+    if (!value || typeof value !== 'object') return 'INVALID';
+    const legacy = value as {
+      version?: unknown; disposition?: unknown; geometry?: { verdict?: unknown }; qr?: { verdict?: unknown };
+      barcode?: { verdict?: unknown; sourceStatus?: unknown; candidateStatus?: unknown };
+      ocr?: { state?: unknown; verdict?: unknown };
+    };
+    const localVerdicts = ['PASS', 'MANUAL_REVIEW', 'REJECT'];
+    const barcodeStates = ['NONE', 'DETECTED', 'INCONCLUSIVE'];
+    const ocrStates = ['SKIPPED_DISABLED', 'UNAVAILABLE', 'INCONCLUSIVE', 'MATCHED', 'MISMATCH'];
+    return legacy.version === 'visual-agent-candidate-verification-v1'
+      && ['AUTO_PASS', 'MANUAL_REVIEW', 'REJECT'].includes(legacy.disposition as string)
+      && localVerdicts.includes(legacy.geometry?.verdict as string)
+      && localVerdicts.includes(legacy.qr?.verdict as string)
+      && localVerdicts.includes(legacy.barcode?.verdict as string)
+      && barcodeStates.includes(legacy.barcode?.sourceStatus as string)
+      && barcodeStates.includes(legacy.barcode?.candidateStatus as string)
+      && ocrStates.includes(legacy.ocr?.state as string)
+      && ['AUTO_PASS', 'MANUAL_REVIEW'].includes(legacy.ocr?.verdict as string)
+      ? 'LEGACY_V1_TERMINAL' : 'INVALID';
+  }
+
+  private isCandidateUsable(verification: unknown, quoteStatus: VisualCreditQuoteStatus | string) {
+    return quoteStatus === VisualCreditQuoteStatus.SETTLED
+      && this.isVerificationTerminal(verification, quoteStatus);
+  }
+
+  private isVerificationTerminal(verification: unknown, quoteStatus: VisualCreditQuoteStatus | string) {
+    const lifecycle = this.verificationLifecycle(verification);
+    return lifecycle === 'V2_TERMINAL'
+      || (quoteStatus === VisualCreditQuoteStatus.SETTLED && lifecycle === 'LEGACY_V1_TERMINAL');
   }
 
   private async movePollingFailureToReconciliation(invocationId: string, provider: string, quoteId: string, reason: string) {
@@ -561,6 +733,13 @@ export class VisualAgentPublicService implements OnModuleInit {
     };
   }
 
+  private structureFocusFromFactPolicy(value: unknown): 'WATCH_STRUCTURE' | 'GENERAL_PRODUCT' {
+    const focus = (value as { structureFocus?: unknown } | null)?.structureFocus;
+    if (focus === undefined) return 'GENERAL_PRODUCT';
+    if (focus === 'WATCH_STRUCTURE' || focus === 'GENERAL_PRODUCT') return focus;
+    throw new ConflictException('受信事实策略的商品结构检查焦点无效');
+  }
+
   private parseAndVerifyEvidence(principal: VisualAgentClientPrincipal, evidenceJson: string, signature: string, sourceBuffer: Buffer): AdapterEvidenceEnvelope {
     let evidence: AdapterEvidenceEnvelope;
     try { evidence = JSON.parse(evidenceJson) as AdapterEvidenceEnvelope; } catch { throw new BadRequestException('Adapter Evidence 必须是合法 JSON'); }
@@ -599,6 +778,7 @@ export class VisualAgentPublicService implements OnModuleInit {
       allowedDirections: evidence.allowedDirections,
       allowedOperations: evidence.allowedOperations,
       protectedRegionVersion: evidence.protectedRegionVersion,
+      structureFocus: this.structureFocusFromFactPolicy(evidence.factPolicy),
     };
     return evidence;
   }

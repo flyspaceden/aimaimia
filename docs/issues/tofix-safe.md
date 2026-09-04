@@ -4,6 +4,7 @@
 
 - PVA-V3-STRUCTURE：结构计划未知字段拒绝，异步前复制输入，检查完整解码；部分无效模型字段不得遮掉有效MISMATCH。结构报告首次落库和重放共用固定裁决，BILLING_EXCEPTION仍保留FAIL，未知提交不重发。独立Core预算/租约故障测试通过，真实模型效果及测试部署未验收。
 - PVA-V3-STRUCTURE-INTEGRATION：真实cuid的结构幂等键原拼接209字符超过Core200上限，改固定前缀+哈希。旧worker和新worker并行时UNKNOWN不能伪装内容UNCERTAIN抢先完成，现PENDING双重阻断结算/完成，晚到FAIL仍能拒绝；报告、focus、账务独立证据保留。停用服务/数据库错误不能隐藏缓存FAIL；自动配置只创建缺失预算，不恢复管理员停用。独立审查、并发mock和作用域测试通过，未部署。
+- PVA-V3-PUBLIC-GATE：父生成报价人工SETTLED不能证明结构检查已完成。新v2 PENDING的poll/GET/采用共同拒绝候选URL和采用写入，完整已结算v1才走历史兼容；OCR明确冲突拒绝，输出先持久化再收费检查。原三入口绕过复现已被回归阻断，37专项及后端整合通过，未部署。
 
 - PVA-V3-DURABLE：过去浏览器关闭停止付费任务推进；确认积分冻结与任务同事务，后台租约调度。执行器租约不替代供应商提交租约，UNKNOWN 不重发。
 - PVA-V3-UI-RACE：历史B恢复后旧A分析回包可能覆盖页面；历史切换递增流程世代，异步恢复完成后统一写入，去除非必要fileList effect依赖。真实React/Chromium延迟响应和父表单更新场景通过。仅本地修复。

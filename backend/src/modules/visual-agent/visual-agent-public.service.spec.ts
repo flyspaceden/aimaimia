@@ -42,13 +42,40 @@ function asset(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function verification(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 'visual-agent-candidate-verification-v2', stage: 'CHECKS_RUN', disposition: 'MANUAL_REVIEW',
+    geometry: { aspectRatioDelta: 0, verdict: 'PASS' },
+    qr: { sourceCount: 0, candidateCount: 0, verdict: 'PASS' },
+    barcode: { sourceStatus: 'INCONCLUSIVE', candidateStatus: 'INCONCLUSIVE', sourceFormats: [], candidateFormats: [], verdict: 'MANUAL_REVIEW' },
+    ocr: { state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW', sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null },
+    structure: { state: 'DISABLED', report: null, invocationId: null },
+    ...overrides,
+  };
+}
+
+function legacyVerification() {
+  return {
+    version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW',
+    geometry: { aspectRatioDelta: 0, verdict: 'PASS' },
+    qr: { sourceCount: 0, candidateCount: 0, verdict: 'PASS' },
+    barcode: { sourceStatus: 'INCONCLUSIVE', candidateStatus: 'INCONCLUSIVE', sourceFormats: [], candidateFormats: [], verdict: 'MANUAL_REVIEW' },
+    ocr: { state: 'SKIPPED_DISABLED', verdict: 'MANUAL_REVIEW', sourceTextDetected: null, candidateTextDetected: null, sourceTextLength: null, candidateTextLength: null, normalizedTextMatch: null },
+  };
+}
+
 function build() {
   const prisma = {
     visualAgentInvocation: { findUnique: jest.fn() },
     visualCreditQuote: { findFirst: jest.fn(), findUnique: jest.fn() },
     visualAgentAsset: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(asset()), create: jest.fn().mockImplementation(({ data }) => ({ id: 'asset-1', status: 'AVAILABLE', ...data })) },
     visualAgentPlan: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(({ data }) => ({ id: 'plan-1', ...data })) },
-    visualAgentCandidate: { findFirst: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn(), updateMany: jest.fn() },
+    visualAgentCandidate: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockImplementation(({ data }) => ({ id: 'candidate-1', updatedAt: new Date(), ...data })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
   const upload = {
     uploadFile: jest.fn().mockResolvedValue({ key: 'visual-agent-assets/source.webp', canonicalSha256: 'a'.repeat(64), mimeType: 'image/webp', size: 100, width: 800, height: 800, needsReview: false, contactInfoDetected: false }),
@@ -67,7 +94,7 @@ function build() {
   const execution = { executeReservedQuote: jest.fn(), pollForOutput: jest.fn() };
   const invocations = { completeSynchronousVerification: jest.fn(), moveVerificationToReconciliation: jest.fn(), releaseBeforeSubmit: jest.fn() };
   const config = { get: jest.fn((key: string) => key === 'AI_VISUAL_AGENT_ADAPTER_EVIDENCE_SECRET_EXTERNALCLIENT_KEY1' ? secret : undefined) };
-  const verification = { verify: jest.fn().mockResolvedValue({ version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW', geometry: {}, qr: {}, barcode: {}, ocr: {} }) };
+  const verificationService = { verify: jest.fn().mockResolvedValue(verification()) };
   const managedOutputs = {
     normalize: jest.fn().mockImplementation(async (output) => ({
       buffer: output.buffer,
@@ -75,7 +102,7 @@ function build() {
       audit: { version: 'visual-agent-managed-output-v1', normalization: 'provider-png-preserved-v1' },
     })),
   };
-  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any, verification as any, managedOutputs as any), prisma, upload, credits, execution, invocations, verification, managedOutputs };
+  return { service: new VisualAgentPublicService(prisma as any, upload as any, credits as any, execution as any, invocations as any, config as any, verificationService as any, managedOutputs as any), prisma, upload, credits, execution, invocations, verification: verificationService, managedOutputs };
 }
 
 describe('VisualAgentPublicService', () => {
@@ -133,6 +160,20 @@ describe('VisualAgentPublicService', () => {
     expect(upload.uploadFile).not.toHaveBeenCalled();
   });
 
+  it('accepts only a finite HMAC-bound structure focus and persists it with the scoped asset facts', async () => {
+    const { service, prisma, upload } = build();
+    const envelope = evidence({ factPolicy: { menuPriceProtected: true, structureFocus: 'WATCH_STRUCTURE' } });
+    const file = { buffer: source, size: source.length, mimetype: 'image/jpeg', originalname: 'watch.jpg' } as Express.Multer.File;
+    await service.createAsset({ principal, evidenceJson: JSON.stringify(envelope), signature: signedEvidence(envelope), file });
+    expect(prisma.visualAgentAsset.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ factPolicy: expect.objectContaining({ structureFocus: 'WATCH_STRUCTURE' }) }),
+    }));
+
+    const invalid = evidence({ nonce: 'evidence-2', factPolicy: { structureFocus: 'FREE_TEXT' } });
+    await expect(service.createAsset({ principal, evidenceJson: JSON.stringify(invalid), signature: signedEvidence(invalid), file })).rejects.toThrow('焦点无效');
+    expect(upload.uploadFile).toHaveBeenCalledTimes(1);
+  });
+
   it('derives a short-lived plan and issues only a scoped server-side tariff quote', async () => {
     const { service, credits, prisma } = build();
     const plan = await service.createPlan({ principal, assetId: 'asset-1', requestedDirection: 'PRESERVE_REAL_SCENE' });
@@ -145,12 +186,13 @@ describe('VisualAgentPublicService', () => {
     await expect(service.issueQuote({ principal, planId: plan.id, rateCode: 'STANDARD_REAL_SCENE', idempotencyKey: 'quote-1' })).resolves.toMatchObject({ quote: { id: 'quote-1', offer: { displayName: '标准美化' } } });
     expect(credits.issueQuote).toHaveBeenCalledWith(expect.objectContaining({
       principal, billingOwnerType: 'RESTAURANT', billingOwnerId: 'restaurant-1', sourceAssetRef: 'asset-1', rateCode: 'STANDARD_REAL_SCENE',
+      visualPlan: expect.objectContaining({ structureFocus: 'GENERAL_PRODUCT' }),
     }));
   });
 
   it('records an external adoption intent but never publishes an image from Core', async () => {
     const { service, prisma } = build();
-    prisma.visualAgentCandidate.findFirst.mockResolvedValue({ id: 'candidate-1', status: 'PENDING_REVIEW', plan: { externalObjectVersion: 'menu-v3' }, quote: { status: 'SETTLED' } });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue({ id: 'candidate-1', status: 'PENDING_REVIEW', verificationSummary: legacyVerification(), plan: { externalObjectVersion: 'menu-v3' }, quote: { status: 'SETTLED' } });
     prisma.visualAgentCandidate.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(service.recordAdoptIntent({ principal, quoteId: 'quote-1', externalObjectVersion: 'menu-v3', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true })).resolves.toEqual({
@@ -191,6 +233,7 @@ describe('VisualAgentPublicService', () => {
     prisma.visualAgentCandidate.findFirst.mockResolvedValue({
       id: 'candidate-1', status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png',
       invocationId: 'invocation-1', provider: 'BAILIAN_WAN', width: 800, height: 800,
+      verificationSummary: verification(),
     });
 
     await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ quoteId: 'quote-1', status: 'PENDING_REVIEW', candidate: { id: 'candidate-1' } });
@@ -218,7 +261,7 @@ describe('VisualAgentPublicService', () => {
     });
     prisma.visualAgentCandidate.findFirst.mockResolvedValue(null);
     prisma.visualAgentPlan.findFirst.mockResolvedValue(plan);
-    prisma.visualAgentCandidate.create.mockResolvedValue({ id: 'candidate-1', status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png', width: 800, height: 800, provider: 'BAILIAN_QWEN_IMAGE' });
+    prisma.visualAgentCandidate.create.mockImplementation(async ({ data }) => ({ id: 'candidate-1', updatedAt: new Date(), ...data }));
     execution.pollForOutput.mockResolvedValue({ quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_QWEN_IMAGE', status: 'VERIFYING', output: { buffer: Buffer.from('provider-output'), mimeType: 'image/png' } });
     upload.uploadFile.mockResolvedValueOnce({ key: 'visual-agent-assets/candidate.png', canonicalSha256: 'b'.repeat(64), mimeType: 'image/png', size: 200, width: 800, height: 800, needsReview: false, contactInfoDetected: false });
 
@@ -228,6 +271,192 @@ describe('VisualAgentPublicService', () => {
     expect(verification.verify).toHaveBeenCalledWith(expect.objectContaining({ verificationId: 'quote-1', allowAutoPass: false }));
     expect(invocations.completeSynchronousVerification).toHaveBeenCalledWith('invocation-1', 'BAILIAN_QWEN_IMAGE');
     expect(credits.settleReservedQuote).toHaveBeenCalledWith('quote-1', expect.any(String));
+  });
+
+  it('stores a managed output but leaves the parent task, quote and candidate unavailable while structure is PENDING', async () => {
+    const { service, prisma, upload, credits, execution, invocations, verification: verifier } = build();
+    credits.getQuoteForClient.mockResolvedValue({
+      quote: { id: 'quote-1', status: 'RESERVED', sourceAssetRef: 'asset-1',
+        visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', structureFocus: 'GENERAL_PRODUCT' },
+        rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: false } },
+    });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValueOnce(null);
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({
+      id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', actorId: 'operator-1', riskProfile: 'CONSERVATIVE_FACTS', recommendedDirection: 'PRESERVE_REAL_SCENE',
+      allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', factPolicy: { structureFocus: 'GENERAL_PRODUCT' }, planHash: 'b'.repeat(64), expiresAt: new Date(),
+    });
+    execution.pollForOutput.mockResolvedValue({ quoteId: 'quote-1', invocationId: 'invocation-1', provider: 'BAILIAN_WAN', status: 'VERIFYING', output: { buffer: Buffer.from('provider-output'), mimeType: 'image/png' } });
+    upload.getBuffer.mockResolvedValue(Buffer.from('source'));
+    upload.uploadFile.mockResolvedValueOnce({ key: 'visual-agent-assets/candidate.png', canonicalSha256: 'b'.repeat(64), mimeType: 'image/png', size: 200, width: 800, height: 800 });
+    verifier.verify.mockResolvedValue(verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }));
+
+    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toEqual({ quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', candidate: null });
+    expect(prisma.visualAgentCandidate.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ verificationSummary: expect.objectContaining({ disposition: 'PENDING' }) }) }));
+    expect(upload.uploadFile.mock.invocationCallOrder[0]).toBeLessThan(verifier.verify.mock.invocationCallOrder[0]);
+    expect(upload.getBuffer).toHaveBeenCalledWith('visual-agent-assets/candidate.png');
+    expect(invocations.completeSynchronousVerification).not.toHaveBeenCalled();
+    expect(credits.settleReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a v2 PENDING candidate after an external operator settled the parent quote', async () => {
+    const { service, prisma, upload, credits, invocations, verification: verifier } = build();
+    const pending = {
+      id: 'candidate-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
+      status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png', width: 800, height: 800,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', updatedAt: new Date(),
+      verificationSummary: verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }),
+    };
+    credits.getQuoteForClient.mockResolvedValue({ quote: {
+      id: 'quote-1', status: 'SETTLED', sourceAssetRef: 'asset-1',
+      visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', structureFocus: 'GENERAL_PRODUCT' },
+      rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: false },
+    } });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue(pending);
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({ id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', actorId: 'operator-1' });
+    upload.getBuffer.mockResolvedValue(Buffer.from('managed-image'));
+    verifier.verify.mockResolvedValue(verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }));
+
+    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toEqual({ quoteId: 'quote-1', invocationId: 'invocation-1', status: 'VERIFYING', candidate: null });
+    expect(upload.createPrivateAccessUrl).not.toHaveBeenCalled();
+    expect(invocations.completeSynchronousVerification).not.toHaveBeenCalled();
+    expect(credits.settleReservedQuote).not.toHaveBeenCalled();
+  });
+
+  it('hides a settled v2 PENDING candidate from getTask and rejects its adoption intent', async () => {
+    const { service, prisma, credits, upload } = build();
+    const pendingSummary = verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } });
+    credits.getQuoteForClient.mockResolvedValue({ quote: { id: 'quote-1', status: 'SETTLED' }, billingAccount: {} });
+    prisma.visualAgentCandidate.findFirst
+      .mockResolvedValueOnce({ id: 'candidate-1', status: 'PENDING_REVIEW', verificationSummary: pendingSummary })
+      .mockResolvedValueOnce({ id: 'candidate-1', status: 'PENDING_REVIEW', verificationSummary: pendingSummary,
+        plan: { externalObjectVersion: 'menu-v3' }, quote: { status: 'SETTLED' } });
+    prisma.visualCreditQuote.findFirst.mockResolvedValue({ visualAgentInvocation: { status: 'SUCCEEDED' } });
+
+    await expect(service.getTask(principal, 'quote-1')).resolves.toMatchObject({ status: 'VERIFYING', candidate: null });
+    await expect(service.recordAdoptIntent({ principal, quoteId: 'quote-1', externalObjectVersion: 'menu-v3', quantityConfirmed: true, labelsConfirmed: true, factsConfirmed: true })).rejects.toThrow('不能记录采用意图');
+    expect(upload.createPrivateAccessUrl).not.toHaveBeenCalled();
+    expect(prisma.visualAgentCandidate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicitly finite legacy v1 candidate readable after historical settlement', async () => {
+    const { service, prisma, credits, verification: verifier } = build();
+    credits.getQuoteForClient.mockResolvedValue({ quote: { id: 'quote-legacy', status: 'SETTLED' } });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue({
+      id: 'candidate-legacy', status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/legacy.png', mimeType: 'image/png', width: 800, height: 800,
+      verificationSummary: legacyVerification(),
+    });
+    await expect(service.pollTask({ principal, quoteId: 'quote-legacy' })).resolves.toMatchObject({ status: 'PENDING_REVIEW', candidate: { id: 'candidate-legacy' } });
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a damaged or unknown settled summary as a legacy terminal contract', async () => {
+    const { service, prisma, upload, credits, verification: verifier } = build();
+    credits.getQuoteForClient.mockResolvedValue({ quote: {
+      id: 'quote-bad', status: 'SETTLED', sourceAssetRef: 'asset-1',
+      visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', structureFocus: 'GENERAL_PRODUCT' },
+      rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: true },
+    } });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue({
+      id: 'candidate-bad', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
+      status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/bad.png', invocationId: 'invocation-1', provider: 'BAILIAN_WAN',
+      verificationSummary: { version: 'visual-agent-candidate-verification-v1', disposition: 'MANUAL_REVIEW' }, updatedAt: new Date(),
+    });
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({ id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', actorId: 'operator-1' });
+    upload.getBuffer.mockResolvedValue(Buffer.from('managed-image'));
+    verifier.verify.mockResolvedValue(verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }));
+
+    await expect(service.pollTask({ principal, quoteId: 'quote-bad' })).resolves.toMatchObject({ status: 'VERIFYING', candidate: null });
+    expect(upload.createPrivateAccessUrl).not.toHaveBeenCalled();
+  });
+
+  it('replays a pending managed candidate to a known FAIL and settles the generation quote only once', async () => {
+    const { service, prisma, upload, credits, invocations, verification: verifier } = build();
+    const pendingCandidate = {
+      id: 'candidate-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
+      status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png', width: 800, height: 800,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', updatedAt: new Date('2026-09-04T00:00:00Z'),
+      verificationSummary: verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }),
+    };
+    credits.getQuoteForClient.mockResolvedValue({ quote: {
+      id: 'quote-1', status: 'RESERVED', sourceAssetRef: 'asset-1',
+      visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', structureFocus: 'GENERAL_PRODUCT' },
+      rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: false },
+    } });
+    prisma.visualAgentCandidate.findFirst.mockResolvedValue(pendingCandidate);
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({ id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', actorId: 'operator-1' });
+    upload.getBuffer.mockResolvedValue(Buffer.from('managed-image'));
+    verifier.verify.mockResolvedValue(verification({
+      disposition: 'REJECT',
+      structure: { state: 'FAIL', invocationId: 'structure-1', report: { version: 'product-structure-compare-v1', scope: 'VISUAL_STRUCTURE', verdict: 'FAIL', reasons: ['IDENTITY_CHANGED'] } },
+    }));
+
+    await expect(service.pollTask({ principal, quoteId: 'quote-1' })).resolves.toMatchObject({ status: 'REJECTED', candidate: { status: 'REJECTED' } });
+    expect(prisma.visualAgentCandidate.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }));
+    expect(invocations.completeSynchronousVerification).toHaveBeenCalledTimes(1);
+    expect(credits.settleReservedQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a concurrent cached FAIL dominate UNKNOWN and records only one generation-fee settlement', async () => {
+    const { service, prisma, upload, credits, verification: verifier } = build();
+    let row: any = {
+      id: 'candidate-1', tenantId: principal.tenantId, clientId: principal.clientId, adapterNamespace: principal.adapterNamespace,
+      status: 'PENDING_REVIEW', objectKey: 'visual-agent-assets/candidate.png', mimeType: 'image/png', width: 800, height: 800,
+      invocationId: 'invocation-1', provider: 'BAILIAN_WAN', updatedAt: new Date('2026-09-04T00:00:00Z'),
+      verificationSummary: verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } }),
+    };
+    const quoteRow = {
+      id: 'quote-1', status: 'RESERVED', sourceAssetRef: 'asset-1',
+      visualPlanSnapshot: { direction: 'PRESERVE_REAL_SCENE', riskProfile: 'CONSERVATIVE_FACTS', allowedOperations: ['LIGHTING'], protectedRegionVersion: 'menu-facts-v1', structureFocus: 'GENERAL_PRODUCT' },
+      rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE', requiresHumanReview: false },
+    };
+    credits.getQuoteForClient.mockResolvedValue({ quote: quoteRow });
+    prisma.visualAgentCandidate.findFirst.mockImplementation(async () => ({ ...row }));
+    prisma.visualAgentCandidate.updateMany.mockImplementation(async ({ where, data }) => {
+      if (where.status !== row.status || (where.updatedAt && where.updatedAt.getTime() !== row.updatedAt.getTime())) return { count: 0 };
+      row = { ...row, ...data, updatedAt: new Date(row.updatedAt.getTime() + 1) };
+      return { count: 1 };
+    });
+    prisma.visualAgentPlan.findFirst.mockResolvedValue({ id: 'plan-1', assetId: 'asset-1', externalObjectId: 'menu-item-1', actorId: 'operator-1' });
+    upload.getBuffer.mockResolvedValue(Buffer.from('managed-image'));
+    let releaseUnknown!: () => void;
+    const unknownGate = new Promise<void>((resolve) => { releaseUnknown = resolve; });
+    verifier.verify
+      .mockImplementationOnce(async () => {
+        await unknownGate;
+        return verification({ disposition: 'PENDING', structure: { state: 'PENDING', report: null, invocationId: 'structure-1' } });
+      })
+      .mockImplementationOnce(async () => {
+        releaseUnknown();
+        return verification({ disposition: 'REJECT', structure: {
+          state: 'FAIL', invocationId: 'structure-1',
+          report: { version: 'product-structure-compare-v1', scope: 'VISUAL_STRUCTURE', verdict: 'FAIL', reasons: ['IDENTITY_CHANGED'] },
+        } });
+      });
+    let settledLedgerEntries = 0;
+    let settled = false;
+    credits.settleReservedQuote.mockImplementation(async () => {
+      if (!settled) { settled = true; settledLedgerEntries += 1; }
+      return { status: 'SETTLED' };
+    });
+
+    const [first, second] = await Promise.all([
+      service.pollTask({ principal, quoteId: 'quote-1' }),
+      service.pollTask({ principal, quoteId: 'quote-1' }),
+    ]);
+    expect([first, second]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'REJECTED', candidate: expect.objectContaining({ status: 'REJECTED' }) }),
+      expect.objectContaining({ status: 'REJECTED', candidate: expect.objectContaining({ status: 'REJECTED' }) }),
+    ]));
+    expect(row).toMatchObject({ status: 'REJECTED', verificationSummary: { disposition: 'REJECT', structure: { state: 'FAIL' } } });
+    expect(settledLedgerEntries).toBe(1);
+  });
+
+  it('does not read or settle a task when the Key-scoped quote lookup rejects cross-scope access', async () => {
+    const { service, prisma, credits } = build();
+    credits.getQuoteForClient.mockRejectedValue(new ConflictException('图片美化报价不存在'));
+    await expect(service.pollTask({ principal: { ...principal, clientId: 'other-client' }, quoteId: 'quote-1' })).rejects.toThrow('不存在');
+    expect(prisma.visualAgentCandidate.findFirst).not.toHaveBeenCalled();
+    expect(credits.settleReservedQuote).not.toHaveBeenCalled();
   });
 
   it('moves the same Provider invocation and quote into reconciliation when candidate persistence fails', async () => {
