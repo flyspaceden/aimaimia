@@ -135,18 +135,18 @@ export class ProductImageStructureVerificationService {
 
   private async toRunnerSource(buffer: Buffer): Promise<VisualProviderSource> {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('empty image');
-    // This is a format/opacity normalization for the runner, not an edit:
-    // preserve the actual pixels and colourspace, never flatten onto a new
-    // background or apply colour/scene transformations.
+    // Use the same white transparency matte as the image provider's input.
+    // Merely dropping alpha would expose hidden RGB that the generator never
+    // saw. This changes only the comparison view, never the stored source.
     const image = sharp(buffer, { failOn: 'error', limitInputPixels: 64_000_000 });
     const metadata = await image.metadata();
     if (!metadata.width || !metadata.height || metadata.width < 64 || metadata.height < 64
       || metadata.width > 8000 || metadata.height > 8000 || metadata.width / metadata.height > 8 || metadata.height / metadata.width > 8
       || (metadata.pages ?? 1) > 1) throw new Error('invalid image dimensions');
-    // Match the runner's bounded canonicalization before making its request:
-    // this is not a new visual transformation, background replacement, or
-    // colour adjustment; it only produces the opaque input contract it needs.
-    const normalized = await image.rotate().toColourspace('srgb')
+    // Bound the rendered comparison view before passing it to the runner.
+    // The white matte is only for transparency; opaque scene pixels keep
+    // their existing background, and stored product images remain untouched.
+    const normalized = await image.rotate().flatten({ background: '#ffffff' }).toColourspace('srgb')
       .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
       .removeAlpha().png().toBuffer();
     return { buffer: normalized, mimeType: 'image/png', normalizedVersion: 'normalized-rgba-srgb-v1', opaque: true };

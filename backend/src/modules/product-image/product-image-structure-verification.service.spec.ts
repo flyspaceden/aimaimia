@@ -25,6 +25,19 @@ function build(available = true) {
 }
 
 describe('ProductImageStructureVerificationService', () => {
+  it('compares transparent input with the same matte seen by the image generator, not hidden RGB', async () => {
+    const { service, runner } = build();
+    const bytes = await sharp({ create: { width: 80, height: 80, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const originalHash = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+    await service.verify({ companyId: 'company-1', staffId: 'staff-1', productId: 'product-1', quote: {
+      id: 'quote-transparent', visualPlanSnapshot: { direction: 'CATALOG_STUDIO', allowedOperations: ['BACKGROUND_REPLACE'] },
+      rateCardSnapshot: { candidateRole: 'FACT_MAIN_IMAGE' },
+    }, sourceBuffer: bytes, candidateBuffer: bytes });
+    const received = runner.verifyStructure.mock.calls[0][0].source.buffer;
+    expect((await sharp(received).metadata()).hasAlpha).toBe(false);
+    expect([...await sharp(received).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer()]).toEqual([255, 255, 255]);
+    expect(require('node:crypto').createHash('sha256').update(bytes).digest('hex')).toBe(originalHash);
+  });
   const quote = {
     id: 'quote-1',
     visualPlanSnapshot: { direction: 'MARKETING_SCENE', allowedOperations: ['SCENE_RESTAGE', 'COMPOSITION'] },
