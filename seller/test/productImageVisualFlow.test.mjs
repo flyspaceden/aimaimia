@@ -55,12 +55,22 @@ test('seller paid image flow shows a server quote and requires an explicit credi
   assert.match(editPage, /不能替换商品事实主图/);
   assert.match(editPage, /candidateRole === 'MARKETING_IMAGE'/);
   assert.match(editPage, /当前不能采用或替换商品公开图片/);
-  assert.match(editPage, /disabled=\{!quoteConfirmed\}/);
+  assert.match(editPage, /disabled=\{!quoteConfirmed \|\| Boolean\(paidExecution\)\}/);
+  assert.match(editPage, /disabled=\{Boolean\(paidExecution\) \|\| quoteSubmitting\}/);
   assert.match(editPage, /confirmProductVisualQuote\(/);
   assert.match(editPage, /pollProductVisualQuote\(/);
   assert.match(editPage, /候选可采用；系统已保留验真摘要/);
   assert.match(editPage, /候选未通过系统事实检查/);
   assert.match(editPage, /新候选不会等待平台预审批/);
+  assert.match(editPage, /paidExecution\?\.status === 'SUCCEEDED' && paidExecution\.optimizationId/);
+  assert.match(editPage, /setOptimizationTask\(await getProductImageOptimization\(paidExecution\.optimizationId\)\)/);
+  assert.match(editPage, /await reopenActivePaidCandidate\(\{ asset, url, name: file\.name \|\| '商品图片' \}\)/);
+  assert.match(editPage, /paidExecution\?\.optimizationId === optimizationTask\.id/);
+  assert.match(editPage, /const adoptingPaidDirection = adoptingCurrentPaidTask \? visualQuote\?\.quote\.visualPlanSnapshot\?\.direction : undefined/);
+  assert.match(editPage, /currentPaidOptimization \? visualQuote\?\.quote\.visualPlanSnapshot\?\.direction : undefined/);
+  assert.match(editPage, /const endPaidPreview = currentPaidOptimization && !candidateCanBeAdopted/);
+  assert.match(editPage, /paidDirection === 'PRESERVE_REAL_SCENE'\) return '实景精修候选'/);
+  assert.match(editPage, /setPaidExecution\(null\)/);
 });
 
 test('seller paid visual API remains product-bound and cannot send a free-form provider prompt', () => {
