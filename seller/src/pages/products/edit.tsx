@@ -1172,31 +1172,25 @@ function ImageUploadSection({
         [feedbackUid]: { type: 'info', message: '正在检查图片尺寸，请不要重复选择同一文件。' },
       }));
     }
-    onProgress?.(5);
+    onProgress?.(0);
     const prepared = await prepareProductImageForUpload(file);
-    onProgress?.(15);
     if (feedbackUid) {
       setUploadFeedback((current) => ({
         ...current,
-        [feedbackUid]: { type: 'info', message: '正在上传并完成安全扫描和素材登记。' },
+        [feedbackUid]: { type: 'info', message: '正在上传图片。' },
       }));
     }
-    let displayedPercent = 15;
-    const processingProgress = window.setInterval(() => {
-      displayedPercent = Math.min(95, displayedPercent + (displayedPercent < 80 ? 2 : 1));
-      onProgress?.(displayedPercent);
-    }, 1000);
-    let result: UploadedProductImageAsset;
-    try {
-      result = await uploadProductImageAsset(prepared.file, (networkPercent) => {
-        if (displayedPercent < 80) {
-          displayedPercent = Math.max(displayedPercent, 15 + Math.round(networkPercent * 0.65));
-          onProgress?.(Math.min(80, displayedPercent));
-        }
-      });
-    } finally {
-      window.clearInterval(processingProgress);
-    }
+    // Only transport bytes have a measurable percentage. Finishing transport
+    // does not mean server-side normalization/scanning/storage has completed.
+    const result = await uploadProductImageAsset(prepared.file, (networkPercent) => {
+      onProgress?.(networkPercent);
+      if (feedbackUid && networkPercent >= 100) {
+        setUploadFeedback((current) => ({
+          ...current,
+          [feedbackUid]: { type: 'info', message: '图片已传输，服务器正在处理，请稍候。' },
+        }));
+      }
+    });
     onProgress?.(100);
     if (feedbackUid) {
       setUploadFeedback((current) => ({

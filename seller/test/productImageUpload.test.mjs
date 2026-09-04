@@ -18,8 +18,10 @@ test('managed product image uploads enforce compatible dimensions and preserve t
 test('managed product image uploads use a dedicated timeout and visible staged progress', () => {
   assert.match(uploadApi, /timeout: 120_000/);
   assert.match(uploadApi, /onUploadProgress/);
-  assert.match(editPage, /Math\.min\(95/);
-  assert.match(editPage, /正在上传并完成安全扫描和素材登记/);
+  assert.doesNotMatch(editPage, /processingProgress|displayedPercent/);
+  assert.match(editPage, /onProgress\?\.\(networkPercent\)/);
+  assert.match(editPage, /服务器正在处理，请稍候/);
+  assert.match(editPage, /file.status === 'uploading' && uploadFeedback\[file.uid\]/);
   assert.match(editPage, /重新上传/);
   assert.doesNotMatch(editPage, /accept="image\/\*"/);
 });
