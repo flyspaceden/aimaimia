@@ -33,7 +33,7 @@ node - "$ENV_FILE" "$CONFIG_FILE" "$TEMP_FILE" <<'NODE'
 const fs = require('node:fs');
 
 const [envPath, configPath, outputPath] = process.argv.slice(2);
-const orderedKeys = [
+const requiredKeys = [
   'PUBLIC_API_BASE_URL',
   'AI_VISUAL_AGENT_BAILIAN_API_KEY',
   'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
@@ -53,11 +53,23 @@ const orderedKeys = [
   'AI_VISUAL_AGENT_BAILIAN_RESULT_HOST_SUFFIXES',
   'AI_VISUAL_AGENT_FACT_SCAN_HASH_KEY_VERSION',
 ];
+const optionalBooleanKeys = [
+  'AI_VISUAL_AGENT_STRUCTURE_VERIFY_ENABLED',
+  'AI_VISUAL_AGENT_STRUCTURE_VERIFY_EXECUTION_ENABLED',
+];
+const orderedKeys = [...requiredKeys, ...optionalBooleanKeys];
 
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('invalid AI Visual Agent config object');
 const configKeys = Object.keys(config).sort();
-if (JSON.stringify(configKeys) !== JSON.stringify([...orderedKeys].sort())) throw new Error('AI Visual Agent config keys are incomplete or unexpected');
+const allowedKeys = new Set(orderedKeys);
+if (configKeys.some((key) => !allowedKeys.has(key))
+  || requiredKeys.some((key) => !Object.hasOwn(config, key))) {
+  throw new Error('AI Visual Agent config keys are incomplete or unexpected');
+}
+for (const key of optionalBooleanKeys) {
+  if (!Object.hasOwn(config, key)) config[key] = 'false';
+}
 
 for (const key of orderedKeys) {
   if (typeof config[key] !== 'string' || !config[key].length || /[\r\n\0]/.test(config[key])) throw new Error(`invalid ${key}`);
@@ -78,6 +90,7 @@ for (const key of [
   'AI_VISUAL_AGENT_QWEN_OCR_ENABLED',
   'AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED',
   'AI_VISUAL_AGENT_CANDIDATE_OCR_VERIFY_ENABLED',
+  ...optionalBooleanKeys,
 ]) {
   if (!['true', 'false'].includes(config[key])) throw new Error(`invalid boolean ${key}`);
 }
