@@ -22,6 +22,17 @@ const staticDeployScript = await readFile(
 );
 const databaseBackupScriptUrl = new URL('../../backend/scripts/create-production-database-backup.cjs', import.meta.url);
 const databaseBackupScript = await readFile(databaseBackupScriptUrl, 'utf8');
+
+test('staging backups use a fixed separate retention root and reject unknown profiles', () => {
+  assert.match(databaseBackupScript, /backupProfile === 'staging'/);
+  assert.match(databaseBackupScript, /\/www\/backup\/database\/aimaimai-staging/);
+  assert.match(databaseBackupScript, /invalid database backup profile/);
+  const rejected = spawnSync(process.execPath, [fileURLToPath(databaseBackupScriptUrl)], {
+    env: { ...process.env, DATABASE_BACKUP_PROFILE: 'invalid-path' }, encoding: 'utf8',
+  });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /invalid database backup profile/);
+});
 const migrationReadinessScriptUrl = new URL('../../backend/scripts/inspect-miniapp-migration-readiness.cjs', import.meta.url);
 const migrationReadinessScript = await readFile(migrationReadinessScriptUrl, 'utf8');
 const databaseRehearsalScriptUrl = new URL('../../backend/scripts/create-database-rehearsal.cjs', import.meta.url);
@@ -321,7 +332,8 @@ test('production migration creates and verifies a secret-safe database backup fi
   const backupIndex = backendDeployScript.indexOf('node scripts/create-production-database-backup.cjs');
   const migrateIndex = backendDeployScript.indexOf('npx --no-install prisma migrate deploy');
   assert.ok(backupIndex >= 0 && migrateIndex > backupIndex);
-  assert.match(databaseBackupScript, /const BACKUP_ROOT = '\/www\/backup\/database\/aimaimai'/);
+  assert.match(databaseBackupScript, /backupProfile = process\.env\.DATABASE_BACKUP_PROFILE \|\| 'production'/);
+  assert.match(databaseBackupScript, /: '\/www\/backup\/database\/aimaimai';/);
   assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_dump'\)/);
   assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_restore'\)/);
   assert.match(databaseBackupScript, /\/www\/server\/pgsql\/bin/);

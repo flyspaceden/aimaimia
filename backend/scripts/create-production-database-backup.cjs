@@ -21,7 +21,12 @@ const {
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const BACKUP_ROOT = '/www/backup/database/aimaimai';
+const backupProfile = process.env.DATABASE_BACKUP_PROFILE || 'production';
+if (!['production', 'staging'].includes(backupProfile)) throw new Error('invalid database backup profile');
+// Keep test retention completely separate from production backup retention.
+const BACKUP_ROOT = backupProfile === 'staging'
+  ? '/www/backup/database/aimaimai-staging'
+  : '/www/backup/database/aimaimai';
 
 function resolvePostgresBinary(name) {
   const configuredDir = String(process.env.PG_BIN_DIR || '').trim();
