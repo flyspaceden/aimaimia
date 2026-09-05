@@ -28,6 +28,7 @@ import {
   CrownOutlined,
   EnvironmentOutlined,
   ScanOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import useAuthStore from '@/store/useAuthStore';
 import { logout } from '@/api/auth';
@@ -87,6 +88,7 @@ const menuRoutes: ProLayoutProps['route'] = {
         { path: '/companies', name: '企业管理', permission: PERMISSIONS.COMPANIES_READ },
         { path: '/categories', name: '分类管理', permission: PERMISSIONS.CATEGORIES_READ },
         { path: '/products', name: '商家商品' },
+        { path: '/products/media-revisions', name: '图片巡检与回滚', icon: <FileSearchOutlined />, permission: PERMISSIONS.PRODUCTS_AUDIT },
         { path: '/products/units', name: '单位管理', icon: <AppstoreOutlined />, permission: PERMISSIONS.PRODUCTS_READ },
         { path: '/reward-products', name: '奖励商品', permission: PERMISSIONS.REWARD_PRODUCTS_READ },
         { path: '/tags', name: '标签管理', icon: <TagsOutlined />, permission: PERMISSIONS.TAGS_READ },
@@ -173,6 +175,7 @@ const menuRoutes: ProLayoutProps['route'] = {
       icon: <SettingOutlined />,
       routes: [
         { path: '/config', name: '平台设置', icon: <SettingOutlined />, permission: PERMISSIONS.CONFIG_READ },
+        { path: '/visual-agent', name: '商品图片智能美化', icon: <SafetyOutlined />, permission: PERMISSIONS.ADMIN_VISUAL_AGENT_MANAGE },
         { path: '/discovery-filters', name: '发现页筛选', icon: <TagsOutlined />, permission: PERMISSIONS.CONFIG_READ },
         { path: '/admin/users', name: '管理员账号', icon: <TeamOutlined />, permission: PERMISSIONS.ADMIN_USERS_READ },
         { path: '/admin/roles', name: '角色权限', icon: <SafetyCertificateOutlined />, permission: PERMISSIONS.ADMIN_ROLES_READ },

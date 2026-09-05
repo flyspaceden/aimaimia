@@ -46,6 +46,23 @@ describe('NotificationRegistry', () => {
     ]);
   });
 
+  it('notifies every seller staff member when a platform inspection rolls product media back', async () => {
+    const result = await registry.resolve(
+      event('product.mediaRolledBackForSeller', { productId: 'product-1', companyId: 'company-1', sellerUserIds: ['seller-1'], reason: '包装型号与实物不一致' }),
+    );
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        recipientKind: 'SELLER_STAFF',
+        recipientKey: 'seller:seller-1',
+        audience: 'SELLER_CENTER',
+        category: 'product',
+        body: expect.stringContaining('包装型号与实物不一致'),
+        action: { routeKey: 'SELLER_PRODUCT_DETAIL', params: { id: 'product-1' } },
+      }),
+    ]);
+  });
+
   it('registers every existing migrated event type', async () => {
     const cases: Array<[string, Record<string, unknown>]> = [
       ['order.newPaidForSeller', { orderId: 'order-1', sellerUserIds: ['seller-1'] }],

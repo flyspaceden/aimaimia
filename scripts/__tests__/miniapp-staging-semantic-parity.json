@@ -140,10 +140,6 @@
       "gitBlob": "296a15d91600c8cf16c7552f7e8edf27a8866f98"
     },
     {
-      "path": "backend/src/modules/seller/products/seller-products.service.ts",
-      "gitBlob": "b012d1d1e676b29d23a9dcebf8d2cce42c45b69f"
-    },
-    {
       "path": "backend/src/modules/seller/shipping/seller-shipping.service.ts",
       "gitBlob": "c6fd200a5da614e23d61cf92863ff503b51aa7a5"
     },
@@ -264,6 +260,306 @@
     {
       "path": "backend/src/modules/shipment/shipment.module.ts",
       "reason": "exclude Delivery callback provider"
+    },
+    {
+      "path": "backend/src/common/http/protected-upload-static.middleware.ts",
+      "reason": "serve managed image previews only through the approved protected upload access boundary"
+    },
+    {
+      "path": "backend/src/modules/notification/notification.registry.ts",
+      "reason": "register merchant notifications for AI image adoption rollback and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/admin-product-media-revisions.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/admin-product-paid-visual-candidates.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/admin-product-visual-test-access.controller.ts",
+      "reason": "approved staging-only administration endpoint for explicit and all-merchant AI image test access status"
+    },
+    {
+      "path": "backend/src/modules/product-image/aimai-product-visual-adapter.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/aimai-product-visual.constants.ts",
+      "reason": "centralize the AI image tenant, client, and adapter identities without creating an adapter-to-test-access dependency cycle"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-background.provider.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-barcode-scanner.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-budget.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-candidate-local-verification.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-candidate-ocr-verification.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-composition.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-fact-scan.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-fact-scan.dto.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-fact-scan.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-optimization-state.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-optimization.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-optimization.dto.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-structure-verification.service.ts",
+      "reason": "approved product quote-bound structural verification, pending recovery, and immutable inspection focus; no buyer or Delivery changes"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-candidate-download.service.ts",
+      "reason": "approved AI image candidate download with seller ownership and immutable managed artifact checks; no publication changes"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-optimization.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image-quality.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-image.module.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-media-revision.dto.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-media-revisions.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-media-revisions.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-paid-visual-candidate.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-commerce.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-commerce.dto.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-fact-hash.ts",
+      "reason": "bind paid AI image plans and quotes to the current product facts so stale edits cannot be generated or adopted"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-planning.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-planning.dto.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-planning.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/product-visual-test-access.service.ts",
+      "reason": "default-off and exact-test-hostname-gated staging access opens all eligible test merchants, removes practical daily, weekly, shared provider-budget, and per-merchant expiry restrictions with 2,000,000,000-cent caps, retains merchant image-credit balance and per-call confirmation, grants welcome credits, safely releases unbound reservations when disabled, and keeps production closed",
+      "riskTags": [
+        "default_off",
+        "exact_test_hostname",
+        "all_test_merchants",
+        "effectively_unlimited_provider_budget",
+        "credit_confirmation_required",
+        "production_closed"
+      ]
+    },
+    {
+      "path": "backend/src/modules/product-image/seller-media-assets.controller.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/product-image/seller-media-assets.service.ts",
+      "reason": "approved AI image module for managed planning, fact verification, candidate adoption, and post-publication governance"
+    },
+    {
+      "path": "backend/src/modules/seller/products/seller-products.dto.ts",
+      "reason": "connect seller product media to the approved managed AI image workflow without changing mini-program checkout semantics"
+    },
+    {
+      "path": "backend/src/modules/seller/products/seller-products.module.ts",
+      "reason": "connect seller product media to the approved managed AI image workflow without changing mini-program checkout semantics"
+    },
+    {
+      "path": "backend/src/modules/seller/products/seller-products.service.ts",
+      "reason": "connect seller product media to the approved managed AI image workflow without changing mini-program checkout semantics"
+    },
+    {
+      "path": "backend/src/modules/upload/image-content-scanner.service.ts",
+      "reason": "protect managed source and candidate image upload, preview, and object access boundaries"
+    },
+    {
+      "path": "backend/src/modules/upload/product-media-access.service.ts",
+      "reason": "protect managed source and candidate image upload, preview, and object access boundaries"
+    },
+    {
+      "path": "backend/src/modules/upload/upload.controller.ts",
+      "reason": "protect managed source and candidate image upload, preview, and object access boundaries"
+    },
+    {
+      "path": "backend/src/modules/upload/upload.module.ts",
+      "reason": "protect managed source and candidate image upload, preview, and object access boundaries"
+    },
+    {
+      "path": "backend/src/modules/upload/upload.service.ts",
+      "reason": "protect managed source and candidate image upload, preview, and object access boundaries"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/admin-visual-agent-client.controller.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/admin-visual-agent-client.dto.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/admin-visual-credit.controller.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/admin-visual-credit.dto.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/providers/bailian-qwen-image.provider.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/providers/bailian-structure-verification.provider.ts",
+      "reason": "approved two-image structure comparison with durable authorization and bounded evidence; no buyer or Delivery changes"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/providers/bailian-qwen-ocr.provider.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/providers/bailian-wan-image.provider.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/providers/visual-image-edit.provider.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-candidate-verification.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-client-key.guard.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-client-key.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-integrity.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-managed-output.service.ts",
+      "reason": "shared Core normalization safely bounds large Provider outputs and preserves audit hashes for every business adapter"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-invocation.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-ocr-runner.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-provider-runner.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-public.controller.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-public.dto.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-public.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-session.controller.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-trusted-adapter.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent.module.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-credit.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-paid-execution.service.ts",
+      "reason": "approved domain-neutral Visual Agent Core for scoped access, billing, Provider execution, verification, and reconciliation"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-agent-structure-runner.service.ts",
+      "reason": "approved durable structure verification reports and no-repeat-charge recovery; distinct from billing and publication"
+    },
+    {
+      "path": "backend/src/modules/visual-agent/visual-task-execution.service.ts",
+      "reason": "approved Visual Agent v3 durable execution and recovery; no miniapp or Delivery business behavior changes"
+    },
+    {
+      "path": "backend/src/typings/ali-oss.d.ts",
+      "reason": "provide OSS type declarations required by protected managed image asset operations"
     }
   ]
 }

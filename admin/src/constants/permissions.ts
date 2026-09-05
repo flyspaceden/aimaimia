@@ -68,6 +68,9 @@ export const PERMISSIONS = {
   CONFIG_READ: 'config:read',
   CONFIG_UPDATE: 'config:update',
 
+  // AI Visual Agent（仅平台级高权限角色可签发/撤销接入 Key）
+  ADMIN_VISUAL_AGENT_MANAGE: 'admin_visual_agent:manage',
+
   // 管理员
   ADMIN_USERS_READ: 'admin_users:read',
   ADMIN_USERS_CREATE: 'admin_users:create',

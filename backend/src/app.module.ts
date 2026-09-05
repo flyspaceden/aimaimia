@@ -52,6 +52,7 @@ import { InfraModule } from './common/infra/infra.module';
 import { SmsModule } from './common/sms/sms.module';
 import { EmailModule } from './common/email/email.module';
 import { HealthModule } from './modules/health/health.module';
+import { ProductImageModule } from './modules/product-image/product-image.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { HealthModule } from './modules/health/health.module';
     NormalShareModule,
     InviteH5Module,
     HealthModule,
+    ProductImageModule,
   ],
   providers: [
     // 全局 JWT 守卫：所有端点默认需要认证，用 @Public() 装饰器豁免

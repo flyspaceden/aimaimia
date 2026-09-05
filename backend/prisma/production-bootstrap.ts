@@ -80,6 +80,7 @@ const PERMISSIONS = [
   { code: 'trace:delete', module: 'trace', action: 'delete', description: '删除溯源批次' },
   { code: 'config:read', module: 'config', action: 'read', description: '查看系统配置' },
   { code: 'config:update', module: 'config', action: 'update', description: '修改系统配置' },
+  { code: 'admin_visual_agent:manage', module: 'admin_visual_agent', action: 'manage', description: '签发与撤销 AI Visual Agent Client Key' },
   { code: 'admin_users:read', module: 'admin_users', action: 'read', description: '查看管理员列表' },
   { code: 'admin_users:create', module: 'admin_users', action: 'create', description: '创建管理员' },
   { code: 'admin_users:update', module: 'admin_users', action: 'update', description: '编辑管理员' },

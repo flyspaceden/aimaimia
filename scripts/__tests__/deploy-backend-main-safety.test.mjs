@@ -22,6 +22,17 @@ const staticDeployScript = await readFile(
 );
 const databaseBackupScriptUrl = new URL('../../backend/scripts/create-production-database-backup.cjs', import.meta.url);
 const databaseBackupScript = await readFile(databaseBackupScriptUrl, 'utf8');
+
+test('staging backups use a fixed separate retention root and reject unknown profiles', () => {
+  assert.match(databaseBackupScript, /backupProfile === 'staging'/);
+  assert.match(databaseBackupScript, /\/www\/backup\/database\/aimaimai-staging/);
+  assert.match(databaseBackupScript, /invalid database backup profile/);
+  const rejected = spawnSync(process.execPath, [fileURLToPath(databaseBackupScriptUrl)], {
+    env: { ...process.env, DATABASE_BACKUP_PROFILE: 'invalid-path' }, encoding: 'utf8',
+  });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /invalid database backup profile/);
+});
 const migrationReadinessScriptUrl = new URL('../../backend/scripts/inspect-miniapp-migration-readiness.cjs', import.meta.url);
 const migrationReadinessScript = await readFile(migrationReadinessScriptUrl, 'utf8');
 const databaseRehearsalScriptUrl = new URL('../../backend/scripts/create-database-rehearsal.cjs', import.meta.url);
@@ -52,6 +63,10 @@ const sfExpressService = await readFile(
 );
 const deployedReleaseShaVerifier = await readFile(
   new URL('../verify-deployed-release-sha.mjs', import.meta.url),
+  'utf8',
+);
+const aiVisualStagingConfigScript = await readFile(
+  new URL('../configure-ai-visual-agent-staging-env.sh', import.meta.url),
   'utf8',
 );
 
@@ -85,7 +100,7 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(workflow, /git fetch --no-tags origin main/);
   assert.match(workflow, /git diff --name-only origin\/main\.\.\.HEAD/);
   assert.match(workflow, /'miniapp\/\*\*'/);
-  assert.match(workflow, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
+  assert.match(workflow, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\|scripts\/configure-ai-visual-agent-staging-env/);
   assert.match(workflow, /backend_branch=\$\{\{ github\.ref_name \}\}/);
   assert.match(workflow, /group: deploy-sites-backend-\$\{\{ github\.ref == 'refs\/heads\/main' && 'production' \|\| 'staging' \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -97,13 +112,16 @@ test('main production deployment is manual and fail-closed', () => {
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
 });
 
-test('workflow-only changes cannot trigger backend deployment', () => {
-  const changedPathLine = workflow
-    .split('\n')
-    .find((line) => line.includes('echo "$CHANGED"') && line.includes('backend=true'));
-  assert.ok(changedPathLine, 'backend changed-path detector must exist');
-  assert.match(changedPathLine, /\^\(backend\/\|admin\/\|seller\/\|miniapp\/\)/);
-  assert.doesNotMatch(changedPathLine, /deploy-release/);
+test('workflow-only changes cannot trigger backend deployment, while staging runtime config changes do', () => {
+  for (const output of ['admin', 'seller', 'backend', 'any_deploy']) {
+    const changedPathLine = workflow
+      .split('\n')
+      .find((line) => line.includes('echo "$CHANGED"') && line.includes(`${output}=true`));
+    assert.ok(changedPathLine, `${output} changed-path detector must exist`);
+    assert.match(changedPathLine, /scripts\/configure-ai-visual-agent-staging-env/);
+    assert.match(changedPathLine, /scripts\/__tests__\/configure-ai-visual-agent-staging-env/);
+    assert.doesNotMatch(changedPathLine, /deploy-release/);
+  }
   assert.match(workflow, /手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。[\s\S]*echo "workflow=true"/);
 });
 
@@ -122,6 +140,36 @@ test('backend quality and E2E gates run before deployment', () => {
   assert.ok(installIndex >= 0 && preparationTestIndex > installIndex, 'staging env test must run after backend npm ci');
   assert.match(workflow, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
   assert.match(e2eWorkflow, /workflow_call:/);
+});
+
+test('staging AI Visual Agent secrets are synced after approval without exposing values', () => {
+  const approval = jobBlock('release-approval');
+  assert.match(approval, /environment:\n\s+name: \$\{\{ needs\.detect-changes\.outputs\.env_name \}\}/);
+  assert.match(approval, /github\.ref == 'refs\/heads\/staging-next' && needs\.detect-changes\.outputs\.backend == 'true'/);
+  assert.match(approval, /PUBLIC_API_BASE_URL: \$\{\{ needs\.detect-changes\.outputs\.api_base \}\}/);
+  assert.match(approval, /const names = \[\s*'PUBLIC_API_BASE_URL',/);
+  for (const secret of [
+    'AI_VISUAL_AGENT_BAILIAN_API_KEY',
+    'AI_VISUAL_AGENT_BAILIAN_WORKSPACE_ID',
+    'AI_VISUAL_AGENT_FACT_SCAN_HASH_SECRET',
+  ]) assert.match(approval, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`));
+  for (const flag of [
+    'AI_VISUAL_AGENT_ENABLED',
+    'AI_VISUAL_AGENT_WAN_EXECUTION_ENABLED',
+    'AI_VISUAL_AGENT_QWEN_IMAGE_EXECUTION_ENABLED',
+    'AI_VISUAL_AGENT_QWEN_OCR_EXECUTION_ENABLED',
+  ]) assert.match(approval, new RegExp(`${flag}: \\$\\{\\{ vars\\.${flag} \\}\\}`));
+  assert.match(approval, /Buffer\.from\(JSON\.stringify\(config\), 'utf8'\)\.toString\('base64'\)/);
+  assert.match(approval, /cat scripts\/configure-ai-visual-agent-staging-env\.sh/);
+  assert.match(approval, /IFS= read -r CONFIG_B64/);
+  assert.match(approval, /base64 --decode > \\"\\\$CONFIG_FILE\\"/);
+  assert.doesNotMatch(approval, /echo .*AI_VISUAL_AGENT_BAILIAN_API_KEY/);
+
+  assert.match(aiVisualStagingConfigScript, /install -m 600 "\$ENV_FILE" "\$BACKUP_FILE"/);
+  assert.match(aiVisualStagingConfigScript, /AI_VISUAL_AGENT_BAILIAN_API_KEY/);
+  assert.match(aiVisualStagingConfigScript, /provider_flags=from_staging_environment/);
+  assert.doesNotMatch(aiVisualStagingConfigScript, /pm2 (restart|reload|start|stop)/);
+  assert.match(workflow, /scripts\/__tests__\/configure-ai-visual-agent-staging-env\.test\.mjs/);
 });
 
 test('E2E backend boot uses three explicit independent test JWT secrets', () => {
@@ -284,7 +332,8 @@ test('production migration creates and verifies a secret-safe database backup fi
   const backupIndex = backendDeployScript.indexOf('node scripts/create-production-database-backup.cjs');
   const migrateIndex = backendDeployScript.indexOf('npx --no-install prisma migrate deploy');
   assert.ok(backupIndex >= 0 && migrateIndex > backupIndex);
-  assert.match(databaseBackupScript, /const BACKUP_ROOT = '\/www\/backup\/database\/aimaimai'/);
+  assert.match(databaseBackupScript, /backupProfile = process\.env\.DATABASE_BACKUP_PROFILE \|\| 'production'/);
+  assert.match(databaseBackupScript, /: '\/www\/backup\/database\/aimaimai';/);
   assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_dump'\)/);
   assert.match(databaseBackupScript, /resolvePostgresBinary\('pg_restore'\)/);
   assert.match(databaseBackupScript, /\/www\/server\/pgsql\/bin/);

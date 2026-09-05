@@ -1,6 +1,7 @@
 import { existsSync, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { fetchDeploymentText as fetchDeploymentTextWithRetry } from './lib/deployment-evidence-fetch.mjs';
 
 const DEFAULT_TARGET = '/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging';
 const sourceRoot = git(process.cwd(), ['rev-parse', '--show-toplevel']);
@@ -65,13 +66,13 @@ function remoteRefSha(cwd, remote, ref) {
 
 async function fetchDeploymentText(url, expectedSha) {
   try {
-    const separator = url.includes('?') ? '&' : '?';
-    const response = await fetch(`${url}${separator}release=${expectedSha}`, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(20_000),
+    return await fetchDeploymentTextWithRetry(url, expectedSha, {
+      onRetry: ({ attempt, maxAttempts, delayMs, detail }) => {
+        process.stderr.write(
+          `测试部署证据传输失败（${attempt}/${maxAttempts}，${detail}），${delayMs}ms 后重试：${url}\n`,
+        );
+      },
     });
-    if (!response.ok) fail(`测试部署证据不可用：${url} 返回 HTTP ${response.status}。`);
-    return await response.text();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     fail(`无法核验测试部署证据 ${url}：${detail}`);

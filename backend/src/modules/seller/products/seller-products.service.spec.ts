@@ -43,6 +43,22 @@ describe('SellerProductsService SKU weight validation', () => {
     calculateTotalWeightGram: jest.fn(),
   });
 
+  it('requires the original evidence image whenever an adopted optimization media list is replaced', () => {
+    const service = buildService();
+    const existing = [
+      { assetId: 'candidate', optimizationId: 'optimization-1', isEvidenceImage: false },
+      { assetId: 'source', optimizationId: null, isEvidenceImage: true },
+    ];
+
+    expect(() => (service as any).assertOptimizationEvidenceRetained(existing, [
+      { assetId: 'candidate', optimizationId: 'optimization-1' },
+    ])).toThrow('必须保留原实拍证据图');
+    expect(() => (service as any).assertOptimizationEvidenceRetained(existing, [
+      { assetId: 'candidate', optimizationId: 'optimization-1' },
+      { assetId: 'source', optimizationId: null },
+    ])).not.toThrow();
+  });
+
   const buildService = () => {
     const prisma = {
       product: {
@@ -241,6 +257,15 @@ describe('SellerProductsService SKU weight validation', () => {
       productTraceLink: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      productImageArtifact: {
+        findMany: jest.fn().mockResolvedValue([{ assetId: 'candidate_1' }]),
+      },
+      sellerMediaAsset: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      productImageOptimization: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       product: {
         delete: jest.fn().mockResolvedValue({ id: 'product_1' }),
       },
@@ -276,6 +301,14 @@ describe('SellerProductsService SKU weight validation', () => {
     });
 
     expect(tx.cartItem.deleteMany).toHaveBeenCalledWith({ where: { skuId: { in: ['sku_1'] } } });
+    expect(tx.sellerMediaAsset.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['candidate_1'] }, status: 'CANDIDATE' },
+      data: { status: 'RETIRED' },
+    });
+    expect(tx.productImageOptimization.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ productId: 'product_1', status: { in: ['REQUESTED', 'QUEUED'] } }),
+      data: expect.objectContaining({ status: 'CANCELLED', failureCode: 'PRODUCT_DELETED' }),
+    }));
     expect(tx.product.delete).toHaveBeenCalledWith({ where: { id: 'product_1' } });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -836,7 +869,6 @@ describe('SellerProductsService SKU weight validation', () => {
     await expect(service.updateDraft('company_1', 'draft_1', {
       title: '不能覆盖正式商品',
       skus: [{ specName: '默认规格', cost: 10, stock: 5, weightGram: 750 }],
-      mediaUrls: ['https://example.com/a.jpg'],
       tagIds: ['tag_1'],
     })).rejects.toBeInstanceOf(BadRequestException);
 
@@ -852,6 +884,17 @@ describe('SellerProductsService SKU weight validation', () => {
     expect(tx.productTag.createMany).not.toHaveBeenCalled();
   });
 
+  it('rejects legacy media URLs before any product write', async () => {
+    const { service, prisma } = buildDraftService();
+
+    await expect(service.updateDraft('company_1', 'draft_1', {
+      mediaUrls: ['https://example.com/unmanaged.jpg'],
+    })).rejects.toThrow('只能提交受管图片资产');
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
   it('creates BUNDLE product with one selling SKU, zero stock, and normalized bundleItems', async () => {
     const { service, tx } = buildBundleCreateService();
 

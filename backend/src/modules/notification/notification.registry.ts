@@ -374,6 +374,15 @@ export class NotificationRegistry {
           entityType: 'sku',
           routeKey: 'SELLER_PRODUCT_DETAIL',
         });
+      case 'product.mediaRolledBackForSeller':
+        return this.seller(event, {
+          category: 'product',
+          title: '商品图片已恢复历史版本',
+          body: this.productMediaRollbackBody(event),
+          severity: 'WARNING',
+          entityType: 'productMediaRevision',
+          routeKey: 'SELLER_PRODUCT_DETAIL',
+        });
       default:
         throw new Error(`未注册的通知事件: ${event.eventType}`);
     }
@@ -634,6 +643,13 @@ export class NotificationRegistry {
       ) ||
       event.aggregateId;
     return id ? { id } : undefined;
+  }
+
+  private productMediaRollbackBody(event: NotificationEvent): string {
+    const reason = this.payloadString(event, 'reason')?.trim();
+    return reason
+      ? `平台巡检发现当前商品图片不符合规则，已恢复到此前版本。原因：${reason.slice(0, 400)}`
+      : '平台巡检发现当前商品图片不符合规则，已恢复到此前版本。请查看商品详情后再修改。';
   }
 
   private entityId(event: NotificationEvent): string {

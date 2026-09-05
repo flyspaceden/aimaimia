@@ -26,12 +26,17 @@ declare module 'ali-oss' {
       /** 其他可选参数 */
       [key: string]: unknown;
     }
+
+    interface PutOptions {
+      headers?: Record<string, string>;
+      [key: string]: unknown;
+    }
   }
 
   class OSS {
     constructor(options: OSS.Options);
     /** 上传文件到 OSS */
-    put(name: string, file: Buffer | string): Promise<OSS.PutResult>;
+    put(name: string, file: Buffer | string, options?: OSS.PutOptions): Promise<OSS.PutResult>;
     /** 删除 OSS 上的文件 */
     delete(name: string): Promise<{ res: { status: number } }>;
     /** 生成带签名的临时访问 URL */

@@ -20,7 +20,10 @@ const gitBlob = (content) => createHash('sha1')
 
 test('tested mini-program marketplace services remain byte-identical to the frozen staging baseline', async () => {
   assert.equal(manifest.sourceStagingCommit, 'acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2');
-  assert.ok(manifest.exactFiles.length >= 41);
+  assert.ok(manifest.exactFiles.length >= 40);
+  assert.ok(!manifest.exactFiles.some(
+    (entry) => entry.path === 'backend/src/modules/seller/products/seller-products.service.ts',
+  ));
   for (const entry of manifest.exactFiles) {
     const sourceBlob = execFileSync(
       'git',
@@ -81,7 +84,7 @@ test('intentional production differences strengthen marketplace behavior without
 });
 
 test('the parity manifest documents every intentional non-identical production surface', () => {
-  const paths = manifest.intentionalCandidateDifferences.map((entry) => entry.path);
+  const paths = manifest.intentionalCandidateDifferences.map((entry) => entry.path).sort();
   const runtimeDiffPaths = execFileSync(
     'git',
     [
@@ -99,7 +102,9 @@ test('the parity manifest documents every intentional non-identical production s
     .filter((path) => !path.startsWith('backend/src/generated/delivery-client/'))
     .sort();
   assert.deepEqual(runtimeDiffPaths, paths);
-  assert.deepEqual(paths, [
+  assert.equal(new Set(paths).size, paths.length, 'intentional candidate paths must be unique');
+
+  const baselineIntentionalPaths = [
     'backend/prisma/schema.prisma',
     'backend/src/app.module.ts',
     'backend/src/main.ts',
@@ -124,8 +129,48 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/shipment/sf-express.service.ts',
     'backend/src/modules/shipment/shipment.controller.ts',
     'backend/src/modules/shipment/shipment.module.ts',
-  ]);
+  ];
+  const approvedAiSharedPaths = [
+    'backend/src/common/http/protected-upload-static.middleware.ts',
+    'backend/src/modules/notification/notification.registry.ts',
+    'backend/src/modules/seller/products/seller-products.dto.ts',
+    'backend/src/modules/seller/products/seller-products.module.ts',
+    'backend/src/modules/seller/products/seller-products.service.ts',
+    'backend/src/modules/upload/image-content-scanner.service.ts',
+    'backend/src/modules/upload/product-media-access.service.ts',
+    'backend/src/modules/upload/upload.controller.ts',
+    'backend/src/modules/upload/upload.module.ts',
+    'backend/src/modules/upload/upload.service.ts',
+    'backend/src/typings/ali-oss.d.ts',
+  ];
+  const approvedAiModulePrefixes = [
+    'backend/src/modules/product-image/',
+    'backend/src/modules/visual-agent/',
+  ];
+
+  for (const path of [...baselineIntentionalPaths, ...approvedAiSharedPaths]) {
+    assert.ok(paths.includes(path), `${path} must stay explicitly documented`);
+  }
+  for (const prefix of approvedAiModulePrefixes) {
+    assert.ok(paths.some((path) => path.startsWith(prefix)), `${prefix} must contain documented runtime files`);
+  }
+  const unexpectedPaths = paths.filter((path) => !baselineIntentionalPaths.includes(path)
+    && !approvedAiSharedPaths.includes(path)
+    && !approvedAiModulePrefixes.some((prefix) => path.startsWith(prefix)));
+  assert.deepEqual(unexpectedPaths, []);
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
   }
+
+  const testAccessEntry = manifest.intentionalCandidateDifferences.find(
+    (entry) => entry.path === 'backend/src/modules/product-image/product-visual-test-access.service.ts',
+  );
+  assert.deepEqual(testAccessEntry?.riskTags, [
+    'default_off',
+    'exact_test_hostname',
+    'all_test_merchants',
+    'effectively_unlimited_provider_budget',
+    'credit_confirmation_required',
+    'production_closed',
+  ], 'staging auto-access entry must retain its explicit environment and cost risk disclosures');
 });

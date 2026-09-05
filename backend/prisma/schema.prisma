@@ -128,6 +128,192 @@ enum MediaType {
   VIDEO
 }
 
+enum SellerMediaAssetPurpose {
+  PRODUCT_IMAGE
+}
+
+enum SellerMediaAssetStatus {
+  AVAILABLE
+  CANDIDATE
+  ADOPTED
+  RETIRED
+}
+
+enum ProductMediaRevisionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+  APPLIED_BY_SELLER
+  ROLLED_BACK_BY_ADMIN
+}
+
+enum ProductImageOptimizationKind {
+  WHITE_BACKGROUND
+  BACKGROUND_GENERATION
+  FREE_TUNE
+}
+
+enum ProductVisualMode {
+  PRESERVE_REAL_SCENE
+  CATALOG_STUDIO
+  PRODUCT_RETOUCH
+  MARKETING_SCENE
+}
+
+enum ProductVisualRiskProfile {
+  STRICT_FACTS
+  CONSERVATIVE_FACTS
+  STANDARD_FACTS
+  ORGANIC_FACTS
+  MARKETING_ONLY
+  RETAKE_REQUIRED
+}
+
+/// Private server-side fact evidence for one managed product image.
+enum ProductImageFactScanStatus {
+  SCANNING
+  FACTS_DETECTED
+  VERIFIED_EMPTY
+  INCONCLUSIVE
+  RECONCILING
+  FAILED
+  EXPIRED
+}
+
+/// Generic Core state. Domain adapters map their own product/menu review
+/// lifecycles onto this record; no business table is referenced here.
+enum VisualAgentInvocationStatus {
+  RESERVED
+  SUBMITTING
+  QUEUED
+  RUNNING
+  RECONCILING
+  VERIFYING
+  SUCCEEDED
+  FAILED
+  REJECTED
+  RELEASED
+  BILLING_EXCEPTION
+  CANCELLED
+}
+
+enum VisualAgentBudgetScope {
+  PLATFORM
+  PROVIDER
+  TENANT
+  CLIENT
+  EXTERNAL_OBJECT
+  ACTOR
+}
+
+/// Independent of any product/restaurant domain. A tenant owns one or more
+/// API clients and cannot infer another tenant's Core resources from an ID.
+enum VisualAgentTenantStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum VisualAgentClientStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum VisualAgentClientKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// A public API source is private, scoped to one Client, and may only be
+/// created from a server-signed Adapter Evidence envelope.
+enum VisualAgentAssetStatus {
+  AVAILABLE
+  RETIRED
+}
+
+/// The Core never publishes into an external system. A Client must explicitly
+/// record an adoption intent after it reviews a generated candidate.
+enum VisualAgentCandidateStatus {
+  PENDING_REVIEW
+  ADOPT_INTENT
+  REJECTED
+}
+
+/// A tenant-managed public tariff. The Provider's cost is recorded elsewhere;
+/// this is the immutable merchant-facing credit price used by a quote.
+enum VisualRateCardStatus {
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+enum VisualCreditQuoteStatus {
+  ISSUED
+  RESERVED
+  RECONCILING
+  SETTLED
+  RELEASED
+  EXPIRED
+  CANCELLED
+}
+
+enum VisualCreditLedgerType {
+  WELCOME_GRANT
+  PURCHASE
+  RESERVE
+  SETTLE
+  RELEASE
+  EXPIRE
+  ADMIN_ADJUST
+  REVERSAL
+}
+
+enum ProductImageOptimizationStatus {
+  REQUESTED
+  QUEUED
+  RUNNING
+  RECONCILING
+  PENDING_REVIEW
+  SUCCEEDED
+  FAILED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  ADOPTED
+}
+
+enum ProductImageOptimizationCostTier {
+  FREE
+  PAID
+}
+
+enum ProductImageBudgetLedgerType {
+  RESERVED
+  RELEASED
+  SETTLED
+}
+
+enum ProductImageArtifactKind {
+  MASK
+  FOREGROUND_REFERENCE
+  CANDIDATE
+  INTEGRITY_PROOF
+}
+
+enum ProductImageAssetLineageRole {
+  PRIMARY_SOURCE
+  ADDITIONAL_SOURCE
+  FOREGROUND_REFERENCE
+}
+
+enum ProductMediaVisualOrigin {
+  ORIGINAL
+  DETERMINISTIC_COMPOSITE
+  DETERMINISTIC_ENHANCEMENT
+  AI_BACKGROUND
+}
+
 enum TagScope {
   COMPANY
   PRODUCT
@@ -1306,6 +1492,12 @@ model Company {
   suspendedUntil             DateTime?
   creditEvents               CompanyCreditEvent[]
   companyTags                CompanyTag[]
+  sellerMediaAssets          SellerMediaAsset[]
+  productMediaRevisions      ProductMediaRevision[]
+  productImageOptimizations  ProductImageOptimization[]
+  productImageBudgetEntries  ProductImageBudgetLedger[]
+  productVisualPlans         ProductVisualPlan[]
+  productImageFactScans      ProductImageFactScan[]
 }
 
 model CompanyProfile {
@@ -1407,6 +1599,12 @@ model CompanyStaff {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict) // H17/M6: 防止删除有员工关联的企业
 
   sellerSessions SellerSession[]
+  uploadedMediaAssets SellerMediaAsset[]
+  requestedMediaRevisions ProductMediaRevision[]
+  requestedImageOptimizations ProductImageOptimization[] @relation("ProductImageOptimizationRequestedBy")
+  adoptedImageOptimizations   ProductImageOptimization[] @relation("ProductImageOptimizationAdoptedBy")
+  requestedVisualPlans        ProductVisualPlan[]        @relation("ProductVisualPlanRequestedBy")
+  requestedImageFactScans     ProductImageFactScan[]     @relation("ProductImageFactScanRequestedBy")
 
   @@unique([userId, companyId]) // 同一用户在同一企业只有一个角色
   @@index([companyId])
@@ -1511,11 +1709,16 @@ model Product {
   returnPolicy       ReturnPolicy       @default(INHERIT) // 退货政策：继承品类/支持/不支持
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+  mediaVersion       Int                @default(1)
 
   // 关系
   skus                  ProductSKU[]
   bundleItems           ProductBundleItem[]    @relation("ProductBundleItems")
   media                 ProductMedia[]
+  mediaRevisions        ProductMediaRevision[]
+  imageOptimizations    ProductImageOptimization[]
+  visualPlans           ProductVisualPlan[]
+  factScans             ProductImageFactScan[]
   tags                  ProductTag[]
   productTraceLinks     ProductTraceLink[]
   lotteryPrizes         LotteryPrize[]
@@ -1581,15 +1784,690 @@ model ProductBundleItem {
 }
 
 model ProductMedia {
-  id        String    @id @default(cuid())
-  productId String
-  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  type      MediaType
-  url       String
-  sortOrder Int       @default(0)
-  alt       String?
+  id           String                   @id @default(cuid())
+  productId    String
+  product      Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type         MediaType
+  url          String
+  sortOrder    Int                      @default(0)
+  alt          String?
+  assetId      String?
+  asset        SellerMediaAsset?        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  visualOrigin ProductMediaVisualOrigin @default(ORIGINAL)
+  optimizationId String?
+  optimization ProductImageOptimization? @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
+  isEvidenceImage Boolean               @default(false)
 
   @@index([productId]) // M5: 外键索引，加速商品媒体查询
+  @@index([assetId])
+  @@index([optimizationId])
+}
+
+model SellerMediaAsset {
+  id                String                  @id @default(cuid())
+  companyId         String
+  company           Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  uploadedByStaffId String
+  uploadedByStaff   CompanyStaff            @relation(fields: [uploadedByStaffId], references: [id], onDelete: Restrict)
+  purpose           SellerMediaAssetPurpose
+  status            SellerMediaAssetStatus  @default(AVAILABLE)
+  objectKey         String                  @unique
+  canonicalSha256   String
+  mimeType          String
+  byteSize          Int
+  width             Int
+  height            Int
+  scanSummary       Json?
+  diagnosis         Json?
+  diagnosisVersion  String?
+  diagnosedAt       DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  productMedia      ProductMedia[]
+  imageArtifacts    ProductImageArtifact[]
+  imageLineage      ProductImageAssetLineage[]
+  visualPlans       ProductVisualPlan[]
+  factScans         ProductImageFactScan[]
+
+  @@index([companyId, createdAt])
+  @@index([companyId, canonicalSha256])
+  @@index([uploadedByStaffId, createdAt])
+  @@index([companyId, status, createdAt])
+}
+
+model ProductImageOptimization {
+  id                   String                           @id @default(cuid())
+  companyId            String
+  company              Company                          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId            String?
+  product              Product?                         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  kind                 ProductImageOptimizationKind
+  status               ProductImageOptimizationStatus   @default(REQUESTED)
+  processingContract   Json
+  contractHash         String
+  inputFingerprint     String
+  templateVersion      String
+  provider             String?
+  modelVersion         String?
+  costTier             ProductImageOptimizationCostTier @default(FREE)
+  reservedCostCents    Int                              @default(0)
+  actualCostCents      Int?
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff                     @relation("ProductImageOptimizationRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  adoptedByStaffId     String?
+  adoptedByStaff       CompanyStaff?                    @relation("ProductImageOptimizationAdoptedBy", fields: [adoptedByStaffId], references: [id], onDelete: Restrict)
+  adoptedAt            DateTime?
+  idempotencyKey       String
+  dedupeKey            String
+  leaseGeneration      Int                              @default(0)
+  leaseToken           String?
+  leaseExpiresAt       DateTime?
+  attemptCount         Int                              @default(0)
+  failureCode          String?
+  failureDetail        String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+  artifacts            ProductImageArtifact[]
+  lineage              ProductImageAssetLineage[]
+  productMedia         ProductMedia[]
+  mediaRevisions       ProductMediaRevision[]
+  budgetLedgerEntries  ProductImageBudgetLedger[]
+
+  @@unique([companyId, idempotencyKey])
+  // 同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING 任务由 migration 中的
+  // PostgreSQL 部分唯一索引约束；Prisma schema 无法表达该 WHERE 条件。
+  @@index([companyId, status, createdAt])
+  @@index([productId, createdAt])
+  @@index([requestedByStaffId, createdAt])
+  @@index([leaseExpiresAt])
+  @@index([expiresAt])
+}
+
+/// Immutable, no-cost visual recommendation for one managed product image.
+/// The execution endpoint will re-check source/product/policy/expiry before it
+/// can create a visual task; a plan is never an authorization to spend.
+model ProductVisualPlan {
+  id                 String                   @id @default(cuid())
+  companyId          String
+  company            Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId          String?
+  product            Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sourceAssetId      String
+  sourceAsset        SellerMediaAsset         @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  sourceHash         String
+  requestedByStaffId String
+  requestedByStaff   CompanyStaff             @relation("ProductVisualPlanRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  riskProfile        ProductVisualRiskProfile
+  recommendedMode    ProductVisualMode?
+  allowedModes       ProductVisualMode[]
+  allowedOperations  String[]
+  sceneAnalysis      Json
+  processingPlan     Json
+  planHash           String
+  policyVersion      String
+  modelPolicyVersion String
+  protectedRegionVersion String               @default("NOT_CREATED")
+  expiresAt          DateTime
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([companyId, productId, sourceAssetId, planHash, expiresAt], map: "ProductVisualPlan_scope_hash_exp_idx")
+  @@index([companyId, productId, createdAt])
+  @@index([sourceAssetId, expiresAt])
+  @@index([requestedByStaffId, createdAt])
+}
+
+/// Core-private OCR/QR/Barcode evidence. OCR plaintext is never stored here;
+/// only a hash, length, and minimally necessary risk summary are retained.
+model ProductImageFactScan {
+  id                   String                     @id @default(cuid())
+  companyId            String
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  productId            String?
+  product              Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sourceAssetId        String
+  sourceAsset          SellerMediaAsset           @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  sourceCanonicalHash  String
+  normalizedSourceHash String
+  invocationId         String                     @unique
+  invocation           VisualAgentInvocation      @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  status               ProductImageFactScanStatus @default(SCANNING)
+  model                String
+  policyVersion        String
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff               @relation("ProductImageFactScanRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  ocrTextHash          String?
+  ocrTextHashKeyVersion String?
+  ocrTextLength        Int?
+  textDetected         Boolean                    @default(false)
+  qrCodesDetected      Int                        @default(0)
+  barcodeStatus        String                     @default("NOT_IMPLEMENTED")
+  emptyTextQrVerified  Boolean                    @default(false)
+  resultSummary        Json?
+  failureCode          String?
+  failureDetail        String?
+  idempotencyKey       String
+  completedAt          DateTime?
+  expiresAt            DateTime
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, productId, sourceAssetId, status, createdAt], map: "PIFactScan_scope_status_created_idx")
+  @@index([sourceAssetId, normalizedSourceHash, createdAt], map: "PIFactScan_source_hash_created_idx")
+  @@index([requestedByStaffId, createdAt])
+  @@index([expiresAt])
+}
+
+/// A durable, domain-neutral record of one potentially billable Provider call.
+/// It is intentionally keyed by Agent scope strings rather than 爱买买 Product
+/// IDs so restaurant and future adapters use exactly the same billing fence.
+model VisualAgentInvocation {
+  id                     String                      @id @default(cuid())
+  tenantId               String
+  ownerClientId          String
+  adapterNamespace       String
+  externalObjectId       String
+  actorId                String
+  provider               String
+  model                  String
+  visualMode             String
+  sourceHash             String
+  visualPlanHash         String
+  idempotencyKey         String
+  providerIdempotencyKey String                      @unique
+  status                 VisualAgentInvocationStatus @default(RESERVED)
+  reservedCostCents      Int
+  actualCostCents        Int?
+  policySnapshotVersion  String
+  providerTaskId         String?                     @unique
+  providerRequestId      String?
+  providerOutputUrl      String?
+  providerUsage          Json?
+  verificationReport     Json?
+  reconciliationReason   String?
+  leaseToken             String?
+  leaseGeneration        Int                         @default(0)
+  leaseExpiresAt         DateTime?
+  attemptCount           Int                         @default(0)
+  expiresAt              DateTime
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  reservations           VisualAgentBudgetReservation[]
+  productImageFactScan   ProductImageFactScan?
+  creditQuote            VisualCreditQuote?
+  publicCandidate        VisualAgentCandidate?
+
+  @@unique([tenantId, ownerClientId, adapterNamespace, idempotencyKey], map: "VAInvocation_scope_idempotency_key")
+  @@index([tenantId, ownerClientId, adapterNamespace, externalObjectId, status], map: "VAInvocation_scope_object_status_idx")
+  @@index([provider, model, status, createdAt])
+  @@index([leaseExpiresAt])
+}
+
+/// Every scope has a positive cap. Missing, duplicate-active, or zero policy
+/// means deny; it never means unlimited spend.
+model VisualAgentBudgetPolicy {
+  id               String                 @id @default(cuid())
+  scope            VisualAgentBudgetScope
+  scopeKey         String
+  provider         String
+  model            String
+  visualMode       String
+  reserveCents     Int
+  perTaskCapCents  Int
+  dailyCapCents    Int
+  weeklyCapCents   Int
+  timezone         String                 @default("Asia/Shanghai")
+  policyVersion    String
+  enabled          Boolean                @default(true)
+  effectiveFrom    DateTime
+  effectiveUntil   DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  reservations     VisualAgentBudgetReservation[]
+
+  @@unique([scope, scopeKey, provider, model, visualMode, policyVersion], map: "VABudgetPolicy_scope_route_version_key")
+  @@index([scope, scopeKey, provider, model, visualMode, enabled, effectiveFrom], map: "VABudgetPolicy_scope_route_active_idx")
+}
+
+/// One reservation row per required Core budget scope, retained through
+/// RECONCILING so an uncertain request cannot quietly free capacity.
+model VisualAgentBudgetReservation {
+  id             String                   @id @default(cuid())
+  invocationId   String
+  invocation     VisualAgentInvocation    @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  policyId       String
+  policy         VisualAgentBudgetPolicy  @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  scope          VisualAgentBudgetScope
+  scopeKey       String
+  amountCents    Int
+  createdAt      DateTime                 @default(now())
+
+  @@unique([invocationId, scope])
+  @@index([policyId, createdAt])
+  @@index([scope, scopeKey, createdAt])
+}
+
+/// Generic Core ownership boundary. `id` is intentionally caller-managed so
+/// existing in-process adapters can use a stable, cross-system identifier.
+model VisualAgentTenant {
+  id        String                  @id
+  name      String
+  status    VisualAgentTenantStatus @default(ACTIVE)
+  metadata  Json?
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  clients   VisualAgentClient[]
+  creditAccounts      VisualCreditAccount[]
+  welcomeCreditPolicy VisualCreditWelcomePolicy?
+  rateCards           VisualRateCard[]
+  publicAssets        VisualAgentAsset[]
+  publicPlans         VisualAgentPlan[]
+  publicCandidates    VisualAgentCandidate[]
+
+  @@index([status, createdAt])
+}
+
+/// A client is one integration surface (for example an e-commerce product
+/// adapter or a restaurant menu adapter), never a human seller/admin account.
+model VisualAgentClient {
+  id                  String                  @id
+  tenantId            String
+  tenant              VisualAgentTenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name                String
+  adapterNamespace    String
+  allowedAdapterTypes String[]
+  status              VisualAgentClientStatus @default(ACTIVE)
+  metadata            Json?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  keys                VisualAgentClientKey[]
+  publicAssets        VisualAgentAsset[]
+  publicPlans         VisualAgentPlan[]
+  publicCandidates    VisualAgentCandidate[]
+
+  @@unique([tenantId, adapterNamespace])
+  @@index([tenantId, status, createdAt])
+}
+
+/// Only a prefix and SHA-256 verifier are stored. The raw value is returned
+/// exactly once by the controlled issuing API and is never recoverable later.
+model VisualAgentClientKey {
+  id                  String                        @id @default(cuid())
+  clientId            String
+  client              VisualAgentClient             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  keyPrefix           String                        @unique
+  keyHash             String                        @unique
+  status              VisualAgentClientKeyStatus    @default(ACTIVE)
+  expiresAt           DateTime?
+  lastUsedAt          DateTime?
+  revokedAt           DateTime?
+  issuedByOperatorId  String?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+
+  @@index([clientId, status, createdAt])
+  @@index([expiresAt])
+}
+
+/// Non-cash image-service credits. A billing owner is resolved by an Adapter
+/// (Company for 爱买买, restaurant operator for a restaurant integration), so
+/// the Core never needs a foreign key to any product-specific table.
+model VisualCreditAccount {
+  id               String             @id @default(cuid())
+  tenantId         String
+  tenant           VisualAgentTenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  billingOwnerType String
+  billingOwnerId   String
+  availableCredits Int                @default(0)
+  reservedCredits  Int                @default(0)
+  version          Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  ledgers          VisualCreditLedger[]
+  quotes           VisualCreditQuote[]
+
+  @@unique([tenantId, billingOwnerType, billingOwnerId], map: "VCAccount_tenant_owner_key")
+  @@index([tenantId, updatedAt])
+}
+
+/// Per-tenant welcome policy. The grant is still idempotent on the ledger;
+/// changing this policy never changes historical grant snapshots.
+model VisualCreditWelcomePolicy {
+  id                String             @id @default(cuid())
+  tenantId          String             @unique
+  tenant            VisualAgentTenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  enabled           Boolean            @default(true)
+  grantCredits      Int                @default(200)
+  creditValueCents  Int                @default(2000)
+  policyVersion     String
+  effectiveFrom     DateTime
+  effectiveUntil    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([enabled, effectiveFrom])
+}
+
+/// Merchant-facing model tier and quote source. Client/namespace are part of
+/// the key so a restaurant or external integration never inherits 爱买买 rates.
+model VisualRateCard {
+  id               String               @id @default(cuid())
+  tenantId         String
+  tenant           VisualAgentTenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId         String
+  adapterNamespace String
+  code             String
+  displayName      String
+  description      String
+  modelProfile     String
+  outputSpec       Json
+  allowedDirections String[]              @default([])
+  allowedRiskProfiles String[]             @default([])
+  candidateRole     String                 @default("FACT_MAIN_IMAGE")
+  requiresHumanReview Boolean          @default(true)
+  candidateCount   Int
+  creditCost       Int
+  status           VisualRateCardStatus @default(ACTIVE)
+  version          String
+  effectiveFrom    DateTime
+  effectiveUntil   DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  quotes           VisualCreditQuote[]
+
+  @@unique([tenantId, clientId, adapterNamespace, code, version], map: "VRateCard_scope_code_version_key")
+  @@index([tenantId, clientId, adapterNamespace, status, effectiveFrom], map: "VRateCard_scope_status_effective_idx")
+}
+
+/// An immutable merchant-visible price commitment. The later model task must
+/// use this snapshot; it may not recompute a cheaper/more-expensive tariff.
+model VisualCreditQuote {
+  id               String                  @id @default(cuid())
+  tenantId         String
+  clientId         String
+  adapterNamespace String
+  billingAccountId String
+  billingAccount   VisualCreditAccount     @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  rateCardId       String
+  rateCard         VisualRateCard           @relation(fields: [rateCardId], references: [id], onDelete: Restrict)
+  externalObjectId String
+  actorId          String
+  sourceAssetRef   String
+  sourceHash       String
+  visualPlanHash   String
+  visualPlanSnapshot Json                    @default("{}")
+  rateCardSnapshot Json
+  creditCost       Int
+  candidateCount   Int
+  status           VisualCreditQuoteStatus @default(ISSUED)
+  idempotencyKey   String
+  quoteHash        String
+  quotedAt         DateTime                @default(now())
+  confirmedAt      DateTime?
+  settledAt        DateTime?
+  releasedAt       DateTime?
+  expiresAt        DateTime
+  failureReason    String?
+  visualAgentInvocationId String?               @unique
+  visualAgentInvocation   VisualAgentInvocation? @relation(fields: [visualAgentInvocationId], references: [id], onDelete: Restrict)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  ledgers          VisualCreditLedger[]
+  publicCandidate  VisualAgentCandidate?
+  taskExecution    VisualTaskExecution?
+
+  @@unique([tenantId, clientId, adapterNamespace, idempotencyKey], map: "VCQuote_scope_idempotency_key")
+  @@index([billingAccountId, status, createdAt])
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, status], map: "VCQuote_scope_object_status_idx")
+  @@index([expiresAt])
+}
+
+/// Durable, non-billable orchestration lease. Provider submission retains its
+/// separate invocation lease and can never be retried based on this lease alone.
+model VisualTaskExecution {
+  id              String @id @default(cuid())
+  quoteId         String @unique
+  quote           VisualCreditQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  version         Int @default(1)
+  state           String @default("PENDING")
+  nextAttemptAt   DateTime @default(now())
+  attemptCount    Int @default(0)
+  leaseToken      String?
+  leaseGeneration Int @default(0)
+  leaseExpiresAt  DateTime?
+  lastErrorCode   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([state, nextAttemptAt, leaseExpiresAt])
+}
+
+/// Append-only account movement. Both deltas and resulting balances are
+/// stored, so balance repair/audit never needs to reinterpret a mutable rate.
+model VisualCreditLedger {
+  id                      String                 @id @default(cuid())
+  accountId               String
+  account                 VisualCreditAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  quoteId                 String?
+  quote                   VisualCreditQuote?     @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  type                    VisualCreditLedgerType
+  availableDelta          Int
+  reservedDelta           Int
+  availableBalanceAfter   Int
+  reservedBalanceAfter    Int
+  idempotencyKey          String                 @unique
+  reason                  String?
+  metadata                Json?
+  createdAt               DateTime               @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([quoteId, createdAt])
+}
+
+/// Domain-neutral private source asset for the public Visual Agent API. The
+/// external object's version, billing owner and fact policy are protected by
+/// an Adapter Evidence HMAC before this row can be written.
+model VisualAgentAsset {
+  id                    String                 @id @default(cuid())
+  tenantId              String
+  tenant                VisualAgentTenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                VisualAgentClient      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace      String
+  externalObjectId      String
+  externalObjectVersion String
+  actorId               String
+  billingOwnerType      String
+  billingOwnerId        String
+  objectKey             String                 @unique
+  canonicalSha256       String
+  originalSha256        String
+  mimeType              String
+  byteSize              Int
+  width                 Int
+  height                Int
+  factPolicy            Json
+  evidenceNonce         String
+  evidenceIssuedAt      DateTime
+  evidenceExpiresAt     DateTime
+  evidenceKeyId         String
+  status                VisualAgentAssetStatus @default(AVAILABLE)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  plans                 VisualAgentPlan[]
+  sourceCandidates      VisualAgentCandidate[] @relation("VisualAgentCandidateSource")
+
+  @@unique([tenantId, clientId, adapterNamespace, evidenceNonce], map: "VAAsset_scope_nonce_key")
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, status, createdAt], map: "VAAsset_scope_object_status_idx")
+  @@index([billingOwnerType, billingOwnerId, createdAt])
+  @@index([evidenceExpiresAt])
+}
+
+/// A short-lived Core plan derived only from a signed fact policy and one
+/// immutable private asset. It contains no free-form prompt or Provider URL.
+model VisualAgentPlan {
+  id                    String                 @id @default(cuid())
+  tenantId              String
+  tenant                VisualAgentTenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId              String
+  client                VisualAgentClient      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace      String
+  assetId               String
+  asset                 VisualAgentAsset       @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  externalObjectId      String
+  externalObjectVersion String
+  actorId               String
+  billingOwnerType      String
+  billingOwnerId        String
+  riskProfile           String
+  recommendedDirection  String?
+  allowedDirections     String[]
+  allowedOperations     String[]
+  protectedRegionVersion String
+  factPolicy            Json
+  planHash              String
+  expiresAt             DateTime
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  candidates            VisualAgentCandidate[]
+
+  @@index([tenantId, clientId, adapterNamespace, externalObjectId, assetId, expiresAt], map: "VAPlan_scope_object_asset_exp_idx")
+  @@index([assetId, planHash, expiresAt])
+  @@index([expiresAt])
+}
+
+/// A generated output for a public-API task. The candidate remains private
+/// until the external system records its own explicit adoption intent.
+model VisualAgentCandidate {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  tenant              VisualAgentTenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId            String
+  client              VisualAgentClient          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  adapterNamespace    String
+  quoteId             String                     @unique
+  quote               VisualCreditQuote          @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  invocationId        String                     @unique
+  invocation          VisualAgentInvocation      @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  planId              String
+  plan                VisualAgentPlan            @relation(fields: [planId], references: [id], onDelete: Restrict)
+  sourceAssetId       String
+  sourceAsset         VisualAgentAsset           @relation("VisualAgentCandidateSource", fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  objectKey           String                     @unique
+  canonicalSha256     String
+  mimeType            String
+  byteSize            Int
+  width               Int
+  height              Int
+  provider            String
+  status              VisualAgentCandidateStatus @default(PENDING_REVIEW)
+  verificationSummary Json?
+  adoptionAttestation Json?
+  rejectionReason     String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([tenantId, clientId, adapterNamespace, status, createdAt], map: "VACandidate_scope_status_created_idx")
+  @@index([planId, createdAt])
+}
+
+model ProductImageArtifact {
+  id             String                   @id @default(cuid())
+  optimizationId String
+  optimization   ProductImageOptimization @relation(fields: [optimizationId], references: [id], onDelete: Cascade)
+  kind           ProductImageArtifactKind
+  assetId        String?
+  asset          SellerMediaAsset?        @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  // The same immutable source file may be referenced by artifacts in several
+  // retry tasks. Storage-object uniqueness belongs to SellerMediaAsset, not
+  // to this per-task audit record.
+  objectKey      String
+  sha256         String
+  mimeType       String
+  byteSize       Int
+  width          Int
+  height         Int
+  isAigc         Boolean                  @default(false)
+  metadata       Json?
+  createdAt      DateTime                 @default(now())
+  lineage        ProductImageAssetLineage[]
+
+  @@index([optimizationId, kind, createdAt])
+  @@index([assetId])
+  @@index([objectKey])
+}
+
+model ProductImageBudgetLedger {
+  id             String                       @id @default(cuid())
+  companyId      String
+  company        Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  optimizationId String
+  optimization   ProductImageOptimization     @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
+  type           ProductImageBudgetLedgerType
+  amountCents    Int
+  budgetVersion  String
+  idempotencyKey String                       @unique
+  createdAt      DateTime                     @default(now())
+
+  @@unique([optimizationId, type])
+  @@index([companyId, createdAt])
+  @@index([optimizationId, createdAt])
+}
+
+model ProductImageAssetLineage {
+  id             String                   @id @default(cuid())
+  optimizationId String
+  optimization   ProductImageOptimization @relation(fields: [optimizationId], references: [id], onDelete: Cascade)
+  sourceAssetId  String
+  sourceAsset    SellerMediaAsset         @relation(fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  artifactId     String
+  artifact       ProductImageArtifact     @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  role           ProductImageAssetLineageRole
+  createdAt      DateTime                 @default(now())
+
+  @@unique([optimizationId, sourceAssetId, artifactId, role], map: "PIAssetLineage_task_source_artifact_role_key")
+  @@index([sourceAssetId, createdAt])
+  @@index([artifactId])
+}
+
+model ProductMediaRevision {
+  id                   String                     @id @default(cuid())
+  productId            String
+  product              Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  companyId            String
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  optimizationId       String?
+  optimization         ProductImageOptimization?  @relation(fields: [optimizationId], references: [id], onDelete: Restrict)
+  expectedMediaVersion Int
+  appliedMediaVersion  Int?
+  previousMedia        Json?
+  proposedMedia        Json
+  status               ProductMediaRevisionStatus @default(PENDING_REVIEW)
+  requestedByStaffId   String
+  requestedByStaff     CompanyStaff               @relation(fields: [requestedByStaffId], references: [id], onDelete: Restrict)
+  attestation          Json
+  idempotencyKey       String
+  reviewedByAdminId    String?
+  reviewedAt           DateTime?
+  reviewNote           String?
+  appliedAt            DateTime?
+  rolledBackAt         DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([productId, status, createdAt])
+  @@index([companyId, createdAt])
+  @@index([requestedByStaffId, createdAt])
+  @@index([status, appliedAt], map: "ProductMediaRevision_status_appliedAt_idx")
+  @@index([expiresAt])
+  @@index([optimizationId])
 }
 
 model ProductTag {

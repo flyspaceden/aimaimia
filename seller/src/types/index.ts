@@ -139,6 +139,11 @@ export interface ProductMedia {
   type: string;
   url: string;
   sortOrder: number;
+  assetId?: string | null;
+  assetStatus?: 'AVAILABLE' | 'CANDIDATE' | 'ADOPTED' | 'RETIRED';
+  visualOrigin?: 'ORIGINAL' | 'DETERMINISTIC_COMPOSITE' | 'AI_BACKGROUND';
+  optimizationId?: string | null;
+  isEvidenceImage?: boolean;
 }
 
 // ============================================================

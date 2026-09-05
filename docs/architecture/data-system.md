@@ -1,5 +1,12 @@
 # 爱买买 AI 赋能农业电商平台 — 数据库设计（NestJS + Prisma + PostgreSQL｜中国区 iOS/Android 上线版｜完整版）
 
+## 2026-09-04 图片 Agent v3 本地增量（未部署）
+
+- `VisualTaskExecution` 是报价一对一的非计费后台调度记录；确认冻结同事务建立任务，维护租约 token/generation/expiry 和下一次执行时间，不能替代供应商提交租约。
+- `VisualAgentInvocation.verificationReport Json?` 保存两图结构检查的有限枚举证据、输入对/计划哈希；与供应商 requestId/usage 在原提交租约 CAS 下同事务写入。旧调用默认 null，不回填虚构证据。
+- 检查结论与账务独立：BILLING_EXCEPTION 不抹掉既有 FAIL。actualCostCents 仍是供应商账单成本，不能用缺失usage或粗略token估算填0。
+- 两个新增迁移分别为 `20260904000100_visual_task_execution` 与 `20260904000200_visual_structure_report`。回滚代码时保留表/可空字段和在途记录，禁止清空任务或重发未知收费请求。
+
 > 覆盖三端：App（买家）/ 卖家后台（公司）/ 平台后台（运营）  
 > 中国区本地化：微信/支付宝/银行卡支付，高德/腾讯地图，顺丰等物流对接  
 > 核心商业：分润奖励（普通广播 X + VIP 三叉树上溯分配）可审计、可回滚、可版本化
@@ -440,8 +447,65 @@ SellerUserRole
 - productId (uuid FK Product)
 - type (enum: IMAGE/VIDEO)
 - url (text)
+- assetId (uuid nullable FK SellerMediaAsset) — 新写入的商品图必须引用受管资产；历史 URL 仅为兼容读取
+- visualOrigin (enum: ORIGINAL/DETERMINISTIC_COMPOSITE/AI_BACKGROUND)
+- optimizationId (uuid nullable FK ProductImageOptimization), isEvidenceImage (boolean default false)
 - sortOrder (int)
 - alt (text nullable)
+
+### 商品视觉 Agent 资产与任务（候选，未迁移/未部署）
+
+#### SellerMediaAsset（受管商品图片资产）
+- id (uuid, PK), companyId (uuid FK Company), uploadedByStaffId (uuid FK CompanyStaff)
+- purpose (enum: PRODUCT_IMAGE), objectKey (text unique), canonicalSha256 (text)
+- status (enum: AVAILABLE/CANDIDATE/ADOPTED/RETIRED) — `CANDIDATE` 和 `ADOPTED` 均不能经普通 `mediaAssetIds` 写入商品，只能走任务 adopt/专用既有媒体校验；采用后转为 `ADOPTED`，保留其优化来源
+- mimeType, byteSize, width, height
+- scanSummary (jsonb nullable) — 联系方式/二维码检测和 `needsReview`；为真时不得用于展示或封面审核
+- diagnosis / diagnosisVersion / diagnosedAt — 免费质量诊断及其版本
+- deletedAt, createdAt, updatedAt
+
+#### ProductMediaRevision（已上架商品图片发布历史与回滚）
+- id (uuid, PK), productId (uuid FK Product), companyId (uuid FK Company)
+- expectedMediaVersion (int), appliedMediaVersion (int nullable), previousMedia (jsonb nullable), proposedMedia (jsonb), status (enum: APPLIED_BY_SELLER/ROLLED_BACK_BY_ADMIN + PENDING_REVIEW/APPROVED/REJECTED/WITHDRAWN/EXPIRED legacy)
+- requestedByStaffId (uuid FK CompanyStaff), attestation (jsonb), idempotencyKey
+- reviewedByAdminId, reviewedAt, reviewNote, appliedAt, rolledBackAt, expiresAt, createdAt, updatedAt
+- optimizationId (nullable FK ProductImageOptimization) — 上架商品候选采用时，在同一事务中将任务转为 ADOPTED 并写入发布历史
+- `APPLIED_BY_SELLER` 记录以 `expectedMediaVersion → appliedMediaVersion` CAS 立即发布；管理员只有在当前 `mediaVersion == appliedMediaVersion` 时才可恢复 `previousMedia` 并标记 `ROLLED_BACK_BY_ADMIN`，避免覆盖更晚的商家修改。`PENDING_REVIEW` 仅为历史兼容。
+
+#### ProductImageOptimization（商品视觉任务）
+- id (cuid, PK), companyId (FK), productId (nullable FK；商品删除前先终止或转入费用对账并退役候选，随后置空保留任务审计), kind, status
+- processingContract / contractHash / inputFingerprint / templateVersion — 固定处理合同与缓存指纹
+- provider / modelVersion 仅记录服务端选定模型；`costTier` 与 `reservedCostCents/actualCostCents` 使用整数分
+- requestedByStaffId / adoptedByStaffId / adoptedAt、idempotencyKey、dedupeKey
+- leaseGeneration / leaseToken / leaseExpiresAt / attemptCount — worker 条件领取与超时对账；同公司同 dedupeKey 的 REQUESTED/QUEUED/RUNNING/RECONCILING 任务由部分唯一索引互斥。付费请求在供应商结果或账单未确定时必须进入 RECONCILING，禁止释放去重锁后再次发起收费请求
+- failureCode / failureDetail / startedAt / completedAt / expiresAt
+
+#### VisualAgentBudgetPolicy / RECONCILING 运行治理（2026-08-27）
+- 每次真实模型调用必须同时命中 PLATFORM / PROVIDER / TENANT / CLIENT / EXTERNAL_OBJECT / ACTOR 六层、同 Provider/模型/visualMode 且当前有效的唯一活动策略；六层 `reserveCents` 必须一致。
+- 平台只可通过高权限 API 写入白名单 Provider/模型与正整数 `reserveCents / perTaskCapCents / dailyCapCents / weeklyCapCents`；启用同范围新版本时服务端收口旧版本，避免并行活动策略导致调用永久 fail-closed。
+- `VisualAgentInvocation(RECONCILING)` 的人工关闭必须携带外部证据编号，并在一个 Serializable 事务中同步 Invocation 终态、Provider 模型预算熔断（如适用）、关联 `VisualCreditQuote`、`VisualCreditAccount` 和 `VisualCreditLedger`。未计费结论必须 `RELEASE` 商家冻结额度；不得只改 Invocation 而遗留冻结余额。
+
+#### ProductImageArtifact（私有任务产物）
+- optimizationId (FK), kind (MASK/FOREGROUND_REFERENCE/CANDIDATE/INTEGRITY_PROOF)
+- assetId (nullable FK SellerMediaAsset), objectKey（非唯一；同一受管原图可在失败/过期后建立新的任务审计记录）, sha256, mimeType, byteSize, width, height
+- isAigc, metadata, createdAt
+
+#### ProductImageBudgetLedger（付费背景预算账本）
+- companyId、optimizationId、type (RESERVED/RELEASED/SETTLED)、amountCents、budgetVersion、idempotencyKey、createdAt
+- 每个任务只有一笔预占和一笔终态流水；每日正预算上限在写入预占前计算。开关开启但日上限缺失或为零时拒绝请求。
+
+#### ProductVisualPlan（免费视觉建议）
+- companyId、productId（删除产品后置空保留审计）、sourceAssetId/sourceHash、requestedByStaffId、riskProfile、recommendedMode、allowedModes/allowedOperations、sceneAnalysis、processingPlan、planHash、策略版本与 expiresAt
+- 计划不可调用模型、不可预占费用、不可直接发布；执行时必须重新验证商品、源图、策略与有效期。
+
+#### ProductImageFactScan（商品事实扫描）
+- companyId、productId、sourceAssetId/sourceHash、受控 OCR invocation、状态、文本/条码/事实摘要、置信度与审计时间
+- 扫描是增强与候选验真的证据门；空、失败或不确定结果不能推断为“图片不存在受保护事实”。
+
+#### ProductImageAssetLineage（来源谱系）
+- optimizationId (FK), sourceAssetId (FK SellerMediaAsset), artifactId (FK ProductImageArtifact)
+- role (PRIMARY_SOURCE/ADDITIONAL_SOURCE/FOREGROUND_REFERENCE), createdAt
+- unique(optimizationId, sourceAssetId, artifactId, role)，支持多件套而不丢失任一来源
 
 ## E6. ProductTag
 - productId (uuid FK Product)

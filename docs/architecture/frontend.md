@@ -3,6 +3,11 @@
 > 版本：1.0 | 创建时间：2026-02-18
 > 技术栈：React Native 0.81 + Expo 54 + expo-router 6 + react-native-reanimated
 
+> 2026-09-04 关联前端任务：卖家图片 Agent v3 的历史任务、过期报价、断网恢复与免费合约入口已本地实现，详见 `seller.md` 和图片 Agent spec。本轮没有修改买家 App；代码与浏览器受控交互测试通过不等于测试站部署或模型效果验收。
+> 同日上传反馈切片：计时器模拟进度已替换为真实传输进度与独立服务端处理提示，真实 XHR 延迟响应及本地坏图拒绝已测试；上传回执持久化恢复仍待实现。
+> 同日候选下载切片：卖家受权下载及失败重试已本地实现，Nest HTTP/Chromium 下载测试通过；不修改买家展示、不自动发布营销候选。
+> 同日管理端切片：结构检查预算路线与模式联动、报价按实际方案展示已实现并完成Chromium受控接口测试；未部署。
+
 ---
 
 ## 1. 设计理念
@@ -2457,6 +2462,10 @@ src/components/ai/   → 新增目录
 | 买家公开编号 | 我的页身份卡头像右侧显示 `buyerNo`（`AIMM` + 14 位数字）并支持点击复制；替代原成长等级展示位，后端暂未返回时展示“ID: 用户编号生成中”，不暴露内部 `User.id` | 2026-06-15 | `app/(tabs)/me.tsx`, `src/types/domain/UserProfile.ts`, `src/mocks/userProfile.ts` |
 | 订单号脱敏展示+展开+复制 | 抽共享组件 `OrderNoReveal`：默认显示订单号后 6 位（`…` 前缀等宽字），眼睛图标在收起↔展开完整订单号间切换，复制按钮始终复制完整订单号+toast「已复制」；接入订单详情页订单号行（替换原完整号+复制 pill）/ 支付成功页总订单号 / 物流追踪页头部新增订单号行，物流页标题后 8 位→后 6 位统一 | 2026-06-08 | `src/components/orders/OrderNoReveal.tsx`, `src/components/orders/OrderInfoBlock.tsx`, `app/payment-success.tsx`, `app/orders/track.tsx` |
 | 企业删除的买家端联动拦截 | 管理后台软删除企业后，企业列表/详情/活动、商品搜索/详情/推荐、购物车可选性、关注列表、预约/考察团、团购可见性和普通商品结算统一要求 `Company.status=ACTIVE`；旧链接或旧购物车不能绕过停用状态继续业务，历史订单仍保留快照 | 2026-08-20 | `backend/src/modules/company/company.service.ts`, `backend/src/modules/product/product.service.ts`, `backend/src/modules/cart/cart.service.ts`, `backend/src/modules/follow/follow.service.ts`, `backend/src/modules/booking/booking.service.ts`, `backend/src/modules/group/group.service.ts`, `backend/src/modules/recommendation/recommendation.service.ts`, `backend/src/modules/group-buy/group-buy.service.ts`, `backend/src/modules/order/checkout.service.ts`, `src/types/domain/ServerCart.ts`, `app/cart.tsx` |
+| 商品图片智能美化中文界面 | 平台后台侧栏、页面标题、管理范围、额度账户、费率状态、六层预算和对账说明使用中文业务名称；商家商品图片区域使用“智能图片美化 / 付费智能精修 / 智能图片任务”。模型型号、API Key、OCR、JSON 和稳定编码只作为必要技术标识保留 | 2026-08-28 | `admin/src/layouts/AdminLayout.tsx`, `admin/src/pages/visual-agent/index.tsx`, `admin/test/visualAgentManagement.test.mjs`, `seller/src/pages/products/edit.tsx`, `seller/test/productImageVisualFlow.test.mjs` |
+| 商家图片美化交互收口 | 图片事实检查关闭态使用中文说明并阻止重复点击；付费报价在商品事实变化时自动刷新；透明前景与普通照片分别进入免费白底合成和智能白底/棚拍；付费区常驻显示可用/冻结图片积分、方案消耗和预计余额，主流程移除内部状态机说明 | 2026-09-04 | `seller/src/pages/products/edit.tsx`, `seller/src/api/mediaAssets.ts`, `seller/test/productImageVisualFlow.test.mjs` |
+| 商家图片美化单请求报价 | 商家端移除“测试授权”前置请求；点击“查看可用方案与图片积分”只调用商品绑定的方案解析 POST，测试环境内部费用隔离由服务端在验证计划后准备。无可用方案时显示后端中文原因，不再静默回到初始状态 | 2026-09-04 | `seller/src/pages/products/edit.tsx`, `seller/src/api/productImageVisualPlans.ts`, `seller/test/productImageVisualFlow.test.mjs` |
+| 商家真实候选恢复与状态 | 已确认任务处理中禁用确认框和生成按钮；关闭可采用候选后可从原图片入口重新打开，不可采用的营销预览关闭后允许选择下一方案。付费方向与 optimizationId 绑定，避免免费任务继承旧标题或清理旧任务；采用后清除旧任务成功横幅 | 2026-09-04 | `seller/src/pages/products/edit.tsx`, `seller/test/productImageVisualFlow.test.mjs` |
 
 ### Phase 进度对照
 

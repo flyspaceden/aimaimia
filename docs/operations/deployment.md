@@ -1,5 +1,9 @@
 # 爱买买 — 部署架构与运维手册
 
+## 2026-09-04 测试发布备份补强
+
+测试后端现在也须在停止旧进程后、迁移前完成已校验的数据库备份，失败按既有流程恢复旧进程而不进入迁移。测试备份固定写入 `/www/backup/database/aimaimai-staging`；生产仍使用原 `/www/backup/database/aimaimai`，两者保留/轮转互不影响。`DATABASE_BACKUP_PROFILE` 仅允许 production/staging，由受控部署脚本根据已校验目标显式设置，不接受任意目录。本项是发布脚本准备，实际备份路径、SHA和迁移结果以每次部署日志为准。
+
 ## 一、系统架构总览
 
 ```

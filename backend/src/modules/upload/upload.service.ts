@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
+import { randomUUID, createHmac, timingSafeEqual, createHash } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 const sharp = require('sharp') as typeof import('sharp').default;
@@ -34,6 +34,17 @@ export class UploadService {
     // 本地存储目录（生产环境不使用）
     this.uploadDir = path.join(process.cwd(), 'uploads');
     this.baseUrl = this.config.get('UPLOAD_BASE_URL', 'http://localhost:3000/uploads');
+
+    // Managed product-media previews are always signed even when the general
+    // local upload mount is public. Reject an unsafe production configuration
+    // at bootstrap, before any upload can leave an untracked orphan on disk.
+    if (
+      this.config.get('NODE_ENV', 'development') === 'production'
+      && this.config.get('UPLOAD_LOCAL', 'true') === 'true'
+      && !this.config.get<string>('UPLOAD_SIGN_SECRET')
+    ) {
+      throw new Error('生产环境使用本地上传时必须配置 UPLOAD_SIGN_SECRET');
+    }
 
     // 确保上传目录存在
     if (!fs.existsSync(this.uploadDir)) {
@@ -70,8 +81,34 @@ export class UploadService {
   async uploadFile(
     file: Express.Multer.File,
     folder: string = 'general',
-  ): Promise<{ url: string; key: string; size: number; mimeType: string; expiresAt?: string | null }> {
+    options: { preserveQrCodes?: boolean; preserveManagedImage?: boolean; preserveEvidencePixels?: boolean; preserveProviderOutput?: boolean } = {},
+  ): Promise<{
+    url: string;
+    key: string;
+    size: number;
+    mimeType: string;
+    expiresAt?: string | null;
+    canonicalSha256?: string;
+    width?: number;
+    height?: number;
+    needsReview?: boolean;
+    qrCodesDetected?: number;
+    contactInfoDetected?: boolean;
+  }> {
     const safeFolder = this.normalizeFolder(folder);
+    const trustedVisualAssetFolder = safeFolder === 'seller-product-assets' || safeFolder === 'visual-agent-assets';
+    if (options.preserveManagedImage && !trustedVisualAssetFolder) {
+      throw new BadRequestException('受管候选图片仅允许由商品视觉渲染器写入');
+    }
+    if (options.preserveEvidencePixels && !trustedVisualAssetFolder) {
+      throw new BadRequestException('受管视觉证据源仅允许由内部视觉接口写入');
+    }
+    if (options.preserveProviderOutput && safeFolder !== 'visual-agent-assets') {
+      throw new BadRequestException('Provider 原始输出仅允许由通用视觉 Agent 写入');
+    }
+    if (options.preserveManagedImage && !['image/png', 'image/webp'].includes(file.mimetype)) {
+      throw new BadRequestException('受管视觉候选仅接受 PNG 或 WebP 输出');
+    }
 
     // 校验文件类型
     if (!UPLOAD_ALLOWED_MIME_TYPES.includes(file.mimetype as any)) {
@@ -94,15 +131,25 @@ export class UploadService {
     // Sharp 默认不会保留 EXIF/ICC 等元数据（未调用 withMetadata 时），可降低隐私泄露风险。
     let finalBuffer = file.buffer;
     let finalMimeType = file.mimetype;
-    if (this.isTranscodableImage(file.mimetype)) {
+    if (options.preserveEvidencePixels) {
+      const normalized = await this.normalizeEvidenceImage(file.buffer);
+      finalBuffer = normalized.buffer;
+      finalMimeType = normalized.mimeType;
+    } else if (this.isTranscodableImage(file.mimetype) && !options.preserveManagedImage && !options.preserveProviderOutput) {
       const normalized = await this.normalizeImage(file.buffer);
       finalBuffer = normalized.buffer;
       finalMimeType = normalized.mimeType;
     }
 
+    let needsReview = false;
+    let qrCodesDetected = 0;
+    let contactInfoDetected = false;
     if (finalMimeType.startsWith('image/')) {
-      const scanResult = await this.imageContentScanner.scanAndProcess(finalBuffer);
+      const scanResult = await this.imageContentScanner.scanAndProcess(finalBuffer, options);
       finalBuffer = scanResult.processedBuffer;
+      needsReview = scanResult.needsReview;
+      qrCodesDetected = scanResult.qrCodesDetected;
+      contactInfoDetected = scanResult.contactInfoDetected;
 
       if (!scanResult.safe && !scanResult.needsReview) {
         throw new BadRequestException('图片中包含联系方式或二维码，请处理后重新上传');
@@ -148,25 +195,52 @@ export class UploadService {
       const access = this.buildLocalAccessUrl(key);
       this.logger.log(`文件上传成功：${key}（${(finalBuffer.length / 1024).toFixed(1)}KB）`);
 
+      const imageMetadata = finalMimeType.startsWith('image/')
+        ? await sharp(finalBuffer, { failOn: 'error' }).metadata()
+        : undefined;
       return {
         url: access.url,
         key,
         size: finalBuffer.length,
         mimeType: finalMimeType,
         expiresAt: access.expiresAt,
+        canonicalSha256: createHash('sha256').update(finalBuffer).digest('hex'),
+        width: imageMetadata?.width,
+        height: imageMetadata?.height,
+        needsReview,
+        qrCodesDetected,
+        contactInfoDetected,
       };
     } else {
       // 阿里云 OSS 存储
       const oss = this.getOssClient();
-      const result = await oss.put(key, Buffer.from(finalBuffer));
+      const result = await oss.put(
+        key,
+        Buffer.from(finalBuffer),
+        this.isManagedProductAssetKey(key)
+          ? ({ headers: { 'x-oss-object-acl': 'private' } } as any)
+          : undefined,
+      );
       this.logger.log(`文件上传至 OSS：${key}（${(finalBuffer.length / 1024).toFixed(1)}KB）`);
 
+      const imageMetadata = finalMimeType.startsWith('image/')
+        ? await sharp(finalBuffer, { failOn: 'error' }).metadata()
+        : undefined;
+      const access = this.isManagedProductAssetKey(key)
+        ? await this.createPrivateAccessUrl(key)
+        : { url: result.url, expiresAt: null };
       return {
-        url: result.url,
+        url: access.url,
         key,
         size: finalBuffer.length,
         mimeType: finalMimeType,
-        expiresAt: null,
+        expiresAt: access.expiresAt,
+        canonicalSha256: createHash('sha256').update(finalBuffer).digest('hex'),
+        width: imageMetadata?.width,
+        height: imageMetadata?.height,
+        needsReview,
+        qrCodesDetected,
+        contactInfoDetected,
       };
     }
   }
@@ -260,6 +334,50 @@ export class UploadService {
     return { url, expiresAt };
   }
 
+  /**
+   * Issue a short-lived preview URL for a not-yet-public managed asset.
+   * This intentionally ignores UPLOAD_LOCAL_PRIVATE so the protected asset
+   * namespace is never exposed by a development server's general /uploads mount.
+   */
+  async createPrivateAccessUrl(key: string, expiresSec?: number): Promise<{ url: string; expiresAt: string | null }> {
+    const normalizedKey = this.normalizeKey(key);
+    const useLocalStorage = this.config.get('UPLOAD_LOCAL', 'true');
+    if (useLocalStorage === 'true') {
+      return this.buildSignedLocalAccessUrl(normalizedKey, expiresSec);
+    }
+    const oss = this.getOssClient();
+    const ttlSec = this.clampAccessTtl(expiresSec ?? this.getPositiveIntEnv('UPLOAD_SIGN_TTL_SEC', 3600));
+    const url = oss.signatureUrl(normalizedKey, { expires: ttlSec });
+    return { url, expiresAt: new Date(Date.now() + ttlSec * 1000).toISOString() };
+  }
+
+  /**
+   * Stable public product-media route. The opaque key remains the asset identity;
+   * this avoids persisting an OSS/local signed URL in ProductMedia.
+   */
+  createProductMediaUrl(key: string): string {
+    const normalizedKey = this.normalizeKey(key);
+    if (!normalizedKey.startsWith('seller-product-assets/')) {
+      throw new BadRequestException('仅受管商品图片可生成公开媒体地址');
+    }
+    const apiBase = this.config.get<string>('PUBLIC_API_BASE_URL');
+    const path = `upload/product-media/${normalizedKey.split('/').map(encodeURIComponent).join('/')}`;
+    if (apiBase) return `${apiBase.replace(/\/$/, '')}/${path}`;
+    try {
+      return `${new URL(this.baseUrl).origin}/api/v1/${path}`;
+    } catch {
+      return `/api/v1/${path}`;
+    }
+  }
+
+  async getProductMediaFile(key: string) {
+    const normalizedKey = this.normalizeKey(key);
+    if (!normalizedKey.startsWith('seller-product-assets/')) {
+      throw new NotFoundException('商品图片不存在');
+    }
+    return this.getFileForDownload(normalizedKey);
+  }
+
   /** 校验签名并返回本地私有文件读取信息 */
   getSignedLocalFile(
     key: string,
@@ -348,6 +466,14 @@ export class UploadService {
       mimeType: this.getMimeFromKey(normalizedKey),
       basename: path.basename(normalizedKey),
     };
+  }
+
+  async getBuffer(key: string): Promise<Buffer> {
+    const file = await this.getFileForDownload(key);
+    if ('filePath' in file) return fs.promises.readFile(file.filePath);
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    return Buffer.concat(chunks);
   }
 
   /** 检测报告只能预览平台 documents/ 下的 PDF 或图片，绝不请求原始 URL。 */
@@ -483,10 +609,17 @@ export class UploadService {
     key: string,
     expiresSec?: number,
   ): { url: string; expiresAt: string | null } {
-    if (!this.isLocalPrivateMode()) {
+    if (!this.isLocalPrivateMode() && !this.isManagedProductAssetKey(key)) {
       return { url: `${this.baseUrl}/${key}`, expiresAt: null };
     }
 
+    return this.buildSignedLocalAccessUrl(key, expiresSec);
+  }
+
+  private buildSignedLocalAccessUrl(
+    key: string,
+    expiresSec?: number,
+  ): { url: string; expiresAt: string | null } {
     const ttlSec = this.clampAccessTtl(expiresSec ?? this.getPositiveIntEnv('UPLOAD_SIGN_TTL_SEC', 3600));
     const expiresAtSec = Math.floor(Date.now() / 1000) + ttlSec;
     const sig = this.signLocalAccess(key, expiresAtSec);
@@ -501,6 +634,10 @@ export class UploadService {
     };
   }
 
+  private isManagedProductAssetKey(key: string): boolean {
+    return key.startsWith('seller-product-assets/') || key.startsWith('visual-agent-assets/');
+  }
+
   private signLocalAccess(key: string, expiresAtSec: number): string {
     const secret = this.getUploadSignSecret();
     return createHmac('sha256', secret)
@@ -513,8 +650,11 @@ export class UploadService {
     if (secret) return secret;
 
     const nodeEnv = this.config.get('NODE_ENV', 'development');
-    if (nodeEnv === 'production' && this.isLocalPrivateMode()) {
-      throw new BadRequestException('生产环境启用私有上传时必须配置 UPLOAD_SIGN_SECRET');
+    if (nodeEnv === 'production') {
+      // Every local signed URL, including managed product-media previews when
+      // the general upload mount is public, relies on this key. A predictable
+      // development fallback would make those private previews forgeable.
+      throw new BadRequestException('生产环境使用本地签名访问时必须配置 UPLOAD_SIGN_SECRET');
     }
 
     this.logger.warn('未配置 UPLOAD_SIGN_SECRET，使用开发环境默认签名密钥（仅限本地开发）');
@@ -567,6 +707,31 @@ export class UploadService {
     } catch (error) {
       this.logger.warn(`图片转码失败，拒绝上传：${(error as Error)?.message || 'unknown error'}`);
       throw new BadRequestException('图片处理失败，请检查图片内容是否损坏');
+    }
+  }
+
+  /**
+   * Canonicalize seller product evidence without another lossy encode. The
+   * stored WebP is lossless relative to the decoded, orientation-corrected
+   * source raster; metadata is intentionally stripped.
+   */
+  private async normalizeEvidenceImage(
+    buffer: Buffer,
+  ): Promise<{ buffer: Buffer; mimeType: 'image/webp' }> {
+    const maxDimension = this.getPositiveIntEnv('UPLOAD_IMAGE_MAX_DIMENSION', 4096);
+    const maxPixels = this.getPositiveIntEnv('UPLOAD_IMAGE_MAX_PIXELS', 40_000_000);
+    try {
+      const pipeline = sharp(buffer, { failOn: 'error', limitInputPixels: maxPixels }).rotate();
+      const meta = await pipeline.metadata();
+      if ((meta.width && meta.width > maxDimension) || (meta.height && meta.height > maxDimension)) {
+        throw new BadRequestException(`商品证据图尺寸超过 ${maxDimension}px，请缩小后重新上传`);
+      }
+      const output = await pipeline.webp({ lossless: true, effort: 4 }).toBuffer();
+      return { buffer: output, mimeType: 'image/webp' };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.warn(`商品证据图无损规范化失败，拒绝上传：${(error as Error)?.message || 'unknown error'}`);
+      throw new BadRequestException('商品证据图处理失败，请检查图片内容是否损坏');
     }
   }
 

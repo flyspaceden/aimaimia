@@ -11,6 +11,7 @@ const DashboardPage = lazy(() => import('@/pages/dashboard/index'));
 const ProductListPage = lazy(() => import('@/pages/products/index'));
 const ProductEditPage = lazy(() => import('@/pages/products/edit'));
 const ProductUnitsPage = lazy(() => import('@/pages/products/units'));
+const ProductMediaRevisionPage = lazy(() => import('@/pages/products/media-revisions'));
 const OrderListPage = lazy(() => import('@/pages/orders/index'));
 const OrderDetailPage = lazy(() => import('@/pages/orders/detail'));
 const CompanyListPage = lazy(() => import('@/pages/companies/index'));
@@ -78,6 +79,7 @@ const ProfitReconciliationsPage = lazy(() => import('@/pages/captain/reconciliat
 const ProfitAdjustmentsPage = lazy(() => import('@/pages/captain/adjustments'));
 const PickupPointListPage = lazy(() => import('@/pages/pickup-points/index'));
 const PickupVerificationPage = lazy(() => import('@/pages/pickup-verify/index'));
+const VisualAgentPage = lazy(() => import('@/pages/visual-agent/index'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 200 }}>
@@ -135,6 +137,7 @@ export default function App() {
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="products" element={<ProductListPage />} />
             <Route path="products/units" element={<ProductUnitsPage />} />
+            <Route path="products/media-revisions" element={<RequirePermission permission={PERMISSIONS.PRODUCTS_AUDIT}><ProductMediaRevisionPage /></RequirePermission>} />
             <Route path="products/:id/edit" element={<ProductEditPage />} />
             <Route path="orders" element={<OrderListPage />} />
             <Route path="orders/:id" element={<OrderDetailPage />} />
@@ -189,6 +192,7 @@ export default function App() {
             <Route path="tags" element={<TagManagementPage />} />
             <Route path="trace" element={<TraceListPage />} />
             <Route path="config" element={<ConfigPage />} />
+            <Route path="visual-agent" element={<RequirePermission permission={PERMISSIONS.ADMIN_VISUAL_AGENT_MANAGE}><VisualAgentPage /></RequirePermission>} />
             <Route path="discovery-filters" element={<DiscoveryFiltersPage />} />
             <Route path="cs/workstation" element={<CsWorkstationPage />} />
             <Route path="cs/tickets" element={<CsTicketsPage />} />

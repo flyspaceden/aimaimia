@@ -18,6 +18,7 @@
 9. [Expo Push 推送通知](#9-expo-push-推送通知)
 10. [环境变量汇总](#10-环境变量汇总)
 11. [接入优先级建议](#11-接入优先级建议)
+12. [AI Visual Agent Client Key](#12-ai-visual-agent-client-key)
 
 ---
 
@@ -698,3 +699,31 @@ UPLOAD_LOCAL=true                                # 改为 false 启用 OSS
 
 > **提示**：所有阿里云服务（SMS + OSS）共用同一个阿里云账号和 AccessKey，建议一次性注册完成。
 > **安全提醒**：生产环境务必使用 RAM 子用户的 AccessKey，不要使用主账号 Key。
+
+---
+
+## 12. AI Visual Agent Client Key
+
+这是给爱买买、餐厅系统或其他接入系统使用的 **Agent Client Key**，不是阿里云百炼 Provider Key。每个接入系统必须使用自己的 Client 和可撤销 Key；绝不能把百炼 Key 下发到浏览器、商家后台、餐厅前端或第三方服务器。
+
+当前本地候选提供以下受平台级 `admin_visual_agent:manage` 权限保护的接口（普通 `config:update` 管理员不能签发 Key）：
+
+| 接口 | 用途 | 原始 Key 是否返回 |
+|------|------|------------------|
+| `POST /admin/visual-agent/clients` | 创建/更新 Tenant + Client 与 Adapter allowlist | 否 |
+| `GET /admin/visual-agent/clients/:clientId/keys` | 查看 prefix、状态、过期和最后使用时间 | 否 |
+| `POST /admin/visual-agent/clients/:clientId/keys` | 签发 `live` / `test` Key | **仅本次响应** |
+| `POST /admin/visual-agent/clients/:clientId/keys/:keyId/revoke` | 立即撤销 Key | 否 |
+| `GET /visual-agent/v1/session` | 接入系统以 Key 验证自己的 scope | 否 |
+
+签发接口响应带 `Cache-Control: no-store`。后端只持久化 Key prefix 与 SHA-256 verifier；丢失原值后只能重新签发并撤销旧 Key，不能找回。调用会话接口时使用以下两种之一：
+
+```http
+X-Visual-Agent-Key: vag_live_...
+```
+
+```http
+Authorization: VisualAgent vag_live_...
+```
+
+当前 Key API 只做身份、租户、Client 和 Adapter scope 验证。它**不**允许提交任意图片 URL、自由 prompt、Provider 任务或付费模型调用；这些能力仍须经过受信 Adapter、事实保护、预算、验真和用户单独授权后才能开放。

@@ -380,12 +380,11 @@ if [ "$BRANCH" = main ]; then
   RELEASE_SHA="$RELEASE_SHA" node scripts/inspect-miniapp-migration-readiness.cjs
 fi
 
-if [ "$BRANCH" = main ]; then
-  backup_result=$(DATABASE_BACKUP_LABEL="$(date -u +%Y%m%dT%H%M%SZ)-${previous_sha:0:12}-before-${RELEASE_SHA:0:12}" \
-    node scripts/create-production-database-backup.cjs)
-  printf '%s\n' "$backup_result"
-  backup_path=$(BACKUP_RESULT="$backup_result" node -e "const r=JSON.parse(process.env.BACKUP_RESULT); if(r.database_backup!=='verified'||!r.file)process.exit(1); process.stdout.write(r.file)")
-fi
+backup_profile=$([ "$BRANCH" = main ] && printf '%s' production || printf '%s' staging)
+backup_result=$(DATABASE_BACKUP_PROFILE="$backup_profile" DATABASE_BACKUP_LABEL="$(date -u +%Y%m%dT%H%M%SZ)-${previous_sha:0:12}-before-${RELEASE_SHA:0:12}" \
+  node scripts/create-production-database-backup.cjs)
+printf '%s\n' "$backup_result"
+backup_path=$(BACKUP_RESULT="$backup_result" node -e "const r=JSON.parse(process.env.BACKUP_RESULT); if(r.database_backup!=='verified'||!r.file)process.exit(1); process.stdout.write(r.file)")
 record_stage BACKUP_VERIFIED
 
 migration_started=true
