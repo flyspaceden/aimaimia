@@ -109,6 +109,8 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/auth/dto/change-password.dto.ts',
     'backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts',
     'backend/src/modules/auth/dto/wechat-miniapp.dto.ts',
+    'backend/src/modules/bonus/bonus.service.ts',
+    'backend/src/modules/bonus/vip-activation-retry.service.ts',
     'backend/src/modules/cart/cart.controller.ts',
     'backend/src/modules/company/company.service.ts',
     'backend/src/modules/health/health.module.ts',
@@ -122,7 +124,9 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/payment/payment.module.ts',
     'backend/src/modules/payment/payment.service.ts',
     'backend/src/modules/payment/refund-side-effects.service.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
     'backend/src/modules/profit/money-allocation.ts',
+    'backend/src/modules/seller/auth/seller-jwt.strategy.ts',
     'backend/src/modules/shipment/delivery-sf-callback.service.ts',
     'backend/src/modules/shipment/sf-express.service.ts',
     'backend/src/modules/shipment/shipment.controller.ts',
@@ -134,9 +138,13 @@ test('the parity manifest documents every intentional non-identical production s
 });
 
 
-test('App pickup extensions retain reviewed base provenance and only add the App VIP pending contract', async () => {
+test('App pickup extensions retain exact reviewed provenance and recovery contracts', async () => {
   assert.deepEqual(manifest.reviewedAppPickupDifferences.map((entry) => entry.path).sort(), [
+    'backend/src/modules/bonus/bonus.service.ts',
+    'backend/src/modules/bonus/vip-activation-retry.service.ts',
     'backend/src/modules/order/checkout.service.ts', 'backend/src/modules/order/order.controller.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
+    'backend/src/modules/seller/auth/seller-jwt.strategy.ts',
   ]);
   for (const entry of manifest.reviewedAppPickupDifferences) {
     assert.equal(entry.sourceMainCommit, '4a8b70e75d2d212b528bd8d3e7484870c7c7023e');

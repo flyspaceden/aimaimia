@@ -28,6 +28,7 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
+import { ownedCheckoutValue } from '../src/utils/checkoutOwner';
 import { usePickupSelection } from '../src/hooks/usePickupSelection';
 import { FulfillmentSelector } from '../src/components/checkout/FulfillmentSelector';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
@@ -140,7 +141,11 @@ export default function CheckoutScreen() {
   // 待执行的结算函数（同意政策后触发）
   const pendingCheckoutRef = useRef<(() => void) | null>(null);
   // 已存在会话仅引导到统一续付页；取消在该页校验归属后执行。
-  const [pendingModal, setPendingModal] = useState<PendingCheckout | null>(null);
+  const [pendingModalEntry, setPendingModal] = useState<{ owner: string | undefined; value: PendingCheckout } | null>(null);
+  const pendingModal = ownedCheckoutValue(pendingModalEntry, isLoggedIn ? userId : undefined);
+  React.useEffect(() => useAuthStore.subscribe((state, previous) => {
+    if (state.userId !== previous.userId || state.isLoggedIn !== previous.isLoggedIn) setPendingModal(null);
+  }), []);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
   // 按 bizType 拆分：schema 唯一约束是 (userId, idempotencyKey)，普通+VIP 共用会撞约束
   const normalIdempotencyKeyRef = useRef(`ik_normal_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
@@ -675,7 +680,7 @@ export default function CheckoutScreen() {
             return;
           }
           if (pending.ok && pending.data) {
-            setPendingModal(pending.data);
+            setPendingModal({ owner: userId, value: pending.data });
           } else {
             show({ message: '订单状态异常，请重试', type: 'error' });
           }
@@ -1785,7 +1790,10 @@ export default function CheckoutScreen() {
 
               <Pressable
                 onPress={() => {
-                  const sessionId = pendingModal.sessionId;
+                  const auth = useAuthStore.getState();
+                  const owned = ownedCheckoutValue(pendingModalEntry, auth.isLoggedIn ? auth.userId : undefined);
+                  if (!owned || !isCurrentOwner()) { setPendingModal(null); return; }
+                  const sessionId = owned.sessionId;
                   setPendingModal(null);
                       router.push({ pathname: '/checkout-pending', params: { sessionId } });
                 }}

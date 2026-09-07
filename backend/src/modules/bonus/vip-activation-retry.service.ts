@@ -18,6 +18,9 @@ const STALE_ACTIVATION_TIMEOUT_MS = 15 * 60 * 1000;
  */
 @Injectable()
 export class VipActivationRetryService {
+  // One bounded page per tick; restart begins at the oldest candidate again.
+  // Invalid snapshot rows advance the cursor too, so they cannot starve later orders.
+  private missingCursor: { createdAt: Date; id: string } | null = null;
   private readonly logger = new Logger(VipActivationRetryService.name);
 
   constructor(
@@ -35,10 +38,16 @@ export class VipActivationRetryService {
 
     const failedPurchases = await this.prisma.vipPurchase.findMany({
       where: {
+        user: { is: { status: 'ACTIVE', deletionExecutedAt: null } },
+        order: { is: {
+          bizType: 'VIP_PACKAGE', status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
+          refunds: { none: {} },
+          checkoutSession: { is: { bizType: 'VIP_PACKAGE', status: { in: ['PAID', 'COMPLETED'] }, paidAt: { not: null } } },
+        } },
         OR: [
           { activationStatus: 'FAILED' },
           {
-            activationStatus: { in: ['ACTIVATING', 'RETRYING'] },
+            activationStatus: { in: ['PENDING', 'ACTIVATING', 'RETRYING'] },
             createdAt: { lt: staleCutoff },
           },
         ],
@@ -49,7 +58,6 @@ export class VipActivationRetryService {
 
     if (failedPurchases.length === 0) {
       this.logger.log('无激活失败的 VipPurchase 记录');
-      return;
     }
 
     this.logger.log(`发现 ${failedPurchases.length} 条激活失败记录，开始重试`);
@@ -101,8 +109,55 @@ export class VipActivationRetryService {
       }
     }
 
+    await this.recoverMissingPurchases(staleCutoff);
+
     this.logger.log(
       `VIP 激活重试完成：成功 ${successCount}，失败 ${failCount}`,
     );
+  }
+
+  /** Recover a committed payment whose first activation prepare never persisted. */
+  private async recoverMissingPurchases(staleCutoff: Date): Promise<void> {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        bizType: 'VIP_PACKAGE', status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
+        createdAt: { lt: staleCutoff }, vipPurchase: { is: null },
+        ...(this.missingCursor ? { OR: [
+          { createdAt: { gt: this.missingCursor.createdAt } },
+          { createdAt: this.missingCursor.createdAt, id: { gt: this.missingCursor.id } },
+        ] } : {}),
+        user: { status: 'ACTIVE', deletionExecutedAt: null, vipPurchase: { is: null } }, refunds: { none: {} },
+        checkoutSession: { is: { status: { in: ['PAID', 'COMPLETED'] }, paidAt: { not: null } } },
+      },
+      include: { checkoutSession: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: BATCH_SIZE,
+    });
+    const last = orders[orders.length - 1];
+    this.missingCursor = orders.length === BATCH_SIZE && last
+      ? { createdAt: last.createdAt, id: last.id } : null;
+    for (const order of orders) {
+      const session = order.checkoutSession;
+      const meta = session?.bizMeta as Record<string, any> | null;
+      if (!session || session.bizType !== 'VIP_PACKAGE' || !meta?.vipGiftOptionId
+        || !Number.isFinite(Number(meta.snapshotPrice)) || Number(meta.snapshotPrice) <= 0
+        || !Array.isArray(session.itemsSnapshot)) continue;
+      try {
+        await this.bonusService.activateVipAfterPayment(
+          order.userId, order.id, meta.vipGiftOptionId, Number(meta.snapshotPrice),
+          {
+            title: meta.giftTitle, coverMode: meta.giftCoverMode,
+            coverUrl: meta.giftCoverUrl, badge: meta.giftBadge,
+            items: (session.itemsSnapshot as any[]).map((item) => ({
+              skuId: item.skuId, skuTitle: item.skuTitle, productTitle: item.title,
+              productImage: item.image, price: item.unitPrice, quantity: item.quantity,
+            })),
+          },
+          meta.vipPackageId, meta.referralBonusRate,
+        );
+      } catch (error) {
+        this.logger.error(`VIP 缺失购买记录恢复失败: orderId=${order.id}, error=${(error as Error).message}`);
+      }
+    }
   }
 }

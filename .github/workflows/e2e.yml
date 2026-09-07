@@ -84,6 +84,14 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      # 自提事务回归使用另一专用库，不接触已 seed 的 UI E2E 数据库。
+      - name: Verify pickup PostgreSQL invariants
+        run: |
+          PGPASSWORD=postgres createdb --host=localhost --username=postgres pickup_system_test
+          cd backend
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pickup_system_test npx --no-install prisma migrate deploy
+          PICKUP_POSTGRES_TEST_URL=postgresql://postgres:postgres@localhost:5432/pickup_system_test npx --no-install jest --runInBand --runTestsByPath src/modules/pickup/pickup-system.postgres.spec.ts
+
       # 跑测试（playwright 自动启动 backend + admin + seller）
       - name: Run E2E tests
         run: cd tests && npx playwright test --reporter=html,github

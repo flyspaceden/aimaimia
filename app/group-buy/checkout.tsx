@@ -22,6 +22,7 @@ import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
 import { FulfillmentSelector } from '../../src/components/checkout/FulfillmentSelector';
 import { usePickupSelection } from '../../src/hooks/usePickupSelection';
+import { checkoutAttemptForOwner } from '../../src/utils/checkoutOwner';
 import { useConfirmPayment } from '../../src/hooks/useConfirmPayment';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import { payWithAlipay } from '../../src/utils/alipay';
@@ -70,8 +71,8 @@ export default function GroupBuyCheckoutScreen() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     () => paymentMethods.find((method) => method.available)?.value ?? 'alipay',
   );
-  const idempotencyKeyRef = useRef(createIdempotencyKey());
-  const attemptedInputRef = useRef<string | null>(null);
+  const attempt = useRef({ owner: isLoggedIn ? userId : undefined, key: createIdempotencyKey(), signature: null as string | null });
+  attempt.current = checkoutAttemptForOwner(attempt.current, isLoggedIn ? userId : undefined, createIdempotencyKey);
   const submitLock = useRef(false);
   const lifetime = useRef({ focused: false, generation: 0 });
   useFocusEffect(useCallback(() => {
@@ -82,6 +83,7 @@ export default function GroupBuyCheckoutScreen() {
   useEffect(() => useAuthStore.subscribe((next, previous) => {
     if (next.userId !== previous.userId || next.isLoggedIn !== previous.isLoggedIn) {
       lifetime.current.generation += 1;
+      attempt.current = checkoutAttemptForOwner(attempt.current, next.isLoggedIn ? next.userId : undefined, createIdempotencyKey);
     }
   }), []);
 
@@ -211,7 +213,7 @@ export default function GroupBuyCheckoutScreen() {
     setSubmitting(true);
     try {
       // An absent pending result cannot prove an earlier timed-out create stopped on the server.
-      if (attemptedInputRef.current) {
+      if (attempt.current.signature) {
         const pending = await OrderRepo.getPendingCheckout();
         if (!isCurrent()) return;
         if (!pending.ok) { show({ message: '请先确认上一笔支付状态后再重试', type: 'warning' }); return; }
@@ -219,7 +221,7 @@ export default function GroupBuyCheckoutScreen() {
           router.replace({ pathname: '/checkout-pending', params: { sessionId: pending.data.sessionId } });
           return;
         }
-        if (attemptedInputRef.current !== checkoutInputKey) {
+        if (attempt.current.signature !== checkoutInputKey) {
           show({ message: '上一笔请求结果尚未确认，请恢复原结算信息后重试，或稍后查询待支付订单', type: 'warning' });
           return;
         }
@@ -254,7 +256,7 @@ export default function GroupBuyCheckoutScreen() {
         show({ message: '结算信息已变化，请重新确认金额', type: 'warning' });
         return;
       }
-      attemptedInputRef.current = checkoutInputKey;
+      attempt.current.signature = checkoutInputKey;
       const sessionResult = await GroupBuyRepo.createCheckout({
         activityId: target.id,
         addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
@@ -262,7 +264,7 @@ export default function GroupBuyCheckoutScreen() {
         paymentChannel: paymentMethod,
         expectedTotal: previewResult.data.expectedTotal,
         shareCode,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: attempt.current.key,
       });
 
       if (!isCurrent()) return;
@@ -271,8 +273,8 @@ export default function GroupBuyCheckoutScreen() {
         // NETWORK/UNKNOWN remain locked even if a transport omitted retryable.
         if (sessionResult.error.retryable !== true
           && ['INVALID', 'NOT_FOUND', 'FORBIDDEN'].includes(sessionResult.error.code)) {
-          attemptedInputRef.current = null;
-          idempotencyKeyRef.current = createIdempotencyKey();
+          attempt.current.signature = null;
+          attempt.current.key = createIdempotencyKey();
         }
         if (pickup.mode === 'PICKUP') pickup.retry();
         show({ message: sessionResult.error.displayMessage ?? '下单失败', type: 'error' });

@@ -78,3 +78,7 @@ P1 → P2 → P3/P4 → P5/P6 → P7 → P8。共享 OrderRepo、checkout 页面
 ## 5. 验证状态（2026-09-07）
 
 本地 App 类型检查、151 项 Jest、274 项脚本/兼容检查、Prisma validate、后端 build 及 248 项结算/自提回归通过。浏览器 fixture 覆盖普通/VIP/团购无地址自提、团购配送回归、VIP pending 发现与场景门禁、凭证刷新/失效及 320/390 布局。fixture 创建接口主动截断，无真实扣款或后台核销，不将 A07/A08/A09/A12/A15/A16/A18/A19 的原生或真实联调要求标为完成。完整记录见 [报告](../reports/2026-09-07-app-pickup-implementation-report.md)。
+
+## 6. 二轮系统复审（2026-09-07）
+
+进入测试部署前已追加账号隔离、凭证生成竞争、卖家实时角色和 VIP 激活补偿修复；真实 PostgreSQL 15 项专用用例及原有数据库回归通过，并接入 CI 专用库门禁。见 [复审记录](../reports/2026-09-07-app-pickup-system-reaudit.md)。I12/I13 真实后台及原生真机验收继续保持未完成。

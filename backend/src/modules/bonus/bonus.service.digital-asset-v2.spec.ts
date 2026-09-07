@@ -16,6 +16,7 @@ describe('BonusService digital asset V2 integration', () => {
       return { id: 'vp-1', ...data };
     });
     const prismaMock: any = {
+      order: { findFirst: jest.fn().mockResolvedValue({ id: 'order-1' }) },
       vipPurchase: {
         findUnique: jest
           .fn()
@@ -99,6 +100,30 @@ describe('BonusService digital asset V2 integration', () => {
 
     return { service, prismaMock, digitalAssetService, vipPurchaseUpdate, sequence };
   }
+
+  it('rejects missing paid-order facts before granting any assets', async () => {
+    const { service, prismaMock, digitalAssetService } = makeService();
+    prismaMock.order.findFirst.mockResolvedValue(null);
+    await expect(service.activateVipAfterPayment('buyer-1', 'order-1', 'gift-1', 399, {}))
+      .rejects.toThrow('VIP 订单未付款');
+    expect(prismaMock.order.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      id: 'order-1', userId: 'buyer-1', bizType: 'VIP_PACKAGE', refunds: { none: {} },
+      status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
+      checkoutSession: { is: { userId: 'buyer-1', bizType: 'VIP_PACKAGE', status: { in: ['PAID', 'COMPLETED'] }, paidAt: { not: null } } },
+    }) }));
+    expect(digitalAssetService.grantVipActivationAssets).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rechecks payment eligibility in grant transaction after preparation', async () => {
+    const { service, prismaMock, digitalAssetService } = makeService();
+    prismaMock.order.findFirst.mockResolvedValueOnce({ id: 'order-1' }).mockResolvedValueOnce(null);
+    await expect(service.activateVipAfterPayment('buyer-1', 'order-1', 'gift-1', 399, {}))
+      .rejects.toThrow('VIP 订单未付款');
+    expect(prismaMock.order.findFirst).toHaveBeenCalledTimes(2);
+    expect(digitalAssetService.grantVipActivationAssets).not.toHaveBeenCalled();
+    expect(prismaMock.memberProfile.upsert).not.toHaveBeenCalled();
+  });
 
   it('grants self seed and historical credit assets before activation becomes SUCCESS', async () => {
     const { service, digitalAssetService, vipPurchaseUpdate, sequence } = makeService();
@@ -205,6 +230,27 @@ describe('BonusService digital asset V2 integration', () => {
     expect(digitalAssetService.grantVipActivationAssets).toHaveBeenCalledTimes(1);
   });
 
+  it('does not overwrite a concurrent SUCCESS winner when the losing attempt records failure', async () => {
+    const { service, prismaMock, digitalAssetService } = makeService();
+    let storedStatus = 'PENDING';
+    prismaMock.vipPurchase.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (!where.activationStatus.in.includes(storedStatus)) return { count: 0 };
+      storedStatus = data.activationStatus;
+      return { count: 1 };
+    });
+    digitalAssetService.grantVipActivationAssets.mockImplementation(async () => {
+      // Another serializable contender commits before this failed transaction's catch.
+      storedStatus = 'SUCCESS';
+      throw new Error('could not serialize');
+    });
+    await expect(service.activateVipAfterPayment('buyer-1', 'order-1', 'gift-1', 399, {}))
+      .rejects.toThrow('could not serialize');
+    expect(storedStatus).toBe('SUCCESS');
+    expect(prismaMock.vipPurchase.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { id: 'vp-1', userId: 'buyer-1', orderId: 'order-1', activationStatus: { in: ['PENDING', 'ACTIVATING', 'RETRYING', 'FAILED'] } },
+    }));
+  });
+
   it('marks activation FAILED when digital asset grant throws', async () => {
     const { service, prismaMock } = makeService({
       digitalAssetError: new Error('digital asset down'),
@@ -222,8 +268,8 @@ describe('BonusService digital asset V2 integration', () => {
       ),
     ).rejects.toThrow('digital asset down');
 
-    expect(prismaMock.vipPurchase.update).toHaveBeenCalledWith({
-      where: { id: 'vp-1' },
+    expect(prismaMock.vipPurchase.updateMany).toHaveBeenCalledWith({
+      where: { id: 'vp-1', userId: 'buyer-1', orderId: 'order-1', activationStatus: { in: ['PENDING', 'ACTIVATING', 'RETRYING', 'FAILED'] } },
       data: {
         activationStatus: 'FAILED',
         activationError: 'digital asset down',

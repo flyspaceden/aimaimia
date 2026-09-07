@@ -504,3 +504,16 @@
 | APP-PICKUP-02 | 创建/续付等待响应期间换账号或离页，旧响应继续调用 SDK | 焦点代次、账号检查及共享支付确认 isCurrent，在异步返回/SDK前/导航前检查；4 项 ownership guard 测试 | 本地已修，原生真机待验收 |
 | APP-PICKUP-03 | 短时凭证缓存或旧异步图片覆盖导致显示失效码 | 凭证只存当前页面内存；切用户/失焦/网络失败/过期撤码；15秒轮询及generation隔离；320/390浏览器有效/损坏/失效fixture验证 | 本地已修，真实核销待验收 |
 | APP-PICKUP-04 | 待支付页忽略目标ID，或将小程序/VIP会话当普通App恢复 | sessionId匹配、服务端APP VIP专用过滤、跨scene按钮门禁；错误后重新发现原目标；backend及浏览器fixture验证 | 本地已修，真实支付待验收 |
+
+
+## 2026-09-07 App 自提二轮系统复审
+
+| 编号 | 风险 | 修复与验证 | 状态 |
+|---|---|---|---|
+| APP-PICKUP-05 | 团购未知请求及普通订单弹窗残留到另一账号 | owner 绑定、同步认证清理、渲染/导航校验；4 项状态隔离回归 | 本地已修 |
+| APP-PICKUP-06 | QR 生成期间核销/取消后仍返回旧 READY 凭证 | 生成后复查订单/履约/owner；5 项 barrier 单测及真实 PG 核销竞争 | 本地已修 |
+| APP-PICKUP-07 | 卖家降权后旧JWT继续操作点位 | 每请求从staff读取当前role；6项strategy/实际role guard回归 | 本地已修 |
+| APP-PICKUP-08 | VIP支付后崩溃导致权益永久未激活 | 回调上下文重放、缺失/PENDING补偿、事务内账号有效性、支付/退款检查；两渠道真实PG故障恢复、注销不重建权益 | 本地已修，历史生产数据未核对 |
+| APP-PICKUP-09 | VIP并发激活失败覆盖SUCCESS，坏记录饿死后续补偿 | 非SUCCESS条件更新、合法支付过滤、DELIVERED覆盖、missing分页游标；单测和PG验证 | 本地已修 |
+
+详见 `docs/superpowers/reports/2026-09-07-app-pickup-system-reaudit.md`。线上真实数据和原生支付仍属于后续验收。

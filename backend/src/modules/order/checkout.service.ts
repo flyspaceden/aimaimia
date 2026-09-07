@@ -3108,7 +3108,13 @@ export class CheckoutService {
                   where: { checkoutSessionId: session.id },
                   select: { id: true },
                 });
-                return { orderIds: existingOrders.map((o) => o.id) };
+                return {
+                  orderIds: existingOrders.map((o) => o.id),
+                  sessionBizType: session.bizType || 'NORMAL_GOODS',
+                  sessionBizMeta: session.bizMeta as Record<string, any> | null,
+                  sessionUserId: session.userId,
+                  sessionItemsSnapshot: session.itemsSnapshot as any[] | null,
+                };
               }
               throw new BadRequestException(
                 `结算会话状态 ${currentStatus} 不允许支付`,

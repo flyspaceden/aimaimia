@@ -1070,6 +1070,23 @@ export class PickupService implements OnModuleInit {
     const expiresAtSeconds = Math.floor(Date.now() / 1000) + PASS_TTL_SECONDS;
     const qrPayload = this.buildQrPayload(fulfillment.id, credentials.pickupToken, expiresAtSeconds);
     const qrImage = await this.buildBuyerPassQrImage(qrPayload);
+    // 二维码生成期间可能已核销/取消；返回前再读权威状态，撤下本次旧凭证。
+    // 这缩短生成窗口，并不承诺响应发出后的网络传输期间状态不会再变化。
+    const latest = await this.prisma.pickupFulfillment.findUnique({
+      where: { orderId },
+      select: {
+        id: true,
+        status: true,
+        order: { select: { userId: true, status: true, fulfillmentMode: true } },
+      },
+    });
+    if (!latest || latest.id !== fulfillment.id || latest.order.userId !== userId) {
+      throw new NotFoundException('自提凭证不存在');
+    }
+    if (latest.status !== 'READY' || latest.order.status !== 'PAID' || latest.order.fulfillmentMode !== 'PICKUP') {
+      throw new ConflictException('自提凭证尚未可用或已失效');
+    }
+
     return {
       orderId,
       status: 'READY' as const,

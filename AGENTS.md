@@ -126,6 +126,7 @@
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
+- `docs/superpowers/reports/2026-09-07-app-pickup-system-reaudit.md` — App 自提二轮系统审查、VIP 激活补偿与真实数据库并发验证（**进入 CI/测试部署前的本地复审记录，不代替真机/线上验收**）
 - `docs/superpowers/reports/2026-09-07-app-pickup-implementation-report.md` — App 自提实现、独立审查、本地测试与未完成真机/发布边界（**本次自提接入验证记录**）
 - `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
 - `docs/superpowers/reports/2026-04-11-drafts/` — 审查中间 draft 目录（18 个 draft 文件，按 L01-L17 + X1-X6 编号，每条链路的详细审查证据）

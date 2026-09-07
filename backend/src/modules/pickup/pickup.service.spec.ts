@@ -286,7 +286,7 @@ describe('PickupService', () => {
           pickupCredentialEncrypted: encryptJsonValue({ pickupCode, pickupToken }),
           pickupPointSnapshot: { name: '一号店', regionText: '北京市', detail: '1 号' },
           recipientSnapshot: encryptJsonValue({ recipientName: '王五', phone: '13712345678' }),
-          order: { userId: 'u1', fulfillmentMode: 'PICKUP' },
+          order: { userId: 'u1', status: 'PAID', fulfillmentMode: 'PICKUP' },
         }),
       },
       pickupFulfillmentEvent,
@@ -324,6 +324,42 @@ describe('PickupService', () => {
     pickupFulfillmentEvent.findFirst.mockResolvedValueOnce({ id: 'recent-view' });
     await service.getBuyerPass('u1', 'o1');
     expect(pickupFulfillmentEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['PICKED_UP', 'RECEIVED', 'u1'],
+    ['CANCELED', 'CANCELED', 'u1'],
+    ['VOID', 'REFUNDED', 'u1'],
+    ['READY', 'REFUNDED', 'u1'],
+    ['READY', 'PAID', 'other-user'],
+  ])('生成二维码期间状态变为 %s/%s 或归属变化时不返回旧码', async (status, orderStatus, userId) => {
+    const original = {
+      id: 'pf1', orderId: 'o1', status: 'READY',
+      pickupCredentialEncrypted: encryptJsonValue({ pickupCode: '12345678', pickupToken: 'test-token' }),
+      pickupPointSnapshot: {}, recipientSnapshot: {},
+      order: { userId: 'u1', status: 'PAID', fulfillmentMode: 'PICKUP' },
+    };
+    let current = original;
+    const prisma = {
+      pickupFulfillment: { findUnique: jest.fn().mockImplementation(async () => current) },
+      pickupFulfillmentEvent: { findFirst: jest.fn().mockResolvedValue({ id: 'recent' }) },
+    };
+    const { service } = createService(prisma);
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    jest.spyOn(service as any, 'buildBuyerPassQrImage').mockImplementation(async () => {
+      enter();
+      await barrier;
+      return { qrImageBase64: 'unused', qrImageMimeType: 'image/png' };
+    });
+    const request = service.getBuyerPass('u1', 'o1');
+    await entered;
+    current = { ...original, status, order: { ...original.order, status: orderStatus, userId } };
+    release();
+    await expect(request).rejects.toThrow(userId === 'u1' ? '自提凭证尚未可用或已失效' : '自提凭证不存在');
+    expect(prisma.pickupFulfillment.findUnique).toHaveBeenCalledTimes(2);
   });
 
   it('自提点联系电话以长密文存储，所有者读取时解密', async () => {

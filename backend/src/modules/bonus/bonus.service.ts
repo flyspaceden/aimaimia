@@ -468,12 +468,31 @@ export class BonusService {
     packageId?: string,
     referralBonusRate?: number,
   ) {
+    const assertPaidOrder = async (tx: Prisma.TransactionClient) => {
+      // Paid activation is independent of admin grants / cumulative-spend upgrades.
+      // Read these facts inside the same Serializable transaction as granting rights.
+      const paidOrder = await tx.order.findFirst({
+        where: {
+          id: orderId, userId, bizType: 'VIP_PACKAGE',
+          user: { is: { status: UserStatus.ACTIVE, deletionExecutedAt: null } },
+          status: { in: ['PAID', 'SHIPPED', 'DELIVERED', 'RECEIVED'] },
+          refunds: { none: {} },
+          checkoutSession: { is: {
+            userId, bizType: 'VIP_PACKAGE', status: { in: ['PAID', 'COMPLETED'] },
+            paidAt: { not: null },
+          } },
+        },
+        select: { id: true },
+      });
+      if (!paidOrder) throw new BadRequestException('账号不可用，或 VIP 订单未付款、已取消、存在退款，不能开通权益');
+    };
     const config = await this.bonusConfig.getConfig();
     let vipPurchaseId: string | null = null;
     let retrying = false;
 
     try {
       const prepareResult = await this.prisma.$transaction(async (tx) => {
+        await assertPaidOrder(tx);
         const existingPurchase = await tx.vipPurchase.findUnique({
           where: { userId },
         });
@@ -549,6 +568,7 @@ export class BonusService {
       retrying = prepareResult.retrying;
 
       await this.prisma.$transaction(async (tx) => {
+        await assertPaidOrder(tx);
         // CAS 期望状态必须与 prepare tx 已写入的状态对齐：
         // - retrying=true 时 prepare tx 已把 FAILED 改成 RETRYING（L189-202），
         //   所以 CAS 期望 RETRYING，把它推进到 ACTIVATING。
@@ -678,8 +698,11 @@ export class BonusService {
       // 激活失败，记录错误状态
       try {
         if (vipPurchaseId) {
-          await this.prisma.vipPurchase.update({
-            where: { id: vipPurchaseId },
+          await this.prisma.vipPurchase.updateMany({
+            where: {
+              id: vipPurchaseId, userId, orderId,
+              activationStatus: { in: ['PENDING', 'ACTIVATING', 'RETRYING', 'FAILED'] },
+            },
             data: {
               activationStatus: 'FAILED',
               activationError: err.message?.slice(0, 500) || 'Unknown error',
