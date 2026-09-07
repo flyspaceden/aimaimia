@@ -37,3 +37,5 @@ export * from './AccountDeletion';
 export * from './DigitalAsset';
 export * from './Growth';
 export * from './InviteH5';
+
+export * from './Fulfillment';

@@ -100,6 +100,12 @@ export class OrderController {
     return this.checkoutService.getPendingForUser(userId, 'MINI_PROGRAM');
   }
 
+  /** App 恢复当前用户未完成的 VIP 礼包结算；不返回小程序场景会话。 */
+  @Get('vip-checkout/me/pending')
+  getMyPendingVipCheckout(@CurrentUser('sub') userId: string) {
+    return this.checkoutService.getPendingVipForApp(userId);
+  }
+
   /** 小程序恢复当前用户未完成的 VIP 礼包结算；不返回 App 场景会话。 */
   @Get('vip-checkout/me/pending/mini-program')
   getMyPendingVipCheckoutForMiniProgram(@CurrentUser('sub') userId: string) {

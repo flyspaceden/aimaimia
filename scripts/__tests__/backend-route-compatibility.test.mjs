@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-const root = path.resolve(new URL('../..', import.meta.url).pathname);
+const root = fileURLToPath(new URL('../..', import.meta.url));
 const sourceRoot = path.join(root, 'backend/src');
 const baseline = JSON.parse(
   await readFile(new URL('./main-backend-route-baseline.json', import.meta.url), 'utf8'),
@@ -59,6 +60,7 @@ test('mini-program routes are additive and independent Delivery routes are absen
     'POST /orders/vip-checkout/mini-program',
     'POST /group-buy/checkout/mini-program',
     'GET /orders/:id/pickup-pass',
+    'GET /orders/vip-checkout/me/pending',
     'GET /orders/pickup-points',
     'POST /mini-program/codes',
     'GET /mini-program/subscriptions/templates',

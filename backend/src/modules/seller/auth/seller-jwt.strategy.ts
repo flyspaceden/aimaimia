@@ -64,7 +64,7 @@ export class SellerJwtStrategy extends PassportStrategy(Strategy, 'seller-jwt') 
     // C08: 同时校验 companyId 是否与令牌一致，防止员工转移企业后旧 token 越权
     const staff = await this.prisma.companyStaff.findUnique({
       where: { id: payload.sub },
-      select: { status: true, companyId: true },
+      select: { status: true, companyId: true, role: true },
     });
     if (!staff || staff.status !== 'ACTIVE') {
       throw new ForbiddenException('员工账号已被禁用');
@@ -77,7 +77,8 @@ export class SellerJwtStrategy extends PassportStrategy(Strategy, 'seller-jwt') 
       sub: payload.sub,
       userId: payload.userId,
       companyId: payload.companyId,
-      role: payload.role,
+      // 角色降权必须立即生效，不能沿用旧 JWT 的角色快照。
+      role: staff.role,
       type: payload.type,
       sessionId: payload.sessionId,
     };

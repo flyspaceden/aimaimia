@@ -633,6 +633,7 @@ describe('BonusService.activateVipAfterPayment — CAS 状态机契约', () => {
    * 同时把 prisma 顶层 mock 当作 tx 传给回调（共用同一个 mock）。
    */
   function makeTxRunner(prismaMock: any) {
+    prismaMock.order = { ...prismaMock.order, findFirst: jest.fn().mockResolvedValue({ id: 'order-1' }) };
     return async (cb: any) => cb(prismaMock);
   }
 

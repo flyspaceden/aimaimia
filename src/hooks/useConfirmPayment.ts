@@ -22,8 +22,10 @@ export function useConfirmPayment() {
   const queryClient = useQueryClient();
   const { show } = useToast();
 
-  return async (args: { sessionId: string; sdkResultStatus: string; onSuccess?: () => void | Promise<void> }) => {
-    const { sessionId, sdkResultStatus, onSuccess } = args;
+  return async (args: { sessionId: string; sdkResultStatus: string; onSuccess?: () => void | Promise<void>; isCurrent?: () => boolean }) => {
+    const { sessionId, sdkResultStatus, onSuccess, isCurrent = () => true } = args;
+    const abandoned = { outcome: 'abandoned' as const };
+    if (!isCurrent()) return abandoned;
 
     // 用户取消：6001 — 不做任何 active-query
     if (sdkResultStatus === '6001') {
@@ -33,8 +35,11 @@ export function useConfirmPayment() {
     show({ message: '支付确认中...', type: 'info' });
 
     const invalidatePaymentQueries = async () => {
+      if (!isCurrent()) return;
       await queryClient.invalidateQueries({ queryKey: ['pending-checkout'] });
+      if (!isCurrent()) return;
       await queryClient.invalidateQueries({ queryKey: ['orders'] });
+      if (!isCurrent()) return;
       await queryClient.invalidateQueries({ queryKey: ['me-order-counts'] });
     };
 
@@ -45,8 +50,10 @@ export function useConfirmPayment() {
      *  - 'terminal-failure' → 业务终态/明确失败，停止并已提示
      *  - 'continue-poll' → 中间态或网络错误，继续 polling
      */
-    const handleActiveQuery = async (): Promise<'completed' | 'terminal-failure' | 'continue-poll'> => {
+    const handleActiveQuery = async (): Promise<'completed' | 'terminal-failure' | 'continue-poll' | 'abandoned'> => {
+      if (!isCurrent()) return 'abandoned';
       const r = await OrderRepo.activeQueryPayment(sessionId);
+      if (!isCurrent()) return 'abandoned';
       if (r.ok) {
         const { status } = r.data;
         if (status === 'COMPLETED') {
@@ -74,8 +81,10 @@ export function useConfirmPayment() {
 
     // 第一步：active-query 立刻向支付宝查询真实状态
     const initialOutcome = await handleActiveQuery();
+    if (!isCurrent()) return abandoned;
     if (initialOutcome === 'completed') {
       await invalidatePaymentQueries();
+      if (!isCurrent()) return abandoned;
       show({ message: '支付成功', type: 'success' });
       await onSuccess?.();
       return { outcome: 'completed' as const };
@@ -90,12 +99,15 @@ export function useConfirmPayment() {
     const ACTIVE_QUERY_EVERY = 5;
     for (let i = 0; i < MAX_POLLS; i++) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+      if (!isCurrent()) return abandoned;
 
       // 每 5 轮（约 10s）再做一次 active-query 重查
       if (i > 0 && i % ACTIVE_QUERY_EVERY === 0) {
         const outcome = await handleActiveQuery();
+        if (!isCurrent()) return abandoned;
         if (outcome === 'completed') {
           await invalidatePaymentQueries();
+          if (!isCurrent()) return abandoned;
           show({ message: '支付成功', type: 'success' });
           await onSuccess?.();
           return { outcome: 'completed' as const };
@@ -107,10 +119,12 @@ export function useConfirmPayment() {
 
       // 普通本地 session 状态轮询（看 notify 路径有没有更新 session）
       const statusR = await OrderRepo.getCheckoutSessionStatus(sessionId);
+      if (!isCurrent()) return abandoned;
       if (statusR.ok) {
         const s = statusR.data.status;
         if (s === 'COMPLETED') {
           await invalidatePaymentQueries();
+          if (!isCurrent()) return abandoned;
           show({ message: '支付成功', type: 'success' });
           await onSuccess?.();
           return { outcome: 'completed' as const };
@@ -123,6 +137,7 @@ export function useConfirmPayment() {
     }
 
     // 兜底：超时未确认 — 软提示，不当失败（钱可能已扣，避免用户重复支付）
+    if (!isCurrent()) return abandoned;
     show({ message: '支付处理中，请稍后到订单列表查看', type: 'info', duration: 4000 });
     router.replace('/orders');
     return { outcome: 'pending-confirm' as const };

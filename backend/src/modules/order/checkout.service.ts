@@ -2841,11 +2841,25 @@ export class CheckoutService {
         userId,
         status: 'ACTIVE',
         expiresAt: { gt: new Date() },
-        bizType: { not: 'VIP_PACKAGE' },  // 通用 pending 保持非 VIP 合同；VIP 只由小程序专用端点按场景恢复。
+        bizType: { not: 'VIP_PACKAGE' },  // 通用 pending 保持非 VIP 合同；VIP 由各场景专用端点恢复。
       },
       orderBy: { createdAt: 'desc' },
     });
     if (!session) return null;
+    return this.toPendingSummary(session, requestedScene);
+  }
+
+  /** App 专用 VIP 发现：认证用户、业务类型和支付场景均由服务端固定。 */
+  async getPendingVipForApp(userId: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { userId, status: 'ACTIVE', expiresAt: { gt: new Date() },
+        bizType: 'VIP_PACKAGE', paymentScene: PaymentScene.APP },
+      orderBy: { createdAt: 'desc' },
+    });
+    return session ? this.toPendingSummary(session, 'APP') : null;
+  }
+
+  private toPendingSummary(session: any, requestedScene: TrustedPaymentScene) {
     const items = (session.itemsSnapshot as any[]) || [];
     const first = items[0];
     const paymentScene = this.normalizeStoredPaymentScene((session as any).paymentScene);
@@ -2860,6 +2874,8 @@ export class CheckoutService {
       bizType: session.bizType,
       paymentScene,
       canResumeInCurrentScene: paymentScene === requestedScene,
+      paymentChannel: session.paymentChannel,
+      fulfillmentMode: session.fulfillmentMode ?? 'DELIVERY',
       preview: {
         firstItemImage: first?.productSnapshot?.image || '',
         firstItemTitle: first?.productSnapshot?.title || '',
@@ -3092,7 +3108,13 @@ export class CheckoutService {
                   where: { checkoutSessionId: session.id },
                   select: { id: true },
                 });
-                return { orderIds: existingOrders.map((o) => o.id) };
+                return {
+                  orderIds: existingOrders.map((o) => o.id),
+                  sessionBizType: session.bizType || 'NORMAL_GOODS',
+                  sessionBizMeta: session.bizMeta as Record<string, any> | null,
+                  sessionUserId: session.userId,
+                  sessionItemsSnapshot: session.itemsSnapshot as any[] | null,
+                };
               }
               throw new BadRequestException(
                 `结算会话状态 ${currentStatus} 不允许支付`,

@@ -88,12 +88,12 @@ export const PAGE_PARITY: readonly PageParityGroup[] = [
   },
   {
     group: '订单', status: 'equivalent',
-    appFiles: ['app/orders/index.tsx', 'app/orders/[id].tsx', 'app/orders/receiver-info/[id].tsx', 'app/orders/track.tsx'],
+    appFiles: ['app/orders/index.tsx', 'app/orders/[id].tsx', 'app/orders/receiver-info/[id].tsx', 'app/orders/track.tsx', 'app/orders/pickup-pass/[id].tsx'],
     miniPages: [
       'packages/orders/order-list/index', 'packages/orders/order-detail/index',
-      'packages/orders/receiver-info/index', 'packages/orders/order-track/index',
+      'packages/orders/receiver-info/index', 'packages/orders/order-track/index', 'packages/orders/pickup-pass/index',
     ],
-    note: '列表、状态操作、收货信息、复购和物流均为共享订单数据。',
+    note: '列表、状态操作、收货信息、复购、物流和自提凭证均为共享订单数据。',
   },
   {
     group: '售后', status: 'equivalent',

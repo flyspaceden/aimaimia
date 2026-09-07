@@ -44,6 +44,7 @@ export default function PaymentSuccessScreen() {
     orderCount?: string;
     isVip?: string;
     paymentMethod?: string;
+    fulfillmentMode?: string;
   }>();
 
   const isVip = params.isVip === '1';
@@ -191,6 +192,8 @@ export default function PaymentSuccessScreen() {
           </Text>
         </Animated.View>
 
+        {params.fulfillmentMode === 'PICKUP' ? <Text style={[typography.body, { color: colors.text.secondary, textAlign: 'center', marginTop: spacing.md }]}>商家备好后，可在订单中查看取货凭证。</Text> : null}
+
         {/* 金额卡片 */}
         <Animated.View entering={FadeInDown.duration(400).delay(300)}>
           <View
@@ -263,6 +266,13 @@ export default function PaymentSuccessScreen() {
             </LinearGradient>
           </Pressable>
         </Animated.View>
+
+        {isVip ? <Pressable accessibilityRole="button" onPress={() => {
+          if (orderCount === 1 && firstOrderId) router.replace({ pathname: '/orders/[id]', params: { id: firstOrderId } });
+          else router.replace('/orders');
+        }} style={[styles.secondaryBtn, { borderColor: colors.border, borderRadius: radius.pill, marginTop: spacing.md }]}>
+          <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.primary }]}>查看实物礼包订单</Text>
+        </Pressable> : null}
 
         {/* 次按钮：返回首页 */}
         <Animated.View entering={FadeInDown.duration(400).delay(500)}>

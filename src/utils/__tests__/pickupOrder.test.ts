@@ -1,6 +1,7 @@
 import type { Order } from '../../types';
 import {
   canCancelPickupOrder,
+  canViewPickupPass,
   formatPickupBusinessHours,
   isPickupOrder,
   pickupOrderPresentation,
@@ -64,5 +65,17 @@ describe('App 自提订单展示契约', () => {
       .toBe('周一至周五 09:00-18:00');
     expect(formatPickupBusinessHours({ 周六: '09:00-12:00' })).toBe('周六 09:00-12:00');
     expect(formatPickupBusinessHours(null)).toBe('营业时间以自提点通知为准');
+  });
+});
+
+describe('取货凭证入口', () => {
+  it('仅有效待取订单开放入口，退款及缺关联关闭', () => {
+    expect(canViewPickupPass(pickupOrder('READY'))).toBe(true);
+    for (const status of ['PREPARING', 'PICKED_UP', 'VOID', 'CANCELED'] as const) {
+      expect(canViewPickupPass(pickupOrder(status))).toBe(false);
+    }
+    expect(canViewPickupPass({ ...pickupOrder('READY'), status: 'REFUNDED' })).toBe(false);
+    expect(canViewPickupPass({ ...pickupOrder('READY'), pickupFulfillment: null })).toBe(false);
+    expect(canViewPickupPass({ ...pickupOrder('READY'), fulfillmentMode: 'DELIVERY' })).toBe(false);
   });
 });

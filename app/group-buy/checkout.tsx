@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,7 +10,7 @@ import {
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppHeader, Screen } from '../../src/components/layout';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
@@ -20,6 +20,9 @@ import { paymentMethods } from '../../src/constants/payment';
 import { AddressRepo, GroupBuyRepo, OrderRepo } from '../../src/repos';
 import { useAuthStore, useCheckoutStore } from '../../src/store';
 import { useMeasuredBottomBar } from '../../src/hooks/useMeasuredBottomBar';
+import { FulfillmentSelector } from '../../src/components/checkout/FulfillmentSelector';
+import { usePickupSelection } from '../../src/hooks/usePickupSelection';
+import { checkoutAttemptForOwner } from '../../src/utils/checkoutOwner';
 import { useConfirmPayment } from '../../src/hooks/useConfirmPayment';
 import { compactActionTextProps, fitTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../../src/theme';
 import { payWithAlipay } from '../../src/utils/alipay';
@@ -60,6 +63,7 @@ export default function GroupBuyCheckoutScreen() {
   const { isCompact, isLargeText } = useResponsiveLayout();
   const bottomInset = useBottomInset(spacing.md);
   const { bottomPadding, onBarLayout } = useMeasuredBottomBar(isCompact || isLargeText ? 150 : 112, spacing.xl);
+  const userId = useAuthStore((state) => state.userId);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const selectedAddressId = useCheckoutStore((state) => state.selectedAddressId);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -67,7 +71,21 @@ export default function GroupBuyCheckoutScreen() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     () => paymentMethods.find((method) => method.available)?.value ?? 'alipay',
   );
-  const idempotencyKeyRef = useRef(createIdempotencyKey());
+  const attempt = useRef({ owner: isLoggedIn ? userId : undefined, key: createIdempotencyKey(), signature: null as string | null });
+  attempt.current = checkoutAttemptForOwner(attempt.current, isLoggedIn ? userId : undefined, createIdempotencyKey);
+  const submitLock = useRef(false);
+  const lifetime = useRef({ focused: false, generation: 0 });
+  useFocusEffect(useCallback(() => {
+    lifetime.current.focused = true;
+    if (!submitLock.current) setSubmitting(false);
+    return () => { lifetime.current.focused = false; lifetime.current.generation += 1; };
+  }, []));
+  useEffect(() => useAuthStore.subscribe((next, previous) => {
+    if (next.userId !== previous.userId || next.isLoggedIn !== previous.isLoggedIn) {
+      lifetime.current.generation += 1;
+      attempt.current = checkoutAttemptForOwner(attempt.current, next.isLoggedIn ? next.userId : undefined, createIdempotencyKey);
+    }
+  }), []);
 
   const activityQuery = useQuery({
     queryKey: ['group-buy-activity', activityId],
@@ -76,13 +94,13 @@ export default function GroupBuyCheckoutScreen() {
   });
 
   const addressesQuery = useQuery({
-    queryKey: ['addresses'],
+    queryKey: ['addresses', userId],
     queryFn: () => AddressRepo.list(),
     enabled: isLoggedIn,
   });
 
   const currentQuery = useQuery({
-    queryKey: ['group-buy-current'],
+    queryKey: ['group-buy-current', userId],
     queryFn: () => GroupBuyRepo.getCurrent(),
     enabled: isLoggedIn,
     staleTime: 0,
@@ -106,28 +124,35 @@ export default function GroupBuyCheckoutScreen() {
   const landing = landingQuery.data?.ok ? landingQuery.data.data : null;
   const occupiesSlot = Boolean(currentState?.occupiesSlot);
 
+  const pickup = usePickupSelection(activity?.companyId ? [activity.companyId] : [], selectedAddress);
+  const checkoutInputKey = JSON.stringify([userId, activity?.id, shareCode, paymentMethod, pickup.fulfillment]);
+
+  const latestInput = useRef(checkoutInputKey);
+  latestInput.current = checkoutInputKey;
+
   const previewQuery = useQuery({
-    queryKey: ['group-buy-checkout-preview', activity?.id, selectedAddress?.id, shareCode],
+    queryKey: ['group-buy-checkout-preview', userId, checkoutInputKey],
     queryFn: () => GroupBuyRepo.previewCheckout({
       activityId: String(activity?.id),
-      addressId: String(selectedAddress?.id),
+      addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+      fulfillment: pickup.fulfillment,
       paymentChannel: paymentMethod,
       shareCode,
     }),
-    enabled: Boolean(isLoggedIn && activity?.id && selectedAddress?.id && !occupiesSlot),
+    enabled: Boolean(isLoggedIn && activity?.id && pickup.ready && !occupiesSlot),
     staleTime: 0,
     refetchOnMount: 'always',
   });
 
-  const preview = previewQuery.data?.ok ? previewQuery.data.data : null;
+  const preview = pickup.ready && !previewQuery.isFetching && previewQuery.data?.ok ? previewQuery.data.data : null;
   const previewError = previewQuery.data && !previewQuery.data.ok
     ? previewQuery.data.error.displayMessage ?? '金额计算失败，请刷新后重试'
     : null;
-  const displayedShippingText = activity?.freeShipping
+  const displayedShippingText = pickup.mode === 'PICKUP' ? '自提免运费' : activity?.freeShipping
     ? '包邮'
     : preview
       ? formatPrice(preview.shippingFee)
-      : selectedAddress
+      : pickup.ready
         ? '计算中'
         : '选择地址后计算';
   const displayedTotalText = preview
@@ -141,10 +166,13 @@ export default function GroupBuyCheckoutScreen() {
     [paymentMethod],
   );
 
-  const refreshGroupBuyCurrent = async () => {
+  const refreshGroupBuyCurrent = async (isCurrent: () => boolean) => {
+    if (!isCurrent()) return;
     await queryClient.invalidateQueries({ queryKey: ['group-buy-current'] });
+    if (!isCurrent()) return;
     const latest = await GroupBuyRepo.getCurrent();
-    queryClient.setQueryData(['group-buy-current'], latest);
+    if (!isCurrent()) return;
+    queryClient.setQueryData(['group-buy-current', userId], latest);
     return latest;
   };
 
@@ -162,7 +190,11 @@ export default function GroupBuyCheckoutScreen() {
       show({ message: '该团购商品暂无库存', type: 'info' });
       return;
     }
-    if (!selectedAddress) {
+    if (!pickup.ready || !pickup.fulfillment) {
+      if (pickup.mode === 'PICKUP') {
+        show({ message: '请完善取货人并为每个商家选择有效自提点', type: 'warning' });
+        return;
+      }
       show({ message: '请先选择收货地址', type: 'warning' });
       router.push('/checkout-address');
       return;
@@ -171,32 +203,80 @@ export default function GroupBuyCheckoutScreen() {
       show({ message: paymentMethodMeta?.comingSoon ?? '该支付方式暂不可用', type: 'info' });
       return;
     }
-    if (submitting) return;
+    if (submitLock.current || submitting || previewQuery.isFetching || !preview) return;
 
+    const generation = lifetime.current.generation;
+    const isCurrent = () => lifetime.current.focused && lifetime.current.generation === generation
+      && useAuthStore.getState().isLoggedIn && useAuthStore.getState().userId === userId;
+    if (!isCurrent()) return;
+    submitLock.current = true;
     setSubmitting(true);
     try {
+      // An absent pending result cannot prove an earlier timed-out create stopped on the server.
+      if (attempt.current.signature) {
+        const pending = await OrderRepo.getPendingCheckout();
+        if (!isCurrent()) return;
+        if (!pending.ok) { show({ message: '请先确认上一笔支付状态后再重试', type: 'warning' }); return; }
+        if (pending.data) {
+          router.replace({ pathname: '/checkout-pending', params: { sessionId: pending.data.sessionId } });
+          return;
+        }
+        if (attempt.current.signature !== checkoutInputKey) {
+          show({ message: '上一笔请求结果尚未确认，请恢复原结算信息后重试，或稍后查询待支付订单', type: 'warning' });
+          return;
+        }
+      }
+      const fulfillmentValid = await pickup.refresh();
+      if (!isCurrent()) return;
+      if (!fulfillmentValid) {
+        show({ message: '自提点信息已更新，请重新确认选择', type: 'warning' });
+        return;
+      }
       const previewResult = await GroupBuyRepo.previewCheckout({
         activityId: target.id,
-        addressId: selectedAddress.id,
+        addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+        fulfillment: pickup.fulfillment,
         paymentChannel: paymentMethod,
         shareCode,
       });
 
+      if (!isCurrent()) return;
       if (!previewResult.ok) {
         show({ message: previewResult.error.displayMessage ?? '金额计算失败，请刷新后重试', type: 'error' });
         return;
       }
 
+      if (Math.round(previewResult.data.expectedTotal * 100) !== Math.round(preview.expectedTotal * 100)) {
+        queryClient.setQueryData(['group-buy-checkout-preview', userId, checkoutInputKey], previewResult);
+        show({ message: '应付金额已更新，请确认新金额后再次付款', type: 'warning' });
+        return;
+      }
+
+      if (latestInput.current !== checkoutInputKey) {
+        show({ message: '结算信息已变化，请重新确认金额', type: 'warning' });
+        return;
+      }
+      attempt.current.signature = checkoutInputKey;
       const sessionResult = await GroupBuyRepo.createCheckout({
         activityId: target.id,
-        addressId: selectedAddress.id,
+        addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+        fulfillment: pickup.fulfillment,
         paymentChannel: paymentMethod,
         expectedTotal: previewResult.data.expectedTotal,
         shareCode,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: attempt.current.key,
       });
 
+      if (!isCurrent()) return;
       if (!sessionResult.ok) {
+        // Only explicit business rejection proves this create did not succeed.
+        // NETWORK/UNKNOWN remain locked even if a transport omitted retryable.
+        if (sessionResult.error.retryable !== true
+          && ['INVALID', 'NOT_FOUND', 'FORBIDDEN'].includes(sessionResult.error.code)) {
+          attempt.current.signature = null;
+          attempt.current.key = createIdempotencyKey();
+        }
+        if (pickup.mode === 'PICKUP') pickup.retry();
         show({ message: sessionResult.error.displayMessage ?? '下单失败', type: 'error' });
         return;
       }
@@ -205,9 +285,11 @@ export default function GroupBuyCheckoutScreen() {
 
       if (paymentParams?.channel === 'alipay' && paymentParams.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr);
+        if (!isCurrent()) return;
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!isCurrent()) return;
             if (!payResult.ok) {
               show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
               await OrderRepo.cancelCheckoutSession(sessionId);
@@ -220,20 +302,24 @@ export default function GroupBuyCheckoutScreen() {
           }
         } else if (alipayResult.resultStatus === '6001') {
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (!isCurrent()) return;
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
-            await refreshGroupBuyCurrent();
+            await refreshGroupBuyCurrent(isCurrent);
+            if (!isCurrent()) return;
             await confirmPayment({
               sessionId,
               sdkResultStatus: '9000',
+              isCurrent,
               onSuccess: async () => {
-                await refreshGroupBuyCurrent();
+                await refreshGroupBuyCurrent(isCurrent);
+                if (!isCurrent()) return;
                 router.replace('/orders');
               },
             });
             return;
           }
-          show({ message: '已取消支付，如需重新购买请稍后再试', type: 'info', duration: 4000 });
-          router.replace({ pathname: '/group-buy/[activityId]', params: { activityId: target.id } });
+          show({ message: '支付尚未完成，可继续原支付或查询结果', type: 'info', duration: 4000 });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
           show({
@@ -244,9 +330,11 @@ export default function GroupBuyCheckoutScreen() {
         }
       } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams as any)) {
         const wechatResult = await payWithWechat(paymentParams as any);
+        if (!isCurrent()) return;
         if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+            if (!isCurrent()) return;
             if (!payResult.ok) {
               show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
               await OrderRepo.cancelCheckoutSession(sessionId);
@@ -259,24 +347,28 @@ export default function GroupBuyCheckoutScreen() {
           }
         } else if (wechatResult.resultStatus === '6001') {
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (!isCurrent()) return;
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
-            await refreshGroupBuyCurrent();
+            await refreshGroupBuyCurrent(isCurrent);
+            if (!isCurrent()) return;
             await confirmPayment({
               sessionId,
               sdkResultStatus: '9000',
+              isCurrent,
               onSuccess: async () => {
-                await refreshGroupBuyCurrent();
+                await refreshGroupBuyCurrent(isCurrent);
+                if (!isCurrent()) return;
                 router.replace('/orders');
               },
             });
             return;
           }
-          show({ message: '已取消支付，如需重新购买请稍后再试', type: 'info', duration: 4000 });
-          router.replace({ pathname: '/group-buy/[activityId]', params: { activityId: target.id } });
+          show({ message: '支付尚未完成，可继续原支付或查询结果', type: 'info', duration: 4000 });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
           show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
-          router.replace({ pathname: '/group-buy/[activityId]', params: { activityId: target.id } });
+          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
           return;
         }
       } else if (paymentMethod === 'alipay') {
@@ -289,6 +381,7 @@ export default function GroupBuyCheckoutScreen() {
         return;
       } else if (__DEV__) {
         const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
+        if (!isCurrent()) return;
         if (!payResult.ok) {
           show({ message: '模拟支付失败（Expo Go 开发环境）', type: 'error' });
           await OrderRepo.cancelCheckoutSession(sessionId);
@@ -303,22 +396,27 @@ export default function GroupBuyCheckoutScreen() {
       const confirmResult = await confirmPayment({
         sessionId,
         sdkResultStatus: '9000',
+        isCurrent,
         onSuccess: async () => {
-          await refreshGroupBuyCurrent();
+          await refreshGroupBuyCurrent(isCurrent);
+          if (!isCurrent()) return;
           router.replace('/orders');
         },
       });
+      if (!isCurrent()) return;
       if (confirmResult.outcome === 'pending-confirm') {
-        await refreshGroupBuyCurrent();
+        await refreshGroupBuyCurrent(isCurrent);
+        if (!isCurrent()) return;
       }
     } finally {
-      setSubmitting(false);
+      submitLock.current = false;
+      if (lifetime.current.focused) setSubmitting(false);
     }
   };
 
   const isLoading =
     activityQuery.isLoading ||
-    (isLoggedIn && (addressesQuery.isLoading || currentQuery.isLoading)) ||
+    (isLoggedIn && currentQuery.isLoading) ||
     (Boolean(shareCode) && landingQuery.isLoading);
 
   if (isLoading) {
@@ -393,7 +491,7 @@ export default function GroupBuyCheckoutScreen() {
   const itemSummary = activity.itemSummary || `${activity.product.title} · ${activity.sku.title}`;
 
   return (
-    <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark">
+    <Screen contentStyle={{ flex: 1 }} statusBarStyle="dark" keyboardAvoiding>
       <AppHeader title="团购付款" subtitle="现金购买指定商品" />
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -445,7 +543,8 @@ export default function GroupBuyCheckoutScreen() {
           </View>
         ) : null}
 
-        <View style={[styles.section, { borderRadius: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <FulfillmentSelector pickup={pickup} disabled={submitting} />
+        {pickup.mode === 'DELIVERY' ? <View style={[styles.section, { borderRadius: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.sectionTitleRow}>
             <MaterialCommunityIcons name="map-marker-outline" size={20} color={GROUP_BUY_COLORS.tide} />
             <Text style={[typography.bodyStrong, { color: colors.text.primary, marginLeft: 7 }]}>
@@ -482,7 +581,7 @@ export default function GroupBuyCheckoutScreen() {
               onAction={() => router.push({ pathname: '/me/addresses', params: { openNew: '1' } })}
             />
           )}
-        </View>
+        </View> : null}
 
         <View style={[styles.section, { borderRadius: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.sectionTitleRow}>
@@ -498,6 +597,7 @@ export default function GroupBuyCheckoutScreen() {
                 <Pressable
                   key={method.value}
                   onPress={() => {
+                    if (submitting) return;
                     if (!method.available) {
                       show({ message: method.comingSoon ?? '该支付方式暂不可用', type: 'info' });
                       return;
@@ -596,14 +696,14 @@ export default function GroupBuyCheckoutScreen() {
         </View>
         <Pressable
           onPress={() => handleCreateCheckout(activity)}
-          disabled={submitting || (Boolean(selectedAddress) && previewQuery.isLoading)}
+          disabled={submitting || (isLoggedIn && (!pickup.ready || previewQuery.isFetching || !preview))}
           style={[styles.payButton, { borderRadius: radius.pill, backgroundColor: GROUP_BUY_COLORS.pine }]}
         >
           {submitting ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: '#FFFFFF' }]}>
-              {previewQuery.isLoading ? '计算中' : '确认付款'}
+              {previewQuery.isFetching ? '计算中' : '确认付款'}
             </Text>
           )}
         </Pressable>

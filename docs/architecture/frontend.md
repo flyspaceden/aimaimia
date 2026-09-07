@@ -5,6 +5,14 @@
 
 ---
 
+## App 自提接入计划（2026-09-06）
+
+2026-09-07 原生补测：在 Android 14 arm64 模拟器安装候选独立 Debug 包，以隔离 fixture 验证普通自提提交、团购支付宝提交、VIP 两渠道选择与提交、凭证刷新/失效/返回订单状态；创建请求主动截断，未执行真实支付。VIP 自提金额区文案改为“自提免运费”。此记录不等同于正式签名包或物理设备验收。
+
+2026-09-07 二轮复审：结算摘要及团购未知请求已按账号隔离，保留同账号防重；155 项 App 测试及最新构建页面回归通过。见 [系统复审记录](../superpowers/reports/2026-09-07-app-pickup-system-reaudit.md)。
+
+状态（2026-09-07）：普通/团购/VIP 自提结算、页面内选择状态、App VIP 支付恢复、订单凭证入口及凭证页已完成本地实现。已有配送规则保持。类型检查、自动化及本地浏览器验证通过；原生真机支付、真实后台核销和发布待验收。以 [设计](../superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md)、[清单](../superpowers/plans/2026-09-06-app-pickup-fulfillment.md) 和 [验证报告](../superpowers/reports/2026-09-07-app-pickup-implementation-report.md) 为准。
+
 ## 1. 设计理念
 
 ### 1.1 核心概念：「脉」

@@ -265,5 +265,49 @@
       "path": "backend/src/modules/shipment/shipment.module.ts",
       "reason": "exclude Delivery callback provider"
     }
+  ],
+  "reviewedAppPickupDifferences": [
+    {
+      "path": "backend/src/modules/bonus/bonus.service.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "e13662548667bd052733d0831b21aec025efa214",
+      "gitBlob": "3c78e91a44c1115608de853cf32e1dbd1c4cb3a6",
+      "reason": "Paid VIP activation checks payment/refund facts inside Serializable transactions and conditionally records failure without overwriting SUCCESS; admin and cumulative-spend activation unchanged."
+    },
+    {
+      "path": "backend/src/modules/bonus/vip-activation-retry.service.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "e613963b30214993a34603acdf3d0f17a19f3029",
+      "gitBlob": "e18e84a7cb5f0b1cc4bc667052b8719b0fd61eb9",
+      "reason": "Recover missing and stale PENDING VIP activation, filter ineligible orders and advance past malformed metadata with bounded cursor scanning."
+    },
+    {
+      "path": "backend/src/modules/order/checkout.service.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "9eb138f6c7d036993fef3464f69ad86c9f363fb1",
+      "gitBlob": "7bf70190742678c847ca0c86759f34ef27f78df3",
+      "reason": "App VIP pending plus paid callback replay metadata recovery; preserves payment transactions and mini-program scene isolation."
+    },
+    {
+      "path": "backend/src/modules/order/order.controller.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "e0fa05859d332f205583ca299bdc4590ce85082e",
+      "gitBlob": "700110df8f2b1a7e52a03ebe94f413bc7bfe6fea",
+      "reason": "App pickup adds authenticated GET vip-checkout/me/pending only; existing mini-program endpoints remain unchanged."
+    },
+    {
+      "path": "backend/src/modules/pickup/pickup.service.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "afd4fb83952d391d126957855a8e9ff2f1222504",
+      "gitBlob": "8b5914db779e33f8c9b9aba0791f1eff297021c9",
+      "reason": "Recheck current pickup ownership and READY/PAID state after QR generation before returning credentials; no change to verification transaction semantics."
+    },
+    {
+      "path": "backend/src/modules/seller/auth/seller-jwt.strategy.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "b2fbd884036367b79662f3ab321a516af5b3ea1a",
+      "gitBlob": "7b17981c8ba10c4fd228288d1f8a1e62f892b53e",
+      "reason": "Use current database staff role so a role downgrade immediately restricts pickup operations while preserving session and company checks."
+    }
   ]
 }

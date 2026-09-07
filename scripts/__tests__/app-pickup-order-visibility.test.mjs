@@ -31,16 +31,18 @@ test('App order detail isolates pickup from logistics, receiver editing, and buy
   assert.match(detail, /countdownExpiresAt=\{!isPickup/);
   assert.match(detail, /if \(!isPickup\) \{\s*primary = \{ label: '确认收货'/);
   assert.match(detail, /!isPickup && addr \?/);
-  assert.match(detail, /当前 App 暂不展示取货二维码，请在微信小程序中查看一次性取货凭证/);
+  assert.match(detail, /canViewPickupPass\(order\)/);
+  assert.match(detail, /orders\/pickup-pass\/\[id\]/);
+  assert.doesNotMatch(detail, /请在微信小程序中查看/);
 });
 
-test('App keeps pickup QR and credential generation out of this compatibility slice', () => {
-  const changedRuntime = [
-    read('app/orders/index.tsx'),
-    read('app/orders/[id].tsx'),
-    read('src/components/cards/OrderCard.tsx'),
-    read('src/utils/pickupOrder.ts'),
-  ].join('\n');
-
-  assert.doesNotMatch(changedRuntime, /getPickupPass|react-native-qrcode-svg|qrPayload|pickupCode/);
+test('App pickup credentials remain screen-local and are withdrawn on lifecycle or request failure', () => {
+  const pass = read('app/orders/pickup-pass/[id].tsx');
+  assert.match(pass, /useFocusEffect/);
+  assert.match(pass, /AppState.addEventListener/);
+  assert.match(pass, /useAuthStore.subscribe/);
+  assert.match(pass, /15_000/);
+  assert.match(pass, /setEntry\(undefined\)/);
+  assert.match(pass, /getPickupPass\(orderId\)/);
+  assert.doesNotMatch(pass, /useQuery|AsyncStorage|writeAsStringAsync|qrPayload/);
 });

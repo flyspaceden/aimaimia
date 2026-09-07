@@ -319,6 +319,7 @@ export interface VipGiftOption {
 // VIP 档位
 export interface VipPackage {
   id: string;
+  companyId?: string;
   price: number;
   sortOrder: number;
   giftOptions: VipGiftOption[];

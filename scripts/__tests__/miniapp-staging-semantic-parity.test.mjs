@@ -18,7 +18,7 @@ const gitBlob = (content) => createHash('sha1')
   .update(content)
   .digest('hex');
 
-test('tested mini-program marketplace services remain byte-identical to the frozen staging baseline', async () => {
+test('frozen mini-program services match baseline or explicitly reviewed App pickup extension blobs', async () => {
   assert.equal(manifest.sourceStagingCommit, 'acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2');
   assert.ok(manifest.exactFiles.length >= 41);
   for (const entry of manifest.exactFiles) {
@@ -28,7 +28,8 @@ test('tested mini-program marketplace services remain byte-identical to the froz
       { cwd: rootPath, encoding: 'utf8' },
     ).trim();
     assert.equal(entry.gitBlob, sourceBlob, `${entry.path} manifest source`);
-    assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
+    const extension = manifest.reviewedAppPickupDifferences.find((item) => item.path === entry.path);
+    assert.equal(gitBlob(await read(entry.path)), extension?.gitBlob ?? entry.gitBlob, entry.path);
   }
 });
 
@@ -81,7 +82,7 @@ test('intentional production differences strengthen marketplace behavior without
 });
 
 test('the parity manifest documents every intentional non-identical production surface', () => {
-  const paths = manifest.intentionalCandidateDifferences.map((entry) => entry.path);
+  const paths = [...manifest.intentionalCandidateDifferences, ...manifest.reviewedAppPickupDifferences].map((entry) => entry.path).sort();
   const runtimeDiffPaths = execFileSync(
     'git',
     [
@@ -108,18 +109,24 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/auth/dto/change-password.dto.ts',
     'backend/src/modules/auth/dto/wechat-deletion-proof.dto.ts',
     'backend/src/modules/auth/dto/wechat-miniapp.dto.ts',
+    'backend/src/modules/bonus/bonus.service.ts',
+    'backend/src/modules/bonus/vip-activation-retry.service.ts',
     'backend/src/modules/cart/cart.controller.ts',
     'backend/src/modules/company/company.service.ts',
     'backend/src/modules/health/health.module.ts',
     'backend/src/modules/health/health.service.ts',
     'backend/src/modules/mini-program/mini-program-code.service.ts',
     'backend/src/modules/mini-program/mini-program-subscription.service.ts',
+    'backend/src/modules/order/checkout.service.ts',
+    'backend/src/modules/order/order.controller.ts',
     'backend/src/modules/payment/dto/payment-callback.dto.ts',
     'backend/src/modules/payment/payment.controller.ts',
     'backend/src/modules/payment/payment.module.ts',
     'backend/src/modules/payment/payment.service.ts',
     'backend/src/modules/payment/refund-side-effects.service.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
     'backend/src/modules/profit/money-allocation.ts',
+    'backend/src/modules/seller/auth/seller-jwt.strategy.ts',
     'backend/src/modules/shipment/delivery-sf-callback.service.ts',
     'backend/src/modules/shipment/sf-express.service.ts',
     'backend/src/modules/shipment/shipment.controller.ts',
@@ -128,4 +135,27 @@ test('the parity manifest documents every intentional non-identical production s
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
   }
+});
+
+
+test('App pickup extensions retain exact reviewed provenance and recovery contracts', async () => {
+  assert.deepEqual(manifest.reviewedAppPickupDifferences.map((entry) => entry.path).sort(), [
+    'backend/src/modules/bonus/bonus.service.ts',
+    'backend/src/modules/bonus/vip-activation-retry.service.ts',
+    'backend/src/modules/order/checkout.service.ts', 'backend/src/modules/order/order.controller.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
+    'backend/src/modules/seller/auth/seller-jwt.strategy.ts',
+  ]);
+  for (const entry of manifest.reviewedAppPickupDifferences) {
+    assert.equal(entry.sourceMainCommit, '4a8b70e75d2d212b528bd8d3e7484870c7c7023e');
+    assert.equal(execFileSync('git', ['rev-parse', `${entry.sourceMainCommit}:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim(), entry.sourceMainBlob);
+    assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
+    assert.ok(entry.reason.length >= 20);
+  }
+  const checkout = await readText('backend/src/modules/order/checkout.service.ts');
+  const controller = await readText('backend/src/modules/order/order.controller.ts');
+  assert.match(checkout, /async getPendingVipForApp\(userId: string\)/);
+  assert.match(checkout, /bizType: 'VIP_PACKAGE', paymentScene: PaymentScene.APP/);
+  assert.match(controller, /@Get\('vip-checkout\/me\/pending'\)/);
+  assert.match(controller, /@Get\('vip-checkout\/me\/pending\/mini-program'\)/);
 });
