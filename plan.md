@@ -19,7 +19,7 @@
 | 首批用户 | 500+ |
 | 时间 | 无硬 deadline，质量优先 |
 
-### App 自提接入（2026-09-07，本地实现完成）
+### App 自提接入（2026-09-07，生产后端及 Android OTA 已发布）
 
 - [x] Android 原生 Debug 模拟器补测主要提交和凭证按钮，捕获正确请求及状态；修正 VIP 自提运费文案。真实 SDK 支付、物理设备及正式 OTA 安装仍未验收。
 
@@ -30,7 +30,8 @@
 - [x] App 取货凭证、订单入口与已有通知路由接线（本地浏览器 fixture 验证）。
 - [ ] 真实后台备货/核销联调。
 - [x] 本地验证与独立审查；详见 [验证报告](docs/superpowers/reports/2026-09-07-app-pickup-implementation-report.md)。
-- [ ] Android/iOS 原生真机支付验收；推送和发布未执行。
+- [x] 自提 PR #18 独立合入 main，生产后端及 Android production/runtime 1.0.6 OTA 已发布（详见 App 发布手册第六章）。
+- [ ] 物理设备实付、支付切回与真实后台核销最终验收；iOS 本轮未发布。
 
 ### 近期完成补充
 

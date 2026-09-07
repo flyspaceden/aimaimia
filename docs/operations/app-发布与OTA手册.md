@@ -279,6 +279,18 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ## 六、当前 App 实际状态（2026-07-05）
 
+### 2026-09-07 Android 正式 1.0.6 自提 OTA（已发布）
+
+- 仅自提 PR #18 合入 main：`37520f2d088d63a69364def6b7e4eda6fbf12d20`，代码树与已验证候选相同；不包含图片 Agent PR #17。
+- main CI：E2E `34135943387`、checks `34135943353` 均成功。生产 backend-only 发布 `34136720927` attempt 2 成功；attempt 1 在 git fetch 网络超时阶段终止，未停服务/改库。
+- 生产后端 ready 返回同一 SHA，DB/Redis up，PM2 online、快照重启计数 0；新 VIP pending 路由未认证探测 401，符合鉴权预期。迁移为 NO_OP（120/0），演练 23 表指纹、11 退款后续任务一致；切换前另有 verified 备份。
+- 本次仅 Android，channel/branch `production`，runtime `1.0.6`。Group：`5804489a-291a-4bb3-a59e-f250d8a5aa54`；Android update：`01a07c7c-4c8b-70b0-b481-75060c500a61`。
+- EAS：[发布详情](https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/5804489a-291a-4bb3-a59e-f250d8a5aa54)。从干净最终 main 目录明确注入 production API、USE_MOCK=false、支付宝沙箱=false、微信=true 后 export，再用 `eas update --platform android --branch production --input-dir <verified-output> --skip-bundler --emit-metadata --non-interactive` 发布；CLI 在 skip-bundler 时忽略 emit-metadata，实际 Group/Update ID 以返回值及线上 manifest 为准。
+- 线上 Android manifest 已确认新 ID/runtime；64 个资源条目及启动包共 65 个引用、63 个独立文件下载并核对 SHA256 全通过，19 个字体齐全。没有重新打正式 APK；本地 Debug 模拟器包不作为用户分发包。
+- 旧 production 回退 Group：`cc86f255-9174-4bc2-84cf-cfc120b116b1`。回退时限定 `eas update:republish --platform android --group cc86f255-9174-4bc2-84cf-cfc120b116b1 --destination-branch production --message "回退 Android 自提更新" --non-interactive`。
+- iOS 本次未发布，继续此前版本。Android 1.0.6 正式安装包可冷启动接收；云端发布及资源验证不代表每台手机已经安装，也不代表真实支付/现场核销验收完成。
+
+
 ### 2026-09-07 自提测试候选准备（尚未构建/发布）
 
 候选 runtime 为 1.0.6；EAS 最新云端 preview Android 包为 0.2.0，最新 preview OTA 为 1.0.5，不能假定旧测试包可接收本次 OTA，计划重新构建 internal preview APK。已只读核对当前 test-api 后端使用生产支付宝网关，preview 的 `EXPO_PUBLIC_ALIPAY_SANDBOX` 因此修正为 false，与本手册第三章命令一致；实际测试支付会走真实渠道，不自动发起交易。production profile/channel 未改变。测试环境目前由图片 Agent PR #17 占用，待确认集成策略及 CI 后再部署与构建。
