@@ -18,9 +18,11 @@ import { useAuthStore, useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import type { OrderItem, OrderStatus, RefundStatus } from '../../src/types';
 import { formatRepurchaseToast } from '../../src/utils';
+import { openPickupLocation } from '../../src/utils/openPickupLocation';
 import { GROUP_BUY_AFTER_SALE_NOTICE, isGroupBuyOrderBizType } from '../../src/utils/groupBuyOrderRules';
 import {
   canCancelPickupOrder,
+  canViewPickupPass,
   formatPickupBusinessHours,
   isPickupOrder,
   pickupOrderPresentation,
@@ -345,12 +347,20 @@ export default function OrderDetailScreen() {
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>{pickup.pickupPoint.pickupNotice}</Text>
                   </View>
                 ) : null}
+                {canViewPickupPass(order) ? (
+                  <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/orders/pickup-pass/[id]', params: { id: orderId } })} style={{ paddingVertical: 14 }}>
+                    <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>查看取货凭证</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable accessibilityRole="button" onPress={() => void openPickupLocation(pickup.pickupPoint)} style={{ paddingVertical: 12 }}>
+                  <Text style={[typography.body, { color: colors.brand.primary }]}>按地址搜索自提点</Text>
+                </Pressable>
                 {pickup.status === 'PREPARING' || pickup.status === 'READY' ? (
                   <View style={[styles.pickupNotice, { backgroundColor: colors.gold.light, borderRadius: radius.md }]}>
                     <Text style={[typography.caption, { color: colors.text.primary }]}>
                       {pickup.status === 'READY'
-                        ? '商品已备好。当前 App 暂不展示取货二维码，请在微信小程序中查看一次性取货凭证。'
-                        : '商家正在备货。备货完成后，请在微信小程序中查看一次性取货凭证。'}
+                        ? '商品已备好，请出示取货凭证，由商家核销完成取货。'
+                        : '商家正在备货，备好后可在这里查看取货凭证。'}
                     </Text>
                   </View>
                 ) : null}

@@ -29,6 +29,10 @@
 import { mockOrders } from '../mocks';
 import {
   Order,
+  FulfillmentInput,
+  FulfillmentMode,
+  PickupPointGroup,
+  PickupPass,
   OrderItem,
   OrderStatus,
   PaginationResult,
@@ -135,6 +139,7 @@ export type UpdateOrderReceiverInfoPayload = {
 };
 
 export interface PreviewOrderResult {
+  fulfillmentMode?: FulfillmentMode;
   groups: PreviewOrderGroup[];
   pointsBalance: number;
   pointsRatio: number;
@@ -181,6 +186,7 @@ export type CheckoutPaymentParams =
 
 /** F1: CheckoutSession 响应类型 */
 export interface CheckoutSessionResult {
+  fulfillmentMode?: FulfillmentMode;
   sessionId: string;
   merchantOrderNo: string;
   expectedTotal: number;
@@ -232,6 +238,15 @@ const AFTER_SALE_REASON_LABELS: Record<AfterSaleApplication['reasonType'], strin
 
 // 订单仓储：订单列表与详情
 export const OrderRepo = {
+  getPickupPoints: (companyIds: string[]): Promise<Result<PickupPointGroup[]>> =>
+    ApiClient.get('/orders/pickup-points', { companyIds: [...new Set(companyIds)].sort().join(',') }, { noCache: true }),
+
+  getPickupPass: (orderId: string): Promise<Result<PickupPass>> =>
+    ApiClient.get(`/orders/${encodeURIComponent(orderId)}/pickup-pass`, undefined, { noCache: true }),
+
+  getPendingVipCheckout: (): Promise<Result<PendingCheckout | null>> =>
+    ApiClient.get('/orders/vip-checkout/me/pending', undefined, { noCache: true }),
+
   /**
    * F1: 创建结算会话
    * - 后端接口：`POST /api/v1/orders/checkout`
@@ -239,7 +254,8 @@ export const OrderRepo = {
    */
   createCheckoutSession: async (payload: {
     items: { skuId: string; quantity: number; cartItemId?: string }[];
-    addressId: string;
+    addressId?: string;
+    fulfillment?: FulfillmentInput;
     couponInstanceIds?: string[];
     paymentChannel?: string;
     idempotencyKey?: string;
@@ -269,7 +285,8 @@ export const OrderRepo = {
   createVipCheckoutSession: async (payload: {
     packageId: string;
     giftOptionId: string;
-    addressId: string;
+    addressId?: string;
+    fulfillment?: FulfillmentInput;
     paymentChannel?: string;
     idempotencyKey?: string;
     expectedTotal?: number;
@@ -352,7 +369,7 @@ export const OrderRepo = {
     if (USE_MOCK) {
       return simulateRequest<PendingCheckout | null>(null, { delay: 200 });
     }
-    return ApiClient.get<PendingCheckout | null>('/orders/checkout/me/pending');
+    return ApiClient.get<PendingCheckout | null>('/orders/checkout/me/pending', undefined, { noCache: true });
   },
 
   /**
@@ -407,13 +424,14 @@ export const OrderRepo = {
   previewOrder: async (payload: {
     items: Array<OrderItem & { cartItemId?: string }>;
     addressId?: string;
+    fulfillment?: FulfillmentInput;
     couponInstanceIds?: string[];
   }): Promise<Result<PreviewOrderResult>> => {
     if (USE_MOCK) {
       // Mock 模式：按 companyId 分组模拟
       const items = payload.items;
       const goodsAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-      const shippingFee = goodsAmount >= 99 ? 0 : 8;
+      const shippingFee = payload.fulfillment?.mode === 'PICKUP' || goodsAmount >= 99 ? 0 : 8;
       const pointsBalance = 236.80;
       const pointsRatio = 0.10;
       const maxDeductible = Number(Math.min(pointsBalance, goodsAmount * pointsRatio).toFixed(2));
@@ -448,6 +466,7 @@ export const OrderRepo = {
         cartItemId: item.cartItemId ?? item.id,
       })),
       addressId: payload.addressId,
+      fulfillment: payload.fulfillment,
       couponInstanceIds: payload.couponInstanceIds,
     });
   },

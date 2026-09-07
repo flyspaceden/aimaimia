@@ -76,8 +76,8 @@
 - `docs/reference/phase1-9-全栈开发记录-Schema重建与模块实现.md` — 历史全栈开发记录
 
 ### 设计方案与实施计划 (`docs/superpowers/`)
-- `docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md` — App 普通/团购/VIP 自提接入设计、支付恢复与凭证边界（**App 自提接入权威来源，待实施**）
-- `docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md` — App 自提逐文件实施任务与验收矩阵（**App 自提实施排程，未开始实现**）
+- `docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md` — App 普通/团购/VIP 自提接入设计、支付恢复与凭证边界（**App 自提接入权威来源，本地实现完成、真机待验收**）
+- `docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md` — App 自提逐文件实施任务与验收矩阵（**App 自提实施排程，分层记录验证状态**）
 - `docs/superpowers/specs/2026-04-23-forgot-password-design.md` — 忘记密码功能设计方案（买家 App 内嵌向导 + 卖家后台方案 β 按企业选择性重置 + 管理后台"联系超管"提示、三端密码独立、SmsPurpose 新增 BUYER_RESET/SELLER_RESET、verifyCode 必填 purpose、LoginEvent 审计 sink，**忘记密码功能权威来源**）
 - `docs/superpowers/plans/2026-04-23-forgot-password.md` — 忘记密码实施计划（15 个任务：Schema × 1 + 后端 × 6 + 买家 App × 2 + 卖家后台 × 3 + 管理后台 × 1 + 文档 × 1 + 验收 × 1）
 - `docs/superpowers/specs/2026-04-24-product-draft-design.md` — 卖家商品草稿设计方案（启用 `ProductStatus.DRAFT`、每商户 5 份上限、标题为最低门槛、30 秒 debounce 自动保存、DRAFT 在卖家默认列表/管理审核/商品总数统计中全部排除、提交时手动跑 `CreateProductDto` 校验、**商品草稿系统权威来源**）
@@ -126,6 +126,7 @@
 - `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
 
 ### 审查报告 (`docs/superpowers/reports/`)
+- `docs/superpowers/reports/2026-09-07-app-pickup-implementation-report.md` — App 自提实现、独立审查、本地测试与未完成真机/发布边界（**本次自提接入验证记录**）
 - `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
 - `docs/superpowers/reports/2026-04-11-drafts/` — 审查中间 draft 目录（18 个 draft 文件，按 L01-L17 + X1-X6 编号，每条链路的详细审查证据）
 

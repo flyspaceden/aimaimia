@@ -1,9 +1,10 @@
 import React from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { fitTextProps, useTheme } from '../../theme';
 import { OrderItemRow } from './OrderItemRow';
 import { Order, OrderStatus } from '../../types';
-import { isPickupOrder, pickupOrderPresentation } from '../../utils/pickupOrder';
+import { canViewPickupPass, isPickupOrder, pickupOrderPresentation } from '../../utils/pickupOrder';
 
 interface Props {
   order: Order;
@@ -45,6 +46,7 @@ export function OrderCard({
   secondaryDisabled = false,
 }: Props) {
   const { colors, radius, shadow, typography } = useTheme();
+  const router = useRouter();
   const pickupPresentation = pickupOrderPresentation(order);
   const pickupToneColor = pickupPresentation?.tone === 'warning'
     ? colors.gold.primary
@@ -103,6 +105,12 @@ export function OrderCard({
           共 {order.items.reduce((s, i) => s + i.quantity, 0)} 件，实付 <Text style={{ fontWeight: '600', color: colors.text.primary }}>¥{order.totalPrice.toFixed(2)}</Text>
         </Text>
         <View style={styles.actionRow}>
+          {canViewPickupPass(order) ? <Pressable accessibilityRole="button" onPress={(event) => {
+            event.stopPropagation();
+            router.push({ pathname: '/orders/pickup-pass/[id]', params: { id: order.id } });
+          }} style={{ paddingVertical: 10, paddingHorizontal: 12 }}>
+            <Text style={[typography.caption, { color: colors.brand.primary }]}>取货凭证</Text>
+          </Pressable> : null}
           {secondaryLabel ? (
             <Pressable
               onPress={secondaryDisabled ? undefined : onSecondaryAction}
@@ -134,7 +142,7 @@ export function OrderCard({
 const styles = StyleSheet.create({
   card: { padding: 12, marginBottom: 10 },
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingBottom: 6, marginBottom: 4 },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
-  actionRow: { flexDirection: 'row', alignItems: 'center' },
+  footer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   pickupSummary: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 8 },
 });

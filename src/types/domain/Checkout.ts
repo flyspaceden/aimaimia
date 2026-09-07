@@ -12,7 +12,11 @@ export type PendingCheckout = {
   shippingFee: number;
   expiresAt: string;
   itemCount: number;
-  bizType: 'NORMAL_GOODS' | 'VIP_PACKAGE';
+  bizType: 'NORMAL_GOODS' | 'VIP_PACKAGE' | 'GROUP_BUY';
+  paymentScene?: 'APP' | 'MINI_PROGRAM';
+  canResumeInCurrentScene?: boolean;
+  paymentChannel?: 'ALIPAY' | 'WECHAT_PAY';
+  fulfillmentMode?: 'DELIVERY' | 'PICKUP';
   preview: { firstItemImage: string; firstItemTitle: string; extraCount: number };
   items: Array<{ image: string; title: string; skuTitle: string; quantity: number; unitPrice: number }>;
 };

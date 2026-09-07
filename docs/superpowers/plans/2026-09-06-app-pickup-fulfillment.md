@@ -1,14 +1,14 @@
 # App 自提履约实施清单
 
 > 日期：2026-09-06；基线：`origin/main@4a8b70e75d2d212b528bd8d3e7484870c7c7023e`。
-> 设计真相源：[App 自提设计](../specs/2026-09-06-app-pickup-fulfillment-design.md)。当前仅文档编写；以下实施项均未完成。
+> 设计真相源：[App 自提设计](../specs/2026-09-06-app-pickup-fulfillment-design.md)。2026-09-07：本地实现与验证已完成；后台真实联调、原生真机及发布未完成。
 
 ## 1. 工作顺序与文件责任
 
 | 步骤 | 文件 / 责任范围 | 产出和完成条件 |
 |---|---|---|
 | P1 契约 | `src/types/domain/Fulfillment.ts`（新增）、`Order.ts`、`Checkout.ts`、`GroupBuy.ts`、类型导出入口、`src/repos/OrderRepo.ts`、`GroupBuyRepo.ts` | fulfillment、点位及凭证类型；逐项对齐服务端方法/路径；自提不再强制地址；preview 转发完整 |
-| P2 状态与组件 | `src/store/useCheckoutStore.ts`；`src/components/checkout/FulfillmentSelector.tsx`、`PickupSelectionPanel.tsx`（新增）；`src/utils/pickupOrder.ts` 及独立选择工具 | 点位选择、取货人、加载失败重试、输入校验、地址页/红包页往返保留、退出登录清理；不把敏感凭证放持久 store |
+| P2 状态与组件 | `src/hooks/usePickupSelection.ts`（页面内状态，不新增持久化）；`src/components/checkout/FulfillmentSelector.tsx`（面板合并在同组件）；`src/utils/pickupOrder.ts` 及独立选择工具 | 点位选择、取货人、加载失败重试、输入校验、地址页/红包页往返保留、退出登录清理；不把敏感凭证放持久 store |
 | P3 普通/VIP | `app/checkout.tsx`，必要时 `app/vip/gifts.tsx` | 两分支接入，VIP 真实企业集合，配送回归、报价失效防护、幂等键和原支付分流 |
 | P4 团购 | `app/group-buy/checkout.tsx` | 独立 preview/create 带 fulfillment，保留分享与活动规则 |
 | P5 支付恢复 | `app/checkout-pending.tsx`、`src/hooks/useConfirmPayment.ts`（仅必要时）、VIP 结算入口、订单 Repo/类型；`backend/src/modules/order/order.controller.ts`、`checkout.service.ts` | App VIP pending 最小入口及服务端恢复，通用 pending 跨端门禁，校验路由目标 sessionId，原会话/原渠道续付；修复 VIP 未安装微信误入通用 pending；未知结果不得重建单 |
@@ -20,20 +20,20 @@ P1 → P2 → P3/P4 → P5/P6 → P7 → P8。共享 OrderRepo、checkout 页面
 
 ## 2. 可追踪任务
 
-- [ ] I01 固定实现基线，检查本工作分支与最新 main 差异，维护只含本需求的变更清单。
-- [ ] I02 对齐 App Repo/Types 与后端契约，覆盖旧 addressId 配送兼容。
-- [ ] I03 共用点位/取货人组件及选择状态，输入变化使旧预览失效。
-- [ ] I04 普通购物车、立即购买接入自提，包含多企业及赠品/排除商品场景。
-- [ ] I05 VIP 礼包接入自提，保持会员协议、价格、权益生效时点。
-- [ ] I06 团购接入自提，保持资格、分享和金额规则。
-- [ ] I07 App VIP pending 后端最小接口，认证/场景/业务类型隔离测试；小程序原接口回归。
-- [ ] I08 普通/团购/VIP 中断恢复及跨端不可直接续付处理；不覆盖原履约快照。
-- [ ] I09 凭证页、短码、刷新过期、图片失败、账号及订单切换隔离、导航。
-- [ ] I10 订单卡片/详情/成功页/消息入口闭环；核销后及时刷新状态与相关缓存。
-- [ ] I11 本地类型、必要测试、渲染/响应式检查；独立只读审查，处理 High/Critical 及说明 Medium。
+- [x] I01 固定实现基线，检查本工作分支与最新 main 差异，维护只含本需求的变更清单。
+- [x] I02 对齐 App Repo/Types 与后端契约，覆盖旧 addressId 配送兼容。
+- [x] I03 共用点位/取货人组件及选择状态，输入变化使旧预览失效。
+- [x] I04 普通购物车、立即购买接入自提，包含多企业及赠品/排除商品场景。
+- [x] I05 VIP 礼包接入自提，保持会员协议、价格、权益生效时点。
+- [x] I06 团购接入自提，保持资格、分享和金额规则。
+- [x] I07 App VIP pending 后端最小接口，认证/场景/业务类型隔离测试；小程序原接口回归。
+- [x] I08 普通/团购/VIP 中断恢复及跨端不可直接续付处理；不覆盖原履约快照。
+- [x] I09 凭证页、短码、刷新过期、图片失败、账号及订单切换隔离、导航。
+- [x] I10 订单卡片/详情/成功页/消息入口闭环；核销后及时刷新状态与相关缓存。
+- [x] I11 本地类型、必要测试、渲染/响应式检查；独立只读审查，处理 High/Critical 及说明 Medium。
 - [ ] I12 测试环境的卖家与管理员实际备货/核销、跨端查看及退款异常联调。
 - [ ] I13 Android 支付宝/微信、iOS 支付宝及微信禁用真机矩阵，记录版本和支付结果。
-- [ ] I14 同步文档完成状态；发布仍按单独发布授权及门禁执行。
+- [x] I14 同步文档完成状态；**发布尚未执行**，按单独发布授权及门禁执行。
 
 ## 3. 验收矩阵
 
@@ -74,3 +74,7 @@ P1 → P2 → P3/P4 → P5/P6 → P7 → P8。共享 OrderRepo、checkout 页面
 - 文档、本地代码、CI、测试部署、真机支付、main 合并、生产/OTA 分别打状态；不能把文档交付打成实现完成。
 
 回退以 App 前一版本/更新为主；新增只读 VIP pending 保持兼容，可随对应后端提交回退。不删除现有 Pickup 数据、点位或迁移，不能通过关闭共享自提开关回退 App 而误伤小程序。
+
+## 5. 验证状态（2026-09-07）
+
+本地 App 类型检查、151 项 Jest、274 项脚本/兼容检查、Prisma validate、后端 build 及 248 项结算/自提回归通过。浏览器 fixture 覆盖普通/VIP/团购无地址自提、团购配送回归、VIP pending 发现与场景门禁、凭证刷新/失效及 320/390 布局。fixture 创建接口主动截断，无真实扣款或后台核销，不将 A07/A08/A09/A12/A15/A16/A18/A19 的原生或真实联调要求标为完成。完整记录见 [报告](../reports/2026-09-07-app-pickup-implementation-report.md)。

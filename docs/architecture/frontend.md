@@ -7,7 +7,7 @@
 
 ## App 自提接入计划（2026-09-06）
 
-状态：设计文档已编写，业务代码未实现。main 已有自提订单展示；本次计划补齐普通/团购/VIP 结算、支付恢复和 App 取货凭证。以 [App 自提设计](../superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md) 和 [实施清单](../superpowers/plans/2026-09-06-app-pickup-fulfillment.md) 为准，完成各任务后逐项更新，不将已有展示误记为完整自提。
+状态（2026-09-07）：普通/团购/VIP 自提结算、页面内选择状态、App VIP 支付恢复、订单凭证入口及凭证页已完成本地实现。已有配送规则保持。类型检查、自动化及本地浏览器验证通过；原生真机支付、真实后台核销和发布待验收。以 [设计](../superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md)、[清单](../superpowers/plans/2026-09-06-app-pickup-fulfillment.md) 和 [验证报告](../superpowers/reports/2026-09-07-app-pickup-implementation-report.md) 为准。
 
 ## 1. 设计理念
 

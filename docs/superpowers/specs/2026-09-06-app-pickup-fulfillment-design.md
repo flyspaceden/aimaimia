@@ -1,7 +1,7 @@
 # App 自提履约接入设计
 
 > 日期：2026-09-06。核对基线：`origin/main@4a8b70e75d2d212b528bd8d3e7484870c7c7023e`。
-> 状态：需求范围已确认；本文为待实施设计，不代表代码完成、部署或真机验收。
+> 状态：2026-09-07 已完成本地实现、独立审查及本地验证；尚未推送、部署或原生真机支付验收。
 > 用户要求：App 接入与现有小程序一致的自提功能，支付沿用 App 配送的支付宝和微信。
 > 配套：[实施清单](../plans/2026-09-06-app-pickup-fulfillment.md)。本文约束 App 接入；不重新定义共享自提、支付和售后规则。
 
@@ -45,11 +45,11 @@
 
 ### 3.1 共用结算组件
 
-新增 `src/components/checkout/FulfillmentSelector.tsx` 和 `PickupSelectionPanel.tsx`（计划路径）：履约选择、点位列表、中心仓标记、营业时间、取货须知、导航、姓名手机号。复用设计令牌、Screen、错误反馈和大字体适配工具。
+新增 `src/components/checkout/FulfillmentSelector.tsx`（实际实现将选择与表单整合为一个组件）：履约选择、点位列表、中心仓标记、营业时间、取货须知、导航、姓名手机号。复用设计令牌、Screen、错误反馈和大字体适配工具。
 
 配送显示原地址区；自提显示取货人和按企业分组点位。可从已加载的选中地址填充空白姓名手机号，但不得覆盖用户编辑；没有地址或地址接口失败，不阻塞有效自提。查询期间展示加载状态，失败可重试，无点禁用并说明原因。
 
-普通商品企业集合取真实待结算商品（包括按现有规则随单的赠品/奖品）；VIP 从已选择礼包明细归属提取，不硬编码平台企业 ID；团购从活动归属提取。预结算剔除商品后同步企业集合及选择，已无商品的企业选择必须移除。
+普通商品企业集合取真实待结算商品（包括按现有规则随单的赠品/奖品）；VIP 从服务端返回的当前所选 packages.companyId 提取（与小程序一致），不在客户端硬编码平台企业 ID；团购从活动归属提取。预结算剔除商品后同步企业集合及选择，已无商品的企业选择必须移除。
 
 切换履约方式保留当前页面的有效输入，但立即使旧报价失效。自提点停用/授权撤回时刷新点位并提示重新选择；退回配送必须重新校验地址和报价，不能自动继续支付。
 
@@ -105,7 +105,7 @@ type FulfillmentInput =
 | `GET /orders/:id/pickup-pass` | 复用无缓存、本人订单鉴权、服务器生成凭证 |
 | `GET /orders/checkout/me/pending` | 现有非 VIP 合同不变；App 类型补齐 GROUP_BUY、paymentScene、canResumeInCurrentScene |
 | `POST /orders/checkout/:sessionId/resume` | 复用 APP 场景、原会话及服务端支付参数；不重新提交履约信息 |
-| `GET /orders/vip-checkout/me/pending` | **拟新增最小 App VIP 恢复入口，当前不存在**；服务端固定 APP、当前买家、VIP_PACKAGE，仅返回恢复所需摘要；复用原会话有效期，不延长 |
+| `GET /orders/vip-checkout/me/pending` | **本次已新增最小 App VIP 恢复入口**；服务端固定 APP、当前买家、VIP_PACKAGE，仅返回恢复所需摘要；复用原会话有效期，不延长 |
 
 普通/VIP/团购核心自提不要求新增表或 migration。为达到 VIP 支付中断恢复一致性，允许在 OrderController/CheckoutService 增加 App 专用只读 pending 入口，复用既有 resume/status/active-query；不得改变小程序 pending 过滤规则或在客户端指定任意用户和场景。
 
@@ -144,3 +144,7 @@ type FulfillmentInput =
 不改小程序 UI、卖家/管理后台业务规则、顺丰、支付供应商配置、利润分配、套餐权益、独立 Delivery 系统。不自动推送、合并、部署、OTA 或构建发布；发布阶段另按仓库操作规范执行。当前没有需要用户决定的新业务问题；实现中若需要改变上述边界再提问。
 
 完成定义：三类业务在 App 自提付款后，能在 App 看到状态和凭证，现有后台核销后同步完成；配送回归通过。代码检查、后台联调、Android 支付宝/微信真机、iOS 支付宝及微信禁用验证、发布分别记录。缺少真机或支付测试条件时必须保留“待验收”，不能由编译通过推断完成。
+
+## 8. 本地实现记录（2026-09-07）
+
+选择状态由 `src/hooks/usePickupSelection.ts` 在页面内维护，往返地址/红包页面保留；不扩展持久 store。普通商品先用已有无履约预览确定实际参与企业，避免被剔除奖品阻断自提；该预览不作为付款报价。VIP 读取服务端礼包 `companyId`，无需修改礼包 item 数据模型。导航现阶段按地址搜索并提供复制兜底，不使用未确认坐标系。详见 [实现与验证记录](../reports/2026-09-07-app-pickup-implementation-report.md)。

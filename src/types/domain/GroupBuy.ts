@@ -1,3 +1,4 @@
+import type { FulfillmentInput } from './Fulfillment';
 export type GroupBuyActivityStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ENDED';
 
 export type GroupBuyInstanceStatus =
@@ -45,6 +46,7 @@ export interface GroupBuyActivityItem {
 
 export interface GroupBuyActivity {
   id: string;
+  companyId?: string;
   status: GroupBuyActivityStatus;
   startAt: string | null;
   endAt: string | null;
@@ -95,7 +97,8 @@ export interface GroupBuyCurrentState {
 
 export interface GroupBuyCheckoutInput {
   activityId: string;
-  addressId: string;
+  addressId?: string;
+  fulfillment?: FulfillmentInput;
   paymentChannel?: GroupBuyPaymentChannel;
   expectedTotal?: number;
   shareCode?: string;

@@ -19,12 +19,14 @@
 | 首批用户 | 500+ |
 | 时间 | 无硬 deadline，质量优先 |
 
-### App 自提接入（2026-09-06，待实施）
+### App 自提接入（2026-09-07，本地实现完成）
 
 - [x] 完成 main 代码核对及 [设计文档](docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md)、[实施清单](docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md)。
-- [ ] 普通商品、团购、VIP 结算接入自提及支付恢复。
-- [ ] App 取货凭证、订单入口、通知和核销联调。
-- [ ] 本地验证、独立审查和 Android/iOS 真机验收；发布单独记录。
+- [x] 普通商品、团购、VIP 结算接入自提及支付恢复（本地）。
+- [x] App 取货凭证、订单入口与已有通知路由接线（本地浏览器 fixture 验证）。
+- [ ] 真实后台备货/核销联调。
+- [x] 本地验证与独立审查；详见 [验证报告](docs/superpowers/reports/2026-09-07-app-pickup-implementation-report.md)。
+- [ ] Android/iOS 原生真机支付验收；推送和发布未执行。
 
 ### 近期完成补充
 

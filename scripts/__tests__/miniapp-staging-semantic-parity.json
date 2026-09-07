@@ -265,5 +265,21 @@
       "path": "backend/src/modules/shipment/shipment.module.ts",
       "reason": "exclude Delivery callback provider"
     }
+  ],
+  "reviewedAppPickupDifferences": [
+    {
+      "path": "backend/src/modules/order/checkout.service.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "9eb138f6c7d036993fef3464f69ad86c9f363fb1",
+      "gitBlob": "078e4b05a8daeb67341870b105c29b96393648ba",
+      "reason": "App pickup adds APP-only VIP pending discovery and additive non-sensitive pending summary fields; original MINI_PROGRAM discovery and payment behavior retained, covered by checkout regression tests."
+    },
+    {
+      "path": "backend/src/modules/order/order.controller.ts",
+      "sourceMainCommit": "4a8b70e75d2d212b528bd8d3e7484870c7c7023e",
+      "sourceMainBlob": "e0fa05859d332f205583ca299bdc4590ce85082e",
+      "gitBlob": "700110df8f2b1a7e52a03ebe94f413bc7bfe6fea",
+      "reason": "App pickup adds authenticated GET vip-checkout/me/pending only; existing mini-program endpoints remain unchanged."
+    }
   ]
 }

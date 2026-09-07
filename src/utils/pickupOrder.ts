@@ -11,12 +11,12 @@ export type PickupOrderPresentation = {
 const PICKUP_STATUS_PRESENTATION: Record<PickupFulfillmentStatus, PickupOrderPresentation> = {
   PREPARING: {
     label: '备货中',
-    hint: '商家正在备货，备好后请在微信小程序查看取货凭证',
+    hint: '商家正在备货，备好后可在订单中查看取货凭证',
     tone: 'warning',
   },
   READY: {
     label: '待自提',
-    hint: '商品已备好，请在微信小程序查看一次性取货凭证',
+    hint: '商品已备好，请出示取货凭证到店取货',
     tone: 'brand',
   },
   PICKED_UP: {
@@ -92,4 +92,12 @@ export function formatPickupBusinessHours(value: unknown): string {
     if (lines.length) return lines.join(' · ');
   }
   return '营业时间以自提点通知为准';
+}
+
+export function canViewPickupPass(
+  order: Pick<Order, 'status' | 'fulfillmentMode' | 'pickupFulfillment'>,
+): boolean {
+  return isPickupOrder(order)
+    && order.pickupFulfillment?.status === 'READY'
+    && ['PAID', 'SHIPPED', 'DELIVERED'].includes(order.status);
 }

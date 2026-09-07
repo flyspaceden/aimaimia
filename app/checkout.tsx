@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { AppHeader, Screen } from '../src/components/layout';
 import { AuthModal } from '../src/components/overlay';
 import { EmptyState, useToast } from '../src/components/feedback';
@@ -18,7 +18,7 @@ import { Countdown } from '../src/components/ui/Countdown';
 import { paymentMethods } from '../src/constants';
 import type { CoverMode } from '../src/types/domain/Bonus';
 import type { PendingCheckout } from '../src/types/domain/Checkout';
-import { AddressRepo, OrderRepo, UserRepo } from '../src/repos';
+import { AddressRepo, OrderRepo, UserRepo, BonusRepo } from '../src/repos';
 import { AppConfigRepo } from '../src/repos/AppConfigRepo';
 import { payWithAlipay } from '../src/utils/alipay';
 import { hasCompleteWechatPayPayload, payWithWechat } from '../src/utils/wechat-pay';
@@ -28,6 +28,8 @@ import { useAuthStore, useCartStore, useCheckoutStore } from '../src/store';
 import { useMeasuredBottomBar } from '../src/hooks/useMeasuredBottomBar';
 import { compactActionTextProps, priceTextProps, useBottomInset, useResponsiveLayout, useTheme } from '../src/theme';
 import { AuthSession, PaymentMethod } from '../src/types';
+import { usePickupSelection } from '../src/hooks/usePickupSelection';
+import { FulfillmentSelector } from '../src/components/checkout/FulfillmentSelector';
 import type { VipPackageSelection } from '../src/store/useCheckoutStore';
 
 const normalizeMoneyInput = (value: string) => {
@@ -55,6 +57,20 @@ export default function CheckoutScreen() {
   const barBottomPad = useBottomInset(spacing.sm);
   const { bottomPadding: scrollBottomPad, onBarLayout: handleBottomBarLayout } =
     useMeasuredBottomBar(compactSubmitBar ? 150 : 112, spacing.lg);
+  const userId = useAuthStore((state) => state.userId);
+  const focusEpoch = useRef(0);
+  const focused = useRef(false);
+  useFocusEffect(React.useCallback(() => {
+    focused.current = true;
+    focusEpoch.current += 1;
+    submitLock.current = false;
+    setSubmitting(false);
+    const unsubscribe = useAuthStore.subscribe((state, previous) => {
+      if (state.userId !== previous.userId || state.isLoggedIn !== previous.isLoggedIn) focusEpoch.current += 1;
+    });
+    return () => { focused.current = false; focusEpoch.current += 1; unsubscribe(); };
+  }, [userId]));
+  const isCurrentOwner = () => focused.current && useAuthStore.getState().isLoggedIn && useAuthStore.getState().userId === userId;
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   // 从 checkout store 读取子页面选择结果（地址、红包、VIP 套餐）
@@ -104,6 +120,12 @@ export default function CheckoutScreen() {
   const [deductionAmount, setDeductionAmount] = useState('');
   const [memberAgreementAccepted, setMemberAgreementAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
+  const attemptedInput = useRef<{ signature: string; uncertain: boolean } | null>(null);
+  const attemptOwner = useRef(userId);
+  if (attemptOwner.current !== userId) { attemptOwner.current = userId; attemptedInput.current = null; }
+
+
   const [authModalOpen, setAuthModalOpen] = useState(false);
   // 退换货政策协议弹窗状态
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
@@ -117,10 +139,8 @@ export default function CheckoutScreen() {
   const agreedRef = useRef(false);
   // 待执行的结算函数（同意政策后触发）
   const pendingCheckoutRef = useRef<(() => void) | null>(null);
-  // 409 防重弹窗：展示已存在的 ACTIVE Session 摘要 + 三个操作按钮
+  // 已存在会话仅引导到统一续付页；取消在该页校验归属后执行。
   const [pendingModal, setPendingModal] = useState<PendingCheckout | null>(null);
-  // 记录"取消旧订单后要重新跑哪个结算入口"（普通 vs VIP）
-  const pendingRetryRef = useRef<(() => Promise<void>) | null>(null);
   // B05修复：生成幂等键，防止网络重试导致重复订单（每次进入结算页生成一次）
   // 按 bizType 拆分：schema 唯一约束是 (userId, idempotencyKey)，普通+VIP 共用会撞约束
   const normalIdempotencyKeyRef = useRef(`ik_normal_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
@@ -147,19 +167,30 @@ export default function CheckoutScreen() {
     cartItems.forEach((item) => { if (item.categoryId) ids.add(item.categoryId); });
     return Array.from(ids);
   }, [cartItems]);
-  const companyIds = useMemo(() => {
-    const ids = new Set<string>();
-    cartItems.forEach((item) => { if (item.companyId) ids.add(item.companyId); });
-    return Array.from(ids);
-  }, [cartItems]);
-
   const previewSignature = cartItems.map((i) => `${i.id || ''}:${i.skuId || i.productId}:${i.quantity}`).join(',');
+  const previewItems = cartItems.map((item) => ({
+    id: item.id || `${item.productId}:${item.skuId}`, productId: item.productId,
+    skuId: item.skuId ?? item.productId, title: item.title, image: item.image,
+    price: item.price, quantity: item.quantity, cartItemId: item.id,
+  }));
+  // 不带履约的现有预览先裁决真实商品集合，避免被剔除奖品企业阻断自提。
+  // 此结果只用于企业发现，不作为当前支付报价。
+  const companyPreviewQuery = useQuery({
+    queryKey: ['checkout-companies', userId, previewSignature, parsedCouponIds],
+    queryFn: () => OrderRepo.previewOrder({ items: previewItems, couponInstanceIds: parsedCouponIds }),
+    enabled: isLoggedIn && !isVipMode && cartItems.length > 0,
+    staleTime: 0,
+  });
+  const companyIds = useMemo(() => companyPreviewQuery.data?.ok
+    ? companyPreviewQuery.data.data.groups.map((group) => group.companyId)
+    : [], [companyPreviewQuery.data]);
+
   const previewErrorToastKeyRef = useRef<string>('');
   const previewExcludedToastKeyRef = useRef<string>('');
 
   // 地址数据
   const { data: addressData } = useQuery({
-    queryKey: ['addresses'],
+    queryKey: ['addresses', userId],
     queryFn: () => AddressRepo.list(),
     enabled: isLoggedIn,
   });
@@ -168,9 +199,40 @@ export default function CheckoutScreen() {
     ? addresses.find((a) => a.id === storeAddressId)
     : addresses.find((a) => a.isDefault) ?? addresses[0];
 
+  // VIP 点位企业沿用服务端礼包归属，不从客户端常量推断。
+  const giftPackagesQuery = useQuery({
+    queryKey: ['vip-gift-options'], queryFn: BonusRepo.getVipGiftOptions, enabled: isVipMode,
+  });
+  const currentVipPackage = giftPackagesQuery.data?.ok
+    ? giftPackagesQuery.data.data.packages.find((item) => item.id === vipPackageSelection?.packageId)
+    : undefined;
+  const pickupCompanyIds = isVipMode
+    ? (currentVipPackage?.companyId ? [currentVipPackage.companyId] : [])
+    : companyIds;
+  const pickupSelection = usePickupSelection(pickupCompanyIds, selectedAddress);
+  const sourceQuery = isVipMode ? giftPackagesQuery : companyPreviewQuery;
+  const sourceError = sourceQuery.isError || sourceQuery.data?.ok === false;
+  const pickup = { ...pickupSelection, ready: pickupSelection.ready && (pickupSelection.mode === 'DELIVERY' || (!sourceError && !sourceQuery.isFetching)) };
+  const selectorPickup = {
+    ...pickup,
+    loading: pickup.loading || sourceQuery.isFetching,
+    available: pickup.available && !sourceQuery.isFetching && !sourceError,
+    error: sourceError ? '商品自提信息查询失败，请重新加载' : pickup.error,
+    retry: () => { void sourceQuery.refetch().then(() => pickup.retry()); },
+  };
+  const vipPendingQuery = useQuery({
+    queryKey: ['pending-checkout', 'VIP_PACKAGE', userId],
+    queryFn: OrderRepo.getPendingVipCheckout,
+    enabled: isLoggedIn && isVipMode,
+    staleTime: 0,
+  });
+  const openVipPending = (sessionId?: string) => router.push({
+    pathname: '/checkout-pending', params: { bizType: 'VIP_PACKAGE', ...(sessionId ? { sessionId } : {}) },
+  });
+
   // 用户资料（用于判断是否已同意退换货政策）
   const { data: profileData } = useQuery({
-    queryKey: ['me-profile'],
+    queryKey: ['me-profile', userId],
     queryFn: () => UserRepo.profile(),
     enabled: isLoggedIn,
   });
@@ -184,8 +246,8 @@ export default function CheckoutScreen() {
   const lowStockThreshold = appConfigResult?.ok ? appConfigResult.data.lowStockDisplayThreshold : 10;
 
   // N09修复：调用预结算接口获取服务端计算结果
-  const { data: previewData, isError: previewError, isLoading: previewLoading } = useQuery({
-    queryKey: ['order-preview', previewSignature, parsedCouponIds, selectedAddress?.id],
+  const { data: previewData, isError: previewError, isLoading: previewLoading, isFetching: previewFetching } = useQuery({
+    queryKey: ['order-preview', userId, previewSignature, parsedCouponIds, pickup.fulfillment],
     queryFn: () => OrderRepo.previewOrder({
       items: cartItems.map((item, index) => ({
         id: `preview-${item.productId}-${index}`,
@@ -197,13 +259,14 @@ export default function CheckoutScreen() {
         quantity: item.quantity,
         cartItemId: item.id,
       })),
-      addressId: selectedAddress?.id,
+      addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+      fulfillment: pickup.fulfillment,
       couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
     }),
-    enabled: isLoggedIn && cartItems.length > 0,
+    enabled: isLoggedIn && !isVipMode && cartItems.length > 0 && pickup.ready,
   });
-  const preview = previewData?.ok ? previewData.data : null;
-  const previewPending = cartItems.length > 0 && previewLoading && !previewData;
+  const preview = pickup.ready && previewData?.ok ? previewData.data : null;
+  const previewPending = cartItems.length > 0 && (previewLoading || previewFetching);
   // S11补齐：预结算失败时禁止提交（网络错误 or API 返回错误）
   const previewFailed = previewError || (!!previewData && !previewData.ok);
 
@@ -351,10 +414,10 @@ export default function CheckoutScreen() {
       queryClient.invalidateQueries({ queryKey: ['addresses'] }),
     ]);
     const addressResult = await queryClient.fetchQuery({
-      queryKey: ['addresses'],
+      queryKey: ['addresses', userId],
       queryFn: () => AddressRepo.list(),
     });
-    if (addressResult.ok && addressResult.data.length === 0) {
+    if (pickup.mode === 'DELIVERY' && addressResult.ok && addressResult.data.length === 0) {
       router.push('/me/addresses');
     }
   };
@@ -378,7 +441,7 @@ export default function CheckoutScreen() {
       await queryClient.invalidateQueries({ queryKey: ['me-profile'] });
       // 执行之前被拦截的结算操作
       if (pendingCheckoutRef.current) {
-        const fn = pendingCheckoutRef.current;
+        const fn = isVipMode ? handleVipCheckout : handleCheckout;
         pendingCheckoutRef.current = null;
         fn();
       }
@@ -416,6 +479,9 @@ export default function CheckoutScreen() {
   }) => {
     const { sessionId, merchantOrderNo, amount, isVip, paymentMethod: successPaymentMethod } = args;
 
+    const epoch = focusEpoch.current;
+    const current = () => isCurrentOwner() && epoch === focusEpoch.current;
+    if (!current()) return;
     show({ message: '支付确认中...', type: 'info' });
 
     let completed = false;
@@ -431,6 +497,7 @@ export default function CheckoutScreen() {
      */
     const handleActiveQuery = async (): Promise<'completed' | 'terminal-failure' | 'continue-poll'> => {
       const r = await OrderRepo.activeQueryPayment(sessionId);
+      if (!current()) return 'terminal-failure';
       if (r.ok) {
         const { status, orderIds: ids } = r.data;
         if (status === 'COMPLETED') {
@@ -470,6 +537,7 @@ export default function CheckoutScreen() {
       const ACTIVE_QUERY_EVERY = 5;
       for (let i = 0; i < MAX_POLLS; i++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+        if (!current()) return;
 
         // 每 5 轮（约 10 秒）再触发一次后端 active-query 重查支付宝真实状态
         if (i > 0 && i % ACTIVE_QUERY_EVERY === 0) {
@@ -480,6 +548,7 @@ export default function CheckoutScreen() {
 
         // 普通本地 session 状态轮询（看 notify 路径有没有更新 session）
         const statusResult = await OrderRepo.getCheckoutSessionStatus(sessionId);
+        if (!current()) return;
         if (!statusResult.ok) continue;
         const { status, orderIds: ids } = statusResult.data;
         if (status === 'COMPLETED') {
@@ -509,6 +578,7 @@ export default function CheckoutScreen() {
       queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),    // 财库流水变化
       ...(isVip ? [queryClient.invalidateQueries({ queryKey: ['bonus-member'] })] : []),
     ]);
+    if (!current()) return;
     if (isVip) {
       clearVipPackageSelection();
     } else {
@@ -526,11 +596,13 @@ export default function CheckoutScreen() {
         orderCount: String(Math.max(1, orderIds.length)),
         isVip: isVip ? '1' : '0',
         paymentMethod: successPaymentMethod,
+        fulfillmentMode: pickup.mode,
       },
     });
   };
 
   const handleCheckout = async () => {
+    if (!isLoggedIn || useAuthStore.getState().userId !== userId) return;
     if (previewPending) {
       show({ message: '价格校验中，请稍候再提交', type: 'warning' });
       return;
@@ -547,8 +619,8 @@ export default function CheckoutScreen() {
       show({ message: '有商品暂无库存，请返回购物车处理', type: 'warning' });
       return;
     }
-    if (!selectedAddress) {
-      show({ message: '请先选择收货地址', type: 'warning' });
+    if (!pickup.ready || !pickup.fulfillment) {
+      show({ message: pickup.mode === 'PICKUP' ? '请完整填写自提信息' : '请先选择收货地址', type: 'warning' });
       return;
     }
     const deductionToSubmit = Number(parseMoneyInput(deductionAmount).toFixed(2));
@@ -559,17 +631,30 @@ export default function CheckoutScreen() {
     }
     // 退换货政策拦截：未同意则弹窗，同意后自动重新触发
     if (!ensurePolicyAgreed(handleCheckout)) return;
-    if (submitting) return;
+    if (submitLock.current) return;
+    submitLock.current = true;
+    const submitEpoch = focusEpoch.current;
+    const current = () => isCurrentOwner() && submitEpoch === focusEpoch.current;
     setSubmitting(true);
     try {
-      // F1 新流程: 创建 CheckoutSession → 模拟支付 → 轮询状态
+      if (!await pickup.refresh() || !current()) return;
+      const signature = JSON.stringify([userId, cartItems.map(({ id, skuId, productId, quantity }) => [id, skuId ?? productId, quantity]), pickup.fulfillment, parsedCouponIds, deductionToSubmit, payableAfterDeduction, buyerNote, paymentMethod]);
+      if (attemptedInput.current?.uncertain && attemptedInput.current.signature !== signature) {
+        show({ message: '上次提交结果尚未确认，请先处理待支付订单或用原选择重试', type: 'warning' });
+        router.push('/checkout-pending');
+        return;
+      }
+      if (attemptedInput.current?.signature !== signature) normalIdempotencyKeyRef.current = `ik_normal_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      attemptedInput.current = { signature, uncertain: true };
+      // 创建会话前锁定本次输入；网络不确定时不换幂等键重建单。
       const sessionResult = await OrderRepo.createCheckoutSession({
         items: cartItems.map((item) => ({
           skuId: item.skuId ?? item.productId,
           quantity: item.quantity,
           cartItemId: item.id,
         })),
-        addressId: selectedAddress.id,
+        addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+        fulfillment: pickup.fulfillment,
         couponInstanceIds: parsedCouponIds.length > 0 ? parsedCouponIds : undefined,
         paymentChannel: paymentMethod,
         idempotencyKey: normalIdempotencyKeyRef.current,
@@ -577,12 +662,19 @@ export default function CheckoutScreen() {
         deductionAmount: deductionToSubmit,
         buyerNote: buyerNote.trim() || undefined,
       });
+      if (!current()) return;
       if (!sessionResult.ok) {
+        attemptedInput.current!.uncertain = sessionResult.error.retryable === true || !['INVALID', 'NOT_FOUND', 'FORBIDDEN'].includes(sessionResult.error.code);
+        if (sessionResult.error.businessCode === 'PICKUP_POINT_UNAVAILABLE') void pickup.retry();
         // 409 防重锁拦截：拿 Session 摘要弹 Modal，让用户决定取消旧/续付/关闭
         if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
           const pending = await OrderRepo.getPendingCheckout();
+          if (!current()) return;
+          if (pending.ok && pending.data?.paymentScene === 'MINI_PROGRAM') {
+            show({ message: '请回微信小程序处理原结算后再试', type: 'warning' });
+            return;
+          }
           if (pending.ok && pending.data) {
-            pendingRetryRef.current = handleCheckout;
             setPendingModal(pending.data);
           } else {
             show({ message: '订单状态异常，请重试', type: 'error' });
@@ -593,6 +685,8 @@ export default function CheckoutScreen() {
         return;
       }
 
+      if (!current()) return;
+      attemptedInput.current = null;
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
       // 支付分流：先调起渠道支付，然后统一交给 confirmPaymentAndNavigate 走 active-query + polling
@@ -601,6 +695,7 @@ export default function CheckoutScreen() {
       //   - 其他 (9000/8000/6004/4000/空/微信 errCode) → 不依赖 SDK resultStatus，进 active-query
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
+        if (!current()) return;
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
           // 原生模块不可用：dev 走 simulate，release 直接拒
           if (__DEV__) {
@@ -632,6 +727,7 @@ export default function CheckoutScreen() {
         // 9000/8000/6004/4000/空字符串/TIMEOUT 等其他状态：不依赖 SDK 结果，统一走 confirmPaymentAndNavigate
       } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
         const wechatResult = await payWithWechat(paymentParams);
+        if (!current()) return;
         if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
@@ -688,7 +784,7 @@ export default function CheckoutScreen() {
         paymentMethod,
       });
     } finally {
-      setSubmitting(false);
+      if (current()) { submitLock.current = false; setSubmitting(false); }
     }
   };
 
@@ -707,61 +803,66 @@ export default function CheckoutScreen() {
       show({ message: '请先阅读并同意《会员服务协议》', type: 'warning' });
       return;
     }
-    if (!selectedAddress) {
-      show({ message: '请先选择收货地址', type: 'warning' });
-      router.push('/checkout-address');
+    if (!pickup.ready || !pickup.fulfillment) {
+      show({ message: pickup.mode === 'PICKUP' ? '请完整填写自提信息' : '请先选择收货地址', type: 'warning' });
+      if (pickup.mode === 'DELIVERY') router.push('/checkout-address');
       return;
     }
     // 退换货政策拦截（VIP 同样需要）
     if (!ensurePolicyAgreed(handleVipCheckout)) return;
-    if (submitting) return;
+    if (submitLock.current) return;
+    submitLock.current = true;
+    const submitEpoch = focusEpoch.current;
+    const current = () => isCurrentOwner() && submitEpoch === focusEpoch.current;
     setSubmitting(true);
     try {
+      const existing = await vipPendingQuery.refetch();
+      if (!current()) return;
+      if (!existing.data?.ok) {
+        show({ message: '未完成礼包订单查询失败，请重试', type: 'error' });
+        return;
+      }
+      if (existing.data.data) { openVipPending(existing.data.data.sessionId); return; }
+      if (!await pickup.refresh() || !current()) return;
+      const signature = JSON.stringify([userId, vipPackageSelection, pickup.fulfillment, buyerNote, paymentMethod]);
+      if (attemptedInput.current?.uncertain && attemptedInput.current.signature !== signature) {
+        show({ message: '上次礼包提交结果尚未确认，请先查询原结算', type: 'warning' });
+        openVipPending(); return;
+      }
+      if (attemptedInput.current?.signature !== signature) vipIdempotencyKeyRef.current = `ik_vip_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      attemptedInput.current = { signature, uncertain: true };
       const sessionResult = await OrderRepo.createVipCheckoutSession({
         packageId: vipPackageSelection.packageId,
         giftOptionId: vipPackageSelection.giftOptionId,
-        addressId: selectedAddress.id,
+        addressId: pickup.mode === 'DELIVERY' ? selectedAddress?.id : undefined,
+        fulfillment: pickup.fulfillment,
         paymentChannel: paymentMethod,
         idempotencyKey: vipIdempotencyKeyRef.current,
         expectedTotal: vipPackageSelection.price,
         buyerNote: buyerNote.trim() || undefined,
       });
+      if (!current()) return;
       if (!sessionResult.ok) {
-        // VIP 409 防重锁拦截：VIP 不复用 Modal — VIP 没有"续付"语义，
-        // 直接 toast 提示等 5min 后端兜底超时即可
+        attemptedInput.current!.uncertain = sessionResult.error.retryable === true || !['INVALID', 'NOT_FOUND', 'FORBIDDEN'].includes(sessionResult.error.code);
         if (sessionResult.error.businessCode === 'PENDING_CHECKOUT_EXISTS') {
-          // 区分挡道的是 VIP 自己 vs 普通商品订单
-          // 注：getPendingCheckout 现在只返 NORMAL_GOODS（后端 Fix 4 过滤），
-          //    返 null 表示 VIP-vs-VIP 自撞，返 data 表示有普通商品在挡道
-          const pending = await OrderRepo.getPendingCheckout();
-          if (pending.ok && pending.data) {
-            // 普通商品 session 挡道 — 提示用户先处理
-            Alert.alert(
-              '你有未完成的购物订单',
-              '需要先完成支付或取消，才能购买 VIP',
-              [
-                { text: '稍后', style: 'cancel' },
-                {
-                  text: '去处理',
-                  onPress: () => router.push({ pathname: '/checkout-pending', params: { sessionId: pending.data!.sessionId } }),
-                },
-              ],
-            );
-          } else {
-            // VIP-vs-VIP 自撞（orphan VIP session 5min 内）— 提示等待
-            show({ message: '支付未完成，请 5 分钟后重试', type: 'warning', duration: 4000 });
-          }
+          const pending = await OrderRepo.getPendingVipCheckout();
+          if (!current()) return;
+          if (pending.ok && pending.data) openVipPending(pending.data.sessionId);
+          else show({ message: pending.ok ? '已有未完成礼包结算，请回原小程序或原支付入口处理后重试' : '未完成礼包查询失败，请稍后重试', type: 'warning' });
           return;
         }
+        if (sessionResult.error.businessCode === 'PICKUP_POINT_UNAVAILABLE') void pickup.retry();
         show({ message: sessionResult.error.displayMessage ?? 'VIP 下单失败', type: 'error' });
         return;
       }
+      attemptedInput.current = null;
 
       const { sessionId, merchantOrderNo, paymentParams } = sessionResult.data;
 
       // VIP 分支复用主结算支付分流；取消支付时额外做 active-query 防止 SDK 误报
       if (paymentParams?.channel === 'alipay' && paymentParams?.orderStr) {
         const alipayResult = await payWithAlipay(paymentParams.orderStr as string);
+        if (!current()) return;
         if (alipayResult.memo === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
@@ -780,6 +881,7 @@ export default function CheckoutScreen() {
           // 关键：active-query 仅用来识别 COMPLETED；其他状态（中间态/query-error）一律不 cancel，
           //      让 5min 后端 cron 兜底处理。这样既识别误报又避免误删已付 session 的资金事故。
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (!current()) return;
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
             // 实际已付款 — 走成功路径
             clearVipPackageSelection();
@@ -791,13 +893,14 @@ export default function CheckoutScreen() {
               queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),   // 抵扣后财库余额变化
               queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
             ]);
+            if (!current()) return;
             show({ message: '支付成功', type: 'success' });
             router.replace('/orders');
             return;
           }
           // 未确认 COMPLETED — 不 cancel，让后端 cron 兜底
-          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
-          router.replace('/vip/gifts');
+          show({ message: '支付结果待确认，可在原礼包结算继续查询或支付', type: 'info', duration: 4000 });
+          openVipPending(sessionId);
           return;
         } else if (alipayResult.memo === 'TIMEOUT') {
           // SDK 90s 无响应：与主结算分支一致，不 cancel session，让 active-query 兜底
@@ -810,6 +913,7 @@ export default function CheckoutScreen() {
         // 其他状态（9000/8000/6004/4000/空/TIMEOUT）→ 进 active-query
       } else if (paymentParams?.channel === 'wechat' && hasCompleteWechatPayPayload(paymentParams)) {
         const wechatResult = await payWithWechat(paymentParams);
+        if (!current()) return;
         if (wechatResult.errStr === 'NATIVE_UNAVAILABLE') {
           if (__DEV__) {
             const payResult = await OrderRepo.simulatePayment(merchantOrderNo);
@@ -825,6 +929,7 @@ export default function CheckoutScreen() {
           }
         } else if (wechatResult.resultStatus === '6001') {
           const activeR = await OrderRepo.activeQueryPayment(sessionId);
+          if (!current()) return;
           if (activeR.ok && activeR.data.status === 'COMPLETED') {
             clearVipPackageSelection();
             resetCheckoutStore();
@@ -835,16 +940,17 @@ export default function CheckoutScreen() {
               queryClient.invalidateQueries({ queryKey: ['bonus-wallet'] }),
               queryClient.invalidateQueries({ queryKey: ['bonus-ledger'] }),
             ]);
+            if (!current()) return;
             show({ message: '支付成功', type: 'success' });
             router.replace('/orders');
             return;
           }
-          show({ message: '已取消支付，如需重新购买请等 5 分钟', type: 'info', duration: 4000 });
-          router.replace('/vip/gifts');
+          show({ message: '支付结果待确认，可在原礼包结算继续查询或支付', type: 'info', duration: 4000 });
+          openVipPending(sessionId);
           return;
         } else if (wechatResult.errStr === 'WECHAT_NOT_INSTALLED') {
           show({ message: '请先安装微信 App 后再使用微信支付', type: 'error' });
-          router.replace({ pathname: '/checkout-pending', params: { sessionId } });
+          openVipPending(sessionId);
           return;
         }
         // errCode=0 / 其他错误码 → 进 active-query
@@ -879,7 +985,7 @@ export default function CheckoutScreen() {
         paymentMethod,
       });
     } finally {
-      setSubmitting(false);
+      if (current()) { submitLock.current = false; setSubmitting(false); }
     }
   };
 
@@ -912,13 +1018,20 @@ export default function CheckoutScreen() {
           <EmptyState title="暂无商品" description="购物车为空，无法结算" />
         </View>
       ) : (
-        <ScrollView
+        <ScrollView pointerEvents={submitting ? 'none' : 'auto'}
           contentContainerStyle={{ padding: spacing.xl, paddingBottom: scrollBottomPad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
           {/* 收货地址 */}
+          <FulfillmentSelector pickup={selectorPickup} disabled={submitting} />
+          {isVipMode && vipPendingQuery.data?.ok && vipPendingQuery.data.data ? (
+            <Pressable accessibilityRole="button" onPress={() => openVipPending(vipPendingQuery.data?.ok ? vipPendingQuery.data.data?.sessionId : undefined)} style={[styles.card, { backgroundColor: colors.surface, borderRadius: radius.lg }]}>
+              <Text style={[typography.bodyStrong, { color: colors.brand.primary }]}>你有未完成的 VIP 礼包结算，查看原结算</Text>
+            </Pressable>
+          ) : null}
+          {pickup.mode === 'DELIVERY' && (
           <Animated.View entering={FadeInDown.duration(300)}>
             <Pressable
               onPress={handleAddressPress}
@@ -967,6 +1080,8 @@ export default function CheckoutScreen() {
             </View>
             </Pressable>
           </Animated.View>
+
+          )}
 
           {/* VIP 礼包模式：专属提示条 + 商品展示 */}
           {isVipMode && vipPackageSelection && (
@@ -1470,7 +1585,7 @@ export default function CheckoutScreen() {
               {isVipMode ? (
                 <Pressable
                   onPress={handleVipCheckout}
-                  disabled={submitting}
+                  disabled={submitting || !pickup.ready}
                   style={[styles.submitButton, (submitting || vipSubmitNeedsAgreement) && { opacity: 0.6 }]}
                 >
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>
@@ -1478,7 +1593,7 @@ export default function CheckoutScreen() {
                   </Text>
                 </Pressable>
               ) : (
-                <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
+                <Pressable onPress={handleCheckout} disabled={submitting || !pickup.ready || previewFailed || previewPending} style={[styles.submitButton, (submitting || !pickup.ready || previewFailed || previewPending) && { opacity: 0.6 }]}>
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
@@ -1516,13 +1631,13 @@ export default function CheckoutScreen() {
               {isVipMode ? (
                 <Pressable
                   onPress={handleVipCheckout}
-                  disabled={submitting}
+                  disabled={submitting || !pickup.ready}
                   style={[styles.submitButton, (submitting || vipSubmitNeedsAgreement) && { opacity: 0.6 }]}
                 >
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '开通中...' : '✦ 开通 VIP'}</Text>
                 </Pressable>
               ) : (
-                <Pressable onPress={handleCheckout} disabled={submitting || previewFailed || previewPending} style={[styles.submitButton, (submitting || previewFailed || previewPending) && { opacity: 0.6 }]}>
+                <Pressable onPress={handleCheckout} disabled={submitting || !pickup.ready || previewFailed || previewPending} style={[styles.submitButton, (submitting || !pickup.ready || previewFailed || previewPending) && { opacity: 0.6 }]}>
                   <Text {...compactActionTextProps} style={[typography.bodyStrong, { color: colors.text.inverse }]}>{submitting ? '提交中...' : previewPending ? '价格校验中...' : previewFailed ? '价格校验失败' : '✦ 提交订单'}</Text>
                 </Pressable>
               )}
@@ -1635,7 +1750,6 @@ export default function CheckoutScreen() {
           <Pressable
             onPress={() => {
               setPendingModal(null);
-              pendingRetryRef.current = null;
             }}
             style={pendingModalStyles.backdrop}
           >
@@ -1670,44 +1784,10 @@ export default function CheckoutScreen() {
               </View>
 
               <Pressable
-                onPress={async () => {
-                  const oldSessionId = pendingModal.sessionId;
-                  const retry = pendingRetryRef.current;
-                  const c = await OrderRepo.cancelCheckoutSession(oldSessionId);
-                  if (!c.ok) {
-                    // cancelSession 可能在取消时发现已支付并主动建单（返"支付已完成，订单已自动创建…"）
-                    // 透后端真实 message，并刷新订单列表 + 跳过去
-                    const errMsg = c.error.displayMessage ?? '取消旧订单失败';
-                    show({ message: errMsg, type: 'error', duration: 4000 });
-                    // 如果是"已自动建单"场景，刷新缓存并跳订单列表
-                    if (errMsg.includes('已自动创建') || errMsg.includes('支付已完成')) {
-                      await Promise.all([
-                        queryClient.invalidateQueries({ queryKey: ['orders'] }),
-                        queryClient.invalidateQueries({ queryKey: ['me-order-counts'] }),
-                        queryClient.invalidateQueries({ queryKey: ['pending-checkout'] }),
-                      ]);
-                      setPendingModal(null);
-                      pendingRetryRef.current = null;
-                      router.replace('/orders');
-                    }
-                    return;
-                  }
-                  setPendingModal(null);
-                  pendingRetryRef.current = null;
-                  // 重试当前提交订单流程（普通走 handleCheckout，VIP 走 handleVipCheckout）
-                  if (retry) await retry();
-                }}
-                style={[pendingModalStyles.btnPrimary, { backgroundColor: colors.brand.primary }]}
-              >
-                <Text style={{ color: '#fff', fontWeight: '600' }}>取消旧订单，重新下这单</Text>
-              </Pressable>
-
-              <Pressable
                 onPress={() => {
                   const sessionId = pendingModal.sessionId;
                   setPendingModal(null);
-                  pendingRetryRef.current = null;
-                  router.push({ pathname: '/checkout-pending', params: { sessionId } });
+                      router.push({ pathname: '/checkout-pending', params: { sessionId } });
                 }}
                 style={[pendingModalStyles.btnSecondary, { borderColor: colors.border }]}
               >
@@ -1717,8 +1797,7 @@ export default function CheckoutScreen() {
               <Pressable
                 onPress={() => {
                   setPendingModal(null);
-                  pendingRetryRef.current = null;
-                }}
+                    }}
                 style={pendingModalStyles.btnText}
               >
                 <Text style={{ color: colors.text.tertiary }}>关闭</Text>
