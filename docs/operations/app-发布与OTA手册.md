@@ -277,6 +277,11 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ## 六、当前 App 实际状态（2026-07-05）
 
+### 2026-09-07 自提测试候选准备（尚未构建/发布）
+
+候选 runtime 为 1.0.6；EAS 最新云端 preview Android 包为 0.2.0，最新 preview OTA 为 1.0.5，不能假定旧测试包可接收本次 OTA，计划重新构建 internal preview APK。已只读核对当前 test-api 后端使用生产支付宝网关，preview 的 `EXPO_PUBLIC_ALIPAY_SANDBOX` 因此修正为 false，与本手册第三章命令一致；实际测试支付会走真实渠道，不自动发起交易。production profile/channel 未改变。测试环境目前由图片 Agent PR #17 占用，待确认集成策略及 CI 后再部署与构建。
+
+
 ### EAS 配置
 
 - Project ID: `d76ba8ac-06f3-45d2-b674-afec17737029`
@@ -290,7 +295,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 | Profile | Channel | API URL | `EXPO_PUBLIC_ENV` | `EXPO_PUBLIC_ALIPAY_SANDBOX` | `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` | 包格式 | 用途 |
 |---|---|---|---|---|---|---|---|
 | development | development | test-api | `development` | `true` | 未配置（等同关闭） | dev-client | 开发调试 |
-| preview | preview | test-api | `staging` | `true` | `true` | apk | 测试人员内部分发 |
+| preview | preview | test-api | `staging` | `false` | `true` | apk | 测试人员内部分发 |
 | production | production | api（生产） | `production` | `false` | `true` | apk（v1.0 暂用） | Google Play / 国内商店上架 |
 
 > **微信支付开关**（2026-06-09 当前配置）：`preview` 与 `production` 档均注入 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE=true`。买家端 `src/constants/payment.ts` 仍额外限制 `Platform.OS === 'android'`，因此 iOS 入口继续灰掉；Android production APK 会展示微信支付入口。若业务决定生产暂缓微信入口，必须先关闭 production profile 的该 env 并重新 build（否则新装用户首启内嵌 bundle 仍会看到入口）。
