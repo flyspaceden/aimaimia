@@ -5,6 +5,10 @@
 
 ---
 
+## App 自提接入计划（2026-09-06）
+
+状态：设计文档已编写，业务代码未实现。main 已有自提订单展示；本次计划补齐普通/团购/VIP 结算、支付恢复和 App 取货凭证。以 [App 自提设计](../superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md) 和 [实施清单](../superpowers/plans/2026-09-06-app-pickup-fulfillment.md) 为准，完成各任务后逐项更新，不将已有展示误记为完整自提。
+
 ## 1. 设计理念
 
 ### 1.1 核心概念：「脉」
