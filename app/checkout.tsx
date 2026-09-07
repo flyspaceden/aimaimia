@@ -1138,7 +1138,7 @@ export default function CheckoutScreen() {
                 <View style={[styles.merchantSubtotal, { borderTopColor: colors.divider, marginTop: 12 }]}>
                   <View style={styles.merchantSubtotalRow}>
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>运费</Text>
-                    <Text style={[typography.caption, { color: colors.brand.primary }]}>包邮</Text>
+                    <Text style={[typography.caption, { color: colors.brand.primary }]}>{pickup.mode === 'PICKUP' ? '自提免运费' : '包邮'}</Text>
                   </View>
                   <View style={[styles.merchantSubtotalRow, { marginTop: 4 }]}>
                     <Text style={[typography.caption, { color: colors.text.secondary }]}>此订单不计入消费分润首单</Text>

@@ -21,6 +21,8 @@
 
 ### App 自提接入（2026-09-07，本地实现完成）
 
+- [x] Android 原生 Debug 模拟器补测主要提交和凭证按钮，捕获正确请求及状态；修正 VIP 自提运费文案。真实 SDK 支付、物理设备及正式 OTA 安装仍未验收。
+
 - [x] 二轮系统复审与修复：账号隔离、取码竞争、卖家即时降权、VIP 激活故障补偿；真实 PostgreSQL 与完整回归通过。[复审记录](docs/superpowers/reports/2026-09-07-app-pickup-system-reaudit.md)。
 
 - [x] 完成 main 代码核对及 [设计文档](docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md)、[实施清单](docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md)。

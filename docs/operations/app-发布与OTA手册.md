@@ -21,6 +21,8 @@ App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么
 
 每次改完 App 代码，先问自己：**改的内容会不会影响 native 二进制？**
 
+> 2026-09-07 澄清：不能仅因 eas.json 有 diff 就判定必须打包。只改 JS 编译用的 EXPO_PUBLIC_* 变量，可在注入正确变量后生成兼容 OTA；必须核对目标安装包的 runtime、channel 和原生能力。此次自提相对 main 无新原生依赖，eas.json 仅调整 preview 支付宝环境，未改变 production 原生配置。已核对本地正式 APK 1.0.6（SHA256 657fc642f7b7ff522748f4c452a5734d6c8c665975594ef6c3629dbef52b2020）的 production channel 及既有模块，具备对应 runtime 的 OTA 条件；测试用户实际安装版本仍须确认。
+
 ### 走 OTA（`eas update`）—— 90% 的迭代
 
 只动 JS / TS / 前端资源时用，**几分钟全员到位**：
@@ -38,7 +40,7 @@ App 上线必须**手动**走 EAS：要么推 OTA（覆盖 JS 改动），要么
 
 | 改动 | 为什么 OTA 不行 |
 |---|---|
-| `app.json` / `eas.json` 任何字段 | 打包时编译进 AndroidManifest / Info.plist |
+| `app.json` / `eas.json` 中影响原生配置的字段（如 channel、插件、权限、包名） | 编译进原生配置或安装包，需重新构建 |
 | 图标 / splash / 应用名 / 包名 | 同上，在 native res/mipmap 里 |
 | `package.json` 新增/升级**带原生代码**的库（`react-native-xxx`） | 原生 .so / .framework 在 APK 里 |
 | `plugins/` 下任何 config plugin（含 `withWechat.js`） | 同上 |
