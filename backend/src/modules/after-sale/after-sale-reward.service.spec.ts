@@ -33,6 +33,7 @@ function makeHarness(frozenLedgers: any[], releasedLedgers: any[] = []) {
     service: new AfterSaleRewardService(
       prisma as any,
       queueRewardService as any,
+      { reverseOrderInTransaction: jest.fn().mockResolvedValue(undefined) } as any,
     ),
     prisma,
     tx,
@@ -639,5 +640,19 @@ describe('AfterSaleRewardService direct referral voiding', () => {
     expect(tx.rewardLedger.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: 'inviter-1', amount: -0.01 }),
     });
+  });
+});
+
+
+describe('V3 退款的新公司产业基金接线', () => {
+  it('只处理新公司账和队列，不重复回收利润服务已经处理的旧用户奖励', async () => {
+    const tx = { rewardLedger: { findMany: jest.fn() } };
+    const company = { reverseOrderInTransaction: jest.fn().mockResolvedValue({}) };
+    const queue = { voidRewardsForOrderInTransaction: jest.fn().mockResolvedValue(0) };
+    const service = new AfterSaleRewardService({} as any, queue as any, company as any);
+    await service.voidQueueRewardsForOrderInTransaction(tx as any, 'order-v3');
+    expect(company.reverseOrderInTransaction).toHaveBeenCalledWith(tx, 'order-v3', 'AFTER_SALE_V3_SUCCESS');
+    expect(queue.voidRewardsForOrderInTransaction).toHaveBeenCalledWith(tx, 'order-v3', 'AFTER_SALE_SUCCESS', {});
+    expect(tx.rewardLedger.findMany).not.toHaveBeenCalled();
   });
 });

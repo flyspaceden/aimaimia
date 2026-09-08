@@ -46,6 +46,12 @@ export const PERMISSIONS = {
   DIGITAL_ASSETS_EXPORT: 'digital_assets:export',
   DIGITAL_ASSETS_SETTINGS: 'digital_assets:settings',
 
+  // 基金账本与产业基金公司付款
+  FUND_LEDGERS_READ: 'fund_ledgers:read',
+  INDUSTRY_FUNDS_READ: 'industry_funds:read',
+  INDUSTRY_FUNDS_PAY: 'industry_funds:pay',
+  INDUSTRY_FUNDS_REVERSE: 'industry_funds:reverse',
+
   // 普通增长体系
   GROWTH_READ: 'growth:read',
   GROWTH_MANAGE_RULES: 'growth:manage_rules',

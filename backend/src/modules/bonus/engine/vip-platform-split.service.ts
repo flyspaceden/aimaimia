@@ -1,3 +1,4 @@
+import { IndustryFundService } from '../../fund-ledger/industry-fund.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { PLATFORM_USER_ID } from './constants';
 
@@ -14,11 +15,13 @@ interface VipPlatformPools {
 export class VipPlatformSplitService {
   private readonly logger = new Logger(VipPlatformSplitService.name);
 
+  constructor(private readonly industryFund: IndustryFundService) {}
+
   /**
    * VIP平台分割：处理除奖励外的 5 个池
    *
    * - PLATFORM_PROFIT → 平台用户账户
-   * - INDUSTRY_FUND → 按商品利润占比分给各卖家公司 OWNER
+   * - INDUSTRY_FUND → 平台暂存，按公司记入独立账本
    * - CHARITY_FUND → 平台账户
    * - TECH_FUND → 平台账户
    * - RESERVE_FUND → 平台账户
@@ -35,7 +38,7 @@ export class VipPlatformSplitService {
       tx, allocationId, orderId, pools.platformProfit, 'PLATFORM_PROFIT', 'VIP平台利润',
     );
 
-    // 2. INDUSTRY_FUND → 按利润占比分给各卖家公司 OWNER
+    // 2. INDUSTRY_FUND → 平台暂存，按公司记入独立账本
     await this.distributeIndustryFund(
       tx, allocationId, orderId, pools.industryFund, companyProfitShares,
     );
@@ -57,8 +60,8 @@ export class VipPlatformSplitService {
   }
 
   /**
-   * 产业基金分配：按各公司利润占比分给卖家 OWNER
-   * 多公司订单按比例分割，末额补差；无 OWNER 则归平台
+   * 产业基金分配：按公司利润贡献记公司应付账
+   * 多公司订单按比例分割，末额补差；公司归属缺失进入待归属账
    */
   private async distributeIndustryFund(
     tx: any,
@@ -67,77 +70,11 @@ export class VipPlatformSplitService {
     totalAmount: number,
     companyProfitShares: Record<string, number>,
   ): Promise<void> {
-    if (totalAmount <= 0) return;
-
-    const companyIds = Object.keys(companyProfitShares);
-    if (companyIds.length === 0) {
-      // 无公司信息，全额归平台
-      await this.creditPlatformAccount(
-        tx, allocationId, orderId, totalAmount, 'INDUSTRY_FUND', 'VIP产业基金（无卖家归属）',
-      );
-      return;
-    }
-
-    let distributed = 0;
-
-    for (let i = 0; i < companyIds.length; i++) {
-      const companyId = companyIds[i];
-      const share = companyProfitShares[companyId];
-      const isLast = i === companyIds.length - 1;
-
-      // 末额补差：最后一个公司拿剩余金额，吸收浮点误差
-      const amount = isLast
-        ? this.round2(totalAmount - distributed)
-        : this.round2(totalAmount * share);
-
-      if (amount <= 0) continue;
-      distributed += amount;
-
-      // 查找公司 OWNER
-      const ownerStaff = await tx.companyStaff.findFirst({
-        where: { companyId, role: 'OWNER', status: 'ACTIVE' },
-        select: { userId: true },
-      });
-
-      if (!ownerStaff) {
-        // 无 OWNER 时归平台
-        this.logger.warn(`公司 ${companyId} 无活跃 OWNER，VIP产业基金 ${amount} 元归平台`);
-        await this.creditPlatformAccount(
-          tx, allocationId, orderId, amount, 'INDUSTRY_FUND', `VIP产业基金（公司${companyId}无OWNER）`,
-        );
-        continue;
-      }
-
-      // 确保卖家 OWNER 有 INDUSTRY_FUND 账户
-      const account = await this.ensureAccount(tx, ownerStaff.userId, 'INDUSTRY_FUND');
-
-      // 入账时进入「售后保护冻结」(RETURN_FROZEN)：
-      // - 退货窗口期内对 OWNER 完全不可见、不可提现
-      // - freeze-expire cron 在订单 returnWindowExpiresAt 过期后会按 NO_FURTHER_LOCK_TYPES 分支
-      //   直接 RETURN_FROZEN → AVAILABLE 并 increment balance（无 FROZEN 中间态）
-      // - 此处不更新 RewardAccount.balance/frozen
-      await tx.rewardLedger.create({
-        data: {
-          allocationId,
-          accountId: account.id,
-          userId: ownerStaff.userId,
-          entryType: 'FREEZE',
-          amount,
-          status: 'RETURN_FROZEN',
-          refType: 'ORDER',
-          refId: orderId,
-          meta: {
-            scheme: 'VIP_PLATFORM_SPLIT',
-            accountType: 'INDUSTRY_FUND',
-            companyId,
-            profitShare: share,
-            sourceOrderId: orderId,
-          },
-        },
-      });
-
-      this.logger.log(`VIP产业基金入账(冻结)：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}），待退货窗口期满后解冻`);
-    }
+    // 旧分配由既有 RewardAllocation 幂等键保护；只为本次新分配生成公司账。
+    await this.industryFund.accrueInTransaction(tx, {
+      allocationId, orderId, amount: totalAmount, companyProfitShares,
+      scheme: 'VIP_PLATFORM_SPLIT',
+    });
   }
 
   /** 平台账户入账（PLATFORM_PROFIT / CHARITY_FUND / TECH_FUND / RESERVE_FUND / INDUSTRY_FUND） */
