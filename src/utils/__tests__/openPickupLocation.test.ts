@@ -27,3 +27,13 @@ describe('自提点地图地址搜索', () => {
     expect(Clipboard.setStringAsync).toHaveBeenCalledWith('广东省深圳市 农业路 1 号');
   });
 });
+
+it('handles clipboard rejection after navigation fails', async () => {
+  jest.clearAllMocks();
+  (Linking.openURL as jest.Mock).mockRejectedValue(new Error('no map'));
+  (Clipboard.setStringAsync as jest.Mock).mockRejectedValue(new Error('clipboard unavailable'));
+  await openPickupLocation({ name: '中心仓', regionText: '市区', detail: '路1号' });
+  const buttons = (Alert.alert as jest.Mock).mock.calls[0][2];
+  await buttons.find((button: { text: string }) => button.text === '复制地址').onPress();
+  expect(Alert.alert).toHaveBeenLastCalledWith('复制失败', '请手动记录自提地址');
+});

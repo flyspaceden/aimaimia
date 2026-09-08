@@ -238,8 +238,24 @@ const AFTER_SALE_REASON_LABELS: Record<AfterSaleApplication['reasonType'], strin
 
 // 订单仓储：订单列表与详情
 export const OrderRepo = {
-  getPickupPoints: (companyIds: string[]): Promise<Result<PickupPointGroup[]>> =>
-    ApiClient.get('/orders/pickup-points', { companyIds: [...new Set(companyIds)].sort().join(',') }, { noCache: true }),
+  getPickupPoints: async (companyIds: string[]): Promise<Result<PickupPointGroup[]>> => {
+    const result = await ApiClient.get<unknown>('/orders/pickup-points', { companyIds: [...new Set(companyIds)].sort().join(',') }, { noCache: true });
+    if (!result.ok) return result;
+    // 后端列表契约是 { items }；必须在仓储层解包，不能把对象交给页面当数组使用。
+    const raw = result.data as { items?: unknown } | null;
+    const items = raw && typeof raw === 'object' ? raw.items : undefined;
+    if (!Array.isArray(items) || !items.every((group) => group && typeof group === 'object'
+      && typeof group.companyId === 'string' && typeof group.companyName === 'string'
+      && Array.isArray(group.points) && group.points.every((point: unknown) => {
+        if (!point || typeof point !== 'object') return false;
+        const value = point as Record<string, unknown>;
+        return ['id', 'companyId', 'name', 'regionText', 'detail'].every((key) => typeof value[key] === 'string')
+          && (value.pickupNotice == null || typeof value.pickupNotice === 'string');
+      }))) {
+      return err({ code: 'INVALID', message: 'Invalid pickup points response', displayMessage: '自提点数据异常，请重新加载', retryable: true });
+    }
+    return { ok: true, data: items as PickupPointGroup[] };
+  },
 
   getPickupPass: (orderId: string): Promise<Result<PickupPass>> =>
     ApiClient.get(`/orders/${encodeURIComponent(orderId)}/pickup-pass`, undefined, { noCache: true }),
