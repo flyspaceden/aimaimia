@@ -18,7 +18,10 @@ export async function openPickupLocation(point: {
   } catch {
     Alert.alert('无法打开地图', address || point.name, [
       { text: '取消', style: 'cancel' },
-      { text: '复制地址', onPress: () => { void Clipboard.setStringAsync(address || point.name); } },
+      { text: '复制地址', onPress: async () => {
+        try { await Clipboard.setStringAsync(address || point.name); }
+        catch { Alert.alert('复制失败', '请手动记录自提地址'); }
+      } },
     ]);
   }
 }
