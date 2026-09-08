@@ -1997,3 +1997,5 @@
 - [ ] **MP-PROD10** 隔离测试通道：保留 `origin/staging@acc0e08c` 不动；旧 staging 已 locked、旧 deployment workflow 已停用，GitHub 测试 environment 只允许临时 `staging-next` 写共享服务器；会修改同一测试源码/数据库的 Digital Asset Backfill 在验收窗口也已停用。下一步把最终候选 exact SHA 创建并立即启用禁止删除/强推与 Required Checks 的保护；首次 push 必须按 `origin/main...HEAD` 检测完整 release train，miniapp-only SHA 也强制重发 API/Admin/Seller marker。Actions、API releaseSha、Admin/Seller marker 均精确通过后，先在旁路 clone 完成依赖/来源/构建验证，移动前再次核对远端 SHA/markers，再受控重绑固定微信目录并做差异回归；不合并 main、不部署生产。
 
 - [x] 2026-09-07：修复 App 自提点接口 `{ items }` 未解包导致结账白屏，补真实返回结构契约回归；无需后端迁移或重新打包。
+
+- 自提导航降级复制地址：补捕获剪贴板异常及失败提示，增加拒绝场景回归。
