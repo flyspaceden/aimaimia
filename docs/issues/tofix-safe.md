@@ -517,3 +517,7 @@
 | APP-PICKUP-09 | VIP并发激活失败覆盖SUCCESS，坏记录饿死后续补偿 | 非SUCCESS条件更新、合法支付过滤、DELIVERED覆盖、missing分页游标；单测和PG验证 | 本地已修 |
 
 详见 `docs/superpowers/reports/2026-09-07-app-pickup-system-reaudit.md`。线上真实数据和原生支付仍属于后续验收。
+
+## 2026-09-08 基金账本安全验收
+
+本次新增公司资金计提/付款/冲回：并发预留不能超额；银行流水防重复；请求完整指纹防错重放；售后冻结不能支付；已真实付款不以删除记录冒充收回；待追偿阻止新付款。平台审计与原账户变动同事务；不覆盖旧账。实现和本地验证记录见 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`，尚未作线上验收结论。

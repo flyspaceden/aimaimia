@@ -1,3 +1,4 @@
+import { AdminFundLedgerModule } from './fund-ledger/admin-fund-ledger.module';
 import { Module } from '@nestjs/common';
 import { AdminAuthModule } from './auth/admin-auth.module';
 import { AdminUsersModule } from './users/admin-users.module';
@@ -35,6 +36,7 @@ import { AdminProfitReconciliationModule } from './profit-reconciliation/admin-p
 
 @Module({
   imports: [
+    AdminFundLedgerModule,
     AdminAuthModule,
     AdminUsersModule,
     AdminAppUsersModule,

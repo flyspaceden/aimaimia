@@ -137,6 +137,7 @@ function makeSnapshotAllocationService(order: any) {
     normalUpstream as any,
     normalPlatformSplit as any,
     queueReward as any,
+    { reverseOrderInTransaction: jest.fn().mockResolvedValue(undefined) } as any,
   );
   return {
     service,
@@ -585,6 +586,7 @@ describe('BonusAllocationService.allocateForOrder legacy fallback', () => {
         voidRewardsForOrderInTransaction:
           jest.fn().mockResolvedValue(0),
       } as any,
+      { reverseOrderInTransaction: jest.fn().mockResolvedValue(undefined) } as any,
     );
     jest.spyOn(service as any, 'determineRouting').mockResolvedValue('NORMAL_TREE');
     const executeLegacy = jest.spyOn(service as any, 'executeNormalTree').mockResolvedValue(undefined);
@@ -653,6 +655,7 @@ describe('BonusAllocationService.allocateForOrder cancellation isolation', () =>
         voidRewardsForOrderInTransaction:
           jest.fn().mockResolvedValue(0),
       } as any,
+      { reverseOrderInTransaction: jest.fn().mockResolvedValue(undefined) } as any,
     );
     return { service, prisma };
   };
@@ -697,6 +700,7 @@ describe('BonusAllocationService.rollbackForOrder direct referral rollback', () 
       {} as any,
       {} as any,
       queueReward as any,
+      { reverseOrderInTransaction: jest.fn().mockResolvedValue(undefined) } as any,
     );
     return { service, prisma, queueReward };
   };

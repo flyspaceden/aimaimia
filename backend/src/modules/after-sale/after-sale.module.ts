@@ -1,3 +1,4 @@
+import { FundLedgerModule } from '../fund-ledger/fund-ledger.module';
 import { Module, OnModuleInit, forwardRef } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { AfterSaleController } from './after-sale.controller';
@@ -33,6 +34,7 @@ import { QueueRewardModule } from '../queue-reward/queue-reward.module';
 
 @Module({
   imports: [
+    FundLedgerModule,
     forwardRef(() => PaymentModule),
     NotificationModule,
     SellerShippingModule,

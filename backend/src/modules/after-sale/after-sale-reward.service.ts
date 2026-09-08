@@ -1,3 +1,4 @@
+import { IndustryFundService } from '../fund-ledger/industry-fund.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -58,6 +59,7 @@ export class AfterSaleRewardService {
   constructor(
     private prisma: PrismaService,
     private queueRewardService: QueueRewardService,
+    private industryFund: IndustryFundService,
   ) {}
 
   /**
@@ -111,6 +113,8 @@ export class AfterSaleRewardService {
       'AFTER_SALE_SUCCESS',
       queueOptions,
     );
+
+    await this.industryFund.reverseOrderInTransaction(tx, orderId, 'AFTER_SALE_SUCCESS');
 
     // 1. 查找该订单的所有分润奖励（RETURN_FROZEN / FROZEN / AVAILABLE）
     const ledgers = await tx.rewardLedger.findMany({
@@ -314,6 +318,8 @@ export class AfterSaleRewardService {
     orderId: string,
     options: QueueRewardVoidOptions = {},
   ): Promise<void> {
+    // V3 退款的旧用户奖励由利润服务处理；新公司账不在 RewardLedger，必须独立冲回。
+    await this.industryFund.reverseOrderInTransaction(tx, orderId, 'AFTER_SALE_V3_SUCCESS');
     await this.queueRewardService.voidRewardsForOrderInTransaction(
       tx,
       orderId,

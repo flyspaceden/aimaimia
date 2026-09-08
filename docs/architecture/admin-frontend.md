@@ -1219,3 +1219,7 @@ VIP 系统配置页和普通用户系统配置页均通过 `useConfigProfitSafet
 - `/pickup-verify`：先解析买家二维码/8 位短码并展示脱敏买家、点位和商品，再由有 `pickup_fulfillment:operate` 权限的管理员显式确认交付；扫码本身不会直接核销。
 - 订单列表和详情按 `fulfillmentMode/pickupStatus` 展示，自提订单禁止进入面单、快递发货和修改配送地址动作。
 - 平台后台不包含独立配送系统入口；商城“送货上门”与“到店自提”仍属于同一订单后台的并列履约方式。
+
+## 2026-09-08 基金账本
+
+新增 `/fund-ledgers` 总览、`/:fundType` 逐笔账、`/entries/:fundType/:id` 流水详情、`/companies/:id` 公司子账和 `/payments/:id` 付款详情。沿用 Ant Design/ProTable，分离 `fund_ledgers:read`、`industry_funds:read`、`industry_funds:pay`、`industry_funds:reverse` 权限。付款仅登记线下公对公结果；银行凭证用私有鉴权接口，不经过公开上传目录。界面已构建并进行本地测试数据渲染，最终验证见实施记录。

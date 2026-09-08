@@ -1,3 +1,4 @@
+import { IndustryFundService } from '../../fund-ledger/industry-fund.service';
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -61,6 +62,7 @@ export class BonusAllocationService {
     private normalUpstream: NormalUpstreamService,
     private normalPlatformSplit: NormalPlatformSplitService,
     private queueReward: QueueRewardService,
+    private industryFund: IndustryFundService,
   ) {}
 
   /**
@@ -702,6 +704,8 @@ export class BonusAllocationService {
       'ORDER_REFUND_ROLLBACK',
     );
 
+    await this.industryFund.reverseOrderInTransaction(tx, orderId, 'REFUND_ROLLBACK');
+
     const existingRollback = await tx.rewardAllocation.findUnique({
       where: { idempotencyKey: refundKey },
     });
@@ -1114,6 +1118,7 @@ export class BonusAllocationService {
         ruleType: 'NORMAL_TREE',
         ruleVersion: pools.ruleVersion,
         meta: {
+          industryFundLedgerVersion: 'COMPANY_LEDGER_V1',
           routing: 'NORMAL_TREE',
           source: 'PAYMENT_PROFIT_SNAPSHOT',
           userId,
@@ -1178,6 +1183,8 @@ export class BonusAllocationService {
         ruleType: 'VIP_PLATFORM_SPLIT',
         ruleVersion,
         meta: {
+          industryFundLedgerVersion: 'COMPANY_LEDGER_V1',
+          profit: pools.profit,
           platformProfit: pools.platformProfit,
           directReferralPool: pools.directReferralPool,
           industryFund: pools.industryFund,
@@ -1336,6 +1343,7 @@ export class BonusAllocationService {
         ruleType: 'NORMAL_TREE',
         ruleVersion: config.ruleVersion,
         meta: {
+          industryFundLedgerVersion: 'COMPANY_LEDGER_V1',
           routing: 'NORMAL_TREE',
           userId,
           profit: normalPools.profit,

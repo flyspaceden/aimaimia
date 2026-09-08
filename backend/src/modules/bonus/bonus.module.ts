@@ -1,3 +1,4 @@
+import { FundLedgerModule } from '../fund-ledger/fund-ledger.module';
 import { Module } from '@nestjs/common';
 import { BonusController } from './bonus.controller';
 import { BonusService } from './bonus.service';
@@ -25,6 +26,7 @@ import { WechatMerchantTransferService } from './wechat-merchant-transfer.servic
 
 @Module({
   imports: [
+    FundLedgerModule,
     CouponModule,
     NotificationModule,
     InfraModule,

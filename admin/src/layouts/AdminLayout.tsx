@@ -94,6 +94,15 @@ const menuRoutes: ProLayoutProps['route'] = {
       ],
     },
     {
+      path: '/fund-management',
+      name: '资金管理',
+      icon: <WalletOutlined />,
+      permissionAny: [PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ],
+      routes: [
+        { path: '/fund-ledgers', name: '基金账本', permissionAny: [PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ] },
+      ],
+    },
+    {
       path: '/trade',
       name: '交易与售后',
       icon: <FileTextOutlined />,

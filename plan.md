@@ -1999,3 +1999,13 @@
 - [x] 2026-09-07：修复 App 自提点接口 `{ items }` 未解包导致结账白屏，补真实返回结构契约回归；无需后端迁移或重新打包。
 
 - 自提导航降级复制地址：补捕获剪贴板异常及失败提示，增加拒绝场景回归。
+
+## 2026-09-08 平台基金统一账本（独立候选）
+
+- [x] 用户确认设计：产业基金平台暂存、公司子账、历史不迁移，各基金逐笔留账。
+- [x] 从最新 origin/main 建立 `codex/platform-fund-ledgers-20260908` 干净 worktree。
+- [x] 管理后台页面、后端资金/审计/权限与私有凭证本地实现。
+- [x] 主 Agent 最终审查、164 项测试、迁移演练和本地提交收口。
+- [ ] 经用户授权后另行 push/CI/测试环境/生产审批与部署。
+
+设计与实施证据分别见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md` 和 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`。

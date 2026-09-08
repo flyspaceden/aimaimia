@@ -59,6 +59,11 @@ const CsDashboardPage = lazy(() => import('@/pages/cs/dashboard'));
 const AnnouncementsPage = lazy(() => import('@/pages/announcements/index'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
+const FundLedgersPage = lazy(() => import('@/pages/fund-ledgers/index'));
+const FundLedgerEntriesPage = lazy(() => import('@/pages/fund-ledgers/entries'));
+const FundLedgerEntryDetailPage = lazy(() => import('@/pages/fund-ledgers/entry-detail'));
+const IndustryFundCompanyDetailPage = lazy(() => import('@/pages/fund-ledgers/company-detail'));
+const IndustryFundPaymentDetailPage = lazy(() => import('@/pages/fund-ledgers/payment-detail'));
 const GrowthPage = lazy(() => import('@/pages/growth/index'));
 const ReferralsPage = lazy(() => import('@/pages/referrals/index'));
 const GroupBuyActivitiesPage = lazy(() => import('@/pages/group-buy/activities'));
@@ -97,6 +102,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   return hasPermission(permission) ? <>{children}</> : <Navigate to="/" replace />;
+}
+
+function RequireAnyPermission({ permissions, children }: { permissions: string[]; children: ReactNode }) {
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  return permissions.some(hasPermission) ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 /** 已登录访问登录页则跳转首页 */
@@ -145,6 +155,11 @@ export default function App() {
             <Route path="users" element={<UserListPage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
             <Route path="digital-assets" element={<DigitalAssetsPage />} />
+            <Route path="fund-ledgers" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgersPage /></RequireAnyPermission>} />
+            <Route path="fund-ledgers/companies/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundCompanyDetailPage /></RequirePermission>} />
+            <Route path="fund-ledgers/payments/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundPaymentDetailPage /></RequirePermission>} />
+            <Route path="fund-ledgers/entries/:fundType/:id" element={<RequirePermission permission={PERMISSIONS.FUND_LEDGERS_READ}><FundLedgerEntryDetailPage /></RequirePermission>} />
+            <Route path="fund-ledgers/:fundType" element={<RequirePermission permission={PERMISSIONS.FUND_LEDGERS_READ}><FundLedgerEntriesPage /></RequirePermission>} />
             <Route path="growth" element={<GrowthPage />} />
             <Route path="referrals" element={<ReferralsPage />} />
             <Route path="bonus/members" element={<MemberListPage />} />
