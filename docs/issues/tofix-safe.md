@@ -516,3 +516,7 @@
 > 2026-08-17 最终独立复核：Critical / High 均为 0；测试 PostgreSQL 已在 Serializable + advisory lock 下真实执行两条批量 SQL，并在同一会话强制 `ROLLBACK`，事务内不一致数为 0，数据库未保留变更。
 
 > 2026-08-17 生产验收：`main` 部署 SHA `f52b82a4`，workflow `32057943962` 的 admin / seller / backend 全绿；部署后 dry-run token 与授权清单一致，17 个商品 / 27 个 SKU 原子更新后复扫为 0 不一致，生产 API health=200。
+
+## 2026-09-08 基金账本安全验收
+
+本次新增公司资金计提/付款/冲回：并发预留不能超额；银行流水防重复；请求完整指纹防错重放；售后冻结不能支付；已真实付款不以删除记录冒充收回；待追偿阻止新付款。平台审计与原账户变动同事务；不覆盖旧账。实现和本地验证记录见 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`，尚未作线上验收结论。

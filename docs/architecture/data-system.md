@@ -1276,3 +1276,7 @@ Invoice
 - 团购分享回馈：团购购买走 GROUP_BUY CheckoutSession 和 GROUP_BUY Order；支付成功后创建 QUALIFICATION_PENDING 实例，确认收货且售后期结束无退换货后生成分享码；仅一级直接推荐订单成为 CANDIDATE，满足同样收货/售后条件后按档位释放到独立 GroupBuyRebateAccount。分享码名额、月度发起次数、返还释放、抵扣和提现均需幂等与 Serializable 保护。
 
 ---
+
+## 2026-09-08 基金账本增量
+
+产业基金新增独立公司账户、来源计提、不可变流水、付款单、FIFO 核销项、回款及回款核销项、待归属记录及变化事件。归属键为 companyId，金额沿用项目实际 `Float/元`，计算按整数分；Prisma schema 是具体字段定义。平台其他基金保留原 Reward 资金事实，新增 PlatformFundOpening/PlatformFundEvent 事务性审计，不建立第二套可支配余额。IndustryFundPaymentRequest 只保存请求摘要和结果 ID；FundPrivateProof 保存私有银行凭证，不生成永久公开 URL。旧 Reward 数据不迁移、不回填。
