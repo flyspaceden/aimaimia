@@ -19,15 +19,16 @@ export function useFundSearch() {
   const location = useLocation();
   const current = location.pathname + location.search;
   const update = (patch: Record<string, string | number | undefined>, resetPage = true) => {
-    setParams(previous => {
-      const next = new URLSearchParams(previous);
-      if (resetPage) next.delete('page');
-      if (Object.prototype.hasOwnProperty.call(patch, 'q')) next.delete('search');
-      for (const [key, value] of Object.entries(patch)) {
-        if (value === undefined || value === '') next.delete(key); else next.set(key, String(value));
-      }
-      return next;
-    });
+    // BrowserRouter updates history before React commits its next render. Its
+    // functional setter still captures the old render's params, so compose rapid
+    // actions against the current address instead of restoring a removed filter.
+    const next = new URLSearchParams(window.location.search);
+    if (resetPage) next.delete('page');
+    if (Object.prototype.hasOwnProperty.call(patch, 'q')) next.delete('search');
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || value === '') next.delete(key); else next.set(key, String(value));
+    }
+    setParams(next);
   };
   const rawPage = Number(params.get('page'));
   const page = Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 100000 ? rawPage : 1;

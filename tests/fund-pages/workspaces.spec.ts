@@ -234,3 +234,19 @@ for(const action of [
     expect(payloads).toHaveLength(2);expect(payloads[1]).toEqual(payloads[0]);
   });
 }
+
+test('同一渲染帧内连续重置和切换视图不会恢复旧关键词',async({page})=>{
+  await setup(page);await page.goto('/fund-ledgers/companies?q=丰禾');
+  await expect(page.getByRole('button',{name:A.name,exact:true})).toBeVisible();
+  // Dispatch both real button handlers before React commits the first navigation.
+  await page.getByRole('button',{name:/^重\s*置$/}).evaluate(button=>{
+    (button as HTMLButtonElement).click();
+    const quick=[...document.querySelectorAll('button')].find(node=>node.textContent?.replace(/\s/g,'')==='有待追偿');
+    if(!quick)throw new Error('Missing recovery view control');
+    quick.click();
+  });
+  await expect(page).toHaveURL(/view=recovery/);
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(page.getByRole('button',{name:B.name,exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:A.name,exact:true})).toHaveCount(0);
+});
