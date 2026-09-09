@@ -158,3 +158,12 @@ test('窄屏公司列表保留公司与金额操作',async({page})=>{
   await expect(page.getByRole('button',{name:'登记付款',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/fund-pages/company-tablet.png',fullPage:true});
 });
+
+test('离开已填写付款单时可继续编辑而不丢失内容',async({page})=>{
+  await setup(page);await page.goto('/fund-ledgers/payments?companyId=company-a&create=1');
+  await fillNewPayment(page);
+  await page.getByRole('button',{name:'关闭',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'放弃未提交的付款单？',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'继续填写',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:/对公账号/})).toHaveValue('00000000000001');
+});

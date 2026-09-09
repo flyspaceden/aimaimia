@@ -12,7 +12,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
   Select,
   Space,
   Spin,
@@ -103,7 +102,7 @@ export default function PaymentCreateDrawer({
   onClose,
   onCreated,
 }: PaymentCreateDrawerProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [form] = Form.useForm<PaymentFormValues>();
   const selectedCompanyId = Form.useWatch('companyId', form) as string | undefined;
   const selectedAmount = Form.useWatch('amount', form) as number | undefined;
@@ -338,7 +337,7 @@ export default function PaymentCreateDrawer({
       onClose();
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: correctionCancelled ? '旧付款单已取消，确定离开吗？' : '放弃未提交的付款单？',
       content: correctionCancelled
         ? '旧付款单已经取消，新付款单尚未创建；关闭后仍可从付款列表重新发起。'
