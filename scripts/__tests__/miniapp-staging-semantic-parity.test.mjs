@@ -203,8 +203,16 @@ test('reviewed fund ledger runtime files retain their approved content', async (
   "backend/src/modules/fund-ledger/platform-fund-query.service.ts"
 ];
   assert.deepEqual(manifest.reviewedFundLedgerDifferences.map(e => e.path).sort(), approvedFundPaths);
+  const reviewedQueryUiPaths = [
+  "backend/src/modules/admin/fund-ledger/admin-industry-fund.controller.ts",
+  "backend/src/modules/admin/fund-ledger/fund-ledger.dto.ts",
+  "backend/src/modules/admin/fund-ledger/industry-fund-query.service.ts",
+  "backend/src/modules/fund-ledger/platform-fund-query.service.ts"
+];
+  assert.deepEqual(manifest.reviewedFundLedgerDifferences.filter(e => e.queryUiReviewCommit).map(e => e.path).sort(), reviewedQueryUiPaths.sort());
   for (const entry of manifest.reviewedFundLedgerDifferences) {
     assert.equal(entry.sourceReviewCommit, '44c93297');
+    if (entry.queryUiReviewCommit) assert.equal(entry.queryUiReviewCommit, '3a2a4332');
     assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
     assert.ok(entry.reason.length >= 20);
   }
