@@ -52,8 +52,12 @@ export class AuditLogInterceptor implements NestInterceptor {
             next: async (responseData) => {
               // 请求成功后异步记录审计日志
               try {
-                const afterSnapshot = targetId && meta.targetType
-                  ? await this.captureSnapshot(meta.targetType, targetId)
+                const createdId = responseData?.id ?? responseData?.data?.id;
+                const createdTargetId = ['IndustryFundPayment', 'FundPrivateProof'].includes(meta.targetType ?? '')
+                  && typeof createdId === 'string' ? createdId : undefined;
+                const effectiveTargetId = targetId ?? createdTargetId;
+                const afterSnapshot = effectiveTargetId && meta.targetType
+                  ? await this.captureSnapshot(meta.targetType, effectiveTargetId)
                   : null;
 
                 const diff = this.computeDiff(beforeSnapshot, afterSnapshot);
@@ -67,7 +71,7 @@ export class AuditLogInterceptor implements NestInterceptor {
                     action: meta.action as any,
                     module: meta.module,
                     targetType: meta.targetType,
-                    targetId,
+                    targetId: effectiveTargetId,
                     summary: this.buildSummary(meta, request),
                     before: beforeSnapshot,
                     after: afterSnapshot,
@@ -126,6 +130,8 @@ export class AuditLogInterceptor implements NestInterceptor {
       VipGiftOption: 'vipGiftOption',
       Invoice: 'invoice',
       PickupPoint: 'pickupPoint',
+      IndustryFundPayment: 'industryFundPayment',
+      FundPrivateProof: 'fundPrivateProof',
     };
 
     const modelName = modelMap[targetType];
@@ -137,7 +143,16 @@ export class AuditLogInterceptor implements NestInterceptor {
 
       // RuleConfig 用 key 作为 ID
       let snapshot;
-      if (targetType === 'RuleConfig') {
+      if (targetType === 'IndustryFundPayment') {
+        snapshot = await model.findUnique({ where: { id: targetId }, select: {
+          id: true, companyId: true, amount: true, status: true, needsReview: true,
+          actualPaidAt: true, createdBy: true, confirmedBy: true, cancelledBy: true, reversedBy: true,
+          items: { select: { accrualId: true, amount: true, reservedAmount: true, paidAmount: true, recoveryDue: true, recoveredAmount: true } },
+          recoveries: { select: { id: true, amount: true, recoveredAt: true } },
+        } });
+      } else if (targetType === 'FundPrivateProof') {
+        snapshot = await model.findUnique({ where: { id: targetId }, select: { id: true, adminId: true, mimeType: true, createdAt: true } });
+      } else if (targetType === 'RuleConfig') {
         snapshot = await model.findUnique({ where: { key: targetId } });
       } else {
         snapshot = await model.findUnique({ where: { id: targetId } });

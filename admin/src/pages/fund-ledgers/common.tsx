@@ -157,6 +157,7 @@ export function LedgerEntryDescriptions({ entry }: { entry: FundLedgerEntry }): 
       <Descriptions.Item label="来源">{sourceTag(entry.sourceType)}</Descriptions.Item>
       <Descriptions.Item label="金额">{signedMoney(entry.amount, entry.direction)}</Descriptions.Item>
       <Descriptions.Item label="变动后余额">{money(entry.balanceAfter)}</Descriptions.Item>
+      <Descriptions.Item label="待追偿后">{money(entry.recoveryDueAfter)}</Descriptions.Item>
       <Descriptions.Item label="发生时间">{dateTime(entry.occurredAt || entry.createdAt)}</Descriptions.Item>
       <Descriptions.Item label="来源订单">{entry.orderId || '-'}</Descriptions.Item>
       <Descriptions.Item label="计提/分配">{entry.accrualId || entry.allocationId || '-'}</Descriptions.Item>

@@ -163,6 +163,24 @@ describe('IndustryFundService', () => {
     })).rejects.toMatchObject({ code: 'RETURN_WINDOW_OPEN' });
   });
 
+  it('does not replay a release key for a different accrual or event', async () => {
+    const tx = {
+      industryFundLedger: {
+        findUnique: jest.fn().mockResolvedValue({
+          accrualId: 'other-accrual',
+          eventType: 'RELEASE',
+          amount: 10,
+        }),
+      },
+    } as unknown as IndustryFundTx;
+    const service = new IndustryFundService({} as never);
+
+    await expect(service.releaseAccrual(tx, {
+      accrualId: 'accrual-1',
+      idempotencyKey: 'release-1',
+    })).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+  });
+
   it('rejects a payment whose payee does not match the active company', async () => {
     const tx = {
       industryFundPayment: { findUnique: jest.fn().mockResolvedValue(null) },

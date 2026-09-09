@@ -84,7 +84,10 @@ describe('PlatformFundQueryService', () => {
         total: BigInt(1),
       },
     ]);
-    const prisma = { $queryRaw: queryRaw } as any;
+    const prisma = {
+      $queryRaw: queryRaw,
+      $transaction: jest.fn(async (callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) => callback({ $queryRaw: queryRaw })),
+    } as any;
     const service = new PlatformFundQueryService(prisma);
 
     const result = await service.entries('PLATFORM_PROFIT', { page: 1, pageSize: 20 });
@@ -141,7 +144,10 @@ describe('PlatformFundQueryService', () => {
         total: 1,
       },
     ]);
-    const service = new PlatformFundQueryService({ $queryRaw: queryRaw } as any);
+    const service = new PlatformFundQueryService({
+      $queryRaw: queryRaw,
+      $transaction: jest.fn(async (callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) => callback({ $queryRaw: queryRaw })),
+    } as any);
 
     const result = await service.entries('FUND_POOL', { page: 1, pageSize: 20, sourceType: 'LEGACY' });
     expect(result.items[0]).toEqual(expect.objectContaining({
@@ -162,5 +168,78 @@ describe('PlatformFundQueryService', () => {
       from: '2026-09-09T00:00:00.000Z',
       to: '2026-09-08T00:00:00.000Z',
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('keeps the real total when the requested page is empty', async () => {
+    const queryRaw = jest.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: BigInt(3) }]);
+    const service = new PlatformFundQueryService({
+      $transaction: jest.fn(async (callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) => callback({ $queryRaw: queryRaw })),
+    } as any);
+
+    const result = await service.entries('POINTS', { page: 2, pageSize: 20 });
+
+    expect(result.items).toEqual([]);
+    expect(result.total).toBe(3);
+  });
+
+  it('marks a post-cutover update row as a non-income historical snapshot', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([
+      {
+        id: 'legacy:ledger-before-cutover',
+        accountId: 'account-1',
+        fundType: 'FUND_POOL',
+        auditEventType: 'HISTORICAL_REWARD_LEDGER',
+        logicalEventType: 'REVERSAL',
+        changeKind: 'STATE',
+        eventSequence: null,
+        transactionId: null,
+        occurredAt: date,
+        recordedAt: date,
+        sourceTable: 'RewardLedger',
+        sourceOperation: 'HISTORICAL_CUTOVER',
+        rewardLedgerId: 'ledger-before-cutover',
+        allocationId: null,
+        sourceLedgerId: null,
+        orderId: 'legacy-order',
+        companyId: null,
+        sourceType: 'LEGACY',
+        statusBefore: null,
+        statusAfter: 'AVAILABLE',
+        ledgerEntryTypeBefore: null,
+        ledgerEntryTypeAfter: 'VOID',
+        ledgerAmountBefore: null,
+        ledgerAmountAfter: 8,
+        ledgerAmountDelta: 0,
+        amount: 0,
+        sourceAmount: 8,
+        direction: 'INTERNAL',
+        balanceAfter: null,
+        frozenAfter: null,
+        pairedAccountEventId: null,
+        historicalStateUnknown: true,
+        historicalCutoverSnapshot: true,
+        historicalFollowupEventId: 'pfe-update',
+        metaSnapshot: { scheme: 'PLATFORM_SPLIT' },
+        total: BigInt(1),
+      },
+    ]);
+    const service = new PlatformFundQueryService({
+      $transaction: jest.fn(async (callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) => callback({ $queryRaw: queryRaw })),
+    } as any);
+
+    const result = await service.entries('FUND_POOL', { page: 1, pageSize: 20 });
+
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      amount: 0,
+      sourceAmount: 8,
+      direction: 'INTERNAL',
+    }));
+    expect(result.items[0].metadata).toEqual(expect.objectContaining({
+      historicalCutoverSnapshot: true,
+      historicalFollowupEventId: 'pfe-update',
+      nonIncomeEvidence: true,
+    }));
   });
 });

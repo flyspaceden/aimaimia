@@ -46,6 +46,7 @@ export class AdminIndustryFundController {
   upload(@UploadedFile() file: Express.Multer.File, @CurrentAdmin() admin: FundAdmin) { this.requireProofAccess(admin); return this.proofs.upload(file, admin.sub); }
 
   @Get('proofs/:id') @RequirePermission('industry_funds:read')
+  @AuditLog({ action: 'EXPORT', module: 'industry_funds', targetType: 'FundPrivateProof', targetIdParam: 'params.id', isReversible: false })
   async proof(@Param('id') id: string, @CurrentAdmin() admin: FundAdmin, @Res() res: Response) {
     this.requireProofAccess(admin);
     const file = await this.proofs.download(id);

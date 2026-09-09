@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PERMISSION_KEY } from '../decorators/require-permission';
+import { PERMISSION_ANY_KEY, PERMISSION_KEY } from '../decorators/require-permission';
 import { SUPER_ADMIN_ROLE } from '../constants';
 import { PrismaService } from '../../../../prisma/prisma.service';
 
@@ -21,9 +21,13 @@ export class PermissionGuard implements CanActivate {
       PERMISSION_KEY,
       [context.getHandler(), context.getClass()],
     );
+    const requiredAnyPermissions = this.reflector.getAllAndOverride<string[]>(
+      PERMISSION_ANY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     // 无权限要求则放行
-    if (!requiredPermission) {
+    if (!requiredPermission && (!requiredAnyPermissions || requiredAnyPermissions.length === 0)) {
       return true;
     }
 
@@ -77,7 +81,11 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    if (!permissionCodes.includes(requiredPermission)) {
+    // 单权限装饰器覆盖类级 any-of，保证 summary 等高权限端点不会被较宽的类级权限放行。
+    const authorized = requiredPermission
+      ? permissionCodes.includes(requiredPermission)
+      : Boolean(requiredAnyPermissions?.some((permission) => permissionCodes.includes(permission)));
+    if (!authorized) {
       throw new ForbiddenException('暂无该操作权限');
     }
 

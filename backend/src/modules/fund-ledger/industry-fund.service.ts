@@ -428,6 +428,12 @@ export class IndustryFundService {
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (existingLedger) {
+      if (existingLedger.accrualId !== input.accrualId || existingLedger.eventType !== 'RELEASE') {
+        throw new IndustryFundError(
+          'IDEMPOTENCY_CONFLICT',
+          `release idempotency key already belongs to another event: ${input.idempotencyKey}`,
+        );
+      }
       return {
         accrualId: input.accrualId,
         releasedCents: yuanToCents(existingLedger.amount),
@@ -488,7 +494,8 @@ export class IndustryFundService {
         reversalPendingAmount: 0,
         order: { returnWindowExpiresAt: { lte: now } },
       },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      // 与独立定时任务使用相同的唯一 id 扫描顺序，补偿入口共享游标口径。
+      orderBy: { id: 'asc' },
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
       take: limit,
       select: { id: true, orderId: true, createdAt: true },

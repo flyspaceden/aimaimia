@@ -117,6 +117,7 @@ export default function IndustryFundCompanyDetailPage() {
     { title: '来源', dataIndex: 'sourceType', width: 100, render: (_, row) => sourceTag(row.sourceType) },
     { title: '金额', dataIndex: 'amount', width: 130, align: 'right', render: (_, row) => signedMoney(row.amount, row.direction) },
     { title: '余额后', dataIndex: 'balanceAfter', width: 130, align: 'right', render: (_, row) => money(row.balanceAfter) },
+    { title: '待追偿后', dataIndex: 'recoveryDueAfter', width: 120, align: 'right', render: (_, row) => money(row.recoveryDueAfter) },
     { title: '冻结后', dataIndex: 'frozenAfter', width: 120, align: 'right', render: (_, row) => money(row.frozenAfter) },
     { title: '预留后', dataIndex: 'reservedAfter', width: 120, align: 'right', render: (_, row) => money(row.reservedAfter) },
     { title: '订单', dataIndex: 'orderId', width: 170, render: (value) => value || '-' },
@@ -160,6 +161,12 @@ export default function IndustryFundCompanyDetailPage() {
             <Col xs={12} md={4}><Statistic title="待追偿" value={readAmount(company, 'recoverable')} precision={2} prefix="¥" valueStyle={{ color: readAmount(company, 'recoverable') > 0 ? '#cf1322' : undefined }} /></Col>
           </Row>
           <DescriptionsBlock company={company} />
+        </Card>
+        <Card title="付款与异常" size="small">
+          <Space wrap>
+            <Link to={`/fund-ledgers?companyId=${encodeURIComponent(company.id)}`}>查看该公司付款单</Link>
+            <Link to={`/fund-ledgers/INDUSTRY_FUND?companyId=${encodeURIComponent(company.id)}&eventType=REVERSAL_PENDING`}>查看待处理冲回</Link>
+          </Space>
         </Card>
         <Card title="计提与变动明细">
           <ProTable<FundLedgerEntry>

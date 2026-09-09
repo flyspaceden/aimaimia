@@ -17,9 +17,19 @@ export class FundProofService {
       : b[0] === 255 && b[1] === 216 && b[2] === 255 ? 'image/jpeg' : null;
     if (!mimeType || mimeType !== file.mimetype) throw new BadRequestException('凭证文件类型与内容不符');
     const id = randomUUID();
-    await this.prisma.$executeRaw`
-      INSERT INTO "FundPrivateProof" (id, "adminId", "mimeType", content, "createdAt")
-      VALUES (${id}, ${adminId}, ${mimeType}, ${b}, NOW())`;
+    await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'fund-proof:' + adminId}))`;
+      const [usage] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint }>>`
+        SELECT COUNT(*) AS count, COALESCE(SUM(octet_length(content)),0)::bigint AS bytes
+        FROM "FundPrivateProof" WHERE "adminId"=${adminId}
+        AND "createdAt" >= date_trunc('day', timezone('UTC', NOW()))`;
+      if (Number(usage?.count ?? 0) >= 100 || Number(usage?.bytes ?? 0) + b.length > 100 * 1024 * 1024) {
+        throw new BadRequestException('今日付款凭证上传数量或容量已达上限，请复用已上传凭证');
+      }
+      await tx.$executeRaw`
+        INSERT INTO "FundPrivateProof" (id, "adminId", "mimeType", content, "createdAt")
+        VALUES (${id}, ${adminId}, ${mimeType}, ${b}, timezone('UTC', NOW()))`;
+    });
     return { id };
   }
 

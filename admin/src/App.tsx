@@ -161,8 +161,8 @@ export default function App() {
             <Route path="fund-ledgers" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgersPage /></RequireAnyPermission>} />
             <Route path="fund-ledgers/companies/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundCompanyDetailPage /></RequirePermission>} />
             <Route path="fund-ledgers/payments/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundPaymentDetailPage /></RequirePermission>} />
-            <Route path="fund-ledgers/entries/:fundType/:id" element={<RequirePermission permission={PERMISSIONS.FUND_LEDGERS_READ}><FundLedgerEntryDetailPage /></RequirePermission>} />
-            <Route path="fund-ledgers/:fundType" element={<RequirePermission permission={PERMISSIONS.FUND_LEDGERS_READ}><FundLedgerEntriesPage /></RequirePermission>} />
+            <Route path="fund-ledgers/entries/:fundType/:id" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgerEntryDetailPage /></RequireAnyPermission>} />
+            <Route path="fund-ledgers/:fundType" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgerEntriesPage /></RequireAnyPermission>} />
             <Route path="growth" element={<GrowthPage />} />
             <Route path="referrals" element={<ReferralsPage />} />
             <Route path="bonus/members" element={<MemberListPage />} />

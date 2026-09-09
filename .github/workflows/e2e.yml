@@ -84,6 +84,14 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      # 基金账本使用隔离数据库，不写入浏览器测试或共享测试环境的数据。
+      - name: Verify platform fund PostgreSQL invariants
+        run: |
+          PGPASSWORD=postgres createdb --host=127.0.0.1 --username=postgres fund_test_ci
+          cd backend
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/fund_test_ci npx --no-install prisma migrate deploy
+          FUND_LEDGER_INTEGRATION=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/fund_test_ci npx --no-install jest --runInBand src/modules/fund-ledger src/modules/admin/fund-ledger
+
       # 跑测试（playwright 自动启动 backend + admin + seller）
       - name: Run E2E tests
         run: cd tests && npx playwright test --reporter=html,github

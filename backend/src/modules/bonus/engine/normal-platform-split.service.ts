@@ -122,17 +122,14 @@ export class NormalPlatformSplitService {
 
   /** 确保账户存在 */
   private async ensureAccount(tx: any, userId: string, type: string) {
-    let account = await tx.rewardAccount.findUnique({
+    // 平台账户由所有收货分配共享。冷启动时先查后建会在
+    // (userId,type) 唯一键上竞态，失败事务不会得到可重试的分配结果。
+    // upsert 将账户创建本身收口为调用方 Serializable 事务内的幂等操作。
+    return tx.rewardAccount.upsert({
       where: { userId_type: { userId, type } },
+      create: { userId, type },
+      update: {},
     });
-
-    if (!account) {
-      account = await tx.rewardAccount.create({
-        data: { userId, type },
-      });
-    }
-
-    return account;
   }
 
   /** 截断到分（2 位小数，舍弃后续位数） */

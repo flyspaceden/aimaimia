@@ -12,6 +12,10 @@ describe('IndustryFundPaymentService request idempotency', () => {
     tx = {
       $queryRaw: jest.fn().mockResolvedValue([]),
       $executeRaw: jest.fn().mockResolvedValue(1),
+      fundProofBinding: {
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn(async () => tx.fundProofBinding.createMany.mock.calls.at(-1)?.[0].data[0]),
+      },
       industryFundPayment: {
         findUnique: jest.fn().mockResolvedValue({ companyId: 'company-1' }),
         findUniqueOrThrow: jest.fn().mockResolvedValue(payment),
