@@ -2006,6 +2006,7 @@
 - [x] 从最新 origin/main 建立 `codex/platform-fund-ledgers-20260908` 干净 worktree。
 - [x] 管理后台页面、后端资金/审计/权限与私有凭证本地实现。
 - [x] 主 Agent 最终审查、164 项测试、迁移演练和本地提交收口。
-- [ ] 经用户授权后另行 push/CI/测试环境/生产审批与部署。
+- [x] 2026-09-09：经用户授权推送、CI 和 staging-next 测试部署，版本 e69004f2，三个组件 exact SHA 一致。
+- [ ] 后续生产审批与部署（尚未授权）。
 
 设计与实施证据分别见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md` 和 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`。
