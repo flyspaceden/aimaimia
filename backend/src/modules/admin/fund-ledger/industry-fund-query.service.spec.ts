@@ -1,4 +1,5 @@
 import { IndustryFundQueryService } from './industry-fund-query.service';
+import { FundQueryDto } from './fund-ledger.dto';
 
 describe('IndustryFundQueryService payment read contract', () => {
   it('returns the actual payment amount, parent recovery evidence and payment status history', async () => {
@@ -75,5 +76,107 @@ describe('IndustryFundQueryService payment read contract', () => {
     expect(result.bankAccount).toBe('****3456');
     expect(result.proofKey).toBeNull();
     expect(result.recoveries?.[0]).toEqual(expect.objectContaining({ bankReference: null, proofKey: null }));
+  });
+});
+
+describe('IndustryFundQueryService list query contract', () => {
+  it('searches company names and returns a same-filter summary in one repeatable-read transaction', async () => {
+    const row = {
+      company: { id: 'company-1', name: '青禾果园', status: 'ACTIVE' },
+      frozenAmount: 2,
+      payableAmount: 10,
+      reservedAmount: 3,
+      totalPaid: 4,
+      totalAccrued: 19,
+      totalReversed: 1,
+      recoveryDue: 5,
+      updatedAt: new Date('2026-09-09T12:00:00.000Z'),
+    };
+    const tx = {
+      industryFundAccount: {
+        findMany: jest.fn().mockResolvedValue([row]),
+        count: jest.fn().mockResolvedValue(1),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { frozenAmount: 2, payableAmount: 10, reservedAmount: 3, recoveryDue: 5 } }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as any;
+    const service = new IndustryFundQueryService(prisma);
+    const query = Object.assign(new FundQueryDto(), { search: '果园', view: 'available', page: 1, pageSize: 20 });
+
+    const result = await service.companies(query);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ isolationLevel: 'RepeatableRead' }));
+    const findWhere = tx.industryFundAccount.findMany.mock.calls[0][0].where;
+    const aggregateWhere = tx.industryFundAccount.aggregate.mock.calls[0][0].where;
+    expect(findWhere).toBe(aggregateWhere);
+    expect(findWhere).toEqual(expect.objectContaining({
+      company: { name: { contains: '果园', mode: 'insensitive' } },
+      payableAmount: { gt: 0 },
+    }));
+    expect(result.summary).toEqual({ available: 10, frozen: 2, reserved: 3, recoverable: 5, count: 1 });
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('searches payment id and company name for readers, and only adds bank-reference search with payment/reverse access', async () => {
+    const makePrisma = () => {
+      const tx = {
+        industryFundPayment: {
+          findMany: jest.fn().mockResolvedValue([]),
+          count: jest.fn()
+            .mockResolvedValueOnce(0)
+            .mockResolvedValueOnce(0)
+            .mockResolvedValueOnce(0)
+            .mockResolvedValueOnce(0),
+        },
+      };
+      return {
+        tx,
+        prisma: { $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) } as any,
+      };
+    };
+    const query = Object.assign(new FundQueryDto(), { search: 'payment-1', view: 'pending', page: 1, pageSize: 20 });
+
+    const readonlyDb = makePrisma();
+    await new IndustryFundQueryService(readonlyDb.prisma).payments(query, false);
+    const readonlyWhere = readonlyDb.tx.industryFundPayment.findMany.mock.calls[0][0].where;
+    const readonlySearch = JSON.stringify(readonlyWhere);
+    expect(readonlySearch).toContain('payment-1');
+    expect(readonlySearch).toContain('company');
+    expect(readonlySearch).not.toContain('bankReference');
+
+    const paymentDb = makePrisma();
+    await new IndustryFundQueryService(paymentDb.prisma).payments(query, true);
+    const paymentWhere = paymentDb.tx.industryFundPayment.findMany.mock.calls[0][0].where;
+    expect(JSON.stringify(paymentWhere)).toContain('bankReference');
+    expect(paymentWhere).toEqual(expect.objectContaining({ AND: expect.arrayContaining([
+      expect.objectContaining({ status: 'RESERVED', needsReview: false }),
+    ]) }));
+  });
+
+  it('keeps company detail ledger search scoped while matching ledger id or order id', async () => {
+    const tx = {
+      industryFundLedger: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+    };
+    const prisma = { $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) } as any;
+    const service = new IndustryFundQueryService(prisma);
+    const query = Object.assign(new FundQueryDto(), { search: 'order-1', orderId: 'order-exact', page: 1, pageSize: 20 });
+
+    await service.ledgers(query, 'company-1');
+
+    expect(tx.industryFundLedger.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'company-1',
+        orderId: 'order-exact',
+        OR: [
+          { id: { contains: 'order-1', mode: 'insensitive' } },
+          { orderId: { contains: 'order-1', mode: 'insensitive' } },
+        ],
+      }),
+    }));
   });
 });

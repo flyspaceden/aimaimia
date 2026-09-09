@@ -416,7 +416,13 @@ export class PlatformFundQueryService {
     if (query.status) outerFilters.push(Prisma.sql`COALESCE(r."statusAfter", r."statusBefore") = ${query.status}`);
     if (query.search) {
       const search = `%${query.search}%`;
-      outerFilters.push(Prisma.sql`(r."id" ILIKE ${search} OR COALESCE(r."orderId", '') ILIKE ${search} OR COALESCE(r."companyId", '') ILIKE ${search})`);
+      outerFilters.push(Prisma.sql`(
+        r."id" ILIKE ${search}
+        OR COALESCE(r."rewardLedgerId", '') ILIKE ${search}
+        OR COALESCE(r."sourceLedgerId", '') ILIKE ${search}
+        OR COALESCE(r."orderId", '') ILIKE ${search}
+        OR COALESCE(r."companyId", '') ILIKE ${search}
+      )`);
     }
 
     const effectiveLedgerAmount = (entryType: Prisma.Sql, amount: Prisma.Sql) => Prisma.sql`CASE

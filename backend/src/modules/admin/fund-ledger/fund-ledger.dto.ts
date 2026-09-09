@@ -1,8 +1,11 @@
 import { Type } from 'class-transformer';
 import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from 'class-validator';
 
+export const FUND_QUERY_VIEWS = ['all', 'available', 'review', 'recovery', 'pending'] as const;
+export type FundQueryView = (typeof FUND_QUERY_VIEWS)[number];
+
 export class FundQueryDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000) page = 1;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 20;
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
@@ -10,6 +13,7 @@ export class FundQueryDto {
   @IsOptional() @IsString() @MaxLength(100) orderId?: string;
   @IsOptional() @IsString() @MaxLength(100) eventType?: string;
   @IsOptional() @IsIn(['NORMAL', 'VIP', 'LEGACY']) sourceType?: string;
+  @IsOptional() @IsIn([...FUND_QUERY_VIEWS]) view?: FundQueryView;
   @IsOptional() @IsString() @MaxLength(100) status?: string;
   @IsOptional() @IsString() @MaxLength(100) search?: string;
 }

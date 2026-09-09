@@ -34,10 +34,10 @@ export class AdminIndustryFundController {
   @Get('unassigned') @RequirePermission('industry_funds:read')
   unassigned(@Query() q: FundQueryDto) { return this.query.unassigned(q); }
   @Get('payments') @RequirePermission('industry_funds:read')
-  payments(@Query() q: FundQueryDto) { return this.query.payments(q); }
+  payments(@Query() q: FundQueryDto, @CurrentAdmin() admin: FundAdmin) { return this.query.payments(q, this.canReadPaymentEvidence(admin)); }
   @Get('payments/:id') @RequirePermission('industry_funds:read')
   payment(@Param('id') id: string, @CurrentAdmin() admin: FundAdmin) {
-    return this.query.payment(id, admin.roles.includes(SUPER_ADMIN_ROLE) || admin.permissions.includes('industry_funds:pay') || admin.permissions.includes('industry_funds:reverse'));
+    return this.query.payment(id, this.canReadPaymentEvidence(admin));
   }
 
   @Post('proofs') @RequirePermission('industry_funds:read')
@@ -61,6 +61,10 @@ export class AdminIndustryFundController {
     if (!admin.roles.includes(SUPER_ADMIN_ROLE) && !admin.permissions.some(p => ['industry_funds:pay', 'industry_funds:reverse'].includes(p))) {
       throw new ForbiddenException('需要付款或回款登记权限才能访问凭证');
     }
+  }
+
+  private canReadPaymentEvidence(admin: FundAdmin): boolean {
+    return admin.roles.includes(SUPER_ADMIN_ROLE) || admin.permissions.some(p => ['industry_funds:pay', 'industry_funds:reverse'].includes(p));
   }
 
   @Post('payments') @RequirePermission('industry_funds:pay')
