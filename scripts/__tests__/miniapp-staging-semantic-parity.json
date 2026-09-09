@@ -349,15 +349,17 @@
     },
     {
       "path": "backend/src/modules/admin/fund-ledger/admin-industry-fund.controller.ts",
-      "gitBlob": "4604f4feaead4f0c5f03a4178fd1c501b015821b",
-      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
-      "sourceReviewCommit": "44c93297"
+      "gitBlob": "9cf59e744a84394964f8d3c8d5f7955532d040a5",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged.",
+      "sourceReviewCommit": "44c93297",
+      "queryUiReviewCommit": "3a2a4332"
     },
     {
       "path": "backend/src/modules/admin/fund-ledger/fund-ledger.dto.ts",
-      "gitBlob": "c8e3054f60a06f67f7efcdcf25da491ab8e1ed70",
-      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
-      "sourceReviewCommit": "44c93297"
+      "gitBlob": "64cacd63dba1dbd06b896187434aad967a21c852",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged.",
+      "sourceReviewCommit": "44c93297",
+      "queryUiReviewCommit": "3a2a4332"
     },
     {
       "path": "backend/src/modules/admin/fund-ledger/fund-proof.service.ts",
@@ -373,9 +375,10 @@
     },
     {
       "path": "backend/src/modules/admin/fund-ledger/industry-fund-query.service.ts",
-      "gitBlob": "948e6f7d5ccd1c9055b2d3ec03f05826a6fe9b59",
-      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
-      "sourceReviewCommit": "44c93297"
+      "gitBlob": "67ed41382ebd57623f069bab4c3f1f07b09cd560",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged.",
+      "sourceReviewCommit": "44c93297",
+      "queryUiReviewCommit": "3a2a4332"
     },
     {
       "path": "backend/src/modules/after-sale/after-sale-reward.service.ts",
@@ -433,9 +436,10 @@
     },
     {
       "path": "backend/src/modules/fund-ledger/platform-fund-query.service.ts",
-      "gitBlob": "0b9c11231c8988e13a299d377a006fffeb9a56ac",
-      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
-      "sourceReviewCommit": "44c93297"
+      "gitBlob": "9a1ec9121e3c5641ec668a02c795ec331a2bd00d",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged.",
+      "sourceReviewCommit": "44c93297",
+      "queryUiReviewCommit": "3a2a4332"
     }
   ]
 }
