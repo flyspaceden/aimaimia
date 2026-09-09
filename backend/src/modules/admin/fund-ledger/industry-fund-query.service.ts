@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompanyStatus, IndustryFundLedgerEventType, IndustryFundPaymentStatus, IndustryFundUnassignedStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FUND_QUERY_VIEWS, FundQueryDto, FundQueryView } from './fund-ledger.dto';
@@ -95,7 +95,10 @@ export class IndustryFundQueryService {
 
   private paymentWhere(q: FundQueryDto, allowBankReferenceSearch: boolean): Prisma.IndustryFundPaymentWhereInput {
     const search = this.searchText(q);
+    const bankReference = q.bankReference?.trim();
+    if (bankReference && !allowBankReferenceSearch) throw new ForbiddenException('无银行流水号查询权限');
     const where: Prisma.IndustryFundPaymentWhereInput = {
+      ...(bankReference ? { bankReference } : {}),
       ...(q.companyId ? { companyId: q.companyId } : {}),
       ...(q.status ? { status: q.status as IndustryFundPaymentStatus } : {}),
       createdAt: this.period(q),

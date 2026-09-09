@@ -74,6 +74,9 @@ jobs:
       - name: Install Playwright browsers
         run: cd tests && npx playwright install chromium --with-deps
 
+      - name: Verify fund management page interactions
+        run: cd tests && npx playwright test -c fund-pages.config.ts
+
       # 数据库 migration + seed：发布门禁必须验证真实迁移链，禁止用 db push 掩盖 migration 缺口。
       - name: Setup database
         run: |

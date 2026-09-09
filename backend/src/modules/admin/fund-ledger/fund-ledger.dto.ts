@@ -16,6 +16,7 @@ export class FundQueryDto {
   @IsOptional() @IsIn([...FUND_QUERY_VIEWS]) view?: FundQueryView;
   @IsOptional() @IsString() @MaxLength(100) status?: string;
   @IsOptional() @IsString() @MaxLength(100) search?: string;
+  @IsOptional() @IsString() @MaxLength(100) bankReference?: string;
 }
 export class FundPaymentCreateDto {
   @IsString() @Length(1,100) companyId!: string;
