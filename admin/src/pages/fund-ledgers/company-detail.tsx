@@ -1,226 +1,60 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ProTable } from '@ant-design/pro-components';
-import type { ProColumns } from '@ant-design/pro-components';
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Col,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Result,
-  Row,
-  Skeleton,
-  Space,
-  Statistic,
-  Typography,
-} from 'antd';
-import {
-  createIndustryFundPayment,
-  getIndustryFundCompany,
-  getIndustryFundCompanyLedgers,
-  type CreateIndustryFundPaymentInput,
-  type FundLedgerEntry,
-  type IndustryFundCompanyDetail,
-} from '@/api/fund-ledgers';
+import { useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Card, Descriptions, Empty, Input, Result, Skeleton, Space, Table, Tabs, Tooltip, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { getIndustryFundCompany, getIndustryFundCompanyLedgers, getIndustryFundPayments, type FundLedgerEntry, type IndustryFundPayment } from '@/api/fund-ledgers';
+import { usePermission } from '@/hooks/usePermission';
 import { PERMISSIONS } from '@/constants/permissions';
-import PermissionGate from '@/components/PermissionGate';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
-import {
-  dateTime,
-  eventTag,
-  getRows,
-  money,
-  signedMoney,
-  sourceTag,
-} from './common';
+import { dateTime, eventTag, money, paymentStatusTag, signedMoney } from './common';
+import { FundHeading, FundSummary } from './workspace';
+import { fundLink, safeFundReturn } from './workspace-state';
 
-const makeIdempotencyKey = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
-function readAmount(company: IndustryFundCompanyDetail | undefined, key: string): number {
-  if (!company) return 0;
-  const direct = company[key as keyof IndustryFundCompanyDetail];
-  if (typeof direct === 'number') return direct;
-  const nested = company.balances?.[key as keyof NonNullable<IndustryFundCompanyDetail['balances']>];
-  return typeof nested === 'number' ? nested : 0;
-}
-
-function readString(company: IndustryFundCompanyDetail | undefined, key: string): string {
-  if (!company) return '';
-  const direct = company[key as keyof IndustryFundCompanyDetail];
-  if (typeof direct === 'string') return direct;
-  const nested = company.company?.[key];
-  return typeof nested === 'string' ? nested : '';
-}
-
-export default function IndustryFundCompanyDetailPage() {
-  const { message } = App.useApp();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [tableRevision, setTableRevision] = useState(0);
-  const { id } = useParams<{ id: string }>();
-  const [paymentForm] = Form.useForm<CreateIndustryFundPaymentInput>();
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-
-  const companyQuery = useQuery({
-    queryKey: ['admin', 'industry-funds', 'company', id],
-    queryFn: () => getIndustryFundCompany(id!),
-    enabled: !!id,
-  });
-
-  const paymentMutation = useMutation({
-    mutationFn: createIndustryFundPayment,
-    onSuccess: () => {
-      setTableRevision(r => r + 1);
-      message.success('付款单已创建并预留金额');
-      setPaymentModalOpen(false);
-      paymentForm.resetFields();
-      queryClient.invalidateQueries({ queryKey: ['admin', 'industry-funds'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'fund-ledgers'] });
-    },
-    onError: (error) => message.error(getAdminErrorMessage(error, '创建付款单失败')),
-  });
-
-  const company = companyQuery.data;
-  const initialPayee = useMemo(() => ({
-    payeeName: readString(company, 'bankAccountName') || readString(company, 'name'),
-    bankAccount: readString(company, 'bankAccount') || readString(company, 'bankAccountNoMasked'),
-    bankName: readString(company, 'bankName'),
-  }), [company]);
-
-  if (companyQuery.isLoading) return <Card style={{ margin: 24 }}><Skeleton active /></Card>;
-  if (companyQuery.isError || !company) {
-    return <Result status="error" title="公司账本加载失败" subTitle={getAdminErrorMessage(companyQuery.error, '暂时无法读取该公司账本')} extra={<Space><Button onClick={() => companyQuery.refetch()}>重试</Button><Button onClick={() => navigate('/fund-ledgers')}>返回基金总览</Button></Space>} />;
-  }
-
-  const openPaymentModal = () => {
-    paymentForm.resetFields();
-    paymentForm.setFieldsValue({
-      companyId: company.id,
-      ...initialPayee,
-      idempotencyKey: makeIdempotencyKey(),
-    });
-    setPaymentModalOpen(true);
-  };
-
-  const columns: ProColumns<FundLedgerEntry>[] = [
-    { title: '流水号', dataIndex: 'entryNo', width: 190, render: (_, row) => <Link to={`/fund-ledgers/entries/INDUSTRY_FUND/${row.id}`}>{row.entryNo || row.id}</Link> },
-    { title: '事件', dataIndex: 'eventType', width: 110, render: (_, row) => eventTag(row.eventType) },
-    { title: '来源', dataIndex: 'sourceType', width: 100, render: (_, row) => sourceTag(row.sourceType) },
-    { title: '金额', dataIndex: 'amount', width: 130, align: 'right', render: (_, row) => signedMoney(row.amount, row.direction) },
-    { title: '余额后', dataIndex: 'balanceAfter', width: 130, align: 'right', render: (_, row) => money(row.balanceAfter) },
-    { title: '待追偿后', dataIndex: 'recoveryDueAfter', width: 120, align: 'right', render: (_, row) => money(row.recoveryDueAfter) },
-    { title: '冻结后', dataIndex: 'frozenAfter', width: 120, align: 'right', render: (_, row) => money(row.frozenAfter) },
-    { title: '预留后', dataIndex: 'reservedAfter', width: 120, align: 'right', render: (_, row) => money(row.reservedAfter) },
-    { title: '订单', dataIndex: 'orderId', width: 170, render: (value) => value || '-' },
-    { title: '付款单', dataIndex: 'paymentId', width: 170, render: (value) => value ? <Link to={`/fund-ledgers/payments/${value}`}>{value}</Link> : '-' },
-    { title: '时间', dataIndex: 'createdAt', width: 175, render: (_, row) => dateTime(row.createdAt) },
+type Props = { companyId?: string; embedded?: boolean; returnTo?: string };
+export default function IndustryFundCompanyDetailPage({companyId,embedded=false,returnTo}:Props={}) {
+  const route = useParams<{id:string}>(); const id = companyId || route.id;
+  const nav=useNavigate(); const [params,setParams]=useSearchParams();
+  const {hasPermission}=usePermission(); const canPay=hasPermission(PERMISSIONS.INDUSTRY_FUNDS_PAY);
+  const [localTab,setLocalTab]=useState('ledger');
+  const tab=embedded?localTab:(params.get('tab')||'ledger');
+  const [search,setSearch]=useState(''); const [keyword,setKeyword]=useState(''); const [page,setPage]=useState(1); const [paymentPage,setPaymentPage]=useState(1);
+  const back=safeFundReturn(returnTo||params.get('returnTo'),'/fund-ledgers/companies');
+  const context=embedded?back:`/fund-ledgers/companies/${id}?${params}`;
+  const companyQuery=useQuery({queryKey:['admin','industry-funds','company',id],queryFn:()=>getIndustryFundCompany(id!),enabled:!!id});
+  const ledgerQuery=useQuery({queryKey:['admin','industry-funds','company-ledgers',id,keyword,page],queryFn:()=>getIndustryFundCompanyLedgers(id!,{search:keyword||undefined,page,pageSize:20}),enabled:!!id&&tab==='ledger'});
+  const paymentQuery=useQuery({queryKey:['admin','industry-funds','company-payments',id,paymentPage],queryFn:()=>getIndustryFundPayments({companyId:id,page:paymentPage,pageSize:10}),enabled:!!id&&tab==='payments'});
+  const reviewQuery=useQuery({queryKey:['admin','industry-funds','company-review',id],queryFn:()=>getIndustryFundPayments({companyId:id,view:'review',page:1,pageSize:10}),enabled:!!id&&tab==='issues'});
+  if(companyQuery.isLoading)return <div className={embedded?'fund-detail-embedded':'fund-workspace'}><Skeleton active/></div>;
+  if(companyQuery.isError||!companyQuery.data)return <Result status="error" title="公司账本加载失败" subTitle={getAdminErrorMessage(companyQuery.error,'请重试')} extra={<Space><Button onClick={()=>companyQuery.refetch()}>重试</Button>{!embedded&&<Button onClick={()=>nav(back)}>返回公司列表</Button>}</Space>}/>;
+  const company=companyQuery.data;
+  const blocked=company.status!=='ACTIVE'?'公司当前状态不允许付款':(company.recoverable??0)>0?'存在待追偿，请先处理回款':(company.available??0)<=0?'暂无可支付余额':'';
+  const paymentUrl=`/fund-ledgers/payments?companyId=${encodeURIComponent(company.id)}`;
+  const ledgerColumns:ColumnsType<FundLedgerEntry>=[
+    {title:'记账时间',dataIndex:'createdAt',width:155,render:dateTime},
+    {title:'事件',dataIndex:'eventType',render:eventTag},
+    {title:'来源订单',dataIndex:'orderId',ellipsis:true,responsive:['md'],render:value=><Typography.Text copyable={!!value}>{value||'未关联订单'}</Typography.Text>},
+    {title:'变动金额',dataIndex:'amount',align:'right',render:(_,r)=>signedMoney(r.amount,r.direction)},
+    {title:'变动后余额',dataIndex:'balanceAfter',align:'right',responsive:['md'],render:money},
+    {title:'操作',key:'action',width:70,render:(_,r)=><Button type="link" onClick={()=>nav(fundLink(`/fund-ledgers/entries/INDUSTRY_FUND/${r.id}`,context))}>详情</Button>},
   ];
-
-  const handleSubmit = async (values: CreateIndustryFundPaymentInput) => {
-    const idempotencyKey = values.idempotencyKey?.trim();
-    if (!idempotencyKey) {
-      message.error('付款单幂等键缺失，请关闭后重新打开表单');
-      return;
-    }
-    await paymentMutation.mutateAsync({
-      ...values,
-      amount: Number(values.amount),
-      companyId: company.id,
-      payeeName: values.payeeName.trim(),
-      bankAccount: values.bankAccount.trim(),
-      bankName: values.bankName.trim(),
-      reason: values.reason.trim(),
-      idempotencyKey,
-    });
-  };
-
-  return (
-    <div style={{ padding: 24 }}>
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Space>
-          <Button onClick={() => navigate('/fund-ledgers')}>返回基金总览</Button>
-          <Typography.Title level={3} style={{ margin: 0 }}>公司产业基金账本</Typography.Title>
-        </Space>
-        <Alert type="warning" showIcon message="公司账本是平台对公司的应付记录。收款主体为公司，不是公司 OWNER 个人；付款页面只登记线下公对公付款。" />
-        <Card title={company.name || company.companyNo || company.id} extra={<PermissionGate permission={PERMISSIONS.INDUSTRY_FUNDS_PAY}><Button type="primary" onClick={openPaymentModal}>创建付款单</Button></PermissionGate>}>
-          <Row gutter={[12, 12]}>
-            <Col xs={12} md={4}><Statistic title="累计计提" value={readAmount(company, 'accrued')} precision={2} prefix="¥" /></Col>
-            <Col xs={12} md={4}><Statistic title="售后冻结" value={readAmount(company, 'frozen')} precision={2} prefix="¥" /></Col>
-            <Col xs={12} md={4}><Statistic title="可支付" value={readAmount(company, 'available')} precision={2} prefix="¥" /></Col>
-            <Col xs={12} md={4}><Statistic title="付款预留" value={readAmount(company, 'reserved')} precision={2} prefix="¥" /></Col>
-            <Col xs={12} md={4}><Statistic title="累计已支付" value={readAmount(company, 'paid')} precision={2} prefix="¥" /></Col>
-            <Col xs={12} md={4}><Statistic title="待追偿" value={readAmount(company, 'recoverable')} precision={2} prefix="¥" valueStyle={{ color: readAmount(company, 'recoverable') > 0 ? '#cf1322' : undefined }} /></Col>
-          </Row>
-          <DescriptionsBlock company={company} />
-        </Card>
-        <Card title="付款与异常" size="small">
-          <Space wrap>
-            <Link to={`/fund-ledgers?companyId=${encodeURIComponent(company.id)}`}>查看该公司付款单</Link>
-            <Link to={`/fund-ledgers/INDUSTRY_FUND?companyId=${encodeURIComponent(company.id)}&eventType=REVERSAL_PENDING`}>查看待处理冲回</Link>
-          </Space>
-        </Card>
-        <Card title="计提与变动明细">
-          <ProTable<FundLedgerEntry>
-            key={tableRevision}
-            rowKey="id"
-            columns={columns}
-            options={false}
-            search={false}
-            scroll={{ x: 1500 }}
-            request={async (params) => {
-              try {
-                const result = getRows<FundLedgerEntry>(await getIndustryFundCompanyLedgers(company.id, { page: Number(params.current ?? 1), pageSize: Number(params.pageSize ?? 20) }));
-                return { data: result.items, success: true, total: result.total };
-              } catch (error) {
-                message.error(getAdminErrorMessage(error, '公司流水加载失败'));
-                return { data: [], success: false, total: 0 };
-              }
-            }}
-            pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-            locale={{ emptyText: '暂无公司账本流水' }}
-          />
-        </Card>
-      </Space>
-
-      <Modal title="创建付款单并预留金额" open={paymentModalOpen} onCancel={() => { if (!paymentMutation.isPending) setPaymentModalOpen(false); }} onOk={() => paymentForm.submit()} confirmLoading={paymentMutation.isPending} destroyOnClose width={620}>
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="仅登记线下付款流程，不会调用银行转账接口。请确保公司名称、开户行和对公账号与银行资料一致。" />
-        <Form form={paymentForm} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="companyId" hidden><Input /></Form.Item>
-          <Form.Item name="amount" label="预留金额（元）" rules={[{ required: true, message: '请输入金额' }, { type: 'number', min: 0.01, message: '金额必须大于 0' }]}><InputNumber min={0.01} precision={2} style={{ width: '100%' }} /></Form.Item>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="payeeName" label="对公户名" rules={[{ required: true, message: '请输入对公户名' }]}><Input maxLength={200} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="bankName" label="开户行" rules={[{ required: true, message: '请输入开户行' }]}><Input maxLength={200} /></Form.Item></Col>
-          </Row>
-          <Form.Item name="bankAccount" label="对公账号" rules={[{ required: true, min: 6, message: '请输入完整对公账号' }]}><Input maxLength={80} /></Form.Item>
-          <Form.Item name="reason" label="登记原因" rules={[{ required: true, message: '请输入登记原因' }]}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
-          <Form.Item name="idempotencyKey" hidden><Input /></Form.Item>
-        </Form>
-      </Modal>
-    </div>
-  );
-}
-
-function DescriptionsBlock({ company }: { company: IndustryFundCompanyDetail }) {
-  const bankAccount = readString(company, 'bankAccountNoMasked') || readString(company, 'bankAccount');
-  return (
-    <div style={{ marginTop: 16 }}>
-      <Typography.Text type="secondary">对公资料（列表仅显示脱敏账号）</Typography.Text>
-      <Row gutter={[16, 8]} style={{ marginTop: 8 }}>
-        <Col xs={24} md={8}><Typography.Text>企业编号：{company.companyNo || '-'}</Typography.Text></Col>
-        <Col xs={24} md={8}><Typography.Text>收款户名：{readString(company, 'bankAccountName') || '-'}</Typography.Text></Col>
-        <Col xs={24} md={8}><Typography.Text>开户行：{readString(company, 'bankName') || '-'}</Typography.Text></Col>
-        <Col xs={24} md={8}><Typography.Text>账号：{bankAccount || '-'}</Typography.Text></Col>
-        <Col xs={24} md={8}><Typography.Text>企业状态：{company.status || '-'}</Typography.Text></Col>
-      </Row>
-    </div>
-  );
+  const paymentColumns:ColumnsType<IndustryFundPayment>=[
+    {title:'付款单',dataIndex:'id',ellipsis:true,render:(_,p)=><Button type="link" onClick={()=>nav(fundLink(`/fund-ledgers/payments/${p.id}`,context))}>{p.paymentNo||p.id}</Button>},
+    {title:'金额',dataIndex:'amount',align:'right',render:money},
+    {title:'状态',dataIndex:'status',render:(_,p)=>p.needsReview&&p.status==='RESERVED'?<Typography.Text type="warning">需核实</Typography.Text>:paymentStatusTag(p.status)},
+    {title:'时间',dataIndex:'createdAt',responsive:['md'],render:dateTime},
+  ];
+  const error=(err:unknown,retry:()=>void)=><Alert type="error" message="记录加载失败" description={getAdminErrorMessage(err,'请重试')} action={<Button onClick={retry}>重试</Button>}/>;
+  return <div className={embedded?'fund-detail-embedded':'fund-workspace'}>
+    {!embedded&&<Button style={{marginBottom:16}} onClick={()=>nav(back)}>返回公司列表</Button>}
+    <FundHeading title={company.name} description="公司产业基金子账 · 当前余额" actions={canPay&&<Tooltip title={blocked}><Button type="primary" disabled={!!blocked} onClick={()=>nav(fundLink(paymentUrl+'&create=1',context))}>登记付款</Button></Tooltip>}/>
+    <FundSummary caption="公司当前余额" items={[{label:'可支付',value:company.available},{label:'售后冻结',value:company.frozen},{label:'付款预留',value:company.reserved},{label:'待追偿',value:company.recoverable,warning:(company.recoverable??0)>0}]}/>
+    <Descriptions size="small" column={{xs:1,sm:2,md:3}} items={[{key:'accrued',label:'累计计提',children:money(company.accrued)},{key:'paid',label:'累计已支付',children:money(company.paid)},{key:'status',label:'公司状态',children:({ACTIVE:'正常',PENDING:'待审核',SUSPENDED:'暂停',BANNED:'已禁用',DELETED:'已删除'} as Record<string,string>)[company.status||'']||'未记录'}]}/>
+    <Card size="small" style={{marginTop:18}}>
+      <Tabs activeKey={tab} onChange={value=>embedded?setLocalTab(value):setParams(p=>{const n=new URLSearchParams(p);n.set('tab',value);return n;})} items={[{key:'ledger',label:'资金明细'},{key:'payments',label:'付款记录'},{key:'issues',label:'待处理事项'}]}/>
+      {tab==='ledger'&&<><Input.Search aria-label="公司流水搜索" placeholder="搜索流水号或订单编号" value={search} onChange={e=>setSearch(e.target.value)} onSearch={value=>{setKeyword(value.trim());setPage(1);}} allowClear enterButton="查询" style={{maxWidth:420,marginBottom:16}}/>{ledgerQuery.isError?error(ledgerQuery.error,()=>ledgerQuery.refetch()):<Table rowKey="id" size="small" columns={ledgerColumns} dataSource={ledgerQuery.data?.items||[]} loading={ledgerQuery.isFetching} scroll={{x:'max-content'}} pagination={{current:page,pageSize:20,total:ledgerQuery.data?.total||0,onChange:setPage}} expandable={{expandedRowRender:r=><Descriptions size="small" items={[{key:'frozen',label:'冻结后',children:money(r.frozenAfter)},{key:'reserved',label:'预留后',children:money(r.reservedAfter)},{key:'due',label:'待追偿后',children:money(r.recoveryDueAfter)}]}/>}} locale={{emptyText:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword?'没有匹配的流水':'尚未产生新产业基金，历史个人余额不回填'}/>}}/>}</>}
+      {tab==='payments'&&<><Button style={{marginBottom:12}} onClick={()=>nav(fundLink(paymentUrl,context))}>在付款页面查看</Button>{paymentQuery.isError?error(paymentQuery.error,()=>paymentQuery.refetch()):<Table rowKey="id" size="small" columns={paymentColumns} dataSource={paymentQuery.data?.items||[]} loading={paymentQuery.isFetching} pagination={{current:paymentPage,pageSize:10,total:paymentQuery.data?.total||0,onChange:setPaymentPage}}/>}</>}
+      {tab==='issues'&&<Space direction="vertical" style={{width:'100%'}}>{(company.recoverable??0)>0&&<Alert type="warning" showIcon message={`待追偿 ${money(company.recoverable)}`} description="新付款暂停，先在对应付款单处理实际回款。" action={<Button onClick={()=>nav(fundLink(paymentUrl+'&view=recovery',context))}>查看待追偿付款</Button>}/>} {reviewQuery.isError?error(reviewQuery.error,()=>reviewQuery.refetch()):reviewQuery.isFetching?<Skeleton active paragraph={{rows:2}}/>:(reviewQuery.data?.total??0)>0?<><Typography.Text>有 {reviewQuery.data?.total} 笔付款需要核实银行实际状态。</Typography.Text><Table rowKey="id" size="small" columns={paymentColumns} dataSource={reviewQuery.data?.items||[]} pagination={false}/><Button onClick={()=>nav(fundLink(paymentUrl+'&view=review',context))}>查看全部待核实付款</Button></>:!(company.recoverable??0)&&<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有待处理事项"/>}</Space>}
+    </Card>
+  </div>;
 }

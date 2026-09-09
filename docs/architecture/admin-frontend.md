@@ -1250,3 +1250,15 @@ VIP 系统配置页和普通用户系统配置页均通过 `useConfigProfitSafet
 ## 2026-09-08 基金账本
 
 新增 `/fund-ledgers` 总览、`/:fundType` 逐笔账、`/entries/:fundType/:id` 流水详情、`/companies/:id` 公司子账和 `/payments/:id` 付款详情。沿用 Ant Design/ProTable，分离 `fund_ledgers:read`、`industry_funds:read`、`industry_funds:pay`、`industry_funds:reverse` 权限。付款仅登记线下公对公结果；银行凭证用私有鉴权接口，不经过公开上传目录。界面已构建并进行本地测试数据渲染，最终验证见实施记录。
+
+
+### 2026-09-09 资金管理三页优化
+
+- `/fund-ledgers`：仅基金总账，当前/历史账本、基金名称及记账期间。日期影响期初与期间收支，当前余额仍为实时值。
+- `/fund-ledgers/companies`：公司产业基金账户与同筛选摘要，名称、状态、可支付/需核实/待追偿视图；公司详情抽屉包括流水、付款、待处理事项；待归属记录独立标签。
+- `/fund-ledgers/payments`：公对公付款列表、状态/公司/日期/付款号查询、付款预览及详情；银行流水号需付款或冲正权限。
+- URL 保存主列表筛选、页码；详情返回限定为内部资金页面。公司、基金列表不加载付款登记表单。
+- 新建付款使用远程公司选择，金额/开户资料填写后创建并预留。更正 RESERVED 单前确认未实际转账，先取消旧单再创建；若创建失败，明确显示旧单已取消，不重复取消。网络/5xx 响应不明时保留输入及幂等键并禁止修改后重复创建。
+- 金额明细只读；历史不迁移、不补算。本次仅增补查询与页面交互，不变更 Schema 或资金记账核心。
+
+设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`。

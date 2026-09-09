@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   App,
@@ -40,6 +40,7 @@ import { PERMISSIONS } from '@/constants/permissions';
 import PermissionGate from '@/components/PermissionGate';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
 import { dateTime, eventTag, money, paymentStatusTag } from './common';
+import { fundLink, safeFundReturn } from './workspace-state';
 
 const makeIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -54,6 +55,8 @@ export default function IndustryFundPaymentDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeFundReturn(searchParams.get('returnTo'));
   const [confirmForm] = Form.useForm<ConfirmFormValues>();
   const [cancelForm] = Form.useForm<CancelIndustryFundPaymentInput>();
   const [reverseForm] = Form.useForm<ReverseIndustryFundPaymentInput>();
@@ -94,13 +97,17 @@ export default function IndustryFundPaymentDetailPage() {
 
   if (paymentQuery.isLoading) return <Card style={{ margin: 24 }}><Skeleton active /></Card>;
   if (paymentQuery.isError || !paymentQuery.data) {
-    return <Result status="error" title="付款单加载失败" subTitle={getAdminErrorMessage(paymentQuery.error, '暂时无法读取付款单')} extra={<Space><Button onClick={() => paymentQuery.refetch()}>重试</Button><Button onClick={() => navigate('/fund-ledgers')}>返回基金总览</Button></Space>} />;
+    return <Result status="error" title="付款单加载失败" subTitle={getAdminErrorMessage(paymentQuery.error, '暂时无法读取付款单')} extra={<Space><Button onClick={() => paymentQuery.refetch()}>重试</Button><Button onClick={() => navigate(returnTo)}>返回付款列表</Button></Space>} />;
   }
 
   const payment = paymentQuery.data;
   const canMutate = confirmMutation.isPending || cancelMutation.isPending || reverseMutation.isPending || recoveryMutation.isPending || proofUploading;
   const isReserved = payment.status === 'RESERVED' || payment.status === 'PAYMENT_RESERVED';
   const isPaid = payment.status === 'PAID' || payment.status === 'PAYMENT_CONFIRMED';
+  const correctionHref = fundLink(
+    `/fund-ledgers/payments?companyId=${encodeURIComponent(payment.companyId)}&correctionId=${encodeURIComponent(payment.id)}&create=1`,
+    returnTo,
+  );
 
   const resetProofUpload = () => {
     uploadGeneration.current += 1;
@@ -201,12 +208,12 @@ export default function IndustryFundPaymentDetailPage() {
   return (
     <div style={{ padding: 24 }}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Space><Button onClick={() => navigate('/fund-ledgers')}>返回付款列表</Button><Typography.Title level={3} style={{ margin: 0 }}>付款登记详情</Typography.Title></Space>
+        <Space><Button onClick={() => navigate(returnTo)}>返回付款列表</Button><Typography.Title level={3} style={{ margin: 0 }}>付款登记详情</Typography.Title></Space>
         {payment.needsReview && <Alert type="warning" showIcon icon={<ExclamationCircleOutlined />} message="该付款单需要人工核实" description={payment.reviewReason || '付款资料与当前账本状态存在待核对事项，请核实后再确认。'} />}
         <Alert type="info" showIcon message="本页面只记录线下公对公付款。确认付款必须填写实际金额、付款时间、平台付款账户标识、银行流水号和私有凭证。" />
         <Card title={payment.paymentNo || payment.id} extra={paymentStatusTag(payment.status)}>
           <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-            <Descriptions.Item label="收款公司">{payment.company?.id ? <Link to={`/fund-ledgers/companies/${payment.company.id}`}>{payment.company.name || payment.company.id}</Link> : payment.company?.name || payment.companyId}</Descriptions.Item>
+            <Descriptions.Item label="收款公司">{payment.company?.id ? <Link to={fundLink(`/fund-ledgers/companies/${payment.company.id}`, returnTo)}>{payment.company.name || payment.company.id}</Link> : payment.company?.name || payment.companyId}</Descriptions.Item>
             <Descriptions.Item label="付款金额">{money(payment.amount)}</Descriptions.Item>
             <Descriptions.Item label="实际付款">{money(payment.actualAmount)}</Descriptions.Item>
             <Descriptions.Item label="对公户名">{payment.payeeName || '-'}</Descriptions.Item>
@@ -219,7 +226,7 @@ export default function IndustryFundPaymentDetailPage() {
             <Descriptions.Item label="创建时间">{dateTime(payment.createdAt)}</Descriptions.Item>
           </Descriptions>
           <Space style={{ marginTop: 16 }} wrap>
-            {isReserved && <PermissionGate permission={PERMISSIONS.INDUSTRY_FUNDS_PAY}><Button type="primary" disabled={canMutate} onClick={openConfirm}>登记已付款</Button><Button disabled={canMutate} onClick={openCancel}>核实未付款并取消预留</Button></PermissionGate>}
+            {isReserved && <PermissionGate permission={PERMISSIONS.INDUSTRY_FUNDS_PAY}><Button type="primary" disabled={canMutate} onClick={openConfirm}>登记已付款</Button><Button disabled={canMutate} onClick={openCancel}>核实未付款并取消预留</Button><Button disabled={canMutate} onClick={() => navigate(correctionHref)}>更正未付款单</Button></PermissionGate>}
             {isPaid && <PermissionGate permission={PERMISSIONS.INDUSTRY_FUNDS_REVERSE}><Button danger disabled={canMutate} onClick={openReverse}>登记错误并冲正</Button><Button disabled={canMutate} onClick={openRecovery}>登记实际回款</Button></PermissionGate>}
           </Space>
         </Card>

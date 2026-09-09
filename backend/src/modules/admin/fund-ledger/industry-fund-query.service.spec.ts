@@ -155,6 +155,19 @@ describe('IndustryFundQueryService list query contract', () => {
     ]) }));
   });
 
+  it('requires sensitive permission for an explicit bank reference and combines it with company search', async () => {
+    const tx = { industryFundPayment: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) } };
+    const prisma = { $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) } as any;
+    const service = new IndustryFundQueryService(prisma);
+    const query = Object.assign(new FundQueryDto(), { bankReference: ' bank-1 ', search: '果园' });
+    await expect(service.payments(query, false)).rejects.toThrow('无银行流水号查询权限');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await service.payments(query, true);
+    expect(tx.industryFundPayment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      bankReference: 'bank-1', OR: expect.arrayContaining([{ company: { name: { contains: '果园', mode: 'insensitive' } } }]),
+    }) }));
+  });
+
   it('keeps company detail ledger search scoped while matching ledger id or order id', async () => {
     const tx = {
       industryFundLedger: {
