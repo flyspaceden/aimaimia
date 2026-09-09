@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
   Card,
   Descriptions,
+  Drawer,
   Result,
   Skeleton,
   Space,
@@ -30,10 +31,14 @@ import {
   signedMoney,
   sourceTag,
 } from './common';
-import { FundHeading } from './workspace';
 import { fundLink, safeFundReturn } from './workspace-state';
 
-const validFundTypes = Object.keys(FUND_TYPE_LABELS) as FundType[];
+interface LedgerDetailPanelProps {
+  fundType: FundType;
+  id?: string | null;
+  returnTo?: string;
+  onClose?: () => void;
+}
 
 function metadataFlag(entry: FundLedgerEntry, key: string): boolean {
   return Boolean(entry.metadata && typeof entry.metadata[key] === 'boolean' && entry.metadata[key]);
@@ -50,7 +55,7 @@ function ratioText(value: number | null | undefined): string {
   return `${(Math.abs(ratio) <= 1 ? ratio * 100 : ratio).toFixed(2)}%`;
 }
 
-function calculationText(entry: FundLedgerEntry): string {
+function calculateBasis(entry: FundLedgerEntry): string {
   if (entry.eventType !== 'ACCRUAL') {
     return '本笔为结算或状态事件，金额沿用账本记录，不按利润基数 × 比例重新计算。';
   }
@@ -60,55 +65,74 @@ function calculationText(entry: FundLedgerEntry): string {
   return `${money(entry.profitBase)} × ${ratioText(entry.allocationRatio)} = ${money(Math.abs(entry.amount))}`;
 }
 
-function safeEntryId(id: string | undefined): string | undefined {
-  const value = id?.trim();
-  return value || undefined;
+function linkWithClose(path: string, label: string, onClose: () => void) {
+  return <Link to={path} onClick={onClose}>{label}</Link>;
 }
 
-function DetailSections({ entry, fundType, returnTo }: { entry: FundLedgerEntry; fundType: FundType; returnTo: string }) {
+function LedgerDetailContent({
+  entry,
+  fundType,
+  returnTo,
+  onClose,
+}: {
+  entry: FundLedgerEntry;
+  fundType: FundType;
+  returnTo: string;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
   const { hasPermission } = usePermission();
   const canReadIndustry = hasPermission(PERMISSIONS.INDUSTRY_FUNDS_READ);
+  const fullDetailPath = fundLink(`/fund-ledgers/entries/${fundType}/${encodeURIComponent(entry.id)}`, returnTo);
   const historical = metadataFlag(entry, 'historical');
   const sourceOperation = metadataText(entry, 'sourceOperation');
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {historical && <Alert type="info" showIcon message="历史流水按原记录展示" description="历史记录缺少的余额与计算依据保持为未记录；不会使用当前配置补算。" />}
-      <Card title={<Space><Tag color={FUND_TYPE_COLORS[fundType]}>{FUND_TYPE_LABELS[fundType] || fundType}</Tag><span>{entry.entryNo || entry.id}</span></Space>}>
+      <Card size="small" title="金额与事件">
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Space wrap>
+            <Tag color={FUND_TYPE_COLORS[fundType]}>{FUND_TYPE_LABELS[fundType] || fundType}</Tag>
             <Tag>{EVENT_LABELS[entry.eventType] || entry.eventType}</Tag>
             {sourceTag(entry.sourceType)}
           </Space>
           <Typography.Title level={2} style={{ margin: 0 }}>{signedMoney(entry.amount, entry.direction)}</Typography.Title>
-          <Typography.Text type="secondary">发生时间：{dateTime(entry.occurredAt || entry.createdAt)}</Typography.Text>
+          <Typography.Text type="secondary">{dateTime(entry.occurredAt || entry.createdAt)} · {entry.entryNo || entry.id}</Typography.Text>
         </Space>
-        <div style={{ marginTop: 16 }}><LedgerEntryDescriptions entry={entry} /></div>
       </Card>
 
-      <Card title="来源与计算依据">
-        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+      {historical && <Alert type="info" showIcon message="历史流水按原记录展示" description="历史记录缺少的余额与计算依据保持为未记录；不会使用当前配置补算。" />}
+
+      <Card size="small" title="来源与账本记录">
+        <LedgerEntryDescriptions entry={entry} />
+        <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} style={{ marginTop: 12 }}>
           <Descriptions.Item label="来源订单">
-            {entry.orderId ? <Link to={fundLink(`/orders/${encodeURIComponent(entry.orderId)}`, returnTo)}>{entry.orderId}</Link> : '-'}
+            {entry.orderId ? linkWithClose(fundLink(`/orders/${encodeURIComponent(entry.orderId)}`, returnTo), entry.orderId, onClose) : '-'}
           </Descriptions.Item>
           <Descriptions.Item label="来源公司">
             {entry.companyId && canReadIndustry
-              ? <Link to={fundLink(`/fund-ledgers/companies/${encodeURIComponent(entry.companyId)}`, returnTo)}>{entry.companyName || entry.companyId}</Link>
+              ? linkWithClose(fundLink(`/fund-ledgers/companies/${encodeURIComponent(entry.companyId)}`, returnTo), entry.companyName || entry.companyId, onClose)
               : entry.companyName || entry.companyId || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="付款单">
             {entry.paymentId && canReadIndustry
-              ? <Link to={fundLink(`/fund-ledgers/payments/${encodeURIComponent(entry.paymentId)}`, returnTo)}>{entry.paymentId}</Link>
+              ? linkWithClose(fundLink(`/fund-ledgers/payments/${encodeURIComponent(entry.paymentId)}`, returnTo), entry.paymentId, onClose)
               : entry.paymentId || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="来源操作">{sourceOperation || '系统记账'}</Descriptions.Item>
-          <Descriptions.Item label={entry.eventType === 'ACCRUAL' ? '利润基数 × 实际比例' : '本笔金额口径'} span={2}>{calculationText(entry)}</Descriptions.Item>
-          <Descriptions.Item label="规则版本">{entry.ruleVersion || '未记录'}</Descriptions.Item>
-          <Descriptions.Item label="原因">{entry.reason || '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
 
-      <Card title="余额变化">
+      <Card size="small" title="计算依据">
+        <Typography.Paragraph style={{ marginBottom: 0 }}>
+          <Typography.Text strong>{entry.eventType === 'ACCRUAL' ? '利润基数 × 实际比例 = 计提金额' : '本笔金额口径'}</Typography.Text>
+          <br />
+          <Typography.Text>{calculateBasis(entry)}</Typography.Text>
+        </Typography.Paragraph>
+        {entry.ruleVersion && <Typography.Text type="secondary">规则版本：{entry.ruleVersion}</Typography.Text>}
+      </Card>
+
+      <Card size="small" title="余额变化">
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="可用余额后">{money(entry.availableAfter)}</Descriptions.Item>
           <Descriptions.Item label="冻结余额后">{money(entry.frozenAfter)}</Descriptions.Item>
@@ -119,65 +143,61 @@ function DetailSections({ entry, fundType, returnTo }: { entry: FundLedgerEntry;
         </Descriptions>
       </Card>
 
-      <Card title="关联记录">
+      <Card size="small" title="关联记录">
         <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
           <Descriptions.Item label="原流水">{entry.reversalOfId || '-'}</Descriptions.Item>
           <Descriptions.Item label="关联流水">{entry.relatedEntryId || '-'}</Descriptions.Item>
           <Descriptions.Item label="计提 / 分配">{entry.accrualId || entry.allocationId || '-'}</Descriptions.Item>
+          <Descriptions.Item label="原因">{entry.reason || '-'}</Descriptions.Item>
           <Descriptions.Item label="操作者">{entry.operator?.realName || entry.operator?.username || entry.operator?.id || '系统任务'}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+        <Button onClick={onClose}>关闭</Button>
+        <Button type="primary" onClick={() => { onClose(); navigate(fullDetailPath); }}>打开完整详情</Button>
+      </Space>
     </Space>
   );
 }
 
-export default function FundLedgerEntryDetailPage() {
+export function LedgerDetailPanel({ fundType, id, returnTo, onClose }: LedgerDetailPanelProps) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { fundType: rawFundType, id: rawId } = useParams<{ fundType: string; id: string }>();
-  const fundType = rawFundType as FundType;
-  const id = safeEntryId(rawId);
-  const valid = validFundTypes.includes(fundType);
-  const returnTo = useMemo(
-    () => safeFundReturn(searchParams.get('returnTo'), `/fund-ledgers/${fundType}`),
-    [fundType, searchParams],
-  );
-  const query = useQuery({
+  const location = useLocation();
+  const safeReturnTo = useMemo(() => {
+    if (returnTo) return safeFundReturn(returnTo, `/fund-ledgers/${fundType}`);
+    const current = new URLSearchParams(location.search);
+    current.delete('entryId');
+    return safeFundReturn(`${location.pathname}${current.toString() ? `?${current}` : ''}`, `/fund-ledgers/${fundType}`);
+  }, [fundType, location.pathname, location.search, returnTo]);
+  const close = onClose ?? (() => navigate(safeReturnTo));
+  const entryQuery = useQuery({
     queryKey: ['admin', 'fund-ledgers', 'entry', fundType, id],
     queryFn: () => getFundLedgerEntry(fundType, id!),
-    enabled: valid && Boolean(id),
+    enabled: Boolean(id),
   });
 
-  if (!valid || !id) {
-    return <Result status="error" title="流水地址无效" extra={<Button onClick={() => navigate(returnTo)}>返回流水</Button>} />;
-  }
-
-  if (query.isPending) {
-    return <div className="fund-workspace"><Skeleton active paragraph={{ rows: 12 }} /></div>;
-  }
-
-  if (query.isError || !query.data) {
-    return (
-      <div className="fund-workspace">
+  return (
+    <Drawer
+      title={entryQuery.data?.entryNo || '流水详情'}
+      placement="right"
+      width="min(720px, 100vw)"
+      open={Boolean(id)}
+      onClose={close}
+      destroyOnClose
+    >
+      {entryQuery.isPending && <Skeleton active paragraph={{ rows: 12 }} />}
+      {entryQuery.isError && (
         <Result
           status="error"
           title="流水加载失败"
-          subTitle={getAdminErrorMessage(query.error, '暂时无法读取该流水')}
-          extra={<Space><Button onClick={() => { void query.refetch(); }}>重试</Button><Button onClick={() => navigate(returnTo)}>返回流水</Button></Space>}
+          subTitle={getAdminErrorMessage(entryQuery.error, '暂时无法读取该流水')}
+          extra={<Space><Button onClick={() => { void entryQuery.refetch(); }}>重试</Button><Button onClick={close}>关闭</Button></Space>}
         />
-      </div>
-    );
-  }
-
-  const entry = query.data;
-  return (
-    <div className="fund-workspace">
-      <FundHeading
-        title="基金流水详情"
-        description="账本事件只读展示；冲回、回款和更正通过新的关联事件记录。"
-        actions={<Button onClick={() => navigate(returnTo)}>返回流水</Button>}
-      />
-      <DetailSections entry={entry} fundType={fundType} returnTo={returnTo} />
-    </div>
+      )}
+      {entryQuery.data && <LedgerDetailContent entry={entryQuery.data} fundType={fundType} returnTo={safeReturnTo} onClose={close} />}
+    </Drawer>
   );
 }
+
+export default LedgerDetailPanel;

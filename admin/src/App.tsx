@@ -61,6 +61,8 @@ const AnnouncementsPage = lazy(() => import('@/pages/announcements/index'));
 const AccountSecurityPage = lazy(() => import('@/pages/account-security/index'));
 const DigitalAssetsPage = lazy(() => import('@/pages/digital-assets/index'));
 const FundLedgersPage = lazy(() => import('@/pages/fund-ledgers/index'));
+const FundCompaniesPage = lazy(() => import('@/pages/fund-ledgers/companies'));
+const FundPaymentsPage = lazy(() => import('@/pages/fund-ledgers/payments'));
 const FundLedgerEntriesPage = lazy(() => import('@/pages/fund-ledgers/entries'));
 const FundLedgerEntryDetailPage = lazy(() => import('@/pages/fund-ledgers/entry-detail'));
 const IndustryFundCompanyDetailPage = lazy(() => import('@/pages/fund-ledgers/company-detail'));
@@ -159,6 +161,8 @@ export default function App() {
             <Route path="users/:id" element={<UserDetailPage />} />
             <Route path="digital-assets" element={<DigitalAssetsPage />} />
             <Route path="fund-ledgers" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgersPage /></RequireAnyPermission>} />
+            <Route path="fund-ledgers/companies" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><FundCompaniesPage /></RequirePermission>} />
+            <Route path="fund-ledgers/payments" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><FundPaymentsPage /></RequirePermission>} />
             <Route path="fund-ledgers/companies/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundCompanyDetailPage /></RequirePermission>} />
             <Route path="fund-ledgers/payments/:id" element={<RequirePermission permission={PERMISSIONS.INDUSTRY_FUNDS_READ}><IndustryFundPaymentDetailPage /></RequirePermission>} />
             <Route path="fund-ledgers/entries/:fundType/:id" element={<RequireAnyPermission permissions={[PERMISSIONS.FUND_LEDGERS_READ, PERMISSIONS.INDUSTRY_FUNDS_READ]}><FundLedgerEntryDetailPage /></RequireAnyPermission>} />

@@ -26,6 +26,10 @@ export type LedgerEventType =
   | string;
 
 export interface FundLedgerQuery {
+  status?: string;
+  search?: string;
+  bankReference?: string;
+  view?: 'all' | 'available' | 'pending' | 'review' | 'recovery';
   page?: number;
   pageSize?: number;
   from?: string;
@@ -38,7 +42,7 @@ export interface FundLedgerQuery {
 
 export interface FundSummaryRow {
   fundType: FundType;
-  initialBalance?: number;
+  initialBalance?: number | null;
   periodIncome?: number;
   periodExpense?: number;
   currentBalance?: number;
@@ -71,7 +75,7 @@ export interface FundSummaryResponse {
 }
 
 export interface IndustryFundSummaryResponse {
-  initialBalance?: number;
+  initialBalance?: number | null;
   periodIncome?: number;
   periodExpense?: number;
   frozen?: number;
@@ -120,6 +124,7 @@ export interface FundLedgerEntry {
 }
 
 export interface PageResult<T> {
+  summary?: { available?: number; frozen?: number; reserved?: number; recoverable?: number; count?: number; pendingCount?: number; reviewCount?: number; recoveryCount?: number };
   items: T[];
   total: number;
   page: number;
