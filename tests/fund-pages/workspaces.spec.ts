@@ -192,9 +192,11 @@ test('手机宽度详情抽屉保持在屏幕内',async({page})=>{
   await page.goto('/fund-ledgers/companies?q=丰禾');
   await page.getByRole('button',{name:'查看',exact:true}).click();
   await expect(page.getByRole('tab',{name:'资金明细'})).toBeVisible();
-  const bounds=await page.getByRole('dialog').boundingBox();
-  expect(bounds?.width).toBeLessThanOrEqual(390);
-  expect(bounds?.x).toBeGreaterThanOrEqual(0);
+  // Wait for the entrance transform and allow only subpixel measurement noise.
+  await expect.poll(async()=>{
+    const bounds=await page.getByRole('dialog').boundingBox();
+    return bounds ? Math.max(bounds.width-390, -bounds.x, bounds.x+bounds.width-390) : Infinity;
+  }).toBeLessThanOrEqual(0.01);
 });
 
 const proofPng=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
