@@ -2553,3 +2553,8 @@ src/components/ai/   → 新增目录
 ## 2026-09-08 平台基金账本
 
 管理端新增基金账本及公司产业基金子账（本地实现与验证完成，未部署）。买家 App 不增加入口；新产业基金不进入个人 Reward 钱包，历史个人余额及原提现流程保持兼容。详见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md`。
+
+
+### 2026-09-09 管理端资金页面信息结构设计
+
+基金账本、公司产业基金、公对公付款拟拆为独立菜单；采用常用状态筛选、关键词搜索、主列表及详情抽屉。编辑入口依资金状态区分，已入账金额不直接改写。本次交付设计文档和独立示例原型，业务页面尚未实施；详见 `docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`。

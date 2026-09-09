@@ -2010,3 +2010,12 @@
 - [ ] 后续生产审批与部署（尚未授权）。
 
 设计与实施证据分别见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md` 和 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`。
+
+
+## 2026-09-09 资金管理三页体验优化
+
+- [x] 用户确认拆分为基金账本、公司产业基金、公对公付款三个页面。
+- [x] 完成结构/搜索/详情/按状态编辑设计及独立可点击原型；已检查主要交互与窄屏金额展示。
+- [ ] 用户审阅设计细节后实施业务页面与所需查询能力；当前线上页面未变更。
+
+设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`；原型：`docs/ui-prototypes/fund-management-v2/index.html`。
