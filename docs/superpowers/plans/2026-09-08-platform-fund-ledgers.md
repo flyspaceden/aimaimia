@@ -41,3 +41,8 @@
 本地完整迁移链成功，backend 274 suites / 3218 tests passed，21 tests 按原条件 skipped；管理后台构建通过。基金 PostgreSQL 验证接入 E2E workflow 的独立 fund_test_ci 数据库。
 
 测试集成使用 codex/fund-ledgers-staging-20260909，基于原 staging-next@de252f78，仅摘取本次基金提交，保留既有测试功能与部署保护。main-based 功能分支独立保留，禁止把测试集成分支整体合入 main。远端 CI 与部署结论以后续发布记录为准。
+
+
+## staging-next 验收完成
+
+2026-09-09：PR #22 已合入并部署 e69004f2；部署门禁成功，三个组件 exact SHA 一致，已检查实际基金总览、流水、详情及空表单校验。PR #21 仍 Draft，生产未发布。详见 `docs/operations/fund-ledgers-staging-20260909.md`。本条为发布后本地运维记录。
