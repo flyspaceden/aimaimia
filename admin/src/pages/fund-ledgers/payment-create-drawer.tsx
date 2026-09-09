@@ -357,7 +357,7 @@ export default function PaymentCreateDrawer({
       title={title}
       open={open}
       onClose={handleClose}
-      width={720}
+      width="min(720px, 100vw)"
       destroyOnClose
       maskClosable={false}
       footer={(
@@ -406,7 +406,7 @@ export default function PaymentCreateDrawer({
       {sourceLoading ? (
         <Space style={{ width: '100%', justifyContent: 'center', padding: 60 }}><Spin /></Space>
       ) : (
-        <Form form={form} layout="vertical" onFinish={submit} disabled={formFrozen}>
+        <Form form={form} layout="vertical" onFinish={submit} disabled={formFrozen || submitting}>
           {correction && (
             <Alert
               type="info"

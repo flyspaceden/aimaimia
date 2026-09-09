@@ -22,6 +22,7 @@ export function useFundSearch() {
     setParams(previous => {
       const next = new URLSearchParams(previous);
       if (resetPage) next.delete('page');
+      if (Object.prototype.hasOwnProperty.call(patch, 'q')) next.delete('search');
       for (const [key, value] of Object.entries(patch)) {
         if (value === undefined || value === '') next.delete(key); else next.set(key, String(value));
       }
