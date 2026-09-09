@@ -57,7 +57,7 @@ function calculationText(entry: FundLedgerEntry): string {
   if (entry.profitBase === null || entry.profitBase === undefined || entry.allocationRatio === null || entry.allocationRatio === undefined) {
     return '未记录利润基数或实际比例；不使用当前配置反推历史金额。';
   }
-  return `${money(entry.profitBase)} × ${ratioText(entry.allocationRatio)} = ${money(Math.abs(entry.amount))}`;
+  return `利润基数 ${money(entry.profitBase)}，基金比例 ${ratioText(entry.allocationRatio)}；本笔计提 ${money(Math.abs(entry.amount))}，以公司归属分摊及分币取整后的账本金额为准。`;
 }
 
 function safeEntryId(id: string | undefined): string | undefined {
@@ -102,7 +102,7 @@ function DetailSections({ entry, fundType, returnTo }: { entry: FundLedgerEntry;
               : entry.paymentId || '-'}
           </Descriptions.Item>
           <Descriptions.Item label="来源操作">{sourceOperation || '系统记账'}</Descriptions.Item>
-          <Descriptions.Item label={entry.eventType === 'ACCRUAL' ? '利润基数 × 实际比例' : '本笔金额口径'} span={2}>{calculationText(entry)}</Descriptions.Item>
+          <Descriptions.Item label={entry.eventType === 'ACCRUAL' ? '利润基数、基金比例与本笔计提' : '本笔金额口径'} span={2}>{calculationText(entry)}</Descriptions.Item>
           <Descriptions.Item label="规则版本">{entry.ruleVersion || '未记录'}</Descriptions.Item>
           <Descriptions.Item label="原因">{entry.reason || '-'}</Descriptions.Item>
         </Descriptions>

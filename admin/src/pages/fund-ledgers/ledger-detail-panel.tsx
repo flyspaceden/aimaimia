@@ -62,7 +62,7 @@ function calculateBasis(entry: FundLedgerEntry): string {
   if (entry.profitBase === null || entry.profitBase === undefined || entry.allocationRatio === null || entry.allocationRatio === undefined) {
     return '未记录利润基数或实际比例；不使用当前配置反推历史金额。';
   }
-  return `${money(entry.profitBase)} × ${ratioText(entry.allocationRatio)} = ${money(Math.abs(entry.amount))}`;
+  return `利润基数 ${money(entry.profitBase)}，基金比例 ${ratioText(entry.allocationRatio)}；本笔计提 ${money(Math.abs(entry.amount))}，以公司归属分摊及分币取整后的账本金额为准。`;
 }
 
 function linkWithClose(path: string, label: string, onClose: () => void) {
@@ -125,7 +125,7 @@ function LedgerDetailContent({
 
       <Card size="small" title="计算依据">
         <Typography.Paragraph style={{ marginBottom: 0 }}>
-          <Typography.Text strong>{entry.eventType === 'ACCRUAL' ? '利润基数 × 实际比例 = 计提金额' : '本笔金额口径'}</Typography.Text>
+          <Typography.Text strong>{entry.eventType === 'ACCRUAL' ? '利润基数、基金比例与本笔计提' : '本笔金额口径'}</Typography.Text>
           <br />
           <Typography.Text>{calculateBasis(entry)}</Typography.Text>
         </Typography.Paragraph>

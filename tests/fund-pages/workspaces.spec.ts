@@ -167,3 +167,11 @@ test('离开已填写付款单时可继续编辑而不丢失内容',async({page}
   await page.getByRole('button',{name:'继续填写',exact:true}).click();
   await expect(page.getByRole('textbox',{name:/对公账号/})).toHaveValue('00000000000001');
 });
+
+test('公司计提依据区分整体基金比例与公司分摊金额',async({page})=>{
+  await setup(page);
+  await page.route('**/api/v1/admin/fund-ledgers/INDUSTRY_FUND/entries/ledger-a',route=>route.fulfill({json:{ok:true,data:{...LEDGER,fundType:'INDUSTRY_FUND',eventType:'ACCRUAL',amount:4,profitBase:100,allocationRatio:.08}}}));
+  await page.goto('/fund-ledgers/entries/INDUSTRY_FUND/ledger-a');
+  await expect(page.getByText(/利润基数 ¥100.00，基金比例 8.00%；本笔计提 ¥4.00/)).toBeVisible();
+  await expect(page.getByText(/100.00.*×.*8.00%.*=.*4.00/)).toHaveCount(0);
+});
