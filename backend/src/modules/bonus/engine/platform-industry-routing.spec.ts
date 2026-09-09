@@ -9,7 +9,7 @@ describe('新产业基金隔离个人钱包', () => {
     const companyLedger = { accrueInTransaction: jest.fn().mockResolvedValue(undefined) };
     const service = new Service(companyLedger as never);
     const tx = {
-      rewardAccount: { findUnique: jest.fn().mockResolvedValue({ id: 'platform' }), update: jest.fn() },
+      rewardAccount: { upsert: jest.fn().mockResolvedValue({ id: 'platform' }), update: jest.fn() },
       rewardLedger: { create: jest.fn() },
       companyStaff: { findFirst: jest.fn() },
     };

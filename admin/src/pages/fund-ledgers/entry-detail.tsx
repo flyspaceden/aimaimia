@@ -70,6 +70,7 @@ export default function FundLedgerEntryDetailPage() {
             <Descriptions.Item label="可用余额后">{money(entry.availableAfter)}</Descriptions.Item>
             <Descriptions.Item label="冻结余额后">{money(entry.frozenAfter)}</Descriptions.Item>
             <Descriptions.Item label="预留余额后">{money(entry.reservedAfter)}</Descriptions.Item>
+            <Descriptions.Item label="待追偿后">{money(entry.recoveryDueAfter)}</Descriptions.Item>
             <Descriptions.Item label="公司">{entry.companyId ? <Link to={`/fund-ledgers/companies/${entry.companyId}`}>{entry.companyName || entry.companyId}</Link> : '-'}</Descriptions.Item>
             <Descriptions.Item label="关联订单">{entry.orderId || '-'}</Descriptions.Item>
             <Descriptions.Item label="关联付款单">{entry.paymentId || '-'}</Descriptions.Item>
@@ -87,7 +88,7 @@ export default function FundLedgerEntryDetailPage() {
             <Descriptions.Item label="原流水">{entry.reversalOfId || '-'}</Descriptions.Item>
             <Descriptions.Item label="关联流水">{entry.relatedEntryId || '-'}</Descriptions.Item>
             <Descriptions.Item label="付款单">{entry.paymentId || '-'}</Descriptions.Item>
-            <Descriptions.Item label="操作者">{entry.operator?.realName || entry.operator?.username || '系统任务'}</Descriptions.Item>
+            <Descriptions.Item label="操作者">{entry.operator?.realName || entry.operator?.username || entry.operator?.id || '系统任务'}</Descriptions.Item>
             <Descriptions.Item label="原因">{entry.reason || '-'}</Descriptions.Item>
           </Descriptions>
         </Card>

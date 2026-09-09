@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { IndustryFundLedgerEventType, IndustryFundPaymentStatus, Prisma } from '@prisma/client';
+import { CompanyStatus, IndustryFundLedgerEventType, IndustryFundPaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FundQueryDto } from './fund-ledger.dto';
 
@@ -21,15 +21,18 @@ export class IndustryFundQueryService {
 
   async summary(q: FundQueryDto = new FundQueryDto()) {
     this.period(q);
+    // Prisma Date 参数按 timestamptz 绑定，显式转成 UTC 文本再比较 timestamp 列。
+    const from = q.from ? new Date(q.from).toISOString().slice(0, 23).replace('T', ' ') : null;
+    const to = q.to ? new Date(q.to).toISOString().slice(0, 23).replace('T', ' ') : null;
     return this.prisma.$transaction(async tx => {
       const [sum, unassigned, movements] = await Promise.all([
         tx.industryFundAccount.aggregate({ _sum: { frozenAmount: true, payableAmount: true, reservedAmount: true, totalAccrued: true, totalReversed: true, totalPaid: true, totalRecovered: true, recoveryDue: true } }),
         tx.$queryRaw<Array<{ amount: number; count: bigint }>>`SELECT COALESCE(SUM(amount - "reversedAmount"),0)::float8 AS amount, COUNT(*) AS count FROM industry_fund_unassigned_entries WHERE status = 'PENDING' AND amount > "reversedAmount"`,
         tx.$queryRaw<Array<{ initialBalance: number; periodIncome: number; periodExpense: number }>>(Prisma.sql`
           WITH movement AS (SELECT "createdAt", ("frozenDelta" + "payableDelta" + "reservedDelta") AS delta FROM industry_fund_ledgers)
-          SELECT COALESCE(SUM(CASE WHEN ${q.from ? new Date(q.from) : null}::timestamp IS NOT NULL AND "createdAt" < ${q.from ? new Date(q.from) : null}::timestamp THEN delta ELSE 0 END),0)::float8 AS "initialBalance",
-          COALESCE(SUM(CASE WHEN (${q.from ? new Date(q.from) : null}::timestamp IS NULL OR "createdAt" >= ${q.from ? new Date(q.from) : null}::timestamp) AND (${q.to ? new Date(q.to) : null}::timestamp IS NULL OR "createdAt" <= ${q.to ? new Date(q.to) : null}::timestamp) THEN GREATEST(delta,0) ELSE 0 END),0)::float8 AS "periodIncome",
-          COALESCE(SUM(CASE WHEN (${q.from ? new Date(q.from) : null}::timestamp IS NULL OR "createdAt" >= ${q.from ? new Date(q.from) : null}::timestamp) AND (${q.to ? new Date(q.to) : null}::timestamp IS NULL OR "createdAt" <= ${q.to ? new Date(q.to) : null}::timestamp) THEN GREATEST(-delta,0) ELSE 0 END),0)::float8 AS "periodExpense" FROM movement`),
+          SELECT COALESCE(SUM(CASE WHEN ${from}::timestamp IS NOT NULL AND "createdAt" < ${from}::timestamp THEN delta ELSE 0 END),0)::float8 AS "initialBalance",
+          COALESCE(SUM(CASE WHEN (${from}::timestamp IS NULL OR "createdAt" >= ${from}::timestamp) AND (${to}::timestamp IS NULL OR "createdAt" <= ${to}::timestamp) THEN GREATEST(delta,0) ELSE 0 END),0)::float8 AS "periodIncome",
+          COALESCE(SUM(CASE WHEN (${from}::timestamp IS NULL OR "createdAt" >= ${from}::timestamp) AND (${to}::timestamp IS NULL OR "createdAt" <= ${to}::timestamp) THEN GREATEST(-delta,0) ELSE 0 END),0)::float8 AS "periodExpense" FROM movement`),
       ]);
       const s = sum._sum;
       return { ...movements[0], frozen: s.frozenAmount ?? 0, available: s.payableAmount ?? 0, reserved: s.reservedAmount ?? 0,
@@ -41,14 +44,23 @@ export class IndustryFundQueryService {
   }
 
   async companies(q: FundQueryDto) {
+    if (q.status && !Object.values(CompanyStatus).includes(q.status as CompanyStatus)) {
+      throw new BadRequestException('公司状态无效');
+    }
     const where: Prisma.IndustryFundAccountWhereInput = {
       ...(q.companyId ? { companyId: q.companyId } : {}),
-      ...(q.search ? { company: { name: { contains: q.search, mode: 'insensitive' } } } : {}),
+      ...((q.search || q.status) ? {
+        company: {
+          ...(q.search ? { name: { contains: q.search, mode: 'insensitive' } } : {}),
+          ...(q.status ? { status: q.status as CompanyStatus } : {}),
+        },
+      } : {}),
     };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.industryFundAccount.findMany({ where, include: { company: { select: { id: true, name: true, status: true } } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
       this.prisma.industryFundAccount.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    // 公司账户列展示当前投影余额；期间筛选只作用于汇总和流水，不伪装成历史余额。
     return { items: rows.map(r => this.companyView(r)), total, page: q.page, pageSize: q.pageSize };
   }
 
@@ -68,6 +80,7 @@ export class IndustryFundQueryService {
       direction: net > 0 ? 'CREDIT' : net < 0 ? 'DEBIT' : 'INTERNAL', createdAt: row.createdAt,
       balanceAfter: row.balanceFrozen + row.balancePayable + row.balanceReserved,
       availableAfter: row.balancePayable, frozenAfter: row.balanceFrozen, reservedAfter: row.balanceReserved,
+      recoveryDueAfter: row.balanceRecoveryDue,
       sourceType: row.accrual ? (row.accrual.scheme.startsWith('VIP') ? 'VIP' : 'NORMAL') : null,
       orderId: row.orderId, companyId: row.companyId, companyName: row.account.company.name,
       allocationId: row.allocationId, accrualId: row.accrualId, paymentId: row.paymentId,
@@ -75,7 +88,8 @@ export class IndustryFundQueryService {
       snapshot: row.accrual?.configSnapshot, reason: row.reason,
       // 原始 meta 可能包含付款凭证或账户信息，账本只返回余额变化和关联编号。
       metadata: { frozenDelta: row.frozenDelta, payableDelta: row.payableDelta, reservedDelta: row.reservedDelta,
-        paidDelta: row.totalPaidDelta, recoveredDelta: row.totalRecoveredDelta, recoveryDueDelta: row.recoveryDueDelta },
+        paidDelta: row.totalPaidDelta, recoveredDelta: row.totalRecoveredDelta, recoveryDueDelta: row.recoveryDueDelta,
+        recoveryDueAfter: row.balanceRecoveryDue },
       operator: row.actorId ? { id: row.actorId } : null };
   }
 
@@ -111,20 +125,33 @@ export class IndustryFundQueryService {
       this.prisma.industryFundPayment.findMany({ where, select: { id: true, companyId: true, company: { select: { id: true, name: true } }, amount: true, status: true, needsReview: true, reviewReason: true, actualPaidAt: true, createdAt: true, updatedAt: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
       this.prisma.industryFundPayment.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    return { items: items.map(r => ({ ...r, paidAt: r.actualPaidAt })), total, page: q.page, pageSize: q.pageSize };
+    return { items: items.map(r => ({ ...r, paidAt: r.actualPaidAt, actualAmount: r.status === 'PAID' || r.status === 'REVERSED' ? r.amount : null })), total, page: q.page, pageSize: q.pageSize };
   }
 
   async payment(id: string, sensitive: boolean) {
-    const row = await this.prisma.industryFundPayment.findUnique({ where: { id }, include: { company: { select: { id: true, name: true } }, items: { include: { accrual: { select: { orderId: true, originalAmount: true } } } }, ledgers: { where: { eventType: 'RECOVERY' }, orderBy: { createdAt: 'asc' } } } });
+    const row = await this.prisma.industryFundPayment.findUnique({ where: { id }, include: {
+      company: { select: { id: true, name: true } },
+      items: { include: { accrual: { select: { orderId: true, originalAmount: true } } } },
+      recoveries: { orderBy: { createdAt: 'asc' } },
+      ledgers: { orderBy: { createdAt: 'asc' } },
+    } });
     if (!row) throw new NotFoundException('付款单不存在');
-    const { bankAccount, proofKey, sourceAccountRef, bankReference, ledgers, ...rest } = row;
+    const { bankAccount, proofKey, sourceAccountRef, bankReference, recoveries, ledgers, ...rest } = row;
     return { ...rest, paidAt: row.actualPaidAt,
+      actualAmount: row.status === 'PAID' || row.status === 'REVERSED' ? row.amount : null,
       bankAccount: sensitive ? bankAccount : `****${bankAccount.slice(-4)}`,
       proofKey: sensitive ? proofKey : null,
       sourceAccountRef: sensitive ? sourceAccountRef : null,
       bankReference: sensitive ? bankReference : null,
-      items: row.items.map(i => ({ id: i.id, accrualId: i.accrualId, amount: i.amount, orderId: i.accrual.orderId, sourceAmount: i.accrual.originalAmount })),
-      recoveries: ledgers.map(l => ({ id: l.id, amount: l.amount, reason: l.reason, createdAt: l.createdAt, ...(sensitive && l.meta && typeof l.meta === 'object' ? l.meta : {}) })) };
+      items: row.items.map(i => ({ id: i.id, accrualId: i.accrualId, amount: i.amount, reservedAmount: i.reservedAmount,
+        paidAmount: i.paidAmount, recoveryDue: i.recoveryDue, recoveredAmount: i.recoveredAmount,
+        orderId: i.accrual.orderId, sourceAmount: i.accrual.originalAmount })),
+      recoveries: recoveries.map(r => ({ id: r.id, paymentId: r.paymentId, companyId: r.companyId, amount: r.amount,
+        recoveredAt: r.recoveredAt, bankReference: sensitive ? r.bankReference : null, proofKey: sensitive ? r.proofKey : null,
+        reason: r.reason, createdAt: r.createdAt, operator: r.actorId ? { id: r.actorId } : null })),
+      statusHistory: ledgers.map(l => ({ id: l.id, eventType: l.eventType, amount: l.amount, reason: l.reason,
+        occurredAt: l.createdAt, operator: l.actorId ? { id: l.actorId } : null })),
+    };
   }
 
   async unassigned(q: FundQueryDto) {

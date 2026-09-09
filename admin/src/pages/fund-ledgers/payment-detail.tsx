@@ -39,7 +39,7 @@ import {
 import { PERMISSIONS } from '@/constants/permissions';
 import PermissionGate from '@/components/PermissionGate';
 import { getAdminErrorMessage } from '@/utils/adminErrorMessage';
-import { dateTime, money, paymentStatusTag } from './common';
+import { dateTime, eventTag, money, paymentStatusTag } from './common';
 
 const makeIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -237,7 +237,8 @@ export default function IndustryFundPaymentDetailPage() {
         </Card>
 
         {payment.proofKey && <Card title="付款凭证"><Space><Typography.Text>私有凭证已上传</Typography.Text><Button icon={<DownloadOutlined />} onClick={() => downloadProof(payment.proofKey!)}>鉴权下载</Button></Space></Card>}
-        {payment.recoveries?.length ? <Card title="实际回款记录"><Table rowKey="id" size="small" pagination={false} dataSource={payment.recoveries} columns={[{ title: '回款金额', dataIndex: 'amount', render: (value: number) => money(value) }, { title: '回款时间', dataIndex: 'recoveredAt', render: (value) => dateTime(value) }, { title: '银行流水号', dataIndex: 'bankReference' }, { title: '原因', dataIndex: 'reason' }]} /></Card> : null}
+        {payment.recoveries?.length ? <Card title="实际回款记录"><Table rowKey="id" size="small" pagination={false} dataSource={payment.recoveries} columns={[{ title: '回款金额', dataIndex: 'amount', render: (value: number) => money(value) }, { title: '回款时间', dataIndex: 'recoveredAt', render: (value) => dateTime(value) }, { title: '银行流水号', dataIndex: 'bankReference', render: (value) => value || '受权限保护' }, { title: '原因', dataIndex: 'reason' }]} /></Card> : null}
+        {payment.statusHistory?.length ? <Card title="付款状态历史"><Table rowKey="id" size="small" pagination={false} dataSource={payment.statusHistory} columns={[{ title: '事件', dataIndex: 'eventType', render: (value: string) => eventTag(value) }, { title: '金额', dataIndex: 'amount', render: (value: number) => money(value) }, { title: '时间', dataIndex: 'occurredAt', render: (value) => dateTime(value) }, { title: '原因', dataIndex: 'reason', render: (value) => value || '-' }, { title: '操作人', dataIndex: ['operator', 'id'], render: (value) => value || '系统任务' }]} /></Card> : null}
       </Space>
 
       <Modal title="登记已付款" open={modal === 'confirm'} onCancel={() => { if (!confirmMutation.isPending) setModal(null); }} onOk={() => confirmForm.submit()} okButtonProps={{ disabled: proofUploading }} confirmLoading={confirmMutation.isPending} destroyOnClose>

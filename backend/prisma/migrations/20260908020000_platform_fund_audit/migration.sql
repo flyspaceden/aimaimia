@@ -2,10 +2,11 @@
 --
 -- This migration deliberately does not rewrite RewardAccount or RewardLedger.
 -- Existing balances are captured as immutable opening snapshots; existing
--- ledgers are exposed by the query service as historical fallback rows until a
--- post-cutover trigger event references the same ledger.
+-- ledgers remain read-only historical evidence, with post-cutover trigger
+-- events retained separately by the query service.
 
 BEGIN;
+SET LOCAL TIME ZONE 'UTC';
 
 -- An explicit transaction surrounds this migration. These locks make the cutover
 -- snapshot and trigger installation an atomic boundary even if this file is
@@ -13,7 +14,7 @@ BEGIN;
 LOCK TABLE "RewardAccount" IN SHARE ROW EXCLUSIVE MODE;
 LOCK TABLE "RewardLedger" IN SHARE ROW EXCLUSIVE MODE;
 
-CREATE TABLE IF NOT EXISTS "PlatformFundOpening" (
+CREATE TABLE "PlatformFundOpening" (
   "id" TEXT NOT NULL,
   "accountId" TEXT NOT NULL,
   "fundType" VARCHAR(32) NOT NULL,
@@ -39,12 +40,12 @@ CREATE TABLE IF NOT EXISTS "PlatformFundOpening" (
       AND "openingFrozen" > '-Infinity'::double precision)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS "PlatformFundOpening_accountId_key"
+CREATE UNIQUE INDEX "PlatformFundOpening_accountId_key"
   ON "PlatformFundOpening" ("accountId");
-CREATE INDEX IF NOT EXISTS "PlatformFundOpening_fundType_capturedAt_idx"
+CREATE INDEX "PlatformFundOpening_fundType_capturedAt_idx"
   ON "PlatformFundOpening" ("fundType", "capturedAt");
 
-CREATE TABLE IF NOT EXISTS "PlatformFundEvent" (
+CREATE TABLE "PlatformFundEvent" (
   "id" TEXT NOT NULL,
   "accountId" TEXT NOT NULL,
   "fundType" VARCHAR(32) NOT NULL,
@@ -122,19 +123,19 @@ CREATE TABLE IF NOT EXISTS "PlatformFundEvent" (
   )
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS "PlatformFundEvent_accountId_eventSequence_key"
+CREATE UNIQUE INDEX "PlatformFundEvent_accountId_eventSequence_key"
   ON "PlatformFundEvent" ("accountId", "eventSequence");
-CREATE UNIQUE INDEX IF NOT EXISTS "PlatformFundEvent_idempotencyKey_key"
+CREATE UNIQUE INDEX "PlatformFundEvent_idempotencyKey_key"
   ON "PlatformFundEvent" ("idempotencyKey");
-CREATE INDEX IF NOT EXISTS "PlatformFundEvent_fundType_occurredAt_id_idx"
+CREATE INDEX "PlatformFundEvent_fundType_occurredAt_id_idx"
   ON "PlatformFundEvent" ("fundType", "occurredAt" DESC, "id" DESC);
-CREATE INDEX IF NOT EXISTS "PlatformFundEvent_accountId_eventSequence_idx"
+CREATE INDEX "PlatformFundEvent_accountId_eventSequence_idx"
   ON "PlatformFundEvent" ("accountId", "eventSequence");
-CREATE INDEX IF NOT EXISTS "PlatformFundEvent_accountId_transactionId_idx"
+CREATE INDEX "PlatformFundEvent_accountId_transactionId_idx"
   ON "PlatformFundEvent" ("accountId", "transactionId", "eventSequence");
-CREATE INDEX IF NOT EXISTS "PlatformFundEvent_rewardLedgerId_idx"
+CREATE INDEX "PlatformFundEvent_rewardLedgerId_idx"
   ON "PlatformFundEvent" ("rewardLedgerId");
-CREATE INDEX IF NOT EXISTS "PlatformFundEvent_refId_idx"
+CREATE INDEX "PlatformFundEvent_refId_idx"
   ON "PlatformFundEvent" ("refId");
 
 COMMENT ON TABLE "PlatformFundOpening" IS
@@ -203,6 +204,7 @@ CREATE OR REPLACE FUNCTION "platform_fund_ensure_opening"(
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SET timezone = 'UTC'
 AS $$
 BEGIN
   INSERT INTO "PlatformFundOpening" (
@@ -233,6 +235,7 @@ IMMUTABLE
 AS $$
   SELECT CASE
     WHEN p_entry_type IN ('WITHDRAW', 'DEDUCT') THEN -ABS(COALESCE(p_amount, 0))
+    WHEN p_entry_type = 'VOID' AND COALESCE(p_amount, 0) > 0 THEN -ABS(COALESCE(p_amount, 0))
     ELSE COALESCE(p_amount, 0)
   END
 $$;
@@ -269,6 +272,7 @@ CREATE OR REPLACE FUNCTION "platform_fund_write_event"(
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SET timezone = 'UTC'
 AS $$
 DECLARE
   v_sequence BIGINT;
@@ -328,6 +332,7 @@ $$;
 CREATE OR REPLACE FUNCTION "platform_fund_reward_account_audit"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET timezone = 'UTC'
 AS $$
 DECLARE
   v_old_type TEXT;
@@ -375,6 +380,17 @@ BEGIN
       THEN NEW."type"::text
     ELSE NULL
   END;
+
+  -- The audit stream is keyed by the account identity and fund type. There is
+  -- no supported cross-fund migration in this release; fail closed rather
+  -- than leaving an opening snapshot that cannot reconstruct either stream.
+  IF TG_OP = 'UPDATE'
+     AND (v_old_type IS NOT NULL OR v_new_type IS NOT NULL)
+     AND (OLD."userId" IS DISTINCT FROM NEW."userId"
+       OR OLD."type" IS DISTINCT FROM NEW."type") THEN
+    RAISE EXCEPTION 'platform fund account identity cannot change after creation'
+      USING ERRCODE = '55000';
+  END IF;
 
   IF v_old_type IS NULL AND v_new_type IS NULL THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
@@ -443,6 +459,7 @@ $$;
 CREATE OR REPLACE FUNCTION "platform_fund_reward_ledger_audit"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET timezone = 'UTC'
 AS $$
 DECLARE
   v_old_type TEXT;
@@ -585,6 +602,7 @@ $$;
 CREATE OR REPLACE FUNCTION "platform_fund_immutable_guard"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET timezone = 'UTC'
 AS $$
 BEGIN
   RAISE EXCEPTION 'platform fund audit rows are immutable: %.%', TG_TABLE_NAME, TG_OP

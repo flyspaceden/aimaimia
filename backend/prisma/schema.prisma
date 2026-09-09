@@ -6041,6 +6041,8 @@ model FundPrivateProof {
   mimeType String
   content Bytes
   createdAt DateTime @default(now())
+  binding FundProofBinding?
+  @@index([adminId, createdAt])
 }
 
 model IndustryFundUnassignedEvent {
@@ -6065,4 +6067,11 @@ model IndustryFundPaymentRequest {
   createdAt DateTime @default(now())
   @@index([operation, targetId, createdAt], map: "industry_fund_payment_requests_target_idx")
   @@map("industry_fund_payment_requests")
+}
+
+model FundProofBinding {
+  proofId String @id
+  proof FundPrivateProof @relation(fields: [proofId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bindingKey String
+  createdAt DateTime @default(now())
 }
