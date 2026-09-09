@@ -309,5 +309,133 @@
       "gitBlob": "7b17981c8ba10c4fd228288d1f8a1e62f892b53e",
       "reason": "Use current database staff role so a role downgrade immediately restricts pickup operations while preserving session and company checks."
     }
+  ],
+  "reviewedFundLedgerDifferences": [
+    {
+      "path": "backend/src/modules/admin/admin.module.ts",
+      "gitBlob": "9330c0cf48bdf85e0dbe24c334e4664a3cd3d076",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/common/decorators/require-permission.ts",
+      "gitBlob": "7fc676047f368fc1fd82a328d33e56cc4bb74951",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/common/guards/permission.guard.ts",
+      "gitBlob": "47ae78c814be488ea7b0ced6b8d7500f61f99b2d",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/common/interceptors/audit-log.interceptor.ts",
+      "gitBlob": "c256d3fc489567f9710dca25370f921e55fed4c8",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/admin-fund-ledger.controller.ts",
+      "gitBlob": "02a83bc68746d781e738da2c83c5067672aac0b2",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/admin-fund-ledger.module.ts",
+      "gitBlob": "e4169ece4d62d120d475fe4cdd35bdb2a8cf60c7",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/admin-industry-fund.controller.ts",
+      "gitBlob": "4604f4feaead4f0c5f03a4178fd1c501b015821b",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/fund-ledger.dto.ts",
+      "gitBlob": "c8e3054f60a06f67f7efcdcf25da491ab8e1ed70",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/fund-proof.service.ts",
+      "gitBlob": "747641dad8d6cd8e93e5189c690d07584c249ed4",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/industry-fund-payment.service.ts",
+      "gitBlob": "39ded43e2cdfd6deb15e7522f8ea24c3554aca4a",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/admin/fund-ledger/industry-fund-query.service.ts",
+      "gitBlob": "948e6f7d5ccd1c9055b2d3ec03f05826a6fe9b59",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale-reward.service.ts",
+      "gitBlob": "79a051e1a4201a20d92e2e0da92e7865fe489097",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/after-sale/after-sale.module.ts",
+      "gitBlob": "dc449c4364034aefa0a8e36456722c6c67a67d1f",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/bonus/bonus.module.ts",
+      "gitBlob": "0434290700321fb51d309b39e2632d02dc7e34e0",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/bonus/engine/bonus-allocation.service.ts",
+      "gitBlob": "0d5806ad8febfe8f6a4ebf570c068911dce6764a",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/bonus/engine/normal-platform-split.service.ts",
+      "gitBlob": "16296ae02a34d1b1fb9b5e63fc337a4d10625ebf",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/bonus/engine/vip-platform-split.service.ts",
+      "gitBlob": "9cbd351d128de5eb897ba25f4192bf140d70b12c",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/fund-ledger/fund-ledger.module.ts",
+      "gitBlob": "0dc3c6e8c4a067b138da0ea3817b4d8b1987382d",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/fund-ledger/industry-fund-release.service.ts",
+      "gitBlob": "ee058ada5355eb126a48c9e8433313b925a2c625",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/fund-ledger/industry-fund.service.ts",
+      "gitBlob": "55dba053c3b08893e02e7ed262dbbb0e3ae8f502",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    },
+    {
+      "path": "backend/src/modules/fund-ledger/platform-fund-query.service.ts",
+      "gitBlob": "0b9c11231c8988e13a299d377a006fffeb9a56ac",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features.",
+      "sourceReviewCommit": "44c93297"
+    }
   ]
 }
