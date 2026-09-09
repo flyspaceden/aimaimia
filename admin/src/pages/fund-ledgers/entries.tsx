@@ -233,7 +233,7 @@ export default function FundLedgerEntriesPage() {
         <Space direction="vertical" size={2}>
           {eventTag(row.eventType)}
           {sourceTag(row.sourceType)}
-          <Link to={fundLink(`/fund-ledgers/entries/${encodeURIComponent(row.id)}`, listReturnTo)} onClick={stopRowClick}>
+          <Link to={fundLink(`/fund-ledgers/entries/${fundType}/${encodeURIComponent(row.id)}`, listReturnTo)} onClick={stopRowClick}>
             {row.entryNo || row.id}
           </Link>
         </Space>
