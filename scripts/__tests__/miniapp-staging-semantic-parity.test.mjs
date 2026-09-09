@@ -84,7 +84,7 @@ test('intentional production differences strengthen marketplace behavior without
 });
 
 test('the parity manifest documents every intentional non-identical production surface', () => {
-  const paths = manifest.intentionalCandidateDifferences.map((entry) => entry.path).sort();
+  const paths = [...manifest.intentionalCandidateDifferences, ...manifest.reviewedFundLedgerDifferences].map((entry) => entry.path).sort();
   const runtimeDiffPaths = execFileSync(
     'git',
     [
@@ -154,7 +154,8 @@ test('the parity manifest documents every intentional non-identical production s
   for (const prefix of approvedAiModulePrefixes) {
     assert.ok(paths.some((path) => path.startsWith(prefix)), `${prefix} must contain documented runtime files`);
   }
-  const unexpectedPaths = paths.filter((path) => !baselineIntentionalPaths.includes(path)
+  const unexpectedPaths = paths.filter((path) => !manifest.reviewedFundLedgerDifferences.some((entry) => entry.path === path)
+    && !baselineIntentionalPaths.includes(path)
     && !approvedAiSharedPaths.includes(path)
     && !approvedAiModulePrefixes.some((prefix) => path.startsWith(prefix)));
   assert.deepEqual(unexpectedPaths, []);
@@ -173,4 +174,38 @@ test('the parity manifest documents every intentional non-identical production s
     'credit_confirmation_required',
     'production_closed',
   ], 'staging auto-access entry must retain its explicit environment and cost risk disclosures');
+});
+
+
+test('reviewed fund ledger runtime files retain their approved content', async () => {
+  assert.ok(manifest.reviewedFundLedgerDifferences.length > 0);
+  const approvedFundPaths = [
+  "backend/src/modules/admin/admin.module.ts",
+  "backend/src/modules/admin/common/decorators/require-permission.ts",
+  "backend/src/modules/admin/common/guards/permission.guard.ts",
+  "backend/src/modules/admin/common/interceptors/audit-log.interceptor.ts",
+  "backend/src/modules/admin/fund-ledger/admin-fund-ledger.controller.ts",
+  "backend/src/modules/admin/fund-ledger/admin-fund-ledger.module.ts",
+  "backend/src/modules/admin/fund-ledger/admin-industry-fund.controller.ts",
+  "backend/src/modules/admin/fund-ledger/fund-ledger.dto.ts",
+  "backend/src/modules/admin/fund-ledger/fund-proof.service.ts",
+  "backend/src/modules/admin/fund-ledger/industry-fund-payment.service.ts",
+  "backend/src/modules/admin/fund-ledger/industry-fund-query.service.ts",
+  "backend/src/modules/after-sale/after-sale-reward.service.ts",
+  "backend/src/modules/after-sale/after-sale.module.ts",
+  "backend/src/modules/bonus/bonus.module.ts",
+  "backend/src/modules/bonus/engine/bonus-allocation.service.ts",
+  "backend/src/modules/bonus/engine/normal-platform-split.service.ts",
+  "backend/src/modules/bonus/engine/vip-platform-split.service.ts",
+  "backend/src/modules/fund-ledger/fund-ledger.module.ts",
+  "backend/src/modules/fund-ledger/industry-fund-release.service.ts",
+  "backend/src/modules/fund-ledger/industry-fund.service.ts",
+  "backend/src/modules/fund-ledger/platform-fund-query.service.ts"
+];
+  assert.deepEqual(manifest.reviewedFundLedgerDifferences.map(e => e.path).sort(), approvedFundPaths);
+  for (const entry of manifest.reviewedFundLedgerDifferences) {
+    assert.equal(entry.sourceReviewCommit, '44c93297');
+    assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
+    assert.ok(entry.reason.length >= 20);
+  }
 });
