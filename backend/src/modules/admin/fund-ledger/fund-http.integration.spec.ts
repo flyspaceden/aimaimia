@@ -9,7 +9,7 @@ import { ResultWrapperInterceptor } from '../../../common/interceptors/result-wr
 
 const suite = process.env.FUND_LEDGER_INTEGRATION === '1' ? describe : describe.skip;
 suite('基金 API 数据库与实时权限集成（本机测试身份）', () => {
-  let app: INestApplication; let db: PrismaService; let superId: string; let readerId: string;
+  let app: INestApplication; let db: PrismaService; let superId: string; let readerId: string; let fundReaderId: string; let industryReaderId: string;
   const prefix = `fund-http-${Date.now()}`;
   beforeAll(async () => {
     const url = new URL(process.env.DATABASE_URL ?? '');
@@ -27,6 +27,10 @@ suite('基金 API 数据库与实时权限集成（本机测试身份）', () =>
     const admin = await db.adminUser.create({ data: { username: `${prefix}-super`, passwordHash: 'TEST_ONLY_NOT_LOGIN', userRoles: { create: { roleId: role.id } } } }); superId = admin.id;
     const readerRole = await db.adminRole.create({ data: { name: `${prefix}-reader`, rolePermissions: { create: [{ permission: { connect: { code: 'industry_funds:read' } } }, { permission: { connect: { code: 'fund_ledgers:read' } } }] } } });
     readerId = (await db.adminUser.create({ data: { username: `${prefix}-reader`, passwordHash: 'TEST_ONLY_NOT_LOGIN', userRoles: { create: { roleId: readerRole.id } } } })).id;
+    const fundReaderRole = await db.adminRole.create({ data: { name: `${prefix}-fund-reader`, rolePermissions: { create: { permission: { connect: { code: 'fund_ledgers:read' } } } } } });
+    fundReaderId = (await db.adminUser.create({ data: { username: `${prefix}-fund-reader`, passwordHash: 'TEST_ONLY_NOT_LOGIN', userRoles: { create: { roleId: fundReaderRole.id } } } })).id;
+    const industryReaderRole = await db.adminRole.create({ data: { name: `${prefix}-industry-reader`, rolePermissions: { create: { permission: { connect: { code: 'industry_funds:read' } } } } } });
+    industryReaderId = (await db.adminUser.create({ data: { username: `${prefix}-industry-reader`, passwordHash: 'TEST_ONLY_NOT_LOGIN', userRoles: { create: { roleId: industryReaderRole.id } } } })).id;
   });
   afterAll(async () => { await app?.close(); });
   const get = (path: string, admin = superId) => request(app.getHttpServer()).get(path).set('x-local-test-admin', admin);
@@ -44,6 +48,18 @@ suite('基金 API 数据库与实时权限集成（本机测试身份）', () =>
     await get('/admin/industry-funds/companies?pageSize=1000').expect(400);
     await get('/admin/fund-ledgers/summary?from=2026-09-10&to=2026-09-01').expect(400);
   });
+  it('平台基金和产业基金查看权限彼此隔离，但产业基金用户可以打开产业流水', async () => {
+    const fundOnly = await get('/admin/fund-ledgers/summary', fundReaderId).expect(200);
+    expect(fundOnly.body.data.industry).toBeUndefined();
+    expect(fundOnly.body.data.funds).not.toEqual(expect.arrayContaining([expect.objectContaining({ fundType: 'INDUSTRY_FUND' })]));
+    await get('/admin/fund-ledgers/INDUSTRY_FUND/entries', fundReaderId).expect(403);
+    await get('/admin/fund-ledgers/CHARITY_FUND/entries', fundReaderId).expect(200);
+
+    await get('/admin/fund-ledgers/summary', industryReaderId).expect(403);
+    await get('/admin/fund-ledgers/CHARITY_FUND/entries', industryReaderId).expect(403);
+    await get('/admin/fund-ledgers/INDUSTRY_FUND/entries', industryReaderId).expect(200);
+    await get('/admin/industry-funds/summary', industryReaderId).expect(200);
+  });
   it('银行凭证只经权限接口下载，普通只读用户不可获取', async () => {
     const upload = await request(app.getHttpServer()).post('/admin/industry-funds/proofs').set('x-local-test-admin', superId).attach('file', Buffer.from('%PDF-test-receipt'), { filename: 'receipt.pdf', contentType: 'application/pdf' }).expect(201);
     const id = upload.body.data.id;
@@ -56,7 +72,9 @@ suite('基金 API 数据库与实时权限集成（本机测试身份）', () =>
   });
   it('权限撤销实时生效，不相信测试身份中的过期权限', async () => {
     await get('/admin/fund-ledgers/summary', readerId).expect(200);
+    await get('/admin/fund-ledgers/CHARITY_FUND/entries', readerId).expect(200);
     await db.adminUser.update({ where: { id: readerId }, data: { status: 'DISABLED' } });
     await get('/admin/fund-ledgers/summary', readerId).expect(403);
+    await get('/admin/fund-ledgers/CHARITY_FUND/entries', readerId).expect(403);
   });
 });

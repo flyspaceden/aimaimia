@@ -50,6 +50,7 @@ type RawSummaryRow = {
 
 type RawEntryRow = {
   id: string;
+  accountId: string;
   fundType: string;
   auditEventType: string;
   logicalEventType: string;
@@ -80,8 +81,15 @@ type RawEntryRow = {
   frozenAfter: number | null;
   pairedAccountEventId: string | null;
   historicalStateUnknown: boolean;
+  historicalCutoverSnapshot: boolean;
+  historicalFollowupEventId: string | null;
   metaSnapshot: unknown;
   total: bigint | number | null;
+};
+
+type QueryEntriesResult = {
+  rows: RawEntryRow[];
+  total: number;
 };
 
 const VALID_EVENT_TYPES = new Set([
@@ -171,12 +179,25 @@ export class PlatformFundQueryService {
     const beforeDate = range.fromTimestamp
       ? Prisma.sql`e."occurredAt" < CAST(${range.fromTimestamp} AS TIMESTAMP(3))`
       : Prisma.sql`FALSE`;
+    const initialBalance = range.fromTimestamp
+      ? Prisma.sql`CASE WHEN o."cutoverAt" IS NULL
+          OR CAST(${range.fromTimestamp} AS TIMESTAMP(3)) < o."cutoverAt"
+        THEN NULL::float8
+        ELSE (COALESCE(o."initialBalance", 0) + COALESCE(b."balanceBefore", 0))::float8 END`
+      : Prisma.sql`(COALESCE(o."initialBalance", 0) + COALESCE(b."balanceBefore", 0))::float8`;
+    const initialFrozen = range.fromTimestamp
+      ? Prisma.sql`CASE WHEN o."cutoverAt" IS NULL
+          OR CAST(${range.fromTimestamp} AS TIMESTAMP(3)) < o."cutoverAt"
+        THEN NULL::float8
+        ELSE (COALESCE(o."initialFrozen", 0) + COALESCE(b."frozenBefore", 0))::float8 END`
+      : Prisma.sql`(COALESCE(o."initialFrozen", 0) + COALESCE(b."frozenBefore", 0))::float8`;
     const values = Prisma.join(PLATFORM_FUND_TYPES.map((type) => Prisma.sql`(${type})`), ',');
     const summarySql = Prisma.sql`
       WITH fund_types("fundType") AS (VALUES ${values}),
       openings AS (
         SELECT "fundType", SUM("openingBalance") AS "initialBalance",
-               SUM("openingFrozen") AS "initialFrozen"
+               SUM("openingFrozen") AS "initialFrozen",
+               MIN("capturedAt") AS "cutoverAt"
         FROM "PlatformFundOpening"
         GROUP BY "fundType"
       ),
@@ -207,8 +228,8 @@ export class PlatformFundQueryService {
         GROUP BY e."fundType"
       )
       SELECT f."fundType",
-        (COALESCE(o."initialBalance", 0) + COALESCE(b."balanceBefore", 0))::float8 AS "initialBalance",
-        (COALESCE(o."initialFrozen", 0) + COALESCE(b."frozenBefore", 0))::float8 AS "initialFrozen",
+        ${initialBalance} AS "initialBalance",
+        ${initialFrozen} AS "initialFrozen",
         COALESCE(o."initialBalance", 0)::float8 AS "cutoverBalance",
         COALESCE(o."initialFrozen", 0)::float8 AS "cutoverFrozen",
         COALESCE(e."periodIncome", 0)::float8 AS "periodIncome",
@@ -265,8 +286,7 @@ export class PlatformFundQueryService {
   async entries(fundType: string, query: FundQuery = {}) {
     const type = this.assertFundType(fundType);
     const normalized = this.normalizeQuery(query);
-    const rows = await this.queryEntries(type, normalized);
-    const total = rows.length === 0 ? 0 : toCount(rows[0].total);
+    const { rows, total } = await this.queryEntries(type, normalized);
     return {
       items: rows.map((row) => this.entryView(row)),
       total,
@@ -279,7 +299,7 @@ export class PlatformFundQueryService {
   async entry(fundType: string, id: string) {
     const type = this.assertFundType(fundType);
     if (!id || id.length > 200) throw new BadRequestException('流水编号无效');
-    const rows = await this.queryEntries(type, { page: 1, pageSize: 1 }, id);
+    const { rows } = await this.queryEntries(type, { page: 1, pageSize: 1 }, id);
     if (rows.length === 0) throw new NotFoundException('基金流水不存在');
     const view = this.entryView(rows[0]);
     const related = rows[0].rewardLedgerId
@@ -320,17 +340,17 @@ export class PlatformFundQueryService {
   private async queryEntries(type: PlatformFundType, query: Required<Pick<FundQuery, 'page' | 'pageSize'>> & FundQuery, id?: string) {
     const range = this.dateRange(query);
     const auditFilters = [Prisma.sql`e."fundType" = ${type}`];
-    const historicalFilters = [Prisma.sql`ra."userId" = 'PLATFORM'`, Prisma.sql`ra."type"::text = ${type}`];
+    const historicalFilters = [Prisma.sql`h."accountUserId" = 'PLATFORM'`, Prisma.sql`h."accountType"::text = ${type}`];
     auditFilters.push(...this.dateClauses('e', range));
-    historicalFilters.push(...this.dateClauses('rl', range, 'createdAt'));
+    historicalFilters.push(...this.dateClauses('h', range, 'createdAt'));
 
     if (id) {
       auditFilters.push(Prisma.sql`e."id" = ${id}`);
-      historicalFilters.push(Prisma.sql`('legacy:' || rl."id") = ${id}`);
+      historicalFilters.push(Prisma.sql`('legacy:' || h."id") = ${id}`);
     }
     if (query.orderId) {
       auditFilters.push(Prisma.sql`COALESCE(e."refId", e."metaSnapshot"->>'sourceOrderId') = ${query.orderId}`);
-      historicalFilters.push(Prisma.sql`COALESCE(rl."refId", rl."meta"->>'sourceOrderId') = ${query.orderId}`);
+      historicalFilters.push(Prisma.sql`COALESCE(h."effectiveRefId", h."effectiveMeta"->>'sourceOrderId') = ${query.orderId}`);
     }
     if (query.companyId) {
       auditFilters.push(Prisma.sql`(
@@ -342,10 +362,10 @@ export class PlatformFundQueryService {
         )
       )`);
       historicalFilters.push(Prisma.sql`(
-        rl."meta"->>'companyId' = ${query.companyId}
+        h."effectiveMeta"->>'companyId' = ${query.companyId}
         OR EXISTS (
           SELECT 1 FROM "OrderItem" oi
-          WHERE oi."orderId" = COALESCE(rl."refId", rl."meta"->>'sourceOrderId')
+          WHERE oi."orderId" = COALESCE(h."effectiveRefId", h."effectiveMeta"->>'sourceOrderId')
             AND oi."companyId" = ${query.companyId}
         )
       )`);
@@ -353,7 +373,7 @@ export class PlatformFundQueryService {
     if (query.sourceType) {
       this.assertSourceType(query.sourceType);
       const sourceCondition = this.sourceTypeCondition(query.sourceType, 'e."metaSnapshot"');
-      const legacySourceCondition = this.sourceTypeCondition(query.sourceType, 'rl."meta"');
+      const legacySourceCondition = this.sourceTypeCondition(query.sourceType, 'h."effectiveMeta"');
       auditFilters.push(sourceCondition);
       historicalFilters.push(legacySourceCondition);
     }
@@ -371,17 +391,21 @@ export class PlatformFundQueryService {
       WHEN e."moneyDelta" < 0 THEN 'TRANSFER_OUT'
       ELSE 'STATE_CHANGE'
     END`;
-    const legacyLogicalEventExpression = Prisma.sql`CASE rl."entryType"::text
+    const historicalEntryType = Prisma.sql`CASE WHEN h."cutoverState" IS NULL
+      THEN h."entryType"::text ELSE h."cutoverState"->>'entryType' END`;
+    const historicalAmount = Prisma.sql`CASE WHEN h."cutoverState" IS NULL
+      THEN h."amount" ELSE (h."cutoverState"->>'amount')::float8 END`;
+    const legacyLogicalEventExpression = Prisma.sql`CASE ${historicalEntryType}
       WHEN 'FREEZE' THEN 'FREEZE'
       WHEN 'RELEASE' THEN 'RELEASE'
       WHEN 'VOID' THEN 'REVERSAL'
       WHEN 'WITHDRAW' THEN 'PAYMENT'
       WHEN 'DEDUCT' THEN 'PAYMENT'
-      WHEN 'ADJUST' THEN CASE WHEN rl."amount" >= 0 THEN 'TRANSFER_IN' ELSE 'TRANSFER_OUT' END
+      WHEN 'ADJUST' THEN CASE WHEN ${historicalAmount} >= 0 THEN 'TRANSFER_IN' ELSE 'TRANSFER_OUT' END
       ELSE 'STATE_CHANGE' END`;
-    const sourceTypeExpression = (meta: string) => Prisma.sql`CASE
-      WHEN COALESCE(${Prisma.raw(meta)}->>'scheme', '') LIKE 'VIP%' THEN 'VIP'
-      WHEN COALESCE(${Prisma.raw(meta)}->>'scheme', '') LIKE 'NORMAL%' THEN 'NORMAL'
+    const sourceTypeExpression = (meta: Prisma.Sql) => Prisma.sql`CASE
+      WHEN COALESCE((${meta})->>'scheme', '') LIKE 'VIP%' THEN 'VIP'
+      WHEN COALESCE((${meta})->>'scheme', '') LIKE 'NORMAL%' THEN 'NORMAL'
       ELSE 'LEGACY' END`;
 
     const outerFilters = [Prisma.sql`1 = 1`];
@@ -395,45 +419,67 @@ export class PlatformFundQueryService {
       outerFilters.push(Prisma.sql`(r."id" ILIKE ${search} OR COALESCE(r."orderId", '') ILIKE ${search} OR COALESCE(r."companyId", '') ILIKE ${search})`);
     }
 
-    const offset = (query.page - 1) * query.pageSize;
-    const sql = Prisma.sql`
-      WITH pairings AS (
+    const effectiveLedgerAmount = (entryType: Prisma.Sql, amount: Prisma.Sql) => Prisma.sql`CASE
+      WHEN ${entryType} IN ('WITHDRAW', 'DEDUCT') THEN -ABS(COALESCE(${amount}, 0))
+      WHEN ${entryType} = 'VOID' AND COALESCE(${amount}, 0) > 0 THEN -ABS(COALESCE(${amount}, 0))
+      ELSE COALESCE(${amount}, 0)
+    END`;
+    const ledgerAmountBefore = effectiveLedgerAmount(
+      Prisma.sql`l."ledgerEntryTypeBefore"`,
+      Prisma.sql`l."ledgerAmountBefore"`,
+    );
+    const ledgerAmountAfter = effectiveLedgerAmount(
+      Prisma.sql`l."ledgerEntryTypeAfter"`,
+      Prisma.sql`l."ledgerAmountAfter"`,
+    );
+    const pairingExpectedDelta = Prisma.sql`CASE l."eventType"
+      WHEN 'LEDGER_CREATED' THEN ${ledgerAmountAfter}
+      WHEN 'LEDGER_REMOVED' THEN -(${ledgerAmountBefore})
+      ELSE (${ledgerAmountAfter}) - (${ledgerAmountBefore})
+    END`;
+    const historicalEffectiveAmount = effectiveLedgerAmount(historicalEntryType, historicalAmount);
+    const entriesCte = Prisma.sql`
+      WITH pairing_candidates AS (
         SELECT l."id" AS "ledgerEventId", a."id" AS "accountEventId",
-               a."balanceAfter", a."frozenAfter", a."moneyDelta"
+               a."balanceAfter", a."frozenAfter", a."moneyDelta",
+               ${pairingExpectedDelta} AS "expectedDelta"
         FROM "PlatformFundEvent" l
         JOIN "PlatformFundEvent" a
           ON a."accountId" = l."accountId"
+         AND a."fundType" = l."fundType"
          AND a."transactionId" = l."transactionId"
          AND a."sourceTable" = 'RewardAccount'
          AND a."eventSequence" = l."eventSequence" + 1
         WHERE l."sourceTable" = 'RewardLedger'
-          AND ABS(
-            a."moneyDelta" - CASE l."eventType"
-              WHEN 'LEDGER_CREATED' THEN
-                CASE WHEN l."ledgerEntryTypeAfter" IN ('WITHDRAW', 'DEDUCT')
-                  THEN -ABS(COALESCE(l."ledgerAmountAfter", 0))
-                  ELSE COALESCE(l."ledgerAmountAfter", 0) END
-              WHEN 'LEDGER_REMOVED' THEN
-                -CASE WHEN l."ledgerEntryTypeBefore" IN ('WITHDRAW', 'DEDUCT')
-                  THEN -ABS(COALESCE(l."ledgerAmountBefore", 0))
-                  ELSE COALESCE(l."ledgerAmountBefore", 0) END
-              ELSE
-                (CASE WHEN l."ledgerEntryTypeAfter" IN ('WITHDRAW', 'DEDUCT')
-                  THEN -ABS(COALESCE(l."ledgerAmountAfter", 0))
-                  ELSE COALESCE(l."ledgerAmountAfter", 0) END)
-                - (CASE WHEN l."ledgerEntryTypeBefore" IN ('WITHDRAW', 'DEDUCT')
-                  THEN -ABS(COALESCE(l."ledgerAmountBefore", 0))
-                  ELSE COALESCE(l."ledgerAmountBefore", 0) END)
-            END
-          ) < 0.000001
+      ),
+      pairings AS (
+        SELECT "ledgerEventId", "accountEventId", "balanceAfter", "frozenAfter", "moneyDelta"
+        FROM pairing_candidates
+        WHERE "expectedDelta" <> 0
+          AND ABS("moneyDelta" - "expectedDelta") < 0.000001
+      ),
+      historical_source AS (
+        SELECT rl.*, ra."userId" AS "accountUserId", ra."type"::text AS "accountType",
+          first_event."id" AS "followupEventId", first_event."oldState" AS "cutoverState",
+          COALESCE(first_event."oldState"->>'refId', rl."refId") AS "effectiveRefId",
+          COALESCE(first_event."oldState"->'meta', rl."meta") AS "effectiveMeta"
+        FROM "RewardLedger" rl
+        JOIN "RewardAccount" ra ON ra."id" = rl."accountId"
+        LEFT JOIN LATERAL (
+          SELECT e0."id", e0."oldState"
+          FROM "PlatformFundEvent" e0
+          WHERE e0."rewardLedgerId" = rl."id"
+          ORDER BY e0."eventSequence" ASC, e0."recordedAt" ASC, e0."id" ASC
+          LIMIT 1
+        ) first_event ON TRUE
       ),
       audit_rows AS (
-        SELECT e."id", e."fundType", e."eventType" AS "auditEventType", e."changeKind",
+        SELECT e."id", e."accountId", e."fundType", e."eventType" AS "auditEventType", e."changeKind",
           e."eventSequence", e."transactionId", e."occurredAt", e."recordedAt",
           e."sourceTable", e."sourceOperation", e."rewardLedgerId", e."allocationId", e."sourceLedgerId",
           COALESCE(e."refId", e."metaSnapshot"->>'sourceOrderId') AS "orderId",
           e."metaSnapshot"->>'companyId' AS "companyId",
-          ${sourceTypeExpression('e."metaSnapshot"')} AS "sourceType",
+          ${sourceTypeExpression(Prisma.sql`e."metaSnapshot"`)} AS "sourceType",
           e."ledgerStatusBefore" AS "statusBefore", e."ledgerStatusAfter" AS "statusAfter",
           e."ledgerEntryTypeBefore", e."ledgerEntryTypeAfter", e."ledgerAmountBefore", e."ledgerAmountAfter",
           e."ledgerAmountDelta",
@@ -449,6 +495,8 @@ export class PlatformFundQueryService {
           CASE WHEN e."sourceTable" = 'RewardLedger' THEN pair."frozenAfter" ELSE e."frozenAfter" END AS "frozenAfter",
           pair."accountEventId" AS "pairedAccountEventId",
           false AS "historicalStateUnknown",
+          false AS "historicalCutoverSnapshot",
+          NULL::text AS "historicalFollowupEventId",
           e."metaSnapshot",
           ${logicalEventExpression} AS "logicalEventType"
         FROM "PlatformFundEvent" e
@@ -460,29 +508,43 @@ export class PlatformFundQueryService {
           )
       ),
       historical_rows AS (
-        SELECT 'legacy:' || rl."id" AS "id", ${type} AS "fundType",
-          'HISTORICAL_REWARD_LEDGER' AS "auditEventType", 'STATE' AS "changeKind",
-          NULL::bigint AS "eventSequence", NULL::bigint AS "transactionId", rl."createdAt" AS "occurredAt",
-          rl."createdAt" AS "recordedAt", 'RewardLedger' AS "sourceTable", 'HISTORICAL' AS "sourceOperation",
-          rl."id" AS "rewardLedgerId", rl."allocationId", rl."sourceLedgerId", rl."refId" AS "orderId",
-          rl."meta"->>'companyId' AS "companyId", ${sourceTypeExpression('rl."meta"')} AS "sourceType",
-          NULL::text AS "statusBefore", rl."status"::text AS "statusAfter", NULL::text AS "ledgerEntryTypeBefore",
-          rl."entryType"::text AS "ledgerEntryTypeAfter", NULL::float8 AS "ledgerAmountBefore", rl."amount" AS "ledgerAmountAfter",
-          rl."amount" AS "ledgerAmountDelta",
-          CASE WHEN rl."entryType"::text IN ('WITHDRAW', 'DEDUCT') THEN -ABS(rl."amount") ELSE rl."amount" END AS "amount",
-          rl."amount" AS "sourceAmount",
-          CASE WHEN (CASE WHEN rl."entryType"::text IN ('WITHDRAW', 'DEDUCT') THEN -ABS(rl."amount") ELSE rl."amount" END) > 0 THEN 'CREDIT'
-               WHEN (CASE WHEN rl."entryType"::text IN ('WITHDRAW', 'DEDUCT') THEN -ABS(rl."amount") ELSE rl."amount" END) < 0 THEN 'DEBIT'
+        SELECT 'legacy:' || h."id" AS "id",
+          CASE WHEN h."cutoverState" IS NULL THEN h."accountId"
+               ELSE h."cutoverState"->>'accountId' END AS "accountId",
+          ${type} AS "fundType", 'HISTORICAL_REWARD_LEDGER' AS "auditEventType", 'STATE' AS "changeKind",
+          NULL::bigint AS "eventSequence", NULL::bigint AS "transactionId", h."createdAt" AS "occurredAt",
+          h."createdAt" AS "recordedAt", 'RewardLedger' AS "sourceTable",
+          CASE WHEN h."followupEventId" IS NULL THEN 'HISTORICAL' ELSE 'HISTORICAL_CUTOVER' END AS "sourceOperation",
+          h."id" AS "rewardLedgerId",
+          CASE WHEN h."cutoverState" IS NULL THEN h."allocationId"
+               ELSE h."cutoverState"->>'allocationId' END AS "allocationId",
+          CASE WHEN h."cutoverState" IS NULL THEN h."sourceLedgerId"
+               ELSE h."cutoverState"->>'sourceLedgerId' END AS "sourceLedgerId",
+          h."effectiveRefId" AS "orderId", h."effectiveMeta"->>'companyId' AS "companyId",
+          ${sourceTypeExpression(Prisma.sql`h."effectiveMeta"`)} AS "sourceType",
+          NULL::text AS "statusBefore",
+          CASE WHEN h."cutoverState" IS NULL THEN h."status"::text
+               ELSE h."cutoverState"->>'status' END AS "statusAfter",
+          NULL::text AS "ledgerEntryTypeBefore", ${historicalEntryType} AS "ledgerEntryTypeAfter",
+          NULL::float8 AS "ledgerAmountBefore", ${historicalAmount} AS "ledgerAmountAfter",
+          CASE WHEN h."followupEventId" IS NULL THEN ${historicalAmount} ELSE 0::float8 END AS "ledgerAmountDelta",
+          CASE WHEN h."followupEventId" IS NULL THEN ${historicalEffectiveAmount} ELSE 0::float8 END AS "amount",
+          ${historicalAmount} AS "sourceAmount",
+          CASE WHEN h."followupEventId" IS NOT NULL THEN 'INTERNAL'
+               WHEN ${historicalEffectiveAmount} > 0 THEN 'CREDIT'
+               WHEN ${historicalEffectiveAmount} < 0 THEN 'DEBIT'
                ELSE 'INTERNAL' END AS "direction",
           NULL::float8 AS "balanceAfter", NULL::float8 AS "frozenAfter", NULL::text AS "pairedAccountEventId",
-          true AS "historicalStateUnknown", rl."meta" AS "metaSnapshot",
+          true AS "historicalStateUnknown",
+          (h."followupEventId" IS NOT NULL) AS "historicalCutoverSnapshot",
+          h."followupEventId" AS "historicalFollowupEventId",
+          h."effectiveMeta" AS "metaSnapshot",
           ${legacyLogicalEventExpression} AS "logicalEventType"
-        FROM "RewardLedger" rl
-        JOIN "RewardAccount" ra ON ra."id" = rl."accountId"
+        FROM historical_source h
         WHERE ${Prisma.join(historicalFilters, ' AND ')}
           AND NOT EXISTS (
             SELECT 1 FROM "PlatformFundEvent" e0
-            WHERE e0."rewardLedgerId" = rl."id"
+            WHERE e0."rewardLedgerId" = h."id"
               AND e0."eventType" = 'LEDGER_CREATED'
           )
       ),
@@ -491,19 +553,36 @@ export class PlatformFundQueryService {
         UNION ALL
         SELECT * FROM historical_rows
       )
+    `;
+    const outerWhere = Prisma.join(outerFilters, ' AND ');
+    const offset = (query.page - 1) * query.pageSize;
+    const sql = Prisma.sql`
+      ${entriesCte}
       SELECT r.*, COUNT(*) OVER() AS total
       FROM all_rows r
-      WHERE ${Prisma.join(outerFilters, ' AND ')}
-      ORDER BY r."occurredAt" DESC, r."id" DESC
+      WHERE ${outerWhere}
+      ORDER BY r."occurredAt" DESC, r."accountId" ASC,
+               r."eventSequence" DESC NULLS LAST, r."id" DESC
       LIMIT ${query.pageSize} OFFSET ${offset}
     `;
-    return this.prisma.$queryRaw<RawEntryRow[]>(sql);
+    const countSql = Prisma.sql`
+      ${entriesCte}
+      SELECT COUNT(*)::bigint AS total
+      FROM all_rows r
+      WHERE ${outerWhere}
+    `;
+    const [rows, countRows] = await this.prisma.$transaction(async (tx) => Promise.all([
+      tx.$queryRaw<RawEntryRow[]>(sql),
+      tx.$queryRaw<Array<{ total: bigint | number }>>(countSql),
+    ]), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return { rows, total: toCount(countRows[0]?.total) };
   }
 
   private entryView(row: RawEntryRow) {
     const historical = row.id.startsWith('legacy:');
     const sourceAmount = toNumber(row.sourceAmount);
-    const amount = toNumber(row.amount) ?? 0;
+    const historicalCutoverSnapshot = historical && row.historicalCutoverSnapshot;
+    const amount = historicalCutoverSnapshot ? 0 : (toNumber(row.amount) ?? 0);
     return {
       id: row.id,
       entryNo: historical ? `LEGACY-${row.rewardLedgerId ?? row.id.slice(7)}` : `PFA-${toBigIntString(row.eventSequence) ?? row.id.slice(0, 12)}`,
@@ -511,7 +590,7 @@ export class PlatformFundQueryService {
       eventType: row.logicalEventType,
       auditEventType: row.auditEventType,
       changeKind: row.changeKind,
-      direction: row.direction,
+      direction: historicalCutoverSnapshot ? 'INTERNAL' : row.direction,
       amount,
       sourceAmount,
       occurredAt: row.occurredAt?.toISOString() ?? null,
@@ -546,6 +625,9 @@ export class PlatformFundQueryService {
         ledgerAmountDelta: toNumber(row.ledgerAmountDelta),
         pairedAccountEventId: row.pairedAccountEventId,
         historicalStateUnknown: row.historicalStateUnknown,
+        historicalCutoverSnapshot: row.historicalCutoverSnapshot,
+        historicalFollowupEventId: row.historicalFollowupEventId,
+        nonIncomeEvidence: historicalCutoverSnapshot,
         balanceAfterIsFaithful: !historical && (row.sourceTable === 'RewardAccount' || row.pairedAccountEventId !== null),
       },
       source: {
@@ -590,7 +672,7 @@ export class PlatformFundQueryService {
     };
   }
 
-  private dateClauses(alias: 'e' | 'rl', range: DateRange, field = 'occurredAt'): Prisma.Sql[] {
+  private dateClauses(alias: 'e' | 'rl' | 'h', range: DateRange, field = 'occurredAt'): Prisma.Sql[] {
     const clauses: Prisma.Sql[] = [];
     if (range.fromTimestamp) {
       clauses.push(Prisma.sql`${Prisma.raw(alias)}.${Prisma.raw(`"${field}"`)} >= CAST(${range.fromTimestamp} AS TIMESTAMP(3))`);

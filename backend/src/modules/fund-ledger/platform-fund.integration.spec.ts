@@ -126,4 +126,25 @@ suite('平台基金真实 PostgreSQL 审计与查询', () => {
     await expect(query.entries('INVALID', {})).rejects.toThrow('基金类型');
     await expect(query.summary({ from: '2026-09-09', to: '2026-09-01' })).rejects.toThrow('开始时间');
   });
+  it('非 UTC 数据库会话仍将审计事件写为 UTC 时间', async () => {
+    const ref = `${prefix}-utc-clock`;
+    const started = Date.now();
+    await db.$transaction(async t => {
+      await t.$executeRawUnsafe("SET LOCAL TIME ZONE 'America/New_York'");
+      await t.rewardLedger.create({ data: { accountId, userId: 'PLATFORM', amount: 1, entryType: 'RELEASE', status: 'AVAILABLE', refType: 'ORDER', refId: ref } });
+      await t.rewardAccount.update({ where: { id: accountId }, data: { balance: { increment: 1 } } });
+    });
+    const events = await db.$queryRaw<Array<{ occurredAt: Date }>>`SELECT "occurredAt" FROM "PlatformFundEvent" WHERE "refId"=${ref}`;
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].occurredAt.getTime()).toBeGreaterThanOrEqual(started - 1000);
+    expect(events[0].occurredAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it('拒绝平台基金账户的类型或身份迁移', async () => {
+    await expect(db.rewardAccount.update({
+      where: { id: accountId },
+      data: { type: 'TECH_FUND' },
+    })).rejects.toThrow('identity cannot change');
+  });
+
 });

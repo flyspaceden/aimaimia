@@ -1,3 +1,6 @@
+import { randomUUID } from 'crypto';
+import { IndustryFundQueryService } from '../admin/fund-ledger/industry-fund-query.service';
+import { FundQueryDto } from '../admin/fund-ledger/fund-ledger.dto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { IndustryFundService } from './industry-fund.service';
 import { IndustryFundPaymentService } from '../admin/fund-ledger/industry-fund-payment.service';
@@ -10,7 +13,11 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
   let core: IndustryFundService;
   let payments: IndustryFundPaymentService;
   const prefix = `fund-it-${Date.now()}`;
-  const proof = '11111111-1111-4111-8111-111111111111';
+  async function makeProof() {
+    const id = randomUUID();
+    await db.fundPrivateProof.create({ data: { id, adminId: 'test-admin', mimeType: 'application/pdf', content: Buffer.from('%PDF-local-fixture') } });
+    return id;
+  }
   const tx = <T>(fn: (t: Prisma.TransactionClient) => Promise<T>) => db.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
   beforeAll(async () => {
     const url = new URL(process.env.DATABASE_URL ?? '');
@@ -36,7 +43,7 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     return payments.createPayment({ companyId: f.company.id, amount, payeeName: f.company.name, bankAccount: '1234567890123456', bankName: '本地测试银行', reason: '测试登记', idempotencyKey: key }, 'test-admin');
   }
   async function confirm(id: string, key: string, amount = 16, reviewed = false) {
-    return payments.confirmPayment(id, { actualAmount: amount, paidAt: new Date().toISOString(), sourceAccountRef: 'test-bank', bankReference: key, proofKey: proof, idempotencyKey: key, confirmActualPayment: reviewed, reviewReason: reviewed ? '已核对测试银行支付结果' : undefined }, 'test-admin');
+    return payments.confirmPayment(id, { actualAmount: amount, paidAt: new Date().toISOString(), sourceAccountRef: 'test-bank', bankReference: key, proofKey: await makeProof(), idempotencyKey: key, confirmActualPayment: reviewed, reviewReason: reviewed ? '已核对测试银行支付结果' : undefined }, 'test-admin');
   }
   async function check(companyId: string) { expect((await tx(t => core.reconcileAccount(t, companyId))).ok).toBe(true); }
 
@@ -56,7 +63,7 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     await check(f.company.id);
     const account = await db.industryFundAccount.findUniqueOrThrow({ where: { companyId: f.company.id } });
     expect(account).toMatchObject({ payableAmount: 0, recoveryDue: 10, totalReversed: 16, totalPaid: 10 });
-    const request = { amount: 10, recoveredAt: new Date().toISOString(), bankReference: `${prefix}-recovery`, proofKey: proof, reason: '实际回款', idempotencyKey: `${prefix}-recover` };
+    const request = { amount: 10, recoveredAt: new Date().toISOString(), bankReference: `${prefix}-recovery`, proofKey: await makeProof(), reason: '实际回款', idempotencyKey: `${prefix}-recover` };
     await payments.recordRecovery(payment.id, request, 'admin');
     await payments.recordRecovery(payment.id, request, 'admin');
     await check(f.company.id);
@@ -100,7 +107,7 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     await confirm(paid.id, `${prefix}-mixed-bank`, 10);
     const reserved = await reserve(f, `${prefix}-mixed-reserved`, 6);
     await tx(t => core.reverseOrderInTransaction(t, f.order.id, 'AFTER_SALE_SUCCESS'));
-    await payments.recordRecovery(paid.id, { amount: 10, recoveredAt: new Date().toISOString(), bankReference: `${prefix}-mixed-recovery-bank`, proofKey: proof, reason: '实际回款', idempotencyKey: `${prefix}-mixed-recover` }, 'admin');
+    await payments.recordRecovery(paid.id, { amount: 10, recoveredAt: new Date().toISOString(), bankReference: `${prefix}-mixed-recovery-bank`, proofKey: await makeProof(), reason: '实际回款', idempotencyKey: `${prefix}-mixed-recover` }, 'admin');
     await payments.cancelPayment(reserved.id, { reason: '余款核实未支付', idempotencyKey: `${prefix}-mixed-cancel` }, 'admin');
     await check(f.company.id);
     expect(await db.industryFundAccount.findUniqueOrThrow({ where: { companyId: f.company.id } })).toMatchObject({ recoveryDue: 0, totalReversed: 16, totalPaid: 10, totalRecovered: 10, payableAmount: 0 });
@@ -113,6 +120,31 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     await expect(payments.cancelPayment(p.id, { reason: '取消', idempotencyKey: key }, 'test-admin')).rejects.toMatchObject({ status: 409 });
     await check(f.company.id);
     expect((await db.industryFundAccount.findUniqueOrThrow({ where: { companyId: f.company.id } })).reservedAmount).toBe(16);
+  });
+
+  it('公司总账日期筛选不会随数据库会话时区偏移', async () => {
+    const f = await fixture('utc-summary');
+    const ledger = await db.industryFundLedger.findFirstOrThrow({ where: { accrualId: f.accrualId, eventType: 'ACCRUAL' } });
+    const ny = { $transaction: (callback: (t: Prisma.TransactionClient) => Promise<unknown>) => tx(async t => {
+      await t.$executeRawUnsafe("SET LOCAL TIME ZONE 'America/New_York'"); return callback(t);
+    }) };
+    const reader = new IndustryFundQueryService(ny as never);
+    const q = new FundQueryDto(); q.from = new Date(ledger.createdAt.getTime()-1).toISOString(); q.to = new Date(ledger.createdAt.getTime()+1).toISOString();
+    const result = await reader.summary(q);
+    expect(result.periodIncome).toBeGreaterThanOrEqual(16);
+  });
+
+  it('同一凭证不能跨付款单复用，失败不会核销预留', async () => {
+    const a = await fixture('proof-a'); await release(a);
+    const b = await fixture('proof-b'); await release(b);
+    const pa = await reserve(a, `${prefix}-proof-a`);
+    const pb = await reserve(b, `${prefix}-proof-b`);
+    const proofKey = await makeProof();
+    const body = { actualAmount: 16, paidAt: new Date().toISOString(), sourceAccountRef: 'local-test-bank', bankReference: `${prefix}-proof-bank-a`, proofKey, idempotencyKey: `${prefix}-proof-confirm-a` };
+    await payments.confirmPayment(pa.id, body, 'admin');
+    await expect(payments.confirmPayment(pb.id, { ...body, bankReference: `${prefix}-proof-bank-b`, idempotencyKey: `${prefix}-proof-confirm-b` }, 'admin')).rejects.toThrow('已用于其他');
+    expect((await db.industryFundPayment.findUniqueOrThrow({ where: { id: pb.id } })).status).toBe('RESERVED');
+    await check(b.company.id);
   });
 
 });

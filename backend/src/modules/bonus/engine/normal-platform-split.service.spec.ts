@@ -5,11 +5,10 @@ describe('NormalPlatformSplitService direct referral pool handoff', () => {
   const makeTx = () => {
     const tx = {
       rewardAccount: {
-        findUnique: jest.fn(({ where }) => {
+        upsert: jest.fn(({ where }) => {
           const { userId, type } = where.userId_type;
           return Promise.resolve({ id: `${userId}-${type}`, userId, type });
         }),
-        create: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
       },
       rewardLedger: {

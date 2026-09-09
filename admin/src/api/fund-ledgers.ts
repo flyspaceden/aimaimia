@@ -64,8 +64,25 @@ export interface FundSummaryResponse {
     reserved?: number;
     paid?: number;
     recoverable?: number;
-    unassigned?: number;
+    recovered?: number;
+    unassigned?: { amount: number; count: number } | null;
   } | null;
+  unassigned?: { amount: number; count: number } | null;
+}
+
+export interface IndustryFundSummaryResponse {
+  initialBalance?: number;
+  periodIncome?: number;
+  periodExpense?: number;
+  frozen?: number;
+  available?: number;
+  reserved?: number;
+  companyPayable?: number;
+  accrued?: number;
+  reversed?: number;
+  paid?: number;
+  recovered?: number;
+  recoverable?: number;
   unassigned?: { amount: number; count: number } | null;
 }
 
@@ -82,6 +99,7 @@ export interface FundLedgerEntry {
   availableAfter?: number | null;
   frozenAfter?: number | null;
   reservedAfter?: number | null;
+  recoveryDueAfter?: number | null;
   sourceType?: LedgerSourceType | null;
   orderId?: string | null;
   allocationId?: string | null;
@@ -170,6 +188,19 @@ export interface IndustryFundPaymentItem {
   orderId?: string | null;
   sourceAmount?: number | null;
   remainingAmount?: number | null;
+  reservedAmount?: number | null;
+  paidAmount?: number | null;
+  recoveryDue?: number | null;
+  recoveredAmount?: number | null;
+}
+
+export interface IndustryFundPaymentStatusHistory {
+  id: string;
+  eventType: string;
+  amount: number;
+  reason?: string | null;
+  occurredAt?: string | null;
+  operator?: { id?: string } | null;
 }
 
 export type IndustryFundPaymentStatus =
@@ -205,6 +236,7 @@ export interface IndustryFundPayment {
   reason?: string | null;
   items?: IndustryFundPaymentItem[];
   recoveries?: IndustryFundRecovery[];
+  statusHistory?: IndustryFundPaymentStatusHistory[];
   reversalReason?: string | null;
   createdAt: string;
   updatedAt?: string | null;
@@ -284,8 +316,10 @@ export const getFundLedgerEntry = (
 ): Promise<FundLedgerEntry> =>
   client.get(`/admin/fund-ledgers/${fundType}/entries/${entryId}`);
 
-export const getIndustryFundSummary = (): Promise<FundSummaryResponse> =>
-  client.get('/admin/industry-funds/summary');
+export const getIndustryFundSummary = (
+  params?: Pick<FundLedgerQuery, 'from' | 'to'>,
+): Promise<IndustryFundSummaryResponse> =>
+  client.get('/admin/industry-funds/summary', { params });
 
 export const getIndustryFundCompanies = (
   params?: IndustryFundCompanyQuery,
@@ -339,10 +373,16 @@ export const reverseIndustryFundPayment = (
 ): Promise<IndustryFundPayment> =>
   client.post(`/admin/industry-funds/payments/${paymentId}/reverse`, input);
 
+export interface IndustryFundRecoveryResult {
+  amountCents: number;
+  recoveryId: string;
+  ledgerIds: string[];
+}
+
 export const createIndustryFundRecovery = (
   paymentId: string,
   input: RecoveryInput,
-): Promise<IndustryFundRecovery> =>
+): Promise<IndustryFundRecoveryResult> =>
   client.post(`/admin/industry-funds/payments/${paymentId}/recoveries`, input);
 
 export const uploadIndustryFundProof = (file: File): Promise<{ id: string }> => {

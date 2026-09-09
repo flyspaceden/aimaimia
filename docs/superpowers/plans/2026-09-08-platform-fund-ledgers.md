@@ -33,3 +33,11 @@
 ## 发布状态
 
 仅本地实现与提交。未 push、未运行远端 CI、未部署测试或生产、未执行真实银行转账。后续发布须按 `docs/operations/platform-fund-ledgers-release.md` 暂停旧消费者并明确切换边界；新账启用后不能直接回滚到旧个人分配代码。
+
+## 2026-09-09 主要问题复审与测试发布
+
+用户授权修复主要问题后推送 staging-next 并测试；用户明确不要求无限扩展审查。本轮修复：非 UTC 数据库会话的时间偏移、基金与公司账本的独立实时权限、付款实际金额/回款凭证/状态历史、平台账户首次创建竞态、释放幂等键归属、VOID 展示和越界分页、审计快照与私有凭证绑定/每日容量限制。未改变历史个人余额和分润比例。
+
+本地完整迁移链成功，backend 274 suites / 3218 tests passed，21 tests 按原条件 skipped；管理后台构建通过。基金 PostgreSQL 验证接入 E2E workflow 的独立 fund_test_ci 数据库。
+
+测试集成使用 codex/fund-ledgers-staging-20260909，基于原 staging-next@de252f78，仅摘取本次基金提交，保留既有测试功能与部署保护。main-based 功能分支独立保留，禁止把测试集成分支整体合入 main。远端 CI 与部署结论以后续发布记录为准。

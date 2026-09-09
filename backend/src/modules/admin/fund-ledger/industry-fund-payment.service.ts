@@ -96,11 +96,17 @@ export class IndustryFundPaymentService {
     const result = await execute();
     await tx.$executeRaw`
       INSERT INTO "industry_fund_payment_requests"
-        ("id", "requestKey", operation, "targetId", "actorId", fingerprint, "resultType", "resultId")
+        ("id", "requestKey", operation, "targetId", "actorId", fingerprint, "resultType", "resultId", "createdAt")
       VALUES
-        (${randomUUID()}, ${request.requestKey}, ${request.operation}, ${request.targetId}, ${request.actorId}, ${request.fingerprint}, ${result.resultType}, ${result.resultId})
+        (${randomUUID()}, ${request.requestKey}, ${request.operation}, ${request.targetId}, ${request.actorId}, ${request.fingerprint}, ${result.resultType}, ${result.resultId}, timezone('UTC', NOW()))
     `;
     return result.value;
+  }
+
+  private async bindProof(tx: Prisma.TransactionClient, proofId: string, bindingKey: string) {
+    await tx.fundProofBinding.createMany({ data: [{ proofId, bindingKey }], skipDuplicates: true });
+    const bound = await tx.fundProofBinding.findUnique({ where: { proofId } });
+    if (bound?.bindingKey !== bindingKey) throw new ConflictException('该凭证已用于其他付款或回款，请上传对应银行凭证');
   }
 
   private async write<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -206,6 +212,7 @@ export class IndustryFundPaymentService {
       };
       return this.withRequestIdempotency(tx, request, async () => {
         await this.paymentCompany(tx, id);
+        await this.bindProof(tx, normalized.proofKey, `CONFIRM:${id}`);
         const value = await this.core.confirmPayment(tx, id, {
           ...normalized,
           idempotencyKey: requestKey,
@@ -290,6 +297,7 @@ export class IndustryFundPaymentService {
       };
       return this.withRequestIdempotency(tx, request, async () => {
         await this.paymentCompany(tx, id);
+        await this.bindProof(tx, normalized.proofKey, `RECOVERY:${id}:${requestKey}`);
         const value = await this.core.recordRecovery(tx, id, { ...normalized, idempotencyKey: requestKey, recoveredAt, actorId, actorType: 'ADMIN' });
         return { value, resultType: 'RECOVERY', resultId: value.recoveryId };
       }, (resultType, resultId) => {

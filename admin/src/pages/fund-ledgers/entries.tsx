@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -49,9 +49,13 @@ export default function FundLedgerEntriesPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const { fundType: rawFundType } = useParams<{ fundType: string }>();
+  const [searchParams] = useSearchParams();
   const fundType = rawFundType as FundType;
   const [form] = Form.useForm<EntryFilterValues>();
-  const [filters, setFilters] = useState<EntryFilterValues>({});
+  const [filters, setFilters] = useState<EntryFilterValues>(() => ({
+    companyId: searchParams.get('companyId') || undefined,
+    eventType: searchParams.get('eventType') || undefined,
+  }));
   const valid = validFundTypes.includes(fundType);
 
   if (!valid) {
@@ -64,6 +68,7 @@ export default function FundLedgerEntriesPage() {
     { title: '来源', dataIndex: 'sourceType', width: 100, render: (_, row) => sourceTag(row.sourceType) },
     { title: '变动金额', dataIndex: 'amount', width: 130, align: 'right', render: (_, row) => signedMoney(row.amount, row.direction) },
     { title: '变动后余额', dataIndex: 'balanceAfter', width: 130, align: 'right', render: (_, row) => money(row.balanceAfter) },
+    { title: '待追偿后', dataIndex: 'recoveryDueAfter', width: 120, align: 'right', render: (_, row) => money(row.recoveryDueAfter) },
     { title: '售后冻结', dataIndex: 'frozenAfter', width: 120, align: 'right', render: (_, row) => money(row.frozenAfter) },
     { title: '付款预留', dataIndex: 'reservedAfter', width: 120, align: 'right', render: (_, row) => money(row.reservedAfter) },
     { title: '公司', dataIndex: 'companyName', width: 160, render: (_, row) => row.companyId ? <Link to={`/fund-ledgers/companies/${row.companyId}`}>{row.companyName || row.companyId}</Link> : '-' },

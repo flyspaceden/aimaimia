@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -34,6 +34,7 @@ import {
   type CreateIndustryFundPaymentInput,
   type FundSummaryResponse,
   type IndustryFundCompany,
+  type IndustryFundSummaryResponse,
   type IndustryFundPayment,
   type IndustryFundPaymentQuery,
   type IndustryFundUnassignedEntry,
@@ -64,9 +65,9 @@ const makeIdempotencyKey = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
-function getIndustryValues(summary?: FundSummaryResponse | null) {
-  const row = summary?.funds?.find((item) => item.fundType === 'INDUSTRY_FUND');
-  const direct = summary as (FundSummaryResponse & {
+function getIndustryValues(summary?: FundSummaryResponse | IndustryFundSummaryResponse | null) {
+  const row = (summary as FundSummaryResponse | undefined)?.funds?.find((item) => item.fundType === 'INDUSTRY_FUND');
+  const direct = summary as (FundSummaryResponse & IndustryFundSummaryResponse & {
     accrued?: number;
     frozen?: number;
     available?: number;
@@ -75,9 +76,9 @@ function getIndustryValues(summary?: FundSummaryResponse | null) {
     recoverable?: number;
     companyPayable?: number;
   }) | undefined;
-  const industry = summary?.industry ?? direct;
+  const industry = direct?.industry ?? direct;
   return {
-    accrued: summary?.industry?.accrued ?? direct?.accrued ?? 0,
+    accrued: direct?.industry?.accrued ?? direct?.accrued ?? 0,
     payable: industry?.companyPayable ?? row?.companyPayable ?? direct?.companyPayable ?? row?.currentBalance ?? 0,
     frozen: industry?.frozen ?? row?.frozen ?? direct?.frozen ?? 0,
     reserved: industry?.reserved ?? row?.reserved ?? direct?.reserved ?? 0,
@@ -94,12 +95,14 @@ function companyName(company: IndustryFundPayment['company']): string {
 export default function FundLedgersPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [filterForm] = Form.useForm<DateFilterValues>();
   const [paymentForm] = Form.useForm<CreateIndustryFundPaymentInput>();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [tableRevision, setTableRevision] = useState(0);
   const [filter, setFilter] = useState<{ from?: string; to?: string }>({});
+  const companyFilter = searchParams.get('companyId') || undefined;
   const { hasPermission } = usePermission();
   const canReadUnified = hasPermission(PERMISSIONS.FUND_LEDGERS_READ);
   const canReadIndustry = hasPermission(PERMISSIONS.INDUSTRY_FUNDS_READ);
@@ -110,8 +113,8 @@ export default function FundLedgersPage() {
     enabled: canReadUnified,
   });
   const industrySummaryQuery = useQuery({
-    queryKey: ['admin', 'industry-funds', 'summary'],
-    queryFn: getIndustryFundSummary,
+    queryKey: ['admin', 'industry-funds', 'summary', filter],
+    queryFn: () => getIndustryFundSummary(filter),
     enabled: !canReadUnified && canReadIndustry,
   });
   const companyOptionsQuery = useQuery({
@@ -225,6 +228,7 @@ export default function FundLedgersPage() {
     pageSize: Number(params.pageSize ?? 20),
     from: filter.from,
     to: filter.to,
+    companyId: companyFilter,
     status: typeof params.status === 'string' ? params.status : undefined,
     search: typeof params.name === 'string' ? params.name : typeof params.companyName === 'string' ? params.companyName : undefined,
   });
@@ -243,6 +247,7 @@ export default function FundLedgersPage() {
         />
 
         <Card size="small" title="期间筛选">
+          <Typography.Text type="secondary">公司余额为当前账本投影；日期筛选只影响期间汇总、流水和付款登记列表。</Typography.Text>
           <Form form={filterForm} layout="inline" onFinish={applyDateFilter}>
             <Form.Item name="dates" label="发生时间">
               <RangePicker showTime format="YYYY-MM-DD HH:mm" allowClear />
@@ -264,6 +269,10 @@ export default function FundLedgersPage() {
           <Col xs={12} md={4}><Card><Statistic title="累计已支付" value={industry.paid} precision={2} prefix="¥" /></Card></Col>
           <Col xs={12} md={4}><Card><Statistic title="待追偿" value={industry.recoverable} precision={2} prefix="¥" valueStyle={{ color: industry.recoverable > 0 ? '#cf1322' : undefined }} /></Card></Col>
         </Row>
+
+        {!canReadUnified && canReadIndustry && industrySummaryQuery.isError && (
+          <Alert type="error" showIcon message="产业基金汇总加载失败" action={<Button size="small" onClick={() => industrySummaryQuery.refetch()}>重试</Button>} />
+        )}
 
         {canReadUnified && <Card title="各基金账本" extra={summaryQuery.isError ? <Button onClick={() => summaryQuery.refetch()}>重试</Button> : null}>
           <ProTable
@@ -291,8 +300,6 @@ export default function FundLedgersPage() {
                 const result = getRows<IndustryFundCompany>(await getIndustryFundCompanies({
                   page: Number(params.current ?? 1),
                   pageSize: Number(params.pageSize ?? 20),
-                  from: filter.from,
-                  to: filter.to,
                   status: typeof params.status === 'string' ? params.status : undefined,
                   search: typeof params.name === 'string' ? params.name : typeof params.companyName === 'string' ? params.companyName : undefined,
                 }));
