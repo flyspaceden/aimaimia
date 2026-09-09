@@ -60,6 +60,8 @@ test('公司名称搜索、快捷筛选和关闭详情保留查询',async({page}
   await page.getByRole('button',{name:'关闭',exact:true}).click();
   await expect(page.getByRole('textbox',{name:'公司名称搜索'})).toHaveValue('丰禾');
   await page.getByRole('button',{name:/^重\s*置$/}).click();
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(page.getByRole('textbox',{name:'公司名称搜索'})).toHaveValue('');
   await page.getByRole('button',{name:'有待追偿',exact:true}).click();
   await expect(page.getByRole('button',{name:B.name,exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:A.name,exact:true})).toHaveCount(0);
@@ -175,3 +177,58 @@ test('公司计提依据区分整体基金比例与公司分摊金额',async({pa
   await expect(page.getByText(/利润基数 ¥100.00，基金比例 8.00%；本笔计提 ¥4.00/)).toBeVisible();
   await expect(page.getByText(/100.00.*×.*8.00%.*=.*4.00/)).toHaveCount(0);
 });
+
+test('旧搜索书签可以清除，流水号链接打开正确详情',async({page})=>{
+  const seen=await setup(page);await page.goto('/fund-ledgers/CHARITY_FUND?search=order-a');
+  await page.getByRole('button',{name:/^重\s*置$/}).click();
+  await expect(page).not.toHaveURL(/search=/);
+  await expect.poll(()=>seen.at(-1)).not.toMatch(/search=order-a/);
+  await page.getByRole('link',{name:'ledger-a',exact:true}).click();
+  await expect(page).toHaveURL(/entries\/CHARITY_FUND\/ledger-a/);
+});
+
+test('手机宽度详情抽屉保持在屏幕内',async({page})=>{
+  await setup(page);await page.setViewportSize({width:390,height:844});
+  await page.goto('/fund-ledgers/companies?q=丰禾');
+  await page.getByRole('button',{name:'查看',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'资金明细'})).toBeVisible();
+  const bounds=await page.getByRole('dialog').boundingBox();
+  expect(bounds?.width).toBeLessThanOrEqual(390);
+  expect(bounds?.x).toBeGreaterThanOrEqual(0);
+});
+
+const proofPng=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
+for(const action of [
+  {path:'cancel',button:'核实未付款并取消预留',title:'取消付款预留',reason:'核实原因',status:'RESERVED'},
+  {path:'reverse',button:'登记错误并冲正',title:'登记错误并冲正',reason:'冲正原因',status:'PAID'},
+  {path:'recoveries',button:'登记实际回款',title:'登记实际回款',reason:'回款原因',status:'PAID'},
+  {path:'confirm',button:'登记已付款',title:'登记已付款',reason:null,status:'RESERVED'},
+]) {
+  test(`付款详情${action.title}未知响应保留原请求`,async({page})=>{
+    await setup(page);const payloads:unknown[]=[];
+    await page.route('**/api/v1/admin/industry-funds/payments/payment-a',route=>route.fulfill({json:{ok:true,data:{...PAYMENT,status:action.status}}}));
+    await page.route('**/api/v1/admin/industry-funds/proofs',route=>route.fulfill({json:{ok:true,data:{id:'11111111-1111-4111-8111-111111111111'}}}));
+    await page.route(`**/api/v1/admin/industry-funds/payments/payment-a/${action.path}`,async route=>{
+      payloads.push(route.request().postDataJSON());
+      return payloads.length===1
+        ? route.fulfill({status:503,json:{ok:false,error:{code:'UNKNOWN',message:'服务器暂时不可用'}}})
+        : route.fulfill({json:{ok:true,data:PAYMENT}});
+    });
+    await page.goto('/fund-ledgers/payments/payment-a');
+    await page.getByRole('button',{name:action.button,exact:true}).click();
+    const modal=page.getByRole('dialog',{name:action.title,exact:true});
+    if(action.reason)await modal.getByRole('textbox',{name:new RegExp(action.reason)}).fill('测试核实说明');
+    if(action.path==='confirm'||action.path==='recoveries') {
+      await modal.getByRole('textbox',{name:/银行流水号/}).fill('test-bank-reference');
+      if(action.path==='confirm')await modal.getByRole('textbox',{name:/平台付款账户标识/}).fill('test-platform');
+      await modal.locator('input[type="file"]').setInputFiles({name:'test-proof.png',mimeType:'image/png',buffer:proofPng});
+      await expect(page.getByText('凭证已安全上传',{exact:true})).toBeVisible();
+    }
+    await modal.getByRole('button',{name:/^确\s*定$/}).click();
+    await expect(modal.getByText('请求结果未知，已冻结本次提交',{exact:true})).toBeVisible();
+    await expect(modal.getByRole('textbox',{name:action.reason?new RegExp(action.reason):/银行流水号/})).toBeDisabled();
+    await modal.getByRole('button',{name:/相同幂等键重试$/}).click();
+    await expect(modal).not.toBeVisible();
+    expect(payloads).toHaveLength(2);expect(payloads[1]).toEqual(payloads[0]);
+  });
+}

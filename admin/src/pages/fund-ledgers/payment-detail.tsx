@@ -49,6 +49,15 @@ const makeIdempotencyKey = () => {
 
 type ConfirmFormValues = Omit<ConfirmIndustryFundPaymentInput, 'paidAt'> & { paidAt: Dayjs };
 type RecoveryFormValues = Omit<RecoveryInput, 'recoveredAt'> & { recoveredAt: Dayjs };
+type ActionKind = 'confirm' | 'cancel' | 'reverse' | 'recovery';
+type ActionPayload = ConfirmIndustryFundPaymentInput | CancelIndustryFundPaymentInput | ReverseIndustryFundPaymentInput | RecoveryInput;
+
+type ApiError = Error & { status?: number };
+
+function isUnknownActionError(error: unknown): boolean {
+  const status = (error as ApiError | undefined)?.status;
+  return !status || status < 400 || status >= 500;
+}
 
 export default function IndustryFundPaymentDetailPage() {
   const { message } = App.useApp();
@@ -56,7 +65,7 @@ export default function IndustryFundPaymentDetailPage() {
   const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const returnTo = safeFundReturn(searchParams.get('returnTo'));
+  const returnTo = safeFundReturn(searchParams.get('returnTo'), '/fund-ledgers/payments');
   const [confirmForm] = Form.useForm<ConfirmFormValues>();
   const [cancelForm] = Form.useForm<CancelIndustryFundPaymentInput>();
   const [reverseForm] = Form.useForm<ReverseIndustryFundPaymentInput>();
@@ -65,6 +74,11 @@ export default function IndustryFundPaymentDetailPage() {
   const [proofFileList, setProofFileList] = useState<UploadFile[]>([]);
   const [proofKey, setProofKey] = useState<string>('');
   const [proofUploading, setProofUploading] = useState(false);
+  const [unknownAction, setUnknownAction] = useState<{ kind: ActionKind; message: string } | null>(null);
+  const confirmPayloadRef = useRef<ConfirmIndustryFundPaymentInput | null>(null);
+  const cancelPayloadRef = useRef<CancelIndustryFundPaymentInput | null>(null);
+  const reversePayloadRef = useRef<ReverseIndustryFundPaymentInput | null>(null);
+  const recoveryPayloadRef = useRef<RecoveryInput | null>(null);
   const uploadGeneration = useRef(0);
 
   const paymentQuery = useQuery({
@@ -74,15 +88,15 @@ export default function IndustryFundPaymentDetailPage() {
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['admin', 'industry-funds'] });
-    queryClient.invalidateQueries({ queryKey: ['admin', 'fund-ledgers'] });
-    paymentQuery.refetch();
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'industry-funds'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'fund-ledgers'] });
+    void paymentQuery.refetch();
   };
   const handleError = (error: unknown, fallback: string) => message.error(getAdminErrorMessage(error, fallback));
-  const confirmMutation = useMutation({ mutationFn: (input: ConfirmIndustryFundPaymentInput) => confirmIndustryFundPayment(id!, input), onSuccess: () => { message.success('已登记线下付款'); setModal(null); invalidate(); }, onError: (error) => handleError(error, '付款确认失败') });
-  const cancelMutation = useMutation({ mutationFn: (input: CancelIndustryFundPaymentInput) => cancelIndustryFundPayment(id!, input), onSuccess: () => { message.success('付款预留已取消'); setModal(null); invalidate(); }, onError: (error) => handleError(error, '取消付款预留失败') });
-  const reverseMutation = useMutation({ mutationFn: (input: ReverseIndustryFundPaymentInput) => reverseIndustryFundPayment(id!, input), onSuccess: () => { message.success('付款登记已冲正'); setModal(null); invalidate(); }, onError: (error) => handleError(error, '付款冲正失败') });
-  const recoveryMutation = useMutation({ mutationFn: (input: RecoveryInput) => createIndustryFundRecovery(id!, input), onSuccess: () => { message.success('实际回款已登记'); setModal(null); invalidate(); }, onError: (error) => handleError(error, '实际回款登记失败') });
+  const confirmMutation = useMutation({ mutationFn: (input: ConfirmIndustryFundPaymentInput) => confirmIndustryFundPayment(id!, input) });
+  const cancelMutation = useMutation({ mutationFn: (input: CancelIndustryFundPaymentInput) => cancelIndustryFundPayment(id!, input) });
+  const reverseMutation = useMutation({ mutationFn: (input: ReverseIndustryFundPaymentInput) => reverseIndustryFundPayment(id!, input) });
+  const recoveryMutation = useMutation({ mutationFn: (input: RecoveryInput) => createIndustryFundRecovery(id!, input) });
 
   useEffect(() => {
     if (!modal) {
@@ -92,6 +106,11 @@ export default function IndustryFundPaymentDetailPage() {
       setProofUploading(false);
       confirmForm.resetFields();
       recoveryForm.resetFields();
+      setUnknownAction(null);
+      confirmPayloadRef.current = null;
+      cancelPayloadRef.current = null;
+      reversePayloadRef.current = null;
+      recoveryPayloadRef.current = null;
     }
   }, [modal, confirmForm, recoveryForm]);
 
@@ -101,7 +120,7 @@ export default function IndustryFundPaymentDetailPage() {
   }
 
   const payment = paymentQuery.data;
-  const canMutate = confirmMutation.isPending || cancelMutation.isPending || reverseMutation.isPending || recoveryMutation.isPending || proofUploading;
+  const canMutate = confirmMutation.isPending || cancelMutation.isPending || reverseMutation.isPending || recoveryMutation.isPending || proofUploading || !!unknownAction;
   const isReserved = payment.status === 'RESERVED' || payment.status === 'PAYMENT_RESERVED';
   const isPaid = payment.status === 'PAID' || payment.status === 'PAYMENT_CONFIRMED';
   const correctionHref = fundLink(
@@ -116,20 +135,104 @@ export default function IndustryFundPaymentDetailPage() {
     setProofUploading(false);
   };
 
+  const guardAction = () => {
+    if (unknownAction) {
+      message.warning('请求结果未知，请先用相同幂等键重试或刷新付款状态');
+      return false;
+    }
+    if (canMutate) return false;
+    return true;
+  };
+
   const openConfirm = () => {
+    if (!guardAction()) return;
     resetProofUpload();
     confirmForm.setFieldsValue({ actualAmount: payment.amount, paidAt: dayjs(), sourceAccountRef: '', bankReference: '', proofKey: '', confirmActualPayment: false, reviewReason: '', idempotencyKey: makeIdempotencyKey() });
     setModal('confirm');
   };
-  const openCancel = () => { cancelForm.setFieldsValue({ reason: '', idempotencyKey: makeIdempotencyKey() }); setModal('cancel'); };
-  const openReverse = () => { reverseForm.setFieldsValue({ reason: '', idempotencyKey: makeIdempotencyKey() }); setModal('reverse'); };
+  const openCancel = () => {
+    if (!guardAction()) return;
+    cancelForm.setFieldsValue({ reason: '', idempotencyKey: makeIdempotencyKey() });
+    setModal('cancel');
+  };
+  const openReverse = () => {
+    if (!guardAction()) return;
+    reverseForm.setFieldsValue({ reason: '', idempotencyKey: makeIdempotencyKey() });
+    setModal('reverse');
+  };
   const openRecovery = () => {
+    if (!guardAction()) return;
     resetProofUpload();
     recoveryForm.setFieldsValue({ amount: payment.amount, recoveredAt: dayjs(), bankReference: '', proofKey: '', reason: '', idempotencyKey: makeIdempotencyKey() });
     setModal('recovery');
   };
 
+  const frozenPayload = (kind: ActionKind): ActionPayload | null => {
+    if (kind === 'confirm') return confirmPayloadRef.current;
+    if (kind === 'cancel') return cancelPayloadRef.current;
+    if (kind === 'reverse') return reversePayloadRef.current;
+    return recoveryPayloadRef.current;
+  };
+
+  const clearPayload = (kind: ActionKind) => {
+    if (kind === 'confirm') confirmPayloadRef.current = null;
+    if (kind === 'cancel') cancelPayloadRef.current = null;
+    if (kind === 'reverse') reversePayloadRef.current = null;
+    if (kind === 'recovery') recoveryPayloadRef.current = null;
+  };
+
+  const actionSuccessMessage = (kind: ActionKind) => {
+    if (kind === 'confirm') return '已登记线下付款';
+    if (kind === 'cancel') return '付款预留已取消';
+    if (kind === 'reverse') return '付款登记已冲正';
+    return '实际回款已登记';
+  };
+
+  const actionFailureMessage = (kind: ActionKind) => {
+    if (kind === 'confirm') return '付款确认失败';
+    if (kind === 'cancel') return '取消付款预留失败';
+    if (kind === 'reverse') return '付款冲正失败';
+    return '实际回款登记失败';
+  };
+
+  const executeAction = async (kind: ActionKind, payload: ActionPayload) => {
+    try {
+      if (kind === 'confirm') await confirmMutation.mutateAsync(payload as ConfirmIndustryFundPaymentInput);
+      if (kind === 'cancel') await cancelMutation.mutateAsync(payload as CancelIndustryFundPaymentInput);
+      if (kind === 'reverse') await reverseMutation.mutateAsync(payload as ReverseIndustryFundPaymentInput);
+      if (kind === 'recovery') await recoveryMutation.mutateAsync(payload as RecoveryInput);
+      setUnknownAction(null);
+      clearPayload(kind);
+      message.success(actionSuccessMessage(kind));
+      setModal(null);
+      invalidate();
+    } catch (error) {
+      if (isUnknownActionError(error)) {
+        setUnknownAction({ kind, message: '请求结果未知，已冻结本次提交。请用相同幂等键重试，或刷新付款状态后再决定。' });
+        return;
+      }
+      // 4xx remains an editable, correctable form state. The original key is
+      // retained for a retry, while the user can fix the invalid fields.
+      handleError(error, actionFailureMessage(kind));
+    }
+  };
+
+  const retryUnknown = async (kind: ActionKind) => {
+    if (!unknownAction || unknownAction.kind !== kind) return;
+    const payload = frozenPayload(kind);
+    if (!payload) {
+      message.error('原提交内容已丢失，请关闭后重新打开操作');
+      return;
+    }
+    await executeAction(kind, payload);
+  };
+
   const confirmSubmit = async (values: ConfirmFormValues) => {
+    if (unknownAction?.kind === 'confirm') {
+      await retryUnknown('confirm');
+      return;
+    }
+    if (unknownAction) return;
     if (proofUploading) { message.info('凭证仍在上传，请稍候'); return; }
     if (!proofKey) {
       message.error('请上传银行付款凭证');
@@ -144,28 +247,81 @@ export default function IndustryFundPaymentDetailPage() {
       return;
     }
     if (!values.idempotencyKey) { message.error('付款确认幂等键缺失，请关闭后重新打开表单'); return; }
-    await confirmMutation.mutateAsync({ ...values, actualAmount: Number(values.actualAmount), paidAt: values.paidAt.toISOString(), proofKey, idempotencyKey: values.idempotencyKey });
+    const payload: ConfirmIndustryFundPaymentInput = {
+      actualAmount: Number(values.actualAmount),
+      paidAt: values.paidAt.toISOString(),
+      sourceAccountRef: values.sourceAccountRef.trim(),
+      bankReference: values.bankReference.trim(),
+      proofKey,
+      confirmActualPayment: values.confirmActualPayment,
+      reviewReason: values.reviewReason?.trim(),
+      idempotencyKey: values.idempotencyKey,
+    };
+    confirmPayloadRef.current = payload;
+    await executeAction('confirm', payload);
   };
   const cancelSubmit = async (values: CancelIndustryFundPaymentInput) => {
+    if (unknownAction?.kind === 'cancel') {
+      await retryUnknown('cancel');
+      return;
+    }
+    if (unknownAction) return;
     if (!values.idempotencyKey) { message.error('取消操作幂等键缺失，请关闭后重新打开表单'); return; }
-    return cancelMutation.mutateAsync({ ...values, reason: values.reason.trim(), idempotencyKey: values.idempotencyKey });
+    const payload: CancelIndustryFundPaymentInput = { reason: values.reason.trim(), idempotencyKey: values.idempotencyKey };
+    cancelPayloadRef.current = payload;
+    await executeAction('cancel', payload);
   };
   const reverseSubmit = async (values: ReverseIndustryFundPaymentInput) => {
+    if (unknownAction?.kind === 'reverse') {
+      await retryUnknown('reverse');
+      return;
+    }
+    if (unknownAction) return;
     if (!values.idempotencyKey) { message.error('冲正操作幂等键缺失，请关闭后重新打开表单'); return; }
-    return reverseMutation.mutateAsync({ ...values, reason: values.reason.trim(), idempotencyKey: values.idempotencyKey });
+    const payload: ReverseIndustryFundPaymentInput = { reason: values.reason.trim(), idempotencyKey: values.idempotencyKey };
+    reversePayloadRef.current = payload;
+    await executeAction('reverse', payload);
   };
   const recoverySubmit = async (values: RecoveryFormValues) => {
+    if (unknownAction?.kind === 'recovery') {
+      await retryUnknown('recovery');
+      return;
+    }
+    if (unknownAction) return;
     if (proofUploading) { message.info('凭证仍在上传，请稍候'); return; }
     if (!proofKey) { message.error('请上传实际回款凭证'); return; }
     if (!values.idempotencyKey) { message.error('回款操作幂等键缺失，请关闭后重新打开表单'); return; }
-    await recoveryMutation.mutateAsync({ ...values, amount: Number(values.amount), recoveredAt: values.recoveredAt.toISOString(), proofKey, reason: values.reason.trim(), idempotencyKey: values.idempotencyKey });
+    const payload: RecoveryInput = {
+      amount: Number(values.amount),
+      recoveredAt: values.recoveredAt.toISOString(),
+      bankReference: values.bankReference.trim(),
+      proofKey,
+      reason: values.reason.trim(),
+      idempotencyKey: values.idempotencyKey,
+    };
+    recoveryPayloadRef.current = payload;
+    await executeAction('recovery', payload);
+  };
+
+  const handleModalCancel = () => {
+    if (unknownAction) {
+      message.warning('请求结果未知，请先用相同幂等键重试或刷新付款状态');
+      return;
+    }
+    if (canMutate) return;
+    setModal(null);
   };
 
   const proofUploadProps: UploadProps = {
     accept: '.pdf,.png,.jpg,.jpeg',
     maxCount: 1,
     fileList: proofFileList,
+    disabled: canMutate,
     beforeUpload: async (file) => {
+      if (unknownAction || canMutate) {
+        message.warning(unknownAction ? '请求结果未知，凭证已冻结，请先使用相同幂等键重试' : '操作正在处理中，请稍候');
+        return Upload.LIST_IGNORE;
+      }
       const allowed = ['application/pdf', 'image/png', 'image/jpeg'];
       if (!allowed.includes(file.type)) { message.error('凭证只支持 PDF、PNG 或 JPEG'); return Upload.LIST_IGNORE; }
       if (file.size > 5 * 1024 * 1024) { message.error('凭证不能超过 5MB'); return Upload.LIST_IGNORE; }
@@ -188,7 +344,17 @@ export default function IndustryFundPaymentDetailPage() {
       }
       return Upload.LIST_IGNORE;
     },
-    onRemove: () => { uploadGeneration.current += 1; setProofKey(''); setProofFileList([]); setProofUploading(false); },
+    onRemove: () => {
+      if (unknownAction || canMutate) {
+        message.warning(unknownAction ? '请求结果未知，凭证已冻结，请先使用相同幂等键重试' : '操作正在处理中，请稍候');
+        return false;
+      }
+      uploadGeneration.current += 1;
+      setProofKey('');
+      setProofFileList([]);
+      setProofUploading(false);
+      return true;
+    },
   };
 
   const downloadProof = async (key: string) => {
@@ -248,9 +414,19 @@ export default function IndustryFundPaymentDetailPage() {
         {payment.statusHistory?.length ? <Card title="付款状态历史"><Table rowKey="id" size="small" pagination={false} dataSource={payment.statusHistory} columns={[{ title: '事件', dataIndex: 'eventType', render: (value: string) => eventTag(value) }, { title: '金额', dataIndex: 'amount', render: (value: number) => money(value) }, { title: '时间', dataIndex: 'occurredAt', render: (value) => dateTime(value) }, { title: '原因', dataIndex: 'reason', render: (value) => value || '-' }, { title: '操作人', dataIndex: ['operator', 'id'], render: (value) => value || '系统任务' }]} /></Card> : null}
       </Space>
 
-      <Modal title="登记已付款" open={modal === 'confirm'} onCancel={() => { if (!confirmMutation.isPending) setModal(null); }} onOk={() => confirmForm.submit()} okButtonProps={{ disabled: proofUploading }} confirmLoading={confirmMutation.isPending} destroyOnClose>
+      <Modal
+        title="登记已付款"
+        open={modal === 'confirm'}
+        onCancel={handleModalCancel}
+        onOk={() => { if (unknownAction?.kind === 'confirm') void retryUnknown('confirm'); else void confirmForm.submit(); }}
+        okText={unknownAction?.kind === 'confirm' ? '相同幂等键重试' : '确定'}
+        okButtonProps={{ disabled: proofUploading }}
+        confirmLoading={confirmMutation.isPending}
+        destroyOnClose
+      >
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="实际付款金额必须等于付款单金额；银行流水号和付款凭证为必填。" />
-        <Form form={confirmForm} layout="vertical" onFinish={confirmSubmit}>
+        {unknownAction?.kind === 'confirm' && <Alert type="warning" showIcon message="请求结果未知，已冻结本次提交" description={unknownAction.message} style={{ marginBottom: 16 }} />}
+        <Form form={confirmForm} layout="vertical" onFinish={confirmSubmit} disabled={canMutate}>
           <Form.Item name="actualAmount" label="实际付款金额（元）" rules={[{ required: true, message: '请输入实际付款金额' }, { type: 'number', min: 0.01, message: '金额必须大于 0' }]}><InputNumber min={0.01} precision={2} style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="paidAt" label="实际付款时间" rules={[{ required: true, message: '请选择付款时间' }]}><DatePicker showTime style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="sourceAccountRef" label="平台付款账户标识" rules={[{ required: true, message: '请输入付款账户标识' }]}><Input maxLength={100} placeholder="例如：对公账户尾号或内部账户编号" /></Form.Item>
@@ -270,18 +446,46 @@ export default function IndustryFundPaymentDetailPage() {
         </Form>
       </Modal>
 
-      <Modal title="取消付款预留" open={modal === 'cancel'} onCancel={() => { if (!cancelMutation.isPending) setModal(null); }} onOk={() => cancelForm.submit()} confirmLoading={cancelMutation.isPending} destroyOnClose>
-        <Form form={cancelForm} layout="vertical" onFinish={cancelSubmit}><Form.Item name="reason" label="核实原因" rules={[{ required: true, message: '请填写核实原因' }]}><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item><Form.Item name="idempotencyKey" hidden><Input /></Form.Item></Form>
+      <Modal
+        title="取消付款预留"
+        open={modal === 'cancel'}
+        onCancel={handleModalCancel}
+        onOk={() => { if (unknownAction?.kind === 'cancel') void retryUnknown('cancel'); else void cancelForm.submit(); }}
+        okText={unknownAction?.kind === 'cancel' ? '相同幂等键重试' : '确定'}
+        confirmLoading={cancelMutation.isPending}
+        destroyOnClose
+      >
+        {unknownAction?.kind === 'cancel' && <Alert type="warning" showIcon message="请求结果未知，已冻结本次提交" description={unknownAction.message} style={{ marginBottom: 16 }} />}
+        <Form form={cancelForm} layout="vertical" onFinish={cancelSubmit} disabled={canMutate}><Form.Item name="reason" label="核实原因" rules={[{ required: true, message: '请填写核实原因' }]}><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item><Form.Item name="idempotencyKey" hidden><Input /></Form.Item></Form>
       </Modal>
 
-      <Modal title="登记错误并冲正" open={modal === 'reverse'} onCancel={() => { if (!reverseMutation.isPending) setModal(null); }} onOk={() => reverseForm.submit()} confirmLoading={reverseMutation.isPending} destroyOnClose>
+      <Modal
+        title="登记错误并冲正"
+        open={modal === 'reverse'}
+        onCancel={handleModalCancel}
+        onOk={() => { if (unknownAction?.kind === 'reverse') void retryUnknown('reverse'); else void reverseForm.submit(); }}
+        okText={unknownAction?.kind === 'reverse' ? '相同幂等键重试' : '确定'}
+        confirmLoading={reverseMutation.isPending}
+        destroyOnClose
+      >
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="冲正只用于错误登记，不能假装真实银行退款；若款项已退回平台，请使用实际回款登记。" />
-        <Form form={reverseForm} layout="vertical" onFinish={reverseSubmit}><Form.Item name="reason" label="冲正原因" rules={[{ required: true, message: '请填写冲正原因' }]}><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item><Form.Item name="idempotencyKey" hidden><Input /></Form.Item></Form>
+        {unknownAction?.kind === 'reverse' && <Alert type="warning" showIcon message="请求结果未知，已冻结本次提交" description={unknownAction.message} style={{ marginBottom: 16 }} />}
+        <Form form={reverseForm} layout="vertical" onFinish={reverseSubmit} disabled={canMutate}><Form.Item name="reason" label="冲正原因" rules={[{ required: true, message: '请填写冲正原因' }]}><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item><Form.Item name="idempotencyKey" hidden><Input /></Form.Item></Form>
       </Modal>
 
-      <Modal title="登记实际回款" open={modal === 'recovery'} onCancel={() => { if (!recoveryMutation.isPending) setModal(null); }} onOk={() => recoveryForm.submit()} okButtonProps={{ disabled: proofUploading }} confirmLoading={recoveryMutation.isPending} destroyOnClose>
+      <Modal
+        title="登记实际回款"
+        open={modal === 'recovery'}
+        onCancel={handleModalCancel}
+        onOk={() => { if (unknownAction?.kind === 'recovery') void retryUnknown('recovery'); else void recoveryForm.submit(); }}
+        okText={unknownAction?.kind === 'recovery' ? '相同幂等键重试' : '确定'}
+        okButtonProps={{ disabled: proofUploading }}
+        confirmLoading={recoveryMutation.isPending}
+        destroyOnClose
+      >
         <Alert type="info" showIcon style={{ marginBottom: 16 }} message="实际回款会减少待追偿金额，需要对应的银行流水和私有凭证。" />
-        <Form form={recoveryForm} layout="vertical" onFinish={recoverySubmit}>
+        {unknownAction?.kind === 'recovery' && <Alert type="warning" showIcon message="请求结果未知，已冻结本次提交" description={unknownAction.message} style={{ marginBottom: 16 }} />}
+        <Form form={recoveryForm} layout="vertical" onFinish={recoverySubmit} disabled={canMutate}>
           <Form.Item name="amount" label="回款金额（元）" rules={[{ required: true, message: '请输入回款金额' }, { type: 'number', min: 0.01, message: '金额必须大于 0' }]}><InputNumber min={0.01} precision={2} style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="recoveredAt" label="实际回款时间" rules={[{ required: true, message: '请选择回款时间' }]}><DatePicker showTime style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="bankReference" label="银行流水号" rules={[{ required: true, message: '请输入银行流水号' }]}><Input maxLength={100} /></Form.Item>

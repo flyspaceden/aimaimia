@@ -147,7 +147,7 @@ function PaymentPreviewDrawer({ paymentId, open, returnTo, onClose }: PaymentPre
       title={payment ? (payment.paymentNo || payment.id) : '付款单详情'}
       open={open}
       onClose={onClose}
-      width={760}
+      width="min(760px, 100vw)"
       destroyOnClose
       footer={(
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
