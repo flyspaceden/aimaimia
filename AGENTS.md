@@ -76,6 +76,8 @@
 - `docs/reference/phase1-9-全栈开发记录-Schema重建与模块实现.md` — 历史全栈开发记录
 
 ### 设计方案与实施计划 (`docs/superpowers/`)
+- `docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md` — 资金管理三页结构、查询/详情/按付款状态操作设计（本次管理后台体验优化权威来源）
+
 - `docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md` — App 普通/团购/VIP 自提接入设计、支付恢复与凭证边界（**App 自提接入权威来源，本地实现完成、真机待验收**）
 - `docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md` — App 自提逐文件实施任务与验收矩阵（**App 自提实施排程，分层记录验证状态**）
 - `docs/superpowers/specs/2026-04-23-forgot-password-design.md` — 忘记密码功能设计方案（买家 App 内嵌向导 + 卖家后台方案 β 按企业选择性重置 + 管理后台"联系超管"提示、三端密码独立、SmsPurpose 新增 BUYER_RESET/SELLER_RESET、verifyCode 必填 purpose、LoginEvent 审计 sink，**忘记密码功能权威来源**）
