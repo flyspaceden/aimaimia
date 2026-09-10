@@ -442,5 +442,28 @@
       "sourceReviewCommit": "44c93297",
       "queryUiReviewCommit": "3a2a4332"
     }
+  ],
+  "reviewedPickupFundDifferences": [
+    {
+      "path": "backend/src/modules/after-sale/after-sale.service.ts",
+      "sourceReviewCommit": "8a4b9c31",
+      "sourceReviewBlob": "8f876819f232a4e5111aa93c412b5c3362b04b08",
+      "gitBlob": "fd964b446f763f2964340b364c1f3b5aebd4f167",
+      "reason": "Reviewed in 8a4b9c31: disable new after-sale requests for PICKUP orders while preserving delivery, group-buy, and VIP rules."
+    },
+    {
+      "path": "backend/src/modules/fund-ledger/industry-fund.service.ts",
+      "sourceReviewCommit": "8a4b9c31",
+      "sourceReviewBlob": "55dba053c3b08893e02e7ed262dbbb0e3ae8f502",
+      "gitBlob": "349f9f0f11c936143a3dcc29e60bf3f43849d6aa",
+      "reason": "Reviewed in 8a4b9c31: release industry funds after verified pickup collection while retaining delivery release and after-sale guards."
+    },
+    {
+      "path": "backend/src/modules/pickup/pickup.service.ts",
+      "sourceReviewCommit": "8a4b9c31",
+      "sourceReviewBlob": "8b5914db779e33f8c9b9aba0791f1eff297021c9",
+      "gitBlob": "23438c570f8702b4f216990bd7b7038b8b373f89",
+      "reason": "Reviewed in 8a4b9c31: pickup verification marks fulfillment complete immediately and leaves delivery reward-window timing unchanged."
+    }
   ]
 }
