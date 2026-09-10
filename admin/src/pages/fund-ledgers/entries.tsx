@@ -41,7 +41,7 @@ import {
 } from './common';
 import { LedgerDetailPanel } from './ledger-detail-panel';
 import { FundEmpty, FundHeading } from './workspace';
-import { fundLink, useFundScroll, useFundSearch } from './workspace-state';
+import { fundLink, safeFundReturn, useFundScroll, useFundSearch } from './workspace-state';
 
 const { RangePicker } = DatePicker;
 const validFundTypes = Object.keys(FUND_TYPE_LABELS) as FundType[];
@@ -290,7 +290,7 @@ export default function FundLedgerEntriesPage() {
         description="按时间、事件、来源订单和余额核对每一笔账本记录。金额与历史记录只读展示。"
         actions={(
           <Space wrap>
-            <Button onClick={() => navigate('/fund-ledgers')}>返回基金总览</Button>
+            <Button onClick={() => navigate(safeFundReturn(params.get('returnTo')))}>返回基金总览</Button>
             <Button onClick={() => { void entriesQuery.refetch(); }} loading={entriesQuery.isFetching}>刷新</Button>
           </Space>
         )}
