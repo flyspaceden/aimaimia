@@ -375,10 +375,11 @@
     },
     {
       "path": "backend/src/modules/admin/fund-ledger/industry-fund-query.service.ts",
-      "gitBlob": "67ed41382ebd57623f069bab4c3f1f07b09cd560",
-      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged.",
+      "gitBlob": "dc2c5e84b279875204b3c19ebdc9b5a87dec87a2",
+      "reason": "Reviewed company industry-fund ledger, platform audit and admin permissions; preserves historical personal wallets and existing release-train features. Query-only UI follow-up reviewed at 3a2a4332; core money transitions unchanged. PostgreSQL enum binding hotfix reviewed and PG/HTTP verified at 1c5f7dfc.",
       "sourceReviewCommit": "44c93297",
-      "queryUiReviewCommit": "3a2a4332"
+      "queryUiReviewCommit": "3a2a4332",
+      "unassignedQueryReviewCommit": "1c5f7dfc"
     },
     {
       "path": "backend/src/modules/after-sale/after-sale-reward.service.ts",
