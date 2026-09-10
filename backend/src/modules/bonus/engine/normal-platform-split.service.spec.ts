@@ -5,11 +5,10 @@ describe('NormalPlatformSplitService direct referral pool handoff', () => {
   const makeTx = () => {
     const tx = {
       rewardAccount: {
-        findUnique: jest.fn(({ where }) => {
+        upsert: jest.fn(({ where }) => {
           const { userId, type } = where.userId_type;
           return Promise.resolve({ id: `${userId}-${type}`, userId, type });
         }),
-        create: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
       },
       rewardLedger: {
@@ -20,7 +19,8 @@ describe('NormalPlatformSplitService direct referral pool handoff', () => {
   };
 
   it('does not create temporary normal direct referral holding after direct commission is handled at order paid', async () => {
-    const service = new NormalPlatformSplitService();
+    const industryFund = { accrueInTransaction: jest.fn().mockResolvedValue(undefined) };
+    const service = new NormalPlatformSplitService(industryFund as any);
     const tx = makeTx();
     const normalRewardPoolHandledUpstream = 16;
     const directReferralPoolHandledAtOrderPaid = 1;
@@ -74,11 +74,13 @@ describe('NormalPlatformSplitService direct referral pool handoff', () => {
       data: { balance: { increment: 49 } },
     });
     const platformSplitTotal = ledgerRows.reduce((sum, row) => sum + row.amount, 0);
-    expect(platformSplitTotal).toBe(83);
+    expect(platformSplitTotal).toBe(67);
+    expect(industryFund.accrueInTransaction).toHaveBeenCalledWith(tx, expect.objectContaining({ amount: 16, orderId: 'order-1' }));
+    expect(ledgerRows.some((row) => row.meta.accountType === 'INDUSTRY_FUND')).toBe(false);
     expect(
       normalRewardPoolHandledUpstream +
       directReferralPoolHandledAtOrderPaid +
-      platformSplitTotal,
+      platformSplitTotal + 16,
     ).toBe(100);
   });
 });

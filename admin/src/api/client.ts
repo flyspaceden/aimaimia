@@ -40,8 +40,9 @@ const parseErrorMessage = (payload: any, fallback = '请求失败') => {
   return fallback;
 };
 
-const createApiError = (payload: any, fallback: string) => {
-  const error = new Error(parseErrorMessage(payload, fallback)) as Error & { details?: unknown };
+const createApiError = (payload: any, fallback: string, status?: number) => {
+  const error = new Error(parseErrorMessage(payload, fallback)) as Error & { details?: unknown; status?: number };
+  error.status = status;
   const details = payload?.error ?? payload;
   if (details && typeof details === 'object') error.details = details;
   return error;
@@ -90,7 +91,7 @@ client.interceptors.response.use(
     // 后端统一包装 { ok: true, data: ... }
     if (body && typeof body === 'object' && 'ok' in body) {
       if (!body.ok) {
-        return Promise.reject(createApiError(body, '请求失败'));
+        return Promise.reject(createApiError(body, '请求失败', response.status));
       }
       // I24修复：检查 data 字段存在性
       if (body.data === undefined) {
@@ -190,6 +191,7 @@ client.interceptors.response.use(
     return Promise.reject(createApiError(
       error.response?.data,
       error.message || '网络错误',
+      error.response?.status,
     ));
   },
 );

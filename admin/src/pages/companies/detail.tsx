@@ -1135,33 +1135,37 @@ export default function CompanyDetailPage() {
       <Card
         title="产业基金"
         extra={
-          industryFund?.owner ? (
-            <Space size="small">
-              <span style={{ color: '#999' }}>当前创始人：</span>
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={() =>
-                  navigate(`/users/${industryFund.owner!.userId}`)
-                }
-              >
-                {industryFund.owner.nickname || '未设置昵称'}
+          <Space size="small">
+            <PermissionGate permission={PERMISSIONS.INDUSTRY_FUNDS_READ}>
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/fund-ledgers/companies/${id}`)}>
+                查看新公司账本
               </Button>
-              <span style={{ color: '#999' }}>
-                ({industryFund.owner.phone})
-              </span>
-            </Space>
-          ) : (
-            <Tag color="red">未绑定创始人</Tag>
-          )
+            </PermissionGate>
+            {industryFund?.owner && <span style={{ color: '#999' }}>当前创始人：</span>}
+            {industryFund?.owner ? (
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => navigate(`/users/${industryFund.owner!.userId}`)}
+                >
+                  {industryFund.owner.nickname || '未设置昵称'}
+                </Button>
+                <span style={{ color: '#999' }}>({industryFund.owner.phone})</span>
+              </>
+            ) : (
+              <Tag color="red">未绑定创始人</Tag>
+            )}
+          </Space>
         }
       >
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="产业基金是会员（含普通用户）订单利润中分给卖家的份额，按订单所属企业归属于本商户。每笔利润会自动入账到该商户当前创始人的奖励账户。后续更换创始人时，历史流水仍归属本商户，不会丢失。"
+          message="历史个人产业基金记录（旧规则）"
+          description="本区域仅展示旧规则下写入 OWNER 个人奖励账户的历史流水，不计入新的公司账本。请使用“查看新公司账本”查看平台托管、按公司记账的新记录。"
         />
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={6}>

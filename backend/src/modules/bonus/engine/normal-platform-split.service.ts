@@ -1,3 +1,4 @@
+import { IndustryFundService } from '../../fund-ledger/industry-fund.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { PLATFORM_USER_ID } from './constants';
 
@@ -15,12 +16,14 @@ interface NormalPlatformPools {
 export class NormalPlatformSplitService {
   private readonly logger = new Logger(NormalPlatformSplitService.name);
 
+  constructor(private readonly industryFund: IndustryFundService) {}
+
   /**
    * 普通用户平台分割：处理平台/基金池
    *
    * - PLATFORM_PROFIT (49% 默认) → 平台用户账户
    * - NORMAL_DIRECT_REFERRAL (1% 默认) → 订单支付时单独冻结给直推邀请人或路由平台
-   * - INDUSTRY_FUND (16%) → 按商品利润占比分给各卖家公司 OWNER
+   * - INDUSTRY_FUND (16%) → 平台暂存，按公司记入独立账本
    * - CHARITY_FUND (8%) → 平台账户
    * - TECH_FUND (8%) → 平台账户
    * - RESERVE_FUND (2%) → 平台账户
@@ -39,7 +42,7 @@ export class NormalPlatformSplitService {
 
     // 2. NORMAL_DIRECT_REFERRAL 已在订单支付时处理；这里不再写平台占位账，避免重复入账
 
-    // 3. INDUSTRY_FUND → 按利润占比分给各卖家公司 OWNER
+    // 3. INDUSTRY_FUND → 平台暂存，按公司记入独立账本
     await this.distributeIndustryFund(
       tx, allocationId, orderId, pools.industryFund, companyProfitShares,
     );
@@ -61,8 +64,8 @@ export class NormalPlatformSplitService {
   }
 
   /**
-   * 产业基金分配：按各公司利润占比分给卖家 OWNER
-   * 多公司订单按比例分割，末额补差；无 OWNER 则归平台
+   * 产业基金分配：按公司利润贡献记公司应付账
+   * 多公司订单按比例分割，末额补差；公司归属缺失进入待归属账
    */
   private async distributeIndustryFund(
     tx: any,
@@ -71,73 +74,11 @@ export class NormalPlatformSplitService {
     totalAmount: number,
     companyProfitShares: Record<string, number>,
   ): Promise<void> {
-    if (totalAmount <= 0) return;
-
-    const companyIds = Object.keys(companyProfitShares);
-    if (companyIds.length === 0) {
-      // 无公司信息，全额归平台
-      await this.creditPlatformAccount(
-        tx, allocationId, orderId, totalAmount, 'INDUSTRY_FUND', '产业基金（无卖家归属）',
-      );
-      return;
-    }
-
-    let distributed = 0;
-
-    for (let i = 0; i < companyIds.length; i++) {
-      const companyId = companyIds[i];
-      const share = companyProfitShares[companyId];
-      const isLast = i === companyIds.length - 1;
-
-      // 末额补差：最后一个公司拿剩余金额，吸收浮点误差
-      const amount = isLast
-        ? this.round2(totalAmount - distributed)
-        : this.round2(totalAmount * share);
-
-      if (amount <= 0) continue;
-      distributed += amount;
-
-      // 查找公司 OWNER
-      const ownerStaff = await tx.companyStaff.findFirst({
-        where: { companyId, role: 'OWNER', status: 'ACTIVE' },
-        select: { userId: true },
-      });
-
-      if (!ownerStaff) {
-        // 无 OWNER 时归平台
-        this.logger.warn(`公司 ${companyId} 无活跃 OWNER，产业基金 ${amount} 元归平台`);
-        await this.creditPlatformAccount(
-          tx, allocationId, orderId, amount, 'INDUSTRY_FUND', `产业基金（公司${companyId}无OWNER）`,
-        );
-        continue;
-      }
-
-      // 确保卖家 OWNER 有 INDUSTRY_FUND 账户
-      const account = await this.ensureAccount(tx, ownerStaff.userId, 'INDUSTRY_FUND');
-
-      // 入账时进入「售后保护冻结」(RETURN_FROZEN)，详细说明见 vip-platform-split.service.ts:distributeIndustryFund
-      await tx.rewardLedger.create({
-        data: {
-          allocationId,
-          accountId: account.id,
-          userId: ownerStaff.userId,
-          entryType: 'FREEZE',
-          amount,
-          status: 'RETURN_FROZEN',
-          refType: 'ORDER',
-          refId: orderId,
-          meta: {
-            scheme: 'NORMAL_PLATFORM_SPLIT',
-            accountType: 'INDUSTRY_FUND',
-            companyId,
-            profitShare: share,
-            sourceOrderId: orderId,
-          },
-        },
-      });
-
-      this.logger.log(`普通产业基金入账(冻结)：${amount} 元 → 卖家 ${ownerStaff.userId}（公司 ${companyId}），待退货窗口期满后解冻`);
-    }
+    // 旧分配由既有 RewardAllocation 幂等键保护；只为本次新分配生成公司账。
+    await this.industryFund.accrueInTransaction(tx, {
+      allocationId, orderId, amount: totalAmount, companyProfitShares,
+      scheme: 'NORMAL_PLATFORM_SPLIT',
+    });
   }
 
   /** 平台账户入账（PLATFORM_PROFIT / CHARITY_FUND / TECH_FUND / RESERVE_FUND / INDUSTRY_FUND） */
@@ -181,17 +122,14 @@ export class NormalPlatformSplitService {
 
   /** 确保账户存在 */
   private async ensureAccount(tx: any, userId: string, type: string) {
-    let account = await tx.rewardAccount.findUnique({
+    // 平台账户由所有收货分配共享。冷启动时先查后建会在
+    // (userId,type) 唯一键上竞态，失败事务不会得到可重试的分配结果。
+    // upsert 将账户创建本身收口为调用方 Serializable 事务内的幂等操作。
+    return tx.rewardAccount.upsert({
       where: { userId_type: { userId, type } },
+      create: { userId, type },
+      update: {},
     });
-
-    if (!account) {
-      account = await tx.rewardAccount.create({
-        data: { userId, type },
-      });
-    }
-
-    return account;
   }
 
   /** 截断到分（2 位小数，舍弃后续位数） */

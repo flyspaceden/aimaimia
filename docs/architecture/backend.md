@@ -692,3 +692,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 - 自动退款成功后的数字资产扣回与 legacy 团长佣金冲回使用独立 `RefundSideEffectOutbox`；`Refund=REFUNDED` 与任务同事务提交，V3 利润快照不执行 legacy 整单团长冲回。
 - 生产集成明确排除独立 Delivery 产品、第二数据库和其后台门户。发布守卫见 `scripts/__tests__/production-delivery-exclusion.test.mjs`，旧路由兼容守卫见 `scripts/__tests__/backend-route-compatibility.test.mjs`。
 - 正式发布前运行 `backend/scripts/verify-miniapp-production-config.cjs`；任何微信/短信 Mock、测试回调、非 release 小程序环境、自提关闭、Redis 缺失或顺丰 UAT 都会 fail-closed。
+
+## 2026-09-08 公司产业基金与平台基金审计
+
+新增 `FundLedgerModule`：普通/VIP 分割仅把新产业基金交给公司账本，分配幂等边界沿用 RewardAllocation；接入售后成功和退款回滚的已有事务。产业基金独立释放定时任务每十分钟扫描，有售后则跳过/冲回。其他平台基金通过数据库事务触发器记录账户及流水变化，保留原业务算法。管理 API 为 `/admin/fund-ledgers`、`/admin/industry-funds`；写入 Serializable、状态 CAS、请求幂等与不可变流水同事务。运维边界见基金账本发布说明。

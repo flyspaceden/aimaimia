@@ -74,6 +74,9 @@ jobs:
       - name: Install Playwright browsers
         run: cd tests && npx playwright install chromium --with-deps
 
+      - name: Verify fund management page interactions
+        run: cd tests && npx playwright test -c fund-pages.config.ts
+
       # 数据库 migration + seed：发布门禁必须验证真实迁移链，禁止用 db push 掩盖 migration 缺口。
       - name: Setup database
         run: |
@@ -83,6 +86,14 @@ jobs:
           npx --no-install prisma db seed
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      # 基金账本使用隔离数据库，不写入浏览器测试或共享测试环境的数据。
+      - name: Verify platform fund PostgreSQL invariants
+        run: |
+          PGPASSWORD=postgres createdb --host=127.0.0.1 --username=postgres fund_test_ci
+          cd backend
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/fund_test_ci npx --no-install prisma migrate deploy
+          FUND_LEDGER_INTEGRATION=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/fund_test_ci npx --no-install jest --runInBand src/modules/fund-ledger src/modules/admin/fund-ledger
 
       # 自提事务回归使用另一专用库，不接触已 seed 的 UI E2E 数据库。
       - name: Verify pickup PostgreSQL invariants

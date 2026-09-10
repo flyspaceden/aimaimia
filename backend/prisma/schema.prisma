@@ -354,6 +354,34 @@ enum PaymentStatus {
   PART_REFUNDED
 }
 
+// --- 产业基金公司账本 ---
+// This ledger is deliberately separate from RewardAccount/RewardLedger. It
+// records the platform's payable obligation to a company and never credits a
+// company owner or the platform user account.
+enum IndustryFundLedgerEventType {
+  ACCRUAL
+  RELEASE
+  REVERSAL
+  REVERSAL_PENDING
+  PAYMENT_RESERVED
+  PAYMENT_UNRESERVED
+  PAYMENT_CONFIRMED
+  PAYMENT_REVERSED
+  RECOVERY
+}
+
+enum IndustryFundPaymentStatus {
+  RESERVED
+  PAID
+  CANCELLED
+  REVERSED
+}
+
+enum IndustryFundUnassignedStatus {
+  PENDING
+  RESOLVED
+}
+
 enum RefundStatus {
   REQUESTED
   APPROVED
@@ -1306,6 +1334,14 @@ model Company {
   suspendedUntil             DateTime?
   creditEvents               CompanyCreditEvent[]
   companyTags                CompanyTag[]
+
+  // New industry-fund company sub-ledger. Historical Reward records remain
+  // separate and are never backfilled into this account.
+  industryFundAccount           IndustryFundAccount?
+  industryFundAccruals          IndustryFundAccrual[]
+  industryFundPayments          IndustryFundPayment[]
+  industryFundUnassignedEntries IndustryFundUnassignedEntry[]
+  industryFundRecoveries        IndustryFundRecovery[]
 }
 
 model CompanyProfile {
@@ -1858,6 +1894,9 @@ model Order {
   profitReconciliationTasks OrderProfitReconciliationTask[]
   profitAdjustmentDrafts    OrderProfitAdjustmentDraft[]
   receivedEffectOutbox      OrderReceivedEffectOutbox[]
+  industryFundAccruals          IndustryFundAccrual[]
+  industryFundLedgers           IndustryFundLedger[]
+  industryFundUnassignedEntries IndustryFundUnassignedEntry[]
 
   @@unique([id, userId])
   @@index([userId, status, createdAt]) // 买家订单列表查询
@@ -1889,8 +1928,8 @@ model OrderItem {
   digitalAssetLedgers DigitalAssetLedger[]
   profitRefundReversals OrderProfitRefundReversal[]
 
-  @@index([orderId]) // 订单商品项查询
   @@unique([id, orderId])
+  @@index([orderId]) // 订单商品项查询
 }
 
 model OrderStatusHistory {
@@ -2437,9 +2476,9 @@ model OrderProfitReconciliationTask {
   createdAt           DateTime                        @default(now())
   updatedAt           DateTime                        @updatedAt
 
+  @@unique([sourceSnapshotId, orderId])
   @@index([status, createdAt])
   @@index([orderId, status])
-  @@unique([sourceSnapshotId, orderId])
 }
 
 model CaptainMonthlySettlementOrder {
@@ -2565,8 +2604,8 @@ model Refund {
   profitRefundReversals       OrderProfitRefundReversal[]
   sideEffectOutbox            RefundSideEffectOutbox[]
 
-  @@index([orderId])
   @@unique([id, orderId])
+  @@index([orderId])
 }
 
 // 退款状态变更历史（类似 OrderStatusHistory）
@@ -2973,6 +3012,8 @@ model RewardAllocation {
 
   ledgers                RewardLedger[]
   queueRewardAllocations QueueRewardAllocation[]
+  industryFundAccruals        IndustryFundAccrual[]
+  industryFundUnassignedEntry IndustryFundUnassignedEntry?
 
   @@index([orderId]) // M5: 外键索引，加速订单关联的分配记录查询
 }
@@ -3308,9 +3349,9 @@ model Booking {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
+  @@unique([userId, groupId])
   @@index([userId])
   @@index([companyId])
-  @@unique([userId, groupId])
 }
 
 model Group {
@@ -3933,6 +3974,7 @@ model AfterSaleRequest {
   refundByRefundId           Refund?                   @relation("AfterSaleRefundByRefundId", fields: [refundId], references: [id])
   refundByAfterSaleId        Refund?                   @relation("AfterSaleRefundByAfterSaleId")
   digitalAssetLedgers        DigitalAssetLedger[]
+  industryFundLedgers        IndustryFundLedger[]
 
   @@index([orderId])
   @@index([refundId])
@@ -4778,6 +4820,277 @@ model WechatTransferNotifyInbox {
   @@index([outBillNo])
 }
 
+// ============================================================
+// L 域 — 产业基金公司账本（新账，历史 Reward 账不迁移）
+// ============================================================
+
+/// One projection account per company. The account is the platform's payable
+/// obligation to the company; it is not a bank balance and is not a user
+/// RewardAccount.
+model IndustryFundAccount {
+  id             String   @id @default(cuid())
+  companyId      String   @unique
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  frozenAmount   Float    @default(0)
+  payableAmount  Float    @default(0)
+  reservedAmount Float    @default(0)
+  totalAccrued   Float    @default(0)
+  totalReversed  Float    @default(0)
+  totalPaid      Float    @default(0)
+  totalRecovered Float    @default(0)
+  recoveryDue    Float    @default(0)
+  version        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  accruals   IndustryFundAccrual[]
+  ledgers    IndustryFundLedger[]
+  payments   IndustryFundPayment[]
+  recoveries IndustryFundRecovery[]
+
+  @@index([updatedAt])
+  @@map("industry_fund_accounts")
+}
+
+/// A company share of one persisted RewardAllocation. Amounts are stored in
+/// Float yuan for compatibility with the project schema, but every service
+/// transition validates and applies integer cents.
+model IndustryFundAccrual {
+  id                    String    @id @default(cuid())
+  accountId             String
+  companyId             String
+  allocationId          String
+  orderId               String
+  scheme                String    @db.VarChar(64)
+  ledgerVersion         String    @default("COMPANY_LEDGER_V1") @db.VarChar(64)
+  profitBaseAmount      Float
+  companyShareAmount    Float
+  companyShareRatio     Float
+  industryFundRatio     Float
+  configSnapshot        Json?
+  originalAmount        Float
+  frozenAmount          Float     @default(0)
+  payableAmount         Float     @default(0)
+  reservedAmount        Float     @default(0)
+  paidAmount            Float     @default(0)
+  reversedAmount        Float     @default(0)
+  reversedPaidAmount    Float     @default(0)
+  recoveredAmount       Float     @default(0)
+  recoveryDue           Float     @default(0)
+  reversalPendingAmount Float     @default(0)
+  reversalPendingReason String?
+  reversedAt            DateTime?
+  sourceEventAt         DateTime?
+  version               Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  account       IndustryFundAccount        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  company       Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  allocation    RewardAllocation           @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  order         Order                      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  ledgers       IndustryFundLedger[]
+  paymentItems  IndustryFundPaymentItem[]
+  recoveryItems IndustryFundRecoveryItem[]
+
+  @@unique([allocationId, companyId])
+  @@index([companyId, createdAt, id])
+  @@index([accountId, createdAt, id])
+  @@index([orderId, createdAt])
+  @@index([reversalPendingAmount, createdAt])
+  @@map("industry_fund_accruals")
+}
+
+/// Immutable account event. Balance columns are the account projection after
+/// this event; the delta columns make reconciliation possible without
+/// inferring direction from event names.
+model IndustryFundLedger {
+  sequence BigInt @default(autoincrement()) @unique
+  id                  String                      @id @default(cuid())
+  accountId           String
+  accrualId           String?
+  companyId           String?
+  allocationId        String?
+  orderId             String?
+  afterSaleId         String?
+  paymentId           String?
+  recoveryId          String?
+  eventType           IndustryFundLedgerEventType
+  amount              Float                       @default(0)
+  frozenDelta         Float                       @default(0)
+  payableDelta        Float                       @default(0)
+  reservedDelta       Float                       @default(0)
+  paidDelta           Float                       @default(0)
+  recoveredDelta      Float                       @default(0)
+  recoveryDueDelta    Float                       @default(0)
+  totalAccruedDelta   Float                       @default(0)
+  totalReversedDelta  Float                       @default(0)
+  totalPaidDelta      Float                       @default(0)
+  totalRecoveredDelta Float                       @default(0)
+  balanceFrozen       Float
+  balancePayable      Float
+  balanceReserved     Float
+  balanceRecoveryDue  Float
+  idempotencyKey      String                      @unique
+  sourceLedgerId      String?
+  relatedLedgerId     String?
+  bankReference       String?
+  reason              String?
+  actorType           String?                     @db.VarChar(32)
+  actorId             String?
+  meta                Json?
+  createdAt           DateTime                    @default(now())
+
+  account   IndustryFundAccount   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  accrual   IndustryFundAccrual?  @relation(fields: [accrualId], references: [id], onDelete: Restrict)
+  order     Order?                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  afterSale AfterSaleRequest?     @relation(fields: [afterSaleId], references: [id], onDelete: Restrict)
+  payment   IndustryFundPayment?  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  recovery  IndustryFundRecovery? @relation(fields: [recoveryId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt, id])
+  @@index([accrualId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([afterSaleId, createdAt])
+  @@index([paymentId, createdAt])
+  @@index([eventType, createdAt])
+  @@map("industry_fund_ledgers")
+}
+
+/// A one-company offline payment registration. The service only records the
+/// bank result and never calls a bank provider.
+model IndustryFundPayment {
+  id               String                    @id @default(cuid())
+  accountId        String
+  companyId        String
+  amount           Float
+  status           IndustryFundPaymentStatus @default(RESERVED)
+  payeeName        String
+  bankAccount      String
+  bankName         String
+  sourceAccountRef String?
+  bankReference    String?
+  proofKey         String?
+  actualPaidAt     DateTime?
+  reason           String
+  createdBy        String?
+  confirmedBy      String?
+  cancelledBy      String?
+  reversedBy       String?
+  needsReview      Boolean                   @default(false)
+  reviewReason     String?
+  idempotencyKey   String                    @unique
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  account    IndustryFundAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  company    Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  items      IndustryFundPaymentItem[]
+  ledgers    IndustryFundLedger[]
+  recoveries IndustryFundRecovery[]
+
+  @@unique([sourceAccountRef, bankReference])
+  @@index([companyId, status, createdAt])
+  @@index([accountId, status, createdAt])
+  @@index([bankReference])
+  @@map("industry_fund_payments")
+}
+
+/// FIFO allocation of one payment to one accrual. A payment may have many
+/// items and one accrual may be paid by several payment records over time.
+model IndustryFundPaymentItem {
+  id              String   @id @default(cuid())
+  paymentId       String
+  accrualId       String
+  amount          Float
+  reservedAmount  Float    @default(0)
+  paidAmount      Float    @default(0)
+  recoveryDue     Float    @default(0)
+  recoveredAmount Float    @default(0)
+  createdAt       DateTime @default(now())
+
+  payment IndustryFundPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  accrual IndustryFundAccrual @relation(fields: [accrualId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, accrualId])
+  @@index([accrualId, createdAt])
+  @@map("industry_fund_payment_items")
+}
+
+/// When a source allocation has no resolvable company, retain the amount as a
+/// visible exception. It is never silently routed to a platform/user account.
+model IndustryFundUnassignedEntry {
+  id                String                       @id @default(cuid())
+  allocationId      String                       @unique
+  orderId           String
+  amount            Float
+  scheme            String                       @db.VarChar(64)
+  profitBaseAmount  Float
+  reason            String
+  status            IndustryFundUnassignedStatus @default(PENDING)
+  resolvedCompanyId String?
+  resolvedAccrualId String?
+  resolvedAt        DateTime?
+  resolutionReason  String?
+  reversedAmount    Float                        @default(0)
+  reversedAt        DateTime?
+  reversalReason    String?
+  idempotencyKey    String                       @unique
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+
+  allocation      RewardAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  resolvedCompany Company?         @relation(fields: [resolvedCompanyId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt, id])
+  @@index([orderId, createdAt])
+  @@map("industry_fund_unassigned_entries")
+}
+
+/// One real bank recovery registration. The parent owns idempotency and bank
+/// reference uniqueness; child rows allocate it to the affected accruals.
+model IndustryFundRecovery {
+  id             String   @id @default(cuid())
+  accountId      String
+  companyId      String
+  paymentId      String
+  amount         Float
+  bankReference  String   @unique
+  proofKey       String
+  recoveredAt    DateTime
+  reason         String
+  actorId        String?
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+
+  account IndustryFundAccount        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  company Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  payment IndustryFundPayment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  items   IndustryFundRecoveryItem[]
+  ledgers IndustryFundLedger[]
+
+  @@index([companyId, createdAt])
+  @@index([paymentId, createdAt])
+  @@map("industry_fund_recoveries")
+}
+
+model IndustryFundRecoveryItem {
+  id         String   @id @default(cuid())
+  recoveryId String
+  accrualId  String
+  amount     Float
+  createdAt  DateTime @default(now())
+
+  recovery IndustryFundRecovery @relation(fields: [recoveryId], references: [id], onDelete: Restrict)
+  accrual  IndustryFundAccrual  @relation(fields: [accrualId], references: [id], onDelete: Restrict)
+
+  @@unique([recoveryId, accrualId])
+  @@index([accrualId, createdAt])
+  @@map("industry_fund_recovery_items")
+}
+
 // =============================================
 // 可选模型（data-system.md 中定义，后续迭代实现）
 // - SearchIndexSnapshot: 搜索索引快照
@@ -4785,3 +5098,102 @@ model WechatTransferNotifyInbox {
 // - ProductAttribute: 商品属性扩展
 // - RiskFlag / Blacklist: 风控标记
 // =============================================
+
+model PlatformFundOpening {
+  id              String   @id
+  accountId       String   @unique
+  fundType        String @db.VarChar(32)
+  openingBalance  Float    @default(0)
+  openingFrozen   Float    @default(0)
+  openingSequence BigInt   @default(0)
+  capturedAt      DateTime @default(now())
+  source          String   @default("PLATFORM_FUND_AUDIT_CUTOVER") @db.VarChar(64)
+  createdAt       DateTime @default(now())
+
+  @@index([fundType, capturedAt])
+  @@map("PlatformFundOpening")
+}
+
+model PlatformFundEvent {
+  id                       String   @id
+  accountId                String
+  fundType                 String @db.VarChar(32)
+  eventType                String @db.VarChar(32)
+  changeKind               String @db.VarChar(16)
+  eventSequence            BigInt
+  transactionId            BigInt
+  idempotencyKey           String   @unique
+  occurredAt               DateTime @default(now())
+  recordedAt               DateTime @default(now())
+  sourceTable              String @db.VarChar(32)
+  sourceOperation          String @db.VarChar(16)
+  rewardLedgerId           String?
+  allocationId             String?
+  refType                  String? @db.VarChar(64)
+  refId                    String?
+  sourceLedgerId           String?
+  ledgerEntryTypeBefore   String? @db.VarChar(32)
+  ledgerEntryTypeAfter    String? @db.VarChar(32)
+  ledgerStatusBefore      String? @db.VarChar(32)
+  ledgerStatusAfter       String? @db.VarChar(32)
+  ledgerAmountBefore      Float?
+  ledgerAmountAfter       Float?
+  ledgerAmountDelta       Float    @default(0)
+  moneyDelta              Float    @default(0)
+  balanceDelta            Float    @default(0)
+  frozenDelta             Float    @default(0)
+  balanceAfter            Float?
+  frozenAfter             Float?
+  metaSnapshot            Json?
+  oldState                Json?
+  newState                Json?
+
+  @@unique([accountId, eventSequence])
+  @@index([fundType, occurredAt(sort: Desc), id(sort: Desc)])
+  @@index([accountId, eventSequence])
+  @@index([accountId, transactionId, eventSequence], map: "PlatformFundEvent_accountId_transactionId_idx")
+  @@index([rewardLedgerId])
+  @@index([refId])
+  @@map("PlatformFundEvent")
+}
+
+model FundPrivateProof {
+  id String @id
+  adminId String
+  mimeType String
+  content Bytes
+  createdAt DateTime @default(now())
+  binding FundProofBinding?
+  @@index([adminId, createdAt])
+}
+
+model IndustryFundUnassignedEvent {
+  id BigInt @id @default(autoincrement())
+  entryId String
+  orderId String
+  beforeState Json?
+  afterState Json
+  createdAt DateTime @default(now())
+  @@index([entryId, id])
+}
+
+model IndustryFundPaymentRequest {
+  id String @id
+  requestKey String @unique
+  operation String @db.VarChar(40)
+  targetId String
+  actorId String
+  fingerprint String @db.Char(64)
+  resultType String @db.VarChar(32)
+  resultId String
+  createdAt DateTime @default(now())
+  @@index([operation, targetId, createdAt], map: "industry_fund_payment_requests_target_idx")
+  @@map("industry_fund_payment_requests")
+}
+
+model FundProofBinding {
+  proofId String @id
+  proof FundPrivateProof @relation(fields: [proofId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bindingKey String
+  createdAt DateTime @default(now())
+}

@@ -1999,3 +1999,26 @@
 - [x] 2026-09-07：修复 App 自提点接口 `{ items }` 未解包导致结账白屏，补真实返回结构契约回归；无需后端迁移或重新打包。
 
 - 自提导航降级复制地址：补捕获剪贴板异常及失败提示，增加拒绝场景回归。
+
+## 2026-09-08 平台基金统一账本（独立候选）
+
+- [x] 用户确认设计：产业基金平台暂存、公司子账、历史不迁移，各基金逐笔留账。
+- [x] 从最新 origin/main 建立 `codex/platform-fund-ledgers-20260908` 干净 worktree。
+- [x] 管理后台页面、后端资金/审计/权限与私有凭证本地实现。
+- [x] 主 Agent 最终审查、164 项测试、迁移演练和本地提交收口。
+- [x] 2026-09-09：经用户授权推送、CI 和 staging-next 测试部署，版本 e69004f2，三个组件 exact SHA 一致。
+- [ ] 后续生产审批与部署（尚未授权）。
+
+设计与实施证据分别见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md` 和 `docs/superpowers/plans/2026-09-08-platform-fund-ledgers.md`。
+
+
+## 2026-09-09 资金管理三页体验优化
+
+- [x] 用户确认拆分为基金账本、公司产业基金、公对公付款三个页面。
+- [x] 完成结构/搜索/详情/按状态编辑设计及独立可点击原型；已检查主要交互与窄屏金额展示。
+- [x] 用户批准设计后实施三页业务界面、URL 搜索与分页、公司/流水详情抽屉、付款更正流程和真实查询能力。
+- [x] 发布复验定位并修复快速连续筛选恢复旧参数；新增同帧双点击回归，并校正窄屏几何测试的亚像素容差。
+- [x] 线上验收定位待归属枚举比较错误，补类型转换及真实 PG/HTTP 覆盖；同时补齐流水返回总览筛选恢复。
+- [x] 完成最终集成验证并通过 PR #23/#24/#25 发布至 staging-next `bdf1af35`；API/Admin/Seller exact SHA 一致，实际页面验收完成，生产未发布。
+
+设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`；原型：`docs/ui-prototypes/fund-management-v2/index.html`。
