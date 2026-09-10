@@ -44,3 +44,17 @@ test('App keeps pickup QR and credential generation out of this compatibility sl
 
   assert.doesNotMatch(changedRuntime, /getPickupPass|react-native-qrcode-svg|qrPayload|pickupCode/);
 });
+
+test('App order detail hides new after-sale actions for every pickup order', () => {
+  const detail = read('app/orders/[id].tsx');
+
+  assert.match(detail, /showAfterSaleAction=\{[\s\S]*&& !isPickup/);
+});
+
+test('App direct after-sale page renders disabled eligibility without a submit form', () => {
+  const apply = read('app/orders/after-sale/[id].tsx');
+
+  assert.match(apply, /!eligibility!\.eligible && eligibility!\.items\.length === 0/);
+  assert.match(apply, /暂不可申请售后/);
+});
+

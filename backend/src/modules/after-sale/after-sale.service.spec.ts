@@ -132,6 +132,21 @@ describe('AfterSaleService.getEligibility', () => {
     expect(result.items).toEqual([]);
   });
 
+  it('returns no new self-service options for any pickup order', async () => {
+    const service = makeService(makeOrder({
+      status: 'RECEIVED',
+      fulfillmentMode: 'PICKUP',
+    }));
+
+    const result = await service.getEligibility('user-1', 'order-1');
+
+    expect(result).toMatchObject({
+      eligible: false,
+      disabledReason: '自提订单不支持新的售后申请，请联系客服处理。',
+      items: [],
+    });
+  });
+
   it('无理由退货退款不足抵扣退货运费时不扣减退款并要求买家支付运费', async () => {
     const service = makeService(makeOrder());
 
@@ -401,6 +416,22 @@ describe('AfterSaleService.apply', () => {
       reasonType: 'QUALITY_ISSUE',
       photos: ['https://example.com/photo.jpg'],
     })).rejects.toThrow('团购订单支付后不支持退换货');
+    expect(tx.afterSaleRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct after-sale creation for any pickup order', async () => {
+    const tx = makeApplyTx({
+      status: 'RECEIVED',
+      fulfillmentMode: 'PICKUP',
+    });
+    const { service } = makeTxService(tx);
+
+    await expect(service.apply('user-1', 'order-1', {
+      orderItemId: 'item-1',
+      afterSaleType: AfterSaleType.QUALITY_RETURN,
+      reasonType: 'QUALITY_ISSUE',
+      photos: ['https://example.com/photo.jpg'],
+    })).rejects.toThrow('自提订单不支持新的售后申请，请联系客服处理。');
     expect(tx.afterSaleRequest.create).not.toHaveBeenCalled();
   });
 

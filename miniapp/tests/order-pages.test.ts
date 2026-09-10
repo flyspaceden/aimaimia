@@ -182,4 +182,11 @@ describe('order page business boundaries', () => {
     expect(detailSource).toContain('/packages/after-sales/after-sale-detail/index');
     expect(detailSource).toContain('source=ORDER_DETAIL');
   });
+
+  it('hides new after-sale entry for every pickup order while retaining existing history', () => {
+    const detailSource = fs.readFileSync(path.resolve(process.cwd(), 'src/packages/orders/order-detail/index.tsx'), 'utf8');
+
+    expect(detailSource).toContain('existingAfterSale ?');
+    expect(detailSource).toContain("&& !isPickup && ['DELIVERED', 'RECEIVED'].includes(order.status)");
+  });
 });
