@@ -250,3 +250,11 @@ test('同一渲染帧内连续重置和切换视图不会恢复旧关键词',asy
   await expect(page.getByRole('button',{name:B.name,exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:A.name,exact:true})).toHaveCount(0);
 });
+
+test('从基金流水返回总览恢复原名称筛选',async({page})=>{
+  await setup(page);
+  await page.goto('/fund-ledgers/CHARITY_FUND?returnTo='+encodeURIComponent('/fund-ledgers?q=慈善'));
+  await page.getByRole('button',{name:'返回基金总览',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'基金名称',exact:true})).toHaveValue('慈善');
+  await expect(page.getByRole('button',{name:'查看流水',exact:true})).toHaveCount(1);
+});

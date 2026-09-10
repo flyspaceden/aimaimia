@@ -77,4 +77,12 @@ suite('基金 API 数据库与实时权限集成（本机测试身份）', () =>
     await get('/admin/fund-ledgers/summary', readerId).expect(403);
     await get('/admin/fund-ledgers/CHARITY_FUND/entries', readerId).expect(403);
   });
+  it('serves the pending unassigned view through the validated read-only HTTP route', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/admin/industry-funds/unassigned?status=PENDING&page=1&pageSize=20')
+      .set('x-local-test-admin', industryReaderId).expect(200);
+    expect(Array.isArray(response.body.data.items)).toBe(true);
+    expect(typeof response.body.data.total).toBe('number');
+  });
+
 });

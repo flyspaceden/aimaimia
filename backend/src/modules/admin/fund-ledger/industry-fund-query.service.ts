@@ -316,10 +316,10 @@ export class IndustryFundQueryService {
     if (query.status === IndustryFundUnassignedStatus.PENDING) {
       // A pending entry with a fully reversed amount is no longer actionable,
       // even if an older writer left its persisted status as PENDING.
-      filters.push(Prisma.sql`"status" = ${IndustryFundUnassignedStatus.PENDING}`);
+      filters.push(Prisma.sql`"status" = ${IndustryFundUnassignedStatus.PENDING}::"IndustryFundUnassignedStatus"`);
       filters.push(Prisma.sql`"amount" > "reversedAmount"`);
     } else if (query.status && query.status !== 'ALL') {
-      filters.push(Prisma.sql`"status" = ${query.status as IndustryFundUnassignedStatus}`);
+      filters.push(Prisma.sql`"status" = ${query.status as IndustryFundUnassignedStatus}::"IndustryFundUnassignedStatus"`);
     }
     const where = Prisma.join(filters, ' AND ');
     const offset = (query.page - 1) * query.pageSize;
