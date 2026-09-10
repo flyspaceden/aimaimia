@@ -36,6 +36,19 @@ test('App order detail isolates pickup from logistics, receiver editing, and buy
   assert.doesNotMatch(detail, /请在微信小程序中查看/);
 });
 
+test('App order detail hides new after-sale actions for every pickup order', () => {
+  const detail = read('app/orders/[id].tsx');
+
+  assert.match(detail, /showAfterSaleAction=\{[\s\S]*&& !isPickup/);
+});
+
+test('App direct after-sale page renders disabled eligibility without a submit form', () => {
+  const apply = read('app/orders/after-sale/[id].tsx');
+
+  assert.match(apply, /!eligibility!\.eligible && eligibility!\.items\.length === 0/);
+  assert.match(apply, /暂不可申请售后/);
+});
+
 test('App pickup credentials remain screen-local and are withdrawn on lifecycle or request failure', () => {
   const pass = read('app/orders/pickup-pass/[id].tsx');
   assert.match(pass, /useFocusEffect/);

@@ -268,6 +268,9 @@ export class IndustryFundService {
     if (profitBaseAmount === null || profitBaseAmount <= 0) {
       throw new IndustryFundError('MISSING_PROFIT_SNAPSHOT', `allocation has no immutable profit snapshot: ${input.allocationId}`);
     }
+    // 只有自提核销可以跳过常规售后窗口；检查必须留在本事务内，避免新计提
+    // 在计提与释放之间短暂或永久停留在冻结状态。
+    const pickupVerified = await this.isVerifiedPickupOrder(tx, input.orderId);
     const industryFundRatio = this.configuredIndustryFundRatio(configSnapshot, input.scheme)
       ?? input.amount / profitBaseAmount;
 
@@ -381,6 +384,18 @@ export class IndustryFundService {
       accrualIds.push(accrual.id);
     }
 
+    // 保留两条不可变审计流水：ACCRUAL 记录来源分配，RELEASE 记录转为可支付。
+    // 未归属金额不参与释放，继续留在可见的待人工归属账中。
+    if (pickupVerified) {
+      for (const accrualId of accrualIds) {
+        await this.releaseAccrual(tx, {
+          accrualId,
+          idempotencyKey: `industry-fund:release:${accrualId}`,
+          actorType: 'SYSTEM',
+        });
+      }
+    }
+
     if (unassignedCents > 0) {
       const reason = unassignedReasons.length > 0
         ? unassignedReasons.join(',')
@@ -454,7 +469,7 @@ export class IndustryFundService {
       throw new IndustryFundError('REVERSAL_PENDING', `accrual has a pending reversal: ${accrual.id}`);
     }
 
-    await this.assertOrderReleaseEligible(tx, accrual.orderId, input.now ?? new Date());
+    const releaseMode = await this.assertOrderReleaseEligible(tx, accrual.orderId, input.now ?? new Date());
     const updatedAccrual = await this.updateAccrualCas(tx, accrual, {
       frozenAmount: centsToYuan(0),
       payableAmount: centsToYuan(yuanToCents(accrual.payableAmount) + frozenCents),
@@ -475,7 +490,9 @@ export class IndustryFundService {
       allocationId: accrual.allocationId,
       orderId: accrual.orderId,
       idempotencyKey: input.idempotencyKey,
-      reason: '售后保护期结束，产业基金释放',
+      reason: releaseMode === 'PICKUP_VERIFIED'
+        ? '自提核销完成，产业基金即时释放'
+        : '售后保护期结束，产业基金释放',
       actorId: input.actorId,
       actorType: input.actorType ?? 'SYSTEM',
     });
@@ -1429,21 +1446,51 @@ export class IndustryFundService {
     });
   }
 
-  private async assertOrderReleaseEligible(tx: IndustryFundTx, orderId: string, now: Date): Promise<void> {
+  private async isVerifiedPickupOrder(tx: IndustryFundTx, orderId: string): Promise<boolean> {
     const order = await tx.order.findUnique({
       where: { id: orderId },
       select: {
+        fulfillmentMode: true,
+        status: true,
+        pickupFulfillment: { select: { status: true } },
+      },
+    });
+    return order?.fulfillmentMode === 'PICKUP' &&
+      order.status === 'RECEIVED' &&
+      order.pickupFulfillment?.status === 'PICKED_UP';
+  }
+
+  private async assertOrderReleaseEligible(
+    tx: IndustryFundTx,
+    orderId: string,
+    now: Date,
+  ): Promise<'PICKUP_VERIFIED' | 'DELIVERY'> {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        fulfillmentMode: true,
+        status: true,
+        pickupFulfillment: { select: { status: true } },
         returnWindowExpiresAt: true,
         afterSaleRequests: { select: { status: true } },
       },
     });
     if (!order) throw new IndustryFundError('ORDER_NOT_FOUND', `order not found: ${orderId}`);
-    if (!order.returnWindowExpiresAt || order.returnWindowExpiresAt > now) {
-      throw new IndustryFundError('RETURN_WINDOW_OPEN', `order return window is still open: ${orderId}`);
-    }
     if (order.afterSaleRequests.some((item) => !SAFE_AFTER_SALE_STATUSES.has(item.status))) {
       throw new IndustryFundError('AFTER_SALE_ACTIVE', `order has a non-terminal after-sale: ${orderId}`);
     }
+
+    if (order.fulfillmentMode === 'PICKUP') {
+      if (order.status !== 'RECEIVED' || order.pickupFulfillment?.status !== 'PICKED_UP') {
+        throw new IndustryFundError('PICKUP_NOT_VERIFIED', `pickup order is not verified: ${orderId}`);
+      }
+      return 'PICKUP_VERIFIED';
+    }
+
+    if (!order.returnWindowExpiresAt || order.returnWindowExpiresAt > now) {
+      throw new IndustryFundError('RETURN_WINDOW_OPEN', `order return window is still open: ${orderId}`);
+    }
+    return 'DELIVERY';
   }
 
   private async updateAccrualCas(

@@ -18,7 +18,17 @@ const gitBlob = (content) => createHash('sha1')
   .update(content)
   .digest('hex');
 
-test('frozen mini-program services match baseline or explicitly reviewed App pickup extension blobs', async () => {
+const reviewedDifferenceEntries = [
+  ...manifest.reviewedAppPickupDifferences,
+  ...manifest.reviewedFundLedgerDifferences,
+  ...manifest.reviewedPickupFundDifferences,
+];
+// Later review groups are explicit overrides for an already reviewed path.
+const reviewedOverrideByPath = new Map(
+  reviewedDifferenceEntries.map((entry) => [entry.path, entry]),
+);
+
+test('frozen mini-program services match baseline or explicitly reviewed extension blobs', async () => {
   assert.equal(manifest.sourceStagingCommit, 'acc0e08c303eef76af3bb4ca9d3e9a8c95c4ebb2');
   assert.ok(manifest.exactFiles.length >= 41);
   for (const entry of manifest.exactFiles) {
@@ -28,7 +38,7 @@ test('frozen mini-program services match baseline or explicitly reviewed App pic
       { cwd: rootPath, encoding: 'utf8' },
     ).trim();
     assert.equal(entry.gitBlob, sourceBlob, `${entry.path} manifest source`);
-    const extension = manifest.reviewedAppPickupDifferences.find((item) => item.path === entry.path);
+    const extension = reviewedOverrideByPath.get(entry.path);
     assert.equal(gitBlob(await read(entry.path)), extension?.gitBlob ?? entry.gitBlob, entry.path);
   }
 });
@@ -82,7 +92,9 @@ test('intentional production differences strengthen marketplace behavior without
 });
 
 test('the parity manifest documents every intentional non-identical production surface', () => {
-  const paths = [...manifest.intentionalCandidateDifferences, ...manifest.reviewedAppPickupDifferences, ...manifest.reviewedFundLedgerDifferences].map((entry) => entry.path).sort();
+  const paths = [...new Set(reviewedDifferenceEntries
+    .concat(manifest.intentionalCandidateDifferences)
+    .map((entry) => entry.path))].sort();
   const runtimeDiffPaths = execFileSync(
     'git',
     [
@@ -100,7 +112,7 @@ test('the parity manifest documents every intentional non-identical production s
     .filter((path) => !path.startsWith('backend/src/generated/delivery-client/'))
     .sort();
   assert.deepEqual(runtimeDiffPaths, paths);
-  assert.deepEqual(paths, [
+  assert.deepEqual(paths, [...new Set([
     'backend/prisma/schema.prisma',
     'backend/src/app.module.ts',
     'backend/src/main.ts',
@@ -131,7 +143,10 @@ test('the parity manifest documents every intentional non-identical production s
     'backend/src/modules/shipment/sf-express.service.ts',
     'backend/src/modules/shipment/shipment.controller.ts',
     'backend/src/modules/shipment/shipment.module.ts',
-  ].concat(manifest.reviewedFundLedgerDifferences.map((entry) => entry.path)).sort());
+  ].concat(
+    manifest.reviewedFundLedgerDifferences.map((entry) => entry.path),
+    manifest.reviewedPickupFundDifferences.map((entry) => entry.path),
+  ))].sort());
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
   }
@@ -149,7 +164,7 @@ test('App pickup extensions retain exact reviewed provenance and recovery contra
   for (const entry of manifest.reviewedAppPickupDifferences) {
     assert.equal(entry.sourceMainCommit, '4a8b70e75d2d212b528bd8d3e7484870c7c7023e');
     assert.equal(execFileSync('git', ['rev-parse', `${entry.sourceMainCommit}:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim(), entry.sourceMainBlob);
-    assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
+    assert.equal(gitBlob(await read(entry.path)), reviewedOverrideByPath.get(entry.path)?.gitBlob ?? entry.gitBlob, entry.path);
     assert.ok(entry.reason.length >= 20);
   }
   const checkout = await readText('backend/src/modules/order/checkout.service.ts');
@@ -202,6 +217,29 @@ test('reviewed fund ledger runtime files retain their approved content', async (
     }
     assert.equal(entry.sourceReviewCommit, '44c93297');
     if (entry.queryUiReviewCommit) assert.equal(entry.queryUiReviewCommit, '3a2a4332');
+    assert.equal(gitBlob(await read(entry.path)), reviewedOverrideByPath.get(entry.path)?.gitBlob ?? entry.gitBlob, entry.path);
+    assert.ok(entry.reason.length >= 20);
+  }
+});
+
+
+test('pickup immediate-funds overrides retain exact reviewed commit provenance', async () => {
+  const expectedPaths = [
+    'backend/src/modules/after-sale/after-sale.service.ts',
+    'backend/src/modules/fund-ledger/industry-fund.service.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
+  ];
+  assert.deepEqual(manifest.reviewedPickupFundDifferences.map((entry) => entry.path).sort(), expectedPaths);
+  for (const entry of manifest.reviewedPickupFundDifferences) {
+    assert.equal(entry.sourceReviewCommit, '8a4b9c31');
+    assert.equal(
+      execFileSync('git', ['rev-parse', `${entry.sourceReviewCommit}^:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim(),
+      entry.sourceReviewBlob,
+    );
+    assert.equal(
+      execFileSync('git', ['rev-parse', `${entry.sourceReviewCommit}:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim(),
+      entry.gitBlob,
+    );
     assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
     assert.ok(entry.reason.length >= 20);
   }

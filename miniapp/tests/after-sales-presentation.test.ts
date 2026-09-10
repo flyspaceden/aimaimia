@@ -103,6 +103,7 @@ describe('售后申请消费者展示', () => {
     expect(applySource).toContain('预计退货运费');
     expect(applySource).toContain('运费处理');
     expect(applySource).toContain('不可申请');
+    expect(applySource).toContain('!eligibility.eligible && eligibility.items.length === 0');
     expect(uiSources).not.toMatch(/以后端实时返回|其他端支付参数|App 实时同步|条已加载/);
   });
 });

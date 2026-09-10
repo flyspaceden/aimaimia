@@ -2022,3 +2022,14 @@
 - [x] 完成最终集成验证并通过 PR #23/#24/#25 发布至 staging-next `bdf1af35`；API/Admin/Seller exact SHA 一致，实际页面验收完成，生产未发布。
 
 设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`；原型：`docs/ui-prototypes/fund-management-v2/index.html`。
+
+
+## 2026-09-10 自提核销与基金即时释放
+
+- 设计：`docs/superpowers/specs/2026-09-10-pickup-immediate-funds-design.md`。
+- 自提订单核销后不接受新售后；App/小程序关闭申请入口，已有记录保留。
+- 公司产业基金核销后计提即释放为可支付，平台继续保管；其他平台基金沿用收货即时入账。
+- 本轮在独立 main-based 分支实现，验证/发布状态见设计文档，不代表已上线。
+
+- [x] 自提无新售后与基金即时释放：设计、代码、主代理审核、本地单元/真实 PostgreSQL 验证完成。
+- [ ] 本次变更的候选推送、测试部署、生产与客户端发布。

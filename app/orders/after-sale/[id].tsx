@@ -467,6 +467,16 @@ export default function AfterSaleScreen() {
     );
   }
 
+  // 后端对已完成履约的自提单返回空资格；直达申请页也必须保持不可提交。
+  if (!eligibility!.eligible && eligibility!.items.length === 0) {
+    return (
+      <Screen contentStyle={{ flex: 1, paddingHorizontal: spacing.xl }}>
+        <AppHeader title="申请售后" />
+        <EmptyState title="暂不可申请售后" description={eligibility!.disabledReason ?? '订单内暂无可申请售后的商品'} />
+      </Screen>
+    );
+  }
+
   // 可选择的商品（过滤掉奖品）
   const eligibilityItemIds = new Set(eligibility!.items.map((item) => item.orderItemId));
   const selectableItems = order!.items.filter((item) => !item.isPrize && eligibilityItemIds.has(item.id));
