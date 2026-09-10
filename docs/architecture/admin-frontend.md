@@ -1237,3 +1237,11 @@ VIP 系统配置页和普通用户系统配置页均通过 `useConfigProfitSafet
 设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`。
 
 资金管理三页已部署到 staging-next `bdf1af35`，包括待归属查询和总览筛选返回修复；版本与验证证据见 `docs/operations/fund-ledgers-staging-20260909.md`。
+
+
+## 2026-09-10 自提核销与基金即时释放
+
+- 设计：`docs/superpowers/specs/2026-09-10-pickup-immediate-funds-design.md`。
+- 自提订单核销后不接受新售后；App/小程序关闭申请入口，已有记录保留。
+- 公司产业基金核销后计提即释放为可支付，平台继续保管；其他平台基金沿用收货即时入账。
+- 本轮在独立 main-based 分支实现，验证/发布状态见设计文档，不代表已上线。

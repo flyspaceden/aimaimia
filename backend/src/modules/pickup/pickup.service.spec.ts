@@ -717,7 +717,7 @@ describe('PickupService', () => {
     );
   });
 
-  it('核销以 CAS 将订单收口到 RECEIVED 并写入退换货窗口', async () => {
+  it('核销以 CAS 将订单收口到 RECEIVED，售后窗口立即截止', async () => {
     const now = new Date('2026-08-14T10:00:00Z');
     jest.useFakeTimers().setSystemTime(now);
     const tx: any = {
@@ -756,7 +756,7 @@ describe('PickupService', () => {
       data: expect.objectContaining({
         status: 'RECEIVED',
         deliveredAt: now,
-        returnWindowExpiresAt: expect.any(Date),
+        returnWindowExpiresAt: now,
       }),
     }));
     jest.useRealTimers();

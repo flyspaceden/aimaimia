@@ -43,7 +43,6 @@ import {
   UpdatePickupPointDto,
 } from './dto/pickup-point.dto';
 import { VerifyPickupDto } from './dto/pickup-verify.dto';
-import { getConfigValue, resolveRewardSafeWindowMs } from '../after-sale/after-sale.utils';
 import { NotificationService } from '../notification/notification.service';
 import * as QRCode from 'qrcode';
 
@@ -781,18 +780,8 @@ export class PickupService implements OnModuleInit {
       this.assertCredential(fulfillment, dto);
 
       const now = new Date();
-      const [returnWindowDays, normalReturnDays, freshReturnHours] = await Promise.all([
-        getConfigValue(tx as any, 'RETURN_WINDOW_DAYS', 7),
-        getConfigValue(tx as any, 'NORMAL_RETURN_DAYS', 7),
-        getConfigValue(tx as any, 'FRESH_RETURN_HOURS', 24),
-      ]);
-      const returnWindowExpiresAt = new Date(
-        now.getTime() + resolveRewardSafeWindowMs(
-          returnWindowDays,
-          normalReturnDays,
-          freshReturnHours,
-        ),
-      );
+      // 自提核销即履约完成，不设置售后等待期；基金分配由可靠收货 outbox 立即触发。
+      const returnWindowExpiresAt = now;
       const pickupCas = await tx.pickupFulfillment.updateMany({
         where: { id: fulfillment.id, status: 'READY' },
         data: { status: 'PICKED_UP', pickedUpAt: now, pickedUpByStaffId: actor.actorId },

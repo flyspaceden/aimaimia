@@ -55,6 +55,78 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     expect(await db.rewardLedger.count()).toBe(before);
     await check(f.company.id);
   });
+
+  it('已核销自提订单在同一计提事务内即时可支付，重放不重复释放', async () => {
+    const company = await db.company.create({ data: { name: `${prefix}-pickup-immediate`, status: 'ACTIVE' } });
+    const now = new Date();
+    const order = await db.order.create({
+      data: {
+        userId: prefix,
+        status: 'RECEIVED',
+        fulfillmentMode: 'PICKUP',
+        goodsAmount: 130,
+        totalAmount: 130,
+        receivedAt: now,
+        deliveredAt: now,
+        returnWindowExpiresAt: now,
+      },
+    });
+    const point = await db.pickupPoint.create({
+      data: {
+        companyId: company.id,
+        name: `${prefix}-pickup-point`,
+        contactName: '测试员',
+        contactPhone: '13800000000',
+        regionCode: '330100',
+        regionText: '测试地区',
+        detail: '测试地址',
+        businessHours: '09:00-18:00',
+      },
+    });
+    await db.pickupFulfillment.create({
+      data: {
+        orderId: order.id,
+        pickupPointId: point.id,
+        status: 'PICKED_UP',
+        pickupPointSnapshot: { id: point.id, name: point.name },
+        recipientSnapshot: { name: '测试收货人', phone: '13800000000' },
+        pickupCodeDigest: 'a'.repeat(64),
+        pickupTokenDigest: 'b'.repeat(64),
+        pickupCredentialEncrypted: { version: 1, ciphertext: 'fixture' },
+        pickedUpAt: now,
+      },
+    });
+    const allocation = await db.rewardAllocation.create({
+      data: {
+        orderId: order.id,
+        triggerType: 'ORDER_RECEIVED',
+        ruleType: 'NORMAL_TREE',
+        ruleVersion: 'test',
+        meta: { profit: 100, configSnapshot: { normalIndustryFundPercent: 0.16 } },
+        idempotencyKey: `${prefix}-pickup-immediate`,
+      },
+    });
+
+    const input = {
+      orderId: order.id,
+      allocationId: allocation.id,
+      amount: 16,
+      companyProfitShares: { [company.id]: 1 },
+      scheme: 'NORMAL_PLATFORM_SPLIT',
+    };
+    const first = await tx(t => core.accrueInTransaction(t, input));
+    const second = await tx(t => core.accrueInTransaction(t, input));
+
+    expect(second).toEqual(first);
+    const accrual = await db.industryFundAccrual.findUniqueOrThrow({ where: { id: first.accrualIds[0] } });
+    const account = await db.industryFundAccount.findUniqueOrThrow({ where: { companyId: company.id } });
+    const ledgers = await db.industryFundLedger.findMany({ where: { accrualId: accrual.id }, orderBy: { sequence: 'asc' } });
+    expect(accrual).toMatchObject({ frozenAmount: 0, payableAmount: 16, originalAmount: 16 });
+    expect(account).toMatchObject({ frozenAmount: 0, payableAmount: 16, totalAccrued: 16 });
+    expect(ledgers.map((ledger) => ledger.eventType)).toEqual(['ACCRUAL', 'RELEASE']);
+    await check(company.id);
+  });
+
   it('释放→部分付款→整单冲回→实际回款，全程对账且回款重复幂等', async () => {
     const f = await fixture('lifecycle'); await release(f); await check(f.company.id);
     const payment = await reserve(f, `${prefix}-reserve`, 10); await check(f.company.id);

@@ -57,6 +57,15 @@ describe('IndustryFundService', () => {
         findUnique: jest.fn(({ where }: { where: { id: string } }) =>
           Promise.resolve({ id: where.id })),
       },
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          fulfillmentMode: 'DELIVERY',
+          status: 'RECEIVED',
+          pickupFulfillment: null,
+          returnWindowExpiresAt: new Date(Date.now() - 60_000),
+          afterSaleRequests: [],
+        }),
+      },
       industryFundAccount: {
         upsert: jest.fn(({ where }: { where: { companyId: string } }) => {
           let row = accounts.get(where.companyId);
@@ -133,6 +142,184 @@ describe('IndustryFundService', () => {
     expect([...accounts.values()].map((row) => row.frozenAmount)).toEqual([9.6, 6.4]);
     expect(ledgers).toHaveLength(2);
     expect((tx.industryFundAccount?.updateMany as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it('releases a verified pickup accrual in the same transaction and preserves both audit events on replay', async () => {
+    const account = makeAccount('account-pickup', 'company-pickup');
+    const accruals = new Map<string, any>();
+    const ledgers: any[] = [];
+    const unassigned: any[] = [];
+    let nextAccrualId = 1;
+    const pickupOrder = {
+      fulfillmentMode: 'PICKUP',
+      status: 'RECEIVED',
+      pickupFulfillment: { status: 'PICKED_UP' },
+      returnWindowExpiresAt: new Date(),
+      afterSaleRequests: [],
+    };
+    const tx = {
+      rewardAllocation: {
+        findUnique: jest.fn().mockResolvedValue({ meta: { profit: 100, normalIndustryFundPercent: 0.16 } }),
+      },
+      order: { findUnique: jest.fn().mockResolvedValue(pickupOrder) },
+      company: {
+        findUnique: jest.fn(({ where }: { where: { id: string } }) =>
+          Promise.resolve(where.id === account.companyId ? { id: where.id } : null)),
+      },
+      industryFundAccount: {
+        upsert: jest.fn().mockResolvedValue(account),
+        updateMany: jest.fn(({ where, data }: { where: { id: string; version: number }; data: Record<string, unknown> }) => {
+          if (where.id !== account.id || where.version !== account.version) return Promise.resolve({ count: 0 });
+          for (const field of ['frozenAmount', 'payableAmount', 'reservedAmount', 'totalAccrued', 'totalReversed', 'totalPaid', 'totalRecovered', 'recoveryDue']) {
+            if (typeof data[field] === 'number') (account as any)[field] = data[field];
+          }
+          account.version += 1;
+          return Promise.resolve({ count: 1 });
+        }),
+        findUnique: jest.fn(({ where }: { where: { id: string } }) =>
+          Promise.resolve(where.id === account.id ? account : null)),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(account),
+      },
+      industryFundAccrual: {
+        findUnique: jest.fn(({ where }: { where: Record<string, unknown> }) => {
+          if (where.id) {
+            const row = [...accruals.values()].find((item) => item.id === where.id);
+            return Promise.resolve(row ? { ...row, account } : null);
+          }
+          const compound = where.allocationId_companyId as { allocationId: string; companyId: string };
+          const row = accruals.get(`${compound.allocationId}:${compound.companyId}`);
+          return Promise.resolve(row ? { ...row, account } : null);
+        }),
+        create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+          const row = {
+            id: `accrual-pickup-${nextAccrualId++}`,
+            version: 0,
+            payableAmount: 0,
+            reservedAmount: 0,
+            paidAmount: 0,
+            reversedAmount: 0,
+            reversedPaidAmount: 0,
+            recoveredAmount: 0,
+            recoveryDue: 0,
+            reversalPendingAmount: 0,
+            ...data,
+          };
+          accruals.set(`${data.allocationId as string}:${data.companyId as string}`, row);
+          return Promise.resolve({ ...row, account });
+        }),
+        updateMany: jest.fn(({ where, data }: { where: { id: string; version: number }; data: Record<string, unknown> }) => {
+          const row = [...accruals.values()].find((item) => item.id === where.id);
+          if (!row || row.version !== where.version) return Promise.resolve({ count: 0 });
+          for (const field of ['frozenAmount', 'payableAmount', 'reservedAmount', 'paidAmount', 'reversedAmount', 'reversedPaidAmount', 'recoveredAmount', 'recoveryDue', 'reversalPendingAmount']) {
+            if (typeof data[field] === 'number') row[field] = data[field];
+          }
+          row.version += 1;
+          return Promise.resolve({ count: 1 });
+        }),
+        findUniqueOrThrow: jest.fn(({ where }: { where: { id: string } }) => {
+          const row = [...accruals.values()].find((item) => item.id === where.id);
+          return Promise.resolve({ ...row, account });
+        }),
+      },
+      industryFundLedger: {
+        findUnique: jest.fn(({ where }: { where: { idempotencyKey: string } }) =>
+          Promise.resolve(ledgers.find((item) => item.idempotencyKey === where.idempotencyKey) ?? null)),
+        create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+          const row = { id: `ledger-pickup-${ledgers.length + 1}`, ...data };
+          ledgers.push(row);
+          return Promise.resolve(row);
+        }),
+      },
+      industryFundUnassignedEntry: {
+        findUnique: jest.fn(({ where }: { where: { allocationId: string } }) =>
+          Promise.resolve(unassigned.find((item) => item.allocationId === where.allocationId) ?? null)),
+        create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+          const row = { id: `unassigned-pickup-${unassigned.length + 1}`, status: 'PENDING', reversedAmount: 0, ...data };
+          unassigned.push(row);
+          return Promise.resolve(row);
+        }),
+      },
+    } as unknown as IndustryFundTx;
+    const service = new IndustryFundService({} as never);
+
+    const input = {
+      allocationId: 'allocation-pickup',
+      orderId: 'order-pickup',
+      amount: 16,
+      // 缺失公司的份额必须继续留在待归属账；只有可解析的公司份额可以即时转为可支付。
+      companyProfitShares: { [account.companyId]: 0.6, 'missing-company': 0.4 },
+      scheme: 'NORMAL_PLATFORM_SPLIT',
+    };
+    const first = await service.accrueInTransaction(tx, input);
+    const second = await service.accrueInTransaction(tx, input);
+
+    expect(first.accrualIds).toHaveLength(1);
+    expect(second).toEqual(first);
+    expect(first.unassignedEntryIds).toHaveLength(1);
+    expect([...accruals.values()][0]).toMatchObject({ frozenAmount: 0, payableAmount: 9.6 });
+    expect(account).toMatchObject({ frozenAmount: 0, payableAmount: 9.6, totalAccrued: 9.6 });
+    expect(unassigned[0]).toMatchObject({ amount: 6.4, status: 'PENDING' });
+    expect(ledgers.map((row) => row.eventType)).toEqual(['ACCRUAL', 'RELEASE']);
+  });
+
+  it('does not release a pickup accrual before pickup verification', async () => {
+    const account = makeAccount('account-unverified-pickup', 'company-unverified-pickup');
+    const tx = {
+      industryFundLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      industryFundAccrual: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'accrual-unverified-pickup', accountId: account.id, companyId: account.companyId,
+          allocationId: 'allocation-unverified-pickup', orderId: 'order-unverified-pickup', version: 0,
+          frozenAmount: 10, payableAmount: 0, reservedAmount: 0, reversalPendingAmount: 0,
+          account,
+        }),
+      },
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          fulfillmentMode: 'PICKUP',
+          status: 'PAID',
+          pickupFulfillment: { status: 'READY' },
+          returnWindowExpiresAt: new Date(Date.now() - 60_000),
+          afterSaleRequests: [],
+        }),
+      },
+    } as unknown as IndustryFundTx;
+    const service = new IndustryFundService({} as never);
+
+    await expect(service.releaseAccrual(tx, {
+      accrualId: 'accrual-unverified-pickup',
+      idempotencyKey: 'release-unverified-pickup',
+    })).rejects.toMatchObject({ code: 'PICKUP_NOT_VERIFIED' });
+  });
+
+  it('keeps active after-sale protection for a verified pickup order', async () => {
+    const account = makeAccount('account-pickup-aftersale', 'company-pickup-aftersale');
+    const tx = {
+      industryFundLedger: { findUnique: jest.fn().mockResolvedValue(null) },
+      industryFundAccrual: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'accrual-pickup-aftersale', accountId: account.id, companyId: account.companyId,
+          allocationId: 'allocation-pickup-aftersale', orderId: 'order-pickup-aftersale', version: 0,
+          frozenAmount: 10, payableAmount: 0, reservedAmount: 0, reversalPendingAmount: 0,
+          account,
+        }),
+      },
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          fulfillmentMode: 'PICKUP',
+          status: 'RECEIVED',
+          pickupFulfillment: { status: 'PICKED_UP' },
+          returnWindowExpiresAt: new Date(),
+          afterSaleRequests: [{ status: 'REQUESTED' }],
+        }),
+      },
+    } as unknown as IndustryFundTx;
+    const service = new IndustryFundService({} as never);
+
+    await expect(service.releaseAccrual(tx, {
+      accrualId: 'accrual-pickup-aftersale',
+      idempotencyKey: 'release-pickup-aftersale',
+    })).rejects.toMatchObject({ code: 'AFTER_SALE_ACTIVE' });
   });
 
   it('fails closed when a release is attempted before the return window closes', async () => {

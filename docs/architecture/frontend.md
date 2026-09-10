@@ -2564,3 +2564,11 @@ src/components/ai/   → 新增目录
 基金流水页“返回基金总览”读取并校验 `returnTo`，恢复总览名称与期间条件；非法目标回退资金总览。待归属默认 PENDING 查询补齐数据库枚举参数类型，并由真实 PG 与 HTTP 回归验证。
 
 资金管理三页最终测试部署版本为 `bdf1af35`，实际页面与 API/Admin/Seller 版本标记已核对；详细验收见 `docs/operations/fund-ledgers-staging-20260909.md`。
+
+
+## 2026-09-10 自提核销与基金即时释放
+
+- 设计：`docs/superpowers/specs/2026-09-10-pickup-immediate-funds-design.md`。
+- 自提订单核销后不接受新售后；App/小程序关闭申请入口，已有记录保留。
+- 公司产业基金核销后计提即释放为可支付，平台继续保管；其他平台基金沿用收货即时入账。
+- 本轮在独立 main-based 分支实现，验证/发布状态见设计文档，不代表已上线。

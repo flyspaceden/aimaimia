@@ -31,6 +31,8 @@ import { NotificationService } from '../notification/notification.service';
 const AFTER_SALE_ELIGIBLE_STATUSES = ['SHIPPED', 'DELIVERED', 'RECEIVED'];
 const GROUP_BUY_AFTER_SALE_DISABLED_REASON =
   '团购订单支付后不支持退换货；收货后24小时内质量问题请联系客服补货。';
+const PICKUP_AFTER_SALE_DISABLED_REASON =
+  '自提订单不支持新的售后申请，请联系客服处理。';
 
 // 标准化理由标签
 const REASON_LABELS: Record<string, string> = {
@@ -60,6 +62,10 @@ export class AfterSaleService {
 
   setShippingRuleService(service: any) {
     this.shippingRuleService = service;
+  }
+
+  private isPickupOrder(order: any): boolean {
+    return order?.fulfillmentMode === 'PICKUP';
   }
 
   private async emitAfterSaleNotification(
@@ -366,6 +372,13 @@ export class AfterSaleService {
       };
     }
 
+    if (this.isPickupOrder(order)) {
+      return {
+        ...baseResponse,
+        disabledReason: PICKUP_AFTER_SALE_DISABLED_REASON,
+      };
+    }
+
     const [
       returnWindowDays,
       normalReturnDays,
@@ -599,6 +612,10 @@ export class AfterSaleService {
           // 2. VIP 礼包订单不支持售后
           if ((order as any).bizType === 'VIP_PACKAGE') {
             throw new BadRequestException('VIP 礼包订单不支持退款和换货');
+          }
+
+          if (this.isPickupOrder(order)) {
+            throw new BadRequestException(PICKUP_AFTER_SALE_DISABLED_REASON);
           }
 
           // 3. 校验商品项存在且属于此订单
