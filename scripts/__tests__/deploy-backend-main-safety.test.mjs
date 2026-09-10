@@ -356,7 +356,13 @@ test('rehearsal verifier checks business-row conservation and exact refund backf
   assert.match(rehearsalDataVerifier, /rehearsal database provenance does not match/);
   assert.match(rehearsalDataVerifier, /rehearsal migration checksums do not match/);
   assert.match(rehearsalDataVerifier, /baseline migration checksums are not a valid subset/);
-  assert.match(rehearsalDataVerifier, /complete\) !== 120/);
+  assert.match(rehearsalDataVerifier, /complete\) !== 126/);
+  assert.match(rehearsalDataVerifier, /rehearsal migration history is not 126 complete and 0 failed/);
+  assert.match(rehearsalDataVerifier, /const preserveExistingMarketplaceRows = Number\(baselineMigrationState\.complete\) >= 120;/);
+  assert.equal(
+    (rehearsalDataVerifier.match(/migrationMode === 'NO_OP' \|\| preserveExistingMarketplaceRows/g) || []).length,
+    3,
+  );
   assert.match(rehearsalDataVerifier, /failed\) !== 0/);
 });
 
@@ -370,6 +376,7 @@ test('production deploy requires a fresh SHA-bound rehearsal attestation', () =>
   assert.match(rehearsalAttestationVerifier, /older than 14 days/);
   assert.match(rehearsalAttestationVerifier, /stableTableFingerprints/);
   assert.match(rehearsalAttestationVerifier, /expectedMigrationMode/);
+  assert.match(rehearsalAttestationVerifier, /rehearsalMigrationCount\) !== 126/);
   assert.match(rehearsalAttestationVerifier, /rehearsal migration mode is inconsistent/);
   const stoppedIndex = backendDeployScript.indexOf('record_stage PM2_STOPPED');
   const readinessIndex = backendDeployScript.indexOf('node scripts/inspect-miniapp-migration-readiness.cjs');

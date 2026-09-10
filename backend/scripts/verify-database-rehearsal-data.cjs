@@ -256,8 +256,8 @@ function main() {
     'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
     'failed', count(*) FILTER (WHERE finished_at IS NULL AND rolled_back_at IS NULL)
   )::text FROM "_prisma_migrations"`);
-  if (Number(migrationState.complete) !== 120 || Number(migrationState.failed) !== 0) {
-    throw new Error('rehearsal migration history is not 120 complete and 0 failed');
+  if (Number(migrationState.complete) !== 126 || Number(migrationState.failed) !== 0) {
+    throw new Error('rehearsal migration history is not 126 complete and 0 failed');
   }
   const baselineMigrationState = queryJson(baselineUrl.toString(), `SELECT json_build_object(
     'complete', count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
@@ -277,7 +277,8 @@ function main() {
   const migrationMode = Number(baselineMigrationState.complete) === Number(migrationState.complete)
     ? 'NO_OP'
     : 'UPGRADE';
-  if (migrationMode === 'NO_OP') {
+  const preserveExistingMarketplaceRows = Number(baselineMigrationState.complete) >= 120;
+  if (migrationMode === 'NO_OP' || preserveExistingMarketplaceRows) {
     const baselineFullFingerprint = queryJson(baselineUrl.toString(), fingerprintSql(true));
     const rehearsalFullFingerprint = queryJson(rehearsalUrl.toString(), fingerprintSql(true));
     if (JSON.stringify(baselineFullFingerprint) !== JSON.stringify(rehearsalFullFingerprint)) {
@@ -290,7 +291,7 @@ function main() {
       SELECT "refundId", "kind"::text AS kind, "orderId", "refundAmount", source, "status"::text AS status
       FROM "RefundSideEffectOutbox"
     ) actual`;
-  const expected = migrationMode === 'NO_OP'
+  const expected = migrationMode === 'NO_OP' || preserveExistingMarketplaceRows
     ? queryJson(baselineUrl.toString(), outboxRowsSql)
     : queryJson(baselineUrl.toString(), `SELECT COALESCE(json_agg(row_to_json(expected) ORDER BY "refundId", kind), '[]'::json)::text
       FROM (
@@ -331,7 +332,7 @@ function main() {
       OR "miniProgramUrlLinkExpiresAt" IS NOT NULL OR "miniProgramUrlLinkClaimUntil" IS NOT NULL)
   )::text`;
   const compatibilityValues = queryJson(rehearsalUrl.toString(), compatibilitySql);
-  if (migrationMode === 'NO_OP') {
+  if (migrationMode === 'NO_OP' || preserveExistingMarketplaceRows) {
     const baselineCompatibilityValues = queryJson(baselineUrl.toString(), compatibilitySql);
     if (JSON.stringify(baselineCompatibilityValues) !== JSON.stringify(compatibilityValues)) {
       throw new Error('compatibility fields changed during no-op rehearsal');

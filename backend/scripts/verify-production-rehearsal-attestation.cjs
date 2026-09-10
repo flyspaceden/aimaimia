@@ -93,7 +93,7 @@ function main() {
     throw new Error('rehearsal backup source manifest content is invalid');
   }
   if (
-    Number(attestation.rehearsalMigrationCount) !== 120
+    Number(attestation.rehearsalMigrationCount) !== 126
     || Number(attestation.rehearsalFailedMigrationCount) !== 0
     || Number(attestation.stableTableFingerprints) < 23
     || attestation.migrationChecksumsVerified !== true
