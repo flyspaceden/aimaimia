@@ -147,4 +147,30 @@ suite('公司产业基金真实 PostgreSQL 事务', () => {
     await check(b.company.id);
   });
 
+  it('reads pending unassigned entries with typed status filters and their immutable audit events', async () => {
+    const order = await db.order.create({ data: { userId: prefix, status: 'RECEIVED', goodsAmount: 100, totalAmount: 100 } });
+    const query = new IndustryFundQueryService(db as never);
+    const args = Object.assign(new FundQueryDto(), { orderId: order.id, status: 'PENDING' });
+    expect((await query.unassigned(args)).total).toBe(0);
+    const allocation = await db.rewardAllocation.create({ data: {
+      orderId: order.id, triggerType: 'ORDER_RECEIVED', ruleType: 'NORMAL_TREE', ruleVersion: 'test',
+      idempotencyKey: `${prefix}-unassigned-query`,
+    } });
+    const entry = await db.industryFundUnassignedEntry.create({ data: {
+      allocationId: allocation.id, orderId: order.id, amount: 10, reversedAmount: 4,
+      scheme: 'NORMAL_PLATFORM_SPLIT', profitBaseAmount: 100, reason: 'test unassigned query',
+      idempotencyKey: `${prefix}-unassigned-entry`,
+    } });
+    const pending = await query.unassigned(args);
+    expect(pending.total).toBe(1);
+    expect(pending.items[0]).toEqual(expect.objectContaining({ id: entry.id, originalAmount: 10, amount: 6, status: 'PENDING' }));
+    expect(pending.items[0].events).toEqual([expect.objectContaining({ reversedBefore: 0, reversedAfter: 4 })]);
+    expect((await query.unassigned(Object.assign(new FundQueryDto(), { orderId: order.id, status: 'RESOLVED' }))).total).toBe(0);
+    await db.industryFundUnassignedEntry.update({ where: { id: entry.id }, data: { reversedAmount: 10 } });
+    expect((await query.unassigned(args)).total).toBe(0);
+    const history = await query.unassigned(Object.assign(new FundQueryDto(), { orderId: order.id, status: 'ALL' }));
+    expect(history.items[0]).toEqual(expect.objectContaining({ amount: 0, status: 'REVERSED' }));
+    expect(history.items[0].events).toHaveLength(2);
+  });
+
 });
