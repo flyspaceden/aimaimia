@@ -2019,6 +2019,6 @@
 - [x] 用户批准设计后实施三页业务界面、URL 搜索与分页、公司/流水详情抽屉、付款更正流程和真实查询能力。
 - [x] 发布复验定位并修复快速连续筛选恢复旧参数；新增同帧双点击回归，并校正窄屏几何测试的亚像素容差。
 - [x] 线上验收定位待归属枚举比较错误，补类型转换及真实 PG/HTTP 覆盖；同时补齐流水返回总览筛选恢复。
-- [ ] 完成最终集成验证并按候选分支规则发布至 staging-next；生产未变更。
+- [x] 完成最终集成验证并通过 PR #23/#24/#25 发布至 staging-next `bdf1af35`；API/Admin/Seller exact SHA 一致，实际页面验收完成，生产未发布。
 
 设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`；原型：`docs/ui-prototypes/fund-management-v2/index.html`。

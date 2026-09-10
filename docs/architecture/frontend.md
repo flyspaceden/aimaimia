@@ -2552,7 +2552,7 @@ src/components/ai/   → 新增目录
 
 ## 2026-09-08 平台基金账本
 
-管理端新增基金账本及公司产业基金子账（本地实现与验证完成，未部署）。买家 App 不增加入口；新产业基金不进入个人 Reward 钱包，历史个人余额及原提现流程保持兼容。详见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md`。
+管理端新增基金账本及公司产业基金子账（已在 staging-next 测试部署，生产未发布）。买家 App 不增加入口；新产业基金不进入个人 Reward 钱包，历史个人余额及原提现流程保持兼容。详见 `docs/superpowers/specs/2026-09-08-industry-fund-company-ledger-design.md`。
 
 
 ### 2026-09-09 管理端资金页面信息结构设计
@@ -2562,3 +2562,5 @@ src/components/ai/   → 新增目录
 资金页面的连续操作必须基于浏览器当前 URL 合并条件。React Router 的函数式 search setter 使用上次渲染捕获的参数，并不提供队列语义；重置后立即切换视图不得把旧关键词带回。已增加同帧两次真实按钮事件的确定性回归。
 
 基金流水页“返回基金总览”读取并校验 `returnTo`，恢复总览名称与期间条件；非法目标回退资金总览。待归属默认 PENDING 查询补齐数据库枚举参数类型，并由真实 PG 与 HTTP 回归验证。
+
+资金管理三页最终测试部署版本为 `bdf1af35`，实际页面与 API/Admin/Seller 版本标记已核对；详细验收见 `docs/operations/fund-ledgers-staging-20260909.md`。

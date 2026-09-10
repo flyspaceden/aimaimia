@@ -1235,3 +1235,5 @@ VIP 系统配置页和普通用户系统配置页均通过 `useConfigProfitSafet
 - 金额明细只读；历史不迁移、不补算。本次仅增补查询与页面交互，不变更 Schema 或资金记账核心。
 
 设计：`docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md`。
+
+资金管理三页已部署到 staging-next `bdf1af35`，包括待归属查询和总览筛选返回修复；版本与验证证据见 `docs/operations/fund-ledgers-staging-20260909.md`。
