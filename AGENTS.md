@@ -1,330 +1,91 @@
-# 爱买买 - AI赋能农业电商平台
+# 爱买买 — 项目执行规则
 
-## 项目概述
-爱买买是一个 AI 赋能的农业电商平台，采用多商户入驻模式。包含买家 App（React Native）、卖家后台（React Web）和管理后台（React Web）。后端 NestJS 统一服务。
+多商户农业电商平台：买家 App、微信小程序、卖家后台、管理后台，共用 NestJS 后端。
+本文件保留全局纪律、业务边界及文档入口；完整索引见 `docs/README.md`，按任务读取。
 
-## 相关文档
+## 1. 执行纪律
 
-### 架构设计 (`docs/architecture/`)
-- `docs/architecture/data-system.md` — 完整数据库设计（9 大域，67 模型，41 枚举，**权威来源**）
-- `docs/architecture/backend.md` — 后端技术文档（API/模块/部署）
-- `docs/architecture/frontend.md` — 买家 App 前端设计文档（页面设计稿、组件规范、AI 视觉语言，**前端开发权威来源**）
-- `docs/architecture/sales.md` — 卖家系统设计文档（数据模型、API 设计、前端页面、业务流程，**卖家端开发权威来源**）
-- `docs/architecture/seller.md` — 卖家系统完整设计方案（隐私保护策略、页面设计、安全架构、API 改造计划，**卖家系统开发权威来源，替代 sales.md 中的前端/隐私相关内容**）
-- `docs/architecture/admin-frontend.md` — 管理后台前端
-- `docs/architecture/responsive-design.md` — 买家 App 响应式适配规范（6 条核心原则 / `useResponsiveLayout`+`priceTextProps`+`fitTextProps` 工具集 / 新页面 Checklist / grep 审计黑名单 / 6 个真机测试场景，**响应式适配权威来源，新页面/Code Review/OTA 发布前必跑**）
+- 新需求先复述范围并提出方案；用户已明确授权的范围不重复确认。业务规则、资金口径、数据删除或发布范围不明确时必须确认；普通实现细节遵循现有约定。
+- 先读相关代码与设计，再修改。禁止猜测性修复；同一 Bug 连续两次修复失败后停止改代码，分析根因并向用户说明，得到确认后再继续。
+- 保留用户已有修改，不覆盖、不夹带无关改动。范围扩大需确认；历史数据迁移、回填和重算须有明确授权。
+- 独立且不冲突的任务可并行；不同 Agent 不同时修改同一文件，有依赖的步骤顺序执行。
+- 每项实现完成后进行独立只读 Agent 审查；主 Agent 复核并修复 High/Critical，说明 Medium 的处理决策，Low 可记录暂缓。工具不可用时明确报告审查缺口，不宣称完成独立审查。
+- 凭据不得写入可提交文件。新增或变更凭据及时更新本地 `docs/operations/密码本.md`；提交前确认其受 gitignore 保护，其他文件只用占位符。
+- 实际服务器部署、数据库、进程、证书、Nginx 或第三方回调变更后，立即更新本地忽略的 `docs/operations/阿里云部署.md`。
 
-### AI 功能 (`docs/ai/`)
-- `docs/ai/ai.md` — AI 语音助手集成方案（ASR 接入、意图识别、大模型选型、全链路架构、费用估算、升级路线，**AI 功能开发权威来源，所有 AI 相关计划/问题/进度均在此文档更新**）
-- `docs/ai/ai搜索.md` — AI 搜索功能设计
+## 2. 核心业务边界
 
-### 功能设计 (`docs/features/`)
-- `docs/features/redpocket.md` — 平台红包（优惠券）系统完整设计方案（需求、数据模型、API、管理后台、买家App改造、实施步骤，**平台红包系统开发权威来源**）
-- `docs/features/refund.md` — 退换货系统完整规则文档（四类售后类型、退货/换货窗口、运费承担、退款口径、法律依据、配置参数，**退换货业务规则权威来源**）
-- `docs/features/invoice.md` — 发票申请功能基础设计方案（需求定义、预期结果、4 Phase 实施计划、API 设计、安全要求，**发票基础需求权威来源；链路收口 / 开票配置 / Provider / 状态历史以后续 superpowers spec 为准**）
-- `docs/features/new-features-design.md` — 五大新功能设计方案（F1 订单流程重构 / F2 赠品锁定 / F3 奖品过期 / F4 平台公司 / F5 奖励过期可配置，**新功能实现权威来源**）
-- `docs/features/buy-vip.md` — VIP 购买流程
-- `docs/features/plan-treeforuser.md` — 普通用户分润奖励系统改造计划（抽奖/普通树/自动定价/运费/换货，Phase A~G 已完成 + Phase H~L 新增，**普通用户系统改造权威来源**）
-- `docs/features/global-order-queue-reward.md` — 全平台订单队列奖励规则（统一队列、利润出资、N人滑动、大单拆位、内部待结算/双向售后作废、后台参数与示例，**订单队列奖励权威来源；独立于普通/VIP树和直推**）
-- `docs/features/test-reward.md` — 分润奖励系统商业模式盈利测试模型（资金流分析、解析模型、时序仿真设计、参数扫描、压力测试、报表设计，**分润系统盈利测试权威来源**）
-- `docs/features/admin-tree-frontend.md` — 管理端树前端
-- `docs/features/普通用户红包分润系统.md` — 普通用户分润奖励系统需求原文（产品需求文档）
-- `docs/features/shipping.md` — 快递物流链路实施文档（顺丰丰桥直连已完成，含顺丰月结+API申请流程、迁移记录、代码路径速查，**快递链路开发权威来源**）
-- `docs/features/支付宝支付.md` — 支付宝收款与付款集成方案（收款现状、分润出款商家转账方案、法律合规、个税代扣代缴、涉税报送、实施路线图，**支付宝支付/分润出款通道权威来源**）
-- `docs/features/智能客服.md` — 智能客服系统完整文档（三层路由、8个数据模型、Socket.IO事件清单、买家App+管理后台用户流程、跨系统数据流、bug修复历史、144个测试用例、待优化项、配置项与上线检查清单、常见问题排查，**智能客服系统运维与开发权威来源，每次客服bug/优化必须同步更新**）
+- **Reward、Coupon、数字资产独立**：消费积分支持提现及普通商品部分抵扣；平台红包可叠加；VIP 礼包禁止消费积分抵扣。数字资产不与奖励余额或分润计数混用。
+- **金额口径**：现有业务金额存储/API 主要为 Float/元，具体字段以 Schema 为准；计算复用现有金额工具及舍入规则，不据此直接做浮点资金累计，也不擅自改为分单位存储。
+- **身份与权限**：内部 `User.id` 不变；买家展示/复制/搜索使用 `buyerNo=AIMM+14位数字`。解析公开编号后仍须执行原权限校验；纯卖家员工、管理员不生成买家编号。
+- **认证隔离**：买家、管理端、卖家端使用独立认证链路；管理与卖家分别使用独立 JWT Secret、Strategy、Guard。商户身份来自认证上下文，查询必须按 `companyId` 隔离。
+- **推荐与分润**：只有 VIP 可展示、分享有效推荐码；普通用户可绑定推荐人。普通树、VIP 树、VIP 直推及订单队列奖励保持各自规则与配置，不合并计算链路。
+- **树结构**：VIP 为 A1–A10 独立子树；有推荐人落入其子树，直连满后按层选 `childrenCount` 最少节点，同数按树顺序。普通树为单个平台根节点、轮询平衡插入；两套层级、冻结及过期参数独立。
+- **利润结构**：普通树为六项；当前本地 VIP 配置为七项，含直推佣金。分配比例须合计 100%，实际值读取配置；不能套用旧六分摘要删除直推项。队列奖励的实施/启用状态另行核实。
+- **定价与订单**：普通商品售价按成本乘平台加价配置计算，奖励商品由管理员定价。CheckoutSession 在支付成功后原子建单为 PAID，不恢复 PENDING_PAYMENT 订单模型。
+- **库存**：加购、复购、勾选和结算前拦截已知库存不足；支付回调并发后允许普通商品负库存并通知补货，不自动退款。
+- **赠品与奖品**：THRESHOLD_GIFT 按勾选非奖品金额解锁并随单包含。奖品从入购物车计时过期；删奖品为预期行为，`wonCount` 不回退、过期名额不释放。奖品归平台公司，普通搜索排除奖励商品。
+- **VIP 赠品与草稿**：一个赠品方案可含多个商品，价格由 SKU 数量汇总，不存冗余总价；DRAFT 不进入默认商品列表、审核及买家查询，提交必须完整校验。局部 UI、配额和保存时序见功能设计。
+- **运费**：平台统一对接顺丰并承担履约运费；买家满额包邮，否则按平台首重/续重规则整单计费一次，支付后按子订单金额分摊；商户协商价不进入代码。自提改动按对应设计核对适用范围。
+- **支付**：新增支付通道保留已有通道行为；退款及退货运费按原订单通道处理。微信取消/过期先查单再关单，已支付则主动建单；入口及可用性读取对应客户端配置和服务状态，不从历史开关推断上线。
+- **数字资产**：累计消费、V2 和冻结消费资产存在后续覆盖关系，不再按“第一版仅累计消费”概括全部功能；按 `docs/README.md` 中 V2/冻结设计读取，确认收货释放、退款作废或扣回，不把冻结余额当正式余额。
 
-### 问题追踪 (`docs/issues/`)
-- `docs/issues/tofix-safe.md` — 安全与并发一致性问题追踪（**时序安全、竞态条件、数据一致性问题权威来源**）
-- `docs/issues/tofix-app-frontend.md` — 买家 App 前端交互问题清单与修复计划（20 CRITICAL + 32 HIGH + 39 MEDIUM + 30 LOW，**买家端前端修复排程权威来源**）
-- `docs/issues/tofix5.md` — 平台红包系统代码审查问题清单（2P0 + 7P1 + 4P2 + 3P3，含修复方案与执行顺序，**红包系统修复排程权威来源**）
-- `docs/issues/tofix6.md` — 移除游客模式改造计划（认证二态统一、购物车本地化、抽奖公开化，F1-F14前端 + B1-B6后端，**游客模式移除排程权威来源**）
-- `docs/issues/conflict1.md` — 后端全面审查冲突清单 v2（C/H/M/L 问题重评 + 管理端/卖家端新发现 + 需求引入新问题，**后端修复排程权威来源**）
-- `docs/issues/tofix.md` ~ `docs/issues/tofix7.md` — 各轮代码审查问题清单
-- `docs/issues/app-tpfix1.md` — 2026-04-29 build-4-29.apk 真机测试发现的 9 个 bug 修复清单（账号绑定/图片/Tab/键盘/地址/弹窗/支付宝/消息路由/AI语音，含 file:line + 修复方案 + 部署批次，**真机测试 bug 修复排程权威来源**）
-- `docs/issues/app-tofix2.md` — 2026-05-04 推荐链路全链路 Bug 修复清单（推荐码生成/扫码落地页/DDL/Universal Link/App Link/注册自动绑定，**推荐链路修复排程权威来源**）
-- `docs/issues/app-tofix3.md` — 2026-05 顺丰物流链路真机/沙箱联调问题清单（物流骨架、电子面单、轨迹订阅、前端物流展示、沙箱/生产联调差异，**物流链路修复排程权威来源**）
-- `docs/issues/app-tofix4.md` — 2026-05-07 商品/SKU 上下架引发的购物车、抽奖、结算级联 Bug 修复清单（奖品卡死、LotteryRecord 状态机、CheckoutSession 软排除、一次性数据修复 SQL，**商品上下架级联修复排程权威来源**）
-- `docs/issues/普通用户分润后端问题.md` — 分润后端问题
+## 3. 开发与验证
 
-### 安全与合规 (`docs/security/`)
-- `docs/security/security-audit.md` — 全面安全审计文档（认证/资金/API/隐私/基础设施/AI/多商户/监控，12 大维度）
-- `docs/security/电商法.md` — 电商法规参考
+- 修改前判断是否涉及并发、资金、库存、状态机或认证；涉及时逐项执行 `docs/issues/tofix-safe.md` 安全检查清单，并更新新问题或已修复状态。
+- 金额、库存、奖励、支付的数据库状态写入遵循项目 Serializable 事务要求，并检查事务内 CAS、幂等和重试；纯展示或格式调整不适用事务要求。
+- UI 开发先读对应客户端设计与响应式规范；使用可用设计技能辅助。原 `/ui-ux-pro-max` 不可用时遵循项目规范及可用替代技能，不虚构已调用。
+- 后端改动验证 TypeScript、相关 API/业务测试；涉及 Prisma 时运行 `npx prisma validate`，迁移另做演练。前端改动验证 TypeScript 和页面渲染；按影响范围检查 API、类型、状态、路由及跨端兼容。
+- App 新页面、Code Review、OTA 前执行响应式规范中的适用检查与场景；自动化通过不等于真机验收。
+- 测试按改动风险选择；纯文档改动检查引用、规则一致性和敏感信息。各端审查细则见 `docs/testing/code-review-checklist.md`。
+- 完成任务后更新受影响客户端/业务设计文档及 `plan.md` 对应进度，并说明下一步；无设计或进度变化不追加重复记录。客服改动同步 `docs/features/智能客服.md`，AI 改动同步 `docs/ai/ai.md`。
 
-### 测试 (`docs/testing/`)
-- `docs/testing/2026-04-15-webapp-test-plan.md` — Web 端自动化测试计划 v0.1（管理后台+卖家后台，Playwright，L0-L3 分层，7 条 critical path，5 阶段实施，**Web 端 E2E 测试权威来源**）
+## 4. Git 与发布门禁
 
-### 部署运维 (`docs/operations/`)
-- `docs/operations/fund-ledgers-staging-20260909.md` — 基金账本及三页体验优化的 staging-next 发布版本、CI 与实际页面验收记录（本次基金测试发布证据）
-- `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
-- `docs/operations/阿里云部署.md` — 阿里云部署实施记录（服务器/域名/SSL/宝塔站点/PostgreSQL 实际配置 + 数据库凭据 + 变更日志 + 常见问题，**实际部署状态权威来源，每次部署动作必须更新**）
-- `docs/operations/branch-strategy.md` — Git 分支、候选版本、测试快照、生产主干、当前旧 staging/Delivery 无损收敛策略（**版本控制权威来源；main 是唯一长期基线，staging 不是开发主干**）
-- `docs/operations/版本管理.md` — 开发/测试/生产环境实物清单、App/小程序/后台发布边界与版本号规范（**环境版本权威来源**）
-- `docs/operations/github操作.md` — 干净 main-based worktree、候选 PR、staging 验收、manual exact-SHA production approval、hotfix 与回退操作（**Git 日常操作权威来源**）
-- `docs/operations/staging-to-production.md` — 从测试环境切换到生产环境操作手册（main 发布、生产 env、第三方回调、数据库迁移、回滚、首次生产切换，**测试→生产切换执行权威来源**）
-- `docs/operations/miniapp-production-integration-20260821.md` — 微信小程序、自提、微信提现、必要后台和推荐 H5 选择性进入生产的冻结基线、Delivery 排除边界、分批门禁与回滚清单（**本次小程序生产集成执行真相源**）
-- `docs/operations/新手指南-部署机制详解.md` — 部署/CI/CD 系统全套概念解释（32 个 Q&A，从 workflow 路由到 App 测试，含 PM2/Nginx/Prisma migration/SSH 密钥/回滚/灰度等基础概念，**新手学习部署体系权威入门**）
-- `docs/operations/app-compliance-guide.md` — App 上架合规指南（营业执照/ICP备案/软著/App备案/ICP证/应用商店上架全流程，**上架合规权威来源**）
-- `docs/operations/app-发布与OTA手册.md` — App 发布与 OTA 操作手册（OTA vs Build 决策表、EAS 命令速查、推送前 checklist、当前 App 状态、回滚流程、测试人员分发，**App 维度操作权威来源**，每次 eas build / update 后必须更新第六章）
-- `docs/operations/商户操作手册.md` — 商户端操作手册（企业入驻 + 登录 + 卖家中心全页面 + 商品/订单/售后/员工/账号安全全流程，**测试阶段商户操作权威来源**）
+- `origin/main` 是唯一长期产品基线；测试分支只承载测试候选。业务代码从最新 main 建短期干净 `codex/*`（或指定 feature）worktree；禁止在 main、staging、原始脏目录或固定微信测试目录开发。
+- 禁止整体 merge/覆盖长期分叉的 staging 与 main，禁止目录级 ours/theirs 掩盖语义冲突；旧 staging 的保全引用、锁定及测试候选绑定不得擅改，解锁/强推须单独授权。
+- 固定微信测试目录只在远端候选部署后用经核实的同步脚本 fast-forward；跨分支切换须用户批准、archive branch + tag + delivery 分支三重保全，按精确旧/新 SHA 执行 rebind 并保留旧目录。完成后 HEAD 等于选定远端测试分支且工作树干净。
+- **push、上测试、生产部署、App OTA/Build、小程序发布按明确授权范围执行**；执行前说明改动及影响，已有授权不重复询问，不把 push 授权扩大成生产或客户端发布授权。
+- 一个逻辑改动一个 commit，使用 `type(scope): 描述`。推 main 前说明回滚路径；迁移、删字段、改枚举或利润公式须说明额外数据回退步骤，不能只用 git revert 代表完整回滚。
+- App 默认范围为 `app/`、根 `src/`；小程序为 `miniapp/`。共享后端变更检查两端兼容，不夹带另一客户端代码或发布。GitHub push 不等于 App EAS/商店或小程序审核发布。
+- PR、CI、测试部署、数据库演练、真机、main 合并、production approval、服务器与客户端发布分别报告。SHA 改变后不得沿用旧测试、attestation 或真机结论作为新版本验收。
+- 发布后审计 main 与实际测试候选的双向差异；hotfix 同步至活跃候选和获准更新的测试分支，不触碰冻结分支。未发布功能保留独立 feature 分支。
+- 发布前读运维文档，并核对目标 checkout 的 workflow、远端权限和候选 SHA。**旧本地 staging 的部分运维文档仍写 staging 开发/整体合并等旧流程，不能据此绕过上述规则。** 缺失脚本或发布文档先核实来源，不使用旧流程替代；差异见 `docs/README.md`。
 
-### 法律文本 (`docs/legal/`)
-- `docs/legal/爱买买法律文本审核稿.docx` — 隐私政策 + 用户协议 Word 审核稿（由 `src/content/legal/*.ts` 原样导出，供法律顾问审核；权威原文仍是 `.ts` 源文件，源码变更后需重新导出）
+## 5. 代码约定
 
-### 参考资料 (`docs/reference/`)
-- `docs/reference/apikey.md` — API 密钥说明
-- `docs/reference/prompt-frontend-audit.md` — 前端审计 prompt
-- `docs/reference/爱买买_项目框架说明.md` — 项目框架说明
-- `docs/reference/phase1-9-全栈开发记录-Schema重建与模块实现.md` — 历史全栈开发记录
+- App：`src/repos/` 返回 `Result<T>`，页面通过 React Query 调用；使用 `<Screen>`、设计令牌和 Skeleton/Empty/Error 三态。组件 PascalCase，工具/常量 camelCase，注释用中文。
+- 管理/卖家后台：使用 ProTable/ProForm/ProLayout，各用统一 axios 客户端与对应 JWT；管理端 `PermissionGate` 控制 UI，后端仍执行权限校验。
+- 两个 Web 后台均通过 `App.useApp()` 获取 message、modal、notification，禁止静态调用；`<Modal>` JSX 可正常使用。
+- 管理 Controller 用 `@Public()` 跳过买家 Guard，再显式使用 `AdminAuthGuard`、`PermissionGuard`；卖家同理使用 `SellerAuthGuard`、`SellerRoleGuard`，不得只保留 `@Public()`。
+- 卖家使用 `@CurrentSeller()` 注入认证上下文；写操作按现有 `@AuditLog()` 约定记录 before/after。保留超管权限豁免的现有范围，不扩大到跨端认证或商户身份。
+- 依赖版本以 package.json 和锁文件为准；升级需明确范围并验证兼容性。支付、地图、AI 等占位或配置控制的能力，不因暂未启用而删除。
 
-### 设计方案与实施计划 (`docs/superpowers/`)
-- `docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md` — 资金管理三页结构、查询/详情/按付款状态操作设计（本次管理后台体验优化权威来源）
+## 6. 项目与文档入口
 
-- `docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md` — App 普通/团购/VIP 自提接入设计、支付恢复与凭证边界（**App 自提接入权威来源，本地实现完成、真机待验收**）
-- `docs/superpowers/plans/2026-09-06-app-pickup-fulfillment.md` — App 自提逐文件实施任务与验收矩阵（**App 自提实施排程，分层记录验证状态**）
-- `docs/superpowers/specs/2026-04-23-forgot-password-design.md` — 忘记密码功能设计方案（买家 App 内嵌向导 + 卖家后台方案 β 按企业选择性重置 + 管理后台"联系超管"提示、三端密码独立、SmsPurpose 新增 BUYER_RESET/SELLER_RESET、verifyCode 必填 purpose、LoginEvent 审计 sink，**忘记密码功能权威来源**）
-- `docs/superpowers/plans/2026-04-23-forgot-password.md` — 忘记密码实施计划（15 个任务：Schema × 1 + 后端 × 6 + 买家 App × 2 + 卖家后台 × 3 + 管理后台 × 1 + 文档 × 1 + 验收 × 1）
-- `docs/superpowers/specs/2026-04-24-product-draft-design.md` — 卖家商品草稿设计方案（启用 `ProductStatus.DRAFT`、每商户 5 份上限、标题为最低门槛、30 秒 debounce 自动保存、DRAFT 在卖家默认列表/管理审核/商品总数统计中全部排除、提交时手动跑 `CreateProductDto` 校验、**商品草稿系统权威来源**）
-- `docs/superpowers/plans/2026-04-24-product-draft.md` — 卖家商品草稿实施计划（9 个任务：后端 DTO/Service/Controller × 2 + 单测 × 1 + 前端 API/创建页/编辑页/列表页 × 4 + 文档 + 代码审查）
-- `docs/superpowers/specs/2026-03-15-semantic-intent-design.md` — 语义意图升级设计方案（槽位扩展、LLM 管道、数据模型、搜索评分、实施分期，**语义意图改造权威来源**）
-- `docs/superpowers/specs/2026-03-20-vip-gift-multi-sku-design.md` — VIP 赠品多商品组合设计方案（数据模型、API、管理后台、买家App、迁移策略，**VIP赠品组合系统权威来源**）
-- `docs/superpowers/plans/2026-03-20-vip-gift-multi-sku.md` — VIP 赠品多商品组合实施计划（15个任务、全栈改造，**VIP赠品组合实施排程**）
-- `docs/superpowers/specs/2026-03-24-merchant-onboarding-design.md` — 商户自助入驻功能设计方案（数据模型、API 设计、安全措施、管理后台改动、网站表单、审核自动化流程，**商户入驻功能开发权威来源**）
-- `docs/superpowers/plans/2026-03-24-merchant-onboarding.md` — 商户自助入驻实施计划（8 个任务、Schema/Captcha/公开API/管理端/前端/网站/联调，**商户入驻实施排程**）
-- `docs/superpowers/specs/2026-03-26-vip-multi-package-design.md` — VIP 多档位礼包设计方案（VipPackage 数据模型、多价格结账、按比例推荐奖励、管理后台档位管理、买家App档位选择，**VIP 多档位系统权威来源**）
-- `docs/superpowers/plans/2026-03-26-vip-multi-package.md` — VIP 多档位礼包实施计划（12 个任务、Schema/Seed/CRUD/结账/奖励/配置清理/管理前端/买家App，**VIP 多档位实施排程**）
-- `docs/superpowers/specs/2026-03-27-deferred-deep-link-design.md` — 延迟深度链接设计方案（推荐码全链路无感知传递、Cookie+指纹双层匹配、落地页、Universal Link、换绑逻辑、域名统一，**推荐码深度链接系统权威来源**）
-- `docs/superpowers/plans/2026-03-27-deferred-deep-link.md` — 延迟深度链接实施计划（13 个任务、Schema/后端模块/换绑/域名统一/网站落地页/App端匹配/部署配置，**推荐码深度链接实施排程**）
-- `docs/superpowers/specs/2026-03-27-configurable-tag-system-design.md` — 可配置标签系统设计方案（TagCategory+Tag+CompanyTag 数据模型、管理后台标签管理页、企业/商品标签动态配置、数据迁移策略，**标签系统权威来源**）
-- `docs/superpowers/plans/2026-03-27-configurable-tag-system.md` — 可配置标签系统实施计划（13 个任务、Schema/Seed/管理CRUD/公开API/企业标签/卖家标签/商品标签/管理前端/卖家前端/清理，**标签系统实施排程**）
-- `docs/superpowers/specs/2026-03-28-discovery-filter-design.md` — 发现页企业筛选栏动态化设计方案（配置数据模型、管理后台页面、App端动态加载、管理端商品标签编辑，**发现页筛选配置权威来源**）
-- `docs/superpowers/plans/2026-03-28-discovery-filter.md` — 发现页企业筛选栏动态化实施计划（8个任务、后端配置/公开API/管理前端/拖拽排序/App端动态化/Mock同步，**发现页筛选实施排程**）
-- `docs/superpowers/specs/2026-03-30-unified-after-sale-design.md` — 统一退换货系统设计方案（数据模型、状态机、统一售后API、分润冻结、退款计算、超时Cron、三端改造，**退换货系统权威来源**）
-- `docs/superpowers/specs/2026-03-30-unified-after-sale-test-plan.md` — 统一退换货系统测试方案（58个测试用例、单元/集成/API/端到端/并发/边界/回归，**退换货系统测试权威来源**）
-- `docs/superpowers/plans/2026-03-30-unified-after-sale.md` — 统一退换货系统实施计划（17个任务、Schema/后端6模块/前端3端/Cron/测试，**退换货系统实施排程**）
-- `docs/superpowers/specs/2026-04-08-intelligent-customer-service-design.md` — 智能客服系统设计方案（三层路由、8个数据模型、Socket.IO实时通讯、管理后台6页面、买家App客服页、后端模块结构，**智能客服系统权威来源**）
-- `docs/superpowers/plans/2026-04-08-intelligent-customer-service.md` — 智能客服系统实施计划（17个任务、Schema/后端7服务/Socket.IO Gateway/管理前端7页面/买家App组件/种子数据，**智能客服系统实施排程**）
-- `docs/superpowers/specs/2026-05-01-order-pages-redesign-design.md` — 订单页面重做设计方案（淘宝展开风列表 + 七区块详情 + 状态变色 + 未完成订单横幅 + 续付页 + checkout 防重锁 + 6001 改造，**买家 App 订单链路 UX 升级权威来源**）
-- `docs/superpowers/plans/2026-05-01-order-pages-redesign.md` — 订单页面重做实施计划（32 任务，3 Phase：UI 重写+最小后端 / 后端剩余 DTO+横幅+续付链路 / buyerNote 字段。**Phase 1 已完成**）
-- `docs/superpowers/specs/2026-05-08-order-repurchase-design.md` — 已完成订单再次购买设计方案（新增 `POST /orders/:id/repurchase`、普通商品批量回购物车、奖品/VIP 排除、部分成功提示，**订单复购功能权威来源**）
-- `docs/superpowers/plans/2026-05-08-order-repurchase.md` — 已完成订单再次购买实施计划（后端复购接口 / 幂等限流 / 购物车合并 / App 按钮接入 / 验证清单，**订单复购实施排程**）
-- `docs/superpowers/specs/2026-05-18-stock-aware-repurchase-low-stock-display-design.md` — 库存感知复购与低库存展示设计方案（复购低库存数量降级为 1 / 无库存虚拟提示且不真实入购物车 / App“仅剩 x 件”平台阈值，**复购库存与 App 低库存展示权威来源，补充并覆盖复购 spec 的库存口径**）
-- `docs/superpowers/plans/2026-05-18-stock-aware-repurchase-low-stock-display.md` — 库存感知复购与低库存展示实施计划（后端库存裁决 / App 虚拟无库存提示 / 后台低库存阈值 / 售后库存回填，**库存体验与库存一致性实施排程**）
-- `docs/superpowers/plans/2026-05-08-unshipped-order-cancel-refund.md` — PAID 未发货取消退款收尾实施计划（买家 App / 后端资金链路 / 卖家中心 / 管理后台 / 分润隔离 / 真机验证 / 文档同步，**未发货取消退款上线收口排程**）
-- `docs/superpowers/specs/2026-05-09-after-sale-chain-closure-design.md` — 售后链路收口设计方案（基于现有 after-sale 主干，补齐 `NO_REASON_EXCHANGE`、顺丰退货面单、售后退款幂等、退款/售后状态历史、三端接线，**退款/退货/换货链路收口权威来源**）
-- `docs/superpowers/plans/2026-05-09-after-sale-chain-closure.md` — 售后链路收口实施计划（Schema/后端退款与面单服务/三端前端/验证与文档同步，**退款/退货/换货链路实施排程**）
-- `docs/superpowers/specs/2026-05-08-sf-style-shipping-pricing-design.md` — 顺丰风格平台统一运费计价设计方案（首重+续重公式、平台自定义价格、满额包邮、整单一次计费、SKU 重量补强、管理后台批量导入，**平台运费计价改造权威来源**）
-- `docs/superpowers/plans/2026-05-08-sf-style-shipping-pricing.md` — 顺丰风格平台统一运费计价实施计划（Schema/运费引擎/Checkout 锁价/顺丰面单真实重量/`OrderShippingCost` 成本记录/管理后台/卖家 SKU 重量/文档同步，**平台运费计价实施排程**）
-- `docs/superpowers/specs/2026-05-15-invoice-chain-closure-design.md` — 发票链路完整收口设计方案（开票内容配置、Mock Provider 适配器、买家/管理/卖家三端状态闭环、并发安全与状态历史，**发票链路收口 / Provider / 设置页 / 状态历史权威来源，补充并覆盖 `docs/features/invoice.md` 对应部分**）
-- `docs/superpowers/plans/2026-05-15-invoice-chain-closure.md` — 发票链路完整收口实施计划（Schema/配置/买家申请取消/Mock Provider/管理后台设置与开票/买家 App 发票闭环/卖家隐私/验证与文档同步，**发票链路收口实施排程**）
-- `docs/superpowers/specs/2026-05-19-reward-dual-track-design.md` — 消费积分双轨设计方案（Reward 余额同时支持支付宝提现与普通商品结算抵扣、默认提现代扣 20%、普通/VIP 抵扣比例 10%/15%、平台红包可叠加、VIP 礼包禁止抵扣，**消费积分提现/抵扣权威来源，替代旧支付宝实时提现单轨方案**）
-- `docs/superpowers/plans/2026-05-19-reward-dual-track.md` — 消费积分双轨实施计划（Schema/提现服务/抵扣服务/支付宝转账与查询补偿/买家 App 钱包提现结算/管理后台规则与税务报送/验证与文档同步，**消费积分双轨实施排程**）
-- `docs/superpowers/plans/2026-05-23-wechat-pay-integration.md` — 微信支付接入实施计划（WechatPayService 全套含 createAppOrder/refund/queryRefund/parseNotify/queryOrder/closeOrder / 退款 pending 二态 / raw body 验签的 wechat notify / confirmCheckout channel dispatch / cancel/expire 关单 / 售后退货运费支付与退款微信全链路 / 未发货取消退款 pending 闭环 / Android WXPayEntryActivity / App checkout 普通+VIP+续付+Pending Banner+售后详情 / admin 订单详情中文标签 / available 开关和隐私政策条件触发，**微信支付接入实施排程，支付宝行为不变 + 资金链路安全 + Android-only v1.0**）
-- `docs/superpowers/specs/2026-06-04-account-deletion-immediate-design.md` — 账号注销即时版设计方案（注销前阻止企业负责人、支付中结算、支付处理中、提现处理中和非 ACTIVE 账号；已付款订单/售后继续履约并依法保留，注销后立即不可恢复，消费积分/红包/VIP/抽奖权益作废，手机号/微信登录标识释放，订单/支付/退款/发票/审计依法保留，**账号注销功能权威来源**）
-- `docs/superpowers/plans/2026-06-04-account-deletion-immediate.md` — 账号注销即时版实施计划（Schema/后端注销模块/AuthIdentity 释放/JWT 拦截/推荐与分润保护/买家 App 注销页/法律文本/验证清单，**账号注销实施排程**）
-- `docs/superpowers/specs/2026-06-14-digital-asset-cumulative-spend-design.md` — 数字资产累计消费设计方案（独立 `DigitalAssetAccount`/`DigitalAssetLedger` 账户+流水；确认收货后按商品实付金额入账，退款/退货成功扣回，VIP 礼包计入，历史 `RECEIVED` 订单回填；买家 App 数字资产中心雏形 + 管理后台完整数字资产管理页，**数字资产累计消费权威来源**）
-- `docs/superpowers/plans/2026-06-14-digital-asset-cumulative-spend.md` — 数字资产累计消费实施计划（Schema/核心记账服务/订单与退款接入/历史回填/买家 App 数字资产中心/管理后台数字资产页/安全验证拆分，**数字资产累计消费实施排程**）
-- `docs/superpowers/specs/2026-06-15-buyer-public-id-design.md` — 买家公开编号设计方案（新增 `buyerNo=AIMM+14位数字`，保留内部 `User.id`；历史买家按注册时间回填；App 我的页展示复制；管理后台/卖家中心展示、复制和搜索，**买家公开编号权威来源**）
-- `docs/superpowers/plans/2026-06-15-buyer-public-id.md` — 买家公开编号实施计划（Schema/sequence/回填脚本、买家 Auth 接入、App 我的页复制按钮、管理后台全页展示搜索、卖家中心隐私边界内展示搜索、验证与发布文档，**买家公开编号实施排程**）
-- `docs/superpowers/specs/2026-05-18-large-text-virtual-nav-design.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配设计方案（P0 支付成功逃生、P1 购物闭环、P2 全 App 巡检，**App 响应式二轮治理权威来源，补充 `docs/architecture/responsive-design.md`**）
-- `docs/superpowers/plans/2026-05-18-large-text-virtual-nav.md` — 买家 App 大字体 / 显示大小 / Android 虚拟导航键 / iOS Dynamic Type 二轮适配实施计划（P0 支付成功、P1 购物闭环、P2 审计与 OTA 验证，**App 响应式二轮治理实施排程**）
+技术栈：App 为 React Native/Expo；卖家与管理端为 React/Vite/Ant Design；后端为 NestJS/Prisma/PostgreSQL/Redis。具体版本查各 package.json。
 
-### 审查报告 (`docs/superpowers/reports/`)
-- `docs/superpowers/reports/2026-09-07-app-pickup-system-reaudit.md` — App 自提二轮系统审查、VIP 激活补偿与真实数据库并发验证（**进入 CI/测试部署前的本地复审记录，不代替真机/线上验收**）
-- `docs/superpowers/reports/2026-09-07-app-pickup-implementation-report.md` — App 自提实现、独立审查、本地测试与未完成真机/发布边界（**本次自提接入验证记录**）
-- `docs/superpowers/reports/2026-04-11-launch-readiness-audit-report.md` — v1.0 上线链路审查报告（17 条链路 + 6 项横切关注点，30 个 T1 阻塞 + 48 个 T2 待补，**上线决策权威来源**）
-- `docs/superpowers/reports/2026-04-11-drafts/` — 审查中间 draft 目录（18 个 draft 文件，按 L01-L17 + X1-X6 编号，每条链路的详细审查证据）
+| 路径 | 用途 |
+|---|---|
+| `app/`、`src/` | 买家 App 路由、组件、类型、Repository、状态及主题 |
+| `miniapp/` | 微信小程序；旧本地 staging 缺失，本次 main 基线存在 |
+| `backend/prisma/`、`backend/src/modules/` | Schema、迁移、后端模块 |
+| `seller/`、`admin/` | 卖家及管理后台 |
+| `docs/README.md` | 完整索引、覆盖关系、已知缺失与版本差异 |
 
-### 项目管理（根目录）
-- `plan.md` — v1.0 上线冲刺路线图（6 批次 + 54 条 checkbox 待修 + 48 条 T2 + 17 条疑点，**活文档：每次修完打勾+每次新需求追加**）
-- `docs/reference/plan-history-2026Q1.md` — 历史开发记录归档（Phase 1-10 全栈开发记录，2026-02 至 2026-03）
+| 任务 | 先读（路径相对仓库根目录） |
+|---|---|
+| 数据/API | `docs/architecture/data-system.md`、`docs/architecture/backend.md`，对照实际 Schema/API |
+| App UI | `docs/architecture/frontend.md`、`docs/architecture/responsive-design.md`及其大字体补充方案 |
+| 卖家/管理 UI | `docs/architecture/seller.md`、`docs/architecture/admin-frontend.md`；seller 覆盖 sales 的前端/隐私部分 |
+| 业务功能 | `docs/README.md` 中相应 features、specs、plans；按明确覆盖关系读取 |
+| 安全/审查 | `docs/issues/tofix-safe.md`、`docs/testing/code-review-checklist.md` |
+| Git/部署/OTA | `docs/operations/branch-strategy.md`、`docs/operations/github操作.md`、`docs/operations/版本管理.md`、`docs/operations/app-发布与OTA手册.md`；同时遵守第 4 节 |
 
-## 关键架构决策
+## 7. 文档维护
 
-**任何不确定的改动必须先向用户确认，不要自行猜测或创造**
-
-| 决策 | 结论 |
-|------|------|
-| 消费积分（Reward）vs 平台红包（Coupon） | **两套完全独立的系统，严禁混淆**。消费积分（Reward 体系：`RewardAccount`/`RewardLedger`/`VIP_REWARD`/`NORMAL_REWARD`）在 v1.0 支持两条轨道：支付宝提现 + 普通商品订单部分抵扣；平台红包（Coupon 体系：`CouponCampaign`/`CouponInstance`）仍是独立优惠券系统，可与消费积分抵扣叠加。VIP 礼包禁止使用消费积分抵扣 |
-| 金额单位 | **Float / 元**（Prisma Schema 与前端一致，非 data-system.md 的 Int/分） |
-| 买家公开编号 | 内部 `User.id` 保持 `cuid()` 主键不变；买家业务展示/复制/搜索统一使用 `buyerNo = AIMM + 14 位数字`，仅买家用户生成，纯卖家员工和管理员账号不生成；管理后台/卖家中心输入 `AIMM...` 时后端解析到内部 `User.id` 后再复用原权限校验 |
-| 推荐码归属 | **只有 VIP 拥有可展示、可分享、可被延迟深链接收的推荐码**。普通用户可绑定推荐人，但 `GET /bonus/member` 对普通用户返回 `referralCode=null`，历史普通码后端按无效码拒绝 |
-| VIP 三叉树根节点 | **A1–A10 十个高管**，每棵独立子树；有推荐人时落在推荐人子树内，推荐人直连满后按层选择当前层 `childrenCount` 最小节点落位，同数按树顺序 |
-| 管理端认证隔离 | 独立 JWT Secret（`ADMIN_JWT_SECRET`）、独立 Passport Strategy（`admin-jwt`）、独立 Guard |
-| 卖家端认证隔离 | 独立 JWT Secret（`SELLER_JWT_SECRET`）、独立 Passport Strategy（`seller-jwt`）、独立 Guard |
-| 多商户模式 | `CompanyStaff` 关联表连接 User ↔ Company，角色分 OWNER / MANAGER / OPERATOR |
-| 普通用户分润树 | 单棵树、单个平台根节点，轮询平衡插入（无推荐码），分配机制与VIP一致（k次消费→k层祖辈），利润六分（50/16/16/8/8/2） |
-| VIP 利润公式 | **与普通用户统一为六分结构**（不再使用 rebatePool 两级分割）。VIP默认：50%平台/30%奖励/10%产业基金/2%慈善/2%科技/6%备用金。100% 利润显式分配，无隐性平台收入 |
-| 普通/VIP系统隔离 | 两套独立参数（`NORMAL_*`/`VIP_*`前缀）、独立树结构、**统一六分利润结构但各自独立配比**、独立冻结过期天数 |
-| 卖家自动定价 | 卖家设成本，售价=成本×MARKUP_RATE（默认1.3），奖励商品例外（管理员手动设价） |
-| 订单流程 | **付款后才创建订单**：引入 CheckoutSession → 支付回调原子建单（PAID），无 PENDING_PAYMENT 状态 |
-| 平台运费计价 | **平台统一对接顺丰并承担履约运费**；买家侧保持满额包邮，不满额按平台自定义顺丰风格首重+续重公式收取运费；多商户订单整单只收一次运费，支付后按子订单商品金额比例分摊；顺丰承运实际成本可记录在 `OrderShippingCost` 供平台月结对账，商户协商价不进入代码 |
-| 赠品锁定 | THRESHOLD_GIFT 入购物车锁定，按勾选非奖品商品总额实时解锁，解锁后自动包含在订单中 |
-| 奖品过期 | 可配置过期时间（小时），从入购物车起算，wonCount 永不回退 |
-| 平台公司 | 命名"爱买买app"，Company.isPlatform=true，奖品商品归属平台，用户搜索排除奖励商品 |
-| 超卖容忍 | 已知无库存/超当前库存的普通商品在加购、复购、购物车勾选和 CheckoutSession 前拦截；支付回调阶段仍允许并发后的普通商品库存变为负数，卖家收到补货通知，不退款 |
-| 奖品不可退 | 清空购物车删奖品为预期行为，wonCount 永不回退，过期名额不释放 |
-| VIP 赠品组合 | **一个赠品方案可包含多个商品**（VipGiftItem 子表，一对多）。封面图支持 4 种模式：宫格拼图（默认）/对角线分割/层叠卡片/自定义上传。价格自动计算 `Σ(sku.price × quantity)`，不存储冗余总价 |
-| 卖家商品草稿 | 复用 `ProductStatus.DRAFT` 持久化未完成商品，每商户 **5 份**上限，最低门槛**标题必填**，30 秒 debounce 自动保存；DRAFT 在卖家默认列表/管理审核/商品总数统计/买家查询中全部排除；提交审核时手动跑 `CreateProductDto` 全量校验 |
-| 微信支付集成 | **支付宝行为不变 + 微信并列分支 + Android-only（v1.0）**：新增 `WechatPayService` 并列于 `AlipayService`，覆盖 APP 下单、主动查单、关单、退款、查退款、支付/退款通知验签解密；`PaymentService.confirmCheckout` 按 channel 派发；取消/过期 CheckoutSession 对 WECHAT_PAY 先查单再关单，已支付则主动建单；售后退款和退货运费支付按原订单 channel dispatch。微信路径由 `WechatPayService.isAvailable()` 守门；买家端入口由 `src/constants/payment.ts` 读取 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 且仅 Android 打开。2026-06-09 当前 `eas.json` preview / production 均为 `true`，因此 production Android APK 会展示微信支付入口；iOS 仍灰掉 |
-| 数字资产累计消费 | **独立于 Reward 消费积分、Coupon 平台红包、普通/VIP 分润计数**。第一版仅记录“累计消费金额”：确认收货后按商品实付金额（不含运费，扣除消费积分/平台红包/VIP 折扣）入账，退款/退货成功扣回，VIP 礼包计入；用 `DigitalAssetAccount` + `DigitalAssetLedger` 账户流水建模，未来资产价值/等级/股权/期权/工资/兑换规则另起设计 |
-
-## 技术栈
-
-### 买家 App
-React Native 0.81 + Expo 54 / expo-router 6 / TypeScript / Zustand / @tanstack/react-query / react-hook-form + zod / react-native-reanimated
-
-### 卖家后台前端
-Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/pro-components / @tanstack/react-query / @ant-design/charts / Zustand
-
-### 管理后台前端
-Vite + React 19 + TypeScript / react-router-dom v7 / Ant Design 5 + @ant-design/pro-components / @tanstack/react-query / @ant-design/charts / Zustand
-
-### 后端
-NestJS + Prisma + PostgreSQL / Redis（队列/缓存） / 支付宝已接通（收款沙箱已测通，提现链路按配置启用）/ 微信支付代码链路已接入，买家端入口由 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 控制（当前 Android preview / production 打开，iOS 未启用）/ 其他第三方服务按模块配置或占位实现（讯飞/高德/阿里云 OSS/SMS）
-
-## 项目结构
-```
-app/                    # 买家 App 路由页面（expo-router 文件系统路由）
-src/
-  components/           # UI 组件（cards/feedback/forms/inputs/layout/overlay/ui）
-  theme/                # 设计令牌（colors, spacing, radius, typography, shadow）
-  types/domain/         # TypeScript 类型定义（每个业务实体一个文件）
-  repos/                # Repository 层（16 个对接真实 API，3 个 AI Repo 为 Mock）
-  store/                # Zustand 状态（useCartStore, useAuthStore）
-  constants/            # 枚举常量
-backend/
-  prisma/               # Schema（67+ 模型 + 41+ 枚举）+ 种子数据
-  src/modules/          # 买家端 20 模块 + 管理端 11 模块（admin/）+ 卖家端 7 模块（seller/）
-seller/                 # 卖家后台前端（Vite + React + Ant Design）
-admin/                  # 管理后台前端
-```
-
-## 开发规则
-
-### Bug 修复纪律
-- **同一个 Bug 修改不超过 2 次**：如果修了 2 次还没解决，**必须停止改代码**，转为仔细审查代码、分析根因、向用户说明真正原因，得到确认后才能动代码
-- 禁止"试一试"式修复：每次改动前必须理解清楚问题的根本原因，不要猜测性地改代码
-
-### 强制流程
-1. **任何新需求先确认**：复述需求 → 提出修改建议 → 用户许可后才动代码
-2. **每完成一个前端任务**：立即更新 `docs/architecture/frontend.md`（标记对应 Section/组件完成状态）和 `plan.md`（更新 Batch 进度），告诉用户下一步是什么
-3. **所有前端开发必须先调用 `/ui-ux-pro-max`**：获取设计指导后再写 UI 代码（买家 App + 管理后台均适用）
-4. **Phase 完成前必须验证**：
-   - 后端：`npx prisma validate` / TypeScript 编译 / API 测试
-   - 前端：TypeScript 编译无错误 / 页面正常渲染
-5. **对齐检查**：后端模块间关联正确，前端 Repo/Types 与后端 Schema/API 一致
-6. **安全检查（每次代码变更必做）**：
-   - 每次修改代码前，判断该改动是否涉及并发安全、资金操作、状态转换、认证鉴权等场景
-   - 如涉及，对照 `docs/issues/tofix-safe.md` 末尾的「安全检查清单」逐项检查
-   - 如发现新的安全/时序/竞态问题，立即追加到 `docs/issues/tofix-safe.md` 并告知用户
-   - 如改动解决了已有的安全问题，更新 `docs/issues/tofix-safe.md` 中对应条目的状态为 ✅ 已修复
-   - **涉及金额、库存、奖励、奖金、支付的代码变更必须使用 Serializable 隔离级别**
-7. **文档同步（AGENTS.md 是项目的单一入口）**：
-   - 每次新建文档（`.md` 或其他说明文件）时，必须同步在 `AGENTS.md` 的「相关文档」列表中添加该文档的路径、用途和权威范围
-   - 项目发生版本迭代、架构变更、技术栈升级、关键决策变动时，必须及时更新 `AGENTS.md` 中对应的段落（技术栈、架构决策、项目结构等）
-   - `AGENTS.md` 是所有新会话的唯一上下文入口——任何不在此文件中登记的文档等于不存在
-   - **凭据集中管理**：任何涉及密码、密钥、API Key、Token、证书路径、账号等敏感凭据的新增 / 变更（数据库密码、JWT Secret、第三方服务 Key、管理员账号修改等），**必须立即更新 `docs/operations/密码本.md`**（已 gitignore，仅本地保留）。其他文档只能用占位符引用（如 `<TEST_DB_PASSWORD>` / `<ALIPAY_APP_PRIVATE_KEY>`），严禁明文写入任何会被 commit 的文件
-   - **部署动作记录**：任何在阿里云 / 宝塔 / 服务器上的实际部署动作（新建站点、申请证书、改 Nginx、装服务、数据库变更、PM2 进程变化、第三方回调地址改动等）必须立即更新 `docs/operations/阿里云部署.md`（已 gitignore）
-8. **并行 Agent 执行**：
-   - 执行任务时应积极使用多个 Agent 并行工作，提高效率
-   - **前提条件**：并行的任务之间不能有文件冲突（不同 Agent 不能同时修改同一个文件）
-   - 适合并行的场景：不同模块/不同文件的独立改动、前端与后端分离的任务、多个页面的独立修复
-   - 不适合并行的场景：有依赖关系的任务（如 B 依赖 A 的输出）、修改同一文件的多个任务
-9. **代码审查（每个任务完成后强制执行）**：
-   - 每完成一个任务（Phase/功能模块/Bug修复），**必须**启动一个独立的审查 Agent（`subagent_type: Explore`）来检查本次所有改动
-   - 审查 Agent **只读不写**：仅负责发现问题并返回结构化报告，不修改任何代码
-   - 主 Agent 收到报告后，逐条评估问题严重性，修复所有 High/Critical 问题，对 Medium 问题说明处理决策（修复或保留及原因），Low 问题记录但可暂缓
-   - **审查维度按系统类型区分**：
-
-   **后端代码审查**：
-   - Schema/模型：字段类型、关系双向声明、索引覆盖、枚举值完整性
-   - 与计划文档（docs/features/plan-treeforuser.md 等）逐字段交叉比对，报告所有偏差
-   - 并发安全：金额/库存/奖励操作是否用 Serializable、CAS 是否在事务内、幂等键设计
-   - 种子数据：数据格式与 Schema 字段类型一致、JSON 字段结构与业务代码预期一致、新增配置项完整
-   - 业务逻辑：状态机转换合法性、利润分配比例总和校验、配置回退机制
-   - TypeScript 编译 + Prisma validate 通过
-
-   **买家 App 前端审查**：
-   - TypeScript 类型与后端 API 响应一致（`src/types/domain/` ↔ 后端 DTO）
-   - Repository 层方法签名与后端路由匹配（HTTP method + path + 参数）
-   - Store 状态与新增字段同步（如 CartItem 新增奖品字段）
-   - 组件：设计令牌使用正确、三态实现完整（Skeleton/Empty/Error）、无硬编码样式
-   - 导航/路由：新页面在 app/ 下注册且 expo-router 文件路径正确
-
-   **卖家后台 / 管理后台前端审查**：
-   - API 层：请求路径和参数与后端 Controller 路由一致
-   - ProTable/ProForm 列定义与后端返回字段匹配
-   - 权限标识与后端 `@Permission()` 装饰器一致
-   - 菜单/路由配置包含新页面入口
-
-   **跨系统一致性审查**：
-   - 枚举值三端一致（Schema 枚举 ↔ 前端 constants ↔ 后端 DTO）
-   - 新增 API 端点在对应前端 Repo 中有调用方法
-   - 文档（plan.md / docs/architecture/data-system.md / docs/issues/tofix-safe.md 等）与代码实际状态同步
-
-10. **推送 GitHub 前必须向用户确认 + 保持版本可回退**：
-    - **不自动推送**：代码改完可以先本地 commit，但 `git push` 必须先向用户复述改动内容 + 询问是否推送。用户明确说"推 / push / 上测试 / 上生产"才执行
-    - **App（`app/` 下）OTA 同样要先问**：push 只触发 GitHub Actions（workflow 中没有 app 部署，见 `.github/workflows/deploy-release.yml`），买家 App 上线必须走 EAS，是否发 OTA 由用户决定
-    - **版本回退友好**：
-      - 一个逻辑改动一个 commit，禁止把不相关改动塞一起（线上出事才能只 revert 一项）
-      - commit message 沿用 `type(scope): 描述` 风格（如 `fix(admin/companies): xxx`）方便日后定位
-      - 推 `main` 前主动告诉用户回滚路径（`git revert <SHA> && git push`）
-      - **破坏性改动醒目提醒**：数据库 migration（`backend/prisma/migrations/` —— 注意 workflow 里 backend 部署会自动跑 `prisma migrate deploy`，回滚需手写反向 SQL）、删字段、改枚举值、改利润公式等，推送前必须用显著提示告知用户"此改动回滚需额外步骤"，不能只说一句 push 了
-    - **具体操作规则不在此重复**，以下文件为真相源：
-      - `.github/workflows/deploy-release.yml` — 当前唯一受控发布入口：分支路由、触发路径、部署产物、migrate deploy 时机；历史 `deploy-website.yml` 对应 workflow 已全局停用
-      - `docs/operations/github操作.md` — main-based 候选、staging 验收、手动生产发布与紧急场景
-      - `docs/operations/版本管理.md` — App 三阶段发布 + OTA
-
-11. **版本唯一真相源与分支收敛纪律（App + 小程序并存后强制执行）**：
-    - `origin/main` 是唯一长期产品基线；`origin/staging` 只表示当前测试 release train，禁止当作长期开发主干。
-    - 所有需求从最新 `origin/main` 建立短期干净 `feature/*` / `codex/*` worktree；禁止直接在 `main`、`staging`、原始脏目录或固定微信测试目录写业务代码。
-    - 微信开发者工具固定打开 `/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台-staging/miniapp`；日常只允许在远端测试候选已部署后由 `scripts/sync-staging-test-checkout.mjs` fast-forward 更新。当前分支收敛期可显式选择临时 `staging-next`；切换必须先完成远端三重保全并取得用户批准，再用该脚本的 `--rebind` 精确旧/新 SHA、旧/新分支模式旁路克隆并保留旧目录；同步后必须 `HEAD == origin/<选定测试分支>`、工作树干净。
-    - 禁止整体 merge/覆盖长期分叉的 `staging` 与 `main`，禁止用目录级 ours/theirs 隐藏语义冲突。旧 staging 的 archive branch + tag + `delivery/staging` 三重保全已经完成；当前获批保留 `staging@acc0e08c` 不动并设为 locked，历史 deployment workflow 已全局停用，GitHub 测试 environment 只允许临时 `staging-next` 验收。未来任何 staging force-with-lease 或解锁仍需用户单独批准。
-    - 小程序改动默认只触及 `miniapp/`；App 改动默认只触及 `app/` 与根 `src/`。若共享后端改变，两端都必须做兼容审查，但不得因此偷带另一个客户端源码或发布。
-    - PR、CI、staging 部署、数据库演练、微信真机、main 合并、production approval、服务器部署、小程序审核/发布、App EAS/商店发布必须分别报告；SHA 变化后旧测试、旧 attestation 和旧真机结论不得复用。
-    - 发布后立即审计 `main..staging` 与 `staging..main`。已发布 hotfix 必须同步回 staging 和所有活跃候选；未发布功能必须有独立 feature 分支，不能只存在于 staging。
-
-### 代码约定
-
-**买家 App：**
-- Repository 模式：`src/repos/` → 返回 `Result<T>` → 页面通过 React Query 调用
-- 页面用 `<Screen>` 包裹，列表页实现三态（Skeleton/EmptyState/ErrorState）
-- 样式用 `src/theme/` 设计令牌，主色调自然绿（#2E7D32）+ 科技蓝
-- 文件名：组件 PascalCase，工具/常量 camelCase
-- 代码注释使用中文
-
-**管理后台：**
-- 使用 ProTable / ProForm / ProLayout 覆盖管理界面
-- `PermissionGate` 组件按权限控制 UI 显隐
-- API 客户端统一 axios 实例，自动附加 admin JWT
-- **🚫 禁止静态 `message` / `Modal.confirm` / `notification`**：`admin/src/main.tsx` 用 `<AntdApp>` 包裹整棵树，antd v5 的静态方法在此场景下会静默失效（点击无反应，toast 不弹）。**必须**在组件内通过 `const { message, modal, notification } = App.useApp();` 拿 hook 实例；`Modal.confirm(...)` → `modal.confirm(...)`；`<Modal>` JSX 组件可以正常用。反面案例：`bonus/vip-config.tsx` / `bonus/normal-config.tsx` 保存按钮无反应（2026-04-21 修复）
-
-**卖家后台：**
-- 使用 ProTable / ProForm / ProLayout 覆盖卖家管理界面（与管理后台同技术栈）
-- API 客户端统一 axios 实例，自动附加 seller JWT
-- 所有数据查询强制 `companyId` 过滤，确保多商户数据隔离
-- **🚫 同样禁止静态 `message` / `Modal.confirm` / `notification`**：`seller/src/App.tsx` 同样用了 `<AntdApp>`（cc8146e），规则同上
-
-**后端：**
-- 管理端控制器用 `@Public()` 绕过全局买家 Guard，再显式 `@UseGuards(AdminAuthGuard, PermissionGuard)`
-- 卖家端控制器用 `@Public()` 绕过全局买家 Guard，再显式 `@UseGuards(SellerAuthGuard, SellerRoleGuard)`
-- 卖家端用 `@CurrentSeller()` 装饰器注入 `{ userId, companyId, staffId, role }`
-- 写操作用 `@AuditLog()` 装饰器自动记录审计日志（before/after 快照）
-- 超级管理员角色绕过所有权限检查
-
-### 注意事项
-- 支付通道按当前接入状态迭代：支付宝已接通；微信支付代码链路已接入，买家端入口由 `EXPO_PUBLIC_WECHAT_PAY_AVAILABLE` 控制（当前 Android preview / production 打开，iOS 未启用）；地图 SDK / AI 语音等第三方能力仍按占位或配置启用方式保留，不要删除
-- 管理后台超级管理员账号：`admin` / `123456`
-
-### 服务器部署架构（Node 直装 + PM2）
-生产 + 测试服务器宿主机：**Alibaba Cloud Linux 3**（2026-04-18 由 CentOS 7 替换，原因：CentOS 7 EOL + glibc 2.17 太老导致现代 npm 包反复踩坑）。
-
-宿主机直接运行：
-- Nginx（反向代理 + SSL，宝塔管理）
-- PostgreSQL 18（数据库，宝塔安装）
-- Redis 7.x（队列/缓存，宝塔安装）
-- Node 20 + PM2（NestJS 后端进程，NodeSource 官方源直装，glibc 无障碍）
-
-**所有 npm 包用最新版本**，无需任何降级或兼容补丁。不再使用 Docker（业务 v1.0 未上线，无必要引入容器化复杂度）。
-
-详细部署流程 + 换 OS 重建清单见 `docs/operations/阿里云部署.md`。
+- 新增正式文档只登记到 `docs/README.md`，说明用途、范围及替代关系；本文件仅在全局纪律、业务边界或入口变化时更新。
+- Schema/API/配置说明当前实现，批准设计说明目标要求，计划和报告分别说明步骤与版本证据。冲突时报告偏差，不擅自覆盖业务规则；新文档只在明确范围内替代旧文档。
+- 法律文本以 `src/content/legal/` 原文为准，变更后重新导出审核 Word。
+- 避免在本文件复制数量统计、完成状态、开关值、服务器版本、历史 SHA 和凭据；这些由对应计划、配置与运维记录维护。
+- 本文件目标不超过 18 KiB；增长时优先把局部细节移至对应文档，并保留必读入口。
