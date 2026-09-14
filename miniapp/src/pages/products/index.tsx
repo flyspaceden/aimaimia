@@ -41,6 +41,10 @@ export default function ProductsPage() {
     if (preferred === 'products' || preferred === 'companies') setTab(preferred);
     Taro.removeStorageSync('catalog-preferred-tab');
     if (useAuthStore.getState().accessToken) void cartQuery.refetch();
+    void queryClient.invalidateQueries(
+      { queryKey: ['catalog', 'products'] },
+      { cancelRefetch: false },
+    );
   });
 
   const cartQuery = useQuery({
