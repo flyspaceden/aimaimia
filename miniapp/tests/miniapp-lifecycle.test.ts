@@ -13,6 +13,15 @@ describe('mini program lifecycle integration', () => {
     expect(app).toContain('<MiniappPrivacyAuthorization />');
   });
 
+  it('refreshes catalog products whenever the product tab is shown', () => {
+    const products = source('src/pages/products/index.tsx');
+    const didShowBlock = products.match(/useDidShow\(\(\) => \{([\s\S]*?)\n  \}\);/)?.[1];
+
+    expect(didShowBlock).toContain('void queryClient.invalidateQueries(');
+    expect(didShowBlock).toContain("{ queryKey: ['catalog', 'products'] }");
+    expect(didShowBlock).toContain('{ cancelRefetch: false }');
+  });
+
   it('pauses customer service sockets and read receipts while the page is hidden', () => {
     const chat = source('src/packages/customer-service/chat/index.tsx');
 
