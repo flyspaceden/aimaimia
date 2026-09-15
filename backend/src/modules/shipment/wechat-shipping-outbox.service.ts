@@ -46,8 +46,8 @@ const PERMANENT_WECHAT_CODES = new Set([
 ]);
 
 type ShippingItem = {
-  tracking_no: string;
-  express_company: string;
+  tracking_no?: string;
+  express_company?: string;
   item_desc: string;
   contact?: { receiver_contact: string };
 };
@@ -58,7 +58,7 @@ type ShippingPayload = {
     order_number_type: 2;
     transaction_id: string;
   };
-  logistics_type: 1;
+  logistics_type: 1 | 4;
   delivery_mode: 1 | 2;
   is_all_delivered?: boolean;
   shipping_list: ShippingItem[];
@@ -66,7 +66,14 @@ type ShippingPayload = {
 };
 
 type SnapshotBuildResult =
-  | { kind: 'NOT_ELIGIBLE' }
+  | {
+    kind: 'NOT_ELIGIBLE';
+    reason:
+      | 'NOT_MINI_PROGRAM_WECHAT_PAYMENT'
+      | 'NO_ACTIVE_ORDERS'
+      | 'DELIVERY_NOT_SHIPPED'
+      | 'PICKUP_NOT_FULLY_COLLECTED';
+  }
   | {
     kind: 'READY';
     checkoutSessionId: string;
@@ -86,7 +93,8 @@ type SnapshotBuildResult =
  *
  * 该服务只在原发货事务中构建并落库快照；真正的微信 HTTP 调用由 cron worker
  * 在事务外完成。一个 CheckoutSession 对应一笔微信支付，因此同一支付单下的
- * 多订单、多商户 Shipment 必须聚合后统一上报。
+ * 多订单、多商户 Shipment 必须聚合后统一上报；用户自提则等待同一支付单
+ * 下全部有效子订单核销完成后，统一上报一个无运单号的自提条目。
  */
 @Injectable()
 export class WechatShippingOutboxService {
@@ -105,7 +113,7 @@ export class WechatShippingOutboxService {
   ): Promise<{ enqueued: boolean; reason?: string }> {
     const snapshot = await this.buildSnapshot(tx, orderId);
     if (snapshot.kind === 'NOT_ELIGIBLE') {
-      return { enqueued: false, reason: 'NOT_MINI_PROGRAM_WECHAT_PAYMENT' };
+      return { enqueued: false, reason: snapshot.reason };
     }
 
     if (snapshot.kind === 'INVALID') {
@@ -423,7 +431,9 @@ export class WechatShippingOutboxService {
       where: { id: orderId },
       select: { checkoutSessionId: true },
     });
-    if (!orderRef?.checkoutSessionId) return { kind: 'NOT_ELIGIBLE' };
+    if (!orderRef?.checkoutSessionId) {
+      return { kind: 'NOT_ELIGIBLE', reason: 'NOT_MINI_PROGRAM_WECHAT_PAYMENT' };
+    }
 
     return this.buildSnapshotForCheckoutSession(tx, orderRef.checkoutSessionId);
   }
@@ -442,13 +452,18 @@ export class WechatShippingOutboxService {
         miniProgramPayerOpenId: true,
         orders: {
           where: { deletedAt: null },
+          orderBy: { id: 'asc' },
           select: {
             id: true,
             status: true,
             fulfillmentMode: true,
             addressSnapshot: true,
+            pickupFulfillment: {
+              select: { status: true },
+            },
             items: {
               where: { deletedAt: null },
+              orderBy: { id: 'asc' },
               select: { companyId: true, quantity: true, productSnapshot: true },
             },
             shipments: {
@@ -473,7 +488,7 @@ export class WechatShippingOutboxService {
       || session.paymentChannel !== 'WECHAT_PAY'
       || session.paymentScene !== 'MINI_PROGRAM'
     ) {
-      return { kind: 'NOT_ELIGIBLE' };
+      return { kind: 'NOT_ELIGIBLE', reason: 'NOT_MINI_PROGRAM_WECHAT_PAYMENT' };
     }
     if (!session.providerTxnId) {
       return this.invalid(session.id, 'PROVIDER_TXN_ID_MISSING', '微信支付单号缺失');
@@ -481,17 +496,63 @@ export class WechatShippingOutboxService {
     if (!session.miniProgramPayerOpenId) {
       return this.invalid(session.id, 'PAYER_OPENID_MISSING', '小程序支付身份快照缺失');
     }
-    if (session.orders.some(
-      (order) => order.fulfillmentMode === 'PICKUP'
-        && order.status !== 'CANCELED'
-        && order.status !== 'REFUNDED',
-    )) {
-      return { kind: 'NOT_ELIGIBLE' };
-    }
-
     const activeOrders = session.orders.filter(
       (order) => order.status !== 'CANCELED' && order.status !== 'REFUNDED',
     );
+    if (activeOrders.length === 0) {
+      return { kind: 'NOT_ELIGIBLE', reason: 'NO_ACTIVE_ORDERS' };
+    }
+
+    const activeModes = new Set(activeOrders.map((order) => order.fulfillmentMode));
+    if (activeModes.size !== 1) {
+      return this.invalid(
+        session.id,
+        'MIXED_FULFILLMENT_MODES',
+        '同一微信支付单包含混合履约方式，不能安全上报发货信息',
+      );
+    }
+
+    if (activeModes.has('PICKUP')) {
+      if (activeOrders.some((order) => !order.pickupFulfillment)) {
+        return this.invalid(
+          session.id,
+          'PICKUP_FULFILLMENT_MISSING',
+          '自提订单缺少履约记录，不能上报微信用户自提',
+        );
+      }
+      const fullyCollected = activeOrders.every(
+        (order) => order.status === 'RECEIVED'
+          && order.pickupFulfillment?.status === 'PICKED_UP',
+      );
+      if (!fullyCollected) {
+        return { kind: 'NOT_ELIGIBLE', reason: 'PICKUP_NOT_FULLY_COLLECTED' };
+      }
+
+      const stablePayload = {
+        version: 1 as const,
+        order_key: {
+          order_number_type: 2 as const,
+          transaction_id: session.providerTxnId,
+        },
+        logistics_type: 4 as const,
+        delivery_mode: 1 as const,
+        shipping_list: [{
+          item_desc: this.buildItemDescription(activeOrders.flatMap((order) => order.items)),
+        }],
+      };
+      const payloadHash = this.hashCanonicalJson(stablePayload);
+      return {
+        kind: 'READY',
+        checkoutSessionId: session.id,
+        payerOpenId: session.miniProgramPayerOpenId,
+        payloadHash,
+        payload: {
+          ...stablePayload,
+          upload_time: new Date().toISOString(),
+        },
+      };
+    }
+
     const expectedShipments = activeOrders.flatMap((order) =>
       order.shipments.map((shipment) => ({ order, shipment })),
     );
@@ -499,7 +560,9 @@ export class WechatShippingOutboxService {
       Boolean(shipment.shippedAt)
       && ['SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'EXCEPTION'].includes(shipment.status),
     );
-    if (shipped.length === 0) return { kind: 'NOT_ELIGIBLE' };
+    if (shipped.length === 0) {
+      return { kind: 'NOT_ELIGIBLE', reason: 'DELIVERY_NOT_SHIPPED' };
+    }
     if (shipped.length > MAX_SHIPPING_ITEMS) {
       return this.invalid(session.id, 'TOO_MANY_PACKAGES', '同一微信支付单的包裹数超过 15 个');
     }
@@ -561,9 +624,7 @@ export class WechatShippingOutboxService {
       ...(deliveryMode === 2 ? { is_all_delivered: isAllDelivered } : {}),
       shipping_list: shippingList,
     };
-    const payloadHash = createHash('sha256')
-      .update(JSON.stringify(stablePayload))
-      .digest('hex');
+    const payloadHash = this.hashCanonicalJson(stablePayload);
     return {
       kind: 'READY',
       checkoutSessionId: session.id,
@@ -578,14 +639,37 @@ export class WechatShippingOutboxService {
 
   private hashPayload(payload: ShippingPayload): string {
     const { upload_time: _uploadTime, ...stablePayload } = payload;
-    return createHash('sha256').update(JSON.stringify(stablePayload)).digest('hex');
+    return this.hashCanonicalJson(stablePayload);
+  }
+
+  /**
+   * JSONB 不保留对象键顺序。快照哈希必须先递归排序对象键，否则同一 payload
+   * 写入 PostgreSQL 再读出后会被误判为完整性校验失败。数组顺序仍保留业务语义。
+   */
+  private hashCanonicalJson(value: unknown): string {
+    const canonicalize = (input: unknown): unknown => {
+      if (Array.isArray(input)) return input.map(canonicalize);
+      if (input && typeof input === 'object') {
+        return Object.fromEntries(
+          Object.entries(input as Record<string, unknown>)
+            .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+            .map(([key, child]) => [key, canonicalize(child)]),
+        );
+      }
+      return input;
+    };
+    return createHash('sha256')
+      .update(JSON.stringify(canonicalize(value)))
+      .digest('hex');
   }
 
   private buildItemDescription(
     items: Array<{ companyId: string | null; quantity: number; productSnapshot: unknown }>,
-    companyId: string,
+    companyId?: string,
   ): string {
-    const scoped = items.filter((item) => item.companyId === companyId);
+    const scoped = companyId
+      ? items.filter((item) => item.companyId === companyId)
+      : items;
     const source = scoped.length > 0 ? scoped : items;
     const parts = source.map((item) => {
       const snapshot = this.parseJsonObject(item.productSnapshot);
@@ -623,7 +707,7 @@ export class WechatShippingOutboxService {
       || key?.order_number_type !== 2
       || typeof key.transaction_id !== 'string'
       || !key.transaction_id
-      || raw.logistics_type !== 1
+      || (raw.logistics_type !== 1 && raw.logistics_type !== 4)
       || (raw.delivery_mode !== 1 && raw.delivery_mode !== 2)
       || !Array.isArray(raw.shipping_list)
       || raw.shipping_list.length < 1
@@ -636,6 +720,9 @@ export class WechatShippingOutboxService {
     if (raw.delivery_mode === 2 && typeof raw.is_all_delivered !== 'boolean') {
       throw new Error('微信拆包发货快照缺少完成标记');
     }
+    if (raw.logistics_type === 4 && raw.delivery_mode !== 1) {
+      throw new Error('微信用户自提必须使用统一发货模式');
+    }
     if (raw.delivery_mode === 1 && raw.shipping_list.length !== 1) {
       throw new Error('微信统一发货快照只能包含一个物流单');
     }
@@ -646,14 +733,15 @@ export class WechatShippingOutboxService {
         ? item.express_company.trim()
         : '';
       const itemDesc = typeof item?.item_desc === 'string' ? item.item_desc.trim() : '';
-      if (
-        !trackingNo
-        || trackingNo.length > 128
-        || !expressCompany
-        || expressCompany.length > 128
-        || !itemDesc
-        || Array.from(itemDesc).length > MAX_ITEM_DESC_CHARS
-      ) {
+      const invalidItemDescription = !itemDesc
+        || Array.from(itemDesc).length > MAX_ITEM_DESC_CHARS;
+      const invalidDeliveryIdentifiers = raw.logistics_type === 1
+        ? !trackingNo
+          || trackingNo.length > 128
+          || !expressCompany
+          || expressCompany.length > 128
+        : Boolean(trackingNo || expressCompany || item?.contact !== undefined);
+      if (invalidItemDescription || invalidDeliveryIdentifiers) {
         throw new Error('微信发货 outbox 物流条目无效');
       }
       if (item?.contact !== undefined) {

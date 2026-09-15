@@ -11,9 +11,10 @@ import {
 } from './pickup-seller.controller';
 import { PickupService } from './pickup.service';
 import { NotificationModule } from '../notification/notification.module';
+import { ShipmentModule } from '../shipment/shipment.module';
 
 @Module({
-  imports: [NotificationModule],
+  imports: [NotificationModule, ShipmentModule],
   controllers: [
     PickupSellerPointController,
     PickupSellerOrderController,

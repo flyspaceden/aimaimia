@@ -20,11 +20,19 @@ describe('PickupService', () => {
     receivedEffects?: any,
   ) {
     const notificationService = { emit: jest.fn().mockResolvedValue({ id: 'outbox-1' }) };
+    const wechatShippingOutbox = {
+      enqueueForOrderTx: jest.fn().mockResolvedValue({ enqueued: true }),
+    };
     const moduleRef = { get: jest.fn().mockReturnValue(orderService) };
-    const service = new PickupService(prisma, moduleRef as any, notificationService as any);
+    const service = new PickupService(
+      prisma,
+      moduleRef as any,
+      notificationService as any,
+      wechatShippingOutbox as any,
+    );
     (service as any).orderService = orderService;
     (service as any).orderReceivedEffectsService = receivedEffects ?? null;
-    return { service, notificationService, orderService };
+    return { service, notificationService, orderService, wechatShippingOutbox };
   }
 
   it('严格校验每个商家的启用自提点归属', async () => {
@@ -747,7 +755,7 @@ describe('PickupService', () => {
       ruleConfig: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     const prisma = { $transaction: jest.fn((callback: any) => callback(tx)) };
-    const { service } = createService(prisma, undefined, receivedEffects);
+    const { service, wechatShippingOutbox } = createService(prisma, undefined, receivedEffects);
     const code = '12345678';
     tx.pickupFulfillment.findUnique.mockResolvedValue({
       id: 'pf1', status: 'READY', pickupCodeDigest: (service as any).digest(code),
@@ -765,6 +773,7 @@ describe('PickupService', () => {
       source: 'PICKUP_VERIFY',
       isFirstReceived: true,
     });
+    expect(wechatShippingOutbox.enqueueForOrderTx).toHaveBeenCalledWith(tx, 'o1');
     expect(receivedEffects.kick).toHaveBeenCalledWith('o1');
     jest.useRealTimers();
   });
