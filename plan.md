@@ -2078,5 +2078,6 @@
 - [x] 完成两轮独立只读审查；原 Medium 并发测试缺口和 Low 旧哈希兼容测试缺口均已关闭，复审无新增 Critical/High/Medium。
 - [x] 发布级本地验证：后端 build、全量 272 suites / 3211 tests、管理端 12 项契约/build/定向 ESLint、Prisma validate 均通过；PostgreSQL 18 完整 126 迁移与自提 outbox 3 项真实数据库测试通过。
 - [x] 在当前干净功能分支创建一个逻辑提交；精确 SHA 见本次交付记录。
-- [ ] push 功能分支、PR required checks、staging-next 候选部署与微信真实订单验收（均未授权）。
+- [x] 功能提交 `f3ec3e72` 已推送并创建 PR #34；首次 PR E2E 正确拦截未登记的新运行时 blob，已补精确四文件审查组、固定来源 commit 并通过独立复审。required checks 的最终状态以 PR 为准，不在提交内固化瞬时结果。
+- [ ] staging-next 候选部署与微信真实订单验收（未授权）。
 - [ ] 合并 main 与正式后端部署（均未授权；无需 App OTA 或小程序重新发布）。

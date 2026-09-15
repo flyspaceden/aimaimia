@@ -717,5 +717,31 @@
       "gitBlob": "cdf3dc1d2d4882ee3a4c9a84a3f3d1ad34824c9c",
       "reason": "Reviewed in 7758d0bc: pickup verification marks fulfillment complete immediately and leaves delivery reward-window timing unchanged."
     }
+  ],
+  "reviewedWechatPickupShippingDifferences": [
+    {
+      "path": "backend/src/modules/admin/orders/admin-orders.service.ts",
+      "gitBlob": "f0f61896b4748c25fcad97d9d3678e9d76930fd6",
+      "sourceReviewCommit": "e52b02216376bf4c4b6debb2ebe024a313bc3a3b",
+      "reason": "Reviewed WeChat pickup shipping recovery: only an existing FAILED automatic pickup outbox can be retried; historical pickup orders without an outbox remain blocked."
+    },
+    {
+      "path": "backend/src/modules/pickup/pickup.module.ts",
+      "gitBlob": "cc50383eb7a41fc27ccebc72afd2b58097d6c5e2",
+      "sourceReviewCommit": "e52b02216376bf4c4b6debb2ebe024a313bc3a3b",
+      "reason": "Reviewed WeChat pickup shipping wiring: PickupModule imports the existing ShipmentModule export without adding Delivery product dependencies or a database cycle."
+    },
+    {
+      "path": "backend/src/modules/pickup/pickup.service.ts",
+      "gitBlob": "ff8038e3d8568ac09a8d25b274c7e446871b1a0b",
+      "sourceReviewCommit": "e52b02216376bf4c4b6debb2ebe024a313bc3a3b",
+      "reason": "Reviewed WeChat pickup shipping trigger: pickup receipt state and payment-level shipping outbox are persisted in the same Serializable transaction before any remote call."
+    },
+    {
+      "path": "backend/src/modules/shipment/wechat-shipping-outbox.service.ts",
+      "gitBlob": "fc5fc7921e363053b0794eaf2fc6ce12b51662e6",
+      "sourceReviewCommit": "e52b02216376bf4c4b6debb2ebe024a313bc3a3b",
+      "reason": "Reviewed WeChat pickup shipping payload and recovery: all active pickup suborders must be collected, logistics type is user pickup, and JSONB hashes are canonical and retry-safe."
+    }
   ]
 }
