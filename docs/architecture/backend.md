@@ -688,6 +688,7 @@ Company ── Product(SPU) ── ProductSKU ── ProductMedia
 - 小程序与现有 App 共用主商城 NestJS 服务和 PostgreSQL，但使用并列认证、结算与支付场景接口；现有 App 的购物车、普通/VIP 结算、支付、退款和售后路由不得删除或改名。
 - 小程序新增微信登录、普通/VIP/团购 JSAPI checkout、微信商家转账提现、自提、订阅消息、小程序码与微信交易发货 outbox。
 - 配送与自提由 `FulfillmentMode` 区分；自提订单禁止进入快递发货/面单/物流回调，配送订单继续使用现有 `ShipmentModule` 与顺丰链路。
+- 微信小程序自提核销与订单 `PICKED_UP/RECEIVED`、交易发货 outbox 在同一 Serializable 事务提交；同一微信支付单的全部有效自提子订单核销完成后，统一按 `logistics_type=4`（用户自提）上报。微信 HTTP 调用在事务外由租约/CAS worker 执行并重试，不创建运单号，也不自动补报没有 outbox 的历史手工订单。
 - 收货后的分润、团购、数字资产、成长、红包、团长佣金使用数据库 outbox 持久化；进程崩溃后由租约/CAS 任务恢复，避免订单已收货但权益永久漏记。
 - 自动退款成功后的数字资产扣回与 legacy 团长佣金冲回使用独立 `RefundSideEffectOutbox`；`Refund=REFUNDED` 与任务同事务提交，V3 利润快照不执行 legacy 整单团长冲回。
 - 生产集成明确排除独立 Delivery 产品、第二数据库和其后台门户。发布守卫见 `scripts/__tests__/production-delivery-exclusion.test.mjs`，旧路由兼容守卫见 `scripts/__tests__/backend-route-compatibility.test.mjs`。

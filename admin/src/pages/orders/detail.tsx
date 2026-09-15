@@ -128,10 +128,6 @@ export default function OrderDetailPage() {
 
   const handleWechatShippingRetry = async () => {
     if (!id || wechatShippingRetrying) return;
-    if (order?.fulfillmentMode === 'PICKUP') {
-      message.error('到店自提订单不进入微信物流发货上报');
-      return;
-    }
     setWechatShippingRetrying(true);
     try {
       await retryWechatShipping(id);
@@ -649,7 +645,7 @@ export default function OrderDetailPage() {
         </Descriptions>
       </Card>
 
-      {!isPickup && order.paymentMethod === 'WECHAT_PAY' && order.paymentScene === 'MINI_PROGRAM' && (
+      {order.paymentMethod === 'WECHAT_PAY' && order.paymentScene === 'MINI_PROGRAM' && (
         <Card title="微信小程序交易发货" style={{ marginBottom: 16 }}>
           {order.wechatShipping ? (
             <Descriptions bordered column={{ xs: 1, sm: 2 }}>
@@ -685,7 +681,13 @@ export default function OrderDetailPage() {
               )}
             </Descriptions>
           ) : (
-            <Alert type="info" showIcon message="订单发货后将自动创建微信发货上报任务" />
+            <Alert
+              type="info"
+              showIcon
+              message={isPickup
+                ? '自提核销后将自动上报“用户自提”；历史手工订单不会自动补报'
+                : '订单发货后将自动创建微信发货上报任务'}
+            />
           )}
         </Card>
       )}

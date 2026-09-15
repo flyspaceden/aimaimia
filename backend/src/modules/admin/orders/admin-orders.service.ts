@@ -393,11 +393,21 @@ export class AdminOrdersService {
     }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { fulfillmentMode: true },
+      select: {
+        fulfillmentMode: true,
+        checkoutSession: {
+          select: {
+            wechatShippingOutbox: { select: { status: true } },
+          },
+        },
+      },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    if (order.fulfillmentMode === 'PICKUP') {
-      throw new BadRequestException('自提订单不上报微信快递发货信息');
+    if (
+      order.fulfillmentMode === 'PICKUP'
+      && order.checkoutSession?.wechatShippingOutbox?.status !== 'FAILED'
+    ) {
+      throw new BadRequestException('历史自提订单禁止通过重试入口补报；仅可重试系统自动创建的失败任务');
     }
     const result = await this.wechatShippingOutbox.retryForOrder(orderId);
     if (!result.enqueued) {

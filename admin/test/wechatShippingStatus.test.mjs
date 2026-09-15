@@ -14,6 +14,8 @@ test('微信交易发货状态只展示给小程序微信订单并通过受权�
 
   assert.match(detail, /paymentMethod === 'WECHAT_PAY'/);
   assert.match(detail, /paymentScene === 'MINI_PROGRAM'/);
+  assert.doesNotMatch(detail, /!isPickup && order\.paymentMethod === 'WECHAT_PAY'/);
+  assert.match(detail, /自提核销后将自动上报“用户自提”/);
   assert.match(detail, /PERMISSIONS\.ORDERS_SHIP/);
   assert.match(detail, /status === 'PENDING' \|\| status === 'PROCESSING' \? 5_000 : false/);
   assert.match(detail, /refetchIntervalInBackground: false/);
