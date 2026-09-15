@@ -44,6 +44,7 @@ import {
 } from './dto/pickup-point.dto';
 import { VerifyPickupDto } from './dto/pickup-verify.dto';
 import { NotificationService } from '../notification/notification.service';
+import { WechatShippingOutboxService } from '../shipment/wechat-shipping-outbox.service';
 import * as QRCode from 'qrcode';
 
 type Tx = Prisma.TransactionClient;
@@ -92,6 +93,7 @@ export class PickupService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly moduleRef: ModuleRef,
     private readonly notificationService: NotificationService,
+    private readonly wechatShippingOutbox: WechatShippingOutboxService,
   ) {}
 
   onModuleInit() {
@@ -827,6 +829,9 @@ export class PickupService implements OnModuleInit {
           isFirstReceived: receivedCount === 1,
         });
       }
+      // 与核销状态同事务持久化。只有同一微信支付单下全部有效自提子订单
+      // 均已核销时才会创建 outbox；真实微信请求由事务外 worker 发送。
+      await this.wechatShippingOutbox.enqueueForOrderTx(tx, orderId);
       return {
         order: { ...fulfillment.order, status: 'RECEIVED', receivedAt: now, _isFirstReceived: receivedCount === 1 },
         orderId,

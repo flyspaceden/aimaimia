@@ -22,6 +22,7 @@ const reviewedDifferenceEntries = [
   ...manifest.reviewedAppPickupDifferences,
   ...manifest.reviewedFundLedgerDifferences,
   ...manifest.reviewedPickupFundDifferences,
+  ...manifest.reviewedWechatPickupShippingDifferences,
 ];
 // Later review groups are explicit overrides for an already reviewed path.
 const reviewedOverrideByPath = new Map(
@@ -146,6 +147,7 @@ test('the parity manifest documents every intentional non-identical production s
   ].concat(
     manifest.reviewedFundLedgerDifferences.map((entry) => entry.path),
     manifest.reviewedPickupFundDifferences.map((entry) => entry.path),
+    manifest.reviewedWechatPickupShippingDifferences.map((entry) => entry.path),
   ))].sort());
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
@@ -239,6 +241,37 @@ test('pickup immediate-funds overrides retain exact reviewed commit provenance',
     assert.equal(
       execFileSync('git', ['rev-parse', `${entry.sourceReviewCommit}:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim(),
       entry.gitBlob,
+    );
+    assert.equal(
+      gitBlob(await read(entry.path)),
+      reviewedOverrideByPath.get(entry.path)?.gitBlob ?? entry.gitBlob,
+      entry.path,
+    );
+    assert.ok(entry.reason.length >= 20);
+  }
+});
+
+test('reviewed WeChat pickup shipping runtime files retain their approved content', async () => {
+  const expectedPaths = [
+    'backend/src/modules/admin/orders/admin-orders.service.ts',
+    'backend/src/modules/pickup/pickup.module.ts',
+    'backend/src/modules/pickup/pickup.service.ts',
+    'backend/src/modules/shipment/wechat-shipping-outbox.service.ts',
+  ];
+  assert.deepEqual(
+    manifest.reviewedWechatPickupShippingDifferences.map((entry) => entry.path).sort(),
+    expectedPaths,
+  );
+  for (const entry of manifest.reviewedWechatPickupShippingDifferences) {
+    assert.equal(entry.sourceReviewCommit, 'f3ec3e721eb81eb38a4d2f522418dd79a520d2ae');
+    assert.equal(
+      execFileSync(
+        'git',
+        ['rev-parse', `${entry.sourceReviewCommit}:${entry.path}`],
+        { cwd: rootPath, encoding: 'utf8' },
+      ).trim(),
+      entry.gitBlob,
+      `${entry.path} reviewed source`,
     );
     assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
     assert.ok(entry.reason.length >= 20);

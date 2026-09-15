@@ -42,7 +42,12 @@ dbDescribe('pickup system real PostgreSQL invariants', () => {
       { receive: jest.fn() } as any, { releaseForReceivedOrder: jest.fn().mockResolvedValue('released') } as any,
       { handleTrigger: jest.fn() } as any);
     jest.spyOn(effects, 'kick').mockImplementation(() => {}); // 显式驱动真实worker，检查持久化任务。
-    pickup = new PickupService(db as any, { get: (token: unknown) => token === OrderService ? orders : effects } as any, notification);
+    pickup = new PickupService(
+      db as any,
+      { get: (token: unknown) => token === OrderService ? orders : effects } as any,
+      notification,
+      { enqueueForOrderTx: jest.fn().mockResolvedValue({ enqueued: true }) } as any,
+    );
     pickup.onModuleInit(); orders.setPickupService(pickup);
     orders.setPaymentService({ initiateRefund: jest.fn().mockResolvedValue({ success: false, message: 'test provider unavailable' }) });
   });
