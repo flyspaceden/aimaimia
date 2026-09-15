@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AppState,
   Image,
   Pressable,
   RefreshControl,
@@ -19,8 +20,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { FlashList } from '@shopify/flash-list';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { CompanyCard } from '../../src/components/cards';
 import { ProductCard } from '../../src/components/cards/ProductCard';
 import { EmptyState, ErrorState, Skeleton, useToast } from '../../src/components/feedback';
@@ -34,6 +35,7 @@ import { useCartStore } from '../../src/store';
 import { useTheme } from '../../src/theme';
 import { Product, Company, AppError } from '../../src/types';
 import { toCartProductFromCompanyCardProduct } from '../../src/utils/companyProductMappers';
+import { refreshDiscoveryProducts } from '../../src/utils/productQueryRefresh';
 
 const COLUMN_GAP = 10;
 const HORIZONTAL_PADDING = 16;
@@ -49,6 +51,7 @@ const IMAGE_HEIGHTS = [130, 90, 110, 140, 95, 120];
 export default function MuseumScreen() {
   const { colors, radius, spacing, shadow, typography } = useTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { show } = useToast();
 
   // 窗口宽度跟随旋转/分屏/字体放大实时变化（避免模块顶层 Dimensions.get 锁死）
@@ -174,6 +177,28 @@ export default function MuseumScreen() {
     staleTime: 3 * 60_000,
   });
 
+  const refreshProductQueries = useCallback(() => {
+    void refreshDiscoveryProducts(queryClient);
+  }, [queryClient]);
+
+  // 导航回到商品页时重新核对后台库存。
+  useFocusEffect(
+    useCallback(() => {
+      refreshProductQueries();
+    }, [refreshProductQueries]),
+  );
+
+  // 从系统后台恢复时导航焦点可能不变，需单独刷新。
+  useEffect(() => {
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const becameActive = previousState !== 'active' && nextState === 'active';
+      previousState = nextState;
+      if (becameActive) refreshProductQueries();
+    });
+    return () => subscription.remove();
+  }, [refreshProductQueries]);
+
   // 扁平化所有页的商品
   const allProducts = useMemo(() => {
     if (!productsQuery.data) return [];
@@ -204,10 +229,11 @@ export default function MuseumScreen() {
   const handleTabSwitch = useCallback(
     (tab: 'products' | 'companies') => {
       setActiveTab(tab);
+      if (tab === 'products') refreshProductQueries();
       // 动画移动下划线指示器
       tabIndicatorX.value = withTiming(tab === 'products' ? 0 : tabWidth, { duration: 200 });
     },
-    [tabIndicatorX, tabWidth],
+    [refreshProductQueries, tabIndicatorX, tabWidth],
   );
 
   // 下拉刷新

@@ -13,3 +13,13 @@ test('buyer app sold-out labels use 已售完 copy', () => {
   assert.match(vipGifts, /已售完/);
   assert.doesNotMatch(vipGifts, /已售罄/);
 });
+
+test('buyer app refreshes product inventory whenever the discovery tab regains focus', () => {
+  const museum = read('app/(tabs)/museum.tsx');
+
+  assert.match(museum, /useFocusEffect\(/);
+  assert.match(museum, /AppState\.addEventListener\('change'/);
+  assert.match(museum, /if \(becameActive\) refreshProductQueries\(\)/);
+  assert.match(museum, /if \(tab === 'products'\) refreshProductQueries\(\)/);
+  assert.match(museum, /refreshDiscoveryProducts\(queryClient\)/);
+});
