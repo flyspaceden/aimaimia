@@ -227,4 +227,27 @@ describe('AdminOrdersService.ship', () => {
     });
     expect(wechatShippingOutbox.retryForOrder).toHaveBeenCalledWith('order-001');
   });
+
+  it('只允许已有失败 outbox 的自提订单人工重试，禁止补报历史订单', async () => {
+    const { service, prisma, wechatShippingOutbox } = makeService();
+    prisma.order.findUnique
+      .mockResolvedValueOnce({
+        fulfillmentMode: 'PICKUP',
+        checkoutSession: { wechatShippingOutbox: null },
+      })
+      .mockResolvedValueOnce({
+        fulfillmentMode: 'PICKUP',
+        checkoutSession: { wechatShippingOutbox: { status: 'FAILED' } },
+      });
+
+    await expect(service.retryWechatShipping('pickup-history')).rejects.toThrow(
+      '历史自提订单禁止通过重试入口补报',
+    );
+    await expect(service.retryWechatShipping('pickup-failed')).resolves.toEqual({
+      ok: true,
+      status: 'PENDING',
+    });
+    expect(wechatShippingOutbox.retryForOrder).toHaveBeenCalledTimes(1);
+    expect(wechatShippingOutbox.retryForOrder).toHaveBeenCalledWith('pickup-failed');
+  });
 });
