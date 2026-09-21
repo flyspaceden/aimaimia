@@ -40,6 +40,14 @@ describe('AI爱买买 mini-program naming', () => {
     expect(project.libVersion).toBe('3.17.1');
   });
 
+  it('uses AI Life Circle as the home-page brand statement', () => {
+    const homePage = fs.readFileSync(path.resolve('src/pages/home/index.tsx'), 'utf8');
+
+    expect(homePage).toContain(">AI生活圈</Text>");
+    expect(homePage).not.toContain('消费者就是生产力');
+    expect(homePage).not.toContain('是社会价值的创造者');
+  });
+
   it('does not leave the old unprefixed product name on consumer surfaces', () => {
     const srcRoot = path.resolve('src');
     const legacyDomainFile = path.resolve('src/packages/community/utils.ts');

@@ -233,7 +233,7 @@ export default function HomePage() {
         ) : null}
 
         <View className='home-heading'>
-        <Text className='home-heading__statement'>消费者就是生产力{`\n`}是社会价值的创造者</Text>
+        <Text className='home-heading__statement'>AI生活圈</Text>
         <View
           className='home-cart aim-card'
           hoverClass='home-cart--pressed'
