@@ -3,12 +3,15 @@
 (async function () {
   const $ = id => document.getElementById(id);
   const avatar = $('avatar'), audio = $('narration'), ctx = avatar.getContext('2d');
-  let knowledge, manifest, current = 0, analyser, audioContext, signal, talking = false, busy = false, generation = 0, sprite = null;
-  const portrait = new Image(); portrait.onload = () => { sprite = portrait; }; portrait.onerror = () => error('playback-error', '小犀形象未能加载，请检查素材包。'); portrait.src = 'assets/rhino-sprites.png';
+  let knowledge, manifest, current = 0, analyser, audioContext, signal, talking = false, busy = false, generation = 0, sprite = null, characterConfig, selectedPose = 'standing', posePreview = false, utteranceGeneration = 0;
+  const portrait = new Image(); portrait.onload = () => { sprite = portrait; }; portrait.onerror = () => error('playback-error', '小犀形象未能加载，请检查素材包。');
   const history = [], reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let audioReady = false, liveAI = false;
   function error(id, message) { const el = $(id); el.textContent = message; el.hidden = !message; }
-  function stopSpeech() { talking = false; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  function stopSpeech() { utteranceGeneration++; talking = false; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  function updatePoseButtons() { document.querySelectorAll('#pose-buttons button').forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.pose === selectedPose))); }
+  function selectPose(id) { generation++; posePreview = true; audio.pause(); stopSpeech(); selectedPose = id; updatePoseButtons(); $('presenter-status').textContent = `姿态预览 · ${characterConfig.poses.find(p => p.id === id).label}`; }
+  async function digestObject(value) { const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value))); return Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join(''); }
   function setupAnalyser() {
     if (analyser) return;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -21,13 +24,15 @@
       if (!audio.paused && analyser) { analyser.getByteTimeDomainData(signal); let sum = 0; for (const v of signal) sum += ((v - 128) / 128) ** 2; mouth = Math.min(1, Math.sqrt(sum / signal.length) * 6); }
       else if (!audio.paused || talking) mouth = .18 + Math.abs(Math.sin(ms / 93)) * .4;
       ctx.clearRect(0, 0, avatar.width, avatar.height);
-      HuahaiVisuals.avatar(ctx, { width: avatar.width, height: avatar.height, t: ms / 1000, mouth, sprite, still: reducedMotion.matches && audio.paused && !talking });
+      let poseFrame = selectedPose === 'standing' ? null : characterConfig?.poses.find(p => p.id === selectedPose)?.frame;
+      if (!audio.paused && audio.currentTime < characterConfig?.introPauseSeconds) poseFrame = characterConfig.chapterFrames[current];
+      HuahaiVisuals.avatar(ctx, { width: avatar.width, height: avatar.height, t: ms / 1000, mouth, sprite, spriteConfig: characterConfig, poseFrame, still: reducedMotion.matches && audio.paused && !talking });
     }
     requestAnimationFrame(animate);
   }
   requestAnimationFrame(animate);
   function setChapter(index) {
-    generation++; stopSpeech(); audio.pause(); current = index;
+    generation++; posePreview = false; stopSpeech(); audio.pause(); current = index; selectedPose = 'standing'; updatePoseButtons();
     const ch = knowledge.chapters[current];
     $('chapter-stage').textContent = ch.stage; $('chapter-title').textContent = ch.title; $('chapter-description').textContent = ch.description;
     $('chapter-points').replaceChildren(...ch.points.map(p => { const li = document.createElement('li'); li.textContent = p; return li; }));
@@ -54,8 +59,8 @@
   $('play-button').addEventListener('click', () => audio.paused ? play() : audio.pause());
   $('next-button').addEventListener('click', () => setChapter((current + 1) % knowledge.chapters.length));
   $('speed').addEventListener('change', () => { audio.playbackRate = Number($('speed').value); });
-  audio.addEventListener('play', () => { setupAnalyser(); if (audioContext) audioContext.resume().catch(() => {}); $('play-button').textContent = '暂停讲解'; $('presenter-status').textContent = `正在讲解 · ${knowledge.chapters[current].label}${analyser ? '' : '（口型兼容模式）'}`; });
-  audio.addEventListener('pause', () => { $('play-button').textContent = '继续讲解'; $('presenter-status').textContent = audio.ended ? '本章讲解完成' : '讲解已暂停'; });
+  audio.addEventListener('play', () => { posePreview = false; selectedPose = 'standing'; updatePoseButtons(); setupAnalyser(); if (audioContext) audioContext.resume().catch(() => {}); $('play-button').textContent = '暂停讲解'; $('presenter-status').textContent = `正在讲解 · ${knowledge.chapters[current].label}${analyser ? '' : '（口型兼容模式）'}`; });
+  audio.addEventListener('pause', () => { $('play-button').textContent = audio.currentTime === 0 ? '开始讲解' : '继续讲解'; $('presenter-status').textContent = posePreview ? `姿态预览 · ${characterConfig.poses.find(p => p.id === selectedPose).label}` : talking ? '正在朗读回答' : audio.ended ? '本章讲解完成' : audio.currentTime === 0 ? '等待开始讲解' : '讲解已暂停'; });
   audio.addEventListener('ended', async () => { if ($('continuous').checked && current < knowledge.chapters.length - 1) { setChapter(current + 1); await play(); } else { $('presenter-status').textContent = '讲解已完成'; $('play-button').textContent = '再次讲解'; } });
   audio.addEventListener('error', () => { if (audio.src) error('playback-error', '音频文件未能加载，请检查媒体包是否完整。'); });
   audio.addEventListener('timeupdate', () => {
@@ -73,13 +78,14 @@
   function speak(answer) {
     if (!$('read-answer').checked) return;
     if (!('speechSynthesis' in window)) { error('chat-error', '当前浏览器不支持回答朗读，可直接阅读文字。'); return; }
-    audio.pause(); stopSpeech();
+    audio.pause(); stopSpeech(); posePreview = false; selectedPose = 'standing'; updatePoseButtons();
+    const speechToken = utteranceGeneration;
     const u = new SpeechSynthesisUtterance(answer); u.lang = 'zh-CN'; u.rate = 1;
     const voice = speechSynthesis.getVoices().find(v => v.lang.toLowerCase() === 'zh-cn') || speechSynthesis.getVoices().find(v => v.lang.startsWith('zh'));
     if (voice) u.voice = voice;
-    u.onstart = () => { talking = true; $('presenter-status').textContent = '正在朗读回答'; };
-    u.onend = () => { talking = false; $('presenter-status').textContent = '回答朗读完成'; };
-    u.onerror = () => { talking = false; $('presenter-status').textContent = '可阅读文字回答'; };
+    u.onstart = () => { if (speechToken !== utteranceGeneration) return; talking = true; $('presenter-status').textContent = '正在朗读回答'; };
+    u.onend = () => { if (speechToken !== utteranceGeneration) return; talking = false; $('presenter-status').textContent = '回答朗读完成'; };
+    u.onerror = () => { if (speechToken !== utteranceGeneration) return; talking = false; $('presenter-status').textContent = '可阅读文字回答'; };
     speechSynthesis.speak(u);
   }
   async function ask(question) {
@@ -109,12 +115,15 @@
   window.addEventListener('pagehide', () => { audio.pause(); stopSpeech(); });
   try {
     const response = await fetch('knowledge.json'); if (!response.ok) throw new Error('knowledge'); knowledge = await response.json();
+    const configResponse = await fetch('character-config.json'); if (!configResponse.ok) throw new Error('character'); characterConfig = await configResponse.json();
+    if (characterConfig.columns !== 4 || characterConfig.rows !== 2 || !Array.isArray(characterConfig.poses)) throw new Error('character');
+    portrait.src = characterConfig.sheet;
+    characterConfig.poses.forEach(pose => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = pose.label; btn.dataset.pose = pose.id; btn.setAttribute('aria-pressed', String(pose.id === selectedPose)); btn.addEventListener('click', () => selectPose(pose.id)); $('pose-buttons').append(btn); });
     const media = await fetch('media/manifest.json').catch(() => null);
     if (media?.ok) {
       const candidate = await media.json();
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(knowledge)));
-      const hash = Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, '0')).join('');
-      audioReady = candidate.version === knowledge.version && candidate.contentHash === hash && candidate.chapters?.length === knowledge.chapters.length && candidate.chapters.every((ch, i) => ch.id === knowledge.chapters[i].id);
+      const hash = await digestObject(knowledge), configHash = await digestObject(characterConfig);
+      audioReady = candidate.version === knowledge.version && candidate.contentHash === hash && candidate.characterConfigHash === configHash && candidate.chapters?.length === knowledge.chapters.length && candidate.chapters.every((ch, i) => ch.id === knowledge.chapters[i].id);
       if (audioReady) manifest = candidate;
     }
     knowledge.chapters.forEach((ch, i) => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = ch.label; btn.addEventListener('click', () => setChapter(i)); $('chapters').append(btn); });

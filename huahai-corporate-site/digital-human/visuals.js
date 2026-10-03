@@ -20,16 +20,18 @@
     for (let i = 0; i < 6; i++) shape(ctx, null, () => { ctx.moveTo(-w * .1, h * (.8 + i * .035)); ctx.bezierCurveTo(w * .28, h * (.61 + i * .06), w * .5, h * (.85 + i * .05), w * 1.1, h * (.7 + i * .09)); }, '#c5e5ce', 2);
     leaf(ctx, w * .11, h * .86, w * .07, '#669e7b', -.7); leaf(ctx, w * .88, h * .93, w * .08, '#518c6c', .2);
   }
-  function avatar(ctx, { width = 560, height = 650, t = 0, mouth = 0, still = false, background = true, sprite = null } = {}) {
+  function avatar(ctx, { width = 560, height = 650, t = 0, mouth = 0, still = false, background = true, sprite = null, spriteConfig = null, poseFrame = null } = {}) {
     ctx.save(); if (background) landscape(ctx, width, height);
     if (!sprite) { text(ctx, '小犀正在准备中', width / 2, height / 2, 23, C.green, 500, 'center'); ctx.restore(); return; }
     const blink = !still && t % 5.2 > 4.82 && t % 5.2 < 5.01;
-    const frame = blink ? 3 : mouth > .48 ? 2 : mouth > .13 ? 1 : 0;
-    const cw = sprite.width / 2, ch = sprite.height / 2;
-    const sw = width * .98, sh = sw * ch / cw;
+    const frames = spriteConfig?.speechFrames || {closed:0,small:1,wide:2,blink:3};
+    const frame = poseFrame ?? (blink ? frames.blink : mouth > .48 ? frames.wide : mouth > .13 ? frames.small : frames.closed);
+    const columns = spriteConfig?.columns || 2, rows = spriteConfig?.rows || 2;
+    const cw = sprite.width / columns, ch = sprite.height / rows;
+    const sw = width * (spriteConfig?.renderScale || .98), sh = sw * ch / cw;
     const sway = still ? 0 : Math.sin(t * .62) * .006;
     ctx.translate(width / 2, height * .98); ctx.rotate(sway);
-    ctx.drawImage(sprite, (frame % 2) * cw, Math.floor(frame / 2) * ch, cw, ch, -sw / 2, -sh, sw, sh);
+    ctx.drawImage(sprite, (frame % columns) * cw, Math.floor(frame / columns) * ch, cw, ch, -sw / 2, -sh, sw, sh);
     ctx.restore();
   }
   const DIAGRAMS = {
@@ -54,9 +56,9 @@
     });
     if (type === 'chain') { text(ctx, '消费反馈辅助下一轮规划 · 协同建设方向', x + w / 2, y + h + 28, font * .7, C.muted, 400, 'center'); }
   }
-  function video(ctx, knowledge, chapter, subtitle, { t = 0, mouth = 0, progress = 0, chapterIndex = 0, logo = null, sprite = null } = {}) {
+  function video(ctx, knowledge, chapter, subtitle, { t = 0, mouth = 0, progress = 0, chapterIndex = 0, logo = null, sprite = null, spriteConfig = null, poseFrame = null } = {}) {
     const w = 1920, h = 1080; ctx.clearRect(0, 0, w, h); ctx.fillStyle = C.paper; ctx.fillRect(0, 0, w, h);
-    ctx.save(); ctx.beginPath(); ctx.roundRect(48, 142, 640, 810, 32); ctx.clip(); ctx.translate(48, 142); avatar(ctx, { width: 640, height: 810, t, mouth, sprite }); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.roundRect(48, 142, 640, 810, 32); ctx.clip(); ctx.translate(48, 142); avatar(ctx, { width: 640, height: 810, t, mouth, sprite, spriteConfig, poseFrame }); ctx.restore();
     if (logo) ctx.drawImage(logo, 54, 42, 66, 66);
     else { leaf(ctx, 89, 94, 27, C.green, .2); }
     text(ctx, '华海农科', 143, 73, 32, C.deep, 600); text(ctx, '深圳华海农业科技集团有限公司', 356, 73, 23, C.muted);

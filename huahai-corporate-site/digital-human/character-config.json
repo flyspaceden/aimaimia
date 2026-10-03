@@ -1,0 +1,17 @@
+{
+  "version": "2026-10-03-refined-v2",
+  "sheet": "assets/rhino-sprites.png",
+  "columns": 4,
+  "rows": 2,
+  "renderScale": 1.12,
+  "speechFrames": {"closed": 0, "small": 1, "wide": 2, "blink": 3},
+  "poses": [
+    {"id": "standing", "label": "站立", "frame": 0},
+    {"id": "welcome", "label": "招呼", "frame": 4},
+    {"id": "walking", "label": "行走姿态", "frame": 5},
+    {"id": "side", "label": "侧身", "frame": 6},
+    {"id": "rest", "label": "休息", "frame": 7}
+  ],
+  "chapterFrames": [4, 0, 6, 4, 5, 7],
+  "introPauseSeconds": 2
+}

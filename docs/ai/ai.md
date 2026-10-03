@@ -2,7 +2,7 @@
 
 ## 华海企业数字人扩展（2026-10-03）
 
-`huahai-corporate-site/digital-human/`独立提供六主题讲解与通义资料问答，复用现有DASHSCOPE配置和qwen-plus路线。本地代理不调用本模块业务接口、数据库或交易工具，不改变App/小程序AI功能。见`docs/features/huahai-digital-human.md`。形象为按用户指定生成的完整四足体态的3D风格卡通犀牛，采用二维表情帧驱动，主题口型取预生成音频振幅，实时回答可用浏览器朗读。本地页面与媒体不等于生产发布。
+`huahai-corporate-site/digital-human/`独立提供六主题讲解与通义资料问答，复用现有DASHSCOPE配置和qwen-plus路线。本地代理不调用业务接口、数据库或交易工具，不改变App/小程序AI功能。见`docs/features/huahai-digital-human.md`。小犀为完整四足卡通犀牛，具有八种表情/姿态与五种可选造型；二维精灵帧驱动配音口型，实时回答可用浏览器朗读。新版视频581.5秒，角色配置与讲稿Hash分别校验。本地页面与媒体不等于生产发布。
 
 > **权威来源**：所有 AI 语音、意图识别、大模型集成相关的设计、进度、问题均在此文档更新。
 
