@@ -182,7 +182,7 @@ test('huahai corporate site exposes the same legal pages', () => {
   assert.match(privacy, /剪贴板读取/);
   assert.match(terms, /AI爱买买APP用户协议/);
   assert.match(terms, /账号注销与权益终止规则/);
-  const languageScript = '<script src="assets/script.js?v=20261002-i18n1"></script>\n';
+  const languageScript = '<script src="assets/script.js?v=20261002-i18n3"></script>\n';
   assert.equal(privacy.split(languageScript).length, 2);
   assert.equal(terms.split(languageScript).length, 2);
   assert.equal(privacy.replace(languageScript, ''), websitePrivacy);

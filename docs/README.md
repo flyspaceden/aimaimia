@@ -19,7 +19,7 @@
 
 ## 最新 main 补充索引
 
-- `docs/features/huahai-multilingual.md` — 华海企业官网 8 页十语切换、静态译文维护、RTL/响应式、法律原文边界与验证/发布规则；仅覆盖企业官网，不替代 App 或 IoT 文档。
+- `docs/features/huahai-multilingual.md` — 华海企业官网 8 页十语切换、语言面板、知识产权证书图片及页数边界、静态译文维护、RTL/响应式、法律原文边界与验证/发布规则；仅覆盖企业官网，不替代 App 或 IoT 文档。
 - `docs/operations/fund-ledgers-staging-20260909.md` — 基金账本及三页体验优化的 staging-next 发布版本、CI 与实际页面验收记录（本次基金测试发布证据）
 - `docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md` — 资金管理三页结构、查询/详情/按付款状态操作设计（本次管理后台体验优化权威来源）
 - `docs/superpowers/specs/2026-09-06-app-pickup-fulfillment-design.md` — App 普通/团购/VIP 自提接入设计、支付恢复与凭证边界（**App 自提接入权威来源，本地实现完成、真机待验收**）
@@ -161,4 +161,3 @@
 ### 项目管理（根目录）
 - `plan.md` — v1.0 上线冲刺路线图（6 批次 + 54 条 checkbox 待修 + 48 条 T2 + 17 条疑点，**活文档：每次修完打勾+每次新需求追加**）
 - `docs/reference/plan-history-2026Q1.md` — 历史开发记录归档（Phase 1-10 全栈开发记录，2026-02 至 2026-03）
-
