@@ -10,7 +10,7 @@ const port = Number(process.env.HUAHAI_DIGITAL_HUMAN_PORT || 8768);
 const model = process.env.HUAHAI_CHAT_MODEL || 'qwen-plus';
 const configured = Boolean(process.env.DASHSCOPE_API_KEY);
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8' };
-const staticFiles = new Set(['index.html', 'style.css', 'app.js', 'visuals.js', 'knowledge.json', 'character-config.json']);
+const staticFiles = new Set(['index.html', 'style.css', 'app.js', 'visuals.js', 'knowledge.json', 'character-config.json', 'voice-config.json']);
 let calls = [], concurrent = 0;
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': mime['.json'], 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); }
 function fallback(question, topic) {

@@ -3,7 +3,7 @@
 (async function () {
   const $ = id => document.getElementById(id);
   const avatar = $('avatar'), audio = $('narration'), ctx = avatar.getContext('2d');
-  let knowledge, manifest, current = 0, analyser, audioContext, signal, talking = false, busy = false, generation = 0, sprite = null, characterConfig, selectedPose = 'standing', posePreview = false, utteranceGeneration = 0;
+  let knowledge, manifest, current = 0, analyser, audioContext, signal, talking = false, busy = false, generation = 0, sprite = null, characterConfig, voiceConfig, selectedPose = 'standing', posePreview = false, utteranceGeneration = 0;
   const portrait = new Image(); portrait.onload = () => { sprite = portrait; }; portrait.onerror = () => error('playback-error', '小犀形象未能加载，请检查素材包。');
   const history = [], reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let audioReady = false, liveAI = false;
@@ -116,14 +116,15 @@
   try {
     const response = await fetch('knowledge.json'); if (!response.ok) throw new Error('knowledge'); knowledge = await response.json();
     const configResponse = await fetch('character-config.json'); if (!configResponse.ok) throw new Error('character'); characterConfig = await configResponse.json();
+    const voiceResponse = await fetch('voice-config.json'); if (!voiceResponse.ok) throw new Error('voice'); voiceConfig = await voiceResponse.json();
     if (characterConfig.columns !== 4 || characterConfig.rows !== 2 || !Array.isArray(characterConfig.poses)) throw new Error('character');
     portrait.src = characterConfig.sheet;
     characterConfig.poses.forEach(pose => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = pose.label; btn.dataset.pose = pose.id; btn.setAttribute('aria-pressed', String(pose.id === selectedPose)); btn.addEventListener('click', () => selectPose(pose.id)); $('pose-buttons').append(btn); });
     const media = await fetch('media/manifest.json').catch(() => null);
     if (media?.ok) {
       const candidate = await media.json();
-      const hash = await digestObject(knowledge), configHash = await digestObject(characterConfig);
-      audioReady = candidate.version === knowledge.version && candidate.contentHash === hash && candidate.characterConfigHash === configHash && candidate.chapters?.length === knowledge.chapters.length && candidate.chapters.every((ch, i) => ch.id === knowledge.chapters[i].id);
+      const hash = await digestObject(knowledge), configHash = await digestObject(characterConfig), voiceHash = await digestObject(voiceConfig);
+      audioReady = candidate.version === knowledge.version && candidate.contentHash === hash && candidate.characterConfigHash === configHash && candidate.voiceConfigHash === voiceHash && candidate.chapters?.length === knowledge.chapters.length && candidate.chapters.every((ch, i) => ch.id === knowledge.chapters[i].id);
       if (audioReady) manifest = candidate;
     }
     knowledge.chapters.forEach((ch, i) => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = ch.label; btn.addEventListener('click', () => setChapter(i)); $('chapters').append(btn); });

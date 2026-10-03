@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import crypto from 'node:crypto';
+import { synthesizeChapter } from './natural-voice.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.HUAHAI_CANVAS_PACKAGES;
@@ -13,6 +14,7 @@ const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
 const visuals = createRequire(import.meta.url)('./visuals.js');
 const knowledge = JSON.parse(fs.readFileSync(path.join(root, 'knowledge.json'), 'utf8'));
 const characterConfig = JSON.parse(fs.readFileSync(path.join(root, 'character-config.json'), 'utf8'));
+const voiceConfig = JSON.parse(fs.readFileSync(path.join(root, 'voice-config.json'), 'utf8'));
 const media = path.join(root, 'media'), build = path.join(root, 'build');
 fs.mkdirSync(media, {recursive:true}); fs.mkdirSync(build, {recursive:true});
 const chineseFont = process.env.HUAHAI_CHINESE_FONT || '/System/Library/Fonts/PingFang.ttc';
@@ -40,6 +42,7 @@ knowledge.chapters.forEach((chapter, i) => {
   texts.forEach(text => segments.push({text,chapter:i}));
 });
 let completed = 0, cursor = 0;
+const naturalChapters = [];
 async function generateVoice() {
   while (cursor < segments.length) {
     const index = cursor++, segment = segments[index];
@@ -54,14 +57,38 @@ async function generateVoice() {
     completed++; if (completed % 10 === 0 || completed === segments.length) console.log(`配音 ${completed}/${segments.length}`);
   }
 }
-await Promise.all([generateVoice(),generateVoice(),generateVoice()]);
+if (voiceConfig.provider === 'dashscope') {
+  let chapterCursor = 0;
+  async function generateNaturalChapter() {
+    while (chapterCursor < knowledge.chapters.length) {
+      const index = chapterCursor++;
+      const texts = segments.filter(segment => segment.chapter === index).map(segment => segment.text);
+      const generated = await synthesizeChapter(texts, voiceConfig, build, (raw, wav) => run('ffmpeg', ['-y','-v','error','-i',raw,'-ar',String(sampleRate),'-ac','1','-c:a','pcm_s16le',wav]), wav => wavSamples(wav).length / (sampleRate * 2));
+      const paragraphGap=Buffer.alloc(Math.round(sampleRate * voiceConfig.paragraphPauseSeconds) * 2);
+      const samples = Buffer.concat(generated.parts.flatMap((part, index) => [wavSamples(part.wav), ...(index<generated.parts.length-1?[paragraphGap]:[])])), duration = samples.length / (sampleRate * 2);
+      if (generated.cues.some(cue => cue.end > duration + .15)) throw new Error('语音识别时间戳超出配音时长');
+      naturalChapters[index] = { samples, duration, cues: generated.cues.map(cue => ({ ...cue, end: Math.min(duration, cue.end) })), similarity: generated.similarity };
+      console.log(`自然配音 ${knowledge.chapters[index].id} 完成 · 原稿匹配 ${(generated.similarity * 100).toFixed(1)}%`);
+    }
+  }
+  await Promise.all([generateNaturalChapter(),generateNaturalChapter()]);
+} else if (voiceConfig.provider === 'system') await Promise.all([generateVoice(),generateVoice(),generateVoice()]);
+else throw new Error('未知配音提供方');
 const pause = Buffer.alloc(Math.round(sampleRate * .32) * 2), introPause = Buffer.alloc(Math.round(sampleRate * characterConfig.introPauseSeconds) * 2);
-const manifest = {version:knowledge.version,contentHash:crypto.createHash('sha256').update(JSON.stringify(knowledge)).digest('hex'),characterConfigHash:crypto.createHash('sha256').update(JSON.stringify(characterConfig)).digest('hex'),spriteHash:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,characterConfig.sheet))).digest('hex'),voice:'macOS Tingting / 中文普通话',character:knowledge.character.type,chapters:[]};
+const manifest = {version:knowledge.version,contentHash:crypto.createHash('sha256').update(JSON.stringify(knowledge)).digest('hex'),characterConfigHash:crypto.createHash('sha256').update(JSON.stringify(characterConfig)).digest('hex'),voiceConfigHash:crypto.createHash('sha256').update(JSON.stringify(voiceConfig)).digest('hex'),spriteHash:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,characterConfig.sheet))).digest('hex'),voice:voiceConfig.provider==='dashscope'?`${voiceConfig.model} / ${voiceConfig.voice} / 温暖自然女声`:`macOS ${voice}`,alignment:voiceConfig.provider==='dashscope'?'paraformer-word-timestamps':'per-sentence-pcm',character:knowledge.character.type,chapters:[]};
 const allBuffers = [], timeline = [], chapterStarts = []; let masterTime = 0;
 for (let i = 0; i < knowledge.chapters.length; i++) {
   const chapter = knowledge.chapters[i], own = segments.filter(s => s.chapter === i), buffers = [introPause], cues = []; let localTime = characterConfig.introPauseSeconds;
   chapterStarts.push(masterTime); allBuffers.push(introPause); masterTime += characterConfig.introPauseSeconds;
-  for (const s of own) {
+  if (voiceConfig.provider === 'dashscope') {
+    const generated = naturalChapters[i];
+    for (const cue of generated.cues) {
+      cues.push({ ...cue, start: cue.start + characterConfig.introPauseSeconds, end: cue.end + characterConfig.introPauseSeconds });
+      timeline.push({ ...cue, start: masterTime + cue.start, end: masterTime + cue.end, chapter: i });
+    }
+    buffers.push(generated.samples, pause); allBuffers.push(generated.samples, pause);
+    localTime += generated.duration + .32; masterTime += generated.duration + .32;
+  } else for (const s of own) {
     cues.push({start:localTime,end:localTime+s.duration,text:s.text});
     timeline.push({start:masterTime,end:masterTime+s.duration,text:s.text,chapter:i});
     buffers.push(s.samples,pause); allBuffers.push(s.samples,pause);
@@ -69,7 +96,7 @@ for (let i = 0; i < knowledge.chapters.length; i++) {
   }
   const chapterFile = path.join(build,`${chapter.id}.wav`); writeWav(chapterFile,Buffer.concat(buffers));
   await run('ffmpeg',['-y','-v','error','-i',chapterFile,'-c:a','libmp3lame','-b:a','128k',path.join(media,`${chapter.id}.mp3`)]);
-  manifest.chapters.push({id:chapter.id,audio:`media/${chapter.id}.mp3`,duration:localTime,cues});
+  manifest.chapters.push({id:chapter.id,audio:`media/${chapter.id}.mp3`,duration:localTime,cues, ...(naturalChapters[i] ? { alignmentSimilarity: naturalChapters[i].similarity } : {})});
 }
 manifest.duration = masterTime; manifest.video = 'media/huahai-introduction.mp4';
 fs.writeFileSync(path.join(media,'manifest.json'),JSON.stringify(manifest,null,2));

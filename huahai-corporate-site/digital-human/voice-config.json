@@ -1,0 +1,12 @@
+{
+  "provider": "dashscope",
+  "model": "qwen3-tts-instruct-flash-2026-01-26",
+  "voice": "Serena",
+  "language": "Chinese",
+  "optimizeInstructions": true,
+  "instructions": "使用温暖、自然、清晰的成年女声，像亲切的讲解员与观众面对面交流，带轻微笑意，专业但轻松。语速中等偏轻快，句子之间自然衔接，在段落转折处短暂停顿，重要词语轻轻强调，避免机械断句、每句话同样的语调和夸张的播音腔。允许自然的轻微换气，不要叹气、拖音或耳语。只朗读提供的正文，不添加开场白、语气词或其他内容。华海农科读作huá hǎi nóng kē，小犀读作xiǎo xī，AI读作英文字母A和I，App按英文app自然朗读。",
+  "alignmentModel": "paraformer-v2",
+  "minimumAlignmentSimilarity": 0.88,
+  "maxParagraphBytes": 480,
+  "paragraphPauseSeconds": 0.2
+}
