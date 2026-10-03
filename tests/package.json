@@ -8,6 +8,7 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:smoke": "playwright test e2e/smoke",
+    "test:huahai": "node --test huahai-i18n.test.mjs",
     "report": "playwright show-report"
   },
   "devDependencies": {
