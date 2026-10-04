@@ -1,0 +1,81 @@
+{
+  "website": {
+    "url": "https://huahainongke.com/",
+    "title": "华海农科官网",
+    "capturedAt": "2026-10-04",
+    "capture": "通过浏览器公开页面与向下滚动采集，画面仅引用官网公开介绍，不作为运行验收",
+    "files": [
+      "assets/film-screens/000.jpg",
+      "assets/film-screens/001.jpg",
+      "assets/film-screens/002.jpg",
+      "assets/film-screens/003.jpg",
+      "assets/film-screens/004.jpg",
+      "assets/film-screens/005.jpg",
+      "assets/film-screens/006.jpg",
+      "assets/film-screens/007.jpg",
+      "assets/film-screens/008.jpg",
+      "assets/film-screens/009.jpg",
+      "assets/film-screens/010.jpg",
+      "assets/film-screens/011.jpg",
+      "assets/film-screens/012.jpg",
+      "assets/film-screens/013.jpg",
+      "assets/film-screens/014.jpg",
+      "assets/film-screens/015.jpg",
+      "assets/film-screens/016.jpg",
+      "assets/film-screens/017.jpg",
+      "assets/film-screens/018.jpg",
+      "assets/film-screens/019.jpg",
+      "assets/film-screens/020.jpg",
+      "assets/film-screens/021.jpg",
+      "assets/film-screens/022.jpg",
+      "assets/film-screens/023.jpg",
+      "assets/film-screens/024.jpg",
+      "assets/film-screens/025.jpg",
+      "assets/film-screens/026.jpg",
+      "assets/film-screens/027.jpg"
+    ],
+    "usedInFilm": false,
+    "role": "公司事实与战略来源；浏览截图未进入本版影片"
+  },
+  "scenes": {
+    "type": "Mixed licensed stock video and AI-generated illustrative video",
+    "providerImage": "OpenAI image generation",
+    "providerVideo": "Alibaba Cloud Wan2.6-i2v-flash",
+    "label": "素材镜头：场景素材示意；合成镜头：AI生成场景示意",
+    "actualHuahaiFootage": false
+  },
+  "ui": {
+    "type": "custom animated explanation",
+    "label": "界面流程示意 · 依据代码制作",
+    "basedOnCommit": "5b0125018091779a2ed20b23bc7f2bff5d9e3665",
+    "sourcePaths": [
+      "app/",
+      "miniapp/src/",
+      "seller/src/",
+      "admin/src/",
+      "backend/src/modules/ai/",
+      "backend/src/modules/trace/",
+      "backend/src/modules/recommendation/"
+    ],
+    "description": "源代码业务流程的动画解说；不是App或小程序录屏，不展示真实订单、用户或生产设备数据。"
+  },
+  "thirdPartyStock": {
+    "used": true,
+    "providers": [
+      "Pexels",
+      "Mixkit Stock Video Free License"
+    ],
+    "verifiedAt": "2026-10-04",
+    "licensePages": [
+      "https://www.pexels.com/license/",
+      "https://mixkit.co/license/#videoFree"
+    ],
+    "manifest": "media/stock-clips/manifest.json",
+    "rule": "逐条确认商用Free许可，排除Restricted/付费素材；用于本片场景示意，不声称华海基地或真实项目验收。"
+  },
+  "voice": {
+    "type": "fixed-reference synthetic female voice",
+    "referenceType": "本任务生成女声",
+    "manifest": "build/promo-consistent/voice-manifest.json"
+  }
+}

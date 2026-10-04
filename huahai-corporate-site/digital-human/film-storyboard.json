@@ -1,0 +1,441 @@
+{
+  "version": "2026-10-04-brand-film-full-v1",
+  "visualApproach": "完整品牌介绍；真实连续AI视频为背景；近景中景远景、多镜头推近拉远、人物操作和产品特写，3至4.4秒节奏剪辑。只有六个章节短标题，无技术讲课式流程板。",
+  "voiceSource": "build/promo/promo-master.wav",
+  "cueSource": "build/promo/timeline.json",
+  "shots": [
+    {
+      "cue": 0,
+      "shotScenes": [
+        "production",
+        "harvest",
+        "food",
+        "family"
+      ],
+      "scene": "production",
+      "mode": "intro",
+      "title": "从田间，到餐桌",
+      "detail": ""
+    },
+    {
+      "cue": 1,
+      "shotScenes": [
+        "harvest",
+        "food",
+        "production"
+      ],
+      "scene": "harvest",
+      "mode": "brand",
+      "title": "让科技更贴近农业",
+      "detail": ""
+    },
+    {
+      "cue": 2,
+      "shotScenes": [
+        "production",
+        "harvest",
+        "delivery"
+      ],
+      "scene": "production",
+      "mode": "film",
+      "title": "华海农科 · 2017",
+      "detail": ""
+    },
+    {
+      "cue": 3,
+      "shotScenes": [
+        "aquaculture",
+        "harvest",
+        "lab",
+        "production"
+      ],
+      "scene": "aquaculture",
+      "mode": "film",
+      "title": "以农业为根，以AI连接产业",
+      "detail": ""
+    },
+    {
+      "cue": 4,
+      "shotScenes": [
+        "harvest",
+        "logistics",
+        "food",
+        "delivery"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "让产地与需求彼此听见",
+      "detail": ""
+    },
+    {
+      "cue": 5,
+      "shotScenes": [
+        "sensors",
+        "logistics",
+        "family",
+        "delivery"
+      ],
+      "scene": "sensors",
+      "mode": "film",
+      "title": "连接生产者、商户与家庭",
+      "detail": ""
+    },
+    {
+      "cue": 6,
+      "shotScenes": [
+        "production",
+        "harvest",
+        "food"
+      ],
+      "scene": "production",
+      "mode": "chapter",
+      "title": "科技兴农 · AI赋能 · 食安为先",
+      "detail": ""
+    },
+    {
+      "cue": 7,
+      "shotScenes": [
+        "aquaculture",
+        "sensors",
+        "logistics"
+      ],
+      "scene": "aquaculture",
+      "mode": "film",
+      "title": "技术走进真实产业",
+      "detail": ""
+    },
+    {
+      "cue": 8,
+      "shotScenes": [
+        "harvest",
+        "sensors",
+        "tablet"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "在现场，回应真正的需要",
+      "detail": ""
+    },
+    {
+      "cue": 9,
+      "shotScenes": [
+        "tablet",
+        "aquaculture",
+        "sensors"
+      ],
+      "scene": "tablet",
+      "mode": "film",
+      "title": "让信息更容易理解",
+      "detail": ""
+    },
+    {
+      "cue": 10,
+      "shotScenes": [
+        "logistics",
+        "lab",
+        "food",
+        "delivery"
+      ],
+      "scene": "logistics",
+      "mode": "film",
+      "title": "认真对待每一份产品",
+      "detail": ""
+    },
+    {
+      "cue": 11,
+      "shotScenes": [
+        "sensors",
+        "tablet",
+        "aquaculture"
+      ],
+      "scene": "sensors",
+      "mode": "chapter",
+      "title": "让数据成为产业的帮手",
+      "detail": ""
+    },
+    {
+      "cue": 12,
+      "shotScenes": [
+        "tablet",
+        "sensors",
+        "harvest"
+      ],
+      "scene": "tablet",
+      "mode": "film",
+      "title": "数据，与专业经验协同",
+      "detail": ""
+    },
+    {
+      "cue": 13,
+      "shotScenes": [
+        "sensors",
+        "tablet",
+        "aquaculture",
+        "logistics"
+      ],
+      "scene": "sensors",
+      "mode": "film",
+      "title": "连接现场与平台",
+      "detail": ""
+    },
+    {
+      "cue": 14,
+      "shotScenes": [
+        "lab",
+        "food",
+        "logistics"
+      ],
+      "scene": "lab",
+      "mode": "film",
+      "title": "技术与产品共同生长",
+      "detail": ""
+    },
+    {
+      "cue": 15,
+      "shotScenes": [
+        "harvest",
+        "tablet",
+        "aquaculture"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "让科技成为日常的帮手",
+      "detail": ""
+    },
+    {
+      "cue": 16,
+      "shotScenes": [
+        "delivery",
+        "food",
+        "logistics"
+      ],
+      "scene": "delivery",
+      "mode": "chapter",
+      "title": "爱买买 · 连接好产品与日常需求",
+      "detail": ""
+    },
+    {
+      "cue": 17,
+      "shotScenes": [
+        "tablet",
+        "family",
+        "logistics",
+        "delivery"
+      ],
+      "scene": "tablet",
+      "mode": "product",
+      "title": "面向买家、商户与平台",
+      "detail": ""
+    },
+    {
+      "cue": 18,
+      "shotScenes": [
+        "food",
+        "tablet",
+        "family"
+      ],
+      "scene": "food",
+      "mode": "buyer",
+      "title": "说出需求，连接选择",
+      "detail": ""
+    },
+    {
+      "cue": 19,
+      "shotScenes": [
+        "food",
+        "family",
+        "delivery"
+      ],
+      "scene": "food",
+      "mode": "film",
+      "title": "每一次选购，从了解开始",
+      "detail": ""
+    },
+    {
+      "cue": 20,
+      "shotScenes": [
+        "logistics",
+        "food",
+        "delivery"
+      ],
+      "scene": "logistics",
+      "mode": "seller",
+      "title": "把商品与订单组织起来",
+      "detail": ""
+    },
+    {
+      "cue": 21,
+      "shotScenes": [
+        "logistics",
+        "delivery",
+        "tablet"
+      ],
+      "scene": "logistics",
+      "mode": "seller",
+      "title": "让交易与服务形成协作",
+      "detail": ""
+    },
+    {
+      "cue": 22,
+      "shotScenes": [
+        "tablet",
+        "family",
+        "food"
+      ],
+      "scene": "tablet",
+      "mode": "buyer",
+      "title": "更贴近人的表达习惯",
+      "detail": ""
+    },
+    {
+      "cue": 23,
+      "shotScenes": [
+        "harvest",
+        "lab",
+        "logistics",
+        "delivery",
+        "family"
+      ],
+      "scene": "harvest",
+      "mode": "chapter",
+      "title": "AI农业全产销链",
+      "detail": ""
+    },
+    {
+      "cue": 24,
+      "shotScenes": [
+        "family",
+        "logistics",
+        "harvest",
+        "tablet"
+      ],
+      "scene": "family",
+      "mode": "film",
+      "title": "让需求与供给建立连接",
+      "detail": ""
+    },
+    {
+      "cue": 25,
+      "shotScenes": [
+        "aquaculture",
+        "lab",
+        "logistics",
+        "food"
+      ],
+      "scene": "aquaculture",
+      "mode": "film",
+      "title": "一份水产，从产地走向餐桌",
+      "detail": ""
+    },
+    {
+      "cue": 26,
+      "shotScenes": [
+        "family",
+        "logistics",
+        "delivery",
+        "harvest"
+      ],
+      "scene": "family",
+      "mode": "film",
+      "title": "让每一个环节彼此协作",
+      "detail": ""
+    },
+    {
+      "cue": 27,
+      "shotScenes": [
+        "harvest",
+        "tablet",
+        "food",
+        "family"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "用信息与反馈支持下一轮改进",
+      "detail": ""
+    },
+    {
+      "cue": 28,
+      "shotScenes": [
+        "food",
+        "family",
+        "lab"
+      ],
+      "scene": "food",
+      "mode": "chapter",
+      "title": "AI农业大健康生态",
+      "detail": ""
+    },
+    {
+      "cue": 29,
+      "shotScenes": [
+        "harvest",
+        "lab",
+        "food",
+        "family"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "从源头生产，到家庭生活",
+      "detail": ""
+    },
+    {
+      "cue": 30,
+      "shotScenes": [
+        "food",
+        "family",
+        "harvest",
+        "production",
+        "aquaculture",
+        "delivery"
+      ],
+      "scene": "food",
+      "mode": "film",
+      "title": "对食物的了解，也是一份关心",
+      "detail": ""
+    },
+    {
+      "cue": 31,
+      "shotScenes": [
+        "lab",
+        "logistics",
+        "food",
+        "production",
+        "harvest",
+        "aquaculture"
+      ],
+      "scene": "lab",
+      "mode": "film",
+      "title": "连接农业、食品与生活需求",
+      "detail": ""
+    },
+    {
+      "cue": 32,
+      "shotScenes": [
+        "harvest",
+        "lab",
+        "delivery",
+        "family",
+        "production",
+        "aquaculture",
+        "food"
+      ],
+      "scene": "harvest",
+      "mode": "film",
+      "title": "以协作，共同探索未来",
+      "detail": ""
+    },
+    {
+      "cue": 33,
+      "shotScenes": [
+        "production",
+        "harvest",
+        "food",
+        "family"
+      ],
+      "scene": "production",
+      "mode": "outro",
+      "title": "让农业连接美好生活",
+      "detail": ""
+    }
+  ]
+}

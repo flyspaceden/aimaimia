@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alignSentences, normalize, splitParagraphs } from './natural-voice.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import { alignSentences, normalize, splitParagraphs, recognize, synthesizeChapter, ALIGNMENT_VERSION } from './natural-voice.mjs';
 function recognized(texts) {
   let t=0;
   const sentences=texts.map(text=>({words:Array.from(normalize(text)).map(char=>{const word={text:char,begin_time:t,end_time:t+160};t+=160;return word;})}));
@@ -27,4 +31,19 @@ test('拒绝明显不可能的字幕字符语速',()=>{
 test('段落在句边界分组，UTF8预算内且没有遗漏重排',()=>{
   const texts=['先了解公司战略与理念。','再了解AI技术与电商产品。','最后介绍全产销链与大健康生态。'];
   const groups=splitParagraphs(texts,75);assert.deepEqual(groups.flat(),texts);assert(groups.every(group=>Buffer.byteLength(group.join('\n\n'))<=75));
+});
+test('已有配音但缺少ASR任务时拒绝重新付费TTS',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'huahai-voice-guard-'));
+  const texts=['我们认真对待每一份农产品。'],config={model:'fixture',voice:'fixture',maxParagraphBytes:480,paragraphPauseSeconds:.2,minimumAlignmentSimilarity:.88};
+  const fingerprint=crypto.createHash('sha256').update(JSON.stringify({text:texts.join('\n\n'),config,alignmentVersion:ALIGNMENT_VERSION})).digest('hex');
+  const base=path.join(dir,'natural-'+fingerprint.slice(0,20)),raw=Buffer.from('fixture PCM');
+  fs.writeFileSync(base+'.provider.wav',raw);fs.writeFileSync(base+'.wav',raw);fs.writeFileSync(base+'.tts-receipt.json',JSON.stringify({fingerprint,status:'SUCCEEDED',rawHash:crypto.createHash('sha256').update(raw).digest('hex')}));
+  const old=globalThis.fetch;let requests=0;globalThis.fetch=async()=>{requests++;throw new Error('禁止网络调用');};
+  try{await assert.rejects(()=>synthesizeChapter(texts,config,dir,async()=>{},()=>2),/已有配音|禁止自动/);assert.equal(requests,0);}finally{globalThis.fetch=old;fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('已完成ASR检查点不再创建服务任务',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'huahai-asr-guard-')),file=path.join(dir,'checkpoint.json'),recognition=recognized(['华海农科。']);
+  fs.writeFileSync(file,JSON.stringify({status:'SUCCEEDED',recognition}));
+  const old=globalThis.fetch;let requests=0;globalThis.fetch=async()=>{requests++;throw new Error('禁止网络调用');};
+  try{assert.deepEqual(await recognize(null,{},file),recognition);assert.equal(requests,0);}finally{globalThis.fetch=old;fs.rmSync(dir,{recursive:true,force:true});}
 });

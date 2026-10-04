@@ -1,5 +1,19 @@
 # 华海农科数字讲解员 · 小犀
 
+本次网页视频入口采用完整品牌宣传片：保留战略、理念、技术路线、爱买买、全产销链与农业大健康六个方向，使用同一份生成女声参考和不同来源的连续视频镜头。互动主题讲解保留详细资料版。视频画面含授权素材与AI场景示意；产品界面为依据代码制作的流程示意。没有公司基地实拍或项目验收含义。
+
+## 品牌宣传片制作（2026-10-04）
+
+`promo-knowledge.json`为34句完整宣传稿，`film-storyboard.json`按台词安排场景。`build-consistent-voice.mjs`从本任务已生成的温暖女声提取固定参考，用一个Qwen3-TTS-VC声线合成全部内容；语音回识、逐句守卫及Hash绑定沿用自然配音模块。参考音频和声线收据只留在忽略的`build/promo-consistent/`，不克隆真人身份。
+
+`media/stock-clips/manifest.json`记录逐页核实的Pexels/Mixkit Free素材来源、许可与文件Hash。Restricted/付费素材不入片，原片音轨不参与配音；每个场景片源只使用一次。原片与缓存不随网页交付包再分发。AI场景的原始关键帧和提示词位于`assets/film-scenes/`，通过内置imagegen制作；动画调用万相，配置见三个`*video-config.json`。
+
+渲染使用软件解码，避开本机FFmpeg 4.2.2在VideoToolbox硬解和硬编组合时引入的重复帧。分镜缓存单独放在`build/brand-v2/`，不能复用旧缓存。仅检查帧率/PTS和解码成功不足以确认流畅，需要检查实际相邻画面更新。声线参数一致也不能代替跨段听审。
+
+依次运行`build-consistent-voice.mjs`、`compose-brand-music.py`、`mix-brand-audio.mjs`、`build-content-film.mjs --background --frames --smoke --final`；统一设置`HUAHAI_VOICE_BUILD=build/promo-consistent`用于配乐/混音，并按本机配置FFmpeg、FFprobe与Canvas目录。付费生成步骤需进程凭据，缓存/原子提交锁用于防止未知结果和并发重跑重复收费。
+
+完整文件为`media/huahai-brand-film-v2.mp4`（1080p）；网页使用`huahai-brand-film-v2-preview.mp4`（720p Baseline轻量版），并提供完整片下载、SRT/VTT字幕与混合来源manifest。API凭据、签名URL、原片和缓存不放入公开交付包。
+
 范围：企业介绍网页与中文视频，共用六主题资料。原官网导航、爱买买业务、买家App及微信小程序没有修改。小犀采用完整四足体态、平滑肤质、收窄脚踝和小灰色卷耳，具有八种表情/姿态，以二维精灵帧驱动中文配音、口型和眨眼。形象为3D风格插画，不是写实真人克隆或音素级口型。
 
 ## 本地启动

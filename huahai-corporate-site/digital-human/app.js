@@ -19,7 +19,7 @@
     try { audioContext = new AC(); analyser = audioContext.createAnalyser(); analyser.fftSize = 256; const source = audioContext.createMediaElementSource(audio); source.connect(analyser); analyser.connect(audioContext.destination); signal = new Uint8Array(analyser.fftSize); } catch { analyser = null; }
   }
   function animate(ms) {
-    if (!document.hidden) {
+    if (!document.hidden && !$('video-dialog').open) {
       let mouth = 0;
       if (!audio.paused && analyser) { analyser.getByteTimeDomainData(signal); let sum = 0; for (const v of signal) sum += ((v - 128) / 128) ** 2; mouth = Math.min(1, Math.sqrt(sum / signal.length) * 6); }
       else if (!audio.paused || talking) mouth = .18 + Math.abs(Math.sin(ms / 93)) * .4;
@@ -107,7 +107,7 @@
     } finally { busy = false; $('send-button').disabled = false; $('send-button').textContent = '发送问题'; }
   }
   $('chat-form').addEventListener('submit', e => { e.preventDefault(); ask($('question').value.trim()); });
-  $('video-button').addEventListener('click', () => { audio.pause(); stopSpeech(); $('video-dialog').showModal(); $('intro-video').load(); });
+  $('video-button').addEventListener('click', () => { audio.pause(); stopSpeech(); error('video-error', ''); $('video-dialog').showModal(); $('intro-video').load(); });
   $('close-video').addEventListener('click', () => $('video-dialog').close());
   $('video-dialog').addEventListener('close', () => $('intro-video').pause());
   $('intro-video').addEventListener('error', () => error('video-error', '视频未能加载，请检查媒体包是否完整。'));

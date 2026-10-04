@@ -5,6 +5,11 @@ import crypto from 'node:crypto';
 const API = 'https://dashscope.aliyuncs.com/api/v1';
 export const ALIGNMENT_VERSION = 'paragraph-word-anchors-v2';
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
+function writeJsonAtomic(file, data) {
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(data, null, 2));
+  fs.renameSync(temp, file);
+}
 function headers(extra = {}) {
   if (!process.env.DASHSCOPE_API_KEY) throw new Error('自然配音需要在进程环境配置DASHSCOPE_API_KEY');
   return { Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}`, 'Content-Type': 'application/json', ...extra };
@@ -15,8 +20,8 @@ function mediaUrl(raw) {
   url.protocol = 'https:';
   return url.toString();
 }
-async function providerJson(url, init) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(120000) });
+async function providerJson(url, init, timeoutMs = 120000) {
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   const data = await response.json();
   if (!response.ok || (data.status_code && data.status_code !== 200)) throw new Error(`语音服务失败：HTTP ${response.status} / ${String(data.code || 'unknown').replace(/[^\w.-]/g, '')}`);
   return data;
@@ -25,24 +30,41 @@ export async function synthesize(text, config, wavPath) {
   if (!text.trim() || Array.from(text).length > 600) throw new Error('自然配音每段正文必须为1至600字符');
   const data = await providerJson(`${API}/services/aigc/multimodal-generation/generation`, {
     method: 'POST', headers: headers(),
-    body: JSON.stringify({ model: config.model, input: { text, voice: config.voice, language_type: config.language }, parameters: { instructions: config.instructions, optimize_instructions: config.optimizeInstructions } })
-  });
+    body: JSON.stringify({ model: config.model, input: { text, voice: config.voice, language_type: config.language }, ...(config.model.includes('-instruct-') ? {parameters: { instructions: config.instructions, optimize_instructions: config.optimizeInstructions }} : {}) })
+  }, config.model.includes('-vc-') ? 360000 : 120000);
   if (!data.output?.audio?.url) throw new Error('语音服务未返回完整音频');
   const audioUrl = mediaUrl(data.output.audio.url);
   // 下载本任务生成的音频；不向OSS转发模型凭据，不在日志或提交文件写签名URL。
-  const audio = await fetch(audioUrl, { signal: AbortSignal.timeout(60000), redirect: 'error' });
-  if (!audio.ok) throw new Error(`音频下载失败：HTTP ${audio.status}`);
-  const bytes = Buffer.from(await audio.arrayBuffer());
+  let bytes;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const audio = await fetch(audioUrl, { signal: AbortSignal.timeout(180000), redirect: 'error' });
+      if (!audio.ok) throw new Error(`音频下载失败：HTTP ${audio.status}`);
+      bytes = Buffer.from(await audio.arrayBuffer()); break;
+    } catch (error) { if (attempt === 2) throw error; }
+  }
   if (bytes.length < 1024 || bytes.length > 25 * 1024 * 1024) throw new Error('语音文件大小异常');
   fs.writeFileSync(wavPath, bytes);
   return { audioUrl, requestId: data.request_id, usage: data.usage };
 }
-export async function recognize(audioUrl, config) {
-  const submitted = await providerJson(`${API}/services/audio/asr/transcription`, {
-    method: 'POST', headers: headers({ 'X-DashScope-Async': 'enable' }),
-    body: JSON.stringify({ model: config.alignmentModel, input: { file_urls: [mediaUrl(audioUrl)] }, parameters: { channel_id: [0], language_hints: ['zh', 'en'], timestamp_alignment_enabled: true } })
-  });
-  const taskId = submitted.output?.task_id;
+export async function recognize(audioUrl, config, checkpointFile) {
+  let checkpoint = checkpointFile && fs.existsSync(checkpointFile) ? JSON.parse(fs.readFileSync(checkpointFile, 'utf8')) : null;
+  if (checkpoint?.status === 'SUCCEEDED') return checkpoint.recognition;
+  let taskId = checkpoint?.taskId;
+  if (!taskId) {
+    if (checkpoint || !audioUrl) throw new Error('已有配音或ASR未知提交，禁止自动重复合成/提交；保留素材后核查原任务');
+    if (checkpointFile) {
+      try { fs.mkdirSync(checkpointFile + '.submit-lock'); } catch (error) { if (error.code === 'EEXIST') throw new Error('ASR已有提交锁，禁止重复创建'); throw error; }
+      writeJsonAtomic(checkpointFile, { status: 'SUBMITTING' });
+    }
+    const submitted = await providerJson(`${API}/services/audio/asr/transcription`, {
+      method: 'POST', headers: headers({ 'X-DashScope-Async': 'enable' }),
+      body: JSON.stringify({ model: config.alignmentModel, input: { file_urls: [mediaUrl(audioUrl)] }, parameters: { channel_id: [0], language_hints: ['zh', 'en'], timestamp_alignment_enabled: true } })
+    });
+    taskId = submitted.output?.task_id;
+    checkpoint = { status: 'PENDING', taskId, requestId: submitted.request_id };
+    if (checkpointFile) writeJsonAtomic(checkpointFile, checkpoint);
+  }
   if (!/^[\w-]{20,80}$/.test(taskId || '')) throw new Error('语音对齐未返回有效任务');
   const deadline = Date.now() + 240000;
   while (Date.now() < deadline) {
@@ -55,7 +77,9 @@ export async function recognize(audioUrl, config) {
       const response = await fetch(mediaUrl(result.transcription_url), { signal: AbortSignal.timeout(30000), redirect: 'error' });
       if (!response.ok) throw new Error('时间戳文件下载失败');
       const transcription = await response.json();
-      return { transcripts: transcription.transcripts, requestId: submitted.request_id };
+      const recognition = { transcripts: transcription.transcripts, requestId: checkpoint.requestId };
+      if (checkpointFile) writeJsonAtomic(checkpointFile, { ...checkpoint, status: 'SUCCEEDED', recognition });
+      return recognition;
     }
     await new Promise(resolve => setTimeout(resolve, 2500));
   }
@@ -113,13 +137,21 @@ async function synthesizePart(texts, config, cacheDir, convertWav, getDuration) 
     const cached=JSON.parse(fs.readFileSync(metadata,'utf8'));
     if(cached.fingerprint===fingerprint&&cached.wavHash===hash(fs.readFileSync(wav))) return{wav,...cached};
   }
-  const raw=`${base}.provider.wav`, generated=await synthesize(text,config,raw);
-  await convertWav(raw,wav);
-  const recognition=await recognize(generated.audioUrl,config);
+  const raw=`${base}.provider.wav`, receiptFile=`${base}.tts-receipt.json`, checkpointFile=`${base}.asr-checkpoint.json`;
+  let receipt=fs.existsSync(receiptFile)?JSON.parse(fs.readFileSync(receiptFile,'utf8')):null, generated;
+  if(!fs.existsSync(raw)){
+    try{fs.mkdirSync(base+'.tts-submit-lock');}catch(error){if(error.code==='EEXIST')throw new Error('配音已有提交锁或未知结果，禁止自动重做付费TTS');throw error;}
+    writeJsonAtomic(receiptFile,{fingerprint,status:'SUBMITTING'});
+    generated=await synthesize(text,config,raw);
+    receipt={fingerprint,status:'SUCCEEDED',requestId:generated.requestId,usage:generated.usage,rawHash:hash(fs.readFileSync(raw))};
+    writeJsonAtomic(receiptFile,receipt);
+  }else if(!receipt||receipt.status!=='SUCCEEDED'||receipt.rawHash!==hash(fs.readFileSync(raw)))throw new Error('已有未完成配音缓存，禁止自动重复TTS；保留音频后核查原任务');
+  if(!fs.existsSync(wav))await convertWav(raw,wav);
+  const recognition=await recognize(generated?.audioUrl||null,config,checkpointFile);
   const alignment=alignSentences(texts,recognition,config.minimumAlignmentSimilarity);
   const duration=getDuration(wav);
-  const record={fingerprint,alignmentVersion:ALIGNMENT_VERSION,wavHash:hash(fs.readFileSync(wav)),model:config.model,voice:config.voice,ttsRequestId:generated.requestId,asrRequestId:recognition.requestId,cues:alignment.cues,similarity:alignment.similarity,sentenceStats:alignment.sentenceStats,recognizedText:alignment.recognizedText,duration,recognition,usage:generated.usage};
-  fs.writeFileSync(metadata,JSON.stringify(record,null,2));
+  const record={fingerprint,alignmentVersion:ALIGNMENT_VERSION,wavHash:hash(fs.readFileSync(wav)),model:config.model,voice:config.voice,ttsRequestId:receipt.requestId,asrRequestId:recognition.requestId,cues:alignment.cues,similarity:alignment.similarity,sentenceStats:alignment.sentenceStats,recognizedText:alignment.recognizedText,duration,recognition,usage:receipt.usage};
+  writeJsonAtomic(metadata,record);
   return{wav,...record};
 }
 export function splitParagraphs(texts, maxBytes = 480) {
