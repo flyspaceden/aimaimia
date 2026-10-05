@@ -142,7 +142,20 @@ html[dir="rtl"] .legal-strong { border-left: 0; border-right: 4px solid #15803d;
 html[dir="rtl"] .strong-box { border-left: 0; border-right: 3px solid var(--brand-primary); }
 html[dir="rtl"] .brand-text .en, html:lang(ar) .eyebrow, html:lang(ar) .kicker { letter-spacing: normal; }
 html[dir="rtl"] .btn svg { transform: scaleX(-1); }
-@media (max-width: 1280px) {
+/* 中等桌面窗口保留单行页头，以紧凑间距显示完整导航。 */
+@media (min-width: 901px) and (max-width: 1280px) {
+  .header-inner { gap: 8px; max-width: none; padding-inline: 16px; }
+  .header-inner > .brand { gap: 8px; }
+  .header-inner .brand img { width: 36px; height: 36px; }
+  .header-inner .brand-text .zh { font-size: 15px; }
+  .header-inner .brand-text .en { font-size: 9px; letter-spacing: 0.03em; }
+  .header-inner .nav { min-width: 0; gap: 2px; }
+  .header-inner .nav a { padding: 8px 6px; font-size: 14px; line-height: 1.4; }
+  .header-inner .nav .nav-cta { padding: 8px 10px !important; }
+  .header-inner .language-trigger { max-width: 128px; padding: 9px 8px; gap: 5px; font-size: 13px; }
+  .nav-toggle { display: none; }
+}
+@media (max-width: 900px) {
   .header-inner .nav {
     display: none;
     position: absolute;

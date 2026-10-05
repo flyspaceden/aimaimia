@@ -5,7 +5,7 @@ const HUAHAI_ROOT = 'huahai-corporate-site';
 const GENERATED_LEGAL_PAGES = new Set(['privacy.html', 'terms.html']);
 
 // 官网译文由同一个入口切换；权威法律内容仍由中文源文件原样生成。
-const withLanguageSupport = (html) => html.replace('</body>', '<script src="assets/script.js?v=20261002-i18n3"></script>\n</body>');
+const withLanguageSupport = (html) => html.replace('</body>', '<script src="assets/script.js?v=20261005-nav1"></script>\n</body>');
 
 function syncFooterLegalLinks(pagePath) {
   let html = readFileSync(pagePath, 'utf8');
