@@ -527,7 +527,9 @@ jobs:
       - name: Prepare public corporate-site resources
         env:
           RELEASE_SHA: ${{ github.sha }}
-        run: node scripts/prepare-huahai-release.mjs
+        run: |
+          node --test scripts/__tests__/huahai-i18n.test.mjs scripts/__tests__/huahai-digital-human-publication.test.mjs
+          node scripts/prepare-huahai-release.mjs
 
       - name: Deploy huahai corporate site
         uses: easingthemes/ssh-deploy@v4
