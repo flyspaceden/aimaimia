@@ -2,23 +2,43 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="华海农科数字讲解员小犀，介绍公司战略、理念、技术路线、爱买买产品、AI全产销链与农业大健康生态。">
-  <title>小犀 · 华海农科数字讲解员</title>
-  <link rel="icon" href="../assets/logo.jpg"><link rel="stylesheet" href="style.css">
-  <script src="visuals.js" defer></script><script src="app.js" defer></script>
+  <meta name="description" content="华海农科数字讲解：公司战略、爱买买与AI农业生态，六主题中文讲解和完整宣传片。">
+  <title>华海农科 · AI数字讲解</title>
+  <link rel="icon" href="../assets/logo.jpg"><link rel="stylesheet" href="../assets/style.css?v=20261004-digital1"><link rel="stylesheet" href="style.css?v=20261004-public1">
+  <script src="../assets/script.js?v=20261004-digital1" defer></script><script src="visuals.js" defer></script><script src="faq.js" defer></script><script src="app.js?v=20261004-public1" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#content">跳到讲解内容</a>
-  <header class="header">
-    <a class="brand" href="https://huahainongke.com/" target="_blank" rel="noopener noreferrer"><img src="../assets/logo.jpg" alt="华海农科"><span>华海农科<small>深圳华海农业科技集团有限公司</small></span></a>
-    <div class="header-actions"><span class="preview-label">数字人体验版</span><button id="video-button" type="button">观看介绍视频</button><a href="https://huahainongke.com/contact.html" target="_blank" rel="noopener noreferrer">联系华海</a></div>
-  </header>
-  <main id="content">
-    <div class="opening"><span>从田间，到餐桌。</span><h1>和小犀一起，认识华海农科</h1><p>了解公司的战略与产品，探索AI农业的产销协作与大健康生态。</p></div>
+  <a data-translation-ignore class="skip-link" href="#content">跳到讲解内容</a>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="../index.html" aria-label="华海农科 首页">
+      <img src="../assets/logo.jpg" alt="华海农科 logo" />
+      <span class="brand-text">
+        <span class="zh">华海农科</span>
+        <span class="en">HUAHAI AGRI-TECH</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="../index.html" data-route="index.html">首页</a>
+      <a href="../about.html" data-route="about.html">关于我们</a>
+      <a href="../business.html" data-route="business.html">业务版图</a>
+      <a href="../technology.html" data-route="technology.html">技术引擎</a>
+      <a href="../industry.html" data-route="industry.html">产业生态</a>
+      <a href="./" data-route="digital-human">AI数字讲解</a>
+      <a href="../contact.html" data-route="contact.html" class="nav-cta">联系我们</a>
+    </nav>
+    <button class="nav-toggle" aria-label="切换菜单" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+    </button>
+  </div>
+</header>
+  <p class="narration-language">本专区提供中文讲解与配音。</p>
+  <main id="content" lang="zh-CN" dir="ltr" data-translation-ignore>
+    <div class="opening"><span>从田间，到餐桌。</span><h1>和小犀一起，认识华海农科</h1><p>了解公司的战略与产品，探索AI农业的产销协作与大健康生态。</p><div class="opening-actions"><button id="video-button" class="primary" type="button">观看完整宣传片</button><a href="#conversation-title">向小犀提问</a></div></div>
     <section class="experience" aria-label="数字人讲解">
       <div class="presenter">
         <canvas id="avatar" width="560" height="650" role="img" aria-label="原创完整四足卡通犀牛，戴绿色颈环与金色叶子标记，身后是农业景观"></canvas>
-        <div class="presenter-name"><strong>小犀</strong><span>华海农科数字讲解员</span><small>3D卡通形象 · 语音驱动口型</small></div>
+        <div class="presenter-name"><strong>小犀</strong><span>华海农科数字讲解员</span><small>原创卡通形象</small></div>
         <div class="pose-preview"><span>姿态预览</span><div id="pose-buttons" role="group" aria-label="小犀姿态"></div><small>切换姿态会暂停讲解，开始播放后回到讲解姿态。</small></div>
         <div id="presenter-status" class="presenter-status" role="status">等待开始讲解</div>
       </div>
@@ -32,7 +52,7 @@
         </article>
         <div class="playback">
           <div class="playback-row"><button id="play-button" class="primary" type="button" disabled>准备讲解音频</button><button id="next-button" type="button">下一主题</button><label class="continuous"><input id="continuous" type="checkbox" checked>连续讲解</label><label class="speed">语速<select id="speed"><option value="0.85">0.85倍</option><option value="1" selected>1倍</option><option value="1.15">1.15倍</option><option value="1.3">1.3倍</option></select></label></div>
-          <audio id="narration" controls preload="metadata" aria-label="主题讲解音频"></audio>
+          <audio id="narration" crossorigin="anonymous" controls preload="metadata" aria-label="主题讲解音频"></audio>
           <p id="subtitle" class="subtitle" aria-live="off">点击开始讲解，听小犀为你介绍。</p>
           <div id="playback-error" class="error" role="alert" hidden></div>
         </div>
@@ -41,13 +61,13 @@
       </div>
     </section>
     <section class="conversation" aria-labelledby="conversation-title">
-      <div class="conversation-intro"><span class="leaf-mark" aria-hidden="true">✧</span><h2 id="conversation-title">还有想了解的？问问小犀。</h2><p>围绕华海农科与爱买买展开交流。</p><div id="ai-status" class="ai-status" role="status">正在检查问答服务</div><label class="read-answer"><input id="read-answer" type="checkbox">语音朗读回答</label></div>
-      <div class="chat-panel"><div id="suggestions" class="suggestions"></div><div id="messages" class="messages" role="log" aria-label="问答记录" aria-live="polite"><p class="chat-welcome">你可以问：“爱买买在华海生态中承担什么角色？”</p></div><form id="chat-form"><label class="sr-only" for="question">输入问题</label><input id="question" maxlength="500" autocomplete="off" placeholder="输入你想了解的问题…" required><button id="send-button" class="primary" type="submit">发送问题</button></form><p id="chat-error" class="error" role="alert" hidden></p><small class="chat-note">AI回答依据本页资料生成；具体项目与产品能力以实际资料为准。</small></div>
+      <div class="conversation-intro"><span class="leaf-mark" aria-hidden="true">✧</span><h2 id="conversation-title">还有想了解的？问问小犀。</h2><p>围绕华海农科与爱买买展开交流。</p><div id="ai-status" class="ai-status" role="status">正在加载公司资料</div><label class="read-answer"><input id="read-answer" type="checkbox">语音朗读回答</label></div>
+      <div class="chat-panel"><div id="suggestions" class="suggestions"></div><div id="messages" class="messages" role="log" aria-label="问答记录" aria-live="polite"><p class="chat-welcome">你可以问：“爱买买在华海生态中承担什么角色？”</p></div><form id="chat-form"><label class="sr-only" for="question">输入问题</label><input id="question" maxlength="500" autocomplete="off" placeholder="输入你想了解的问题…" required><button id="send-button" class="primary" type="submit">发送问题</button></form><p id="chat-error" class="error" role="alert" hidden></p><small class="chat-note">回答依据公司资料整理。需要更详细的信息，欢迎联系华海。</small></div>
     </section>
     <section class="scope-note"><strong>讲解依据</strong><p>公司介绍来自华海农科官网；爱买买能力依据代码核查。生态规划、代码实现和线上验收分别表述。资料整理日期：2026年10月3日。</p><a href="knowledge.json" target="_blank" rel="noopener noreferrer">查看讲解资料</a></section>
   </main>
-  <footer><span>科技兴农 · AI赋能 · 食安为先</span><a href="https://huahainongke.com/" target="_blank" rel="noopener noreferrer">华海农科官网</a></footer>
-  <dialog id="video-dialog"><div class="dialog-title"><h2>华海农科 · 完整品牌宣传片</h2><button id="close-video" type="button">关闭</button></div><video id="intro-video" controls playsinline preload="none" poster="media/brand-film-v2-cover.png"><source src="media/huahai-brand-film-v2-preview.mp4" type="video/mp4"><track kind="captions" src="media/huahai-brand-film-v2.vtt" srclang="zh" label="中文字幕">浏览器不支持视频播放，请下载观看。</video><div class="video-downloads"><a href="media/huahai-brand-film-v2.mp4" download>下载1080p完整宣传片</a><a href="media/huahai-brand-film-v2.srt" download>下载字幕</a></div><p>约7分8秒 · 统一女声 · 51段不同场景 · 从田间到餐桌的完整品牌介绍</p><p id="video-error" class="error" role="alert" hidden></p></dialog>
-  <noscript>请启用JavaScript体验数字人。讲解资料可通过knowledge.json查看。</noscript>
+  <footer><span>科技兴农 · AI 赋能 · 食安为先</span><a href="../index.html">华海农科</a></footer>
+  <dialog id="video-dialog" lang="zh-CN" dir="ltr" data-translation-ignore><div class="dialog-title"><h2>华海农科 · 完整品牌宣传片</h2><button id="close-video" type="button">关闭</button></div><video id="intro-video" crossorigin="anonymous" controls playsinline preload="none" poster="media/brand-film-v2-cover.png"><source src="https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261004-d52514362d5a/huahai-brand-film-v2-preview.mp4" type="video/mp4"><track kind="captions" src="media/huahai-brand-film-v2.vtt" srclang="zh" label="中文字幕">浏览器不支持视频播放，请下载观看。</video><div class="video-downloads"><a href="https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261004-d52514362d5a/huahai-brand-film-v2.mp4" download>下载1080p完整宣传片</a><a href="media/huahai-brand-film-v2.srt" download>下载字幕</a></div><p>约7分8秒 · 统一女声 · 51段不同场景 · 从田间到餐桌的完整品牌介绍</p><p id="video-error" class="error" role="alert" hidden></p></dialog>
+  <noscript data-translation-ignore>请启用JavaScript体验数字人。讲解资料可通过knowledge.json查看。</noscript>
 </body>
 </html>

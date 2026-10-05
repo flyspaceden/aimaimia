@@ -1,4 +1,9 @@
-media/
+media/*
+!media/manifest.json
+!media/published-media.json
+!media/huahai-brand-film-v2.srt
+!media/huahai-brand-film-v2.vtt
+!media/brand-film-v2-cover.png
 build/
 .env*
 !.env.example

@@ -6,7 +6,7 @@
   let knowledge, manifest, current = 0, analyser, audioContext, signal, talking = false, busy = false, generation = 0, sprite = null, characterConfig, voiceConfig, selectedPose = 'standing', posePreview = false, utteranceGeneration = 0;
   const portrait = new Image(); portrait.onload = () => { sprite = portrait; }; portrait.onerror = () => error('playback-error', '小犀形象未能加载，请检查素材包。');
   const history = [], reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  let audioReady = false, liveAI = false;
+  let audioReady = false;
   function error(id, message) { const el = $(id); el.textContent = message; el.hidden = !message; }
   function stopSpeech() { utteranceGeneration++; talking = false; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
   function updatePoseButtons() { document.querySelectorAll('#pose-buttons button').forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.pose === selectedPose))); }
@@ -92,18 +92,15 @@
     if (busy || !question.trim()) return;
     busy = true; $('send-button').disabled = true; $('send-button').textContent = '正在回答'; error('chat-error', ''); addMessage('user', question); $('question').value = '';
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history: history.slice(-6), topic: knowledge.chapters[current].id }), signal: AbortSignal.timeout(35000) });
-      if (!response.ok) throw new Error('api');
-      const result = await response.json();
+      const result = HuahaiFAQs.answer(question, knowledge);
       addMessage('assistant', result.answer, result.sources || []);
       history.push({ role: 'user', content: question }, { role: 'assistant', content: result.answer });
       if (history.length > 12) history.splice(0, history.length - 12);
-      if (result.mode === 'knowledge' && liveAI) $('ai-status').textContent = '本次按知识库回答';
       speak(result.answer);
     } catch {
       const faq = knowledge.faq.find(item => item.q === question);
       if (faq) { addMessage('assistant', faq.a, ['预置知识库问答']); speak(faq.a); }
-      else error('chat-error', '实时问答暂不可用。可以点选上方常见问题，或稍后重试。');
+      else error('chat-error', '资料问答暂未加载。可以查看主题讲稿，或重新打开页面。');
     } finally { busy = false; $('send-button').disabled = false; $('send-button').textContent = '发送问题'; }
   }
   $('chat-form').addEventListener('submit', e => { e.preventDefault(); ask($('question').value.trim()); });
@@ -128,9 +125,9 @@
       if (audioReady) manifest = candidate;
     }
     knowledge.chapters.forEach((ch, i) => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = ch.label; btn.addEventListener('click', () => setChapter(i)); $('chapters').append(btn); });
-    [0, 2, 3, 7].forEach(i => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = knowledge.faq[i].q; btn.addEventListener('click', () => ask(knowledge.faq[i].q)); $('suggestions').append(btn); });
+    knowledge.faq.forEach(item => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = item.q; btn.addEventListener('click', () => ask(item.q)); $('suggestions').append(btn); });
     $('play-button').disabled = !audioReady; setChapter(0);
-    const status = await fetch('/api/status', { signal: AbortSignal.timeout(5000) }).then(r => r.ok ? r.json() : null).catch(() => null);
-    liveAI = status?.configured === true; $('ai-status').textContent = liveAI ? '通义AI问答 · 根据公司资料回答' : '知识库问答 · 实时AI未配置';
+    if (new URL(location.href).searchParams.get('view') === 'film') $('video-button').click();
+    $('ai-status').textContent = '常见问题 · 按公司资料回答';
   } catch { $('chapter-title').textContent = '讲解资料暂未加载'; error('playback-error', '请通过本地服务打开，并确认knowledge.json文件完整。'); $('ai-status').textContent = '讲解资料不可用'; }
 })();

@@ -1,34 +1,24 @@
 # 华海农科数字讲解员 · 小犀
 
-本次网页视频入口采用完整品牌宣传片：保留战略、理念、技术路线、爱买买、全产销链与农业大健康六个方向，使用同一份生成女声参考和不同来源的连续视频镜头。互动主题讲解保留详细资料版。视频画面含授权素材与AI场景示意；产品界面为依据代码制作的流程示意。没有公司基地实拍或项目验收含义。
+## 官网首期发布（2026-10-04）
 
-## 品牌宣传片制作（2026-10-04）
+用户选择先上线讲解、视频和常见问题，实时AI后续接入。首页首屏右侧展示完整小犀，两按钮分别进入`/digital-human/`和`/digital-human/?view=film`；6个主内容页面共用导航入口。导航与页面元信息沿用十语切换；六主题讲解与配音保持中文并在页面明确标注。
 
-`promo-knowledge.json`为34句完整宣传稿，`film-storyboard.json`按台词安排场景。`build-consistent-voice.mjs`从本任务已生成的温暖女声提取固定参考，用一个Qwen3-TTS-VC声线合成全部内容；语音回识、逐句守卫及Hash绑定沿用自然配音模块。参考音频和声线收据只留在忽略的`build/promo-consistent/`，不克隆真人身份。
+讲解页提供6段配音、74句详细讲稿、字幕、5种姿态选择、12个常见问题和约7分8秒完整品牌宣传片。`faq.js`只按公司资料答复，资料不足时提供主题/联系入口；不调用或向模型发送问题，问答只留在当前页面。视频采用同一生成女声参考，51段片源各使用一次，含许可素材与AI场景示意，产品界面为依据代码制作的流程示意。
 
-`media/stock-clips/manifest.json`记录逐页核实的Pexels/Mixkit Free素材来源、许可与文件Hash。Restricted/付费素材不入片，原片音轨不参与配音；每个场景片源只使用一次。原片与缓存不随网页交付包再分发。AI场景的原始关键帧和提示词位于`assets/film-scenes/`，通过内置imagegen制作；动画调用万相，配置见三个`*video-config.json`。
+成品视频与6段MP3复用现有OSS存储，URL/Hash/字节数见`media/published-media.json`。媒体目录只有5个小型公开资源入Git，其余成片/原素材/缓存仍忽略。`scripts/prepare-huahai-release.mjs`生成公开静态白名单，`deploy-release.yml`仅以huahai目标发布到官网；制作脚本、原片和缓存不部署到Web目录。
 
-渲染使用软件解码，避开本机FFmpeg 4.2.2在VideoToolbox硬解和硬编组合时引入的重复帧。分镜缓存单独放在`build/brand-v2/`，不能复用旧缓存。仅检查帧率/PTS和解码成功不足以确认流畅，需要检查实际相邻画面更新。声线参数一致也不能代替跨段听审。
+本地预览：`node huahai-corporate-site/digital-human/serve.mjs`，打开`http://127.0.0.1:8768/`；数字讲解页为同域`/digital-human/`。该预览不开放模型代理，无需凭据。完整设计、媒体及发布证据见`docs/features/huahai-digital-human.md`。
 
-依次运行`build-consistent-voice.mjs`、`compose-brand-music.py`、`mix-brand-audio.mjs`、`build-content-film.mjs --background --frames --smoke --final`；统一设置`HUAHAI_VOICE_BUILD=build/promo-consistent`用于配乐/混音，并按本机配置FFmpeg、FFprobe与Canvas目录。付费生成步骤需进程凭据，缓存/原子提交锁用于防止未知结果和并发重跑重复收费。
+## 品牌影片制作
 
-完整文件为`media/huahai-brand-film-v2.mp4`（1080p）；网页使用`huahai-brand-film-v2-preview.mp4`（720p Baseline轻量版），并提供完整片下载、SRT/VTT字幕与混合来源manifest。API凭据、签名URL、原片和缓存不放入公开交付包。
+`promo-knowledge.json`为34句完整宣传稿；`film-storyboard.json`安排分镜。`build-consistent-voice.mjs`从本任务生成女声提取固定参考，用一个Qwen3-TTS-VC声线合成全部内容；语音回识、逐句守卫及Hash绑定沿用自然配音模块。参考/声线收据保存在忽略的`build/promo-consistent/`，不克隆真人身份。
 
-范围：企业介绍网页与中文视频，共用六主题资料。原官网导航、爱买买业务、买家App及微信小程序没有修改。小犀采用完整四足体态、平滑肤质、收窄脚踝和小灰色卷耳，具有八种表情/姿态，以二维精灵帧驱动中文配音、口型和眨眼。形象为3D风格插画，不是写实真人克隆或音素级口型。
+`media/stock-clips/manifest.json`记录Pexels/Mixkit Free素材、许可与Hash。原片不再分发，AI关键帧及提示词保存在`assets/film-scenes/`。软件解码避免旧FFmpeg硬解＋硬编引入的冻结；仅帧率/PTS或解码成功不能代替实际相邻帧检查。声线绑定也不能代替完整人工听审。
 
-## 本地启动
+依次运行`build-consistent-voice.mjs`、`compose-brand-music.py`、`mix-brand-audio.mjs`、`build-content-film.mjs --background --frames --smoke --final`；配乐/混音使用`HUAHAI_VOICE_BUILD=build/promo-consistent`。媒体重制需要本地原片/配音缓存和已授权的模型进程凭据，未知付费请求结果不得盲重发。公开网页播放不需要这些缓存或凭据。
 
-Node.js 20+，网页无需额外依赖：
-
-```bash
-node huahai-corporate-site/digital-human/serve.mjs
-```
-
-访问`http://127.0.0.1:8768/`。无模型凭据时，常见问题使用预置资料回答，自由提问明确显示资料不足。实时AI在进程环境中配置`DASHSCOPE_API_KEY`后调用通义服务，不把凭据交给浏览器。可通过`node --env-file=/absolute/path/to/ignored.env .../serve.mjs`传入已有忽略配置。不要把凭据写到网页、资料、日志或提交文件。默认延续现有爱买买`qwen-plus`，可通过`HUAHAI_CHAT_MODEL`更改。
-
-服务固定监听回环地址，校验Host/Origin，限制输入、频率、并发与超时，只提供白名单资源。没有交易或设备工具，不访问数据库。对话仅保留当前浏览器内存中的近期12条，关闭页面后消失，后端不写聊天日志。实时问答会将问题及近期上下文发送给百炼。
-
-该代理用于本地预览，不能直接公网部署。正式发布需完成运行、限流、费用、日志与数据策略、隐私说明和部署验收；静态托管只能提供配音和常见问题。
+以下为详细主题配音的制作说明。
 
 ## 生成媒体
 
