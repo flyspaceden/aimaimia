@@ -21,7 +21,7 @@ test('all nine translated catalogs cover every public page and its accessible me
     const html = read(`${root}/${file}`).replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
     for (const match of html.matchAll(/>([^<>]+)</g)) add(match[1]);
     for (const match of html.matchAll(/\b(?:alt|aria-label|title|content)="([^"]*)"/g)) add(match[1]);
-    assert.match(read(`${root}/${file}`), /src="assets\/script\.js\?v=20261004-digital1"/, file);
+    assert.match(read(`${root}/${file}`), /src="assets\/script\.js\?v=20261005-nav1"/, file);
   }
   for (const locale of locales) {
     const dictionary = JSON.parse(read(`${root}/assets/locales/${locale}.json`));
