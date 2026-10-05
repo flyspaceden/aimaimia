@@ -8,7 +8,7 @@
     });
   }
 
-  const current = location.pathname.split('/').pop() || 'index.html';
+  const current = /\/digital-human(?:\/|$)/.test(location.pathname) ? 'digital-human' : location.pathname.split('/').pop() || 'index.html';
   document.querySelectorAll('.nav a[data-route]').forEach((link) => {
     if (link.getAttribute('data-route') === current) {
       link.classList.add('active');
@@ -254,7 +254,7 @@
   const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const node = walker.currentNode;
-    if (node.parentElement.closest('script, style, [data-language-name], [role="option"]')) continue;
+    if (node.parentElement.closest('script, style, [data-language-name], [role="option"], [data-translation-ignore]')) continue;
     const source = node.nodeValue.trim();
     if (!hasChinese(source) || regulatoryNumber(source)) continue;
     const leading = node.nodeValue.match(/^\s*/)[0];
@@ -263,6 +263,7 @@
   }
   const attributes = [];
   document.querySelectorAll('[alt], [aria-label], [title], meta[name="description"], meta[name="keywords"]').forEach((element) => {
+    if (element.closest('[data-translation-ignore]')) return;
     const names = element.tagName === 'META' ? ['content'] : ['alt', 'aria-label', 'title'];
     names.forEach((name) => {
       const source = element.getAttribute(name);
@@ -271,7 +272,7 @@
   });
   const pageLinks = [...document.querySelectorAll('a[href]')].filter((link) => {
     const url = new URL(link.href);
-    return url.origin === location.origin && /\/(index|about|business|technology|industry|contact|privacy|terms)\.html$/.test(url.pathname);
+    return url.origin === location.origin && (/\/(index|about|business|technology|industry|contact|privacy|terms)\.html$/.test(url.pathname) || /\/digital-human\/(?:index\.html)?$/.test(url.pathname));
   });
   const dictionaries = new Map();
   let activeLanguage = 'zh-CN';

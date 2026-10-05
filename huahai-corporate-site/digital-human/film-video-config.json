@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "model": "wan2.6-i2v-flash",
+  "resolution": "1080P",
+  "duration": 15,
+  "audio": false,
+  "watermark": false,
+  "promptExtend": false,
+  "concurrency": 3,
+  "maxGeneratedSeconds": 360,
+  "estimatedMaxCNY": 90,
+  "priceReference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+  "apiReference": "https://help.aliyun.com/en/model-studio/legacy-image-to-video-api-reference/",
+  "clips": [
+    {
+      "id": "production-1",
+      "scene": "production",
+      "image": "assets/film-scenes/production.png",
+      "prompt": "Cinematic documentary drone shot moving steadily forward above the crop rows toward the greenhouse, wind visibly rippling the green leaves and tree canopies, gentle drifting morning mist, natural physically plausible motion. No title or text. Preserve the rural landscape and geometry. A single continuous shot.",
+      "seed": 739114
+    },
+    {
+      "id": "production-2",
+      "scene": "production",
+      "image": "assets/film-scenes/production.png",
+      "prompt": "Cinematic drone gliding sideways left over the fields at low speed, revealing fish ponds and orchards, ripples move across water, farm vegetation sways in breeze. Natural sunrise documentary light, no exaggerated effects, no text. Single continuous shot.",
+      "seed": 739138
+    },
+    {
+      "id": "production-3",
+      "scene": "production",
+      "image": "assets/film-scenes/production.png",
+      "prompt": "Slow cinematic descending drone shot following the crop rows, leaves move in breeze, a distant unbranded small farm vehicle advances along a farm road, subtle natural motion. Preserve all buildings and crops. No text, no logos. Single continuous shot.",
+      "seed": 739162
+    },
+    {
+      "id": "production-4",
+      "scene": "production",
+      "image": "assets/film-scenes/production.png",
+      "prompt": "Cinematic wide agricultural establishing shot: camera smoothly cranes upward and pulls back, morning mist disperses and light catches moving leaves, pond water shimmers. Realistic documentary style, no dramatic transformations or text. Single continuous shot.",
+      "seed": 739186
+    },
+    {
+      "id": "sensors-1",
+      "scene": "sensors",
+      "image": "assets/film-scenes/sensors.png",
+      "prompt": "Cinematic agricultural technology documentary. The agronomist's gloved index finger naturally taps the tablet once and tilts it slightly, wind rotates the small anemometer on the sensor mast, crops visibly move in the breeze. Camera slowly tracks closer to the physical probes. Preserve realistic hands, equipment and blurred tablet interface. No new readable text. Single continuous shot.",
+      "seed": 739206
+    },
+    {
+      "id": "sensors-2",
+      "scene": "sensors",
+      "image": "assets/film-scenes/sensors.png",
+      "prompt": "Documentary close shot: gloved hands naturally adjust the tablet angle to inspect the generic soil sensor, small mast wind vane turns, sunlight shifts over leaves. Camera slides sideways around the sensor mast with realistic parallax. Keep equipment fixed in soil and hands anatomically stable. No invented laser beams or numbers. Single shot.",
+      "seed": 739230
+    },
+    {
+      "id": "sensors-3",
+      "scene": "sensors",
+      "image": "assets/film-scenes/sensors.png",
+      "prompt": "Camera smoothly pushes toward soil probe connectors while an agronomist's hand checks a cable gently and releases it, crops sway and anemometer turns in the background. Practical farm inspection documentary, calm realistic motion. No text or dashboards or automatic control claims. Single shot.",
+      "seed": 739254
+    },
+    {
+      "id": "sensors-4",
+      "scene": "sensors",
+      "image": "assets/film-scenes/sensors.png",
+      "prompt": "Agricultural field inspection documentary. Camera slowly rises from leafy crop and soil probes to the environmental mast, gloved hands holding tablet move gently, wind vane and anemometer naturally respond to wind. Preserve objects and original setting. No text. Single continuous shot.",
+      "seed": 739278
+    },
+    {
+      "id": "aquaculture-1",
+      "scene": "aquaculture",
+      "image": "assets/film-scenes/aquaculture.png",
+      "prompt": "Aquaculture documentary continuous shot. Worker carefully lowers a water-quality probe into the pond using normal human motion, watches handheld meter. Pond ripples and distant aerator splashes move continuously. Camera gently tracks right beside the worker. No readable metrics or logos. Preserve worker anatomy and equipment.",
+      "seed": 739298
+    },
+    {
+      "id": "aquaculture-2",
+      "scene": "aquaculture",
+      "image": "assets/film-scenes/aquaculture.png",
+      "prompt": "Cinematic camera glides slowly along the pond embankment, worker raises handheld water-quality instrument slightly to inspect it, continuous ripples travel across pond, distant paddlewheel aerator visibly turns and splashes. Natural documentary motion, no text or exaggerated automation. Single shot.",
+      "seed": 739322
+    },
+    {
+      "id": "aquaculture-3",
+      "scene": "aquaculture",
+      "image": "assets/film-scenes/aquaculture.png",
+      "prompt": "Aquaculture farm documentary. Camera slowly pushes toward worker hands as one hand steadies the meter and the other handles probe cable carefully, water ripples naturally and vegetation moves in light wind. No abnormal fingers, no fish jumping, no invented values. Single continuous shot.",
+      "seed": 739346
+    },
+    {
+      "id": "aquaculture-4",
+      "scene": "aquaculture",
+      "image": "assets/film-scenes/aquaculture.png",
+      "prompt": "Cinematic wider pond shot, camera cranes upward slowly to reveal more ponds, water surface shimmers, distant aerator keeps rotating with gentle splashes, worker takes one natural slow step along embankment while holding the instrument. Realistic documentary motion. No text or logos.",
+      "seed": 739370
+    },
+    {
+      "id": "logistics-1",
+      "scene": "logistics",
+      "image": "assets/film-scenes/logistics.png",
+      "prompt": "Food packing and cold-chain documentary. Produce boxes move slowly along the conveyor; workers with clean gloves carefully sort one vegetable and place it into a crate. Camera smoothly tracks alongside the packing line, realistic hand movement and solid vegetables, no logos or readable labels. Single continuous shot.",
+      "seed": 739390
+    },
+    {
+      "id": "logistics-2",
+      "scene": "logistics",
+      "image": "assets/film-scenes/logistics.png",
+      "prompt": "Cinematic documentary camera pushes along the produce sorting line toward the cold-store doorway. Conveyor advances fresh food crates at low speed, worker gently seals an unbranded carton. Preserve architecture and people, no printed text, no safety certification claims. Single shot.",
+      "seed": 739414
+    },
+    {
+      "id": "logistics-3",
+      "scene": "logistics",
+      "image": "assets/film-scenes/logistics.png",
+      "prompt": "Clean agricultural packing documentary. Camera glides laterally to follow a worker lifting a small crate and placing it beside the moving conveyor. Fresh vegetables remain physically stable, unbranded refrigerated van sits in distance. Natural pace, no text, no labels, no cinematic glitches. Single shot.",
+      "seed": 739438
+    },
+    {
+      "id": "logistics-4",
+      "scene": "logistics",
+      "image": "assets/film-scenes/logistics.png",
+      "prompt": "Documentary distribution scene. Workers naturally inspect and pack fresh vegetables and fish while crates advance on the line; camera slowly pulls back to reveal the wider packing workspace and cold storage. Soft daylight, stable objects, no logos or readable text. Continuous shot.",
+      "seed": 739462
+    },
+    {
+      "id": "lab-1",
+      "scene": "lab",
+      "image": "assets/film-scenes/lab.png",
+      "prompt": "Food and agricultural research documentary. A gloved laboratory hand uses a pipette carefully to transfer one small sample into a clear tube, another hand steadies the rack. Camera slowly moves closer with shallow depth of field, microscope and vegetable samples stay physically unchanged. No readable labels, no drugs, no clinical claims. Single continuous shot.",
+      "seed": 739482
+    },
+    {
+      "id": "lab-2",
+      "scene": "lab",
+      "image": "assets/film-scenes/lab.png",
+      "prompt": "Cinematic food laboratory inspection. Researcher gloved hands gently position a plant sample on a slide and turn microscope focus knob; camera tracks sideways revealing ordinary grains and vegetables on counter. Physically realistic hands, calm procedure, no text or diagnosis. Single shot.",
+      "seed": 739506
+    },
+    {
+      "id": "lab-3",
+      "scene": "lab",
+      "image": "assets/film-scenes/lab.png",
+      "prompt": "Food quality research documentary camera slowly pulls back from fresh vegetable samples to microscope and gloved hands. Researcher gently closes a sample tube and sets it into rack. Neutral professional light, no therapeutic imagery, no hospital, no labels. Single continuous shot.",
+      "seed": 739530
+    },
+    {
+      "id": "lab-4",
+      "scene": "lab",
+      "image": "assets/film-scenes/lab.png",
+      "prompt": "Cinematic agricultural food laboratory. Gloved hand gently lifts a clear tube, rotates it once to inspect a plant sample, then returns it to rack. Camera smoothly slides left with realistic parallax. Preserve normal laboratory equipment and natural food samples, no magic effects or text. Single shot.",
+      "seed": 739554
+    },
+    {
+      "id": "family-1",
+      "scene": "family",
+      "image": "assets/film-scenes/family.png",
+      "prompt": "Warm family food documentary. Mother naturally places a vegetable dish onto the table, family exchanges relaxed smiles, child reaches gently for a bowl, soft daylight and realistic human movements. Camera slowly arcs around the table, preserve facial identity and normal fingers. No text or logos. Single continuous shot.",
+      "seed": 739574
+    },
+    {
+      "id": "family-2",
+      "scene": "family",
+      "image": "assets/film-scenes/family.png",
+      "prompt": "Chinese family calmly preparing a balanced meal together. Parent passes a bowl of grains to the child with natural hand motion, another adult carefully arranges vegetables. Gentle cinematic camera push toward the meal, relaxed smiles, ordinary home kitchen. No text, no diet or medical claims. Single shot.",
+      "seed": 739598
+    },
+    {
+      "id": "family-3",
+      "scene": "family",
+      "image": "assets/film-scenes/family.png",
+      "prompt": "Warm documentary of a family at the home dinner table, adults naturally serve vegetables and fish into bowls, child smiles, subtle expressive face movement and natural hand movements. Camera smoothly slides sideways revealing food spread. Preserve stable tableware and anatomy. No text. Single shot.",
+      "seed": 739622
+    },
+    {
+      "id": "family-4",
+      "scene": "family",
+      "image": "assets/film-scenes/family.png",
+      "prompt": "Cinematic home meal documentary. Family gently settles into their chairs and exchanges friendly glances, one adult sets down chopsticks beside bowl, food steam rises subtly. Camera slowly pulls back through the warm kitchen, realistic faces, no transformations, no text or medical suggestions. Single continuous shot.",
+      "seed": 739646
+    }
+  ]
+}

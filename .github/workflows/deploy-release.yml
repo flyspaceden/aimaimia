@@ -524,12 +524,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare public corporate-site resources
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node --test scripts/__tests__/huahai-i18n.test.mjs scripts/__tests__/huahai-digital-human-publication.test.mjs
+          node scripts/prepare-huahai-release.mjs
+
       - name: Deploy huahai corporate site
         uses: easingthemes/ssh-deploy@v4
         with:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           REMOTE_HOST: ${{ secrets.SERVER_HOST }}
           REMOTE_USER: ${{ secrets.SERVER_USER }}
-          SOURCE: huahai-corporate-site/
+          SOURCE: huahai-corporate-site/digital-human/build/public-site/
           TARGET: /www/wwwroot/huahainongke.com/
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'

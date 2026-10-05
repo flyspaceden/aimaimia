@@ -1,0 +1,25 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {spawn,execFileSync} from 'node:child_process';
+import {once} from 'node:events';
+const root=path.dirname(fileURLToPath(import.meta.url)),build=path.join(root,process.env.HUAHAI_VOICE_BUILD||'build/promo');
+const ffmpeg=process.env.HUAHAI_FFMPEG||'ffmpeg',ffprobe=process.env.HUAHAI_FFPROBE||'ffprobe';
+const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const voice=path.join(build,'promo-master.wav'),music=path.join(build,'brand-music.wav'),mix=path.join(build,'final-mix.wav'),temp=path.join(build,'final-mix.verify.wav');
+const voiceHash=sha(voice),musicHash=sha(music),knowledgeHash=sha(path.join(root,'promo-knowledge.json'));
+const manifest=JSON.parse(fs.readFileSync(path.join(build,'voice-manifest.json')));
+if(manifest.audioHash!==voiceHash||manifest.knowledgeHash!==knowledgeHash)throw new Error('当前讲稿与配音来源不匹配');
+const filter='[0:a]loudnorm=I=-17:TP=-1.5:LRA=7,aformat=sample_rates=24000:sample_fmts=fltp:channel_layouts=stereo[voice];[1:a]aformat=sample_rates=24000:sample_fmts=fltp:channel_layouts=stereo,volume=0.35[music];[voice][music]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,alimiter=limit=0.95:level=false[out]';
+const child=spawn(ffmpeg,['-y','-v','error','-i',voice,'-i',music,'-filter_complex',filter,'-map','[out]','-ar','24000','-c:a','pcm_s16le',temp],{stdio:['ignore','ignore','pipe']});
+let err='';child.stderr.on('data',d=>err=(err+d).slice(-1500));const[code]=await once(child,'close');if(code)throw new Error(err);
+if(sha(voice)!==voiceHash||sha(music)!==musicHash)throw new Error('混音期间输入文件变化');
+const probe=file=>Number(execFileSync(ffprobe,['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',file],{encoding:'utf8'}).trim());
+const voiceDuration=probe(voice),mixDuration=probe(temp),mixHash=sha(temp);
+if(Math.abs(voiceDuration-mixDuration)>1/24000+.000001)throw new Error('混音与配音时长不一致');
+// 已有文件完全相同时只追加来源收据，不改变正在读该文件的编码进程。
+if(fs.existsSync(mix)&&sha(mix)!==mixHash&&!process.argv.includes('--replace'))throw new Error('现有混音与新输入不同；停止旧编码后用--replace更新');
+if(!fs.existsSync(mix)||process.argv.includes('--replace'))fs.renameSync(temp,mix);else fs.unlinkSync(temp);
+fs.writeFileSync(path.join(build,'mix-manifest.json'),JSON.stringify({voiceHash,musicHash,mixHash,knowledgeHash,voiceDuration,mixDuration,filter,composerHash:sha(path.join(root,'compose-brand-music.py')),createdAt:new Date().toISOString()},null,2));
+console.log(`混音来源与时长校验通过 · ${mixDuration.toFixed(2)}秒`);
