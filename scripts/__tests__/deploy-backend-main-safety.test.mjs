@@ -112,7 +112,7 @@ test('backend quality and E2E gates run before deployment', () => {
   assert.match(workflow, /backend-e2e-gate:/);
   assert.match(workflow, /npm test -- --runInBand/);
   assert.match(workflow, /release-approval:/);
-  assert.match(workflow, /needs: \[detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate\]/);
+  assert.match(workflow, /needs: \[detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate, market-quality-gate\]/);
   assert.match(workflow, /needs\.validate-deployment-workflow\.result == 'success'/);
   const lightweightValidation = jobBlock('validate-deployment-workflow');
   const backendQuality = jobBlock('backend-quality-gate');
@@ -444,8 +444,8 @@ test('production miniapp env preparation is backup-first, atomic and does not re
   assert.match(productionEnvPreparationScript, /const dotenv = require\('dotenv'\)/);
 });
 
-test('website, admin and seller keep rollback snapshots before static deployment', () => {
-  assert.equal((workflow.match(/run: scripts\/deploy-static-with-rollback\.sh/g) || []).length, 3);
+test('website, admin, seller and market keep rollback snapshots before static deployment', () => {
+  assert.equal((workflow.match(/run: scripts\/deploy-static-with-rollback\.sh/g) || []).length, 4);
   assert.match(staticDeployScript, /trap restore_static EXIT/);
   assert.match(staticDeployScript, /tar -C "\$STATIC_TARGET" -czf "\$BACKUP_PATH" \./);
   assert.match(staticDeployScript, /rsync -avz --delete --delay-updates/);
@@ -456,4 +456,20 @@ test('website, admin and seller keep rollback snapshots before static deployment
   assert.match(staticDeployScript, /remote_asset_sha/);
   assert.match(staticDeployScript, /test "\$remote_asset_sha" = "\$asset_sha"/);
   assert.match(staticDeployScript, /tail -n \+21/);
+});
+
+
+test('market portal is an explicit main-only target with pre-approval quality gate', () => {
+  assert.match(workflow, /- huahai-market/);
+  assert.match(workflow, /\[ "\$TARGET" = "huahai-market" \] && echo "market=true"/);
+  assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai-market" \]/);
+  assert.match(jobBlock('release-approval'), /needs\.market-quality-gate\.result == 'success'/);
+  const deploy = jobBlock('deploy-huahai-market');
+  assert.match(deploy, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(deploy, /needs\.release-approval\.result == 'success'/);
+  assert.match(deploy, /needs\.market-quality-gate\.result == 'success'/);
+  assert.match(deploy, /STATIC_TARGET: \/www\/wwwroot\/market\.huahainongke\.com\//);
+  assert.match(deploy, /STATIC_HEALTH_URL: https:\/\/market\.huahainongke\.com/);
+  assert.doesNotMatch(deploy, /migrate|pm2|backend\//);
+  assert.match(staticDeployScript, /huahai-market:\/www\/wwwroot\/market\.huahainongke\.com\//);
 });

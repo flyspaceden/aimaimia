@@ -1,0 +1,37 @@
+name: Huahai Market Portal CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'huahai-market-site/**'
+      - '.github/workflows/huahai-market-ci.yml'
+      - '.github/workflows/deploy-release.yml'
+      - 'scripts/deploy-static-with-rollback.sh'
+  push:
+    branches: [main]
+    paths:
+      - 'huahai-market-site/**'
+      - '.github/workflows/huahai-market-ci.yml'
+      - '.github/workflows/deploy-release.yml'
+      - 'scripts/deploy-static-with-rollback.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  market-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: huahai-market-site/package-lock.json
+      - name: Install isolated build dependency
+        run: npm ci --ignore-scripts
+        working-directory: huahai-market-site
+      - name: Typecheck, build and test market portal
+        run: npm test
+        working-directory: huahai-market-site
+      - name: Validate deployment boundaries
+        run: node --test scripts/__tests__/deploy-backend-main-safety.test.mjs
