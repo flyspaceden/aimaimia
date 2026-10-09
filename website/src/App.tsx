@@ -13,6 +13,7 @@ const MerchantApply = lazy(() => import('@/pages/MerchantApply'))
 const Contact = lazy(() => import('@/pages/Contact'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
 const Download = lazy(() => import('@/pages/Download'))
+const Explore = lazy(() => import('@/pages/Explore'))
 const InviteChoiceLanding = lazy(() => import('@/pages/InviteChoiceLanding'))
 const NormalShareLanding = lazy(() => import('@/pages/NormalShareLanding'))
 const Resolve = lazy(() => import('@/pages/Resolve'))
@@ -24,7 +25,7 @@ function MetaUpdater() {
   const location = useLocation()
 
   useEffect(() => {
-    const meta = PAGE_META[location.pathname]
+    const meta = PAGE_META[/^\/explore\/?$/.test(location.pathname) ? '/explore' : location.pathname]
     if (meta) {
       document.title = meta.title
       const updateMeta = (sel: string, attr: string, val: string) => {
@@ -53,7 +54,7 @@ function PageLoader() {
 
 export default function App() {
   const location = useLocation()
-  const isLandingPage = location.pathname.startsWith('/invite/') || location.pathname.startsWith('/r/') || location.pathname.startsWith('/s/') || location.pathname.startsWith('/gb/') || location.pathname.startsWith('/c/') || location.pathname === '/download' || location.pathname === '/resolve'
+  const isLandingPage = location.pathname.startsWith('/invite/') || location.pathname.startsWith('/r/') || location.pathname.startsWith('/s/') || location.pathname.startsWith('/gb/') || location.pathname.startsWith('/c/') || /^\/explore\/?$/.test(location.pathname) || location.pathname === '/download' || location.pathname === '/resolve'
 
   return (
     <>
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="/gb/:groupBuyCode" element={<Download />} />
             <Route path="/c/:code" element={<Download />} />
             <Route path="/download" element={<Download />} />
+            <Route path="/explore" element={<Explore />} />
             <Route path="/resolve" element={<Resolve />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />

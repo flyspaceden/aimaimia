@@ -74,6 +74,10 @@ export const NAV_LINKS = [
 // 页面 SEO 配置
 // ============================================
 export const PAGE_META: Record<string, { title: string; description: string }> = {
+  '/explore': {
+    title: '爱买买 — 从产地，到你的餐桌',
+    description: '了解爱买买农产品购物平台，微信扫码进入小程序，或下载爱买买 App。',
+  },
   '/': {
     title: 'AI爱买买 — AI赋能农业直销平台',
     description: 'AI 驱动的农业直销平台，AI溯源、品质保障，从田间到餐桌的AI连接',
