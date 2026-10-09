@@ -31,6 +31,8 @@
 
 ## 补充入口与覆盖关系
 
+- `docs/features/aimai-iot-entry.md` — 大屏顶部全角色爱买买入口、公开介绍页与正式小程序/App 二维码配置、验证和双仓库发布顺序；补充官网设计，不改变邀请关系与 IoT 鉴权。
+
 - `docs/superpowers/specs/2026-06-17-digital-asset-v2-rules-design.md` — 数字资产 V2 规则，扩展累计消费第一版；对应实施计划 `docs/superpowers/plans/2026-06-17-digital-asset-v2-rules.md`。
 - `docs/superpowers/specs/2026-06-21-digital-asset-frozen-credit-design.md` — 消费资产付款冻结、确认收货释放，覆盖 V2 中相应入账时点；对应计划 `docs/superpowers/plans/2026-06-21-digital-asset-frozen-credit.md`。
 - `docs/superpowers/plans/2026-07-28-global-order-queue-reward.md` — 队列奖励的已确认规则与实施步骤；独立于普通树、VIP 树及直推，不代表生产启用状态。
