@@ -21,6 +21,8 @@
 
 ## 最新 main 补充索引
 
+- `docs/features/huahai-market-portal.md` — 华海农科 AI 农贸市场四页交易门户、独立前端演示、域名规划与接入边界；仅覆盖本次网站，不替代集团官网、IoT 或爱买买业务设计。
+
 - `docs/features/huahai-multilingual.md` — 华海企业官网 8 页十语切换、语言面板、知识产权证书图片及页数边界、静态译文维护、RTL/响应式、法律原文边界与验证/发布规则；仅覆盖企业官网，不替代 App 或 IoT 文档。
 - `docs/operations/fund-ledgers-staging-20260909.md` — 基金账本及三页体验优化的 staging-next 发布版本、CI 与实际页面验收记录（本次基金测试发布证据）
 - `docs/superpowers/specs/2026-09-09-fund-management-pages-ux-design.md` — 资金管理三页结构、查询/详情/按付款状态操作设计（本次管理后台体验优化权威来源）

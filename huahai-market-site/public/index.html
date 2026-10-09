@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="华海农科 AI 农贸市场交易门户演示版，查看产地货源、采购需求、批次资料与订单履约流程。">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>货源大厅 | 华海农科 AI 农贸市场</title>
+  <link rel="icon" type="image/jpeg" href="assets/logo.jpg">
+  <link rel="stylesheet" href="assets/style.css">
+  <script type="module" src="assets/app.js"></script>
+</head>
+<body>
+<noscript><p class="hh-nojs">请启用 JavaScript 使用货源筛选、批次查询及本地表单预览。本网站为演示版，不提供真实交易。</p></noscript>
+<div id="hh-market">
+ <div class="hh-note">演示版 · 货源、报价和订单为示例，表单仅在当前页面预览，不产生真实交易</div>
+ <header class="hh-header">
+  <a class="hh-skip" href="#main-content">跳到主要内容</a><div class="hh-top">
+<div class="hh-brand">
+<img class="hh-logo" src="assets/logo.jpg" width="44" height="44" alt="华海农科"><div>
+<strong>华海农科</strong><div class="hh-sub">AI 农贸市场 · 产销协同交易平台</div>
+</div>
+</div>
+<div class="hh-actions">
+<button class="hh-link" data-action="ecology">生态合作</button><button class="hh-btn hh-primary" data-action="join">申请入驻</button>
+</div>
+</div>
+  <nav class="hh-nav" aria-label="交易市场导航"><a data-page="market" href="#market" aria-current="page">货源大厅</a><a data-page="demand" href="#demand">采购需求</a><a data-page="trace" href="#trace">品质溯源</a><a data-page="work" href="#work">交易工作台</a></nav>
+ </header>
+ <main class="hh-main" id="main-content">
+  <section data-view="market">
+   <div class="hh-hero">
+<div>
+<div class="hh-label">从广东水产产地，连接稳定采购</div>
+<h1 tabindex="-1" data-view-heading="">好货有来处<br>采购有依据</h1>
+<p>把可供数量、上市时间、检测资料与交付要求放在一起，让每一次产销对接更清楚。</p>
+<div class="hh-actions">
+<button class="hh-btn hh-primary" data-action="buy">发布采购需求</button><button class="hh-btn" data-action="sell">发布我的货源</button>
+</div>
+<div class="hh-chain">
+<span>发布供需</span><span>确认报价</span><span>约定交付</span><span>验收评价</span>
+</div>
+</div>
+    <aside class="hh-brief"><div class="hh-row">
+<span class="hh-tag">采购需求示例</span><span class="hh-mini">餐饮连锁采购</span>
+</div>
+<h3>寻找稳定的鲜活罗非鱼供应</h3>
+<div class="hh-specs">
+<div>
+<b>2,000 公斤</b><span>单周采购量</span>
+</div>
+<div>
+<b>广州</b><span>收货城市</span>
+</div>
+<div>
+<b>每周三</b><span>计划配送日</span>
+</div>
+</div>
+<button class="hh-btn" data-action="match">查看匹配思路</button></aside>
+   </div>
+   <div class="hh-panel">
+<div class="hh-row">
+<h2>产地货源</h2>
+<span class="hh-mini" id="hh-count">3 条演示货源</span>
+</div>
+<form class="hh-search" id="hh-search">
+<input id="hh-query" aria-label="搜索品种或产地" placeholder="搜索品种、产地，例如：罗非鱼、茂名"><button class="hh-btn hh-primary" type="submit">找货源</button>
+</form>
+<div class="hh-filters" aria-label="品类筛选">
+<button class="hh-filter" data-category="all" aria-pressed="true">全部品类</button><button class="hh-filter" data-category="水产" aria-pressed="false">水产养殖</button><button class="hh-filter" data-category="果蔬" aria-pressed="false">特色果蔬</button><button class="hh-filter" data-category="畜禽" aria-pressed="false">畜禽产品</button>
+</div>
+<div class="hh-list-head">
+<span>品种 / 产地 / 资料</span><span>参考报价</span><span>可供数量</span><span>供货安排</span><span>操作</span>
+</div>
+<div id="hh-products" aria-live="polite">正在载入演示货源…</div>
+</div>
+  </section>
+  <section data-view="demand" hidden><div class="hh-row">
+<div>
+<h2 tabindex="-1" data-view-heading="">让产地按你的需求供货</h2>
+<p class="hh-sectionlead">写清规格、数量和到货要求，比较供应方的报价与履约条件。</p>
+</div>
+<button class="hh-btn hh-primary" data-action="buy">发布采购需求</button>
+</div>
+<div class="hh-banner">供需匹配设计：先核对品种、规格、数量和交付时间，再展示推荐依据，由交易双方确认。</div>
+<div class="hh-panel">
+<div class="hh-demand">
+<div>
+<span class="hh-tag">周期采购 · 演示</span><h3>鲜活罗非鱼 / 连锁餐饮直供</h3>
+<p>规格 500–750 克/尾 · 需提供对应批次检测资料</p>
+</div>
+<div>
+<b>2,000 公斤 / 周</b><p>广州收货 · 每周三配送</p>
+</div>
+<button class="hh-btn" data-action="quote" data-demand="0">查看并报价</button>
+</div>
+<div class="hh-demand">
+<div>
+<span class="hh-tag">单次采购 · 演示</span><h3>当季番茄 / 商超采购</h3>
+<p>分级包装 · 需明确采摘日期及损耗验收要求</p>
+</div>
+<div>
+<b>800 公斤</b><p>深圳收货 · 双方约定到货日</p>
+</div>
+<button class="hh-btn" data-action="quote" data-demand="1">查看并报价</button>
+</div>
+</div></section>
+  <section data-view="trace" hidden><h2 tabindex="-1" data-view-heading="">看得到的批次，查得到的资料</h2>
+<p class="hh-sectionlead">把生产档案、检测资料和交付记录对应到同一批货物。</p>
+<form class="hh-search" id="hh-trace-search">
+<input id="hh-batch" aria-label="批次编号" value="HH-DEMO-001" placeholder="输入批次编号"><button class="hh-btn hh-primary" type="submit">查询批次</button>
+</form>
+<div id="hh-trace-result">
+<div class="hh-banner">演示批次 HH-DEMO-001 · 以下为资料结构示例，不是实际检测结果或确权证书。</div>
+<div class="hh-detail-grid">
+<div class="hh-panel">
+<div class="hh-row">
+<h3>罗非鱼 · 产地档案</h3>
+<span class="hh-tag">资料示例</span>
+</div>
+<dl>
+<dt>产地</dt>
+<dd>广东茂名 · 示例养殖基地</dd>
+<dt>产品规格</dt>
+<dd>500–750 克 / 尾</dd>
+<dt>养殖单元</dt>
+<dd>示例塘口 A-03</dd>
+<dt>供货方式</dt>
+<dd>现货 · 起捕时间与运输方式面议</dd>
+<dt>关联记录</dt>
+<dd>生产日志、检测资料、订单交割记录</dd>
+</dl>
+</div>
+<div class="hh-panel">
+<h3>品质证据清单</h3>
+<div class="hh-record">主体及产地资质<small>核对主体名称、有效期及适用范围</small>
+</div>
+<div class="hh-record">检测报告<small>核对机构、报告编号、采样日期及对应批次</small>
+</div>
+<div class="hh-record">环境监测<small>展示采集时间与数据质量，离线明确提示</small>
+</div>
+<div class="hh-record">存证信息<small>未接入前不展示“已上链”或认证标识</small>
+</div>
+</div>
+</div>
+<div class="hh-panel">
+<h3>从生产到交付</h3>
+<div class="hh-timeline">
+<div class="hh-step">
+<div class="hh-mini">生产阶段</div>
+<h3>基地建档</h3>
+<p>主体资料、塘口信息、生产日志</p>
+</div>
+<div class="hh-step">
+<div class="hh-mini">供货阶段</div>
+<h3>批次送检</h3>
+<p>采样批次、检测机构、报告原件</p>
+</div>
+<div class="hh-step">
+<div class="hh-mini">履约阶段</div>
+<h3>出库运输</h3>
+<p>起捕记录、出库数量、运输条件</p>
+</div>
+<div class="hh-step">
+<div class="hh-mini">交付阶段</div>
+<h3>到货核验</h3>
+<p>实收数量、品质复检、异议处理</p>
+</div>
+</div>
+</div>
+</div>
+<div id="hh-trace-empty" class="hh-empty" hidden role="status">未找到此演示批次。可输入 HH-DEMO-001 查看页面结构。</div></section>
+  <section data-view="work" hidden><div class="hh-row">
+<div>
+<h2 tabindex="-1" data-view-heading="">采购工作台</h2>
+<p class="hh-sectionlead">从需求到交付，每一步都有明确的下一步。</p>
+</div>
+<span class="hh-tag">采购方视角 · 演示</span>
+</div>
+<div class="hh-worktabs" aria-label="工作台状态">
+<button data-status="ongoing" aria-pressed="true">履约中 1</button><button data-status="quoted" aria-pressed="false">待确认报价 1</button><button data-status="complete" aria-pressed="false">已完成 0</button>
+</div>
+<div class="hh-panel" id="hh-orders" aria-live="polite"></div>
+<div class="hh-banner">资金与结算流程待业务规则和服务机构确认后设计；本页只展示供需及实物交付流程。</div></section>
+ </main><footer class="hh-footer"><span>华海农科 AI 农贸市场</span><span>开放入驻 · 实物交易 · 批次可追溯</span><span>网站预览 · 未接入真实交易</span><a href="https://huahainongke.com/" target="_blank" rel="noopener noreferrer">访问华海农科集团官网</a></footer>
+<dialog id="hh-dialog" class="hh-dialog" aria-labelledby="hh-dialog-title"><div class="hh-row">
+<h2 id="hh-dialog-title"></h2>
+<button class="hh-btn" data-action="close">关闭</button>
+</div>
+<div id="hh-dialog-body"></div></dialog>
+  </div>
+
+</body>
+</html>
