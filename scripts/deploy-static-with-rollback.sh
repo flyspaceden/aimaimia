@@ -11,7 +11,7 @@ for key in "${required[@]}"; do
 done
 
 case "$STATIC_SITE:$STATIC_TARGET" in
-  website:/www/wwwroot/website/|admin:/www/wwwroot/admin/|test-admin:/www/wwwroot/test-admin/|seller:/www/wwwroot/seller/|test-seller:/www/wwwroot/test-seller/) ;;
+  website:/www/wwwroot/website/|admin:/www/wwwroot/admin/|test-admin:/www/wwwroot/test-admin/|seller:/www/wwwroot/seller/|test-seller:/www/wwwroot/test-seller/|huahai-market:/www/wwwroot/market.huahainongke.com/) ;;
   *) echo "unsupported_static_target=$STATIC_SITE:$STATIC_TARGET" >&2; exit 1 ;;
 esac
 
@@ -21,9 +21,14 @@ if [ ! -d "$STATIC_SOURCE" ]; then
 fi
 
 case "$STATIC_HEALTH_URL" in
-  https://app.ai-maimai.com|https://admin.ai-maimai.com|https://test-admin.ai-maimai.com|https://seller.ai-maimai.com|https://test-seller.ai-maimai.com) ;;
+  https://app.ai-maimai.com|https://admin.ai-maimai.com|https://test-admin.ai-maimai.com|https://seller.ai-maimai.com|https://test-seller.ai-maimai.com|https://market.huahainongke.com) ;;
   *) echo "unsupported_static_health_url=$STATIC_HEALTH_URL" >&2; exit 1 ;;
 esac
+
+# 新门户只允许独立域名健康检查，禁止把其它站点的 200 当成成功。
+if [ "$STATIC_SITE" = "huahai-market" ]; then
+  test "$STATIC_HEALTH_URL" = "https://market.huahainongke.com"
+fi
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 short_sha=${RELEASE_SHA:0:12}

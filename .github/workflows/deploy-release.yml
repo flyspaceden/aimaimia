@@ -35,7 +35,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: '部署目标 (all/website/admin/seller/backend/huahai)'
+        description: '部署目标 (all/website/admin/seller/backend/huahai/huahai-market)'
         required: true
         default: 'all'
         type: choice
@@ -46,6 +46,7 @@ on:
           - seller
           - website
           - huahai
+          - huahai-market
       confirm_production:
         description: '仅 main 生产发布填写 DEPLOY_PRODUCTION；staging 留空'
         required: false
@@ -72,6 +73,7 @@ jobs:
       seller: ${{ steps.changes.outputs.seller }}
       backend: ${{ steps.changes.outputs.backend }}
       huahai: ${{ steps.changes.outputs.huahai }}
+      market: ${{ steps.changes.outputs.market }}
       workflow: ${{ steps.changes.outputs.workflow }}
       any_deploy: ${{ steps.changes.outputs.any_deploy }}
       env_name: ${{ steps.env.outputs.env_name }}
@@ -124,10 +126,13 @@ jobs:
             # all 只表示爱买买商城四个目标；华海母公司官网必须单独选择 huahai，
             # 防止小程序发布夹带无关站点。
             [ "$TARGET" = "huahai" ] && echo "huahai=true" >> $GITHUB_OUTPUT || echo "huahai=false" >> $GITHUB_OUTPUT
+            # 交易门户与集团官网都必须显式选择，all 不包含两个独立目标。
+            [ "$TARGET" = "huahai-market" ] && echo "market=true" >> $GITHUB_OUTPUT || echo "market=false" >> $GITHUB_OUTPUT
             # 手动发布无论目标为何都先验证当前提交中的部署脚本与排除守卫。
             echo "workflow=true" >> $GITHUB_OUTPUT
             echo "any_deploy=true" >> $GITHUB_OUTPUT
           else
+            echo "market=false" >> $GITHUB_OUTPUT
             # diff 本次 push 的完整范围（before..after），覆盖一次推多 commit 的情况
             BEFORE="${{ github.event.before }}"
             if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
@@ -449,10 +454,11 @@ jobs:
   # production environment 必须在 GitHub 设置 required reviewer；staging environment 不设 reviewer。
   # 质量门禁失败时，本 job 不会进入批准阶段，也不会有任何服务器或数据库动作。
   release-approval:
-    needs: [detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate]
+    needs: [detect-changes, validate-deployment-workflow, backend-quality-gate, backend-e2e-gate, market-quality-gate]
     if: >-
       always()
       && needs.detect-changes.outputs.any_deploy == 'true'
+      && (needs.detect-changes.outputs.market != 'true' || needs.market-quality-gate.result == 'success')
       && (
         needs.detect-changes.outputs.workflow != 'true'
         || needs.validate-deployment-workflow.result == 'success'
@@ -540,3 +546,62 @@ jobs:
           SOURCE: huahai-corporate-site/digital-human/build/public-site/
           TARGET: /www/wwwroot/huahainongke.com/
           ARGS: -avz --delete --exclude='.htaccess' --exclude='.user.ini' --exclude='404.html'
+
+
+  # 独立交易门户，仅显式 main 生产发布；不连接商城数据库或认证。
+  market-quality-gate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.market == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: huahai-market-site/package-lock.json
+      - name: Validate and build market portal
+        working-directory: huahai-market-site
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: huahai-market-${{ github.sha }}
+          path: huahai-market-site/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy-huahai-market:
+    needs: [detect-changes, market-quality-gate, release-approval]
+    if: >-
+      always()
+      && needs.detect-changes.outputs.market == 'true'
+      && github.ref == 'refs/heads/main'
+      && needs.market-quality-gate.result == 'success'
+      && needs.release-approval.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: huahai-market-${{ github.sha }}
+          path: huahai-market-site/dist/
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Deploy isolated market portal with rollback
+        env:
+          STATIC_SOURCE: huahai-market-site/dist
+          STATIC_TARGET: /www/wwwroot/market.huahainongke.com/
+          STATIC_SITE: huahai-market
+          STATIC_HEALTH_URL: https://market.huahainongke.com
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: scripts/deploy-static-with-rollback.sh
