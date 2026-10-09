@@ -36,8 +36,18 @@ IoT 是无 Git remote 的独立本地仓库，最新在用的新版大屏不在�
 - [x] 浏览器本地检查 1366/1920 大屏品牌栏单排与旧公司网站并列、亮暗切换、全屏后入口可见；介绍页 390/320px 无横向溢出，App 码弹层可打开并按 Escape 关闭。未使用这些测试夹具宣称现场数据或线上发布。
 - [x] 独立只读审查无 High/Medium，Low 的 iPhone 图片加载失败提示已修正，避免引导无 iOS 安装入口的用户下载安卓 App。
 - [x] 小程序码接入后最终官网构建及 17 项相关测试通过；本地原图加载 430×430、放大/关闭/保存原图入口及 390/320px 无横向溢出通过。增量独立只读审查无 High/Medium/Low。
-- [ ] 推送、PR/CI、合并、官网及 IoT 部署、客户端/商店发布（本轮均未执行）。
+- [x] 2026-10-09 用户授权后推送、PR #42 必需检查通过并合并，官网及 IoT 静态发布成功。客户端/商店发布不在本次范围。
 
 不涉及并发、资金、库存、认证变更或数据库写入/迁移。回退本次页面与入口可回退各自代码/静态资源版本；无数据回退步骤。
 
 现存构建提示：官网 worktree 未安装不相关的根 Expo 依赖，Vite 提示找不到根 `expo/tsconfig.base`，但官网 TypeScript 与生产构建成功；Browserslist 数据过旧。IoT 主包超过 500 kB；原探头计数测试偶发非 `act` 更新提示，41 项断言全部通过。本轮未扩大范围升级依赖或重构主包。
+
+## 2026-10-09 生产发布记录
+
+- PR：[#42](https://github.com/flyspaceden/aimaimia/pull/42)，候选 `e432226f`，PR `checks` / `e2e` 均通过。合并 main：`df6be125e3756a785ccaed8b357be610153be856`；官网源码与审查候选完全相同，合并后精确版本构建和 17 项相关测试重新通过。
+- 官网：[发布 run 37883270780](https://github.com/flyspaceden/aimaimia/actions/runs/37883270780) 成功，production approval 按本次用户授权执行，只选择 `website`；后端、管理/卖家、华海企业官网目标均跳过。`ai-maimai.com`、`app.ai-maimai.com` 的 `/explore`、正式 PNG 均 200，两个 release marker 均为 `df6be125…`，PNG 与用户原图 SHA 相同。
+- 合并后精确 main 的 [checks run 37883229603](https://github.com/flyspaceden/aimaimia/actions/runs/37883229603) 与 [E2E run 37883229595](https://github.com/flyspaceden/aimaimia/actions/runs/37883229595) 均成功；与 PR 检查、官网部署分别确认。
+- IoT：`85739da07a6fdb2ce24e3ade69996e42b67237dd`；静态入口 SHA256 `3b35d7acdc6ba1d8c150d300b6bfcd9cdd883ee73c645eb57e69df92ffe198e0`。服务器预检与执行均通过，7 个公网文件 SHA 匹配，匿名目录 API 仍 401，Nginx 配置摘要不变。
+- 正式浏览器：永兴基地原公司网站与新商城按钮同排；1280px 下标题栏四区 centerY 相同且无溢出；全屏入口仍可见，平台、公司总屏亦显示入口。点击新按钮实际打开新的正式介绍页标签，小程序图加载及放大正常；正式介绍页390px无横向溢出且下载目标正确。生产会话用既有平台管理员，其他角色可见性依据 9 类角色自动化回归，不宣称逐账号生产验收。
+- 发布后 `main...staging-next` 提交数为 15/1；官网差异仅为本功能，未移动冻结 staging、staging-next 或固定小程序测试目录。
+- 回退备份路径、精确安装清单和服务器回执已立即记录到本地忽略的 `docs/operations/阿里云部署.md`。未修改数据库、设备、服务进程、Nginx 或凭据。微信真机扫码和商店安装仍单独验收。
