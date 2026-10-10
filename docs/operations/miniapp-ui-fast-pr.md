@@ -21,7 +21,7 @@
 2. 对受影响页面做本地渲染检查，执行小程序类型、lint、测试与构建；一次独立只读审查，无未解决 High/Critical 后创建 PR。
 3. 小程序 `client-checks` 执行客户端检查；快速 UI PR 额外生成 staging/production 构建并校验页面产物。必需的 `checks` 结果同时要求客户端检查与这份候选构建成功，失败/取消不能获得绿色门禁。审阅产物同时记录实际构建 SHA 和 PR head，不能作为正式微信上传来源。
 4. 必需的 `e2e` 状态继续保留。UI 快线只执行范围判定和门禁校验，跳过未变化的后端/数据库/Web E2E；其他范围完整执行原 E2E，失败、取消或未知状态均不能获得绿色门禁。
-5. 保留一个 PR。按用户已授权的范围合入 main；最终 main SHA 再通过小程序 CI/production build 后，按独立授权上传微信。
+5. staging/production 发布构建显式要求 checks 成功且 workflow 未取消，避免 PR-only 候选任务的 skipped 状态连带跳过正式构建。保留一个 PR。按用户已授权的范围合入 main；最终 main SHA 再通过小程序 CI/production build 后，按独立授权上传微信。
 
 纯展示候选直接在自己的干净 worktree 编译/渲染，使用现有 API，不提升 `staging-next`、不重绑固定测试目录，也不重发未变化的 API/Admin/Seller。若需要后端联调、账号/支付真实流程或共用固定测试目录，则使用完整测试发布路径。
 
