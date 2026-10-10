@@ -39,6 +39,7 @@
 - 后端改动验证 TypeScript、相关 API/业务测试；涉及 Prisma 时运行 `npx prisma validate`，迁移另做演练。前端改动验证 TypeScript 和页面渲染；按影响范围检查 API、类型、状态、路由及跨端兼容。
 - App 新页面、Code Review、OTA 前执行响应式规范中的适用检查与场景；自动化通过不等于真机验收。
 - 测试按改动风险选择；纯文档改动检查引用、规则一致性和敏感信息。各端审查细则见 `docs/testing/code-review-checklist.md`。
+- 小程序纯展示改动可按 `docs/operations/miniapp-ui-fast-pr.md` 走定向客户端 CI、一次独立审查、一次 PR；范围不明确或涉及 API/业务/认证/资金等时退回完整门禁，不按行数判断风险。
 - 完成任务后更新受影响客户端/业务设计文档及 `plan.md` 对应进度，并说明下一步；无设计或进度变化不追加重复记录。客服改动同步 `docs/features/智能客服.md`，AI 改动同步 `docs/ai/ai.md`。
 
 ## 4. Git 与发布门禁
@@ -46,6 +47,7 @@
 - `origin/main` 是唯一长期产品基线；测试分支只承载测试候选。业务代码从最新 main 建短期干净 `codex/*`（或指定 feature）worktree；禁止在 main、staging、原始脏目录或固定微信测试目录开发。
 - 禁止整体 merge/覆盖长期分叉的 staging 与 main，禁止目录级 ours/theirs 掩盖语义冲突；旧 staging 的保全引用、锁定及测试候选绑定不得擅改，解锁/强推须单独授权。
 - 固定微信测试目录只在远端候选部署后用经核实的同步脚本 fast-forward；跨分支切换须用户批准、archive branch + tag + delivery 分支三重保全，按精确旧/新 SHA 执行 rebind 并保留旧目录。完成后 HEAD 等于选定远端测试分支且工作树干净。
+- 符合小程序展示快线的候选在自身干净 worktree 编译/渲染，不要求提升测试分支、重绑固定目录或重发未变化的 API/后台；main 保护保留，微信上传仍须正式 main 来源和明确授权。完整联调/业务发布继续遵守原测试目录与部署门禁。
 - **push、上测试、生产部署、App OTA/Build、小程序发布按明确授权范围执行**；执行前说明改动及影响，已有授权不重复询问，不把 push 授权扩大成生产或客户端发布授权。
 - 一个逻辑改动一个 commit，使用 `type(scope): 描述`。推 main 前说明回滚路径；迁移、删字段、改枚举或利润公式须说明额外数据回退步骤，不能只用 git revert 代表完整回滚。
 - App 默认范围为 `app/`、根 `src/`；小程序为 `miniapp/`。共享后端变更检查两端兼容，不夹带另一客户端代码或发布。GitHub push 不等于 App EAS/商店或小程序审核发布。

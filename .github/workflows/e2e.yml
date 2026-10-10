@@ -2,6 +2,12 @@ name: E2E Tests
 
 on:
   workflow_call:
+    inputs:
+      force_full:
+        description: Keep full validation for backend deployment callers
+        type: boolean
+        required: false
+        default: true
   workflow_dispatch:
   pull_request:
     branches: [main, dev, staging, staging-next]
@@ -19,7 +25,31 @@ env:
   SF_ALLOW_E2E_MOCK: "true"
 
 jobs:
-  e2e:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify release scope classifier
+        run: node --test scripts/__tests__/ci-release-scope.test.mjs
+      - name: Select relevant validation
+        id: scope
+        env:
+          CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SCOPE_EVENT: ${{ github.event_name }}
+          CI_FORCE_FULL: ${{ inputs.force_full == true || github.event_name == 'workflow_dispatch' }}
+        run: node scripts/ci-release-scope.mjs
+
+  full-e2e:
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -120,3 +150,20 @@ jobs:
             tests/test-results/
             tests/playwright-report/
           retention-days: 7
+
+  # main 继续要求名为 e2e 的结果；未知范围、失败或取消均不能得到绿色门禁。
+  e2e:
+    needs: [scope, full-e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Require successful relevant validation
+        env:
+          CI_SCOPE_RESULT: ${{ needs.scope.result }}
+          CI_SCOPE_MODE: ${{ needs.scope.outputs.mode }}
+          CI_FULL_E2E_RESULT: ${{ needs.full-e2e.result }}
+        run: node scripts/ci-release-scope.mjs --assert-e2e-result

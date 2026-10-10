@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main, staging, staging-next]
     paths:
+      - 'scripts/ci-ui-syntax.mjs'
+      - 'scripts/ci-release-scope.mjs'
+      - 'scripts/__tests__/ci-release-scope.test.mjs'
       - 'miniapp/**'
       - 'assets/seafood/**'
       - 'app/**'
@@ -24,6 +27,9 @@ on:
   push:
     branches: [main, staging, staging-next]
     paths:
+      - 'scripts/ci-ui-syntax.mjs'
+      - 'scripts/ci-release-scope.mjs'
+      - 'scripts/__tests__/ci-release-scope.test.mjs'
       - 'miniapp/**'
       - 'assets/seafood/**'
       - 'app/**'
@@ -55,7 +61,43 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  client-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      ui_only: ${{ steps.scope.outputs.ui_only }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - name: Install mini program dependencies
+        working-directory: miniapp
+        run: npm ci
+      - name: Select relevant validation
+        id: scope
+        env:
+          CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SCOPE_EVENT: ${{ github.event_name }}
+        run: node scripts/ci-release-scope.mjs
+      - name: Typecheck
+        working-directory: miniapp
+        run: npm run typecheck
+      - name: Lint
+        working-directory: miniapp
+        run: npm run lint -- --max-warnings=0
+      - name: Test
+        working-directory: miniapp
+        run: npm test
+
+  build-candidate:
+    needs: client-checks
+    if: github.event_name == 'pull_request' && needs.client-checks.outputs.ui_only == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -68,15 +110,43 @@ jobs:
       - name: Install mini program dependencies
         working-directory: miniapp
         run: npm ci
-      - name: Typecheck
+      - name: Build both candidate targets
         working-directory: miniapp
-        run: npm run typecheck
-      - name: Lint
-        working-directory: miniapp
-        run: npm run lint -- --max-warnings=0
-      - name: Test
-        working-directory: miniapp
-        run: npm test
+        run: npm run build:staging && npm run build:production && npm run verify:artifact
+      - name: Record exact candidate source
+        run: |
+          node -e 'const fs=require("fs");const cp=require("child_process");fs.writeFileSync("miniapp/dist/review-source.json",JSON.stringify({buildSha:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),prHead:process.env.PR_HEAD_SHA},null,2))'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimai-miniapp-review-${{ github.sha }}
+          path: miniapp/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # 保持 main 的 checks 名称，并把 UI 候选构建纳入必需结果。
+  checks:
+    needs: [client-checks, build-candidate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful client checks and relevant build
+        env:
+          CLIENT_RESULT: ${{ needs.client-checks.result }}
+          UI_ONLY: ${{ needs.client-checks.outputs.ui_only }}
+          CANDIDATE_RESULT: ${{ needs.build-candidate.result }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          test "$CLIENT_RESULT" = "success"
+          case "$UI_ONLY" in true|false) ;; *) exit 1 ;; esac
+          if [ "$IS_PR" = "true" ] && [ "$UI_ONLY" = "true" ]; then
+            test "$CANDIDATE_RESULT" = "success"
+          else
+            test "$CANDIDATE_RESULT" = "skipped"
+          fi
 
   build-staging:
     needs: checks
