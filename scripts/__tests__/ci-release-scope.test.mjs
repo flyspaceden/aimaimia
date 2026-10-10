@@ -92,6 +92,24 @@ test('required client checks cannot pass a failed or missing UI candidate build'
   assert.equal(run({ ...ui, UI_ONLY: 'false', CANDIDATE_RESULT: 'skipped' }), true);
   assert.equal(run({ ...ui, IS_PR: 'false', CANDIDATE_RESULT: 'skipped' }), true);
 });
+test('release builds survive a skipped PR-only ancestor and still reject failed checks or cancellation', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/miniapp-ci.yml', import.meta.url), 'utf8');
+  for (const [job, ref, environment] of [['build-staging', 'refs/heads/staging-next', 'staging'], ['build-production', 'refs/heads/main', 'production']]) {
+    const block = workflow.slice(workflow.indexOf(`  ${job}:\n`));
+    const condition = block.split('    if: >-\n')[1].split('    runs-on:')[0].trim().replace(/^\$\{\{|\}\}$/g, '').trim();
+    // GitHub adds implicit success() unless a status function exists, propagating a skipped ancestor.
+    const explicitStatus = /\b(?:always|cancelled|failure|success)\(\)/.test(condition);
+    const evaluate = new Function('github', 'needs', 'inputs', 'cancelled', `return (${condition});`);
+    const run = (result, isCancelled, event = 'push', candidateResult = 'skipped') => explicitStatus && evaluate(
+      { event_name: event, ref }, { checks: { result }, 'build-candidate': { result: candidateResult } }, { environment }, () => isCancelled,
+    );
+    assert.equal(run('success', false), true, `${job} with PR-only ancestor skipped`);
+    assert.equal(run('success', false, 'workflow_dispatch'), true);
+    assert.equal(run('success', false, 'pull_request'), false);
+    for (const result of ['failure', 'cancelled', 'skipped', '']) assert.equal(run(result, false), false);
+    assert.equal(run('success', true), false);
+  }
+});
 test('real Git comparison handles PR ancestry, renames and symlinks conservatively', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'aimai-scope-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
