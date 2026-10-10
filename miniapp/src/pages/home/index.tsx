@@ -76,6 +76,10 @@ export default function HomePage() {
 
   const profile = profileQuery.data?.ok ? profileQuery.data.data : undefined;
   const member = memberQuery.data?.ok ? memberQuery.data.data : undefined;
+  const isVipMember = member?.tier === 'VIP';
+  const showReferralEntry = hydrated && loggedIn && (
+    member?.tier === 'NORMAL' || (isVipMember && Boolean(member?.referralCode))
+  );
   const pending = pendingQuery.data?.ok ? pendingQuery.data.data : null;
   const cartCount = cartQuery.data?.ok
     ? cartQuery.data.data.items.reduce((total, item) => total + item.quantity, 0)
@@ -280,10 +284,13 @@ export default function HomePage() {
           </View>
         ) : <CatalogFeedback kind='error' title='资料加载失败' description='请稍后重试' onRetry={() => profileQuery.refetch()} />}
 
-        {member?.tier === 'VIP' && member.referralCode ? (
+        {showReferralEntry ? (
         <View className='home-referral aim-card' onClick={() => Taro.navigateTo({ url: '/packages/referral/center/index' })}>
           <View className='home-referral__icon'><SeafoodImage name='icon-order-scallop' /></View>
-          <View className='home-referral__copy'><Text>推荐好友开通 VIP</Text><Text>邀请好友 · 一起享 VIP 礼遇</Text></View>
+          <View className='home-referral__copy'>
+            <Text>{isVipMember ? '推荐好友开通 VIP' : '推荐好友'}</Text>
+            <Text>{isVipMember ? '邀请好友 · 一起享 VIP 礼遇' : '邀请好友 · 一起发现产地好物'}</Text>
+          </View>
           <Text className='home-referral__action'>去分享</Text>
         </View>
         ) : null}
