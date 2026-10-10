@@ -116,6 +116,10 @@ jobs:
 
       - name: Detect changed paths
         id: changes
+        env:
+          CI_SCOPE_BASE: ${{ github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.sha }}
+          CI_SCOPE_EVENT: ${{ github.event_name }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET="${{ github.event.inputs.deploy_target }}"
@@ -132,6 +136,14 @@ jobs:
             echo "workflow=true" >> $GITHUB_OUTPUT
             echo "any_deploy=true" >> $GITHUB_OUTPUT
           else
+            # 小程序展示快线只构建客户端，不重发未变化的 API/Admin/Seller。
+            UI_SCOPE=$(node scripts/ci-release-scope.mjs --mode-only)
+            if [ "$UI_SCOPE" = "miniapp-ui" ]; then
+              for TARGET in website admin seller backend huahai market workflow any_deploy; do
+                echo "$TARGET=false" >> $GITHUB_OUTPUT
+              done
+              exit 0
+            fi
             echo "market=false" >> $GITHUB_OUTPUT
             # diff 本次 push 的完整范围（before..after），覆盖一次推多 commit 的情况
             BEFORE="${{ github.event.before }}"

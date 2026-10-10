@@ -94,6 +94,7 @@
 - `docs/operations/deployment.md` — 部署架构与运维手册（域名规划、Nginx 配置、服务器环境、部署步骤、商户入驻过渡流程、Bug 排查指南，**部署运维权威来源**）
 - `docs/operations/阿里云部署.md` — 阿里云部署实施记录（服务器/域名/SSL/宝塔站点/PostgreSQL 实际配置 + 变更日志 + 常见问题，**实际部署状态权威来源，每次部署动作必须更新**）
 - `docs/operations/branch-strategy.md` — Git 分支、候选版本、测试快照、生产主干、当前旧 staging/Delivery 无损收敛策略（**版本控制权威来源；main 是唯一长期基线，staging 不是开发主干**）
+- `docs/operations/miniapp-ui-fast-pr.md` — 用户批准的小程序纯展示快速 PR：定向客户端 CI、一次独立审查、一次 PR，保留 main 保护；仅补充分支策略的低风险小程序验证路径，不替代业务/认证/支付/迁移或正式微信发布门禁。
 - `docs/operations/版本管理.md` — 开发/测试/生产环境实物清单、App/小程序/后台发布边界与版本号规范（**环境版本权威来源**）
 - `docs/operations/github操作.md` — 干净 main-based worktree、候选 PR、staging 验收、manual exact-SHA production approval、hotfix 与回退操作（**Git 日常操作权威来源**）
 - `docs/operations/staging-to-production.md` — 从测试环境切换到生产环境操作手册（main 发布、生产 env、第三方回调、数据库迁移、回滚、首次生产切换，**测试→生产切换执行权威来源**）
